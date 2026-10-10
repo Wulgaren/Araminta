@@ -597,20 +597,31 @@ static __attribute__((noinline)) void spread_sum(int32_t *out)
         out[i] += spread_buf[i];
 }
 
-/* render one block of a part into out (cleared here); returns the voices rendered */
+/* render one block of a part into out; returns the voices rendered.
+ * clear_idle 0: leave out untouched when no voice is live (mixer may omit the
+ * zero fill). Melodee: silent tracks still run LFO, bend, engine block and fades. */
 /* Channel bend is live performance state, outside projects/presets. Q8 semitones. */
 static int32_t midi_bend_q8[NTRK], midi_bend_target[NTRK];
-static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
+static struct { int16_t cents; uint8_t valid; int32_t pitch, fine; } tune_cache;
+static __attribute__((noinline)) void tune_cache_update(void)
+{
+    tune_cache.cents = song.g[G_TUNE];
+    tune_cache.valid = 1;
+    /* TUNE in cents: whole 1/16 semitones plus the exact residual. */
+    tune_cache.pitch = song.g[G_TUNE] >= 0 ? song.g[G_TUNE] * 16 / 100 : -((-song.g[G_TUNE] * 16 + 99) / 100);
+    tune_cache.fine = (song.g[G_TUNE] * 16 - tune_cache.pitch * 100) * 2367 / 16000;
+}
+static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t *out, uint32_t n, int clear_idle)
 {
     const engine_t *e = ENGINES[t->engine];
     const int16_t *p = t->p;
     uint32_t i;
     int32_t lfo = mulq15(t->lfo_val, t->lfo_fade);
-    /* TUNE in cents: whole 1/16 semitones in the pitch, the rest as a fine factor (no dead zone) */
-    int32_t tune = song.g[G_TUNE] >= 0 ? song.g[G_TUNE] * 16 / 100 : -((-song.g[G_TUNE] * 16 + 99) / 100);
-    int32_t tune_fine = (song.g[G_TUNE] * 16 - tune * 100) * 2367 / 16000;   /* rest, in 1/4096 (1 ct = 2.367) */
+    int32_t tune, tune_fine;
     int32_t bend, bend16, bend_fine;
     uint32_t ti = (uint32_t)(t - trk);
+    uint32_t nr = 0, fade = t->xf_on && t->xf, live = 0;
+    int16_t pe_new[8];
     if (ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM) {
         midi_bend_q8[ti] = midi_bend_target[ti] = 0;
     } else {
@@ -618,13 +629,14 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
         /* ~6 ms smoothing, with an exact landing (no permanent small offset). */
         midi_bend_q8[ti] += d > 0 ? (d < 4 ? d : (d + 3) / 4) : (d > -4 ? d : (d - 3) / 4);
     }
-    bend = midi_bend_q8[ti];
-    bend16 = bend >= 0 ? bend / 16 : -((-bend + 15) / 16);
-    bend_fine = (bend - bend16 * 16) * 2367 / 2560;
-    uint32_t nr = 0, fade = t->xf_on && t->xf;
-    int16_t pe_new[8];
-    for (i = 0; i < n; i++)
-        out[i] = 0;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].active) {
+            live = 1;
+            break;
+        }
+    if (live || clear_idle)
+        for (i = 0; i < n; i++)
+            out[i] = 0;
     if (mod.on && mod.ldep < 32767)                     /* the matrix's DEPTH (mod.c) */
         lfo = mulq15(lfo, mod.ldep);
     if (spread_on)
@@ -638,6 +650,15 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
     esync_coef(t);                                      /* this block's envelope steps for env_tick (ENV SYNC) */
     if (e->block)                                       /* the engine's per-part work (WHEEL: bars, rotor) */
         e->block(t);
+    if (!live)
+        goto track_render_done;
+    if (!tune_cache.valid || tune_cache.cents != song.g[G_TUNE])
+        tune_cache_update();
+    tune = tune_cache.pitch;
+    tune_fine = tune_cache.fine;
+    bend = midi_bend_q8[ti];
+    bend16 = bend >= 0 ? bend / 16 : -((-bend + 15) / 16);
+    bend_fine = (bend - bend16 * 16) * 2367 / 2560;
     for (i = 0; i < NVOICE; i++) {
         voice_t *v = &t->v[i];
         vmod_t m;
@@ -693,10 +714,17 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
     }
     if (spread_on)
         spread_sum(out);                                /* out: every voice; spread_buf: the left ones */
+track_render_done:
     if (fade) {
         for (i = 0; i < 8u; i++)
             t->p[P_E0 + i] = pe_new[i];
         t->xf--;
     }
     return nr;
+}
+/* Direct callers receive a cleared buffer even for silence. The mixer can
+ * omit that write when neither an insert tail nor a stutter needs the zeros. */
+static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
+{
+    return track_render_audio(t, out, n, 1);
 }

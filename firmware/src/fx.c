@@ -921,15 +921,44 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     t->peak = pk;
 }
 
+/* Keys are the effective values after mod_begin, so automation and matrix
+ * modulation invalidate the same cache as direct edits and preset loads. */
+typedef struct {
+    int16_t level, pan, chor, dly, rev;
+    uint8_t valid;
+    int32_t lvl, gl, gr, c, d, r, xmax;
+} mix_cache_t;
+static mix_cache_t mix_cache[NTRK];
+static __attribute__((noinline)) void mix_cache_update(const track_t *t, mix_cache_t *mc)
+{
+    mc->level = t->p[P_LEVEL];
+    mc->pan = t->p[P_PAN];
+    mc->chor = t->p[P_CHOR];
+    mc->dly = t->p[P_DLY];
+    mc->rev = t->p[P_REV];
+    mc->valid = 1;
+    mc->lvl = LEVEL_Q12[mc->level & 127];
+    mc->gl = 4096 - (mc->pan > 0 ? mc->pan * 64 : 0);
+    mc->gr = 4096 + (mc->pan < 0 ? mc->pan * 64 : 0);
+    mc->c = mc->chor * 258;
+    mc->d = mc->dly * 258;
+    mc->r = mc->rev * 258;
+    {
+        int32_t m = mc->c > mc->d ? mc->c : mc->d;
+        mc->xmax = 0x7FFFFFFF / ((m > mc->r ? m : mc->r) | 1);
+    }
+}
+
 /* one synth part into the dry mix and the sends; a part with no voice sounding costs
- * the LFO tick and a cleared buffer only (after the DIST tail has run out) */
+ * its control clocks only after insert and stutter tails have run out (Melodee). */
 static void mix_part(track_t *t, uint32_t n)
 {
     int32_t *b = part_buf;
     uint32_t i;
+    int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t);
     mod_begin(t);                                       /* the matrix's per-block values into t->p (mod.c) */
     spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON);   /* (SPREAD, mix_spread) */
-    if (track_render(t, b, n))
+    if (track_render_audio(t, b, n, need_zeros))
         t->tail = ins_any(t) ? 64 : 16;                 /* blocks of insert state to run out after the last voice */
     else if ((!t->tail || !(ins_any(t) | t->ins_run) || !--t->tail) && !slicer_busy(t)) {
         slicer_track(t, 0, n);
@@ -942,19 +971,17 @@ static void mix_part(track_t *t, uint32_t n)
     if (spread_on)
         mix_spread(t, b, n);
     else {
+        uint32_t ti = (uint32_t)(t - trk);
+        mix_cache_t *mc = &mix_cache[ti];
+        if (!mc->valid || mc->level != t->p[P_LEVEL] || mc->pan != t->p[P_PAN] ||
+            mc->chor != t->p[P_CHOR] || mc->dly != t->p[P_DLY] || mc->rev != t->p[P_REV])
+            mix_cache_update(t, mc);
+        int32_t lvl = mc->lvl, gl = mc->gl, gr = mc->gr, c = mc->c, d = mc->d, r = mc->r, xmax = mc->xmax, pk = t->peak;
         if (ins_any(t) | t->ins_run)
             track_insert(t, b, n);
         slicer_track(t, b, n);
         if ((pf.mute >> (t - trk)) & 1u)
             perf_mute((uint32_t)(t - trk), b, n);       /* perform.c: a black key in the FX layer */
-    }
-    if (!spread_on) {                                   /* (the mix's values read after the calls: none is held over
-                                                         * them, no spill in the loop: the ISR's cost as before 1.5) */
-        int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], pan = t->p[P_PAN];
-        int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
-        int32_t c = t->p[P_CHOR] * 258, d = t->p[P_DLY] * 258, r = t->p[P_REV] * 258, pk = t->peak;
-        int32_t xmax = c > d ? c : d;
-        xmax = 0x7FFFFFFF / ((xmax > r ? xmax : r) | 1);   /* sends: loud chords at a high LEVEL */
         for (i = 0; i < n; i++) {
             int32_t x = ((b[i] >> 2) * lvl) >> 10, a = x < 0 ? -x : x;   /* pre-shift: 8 loud voices */
             int32_t xs = clamp(x, -xmax, xmax);         /* sends: mulq15 would overflow */
