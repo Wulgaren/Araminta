@@ -5,7 +5,7 @@ static const char *const N_ONOFF_E[] = {"OFF", "ON"};
 /* IMA ADPCM sample sets (tools/gen_samples.py), native rates, zones across
  * the keyboard, loops with the ADPCM state stored at the loop start.
  * SET is P_E0 (EDIT 1, KNOB 1). SET 4 was PERC, the GM drum kit: retired, an alias of PIANO; its sounds
- * load as the DRUM engine (core.h drum_from_perc). */
+ * load as the DRUM engine (core.h drum_from_perc). SET 5 is CR78 (kit one-shots); USR1..3 are 6..8. */
 typedef struct {
     uint32_t off, n, ls, le;     /* byte offset, samples, loop start / end (sample index) */
     uint32_t rate;               /* source rate / 44100, Q16 */

@@ -197,11 +197,11 @@ static int drum_from_phys(uint32_t engine, int16_t *e)
 }
 
 /* SAMPLE SET 4 was PERC, the GM-mapped drum kit (tools/gen_samples.py); retired after 1.0.2: its index stays
- * (SET / GRAIN SRC 4 is an alias of PIANO, USR1..3 keep 5..7). A sound that selected it is the DRUM engine with
- * its default kit (eng_drum.c DRUM_PRESETS[0]: the same GM key map, so its patterns still play as drums): its E
- * values become the kit's, the rest of the sound (mix, sends, matrix, ..) stays. 1 = it was one (its engine is
- * ENGI_DRUM now); projects (project.c proj_perc), user presets (upreset.c up_migrate), factory preset 4 and
- * favourites (ui.c, settings_persist.c). Idempotent */
+ * (SET / GRAIN SRC 4 is an alias of PIANO). Set 5 is CR78 (kit); USR1..3 are 6..8. A sound that selected PERC
+ * is the DRUM engine with its default kit (eng_drum.c DRUM_PRESETS[0]: the same GM key map, so its patterns
+ * still play as drums): its E values become the kit's, the rest of the sound (mix, sends, matrix, ..) stays.
+ * 1 = it was one (its engine is ENGI_DRUM now); projects (project.c proj_perc), user presets (upreset.c
+ * up_migrate), factory preset 4 and favourites (ui.c, settings_persist.c). Idempotent */
 #define ENGI_SAMPLE 4u
 #define SMP_SET_PERC 4u
 #define DRUM_KIT_E {0, 64, 70, 64, 64, 100, 0, 0}   /* {KIT STD, TUNE, TONE, DECY, SNAP, ACC, KICK PUNCH, DRV} */
