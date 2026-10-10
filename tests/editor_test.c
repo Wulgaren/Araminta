@@ -401,7 +401,7 @@ static int samples(void)
     n = pack7((const uint8_t *)&h, sizeof h, a + 1) + 1u;
     bad += check("END cannot change published sample zones without BEGIN",
                  request(ED_SMP_END, a, n) == 8u && host_wire[6] == 2 && host_writes == 2 &&
-                 usr_zone[0][0].rate == 65536u);
+                 usr_nz[0] != 0);
     song.playing = 1; host_progress = 0; a[0] = 0; a[1] = 0;
     bad += check("user-preset STORE does not mutate RAM when audio cannot stop",
                  request(ED_UP_STORE, a, 2) == 8u && host_wire[6] == 2 && !up_used(0));

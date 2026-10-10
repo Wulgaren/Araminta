@@ -4,7 +4,7 @@
  * define, so the order matters. */
 
 /* ---------------------------------------------------- build options --- */
-/* build.py: FELUCCA_<NAME>=0 / 1 in the environment overrides these. Elsewhere: FELUCCA_SLICE, FELUCCA_FM4
+/* build.py: FELUCCA_<NAME>=0 / 1 in the environment overrides these. Elsewhere: FELUCCA_FM4
  * (core.h: the SLICE engine, the DIGITAL engine), FELUCCA_ICONS (icons.c, the parameter icons; on by default),
  * FELUCCA_OTA_RAMONLY (ota.c). */
 #ifndef FELUCCA_FLASH

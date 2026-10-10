@@ -235,7 +235,7 @@ if [ -f build/gen/felucca_tables.h ]; then
     mkdir -p build/tracks_demo
     run "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" env TRACKS=build/tracks_demo "$OUT/hostsim" 0 0 1 "$OUT/tracks.wav"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/project_test" tests/project_test.c -lm
-    run "project formats (FUN1..FUN5 -> FUN6, the grid and song chain; DIGITAL tracks -> FM6, SAMPLE PERC -> DRUM)" "$OUT/project_test"
+    run "project formats (FUN1..FUN5 -> FUN6; DIGITAL->FM6; SAMPLE PERC->DRUM; SAMPLE/GRAIN/NOISE->ANALOG; SLICE->DRUM)" "$OUT/project_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/motion_test" tests/motion_test.c -lm
     run "motion, whole-step chance, FUN7 migration, song restore, ARP repeat and the 1.2 ARP modes" "$OUT/motion_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/ratchet_test" tests/ratchet_test.c -lm
@@ -350,34 +350,12 @@ if [ -f build/gen/felucca_tables.h ]; then
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/drum_test" tests/drum_test.c -lm
     mkdir -p build/drum_demo
     run "DRUM: voice targets, controls, no clipping, retrigger, hat choke, the kick on a small speaker, keys, 8 lanes, cost, demos" "$OUT/drum_test" build/drum_demo
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/noise_test" tests/noise_test.c -lm
-    mkdir -p build/noise_demo
-    run "NOISE: colour slopes, key-tracked filter and clock, META period, DC, clipping, retrigger, cost, demos" "$OUT/noise_test" build/noise_demo
+    echo "== skip NOISE (engine retired)"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_test" tests/fm6_test.c -lm
     mkdir -p build/fm6_demo
     run "FM6: algorithms, envelopes, retrigger, DC, clipping, macros, patch formats, voices, cost, demos" "$OUT/fm6_test" build/fm6_demo
-    # SLICE is in the standard build (firmware/src/core.h): its test always runs (after #22 by andreahaku)
-    if grep -q '^#define SLC_BREAK_BPM ' build/gen/felucca_samples.h; then
-        mkdir -p build/slice_demo
-        python3 tests/slice_loop.py build/slice_demo/loop
-        python3 tools/fm1_sample_upload.py build LOOP build/slice_demo/loop build/slice_demo/loop.wav:60 >/dev/null
-        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/slice_test" tests/slice_test.c -lm
-        run "SLICE: tables, onsets, reverse, keys, modes, MAN slices and their store, demos" "$OUT/slice_test" \
-            build/slice_demo/loop build/slice_demo
-    else
-        echo "== SLICE: build/ was made with FELUCCA_SLICE=0 (no BREAK); run ./build.sh without it first"
-        fail=1
-    fi
-    # SAMPLE's PIANO (1.5: as 1.1.5), SLICE's PIANO (its middle C zone), 1.2's PIANO HD in a user slot
-    if grep -q '^    {"PIANO", 0, 5},' build/gen/felucca_samples.h; then
-        mkdir -p build/sample_demo build/piano_hd
-        python3 tools/gen_samples.py --user-slot PIANO "PIANO HD" build/piano_hd/PIANO_HD >/dev/null
-        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/sample_test" tests/sample_test.c -lm
-        run "SAMPLE: PIANO (5 zones as 1.1.5: splits, pitch, length, GRAIN), SLICE's PIANO, a PIANO HD slot" "$OUT/sample_test" \
-            build/piano_hd/PIANO_HD build/sample_demo
-    else
-        echo "== skip SAMPLE's PIANO (no CC0 library: assets/samples-cc0, tools/fetch_cc0.py)"
-    fi
+    echo "== skip SLICE (engine retired)"
+    echo "== skip SAMPLE (engine retired; CR78 WAVs kept under assets/samples-cc0/CR78 for a later DRUM kit)"
 else
     echo "== skip hostsim (run ./build.sh once)"
 fi
@@ -413,7 +391,7 @@ else
     $SCC -o "$A/fuzz_proj" tests/fuzz_proj.c -lm
     run "ASan/UBSan fuzz: project stores -> import -> restore -> render (5000, seed 13)" "$A/fuzz_proj" 5000 13
     $SCC -o "$A/fuzz_smp" tests/fuzz_smp.c -lm
-    run "ASan/UBSan fuzz: user sample slot headers -> scan -> SAMPLE / GRAIN / SLICE (1000, seed 17)" "$A/fuzz_smp" 1000 17
+    echo "== skip fuzz_smp (SAMPLE/GRAIN/SLICE retired)"
 fi
 
 run "regression: target cost of the render loops (pi32v2 disassembly)" python3 tests/target_budget.py \

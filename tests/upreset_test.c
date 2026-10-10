@@ -396,6 +396,15 @@ int main(void)
         bad += check("category: a version 3 grid -> 5 with it, values kept; one that cannot be packed keeps none",
                      ok && got.ver == 3u && up_cat_of(&got) == CAT_DRUM && !memcmp(&got, &r, sizeof r));
     }
+    {   /* GRAIN / SLICE / NOISE records stay as stored (DIGITAL-style); load remaps in up_load */
+        uint8_t a[512]; uint32_t n, slot; up_rec_t r;
+        n = put_frame(a, 4, ENGI_GRAIN, "Old grain", 0);
+        bad += check("UP_PUT GRAIN: kept as stored", up_parse(a, n, &r, &slot) == 0 && r.engine == ENGI_GRAIN && up_valid(&r));
+        n = put_frame(a, 5, ENGI_NOISE, "Old noise", 0);
+        bad += check("UP_PUT NOISE: kept as stored", up_parse(a, n, &r, &slot) == 0 && r.engine == ENGI_NOISE);
+        n = put_frame(a, 6, ENGI_SLICE, "Old slice", 0);
+        bad += check("UP_PUT SLICE: kept as stored", up_parse(a, n, &r, &slot) == 0 && r.engine == ENGI_SLICE);
+    }
     printf("%s\n", bad ? "USER PRESET TEST FAILED" : "user preset test passed");
     return bad != 0;
 }
