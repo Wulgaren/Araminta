@@ -5,7 +5,10 @@
  * of half_words int32 (L, R, 24-bit left-justified), zeroed before init.
  *
  *   fm1_audio_init(buf, half_words, isr, prio)  codec and ALNK0 bring-up;
- *                         isr = asm wrapper (fm1_isr.S) for FM1_IRQ_ALNK0
+ *                         isr = asm wrapper (fm1_isr.S) for FM1_IRQ_ALNK0.
+ *                         PC6 (amp) stays off: unmute with fm1_audio_amp(1) once
+ *                         DMA has been streaming zeros (main.c after IRQs).
+ *   fm1_audio_amp(on)     PC6 amp / line mute (0 off, 1 on)
  *   in the ISR:   p = fm1_audio_pending();  fm1_audio_ack_aux(p);
  *                 if (p & FM1_AUDIO_HALF) { fill fm1_audio_free_half();
  *                                           fm1_audio_ack_half(); }
@@ -65,14 +68,14 @@ FM1_INLINE void fm1_audio_init(int32_t *buf, uint32_t half_words, void (*isr)(vo
     FM1_ALNK_CON1 |= 1u << 12;
     FM1_ALNK_CON1 |= 1u << 14;
     FM1_ALNK_ADR3 = (uint32_t)(uintptr_t)buf;
-    fm1__pc_out(6, 1);
     FM1_ALNK_CON1 &= ~(1u << 15);
     FM1_ALNK_CON2 = 0x0Fu;
     fm1_irq_attach(FM1_IRQ_ALNK0, isr, prio);
-    FM1_ALNK_CON0 |= 0x800u;
+    FM1_ALNK_CON0 |= 0x800u;              /* DMA on zeros while the amp stays muted (PC6 = 0) */
     fm1_delay_ms(5);
-    fm1__pc_out(6, 1);
 }
+
+FM1_INLINE void fm1_audio_amp(int on) { fm1__pc_out(6, on ? 1 : 0); }
 
 FM1_INLINE uint8_t fm1_audio_pending(void) { return FM1_ALNK_CON2; }
 FM1_INLINE void fm1_audio_ack_aux(uint8_t p)   /* the other three pendings */
@@ -86,4 +89,8 @@ FM1_INLINE void fm1_audio_ack_aux(uint8_t p)   /* the other three pendings */
 }
 FM1_INLINE uint32_t fm1_audio_free_half(void) { return ((FM1_ALNK_CON0 >> 15) & 1u) ^ 1u; }   /* 0 / 1 */
 FM1_INLINE void fm1_audio_ack_half(void) { FM1_ALNK_CON2 |= 0x08u; }
-FM1_INLINE void fm1_audio_stop(void) { FM1_ALNK_CON0 &= ~0x800u; }
+FM1_INLINE void fm1_audio_stop(void)       /* crash / UBOOT: DMA off and amp muted (no looping buzz) */
+{
+    FM1_ALNK_CON0 &= ~0x800u;
+    fm1__pc_out(6, 0);
+}
