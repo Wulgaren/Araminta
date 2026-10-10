@@ -37,7 +37,7 @@
  *   BELL    two square waves (f, 1.48 f) through a band-pass under a short strike and a tail envelope
  *           (extra: STRIKE; TONE: the squares themselves mixed in). CYM: the metal source through two
  *           band-passes (TONE: high / low balance; TUNE moves both) under a strike (STRIKE) and a ring
- * The model kits (KIT 80 10 66 55 77): each lane a kit's own voice, played through the runs above with that kit's
+ * The model kits (KIT 80 10 66 55 77 78): each lane a kit's own voice, played through the runs above with that kit's
  * numbers (DV_KIT: pitches, sweeps, decays, the noise's colour, the metal clusters, the clap's bursts, the accent):
  *   80  a deep sine kick with a small drop and a long decay, a snare of two shells and bright noise, a 1 kHz clap of
  *       three bursts and a tail, the six-square hats, a low-noise tom, a rim's crack, a two-square bell
@@ -50,6 +50,9 @@
  *       its stick, a click rim, a bell of a wide metal cluster; a CLAP stand-in from its snare's noise
  *   77  a long kick that swells in, a 226 Hz snare under wide noise, six close claps and a tail, pulse-cluster
  *       hats, a bent tom, claves on RIM, the cymbal on BELL
+ *   78  a short dry kick, a bright short snare, noise hats near 7.5 kHz, a conga on TOM, claves on RIM, a short
+ *       cowbell on BELL; a CLAP stand-in from its snare's noise (CR-78 character; WAVs under assets/samples-cc0/CR78
+ *       are listening reference only)
  * Parameters per lane (dv_param_t): TUNE (1/16 semitone from the designed pitch, held in the voice's
  * range), DECAY, TONE, extra, LEVEL, accent, 0..127 each; the designed sound is at DV_DEF's values.
  * Accent adds up to 4 dB, a little more on the transient (click, spike, the claps). At LEVEL 100 the
@@ -69,7 +72,7 @@ enum {
 };
 /* a lane of a model kit as a type: the kit (1..DV_NKIT) in the high 4 bits, the lane in the low 3 (Felucca's own
  * types: 0 above). Its run (the DVT_* it plays through) is the kit's (DV_KIT) */
-#define DV_NKIT 5
+#define DV_NKIT 6
 #define DV_KITOF(t) ((uint32_t)(t) >> 4)
 #define DV_KTYPE(kit, lane) ((uint8_t)(((kit) << 4) | (lane)))
 
@@ -146,7 +149,7 @@ static const uint16_t DV_METAL_R[7][6] = {
     {0, 0, 0, 0, 0, 0},                                  /* 66: none (its metal is noise through a narrow band) */
 };
 
-/* The model kits (KIT 80 10 66 55 77 in eng_drum.c): every lane a kit's own voice, built on the runs above
+/* The model kits (KIT 80 10 66 55 77 78 in eng_drum.c): every lane a kit's own voice, built on the runs above
  * with its own numbers. Per lane: the run, the designed pitch (p16; TUNE +-1 octave), the main decay's tau at
  * DECAY 0 (0.1 ms) and its span (octaves x 16 over DECAY 0..127), the output gain (Q12), then the run's own
  * numbers, v[] (p16 pitches and offsets, gains Q15, taus in 0.1 ms unless noted):
@@ -180,7 +183,7 @@ typedef struct {
     int16_t v[13];
 } dv_kit_t;
 /* the accent per kit: + (x / 16384) per accent step (75: +4 dB at full, as Felucca's own) */
-static const uint8_t DV_KIT_ACC[DV_NKIT] = {120, 45, 100, 40, 40};
+static const uint8_t DV_KIT_ACC[DV_NKIT] = {120, 45, 100, 40, 40, 70};
 static const dv_kit_t DV_KIT[DV_NKIT][DV_NLANE] = {
     {   /* 80 */
         /* deep sine, a small drop, long decay */
@@ -271,6 +274,24 @@ static const dv_kit_t DV_KIT[DV_NKIT][DV_NLANE] = {
         {DVT_CLAVE, 32, 1568, 149, 2131, {84, 28000, 10000, 6348, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
         /* the cymbal: 34 ms + 0.3 s */
         {DVT_CYM, 53, 1690, 1100, 7582, {1969, 5120, 1748, 5120, 24000, 16000, 34, 24576, 6554, 5, 0, 0, 0}},
+    },
+    {   /* 78 */
+        /* ~72 Hz, short, a click and a little 2nd, no swell */
+        {DVT_PUNCH, 56, 600, 55, 6400, {40, 60, 0, 2200, 0, 1585, 4500, 6000, 0, 0, 0, 0, 0}},
+        /* shells ~250 Hz, bright short noise */
+        {DVT_SNARE, 40, 960, 45, 13600, {90, 0, 80, 100, 5000, 1000, 1850, 8192, 25, 18000, 30000, 20000, 1828}},
+        /* (stand-in) the snare noise struck 3 times */
+        {DVT_CLAP, 48, 1750, 160, 8800, {0, 6827, 1870, 0, 5000, 30000, 40, 350, 3, 0, 0, 0, 0}},
+        /* noise through a narrow band near 7.5 kHz, tau ~35 ms */
+        {DVT_HATC, 45, 1850, 120, 7800, {1850, 1400, 1870, 2042, 0, 0, 8000, 3, 6, 0, 0, 0, 0}},
+        /* tau ~90 ms */
+        {DVT_HATO, 60, 1850, 180, 7800, {1850, 1400, 1870, 2042, 0, 0, 8000, 3, 6, 0, 0, 0, 0}},
+        /* a conga ~180 Hz, tau ~25 ms */
+        {DVT_CONGA, 53, 860, 80, 6200, {0, 40, 1523, 0, 1800, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* claves ~2.1 kHz, short */
+        {DVT_CLAVE, 32, 1540, 35, 4600, {70, 28000, 8000, 5000, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+        /* cowbell: squares ~740 / 1100 Hz, short ring */
+        {DVT_BELL, 45, 1248, 90, 4000, {100, 80, 4096, 28000, 35, 4000, 0, 0, 0, 0, 0, 0, 0}},
     },
 };
 

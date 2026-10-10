@@ -679,10 +679,10 @@ static int pc_test(void)
                 ok &= k == P_E0 || dr->p[k] == was.p[k];
             last = dr->p[P_E0];
         }
-        ok &= n == 6u && last == d->max;
+        ok &= n == 7u && last == d->max;
         pc(3, DK_COUNT + 2u); frame();
         ok &= dr->p[P_E0] == last;
-        bad += check("  DRUM: 0..5 the six kits (STD 80 10 66 55 77; HAND CYM H+CYM skipped), only KIT; 6.. ignored", ok);
+        bad += check("  DRUM: 0..6 the seven kits (STD 80 10 66 55 77 78; HAND CYM H+CYM skipped), only KIT; 7.. ignored", ok);
     }
 
     /* FM6: its presets, then the bank's voices */

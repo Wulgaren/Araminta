@@ -355,7 +355,7 @@ if [ -f build/gen/felucca_tables.h ]; then
     mkdir -p build/fm6_demo
     run "FM6: algorithms, envelopes, retrigger, DC, clipping, macros, patch formats, voices, cost, demos" "$OUT/fm6_test" build/fm6_demo
     echo "== skip SLICE (engine retired)"
-    echo "== skip SAMPLE (engine retired; CR78 WAVs kept under assets/samples-cc0/CR78 for a later DRUM kit)"
+    echo "== skip SAMPLE (engine retired; CR78 WAVs under assets/samples-cc0/CR78 are listening reference for DRUM KIT 78)"
 else
     echo "== skip hostsim (run ./build.sh once)"
 fi
