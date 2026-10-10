@@ -57,7 +57,7 @@ static int projects(void)
     reset();
     project_capture(&p);
     bad += check("a captured project packs and imports", proj_pack(&st, &p) && proj_import(&q, &st, PROJ_STORE_SIZE));
-    pos = 68u + st.raw[66];                                 /* track 1's engine byte (after its parameters) */
+    pos = 68u + st.raw[66] + (st.raw[66] > 111u ? 1u : 0u); /* track 1 engine (+1 when P_IORD is 2 bytes) */
     for (e0 = NENGINES; e0 < 256u; e0 += 37u) {
         st.raw[pos] = (uint8_t)e0;
         sum = proj_hash(st.raw, PROJ_STORE_SIZE - 4u);
