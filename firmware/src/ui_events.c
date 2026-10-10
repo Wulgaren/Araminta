@@ -557,7 +557,8 @@ static void pk_auto_name(const track_t *t, uint32_t id, char *b)
         return;
     }
     pre = id >= P_ATK && id <= P_ED_SHP ? "ENV " : id >= P_LRATE && id <= P_LD_AMP ? "LFO " :
-          id >= P_SLPAT && id <= P_SLDEPTH ? "SLICER " : id >= P_ITYPE && id <= P_IMIX ? "INSERT " : "";
+          id >= P_SLPAT && id <= P_SLDEPTH ? "SLICER " :
+          id == P_DIST || (id >= P_IDMODE && id < P_FTYPE) ? "INSERT " : "";
     str_cpy(b, pre, 16);
     if (id == P_LEVEL)
         str_cpy(b + str_len(b), "LEVEL", 16 - str_len(b));
@@ -596,14 +597,14 @@ static const char *pk_auto_group(uint32_t id)
         return "LFO";
     if (id == P_GLIDE || id == P_DETUNE)
         return "VOICE";
-    if (id >= P_DIST && id <= P_REV)
+    if (id == P_DIST || (id >= P_IDMODE && id < P_FTYPE))
+        return "INSERT";
+    if (id >= P_CHOR && id <= P_REV)
         return "SEND";
     if (id == P_PAN || id == P_SPRD)
         return "MIX";
     if (id >= P_SLPAT && id <= P_SLDEPTH)
         return "SLICER";
-    if (id >= P_ITYPE && id <= P_IMIX)
-        return "INSERT";
     if (id >= P_LN0 && id <= P_LN7)
         return "DRUM";
     if (id >= P_E0)

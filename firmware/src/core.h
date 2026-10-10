@@ -51,7 +51,7 @@ enum {                          /* per-track parameters */
     P_ASWING, P_APROB, P_AHOLD, P_AORDER,
     P_ROOT, P_SCALE, P_QUANT, P_TRANS,
     P_SLEN, P_SDIV, P_SSWING, P_SGATE,
-    P_DIST, P_CHOR, P_DLY, P_REV,
+    P_DIST, P_CHOR, P_DLY, P_REV,              /* P_DIST: DIST stage drive (insert chain); CHO/DLY/REV: sends */
     P_VOICE, P_GLIDE, P_PAN, P_MUTE,
     P_GLMODE, P_PRIO, P_ALLOC, P_DETUNE,
     P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH,      /* SLICER insert (slicer.c) */
@@ -68,12 +68,24 @@ enum {                          /* per-track parameters */
     P_LSYNC, P_LTRIG, P_LPOL,                  /* 1.2 (#154): LFO SYNC (OFF, a note value), TRIG (NOTE, FREE), POL (BI, UNI) */
     P_SQNT,                                    /* 1.2 (#162): QUANTIZE, the steps' recorded / nudged timing (ON: none) */
     P_SPRD,                                    /* (#148): SPREAD, the voices of a POLY / UNISON track around PAN (fx.c) */
-    P_ITYPE, P_IA, P_IB, P_IC, P_IMIX,         /* 1.5 (#78, #177): the INSERT, its TYPE, three values and MIX (fx.c) */
-    P_FTYPE,                                   /* 1.5 (#104): ANALOG's filter TYPE, LP (as before) / BP / HP (eng_analog.c) */
+    /* insert chain (6 stages, reorderable; MIX 0 = bypass). Replaces 1.5's P_ITYPE..P_IMIX. Drive = P_DIST. */
+    P_IORD,                                    /* stage order, factorial number 0..719 (fx.c ins_order) */
+    P_IDMODE, P_IDMIX,                         /* DIST: mode SOFT/HARD/FOLD/FUZZ, mix (tone follows drive) */
+    P_IFTYPE, P_IFCUT, P_IFRES, P_IFMIX,       /* FILTER: LP/HP/BP/COMB */
+    P_ICBITS, P_ICRATE, P_ICLPF, P_ICMIX,      /* CRUSH */
+    P_IPRATE, P_IPDEP, P_IPFBK, P_IPMIX,       /* PHASR */
+    P_ILRATE, P_ILDEP, P_ILMIX,                /* FLANG (fixed feedback) */
+    P_IHRATE, P_IHDEP, P_IHMIX,                /* CHOR (fixed feedback) */
+    P_FTYPE,                                   /* ANALOG's filter TYPE: LP / BP / HP / COMB (eng_analog.c) */
     P_ESYNC,                                   /* 1.5 (#175): ENV SYNC: ATK DEC REL as note values of the tempo (voice.c) */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
+/* 1.5 INSERT ids (np 111): migrated to the chain in project.c / upreset.c ins_migrate */
+enum { P_ITYPE_LEG = 96, P_IA_LEG = 97, P_IB_LEG = 98, P_IC_LEG = 99, P_IMIX_LEG = 100 };
+enum { INS_N = 6, INS_DIST = 0, INS_FILTER = 1, INS_CRUSH = 2, INS_PHASR = 3, INS_FLANG = 4, INS_CHOR = 5 };
+enum { IDM_SOFT, IDM_HARD, IDM_FOLD, IDM_FUZZ, IDM_N };
+enum { IFT_LP, IFT_HP, IFT_BP, IFT_COMB, IFT_N };
 
 enum {                          /* global parameters */
     G_BPM, G_SWING, G_CLOCK, G_TUNE,
@@ -105,6 +117,67 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const 
         out[i] = i < nc ? in[i] : def[i];
     for (i = 0; i < 8u; i++)
         out[P_E0 + i] = in[nc + i];
+}
+
+/* 1.5 (np 111): INSERT at 96..100 and FTYPE/ESYNC at 101..102 land mid-chain after params_by_count
+ * (P_E0 moved). Rebuild the chain and park TYPE/ESYNC at today's ids. np > 111: no-op. */
+static void ins_migrate(int16_t *p, uint32_t np)
+{
+    int16_t ty = 0, a = 64, b = 96, c = 96, mix = 127, ft = 0, es = 0, dist = p[P_DIST];
+    uint32_t i;
+    if (np > 111u)
+        return;
+    if (np == 111u) {
+        ty = p[96];
+        a = p[97];
+        b = p[98];
+        c = p[99];
+        mix = p[100];
+        ft = p[101];
+        es = p[102];
+    }
+    for (i = P_IORD; i < P_FTYPE; i++)
+        p[i] = 0;
+    p[P_IORD] = 0;
+    p[P_IDMODE] = IDM_SOFT;
+    p[P_IFTYPE] = IFT_LP;
+    p[P_IFCUT] = 96;
+    p[P_IFRES] = 40;
+    p[P_ICBITS] = 64;
+    p[P_ICRATE] = 96;
+    p[P_ICLPF] = 96;
+    p[P_IPRATE] = p[P_ILRATE] = p[P_IHRATE] = 64;
+    p[P_IPDEP] = p[P_ILDEP] = p[P_IHDEP] = 96;
+    p[P_IPFBK] = 96;
+    p[P_FTYPE] = ft;
+    p[P_ESYNC] = es;
+    if (dist)
+        p[P_IDMIX] = 127;
+    if (np < 111u || ty <= 0)
+        return;
+    if (ty >= 1 && ty <= 4) {
+        p[P_IDMODE] = (int16_t)(ty - 1);
+        p[P_DIST] = a;
+        p[P_IDMIX] = mix;
+    } else if (ty == 5) {
+        p[P_ICBITS] = a;
+        p[P_ICRATE] = b;
+        p[P_ICLPF] = c;
+        p[P_ICMIX] = mix;
+    } else if (ty == 6) {
+        p[P_IPRATE] = a;
+        p[P_IPDEP] = b;
+        p[P_IPFBK] = c;
+        p[P_IPMIX] = mix;
+    } else if (ty == 7) {
+        p[P_ILRATE] = a;
+        p[P_ILDEP] = b;
+        p[P_ILMIX] = mix;
+    } else if (ty == 8) {
+        p[P_IHRATE] = a;
+        p[P_IHDEP] = b;
+        p[P_IHMIX] = mix;
+    }
 }
 
 /* engine indices the stores name (engines.c ENGINES[]: append-only) */
@@ -272,7 +345,8 @@ static void step_set_nudge(step_t *s, int32_t v)
     uint32_t u = (uint32_t)(v < -8 ? -8 : v > 7 ? 7 : v) & 15u;
     s->flags = (uint8_t)((s->flags & ~SF_NUDGE) | (u & 7u) << 5 | (u >> 1 & 4u));
 }
-#define MOTION_MAX 128u          /* 1.2 (FUN10): 64 before */
+#define MOTION_MAX 128u          /* RAM / old FUN10 (np<=111): 128 records. New saves (np==P_COUNT): see MOTION_FILE_MAX */
+#define MOTION_FILE_MAX 110u     /* disk: 4+110*3=334; +2 B/track for P_IORD (0..719) leaves 2 B before FM6 */
 /* Four tracks x64 steps fit one byte. Values retain their signed parameter range (-64..127: an int8_t, 1.2).
  * param: the P_* id (< 128: P_COUNT is at most 127, project.c), bit 7 (MOTION_LOCK, 1.1) a parameter lock: the value
  * sounds on that step only and goes back after it (motion.c motion_step); without it an automation event, the
@@ -281,7 +355,9 @@ static void step_set_nudge(step_t *s, int32_t v)
 #define MOTION_ID(e) ((uint32_t)(e)->param & 0x7Fu)
 typedef struct { uint8_t place, param; int8_t value; } motion_event_t;
 typedef struct { uint8_t count, on, rsv[2]; motion_event_t event[MOTION_MAX]; } motion_store_t;
-_Static_assert(sizeof(motion_store_t) == 388u, "motion disk layout (FUN10)");
+_Static_assert(sizeof(motion_store_t) == 388u, "motion RAM layout (128 records)");
+#define MOTION_FILE_SIZE (4u + MOTION_FILE_MAX * sizeof(motion_event_t))
+_Static_assert(MOTION_FILE_SIZE == 334u, "motion disk layout when insert chain is stored");
 #define CHAIN_ROWS 16u
 /* A song section (1.2, FUN10): the PROJECT slot each track plays (0..3, A..D; CHAIN_SILENT "-": that track plays
  * nothing there) and its repeats (1..16). Up to 1.1 a row was {slot, repeat}, all four tracks on that slot
