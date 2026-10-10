@@ -758,34 +758,64 @@ static void lock_clear(uint64_t held)
     ui_message(n ? "LOCKS CLEARED" : "NO LOCKS");
 }
 
-/* NUDGE (1.2, #162; core.h step_nudge): the steps `held` move by one sixteenth of a step (-8..+7) a detent: SEQ > STEP
- * with steps held (as for a lock: the grid's step keys, the roll's step being entered) and the PRESETS knob; let go,
- * PRESETS moves the cursor again (MENU > STEP PREVIEW: it sounds). SEQ > AUTOMATION's NUDGE rows (ui_events.c) are the
- * other way. They play with the track's QUANTIZE OFF (AUTOMATION's QUANTIZE row; ON, the default, plays every step on
- * its start: the message says so). One undo per turn (SAVE held), as AUTOMATION's */
-static void nudge_turn(uint64_t held, int32_t steps)
+/* SEQ > STEP with steps held + PRESETS: move those steps one place in time (pitch stays on the NOTE knob /
+ * step_edit slot 1). The grid's step keys or the roll's step being entered; let go, PRESETS moves the cursor again.
+ * Automation and locks move with the steps (as TOOLS SHIFT). One undo per turn (SAVE held). NUDGE is AUTOMATION /
+ * DETAIL only. */
+static void notes_shift(uint64_t held, int32_t steps)
 {
-    uint32_t i;
-    int32_t v = 0;
-    char b[16] = "NUDGE ";
+    track_t *t = TSEL;
+    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), i, j, k, f;
+    int32_t d = steps > 0 ? 1 : -1;
+    uint8_t from[NSTEP];
     if (chain_busy()) {
         ui_message("STOP TO EDIT");
         return;
     }
+    for (i = 0; i < len; i++)
+        if (((held >> i) & 1u) && ((int32_t)i + d < 0 || (int32_t)i + d >= (int32_t)len))
+            return;                                     /* any held step at the edge: no move */
     ui.plk_rm &= ~held;                                 /* (a grid key held for it: its hit stays) */
-    step_undo_take(TSEL, 0x800u);                       /* (a knob turned on: one) */
-    for (i = 0; i < NSTEP; i++)
-        if ((held >> i) & 1u) {
-            v = clamp(step_nudge(&TSEL->step[i]) + (steps > 0 ? 1 : -1), -8, 7);
-            step_set_nudge(&TSEL->step[i], v);
-        }
-    motion_undo_done(TSEL);
-    if (TSEL->p[P_SQNT]) {
-        ui_message("QUANTIZE IS ON");
-        return;
+    step_undo_take(t, 0x800u);                          /* (a knob turned on: one; undo.step is the source) */
+    for (i = 0; i < len; i++)
+        from[i] = (uint8_t)i;
+    for (i = 0; i < len; i++)
+        if ((held >> i) & 1u)
+            from[i] = 0xFFu;                            /* sources empty until a held note lands */
+    for (i = 0; i < len; i++)
+        if ((held >> i) & 1u)
+            from[(uint32_t)((int32_t)i + d)] = (uint8_t)i;
+    for (i = 0; i < len; i++) {
+        if (from[i] == 0xFFu) {
+            memset(&t->step[i], 0, sizeof t->step[i]);
+            t->step[i].time = ST_REST;
+        } else
+            t->step[i] = undo.step[from[i]];
     }
-    ev_nudge_fmt(b + 6, v);
-    ui_message(b);
+    k = trk_index(t);
+    f = motion_guard();
+    for (i = 0; i < motion.count; ) {
+        motion_event_t *e = &motion.event[i];
+        uint32_t s;
+        if ((e->place >> 6) != k) {
+            i++;
+            continue;
+        }
+        s = e->place & 63u;
+        if (s >= len) {
+            i++;
+            continue;
+        }
+        for (j = 0; j < len && from[j] != (uint8_t)s; j++)
+            ;
+        if (j < len) {
+            e->place = (uint8_t)(k << 6 | j);
+            i++;
+        } else
+            motion.event[i] = motion.event[--motion.count];
+    }
+    motion_unguard(f);
+    motion_undo_done(t);
 }
 
 /* SEQ > DETAIL (1.5.1, Discussion #199; ui.c detail_on): KNOB 1 CHANCE (0..100 %), 2 RATCH (x1..x4), 3 NUDGE (-8..+7
@@ -1224,8 +1254,8 @@ static void presets_turn(int32_t s)
             cursor_move(ui.cursor + s);
         return;
     }
-    if (held) {                                           /* STEP with steps held: their NUDGE (1.2) */
-        nudge_turn(held, s);
+    if (held) {                                           /* STEP with steps held: move them in time */
+        notes_shift(held, s);
         return;
     }
     if (ui.home || g == GR_BROWSE) {
