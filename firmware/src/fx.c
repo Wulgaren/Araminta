@@ -19,7 +19,11 @@ static struct {
     int32_t dly_lp;
     uint16_t comb_i[4], ap_i[2];
     int32_t comb_lp[4];
-    uint8_t rtype;                       /* the reverb model running (G_RTYPE: 0 ROOM, 1 SPRING, 2 HALL) */
+    uint8_t rtype;                       /* the reverb model running (G_RTYPE: 0 ROOM, 1 SPRING, 2 HALL,
+                                          * 3 SHIMR, 4 CLOUD) */
+    uint32_t sh_w, sh_ph;                /* SHIMR: its line's write count, the grains' phase */
+    uint32_t cl_w, cl_rng;               /* CLOUD: its line's write count (half rate), its random numbers */
+    int32_t cl_next, cl_lp, cl_half;     /* .. samples to the next grain, output low-pass, odd sample */
     uint16_t sp_w;                       /* SPRING: the loop's write index (SP_MASK) */
     int32_t sp_lp, sp_hp, sp_he, sp_size;   /* .. its loop low-pass, low cut (and its remainder), the loop
                                              * length (Q8, glides) */
@@ -528,6 +532,111 @@ static __attribute__((noinline)) void rev_hall(const int32_t *rev_in, int32_t *o
     hl.side = 1;
 }
 
+/* SHIMR (G_RTYPE 3, JIANT): ROOM with its output an octave up fed back into it (two crossfaded grains reading
+ * its own line twice as fast). SIZE / DAMP as ROOM; shimmer amount is fixed (no MOD global here). */
+#define SH_LEN 2048u
+#define SH_AMT 15200                     /* Q15 ~0.46 (JIANT MOD 80) */
+static int16_t shim_buf[SH_LEN] __attribute__((section(".pool")));
+static int32_t shim_fb[CTL];
+static __attribute__((noinline)) void rev_shimmer(const int32_t *rev_in, int32_t *out, uint32_t n)
+{
+    int32_t in[CTL], t[CTL];
+    uint32_t i, j;
+    for (i = 0; i < n; i++) {
+        in[i] = rev_in[i] + mulq15(shim_fb[i], SH_AMT);
+        t[i] = 0;
+    }
+    rev_room(in, t, n);
+    for (i = 0; i < n; i++) {
+        int32_t x = 0;
+        out[i] += t[i];
+        shim_buf[fx.sh_w & (SH_LEN - 1u)] = (int16_t)clamp(t[i] >> 1, -32768, 32767);
+        for (j = 0; j < 2u; j++) {                      /* the delay falls a sample a sample: read at twice the speed */
+            uint32_t ph = (fx.sh_ph + j * (SH_LEN / 2u)) & (SH_LEN - 1u), d = SH_LEN - 1u - ph;
+            int32_t w = (int32_t)(ph < SH_LEN / 2u ? ph : SH_LEN - 1u - ph);   /* the triangles: their sum flat */
+            x += (shim_buf[(fx.sh_w - d) & (SH_LEN - 1u)] * w) >> 9;
+        }
+        fx.sh_ph++;
+        fx.sh_w++;
+        shim_fb[i] = x;                                 /* (into the next block's input) */
+    }
+}
+
+/* CLOUD (G_RTYPE 4, JIANT): granular wash into ROOM. SIZE decay (127 freezes the line); DAMP darkens.
+ * Grain density / pitch chance / width are fixed (no RATE / MOD / WIDE globals here). */
+#define CL_LEN 16384u                                    /* half rate: ~0.74 s */
+#define CL_N 12u
+#define CL_GAP 1000                                      /* samples between grain births */
+#define CL_MOD 48                                        /* chance a grain is pitched (JIANT MOD 48) */
+static int16_t cloud_buf[CL_LEN] __attribute__((section(".pool")));
+static struct { uint32_t pos, inc; uint16_t len, age; int16_t pl, pr; } cl_g[CL_N];
+static uint32_t cl_rand(void) { fx.cl_rng = fx.cl_rng * 1664525u + 1013904223u; return fx.cl_rng >> 8; }
+static __attribute__((noinline)) void rev_cloud(const int32_t *rev_in, int32_t *out, uint32_t n)
+{
+    static const uint32_t PITCH[4] = {65536u, 131072u, 32768u, 98184u};   /* x1, octave up, down, fifth up (Q16) */
+    uint32_t i, k, freeze = song.g[G_RSIZE] >= 127;
+    int32_t dk = 32767 - song.g[G_RDAMP] * 220;
+    int32_t fb = song.g[G_RSIZE] * 24, fg = song.g[G_RSIZE] * 110, g[CTL], t[CTL];
+    for (i = 0; i < n; i++) {
+        int32_t l = 0, r = 0, m;
+        if (!freeze) {                                   /* the line: the input and the tail, two samples into one */
+            int32_t x = (rev_in[i] >> 1) + mulq15(shim_fb[i], fb) + mulq15(fx.cl_lp, fg);
+            if (fx.cl_w & 1u)
+                cloud_buf[(fx.cl_w >> 1) & (CL_LEN - 1u)] = (int16_t)clamp((fx.cl_half + x) >> 1, -32768, 32767);
+            else
+                fx.cl_half = x;
+            fx.cl_w++;
+        }
+        if (--fx.cl_next <= 0) {                         /* a grain is born, in the first one free */
+            fx.cl_next = CL_GAP / 2 + (int32_t)(cl_rand() % (uint32_t)CL_GAP);
+            for (k = 0; k < CL_N && cl_g[k].len; k++) {}
+            if (k < CL_N) {
+                uint32_t pk = cl_rand() % 100u < (uint32_t)CL_MOD * 3u / 4u ? 1u + cl_rand() % 3u : 0u;
+                cl_g[k].len = (uint16_t)(2000u + cl_rand() % 4200u);
+                cl_g[k].pos = ((fx.cl_w >> 1) - 200u - cl_rand() % (CL_LEN - 6000u)) << 16;
+                cl_g[k].inc = (PITCH[pk] >> 1) + (cl_rand() % 129u) - 64u;
+                cl_g[k].age = 0;
+                cl_g[k].pl = 128;                        /* centre (no WIDE) */
+                cl_g[k].pr = 128;
+            }
+        }
+        for (k = 0; k < CL_N; k++) {
+            if (!cl_g[k].len) continue;
+            {
+                uint32_t p = cl_g[k].pos >> 16, f = (cl_g[k].pos >> 8) & 255u, a = cl_g[k].age, L = cl_g[k].len;
+                int32_t x0 = cloud_buf[p & (CL_LEN - 1u)], x1 = cloud_buf[(p + 1u) & (CL_LEN - 1u)];
+                int32_t x = x0 + (((x1 - x0) * (int32_t)f) >> 8), w = (int32_t)((a < L - a ? a : L - a) * 2u * 256u / L);
+                x = (x * w) >> 8;
+                l += (x * cl_g[k].pl) >> 7;
+                r += (x * cl_g[k].pr) >> 7;
+                cl_g[k].pos += cl_g[k].inc;
+                if (++cl_g[k].age >= cl_g[k].len) cl_g[k].len = 0;
+            }
+        }
+        m = (l + r) >> 1;
+        fx.cl_lp = m + mulq15(fx.cl_lp - m, 32767 - dk);
+        g[i] = fx.cl_lp * 2;
+        t[i] = 0;
+    }
+    rev_room(g, t, n);
+    for (i = 0; i < n; i++) {
+        out[i] += t[i] + (t[i] >> 1) + (g[i] >> 2);
+        shim_fb[i] = t[i];
+    }
+}
+
+/* the model ty's block into out */
+static void rev_run(uint32_t ty, const int32_t *rev_in, int32_t *out, uint32_t n)
+{
+    switch (ty) {
+    case 1: rev_spring(rev_in, out, n); break;
+    case 2: rev_hall(rev_in, out, n); break;
+    case 3: rev_shimmer(rev_in, out, n); break;
+    case 4: rev_cloud(rev_in, out, n); break;
+    default: rev_room(rev_in, out, n); break;
+    }
+}
+
 /* the reverb's buffers and states to silence (the model changed) */
 static void rev_clear(void)
 {
@@ -542,9 +651,27 @@ static void rev_clear(void)
         hl.lp[i] = hl.le[i] = 0;
     fx.sp_lp = fx.sp_hp = fx.sp_he = 0;
     hl.x = hl.m = hl.s = hl.hp = hl.he = 0;
+    for (i = 0; i < SH_LEN; i++)
+        shim_buf[i] = 0;
+    for (i = 0; i < CTL; i++)
+        shim_fb[i] = 0;
+    for (i = 0; i < CL_LEN; i++)
+        cloud_buf[i] = 0;
+    for (i = 0; i < CL_N; i++)
+        cl_g[i].len = 0;
+    fx.sh_w = fx.sh_ph = 0;
+    fx.cl_w = fx.cl_rng = 0;
+    fx.cl_next = fx.cl_lp = fx.cl_half = 0;
 }
 
 static int32_t part_buf[CTL];                            /* a part's block (mix_part); the fade of a model change */
+
+/* clamp G_RTYPE to a known model (out of range -> ROOM) */
+static int32_t rev_rtype(void)
+{
+    int32_t rt = song.g[G_RTYPE];
+    return (uint32_t)rt <= 4u ? rt : 0;
+}
 
 /* the model changed (to rt): the old one's block fades out (HALL's stereo difference with it), its buffers are
  * cleared, the new one starts from silence */
@@ -554,12 +681,7 @@ static __attribute__((noinline)) void rev_switch(const int32_t *rev_in, int32_t 
     uint32_t i;
     for (i = 0; i < n; i++)
         t[i] = 0;
-    if (fx.rtype == 2u)
-        rev_hall(rev_in, t, n);
-    else if (fx.rtype)
-        rev_spring(rev_in, t, n);
-    else
-        rev_room(rev_in, t, n);
+    rev_run(fx.rtype, rev_in, t, n);
     for (i = 0; i < n; i++, g -= d) {
         wet[i] += mulq16(t[i], (uint32_t)g);
         rev_side[i] = mulq16(rev_side[i], (uint32_t)g);   /* (HALL only: hl.side set) */
@@ -602,17 +724,12 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
         y += mulq15(x << 1, dmix);
         wet[i] = y;
     }
-    rt = song.g[G_RTYPE];
-    rt = rt == 1 || rt == 2 ? rt : 0;
+    rt = rev_rtype();
     hl.side = 0;
     if (rt != fx.rtype)
         rev_switch(rev_in, wet, n, rt);
-    else if (rt == 2)
-        rev_hall(rev_in, wet, n);
-    else if (rt)
-        rev_spring(rev_in, wet, n);
     else
-        rev_room(rev_in, wet, n);
+        rev_run((uint32_t)rt, rev_in, wet, n);
 }
 
 /* after the buses: HALL's stereo difference to the left and from the right of the dry mix (the wet bus adds the
@@ -670,8 +787,8 @@ static void fx_boot(void)
     memset(lce, 0, sizeof lce);
     lim_env = LIM_T;
     sb_lp1 = sb_lp2 = sb_lp3 = sb_lp4 = sb_env = sb_h1 = sb_h2 = sb_hl = 0;
-    rt = song.g[G_RTYPE];
-    fx.rtype = (uint8_t)(rt == 1 || rt == 2 ? rt : 0);
+    rt = rev_rtype();
+    fx.rtype = (uint8_t)rt;
     boot_fade = 0;
     boot_fade_run = 0;
 }

@@ -3164,8 +3164,8 @@ static int test_layer(void)
     key_up(white(15)); btn_up(B_FX); frame();
     bad += check("FX + D4 / E4: OCT- / OCT+ held, silent, no MIDI; D5 ATK+, F5 RANDOM, G5 clear; FX let go: K4 0",
                  ok && !perf_held && !ui.layer && !perf_k[3] && mo_w == mo);
-    /* REVERB > TYPE (FX family, global): ROOM / SPRING / HALL on KNOB 1 (HALL at power-on since 1.2), kept by a
-     * project */
+    /* REVERB > TYPE (FX family, global): ROOM / SPRING / HALL / SHIMR / CLOUD on KNOB 1 (HALL at power-on since
+     * 1.2), kept by a project */
     ui_power_on();
     go_title("REVERB");
     ok = cur_page()->fam == FAM_FX && cur_page()->id[0] == G_RTYPE && cur_page()->id[1] == G_RSIZE &&
@@ -3174,16 +3174,20 @@ static int test_layer(void)
     ok &= song.g[G_RTYPE] == 0 && str_eq(GP[G_RTYPE].names[song.g[G_RTYPE]], "ROOM");
     turn(EN_K1, 1);
     ok &= song.g[G_RTYPE] == 1 && str_eq(GP[G_RTYPE].names[song.g[G_RTYPE]], "SPRING");
-    turn(EN_K1, 5);
+    turn(EN_K1, 1);
     ok &= song.g[G_RTYPE] == 2;
-    turn(EN_K1, -1);
+    turn(EN_K1, 1);
+    ok &= song.g[G_RTYPE] == 3 && str_eq(GP[G_RTYPE].names[3], "SHIMR");
+    turn(EN_K1, 1);
+    ok &= song.g[G_RTYPE] == 4 && str_eq(GP[G_RTYPE].names[4], "CLOUD");
+    turn(EN_K1, -3);
     ok &= song.g[G_RTYPE] == 1;
     song.playing = 0;
     project_save(2);
     turn(EN_K1, -1);
     ok &= song.g[G_RTYPE] == 0;
     project_load(2);
-    bad += check("REVERB page: TYPE HALL (power-on) / ROOM / SPRING on KNOB 1 (SIZE, DAMP beside it); a project keeps SPRING",
+    bad += check("REVERB page: TYPE HALL (power-on) / ROOM / SPRING / SHIMR / CLOUD on KNOB 1; a project keeps SPRING",
                  ok && song.g[G_RTYPE] == 1);
     go_title("CHORUS");
     bad += check("  CHORUS page: CRT CDP", cur_page()->fam == FAM_FX && cur_page()->id[0] == G_CRATE &&

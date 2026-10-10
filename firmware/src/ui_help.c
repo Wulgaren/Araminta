@@ -29,7 +29,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"CHOR", "[K1]RATE[K2]DEPTH[K3]MIX"},
     {"SLICER", "[K1]ON[K2]PATTERN[FX]FX"},
     {"DLY", "[K1-4]ALL TRACKS[FX]REVERB"},
-    {"REVERB", "[K1]ROOM SPRING HALL[FX]CHORUS"},
+    {"REVERB", "[K1]ROOM..CLOUD[FX]CHORUS"},
     {"CHORUS", "[K1-4]ALL TRACKS[FX]FX"},
     {"MASTER", "[K1-4]CLIP PNCH DUCK REL[FX]FX"},
     {"REORDER", "[PRESETS]STAGE[FX]HOLD: MOVE"},

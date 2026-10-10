@@ -412,10 +412,11 @@ grid lives in the steps themselves, so every engine has it:
 - The globals `G_DRCH`, `G_DRLVL`, `G_DRREV` (ids 24..26: the old drum track's MIDI channel, level and
   reverb send) keep their ids, and `G_COUNT` stays 27. `G_DRLVL` and `G_DRREV` are inert: `DESC` gives
   label "-", range 0..0, and no page shows them. Id 24 (`G_DRCH`, never read since 1.0) is `G_RTYPE`
-  since 1.0: the reverb's model, `DESC` label "TYPE", enum ROOM (0) / SPRING (1) / HALL (2, since 1.2), on the
-  REVERB page (FX). The power-on value (`DESC` def) is HALL since 1.2, ROOM before; a project keeps its own, and
-  projects of formats before FUN7 load it as ROOM. MIDI channel 10 is no longer special (channels 1..4 play
-  tracks 1..4, channels 5..16 are ignored since 1.0.3; with ROUT SEL every channel the selected track).
+  since 1.0: the reverb's model, `DESC` label "TYPE", enum ROOM (0) / SPRING (1) / HALL (2, since 1.2) /
+  SHIMR (3) / CLOUD (4, JIANT), on the REVERB page (FX). The power-on value (`DESC` def) is HALL since 1.2,
+  ROOM before; a project keeps its own, and projects of formats before FUN7 load it as ROOM. MIDI channel 10
+  is no longer special (channels 1..4 play tracks 1..4, channels 5..16 are ignored since 1.0.3; with ROUT SEL
+  every channel the selected track).
 - Selecting a track with `TRACK` does not push `RELOAD` (the editor re-reads `DUMP`, the steps and the
   engine `DESC` itself); selecting one on the device does (`RELOAD` with the new track).
 - Pushes are about the selected track only: `CHANGED` (scope 0) and `STEP_CHANGED` refer to it, and
