@@ -819,6 +819,14 @@ earlier objects restored; the file is still the source.
 `BACKUP_LIST` answers `1, rc, 0` when rc is not 0. `GET` and `PUT` answer id 127 when they got no arguments.
 A `LIST` replaces the snapshot, and a `PUT` begin ends it: a `GET` after a begin gets rc 5.
 
+**Single-project files (editor).** The web editor can export or import one PROJECT slot without a complete
+archive. It uses the same `BACKUP_LIST` / `BACKUP_GET` / `BACKUP_PUT` commands on object ids 2..5 only (slot
+A..D). The file is JSON `format: "felucca-project"`, `version: 1`, with `slot` (0..3, the source), `size`,
+`crc` and base64 `data` of the FUN10 / FUN9 / FUN8 / FUN7 bytes (3840, 3648, 3584 or 3388). Import runs
+`BACKUP_PUT` begin / data / commit for the chosen destination id alone: other project slots, banks, samples,
+settings and the current music stay. Needs the same INFO `42 01` caps as a full backup (bit 0 to read, bit 1
+to write). No new command.
+
 ## FM6 patches (68-71)
 
 The FM6 engine (12) plays a 6-operator patch per track; its eight EDIT parameters are macros on top of it

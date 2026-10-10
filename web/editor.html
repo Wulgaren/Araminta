@@ -318,7 +318,8 @@
     <div id="backup-panel" style="margin-top:16px">
       <h2 data-t="backupTitle"></h2>
       <p class="bar"><button id="backup-export" data-t="backupExport"></button>
-        <button id="backup-import" data-t="backupImport"></button><input id="backup-file" type="file" accept=".json,application/json" hidden></p>
+        <button id="backup-import" data-t="backupImport"></button><input id="backup-file" type="file" accept=".json,application/json" hidden>
+        <input id="proj-file" type="file" accept=".json,application/json" hidden></p>
       <p class="dim" id="backup-help"></p>
     </div>
     <div class="group" id="songchain" hidden style="margin-top:16px">
@@ -2518,7 +2519,9 @@ const TEXT = {
     fm6NeedDevice: "FM-1 を接続すると 6-OP FM の音色を編集してトラックへ送れます。",
     fm6NoFw: "このファームウェアには 6-OP FM（FM6）がありません。Felucca 1.0 以降に更新すると使えます。",
     motion: "オートメーション", motionOn: "再生", motionClear: "オートメーションを消去", motionConfirm: "選択トラックのオートメーションを消しますか？", chance: "確率 %", ratchet: "ラチェット", motionStep: "ステップ", motionParam: "パラメーター", motionValue: "値",
-    backupTitle: "全体バックアップ", backupExport: "バックアップ保存", backupImport: "バックアップ復元", backupHelp: "現在の曲・A〜D・音色バンク・ユーザーサンプル・設定を、このパソコンへ保存。", backupOld: "全体バックアップには対応版への更新が必要です。", backupConfirm: "全体バックアップを復元しますか？ 現在の曲、保存データとサンプルを置き換えます。USBを抜かないでください。", backupWorking: "バックアップ処理中 ", backupDone: "バックアップを保存しました", backupRestored: "全体バックアップを復元しました",
+    backupTitle: "全体バックアップ", backupExport: "バックアップ保存", backupImport: "バックアップ復元", backupHelp: "現在の曲・A〜D・音色バンク・ユーザーサンプル・設定を、このパソコンへ保存。スロットごとの書き出し／読み込みは他のデータを変えません。", backupOld: "全体バックアップには対応版への更新が必要です。", backupConfirm: "全体バックアップを復元しますか？ 現在の曲、保存データとサンプルを置き換えます。USBを抜かないでください。", backupWorking: "バックアップ処理中 ", backupDone: "バックアップを保存しました", backupRestored: "全体バックアップを復元しました",
+    projExport: "書き出し", projImport: "読み込み", projExported: "プロジェクトを保存しました: スロット ", projImported: "プロジェクトを読み込みました: スロット ",
+    projEmpty: "空のスロットは書き出せません: ", projConfirmImport: "スロット {n} にこのプロジェクトを読み込みますか？ そのスロットだけ置き換えます（他のスロット・バンク・サンプルはそのまま）。",
     deviceDisplay: "本体の画面",
     deviceDisplayHelp: "FM-1 の画面に反映し、保存します。再生中の変更は停止後に保存されます。",
     devicePresets: "本体のプリセット",
@@ -2621,7 +2624,9 @@ const TEXT = {
     fm6NeedDevice: "Connect the FM-1 to edit 6-OP FM voices and send them to a track.",
     fm6NoFw: "This firmware has no 6-OP FM (FM6). Update to Felucca 1.0 or later to use it.",
     motion: "Automation", motionOn: "Play automation", motionClear: "Clear automation", motionConfirm: "Clear this track's automation?", chance: "Chance %", ratchet: "Ratchet", motionStep: "Step", motionParam: "Parameter", motionValue: "Value",
-    backupTitle: "Complete backup", backupExport: "Save backup", backupImport: "Restore backup", backupHelp: "Save the current music, A–D, sound banks, user samples and settings to this computer.", backupOld: "Complete backups need firmware with archive support.", backupConfirm: "Restore this complete backup? Current music, saved data and samples will be replaced. Keep USB connected.", backupWorking: "Backing up / restoring ", backupDone: "Backup saved", backupRestored: "Complete backup restored",
+    backupTitle: "Complete backup", backupExport: "Save backup", backupImport: "Restore backup", backupHelp: "Save the current music, A–D, sound banks, user samples and settings to this computer. Per-slot export / import leaves the rest alone.", backupOld: "Complete backups need firmware with archive support.", backupConfirm: "Restore this complete backup? Current music, saved data and samples will be replaced. Keep USB connected.", backupWorking: "Backing up / restoring ", backupDone: "Backup saved", backupRestored: "Complete backup restored",
+    projExport: "Export", projImport: "Import", projExported: "Project saved from slot ", projImported: "Project loaded into slot ",
+    projEmpty: "Empty slot cannot be exported: ", projConfirmImport: "Import this project into slot {n}? Only that slot is replaced (other slots, banks and samples stay).",
     deviceDisplay: "Device display",
     deviceDisplayHelp: "Changes apply to the FM-1 screen and save. Changes made while playing save after STOP.",
     devicePresets: "Device presets",
@@ -3279,19 +3284,54 @@ function refreshAll() {
 function report(err) { if (err && err.message !== "closed") { console.warn(err); sayK("error", err.message); } }
 
 /* projects: the protocol cannot ask whether a slot is used without loading or saving it */
+let projImportSlot = 0;
 function renderSlots() {
   renderSong();
   renderBackup();
   const box = $("slots");
   box.replaceChildren();
+  const caps = dev?.info?.backupCaps || 0;
   for (let i = 0; i < 4; i++) {
     const u = dev.slotUsed[i];
+    const exp = el("button", { disabled: !(caps & 1) || u === false, onclick: () => exportProjectSlot(i) }, t("projExport"));
+    const imp = el("button", { disabled: !(caps & 2), onclick: () => { projImportSlot = i; $("proj-file").value = ""; $("proj-file").click(); } }, t("projImport"));
     box.append(el("span", { text: String.fromCharCode(65 + i) }),
       el("span", { class: "dim", text: u == null ? t("unknown") : t(u ? "used" : "empty") }),
       el("button", { ic: "symbol_folder_open", onclick: () => project(0, i) }, t("load")),
-      el("button", { ic: "port_disk", onclick: () => project(1, i) }, t("save")));
+      el("button", { ic: "port_disk", onclick: () => project(1, i) }, t("save")),
+      exp, imp);
   }
 }
+async function exportProjectSlot(slot) {
+  const d = dev;
+  if (!(d?.info?.backupCaps & 1)) return;
+  op(async () => {
+    const { captureProject, readProject } = await backupModule();
+    assertSession(d);
+    const file = await captureProject((r, o) => sessionRequest(d, r, o), slot, d.info.version, backupProgress);
+    assertSession(d);
+    d.slotUsed[slot] = true;
+    renderSlots();
+    const slug = fileSlug(readProject(file).name || String.fromCharCode(65 + slot));
+    download(`felucca-project-${slug}-${today()}.json`, file);
+    sayK("projExported", String.fromCharCode(65 + slot));
+  });
+}
+$("proj-file").addEventListener("change", () => {
+  const file = $("proj-file").files[0], d = dev, slot = projImportSlot; $("proj-file").value = "";
+  if (!file || !(d?.info?.backupCaps & 2)) return;
+  op(async () => {
+    if (file.size > 20000) throw new Error("Project file too large");
+    const { readProject, restoreProject } = await backupModule();
+    const project = readProject(await file.text()); assertSession(d);
+    if (!confirm(t("projConfirmImport").replace("{n}", String.fromCharCode(65 + slot)))) return;
+    await restoreProject((r, o) => sessionRequest(d, r, o), project, slot, backupProgress);
+    assertSession(d);
+    d.slotUsed[slot] = true;
+    renderSlots();
+    sayK("projImported", String.fromCharCode(65 + slot));
+  });
+});
 async function project(op, slot) {
   if (!dev) return;
   if (!confirm(t(op ? "confirmSave" : "confirmLoad").replace("{n}", slot + 1))) return;

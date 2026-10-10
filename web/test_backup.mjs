@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 // fm1backup.js against a simulated device: 7-bit packing, CRC, manifest checks, a full capture,
 // validation before the first write, restore order (live music last) and abort on a failed chunk.
-import { BACKUP_IDS, BACKUP_CMD, bkU32, bkR32, bkPack, bkUnpack, bkCrc, bkManifest, readBackup, captureBackup, restoreBackup } from "./fm1backup.js";
+import { BACKUP_IDS, BACKUP_CMD, bkU32, bkR32, bkPack, bkUnpack, bkCrc, bkManifest, readBackup, captureBackup, restoreBackup, readProject, captureProject, restoreProject, projectName } from "./fm1backup.js";
 
 let fails = 0;
 const ok = (c, what) => { console.log(`${what.padEnd(72)} ${c ? "ok" : "FAIL"}`); if (!c) fails++; };
@@ -102,6 +102,29 @@ ok([0, 1, 2, 6].every((id) => target.objs.get(id).every((v, i) => v === objs.fin
 }
 const failing = device([], { failChunk: 2 });
 ok(await athrows(() => restoreBackup(failing.request, file)) && failing.log.includes("abort 2") && !failing.log.includes(0), "backup: a refused chunk aborts that object and stops before the live music");
+
+{   /* one PROJECT slot (backup id 2..5) as its own file: other slots stay */
+  const fun10 = (seed, name) => {
+    const b = rnd(3840, seed);
+    b[0] = 0x41; b[1] = 0x4e; b[2] = 0x55; b[3] = 0x46;           // LE "FUNA"
+    for (let i = 0; i < 12; i++) b[3824 + i] = name.charCodeAt(i) || 0;
+    return b;
+  };
+  const a = fun10(20, "SONG A"), b = fun10(21, "SONG B"), c = fun10(22, "KEEP C");
+  const src = device([[0, rnd(3840, 30)], [1, rnd(1200, 31)], [2, a], [3, b], [4, c]]);
+  const exported = await captureProject(src.request, 0, "TEST");
+  ok(exported.format === "felucca-project" && exported.size === 3840 && exported.slot === 0
+    && projectName(readProject(exported).bytes) === "SONG A", "project: export slot A as felucca-project");
+  ok(await athrows(() => captureProject(device([[2, new Uint8Array(0)]]).request, 0, "TEST")), "project: empty slot refused");
+  const bad = JSON.parse(JSON.stringify(exported)); bad.crc ^= 1;
+  ok(throws(() => readProject(bad)), "project: a damaged file is refused");
+  const target = device([[0, rnd(3840, 40)], [1, rnd(1200, 41)], [2, fun10(42, "OLD A")], [3, b], [4, c]]);
+  await restoreProject(target.request, exported, 2);   // import A's song into slot C
+  ok(target.objs.get(4).every((v, i) => v === a[i]) && target.objs.get(2).every((v, i) => v === fun10(42, "OLD A")[i])
+    && target.objs.get(3).every((v, i) => v === b[i]) && !target.log.includes(0) && !target.log.includes(1),
+    "project: import writes one slot only; A, B, live music and settings stay");
+  ok(target.log.filter((x) => typeof x === "number").join() === "4", "project: only backup id 4 was committed");
+}
 
 console.log(fails ? `BACKUP WEB TESTS FAILED (${fails})` : "backup web tests passed");
 process.exit(fails ? 1 : 0);
