@@ -42,6 +42,8 @@
  * A record of engine 1 (DIGITAL, retired in 1.0) stays as it is (UP_PUT takes it too): its values are DIGITAL's,
  * and every load converts them to an FM6 sound with its own patch (ui.c fm4_apply, fm4_convert.c); lists count it
  * with FM6's (up_engine).
+ * A record of SAMPLE / GRAIN / NOISE / SLICE (retired) stays as stored too: every load remaps to ANALOG or DRUM
+ * (eng_retire.c); lists use eng_play_as.
  *
  * With -DUP_HOST (host test) only the part above #ifndef UP_HOST is built;
  * it needs nothing but core.h. */
@@ -400,7 +402,7 @@ static void up_auto_name(char *b, uint32_t e, uint32_t k)
 {
     char l[4];
     e %= NENGINES;
-    str_cpy(b, ENGINES[eng_ok(e) ? e : ENGI_FM6]->name, 9);   /* (a DIGITAL record plays as FM6) */
+    str_cpy(b, ENGINES[eng_play_as(e)]->name, 9);   /* (retired / DIGITAL: the engine it plays as) */
     up_slot_label(l, k);
     str_cpy(b + str_len(b), " ", 2);
     str_cpy(b + str_len(b), l + 1, 3);
@@ -501,7 +503,18 @@ static int up_load(uint32_t k)
         fm4_apply(t, p);
     } else
 #endif
-    {
+    if (eng_retired(r->engine)) {                       /* SAMPLE / GRAIN / NOISE / SLICE: ANALOG or DRUM */
+        int16_t p[P_COUNT];
+        uint32_t to;
+        for (i = 0; i < P_COUNT; i++)
+            p[i] = param_kept(i) ? t->p[i] : v[i];
+        to = retire_remap_params(r->engine, p);
+        fm1_irq_off();
+        t->eng_req = (uint8_t)to;
+        memcpy(t->p, p, sizeof t->p);
+        t->preset = 0;
+        fm1_irq_on();
+    } else {
         fm1_irq_off();                                  /* the audio ISR must not see half a sound */
         t->eng_req = r->engine;
         for (i = 0; i < P_COUNT; i++)
@@ -567,7 +580,7 @@ static void up_pat_load(track_t *t, uint32_t k)
 }
 
 /* the engine a used slot's sound plays on (a DIGITAL record: FM6, without FELUCCA_FM4) */
-static uint32_t up_engine(uint32_t k) { return eng_ok(up_rec(k)->engine) ? up_rec(k)->engine : ENGI_FM6; }
+static uint32_t up_engine(uint32_t k) { return eng_play_as(up_rec(k)->engine); }
 
 static uint32_t up_count(void)                 /* used slots */
 {

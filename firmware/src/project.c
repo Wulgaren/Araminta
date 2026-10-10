@@ -92,6 +92,10 @@
  * as they are, the rest of its sound kept; proj_perc, on every import as proj_fm4). Its motion events on the
  * EDIT values are dropped (SAMPLE's meanings, not DRUM's).
  *
+ * SAMPLE / GRAIN / NOISE / SLICE were removed (eng_retire.c): any other SAMPLE, GRAIN or NOISE track loads as
+ * ANALOG (E0..E7 ANALOG defaults, shared params kept); SLICE loads as DRUM's kit. Motion on EDIT values is
+ * dropped. Runs after proj_perc so SAMPLE PERC still becomes DRUM. Idempotent (proj_retire).
+ *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
 #define PROJ_MAGIC 0x46554E41u                 /* "FUNA" (FUN10): 104 (1.5: 111) parameters, 128 motion records, nudges */
@@ -378,6 +382,36 @@ static void proj_perc(project_t *q)
     q->sum = proj_sum(q);
 }
 
+/* SAMPLE / GRAIN / NOISE / SLICE tracks -> ANALOG or DRUM (see the top; eng_retire.c). After proj_perc.
+ * EDIT motion on those tracks is dropped. Idempotent */
+static void proj_retire(project_t *q)
+{
+    uint32_t k, i, n, hit = 0;
+    for (k = 0; k < NTRK; k++) {
+        proj_trk_t *d = &q->t[k];
+        uint32_t was = d->engine, to;
+        if (!eng_retired(was))
+            continue;
+        to = retire_remap_params(was, d->p);
+        d->engine = (uint8_t)to;
+        if (d->preset < PROJ_DEF_KEEP)
+            d->preset = 0;
+        hit |= 1u << k;
+    }
+    if (!hit)
+        return;
+    for (i = n = 0; i < q->motion.count && i < MOTION_MAX; i++) {
+        const motion_event_t *e = &q->motion.event[i];
+        if (((hit >> (e->place >> 6)) & 1u) && MOTION_ID(e) >= P_E0)
+            continue;
+        q->motion.event[n++] = *e;
+    }
+    for (i = n; i < q->motion.count && i < MOTION_MAX; i++)
+        memset(&q->motion.event[i], 0, sizeof q->motion.event[i]);
+    q->motion.count = (uint8_t)n;
+    q->sum = proj_sum(q);
+}
+
 /* a format 4 project (n bytes in *v4) -> slot q as format 6 */
 static int proj_from_v4(project_t *q, const project_v4_t *v4, int n)
 {
@@ -496,6 +530,7 @@ static int proj_import(project_t *q, const void *b, int n)
         return 0;
     proj_fm4(q);
     proj_perc(q);
+    proj_retire(q);
     return 1;
 }
 static int proj_import_any(project_t *q, const void *b, int n)
@@ -1002,6 +1037,7 @@ static int project_restore_runtime(const project_t *input)
     proj_phys(p);                                       /* .. before PHYS lost DUST and DRUM */
     proj_fm4(p);                                        /* .. that had DIGITAL tracks */
     proj_perc(p);                                       /* .. or SAMPLE PERC tracks */
+    proj_retire(p);                                     /* .. or SAMPLE / GRAIN / NOISE / SLICE */
     transport_req = 2;
     panic_req = (1u << NTRK) - 1u;
     fm1_irq_off();                                      /* the audio ISR must not see half a project */
@@ -1063,7 +1099,6 @@ static int project_restore_runtime(const project_t *input)
     sync_reload = 1;
     ui.force = 1;
     ui_message("LOADED");
-    memset(snd_said, 0, sizeof snd_said);               /* a missing sample is said again, after LOADED */
     return 0;
 }
 static void project_load(uint32_t slot)
@@ -1082,9 +1117,6 @@ static void project_load(uint32_t slot)
 /* settings + learned panel table: one flash object. The flash copy wins at
  * boot (the .noinit copies are garbage after a power-off). */
 #include "settings_persist.c"
-#if FELUCCA_FLASH && FELUCCA_SLICE
-#include "slice_store.c"                          /* SLICE's MAN slices, kept in the user slots */
-#endif
 #if FELUCCA_FLASH
 static persist_t persist_saved __attribute__((section(".pool")));
 static uint8_t persist_pending;                 /* 1 requested, 2 waiting after a flash error */
@@ -1101,10 +1133,7 @@ static void persist_boot(void)                    /* before settings_init / pane
     if (!flash_ok)
         return;
     fl_plain_window_init();                        /* flash above 0x93000 reads as plaintext through XIP
-                                                    * (user sample sets are played from there) */
-#if FELUCCA_SLICE
-    slc_store_boot();                              /* (the scans read each slot's stored slices) */
-#endif
+                                                    * (user sample slots for editor / backup) */
     {
         uint32_t k;
         for (k = 0; k < SMP_USER_SLOTS; k++)
@@ -1180,9 +1209,6 @@ static void settings_poll(void)
 {
 #if FELUCCA_FLASH
     persist_t p;
-#if FELUCCA_SLICE
-    slc_store_poll();                              /* SLICE's slices edited on the SLICES page */
-#endif
     if (!persist_pending || !flash_ok || transport_busy() ||
         (persist_pending == 2u && (uint32_t)(fm1_ms - persist_retry_ms) < 1000u))
         return;
