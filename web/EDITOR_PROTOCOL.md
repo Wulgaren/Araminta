@@ -179,8 +179,8 @@ The FX layer's REV THROW and ECHO THROW (1.5.1) are performance only: no paramet
 and the reply says so) and its knob steps over it. Of a repeated name, the original is the first value when that has
 the name, else the last one with it; an editor should list only the originals and show an alias by its name when
 it ever sees one. Today: SAMPLE SET and GRAIN SRC 1 and 4 (once TRANH, PERC) = 0 PIANO; DRUM KIT (engine 10, E1)
-1, 2, 3 (once HAND, CYM, H+CYM; 1.0.5) = 6 (66), 5 (10), 8 (77): its names are STD 66 10 77 80 10 66 55 77, the
-device's knob steps STD 80 10 66 55 77. An editor of before 1.0.5 (first of a name = original) offers 66 10 77
+1, 2, 3 (once HAND, CYM, H+CYM; 1.0.5) = 6 (66), 5 (10), 8 (77): its names are STD 66 10 77 80 10 66 55 77 78, the
+device's knob steps STD 80 10 66 55 77 78. An editor of before 1.0.5 (first of a name = original) offers 66 10 77
 at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device answers with 6 5 8.
 
 ## Commands

@@ -206,7 +206,8 @@ static int drum_from_phys(uint32_t engine, int16_t *e)
 
 /* SAMPLE (engine 4) is retired (eng_retire.c). SET 4 was PERC, the GM kit: a SAMPLE sound that still selects
  * it loads as DRUM with its default kit (same GM map). projects (proj_perc), user presets (up_migrate),
- * favourites (settings_persist.c). CR78 WAVs remain under assets/samples-cc0/CR78/ (P2-D) for a later DRUM kit.
+ * favourites (settings_persist.c). CR78 WAVs under assets/samples-cc0/CR78/ are listening reference for DRUM KIT 78
+ * (drum_voice.c; synthesized, not sample playback).
  * Idempotent. */
 #define SMP_SET_PERC 4u
 #define DRUM_KIT_E {0, 64, 70, 64, 64, 100, 0, 0}   /* {KIT STD, TUNE, TONE, DECY, SNAP, ACC, KICK PUNCH, DRV} */

@@ -4,7 +4,7 @@
  *   build/host/regress [GOLDEN_FILE CPU_FILE]      (run_tests.sh builds and runs it)
  *
  * 1. golden renders: every engine x factory preset, the GM map on DRUM (SAMPLE PERC until 1.0.2; and on each model kit,
- *    KIT 80 10 66 55 77), the voice modes (POLY / MONO /
+ *    KIT 80 10 66 55 77 78), the voice modes (POLY / MONO /
  *    LEGATO / UNISON) of three engines, the FX sends, a 4-track sequencer mix, and the SLICER (slicer.c:
  *    GATE / STUT on the phrase, and on the 4-track mix with the transport). Each render plays
  *    a fixed phrase (notes, an overlap, a chord, note-offs, the release tail) and is reduced to a
@@ -1006,7 +1006,7 @@ int main(int argc, char **argv)
             j->pi = (uint8_t)pi;
         }
     add(J_DRUMS, "drums/drum_gm_kit");
-    for (i = 0; i < DV_NKIT; i++) {                 /* the model kits (KIT 80 10 66 55 77) */
+    for (i = 0; i < DV_NKIT; i++) {                 /* the model kits (KIT 80 10 66 55 77 78) */
         snprintf(name, sizeof name, "drums/kit_%s", N_DRUM_KIT[DK_80 + i]);
         add(J_DRUMS, name)->arg = (uint8_t)(DK_80 + i);
     }
