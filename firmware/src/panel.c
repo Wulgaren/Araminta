@@ -44,6 +44,8 @@ static void panel_init(void)                     /* also after a flash load: ids
     }
     if (!ok)
         panel = PANEL_DEFAULT;
+    ft_btn_mask = 1u << panel.btn[B_REC];           /* free take: REC closes, PLAY drops (seq.c) */
+    ft_drop_mask = 1u << panel.btn[B_PLAY];
 }
 
 static uint32_t panel_btn_of(uint32_t matrix_id)        /* label of a matrix button, NB if none */

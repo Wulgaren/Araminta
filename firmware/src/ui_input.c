@@ -389,7 +389,9 @@ static void ui_leds(void)
         led_put(nl, panel.btn[B_FX], 1);                /* FX LATCH: lit while an effect or a macro is on */
     if (ui.layer)                                       /* the layer's button breathes while its map is up */
         led_put(nb, panel.btn[layer_btn()], 1);
-    led_put(nl, panel.btn[B_REC], song.rec != 0u && ui.layer != LAYER_REC);   /* (its layer: it breathes) */
+    led_put(nl, panel.btn[B_REC], ui.layer != LAYER_REC &&
+            (ft_on || (song.rec != 0u && (song.playing || ((fm1_ms / 125u) & 1u)))));   /* free take / armed: lit;
+                                                         * armed and stopped: blinks; its layer: it breathes */
     k = oct_leds();
     led_put(nl, panel.btn[B_OCTDN], (int)(k & 1u));
     led_put(nl, panel.btn[B_OCTUP], (int)((k >> 1) & 1u));
@@ -552,10 +554,13 @@ static uint32_t song_leds(void)
 /* REC tap on every page: arm / disarm recording on the selected track without navigating; arming while stopped
  * starts the transport too (live recording), except on STEP's piano roll (1.2, Discussion #133): there it arms step
  * recording and the transport stays stopped: the keys write the cursor step (seq_entry), PLAY then records live.
+ * An empty project with COUNT-IN off: arming stays stopped for a free take (seq.c); the first note starts it.
  * Armed and playing, STEP's keys record live (at the play head) instead of writing the cursor step */
 static int rec_tap(void)                                /* 1: the arming changed */
 {
     uint8_t bit = (uint8_t)(1u << song.sel);
+    if (ft_owns_press())                              /* (the press closed a free take: seq.c) */
+        return 0;
     if (chain_busy()) {
         ui_message("STOP TO RECORD");
         return 0;
@@ -571,8 +576,13 @@ static int rec_tap(void)                                /* 1: the arming changed
                                                          * stopped, at the cursor (CHORD ENTRY ADD: adding) */
         return 1;
     }
-    if ((song.rec & bit) && !song.playing && !seq_counting())
+    if ((song.rec & bit) && !song.playing && !seq_counting()) {
+        if (project_empty() && !cin_bars) {
+            ui_message("PLAY FREELY");                /* free take: first note starts it (seq.c) */
+            return 1;
+        }
         transport_req = 1;
+    }
     if ((song.rec & bit) && grid_on())
         ui_message("LANE KEYS RECORD");               /* (the white keys stay the steps) */
     else if ((song.rec & bit) && !ui.home && cur_page()->graph == GR_ROLL)
@@ -1611,6 +1621,8 @@ static void ui_input(void)
         b = panel_btn_of(id);
         switch (b) {
         case B_PLAY:
+            if (ft_owns_press())                        /* (it closed or dropped a free take: seq.c) */
+                break;
             if (layer_play())                           /* (GLO held: RESTART) */
                 break;
             if (song.playing || chain_busy() || seq_counting())   /* (a count-in: PLAY stops it) */
