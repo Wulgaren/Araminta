@@ -2134,10 +2134,10 @@ static int test_roll(void)
     ok = roll_diff(STRIP(3), 0) == 0 && roll_diff(STRIP(3), 1) > 20u && !ui.roll[3].from[0];
     bad += check("roll: a mid-roll frame differs from the static render inside the value strip only", ok);
 
-    /* BPM 120 -> 121 (SELECT): the header rolls, the digits 1 and 2 stay; the BPM card too (no unit:
-     * the label says BPM: set in M, it rolls like any number) */
+    /* BPM 120 -> 121 (CLOCK KNOB 1; bare SELECT is pages): the header rolls, the digits 1 and 2 stay; the BPM card
+     * too (no unit: the label says BPM: set in M, it rolls like any number) */
     ui_power_on(); roll_settle();
-    turn(EN_SELECT, 1);
+    turn(EN_K1, 1);
     ok = song.g[G_BPM] == 121 && str_eq(ui.roll[ROLL_BPM].from, "120") && ui.roll[ROLL_BPM].dir == 1 &&
          str_eq(ui.roll[0].from, "120") && ui.roll[0].dir == 1;
     frame(); frame();
@@ -2213,7 +2213,7 @@ static int test_roll(void)
         ok &= !ui.roll[3].from[0] && !ui.roll[ROLL_BPM].from[0];
     }
     ui_power_on(); roll_settle();
-    turn(EN_SELECT, 1);
+    turn(EN_K1, 1);
     ok &= ui.roll[ROLL_BPM].from[0] != 0;
     ui.force = 1; frame();
     ok &= !ui.roll[ROLL_BPM].from[0];
@@ -2223,7 +2223,7 @@ static int test_roll(void)
     /* MONO: every roll frame is gray */
     ui_power_on(); roll_settle();
     ok = 1;
-    turn(EN_SELECT, 9);
+    turn(EN_K1, 9);
     turn(EN_K4, -1);
     for (k = 0; k < ROLL_FRAMES; k++) { ok &= screen_gray(); frame(); }
     bad += check("roll: MONO roll frames are gray", ok);
@@ -7894,90 +7894,91 @@ static int test_usb_serial(void)
     return bad;
 }
 
-/* #58 MENU > BPM LOCK: OFF by default (and in every older setting): SELECT sets the tempo on every page. ON: SELECT
- * leaves it on the pages ("BPM LOCKED" once per turn burst); HOME > CLOCK's BPM knob, GLO + SELECT (a combo: the map
- * opens, no GLO page; OCT- puts it back) and GLO's F4 TAP still set it; the menu never takes SELECT as the tempo */
-static int test_bpm_lock(void)
+/* SELECT walks the current family (same cycle as tapping its button). Tempo only via GLO+SELECT and HOME > CLOCK.
+ * MENU > BPM LOCK keeps the header lock icon; it does not block tempo (SELECT is pages, not BPM). */
+static int test_select_pages(void)
 {
     int bad = 0, ok;
     int16_t b0;
-    uint32_t i, page;
+    uint32_t i, page, env0;
     ui_power_on();
     ui_prefs = 0;
     frame();
     b0 = song.g[G_BPM];
-    turn(EN_SELECT, 2);
-    ok = song.g[G_BPM] == b0 + 2 && !msg_is("BPM LOCKED") && str_eq(menu_flag(MI_BPMLOCK)->name[0], "OFF");
-    bad += check("#58 BPM LOCK OFF (the default): SELECT sets the tempo as before", ok);
+    ok = ui.home;
+    turn(EN_SELECT, 1);
+    ok &= !ui.home && str_eq(cur_page()->title, "MIXER") && song.g[G_BPM] == b0;
+    turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "CLOCK") && song.g[G_BPM] == b0;
+    turn(EN_SELECT, 1);
+    ok &= ui.home && song.g[G_BPM] == b0;
+    turn(EN_SELECT, -1);
+    ok &= !ui.home && str_eq(cur_page()->title, "CLOCK");
+    bad += check("SELECT on HOME cycles HOME > MIXER > CLOCK > HOME (no tempo)", ok);
+
+    go_title("ENV"); frame();
+    env0 = ui.page;
+    b0 = song.g[G_BPM];
+    turn(EN_SELECT, 1);
+    ok = !ui.home && cur_page()->fam == FAM_ENV && ui.page != env0 && song.g[G_BPM] == b0 &&
+         str_eq(cur_page()->title, "ENV DEST");
+    turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "ENV") && ui.page == env0;
+    turn(EN_SELECT, -1);
+    ok &= str_eq(cur_page()->title, "ENV DEST");
+    press(B_ENV);
+    ok &= str_eq(cur_page()->title, "ENV");             /* button tap matches SELECT's next */
+    bad += check("SELECT walks the ENV family like tapping ENV; bare SELECT never changes BPM", ok);
+
+    go_title("ENV"); frame();
+    page = ui.page;
+    b0 = song.g[G_BPM];
+    btn_down(B_GLO); frame();
+    turn(EN_SELECT, 3);
+    ok = song.g[G_BPM] == b0 + 3 && ui.bpm_t && ui.layer == LAYER_GLO && ui.page == page;
+    btn_up(B_GLO); frame();
+    ok &= ui.page == page && !ui.home && song.g[G_BPM] == b0 + 3;
+    ui_prefs |= PREF_BPM_LOCK;
+    btn_down(B_GLO); frame();
+    turn(EN_SELECT, -2);
+    ok &= song.g[G_BPM] == b0 + 1 && ui.bpm_t;          /* BPM LOCK ON: GLO+SELECT still sets tempo */
+    oct_back();
+    ok &= song.g[G_BPM] == b0 + 3;
+    btn_up(B_GLO); frame();
+    bad += check("GLO+SELECT sets the tempo (BPM LOCK ON or OFF; OCT- puts it back; page stays)", ok);
+
+    frames(400u);                                       /* after GLO: layer knobs quiet (#39) before CLOCK's */
+    go_title("CLOCK"); frame();
+    page_over = 0;
+    b0 = song.g[G_BPM];
+    turn(EN_K1, 1);
+    ok = str_eq(cur_page()->title, "CLOCK") && cur_page()->id[0] == G_BPM && song.g[G_BPM] == b0 + 1;
+    bad += check("HOME > CLOCK KNOB 1 sets the tempo", ok);
 
     hold(B_HOME);
     ui.menu_sel = MI_BPMLOCK;
     ui.force = 1; ui_draw();
     b0 = song.g[G_BPM];
     turn(EN_SELECT, 3);
-    ok = str_eq(MI_NAME[MI_BPMLOCK], "BPM LOCK") && ui.menu == 1u && song.g[G_BPM] == b0;   /* (the menu: no tempo) */
-    turn(EN_K1, 1); ok &= (ui_prefs & PREF_BPM_LOCK) != 0u;          /* right: ON */
-    turn(EN_K1, -1); ok &= !(ui_prefs & PREF_BPM_LOCK);              /* left: OFF */
-    press(B_OCTUP); ok &= (ui_prefs & PREF_BPM_LOCK) && ui.menu;      /* OCT+: ON */
-    press(B_OCTDN); ok &= !(ui_prefs & PREF_BPM_LOCK) && ui.menu;     /* OCT-: OFF */
+    ok = str_eq(MI_NAME[MI_BPMLOCK], "BPM LOCK") && ui.menu == 1u && song.g[G_BPM] == b0;
+    turn(EN_K1, 1); ok &= (ui_prefs & PREF_BPM_LOCK) != 0u;
+    turn(EN_K1, -1); ok &= !(ui_prefs & PREF_BPM_LOCK);
+    press(B_OCTUP); ok &= (ui_prefs & PREF_BPM_LOCK) && ui.menu;
+    press(B_OCTDN); ok &= !(ui_prefs & PREF_BPM_LOCK) && ui.menu;
     press(B_OCTUP);
-    ok &= ui_prefs == PREF_BPM_LOCK;                                  /* (no other setting moved) */
+    ok &= ui_prefs == PREF_BPM_LOCK;
     press(B_HOME);
-    bad += check("#58 MENU > BPM LOCK: KNOB 1 right / OCT+ ON, left / OCT- OFF; SELECT in the menu is no tempo", ok && !ui.menu);
+    bad += check("MENU > BPM LOCK: KNOB 1 / OCT toggle the lock icon pref; SELECT in the menu is no tempo",
+                 ok && !ui.menu);
 
-    /* ON: no tempo from SELECT on HOME and the pages; "BPM LOCKED" once per burst */
-    ok = 1;
-    for (i = 0; i < 3u; i++) {
-        if (i == 1u) go_title("ENV");
-        if (i == 2u) go_title("STEP");
-        frame();
-        ui.msg_t = 0; fm1_ms += 1200u;
-        b0 = song.g[G_BPM];
-        turn(EN_SELECT, 1);
-        ok &= song.g[G_BPM] == b0 && msg_is("BPM LOCKED") && !ui.bpm_t;
-        ui.msg_t = 0;
-        turn(EN_SELECT, -4);                                          /* (the same burst: said once) */
-        ok &= song.g[G_BPM] == b0 && !ui.msg_t;
-    }
-    fm1_ms += 1200u;
-    turn(EN_SELECT, 1);
-    ok &= msg_is("BPM LOCKED");                                       /* (a new burst: said again) */
-    ok &= text_w(&AF_S, "BPM LOCKED") <= 236 - 106;                   /* (fits the header's message zone) */
-    bad += check("#58 BPM LOCK ON: SELECT leaves the tempo on HOME and the pages, \"BPM LOCKED\" once per turn burst", ok);
-
-    /* ON: HOME > CLOCK's BPM knob (up to 1.1.5 GLO > GLOBAL's) */
-    go_home(); press(B_HOME); press(B_HOME); frame();   /* (HOME > MIXER > CLOCK) */
-    b0 = song.g[G_BPM];
-    turn(EN_K1, 1);
-    ok = str_eq(cur_page()->title, "CLOCK") && cur_page()->id[0] == G_BPM && song.g[G_BPM] == b0 + 1;
-    bad += check("#58 BPM LOCK ON: HOME > CLOCK KNOB 1 still sets the tempo", ok);
-
-    /* ON: GLO + SELECT (a quick turn: a combo, no GLO page), OCT- puts it back, F4 TAP */
-    go_title("ENV"); frame();
-    page = ui.page;
-    b0 = song.g[G_BPM];
-    ui.msg_t = 0;
-    btn_down(B_GLO); frame();
-    turn(EN_SELECT, 3);
-    ok = song.g[G_BPM] == b0 + 3 && ui.bpm_t && !msg_is("BPM LOCKED") && ui.layer == LAYER_GLO;
-    btn_up(B_GLO); frame();
-    ok &= ui.page == page && !ui.home;                                /* (no tap: still ENV) */
-    btn_down(B_GLO); frame();
-    turn(EN_SELECT, -5);
-    ok &= song.g[G_BPM] == b0 - 2;
-    oct_back();
-    ok &= song.g[G_BPM] == b0 + 3;                                    /* (OCT-: the tempo as this layer opened) */
-    btn_up(B_GLO); frame();
-    bad += check("#58 BPM LOCK ON: GLO + SELECT sets the tempo (a combo: the map, no GLO page; OCT- puts it back)",
-                 ok && ui.page == page);
     song.g[G_BPM] = 100;
     btn_down(B_GLO); frame();
     for (i = 0; i < 3u; i++) { key_down(white(7)); frame(); key_up(white(7)); frames(480); }
     ok = song.g[G_BPM] == 120;
     btn_up(B_GLO); frame();
-    bad += check("#58 BPM LOCK ON: GLO + F4 TAP still sets the tempo", ok);
+    bad += check("GLO + F4 TAP still sets the tempo", ok);
 
-    {   /* saved with the settings; settings from before it: OFF (and so again: idempotent) */
+    {   /* saved with the settings; settings from before it: OFF (idempotent) */
         persist_t p, q;
         settings_export(&p);
         ui_prefs = 0;
@@ -7989,12 +7990,12 @@ static int test_bpm_lock(void)
         ok &= settings_import(&p, (int)(sizeof p - sizeof p.favorites)) == 2 && !ui_prefs;
         q = p;
         ok &= settings_import(&q, (int)sizeof q) == 1 && !ui_prefs;
-        frame();
+        go_title("ENV"); frame();
+        page = ui.page;
         b0 = song.g[G_BPM];
-        go_home(); frame();
         turn(EN_SELECT, 1);
-        ok &= song.g[G_BPM] == b0 + 1;
-        bad += check("#58 BPM LOCK saved with the settings; settings from before it: OFF (idempotent)", ok);
+        ok &= song.g[G_BPM] == b0 && ui.page != page;                 /* SELECT: pages, not tempo */
+        bad += check("BPM LOCK saved with the settings; older settings OFF; SELECT still walks pages", ok);
     }
     ui_prefs = 0;
     ui_power_on(); frame();
@@ -8154,7 +8155,7 @@ static int test_menu_prefs(void)
     ui_power_on(); ui_prefs = PREF_ANIM_OFF; roll_settle();      /* (ui_power_on clears the favorites record) */
     turn(EN_K4, 1);
     ok &= song.g[G_TUNE] == 1 && !ui.roll[3].from[0] && roll_static_now();   /* OFF: the value at once, static */
-    turn(EN_SELECT, 1);
+    turn(EN_K1, 1);
     ok &= !ui.roll[ROLL_BPM].from[0];
     bad += check("#46 ANIM OFF: the card values and the header BPM snap (no rolling digits), the frame is static", ok);
     {   /* the piano roll's view: ON glides toward the notes over frames, OFF jumps there at once */
@@ -9613,7 +9614,7 @@ int main(void)
     bad += test_usb_level();
     bad += test_click_menu();
     bad += test_usb_serial();
-    bad += test_bpm_lock();
+    bad += test_select_pages();
     bad += test_large();
     bad += test_browse_no_pattern();
     bad += test_name();
