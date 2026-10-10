@@ -25,6 +25,7 @@ static uint32_t fm1_audio_free_half(void) { return 0; }
 static void fm1_audio_ack_half(void) {}
 static void fm1_audio_init(int32_t *b, uint32_t n, void (*isr)(void), uint32_t p)
 { (void)b; (void)n; (void)isr; (void)p; }
+static void fm1_audio_amp(int on) { (void)on; }
 void isr_alnk0(void) {}
 #define FELUCCA_UAC 1                                  /* audio.c taps USB audio: here into tap */
 static int32_t tap_blk[2 * CTL];
