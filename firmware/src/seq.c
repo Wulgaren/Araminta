@@ -888,9 +888,11 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     uint8_t nn[4 + NLANE], vv[4 + NLANE];           /* the notes it plays: its notes, then its hits */
     uint32_t m = 0, sk = 0;
     /* QNT SEQ: the step's notes (not the lane hits) snap to the scale as they play; never on a drum kit, the slices
-     * or another engine that maps the keys itself. seq_notes keeps the notes that sound: their note-offs match */
+     * or another engine that maps the keys itself. #218: TRN is a playback offset only (stored pitches stay);
+     * same kit skip as QNT SEQ. seq_notes keeps the notes that sound: their note-offs match */
     const engine_t *e = ENGINES[eng_idx(t->eng_req)];
-    uint32_t qseq = t->p[P_QUANT] == QN_SEQ && !(e->keys && e->keys(t, 0) >= 0);
+    uint32_t kit = e->keys && e->keys(t, 0) >= 0;
+    uint32_t qseq = t->p[P_QUANT] == QN_SEQ && !kit;
     if (!(skip & SEQ_REP)) {
         t->rat_left = 0;
         if ((skip & SEQ_MISS) ||
@@ -916,15 +918,20 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
             t->rat_left = (uint8_t)(hits - 1u);
     }
     for (i = 0; i < s->n && i < 4u; i++) {
-        uint32_t x = s->note[i];
-        if (qseq) {                                 /* QNT SEQ: onto the scale now; two notes snapping */
-            x = (uint32_t)clamp(scale_snap(t, (int32_t)x), 0, 127);   /* together play once */
-            for (j = 0; j < m && nn[j] != x; j++)
+        int32_t x = (int32_t)s->note[i];
+        uint32_t n;
+        if (!kit)                                   /* #218: TRN then (SEQ) onto the scale; pattern untouched */
+            x += t->p[P_TRANS];
+        if (qseq)
+            x = scale_snap(t, x);                   /* two notes snapping together play once */
+        n = (uint32_t)clamp(x, 0, 127);
+        if (qseq) {
+            for (j = 0; j < m && nn[j] != n; j++)
                 ;
             if (j < m)
                 continue;
         }
-        nn[m] = (uint8_t)x;
+        nn[m] = (uint8_t)n;
         vv[m] = (uint8_t)vel;
         sk |= ((skip >> i) & 1u) << m;
         m++;

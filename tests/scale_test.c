@@ -260,6 +260,66 @@ static void seq_quant_test(void)
     puts("scales: QNT SEQ snaps the sequence as it plays (steps unchanged), no stuck notes over scale changes, kits never");
 }
 
+/* #218: SCL TRN offsets sequencer playback only; stored step pitches stay put (QNT SNAP included) */
+static void seq_trn_test(void)
+{
+    track_t *t = &trk[0];
+    uint32_t i;
+    static const step_t STEPS[] = {
+        {.note = {60, 64}, .n = 2, .time = ST_NOTE},  /* C4 E4 */
+        {.note = {61}, .n = 1, .time = ST_NOTE},      /* C#4 */
+    };
+    memset(trk, 0, sizeof trk);
+    memset(&song, 0, sizeof song);
+    host_tracks_init();
+    song.g[G_BPM] = 120;
+    host_preset(t, 0, 0);
+    t->engine = t->eng_req = 0;
+    t->p[P_VOICE] = V_POLY;
+    t->p[P_SLEN] = (int16_t)NELEM(STEPS);
+    for (i = 0; i < NELEM(STEPS); i++)
+        t->step[i] = STEPS[i];
+    t->seq_active = 1;
+    t->p[P_SCALE] = 1;                             /* C major */
+    t->p[P_ROOT] = 0;
+    t->p[P_QUANT] = QN_SNAP;                       /* SNAP: keys snap; pattern still plays with TRN */
+    t->p[P_TRANS] = 2;                             /* +2 semitones */
+
+    seq_start();
+    events_block(CTL);
+    assert(t->seq_n == 2 && t->seq_notes[0] == 62 && t->seq_notes[1] == 66 &&
+           gated_note(t, 62) && gated_note(t, 66) && !gated_note(t, 60));
+    assert(t->step[0].note[0] == 60 && t->step[0].note[1] == 64);   /* stored unchanged */
+    t->p[P_TRANS] = 0;
+    seq_stop();
+    assert(gated(t) == 0);
+
+    t->p[P_QUANT] = QN_SEQ;                        /* SEQ: TRN then onto the scale */
+    t->p[P_TRANS] = 2;                             /* C4+2=D, E4+2=F#->F; C#4+2=D#->D */
+    seq_start();
+    events_block(CTL);
+    assert(t->seq_n == 2 && t->seq_notes[0] == 62 && t->seq_notes[1] == 65 &&
+           gated_note(t, 62) && gated_note(t, 65));
+    events_block(div_samples((uint32_t)t->p[P_SDIV]));
+    assert(t->seq_idx == 1 && t->seq_n == 1 && t->seq_notes[0] == 62 && gated_note(t, 62));
+    assert(t->step[1].note[0] == 61);
+    seq_stop();
+    for (i = 0; i < NELEM(STEPS); i++)
+        assert(!memcmp(&t->step[i], &STEPS[i], sizeof STEPS[i]));
+
+    host_preset(t, ENGI_DRUM, 0);                  /* kits: TRN does not move GM notes */
+    t->engine = t->eng_req = ENGI_DRUM;
+    t->p[P_TRANS] = 5;
+    t->p[P_QUANT] = QN_SNAP;
+    t->step[0] = (step_t){.note = {37, 39}, .n = 2, .time = ST_NOTE};
+    t->p[P_SLEN] = 1;
+    seq_start();
+    events_block(CTL);
+    assert(t->seq_n == 2 && t->seq_notes[0] == 37 && t->seq_notes[1] == 39);
+    seq_stop();
+    puts("scales: #218 TRN offsets sequence playback only (steps unchanged; kits ignore TRN)");
+}
+
 /* #191: the arp's notes from the keys follow TRN, ROOT, SCALE and QNT as they change (latched with HOLD or held),
  * the octave they were pressed in; MIDI IN's notes play as they came; with nothing changed, exactly as before */
 static uint32_t arp_seen[8];
@@ -428,6 +488,7 @@ int main(void)
     mapping_test();
     key_events_test();
     seq_quant_test();
+    seq_trn_test();
     arp_follow_test();
     return 0;
 }

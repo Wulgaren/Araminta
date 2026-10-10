@@ -12,7 +12,7 @@
  *              already; a ratcheted step on its start; every nudge 0 (older patterns) plays the same either way;
  *              the controls (1.2 pages, Discussion #153): SEQ > AUTOMATION's QUANTIZE row (KNOB 4 ON / OFF) and NUDGE
  *              rows (+ ADD NUDGE +4/16, KNOB 4 -8..+7, KNOB 2 the step, EDIT 0, SAVE held undoes; "QUANTIZE IS ON"
- *              while it is), and on STEP steps held + the PRESETS knob (let go: the cursor).
+ *              while it is). STEP steps held + PRESETS moves those steps in time (pitch stays on the NOTE knob).
  *   MOTION     128 records shared by the four tracks, all played.
  *   FORMATS    FUN10 round trip (nudges, 128 records, the four parameters), FUN9 / FUN8 / FUN7 as 1.1 / 1.0 wrote
  *              them load as before (tests/old_pack.h), a FUN9 claiming more than 64 records or a nudge bit refused, a
@@ -374,7 +374,7 @@ static int nudge(void)
     seq_stop();
     bad += check("REC into a step before its nudged play: 60 at its time, the live 67 not again (2 note-ons)", ok);
 
-    /* the controls: SEQ > AUTOMATION's QUANTIZE and NUDGE rows, STEP with steps held + PRESETS */
+    /* the controls: SEQ > AUTOMATION's QUANTIZE and NUDGE rows; STEP held + PRESETS moves notes in time */
     t = seq1(1);
     song.sel = 0;
     note_step(t, 3, 63, 0);
@@ -421,31 +421,50 @@ static int nudge(void)
         bad += check("  EDIT: back to 0 (the row goes)", ok && ev_list(rw) == n);
         t->p[P_SQNT] = 1;
     }
-    {   /* the DRUM grid on STEP: a step key held + the PRESETS knob; let go: the hit stays */
-        uint32_t k4;
+    {   /* STEP grid: held steps + PRESETS shift them in time (not NUDGE); let go: cursor again */
+        uint32_t k4, k6, cur;
         song.sel = 3;
         t = &trk[3];
         track_defaults_steps(t);
         t->p[P_SLEN] = 16;
-        t->p[P_SQNT] = 0;
+        ui.lane = 0;
         go_home();
         open_family(FAM_SEQ);
         frame();
         grid_hit(t, 4, 0, 1);
         k4 = key_at(0, 4);
-        uint32_t cur;
         fm1_in.notes |= 1u << k4; host_notes |= 1u << k4; frame();
         cur = ui.cursor;
-        turn(EN_PRESET, -1); turn(EN_PRESET, -1);
-        ok = step_nudge(&t->step[4]) == -2 && msg_is("NUDGE -2") && ui.cursor == cur;
-        fm1_in.notes &= ~(1u << k4); frame();
-        ok &= (t->step[4].hit & 1u) != 0u;
         turn(EN_PRESET, 1);
-        ok &= ui.cursor == cur + 1u && step_nudge(&t->step[4]) == -2;
-        bad += check("STEP (the grid): a step held + PRESETS: its NUDGE (-2); let go, the hit stays; alone, the cursor", ok);
-        hold(B_SAVE);
-        bad += check("  SAVE held: that turn undone (one undo), the hit kept", step_nudge(&t->step[4]) == 0 &&
-                     (t->step[4].hit & 1u) != 0u);
+        ok = (t->step[5].hit & 1u) != 0u && !(t->step[4].hit & 1u) && t->step[4].time == ST_REST &&
+             ui.cursor == cur && step_nudge(&t->step[5]) == 0;
+        fm1_in.notes &= ~(1u << k4); frame();
+        hold(B_SAVE);                                   /* undo the move */
+        ok &= (t->step[4].hit & 1u) != 0u && !(t->step[5].hit & 1u);
+        grid_hit(t, 6, 0, 1);                           /* same lane as the hold (else a press adds a hit) */
+        k4 = key_at(0, 4);
+        k6 = key_at(0, 6);
+        fm1_in.notes |= (1u << k4) | (1u << k6); host_notes |= (1u << k4) | (1u << k6); frame();
+        turn(EN_PRESET, -1);                            /* held 4 and 6: both one earlier */
+        ok &= (t->step[3].hit & 1u) != 0u && (t->step[5].hit & 1u) != 0u &&
+              !(t->step[4].hit & 1u) && !(t->step[6].hit & 1u);
+        fm1_in.notes &= ~((1u << k4) | (1u << k6)); frame();
+        cur = ui.cursor;
+        turn(EN_PRESET, 1);
+        ok &= ui.cursor == cur + 1u;                     /* alone: the cursor */
+        bad += check("STEP (the grid): held + PRESETS moves hits in time; nudge 0; alone, the cursor; SAVE undoes", ok);
+        song.sel = 0;                                   /* melodic STEP: NOTE knob still sets pitch */
+        t = &trk[0];
+        track_defaults_steps(t);
+        t->p[P_SLEN] = 16;
+        go_home();
+        open_family(FAM_SEQ);
+        frame();
+        t->step[3] = (step_t){{60}, 1, ST_NOTE, 0, 96};
+        ui.cursor = 3;
+        turn(EN_K2, 2);
+        bad += check("STEP: NOTE knob (K2) still changes pitch, not time",
+                     t->step[3].note[0] == 62u && t->step[3].time == ST_NOTE && t->step[4].time == ST_REST);
     }
     return bad;
 }
