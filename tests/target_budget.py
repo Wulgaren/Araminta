@@ -30,7 +30,7 @@ FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_re
          "perf_flanger", "perf_phaser",                     # .. FLANGER, PHASER (1.2), while held or fading
          "perf_throw",                                      # .. REV / ECHO THROW (1.5.1): per part, while held or gliding
          "rev_room", "rev_spring", "rev_hall", "rev_side_mix",   # the reverb bus (fx.c): REVERB TYPE ROOM / SPRING / HALL (and its stereo)
-         "track_insert", "ins_drive", "ins_swept"]          # the per-track INSERT (fx.c, 1.5), while a TYPE plays
+         "track_insert", "ins_run_dist", "ins_run_swept"]   # insert chain (fx.c): DIST / swept stages while MIX > 0
 # built only with FELUCCA_FM4=1 (DIGITAL, src/eng_digital.c; not in the default build, so not in BUDGET): absent,
 # they are skipped; present, checked against these (their budget lines until the engine was retired in 1.0)
 OPTIONAL = {"digital_render": 12, "digital_render_legacy": 333, "digital_render_custom": 558,
