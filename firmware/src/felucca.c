@@ -63,7 +63,7 @@
 #include "mod.c"               /* the modulation matrix, used by voice.c and fx.c */
 #include "voice.c"
 #include "slicer.c"              /* per-track SLICER insert, used by fx.c */
-#include "fx.c"
+#include "fx.c"                  /* includes perform.c and pfx.c (JIANT punch-in MIDI) */
 
 /* ------------------------------------------------- MIDI, sequencer --- */
 #include "usb.c"

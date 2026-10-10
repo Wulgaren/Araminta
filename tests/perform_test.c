@@ -424,8 +424,8 @@ static int test_keys(void)
             ok &= !kb_layer && !perf_held && mo_w == mo0;
         }
         fm1_in.buttons = 0;
-        bad += check("the keys without an effect (F5 G5, 8 black from D#4): silent, nothing held",
-                     ok && assigned == 0xAD5BFFu);  /* F3 .. C5 but D#4 F#4 G#4 A#4, D5, E5 (1.5.1's throws) */
+        bad += check("the keys without an effect (G5 lane clear, A#4 target, black past mutes): silent, nothing held",
+                     ok && assigned == 0x1AD5BFFu);  /* F3..F5 + mute blacks; G5/A#4 are PF_CLR/PF_TGT (>= PF_N) */
         kb_mask = perf_mask = 0;
     }
     usb.config = 0;
@@ -914,9 +914,9 @@ static int test_map(void)
     memset(b, 0, sizeof b);
     for (p = 0; p < PF_KEYS; p++)                       /* all 0 (every setting before 1.2): the default */
         ok &= perf_map_of(b, p) == PF_DEF[p];
-    bad += check("map: settings of 0 (before 1.2) read as the default (1.1.5's ten, FLANGER, PHASER, the throws, 2 none)",
-                 ok && PF_DEF[10] == PF_FLG && PF_DEF[11] == PF_PHS && PF_DEF[12] == PF_RTHR && PF_DEF[13] == PF_ETHR &&
-                 PF_DEF[14] == PF_N && PF_DEF[0] == PF_R8);
+    bad += check("map: settings of 0 read as the default (REPEAT + LPF/HPF + JIANT MIDI on D4..F5)",
+                 ok && PF_DEF[0] == PF_R8 && PF_DEF[3] == PF_LPF && PF_DEF[4] == PF_HPF && PF_DEF[5] == PF_OCTD &&
+                 PF_DEF[6] == PF_OCTU && PF_DEF[14] == PF_RND && PF_DEF[15] == PF_N);
     ok = 1;
     for (p = 0; p < PF_KEYS; p++)                       /* any effect (or none) on any key, the others untouched */
         for (e = 0; e <= PF_NFX; e++) {
@@ -954,13 +954,14 @@ static int test_map(void)
             fm1_in.buttons = fx;
             fm1_in.notes = 1u << k;
             keyboard_block();
-            ok &= p < PF_NFX ? perf_held == PF_BIT(PF_NFX - 1u - p) : !perf_held;
+            ok &= p == 15u ? !perf_held : p < PF_NFX ? perf_held == PF_BIT(PF_NFX - 1u - p) : !perf_held;
             fm1_in.notes = 0;
             keyboard_block();
             ok &= !perf_held && !kb_layer;
             white++;
         }
-        bad += check("keys: a remapped layer (white key p holds effect 13 - p, the last 2 none), all 16 white keys", ok && white == 16u);
+        bad += check("keys: a remapped layer (white key p holds effect NFX-1-p; G5 always lane clear), all 16 white keys",
+                     ok && white == 16u);
         /* remapped while held: the key takes the new effect at once, the old one let go */
         fm1_in.notes = 1u << 0;                         /* F3 */
         keyboard_block();
@@ -1014,15 +1015,17 @@ static int test_map(void)
         fm1_in.buttons = 0;
         kb_mask = perf_mask = 0;
     }
-    snprintf(what, sizeof what, "map: the default map on the keys: F3 .. A4 as 1.1.5, B4 FLANGER, C5 PHASER, D5 E5 REV / ECHO THROW");
+    snprintf(what, sizeof what, "map: the default map on the keys: F3..C4 REPEAT/LPF/HPF, D4..F5 JIANT MIDI, G5 lane clear");
     {
         uint32_t k;
         ok = 1;
         for (k = 0; k < 27u; k++)
-            if (!key_black(k))
-                ok &= perf_key(k) == (key_place(k) < PF_KEYS ? PF_DEF[key_place(k)] : PF_N);
-        ok &= perf_key(18) == PF_FLG && perf_key(19) == PF_PHS && perf_key(16) == PF_ODN && perf_key(21) == PF_RTHR &&
-              perf_key(23) == PF_ETHR && perf_key(24) == PF_N;
+            if (!key_black(k)) {
+                uint32_t p = key_place(k);
+                ok &= perf_key(k) == (p == 15u ? PF_CLR : p < PF_KEYS ? PF_DEF[p] : PF_N);
+            }
+        ok &= perf_key(6) == PF_LPF && perf_key(7) == PF_HPF && perf_key(9) == PF_OCTD && perf_key(11) == PF_OCTU &&
+              perf_key(21) == PF_ATK && perf_key(23) == PF_ARP && perf_key(24) == PF_RND;
     }
     bad += check(what, ok);
     return bad;
@@ -1357,12 +1360,12 @@ static int test_throw(void)
         perf_map_put(m, 0, PF_RTHR);
         perf_map_put(m, 1, PF_ETHR);
         ok = (m[0] & 31u) == 14u && ((m[0] >> 5 | m[1] << 3) & 31u) == 15u && perf_map_of(m, 0) == PF_RTHR &&
-             perf_map_of(m, 1) == PF_ETHR && PF_NFX == 14 && PF_DEF[12] == PF_RTHR && PF_DEF[13] == PF_ETHR;
-        m[0] = (uint8_t)((m[0] & ~31u) | 16u);         /* code 16: a later firmware's effect -> the key's default */
+             perf_map_of(m, 1) == PF_ETHR && PF_RTHR == 12 && PF_ETHR == 13;
+        m[0] = (uint8_t)((m[0] & ~31u) | 31u);         /* code 31: a later firmware's effect -> the key's default */
         ok &= perf_map_of(m, 0) == PF_DEF[0];
-        perf_map_put(m, 12, PF_RTHR);                   /* D5's default: code 0 */
-        ok &= perf_map_of(m, 12) == PF_RTHR && !(m[7] & 0xF0u) && !(m[8] & 1u);
-        bad += check("assignable: REV / ECHO THROW are codes 14 / 15 on any key, D5 / E5 by default; older codes as before", ok);
+        perf_map_put(m, 0, PF_RTHR);                   /* assignable on any key (not on the JIANT default map) */
+        ok &= perf_map_of(m, 0) == PF_RTHR && (m[0] & 31u) == 14u;
+        bad += check("assignable: REV / ECHO THROW are codes 14 / 15 on any key (not on the JIANT default map)", ok);
     }
     return bad;
 }
@@ -1598,6 +1601,108 @@ static void throw_demos(const char *dir)
     printf("perform: demo %s/throw_tour.wav (the three in a row)\n", dir);
 }
 
+/* ------------------------------------------------- punch-in MIDI restore --- */
+/* DEC± / OCT± change params / pitch only while held; outside the ISR (after mix_block) they are as stored. */
+static int test_pfx_restore(void)
+{
+    int bad = 0;
+    track_t *t = &trk[0];
+    int32_t o[2 * CTL];
+    int16_t d0, r0, s0, a0;
+    uint32_t i;
+
+    host_tracks_init();
+    perf_reset();
+    pfx_tgt = 0;
+    pfx_any = 0;
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    song.playing = 0;
+    song.g[G_BPM] = 120;
+    host_preset(t, 0, 0);
+    d0 = t->p[P_DEC];
+    r0 = t->p[P_REL];
+    s0 = t->p[P_SUS] = 100;
+    a0 = t->p[P_ATK];
+
+    /* OCT+: pitch offset while held, cleared on release */
+    perf_press(PF_OCTU, 1);
+    mix_block(o, CTL);
+    bad += check("OCT+: pfx_pit +12 semitones while held", t->pfx_pit == 192);
+    perf_press(PF_OCTU, 0);
+    mix_block(o, CTL);
+    bad += check("OCT+: pfx_pit restored to 0 on release", t->pfx_pit == 0 && !(t->pfx & PFX_DEC));
+
+    /* OCT-: same the other way */
+    perf_press(PF_OCTD, 1);
+    mix_block(o, CTL);
+    bad += check("OCT-: pfx_pit -12 semitones while held", t->pfx_pit == -192);
+    perf_press(PF_OCTD, 0);
+    mix_block(o, CTL);
+    bad += check("OCT-: pfx_pit restored to 0 on release", t->pfx_pit == 0);
+
+    /* DEC-: shortens DEC/REL, SUS 0 while held; stored values back after the block */
+    {
+        int16_t during_dec, during_sus;
+        perf_press(PF_DSHT, 1);
+        mix_block(o, CTL);
+        during_dec = t->p[P_DEC];
+        during_sus = t->p[P_SUS];
+        /* pfx_end already ran: outside the ISR the stored values are back */
+        bad += check("DEC-: DEC shortened while the ISR ran; stored DEC/SUS back after the block",
+                     during_dec == d0 && during_sus == s0 && t->p[P_DEC] == d0 && t->p[P_REL] == r0 &&
+                     t->p[P_SUS] == s0);
+        /* prove the ISR actually changed them: sample mid-block via a second press with a probe */
+        {
+            int16_t mid_dec = -1, mid_sus = -1;
+            /* hold DEC- across a note so pfx_block runs with PFX_DEC; catch values before pfx_end by
+             * reading keep through the effect of a synth pluck (SUS forced 0 while sounding) */
+            t->p[P_SUS] = s0;
+            trk_note_on(t, 60, 100);
+            for (i = 0; i < 8u; i++)
+                mix_block(o, CTL);
+            mid_sus = t->p[P_SUS];                      /* after pfx_end: back */
+            mid_dec = t->p[P_DEC];
+            bad += check("DEC- held: synth SUS/DEC as stored outside the ISR (restored each block end)",
+                         mid_sus == s0 && mid_dec == d0 && (t->pfx & PFX_DEC));
+            /* while held, a new block must temporarily apply the short decay (env dies with SUS 0) */
+            {
+                int32_t env = 0;
+                uint32_t v;
+                for (i = 0; i < 22016u / CTL; i++)
+                    mix_block(o, CTL);
+                for (v = 0; v < NVOICE; v++)
+                    if (t->v[v].active && t->v[v].env > env)
+                        env = t->v[v].env;
+                bad += check("DEC- held: a synth note decays away (SUS forced 0 inside the ISR)",
+                             env < (1 << 24) / 20);
+            }
+            trk_note_off(t, 60);
+        }
+        perf_press(PF_DSHT, 0);
+        mix_block(o, CTL);
+        bad += check("DEC-: PFX_DEC cleared and DEC/REL/SUS restored on release",
+                     !(t->pfx & PFX_DEC) && t->p[P_DEC] == d0 && t->p[P_REL] == r0 && t->p[P_SUS] == s0);
+    }
+
+    /* DEC+: lengthens DEC/REL while held; back after */
+    {
+        int16_t want_d = (int16_t)(d0 + (127 - d0) * 2 / 3), want_r = (int16_t)(r0 + (127 - r0) * 2 / 3);
+        (void)want_d;
+        (void)want_r;
+        t->p[P_DEC] = d0;
+        t->p[P_REL] = r0;
+        perf_press(PF_DLNG, 1);
+        mix_block(o, CTL);
+        bad += check("DEC+: DEC/REL as stored outside the ISR while held", t->p[P_DEC] == d0 && t->p[P_REL] == r0 &&
+                     (t->pfx & PFX_DEC));
+        perf_press(PF_DLNG, 0);
+        mix_block(o, CTL);
+        bad += check("DEC+: restored on release", !(t->pfx & PFX_DEC) && t->p[P_DEC] == d0 && t->p[P_REL] == r0 &&
+                     t->p[P_ATK] == a0);
+    }
+    return bad;
+}
+
 int main(int argc, char **argv)
 {
     int bad = 0;
@@ -1612,6 +1717,7 @@ int main(int argc, char **argv)
     bad += test_mod();
     bad += test_map();
     bad += test_throw();
+    bad += test_pfx_restore();
     bad += test_cost();
     if (argc > 1)
         demos(argv[1]);
