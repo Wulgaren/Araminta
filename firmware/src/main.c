@@ -184,7 +184,8 @@ static void fm1_main(void)
     timer5_start();
     fm1_guard_lock_top();
     fm1_irq_enable_all();
-    fm1_delay_ms(30);
+    fm1_delay_ms(30);                         /* DMA zeros into the codec while the amp is still muted */
+    audio_amp_on();                           /* PC6 on, then the soft-start ramp (audio.c / fx.c) */
     if ((fm1_in.buttons & 3u) == 3u) {
         panel_setup();                        /* OCT- + OCT+ held at power-on */
         settings_save();

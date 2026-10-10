@@ -52,6 +52,7 @@ static uint32_t fm1_audio_free_half(void) { return web_half; }
 static void fm1_audio_ack_half(void) {}
 static void fm1_audio_init(int32_t *buf, uint32_t words, void (*isr)(void), uint32_t prio)
 { (void)buf; (void)words; (void)isr; (void)prio; }
+static void fm1_audio_amp(int on) { (void)on; }
 static void fm1_audio_stop(void) {}
 void isr_alnk0(void) {}
 #include "../../firmware/src/audio.c"
@@ -266,6 +267,7 @@ static void web_power_on(void)
     master_boot();                        /* main.c (#137): the pot's level from the first block */
     kb_boot_hold = 1;                     /* main.c (#137): the keys silent under the splash */
     audio_init();
+    audio_amp_on();                       /* main.c: after the muted settle (no real amp here) */
     boot_leds();                          /* main.c: the power-on LED sweep, from the scan's start */
     autosave_boot(boot_clean);            /* main.c: the last session's music (1.2, project.c) */
     web_boot_ms = fm1_ms + 430u;         /* main.c: 30 + 400 ms before the first frame */

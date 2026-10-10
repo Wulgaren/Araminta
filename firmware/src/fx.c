@@ -624,6 +624,37 @@ typedef struct {
 } ins_t;
 static ins_t ins[NTRK] __attribute__((section(".pool")));
 
+/* Power-on (audio.c audio_init): the chorus and delay buses always read their lines into the wet mix
+ * (fx_buses), even with every track send at 0 and CHORUS DEPTH 0 (a fixed tap). Garbage in those lines, or
+ * in the reverb, is a loud click on the first blocks. The pool is zeroed in fm1_cstart; clear again here and
+ * match fx.rtype to G_RTYPE (HALL by default since 1.2) so the first block does not rev_switch. boot_fade
+ * stays at 0 until audio_amp_on (main.c) starts a ~20 ms ramp (audio.c audio_block). */
+static uint16_t boot_fade = 32768;           /* Q15 out gain; 32768 = full (host tests that skip audio_init) */
+static uint8_t boot_fade_run;                /* 1: ramp boot_fade up (after the amp is on) */
+#define BOOT_FADE_STEP 37                    /* ~20 ms: 32768 / (0.02 * FS) */
+static void fx_boot(void)
+{
+    uint32_t i;
+    int32_t rt;
+    memset(dly_buf, 0, sizeof dly_buf);
+    memset(cho_buf, 0, sizeof cho_buf);
+    rev_clear();
+    memset(&fx, 0, sizeof fx);
+    memset(&hl, 0, sizeof hl);
+    memset(ins, 0, sizeof ins);
+    for (i = 0; i < NTRK; i++)
+        trk[i].ins_run = 0;
+    dc_l = dc_r = dce_l = dce_r = 0;            /* master_out: a prior spike must not settle audibly at unmute */
+    lc_l1 = lc_l2 = lc_r1 = lc_r2 = 0;
+    memset(lce, 0, sizeof lce);
+    lim_env = LIM_T;
+    sb_lp1 = sb_lp2 = sb_lp3 = sb_lp4 = sb_env = sb_h1 = sb_h2 = sb_hl = 0;
+    rt = song.g[G_RTYPE];
+    fx.rtype = (uint8_t)(rt == 1 || rt == 2 ? rt : 0);
+    boot_fade = 0;
+    boot_fade_run = 0;
+}
+
 static inline int32_t ins_mixq(int32_t m) { return m >= 127 ? 32768 : m <= 0 ? 0 : m * 258; }   /* MIX -> Q15 */
 /* the one-pole low-pass (topology-preserving) coefficient of cutoff index c, Q16: G = g / (1 + g), g = tan(pi fc / FS) */
 static int32_t ins_lpk(int32_t c)

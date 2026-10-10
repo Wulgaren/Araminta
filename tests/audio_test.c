@@ -18,6 +18,7 @@ static uint32_t fm1_audio_free_half(void) { return host_dma_advanced && host_hal
 static void fm1_audio_ack_half(void) { host_acks++; }
 static void fm1_audio_init(int32_t *b, uint32_t n, void (*isr)(void), uint32_t p)
 { (void)b; (void)n; (void)isr; (void)p; }
+static void fm1_audio_amp(int on) { (void)on; }
 void isr_alnk0(void) {}
 #define FELUCCA_UAC 1                                  /* audio.c taps USB audio: here into host_tap */
 static int32_t host_tap[2 * 64];
@@ -268,11 +269,66 @@ static void boot_keys(void)
           ref > 100.0 && fabs(quiet - ref) < 1e-9 && silent == 0.0);
 }
 
+/* Startup click (P1-H): chorus/delay always read their lines (fx_buses), so garbage there is a loud first-block
+ * pop even with every send at 0. fx_boot clears them and holds boot_fade at 0 until audio_amp_on. */
+static uint32_t boot_peak(uint32_t blocks)
+{
+    int32_t out[2 * CTL];
+    uint32_t b, i, peak = 0;
+    for (b = 0; b < blocks; b++) {
+        audio_block(out, CTL);
+        for (i = 0; i < 2u * CTL; i++) {
+            uint32_t a = (uint32_t)(out[i] < 0 ? -out[i] : out[i]);
+            if (a > peak)
+                peak = a;
+        }
+    }
+    return peak;
+}
+static void boot_click(void)
+{
+    uint32_t i, dirty, clean, muted, early, late;
+    boot_fresh();
+    for (i = 0; i < G_COUNT; i++)
+        song.g[i] = GP[i].def;
+    for (i = 0; i < NPART; i++)
+        host_preset(&trk[i], TRK_DEF[i][0], TRK_DEF[i][1]);
+    song.master_q12 = 4096;
+    kb_boot_hold = 1;
+    memset(dly_buf, 0x7F, sizeof dly_buf);
+    memset(cho_buf, 0x7F, sizeof cho_buf);
+    memset(rev_comb, 0x7F, sizeof rev_comb);
+    dirty = boot_peak(4);
+    fx_boot();                                         /* lines + master DC state; soft-start held at 0 */
+    muted = boot_peak(8);
+    audio_amp_on();
+    early = boot_peak(2);
+    late = boot_peak(80);
+    boot_fresh();
+    for (i = 0; i < G_COUNT; i++)
+        song.g[i] = GP[i].def;
+    for (i = 0; i < NPART; i++)
+        host_preset(&trk[i], TRK_DEF[i][0], TRK_DEF[i][1]);
+    song.master_q12 = 4096;
+    kb_boot_hold = 1;
+    fx_boot();
+    audio_amp_on();
+    clean = boot_peak(100);
+    printf("audio: boot click: dirty peak %u, after fx_boot muted %u, soft-start early %u late %u, clean %u\n",
+           dirty, muted, early, late, clean);
+    check("boot click: garbage in chorus/delay/reverb lines is loud before fx_boot", dirty > 100000u);
+    check("boot click: fx_boot clears the lines and holds the soft-start at silence until audio_amp_on",
+          muted == 0u);
+    check("boot click: after audio_amp_on the soft-start stays quiet on a silent boot (clean lines)",
+          early == 0u && late == 0u && clean == 0u);
+}
+
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
     usb_level();
     boot_keys();
+    boot_click();
     overload(); dma();
     printf(bad ? "audio: %d FAILED\n" : "audio: all passed\n", bad);
     return bad != 0;
