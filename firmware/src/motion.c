@@ -37,7 +37,8 @@ static int motion_param(uint32_t id)
      * changes never become automation. FX sends and continuous mix are safe. */
     return id < P_COUNT && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
         (id >= P_DIST && id <= P_REV) || id == P_GLIDE || id == P_PAN ||
-        id == P_DETUNE || (id >= P_FM1_ATK && id <= P_FM4_LEVEL) || (id >= P_LN0 && id <= P_LN7) ||
+        id == P_DETUNE || (id >= P_SLPAT && id <= P_SLDEPTH) ||   /* #222: SLICER pattern / rate / depth (not MODE) */
+        (id >= P_FM1_ATK && id <= P_FM4_LEVEL) || (id >= P_LN0 && id <= P_LN7) ||
         id == P_SPRD || (id >= P_ITYPE && id <= P_IMIX) || id >= P_E0);   /* (not the chord keys, nor 1.2's LFO SYNC TRIG
                                         * POL and QUANTIZE, nor 1.5's filter TYPE and ENV SYNC: settings; the DRUM lane
                                         * levels, SPREAD (#148: continuous, as PAN), 1.5's INSERT (TYPE too: a lock

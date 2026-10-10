@@ -33,6 +33,8 @@ static int motion_recording(void)
     bad += check("only the selected track captures knob motion", motion_count(&trk[1]) == 0u);
     bad += check("transport and engine-switch parameters cannot be captured", !motion_param(P_SLEN) && !motion_param(P_AMODE) &&
         motion_set_event(t, 0, P_SLEN, 8) == 1);
+    bad += check("#222 SLICER pattern / rate / depth are automatable (not MODE)",
+        motion_param(P_SLPAT) && motion_param(P_SLRATE) && motion_param(P_SLDEPTH) && !motion_param(P_SLCR));
     seq_stop(); motion_clear(t);
     t->p[P_REV] = 42; song.rec = 1; seq_start(); seq_tick(t, CTL);
     motion_clear(t); t->p[P_REV] = 70; motion_capture(t, P_REV, 70); seq_stop();
@@ -826,13 +828,41 @@ static int auto_list(void)
     bad += check("  KNOB 3's list: what motion records and the sound has (no OP ENV, no DRUM lanes off DRUM)", i == P_COUNT &&
         ev_id_ok(&trk[3], P_LN0));
     {
-        char a[12], b[12];
-        ev_name(t, P_ED_FLT, a); ev_name(t, P_LD_FLT, b);
-        bad += check("  names: ENV FLT / LFO FLT", str_eq(a, "ENV FLT") && str_eq(b, "LFO FLT"));
+        char a[12], b[12], c[12];
+        ev_name(t, P_ED_FLT, a); ev_name(t, P_LD_FLT, b); ev_name(t, P_SLRATE, c);
+        bad += check("  names: ENV FLT / LFO FLT / SL RATE",
+            str_eq(a, "ENV FLT") && str_eq(b, "LFO FLT") && str_eq(c, "SL RATE"));
     }
     ui_prefs |= PREF_LARGE;
     bad += check("  MENU > LARGE: the list layout with labels in M (as the other lists)", large_kind() == LK_LABEL);
     ui_prefs &= ~PREF_LARGE;
+    /* #223: PARAM opens a grouped full-screen list; ENV DEST / LFO DEST use GR_DESTS */
+    ui.ev_row = 0xFFFFu;                                 /* + ADD */
+    ui.ev_id = (uint8_t)P_LEVEL;
+    ui.ev_step = 0;
+    turn(EN_K3, 1);
+    bad += check("#223 AUTOMATION PARAM: grouped pick list opens", ui.pick == PK_AUTO && pk_n > 8u &&
+        pk_is_item(pk_cur));
+    {
+        uint32_t i, groups = 0, found = 0;
+        for (i = 0; i < pk_n; i++) {
+            groups += pk_rows[i].id == PK_GROUP;
+            if (pk_rows[i].id == P_SLRATE && str_eq(pk_rows[i].name, "SLICER RATE"))
+                found = 1;
+        }
+        bad += check("#223 pick list has group headers and full name SLICER RATE", groups >= 3u && found);
+    }
+    turn(EN_K1, -1);
+    bad += check("#223 leaving the row closes the pick list", !ui.pick);
+    {
+        uint32_t i, n = 0;
+        for (i = 0; i < NPAGES; i++)
+            if (str_eq(PAGES[i].title, "ENV DEST") || str_eq(PAGES[i].title, "LFO DEST")) {
+                bad += check(PAGES[i].title, PAGES[i].graph == GR_DESTS);
+                n++;
+            }
+        bad += check("#223 ENV DEST and LFO DEST both use GR_DESTS", n == 2u);
+    }
     return bad;
 }
 int main(void)
