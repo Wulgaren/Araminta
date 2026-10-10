@@ -1057,14 +1057,14 @@ static int drum_kit_retired(void)
     request(ED_SET, a, 4);
     a[0] = 0; a[1] = P_E0;
     request(ED_DESC, a, 2);
-    {   /* scope, id, fmt, min, max, def (v14 each), "KIT", "", then the 9 names */
+    {   /* scope, id, fmt, min, max, def (v14 each), "KIT", "", then the 10 names */
         const char *n = (const char *)host_wire + 5 + 3 + 6;
-        static const char *const WANT[9] = {"STD", "66", "10", "77", "80", "10", "66", "55", "77"};
+        static const char *const WANT[10] = {"STD", "66", "10", "77", "80", "10", "66", "55", "77", "78"};
         n += strlen(n) + 1; n += strlen(n) + 1;
-        for (i = 0; i < 9u; i++, n += strlen(n) + 1)
+        for (i = 0; i < 10u; i++, n += strlen(n) + 1)
             ok &= !strcmp(n, WANT[i]);
     }
-    bad += check("DESC of DRUM KIT: STD 66 10 77 80 10 66 55 77 (1..3 as the kits they play)", ok);
+    bad += check("DESC of DRUM KIT: STD 66 10 77 80 10 66 55 77 78 (1..3 as the kits they play)", ok);
     for (r = 1, ok = ed_eng(TSEL) == ENGI_DRUM; r < 4u; r++) {
         uint32_t u = r + 8192u;
         a[0] = 0; a[1] = P_E0; a[2] = u & 127u; a[3] = u >> 7;

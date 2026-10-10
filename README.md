@@ -120,7 +120,7 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
   small mark. These are the values AUTOMATION lists (EDIT there still deletes a row): nothing new is stored.
 - **MIDI Program Change** (PR #179 by [renebohne](https://github.com/renebohne)): a Program Change on a track's
   channel (routed as notes by MENU > MIDI > MIDI IN) loads that track's sound, numbered from 0 as PRESETS lists
-  the engine's sounds. DRUM: its kits (0–5: STD, 80, 10, 66, 55, 77). FM6: 0–7 its presets (F1–F8), 8–39 the voice
+  the engine's sounds. DRUM: its kits (0–6: STD, 80, 10, 66, 55, 77, 78). FM6: 0–7 its presets (F1–F8), 8–39 the voice
   bank's B1–B32 that hold a voice. A number past the last is ignored; the engine never changes. SAVE held undoes it.
 - **Dotted delay times:** the DLY page's TIME has **1/4D, 1/8D and 1/16D**, and the knob steps them by length
   (… 1/2, 1/4D, 1/4, 1/8D, 1/8, 1/16D, 8T …). The delay holds 1.49 s, so 1/4D is held to that at 60 BPM and below.
