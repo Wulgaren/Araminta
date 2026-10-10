@@ -11,7 +11,7 @@
 enum { CAT_NONE, CAT_BASS, CAT_LEAD, CAT_PAD, CAT_PLUCK, CAT_KEYS, CAT_DRUM, CAT_FX, CAT_OTHER, CAT_N };
 static const char *const CAT_NAME[CAT_N] = {"-", "BASS", "LEAD", "PAD", "PLUCK", "KEYS", "DRUM", "FX", "OTHER"};
 /* the category a sound without one is listed under: a kit (DRUM, SLICE: engines 10, 13) DRUM, any other OTHER */
-static uint32_t cat_of_engine(uint32_t e) { return e == 10u || e == 13u ? CAT_DRUM : CAT_OTHER; }
+static uint32_t cat_of_engine(uint32_t e) { return e == 10u ? CAT_DRUM : CAT_OTHER; }
 
 #ifndef UP_HOST
 /* the factory presets' categories: per engine number (engines.c ENGINES[]), a letter per preset in its order (B BASS,
@@ -24,17 +24,17 @@ static const char *const PRESET_CAT[16] = {
     "",                          /* 1 DIGITAL (retired) */
     "LKPLUU",                    /* 2 PHASE: BRASS, ORGAN, STRING, RESO, BELL, WIRE */
     "LBLLL",                     /* 3 LOFI: PULSE LD, WAVE BASS, ARP 8BIT, WAVE LEAD, STEP LEAD */
-    "KKLL",                      /* 4 SAMPLE: PIANO, (PIANO: the retired TRANH's alias), FLUTE, SAX */
+    "",                          /* 4 SAMPLE (retired) */
     "PLBF",                      /* 5 VOICE: CHOIR AAH, VOX LEAD, WOW BASS, WHISPER */
     "BLLUP",                     /* 6 TRIO: FAT BASS, ARP LEAD, SYNC LEAD, RING BELL, CHIP CHOIR */
     "KKKKK",                     /* 7 WHEEL: the organs */
-    "PFPP",                      /* 8 GRAIN: CLOUD PAD, GLITCH, FROZEN, SHIMMER */
+    "",                          /* 8 GRAIN (retired) */
     "UUUPUDDPU",                 /* 9 PHYS: BELL TREE, MARIMBA, PLUCK, BOWED METAL, KALIMBA, HAND DRUM, TOMS, DRONE
                                   * STRING, HARP */
     "D",                         /* 10 DRUM: DRUM KIT */
-    "FFFF",                      /* 11 NOISE: WIND, RAIN, ARCADE, METAL */
+    "",                          /* 11 NOISE (retired) */
     "KUBLPUKU",                  /* 12 FM6: TINE EP, BELL, FM BASS, BRASS, PAD, MARIMBA, ORGAN, PLUCK */
-    "DD",                        /* 13 SLICE: CHOP, STUTTER */
+    "",                          /* 13 SLICE (retired) */
 };
 static uint32_t preset_cat(uint32_t e, uint32_t k)    /* factory preset k of engine e */
 {

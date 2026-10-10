@@ -53,8 +53,8 @@ async function editorMock() {
   inp.onmidimessage = (e) => link.receive(e.data);
   const rq = async (r, o) => link.request(r, o);
   const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
-  ok(info.nengines === 14 && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "SLICE"
- && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "GRAIN" && info.engines[9] === "PHYS" && info.engines[10] === "DRUM" && info.engines[11] === "NOISE" && info.pcount === 111 && info.pe0 === 103 && info.engines[4] === "SAMPLE",
+  ok(info.nengines === 14 && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "-"
+ && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "-" && info.engines[9] === "PHYS" && info.engines[10] === "DRUM" && info.engines[11] === "-" && info.pcount === 111 && info.pe0 === 103 && info.engines[4] === "-",
     "editor: INFO");
   let descs = 0;
   for (let i = 0; i < info.pcount; i++) if (E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))).label) descs++;
@@ -158,7 +158,7 @@ async function editorMock() {
   ok(!prefs.favorites[info.nengines][31] && !E.devicePresetRows(info, names, prefs).some((r) => r.user), "editor: erased slot disappears and loses star");
   {   /* the lists in the device's order (engines.c ENGINE_ORDER): FM6 second, DRUM last, "-" never; the numbers stay */
     const shown = E.engineOrder(info.engines).map((i) => info.engines[i]);
-    ok(shown.join() === "ANALOG,FM6,PHASE,LOFI,SAMPLE,VOICE,TRIO,WHEEL,GRAIN,PHYS,NOISE,SLICE,DRUM" &&
+    ok(shown.join() === "ANALOG,FM6,PHASE,LOFI,VOICE,TRIO,WHEEL,PHYS,DRUM" &&
        E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines)[12] === 10,
        "editor: engines listed FM6 second, DRUM last (indices kept)");
     ok(E.engineOrder(["ANALOG", "X", "-", "DRUM", "FM6"]).join() === "0,4,3,1", "editor: an unknown engine follows the known ones");
@@ -307,18 +307,14 @@ async function editorSamplePresets() {
   const { m, rq, done } = attachMock();
   const info = E.parse[C.INFO](await rq(E.req.info()));
   const names = E.parse[C.NAMES](await rq(E.req.names(4)));
-  await rq(E.req.preset(4, 0));
-  const set = E.parse[C.DESC](await rq(E.req.desc(0, info.pe0)));
-  ok(eq(names.names, ["PIANO", "PIANO", "FLUTE", "SAX"]) && eq(set.names.slice(0, 4), ["PIANO", "PIANO", "FLUTE", "SAX"])
-    && set.names[4] === "PIANO" && eq(set.names.slice(5), ["USR1", "USR2", "USR3"]),
-    "SAMPLE: TRANH and PERC removed, SET 1 and 4 kept as PIANO aliases, indices unchanged");
-  ok(E.aliasOf(names.names, 1) === 0 && E.aliasOf(names.names, 2) === 2 && E.aliasOf(set.names, 5) === 5 &&
-     E.aliasOf(set.names, 4) === 0, "SAMPLE: an entry named like an earlier one is an alias of it");
-  const alias = E.parse[C.PRESET](await rq(E.req.preset(4, 1)));
-  const setAlias = E.parse[C.SET](await rq(E.req.set(0, info.pe0, 1)));
-  const setPerc = E.parse[C.SET](await rq(E.req.set(0, info.pe0, 4)));
-  ok(alias.preset === 0 && setAlias.value === 0 && setPerc.value === 0,
-    "SAMPLE: preset 1 and SET 1 / 4 (once TRANH, PERC) land on PIANO");
+  ok(info.engines[4] === "-" && !names.names.length && names.titles.join() === "-,-",
+    "SAMPLE retired: engine 4 reserved (\"-\", no presets)");
+  const grain = E.parse[C.NAMES](await rq(E.req.names(8)));
+  const noise = E.parse[C.NAMES](await rq(E.req.names(11)));
+  const slice = E.parse[C.NAMES](await rq(E.req.names(13)));
+  ok(info.engines[8] === "-" && info.engines[11] === "-" && info.engines[13] === "-" &&
+     !grain.names.length && !noise.names.length && !slice.names.length,
+    "GRAIN / NOISE / SLICE retired: reserved \"-\", no presets");
   await rq(E.req.preset(10, 0));
   const kitD = E.parse[C.DESC](await rq(E.req.desc(0, info.pe0)));
   const kitSet = [];
@@ -328,27 +324,14 @@ async function editorSamplePresets() {
      eq(E.enumShown(kitD).filter((v) => E.aliasOf(kitD.names, v) === v).map((v) => kitD.names[v]), ["STD", "80", "10", "66", "55", "77"]) &&
      eq(kitSet, [6, 5, 8]),
     "DRUM: KIT 1..3 (once HAND CYM H+CYM) named 66 10 77, aliases of 6 5 8: hidden, a SET lands there");
+  /* PRESET of retired SAMPLE: mock remaps like firmware (ANALOG; PERC SET 4 -> DRUM) */
+  m.state.engine = 4;
+  m.state.p[info.pe0] = 4;
   const removed = E.parse[C.PRESET](await rq(E.req.preset(4, 4)));
   const kit = E.parse[C.DUMP](await rq(E.req.dump()), info);
-  ok(removed.engine === 10 && removed.preset === 0 && kit.engine === 10 && eq(kit.p.slice(info.pe0), E.DRUM_KIT_E),
-    "SAMPLE: factory preset 4 (once PERC) loads DRUM's kit");
-  await rq(E.req.preset(4, 0));
-  m.state.p[info.pe0] = 4;                        /* an old PERC sound (SET 4, no loop: the editor cannot set it now) */
-  m.state.p[info.pe0 + 3] = 0;
-  await rq(E.req.stepSet(5, { n: 1, notes: [42, 0, 0, 0], time: 0, flags: 1, vel: 99 }));
-  m.state.preset = 4;                             /* a project written before the factory preset was removed */
-  const sound = [...m.state.p], steps = JSON.stringify(m.state.step);
-  await rq(E.req.project(1, 2), { timeout: 4000, retries: 0 });
-  await rq(E.req.preset(4, 0));
-  await rq(E.req.stepSet(5, emptyStep));
-  await rq(E.req.project(0, 2), { timeout: 4000, retries: 0 });
-  const loaded = E.parse[C.DUMP](await rq(E.req.dump()), info);
-  const tracks = E.parse[C.TRACK](await rq(E.req.track()));
-  ok(loaded.engine === 10 && loaded.preset === 0 && tracks.tracks[0].engine === 10 && tracks.tracks[0].preset === 0
-    && eq(loaded.p.slice(0, info.pe0), sound.slice(0, info.pe0)) && eq(loaded.p.slice(info.pe0), E.DRUM_KIT_E)
-    && JSON.stringify(m.state.step) === steps,
-    "SAMPLE: old PERC project loads as DRUM's kit, the rest of the sound and the steps kept");
-  if (E.parseMotionAll) {   /* 1.2 (FUN10): 128 motion records; MOTION op 8 lists all, the other ops as before (max 64) */
+  ok((removed.engine === 10 || removed.engine === 0) && kit.engine !== 4,
+    "SAMPLE retired: PRESET / DUMP never leave the track on engine 4");
+  if (E.parseMotionAll) {
     let rc = 0;
     for (let i = 0; i < 70; i++)
       rc |= E.parse[C.MOTION](await rq(E.req.motion(1, 3, { step: i % 64, param: i < 64 ? 36 : 35, value: i }))).rc;
@@ -553,8 +536,7 @@ async function editorFm4() {
     L.set(entry(), { keys, engines: info.engines });       /* (adopted before: the layout is the device's already) */
     await L.libAdopt(dv);
     ok(isFm6(L.lib()[0], pad) && L.written().length === 1, "library: .. also when the layout is unchanged (only those written)");
-    /* SAMPLE PERC (SET 4, retired after 1.0.2): libAdopt and a library file give DRUM's kit, the rest of the sound kept;
-       another SAMPLE set stays; adopted again: nothing to write */
+    /* SAMPLE retired: PERC -> DRUM kit; other SAMPLE -> ANALOG (fromRetire) */
     const perc = base.slice(); perc[PE] = 4; perc[PE + 3] = 0; perc[0] = 77; perc[36] = 41;
     const flute = base.slice(); flute[PE] = 2;
     const isKit = (r) => r && r.engine === 10 && r.engineName === "DRUM" && eq(r.p.slice(0, PE), perc.slice(0, PE)) &&
@@ -565,17 +547,18 @@ async function editorFm4() {
     L.set(sm(), { keys, engines: info.engines });
     await L.libAdopt(dv);
     const [c1, e1] = L.lib();
-    ok(isKit(c1) && c1.id === "c" && c1.tags.join() === "d" && e1.engine === 4 && eq(e1.p, flute) &&
-      L.written().length === 1 && L.written()[0] === c1, "library: libAdopt turns its SAMPLE PERC sounds into DRUM's kit");
+    ok(isKit(c1) && c1.id === "c" && c1.tags.join() === "d" && e1.engine === 0 && e1.engineName === "ANALOG" &&
+      L.written().length === 2, "library: libAdopt SAMPLE PERC->DRUM, other SAMPLE->ANALOG");
     await L.libAdopt(dv);
-    ok(isKit(L.lib()[0]) && L.written().length === 1, "library: .. adopted again: as it is (nothing more written)");
+    ok(isKit(L.lib()[0]) && L.lib()[1].engine === 0 && L.written().length === 2,
+      "library: .. adopted again: as it is");
     const fileP = { format: "felucca-library", version: 1, kind: "library", pCount: PC, pE0: PE, paramLabels: keys,
       engines: info.engines, patches: [{ name: "OLD PERC", engine: 4, engineName: "SAMPLE", params: perc, pattern: null, tags: [] },
         { name: "FLUTE", engine: 4, engineName: "SAMPLE", params: flute, pattern: null, tags: [] }] };
     const rp = E.readLibraryFile(fileP, ctx).patches;
     const one = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: 4, engineName: "SAMPLE", p: perc }, ctx).patches[0];
-    ok(isKit(rp[0]) && rp[1].engine === 4 && eq(rp[1].p, flute) && isKit(one),
-      "library file: a SAMPLE PERC patch imports as DRUM's kit (a single-patch file too)");
+    ok(isKit(rp[0]) && rp[1].engine === 0 && isKit(one),
+      "library file: SAMPLE PERC->DRUM, other SAMPLE->ANALOG");
   }
   /* put to the device: its DIGITAL values as engine 1 (the device converts them on load); read back as FM6 */
   let rc = await E.bank.put(rq, 9, { ...r91, engine: 1, p: r91.fm4 });

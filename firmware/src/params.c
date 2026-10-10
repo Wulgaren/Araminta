@@ -72,11 +72,8 @@ static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", 
 static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY", "REV", "RATE",
                                      "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH",
                                      "PAT", "SRATE", "SDEP"};
-static const char *const N_ENGNAME[] = {"ANALOG", FELUCCA_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS",
-                                             "DRUM", "NOISE", "FM6",
-#if FELUCCA_SLICE
-                                             "SLICE",
-#endif
+static const char *const N_ENGNAME[] = {"ANALOG", FELUCCA_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", "-", "VOICE", "TRIO", "WHEEL", "-", "PHYS",
+                                             "DRUM", "-", "FM6", "-",
 };
 
 #define PD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
@@ -256,7 +253,7 @@ static int32_t enum_orig(const param_desc_t *d, int32_t v)
 {
     if (d->names == N_DRUM_KIT)
         return v >= 0 && v < DK_COUNT ? (int32_t)DK_PLAYS[v] : v;
-    return d->names == SMP_ALL_NAMES && v >= 0 && v < SMP_NSETS ? SMP_SET_ORIG[v] : v;
+    return v;
 }
 
 /* a stored value as the parameter takes it (projects, user presets, motion): inside d's range, and a retired
@@ -473,7 +470,6 @@ static const page_t PAGES[] = {
     {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, {P_FTYPE, P_E4, P_E5, P_E7}},   /* ANALOG only (1.5, #104): TYPE CUT RES KTR */
     {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN0, P_LN1, P_LN2, P_LN3}},   /* DRUM only: the lane levels */
     {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN4, P_LN5, P_LN6, P_LN7}},
-    {"SLICES", FAM_EDIT, SC_TRACK, GR_SLICES, {0xFF, 0xFF, 0xFF, 0xFF}},   /* SLICE only: the slices by hand (ui_slice.c) */
     {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, {0xFF, 0xFF, 0xFF, 0xFF}},    /* FM6 only: KNOB 1 the operator, then its */
     {"OP ENV", FAM_EDIT, SC_TRACK, GR_FMENV, {0xFF, 0xFF, 0xFF, 0xFF}},     /* bytes of the track's patch (ui_fm6op.c): */
     {"OPERATOR 2", FAM_EDIT, SC_TRACK, GR_FMOP2, {0xFF, 0xFF, 0xFF, 0xFF}}, /* CRS FINE LEVEL / STG RATE LEVEL / MODE DTUN VEL */

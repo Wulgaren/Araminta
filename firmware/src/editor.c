@@ -57,7 +57,7 @@ static void ed_send(void)
 }
 static int32_t ed_rv(const uint8_t *p) { return (int32_t)(p[0] | p[1] << 7) - 8192; }
 
-/* ---- user sample slots (eng_sample.c): flash SMP_USER_BASE + k * SMP_USER_SIZE ----
+/* ---- user sample slots (smp_slot.c): flash SMP_USER_BASE + k * SMP_USER_SIZE ----
  * BEGIN erases the header sector (the slot is invalid from then on), WRITE fills the data
  * (offset >= 512, erasing each further sector when the write reaches its start), END sends
  * the header: the device checks the data CRC and writes the header last. */
@@ -88,8 +88,6 @@ static int ed_smp_erase(uint32_t k, uint32_t all)  /* header sector, or the whol
     uint32_t i, took;
     int rc = 0;
     usr_nz[k] = 0;
-    for (i = 0; i < 16u; i++)
-        usr_zone[k][i].n = 0;                     /* a sounding voice ends instead of reading 0xFF */
     for (i = 0; i < (all ? SMP_USER_SIZE / 0x1000u : 1u) && !rc; i++) {
         audio_silence();
         rc = fl_erase4k(ed_smp_slot(k) + i * 0x1000u, &took);

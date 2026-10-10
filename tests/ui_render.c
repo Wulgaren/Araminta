@@ -665,7 +665,7 @@ static void state(void)                          /* a playing song with steps on
     my_steps(&trk[1]);
     trk[0].step[2].flags |= SF_ACCENT;
     trk[0].step[6].flags |= SF_SLIDE;
-#if FELUCCA_SLICE
+#if 0
     if (usr_nz[0]) {                              /* (slices_usr filled USR1: empty again) */
         memset(host_slots, 0, sizeof host_slots);
         smp_user_scan(0);
@@ -990,8 +990,8 @@ static void setup(int s)
     case S_HOME_IDLE: song.playing = 0; song.batt_raw = 570; ui.hot_col = 1; ui.hot_t = 30; break;
     case S_MESSAGE: ui_say("LOADED ", "07 A VERY LONG PATTERN NAME"); break;
     case S_MESSAGE_KEY: ui_message("[SAVE] HOLD TO UNDO"); break;            /* a message with a keycap */
-    case S_MESSAGE_NOFILE:                          /* a missing sample (ui_input.c sample_notice): USR2 */
-        eng(ENGI_SAMPLE); TSEL->p[P_E0] = (int16_t)(SMP_NSETS + 1); memset(snd_said, 0, sizeof snd_said); sample_notice(); break;
+    case S_MESSAGE_NOFILE:                          /* no-file message (SAMPLE engine retired) */
+        ui_message(MSG_NOFILE "NO SAMPLE"); break;
     case S_PRESETS: favorite_set(0, 4, 1); favorite_set(0, 5, 1); go_page(GR_BROWSE); break;
     case S_PRESETS_NOFAV: favorites.filter = 1; go_page(GR_BROWSE); break;
     case S_USER: song.playing = 0; up_store(3, "MY LONG BASS NAME"); up_store(4, "PAD"); ui.uslot = 3; go_page(GR_USER); break;
@@ -1201,13 +1201,8 @@ static void setup(int s)
     case S_EDIT_DIGITAL: eng(E_FM); go_title("EDIT 1"); break;
     case S_OP_ENV: eng(1); go_title("OP1 ENV"); break;
     case S_EDIT_WHEEL: eng(7); go_title("EDIT 1"); ui.hot_col = 1; ui.hot_t = 30; break;
-    case S_EDIT_SAMPLE: {
-        uint32_t i;
-        eng(4); go_title("EDIT 1"); last_note = 60;
-        for (i = 0; i < 4000u && !sample_wave.ready; i++) sample_wave_tick(TSEL);
-        break;
-    }
-    case S_EDIT_GRAIN: eng(8); go_title("EDIT 2"); break;
+    case S_EDIT_SAMPLE: eng(0); go_title("EDIT 1"); break;
+    case S_EDIT_GRAIN: eng(0); go_title("EDIT 2"); break; /* GRAIN retired */
     case S_EDIT_PHYS: eng(9); go_title("EDIT 1"); break;
     case S_ALG1: case S_ALG2: case S_ALG3: case S_ALG4: case S_ALG5: case S_ALG6: case S_ALG7: case S_ALG8:
         eng(1); TSEL->p[P_E0] = (int16_t)(s - S_ALG1);      /* the 8 DIGITAL charts; FB on the odd ones, IDX high .. 0 */
@@ -1557,17 +1552,13 @@ static void setup(int s)
     case S_AUTO_ADD_VEL: go_auto_add(EV_VEL, 3); break;
     case S_LFO2: TSEL->p[P_LSYNC] = 6; TSEL->p[P_LTRIG] = 1; TSEL->p[P_LPOL] = 1; go_title("LFO 2"); break;
     case S_USER_FOOT: song.playing = 0; up_store(3, "MY BASS"); ui.uslot = 3; go_page(GR_USER); break;   /* EDIT NAME lit */
-#if FELUCCA_SLICE
+#if 0
     /* EDIT > SLICES: BREAK's 16 slices (slice 6 selected); a user sample's slices set by hand: DIV 8 taken as MAN,
      * slice 3's start moved (KNOB 2 hot), SPLIT picked (OCT+ lit) */
-    case S_SLICES_BREAK: eng(13u); go_page(GR_SLICES); sp.sel = 5; break;
+    case S_SLICES_BREAK:
     case S_SLICES_USR:
-        eng(13u); host_slot_make(0); smp_user_scan(0);
-        TSEL->p[P_E0] = 1; TSEL->p[P_E1] = 1;
-        go_page(GR_SLICES); sp.sel = 0; slice_knob(0, 2); slice_knob(1, 6); ui.act = 3; ui.msg_t = 0;
-        ui.hot_col = 1; ui.hot_t = 30;
-        break;
-    case S_SLICES_NOFILE: eng(13u); TSEL->p[P_E0] = 2; go_page(GR_SLICES); ui.msg_t = 0; break;   /* USR2 empty: SAMPLE NOT FOUND */
+    case S_SLICES_NOFILE:
+        eng(ENGI_DRUM); go_home(); break; /* SLICE / SLICES page retired */
 #endif
     default: break;
     }

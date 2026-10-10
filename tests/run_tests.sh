@@ -231,7 +231,7 @@ if [ -f build/gen/felucca_tables.h ]; then
     mkdir -p build/tracks_demo
     run "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" env TRACKS=build/tracks_demo "$OUT/hostsim" 0 0 1 "$OUT/tracks.wav"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/project_test" tests/project_test.c -lm
-    run "project formats (FUN1..FUN5 -> FUN6, the grid and song chain; DIGITAL tracks -> FM6, SAMPLE PERC -> DRUM)" "$OUT/project_test"
+    run "project formats (FUN1..FUN5 -> FUN6; DIGITAL->FM6; SAMPLE PERC->DRUM; SAMPLE/GRAIN/NOISE->ANALOG; SLICE->DRUM)" "$OUT/project_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/motion_test" tests/motion_test.c -lm
     run "motion, whole-step chance, FUN7 migration, song restore, ARP repeat and the 1.2 ARP modes" "$OUT/motion_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/ratchet_test" tests/ratchet_test.c -lm
@@ -346,7 +346,7 @@ if [ -f build/gen/felucca_tables.h ]; then
     run "DRUM: voice targets, controls, no clipping, retrigger, hat choke, the kick on a small speaker, keys, 8 lanes, cost, demos" "$OUT/drum_test" build/drum_demo
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/noise_test" tests/noise_test.c -lm
     mkdir -p build/noise_demo
-    run "NOISE: colour slopes, key-tracked filter and clock, META period, DC, clipping, retrigger, cost, demos" "$OUT/noise_test" build/noise_demo
+    echo "== skip NOISE (engine retired)"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_test" tests/fm6_test.c -lm
     mkdir -p build/fm6_demo
     run "FM6: algorithms, envelopes, retrigger, DC, clipping, macros, patch formats, voices, cost, demos" "$OUT/fm6_test" build/fm6_demo
@@ -407,7 +407,7 @@ else
     $SCC -o "$A/fuzz_proj" tests/fuzz_proj.c -lm
     run "ASan/UBSan fuzz: project stores -> import -> restore -> render (5000, seed 13)" "$A/fuzz_proj" 5000 13
     $SCC -o "$A/fuzz_smp" tests/fuzz_smp.c -lm
-    run "ASan/UBSan fuzz: user sample slot headers -> scan -> SAMPLE / GRAIN / SLICE (1000, seed 17)" "$A/fuzz_smp" 1000 17
+    echo "== skip fuzz_smp (SAMPLE/GRAIN/SLICE retired)"
 fi
 
 run "regression: target cost of the render loops (pi32v2 disassembly)" python3 tests/target_budget.py \
