@@ -2595,6 +2595,8 @@ static int test_presets_knob(void)
                 sel_ok &= same_snd && same_steps && ui.page == i && ui.ev_row == 1u;
             } else if (g == GR_TOOLS) {
                 tools_ok &= same_snd && same_steps && !ui.confirm;
+            } else if (g == GR_IORD || g == GR_DESTS) {   /* REORDER / dest pickers: PRESETS walks, no sound load */
+                sel_ok &= same_snd && same_steps && ui.page == i;
             } else {
                 snd_ok &= !same_snd && same_steps && ui.page == i && !ui.home;
                 hold(B_SAVE);
@@ -3039,7 +3041,7 @@ static int test_layer(void)
     bad += check("FX tap: nothing on press, the FX page when let go", ok && !ui.home && cur_page()->fam == FAM_FX);
     frames(320);                                       /* (not a double tap: #83) */
     press(B_FX);
-    bad += check("  a second tap: the next page of the family (SLICER)", str_eq(cur_page()->title, "SLICER"));
+    bad += check("  a second tap: the next page of the family (DIST)", str_eq(cur_page()->title, "DIST"));
     ui_power_on();
     btn_down(B_FX);
     for (flash = 0, i = 0; i < 22u; i++) { frame(); flash |= ui.layer; }      /* 0.35 s */
@@ -3138,32 +3140,29 @@ static int test_layer(void)
     song.playing = 0; song.rec = 0;
     /* FX let go first: the effect stays with its key, the map too; a key pressed now is a note */
     ui_power_on();
-    btn_down(B_FX); key_down(white(4)); frame();          /* white key 5 (C4): LPF */
+    btn_down(B_FX); key_down(white(3)); frame();          /* white key 4 (B3): LPF (JIANT default) */
     btn_up(B_FX); frame();
     ok = (perf_held & PF_BIT(PF_LPF)) && ui.layer == LAYER_FX;
     key_down(white(0)); frame();
     ok &= gates() > 0 && !((kb_layer >> white(0)) & 1u);
-    key_up(white(0)); key_up(white(4)); frame();
+    key_up(white(0)); key_up(white(3)); frame();
     bad += check("FX let go first: the key holds its effect and the map; a new key is a note", ok && !ui.layer && !perf_held);
-    /* OCT UP (G4) and OCT DN (A4), the 9th and 10th white keys: held effects, silent; KNOB 4 the shimmer while
-     * held, back to 0 with FX; B4 on does nothing */
+    /* OCT- / OCT+ (D4 / E4): held MIDI punch-ins, silent; KNOB 4 the shimmer while OCT UP (harmonizer) held is
+     * separate — here D4/E4 are pfx OCT±; G5 is lane clear (no effect) */
     ui_power_on();
     usb.config = 1; mo = mo_w;
-    btn_down(B_FX); key_down(white(8)); frame();
-    ok = ui.layer == LAYER_FX && !gates() && mo_w == mo && perf_held == PF_BIT(PF_OUP);
-    perf_begin(CTL);                                    /* (an audio block: OCT UP runs, KNOB 4 is SHIMR) */
-    turn(EN_K4, 40);
-    ok &= perf_k[3] == 40;
-    key_up(white(8)); key_down(white(9)); frame();
-    ok &= perf_held == PF_BIT(PF_ODN) && !gates() && mo_w == mo;
-    key_up(white(9)); key_down(white(10)); frame();
-    ok &= perf_held == PF_BIT(PF_FLG) && (kb_layer >> white(10)) & 1u && !gates();   /* (1.2: B4 FLANGER, C5 PHASER) */
-    key_up(white(10)); key_down(white(12)); frame();
-    ok &= perf_held == PF_BIT(PF_RTHR) && (kb_layer >> white(12)) & 1u && !gates();   /* (1.5.1: D5 REV THROW) */
-    key_up(white(12)); key_down(white(14)); frame();
-    ok &= !perf_held && (kb_layer >> white(14)) & 1u && !gates();
-    key_up(white(14)); btn_up(B_FX); frame();
-    bad += check("FX + G4 / A4: OCT UP / OCT DN held, silent, no MIDI; KNOB 4 turns; B4 FLANGER, D5 REV THROW, F5 nothing; FX let go: K4 0",
+    btn_down(B_FX); key_down(white(5)); frame();          /* D4: OCT- (JIANT) */
+    ok = ui.layer == LAYER_FX && !gates() && mo_w == mo && perf_held == PF_BIT(PF_OCTD);
+    key_up(white(5)); key_down(white(6)); frame();        /* E4: OCT+ */
+    ok &= perf_held == PF_BIT(PF_OCTU) && !gates() && mo_w == mo;
+    key_up(white(6)); key_down(white(12)); frame();       /* D5: ATK+ */
+    ok &= perf_held == PF_BIT(PF_ATK) && (kb_layer >> white(12)) & 1u && !gates();
+    key_up(white(12)); key_down(white(14)); frame();      /* F5: RANDOM */
+    ok &= perf_held == PF_BIT(PF_RND) && (kb_layer >> white(14)) & 1u && !gates();
+    key_up(white(14)); key_down(white(15)); frame();      /* G5: lane clear, no PF_* held */
+    ok &= !perf_held && (kb_layer >> white(15)) & 1u && !gates();
+    key_up(white(15)); btn_up(B_FX); frame();
+    bad += check("FX + D4 / E4: OCT- / OCT+ held, silent, no MIDI; D5 ATK+, F5 RANDOM, G5 clear; FX let go: K4 0",
                  ok && !perf_held && !ui.layer && !perf_k[3] && mo_w == mo);
     /* REVERB > TYPE (FX family, global): ROOM / SPRING / HALL on KNOB 1 (HALL at power-on since 1.2), kept by a
      * project */
@@ -3287,19 +3286,18 @@ static int test_layer(void)
         a = leds_at(0); b2 = leds_at(250);
         k = white(1);
         ok = ((a >> k) & 1u) && ((b2 >> k) & 1u);                    /* held: lit */
-        for (i = 0; i < 14u; i++)                                     /* the other effects (F3 .. E5): breathe */
+        for (i = 0; i < 15u; i++)                                     /* F3 .. F5 (JIANT): breathe when not held */
             ok &= i == 1u || ((a ^ b2) >> white(i)) & 1u;
-        for (i = 14; i < 16u; i++)                                    /* F5 G5: no effect, dark */
-            ok &= !((a | b2) >> white(i) & 1u);
+        ok &= !((a | b2) >> white(15) & 1u);                          /* G5 lane clear: dark */
         ok &= ((a ^ b2) >> key_at(1, 0)) & 1u && !((a | b2) >> key_at(1, 4) & 1u);   /* a mute breathes, a spare black dark */
         song.g[G_BPM] = 72;
         a = leds_at(0); b2 = leds_at(250);
-        ok &= !((a | b2) >> white(0) & 1u) && !((a | b2) >> white(3) & 1u);   /* 1/8, REVERSE: too long at 72 */
+        ok &= !((a | b2) >> white(0) & 1u);                           /* 1/8 too long at 72 */
         ok &= ((a ^ b2) >> white(2)) & 1u;                            /* 1/32 still blinks */
         song.g[G_BPM] = 120;
     }
     key_up(white(1)); btn_up(B_FX); frame();
-    bad += check("map LEDs: held lit, the 14 effects breathe (1.5.1: D5 E5 the throws), F5 G5 and a too-long REPEAT dark", ok);
+    bad += check("map LEDs: held lit, JIANT keys breathe (F3..F5), G5 and a too-long REPEAT dark", ok);
     usb.config = 0;
     return bad;
 }
@@ -6605,9 +6603,9 @@ static int test_layer_lock(void)
     ui_power_on();
     go_title("ENV"); frame();
     press(B_FX); press(B_FX); frames(100);
-    key_down(white(4)); frame();                        /* C4: LPF while held */
+    key_down(white(3)); frame();                        /* B3: LPF while held (JIANT default) */
     ok = (perf_held & PF_BIT(PF_LPF)) && !gates();
-    key_up(white(4)); frame();
+    key_up(white(3)); frame();
     ok &= !(perf_held & PF_BIT(PF_LPF));
     turn(EN_K2, 20);
     ok &= perf_k[1] == 20;
@@ -6958,32 +6956,36 @@ static int test_fx_map(void)
     frame();
     for (ok = 1, p = 0; p < PF_KEYS; p++)
         ok &= perf_map[p] == PF_DEF[p];
-    bad += check("FX map: settings of 0 (before 1.2) are the default: 1.1.5's ten keys, B4 FLANGER, C5 PHASER, D5 E5 the throws", ok);
+    bad += check("FX map: settings of 0 read as the default (REPEAT + LPF/HPF + JIANT MIDI on D4..F5)", ok &&
+                 PF_DEF[0] == PF_R8 && PF_DEF[10] == PF_S8 && PF_DEF[14] == PF_RND && PF_DEF[15] == PF_N);
     snd = TSEL->preset | (uint32_t)TSEL->eng_req << 8;
     btn_down(B_FX); key_down(b4); frame();
-    ok = perf_held == PF_BIT(PF_FLG) && ui.layer == LAYER_FX;
+    ok = perf_held == PF_BIT(PF_S8) && ui.layer == LAYER_FX;
     turn(EN_PRESET, 1); keyboard_block();               /* (keyboard_block: the ISR's next block) */
-    ok &= perf_map[10] == PF_PHS && perf_held == PF_BIT(PF_PHS) && msg_is("B4 PHASER");
-    turn(EN_PRESET, 1); keyboard_block();               /* 1.5.1: the throws, after PHASER */
-    ok &= perf_map[10] == PF_RTHR && perf_held == PF_BIT(PF_RTHR) && msg_is("B4 REV THROW");
+    ok &= perf_map[10] == PF_S16 && perf_held == PF_BIT(PF_S16) && msg_is("B4 STUTTER 1/16");
     turn(EN_PRESET, 1); keyboard_block();
-    ok &= perf_map[10] == PF_ETHR && perf_held == PF_BIT(PF_ETHR) && msg_is("B4 ECHO THROW");
-    turn(EN_PRESET, 1); keyboard_block();               /* past the last: NONE */
+    ok &= perf_map[10] == PF_ATK && perf_held == PF_BIT(PF_ATK) && msg_is("B4 ATK+");
+    turn(EN_PRESET, 1); keyboard_block();
+    ok &= perf_map[10] == PF_ARP && perf_held == PF_BIT(PF_ARP) && msg_is("B4 ARP");
+    turn(EN_PRESET, 1); keyboard_block();
+    ok &= perf_map[10] == PF_RND && perf_held == PF_BIT(PF_RND) && msg_is("B4 RANDOM");
+    turn(EN_PRESET, 1); keyboard_block();               /* past the MIDI set: NONE */
     ok &= perf_map[10] == PF_N && !perf_held && msg_is("B4 NONE") && (kb_layer >> b4) & 1u;
     turn(EN_PRESET, 1); keyboard_block();               /* round: the first */
     ok &= perf_map[10] == PF_R8 && perf_held == PF_BIT(PF_R8);
-    turn(EN_PRESET, -1); turn(EN_PRESET, -1); turn(EN_PRESET, -1); turn(EN_PRESET, -1); keyboard_block();
-    ok &= perf_map[10] == PF_PHS && perf_held == PF_BIT(PF_PHS) && lys.rp_dirty;
+    turn(EN_PRESET, -1); turn(EN_PRESET, -1); turn(EN_PRESET, -1); turn(EN_PRESET, -1); turn(EN_PRESET, -1);
+    keyboard_block();                                   /* R8 -> NONE -> RND -> ARP -> ATK -> S16 */
+    ok &= perf_map[10] == PF_S16 && perf_held == PF_BIT(PF_S16) && lys.rp_dirty;
     ok &= (TSEL->preset | (uint32_t)TSEL->eng_req << 8) == snd && !gates();
-    bad += check("  FX + B4 held + PRESETS: PHASER, REV THROW, ECHO THROW, NONE, round to REPEAT 1/8 and back, each held at once; no sound load", ok);
+    bad += check("  FX + B4 held + PRESETS: ST16, ATK+, ARP, RANDOM, NONE, round to REPEAT 1/8 and back; no sound load", ok);
     btn_down(B_EDIT); frame(); btn_up(B_EDIT); frame(); keyboard_block();
-    ok = perf_map[10] == PF_FLG && perf_held == PF_BIT(PF_FLG) && msg_is("B4 FLANGER (DEF)") && ui.layer == LAYER_FX;
-    bad += check("  EDIT with the key held: its default (FLANGER) back, the layer open", ok);
-    turn(EN_PRESET, -1); keyboard_block();              /* B4: OCT DN */
+    ok = perf_map[10] == PF_S8 && perf_held == PF_BIT(PF_S8) && msg_is("B4 STUTTER 1/8 (DEF)") && ui.layer == LAYER_FX;
+    bad += check("  EDIT with the key held: its default (STUTTER 1/8) back, the layer open", ok);
+    turn(EN_PRESET, -1); keyboard_block();              /* B4: DEC+ (before ST8 in the assign list) */
     key_up(b4); frame();
-    ok = !perf_held && perf_map[10] == PF_ODN;
+    ok = !perf_held && perf_map[10] == PF_DLNG;
     turn(EN_PRESET, 1);                                 /* no key held: nothing; how */
-    ok &= perf_map[10] == PF_ODN && msg_is("HOLD A KEY: ASSIGN");
+    ok &= perf_map[10] == PF_DLNG && msg_is("HOLD A KEY: ASSIGN");
     key_down(white(1)); frame();                        /* G3 */
     ok &= perf_held == PF_BIT(PF_R16);
     key_up(white(1)); btn_up(B_FX); frame();
@@ -6994,10 +6996,10 @@ static int test_fx_map(void)
         settings_export(&pp);
         memset(fx_keys, 0, 10);
         frame();
-        ok = perf_map[10] == PF_FLG;
+        ok = perf_map[10] == PF_S8;
         ok &= settings_import(&pp, (int)sizeof pp) == 1;
         frame();
-        ok &= perf_map[10] == PF_ODN;
+        ok &= perf_map[10] == PF_DLNG;
         for (p = 0; p < PF_KEYS; p++)
             ok &= p == 10u || perf_map[p] == PF_DEF[p];
         memset(&pp.favorites, 0, sizeof pp.favorites);
@@ -7006,7 +7008,7 @@ static int test_fx_map(void)
         frame();
         for (p = 0; p < PF_KEYS; p++)
             ok &= perf_map[p] == PF_DEF[p];
-        bad += check("  the map with the settings (exported, imported: B4 OCT DN, the rest default); older settings: default", ok);
+        bad += check("  the map with the settings (exported, imported: B4 DEC+, the rest default); older settings: default", ok);
     }
     /* the lock (a double tap of FX): one hand holds a key, the other turns PRESETS; EDIT keeps the lock */
     ui_power_on();
@@ -7026,10 +7028,10 @@ static int test_fx_map(void)
     press(B_EDIT);                                      /* no key held: EDIT closes the lock as before */
     ok &= !ui.lock && !perf_held;
     bad += check("  locked (FX double tap): G3 held + PRESETS: REPEAT 1/32; EDIT: 1/16, the lock stays; no key: EDIT closes it", ok);
-    {   /* the cells name what the keys hold: G3 "1/8" now, B4 FLNG */
-        ok = str_eq(PF_CELL[perf_map[1]], "1/8") && str_eq(PF_CELL[perf_map[10]], "FLNG") && str_eq(PF_CELL[perf_map[12]], "VERB") &&
-             str_eq(PF_CELL[perf_map[13]], "ECHO") && perf_map[14] == PF_N;
-        bad += check("  the map's cells: G3 1/8 (remapped), B4 FLNG, D5 VERB, E5 ECHO (1.5.1's throws), F5 empty", ok);
+    {   /* the cells name what the keys hold after the remaps above */
+        ok = str_eq(PF_CELL[perf_map[1]], "1/8") && str_eq(PF_CELL[perf_map[10]], "ST8") &&
+             str_eq(PF_CELL[PF_DEF[12]], "ATK+") && str_eq(PF_CELL[PF_DEF[14]], "RND") && perf_map[15] == PF_N;
+        bad += check("  the map's cells: G3 1/8 (remapped), B4 ST8 (default after PER3), D5 ATK+, F5 RND, G5 empty", ok);
     }
     memset(fx_keys, 0, 10);
     frame();
@@ -7042,15 +7044,21 @@ static int test_fx_map(void)
 static int test_fx_latch(void)
 {
     int bad = 0, ok;
-    uint32_t lpf = white(4), m1 = black(0);
+    uint32_t lpf = white(3), m1 = black(0);                       /* B3: LPF on the JIANT default map */
     ui_power_on();
     btn_down(B_FX); frame();
     turn(EN_K4, 5);  ok = perf_k[3] == 0;                         /* DEPTH 100 %: right stays at 100 */
     turn(EN_K4, -30); ok &= perf_k[3] == 30;                      /* left: 70 % */
     turn(EN_K4, 10); ok &= perf_k[3] == 20;                       /* right: 80 % */
-    key_down(white(8)); frame(); perf_begin(CTL);                 /* OCT UP: KNOB 4 is SHIMR, right is more */
-    turn(EN_K4, 10); ok &= perf_k[3] == 30;
-    key_up(white(8)); frame(); btn_up(B_FX); frame();
+    {   /* harmonizer OCT UP is assignable; put it on F3 briefly so KNOB 4 is SHIMR */
+        uint8_t was = perf_map[0];
+        perf_map[0] = PF_OUP; perf_remap = 1;
+        key_down(white(0)); frame(); perf_begin(CTL);
+        turn(EN_K4, 10); ok &= perf_k[3] == 30;
+        key_up(white(0)); frame();
+        perf_map[0] = was; perf_remap = 1;
+    }
+    btn_up(B_FX); frame();
     bad += check("#40 FX + KNOB 4: DEPTH rises to the right, falls to the left; SHIMR (OCT UP) rises to the right",
                  ok && !perf_k[3]);
     /* OFF (the default; a byte older settings leave 0) */
@@ -7070,7 +7078,7 @@ static int test_fx_latch(void)
     btn_up(B_FX); frame();
     ok &= perf_latched == PF_BIT(PF_LPF) && perf_k[1] == 30 && !ui.layer;
     ok &= perf_begin(CTL) && (perf_act & PF_BIT(PF_LPF));                 /* it runs with nothing held */
-    bad += check("  FX LATCH ON: FX + C4 latches LPF, CRUSH stays at 30 after FX is let go", ok);
+    bad += check("  FX LATCH ON: FX + B3 latches LPF, CRUSH stays at 30 after FX is let go", ok);
     ui_leds();
     memset(led_pos, 0xFF, sizeof led_pos);
     led_pos[panel.btn[B_FX]] = 0u << 3 | 1u;
@@ -7078,10 +7086,10 @@ static int test_fx_latch(void)
     ok = (fm1_led[0] & 2u) != 0u;
     btn_down(B_FX); key_down(m1); frame(); key_up(m1); frame();   /* a mute latches too */
     ok &= perf_latched == (PF_BIT(PF_LPF) | PF_BIT(PF_M1));
-    key_down(lpf); frame(); key_up(lpf); frame();                 /* C4 again: LPF off */
+    key_down(lpf); frame(); key_up(lpf); frame();                 /* B3 again: LPF off */
     ok &= perf_latched == PF_BIT(PF_M1);
     btn_up(B_FX); frame();
-    bad += check("  the FX LED lit while something is on; a mute key latches; C4 again: LPF off", ok);
+    bad += check("  the FX LED lit while something is on; a mute key latches; B3 again: LPF off", ok);
     btn_down(B_FX); frame(); turn(EN_K1, -40);
     ok = song.octave == 0 && oct_leds() == 1u;
     btn_down(B_OCTDN); frame(); btn_up(B_OCTDN); frame();

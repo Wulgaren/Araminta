@@ -276,6 +276,7 @@ int main(void)
         for (t = 0; t < NTRK && ok; t++) {
             memcpy(ref, full[t], sizeof ref);
             pr = fm4_convert_ref(ref, v);
+            ins_migrate(ref, PROJ_NP_V3);               /* import applies the insert-chain migrate too */
             fm6_pack(v, pk);
             ok = q.t[t].engine == ENGI_FM6 && q.t[t].preset == pr && pr == FM4_TO_FM6[(k + t + 4u) % FM4_NPRESETS] &&
                  !memcmp(q.fm6[t], pk, FM6_PACKED) && !memcmp(q.t[t].p, ref, sizeof ref);
