@@ -37,6 +37,18 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 
         for (i = 1; i < n; i += 2u)                     /* (MIX: fx.c mix_block took it) */
             scope_buf[scope_w++ & (SCOPE_N - 1u)] = (int16_t)out[2u * i];
     click_render(out, n);                               /* the metronome (click.c): the DAC only, not USB */
+    if (boot_fade < 32768u) {                           /* power-on soft start (fx.c fx_boot / audio_amp_on) */
+        uint16_t g = boot_fade;
+        for (i = 0; i < n; i++) {
+            out[2u * i] = (out[2u * i] * g) >> 15;
+            out[2u * i + 1u] = (out[2u * i + 1u] * g) >> 15;
+            if (boot_fade_run) {
+                uint32_t ng = (uint32_t)g + BOOT_FADE_STEP;
+                g = ng > 32768u ? 32768u : (uint16_t)ng;
+            }
+        }
+        boot_fade = g;
+    }
     for (i = 0; i < n; i++) {
         out[2u * i] *= 1 << OUT_SHIFT;
         out[2u * i + 1u] *= 1 << OUT_SHIFT;
@@ -141,10 +153,18 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
 }
 extern void isr_alnk0(void);
 
-static void audio_init(void)                   /* codec and ALNK0 bring-up (fm1_audio.h) */
+static void audio_init(void)                   /* codec and ALNK0 bring-up (fm1_audio.h); amp stays muted */
 {
     uint32_t i;
     for (i = 0; i < 2u * HALF_WORDS; i++)
         abuf[i] = 0;
+    fx_boot();                                 /* FX lines silent, soft-start held at 0 until audio_amp_on */
     fm1_audio_init(abuf, HALF_WORDS, isr_alnk0, 3);
+}
+
+/* main.c: after IRQs, DMA has been streaming zeros with the amp off; unmute and start the soft-start ramp */
+static void audio_amp_on(void)
+{
+    fm1_audio_amp(1);
+    boot_fade_run = 1;
 }
