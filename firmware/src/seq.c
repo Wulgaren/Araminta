@@ -207,6 +207,7 @@ static void arp_remove(track_t *t, uint32_t note)
 static void rec_note(track_t *t, uint32_t note, uint32_t vel);
 static void rec_release(track_t *t, uint32_t note);
 static int rec_on(const track_t *t) { return ((song.rec >> trk_index(t)) & 1u) && song.playing && !chain.running; }
+static int pfx_rec_ok(void) { return song.rec && song.playing && !chain.running; }   /* (pfx.c: punch-in lane) */
 
 #include "motion.c"
 
@@ -335,8 +336,7 @@ static volatile uint32_t beat_pos, beat_n;      /* samples into the beat, the be
  * records; the keys sound). A note into an armed track in the count-in's last eighth (the second half of its last
  * beat) is recorded onto step 1 when it starts (cin_keep, cin_flush), held on or let go as it was. An external clock
  * never counts in (its Start starts). STOP (seq_stop) cancels it. */
-#define CLK_START 0xFFFFFFFFu
-static uint32_t clk_pos = CLK_START, clk_step;  /* samples into the 1/16 step, the step of the bar (0..15) */
+/* (clk_pos, clk_step, CLK_START: mod.c, read by the FX layer / pfx.c before this file) */
 static volatile uint8_t cin_left, cin_total;    /* the count-in's beats still to come (0: none), of how many */
 static volatile uint32_t cin_pos;               /* samples into its beat playing */
 static uint8_t cin_flush;                       /* the count-in ended in this block: record what was kept */
@@ -638,12 +638,14 @@ static void input_off(track_t *t, uint32_t note)
     trk_note_off(t, note);                          /* other mode (ARP switched while held) */
 }
 
-/* the effect of key k in the FX layer (PF_N none): the white keys F3 .. G5 the map's (perf_map: the settings,
- * ui_layer.c; by default 1.1.5's ten, FLANGER, PHASER, REV / ECHO THROW), black keys 1..4 the track mutes */
+/* the effect of key k in the FX layer (PF_N none): white keys F3 .. F5 the map's (perf_map), G5 clears the
+ * punch-in lane, black keys 1..4 the track mutes, A#4 the MIDI effects' tracks (pfx_tgt) */
 static uint32_t perf_key(uint32_t k)
 {
     uint32_t p = key_place(k);
-    return !key_black(k) ? (p < PF_KEYS ? perf_map[p] : PF_N) : p < NTRK ? PF_M1 + p : PF_N;
+    if (!key_black(k))
+        return p == 15u ? PF_CLR : p < PF_KEYS ? perf_map[p] : PF_N;
+    return p < NTRK ? PF_M1 + p : p == 7u ? PF_TGT : PF_N;
 }
 
 /* a key of the FX layer down (FX held) / up: the effect it holds. kb_fx: the one it took (+ 1, 0 none), so a key
@@ -1015,9 +1017,14 @@ static const motion_store_t *chain_motion(const track_t *t)
  * already sounds left out (rskip), then its notes. On its start, or (NUDGE) at its start + its nudge */
 static __attribute__((noinline)) void seq_play(track_t *t, uint32_t idx, uint32_t period)
 {
-    const step_t *s = &seq_steps(t)[idx];
+    const step_t *s;
     const motion_store_t *m = chain_motion(t);
-    uint32_t skip = SEQ_ROLLED, i, k;
+    uint32_t skip = SEQ_ROLLED, i, k, len;
+    if ((t->pfx & PFX_RND) && !(rng() & 1u)) {          /* (JIANT) RANDOM: half the steps, any in the pattern */
+        len = (uint32_t)t->p[P_SLEN];
+        idx = rng() % (len ? len : 1u);
+    }
+    s = &seq_steps(t)[idx];
     if (step_chance(s) < 100u && rng() % 100u >= step_chance(s))
         skip = SEQ_MISS;
     if (m)
@@ -1079,9 +1086,36 @@ static __attribute__((noinline)) void seq_nd_start(track_t *t, uint32_t period, 
     }
 }
 
+/* 1/2 TEMPO let go (pfx.c): the track back where it would be had it run on, from where it was pressed */
+static __attribute__((noinline)) void pfx_resync(track_t *t, uint32_t period, uint32_t len)
+{
+    uint32_t idx = t->pfx_idx0 % (len ? len : 1u), pos = t->pfx_pos0 >= 0x7FFFFFFFu ? 0u : t->pfx_pos0;
+    pos += t->pfx_el;
+    for (;;) {
+        uint32_t cur = step_samples(t, period, idx);
+        if (!cur || pos < cur)
+            break;
+        pos -= cur;
+        idx = (idx + 1u) % (len ? len : 1u);
+    }
+    t->seq_idx = (uint16_t)idx;
+    t->seq_pos = pos;
+}
+
 static void seq_tick(track_t *t, uint32_t n)
 {
     uint32_t period, len;
+    if (t->pfx_rs) {                                  /* 1/2 TEMPO let go */
+        t->pfx_rs = 0;
+        if (song.playing)
+            pfx_resync(t, div_samples((uint32_t)t->p[P_SDIV]), (uint32_t)t->p[P_SLEN]);
+    }
+    if ((t->pfx & PFX_HALF) && song.playing) {        /* 1/2 TEMPO held: half the samples (odd one carried) */
+        uint32_t h = n + t->pfx_half;
+        t->pfx_el += n;
+        t->pfx_half = (uint8_t)(h & 1u);
+        n = h >> 1;
+    }
     if (t->seq_n && !t->seq_hold) {
         if (t->seq_off <= n)
             seq_release(t);

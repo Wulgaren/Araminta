@@ -356,7 +356,20 @@ typedef struct track {
     int32_t dist_hp, dist_lp1, dist_lp2;   /* DIST insert state (fx.c) */
     uint8_t tail;                /* blocks to mix after the last voice (the DIST / INSERT tail) */
     uint8_t ins_run;             /* the INSERT still sounds (fx.c track_insert: its wet share above 0) */
-    uint8_t rsv_sz[15];          /* (sizeof(track_t) a multiple of 16: below) */
+    /* punch-in MIDI (pfx.c): ISR only, never saved */
+    uint8_t pfx;                 /* PFX_* */
+    int16_t pfx_pit;             /* OCT- / OCT+: 1/16 semitones on every voice */
+    int16_t pfx_rpit;            /* RANDOM: the next note's offset (1/16 semitones) */
+    uint8_t pfx_half;            /* 1/2 TEMPO: the odd sample carried; pfx_rs: let go, resync */
+    uint8_t pfx_rs;
+    uint16_t pfx_idx0;           /* where 1/2 TEMPO was pressed (step, samples into it) */
+    uint32_t pfx_pos0, pfx_el;
+    uint8_t pfx_ln[4], pfx_lv[4], pfx_lnn;   /* last notes struck together (STUTTER / ARP) */
+    uint32_t pfx_lblk;           /* block they were struck in */
+    uint8_t pfx_sn[4], pfx_snn;  /* notes a repeat holds now */
+    uint8_t pfx_si;              /* ARP: the next of them */
+    uint32_t pfx_sc;             /* samples since the last repeat */
+    uint8_t rsv_sz[1];           /* sizeof(track_t) a multiple of 16 */
     int16_t armp, aholdp;        /* P_AMODE / P_AHOLD as last seen by the ISR */
     /* engine switch (voice.c engine_block): the old engine's voices fade out, then it switches */
     uint8_t xf_on, xf;           /* fading; blocks of the fade still to render */
@@ -370,6 +383,7 @@ typedef struct track {
     int16_t m_rnd;               /* .. its RAND */
     int32_t m_env;               /* the amp envelope of voice m_vi, last block (Q15) */
 } track_t;
+enum { PFX_RND = 1, PFX_HALF = 2, PFX_REP = 4, PFX_DEC = 8, PFX_ATK = 16 };   /* (track_t.pfx) */
 /* the audio ISR indexes trk[] with a multiply by a small immediate and a shift while the size is a multiple of 16; 1.5's
  * new track parameters (the INSERT, the filter TYPE, ENV SYNC) and state would make it no multiple (the constant
  * loaded first: +3 % on the ISR's static cost, target_budget.py): one pad, rsv_sz, keeps it */
