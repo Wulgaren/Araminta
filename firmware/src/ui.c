@@ -46,7 +46,7 @@ static uint32_t up_gen;                      /* bumped on every user bank change
 #define PREF_ANIM_OFF 2u                       /* MENU > ANIM OFF (#46): values snap (no rolling digits, no glide) */
 #define PREF_ACCEL 4u                          /* MENU > KNOB ACCEL ON (#52): fast turns of wide values x2..x8 */
 #define PREF_USB_FIXED 8u                      /* MENU > USB LEVEL FIXED: USB audio at the full level, MASTER after */
-#define PREF_BPM_LOCK 16u                      /* MENU > BPM LOCK ON (#58): SELECT sets the tempo only with GLO held */
+#define PREF_BPM_LOCK 16u                      /* MENU > BPM LOCK ON: lock icon by the BPM (tempo is GLO+SELECT / CLOCK) */
 #define PREF_LARGE 32u                         /* MENU > LARGE ON (#15, Discussion #80): big knob labels and values
                                                 * (ui_draw.c large_kind); clear in every older setting = OFF */
 #define PREF_SERIAL_OFF 64u                    /* MENU > USB SERIAL OFF (#67): no serial console, the device enumerates as
@@ -702,6 +702,50 @@ static void home_tap(void)
     } else {
         go_home();
     }
+}
+
+/* SELECT encoder: one step in the current family (same cycle as tapping its button; HOME's is home_tap). dir > 0 next,
+ * dir < 0 previous. Tempo is GLO+SELECT, not bare SELECT (ui_input.c) */
+static void select_page_step(int32_t dir)
+{
+    uint32_t fam, i, k;
+    if (dir == 0)
+        return;
+    if (ui.home || cur_page()->fam == FAM_TRK) {       /* HOME button cycle: HOME <-> MIXER <-> CLOCK */
+        uint32_t idx[1u + NPAGES], n = 1u, cur = 0u;
+        idx[0] = 0xFFFFu;                              /* HOME sentinel */
+        for (i = 0; i < NPAGES; i++)
+            if (PAGES[i].fam == FAM_TRK && page_visible(i))
+                idx[n++] = i;
+        if (!ui.home)
+            for (i = 1u; i < n; i++)
+                if (idx[i] == ui.page) { cur = i; break; }
+        cur = (cur + (dir > 0 ? 1u : n - 1u)) % n;
+        if (idx[cur] == 0xFFFFu) {
+            go_home();
+        } else if (ui.home && dir > 0) {
+            home_tap();                               /* HOME -> MIXER (fam_last cleared, as the HOME button) */
+        } else {
+            ui.page = (uint8_t)idx[cur];
+            ui.home = 0;
+            ui.fam_last[FAM_TRK] = ui.page;
+            page_entered();
+        }
+        return;
+    }
+    fam = cur_page()->fam;
+    if (dir > 0) {
+        open_family(fam);                             /* same as tapping the family's button */
+        return;
+    }
+    i = ui.page;
+    for (k = 0; k < NPAGES; k++) {
+        i = (i + NPAGES - 1u) % NPAGES;
+        if (PAGES[i].fam == fam && page_visible(i)) break;
+    }
+    ui.page = (uint8_t)i;
+    ui.fam_last[fam] = ui.page;
+    page_entered();
 }
 
 /* ------------------------------------------------------- track setup --- */
