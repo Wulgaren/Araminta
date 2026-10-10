@@ -1445,7 +1445,13 @@ static void ui_input(void)
         if (ui.ly == LAYER_FX && ((pressed >> panel.btn[B_EDIT]) & 1u))
             fx_default();                               /* .. EDIT: its default back */
         panel_enc(EN_ALGO);                             /* (another track: OCT- puts back the layer's track only) */
-        if (glo && (sel = panel_enc(EN_SELECT)) != 0)   /* GLO + SELECT: the tempo, a combo (OCT- puts it back) */
+        if (ui.ly == LAYER_FX && cur_page()->graph == GR_IORD &&
+            (s = panel_enc(EN_SELECT)) != 0) {          /* REORDER: FX held + SELECT moves the stage */
+            ins_order_move(TSEL, ui.ior_sel, s > 0 ? 1 : -1);
+            ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + (s > 0 ? 1 : -1), 0, (int32_t)INS_N - 1);
+            ui.force = 1;
+            combo = 1;
+        } else if (glo && (sel = panel_enc(EN_SELECT)) != 0)   /* GLO + SELECT: the tempo, a combo (OCT- puts it back) */
             combo = 1;
     } else if ((kq = (uint32_t)layer_knobs_quiet()) != 0) {   /* a layer letting go: KNOB 1..4 are nobody's (#39) */
         for (k = 0; k < 4u; k++)
@@ -1640,16 +1646,25 @@ static void ui_input(void)
      * pass runs, so one landing after the layer's read went to the page as well: KNOB 1..4 edited the layer's control
      * and the page under it (HOME's sound, motion recorded), PRESETS could load a sound. They stay for the next pass */
     kq |= lay;
-    if (!lay && (s = panel_enc(EN_PRESET)) != 0)
-        presets_turn(s);
+    if (!lay && (s = panel_enc(EN_PRESET)) != 0) {
+        if (cur_page()->graph == GR_IORD) {              /* REORDER: PRESETS / (K1 below) pick the stage */
+            ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + (s > 0 ? 1 : -1), 0, (int32_t)INS_N - 1);
+            ui.force = 1;
+        } else
+            presets_turn(s);
+    }
     if (!lay && (s = panel_enc(EN_ALGO)) != 0)     /* ALGORITHM: the selected track, on every page */
         track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
-    if ((s = glo ? sel : panel_enc(EN_SELECT)) != 0) {   /* SELECT knob = global tempo; */
-        if (glo || !(ui_prefs & PREF_BPM_LOCK)) {
+    if ((s = glo ? sel : panel_enc(EN_SELECT)) != 0) {
+        /* REORDER: FX page-button held (not layer) + SELECT also moves; layer path consumed SELECT above */
+        if (!glo && cur_page()->graph == GR_IORD && (ui.pg_down & (1u << panel.btn[B_FX]))) {
+            ins_order_move(TSEL, ui.ior_sel, s > 0 ? 1 : -1);
+            ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + (s > 0 ? 1 : -1), 0, (int32_t)INS_N - 1);
+            ui.force = 1;
+        } else if (glo || !(ui_prefs & PREF_BPM_LOCK)) {   /* SELECT = global tempo (elsewhere) */
             song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), GP[G_BPM].min, GP[G_BPM].max);
-            ui.bpm_t = 40;                              /* the header's BPM lights up; no message over the header */
-        } else {                                        /* MENU > BPM LOCK ON (#58): only with GLO held (and on HOME >
-                                                         * CLOCK, GLO's F4 TAP); a turn burst says so once */
+            ui.bpm_t = 40;
+        } else {
             if (!lock_ms || fm1_ms - lock_ms > 1000u)
                 ui_message("BPM LOCKED");
             lock_ms = fm1_ms | 1u;
@@ -1687,6 +1702,9 @@ static void ui_input(void)
             *vp = (int16_t)param_turn(d, *vp, accel(EN_K1 + k, s, d->fmt == F_ENUM ? 0 : d->max - d->min));
             motion_capture(home_trk(k), (uint32_t)(vp - home_trk(k)->p), *vp);   /* (LEVELS: that track's, as MIXER) */
             ml_knob(home_trk(k), (uint32_t)(vp - home_trk(k)->p));
+        } else if (pg->graph == GR_IORD && k == 0u) {
+            ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + (s > 0 ? 1 : -1), 0, (int32_t)INS_N - 1);
+            ui.force = 1;
         } else {
             edit_param(k, s);
         }

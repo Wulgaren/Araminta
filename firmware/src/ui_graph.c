@@ -429,45 +429,50 @@ static void graph_chord(const track_t *t, uint16_t c)
 /* the four sends as faders under their cards: a RAISE slot, the THEME fill from the bottom, a cap */
 static void graph_fx(const track_t *t, uint16_t c)
 {
+    static const uint8_t ID[3] = {P_CHOR, P_DLY, P_REV};
     uint32_t i;
-    for (i = 0; i < 4u; i++) {
-        int32_t h = t->p[P_DIST + i] * 76 / 127, x = CARD_X(i) + 26;
+    for (i = 0; i < 3u; i++) {
+        int32_t h = t->p[ID[i]] * 76 / 127, x = CARD_X(i) + 26;
         cv_rrect(x, 6, 4, 82, 2, T_RAISE, T_SURF);
         if (h > 3)
             cv_rrect(x, 88 - h, 4, h, 2, c, T_RAISE);
         cv_rrect(x - 4, 85 - h, 12, 6, 3, c, T_SURF);
     }
 }
-/* INSERT pages (1.5, fx.c track_insert): the drives and CRUSH as their curve, input (-1.5 .. +1.5 of a voice's full
- * scale) across, output up, dry and wet blended by MIX (fx.c ins_shape: the same shape; the dry diagonal RAISE); the
- * swept ones as two cycles of their sweep, as deep as DEPTH (FLANG the squared triangle, CHOR a sine, PHASR a
- * triangle). OFF: the dry diagonal, dim */
+/* insert stage page: dry/wet mix as a blend line (MIX 0 = dry diagonal) */
 static void graph_insert(const track_t *t, uint16_t c)
 {
-    int32_t x, cy = graph_ht / 2, a = 38 * graph_ht / 100, py = cy, ty = clamp(t->p[P_ITYPE], 0, IT_N - 1);
-    int32_t m = ins_mixq(t->p[P_IMIX]), g = 4096 + t->p[P_IA] * t->p[P_IA] * 3, lvl = LEVEL_Q12[t->p[P_IC] & 127];
-    uint32_t sh = ins_bits_sh(t->p[P_IA]);
+    const page_t *pg = cur_page();
+    int32_t x, cy = graph_ht / 2, a = 38 * graph_ht / 100, py = cy, m = 0, i;
+    for (i = 0; i < 4; i++)
+        if (pg->id[i] == P_IDMIX || pg->id[i] == P_IFMIX || pg->id[i] == P_ICMIX ||
+            pg->id[i] == P_IPMIX || pg->id[i] == P_ILMIX || pg->id[i] == P_IHMIX)
+            m = ins_mixq(t->p[pg->id[i]]);
     cv_rect(PANEL_X0, cy, PANEL_W, 1, T_RAISE);
-    cv_line(PANEL_X0 + PANEL_W / 2, cy - a, PANEL_X0 + PANEL_W / 2, cy + a, T_RAISE);
-    if (ty == IT_OFF || ty >= IT_PHASER || !m)
-        cv_line(PANEL_X0 + PANEL_W / 6, cy + a, PANEL_X0 + PANEL_W * 5 / 6, cy - a, ty ? T_RAISE : T_DIM);
-    if (ty == IT_OFF)
+    cv_line(PANEL_X0 + PANEL_W / 6, cy + a, PANEL_X0 + PANEL_W * 5 / 6, cy - a, m ? T_RAISE : T_DIM);
+    if (!m)
         return;
     for (x = 0; x < PANEL_W; x++) {
-        int32_t y, w;
-        if (ty >= IT_PHASER) {                       /* the sweep, two cycles */
-            uint32_t ph = (uint32_t)x * (0xFFFFFFFFu / (PANEL_W / 2u)), tr = pf_tri(ph);
-            w = ty == IT_CHORUS ? osc_sine(ph) * 2 : ty == IT_FLANGER ? (int32_t)((tr * tr) >> 16) * 2 - 65536 : (int32_t)tr * 2 - 65536;
-            y = cy - (w >> 1) * a / 32768 * t->p[P_IB] / 127;
-        } else {                                     /* the curve: v in, dry v, wet shaped */
-            int32_t v = (x - PANEL_W / 2) * 49152 / (PANEL_W / 2), o;
-            o = ty == IT_CRUSH ? ins_shape(IT_CRUSH, v, sh) : (ins_shape((uint32_t)ty, ((v >> 3) * g) >> 9, 0) * lvl) >> 12;
-            w = v + mulq16(o - v, (uint32_t)m << 1);
-            y = cy - clamp(w, -49152, 49152) * a / 49152;
-        }
+        int32_t v = (x - PANEL_W / 2) * a / (PANEL_W / 2);
+        int32_t y = cy - (v + ((m * v) >> 15));
         if (x)
             cv_line_t(PANEL_X0 + x - 1, py, PANEL_X0 + x, y, c, 2);
         py = y;
+    }
+}
+/* REORDER: chain slots top to bottom; highlight ui.ior_sel */
+static void graph_iord(const track_t *t, uint16_t c)
+{
+    uint8_t ord[INS_N];
+    uint32_t i;
+    int32_t y0 = 8, row = (graph_ht - 16) / (int32_t)INS_N;
+    ins_order_get(t, ord);
+    for (i = 0; i < INS_N; i++) {
+        int32_t y = y0 + (int32_t)i * row, mix = ins_mix_of(t, ord[i]);
+        uint16_t col = i == ui.ior_sel ? c : T_DIM;
+        cv_text(PANEL_X0 + 8, y + 2, &AF_S, N_ISTAGE[ord[i]], col);
+        if (mix)
+            cv_rrect(PANEL_X0 + PANEL_W - 40, y + 4, 2 + mix * 28 / 127, 8, 2, col, T_SURF);
     }
 }
 /* SLICER page: the pattern's 16 steps, a 'x' step a full bar; a '.' step: GATE a bar as high as it stays
@@ -1213,6 +1218,8 @@ static uint32_t graph_signature(void)
         h ^= (mod_ui_slot + 1u) * 40503u;
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
+    if (pg->graph == GR_IORD)                        /* REORDER: highlighted slot */
+        h ^= (ui.ior_sel + 1u) * 40503u;
     if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
         for (i = 0; i < 4u; i++)
             h ^= (uint32_t)graph_project_used(i) << (20u + i);
@@ -2281,6 +2288,9 @@ static void draw_graph(void)
             break;
         case GR_SLCR:
             graph_slicer(t, c);
+            break;
+        case GR_IORD:
+            graph_iord(t, c);
             break;
         case GR_INS:
             graph_insert(t, c);
