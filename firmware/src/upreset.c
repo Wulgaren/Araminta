@@ -91,12 +91,16 @@ static int up_to_v4(up_rec_t *r)                 /* 1 = r is version 4 / 5 (now)
     if (r->ver == 1u && r->engine == ENGI_PHYS)
         return 0;
     for (i = 0; i < r->np; i++)
-        if ((v[i] = r->p[i]) < -64 || v[i] > 127)
+        if (i != P_IORD && ((v[i] = r->p[i]) < -64 || v[i] > 127))
             return 0;
+        else if (i == P_IORD)
+            v[i] = r->p[i];
     memset(r->packed, 0, sizeof r->packed);
     r->ver = r->ver == 3u ? UP_VER_GRID : UP_VER;
     for (i = 0; i < r->np; i++)
-        r->packed[i] = (uint8_t)(v[i] + 64);
+        r->packed[i] = (uint8_t)(i == P_IORD ? (uint32_t)clamp(v[i], 0, 719) & 255u : (uint32_t)(v[i] + 64));
+    if (r->np > P_IORD && P_IORD < UP_PMAX * 2u - 1u)
+        r->packed[r->np] = (uint8_t)((uint32_t)clamp(v[P_IORD], 0, 719) >> 8);   /* hi byte past np (unused slot) */
     return 1;
 }
 static void up_set_cat(up_rec_t *r, uint32_t c)  /* c CAT_BASS..CAT_OTHER; a record that cannot hold one keeps none */
@@ -109,17 +113,34 @@ static int up_valid(const up_rec_t *r)
 {
     if (!(r->used == UP_USED && r->ver >= 1u && r->ver <= UP_VER_GRID && r->engine < NENGINES &&
           r->np >= 8u && r->np <= (r->ver >= 4u ? UP_PMAX * 2u : UP_PMAX) && r->name[0])) return 0;
-    if (r->ver >= 4u) for (uint32_t i = 0; i < r->np; i++) if (r->packed[i] > 191u) return 0;
+    if (r->ver >= 4u)
+        for (uint32_t i = 0; i < r->np; i++)
+            if (i != P_IORD && r->packed[i] > 191u) return 0;
     return 1;
 }
 
 static int up_used(uint32_t k) { return k < UP_SLOTS && up_valid(up_rec(k)); }
 
 static int up_grid(const up_rec_t *r) { return r->ver == 3u || r->ver == UP_VER_GRID; }
-static int16_t up_value(const up_rec_t *r, uint32_t k) { return r->ver >= 4u ? (int16_t)r->packed[k] - 64 : r->p[k]; }
+static int16_t up_value(const up_rec_t *r, uint32_t k)
+{
+    if (r->ver >= 4u && k == P_IORD && r->np > P_IORD) {
+        uint32_t o = r->packed[k] | (uint32_t)(r->packed[r->np] & 3u) << 8;
+        return (int16_t)(o > 719u ? 719u : o);
+    }
+    return r->ver >= 4u ? (int16_t)r->packed[k] - 64 : r->p[k];
+}
 static void up_set_value(up_rec_t *r, uint32_t k, int16_t v)
 {
-    if (r->ver >= 4u) r->packed[k] = (uint8_t)(v + 64); else r->p[k] = v;
+    if (r->ver >= 4u && k == P_IORD) {
+        uint32_t o = (uint32_t)clamp(v, 0, 719);
+        r->packed[k] = (uint8_t)(o & 255u);
+        if (r->np > P_IORD)
+            r->packed[r->np] = (uint8_t)(o >> 8);
+    } else if (r->ver >= 4u)
+        r->packed[k] = (uint8_t)(v + 64);
+    else
+        r->p[k] = v;
 }
 /* Legacy PHYS drums map through decoded parameters, not their disk representation. */
 static void up_migrate(up_rec_t *r)
@@ -162,6 +183,7 @@ static void up_params(const up_rec_t *r, int16_t *out, const int16_t *def)
     int16_t values[UP_PMAX * 2u];
     for (uint32_t i = 0; i < r->np && i < NELEM(values); i++) values[i] = up_value(r, i);
     params_by_count(out, values, r->np, def);
+    ins_migrate(out, r->np);
 }
 
 static int up_name_ok(const uint8_t *s, uint32_t n)   /* 1..12 printable ASCII */
@@ -243,7 +265,10 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
     for (i = 0; i < P_COUNT; i++, k += 2u)
         {
             int32_t value = (int32_t)((a[k] & 127u) | (a[k + 1] & 127u) << 7) - 8192;
-            if (value < -64 || value > 127) return 1;
+            if (i == P_IORD) {
+                if (value < 0 || value > 719) return 1;   /* order fits the 14-bit field (0..719) */
+            } else if (value < -64 || value > 127)
+                return 1;
             up_set_value(r, i, (int16_t)value);
         }
     if (na >= k + 33u + 16u && a[k + 32u] == 1u) {    /* a drum grid */
