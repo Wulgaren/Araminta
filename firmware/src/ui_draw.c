@@ -32,11 +32,11 @@ static int32_t batt_shown(void)
     return batt_level();
 }
 
-/* REC: filled, the selected track armed; outlined, another track armed */
+/* REC: filled, the selected track armed or a free take; outlined, another track armed */
 static void draw_rec_mark(int32_t x, uint16_t bg)
 {
-    if (song.rec)
-        cv_icon_mid(x, H_HEAD / 2, 16, (song.rec >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, bg);
+    if (song.rec || ft_on)
+        cv_icon_mid(x, H_HEAD / 2, 16, ft_on || ((song.rec >> song.sel) & 1u) ? ICON_X_REC : ICON_X_REC_O, T_REC, bg);
 }
 
 /* the battery: a 16 px Fukiai icon. The stock thresholds give 0..3 bars of 3; the font has 0..4 bars of 4:
@@ -1418,6 +1418,19 @@ static void ui_draw(void)
     static uint8_t counting;
     style_apply();
     ui.frame++;
+    if (ft_bars) {                                      /* a free take closed: the loop it made */
+        char m[24];
+        uint32_t n = ft_bars;
+        ft_bars = 0;
+        if (n == 0xFFu) {
+            ui_message("TAKE DROPPED");
+        } else {
+            str_cpy(m, n == 1u ? "LOOP 1 BAR " : n == 2u ? "LOOP 2 BARS " : "LOOP 4 BARS ", sizeof m);
+            fmt_int(m + str_len(m), song.g[G_BPM]);
+            str_cpy(m + str_len(m), " BPM", sizeof m - str_len(m));
+            ui_message(m);
+        }
+    }
     if (counting != (uint8_t)seq_counting()) {          /* a count-in began or ended: the page drawn again after it */
         counting = (uint8_t)seq_counting();
         ui.force = 1;
