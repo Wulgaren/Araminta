@@ -153,6 +153,10 @@ static int ins_any(const track_t *t)
  * get quieter instead of crushed. */
 #define LIM_T 18000
 static int32_t lim_env = LIM_T;
+/* (JIANT) CLIP drive coeffs (clip_block after mix buffers); DUCK state (duck_block) */
+static int32_t clip_g, clip_mk;
+static int32_t duck_env, duck_g0 = 32767, duck_g1 = 32767;
+static uint8_t duck_att, duck_hold;
 /* MENU > USB LEVEL FIXED (for #42: record over USB with the speaker turned down): the mix goes to master_out at the
  * full MASTER level, USB audio takes that (audio.c uac_tap), and only then does MASTER scale what the DAC gets
  * (usb_fixed_dac). MASTER (0, the default): MASTER before master_out, as always (USB follows the knob) */
@@ -876,6 +880,52 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
 static void events_block(uint32_t n);                    /* seq.c */
 static int32_t send_c[CTL], send_d[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_r[CTL];
 
+/* (JIANT) CLIP: mix driven into soft clip ahead of the limiter (before MASTER); wet folded in */
+static __attribute__((noinline)) void clip_block(uint32_t n)
+{
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        mix_l[i] = ((softclip(((mix_l[i] + wet[i]) >> 4) * clip_g >> 10) * clip_mk) >> 15) << 2;
+        mix_r[i] = ((softclip(((mix_r[i] + wet[i]) >> 4) * clip_g >> 10) * clip_mk) >> 15) << 2;
+        wet[i] = 0;
+    }
+}
+static __attribute__((noinline)) void master_begin(void)
+{
+    int32_t a = clip_eff;
+    clip_g = a > 0 ? 4096 + a * 12288 / 100 : 0;
+    if (clip_g)
+        clip_mk = (int32_t)((6000u << 15) / (uint32_t)softclip((6000 * clip_g) >> 12));
+}
+/* DUCK: kick (eng_drum.c duck_hit) ducks non-DRUM parts */
+static __attribute__((noinline)) void duck_block(void)
+{
+    int32_t dep = song.g[G_DUCK] * 31731 / 100, e;
+    if (duck_hit) {
+        duck_hit = 0;
+        duck_att = 1;
+        duck_hold = (uint8_t)(1103u / CTL);
+    }
+    duck_g0 = duck_g1;
+    if (duck_att) {
+        duck_env += (32767 - duck_env) >> 1;
+        if (duck_env > 31000)
+            duck_att = 0;
+    } else if (duck_hold) {
+        duck_hold--;
+    } else if (duck_env) {
+        duck_env = (int32_t)(((uint32_t)duck_env * dv_kb(40000u + (uint32_t)song.g[G_DREL] * 5600u)) >> 16);
+    }
+    e = (duck_env * (65536 - duck_env)) >> 15;
+    duck_g1 = 32767 - mulq15(dep, e > 32767 ? 32767 : e);
+}
+static __attribute__((noinline)) int32_t duck_ramp(int32_t lvl, int32_t *dl)
+{
+    int32_t l0 = ((lvl * (duck_g0 >> 3)) >> 12) << 8;
+    *dl = ((((lvl * (duck_g1 >> 3)) >> 12) << 8) - l0) >> CTL_LOG2;
+    return l0;
+}
+
 /* SPREAD (#148): a POLY or UNISON part whose SPRD is above 0. Its voices start left and right of PAN in turn (voice.c
  * voice_start; UNISON's detuned voices alternate), at PAN -/+ SPRD / 2 (SPRD 127: hard left and right), with the pan
  * law PAN has (the far side down, the near one as it is). track_render gives every voice (b, as always) and the left
@@ -895,8 +945,10 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     int32_t glb = 4096 - (pb > 0 ? pb * 64 : 0), grb = 4096 + (pb < 0 ? pb * 64 : 0);
     int32_t glm = (gla + glb) >> 1, grm = (gra + grb) >> 1, gld = (gla - glb) >> 1, grd = (gra - grb) >> 1;
     int32_t c = t->p[P_CHOR] * 258, dl = t->p[P_DLY] * 258, r = t->p[P_REV] * 258, pk = t->peak;
-    int32_t xmax = c > dl ? c : dl;
+    int32_t xmax = c > dl ? c : dl, lq = lvl << 8, dlv = 0;
     xmax = 0x7FFFFFFF / ((xmax > r ? xmax : r) | 1);
+    if ((duck_g0 < 32767 || duck_g1 < 32767) && ENGINES[t->engine] != &ENG_DRUM)
+        lq = duck_ramp(lvl, &dlv);
     for (i = 0; i < n; i++)
         d[i] = (d[i] << 1) - b[i];                      /* left - right */
     if (ins_any(t) | t->ins_run)
@@ -904,8 +956,8 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     slicer_track_sd(t, b, d, n);
     if ((pf.mute >> (t - trk)) & 1u)
         perf_mute_sd((uint32_t)(t - trk), b, d, n);
-    for (i = 0; i < n; i++) {
-        int32_t x = ((b[i] >> 2) * lvl) >> 10, a = x < 0 ? -x : x, y = ((d[i] >> 2) * lvl) >> 10;
+    for (i = 0; i < n; i++, lq += dlv) {
+        int32_t x = ((b[i] >> 2) * (lq >> 8)) >> 10, a = x < 0 ? -x : x, y = ((d[i] >> 2) * (lq >> 8)) >> 10;
         int32_t xs = clamp(x, -xmax, xmax);
         if (a > pk)
             pk = a;
@@ -982,8 +1034,11 @@ static void mix_part(track_t *t, uint32_t n)
         slicer_track(t, b, n);
         if ((pf.mute >> (t - trk)) & 1u)
             perf_mute((uint32_t)(t - trk), b, n);       /* perform.c: a black key in the FX layer */
-        for (i = 0; i < n; i++) {
-            int32_t x = ((b[i] >> 2) * lvl) >> 10, a = x < 0 ? -x : x;   /* pre-shift: 8 loud voices */
+        int32_t lq = lvl << 8, dl = 0;
+        if ((duck_g0 < 32767 || duck_g1 < 32767) && ENGINES[t->engine] != &ENG_DRUM)   /* DUCK: the kick's */
+            lq = duck_ramp(lvl, &dl);
+        for (i = 0; i < n; i++, lq += dl) {
+            int32_t x = ((b[i] >> 2) * (lq >> 8)) >> 10, a = x < 0 ? -x : x;   /* pre-shift: 8 loud voices */
             int32_t xs = clamp(x, -xmax, xmax);         /* sends: mulq15 would overflow */
             if (a > pk)
                 pk = a;
@@ -1046,6 +1101,10 @@ static void mix_block(int32_t *out, uint32_t n)
         send_c[i] = send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
     pfx_block(n, (perf_kill ? 0u : (perf_held | perf_latched) & PF_MIDI) | scene_pfx);
     events_block(n);
+    clip_eff = song.g[G_CLIP];                          /* (JIANT) CLIP / PNCH for this block */
+    pnch_eff = song.g[G_PUNCH];
+    master_begin();
+    duck_block();
     perf = perf_begin(n);                               /* the FX hold layer at work (perform.c) */
     for (i = 0; i < NPART; i++)
         mix_part(&trk[i], n);
@@ -1056,6 +1115,8 @@ static void mix_block(int32_t *out, uint32_t n)
     fx_buses(send_c, send_d, send_r, wet, n);
     if (hl.side)
         rev_side_mix(mix_l, mix_r, n);                  /* HALL: stereo */
+    if (clip_g)
+        clip_block(n);
     if (scope_mix)
         scope_take_mix(n);
     if (perf) {
