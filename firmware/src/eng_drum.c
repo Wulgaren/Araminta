@@ -56,8 +56,10 @@ typedef struct {
     uint8_t owner;               /* the voice playing the lane: index + 1, 0 = none */
     uint8_t role;                /* the drum struck (DVT_*) */
     int8_t st;                   /* its semitones from the designed pitch (the GM map) */
-    uint8_t pad;
+    uint8_t age;                 /* blocks since the hit (pfx.c ATK+ fade-in) */
 } drum_lane_t;
+
+#define DRUM_ATK_BLK 48u                                 /* (JIANT) ATK+ on a DRUM track: fade-in, blocks */
 
 ENG_MEM_FITS("DRUM", sizeof(drum_lane_t) * DV_NLANE);
 /* 1.4.1: each part's lanes muted (bit l: lane l), the EDIT layer's black keys 1..8 (ui_layer.c EQA_DRUM): a channel
@@ -224,8 +226,9 @@ static void drum_note_on(track_t *t, voice_t *v)
         L->key.type = 0xFF;
         L->role = (uint8_t)role;
     }
-    L->st = (int8_t)st;
+    L->st = (int8_t)(st + t->pfx_rpit / 16);             /* (pfx.c RANDOM) */
     L->owner = (uint8_t)(i + 1u);                        /* (its last voice, if another, ends: drum_amp) */
+    L->age = 0;
     v->s[0] = (int32_t)lane;
     v->env_out = v->vel * 258;                           /* the hit starts at its level (no ramp from 0) */
     v->env = 1 << 24;                                    /* the ADSR held at full from here, not from drum_amp:
@@ -280,7 +283,7 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     k.tone = (uint8_t)clamp(k.tone + p[P_E2] - 64, 0, 127);
     k.extra = (uint8_t)clamp(k.extra + p[P_E4] - 64, 0, 127);
     k.accent = (uint8_t)clamp(acc >> 9, 0, 127);         /* (Q16 -> 0..127) */
-    k.tune = (int16_t)(L->st * 16 + (p[P_E1] - 64) * 3);   /* +-12 semitones */
+    k.tune = (int16_t)(L->st * 16 + (p[P_E1] - 64) * 3 + t->pfx_pit);   /* +-12 semitones; OCT± */
     if (((const uint32_t *)&k)[0] != ((const uint32_t *)&L->key)[0] ||
         ((const uint32_t *)&k)[1] != ((const uint32_t *)&L->key)[1]) {
         dv_setup(&L->c, &k);                             /* (a parameter moved) */
@@ -293,6 +296,14 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     dv_run(&L->c, &L->v, mb, y, n);
     if ((drum_mute[(uint32_t)(t - trk) % NPART] >> ((uint32_t)v->s[0] & (DV_NLANE - 1u))) & 1u)
         return;                                          /* (a muted lane rings on unheard) */
+    if ((t->pfx & PFX_ATK) && L->age < DRUM_ATK_BLK) {   /* (JIANT) ATK+: hit faded in (~35 ms), softer */
+        int32_t a0 = m->amp0 * (int32_t)L->age / (int32_t)DRUM_ATK_BLK;
+        ml.amp0 = a0;
+        ml.amp1 = m->amp1 * (int32_t)(L->age + 1u) / (int32_t)DRUM_ATK_BLK;
+        m = &ml;
+    }
+    if (L->age < 255u)
+        L->age++;
     if (drv > 0) {                                       /* DRV: x1..x4 into the soft clip, the level kept (Q12) */
         g = 4096 + drv * 3 * 4096 / 127;
         mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
