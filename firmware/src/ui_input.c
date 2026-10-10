@@ -996,12 +996,23 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     }
     if (pg->graph == GR_MOD && slot == 0u) {             /* MOD: KNOB 1 the slot, 2..4 its SRC DST AMT */
+        pk_close();
         mod_ui_slot = (uint8_t)clamp((int32_t)mod_ui_slot + (steps > 0 ? 1 : -1), 0, 3);
         return;
     }
+    if (pg->graph == GR_MOD && slot == 2u) {             /* #223: DST as a grouped full-screen list */
+        if (ui.pick != PK_MDST)
+            pk_open(PK_MDST);
+        (void)pk_knob(steps);
+        return;
+    }
+    if (pg->graph == GR_MOD && slot != 2u)
+        pk_close();
     d = page_desc(pg, slot, &vp);
     if (!d || !vp || d->max == d->min)
         return;
+    if (pg->graph != GR_MOD)
+        pk_close();
     v = param_turn(d, *vp, accel(EN_K1 + slot, steps, d->fmt == F_ENUM ? 0 : d->max - d->min));
     *vp = (int16_t)v;
     if (pg->scope != SC_GLOBAL) {

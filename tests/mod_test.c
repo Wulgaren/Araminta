@@ -356,6 +356,26 @@ static void test_math(void)
     mod_begin(t);
     check("ENV -> PAN: the latest note's envelope (sounding: > 0)", t->p[P_PAN] > 20 && t->m_env > 0);
     mod_end(t);
+
+    /* #222: SLICER pattern / rate / depth as per-block destinations */
+    fresh(0, 0);
+    t->p[P_SLPAT] = 8;
+    t->p[P_SLRATE] = 1;
+    t->p[P_SLDEPTH] = 64;
+    t->mw = 127;
+    slot(t, 0, MS_MODW, MD_SLPAT, 63);
+    slot(t, 1, MS_MODW, MD_SLRATE, 63);
+    slot(t, 2, MS_MODW, MD_SLDEPTH, 63);
+    mod_begin(t);
+    check("#222 MODW -> SLICER PAT / RATE / DEPTH: whole range at AMT 63",
+          t->p[P_SLPAT] == TP[P_SLPAT].max && t->p[P_SLRATE] == TP[P_SLRATE].max &&
+          t->p[P_SLDEPTH] == 127);
+    mod_end(t);
+    check("#222 SLICER params restored after the block",
+          t->p[P_SLPAT] == 8 && t->p[P_SLRATE] == 1 && t->p[P_SLDEPTH] == 64);
+    check("#222 DST names: PAT / SRATE / SDEP",
+          str_eq(mod_dst_name(t, MD_SLPAT), "PAT") && str_eq(mod_dst_name(t, MD_SLRATE), "SRATE") &&
+          str_eq(mod_dst_name(t, MD_SLDEPTH), "SDEP"));
 }
 
 /* ------------------------------------------------------------------ 3 --- */

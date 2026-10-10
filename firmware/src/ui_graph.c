@@ -1211,6 +1211,8 @@ static uint32_t graph_signature(void)
     }
     if (pg->graph == GR_MOD)
         h ^= (mod_ui_slot + 1u) * 40503u;
+    if (ui.pick || pg->graph == GR_DESTS)
+        h ^= pk_sig() + (pg->graph == GR_DESTS ? (ui.hot_t ? ui.hot_col + 1u : 0u) * 5779u : 0u);
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
     if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
@@ -1441,6 +1443,29 @@ static int32_t ev_value(int32_t y, const char *v, const char *unit, uint16_t fg,
     }
     return cv_text_r(x, y + LIST_TY, &AF_M, v, fg, bg);
 }
+/* #223: grouped full-screen pick list (AUTOMATION PARAM, MOD DST, or the rebuilt pk_rows for GR_DESTS) */
+static void graph_pick(void)
+{
+    int32_t row, first = clamp((int32_t)pk_cur - 3, 0, (int32_t)pk_n > 7 ? (int32_t)pk_n - 7 : 0);
+    for (row = 0; row < 7 && (uint32_t)(first + row) < pk_n; row++) {
+        uint32_t k = (uint32_t)(first + row);
+        const pk_row_t *r = &pk_rows[k];
+        int sel = k == pk_cur && r->id != PK_GROUP;
+        if (r->id == PK_GROUP)
+            list_row(LIST_Y(row), 0, r->tag, T_ACCENT, "", T_DIM, 232);
+        else
+            list_row(LIST_Y(row), sel, r->tag, T_MID, r->name, T_TEXT, 232);
+    }
+}
+/* ENV DEST / LFO DEST: the page's destinations as a grouped list with full names (#223) */
+static void graph_dests(void)
+{
+    uint32_t sel = 0;
+    pk_build_page(cur_page(), &sel);
+    pk_cur = (uint8_t)sel;
+    graph_pick();
+}
+
 /* SEQ > AUTOMATION (ui_events.c): the track's rows around the one selected: PLAY first (ON / OFF and the counts),
  * QUANTIZE (ON / OFF and the steps nudged), then a row each: the kind (LOCK in the accent, AUTO; STEP: a step's CHANCE,
  * RATCH, NUDGE or VEL, a NUDGE or VEL that does not play DIM), the step, the name, the value at the right; the last row
@@ -2287,7 +2312,14 @@ static void draw_graph(void)
             break;
         case GR_MOD:
             cv_oy = 0;
-            graph_mod(t, c);
+            if (ui.pick == PK_MDST)
+                graph_pick();
+            else
+                graph_mod(t, c);
+            break;
+        case GR_DESTS:
+            cv_oy = 0;
+            graph_dests();
             break;
         case GR_BROWSE:
             cv_oy = 0;
@@ -2311,7 +2343,10 @@ static void draw_graph(void)
             break;
         case GR_EVENTS:
             cv_oy = 0;
-            graph_events();
+            if (ui.pick == PK_AUTO)
+                graph_pick();
+            else
+                graph_events();
             break;
         case GR_TOOLS:
             cv_oy = 0;
