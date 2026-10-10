@@ -101,9 +101,10 @@ enum {                          /* global parameters */
     G_ENGSEL, G_CLIP,           /* no page for ENGSEL: the editor switches the engine with a SET of G_ENGSEL.
                                  * G_CLIP (JIANT): master soft-clip amount on FX > MASTER */
     G_CLRSEQ, G_INITSND,
-    G_RTYPE,                    /* REVERB TYPE: 0 ROOM, 1 SPRING, 2 HALL (1.2, the power-on default) (fx.c). Was
-                                 * G_DRCH, the GM drum part's MIDI channel (inert since 1.0, never read); projects
-                                 * of formats before FUN7 load it as ROOM (project.c proj_rtype_room) */
+    G_RTYPE,                    /* REVERB TYPE: 0 ROOM, 1 SPRING, 2 HALL (1.2, the power-on default), 3 SHIMR,
+                                 * 4 CLOUD (JIANT) (fx.c). Was G_DRCH, the GM drum part's MIDI channel (inert since
+                                 * 1.0, never read); projects of formats before FUN7 load it as ROOM
+                                 * (project.c proj_rtype_room) */
     G_PUNCH, G_DUCK,            /* (JIANT) drum bus PNCH and kick DUCK of the synths (fx.c, eng_drum.c).
                                  * Was G_DRLVL / G_DRREV (GM drum part); old projects still read them in
                                  * proj_drums_to_part, which clears them after */
