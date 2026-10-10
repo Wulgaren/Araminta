@@ -287,6 +287,7 @@ static void proj_drums_to_part(project_t *q)
     d->preset = PROJ_DEF_KEEP;
     d->p[P_LEVEL] = (int16_t)clamp(q->g[G_DRLVL], 0, 127);   /* the drum part's level and reverb send */
     d->p[P_REV] = (int16_t)clamp(q->g[G_DRREV], 0, 127);
+    q->g[G_DRLVL] = q->g[G_DRREV] = 0;          /* (their ids are PUNCH and DUCK now: off) */
     q->parts = NPART;
     q->sum = proj_sum(q);
 }

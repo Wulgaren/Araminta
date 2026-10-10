@@ -2679,7 +2679,7 @@ static int test_page_cycles(void)
             ok &= !str_eq(PAGES[i].title, "GLOBAL") && !str_eq(PAGES[i].title, "SYSTEM");
             for (k = 0; k < 4u && PAGES[i].scope == SC_GLOBAL; k++)
                 ok &= PAGES[i].id[k] != G_TUNE && PAGES[i].id[k] != G_ROUTE && PAGES[i].id[k] != G_MIDI &&
-                      PAGES[i].id[k] != G_SYNC && PAGES[i].id[k] != G_INFO;
+                      PAGES[i].id[k] != G_INFO;   /* G_DREL (was G_SYNC) lives on MASTER */
             if (str_eq(PAGES[i].title, "CLOCK"))
                 clock = i + 1u;
         }
@@ -7730,6 +7730,44 @@ static int test_select_pages(void)
     return bad;
 }
 
+/* JIANT sound dice mapped to OCT+ + PRESETS: dices the selected track's engine params once per turn burst */
+static int test_sound_dice(void)
+{
+    int bad = 0, ok;
+    int16_t before[8], b0;
+    uint32_t j, moved = 0;
+    ui_power_on();
+    frame();
+    go_title("ENV"); frame();
+    host_preset(TSEL, 0, 0);                             /* ANALOG factory 0 */
+    for (j = 0; j < 8u; j++)
+        before[j] = TSEL->p[P_E0 + j];
+    b0 = song.g[G_BPM];
+    fm1_ms += 1200u;
+    btn_down(B_OCTUP); frame();
+    turn(EN_PRESET, 1);
+    for (j = 0; j < 8u; j++)
+        moved += TSEL->p[P_E0 + j] != before[j];
+    ok = song.g[G_BPM] == b0 && msg_is("SOUND DICED") && moved > 0u;
+    for (j = 0; j < 8u; j++)
+        before[j] = TSEL->p[P_E0 + j];
+    turn(EN_PRESET, 1);                                 /* same burst: no second dice */
+    for (j = 0; j < 8u; j++)
+        ok &= TSEL->p[P_E0 + j] == before[j];
+    btn_up(B_OCTUP); frame();
+    bad += check("OCT+ + PRESETS dices the sound once a turn burst (tempo kept)", ok);
+
+    {   /* bare PRESETS still browses (no dice) */
+        uint32_t eng0 = TSEL->eng_req, p0 = TSEL->preset;
+        frames(800u);                                    /* SOUND DICED message out */
+        turn(EN_PRESET, 1);
+        ok = !msg_is("SOUND DICED") && (TSEL->eng_req != eng0 || TSEL->preset != p0);
+        bad += check("PRESETS alone still browses sounds (no SOUND DICED)", ok);
+    }
+    ui_power_on(); frame();
+    return bad;
+}
+
 /* #15 / Discussion #80 MENU > LARGE: OFF by default (and in every older setting); KNOB 1 right ON / left OFF, OCT+
  * toggles, nothing else moves. ON: HOME and the value pages draw tall cards (a K1..K4 pill over each knob's column,
  * the value in L) and the strip under them; the list / graph pages and the layers keep the layout (their labels in
@@ -9343,6 +9381,7 @@ int main(void)
     bad += test_click_menu();
     bad += test_usb_serial();
     bad += test_select_pages();
+    bad += test_sound_dice();
     bad += test_large();
     bad += test_browse_no_pattern();
     bad += test_name();

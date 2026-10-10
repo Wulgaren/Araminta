@@ -196,7 +196,7 @@ int main(void)
     bad += check("FUN2 -> FUN6: converted, valid format 5 slot", ok && proj_ok(&q) && q.magic == PROJ_MAGIC);
     ok = q.sel == 2;
     for (i = 0; i < G_COUNT; i++)
-        ok &= q.g[i] == (i == G_RTYPE ? 0 : (int16_t)(500 + i));
+        ok &= q.g[i] == (i == G_RTYPE || i == G_DRLVL || i == G_DRREV ? 0 : (int16_t)(500 + i));
     bad += check("FUN2 -> FUN6: globals (id 24, the old drum channel: ROOM) and selected track", ok);
     ok = 1;
     for (t = 0; t < NTRK; t++)
