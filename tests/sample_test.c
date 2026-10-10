@@ -6,6 +6,7 @@
  * 1. PIANO (SET 0; 1 and 4 its aliases) is the 5-zone one-shot set of 1.0 .. 1.1.5 (22,050 Hz, roots 36 .. 84, 0.75 s;
  *    1.2 .. 1.4.1 had a reduced 2-zone one): SAMPLE plays the right zone, at the note's pitch (YIN on the render)
  *    over the keyboard, for 0.75 s at a root; GRAIN's SRC 0 plays it. Renders into DEMO_DIR.
+ * 1b. CR78 (SET 5) is the 16-zone kit (C4..D#5) from assets/samples-cc0/CR78/; USR1..3 are 6..8.
  * 2. SLICE's PIANO is SAMPLE PIANO's middle C zone itself again (no copy; 1.2 .. 1.4.1 kept one of its own).
  * 3. PIANO HD (PIANO_HD.hdr / .bin: gen_samples.py --user-slot PIANO "PIANO HD", the file 1.2 offered for the old
  *    piano): a user who installed it keeps it; in USR1 it is valid and renders bit for bit as SET 0 at every key.
@@ -190,11 +191,11 @@ int main(int argc, char **argv)
         const smp_set_t *s = &SMP_SETS[0];
         const smp_zone_t *z = &SMP_ZONES[s->z0];
         uint32_t bytes = 0, ok = s->nz == 5u;
-        check("PIANO: SET 0, its aliases 1 and 4 the same zones; FLUTE 2, SAX 3, USR1..3 5..7; 4 presets",
-              SMP_NSETS == 5u && str_eq(SMP_SETS[0].name, "PIANO") && SMP_SETS[1].z0 == s->z0 && SMP_SETS[4].z0 == s->z0 &&
+        check("PIANO: SET 0, aliases 1 and 4; FLUTE 2, SAX 3, CR78 5; USR1..3 6..8; 6 presets",
+              SMP_NSETS == 6u && str_eq(SMP_SETS[0].name, "PIANO") && SMP_SETS[1].z0 == s->z0 && SMP_SETS[4].z0 == s->z0 &&
               SMP_SETS[1].nz == s->nz && SMP_SETS[4].nz == s->nz && str_eq(SMP_SETS[2].name, "FLUTE") &&
-              str_eq(SMP_SETS[3].name, "SAX") && str_eq(SMP_ALL_NAMES[5], "USR1") && ENG_SAMPLE.edit[0].max == 7 &&
-              ENG_SAMPLE.npresets == 4u);
+              str_eq(SMP_SETS[3].name, "SAX") && str_eq(SMP_SETS[5].name, "CR78") &&
+              str_eq(SMP_ALL_NAMES[6], "USR1") && ENG_SAMPLE.edit[0].max == 8 && ENG_SAMPLE.npresets == 6u);
         for (i = 0; ok && i < 5u; i++) {
             bytes += (z[i].n + 1u) / 2u;
             ok &= z[i].rate == 32768u && z[i].root16 == ROOT[i] * 16u && z[i].lo == LO[i] && z[i].hi == HI[i] &&
@@ -221,6 +222,24 @@ int main(int argc, char **argv)
         render(8u, 0, 60, 0, &zone);
         check("PIANO: GRAIN SRC 0 takes its zones (the middle C zone for note 60, not the sine)",
               zone == 2 && rms(FS / 2u, FS) > 100.0);
+    }
+
+    /* 1b: CR78 kit (set 5): one zone per key C4..D#5 */
+    {
+        const smp_set_t *s = &SMP_SETS[5];
+        const smp_zone_t *z = &SMP_ZONES[s->z0];
+        uint32_t bytes = 0, ok = s->nz == 16u;
+        for (i = 0; ok && i < 16u; i++) {
+            bytes += (z[i].n + 1u) / 2u;
+            ok &= z[i].rate == 32768u && z[i].root16 == (60 + (int)i) * 16 && z[i].lo == 60 + i &&
+                  z[i].hi == 60 + i && !z[i].looped && z[i].n > 64u;
+        }
+        snprintf(m, sizeof m, "CR78: 16 kit zones C4..D#5 at 22,050 Hz (%u B ADPCM)", bytes);
+        check(m, ok && bytes > 10000u && bytes < 90000u);
+        render(ENGI_SAMPLE, 5, 60, 0, &zone);
+        render(ENGI_SAMPLE, 5, 61, 0, &zone2);
+        check("CR78: note 60 is the kick zone, 61 the snare",
+              zone == (int32_t)s->z0 && zone2 == (int32_t)s->z0 + 1 && rms(0, FS / 10u) > 50.0);
     }
 
     /* 2: SLICE's PIANO, SAMPLE PIANO's middle C zone itself */

@@ -17,3 +17,9 @@ FLUTE/02_LDFlute_susvib_C6_v1_1.wav  <-  sgossner/VSCO-2-CE: Woodwinds/Flute/sus
 SAX/00_BrettTenor_NV_Main_A#1_vl2_rr1.wav  <-  sgossner/VCSL: Aerophones/Reed Aerophones/Tenor Saxophone/Non-Vibrato/BrettTenor_NV_Main_A#1_vl2_rr1.wav
 SAX/01_BrettTenor_NV_Main_A#2_vl2_rr1.wav  <-  sgossner/VCSL: Aerophones/Reed Aerophones/Tenor Saxophone/Non-Vibrato/BrettTenor_NV_Main_A#2_vl2_rr1.wav
 SAX/02_BrettTenor_NV_Main_A#3_vl2_rr1.wav  <-  sgossner/VCSL: Aerophones/Reed Aerophones/Tenor Saxophone/Non-Vibrato/BrettTenor_NV_Main_A#3_vl2_rr1.wav
+
+CR78/ (Araminta SAMPLE kit set 5)
+Source: local pack ~/Downloads/C78 WAV (CR-78 style one-shots), vendored 2026-10-10.
+Licence: not CC0; included for the Araminta fork at the project owner's request. Redistribute
+only if you have rights to those files. Built into firmware by tools/gen_samples.py (kind "kit").
+Files renamed to 00_Kick_C4.wav .. 15_Metallic_D#5.wav (note in the name = MIDI root, C4 = 60).
