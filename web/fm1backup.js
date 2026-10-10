@@ -149,6 +149,85 @@ export async function restoreBackup(request, file, onProgress = () => {}) {
   return archive;
 }
 
+/* One PROJECT slot (backup ids 2..5) as its own file. Uses LIST/GET/PUT only; other slots stay. */
+const PROJECT_MAGIC = { 3388: 0x46554e37, 3584: 0x46554e38, 3648: 0x46554e39, 3840: 0x46554e41 };
+const projId = (slot) => {
+  if (!Number.isInteger(slot) || slot < 0 || slot > 3) throw new Error("Project slot must be 0..3");
+  return 2 + slot;
+};
+const projMagic = (bytes) => (bytes[0] | bytes[1] << 8 | bytes[2] << 16 | bytes[3] << 24) >>> 0;
+export function projectName(bytes) {
+  if (!bytes || !(bytes.length in PROJECT_MAGIC)) return "";
+  let s = "";
+  for (let i = bytes.length - 16; i < bytes.length - 4; i++) {
+    const c = bytes[i];
+    if (!c) break;
+    if (c < 32 || c > 126) return "";
+    s += String.fromCharCode(c);
+  }
+  return s.trim();
+}
+function checkProjectBytes(bytes) {
+  const want = PROJECT_MAGIC[bytes.length];
+  if (!want || projMagic(bytes) !== want) throw new Error("Not a Felucca project");
+  return bytes;
+}
+export function readProject(file) {
+  if (typeof file === "string") file = JSON.parse(file);
+  if (!file || file.format !== "felucca-project" || file.version !== 1 ||
+      !Number.isInteger(file.size) || !(file.size in PROJECT_MAGIC) ||
+      !Number.isInteger(file.crc) || file.crc < 0 || file.crc > 0xffffffff ||
+      typeof file.data !== "string" ||
+      file.data.length !== 4 * Math.ceil(file.size / 3) ||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.data))
+    throw new Error("Not a Felucca project file");
+  const bytes = checkProjectBytes(Uint8Array.from(atob(file.data), (c) => c.charCodeAt(0)));
+  if (bytes.length !== file.size || bkCrc(bytes) !== file.crc) throw new Error("Project checksum mismatch");
+  const slot = Number.isInteger(file.slot) && file.slot >= 0 && file.slot <= 3 ? file.slot : 0;
+  return { ...file, slot, bytes, name: projectName(bytes) };
+}
+export async function captureProject(request, slot, firmware, onProgress = () => {}) {
+  const id = projId(slot);
+  const manifest = bkManifest(await request([BACKUP_CMD.LIST, []], { timeout: 3000, retries: 0 }));
+  const o = manifest.find((x) => x.id === id);
+  if (!o) throw new Error("Project slot missing from archive list");
+  if (!o.size) throw new Error("Empty project slot");
+  if (!(o.size in PROJECT_MAGIC)) throw new Error("Unexpected project size");
+  const bytes = new Uint8Array(o.size);
+  for (let off = 0; off < o.size; off += BACKUP_CHUNK) {
+    const size = Math.min(BACKUP_CHUNK, o.size - off);
+    const a = await request([BACKUP_CMD.GET, [id, ...bkU32(off), size & 127, size >>> 7]], { timeout: 1000, retries: 1 });
+    bkCheck(a[1]);
+    if (a[0] !== id || bkR32(a, 2) !== off || (a[7] | a[8] << 7) !== size) throw new Error("Unexpected project reply");
+    bytes.set(bkUnpack(a.slice(9), size), off);
+    onProgress(off + size, o.size);
+  }
+  if (bkCrc(bytes) !== o.crc) throw new Error("The device changed during export. Try again while stopped.");
+  checkProjectBytes(bytes);
+  const file = {
+    format: "felucca-project", version: 1, firmware, created: new Date().toISOString(),
+    slot, size: o.size, crc: o.crc, data: bkBase64(bytes),
+  };
+  readProject(file);
+  return file;
+}
+export async function restoreProject(request, file, slot, onProgress = () => {}) {
+  const project = readProject(file);
+  const id = projId(slot);
+  const ask = async (r, o = {}) => request(r, { timeout: 4000, retries: 0, ...o });
+  const put = async (args) => { const a = await ask([BACKUP_CMD.PUT, args]); bkCheck(a[2]); return a; };
+  await put([0, id, ...bkU32(project.size), ...bkU32(project.crc)]);
+  try {
+    for (let off = 0; off < project.size; off += BACKUP_CHUNK) {
+      const chunk = project.bytes.subarray(off, off + BACKUP_CHUNK);
+      await put([1, id, ...bkU32(off), ...bkPack(chunk)]);
+      onProgress(off + chunk.length, project.size);
+    }
+    await put([2, id]);
+  } catch (e) { await put([3, id]).catch(() => {}); throw e; }
+  return project;
+}
+
 // Installer connection: no editor page or watcher owns this input simultaneously.
 export class BackupConnection {
   constructor(input, output) {
