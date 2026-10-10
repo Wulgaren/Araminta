@@ -206,6 +206,7 @@ static void arp_remove(track_t *t, uint32_t note)
 #define ND_NONE 0u                      /* track_t nd_late / nd_early: nothing latched (seq_tick; else its seq_pos + 1) */
 static void rec_note(track_t *t, uint32_t note, uint32_t vel);
 static void rec_release(track_t *t, uint32_t note);
+static void seq_start(void);
 static int rec_on(const track_t *t) { return ((song.rec >> trk_index(t)) & 1u) && song.playing && !chain.running; }
 static int pfx_rec_ok(void) { return song.rec && song.playing && !chain.running; }   /* (pfx.c: punch-in lane) */
 
@@ -590,6 +591,217 @@ static void rec_release(track_t *t, uint32_t note)
         t->step[t->rh_last] = t->rh_bak;            /* released early in it: not held into this step */
 }
 
+/* FREE TAKE (from SLOOP): empty project, REC armed while stopped, no count-in. Play with no tempo;
+ * REC on the next downbeat closes the loop (1 / 2 / 4 bars, tempo nearest the current BPM; within 3 %
+ * the tempo is kept), notes quantised to 1/16 with lengths; PLAY drops the take. */
+#define FT_MAX 192u
+#define FT_BLOCKS (24u * FS / CTL)            /* 24 s: 4 bars at 40 BPM, the longest loop */
+#define FT_OPEN 0xFFFFu                       /* the key is still down */
+typedef struct { uint16_t t, d; uint8_t note, vel; } ft_ev_t;
+static ft_ev_t ft_ev[FT_MAX];
+static uint32_t ft_n;
+static volatile uint8_t ft_on;                /* a free take runs */
+static uint8_t ft_trk;
+static volatile uint32_t ft_t;                /* blocks since its first note */
+static volatile uint32_t ft_btn_mask;         /* the REC button (the UI sets it): closes the take */
+static volatile uint32_t ft_drop_mask;        /* the PLAY button: drops it */
+static uint32_t ft_btn_prev;
+static volatile uint8_t ft_bars;              /* the loop just closed: bars (the UI says so), 0xFF dropped */
+static volatile uint32_t ft_close_ms;
+static volatile uint8_t ft_closed;
+
+static int track_empty(const track_t *t)
+{
+    uint32_t k;
+    for (k = 0; k < NSTEP; k++)
+        if (t->step[k].n || t->step[k].hit)
+            return 0;
+    return 1;
+}
+static int project_empty(void)
+{
+    uint32_t i;
+    for (i = 0; i < NTRK; i++)
+        if (!track_empty(&trk[i]))
+            return 0;
+    return 1;
+}
+static uint32_t ft_bpm10(uint32_t T, uint32_t n)
+{
+    uint32_t den = T * CTL;
+    return den ? (n * 2400u * FS + den / 2u) / den : 0u;
+}
+static uint32_t ft_fit(uint32_t T, uint32_t *bpm)
+{
+    static const uint8_t BARS[3] = {1, 2, 4};
+    uint32_t i, best = 0, cur = (uint32_t)song.g[G_BPM] * 10u, err = 0xFFFFFFFFu;
+    for (i = 0; i < 3u; i++) {
+        uint32_t b = ft_bpm10(T, BARS[i]), e;
+        if (b < 400u || b > 2400u)
+            continue;
+        e = b > cur ? b * 1000u / cur : cur * 1000u / b;
+        if (e < err) {
+            err = e;
+            best = BARS[i];
+            *bpm = (b + 5u) / 10u;
+            if (e <= 1030u)
+                *bpm = cur / 10u;
+        }
+    }
+    return best;
+}
+static void ft_steps_clear(track_t *t)
+{
+    uint32_t k;
+    memset(t->step, 0, sizeof t->step);
+    for (k = 0; k < NSTEP; k++)
+        t->step[k].time = ST_REST;
+}
+static void ft_start(track_t *t)
+{
+    ft_on = 1;
+    ft_trk = (uint8_t)trk_index(t);
+    ft_t = 0;
+    ft_n = 0;
+    song.rec = 0;
+}
+static void ft_note_on(uint32_t note, uint32_t vel)
+{
+    if (ft_n < FT_MAX && ft_t < FT_BLOCKS) {
+        ft_ev[ft_n].t = (uint16_t)ft_t;
+        ft_ev[ft_n].d = FT_OPEN;
+        ft_ev[ft_n].note = (uint8_t)note;
+        ft_ev[ft_n].vel = (uint8_t)vel;
+        ft_n++;
+    }
+}
+static void ft_note_off(uint32_t note)
+{
+    uint32_t i = ft_n;
+    while (i--)
+        if (ft_ev[i].note == note && ft_ev[i].d == FT_OPEN) {
+            ft_ev[i].d = (uint16_t)(ft_t - ft_ev[i].t);
+            return;
+        }
+}
+static void ft_put(track_t *t, uint32_t idx, uint8_t note, uint8_t vel)
+{
+    step_t *s = &t->step[idx];
+    uint32_t k;
+    if (drum_track(t)) {
+        uint32_t l = drum_lane(note);
+        if (s->time != ST_NOTE || (!s->n && !s->hit)) {
+            s->n = s->hit = s->acc = 0;
+            s->flags = 0;
+            s->vel = 0;
+        }
+        s->time = ST_NOTE;
+        if (note == DRUM_LANE_NOTE[l]) {
+            s->hit |= (uint8_t)(1u << l);
+            if (vel > 110)
+                s->acc |= (uint8_t)(1u << l);
+        } else {
+            for (k = 0; k < s->n && s->note[k] != note; k++)
+                ;
+            if (k == s->n) {
+                if (s->n < 4u)
+                    s->n++;
+                s->note[s->n - 1u] = note;
+            }
+            if (vel > 110)
+                s->flags |= SF_ACCENT;
+        }
+        if (vel > s->vel)
+            s->vel = vel;
+        return;
+    }
+    if (s->time != ST_NOTE || !s->n) {
+        s->n = 0;
+        s->flags = 0;
+        s->vel = 0;
+    }
+    for (k = 0; k < s->n && s->note[k] != note; k++)
+        ;
+    if (k == s->n) {
+        if (s->n < 4u)
+            s->n++;
+        s->note[s->n - 1u] = note;
+    }
+    s->time = ST_NOTE;
+    if (vel > 110)
+        s->flags |= SF_ACCENT;
+    if (vel > s->vel)
+        s->vel = vel;
+}
+static void ft_close(void)
+{
+    track_t *t = &trk[ft_trk % NTRK];
+    uint32_t T = ft_t, bars, bpm = 0, len, i, k;
+    ft_on = 0;
+    ft_close_ms = fm1_ms;
+    ft_closed = 1;
+    bars = ft_n && T >= FS / CTL / 2u ? ft_fit(T, &bpm) : 0u;
+    if (!bars) {
+        ft_bars = 0xFF;
+        return;
+    }
+    len = 16u * bars;
+    ft_steps_clear(t);
+    for (i = 0; i < NTRK; i++) {
+        trk[i].p[P_SLEN] = (int16_t)len;
+        trk[i].p[P_SDIV] = 2;                         /* 1/16 */
+    }
+    for (i = 0; i < ft_n; i++) {
+        uint32_t idx = (ft_ev[i].t * len * 2u + T) / (2u * T) % len;
+        ft_put(t, idx, ft_ev[i].note, ft_ev[i].vel);
+    }
+    if (!drum_track(t))
+        for (i = 0; i < ft_n; i++) {
+            uint32_t d = ft_ev[i].d == FT_OPEN || ft_ev[i].t + ft_ev[i].d > T ? T - ft_ev[i].t : ft_ev[i].d;
+            uint32_t idx = (ft_ev[i].t * len * 2u + T) / (2u * T) % len;
+            uint32_t steps = (d * len * 2u + T) / (2u * T);
+            for (k = 1; k < steps && k < len; k++) {
+                step_t *s = &t->step[(idx + k) % len];
+                if (s->time == ST_NOTE && s->n)
+                    break;
+                memset(s, 0, sizeof *s);
+                s->time = ST_TIE;
+            }
+        }
+    t->seq_active = 1;
+    song.g[G_BPM] = (int16_t)bpm;
+    ft_bars = (uint8_t)bars;
+    seq_start();
+}
+static int ft_owns_press(void)
+{
+    return ft_on || (ft_closed && (uint32_t)(fm1_ms - ft_close_ms) < 300u);
+}
+static void ft_block(void)
+{
+    uint32_t b = fm1_in.buttons & (ft_btn_mask | ft_drop_mask), press = b & ~ft_btn_prev;
+    ft_btn_prev = b;
+    if (!ft_on)
+        return;
+    ft_t++;
+    if (press & ft_drop_mask) {
+        ft_on = 0;
+        ft_bars = 0xFF;
+        ft_close_ms = fm1_ms;
+        ft_closed = 1;
+    } else if ((press & ft_btn_mask) || ft_t >= FT_BLOCKS) {
+        ft_close();
+    }
+}
+/* armed and stopped on an empty project: the first note starts a free take */
+static void arm_start(track_t *t)
+{
+    if (!((song.rec >> trk_index(t)) & 1u) || song.playing || ft_on || cin_left || chain.running)
+        return;
+    if (project_empty())
+        ft_start(t);
+}
+
 /* a note into armed track t in the count-in's last eighth: kept for step 1 (cin_flush); once each, 4 per track */
 static __attribute__((noinline)) void cin_keep(track_t *t, uint32_t note, uint32_t vel)
 {
@@ -611,6 +823,9 @@ static __attribute__((noinline)) void cin_keep(track_t *t, uint32_t note, uint32
 static void input_on(track_t *t, uint32_t note, uint32_t vel)
 {
     last_note = (uint8_t)note;
+    arm_start(t);
+    if (ft_on && t == &trk[ft_trk % NTRK])
+        ft_note_on(note, vel);
     if (cin_left)
         cin_keep(t, note, vel);
     if (rec_on(t) && !t->p[P_AMODE])               /* (ARP on: arp_tick records its notes) */
@@ -627,6 +842,8 @@ static void input_off(track_t *t, uint32_t note)
 {
     if (midi_note_held(t, note))
         return;
+    if (ft_on && t == &trk[ft_trk % NTRK])
+        ft_note_off(note);
     if (cin_left) {                                 /* a kept note let go before step 1: recorded, then let go */
         uint32_t i = trk_index(t), k;
         for (k = 0; k < cin_n[i]; k++)
@@ -1253,18 +1470,25 @@ static void events_block(uint32_t n)
     if (cin_left && !clock_mode)
         cin_block(n);
     if (transport_req == 1u) {
-        if (clock_mode)
+        if (ft_on) {
+            ft_close();                             /* PLAY from elsewhere (the editor): close like REC */
+        } else if (clock_mode) {
             midi_clock_transport(0xFAu, fm1_ms);
-        else if (cin_left)
+        } else if (cin_left) {
             ;                                       /* counting in already (the UI's PLAY stops it: seq_counting) */
-        else if (cin_bars && song.rec && !song.playing && !chain.armed)
+        } else if (cin_bars && song.rec && !song.playing && !chain.armed) {
             cin_begin();                            /* recording from stop: the count-in first */
-        else
+        } else {
             seq_start();
+        }
         transport_req = 0;
     } else if (transport_req == 2u) {
         seq_stop();
         transport_req = 0;
+        if (ft_on) {
+            ft_on = 0;                              /* a free take: dropped */
+            ft_bars = 0xFF;
+        }
     } else if (transport_req == 3u) {                 /* GLO + PLAY: from the top without stopping (INT clock) */
         if (!clock_mode) {
             seq_stop();
@@ -1272,6 +1496,7 @@ static void events_block(uint32_t n)
         }
         transport_req = 0;
     }
+    ft_block();
     if (midi_route != (uint8_t)song.g[G_ROUTE]) {     /* ROUT changed: a block lets go of the other channels */
         midi_route = (uint8_t)song.g[G_ROUTE];
         if (midi_route != 1u)
