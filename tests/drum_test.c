@@ -1354,6 +1354,103 @@ static void demos(const char *dir)
            "keys, a beat (PUNCH, ROUND, the kits 80 10 66 55 77)\n", dir, (uint32_t)DVT_COUNT);
 }
 
+/* JIANT FX drums: PNCH fattens a kick; DUCK ducks a held synth after a kick */
+static void fx_drums(void)
+{
+    double e0, e1, b0, b1, t0, t1, before, during, after, c0 = 0, c1 = 0;
+    int32_t o[2 * CTL];
+    float y[FS];
+    track_t *t, *s2;
+    uint32_t i, k, m, bad = 0;
+    host_tracks_init();
+    song.g[G_PUNCH] = 0;
+    song.g[G_DUCK] = 0;
+    song.g[G_CLIP] = 0;
+    host_preset(&trk[0], ENGI_DRUM, 0);
+    t = &trk[0];
+    t->p[P_LEVEL] = 60;
+    trk_note_on(t, 36, 110);
+    for (i = 0; i < FS / 4u; i += CTL) {
+        mix_block(o, CTL);
+        for (k = 0; k < CTL && i + k < FS / 4u; k++)
+            y[i + k] = (float)o[2u * k] / 32768.0f;
+    }
+    for (e0 = 0, i = 0; i < FS * 8u / 1000u; i++)
+        e0 += (double)y[i] * y[i];
+    e0 = sqrt(e0 / (FS * 8u / 1000u));
+    for (b0 = 0, i = FS / 50u; i < FS / 15u; i++)
+        b0 += (double)y[i] * y[i];
+    b0 = sqrt(b0 / (FS / 15u - FS / 50u));
+    for (t0 = 0, i = FS / 10u; i < FS / 5u; i++)
+        t0 += (double)y[i] * y[i];
+    t0 = sqrt(t0 / (FS / 5u - FS / 10u));
+    host_tracks_init();
+    host_preset(&trk[0], ENGI_DRUM, 0);
+    t = &trk[0];
+    t->p[P_LEVEL] = 60;
+    song.g[G_PUNCH] = 100;
+    trk_note_on(t, 36, 110);
+    for (i = 0; i < FS / 4u; i += CTL) {
+        mix_block(o, CTL);
+        for (k = 0; k < CTL && i + k < FS / 4u; k++)
+            y[i + k] = (float)o[2u * k] / 32768.0f;
+    }
+    for (e1 = 0, i = 0; i < FS * 8u / 1000u; i++)
+        e1 += (double)y[i] * y[i];
+    e1 = sqrt(e1 / (FS * 8u / 1000u));
+    for (b1 = 0, i = FS / 50u; i < FS / 15u; i++)
+        b1 += (double)y[i] * y[i];
+    b1 = sqrt(b1 / (FS / 15u - FS / 50u));
+    for (t1 = 0, i = FS / 10u; i < FS / 5u; i++)
+        t1 += (double)y[i] * y[i];
+    t1 = sqrt(t1 / (FS / 5u - FS / 10u));
+    song.g[G_PUNCH] = 0;
+    bad += !(e1 > e0 * 1.3 && b1 > b0 * 1.15 && t1 > t0 * 0.97);
+    printf("drum_test: PNCH 100: kick attack %.0f -> %.0f, body %.0f -> %.0f, tail %.0f -> %.0f: %s\n",
+           e0 * 1e4, e1 * 1e4, b0 * 1e4, b1 * 1e4, t0 * 1e4, t1 * 1e4, bad ? "FAIL" : "ok");
+
+    for (m = 0; m < 2u; m++) {
+        host_tracks_init();
+        host_preset(&trk[0], ENGI_DRUM, 0);
+        host_preset(&trk[1], 0, 0);
+        t = &trk[0];
+        s2 = &trk[1];
+        s2->p[P_E7] = 0;
+        for (k = 0; k < 4u; k++)
+            s2->p[P_DIST + k] = 0;                       /* dry: DIST + sends out of the measure */
+        song.g[G_DUCK] = (int16_t)(m ? 100 : 0);
+        song.g[G_DREL] = 30;
+        t->p[P_LEVEL] = 0;                               /* kick silent: measure only the duck */
+        trk_note_on(s2, 60, 100);
+        for (i = 0; i < FS / 2u; i += CTL)
+            mix_block(o, CTL);
+        trk_note_on(t, 36, 110);
+        for (i = 0; i < FS; i += CTL) {
+            mix_block(o, CTL);
+            for (k = 0; k < CTL && i + k < FS; k++)
+                y[i + k] = (float)o[2u * k] / 32768.0f;
+        }
+        for (during = 0, i = FS * 5u / 1000u; i < FS * 40u / 1000u; i++)
+            during += (double)y[i] * y[i];
+        during = sqrt(during / (FS * 35u / 1000u));
+        for (after = 0, i = FS * 8u / 10u; i < FS * 9u / 10u; i++)
+            after += (double)y[i] * y[i];
+        after = sqrt(after / (FS / 10u));
+        trk_note_off(s2, 60);
+        if (!m) {
+            before = during;
+            c0 = after;
+        } else {
+            c1 = after;
+            bad += !(during < before / 3.16 && fabs(20 * log10(c1 / (c0 + 1e-20))) < 1.0);
+            printf("drum_test: DUCK 100: synth %.0f -> %.0f during kick, after %.0f / %.0f: %s\n",
+                   before * 1e4, during * 1e4, c0 * 1e4, c1 * 1e4, bad ? "FAIL" : "ok");
+        }
+    }
+    song.g[G_DUCK] = 0;
+    fails += bad != 0;
+}
+
 int main(int argc, char **argv)
 {
     if (!getenv("NOCOST")) {
@@ -1373,6 +1470,7 @@ int main(int argc, char **argv)
     lane_budget();
     lane_levels();
     engine();
+    fx_drums();
     if (argc > 1)
         demos(argv[1]);
     printf("drum_test: %s\n", fails ? "FAILED" : "all checks ok");

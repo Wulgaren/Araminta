@@ -61,6 +61,18 @@ typedef struct {
 
 #define DRUM_ATK_BLK 48u                                 /* (JIANT) ATK+ on a DRUM track: fade-in, blocks */
 
+static int16_t clip_eff, pnch_eff;   /* G_CLIP / G_PUNCH as the master plays them (fx.c mix_block) */
+/* The drum bus (JIANT, FX > MASTER). PUNCH (G_PUNCH 0..100): each hit's age fattens the attack and body into
+ * the knee (up to x1.45 / x1.7), back to unity by ~180 ms. DUCK (G_DUCK, fx.c): a kick struck on any DRUM
+ * track ducks the other parts; duck_hit tells fx.c's mix_block */
+static volatile uint8_t duck_hit;
+static int32_t punch_gain(uint32_t age, int32_t p)     /* Q15 (32768 = 1, up to x1.7), p 0..100 */
+{
+    int32_t up = 32768 + p * 150, body = 32768 + p * 230;
+    return age < 4u ? up : age < 20u ? up + (body - up) * (int32_t)(age - 4u) / 16
+                       : age < 160u ? body : age < 250u ? body + (32768 - body) * (int32_t)(age - 160u) / 90 : 32768;
+}
+
 ENG_MEM_FITS("DRUM", sizeof(drum_lane_t) * DV_NLANE);
 /* 1.4.1: each part's lanes muted (bit l: lane l), the EDIT layer's black keys 1..8 (ui_layer.c EQA_DRUM): a channel
  * mute. The lane plays on as always (hits, keys, MIDI: its voice, the CPU, the choke) and drum_render drops its output,
@@ -235,6 +247,8 @@ static void drum_note_on(track_t *t, voice_t *v)
                                                           * a key-off before the first block (zero-length MIDI
                                                           * notes) would end a fresh voice at env 0 in env_tick */
     dv_trigger(&L->v);
+    if (lane == DV_KICK)
+        duck_hit = 1;
     if (lane == DV_HATC && K[DV_HATO].v.live)            /* a closed hat chokes the open one */
         dv_choke(&K[DV_HATO].v);
 }
@@ -302,17 +316,33 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         ml.amp1 = m->amp1 * (int32_t)(L->age + 1u) / (int32_t)DRUM_ATK_BLK;
         m = &ml;
     }
-    if (L->age < 255u)
-        L->age++;
-    if (drv > 0) {                                       /* DRV: x1..x4 into the soft clip, the level kept (Q12) */
-        g = 4096 + drv * 3 * 4096 / 127;
-        mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
-    }
-    for (i = 0; i < n; i++) {                            /* x1.25 and the knee below, in 32 bits */
-        int32_t s = y[i];
-        if (g)
-            s = (softclip((s * g) >> 12) * mk) >> 15;
-        out[i] += voice_amp(soft_knee(s + (s >> 2), 24000), m, i) << 1;
+    {                                                    /* PUNCH: boost before the knee; age for the envelope */
+        int32_t pu = pnch_eff, pb0 = 4096, pb1 = 4096;
+        if (pu > 0) {
+            int32_t g0 = punch_gain(L->age, pu), g1 = punch_gain(L->age + 1u, pu);
+            if (g0 < 32768 || g1 < 32768) {
+                int32_t a0 = (m->amp0 * (g0 < 32768 ? g0 : 32768)) >> 15;
+                ml.amp1 = (m->amp1 * (g1 < 32768 ? g1 : 32768)) >> 15;
+                ml.amp0 = a0;
+                m = &ml;
+            }
+            pb0 = g0 > 32768 ? g0 >> 3 : 4096;           /* Q12 */
+            pb1 = g1 > 32768 ? g1 >> 3 : 4096;
+        }
+        if (L->age < 255u)
+            L->age++;
+        if (drv > 0) {                                   /* DRV: x1..x4 into the soft clip, the level kept (Q12) */
+            g = 4096 + drv * 3 * 4096 / 127;
+            mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
+        }
+        for (i = 0; i < n; i++) {                        /* x1.25 and the knee below, in 32 bits */
+            int32_t s = y[i];
+            if (g)
+                s = (softclip((s * g) >> 12) * mk) >> 15;
+            if (pb0 != 4096 || pb1 != 4096)
+                s = (s * (pb0 + (((pb1 - pb0) * (int32_t)i) >> CTL_LOG2))) >> 12;
+            out[i] += voice_amp(soft_knee(s + (s >> 2), 24000), m, i) << 1;
+        }
     }
 }
 

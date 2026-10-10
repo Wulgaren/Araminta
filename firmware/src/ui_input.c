@@ -1245,6 +1245,33 @@ static void seq_entry(uint32_t pressed)
     }
 }
 
+/* (JIANT sound dice, Araminta: OCT+ held + PRESETS). A random factory preset of the engine, then each engine
+ * parameter moved up to a quarter of its range (an ENUM: another value, one time in three). Always near a sound
+ * that works. */
+static int32_t dice_by(int32_t v, int32_t lo, int32_t hi, int32_t span)
+{
+    return clamp(v + (int32_t)(rng() % (uint32_t)(2 * span + 1)) - span, lo, hi);
+}
+static void sound_dice(void)
+{
+    track_t *t = TSEL;
+    uint32_t e = t->eng_req % NENGINES, i;
+    if (ENGINES[e]->npresets)
+        apply_preset(rng() % ENGINES[e]->npresets);
+    for (i = 0; i < 8u; i++) {
+        const param_desc_t *d = track_desc(t, P_E0 + i);
+        int32_t span = (d->max - d->min) / 4;
+        if (!d->label || d->label[0] == '-' || d->max <= d->min)
+            continue;
+        if (d->fmt == F_ENUM)
+            t->p[P_E0 + i] = (int16_t)(rng() % 3u ? t->p[P_E0 + i]
+                                                  : d->min + (int32_t)(rng() % (uint32_t)(d->max - d->min + 1)));
+        else
+            t->p[P_E0 + i] = (int16_t)dice_by(t->p[P_E0 + i], d->min, d->max, span ? span : 1);
+    }
+    ui_message("SOUND DICED");
+}
+
 /* Discussions #92 / #94: the PRESETS knob by page (the menu, a dialog, NAME and the layers: ui_input before this).
  *   the SEQ pages (STEP and the DRUM grid: the step cursor; AUTOMATION: the row) and the list / action pages USER,
  *     PHRASES, PROJECT, SONG: as their KNOB 1 (the SEQ pages: a sound load there would drop the track's motion: never).
@@ -1687,7 +1714,17 @@ static void ui_input(void)
      * and the page under it (HOME's sound, motion recorded), PRESETS could load a sound. They stay for the next pass */
     kq |= lay;
     if (!lay && (s = panel_enc(EN_PRESET)) != 0) {
-        if (cur_page()->graph == GR_IORD) {              /* REORDER: PRESETS / (K1 below) pick the stage */
+        if (((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u) && !ui.menu && !ui.confirm && !act_cols() &&
+            !name_on() && !ui.ml.on) {                  /* OCT+ held + PRESETS: sound dice (JIANT SELECT dice) */
+            static uint32_t sd_ms;
+            if (!sd_ms || fm1_ms - sd_ms > 400u) {
+                if (chain_busy())
+                    ui_message("STOP TO EDIT");
+                else
+                    sound_dice();
+            }
+            sd_ms = fm1_ms | 1u;
+        } else if (cur_page()->graph == GR_IORD) {      /* REORDER: PRESETS / (K1 below) pick the stage */
             ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + (s > 0 ? 1 : -1), 0, (int32_t)INS_N - 1);
             ui.force = 1;
         } else
