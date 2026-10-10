@@ -82,7 +82,7 @@ static int mom_turn(uint32_t k, int32_t s)
     } else {
         if (act_cols() || lock_held() || !(pg->scope == SC_TRACK || pg->scope == SC_ENGINE || pg->scope == SC_GLOBAL) ||
             pg->graph == GR_EVENTS || pg->graph == GR_SONG || pg->graph == GR_BROWSE || pg->graph == GR_USER ||
-            pg->graph == GR_PATS || (pg->graph == GR_SLICES && k < 2u) || (pg->graph == GR_MOD && k == 0u))
+            pg->graph == GR_PATS || (pg->graph == GR_MOD && k == 0u))
             return 0;
         d = page_desc(pg, k, &vp);
     }
@@ -269,9 +269,6 @@ static uint32_t step_leds(void)
 static int keys_own(void)
 {
     return (name_on() && !ui.menu) || ui.layer || grid_on()
-#if FELUCCA_SLICE
-           || (!ui.menu && !name_on() && slice_page_on())
-#endif
         ;
 }
 
@@ -341,10 +338,6 @@ static uint32_t key_leds(uint32_t *br)                 /* (*br: a layer's keys t
         *br = 0;
     c = name_on() && !ui.menu ? name_leds() : ui.layer ? layer_leds(br) : grid_on() ? grid_leds() :
                  (fm1_in.notes & ~kb_layer) | play_leds() | step_leds() | (song_keys_on() ? song_leds() : 0u);
-#if FELUCCA_SLICE
-    if (!ui.layer && !ui.menu && !name_on() && slice_page_on())
-        c |= slice_leds();                              /* SLICES: and the keys of the selected slice */
-#endif
     return c;
 }
 
@@ -1009,13 +1002,6 @@ static void edit_param(uint32_t slot, int32_t steps)
         }
         return;
     }
-#if FELUCCA_SLICE
-    if (pg->graph == GR_SLICES && slot < 2u) {           /* SLICES: KNOB 1 the marker, 2 moves it (ui_slice.c) */
-        if (slice_page_ok())                              /* (the engine changed before ui_draw left the page) */
-            slice_knob(slot, steps);
-        return;
-    }
-#endif
     if ((act_cols() >> slot) & 1u) {                      /* an action's knob picks it (right) or drops it (left); */
         if (pg->graph != GR_PATS)                         /* OCT+ does it (act_do) */
             ui.act = steps > 0 ? (uint8_t)(slot + 1u) : ui.act == slot + 1u ? 0u : ui.act;
@@ -1095,13 +1081,6 @@ static void act_do(void)
             pat_load_ui(TSEL, pat_pick());
         return;
     }
-#if FELUCCA_SLICE
-    if (cur_page()->graph == GR_SLICES) {                 /* SPLIT / JOIN: stays picked (split again, join again) */
-        if (slice_page_ok())
-            slice_act(c);
-        return;
-    }
-#endif
     if (cur_page()->graph == GR_USER) {                   /* 1 LOAD, 2 ERASE, 3 SAVE (the NAME screen first) */
         if (c > 1u)
             ui.act = 0;
@@ -1285,7 +1264,7 @@ static void presets_turn(int32_t s)
         edit_param(0, s);                                 /* KNOB 1's (STEP: STOP TO EDIT while a song plays) */
         ui.hot_col = 0;
         ui.hot_t = 40;
-    } else if (g != GR_TOOLS && g != GR_SLICES) {
+    } else if (g != GR_TOOLS) {
         preset_step(s);
     }
 }
@@ -1372,35 +1351,11 @@ static int page_tap(uint32_t b)
     return 0;
 }
 
-/* a track whose sound's sample is missing (engines.c snd_missing: an empty user slot, a built-in set this build lacks;
- * it plays a sine): the no-file icon and NO SAMPLE (ui.c MSG_NO_SAMPLE). Once per track and source: at power-on, a sound
- * or project load, SRC / SET turned, a slot erased; again after another source or a project load. One a frame; after
- * a message already showing (LOADED) as the second message. Not on notes: nothing in the audio path */
-static void sample_notice(void)
-{
-    uint32_t k, code;
-    for (k = 0; k < NTRK; k++) {
-        code = 0;
-        if (!snd_missing(&trk[k], &code)) {
-            snd_said[k] = 0;
-            continue;
-        }
-        if (snd_said[k] == code)
-            continue;
-        snd_said[k] = (uint8_t)code;
-        if (ui.msg_t)
-            str_cpy(ui.msg2, MSG_NO_SAMPLE, sizeof ui.msg2);
-        else
-            ui_message(MSG_NO_SAMPLE);
-        return;
-    }
-}
 
 /* messages of things that happened elsewhere (a load, the editor, MIDI in): after this frame's own */
 static void ui_notices(void)
 {
     static uint32_t midi_t, midi_last;
-    sample_notice();
     ml_poll();                                          /* (MIDI LEARN: a CC came for the picked parameter) */
     if (motion_full) { motion_full = 0; ui_message("AUTOMATION FULL"); }
     if (midi_hint) {                                    /* MIDI notes into a track that is not selected */
@@ -1429,6 +1384,18 @@ static void ui_input(void)
         if (trk[k].eng_req == ENGI_DIGITAL)             /* already): FM6 (fm4_convert.c) */
             fm4_track(&trk[k]);
 #endif
+    for (k = 0; k < NTRK; k++)                          /* SAMPLE / GRAIN / NOISE / SLICE: ANALOG or DRUM */
+        if (eng_retired(trk[k].eng_req)) {
+            int16_t p[P_COUNT];
+            uint32_t to;
+            memcpy(p, trk[k].p, sizeof p);
+            to = retire_remap_params(trk[k].eng_req, p);
+            fm1_irq_off();
+            trk[k].eng_req = (uint8_t)to;
+            memcpy(trk[k].p, p, sizeof trk[k].p);
+            trk[k].preset = 0;
+            fm1_irq_on();
+        }
     perf_latch_on = fx_latch & 1u;                      /* (MENU > FX LATCH; a settings load sets it too) */
     fx_map_sync();                                      /* (the FX layer's key map: ui_layer.c, a settings load too) */
     fx_usb_fixed = (ui_prefs & PREF_USB_FIXED) != 0u;   /* (MENU > USB LEVEL: fx.c, audio.c) */
@@ -1674,10 +1641,6 @@ static void ui_input(void)
         ml_oct(oct);
     }
     song.grid = (uint8_t)keys_mode();                 /* (seq.c: the keys are the grid's) */
-#if FELUCCA_SLICE
-    if (notes && slice_page_on())                       /* SLICES: a key picks the slice it plays */
-        slice_keys_pick(notes);
-#endif
     lock_keys();                                        /* (a grid key on a hit let go: the hit goes) */
     if (song.grid == 3u) {
         song_keys(notes);
@@ -1743,7 +1706,7 @@ static void ui_input(void)
         }
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
             ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
-            || pg->graph == GR_SONG || (pg->graph == GR_SLICES && k < 2u) || fop_page(pg->graph)) {   /* (not an empty
+            || pg->graph == GR_SONG || fop_page(pg->graph)) {   /* (not an empty
                                                                                                           * column) */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;

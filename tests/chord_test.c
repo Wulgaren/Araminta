@@ -309,12 +309,12 @@ static int kits(void)
     bad += check("  MIDI IN on the DRUM track: one hit, no chord kept", !mchord[0].id);
     midi(0x83, 38, 0);
     song.sel = 0;
-    trk[0].eng_req = trk[0].engine = ENGI_SAMPLE;                   /* SAMPLE: no set is a kit (PERC, retired, */
-    trk[0].p[P_CHRD] = CH_DIA3;                                     /* loads as DRUM; its SET 4 is a PIANO alias) */
-    trk[0].p[P_E0] = SMP_SET_PERC;
-    bad += check("SAMPLE SET 4 (once PERC): chords, no kit", !chord_kit(&trk[0]) && chord_build(&trk[0], 60, out) == 3u);
+    trk[0].eng_req = trk[0].engine = 3;  /* LOFI: not a kit */
     trk[0].p[P_E0] = 0;
-    bad += check("SAMPLE with a melodic set: chords", !chord_kit(&trk[0]) && chord_build(&trk[0], 60, out) == 3u);
+    trk[0].p[P_CHRD] = CH_DIA3;
+    bad += check("LOFI (not a kit): chords", !chord_kit(&trk[0]) && chord_build(&trk[0], 60, out) == 3u);
+    trk[0].eng_req = trk[0].engine = 0;  /* ANALOG */
+    bad += check("ANALOG: chords", !chord_kit(&trk[0]) && chord_build(&trk[0], 60, out) == 3u);
     return bad;
 }
 

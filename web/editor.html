@@ -1145,11 +1145,12 @@ function libraryFile(kind, patches, ctx) {
 }
 /* -> {patches, skipped, keys (the file's, for a library that has none yet)}; throws on a file it cannot read.
    A DIGITAL patch (the engine retired in 1.0) where ctx has no DIGITAL imports as FM6 (fromDigital); a SAMPLE PERC
-   one (the set retired after 1.0.2) as DRUM's kit (fromPerc) */
+   one (the set retired after 1.0.2) as DRUM's kit (fromPerc); SAMPLE / GRAIN / NOISE / SLICE as ANALOG or DRUM
+   (fromRetire) */
 function readLibraryFile(obj, ctx) {
   if (!obj || typeof obj !== "object") throw new Error("not JSON");
   const noFm4 = !(ctx.engines || []).includes("DIGITAL");
-  const perc = (pt, pe0) => (pt && fromPerc(pt, ctx.engines, pe0)) || pt;
+  const perc = (pt, pe0) => (pt && (fromRetire(pt, ctx.engines, pe0) || fromPerc(pt, ctx.engines, pe0))) || pt;
   const fm4 = (pt, nm, pe0) => (nm === "DIGITAL" && noFm4 ? fromDigital(pt, ctx.engines, pe0) : perc(pt, pe0));
   const engIndex = (name, idx, fileEngines) => {
     const nm = name || (fileEngines || [])[idx];
@@ -1645,6 +1646,24 @@ const reservedFm4 = (engines, e) => e === 1 && (engines || [])[1] === "-";   /* 
    the names ("SAMPLE", "DRUM"; none: the firmware's indices 4, 10), pe0: P_E0 in its p. -> the DRUM patch, or null when
    pt is no such sound or there is no DRUM. The device converts its own (projects, user presets) the same way */
 const PERC_SET = 4, DRUM_KIT_E = [0, 64, 70, 64, 64, 100, 0, 0];
+
+/* SAMPLE / GRAIN / NOISE / SLICE (engines "-", reserved): ANALOG or DRUM, as firmware eng_retire.c.
+   SAMPLE PERC still becomes DRUM via fromPerc first. */
+function fromRetire(pt, engines, pe0) {
+  const e = pt.engine, name = pt.engineName || (engines || [])[e];
+  const retired = (engines || [])[e] === "-" && (e === 4 || e === 8 || e === 11 || e === 13);
+  if (!retired && name !== "SAMPLE" && name !== "GRAIN" && name !== "NOISE" && name !== "SLICE") return null;
+  if (e === 4 || name === "SAMPLE") {
+    const perc = fromPerc(pt, engines, pe0);
+    if (perc) return perc;
+  }
+  const to = (e === 13 || name === "SLICE") ? (engines || []).indexOf("DRUM") : (engines || []).indexOf("ANALOG");
+  if (to < 0) return null;
+  const p = pt.p.slice();
+  const kit = [0, 64, 70, 64, 64, 100, 0, 0];
+  for (let i = 0; i < 8; i++) p[pe0 + i] = (e === 13 || name === "SLICE") ? kit[i] : 0; /* ANALOG edit defs approx; device clamps */
+  return { ...pt, engine: to, engineName: engines[to], p };
+}
 function fromPerc(pt, engines, pe0) {
   const names = engines && engines.length ? engines : null;
   const name = pt.engineName || (names || [])[pt.engine];
@@ -1657,7 +1676,13 @@ function fromPerc(pt, engines, pe0) {
   return { ...pt, engine: drum, engineName: "DRUM", p: q, params: undefined };
 }
 /* an engine's name to show: the reserved engine 1 holds DIGITAL sounds that play as FM6 */
-const engineLabel = (engines, e) => (e === 1 && (engines || [])[1] === "-" ? "FM6" : (engines || [])[e] ?? String(e));
+const engineLabel = (engines, e) => {
+  const n = (engines || [])[e];
+  if (e === 1 && n === "-") return "FM6";
+  if (n === "-" && (e === 4 || e === 8 || e === 11)) return "ANALOG";
+  if (n === "-" && e === 13) return "DRUM";
+  return n ?? String(e);
+};
 
 function makeMockDevice(opt = {}) {
   const NONOFF = ["OFF", "ON"], NDIV = ["1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"], NGO = ["--", "GO"], NDASH = ["--"];
@@ -1687,8 +1712,8 @@ function makeMockDevice(opt = {}) {
     D("SIZE", F.PCT, 0, 127, 90), D("DAMP", F.PCT, 0, 127, 60), D("CRT", F.LFOHZ, 0, 127, 40), D("CDP", F.PCT, 0, 127, 60),
     E("MIDI", ["USB", "TRS"], 0), E("SYNC", NDASH, 0), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], 0), D("CPU", F.INT, 0, 0, 0),
     D("SLOT", F.INT, 1, 4, 1), E("NAME", NDASH, 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
-    E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL",
-      "GRAIN", "PHYS", "DRUM", "NOISE", "FM6", "SLICE"], 0), E("SET", NGO, 0),
+    E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "-", "VOICE", "TRIO", "WHEEL",
+      "-", "PHYS", "DRUM", "-", "FM6", "-"], 0), E("SET", NGO, 0),
     E("CLRSQ", NGO, 0), E("INIT", NGO, 0),
     E("TYPE", ["ROOM", "SPRING", "HALL"], 2),       /* G_RTYPE (id 24, was G_DRCH): the reverb's model (HALL: 1.2) */
     D("-", F.INT, 0, 0, 0), D("-", F.INT, 0, 0, 0),   /* G_DRLVL, G_DRREV: inert since 1.0 */
@@ -1720,10 +1745,8 @@ function makeMockDevice(opt = {}) {
       presets: [P("PULSE LD", [0, 0, 32, 0, 0, 20, 0, 127], [0, 60, 90, 30], 1, 4), P("WAVE BASS", [1, 1, 0, 0, 0, 0, 0, 90], [0, 50, 70, 20], 1, 2),
         P("ARP 8BIT", [2, 0, 96, 0, 0, 0, 2, 110], [0, 60, 80, 40], 0, 13), P("WAVE LEAD", [0, 4, 92, 0, 0, 18, 0, 110], [0, 70, 90, 30], 1, 3),
         P("STEP LEAD", [4, 0, 40, 34, 0, 16, 0, 127], [0, 64, 127, 55], 1, 4)] },
-    { name: "SAMPLE", titles: ["SET", "TONE"], edit: [E("SET", ["PIANO", "PIANO", "FLUTE", "SAX", "PIANO", "USR1", "USR2", "USR3"], 0), D("TUNE", F.SEMI, -24, 24, 0), D("BITS", F.INT, 0, 127, 0),
-        E("LOOP", NONOFF, 1), D("CUT", F.INT, 0, 127, 127), NONE, D("DRV", F.PCT, 0, 127, 0), NONE],
-      presets: [P("PIANO", [0, 0, 0, 1, 127, 0, 0, 0], [0, 127, 127, 70]), P("PIANO", [0, 0, 0, 1, 127, 0, 0, 0], [0, 127, 127, 70]),
-        P("FLUTE", [2, 0, 0, 1, 127, 0, 0, 0], [12, 80, 120, 60]), P("SAX", [3, 0, 0, 1, 127, 0, 0, 0], [12, 80, 120, 60])] },
+    /* reserved (SAMPLE / GRAIN / NOISE / SLICE retired: eng_retire.c; sounds load as ANALOG or DRUM) */
+    { name: "-", titles: ["-", "-"], edit: [NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE], presets: [] },
     { name: "VOICE", titles: ["VOWL", "TONE"], edit: [D("VOWL", F.INT, 0, 127, 0), D("VOWL2", F.INT, 0, 127, 64), D("TALK", F.TIME, 0, 127, 0),
         D("SHIFT", F.SEMI, -12, 12, 0), D("BUZZ", F.PCT, 0, 127, 64), D("BRTH", F.PCT, 0, 127, 10), D("Q", F.PCT, 0, 127, 64), D("RAND", F.PCT, 0, 127, 0)],
       presets: [P("CHOIR AAH", [0, 0, 0, 0, 40, 22, 60, 0], [85, 90, 115, 95], 0, 5), P("VOX LEAD", [32, 0, 0, 2, 90, 8, 72, 0], [6, 70, 105, 55], 1, 4),
@@ -1740,11 +1763,8 @@ function makeMockDevice(opt = {}) {
       presets: [P("FULL ORGAN", [15, 0, 0, 0, 0, 30, 20, 1], [0, 64, 127, 45], 0, 5), P("JAZZ PERC", [4, 0, 0, 0, 2, 50, 8, 1], [0, 64, 127, 40], 0, 3),
         P("GOSPEL", [6, 0, 0, 0, 1, 60, 40, 2], [0, 64, 127, 45], 0, 6), P("SOFT FLUTE", [1, 0, -2, 0, 0, 10, 0, 1], [0, 64, 127, 55], 0, 5),
         P("ROCK DRIVE", [7, 0, 0, 0, 0, 70, 100, 2], [0, 64, 127, 40], 0, 4)] },
-    { name: "GRAIN", titles: ["GRAN", "SPRY"], edit: [E("SRC", ["PIANO", "PIANO", "FLUTE", "SAX", "PIANO", "USR1", "USR2", "USR3"], 0),
-        D("POS", F.PCT, 0, 127, 32), D("SIZE", F.PCT, 0, 127, 80), D("DENS", F.PCT, 0, 127, 80),
-        D("PTCH", F.SEMI, -24, 24, 0), D("SPRD", F.PCT, 0, 127, 30), D("RAND", F.PCT, 0, 127, 10), D("TONE", F.PCT, 0, 127, 127)],
-      presets: [P("CLOUD PAD", [2, 50, 92, 88, 0, 40, 14, 100], [70, 90, 120, 90], 0, 5), P("GLITCH", [3, 64, 24, 112, 0, 100, 90, 127], [0, 70, 100, 30], 0, 4),
-        P("FROZEN", [0, 40, 108, 72, 0, 0, 10, 92], [50, 100, 127, 100], 0, 5), P("SHIMMER", [0, 30, 70, 100, 12, 30, 24, 110], [30, 90, 110, 90], 0, 7)] },
+    /* reserved (SAMPLE / GRAIN / NOISE / SLICE retired: eng_retire.c; sounds load as ANALOG or DRUM) */
+    { name: "-", titles: ["-", "-"], edit: [NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE], presets: [] },
     { name: "PHYS", titles: ["BODY", "EXCT"], edit: [E("MODEL", ["MODAL", "STRNG", "MEMB", "SYMP"], 0), D("STRC", F.PCT, 0, 127, 64),
         D("BRIT", F.PCT, 0, 127, 80), D("DAMP", F.PCT, 0, 127, 80), D("POS", F.PCT, 0, 127, 20), D("ACC", F.PCT, 0, 127, 90),
         D("BOW", F.PCT, 0, 127, 0), D("EXC", F.PCT, 0, 127, 0)],
@@ -1757,11 +1777,8 @@ function makeMockDevice(opt = {}) {
         D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("SNAP", F.PCT, 0, 127, 64), D("ACC", F.PCT, 0, 127, 100),
         E("KICK", ["PUNCH", "ROUND"], 0), D("DRV", F.PCT, 0, 127, 0)],
       presets: [P("DRUM KIT", [0, 64, 70, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12)] },
-    { name: "NOISE", titles: ["SRC", "MOVE"], edit: [E("MODE", ["ANLG", "DUST", "LFSR", "META"], 0), D("COLR", F.PCT, 0, 127, 64),
-        D("FREQ", F.CUTOFF, 0, 127, 80), D("RES", F.PCT, 0, 127, 30), D("TRK", F.PCT, 0, 127, 64), D("DENS", F.PCT, 0, 127, 0),
-        D("DRFT", F.PCT, 0, 127, 0), D("CRSH", F.PCT, 0, 127, 0)],
-      presets: [P("WIND", [0, 64, 70, 100, 127, 0, 70, 0], [90, 90, 110, 90], 0, 5), P("RAIN", [1, 30, 88, 80, 64, 105, 40, 0], [10, 90, 127, 70], 0, 5),
-        P("ARCADE", [2, 0, 127, 0, 127, 112, 0, 84], [0, 80, 0, 50], 0, 3), P("METAL", [3, 0, 100, 40, 100, 32, 0, 0], [0, 75, 40, 60], 0, 7)] },
+    /* reserved (SAMPLE / GRAIN / NOISE / SLICE retired: eng_retire.c; sounds load as ANALOG or DRUM) */
+    { name: "-", titles: ["-", "-"], edit: [NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE], presets: [] },
     { name: "FM6", titles: ["OPS", "PATCH"], edit: [D("ALG", F.INT, 0, 32, 0), D("FB", F.INT, -7, 7, 0), D("MLVL", F.BIPCT, -64, 63, 0),
         D("MRAT", F.INT, -16, 16, 0), D("MEG", F.BIPCT, -64, 63, 0), D("VMOD", F.INT, -7, 7, 0), D("DTUN", F.PCT, 0, 127, 0),
         D("SLOT", F.INT, 0, FM6.FACTORY_PK.length + 32, 0)],   /* F1..F8, then OWN (eng_fm6.c, 1.0.3), B1..B32 (1.4.1) */
@@ -1769,10 +1786,8 @@ function makeMockDevice(opt = {}) {
         P("FM BASS", [0, 0, 0, 0, 0, 0, 0, 2], [0, 0, 127, 0], 1, 2), P("BRASS", [0, 0, 0, 0, 0, 0, 0, 3], [0, 0, 127, 0], 0, 4),
         P("PAD", [0, 0, 0, 0, 0, 0, 30, 4], [0, 0, 127, 0], 0, 5), P("MARIMBA", [0, 0, 0, 0, 0, 0, 0, 5], [0, 0, 127, 0], 0, 3),
         P("ORGAN", [0, 0, 0, 0, 0, 0, 0, 6], [0, 0, 127, 0], 0, 6), P("PLUCK", [0, 0, 0, 0, 0, 0, 0, 7], [0, 0, 127, 0], 0, 13)] },
-    { name: "SLICE", titles: ["SLCE", "PLAY"], edit: [E("SRC", ["BREAK", "USR1", "USR2", "USR3", "PIANO"], 0),
-        E("DIV", ["4", "8", "16", "32", "AUTO", "MAN"], 2), D("START", F.INT, 0, 31, 0), D("PTCH", F.SEMI, -24, 24, 0),
-        E("MODE", ["ONE", "GATE", "LOOP"], 0), E("REV", ["OFF", "ON"], 0), D("DCAY", F.TIME, 0, 127, 127), D("TONE", F.INT, 0, 127, 127)],
-      presets: [P("CHOP", [0, 2, 0, 0, 0, 0, 127, 127], [0, 127, 127, 30], 0, 9), P("STUTTER", [0, 1, 0, 0, 1, 0, 90, 110], [0, 127, 127, 12], 0, 10)] },
+    /* reserved (SAMPLE / GRAIN / NOISE / SLICE retired: eng_retire.c; sounds load as ANALOG or DRUM) */
+    { name: "-", titles: ["-", "-"], edit: [NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE], presets: [] },
   ];
   const FM6_E = ENG.findIndex((e) => e.name === "FM6"), FM6_OWN = FM6.FACTORY_PK.length, DRUM_E = ENG.findIndex((e) => e.name === "DRUM");
   /* factory PATTERNS[] (engines.c; the device loads them from SAVE > PHRASES, presets only suggest one): absolute
@@ -1881,8 +1896,14 @@ function makeMockDevice(opt = {}) {
     t.p[P_E0 + 7] = t.slot = k < 0 ? FM6_OWN : k;
   }
   function setEngine(ei) {
-    if (ei % ENG.length === 1) { fm4Load(0); return; }   /* DIGITAL (retired): its first preset, as FM6 (ui.c set_engine_of) */
-    st.engine = ei % ENG.length;
+    ei %= ENG.length;
+    if (ei === 1) { fm4Load(0); return; }   /* DIGITAL (retired): its first preset, as FM6 (ui.c set_engine_of) */
+    if (ENG[ei].name === "-" && (ei === 4 || ei === 8 || ei === 11 || ei === 13)) {
+      const names = ENG.map((x) => x.name);
+      const pt = fromRetire({ engine: ei, engineName: ENG[ei].name, p: st.p.slice() }, names, P_E0);
+      if (pt) { st.engine = pt.engine; st.p = pt.p; st.preset = 0; applyPreset(0); return; }
+    }
+    st.engine = ei;
     for (let i = 0; i < 8; i++) st.p[P_E0 + i] = ENG[st.engine].edit[i].def;
     applyPreset(0);
   }
@@ -2007,7 +2028,11 @@ function makeMockDevice(opt = {}) {
           const own = st.p.slice();                 /* parameters (TRACK_OWN: mix, ARP, SCL, LEN.., SLICER) stay */
           const p = u.p.map((x, i) => (trackOwn(i, P_E0) ? own[i] : x));
           if (u.engine === 1) fm4Apply(p);          /* a DIGITAL record (kept as it is): FM6 */
-          else { st.engine = u.engine; st.preset = 0; st.p = p; }
+          else if (ENG[u.engine] && ENG[u.engine].name === "-" && (u.engine === 4 || u.engine === 8 || u.engine === 11 || u.engine === 13)) {
+            const names = ENG.map((x) => x.name);
+            const pt = fromRetire({ engine: u.engine, p }, names, P_E0);
+            st.engine = pt ? pt.engine : 0; st.preset = 0; st.p = pt ? pt.p : p;
+          } else { st.engine = u.engine; st.preset = 0; st.p = p; }
           if (u.engine === FM6_E) {                 /* its own patch (up_fm6.c upf_track_load); none: SLOT's factory / init */
             const t = st.tracks[st.sel], s = p[P_E0 + 7];
             t.fm6 = (u.fm6 || (s < FM6_OWN ? FM6.FACTORY_PK[s] : FM6.INIT_PK)).slice();
@@ -2177,6 +2202,8 @@ function makeMockDevice(opt = {}) {
       case CMD.PRESET:
         if (a.length < 2 || a[0] >= ENG.length) return null;
         if (a[0] === 1) fm4Load(a[1]);              /* a DIGITAL preset: its sound, as FM6 */
+        else if (ENG[a[0]].name === "-" && (a[0] === 4 || a[0] === 8 || a[0] === 11 || a[0] === 13))
+          setEngine(a[0]);                          /* SAMPLE / GRAIN / NOISE / SLICE: ANALOG or DRUM */
         else {
           if (a[0] !== st.engine) setEngine(a[0]);
           applyPreset(a[1]);
@@ -2211,13 +2238,17 @@ function makeMockDevice(opt = {}) {
         if (a[0] === 1) { st.chainPlaying = false; st.slots[k] = project(); }
         else if (a[0] === 0 && st.slots[k]) {
           st.chainPlaying = false; Object.assign(st, JSON.parse(JSON.stringify(st.slots[k])));
-          /* SAMPLE PERC tracks: DRUM's kit (project.c proj_perc). Removed factory presets keep their saved sound; only
-             the display index is normalized. */
+          /* SAMPLE / GRAIN / NOISE / SLICE (and SAMPLE PERC): ANALOG or DRUM (project.c proj_retire / proj_perc). */
           st.tracks.forEach((t) => {
-            const pc = fromPerc({ engine: t.engine, p: t.p }, ENG.map((x) => x.name), P_E0);
+            const names = ENG.map((x) => x.name);
+            const pc = fromRetire({ engine: t.engine, p: t.p }, names, P_E0)
+              || fromPerc({ engine: t.engine, p: t.p }, names, P_E0);
             if (pc) { t.engine = pc.engine; t.p = pc.p; t.preset = 0; }
             if (t.preset >= ENG[t.engine].presets.length) t.preset = 0;
           });
+          st.engine = st.tracks[st.sel].engine;
+          st.p = st.tracks[st.sel].p;
+          st.preset = st.tracks[st.sel].preset;
         }
         b(a[0]); b(k); b(st.slots[k] ? 1 : 0);
         break;
@@ -2424,8 +2455,7 @@ function enumShown(d) {
 /* the order the device shows its engines in (src/engines.c ENGINE_ORDER): the lists here follow it, the protocol keeps
    the engine numbers. engineOrder(names): the indices of names in that order, "-" (a reserved number) left out; a name
    the list does not know (another firmware) follows in index order */
-const ENGINE_ORDER = ["ANALOG", "FM6", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS", "NOISE",
-  "SLICE", "DRUM"];
+const ENGINE_ORDER = ["ANALOG", "FM6", "DIGITAL", "PHASE", "LOFI", "VOICE", "TRIO", "WHEEL", "PHYS", "DRUM"];
 function engineOrder(names) {
   const rank = (n) => { const k = ENGINE_ORDER.indexOf(n); return k < 0 ? ENGINE_ORDER.length : k; };
   return (names || []).map((n, i) => i).filter((i) => names[i] !== "-")
@@ -4596,7 +4626,7 @@ async function libUpdate(p) {
 /* the device's parameter layout becomes the library's; patches stored with another layout are mapped by key.
    A device without DIGITAL (engine 1 "-", retired in 1.0): the library's DIGITAL sounds become FM6 (fromDigital,
    as readLibraryFile does), also when the layout itself is unchanged; so do its SAMPLE PERC sounds (the set retired
-   after 1.0.2): DRUM's kit (fromPerc) */
+   after 1.0.2): DRUM's kit (fromPerc). SAMPLE / GRAIN / NOISE / SLICE (also "-") become ANALOG or DRUM (fromRetire). */
 async function libAdopt(d) {
   const keys = d.keys, engines = d.info.engines, changed = [];
   const relayout = (libMeta.keys && !sameKeys(libMeta.keys, keys)) || (libMeta.engines && !sameKeys(libMeta.engines, engines));
@@ -4605,10 +4635,10 @@ async function libAdopt(d) {
     const name = p.engineName || (libMeta.engines || [])[p.engine];
     const digital = noFm4 && !p.fm6 && (name === "DIGITAL" || ((!name || name === "-") && p.engine === 1));
     const pe0 = () => (keys && p.p.length === keys.length ? d.info.pe0 : p.p.length - 8);   /* (E1..E8: the last 8) */
-    const perc = !digital && !!fromPerc({ ...p, engineName: name }, engines, p.p.length - 8);
-    if (!relayout && !digital && !perc) continue;
+    const retired = !digital && !!fromRetire({ ...p, engineName: name }, engines, p.p.length - 8);
+    if (!relayout && !digital && !retired) continue;
     if (relayout) p.p = remapParams(p.p, libMeta.keys, keys);
-    const pt = digital ? fromDigital(p, engines, pe0()) : perc ? fromPerc({ ...p, engineName: name }, engines, pe0()) : null;
+    const pt = digital ? fromDigital(p, engines, pe0()) : retired ? fromRetire({ ...p, engineName: name }, engines, pe0()) : null;
     if (pt) Object.assign(p, cleanPatch(pt));
     else {
       const e = name ? engines.indexOf(name) : p.engine;

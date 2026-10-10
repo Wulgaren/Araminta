@@ -235,7 +235,6 @@ static void ui_power_on(void)
     memset(motion_active, 0, sizeof motion_active);
     memset(motion_locked, 0, sizeof motion_locked);
     motion_base_valid = motion_full = 0;
-    memset(snd_said, 0, sizeof snd_said);               /* (.bss at power-on: nothing said yet) */
     memset(&scrn, 0, sizeof scrn);                        /* MENU > SCREEN OFF: on, idle from now (main.c) */
     scrn.idle = fm1_ms;
     kb_asleep = 0;
@@ -485,33 +484,19 @@ static int test_sound_loads(void)
     project_load(1);
     bad += check("a project load drops the copy and takes none", undo.trk == 0 && undo_depth == 0);
     ui_power_on();
-    bad += check("SAMPLE factory browsing has PIANO FLUTE SAX CR78 (aliases + PERC skipped)",
-                 ENGINES[4]->npresets == 6u && str_eq(ENGINES[4]->presets[0].name, "PIANO") &&
-                 str_eq(ENGINES[4]->presets[3].name, "SAX") && str_eq(ENGINES[4]->presets[5].name, "CR78"));
-    {   /* TRANH (SET 1, preset 1) is gone: both are PIANO aliases, kept for old data, never offered */
-        const param_desc_t *sd = &ENGINES[4]->edit[0];
-        uint32_t all, pos, k, e, pos0, shown = 0;
-        set_engine_of(TSEL, 4);
-        pos0 = preset_all_pos(&all);
-        TSEL->preset = 1;
-        TSEL->p[P_E0] = 1;
-        pos = preset_all_pos(&all);
-        for (k = 0; k < all; k++)
-            if (preset_all_at(k, &e) == 4u)
-                shown++;
-        e = preset_all_at(pos0 + 1u, &k);
-        apply_preset_to(TSEL, 1);
-        bad += check("SAMPLE: old SET 1 / preset 1 (TRANH) play PIANO; browsing and knobs skip them",
-                     SMP_SETS[1].z0 == SMP_SETS[0].z0 && SMP_SETS[1].nz == SMP_SETS[0].nz && pos == pos0 &&
-                     shown == 4u && e == 4u && k == 2u && TSEL->preset == 0u && TSEL->p[P_E0] == 0 &&
-                     str_eq(sd->names[1], "PIANO") && enum_step(sd, 0, 1) == 2 && enum_step(sd, 2, 1) == 0 &&
-                     enum_step(sd, 1, 2) == 2 && enum_orig(sd, 1) == 0 && enum_orig(sd, 5) == 5 &&
-                     enum_orig(&ENGINES[8]->edit[0], 1) == 0);
-        bad += check("SAMPLE / GRAIN SET 4 (PERC, retired): PIANO alias skipped; CR78 is 5; USR1..3 are 6..8",
-                     str_eq(sd->names[SMP_SET_PERC], "PIANO") && enum_orig(sd, SMP_SET_PERC) == 0 &&
-                     enum_step(sd, 3, 4) == 5 && enum_step(sd, 5, 4) == 3 && str_eq(sd->names[5], "CR78") &&
-                     str_eq(sd->names[6], "USR1") && str_eq(sd->names[8], "USR3") && sd->max == 8 &&
-                     enum_orig(&ENGINES[8]->edit[0], SMP_SET_PERC) == 0 && SMP_SETS[SMP_SET_PERC].z0 == SMP_SETS[0].z0);
+    {   /* SAMPLE / GRAIN / NOISE / SLICE retired: never selectable; set_engine remaps */
+        set_engine_of(TSEL, ENGI_SAMPLE);
+        bad += check("SAMPLE retired: set_engine lands on ANALOG (or DRUM for PERC path)",
+                     eng_ok(TSEL->eng_req) && (TSEL->eng_req == 0u || TSEL->eng_req == ENGI_DRUM));
+        set_engine_of(TSEL, ENGI_GRAIN);
+        bad += check("GRAIN retired: set_engine lands on ANALOG", TSEL->eng_req == 0u);
+        set_engine_of(TSEL, ENGI_NOISE);
+        bad += check("NOISE retired: set_engine lands on ANALOG", TSEL->eng_req == 0u);
+        set_engine_of(TSEL, ENGI_SLICE);
+        bad += check("SLICE retired: set_engine lands on DRUM", TSEL->eng_req == ENGI_DRUM);
+        bad += check("retired engines not eng_ok / not in ENGINE_ORDER",
+                     !eng_ok(ENGI_SAMPLE) && !eng_ok(ENGI_GRAIN) && !eng_ok(ENGI_NOISE) && !eng_ok(ENGI_SLICE) &&
+                     str_eq(ENGINES[ENGI_SAMPLE]->name, "-") && str_eq(ENGINES[ENGI_SLICE]->name, "-"));
     }
     host_legacy_sample_perc(t);                /* SAMPLE PERC (SET 4, retired after 1.0.2): every load gives DRUM */
     t->preset = 4;                             /* a project written before the factory removal */
@@ -551,8 +536,8 @@ static int test_sound_loads(void)
     set_engine_of(t, 0);
     apply_preset_to(t, SMP_SET_PERC);             /* (engine 0: an ANALOG preset 4, not PERC) */
     bad += check("factory preset 4 of another engine stays that engine's", t->eng_req == 0u && t->preset == 4u);
-    set_engine_of(t, ENGI_SAMPLE);
-    apply_preset_to(t, SMP_SET_PERC);             /* SAMPLE preset 4 (once PERC): the editor's PRESET, a favourite */
+    t->eng_req = ENGI_SAMPLE;                     /* as a stored SAMPLE PERC would arrive before remap */
+    apply_preset_to(t, SMP_SET_PERC);
     bad += check("SAMPLE preset 4 (once PERC): DRUM's kit", t->eng_req == ENGI_DRUM && t->preset == 0u && perc_kit(t) &&
                  gm_hits_play(t));
     ui_power_on();
@@ -2996,24 +2981,7 @@ static int test_product_ux(void)
         ok &= changed;
     }
     bad += check("all palettes: active column is subtle, stable-size, no zoom over graph", ok);
-    ui_power_on(); set_engine_of(TSEL, 4); open_family(FAM_EDIT);
-    memset(&sample_wave, 0, sizeof sample_wave); last_note = 60;
-    voice_t voices[NVOICE]; memcpy(voices, TSEL->v, sizeof voices);
-    ok = 1;
-    for (i = 0; i < 2000u && !sample_wave.ready; i++) {
-        uint32_t old = sample_wave.pos; sample_wave_tick(TSEL);
-        ok &= sample_wave.pos - old <= 512u;
-    }
-    ok &= sample_wave.ready && !memcmp(voices, TSEL->v, sizeof voices);
-    int16_t lo[SAMPLE_WAVE_COLS] = {0}, hi[SAMPLE_WAVE_COLS] = {0};
-    voice_t probe = {0}; const smp_zone_t *zone = sample_wave.zone;
-    if (zone) for (i = 0; i < zone->n; i++) {
-        int32_t v = sample_next(zone, &probe, 0); uint32_t col = i * SAMPLE_WAVE_COLS / zone->n;
-        if (v < lo[col]) lo[col] = (int16_t)v;
-        if (v > hi[col]) hi[col] = (int16_t)v;
-    }
-    ok &= !memcmp(lo, sample_wave.lo, sizeof lo) && !memcmp(hi, sample_wave.hi, sizeof hi);
-    bad += check("sample waveform is bounded, matches audio IMA decode and leaves voices intact", ok);
+    bad += check("sample waveform skipped (SAMPLE engine retired)", 1);
     ui_power_on(); return bad;
 }
 
@@ -3617,241 +3585,11 @@ static int test_edit_cycle(void)
  * LOADED); the icon and the words fit the header */
 static int test_sample_alert(void)
 {
-    const char *nf = MSG_NO_SAMPLE;
-    int bad = 0, ok, seen;
-    uint32_t i;
-    char b[48];
-    ui_power_on();
-    frames(100);
-    bad += check("missing sample: the power-on sounds have their samples (no alert)", !snd_missing(&trk[0], &i) &&
-                 !snd_missing(&trk[1], &i) && !snd_missing(&trk[2], &i) && !snd_missing(&trk[3], &i) &&
-                 !str_eq(ui.msg, nf));
-    set_engine_of(TSEL, ENGI_SAMPLE);
-    TSEL->p[P_E0] = (int16_t)(SMP_NSETS + 1u);      /* SET USR2: empty */
-    frame();
-    ok = msg_is(nf);
-    frames(1500);
-    trk_note_on(TSEL, 60, 100);
-    frames(100);
-    trk_note_off(TSEL, 60);
-    frames(100);
-    ok &= !ui.msg_t;
-    bad += check("SAMPLE on an empty USR2: NO SAMPLE once (not again on a note)", ok);
-    TSEL->p[P_E0] = (int16_t)(SMP_NSETS + 2u);      /* USR3: said for it */
-    frame();
-    ok = msg_is(nf);
-    TSEL->p[P_E0] = 0;                              /* PIANO: nothing; then USR3 again: said again */
-    frames(1500);
-    ok &= !ui.msg_t;
-    TSEL->p[P_E0] = (int16_t)(SMP_NSETS + 2u);
-    frame();
-    ok &= msg_is(nf);
-    bad += check("SAMPLE: another empty slot is said; back to it after a sample: said again", ok);
-    frames(1500);
-    set_engine_of(TSEL, 8u);                         /* GRAIN, SRC USR2 */
-    TSEL->p[P_E0] = (int16_t)(SMP_NSETS + 1u);
-    frame();
-    bad += check("GRAIN on an empty USR2: said", msg_is(nf));
-    frames(1500);
-#if FELUCCA_SLICE
-    set_engine_of(TSEL, 13u);                        /* SLICE, SRC USR3 */
-    TSEL->p[P_E0] = 3;
-    frame();
-    ok = msg_is(nf);
-    frames(1500);
-    TSEL->p[P_E0] = 4;                               /* PIANO: there (the CC0 build) */
-    frame();
-    ok &= !ui.msg_t && !snd_missing(TSEL, &i) == (SLC_PIANO.len != 0u);
-    bad += check("SLICE on an empty USR3: said; PIANO: not (it has its sample)", ok);
-    frames(1500);
-#endif
-    /* a project with an empty slot: said after LOADED */
-    set_engine_of(TSEL, ENGI_SAMPLE);
-    TSEL->p[P_E0] = (int16_t)(SMP_NSETS + 1u);
-    frames(1500);
-    project_save(2);
-    frames(1500);
-    project_load(2);
-    frame();
-    ok = msg_is("LOADED") && str_eq(ui.msg2, nf);
-    for (seen = 0, i = 0; i < 200u && !seen; i++) {
-        frame();
-        seen = msg_is(nf);
-    }
-    bad += check("a project load with an empty slot: LOADED, then NO SAMPLE", ok && seen);
-    bad += check("missing sample: the icon and NO SAMPLE fit the header",
-                 nf[0] == MSG_NOFILE[0] && !text_fit(b, sizeof b, nf + 1, &AF_S, 236 - 106 - 16 - KH_GAP));
-    ui_power_on();
-    return bad;
+    return 0; /* SAMPLE/GRAIN/SLICE retired */
 }
 
-#if FELUCCA_SLICE
-/* SLICES (EDIT family, a SLICE track: ui_slice.c; the MAN slices of eng_slice.c, ported from hugelton/Felucca#27 by
- * andreahaku): in the EDIT cycle after EDIT 2 on SLICE only; BREAK shows its slices, edits need a user slot; the first
- * edit takes the slices shown (8 equal) as MAN and sets DIV MAN; KNOB 1 the marker (then END), KNOB 2 moves it,
- * KNOB 3 / 4 pick SPLIT / JOIN and OCT+ does it (it stays picked), OCT- drops the pick, then goes HOME; a key picks
- * its slice and the keys of the selected slice are lit; the slot is marked for the store; another engine: EDIT 1 */
-static void host_slot_make(uint32_t k)                /* USR k + 1: 2 s at 22.05 kHz, a noise burst every 0.25 s */
-{
-    smp_user_hdr_t *h = (smp_user_hdr_t *)((uint8_t *)host_slots + k * SMP_USER_SIZE);
-    uint8_t *d = (uint8_t *)h + SMP_USER_DATA;
-    uint32_t n = 44100u, i, r = 12345u;
-    memset(h, 0, SMP_USER_SIZE);
-    h->magic = SMP_USER_MAGIC;
-    h->version = 1;
-    h->nz = 1;
-    memcpy(h->name, "TEST", 4);
-    h->data_len = n / 2u;
-    for (i = 0; i < n / 2u; i++) {                   /* (IMA codes: a burst of random ones, then +-1/8 steps) */
-        r = r * 1103515245u + 12345u;
-        d[i] = i % 2756u < 400u ? (uint8_t)(r >> 16) : 0x80u;
-    }
-    h->zone[0].n = n;
-    h->zone[0].le = n - 1u;
-    h->zone[0].rate = 32768u;                        /* 22050 / 44100, Q16 */
-    h->zone[0].root16 = 60 * 16;
-    h->zone[0].hi = 127;
-}
-static int test_slices(void)
-{
-    static const char *const CYC_S[] = {"EDIT 1", "EDIT 2", "SLICES", "VOICE", "VOICE 2", "VOICE 3", "EDIT 1"};
-    int bad = 0, ok;
-    uint32_t n, j, p0, k, note;
-    ui_power_on();
-    set_engine_of(TSEL, 13u);                        /* SLICE CHOP: BREAK, 16 */
-    bad += check("SLICES: SLICE's EDIT cycle EDIT 1 EDIT 2 SLICES VOICE VOICE 2 VOICE 3 EDIT 1", engine_cycle(CYC_S, NELEM(CYC_S)));
-    go_page(GR_SLICES); frame();
-    n = slice_count();
-    p0 = TSEL->p[P_E1];
-    turn(EN_K1, 2); turn(EN_K2, 3);
-    ok = n == 16u && slice_sel() == 2u && TSEL->p[P_E1] == p0 && msg_is("SRC USR1-3 TO EDIT") && !slice_act_ready(2);
-    bad += check("SLICES on BREAK: its 16 slices shown, KNOB 1 picks; edits need USR1-3 (DIV unchanged)", ok);
-    TSEL->p[P_E0] = 2;                               /* SRC USR2, empty: no slices (a sine plays): NO SAMPLE */
-    frame();
-    ok = slice_count() == 0u && (msg_is(MSG_NO_SAMPLE) || str_eq(ui.msg2, MSG_NO_SAMPLE));
-    turn(EN_K2, 1);
-    ok &= TSEL->p[P_E1] == p0 && msg_is("USR2 EMPTY");
-    TSEL->p[P_E0] = 0;
-    bad += check("SLICES on an empty USR2: NO SAMPLE, no slices; edits: \"USR2 EMPTY\"", ok);
-    TSEL->p[P_E0] = 4;                               /* SRC PIANO: its 16 slices shown, no edits */
-    frame();
-    turn(EN_K2, 1);
-    ok = slice_count() == 16u && TSEL->p[P_E1] == p0 && msg_is("SRC USR1-3 TO EDIT");
-    TSEL->p[P_E0] = 0;
-    frame();
-    bad += check("SLICES on PIANO: its 16 slices shown; edits need USR1-3 (DIV unchanged)", ok);
+static int test_slices(void) { return 0; /* SLICE retired */ }
 
-    host_slot_make(0);
-    smp_user_scan(0);
-    TSEL->p[P_E0] = 1;                               /* SRC USR1, DIV 8 */
-    TSEL->p[P_E1] = 1;
-    frame();
-    n = slice_count();
-    p0 = slice_mark(2);
-    turn(EN_K2, 5);
-    ok = n == 8u && TSEL->p[P_E1] == SLC_DIV_MAN && msg_is("DIV MAN") && slice_count() == 8u && slice_sel() == 2u &&
-         slice_mark(2) > p0 && slc_man_of(slc_get(1)) && (slc_man_save & 1u);
-    bad += check("SLICES on USR1: the first KNOB 2 turn takes the 8 slices as MAN (DIV MAN), moves slice 3's start", ok);
-    turn(EN_K3, 1);
-    ok = ui.act == 3u && act_ready();
-    press(B_OCTUP);
-    ok &= slice_count() == 9u && slice_sel() == 3u && ui.act == 3u;
-    press(B_OCTUP);
-    ok &= slice_count() == 10u && slice_sel() == 4u;
-    bad += check("SLICES: KNOB 3 picks SPLIT, OCT+ splits the slice (again: it stays picked)", ok);
-    turn(EN_K4, 1);
-    ok = ui.act == 4u && act_ready();
-    press(B_OCTUP);
-    ok &= slice_count() == 9u && slice_sel() == 3u;
-    turn(EN_K1, -20);
-    ok &= slice_sel() == 0u && !act_ready();
-    press(B_OCTUP);
-    ok &= slice_count() == 9u && msg_is("FIRST SLICE");
-    bad += check("SLICES: KNOB 4 picks JOIN, OCT+ joins to the slice before; not the first slice", ok);
-    turn(EN_K1, 20);
-    p0 = slice_mark(slice_count());
-    turn(EN_K2, -4);
-    ok = slice_sel() == slice_count() && slice_mark(slice_count()) < p0 && !act_ready();
-    bad += check("SLICES: after the last slice the END marker: KNOB 2 trims the tail", ok);
-    {   /* DIV set back to a grid: the first touch shows the slot's MAN slices (DIV MAN), it does not replace them */
-        slc_man_t keep = *slc_man_of(slc_get(1));
-        TSEL->p[P_E1] = 2;                           /* DIV 16 */
-        frame();
-        turn(EN_K1, -1); turn(EN_K2, 1);
-        ok = TSEL->p[P_E1] == SLC_DIV_MAN && msg_is("DIV MAN") && slc_man_of(slc_get(1))->n == keep.n &&
-             !memcmp(slc_man_of(slc_get(1))->pos, keep.pos, keep.n * sizeof keep.pos[0]);
-        turn(EN_K1, -20); turn(EN_K2, 1);            /* then KNOB 2 edits that table */
-        ok &= slc_man_of(slc_get(1))->n == keep.n && memcmp(slc_man_of(slc_get(1))->pos, keep.pos, keep.n * sizeof keep.pos[0]);
-        bad += check("SLICES: DIV 16 over a slot's MAN slices: KNOB 2 goes back to them (DIV MAN), keeps them", ok);
-    }
-
-    note = 5u;                                       /* (the 6th key: SLICE maps every key) */
-    key_down(note); frame(); key_up(note); frame();
-    j = slc_note_slice(TSEL->p, kb_map(TSEL, note), slice_count());
-    ok = slice_sel() == j && ((slice_leds() >> note) & 1u);
-    for (k = 0; k < 27u; k++)
-        ok &= ((slice_leds() >> k) & 1u) == (slc_note_slice(TSEL->p, kb_map(TSEL, k), slice_count()) == j);
-    bad += check("SLICES: a key picks the slice it plays; the keys of the selected slice are lit", ok);
-    btn_down(B_OCTDN); frame(); btn_up(B_OCTDN); frame();
-    ok = ui.act == 0u && !ui.home;
-    btn_down(B_OCTDN); frame(); btn_up(B_OCTDN); frame();
-    ok &= ui.home;
-    bad += check("SLICES: OCT- drops the pick, then goes HOME", ok);
-    go_page(GR_SLICES); frame();
-    set_engine_of(TSEL, 0); frame();
-    bad += check("SLICES: on another engine the page is not there (EDIT 1)", str_eq(cur_page()->title, "EDIT 1"));
-    {   /* the engine changed (the editor's SET between two ui_input passes) while the page is still the current one:
-         * its knobs and actions do nothing to the track or the slot */
-        track_t before;
-        slc_man_t keep;
-        set_engine_of(TSEL, 13u);
-        TSEL->p[P_E0] = 1;
-        TSEL->p[P_E1] = SLC_DIV_MAN;
-        go_page(GR_SLICES); frame();
-        keep = *slc_man_of(slc_get(1));
-        set_engine(3u);                              /* LOFI, as ed_service's SET G_ENGSEL */
-        TSEL->p[P_E0] = 1;
-        before = *TSEL;
-        slc_man_save = 0;
-        host_enc[panel.enc[EN_K2]] += 2 * panel.dir[EN_K2];
-        host_ticks += 16000u; fm1_ms += 16u;
-        ui_input();                                  /* (no ui_draw yet) */
-        ok = cur_page()->graph == GR_SLICES && !slice_page_ok() && !act_cols();
-        ui.act = 3u;
-        act_do();
-        ui.act = 0;
-        ok &= !memcmp(&before, TSEL, sizeof before) && !slc_man_save && slc_man_of(slc_get(1))->n == keep.n &&
-              !memcmp(slc_man_of(slc_get(1))->pos, keep.pos, keep.n * sizeof keep.pos[0]);
-        bad += check("SLICES: left by an engine change not yet drawn: KNOB 2 and OCT+ change nothing", ok);
-        frame();
-    }
-    {   /* another sample of the same length uploaded into the slot: the waveform is decoded again */
-        int8_t lo0[SP_COLS], hi0[SP_COLS];
-        uint8_t *d = (uint8_t *)host_slots + SMP_USER_DATA;
-        smp_user_hdr_t *h = (smp_user_hdr_t *)host_slots;
-        set_engine_of(TSEL, 13u);
-        TSEL->p[P_E0] = 1;
-        TSEL->p[P_E1] = 2;
-        go_page(GR_SLICES); ui.force = 1; frame();
-        memcpy(lo0, sp.lo, sizeof lo0);
-        memcpy(hi0, sp.hi, sizeof hi0);
-        for (k = 0; k < h->data_len; k++)
-            d[k] = 0x80u;                            /* silence, the same length */
-        h->crc ^= 1u;
-        smp_user_scan(0);                            /* (the upload's END) */
-        ui.force = 1; frame();
-        ok = memcmp(lo0, sp.lo, sizeof lo0) || memcmp(hi0, sp.hi, sizeof hi0);
-        for (k = 0; k < SP_COLS; k++)
-            ok &= sp.lo[k] >= -1 && sp.hi[k] <= 1;   /* (near silence) */
-        bad += check("SLICES: a re-upload of the same length redraws the waveform", ok);
-        set_engine_of(TSEL, 0); frame();
-    }
-    memset(host_slots, 0, sizeof host_slots);        /* (the other tests: empty slots) */
-    smp_user_scan(0);
-    slc_man_save = 0;
-    return bad;
-}
-#endif
 
 /* ------------------------------------------------ the GLO SCL EDIT layers --- */
 static uint32_t black(uint32_t b) { return key_at(1, b); }
@@ -4037,35 +3775,25 @@ static int test_quick_layers(void)
     ok = TSEL->eng_req == eng_step(0, 1);
     btn_up(B_EDIT); frame();
     bad += check("  KNOB 1: the next engine", ok);
-    {                                                   /* #124: SAMPLE's alias (1 = PIANO) is not a stop on KNOB 2 */
-        uint32_t tot, n, c0, c1, c2, seen = 0, alias = 0;
-        set_engine_of(TSEL, ENGI_SAMPLE); go_home(); frame();
+    {                                                   /* EDIT held: KNOB 2 walks PHASE presets both ways */
+        uint32_t tot, n, seen = 0;
+        set_engine_of(TSEL, 2); go_home(); frame();     /* PHASE */
         eng_list_pos(&tot);
         btn_down(B_EDIT); frame();
-        c0 = eng_list_pos(&tot);
-        turn(EN_K2, 1);
-        ok = TSEL->preset == 2u && user_of(TSEL) >= UP_SLOTS;
-        c1 = eng_list_pos(&tot);
-        turn(EN_K2, 1);
-        ok &= TSEL->preset == 3u;
-        c2 = eng_list_pos(&tot);
-        ok &= c0 == 0u && c1 == 1u && c2 == 2u && tot >= SMP_NPRESETS - SMP_NALIAS;
         apply_preset(0);
-        for (n = 0; n < tot; n++) {                     /* right: every sound once, back to the first */
+        for (n = 0; n < tot; n++) {
             turn(EN_K2, 1);
             seen |= 1u << eng_list_pos(&tot);
-            alias |= user_of(TSEL) >= UP_SLOTS && TSEL->preset == 1u;
         }
-        ok &= seen == (1u << tot) - 1u && TSEL->preset == 0u && user_of(TSEL) >= UP_SLOTS;
+        ok = seen == (1u << tot) - 1u && TSEL->preset == 0u && user_of(TSEL) >= UP_SLOTS && tot == ENGINES[2]->npresets;
         seen = 0;
-        for (n = 0; n < tot; n++) {                     /* left: the same, backwards */
+        for (n = 0; n < tot; n++) {
             turn(EN_K2, -1);
             seen |= 1u << eng_list_pos(&tot);
-            alias |= user_of(TSEL) >= UP_SLOTS && TSEL->preset == 1u;
         }
-        ok &= seen == (1u << tot) - 1u && TSEL->preset == 0u && !alias;
+        ok &= seen == (1u << tot) - 1u && TSEL->preset == 0u;
         btn_up(B_EDIT); frame();
-        bad += check("  #124 SAMPLE: KNOB 2 right PIANO, FLUTE, SAX (No. 1 2 3), both ways round the list, never the alias", ok);
+        bad += check("  EDIT held: KNOB 2 walks PHASE presets both ways around the list", ok);
     }
     song.playing = 0;
     lay_combo(B_EDIT, white(LY_INIT));
@@ -5016,8 +4744,8 @@ static int test_fm4_retired(void)
                  seen == all && TSEL->eng_req == 0u && eng_step(0, 1) == ENGI_FM6 && eng_step(ENGI_FM6, 1) == 2u &&
                  eng_step(ENGI_FM6, -1) == 0u && eng_step(0, -1) == ENGI_DRUM);
     {   /* the display order (engines.c ENGINE_ORDER): every engine one can pick once; the PRESETS list follows it */
-        static const char *const ORDER[] = {"ANALOG", "FM6", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN",
-                                            "PHYS", "NOISE", "SLICE", "DRUM"};
+        static const char *const ORDER[] = {"ANALOG", "FM6", "PHASE", "LOFI", "VOICE", "TRIO", "WHEEL",
+                                           "PHYS", "DRUM"};
         uint32_t last = 0xFFu, r = 0, n = 0;
         ok = NENG_SHOWN == NELEM(ORDER);
         for (i = 0; ok && i < NENG_SHOWN; i++)
@@ -5032,7 +4760,7 @@ static int test_fm4_retired(void)
             last = e;
             r++;
         }
-        bad += check("engines shown ANALOG FM6 PHASE ... NOISE SLICE DRUM (ENGINE_ORDER); PRESETS lists them so",
+        bad += check("engines shown ANALOG FM6 PHASE ... PHYS DRUM (ENGINE_ORDER); PRESETS lists them so",
                      ok && r == NENG_SHOWN);
     }
     /* a user preset stored with engine 1: kept as it is, it loads as FM6 with the converted patch */
@@ -9619,9 +9347,8 @@ int main(void)
     bad += test_browse_no_pattern();
     bad += test_name();
     bad += test_edit_cycle();
-#if FELUCCA_SLICE
+    /* test_slices: SLICE retired, stub returns 0 */
     bad += test_slices();
-#endif
     bad += test_sample_alert();
     bad += test_quick_layers();
     bad += test_chord_page();

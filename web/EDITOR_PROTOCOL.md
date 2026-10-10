@@ -90,7 +90,7 @@ watches (v2, `WATCH`), the device also sends push frames (cmds 23, 24, 26) at an
 | string | ASCII bytes, ended by a 0 byte |
 | scope | 0 = parameter of the selected track (`P_*`, 0..P_COUNT−1); 1 = global parameter (`G_*`, 0..G_COUNT−1) |
 | track | 0..3: tracks 1..4 (synth parts) |
-| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 SAMPLE, 5 VOICE, 6 TRIO, 7 WHEEL, 8 GRAIN, 9 PHYS, 10 DRUM, 11 NOISE, 12 FM6, 13 SLICE (NENGINES 14; a build with `FELUCCA_SLICE=0` has 13). The device and the editor list them in another order (ANALOG FM6 PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE SLICE DRUM: `ENGINE_ORDER`); the numbers stay |
+| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 reserved (SAMPLE retired: see below), 5 VOICE, 6 TRIO, 7 WHEEL, 8 reserved (GRAIN), 9 PHYS, 10 DRUM, 11 reserved (NOISE), 12 FM6, 13 reserved (SLICE). NENGINES is 14. The device and the editor list pickable engines in another order (ANALOG FM6 PHASE LOFI VOICE TRIO WHEEL PHYS DRUM: `ENGINE_ORDER`); the numbers stay |
 
 The engine parameters are `P_E0..P_E7`: P_COUNT−8 .. P_COUNT−1 (103..110 since 1.5; 96..103 in 1.2 .. 1.4; 91..98 in
 1.1), and `INFO` gives `P_E0`.
@@ -120,6 +120,12 @@ reads it, a project keeps it): `SET` of `G_ENGSEL` = 1 (DIGITAL's first preset),
 load converts them), projects with DIGITAL tracks (their motion on E1..E8 and ids 61..80 is dropped). The track
 reports engine 12 (FM6) and the FM6 preset that covers the sound. The editor converts DIGITAL patches of library
 files the same way (it equals the firmware's, `test_web.mjs`).
+
+**SAMPLE (4), GRAIN (8), NOISE (11) and SLICE (13) were removed.** Their numbers stay reserved: `INFO` names
+them "-", `NAMES` lists no presets, and no track keeps them. A project or user preset with one of those engines
+loads as ANALOG (SAMPLE / GRAIN / NOISE; SAMPLE SET 4 PERC still becomes DRUM's kit) or DRUM (SLICE), with EDIT
+motion dropped (`firmware/src/eng_retire.c`, `project.c` `proj_retire`). `UP_PUT` still takes the old engine byte;
+every load converts. The editor remaps the same way (`fromRetire`).
 
 The four FM operator envelopes (the DIGITAL engine's OP1..OP4 ENV and OP LEVEL pages, `eng_digital.c`) are
 twenty track parameters at ids 61..80, five per operator: operator k (1..4) has `ATK`, `DEC`, `SUS`, `REL`,
