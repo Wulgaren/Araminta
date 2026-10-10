@@ -220,7 +220,7 @@ where marked here:
 - Hold FX, GLO, SCL, EDIT, REC or SEQ for its quick layer; hold SAVE to undo, HOME for the menu; hold LFO and turn a
   knob for a MOMENTARY change
 - Double-tap a layer's button to keep its layer open without holding; tap it again to close
-- On SEQ > STEP, hold a step and turn KNOB 1–4 to lock those parameters on that step (PRESETS: its NUDGE)
+- On SEQ > STEP, hold a step and turn KNOB 1–4 to lock those parameters on that step (PRESETS: move the held steps in time)
 - On action pages and in dialogs, OCT+ does it and OCT− goes back; in the menu, OCT+ / OCT− change the value and HOME closes it
 - Save a sound: stop, tap SAVE, pick a slot with KNOB 1, then OCT+ and OCT+ again (name it with the keys)
 
