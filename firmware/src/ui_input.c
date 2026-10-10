@@ -1275,7 +1275,8 @@ static void presets_turn(int32_t s)
         edit_param(0, s);                                 /* KNOB 1's (STEP: STOP TO EDIT while a song plays) */
         ui.hot_col = 0;
         ui.hot_t = 40;
-    } else if (g != GR_TOOLS && g != GR_SLICES) {
+    } else if (g != GR_TOOLS && g != GR_SLICES && g != GR_DESTS) {
+        /* GR_DESTS / GR_IORD: no sound load (REORDER handled above PRESETS; dest pickers walk with knobs) */
         preset_step(s);
     }
 }
