@@ -264,8 +264,9 @@ int main(void)
     /* map by count: a record from a build with 2 parameters fewer */
     for (i = 0; i < P_COUNT; i++)
         def[i] = (int16_t)(1000 + i);
+    r.ver = UP_VER;
     r.np = P_COUNT - 2u;
-    for (i = 0; i < P_COUNT; i++)
+    for (i = 0; i < r.np; i++)
         up_set_value(&r, i, (int16_t)i);
     up_params(&r, v, def);
     ok = 1;
@@ -282,15 +283,16 @@ int main(void)
         r.p[i] = (int16_t)(2000 + i);
     up_params(&r, v, def);
     ok = P_SLCR == 45 && P_SLDEPTH + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD &&
-         P_VOIC + 1 == P_LN0 && P_LN7 + 1 == P_LSYNC && P_SQNT + 1 == P_SPRD && P_SPRD + 1 == P_ITYPE &&
-         P_IMIX + 1 == P_FTYPE && P_ESYNC + 1 == P_E0 && P_E0 == 103 && P_COUNT == 111;
+         P_VOIC + 1 == P_LN0 && P_LN7 + 1 == P_LSYNC && P_SQNT + 1 == P_SPRD && P_SPRD + 1 == P_IORD &&
+         P_IHMIX + 1 == P_FTYPE && P_ESYNC + 1 == P_E0 && P_E0 == 119 && P_COUNT == 127;
     for (i = 0; i < 45u; i++)
         ok &= v[i] == (int16_t)(2000 + i);
-    for (i = P_SLCR; i < P_E0; i++)
+    for (i = P_SLCR; i < P_IORD; i++)
         ok &= v[i] == def[i];
+    ok &= !v[P_IORD] && v[P_IDMODE] == IDM_SOFT && v[P_IFTYPE] == IFT_LP && !v[P_FTYPE] && !v[P_ESYNC];
     for (i = 0; i < 8u; i++)
         ok &= v[P_E0 + i] == (int16_t)(2000 + 45 + i);
-    bad += check("old record (np 53): SLICER and matrix defaults, E0..E7 kept", ok);
+    bad += check("old record (np 53): SLICER and matrix defaults, insert chain migrated, E0..E7 kept", ok);
     /* a record saved before the modulation matrix (P_COUNT 57, P_E0 49): the twelve matrix parameters (just
      * before P_E0) take their defaults (every slot OFF), the SLICER and everything else keep their ids */
     r.np = 57;
@@ -326,12 +328,13 @@ int main(void)
                 up_params(&o, v, def);
                 for (i = 0; i < np - 8u; i++)
                     ok &= v[i] == (int16_t)(i % 100u - 30);
-                for (i = np - 8u; i < P_E0; i++)
+                for (i = np - 8u; i < P_IORD; i++)
                     ok &= v[i] == def[i];
+                ok &= !v[P_IORD] && v[P_IDMODE] == IDM_SOFT && v[P_IFTYPE] == IFT_LP && !v[P_FTYPE] && !v[P_ESYNC];
                 for (i = 0; i < 8u; i++)
                     ok &= v[P_E0 + i] == (int16_t)((np - 8u + i) % 100u - 30);
             }
-        bad += check("v4 / v5 records of 91, 89 and 69 parameters: E0..E7 at P_E0, lane levels and chord keys defaults", ok);
+        bad += check("v4 / v5 records of 91, 89 and 69 parameters: E0..E7 at P_E0, insert chain migrated", ok);
     }
     r.ver = UP_VER;
     r.np = P_COUNT;

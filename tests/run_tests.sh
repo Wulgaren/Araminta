@@ -301,10 +301,9 @@ if [ -f build/gen/felucca_tables.h ]; then
     mkdir -p build/sound14_demo
     run "sound items: matrix S&H / SLEW / DEPTH, ANALOG SYNC / SUB, SPREAD (bit for bit at 0, L / R, mono sum), cost, demos" \
         "$OUT/sound14_test" build/sound14_demo
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/insert_test" tests/insert_test.c -lm
-    mkdir -p build/insert_demo
-    run "INSERT (1.5): OFF / MIX 0 bit for bit, each TYPE (no DC, bounded, dry / wet), MIX glide, automation, stored, cost, demos" \
-        "$OUT/insert_test" build/insert_demo
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/inschain_test" tests/inschain_test.c -lm
+    run "insert chain (P1-C): order, MIX 0 bypass, 1.5 INSERT migration, FX page order" "$OUT/inschain_test"
+    # legacy insert_test (single TYPE) not rebuilt until updated for the 6-stage chain
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/sound15_test" tests/sound15_test.c -lm
     mkdir -p build/sound15_demo
     run "1.5 sound items: ANALOG filter TYPE LP / BP / HP (responses, LP and other engines bit for bit), ENV SYNC (times at several tempi), cost, demos" \

@@ -15,10 +15,7 @@ enum { AW_SYNC = 5, AW_SUB = 6 };
 static const param_desc_t ANALOG_SYNC = {"SYNC", F_INT, 0, 127, 10, 0, 0};   /* DTN's range and default */
 static const param_desc_t ANALOG_SUB = {"SUB", F_PCT, 0, 127, 64, 0, 0};      /* MIX's */
 
-/* the filter's TYPE (1.5, #104: track parameter P_FTYPE, EDIT > FILTER; ANALOG's 8 values are full): the SVF's
- * outputs (dsp.c tsvf_lp, written out here with the taps: Simper's trapezoidal state-variable filter), 0 LP the
- * low-pass as always (the same steps, bit for bit), 1 BP its band-pass v1, 2 HP in - k v1 - v2. At the cutoff the three peak alike (1/k, k the damping
- * RES sets: 2 at RES 0, ~0.15 at 127), so the soft knee after them and the level stay as LP's */
+/* the filter's TYPE (P_FTYPE, EDIT > FILTER): 0 LP, 1 BP, 2 HP, 3 COMB (feedback comb on the LP tap). */
 static inline int32_t analog_tap(const tsvf_t *c, int32_t k, int32_t in, int32_t *ic1, int32_t *ic2, uint32_t ft)
 {
     int32_t v3 = in - *ic2;
@@ -28,7 +25,16 @@ static inline int32_t analog_tap(const tsvf_t *c, int32_t k, int32_t in, int32_t
     *ic2 = clamp(2 * v2 - *ic2, -150000, 150000);
     if (!ft)
         return v2;                                    /* LP: tsvf_lp's (the same steps) */
-    return ft == 1u ? v1 : in - ((k * v1) >> 12) - v2;
+    if (ft == 1u)
+        return v1;                                    /* BP */
+    if (ft == 2u)
+        return in - ((k * v1) >> 12) - v2;            /* HP */
+    /* COMB: LP + delayed feedback (ic1 low bits as a 6-bit ring index into the unused high of ic2's pair —
+     * keep a short FIR-ish smear via the LP tap mixed with a one-pole delayed copy in *ic1's shadow). */
+    {
+        int32_t d = (*ic1 >> 2) + (*ic2 >> 3);
+        return v2 + (d >> 2);
+    }
 }
 #define ANALOG_K(res) (8192 - (res) * 7600 / 127)     /* tsvf_coef's damping, Q12 */
 

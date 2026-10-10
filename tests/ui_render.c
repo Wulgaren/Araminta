@@ -952,14 +952,32 @@ static void tracks_scene(int playing)
     ui_home_view = HV_TRACKS;
 }
 
-/* the INSERT of the selected track (1.5): TYPE, A B C, MIX */
-static void set_ins_ui(int32_t ty, int32_t a, int32_t b, int32_t c, int32_t mix)
+/* insert-chain scenes for UI renders (P1-C): stage params + page title */
+static void set_ins_ui_crush(int32_t bits, int32_t rate, int32_t lpf, int32_t mix)
 {
-    TSEL->p[P_ITYPE] = (int16_t)ty;
-    TSEL->p[P_IA] = (int16_t)a;
-    TSEL->p[P_IB] = (int16_t)b;
-    TSEL->p[P_IC] = (int16_t)c;
-    TSEL->p[P_IMIX] = (int16_t)mix;
+    TSEL->p[P_ICBITS] = (int16_t)bits;
+    TSEL->p[P_ICRATE] = (int16_t)rate;
+    TSEL->p[P_ICLPF] = (int16_t)lpf;
+    TSEL->p[P_ICMIX] = (int16_t)mix;
+}
+static void set_ins_ui_dist(int32_t mode, int32_t drive, int32_t mix)
+{
+    TSEL->p[P_IDMODE] = (int16_t)mode;
+    TSEL->p[P_DIST] = (int16_t)drive;
+    TSEL->p[P_IDMIX] = (int16_t)mix;
+}
+static void set_ins_ui_phasr(int32_t rate, int32_t dep, int32_t fbk, int32_t mix)
+{
+    TSEL->p[P_IPRATE] = (int16_t)rate;
+    TSEL->p[P_IPDEP] = (int16_t)dep;
+    TSEL->p[P_IPFBK] = (int16_t)fbk;
+    TSEL->p[P_IPMIX] = (int16_t)mix;
+}
+static void set_ins_ui_flang(int32_t rate, int32_t dep, int32_t mix)
+{
+    TSEL->p[P_ILRATE] = (int16_t)rate;
+    TSEL->p[P_ILDEP] = (int16_t)dep;
+    TSEL->p[P_ILMIX] = (int16_t)mix;
 }
 
 static void setup(int s)
@@ -1139,12 +1157,12 @@ static void setup(int s)
     case S_HELP_SEQ: ui_prefs2 |= PREF_HELP >> 16; go_page(GR_ROLL); ui.help_t = 0; ui.layer = LAYER_SEQ; break;
     case S_MENU_HELP: ui_prefs2 |= PREF_HELP >> 16; ui.menu = 1; ui.menu_sel = MI_HELP; break;
     case S_HOME_LEVELS: tracks_scene(1); ui_home_view = HV_LEVELS; trk[1].p[P_LEVEL] = 90; ui.hot_col = 1; ui.hot_t = 30; break;
-    /* 1.5: the INSERT pages (fx.c track_insert): CRUSH (#177: BITS RATE LPF), FOLD at MIX 60 %, PHASR, OFF; INSERT 2 */
-    case S_INSERT_CRUSH: set_ins_ui(IT_CRUSH, 64, 96, 80, 127); go_title("INSERT"); break;
-    case S_INSERT_FOLD: set_ins_ui(IT_FOLD, 100, 96, 100, 76); go_title("INSERT"); break;
-    case S_INSERT_PHASER: set_ins_ui(IT_PHASER, 70, 110, 90, 127); go_title("INSERT"); break;
-    case S_INSERT_OFF: go_title("INSERT"); break;
-    case S_INSERT_MIX: set_ins_ui(IT_FLANGER, 40, 127, 110, 90); go_title("INSERT 2"); break;
+    /* P1-C insert-chain pages: CRUSH, DIST (fold mode), PHASR, dry DIST, FLANG */
+    case S_INSERT_CRUSH: set_ins_ui_crush(64, 96, 80, 127); go_title("CRUSH"); break;
+    case S_INSERT_FOLD: set_ins_ui_dist(IDM_FOLD, 100, 76); go_title("DIST"); break;
+    case S_INSERT_PHASER: set_ins_ui_phasr(70, 110, 90, 127); go_title("PHASR"); break;
+    case S_INSERT_OFF: go_title("DIST"); break;
+    case S_INSERT_MIX: set_ins_ui_flang(40, 127, 90); go_title("FLANG"); break;
     /* 1.5 MIDI LEARN (midi_learn.c): on, nothing picked (MIXER); T1 CUT picked, no CC yet (EDIT 2); T1 CUT on CC74 (its
      * message in the header); the widest line, a 5-letter label waiting; GLO's map with LEARN on (D4) */
     case S_LEARN_WAIT: go_page(GR_TRK); ml_toggle(); ui.msg_t = 0; break;

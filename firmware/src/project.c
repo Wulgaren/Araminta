@@ -243,6 +243,7 @@ static void proj_trk_from(proj_trk_t *d, const int16_t *p, uint32_t np, uint8_t 
     for (k = 0; k < P_E0; k++)
         def[k] = TP[k].def;
     params_by_count(d->p, p, np, def);
+    ins_migrate(d->p, np);
     d->engine = engine;                         /* (indices 0..7 of formats 1 and 2 as they were) */
     d->preset = preset;
     for (k = 0; k < NSTEP; k++) {
@@ -541,6 +542,7 @@ static int proj_import_old(project_t *q, const void *b, int n)
                 if (v->t[i].engine >= NENGINES) return 0;
                 for (k = 0; k < P_COUNT; k++) def[k] = param_desc_of(v->t[i].engine, k)->def;
                 params_by_count(q->t[i].p, v->t[i].p, 69u, def);
+                ins_migrate(q->t[i].p, 69u);
                 q->t[i].engine = v->t[i].engine; q->t[i].preset = v->t[i].preset;
                 for (k = 0; k < NSTEP; k++) {
                     memcpy(&q->t[i].step[k], &v->t[i].step[k], sizeof(step10_t));
@@ -583,10 +585,17 @@ static int proj_pack(project_store_t *out, const project_t *q)
         for (i = 0; i < FM6_PACKED; i++)
             if (q->fm6[t][i] > 127u) return 0;
     if (!chain_valid(&q->chain) || !motion_valid(&q->motion) || P_COUNT > 127u) return 0;
+    if (q->motion.count > MOTION_FILE_MAX) return 0;   /* insert chain: MOTION_FILE_MAX + 2 B/track for P_IORD */
     memset(out, 0, sizeof *out); memcpy(b, &magic, 4); memcpy(b + 4, &size, 4);
     memcpy(b + 8, q->g, sizeof q->g); b[62] = q->sel; b[63] = q->parts; b[64] = q->phys; b[66] = P_COUNT;
     for (t = 0; t < NTRK; t++) {
         for (i = 0; i < P_COUNT; i++) {
+            if (i == P_IORD) {                          /* factorial 0..719: two bytes LE (not value+64) */
+                uint32_t o = (uint32_t)clamp(q->t[t].p[i], 0, 719);
+                b[pos++] = (uint8_t)(o & 255u);
+                b[pos++] = (uint8_t)(o >> 8);
+                continue;
+            }
             if (q->t[t].p[i] < -64 || q->t[t].p[i] > 127) return 0;
             b[pos++] = (uint8_t)(q->t[t].p[i] + 64);
         }
@@ -606,9 +615,9 @@ static int proj_pack(project_store_t *out, const project_t *q)
             b[pos++] = (uint8_t)(s->probability | (r >> 1) << 7);
         }
     }
-    if (pos + sizeof q->chain + sizeof q->motion > PROJ_FM6_OFF) return 0;
+    if (pos + sizeof q->chain + MOTION_FILE_SIZE > PROJ_FM6_OFF) return 0;
     memcpy(b + pos, &q->chain, sizeof q->chain); pos += sizeof q->chain;
-    memcpy(b + pos, &q->motion, sizeof q->motion);
+    memcpy(b + pos, &q->motion, MOTION_FILE_SIZE);     /* count.. + first MOTION_FILE_MAX events; rest of RAM unused */
     memcpy(b + PROJ_FM6_OFF, q->fm6, sizeof q->fm6);
     {   /* the name (0-padded; stops at the first 0) */
         char n[PROJ_NAME_LEN + 1u];
@@ -660,11 +669,14 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
 {
     uint32_t pos = 68u, t, i, magic, size, sum, np = b[66], v7 = st == PROJ_STORE_V7, v10 = st == PROJ_STORE_SIZE;
     uint32_t name_off = st - 4u - PROJ_NAME_LEN, end = v7 ? name_off : name_off - NTRK * FM6_PACKED;
-    uint32_t mot = v10 ? sizeof q->motion : PROJ_MOTION_V9, chn = v10 ? sizeof q->chain : sizeof(chain_v9_t);
+    /* np>111: insert chain; P_IORD is 2 bytes; motion is MOTION_FILE_SIZE. np<=111 (1.5): full 128-record block */
+    uint32_t mot = !v10 ? PROJ_MOTION_V9 : np > 111u ? MOTION_FILE_SIZE : sizeof q->motion;
+    uint32_t chn = v10 ? sizeof q->chain : sizeof(chain_v9_t);
+    uint32_t iord2 = np > 111u ? 1u : 0u;               /* +1 byte per track for P_IORD high */
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + st - 4u, 4);
     if (magic != (v7 ? PROJ_MAGIC_V7 : st == PROJ_STORE_V8 ? PROJ_MAGIC_V8 : st == PROJ_STORE_V9 ? PROJ_MAGIC_V9 : PROJ_MAGIC) ||
         size != st || sum != proj_hash(b, st - 4u) ||
-        np < 8u || np > P_COUNT || 68u + NTRK * (np + 2u + NSTEP * 9u) + chn + mot > end)
+        np < 8u || np > P_COUNT || 68u + NTRK * (np + iord2 + 2u + NSTEP * 9u) + chn + mot > end)
         return 0;
     memset(q, 0, sizeof *q); q->magic = PROJ_MAGIC; q->size = sizeof *q;
     memcpy(q->g, b + 8, sizeof q->g); q->sel = b[62]; q->parts = b[63]; q->phys = b[64];
@@ -672,11 +684,22 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         proj_rtype_room(q->g);
     for (t = 0; t < NTRK; t++) {
         int16_t values[P_COUNT], def[P_COUNT];
-        for (i = 0; i < np; i++) { if (b[pos] > 191u) return 0; values[i] = (int16_t)b[pos++] - 64; }
+        for (i = 0; i < np; i++) {
+            if (iord2 && i == P_IORD) {                  /* two bytes LE, 0..719 */
+                uint32_t o = b[pos] | (uint32_t)b[pos + 1u] << 8;
+                pos += 2u;
+                if (o > 719u) return 0;
+                values[i] = (int16_t)o;
+                continue;
+            }
+            if (b[pos] > 191u) return 0;
+            values[i] = (int16_t)b[pos++] - 64;
+        }
         q->t[t].engine = b[pos++]; q->t[t].preset = b[pos++];
         if (q->t[t].engine >= NENGINES) return 0;
         for (i = 0; i < P_COUNT; i++) def[i] = param_desc_of(q->t[t].engine, i)->def;
         params_by_count(q->t[t].p, values, np, def);
+        ins_migrate(q->t[t].p, np);
         for (i = 0; i < NSTEP; i++) {
             step_t *s = &q->t[t].step[i]; uint32_t meta, nd = 0;
             for (uint32_t j = 0; j < 4u; j++) {         /* (FUN10: bit 7 of note j is bit j of the nudge) */
@@ -703,9 +726,12 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         if (!chain_from_v9(&q->chain, &c9)) return 0;
     }
     pos += chn;
-    if (v10)
-        memcpy(&q->motion, b + pos, sizeof q->motion);
-    else if (!proj_motion_v9(&q->motion, b + pos))
+    if (v10) {
+        memset(&q->motion, 0, sizeof q->motion);
+        memcpy(&q->motion, b + pos, mot);
+        if (q->motion.count > (np > 111u ? MOTION_FILE_MAX : MOTION_MAX))
+            return 0;
+    } else if (!proj_motion_v9(&q->motion, b + pos))
         return 0;
     if (!proj_motion_ids(&q->motion, np) || !chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
     for (t = 0; t < NTRK; t++) {
