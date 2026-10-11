@@ -49,7 +49,7 @@ static int layer_set_open(void);                       /* (ui_layer.c) */
 #define OCT_BREATH_DN 8u                                /* OCT- breathing (the menu: the previous value) */
 /* MOMENTARY (1.2, Discussions #72 / #73): LFO held, the knobs' changes are temporary. KNOB 1..4 on HOME and on the
  * sound and FX pages (a value of the selected track or a global sound / FX one, as edit_param sets it; MIXER's LEVEL
- * PAN REV MUTE too, #195; not on the action pages, the lists, STEP, AUTOMATION or SONG, where the knobs pick) change
+ * PAN REV PLAY too, #195; not on the action pages, the lists, STEP, AUTOMATION or SONG, where the knobs pick) change
  * their value as ever, and each value turned is put back as it was when LFO is let go: hold LFO, sweep the filter,
  * let go, it snaps back. OCT+ while
  * LFO is still held KEEPS them (the changes stay, nothing is put back; OCT+ breathes while something would go back;
@@ -75,7 +75,7 @@ static int mom_turn(uint32_t k, int32_t s)
     const track_t *t = ui.home ? home_trk(k) : TSEL;     /* (HOME LEVELS: KNOB k is track k's) */
     if (ui.home) {
         d = home_param(k, &vp);
-    } else if (pg->scope == SC_TRK && !lock_held()) {  /* MIXER (#195): the selected track's LEVEL PAN REV MUTE */
+    } else if (pg->scope == SC_TRK && !lock_held()) {  /* MIXER (#195): the selected track's LEVEL PAN REV PLAY */
         static const uint8_t MIX_ID[4] = {P_LEVEL, P_PAN, P_REV, P_MUTE};   /* (tracks_edit's knobs) */
         vp = &TSEL->p[MIX_ID[k & 3u]];
         d = &TP[MIX_ID[k & 3u]];
@@ -464,8 +464,9 @@ static int32_t accel(uint32_t role, int32_t s, int32_t range)
     return s * (int32_t)m;
 }
 
-/* MIXER page: KNOB 1 LEVEL, 2 PAN, 3 REV send, 4 MUTE of the selected track (right = ON, left = OFF: the
- * track itself is ALGORITHM's, on every page). Pattern length stays on SEQ. */
+/* MIXER page: KNOB 1 LEVEL, 2 PAN, 3 REV send, 4 PLAY of the selected track. PLAY is ON by default
+ * (the track sounds); left is OFF (silent), right is SOLO (this track sounds, the others go quiet).
+ * The track itself is ALGORITHM's, on every page. Pattern length stays on SEQ. */
 static void tracks_edit(uint32_t slot, int32_t steps)
 {
     track_t *t = TSEL;
@@ -473,7 +474,7 @@ static void tracks_edit(uint32_t slot, int32_t steps)
     const param_desc_t *d;
     switch (slot) {
     case 3:
-        t->p[P_MUTE] = (int16_t)(steps > 0);
+        t->p[P_MUTE] = (int16_t)param_turn(&TP[P_MUTE], t->p[P_MUTE], accel(EN_K1 + slot, steps, 0));
         ml_knob(t, P_MUTE);                             /* (MIDI LEARN: picked) */
         return;
     case 0:
@@ -498,34 +499,6 @@ static void tracks_edit(uint32_t slot, int32_t steps)
 static int roll_on(void)
 {
     return !ui.home && !ui.menu && !ui.confirm && song.seq_mode && cur_page()->graph == GR_ROLL && !drum_track(TSEL);
-}
-
-/* HOME Mixer: latched track solo (white keys T1..T4). Drum lane mutes are SEQ TOOLS (F4). */
-static uint8_t mix_solo;
-static int mixer_keys_on(void)
-{
-    return !ui.home && !ui.menu && !ui.confirm && !name_on() && !ui.lock && !ui.ly &&
-           cur_page()->fam == FAM_TRK && cur_page()->sec == TRK_SEC_MIX;
-}
-static void mixer_keys(uint32_t notes)
-{
-    uint32_t k, p;
-    for (k = 0; k < 27u; k++) {
-        if (!((notes >> k) & 1u))
-            continue;
-        p = key_place(k);
-        if (!key_black(k) && p < NTRK) {
-            mix_solo ^= (uint8_t)(1u << p);
-            {
-                char a[8], b[12];
-                str_cpy(a, "T", sizeof a);
-                fmt_int(a + 1, (int32_t)p + 1);
-                str_cpy(b, (mix_solo >> p) & 1u ? " SOLO" : " SOLO OFF", sizeof b);
-                ui_say(a, b);
-            }
-            ui.force = 1;
-        }
-    }
 }
 
 /* SONG: + ADD selected (song_row == count < CHAIN_ROWS): a section there, copying the one before it (the first: every
@@ -1684,8 +1657,7 @@ static void ui_input(void)
     lytap = layer_gesture(now, combo);
     layer_show();
     section_apply();                                    /* sticky Punch-in / SEQ tools / Record maps */
-    layer_keys(lkeys);
-    perf_solo = mix_solo;                               /* after layer_keys: Mixer latched solos */
+    layer_keys(lkeys);                                  /* GLO: held white keys set perf_solo */
     if (!lay && layer_open()) {                         /* section map, no button held: knobs + FX assign */
         for (k = 0; k < 4u; k++)
             if ((ks[k] = panel_enc(EN_K1 + k)) != 0) {
@@ -1870,10 +1842,7 @@ static void ui_input(void)
     }
     song.grid = (uint8_t)keys_mode();                 /* (seq.c: the keys are the grid's) */
     lock_keys();                                        /* (a grid key on a hit let go: the hit goes) */
-    if (song.grid == 4u) {
-        mixer_keys(notes);                              /* HOME Mixer: latched track solo */
-        perf_solo = mix_solo;
-    } else if (song.grid == 3u) {
+    if (song.grid == 3u) {
         song_keys(notes);
     } else if (song.grid) {
         grid_keys(notes);

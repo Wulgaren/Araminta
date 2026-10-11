@@ -1096,14 +1096,22 @@ static int test_tracks(void)
                  trk[0].p[P_LEVEL] == before.p[P_LEVEL] && cur_page()->graph == GR_TRK);
     hold(B_SAVE);
     bad += check("#94 MIXER: SAVE held undoes it", trk[0].preset == before.preset && !memcmp(trk[0].p, before.p, sizeof before.p));
-    turn(EN_K4, 1);
-    bad += check("MIXER KNOB 4 right: MUTE ON (the selected track stays)", trk[0].p[P_MUTE] == 1 && song.sel == 0);
+    turn(EN_K4, -1);
+    bad += check("MIXER KNOB 4 left: PLAY OFF (the selected track stays)", trk[0].p[P_MUTE] == PLAY_OFF && song.sel == 0);
     turn(EN_K1, -3);
-    bad += check("KNOB 1 changes LEVEL only (MUTE stays)", trk[0].p[P_MUTE] == 1 && trk[0].p[P_LEVEL] == before.p[P_LEVEL] - 3);
+    bad += check("KNOB 1 changes LEVEL only (PLAY stays)", trk[0].p[P_MUTE] == PLAY_OFF && trk[0].p[P_LEVEL] == before.p[P_LEVEL] - 3);
     turn(EN_K2, 2);
     bad += check("KNOB 2 changes PAN", trk[0].p[P_PAN] == before.p[P_PAN] + 2);
+    turn(EN_K4, 1);
+    bad += check("MIXER KNOB 4 right from OFF: PLAY ON", trk[0].p[P_MUTE] == PLAY_ON);
+    turn(EN_K4, 1);
+    bad += check("MIXER KNOB 4 right: PLAY SOLO", trk[0].p[P_MUTE] == PLAY_SOLO && song.sel == 0);
+    turn(EN_K4, 1);
+    bad += check("MIXER KNOB 4 stays on SOLO at the end of the list", trk[0].p[P_MUTE] == PLAY_SOLO);
     turn(EN_K4, -1);
-    bad += check("MIXER KNOB 4 left: MUTE OFF", trk[0].p[P_MUTE] == 0);
+    bad += check("MIXER KNOB 4 left from SOLO: PLAY ON", trk[0].p[P_MUTE] == PLAY_ON);
+    turn(EN_K4, -1);
+    bad += check("MIXER KNOB 4 left again: PLAY OFF", trk[0].p[P_MUTE] == PLAY_OFF);
     turn(EN_ALGO, 1);
     bad += check("ALGORITHM selects the track", song.sel == 1);
     return bad;
@@ -4197,26 +4205,26 @@ project_not_empty();                 track_defaults_steps(t); go_page(GR_ROLL); 
             }
         bad += check("STEP entry with CHRD: POLY the chord, MONO its root, as live recording writes", ok);
     }
-    {   /* 3. MIXER: the knob just turned is the one drawn in the accent (K1 LEVEL, K2 PAN, K3 REV, K4 the MUTE badge) */
+    {   /* 3. MIXER: the knob just turned is the one drawn in the accent (K1 LEVEL, K2 PAN, K3 REV, K4 the PLAY badge) */
         uint32_t k, a[4][4], ok = 1;
         for (k = 0; k < 4u; k++) {
             int32_t X = CARD_X(0), Y = Y_GRAPH;
             ui_power_on();
             settings.palette = 1; palette_set(1);
             go_page(GR_TRK); frame(); frame();
-            turn(EN_K1 + k, 1);                                       /* (K4 right: MUTE on, its badge shown) */
+            turn(EN_K1 + k, 1);                                       /* (K4 right: PLAY SOLO, its badge shown) */
             ui.force = 1; frame();
             a[k][0] = accent_in(X + 4, Y + 37, X + 38, Y + 71);       /* LEVEL */
             a[k][1] = accent_in(X + 3, Y + 84, X + 28, Y + 115);      /* PAN */
             a[k][2] = accent_in(X + 30, Y + 84, X + 55, Y + 115);     /* REV */
-            a[k][3] = accent_in(X + 22, Y + 4, X + 56, Y + 20);       /* the MUTE badge */
+            a[k][3] = accent_in(X + 22, Y + 4, X + 56, Y + 20);       /* the PLAY badge */
         }
         for (k = 0; k < 4u; k++) {
             uint32_t j;
             for (j = 0; j < 4u; j++)
                 ok &= j == k ? a[k][j] > 0u : a[k][j] == 0u;
         }
-        bad += check("MIXER: K1..K4 light LEVEL / PAN / REV / the MUTE badge, nothing else", ok);
+        bad += check("MIXER: K1..K4 light LEVEL / PAN / REV / the PLAY badge, nothing else", ok);
     }
     {   /* 4. renaming the slot the music came from renames the music: the next SAVE prefills the new name */
         char pn[16];
@@ -5200,7 +5208,7 @@ static int test_momentary(void)
         turn(EN_K3, 4);                            /* (without LFO: a turn stays) */
         ok &= TSEL->p[P_REV] != rv && !mom.n;
         TSEL->p[P_REV] = rv;
-        bad += check("  #195 MIXER: LEVEL PAN REV MUTE momentary (not recorded), back on release; without LFO they stay", ok);
+        bad += check("  #195 MIXER: LEVEL PAN REV PLAY momentary (not recorded), back on release; without LFO they stay", ok);
     }
     /* a layer: its knobs */
     go_home();
@@ -6131,7 +6139,8 @@ static int test_div_order(void)
             const param_desc_t *d;
             ui_power_on();
             ui.home = 0; ui.page = (uint8_t)id; page_entered();
-            if (!page_visible(id) || !(d = page_desc(cur_page(), c, &vp)) || !vp || !enum_order(d))
+            if (!page_visible(id) || !(d = page_desc(cur_page(), c, &vp)) || !vp ||
+                (d->names != N_DIV && d->names != N_SLDIV && d->names != N_DTIME))
                 continue;
             found++;
             *vp = d->names != N_SLDIV ? 2 : 1;      /* 1/16 */
@@ -8154,23 +8163,25 @@ static int test_nav_chords(void)
     return bad;
 }
 
-/* HOME Mixer: white keys latch track solo. Drum lane mutes are SEQ TOOLS, not a mixer page. */
+/* MIXER keys play. A DRUM track stays on MIXER; lane mute is SEQ TOOLS (F4). */
 static int test_mixer_solo(void)
 {
     int bad = 0, ok;
+    uint32_t wk = white(0), bk;
     ui_power_on();
     press(B_HOME);                                      /* Home → Mixer */
     ok = str_eq(cur_page()->title, "MIXER") && cur_page()->sec == TRK_SEC_MIX;
-    key_down(white(0)); frame(); key_up(white(0)); frame();
-    ok &= (perf_solo & 1u) != 0u;
-    key_down(white(0)); frame(); key_up(white(0)); frame();
-    ok &= (perf_solo & 1u) == 0u;
+    key_down(wk); frame();
+    ok &= perf_solo == 0u && kb_note[wk] != KB_SILENT;
+    key_up(wk); frame();
     set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req; frame();
     turn(EN_SELECT, 1);
     ok &= str_eq(cur_page()->title, "MIXER");
-    key_down(key_at(1, 0)); frame(); key_up(key_at(1, 0)); frame();   /* black keys play nothing here */
-    ok &= (drum_mute[song.sel % NPART] & 1u) == 0u;
-    bad += check("HOME Mixer: latched track solo; a DRUM track stays on MIXER", ok);
+    bk = key_at(1, 0);
+    key_down(bk); frame();
+    ok &= (drum_mute[song.sel % NPART] & 1u) == 0u && kb_note[bk] != KB_SILENT;
+    key_up(bk); frame();
+    bad += check("MIXER keys play; a DRUM track stays on MIXER", ok);
     return bad;
 }
 

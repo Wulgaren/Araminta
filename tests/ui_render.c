@@ -2019,7 +2019,7 @@ static void align_sweeps(void)
         for (v = 0; v < 256; v++) {                    /* (then with LARGE: the strip) */
             ui_prefs = v >= 128 ? PREF_LARGE : 0u;
             trk[0].p[P_LEVEL] = (int16_t)(v & 127); trk[0].p[P_PAN] = (int16_t)((v & 127) - 64); trk[0].p[P_REV] = (int16_t)(v & 127);
-            trk[1].p[P_MUTE] = (int16_t)(v & 1); song.rec = v & 2 ? 2u : 0u; ui.hot_t = (uint8_t)(v & 4); ui.hot_col = 3;
+            trk[1].p[P_MUTE] = (int16_t)(v % 3); song.rec = v & 2 ? 2u : 0u; ui.hot_t = (uint8_t)(v & 4); ui.hot_col = 3;
             ts.meter[0] = (uint8_t)(v % (TS_MH - 1));
             ui.force = 1;
             draw_tracks();
