@@ -1,26 +1,22 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* DRUM: a drum kit of 8 lanes (drum_voice.c, Felucca's own): KICK, SNARE, CLAP, HAT CL, HAT OP, TOM, RIM,
- * BELL. Before 1.0 it was PHYS's MODEL DRUM; projects and user presets saved then load as this engine
- * (drum_from_phys in core.h).
+/* DRUM: JIANT's drum engine, DRUM-X (drumx_voice.c, after Sonic Charge's Microtonic): a kit of 8 lanes, KICK, SNARE,
+ * CLAP, HAT CL, HAT OP, TOM, RIM, BELL, each a synthesized sound with two patches A and B and a MORPH between them.
+ * The kit is the section's (drumx_voice.c dx_kit), edited on EDIT > SOUND. Felucca's DRUM kits (STD and the model
+ * kits 80 10 66 55 77, drum_voice.c) were retired in JIANT 0.1: a sound or project that picked one plays DRUM-X.
+ * Before Felucca 1.0 this engine was PHYS's MODEL DRUM; those sounds load as it (drum_from_phys in core.h).
  *
  * Keys and notes: the keys play the General MIDI drum map with the kick on the first C (C KICK, C# RIM,
  * D SNARE, D# CLAP, F# HAT CL, A# HAT OP, F G A B C D TOMS, C# CYM, G# BELL; OCT -/+ move it), and a note
- * plays its GM drum (35..81: kicks, snares, toms, hats, cymbals, bells, congas, claves; other notes as
- * their octave of 36..47), so GM patterns and MIDI parts play as they did on SAMPLE PERC (retired: its sounds
- * load as this engine, core.h drum_from_perc).
+ * plays its GM drum on its lane (35..81: kicks, snares, toms, hats, cymbals and bells on BELL, congas on TOM, claves
+ * on RIM, each at its pitch from the lane's; other notes as their octave of 36..47), so GM patterns and MIDI parts
+ * play as drums.
  *
- * Parameters: KIT the kit: STD (Felucca's own: TOM RIM BELL on lanes 6..8, other GM notes their congas, claves,
- * cymbals) or a model kit (80 10 66 55 77 78: every lane that kit's own piece, drum_voice.c DV_KIT; KICK does not
- * apply). Its stored values 1..3 were HAND CYM H+CYM (STD with CONGA CLAVE / CYM on lanes 6..8) until 1.0.4: they
- * play 66 10 77 now (DK_PLAYS), and whatever stores them lands there (params.c enum_orig, param_fit: the knob
- * steps over them, the editor's SET, projects, user presets, motion). KICK the kick (PUNCH, ROUND). TUNE (64: as
- * designed, +-12 semitones), TONE, DECY and SNAP (each lane's extra: the kick's drive, the snare's snappiness,
- * the clap's spread, the hats' noise, the toms' bend, the rim's drive, the bell's strike) move every lane from its designed value. ACC
- * is the accent at full velocity (velocity scales it), DRV a soft clip on every hit (x1..x4, level kept).
- * Each lane has its LEVEL (P_LN0..P_LN7, EDIT > LANES / LANES 2, #97: square law, 100 % the kit as designed, the
- * default, so every older sound plays as it did), on the voice amplitude after the knee (a quieter lane is cleaner).
- * A hit keeps the drum and the variant it was struck with; the knobs move it while it rings.
+ * Parameters (stored as before: KIT's slot is MRPH, SNAP's NOIS, KICK's WARP): MRPH the MORPH A..B of every
+ * lane; TUNE (+-12 semitones), TONE (COLOR), DECY (DECAY) and NOIS (NOISE) move every lane from its patch (64: as
+ * the kit has it); FM (JIANT, once ACC) every sound through harmonic FM, eight ratio bands (drumx_voice.c dx_run); FOLD (JIANT 0.5, was WARP) every sound's oscillator through a wavefolder after its envelope: a bright attack folding back to the plain tail (0: as the kit has it); DRV a soft clip on every hit
+ * (x1..x4, level kept). Each lane has its LEVEL (P_LN0..P_LN7, EDIT > LANES / LANES 2, #97: square law, 100 % the
+ * default) on the voice amplitude after the knee. The knobs move a hit while it rings.
  *
  * Polyphony: a lane per drum and part, mono: a hit reuses its lane's voice even at another pitch, the 8 lanes ring
  * together. A sounding voice plays one lane (s[0]); the lane remembers its voice (owner), and a voice
@@ -32,40 +28,59 @@
  * sends, DIST, the SLICER, LFO DEST AMP, velocity, the matrix's AMP and its E1..E8 (the knobs, per
  * block) do. A released key does not end a hit.
  *
- * State: 8 lanes per part in the part's engine memory (engines.c eng_mem; drum_kit_of: the parameters, coefficients, voice and metal
- * source of each lane). */
-#include "drum_voice.c"
-
-enum { DK_STD, DK_HAND, DK_CYM, DK_HCYM, DK_80, DK_10, DK_66, DK_55, DK_77, DK_78, DK_COUNT };   /* (stored values) */
-/* the kit a stored KIT value plays: HAND CYM H+CYM (retired after 1.0.4) -> 66 (a conga on TOM), 10 (a cymbal on
- * BELL), 77 (claves on RIM, a cymbal on BELL) */
-static const uint8_t DK_PLAYS[DK_COUNT] = {DK_STD, DK_66, DK_10, DK_77, DK_80, DK_10, DK_66, DK_55, DK_77, DK_78};
-static uint32_t drum_kit_plays(int32_t v) { return DK_PLAYS[clamp(v, 0, DK_COUNT - 1)]; }
-/* the model kits' pieces where a lane plays another than its own (the lane's name): 1 TOM -> CONGA, 2 RIM -> CLAVE,
- * 4 BELL -> CYM */
-static const uint8_t DK_SWAP[DV_NKIT] = {0, 4, 1, 0, 2 | 4, 1 | 2};
-static const uint8_t DV_TYPE_LANE[DVT_COUNT] = {
-    DV_KICK, DV_KICK, DV_SNARE, DV_CLAP, DV_HATC, DV_HATO, DV_TOM, DV_TOM, DV_RIM, DV_RIM, DV_BELL, DV_BELL,
-};
+ * State: 8 lanes per part in the pool section (drum_kit: each lane's hit). */
+#include "drumx_voice.c"
 
 typedef struct {
-    dv_param_t key;              /* the parameters the coefficients were set up with */
-    dv_coef_t c;
-    dv_voice_t v;
-    dv_metal_t mb;
+    dx_voice_t x;                /* the hit */
     uint8_t owner;               /* the voice playing the lane: index + 1, 0 = none */
-    uint8_t role;                /* the drum struck (DVT_*) */
-    int8_t st;                   /* its semitones from the designed pitch (the GM map) */
-    uint8_t age;                 /* blocks since the hit (pfx.c ATK+ fade-in) */
+    int8_t st;                   /* its semitones from the lane's pitch (the GM map) */
+    uint8_t mg;                  /* its group mute's fade: DXG_FADE (sounding) .. 0 (muted, silent) */
+    uint8_t age;                 /* blocks since the hit (255: and more): PUNCH's shape */
+    int8_t rm, rt;               /* (0.5.1) X-MOD RAND: this hit's MORPH offset, its tune (1/16 semitones) */
 } drum_lane_t;
+/* (JIANT 0.5.1) X-MOD (EDIT > X-MOD on a DRUM track): the kit's own modulator, saved with the kit (project.c, in its
+ * reserved bytes): RATE (OFF, 4BAR 2BAR 1BAR 1/2 1/4 1/8 1/16 1/32: a tempo-synced LFO), DPTH (how far it moves
+ * MORPH, +-64), SHPE (SINE TRI SAW RAMP S&H), RAND (each hit its own MORPH, up to +-64, and tune, up to +-1
+ * semitone: no two hits alike). dx_mot_v: the LFO's MORPH offset this block (fx.c dx_mot_block) */
+enum { XM_RATE, XM_DPTH, XM_SHPE, XM_RAND };
+static uint8_t dx_mot[4];
+static int32_t dx_mot_v;
+static uint32_t dx_mot_rng = 0x9E3779B9u;
 
-#define DRUM_ATK_BLK 48u                                 /* (JIANT) ATK+ on a DRUM track: fade-in, blocks */
+ENG_MEM_FITS("DRUM", sizeof(drum_lane_t) * DV_NLANE);
+/* 1.4.1: each part's lanes muted (bit l: lane l). SEQ TOOLS F4 mutes the selected lane; the EDIT layer's black keys
+ * 1..8 do the same (ui_layer.c EQA_DRUM). Performance state: not saved, not recorded, no undo; a sound or project
+ * load clears it */
+static uint8_t drum_mute[NPART];
 
-static int16_t clip_eff, pnch_eff;   /* G_CLIP / G_PUNCH as the master plays them (fx.c mix_block) */
-/* The drum bus (JIANT, FX > MASTER). PUNCH (G_PUNCH 0..100): each hit's age fattens the attack and body into
- * the knee (up to x1.45 / x1.7), back to unity by ~180 ms. DUCK (G_DUCK, fx.c): a kick struck on any DRUM
- * track ducks the other parts; duck_hit tells fx.c's mix_block */
+/* The group mutes (JIANT): KICK (the kick), SNARE (snare and clap), HAT (both hats), PERCS (tom, rim, bell), on every
+ * DRUM track. A section's (project.c keeps them with its DRUM-X kit, the song stages them); set live on the
+ * GLO layer (ui_layer.c). A muted group's new hits do not sound (voice.c trk_note_on); what rings when it is muted
+ * fades out (drum_render: DXG_FADE blocks, ~5 ms, no click), then ends */
+enum { DXG_KICK = 1, DXG_SNARE = 2, DXG_HAT = 4, DXG_PERC = 8, DXG_ALL = 15 };
+static const uint8_t DXG_LANE[DV_NLANE] = {DXG_KICK, DXG_SNARE, DXG_SNARE, DXG_HAT, DXG_HAT, DXG_PERC, DXG_PERC, DXG_PERC};
+#define DXG_FADE 8u
+/* .. and each sound's own mute (EDIT held + black keys 1..8 on a DRUM track, ui_layer.c): bit 8 + lane */
+#define DXM_LANE(l) (1u << (8u + (l)))
+#define DXM_ALL 0xFF0Fu
+static volatile uint16_t dx_mute;                       /* DXG_* groups | DXM_LANE lanes */
+static void dx_mute_set(uint32_t m) { dx_mute = (uint16_t)(m & DXM_ALL); }
+static int dx_lane_muted_g(uint32_t l) { return (DXG_LANE[l & 7u] & dx_mute) || (dx_mute & DXM_LANE(l & 7u)); }
+static int dx_lane_muted(const track_t *t, uint32_t l)
+{
+    uint32_t p = (uint32_t)(t - trk);
+    return dx_lane_muted_g(l) || (p < NPART && ((drum_mute[p] >> (l & 7u)) & 1u));
+}
+
+static int16_t clip_eff, pnch_eff;   /* G_CLIP / G_PUNCH as the master plays them (mod.c macro_master) */
+/* The drum bus (JIANT, MENU-less: FX > MASTER). PUNCH (G_PUNCH 0..100, no detector: each hit's own age), made to
+ * fatten (JIANT 0.5; it was Drum Buss's +11 dB / -14 dB, which thinned everything out): the whole hit driven into the
+ * voice's knee, its first ~3 ms up to x1.45, its body (~15 .. 115 ms) up to x1.7, back to unity by ~180 ms: the peak
+ * held by the knee, the body denser and louder, the tail whole (the master's leveler does not pump on a spike). DUCK (G_DUCK, fx.c): a kick struck on any
+ * DRUM track (its group not muted) ducks the other parts; duck_hit tells fx.c's mix_block */
 static volatile uint8_t duck_hit;
+#define DRUM_ATK_BLK 48u                                 /* (JIANT 0.4) ATK+ on a DRUM track: a hit's fade-in, blocks */
 static int32_t punch_gain(uint32_t age, int32_t p)     /* Q15 (32768 = 1, up to x1.7), p 0..100 */
 {
     int32_t up = 32768 + p * 150, body = 32768 + p * 230;
@@ -73,41 +88,18 @@ static int32_t punch_gain(uint32_t age, int32_t p)     /* Q15 (32768 = 1, up to 
                        : age < 160u ? body : age < 250u ? body + (32768 - body) * (int32_t)(age - 160u) / 90 : 32768;
 }
 
-ENG_MEM_FITS("DRUM", sizeof(drum_lane_t) * DV_NLANE);
-/* 1.4.1: each part's lanes muted (bit l: lane l). SEQ TOOLS F4 mutes the selected lane; the EDIT layer's black keys
- * 1..8 do the same (ui_layer.c EQA_DRUM): a channel mute. The lane plays on as always (hits, keys, MIDI: its voice, the
- * CPU, the choke) and drum_render drops its output, so unmuted it sounds as if it never was. Performance state: not
- * saved, not recorded, no undo; a sound load into the track (ui.c load_begin) and a project load
- * (project_restore_runtime) clear it, power-off too */
-static uint8_t drum_mute[NPART];
-
-/* 1..3 named as the kit they play: aliases, never shown or offered (EDITOR_PROTOCOL.md: retired values) */
-static const char *const N_DRUM_KIT[] = {"STD", "66", "10", "77", "80", "10", "66", "55", "77", "78"};
-static const char *const N_DRUM_KICK[] = {"PUNCH", "ROUND"};
-
-/* General MIDI notes 35..81 -> the drum (DVT_*; DVT_PUNCH: the kick KICK picks) and semitones from its
- * designed pitch */
+/* General MIDI notes 35..81 -> the lane (DV_*) and semitones from its pitch */
 static const int8_t DRUM_GM[47][2] = {
-    {DVT_PUNCH, -2}, {DVT_PUNCH, 0}, {DVT_RIM, 0}, {DVT_SNARE, 0}, {DVT_CLAP, 0}, {DVT_SNARE, 2},     /* 35 */
-    {DVT_TOM, -7}, {DVT_HATC, 0}, {DVT_TOM, -4}, {DVT_HATC, -2}, {DVT_TOM, 0}, {DVT_HATO, 0},         /* 41 */
-    {DVT_TOM, 3}, {DVT_TOM, 5}, {DVT_CYM, 0}, {DVT_TOM, 8}, {DVT_CYM, -3}, {DVT_CYM, 2},              /* 47 */
-    {DVT_BELL, 5}, {DVT_HATC, 5}, {DVT_CYM, 4}, {DVT_BELL, 0}, {DVT_CYM, 1}, {DVT_CLAVE, -12},        /* 53 */
-    {DVT_CYM, -2}, {DVT_CONGA, 5}, {DVT_CONGA, 2}, {DVT_CONGA, 0}, {DVT_CONGA, 0}, {DVT_CONGA, -5},   /* 59 */
-    {DVT_TOM, 10}, {DVT_TOM, 7}, {DVT_BELL, 7}, {DVT_BELL, 3}, {DVT_HATC, 3}, {DVT_HATC, 7},          /* 65 */
-    {DVT_CLAVE, 7}, {DVT_CLAVE, 5}, {DVT_HATC, -4}, {DVT_HATC, -6}, {DVT_CLAVE, 0}, {DVT_CLAVE, -4},  /* 71 */
-    {DVT_CLAVE, -7}, {DVT_CONGA, 7}, {DVT_CONGA, 3}, {DVT_BELL, 12}, {DVT_BELL, 12},                  /* 77 */
+    {DV_KICK, -2}, {DV_KICK, 0}, {DV_RIM, 0}, {DV_SNARE, 0}, {DV_CLAP, 0}, {DV_SNARE, 2},             /* 35 */
+    {DV_TOM, -7}, {DV_HATC, 0}, {DV_TOM, -4}, {DV_HATC, -2}, {DV_TOM, 0}, {DV_HATO, 0},               /* 41 */
+    {DV_TOM, 3}, {DV_TOM, 5}, {DV_BELL, 0}, {DV_TOM, 8}, {DV_BELL, -3}, {DV_BELL, 2},                 /* 47 */
+    {DV_BELL, 5}, {DV_HATC, 5}, {DV_BELL, 4}, {DV_BELL, 0}, {DV_BELL, 1}, {DV_RIM, -12},              /* 53 */
+    {DV_BELL, -2}, {DV_TOM, 10}, {DV_TOM, 7}, {DV_TOM, 5}, {DV_TOM, 5}, {DV_TOM, 0},                  /* 59 */
+    {DV_TOM, 10}, {DV_TOM, 7}, {DV_BELL, 7}, {DV_BELL, 3}, {DV_HATC, 3}, {DV_HATC, 7},                /* 65 */
+    {DV_RIM, 7}, {DV_RIM, 5}, {DV_HATC, -4}, {DV_HATC, -6}, {DV_RIM, 0}, {DV_RIM, -4},                /* 71 */
+    {DV_RIM, -7}, {DV_TOM, 12}, {DV_TOM, 8}, {DV_BELL, 12}, {DV_BELL, 12},                            /* 77 */
 };
-/* the drum of a note (DVT_*, or a model kit's lane: DV_KTYPE) and its semitones; KICK picks the kick; a model kit
- * plays its own piece on the note's lane */
-static uint32_t drum_gm(const int16_t *p, uint32_t note, int32_t *st)
-{
-    uint32_t n = note >= 35u && note <= 81u ? note : 36u + (note + 120u - 36u) % 12u, t = (uint32_t)DRUM_GM[n - 35u][0];
-    uint32_t kit = drum_kit_plays(p[P_E0]);           /* STD, the model kits */
-    *st = DRUM_GM[n - 35u][1];
-    if (kit >= DK_80)
-        return DV_KTYPE(kit - DK_80 + 1u, DV_TYPE_LANE[t]);
-    return t == DVT_PUNCH && p[P_E6] > 0 ? DVT_ROUND : t;
-}
+static uint32_t drum_gm_ix(uint32_t note) { return (note >= 35u && note <= 81u ? note : 36u + (note + 120u - 36u) % 12u) - 35u; }
 
 /* ----------------------------------------------------- the grid's lanes --- */
 /* A step's lane hits (step_t.hit / acc, the DRUM grid: SEQ > STEP on a DRUM track) play these GM notes, on any
@@ -115,43 +107,27 @@ static uint32_t drum_gm(const int16_t *p, uint32_t note, int32_t *st)
  * its lane (st 0 in DRUM_GM) */
 static const uint8_t DRUM_LANE_NOTE[NLANE] = {36, 38, 39, 42, 46, 45, 37, 56};
 
-/* the lane a note strikes (KIT-proof: a kit plays its own piece inside the lane) */
-static uint32_t drum_lane(uint32_t note)
-{
-    uint32_t n = note >= 35u && note <= 81u ? note : 36u + (note + 120u - 36u) % 12u;
-    return DV_TYPE_LANE[DRUM_GM[n - 35u][0]];
-}
+/* the lane a note strikes */
+static uint32_t drum_lane(uint32_t note) { return (uint32_t)DRUM_GM[drum_gm_ix(note)][0]; }
 
-/* KIT's swaps of lanes 6..8 (1 TOM -> CONGA, 2 RIM -> CLAVE, 4 BELL -> CYM) */
-static uint32_t drum_swaps(const track_t *t)
-{
-    uint32_t kit = drum_kit_plays(t->p[P_E0]);
-    return kit >= DK_80 ? DK_SWAP[kit - DK_80] : 0u;
-}
+/* a note of a muted group (dx_mute): voice.c trk_note_on drops it */
+static int drum_muted_of(const track_t *t, uint32_t note) { return dx_lane_muted(t, drum_lane(note)); }
+/* voice.c may call drum_muted(note) without a track: groups only */
+static int drum_muted(uint32_t note) { return dx_lane_muted_g(drum_lane(note)); }
 
-/* the lane's name as the track's KIT plays it (5 characters at most) */
+/* the lane's name (5 characters at most) */
 static const char *drum_lane_name(const track_t *t, uint32_t l)
 {
     static const char *const N[NLANE] = {"KICK", "SNARE", "CLAP", "HATCL", "HATOP", "TOM", "RIM", "BELL"};
-    uint32_t kit = drum_swaps(t);
-    l &= NLANE - 1u;
-    if (l == DV_TOM && (kit & 1u))
-        return "CONGA";
-    if (l == DV_RIM && (kit & 2u))
-        return "CLAVE";
-    return (kit & 4u) && l == DV_BELL ? "CYM" : N[l];
+    (void)t;
+    return N[l & (NLANE - 1u)];
 }
 /* .. in two letters, the drum machine way (the grid's lane column) */
 static const char *drum_lane_abbr(const track_t *t, uint32_t l)
 {
     static const char *const N[NLANE] = {"BD", "SD", "CP", "CH", "OH", "TM", "RS", "CB"};
-    uint32_t kit = drum_swaps(t);
-    l &= NLANE - 1u;
-    if (l == DV_TOM && (kit & 1u))
-        return "CG";
-    if (l == DV_RIM && (kit & 2u))
-        return "CL";
-    return (kit & 4u) && l == DV_BELL ? "CY" : N[l];
+    (void)t;
+    return N[l & (NLANE - 1u)];
 }
 
 /* the lanes step s strikes: its hits, and its notes on their lanes (a NOTE step only) */
@@ -224,34 +200,36 @@ static voice_t *drum_reuse(track_t *t, uint32_t note)
 static void drum_note_on(track_t *t, voice_t *v)
 {
     drum_lane_t *K = drum_kit_of(t), *L;
-    uint32_t i = (uint32_t)(v - t->v), role, lane;
-    int32_t st;
+    uint32_t i = (uint32_t)(v - t->v), lane;
     if (!K || i >= NVOICE)
         return;
-    role = drum_gm(t->p, v->note, &st);
     lane = drum_lane(v->note);
     L = &K[(uint32_t)v->s[0] & (DV_NLANE - 1u)];
     if (L->owner == i + 1u)                              /* this voice played another lane: it stops there */
         L->owner = 0;
     L = &K[lane];
-    if (L->role != role || L->v.type != dv_run_type(role)) {   /* another drum on this lane: from rest */
-        dv_init(&L->v, role);
-        L->key.type = 0xFF;
-        L->role = (uint8_t)role;
-    }
-    L->st = (int8_t)(st + t->pfx_rpit / 16);             /* (pfx.c RANDOM) */
+    L->st = (int8_t)(DRUM_GM[drum_gm_ix(v->note)][1] + t->pfx_rpit / 16);   /* (pfx.c RANDOM) */
     L->owner = (uint8_t)(i + 1u);                        /* (its last voice, if another, ends: drum_amp) */
-    L->age = 0;
     v->s[0] = (int32_t)lane;
     v->env_out = v->vel * 258;                           /* the hit starts at its level (no ramp from 0) */
     v->env = 1 << 24;                                    /* the ADSR held at full from here, not from drum_amp:
                                                           * a key-off before the first block (zero-length MIDI
                                                           * notes) would end a fresh voice at env 0 in env_tick */
-    dv_trigger(&L->v);
+    L->mg = DXG_FADE;
+    L->age = 0;
+    if (dx_mot[XM_RAND]) {                               /* (0.5.1) X-MOD RAND: this hit's own MORPH and tune */
+        int32_t r = dx_mot[XM_RAND];
+        dx_mot_rng = dx_mot_rng * 1664525u + 1013904223u;
+        L->rm = (int8_t)(((int32_t)(dx_mot_rng >> 24) - 128) * r >> 8);
+        L->rt = (int8_t)(((int32_t)((dx_mot_rng >> 16) & 255u) - 128) * r >> 10);
+    } else {
+        L->rm = L->rt = 0;
+    }
     if (lane == DV_KICK)
         duck_hit = 1;
-    if (lane == DV_HATC && K[DV_HATO].v.live)            /* a closed hat chokes the open one */
-        dv_choke(&K[DV_HATO].v);
+    dx_trigger(&L->x);
+    if (lane == DV_HATC)                                 /* a closed hat chokes the open one */
+        dx_choke(&K[DV_HATO].x);
 }
 
 /* the voice's amplitude: the hit, not the ADSR (which still runs, held at full so a release never ends
@@ -262,7 +240,7 @@ static int32_t drum_amp(track_t *t, voice_t *v, int32_t adsr)
     (void)adsr;
     if (!v->active)                                      /* (taken for another part: env_tick ended it) */
         return 0;
-    if (!L || (!L->v.live && !L->v.trig)) {
+    if (!L || (!L->x.live && !L->x.trig)) {
         v->active = v->gate = 0;
         v->stage = 0;
         v->env = 0;
@@ -276,13 +254,24 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
 {
     const int16_t *p = t->p;
     drum_lane_t *L = drum_lane_of(t, v);
-    dv_param_t k;
-    int32_t y[CTL], mb[CTL], acc = clamp(p[P_E5] * v->vel * 4, 0, 65536), drv = p[P_E7], g = 0, mk = 0;   /* acc Q16 */
+    int32_t y[CTL], drv = p[P_E7], g = 0, mk = 0, pb0 = 4096, pb1 = 4096;
     int32_t lv = clamp(p[P_LN0 + ((uint32_t)v->s[0] & (DV_NLANE - 1u))], 0, 127);
-    uint32_t i, r;
+    uint32_t i;
     vmod_t ml;                                           /* (only its amplitude ramp is read: voice_amp) */
     if (!L)
         return;
+    if (dx_lane_muted(t, (uint32_t)v->s[0]) || L->mg < DXG_FADE) {   /* its group / lane muted:
+                                                          * fading (to the end, if unmuted meanwhile), then ended */
+        uint32_t g0 = L->mg;
+        if (!g0) {
+            L->x.live = L->x.trig = 0;                   /* (drum_amp ends the voice) */
+            return;
+        }
+        L->mg = (uint8_t)(g0 - 1u);
+        ml.amp0 = m->amp0 * (int32_t)g0 / (int32_t)DXG_FADE;
+        ml.amp1 = m->amp1 * (int32_t)(g0 - 1u) / (int32_t)DXG_FADE;
+        m = &ml;
+    }
     if (lv < 127) {                                      /* the lane's LEVEL (square law) on the block's amplitude
                                                           * ramp, not per sample; 100 %: the ramp as it was */
         int32_t gl = lv * lv * 2 + (lv * lv >> 6);       /* Q15, 127: 32508 (not used), 64: 8256 */
@@ -292,36 +281,19 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     }
     if (n > CTL)
         n = CTL;
-    r = L->role;
-    dv_default(&k, r);                                   /* the knobs move every lane from its design (64) */
-    k.decay = (uint8_t)clamp(k.decay + p[P_E3] - 64, 0, 127);
-    k.tone = (uint8_t)clamp(k.tone + p[P_E2] - 64, 0, 127);
-    k.extra = (uint8_t)clamp(k.extra + p[P_E4] - 64, 0, 127);
-    k.accent = (uint8_t)clamp(acc >> 9, 0, 127);         /* (Q16 -> 0..127) */
-    k.tune = (int16_t)(L->st * 16 + (p[P_E1] - 64) * 3 + t->pfx_pit);   /* +-12 semitones; OCT± */
-    if (((const uint32_t *)&k)[0] != ((const uint32_t *)&L->key)[0] ||
-        ((const uint32_t *)&k)[1] != ((const uint32_t *)&L->key)[1]) {
-        dv_setup(&L->c, &k);                             /* (a parameter moved) */
-        L->key = k;
-        if (dv_uses_metal(L->c.type))
-            dv_metal_tune(&L->mb, &L->c);
+    dx_run(&dx_kit[(uint32_t)v->s[0] & (DV_NLANE - 1u)], &L->x, p[P_E0] + dx_mot_v + L->rm,
+           L->st * 16 + L->rt + (p[P_E1] - 64) * 3 + t->pfx_pit,
+           p[P_E3] - 64, p[P_E2] - 64, p[P_E4] - 64, p[P_E6], p[P_E5], y, n);
+    if (drv > 0) {                                       /* DRV: x1..x4 into the soft clip, the level kept (Q12) */
+        g = 4096 + drv * 3 * 4096 / 127;
+        mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
     }
-    if (dv_uses_metal(L->c.type) && (L->v.live || L->v.trig))
-        dv_metal_run(&L->mb, mb, n);
-    dv_run(&L->c, &L->v, mb, y, n);
-    if ((drum_mute[(uint32_t)(t - trk) % NPART] >> ((uint32_t)v->s[0] & (DV_NLANE - 1u))) & 1u)
-        return;                                          /* (a muted lane rings on unheard) */
-    if ((t->pfx & PFX_ATK) && L->age < DRUM_ATK_BLK) {   /* (JIANT) ATK+: hit faded in (~35 ms), softer */
-        int32_t a0 = m->amp0 * (int32_t)L->age / (int32_t)DRUM_ATK_BLK;
-        ml.amp0 = a0;
-        ml.amp1 = m->amp1 * (int32_t)(L->age + 1u) / (int32_t)DRUM_ATK_BLK;
-        m = &ml;
-    }
-    {                                                    /* PUNCH: boost before the knee; age for the envelope */
-        int32_t pu = pnch_eff, pb0 = 4096, pb1 = 4096;
+    {                                                    /* PUNCH: the boost before the knee (driven into it, as
+                                                          * Drum Buss), the tail's cut on the amplitude ramp */
+        int32_t pu = pnch_eff;
         if (pu > 0) {
             int32_t g0 = punch_gain(L->age, pu), g1 = punch_gain(L->age + 1u, pu);
-            if (g0 < 32768 || g1 < 32768) {
+            if (g0 < 32768 || g1 < 32768) {              /* (gains < 1: amp stays <= 32767) */
                 int32_t a0 = (m->amp0 * (g0 < 32768 ? g0 : 32768)) >> 15;
                 ml.amp1 = (m->amp1 * (g1 < 32768 ? g1 : 32768)) >> 15;
                 ml.amp0 = a0;
@@ -330,20 +302,22 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
             pb0 = g0 > 32768 ? g0 >> 3 : 4096;           /* Q12 */
             pb1 = g1 > 32768 ? g1 >> 3 : 4096;
         }
+        if ((t->pfx & PFX_ATK) && L->age < DRUM_ATK_BLK) {   /* (JIANT 0.4) ATK+: the hit faded in (~35 ms), softer */
+            int32_t a0 = m->amp0 * (int32_t)L->age / (int32_t)DRUM_ATK_BLK;
+            ml.amp1 = m->amp1 * (int32_t)(L->age + 1u) / (int32_t)DRUM_ATK_BLK;
+            ml.amp0 = a0;
+            m = &ml;
+        }
         if (L->age < 255u)
             L->age++;
-        if (drv > 0) {                                   /* DRV: x1..x4 into the soft clip, the level kept (Q12) */
-            g = 4096 + drv * 3 * 4096 / 127;
-            mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
-        }
-        for (i = 0; i < n; i++) {                        /* x1.25 and the knee below, in 32 bits */
-            int32_t s = y[i];
-            if (g)
-                s = (softclip((s * g) >> 12) * mk) >> 15;
-            if (pb0 != 4096 || pb1 != 4096)
-                s = (s * (pb0 + (((pb1 - pb0) * (int32_t)i) >> CTL_LOG2))) >> 12;
-            out[i] += voice_amp(soft_knee(s + (s >> 2), 24000), m, i) << 1;
-        }
+    }
+    for (i = 0; i < n; i++) {                            /* x1.25 and the knee below, in 32 bits */
+        int32_t s = y[i];
+        if (g)
+            s = (softclip((s * g) >> 12) * mk) >> 15;
+        if (pb0 != 4096 || pb1 != 4096)
+            s = (s * (pb0 + (((pb1 - pb0) * (int32_t)i) >> CTL_LOG2))) >> 12;
+        out[i] += voice_amp(soft_knee(s + (s >> 2), 24000), m, i) << 1;
     }
 }
 
@@ -354,22 +328,22 @@ static int32_t drum_keys(const track_t *t, uint32_t k)
     return clamp(29 + 12 * song.octave + (int32_t)k, 0, 127);
 }
 
-/* {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK, DRV}; every kit suggests the BEAT pattern (GM notes) */
+/* {MRPH, TUNE, TONE, DECY, NOIS, FM, FOLD, DRV}; the kit suggests the BEAT pattern (GM notes) */
 static const preset_t DRUM_PRESETS[] = {
-    {"DRUM KIT", DRUM_KIT_E, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},   /* (core.h: SAMPLE PERC's too) */
+    {"DRUM-X", DRUM_KIT_E, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},   /* (core.h: SAMPLE PERC's too) */
 };
 
 static const engine_t ENG_DRUM = {
     .name = "DRUM",
     .page_title = {"KIT", "HIT"},
     .edit = {
-        {"KIT", F_ENUM, 0, DK_COUNT - 1, DK_STD, N_DRUM_KIT, 0},
+        {"MRPH", F_PCT, 0, 127, 64, 0, 0},
         {"TUNE", F_PCT, 0, 127, 64, 0, 0},
         {"TONE", F_PCT, 0, 127, 64, 0, 0},
         {"DECY", F_PCT, 0, 127, 64, 0, 0},
-        {"SNAP", F_PCT, 0, 127, 64, 0, 0},
-        {"ACC", F_PCT, 0, 127, 100, 0, 0},
-        {"KICK", F_ENUM, 0, 1, 0, N_DRUM_KICK, 0},
+        {"NOIS", F_PCT, 0, 127, 64, 0, 0},
+        {"FM", F_PCT, 0, 127, 0, 0, 0},                 /* (JIANT: was ACC) */
+        {"FOLD", F_PCT, 0, 127, 0, 0, 0},              /* (JIANT 0.5: a wavefolder, was WARP) */
         {"DRV", F_PCT, 0, 127, 0, 0, 0},
     },
     .presets = DRUM_PRESETS,
@@ -377,7 +351,7 @@ static const engine_t ENG_DRUM = {
     .note_on = drum_note_on,
     .render = drum_render,
     .amp = drum_amp,
-    .knob = {P_E1, P_E2, P_E3, P_E4},
+    .knob = {P_E0, P_E1, P_E2, P_E3},
     .poly = DV_NLANE,
     .oneshot = 1,
     .keys = drum_keys,

@@ -125,7 +125,8 @@ static const icon_map_t ICON_MAP[] = {
     /* fx sends, voice */
     {"DST", ICON_DIST}, {"CHO", ICON_CHORUS}, {"DLY", ICON_DELAY}, {"REV", ICON_REVERB},
     {"VCE", ICON_VOICE}, {"GLD", ICON_GLIDE}, {"GLMOD", ICON_GLIDE}, {"PRIO", ICON_ORDER},
-    {"ALLOC", ICON_VOICE}, {"DTUNE", ICON_DETUNE}, {"PAN", ICON_PAN}, {"MUTE", ICON_MUTE}, {"PLAY", ICON_MUTE},
+    {"ALLOC", ICON_VOICE}, {"UNI DTN", ICON_DETUNE}, {"PAN", ICON_PAN}, {"MUTE", ICON_MUTE}, {"PLAY", ICON_MUTE},
+
     /* global */
     {"BPM", ICON_TEMPO}, {"CLK", ICON_TEMPO}, {"TUNE", ICON_TUNE}, {"TIME", ICON_TIME},
     {"FDBK", ICON_FEEDBACK}, {"COLR", ICON_TONE}, {"MIX", ICON_MIX}, {"SIZE", ICON_SIZE},
@@ -200,6 +201,10 @@ static uint32_t param_icon(const param_desc_t *d, int32_t v)
         return ICON_CUTOFF;                   /* ANALOG's filter TYPE (1.5): "TYPE" is also the reverb's */
     if (d == &TP[P_ESYNC])
         return ICON_TEMPO;                    /* ENV SYNC (1.5): as LFO 2's SYNC */
+    if (d->names == N_NOISE_MODE)
+        return ICON_NOISE;                    /* NOISE's MODE is the source; its CLK the register clock */
+    if (d == &NOISE_CLK)
+        return ICON_RATE;
     return icon_for_label(d->label);
 }
 

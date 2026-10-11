@@ -64,7 +64,7 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
   or FREE, **POL** bipolar or unipolar (LFO > LFO 2)
 - **Modulation matrix:** 4 slots per track, MIDI controllers as sources, **S&H** and **SLEW** (a random value per
   LFO cycle, held or gliding), and **DEPTH** as a destination, so the matrix can modulate the LFO itself
-- **SPREAD** (EDIT > VOICE 2): the voices of a POLY or UNISON track alternate left and right of its PAN
+- **SPREAD** (EDIT > VOICE, SPRD): the voices of a POLY or UNISON track alternate left and right of its PAN
 - **ENV SYNC** (ENV > ENV DEST): the envelope's attack, decay and release as note values of the tempo
 - **Effects:** distortion, an **INSERT** (drives, CRUSH, phaser, flanger, chorus, with a dry / wet MIX) and the
   SLICER per track; chorus, delay (in time with the tempo, dotted values included) and reverb sends (the reverb as
@@ -110,6 +110,24 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
   step grid, mixer, preset library, sample upload and recording with trim, the MENU settings; full backup and restore
   (everything but the FM6 voice bank: keep its .syx file);
   return to the official firmware; Felucca itself running in the browser
+
+## Araminta
+
+Araminta builds on Felucca 1.5.x with these ports and layout changes:
+
+- **Sloop free take:** with the project empty and a track armed while stopped, the first note starts a free take
+  (record without a prior pattern)
+- **JIANT MIDI punch-ins** on the FX **Punch-in** section (SELECT walks pages inside FX sections; hold FX alone
+  does not open punch-ins), plus master **CLIP / PNCH / DUCK** and reverb models **SHIMR / CLOUD**
+- **Melodee:** silent tracks still run LFO, bend, engine block and fades so modulation keeps moving
+- **DRUM-X** replaces Felucca's sampled/VA kit enum: one morphable 8-lane kit (EDIT **Sound** → **Kit** → **Lanes**;
+  Voice hidden on DRUM). The kit, mutes and X-MOD save with the project (**FUN11** / `FUNB`, same size as FUN10;
+  disk motion max 78). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X
+- **SAMPLE, GRAIN and NOISE** restored (SLICE stays retired). CR78 is not in the ROM sample bank — upload a kit as
+  a USR sample. On upload, the web editor's **Drum kit grid** checkbox tags the slot (`FSMP` header); SAMPLE on that
+  USR set then shows the drum grid on SEQ instead of the piano roll (zones mapped by hand)
+- **VOICE** is one page: **VCE, GLD, UNI DTN, SPRD**. GLD is free milliseconds (no GLMOD on the page). PAN / MUTE live
+  on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON (blank cards otherwise; values stay stored).
 
 ## New in 1.5.1
 
@@ -236,7 +254,7 @@ The pages by button:
 | GLO | SONG | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
 | SAVE | USER, PRESETS, PHRASES (the pattern loader), PROJECT, TOOLS | UNDO |
 | LFO | LFO, LFO 2, LFO DEST; then MOD | MOMENTARY (with a knob) |
-| EDIT | EDIT 1, EDIT 2, VOICE, VOICE 2 (FM6 adds OPERATOR, OP ENV, OPERATOR 2; DRUM LANES; ANALOG FILTER, FILTER DRIVE instead of EDIT 2) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
+| EDIT | EDIT 1, EDIT 2, VOICE (VCE/GLD/UNI DTN/SPRD; FM6 adds OPERATOR, OP ENV, OPERATOR 2; DRUM: Sound / Kit / Lanes, no Voice; ANALOG FILTER, FILTER DRIVE instead of EDIT 2) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
 | FX, SCL, ENV, ARP | their pages (FX: INSERT and INSERT 2 after the SLICER) | FX and SCL: their layers |
 | REC | arms the track | the REC layer (CLEAR, CLICK, COUNT-IN, CLICK LEVEL) |
 
@@ -322,22 +340,19 @@ In the order the device lists them:
   operator at a time on the algorithm chart; macros on top; SLOT picks a factory patch (F1–F8), the track's own (OWN) or a voice of the bank the web editor sent (B1–B32)
 - **PHASE**: phase distortion (ported from CrispyZebra)
 - **LOFI**: chiptune; pulse, triangle, saw, noise and a 4-bit wave RAM, stepped envelope, sweep, arpeggio
-- **SAMPLE**: multisampled instruments (PIANO, FLUTE, SAX) and 3 user sample slots
+- **SAMPLE**: multisampled instruments (PIANO, FLUTE, SAX) and 3 user sample slots; a USR slot can be tagged
+  **drum kit grid** in the web editor so SEQ uses the drum grid (zones mapped by hand)
 - **VOICE**: formant oscillator, sung vowels
 - **TRIO**: 3 oscillators with ring modulation and sync, multimode filter
 - **WHEEL**: tonewheel-style organ; drawbar registrations, percussion, key click, drive, rotary speaker
 - **GRAIN**: granular textures from the built-in samples or a user slot
 - **PHYS**: physical models: modal resonators, strings, struck membranes, sympathetic strings
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
-- **SLICE**: a drum break, a piano note (both built in) or your own sample cut into slices, one per key;
-  set the slices by hand on the SLICES page
-- **DRUM**: an 8-lane kit of Felucca's own drum voices on the General MIDI key map. KIT picks the
-  standard kit or one of five virtual-analog (VA) kits in the manner of
-  classic analog drum machines (the numbers are a hint), every lane its own voice: **80** (deep sine kick with a long decay, noisy snare,
-  six-square hats), **10** (swept kick, white-noise snare, long-tailed claps, a cymbal), **66** (soft
-  round kick, bright snare, noise hats, a conga), **55** (dropping kick, high metal hats, a metal bell)
-  and **77** (swelling kick, multi-burst claps, claves, a cymbal). All of them are synthesized by
-  Felucca, no samples. EDIT > LANES and LANES 2 set each lane's level
+- **SLICE**: retired (reserved index; old stores load as DRUM)
+- **DRUM**: **DRUM-X**, an 8-lane morphable kit on the General MIDI key map (JIANT port). EDIT sections
+  **Sound** (MRPH / TUNE / TONE / DECY and NOIS / FM / FOLD / DRV), **Kit** (SOUND … X-MOD) and **Lanes**;
+  kit / mute / X-MOD persist in **FUN11** projects (FUN10 opens with the factory kit). Old Felucca KIT values
+  still play as DRUM-X
 
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
 as FM6 sounds converted from them. The SAMPLE engine's PERC kit was removed in 1.0.2: sounds and
