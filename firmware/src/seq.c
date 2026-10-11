@@ -87,8 +87,6 @@ static __attribute__((noinline)) uint8_t grid_key_note(uint32_t k)
 /* GLO > SONG (song.grid 3): key k's slot, the white keys A3 B3 C4 D4 (white places 2..5: keys 4 6 7 9 from F) A..D; -1 = a
  * key that plays. A table, not key_place (a loop); the audio ISR's key loop reads SONG_KEYS, the same keys */
 #define SONG_KEYS (1u << 4 | 1u << 6 | 1u << 7 | 1u << 9)
-/* LANE MUTE (song.grid 4): black keys 1..8 (F#3 .. A#4, places 0..7) toggle lanes and do not play */
-#define LANE_KEYS (1u << 1 | 1u << 3 | 1u << 5 | 1u << 8 | 1u << 10 | 1u << 13 | 1u << 15 | 1u << 17)
 static int32_t song_key(uint32_t k)
 {
     static const int8_t S[10] = {-1, -1, -1, -1, 0, -1, 1, 2, -1, 3};
@@ -984,7 +982,7 @@ static void keyboard_block(void)
     }
     lay = (fm1_in.buttons & kb_mask) || kb_lock;  /* (#83: kb_lock, a layer locked open with no button held) */
     fx = (fm1_in.buttons & perf_mask) || (kb_lock & 2u);
-    mute = song.grid == 2u ? ~0u : song.grid == 4u ? LANE_KEYS : song.grid == 3u ? SONG_KEYS : 0u;   /* 2 NAME, 4 lanes */
+    mute = song.grid == 2u ? ~0u : song.grid == 3u ? SONG_KEYS : 0u;   /* 2 NAME, 3 SONG's A..D */
     for (k = 0; k < 27u; k++) {
         if (!((ch >> k) & 1u))
             continue;

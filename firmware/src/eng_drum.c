@@ -74,10 +74,11 @@ static int32_t punch_gain(uint32_t age, int32_t p)     /* Q15 (32768 = 1, up to 
 }
 
 ENG_MEM_FITS("DRUM", sizeof(drum_lane_t) * DV_NLANE);
-/* 1.4.1: each part's lanes muted (bit l: lane l), the EDIT layer's black keys 1..8 (ui_layer.c EQA_DRUM): a channel
- * mute. The lane plays on as always (hits, keys, MIDI: its voice, the CPU, the choke) and drum_render drops its output,
- * so unmuted it sounds as if it never was. Performance state: not saved, not recorded, no undo; a sound load into the
- * track (ui.c load_begin) and a project load (project_restore_runtime) clear it, power-off too */
+/* 1.4.1: each part's lanes muted (bit l: lane l). SEQ TOOLS F4 mutes the selected lane; the EDIT layer's black keys
+ * 1..8 do the same (ui_layer.c EQA_DRUM): a channel mute. The lane plays on as always (hits, keys, MIDI: its voice, the
+ * CPU, the choke) and drum_render drops its output, so unmuted it sounds as if it never was. Performance state: not
+ * saved, not recorded, no undo; a sound load into the track (ui.c load_begin) and a project load
+ * (project_restore_runtime) clear it, power-off too */
 static uint8_t drum_mute[NPART];
 
 /* 1..3 named as the kit they play: aliases, never shown or offered (EDITOR_PROTOCOL.md: retired values) */

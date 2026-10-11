@@ -12,7 +12,9 @@
  *              already; a ratcheted step on its start; every nudge 0 (older patterns) plays the same either way;
  *              the controls (1.2 pages, Discussion #153): SEQ > AUTOMATION's QUANTIZE row (KNOB 4 ON / OFF) and NUDGE
  *              rows (+ ADD NUDGE +4/16, KNOB 4 -8..+7, KNOB 2 the step, EDIT 0, SAVE held undoes; "QUANTIZE IS ON"
- *              while it is). STEP steps held + PRESETS moves those steps in time (pitch stays on the NOTE knob).
+ *              while it is). The drum grid: a held step key + PRESETS moves those steps; nothing held moves the hit
+ *              under the cursor (the cursor stays on it). The piano roll: PRESETS moves the note under the cursor
+ *              (its ties with it); pitch stays on the NOTE knob.
  *   MOTION     128 records shared by the four tracks, all played.
  *   FORMATS    FUN10 round trip (nudges, 128 records, the four parameters), FUN9 / FUN8 / FUN7 as 1.1 / 1.0 wrote
  *              them load as before (tests/old_pack.h), a FUN9 claiming more than 64 records or a nudge bit refused, a
@@ -453,6 +455,25 @@ static int nudge(void)
         turn(EN_PRESET, 1);
         ok &= ui.cursor == cur + 1u;                     /* alone: the cursor */
         bad += check("STEP (the grid): held + PRESETS moves hits in time; nudge 0; alone, the cursor; SAVE undoes", ok);
+        track_defaults_steps(t);
+        t->p[P_SLEN] = 16;
+        ui.lane = 0;
+        grid_hit(t, 4, 0, 1);
+        ui.cursor = 4;
+        frame();
+        turn(EN_PRESET, 1);                             /* nothing held: the hit under the cursor, as the roll */
+        ok = (t->step[5].hit & 1u) != 0u && !(t->step[4].hit & 1u) && ui.cursor == 5u;
+        turn(EN_PRESET, 1);
+        ok &= (t->step[6].hit & 1u) != 0u && ui.cursor == 6u;
+        grid_hit(t, 7, 0, 1);
+        ui.msg_t = 0;
+        turn(EN_PRESET, 1);
+        ok &= msg_is("NOTE AHEAD") && (t->step[6].hit & 1u) != 0u && (t->step[7].hit & 1u) != 0u && ui.cursor == 6u;
+        ui.cursor = 0;
+        frame();
+        turn(EN_PRESET, 1);
+        ok &= ui.cursor == 1u && !(t->step[0].hit & 1u) && (t->step[6].hit & 1u) != 0u;
+        bad += check("STEP (the grid): PRESETS moves the hit under the cursor and stays on it; a rest walks", ok);
         song.sel = 0;                                   /* melodic STEP: NOTE knob still sets pitch */
         t = &trk[0];
         track_defaults_steps(t);
@@ -465,6 +486,32 @@ static int nudge(void)
         turn(EN_K2, 2);
         bad += check("STEP: NOTE knob (K2) still changes pitch, not time",
                      t->step[3].note[0] == 62u && t->step[3].time == ST_NOTE && t->step[4].time == ST_REST);
+        /* piano roll: PRESETS moves that note (and its TIEs); the cursor stays on it. A rest: the cursor. */
+        t->step[3] = (step_t){{60}, 1, ST_NOTE, 0, 96};
+        t->step[4] = (step_t){{0}, 0, ST_TIE, 0, 0};
+        t->step[5] = (step_t){{0}, 0, ST_TIE, 0, 0};
+        t->step[8] = (step_t){{72}, 1, ST_NOTE, 0, 96};
+        motion_set_lock(t, 3, P_ATK, 11);
+        ui.cursor = 4;                                  /* on a TIE of the note at step 4 */
+        frame();
+        turn(EN_PRESET, 1);
+        ok = t->step[4].note[0] == 60u && t->step[4].time == ST_NOTE && t->step[5].time == ST_TIE &&
+             t->step[6].time == ST_TIE && t->step[3].time == ST_REST && !t->step[3].n && ui.cursor == 5u &&
+             motion_find(t, 4, P_ATK) >= 0 && motion_find(t, 3, P_ATK) < 0 && t->step[8].note[0] == 72u;
+        turn(EN_PRESET, 1);                             /* 5,6,7: still clear of the note at 9 */
+        ok &= t->step[5].note[0] == 60u && t->step[7].time == ST_TIE && ui.cursor == 6u;
+        ui.msg_t = 0;
+        turn(EN_PRESET, 1);                             /* 6,7,8 would land on the other note */
+        ok &= msg_is("NOTE AHEAD") && t->step[5].note[0] == 60u && t->step[8].note[0] == 72u && ui.cursor == 6u;
+        ui.cursor = 0;                                  /* a rest: PRESETS walks, and does not pull the note */
+        frame();
+        turn(EN_PRESET, 1);
+        ok &= ui.cursor == 1u && t->step[5].note[0] == 60u && t->step[0].time == ST_REST;
+        bad += check("STEP (the roll): PRESETS moves the note and its TIEs, cursor with it; a rest walks", ok);
+        hold(B_SAVE);
+        ok = t->step[3].note[0] == 60u && t->step[3].time == ST_NOTE && t->step[4].time == ST_TIE &&
+             t->step[5].time == ST_TIE && motion_find(t, 3, P_ATK) >= 0;
+        bad += check("  SAVE held undoes the moves (one gesture)", ok);
     }
     return bad;
 }

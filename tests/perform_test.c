@@ -939,9 +939,9 @@ static int test_map(void)
     memset(b, 0, sizeof b);
     for (p = 0; p < PF_KEYS; p++)                       /* all 0 (every setting before 1.2): the default */
         ok &= perf_map_of(b, p) == PF_DEF[p];
-    bad += check("map: settings of 0 read as the default (REPEAT + LPF/HPF + JIANT MIDI on D4..F5)",
-                 ok && PF_DEF[0] == PF_R8 && PF_DEF[3] == PF_LPF && PF_DEF[4] == PF_HPF && PF_DEF[5] == PF_OCTD &&
-                 PF_DEF[6] == PF_OCTU && PF_DEF[14] == PF_RND && PF_DEF[15] == PF_N);
+    bad += check("map: settings of 0 read as the default (REPEAT, 1/2, then LPF/HPF/OCT together)",
+                 ok && PF_DEF[0] == PF_R8 && PF_DEF[3] == PF_HALF && PF_DEF[4] == PF_LPF && PF_DEF[5] == PF_HPF &&
+                 PF_DEF[6] == PF_OCTD && PF_DEF[7] == PF_OCTU && PF_DEF[14] == PF_RND && PF_DEF[15] == PF_N);
     ok = 1;
     for (p = 0; p < PF_KEYS; p++)                       /* any effect (or none) on any key, the others untouched */
         for (e = 0; e <= PF_NFX; e++) {
@@ -1040,7 +1040,7 @@ static int test_map(void)
         fm1_in.buttons = 0;
         kb_mask = perf_mask = 0;
     }
-    snprintf(what, sizeof what, "map: the default map on the keys: F3..C4 REPEAT/LPF/HPF, D4..F5 JIANT MIDI, G5 lane clear");
+    snprintf(what, sizeof what, "map: the default map on the keys: F3..B3 REPEAT/1/2, C4..F4 LPF/HPF/OCT, G4..F5 the rest, G5 lane clear");
     {
         uint32_t k;
         ok = 1;
@@ -1049,8 +1049,8 @@ static int test_map(void)
                 uint32_t p = key_place(k);
                 ok &= perf_key(k) == (p == 15u ? PF_CLR : p < PF_KEYS ? PF_DEF[p] : PF_N);
             }
-        ok &= perf_key(6) == PF_LPF && perf_key(7) == PF_HPF && perf_key(9) == PF_OCTD && perf_key(11) == PF_OCTU &&
-              perf_key(21) == PF_ATK && perf_key(23) == PF_ARP && perf_key(24) == PF_RND;
+        ok &= perf_key(6) == PF_HALF && perf_key(7) == PF_LPF && perf_key(9) == PF_HPF && perf_key(11) == PF_OCTD &&
+              perf_key(12) == PF_OCTU && perf_key(21) == PF_ATK && perf_key(23) == PF_ARP && perf_key(24) == PF_RND;
     }
     bad += check(what, ok);
     return bad;
