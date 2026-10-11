@@ -19,11 +19,10 @@
  *              stay, SAVE held undoes, the editor gets RELOAD; they apply while playing too. 1.4.1: the black keys
  *              the selected track's engine's quick actions (EQA below: DRUM 1..8 its lanes' MUTE; other engines
  *              none yet, the keys dark)
- *   SEQ  SET   (1.2, on every page; up to 1.1.5 SEQ held opened SONG) TOOLS: the white keys from F3 the sequence tools
- *              (ui_tools.c: CLEAR, REVERSE, SHIFT < >, RANDOM, COOK; on a DRUM track BEAT and the lane's CLEAR REVERSE
- *              FILL RANDOM), black keys 1..8 the lane (DRUM); KNOB 1..4 LEN DIV SWING GATE (the PATTERN page's up to
- *              1.1.5: the page is gone, they are here). Each action one undo (SAVE held), OCT- the track as the layer
- *              opened (tl_open)
+ *   SEQ  SET   SEQ > SEQ TOOLS (the last SEQ section; the first tap is PATTERN): the white keys from F3 the sequence
+ *              tools (ui_tools.c: CLEAR, REVERSE, SHIFT < >, RANDOM, COOK; on a DRUM track BEAT, MUTE and the lane's
+ *              CLEAR REVERSE FILL RANDOM), black keys 1..8 the lane (DRUM); KNOB 1..4 LEN DIV SWING GATE (PATTERN's).
+ *              Each action one undo (SAVE held), OCT- the track as the layer opened (tl_open)
  *   REC  SET   (1.1.5, on every page; REC's tap still arms / disarms) the white keys from F3: CLEAR (the selected
  *              track's steps and automation, no dialog: one undo, SAVE held), CLICK (OFF REC ON), COUNT-IN (OFF 1 BAR
  *              2 BARS), CLICK LEVEL (LOW MID HIGH), each press the next value; KNOB 1..3 the same three. The settings
@@ -119,7 +118,7 @@ static uint32_t layer_bits(void)
 }
 static uint32_t layer_btn(void) { return LAYERS[ui.layer % LAYER_N].btn; }
 static const char *layer_head(void) { return ui.layer == LAYER_FX && perf_latch_on ? "[FX] LATCH" : LAYERS[ui.layer % LAYER_N].head; }
-/* map open: sticky section lock (Punch-in / Pattern / Record), or a button held past open (retired for maps) */
+/* map open: sticky section lock (Punch-in / SEQ tools / Record), or a button held past open (retired for maps) */
 static uint32_t layer_open(void)
 {
     uint32_t l = ui.lock ? ui.lock : (ui.ly && (ui.ly_t0 & LY_OPEN) ? ui.ly : 0u);
@@ -954,11 +953,18 @@ static void layer_fx(void)
     uint32_t ed = fx_key_held() ? key_place(fx_key_held() - 1u) : PF_KEYS;
     char n[3] = {0, 0, 0};
     for (p = 0; p < PF_KEYS; p++) {                     /* the white keys F3 .. G5, 4 a row: the effect each holds */
+        const char *cell;
         e = perf_map[p];
-        st = p == ed ? LS_SEL : e >= PF_NFX || !((ok >> e) & 1u) ? LS_DIM : !((held >> e) & 1u) ? LS_OFF
-           : (act >> e) & 1u ? LS_HELD : LS_WAIT;       /* (the key PRESETS assigns: the selection's fill) */
+        if (p == 15u) {                                 /* G5 always clears the lane (seq.c perf_key); the cell says so */
+            cell = "CLR";
+            st = p == ed ? LS_SEL : pfx_clr ? LS_HELD : LS_OFF;
+        } else {
+            cell = e < PF_NFX ? PF_CELL[e] : "";
+            st = p == ed ? LS_SEL : e >= PF_NFX || !((ok >> e) & 1u) ? LS_DIM : !((held >> e) & 1u) ? LS_OFF
+               : (act >> e) & 1u ? LS_HELD : LS_WAIT;   /* (the key PRESETS assigns: the selection's fill) */
+        }
         n[0] = W_NOTE[p];
-        lcell(LC_X(p % 4u), 4 + (LF_H + 4) * (int32_t)(p / 4u), LF_H, n, 0, 0, e < PF_NFX ? PF_CELL[e] : "",
+        lcell(LC_X(p % 4u), 4 + (LF_H + 4) * (int32_t)(p / 4u), LF_H, n, 0, 0, cell,
               st | (p & 1u ? LS_ALT : 0u), 0);           /* (#173: the 2nd and 4th columns' idle cells their own fill) */
     }
     for (e = 0; e < NTRK; e++) {                        /* the mutes of the black keys 1..4 */

@@ -426,7 +426,7 @@ static uint32_t page_first_sec(uint32_t fam, uint32_t sec)
 
 static uint32_t page_first(uint32_t fam) { return page_first_sec(fam, 0); }
 
-/* section sticky maps: Punch-in / Pattern tools / Record prefs (ui.lock; no hold or double-tap) */
+/* section sticky maps: Punch-in / SEQ tools / Record prefs (ui.lock; no hold or double-tap) */
 static uint32_t section_map_layer(void)
 {
     const page_t *pg;
@@ -435,7 +435,7 @@ static uint32_t section_map_layer(void)
     pg = &PAGES[ui.page % NPAGES];
     if (pg->fam == FAM_FX && pg->sec == FX_SEC_PUNCH)
         return LAYER_FX;
-    if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_PAT)
+    if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_TOOL)
         return LAYER_SEQ;
     if (pg->fam == FAM_GLO && pg->sec == GLO_SEC_REC)
         return LAYER_REC;

@@ -105,7 +105,8 @@ static int page_cycle(void)
           song.seq_mode;
     press(B_SEQ); frames(320);                        /* SEQ: Step -> Automation */
     ok &= cur_page()->graph == GR_EVENTS && !detail_on();
-    press(B_SEQ); frames(320);                        /* Automation -> Pattern */
+    press(B_SEQ); frames(320);                        /* Automation -> SEQ TOOLS */
+    press(B_SEQ); frames(320);                        /* SEQ TOOLS -> Pattern */
     press(B_SEQ); frames(320);                        /* Pattern -> Step (the section's first page) */
     ok &= str_eq(cur_page()->title, "STEP") && !detail_on();
     bad += check("SEQ: SELECT STEP <-> DETAIL; SEQ button sections back to STEP", ok);

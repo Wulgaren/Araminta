@@ -12,8 +12,9 @@
  *              already; a ratcheted step on its start; every nudge 0 (older patterns) plays the same either way;
  *              the controls (1.2 pages, Discussion #153): SEQ > AUTOMATION's QUANTIZE row (KNOB 4 ON / OFF) and NUDGE
  *              rows (+ ADD NUDGE +4/16, KNOB 4 -8..+7, KNOB 2 the step, EDIT 0, SAVE held undoes; "QUANTIZE IS ON"
- *              while it is). The drum grid: steps held + PRESETS moves those steps in time. The piano roll: PRESETS
- *              moves the note under the cursor (its ties with it); pitch stays on the NOTE knob.
+ *              while it is). The drum grid: a held step key + PRESETS moves those steps; nothing held moves the hit
+ *              under the cursor (the cursor stays on it). The piano roll: PRESETS moves the note under the cursor
+ *              (its ties with it); pitch stays on the NOTE knob.
  *   MOTION     128 records shared by the four tracks, all played.
  *   FORMATS    FUN10 round trip (nudges, 128 records, the four parameters), FUN9 / FUN8 / FUN7 as 1.1 / 1.0 wrote
  *              them load as before (tests/old_pack.h), a FUN9 claiming more than 64 records or a nudge bit refused, a
@@ -454,6 +455,25 @@ static int nudge(void)
         turn(EN_PRESET, 1);
         ok &= ui.cursor == cur + 1u;                     /* alone: the cursor */
         bad += check("STEP (the grid): held + PRESETS moves hits in time; nudge 0; alone, the cursor; SAVE undoes", ok);
+        track_defaults_steps(t);
+        t->p[P_SLEN] = 16;
+        ui.lane = 0;
+        grid_hit(t, 4, 0, 1);
+        ui.cursor = 4;
+        frame();
+        turn(EN_PRESET, 1);                             /* nothing held: the hit under the cursor, as the roll */
+        ok = (t->step[5].hit & 1u) != 0u && !(t->step[4].hit & 1u) && ui.cursor == 5u;
+        turn(EN_PRESET, 1);
+        ok &= (t->step[6].hit & 1u) != 0u && ui.cursor == 6u;
+        grid_hit(t, 7, 0, 1);
+        ui.msg_t = 0;
+        turn(EN_PRESET, 1);
+        ok &= msg_is("NOTE AHEAD") && (t->step[6].hit & 1u) != 0u && (t->step[7].hit & 1u) != 0u && ui.cursor == 6u;
+        ui.cursor = 0;
+        frame();
+        turn(EN_PRESET, 1);
+        ok &= ui.cursor == 1u && !(t->step[0].hit & 1u) && (t->step[6].hit & 1u) != 0u;
+        bad += check("STEP (the grid): PRESETS moves the hit under the cursor and stays on it; a rest walks", ok);
         song.sel = 0;                                   /* melodic STEP: NOTE knob still sets pitch */
         t = &trk[0];
         track_defaults_steps(t);

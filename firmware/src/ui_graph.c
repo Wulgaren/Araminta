@@ -1149,11 +1149,13 @@ static const char *eng_abbr(const char *name)
 }
 
 /* a list row (17 px), in M as every list's (PRESETS, USER, PHRASES, PROJECT, AUTOMATION, MOD, the MENU): the selected
- * one a THEME bar with INK text; tag at x 14 (the widest, DRUM, to x 57), free text from x LIST_NX to x1 */
+ * one a THEME bar with INK text; tag at x 14 (a preset tag, DRUM, ends near x 57), the name from x nx */
 #define LIST_Y(k) (3 + 17 * (int32_t)(k))
 #define LIST_TY CAP_IN(M, 16)                           /* a row's text: its capitals rows 2 .. 12 of the row */
 #define LIST_NX 64
-static void list_row(int32_t y, int sel, const char *tag, uint16_t tc, const char *name, uint16_t nc, int32_t x1)
+#define PK_NX 88                                        /* pick tags (INSERT, SLICER) run past a preset tag */
+static void list_row(int32_t y, int sel, const char *tag, uint16_t tc, const char *name, uint16_t nc, int32_t x1,
+                     int32_t nx)
 {
     uint16_t bg = sel ? T_THEME : T_SURF;
     if (sel)
@@ -1162,7 +1164,7 @@ static void list_row(int32_t y, int sel, const char *tag, uint16_t tc, const cha
     cv_text_on(14, y + LIST_TY, &AF_M, tag, sel ? T_INK : tc, bg);
     if (name[0])
         GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
-    cv_free_text(LIST_NX, y + LIST_TY, &AF_M, name, sel ? T_INK : nc, bg, x1 - LIST_NX);
+    cv_free_text(nx, y + LIST_TY, &AF_M, name, sel ? T_INK : nc, bg, x1 - nx);
 }
 /* an empty list: a title and a hint, centred */
 static void note_line(int32_t y, const char *s, uint16_t fg)   /* centred S; "[K2] ADD PATTERN": a key hint */
@@ -1242,7 +1244,7 @@ static void graph_browse(void)
             pat_label((uint32_t)hint, pt, pn);
             x1 = 206 - text_w(&AF_M, pt) - 6;
         }
-        list_row(y, sel, tag, T_DIM, nm, T_TEXT, x1);
+        list_row(y, sel, tag, T_DIM, nm, T_TEXT, x1, LIST_NX);
         if (hint >= 0) {
             GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
             cv_text_r(206, y + LIST_TY, &AF_M, pt, T_INK, T_THEME);
@@ -1270,7 +1272,7 @@ static void engine_sound_row(int32_t y)
         tag[2] = 0;
         str_cpy(nm, e->npresets ? e->presets[TSEL->preset % e->npresets].name : "", sizeof nm);
     }
-    list_row(y, 1, tag, T_DIM, nm, T_TEXT, fav ? 212 : 232);
+    list_row(y, 1, tag, T_DIM, nm, T_TEXT, fav ? 212 : 232, LIST_NX);
     if (fav) {
         GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row star centred up/down");
         cv_icon_in(214, y, 0, 16, 12, ICON_X_STAR, T_INK, T_THEME);
@@ -1290,7 +1292,7 @@ static void graph_user(void)
             up_name(k, nm);
         else
             str_cpy(nm, "--", sizeof nm);
-        list_row(LIST_Y(row), k == ui.uslot, tag, T_MID, nm, used ? T_TEXT : T_DIM, 232);
+        list_row(LIST_Y(row), k == ui.uslot, tag, T_MID, nm, used ? T_TEXT : T_DIM, 232, LIST_NX);
     }
 }
 /* SAVE > PHRASES: the pattern list around the one picked ("03  MELODY", "U07  MY BASS") */
@@ -1302,7 +1304,7 @@ static void graph_pats(void)
         uint32_t k = (uint32_t)(first + row);
         char tag[4], nm[13];
         pat_label(k, tag, nm);
-        list_row(LIST_Y(row), k == cur, tag, T_MID, nm, T_TEXT, 232);
+        list_row(LIST_Y(row), k == cur, tag, T_MID, nm, T_TEXT, 232, LIST_NX);
     }
 }
 /* the AUTOMATION rows' columns (M): the kind at 14 (LOCK AUTO STEP PLAY, to x 54), the step / PLAY's ON at EV_SX, the
@@ -1327,7 +1329,7 @@ static void graph_pick(void)
     for (row = 0; row < 7 && (uint32_t)(first + row) < pk_n; row++) {
         uint32_t k = (uint32_t)(first + row);
         const pk_row_t *r = &pk_rows[k];
-        list_row(LIST_Y(row), k == pk_cur, r->tag, T_MID, r->name, T_TEXT, 232);
+        list_row(LIST_Y(row), k == pk_cur, r->tag, T_MID, r->name, T_TEXT, 232, PK_NX);
     }
 }
 
@@ -1447,7 +1449,7 @@ static void graph_slots(void)
         const char *n = graph_project_name(i);
         b[0] = (char)('A' + i);
         b[1] = 0;
-        list_row(y, sel, b, T_MID, !used ? "--" : n[0] ? n : "USED", used ? T_TEXT : T_DIM, 232);
+        list_row(y, sel, b, T_MID, !used ? "--" : n[0] ? n : "USED", used ? T_TEXT : T_DIM, 232, LIST_NX);
     }
 }
 /* MIXER page: four SURF columns, one under each card: the track number on its cushion (in the accent:
