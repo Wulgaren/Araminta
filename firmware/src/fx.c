@@ -1110,8 +1110,14 @@ static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, const track_t 
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
         if (!s->w && !tw) { b[i] = x; continue; }
         if (ft == IFT_COMB) {
-            int32_t d = s->comb[s->wp % IC_LEN];
-            int32_t fbk = res * 200;
+            /* CUT sets the comb delay (FS / cutoff Hz), clamped to the 64-sample line */
+            uint32_t len = (uint32_t)FS / CUTOFF_HZ[clamp(cut, 0, 127)];
+            int32_t d, fbk = res * 200;
+            if (len < 2u)
+                len = 2u;
+            if (len >= IC_LEN)
+                len = IC_LEN - 1u;
+            d = s->comb[(s->wp + IC_LEN - len) % IC_LEN];
             y = x + mulq15(d, fbk);
             s->comb[s->wp % IC_LEN] = (int16_t)clamp(y >> 2, -32767, 32767);
             s->wp = (uint16_t)((s->wp + 1u) % IC_LEN);
