@@ -536,7 +536,20 @@ static __attribute__((noinline)) void rev_hall(const int32_t *rev_in, int32_t *o
  * its own line twice as fast). SIZE / DAMP as ROOM; shimmer amount is fixed (no MOD global here). */
 #define SH_LEN 2048u
 #define SH_AMT 15200                     /* Q15 ~0.46 (JIANT MOD 80) */
-static int16_t shim_buf[SH_LEN] __attribute__((section(".pool")));
+/* CLOUD (G_RTYPE 4, JIANT): granular wash into ROOM. SIZE decay (127 freezes the line); DAMP darkens.
+ * Grain density / pitch chance / width are fixed (no RATE / MOD / WIDE globals here). */
+#define CL_LEN 8192u                                     /* half rate: ~0.37 s (POOL: was 16384 / ~0.74 s) */
+#define CL_N 12u
+#define CL_GAP 1000                                      /* samples between grain births */
+#define CL_MOD 48                                        /* chance a grain is pitched (JIANT MOD 48) */
+/* One model at a time: share the delay line (CLOUD is larger). Saves SH_LEN*2 bytes of POOL. */
+static union {
+    int16_t shim[SH_LEN];
+    int16_t cloud[CL_LEN];
+} rev_gran __attribute__((section(".pool")));
+_Static_assert(CL_LEN >= SH_LEN, "CLOUD line holds SHIMR");
+#define shim_buf (rev_gran.shim)
+#define cloud_buf (rev_gran.cloud)
 static int32_t shim_fb[CTL];
 static __attribute__((noinline)) void rev_shimmer(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
@@ -562,13 +575,6 @@ static __attribute__((noinline)) void rev_shimmer(const int32_t *rev_in, int32_t
     }
 }
 
-/* CLOUD (G_RTYPE 4, JIANT): granular wash into ROOM. SIZE decay (127 freezes the line); DAMP darkens.
- * Grain density / pitch chance / width are fixed (no RATE / MOD / WIDE globals here). */
-#define CL_LEN 16384u                                    /* half rate: ~0.74 s */
-#define CL_N 12u
-#define CL_GAP 1000                                      /* samples between grain births */
-#define CL_MOD 48                                        /* chance a grain is pitched (JIANT MOD 48) */
-static int16_t cloud_buf[CL_LEN] __attribute__((section(".pool")));
 static struct { uint32_t pos, inc; uint16_t len, age; int16_t pl, pr; } cl_g[CL_N];
 static uint32_t cl_rand(void) { fx.cl_rng = fx.cl_rng * 1664525u + 1013904223u; return fx.cl_rng >> 8; }
 static __attribute__((noinline)) void rev_cloud(const int32_t *rev_in, int32_t *out, uint32_t n)
@@ -651,12 +657,9 @@ static void rev_clear(void)
         hl.lp[i] = hl.le[i] = 0;
     fx.sp_lp = fx.sp_hp = fx.sp_he = 0;
     hl.x = hl.m = hl.s = hl.hp = hl.he = 0;
-    for (i = 0; i < SH_LEN; i++)
-        shim_buf[i] = 0;
+    memset(&rev_gran, 0, sizeof rev_gran);
     for (i = 0; i < CTL; i++)
         shim_fb[i] = 0;
-    for (i = 0; i < CL_LEN; i++)
-        cloud_buf[i] = 0;
     for (i = 0; i < CL_N; i++)
         cl_g[i].len = 0;
     fx.sh_w = fx.sh_ph = 0;
