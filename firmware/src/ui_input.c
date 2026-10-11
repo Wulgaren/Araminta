@@ -1542,10 +1542,35 @@ static int page_tap(uint32_t b)
 }
 
 
+/* a track whose sound's sample is missing (engines.c snd_missing: an empty user slot, a built-in set this build lacks;
+ * it plays a sine): the no-file icon and NO SAMPLE (ui.c MSG_NO_SAMPLE). Once per track and source: at power-on, a sound
+ * or project load, SRC / SET turned, a slot erased; again after another source or a project load. One a frame; after
+ * a message already showing (LOADED) as the second message. Not on notes: nothing in the audio path */
+static void sample_notice(void)
+{
+    uint32_t k, code;
+    for (k = 0; k < NTRK; k++) {
+        code = 0;
+        if (!snd_missing(&trk[k], &code)) {
+            snd_said[k] = 0;
+            continue;
+        }
+        if (snd_said[k] == code)
+            continue;
+        snd_said[k] = (uint8_t)code;
+        if (ui.msg_t)
+            str_cpy(ui.msg2, MSG_NO_SAMPLE, sizeof ui.msg2);
+        else
+            ui_message(MSG_NO_SAMPLE);
+        return;
+    }
+}
+
 /* messages of things that happened elsewhere (a load, the editor, MIDI in): after this frame's own */
 static void ui_notices(void)
 {
     static uint32_t midi_t, midi_last;
+    sample_notice();
     ml_poll();                                          /* (MIDI LEARN: a CC came for the picked parameter) */
     if (motion_full) { motion_full = 0; ui_message("AUTOMATION FULL"); }
     if (midi_hint) {                                    /* MIDI notes into a track that is not selected */

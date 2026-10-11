@@ -1086,7 +1086,9 @@ static void layer_seq(void)
             continue;
         n[0] = W_NOTE[p];
         str_cpy(nm, TL_NAME[p], sizeof nm);
-        if (p >= TL_LCLR || p == TL_MUTE) {             /* the lane's: "CLR BD", "MUTE BD" */
+        if (p >= TL_LCLR || p == TL_MUTE) {             /* the lane's: "CLR BD", "M BD" (MUTE shortened: Terminus) */
+            if (p == TL_MUTE)
+                str_cpy(nm, "M", sizeof nm);
             str_cpy(nm + str_len(nm), " ", 2);
             str_cpy(nm + str_len(nm), drum_lane_abbr(TSEL, ui.lane), sizeof nm - str_len(nm));
         }

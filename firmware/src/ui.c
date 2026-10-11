@@ -1223,10 +1223,22 @@ static int param_kept(uint32_t i)
            (i >= P_SLCR && i <= P_SLDEPTH) || i == P_CHRD || i == P_VOIC || i == P_SQNT;
 }
 
-/* browsing: every factory preset is shown (SAMPLE aliases are gone with the SAMPLE engine) */
-static uint32_t preset_orig(const engine_t *e, uint32_t k) { (void)e; return k; }
-static uint32_t preset_rank(const engine_t *e, uint32_t k) { (void)e; return k; }
-#define preset_shown(e) (ENGINES[e]->npresets)
+/* browsing: SAMPLE aliases (TRANH, PERC) are skipped; they still load as their original (SMP_SET_ORIG) */
+static uint32_t preset_orig(const engine_t *e, uint32_t k)
+{
+    return e->presets == SMP_PRESET_TABLE && k < SMP_NSETS ? SMP_SET_ORIG[k] : k;
+}
+/* the presets of engine e that browsing shows before preset k (k = npresets: all of them) */
+static uint32_t preset_rank(const engine_t *e, uint32_t k)
+{
+    uint32_t i, n = 0;
+    if (e->presets != SMP_PRESET_TABLE)
+        return k;
+    for (i = 0; i < k && i < e->npresets; i++)
+        n += preset_orig(e, i) == i;
+    return n;
+}
+#define preset_shown(e) (ENGINES[e]->npresets - (ENGINES[e]->presets == SMP_PRESET_TABLE ? SMP_NALIAS : 0u))
 
 #if !FELUCCA_FM4
 /* DIGITAL (engine 1, retired): t's sound = p, values as DIGITAL has them, converted to FM6 with a patch of its own
@@ -1282,10 +1294,13 @@ static void apply_preset_to(track_t *t, uint32_t pi)
         return;
     }
 #endif
+    /* SAMPLE preset 4 was PERC (GM kit): load as DRUM (core.h drum_from_perc), not PIANO */
+    if (t->eng_req % NENGINES == ENGI_SAMPLE && pi % (e->npresets ? e->npresets : 1u) == SMP_SET_PERC) {
+        set_engine_of(t, ENGI_DRUM);
+        return;
+    }
     if (eng_retired(t->eng_req % NENGINES)) {
-        uint32_t e = t->eng_req % NENGINES;
-        /* SAMPLE preset 4 was PERC (GM kit): load as DRUM, not ANALOG (eng_play_as) */
-        set_engine_of(t, e == ENGI_SAMPLE && pi == SMP_SET_PERC ? ENGI_DRUM : eng_play_as(e));
+        set_engine_of(t, eng_play_as(t->eng_req % NENGINES));
         return;
     }
     load_begin(t, UNDO_SOUND);
