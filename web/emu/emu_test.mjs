@@ -93,7 +93,7 @@ check("PLAY: the sequencer runs, PLAY's green LED", a.ex.web_playing() === 1 && 
 a.tap(B.PLAY);
 a.render(300);
 check("PLAY again stops it", a.ex.web_playing() === 0);
-/* Punch-in sticky map (FX sections: Effects → Slicer → Punch-in → Master); hold alone opens no map */
+/* Punch-in sticky map (FX sections: Effects → Slicer → Punch-in); hold alone opens no map */
 a.tap(B.FX); a.tap(B.FX); a.tap(B.FX);                        // EFFECTS… → SLICER → PUNCH
 a.render(200);
 const brK = a.ex.web_breath_keys(), brB = a.ex.web_breath_buttons(), litK = a.ex.web_lit_keys();
