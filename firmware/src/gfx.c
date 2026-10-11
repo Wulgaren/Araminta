@@ -3,9 +3,9 @@
 /* Small-canvas renderer (no full framebuffer). Draw text/lines into
  * an off-screen strip, then blit it in one DMA transfer. Pixels are stored
  * byte-swapped (the panel takes RGB565 big-endian).
- * Text and icons are 4-bit alpha bitmaps made at build time (tools/gen_aa_font.py: Terminus;
- * tools/gen_aa_icons.py: Fukiai). A glyph is trimmed to its ink box, advances are in 1/16 px, and
- * each glyph is rasterised at 1 << psh horizontal phases (S M 4, L 2: drawn at a pen of +0, +1/4 .. px);
+ * Text and icons are 4-bit alpha bitmaps made at build time (tools/gen_aa_font.py: Terminus S 6x12 /
+ * M 8x16 / L 2x; tools/gen_aa_icons.py: Fukiai). A glyph is trimmed to its ink box, advances are in 1/16 px, and
+ * each glyph is rasterised at 1 << psh horizontal phases (bitmap faces 1, outline faces more);
  * cv_text takes the phase that puts it within a phase step of its true place. Blending uses a 16-entry
  * ramp per (ink, background) pair, cached, so a pixel costs a nibble read and a store. Colours come from the theme tokens. */
 typedef struct { uint16_t off, adv; int8_t bx; uint8_t by, bw, bh; } aag_t;
@@ -22,7 +22,7 @@ typedef struct {
 } aafont_t;
 typedef struct { const char *name; uint16_t bg, surf, text, theme, accent; } ui_pal_t;
 typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
-#include "ui_fonts.h"                   /* AF_S / AF_M Terminus 16 px, AF_L 32 px (0.9: 1x / 2x) */
+#include "ui_fonts.h"                   /* AF_S Terminus 12 px, AF_M 16 px, AF_L 32 px (0.9) */
 #include "ui_palettes.h"
 #include "ui_keycaps.h"                 /* KC_*: the keycaps / badges (tools/gen_aa_keycaps.py), KNOB_* arcs */
 #define ELLIPSIS '\x85'                 /* the ellipsis glyph of AF_S and AF_M */
@@ -725,9 +725,10 @@ static int32_t cv_keycap(int32_t x, int32_t y, uint32_t id, uint16_t fill, uint1
     return x + k->w;
 }
 
-/* a key hint: the keycap, then what it does (S, TEXT); unavailable: a DIM keycap and a DIM word. The word sits on
- * the keycap's centre line (S caps 9 rows, the keycap's 7). act may be 0 (the keycap alone); returns the end x */
+/* a key hint: the keycap, then what it does (S, TEXT); unavailable: a DIM keycap and a DIM word. The word's
+ * capitals sit on the keycap's centre line (CAP_IN). act may be 0 (the keycap alone); returns the end x */
 #define KH_GAP 4                                  /* keycap -> its word */
+#define KH_WORD_Y(ky) ((ky) + CAP_IN(S, KC_H))    /* S line top for a keycap whose top is ky */
 static int32_t kh_w(uint32_t id, const char *act) { return kc_w(id) + (act && act[0] ? KH_GAP + text_w(&AF_S, act) : 0); }
 /* .. its ink: the keycap to the word's last inked column (centring a hint by what is seen) */
 static int32_t kh_ink(uint32_t id, const char *act)
@@ -743,7 +744,7 @@ static int32_t cv_key_hint(int32_t x, int32_t y, uint32_t id, const char *act, i
     x = cv_keycap(x, y, id, on ? T_KEY : T_DIM, T_INK, under);
     if (act && act[0]) {
         GFX_HOOK_ALIGN(0, y, 0, y + KC_H, AL_V | AL_PASS, "key hint word on its keycap's line");
-        x = cv_text_on(x + KH_GAP, y - 1, &AF_S, act, on ? T_TEXT : T_DIM, under);
+        x = cv_text_on(x + KH_GAP, KH_WORD_Y(y), &AF_S, act, on ? T_TEXT : T_DIM, under);
     }
     return x;
 }
@@ -795,11 +796,12 @@ static int32_t kc_tag(const char *s, uint32_t *len)
     return -1;
 }
 /* free text (S) that may start with a keycap, "[SAVE] HOLD TO UNDO", or have one after its first word,
- * "HOLD [GLO] QUICK": the word, the keycap, then the rest, cut to maxw */
+ * "HOLD [GLO] QUICK": the word, the keycap, then the rest, cut to maxw. y is the S line (HEAD_SY in the
+ * header); the keycap is placed so KH_WORD_Y(ky) == y (S=16: ky = y + 1; S=12: ky = y). */
 static int32_t cv_free_hint(int32_t x, int32_t y, const char *s, uint16_t fg, uint16_t bg, int32_t maxw)
 {
     uint32_t n, i;
-    int32_t id = kc_tag(s, &n), x0 = x;
+    int32_t id = kc_tag(s, &n), x0 = x, ty = y, ky = y - CAP_IN(S, KC_H);
     for (i = 0; id < 0 && i < 7u && s[i] && s[i] != ' '; i++)
         ;
     if (id < 0 && i && s[i] == ' ' && (id = kc_tag(s + i + 1u, &n)) >= 0) {
@@ -807,20 +809,20 @@ static int32_t cv_free_hint(int32_t x, int32_t y, const char *s, uint16_t fg, ui
         uint32_t j;
         for (j = 0; j < i; j++)
             w[j] = s[j];
-        GFX_HOOK_ALIGN(0, y + 1, 0, y + 1 + KC_H, AL_V | AL_PASS, "free hint words on the keycap's line");
-        x = cv_text_on(x, y, &AF_S, w, fg, bg) + KH_GAP;
+        GFX_HOOK_ALIGN(0, ky, 0, ky + KC_H, AL_V | AL_PASS, "free hint words on the keycap's line");
+        x = cv_text_on(x, ty, &AF_S, w, fg, bg) + KH_GAP;
         s += i + 1u;
     }
     if (id >= 0 && kc_w((uint32_t)id) + KH_GAP < maxw - (x - x0)) {
-        x = cv_keycap(x, y + 1, (uint32_t)id, T_KEY, T_INK, bg) + KH_GAP;
+        x = cv_keycap(x, ky, (uint32_t)id, T_KEY, T_INK, bg) + KH_GAP;
         s += n;
         while (*s == ' ')
             s++;
         if (!*s)
             return x - KH_GAP;
-        GFX_HOOK_ALIGN(0, y + 1, 0, y + 1 + KC_H, AL_V | AL_PASS, "free hint words on the keycap's line");
+        GFX_HOOK_ALIGN(0, ky, 0, ky + KC_H, AL_V | AL_PASS, "free hint words on the keycap's line");
     }
-    return cv_free_text(x, y, &AF_S, s, fg, bg, maxw - (x - x0));
+    return cv_free_text(x, ty, &AF_S, s, fg, bg, maxw - (x - x0));
 }
 
 /* one-shot: a line of text in a box of colour bg, blitted (align: 0 left, 1 centre, 2 right) */

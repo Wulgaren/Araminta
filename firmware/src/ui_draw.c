@@ -582,9 +582,8 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     if (text_w(vf, val) + uw > room) {
         vf = &AF_S;
         CARD_HOOK(val, unit);                           /* (host: the values set in S) */
-        /* Terminus: S and M are the same width, so falling back to S does not free room for the
-         * unit (dB, Hz, …). On a normal card prefer the full value; drop the unit rather than
-         * ellipsise the number. Tall cards keep the unit (it sits under the value). */
+        /* Prefer the full value; drop the unit rather than ellipsise the number when even S is
+         * too wide (rare once S is 6x12). Tall cards keep the unit (it sits under the value). */
         if (kind != LK_TALL && unit[0] && text_w(vf, val) + uw > room) {
             unit = "";
             uw = 0;
@@ -660,8 +659,8 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
                 text_ink(lf, label, b);
                 w = b[2] - b[0] + 4;
                 if (w > COL_W + 1 - lx - b[0]) w = COL_W + 1 - lx - b[0];
-                cv_rrect(lx + b[0] - 2, cy - 3, w, lf == &AF_M ? chh + 5 : 15, 3, T_ACCENT, T_SURF);
-                GFX_HOOK_ALIGN(lx + b[0] - 2, cy - 3, lx + b[0] - 2 + w, lf == &AF_M ? cy + chh + 2 : 18, AL_HV,
+                cv_rrect(lx + b[0] - 2, cy - 3, w, chh + 5, 3, T_ACCENT, T_SURF);
+                GFX_HOOK_ALIGN(lx + b[0] - 2, cy - 3, lx + b[0] - 2 + w, cy + chh + 2, AL_HV,
                                "card label chip (MONO hot)");
                 cv_text_fit(lx, ly, lf, label, T_INK, T_ACCENT, COL_W - 2 - lx);
             } else
@@ -1436,7 +1435,7 @@ static void draw_confirm(void)
         int32_t x = 108 + HALF_UP(90 - kh_ink(KC_OCTUP, "YES"));
         GFX_HOOK_ALIGN(108, 80, 198, 106, AL_HV | AL_N(2), "dialog button YES");
         x = cv_keycap(x, 80 + HALF_UP(26 - KC_H), KC_OCTUP, T_INK, T_THEME, T_THEME);
-        cv_text_on(x + KH_GAP, 80 + HALF_UP(26 - KC_H) - 1, &AF_S, "YES", T_INK, T_THEME);
+        cv_text_on(x + KH_GAP, KH_WORD_Y(80 + HALF_UP(26 - KC_H)), &AF_S, "YES", T_INK, T_THEME);
     }
     cv_blit(DLG_X, DLG_Y);
 }
