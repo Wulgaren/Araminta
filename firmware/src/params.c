@@ -433,7 +433,7 @@ enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHORD, GR_SLICES, GR_EVENTS,
        GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_REC, GR_DMUTE };
 /* page.sec: button cycles sections; SELECT walks pages that share fam+sec (ui.c open_family / select_page_step) */
-enum { FX_SEC_INS = 0, FX_SEC_SLCR = 1, FX_SEC_MASTER = 2, FX_SEC_PUNCH = 3, FX_NSEC = 4,
+enum { FX_SEC_INS = 0, FX_SEC_SLCR = 1, FX_SEC_PUNCH = 2, FX_SEC_MASTER = 3, FX_NSEC = 4,
        SEQ_SEC_PAT = 0, SEQ_SEC_STEP = 1, SEQ_SEC_AUTO = 2, SEQ_NSEC = 3,
        EDIT_SEC_SND = 0, EDIT_SEC_VOX = 1, EDIT_NSEC = 2,
        GLO_SEC_SONG = 0, GLO_SEC_CLK = 1, GLO_SEC_REC = 2, GLO_NSEC = 3,
@@ -453,7 +453,7 @@ static const page_t PAGES[] = {
     {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, 0, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},
     {"LFO DEST", FAM_LFO, SC_TRACK, GR_DESTS, 0, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
     {"MOD", FAM_LFO, SC_TRACK, GR_MOD, 0, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},
-    /* FX: Effects → Slicer → Master → Punch-in. Each stage's mix lives on EFFECTS (K4). K3 is
+    /* FX: Effects → Slicer → Punch-in → Master. Each stage's mix lives on EFFECTS (K4). K3 is
      * FX (in the chain) or SEND. DLY knob 4 is RATE / TIME (ui_input.c dly_knob). */
     {"EFFECTS", FAM_FX, SC_TRACK, GR_IORD, FX_SEC_INS, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"DIST", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IDMODE, P_DIST, P_ED_FX, 0xFF}},
@@ -466,8 +466,8 @@ static const page_t PAGES[] = {
     {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},
     {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_CRATE, G_CDEPTH, 0xFF, 0xFF}},
     {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, FX_SEC_SLCR, {P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH}},
-    {"MASTER", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_MASTER, {G_CLIP, G_PUNCH, G_DUCK, G_DREL}},
     {"PUNCH", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"MASTER", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_MASTER, {G_CLIP, G_PUNCH, G_DUCK, G_DREL}},
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, 0, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
     {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, 0, {P_CHRD, P_VOIC, 0xFF, 0xFF}},
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, EDIT_SEC_SND, {P_E0, P_E1, P_E2, P_E3}},
