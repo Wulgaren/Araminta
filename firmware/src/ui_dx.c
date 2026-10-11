@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
- * JIANT (FELUCCA TONIC): EDIT > SOUND and SOUND 2, a sound of the DRUM-X kit (docs/TONIC-DRUMX.md). */
+ * JIANT (FELUCCA TONIC): EDIT > SOUND / SOUND 2 / SOUND 3, a sound of the DRUM-X kit. */
 /* Shown in the EDIT family on a DRUM track (ui.c page_visible). They edit the section's kit
  * (drumx_voice.c dx_kit, saved with the section: project.c FUN11 / FUNB):
  *   SOUND    LANE (the sound: BD .. CB; a key struck on the track picks its lane too), SIDE (patch A or B), PTCH, PMOD
@@ -39,12 +39,6 @@ static void dx_knob(const page_t *pg, uint32_t k, int32_t s)
 {
     dx_lane_t *L = &dx_kit[dx_ui_lane & 7u];
     uint8_t *v = dx_ui_side ? L->b : L->a;
-    if (dx_pagen(pg) == 4u) {                           /* (JIANT 0.5.1) X-MOD: the kit's, not a sound's */
-        static const uint8_t MX[4] = {8, 127, 4, 127};
-        int32_t v0 = dx_mot[k & 3u];
-        dx_mot[k & 3u] = (uint8_t)clamp(v0 + (MX[k & 3u] > 8 ? accel(EN_K1 + k, s, 127) : (s > 0 ? 1 : -1)), 0, MX[k & 3u]);
-        return;
-    }
     if (dx_pagen(pg) == 3u) {                           /* (JIANT 0.4) SOUND 3 */
         if (k == 0u)
             dx_ui_lane = (uint8_t)clamp((int32_t)dx_ui_lane + (s > 0 ? 1 : -1), 0, 7);
@@ -81,18 +75,6 @@ static void dx_cards(const page_t *pg)
     const uint8_t *v = dx_ui_side ? L->b : L->a;
     char val[12];
     dx_follow();
-    if (dx_pagen(pg) == 4u) {                           /* (JIANT 0.5.1) X-MOD */
-        static const char *const RT[9] = {"OFF", "4BAR", "2BAR", "1BAR", "1/2", "1/4", "1/8", "1/16", "1/32"};
-        static const char *const SH[5] = {"SINE", "TRI", "SAW", "RAMP", "S&H"};
-        draw_column(0, "RATE", RT[dx_mot[XM_RATE] % 9u], "", dx_mot[XM_RATE] ? VAL(0u) : T_DIM, dx_mot[XM_RATE] * 125,
-                    ICON_RATE);
-        fmt_int(val, dx_mot[XM_DPTH]);
-        draw_column(1, "DPTH", val, "", dx_mot[XM_DPTH] ? VAL(1u) : T_DIM, dx_mot[XM_DPTH] * 1000 / 127, ICON_LEVEL);
-        draw_column(2, "SHPE", SH[dx_mot[XM_SHPE] % 5u], "", VAL(2u), dx_mot[XM_SHPE] * 250, ICON_WAVE);
-        fmt_int(val, dx_mot[XM_RAND]);
-        draw_column(3, "RAND", val, "", dx_mot[XM_RAND] ? VAL(3u) : T_DIM, dx_mot[XM_RAND] * 1000 / 127, ICON_NOISE);
-        return;
-    }
     if (dx_pagen(pg) == 3u) {                           /* (JIANT 0.4) SOUND 3 */
         static const char *const PM[4] = {"DECAY", "LONG", "NOISE", "SINE"}, *const W[4] = {"SIN", "FM", "MTL", "BEL"};
         draw_column(0, "LANE", DX_LANE_ABBR[dx_ui_lane & 7u], "", VAL(0u), (int32_t)(dx_ui_lane & 7u) * 1000 / 7,
@@ -127,7 +109,7 @@ static uint32_t dx_sig(void)
 {
     const dx_lane_t *L = &dx_kit[dx_ui_lane & 7u];
     uint32_t h = (uint32_t)dx_ui_lane * 31u + dx_ui_side * 977u + L->mode * 131u, i;
-    h ^= (uint32_t)dx_mot[0] << 24 ^ (uint32_t)dx_mot[1] << 16 ^ (uint32_t)dx_mot[2] << 8 ^ dx_mot[3];   /* (X-MOD) */
+    h ^= (uint32_t)dx_mot[0] << 24 ^ (uint32_t)dx_mot[1] << 16 ^ (uint32_t)dx_mot[2] << 8 ^ dx_mot[3];   /* (FUN11 X-MOD bytes) */
     for (i = 0; i < DXP_N; i++)
         h = (h ^ (uint32_t)L->a[i] << 8 ^ L->b[i]) * 16777619u;
     return h;

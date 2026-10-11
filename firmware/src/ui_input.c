@@ -2137,4 +2137,4 @@ timeout:
     ui_message("SETUP CANCELLED");
 }
 
-#include "ui_dx.c"                                   /* EDIT > SOUND / X-MOD: DRUM-X kit editor */
+#include "ui_dx.c"                                   /* EDIT > SOUND / SOUND 2 / SOUND 3: DRUM-X kit editor */

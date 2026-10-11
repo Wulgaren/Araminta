@@ -384,14 +384,14 @@ static uint32_t layer_leds(uint32_t *br);
 static uint32_t layer_btn(void);
 
 /* FM operator pages belong to DIGITAL; they never appear on other instruments (without FELUCCA_FM4: never).
- * LANES / LANES 2 and SOUND* / X-MOD (GR_DXSND) a DRUM track's; FILTER / FILTER DRIVE an ANALOG track's
+ * LANES / LANES 2 and SOUND* (GR_DXSND) a DRUM track's; FILTER / FILTER DRIVE an ANALOG track's
  * (EDIT 2 is the other engines' second sound page; ANALOG uses FILTER + FILTER DRIVE instead); OPERATOR,
  * OP ENV, OPERATOR 2 an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM (PAN/MUTE on MIXER). */
 static int page_visible(uint32_t i)
 {
     int analog = ENGINES[TSEL->eng_req % NENGINES] == &ENG_ANALOG;
     int drum = TSEL->eng_req % NENGINES == ENGI_DRUM;
-    if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / X-MOD */
+    if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / SOUND 2 / SOUND 3 */
         return drum;
     if (PAGES[i].sec == EDIT_SEC_VOX && drum)         /* Voice hidden on DRUM */
         return 0;
@@ -1684,11 +1684,11 @@ static void track_select(uint32_t i)
 }
 
 #include "ui_events.c"                            /* SEQ > AUTOMATION: locks, events, CHANCE, RATCH as a list (an action page) */
-/* EDIT > SOUND / SOUND 2 / SOUND 3 / X-MOD (ui_dx.c, included by ui_input.c): the DRUM-X sound edited and its patch */
+/* EDIT > SOUND / SOUND 2 / SOUND 3 (ui_dx.c, included by ui_input.c): the DRUM-X sound edited and its patch */
 static uint8_t dx_ui_lane, dx_ui_side;
-static uint32_t dx_pagen(const page_t *pg)            /* "SOUND 2"; "X-MOD": 4 */
+static uint32_t dx_pagen(const page_t *pg)            /* "SOUND" -> 1; "SOUND 2" / "SOUND 3" -> 2 / 3 */
 {
-    return pg->title[0] == 'X' ? 4u : pg->title[5] == ' ' ? (uint32_t)(pg->title[6] - '0') : 1u;
+    return pg->title[5] == ' ' ? (uint32_t)(pg->title[6] - '0') : 1u;
 }
 static uint32_t dx_page2(const page_t *pg) { return dx_pagen(pg) == 2u; }
 static void dx_knob(const page_t *pg, uint32_t k, int32_t s);

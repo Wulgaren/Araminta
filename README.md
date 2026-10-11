@@ -32,7 +32,7 @@ These are the differences that matter day to day:
 - **Sloop free take.** Project empty, track armed, transport stopped: the first note starts a free take, so you can record without building a pattern first.
 - **JIANT MIDI punch-ins.** They live on FX under the Punch-in section. SELECT walks pages inside FX sections; holding FX alone does not open punch-ins. Master gets CLIP / PNCH / DUCK. Reverb models add SHIMR / CLOUD.
 - **Melodee.** Silent tracks still run LFO, bend, the engine block and fades, so modulation keeps moving when a track is muted or resting.
-- **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit, mutes and X-MOD save with the project as FUN11 / `FUNB` (same size as FUN10; disk motion max 78). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
+- **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit and mutes save with the project as FUN11 / `FUNB` (same size as FUN10; disk motion max 78). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
 - **SAMPLE, GRAIN and NOISE** are back (SLICE stays retired). CR78 is not in the ROM sample bank; upload a kit as a USR sample. In the web editor, the Drum kit grid checkbox tags the slot (`FSMP` header); SAMPLE on that USR set then shows the drum grid on SEQ instead of the piano roll, with zones mapped by hand.
 - **VOICE** is one page: VCE, GLD, UNI DTN, SPRD. GLD is free milliseconds (no GLMOD on the page). PAN / MUTE live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
 
@@ -341,8 +341,8 @@ In the order the device lists them:
 - **PHYS**: physical models: modal resonators, strings, struck membranes, sympathetic strings
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
 - **DRUM**: DRUM-X, an 8-lane morphable kit on the General MIDI key map (JIANT port). EDIT sections
-  **Sound** (MRPH / TUNE / TONE / DECY and NOIS / FM / FOLD / DRV), **Kit** (SOUND ... X-MOD) and **Lanes**.
-  Kit, mute and X-MOD persist in FUN11 projects (FUN10 opens with the factory kit). Old Felucca KIT values
+  **Sound** (MRPH / TUNE / TONE / DECY and NOIS / FM / FOLD / DRV), **Kit** (SOUND / SOUND 2 / SOUND 3) and **Lanes**.
+  Kit and mute persist in FUN11 projects (FUN10 opens with the factory kit). Old Felucca KIT values
   still play as DRUM-X. SLICE is retired; old stores load as DRUM
 
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
