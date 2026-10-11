@@ -103,7 +103,7 @@ P_COUNT 69): slot k (1..4) is `SRCk`, `DSTk`, `AMTk` at ids 49 + 3 (k − 1) .. 
 | id | label | values |
 | --- | --- | --- |
 | 49, 52, 55, 58 | SRC1..SRC4 | enum: 0 OFF, 1 LFO, 2 ENV, 3 VEL, 4 KEY, 5 RAND, 6 MODW (CC1), 7 AT (channel aftertouch), 8 EXPR (CC11), 9 S&H (a random value held for one cycle of the track LFO), 10 SLEW (S&H gliding from the cycle before's value) |
-| 50, 53, 56, 59 | DST1..DST4 | enum (21 names): 0 OFF, 1 PITCH, 2 CUT, 3 SHP, 4 AMP (per voice); 5 PAN, 6 DIST, 7 CHO, 8 DLY, 9 REV, 10 RATE (LFO rate), 11 VIB (LFO pitch depth), 12..19 E1..E8 = `P_E0..P_E7`, 20 DEPTH (the track LFO's depth: a gain on LFO DEST and the matrix's LFO source) (per block) |
+| 50, 53, 56, 59 | DST1..DST4 | enum (44 names): 0 OFF, 1 PITCH, 2 CUT, 3 SHP, 4 AMP (per voice); 5 PAN, 6 DIST (insert drive), 7 CHO (insert CHOR mix), 8 DLY, 9 REV, 10 RATE (LFO rate), 11 VIB (LFO pitch depth), 12..19 E1..E8 = `P_E0..P_E7`, 20 DEPTH (LFO depth), 21..23 PAT/SRATE/SDEP (SLICER), 24..25 CHRD/VOIC, 26..43 insert continuous + MIX (no MODE/TYPE enums): TONE, DMIX, FCUT, FRES, FMIX, BITS, CRAT, CLPF, CMIX, PRAT, PDEP, PFBK, PMIX, FRAT, FDEP, LMIX, HRAT, HDEP (per block). `DESC` lists all 44 (cap 48) |
 | 51, 54, 57, 60 | AMT1..AMT4 | −64..63 (fmt BIPCT) |
 
 `DESC` names E1..E8 as such; the device shows the engine's label of that parameter instead (`DESC` of
