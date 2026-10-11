@@ -3,15 +3,15 @@
 /* Felucca 1.2: the SEQ TOOLS layer's actions (ui_layer.c: SEQ held, on every page). Included by ui_layer.c. The white
  * keys from F3 (TL_*):
  *   F3 CLEAR  G3 REVERSE  A3 SHIFT <  B3 SHIFT >       the whole sequence
- *   C4 RANDOM D4 COOK     E4 BEAT (DRUM)                 new / a little changed
- *   G4 CLEAR  A4 REVERSE  B4 FILL  C5 RANDOM             the selected lane (DRUM: ui.lane, black keys 1..8 pick it)
- * Each works on the selected track's steps 1..LEN (the steps past LEN stay) and is one undo: SAVE held swaps back
+ *   C4 RANDOM D4 COOK     E4 BEAT     F4 MUTE (DRUM)     new / a little changed; MUTE the selected lane
+ *   G4 CLEAR  A4 REVERSE  B4 FILL     C5 RANDOM          the selected lane (DRUM: ui.lane, black keys 1..8 pick it)
+ * Each pattern tool works on the selected track's steps 1..LEN (the steps past LEN stay) and is one undo: SAVE held swaps back
  * the copy taken just before it (ui.c undo, UNDO_PAT; unlike a load the track's automation stays), so after a few
  * COOKs SAVE held takes back the last one only; the layer's OCT- puts back the track as the layer opened (tl_open).
  * A step that held something and is empty after loses its locks (as clearing a note); REVERSE and SHIFT move the
  * steps' automation and locks with them. RANDOM and COOK draw from libc.c rng(): no seed is kept, each press
  * differs. A sequence of ties reversed keeps its note first: N T T -> N T T at the mirrored place */
-enum { TL_CLEAR, TL_REV, TL_LEFT, TL_RIGHT, TL_RANDOM, TL_COOK, TL_BEAT, TL_GAP, TL_LCLR, TL_LREV, TL_LFILL, TL_LRND,
+enum { TL_CLEAR, TL_REV, TL_LEFT, TL_RIGHT, TL_RANDOM, TL_COOK, TL_BEAT, TL_MUTE, TL_LCLR, TL_LREV, TL_LFILL, TL_LRND,
        TL_N };
 
 /* the track as the layer opened (OCT-): in the pool (RAM's .bss is tight), taken by layer_opened */
@@ -21,8 +21,9 @@ static uint32_t tl_len(const track_t *t) { return (uint32_t)clamp(t->p[P_SLEN], 
 static uint32_t tl_rnd(uint32_t n) { return n ? rng() % n : 0u; }
 static int tl_gate(const step_t *s) { return s->time == ST_NOTE && s->n; }
 static uint32_t tl_lane(const step_t *s, uint32_t l) { return (step_lanes(s) >> l) & 1u; }
-/* place p's action is there for this track (the lane row and BEAT: DRUM only) */
-static int tl_cell(const track_t *t, uint32_t p) { return p < TL_N && p != TL_GAP && (p < TL_BEAT || drum_track(t)); }
+/* place p's action is there for this track (BEAT, MUTE and the lane row: DRUM only). MUTE toggles the selected
+ * lane's channel mute (eng_drum.c drum_mute): not a pattern edit, so it takes no undo copy */
+static int tl_cell(const track_t *t, uint32_t p) { return p < TL_N && (p < TL_BEAT || drum_track(t)); }
 
 /* the undo copy of t as it is now (ui.c load_begin, but the automation is copied and stays): one action */
 static void tl_undo_take(track_t *t)
@@ -339,6 +340,8 @@ static const char *tl_do(track_t *t, uint32_t p, uint32_t l)
     int drum = drum_track(t);
     const char *msg = 0;
     l %= NLANE;
+    if (p == TL_MUTE)                                   /* (ui_layer.c tools_key toggles it; not a pattern edit) */
+        return 0;
     if (p == TL_COOK) {                                 /* (nothing there: nothing to cook, no undo copy) */
         for (i = 0; i < len; i++)
             n += drum ? (uint32_t)__builtin_popcount(step_lanes(&t->step[i])) : (uint32_t)tl_gate(&t->step[i]);
