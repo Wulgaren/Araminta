@@ -1159,7 +1159,8 @@ static uint32_t graph_signature(void)
     h ^= (uint32_t)pg->graph * 131u + TSEL->eng_req + song.sel * 7777u + ui.page * 1291u;
     if (strip_kind() == SK_TITLE)                    /* MENU > LARGE: the page's title (its engine, its number) */
         return h ^ 0x5A17u;
-    if (pg->graph == GR_NONE || pg->graph == GR_ARP) h ^= ui.frame / 2u;
+    if (pg->graph == GR_NONE || pg->graph == GR_ARP || pg->graph == GR_STEPS)
+        h ^= ui.frame / 2u;                          /* scope (PATTERN / SEQ TOOLS fall through to it) */
     for (i = 0; i < P_COUNT; i++)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
     h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u +
@@ -1552,11 +1553,11 @@ static void graph_slots(void)
     }
 }
 /* MIXER page: four SURF columns, one under each card: three 12 px status squares (track #, REC circle, MUTE icon
- * or S when SOLO — PLAY, KNOB 4), the sound's short name, the LEVEL knob (dB inside) with the output meter beside
- * it, then the PAN and REV knobs (P / R inside, values under). Knobs: a 270 degree ring, the track RAISE, the value
- * arc THEME (the knob just turned: ACCENT; muted: DIM); PAN from 12 o'clock. Each column is its own canvas with its
- * own signature:
- * while the transport runs only the meters move. */
+ * or S when SOLO — PLAY, KNOB 4), the sound's short name, the LEVEL knob (one-decimal dB under it; Terminus is too
+ * wide for the value inside the ring) with the output meter beside it, then the PAN and REV knobs (P / R inside,
+ * values under). Knobs: a 270 degree ring, the track RAISE, the value arc THEME (the knob just turned: ACCENT;
+ * muted: DIM); PAN from 12 o'clock. Each column is its own canvas with its own signature: while the transport runs
+ * only the meters move. */
 #define TS_MY 44                                     /* meter slot: beside LEVEL */
 #define TS_MH 32
 #define KB_X 4                                       /* LEVEL knob: box 4..37 x 42..75, centre (21, 59) */
@@ -1741,19 +1742,18 @@ static void draw_tracks(void)
         cv_rrect(0, 0, CARD_W, H_GRAPH, 5, T_SURF, T_BG);
         mixer_status(c, sel, st, mute, hot, 5);
         cv_free_text(5, 21, &AF_S, b, mute ? T_DIM : sel ? T_TEXT : T_MID, T_SURF, CARD_W - 10);
-        {   /* LEVEL: the knob, its dB inside (OFF at 0), and the meter of the output */
+        {   /* LEVEL: the knob, one-decimal dB under it (OFF at 0; unit omitted — ring is too narrow for
+             * value+dB with Terminus), and the meter of the output */
             char v[8];
+            int32_t under_w = 41;                    /* knob through the meter (x 4 .. 44) */
+            uint16_t lc = hot == 1u ? T_ACCENT : lvl ? vc : T_DIM;
             knob(KB_X, KB_Y, KNOB_BIG_R, KNOB_BIG_COV, KNOB_BIG_ANG, (int32_t)lvl, 0, 127, hot == 1u ? T_ACCENT : vc);
-            if (lvl) {
-                int32_t d = LEVEL_DB_X10[lvl];
-                fmt_int(v, (d + (d < 0 ? -5 : 5)) / 10);
-                GFX_HOOK_ALIGN(KB_X, 0, KB_X + 2 * KNOB_BIG_R, 0, AL_H, "mixer level text centred across");
-                cv_text_in(KB_X, KB_Y + KNOB_BIG_R + 5, 2 * KNOB_BIG_R, &AF_S, "dB", T_DIM, T_SURF);
-            } else {
+            if (lvl)
+                fmt_frac(v, LEVEL_DB_X10[lvl], 1);
+            else
                 str_cpy(v, "OFF", sizeof v);
-            }
-            GFX_HOOK_ALIGN(KB_X, KB_Y, KB_X + 2 * KNOB_BIG_R, KB_Y + 2 * KNOB_BIG_R, AL_HV, "mixer level value in its knob");
-            cv_text_in(KB_X, KB_Y + CAP_IN(S, 2 * KNOB_BIG_R), 2 * KNOB_BIG_R, &AF_S, v, hot == 1u ? T_ACCENT : lvl ? vc : T_DIM, T_SURF);
+            GFX_HOOK_ALIGN(KB_X, 0, KB_X + under_w, 0, AL_H, "mixer level value under its knob");
+            cv_text_in(KB_X, KB_Y + KNOB_BIG_R + 5, under_w, &AF_S, v, lc, T_SURF);
             cv_rrect(45, TS_MY, 4, TS_MH, 2, T_RAISE, T_SURF);
             if (ts.meter[c])
                 cv_rrect(45, TS_MY + TS_MH - 1 - ts.meter[c], 4, ts.meter[c] + 1, ts.meter[c] >= 4 ? 2 : 0, T_MID, T_RAISE);

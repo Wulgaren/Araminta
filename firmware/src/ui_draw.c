@@ -578,6 +578,18 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
         unit = "";                                      /* "BPM 124 BPM", "USB OFF USB": the label says it */
     if (icon == ICON_AUTO)
         icon = icon_for_label(label);
+    uw = unit[0] ? text_w(&AF_S, unit) + 3 : 0;
+    if (text_w(vf, val) + uw > room) {
+        vf = &AF_S;
+        CARD_HOOK(val, unit);                           /* (host: the values set in S) */
+        /* Terminus: S and M are the same width, so falling back to S does not free room for the
+         * unit (dB, Hz, …). On a normal card prefer the full value; drop the unit rather than
+         * ellipsise the number. Tall cards keep the unit (it sits under the value). */
+        if (kind != LK_TALL && unit[0] && text_w(vf, val) + uw > room) {
+            unit = "";
+            uw = 0;
+        }
+    }
     str_cpy(key, label, 12);                            /* cache key: texts + colour + gauge */
     str_cpy(key + str_len(key), "|", 2);
     str_cpy(key + str_len(key), val, 14);
@@ -594,11 +606,6 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     key[n + 5] = (char)(icon == ICON_NONE ? '~' : '!' + icon % 90u);
     key[n + 6] = (char)('0' + hot + 2 * mot + 4 * (int)kind);
     key[n + 7] = 0;
-    uw = unit[0] ? text_w(&AF_S, unit) + 3 : 0;
-    if (text_w(vf, val) + uw > room) {
-        vf = &AF_S;
-        CARD_HOOK(val, unit);                           /* (host: the values set in S) */
-    }
     sig = (uint8_t)str_hash(str_hash(song.sel + TSEL->eng_req * 4u + ux.gen * 64u, label), unit);
     snap = ui.force || sig != ui.roll[c].sig;           /* what the value is of: label, unit, track, engine, palette */
     if (kind == LK_TALL)
