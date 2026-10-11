@@ -500,7 +500,7 @@ static int roll_on(void)
     return !ui.home && !ui.menu && !ui.confirm && song.seq_mode && cur_page()->graph == GR_ROLL && !drum_track(TSEL);
 }
 
-/* HOME Mixer section: latched track solo (white keys T1..T4); on LANE MUTE, black keys 1..8 toggle drum lanes */
+/* HOME Mixer: latched track solo (white keys T1..T4). Drum lane mutes are SEQ TOOLS (F4). */
 static uint8_t mix_solo;
 static int mixer_keys_on(void)
 {
@@ -514,12 +514,7 @@ static void mixer_keys(uint32_t notes)
         if (!((notes >> k) & 1u))
             continue;
         p = key_place(k);
-        if (cur_page()->graph == GR_DMUTE && key_black(k) && p < NLANE && drum_track(TSEL)) {
-            uint32_t t = song.sel % NPART;
-            drum_mute[t] ^= (uint8_t)(1u << p);
-            ui_say(drum_lane_name(TSEL, p), (drum_mute[t] >> p) & 1u ? " MUTED" : " ON");
-            ui.force = 1;
-        } else if (!key_black(k) && p < NTRK) {
+        if (!key_black(k) && p < NTRK) {
             mix_solo ^= (uint8_t)(1u << p);
             {
                 char a[8], b[12];
@@ -1727,7 +1722,7 @@ static void ui_input(void)
     song.grid = (uint8_t)keys_mode();                 /* (seq.c: the keys are the grid's) */
     lock_keys();                                        /* (a grid key on a hit let go: the hit goes) */
     if (song.grid == 4u) {
-        mixer_keys(notes);                              /* HOME Mixer: latched track solo / drum lane mutes */
+        mixer_keys(notes);                              /* HOME Mixer: latched track solo */
         perf_solo = mix_solo;
     } else if (song.grid == 3u) {
         song_keys(notes);
