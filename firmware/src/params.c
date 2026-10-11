@@ -430,75 +430,77 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHORD, GR_SLICES, GR_EVENTS,
-       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD };   /* GR_DESTS #223; GR_IORD insert reorder */
+       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_REC, GR_DMUTE };
+/* page.sec: button cycles sections; SELECT walks pages that share fam+sec (ui.c open_family / select_page_step) */
+enum { FX_SEC_INS = 0, FX_SEC_SEND = 1, FX_SEC_PUNCH = 2, FX_NSEC = 3,
+       SEQ_SEC_PAT = 0, SEQ_SEC_STEP = 1, SEQ_SEC_AUTO = 2, SEQ_SEC_REC = 3, SEQ_NSEC = 4,
+       EDIT_SEC_SND = 0, EDIT_SEC_VOX = 1, EDIT_NSEC = 2,
+       TRK_SEC_MIX = 0, TRK_SEC_CLK = 1, TRK_NSEC = 2 };
 
 typedef struct {
     const char *title;
-    uint8_t fam, scope, graph;
+    uint8_t fam, scope, graph, sec;
     uint8_t id[4];               /* param ids; 0xFF = empty slot */
 } page_t;
 
 static const page_t PAGES[] = {
-    {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, {P_ATK, P_DEC, P_SUS, P_REL}},
-    {"ENV DEST", FAM_ENV, SC_TRACK, GR_DESTS, {P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ESYNC}},   /* (P_ED_FX: nothing reads it);
-                                                                             * 1.5: ESYNC; #223: grouped list */
-    {"LFO", FAM_LFO, SC_TRACK, GR_LFO, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},
-    {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},   /* 1.2: SYNC TRIG POL */
-    {"LFO DEST", FAM_LFO, SC_TRACK, GR_DESTS, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},  /* #223: grouped list */
-    {"MOD", FAM_LFO, SC_TRACK, GR_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* KNOB 1: the slot (mod_ui_slot) */
-    /* Inserts: reorder, then each stage, then SLICER; Sends: CHO/DLY/REV + global buses */
-    {"REORDER", FAM_FX, SC_TRACK, GR_IORD, {0xFF, 0xFF, 0xFF, 0xFF}},   /* PRESETS/K1 pick; FX+SELECT moves */
-    {"DIST", FAM_FX, SC_TRACK, GR_INS, {P_IDMODE, P_DIST, P_IDMIX, 0xFF}},
-    {"FILTER", FAM_FX, SC_TRACK, GR_INS, {P_IFTYPE, P_IFCUT, P_IFRES, P_IFMIX}},
-    {"CRUSH", FAM_FX, SC_TRACK, GR_INS, {P_ICBITS, P_ICRATE, P_ICLPF, P_ICMIX}},
-    {"PHASR", FAM_FX, SC_TRACK, GR_INS, {P_IPRATE, P_IPDEP, P_IPFBK, P_IPMIX}},
-    {"FLANG", FAM_FX, SC_TRACK, GR_INS, {P_ILRATE, P_ILDEP, P_ILMIX, 0xFF}},
-    {"CHOR", FAM_FX, SC_TRACK, GR_INS, {P_IHRATE, P_IHDEP, P_IHMIX, 0xFF}},
-    {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, {P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH}},
-    {"FX", FAM_FX, SC_TRACK, GR_FX, {P_CHOR, P_DLY, P_REV, 0xFF}},   /* sends only (DIST is an insert stage) */
-    {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
-    {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},
-    {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, {G_CRATE, G_CDEPTH, 0xFF, 0xFF}},
-    {"MASTER", FAM_FX, SC_GLOBAL, GR_NONE, {G_CLIP, G_PUNCH, G_DUCK, G_DREL}},   /* JIANT: clipper, drum bus, ducking */
-    {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
-    {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, {P_CHRD, P_VOIC, 0xFF, 0xFF}},   /* SCL again: the chord keys (chord.c) */
-    {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E0, P_E1, P_E2, P_E3}},
-    {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E4, P_E5, P_E6, P_E7}},
-    {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, {P_FTYPE, P_E4, P_E5, P_E7}},   /* ANALOG only (1.5, #104): TYPE CUT RES KTR */
-    {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN0, P_LN1, P_LN2, P_LN3}},   /* DRUM only: the lane levels */
-    {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN4, P_LN5, P_LN6, P_LN7}},
-    {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, {0xFF, 0xFF, 0xFF, 0xFF}},    /* FM6 only: KNOB 1 the operator, then its */
-    {"OP ENV", FAM_EDIT, SC_TRACK, GR_FMENV, {0xFF, 0xFF, 0xFF, 0xFF}},     /* bytes of the track's patch (ui_fm6op.c): */
-    {"OPERATOR 2", FAM_EDIT, SC_TRACK, GR_FMOP2, {0xFF, 0xFF, 0xFF, 0xFF}}, /* CRS FINE LEVEL / STG RATE LEVEL / MODE DTUN VEL */
-    {"OP1 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM1_ATK, P_FM1_DEC, P_FM1_SUS, P_FM1_REL}},
-    {"OP2 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM2_ATK, P_FM2_DEC, P_FM2_SUS, P_FM2_REL}},
-    {"OP3 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL}},
-    {"OP4 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM4_ATK, P_FM4_DEC, P_FM4_SUS, P_FM4_REL}},
-    {"OP LEVEL", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM1_LEVEL, P_FM2_LEVEL, P_FM3_LEVEL, P_FM4_LEVEL}},
-    {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
-    {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_ALLOC, P_DETUNE, P_PAN, P_MUTE}},
-    {"VOICE 3", FAM_EDIT, SC_TRACK, GR_NONE, {P_SPRD, 0xFF, 0xFF, 0xFF}},   /* #148: SPREAD */
-    /* 1.2 (Discussion #153): a family's pages go round in this order, a tap of its button each (ui.c open_family) */
-    {"SONG", FAM_GLO, SC_GLOBAL, GR_SONG, {0xFF, 0xFF, 0xFF, 0xFF}},        /* GLO's only page (1.2; up to 1.1.5 SEQ's) */
-    /* SAVE's taps (1.5, #173): USER (SAVE from another page: the quick save, SAVE OCT+ OCT+), PRESETS (the engines and
-     * sounds one tap on; up to 1.4.1 the last), PHRASES, PROJECT, TOOLS */
-    {"USER", FAM_SAVE, SC_GLOBAL, GR_USER, {0xFF, 0xFF, 0xFF, 0xFF}},       /* user presets: SLOT LOAD ERASE SAVE */
-    {"PRESETS", FAM_SAVE, SC_GLOBAL, GR_BROWSE, {0xFF, 0xFF, 0xFF, 0xFF}},   /* browser: PRESETS knob / KNOB 1 */
-    {"PHRASES", FAM_SAVE, SC_GLOBAL, GR_PATS, {0xFF, 0xFF, 0xFF, 0xFF}},    /* pattern loader: PAT LOAD (ui.c pat_load);
-                                                                             * the tap after PRESETS (up to 1.1.5 SEQ's) */
-    {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, {G_SLOT, 0xFF, G_LOAD, G_SAVE}},
-    {"TOOLS", FAM_SAVE, SC_GLOBAL, GR_TOOLS, {G_CLRSEQ, G_INITSND, 0xFF, 0xFF}},
-    {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
-    {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
-    {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
-    {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},   /* 1.5.1 (#199): the cursor step's CHANCE RATCH NUDGE VEL
-                                                             * (ui.c detail_on, ui_input.c sd_turn) */
-    {"AUTOMATION", FAM_SEQ, SC_TRACK, GR_EVENTS, {0xFF, 0xFF, 0xFF, 0xFF}},  /* the locks, events, CHANCE and RATCH as a
-                                                                             * list, PLAY and CLEAR (ui_events.c) */
-    /* HOME's pages (1.2): HOME tapped on HOME the MIXER (up to 1.1.5 GLO's; LEVEL PAN REV MUTE), again CLOCK (up to 1.1.5
-     * GLO > GLOBAL; its TUNE is MENU > AUDIO's now), again HOME (ui.c home_tap) */
-    {"MIXER", FAM_TRK, SC_TRK, GR_TRK, {0, 1, 2, 3}},
-    {"CLOCK", FAM_TRK, SC_GLOBAL, GR_NONE, {G_BPM, G_SWING, G_CLOCK, 0xFF}},
+    {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, 0, {P_ATK, P_DEC, P_SUS, P_REL}},
+    {"ENV DEST", FAM_ENV, SC_TRACK, GR_DESTS, 0, {P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ESYNC}},
+    {"LFO", FAM_LFO, SC_TRACK, GR_LFO, 0, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},
+    {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, 0, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},
+    {"LFO DEST", FAM_LFO, SC_TRACK, GR_DESTS, 0, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
+    {"MOD", FAM_LFO, SC_TRACK, GR_MOD, 0, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},
+    /* FX: Inserts → Sends → Punch-in (map page) */
+    {"REORDER", FAM_FX, SC_TRACK, GR_IORD, FX_SEC_INS, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"DIST", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IDMODE, P_DIST, P_IDMIX, 0xFF}},
+    {"FILTER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IFTYPE, P_IFCUT, P_IFRES, P_IFMIX}},
+    {"CRUSH", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_ICBITS, P_ICRATE, P_ICLPF, P_ICMIX}},
+    {"PHASR", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IPRATE, P_IPDEP, P_IPFBK, P_IPMIX}},
+    {"FLANG", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_ILRATE, P_ILDEP, P_ILMIX, 0xFF}},
+    {"CHOR", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IHRATE, P_IHDEP, P_IHMIX, 0xFF}},
+    {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, FX_SEC_INS, {P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH}},
+    {"FX", FAM_FX, SC_TRACK, GR_FX, FX_SEC_SEND, {P_CHOR, P_DLY, P_REV, 0xFF}},
+    {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_SEND, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
+    {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_SEND, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},
+    {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_SEND, {G_CRATE, G_CDEPTH, 0xFF, 0xFF}},
+    {"MASTER", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_SEND, {G_CLIP, G_PUNCH, G_DUCK, G_DREL}},
+    {"PUNCH", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, 0, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
+    {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, 0, {P_CHRD, P_VOIC, 0xFF, 0xFF}},
+    {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, EDIT_SEC_SND, {P_E0, P_E1, P_E2, P_E3}},
+    {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, EDIT_SEC_SND, {P_E4, P_E5, P_E6, P_E7}},
+    {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_FTYPE, P_E4, P_E5, P_E7}},
+    {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_LN0, P_LN1, P_LN2, P_LN3}},
+    {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_LN4, P_LN5, P_LN6, P_LN7}},
+    {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"OP ENV", FAM_EDIT, SC_TRACK, GR_FMENV, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"OPERATOR 2", FAM_EDIT, SC_TRACK, GR_FMOP2, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"OP1 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, EDIT_SEC_SND, {P_FM1_ATK, P_FM1_DEC, P_FM1_SUS, P_FM1_REL}},
+    {"OP2 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, EDIT_SEC_SND, {P_FM2_ATK, P_FM2_DEC, P_FM2_SUS, P_FM2_REL}},
+    {"OP3 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, EDIT_SEC_SND, {P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL}},
+    {"OP4 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, EDIT_SEC_SND, {P_FM4_ATK, P_FM4_DEC, P_FM4_SUS, P_FM4_REL}},
+    {"OP LEVEL", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_FM1_LEVEL, P_FM2_LEVEL, P_FM3_LEVEL, P_FM4_LEVEL}},
+    {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
+    {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_ALLOC, P_DETUNE, P_PAN, P_MUTE}},
+    {"VOICE 3", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_SPRD, 0xFF, 0xFF, 0xFF}},
+    {"SONG", FAM_GLO, SC_GLOBAL, GR_SONG, 0, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"USER", FAM_SAVE, SC_GLOBAL, GR_USER, 0, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"PRESETS", FAM_SAVE, SC_GLOBAL, GR_BROWSE, 0, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"PHRASES", FAM_SAVE, SC_GLOBAL, GR_PATS, 0, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, 0, {G_SLOT, 0xFF, G_LOAD, G_SAVE}},
+    {"TOOLS", FAM_SAVE, SC_GLOBAL, GR_TOOLS, 0, {G_CLRSEQ, G_INITSND, 0xFF, 0xFF}},
+    {"ARP", FAM_ARP, SC_TRACK, GR_ARP, 0, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
+    {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, 0, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
+    /* SEQ: Pattern → Step → Automation → Record */
+    {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_PAT, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
+    {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
+    {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
+    {"AUTOMATION", FAM_SEQ, SC_TRACK, GR_EVENTS, SEQ_SEC_AUTO, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"RECORD", FAM_SEQ, SC_GLOBAL, GR_REC, SEQ_SEC_REC, {0xFF, 0xFF, 0xFF, 0xFF}},
+    /* HOME: Mixer (mix + drum lane mutes) → Clock; ui.home is its own section (home_tap) */
+    {"MIXER", FAM_TRK, SC_TRK, GR_TRK, TRK_SEC_MIX, {0, 1, 2, 3}},
+    {"LANE MUTE", FAM_TRK, SC_TRK, GR_DMUTE, TRK_SEC_MIX, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"CLOCK", FAM_TRK, SC_GLOBAL, GR_NONE, TRK_SEC_CLK, {G_BPM, G_SWING, G_CLOCK, 0xFF}},
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */
