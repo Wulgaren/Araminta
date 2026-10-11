@@ -656,6 +656,9 @@ static int formats(void)
     for (k = 0; k < NTRK; k++)
         memcpy(a.fm6[k], FM6_INIT, FM6_PACKED);
     a.g[G_RTYPE] = 1;                                /* (a FUN7 knew ROOM and SPRING: above, the old drum channel) */
+    a.g[G_CRTYPE] = a.g[G_RTYPE];                    /* FUN7 has no CHAIN spare: import copies SEND -> CHAIN */
+    a.g[G_CRSIZE] = a.g[G_RSIZE];
+    a.g[G_CRDAMP] = a.g[G_RDAMP];
     for (k = 0; k < NTRK; k++)
         ins_migrate(a.t[k].p, 91u);
     a.sum = proj_sum(&a);
