@@ -366,7 +366,7 @@ static void ev_knob(uint32_t slot, int32_t s)
         if (slot == 1u) {
             pk_close();
             ui.ev_step = (uint8_t)clamp((int32_t)ui.ev_step + s, 0, (int32_t)ev_len(t) - 1);
-        } else if (slot == 2u) {                        /* #223: grouped full-screen PARAM list */
+        } else if (slot == 2u) {                        /* #223: flat full-screen PARAM list */
             if (ui.pick != PK_AUTO)
                 pk_open(PK_AUTO);
             (void)pk_knob(s);
@@ -401,7 +401,7 @@ static void ev_knob(uint32_t slot, int32_t s)
             return;
         motion_undo_take(t, 0x200u | slot | i << 4);   /* (a knob turned on, this record) */
         (void)motion_move(t, i, (uint32_t)to, id, e->value);
-    } else if (slot == 2u) {                            /* #223: grouped full-screen PARAM list */
+    } else if (slot == 2u) {                            /* #223: flat full-screen PARAM list */
         if (ui.pick != PK_AUTO)
             pk_open(PK_AUTO);
         (void)pk_knob(s);
@@ -522,23 +522,13 @@ static void ev_delete(void)
 }
 
 /* ------------------------------------------------------------ #223 pick --- */
-/* Grouped full-screen lists for AUTOMATION's PARAM, MOD's DST, and ENV DEST / LFO DEST (GR_DESTS).
- * A row is either a group tag (id 0xFFFF: the name in the tag column, no value) or a selectable item. */
+/* Flat full-screen lists for AUTOMATION's PARAM, MOD's DST, and ENV DEST / LFO DEST (GR_DESTS).
+ * Each row is selectable: tag = family (left), name = short label (right). */
 #define PK_ROWS 96u
-#define PK_GROUP 0xFFFFu
 typedef struct { uint16_t id; const char *tag; char name[16]; } pk_row_t;
 static pk_row_t pk_rows[PK_ROWS];
 static uint8_t pk_n, pk_cur;
 
-static void pk_add_group(const char *tag)
-{
-    if (pk_n >= PK_ROWS)
-        return;
-    pk_rows[pk_n].id = PK_GROUP;
-    pk_rows[pk_n].tag = tag;
-    pk_rows[pk_n].name[0] = 0;
-    pk_n++;
-}
 static void pk_add_item(uint32_t id, const char *tag, const char *name)
 {
     if (pk_n >= PK_ROWS)
@@ -548,46 +538,41 @@ static void pk_add_item(uint32_t id, const char *tag, const char *name)
     str_cpy(pk_rows[pk_n].name, name, sizeof pk_rows[pk_n].name);
     pk_n++;
 }
-/* full name for an automation / motion param (b holds 16) */
+/* short name for an automation / motion param (family is the row tag; b holds 16) */
 static void pk_auto_name(const track_t *t, uint32_t id, char *b)
 {
-    const char *pre;
     if (ev_sid(id)) {
         str_cpy(b, id == EV_CHANCE ? "CHANCE" : id == EV_RATCH ? "RATCH" : id == EV_VEL ? "VELOCITY" : "NUDGE", 16);
         return;
     }
-    pre = id >= P_ATK && id <= P_ED_SHP ? "ENV " : id >= P_LRATE && id <= P_LD_AMP ? "LFO " :
-          id >= P_SLPAT && id <= P_SLDEPTH ? "SLICER " :
-          id == P_DIST || (id >= P_IDMODE && id < P_FTYPE) ? "INSERT " : "";
-    str_cpy(b, pre, 16);
     if (id == P_LEVEL)
-        str_cpy(b + str_len(b), "LEVEL", 16 - str_len(b));
+        str_cpy(b, "LEVEL", 16);
     else if (id == P_GLIDE)
-        str_cpy(b + str_len(b), "GLIDE", 16 - str_len(b));
+        str_cpy(b, "GLIDE", 16);
     else if (id == P_DETUNE)
-        str_cpy(b + str_len(b), "DETUNE", 16 - str_len(b));
+        str_cpy(b, "DETUNE", 16);
     else if (id == P_SPRD)
-        str_cpy(b + str_len(b), "SPREAD", 16 - str_len(b));
+        str_cpy(b, "SPREAD", 16);
     else if (id == P_DIST)
-        str_cpy(b + str_len(b), "DIST", 16 - str_len(b));
+        str_cpy(b, "DIST", 16);
     else if (id == P_CHOR)
-        str_cpy(b + str_len(b), "CHORUS", 16 - str_len(b));
+        str_cpy(b, "CHORUS", 16);
     else if (id == P_DLY)
-        str_cpy(b + str_len(b), "DELAY", 16 - str_len(b));
+        str_cpy(b, "DELAY", 16);
     else if (id == P_REV)
-        str_cpy(b + str_len(b), "REVERB", 16 - str_len(b));
+        str_cpy(b, "REVERB", 16);
     else if (id == P_SLPAT)
-        str_cpy(b + str_len(b), "PATTERN", 16 - str_len(b));
+        str_cpy(b, "PATTERN", 16);
     else if (id == P_SLRATE)
-        str_cpy(b + str_len(b), "RATE", 16 - str_len(b));
+        str_cpy(b, "RATE", 16);
     else if (id == P_SLDEPTH)
-        str_cpy(b + str_len(b), "DEPTH", 16 - str_len(b));
+        str_cpy(b, "DEPTH", 16);
     else if (id == P_CHRD)
-        str_cpy(b + str_len(b), "CHORD", 16 - str_len(b));
+        str_cpy(b, "CHORD", 16);
     else if (id == P_VOIC)
-        str_cpy(b + str_len(b), "VOICING", 16 - str_len(b));
+        str_cpy(b, "VOICING", 16);
     else
-        str_cpy(b + str_len(b), track_desc(t, id)->label, 16 - str_len(b));
+        str_cpy(b, track_desc(t, id)->label, 16);
 }
 static const char *pk_auto_group(uint32_t id)
 {
@@ -617,18 +602,16 @@ static const char *pk_auto_group(uint32_t id)
         return "EDIT";
     return "OTHER";
 }
-/* build AUTOMATION's PARAM list (CHANCE.. then motion params by group). step == NSTEP: + ADD (every ok id);
+/* build AUTOMATION's PARAM list (CHANCE.. then motion params by family tag). step == NSTEP: + ADD (every ok id);
  * else a record: only ids free on that step, plus the one already on it. *sel = index of id */
 static uint32_t pk_build_auto(const track_t *t, uint32_t id, uint32_t step, uint32_t *sel)
 {
     static const uint32_t STEP[] = {EV_CHANCE, EV_RATCH, EV_NUDGE, EV_VEL};
-    const char *g = 0;
     char nm[16];
     uint32_t i;
     pk_n = 0;
     *sel = 0;
     if (step >= NSTEP) {                                /* + ADD: CHANCE / RATCH / NUDGE / VEL first */
-        pk_add_group("STEP");
         for (i = 0; i < NELEM(STEP); i++) {
             pk_auto_name(t, STEP[i], nm);
             if (STEP[i] == id)
@@ -637,28 +620,22 @@ static uint32_t pk_build_auto(const track_t *t, uint32_t id, uint32_t step, uint
         }
     }
     for (i = 0; i < P_COUNT; i++) {
-        const char *gg;
         if (!ev_id_ok(t, i) || (step < NSTEP && i != id && !ev_id_free(t, step, i)))
             continue;
-        gg = pk_auto_group(i);
-        if (!g || !str_eq(g, gg)) {
-            g = gg;
-            pk_add_group(g);
-        }
         pk_auto_name(t, i, nm);
         if (i == id)
             *sel = pk_n;
-        pk_add_item(i, g, nm);
+        pk_add_item(i, pk_auto_group(i), nm);
     }
     return pk_n;
 }
-/* full name for a matrix destination */
+/* short name for a matrix destination (family is the row tag) */
 static void pk_mdst_name(const track_t *t, uint32_t d, char *b)
 {
     static const char *const LONG[] = {
-        "OFF", "PITCH", "CUTOFF", "SHAPE", "AMP", "PAN", "DISTORT", "CHORUS", "DELAY", "REVERB", "LFO RATE",
-        "VIBRATO", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "LFO DEPTH", "SLICER PATTERN", "SLICER RATE",
-        "SLICER DEPTH", "CHORD", "VOICING"};
+        "OFF", "PITCH", "CUTOFF", "SHAPE", "AMP", "PAN", "DISTORT", "CHORUS", "DELAY", "REVERB", "RATE",
+        "VIBRATO", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH", "PATTERN", "RATE",
+        "DEPTH", "CHORD", "VOICING"};
     d = (uint32_t)clamp((int32_t)d, 0, MD_N - 1);
     if (MD_ENGINE(d)) {
         const char *l = track_desc(t, P_E0 + d - MD_E1)->label;
@@ -689,25 +666,19 @@ static const char *pk_mdst_group(uint32_t d)
 }
 static uint32_t pk_build_mdst(const track_t *t, uint32_t d, uint32_t *sel)
 {
-    const char *g = 0;
     char nm[16];
     uint32_t i;
     pk_n = 0;
     *sel = 0;
     for (i = 0; i < MD_N; i++) {
-        const char *gg = pk_mdst_group(i);
-        if (!g || !str_eq(g, gg)) {
-            g = gg;
-            pk_add_group(g);
-        }
         pk_mdst_name(t, i, nm);
         if (i == d)
             *sel = pk_n;
-        pk_add_item(i, g, nm);
+        pk_add_item(i, pk_mdst_group(i), nm);
     }
     return pk_n;
 }
-/* ENV DEST / LFO DEST page: the four knobs as a grouped list (full names) */
+/* ENV DEST / LFO DEST page: the four knobs as a flat tag+name list */
 static uint32_t pk_build_page(const page_t *pg, uint32_t *sel)
 {
     static const char *const ENV_N[] = {"FILTER", "PITCH", "SHAPE", "ENV SYNC"};
@@ -717,33 +688,26 @@ static uint32_t pk_build_page(const page_t *pg, uint32_t *sel)
     uint32_t k;
     pk_n = 0;
     *sel = ui.hot_t ? ui.hot_col & 3u : 0u;
-    pk_add_group(g0);
     for (k = 0; k < 4u; k++) {
         if (pg->id[k] == 0xFFu)
             continue;
-        if (pg->id[k] == P_ESYNC)
-            pk_add_group("SYNC");
         pk_add_item(k, pg->id[k] == P_ESYNC ? "SYNC" : g0, names[k]);
         if ((ui.hot_t ? ui.hot_col : 0u) == k)
             *sel = pk_n - 1u;
     }
     return pk_n;
 }
-static int pk_is_item(uint32_t r) { return r < pk_n && pk_rows[r].id != PK_GROUP; }
-/* step the selectable rows from *cur by dir (+1 / -1); wrap at the ends */
+/* step from *cur by dir (+1 / -1); wrap at the ends */
 static void pk_step(uint32_t *cur, int32_t dir)
 {
-    int32_t i = (int32_t)*cur;
-    uint32_t guard = pk_n + 2u;
+    int32_t i;
     if (!pk_n)
         return;
-    do {
-        i += dir > 0 ? 1 : -1;
-        if (i < 0)
-            i = (int32_t)pk_n - 1;
-        else if (i >= (int32_t)pk_n)
-            i = 0;
-    } while (!pk_is_item((uint32_t)i) && --guard);
+    i = (int32_t)*cur + (dir > 0 ? 1 : -1);
+    if (i < 0)
+        i = (int32_t)pk_n - 1;
+    else if (i >= (int32_t)pk_n)
+        i = 0;
     *cur = (uint32_t)i;
 }
 static void pk_open(uint32_t kind)
@@ -767,8 +731,6 @@ static void pk_open(uint32_t kind)
     } else if (kind == PK_MDST) {
         pk_build_mdst(t, (uint32_t)t->p[P_M1DST + 3u * mod_ui_slot], &sel);
     }
-    if (!pk_is_item(sel) && pk_n)
-        pk_step(&sel, 1);
     pk_cur = (uint8_t)sel;
 }
 static void pk_close(void) { ui.pick = PK_OFF; }
@@ -777,7 +739,7 @@ static void pk_apply(void)
 {
     track_t *t = TSEL;
     uint32_t id;
-    if (!ui.pick || !pk_is_item(pk_cur))
+    if (!ui.pick || pk_cur >= pk_n)
         return;
     id = pk_rows[pk_cur].id;
     if (ui.pick == PK_AUTO) {

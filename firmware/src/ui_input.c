@@ -1059,7 +1059,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         mod_ui_slot = (uint8_t)clamp((int32_t)mod_ui_slot + (steps > 0 ? 1 : -1), 0, 3);
         return;
     }
-    if (pg->graph == GR_MOD && slot == 2u) {             /* #223: DST as a grouped full-screen list */
+    if (pg->graph == GR_MOD && slot == 2u) {             /* #223: DST as a flat full-screen list */
         if (ui.pick != PK_MDST)
             pk_open(PK_MDST);
         (void)pk_knob(steps);

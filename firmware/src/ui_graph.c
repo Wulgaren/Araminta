@@ -1320,21 +1320,17 @@ static int32_t ev_value(int32_t y, const char *v, const char *unit, uint16_t fg,
     }
     return cv_text_r(x, y + LIST_TY, &AF_M, v, fg, bg);
 }
-/* #223: grouped full-screen pick list (AUTOMATION PARAM, MOD DST, or the rebuilt pk_rows for GR_DESTS) */
+/* #223: flat full-screen pick list (AUTOMATION PARAM, MOD DST, or the rebuilt pk_rows for GR_DESTS) */
 static void graph_pick(void)
 {
     int32_t row, first = clamp((int32_t)pk_cur - 3, 0, (int32_t)pk_n > 7 ? (int32_t)pk_n - 7 : 0);
     for (row = 0; row < 7 && (uint32_t)(first + row) < pk_n; row++) {
         uint32_t k = (uint32_t)(first + row);
         const pk_row_t *r = &pk_rows[k];
-        int sel = k == pk_cur && r->id != PK_GROUP;
-        if (r->id == PK_GROUP)
-            list_row(LIST_Y(row), 0, r->tag, T_ACCENT, "", T_DIM, 232);
-        else
-            list_row(LIST_Y(row), sel, r->tag, T_MID, r->name, T_TEXT, 232);
+        list_row(LIST_Y(row), k == pk_cur, r->tag, T_MID, r->name, T_TEXT, 232);
     }
 }
-/* ENV DEST / LFO DEST: the page's destinations as a grouped list with full names (#223) */
+/* ENV DEST / LFO DEST: the page's destinations as a flat tag+name list (#223) */
 static void graph_dests(void)
 {
     uint32_t sel = 0;

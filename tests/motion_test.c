@@ -841,24 +841,39 @@ static int auto_list(void)
     ui_prefs |= PREF_LARGE;
     bad += check("  MENU > LARGE: the list layout with labels in M (as the other lists)", large_kind() == LK_LABEL);
     ui_prefs &= ~PREF_LARGE;
-    /* #223: PARAM opens a grouped full-screen list; ENV DEST / LFO DEST use GR_DESTS */
+    /* #223: PARAM / MOD DST are flat tag+name lists; ENV DEST / LFO DEST use GR_DESTS */
     ui.ev_row = 0xFFFFu;                                 /* + ADD */
     ui.ev_id = (uint8_t)P_LEVEL;
     ui.ev_step = 0;
     turn(EN_K3, 1);
-    bad += check("#223 AUTOMATION PARAM: grouped pick list opens", ui.pick == PK_AUTO && pk_n > 8u &&
-        pk_is_item(pk_cur));
+    bad += check("#223 AUTOMATION PARAM: pick list opens", ui.pick == PK_AUTO && pk_n > 8u &&
+        pk_cur < pk_n);
     {
-        uint32_t i, groups = 0, found = 0;
-        for (i = 0; i < pk_n; i++) {
-            groups += pk_rows[i].id == PK_GROUP;
-            if (pk_rows[i].id == P_SLRATE && str_eq(pk_rows[i].name, "SLICER RATE"))
+        uint32_t i, found = 0;
+        for (i = 0; i < pk_n; i++)
+            if (pk_rows[i].id == P_SLRATE && str_eq(pk_rows[i].tag, "SLICER") &&
+                str_eq(pk_rows[i].name, "RATE"))
                 found = 1;
-        }
-        bad += check("#223 pick list has group headers and full name SLICER RATE", groups >= 3u && found);
+        bad += check("#223 AUTOMATION PARAM: SLICER / RATE", found);
     }
     turn(EN_K1, -1);
     bad += check("#223 leaving the row closes the pick list", !ui.pick);
+    go_title("MOD");
+    frame();
+    turn(EN_K3, 1);
+    bad += check("#223 MOD DST: pick list opens", ui.pick == PK_MDST && pk_n > 8u && pk_cur < pk_n);
+    {
+        uint32_t i, dist = 0, spat = 0;
+        for (i = 0; i < pk_n; i++) {
+            if (pk_rows[i].id == MD_DIST && str_eq(pk_rows[i].tag, "SEND") &&
+                str_eq(pk_rows[i].name, "DISTORT"))
+                dist = 1;
+            if (pk_rows[i].id == MD_SLPAT && str_eq(pk_rows[i].tag, "SLICER") &&
+                str_eq(pk_rows[i].name, "PATTERN"))
+                spat = 1;
+        }
+        bad += check("#223 MOD DST: SEND / DISTORT and SLICER / PATTERN", dist && spat);
+    }
     {
         uint32_t i, n = 0;
         for (i = 0; i < NPAGES; i++)
