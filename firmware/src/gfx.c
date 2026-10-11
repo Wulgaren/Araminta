@@ -3,7 +3,7 @@
 /* Small-canvas renderer (no full framebuffer). Draw text/lines into
  * an off-screen strip, then blit it in one DMA transfer. Pixels are stored
  * byte-swapped (the panel takes RGB565 big-endian).
- * Text and icons are 4-bit alpha bitmaps made at build time (tools/gen_aa_font.py: Inter Tight;
+ * Text and icons are 4-bit alpha bitmaps made at build time (tools/gen_aa_font.py: Terminus;
  * tools/gen_aa_icons.py: Fukiai). A glyph is trimmed to its ink box, advances are in 1/16 px, and
  * each glyph is rasterised at 1 << psh horizontal phases (S M 4, L 2: drawn at a pen of +0, +1/4 .. px);
  * cv_text takes the phase that puts it within a phase step of its true place. Blending uses a 16-entry
@@ -22,7 +22,7 @@ typedef struct {
 } aafont_t;
 typedef struct { const char *name; uint16_t bg, surf, text, theme, accent; } ui_pal_t;
 typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
-#include "ui_fonts.h"                   /* AF_S 12 px / 400, AF_M 15 px / 500, AF_L 28 px / 600 */
+#include "ui_fonts.h"                   /* AF_S / AF_M Terminus 16 px, AF_L 32 px (0.9: 1x / 2x) */
 #include "ui_palettes.h"
 #include "ui_keycaps.h"                 /* KC_*: the keycaps / badges (tools/gen_aa_keycaps.py), KNOB_* arcs */
 #define ELLIPSIS '\x85'                 /* the ellipsis glyph of AF_S and AF_M */
@@ -84,17 +84,16 @@ static struct {
     uint16_t bg, surf, text, theme, accent;
     uint16_t mid, dim, line, sel, tint, ink, rec, raise, key, lane, grid;
     uint8_t light, mono;
-    uint8_t style;               /* MENU > STYLE (ui.c style_apply): ST_FLAT, ST_LINE */
+    uint8_t style;               /* always ST_FLAT (STYLE retired; ST_LINE kept for host tests of the old path) */
     uint32_t gen;                /* bumped by palette_set (the text ramps follow) */
 } ux;
-/* STYLE: FLAT, the filled SURF cards and panels; LINE, no SURF (it is BG) and 1 px T_RULE dividers between the
- * areas instead (ui_draw.c draw_frame). (1.0.2: PIXEL, LINE un-antialiased, retired; a saved PIXEL reads as LINE.)
- * Selections, accents, keys and gauges keep their fills in every style */
+/* STYLE: always FLAT (no 1 px rule dividers). SURF is BG on every palette (as MONO: no raised card fill).
+ * ST_LINE remains in the draw paths for host tests only. (1.0.2: PIXEL retired.) */
 #define ST_FLAT 0u
 #define ST_LINE 1u
 #define T_RULE ux.dim            /* LINE: the dividers (DIM: visible on NIGHT, GREY, MONO and PAPER, quieter than labels) */
 #define T_BG ux.bg               /* background */
-#define T_SURF ux.surf           /* dialogs, menu rows, mixer strips */
+#define T_SURF ux.surf           /* dialogs, menu rows, mixer strips (equals BG: no card fill) */
 #define T_TEXT ux.text           /* primary text */
 #define T_THEME ux.theme         /* values, curves, the gauge's end line */
 #define T_ACCENT ux.accent       /* the one active thing: hot knob, cursor, playhead */
@@ -137,14 +136,14 @@ static void palette_set(uint32_t i)
     const ui_pal_t *p = &UI_PALETTES[i % NPALETTES];
     i %= NPALETTES;
     ux.mono = i == UI_GREY_INDEX;
-    ux.bg = p->bg; ux.surf = ux.style ? p->bg : p->surf; ux.text = p->text; ux.theme = p->theme; ux.accent = p->accent;
+    ux.bg = p->bg; ux.surf = p->bg; ux.text = p->text; ux.theme = p->theme; ux.accent = p->accent;   /* SURF = BG (as MONO) */
     ux.mid = ux_mix(p->bg, p->text, UI_MID_PCT);
     ux.dim = ux_mix(p->bg, p->text, UI_DIM_PCT);
     ux.line = ux_mix(p->bg, p->text, UI_LINE_PCT);
     ux.sel = ux_mix(p->bg, p->theme, UI_SEL_PCT);
     ux.tint = ux_mix(p->bg, p->theme, UI_TINT_PCT);
     ux.ink = p->bg;
-    ux.raise = ux_mix(p->surf, p->text, UI_RAISE_PCT);
+    ux.raise = ux_mix(p->bg, p->text, UI_RAISE_PCT);
     ux.key = ux_mix(p->bg, p->text, UI_KEY_PCT);
     ux.lane = ux_mix(ux.surf, p->theme, 10);
     ux.grid = ux_mix(ux.surf, p->text, 6);

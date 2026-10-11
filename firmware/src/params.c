@@ -251,8 +251,7 @@ static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
  * clamp). It shows the original's name; knobs step over it and the editor's SET lands on the original. */
 static int32_t enum_orig(const param_desc_t *d, int32_t v)
 {
-    (void)d;
-    return v;
+    return d->names == SMP_ALL_NAMES && v >= 0 && v < (int32_t)SMP_NSETS ? (int32_t)SMP_SET_ORIG[v] : v;
 }
 
 /* a stored value as the parameter takes it (projects, user presets, motion): inside d's range.

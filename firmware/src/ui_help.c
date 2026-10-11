@@ -11,7 +11,7 @@
  * the timer: ui.c help_on, help_start (PREF_HELP, ui.help_t) */
 
 static const char H_EDIT[] = "[K1-4]SOUND[EDIT]HOLD: ENGINES";
-static const char H_LANES[] = "[K1-4]LANE LEVELS[EDIT]HOLD: MUTES";
+static const char H_LANES[] = "[K1-4]LANES[EDIT]MUTES";
 static const char H_FMOP[] = "[K1]OPERATOR[SAVE]HOLD: UNDO";
 static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"ENV", "[K1-4]A D S R[ENV]ENV DEST"},
@@ -38,8 +38,8 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"PHASR", "[K1]RATE[K2]DEPTH[K3]MIX"},
     {"FLANG", "[K1]RATE[K2]DEPTH[K3]MIX"},
     {"CHOR", "[K1]RATE[K2]DEPTH[K3]MIX"},
-    {"SCL", "[K2]SCALE[K3]QUANTIZE[SCL]CHORDS"},
-    {"CHORD", "[K1]CHORD[KEYS]ONE FINGER[SCL]SCL"},
+    {"SCL", "[K2]SCALE[K3]QNT[SCL]CHORDS"},
+    {"CHORD", "[K1]CHORD[KEYS]CHORD[SCL]SCL"},
     {"EDIT 1", H_EDIT},
     {"EDIT 2", H_EDIT},
     {"FILTER", "[K1]TYPE[K2]CUTOFF[K3]RES[K4]KTR"},
@@ -58,8 +58,8 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
 
     {"SONG", "[K1]SECTION[KEYS]A-D[PLAY]SONG"},
     {"PRESETS", "[K2]ENGINE[K3]FAV[K4]LIST"},
-    {"USER", "[K1]SLOT[OCT+]SAVE[SELECT]PHRASES"},
-    {"PHRASES", "[K1]PHRASE[OCT+]LOAD[SAVE]PROJECT"},
+    {"USER", "[K1]SLOT[OCT+]SAVE[SELECT]LIST"},
+    {"PHRASES", "[K1]PHRASE[OCT+]LOAD[SAVE]PROJ"},
     {"PROJECT", "[K1]SLOT[K4]SAVE[EDIT]NAME"},
     {"TOOLS", "[K1]CLEAR[K2]INIT SOUND[OCT+]DO"},
     {"ARP", "[K1]MODE[KEYS]CHORD[ARP]ARP 2"},
@@ -74,12 +74,12 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"MIXER", "[K4]PLAY[ALGO]TRACK"},
     {"CLOCK", "[OCT+]SELECT: TEMPO[GLO]SONG"},
 };
-#define H_HOME "[OCT+]PRESETS RND[HOME]HOLD: MENU"
+#define H_HOME "[OCT+]PRESETS[HOME]MENU"          /* Terminus: shorter than Inter Tight so the row fits */
 #define H_LEVELS "[K1-4]T1-T4 LEVEL[HOME]MIXER"
 #define H_GRID "[KEYS]STEPS[K2]LANE[SEQ]RATCH"
 /* a layer's (LAYER_*): what its footer row (LAYERS[].foot) does not say */
 static const char *const HELP_LAYER[LAYER_N] = {
-    "", "[KEYS]BLACK: MUTES[FX]2 TAPS: LOCK", "[KEYS]SOLO MUTE TAP[K1-4]LEVELS", "[KEYS]ROOT[K1-4]ROOT SCL CHORD",
+    "", "[KEYS]MUTES[FX]LOCK", "[KEYS]SOLO MUTE TAP[K1-4]LEVELS", "[KEYS]ROOT[K1-4]ROOT SCL CHORD",
     "[K1]ENGINE[K2]SOUND[K3]FAV", "[K1]LENGTH[K3]SWING[K4]GATE", "[K1]CLICK[K2]COUNT-IN[K3]LEVEL",
 };
 

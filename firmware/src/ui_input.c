@@ -316,17 +316,10 @@ static uint32_t song_leds(void);
 #define IDLE_LEDS_MS 60000u
 static int idle_leds(void)
 {
-    int due = (ui_idle & 1u) && !(ui_prefs & PREF_ANIM_OFF) && !song.playing && !seq_counting() && !chain_busy() &&
-              !song.rec && !transport_req && !ui.layer && !ui.lock && !ui.menu && !ui.confirm && !ui.uboot && !name_on() &&
-              !(fm1_in.notes | fm1_in.buttons) && !panel_moved && !play_leds() && fm1_ms - scrn.idle >= IDLE_LEDS_MS;
-    if (!due) {
-        if (fm1_led_idle_on())
-            fm1_led_anim_stop();
-        return 0;
-    }
-    if (!fm1_led_anim_on())                            /* (not over the power-on sweep) */
-        fm1_led_idle_start(settings_leds == LEDS_DIM || settings_leds == LEDS_DIM_LO);
-    return fm1_led_idle_on();
+    /* ANIM retired: no idle LED animation */
+    if (fm1_led_idle_on())
+        fm1_led_anim_stop();
+    return 0;
 }
 /* the key LEDs, bit k = key k: NAME's keys, the layer's map, the DRUM grid, else the keys held and the notes
  * the selected track's sequencer, ARP and MIDI IN play, on STEP while stopped the cursor step's notes (#89; and
@@ -1216,7 +1209,7 @@ static void act_do(void)
     if (cur_page()->graph == GR_TOOLS) {
         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
         if (!act_ready()) {                               /* nothing there to clear or delete */
-            ui_message(c == 2u ? "NOTHING TO DELETE" : "NOTHING TO CLEAR");
+            ui_message(c == 2u ? "NOTHING TO DEL" : "NOTHING TO CLEAR");
             return;
         }
         confirm_open(c == 0u ? CF_CLEAR_SEQ : c == 1u ? CF_INIT_SOUND :
@@ -1549,10 +1542,35 @@ static int page_tap(uint32_t b)
 }
 
 
+/* a track whose sound's sample is missing (engines.c snd_missing: an empty user slot, a built-in set this build lacks;
+ * it plays a sine): the no-file icon and NO SAMPLE (ui.c MSG_NO_SAMPLE). Once per track and source: at power-on, a sound
+ * or project load, SRC / SET turned, a slot erased; again after another source or a project load. One a frame; after
+ * a message already showing (LOADED) as the second message. Not on notes: nothing in the audio path */
+static void sample_notice(void)
+{
+    uint32_t k, code;
+    for (k = 0; k < NTRK; k++) {
+        code = 0;
+        if (!snd_missing(&trk[k], &code)) {
+            snd_said[k] = 0;
+            continue;
+        }
+        if (snd_said[k] == code)
+            continue;
+        snd_said[k] = (uint8_t)code;
+        if (ui.msg_t)
+            str_cpy(ui.msg2, MSG_NO_SAMPLE, sizeof ui.msg2);
+        else
+            ui_message(MSG_NO_SAMPLE);
+        return;
+    }
+}
+
 /* messages of things that happened elsewhere (a load, the editor, MIDI in): after this frame's own */
 static void ui_notices(void)
 {
     static uint32_t midi_t, midi_last;
+    sample_notice();
     ml_poll();                                          /* (MIDI LEARN: a CC came for the picked parameter) */
     if (motion_full) { motion_full = 0; ui_message("AUTOMATION FULL"); }
     if (midi_hint) {                                    /* MIDI notes into a track that is not selected */

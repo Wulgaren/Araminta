@@ -924,8 +924,10 @@ static void lcell(int32_t x, int32_t y, int32_t h, const char *note, uint32_t ic
                   uint32_t st, int tri)
 {
     uint16_t ink, fill = lc_fill(st, &ink), idle = fill == T_RAISE || ((st & LS_ALT) && fill == lc_alt());
+    /* FX punch-ins (note + short name, no icon): draw note with the name, left-aligned on one band */
+    uint32_t punch = note && name && name[0] && h <= 24 && !icon && !icon2;
     fill = lc_box(x, y, LC_W, h, fill);
-    if (note)
+    if (note && !punch)
         cv_text_on(x + 5, y + 3, &AF_S, note, idle ? T_MID : ink, fill);
     if (h > 30) {                                   /* the icon's cell over the name, 6 px between, centred */
         int32_t t = y + HALF_UP(h - (16 + 6 + AF_S_CAP_H));
@@ -945,6 +947,11 @@ static void lcell(int32_t x, int32_t y, int32_t h, const char *note, uint32_t ic
         cv_icon_on(note ? x + LC_W - 17 : x + 5, t, 12, icon, ink, fill);
         GFX_HOOK_ALIGN(x, 0, x + LC_W, 0, AL_H | AL_PASS, "layer cell icon / name centred across");
         cv_text_in(x, t + 14 - AF_S_CAP_Y, LC_W, &AF_S, name, ink, fill);
+    } else if (punch) {                                    /* FX map: "F 1/8" left after the key letter */
+        int32_t ty = y + CAP_IN(S, h);
+        GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V | AL_N(2), "layer punch-in note + name centred up/down");
+        cv_text_on(x + 5, ty, &AF_S, note, idle ? T_MID : ink, fill);
+        cv_text_on(x + 5 + text_w(&AF_S, note) + 3, ty, &AF_S, name, ink, fill);
     } else if (name && *name) {                           /* a key's row: the icon and the name on its middle */
         if (!note && icon < ICON_COUNT) {                  /* (the EDIT layer: the engine's icon instead of the key) */
             GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "layer key cell icon / name centred up/down");
@@ -1079,7 +1086,9 @@ static void layer_seq(void)
             continue;
         n[0] = W_NOTE[p];
         str_cpy(nm, TL_NAME[p], sizeof nm);
-        if (p >= TL_LCLR || p == TL_MUTE) {             /* the lane's: "CLR BD", "MUTE BD" */
+        if (p >= TL_LCLR || p == TL_MUTE) {             /* the lane's: "CLR BD", "M BD" (MUTE shortened: Terminus) */
+            if (p == TL_MUTE)
+                str_cpy(nm, "M", sizeof nm);
             str_cpy(nm + str_len(nm), " ", 2);
             str_cpy(nm + str_len(nm), drum_lane_abbr(TSEL, ui.lane), sizeof nm - str_len(nm));
         }

@@ -68,8 +68,9 @@ static void draw_battery(int32_t bx)
 #define ROLL_FRAMES 9u
 #define ROLL_SNAP 3u                                    /* frames (~45 ms) */
 #define ROLL_BPM 4u                                     /* ui.roll[]: the four cards, then the header BPM */
-#define ROLL_Y 18                                       /* a card's value strip: rows 18..34, its figures (21..31) in the middle, */
+#define ROLL_Y 18                                       /* a card's value strip: rows 18..34, its figures in the middle, */
 #define ROLL_H 17                                       /* the label (MONO's chip: to row 17) above it, the gauge (38) below */
+#define CARD_VY(F) (ROLL_Y + CAP_IN(F, ROLL_H))         /* value's line top: capitals centred in the roll window */
 static const uint8_t ROLL_EASE[17] = {0, 45, 84, 118, 147, 172, 193, 210, 223, 234, 242, 247, 251, 253, 254, 255, 255};
 
 static int roll_digit(char c) { return c >= '0' && c <= '9'; }
@@ -541,9 +542,11 @@ static void draw_column_tall(uint32_t c, const char *label, const char *val, con
         cv_text_in(0, LG_UY, COL_W, &AF_S, unit, T_MID, T_SURF);
     }
     if (ratio >= 0) {
-        int32_t gw = COL_W - 10, fx = ratio * gw / 1000;
+        int32_t gw = COL_W - 10, fx = ratio * gw / 1000, w = fx < 3 ? 3 : fx;
+        uint16_t gc = hot ? T_ACCENT : vc == T_DIM ? T_DIM : T_THEME;
         cv_rrect(5, LG_GY, gw, 3, 1, ux.style ? T_LINE : T_BG, T_SURF);
-        cv_rrect(5, LG_GY, fx < 3 ? 3 : fx, 3, 1, hot ? T_ACCENT : vc == T_DIM ? T_DIM : T_THEME, T_BG);
+        cv_rrect(5, LG_GY, w, 3, 1, gc, T_BG);
+        cv_rect(5 + w, LG_GY - 1, 1, 5, gc);            /* 0.9: 1 px end line at the fill's tip */
     }
     cv_blit((uint32_t)CARD_X(c), Y_LABEL);
 }
@@ -657,22 +660,29 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
             } else
                 cv_text_fit(lx, ly, lf, label, lc, T_SURF, COL_W - 2 - lx);
         }
-        if (kid >= 0)                                   /* "[OCT+]": the keycap (accent: it would act; DIM: it would not) */
-            x = cv_keycap(5, 20, (uint32_t)kid, vc == T_ACCENT || vc == T_DIM ? vc : T_KEY, T_INK, T_SURF);
-        else if (vf == &AF_M) {
-            if (!ui.roll[c].from[0] && val[0])
-                GFX_HOOK_ALIGN(0, ROLL_Y, COL_W, ROLL_Y + ROLL_H, AL_V, "card value in its roll window");
-            x = roll_text(c, 5, 17, val, vc);
-        } else
-            x = cv_text_fit(5, 20, vf, val, vc, T_SURF, room - uw);
-        if (unit[0]) {
-            GFX_HOOK_ALIGN(0, 0, 0, vf == &AF_M ? 17 + AF_M.asc : 20 + AF_S.asc, AL_B, "card unit on its value's baseline");
-            cv_text_on(x + 3, 20, &AF_S, unit, T_MID, T_SURF);     /* on the value's baseline (S) */
+        {
+            int32_t vy = vf == &AF_M ? CARD_VY(M) : CARD_VY(S);
+            if (kid >= 0)                               /* "[OCT+]": the keycap (accent: it would act; DIM: it would not) */
+                x = cv_keycap(5, vy + HALF_UP(AF_M_CAP_H - KC_H), (uint32_t)kid,
+                              vc == T_ACCENT || vc == T_DIM ? vc : T_KEY, T_INK, T_SURF);
+            else if (vf == &AF_M) {
+                if (!ui.roll[c].from[0] && val[0])
+                    GFX_HOOK_ALIGN(0, ROLL_Y, COL_W, ROLL_Y + ROLL_H, AL_V, "card value in its roll window");
+                x = roll_text(c, 5, vy, val, vc);
+            } else
+                x = cv_text_fit(5, vy, vf, val, vc, T_SURF, room - uw);
+            if (unit[0]) {
+                int32_t uy = vy + (vf == &AF_M ? AF_M.asc : AF_S.asc) - AF_S.asc;
+                GFX_HOOK_ALIGN(0, 0, 0, vy + (vf == &AF_M ? AF_M.asc : AF_S.asc), AL_B, "card unit on its value's baseline");
+                cv_text_on(x + 3, uy, &AF_S, unit, T_MID, T_SURF);   /* on the value's baseline (S) */
+            }
         }
         if (!strip && ratio >= 0) {
-            int32_t gw = COL_W - 10, fx = ratio * gw / 1000;
+            int32_t gw = COL_W - 10, fx = ratio * gw / 1000, w = fx < 3 ? 3 : fx;
+            uint16_t gc = hot ? T_ACCENT : vc == T_DIM ? T_DIM : T_THEME;
             cv_rrect(5, 38, gw, 3, 1, ux.style ? T_LINE : T_BG, T_SURF);   /* (LINE: no card to cut it from) */
-            cv_rrect(5, 38, fx < 3 ? 3 : fx, 3, 1, hot ? T_ACCENT : vc == T_DIM ? T_DIM : T_THEME, T_BG);
+            cv_rrect(5, 38, w, 3, 1, gc, T_BG);
+            cv_rect(5 + w, 37, 1, 5, gc);                /* 0.9: 1 px end line at the fill's tip */
         }
     }
     cv_oy = 0;
@@ -1386,13 +1396,14 @@ static void draw_confirm(void)
     cv_blit(DLG_X, DLG_Y);
 }
 
-/* the stored STYLE (ui_style: the menu, a settings import, a restore) into gfx.c's copy: the tokens again, all redrawn */
+/* STYLE / ANIM retired: always FLAT and ANIM OFF (no rolling digits, piano-roll glide, tab slide, LED sweep / idle) */
 static void style_apply(void)
 {
-    if (ui_style > ST_LINE)                             /* 2, the retired PIXEL: LINE; unknown: FLAT */
-        ui_style = ui_style == 2u ? ST_LINE : ST_FLAT;
-    if (ux.style != ui_style) {
-        ux.style = ui_style;
+    ui_style = ST_FLAT;
+    ui_prefs |= PREF_ANIM_OFF;
+    ui_idle &= (uint8_t)~1u;
+    if (ux.style != ST_FLAT) {
+        ux.style = ST_FLAT;
         palette_set(settings.palette);
         ui.force = 1;
     }
