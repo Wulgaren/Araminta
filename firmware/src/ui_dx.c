@@ -24,7 +24,7 @@ static void dx_follow(void)
 /* MODE 0..47: wave x 12 + filter x 4 + SNAP x 2 + DRIVE (PMOD-kind bits 5..6 kept aside) */
 static uint32_t dx_mode_ix(uint32_t m)
 {
-    return (m & 3u) * 12u + ((m >> 2) & 3u) % 3u * 4u + ((m >> 4) & 1u) * 2u + ((m & DX_DRIVE) ? 1u : 0u);
+    return (m & 3u) * 12u + (((m >> 2) & 3u) % 3u) * 4u + ((m >> 4) & 1u) * 2u + ((m & DX_DRIVE) ? 1u : 0u);
 }
 static uint8_t dx_mode_of(uint32_t ix, uint32_t keep)
 {
