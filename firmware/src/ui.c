@@ -405,7 +405,7 @@ static int page_visible(uint32_t i)
 static uint32_t fam_nsec(uint32_t fam)
 {
     return fam == FAM_FX ? FX_NSEC : fam == FAM_SEQ ? SEQ_NSEC : fam == FAM_EDIT ? EDIT_NSEC :
-           fam == FAM_TRK ? TRK_NSEC : 1u;
+           fam == FAM_GLO ? GLO_NSEC : fam == FAM_SAVE ? SAVE_NSEC : 1u;
 }
 
 static uint32_t page_first_sec(uint32_t fam, uint32_t sec)
@@ -433,7 +433,7 @@ static uint32_t section_map_layer(void)
         return LAYER_FX;
     if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_PAT)
         return LAYER_SEQ;
-    if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_REC)
+    if (pg->fam == FAM_GLO && pg->sec == GLO_SEC_REC)
         return LAYER_REC;
     return 0;
 }
@@ -694,7 +694,7 @@ static void note_name(char *b, uint32_t n)
 }
 
 /* page button: cycle sections (wrap). One-section families: enter/resume only. SELECT walks pages inside the section.
- * Resume last page in the family when entering from elsewhere (SAVE always USER). */
+ * Resume last page in the family when entering from elsewhere (SAVE always PRESETS). */
 static void open_family(uint32_t fam)
 {
     uint32_t nsec = fam_nsec(fam), sec, i;
@@ -705,7 +705,7 @@ static void open_family(uint32_t fam)
         ui.page = (uint8_t)page_first_sec(fam, sec);
     } else if (fam == FAM_SAVE) {
         for (i = 0; i < NPAGES; i++)
-            if (PAGES[i].graph == GR_USER) break;
+            if (PAGES[i].graph == GR_BROWSE) break;
         ui.page = (uint8_t)i;
     } else {
         i = ui.fam_last[fam];
@@ -728,7 +728,7 @@ static void go_home(void)
     section_apply();                             /* leave sticky maps */
 }
 
-/* HOME: Home → Mixer section → Clock section → Home. SELECT walks pages inside Mixer (mix + lane mutes). Held: MENU */
+/* HOME: Home ↔ Mixer. SELECT walks pages inside Mixer (mix + lane mutes). Held: MENU */
 static void home_tap(void)
 {
     if (ui.home) {
@@ -736,18 +736,12 @@ static void home_tap(void)
         ui.fam_last[FAM_TRK] = ui.page;
         ui.home = 0;
         page_entered();
-    } else if (cur_page()->fam == FAM_TRK && cur_page()->sec == TRK_SEC_MIX) {
-        ui.page = (uint8_t)page_first_sec(FAM_TRK, TRK_SEC_CLK);
-        ui.fam_last[FAM_TRK] = ui.page;
-        page_entered();
-    } else if (cur_page()->fam == FAM_TRK) {
-        go_home();
     } else {
         go_home();
     }
 }
 
-/* SELECT: pages that share fam+sec (HOME button cycles Home / Mixer / Clock). Tempo: OCT++SELECT */
+/* SELECT: pages that share fam+sec (HOME button: Home ↔ Mixer). Tempo: OCT++SELECT */
 static void select_page_step(int32_t dir)
 {
     uint32_t fam, sec, i, idx[NPAGES], n = 0, cur = 0;

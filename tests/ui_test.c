@@ -861,33 +861,34 @@ static int test_save(void)
     ui_power_on();
     trk[0].p[P_E0] = 5;
     press(B_SAVE);
-    bad += check("SAVE opens USER with SAVE selected, without writing a slot",
-                 !ui.home && cur_page()->graph == GR_USER && ui.act == 4u && !up_used(0));
+    bad += check("SAVE opens PRESETS",
+                 !ui.home && cur_page()->graph == GR_BROWSE && !up_used(0));
+    turn(EN_SELECT, 1);
+    bad += check("SELECT: USER (Presets section)", cur_page()->graph == GR_USER && ui.act == 4u);
     press(B_OCTUP);
-    bad += check("SAVE then OCT+ opens NAME (the automatic name), writes nothing yet",
+    bad += check("USER then OCT+ opens NAME (the automatic name), writes nothing yet",
                  name_on() && nm.kind == NK_USER_SAVE && str_eq(nm.s, nm.ph) && nm.cur == nm.len && !up_used(0));
     press(B_OCTUP);
     {
         char nmb[16], au[16];
         up_name(0, nmb);
         up_auto_name(au, trk[0].eng_req, 0);
-        bad += check("..OCT+ again stores the edited sound with that name (SAVE, OCT+, OCT+)",
+        bad += check("..OCT+ again stores the edited sound with that name (USER, OCT+, OCT+)",
                      !name_on() && up_used(0) && up_value(up_rec(0), P_E0) == 5 && ui.act == 0u && str_eq(nmb, au));
     }
     turn(EN_SELECT, 1);
-    bad += check("1.5 (#173): SELECT: PRESETS (the engines and sounds)", cur_page()->graph == GR_BROWSE);
-    turn(EN_SELECT, 1);
-    bad += check("SELECT: PHRASES (the patterns, after the sounds)", cur_page()->graph == GR_PATS);
-    turn(EN_SELECT, 1);
-    bad += check("SELECT: PROJECT", cur_page()->graph == GR_SLOTS);
+    bad += check("SELECT: PHRASES (patterns, still Presets section)", cur_page()->graph == GR_PATS);
     press(B_SAVE);
-    bad += check("SAVE while already in SAVE stays (does not advance pages)", cur_page()->graph == GR_SLOTS);
+    bad += check("SAVE button: Presets → Project section", cur_page()->graph == GR_SLOTS);
+    turn(EN_SELECT, 1);
+    bad += check("SELECT: TOOLS (Project section)", cur_page()->graph == GR_TOOLS);
     go_home();
     press(B_SAVE);
-    bad += check("SAVE from HOME returns directly to USER, even after visiting PROJECT",
-                 cur_page()->graph == GR_USER && ui.act == 4u);
+    bad += check("SAVE from HOME returns directly to PRESETS, even after visiting PROJECT",
+                 cur_page()->graph == GR_BROWSE);
+    turn(EN_SELECT, 1);
     press(B_OCTUP);
-    bad += check("direct SAVE still asks before overwriting an occupied slot",
+    bad += check("USER still asks before overwriting an occupied slot",
                  ui.confirm == CF_OVR_USER && up_value(up_rec(0), P_E0) == 5);
     press(B_OCTDN);
     ui_power_on();
@@ -2026,12 +2027,12 @@ static int test_mono_screens(void)
 }
 
 /* ROLL: the rolling digits of the four cards and the header BPM (ui_draw.c roll_*). The old GLOBAL page's four (1.2: a
- * test page over HOME > CLOCK, whose KNOB 4 is empty since TUNE went to the MENU): BPM (also in the header), SWG, CLK (a
+ * test page over GLO > CLOCK, whose KNOB 4 is empty since TUNE went to the MENU): BPM (also in the header), SWG, CLK (a
  * name), TUNE (signed). A roll frame differs from the static render only inside the
  * value strip, its last frame is the static render; unchanged digits stay; the direction follows the sign; a
  * change mid-roll retargets; a fast turn, another shape, a page / track / palette change and ui.force snap. */
 static uint16_t roll_shot[240 * 240];
-static const page_t ROLL_PG = {"CLOCK", FAM_TRK, SC_GLOBAL, GR_NONE, TRK_SEC_CLK, {G_BPM, G_SWING, G_CLOCK, G_TUNE}};
+static const page_t ROLL_PG = {"CLOCK", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_CLK, {G_BPM, G_SWING, G_CLOCK, G_TUNE}};
 static void roll_settle(void)                     /* CLOCK + TUNE, nothing rolling, no knob hot */
 {
     uint32_t k;
@@ -2646,8 +2647,8 @@ static int test_presets_knob(void)
     return bad;
 }
 
-/* 1.2 (Discussion #153): the pages by button. HOME: HOME > MIXER > CLOCK; SEQ: STEP <-> AUTOMATION, held SEQ TOOLS
- * everywhere; GLO: SONG (GLOBAL became CLOCK, SYSTEM the MENU's); SAVE: USER -> PRESETS -> PHRASES -> PROJECT -> TOOLS (1.5). AUTOMATION's list edits a step's
+/* Pages by button. HOME: Home ↔ Mixer; SEQ: Pattern → Step → Automation; GLO: Song → Clock → Record;
+ * SAVE: Presets (PRESETS/USER/PHRASES) → Project (PROJECT/TOOLS). AUTOMATION's list edits a step's
  * CHANCE / RATCH (the step's own fields, nothing else), one undo each; a remembered page that left its family */
 static int steps_but(const track_t *t, const step_t *ref, uint32_t at, const step_t *want)   /* the steps = ref, at: want */
 {
@@ -2660,31 +2661,37 @@ static int steps_but(const track_t *t, const step_t *ref, uint32_t at, const ste
 static uint32_t auto_cur(void) { uint16_t rw[EV_ROWS]; return ev_cur(rw, 0); }
 static int test_page_cycles(void)
 {
-    static const char *const SAVE_CYC[6] = {"USER", "PRESETS", "PHRASES", "PROJECT", "TOOLS", "USER"};   /* (1.5, #173) */
+    static const char *const PRE_CYC[3] = {"PRESETS", "USER", "PHRASES"};
+    static const char *const PROJ_CYC[2] = {"PROJECT", "TOOLS"};
     int bad = 0, ok = 1;
     uint32_t i, n0;
     step_t ref[NSTEP], want;
     int16_t p0[P_COUNT];
     uint16_t rw[EV_ROWS];
-    /* the cycles: each button's taps, in order */
+    /* SAVE: SELECT walks inside Presets; button jumps to Project */
     ui_power_on();
     press(B_SAVE); frames(320);
-    ok = !ui.home && str_eq(cur_page()->title, "USER");
-    for (i = 1; i < 6u; i++) {
+    ok = !ui.home && str_eq(cur_page()->title, "PRESETS");
+    for (i = 1; i < 3u; i++) {
         turn(EN_SELECT, 1); frames(100);
-        ok &= !ui.home && cur_page()->fam == FAM_SAVE && str_eq(cur_page()->title, SAVE_CYC[i]);
+        ok &= !ui.home && cur_page()->fam == FAM_SAVE && str_eq(cur_page()->title, PRE_CYC[i]) &&
+              cur_page()->sec == SAVE_SEC_PRE;
     }
+    turn(EN_SELECT, 1); frames(100);
+    ok &= str_eq(cur_page()->title, "PRESETS");
     press(B_SAVE); frames(100);
-    ok &= str_eq(cur_page()->title, "USER");           /* SAVE button while in SAVE: no advance (still USER after wrap via SELECT) */
-    /* after SELECT walked to USER again, SAVE stays */
-    bad += check("1.5 (#173): SELECT walks USER > PRESETS > PHRASES > PROJECT > TOOLS > USER; SAVE button does not", ok);
+    ok &= str_eq(cur_page()->title, "PROJECT") && cur_page()->sec == SAVE_SEC_PROJ;
+    turn(EN_SELECT, 1); frames(100);
+    ok &= str_eq(cur_page()->title, PROJ_CYC[1]);
+    bad += check("SAVE: SELECT walks Presets PRESETS>USER>PHRASES; button → Project PROJECT>TOOLS", ok);
     ok = 1;
     for (i = 0; i < NPAGES; i++) {
         uint32_t f = PAGES[i].fam;
         ok &= f != FAM_SEQ || PAGES[i].graph == GR_ROLL || PAGES[i].graph == GR_EVENTS ||
-              PAGES[i].graph == GR_STEPS || PAGES[i].graph == GR_REC;
-        ok &= f != FAM_GLO || PAGES[i].graph == GR_SONG;
-        ok &= f != FAM_TRK || PAGES[i].graph == GR_TRK || PAGES[i].graph == GR_DMUTE || str_eq(PAGES[i].title, "CLOCK");
+              PAGES[i].graph == GR_STEPS;
+        ok &= f != FAM_GLO || PAGES[i].graph == GR_SONG || PAGES[i].graph == GR_REC ||
+              str_eq(PAGES[i].title, "CLOCK");
+        ok &= f != FAM_TRK || PAGES[i].graph == GR_TRK || PAGES[i].graph == GR_DMUTE;
         ok &= PAGES[i].graph != GR_TRK || f == FAM_TRK;
         ui_power_on(); ui.home = 0; ui.page = (uint8_t)i; page_entered();
         ok &= FAM_BTN[cur_fam()] == (f == FAM_TRK ? B_HOME : f == FAM_GLO ? B_GLO : f == FAM_SEQ ? B_SEQ :
@@ -2692,9 +2699,8 @@ static int test_page_cycles(void)
     }
     for (i = 0; i < NPAGES; i++)
         ok &= !str_eq(PAGES[i].title, "CHANCE") && !str_eq(PAGES[i].title, "AUTO LIST");
-    bad += check("SEQ has PATTERN/STEP/DETAIL/AUTOMATION/RECORD; SONG is GLO's only page; MIXER/LANE MUTE/CLOCK HOME's", ok);
-    {   /* 1.2: GLOBAL and SYSTEM are gone; their knobs: BPM SWG CLK on HOME > CLOCK, TUNE and ROUT on no page (the MENU's),
-         * MIDI SYNC CPU on none (INFO shows the USB state and the CPU) */
+    bad += check("SEQ has PATTERN/STEP/DETAIL/AUTOMATION; GLO has SONG/CLOCK/RECORD; MIXER/LANE MUTE HOME's", ok);
+    {   /* GLOBAL and SYSTEM are gone; BPM SWG CLK on GLO > CLOCK, TUNE and ROUT on no page (the MENU's) */
         uint32_t k, clock = 0;
         ok = 1;
         for (i = 0; i < NPAGES; i++) {
@@ -2705,34 +2711,37 @@ static int test_page_cycles(void)
             if (str_eq(PAGES[i].title, "CLOCK"))
                 clock = i + 1u;
         }
-        ok &= clock && PAGES[clock - 1u].fam == FAM_TRK && PAGES[clock - 1u].scope == SC_GLOBAL &&
+        ok &= clock && PAGES[clock - 1u].fam == FAM_GLO && PAGES[clock - 1u].scope == SC_GLOBAL &&
               PAGES[clock - 1u].id[0] == G_BPM && PAGES[clock - 1u].id[1] == G_SWING && PAGES[clock - 1u].id[2] == G_CLOCK &&
               PAGES[clock - 1u].id[3] == 0xFFu;
-        bad += check("1.2: no GLOBAL, no SYSTEM page; HOME > CLOCK has BPM SWG CLK (three knobs), TUNE and ROUT on no page", ok);
+        bad += check("no GLOBAL, no SYSTEM page; GLO > CLOCK has BPM SWG CLK (three knobs), TUNE and ROUT on no page", ok);
     }
-    /* remembered pages: one that left its family, or out of range, gives the family's first (1.2: GLO's whatever it was,
-     * GLOBAL and SYSTEM too, now SONG; HOME's never remembered: from HOME the MIXER) */
+    /* remembered pages: one that left its family, or out of range, gives the family's first;
+     * SAVE always PRESETS; HOME's never remembered: from HOME the MIXER */
     ui_power_on();
     for (i = 0; i < NPAGES; i++)
         if (PAGES[i].graph == GR_TRK) ui.fam_last[FAM_GLO] = (uint8_t)i;
         else if (PAGES[i].graph == GR_PATS) ui.fam_last[FAM_SEQ] = (uint8_t)i;
     ui.fam_last[FAM_SAVE] = 200u;
     ui.fam_last[FAM_ENV] = 250u;
-    open_family(FAM_GLO); ok = str_eq(cur_page()->title, "SONG");
+    open_family(FAM_GLO); ok = str_eq(cur_page()->title, "SONG");   /* invalid fam_last → SONG */
     open_family(FAM_SEQ); ok &= str_eq(cur_page()->title, "PATTERN") || cur_page()->graph == GR_ROLL ||
                               cur_page()->graph == GR_STEPS; /* invalid fam_last → first SEQ page (PATTERN) */
     open_family(FAM_ENV); ok &= str_eq(cur_page()->title, "ENV");
-    open_family(FAM_SAVE); ok &= str_eq(cur_page()->title, "USER");
-    open_family(FAM_GLO); open_family(FAM_GLO);          /* SONG again (its only page) */
-    ok &= str_eq(cur_page()->title, "SONG");
+    open_family(FAM_SAVE); ok &= str_eq(cur_page()->title, "PRESETS");
     go_home(); open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "SONG");
-    for (i = 0; i < 256u; i++) {                         /* any remembered index (the old GLOBAL 25, SYSTEM 27, ..) */
+    open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "CLOCK"); /* section cycle */
+    open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "RECORD");
+    for (i = 0; i < 256u; i++) {                         /* any remembered index */
         go_home(); ui.fam_last[FAM_GLO] = (uint8_t)i; open_family(FAM_GLO);
-        ok &= str_eq(cur_page()->title, "SONG") && ui.fam_last[FAM_GLO] == ui.page;
+        if (i < NPAGES && PAGES[i].fam == FAM_GLO && page_visible(i))
+            ok &= ui.page == i && ui.fam_last[FAM_GLO] == ui.page;
+        else
+            ok &= str_eq(cur_page()->title, "SONG") && ui.fam_last[FAM_GLO] == ui.page;
         go_home(); ui.fam_last[FAM_TRK] = (uint8_t)i; press(B_HOME);
         ok &= cur_page()->graph == GR_TRK && !ui.home;
     }
-    bad += check("1.2: a remembered page no longer in its family (or none) lands on the family's first; GLO always SONG, "
+    bad += check("remembered page no longer in its family (or none) lands on the family's first; SAVE always PRESETS, "
                  "HOME always the MIXER first", ok);
 
     /* AUTOMATION: + ADD CHANCE / RATCH, the knobs, EDIT: the step's fields only */
@@ -2839,47 +2848,46 @@ static int test_product_ux(void)
     bad += check("REC in ABOUT does nothing (the document and its scroll stay)",
                  ui.menu == 2 && !ui.menu_scroll && song.rec == 0 && !transport_req);
     ui_power_on(); press(B_HOME);
-    bad += check("1.2: HOME tapped on HOME opens the four-channel MIXER", cur_page()->graph == GR_TRK && !ui.home &&
+    bad += check("HOME tapped on HOME opens the four-channel MIXER", cur_page()->graph == GR_TRK && !ui.home &&
                  cur_fam() == FAM_TRK && FAM_BTN[cur_fam()] == B_HOME);
     int16_t len = TSEL->p[P_SLEN], send = TSEL->p[P_REV];
     turn(EN_K3, 1);
     bad += check("MIXER K3 edits reverb, never sequence length", TSEL->p[P_SLEN] == len && TSEL->p[P_REV] == send + 1);
     press(B_HOME);
-    ok = !ui.home && !ui.menu && str_eq(cur_page()->title, "CLOCK") && cur_fam() == FAM_TRK && FAM_BTN[cur_fam()] == B_HOME;
-    {   /* (CLOCK: HOME's LED lit, as on MIXER; GLO's not) */
-        uint8_t pos0[sizeof led_pos];
-        ui_leds();                                      /* (its positions made once, then ours) */
-        memcpy(pos0, led_pos, sizeof pos0);
-        memset(led_pos, 0xFF, sizeof led_pos);
-        led_pos[panel.btn[B_HOME]] = 0u << 3 | 1u;
-        led_pos[panel.btn[B_GLO]] = 0u << 3 | 2u;
-        frame(); ui_leds();
-        ok &= led_of(fm1_led, panel.btn[B_HOME]) && !led_of(fm1_led, panel.btn[B_GLO]);
-        memcpy(led_pos, pos0, sizeof pos0);
-    }
-    {   /* CLOCK's knobs: BPM SWG CLK as GLO > GLOBAL's were; KNOB 4 nothing */
-        int16_t bpm = song.g[G_BPM], swg = song.g[G_SWING], clk = song.g[G_CLOCK], tune = song.g[G_TUNE];
-        turn(EN_K1, 1); turn(EN_K2, 1); turn(EN_K3, 1); turn(EN_K4, 5);
-        ok &= song.g[G_BPM] == bpm + 1 && song.g[G_SWING] == swg + 1 && song.g[G_CLOCK] != clk && song.g[G_TUNE] == tune;
-        song.g[G_CLOCK] = clk;
-    }
-    press(B_HOME);
-    ok &= ui.home && !ui.menu;
+    ok = ui.home && !ui.menu;
     press(B_HOME);
     ok &= cur_page()->graph == GR_TRK;
     go_title("ENV"); press(B_HOME);
     ok &= ui.home;
     go_title("CLOCK"); press(B_HOME);
     ok &= ui.home;
-    bad += check("1.2: HOME cycles HOME > MIXER > CLOCK > HOME (CLOCK: BPM SWG CLK, HOME's LED); from any other page HOME", ok);
+    bad += check("HOME cycles Home ↔ Mixer; from any other page HOME", ok);
     hold(B_HOME);
-    bad += check("1.2: HOME held still opens the menu", ui.menu == 1);
+    bad += check("HOME held still opens the menu", ui.menu == 1);
     ui_power_on();
     frames(320);                                       /* (taps further apart than a double tap: #83) */
     press(B_GLO); frames(320); ok = cur_page()->fam == FAM_GLO && str_eq(cur_page()->title, "SONG");
-    press(B_GLO); frames(320); ok &= str_eq(cur_page()->title, "SONG") && cur_page()->fam == FAM_GLO && !ui.home;
-    go_title("CLOCK"); press(B_GLO); frames(320); ok &= str_eq(cur_page()->title, "SONG");
-    bad += check("1.2: GLO opens SONG directly, again SONG (no GLOBAL, no SYSTEM, no MIXER)", ok);
+    press(B_GLO); frames(320); ok &= str_eq(cur_page()->title, "CLOCK") && cur_page()->fam == FAM_GLO;
+    {   /* CLOCK: GLO's LED lit; HOME's not */
+        uint8_t pos0[sizeof led_pos];
+        ui_leds();
+        memcpy(pos0, led_pos, sizeof pos0);
+        memset(led_pos, 0xFF, sizeof led_pos);
+        led_pos[panel.btn[B_HOME]] = 0u << 3 | 1u;
+        led_pos[panel.btn[B_GLO]] = 0u << 3 | 2u;
+        frame(); ui_leds();
+        ok &= led_of(fm1_led, panel.btn[B_GLO]) && !led_of(fm1_led, panel.btn[B_HOME]);
+        memcpy(led_pos, pos0, sizeof pos0);
+    }
+    {   /* CLOCK's knobs: BPM SWG CLK; KNOB 4 nothing */
+        int16_t bpm = song.g[G_BPM], swg = song.g[G_SWING], clk = song.g[G_CLOCK], tune = song.g[G_TUNE];
+        turn(EN_K1, 1); turn(EN_K2, 1); turn(EN_K3, 1); turn(EN_K4, 5);
+        ok &= song.g[G_BPM] == bpm + 1 && song.g[G_SWING] == swg + 1 && song.g[G_CLOCK] != clk && song.g[G_TUNE] == tune;
+        song.g[G_CLOCK] = clk;
+    }
+    press(B_GLO); frames(320); ok &= str_eq(cur_page()->title, "RECORD") && ui.lock == LAYER_REC;
+    press(B_GLO); frames(320); ok &= str_eq(cur_page()->title, "SONG");
+    bad += check("GLO cycles Song → Clock → Record → Song", ok);
     go_home(); btn_down(B_SEQ); frames(500);
     ok = !ui.layer && ui.home;                          /* hold alone: no map */
     btn_up(B_SEQ); frame();
@@ -4742,7 +4750,8 @@ static int test_breath(void)
         ok &= !ui.layer && !ui.lock;                   /* hold peek removed */
         btn_up(LB[i]); frame();
         press(LB[i]); frames(64); press(LB[i]); frames(100);
-        ok &= !ui.lock || (LB[i] == B_FX && cur_page()->sec == FX_SEC_PUNCH);
+        ok &= !ui.lock || (LB[i] == B_FX && cur_page()->sec == FX_SEC_PUNCH) ||
+              (LB[i] == B_GLO && cur_page()->sec == GLO_SEC_REC);
     }
     bad += check("#119 hold/double-tap layer maps removed (no breath map without sticky section)", ok);
     ui_leds();
@@ -5798,8 +5807,8 @@ static int test_seq_tools(void)
     press(B_SEQ); frames(100);
     ok &= str_eq(cur_page()->title, "AUTOMATION");
     press(B_SEQ); frames(100);
-    ok &= str_eq(cur_page()->title, "RECORD") && ui.lock == LAYER_REC;
-    bad += check("SEQ sections: Pattern → Step (SELECT: DETAIL) → Automation → Record", ok);
+    ok &= str_eq(cur_page()->title, "PATTERN") && ui.lock == LAYER_SEQ;
+    bad += check("SEQ sections: Pattern → Step (SELECT: DETAIL) → Automation → Pattern", ok);
 
     /* tools on Pattern sticky (no button held) */
     ui_power_on();
@@ -5944,16 +5953,15 @@ static int test_rec_layer(void)
           (transport_req == 1u || msg_is("PLAY FREELY"));
     bad += check("REC hold never opens a layer; release still arms on HOME", ok);
     ui_power_on();
-    open_family(FAM_SEQ);                              /* Pattern */
-    open_family(FAM_SEQ);                              /* Step */
-    open_family(FAM_SEQ);                              /* Automation */
-    open_family(FAM_SEQ); frame();                     /* Record sticky */
+    open_family(FAM_GLO);                              /* Song */
+    open_family(FAM_GLO);                              /* Clock */
+    open_family(FAM_GLO); frame();                     /* Record sticky */
     ok = str_eq(cur_page()->title, "RECORD") && ui.lock == LAYER_REC && ui.layer == LAYER_REC;
     my_steps(TSEL);
     memcpy(before, TSEL->step, sizeof before);
     key_down(white(0)); frame(); key_up(white(0)); frame(); /* F3 CLEAR */
     ok &= msg_is("SEQUENCE CLEARED") && seq_is_empty(TSEL);
-    bad += check("SEQ Record section sticky LAYER_REC: CLEAR key clears the sequence", ok);
+    bad += check("GLO Record section sticky LAYER_REC: CLEAR key clears the sequence", ok);
     return bad;
 }
 
@@ -6464,7 +6472,7 @@ static int test_usb_serial(void)
     return bad;
 }
 
-/* SELECT walks pages inside the current section. Tempo only via OCT++SELECT and HOME > CLOCK.
+/* SELECT walks pages inside the current section. Tempo only via OCT++SELECT and GLO > CLOCK.
  * MENU > BPM LOCK keeps the header lock icon; it does not block tempo (SELECT is pages, not BPM). */
 
 static int test_select_pages(void)
@@ -6486,11 +6494,9 @@ static int test_select_pages(void)
     ok &= str_eq(cur_page()->title, "LANE MUTE") && cur_page()->sec == TRK_SEC_MIX && song.g[G_BPM] == b0;
     turn(EN_SELECT, 1);
     ok &= str_eq(cur_page()->title, "MIXER") && cur_page()->sec == TRK_SEC_MIX && song.g[G_BPM] == b0;
-    press(B_HOME);                                      /* Mixer → Clock (section, not SELECT) */
-    ok &= str_eq(cur_page()->title, "CLOCK");
-    turn(EN_SELECT, 1);
-    ok &= str_eq(cur_page()->title, "CLOCK") && song.g[G_BPM] == b0;
-    bad += check("SELECT walks Mixer pages only; HOME button cycles Home/Mixer/Clock (no tempo)", ok);
+    press(B_HOME);                                      /* Mixer → Home */
+    ok &= ui.home && song.g[G_BPM] == b0;
+    bad += check("SELECT walks Mixer pages only; HOME toggles Home/Mixer (no tempo)", ok);
 
     go_title("ENV"); frame();
     env0 = ui.page;
@@ -6536,7 +6542,7 @@ static int test_select_pages(void)
     b0 = song.g[G_BPM];
     turn(EN_K1, 1);
     ok = str_eq(cur_page()->title, "CLOCK") && cur_page()->id[0] == G_BPM && song.g[G_BPM] == b0 + 1;
-    bad += check("HOME > CLOCK KNOB 1 sets the tempo", ok);
+    bad += check("GLO > CLOCK KNOB 1 sets the tempo", ok);
 
     hold(B_HOME);
     ui.menu_sel = MI_BPMLOCK;
@@ -7562,7 +7568,7 @@ static int test_fm6_ops(void)
  * bar, an empty step's stub, a TIE carried on from its note, an accent taller, the step playing on its raised cell,
  * LEN > 16 on the play head's page (stopped: the selected track's cursor page, the others' first) with its pips, DRUM
  * hits as pads (two for two hits), MUTE (its badge, the steps DIM), the selected row THEME, the meter; HOME's knobs
- * still edit the selected track, ALGORITHM moves the selection, HOME's tap still goes HOME > MIXER > CLOCK > HOME;
+ * still edit the selected track, ALGORITHM moves the selection, HOME's tap still goes Home ↔ Mixer;
  * MENU > LARGE: the cards as on a list page, the rows in the panel */
 static uint16_t tr_px(int32_t x, int32_t y) { return swap16(host_screen[(uint32_t)y * 240u + (uint32_t)x]); }
 static int32_t tr_y(uint32_t c) { return Y_GRAPH + (int32_t)c * TR_PITCH; }
@@ -7652,7 +7658,7 @@ static int test_help(void)
     frames(2200);
     ok &= ui.help_t == 0u;
     press(B_SAVE);
-    ok &= ui.help_t > 0u && cur_page()->graph == GR_USER && str_eq(help_page(), "[K1]SLOT[OCT+]SAVE[SAVE]PRESETS");
+    ok &= ui.help_t > 0u && cur_page()->graph == GR_BROWSE && str_eq(help_page(), "[K2]ENGINE[K3]FAV[K4]LIST");
     press(B_HOME);
     ok &= ui.home && ui.help_t > 0u && str_eq(help_page(), H_HOME);
     menu_put(MI_HOME, HV_LEVELS);
@@ -7869,11 +7875,10 @@ static int test_home_tracks(void)
     ok &= trk[3].p[id] != v0;
     bad += check("1.3 HOME > TRACKS: K1..K4 edit the selected track (HOME's four), ALGORITHM moves the selected row", ok);
     press(B_HOME); ok = !ui.home && cur_page()->graph == GR_TRK;
-    press(B_HOME); ok &= !ui.home && str_eq(cur_page()->title, "CLOCK");
     press(B_HOME); ok &= ui.home;
     frame();
     ok &= tr_px(3 + 22, tr_y(3) + 1) == T_THEME;
-    bad += check("1.3 HOME > TRACKS: HOME tapped still goes HOME > MIXER > CLOCK > HOME (the rows back)", ok);
+    bad += check("1.3 HOME > TRACKS: HOME tapped still goes Home ↔ Mixer (the rows back)", ok);
 
     ui_prefs |= PREF_LARGE;                             /* MENU > LARGE: the cards as on a list page, the rows */
     ui.force = 1; frame();
@@ -8007,7 +8012,7 @@ static int test_edit_quick_actions(void)
 }
 
 
-/* SEQ button cycles sections: Pattern → Step → Automation → Record; SELECT walks pages inside a section. */
+/* SEQ button cycles sections: Pattern → Step → Automation; SELECT walks pages inside a section. */
 static int test_seq_sections(void)
 {
     int bad = 0, ok;
@@ -8021,10 +8026,8 @@ static int test_seq_sections(void)
     press(B_SEQ);
     ok &= str_eq(cur_page()->title, "AUTOMATION") && cur_page()->sec == SEQ_SEC_AUTO;
     press(B_SEQ);
-    ok &= str_eq(cur_page()->title, "RECORD") && ui.lock == LAYER_REC && cur_page()->sec == SEQ_SEC_REC;
-    press(B_SEQ);
     ok &= str_eq(cur_page()->title, "PATTERN") && ui.lock == LAYER_SEQ;
-    bad += check("SEQ sections: Pattern → Step → Automation → Record (wrap); SELECT stays in Step for DETAIL", ok);
+    bad += check("SEQ sections: Pattern → Step → Automation (wrap); SELECT stays in Step for DETAIL", ok);
     return bad;
 }
 
@@ -8086,7 +8089,7 @@ static int test_mixer_solo(void)
     return bad;
 }
 
-/* Double-tap never locks; Punch-in section sticky is the exception. */
+/* Double-tap never locks; Punch-in and Record section stickies are the exceptions. */
 static int test_no_layer_lock(void)
 {
     int bad = 0, ok = 1;
@@ -8098,15 +8101,17 @@ static int test_no_layer_lock(void)
         press(B[i]); frames(64); press(B[i]); frames(200);
         if (B[i] == B_FX)
             ok &= ui.lock == 0 || cur_page()->sec == FX_SEC_PUNCH; /* two taps: Inserts then Sends, no lock */
+        else if (B[i] == B_GLO)
+            ok &= ui.lock == 0 || cur_page()->sec == GLO_SEC_CLK; /* Song → Clock, no lock yet */
         else
             ok &= !ui.lock;
     }
     ui_power_on();
     press(B_FX); frames(64); press(B_FX); frames(64); press(B_FX); frame();
     ok &= ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
-    press(B_GLO); frames(64); press(B_GLO); frames(200);
-    ok &= !ui.lock || cur_page()->fam == FAM_FX;       /* GLO double-tap never locks */
-    bad += check("no layer lock: double-tap FX/GLO/SCL/EDIT; Punch-in sticky only when on that section", ok);
+    press(B_GLO); frames(64); press(B_GLO); frames(64); press(B_GLO); frame();
+    ok &= ui.lock == LAYER_REC && cur_page()->sec == GLO_SEC_REC;
+    bad += check("no layer lock: double-tap FX/SCL/EDIT; Punch-in / Record sticky on those sections", ok);
     return bad;
 }
 

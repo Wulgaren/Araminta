@@ -434,9 +434,11 @@ enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_
        GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_REC, GR_DMUTE };
 /* page.sec: button cycles sections; SELECT walks pages that share fam+sec (ui.c open_family / select_page_step) */
 enum { FX_SEC_INS = 0, FX_SEC_SEND = 1, FX_SEC_PUNCH = 2, FX_NSEC = 3,
-       SEQ_SEC_PAT = 0, SEQ_SEC_STEP = 1, SEQ_SEC_AUTO = 2, SEQ_SEC_REC = 3, SEQ_NSEC = 4,
+       SEQ_SEC_PAT = 0, SEQ_SEC_STEP = 1, SEQ_SEC_AUTO = 2, SEQ_NSEC = 3,
        EDIT_SEC_SND = 0, EDIT_SEC_VOX = 1, EDIT_NSEC = 2,
-       TRK_SEC_MIX = 0, TRK_SEC_CLK = 1, TRK_NSEC = 2 };
+       GLO_SEC_SONG = 0, GLO_SEC_CLK = 1, GLO_SEC_REC = 2, GLO_NSEC = 3,
+       SAVE_SEC_PRE = 0, SAVE_SEC_PROJ = 1, SAVE_NSEC = 2,
+       TRK_SEC_MIX = 0 };
 
 typedef struct {
     const char *title;
@@ -484,24 +486,26 @@ static const page_t PAGES[] = {
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
     {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_ALLOC, P_DETUNE, P_PAN, P_MUTE}},
     {"VOICE 3", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_SPRD, 0xFF, 0xFF, 0xFF}},
-    {"SONG", FAM_GLO, SC_GLOBAL, GR_SONG, 0, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"USER", FAM_SAVE, SC_GLOBAL, GR_USER, 0, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"PRESETS", FAM_SAVE, SC_GLOBAL, GR_BROWSE, 0, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"PHRASES", FAM_SAVE, SC_GLOBAL, GR_PATS, 0, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, 0, {G_SLOT, 0xFF, G_LOAD, G_SAVE}},
-    {"TOOLS", FAM_SAVE, SC_GLOBAL, GR_TOOLS, 0, {G_CLRSEQ, G_INITSND, 0xFF, 0xFF}},
+    /* GLO: Song → Clock → Record */
+    {"SONG", FAM_GLO, SC_GLOBAL, GR_SONG, GLO_SEC_SONG, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"CLOCK", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_CLK, {G_BPM, G_SWING, G_CLOCK, 0xFF}},
+    {"RECORD", FAM_GLO, SC_GLOBAL, GR_REC, GLO_SEC_REC, {0xFF, 0xFF, 0xFF, 0xFF}},
+    /* SAVE: Presets (PRESETS / USER / PHRASES) → Project (PROJECT / TOOLS) */
+    {"PRESETS", FAM_SAVE, SC_GLOBAL, GR_BROWSE, SAVE_SEC_PRE, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"USER", FAM_SAVE, SC_GLOBAL, GR_USER, SAVE_SEC_PRE, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"PHRASES", FAM_SAVE, SC_GLOBAL, GR_PATS, SAVE_SEC_PRE, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, SAVE_SEC_PROJ, {G_SLOT, 0xFF, G_LOAD, G_SAVE}},
+    {"TOOLS", FAM_SAVE, SC_GLOBAL, GR_TOOLS, SAVE_SEC_PROJ, {G_CLRSEQ, G_INITSND, 0xFF, 0xFF}},
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, 0, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, 0, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
-    /* SEQ: Pattern → Step → Automation → Record */
+    /* SEQ: Pattern → Step → Automation */
     {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_PAT, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
     {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
     {"AUTOMATION", FAM_SEQ, SC_TRACK, GR_EVENTS, SEQ_SEC_AUTO, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"RECORD", FAM_SEQ, SC_GLOBAL, GR_REC, SEQ_SEC_REC, {0xFF, 0xFF, 0xFF, 0xFF}},
-    /* HOME: Mixer (mix + drum lane mutes) → Clock; ui.home is its own section (home_tap) */
+    /* HOME: Mixer (mix + drum lane mutes); ui.home is its own section (home_tap) */
     {"MIXER", FAM_TRK, SC_TRK, GR_TRK, TRK_SEC_MIX, {0, 1, 2, 3}},
     {"LANE MUTE", FAM_TRK, SC_TRK, GR_DMUTE, TRK_SEC_MIX, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"CLOCK", FAM_TRK, SC_GLOBAL, GR_NONE, TRK_SEC_CLK, {G_BPM, G_SWING, G_CLOCK, 0xFF}},
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */
