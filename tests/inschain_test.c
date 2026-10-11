@@ -33,6 +33,52 @@ static uint64_t hash_out(uint32_t blocks)
     return h;
 }
 
+/* sum of |left| over blocks (after a short settle): insert FILTER CUT / RES must move this */
+static int64_t energy_out(uint32_t settle, uint32_t blocks)
+{
+    int64_t e = 0;
+    uint32_t i, b;
+    render_blocks(settle);
+    for (b = 0; b < blocks; b++) {
+        mix_block(out_buf, CTL);
+        for (i = 0; i < CTL; i++) {
+            int32_t x = out_buf[2u * i];
+            e += x < 0 ? -x : x;
+        }
+    }
+    return e;
+}
+
+/* bright ANALOG saw, synth filter open: insert stages alone colour the sound */
+static void clear_stages(track_t *t)
+{
+    uint32_t i;
+    for (i = P_IORD; i < P_FTYPE; i++)
+        t->p[i] = TP[i].def;
+    t->p[P_IORD] = 0;
+    t->p[P_IDMIX] = t->p[P_IFMIX] = t->p[P_ICMIX] = t->p[P_IPMIX] = t->p[P_ILMIX] = t->p[P_IHMIX] = 0;
+    t->p[P_DIST] = 0;
+    t->p[P_DLY] = t->p[P_REV] = 0;
+    t->p[P_E4] = 127;
+    t->p[P_E5] = 0;
+    t->p[P_ED_FLT] = 0;
+}
+static void filter_setup(track_t *t, int32_t type, int32_t cut, int32_t res, int32_t mix)
+{
+    clear_stages(t);
+    t->p[P_IFTYPE] = (int16_t)type;
+    t->p[P_IFCUT] = (int16_t)cut;
+    t->p[P_IFRES] = (int16_t)res;
+    t->p[P_IFMIX] = (int16_t)mix;
+}
+/* hold a note, settle, hash: used to prove a stage's knobs move the render */
+static uint64_t note_hash(uint32_t settle, uint32_t blocks)
+{
+    trk_note_on(&trk[0], 60, 110);
+    render_blocks(settle);
+    return hash_out(blocks);
+}
+
 static void fresh(void)
 {
     uint32_t k;
@@ -342,6 +388,144 @@ int main(void)
     }
 
     ck("ANALOG FILTER TYPE includes COMB", NELEM(N_FTYPE) == 4u && str_eq(N_FTYPE[3], "COMB"));
+
+    /* insert FILTER: CUT is Q8 into tsvf_coef (same as ANALOG). A low CUT must muffle a bright saw;
+     * RES must raise a band-pass peak. Regression for the raw 0..127 cutoff bug (wet ≈ silence). */
+    {
+        int64_t e_lo, e_hi, e_res0, e_res;
+        fresh();
+        t = &trk[0];
+        filter_setup(t, IFT_LP, 32, 40, 114);           /* ~90 % mix, dark CUT */
+        trk_note_on(t, 60, 100);
+        e_lo = energy_out(16, 48);
+        fresh();
+        t = &trk[0];
+        filter_setup(t, IFT_LP, 110, 40, 114);          /* open CUT */
+        trk_note_on(t, 60, 100);
+        e_hi = energy_out(16, 48);
+        ck("FILTER LP: low CUT muffles vs open CUT (energy)",
+           e_lo > 0 && e_hi > e_lo * 2);
+        printf("inschain:   LP energy CUT 32 / 110: %lld / %lld\n",
+               (long long)e_lo, (long long)e_hi);
+
+        fresh();
+        t = &trk[0];
+        filter_setup(t, IFT_BP, 64, 0, 127);
+        trk_note_on(t, 72, 100);
+        e_res0 = energy_out(16, 48);
+        fresh();
+        t = &trk[0];
+        filter_setup(t, IFT_BP, 64, 110, 127);
+        trk_note_on(t, 72, 100);
+        e_res = energy_out(16, 48);
+        ck("FILTER BP: RES raises energy at the cutoff",
+           e_res0 > 0 && e_res > e_res0 + e_res0 / 4);
+        printf("inschain:   BP energy RES 0 / 110: %lld / %lld\n", (long long)e_res0, (long long)e_res);
+
+        fresh();
+        t = &trk[0];
+        filter_setup(t, IFT_COMB, 20, 90, 127);
+        wet = note_hash(16, 48);
+        fresh();
+        t = &trk[0];
+        filter_setup(t, IFT_COMB, 110, 90, 127);
+        ck("FILTER COMB: CUT changes the comb delay (and the render)",
+           wet != note_hash(16, 48));
+    }
+
+    /* Every insert stage: MIX engages, and each exposed knob moves the render. */
+    {
+        uint64_t h0, h1;
+
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IDMODE] = IDM_SOFT; t->p[P_DIST] = 20; t->p[P_IDMIX] = 127; h0 = note_hash(16, 48);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IDMODE] = IDM_SOFT; t->p[P_DIST] = 100; t->p[P_IDMIX] = 127; h1 = note_hash(16, 48);
+        ck("DIST DRIVE moves the render", h0 != h1);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IDMODE] = IDM_SOFT; t->p[P_DIST] = 80; t->p[P_ED_FX] = -40; t->p[P_IDMIX] = 127; h0 = note_hash(16, 48);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IDMODE] = IDM_SOFT; t->p[P_DIST] = 80; t->p[P_ED_FX] = 40; t->p[P_IDMIX] = 127; h1 = note_hash(16, 48);
+        ck("DIST TONE moves the render", h0 != h1);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IDMODE] = IDM_HARD; t->p[P_DIST] = 80; t->p[P_IDMIX] = 127; h0 = note_hash(16, 48);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IDMODE] = IDM_FOLD; t->p[P_DIST] = 80; t->p[P_IDMIX] = 127; h1 = note_hash(16, 48);
+        ck("DIST MODE moves the render", h0 != h1);
+
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_ICBITS] = 20; t->p[P_ICRATE] = 96; t->p[P_ICLPF] = 96; t->p[P_ICMIX] = 127; h0 = note_hash(16, 48);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_ICBITS] = 100; t->p[P_ICRATE] = 96; t->p[P_ICLPF] = 96; t->p[P_ICMIX] = 127; h1 = note_hash(16, 48);
+        ck("CRUSH BITS moves the render", h0 != h1);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_ICBITS] = 40; t->p[P_ICRATE] = 10; t->p[P_ICLPF] = 96; t->p[P_ICMIX] = 127; h0 = note_hash(16, 48);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_ICBITS] = 40; t->p[P_ICRATE] = 110; t->p[P_ICLPF] = 96; t->p[P_ICMIX] = 127; h1 = note_hash(16, 48);
+        ck("CRUSH RATE moves the render", h0 != h1);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_ICBITS] = 40; t->p[P_ICRATE] = 40; t->p[P_ICLPF] = 20; t->p[P_ICMIX] = 127; h0 = note_hash(16, 48);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_ICBITS] = 40; t->p[P_ICRATE] = 40; t->p[P_ICLPF] = 110; t->p[P_ICMIX] = 127; h1 = note_hash(16, 48);
+        ck("CRUSH LPF moves the render", h0 != h1);
+
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IPRATE] = 40; t->p[P_IPDEP] = 20; t->p[P_IPFBK] = 96; t->p[P_IPMIX] = 127; h0 = note_hash(16, 48);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IPRATE] = 40; t->p[P_IPDEP] = 120; t->p[P_IPFBK] = 96; t->p[P_IPMIX] = 127; h1 = note_hash(16, 48);
+        ck("PHASR DEPTH moves the render", h0 != h1);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IPRATE] = 10; t->p[P_IPDEP] = 100; t->p[P_IPFBK] = 10; t->p[P_IPMIX] = 127; h0 = note_hash(16, 48);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IPRATE] = 10; t->p[P_IPDEP] = 100; t->p[P_IPFBK] = 120; t->p[P_IPMIX] = 127; h1 = note_hash(16, 48);
+        ck("PHASR FDBK moves the render", h0 != h1);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IPRATE] = 10; t->p[P_IPDEP] = 100; t->p[P_IPFBK] = 96; t->p[P_IPMIX] = 127; h0 = note_hash(16, 48);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IPRATE] = 100; t->p[P_IPDEP] = 100; t->p[P_IPFBK] = 96; t->p[P_IPMIX] = 127; h1 = note_hash(16, 48);
+        ck("PHASR RATE moves the render", h0 != h1);
+
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_ILRATE] = 40; t->p[P_ILDEP] = 20; t->p[P_ILMIX] = 127; h0 = note_hash(16, 48);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_ILRATE] = 40; t->p[P_ILDEP] = 120; t->p[P_ILMIX] = 127; h1 = note_hash(16, 48);
+        ck("FLANG DEPTH moves the render", h0 != h1);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_ILRATE] = 10; t->p[P_ILDEP] = 100; t->p[P_ILMIX] = 127; h0 = note_hash(16, 48);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_ILRATE] = 100; t->p[P_ILDEP] = 100; t->p[P_ILMIX] = 127; h1 = note_hash(16, 48);
+        ck("FLANG RATE moves the render", h0 != h1);
+
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IHRATE] = 40; t->p[P_IHDEP] = 20; t->p[P_IHMIX] = 127; h0 = note_hash(16, 48);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IHRATE] = 40; t->p[P_IHDEP] = 120; t->p[P_IHMIX] = 127; h1 = note_hash(16, 48);
+        ck("CHOR DEPTH moves the render", h0 != h1);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IHRATE] = 10; t->p[P_IHDEP] = 100; t->p[P_IHMIX] = 127; h0 = note_hash(16, 48);
+        fresh(); t = &trk[0]; clear_stages(t);
+        t->p[P_IHRATE] = 100; t->p[P_IHDEP] = 100; t->p[P_IHMIX] = 127; h1 = note_hash(16, 48);
+        ck("CHOR RATE moves the render", h0 != h1);
+
+        /* DLY send: wait past the first echo (50 ms free time) so the amount is audible */
+        fresh(); t = &trk[0]; clear_stages(t);
+        song.g[G_DLYOWN] = 0; song.g[G_DTIME] = (int16_t)(DTIME_FREE + 50);
+        song.g[G_DFDBK] = 90; song.g[G_DMIX] = 127;
+        t->p[P_DLY] = 40; h0 = note_hash(delay_samples() / CTL + 16u, 64);
+        fresh(); t = &trk[0]; clear_stages(t);
+        song.g[G_DLYOWN] = 0; song.g[G_DTIME] = (int16_t)(DTIME_FREE + 50);
+        song.g[G_DFDBK] = 90; song.g[G_DMIX] = 127;
+        t->p[P_DLY] = 120; h1 = note_hash(delay_samples() / CTL + 16u, 64);
+        ck("DLY send amount moves the render (after the first echo)", h0 != h1);
+
+        fresh(); t = &trk[0]; clear_stages(t);
+        song.g[G_REVOWN] = 0; song.g[G_RTYPE] = 2; song.g[G_RSIZE] = 90; song.g[G_RDAMP] = 60;
+        t->p[P_REV] = 40; h0 = note_hash(24, 64);
+        fresh(); t = &trk[0]; clear_stages(t);
+        song.g[G_REVOWN] = 0; song.g[G_RTYPE] = 2; song.g[G_RSIZE] = 90; song.g[G_RDAMP] = 60;
+        t->p[P_REV] = 120; h1 = note_hash(24, 64);
+        ck("REV send amount moves the render", h0 != h1);
+    }
 
     printf("inschain: %d failure(s)\n", bad);
     return bad ? 1 : 0;

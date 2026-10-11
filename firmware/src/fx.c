@@ -1102,14 +1102,21 @@ static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, const track_t 
     uint32_t i, ft = (uint32_t)clamp(t->p[P_IFTYPE], 0, IFT_N - 1);
     int32_t cut = t->p[P_IFCUT], res = t->p[P_IFRES], k = 8192 - res * 7600 / 127;
     tsvf_t flt;
-    tsvf_coef(&flt, cut, res);
+    /* tsvf_coef takes cutoff in Q8 (0..127 << 8), as ANALOG / TRIO / NOISE do */
+    tsvf_coef(&flt, cut << 8, res);
     for (i = 0; i < n; i++) {
         int32_t x = b[i], y;
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
         if (!s->w && !tw) { b[i] = x; continue; }
         if (ft == IFT_COMB) {
-            int32_t d = s->comb[s->wp % IC_LEN];
-            int32_t fbk = res * 200;
+            /* CUT sets the comb delay (FS / cutoff Hz), clamped to the 64-sample line */
+            uint32_t len = (uint32_t)FS / CUTOFF_HZ[clamp(cut, 0, 127)];
+            int32_t d, fbk = res * 200;
+            if (len < 2u)
+                len = 2u;
+            if (len >= IC_LEN)
+                len = IC_LEN - 1u;
+            d = s->comb[(s->wp + IC_LEN - len) % IC_LEN];
             y = x + mulq15(d, fbk);
             s->comb[s->wp % IC_LEN] = (int16_t)clamp(y >> 2, -32767, 32767);
             s->wp = (uint16_t)((s->wp + 1u) % IC_LEN);
