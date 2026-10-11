@@ -758,6 +758,10 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         return 0;
     memset(q, 0, sizeof *q); q->magic = PROJ_MAGIC; q->size = sizeof *q;
     memcpy(q->g, b + 8, sizeof q->g); q->sel = b[62]; q->parts = b[63]; q->phys = b[64];
+    if (q->g[G_DLYOWN] < 0 || q->g[G_DLYOWN] > (int16_t)NTRK)   /* was bus chorus CRT/CDP */
+        q->g[G_DLYOWN] = 0;
+    if (q->g[G_REVOWN] < 0 || q->g[G_REVOWN] > (int16_t)NTRK)
+        q->g[G_REVOWN] = 0;
     if (v7 && (q->g[G_RTYPE] < 0 || q->g[G_RTYPE] > 1))   /* a FUN7 may still hold the old drum channel there */
         proj_rtype_room(q->g);
     for (t = 0; t < NTRK; t++) {

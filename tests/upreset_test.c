@@ -286,7 +286,7 @@ int main(void)
          P_VOIC + 1 == P_LN0 && P_LN7 + 1 == P_LSYNC && P_SQNT + 1 == P_SPRD && P_SPRD + 1 == P_IORD &&
          P_IHMIX + 1 == P_FTYPE && P_ESYNC + 1 == P_E0 && P_E0 == 119 && P_COUNT == 127;
     for (i = 0; i < 45u; i++)
-        ok &= v[i] == (int16_t)(2000 + i);
+        ok &= v[i] == (i == P_CHOR ? (int16_t)(64 + 6 + (7 << 3)) : (int16_t)(2000 + i)); /* CHO send -> FXPOS */
     for (i = P_SLCR; i < P_IORD; i++)
         ok &= v[i] == def[i];
     ok &= !v[P_IORD] && v[P_IDMODE] == IDM_SOFT && v[P_IFTYPE] == IFT_LP && !v[P_FTYPE] && !v[P_ESYNC];
@@ -301,7 +301,7 @@ int main(void)
     up_params(&r, v, def);
     ok = 1;
     for (i = 0; i < 49u; i++)
-        ok &= v[i] == (int16_t)(3000 + i);
+        ok &= v[i] == (i == P_CHOR ? (int16_t)(64 + 6 + (7 << 3)) : (int16_t)(3000 + i));
     for (i = P_M1SRC; i <= P_M4AMT; i++)
         ok &= v[i] == def[i];
     for (i = 0; i < 8u; i++)
@@ -327,7 +327,7 @@ int main(void)
                 ok &= up_valid(&o);
                 up_params(&o, v, def);
                 for (i = 0; i < np - 8u; i++)
-                    ok &= v[i] == (int16_t)(i % 100u - 30);
+                    ok &= v[i] == (i == P_CHOR ? (int16_t)(64 + 6 + (7 << 3)) : (int16_t)(i % 100u - 30));
                 for (i = np - 8u; i < P_IORD; i++)
                     ok &= v[i] == def[i];
                 ok &= !v[P_IORD] && v[P_IDMODE] == IDM_SOFT && v[P_IFTYPE] == IFT_LP && !v[P_FTYPE] && !v[P_ESYNC];

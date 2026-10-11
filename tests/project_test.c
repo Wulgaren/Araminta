@@ -114,7 +114,9 @@ static int track_ok(const proj_trk_t *n, const proj_trk_v2_t *o, uint32_t t, int
     int ok = (drum ? n->engine == ENGI_DRUM && n->preset == PROJ_DEF_KEEP && steps_grid_same(n->step, o->step)
                    : n->engine == o->engine && n->preset == o->preset && steps_same(n->step, o->step));
     for (k = 0; k <= P_DETUNE; k++)
-        ok &= n->p[k] == (drum && k == P_LEVEL ? lvl : drum && k == P_REV ? rev : oldv(t, k));
+        ok &= n->p[k] == (drum && k == P_LEVEL ? lvl : drum && k == P_REV ? rev
+                         : k == P_CHOR ? TP[P_CHOR].def   /* bus CHO send retired: FXPOS default */
+                         : oldv(t, k));
     ok &= n->p[P_SLCR] == 0 && n->p[P_SLPAT] == TP[P_SLPAT].def && n->p[P_SLRATE] == TP[P_SLRATE].def &&
           n->p[P_SLDEPTH] == TP[P_SLDEPTH].def;
     for (k = P_M1SRC; k <= P_M4AMT; k++)
@@ -147,7 +149,7 @@ static int track_v3_ok(const proj_trk_t *n, const proj_trk_v3_t *o, uint32_t t)
     uint32_t k;
     int ok = n->engine == o->engine && n->preset == o->preset && steps_same(n->step, o->step);
     for (k = 0; k <= P_SLDEPTH; k++)
-        ok &= n->p[k] == oldv3(t, k);           /* up to the SLICER: the same ids */
+        ok &= n->p[k] == (k == P_CHOR ? TP[P_CHOR].def : oldv3(t, k));  /* CHO send -> FXPOS */
     for (k = P_M1SRC; k <= P_M4AMT; k++)
         ok &= n->p[k] == TP[k].def && TP[k].def == 0;
     for (k = 0; k < 8u; k++)
@@ -607,9 +609,16 @@ int main(void)
                      c.motion.event[1].param == P_E4 && motion_valid(&c.motion) && proj_ok(&c));
         bad += check("  imported again: as it is (FM6 now)", proj_import(&d, &c, sizeof c) && !memcmp(&d, &c, sizeof d));
         (void)sum;                                      /* the same as FUN7 (as the FUN8 block above) */
-        bad += check("FUN7 with a DIGITAL track: the same", old_pack(v7, &a, OLD_FUN7, 91u) == sizeof v7 &&
-                     proj_import(&c, v7, sizeof v7) && FM4_OK(c) &&
-                     c.motion.count == 2u);
+        {
+            int16_t p7[P_COUNT];
+            memcpy(p7, p, sizeof p7);
+            ins_migrate(p7, 91u);                       /* FUN7 import rebuilds the insert block */
+            bad += check("FUN7 with a DIGITAL track: the same", old_pack(v7, &a, OLD_FUN7, 91u) == sizeof v7 &&
+                         proj_import(&c, v7, sizeof v7) &&
+                         c.t[1].engine == ENGI_FM6 && c.t[1].preset == 4u && !memcmp(c.fm6[1], pk, FM6_PACKED) &&
+                         !memcmp(c.t[1].p, p7, sizeof p7) && c.t[0].engine == 0u &&
+                         !memcmp(c.fm6[0], FM6_INIT, FM6_PACKED) && c.motion.count == 2u);
+        }
         memset(&a.motion, 0, sizeof a.motion);
         a.sum = proj_sum(&a);
         to_v4(&w4, &a);
@@ -619,6 +628,7 @@ int main(void)
             p[i] = TP[i].def;
         fm4_convert(p, v);
         fm6_pack(v, pk);
+        ins_migrate(p, PROJ_NP_V4);                     /* FUN4 np: insert defaults + FXPOS */
         ok = proj_import(&c, &buf, (int)sizeof w4) && FM4_OK(c);
         bad += check("FUN4 with a DIGITAL track (no OP ENV then: their defaults): FM6, converted", ok);
         memset(&w1, 0, sizeof w1);

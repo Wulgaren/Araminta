@@ -37,7 +37,6 @@ static void fresh(void)
 {
     uint32_t k;
     memset(dly_buf, 0, sizeof dly_buf);
-    memset(cho_buf, 0, sizeof cho_buf);
     memset(rev_comb, 0, sizeof rev_comb);
     memset(rev_ap, 0, sizeof rev_ap);
     memset(&fx, 0, sizeof fx);
@@ -214,10 +213,69 @@ int main(void)
            got[P_FTYPE] == 2 && got[P_ESYNC] == 1 && got[P_E0] == 10 && got[P_E7] == 17);
     }
 
-    /* FX pages: effects (EFFECTS, stages, DLY, REVERB), then SLICER, Punch-in, then MASTER.
-     * Stage pages have no mix knob: the percent is EFFECTS K4. */
+    /* Exclusive DLY CHAIN: owner mixes in track_insert; others' sends ignored; SEND restores bus. */
     {
-        uint32_t i, pr = NPAGES, ps = NPAGES, pd = NPAGES, pdl = NPAGES, pm = NPAGES, mix = 0;
+        uint64_t send_h, chain_h, used_h;
+        fresh();
+        t = &trk[0];
+        song.g[G_DLYOWN] = 0;
+        song.g[G_DTIME] = 1;
+        song.g[G_DFDBK] = 80;
+        song.g[G_DMIX] = 127;
+        t->p[P_DLY] = 100;
+        t->p[P_REV] = 0;
+        trk[1].p[P_DLY] = 100;
+        trk[1].p[P_REV] = 0;
+        trk_note_on(t, 60, 100);
+        render_blocks(16);
+        send_h = hash_out(48);
+        fresh();
+        t = &trk[0];
+        song.g[G_DLYOWN] = 1;                           /* track 0 owns delay as CHAIN */
+        song.g[G_DTIME] = 1;
+        song.g[G_DFDBK] = 80;
+        song.g[G_DMIX] = 127;
+        t->p[P_DLY] = 100;
+        t->p[P_REV] = 0;
+        trk_note_on(t, 60, 100);
+        render_blocks(16);
+        chain_h = hash_out(48);
+        ck("delay CHAIN on owner changes the render vs SEND bus", chain_h != send_h);
+        fresh();
+        t = &trk[0];
+        song.g[G_DLYOWN] = 2;                           /* track 1 owns; track 0 is USED */
+        song.g[G_DTIME] = 1;
+        song.g[G_DFDBK] = 80;
+        song.g[G_DMIX] = 127;
+        t->p[P_DLY] = 100;
+        t->p[P_REV] = 0;
+        trk_note_on(t, 60, 100);
+        render_blocks(16);
+        used_h = hash_out(48);
+        fresh();
+        t = &trk[0];
+        song.g[G_DLYOWN] = 2;
+        song.g[G_DTIME] = 1;
+        song.g[G_DFDBK] = 80;
+        song.g[G_DMIX] = 127;
+        t->p[P_DLY] = 0;                                /* USED: send amount ignored anyway */
+        t->p[P_REV] = 0;
+        trk_note_on(t, 60, 100);
+        render_blocks(16);
+        ck("USED track: delay send ignored (same as mix 0 while another owns CHAIN)",
+           used_h == hash_out(48));
+        ck("modes: SEND / CHAIN / USED strings",
+           fx_list_mode(&trk[0], INS_DLY)[0] == 'U' && song.g[G_DLYOWN] == 2);
+        bus_own_set(0, -1);
+        ck("release ownership restores SEND for all",
+           song.g[G_DLYOWN] == 0 && fx_list_mode(&trk[0], INS_DLY)[0] == 'S' &&
+           fx_list_mode(&trk[1], INS_DLY)[0] == 'S');
+    }
+
+    /* FX pages: effects (EFFECTS, stages, DLY, REVERB), then SLICER, Punch-in, then MASTER.
+     * Stage pages have no mix knob: the percent is EFFECTS K4. No bus CHORUS page. */
+    {
+        uint32_t i, pr = NPAGES, ps = NPAGES, pd = NPAGES, pdl = NPAGES, pm = NPAGES, mix = 0, chor = 0;
         static const uint8_t MIXK[] = {P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX, P_IHMIX};
         for (i = 0; i < NPAGES; i++) {
             uint32_t k, m;
@@ -227,6 +285,7 @@ int main(void)
             if (str_eq(PAGES[i].title, "DIST") && pd == NPAGES) pd = i;
             if (str_eq(PAGES[i].title, "DLY") && pdl == NPAGES) pdl = i;
             if (str_eq(PAGES[i].title, "MASTER") && pm == NPAGES) pm = i;
+            if (str_eq(PAGES[i].title, "CHORUS")) chor = 1;
             if (PAGES[i].graph == GR_INS)
                 for (k = 0; k < 4u; k++)
                     for (m = 0; m < sizeof MIXK; m++)
@@ -237,7 +296,13 @@ int main(void)
            PAGES[pr].sec == FX_SEC_INS && PAGES[pdl].sec == FX_SEC_INS &&
            PAGES[ps].sec == FX_SEC_SLCR && PAGES[pm].sec == FX_SEC_MASTER &&
            PAGES[pd].id[2] == P_ED_FX && PAGES[pd].id[3] == 0xFFu && !mix &&
-           PAGES[pdl].id[3] == 0xFFu && PAGES[pdl].id[0] == G_DTIME);
+           PAGES[pdl].id[3] == 0xFFu && PAGES[pdl].id[0] == G_DTIME && !chor);
+        {
+            uint8_t list[FX_LIST_N];
+            fx_list_get(&trk[0], list);
+            ck("EFFECTS list is 8: inserts + DLY + REV",
+               FX_LIST_N == 8u && list[6] == INS_DLY && list[7] == INS_REV);
+        }
     }
 
     ck("ANALOG FILTER TYPE includes COMB", NELEM(N_FTYPE) == 4u && str_eq(N_FTYPE[3], "COMB"));

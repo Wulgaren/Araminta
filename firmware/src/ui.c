@@ -142,7 +142,7 @@ static struct {
     uint64_t plk_rm, plk_acc;    /* .. the grid's step keys pressed on a hit (bit = step): it goes when the key is let
                                   * go, unless the key was held for a lock (its accent: plk_acc) */
     uint8_t hot_col, hot_t;      /* column whose knob was just turned (drawn white) */
-    uint8_t ior_sel;             /* EFFECTS page: highlighted chain slot 0..INS_N-1 */
+    uint8_t ior_sel;             /* EFFECTS page: highlighted list slot 0..FX_LIST_N-1 */
     uint8_t menu;                /* 0 off, 1 list, 2 about + credits, 3 info (1.2) (HOME held) */
     uint8_t menu_sel;            /* MENU: the row (menu_items.c MI_*; its tab MI_TAB), kept while the device runs */
     uint8_t menu_row[5];         /* MENU: the row last picked in each tab, from its first (ALGORITHM comes back to it) */
@@ -500,9 +500,15 @@ static int dly_page(const page_t *pg)
 static uint32_t ior_pct_id(void)
 {
     static const uint8_t MIX[INS_N] = {P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX, P_IHMIX};
-    uint8_t ord[INS_N];
-    ins_order_get(TSEL, ord);
-    return MIX[ord[ui.ior_sel < INS_N ? ui.ior_sel : 0u]];
+    uint8_t ord[FX_LIST_N];
+    uint32_t st;
+    fx_list_get(TSEL, ord);
+    st = ord[ui.ior_sel < FX_LIST_N ? ui.ior_sel : 0u];
+    if (st == INS_DLY)
+        return P_DLY;
+    if (st == INS_REV)
+        return P_REV;
+    return MIX[st < INS_N ? st : 0u];
 }
 /* parameter locks: a page whose KNOB 1..4 can lock (a track's sound: one of its parameters can be motion; not MOD's
  * slots), the parameter KNOB k locks (ui.plk_src's page, HOME's four), 0xFF = none */

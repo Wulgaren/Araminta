@@ -3145,8 +3145,9 @@ static int test_layer(void)
     project_load(2);
     bad += check("REVERB page: TYPE HALL (power-on) / ROOM / SPRING; a project keeps SPRING",
                  ok && song.g[G_RTYPE] == 1);
-    go_title("CHORUS");
-    bad += check("  CHORUS page: CRT CDP", cur_page()->fam == FAM_FX && cur_page()->id[0] == G_CRATE);
+    go_title("CHOR");
+    bad += check("  CHOR insert page (no bus CHORUS)", cur_page()->fam == FAM_FX && cur_page()->graph == GR_INS &&
+                 cur_page()->id[0] == P_IHRATE);
 
     ui_power_on();
     go_title("PUNCH"); frame();
@@ -6129,10 +6130,10 @@ static int test_div_order(void)
     ui_power_on();
     for (k = 0; k < NELEM(LISTS); k++) {           /* left end -> right end: each one shorter than the one before */
         const param_desc_t *d = LISTS[k];
-        int32_t v = d->def, n, seen = 0;
+        int32_t v = d->def, n, seen = 0, nshow = enum_order_n(d);
         uint32_t prev = 0xFFFFFFFFu, len;
         for (n = 0; n < 40; n++) v = param_turn(d, v, -1);
-        for (n = 0; n <= d->max - d->min; n++) {
+        for (n = 0; n < nshow; n++) {
             len = d->names == N_SLDIV ? 1000000u / SL_DEN[v] : v >= 10 ? (beat_samples() * 3u) >> DIV_DOT[v - 10] :
                   div_samples((uint32_t)v);                     /* (TIME's dotted ones, 1.5.1: fx.c delay_samples) */
             if (!(len < prev && enum_rank(d, v) == d->min + n && !((seen >> v) & 1))) {
@@ -6144,7 +6145,8 @@ static int test_div_order(void)
             prev = len;
             v = param_turn(d, v, 1);
         }
-        ok &= seen == (1 << (d->max - d->min + 1)) - 1;
+        ok &= d->names != N_DTIME ? seen == (1 << nshow) - 1
+                                 : seen == 0x1C7F && !(seen & 0x380); /* TIME: 0..6,10..12; not 7..9 */
     }
     ok &= str_eq(N_DIV[2], "1/16") && str_eq(N_DIV[4], "8T") && str_eq(N_DIV[9], "4BAR") && TP[P_SDIV].def == 2;
     ok &= param_turn(&TP[P_SDIV], 2, 1) == 5 && param_turn(&TP[P_SDIV], 2, -1) == 4 &&   /* 1/16: right 16T, left 8T */
@@ -8226,7 +8228,7 @@ static int test_fx_sections(void)
         if (cur_page()->sec == 0u) nins++;
         turn(EN_SELECT, 1);
     }
-    ok &= nins >= 9u;                                   /* EFFECTS + 6 inserts + DLY REVERB CHORUS */
+    ok &= nins >= 8u;                                   /* EFFECTS + 6 inserts + DLY REVERB */
     ok &= cur_page()->sec == FX_SEC_INS;                /* SELECT stayed in Effects */
     press(B_FX);
     ok &= cur_page()->fam == FAM_FX && cur_page()->sec == FX_SEC_SLCR && str_eq(cur_page()->title, "SLICER");
@@ -8275,6 +8277,58 @@ static int test_fx_sections(void)
         }
     }
     bad += check("EFFECTS: K1 chooses, K2 moves, K3 send or chain, K4 mix; PRESETS loads a sound", ok);
+
+    ui_power_on();
+    go_title("EFFECTS");
+    {
+        uint8_t ord[FX_LIST_N];
+        uint32_t i, dly_slot = 0xFFu;
+        song.g[G_DLYOWN] = 0;
+        TSEL->p[P_DLY] = 40;
+        fx_list_get(TSEL, ord);
+        for (i = 0; i < FX_LIST_N; i++)
+            if (ord[i] == INS_DLY) { dly_slot = i; break; }
+        ok = dly_slot < FX_LIST_N && fx_list_mode(TSEL, INS_DLY)[0] == 'S';
+        ui.ior_sel = (uint8_t)dly_slot;
+        turn(EN_K3, 1);                                 /* claim delay as CHAIN on track 0 */
+        ok &= song.g[G_DLYOWN] == 1 && fx_list_mode(TSEL, INS_DLY)[0] == 'C';
+        song.sel = 1;
+        ok &= fx_list_mode(&trk[1], INS_DLY)[0] == 'U';
+        trk[1].p[P_DLY] = 80;
+        turn(EN_K4, 8);                                 /* USED: mix ignored */
+        ok &= trk[1].p[P_DLY] == 80;
+        song.sel = 0;
+        ui.ior_sel = (uint8_t)dly_slot;
+        turn(EN_K3, 1);                                 /* release → SEND for all */
+        ok &= song.g[G_DLYOWN] == 0 && fx_list_mode(&trk[1], INS_DLY)[0] == 'S';
+        song.g[G_REVOWN] = 0;
+        fx_list_get(TSEL, ord);
+        for (i = 0; i < FX_LIST_N; i++)
+            if (ord[i] == INS_REV) { ui.ior_sel = (uint8_t)i; break; }
+        turn(EN_K3, 1);
+        ok &= song.g[G_REVOWN] == 1 && fx_list_mode(TSEL, INS_REV)[0] == 'C' &&
+              fx_list_mode(&trk[2], INS_REV)[0] == 'U';
+    }
+    bad += check("EFFECTS: DLY/REV exclusive CHAIN; others USED; release restores SEND", ok);
+
+    ui_power_on();
+    go_title("EFFECTS");
+    {
+        uint8_t ord[FX_LIST_N];
+        uint32_t i, has_chor = 0, has_dly = 0, has_rev = 0;
+        fx_list_get(TSEL, ord);
+        for (i = 0; i < FX_LIST_N; i++) {
+            has_chor |= ord[i] == INS_CHOR;
+            has_dly |= ord[i] == INS_DLY;
+            has_rev |= ord[i] == INS_REV;
+        }
+        ok = FX_LIST_N == 8u && has_chor && has_dly && has_rev &&
+             str_eq(N_ISTAGE[INS_CHOR], "CHOR") && str_eq(N_ISTAGE[INS_DLY], "DLY") &&
+             str_eq(N_ISTAGE[INS_REV], "REV") && str_eq(fx_list_mode(TSEL, INS_DLY), "SEND");
+        ui.ior_sel = 0;
+        ok &= cur_page()->graph == GR_IORD;
+    }
+    bad += check("EFFECTS list: 8 rows with CHOR+DLY+REV; fader page GR_IORD; default SEND", ok);
 
     ui_power_on();
     go_title("DLY");
