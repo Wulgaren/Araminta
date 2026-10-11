@@ -633,7 +633,10 @@ static void pk_mdst_name(const track_t *t, uint32_t d, char *b)
     static const char *const LONG[] = {
         "OFF", "PITCH", "CUTOFF", "SHAPE", "AMP", "PAN", "DISTORT", "CHORUS", "DELAY", "REVERB", "RATE",
         "VIBRATO", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH", "PATTERN", "RATE",
-        "DEPTH", "CHORD", "VOICING"};
+        "DEPTH", "CHORD", "VOICING",
+        "TONE", "MIX", "CUTOFF", "RESO", "MIX", "BITS", "RATE", "LPF", "MIX",
+        "RATE", "DEPTH", "FDBK", "MIX", "RATE", "DEPTH", "MIX", "RATE", "DEPTH"};
+    _Static_assert(NELEM(LONG) == MD_N, "pk_mdst LONG == MD_N");
     d = (uint32_t)clamp((int32_t)d, 0, MD_N - 1);
     if (MD_ENGINE(d)) {
         const char *l = track_desc(t, P_E0 + d - MD_E1)->label;
@@ -660,6 +663,18 @@ static const char *pk_mdst_group(uint32_t d)
         return "CHORD";
     if (MD_ENGINE(d))
         return "EDIT";
+    if (d <= MD_DMIX)
+        return "DIST";
+    if (d <= MD_FMIX)
+        return "FILTER";
+    if (d <= MD_CMIX)
+        return "CRUSH";
+    if (d <= MD_PMIX)
+        return "PHASR";
+    if (d <= MD_LMIX)
+        return "FLANG";
+    if (MD_INS(d))
+        return "CHOR";
     return "OTHER";
 }
 static uint32_t pk_build_mdst(const track_t *t, uint32_t d, uint32_t *sel)
