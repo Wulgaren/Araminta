@@ -124,8 +124,8 @@ Araminta builds on Felucca 1.5.x with these ports and layout changes:
 - **SAMPLE, GRAIN and NOISE** restored (SLICE stays retired). CR78 is not in the ROM sample bank — upload a kit as
   a USR sample. On upload, the web editor's **Drum kit grid** checkbox tags the slot (`FSMP` header); SAMPLE on that
   USR set then shows the drum grid on SEQ instead of the piano roll (zones mapped by hand)
-- **VOICE** is one page: **VCE, GLD, DTUNE, SPRD**. GLD is free milliseconds (no GLMOD on the page). PAN / MUTE live
-  on MIXER
+- **VOICE** is one page: **VCE, GLD, UNI DTN, SPRD**. GLD is free milliseconds (no GLMOD on the page). PAN / MUTE live
+  on MIXER. UNI DTN spreads UNISON voices only.
 
 ## New in 1.5.1
 
@@ -250,7 +250,7 @@ The pages by button:
 | GLO | SONG | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
 | SAVE | USER, PRESETS, PHRASES (the pattern loader), PROJECT, TOOLS | UNDO |
 | LFO | LFO, LFO 2, LFO DEST, MOD | MOMENTARY (with a knob) |
-| EDIT | EDIT 1, EDIT 2, VOICE (VCE/GLD/DTUNE/SPRD; FM6 adds OPERATOR, OP ENV, OPERATOR 2; DRUM: Sound / Kit / Lanes, no Voice; ANALOG FILTER, FILTER DRIVE instead of EDIT 2) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
+| EDIT | EDIT 1, EDIT 2, VOICE (VCE/GLD/UNI DTN/SPRD; FM6 adds OPERATOR, OP ENV, OPERATOR 2; DRUM: Sound / Kit / Lanes, no Voice; ANALOG FILTER, FILTER DRIVE instead of EDIT 2) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
 | FX, SCL, ENV, ARP | their pages (FX: INSERT and INSERT 2 after the SLICER) | FX and SCL: their layers |
 | REC | arms the track | the REC layer (CLEAR, CLICK, COUNT-IN, CLICK LEVEL) |
 

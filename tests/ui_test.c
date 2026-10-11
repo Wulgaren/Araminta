@@ -3496,7 +3496,7 @@ static int test_edit_cycle(void)
     ok &= str_eq(cur_page()->title, "VOICE");                            /* Voice section: one page only */
     press(B_EDIT); frame();
     ok &= cur_page()->sec == EDIT_SEC_SND;
-    bad += check("EDIT cycle: ANALOG Sound is OSC→FILTER→FILTER DRIVE; Voice is one page (VCE GLD DTUNE SPRD)", ok);
+    bad += check("EDIT cycle: ANALOG Sound is OSC→FILTER→FILTER DRIVE; Voice is one page (VCE GLD UNI DTN SPRD)", ok);
 
     ui_power_on();
     set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;

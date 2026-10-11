@@ -550,7 +550,7 @@ static void pk_auto_name(const track_t *t, uint32_t id, char *b)
     else if (id == P_GLIDE)
         str_cpy(b, "GLIDE", 16);
     else if (id == P_DETUNE)
-        str_cpy(b, "DETUNE", 16);
+        str_cpy(b, "UNI DETUNE", 16);
     else if (id == P_SPRD)
         str_cpy(b, "SPREAD", 16);
     else if (id == P_DIST)

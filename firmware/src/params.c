@@ -123,7 +123,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_GLMODE] = PE("GLMOD", N_GLMODE, 0),
     [P_PRIO] = PE("PRIO", N_PRIO, 0),
     [P_ALLOC] = PE("ALLOC", N_ALLOC, 0),
-    [P_DETUNE] = PD("DTUNE", F_INT, 0, 127, 40),
+    [P_DETUNE] = PD("UNI DTN", F_INT, 0, 127, 40),   /* UNISON voice spread only (voice.c mono_play) */
     [P_PAN] = PD("PAN", F_BIPCT, -64, 63, 0),
     [P_MUTE] = PE("MUTE", N_ONOFF, 0),
     [P_SLCR] = PE("SLCR", N_SLCR, 0),
@@ -487,7 +487,7 @@ static const page_t PAGES[] = {
     {"OP3 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, EDIT_SEC_SND, {P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL}},
     {"OP4 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, EDIT_SEC_SND, {P_FM4_ATK, P_FM4_DEC, P_FM4_SUS, P_FM4_REL}},
     {"OP LEVEL", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_FM1_LEVEL, P_FM2_LEVEL, P_FM3_LEVEL, P_FM4_LEVEL}},
-    /* VOICE: one page (VCE GLD DTUNE SPRD). GLMOD / PRIO / ALLOC stay stored, not shown; PAN/MUTE on MIXER */
+    /* VOICE: one page (VCE GLD UNI DTN SPRD). GLMOD / PRIO / ALLOC stay stored, not shown; PAN/MUTE on MIXER */
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_VOICE, P_GLIDE, P_DETUNE, P_SPRD}},
     /* GLO: Song → Clock → Record */
     {"SONG", FAM_GLO, SC_GLOBAL, GR_SONG, GLO_SEC_SONG, {0xFF, 0xFF, 0xFF, 0xFF}},
