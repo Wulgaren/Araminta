@@ -84,17 +84,16 @@ static struct {
     uint16_t bg, surf, text, theme, accent;
     uint16_t mid, dim, line, sel, tint, ink, rec, raise, key, lane, grid;
     uint8_t light, mono;
-    uint8_t style;               /* MENU > STYLE (ui.c style_apply): ST_FLAT, ST_LINE */
+    uint8_t style;               /* always ST_FLAT (STYLE retired; ST_LINE kept for host tests of the old path) */
     uint32_t gen;                /* bumped by palette_set (the text ramps follow) */
 } ux;
-/* STYLE: FLAT, the filled SURF cards and panels; LINE, no SURF (it is BG) and 1 px T_RULE dividers between the
- * areas instead (ui_draw.c draw_frame). (1.0.2: PIXEL, LINE un-antialiased, retired; a saved PIXEL reads as LINE.)
- * Selections, accents, keys and gauges keep their fills in every style */
+/* STYLE: always FLAT (no 1 px rule dividers). SURF is BG on every palette (as MONO: no raised card fill).
+ * ST_LINE remains in the draw paths for host tests only. (1.0.2: PIXEL retired.) */
 #define ST_FLAT 0u
 #define ST_LINE 1u
 #define T_RULE ux.dim            /* LINE: the dividers (DIM: visible on NIGHT, GREY, MONO and PAPER, quieter than labels) */
 #define T_BG ux.bg               /* background */
-#define T_SURF ux.surf           /* dialogs, menu rows, mixer strips */
+#define T_SURF ux.surf           /* dialogs, menu rows, mixer strips (equals BG: no card fill) */
 #define T_TEXT ux.text           /* primary text */
 #define T_THEME ux.theme         /* values, curves, the gauge's end line */
 #define T_ACCENT ux.accent       /* the one active thing: hot knob, cursor, playhead */
@@ -137,14 +136,14 @@ static void palette_set(uint32_t i)
     const ui_pal_t *p = &UI_PALETTES[i % NPALETTES];
     i %= NPALETTES;
     ux.mono = i == UI_GREY_INDEX;
-    ux.bg = p->bg; ux.surf = ux.style ? p->bg : p->surf; ux.text = p->text; ux.theme = p->theme; ux.accent = p->accent;
+    ux.bg = p->bg; ux.surf = p->bg; ux.text = p->text; ux.theme = p->theme; ux.accent = p->accent;   /* SURF = BG (as MONO) */
     ux.mid = ux_mix(p->bg, p->text, UI_MID_PCT);
     ux.dim = ux_mix(p->bg, p->text, UI_DIM_PCT);
     ux.line = ux_mix(p->bg, p->text, UI_LINE_PCT);
     ux.sel = ux_mix(p->bg, p->theme, UI_SEL_PCT);
     ux.tint = ux_mix(p->bg, p->theme, UI_TINT_PCT);
     ux.ink = p->bg;
-    ux.raise = ux_mix(p->surf, p->text, UI_RAISE_PCT);
+    ux.raise = ux_mix(p->bg, p->text, UI_RAISE_PCT);
     ux.key = ux_mix(p->bg, p->text, UI_KEY_PCT);
     ux.lane = ux_mix(ux.surf, p->theme, 10);
     ux.grid = ux_mix(ux.surf, p->text, 6);

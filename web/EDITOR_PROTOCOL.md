@@ -1040,9 +1040,9 @@ before MIDI IN the first 21, 1.2 the first 23, 1.3 / 1.4 the first 24):
 | index | id | name | kind | values (min 0) | default | tab |
 | --- | --- | --- | --- | --- | --- | --- |
 | 0 | 0 | COLOR | 0 | 0..9: GREY GREEN AMBER ICE VIOLET ROSE PAPER HI-CON NIGHT MONO (the order of `UI_PALETTES`) | GREY | 0 DISPLAY |
-| 1 | 1 | STYLE | 0 | 0 FLAT, 1 LINE | FLAT | 0 DISPLAY |
+| 1 | 1 | STYLE | 0 | 0 FLAT, 1 LINE (retired: always FLAT; MENU_SET ignored; not on the device menu) | FLAT | 0 DISPLAY |
 | 2 | 2 | LARGE | 0 | 0 OFF, 1 ON | OFF | 0 DISPLAY |
-| 3 | 3 | ANIM | 0 | 0 ON, 1 OFF, 2 IDLE (1.2: ON plus the LEDs' idle animation; firmware before: max 1) | ON | 0 DISPLAY |
+| 3 | 3 | ANIM | 0 | 0 ON, 1 OFF, 2 IDLE (retired: always OFF; MENU_SET ignored; not on the device menu) | OFF | 0 DISPLAY |
 | 4 | 4 | LEDS | 0 | 0 OFF, 1 DIM LO, 2 DIM HI, 3 INV (darkest first, as the menu steps them) | DIM HI | 0 DISPLAY |
 | 5 | 5 | HOLD | 0 | 0 "0.3 s", 1 "0.4 s", 2 "0.5 s", 3 "0.6 s" | 0.4 s | 1 CONTROL |
 | 6 | 6 | KNOB ACCEL | 0 | 0 OFF, 1 ON | OFF | 1 CONTROL |
@@ -1081,13 +1081,13 @@ SCALE LEDS (id 16, 1.2, Discussion #127; the CONTROL tab shows HOLD, KNOB ACCEL,
 index 5..8 and 16): ON shows the selected track's scale on the key LEDs outside the layers (README: Key LEDs).
 Applied at once.
 
-SCREEN OFF (id 17, 1.1.5; the DISPLAY tab shows COLOR, STYLE, LARGE, ANIM, LEDS and SCREEN OFF, index 0..4 and 17):
+SCREEN OFF (id 17, 1.1.5; the DISPLAY tab shows COLOR, LARGE, LEDS and SCREEN OFF, index 0, 2, 4 and 17; STYLE / ANIM retired):
 after that long without input on the panel (a button, a key, a knob; not MIDI, not the editor) the screen and its
 backlight go off while the sound, the sequencer, MIDI and USB go on; the next touch wakes it and does nothing else.
 NEVER keeps it on. A change counts from then (a MENU_SET to 5 MIN does not turn it off at once). Applied at once.
 
-SCOPE (id 18, 1.2, Discussion #165; DISPLAY now shows COLOR, STYLE, LARGE, ANIM, LEDS, SCREEN OFF and SCOPE, index
-0..4, 17, 18): what HOME's oscilloscope draws. OUT (the default, as before) the sound after MASTER, so it shrinks with
+SCOPE (id 18, 1.2, Discussion #165; DISPLAY now shows COLOR, LARGE, LEDS, SCREEN OFF and SCOPE, index
+0, 2, 4, 17, 18; STYLE / ANIM retired): what HOME's oscilloscope draws. OUT (the default, as before) the sound after MASTER, so it shrinks with
 the volume; MIX the mix before MASTER (and before the FX layer, SPEAKER EQ and the limiter), drawn at the size MASTER
 at its top would give, whatever the knob. The metronome's click is in neither. Applied at once.
 
@@ -1115,8 +1115,8 @@ is index 4, id 4, kind 0, value 2 (`02 40`), min 0 (`00 40`), max 3 (`03 40`), "
 `F0 7D 46 4C 49 16 74 3F F7` (TUNE -12) answers `F0 7D 46 4C 49 00 16 74 3F F7` (rc 0, 1.2).
 `F0 7D 46 4C 48 19 F7` answers `F0 7D 46 4C 48 19 7F F7` (no index 25; 1.3 / 1.4: none past 23, `18`; 1.2: none past 22, `17`; before MIDI IN: none past 20, `15`; before SCOPE: none past 17, `12`; before SCREEN OFF: none past 16, `11`; 1.2 before SCALE LEDS: none past 15, `10`; 1.1 firmware: none past 14, `0F`; 1.0.5: none past 11, `0C`).
 
-HOME (id 23, 1.3, Discussions #112 / #134; DISPLAY now shows COLOR, STYLE, LARGE, ANIM, LEDS, SCREEN OFF, SCOPE and
-HOME, index 0..4, 17, 18, 23): what the device's HOME page shows under its four cards. SCOPE (the default, as before)
+HOME (id 23, 1.3, Discussions #112 / #134; DISPLAY now shows COLOR, LARGE, LEDS, SCREEN OFF, SCOPE and
+HOME, index 0, 2, 4, 17, 18, 23; STYLE / ANIM retired): what the device's HOME page shows under its four cards. SCOPE (the default, as before)
 the oscilloscope; TRACKS the four tracks as rows: each track's cushion, engine icon and sound name, the 16 steps of its
 pattern's page that plays (LEN > 16: the play head's page, stopped the selected track's cursor page; a pip per page),
 a MUTE badge, the output meter; the selected track's row highlighted. Only the look changes: HOME's knobs, ALGORITHM

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FELUCCA user interface.
- * Flat: SURF cards and panels on the palette's background, no rules, one type family (Inter Tight, three sizes), tracks
+ * Flat: no raised SURF (SURF = BG on every palette), no rule dividers, one type family (Inter Tight, three sizes), tracks
  * named by their numbers 1..4 on a cushion (icons.c trk_icon). Four columns <-> KNOB 1..4. Rendering is lazy:
  * every element remembers what it last drew and is redrawn only on change. */
 static int project_save(uint32_t slot);
@@ -43,7 +43,7 @@ static uint32_t up_gen;                      /* bumped on every user bank change
  * its default is 0) */
 #define ui_prefs (favorites.factory[15][30])
 #define PREF_LATCH 1u                          /* MENU > FX LATCH ON (#40) */
-#define PREF_ANIM_OFF 2u                       /* MENU > ANIM OFF (#46): values snap (no rolling digits, no glide) */
+#define PREF_ANIM_OFF 2u                       /* ANIM retired: always set (no rolling digits, glide, LED sweep) */
 #define PREF_ACCEL 4u                          /* MENU > KNOB ACCEL ON (#52): fast turns of wide values x2..x8 */
 #define PREF_USB_FIXED 8u                      /* MENU > USB LEVEL FIXED: USB audio at the full level, MASTER after */
 #define PREF_BPM_LOCK 16u                      /* MENU > BPM LOCK ON: lock icon by the BPM (tempo is GLO+SELECT / CLOCK) */
@@ -100,9 +100,7 @@ static void rp_put(uint32_t f, uint32_t v)
     ui_rec_prefs = (uint8_t)((ui_rec_prefs & ~(3u << (2u * f))) | st << (2u * f));
     rp_apply();
 }
-/* MENU > STYLE (ui_menu.c): ST_FLAT ST_LINE (gfx.c) in another byte no engine uses, saved with the settings;
- * 0 in older ones = FLAT; 2, the retired PIXEL (1.0.1), reads as LINE; anything else unknown as FLAT (settings_persist.c). gfx.c draws from its copy, ux.style
- * (ui_draw.c style_apply) */
+/* STYLE retired: always FLAT (ui_draw.c style_apply). Byte kept in the settings record; LINE / PIXEL ignored */
 #define ui_style (favorites.factory[15][29])
 static void draw_gaps(uint32_t y, uint32_t h);        /* (ui_draw.c) */
 

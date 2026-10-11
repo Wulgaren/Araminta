@@ -1615,7 +1615,7 @@ static int test_display_preferences(void)
 /* 1.0.5: the MENU in tabs (ui_menu.c, menu_items.c MI_TAB): every tab 1..MTAB_ROWS rows in a run, each fitting the
  * page in S and LARGE; ALGORITHM between the tabs (wraps, back at a tab's last row), PRESETS within one (wraps), any of
  * KNOB 1..4 and OCT+ / OCT- change a value, OCT+ opens CALIBRATION and ABOUT, HOME closes (OCT- not); reopened at the
- * same tab and row; the tabs slide with ANIM ON (only their strip drawn again), snap with ANIM OFF */
+ * same tab and row; STYLE/ANIM retired (MI_TAB = MTAB_COUNT, not shown); tabs always snap (ANIM always OFF) */
 static void wdt_ms(void) { fm1_ms++; }
 static void wdt_key(void) { fm1_ms++; if (fm1_ms % 50u == 0u) fm1_in.notes = 1u; }   /* a key pressed after a moment */
 static int test_menu_tabs(void)
@@ -1635,7 +1635,8 @@ static int test_menu_tabs(void)
         ok &= mr_y(n) - mr_gap() + MP_PAD <= MK_Y - 6;
     }
     ok &= MP_Y + MP_PAD + (int32_t)MTAB_ROWS * 19 - 1 + MP_PAD <= MK_Y - 6;   /* (room for MTAB_ROWS: 18 px rows 1 px apart) */
-    for (i = 0; i < MI_COUNT; i++) ok &= MI_TAB[i] < MTAB_COUNT;
+    for (i = 0; i < MI_COUNT; i++)                      /* STYLE / ANIM: MTAB_COUNT (hidden); every other row a real tab */
+        ok &= (i == MI_STYLE || i == MI_ANIM) ? MI_TAB[i] == MTAB_COUNT : MI_TAB[i] < MTAB_COUNT;
     {   /* the tab bar: MT_GAP between every two tabs at every place of the slide, inside MT_X0..MT_X1 (S and LARGE) */
         int32_t a[MTAB_COUNT], x[MTAB_COUNT], w[MTAB_COUNT], p;
         for (n = 0; n < 2u; n++)
@@ -1648,17 +1649,18 @@ static int test_menu_tabs(void)
             }
     }
     ui_prefs = 0;
-    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (8 7 6 2 5 rows), 1..8 each in a run, fit the page; tab gaps "
-                 "constant (S, LARGE)",
+    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (6 7 6 2 6 rows), 1..8 each in a run, fit the page; tab gaps "
+                 "constant (S, LARGE); STYLE/ANIM hidden",
                  ok && MTAB_COUNT == 5u && str_eq(MTAB_NAME[0], "DISPLAY") && str_eq(MTAB_NAME[MTAB_MIDI], "MIDI") &&
-                 mtab_rows(MTAB_DISPLAY) == 8u && MI_TAB[MI_HOME] == MTAB_DISPLAY && mtab_rows(MTAB_CONTROL) == 7u && mtab_rows(MTAB_AUDIO) == 6u &&
+                 mtab_rows(MTAB_DISPLAY) == 6u && MI_TAB[MI_HOME] == MTAB_DISPLAY && mtab_rows(MTAB_CONTROL) == 7u && mtab_rows(MTAB_AUDIO) == 6u &&
                  mtab_rows(MTAB_MIDI) == 2u && MI_TAB[MI_LCLEAR] == MTAB_MIDI && mtab_rows(MTAB_SYSTEM) == 6u && MI_TAB[MI_TUNE] == MTAB_AUDIO &&   /* (1.5: LEARN CLEAR, HELP) */
-                 MI_TAB[MI_MIDIIN] == MTAB_MIDI && MI_TAB[MI_INFO] == MTAB_SYSTEM && MI_INFO >= MI_VALUES);
+                 MI_TAB[MI_MIDIIN] == MTAB_MIDI && MI_TAB[MI_INFO] == MTAB_SYSTEM && MI_INFO >= MI_VALUES &&
+                 MI_TAB[MI_STYLE] == MTAB_COUNT && MI_TAB[MI_ANIM] == MTAB_COUNT);
 
     ui_power_on();
     hold(B_HOME);
     ok = ui.menu == 1 && ui.menu_sel == MI_COLOR && menu_tab() == MTAB_DISPLAY;
-    for (i = 0; i < 7u; i++) turn(EN_PRESET, 1);
+    for (i = 0; i < 5u; i++) turn(EN_PRESET, 1);        /* COLOR LARGE LEDS SCREEN OFF SCOPE HOME */
     ok &= ui.menu_sel == MI_HOME;
     turn(EN_PRESET, 1); ok &= ui.menu_sel == MI_COLOR;  /* (wraps within the tab) */
     turn(EN_PRESET, -1); ok &= ui.menu_sel == MI_HOME;
@@ -1731,7 +1733,7 @@ static int test_menu_tabs(void)
     song.g[G_TUNE] = 0; song.g[G_ROUTE] = 0;
     bad += check("MENU: OCT+ / OCT- step every value row up / down (COLOR wraps, the rest stop), the menu stays", ok);
     {   /* the ON / OFF rows: up (a knob right, OCT+) is ON, the switch's knob to the right, whichever bit it is */
-        static const uint8_t SW[] = {MI_LARGE, MI_ANIM, MI_ACCEL, MI_LATCH, MI_BPMLOCK, MI_SERIAL, MI_RESTORE};
+        static const uint8_t SW[] = {MI_LARGE, MI_ACCEL, MI_LATCH, MI_BPMLOCK, MI_SERIAL, MI_RESTORE};
         ok = 1;
         for (i = 0; i < NELEM(SW); i++) {
             ui.menu_sel = SW[i];
@@ -1740,11 +1742,14 @@ static int test_menu_tabs(void)
             turn(EN_K2, -1); ok &= str_eq(menu_vname(SW[i], menu_get(SW[i])), "OFF");
             turn(EN_K2, 1); ok &= str_eq(menu_vname(SW[i], menu_get(SW[i])), "ON");
         }
-        ui.menu_sel = MI_STYLE;
-        press(B_OCTUP); ok &= ui_style == ST_LINE;     /* (the others: up the second, LINE) */
-        press(B_OCTDN); ok &= ui_style == ST_FLAT;
-        ui_prefs = 0;
-        bad += check("MENU: on an ON / OFF row OCT+ / a knob right is ON, OCT- / left OFF (ANIM, USB SERIAL, RESTORE LAST too)", ok);
+        ui.menu_sel = MI_STYLE;                         /* STYLE / ANIM retired: knob / OCT leave them fixed */
+        press(B_OCTUP); ok &= ui_style == ST_FLAT && menu_get(MI_STYLE) == 0u;
+        press(B_OCTDN); ok &= ui_style == ST_FLAT && menu_get(MI_STYLE) == 0u;
+        ui.menu_sel = MI_ANIM;
+        press(B_OCTUP); ok &= (ui_prefs & PREF_ANIM_OFF) && menu_get(MI_ANIM) == 1u;
+        press(B_OCTDN); ok &= (ui_prefs & PREF_ANIM_OFF) && menu_get(MI_ANIM) == 1u;
+        ui_prefs = PREF_ANIM_OFF;
+        bad += check("MENU: on an ON / OFF row OCT+ / a knob right is ON, OCT- / left OFF (USB SERIAL, RESTORE LAST too); STYLE/ANIM fixed", ok);
     }
     ui.menu_sel = MI_USB;
     press(B_HOME);
@@ -1814,24 +1819,17 @@ static int test_menu_tabs(void)
     menu_close();
     bad += check("MENU: HOME closes ABOUT too; reopened at the tabs; a value row breathes OCT- / OCT+ where they can go", ok);
 
-    /* the slide: ANIM ON, a few frames from DISPLAY to CONTROL drawing only the tab strip; ANIM OFF, at once */
+    /* ANIM retired (always OFF): tabs snap at once (no slide) */
     ui_power_on();
     hold(B_HOME);
     frame();
+    ok = (ui_prefs & PREF_ANIM_OFF) != 0u && mt.pos == 0;
     turn(EN_ALGO, 1);
-    ok = mt.pos > 0 && mt.pos < MT_ONE;                 /* (a step on the way) */
-    host_blit_rows = 0; frame();
-    ok &= host_blit_rows == (uint32_t)(MP_Y - H_HEAD);  /* (only the strip) */
-    for (i = 0; i < 8u && mt.pos != MT_ONE; i++) frame();
-    ok &= mt.pos == MT_ONE && i <= 6u;
-    host_blit_rows = 0; frame();
-    ok &= host_blit_rows == 0u;                         /* (settled: nothing drawn) */
-    ui_prefs |= PREF_ANIM_OFF;
+    ok &= mt.pos == MT_ONE;                             /* CONTROL at once */
     turn(EN_ALGO, 1);
-    ok &= mt.pos == 2 * MT_ONE;
-    ui_prefs &= ~PREF_ANIM_OFF;
+    ok &= mt.pos == 2 * MT_ONE;                         /* AUDIO at once */
     menu_close();
-    bad += check("MENU tabs slide with ANIM ON (their strip only, settled within 6 frames), snap with ANIM OFF", ok);
+    bad += check("MENU tabs snap (ANIM always OFF: no slide)", ok);
     return bad;
 }
 
@@ -1844,6 +1842,7 @@ static int test_menu_project_rows(void)
     persist_t p0, p1;
     uint32_t sig;
     ui_power_on();
+    style_apply();                                      /* PREF_ANIM_OFF before export (same as after menu frames) */
     memset(&p0, 0, sizeof p0); memset(&p1, 0, sizeof p1);   /* (export keeps some fields as they were) */
     settings_export(&p0);
     sig = autosave_sig();
@@ -2074,7 +2073,6 @@ static int test_roll(void)
 {
     int bad = 0, ok;
     uint32_t k, n, e, id;
-    int32_t up, down, st;
     static const struct { const char *a, *b; int d; } DIRS[] = {
         {"120", "121", 1}, {"121", "120", -1}, {"129", "130", 1}, {"-12", "-13", -1}, {"-13", "-12", 1}, {"+5", "+6", 1},
         {"1.25", "1.30", 1}, {"0.9", "0.8", -1}, {"9", "10", 0}, {"0", "-1", 0}, {"+5", "-5", 0}, {"C3", "C4", 0},
@@ -2085,7 +2083,8 @@ static int test_roll(void)
     for (k = 0; k < sizeof DIRS / sizeof DIRS[0]; k++)
         if (roll_dir(DIRS[k].a, DIRS[k].b) != DIRS[k].d) { printf("  roll_dir %s -> %s\n", DIRS[k].a, DIRS[k].b); ok = 0; }
     bad += check("roll: numbers of one shape roll by the sign of the change; names, length, sign changes snap", ok);
-    ok = 1;                                         /* every page of every engine: names never roll, numbers do */
+    /* ANIM retired (always OFF): every value snaps; the roll path never starts */
+    ok = 1;
     n = 0;
     for (e = 0; e < NENGINES; e++)
         for (id = 0; id < NPAGES && eng_ok(e); id++) {
@@ -2104,128 +2103,71 @@ static int test_roll(void)
                 for (v = d->min; v < d->max && v - d->min < 40; v++) {
                     *vp = (int16_t)v; ui.frame += ROLL_SNAP; draw_columns();
                     *vp = (int16_t)(v + 1); ui.frame += ROLL_SNAP; draw_columns();
-                    if (ui.roll[c].from[0] && (d->fmt == F_ENUM || d->fmt == F_NOTE || d->fmt == F_ONOFF)) {
-                        printf("  %s/%s %s: %s rolls\n", ENGINES[e]->name, PAGES[id].title, d->label, ui.roll[c].from);
+                    if (ui.roll[c].from[0]) {
+                        printf("  %s/%s %s: %s rolls (ANIM OFF)\n", ENGINES[e]->name, PAGES[id].title, d->label, ui.roll[c].from);
                         ok = 0;
                     }
-                    n += ui.roll[c].from[0] != 0;
+                    n++;
                 }
                 *vp = (int16_t)v0;
             }
+            ok &= (ui_prefs & PREF_ANIM_OFF) != 0u;
         }
     ok &= n > 500u;
-    bad += check("roll: every page and engine: a name (enum, even ALG 1..8, note, ON/OFF) snaps, numbers roll", ok);
+    bad += check("roll: ANIM always OFF: every page and engine snaps (no rolling digits)", ok);
 
-    /* TUNE 0 -> 1 (card 4): a roll of ROLL_FRAMES frames, the last one the static render */
     ui_power_on(); roll_settle();
     turn(EN_K4, 1);
-    ok = song.g[G_TUNE] == 1 && str_eq(ui.roll[3].from, "0") && ui.roll[3].dir == 1;
-    for (n = 1; ui.roll[3].from[0] && n < 20u; n++) frame();
-    ok &= n == ROLL_FRAMES;
-    bad += check("roll: a card's value rolls for 9 frames (TUNE 0 -> 1), the value itself at once", ok);
-    bad += check("roll: the roll's last frame is pixel-identical to the static render", roll_static_now());
+    ok = song.g[G_TUNE] == 1 && !ui.roll[3].from[0] && roll_static_now() && (ui_prefs & PREF_ANIM_OFF);
+    bad += check("roll: a card's value snaps at once (TUNE 0 -> 1), the frame is static", ok);
 
-    /* mid-roll: only the value strip differs from the static render */
-    ui_power_on(); roll_settle();
-    turn(EN_K4, 1); frame(); frame(); frame();
-    memcpy(roll_shot, host_screen, sizeof roll_shot);
-    ui.force = 1; ui_draw();                       /* (snaps: the static render) */
-    ok = roll_diff(STRIP(3), 0) == 0 && roll_diff(STRIP(3), 1) > 20u && !ui.roll[3].from[0];
-    bad += check("roll: a mid-roll frame differs from the static render inside the value strip only", ok);
-
-    /* BPM 120 -> 121 (CLOCK KNOB 1; bare SELECT is pages): the header rolls, the digits 1 and 2 stay; the BPM card
-     * too (no unit: the label says BPM: set in M, it rolls like any number) */
     ui_power_on(); roll_settle();
     turn(EN_K1, 1);
-    ok = song.g[G_BPM] == 121 && str_eq(ui.roll[ROLL_BPM].from, "120") && ui.roll[ROLL_BPM].dir == 1 &&
-         str_eq(ui.roll[0].from, "120") && ui.roll[0].dir == 1;
-    frame(); frame();
-    memcpy(roll_shot, host_screen, sizeof roll_shot);
-    ui.force = 1; ui_draw();
-    {   /* the header's strip: from the metronome's ink to the lock's place (ui_draw.c draw_head) */
-        head_geo_t g;
-        int32_t x0, x1;
-        head_geo(&g, "121");
-        x0 = g.sx0; x1 = g.sx1;
-        n = roll_diff(x0, 0, x1, H_HEAD, 1);
-        ok &= n > 20u && roll_diff(x0, 0, x1, H_HEAD, 0) == roll_diff(STRIP(0), 1);   /* (+ the card's strip) */
-        ok &= roll_diff(g.bx, 0, g.bx + text_w(&AF_M, "12"), H_HEAD, 1) == 0;
-        ok &= x0 < g.bx && x1 <= 140 && x1 - x0 <= 40;
-    }
-    ok &= roll_diff(CARD_X(0), Y_LABEL + ROLL_Y, CARD_X(0) + 5 + text_w(&AF_M, "12"), Y_LABEL + ROLL_Y + ROLL_H, 1) == 0;
-    /* TUNE 10 -> 11 on a card: the 1 stays */
+    ok = song.g[G_BPM] == 121 && !ui.roll[ROLL_BPM].from[0] && !ui.roll[0].from[0] && roll_static_now();
     ui_power_on(); song.g[G_TUNE] = 10; roll_settle();
-    turn(EN_K4, 1); frame(); frame();
-    memcpy(roll_shot, host_screen, sizeof roll_shot);
-    ui.force = 1; ui_draw();
-    ok &= song.g[G_TUNE] == 11 && roll_diff(STRIP(3), 1) > 20u && roll_diff(STRIP(3), 0) == 0;
-    ok &= roll_diff(CARD_X(3), Y_LABEL + ROLL_Y, CARD_X(3) + 5 + text_w(&AF_M, "1"), Y_LABEL + ROLL_Y + ROLL_H, 1) == 0;
-    bad += check("roll: header BPM 120 -> 121 and a card 10 -> 11: only the strip changes, unchanged digits stay put", ok);
-
-    /* the direction: 5 -> 6 and -5 -> -6 at frame 4: the new digit comes from below (up) / above (down) */
-    ui_power_on(); song.g[G_TUNE] = 5; roll_settle();
-    st = roll_ink_row(host_screen, CARD_X(3) + 5, CARD_X(3) + 16, Y_LABEL + ROLL_Y, Y_LABEL + ROLL_Y + ROLL_H);
-    turn(EN_K4, 1); frame(); frame(); frame();
-    up = roll_ink_row(host_screen, CARD_X(3) + 5, CARD_X(3) + 16, Y_LABEL + ROLL_Y, Y_LABEL + ROLL_Y + ROLL_H);
-    ok = ui.roll[3].dir == 1;
-    ui_power_on(); song.g[G_TUNE] = 7; roll_settle();
-    turn(EN_K4, -1); frame(); frame(); frame();
-    down = roll_ink_row(host_screen, CARD_X(3) + 5, CARD_X(3) + 16, Y_LABEL + ROLL_Y, Y_LABEL + ROLL_Y + ROLL_H);
-    ok &= ui.roll[3].dir == -1 && st > 0 && up > st + 16 && down < st - 16;
-    ui_power_on(); song.g[G_TUNE] = -5; roll_settle();
-    turn(EN_K4, -1);
-    ok &= song.g[G_TUNE] == -6 && str_eq(ui.roll[3].from, "-5") && ui.roll[3].dir == -1;
-    bad += check("roll: an increase rolls up, a decrease down (-5 -> -6 is down)", ok);
-
-    /* retarget: a change mid-roll restarts from the value it was going to; a fast turn snaps */
-    ui_power_on(); song.g[G_TUNE] = 1; roll_settle();
-    turn(EN_K4, 1); frame(); frame(); frame();
     turn(EN_K4, 1);
-    ok = song.g[G_TUNE] == 3 && str_eq(ui.roll[3].from, "2") && (uint8_t)(ui.frame - ui.roll[3].t0) == 0;
-    for (n = 1; ui.roll[3].from[0] && n < 20u; n++) frame();
-    ok &= n == ROLL_FRAMES && roll_static_now();
-    bad += check("roll: a change mid-roll retargets (from the last value, restarted) and ends static", ok);
+    ok &= song.g[G_TUNE] == 11 && !ui.roll[3].from[0] && roll_static_now();
+    bad += check("roll: header BPM and card values snap (no strip animation)", ok);
+
     ui_power_on(); song.g[G_TUNE] = 1; roll_settle();
     turn(EN_K4, 1); turn(EN_K4, 1);
     ok = song.g[G_TUNE] == 3 && !ui.roll[3].from[0] && roll_static_now();
-    bad += check("roll: a change within 40 ms of the last one snaps (a fast turn)", ok);
+    bad += check("roll: successive turns stay static (no mid-roll retarget)", ok);
 
-    /* snaps: another shape, a name, the page, the track, the palette, ui.force */
     ui_power_on(); roll_settle();
     turn(EN_K4, -1);
     ok = song.g[G_TUNE] == -1 && !ui.roll[3].from[0] && roll_static_now();
-    for (k = 0; k < 5u; k++) frame();
     turn(EN_K3, 1);
     ok &= song.g[G_CLOCK] != 0 && !ui.roll[2].from[0] && roll_static_now();
     bad += check("roll: a sign / length change (0 -> -1) and a name (CLK) snap", ok);
+
     ok = 1;
     for (k = 0; k < 5u; k++) {
         ui_power_on(); roll_settle();
         turn(EN_K4, 1);
-        ok &= ui.roll[3].from[0] != 0;
+        ok &= !ui.roll[3].from[0];
         if (k == 0) { page_over = 0; go_title("ENV"); }
         else if (k == 1) turn(EN_ALGO, 1);
-        else if (k == 2) { settings.palette = 1; palette_set(1); }          /* (no ui.force) */
-        else if (k == 3) set_engine_of(TSEL, eng_step(TSEL->eng_req, 1));   /* (no ui.force) */
+        else if (k == 2) { settings.palette = 1; palette_set(1); }
+        else if (k == 3) set_engine_of(TSEL, eng_step(TSEL->eng_req, 1));
         else ui.force = 1;
         frame();
         ok &= !ui.roll[3].from[0] && !ui.roll[ROLL_BPM].from[0];
     }
     ui_power_on(); roll_settle();
     turn(EN_K1, 1);
-    ok &= ui.roll[ROLL_BPM].from[0] != 0;
+    ok &= !ui.roll[ROLL_BPM].from[0];
     ui.force = 1; frame();
     ok &= !ui.roll[ROLL_BPM].from[0];
-    bad += check("roll: a page, track, palette or engine change and ui.force snap", ok);
+    bad += check("roll: page / track / palette / engine / force: still no roll (ANIM OFF)", ok);
     palette_set(UI_GREY_INDEX);
 
-    /* MONO: every roll frame is gray */
     ui_power_on(); roll_settle();
     ok = 1;
     turn(EN_K1, 9);
     turn(EN_K4, -1);
-    for (k = 0; k < ROLL_FRAMES; k++) { ok &= screen_gray(); frame(); }
-    bad += check("roll: MONO roll frames are gray", ok);
+    for (k = 0; k < 3u; k++) { ok &= screen_gray() && !ui.roll[0].from[0] && !ui.roll[3].from[0]; frame(); }
+    bad += check("roll: MONO value changes stay gray and static", ok);
     page_over = 0;
     ui_power_on();
     return bad;
@@ -2514,21 +2456,17 @@ static int test_song_timeline(void)
     song_layout(&L);
     bad += check("SONG timeline: a long song scrolls (6 px a bar), no + ADD at 16 rows",
                  !L.fit && !L.add && L.x[1] - L.x[0] == 32 * SG_BAR && L.x[L.n + 1u] == L.x[L.n]);
-    ui_prefs |= PREF_ANIM_OFF;
     ok = 1;
     for (r = 0; r < CHAIN_ROWS; r += 3u) {
         ui.song_row = (uint8_t)r; frame();
         ok &= sg_seen(&L, r);
     }
     ui.song_row = 0; frame();
-    ok &= sgv.off == 0;
-    bad += check("SONG timeline: ANIM OFF, the cursor's block in view at once, every row", ok);
-    ui_prefs &= ~PREF_ANIM_OFF;
+    ok &= sgv.off == 0 && (ui_prefs & PREF_ANIM_OFF);
+    bad += check("SONG timeline: ANIM always OFF, the cursor's block in view at once, every row", ok);
     turn(EN_K1, 15);                                 /* (KNOB 1: the last row) */
-    ok = ui.song_row == 15u && !sg_seen(&L, 15) && sgv.off > 0;   /* on its way */
-    frames(800);
-    bad += check("SONG timeline: ANIM ON, the view glides to the cursor's block, then holds it",
-                 ok && sg_seen(&L, 15) && sgv.off == L.x[L.n + 1u] - SG_W);
+    ok = ui.song_row == 15u && sg_seen(&L, 15) && sgv.off == L.x[L.n + 1u] - SG_W;   /* snap, no glide */
+    bad += check("SONG timeline: the view snaps to the cursor's block (no glide)", ok);
     chain_config.count = 12;                         /* + ADD's slot followed too */
     song_layout(&L);
     ui.song_row = 12; frames(800);
@@ -4106,11 +4044,11 @@ static int test_piano_roll(void)
     nb = 0;
     memset(host_screen, 0, sizeof host_screen); ui.force = 1; ui_draw();
     bad += check("  LEN 32, the cursor on page 2: its 16 steps drawn", ui.bank == 1u && pr_columns_match(t, &nb) && nb == 8u);
-    lo0 = proll.lo;                                                   /* two octaves up: the view follows in steps */
+    lo0 = proll.lo;                                                   /* two octaves up: ANIM OFF snaps at once */
     for (i = 16; i < 32u; i++) if (t->step[i].n) t->step[i].note[0] += 24;
-    for (i = 0; i < 20u && proll.lo != lo0 + 24u; i++) { frame(); steps++; }
-    bad += check("  notes moved two octaves: the view follows over frames (not at once), then rests",
-                 proll.lo == lo0 + 24u && steps >= 3u && steps < 20u);
+    frame(); steps = 1;
+    bad += check("  notes moved two octaves: the view snaps at once (ANIM always OFF), then rests",
+                 proll.lo == lo0 + 24u && steps == 1u && !proll.moving && (ui_prefs & PREF_ANIM_OFF));
     {
         uint32_t sig = ui.graph_sig;
         frame(); frame();
@@ -5218,68 +5156,32 @@ static int test_momentary(void)
     bad += check("  at most 8 values: MOMENTARY FULL, the turn does nothing", ok && !mom.n);
     return bad;
 }
-/* 1.2 (Discussion #135): MENU > ANIM IDLE, the LEDs' idle animation (ui_input.c idle_leds; the picture and the scan:
- * tests/input_test.c). After a minute without panel input it starts (ui_leds then writes none), with the glow as LEDS
- * says; a key or a button held, a knob turned end it and act as ever (the turn changes its value, the key plays);
- * never while playing, armed, in a layer, the menu, a dialog or NAME, with a MIDI note lit, with ANIM ON or OFF; kept
- * with the settings ([15][10] bit 0) */
+/* ANIM IDLE retired: idle_leds never runs; menu_put(MI_ANIM) is a no-op; ui_idle bit 0 stays clear; PREF_ANIM_OFF always */
 static int test_idle_leds(void)
 {
     int bad = 0, ok;
-    int16_t v;
     persist_t p;
     ui_power_on();
     host_idle = host_anim = 0;
+    frame();
+    ok = (ui_prefs & PREF_ANIM_OFF) && menu_get(MI_ANIM) == 1u && !(ui_idle & 1u) &&
+         MI_TAB[MI_ANIM] == MTAB_COUNT && str_eq(MI_NAME[MI_ANIM], "ANIM");
     menu_put(MI_ANIM, 2);
+    ok &= menu_get(MI_ANIM) == 1u && !(ui_idle & 1u) && (ui_prefs & PREF_ANIM_OFF);
+    menu_put(MI_ANIM, 0);
+    ok &= menu_get(MI_ANIM) == 1u && (ui_prefs & PREF_ANIM_OFF);
     settings_leds = LEDS_DIM;
     frames(160);
-    fm1_ms += IDLE_LEDS_MS - 1000u; frame(); ui_leds();
-    ok = !host_idle;
-    fm1_ms += 1000u; frame(); ui_leds();
-    bad += check("ANIM IDLE: the idle animation after a minute without input (not before), with the glow (LEDS DIM)",
-                 ok && host_idle && host_idle_glow);
-    memset(fm1_led, 0x5A, sizeof fm1_led);
-    ui_leds();
-    bad += check("  it has the LEDs: ui_leds writes none", fm1_led[0] == 0x5A && fm1_led[3] == 0x5A);
-    v = TSEL->p[ENGINES[TSEL->eng_req]->knob[0]];
-    ui.home = 1;
-    turn(EN_K1, 3); ui_leds();
-    bad += check("  a knob turned ends it at once and is not swallowed (the value turns)", !host_idle &&
-                 TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] != v && fm1_led[0] != 0x5A);
-    frame(); fm1_ms += IDLE_LEDS_MS; frame(); ui_leds();   /* (the turn counted as input: a minute from it) */
-    ok = host_idle;
-    fm1_in.notes = 1u << 4; host_notes |= 1u << 4; frame(); ui_leds();
-    ok &= !host_idle;
-    fm1_in.notes = 0; frame(); ui_leds();
-    ok &= !host_idle;
-    fm1_ms += IDLE_LEDS_MS - 100u; frame(); ui_leds();
-    bad += check("  a key held ends it (the scan does at once) and counts as input: a minute again", ok && !host_idle);
-    fm1_ms += 200u; frame(); ui_leds();
-    ok = host_idle;
-    song.playing = 1; frame(); ui_leds();
-    ok &= !host_idle;
-    song.playing = 0; song.rec = 1; frame(); ui_leds();
-    ok &= !host_idle;
-    song.rec = 0; ui.menu = 1; frame(); ui_leds();
-    ok &= !host_idle;
-    ui.menu = 0; ui.confirm = CF_CLEAR_SEQ; frame(); ui_leds();
-    ok &= !host_idle;
-    ui.confirm = 0; ui.lock = LAYER_GLO; ui.layer = LAYER_GLO; ui_leds();
-    ok &= !host_idle;
-    ui.lock = 0; ui.layer = 0; fm1_ms += IDLE_LEDS_MS; ui_leds();   /* (a dialog counts as input, as for SCREEN OFF) */
-    ok &= host_idle;
-    bad += check("  never while playing, armed, in the menu, a dialog or a layer; back when they end", ok);
-    menu_put(MI_ANIM, 0); ui_leds();
-    ok = !host_idle;
-    menu_put(MI_ANIM, 1); ui_leds();
-    ok &= !host_idle;
-    menu_put(MI_ANIM, 2); settings_leds = LEDS_OFF; ui_leds();
-    bad += check("  ANIM ON / OFF: none; LEDS OFF: no glow", ok && host_idle && !host_idle_glow);
+    fm1_ms += IDLE_LEDS_MS + 1000u; frame(); ui_leds();
+    bad += check("ANIM IDLE retired: always OFF, not in the menu, idle LEDs never start (a minute without input)",
+                 ok && !host_idle && !host_idle_glow);
     settings_export(&p);
-    ok = p.favorites.factory[15][10] == 1u && !(p.favorites.factory[15][30] & PREF_ANIM_OFF);
-    p.favorites.factory[15][10] = 0;
-    ok &= settings_import(&p, sizeof p) == 1 && menu_get(MI_ANIM) == 0u;
-    bad += check("  kept with the settings ([15][10] bit 0; 0, every older setting: ANIM ON)", ok);
+    ok = !(p.favorites.factory[15][10] & 1u) && (p.favorites.factory[15][30] & PREF_ANIM_OFF);
+    p.favorites.factory[15][10] = 1u;                   /* older IDLE bit: cleared on import */
+    p.favorites.factory[15][30] &= (uint8_t)~PREF_ANIM_OFF;
+    ok &= settings_import(&p, sizeof p) == 1 && menu_get(MI_ANIM) == 1u && !(ui_idle & 1u) &&
+          (ui_prefs & PREF_ANIM_OFF);
+    bad += check("  settings import forces ANIM OFF and clears IDLE ([15][10] bit 0)", ok);
     host_idle = 0;
     ui_idle = 0;
     settings_leds = LEDS_DIM;
@@ -5429,7 +5331,7 @@ static int test_screen_off(void)
     ui_power_on();                                    /* in the MENU: OCT+ / a knob step it */
     menu_put(MI_SCROFF, 3u);
     hold(B_HOME);
-    for (i = 0; i < 5u; i++) turn(EN_PRESET, 1);
+    for (i = 0; i < 3u; i++) turn(EN_PRESET, 1);     /* COLOR LARGE LEDS -> SCREEN OFF (STYLE/ANIM retired) */
     ok = ui.menu == 1 && ui.menu_sel == MI_SCROFF;
     press(B_OCTUP); ok &= scr_get() == 4u;
     press(B_OCTUP); ok &= scr_get() == 4u;           /* (stops at the end) */
@@ -6236,15 +6138,16 @@ static int test_knob_accel(void)
         ok &= trk[song.sel].p[P_LEVEL] > 12 + 12;
         bad += check("#126 KNOB ACCEL on the FX layer (FILTER: a 12-detent flick >= 35, OFF 12, slow 12) and GLO LEVEL", ok);
     }
-    {   /* saved with the settings; settings from before it: OFF */
+    {   /* saved with the settings; settings from before it: OFF (ANIM always OFF too) */
         persist_t p;
         ui_prefs = PREF_ACCEL;
         settings_export(&p);
         ui_prefs = 0;
-        ok = settings_import(&p, (int)sizeof p) == 1 && ui_prefs == PREF_ACCEL;
+        ok = settings_import(&p, (int)sizeof p) == 1 &&
+             ui_prefs == (uint8_t)(PREF_ACCEL | PREF_ANIM_OFF);
         memset(&p.favorites, 0, sizeof p.favorites);
         p.magic = 0x50455233u;
-        ok &= settings_import(&p, (int)(sizeof p - sizeof p.favorites)) == 2 && !ui_prefs;
+        ok &= settings_import(&p, (int)(sizeof p - sizeof p.favorites)) == 2 && ui_prefs == PREF_ANIM_OFF;
         bad += check("#52 KNOB ACCEL saved with the settings; settings from before it: OFF", ok);
     }
     ui_prefs = 0;
@@ -6311,10 +6214,11 @@ static int test_usb_level(void)
         persist_t p;
         settings_export(&p);
         ui_prefs = 0;
-        ok &= settings_import(&p, (int)sizeof p) == 1 && ui_prefs == PREF_USB_FIXED;
+        ok &= settings_import(&p, (int)sizeof p) == 1 &&
+              ui_prefs == (uint8_t)(PREF_USB_FIXED | PREF_ANIM_OFF);
         memset(&p.favorites, 0, sizeof p.favorites);
         p.magic = 0x50455233u;
-        ok &= settings_import(&p, (int)(sizeof p - sizeof p.favorites)) == 2 && !ui_prefs;
+        ok &= settings_import(&p, (int)(sizeof p - sizeof p.favorites)) == 2 && ui_prefs == PREF_ANIM_OFF;
         frame();
         ok &= !fx_usb_fixed;
     }
@@ -6483,8 +6387,10 @@ static int test_usb_serial(void)
         persist_t p;
         settings_export(&p);
         ui_prefs = 0;
-        ok = settings_import(&p, (int)sizeof p) == 1 && ui_prefs == PREF_SERIAL_OFF;
-        ok &= settings_import(&p, (int)sizeof p) == 1 && ui_prefs == PREF_SERIAL_OFF;     /* (again: the same) */
+        ok = settings_import(&p, (int)sizeof p) == 1 &&
+             ui_prefs == (uint8_t)(PREF_SERIAL_OFF | PREF_ANIM_OFF);
+        ok &= settings_import(&p, (int)sizeof p) == 1 &&
+              ui_prefs == (uint8_t)(PREF_SERIAL_OFF | PREF_ANIM_OFF);     /* (again: the same) */
         /* boot (main.c): the settings, usb_serial_apply, then usb_start: the console-less descriptors from the start */
         usb_cdc_on = 1;
         usb.up = 0;
@@ -6683,8 +6589,8 @@ static int test_large(void)
     song.playing = 0;
     frame();
     ok = !(ui_prefs & PREF_LARGE) && large_kind() == LK_OFF && card_h() == CARD_H && graph_y() == Y_GRAPH;
-    ok &= MI_LARGE == MI_STYLE + 1u && str_eq(MI_NAME[MI_LARGE], "LARGE") && menu_flag(MI_LARGE) &&
-          str_eq(menu_flag(MI_LARGE)->name[0], "OFF") && str_eq(menu_flag(MI_LARGE)->name[1], "ON");
+    ok &= MI_TAB[MI_LARGE] == MTAB_DISPLAY && MI_LARGE == MI_COLOR + 1u && str_eq(MI_NAME[MI_LARGE], "LARGE") &&
+          menu_flag(MI_LARGE) && str_eq(menu_flag(MI_LARGE)->name[0], "OFF") && str_eq(menu_flag(MI_LARGE)->name[1], "ON");
     ui.force = 1; frame();
     memcpy(off, host_screen, sizeof off);
     hold(B_HOME); ui.menu_sel = MI_LARGE;
@@ -6694,16 +6600,15 @@ static int test_large(void)
     press(B_OCTUP); ok &= (ui_prefs & PREF_LARGE) && ui.menu;     /* OCT+: ON */
     press(B_OCTDN); ok &= !(ui_prefs & PREF_LARGE) && ui.menu;    /* OCT-: OFF */
     press(B_OCTUP);
-    ok &= ui_prefs == PREF_LARGE && ui_style == ST_FLAT;          /* (no other setting moved) */
+    ok &= (ui_prefs & PREF_LARGE) && (ui_prefs & PREF_ANIM_OFF) && ui_style == ST_FLAT;   /* (ANIM always OFF too) */
+    ok &= !(ui_prefs & ~(uint32_t)(PREF_LARGE | PREF_ANIM_OFF));
     press(B_HOME);
-    bad += check("#15 MENU > LARGE: OFF by default, under STYLE; KNOB 1 right / OCT+ ON, left / OCT- OFF", ok && !ui.menu);
+    bad += check("#15 MENU > LARGE: OFF by default, after COLOR on DISPLAY; KNOB 1 right / OCT+ ON, left / OCT- OFF", ok && !ui.menu);
 
-    /* HOME: tall cards (rows 28..132) and the strip (136..198); the footer as it was */
+    /* HOME: tall cards (rows 28..132) and the strip (136..198); the footer as it was (SURF = BG: geometry / K pills) */
     frame();
     ok = ui.home && large_kind() == LK_TALL && card_h() == LG_CARD_H && graph_y() == LG_Y_GRAPH && strip_kind() == SK_SCOPE;
-    ok &= lg_px(30, Y_SEP_END + 1) == T_SURF && off[(Y_SEP_END + 1) * 240 + 30] == swap16(T_BG);     /* a card where the gap was */
-    ok &= lg_px(30, LG_Y_GRAPH - 2) == T_BG && off[(LG_Y_GRAPH - 2) * 240 + 30] == swap16(T_SURF);   /* a gap in the panel */
-    ok &= lg_px(30, LG_Y_GRAPH + 1) == T_SURF;
+    ok &= ux.surf == ux.bg;
     for (c = 0; c < 4u; c++)                                      /* each column's K pill, over its knob */
         ok &= lg_px(CARD_X(c) + 8, Y_LABEL + LG_MY + LG_MH / 2) == T_KEY;
     ok &= !memcmp(off + Y_FOOT * 240, host_screen + Y_FOOT * 240, 240u * H_FOOT * sizeof *off);
@@ -6744,18 +6649,20 @@ static int test_large(void)
     ok &= !ui.layer && large_kind() == LK_TALL && lg_px(30, LG_Y_GRAPH - 2) == T_BG;
     bad += check("#15 LARGE: PRESETS and the roll keep the layout (labels in M), the layers too; MIXER tall, its tracks in the strip", ok);
 
-    {   /* saved with the settings; settings from before it: OFF (and so again: idempotent) */
+    {   /* saved with the settings; settings from before it: OFF (and so again: idempotent); ANIM always OFF */
         persist_t p, q;
         settings_export(&p);
         ui_prefs = 0;
-        ok = settings_import(&p, (int)sizeof p) == 1 && ui_prefs == PREF_LARGE;
+        ok = settings_import(&p, (int)sizeof p) == 1 &&
+             ui_prefs == (uint8_t)(PREF_LARGE | PREF_ANIM_OFF);
         q = p;
-        ok &= settings_import(&q, (int)sizeof q) == 1 && ui_prefs == PREF_LARGE && !memcmp(&p, &q, sizeof p);
+        ok &= settings_import(&q, (int)sizeof q) == 1 &&
+              ui_prefs == (uint8_t)(PREF_LARGE | PREF_ANIM_OFF) && !memcmp(&p, &q, sizeof p);
         memset(&p.favorites, 0, sizeof p.favorites);
         p.magic = 0x50455233u;                                    /* (PER3: before the favorites record) */
-        ok &= settings_import(&p, (int)(sizeof p - sizeof p.favorites)) == 2 && !ui_prefs;
+        ok &= settings_import(&p, (int)(sizeof p - sizeof p.favorites)) == 2 && ui_prefs == PREF_ANIM_OFF;
         q = p;
-        ok &= settings_import(&q, (int)sizeof q) == 1 && !ui_prefs;
+        ok &= settings_import(&q, (int)sizeof q) == 1 && ui_prefs == PREF_ANIM_OFF;
         ui.force = 1; frame();
         ok &= large_kind() == LK_OFF && lg_px(30, Y_SEP_END + 1) == T_BG;
         bad += check("#15 LARGE saved with the settings; settings from before it: OFF (idempotent)", ok);
@@ -6765,8 +6672,8 @@ static int test_large(void)
     return bad;
 }
 
-/* MENU (1.0.5: in tabs): every row reachable with ALGORITHM and PRESETS, each tab its own page; #46 MENU > ANIM: ON by
- * default (and in every older setting), OFF snaps the rolling digits, the piano roll and the menu's tabs */
+/* MENU (1.0.5: in tabs): every visible row reachable with ALGORITHM and PRESETS, each tab its own page; STYLE/ANIM
+ * retired (not shown); ANIM always OFF snaps rolling digits and the piano roll */
 static int test_menu_prefs(void)
 {
     int bad = 0, ok = 1;
@@ -6788,118 +6695,93 @@ static int test_menu_prefs(void)
         for (j = 0; j < k; j++) ok &= memcmp(shot[j], shot[k], sizeof shot[k]) != 0;
         turn(EN_ALGO, 1);
     }
-    ok &= seen == (1u << MI_COUNT) - 1u && ui.menu_sel == 0u;
-    bad += check("MENU: ALGORITHM and PRESETS reach every row, each tab a page of its own", ok);
-    /* ANIM */
-    ui.menu_sel = MI_ANIM;
-    ok = str_eq(MI_NAME[MI_ANIM], "ANIM") && !(ui_prefs & PREF_ANIM_OFF);
-    turn(EN_K1, 1); ok &= !(ui_prefs & PREF_ANIM_OFF) && (ui_idle & 1u) && menu_get(MI_ANIM) == 2u;   /* right: IDLE (1.2) */
-    turn(EN_K1, 1); ok &= (ui_idle & 1u) && str_eq(menu_vname(MI_ANIM, menu_get(MI_ANIM)), "IDLE");  /* (the end) */
-    turn(EN_K1, -1); ok &= !(ui_prefs & PREF_ANIM_OFF) && !ui_idle && menu_get(MI_ANIM) == 0u;      /* left: ON */
-    turn(EN_K1, -1); ok &= (ui_prefs & PREF_ANIM_OFF) != 0 && !ui_idle;                             /* left: OFF */
-    turn(EN_K1, -1); ok &= (ui_prefs & PREF_ANIM_OFF) != 0;                                         /* (the end) */
-    turn(EN_K1, 1); ok &= !(ui_prefs & PREF_ANIM_OFF) && !ui_idle;                                  /* right: ON */
-    press(B_OCTDN); ok &= (ui_prefs & PREF_ANIM_OFF) && ui.menu;  /* OCT-: OFF */
-    ok &= !(ui_prefs & ~(uint32_t)PREF_ANIM_OFF);                 /* (no other setting moved) */
+    ok &= seen == ((1u << MI_STYLE) - 1u) && !(seen & ((1u << MI_STYLE) | (1u << MI_ANIM))) &&
+          ui.menu_sel == 0u;                        /* every row before STYLE/ANIM; those two never reached */
+    bad += check("MENU: ALGORITHM and PRESETS reach every visible row (not STYLE/ANIM), each tab a page of its own", ok);
+    /* ANIM retired: always OFF, not on the device menu, menu_put is a no-op */
+    ok = str_eq(MI_NAME[MI_ANIM], "ANIM") && MI_TAB[MI_ANIM] == MTAB_COUNT &&
+         (ui_prefs & PREF_ANIM_OFF) && menu_get(MI_ANIM) == 1u && !(ui_idle & 1u) &&
+         str_eq(ANIM_N[0], "ON") && str_eq(ANIM_N[1], "OFF") && str_eq(ANIM_N[2], "IDLE");
+    menu_put(MI_ANIM, 0u); ok &= menu_get(MI_ANIM) == 1u && (ui_prefs & PREF_ANIM_OFF) && !(ui_idle & 1u);
+    menu_put(MI_ANIM, 2u); ok &= menu_get(MI_ANIM) == 1u && (ui_prefs & PREF_ANIM_OFF) && !(ui_idle & 1u);
     press(B_HOME);
-    bad += check("#46 MENU > ANIM: ON by default, KNOB 1 / OCT steps OFF ON IDLE (1.2), the values 0 ON 1 OFF 2 IDLE",
-                 ok && !ui.menu && str_eq(ANIM_N[0], "ON") && str_eq(ANIM_N[1], "OFF"));
-    ui_prefs = 0;
+    bad += check("#46 MENU > ANIM retired: always OFF, not shown, menu_put ignored (names kept for the editor)",
+                 ok && !ui.menu);
     ui_idle = 0;
     ui_power_on(); roll_settle();
     turn(EN_K4, 1);
-    ok = song.g[G_TUNE] == 1 && ui.roll[3].from[0];              /* ON: TUNE 0 -> 1 rolls */
-    ui_power_on(); ui_prefs = PREF_ANIM_OFF; roll_settle();      /* (ui_power_on clears the favorites record) */
-    turn(EN_K4, 1);
-    ok &= song.g[G_TUNE] == 1 && !ui.roll[3].from[0] && roll_static_now();   /* OFF: the value at once, static */
+    ok = song.g[G_TUNE] == 1 && !ui.roll[3].from[0] && roll_static_now() && (ui_prefs & PREF_ANIM_OFF);
     turn(EN_K1, 1);
     ok &= !ui.roll[ROLL_BPM].from[0];
-    bad += check("#46 ANIM OFF: the card values and the header BPM snap (no rolling digits), the frame is static", ok);
-    {   /* the piano roll's view: ON glides toward the notes over frames, OFF jumps there at once */
+    bad += check("#46 ANIM always OFF: the card values and the header BPM snap (no rolling digits), the frame is static", ok);
+    {   /* the piano roll's view: always snaps (no glide) */
         track_t *t = TSEL;
-        uint32_t lo_on;
+        uint32_t lo_snap;
         ui_power_on();
+        style_apply();                                  /* PREF_ANIM_OFF before pr_follow (no frame yet) */
         for (k = 0; k < NSTEP; k++) step_clear(&t->step[k]);
         t->step[0].n = 1; t->step[0].note[0] = 30; t->step[0].time = ST_NOTE;
         ui.force = 0;
         proll.init = 0; pr_follow(t); ui.frame++;
-        t->step[0].note[0] = 90; pr_follow(t); lo_on = proll.lo;
-        ui_prefs = PREF_ANIM_OFF;
-        proll.init = 0; t->step[0].note[0] = 30; pr_follow(t); ui.frame++;
-        t->step[0].note[0] = 90; pr_follow(t);
-        ok = proll.moving == 0 && proll.lo > lo_on && lo_on != 0u;
-        if (!ok) printf("  piano roll view: ON %u, OFF %u (moving %u)\n", lo_on, proll.lo, proll.moving);
-        bad += check("#46 ANIM OFF: the piano roll's view jumps to the notes (ON: it glides)", ok);
+        t->step[0].note[0] = 90; pr_follow(t); lo_snap = proll.lo;
+        ok = proll.moving == 0 && lo_snap != 0u && (ui_prefs & PREF_ANIM_OFF);
+        if (!ok) printf("  piano roll view: lo %u moving %u\n", lo_snap, proll.moving);
+        bad += check("#46 ANIM always OFF: the piano roll's view jumps to the notes (no glide)", ok);
     }
-    {   /* saved with the settings; settings from before it: ON */
+    {   /* settings import always forces ANIM OFF (older clears too) */
         persist_t p;
-        ui_prefs = PREF_ANIM_OFF;
-        settings_export(&p);
         ui_prefs = 0;
+        settings_export(&p);
+        p.favorites.factory[15][30] &= (uint8_t)~PREF_ANIM_OFF;
         ok = settings_import(&p, (int)sizeof p) == 1 && (ui_prefs & PREF_ANIM_OFF);
         memset(&p.favorites, 0, sizeof p.favorites);
         p.magic = 0x50455233u;
-        ok &= settings_import(&p, (int)(sizeof p - sizeof p.favorites)) == 2 && !ui_prefs;
-        bad += check("#46 ANIM saved with the settings; settings from before it: ON", ok);
+        ok &= settings_import(&p, (int)(sizeof p - sizeof p.favorites)) == 2 && (ui_prefs & PREF_ANIM_OFF);
+        bad += check("#46 ANIM always OFF in the settings (import forces PREF_ANIM_OFF)", ok);
     }
-    ui_prefs = 0;
+    ui_prefs = PREF_ANIM_OFF;
     return bad;
 }
 
-/* MENU > STYLE (ui_menu.c, gfx.c ST_*): FLAT by default; KNOB 1 right LINE, left FLAT (stops at the ends), OCT+
- * toggles; drawn so from the next frame (ux.style, the tokens: LINE has no SURF, a rule under the header); saved in a
- * spare byte of the settings and read back; settings from before it, and an unknown value, read as FLAT; 2, the
- * retired PIXEL (1.0.1), as LINE (again on a second import: idempotent) */
+/* STYLE retired: always FLAT; not on the device menu; SURF = BG in every palette; menu_put / import force FLAT */
 static int test_style(void)
 {
     int bad = 0, ok;
     const uint32_t rule = 26u * 240u + 120u;           /* (the rule under the header: ui_draw.c draw_rules) */
     ui_power_on();
     frame();
-    ok = ui_style == ST_FLAT && ux.style == ST_FLAT && ux.surf != ux.bg;
+    ok = ui_style == ST_FLAT && ux.style == ST_FLAT && ux.surf == ux.bg && menu_get(MI_STYLE) == 0u &&
+         MI_TAB[MI_STYLE] == MTAB_COUNT && str_eq(MI_NAME[MI_STYLE], "STYLE");
     ui.force = 1; frame();
-    ok &= host_screen[rule] == swap16(T_BG);
-    hold(B_HOME); ui.menu_sel = MI_STYLE;
-    ok &= ui.menu == 1u && str_eq(MI_NAME[MI_STYLE], "STYLE");
-    turn(EN_K1, 1); ok &= ui_style == ST_LINE && ux.style == ST_LINE && ux.surf == ux.bg;
-    turn(EN_K1, 1); ok &= ui_style == ST_LINE;
-    turn(EN_K1, -1); ok &= ui_style == ST_FLAT;
-    turn(EN_K1, -1); ok &= ui_style == ST_FLAT;
-    press(B_OCTUP); ok &= ui_style == ST_LINE && ui.menu == 1u;
-    press(B_OCTUP); ok &= ui_style == ST_LINE;
-    press(B_OCTDN); ok &= ui_style == ST_FLAT && ux.style == ST_FLAT && ux.surf != ux.bg && ui.menu == 1u;
-    press(B_OCTUP); ok &= ui_style == ST_LINE;
-    ok &= !(ui_prefs & 0xFFu) && settings_leds == LEDS_DIM;   /* (no other setting moved) */
+    ok &= host_screen[rule] == swap16(T_BG);          /* FLAT: no header rule */
+    menu_put(MI_STYLE, 1u);
+    ok &= ui_style == ST_FLAT && menu_get(MI_STYLE) == 0u;
+    ui_style = ST_LINE; frame();                      /* style_apply forces FLAT each frame */
+    ok &= ui_style == ST_FLAT && ux.style == ST_FLAT && ux.surf == ux.bg && host_screen[rule] == swap16(T_BG);
     hold(B_HOME);
-    ok &= !ui.menu && ux.style == ST_LINE && host_screen[rule] == swap16(T_RULE);
-    bad += check("MENU > STYLE: FLAT by default, KNOB 1 / OCT-+ FLAT / LINE, LINE drawn (rules, no SURF)", ok);
+    ok &= ui.menu == 1u;
+    for (uint32_t j = 0; j < mtab_rows(MTAB_DISPLAY); j++) {
+        ok &= ui.menu_sel != MI_STYLE && ui.menu_sel != MI_ANIM;
+        turn(EN_PRESET, 1);
+    }
+    bad += check("MENU > STYLE retired: always FLAT, SURF = BG, not on DISPLAY, menu_put ignored", ok);
     {
         persist_t p, q;
         settings_export(&p);
-        ui_style = ST_FLAT; frame();
-        ok = settings_import(&p, (int)sizeof p) == 1 && ui_style == ST_LINE;
-        frame();
-        ok &= ux.style == ST_LINE;
-        p.favorites.factory[15][29] = 7;                /* unknown: FLAT, and so again */
+        p.favorites.factory[15][29] = ST_LINE;         /* LINE in the record: forced FLAT */
+        ok = settings_import(&p, (int)sizeof p) == 1 && ui_style == ST_FLAT && !p.favorites.factory[15][29];
+        p.favorites.factory[15][29] = 7;               /* unknown: FLAT */
         ok &= settings_import(&p, (int)sizeof p) == 1 && ui_style == ST_FLAT && !p.favorites.factory[15][29];
         q = p;
         ok &= settings_import(&q, (int)sizeof q) == 1 && ui_style == ST_FLAT && !memcmp(&p, &q, sizeof p);
-        p.favorites.factory[15][29] = 2;                /* the retired PIXEL: LINE, and so again */
-        ok &= settings_import(&p, (int)sizeof p) == 1 && ui_style == ST_LINE && p.favorites.factory[15][29] == ST_LINE;
-        q = p;
-        ok &= settings_import(&q, (int)sizeof q) == 1 && ui_style == ST_LINE && !memcmp(&p, &q, sizeof p);
-        frame();
-        ok &= ux.style == ST_LINE;
-        ui_style = 2; frame();                          /* (a live PIXEL byte, a restore: LINE) */
-        ok &= ui_style == ST_LINE && ux.style == ST_LINE;
-        ui_style = ST_LINE;
-        settings_export(&p);
+        p.favorites.factory[15][29] = 2;               /* retired PIXEL: FLAT now (was LINE) */
+        ok &= settings_import(&p, (int)sizeof p) == 1 && ui_style == ST_FLAT && !p.favorites.factory[15][29];
         memset(&p.favorites, 0, sizeof p.favorites);
-        p.magic = 0x50455233u;                          /* settings from before STYLE (PER3) */
+        p.magic = 0x50455233u;                         /* settings from before STYLE (PER3) */
         ok &= settings_import(&p, (int)(sizeof p - sizeof p.favorites)) == 2 && ui_style == ST_FLAT;
         frame();
-        ok &= ux.style == ST_FLAT && ux.surf != ux.bg;
-        bad += check("  STYLE saved with the settings and read back; older settings and unknown values: FLAT, PIXEL: LINE (idempotent)", ok);
+        ok &= ux.style == ST_FLAT && ux.surf == ux.bg;
+        bad += check("  STYLE import always FLAT (LINE / PIXEL / unknown / older settings)", ok);
     }
     ui_power_on(); frame();
     return bad;
@@ -7638,8 +7520,8 @@ static int test_fx_map_columns(void)
         for (st = ST_FLAT; st <= ST_LINE; st++) {
             ui_power_on();
             settings.palette = (uint8_t)(pal ? UI_BW_INDEX : UI_GREY_INDEX);
-            ui_style = (uint8_t)st;
-            style_apply();
+            style_apply();                              /* STYLE retired: forces FLAT / ANIM OFF */
+            ux.style = (uint8_t)st;                     /* host: still exercise the LINE draw path */
             palette_set(settings.palette);
             ui.home = 1; ui.layer = LAYER_FX; ui.force = 1;
             draw_layer();
@@ -7756,7 +7638,7 @@ static int test_home_tracks(void)
 
     ui_power_on();
     hold(B_HOME);                                       /* the menu: DISPLAY, down to HOME, K1 right */
-    for (i = 0; i < 7u; i++) turn(EN_PRESET, 1);
+    for (i = 0; i < 5u; i++) turn(EN_PRESET, 1);       /* COLOR .. HOME (6 rows; STYLE/ANIM retired) */
     ok = ui.menu == 1 && ui.menu_sel == MI_HOME;
     turn(EN_K1, 1); ok &= home_tracks() && !home_levels();
     turn(EN_K3, 1); ok &= home_levels();               /* (1.5: LEVELS, the last) */
@@ -7804,15 +7686,14 @@ static int test_home_tracks(void)
         bad += check("1.5 HOME TRACKS (not LEVELS): KNOB 2 the selected track's engine again, no level",
                      trk[1].p[P_LEVEL] == lv[1] && !home_levels());
         menu_put(MI_HOME, HV_LEVELS);
-        menu_put(MI_ANIM, 1u);
+        menu_put(MI_ANIM, 0u);                          /* ANIM retired: no-op, HOME stays LEVELS */
         ok = home_levels() && menu_get(MI_ANIM) == 1u;
-        menu_put(MI_ANIM, 0u);
-        ok &= home_levels() && menu_get(MI_ANIM) == 0u;
-        menu_put(MI_HOME, HV_SCOPE);
         menu_put(MI_ANIM, 2u);
-        ok &= !home_tracks() && menu_get(MI_ANIM) == 2u;
+        ok &= home_levels() && menu_get(MI_ANIM) == 1u;
+        menu_put(MI_HOME, HV_SCOPE);
         menu_put(MI_ANIM, 0u);
-        bad += check("1.5 MENU ANIM leaves HOME as it is (it fell through into HOME up to 1.4.1)", ok);
+        ok &= !home_tracks() && menu_get(MI_ANIM) == 1u;
+        bad += check("1.5 MENU ANIM retired: leaves HOME as it is (always OFF)", ok);
     }
 
     /* the rows: T1 (not selected) a line, T2 selected, T3 muted, T4 the DRUM beat */

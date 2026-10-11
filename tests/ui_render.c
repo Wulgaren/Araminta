@@ -1307,7 +1307,7 @@ static void setup(int s)
     case S_REVERB: go_title("REVERB"); song.g[G_RTYPE] = 1; ui.hot_col = 0; ui.hot_t = 30; break;   /* TYPE: SPRING */
     case S_MENU_HOLD: ui.menu = 1; ui.menu_sel = MI_HOLD; settings_hold = 2; break;
     case S_MENU_LEDS: ui.menu = 1; ui.menu_sel = MI_LEDS; settings_leds = LEDS_INV; break;
-    case S_MENU_ANIM_IDLE: ui.menu = 1; ui.menu_sel = MI_ANIM; menu_put(MI_ANIM, 2); break;   /* (1.2: ANIM IDLE, #135) */
+    case S_MENU_ANIM_IDLE: ui.menu = 1; ui.menu_sel = MI_LEDS; break;   /* ANIM IDLE retired: a DISPLAY row instead */
     /* 1.2 (#72 / #73): MOMENTARY, LFO held and KNOB 1 turned on HOME (the header's hint, the hot column); on EDIT 1 */
     case S_MOMENTARY:
     case S_MOMENTARY_EDIT: {
@@ -1323,8 +1323,8 @@ static void setup(int s)
         ui_message("MOMENTARY  [OCT+] KEEP");
         break;
     }
-    case S_MENU_END: ui.menu = 1; ui.menu_sel = MI_COUNT - 1u; ui_prefs = 0xFF; ui_rec_prefs = 0x2A; break;   /* the last row,
-                                                     * every flag set (CLICK ON, LEVEL HIGH, COUNT-IN 2 BARS) */
+    case S_MENU_END: ui.menu = 1; ui.menu_sel = MI_ABOUT; ui_prefs = 0xFF; ui_rec_prefs = 0x2A; break;   /* last visible row
+                                                     * (STYLE/ANIM retired), every flag set (CLICK ON, LEVEL HIGH, COUNT-IN 2 BARS) */
     /* the MENU's tabs (1.0.5): menu DISPLAY (COLOR), menu_hold CONTROL, menu_speaker AUDIO, menu_system SYSTEM (USB
      * SERIAL); menu_slide: from DISPLAY to CONTROL with ANIM ON, the frame half way (draw) */
     case S_MENU_SYSTEM: ui.menu = 1; ui.menu_sel = MI_SERIAL; break;

@@ -541,9 +541,11 @@ static void draw_column_tall(uint32_t c, const char *label, const char *val, con
         cv_text_in(0, LG_UY, COL_W, &AF_S, unit, T_MID, T_SURF);
     }
     if (ratio >= 0) {
-        int32_t gw = COL_W - 10, fx = ratio * gw / 1000;
+        int32_t gw = COL_W - 10, fx = ratio * gw / 1000, w = fx < 3 ? 3 : fx;
+        uint16_t gc = hot ? T_ACCENT : vc == T_DIM ? T_DIM : T_THEME;
         cv_rrect(5, LG_GY, gw, 3, 1, ux.style ? T_LINE : T_BG, T_SURF);
-        cv_rrect(5, LG_GY, fx < 3 ? 3 : fx, 3, 1, hot ? T_ACCENT : vc == T_DIM ? T_DIM : T_THEME, T_BG);
+        cv_rrect(5, LG_GY, w, 3, 1, gc, T_BG);
+        cv_rect(5 + w, LG_GY - 1, 1, 5, gc);            /* 0.9: 1 px end line at the fill's tip */
     }
     cv_blit((uint32_t)CARD_X(c), Y_LABEL);
 }
@@ -670,9 +672,11 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
             cv_text_on(x + 3, 20, &AF_S, unit, T_MID, T_SURF);     /* on the value's baseline (S) */
         }
         if (!strip && ratio >= 0) {
-            int32_t gw = COL_W - 10, fx = ratio * gw / 1000;
+            int32_t gw = COL_W - 10, fx = ratio * gw / 1000, w = fx < 3 ? 3 : fx;
+            uint16_t gc = hot ? T_ACCENT : vc == T_DIM ? T_DIM : T_THEME;
             cv_rrect(5, 38, gw, 3, 1, ux.style ? T_LINE : T_BG, T_SURF);   /* (LINE: no card to cut it from) */
-            cv_rrect(5, 38, fx < 3 ? 3 : fx, 3, 1, hot ? T_ACCENT : vc == T_DIM ? T_DIM : T_THEME, T_BG);
+            cv_rrect(5, 38, w, 3, 1, gc, T_BG);
+            cv_rect(5 + w, 37, 1, 5, gc);                /* 0.9: 1 px end line at the fill's tip */
         }
     }
     cv_oy = 0;
@@ -1380,13 +1384,14 @@ static void draw_confirm(void)
     cv_blit(DLG_X, DLG_Y);
 }
 
-/* the stored STYLE (ui_style: the menu, a settings import, a restore) into gfx.c's copy: the tokens again, all redrawn */
+/* STYLE / ANIM retired: always FLAT and ANIM OFF (no rolling digits, piano-roll glide, tab slide, LED sweep / idle) */
 static void style_apply(void)
 {
-    if (ui_style > ST_LINE)                             /* 2, the retired PIXEL: LINE; unknown: FLAT */
-        ui_style = ui_style == 2u ? ST_LINE : ST_FLAT;
-    if (ux.style != ui_style) {
-        ux.style = ui_style;
+    ui_style = ST_FLAT;
+    ui_prefs |= PREF_ANIM_OFF;
+    ui_idle &= (uint8_t)~1u;
+    if (ux.style != ST_FLAT) {
+        ux.style = ST_FLAT;
         palette_set(settings.palette);
         ui.force = 1;
     }

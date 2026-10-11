@@ -69,6 +69,7 @@ int main(int argc, char **argv)
     for (unsigned p = 0; p < NPALETTES; p++) {
         uint16_t *tok = &ux.bg;
         palette_set(p);
+        assert(ux.surf == ux.bg);                      /* SURF = BG in every palette (STYLE FLAT; as MONO) */
         if (p == UI_GREY_INDEX)
             for (unsigned i = 0; i < 14; i++) assert(gray(tok[i]));      /* every token, derived ones too (RAISE, KEY the last) */
         /* text and the things read on the screen; the generator checks the same (tools/gen_ui_palettes.py) */

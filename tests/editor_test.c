@@ -878,7 +878,7 @@ static int menu_protocol(void)
         {"MIDI IN", "CH1-4,SEL,CH5-8,CH9-12,CH13-16"}, {"TUNE", 0},   /* (1.2: the project's ROUT and TUNE; TUNE a number) */
         {"HOME", "SCOPE,TRACKS,LEVELS"},                                                       /* (1.3; 1.5: LEVELS) */
         {"HELP", "OFF,ON"}};                                                                         /* (1.5) */
-    static const int32_t DEF[25] = {-1, 0, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};   /* (COLOR: the default palette) */
+    static const int32_t DEF[25] = {-1, 0, 0, 1, 2, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};   /* (COLOR: the default palette; ANIM retired: OFF) */
     static const uint8_t TAB[25] = {0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 4, 2, 2, 2, 4, 1, 0, 0, 1, 1, 3, 2, 0, 4};   /* DISPLAY CONTROL AUDIO
                                                                                                          * MIDI SYSTEM (1.2) */
     static const char *const TABN[5] = {"DISPLAY", "CONTROL", "AUDIO", "MIDI", "SYSTEM"};
@@ -943,9 +943,10 @@ static int menu_protocol(void)
     ui.force = 0;
     ok = menu_set(0, 2) == 3 && host_wire[6] == 0 && ed_rv(host_wire + 7) == 2 && settings.palette == 2u &&
          T_BG == UI_PALETTES[2].bg && ui.force;
-    ok &= menu_set(1, 1) == 3 && ui_style == ST_LINE;
+    ok &= menu_set(1, 1) == 3 && ui_style == ST_FLAT && menu_get(MI_STYLE) == 0u;   /* STYLE retired: always FLAT */
     ok &= menu_set(2, 1) == 3 && (ui_prefs & PREF_LARGE);
-    ok &= menu_set(3, 1) == 3 && (ui_prefs & PREF_ANIM_OFF);
+    ok &= menu_set(3, 0) == 3 && menu_get(MI_ANIM) == 1u;   /* ANIM retired: always OFF (MENU_SET ignored) */
+    ok &= menu_set(3, 2) == 3 && menu_get(MI_ANIM) == 1u && ed_rv(host_wire + 7) == 1;
     ok &= menu_set(4, 0) == 3 && settings_leds == LEDS_OFF && menu_set(4, 1) == 3 && settings_leds == LEDS_DIM_LO;
     ok &= menu_set(5, 3) == 3 && settings_hold == 3u;
     ok &= menu_set(6, 1) == 3 && (ui_prefs & PREF_ACCEL);
@@ -967,14 +968,14 @@ static int menu_protocol(void)
     ok &= menu_set(23, 1) == 3 && ui_home_view == HV_TRACKS && ui_prefs2 == 7u && ui_scr == 1u;   /* (1.3: its own byte) */
     ok &= menu_set(24, 1) == 3 && ui_prefs2 == 15u && help_on();                                  /* (1.5: HELP, bit 3) */
     for (i = 0; i < 25u; i++) {                         /* MENU_DESC reads them back */
-        static const int32_t SET[25] = {2, 1, 1, 1, 1, 3, 1, 1, 1, 2, 1, 0, 2, 0, 2, 1, 1, 2, 1, 1, 1, 2, -13, 1, 1};
-        menu_desc(i, &it);
+        static const int32_t SET[25] = {2, 0, 1, 1, 1, 3, 1, 1, 1, 2, 1, 0, 2, 0, 2, 1, 1, 2, 1, 1, 1, 2, -13, 1, 1};
+        menu_desc(i, &it);                              /* STYLE forced FLAT (0); ANIM forced OFF (1) */
         ok &= it.value == SET[i];
     }
-    bad += check("MENU_SET: every setting applied as the menu does (palette, EQ, USB LEVEL, CLICK, COUNT-IN at once, RESTORE LAST, SCALE LEDS, SCREEN OFF, SCOPE, STEP PREVIEW, CHORD ENTRY, HOME), read back", ok);
-    ok = menu_set(3, 0) == 3 && !(ui_prefs & PREF_ANIM_OFF) && (ui_prefs & PREF_LARGE) && menu_set(10, 0) == 3 &&
-         !fx_usb_fixed && menu_set(1, 0) == 3 && ui_style == ST_FLAT;
-    bad += check("MENU_SET: a flag back to its default leaves the other flags", ok);
+    bad += check("MENU_SET: every setting applied as the menu does (palette, EQ, USB LEVEL, CLICK, COUNT-IN at once, RESTORE LAST, SCALE LEDS, SCREEN OFF, SCOPE, STEP PREVIEW, CHORD ENTRY, HOME; STYLE/ANIM retired fixed), read back", ok);
+    ok = menu_set(3, 0) == 3 && menu_get(MI_ANIM) == 1u && (ui_prefs & PREF_LARGE) && menu_set(10, 0) == 3 &&
+         !fx_usb_fixed && menu_set(1, 1) == 3 && ui_style == ST_FLAT && menu_get(MI_STYLE) == 0u;
+    bad += check("MENU_SET: a flag back to its default leaves the other flags (STYLE/ANIM stay FLAT/OFF)", ok);
 
     /* clamping: the reply carries the device's value */
     ok = menu_set(0, 50) == 3 && ed_rv(host_wire + 7) == (int32_t)NPALETTES - 1 && settings.palette == NPALETTES - 1u;

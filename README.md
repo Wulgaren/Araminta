@@ -93,8 +93,7 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
 - **LEDs:** idle buttons and keys glow dim so the panel can be found in the dark (MENU > LEDS: OFF,
   DIM LO, DIM HI or INV, the official firmware's look); PLAY turns green while playing; the keys show
   the notes the sequencer and MIDI IN play, and on SEQ > STEP (stopped) the notes of the step under the cursor;
-  the drum grid marks the beats (steps 1, 5, 9, 13); MENU > SCALE LEDS shows the track's scale on the keys;
-  a soft light sweeps over the keys at power-on, and with MENU > ANIM IDLE drifts over them while the FM-1 waits
+  the drum grid marks the beats (steps 1, 5, 9, 13); MENU > SCALE LEDS shows the track's scale on the keys
 - **USB:** class-compliant MIDI in and out, and a stereo audio input ("Felucca") at 44.1 or 48 kHz
   (the computer picks) that records the master output on the computer, no driver needed (at a fixed level with MENU > USB LEVEL FIXED;
   on macOS 13–15, set MENU > USB SERIAL to OFF so the audio input appears)
@@ -164,8 +163,10 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
   KNOB 1–4 set the LEVEL of T1–T4.
 - ⚠ **SAMPLE's PIANO is the full piano again** (five notes, as in 1.0 to 1.1.5): sounds and projects made on 1.4 or
   1.4.1 that use PIANO play the full piano. PIANO HD in a user slot is no longer needed.
-- Fixed: the arpeggiator follows TRN, ROOT, SCALE and QNT on held and latched notes (#191); MENU > DISPLAY > ANIM no
-  longer changes HOME.
+- Fixed: the arpeggiator follows TRN, ROOT, SCALE and QNT on held and latched notes (#191).
+- **STYLE and ANIM removed** from the menu: the UI is always flat (no raised card fills, no rule dividers), and
+  values snap with no rolling digits, piano-roll glide, tab slide or LED sweep / idle animation. Knob gauges again
+  show a 1 px end line at the fill's tip (as in 0.9).
 - ⚠ The INSERT, the filter TYPE and ENV SYNC are new sound parameters (OFF, LP, OFF by default): everything saved
   before plays as before. But **a project saved by 1.5 does not open on 1.2 to 1.4.1**: its slot shows EMPTY there
   (the data stays in flash until you save something into that slot there), and a backup that holds one is refused.
@@ -239,26 +240,21 @@ The pages by button:
 
 ## Menu
 
-Hold **HOME** for the menu, in five tabs: **DISPLAY** (COLOR, STYLE, LARGE, ANIM, LEDS, SCREEN OFF, SCOPE, HOME),
+Hold **HOME** for the menu, in five tabs: **DISPLAY** (COLOR, LARGE, LEDS, SCREEN OFF, SCOPE, HOME),
 **CONTROL** (HOLD, KNOB ACCEL, FX LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW, CHORD ENTRY), **AUDIO** (SPEAKER EQ,
 USB LEVEL, CLICK, CLICK LEVEL, COUNT-IN, TUNE), **MIDI** (MIDI IN, LEARN CLEAR) and **SYSTEM** (USB SERIAL,
 RESTORE LAST, HELP, HARDWARE CALIBRATION, INFO, ABOUT).
 ALGORITHM moves between the tabs and PRESETS through the rows of one; any of KNOB 1–4, or OCT+ / OCT−,
 changes the value (OCT+ opens HARDWARE CALIBRATION, INFO and ABOUT); press HOME to close the menu. Every new
 setting defaults to the earlier behaviour. The web editor's Settings tab reads and changes them too, saved the same
-way as from the menu, in the same tabs.
+way as from the menu, in the same tabs. STYLE and ANIM are gone from the menu (always flat, no UI animations).
 
 - **COLOR:** the palette. GREY (grayscale, called MONO up to 1.0.1), GREEN, AMBER, ICE, VIOLET, ROSE,
   PAPER (light), HI-CON (high contrast), NIGHT (the 0.9 look: true black, green-tinted text) and MONO
-  (black and white)
-- **STYLE:** FLAT (filled cards) or LINE (areas divided by thin lines)
+  (black and white). Every palette draws without a raised card fill (SURF matches the background, as MONO)
 - **LARGE:** OFF or ON: on HOME and the value pages the four knob cards grow tall, marked K1–K4, with
   larger labels and values about twice the size; the graph below becomes a strip. Lists, the piano roll,
   the drum grid and the quick layers keep their layout with larger labels
-- **ANIM:** ON, OFF or IDLE. OFF shows every change at once, without rolling digits, a gliding piano roll or
-  the LED sweep at power-on. IDLE is ON plus a gentle LED animation after a minute without input: a soft light drifts
-  over the keys and the buttons breathe; any key, button or knob ends it and does what it always does. It never runs
-  while playing, with a track armed, in a layer, the menu or a dialog
 - **LEDS:** OFF (no glow), DIM LO, DIM HI (default) or INV (the idle LEDs lit, the active ones dark).
   What can be pressed breathes up to about 60 % of a lit LED, about 30 % with DIM LO
 - **SCREEN OFF:** NEVER (default), 5 MIN, 15 MIN, 30 MIN or 60 MIN: after that long with no button, key or knob
