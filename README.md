@@ -251,7 +251,7 @@ The pages by button:
 | GLO | SONG | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
 | SAVE | USER, PRESETS, PHRASES (the pattern loader), PROJECT, TOOLS | UNDO |
 | LFO | LFO, LFO 2, LFO DEST; then MOD | MOMENTARY (with a knob) |
-| EDIT | EDIT 1, EDIT 2, VOICE (VCE/GLD/UNI DTN/SPRD; FM6 adds OPERATOR, OP ENV, OPERATOR 2; DRUM: Sound / Kit / Lanes, no Voice; ANALOG FILTER, FILTER DRIVE instead of EDIT 2) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
+| EDIT | EDIT 1, EDIT 2, VOICE (VCE/GLD/UNI DTN/SPRD; FM6 adds OPERATOR, OP ENV; DRUM: Sound / Kit / Lanes, no Voice; ANALOG FILTER, FILTER DRIVE instead of EDIT 2) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
 | FX, SCL, ENV, ARP | their pages (FX: INSERT and INSERT 2 after the SLICER) | FX and SCL: their layers |
 | REC | arms the track | the REC layer (CLEAR, CLICK, COUNT-IN, CLICK LEVEL) |
 
@@ -327,9 +327,9 @@ In the order the device lists them:
 - **ANALOG**: virtual analog; two oscillators (WAVE SYNC: the second hard-synced to the first; SUB: a square an
   octave down), noise, drive, a resonant filter: low-pass, band-pass or high-pass (EDIT > FILTER)
 - **FM6**: classic 6-operator FM (Dexed-based): 32 algorithms, a full patch per track, edited in the
-  web editor (which imports .syx files) or on the device: EDIT > OPERATOR (ratio or fixed frequency, fine, level),
-  OP ENV (each stage's rate and level, drawn as the envelope) and OPERATOR 2 (mode, detune, velocity), one
-  operator at a time on the algorithm chart; macros on top; SLOT picks a factory patch (F1-F8), the track's own (OWN) or a voice of the bank the web editor sent (B1-B32)
+  web editor (which imports .syx files) or on the device: EDIT > OPERATOR (FREQ: ratio then fixed Hz, fine, level)
+  and OP ENV (each stage's rate and level, drawn as the envelope), one operator at a time on the algorithm chart;
+  macros on top; SLOT picks a factory patch (F1-F8), the track's own (OWN) or a voice of the bank the web editor sent (B1-B32)
 - **PHASE**: phase distortion (ported from CrispyZebra)
 - **LOFI**: chiptune; pulse, triangle, saw, noise and a 4-bit wave RAM, stepped envelope, sweep, arpeggio
 - **SAMPLE**: multisampled instruments (PIANO, FLUTE, SAX) and 3 user sample slots; a USR slot can be tagged
