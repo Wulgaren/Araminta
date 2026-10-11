@@ -1064,6 +1064,8 @@ static void dly_clear(void)
     memset(rev_comb, 0, sizeof rev_comb);
     memset(&rev_u, 0, sizeof rev_u);
     memset(&fx, 0, sizeof fx);
+    dly_q8 = 0;
+    dly_free = 0;
     song.g[G_RTYPE] = 0;
 }
 static void dly_run(const int32_t *in, int32_t *wet_out, uint32_t frames)
@@ -1181,6 +1183,33 @@ static int test_throw(void)
         ok &= !dtime_free() && delay_samples() == FS * 60u / 120u / 2u;
         song.g[G_DTIME] = 12;                          /* the 1/4D checks below keep this value */
         bad += check("TIME free ms: one millisecond a step, longer as the number grows, divisions unchanged", ok);
+    }
+    {   /* free-ms TIME: read glides (tape pitch). Old 2 samp/samp slew chirped; keep ≤ DLY_SLEW. */
+        uint32_t settle = 0, prev, max_st = 0, step;
+        host_tracks_init();
+        dly_clear();
+        song.g[G_DMIX] = 127;
+        song.g[G_DFDBK] = 0;
+        song.g[G_DTIME] = (int16_t)(DTIME_FREE + 100);
+        memset(in, 0, sizeof in);
+        dly_run(in, w0, CTL);                          /* snap onto 100 ms */
+        ok = dly_free && dly_q8 == dtime_q8();
+        prev = dly_q8;
+        song.g[G_DTIME] = (int16_t)(DTIME_FREE + 300); /* +200 ms → ~800 ms of pitch at DLY_SLEW */
+        for (t = 0; t < 2u * FS && dly_q8 != dtime_q8(); t += CTL) {
+            dly_run(in, w0, CTL);
+            step = dly_q8 > prev ? dly_q8 - prev : prev - dly_q8;
+            if (step > max_st)
+                max_st = step;
+            prev = dly_q8;
+        }
+        settle = t;
+        ok &= settle > FS / 5u && max_st <= (uint32_t)DLY_SLEW * CTL && dly_q8 == dtime_q8();
+        snprintf(what, sizeof what,
+                 "TIME free ms glide: +200 ms in %u samples, max step %u Q8/block (tape pitch, not coins)",
+                 settle, max_st);
+        bad += check(what, ok);
+        song.g[G_DTIME] = 12;
     }
     song.g[G_BPM] = 61;
     ok = delay_samples() == 65065u;                   /* 1/4D at 61: 1.475 s, fits */

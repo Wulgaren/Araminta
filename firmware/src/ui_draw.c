@@ -159,8 +159,8 @@ static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16
  * 166 px; while the BPM is being changed (a SELECT turn: bpm_t) or in the GLO layer the centre stays and the message
  * goes right of the BPM (over the right slot). Every element's ink centred on row 12 (H_HEAD / 2; ui_test.c
  * test_head_centres): icons by cv_icon_mid, text by its capitals' band (CAP_IN; the odd row left over above it, as
- * everywhere): M (BPM, the song row, the octave, a message: capitals rows 6..16) from y 2, S (OCT, a key hint: rows 7..15)
- * from y 4 */
+ * everywhere): M (BPM, the song row, the octave, a message: capitals rows 7..16) from y 5, S (OCT, a key hint: CAP_IN)
+ * from HEAD_SY */
 #define HEAD_SY CAP_IN(S, H_HEAD)
 #define HEAD_MY CAP_IN(M, H_HEAD)
 #define HEAD_TRK_X 4                                   /* the track cushion's cell */
@@ -578,6 +578,17 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
         unit = "";                                      /* "BPM 124 BPM", "USB OFF USB": the label says it */
     if (icon == ICON_AUTO)
         icon = icon_for_label(label);
+    uw = unit[0] ? text_w(&AF_S, unit) + 3 : 0;
+    if (text_w(vf, val) + uw > room) {
+        vf = &AF_S;
+        CARD_HOOK(val, unit);                           /* (host: the values set in S) */
+        /* Prefer the full value; drop the unit rather than ellipsise the number when even S is
+         * too wide (rare once S is 6x12). Tall cards keep the unit (it sits under the value). */
+        if (kind != LK_TALL && unit[0] && text_w(vf, val) + uw > room) {
+            unit = "";
+            uw = 0;
+        }
+    }
     str_cpy(key, label, 12);                            /* cache key: texts + colour + gauge */
     str_cpy(key + str_len(key), "|", 2);
     str_cpy(key + str_len(key), val, 14);
@@ -594,11 +605,6 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     key[n + 5] = (char)(icon == ICON_NONE ? '~' : '!' + icon % 90u);
     key[n + 6] = (char)('0' + hot + 2 * mot + 4 * (int)kind);
     key[n + 7] = 0;
-    uw = unit[0] ? text_w(&AF_S, unit) + 3 : 0;
-    if (text_w(vf, val) + uw > room) {
-        vf = &AF_S;
-        CARD_HOOK(val, unit);                           /* (host: the values set in S) */
-    }
     sig = (uint8_t)str_hash(str_hash(song.sel + TSEL->eng_req * 4u + ux.gen * 64u, label), unit);
     snap = ui.force || sig != ui.roll[c].sig;           /* what the value is of: label, unit, track, engine, palette */
     if (kind == LK_TALL)
@@ -653,8 +659,8 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
                 text_ink(lf, label, b);
                 w = b[2] - b[0] + 4;
                 if (w > COL_W + 1 - lx - b[0]) w = COL_W + 1 - lx - b[0];
-                cv_rrect(lx + b[0] - 2, cy - 3, w, lf == &AF_M ? chh + 5 : 15, 3, T_ACCENT, T_SURF);
-                GFX_HOOK_ALIGN(lx + b[0] - 2, cy - 3, lx + b[0] - 2 + w, lf == &AF_M ? cy + chh + 2 : 18, AL_HV,
+                cv_rrect(lx + b[0] - 2, cy - 3, w, chh + 5, 3, T_ACCENT, T_SURF);
+                GFX_HOOK_ALIGN(lx + b[0] - 2, cy - 3, lx + b[0] - 2 + w, cy + chh + 2, AL_HV,
                                "card label chip (MONO hot)");
                 cv_text_fit(lx, ly, lf, label, T_INK, T_ACCENT, COL_W - 2 - lx);
             } else
@@ -1256,18 +1262,36 @@ static void draw_columns(void)
 }
 
 
-/* The power-on splash (main.c fm1_main, web/emu felucca_web.c): full black screen, ARAMINTA and the version in
- * AF_M centred, "based on Felucca" in AF_S lower. Fixed black / white, outside the palettes (settings_init before it). */
+/* The power-on splash (main.c fm1_main, web/emu felucca_web.c): full black screen, the mark (r=sin(b·θ) rose in
+ * ui_splash_logo.h), ARAMINTA and the version in AF_M centred, "based on Felucca" in AF_S lower. Fixed black /
+ * white, outside the palettes (settings_init before it). */
+#include "ui_splash_logo.h"
 #define SPL_BLACK RGB(0, 0, 0)
-#define SPL_WHITE RGB(255, 255, 255)
+#define SPL_WHITE ((uint16_t)((31u << 11) | (62u << 5) | 31u))  /* ux_gray(31): GREY's R=B, G=2R */
 #define SPL_PITCH 22                                /* name to version */
+#define SPL_LOGO_Y 8                                /* mark above the name */
+#define SPL_NAME_Y (SPL_LOGO_Y + SPL_LOGO_H + 6)    /* under the mark */
 static const char *const SPLASH_LINES[] = {"ARAMINTA", FELUCCA_VERSION, "based on Felucca"};
+static void draw_splash_logo(void)
+{
+    /* Direct row blits: fixed black/white outside the theme LUT (indexed canvas). */
+    uint32_t x0 = (240u - SPL_LOGO_W) / 2u, y, x;
+    uint16_t white = swap16(SPL_WHITE), black = swap16(SPL_BLACK);
+    for (y = 0; y < SPL_LOGO_H; y++) {
+        const uint8_t *row = SPL_LOGO + y * SPL_LOGO_STRIDE;
+        for (x = 0; x < SPL_LOGO_W; x++)
+            cv_row[x] = ((row[x >> 3] >> (x & 7u)) & 1u) ? white : black;
+        lcd_blit(x0, SPL_LOGO_Y + y, SPL_LOGO_W, 1u, cv_row);
+    }
+    lcd_sync();
+}
 static void draw_splash(void)
 {
     lcd_fill(0, 0, 240, 240, SPL_BLACK);
-    draw_text_line(0, 88, 240, &AF_M, SPLASH_LINES[0], SPL_WHITE, SPL_BLACK, 1);
-    draw_text_line(0, 88 + SPL_PITCH, 240, &AF_M, SPLASH_LINES[1], SPL_WHITE, SPL_BLACK, 1);
-    draw_text_line(0, 196, 240, &AF_S, SPLASH_LINES[2], SPL_WHITE, SPL_BLACK, 1);
+    draw_splash_logo();
+    draw_text_line(0, SPL_NAME_Y, 240, &AF_M, SPLASH_LINES[0], SPL_WHITE, SPL_BLACK, 1);
+    draw_text_line(0, SPL_NAME_Y + SPL_PITCH, 240, &AF_M, SPLASH_LINES[1], SPL_WHITE, SPL_BLACK, 1);
+    draw_text_line(0, 208, 240, &AF_S, SPLASH_LINES[2], SPL_WHITE, SPL_BLACK, 1);
 }
 
 /* UPDATE MODE countdown (main.c: OCT- + OCT+ held): over everything, the menu and the dialogs too */
@@ -1433,7 +1457,7 @@ static void draw_confirm(void)
         int32_t x = 108 + HALF_UP(90 - kh_ink(KC_OCTUP, "YES"));
         GFX_HOOK_ALIGN(108, 80, 198, 106, AL_HV | AL_N(2), "dialog button YES");
         x = cv_keycap(x, 80 + HALF_UP(26 - KC_H), KC_OCTUP, T_INK, T_THEME, T_THEME);
-        cv_text_on(x + KH_GAP, 80 + HALF_UP(26 - KC_H) - 1, &AF_S, "YES", T_INK, T_THEME);
+        cv_text_on(x + KH_GAP, KH_WORD_Y(80 + HALF_UP(26 - KC_H)), &AF_S, "YES", T_INK, T_THEME);
     }
     cv_blit(DLG_X, DLG_Y);
 }

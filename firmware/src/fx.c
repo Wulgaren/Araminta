@@ -461,7 +461,9 @@ static uint32_t delay_samples(void)
     return s < 16u ? 16u : s >= DLY_LEN ? DLY_LEN - 1u : s;
 }
 /* free-ms read position (Q8). 0, and the first block after RATE: snap, so a loaded time is exact. While TIME
- * stays selected the read glides (at most 2 samples a sample), so a millisecond sweep does not click */
+ * stays selected the read glides toward the knob (tape pitch): at most DLY_SLEW Q8/sample (~0.25 samp/samp,
+ * about ±5 semitones). Faster (2 samp/samp) made each 1 ms detent a reverse chirp ("coins"). */
+#define DLY_SLEW 64
 static uint32_t dly_q8;
 static uint8_t dly_free;
 
@@ -898,7 +900,7 @@ static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet
         int32_t x;
         if (free_ms) {
             int32_t err = (int32_t)tgt - (int32_t)dly_q8;
-            int32_t st = err > 512 ? 512 : err < -512 ? -512 : err;
+            int32_t st = err > DLY_SLEW ? DLY_SLEW : err < -DLY_SLEW ? -DLY_SLEW : err;
             uint32_t ri;
             int32_t fr, c0, c1;
             dly_q8 = (uint32_t)((int32_t)dly_q8 + st);
@@ -982,6 +984,8 @@ static void fx_boot(void)
     rev_clear();
     bus_own_sanitize();
     memset(&fx, 0, sizeof fx);
+    dly_q8 = 0;
+    dly_free = 0;
     memset(&hl, 0, sizeof hl);
     memset(ins_st, 0, sizeof ins_st);
     memset(ins_lines, 0, sizeof ins_lines);
