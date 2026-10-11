@@ -258,13 +258,14 @@ The pages by button:
 ## Menu
 
 Hold **HOME** for the menu, in five tabs: **DISPLAY** (COLOR, LARGE, LEDS, SCREEN OFF, SCOPE, HOME),
-**CONTROL** (HOLD, KNOB ACCEL, FX LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW, CHORD ENTRY), **AUDIO** (SPEAKER EQ,
+**CONTROL** (HOLD, FX LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW, CHORD ENTRY), **AUDIO** (SPEAKER EQ,
 USB LEVEL, CLICK, CLICK LEVEL, COUNT-IN, TUNE), **MIDI** (MIDI IN, LEARN CLEAR) and **SYSTEM** (USB SERIAL,
 RESTORE LAST, HELP, HARDWARE CALIBRATION, INFO, ABOUT).
 ALGORITHM moves between the tabs and PRESETS through the rows of one; any of KNOB 1-4, or OCT+ / OCT−,
 changes the value (OCT+ opens HARDWARE CALIBRATION, INFO and ABOUT); press HOME to close the menu. Every new
 setting defaults to the earlier behaviour. The web editor's Settings tab reads and changes them too, saved the same
-way as from the menu, in the same tabs. STYLE and ANIM are gone from the menu (always flat, no UI animations).
+way as from the menu, in the same tabs. STYLE, ANIM and KNOB ACCEL are gone from the menu (always flat, no UI
+animations; knob acceleration always on for wide values).
 
 - **COLOR:** the palette. GREY (grayscale, called MONO up to 1.0.1), GREEN, AMBER, ICE, VIOLET, ROSE,
   PAPER (light), HI-CON (high contrast), NIGHT (the 0.9 look: true black, green-tinted text) and MONO
@@ -283,9 +284,6 @@ way as from the menu, in the same tabs. STYLE and ANIM are gone from the menu (a
   each with its sound, its steps playing, MUTE and a meter. With TRACKS only the look changes; with LEVELS KNOB 1-4
   set the LEVEL of T1-T4 (the engine's main parameters are on EDIT)
 - **HOLD:** how long a layer's button is held before its map shows
-- **KNOB ACCEL:** OFF (one step per click) or ON: a fast, steady turn of a wide value moves 2 to 4 steps
-  per click, up to 8 on values of more than 64 steps, the FX and GLO layers' knobs included; lists never
-  jump. ON or OFF, every click of a fast turn counts
 - **FX LATCH:** ON, FX + an effect key turns the effect on until pressed again, the knob macros stay
   where you leave them, and FX + OCT− turns everything off
 - **BPM LOCK:** ON, SELECT no longer changes the tempo; hold GLO and turn SELECT, tap F4 in the GLO

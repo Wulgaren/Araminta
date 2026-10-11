@@ -429,20 +429,21 @@ static void ui_leds(void)
 
 /* ---------------------------------------------------------- input --- */
 /* Predictable hardware response (#23): each decoded detent is one value step; a fast turn keeps its full signed
- * detent count. MENU > KNOB ACCEL ON (#52, OFF by default) multiplies a fast turn of a wide value (range > 32, not a
- * list of names; the FX and GLO layers' knobs too, #126) by 2..4, by up to 8 over a range above 64. The main loop
- * reads the knobs many times a frame (main.c), so a read holds one detent as a rule: the speed is the time per
- * detent, ACC_RATE / ms -> 25 ms x2, 16 ms x3, 12 ms x4, 10 ms x5 .. 6 ms or less x8 (a flick: 12 detents in 120 ms
- * move a -100..100 FX macro ~50). Only the longer of this read's and the previous read's time counts, and only while
- * the turn goes on (both under ACC_GAP ms) in one direction: a slow turn, the first two detents of a turn, a single
- * quick detent (a bounce) and a reversal are one step per detent, and the sign is always the detents'.
+ * detent count. Fast turns of a wide value (range > 32, not a list of names; the FX and GLO layers' knobs too, #126;
+ * OCT+ + SELECT tempo too) multiply by 2..4, by up to 8 over a range above 64 (#52: always on; KNOB ACCEL menu row
+ * retired). SELECT's page walk is never accelerated (one page per detent). The main loop reads the knobs many times
+ * a frame (main.c), so a read holds one detent as a rule: the speed is the time per detent, ACC_RATE / ms -> 25 ms
+ * x2, 16 ms x3, 12 ms x4, 10 ms x5 .. 6 ms or less x8 (a flick: 12 detents in 120 ms move a -100..100 FX macro ~50).
+ * Only the longer of this read's and the previous read's time counts, and only while the turn goes on (both under
+ * ACC_GAP ms) in one direction: a slow turn, the first two detents of a turn, a single quick detent (a bounce) and a
+ * reversal are one step per detent, and the sign is always the detents'.
  * ui.enc_t[role]: bits 0..23 the ms of its last read, bit 24 its direction (+1), 25..31 its ms per detent (127 slow) */
 #define ACC_GAP 40u
 #define ACC_RATE 50u
 static int32_t accel(uint32_t role, int32_t s, int32_t range)
 {
     uint32_t now = fm1_ms & 0xFFFFFFu, st = ui.enc_t[role], up = s > 0, pi = st >> 25, a, i, m = 1;
-    if (!(ui_prefs & PREF_ACCEL) || range <= 32 || !s)
+    if (range <= 32 || !s)
         return s;
     a = (uint32_t)(s < 0 ? -s : s);
     i = ((now - st) & 0xFFFFFFu) / a;                   /* ms per detent of this read */
@@ -1996,10 +1997,10 @@ static void ui_input(void)
     if (!lay && (s = panel_enc(EN_ALGO)) != 0)     /* ALGORITHM: the selected track, on every page */
         track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
     if (!lay && (s = panel_enc(EN_SELECT)) != 0) {
-        if (glo) {                                      /* OCT+ + SELECT: tempo (CLOCK K1 too) */
+        if (glo) {                                      /* OCT+ + SELECT: tempo (CLOCK K1 too; accelerated) */
             song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), GP[G_BPM].min, GP[G_BPM].max);
             ui.bpm_t = 40;
-        } else {                                        /* SELECT: pages inside the current section */
+        } else {                                        /* SELECT: pages inside the current section (never accelerated) */
             int32_t n = s > 0 ? s : -s;
             while (n--)
                 select_page_step(s > 0 ? 1 : -1);

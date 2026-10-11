@@ -44,7 +44,7 @@ static uint32_t up_gen;                      /* bumped on every user bank change
 #define ui_prefs (favorites.factory[15][30])
 #define PREF_LATCH 1u                          /* MENU > FX LATCH ON (#40) */
 #define PREF_ANIM_OFF 2u                       /* ANIM retired: always set (no rolling digits, glide, LED sweep) */
-#define PREF_ACCEL 4u                          /* MENU > KNOB ACCEL ON (#52): fast turns of wide values x2..x8 */
+#define PREF_ACCEL 4u                          /* retired: KNOB ACCEL always on (#52); bit unused */
 #define PREF_USB_FIXED 8u                      /* MENU > USB LEVEL FIXED: USB audio at the full level, MASTER after */
 #define PREF_BPM_LOCK 16u                      /* MENU > BPM LOCK ON: lock icon by the BPM (tempo is GLO+SELECT / CLOCK) */
 #define PREF_LARGE 32u                         /* MENU > LARGE ON (#15, Discussion #80): big knob labels and values
