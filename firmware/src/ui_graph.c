@@ -12,7 +12,7 @@
 #define GOY 11                                       /* graphs drawn on a 100 px scale sit at y 11..111 */
 /* the height ADSR and LFO are drawn on: 100 px, or (MENU > LARGE's strip: draw_graph) the strip's ~ 56 */
 static int32_t graph_ht = 100;
-#include "ui_fm6op.c"                                /* EDIT > OPERATOR, OP ENV, OPERATOR 2: FM6's operators (their charts below) */
+#include "ui_fm6op.c"                                /* EDIT > OPERATOR, OP ENV: FM6's operators (their charts below) */
 /* FX technical graphs (DIST DLY REVERB CHOR MASTER + insert stages): after JIANT FM, flat tokens */
 #include "ui_tech.c"
 
@@ -2359,7 +2359,6 @@ static void draw_graph(void)
             graph_colony(t, (int32_t)(dx_ui_lane & 7u));
             break;
         case GR_FMOP:
-        case GR_FMOP2:
             if (fop_ok()) graph_fm6(t, c, fop_op % 6u);   /* the chart, the operator picked */
             break;
         case GR_FMENV:

@@ -859,11 +859,12 @@ it had: a `GET` or the `CHANGED` push shows it), and the device's knob passes ov
 a bank slot: a stored 9..40 (in a project, a user preset or a motion record; 1.0.2 wrote 8..34 for its B1..B27) loads
 as 8, OWN, with the patch that came with it (DESC: SLOT max 40; firmware before 1.4.1: 8).
 
-Since 1.2 the device edits the patch too (EDIT > OPERATOR, OP ENV, OPERATOR 2: an operator's coarse / fine
-frequency, output level, mode, detune, velocity sensitivity, R1..R4 and L1..L4). Each such edit writes that byte of
-the track's patch and sets SLOT to 8 (OWN), which the editor sees as any SLOT change; the patch it holds for the
-track may then be stale: read it again with `FM6_GET` (target 0). Nothing new on the wire: no command, parameter
-id or INFO tag (the operator values are the patch, not parameters: no `SET`, no automation).
+Since 1.2 the device edits the patch too (EDIT > OPERATOR, OP ENV: an operator's FREQ — ratio 0.50 / 1..31 then
+fixed 1 / 10 / 100 / 1000 Hz, writing mode + coarse — fine, output level, R1..R4 and L1..L4). Detune and velocity
+sensitivity stay in the patch (editor / syx) but are not on those pages. Each such edit writes the patch and sets
+SLOT to 8 (OWN), which the editor sees as any SLOT change; the patch it holds for the track may then be stale: read
+it again with `FM6_GET` (target 0). Nothing new on the wire: no command, parameter id or INFO tag (the operator
+values are the patch, not parameters: no `SET`, no automation).
 
 A patch is the 128-byte packed record of the generic 6-operator voice (the 32-voice bank's record; every byte is
 7-bit, so it travels as it is, no pack7). Operators come sixth first: per operator 17 bytes (R1..R4, L1..L4,

@@ -2,14 +2,15 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FM6's operator pages (EDIT family, an FM6 track only, after EDIT 2; Discussion #76): the six operators of the track's
  * own patch (eng_fm6.c fm6_patch) edited on the device. KNOB 1 is the operator (OP 1..6, as the MOD page's SLOT: one
- * choice for the three pages, kept while one goes round them), KNOB 2..4 its bytes:
- *   OPERATOR    OP  RATIO / FIXED (the coarse frequency: 0.50, 1..31; fixed 1 10 100 1000 HZ)  FINE (0..99)  LEVEL (0..99)
+ * choice for the two pages, kept while one goes round them), KNOB 2..4 its bytes:
+ *   OPERATOR    OP  FREQ (ratio 0.50, 1..31, then fixed 1 10 100 1000 HZ)  FINE (0..99)  LEVEL (0..99)
  *   OP ENV      OP  STAGE (1 ATK, 2 DEC, 3 SUS, 4 REL: the envelope's stage KNOB 3 / 4 edit)  RATE  LEVEL (0..99)
- *   OPERATOR 2  OP  MODE (RATIO / FIXED)  DTUN (-7..+7)  VEL (the velocity sensitivity, 0..7)
- * The panel: OPERATOR and OPERATOR 2 the algorithm chart (ui_graph.c graph_fm6) with the operator picked in the accent
- * and its frequency top right ("x1.50", "440 HZ"); OP ENV its envelope (graph_fm6env), the stage picked in the accent.
- * A detent writes one byte of the patch (fm6_set_patch: the audio ISR takes it at its next block) and makes the patch
- * the track's own: SLOT OWN (as a patch from the editor; a factory F n edited is OWN from then on). Each knob gesture is
+ * FREQ writes MODE + COARSE under the hood (syx / the web editor unchanged): indices 0..31 ratio (MODE 0), 32..35
+ * fixed (MODE 1, COARSE 0..3). Per-op detune and velocity stay in the patch (web editor / syx) but have no page here.
+ * The panel: OPERATOR the algorithm chart (ui_graph.c graph_fm6) with the operator picked in the accent and its
+ * frequency top right ("x1.50", "440 HZ"); OP ENV its envelope (graph_fm6env), the stage picked in the accent.
+ * A detent writes the patch (fm6_set_patch: the audio ISR takes it at its next block) and makes the patch the
+ * track's own: SLOT OWN (as a patch from the editor; a factory F n edited is OWN from then on). Each knob gesture is
  * one undo (SAVE held: the sound before it, the patch and SLOT with it; ui.c edit_undo_take). The patch is saved with
  * projects and user presets as before (no new format, no new parameter ids: nothing here is automatable or lockable).
  * The values shown are the patch's own: EDIT 1 / 2's macros still apply on top of it as before (MLVL moves the
@@ -20,21 +21,21 @@ static int32_t accel(uint32_t role, int32_t s, int32_t range);   /* (ui_input.c)
 static uint8_t fop_op;                               /* the operator shown: 0..5 = OP 1..6 (the patch holds OP 6 first) */
 static uint8_t fop_stg;                              /* OP ENV: the stage KNOB 3 / 4 edit, 0..3 */
 
-enum { FO_OP, FO_STG, FO_CRS, FO_FINE, FO_LVL, FO_MODE, FO_DTUN, FO_VEL, FO_RATE, FO_ELVL };
-static const uint8_t FO_PAGE[3][4] = {
+enum { FO_OP, FO_STG, FO_CRS, FO_FINE, FO_LVL, FO_RATE, FO_ELVL };
+enum { FO_FREQ_N = 36 };                             /* 32 ratio + 4 fixed */
+static const uint8_t FO_PAGE[2][4] = {
     {FO_OP, FO_CRS, FO_FINE, FO_LVL},                /* OPERATOR */
-    {FO_OP, FO_MODE, FO_DTUN, FO_VEL},               /* OPERATOR 2 */
     {FO_OP, FO_STG, FO_RATE, FO_ELVL},               /* OP ENV */
 };
 /* per field: its byte in an operator's 21 (RATE / LEVEL: + the stage) */
-static const uint8_t FO_OFF[10] = {0, 0, FP_FC, FP_FF, FP_OL, FP_MODE, FP_DET, FP_KVS, FP_R1, FP_L1};
+static const uint8_t FO_OFF[7] = {0, 0, FP_FC, FP_FF, FP_OL, FP_R1, FP_L1};
 
-static int fop_page(uint32_t g) { return g >= GR_FMOP && g <= GR_FMENV; }
+static int fop_page(uint32_t g) { return g == GR_FMOP || g == GR_FMENV; }
 static int fop_ok(void) { return TSEL->eng_req % NENGINES == ENGI_FM6; }
 static uint32_t fop_field(uint32_t slot)
 {
     uint32_t g = cur_page()->graph;
-    return FO_PAGE[g == GR_FMOP2 ? 1u : g == GR_FMENV ? 2u : 0u][slot & 3u];
+    return FO_PAGE[g == GR_FMENV ? 1u : 0u][slot & 3u];
 }
 /* the selected operator's 21 bytes in track tr's patch */
 static const uint8_t *fop_bytes(uint32_t tr) { return fm6_patch[tr % NTRK] + (5u - fop_op % 6u) * FP_OP; }
@@ -42,6 +43,12 @@ static const uint8_t *fop_bytes(uint32_t tr) { return fm6_patch[tr % NTRK] + (5u
 static uint32_t fop_byte(uint32_t f)
 {
     return (5u - fop_op % 6u) * FP_OP + FO_OFF[f] + (f == FO_RATE || f == FO_ELVL ? fop_stg & 3u : 0u);
+}
+static uint32_t fop_mode_byte(void) { return (5u - fop_op % 6u) * FP_OP + FP_MODE; }
+/* FREQ knob index 0..35 from MODE + COARSE */
+static uint32_t fop_freq_idx(const uint8_t *op)
+{
+    return op[FP_MODE] ? 32u + (op[FP_FC] & 3u) : op[FP_FC] & 31u;
 }
 
 /* byte b of the selected track's patch = v: the track's own patch now (SLOT OWN), one undo per knob gesture */
@@ -62,10 +69,29 @@ static void fop_write(uint32_t b, uint32_t v)
     motion_undo_done(t);
 }
 
+/* FREQ: MODE + COARSE together (one undo for the gesture) */
+static void fop_write_freq(uint32_t idx)
+{
+    uint32_t tr = song.sel % NTRK, bm = fop_mode_byte(), bf = fop_byte(FO_CRS);
+    track_t *t = TSEL;
+    uint8_t p[FP_SIZE + 1u], mode = idx >= 32u, fc = mode ? (uint8_t)(idx - 32u) : (uint8_t)idx;
+    if (fm6_patch[tr][bm] == mode && fm6_patch[tr][bf] == fc)
+        return;
+    edit_undo_take(t, 0x1000u | bf, UNDO_SOUND);
+    memcpy(p, fm6_patch[tr], FP_SIZE);
+    p[bm] = mode;
+    p[bf] = fc;
+    fm6_set_patch(tr, p);
+    fm6_own_ok &= (uint8_t)~(1u << tr);
+    fm6_slot[tr] = FM6_OWN;
+    t->p[P_E7] = FM6_OWN;
+    motion_undo_done(t);
+}
+
 /* KNOB slot turned by steps on an operator page */
 static void fop_knob(uint32_t slot, int32_t steps)
 {
-    uint32_t f = fop_field(slot), b;
+    uint32_t f = fop_field(slot), b, idx;
     int32_t max;
     if (!fop_ok() || !steps)
         return;
@@ -75,6 +101,11 @@ static void fop_knob(uint32_t slot, int32_t steps)
     }
     if (f == FO_STG) {
         fop_stg = (uint8_t)clamp((int32_t)fop_stg + steps, 0, 3);
+        return;
+    }
+    if (f == FO_CRS) {
+        idx = fop_freq_idx(fop_bytes(song.sel));
+        fop_write_freq((uint32_t)clamp((int32_t)idx + accel(EN_K1 + slot, steps, FO_FREQ_N - 1), 0, FO_FREQ_N - 1));
         return;
     }
     b = fop_byte(f);
@@ -124,7 +155,7 @@ static void fop_freq(const uint8_t *op, char *s)
 static int fop_card(uint32_t slot, const char **label, char *val, const char **unit, int32_t *ratio, uint32_t *icon)
 {
     static const char *const STG[4] = {"ATK", "DEC", "SUS", "REL"};
-    uint32_t f = fop_field(slot), v;
+    uint32_t f = fop_field(slot), v, idx;
     const uint8_t *op = fop_bytes(song.sel);
     *unit = "";
     *ratio = -1;
@@ -144,21 +175,26 @@ static int fop_card(uint32_t slot, const char **label, char *val, const char **u
         *icon = ICON_ENV;
         return 1;
     }
+    if (f == FO_CRS) {
+        static const char *const HZ[4] = {"1", "10", "100", "1000"};
+        idx = fop_freq_idx(op);
+        *label = "FREQ";
+        *icon = ICON_RATIO;
+        *ratio = (int32_t)(idx * 1000u / (FO_FREQ_N - 1u));
+        if (op[FP_MODE]) {
+            str_cpy(val, HZ[op[FP_FC] & 3u], 12);
+            *unit = "HZ";
+        } else if (!op[FP_FC]) {
+            str_cpy(val, "0.50", 12);
+        } else {
+            fmt_int(val, (int32_t)(op[FP_FC] & 31u));
+        }
+        return 1;
+    }
     v = fm6_patch[song.sel % NTRK][fop_byte(f)];
     *ratio = (int32_t)(v * 1000u / fm6_max(fop_byte(f)));
     fmt_int(val, (int32_t)v);
     switch (f) {
-    case FO_CRS:
-        *label = op[FP_MODE] ? "FIXED" : "RATIO";
-        *icon = ICON_RATIO;
-        if (op[FP_MODE]) {
-            static const char *const HZ[4] = {"1", "10", "100", "1000"};
-            str_cpy(val, HZ[v & 3u], 12);
-            *unit = "HZ";
-        } else if (!v) {
-            str_cpy(val, "0.50", 12);
-        }
-        return 1;
     case FO_FINE:
         *label = "FINE";
         *icon = ICON_TUNE;
@@ -168,21 +204,6 @@ static int fop_card(uint32_t slot, const char **label, char *val, const char **u
         *label = "LEVEL";
         *icon = ICON_LEVEL;
         return f == FO_ELVL || v != 0u;
-    case FO_MODE:
-        *label = "MODE";
-        str_cpy(val, v ? "FIXED" : "RATIO", 12);
-        *icon = ICON_RATIO;
-        return 1;
-    case FO_DTUN:
-        *label = "DTUN";
-        val[0] = v > 7u ? '+' : 0;
-        fmt_int(val + (v > 7u), (int32_t)v - 7);
-        *icon = ICON_DETUNE;
-        return 1;
-    case FO_VEL:
-        *label = "VEL";
-        *icon = ICON_ACCENT;
-        return 1;
     default:                                         /* FO_RATE */
         *label = "RATE";
         *icon = ICON_RATE;

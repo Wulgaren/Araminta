@@ -386,7 +386,7 @@ static uint32_t layer_btn(void);
 /* FM operator pages belong to DIGITAL; they never appear on other instruments (without FELUCCA_FM4: never).
  * LANES / LANES 2 and SOUND* / X-MOD (GR_DXSND) a DRUM track's; FILTER / FILTER DRIVE an ANALOG track's
  * (EDIT 2 is the other engines' second sound page; ANALOG uses FILTER + FILTER DRIVE instead); OPERATOR,
- * OP ENV, OPERATOR 2 an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM (PAN/MUTE on MIXER). */
+ * OP ENV an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM (PAN/MUTE on MIXER). */
 static int page_visible(uint32_t i)
 {
     int analog = ENGINES[TSEL->eng_req % NENGINES] == &ENG_ANALOG;
@@ -403,7 +403,7 @@ static int page_visible(uint32_t i)
         return analog;
     if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] == P_E6 && PAGES[i].id[1] == 0xFFu)  /* FILTER DRIVE */
         return analog;
-    if (PAGES[i].graph >= GR_FMOP && PAGES[i].graph <= GR_FMENV)
+    if (PAGES[i].graph == GR_FMOP || PAGES[i].graph == GR_FMENV)
         return TSEL->eng_req % NENGINES == ENGI_FM6;
     return !(PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] >= P_FM1_ATK &&
              PAGES[i].id[0] <= P_FM4_LEVEL) || (FELUCCA_FM4 && TSEL->eng_req % NENGINES == ENGI_DIGITAL);
