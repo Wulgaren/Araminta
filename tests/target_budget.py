@@ -18,8 +18,7 @@ FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_re
          "trio_render", "trio_pass", "wheel_render", "wheel_block",
          "phys_render", "drum_render", "fm6_render", "fm6_op_run", "fm6_op_fb", "px_modal_block", "px_modal_run", "px_memb_block",
          "px_string_excite", "px_string_run", "px_symp_run",
-         "dv_metal_run", "dv_kick_run", "dv_snare_run", "dv_clap_run", "dv_hat_run", "dv_tom_run",   # drum_voice.c
-         "dv_rim_run", "dv_bell_run", "dv_cym_run", "dv_out", "dv_metal_mix",
+         "dx_run",                                            # DRUM-X voice (drumx_voice.c)
          "slicer_track",                                      # track FX slicer (SAMPLE/GRAIN/SLICE engines retired)
          "fm1_alnk0_irq", "fm1_timer5_irq",               # the audio ISR; TIMER5: the key / LED scan (hal/fm1_input.h)
          "uac_tap48",                                       # the USB audio input at 48 kHz: the 44.1 -> 48 resampler (usb.c)

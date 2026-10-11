@@ -448,11 +448,18 @@ static int learn_test(void)
     bad += check("  no parameter picked yet: a CC learns nothing, sets nothing", !ml_count() &&
                  !memcmp(before, trk[0].p, sizeof before));
 
-    /* a knob picks (as it edits), a CC is learned */
+    /* a knob picks (as it edits), a CC is learned. ANALOG: CUT/RES live on EDIT > FILTER (EDIT 2 is hidden). */
     frames(300);                                                     /* (#39: the knobs quiet after a layer) */
-    go_title("EDIT 2");
+    {
+        uint32_t i;
+        for (i = 0; i < NPAGES && !(str_eq(PAGES[i].title, "FILTER") && PAGES[i].fam == FAM_EDIT); i++)
+            ;
+        ui.home = 0;
+        ui.page = (uint8_t)i;
+        page_entered();
+    }
     cut = trk[0].p[P_E4];
-    turn(EN_K1, -3);
+    turn(EN_K2, -3);                                                 /* FILTER: K2 CUT, K3 RES */
     ok = ui.ml.pick && ui.ml.trk == 0u && ui.ml.id == P_E4 && trk[0].p[P_E4] == cut - 3 && ml_arm;
     { char b[24]; ml_line(b); ok &= str_eq(b, "T1 CUT: SEND A CC"); }
     queued(0xB0, 1, 99, 1); queued(0xB0, 64, 127, 1); queued(0xB0, 64, 0, 1); queued(0xB0, 0, 5, 1);
@@ -462,12 +469,12 @@ static int learn_test(void)
     ok &= ml_count() == 1u && ml_entry(20, 0, P_E4) && msg_is("CC20 -> T1 CUT") && !ui.ml.pick && !ml_arm;
     ok &= trk[0].p[P_E4] == cut - 3;                                /* (the learning CC sets nothing itself) */
     { char b[24]; ml_line(b); ok &= str_eq(b, "LEARN: TURN A KNOB"); }
-    bad += check("  EDIT 2 KNOB 1 picks T1 CUT; CC1 / CC64 / CC0 are passed over; CC20 is learned", ok);
+    bad += check("  FILTER KNOB 2 picks T1 CUT; CC1 / CC64 / CC0 are passed over; CC20 is learned", ok);
     queued(0xB0, 20, 127, 1);
     ok = trk[0].p[P_E4] == 127;
     queued(0xB2, 20, 0, 1);                                          /* (channel 3: track 3's, still T1 CUT) */
     ok &= trk[0].p[P_E4] == 0;
-    turn(EN_K1, 1);
+    turn(EN_K2, 1);
     { char b[24]; ml_line(b); ok &= str_eq(b, "T1 CUT = CC20"); }
     bad += check("  CC20 sets T1 CUT on any channel ROUT hears; the knob again shows its CC", ok);
     song.g[G_ROUTE] = 0; queued(0xB9, 20, 64, 1);
@@ -486,19 +493,26 @@ static int learn_test(void)
     bad += check("  GLO + KNOB 2 picks T2 LEVEL; CC74 learned: T2 LEVEL, no more T1 CUT (the standard map)", ok);
 
     /* one CC one parameter, a parameter one CC */
-    go_title("EDIT 2");
-    turn(EN_K1, 1);
+    {
+        uint32_t i;
+        for (i = 0; i < NPAGES && !(str_eq(PAGES[i].title, "FILTER") && PAGES[i].fam == FAM_EDIT); i++)
+            ;
+        ui.home = 0;
+        ui.page = (uint8_t)i;
+        page_entered();
+    }
+    turn(EN_K2, 1);
     queued(0xB0, 21, 0, 1); frame();
     ok = ml_count() == 2u && ml_entry(21, 0, P_E4) && !ml_entry(20, 0, P_E4);
     queued(0xB0, 20, 99, 1);
     ok &= trk[0].p[P_E4] != 99;
-    turn(EN_K2, 1);                                                  /* T1 RES */
+    turn(EN_K3, 1);                                                  /* T1 RES */
     queued(0xB0, 21, 0, 1); frame();
     ok &= ml_count() == 2u && ml_entry(21, 0, P_E5) && !ml_cc_of(0, P_E4);
     bad += check("  learning again replaces: CUT on CC21 drops CC20; CC21 on RES drops CUT's", ok);
 
     /* OCT- clears the picked parameter's CC; no octave */
-    turn(EN_K2, -1);
+    turn(EN_K3, -1);
     press(B_OCTDN);
     ok = !ml_cc_of(0, P_E5) && msg_is("T1 RES CC CLEARED") && song.octave == 0 && ui.ml.on;
     press(B_OCTDN);
@@ -511,7 +525,7 @@ static int learn_test(void)
     /* review 1.5: OCT- on one parameter keeps CC16 learned elsewhere (16 = ML_N was the "no CC" mark) */
     ml_learn(16, 2, P_LEVEL);
     ml_learn(30, 0, P_E5);
-    turn(EN_K2, -1);                                                   /* T1 RES picked again */
+    turn(EN_K3, -1);                                                   /* T1 RES picked again */
     press(B_OCTDN);                                                    /* T1 RES picked: drops CC30 only */
     ok = ml_entry(16, 2, P_LEVEL) && !ml_cc_of(0, P_E5) && msg_is("T1 RES CC CLEARED");
     press(B_OCTDN);
@@ -522,7 +536,7 @@ static int learn_test(void)
     /* full: ML_N; a CC never learned */
     for (i = 0; i < ML_N - 1u; i++)
         ml_learn(40u + i, 2, P_ATK + i);
-    turn(EN_K1, 1);
+    turn(EN_K2, 1);
     queued(0xB0, 90, 5, 1); frame();
     ok = msg_is("LEARN FULL") && ml_count() == ML_N && !ml_cc_of(0, P_E4);
     ok &= ml_learn(64, 0, P_E4) == 2u && ml_learn(1, 0, P_E4) == 2u && ml_learn(123, 0, P_E4) == 2u;

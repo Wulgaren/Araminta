@@ -174,6 +174,12 @@ def main():
     a = ap.parse_args()
     RULE[0] = a.rule
     faces = parse(a.header)
+    # Terminus (build.sh --preset terminus): 1 phase, BDF bitmaps. The supersampled TTF
+    # reference below is for Inter Tight / standin tables only; a bitmap face has no GPOS
+    # reference to score against (aa_raster.open_font rejects BDF#scale).
+    if faces and all(f["psh"] == 0 for f in faces.values()):
+        print("text spacing: skip (bitmap font / Terminus: no TTF reference)")
+        return 0
     spec = {n: (font, px) for n, font, px, *_ in gf.preset("inter-tight")}
     bad = 0
     for name, f in faces.items():
