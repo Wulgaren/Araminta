@@ -421,12 +421,12 @@ static void nm_draw_panel(void)
         cv_rrect(x, y, 42, 36, 4, T_KEY, T_SURF);
         GFX_HOOK_ALIGN(0, y, 0, y + 36, AL_V | AL_N(2), "name black key name + use centred up/down");
         GFX_HOOK_ALIGN(x, 0, x + 42, 0, AL_H | AL_PASS, "name black key name / use centred across");
-        cv_text_in(x, y + 2, 42, &AF_S, FN[i], T_INK, T_KEY);
+        cv_text_in(x, y + 3, 42, &AF_S, FN[i], T_INK, T_KEY);
         GFX_HOOK_ALIGN(x, 0, x + 42, 0, AL_H | AL_PASS, "name black key name / use centred across");
         if (i == NB_LEFT || i == NB_RIGHT)
-            cv_icon_in(x, y + 20, 42, 0, 12, i == NB_LEFT ? ICON_X_LEFT : ICON_X_RIGHT, T_INK, T_KEY);
+            cv_icon_in(x, y + 21, 42, 0, 12, i == NB_LEFT ? ICON_X_LEFT : ICON_X_RIGHT, T_INK, T_KEY);
         else
-            cv_text_in(x, y + 18, 42, &AF_S, i == NB_SPACE ? "SPACE" : i == NB_DEL ? "DEL" : nm.num ? "ABC" : "123",
+            cv_text_in(x, y + 19, 42, &AF_S, i == NB_SPACE ? "SPACE" : i == NB_DEL ? "DEL" : nm.num ? "ABC" : "123",
                       T_INK, T_KEY);
     }
     cv_blit(0, Y_GRAPH);

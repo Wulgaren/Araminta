@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FELUCCA user interface.
- * Flat: SURF cards and panels on the palette's background, no rules, one type family (Inter Tight, three sizes), tracks
+ * Flat: no raised SURF (SURF = BG on every palette), no rule dividers, one type family (Terminus, three sizes), tracks
  * named by their numbers 1..4 on a cushion (icons.c trk_icon). Four columns <-> KNOB 1..4. Rendering is lazy:
  * every element remembers what it last drew and is redrawn only on change. */
 static int project_save(uint32_t slot);
@@ -43,7 +43,7 @@ static uint32_t up_gen;                      /* bumped on every user bank change
  * its default is 0) */
 #define ui_prefs (favorites.factory[15][30])
 #define PREF_LATCH 1u                          /* MENU > FX LATCH ON (#40) */
-#define PREF_ANIM_OFF 2u                       /* MENU > ANIM OFF (#46): values snap (no rolling digits, no glide) */
+#define PREF_ANIM_OFF 2u                       /* ANIM retired: always set (no rolling digits, glide, LED sweep) */
 #define PREF_ACCEL 4u                          /* MENU > KNOB ACCEL ON (#52): fast turns of wide values x2..x8 */
 #define PREF_USB_FIXED 8u                      /* MENU > USB LEVEL FIXED: USB audio at the full level, MASTER after */
 #define PREF_BPM_LOCK 16u                      /* MENU > BPM LOCK ON: lock icon by the BPM (tempo is GLO+SELECT / CLOCK) */
@@ -100,9 +100,7 @@ static void rp_put(uint32_t f, uint32_t v)
     ui_rec_prefs = (uint8_t)((ui_rec_prefs & ~(3u << (2u * f))) | st << (2u * f));
     rp_apply();
 }
-/* MENU > STYLE (ui_menu.c): ST_FLAT ST_LINE (gfx.c) in another byte no engine uses, saved with the settings;
- * 0 in older ones = FLAT; 2, the retired PIXEL (1.0.1), reads as LINE; anything else unknown as FLAT (settings_persist.c). gfx.c draws from its copy, ux.style
- * (ui_draw.c style_apply) */
+/* STYLE retired: always FLAT (ui_draw.c style_apply). Byte kept in the settings record; LINE / PIXEL ignored */
 #define ui_style (favorites.factory[15][29])
 static void draw_gaps(uint32_t y, uint32_t h);        /* (ui_draw.c) */
 
@@ -1225,10 +1223,22 @@ static int param_kept(uint32_t i)
            (i >= P_SLCR && i <= P_SLDEPTH) || i == P_CHRD || i == P_VOIC || i == P_SQNT;
 }
 
-/* browsing: every factory preset is shown (SAMPLE aliases are gone with the SAMPLE engine) */
-static uint32_t preset_orig(const engine_t *e, uint32_t k) { (void)e; return k; }
-static uint32_t preset_rank(const engine_t *e, uint32_t k) { (void)e; return k; }
-#define preset_shown(e) (ENGINES[e]->npresets)
+/* browsing: SAMPLE aliases (TRANH, PERC) are skipped; they still load as their original (SMP_SET_ORIG) */
+static uint32_t preset_orig(const engine_t *e, uint32_t k)
+{
+    return e->presets == SMP_PRESET_TABLE && k < SMP_NSETS ? SMP_SET_ORIG[k] : k;
+}
+/* the presets of engine e that browsing shows before preset k (k = npresets: all of them) */
+static uint32_t preset_rank(const engine_t *e, uint32_t k)
+{
+    uint32_t i, n = 0;
+    if (e->presets != SMP_PRESET_TABLE)
+        return k;
+    for (i = 0; i < k && i < e->npresets; i++)
+        n += preset_orig(e, i) == i;
+    return n;
+}
+#define preset_shown(e) (ENGINES[e]->npresets - (ENGINES[e]->presets == SMP_PRESET_TABLE ? SMP_NALIAS : 0u))
 
 #if !FELUCCA_FM4
 /* DIGITAL (engine 1, retired): t's sound = p, values as DIGITAL has them, converted to FM6 with a patch of its own
@@ -1284,10 +1294,13 @@ static void apply_preset_to(track_t *t, uint32_t pi)
         return;
     }
 #endif
+    /* SAMPLE preset 4 was PERC (GM kit): load as DRUM (core.h drum_from_perc), not PIANO */
+    if (t->eng_req % NENGINES == ENGI_SAMPLE && pi % (e->npresets ? e->npresets : 1u) == SMP_SET_PERC) {
+        set_engine_of(t, ENGI_DRUM);
+        return;
+    }
     if (eng_retired(t->eng_req % NENGINES)) {
-        uint32_t e = t->eng_req % NENGINES;
-        /* SAMPLE preset 4 was PERC (GM kit): load as DRUM, not ANALOG (eng_play_as) */
-        set_engine_of(t, e == ENGI_SAMPLE && pi == SMP_SET_PERC ? ENGI_DRUM : eng_play_as(e));
+        set_engine_of(t, eng_play_as(t->eng_req % NENGINES));
         return;
     }
     load_begin(t, UNDO_SOUND);

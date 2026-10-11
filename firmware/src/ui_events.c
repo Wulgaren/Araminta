@@ -501,7 +501,7 @@ static void ev_delete(void)
     uint32_t n, c = ev_cur(rw, &n), r = ev_row(n), k = c >> 8;
     const motion_event_t *e;
     if (k == EVK_TOP || k == EVK_QNT || k == EVK_ADD) {
-        ui_message("NOTHING TO DELETE");
+        ui_message("NOTHING TO DEL");
         return;
     }
     if (ev_busy())

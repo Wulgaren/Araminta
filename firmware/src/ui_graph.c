@@ -214,11 +214,14 @@ static void graph_roll(const track_t *t, uint16_t c)
             cv_rect(PR_X0, y + PR_RH - 1, gw, 1, T_RAISE);
             note_name(nb, (uint32_t)n);
             GFX_HOOK_ALIGN(0, y, 23, y + PR_RH, AL_V, "piano roll C label on its row");
-            GFX_HOOK_ALIGN(0, y, 23, y + PR_RH, AL_R | AL_PASS, "piano roll C labels' right edge");
-            {   /* its ink ends at x 23, a column before the keys (by the advance, C1's 1 ended 2 px short) */
-                int32_t b[4];
+            {   /* Terminus "C-1" is wider than the 23 px column: left-align in the panel (x >= 3) */
+                int32_t b[4], lx;
                 text_ink(&AF_S, nb, b);
-                cv_text_on(23 - b[2], y - 5, &AF_S, nb, T_DIM, T_SURF);   /* (the widest, "C-1", inside the panel) */
+                lx = 23 - b[2];
+                if (lx < 3) lx = 3;
+                if (lx + b[2] <= 23)
+                    GFX_HOOK_ALIGN(0, y, 23, y + PR_RH, AL_R | AL_PASS, "piano roll C labels' right edge");
+                cv_text_on(lx, y - 5, &AF_S, nb, T_DIM, T_SURF);
             }
         }
     }
@@ -281,7 +284,7 @@ static void graph_grid(const track_t *t, uint16_t c)
             cv_rrect(6, y, 228, 14, 3, T_RAISE, T_SURF);   /* (6 .. 234, as a list row; the hits 40 .. 230) */
         }
         GFX_HOOK_ALIGN(0, y + 2, 0, y + 12, AL_V, "drum lane label on its hits' line");
-        cv_text_on(10, y - 1, &AF_S, drum_lane_abbr(t, l), mu ? T_DIM : sel ? T_ACCENT : T_MID, row);   /* ink rows 2 .. 11, as the hits */
+        cv_text_on(10, y + 2 + CAP_IN(S, 10), &AF_S, drum_lane_abbr(t, l), mu ? T_DIM : sel ? T_ACCENT : T_MID, row);
         if (mu) {                                    /* (27 .. 39: between the name and the first hit) */
             GFX_HOOK_ALIGN(0, y, 0, y + 14, AL_V, "drum lane mute icon centred up/down");
             cv_icon_in(27, y, 0, 14, 12, ICON_MUTE, T_DIM, row);
@@ -785,14 +788,17 @@ static void graph_fm6(const track_t *t, uint16_t c, uint32_t sel)
         FM6_CHART_HOOK(FMH_BOX, k, 0);
         cv_rrect(x[k] - 10, y[k], 21, FM_BH, 3, fill, T_SURF);
         GFX_HOOK_ALIGN(x[k] - 10, y[k], x[k] + 11, y[k] + FM_BH, AL_HV, "FM6 operator number in its box");
-        cv_text_in(x[k] - 10, y[k] + CAP_IN(S, FM_BH), 21, &AF_S, n, fill_c || k == sel ? T_INK : on ? f : T_DIM, fill);
+        cv_text_in(x[k] - 10, y[k] + 1, 21, &AF_S, n, fill_c || k == sel ? T_INK : on ? f : T_DIM, fill);   /* +1: nets clear (Terminus CAP_IN is 2) */
     }
     FM6_CHART_HOOK(FMH_LABEL, 0, 0);
     cv_text(10, 4 - GOY, &AF_S, b, hot == P_E0 || hot == P_E7 ? T_ACCENT : T_MID);
-    if (sel < 6u) {                                  /* the operator picked: "OP3 x1.50" */
+    if (sel < 6u) {                                  /* the operator picked: "OP3 x1.50" (freq only if wider) */
         char fq[16] = {'O', 'P', (char)('1' + sel), ' ', 0};
+        const char *s = fq;
         fop_freq(pt + (5u - sel) * FP_OP, fq + 4);
-        cv_text_r(228, 4 - GOY, &AF_S, fq, T_TEXT, T_SURF);
+        /* Terminus: "OP1 9.77 KHZ" is 96 px and meets ALG 1's feedback loop (~x 147); keep clear of x 152 */
+        if (228 - text_w(&AF_S, fq) < 152) s = fq + 4;
+        cv_text_r(228, 4 - GOY, &AF_S, s, T_TEXT, T_SURF);
     } else if (fm6_bank_slot(fm6_slot[(t - trk) % NTRK]) >= 0) {   /* SLOT B1..B32: the bank voice's name */
         char nm[11];
         for (k = 0; k < 10u; k++)
@@ -896,7 +902,7 @@ static void graph_fm(const track_t *t, uint16_t c)
         uint16_t f = k == hop ? T_ACCENT : c, fill = fill_c ? f : T_RAISE;
         cv_rrect(x[k] - 10, y[k], 21, FM_BH, 3, fill, T_SURF);
         GFX_HOOK_ALIGN(x[k] - 10, y[k], x[k] + 11, y[k] + FM_BH, AL_HV, "DIGITAL operator number in its box");
-        cv_text_in(x[k] - 10, y[k] + CAP_IN(S, FM_BH), 21, &AF_S, b, fill_c ? T_INK : on ? f : T_DIM, fill);
+        cv_text_in(x[k] - 10, y[k] + 1, 21, &AF_S, b, fill_c ? T_INK : on ? f : T_DIM, fill);
     }
 }
 #endif
@@ -1526,17 +1532,59 @@ static void graph_slots(void)
         list_row(y, sel, b, T_MID, !used ? "--" : n[0] ? n : "USED", used ? T_TEXT : T_DIM, 232, LIST_NX);
     }
 }
-/* MIXER page: four SURF columns, one under each card: the track number on its cushion (in the accent:
- * the selected track) with a REC / ARM / OFF / SOLO badge (PLAY, KNOB 4), the sound's short name (an OFF badge
- * when armed and muted), the LEVEL knob (dB inside) with the output meter beside it, then the PAN and REV
- * knobs with their values. Knobs: a 270 degree ring, the track RAISE, the value arc THEME (the knob just
- * turned: ACCENT; muted: DIM); PAN from 12 o'clock. Each column is its own canvas with its own signature:
+/* MIXER page: four SURF columns, one under each card: three 12 px status squares (track #, REC circle, MUTE icon
+ * or S when SOLO — PLAY, KNOB 4), the sound's short name, the LEVEL knob (dB inside) with the output meter beside
+ * it, then the PAN and REV knobs (P / R inside, values under). Knobs: a 270 degree ring, the track RAISE, the value
+ * arc THEME (the knob just turned: ACCENT; muted: DIM); PAN from 12 o'clock. Each column is its own canvas with its
+ * own signature:
  * while the transport runs only the meters move. */
-#define TS_MY 39                                     /* meter slot: column rows 39 .. 70 */
+#define TS_MY 44                                     /* meter slot: beside LEVEL */
 #define TS_MH 32
-#define KB_X 4                                       /* LEVEL knob: box 4..37 x 37..70, centre (21, 54) */
-#define KB_Y 37
-#define KS_Y 86                                      /* PAN / REV knobs: boxes 86..105, centres x 15 and 42 */
+#define KB_X 4                                       /* LEVEL knob: box 4..37 x 42..75, centre (21, 59) */
+#define KB_Y 42                                      /* a little lower: closer to PAN / REV */
+#define KS_Y 80                                      /* PAN / REV: pulled up toward LEVEL */
+#define MB_S 12                                      /* status squares: track #, REC, MUTE / SOLO */
+#define MB_G 3
+/* REC mark in the square at (x, y): filled while recording, ring when armed (no mark when off) */
+static void mixer_rec_mark(int32_t x, int32_t y, uint32_t st)
+{
+    int32_t cx = x + MB_S / 2, cy = y + MB_S / 2, r = 3, dx, dy;
+    GFX_HOOK_ALIGN(x, y, x + MB_S, y + MB_S, AL_HV, "mixer REC in its square");
+    for (dy = -r; dy <= r; dy++)
+        for (dx = -r; dx <= r; dx++) {
+            int32_t d2 = dx * dx + dy * dy;
+            if (st == 1u ? d2 <= r * r : (d2 >= (r - 1) * (r - 1) && d2 <= r * r))
+                cv_rect(cx + dx, cy + dy, 1, 1, T_REC);
+        }
+    GFX_HOOK_ITEM(cx - r, cy - r, cx + r + 1, cy + r + 1);
+}
+/* track cushion always; REC / MUTE / SOLO squares only when active (no empty backgrounds). st: 1 REC, 2 ARM,
+ * 3 PLAY OFF (mute icon), 4 SOLO ("S"); mute is only dimming of the column (trk_heard) */
+static void mixer_status(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, uint32_t hot, int32_t y)
+{
+    int32_t x = 4;
+    uint16_t fill;
+    (void)mute;
+    GFX_HOOK_ALIGN(x, y, x + MB_S, y + MB_S, AL_HV, "mixer track number in its square");
+    cv_icon_on(x, y, MB_S, trk_icon(c, 1), sel ? T_ACCENT : T_MID, T_SURF);
+    x += MB_S + MB_G;
+    if (st == 1u || st == 2u) {
+        cv_rrect(x, y, MB_S, MB_S, 2, T_RAISE, T_SURF);
+        mixer_rec_mark(x, y, st);
+    }
+    x += MB_S + MB_G;
+    if (st == 3u || st == 4u) {                       /* PLAY OFF: mute icon; SOLO: S (KNOB 4) */
+        fill = hot == 4u ? T_ACCENT : T_KEY;
+        cv_rrect(x, y, MB_S, MB_S, 2, fill, T_SURF);
+        if (st == 4u) {
+            GFX_HOOK_ALIGN(x, y, x + MB_S, y + MB_S, AL_HV, "mixer SOLO S in its square");
+            cv_text_in(x, y + CAP_IN(S, MB_S), MB_S, &AF_S, "S", T_INK, fill);
+        } else {
+            GFX_HOOK_ALIGN(x, y, x + MB_S, y + MB_S, AL_HV, "mixer MUTE in its square");
+            cv_icon_in(x, y, MB_S, MB_S, 12, ICON_MUTE, T_INK, fill);
+        }
+    }
+}
 static struct {
     uint32_t col[NTRK];
     uint8_t meter[NTRK];
@@ -1608,9 +1656,8 @@ static void trk_short_name(uint32_t c, char *b)      /* the track's sound, b hol
         str_cpy(b, e->name, 13);
 }
 
-/* MENU > LARGE: the four tracks in the strip under the tall cards (57 x LG_H_GRAPH each): the cushion (the selected
- * one the accent), REC / ARM / MUTE as on the full mixer, the sound's name, LEVEL as a gauge (THEME: the cards'),
- * the output meter under it (MID); a muted track DIM */
+/* MENU > LARGE: the four tracks in the strip under the tall cards (57 x LG_H_GRAPH each): status squares as on the
+ * full mixer, the sound's name, LEVEL as a gauge (THEME: the cards'), the output meter under it (MID); muted: DIM */
 #define TSS_GY 40                                    /* the LEVEL gauge, 3 px */
 #define TSS_MY 48                                    /* the meter, 3 px */
 static void track_strip(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, uint32_t arm, uint32_t hot, uint32_t lvl,
@@ -1618,26 +1665,18 @@ static void track_strip(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, ui
 {
     int32_t gw = CARD_W - 10, m = ts.meter[c] * gw / (TS_MH - 2), fx = (int32_t)lvl * gw / 127;
     uint16_t vc = mute ? T_DIM : T_THEME;
+    (void)arm;
     cv_begin(CARD_W, LG_H_GRAPH, T_BG);
     cv_rrect(0, 0, CARD_W, LG_H_GRAPH, 5, T_SURF, T_BG);
-    cv_icon_on(4, 4, 16, trk_icon(c, sel), sel ? T_ACCENT : T_MID, T_SURF);
-    if (st)
-        GFX_HOOK_ALIGN(0, 4, 0, 20, AL_V, "mixer badge on the cushion's line");
-    if (st == 1u || st == 2u)
-        cv_keycap(53 - kc_w(st == 1u ? KC_REC : KC_ARM), 5, st == 1u ? KC_REC : KC_ARM, st == 1u ? T_REC : T_ACCENT,
-                  T_INK, T_SURF);
-    else if (st == 4u)
-        cv_keycap(53 - kc_w(KC_SOLO), 5, KC_SOLO, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
-    else if (st)
-        cv_keycap(53 - kc_w(KC_MUTE), 5, KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
-    if (st == 3u && arm)                             /* armed and muted: MUTE in place of the name */
-        GFX_HOOK_ALIGN(0, 22 + AF_S_CAP_Y, 0, 22 + AF_S_CAP_Y + AF_S_CAP_H, AL_V, "mixer MUTE badge on the name's line");
-    if (st == 3u && arm)
-        cv_keycap(5, 22 + AF_S_CAP_Y + HALF_UP(AF_S_CAP_H - KC_H), KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
-    else
-        cv_free_text(5, 22, &AF_S, b, mute ? T_DIM : sel ? T_TEXT : T_MID, T_SURF, CARD_W - 10);
-    cv_rrect(5, TSS_GY, gw, 3, 1, ux.style ? T_LINE : T_BG, T_SURF);
-    cv_rrect(5, TSS_GY, fx < 3 ? 3 : fx, 3, 1, hot == 1u ? T_ACCENT : vc, T_BG);
+    mixer_status(c, sel, st, mute, hot, 4);
+    cv_free_text(5, 20, &AF_S, b, mute ? T_DIM : sel ? T_TEXT : T_MID, T_SURF, CARD_W - 10);
+    {
+        int32_t w = fx < 3 ? 3 : fx;
+        uint16_t gc = hot == 1u ? T_ACCENT : vc;
+        cv_rrect(5, TSS_GY, gw, 3, 1, ux.style ? T_LINE : T_BG, T_SURF);
+        cv_rrect(5, TSS_GY, w, 3, 1, gc, T_BG);
+        cv_rect(5 + w, TSS_GY - 1, 1, 5, gc);            /* 0.9: 1 px end line at the fill's tip */
+    }
     cv_rrect(5, TSS_MY, gw, 3, 1, T_RAISE, T_SURF);
     if (m)
         cv_rrect(5, TSS_MY, m < 3 ? 3 : m, 3, 1, T_MID, T_RAISE);
@@ -1681,23 +1720,8 @@ static void draw_tracks(void)
         }
         cv_begin(CARD_W, H_GRAPH, T_BG);
         cv_rrect(0, 0, CARD_W, H_GRAPH, 5, T_SURF, T_BG);
-        cv_icon_on(4, 5, 16, trk_icon(c, sel), sel ? T_ACCENT : T_MID, T_SURF);
-        if (st)
-            GFX_HOOK_ALIGN(0, 5, 0, 21, AL_V, "mixer badge on the cushion's line");
-        if (st == 1u || st == 2u)                    /* REC (recording) / ARM (armed, stopped) */
-            cv_keycap(53 - kc_w(st == 1u ? KC_REC : KC_ARM), 6, st == 1u ? KC_REC : KC_ARM, st == 1u ? T_REC : T_ACCENT,
-                      T_INK, T_SURF);
-        else if (st == 4u)                           /* SOLO (K4): this track sounds, the others do not */
-            cv_keycap(53 - kc_w(KC_SOLO), 6, KC_SOLO, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
-        else if (st)                                 /* muted (K4 just turned: lit) */
-            cv_keycap(53 - kc_w(KC_MUTE), 6, KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
-        if (st == 3u && arm)                         /* armed and muted: MUTE in place of the name */
-            GFX_HOOK_ALIGN(0, 21 + AF_S_CAP_Y, 0, 21 + AF_S_CAP_Y + AF_S_CAP_H, AL_V,
-                           "mixer MUTE badge on the name's line");
-        if (st == 3u && arm)                         /* (on the name's capitals) */
-            cv_keycap(5, 21 + AF_S_CAP_Y + HALF_UP(AF_S_CAP_H - KC_H), KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
-        else
-            cv_free_text(5, 21, &AF_S, b, mute ? T_DIM : sel ? T_TEXT : T_MID, T_SURF, CARD_W - 10);
+        mixer_status(c, sel, st, mute, hot, 5);
+        cv_free_text(5, 21, &AF_S, b, mute ? T_DIM : sel ? T_TEXT : T_MID, T_SURF, CARD_W - 10);
         {   /* LEVEL: the knob, its dB inside (OFF at 0), and the meter of the output */
             char v[8];
             knob(KB_X, KB_Y, KNOB_BIG_R, KNOB_BIG_COV, KNOB_BIG_ANG, (int32_t)lvl, 0, 127, hot == 1u ? T_ACCENT : vc);
@@ -1715,22 +1739,23 @@ static void draw_tracks(void)
             if (ts.meter[c])
                 cv_rrect(45, TS_MY + TS_MH - 1 - ts.meter[c], 4, ts.meter[c] + 1, ts.meter[c] >= 4 ? 2 : 0, T_MID, T_RAISE);
         }
-        {   /* PAN (from the centre) and the REV send: captions, knobs, values */
+        {   /* PAN (from the centre) and the REV send: P / R inside the knobs, values under */
             char v[8];
             uint16_t pc = hot == 2u ? T_ACCENT : vc, rc = hot == 3u ? T_ACCENT : vc;
-            GFX_HOOK_ALIGN(15 - KNOB_SMALL_R, 0, 15 + KNOB_SMALL_R, 0, AL_H, "mixer caption over its knob");
-            cv_text_in(15 - KNOB_SMALL_R, 72, 2 * KNOB_SMALL_R, &AF_S, "PAN", T_DIM, T_SURF);   /* (by their ink) */
-            GFX_HOOK_ALIGN(42 - KNOB_SMALL_R, 0, 42 + KNOB_SMALL_R, 0, AL_H, "mixer caption over its knob");
-            cv_text_in(42 - KNOB_SMALL_R, 72, 2 * KNOB_SMALL_R, &AF_S, "REV", T_DIM, T_SURF);
-            knob(15 - KNOB_SMALL_R, KS_Y, KNOB_SMALL_R, KNOB_SMALL_COV, KNOB_SMALL_ANG, pan, -64, 63, pc);
-            knob(42 - KNOB_SMALL_R, KS_Y, KNOB_SMALL_R, KNOB_SMALL_COV, KNOB_SMALL_ANG, rv, 0, 127, rc);
+            int32_t px = 15 - KNOB_SMALL_R, rx = 42 - KNOB_SMALL_R, ly = KS_Y + CAP_IN(S, 2 * KNOB_SMALL_R);
+            knob(px, KS_Y, KNOB_SMALL_R, KNOB_SMALL_COV, KNOB_SMALL_ANG, pan, -64, 63, pc);
+            knob(rx, KS_Y, KNOB_SMALL_R, KNOB_SMALL_COV, KNOB_SMALL_ANG, rv, 0, 127, rc);
+            GFX_HOOK_ALIGN(px, KS_Y, px + 2 * KNOB_SMALL_R, KS_Y + 2 * KNOB_SMALL_R, AL_HV, "mixer letter in its knob");
+            cv_text_in(px, ly, 2 * KNOB_SMALL_R, &AF_S, "P", pc, T_SURF);
+            GFX_HOOK_ALIGN(rx, KS_Y, rx + 2 * KNOB_SMALL_R, KS_Y + 2 * KNOB_SMALL_R, AL_HV, "mixer letter in its knob");
+            cv_text_in(rx, ly, 2 * KNOB_SMALL_R, &AF_S, "R", rc, T_SURF);
             v[0] = '+';                              /* the cards' numbers, without the % */
             fmt_int(pan > 0 ? v + 1 : v, pan * 100 / 64);
-            GFX_HOOK_ALIGN(15 - KNOB_SMALL_R, 0, 15 + KNOB_SMALL_R, 0, AL_H, "mixer value under its knob");
-            cv_text_in(15 - KNOB_SMALL_R, KS_Y + 17, 2 * KNOB_SMALL_R, &AF_S, v, pc, T_SURF);
+            GFX_HOOK_ALIGN(px, 0, px + 2 * KNOB_SMALL_R, 0, AL_H, "mixer value under its knob");
+            cv_text_in(px, KS_Y + 17, 2 * KNOB_SMALL_R, &AF_S, v, pc, T_SURF);
             fmt_int(v, (rv * 100 + 63) / 127);
-            GFX_HOOK_ALIGN(42 - KNOB_SMALL_R, 0, 42 + KNOB_SMALL_R, 0, AL_H, "mixer value under its knob");
-            cv_text_in(42 - KNOB_SMALL_R, KS_Y + 17, 2 * KNOB_SMALL_R, &AF_S, v, rc, T_SURF);
+            GFX_HOOK_ALIGN(rx, 0, rx + 2 * KNOB_SMALL_R, 0, AL_H, "mixer value under its knob");
+            cv_text_in(rx, KS_Y + 17, 2 * KNOB_SMALL_R, &AF_S, v, rc, T_SURF);
         }
         cv_blit((uint32_t)CARD_X(c), Y_GRAPH);
     }
