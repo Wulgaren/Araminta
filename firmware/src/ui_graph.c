@@ -442,15 +442,14 @@ static void graph_fx(const track_t *t, uint16_t c)
         cv_rrect(x - 4, 85 - h, 12, 6, 3, c, T_SURF);
     }
 }
-/* insert stage page: dry/wet mix as a blend line (MIX 0 = dry diagonal) */
+/* insert stage page: dry/wet mix as a blend line (MIX 0 = dry diagonal). The mix knob lives on EFFECTS;
+ * the stage page still draws that stage's mix */
 static void graph_insert(const track_t *t, uint16_t c)
 {
-    const page_t *pg = cur_page();
-    int32_t x, cy = graph_ht / 2, a = 38 * graph_ht / 100, py = cy, m = 0, i;
-    for (i = 0; i < 4; i++)
-        if (pg->id[i] == P_IDMIX || pg->id[i] == P_IFMIX || pg->id[i] == P_ICMIX ||
-            pg->id[i] == P_IPMIX || pg->id[i] == P_ILMIX || pg->id[i] == P_IHMIX)
-            m = ins_mixq(t->p[pg->id[i]]);
+    const char *n = cur_page()->title;
+    uint32_t id = str_eq(n, "DIST") ? P_IDMIX : str_eq(n, "FILTER") ? P_IFMIX : str_eq(n, "CRUSH") ? P_ICMIX :
+                  str_eq(n, "PHASR") ? P_IPMIX : str_eq(n, "FLANG") ? P_ILMIX : str_eq(n, "CHOR") ? P_IHMIX : 0xFFu;
+    int32_t x, cy = graph_ht / 2, a = 38 * graph_ht / 100, py = cy, m = id == 0xFFu ? 0 : ins_mixq(t->p[id]);
     cv_rect(PANEL_X0, cy, PANEL_W, 1, T_RAISE);
     cv_line(PANEL_X0 + PANEL_W / 6, cy + a, PANEL_X0 + PANEL_W * 5 / 6, cy - a, m ? T_RAISE : T_DIM);
     if (!m)
@@ -463,20 +462,40 @@ static void graph_insert(const track_t *t, uint16_t c)
         py = y;
     }
 }
-/* REORDER: chain slots top to bottom; highlight ui.ior_sel */
+/* "40%" into b (8 bytes) from a 0..127 send or mix */
+static void ior_pct_txt(char *b, int32_t v)
+{
+    uint32_t n;
+    fmt_int(b, (clamp(v, 0, 127) * 100 + 63) / 127);
+    n = str_len(b);
+    if (n + 1u < 8u) {
+        b[n] = '%';
+        b[n + 1u] = 0;
+    }
+}
+/* EFFECTS: one list. Nine faders do not fit the panel, so each amount is a row: the six chain
+ * stages (name, CHAIN or SEND, mix %) and, under them, the track's chorus, delay and reverb sends. */
+static void ior_row(int32_t y, const char *name, const char *mode, int32_t amt, uint16_t col)
+{
+    char pct[8];
+    ior_pct_txt(pct, amt);
+    cv_text(16, y, &AF_S, name, col);
+    if (mode[0])
+        cv_text(112, y, &AF_S, mode, col);
+    cv_text(226 - text_w(&AF_S, pct), y, &AF_S, pct, col);
+}
 static void graph_iord(const track_t *t, uint16_t c)
 {
+    static const uint8_t SID[3] = {P_CHOR, P_DLY, P_REV};
+    static const char *const SN[3] = {"CHORUS", "DELAY", "REVERB"};
     uint8_t ord[INS_N];
     uint32_t i;
-    int32_t y0 = 8, row = (graph_ht - 16) / (int32_t)INS_N;
     ins_order_get(t, ord);
-    for (i = 0; i < INS_N; i++) {
-        int32_t y = y0 + (int32_t)i * row, mix = ins_mix_of(t, ord[i]);
-        uint16_t col = i == ui.ior_sel ? c : T_DIM;
-        cv_text(PANEL_X0 + 8, y + 2, &AF_S, N_ISTAGE[ord[i]], col);
-        if (mix)
-            cv_rrect(PANEL_X0 + PANEL_W - 40, y + 4, 2 + mix * 28 / 127, 8, 2, col, T_SURF);
-    }
+    for (i = 0; i < INS_N; i++)
+        ior_row(4 + (int32_t)i * 12, N_ISTAGE[ord[i]], ins_is_send(t, ord[i]) ? "SEND" : "CHAIN",
+                ins_mix_of(t, ord[i]), i == ui.ior_sel ? c : T_DIM);
+    for (i = 0; i < 3u; i++)
+        ior_row(82 + (int32_t)i * 12, SN[i], "", t->p[SID[i]], T_MID);
 }
 /* SLICER page: the pattern's 16 steps, a 'x' step a full bar; a '.' step: GATE a bar as high as it stays
  * open (DEPTH), STUT hatched (it repeats the last 'x'); the step playing underlined. Grey when OFF. */
@@ -1171,8 +1190,8 @@ static uint32_t graph_signature(void)
         h ^= pk_sig();
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
-    if (pg->graph == GR_IORD)                        /* REORDER: highlighted slot */
-        h ^= (ui.ior_sel + 1u) * 40503u;
+    if (pg->graph == GR_IORD)                        /* EFFECTS: highlighted slot, send or effect */
+        h ^= (ui.ior_sel + 1u) * 40503u + ((uint32_t)iord_bits(t) + 1u) * 7919u;
     if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
         for (i = 0; i < 4u; i++)
             h ^= (uint32_t)graph_project_used(i) << (20u + i);
@@ -2303,6 +2322,7 @@ static void draw_graph(void)
             graph_slicer(t, c);
             break;
         case GR_IORD:
+            cv_oy = 0;                               /* the list uses the whole panel, not the 100 px inset */
             graph_iord(t, c);
             break;
         case GR_INS:

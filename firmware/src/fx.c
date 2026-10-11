@@ -93,7 +93,43 @@ static struct {                          /* HALL's state (in the pool: no .bss) 
 } hl __attribute__((section(".pool")));
 #define rev_side (hl.sd)
 
-/* insert chain order: P_IORD is a factorial number 0..719 for a permutation of the 6 stages */
+/* P_IORD: low 10 bits are the chain order (factorial 0..719). Bits 10..15 are one flag per
+ * stage (INS_DIST .. INS_CHOR): 0 the stage is in the chain, 1 it is a parallel send.
+ * Flags 0 is every older project. A project with a flag set does not load on firmware that
+ * still rejects any P_IORD above 719. */
+#define IORD_PERM 1023u
+#define IORD_SEND 0xFC00u
+static uint16_t iord_bits(const track_t *t)
+{
+    return (uint16_t)t->p[P_IORD];
+}
+static uint32_t iord_perm_of(uint16_t raw)
+{
+    uint32_t n = raw & IORD_PERM;
+    return n > 719u ? 0u : n;
+}
+static int ins_is_send(const track_t *t, uint32_t st)
+{
+    return st < INS_N && (iord_bits(t) & (uint16_t)(1u << (10u + st))) != 0;
+}
+static void ins_send_set(track_t *t, uint32_t st, int on)
+{
+    uint16_t raw, bit;
+    if (st >= INS_N)
+        return;
+    raw = iord_bits(t);
+    bit = (uint16_t)(1u << (10u + st));
+    raw = on ? (uint16_t)(raw | bit) : (uint16_t)(raw & (uint16_t)~bit);
+    t->p[P_IORD] = (int16_t)raw;
+}
+static void iord_set_perm(track_t *t, uint32_t n)
+{
+    uint16_t raw = iord_bits(t);
+    if (n > 719u)
+        n = 719u;
+    t->p[P_IORD] = (int16_t)(uint16_t)((raw & (uint16_t)~IORD_PERM) | (uint16_t)n);
+}
+/* insert chain order: the low 10 bits of P_IORD, a factorial number 0..719 */
 static uint32_t ins_fact(uint32_t n)
 {
     static const uint16_t F[6] = {120, 24, 6, 2, 1, 1};   /* 5! .. 0! */
@@ -101,7 +137,7 @@ static uint32_t ins_fact(uint32_t n)
 }
 static void ins_order_get(const track_t *t, uint8_t ord[INS_N])
 {
-    uint32_t n = (uint32_t)clamp(t->p[P_IORD], 0, 719), i, j;
+    uint32_t n = iord_perm_of(iord_bits(t)), i, j;
     uint8_t av[INS_N] = {0, 1, 2, 3, 4, 5};
     for (i = 0; i < INS_N; i++) {
         uint32_t f = ins_fact(INS_N - 1u - i), idx = n / f;
@@ -125,9 +161,9 @@ static void ins_order_set(track_t *t, const uint8_t ord[INS_N])
         for (j = idx; j + 1u < INS_N - i; j++)
             av[j] = av[j + 1u];
     }
-    t->p[P_IORD] = (int16_t)(n > 719u ? 719 : n);
+    iord_set_perm(t, n);
 }
-/* swap chain slots at highlight h with h+dir (dir ±1); used by FX+SELECT on REORDER */
+/* swap chain slots at highlight h with h+dir (dir ±1); REORDER KNOB 2 */
 static void ins_order_move(track_t *t, uint32_t h, int32_t dir)
 {
     uint8_t ord[INS_N];
@@ -274,14 +310,62 @@ static uint32_t div_samples(uint32_t div)
 #include "click.c"                                   /* the metronome's click (after the master: audio.c) */
 
 /* the delay's TIME (params.c N_DTIME): N_DIV's ten (div_samples), then 1.5.1's dotted 1/8D 1/16D 1/4D (10, 11, 12: 3/4,
- * 3/8, 3/2 of a quarter); at most DLY_LEN - 1 samples (1.486 s): 1/4D clamps at 60 BPM and below (1/2 below 81) */
+ * 3/8, 3/2 of a quarter); at most DLY_LEN - 1 samples (1.486 s): 1/4D clamps at 60 BPM and below (1/2 below 81).
+ * G_DTIME stays that enum (0..12, the descriptor) in RATE mode. TIME mode stores a free millisecond at
+ * DTIME_FREE + ms (1 .. DTIME_MS_MAX), in the same global: 13..63 stay free so another division can still be
+ * appended. A project load keeps a free-ms value (dtime_load); the descriptor's max stays 12. */
+#define DTIME_FREE 64
+#define DTIME_MS_MAX ((DLY_LEN - 1u) * 1000u / (uint32_t)FS)   /* 1486 ms: the line, one millisecond at a time */
 static const uint8_t DIV_DOT[3] = {2, 3, 1};           /* 3 quarters >> this */
+static int dtime_free(void) { return song.g[G_DTIME] >= DTIME_FREE; }
+static uint32_t dtime_ms(void)
+{
+    int32_t m = (int32_t)song.g[G_DTIME] - DTIME_FREE;
+    if (m < 1)
+        m = 1;
+    if (m > (int32_t)DTIME_MS_MAX)
+        m = (int32_t)DTIME_MS_MAX;
+    return (uint32_t)m;
+}
+static void dtime_set_ms(uint32_t ms)
+{
+    if (ms < 1u)
+        ms = 1u;
+    if (ms > DTIME_MS_MAX)
+        ms = DTIME_MS_MAX;
+    song.g[G_DTIME] = (int16_t)(DTIME_FREE + (int32_t)ms);
+}
+/* free milliseconds as a fractional delay (Q8 samples). One millisecond is 44.1 samples: the fraction is the
+ * time, not a rounded step */
+static uint32_t dtime_q8(void)
+{
+    uint32_t num = dtime_ms() * (uint32_t)FS;
+    uint32_t q = (num / 1000u << 8) + (num % 1000u) * 256u / 1000u;
+    if (q < 16u << 8)
+        q = 16u << 8;
+    if (q > (DLY_LEN - 1u) << 8)
+        q = (DLY_LEN - 1u) << 8;
+    return q;
+}
+static int16_t dtime_load(int32_t v)               /* a saved free-ms time survives the descriptor's 0..12 */
+{
+    if (v >= DTIME_FREE && v <= DTIME_FREE + (int32_t)DTIME_MS_MAX)
+        return (int16_t)v;
+    return (int16_t)clamp(v, GP[G_DTIME].min, GP[G_DTIME].max);
+}
 static uint32_t delay_samples(void)
 {
-    uint32_t d = (uint32_t)song.g[G_DTIME];
-    uint32_t s = d - 10u < 3u ? (beat_samples() * 3u) >> DIV_DOT[d - 10u] : div_samples(d);
+    uint32_t d, s;
+    if (dtime_free())
+        return (dtime_q8() + 128u) >> 8;
+    d = (uint32_t)song.g[G_DTIME];
+    s = d - 10u < 3u ? (beat_samples() * 3u) >> DIV_DOT[d - 10u] : div_samples(d);
     return s < 16u ? 16u : s >= DLY_LEN ? DLY_LEN - 1u : s;
 }
+/* free-ms read position (Q8). 0, and the first block after RATE: snap, so a loaded time is exact. While TIME
+ * stays selected the read glides (at most 2 samples a sample), so a millisecond sweep does not click */
+static uint32_t dly_q8;
+static uint8_t dly_free;
 
 /* ROOM (G_RTYPE 0): 4 damped combs + 2 allpasses (Freeverb-like, mono), added to out */
 static __attribute__((noinline)) void rev_room(const int32_t *rev_in, int32_t *out, uint32_t n)
@@ -702,6 +786,18 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
     int32_t dmix = song.g[G_DMIX] * 258;
     int32_t cdepth = song.g[G_CDEPTH] * 6, rt;
     uint32_t cinc = LFO_INC[song.g[G_CRATE] & 127] / CTL;
+    int free_ms = dtime_free();
+    uint32_t tgt = 0;
+    if (!free_ms) {
+        dly_q8 = 0;
+        dly_free = 0;
+    } else {
+        tgt = dtime_q8();
+        if (!dly_free) {
+            dly_q8 = tgt;
+            dly_free = 1;
+        }
+    }
     if (pf.ew1 && fb < THR_FB)
         fb += mulq16(THR_FB - fb, (uint32_t)pf.ew1 << 1);   /* ECHO THROW (perform.c): more feedback while held, 0.7
                                                              * at most (the loop's gain below 1: it never runs away) */
@@ -718,8 +814,22 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
             y += (c0 + (((c1 - c0) * f) >> 8)) << 1;
         }
         fx.cho_w++;
-        /* delay with a low-passed feedback */
-        x = dly_buf[(fx.dly_w - dl) & (DLY_LEN - 1u)];
+        /* delay with a low-passed feedback. RATE: the division, one sample, as before. TIME: fractional
+         * milliseconds, the read gliding toward the knob */
+        if (free_ms) {
+            int32_t err = (int32_t)tgt - (int32_t)dly_q8;
+            int32_t st = err > 512 ? 512 : err < -512 ? -512 : err;
+            uint32_t ri;
+            int32_t fr, c0, c1;
+            dly_q8 = (uint32_t)((int32_t)dly_q8 + st);
+            ri = dly_q8 >> 8;
+            fr = (int32_t)(dly_q8 & 255u);
+            c0 = dly_buf[(fx.dly_w - ri) & (DLY_LEN - 1u)];
+            c1 = dly_buf[(fx.dly_w - ri - 1u) & (DLY_LEN - 1u)];
+            x = c0 + (((c1 - c0) * fr) >> 8);
+        } else {
+            x = dly_buf[(fx.dly_w - dl) & (DLY_LEN - 1u)];
+        }
         fx.dly_lp += mulq15(x - fx.dly_lp, col);
         dly_buf[fx.dly_w & (DLY_LEN - 1u)] =
             (int16_t)clamp((dly_in[i] >> 1) + mulq15(fx.dly_lp, fb), -32768, 32767);
@@ -822,7 +932,9 @@ static inline uint32_t ins_bits_sh(int32_t a) { return 15u - (uint32_t)(clamp(a,
 static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n, int32_t tw)
 {
     uint32_t i, mode = (uint32_t)clamp(t->p[P_IDMODE], 0, IDM_N - 1);
-    int32_t a = t->p[P_DIST], g = 4096 + a * a * 3, k = ins_lpk(96 - (a >> 2));
+    int32_t a = t->p[P_DIST], g = 4096 + a * a * 3;
+    /* cutoff follows drive (96 at 0, darker as drive rises); P_ED_FX (TONE) offsets it, 0 = as before */
+    int32_t k = ins_lpk(clamp((96 - (a >> 2)) + t->p[P_ED_FX], 0, 127));
     for (i = 0; i < n; i++) {
         int32_t x = b[i], y, v;
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
@@ -965,11 +1077,13 @@ static __attribute__((noinline)) void ins_rest(track_t *t)
     t->ins_run = 0;
 }
 
-static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n)
+/* tw_force < 0: the stage's own mix. Else that Q15 wet (a send runs fully wet; the amount
+ * scales the add in track_insert). */
+static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n, int32_t tw_force)
 {
     uint32_t k = (uint32_t)(t - trk) % NTRK;
     ins_st_t *s = &ins_st[k][st];
-    int32_t tw = ins_mixq(ins_mix_of(t, st));
+    int32_t tw = tw_force >= 0 ? tw_force : ins_mixq(ins_mix_of(t, st));
     if (!s->w && !tw)
         return;                                         /* MIX 0 and faded: skip DSP */
     if (!s->w && tw) {
@@ -985,14 +1099,41 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
         t->ins_run = 1;
 }
 
+static int32_t ins_dry[CTL], ins_wet[CTL];
+/* Chain stages run in order. A stage flagged as a send is left out of that series: the dry
+ * continues, and after the chain a fully wet copy is added, scaled by the stage's mix. */
 static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint32_t n)
 {
     uint8_t ord[INS_N];
     uint32_t i;
+    uint16_t raw;
     t->ins_run = 0;
     ins_order_get(t, ord);
+    raw = iord_bits(t);
     for (i = 0; i < INS_N; i++)
-        ins_stage(t, ord[i], b, n);
+        if (!(raw & (uint16_t)(1u << (10u + ord[i]))))
+            ins_stage(t, ord[i], b, n, -1);
+    if (!(raw & IORD_SEND) || !n || n > CTL)
+        return;
+    for (i = 0; i < n; i++)
+        ins_dry[i] = b[i];
+    for (i = 0; i < INS_N; i++) {
+        uint32_t st = ord[i], k;
+        int32_t amt, g;
+        if (!(raw & (uint16_t)(1u << (10u + st))))
+            continue;
+        amt = ins_mix_of(t, st);
+        if (amt <= 0)
+            continue;
+        for (k = 0; k < n; k++)
+            ins_wet[k] = ins_dry[k];
+        ins_stage(t, st, ins_wet, n, 32768);
+        g = ins_mixq(amt);
+        for (k = 0; k < n; k++) {
+            int64_t s = (int64_t)b[k] + (((int64_t)ins_wet[k] * g) >> 15);
+            b[k] = s > 2147483647 ? 2147483647 : s < -2147483647 - 1 ? (int32_t)(-2147483647 - 1) : (int32_t)s;
+        }
+    }
 }
 
 /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)

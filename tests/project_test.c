@@ -717,6 +717,24 @@ int main(void)
         bad += check("  imported again: as it is",
                      proj_import(&a, &c, sizeof c) && !memcmp(&a, &c, sizeof c));
     }
+    {   /* P_IORD bits 10..15: the stage is a send. The order in the low 10 bits still round-trips.
+         * An order above 719 with no room in those bits is refused. */
+        project_t a, c;
+        static project_store_t st;
+        uint16_t bits;
+        memset(&a, 0, sizeof a);
+        a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
+        chain_defaults(&a.chain);
+        bits = (uint16_t)(12u | (1u << 10) | (1u << 15));
+        a.t[0].p[P_IORD] = (int16_t)bits;
+        a.sum = proj_sum(&a);
+        ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
+        bad += check("FUN10 P_IORD send flags round-trip with the order",
+                     ok && (uint16_t)c.t[0].p[P_IORD] == bits && ((uint16_t)c.t[0].p[P_IORD] & 1023u) == 12u);
+        a.t[0].p[P_IORD] = 800;
+        a.sum = proj_sum(&a);
+        bad += check("FUN10 P_IORD order above 719 is refused", !proj_pack(&st, &a));
+    }
     {   /* FUN11: DRUM-X kit / mute / X-MOD at PROJ_DX_OFF; FUN10 (FUNA) loads the factory kit */
         project_t a, c;
         static project_store_t st, funa;

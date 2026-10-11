@@ -51,7 +51,8 @@ typedef struct {
 enum {                          /* per-track parameters */
     P_LEVEL,
     P_ATK, P_DEC, P_SUS, P_REL,
-    P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ED_FX,     /* P_ED_FX: unused, kept for the formats / protocol */
+    P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ED_FX,     /* P_ED_FX: DIST tone, an offset on the drive-linked
+                                                * cutoff (0 = follows drive). Kept at this id for the formats */
     P_LRATE, P_LWAVE, P_LPHASE, P_LFADE,
     P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP,
     P_AMODE, P_ARATE, P_AOCT, P_AGATE,
@@ -76,8 +77,10 @@ enum {                          /* per-track parameters */
     P_SQNT,                                    /* 1.2 (#162): QUANTIZE, the steps' recorded / nudged timing (ON: none) */
     P_SPRD,                                    /* (#148): SPREAD, the voices of a POLY / UNISON track around PAN (fx.c) */
     /* insert chain (6 stages, reorderable; MIX 0 = bypass). Replaces 1.5's P_ITYPE..P_IMIX. Drive = P_DIST. */
-    P_IORD,                                    /* stage order, factorial number 0..719 (fx.c ins_order) */
-    P_IDMODE, P_IDMIX,                         /* DIST: mode SOFT/HARD/FOLD/FUZZ, mix (tone follows drive) */
+    P_IORD,                                    /* low 10 bits: stage order 0..719 (fx.c). Bits 10..15:
+                                                * that stage is a send, not in the chain */
+    P_IDMODE, P_IDMIX,                         /* DIST: mode SOFT/HARD/FOLD/FUZZ, mix.
+                                                * Tone is P_ED_FX: 0 follows drive, else an offset */
     P_IFTYPE, P_IFCUT, P_IFRES, P_IFMIX,       /* FILTER: LP/HP/BP/COMB */
     P_ICBITS, P_ICRATE, P_ICLPF, P_ICMIX,      /* CRUSH */
     P_IPRATE, P_IPDEP, P_IPFBK, P_IPMIX,       /* PHASR */
@@ -171,9 +174,15 @@ static void ins_migrate(int16_t *p, uint32_t np)
     if (np < 111u || ty <= 0)
         return;
     if (ty >= 1 && ty <= 4) {
+        int32_t base, off;
         p[P_IDMODE] = (int16_t)(ty - 1);
         p[P_DIST] = a;
         p[P_IDMIX] = mix;
+        /* 1.5 INSERT: P_IB was the distortion's TONE (a cutoff). The chain's cutoff follows drive;
+         * the difference is P_ED_FX so the old tone comes back as closely as ±64 allows */
+        base = 96 - ((a < 0 ? 0 : a > 127 ? 127 : a) >> 2);
+        off = (int32_t)b - base;
+        p[P_ED_FX] = (int16_t)(off < -64 ? -64 : off > 63 ? 63 : off);
     } else if (ty == 5) {
         p[P_ICBITS] = a;
         p[P_ICRATE] = b;

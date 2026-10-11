@@ -124,18 +124,27 @@ static int up_grid(const up_rec_t *r) { return r->ver == 3u || r->ver == UP_VER_
 static int16_t up_value(const up_rec_t *r, uint32_t k)
 {
     if (r->ver >= 4u && k == P_IORD && r->np > P_IORD) {
-        uint32_t o = r->packed[k] | (uint32_t)(r->packed[r->np] & 3u) << 8;
-        return (int16_t)(o > 719u ? 719u : o);
+        /* low byte + the next byte: bits 0..9 the order, bits 10..15 the send flags.
+         * Firmware that masks the high byte with 3 keeps the order and drops the flags. */
+        uint32_t o = r->packed[k] | (uint32_t)r->packed[r->np] << 8;
+        uint32_t perm = o & 1023u;
+        if (perm > 719u)
+            perm = 0u;
+        return (int16_t)(uint16_t)((o & ~1023u) | perm);
     }
     return r->ver >= 4u ? (int16_t)r->packed[k] - 64 : r->p[k];
 }
 static void up_set_value(up_rec_t *r, uint32_t k, int16_t v)
 {
     if (r->ver >= 4u && k == P_IORD) {
-        uint32_t o = (uint32_t)(v < 0 ? 0 : v > 719 ? 719 : v);
-        r->packed[k] = (uint8_t)(o & 255u);
+        uint16_t raw = (uint16_t)v;
+        uint32_t perm = raw & 1023u;
+        if (perm > 719u)
+            perm = 719u;
+        raw = (uint16_t)((raw & (uint16_t)~1023u) | (uint16_t)perm);
+        r->packed[k] = (uint8_t)(raw & 255u);
         if (r->np > P_IORD)
-            r->packed[r->np] = (uint8_t)(o >> 8);
+            r->packed[r->np] = (uint8_t)(raw >> 8);
     } else if (r->ver >= 4u)
         r->packed[k] = (uint8_t)(v + 64);
     else
