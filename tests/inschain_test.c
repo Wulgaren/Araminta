@@ -222,6 +222,26 @@ int main(void)
     }
     ins_order_get(t, ord);
     ck("ins_order_set/get: CRUSH first in chain", ord[0] == INS_CRUSH && ord[1] == INS_DIST);
+    {   /* Lehmer round-trip for every adjacent swap (the old 5!..0! table only survived DIST↔FILTER) */
+        uint8_t base[INS_N] = {0, 1, 2, 3, 4, 5}, got[INS_N];
+        uint32_t h, ok_all = 1;
+        for (h = 0; h + 1u < INS_N; h++) {
+            uint8_t o[INS_N];
+            uint32_t k;
+            for (k = 0; k < INS_N; k++)
+                o[k] = base[k];
+            { uint8_t tmp = o[h]; o[h] = o[h + 1u]; o[h + 1u] = tmp; }
+            ins_order_set(t, o);
+            ins_order_get(t, got);
+            for (k = 0; k < INS_N; k++)
+                ok_all &= got[k] == o[k];
+        }
+        ck("ins_order_set/get: every adjacent swap round-trips (Lehmer 0!..5!)", ok_all);
+    }
+    {
+        uint8_t o[INS_N] = {INS_CRUSH, INS_DIST, INS_FILTER, INS_PHASR, INS_FLANG, INS_CHOR};
+        ins_order_set(t, o);                            /* restore after the round-trip probe */
+    }
     trk_note_on(t, 60, 100);
     render_blocks(8);
     reordered = hash_out(32);

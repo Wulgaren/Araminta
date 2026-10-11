@@ -8255,34 +8255,51 @@ static int test_fx_sections(void)
     go_title("EFFECTS");
     ui.ior_sel = 0;
     {
-        uint8_t before[INS_N], after[INS_N];
-        ins_order_get(TSEL, before);
-        turn(EN_K2, 1);                                 /* ORDER moves the chosen stage */
-        ins_order_get(TSEL, after);
-        ok = ui.ior_sel == 1u && before[0] == after[1] && before[1] == after[0];
+        uint8_t before[FX_LIST_N], after[FX_LIST_N];
+        fx_list_get(TSEL, before);
+        turn(EN_K2, 1);                                 /* ORDER moves the chosen stage (DIST↔FILTER) */
+        fx_list_get(TSEL, after);
+        ok = ui.ior_sel == 1u && before[0] == after[1] && before[1] == after[0] &&
+             after[0] == INS_FILTER && after[1] == INS_DIST;
+        /* mid-list move: FILTER past CRUSH (Lehmer bug only survived DIST↔FILTER) */
+        ui_power_on();
+        go_title("EFFECTS");
+        ui.ior_sel = 1;                                 /* FILTER in the default list */
+        fx_list_get(TSEL, before);
+        turn(EN_K2, 1);
+        fx_list_get(TSEL, after);
+        ok &= ui.ior_sel == 2u && before[1] == INS_FILTER && after[2] == INS_FILTER &&
+              after[1] == before[2] && after[0] == before[0];
         turn(EN_K1, 1);
-        ok &= ui.ior_sel == 2u;
-        ins_order_get(TSEL, before);
-        ok &= !ins_is_send(TSEL, before[2]);
+        ok &= ui.ior_sel == 3u;
+        fx_list_get(TSEL, before);
+        ok &= !ins_is_send(TSEL, before[3]);
         turn(EN_K3, 1);                                 /* that stage: in the chain → a send */
-        ins_order_get(TSEL, before);
-        ok &= ins_is_send(TSEL, before[2]) && before[0] == after[0] && before[1] == after[1];
-        TSEL->p[P_ICMIX] = 0;
-        turn(EN_K4, 8);                                 /* MIX is that stage's amount */
-        ok &= TSEL->p[P_ICMIX] > 0;
+        fx_list_get(TSEL, after);
+        ok &= ins_is_send(TSEL, after[3]) && after[0] == before[0] && after[1] == before[1] &&
+              after[2] == before[2];
+        {
+            uint32_t mix_id = after[3] == INS_DIST ? P_IDMIX : after[3] == INS_FILTER ? P_IFMIX :
+                              after[3] == INS_CRUSH ? P_ICMIX : after[3] == INS_PHASR ? P_IPMIX :
+                              after[3] == INS_FLANG ? P_ILMIX : P_IHMIX;
+            TSEL->p[mix_id] = 0;
+            turn(EN_K4, 8);                             /* MIX is that stage's amount */
+            ok &= TSEL->p[mix_id] > 0;
+        }
+        fx_list_get(TSEL, before);
         btn_down(B_FX);
         turn(EN_SELECT, 1);                             /* holding FX does not reorder */
         btn_up(B_FX); frame();
-        ins_order_get(TSEL, before);
-        ok &= before[0] == after[0] && before[1] == after[1];
+        fx_list_get(TSEL, after);
+        ok &= after[0] == before[0] && after[1] == before[1] && after[2] == before[2];
         go_title("EFFECTS");
         {
             uint8_t pr = TSEL->preset;
             turn(EN_PRESET, 1);                         /* PRESETS loads a sound, it does not pick a stage */
-            ok &= TSEL->preset != pr && ui.ior_sel == 2u && str_eq(cur_page()->title, "EFFECTS");
+            ok &= TSEL->preset != pr && ui.ior_sel == 3u && str_eq(cur_page()->title, "EFFECTS");
         }
     }
-    bad += check("EFFECTS: K1 chooses, K2 moves, K3 send or chain, K4 mix; PRESETS loads a sound", ok);
+    bad += check("EFFECTS: K1 chooses, K2 moves (incl. FILTER), K3 send or chain, K4 mix; PRESETS loads a sound", ok);
 
     ui_power_on();
     go_title("EFFECTS");

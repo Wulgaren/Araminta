@@ -156,10 +156,11 @@ static void iord_set_perm(track_t *t, uint32_t n)
         n = 719u;
     t->p[P_IORD] = (int16_t)(uint16_t)((raw & (uint16_t)~IORD_PERM) | (uint16_t)n);
 }
-/* insert chain order: the low 10 bits of P_IORD, a factorial number 0..719 */
+/* insert chain order: the low 10 bits of P_IORD, a factorial (Lehmer) number 0..719.
+ * ins_fact(k) is k!; callers use ins_fact(INS_N-1-i) so the first slot is weighted by 5!. */
 static uint32_t ins_fact(uint32_t n)
 {
-    static const uint16_t F[6] = {120, 24, 6, 2, 1, 1};   /* 5! .. 0! */
+    static const uint16_t F[6] = {1, 1, 2, 6, 24, 120};   /* 0! .. 5! */
     return n < 6u ? F[n] : 1u;
 }
 static void ins_order_get(const track_t *t, uint8_t ord[INS_N])
@@ -277,15 +278,17 @@ static void fx_list_set(track_t *t, const uint8_t ord[FX_LIST_N])
     fx_pos_set(t, dp, rp);
     ins_order_set(t, ins);
 }
-static void fx_list_move(track_t *t, uint32_t h, int32_t dir)
+/* swap list slots h and h+dir; 1 if swapped, 0 if out of range (ORDER keeps the highlight) */
+static int fx_list_move(track_t *t, uint32_t h, int32_t dir)
 {
     uint8_t ord[FX_LIST_N];
     uint32_t n = h + (uint32_t)dir;
     if (h >= FX_LIST_N || n >= FX_LIST_N)
-        return;
+        return 0;
     fx_list_get(t, ord);
     { uint8_t tmp = ord[h]; ord[h] = ord[n]; ord[n] = tmp; }
     fx_list_set(t, ord);
+    return 1;
 }
 static int32_t ins_mix_of(const track_t *t, uint32_t st)
 {

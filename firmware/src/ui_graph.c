@@ -451,14 +451,23 @@ static void graph_insert(const track_t *t, uint16_t c)
         py = y;
     }
 }
-/* EFFECTS: name | gray mix fader | SEND / CHAIN / USED. Eight rows (6 inserts + DLY + REV). */
+/* EFFECTS: name | gray mix fader | SEND / CHAIN / USED. Eight rows (6 inserts + DLY + REV).
+ * Fader spans the row between the name column and the mode label (full width of that gap). */
 static void ior_row(int32_t y, const char *name, const char *mode, int32_t amt, uint16_t col)
 {
-    int32_t fw = 2 + clamp(amt, 0, 127) * 48 / 127;
-    cv_text(PANEL_X0 + 4, y + 1, &AF_S, name, col);
-    cv_rrect(PANEL_X0 + 56, y + 3, 50, 7, 2, T_RAISE, T_SURF);   /* empty track */
-    if (amt > 0)
-        cv_rrect(PANEL_X0 + 56, y + 3, fw, 7, 2, col, T_SURF);
+    int32_t nx = PANEL_X0 + 4, gap = 4, mw = text_w(&AF_S, "CHAIN");
+    int32_t bx = nx + text_w(&AF_S, "FILTER") + gap;
+    int32_t bw = (PANEL_X0 + PANEL_W - 4 - mw - gap) - bx;
+    int32_t fw;
+    if (bw < 8)
+        bw = 8;
+    fw = amt > 0 ? 2 + clamp(amt, 0, 127) * (bw - 2) / 127 : 0;
+    if (fw > bw)
+        fw = bw;
+    cv_text(nx, y + 1, &AF_S, name, col);
+    cv_rrect(bx, y + 3, bw, 7, 2, T_RAISE, T_SURF);           /* empty track */
+    if (fw > 0)
+        cv_rrect(bx, y + 3, fw, 7, 2, col, T_SURF);
     cv_text(PANEL_X0 + PANEL_W - 4 - text_w(&AF_S, mode), y + 1, &AF_S, mode, col);
 }
 static void graph_iord(const track_t *t, uint16_t c)
@@ -1167,8 +1176,10 @@ static uint32_t graph_signature(void)
         h ^= pk_sig();
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
-    if (pg->graph == GR_IORD)                        /* EFFECTS: highlighted slot, send or effect */
-        h ^= (ui.ior_sel + 1u) * 40503u + ((uint32_t)iord_bits(t) + 1u) * 7919u;
+    if (pg->graph == GR_IORD)                        /* EFFECTS: slot, order (P_IORD + DLY/REV slots), mixes */
+        h ^= (ui.ior_sel + 1u) * 40503u + ((uint32_t)iord_bits(t) + 1u) * 7919u +
+             ((uint32_t)t->p[P_CHOR] + 1u) * 2246822519u +
+             ((uint32_t)t->p[P_DLY] + (uint32_t)t->p[P_REV] * 131u + 1u) * 16777619u;
     if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
         for (i = 0; i < 4u; i++)
             h ^= (uint32_t)graph_project_used(i) << (20u + i);
