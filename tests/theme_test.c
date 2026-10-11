@@ -141,8 +141,8 @@ int main(int argc, char **argv)
     palette_set(6);
     cv_begin(3, 1, T_BG); cv_text(0, 0, &probe, "A", T_THEME);
     assert(cv_peek(1) != green);
-    /* fonts: Terminus S/M 16 px (0.9 1x), L 32 px (0.9 2x); monospace digits; the ellipsis; L has capitals only */
-    assert(AF_S.h == 16 && AF_S.asc == 12 && AF_M.h == 16 && AF_M.asc == 12 && AF_L.h == 32 && AF_L.asc == 24);
+    /* fonts: Terminus S 12 px (6x12), M 16 px (8x16 1x), L 32 px (8x16 2x); monospace digits; the ellipsis; L capitals only */
+    assert(AF_S.h == 12 && AF_S.asc == 10 && AF_M.h == 16 && AF_M.asc == 12 && AF_L.h == 32 && AF_L.asc == 24);
     assert(text_w(&AF_M, "0000") == text_w(&AF_M, "1111") && text_w(&AF_S, "1.25") == text_w(&AF_S, "8.75"));
     assert(glyph(&AF_S, (uint8_t)ELLIPSIS) != glyph(&AF_S, '?') && glyph(&AF_M, (uint8_t)ELLIPSIS) != glyph(&AF_M, '?'));
     assert(text_w(&AF_L, "abc") == text_w(&AF_L, "ABC"));

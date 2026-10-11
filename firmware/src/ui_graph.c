@@ -221,7 +221,7 @@ static void graph_roll(const track_t *t, uint16_t c)
                 if (lx < 3) lx = 3;
                 if (lx + b[2] <= 23)
                     GFX_HOOK_ALIGN(0, y, 23, y + PR_RH, AL_R | AL_PASS, "piano roll C labels' right edge");
-                cv_text_on(lx, y - 5, &AF_S, nb, T_DIM, T_SURF);
+                cv_text_on(lx, y + CAP_IN(S, PR_RH), &AF_S, nb, T_DIM, T_SURF);
             }
         }
     }
@@ -807,7 +807,7 @@ static void graph_fm6(const track_t *t, uint16_t c, uint32_t sel)
         FM6_CHART_HOOK(FMH_BOX, k, 0);
         cv_rrect(x[k] - 10, y[k], 21, FM_BH, 3, fill, T_SURF);
         GFX_HOOK_ALIGN(x[k] - 10, y[k], x[k] + 11, y[k] + FM_BH, AL_HV, "FM6 operator number in its box");
-        cv_text_in(x[k] - 10, y[k] + 1, 21, &AF_S, n, fill_c || k == sel ? T_INK : on ? f : T_DIM, fill);   /* +1: nets clear (Terminus CAP_IN is 2) */
+        cv_text_in(x[k] - 10, y[k] + CAP_IN(S, FM_BH), 21, &AF_S, n, fill_c || k == sel ? T_INK : on ? f : T_DIM, fill);
     }
     FM6_CHART_HOOK(FMH_LABEL, 0, 0);
     cv_text(10, 4 - GOY, &AF_S, b, hot == P_E0 || hot == P_E7 ? T_ACCENT : T_MID);
@@ -921,7 +921,7 @@ static void graph_fm(const track_t *t, uint16_t c)
         uint16_t f = k == hop ? T_ACCENT : c, fill = fill_c ? f : T_RAISE;
         cv_rrect(x[k] - 10, y[k], 21, FM_BH, 3, fill, T_SURF);
         GFX_HOOK_ALIGN(x[k] - 10, y[k], x[k] + 11, y[k] + FM_BH, AL_HV, "DIGITAL operator number in its box");
-        cv_text_in(x[k] - 10, y[k] + 1, 21, &AF_S, b, fill_c ? T_INK : on ? f : T_DIM, fill);
+        cv_text_in(x[k] - 10, y[k] + CAP_IN(S, FM_BH), 21, &AF_S, b, fill_c ? T_INK : on ? f : T_DIM, fill);
     }
 }
 #endif
@@ -1159,7 +1159,8 @@ static uint32_t graph_signature(void)
     h ^= (uint32_t)pg->graph * 131u + TSEL->eng_req + song.sel * 7777u + ui.page * 1291u;
     if (strip_kind() == SK_TITLE)                    /* MENU > LARGE: the page's title (its engine, its number) */
         return h ^ 0x5A17u;
-    if (pg->graph == GR_NONE || pg->graph == GR_ARP) h ^= ui.frame / 2u;
+    if (pg->graph == GR_NONE || pg->graph == GR_ARP || pg->graph == GR_STEPS)
+        h ^= ui.frame / 2u;                          /* scope (PATTERN / SEQ TOOLS fall through to it) */
     for (i = 0; i < P_COUNT; i++)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
     h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u +
@@ -1279,8 +1280,9 @@ static void note_line(int32_t y, const char *s, uint16_t fg)   /* centred S; "[K
     while (*s == ' ')
         s++;
     GFX_HOOK_ALIGN(0, 0, 240, 0, AL_H | AL_N(2), "panel note hint centred");
-    cv_text_on(cv_keycap(HALF_UP(240 - kh_ink((uint32_t)id, s)), y + 1, (uint32_t)id, T_KEY, T_INK, T_SURF) + KH_GAP, y,
-               &AF_S, s, fg, T_SURF);
+    cv_text_on(cv_keycap(HALF_UP(240 - kh_ink((uint32_t)id, s)), y - CAP_IN(S, KC_H), (uint32_t)id, T_KEY, T_INK, T_SURF)
+                   + KH_GAP,
+               y, &AF_S, s, fg, T_SURF);
 }
 static void panel_note(const char *a, const char *b, const char *c)
 {
@@ -2233,7 +2235,7 @@ static void graph_song(void)
     } else {                                           /* + ADD: how */
         for (i = 0; i < 4u && !graph_project_used(i); i++)
             ;
-        cv_free_hint(SG_X0, ly + AF_M_CAP_Y + AF_M_CAP_H - AF_S_CAP_Y - AF_S_CAP_H,   /* (a key hint: S) */
+        cv_free_hint(SG_X0, ly + (fl == &AF_M ? AF_M_CAP_Y - AF_S_CAP_Y : 0),   /* S caps on the band's line */
                      i < 4u ? "[K3] ADD SECTION" : "[SAVE] PROJECT A-D", T_MID, T_SURF, x0 - 10 - SG_X0);
     }
 }

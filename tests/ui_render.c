@@ -73,7 +73,7 @@ static alstat_t *al_stat(const char *tag)
     if (i == al_nst && al_nst < 160u) { memset(&al_st[i], 0, sizeof al_st[i]); al_st[i].tag = tag; al_nst++; }
     return &al_st[i < 160u ? i : 159u];
 }
-/* Terminus: S and M same size (set in main after aa_font.h via ui_test.c). Inter Tight: S smaller. */
+/* Terminus (1 phase): looser align / FM6 adjacency. Inter Tight (phased): half-pixel bar. */
 static int al_pixel_font;
 /* one measurement: offsets in half pixels (h2, v2; 99: not measured) */
 static void al_record(const char *tag, int32_t h2, int32_t v2, const char *s, int32_t bx0, int32_t by0, int32_t bx1,
@@ -2105,7 +2105,7 @@ int main(int argc, char **argv)
     char path[600];
     uint32_t p, s;
     static const char *const SHOW[] = {"GREY", "MONO", "GREEN", "PAPER", "NIGHT"};   /* (NIGHT: #50, to review) */
-    al_pixel_font = AF_S.h == AF_M.h;
+    al_pixel_font = !AF_S.psh;   /* Terminus: one phase; outline presets use 2/4 */
     snprintf(path, sizeof path, "%s/report.txt", out);
     rep = fopen(path, "w");
     if (!rep) { fprintf(stderr, "cannot write %s\n", path); return 1; }
