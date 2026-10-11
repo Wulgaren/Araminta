@@ -917,9 +917,10 @@ static uint32_t note_head(const track_t *t, uint32_t i)
 }
 /* a step PRESETS will not slide a note onto: a tie, or anything still holding notes or hits */
 static int step_blocks(const step_t *s) { return s->time == ST_TIE || s->n || s->hit; }
-/* piano roll: PRESETS moves the note under the cursor (the NOTE and the TIEs after it) and the cursor stays
- * on it. A rest: the cursor, by the whole turn, as KNOB 1 (so a spin across the pattern does not nudge the
- * notes it passes). Stops at the pattern ends and before another note. One undo (notes_shift). */
+/* piano roll, and the DRUM grid when no step key is held: PRESETS moves the note under the cursor (the NOTE
+ * and the TIEs after it; a drum hit is that step) and the cursor stays on it. A rest: the cursor, by the whole
+ * turn, as KNOB 1 (so a spin across the pattern does not nudge the notes it passes). Stops at the pattern ends
+ * and before another note. One undo (notes_shift). */
 static void note_shift_cursor(int32_t steps)
 {
     track_t *t = TSEL;
@@ -1439,9 +1440,9 @@ static void sound_dice(void)
 }
 
 /* Discussions #92 / #94: the PRESETS knob by page (the menu, a dialog, NAME and the layers: ui_input before this).
- *   the SEQ pages (the DRUM grid: the step cursor, or the held steps in time; the piano roll: the note under
- *     the cursor, a rest the cursor; AUTOMATION: the row) and the list / action pages USER,
- *     PHRASES, PROJECT, SONG: as their KNOB 1 (the SEQ pages: a sound load there would drop the track's motion: never).
+ *   the SEQ pages (the DRUM grid: a held step key moves those steps, otherwise the hit under the cursor, a rest
+ *     the cursor; the piano roll: the note under the cursor, a rest the cursor; AUTOMATION: the row). USER,
+ *     PHRASES, PROJECT, SONG: as their KNOB 1 (a SEQ sound load would drop the track's motion: never).
  *     1.2: with PATTERN, CHANCE and the old AUTOMATION gone, KNOB 1 is the cursor or the row on every SEQ page, so
  *     the PRESETS knob is no longer a second cursor where KNOB 1 was something else; TOOLS and SLICES: nothing
  *   HOME, PRESETS and every other page (EDIT, ENV, LFO, FX, SCL, ARP, MIXER, CLOCK, ...): the selected track's
@@ -1459,12 +1460,12 @@ static void presets_turn(int32_t s)
             cursor_move(ui.cursor + s);
         return;
     }
-    if (!grid_on() && !ui.home && cur_page()->graph == GR_ROLL) {   /* the piano roll: the note under the cursor */
-        note_shift_cursor(s);
+    if (held && grid_on()) {                              /* the grid, white step keys held: those steps */
+        (void)notes_shift(held, s);
         return;
     }
-    if (held) {                                           /* the grid, steps held: move them in time */
-        (void)notes_shift(held, s);
+    if (!ui.home && g == GR_ROLL) {                       /* roll, and the grid with nothing held: the note there */
+        note_shift_cursor(s);
         return;
     }
     if (ui.home || g == GR_BROWSE) {
@@ -1682,7 +1683,7 @@ static void ui_input(void)
     }
     lytap = layer_gesture(now, combo);
     layer_show();
-    section_apply();                                    /* sticky Punch-in / Pattern / Record maps */
+    section_apply();                                    /* sticky Punch-in / SEQ tools / Record maps */
     layer_keys(lkeys);
     perf_solo = mix_solo;                               /* after layer_keys: Mixer latched solos */
     if (!lay && layer_open()) {                         /* section map, no button held: knobs + FX assign */
