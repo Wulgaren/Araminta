@@ -5,6 +5,7 @@ name: Pages
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -13,7 +14,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -73,6 +74,7 @@ jobs:
         run: tests/run_tests.sh
 
       - name: Site tree
+        if: github.event_name != 'pull_request'
         run: |
           VER=$(sed -n 's/^#define FELUCCA_VERSION "\([^"]*\)".*/\1/p' firmware/src/felucca.c)
           SHA=$(git rev-parse --short HEAD)
@@ -83,10 +85,12 @@ jobs:
           cp -a build/emu/. site/webapp/try/
 
       - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
         with:
           path: site
 
   deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     environment:
