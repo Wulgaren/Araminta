@@ -28,8 +28,8 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"CHOR", "[K1]RATE[K2]DEPTH"},
     {"SLICER", "[K1]ON[K2]PATTERN[FX]PUNCH"},
     {"DLY", "[K1]DIV OR MS[K4]RATE, TIME"},
-    {"REVERB", "[K1]ROOM..CLOUD[FX]SLICER"},
-    {"MASTER", "[K1-4]CLIP PNCH DUCK[FX]EFFECTS"},
+    {"REVERB", "[K1]ROOM..CLOUD[SELECT]DLY"},
+    {"MASTER", "[K1-4]CLIP PNCH DUCK[GLO]SONG"},
     {"SCL", "[K2]SCALE[K3]QNT[SCL]CHORDS"},
     {"CHORD", "[K1]CHORD[KEYS]CHORD[SCL]SCL"},
     {"EDIT 1", H_EDIT},
@@ -62,9 +62,9 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"DETAIL", "[PRESETS]STEP[K1]CHANCE[K2]RATCH"},
     {"AUTOMATION", "[K1]ROW[OCT+]DO[EDIT]DELETE"},
     {"RECORD", "[KEYS]CLICK COUNT[K1-4]PREFS"},
-    {"PUNCH", "[KEYS]FX[K1-4]MACROS[FX]MASTER"},
+    {"PUNCH", "[KEYS]FX[K1-4]MACROS[FX]EFFECTS"},
     {"MIXER", "[K4]PLAY[ALGO]TRACK"},
-    {"CLOCK", "[OCT+]SELECT: TEMPO[GLO]SONG"},
+    {"CLOCK", "[OCT+]SELECT: TEMPO[GLO]RECORD"},
 };
 #define H_HOME "[OCT+]PRESETS[HOME]MENU"          /* Terminus: shorter than Inter Tight so the row fits */
 #define H_LEVELS "[K1-4]T1-T4 LEVEL[HOME]MIXER"

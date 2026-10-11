@@ -73,7 +73,7 @@ static alstat_t *al_stat(const char *tag)
     if (i == al_nst && al_nst < 160u) { memset(&al_st[i], 0, sizeof al_st[i]); al_st[i].tag = tag; al_nst++; }
     return &al_st[i < 160u ? i : 159u];
 }
-/* Terminus: S and M same size (set in main after aa_font.h via ui_test.c). Inter Tight: S smaller. */
+/* Terminus (1 phase): looser align / FM6 adjacency. Inter Tight (phased): half-pixel bar. */
 static int al_pixel_font;
 /* one measurement: offsets in half pixels (h2, v2; 99: not measured) */
 static void al_record(const char *tag, int32_t h2, int32_t v2, const char *s, int32_t bx0, int32_t by0, int32_t bx1,
@@ -318,9 +318,9 @@ static void hk_icon(int32_t x, int32_t y, uint32_t size, uint32_t id)
 /* the FM6 chart lint: each part of a chart (FMH_*) drawn alone onto a canvas of SENT, its pixels kept in fmp_mask
  * (bit: the part), then the canvas as drawn restored with the part on it; at FMH_END the parts are checked */
 #define FMP_MAX 48u
-#define FMP_SENT 0x0861u
+#define FMP_SENT CV_SENT                 /* index 15: reserved, never a theme colour */
 static uint64_t fmp_mask[CV_MAX];
-static uint16_t fmp_save[CV_MAX];
+static uint8_t fmp_save[CV_MAX];
 static uint8_t fmp_kind[FMP_MAX], fmp_a[FMP_MAX], fmp_b[FMP_MAX];
 static uint32_t fmp_n, fmp_charts;
 static void finding(const char *what, const rbox_t *b, const rbox_t *o);
@@ -399,8 +399,8 @@ static void fm6_hook(uint32_t kind, uint32_t a, uint32_t b)
     uint32_t i, n = cv_w * cv_h;
     if (fmp_n) {                                         /* the part just drawn: its pixels */
         for (i = 0; i < n; i++)
-            if (cv_px[i] != FMP_SENT) fmp_mask[i] |= (uint64_t)1u << (fmp_n - 1u);
-            else cv_px[i] = fmp_save[i];
+            if (cv_nget(i) != FMP_SENT) fmp_mask[i] |= (uint64_t)1u << (fmp_n - 1u);
+            else cv_nput(i, fmp_save[i]);
     } else {
         memset(fmp_mask, 0, n * sizeof fmp_mask[0]);
     }
@@ -410,8 +410,8 @@ static void fm6_hook(uint32_t kind, uint32_t a, uint32_t b)
         return;
     }
     if (fmp_n >= FMP_MAX) { fprintf(stderr, "ui_render: an FM6 chart of more than %u parts\n", FMP_MAX); exit(1); }
-    memcpy(fmp_save, cv_px, n * sizeof cv_px[0]);
-    for (i = 0; i < n; i++) cv_px[i] = FMP_SENT;
+    for (i = 0; i < n; i++) fmp_save[i] = cv_nget(i);
+    for (i = 0; i < n; i++) cv_nput(i, FMP_SENT);
     fmp_kind[fmp_n] = (uint8_t)kind; fmp_a[fmp_n] = (uint8_t)a; fmp_b[fmp_n] = (uint8_t)b;
     fmp_n++;
 }
@@ -2106,7 +2106,7 @@ int main(int argc, char **argv)
     char path[600];
     uint32_t p, s;
     static const char *const SHOW[] = {"GREY", "MONO", "GREEN", "PAPER", "NIGHT"};   /* (NIGHT: #50, to review) */
-    al_pixel_font = AF_S.h == AF_M.h;
+    al_pixel_font = !AF_S.psh;   /* Terminus: one phase; outline presets use 2/4 */
     snprintf(path, sizeof path, "%s/report.txt", out);
     rep = fopen(path, "w");
     if (!rep) { fprintf(stderr, "cannot write %s\n", path); return 1; }
