@@ -95,7 +95,7 @@ MIDI out, the editor, updates), TRS MIDI and the user sample slots. A build of i
 tests/run_tests.sh
 ```
 
-Full host gate (several minutes). Argv after the script name is ignored; it always runs the whole suite. For a single host binary while iterating, see [AGENT.md](AGENT.md). `SANITIZE=0` skips the ASan/UBSan and fuzz passes; the browser emulator already skips when `emcc` is missing.
+Full host gate (several minutes). Argv after the script name is ignored; it always runs the whole suite. Agents: iterate and hand off per [AGENT.md](AGENT.md) (focused host binaries / web tests; full script when 3+ host binaries are in scope). `SANITIZE=0` skips the ASan/UBSan and fuzz passes; the browser emulator already skips when `emcc` is missing.
 
 Runs the host tests and, with Node.js, the web page tests (and, with Emscripten too, the browser emulator's). Run it after `./build.sh`
 (it uses `build/` and needs `AC79_SDK` set as for the build). The suites cover flash storage,
