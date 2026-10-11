@@ -49,7 +49,7 @@ static uint32_t clk_pos = CLK_START, clk_step;  /* (seq.c click_tick) samples in
                                                  * events_block: the block's start. Declared here so fx.c / pfx.c
                                                  * (included before seq.c) can read the grid. */
 enum { MD_OFF, MD_PITCH, MD_CUT, MD_SHP, MD_AMP, MD_PAN, MD_DIST, MD_CHO, MD_DLY, MD_REV, MD_RATE, MD_VIB, MD_E1,
-       MD_DEPTH = MD_E1 + 8, MD_SLPAT, MD_SLRATE, MD_SLDEPTH, MD_N };   /* (append-only: stored values keep meaning) */
+       MD_DEPTH = MD_E1 + 8, MD_SLPAT, MD_SLRATE, MD_SLDEPTH, MD_CHRD, MD_VOIC, MD_N };   /* (append-only) */
 _Static_assert(NELEM(N_MSRC) == MS_N && NELEM(N_MDST) == MD_N, "N_MSRC / N_MDST == MS_* / MD_*");
 _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 == P_FM1_ATK, "matrix slots: 3 ids each");
 #define NMSLOT 4u
@@ -57,6 +57,7 @@ _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 
 #define MS_BIPOLAR(s) ((s) == MS_LFO || (s) == MS_KEY || (s) == MS_RAND || (s) >= MS_SH)
 #define MD_ENGINE(d) ((d) >= MD_E1 && (d) < MD_E1 + 8)           /* E1..E8: P_E0..P_E7 */
 #define MD_SLICER(d) ((d) >= MD_SLPAT && (d) <= MD_SLDEPTH)
+#define MD_CHORD(d) ((d) >= MD_CHRD && (d) <= MD_VOIC)
 
 /* the track parameter of a per-block destination */
 static uint32_t mod_param(uint32_t d)
@@ -64,10 +65,13 @@ static uint32_t mod_param(uint32_t d)
     static const uint8_t ID[MD_E1] = {[MD_PAN] = P_PAN, [MD_DIST] = P_DIST, [MD_CHO] = P_CHOR, [MD_DLY] = P_DLY,
                                       [MD_REV] = P_REV, [MD_RATE] = P_LRATE, [MD_VIB] = P_LD_PIT};
     static const uint8_t SL[3] = {P_SLPAT, P_SLRATE, P_SLDEPTH};
+    static const uint8_t CH[2] = {P_CHRD, P_VOIC};
     if (MD_ENGINE(d))
         return P_E0 + d - MD_E1;
     if (MD_SLICER(d))
         return SL[d - MD_SLPAT];
+    if (MD_CHORD(d))
+        return CH[d - MD_CHRD];
     return ID[d];
 }
 

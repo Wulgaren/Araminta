@@ -376,6 +376,25 @@ static void test_math(void)
     check("#222 DST names: PAT / SRATE / SDEP",
           str_eq(mod_dst_name(t, MD_SLPAT), "PAT") && str_eq(mod_dst_name(t, MD_SLRATE), "SRATE") &&
           str_eq(mod_dst_name(t, MD_SLDEPTH), "SDEP"));
+
+    /* CHRD / VOIC as per-block destinations (append after SLICER) */
+    fresh(0, 0);
+    t->p[P_CHRD] = CH_OFF;
+    t->p[P_VOIC] = VC_CLOSE;
+    t->mw = 127;
+    slot(t, 0, MS_MODW, MD_CHRD, 63);
+    slot(t, 1, MS_MODW, MD_VOIC, 63);
+    mod_begin(t);
+    {
+        int32_t ch = ((((127 * 258) * 63) >> 6) * (TP[P_CHRD].max - TP[P_CHRD].min)) >> 15;
+        int32_t vc = ((((127 * 258) * 63) >> 6) * (TP[P_VOIC].max - TP[P_VOIC].min)) >> 15;
+        check("MODW -> CHRD / VOIC: per-block enum scale at AMT 63",
+              t->p[P_CHRD] == ch && t->p[P_VOIC] == vc && ch > 0 && vc > 0);
+    }
+    mod_end(t);
+    check("CHRD / VOIC restored after the block", t->p[P_CHRD] == CH_OFF && t->p[P_VOIC] == VC_CLOSE);
+    check("DST names: CHRD / VOIC",
+          str_eq(mod_dst_name(t, MD_CHRD), "CHRD") && str_eq(mod_dst_name(t, MD_VOIC), "VOIC"));
 }
 
 /* ------------------------------------------------------------------ 3 --- */
