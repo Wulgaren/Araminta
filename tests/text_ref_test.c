@@ -45,14 +45,14 @@ static void ref_ramp(uint16_t fg, uint16_t bg)
         uint32_t out = 0;
         if (ux.mono) {
             int32_t x = bg >> 11, y = fg >> 11;
-            rv[a] = ux_gray((uint32_t)(x + (((y - x) * (int32_t)cv[a] + 128) >> 8)));
-            continue;
+            out = ux_gray((uint32_t)(x + (((y - x) * (int32_t)cv[a] + 128) >> 8)));
+        } else {
+            for (uint32_t k = 0; k < 3u; k++) {
+                int32_t x = (bg >> SH[k]) & MK[k], y = (fg >> SH[k]) & MK[k];
+                out |= (uint32_t)(x + (((y - x) * (int32_t)cv[a] + 128) >> 8)) << SH[k];
+            }
         }
-        for (uint32_t k = 0; k < 3u; k++) {
-            int32_t x = (bg >> SH[k]) & MK[k], y = (fg >> SH[k]) & MK[k];
-            out |= (uint32_t)(x + (((y - x) * (int32_t)cv[a] + 128) >> 8)) << SH[k];
-        }
-        rv[a] = (uint16_t)out;
+        rv[a] = cv_tok[cv_idx((uint16_t)out)];   /* 4-bit canvas: quantise to the theme LUT */
     }
 }
 static int32_t ref_at(const aafont_t *f, uint32_t ch)       /* the glyph's number in the face, -1 = none */
@@ -132,7 +132,8 @@ static int32_t ref_text(int32_t x, int32_t y, const aafont_t *f, const char *s, 
             for (uint32_t gx = 0; gx < g->bw; gx++, k++) {
                 uint32_t v = alpha[k];
                 int32_t px = x + (int32_t)floor(pos / 16.0) + g->bx + (int32_t)gx, py = y + g->by + (int32_t)gy;
-                if (v && (uint32_t)px < W && (uint32_t)py < H) ref[py * W + px] = v == 15u ? fg : rv[v];
+                if (v && (uint32_t)px < W && (uint32_t)py < H)
+                    ref[py * W + px] = v == 15u ? cv_tok[cv_idx(fg)] : rv[v];
             }
         pen += g->adv;
         prev = c;
@@ -156,7 +157,7 @@ int main(void)
                     cv_begin(W, H, bg);
                     e1 = cv_text(3, 2, F[f], STR[s], fg);
                     bad_pen += e0 != e1;
-                    for (uint32_t i = 0; i < W * H; i++) bad_px += swap16(cv_px[i]) != ref[i];
+                    for (uint32_t i = 0; i < W * H; i++) bad_px += cv_peek(i) != ref[i];
                     n++;
                 }
     }
