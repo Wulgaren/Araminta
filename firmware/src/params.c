@@ -18,6 +18,10 @@ static const char *const N_DTIME[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T",
 static const char *const N_SCALE[] = {"CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM",
                                     "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"};
 static const char *const N_ONOFF[] = {"OFF", "ON"};
+/* MIXER KNOB 4 (and VOICE 2): PLAY. Stored 0 is ON (sounds, the default), 1 is OFF (silent), 2 is SOLO
+ * (sounds, and silences every track that is not SOLO). The knob shows OFF, ON, SOLO (PLAY_ORDER): left of
+ * ON is OFF, right is SOLO. Append-only: stored projects keep 0 playing and 1 silent. */
+static const char *const N_PLAY[] = {"ON", "OFF", "SOLO"};
 /* ANALOG's filter TYPE (1.5, #104; eng_analog.c): LP / BP / HP, and COMB (insert chain / Araminta) */
 static const char *const N_FTYPE[] = {"LP", "BP", "HP", "COMB"};
 /* ENV SYNC (1.5, #175; voice.c esync_coef): ATK DEC REL as note values of the tempo, shortest first. 0..127 split
@@ -125,7 +129,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_ALLOC] = PE("ALLOC", N_ALLOC, 0),
     [P_DETUNE] = PD("UNI DTN", F_INT, 0, 127, 40),   /* UNISON voice spread only (voice.c mono_play) */
     [P_PAN] = PD("PAN", F_BIPCT, -64, 63, 0),
-    [P_MUTE] = PE("MUTE", N_ONOFF, 0),
+    [P_MUTE] = PE("PLAY", N_PLAY, 0),
     [P_SLCR] = PE("SLCR", N_SLCR, 0),
     [P_SLPAT] = PD("PAT", F_INT, 1, 16, 1),        /* SL_PAT[] */
     [P_SLRATE] = PE("RATE", N_SLDIV, 1),
@@ -286,9 +290,11 @@ static const uint8_t DIV_ORDER[10] = {9, 8, 7, 6, 0, 1, 4, 2, 5, 3};   /* 4BAR 2
 static const uint8_t SLDIV_ORDER[6] = {0, 3, 1, 4, 2, 5};              /* 1/8 8T 1/16 16T 1/32 32T */
 static const uint8_t DTIME_ORDER[13] = {9, 8, 7, 6, 12, 0, 10, 1, 11, 4, 2, 5, 3};   /* 4BAR 2BAR 1/1 1/2 1/4D 1/4 1/8D
                                                                                       * 1/8 1/16D 8T 1/16 16T 1/32 */
+static const uint8_t PLAY_ORDER[3] = {1, 0, 2};                    /* OFF, ON, SOLO (stored PLAY_OFF, PLAY_ON, PLAY_SOLO) */
 static const uint8_t *enum_order(const param_desc_t *d)
 {
-    return d->names == N_DIV ? DIV_ORDER : d->names == N_SLDIV ? SLDIV_ORDER : d->names == N_DTIME ? DTIME_ORDER : 0;
+    return d->names == N_DIV ? DIV_ORDER : d->names == N_SLDIV ? SLDIV_ORDER : d->names == N_DTIME ? DTIME_ORDER
+         : d->names == N_PLAY ? PLAY_ORDER : 0;
 }
 static int32_t enum_rank(const param_desc_t *d, int32_t v)   /* v's place in the shown order (+ min): the gauges */
 {
@@ -428,13 +434,14 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHORD, GR_SLICES, GR_EVENTS,
-       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_REC, GR_DMUTE, GR_DXSND };
+       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_REC, GR_DXSND };
 /* page.sec: button cycles sections; SELECT walks pages that share fam+sec (ui.c open_family / select_page_step) */
 enum { FX_SEC_INS = 0, FX_SEC_SEND = 1, FX_SEC_PUNCH = 2, FX_NSEC = 3,
-       SEQ_SEC_PAT = 0, SEQ_SEC_STEP = 1, SEQ_SEC_AUTO = 2, SEQ_NSEC = 3,
+       SEQ_SEC_PAT = 0, SEQ_SEC_STEP = 1, SEQ_SEC_AUTO = 2, SEQ_SEC_TOOL = 3, SEQ_NSEC = 4,
        EDIT_SEC_SND = 0, EDIT_SEC_KIT = 1, EDIT_SEC_LAN = 2, EDIT_SEC_VOX = 3, EDIT_NSEC = 4,
        GLO_SEC_SONG = 0, GLO_SEC_CLK = 1, GLO_SEC_REC = 2, GLO_NSEC = 3,
        SAVE_SEC_PRE = 0, SAVE_SEC_PROJ = 1, SAVE_NSEC = 2,
+       LFO_SEC_LFO = 0, LFO_SEC_MOD = 1, LFO_NSEC = 2,
        TRK_SEC_MIX = 0 };
 
 typedef struct {
@@ -445,11 +452,12 @@ typedef struct {
 
 static const page_t PAGES[] = {
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, 0, {P_ATK, P_DEC, P_SUS, P_REL}},
-    {"ENV DEST", FAM_ENV, SC_TRACK, GR_DESTS, 0, {P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ESYNC}},
-    {"LFO", FAM_LFO, SC_TRACK, GR_LFO, 0, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},
-    {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, 0, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},
-    {"LFO DEST", FAM_LFO, SC_TRACK, GR_DESTS, 0, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
-    {"MOD", FAM_LFO, SC_TRACK, GR_MOD, 0, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},
+    {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, 0, {P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ESYNC}},   /* knob cards + scope (P_ED_FX unused);
+                                                                             * 1.5: ESYNC, ENV's times as note values */
+    {"LFO", FAM_LFO, SC_TRACK, GR_LFO, LFO_SEC_LFO, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},
+    {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, LFO_SEC_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},   /* 1.2: SYNC TRIG POL */
+    {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, LFO_SEC_LFO, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
+    {"MOD", FAM_LFO, SC_TRACK, GR_MOD, LFO_SEC_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* its own section: LFO button cycles here */
     /* FX: Inserts → Sends → Punch-in (map page) */
     {"REORDER", FAM_FX, SC_TRACK, GR_IORD, FX_SEC_INS, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"DIST", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IDMODE, P_DIST, P_IDMIX, 0xFF}},
@@ -487,8 +495,9 @@ static const page_t PAGES[] = {
     {"OP3 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, EDIT_SEC_SND, {P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL}},
     {"OP4 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, EDIT_SEC_SND, {P_FM4_ATK, P_FM4_DEC, P_FM4_SUS, P_FM4_REL}},
     {"OP LEVEL", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_FM1_LEVEL, P_FM2_LEVEL, P_FM3_LEVEL, P_FM4_LEVEL}},
-    /* VOICE: one page (VCE GLD UNI DTN SPRD). GLMOD / PRIO / ALLOC stay stored, not shown; PAN/MUTE on MIXER */
+    /* VOICE: one page (VCE GLD UNI DTN SPRD). GLMOD / PRIO / ALLOC stay stored, not shown; PAN/PLAY on MIXER */
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_VOICE, P_GLIDE, P_DETUNE, P_SPRD}},
+
     /* GLO: Song → Clock → Record */
     {"SONG", FAM_GLO, SC_GLOBAL, GR_SONG, GLO_SEC_SONG, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"CLOCK", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_CLK, {G_BPM, G_SWING, G_CLOCK, 0xFF}},
@@ -501,14 +510,14 @@ static const page_t PAGES[] = {
     {"TOOLS", FAM_SAVE, SC_GLOBAL, GR_TOOLS, SAVE_SEC_PROJ, {G_CLRSEQ, G_INITSND, 0xFF, 0xFF}},
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, 0, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, 0, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
-    /* SEQ: Pattern → Step → Automation */
+    /* SEQ: Pattern → Step → Automation → Tools (the tools map is that last section, not the first tap) */
     {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_PAT, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
     {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
     {"AUTOMATION", FAM_SEQ, SC_TRACK, GR_EVENTS, SEQ_SEC_AUTO, {0xFF, 0xFF, 0xFF, 0xFF}},
-    /* HOME: Mixer (mix + drum lane mutes); ui.home is its own section (home_tap) */
+    {"SEQ TOOLS", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_TOOL, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
+    /* HOME: Mixer; ui.home is its own section (home_tap). Drum lane mutes live in SEQ TOOLS. */
     {"MIXER", FAM_TRK, SC_TRK, GR_TRK, TRK_SEC_MIX, {0, 1, 2, 3}},
-    {"LANE MUTE", FAM_TRK, SC_TRK, GR_DMUTE, TRK_SEC_MIX, {0xFF, 0xFF, 0xFF, 0xFF}},
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */

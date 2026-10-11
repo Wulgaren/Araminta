@@ -692,10 +692,17 @@ static int lock_ui(void)
         motion_lock_count(t) == 1u && motion_lock_steps(0) == 1u);
     cursor_set(0);
     press(B_EDIT);
-    bad += check("  [EDIT] alone clears the step and its locks", !t->step[0].n && !motion_lock_count(t));
+    bad += check("  [EDIT] alone leaves the note and its lock; it opens EDIT",
+                 t->step[0].n == 1u && motion_lock_count(t) == 1u && cur_page()->fam == FAM_EDIT);
+    go_seq_step();
+    ui.cursor = 0;
+    frame();
+    turn(EN_K3, -1);                                     /* LEN 1 -> 0: the note and its locks */
+    bad += check("  KNOB 3 to LEN 0 clears the note and its locks",
+                 !t->step[0].n && t->step[0].time == ST_REST && !motion_lock_count(t) && msg_is("NOTE CLEARED"));
     song.playing = 1; chain.running = 1;
     lk_down(kn); turn(EN_K3, 1); lk_up(kn);
-    bad += check("  a song playing: STOP TO EDIT, no lock", !motion_lock_count(t));
+    bad += check("  a song playing: STOP TO EDIT, no lock", !motion_lock_count(t) && msg_is("STOP TO EDIT"));
     song.playing = 0; chain.running = 0; song.rec = 0;
     return bad;
 }
@@ -841,7 +848,7 @@ static int auto_list(void)
     ui_prefs |= PREF_LARGE;
     bad += check("  MENU > LARGE: the list layout with labels in M (as the other lists)", large_kind() == LK_LABEL);
     ui_prefs &= ~PREF_LARGE;
-    /* #223: PARAM / MOD DST are flat tag+name lists; ENV DEST / LFO DEST use GR_DESTS */
+    /* #223: PARAM / MOD DST are flat tag+name lists. ENV DEST / LFO DEST are knob pages. */
     ui.ev_row = 0xFFFFu;                                 /* + ADD */
     ui.ev_id = (uint8_t)P_LEVEL;
     ui.ev_step = 0;
@@ -878,10 +885,10 @@ static int auto_list(void)
         uint32_t i, n = 0;
         for (i = 0; i < NPAGES; i++)
             if (str_eq(PAGES[i].title, "ENV DEST") || str_eq(PAGES[i].title, "LFO DEST")) {
-                bad += check(PAGES[i].title, PAGES[i].graph == GR_DESTS);
+                bad += check(PAGES[i].title, PAGES[i].graph == GR_NONE);
                 n++;
             }
-        bad += check("#223 ENV DEST and LFO DEST both use GR_DESTS", n == 2u);
+        bad += check("ENV DEST and LFO DEST are knob pages (scope), not a pick list", n == 2u);
     }
     return bad;
 }

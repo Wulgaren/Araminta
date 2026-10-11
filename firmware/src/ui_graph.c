@@ -1161,8 +1161,8 @@ static uint32_t graph_signature(void)
     }
     if (pg->graph == GR_MOD)
         h ^= (mod_ui_slot + 1u) * 40503u;
-    if (ui.pick || pg->graph == GR_DESTS)
-        h ^= pk_sig() + (pg->graph == GR_DESTS ? (ui.hot_t ? ui.hot_col + 1u : 0u) * 5779u : 0u);
+    if (ui.pick)
+        h ^= pk_sig();
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
     if (pg->graph == GR_IORD)                        /* REORDER: highlighted slot */
@@ -1223,11 +1223,13 @@ static const char *eng_abbr(const char *name)
 }
 
 /* a list row (17 px), in M as every list's (PRESETS, USER, PHRASES, PROJECT, AUTOMATION, MOD, the MENU): the selected
- * one a THEME bar with INK text; tag at x 14 (the widest, DRUM, to x 57), free text from x LIST_NX to x1 */
+ * one a THEME bar with INK text; tag at x 14 (a preset tag, DRUM, ends near x 57), the name from x nx */
 #define LIST_Y(k) (3 + 17 * (int32_t)(k))
 #define LIST_TY CAP_IN(M, 16)                           /* a row's text: its capitals rows 2 .. 12 of the row */
 #define LIST_NX 64
-static void list_row(int32_t y, int sel, const char *tag, uint16_t tc, const char *name, uint16_t nc, int32_t x1)
+#define PK_NX 88                                        /* pick tags (INSERT, SLICER) run past a preset tag */
+static void list_row(int32_t y, int sel, const char *tag, uint16_t tc, const char *name, uint16_t nc, int32_t x1,
+                     int32_t nx)
 {
     uint16_t bg = sel ? T_THEME : T_SURF;
     if (sel)
@@ -1236,7 +1238,7 @@ static void list_row(int32_t y, int sel, const char *tag, uint16_t tc, const cha
     cv_text_on(14, y + LIST_TY, &AF_M, tag, sel ? T_INK : tc, bg);
     if (name[0])
         GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
-    cv_free_text(LIST_NX, y + LIST_TY, &AF_M, name, sel ? T_INK : nc, bg, x1 - LIST_NX);
+    cv_free_text(nx, y + LIST_TY, &AF_M, name, sel ? T_INK : nc, bg, x1 - nx);
 }
 /* an empty list: a title and a hint, centred */
 static void note_line(int32_t y, const char *s, uint16_t fg)   /* centred S; "[K2] ADD PATTERN": a key hint */
@@ -1316,7 +1318,7 @@ static void graph_browse(void)
             pat_label((uint32_t)hint, pt, pn);
             x1 = 206 - text_w(&AF_M, pt) - 6;
         }
-        list_row(y, sel, tag, T_DIM, nm, T_TEXT, x1);
+        list_row(y, sel, tag, T_DIM, nm, T_TEXT, x1, LIST_NX);
         if (hint >= 0) {
             GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
             cv_text_r(206, y + LIST_TY, &AF_M, pt, T_INK, T_THEME);
@@ -1344,7 +1346,7 @@ static void engine_sound_row(int32_t y)
         tag[2] = 0;
         str_cpy(nm, e->npresets ? e->presets[TSEL->preset % e->npresets].name : "", sizeof nm);
     }
-    list_row(y, 1, tag, T_DIM, nm, T_TEXT, fav ? 212 : 232);
+    list_row(y, 1, tag, T_DIM, nm, T_TEXT, fav ? 212 : 232, LIST_NX);
     if (fav) {
         GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row star centred up/down");
         cv_icon_in(214, y, 0, 16, 12, ICON_X_STAR, T_INK, T_THEME);
@@ -1364,7 +1366,7 @@ static void graph_user(void)
             up_name(k, nm);
         else
             str_cpy(nm, "--", sizeof nm);
-        list_row(LIST_Y(row), k == ui.uslot, tag, T_MID, nm, used ? T_TEXT : T_DIM, 232);
+        list_row(LIST_Y(row), k == ui.uslot, tag, T_MID, nm, used ? T_TEXT : T_DIM, 232, LIST_NX);
     }
 }
 /* SAVE > PHRASES: the pattern list around the one picked ("03  MELODY", "U07  MY BASS") */
@@ -1376,7 +1378,7 @@ static void graph_pats(void)
         uint32_t k = (uint32_t)(first + row);
         char tag[4], nm[13];
         pat_label(k, tag, nm);
-        list_row(LIST_Y(row), k == cur, tag, T_MID, nm, T_TEXT, 232);
+        list_row(LIST_Y(row), k == cur, tag, T_MID, nm, T_TEXT, 232, LIST_NX);
     }
 }
 /* the AUTOMATION rows' columns (M): the kind at 14 (LOCK AUTO STEP PLAY, to x 54), the step / PLAY's ON at EV_SX, the
@@ -1394,23 +1396,15 @@ static int32_t ev_value(int32_t y, const char *v, const char *unit, uint16_t fg,
     }
     return cv_text_r(x, y + LIST_TY, &AF_M, v, fg, bg);
 }
-/* #223: flat full-screen pick list (AUTOMATION PARAM, MOD DST, or the rebuilt pk_rows for GR_DESTS) */
+/* #223: flat full-screen pick list (AUTOMATION PARAM, MOD DST) */
 static void graph_pick(void)
 {
     int32_t row, first = clamp((int32_t)pk_cur - 3, 0, (int32_t)pk_n > 7 ? (int32_t)pk_n - 7 : 0);
     for (row = 0; row < 7 && (uint32_t)(first + row) < pk_n; row++) {
         uint32_t k = (uint32_t)(first + row);
         const pk_row_t *r = &pk_rows[k];
-        list_row(LIST_Y(row), k == pk_cur, r->tag, T_MID, r->name, T_TEXT, 232);
+        list_row(LIST_Y(row), k == pk_cur, r->tag, T_MID, r->name, T_TEXT, 232, PK_NX);
     }
-}
-/* ENV DEST / LFO DEST: the page's destinations as a flat tag+name list (#223) */
-static void graph_dests(void)
-{
-    uint32_t sel = 0;
-    pk_build_page(cur_page(), &sel);
-    pk_cur = (uint8_t)sel;
-    graph_pick();
 }
 
 /* SEQ > AUTOMATION (ui_events.c): the track's rows around the one selected: PLAY first (ON / OFF and the counts),
@@ -1529,11 +1523,11 @@ static void graph_slots(void)
         const char *n = graph_project_name(i);
         b[0] = (char)('A' + i);
         b[1] = 0;
-        list_row(y, sel, b, T_MID, !used ? "--" : n[0] ? n : "USED", used ? T_TEXT : T_DIM, 232);
+        list_row(y, sel, b, T_MID, !used ? "--" : n[0] ? n : "USED", used ? T_TEXT : T_DIM, 232, LIST_NX);
     }
 }
 /* MIXER page: four SURF columns, one under each card: the track number on its cushion (in the accent:
- * the selected track) with a REC / ARM / MUTE badge (P_MUTE, KNOB 1), the sound's short name (a MUTE badge
+ * the selected track) with a REC / ARM / OFF / SOLO badge (PLAY, KNOB 4), the sound's short name (an OFF badge
  * when armed and muted), the LEVEL knob (dB inside) with the output meter beside it, then the PAN and REV
  * knobs with their values. Knobs: a 270 degree ring, the track RAISE, the value arc THEME (the knob just
  * turned: ACCENT; muted: DIM); PAN from 12 o'clock. Each column is its own canvas with its own signature:
@@ -1632,11 +1626,13 @@ static void track_strip(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, ui
     if (st == 1u || st == 2u)
         cv_keycap(53 - kc_w(st == 1u ? KC_REC : KC_ARM), 5, st == 1u ? KC_REC : KC_ARM, st == 1u ? T_REC : T_ACCENT,
                   T_INK, T_SURF);
+    else if (st == 4u)
+        cv_keycap(53 - kc_w(KC_SOLO), 5, KC_SOLO, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
     else if (st)
         cv_keycap(53 - kc_w(KC_MUTE), 5, KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
-    if (mute && arm)                                 /* armed and muted: MUTE in place of the name */
+    if (st == 3u && arm)                             /* armed and muted: MUTE in place of the name */
         GFX_HOOK_ALIGN(0, 22 + AF_S_CAP_Y, 0, 22 + AF_S_CAP_Y + AF_S_CAP_H, AL_V, "mixer MUTE badge on the name's line");
-    if (mute && arm)
+    if (st == 3u && arm)
         cv_keycap(5, 22 + AF_S_CAP_Y + HALF_UP(AF_S_CAP_H - KC_H), KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
     else
         cv_free_text(5, 22, &AF_S, b, mute ? T_DIM : sel ? T_TEXT : T_MID, T_SURF, CARD_W - 10);
@@ -1658,10 +1654,12 @@ static void draw_tracks(void)
     }
     for (c = 0; c < NTRK; c++) {
         track_t *t = &trk[c];
-        uint32_t sel = c == song.sel, lvl = trk_level(c), mute = t->p[P_MUTE] != 0;
-        uint32_t arm = (song.rec >> c) & 1u, st = arm ? (song.playing ? 1u : 2u) : mute ? 3u : 0u, sig;
+        uint32_t sel = c == song.sel, lvl = trk_level(c);
+        uint32_t mode = t->p[P_MUTE] == PLAY_SOLO ? (uint32_t)PLAY_SOLO : t->p[P_MUTE] == PLAY_OFF ? (uint32_t)PLAY_OFF : 0u;
+        uint32_t mute = !trk_heard(c);               /* dim: PLAY OFF, or left out by a solo */
+        uint32_t arm = (song.rec >> c) & 1u, st = arm ? (song.playing ? 1u : 2u) : mode == PLAY_OFF ? 3u : mode == PLAY_SOLO ? 4u : 0u, sig;
         uint32_t hot = sel && ui.hot_t ? ui.hot_col + 1u : 0u;   /* the knob just turned (hot_col + 1): 1 LEVEL, 2 PAN,
-                                                                * 3 REV, 4 MUTE (its badge) */
+                                                                * 3 REV, 4 PLAY (its badge) */
         int32_t pk = t->peak, m, pan = clamp(t->p[P_PAN], -64, 63), rv = clamp(t->p[P_REV], 0, 127);
         uint16_t vc = mute ? T_DIM : T_THEME;
         char b[16];
@@ -1671,8 +1669,9 @@ static void draw_tracks(void)
         if (m < ts.meter[c] - 1)
             m = ts.meter[c] - 1;                     /* falls ~2 dB a frame */
         ts.meter[c] = (uint8_t)(m < 0 ? 0 : m);
-        sig = str_hash(1u + sel + st * 2u + (mute && arm) * 16u + hot * 32u, b) + lvl * 7919u +
-              ts.meter[c] * 131u + (uint32_t)(pan + 128) * 104729u + (uint32_t)rv * 1299709u + mute * 3u + sk * 0x9E37u;
+        sig = str_hash(1u + sel + st * 2u + (st == 3u && arm) * 16u + hot * 32u, b) + lvl * 7919u +
+              ts.meter[c] * 131u + (uint32_t)(pan + 128) * 104729u + (uint32_t)rv * 1299709u + mute * 3u +
+              solo_mask() * 17u + sk * 0x9E37u;
         if (!ui.force && sig == ts.col[c])
             continue;
         ts.col[c] = sig;
@@ -1688,12 +1687,14 @@ static void draw_tracks(void)
         if (st == 1u || st == 2u)                    /* REC (recording) / ARM (armed, stopped) */
             cv_keycap(53 - kc_w(st == 1u ? KC_REC : KC_ARM), 6, st == 1u ? KC_REC : KC_ARM, st == 1u ? T_REC : T_ACCENT,
                       T_INK, T_SURF);
+        else if (st == 4u)                           /* SOLO (K4): this track sounds, the others do not */
+            cv_keycap(53 - kc_w(KC_SOLO), 6, KC_SOLO, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
         else if (st)                                 /* muted (K4 just turned: lit) */
             cv_keycap(53 - kc_w(KC_MUTE), 6, KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
-        if (mute && arm)                             /* armed and muted: MUTE in place of the name */
+        if (st == 3u && arm)                         /* armed and muted: MUTE in place of the name */
             GFX_HOOK_ALIGN(0, 21 + AF_S_CAP_Y, 0, 21 + AF_S_CAP_Y + AF_S_CAP_H, AL_V,
                            "mixer MUTE badge on the name's line");
-        if (mute && arm)                             /* (on the name's capitals) */
+        if (st == 3u && arm)                         /* (on the name's capitals) */
             cv_keycap(5, 21 + AF_S_CAP_Y + HALF_UP(AF_S_CAP_H - KC_H), KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
         else
             cv_free_text(5, 21, &AF_S, b, mute ? T_DIM : sel ? T_TEXT : T_MID, T_SURF, CARD_W - 10);
@@ -1767,7 +1768,9 @@ static void home_track_row(uint32_t c)
 {
     track_t *t = &trk[c];
     const step_t *s = seq_steps(t);
-    uint32_t sel = c == song.sel, mute = t->p[P_MUTE] != 0, large = (ui_prefs & PREF_LARGE) != 0u;
+    uint32_t sel = c == song.sel, large = (ui_prefs & PREF_LARGE) != 0u;
+    uint32_t mode = t->p[P_MUTE] == PLAY_SOLO ? (uint32_t)PLAY_SOLO : t->p[P_MUTE] == PLAY_OFF ? (uint32_t)PLAY_OFF : 0u;
+    uint32_t mute = !trk_heard(c);                   /* dim: PLAY OFF, or left out by a solo */
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), np = (len + 15u) / 16u, pg, p0, ph, i, sig, carry = 0;
     int32_t y = Y_GRAPH + (int32_t)c * TR_PITCH, m, x, xr = 222, ch = large ? AF_M_CAP_H : AF_S_CAP_H;
     uint16_t bg = sel ? T_THEME : T_SURF, half = ux_mix(T_THEME, T_INK, 35);
@@ -1785,8 +1788,8 @@ static void home_track_row(uint32_t c)
     t->peak = 0;
     if (m < ts.meter[c] - 1)
         m = ts.meter[c] - 1;                         /* (falls as the MIXER's) */
-    sig = str_hash(1u + sel + mute * 2u + large * 4u + t->eng_req * 8u, b) + steps_hash(t) * 31u + pg * 7919u +
-          ph * 104729u + len * 1299709u;
+    sig = str_hash(1u + sel + mute * 2u + large * 4u + t->eng_req * 8u + mode * 32u, b) + steps_hash(t) * 31u +
+          pg * 7919u + ph * 104729u + len * 1299709u + solo_mask() * 17u;
     if (!ui.force && sig == ts.col[c]) {
         if (m != ts.meter[c]) {                      /* the meter alone: its slot */
             ts.meter[c] = (uint8_t)m;
@@ -1801,10 +1804,11 @@ static void home_track_row(uint32_t c)
     cv_begin(TR_W, TR_H, T_BG);
     cv_rrect(0, 0, TR_W, TR_H, 5, bg, T_BG);
     cv_icon_mid(4, TR_H / 2, 16, trk_icon(c, 1), sel ? T_INK : mute ? T_DIM : T_MID, bg);
-    if (mute) {                                      /* MUTE: its badge at the name line's end */
-        xr -= kc_w(KC_MUTE);
+    if (mode == PLAY_OFF || mode == PLAY_SOLO) {     /* OFF or SOLO: its badge at the name line's end */
+        uint32_t cap = mode == PLAY_SOLO ? KC_SOLO : KC_MUTE;
+        xr -= kc_w(cap);
         GFX_HOOK_ALIGN(0, TR_NY(large), 0, TR_NY(large) + ch, AL_V, "tracks row badge on the name's line");
-        cv_keycap(xr, TR_NY(large) + (ch - KC_H) / 2, KC_MUTE, sel ? T_INK : T_KEY, sel ? T_THEME : T_INK, bg);
+        cv_keycap(xr, TR_NY(large) + (ch - KC_H) / 2, cap, sel ? T_INK : T_KEY, sel ? T_THEME : T_INK, bg);
         xr -= 6;
     }
     x = 24;
@@ -2285,10 +2289,6 @@ static void draw_graph(void)
                 graph_pick();
             else
                 graph_mod(t, c);
-            break;
-        case GR_DESTS:
-            cv_oy = 0;
-            graph_dests();
             break;
         case GR_BROWSE:
             cv_oy = 0;

@@ -17,7 +17,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"ENV", "[K1-4]A D S R[ENV]ENV DEST"},
     {"ENV DEST", "[K1-4]ENV AMOUNTS[ENV]ENV"},
     {"LFO", "[K1-4]SHAPE[LFO]HOLD: MOMENTARY"},
-    {"LFO 2", "[K1]SYNC TO BPM[LFO]LFO DEST"},
+    {"LFO 2", "[K1]SYNC TO BPM[SELECT]LFO DEST"},   /* SELECT walks the LFO section; the LFO button opens MOD */
     {"LFO DEST", "[K1-4]LFO AMOUNTS[LFO]MOD"},
     {"MOD", "[K1]SLOT[K2]SOURCE[K3]DEST"},
     {"FX", "[K1-4]SENDS[FX]HOLD: PERFORM"},
@@ -55,6 +55,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"OP ENV", H_FMOP},
     {"OPERATOR 2", H_FMOP},
     {"VOICE", "[K1]VOICE[K2]GLIDE[K3]UNI DTN[K4]SPREAD"}, /* UNI DTN / SPRD blank off UNI / off POLY+UNI */
+
     {"SONG", "[K1]SECTION[KEYS]A-D[PLAY]SONG"},
     {"PRESETS", "[K2]ENGINE[K3]FAV[K4]LIST"},
     {"USER", "[K1]SLOT[OCT+]SAVE[SELECT]PHRASES"},
@@ -63,14 +64,14 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"TOOLS", "[K1]CLEAR[K2]INIT SOUND[OCT+]DO"},
     {"ARP", "[K1]MODE[KEYS]CHORD[ARP]ARP 2"},
     {"ARP 2", "[K3]LATCH[K4]ORDER[ARP]ARP"},
-    {"PATTERN", "[K1]LEN[K2]DIV[KEYS]TOOLS"},
+    {"PATTERN", "[K1]LEN[K2]DIV[SEQ]TOOLS"},
+    {"SEQ TOOLS", "[KEYS]TOOLS[K1]LEN[K2]DIV"},
     {"STEP", "[KEYS]WRITE[K1]STEP[SEQ]RATCH"},   /* (1.5.1: SEQ to DETAIL) */
     {"DETAIL", "[PRESETS]STEP[K1]CHANCE[K2]RATCH"},
     {"AUTOMATION", "[K1]ROW[OCT+]DO[EDIT]DELETE"},
     {"RECORD", "[KEYS]CLICK COUNT[K1-4]PREFS"},
     {"PUNCH", "[KEYS]EFFECTS[K1-4]MACROS"},
-    {"MIXER", "[K4]MUTE[ALGO]TRACK[HOME]HOME"},
-    {"LANE MUTE", "[KEYS]LANES[HOME]MIXER"},
+    {"MIXER", "[K4]PLAY[ALGO]TRACK"},
     {"CLOCK", "[OCT+]SELECT: TEMPO[GLO]SONG"},
 };
 #define H_HOME "[OCT+]PRESETS RND[HOME]HOLD: MENU"

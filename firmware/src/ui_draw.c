@@ -875,7 +875,7 @@ static void draw_columns(void)
             param_format(d, *vp, val, &unit);
             card_mot_of(vp);
             if (home_levels())                         /* 1.5: T1..T4 LEVEL, the track's cushion, muted: DIM */
-                draw_column(c, "LEVEL", val, unit, trk[c].p[P_MUTE] ? T_DIM : VAL(c), RATIO(d, *vp), trk_icon(c, 1));
+                draw_column(c, "LEVEL", val, unit, trk_heard(c) ? VAL(c) : T_DIM, RATIO(d, *vp), trk_icon(c, 1));
             else
                 draw_column(c, d->label, val, unit, VAL(c), RATIO(d, enum_rank(d, *vp)), param_icon(d, *vp));
         }
@@ -996,19 +996,21 @@ static void draw_columns(void)
         for (c = 0; c < 4u; c++) draw_act_column(c, labels[c], VAL(c), icons[c]);
         return;
     }
-    if (cur_page()->scope == SC_TRK) {                 /* LEVEL PAN REV MUTE of the selected track */
+    if (cur_page()->scope == SC_TRK) {                 /* LEVEL PAN REV PLAY of the selected track */
         const track_t *t = TSEL;
         uint32_t lvl = trk_level(song.sel);
         param_format(&TP[P_LEVEL], (int32_t)lvl, val, &unit);   /* (0: OFF) */
         card_mot_of(&TSEL->p[P_LEVEL]);
-        draw_column(0, "LEVEL", val, unit, lvl && !t->p[P_MUTE] ? VAL(0u) : T_DIM, (int32_t)lvl * 1000 / 127, ICON_AUTO);
+        draw_column(0, "LEVEL", val, unit, lvl && trk_heard(song.sel) ? VAL(0u) : T_DIM, (int32_t)lvl * 1000 / 127, ICON_AUTO);
         param_format(&TP[P_PAN], t->p[P_PAN], val, &unit);
         card_mot_of(&TSEL->p[P_PAN]);
         draw_column(1, "PAN", val, unit, VAL(1u), RATIO(&TP[P_PAN], t->p[P_PAN]), param_icon(&TP[P_PAN], t->p[P_PAN]));
         param_format(&TP[P_REV], t->p[P_REV], val, &unit);
         card_mot_of(&TSEL->p[P_REV]);
         draw_column(2, "REV", val, unit, VAL(2u), RATIO(&TP[P_REV], t->p[P_REV]), ICON_AUTO);
-        draw_column(3, "MUTE", t->p[P_MUTE] ? "ON" : "OFF", "", t->p[P_MUTE] ? T_ACCENT : VAL(3u), -1, ICON_AUTO);
+        param_format(&TP[P_MUTE], t->p[P_MUTE], val, &unit);
+        draw_column(3, "PLAY", val, "", t->p[P_MUTE] != PLAY_ON ? T_ACCENT : VAL(3u),
+                    RATIO(&TP[P_MUTE], enum_rank(&TP[P_MUTE], t->p[P_MUTE])), ICON_AUTO);
         return;
     }
     if (cur_page()->graph == GR_BROWSE) {

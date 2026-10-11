@@ -49,7 +49,9 @@ static int32_t dx_mot_v;
 static uint32_t dx_mot_rng = 0x9E3779B9u;
 
 ENG_MEM_FITS("DRUM", sizeof(drum_lane_t) * DV_NLANE);
-/* Felucca 1.4.1 lane mutes (EDIT / LANE MUTE): bit l mutes lane l. Performance state, not saved. */
+/* 1.4.1: each part's lanes muted (bit l: lane l). SEQ TOOLS F4 mutes the selected lane; the EDIT layer's black keys
+ * 1..8 do the same (ui_layer.c EQA_DRUM). Performance state: not saved, not recorded, no undo; a sound or project
+ * load clears it */
 static uint8_t drum_mute[NPART];
 
 /* The group mutes (JIANT): KICK (the kick), SNARE (snare and clap), HAT (both hats), PERCS (tom, rim, bell), on every

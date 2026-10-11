@@ -88,6 +88,8 @@ enum {                          /* per-track parameters */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
+/* P_MUTE (params.c N_PLAY). Append-only: stored 0 plays (PLAY ON), 1 is silent (PLAY OFF). */
+enum { PLAY_ON = 0, PLAY_OFF = 1, PLAY_SOLO = 2 };
 /* 1.5 INSERT ids (np 111): migrated to the chain in project.c / upreset.c ins_migrate */
 enum { P_ITYPE_LEG = 96, P_IA_LEG = 97, P_IB_LEG = 98, P_IC_LEG = 99, P_IMIX_LEG = 100 };
 enum { INS_N = 6, INS_DIST = 0, INS_FILTER = 1, INS_CRUSH = 2, INS_PHASR = 3, INS_FLANG = 4, INS_CHOR = 5 };
@@ -341,7 +343,8 @@ static void step_set_ratchet(step_t *s, uint32_t hits)
 }
 /* NUDGE (1.2, #162, D98): a step's timing, in 1/NUDGE_DIV of the track's DIV, -8..+7 (half a step early .. 7/16 late);
  * live recording keeps it, SEQ > AUTOMATION's NUDGE rows and DETAIL's NUDGE set it, the track's QUANTIZE
- * OFF (P_SQNT, AUTOMATION's QUANTIZE row) plays it (seq.c seq_tick). STEP steps held + PRESETS moves steps in time.
+ * OFF (P_SQNT, AUTOMATION's QUANTIZE row) plays it (seq.c seq_tick). On the drum grid, steps held + PRESETS moves
+ * those steps in time; on the piano roll, PRESETS moves the note under the cursor (its ties with it).
  * Four bits of the flags no other field uses: 4 (bit 3 of the nudge, its sign) and 32 64 128 (bits 0..2). 0 = on the
  * step: every older pattern. A user preset's pattern keeps none (upreset.c up_pat_norm) */
 #define NUDGE_DIV 16
