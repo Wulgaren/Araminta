@@ -1250,7 +1250,8 @@ static void ior_knob(uint32_t k, int32_t s)
         ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + dir * n, 0, (int32_t)FX_LIST_N - 1);
     } else if (k == 1u) {
         while (n--) {
-            fx_list_move(TSEL, ui.ior_sel, dir);
+            if (!fx_list_move(TSEL, ui.ior_sel, dir))
+                break;                                /* edge: do not advance as if CHOOSE */
             ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + dir, 0, (int32_t)FX_LIST_N - 1);
         }
     } else if (k == 2u) {
