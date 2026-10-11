@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* 1.5.1, Discussion #199: SEQ > DETAIL, the step page between STEP and AUTOMATION, on the real sequencer and UI
  * sources (with the stubs of tests/ui_test.c):
- *   the page   SELECT walks STEP <-> DETAIL; SEQ cycles sections (Step -> Automation -> …); the cursor is STEP's
+ *   the page   SELECT walks STEP <-> DETAIL; SEQ cycles sections (Step -> Pattern -> Automation -> …); the cursor is STEP's
  *   knobs      KNOB 1 CHANCE, 2 RATCH, 3 NUDGE, 4 VEL of the cursor step, PRESETS walks the cursor (KNOB 1 does not),
  *              nothing else of the step changes; a REST / an empty step takes none (NO NOTE), a TIE its CHANCE only
  *   AUTOMATION the same fields: a value set here is its row there, back at its default the row is gone; EDIT there
@@ -103,11 +103,12 @@ static int page_cycle(void)
     turn(EN_SELECT, 1); frames(100);                 /* SELECT: pages inside the Step section */
     ok &= str_eq(cur_page()->title, "DETAIL") && detail_on() && cur_page()->graph == GR_ROLL && ui.cursor == 4u &&
           song.seq_mode;
-    press(B_SEQ); frames(320);                        /* SEQ: Step -> Automation */
+    press(B_SEQ); frames(320);                        /* SEQ: Step -> Pattern */
+    ok &= str_eq(cur_page()->title, "PATTERN") && !detail_on();
+    press(B_SEQ); frames(320);                        /* Pattern -> Automation */
     ok &= cur_page()->graph == GR_EVENTS && !detail_on();
     press(B_SEQ); frames(320);                        /* Automation -> SEQ TOOLS */
-    press(B_SEQ); frames(320);                        /* SEQ TOOLS -> Pattern */
-    press(B_SEQ); frames(320);                        /* Pattern -> Step (the section's first page) */
+    press(B_SEQ); frames(320);                        /* SEQ TOOLS -> Step */
     ok &= str_eq(cur_page()->title, "STEP") && !detail_on();
     bad += check("SEQ: SELECT STEP <-> DETAIL; SEQ button sections back to STEP", ok);
     go_detail();

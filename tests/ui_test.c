@@ -314,7 +314,7 @@ static void go_page(uint32_t graph)               /* the page that draws graph *
     page_entered();
 }
 static void go_title(const char *title);          /* forward: go_seq_step */
-static void go_seq_step(void) { go_title("STEP"); } /* SEQ opens PATTERN; STEP for grid / roll / step rec */
+static void go_seq_step(void) { go_title("STEP"); } /* SEQ opens the roll; this jumps there from another section */
 static void project_not_empty(void)  /* free-take steals step keys when every track is empty */
 {
     trk[3].step[0].n = 1; trk[3].step[0].note[0] = 60; trk[3].step[0].time = ST_NOTE;
@@ -685,7 +685,7 @@ static int test_rec(void)
     /* STEP page: armed + playing -> the keys record live only */
     ui_power_on();
     open_family(FAM_SEQ);
-    bad += check("SEQ opens PATTERN", str_eq(cur_page()->title, "PATTERN") && !ui.lock);
+    bad += check("SEQ opens STEP", str_eq(cur_page()->title, "STEP") && !ui.lock && cur_page()->graph == GR_ROLL);
     go_seq_step(); frame();
     press(B_REC);
     song.playing = 1;
@@ -2654,7 +2654,7 @@ static int test_presets_knob(void)
     return bad;
 }
 
-/* Pages by button. HOME: Home ↔ Mixer; SEQ: Pattern → Step → Automation; GLO: Song → Clock → Record;
+/* Pages by button. HOME: Home ↔ Mixer; SEQ: Step → Pattern → Automation → Tools; GLO: Song → Clock → Record;
  * SAVE: Presets (PRESETS/USER/PHRASES) → Project (PROJECT/TOOLS). AUTOMATION's list edits a step's
  * CHANCE / RATCH (the step's own fields, nothing else), one undo each; a remembered page that left its family */
 static int steps_but(const track_t *t, const step_t *ref, uint32_t at, const step_t *want)   /* the steps = ref, at: want */
@@ -2732,8 +2732,7 @@ static int test_page_cycles(void)
     ui.fam_last[FAM_SAVE] = 200u;
     ui.fam_last[FAM_ENV] = 250u;
     open_family(FAM_GLO); ok = str_eq(cur_page()->title, "SONG");   /* invalid fam_last → SONG */
-    open_family(FAM_SEQ); ok &= str_eq(cur_page()->title, "PATTERN") || cur_page()->graph == GR_ROLL ||
-                              cur_page()->graph == GR_STEPS; /* invalid fam_last → first SEQ page (PATTERN) */
+    open_family(FAM_SEQ); ok &= str_eq(cur_page()->title, "STEP") && cur_page()->graph == GR_ROLL; /* invalid fam_last → first SEQ page */
     open_family(FAM_ENV); ok &= str_eq(cur_page()->title, "ENV");
     open_family(FAM_SAVE); ok &= str_eq(cur_page()->title, "PRESETS");
     go_home(); open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "SONG");
@@ -2898,8 +2897,8 @@ static int test_product_ux(void)
     go_home(); btn_down(B_SEQ); frames(500);
     ok = !ui.layer && ui.home;                          /* hold alone: no map */
     btn_up(B_SEQ); frame();
-    bad += check("SEQ hold on HOME: no peek; release opens PATTERN",
-                 ok && str_eq(cur_page()->title, "PATTERN") && !ui.lock && !ui.home);
+    bad += check("SEQ hold on HOME: no peek; release opens STEP",
+                 ok && str_eq(cur_page()->title, "STEP") && !ui.lock && !ui.home);
     go_page(GR_SONG);
     song.rec = 1; chain.armed = 1; press(B_REC);
     bad += check("REC cannot write borrowed patterns while SONG is armed", song.rec == 1 && msg_is("STOP TO RECORD"));
@@ -3206,8 +3205,8 @@ static int test_layer(void)
     ui_power_on(); hold(B_HOME);
     ok = ui.menu == 1; hold(B_HOME); ok &= !ui.menu;
     go_home(); hold(B_SEQ);
-    ok &= str_eq(cur_page()->title, "PATTERN") && !ui.lock; /* release of hold = tap, Pattern, not the tools map */
-    bad += check("HOME hold opens menu; SEQ hold/release opens PATTERN, no peek-without-page", ok);
+    ok &= str_eq(cur_page()->title, "STEP") && !ui.lock; /* release of hold = tap, the roll, not the tools map */
+    bad += check("HOME hold opens menu; SEQ hold/release opens STEP, no peek-without-page", ok);
     return bad;
 }
 
@@ -5835,28 +5834,28 @@ static int test_seq_tools(void)
     uint32_t i, k, a, b2, seed;
     step_t ref[NSTEP], mid[NSTEP];
 
-    /* hold SEQ never peeks; the first tap is PATTERN. Tools are the last section. */
+    /* hold SEQ never peeks; the first tap is the roll. Tools are the last section. */
     ui_power_on();
     go_home(); frame();
     btn_down(B_SEQ); frames(500);
     ok = !ui.layer && ui.lock == 0;                     /* still held: no map yet */
     btn_up(B_SEQ); frame();
-    ok &= str_eq(cur_page()->title, "PATTERN") && !ui.lock && !ui.layer;
-    bad += check("SEQ tap opens PATTERN; hold alone never peeks tools", ok);
+    ok &= str_eq(cur_page()->title, "STEP") && !ui.lock && !ui.layer;
+    bad += check("SEQ tap opens STEP; hold alone never peeks tools", ok);
     ui_power_on();
     press(B_SEQ); frames(100);
-    ok = str_eq(cur_page()->title, "PATTERN") && !ui.lock;
-    press(B_SEQ); frames(100);
-    ok &= str_eq(cur_page()->title, "STEP") && !ui.lock;
+    ok = str_eq(cur_page()->title, "STEP") && !ui.lock;
     turn(EN_SELECT, 1); frames(100);
     ok &= str_eq(cur_page()->title, "DETAIL");
+    press(B_SEQ); frames(100);
+    ok &= str_eq(cur_page()->title, "PATTERN") && !ui.lock;
     press(B_SEQ); frames(100);
     ok &= str_eq(cur_page()->title, "AUTOMATION") && !ui.lock;
     press(B_SEQ); frames(100);
     ok &= str_eq(cur_page()->title, "SEQ TOOLS") && ui.lock == LAYER_SEQ && ui.layer == LAYER_SEQ;
     press(B_SEQ); frames(100);
-    ok &= str_eq(cur_page()->title, "PATTERN") && !ui.lock;
-    bad += check("SEQ sections: Pattern → Step (SELECT: DETAIL) → Automation → SEQ TOOLS → Pattern", ok);
+    ok &= str_eq(cur_page()->title, "STEP") && !ui.lock;
+    bad += check("SEQ sections: Step (SELECT: DETAIL) → Pattern → Automation → SEQ TOOLS → Step", ok);
 
     /* tools on the SEQ TOOLS section (no button held) */
     ui_power_on();
@@ -5943,7 +5942,7 @@ static int test_seq_tools(void)
 
     ui_power_on();
     go_title("PATTERN"); frame();
-    press(B_SEQ); frames(64); press(B_SEQ); frames(100); /* Pattern, Step, Automation: no sticky map */
+    press(B_SEQ); frames(100);                          /* Pattern → Automation: no sticky map */
     ok = !ui.lock && str_eq(cur_page()->title, "AUTOMATION");
     go_seq_step(); frame();
     ok = !ui.lock && str_eq(cur_page()->title, "STEP");
@@ -5974,13 +5973,15 @@ static int test_layer_lock(void)
     bad += check("no layer lock: double-tap FX/GLO/SCL/EDIT does not set ui.lock", ok);
     ui_power_on();
     go_title("ENV"); frame();
-    press(B_SEQ); frames(64); press(B_SEQ); frames(100);
-    ok = !ui.lock && str_eq(cur_page()->title, "STEP"); /* Pattern then Step */
+    press(B_SEQ); frames(64);
+    ok = !ui.lock && str_eq(cur_page()->title, "STEP");
+    press(B_SEQ); frames(100);
+    ok &= str_eq(cur_page()->title, "PATTERN") && !ui.lock;
     press(B_SEQ); frames(100);
     ok &= str_eq(cur_page()->title, "AUTOMATION") && !ui.lock;
     press(B_SEQ); frames(100);
     ok &= str_eq(cur_page()->title, "SEQ TOOLS") && ui.lock == LAYER_SEQ;
-    bad += check("  SEQ taps cycle Pattern → Step → Automation → SEQ TOOLS; only tools stick", ok);
+    bad += check("  SEQ taps cycle Step → Pattern → Automation → SEQ TOOLS; only tools stick", ok);
     ui_power_on();
     press(B_FX); press(B_FX); press(B_FX); frame();    /* Punch-in sticky */
     ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
@@ -8095,24 +8096,24 @@ static int test_edit_quick_actions(void)
 }
 
 
-/* SEQ button cycles sections: Pattern → Step → Automation → SEQ TOOLS; SELECT walks pages inside a section. */
+/* SEQ button cycles sections: Step → Pattern → Automation → SEQ TOOLS; SELECT walks pages inside a section. */
 static int test_seq_sections(void)
 {
     int bad = 0, ok;
     ui_power_on();
     press(B_SEQ);
-    ok = str_eq(cur_page()->title, "PATTERN") && !ui.lock && cur_page()->sec == SEQ_SEC_PAT;
-    press(B_SEQ);
-    ok &= str_eq(cur_page()->title, "STEP") && !ui.lock && cur_page()->sec == SEQ_SEC_STEP;
+    ok = str_eq(cur_page()->title, "STEP") && !ui.lock && cur_page()->sec == SEQ_SEC_STEP;
     turn(EN_SELECT, 1);
     ok &= str_eq(cur_page()->title, "DETAIL") && cur_page()->sec == SEQ_SEC_STEP;
+    press(B_SEQ);
+    ok &= str_eq(cur_page()->title, "PATTERN") && !ui.lock && cur_page()->sec == SEQ_SEC_PAT;
     press(B_SEQ);
     ok &= str_eq(cur_page()->title, "AUTOMATION") && !ui.lock && cur_page()->sec == SEQ_SEC_AUTO;
     press(B_SEQ);
     ok &= str_eq(cur_page()->title, "SEQ TOOLS") && ui.lock == LAYER_SEQ && cur_page()->sec == SEQ_SEC_TOOL;
     press(B_SEQ);
-    ok &= str_eq(cur_page()->title, "PATTERN") && !ui.lock;
-    bad += check("SEQ sections: Pattern → Step → Automation → SEQ TOOLS (wrap); SELECT stays in Step for DETAIL", ok);
+    ok &= str_eq(cur_page()->title, "STEP") && !ui.lock;
+    bad += check("SEQ sections: Step → Pattern → Automation → SEQ TOOLS (wrap); SELECT stays in Step for DETAIL", ok);
     return bad;
 }
 

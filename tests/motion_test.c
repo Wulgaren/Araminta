@@ -618,7 +618,7 @@ static int lock_ui(void)
     track_defaults_steps(t);
     t->p[P_SLEN] = 16;
     go_home();
-    go_seq_step();                                       /* SEQ button opens PATTERN; STEP for the grid */
+    go_seq_step();                                       /* the grid */
     frame();
     k0 = key_at(0, 0); k4 = key_at(0, 4);
     grid_hit(t, 0, 0, 1);                                /* a KICK on step 1 */
