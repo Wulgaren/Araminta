@@ -1026,7 +1026,6 @@ static uint8_t boot_fade_run;                /* 1: ramp boot_fade up (after the 
 static void fx_boot(void)
 {
     uint32_t i;
-    int32_t rt;
     memset(dly_buf, 0, sizeof dly_buf);
     rev_clear_all();
     bus_own_sanitize();
