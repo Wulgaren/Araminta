@@ -6464,7 +6464,7 @@ static int test_usb_serial(void)
     return bad;
 }
 
-/* SELECT walks the current family (same cycle as tapping its button). Tempo only via GLO+SELECT and HOME > CLOCK.
+/* SELECT walks pages inside the current section. Tempo only via OCT++SELECT and HOME > CLOCK.
  * MENU > BPM LOCK keeps the header lock icon; it does not block tempo (SELECT is pages, not BPM). */
 
 static int test_select_pages(void)
@@ -6478,19 +6478,19 @@ static int test_select_pages(void)
     b0 = song.g[G_BPM];
     ok = ui.home;
     turn(EN_SELECT, 1);
+    ok &= ui.home && song.g[G_BPM] == b0;               /* Home section: SELECT stays put */
+    press(B_HOME);                                      /* Home → Mixer */
     ok &= !ui.home && str_eq(cur_page()->title, "MIXER") && song.g[G_BPM] == b0;
+    set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req; frame();
     turn(EN_SELECT, 1);
-    /* Mixer section may include LANE MUTE; CLOCK is the last TRK page before HOME */
-    ok &= (str_eq(cur_page()->title, "LANE MUTE") || str_eq(cur_page()->title, "CLOCK")) && song.g[G_BPM] == b0;
-    if (str_eq(cur_page()->title, "LANE MUTE")) {
-        turn(EN_SELECT, 1);
-        ok &= str_eq(cur_page()->title, "CLOCK") && song.g[G_BPM] == b0;
-    }
+    ok &= str_eq(cur_page()->title, "LANE MUTE") && cur_page()->sec == TRK_SEC_MIX && song.g[G_BPM] == b0;
     turn(EN_SELECT, 1);
-    ok &= ui.home && song.g[G_BPM] == b0;
-    turn(EN_SELECT, -1);
-    ok &= !ui.home && str_eq(cur_page()->title, "CLOCK");
-    bad += check("SELECT on HOME walks HOME → MIXER → LANE MUTE → CLOCK → HOME (no tempo)", ok);
+    ok &= str_eq(cur_page()->title, "MIXER") && cur_page()->sec == TRK_SEC_MIX && song.g[G_BPM] == b0;
+    press(B_HOME);                                      /* Mixer → Clock (section, not SELECT) */
+    ok &= str_eq(cur_page()->title, "CLOCK");
+    turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "CLOCK") && song.g[G_BPM] == b0;
+    bad += check("SELECT walks Mixer pages only; HOME button cycles Home/Mixer/Clock (no tempo)", ok);
 
     go_title("ENV"); frame();
     env0 = ui.page;
