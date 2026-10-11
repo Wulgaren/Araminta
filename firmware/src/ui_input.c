@@ -1080,6 +1080,33 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
 }
 
+/* REORDER: K1 chooses the stage, K2 moves it, K3 picks FX (that stage's mix) or a send, K4 is the percent */
+static void ior_knob(uint32_t k, int32_t s)
+{
+    int32_t n = s > 0 ? s : -s, dir = s > 0 ? 1 : -1;
+    if (n > 12)
+        n = 12;
+    if (k == 0u) {
+        ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + dir * n, 0, (int32_t)INS_N - 1);
+    } else if (k == 1u) {
+        while (n--) {
+            ins_order_move(TSEL, ui.ior_sel, dir);
+            ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + dir, 0, (int32_t)INS_N - 1);
+        }
+    } else if (k == 2u) {
+        int32_t t = ((int32_t)ui.ior_tgt + s) % 4;
+        ui.ior_tgt = (uint8_t)(t < 0 ? t + 4 : t);
+    } else {
+        uint32_t id = ior_pct_id();
+        const param_desc_t *d = track_desc(TSEL, id);
+        int16_t *vp = &TSEL->p[id];
+        *vp = (int16_t)param_turn(d, *vp, accel(EN_K4, s, d->max - d->min));
+        motion_capture(TSEL, id, *vp);
+        ml_knob(TSEL, id);
+    }
+    ui.force = 1;
+}
+
 /* OCT+ on an action page: the picked action. A load stays picked (browse and load again); the others
  * are dropped once done. Flash writes only while stopped; over the user's data: the dialog */
 static void act_do(void)
@@ -1524,13 +1551,7 @@ static void ui_input(void)
         if (ui.ly == LAYER_FX && ((pressed >> panel.btn[B_EDIT]) & 1u))
             fx_default();                               /* .. EDIT: its default back */
         panel_enc(EN_ALGO);                             /* (another track: OCT- puts back the layer's track only) */
-        if (ui.ly == LAYER_FX && cur_page()->graph == GR_IORD &&
-            (s = panel_enc(EN_SELECT)) != 0) {          /* REORDER: FX held + SELECT moves the stage */
-            ins_order_move(TSEL, ui.ior_sel, s > 0 ? 1 : -1);
-            ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + (s > 0 ? 1 : -1), 0, (int32_t)INS_N - 1);
-            ui.force = 1;
-            combo = 1;
-        } else if ((sel = panel_enc(EN_SELECT)) != 0)
+        if ((sel = panel_enc(EN_SELECT)) != 0)
             combo = 1;                                  /* SELECT with a layer button: not a page walk */
     } else if ((kq = (uint32_t)layer_knobs_quiet()) != 0) {   /* a layer letting go: KNOB 1..4 are nobody's (#39) */
         for (k = 0; k < 4u; k++)
@@ -1798,7 +1819,7 @@ static void ui_input(void)
         }
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
             ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
-            || pg->graph == GR_SONG || fop_page(pg->graph)) {   /* (not an empty
+            || pg->graph == GR_SONG || pg->graph == GR_IORD || fop_page(pg->graph)) {   /* (not an empty
                                                                                                           * column) */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;
@@ -1809,9 +1830,8 @@ static void ui_input(void)
             *vp = (int16_t)param_turn(d, *vp, accel(EN_K1 + k, s, d->fmt == F_ENUM ? 0 : d->max - d->min));
             motion_capture(home_trk(k), (uint32_t)(vp - home_trk(k)->p), *vp);   /* (LEVELS: that track's, as MIXER) */
             ml_knob(home_trk(k), (uint32_t)(vp - home_trk(k)->p));
-        } else if (pg->graph == GR_IORD && k == 0u) {
-            ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + (s > 0 ? 1 : -1), 0, (int32_t)INS_N - 1);
-            ui.force = 1;
+        } else if (pg->graph == GR_IORD) {
+            ior_knob(k, s);
         } else {
             edit_param(k, s);
         }

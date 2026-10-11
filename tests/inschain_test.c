@@ -111,6 +111,15 @@ int main(void)
     render_blocks(8);
     wet = hash_out(32);
     ck("DIST at MIX 127 changes the render vs dry", wet != dry);
+    fresh();
+    t = &trk[0];
+    t->p[P_IDMODE] = IDM_HARD;
+    t->p[P_DIST] = 100;
+    t->p[P_IDMIX] = 127;
+    t->p[P_ED_FX] = -64;
+    trk_note_on(t, 60, 100);
+    render_blocks(8);
+    ck("DIST TONE moves the render (offset on the drive-linked cutoff)", hash_out(32) != wet);
 
     /* order: put CRUSH before DIST; with both wet, order matters */
     fresh();
@@ -167,24 +176,34 @@ int main(void)
            got[P_ICBITS] == 50 && got[P_ICRATE] == 60 && got[P_ICLPF] == 70 && got[P_ICMIX] == 100);
         ck("migrate: old P_DIST kept as drive; DIST MIX on",
            got[P_DIST] == 80 && got[P_IDMIX] == 127);
+        old[96] = 2;                                    /* HARD */
+        old[97] = 80;                                   /* drive */
+        old[98] = 40;                                   /* TONE cutoff */
+        old[100] = 90;
+        params_by_count(got, old, 111u, def);
+        ins_migrate(got, 111u);
+        ck("migrate: 1.5 DIST TONE comes back as an offset on the drive-linked cutoff",
+           got[P_IDMODE] == IDM_HARD && got[P_DIST] == 80 && got[P_IDMIX] == 90 && got[P_ED_FX] == 40 - (96 - (80 >> 2)));
         ck("migrate: FTYPE/ESYNC and engine values moved",
            got[P_FTYPE] == 2 && got[P_ESYNC] == 1 && got[P_E0] == 10 && got[P_E7] == 17);
     }
 
-    /* FX pages: REORDER first, SLICER after stages, FX sends after */
+    /* FX pages: effects (REORDER, stages, DLY, REVERB), then SLICER, then MASTER */
     {
-        uint32_t i, pr = NPAGES, ps = NPAGES, pd = NPAGES, pfx = NPAGES;
+        uint32_t i, pr = NPAGES, ps = NPAGES, pd = NPAGES, pdl = NPAGES, pm = NPAGES;
         for (i = 0; i < NPAGES; i++) {
             if (PAGES[i].fam != FAM_FX) continue;
             if (str_eq(PAGES[i].title, "REORDER") && pr == NPAGES) pr = i;
             if (str_eq(PAGES[i].title, "SLICER") && ps == NPAGES) ps = i;
             if (str_eq(PAGES[i].title, "DIST") && pd == NPAGES) pd = i;
-            if (str_eq(PAGES[i].title, "FX") && pfx == NPAGES) pfx = i;
+            if (str_eq(PAGES[i].title, "DLY") && pdl == NPAGES) pdl = i;
+            if (str_eq(PAGES[i].title, "MASTER") && pm == NPAGES) pm = i;
         }
-        ck("FX pages: REORDER then DIST.. then SLICER then FX sends",
-           pr < pd && pd < ps && ps < pfx && PAGES[pr].graph == GR_IORD);
-        ck("FX sends page has CHO DLY REV only",
-           PAGES[pfx].id[0] == P_CHOR && PAGES[pfx].id[1] == P_DLY && PAGES[pfx].id[2] == P_REV);
+        ck("FX pages: REORDER, DIST (with TONE), DLY in effects; SLICER and MASTER are their own sections",
+           pr < pd && pd < pdl && pdl < ps && ps < pm && PAGES[pr].graph == GR_IORD &&
+           PAGES[pr].sec == FX_SEC_INS && PAGES[pdl].sec == FX_SEC_INS &&
+           PAGES[ps].sec == FX_SEC_SLCR && PAGES[pm].sec == FX_SEC_MASTER &&
+           PAGES[pd].id[3] == P_ED_FX);
     }
 
     ck("ANALOG FILTER TYPE includes COMB", NELEM(N_FTYPE) == 4u && str_eq(N_FTYPE[3], "COMB"));

@@ -1118,7 +1118,7 @@ static void setup(int s)
     case S_LFO: go_title("LFO"); break;
     case S_MOD: TSEL->p[P_M1SRC] = 1; TSEL->p[P_M1DST] = 2; TSEL->p[P_M1AMT] = 40; TSEL->p[P_M2SRC] = 6;
         TSEL->p[P_M2DST] = 14; TSEL->p[P_M2AMT] = -64; mod_ui_slot = 1; go_title("MOD"); break;
-    case S_FX: go_title("FX"); break;
+    case S_FX: go_title("REORDER"); TSEL->p[P_CHOR] = 40; TSEL->p[P_DLY] = 70; TSEL->p[P_REV] = 100; break;
     case S_SLICER: TSEL->p[P_SLCR] = 1; go_title("SLICER"); break;
     case S_DLY: go_title("DLY"); break;
     case S_SCL: TSEL->p[P_SCALE] = 2; go_title("SCL"); break;
@@ -1486,8 +1486,9 @@ static void setup(int s)
         motion_set_lock(TSEL, 8, P_E2, 30); motion_set_lock(TSEL, 15, P_E1, 40);
         if (s == S_DRUM_LOCK_HELD) {
             uint32_t i;
-            for (i = 0; i < NPAGES && PAGES[i].graph != GR_FX; i++)
+            for (i = 0; i < NPAGES && PAGES[i].graph != GR_IORD; i++)
                 ;
+            ui.ior_tgt = 3;                             /* K4 is REV, the lock the held step shows */
             ui.plk_src = (uint8_t)(i + 1u);
             fm1_in.notes = 1u << key_at(0, 4);
             ui.hot_col = 3; ui.hot_t = 30;

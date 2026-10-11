@@ -1175,6 +1175,23 @@ static void draw_columns(void)
         }
         return;
     }
+    if (cur_page()->graph == GR_IORD) {                 /* CHOOSE, ORDER, SEND (FX or a send), PCT */
+        uint8_t ord[INS_N];
+        uint32_t id = ior_pct_id();
+        const param_desc_t *d = track_desc(TSEL, id);
+        char pos[8];
+        ins_order_get(TSEL, ord);
+        fmt_int(pos, (int32_t)ui.ior_sel + 1);
+        draw_column(0, "CHOOSE", N_ISTAGE[ord[ui.ior_sel < INS_N ? ui.ior_sel : 0u]], "", VAL(0u),
+                    (int32_t)ui.ior_sel * 1000 / (int32_t)(INS_N - 1u), ICON_AUTO);
+        draw_column(1, "ORDER", pos, "/6", VAL(1u), (int32_t)ui.ior_sel * 1000 / (int32_t)(INS_N - 1u), ICON_ORDER);
+        draw_column(2, "SEND", N_IORTGT[ui.ior_tgt < 4u ? ui.ior_tgt : 0u], "", VAL(2u),
+                    (int32_t)ui.ior_tgt * 1000 / 3, ICON_AUTO);
+        param_format(d, TSEL->p[id], val, &unit);
+        card_mot_of(&TSEL->p[id]);
+        draw_column(3, "PCT", val, unit, VAL(3u), RATIO(d, TSEL->p[id]), param_icon(d, TSEL->p[id]));
+        return;
+    }
     for (c = 0; c < 4u; c++) {
         int16_t *vp;
         const param_desc_t *d = page_desc(cur_page(), c, &vp);

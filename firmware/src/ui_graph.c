@@ -460,19 +460,49 @@ static void graph_insert(const track_t *t, uint16_t c)
         py = y;
     }
 }
-/* REORDER: chain slots top to bottom; highlight ui.ior_sel */
+/* "40%" into b (8 bytes) from a 0..127 send or mix */
+static void ior_pct_txt(char *b, int32_t v)
+{
+    uint32_t n;
+    fmt_int(b, (clamp(v, 0, 127) * 100 + 63) / 127);
+    n = str_len(b);
+    if (n + 1u < 8u) {
+        b[n] = '%';
+        b[n + 1u] = 0;
+    }
+}
+/* REORDER: chain on the left, the three send faders on the right. "100%" is 30 px in AF_S, so the
+ * faders sit 36 px apart and the percent is centred under each one (CHO / DLY / REV under that). */
 static void graph_iord(const track_t *t, uint16_t c)
 {
+    static const uint8_t SID[3] = {P_CHOR, P_DLY, P_REV};
+    static const char *const SN[3] = {"CHO", "DLY", "REV"};
     uint8_t ord[INS_N];
     uint32_t i;
-    int32_t y0 = 8, row = (graph_ht - 16) / (int32_t)INS_N;
+    int32_t y0 = 2, row = 12, hmax = 68;
+    char pct[8];
     ins_order_get(t, ord);
     for (i = 0; i < INS_N; i++) {
         int32_t y = y0 + (int32_t)i * row, mix = ins_mix_of(t, ord[i]);
         uint16_t col = i == ui.ior_sel ? c : T_DIM;
-        cv_text(PANEL_X0 + 8, y + 2, &AF_S, N_ISTAGE[ord[i]], col);
+        cv_text(PANEL_X0 + 4, y, &AF_S, N_ISTAGE[ord[i]], col);
         if (mix)
-            cv_rrect(PANEL_X0 + PANEL_W - 40, y + 4, 2 + mix * 28 / 127, 8, 2, col, T_SURF);
+            cv_rrect(PANEL_X0 + 48, y + 4, 2 + mix * 40 / 127, 5, 2, col, T_SURF);
+    }
+    for (i = 0; i < 3u; i++) {
+        int32_t cx = 136 + (int32_t)i * 36, h = t->p[SID[i]] * hmax / 127, x = cx - 2;
+        int hot = ui.ior_tgt == i + 1u;
+        uint16_t col = hot ? c : T_MID;
+        int32_t pw, lw;
+        cv_rrect(x, 2, 4, hmax, 2, T_RAISE, T_SURF);
+        if (h > 2)
+            cv_rrect(x, 2 + hmax - h, 4, h, 2, col, T_RAISE);
+        cv_rrect(cx - 5, 2 + hmax - h, 10, 5, 2, col, T_SURF);
+        ior_pct_txt(pct, t->p[SID[i]]);
+        pw = text_w(&AF_S, pct);
+        lw = text_w(&AF_S, SN[i]);
+        cv_text(cx - pw / 2, hmax + 10, &AF_S, pct, col);
+        cv_text(cx - lw / 2, hmax + 24, &AF_S, SN[i], hot ? c : T_DIM);
     }
 }
 /* SLICER page: the pattern's 16 steps, a 'x' step a full bar; a '.' step: GATE a bar as high as it stays
@@ -1094,8 +1124,8 @@ static uint32_t graph_signature(void)
         h ^= pk_sig() + (pg->graph == GR_DESTS ? (ui.hot_t ? ui.hot_col + 1u : 0u) * 5779u : 0u);
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
-    if (pg->graph == GR_IORD)                        /* REORDER: highlighted slot */
-        h ^= (ui.ior_sel + 1u) * 40503u;
+    if (pg->graph == GR_IORD)                        /* REORDER: highlighted slot, send or effect */
+        h ^= (ui.ior_sel + 1u) * 40503u + (ui.ior_tgt + 1u) * 7919u;
     if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
         for (i = 0; i < 4u; i++)
             h ^= (uint32_t)graph_project_used(i) << (20u + i);
