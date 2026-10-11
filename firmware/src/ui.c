@@ -169,7 +169,7 @@ static struct {
                                   * adds on */
     uint16_t ev_keep;            /* .. the CHANCE / RATCH / NUDGE row being edited (its EVC code, 0 none): listed at its default */
     uint8_t ev_vel;              /* .. 1.5: the VEL rows shown (+ ADD VEL's SHOW / HIDE; off when the page is entered) */
-    uint8_t pick;                /* #223: grouped full-screen param / dest list (PK_*), 0 = off */
+    uint8_t pick;                /* #223: flat full-screen param / dest list (PK_*), 0 = off */
     uint8_t uboot;               /* main.c: seconds left before UPDATE MODE (OCT- + OCT+ held), 0 = none */
     uint32_t ly_t0;              /* the layer button's press time | 1, LY_* bits (ui_layer.c layer_gesture) */
     uint8_t ly;                  /* the layer whose button is down (LAYER_*), 0 = none */
