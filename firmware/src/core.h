@@ -3,8 +3,8 @@
 /* FELUCCA core types: tracks, voices, engines, parameters.
  * Four tracks, each a synth part: its own engine, preset, parameters, voices and 64-step
  * pattern. The parts share one budget of NVOICE sounding voices (voice.c). Drums are the DRUM
- * engine (General MIDI map) on any part. SAMPLE / GRAIN / NOISE / SLICE are retired (eng_retire.c);
- * SAMPLE PERC still maps to DRUM (drum_from_perc).
+ * engine (General MIDI map) on any part. SLICE is retired (eng_retire.c); SAMPLE PERC still maps
+ * to DRUM (drum_from_perc).
  * Sections: sizes, parameters, voices and engines, tracks and the song, system. */
 #include <stdint.h>
 
@@ -18,15 +18,19 @@
 #define FELUCCA_FM4 0            /* the DIGITAL engine (eng_digital.c, four-operator FM): kept in the tree, not built
                                   * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
 #endif
-/* Engine table is append-only. Indices 4 SAMPLE, 8 GRAIN, 11 NOISE, 13 SLICE stay reserved (eng_retire.c):
- * never selectable; old stores load as ANALOG or DRUM. FELUCCA_SLICE is gone (always reserved). */
+#ifndef FELUCCA_SLICE
+#define FELUCCA_SLICE 0          /* SLICE engine retired (eng_retire.c ENG_SLICE_GONE); keep 0 so sample/grain
+                                  * stubs compile without eng_slice.c */
+#endif
+/* Engine table is append-only. Index 13 SLICE stays reserved (eng_retire.c): never selectable; old stores
+ * load as DRUM. SAMPLE (4), GRAIN (8), NOISE (11) are live again. */
 #define NENGINES 14u
 #define ENGI_DIGITAL 1u          /* reserved without FELUCCA_FM4: never selectable (eng_ok), its sounds load as FM6 */
-#define ENGI_SAMPLE 4u           /* reserved: SAMPLE retired (eng_retire.c) */
-#define ENGI_GRAIN 8u            /* reserved: GRAIN retired */
-#define ENGI_NOISE 11u           /* reserved: NOISE retired */
-#define ENGI_SLICE 13u           /* reserved: SLICE retired */
-#define NENG_SHOWN (9u + FELUCCA_FM4)   /* pickable: ANALOG FM6 [DIGITAL] PHASE LOFI VOICE TRIO WHEEL PHYS DRUM */
+#define ENGI_SAMPLE 4u
+#define ENGI_GRAIN 8u
+#define ENGI_NOISE 11u
+#define ENGI_SLICE 13u           /* reserved: SLICE retired (eng_retire.c) */
+#define NENG_SHOWN (12u + FELUCCA_FM4)   /* pickable: ANALOG FM6 [DIGITAL] PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM */
 #define UP_SLOTS 32u             /* user presets (upreset.c) */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -205,11 +209,10 @@ static int drum_from_phys(uint32_t engine, int16_t *e)
     return 1;
 }
 
-/* SAMPLE (engine 4) is retired (eng_retire.c). SET 4 was PERC, the GM kit: a SAMPLE sound that still selects
- * it loads as DRUM with its default kit (same GM map). projects (proj_perc), user presets (up_migrate),
- * favourites (settings_persist.c). CR78 WAVs under assets/samples-cc0/CR78/ are listening reference for DRUM KIT 78
- * (drum_voice.c; synthesized, not sample playback).
- * Idempotent. */
+/* SAMPLE SET 4 was PERC, the GM kit (tools/gen_samples.py); retired after 1.0.2: its index stays
+ * (SET / GRAIN SRC 4 is an alias of PIANO). A sound that selected it is the DRUM engine with
+ * its default kit (same GM map). projects (proj_perc), user presets (up_migrate), favourites
+ * (settings_persist.c). Idempotent. */
 #define SMP_SET_PERC 4u
 #define DRUM_KIT_E {0, 64, 70, 64, 64, 100, 0, 0}   /* {KIT STD, TUNE, TONE, DECY, SNAP, ACC, KICK PUNCH, DRV} */
 static int drum_from_perc(uint32_t engine, int16_t *e)

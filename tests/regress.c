@@ -730,8 +730,42 @@ static int chk_mode_release(char *msg, uint32_t n)
 
 static int chk_sample_end(char *msg, uint32_t n)
 {
-    snprintf(msg, n, "skipped (SAMPLE engine retired)");
-    return 1;
+    static const int32_t SAMPLE[4] = {12000, -12000, 32767, -32768};
+    static const uint32_t FRAC[4] = {0, 16384, 32768, 65535};
+    static const int32_t PITCH[5] = {0, 96, 192, 384, 576};
+    const smp_zone_t saved = usr_zone[0][0];
+    track_t *t = &trk[0];
+    voice_t *v = &t->v[0];
+    uint32_t a, b, c, bad = 0, cases = 0;
+    host_tracks_init();
+    host_preset(t, 4, 0);
+    t->p[P_E1] = t->p[P_E2] = t->p[P_E3] = t->p[P_E6] = 0;
+    t->p[P_E4] = 127;
+    usr_zone[0][0] = (smp_zone_t){.n = 1, .rate = 65536, .root16 = 960};
+    for (a = 0; a < NELEM(SAMPLE); a++)
+        for (b = 0; b < NELEM(FRAC); b++)
+            for (c = 0; c < NELEM(PITCH); c++) {
+                vmod_t m = {.pitch16 = 960 + PITCH[c], .amp0 = 32767, .amp1 = 32767};
+                int32_t out[CTL] = {0}, src, lp = 4000 + (((127 << 8) * 28767) >> 15), want;
+                uint32_t step = (pow2_q16(PITCH[c]) >> 8) * 256u, f = FRAC[b] + step;
+                memset(v, 0, sizeof *v);
+                v->active = 1;
+                v->ph[0] = 1;
+                v->ph[1] = FRAC[b];
+                v->s[4] = 0x8000;
+                v->s[2] = v->s[3] = v->s[7] = SAMPLE[a];
+                /* The source after the last sample is zero, including when several samples were skipped. */
+                src = f >= 131072u ? 0 : SAMPLE[a] + (int32_t)((-(int64_t)SAMPLE[a] * ((f - 65536u) >> 1)) >> 15);
+                want = SAMPLE[a] + mulq15(src - SAMPLE[a], lp);
+                sample_render(t, v, out, CTL, &m);
+                bad += out[0] != (voice_amp(want, &m, 0) << 1) || v->ph[1] >= 65536u || !v->s[6];
+                cases++;
+            }
+    usr_zone[0][0] = saved;
+    memset(v, 0, sizeof *v);
+    snprintf(msg, n, "%u one-shot ends, both polarities and full scale, 1x..8x rate: terminal interpolation bounded",
+             cases);
+    return !bad;
 }
 
 /* a stolen voice fades: plain sines (filter open, no sends) on 3 parts; part 1 holds 7 notes, part 2 one,

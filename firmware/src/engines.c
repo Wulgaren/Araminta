@@ -5,9 +5,9 @@
 #include "dsp.c"
 
 /* The parts' engine memory (1.5): a part plays one engine at a time, so the engines with large per-part state
- * (engine_t.mem: PHYS's slots, DRUM's lanes, FM6's notes) keep it in one region per part instead of an array
- * each. The region holds the state of the engine that last claimed it (eng_mem_owner); a switch to another
- * such engine zeroes its engine_t.mem bytes. Sized by the largest, PHYS (3 x SYMP's slot).
+ * (engine_t.mem: PHYS's slots, GRAIN's grains and index, DRUM's lanes, FM6's notes) keep it in one region per part
+ * instead of an array each. The region holds the state of the engine that last claimed it (eng_mem_owner); a switch
+ * to another such engine zeroes its engine_t.mem bytes. Sized by the largest, PHYS (3 x SYMP's slot).
  * Zero-initialised pool section: main.c fm1_cstart clears it. */
 #define ENG_MEM_PART 12888u
 static union {
@@ -21,18 +21,20 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
 #include "eng_analog.c"
 #include "eng_phase.c"
 #include "eng_lofi.c"
-#include "smp_slot.c"            /* user sample flash slots (editor / backup; no SAMPLE engine) */
+#include "eng_sample.c"
 #include "eng_formant.c"
 #include "eng_trio.c"
 #include "eng_wheel.c"
+#include "eng_grain.c"
 #include "eng_phys.c"           /* PHYS: DaisySP physical models (phys_dsp.c, MIT) */
 #include "eng_drum.c"           /* DRUM: the 8-lane kit (drum_voice.c) */
+#include "eng_noise.c"
 #include "eng_fm6.c"            /* FM6: 6-operator FM, msfa ported (fm6_core.c, Apache-2.0) */
 #include "fm4_convert.c"        /* DIGITAL's tables, and its sounds -> FM6 */
 #if FELUCCA_FM4
 #include "eng_digital.c"        /* DIGITAL: four-operator FM (retired; FELUCCA_FM4=1 builds it) */
 #endif
-#include "eng_retire.c"         /* SAMPLE / GRAIN / NOISE / SLICE reserved stubs */
+#include "eng_retire.c"         /* SLICE reserved stub */
 
 /* the editor protocol, user presets and projects store these indices: append, never reorder */
 static const engine_t *const ENGINES[NENGINES] = {
@@ -44,14 +46,14 @@ static const engine_t *const ENGINES[NENGINES] = {
 #endif
     &ENG_PHASE,                  /* 2 */
     &ENG_LOFI,                   /* 3 */
-    &ENG_SAMPLE_GONE,            /* 4: reserved (SAMPLE retired: eng_retire.c) */
+    &ENG_SAMPLE,                 /* 4 */
     &ENG_FORMANT,                /* 5 VOICE (eng_formant.c: "voice" is a sounding note in voice.c) */
     &ENG_TRIO,                   /* 6 */
     &ENG_WHEEL,                  /* 7 */
-    &ENG_GRAIN_GONE,             /* 8: reserved (GRAIN retired) */
+    &ENG_GRAIN,                  /* 8 */
     &ENG_PHYS,                   /* 9 (ENGI_PHYS) */
     &ENG_DRUM,                   /* 10 (ENGI_DRUM) */
-    &ENG_NOISE_GONE,             /* 11: reserved (NOISE retired) */
+    &ENG_NOISE,                  /* 11 */
     &ENG_FM6,                    /* 12 (ENGI_FM6) */
     &ENG_SLICE_GONE,             /* 13: reserved (SLICE retired) */
 };
@@ -78,37 +80,49 @@ static void eng_mem_claim(const track_t *t)
     eng_mem_owner[p] = (uint8_t)(e + 1u);
 }
 
-/* rewrite p[] of a retired-engine sound into the target (ANALOG or DRUM). Returns the target engine.
- * SAMPLE PERC stays drum_from_perc. Shared params are left alone; E0..E7 become the target's defaults. */
+/* rewrite p[] of a retired-engine sound into the target. Returns the target engine.
+ * SLICE -> DRUM kit. SAMPLE PERC stays drum_from_perc on its own path. */
 static uint32_t retire_remap_params(uint32_t engine, int16_t *p)
 {
-    uint32_t i, t;
+    uint32_t i;
     static const int16_t KIT[8] = DRUM_KIT_E;
     if (!eng_retired(engine))
         return engine;
-    if (engine == ENGI_SAMPLE && drum_from_perc(engine, &p[P_E0]))
-        return ENGI_DRUM;
-    t = eng_play_as(engine);
     for (i = 0; i < 8u; i++)
-        p[P_E0 + i] = t == ENGI_DRUM ? KIT[i] : ENG_ANALOG.edit[i].def;
-    return t;
+        p[P_E0 + i] = KIT[i];
+    return eng_play_as(engine);
+}
+
+/* the sample source a track's sound plays that has no data (SAMPLE's SET, GRAIN's SRC: an empty or
+ * invalid user slot, a set this build lacks): its name (it plays a sine: eng_sample.c smp_sine), 0 = none;
+ * *code a small number for it (1.., per engine and source) so the UI says it once (ui_input.c sample_notice) */
+static uint8_t snd_said[NTRK];   /* per track: the code last said, 0 = none (a project load clears them: said again) */
+static const char *snd_missing(const track_t *t, uint32_t *code)
+{
+    const engine_t *e = ENGINES[eng_idx(t->eng_req)];
+    uint32_t si = (uint32_t)t->p[P_E0] % SMP_NALL;
+    if (e != &ENG_SAMPLE && e != &ENG_GRAIN)
+        return 0;
+    *code = (e == &ENG_GRAIN ? 32u : 1u) + si % 32u;
+    return smp_set_missing(si) ? SMP_ALL_NAMES[si] : 0;
 }
 
 /* the order the engines are shown in (PRESETS browsing and its ENG knob, the EDIT layer's keys, the editor's list):
- * engine indices, never DIGITAL's reserved 1 (with FELUCCA_FM4 it follows FM6), never the retired SAMPLE / GRAIN /
- * NOISE / SLICE slots. The indices stay as they are (the stores and the protocol hold them); only this table orders them */
+ * engine indices, never DIGITAL's reserved 1 (with FELUCCA_FM4 it follows FM6), never retired SLICE.
+ * The indices stay as they are (the stores and the protocol hold them); only this table orders them */
 static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     0,                           /* ANALOG */
     12,                          /* FM6 */
 #if FELUCCA_FM4
     1,                           /* DIGITAL */
 #endif
-    2, 3, 5, 6, 7, 9,            /* PHASE LOFI VOICE TRIO WHEEL PHYS */
+    2, 3, 4, 5, 6, 7, 8, 9,      /* PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS */
+    11,                          /* NOISE */
     10,                          /* DRUM */
 };
 _Static_assert(NELEM(ENGINE_ORDER) == NENG_SHOWN, "ENGINE_ORDER / NENG_SHOWN");
 
-/* the engines one can pick (not DIGITAL without FELUCCA_FM4, not retired SAMPLE/GRAIN/NOISE/SLICE) */
+/* the engines one can pick (not DIGITAL without FELUCCA_FM4, not retired SLICE) */
 static int eng_ok(uint32_t e)
 {
     return e < NENGINES && (FELUCCA_FM4 || e != ENGI_DIGITAL) && !eng_retired(e);

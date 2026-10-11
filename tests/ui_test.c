@@ -490,19 +490,35 @@ static int test_sound_loads(void)
     project_load(1);
     bad += check("a project load drops the copy and takes none", undo.trk == 0 && undo_depth == 0);
     ui_power_on();
-    {   /* SAMPLE / GRAIN / NOISE / SLICE retired: never selectable; set_engine remaps */
-        set_engine_of(TSEL, ENGI_SAMPLE);
-        bad += check("SAMPLE retired: set_engine lands on ANALOG (or DRUM for PERC path)",
-                     eng_ok(TSEL->eng_req) && (TSEL->eng_req == 0u || TSEL->eng_req == ENGI_DRUM));
-        set_engine_of(TSEL, ENGI_GRAIN);
-        bad += check("GRAIN retired: set_engine lands on ANALOG", TSEL->eng_req == 0u);
-        set_engine_of(TSEL, ENGI_NOISE);
-        bad += check("NOISE retired: set_engine lands on ANALOG", TSEL->eng_req == 0u);
+    {   /* TRANH (SET 1, preset 1) is gone: both are PIANO aliases, kept for old data, never offered */
+        const param_desc_t *sd = &ENGINES[4]->edit[0];
+        uint32_t all, pos, k, e, pos0, shown = 0;
+        set_engine_of(TSEL, 4);
+        pos0 = preset_all_pos(&all);
+        TSEL->preset = 1;
+        TSEL->p[P_E0] = 1;
+        pos = preset_all_pos(&all);
+        for (k = 0; k < all; k++)
+            if (preset_all_at(k, &e) == 4u)
+                shown++;
+        e = preset_all_at(pos0 + 1u, &k);
+        apply_preset_to(TSEL, 1);
+        bad += check("SAMPLE: old SET 1 / preset 1 (TRANH) play PIANO; browsing and knobs skip them",
+                     SMP_SETS[1].z0 == SMP_SETS[0].z0 && SMP_SETS[1].nz == SMP_SETS[0].nz && pos == pos0 &&
+                     shown == 3u && e == 4u && k == 2u && TSEL->preset == 0u && TSEL->p[P_E0] == 0 &&
+                     str_eq(sd->names[1], "PIANO") && enum_step(sd, 0, 1) == 2 && enum_step(sd, 2, 1) == 0 &&
+                     enum_step(sd, 1, 2) == 2 && enum_orig(sd, 1) == 0 && enum_orig(sd, 5) == 5 &&
+                     enum_orig(&ENGINES[8]->edit[0], 1) == 0);
+        bad += check("SAMPLE / GRAIN SET 4 (PERC, retired): a PIANO alias, knobs skip it, USR1..3 stay 5..7",
+                     str_eq(sd->names[SMP_SET_PERC], "PIANO") && enum_orig(sd, SMP_SET_PERC) == 0 &&
+                     enum_step(sd, 3, 4) == 5 && enum_step(sd, 5, 4) == 3 && str_eq(sd->names[5], "USR1") &&
+                     str_eq(sd->names[7], "USR3") && sd->max == 7 &&
+                     enum_orig(&ENGINES[8]->edit[0], SMP_SET_PERC) == 0 && SMP_SETS[SMP_SET_PERC].z0 == SMP_SETS[0].z0);
         set_engine_of(TSEL, ENGI_SLICE);
         bad += check("SLICE retired: set_engine lands on DRUM", TSEL->eng_req == ENGI_DRUM);
-        bad += check("retired engines not eng_ok / not in ENGINE_ORDER",
-                     !eng_ok(ENGI_SAMPLE) && !eng_ok(ENGI_GRAIN) && !eng_ok(ENGI_NOISE) && !eng_ok(ENGI_SLICE) &&
-                     str_eq(ENGINES[ENGI_SAMPLE]->name, "-") && str_eq(ENGINES[ENGI_SLICE]->name, "-"));
+        bad += check("SLICE not eng_ok / SAMPLE GRAIN NOISE live",
+                     !eng_ok(ENGI_SLICE) && eng_ok(ENGI_SAMPLE) && eng_ok(ENGI_GRAIN) && eng_ok(ENGI_NOISE) &&
+                     str_eq(ENGINES[ENGI_SAMPLE]->name, "SAMPLE") && str_eq(ENGINES[ENGI_SLICE]->name, "-"));
     }
     host_legacy_sample_perc(t);                /* SAMPLE PERC (SET 4, retired after 1.0.2): every load gives DRUM */
     t->preset = 4;                             /* a project written before the factory removal */
@@ -3046,7 +3062,24 @@ static int test_product_ux(void)
         ok &= changed;
     }
     bad += check("all palettes: active column is subtle, stable-size, no zoom over graph", ok);
-    bad += check("sample waveform skipped (SAMPLE engine retired)", 1);
+    ui_power_on(); set_engine_of(TSEL, 4); open_family(FAM_EDIT);
+    memset(&sample_wave, 0, sizeof sample_wave); last_note = 60;
+    voice_t voices[NVOICE]; memcpy(voices, TSEL->v, sizeof voices);
+    ok = 1;
+    for (i = 0; i < 2000u && !sample_wave.ready; i++) {
+        uint32_t oldw = sample_wave.pos; sample_wave_tick(TSEL);
+        ok &= sample_wave.pos - oldw <= 512u;
+    }
+    ok &= sample_wave.ready && !memcmp(voices, TSEL->v, sizeof voices);
+    int16_t lo[SAMPLE_WAVE_COLS] = {0}, hi[SAMPLE_WAVE_COLS] = {0};
+    voice_t probe = {0}; const smp_zone_t *zone = sample_wave.zone;
+    if (zone) for (i = 0; i < zone->n; i++) {
+        int32_t v = sample_next(zone, &probe, 0); uint32_t col = i * SAMPLE_WAVE_COLS / zone->n;
+        if (v < lo[col]) lo[col] = (int16_t)v;
+        if (v > hi[col]) hi[col] = (int16_t)v;
+    }
+    ok &= !memcmp(lo, sample_wave.lo, sizeof lo) && !memcmp(hi, sample_wave.hi, sizeof hi);
+    bad += check("sample waveform is bounded, matches audio IMA decode and leaves voices intact", ok);
     ui_power_on(); return bad;
 }
 
@@ -3437,7 +3470,6 @@ static int engine_cycle(const char *const *want, uint32_t n) /* EDIT sections + 
 
 static int test_px_probe(void) {
     ui_power_on(); go_page(GR_ROLL); frame();
-    printf("PROBE STEP px %u %u title=%s\n", px_at(16, 88+4), px_at(16+56, 88+4), cur_page()->title);
     return 0;
 }
 static int test_edit_cycle(void)
@@ -3487,10 +3519,64 @@ static int test_edit_cycle(void)
  * LOADED); the icon and the words fit the header */
 static int test_sample_alert(void)
 {
-    return 0; /* SAMPLE/GRAIN/SLICE retired */
+    const char *nf = MSG_NO_SAMPLE;
+    int bad = 0, ok, seen;
+    uint32_t i;
+    char b[48];
+    ui_power_on();
+    frames(100);
+    bad += check("missing sample: the power-on sounds have their samples (no alert)", !snd_missing(&trk[0], &i) &&
+                 !snd_missing(&trk[1], &i) && !snd_missing(&trk[2], &i) && !snd_missing(&trk[3], &i) &&
+                 !str_eq(ui.msg, nf));
+    set_engine_of(TSEL, ENGI_SAMPLE);
+    TSEL->p[P_E0] = (int16_t)(SMP_NSETS + 1u);      /* SET USR2: empty */
+    frame();
+    ok = msg_is(nf);
+    frames(1500);
+    trk_note_on(TSEL, 60, 100);
+    frames(100);
+    trk_note_off(TSEL, 60);
+    frames(100);
+    ok &= !ui.msg_t;
+    bad += check("SAMPLE on an empty USR2: NO SAMPLE once (not again on a note)", ok);
+    TSEL->p[P_E0] = (int16_t)(SMP_NSETS + 2u);      /* USR3: said for it */
+    frame();
+    ok = msg_is(nf);
+    TSEL->p[P_E0] = 0;                              /* PIANO: nothing; then USR3 again: said again */
+    frames(1500);
+    ok &= !ui.msg_t;
+    TSEL->p[P_E0] = (int16_t)(SMP_NSETS + 2u);
+    frame();
+    ok &= msg_is(nf);
+    bad += check("SAMPLE: another empty slot is said; back to it after a sample: said again", ok);
+    frames(1500);
+    set_engine_of(TSEL, 8u);                         /* GRAIN, SRC USR2 */
+    TSEL->p[P_E0] = (int16_t)(SMP_NSETS + 1u);
+    frame();
+    bad += check("GRAIN on an empty USR2: said", msg_is(nf));
+    frames(1500);
+    /* a project with an empty slot: said after LOADED */
+    set_engine_of(TSEL, ENGI_SAMPLE);
+    TSEL->p[P_E0] = (int16_t)(SMP_NSETS + 1u);
+    frames(1500);
+    project_save(2);
+    frames(1500);
+    project_load(2);
+    frame();
+    ok = msg_is("LOADED") && str_eq(ui.msg2, nf);
+    for (seen = 0, i = 0; i < 200u && !seen; i++) {
+        frame();
+        seen = msg_is(nf);
+    }
+    bad += check("a project load with an empty slot: LOADED, then NO SAMPLE", ok && seen);
+    bad += check("missing sample: the icon and NO SAMPLE fit the header",
+                 nf[0] == MSG_NOFILE[0] && !text_fit(b, sizeof b, nf + 1, &AF_S, 236 - 106 - 16 - KH_GAP));
+    ui_power_on();
+    return bad;
 }
 
 static int test_slices(void) { return 0; /* SLICE retired */ }
+
 
 
 /* ------------------------------------------------ the GLO SCL EDIT layers --- */
@@ -4410,7 +4496,7 @@ static int test_fm4_retired(void)
     uint8_t v[FP_SIZE + 1u];
     for (e = 0; e < NENGINES; e++)
         if (eng_ok(e))
-            all |= 1u << e;                            /* pickable only (not DIGITAL / SAMPLE / GRAIN / NOISE / SLICE) */
+            all |= 1u << e;                            /* pickable only (not DIGITAL / SLICE) */
     ui_power_on();
     bad += check("power-on: track 2 is FM6 PAD (TRK_DEF, was DIGITAL PAD)", trk[1].eng_req == ENGI_FM6 &&
                  str_eq(ENGINES[ENGI_FM6]->presets[trk[1].preset].name, "PAD"));
@@ -4431,8 +4517,8 @@ static int test_fm4_retired(void)
                  seen == all && TSEL->eng_req == 0u && eng_step(0, 1) == ENGI_FM6 && eng_step(ENGI_FM6, 1) == 2u &&
                  eng_step(ENGI_FM6, -1) == 0u && eng_step(0, -1) == ENGI_DRUM);
     {   /* the display order (engines.c ENGINE_ORDER): every engine one can pick once; the PRESETS list follows it */
-        static const char *const ORDER[] = {"ANALOG", "FM6", "PHASE", "LOFI", "VOICE", "TRIO", "WHEEL",
-                                           "PHYS", "DRUM"};
+        static const char *const ORDER[] = {"ANALOG", "FM6", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN",
+                                            "PHYS", "NOISE", "DRUM"};
         uint32_t last = 0xFFu, r = 0, n = 0;
         ok = NENG_SHOWN == NELEM(ORDER);
         for (i = 0; ok && i < NENG_SHOWN; i++)

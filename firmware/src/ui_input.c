@@ -1446,7 +1446,7 @@ static void ui_input(void)
         if (trk[k].eng_req == ENGI_DIGITAL)             /* already): FM6 (fm4_convert.c) */
             fm4_track(&trk[k]);
 #endif
-    for (k = 0; k < NTRK; k++)                          /* SAMPLE / GRAIN / NOISE / SLICE: ANALOG or DRUM */
+    for (k = 0; k < NTRK; k++)                          /* SLICE (retired): DRUM */
         if (eng_retired(trk[k].eng_req)) {
             int16_t p[P_COUNT];
             uint32_t to;

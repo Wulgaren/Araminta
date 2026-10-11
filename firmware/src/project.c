@@ -92,9 +92,9 @@
  * as they are, the rest of its sound kept; proj_perc, on every import as proj_fm4). Its motion events on the
  * EDIT values are dropped (SAMPLE's meanings, not DRUM's).
  *
- * SAMPLE / GRAIN / NOISE / SLICE were removed (eng_retire.c): any other SAMPLE, GRAIN or NOISE track loads as
- * ANALOG (E0..E7 ANALOG defaults, shared params kept); SLICE loads as DRUM's kit. Motion on EDIT values is
- * dropped. Runs after proj_perc so SAMPLE PERC still becomes DRUM. Idempotent (proj_retire).
+ * SLICE (engine 13) stays retired (eng_retire.c): a SLICE track loads as DRUM's kit. Motion on EDIT values is
+ * dropped. SAMPLE / GRAIN / NOISE are live again; SAMPLE PERC still becomes DRUM via proj_perc first.
+ * Idempotent (proj_retire).
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
@@ -383,7 +383,7 @@ static void proj_perc(project_t *q)
     q->sum = proj_sum(q);
 }
 
-/* SAMPLE / GRAIN / NOISE / SLICE tracks -> ANALOG or DRUM (see the top; eng_retire.c). After proj_perc.
+/* SLICE tracks -> DRUM (see the top; eng_retire.c). After proj_perc.
  * EDIT motion on those tracks is dropped. Idempotent */
 static void proj_retire(project_t *q)
 {

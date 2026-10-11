@@ -1308,7 +1308,7 @@ static void set_engine_of(track_t *t, uint32_t ei)
         return;
     }
 #endif
-    if (eng_retired(ei % NENGINES)) {               /* SAMPLE / GRAIN / NOISE / SLICE: ANALOG or DRUM */
+    if (eng_retired(ei % NENGINES)) {               /* SLICE (retired): DRUM */
         set_engine_of(t, eng_play_as(ei % NENGINES));
         return;
     }
