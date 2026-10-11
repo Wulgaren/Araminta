@@ -3,11 +3,11 @@
 // The browser build (build/emu/felucca.wasm, web/emu/felucca_web.c) in Node, as the worklet runs it. After X0X's
 // tests/host/emu_test.mjs (charlesvestal/fm1-x0x, GPL-3.0).
 //   node web/emu/emu_test.mjs build/emu/felucca.wasm [NATIVE.f32]
-// Checks: it boots (splash, then HOME on the screen, the HOME LED; the power-on LED sweep under the splash, over by
-// 1 s), a held key sounds and lights its LED, PLAY
-// starts the sequencer (PLAY's green LED), a user preset saved from the panel (SAVE, OCT+, OCT+) reaches the flash,
-// and the flash sectors kept as the page keeps them bring it back in a fresh instance; the same gestures twice
-// give the same audio (deterministic), with NATIVE.f32 (web/emu/native_check.c) the native build's, bit for bit.
+// Checks: it boots (splash, then HOME on the screen, the HOME LED; ANIM retired so no power-on LED sweep), a held
+// key sounds and lights its LED, PLAY starts the sequencer (PLAY's green LED), a user preset saved from the panel
+// (SAVE → USER, K4 SAVE, OCT+, OCT+) reaches the flash, and the flash sectors kept as the page keeps them bring it
+// back in a fresh instance; the same gestures twice give the same audio (deterministic), with NATIVE.f32
+// (web/emu/native_check.c) the native build's, bit for bit.
 // Then the cost: 1 s of a heavy song (FM6, PHYS, GRAIN chords, DRUM) against real time (BENCH_MAX, default 0.5:
 // fails above half of real time on this machine).
 import fs from "fs";
@@ -56,17 +56,8 @@ const colours = (fb) => new Set(fb).size;
 const a = await device(null);
 a.render(200);
 const splash = colours(a.screen());
-{ // the power-on LED sweep (hal/fm1_led_anim.h) under the splash: at 200 ms its head on the middle of the keyboard, the
-  // keys it passed glowing (DIM HI), the ones ahead dark, the buttons not yet; the UI's LEDs untouched until it ends
-  const p = a.ex.web_anim_levels(), lv = p ? Array.from(new Uint8Array(a.mem.buffer, p, 41)) : [];
-  const keys = lv.slice(14), head = keys.indexOf(Math.max(...keys.map((q) => q & 127)) | 128);
-  check(`power-on LED sweep: at 200 ms the head on key ${head}, glow behind, dark ahead, buttons dark`,
-        lv.length === 41 && head >= 8 && head <= 18 && keys.slice(0, head - 6).every((q) => q === 128) &&
-        keys.slice(head + 3).every((q) => q === 0) && lv.slice(0, 14).every((q) => q === 0) &&
-        a.ex.web_lit_keys() === 0 && a.ex.web_lit_buttons() === 0);
-}
+check("power-on: ANIM retired, no LED sweep", a.ex.web_anim_levels() === 0);
 a.render(800);
-check("  over by 1 s (~0.70 s)", a.ex.web_anim_levels() === 0);
 const home = a.screen();
 check(`boots: the splash, then HOME (${colours(home)} colours), the HOME LED lit`,
       splash > 1 && colours(home) > 4 && (a.ex.web_lit_buttons() >> B.HOME & 1) === 1);
@@ -122,12 +113,14 @@ check("Punch-in map: FX button and the effects' keys breathe, none lit; HOME cle
 
 // ---- a user preset saved from the panel, kept across a fresh instance
 const w0 = a.ex.web_flash_writes_count();
-a.tap(B.SAVE);
-a.tap(B.OCTUP);
-a.tap(B.OCTUP);
+a.tap(B.SAVE);                                            // PRESETS
+a.turn(EN.SELECT, 1);                                     // USER
+a.turn(EN.K4, 1);                                         // pick SAVE
+a.tap(B.OCTUP);                                           // NAME
+a.tap(B.OCTUP);                                            // write slot 0
 a.render(200);
 const saved = storeSectors(new Uint8Array(a.mem.buffer, a.ex.web_nor(), a.ex.web_nor_size()));
-check(`SAVE, OCT+, OCT+: user preset 1 written (${Object.keys(saved).length} sectors kept)`,
+check(`SAVE → USER, K4 SAVE, OCT+, OCT+: user preset 1 written (${Object.keys(saved).length} sectors kept)`,
       a.ex.web_test_user_preset(0) === 1 && a.ex.web_flash_writes_count() > w0 && Object.keys(saved).length > 0);
 const kept = JSON.parse(JSON.stringify(Object.fromEntries(     // as the page keeps them (base64 in localStorage)
   Object.entries(saved).map(([k, v]) => [k, Buffer.from(v).toString("base64")]))));

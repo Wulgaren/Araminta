@@ -622,16 +622,16 @@ static int lock_ui(void)
     frame();
     k0 = key_at(0, 0); k4 = key_at(0, 4);
     grid_hit(t, 0, 0, 1);                                /* a KICK on step 1 */
-    bad += check("the grid on SEQ > STEP; the locks' knobs: HOME's (DRUM: E2..E5)", grid_on() && lock_id(0) == P_E1 &&
-        lock_id(3) == P_E4);
+    bad += check("the grid on SEQ > STEP; the locks' knobs: HOME's (DRUM: E1..E4)", grid_on() && lock_id(0) == P_E0 &&
+        lock_id(3) == P_E3);
     lk_down(k4);
     bad += check("a step key down: its step held (an empty one gets its hit at once)", lock_held() == (1u << 4) &&
         (t->step[4].hit & 1u));
     turn(EN_K1, 3);
-    ok = motion_lock_get(t, 4, P_E1, &v) && v == motion_base_value(t, P_E1) + 3;
+    ok = motion_lock_get(t, 4, P_E0, &v) && v == motion_base_value(t, P_E0) + 3;
     turn(EN_K1, 2);
-    bad += check("  KNOB 1 turned: step 5 gets a lock of E2 (TUNE), from the sound's own value", ok &&
-        motion_lock_get(t, 4, P_E1, &v) && v == motion_base_value(t, P_E1) + 5 && t->p[P_E1] == motion_base_value(t, P_E1));
+    bad += check("  KNOB 1 turned: step 5 gets a lock of E1 (MORPH), from the sound's own value", ok &&
+        motion_lock_get(t, 4, P_E0, &v) && v == motion_base_value(t, P_E0) + 5 && t->p[P_E0] == motion_base_value(t, P_E0));
     lk_up(k4);
     bad += check("  let go: the hit stays, the lock is there, the sound unchanged", (t->step[4].hit & 1u) &&
         motion_lock_count(t) == 1u && !lock_held());
@@ -639,20 +639,20 @@ static int lock_ui(void)
     turn(EN_K2, -4);
     lk_up(k0);
     bad += check("a key pressed on a hit and held for a lock: the hit stays", (t->step[0].hit & 1u) &&
-        motion_lock_get(t, 0, P_E2, &v));
+        motion_lock_get(t, 0, P_E1, &v));
     tap_key(k0);
     bad += check("  tapped alone: the hit goes (when let go), its lock stays", !(t->step[0].hit & 1u) &&
         motion_lock_count(t) == 2u);
     fm1_in.notes |= 1u << k0 | 1u << k4; host_notes |= 1u << k0 | 1u << k4; frame();
     turn(EN_K4, 1);
     fm1_in.notes = 0; frame();
-    bad += check("two step keys held: both get the lock", motion_lock_get(t, 0, P_E4, &v) && motion_lock_get(t, 4, P_E4, &v) &&
+    bad += check("two step keys held: both get the lock", motion_lock_get(t, 0, P_E3, &v) && motion_lock_get(t, 4, P_E3, &v) &&
         motion_lock_count(t) == 4u);
     lk_down(k4);
     press(B_EDIT);
     lk_up(k4);
     bad += check("a step held + [EDIT]: its locks go, the step and the others' locks stay", motion_lock_count(t) == 2u &&
-        !motion_lock_get(t, 4, P_E1, &v) && motion_lock_get(t, 0, P_E4, &v) && (t->step[4].hit & 1u) &&
+        !motion_lock_get(t, 4, P_E0, &v) && motion_lock_get(t, 0, P_E3, &v) && (t->step[4].hit & 1u) &&
         str_eq(ui.msg, "LOCKS CLEARED"));
     bad += check("the steps with a lock (the grid marks them): step 1", motion_lock_steps(3) == 1u);
     go_title("EFFECTS");
@@ -725,21 +725,21 @@ static int lock_undo(void)
     turn(EN_K1, 3);
     turn(EN_K1, 2);
     lk_up(k4);
-    bad += check("lock undo: a step held, KNOB 1 turned twice: one lock", motion_lock_get(t, 4, P_E1, &v) &&
-        v == motion_base_value(t, P_E1) + 5);
+    bad += check("lock undo: a step held, KNOB 1 turned twice: one lock", motion_lock_get(t, 4, P_E0, &v) &&
+        v == motion_base_value(t, P_E0) + 5);
     hold(B_SAVE);
     bad += check("  SAVE held: the lock is gone (one undo for the whole turn), the step's hit stays",
         !motion_lock_count(t) && (t->step[4].hit & 1u));
     hold(B_SAVE);
-    bad += check("  held again (redo): the lock is back at its value", motion_lock_get(t, 4, P_E1, &v) &&
-        v == motion_base_value(t, P_E1) + 5);
+    bad += check("  held again (redo): the lock is back at its value", motion_lock_get(t, 4, P_E0, &v) &&
+        v == motion_base_value(t, P_E0) + 5);
     frames(2000);
     lk_down(k4);
     press(B_EDIT);
     lk_up(k4);
     bad += check("  a step held + [EDIT] clears it", !motion_lock_count(t) && str_eq(ui.msg, "LOCKS CLEARED"));
     hold(B_SAVE);
-    bad += check("  SAVE held brings it back", motion_lock_get(t, 4, P_E1, &v) && v == motion_base_value(t, P_E1) + 5);
+    bad += check("  SAVE held brings it back", motion_lock_get(t, 4, P_E0, &v) && v == motion_base_value(t, P_E0) + 5);
     frames(2000);
     lk_down(k4);
     press(B_EDIT);
