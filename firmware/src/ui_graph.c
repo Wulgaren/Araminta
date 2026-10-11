@@ -470,40 +470,29 @@ static void ior_pct_txt(char *b, int32_t v)
         b[n + 1u] = 0;
     }
 }
-/* EFFECTS: chain on the left, the three send faders on the right. "100%" is 30 px in AF_S, so the
- * faders sit 36 px apart and the percent is centred under each one (CHO / DLY / REV under that). */
+/* EFFECTS: one list. Nine faders do not fit the panel, so each amount is a row: the six chain
+ * stages (name, CHAIN or SEND, mix %) and, under them, the track's chorus, delay and reverb sends. */
+static void ior_row(int32_t y, const char *name, const char *mode, int32_t amt, uint16_t col)
+{
+    char pct[8];
+    ior_pct_txt(pct, amt);
+    cv_text(16, y, &AF_S, name, col);
+    if (mode[0])
+        cv_text(112, y, &AF_S, mode, col);
+    cv_text(226 - text_w(&AF_S, pct), y, &AF_S, pct, col);
+}
 static void graph_iord(const track_t *t, uint16_t c)
 {
     static const uint8_t SID[3] = {P_CHOR, P_DLY, P_REV};
-    static const char *const SN[3] = {"CHO", "DLY", "REV"};
+    static const char *const SN[3] = {"CHORUS", "DELAY", "REVERB"};
     uint8_t ord[INS_N];
     uint32_t i;
-    int32_t y0 = 2, row = 12, hmax = 68;
-    char pct[8];
     ins_order_get(t, ord);
-    for (i = 0; i < INS_N; i++) {
-        int32_t y = y0 + (int32_t)i * row, mix = ins_mix_of(t, ord[i]);
-        uint16_t col = i == ui.ior_sel ? c : T_DIM;
-        if (ins_is_send(t, ord[i]))
-            cv_rect(PANEL_X0, y + 3, 2, 6, col);          /* a send: a tick beside the name */
-        cv_text(PANEL_X0 + 4, y, &AF_S, N_ISTAGE[ord[i]], col);
-        if (mix)
-            cv_rrect(PANEL_X0 + 48, y + 4, 2 + mix * 40 / 127, 5, 2, col, T_SURF);
-    }
-    for (i = 0; i < 3u; i++) {
-        int32_t cx = 136 + (int32_t)i * 36, h = t->p[SID[i]] * hmax / 127, x = cx - 2;
-        uint16_t col = T_MID;
-        int32_t pw, lw;
-        cv_rrect(x, 2, 4, hmax, 2, T_RAISE, T_SURF);
-        if (h > 2)
-            cv_rrect(x, 2 + hmax - h, 4, h, 2, col, T_RAISE);
-        cv_rrect(cx - 5, 2 + hmax - h, 10, 5, 2, col, T_SURF);
-        ior_pct_txt(pct, t->p[SID[i]]);
-        pw = text_w(&AF_S, pct);
-        lw = text_w(&AF_S, SN[i]);
-        cv_text(cx - pw / 2, hmax + 10, &AF_S, pct, col);
-        cv_text(cx - lw / 2, hmax + 24, &AF_S, SN[i], T_DIM);
-    }
+    for (i = 0; i < INS_N; i++)
+        ior_row(4 + (int32_t)i * 12, N_ISTAGE[ord[i]], ins_is_send(t, ord[i]) ? "SEND" : "CHAIN",
+                ins_mix_of(t, ord[i]), i == ui.ior_sel ? c : T_DIM);
+    for (i = 0; i < 3u; i++)
+        ior_row(82 + (int32_t)i * 12, SN[i], "", t->p[SID[i]], T_MID);
 }
 /* SLICER page: the pattern's 16 steps, a 'x' step a full bar; a '.' step: GATE a bar as high as it stays
  * open (DEPTH), STUT hatched (it repeats the last 'x'); the step playing underlined. Grey when OFF. */
@@ -2210,6 +2199,7 @@ static void draw_graph(void)
             graph_slicer(t, c);
             break;
         case GR_IORD:
+            cv_oy = 0;                               /* the list uses the whole panel, not the 100 px inset */
             graph_iord(t, c);
             break;
         case GR_INS:

@@ -1121,7 +1121,7 @@ static void dly_knob(uint32_t slot, int32_t steps)
     }
     ui.force = 1;
 }
-/* EFFECTS: K1 chooses the stage, K2 moves it, K3 toggles that stage between the chain and a send, K4 is MIX */
+/* EFFECTS: K1 chooses the stage, K2 moves it, K3 is CHAIN or SEND, K4 is MIX */
 static void ior_knob(uint32_t k, int32_t s)
 {
     int32_t n = s > 0 ? s : -s, dir = s > 0 ? 1 : -1;
