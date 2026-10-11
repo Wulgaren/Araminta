@@ -1175,7 +1175,7 @@ static void draw_columns(void)
         }
         return;
     }
-    if (cur_page()->graph == GR_IORD) {                 /* CHOOSE, ORDER, SEND (FX or a send), PCT */
+    if (cur_page()->graph == GR_IORD) {                 /* CHOOSE, ORDER, SEND (FX or a send), MIX */
         uint8_t ord[INS_N];
         uint32_t id = ior_pct_id();
         const param_desc_t *d = track_desc(TSEL, id);
@@ -1189,7 +1189,7 @@ static void draw_columns(void)
                     (int32_t)ui.ior_tgt * 1000 / 3, ICON_AUTO);
         param_format(d, TSEL->p[id], val, &unit);
         card_mot_of(&TSEL->p[id]);
-        draw_column(3, "PCT", val, unit, VAL(3u), RATIO(d, TSEL->p[id]), param_icon(d, TSEL->p[id]));
+        draw_column(3, "MIX", val, unit, VAL(3u), RATIO(d, TSEL->p[id]), param_icon(d, TSEL->p[id]));
         return;
     }
     if (dly_page(cur_page())) {                         /* K1 division or free ms; K4 RATE / TIME reloads K1 */

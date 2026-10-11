@@ -8205,7 +8205,7 @@ static int test_fx_sections(void)
         ins_order_get(TSEL, before);
         ok &= before[0] == after[0] && before[1] == after[1];
     }
-    bad += check("EFFECTS: K1 chooses, K2 moves, K3 send, K4 percent; FX+SELECT does not move", ok);
+    bad += check("EFFECTS: K1 chooses, K2 moves, K3 send, K4 mix; FX+SELECT does not move", ok);
 
     ui_power_on();
     go_title("DLY");
