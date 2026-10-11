@@ -56,7 +56,7 @@ typedef struct {
     char msg[512];
 } res_t;
 
-static res_t R;
+static res_t RS;
 static uint32_t fpos, rel_at, dc_end, tail_from;
 static int64_t dcs[2];
 
@@ -90,23 +90,23 @@ static void blk(void)
         int32_t x = o[i], a = x < 0 ? -x : x;
         uint32_t u = (uint32_t)x;
         for (k = 0; k < 4u; k++) {
-            R.hash ^= (u >> (8u * k)) & 0xFFu;
-            R.hash *= 0x100000001B3ull;
+            RS.hash ^= (u >> (8u * k)) & 0xFFu;
+            RS.hash *= 0x100000001B3ull;
         }
-        if (a > R.peak)
-            R.peak = a;
-        R.over += a > 32767;
-        R.near += a >= LIM_NEAR;
+        if (a > RS.peak)
+            RS.peak = a;
+        RS.over += a > 32767;
+        RS.near += a >= LIM_NEAR;
         if (fpos < dc_end)
             dcs[i & 1u] += x;
         if (tail_from && fpos >= tail_from) {
-            R.tmin = x < R.tmin ? x : R.tmin;
-            R.tmax = x > R.tmax ? x : R.tmax;
+            RS.tmin = x < RS.tmin ? x : RS.tmin;
+            RS.tmax = x > RS.tmax ? x : RS.tmax;
         }
     }
     k = busy_now();
-    if (k > R.vmax)
-        R.vmax = k;
+    if (k > RS.vmax)
+        RS.vmax = k;
     fpos += CTL;
 }
 
@@ -120,15 +120,15 @@ static void finish(void)
     dc_end = dc_end ? dc_end : fpos;
     while (!parts_free() && fpos < cap)
         blk();
-    R.free_s = parts_free() ? (double)(fpos - rel_at) / FS : -1;
+    RS.free_s = parts_free() ? (double)(fpos - rel_at) / FS : -1;
     tail_from = fpos + TAIL_S * FS - FS / 4u;
-    R.tmin = 0x7FFFFFFF;
-    R.tmax = -0x7FFFFFFF;
+    RS.tmin = 0x7FFFFFFF;
+    RS.tmax = -0x7FFFFFFF;
     run_to(fpos + TAIL_S * FS);
-    R.tail_peak = (R.tmax - R.tmin + 1) / 2;
-    R.tail_dc = (R.tmax + R.tmin) / 2;
-    R.frames = fpos;
-    R.dc = (double)(llabs(dcs[0]) > llabs(dcs[1]) ? dcs[0] : dcs[1]) / (double)(dc_end ? dc_end : 1);
+    RS.tail_peak = (RS.tmax - RS.tmin + 1) / 2;
+    RS.tail_dc = (RS.tmax + RS.tmin) / 2;
+    RS.frames = fpos;
+    RS.dc = (double)(llabs(dcs[0]) > llabs(dcs[1]) ? dcs[0] : dcs[1]) / (double)(dc_end ? dc_end : 1);
 }
 
 /* --------------------------------------------------------- the phrase --- */
@@ -363,13 +363,13 @@ static void job_cpu(const job_t *j)
         if (j->e == 0xFE)
             click_render(last_out, CTL);                /* (audio.c audio_block: after the master) */
     }
-    R.ns = (double)(now_ns() - t0) / (nb * CTL);
-    R.ipc = i0 ? (double)(instr_now() - i0) / (nb * CTL) : 0;
+    RS.ns = (double)(now_ns() - t0) / (nb * CTL);
+    RS.ipc = i0 ? (double)(instr_now() - i0) / (nb * CTL) : 0;
 }
 
 static int run_job_body(job_t *j)
 {
-    memset(&R, 0, sizeof R);
+    memset(&RS, 0, sizeof RS);
     switch (j->kind) {
     case J_PRESET:
         job_preset(j);
@@ -393,7 +393,7 @@ static int run_job_body(job_t *j)
         job_cpu(j);
         break;
     case J_CHECK:
-        R.ok = (uint32_t)j->check(R.msg, sizeof R.msg);
+        RS.ok = (uint32_t)j->check(RS.msg, sizeof RS.msg);
         break;
     }
     return 0;
@@ -417,7 +417,7 @@ static void run_jobs(job_t *jobs, uint32_t n, uint32_t nj)
             if (!(pid[k] = fork())) {
                 close(p[0]);
                 run_job_body(&jobs[i + k]);
-                if (write(p[1], &R, sizeof R) != sizeof R)
+                if (write(p[1], &RS, sizeof RS) != sizeof RS)
                     _exit(1);
                 _exit(0);
             }
@@ -517,8 +517,8 @@ static int chk_budget(char *msg, uint32_t n)
     finish();
     snprintf(msg, n, "4 POLY parts, random notes: at most %u voices active (budget %u), VOICE part at most %u (cap 4), "
              "%u voices taken, %u still fading after their block, all free %.2f s after the note-offs",
-             worst, NVOICE, vworst, voice_kills - kills0, fading, R.free_s);
-    return worst <= NVOICE && vworst <= 4u && !fading && R.free_s >= 0 && voice_kills > kills0;
+             worst, NVOICE, vworst, voice_kills - kills0, fading, RS.free_s);
+    return worst <= NVOICE && vworst <= 4u && !fading && RS.free_s >= 0 && voice_kills > kills0;
 }
 
 /* MIDI packets in one audio block can reuse a voice before its stolen tail fades. */
