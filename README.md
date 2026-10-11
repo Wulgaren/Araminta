@@ -125,7 +125,7 @@ Araminta builds on Felucca 1.5.x with these ports and layout changes:
   a USR sample. On upload, the web editor's **Drum kit grid** checkbox tags the slot (`FSMP` header); SAMPLE on that
   USR set then shows the drum grid on SEQ instead of the piano roll (zones mapped by hand)
 - **VOICE** is one page: **VCE, GLD, UNI DTN, SPRD**. GLD is free milliseconds (no GLMOD on the page). PAN / MUTE live
-  on MIXER. UNI DTN spreads UNISON voices only.
+  on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON (blank cards otherwise; values stay stored).
 
 ## New in 1.5.1
 

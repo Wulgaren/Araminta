@@ -515,7 +515,7 @@ static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2.
 
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
-    uint32_t id = pg->id[slot];
+    uint32_t id = pg->id[slot], mode;
     if (id == 0xFFu) {
         *valp = 0;
         return 0;
@@ -530,6 +530,17 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     }
     if (pg->graph == GR_MOD)                          /* SRC DST AMT of the slot shown */
         id += 3u * mod_ui_slot;
+    /* VOICE page: blank knobs the mode does not use (values stay stored). UNI DTN = UNISON only;
+     * SPRD = POLY / UNISON (fx.c mix_spread). MONO / LEG: neither. */
+    mode = (uint32_t)TSEL->p[P_VOICE];
+    if (id == P_DETUNE && mode != V_UNISON) {
+        *valp = 0;
+        return 0;
+    }
+    if (id == P_SPRD && mode != V_POLY && mode != V_UNISON) {
+        *valp = 0;
+        return 0;
+    }
     *valp = &TSEL->p[id];
     return track_desc(TSEL, id);
 }

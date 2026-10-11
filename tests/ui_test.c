@@ -3498,6 +3498,26 @@ static int test_edit_cycle(void)
     ok &= cur_page()->sec == EDIT_SEC_SND;
     bad += check("EDIT cycle: ANALOG Sound is OSC→FILTER→FILTER DRIVE; Voice is one page (VCE GLD UNI DTN SPRD)", ok);
 
+    /* UNI DTN / SPRD blank when the voice mode does not use them (page_desc; values stay) */
+    {
+        int16_t *vp = 0;
+        const page_t *vox;
+        ui_power_on();
+        set_engine_of(TSEL, 0); TSEL->engine = TSEL->eng_req;
+        press(B_EDIT); press(B_EDIT); frame();            /* Voice section */
+        vox = cur_page();
+        ok = str_eq(vox->title, "VOICE");
+        TSEL->p[P_VOICE] = (int16_t)V_POLY;
+        ok &= page_desc(vox, 2, &vp) == 0 && page_desc(vox, 3, &vp) != 0;   /* no UNI DTN; SPRD on */
+        TSEL->p[P_VOICE] = (int16_t)V_MONO;
+        ok &= page_desc(vox, 2, &vp) == 0 && page_desc(vox, 3, &vp) == 0;   /* neither */
+        TSEL->p[P_VOICE] = (int16_t)V_LEGATO;
+        ok &= page_desc(vox, 2, &vp) == 0 && page_desc(vox, 3, &vp) == 0;
+        TSEL->p[P_VOICE] = (int16_t)V_UNISON;
+        ok &= page_desc(vox, 2, &vp) != 0 && page_desc(vox, 3, &vp) != 0;   /* both */
+        bad += check("VOICE: UNI DTN only in UNISON; SPRD only in POLY / UNISON", ok);
+    }
+
     ui_power_on();
     set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;
     press(B_EDIT); frame();
