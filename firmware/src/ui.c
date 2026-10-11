@@ -392,8 +392,6 @@ static uint32_t layer_btn(void);
 static int page_visible(uint32_t i)
 {
     int analog = ENGINES[TSEL->eng_req % NENGINES] == &ENG_ANALOG;
-    if (PAGES[i].graph == GR_DMUTE)                   /* HOME Mixer: drum lane mutes, DRUM track only */
-        return TSEL->eng_req % NENGINES == ENGI_DRUM;
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return TSEL->eng_req % NENGINES == ENGI_DRUM;
     if (PAGES[i].scope == SC_ENGINE && PAGES[i].id[0] == P_E4)   /* EDIT 2: not ANALOG (FILTER is page 2) */
@@ -742,7 +740,7 @@ static void go_home(void)
     section_apply();                             /* leave sticky maps */
 }
 
-/* HOME: Home ↔ Mixer. SELECT walks pages inside Mixer (mix + lane mutes). Held: MENU */
+/* HOME: Home ↔ Mixer. Held: MENU */
 static void home_tap(void)
 {
     if (ui.home) {

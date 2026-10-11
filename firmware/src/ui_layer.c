@@ -357,13 +357,27 @@ static void glo_tap(void)
     }
 }
 
-/* SEQ TOOLS: white key place p's action on the selected track (ui_tools.c), "STOP TO EDIT" while a song plays */
+/* the selected lane's channel mute (eng_drum.c drum_mute): on while a song plays, no pattern undo */
+static void lane_mute_toggle(track_t *t, uint32_t l)
+{
+    uint32_t k = trk_index(t) % NPART;
+    l %= NLANE;
+    drum_mute[k] ^= (uint8_t)(1u << l);
+    ui_say(drum_lane_name(t, l), (drum_mute[k] >> l) & 1u ? " MUTED" : " ON");
+    ui.force = 1;
+}
+/* SEQ TOOLS: white key place p's action on the selected track (ui_tools.c), "STOP TO EDIT" while a song plays.
+ * F4 MUTE toggles the selected drum lane and is not a pattern edit */
 static void tools_key(uint32_t p)
 {
     const char *m;
     char n[4];
     if (!tl_cell(TSEL, p))
         return;
+    if (p == TL_MUTE) {
+        lane_mute_toggle(TSEL, ui.lane);
+        return;
+    }
     if (chain_busy()) {
         ui_message("STOP TO EDIT");
         return;
@@ -516,11 +530,9 @@ typedef struct { uint8_t eng, n; const eqa_t *a; } eqa_set_t;
 
 static void eqa_drum_mute(track_t *t, uint32_t l, uint32_t down)
 {
-    uint32_t k = trk_index(t) % NPART;
     if (!down)
         return;
-    drum_mute[k] ^= (uint8_t)(1u << l);
-    ui_say(drum_lane_name(t, l), (drum_mute[k] >> l) & 1u ? " MUTED" : " ON");
+    lane_mute_toggle(t, l);
 }
 static uint32_t eqa_drum_on(const track_t *t, uint32_t l) { return !((drum_mute[trk_index(t) % NPART] >> l) & 1u); }
 #define EQA_LANE(l) {LK_SET, EQ_SHOW_MUTE, l, drum_lane_abbr, eqa_drum_mute, eqa_drum_on}
@@ -805,8 +817,15 @@ static uint32_t layer_leds(uint32_t *br)
             on = a->on(TSEL, a->arg) != 0u;             /* a HOLD one off breathes, none dark */
             can = a->kind == LK_HOLD;
         } else if (l == LAYER_SEQ) {                    /* the tools breathe (not while a song plays); DRUM: the lane */
-            on = b && p < NLANE && drum_track(TSEL) && p == ui.lane;   /* lit, the other lanes breathe */
-            can = b ? p < NLANE && drum_track(TSEL) : tl_cell(TSEL, p) && !chain_busy();
+            int drum = drum_track(TSEL);                /* lit, the other lanes breathe; F4 lit while that lane is muted */
+            uint32_t mu = drum ? (drum_mute[trk_index(TSEL) % NPART] >> (ui.lane % NLANE)) & 1u : 0u;
+            if (!b && p == TL_MUTE) {
+                on = drum && mu;
+                can = drum && !mu;
+            } else {
+                on = b && p < NLANE && drum && p == ui.lane;
+                can = b ? p < NLANE && drum : tl_cell(TSEL, p) && !chain_busy();
+            }
         } else if (l == LAYER_REC && !b && p < 4u) {    /* a setting on (LEVEL: the click on) lit, the rest breathe; */
             on = p == 1u ? rp_get(RP_CLICK) != 0u : p == 2u ? rp_get(RP_COUNTIN) != 0u :   /* CLEAR: something to */
                  p == 3u && rp_get(RP_CLICK) != 0u;    /* clear, not while a song plays */
@@ -1014,33 +1033,41 @@ static void layer_edit(void)                            /* the engines from F3, 
         engine_sound_row(104);
 }
 
-/* SEQ TOOLS: the white keys' tools, 4 a row from F3 (the whole sequence; RANDOM COOK BEAT; the lane's), on a DRUM
- * track the lanes of black keys 1..8 under them (the selected one: the selection's fill). A melodic track: the two
- * rows of the sequence's tools only */
+/* SEQ TOOLS: the white keys' tools, 4 a row from F3 (the whole sequence; RANDOM COOK BEAT MUTE; the lane's), on a
+ * DRUM track the lanes of black keys 1..8 under them (the selected one filled, a muted lane as a muted track). A
+ * melodic track: the two rows of the sequence's tools only */
 static const uint8_t TL_ICON[TL_N] = {ICON_CLEAR, ICON_X_REVERSE, ICON_X_LEFT, ICON_X_RIGHT, ICON_PROB, ICON_W_SH,
-    ICON_DRUM, 0, ICON_CLEAR, ICON_X_REVERSE, ICON_STEPS, ICON_PROB};
-static const char *const TL_NAME[TL_N] = {"CLEAR", "REVERSE", "SHIFT", "SHIFT", "RANDOM", "COOK", "BEAT", 0,
+    ICON_DRUM, ICON_MUTE, ICON_CLEAR, ICON_X_REVERSE, ICON_STEPS, ICON_PROB};
+static const char *const TL_NAME[TL_N] = {"CLEAR", "REVERSE", "SHIFT", "SHIFT", "RANDOM", "COOK", "BEAT", "MUTE",
     "CLR", "REV", "FILL", "RND"};
 static void layer_seq(void)
 {
-    uint32_t p, st = chain_busy() ? LS_DIM : LS_OFF, drum = (uint32_t)drum_track(TSEL);
+    uint32_t p, drum = (uint32_t)drum_track(TSEL);
+    uint32_t mute = drum ? drum_mute[trk_index(TSEL) % NPART] : 0u;
     char n[3] = {0, 0, 0}, nm[8];
     for (p = 0; p < TL_N; p++) {
+        uint32_t st = chain_busy() && p != TL_MUTE ? LS_DIM : LS_OFF;
         if (!tl_cell(TSEL, p))
             continue;
         n[0] = W_NOTE[p];
         str_cpy(nm, TL_NAME[p], sizeof nm);
-        if (p >= TL_LCLR) {                             /* the lane's: "CLR BD" */
+        if (p >= TL_LCLR || p == TL_MUTE) {             /* the lane's: "CLR BD", "MUTE BD" */
             str_cpy(nm + str_len(nm), " ", 2);
             str_cpy(nm + str_len(nm), drum_lane_abbr(TSEL, ui.lane), sizeof nm - str_len(nm));
         }
+        if (p == TL_MUTE && ((mute >> (ui.lane % NLANE)) & 1u))
+            st = LS_MUTE;                               /* the selected lane is muted: the key's fill */
         lcell(LC_X(p % 4u), 4 + 32 * (int32_t)(p / 4u), 28, n, TL_ICON[p], 0, nm, st, 0);
     }
-    for (p = 0; drum && p < NLANE; p++) {               /* the lanes (black keys 1..8): 8 cells of 25 px, 4 px apart */
+    for (p = 0; drum && p < NLANE; p++) {               /* the lanes (black keys 1..8): 8 cells of 25 px, 4 px apart.
+                                                         * a muted lane: a muted track's fill; the selected one framed */
+        int sel = p == ui.lane % NLANE, mu = (mute >> p) & 1u;
         int32_t x = 6 + 29 * (int32_t)p;
-        uint16_t ink, fill = lc_box(x, 100, 25, 18, lc_fill(p == ui.lane % NLANE ? LS_SEL : LS_OFF, &ink));
+        uint16_t ink, fill = lc_box(x, 100, 25, 18, lc_fill(mu ? LS_MUTE : sel ? LS_SEL : LS_OFF, &ink));
         GFX_HOOK_ALIGN(x, 100, x + 25, 118, AL_HV, "tools lane cell name centred");
         cv_text_in(x, 100 + CAP_IN(S, 18), 25, &AF_S, drum_lane_abbr(TSEL, p), ink, fill);
+        if (sel && mu)
+            cv_frame(x, 100, 25, 18, T_ACCENT);
     }
 }
 
@@ -1159,7 +1186,8 @@ static void draw_layer(void)
     else if (l == LAYER_REC)
         sig += (uint32_t)ui_rec_prefs * 31u + (uint32_t)chain_busy() * 3u + (uint32_t)rec_clearable() * 5u + song.sel * 977u;
     else if (l == LAYER_SEQ)
-        sig += (uint32_t)drum_track(TSEL) * 31u + ui.lane * 5u + (uint32_t)chain_busy() * 3u + (uint32_t)TSEL->p[P_E0] * 131u + song.sel * 977u;
+        sig += (uint32_t)drum_track(TSEL) * 31u + ui.lane * 5u + (uint32_t)chain_busy() * 3u + (uint32_t)TSEL->p[P_E0] * 131u + song.sel * 977u +
+               drum_mute[trk_index(TSEL) % NPART] * 2654435761u;
     else
         sig += snd_id() * 31u + (uint32_t)preset_favorite() * 5u + (uint32_t)chain_busy() * 3u + up_gen * 101u +
                eqa_sig() * 2654435761u;

@@ -431,7 +431,7 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHORD, GR_SLICES, GR_EVENTS,
-       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_IORD, GR_PUNCH, GR_REC, GR_DMUTE };
+       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_IORD, GR_PUNCH, GR_REC };
 /* page.sec: button cycles sections; SELECT walks pages that share fam+sec (ui.c open_family / select_page_step) */
 enum { FX_SEC_INS = 0, FX_SEC_SEND = 1, FX_SEC_PUNCH = 2, FX_NSEC = 3,
        SEQ_SEC_PAT = 0, SEQ_SEC_STEP = 1, SEQ_SEC_AUTO = 2, SEQ_NSEC = 3,
@@ -506,9 +506,8 @@ static const page_t PAGES[] = {
     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
     {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
     {"AUTOMATION", FAM_SEQ, SC_TRACK, GR_EVENTS, SEQ_SEC_AUTO, {0xFF, 0xFF, 0xFF, 0xFF}},
-    /* HOME: Mixer (mix + drum lane mutes); ui.home is its own section (home_tap) */
+    /* HOME: Mixer; ui.home is its own section (home_tap). Drum lane mutes live in SEQ TOOLS. */
     {"MIXER", FAM_TRK, SC_TRK, GR_TRK, TRK_SEC_MIX, {0, 1, 2, 3}},
-    {"LANE MUTE", FAM_TRK, SC_TRK, GR_DMUTE, TRK_SEC_MIX, {0xFF, 0xFF, 0xFF, 0xFF}},
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */

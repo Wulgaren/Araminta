@@ -2698,7 +2698,7 @@ static int test_page_cycles(void)
               PAGES[i].graph == GR_STEPS;
         ok &= f != FAM_GLO || PAGES[i].graph == GR_SONG || PAGES[i].graph == GR_REC ||
               str_eq(PAGES[i].title, "CLOCK");
-        ok &= f != FAM_TRK || PAGES[i].graph == GR_TRK || PAGES[i].graph == GR_DMUTE;
+        ok &= f != FAM_TRK || PAGES[i].graph == GR_TRK;
         ok &= PAGES[i].graph != GR_TRK || f == FAM_TRK;
         ui_power_on(); ui.home = 0; ui.page = (uint8_t)i; page_entered();
         ok &= FAM_BTN[cur_fam()] == (f == FAM_TRK ? B_HOME : f == FAM_GLO ? B_GLO : f == FAM_SEQ ? B_SEQ :
@@ -2706,7 +2706,7 @@ static int test_page_cycles(void)
     }
     for (i = 0; i < NPAGES; i++)
         ok &= !str_eq(PAGES[i].title, "CHANCE") && !str_eq(PAGES[i].title, "AUTO LIST");
-    bad += check("SEQ has PATTERN/STEP/DETAIL/AUTOMATION; GLO has SONG/CLOCK/RECORD; MIXER/LANE MUTE HOME's", ok);
+    bad += check("SEQ has PATTERN/STEP/DETAIL/AUTOMATION; GLO has SONG/CLOCK/RECORD; MIXER is HOME's", ok);
     {   /* GLOBAL and SYSTEM are gone; BPM SWG CLK on GLO > CLOCK, TUNE and ROUT on no page (the MENU's) */
         uint32_t k, clock = 0;
         ok = 1;
@@ -5920,6 +5920,24 @@ static int test_seq_tools(void)
     key_down(black(2)); frame(); key_up(black(2)); frame();
     ok &= ui.lane == DV_CLAP && !gates();
     bad += check("  E4 BEAT on Pattern; black key 3 picks the lane", ok);
+    {
+        step_t kept[NSTEP];
+        uint32_t bit = 1u << DV_CLAP;
+        memcpy(kept, TSEL->step, sizeof kept);
+        tl_key(7);                                      /* F4: mute the selected lane */
+        ok = (drum_mute[song.sel % NPART] & bit) && msg_is("CLAP MUTED") && !memcmp(TSEL->step, kept, sizeof kept);
+        key_down(black(0)); frame(); key_up(black(0)); frame();
+        tl_key(7);
+        ok &= ui.lane == DV_KICK && (drum_mute[song.sel % NPART] & 1u) && (drum_mute[song.sel % NPART] & bit) &&
+              msg_is("KICK MUTED");
+        tl_key(7);
+        ok &= !(drum_mute[song.sel % NPART] & 1u) && msg_is("KICK ON");
+        chain.running = 1;
+        tl_key(7);
+        ok &= (drum_mute[song.sel % NPART] & 1u) && msg_is("KICK MUTED") && !memcmp(TSEL->step, kept, sizeof kept);
+        chain.running = 0;
+        bad += check("  F4 MUTE toggles the selected lane (each drum on its own); a song playing still mutes", ok);
+    }
 
     ui_power_on();
     go_title("PATTERN"); frame();
@@ -6538,8 +6556,6 @@ static int test_select_pages(void)
     press(B_HOME);                                      /* Home → Mixer */
     ok &= !ui.home && str_eq(cur_page()->title, "MIXER") && song.g[G_BPM] == b0;
     set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req; frame();
-    turn(EN_SELECT, 1);
-    ok &= str_eq(cur_page()->title, "LANE MUTE") && cur_page()->sec == TRK_SEC_MIX && song.g[G_BPM] == b0;
     turn(EN_SELECT, 1);
     ok &= str_eq(cur_page()->title, "MIXER") && cur_page()->sec == TRK_SEC_MIX && song.g[G_BPM] == b0;
     press(B_HOME);                                      /* Mixer → Home */
@@ -8132,7 +8148,7 @@ static int test_nav_chords(void)
     return bad;
 }
 
-/* HOME Mixer: white keys latch track solo; SELECT reaches LANE MUTE on a DRUM track. */
+/* HOME Mixer: white keys latch track solo. Drum lane mutes are SEQ TOOLS, not a mixer page. */
 static int test_mixer_solo(void)
 {
     int bad = 0, ok;
@@ -8145,10 +8161,10 @@ static int test_mixer_solo(void)
     ok &= (perf_solo & 1u) == 0u;
     set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req; frame();
     turn(EN_SELECT, 1);
-    ok &= str_eq(cur_page()->title, "LANE MUTE");
-    key_down(key_at(1, 0)); frame(); key_up(key_at(1, 0)); frame();   /* black key 1: lane 0 */
-    ok &= (drum_mute[song.sel % NPART] & 1u) != 0u;
-    bad += check("HOME Mixer: latched track solo; SELECT to LANE MUTE toggles drum lane mute", ok);
+    ok &= str_eq(cur_page()->title, "MIXER");
+    key_down(key_at(1, 0)); frame(); key_up(key_at(1, 0)); frame();   /* black keys play nothing here */
+    ok &= (drum_mute[song.sel % NPART] & 1u) == 0u;
+    bad += check("HOME Mixer: latched track solo; a DRUM track stays on MIXER", ok);
     return bad;
 }
 
