@@ -92,21 +92,14 @@ static int up_to_v4(up_rec_t *r)                 /* 1 = r is version 4 / 5 (now)
         return 1;
     if (r->ver == 1u && r->engine == ENGI_PHYS)
         return 0;
+    /* ver < 4: np <= UP_PMAX (72). P_IORD (96) cannot appear; its 2-byte pack is only for ver >= 4. */
     for (i = 0; i < r->np; i++)
-        if (i != P_IORD && ((v[i] = r->p[i]) < -64 || v[i] > 127))
+        if ((v[i] = r->p[i]) < -64 || v[i] > 127)
             return 0;
-        else if (i == P_IORD)
-            v[i] = r->p[i];
     memset(r->packed, 0, sizeof r->packed);
     r->ver = r->ver == 3u ? UP_VER_GRID : UP_VER;
     for (i = 0; i < r->np; i++)
-        r->packed[i] = (uint8_t)(i == P_IORD
-            ? (uint32_t)(v[i] < 0 ? 0 : v[i] > 719 ? 719 : v[i]) & 255u
-            : (uint32_t)(v[i] + 64));
-    if (r->np > P_IORD && P_IORD < UP_PMAX * 2u - 1u) {
-        uint32_t o = (uint32_t)(v[P_IORD] < 0 ? 0 : v[P_IORD] > 719 ? 719 : v[P_IORD]);
-        r->packed[r->np] = (uint8_t)(o >> 8);   /* hi byte past np (unused slot) */
-    }
+        r->packed[i] = (uint8_t)(uint32_t)(v[i] + 64);
     return 1;
 }
 static void up_set_cat(up_rec_t *r, uint32_t c)  /* c CAT_BASS..CAT_OTHER; a record that cannot hold one keeps none */
