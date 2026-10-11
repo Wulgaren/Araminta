@@ -783,7 +783,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             ed_b(ed_eng(&trk[i]));
             ed_b(trk[i].preset);
             ed_v(trk[i].p[P_LEVEL]);
-            ed_b(trk[i].p[P_MUTE] != 0);
+            ed_b(trk[i].p[P_MUTE] == PLAY_OFF);
             ed_b((song.rec >> i) & 1u);
         }
         break;
@@ -796,14 +796,17 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         lv = &t->p[P_LEVEL];
         if (na >= 4u) {
             *lv = (int16_t)clamp(ed_rv(a + 1), 0, 127);
-            t->p[P_MUTE] = (int16_t)(a[3] ? 1 : 0);
+            if (a[3])
+                t->p[P_MUTE] = PLAY_OFF;
+            else if (t->p[P_MUTE] == PLAY_OFF)         /* mute 0 leaves SOLO (the byte is only OFF / not) */
+                t->p[P_MUTE] = PLAY_ON;
             ed_known(a[0], P_LEVEL);                       /* the editor's own change: no push */
             ed_known(a[0], P_MUTE);
             ui.force = 1;
         }
         ed_b(a[0]);
         ed_v(*lv);
-        ed_b(t->p[P_MUTE] != 0);
+        ed_b(t->p[P_MUTE] == PLAY_OFF);
         break;
     }
     case ED_TRACK_DUMP:                                    /* track -> track, engine, preset, P_COUNT x v14 */

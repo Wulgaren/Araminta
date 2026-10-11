@@ -58,11 +58,10 @@ static void name_close(void)
     nm.kind = NK_NONE;
 }
 /* the keys: 2 = NAME's (silent), 1 = the DRUM grid, 3 = SONG's A..D (ui.c song_keys_on), 0 = notes (seq.c keyboard_block
- * reads song.grid) */
-static int mixer_keys_on(void);                      /* ui_input.c: HOME Mixer track solo */
+ * reads song.grid). MIXER's keys play. Drum lane mutes are SEQ TOOLS. */
 static uint32_t keys_mode(void)
 {
-    return name_on() ? 2u : grid_on() ? 1u : song_keys_on() ? 3u : mixer_keys_on() ? 4u : 0u;
+    return name_on() ? 2u : grid_on() ? 1u : song_keys_on() ? 3u : 0u;
 }
 
 static const char *nm_group(uint32_t p)                /* white key place p's characters */

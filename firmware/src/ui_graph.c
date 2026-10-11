@@ -1453,7 +1453,7 @@ static void graph_slots(void)
     }
 }
 /* MIXER page: four SURF columns, one under each card: the track number on its cushion (in the accent:
- * the selected track) with a REC / ARM / MUTE badge (P_MUTE, KNOB 1), the sound's short name (a MUTE badge
+ * the selected track) with a REC / ARM / OFF / SOLO badge (PLAY, KNOB 4), the sound's short name (an OFF badge
  * when armed and muted), the LEVEL knob (dB inside) with the output meter beside it, then the PAN and REV
  * knobs with their values. Knobs: a 270 degree ring, the track RAISE, the value arc THEME (the knob just
  * turned: ACCENT; muted: DIM); PAN from 12 o'clock. Each column is its own canvas with its own signature:
@@ -1552,11 +1552,13 @@ static void track_strip(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, ui
     if (st == 1u || st == 2u)
         cv_keycap(53 - kc_w(st == 1u ? KC_REC : KC_ARM), 5, st == 1u ? KC_REC : KC_ARM, st == 1u ? T_REC : T_ACCENT,
                   T_INK, T_SURF);
+    else if (st == 4u)
+        cv_keycap(53 - kc_w(KC_SOLO), 5, KC_SOLO, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
     else if (st)
         cv_keycap(53 - kc_w(KC_MUTE), 5, KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
-    if (mute && arm)                                 /* armed and muted: MUTE in place of the name */
+    if (st == 3u && arm)                             /* armed and muted: MUTE in place of the name */
         GFX_HOOK_ALIGN(0, 22 + AF_S_CAP_Y, 0, 22 + AF_S_CAP_Y + AF_S_CAP_H, AL_V, "mixer MUTE badge on the name's line");
-    if (mute && arm)
+    if (st == 3u && arm)
         cv_keycap(5, 22 + AF_S_CAP_Y + HALF_UP(AF_S_CAP_H - KC_H), KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
     else
         cv_free_text(5, 22, &AF_S, b, mute ? T_DIM : sel ? T_TEXT : T_MID, T_SURF, CARD_W - 10);
@@ -1578,10 +1580,12 @@ static void draw_tracks(void)
     }
     for (c = 0; c < NTRK; c++) {
         track_t *t = &trk[c];
-        uint32_t sel = c == song.sel, lvl = trk_level(c), mute = t->p[P_MUTE] != 0;
-        uint32_t arm = (song.rec >> c) & 1u, st = arm ? (song.playing ? 1u : 2u) : mute ? 3u : 0u, sig;
+        uint32_t sel = c == song.sel, lvl = trk_level(c);
+        uint32_t mode = t->p[P_MUTE] == PLAY_SOLO ? (uint32_t)PLAY_SOLO : t->p[P_MUTE] == PLAY_OFF ? (uint32_t)PLAY_OFF : 0u;
+        uint32_t mute = !trk_heard(c);               /* dim: PLAY OFF, or left out by a solo */
+        uint32_t arm = (song.rec >> c) & 1u, st = arm ? (song.playing ? 1u : 2u) : mode == PLAY_OFF ? 3u : mode == PLAY_SOLO ? 4u : 0u, sig;
         uint32_t hot = sel && ui.hot_t ? ui.hot_col + 1u : 0u;   /* the knob just turned (hot_col + 1): 1 LEVEL, 2 PAN,
-                                                                * 3 REV, 4 MUTE (its badge) */
+                                                                * 3 REV, 4 PLAY (its badge) */
         int32_t pk = t->peak, m, pan = clamp(t->p[P_PAN], -64, 63), rv = clamp(t->p[P_REV], 0, 127);
         uint16_t vc = mute ? T_DIM : T_THEME;
         char b[16];
@@ -1591,8 +1595,9 @@ static void draw_tracks(void)
         if (m < ts.meter[c] - 1)
             m = ts.meter[c] - 1;                     /* falls ~2 dB a frame */
         ts.meter[c] = (uint8_t)(m < 0 ? 0 : m);
-        sig = str_hash(1u + sel + st * 2u + (mute && arm) * 16u + hot * 32u, b) + lvl * 7919u +
-              ts.meter[c] * 131u + (uint32_t)(pan + 128) * 104729u + (uint32_t)rv * 1299709u + mute * 3u + sk * 0x9E37u;
+        sig = str_hash(1u + sel + st * 2u + (st == 3u && arm) * 16u + hot * 32u, b) + lvl * 7919u +
+              ts.meter[c] * 131u + (uint32_t)(pan + 128) * 104729u + (uint32_t)rv * 1299709u + mute * 3u +
+              solo_mask() * 17u + sk * 0x9E37u;
         if (!ui.force && sig == ts.col[c])
             continue;
         ts.col[c] = sig;
@@ -1608,12 +1613,14 @@ static void draw_tracks(void)
         if (st == 1u || st == 2u)                    /* REC (recording) / ARM (armed, stopped) */
             cv_keycap(53 - kc_w(st == 1u ? KC_REC : KC_ARM), 6, st == 1u ? KC_REC : KC_ARM, st == 1u ? T_REC : T_ACCENT,
                       T_INK, T_SURF);
+        else if (st == 4u)                           /* SOLO (K4): this track sounds, the others do not */
+            cv_keycap(53 - kc_w(KC_SOLO), 6, KC_SOLO, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
         else if (st)                                 /* muted (K4 just turned: lit) */
             cv_keycap(53 - kc_w(KC_MUTE), 6, KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
-        if (mute && arm)                             /* armed and muted: MUTE in place of the name */
+        if (st == 3u && arm)                         /* armed and muted: MUTE in place of the name */
             GFX_HOOK_ALIGN(0, 21 + AF_S_CAP_Y, 0, 21 + AF_S_CAP_Y + AF_S_CAP_H, AL_V,
                            "mixer MUTE badge on the name's line");
-        if (mute && arm)                             /* (on the name's capitals) */
+        if (st == 3u && arm)                         /* (on the name's capitals) */
             cv_keycap(5, 21 + AF_S_CAP_Y + HALF_UP(AF_S_CAP_H - KC_H), KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
         else
             cv_free_text(5, 21, &AF_S, b, mute ? T_DIM : sel ? T_TEXT : T_MID, T_SURF, CARD_W - 10);
@@ -1687,7 +1694,9 @@ static void home_track_row(uint32_t c)
 {
     track_t *t = &trk[c];
     const step_t *s = seq_steps(t);
-    uint32_t sel = c == song.sel, mute = t->p[P_MUTE] != 0, large = (ui_prefs & PREF_LARGE) != 0u;
+    uint32_t sel = c == song.sel, large = (ui_prefs & PREF_LARGE) != 0u;
+    uint32_t mode = t->p[P_MUTE] == PLAY_SOLO ? (uint32_t)PLAY_SOLO : t->p[P_MUTE] == PLAY_OFF ? (uint32_t)PLAY_OFF : 0u;
+    uint32_t mute = !trk_heard(c);                   /* dim: PLAY OFF, or left out by a solo */
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), np = (len + 15u) / 16u, pg, p0, ph, i, sig, carry = 0;
     int32_t y = Y_GRAPH + (int32_t)c * TR_PITCH, m, x, xr = 222, ch = large ? AF_M_CAP_H : AF_S_CAP_H;
     uint16_t bg = sel ? T_THEME : T_SURF, half = ux_mix(T_THEME, T_INK, 35);
@@ -1705,8 +1714,8 @@ static void home_track_row(uint32_t c)
     t->peak = 0;
     if (m < ts.meter[c] - 1)
         m = ts.meter[c] - 1;                         /* (falls as the MIXER's) */
-    sig = str_hash(1u + sel + mute * 2u + large * 4u + t->eng_req * 8u, b) + steps_hash(t) * 31u + pg * 7919u +
-          ph * 104729u + len * 1299709u;
+    sig = str_hash(1u + sel + mute * 2u + large * 4u + t->eng_req * 8u + mode * 32u, b) + steps_hash(t) * 31u +
+          pg * 7919u + ph * 104729u + len * 1299709u + solo_mask() * 17u;
     if (!ui.force && sig == ts.col[c]) {
         if (m != ts.meter[c]) {                      /* the meter alone: its slot */
             ts.meter[c] = (uint8_t)m;
@@ -1721,10 +1730,11 @@ static void home_track_row(uint32_t c)
     cv_begin(TR_W, TR_H, T_BG);
     cv_rrect(0, 0, TR_W, TR_H, 5, bg, T_BG);
     cv_icon_mid(4, TR_H / 2, 16, trk_icon(c, 1), sel ? T_INK : mute ? T_DIM : T_MID, bg);
-    if (mute) {                                      /* MUTE: its badge at the name line's end */
-        xr -= kc_w(KC_MUTE);
+    if (mode == PLAY_OFF || mode == PLAY_SOLO) {     /* OFF or SOLO: its badge at the name line's end */
+        uint32_t cap = mode == PLAY_SOLO ? KC_SOLO : KC_MUTE;
+        xr -= kc_w(cap);
         GFX_HOOK_ALIGN(0, TR_NY(large), 0, TR_NY(large) + ch, AL_V, "tracks row badge on the name's line");
-        cv_keycap(xr, TR_NY(large) + (ch - KC_H) / 2, KC_MUTE, sel ? T_INK : T_KEY, sel ? T_THEME : T_INK, bg);
+        cv_keycap(xr, TR_NY(large) + (ch - KC_H) / 2, cap, sel ? T_INK : T_KEY, sel ? T_THEME : T_INK, bg);
         xr -= 6;
     }
     x = 24;

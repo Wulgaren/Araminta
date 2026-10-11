@@ -588,6 +588,31 @@ static int test_misc(void)
         snprintf(what, sizeof what, "black key 1: track 1 muted while held (peak %d -> %d), P_MUTE untouched", before, during);
         bad += check(what, before > 1000 && during < 200 && !trk[0].p[P_MUTE]);
     }
+    {   /* PLAY SOLO on a silent track: the one that was playing ramps out, its own PLAY stays ON */
+        int32_t o[2 * CTL];
+        uint32_t f;
+        int32_t before = 0, during = 0;
+        song_setup();
+        trk[1].p[P_SLEN] = 1; trk[3].p[P_SLEN] = 1;
+        trk[1].step[0].n = 0; trk[3].step[0].n = 0;
+        trk[0].p[P_CHOR] = trk[0].p[P_DLY] = trk[0].p[P_REV] = 0;
+        transport_req = 1;
+        for (f = 0; f < 2u * FS; f += CTL) {
+            uint32_t i;
+            if (f == 44096u)
+                trk[1].p[P_MUTE] = PLAY_SOLO;
+            mix_block(o, CTL);
+            for (i = 0; i < CTL; i++) {
+                if (f > FS / 2u && f < 44096u) before = abs(o[2 * i]) > before ? abs(o[2 * i]) : before;
+                if (f > FS + 512u) during = abs(o[2 * i]) > during ? abs(o[2 * i]) : during;
+            }
+        }
+        transport_req = 2;
+        mix_block(o, CTL);
+        snprintf(what, sizeof what, "PLAY SOLO on track 2: track 1 silent (peak %d -> %d), its PLAY stays ON", before, during);
+        bad += check(what, before > 1000 && during < 200 && trk[0].p[P_MUTE] == PLAY_ON && trk[1].p[P_MUTE] == PLAY_SOLO);
+        trk[1].p[P_MUTE] = PLAY_ON;
+    }
     return bad;
 }
 

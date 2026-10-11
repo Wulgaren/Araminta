@@ -609,12 +609,11 @@ static void layer_key(uint32_t l, uint32_t k)
     } else if (l == LAYER_GLO) {
         if (key_black(k)) {
             if (p < NTRK)
-                trk[p].p[P_MUTE] = (int16_t)!trk[p].p[P_MUTE];
-        } else if (p < NTRK) {
-            lys.solo |= 1u << k;                        /* (layer_masks: perf_solo while held) */
+                trk[p].p[P_MUTE] = (int16_t)(trk[p].p[P_MUTE] == PLAY_OFF ? PLAY_ON : PLAY_OFF);
         } else if (p == 4u) {
             for (i = 0; i < NTRK; i++)
-                trk[i].p[P_MUTE] = 0;
+                if (trk[i].p[P_MUTE] == PLAY_OFF)
+                    trk[i].p[P_MUTE] = PLAY_ON;
         } else if (p == 7u) {
             glo_tap();
         } else if (p == 5u) {
@@ -641,7 +640,28 @@ static void layer_key(uint32_t l, uint32_t k)
             ui.lane = (uint8_t)p;                       /* (black keys 1..8: the lane, as on the grid) */
     }
 }
-/* each pass: the keys the layer got now; then GLO's solo: the tracks of its keys still held (perform.c) */
+/* GLO open: white keys F3..B3 solo that track while held (perform.c perf_solo). LEDs read lys.solo by key. */
+static void glo_solo_held(void)
+{
+    uint32_t i, s = 0, l = layer_open();
+    lys.solo = 0;
+    if (l != LAYER_GLO) {
+        perf_solo = 0;
+        return;
+    }
+    for (i = 0; i < 27u; i++) {
+        uint32_t p;
+        if (!((kb_layer >> i) & 1u) || key_black(i))
+            continue;
+        p = key_place(i);
+        if (p >= NTRK)
+            continue;
+        lys.solo |= 1u << i;
+        s |= 1u << p;
+    }
+    perf_solo = (uint8_t)s;
+}
+/* each pass: the keys the layer got now; then GLO's solo from the white keys still held */
 static void layer_keys(uint32_t keys)
 {
     uint32_t k, l = layer_open() ? layer_open() : ui.layer;
@@ -650,6 +670,7 @@ static void layer_keys(uint32_t keys)
         for (k = 0; keys && k < 27u; k++)
             if (((keys >> k) & 1u) && !key_black(k) && key_place(k) == 5u)
                 ml_toggle();
+        glo_solo_held();
         return;
     }
     for (k = 0; keys && k < 27u; k++)
@@ -657,6 +678,7 @@ static void layer_keys(uint32_t keys)
             layer_key(l, k);
     if (lys.eqh)
         eqa_release();
+    glo_solo_held();
 }
 /* GLO held while MIDI LEARN is on: knobs still pick Tk LEVEL (map itself stays closed) */
 static int glo_learn_knobs(void)
@@ -789,7 +811,7 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
 /* --------------------------------------------------------- the LEDs --- */
 /* lit = in effect now (held, the value, a track sounding), breathing = can be pressed (*br: dark .. ~60 % and
  * back, ~1.1 s, hal/fm1_input.h fm1_led_breath; was a hard 250 ms blink, #119), dark = nothing there */
-static int glo_sounding(uint32_t t) { return !trk[t].p[P_MUTE] && (!perf_solo || ((perf_solo >> t) & 1u)); }
+static int glo_sounding(uint32_t t) { return trk_heard(t); }
 static int rec_clearable(void) { return !seq_is_empty(TSEL) || motion_count(TSEL) != 0u; }
 static uint32_t layer_leds(uint32_t *br)
 {
@@ -988,7 +1010,7 @@ static void layer_glo(void)
     lcell(LC_X(3), 50, LC_H, n, ICON_TEMPO, 0, "TAP", song.g[G_CLOCK] ? LS_DIM : LS_OFF, 0);
     for (e = 0; e < NTRK; e++) {                        /* the black keys 1..4: MUTE, latched */
         bnote(n, e);
-        lcell(LC_X(e), LM_Y, LM_H, n, ICON_MUTE, trk_icon(e, 0), 0, trk[e].p[P_MUTE] ? LS_MUTE : LS_OFF, 0);
+        lcell(LC_X(e), LM_Y, LM_H, n, ICON_MUTE, trk_icon(e, 0), 0, trk[e].p[P_MUTE] == PLAY_OFF ? LS_MUTE : LS_OFF, 0);
     }
 }
 static void layer_scl(void)                             /* KNOB 2's scales, 4 x 4, the one now selected */
@@ -1186,7 +1208,8 @@ static void draw_layer(void)
     }
     else if (l == LAYER_GLO)
         sig += perf_solo * 31u + (uint32_t)song.g[G_CLOCK] * 5u + ui.ml.on * 7u +
-               (uint32_t)(trk[0].p[P_MUTE] | trk[1].p[P_MUTE] << 1 | trk[2].p[P_MUTE] << 2 | trk[3].p[P_MUTE] << 3) * 131u;
+               (uint32_t)((trk[0].p[P_MUTE] & 3) | (trk[1].p[P_MUTE] & 3) << 2 | (trk[2].p[P_MUTE] & 3) << 4 |
+                          (trk[3].p[P_MUTE] & 3) << 6) * 131u;
     else if (l == LAYER_SCL)
         sig += (uint32_t)TSEL->p[P_SCALE] * 31u;
     else if (l == LAYER_REC)
