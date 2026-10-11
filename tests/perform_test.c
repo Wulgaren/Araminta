@@ -1142,6 +1142,22 @@ static int test_throw(void)
     song.g[G_DTIME] = 12;
     ok &= delay_samples() == 33075u;                   /* 1/4D: 750 ms */
     bad += check("TIME: the ten as before, 1/8D 1/16D 1/4D 3/4 3/8 3/2 of a quarter at 60 61 90 120 BPM", ok);
+    {   /* free milliseconds (DLY K4 TIME): 1 ms steps, not the division, inside the line */
+        uint32_t ms, prev = 0;
+        ok = 1;
+        for (ms = 1; ms <= DTIME_MS_MAX; ms += ms < 20u || ms > DTIME_MS_MAX - 5u ? 1u : 50u) {
+            uint32_t s;
+            song.g[G_DTIME] = (int16_t)(DTIME_FREE + (int32_t)ms);
+            s = delay_samples();
+            ok &= dtime_free() && dtime_ms() == ms && s == (dtime_q8() + 128u) >> 8 && s >= 16u && s < DLY_LEN && s >= prev;
+            prev = s;
+        }
+        song.g[G_BPM] = 120;
+        song.g[G_DTIME] = 1;
+        ok &= !dtime_free() && delay_samples() == FS * 60u / 120u / 2u;
+        song.g[G_DTIME] = 12;                          /* the 1/4D checks below keep this value */
+        bad += check("TIME free ms: one millisecond a step, longer as the number grows, divisions unchanged", ok);
+    }
     song.g[G_BPM] = 61;
     ok = delay_samples() == 65065u;                   /* 1/4D at 61: 1.475 s, fits */
     song.g[G_BPM] = 60;

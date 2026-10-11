@@ -439,15 +439,14 @@ static void graph_fx(const track_t *t, uint16_t c)
         cv_rrect(x - 4, 85 - h, 12, 6, 3, c, T_SURF);
     }
 }
-/* insert stage page: dry/wet mix as a blend line (MIX 0 = dry diagonal) */
+/* insert stage page: dry/wet mix as a blend line (MIX 0 = dry diagonal). The mix knob lives on EFFECTS;
+ * the stage page still draws that stage's mix */
 static void graph_insert(const track_t *t, uint16_t c)
 {
-    const page_t *pg = cur_page();
-    int32_t x, cy = graph_ht / 2, a = 38 * graph_ht / 100, py = cy, m = 0, i;
-    for (i = 0; i < 4; i++)
-        if (pg->id[i] == P_IDMIX || pg->id[i] == P_IFMIX || pg->id[i] == P_ICMIX ||
-            pg->id[i] == P_IPMIX || pg->id[i] == P_ILMIX || pg->id[i] == P_IHMIX)
-            m = ins_mixq(t->p[pg->id[i]]);
+    const char *n = cur_page()->title;
+    uint32_t id = str_eq(n, "DIST") ? P_IDMIX : str_eq(n, "FILTER") ? P_IFMIX : str_eq(n, "CRUSH") ? P_ICMIX :
+                  str_eq(n, "PHASR") ? P_IPMIX : str_eq(n, "FLANG") ? P_ILMIX : str_eq(n, "CHOR") ? P_IHMIX : 0xFFu;
+    int32_t x, cy = graph_ht / 2, a = 38 * graph_ht / 100, py = cy, m = id == 0xFFu ? 0 : ins_mixq(t->p[id]);
     cv_rect(PANEL_X0, cy, PANEL_W, 1, T_RAISE);
     cv_line(PANEL_X0 + PANEL_W / 6, cy + a, PANEL_X0 + PANEL_W * 5 / 6, cy - a, m ? T_RAISE : T_DIM);
     if (!m)
@@ -471,7 +470,7 @@ static void ior_pct_txt(char *b, int32_t v)
         b[n + 1u] = 0;
     }
 }
-/* REORDER: chain on the left, the three send faders on the right. "100%" is 30 px in AF_S, so the
+/* EFFECTS: chain on the left, the three send faders on the right. "100%" is 30 px in AF_S, so the
  * faders sit 36 px apart and the percent is centred under each one (CHO / DLY / REV under that). */
 static void graph_iord(const track_t *t, uint16_t c)
 {
@@ -1124,7 +1123,7 @@ static uint32_t graph_signature(void)
         h ^= pk_sig() + (pg->graph == GR_DESTS ? (ui.hot_t ? ui.hot_col + 1u : 0u) * 5779u : 0u);
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
-    if (pg->graph == GR_IORD)                        /* REORDER: highlighted slot, send or effect */
+    if (pg->graph == GR_IORD)                        /* EFFECTS: highlighted slot, send or effect */
         h ^= (ui.ior_sel + 1u) * 40503u + (ui.ior_tgt + 1u) * 7919u;
     if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
         for (i = 0; i < 4u; i++)

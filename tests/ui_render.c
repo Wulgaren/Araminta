@@ -1118,7 +1118,7 @@ static void setup(int s)
     case S_LFO: go_title("LFO"); break;
     case S_MOD: TSEL->p[P_M1SRC] = 1; TSEL->p[P_M1DST] = 2; TSEL->p[P_M1AMT] = 40; TSEL->p[P_M2SRC] = 6;
         TSEL->p[P_M2DST] = 14; TSEL->p[P_M2AMT] = -64; mod_ui_slot = 1; go_title("MOD"); break;
-    case S_FX: go_title("REORDER"); TSEL->p[P_CHOR] = 40; TSEL->p[P_DLY] = 70; TSEL->p[P_REV] = 100; break;
+    case S_FX: go_title("EFFECTS"); TSEL->p[P_CHOR] = 40; TSEL->p[P_DLY] = 70; TSEL->p[P_REV] = 100; break;
     case S_SLICER: TSEL->p[P_SLCR] = 1; go_title("SLICER"); break;
     case S_DLY: go_title("DLY"); break;
     case S_SCL: TSEL->p[P_SCALE] = 2; go_title("SCL"); break;
@@ -1667,6 +1667,19 @@ static void sweep_columns(void)
                     if (v - d->min > 300) v = d->max - 1;      /* wide ranges: the ends */
                 }
                 *vp = (int16_t)v0;
+            }
+            if (dly_page(&PAGES[i])) {                   /* free milliseconds: 1, a short one, 999, the line */
+                static const int16_t MS[] = {1, 100, 999, 1486};
+                uint32_t k;
+                int16_t was = song.g[G_DTIME];
+                for (k = 0; k < sizeof MS / sizeof MS[0]; k++) {
+                    song.g[G_DTIME] = (int16_t)(DTIME_FREE + MS[k]);
+                    ui.force = 1;
+                    nscr = npend = 0;
+                    draw_columns();
+                    lint();
+                }
+                song.g[G_DTIME] = was;
             }
             draw(-1);                                    /* the whole page */
             lint();

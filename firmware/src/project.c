@@ -1051,7 +1051,8 @@ static int project_restore_runtime(const project_t *input)
     ui.song_row = 0;
     for (i = 0; i < G_COUNT; i++)
         if (i != G_SLOT && i != G_LOAD && i != G_SAVE)
-            song.g[i] = (int16_t)clamp(p->g[i], GP[i].min, GP[i].max);
+            song.g[i] = i == G_DTIME ? dtime_load(p->g[i])
+                                     : (int16_t)clamp(p->g[i], GP[i].min, GP[i].max);
     for (k = 0; k < NTRK; k++) {
         track_t *t = &trk[k];
         const proj_trk_t *s = &p->t[k];

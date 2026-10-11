@@ -186,7 +186,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_SWING] = PD("SWG", F_PCT, 0, 100, 0),
     [G_CLOCK] = PE("CLK", N_CLOCK, 0),
     [G_TUNE] = PD("TUNE", F_INT, -50, 50, 0),     /* cents; edited on MENU > AUDIO TUNE (1.2: menu_items.c MI_TUNE) */
-    [G_DTIME] = PE("TIME", N_DTIME, 1),
+    [G_DTIME] = PE("TIME", N_DTIME, 1),   /* 0..12 divisions. Free ms is DTIME_FREE+ms in the same word (fx.c) */
     [G_DFDBK] = PD("FDBK", F_PCT, 0, 120, 60),
     [G_DCOLOR] = PD("COLR", F_PCT, 0, 127, 70),
     [G_DMIX] = PD("MIX", F_PCT, 0, 127, 90),
@@ -453,15 +453,16 @@ static const page_t PAGES[] = {
     {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, 0, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},
     {"LFO DEST", FAM_LFO, SC_TRACK, GR_DESTS, 0, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
     {"MOD", FAM_LFO, SC_TRACK, GR_MOD, 0, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},
-    /* FX: Effects → Slicer → Master → Punch-in. Sends (CHO DLY REV) live on REORDER. */
-    {"REORDER", FAM_FX, SC_TRACK, GR_IORD, FX_SEC_INS, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"DIST", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IDMODE, P_DIST, P_IDMIX, P_ED_FX}},
-    {"FILTER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IFTYPE, P_IFCUT, P_IFRES, P_IFMIX}},
-    {"CRUSH", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_ICBITS, P_ICRATE, P_ICLPF, P_ICMIX}},
-    {"PHASR", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IPRATE, P_IPDEP, P_IPFBK, P_IPMIX}},
-    {"FLANG", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_ILRATE, P_ILDEP, P_ILMIX, 0xFF}},
-    {"CHOR", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IHRATE, P_IHDEP, P_IHMIX, 0xFF}},
-    {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
+    /* FX: Effects → Slicer → Master → Punch-in. Mix and sends (CHO DLY REV) live on EFFECTS, not on the
+     * stage pages. DLY knob 4 is RATE / TIME (ui_input.c dly_knob): knob 1 is the division or free ms. */
+    {"EFFECTS", FAM_FX, SC_TRACK, GR_IORD, FX_SEC_INS, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"DIST", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IDMODE, P_DIST, P_ED_FX, 0xFF}},
+    {"FILTER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IFTYPE, P_IFCUT, P_IFRES, 0xFF}},
+    {"CRUSH", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_ICBITS, P_ICRATE, P_ICLPF, 0xFF}},
+    {"PHASR", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IPRATE, P_IPDEP, P_IPFBK, 0xFF}},
+    {"FLANG", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_ILRATE, P_ILDEP, 0xFF, 0xFF}},
+    {"CHOR", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IHRATE, P_IHDEP, 0xFF, 0xFF}},
+    {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_DTIME, G_DFDBK, G_DCOLOR, 0xFF}},
     {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},
     {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_CRATE, G_CDEPTH, 0xFF, 0xFF}},
     {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, FX_SEC_SLCR, {P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH}},

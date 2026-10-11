@@ -94,7 +94,7 @@ a.tap(B.PLAY);
 a.render(300);
 check("PLAY again stops it", a.ex.web_playing() === 0);
 /* Punch-in sticky map (FX sections: Effects → Slicer → Master → Punch-in); hold alone opens no map */
-a.tap(B.FX); a.tap(B.FX); a.tap(B.FX); a.tap(B.FX);           // REORDER… → SLICER → MASTER → PUNCH
+a.tap(B.FX); a.tap(B.FX); a.tap(B.FX); a.tap(B.FX);           // EFFECTS… → SLICER → MASTER → PUNCH
 a.render(200);
 const brK = a.ex.web_breath_keys(), brB = a.ex.web_breath_buttons(), litK = a.ex.web_lit_keys();
 a.tap(B.HOME);                                                // leave sticky Punch-in
