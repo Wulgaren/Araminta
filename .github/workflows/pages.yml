@@ -57,8 +57,17 @@ jobs:
       - name: AC79 SDK
         run: |
           if [ ! -f "$HOME/fw-AC79_AIoT_SDK/cpu/wl82/tools/uboot.boot" ]; then
-            git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 \
-              https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git "$HOME/fw-AC79_AIoT_SDK"
+            # gitee is flaky from GitHub runners (connection resets); retry with backoff
+            n=0
+            until [ -f "$HOME/fw-AC79_AIoT_SDK/cpu/wl82/tools/uboot.boot" ]; do
+              n=$((n + 1))
+              [ "$n" -le 5 ] || exit 1
+              rm -rf "$HOME/fw-AC79_AIoT_SDK"
+              echo "AC79 SDK clone attempt $n/5"
+              git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 \
+                https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git "$HOME/fw-AC79_AIoT_SDK" && break
+              sleep $((n * 15))
+            done
           fi
           echo "AC79_SDK=$HOME/fw-AC79_AIoT_SDK" >> "$GITHUB_ENV"
 

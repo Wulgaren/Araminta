@@ -41,7 +41,7 @@ rev_spring 126
 rev_hall 1995
 rev_shimmer 86
 rev_cloud 429
-rev_side_mix 9
-track_insert 200
+rev_side_mix 41
+track_insert 493
 ins_run_dist 134
 ins_run_swept 236
