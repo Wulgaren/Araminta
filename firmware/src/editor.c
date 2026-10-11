@@ -248,7 +248,7 @@ static void ed_sync(void)                                /* main loop */
         ed_begin(ED_CHANGED);
         ed_b(k < P_COUNT ? 0u : 1u);
         ed_b(k < P_COUNT ? k : k - P_COUNT);
-        ed_v(v);
+        ed_v(k == P_IORD ? (int16_t)iord_perm_of((uint16_t)v) : v);   /* order only; send flags stay on the device */
         ed_send();
         n++;
         ed_w.pos = k + 1u;
@@ -492,6 +492,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 ed_load_before(&b);
                 set_engine((uint32_t)clamp(ed_rv(a + 2), 0, NENGINES - 1));
                 ed_load_after(&b);
+            } else if (a[0] == 0 && a[1] == P_IORD) {
+                iord_set_perm(TSEL, (uint32_t)clamp(ed_rv(a + 2), 0, 719));
             } else if (d->max > d->min) {
                 *vp = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
                 if (a[0] == 0) {
@@ -504,7 +506,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         }
         ed_b(a[0]);
         ed_b(a[1]);
-        ed_v(*vp);
+        ed_v(a[0] == 0 && a[1] == P_IORD ? (int16_t)iord_perm_of((uint16_t)*vp) : *vp);
         break;
     case ED_DUMP:
         for (i = 0; i < ED_NV; i++)                       /* the editor gets them all here */
@@ -815,8 +817,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(a[0]);
         ed_b(ed_eng(&trk[a[0]]));
         ed_b(trk[a[0]].preset);
-        for (i = 0; i < P_COUNT; i++)
-            ed_v(motion_base_value(&trk[a[0]], i));
+        for (i = 0; i < P_COUNT; i++) {
+            int16_t v = motion_base_value(&trk[a[0]], i);
+            ed_v(i == P_IORD ? (int16_t)iord_perm_of((uint16_t)v) : v);
+        }
         break;
     case ED_TRACK_STEP: {                                  /* track, index [, step] -> track, index, step (as STEP_GET) */
         step_t *st;
@@ -839,7 +843,9 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         t = &trk[a[0]];
         d = ed_tdesc(t, a[1]);
         if (na >= 4u && !(chain_busy() && chain_owns(a[1]))) {
-            if (d->max > d->min)                           /* as SET: clamped; a fixed value stays */
+            if (a[1] == P_IORD)
+                iord_set_perm(t, (uint32_t)clamp(ed_rv(a + 2), 0, 719));
+            else if (d->max > d->min)                      /* as SET: clamped; a fixed value stays */
                 t->p[a[1]] = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
             (void)motion_capture(t, a[1], t->p[a[1]]);
             ed_known(a[0], a[1]);
@@ -847,7 +853,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         }
         ed_b(a[0]);
         ed_b(a[1]);
-        ed_v(t->p[a[1]]);
+        ed_v(a[1] == P_IORD ? (int16_t)iord_perm_of((uint16_t)t->p[a[1]]) : t->p[a[1]]);
         break;
     }
     case ED_SONG: {                                     /* ops 0..3 rows of one slot (v6); 4..7 the same with a slot

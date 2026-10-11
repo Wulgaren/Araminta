@@ -258,7 +258,7 @@ static void layer_opened(uint32_t l)
 }
 
 /* the armed button: 0, or the layer whose button was tapped (let go). Maps are section-sticky (section_apply),
- * not hold or double-tap. Holding the button still counts as a combo modifier (FX+SELECT on REORDER). */
+ * not hold or double-tap. Holding the button still counts as a combo modifier. */
 static uint32_t layer_gesture(uint32_t now, uint32_t combo)
 {
     uint32_t *t0 = &ui.ly_t0, l = ui.ly;

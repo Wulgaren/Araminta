@@ -1511,7 +1511,7 @@ static int test_categories(void)
         turn(EN_K4, -2);
         turn(EN_K3, -1);
         ok2 = set_later.on && list_mode() == m0;
-        go_page(GR_FX);                                    /* the page left: written at once */
+        go_page(GR_IORD);                                  /* the page left: written at once */
         frame();
         ok2 &= !set_later.on;
         go_page(GR_BROWSE);
@@ -2578,11 +2578,9 @@ static int test_presets_knob(void)
                 sel_ok &= same_snd && same_steps && ui.page == i && ui.ev_row == 1u;
             } else if (g == GR_TOOLS) {
                 tools_ok &= same_snd && same_steps && !ui.confirm;
-            } else if (g == GR_IORD) {                    /* REORDER: PRESETS walks the stage, no sound load */
-                sel_ok &= same_snd && same_steps && ui.page == i;
             } else if (g == GR_PUNCH) {                 /* Punch-in sticky: PRESETS assigns an FX key, no sound load */
                 sel_ok &= same_snd && same_steps && ui.page == i;
-            } else {
+            } else {                                 /* EFFECTS included: PRESETS loads a sound (also test_fx_sections) */
                 snd_ok &= !same_snd && same_steps && ui.page == i && !ui.home;
                 hold(B_SAVE);
                 undo_ok &= TSEL->preset == before.preset && TSEL->eng_req == before.eng_req &&
@@ -3091,8 +3089,8 @@ static int test_layer(void)
     bad += check("FX tap: nothing on press, the FX page when let go", ok && !ui.home && cur_page()->fam == FAM_FX);
     frames(320);
     press(B_FX);
-    bad += check("  a second tap: Sends section (FX), not the next insert page",
-                 cur_page()->sec == FX_SEC_SEND && str_eq(cur_page()->title, "FX"));
+    bad += check("  a second tap: Slicer section, not the next effect page",
+                 cur_page()->sec == FX_SEC_SLCR && str_eq(cur_page()->title, "SLICER"));
     ui_power_on();
     btn_down(B_FX);
     for (flash = 0, i = 0; i < 40u; i++) { frame(); flash |= ui.layer; }  /* past old HOLD */
@@ -3121,7 +3119,7 @@ static int test_layer(void)
     /* Punch-in sticky: keys and macros */
     ui_power_on();
     usb.config = 1; mo = mo_w;
-    press(B_FX); press(B_FX); press(B_FX); frame();
+    press(B_FX); press(B_FX); press(B_FX); frame();   /* Effects, Slicer, Punch-in */
     ok = ui.lock == LAYER_FX && ui.layer == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
     key_down(white(2)); frame();
     ok &= !gates() && mo_w == mo && (perf_held & PF_BIT(PF_R32));
@@ -6011,10 +6009,10 @@ static int test_layer_lock(void)
     ok &= str_eq(cur_page()->title, "SEQ TOOLS") && ui.lock == LAYER_SEQ;
     bad += check("  SEQ taps cycle Pattern → Step → Automation → SEQ TOOLS; only tools stick", ok);
     ui_power_on();
-    press(B_FX); press(B_FX); press(B_FX); frame();    /* Punch-in sticky */
+    press(B_FX); press(B_FX); press(B_FX); frame();    /* Effects, Slicer, Punch-in */
     ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
     press(B_FX); frame();
-    ok &= ui.lock == 0 && cur_page()->sec == FX_SEC_INS;
+    ok &= ui.lock == 0 && cur_page()->sec == FX_SEC_MASTER;
     bad += check("  only Punch-in sticky-locks LAYER_FX; leaving clears the lock", ok);
     return bad;
 }
@@ -6088,8 +6086,8 @@ static int test_fx_map(void)
     ui_power_on();
     go_title("ENV"); frame();
     press(B_FX); frames(64); press(B_FX); frames(100);
-    ok = !ui.lock && cur_page()->sec == FX_SEC_SEND;
-    bad += check("FX double-tap does not lock; second tap is Sends", ok);
+    ok = !ui.lock && cur_page()->sec == FX_SEC_SLCR;
+    bad += check("FX double-tap does not lock; second tap is Slicer", ok);
     return bad;
 }
 
@@ -8200,7 +8198,7 @@ static int test_no_layer_lock(void)
         go_title("ENV"); frame();
         press(B[i]); frames(64); press(B[i]); frames(200);
         if (B[i] == B_FX)
-            ok &= ui.lock == 0 || cur_page()->sec == FX_SEC_PUNCH; /* two taps: Inserts then Sends, no lock */
+            ok &= ui.lock == 0 || cur_page()->sec == FX_SEC_PUNCH; /* two taps: Effects then Slicer, no lock */
         else if (B[i] == B_GLO)
             ok &= ui.lock == 0 || cur_page()->sec == GLO_SEC_CLK; /* Song → Clock, no lock yet */
         else
@@ -8215,33 +8213,89 @@ static int test_no_layer_lock(void)
     return bad;
 }
 
-/* Araminta nav: FX button cycles sections (Inserts → Sends → Punch-in); SELECT walks pages inside a section.
- * Hold FX alone does not open punch-ins; punch-in keys work only in the Punch-in section. */
+/* Araminta nav: FX button cycles sections (Effects → Slicer → Punch-in → Master); SELECT walks pages
+ * inside a section. Hold FX alone does not open punch-ins; punch-in keys work only in the Punch-in section. */
 static int test_fx_sections(void)
 {
     int bad = 0, ok;
     uint32_t i, nins, held;
     ui_power_on();
     press(B_FX);
-    ok = !ui.home && cur_page()->fam == FAM_FX && str_eq(cur_page()->title, "REORDER");
-    for (nins = 0, i = 0; i < 20u && str_eq(cur_page()->title, "REORDER") == (nins == 0); i++) {
+    ok = !ui.home && cur_page()->fam == FAM_FX && str_eq(cur_page()->title, "EFFECTS");
+    for (nins = 0, i = 0; i < 20u && str_eq(cur_page()->title, "EFFECTS") == (nins == 0); i++) {
         if (cur_page()->sec == 0u) nins++;
         turn(EN_SELECT, 1);
     }
-    ok &= nins >= 7u;                                   /* REORDER + 6 inserts + SLICER at least */
-    ok &= cur_page()->sec == 0u;                        /* SELECT stayed in Inserts */
+    ok &= nins >= 9u;                                   /* EFFECTS + 6 inserts + DLY REVERB CHORUS */
+    ok &= cur_page()->sec == FX_SEC_INS;                /* SELECT stayed in Effects */
     press(B_FX);
-    ok &= cur_page()->fam == FAM_FX && cur_page()->sec == 1u && str_eq(cur_page()->title, "FX");
+    ok &= cur_page()->fam == FAM_FX && cur_page()->sec == FX_SEC_SLCR && str_eq(cur_page()->title, "SLICER");
     turn(EN_SELECT, 1);
-    ok &= cur_page()->sec == 1u;                        /* Sends pages only */
+    ok &= cur_page()->sec == FX_SEC_SLCR;               /* Slicer has one page */
     press(B_FX);
-    ok &= cur_page()->sec == 2u && ui.lock == LAYER_FX && ui.layer == LAYER_FX;
+    ok &= cur_page()->sec == FX_SEC_PUNCH && ui.lock == LAYER_FX && ui.layer == LAYER_FX;
     key_down(white(4)); frame();                       /* C4: LPF (B3 is 1/2, so the filters sit with the octaves) */
     ok &= (perf_held & PF_BIT(PF_LPF)) != 0u;
     key_up(white(4)); frame();
     press(B_FX);
-    ok &= cur_page()->sec == 0u && str_eq(cur_page()->title, "REORDER");
-    bad += check("FX sections: Inserts → Sends → Punch-in; SELECT stays in section; punch keys in Punch-in", ok);
+    ok &= cur_page()->sec == FX_SEC_MASTER && str_eq(cur_page()->title, "MASTER") && !ui.lock;
+    press(B_FX);
+    ok &= cur_page()->sec == FX_SEC_INS && str_eq(cur_page()->title, "EFFECTS");
+    bad += check("FX sections: Effects → Slicer → Punch-in → Master; SELECT stays in section; punch keys in Punch-in", ok);
+
+    ui_power_on();
+    go_title("EFFECTS");
+    ui.ior_sel = 0;
+    {
+        uint8_t before[INS_N], after[INS_N];
+        ins_order_get(TSEL, before);
+        turn(EN_K2, 1);                                 /* ORDER moves the chosen stage */
+        ins_order_get(TSEL, after);
+        ok = ui.ior_sel == 1u && before[0] == after[1] && before[1] == after[0];
+        turn(EN_K1, 1);
+        ok &= ui.ior_sel == 2u;
+        ins_order_get(TSEL, before);
+        ok &= !ins_is_send(TSEL, before[2]);
+        turn(EN_K3, 1);                                 /* that stage: in the chain → a send */
+        ins_order_get(TSEL, before);
+        ok &= ins_is_send(TSEL, before[2]) && before[0] == after[0] && before[1] == after[1];
+        TSEL->p[P_ICMIX] = 0;
+        turn(EN_K4, 8);                                 /* MIX is that stage's amount */
+        ok &= TSEL->p[P_ICMIX] > 0;
+        btn_down(B_FX);
+        turn(EN_SELECT, 1);                             /* holding FX does not reorder */
+        btn_up(B_FX); frame();
+        ins_order_get(TSEL, before);
+        ok &= before[0] == after[0] && before[1] == after[1];
+        go_title("EFFECTS");
+        {
+            uint8_t pr = TSEL->preset;
+            turn(EN_PRESET, 1);                         /* PRESETS loads a sound, it does not pick a stage */
+            ok &= TSEL->preset != pr && ui.ior_sel == 2u && str_eq(cur_page()->title, "EFFECTS");
+        }
+    }
+    bad += check("EFFECTS: K1 chooses, K2 moves, K3 send or chain, K4 mix; PRESETS loads a sound", ok);
+
+    ui_power_on();
+    go_title("DLY");
+    ok = song.g[G_DTIME] == 1 && !dtime_free();          /* 1/8, RATE */
+    turn(EN_K1, -1);                                     /* 1/8D, still a division (triplets and dotted stay) */
+    ok &= song.g[G_DTIME] == 10 && !dtime_free();
+    turn(EN_K4, 1);                                      /* TIME: free ms, the view's first knob */
+    {
+        uint32_t ms = dtime_ms();
+        ok &= dtime_free() && ms >= 1u && ms <= DTIME_MS_MAX;
+        turn(EN_K1, 1);                                  /* one detent is one millisecond */
+        ok &= dtime_ms() == ms + 1u;
+        turn(EN_K1, 1);
+        ok &= dtime_ms() == ms + 2u;
+        song.g[G_DTIME] = (int16_t)(DTIME_FREE + 100);
+        ok &= dtime_ms() == 100u && delay_samples() == (dtime_q8() + 128u) >> 8;
+        ok &= delay_samples() > 16u && delay_samples() < DLY_LEN;
+        turn(EN_K4, -1);                                 /* RATE again: the division we left */
+        ok &= !dtime_free() && song.g[G_DTIME] == 10;
+    }
+    bad += check("DLY: K4 RATE/TIME reloads K1; divisions keep dotted; free ms steps by 1", ok);
 
     ui_power_on();
     btn_down(B_FX); frames(600);

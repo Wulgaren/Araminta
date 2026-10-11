@@ -5,20 +5,20 @@
 ![Felucca 1.0](docs/felucca-1.0.png)
 
 **TL;DR:** Felucca 1.5.1 — SEQ > DETAIL for a step's chance, ratchet, nudge and velocity, MIDI Program Change, dotted delay times, REV / ECHO THROW, on top of 1.5's INSERT effects, MIDI LEARN, ANALOG's band-pass and high-pass, ENV SYNC, note lengths and per-step velocity. Connect your FM-1 to a computer by USB,
-open the [web installer](https://hugelton.github.io/Felucca/) in Chrome or Edge, and press Install;
+open the [web installer](https://wulgaren.github.io/Araminta/) in Chrome or Edge, and press Install;
 no extra hardware is needed. Installing is at your own risk: M-VAVE's updater or the installer's
 **Return to official V15** takes you back. Coming from 1.1.5.x? Read [⚠ Coming from 1.1.5](#-coming-from-115) first:
 projects saved by 1.4 or later do not open on 1.1.5.x. Going back from 1.5.x to 1.4.1? Read
 [⚠ New in 1.5](#new-in-15) first: projects saved by 1.5 do not open on 1.2 to 1.4.1. Want to look around first?
-[Try it in your browser](https://hugelton.github.io/Felucca/webapp/try/), no FM-1 needed.
+[Try it in your browser](https://wulgaren.github.io/Araminta/webapp/try/), no FM-1 needed.
 
 Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you find in
 [Issues](https://github.com/hugelton/Felucca/issues).
 
-- Install: [web installer](https://hugelton.github.io/Felucca/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
-- Try: [Felucca in your browser](https://hugelton.github.io/Felucca/webapp/try/): the same firmware compiled to
+- Install: [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
+- Try: [Araminta in your browser](https://wulgaren.github.io/Araminta/webapp/try/): the same firmware compiled to
   WebAssembly, with the panel on screen (mouse, touch, computer keyboard, Web MIDI in)
-- Editor: [web editor](https://hugelton.github.io/Felucca/webapp/editor/); its development has moved to
+- Editor: [web editor](https://wulgaren.github.io/Araminta/webapp/editor/); upstream editor work continues in
   [Felucca-WebApp](https://github.com/hugelton/Felucca-WebApp)
 - Build: [BUILDING.md](BUILDING.md)
 
