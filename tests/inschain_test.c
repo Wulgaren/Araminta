@@ -33,6 +33,39 @@ static uint64_t hash_out(uint32_t blocks)
     return h;
 }
 
+/* sum of |left| over blocks (after a short settle): insert FILTER CUT / RES must move this */
+static int64_t energy_out(uint32_t settle, uint32_t blocks)
+{
+    int64_t e = 0;
+    uint32_t i, b;
+    render_blocks(settle);
+    for (b = 0; b < blocks; b++) {
+        mix_block(out_buf, CTL);
+        for (i = 0; i < CTL; i++) {
+            int32_t x = out_buf[2u * i];
+            e += x < 0 ? -x : x;
+        }
+    }
+    return e;
+}
+
+/* bright ANALOG saw, synth filter open: only the insert FILTER colours the sound */
+static void filter_setup(track_t *t, int32_t type, int32_t cut, int32_t res, int32_t mix)
+{
+    uint32_t i;
+    for (i = P_IORD; i < P_FTYPE; i++)
+        t->p[i] = TP[i].def;
+    t->p[P_IORD] = 0;
+    t->p[P_IDMIX] = t->p[P_ICMIX] = t->p[P_IPMIX] = t->p[P_ILMIX] = t->p[P_IHMIX] = 0;
+    t->p[P_CHOR] = t->p[P_DLY] = t->p[P_REV] = 0;
+    t->p[P_E4] = 127;                                   /* ANALOG CUT open */
+    t->p[P_E5] = 0;                                     /* ANALOG RES off */
+    t->p[P_IFTYPE] = (int16_t)type;
+    t->p[P_IFCUT] = (int16_t)cut;
+    t->p[P_IFRES] = (int16_t)res;
+    t->p[P_IFMIX] = (int16_t)mix;
+}
+
 static void fresh(void)
 {
     uint32_t k;
@@ -342,6 +375,40 @@ int main(void)
     }
 
     ck("ANALOG FILTER TYPE includes COMB", NELEM(N_FTYPE) == 4u && str_eq(N_FTYPE[3], "COMB"));
+
+    /* insert FILTER: CUT is Q8 into tsvf_coef (same as ANALOG). A low CUT must muffle a bright saw;
+     * RES must raise a band-pass peak. Regression for the raw 0..127 cutoff bug (wet ≈ silence). */
+    {
+        int64_t e_lo, e_hi, e_res0, e_res;
+        fresh();
+        t = &trk[0];
+        filter_setup(t, IFT_LP, 32, 40, 114);           /* ~90 % mix, dark CUT */
+        trk_note_on(t, 60, 100);
+        e_lo = energy_out(16, 48);
+        fresh();
+        t = &trk[0];
+        filter_setup(t, IFT_LP, 110, 40, 114);          /* open CUT */
+        trk_note_on(t, 60, 100);
+        e_hi = energy_out(16, 48);
+        ck("FILTER LP: low CUT muffles vs open CUT (energy)",
+           e_lo > 0 && e_hi > e_lo * 2);
+        printf("inschain:   LP energy CUT 32 / 110: %lld / %lld\n",
+               (long long)e_lo, (long long)e_hi);
+
+        fresh();
+        t = &trk[0];
+        filter_setup(t, IFT_BP, 64, 0, 127);
+        trk_note_on(t, 72, 100);
+        e_res0 = energy_out(16, 48);
+        fresh();
+        t = &trk[0];
+        filter_setup(t, IFT_BP, 64, 110, 127);
+        trk_note_on(t, 72, 100);
+        e_res = energy_out(16, 48);
+        ck("FILTER BP: RES raises energy at the cutoff",
+           e_res0 > 0 && e_res > e_res0 + e_res0 / 4);
+        printf("inschain:   BP energy RES 0 / 110: %lld / %lld\n", (long long)e_res0, (long long)e_res);
+    }
 
     printf("inschain: %d failure(s)\n", bad);
     return bad ? 1 : 0;

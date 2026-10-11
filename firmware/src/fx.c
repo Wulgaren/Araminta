@@ -1103,7 +1103,8 @@ static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, const track_t 
     uint32_t i, ft = (uint32_t)clamp(t->p[P_IFTYPE], 0, IFT_N - 1);
     int32_t cut = t->p[P_IFCUT], res = t->p[P_IFRES], k = 8192 - res * 7600 / 127;
     tsvf_t flt;
-    tsvf_coef(&flt, cut, res);
+    /* tsvf_coef takes cutoff in Q8 (0..127 << 8), as ANALOG / TRIO / NOISE do */
+    tsvf_coef(&flt, cut << 8, res);
     for (i = 0; i < n; i++) {
         int32_t x = b[i], y;
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
