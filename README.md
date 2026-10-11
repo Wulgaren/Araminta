@@ -1,41 +1,55 @@
-# Felucca
+# Araminta
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
 
-![Felucca 1.0](docs/felucca-1.0.png)
+![Araminta](docs/araminta.png)
 
-**TL;DR:** Felucca 1.5.1 — SEQ > DETAIL for a step's chance, ratchet, nudge and velocity, MIDI Program Change, dotted delay times, REV / ECHO THROW, on top of 1.5's INSERT effects, MIDI LEARN, ANALOG's band-pass and high-pass, ENV SYNC, note lengths and per-step velocity. Connect your FM-1 to a computer by USB,
-open the [web installer](https://wulgaren.github.io/Araminta/) in Chrome or Edge, and press Install;
-no extra hardware is needed. Installing is at your own risk: M-VAVE's updater or the installer's
-**Return to official V15** takes you back. Coming from 1.1.5.x? Read [⚠ Coming from 1.1.5](#-coming-from-115) first:
-projects saved by 1.4 or later do not open on 1.1.5.x. Going back from 1.5.x to 1.4.1? Read
-[⚠ New in 1.5](#new-in-15) first: projects saved by 1.5 do not open on 1.2 to 1.4.1. Want to look around first?
-[Try it in your browser](https://wulgaren.github.io/Araminta/webapp/try/), no FM-1 needed.
+**TL;DR:** Araminta v1.5.1 is a fork of [Felucca](https://github.com/hugelton/Felucca) for the M-VAVE FM-1.
+On top of Felucca 1.5.1 you get DRUM-X, SAMPLE / GRAIN / NOISE back, JIANT punch-ins, Sloop free take, Melodee silent-track motion, and a tighter VOICE page.
+Upstream 1.5.1 still brings SEQ > DETAIL, MIDI Program Change, dotted delay times and REV / ECHO THROW.
+Plug the FM-1 into a computer by USB, open the [web installer](https://wulgaren.github.io/Araminta/) in Chrome or Edge, and press Install.
+Install at your own risk: M-VAVE's updater or the installer's **Return to official V15** takes you back.
+Coming from 1.1.5.x? Read [Coming from 1.1.5](#coming-from-115) first: projects saved by 1.4 or later do not open on 1.1.5.x.
+Going back from 1.5.x to 1.4.1? Read [New in 1.5](#new-in-15) first: projects saved by 1.5 do not open on 1.2 to 1.4.1.
+Want a look without hardware? [Try it in your browser](https://wulgaren.github.io/Araminta/webapp/try/).
 
-Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you find in
-[Issues](https://github.com/hugelton/Felucca/issues).
+Multi-engine synthesizer firmware for the M-VAVE FM-1, based on Felucca.
+Report what you find in [Araminta Issues](https://github.com/Wulgaren/Araminta/issues).
 
 - Install: [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Try: [Araminta in your browser](https://wulgaren.github.io/Araminta/webapp/try/): the same firmware compiled to
   WebAssembly, with the panel on screen (mouse, touch, computer keyboard, Web MIDI in)
 - Editor: [web editor](https://wulgaren.github.io/Araminta/webapp/editor/); upstream editor work continues in
   [Felucca-WebApp](https://github.com/hugelton/Felucca-WebApp)
+- Upstream: [hugelton/Felucca](https://github.com/hugelton/Felucca) (and its [itch.io](https://hugelton.itch.io/felucca) page)
 - Build: [BUILDING.md](BUILDING.md)
 
-<a href="https://hugelton.itch.io/felucca"><img src="https://static.itch.io/images/badge-color.svg" alt="Available on itch.io" width="74"></a>
+## What Araminta changes
+
+Araminta keeps Felucca 1.5.x as the base and layers a few ports and layout shifts on top.
+These are the differences that matter day to day:
+
+- **Sloop free take.** Project empty, track armed, transport stopped: the first note starts a free take, so you can record without building a pattern first.
+- **JIANT MIDI punch-ins.** They live on FX under the Punch-in section. SELECT walks pages inside FX sections; holding FX alone does not open punch-ins. Master gets CLIP / PNCH / DUCK. Reverb models add SHIMR / CLOUD.
+- **Melodee.** Silent tracks still run LFO, bend, the engine block and fades, so modulation keeps moving when a track is muted or resting.
+- **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit, mutes and X-MOD save with the project as FUN11 / `FUNB` (same size as FUN10; disk motion max 78). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
+- **SAMPLE, GRAIN and NOISE** are back (SLICE stays retired). CR78 is not in the ROM sample bank; upload a kit as a USR sample. In the web editor, the Drum kit grid checkbox tags the slot (`FSMP` header); SAMPLE on that USR set then shows the drum grid on SEQ instead of the piano roll, with zones mapped by hand.
+- **VOICE** is one page: VCE, GLD, UNI DTN, SPRD. GLD is free milliseconds (no GLMOD on the page). PAN / MUTE live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
+
+Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
 ## Features
 
-- **Thirteen engines** (below), each with its own factory presets; every factory sound has a category (BASS, LEAD,
+- **Twelve engines** (below), each with its own factory presets; every factory sound has a category (BASS, LEAD,
   PAD, PLUCK, KEYS, DRUM, FX, OTHER) to browse by
-- **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM engine);
+- **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM / DRUM-X engine);
   8 voices shared between them. ALGORITHM selects the track on every page
 - **Sequencer:** 64 steps per track with chords, ties, accent, slide, per-step chance, velocity and ratchets
   (a step played 2, 3 or 4 times in its length); a piano roll of the steps, where KNOB 3 sets a note's length
   (0 clears it) and PRESETS moves that note in time; a drum grid (white keys =
   steps, black keys = lanes); **SEQ > DETAIL**: the cursor step's chance, ratchet, nudge and velocity on the four
   knobs, drawn as lanes over the steps; automation: recording of knob moves per step (an automation icon marks the cards it
-  drives); live loop recording with overdub; step recording at the cursor (REC on SEQ > STEP while stopped), one
+  drives); live loop recording with overdub; Sloop free take when the project is empty; step recording at the cursor (REC on SEQ > STEP while stopped), one
   chord at a time or note by note (MENU > CHORD ENTRY ADD); divisions listed by length, 4 bars to 1/32; loading a
   sound never touches your patterns
 - **Timing:** live recording keeps when you played each note, as a per-step **NUDGE** (1/16 of a step, half a step
@@ -48,12 +62,12 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
   delete one. 128 records shared by the four tracks. SAVE held undoes every edit
 - **SEQ TOOLS:** hold SEQ on any page for tools on the keys: CLEAR, REVERSE, SHIFT < / >, **RANDOM** (a new beat,
   or new notes in the scale on the same rhythm) and **COOK** (changes the pattern a little each press); on a DRUM
-  track also BEAT and each lane's CLEAR, REVERSE, FILL and RANDOM; KNOB 1–4 are LEN, DIV, SWING and GATE. Each tool
-  is one undo (SAVE held); OCT− puts the track back as the layer found it
+  track also BEAT and each lane's CLEAR, REVERSE, FILL and RANDOM; KNOB 1-4 are LEN, DIV, SWING and GATE. Each tool
+  is one undo (SAVE held); OCT- puts the track back as the layer found it
 - **Metronome and count-in:** CLICK (OFF, while recording, or always) with three levels, and a count-in
   of 1 or 2 bars before recording from stop; the click goes to the headphones and speaker only, never to
   USB audio or into a pattern
-- **Songs** (GLO > SONG): up to 16 sections, each naming the project slot (A–D) **every track** plays, or "-" for a
+- **Songs** (GLO > SONG): up to 16 sections, each naming the project slot (A-D) **every track** plays, or "-" for a
   track that rests there, with its repeats; drawn as a timeline with a lane per track
 - **Chord keys:** one finger plays an in-key chord (triads or sevenths of the scale, or fixed chord
   shapes), with voicings; on the keys, MIDI in, recording and the arpeggiator
@@ -68,10 +82,10 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
 - **ENV SYNC** (ENV > ENV DEST): the envelope's attack, decay and release as note values of the tempo
 - **Effects:** distortion, an **INSERT** (drives, CRUSH, phaser, flanger, chorus, with a dry / wet MIX) and the
   SLICER per track; chorus, delay (in time with the tempo, dotted values included) and reverb sends (the reverb as
-  **HALL**, ROOM or SPRING; HALL is a smooth stereo reverb, the default on a fresh start); master limiter
+  **HALL**, ROOM, SPRING, plus Araminta's **SHIMR** / **CLOUD**); master limiter, with CLIP / PNCH / DUCK on the master
 - **FX layer:** hold FX for repeat, reverse, filter sweeps, tape stop, freeze, a harmonizer
   (OCT UP / OCT DN with shimmer), **FLANGER** and **PHASER** (in time with the tempo), **REV THROW** and **ECHO THROW**
-  (every track's reverb or delay send full while held), and mutes on the black keys;
+  (every track's reverb or delay send full while held), JIANT punch-ins on their own FX section, and mutes on the black keys;
   any white key can hold any effect (hold the key in the layer and turn PRESETS); MENU > FX LATCH makes them toggle,
   so nothing has to stay held
 - **MOMENTARY:** hold LFO and turn a knob on HOME or a sound / FX page; let go of LFO and the value jumps back
@@ -95,10 +109,10 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
   DIM LO, DIM HI or INV, the official firmware's look); PLAY turns green while playing; the keys show
   the notes the sequencer and MIDI IN play, and on SEQ > STEP (stopped) the notes of the step under the cursor;
   the drum grid marks the beats (steps 1, 5, 9, 13); MENU > SCALE LEDS shows the track's scale on the keys
-- **USB:** class-compliant MIDI in and out, and a stereo audio input ("Felucca") at 44.1 or 48 kHz
+- **USB:** class-compliant MIDI in and out, and a stereo audio input (still named "Felucca" on the wire) at 44.1 or 48 kHz
   (the computer picks) that records the master output on the computer, no driver needed (at a fixed level with MENU > USB LEVEL FIXED;
-  on macOS 13–15, set MENU > USB SERIAL to OFF so the audio input appears)
-- **MIDI:** USB and TRS MIDI in; MENU > MIDI > MIDI IN: CH1-4 (channels 1–4 play tracks 1–4), CH5-8, CH9-12 or
+  on macOS 13-15, set MENU > USB SERIAL to OFF so the audio input appears)
+- **MIDI:** USB and TRS MIDI in; MENU > MIDI > MIDI IN: CH1-4 (channels 1-4 play tracks 1-4), CH5-8, CH9-12 or
   CH13-16 (another block of four, e.g. for two FM-1s on one cable), or SEL (every channel plays the selected track);
   the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS. MIDI CCs set
   track parameters: 5 GLIDE, 7 LEVEL, 10 PAN, 71 resonance, 72 / 73 / 75 release / attack / decay, 74 brightness,
@@ -108,37 +122,19 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
 - **Web:** editor for every parameter (with a 6-operator FM patch editor that also sends a whole 32-voice bank),
   step grid, mixer, preset library, sample upload and recording with trim, the MENU settings; full backup and restore
   (everything but the FM6 voice bank: keep its .syx file);
-  return to the official firmware; Felucca itself running in the browser
-
-## Araminta
-
-Araminta builds on Felucca 1.5.x with these ports and layout changes:
-
-- **Sloop free take:** with the project empty and a track armed while stopped, the first note starts a free take
-  (record without a prior pattern)
-- **JIANT MIDI punch-ins** on the FX **Punch-in** section (SELECT walks pages inside FX sections; hold FX alone
-  does not open punch-ins), plus master **CLIP / PNCH / DUCK** and reverb models **SHIMR / CLOUD**
-- **Melodee:** silent tracks still run LFO, bend, engine block and fades so modulation keeps moving
-- **DRUM-X** replaces Felucca's sampled/VA kit enum: one morphable 8-lane kit (EDIT **Sound** → **Kit** → **Lanes**;
-  Voice hidden on DRUM). The kit, mutes and X-MOD save with the project (**FUN11** / `FUNB`, same size as FUN10;
-  disk motion max 78). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X
-- **SAMPLE, GRAIN and NOISE** restored (SLICE stays retired). CR78 is not in the ROM sample bank — upload a kit as
-  a USR sample. On upload, the web editor's **Drum kit grid** checkbox tags the slot (`FSMP` header); SAMPLE on that
-  USR set then shows the drum grid on SEQ instead of the piano roll (zones mapped by hand)
-- **VOICE** is one page: **VCE, GLD, UNI DTN, SPRD**. GLD is free milliseconds (no GLMOD on the page). PAN / MUTE live
-  on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON (blank cards otherwise; values stay stored).
+  return to the official firmware; Araminta itself running in the browser
 
 ## New in 1.5.1
 
 - **SEQ > DETAIL** (Discussion #199): SEQ now goes STEP, **DETAIL**, AUTOMATION. DETAIL is the STEP page (the same
-  cursor, the same piano roll or drum grid) with KNOB 1–4 as the cursor step's **CHANCE**, **RATCH**, **NUDGE** and
+  cursor, the same piano roll or drum grid) with KNOB 1-4 as the cursor step's **CHANCE**, **RATCH**, **NUDGE** and
   **VEL**; PRESETS walks the steps, and on a DRUM track a white key picks its step. The four are drawn as lanes over
   the steps; EDIT puts the step's four back. On STEP and the drum grid a step with a CHANCE, RATCH or NUDGE gets a
   small mark. These are the values AUTOMATION lists (EDIT there still deletes a row): nothing new is stored.
 - **MIDI Program Change** (PR #179 by [renebohne](https://github.com/renebohne)): a Program Change on a track's
   channel (routed as notes by MENU > MIDI > MIDI IN) loads that track's sound, numbered from 0 as PRESETS lists
-  the engine's sounds. DRUM: its kits (0–6: STD, 80, 10, 66, 55, 77, 78). FM6: 0–7 its presets (F1–F8), 8–39 the voice
-  bank's B1–B32 that hold a voice. A number past the last is ignored; the engine never changes. SAVE held undoes it.
+  the engine's sounds. DRUM: its kits (0-6: STD, 80, 10, 66, 55, 77, 78). FM6: 0-7 its presets (F1-F8), 8-39 the voice
+  bank's B1-B32 that hold a voice. A number past the last is ignored; the engine never changes. SAVE held undoes it.
 - **Dotted delay times:** the DLY page's TIME has **1/4D, 1/8D and 1/16D**, and the knob steps them by length
   (… 1/2, 1/4D, 1/4, 1/8D, 1/8, 1/16D, 8T …). The delay holds 1.49 s, so 1/4D is held to that at 60 BPM and below.
 - **REV THROW and ECHO THROW** in the FX layer, on **D5** and **E5** by default: while held, every track's reverb
@@ -155,7 +151,7 @@ Araminta builds on Felucca 1.5.x with these ports and layout changes:
 
 ## New in 1.5
 
-- **An INSERT effect on every track, with a dry / wet MIX** (Discussions #78, #177): FX → INSERT. KNOB 1 TYPE: SOFT,
+- **An INSERT effect on every track, with a dry / wet MIX** (Discussions #78, #177): FX > INSERT. KNOB 1 TYPE: SOFT,
   HARD, FOLD, FUZZ (drives: DRIVE, TONE, LEVEL), CRUSH (BITS, RATE, LPF), PHASR, FLANG, CHOR (RATE, DEPTH, FDBK);
   INSERT 2: MIX. It comes after DIST and before the SLICER, is part of the sound (user presets and projects keep it)
   and works with automation and locks. TYPE OFF, the default, plays exactly as before.
@@ -164,31 +160,31 @@ Araminta builds on Felucca 1.5.x with these ports and layout changes:
   "CC74 -> T1 CUT"). Turn the next knob and move the next control; OCT− clears the picked parameter's CC, OCT+ (or
   GLO + D4 again) ends it. Up to 16 CCs, kept with the settings; **MENU > MIDI > LEARN CLEAR** (OCT+) clears them all.
   Nothing changes for anyone who never learns.
-- **ANALOG's filter TYPE: LP, BP, HP** (Discussion #104): EDIT → FILTER after OSC (EDIT 1); no EDIT 2 / FLT on
-  ANALOG. KNOB 1 TYPE (LP the low-pass as before, BP band-pass, HP high-pass), KNOB 2–4 CUT, RES, KTR. Next page
+- **ANALOG's filter TYPE: LP, BP, HP** (Discussion #104): EDIT > FILTER after OSC (EDIT 1); no EDIT 2 / FLT on
+  ANALOG. KNOB 1 TYPE (LP the low-pass as before, BP band-pass, HP high-pass), KNOB 2-4 CUT, RES, KTR. Next page
   FILTER DRIVE is DRV alone.
 - **ENV SYNC** (Discussion #175): ENV DEST's KNOB 4 (ESYNC) makes ENV's ATK, DEC and REL note values of the tempo
   (1/64T to 4 bars, dotted and triplets) instead of milliseconds; they follow the tempo and an external clock.
-- **A note's length on the piano roll** (Discussions #178, #173): on SEQ → STEP, KNOB 3 on a note step is its **LEN**:
+- **A note's length on the piano roll** (Discussions #178, #173): on SEQ > STEP, KNOB 3 on a note step is its **LEN**:
   right ties the steps after it on, left takes them back, and left until 0 clears the note (KNOB 3 becomes TIME).
   It stops before the next note ("NOTE AHEAD"). PRESETS moves that note in time, cursor with it; on a rest it
   moves the cursor. On the drum grid, hold the step keys and turn PRESETS.
-- **Per-step velocity** (Discussion #173): SEQ → AUTOMATION, **+ ADD VEL** (OCT+: SHOW) lists every note step's
-  velocity, KNOB 4 sets it (1–127). Steps entered by hand play 96, steps recorded live keep how hard you played.
+- **Per-step velocity** (Discussion #173): SEQ > AUTOMATION, **+ ADD VEL** (OCT+: SHOW) lists every note step's
+  velocity, KNOB 4 sets it (1-127). Steps entered by hand play 96, steps recorded live keep how hard you played.
 - **HELP** (Discussion #156; MENU > SYSTEM > HELP, OFF by default): ON shows a short hint, key caps and a few words, in
   the footer for about 2 s when a page opens, and under a quick layer's map while it shows.
 - **SAVE reaches PRESETS on its second tap** (#173): SAVE's pages go USER, PRESETS, PHRASES, PROJECT, TOOLS. The quick
   save (SAVE, OCT+, OCT+) is unchanged.
 - **The FX layer's map alternates light and dark columns** (#173), so neighbouring effects are told apart at a glance.
 - **HOME LEVELS** (#134): MENU > DISPLAY > HOME has a third value, LEVELS: HOME shows the four tracks' rows and
-  KNOB 1–4 set the LEVEL of T1–T4.
-- ⚠ **SAMPLE's PIANO is the full piano again** (five notes, as in 1.0 to 1.1.5): sounds and projects made on 1.4 or
+  KNOB 1-4 set the LEVEL of T1-T4.
+- **SAMPLE's PIANO is the full piano again** (five notes, as in 1.0 to 1.1.5): sounds and projects made on 1.4 or
   1.4.1 that use PIANO play the full piano. PIANO HD in a user slot is no longer needed.
 - Fixed: the arpeggiator follows TRN, ROOT, SCALE and QNT on held and latched notes (#191).
 - **STYLE and ANIM removed** from the menu: the UI is always flat (no raised card fills, no rule dividers), and
   values snap with no rolling digits, piano-roll glide, tab slide or LED sweep / idle animation. Knob gauges again
   show a 1 px end line at the fill's tip (as in 0.9).
-- ⚠ The INSERT, the filter TYPE and ENV SYNC are new sound parameters (OFF, LP, OFF by default): everything saved
+- The INSERT, the filter TYPE and ENV SYNC are new sound parameters (OFF, LP, OFF by default): everything saved
   before plays as before. But **a project saved by 1.5 does not open on 1.2 to 1.4.1**: its slot shows EMPTY there
   (the data stays in flash until you save something into that slot there), and a backup that holds one is refused.
   User presets saved by 1.5 load there without the new values. The full backup still does not include the FM6
@@ -197,21 +193,21 @@ Araminta builds on Felucca 1.5.x with these ports and layout changes:
 ## New in 1.4.1
 
 - **Engine quick actions on the EDIT layer's black keys.** Hold EDIT: the black keys do what the selected track's
-  engine offers, and the map shows it. On a DRUM track, black keys 1–8 (F#3 … A#4) mute its lanes KICK, SNARE, CLAP,
+  engine offers, and the map shows it. On a DRUM track, black keys 1-8 (F#3 … A#4) mute its lanes KICK, SNARE, CLAP,
   HATCL, HATOP, TOM, RIM and BELL, one press to mute, the next to unmute. The LEDs show which lanes sound, the drum
   grid dims a muted lane. A muted lane keeps playing unheard, so unmuting brings it back in time. The mutes are for
   live play: never saved, not recorded, not undone; a sound or project load clears them, OCT− in the layer puts them
   back as they were when it opened. Other engines have no quick actions yet.
 - **FM6 voice bank** (Discussion #168). The web editor's 6-OP FM tab sends a whole 32-voice SysEx bank (the standard
-  4096-byte file) to the FM-1 in one go, with its name. On an FM6 track SLOT (EDIT 2, KNOB 4) now goes F1–F8, OWN,
-  then **B1–B32**, the bank's voices; the algorithm chart shows the voice's name. Picking a voice copies it into the
-  track, as F1–F8 do, so a project or user preset saved with it keeps that sound after you send another bank (it
+  4096-byte file) to the FM-1 in one go, with its name. On an FM6 track SLOT (EDIT 2, KNOB 4) now goes F1-F8, OWN,
+  then **B1-B32**, the bank's voices; the algorithm chart shows the voice's name. Picking a voice copies it into the
+  track, as F1-F8 do, so a project or user preset saved with it keeps that sound after you send another bank (it
   loads with SLOT OWN). With no bank sent, SLOT stops at OWN as before. The bank has its own flash sector and is only
   replaced once a new one arrived whole; projects, presets, samples and settings are not touched. **The full backup
   does not include the bank: keep the .syx file.**
 - 1.4.1 opens and saves everything 1.4 does, in the same formats.
 
-## ⚠ Coming from 1.1.5
+## Coming from 1.1.5
 
 1.4 is the first release since 1.1.5.1 and holds a lot (all of this holds for 1.4.1 and 1.5 too). Everything you saved loads and sounds as before, except
 where marked here:
@@ -236,13 +232,13 @@ where marked here:
 
 ## Controls
 
-![FM-1 controls with Felucca](docs/controls.jpg)
+![FM-1 controls with Araminta](docs/controls.jpg)
 
 - Tap a page button for its page, again for the next; HOME returns home. Page buttons act when let go
 - Hold FX, GLO, SCL, EDIT, REC or SEQ for its quick layer; hold SAVE to undo, HOME for the menu; hold LFO and turn a
   knob for a MOMENTARY change
 - Double-tap a layer's button to keep its layer open without holding; tap it again to close
-- On SEQ > STEP, hold a step and turn KNOB 1–4 to lock those parameters on that step (PRESETS: move the held steps in time)
+- On SEQ > STEP, hold a step and turn KNOB 1-4 to lock those parameters on that step (PRESETS: move the held steps in time)
 - On action pages and in dialogs, OCT+ does it and OCT− goes back; in the menu, OCT+ / OCT− change the value and HOME closes it
 - Save a sound: stop, tap SAVE, pick a slot with KNOB 1, then OCT+ and OCT+ again (name it with the keys)
 
@@ -265,7 +261,7 @@ Hold **HOME** for the menu, in five tabs: **DISPLAY** (COLOR, LARGE, LEDS, SCREE
 **CONTROL** (HOLD, KNOB ACCEL, FX LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW, CHORD ENTRY), **AUDIO** (SPEAKER EQ,
 USB LEVEL, CLICK, CLICK LEVEL, COUNT-IN, TUNE), **MIDI** (MIDI IN, LEARN CLEAR) and **SYSTEM** (USB SERIAL,
 RESTORE LAST, HELP, HARDWARE CALIBRATION, INFO, ABOUT).
-ALGORITHM moves between the tabs and PRESETS through the rows of one; any of KNOB 1–4, or OCT+ / OCT−,
+ALGORITHM moves between the tabs and PRESETS through the rows of one; any of KNOB 1-4, or OCT+ / OCT−,
 changes the value (OCT+ opens HARDWARE CALIBRATION, INFO and ABOUT); press HOME to close the menu. Every new
 setting defaults to the earlier behaviour. The web editor's Settings tab reads and changes them too, saved the same
 way as from the menu, in the same tabs. STYLE and ANIM are gone from the menu (always flat, no UI animations).
@@ -273,7 +269,7 @@ way as from the menu, in the same tabs. STYLE and ANIM are gone from the menu (a
 - **COLOR:** the palette. GREY (grayscale, called MONO up to 1.0.1), GREEN, AMBER, ICE, VIOLET, ROSE,
   PAPER (light), HI-CON (high contrast), NIGHT (the 0.9 look: true black, green-tinted text) and MONO
   (black and white). Every palette draws without a raised card fill (SURF matches the background, as MONO)
-- **LARGE:** OFF or ON: on HOME and the value pages the four knob cards grow tall, marked K1–K4, with
+- **LARGE:** OFF or ON: on HOME and the value pages the four knob cards grow tall, marked K1-K4, with
   larger labels and values about twice the size; the graph below becomes a strip. Lists, the piano roll,
   the drum grid and the quick layers keep their layout with larger labels
 - **LEDS:** OFF (no glow), DIM LO, DIM HI (default) or INV (the idle LEDs lit, the active ones dark).
@@ -284,8 +280,8 @@ way as from the menu, in the same tabs. STYLE and ANIM are gone from the menu (a
 - **SCOPE:** OUT (default) or MIX: what HOME's oscilloscope shows. OUT the sound after MASTER (the picture shrinks
   with the volume), MIX the mix before MASTER, the same size at any volume
 - **HOME:** SCOPE (default), TRACKS or LEVELS: under HOME's four cards, the oscilloscope or the four tracks, a row
-  each with its sound, its steps playing, MUTE and a meter. With TRACKS only the look changes; with LEVELS KNOB 1–4
-  set the LEVEL of T1–T4 (the engine's main parameters are on EDIT)
+  each with its sound, its steps playing, MUTE and a meter. With TRACKS only the look changes; with LEVELS KNOB 1-4
+  set the LEVEL of T1-T4 (the engine's main parameters are on EDIT)
 - **HOLD:** how long a layer's button is held before its map shows
 - **KNOB ACCEL:** OFF (one step per click) or ON: a fast, steady turn of a wide value moves 2 to 4 steps
   per click, up to 8 on values of more than 64 steps, the FX and GLO layers' knobs included; lists never
@@ -314,7 +310,7 @@ way as from the menu, in the same tabs. STYLE and ANIM are gone from the menu (a
 - **MIDI IN:** CH1-4 (default), SEL, CH5-8, CH9-12 or CH13-16 (see MIDI above). The project's too
 - **LEARN CLEAR:** how many CCs MIDI LEARN has set (NONE, 1 CC … 16 CC); OCT+ clears them all
 - **USB SERIAL:** ON or OFF, applied when the menu closes (the FM-1 reconnects). OFF leaves out the
-  serial console, a developer tool, so the FM-1 is a plain audio + MIDI device; this lets macOS 13–15
+  serial console, a developer tool, so the FM-1 is a plain audio + MIDI device; this lets macOS 13-15
   see its USB audio input. MIDI, the editor and the installer work either way
 - **RESTORE LAST:** ON (default) or OFF. ON, the FM-1 starts with the music you left (the header says
   RESTORED), kept in an autosave apart from the four projects; it is written when the music changed, the
@@ -333,7 +329,7 @@ In the order the device lists them:
 - **FM6**: classic 6-operator FM (Dexed-based): 32 algorithms, a full patch per track, edited in the
   web editor (which imports .syx files) or on the device: EDIT > OPERATOR (ratio or fixed frequency, fine, level),
   OP ENV (each stage's rate and level, drawn as the envelope) and OPERATOR 2 (mode, detune, velocity), one
-  operator at a time on the algorithm chart; macros on top; SLOT picks a factory patch (F1–F8), the track's own (OWN) or a voice of the bank the web editor sent (B1–B32)
+  operator at a time on the algorithm chart; macros on top; SLOT picks a factory patch (F1-F8), the track's own (OWN) or a voice of the bank the web editor sent (B1-B32)
 - **PHASE**: phase distortion (ported from CrispyZebra)
 - **LOFI**: chiptune; pulse, triangle, saw, noise and a 4-bit wave RAM, stepped envelope, sweep, arpeggio
 - **SAMPLE**: multisampled instruments (PIANO, FLUTE, SAX) and 3 user sample slots; a USR slot can be tagged
@@ -344,18 +340,17 @@ In the order the device lists them:
 - **GRAIN**: granular textures from the built-in samples or a user slot
 - **PHYS**: physical models: modal resonators, strings, struck membranes, sympathetic strings
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
-- **SLICE**: retired (reserved index; old stores load as DRUM)
-- **DRUM**: **DRUM-X**, an 8-lane morphable kit on the General MIDI key map (JIANT port). EDIT sections
-  **Sound** (MRPH / TUNE / TONE / DECY and NOIS / FM / FOLD / DRV), **Kit** (SOUND … X-MOD) and **Lanes**;
-  kit / mute / X-MOD persist in **FUN11** projects (FUN10 opens with the factory kit). Old Felucca KIT values
-  still play as DRUM-X
+- **DRUM**: DRUM-X, an 8-lane morphable kit on the General MIDI key map (JIANT port). EDIT sections
+  **Sound** (MRPH / TUNE / TONE / DECY and NOIS / FM / FOLD / DRV), **Kit** (SOUND ... X-MOD) and **Lanes**.
+  Kit, mute and X-MOD persist in FUN11 projects (FUN10 opens with the factory kit). Old Felucca KIT values
+  still play as DRUM-X. SLICE is retired; old stores load as DRUM
 
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
 as FM6 sounds converted from them. The SAMPLE engine's PERC kit was removed in 1.0.2: sounds and
 projects that used it load as the DRUM engine's kit, on the same key map. FM6's patch bank (the B
 slots) was removed in 1.0.3: user presets keep their own FM6 patch, and presets that used a B slot get
 that patch on the first start of 1.0.3. 1.4.1 brings B slots back as a voice bank sent from the web editor
-(B1–B32): a voice picked from it becomes the track's own patch, so nothing saved depends on the bank. SLICE gained a second built-in sound in 1.0.4, PIANO (the SAMPLE
+(B1-B32): a voice picked from it becomes the track's own patch, so nothing saved depends on the bank. SLICE gained a second built-in sound in 1.0.4, PIANO (the SAMPLE
 engine's middle C as it was then), next to BREAK. Since 1.0.4 a missing sample (an empty user slot, or a set missing
 from the build) plays a plain sine at the note's pitch on SAMPLE, GRAIN and SLICE, and the screen says
 NO SAMPLE once. DRUM's KIT variants HAND, CYM and H+CYM were retired in 1.0.5: sounds and projects that
@@ -410,28 +405,27 @@ the FM-1 can be brought back:
 - If it stays in boot mode, [FM-1 Transporter](https://github.com/kurogedelic/FM-1-transporter) reads and
   writes the FM-1's flash from a Mac through a Seeed XIAO RP2040 (three wires to the FM-1's USB lines). Back up
   the flash first, then write the official firmware (M-VAVE's FM-1.fwsc).
-- Questions: [Issues](https://github.com/hugelton/Felucca/issues).
+- Questions: [Issues](https://github.com/Wulgaren/Araminta/issues). Upstream Felucca: [hugelton/Felucca](https://github.com/hugelton/Felucca).
 
 ## Support
 
-If Felucca is useful to you, [sponsoring on GitHub](https://github.com/sponsors/hugelton) or a donation
-on [itch.io](https://hugelton.itch.io/felucca) helps keep its development going.
+Bugs that you can reproduce belong in [Araminta Issues](https://github.com/Wulgaren/Araminta/issues), one report each.
+Ideas and requests go in [Discussions](https://github.com/Wulgaren/Araminta/discussions) when that board is open; otherwise open an issue and say it is a request. Pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Issues are for reproducible bugs (one per issue). Ideas and requests go to
-[Discussions](https://github.com/hugelton/Felucca/discussions), and feature requests posted as issues will be
-moved there. Pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
+Araminta is a fork. Upstream Felucca development, sponsorship and itch.io releases live at [hugelton/Felucca](https://github.com/hugelton/Felucca). If Felucca is useful to you, [sponsoring on GitHub](https://github.com/sponsors/hugelton) or a donation on [itch.io](https://hugelton.itch.io/felucca) helps keep that work going.
 
 ## AI disclaimer
 
-Felucca is developed with the assistance of AI coding agents. These tools are used for coding, testing, documentation, translation, and maintenance.
-The instrument's design, features, sound design, and overall direction are determined by the maintainer or community.
-No generative AI is used to create music, icons, or visual artwork for this project.
-For more details, see [On AI-Assisted Development and Responsibility](https://github.com/hugelton/Felucca/discussions/166).
+Araminta is developed with the assistance of AI coding agents for coding, testing, documentation, translation and maintenance.
+Design, features, sound choices and direction stay with the maintainer and contributors.
+No generative AI is used to create music, icons or visual artwork for this project.
+Upstream context: [On AI-Assisted Development and Responsibility](https://github.com/hugelton/Felucca/discussions/166).
 
 ## Credits
 
+- **Fork:** [Wulgaren/Araminta](https://github.com/Wulgaren/Araminta) by [Wulgaren](https://github.com/Wulgaren) (Marcin O)
 - **[Hügelton Instruments](https://hugelton.com)** (Leo Kuroshita, [@kurogedelic](https://github.com/kurogedelic)):
-  Felucca itself; the PHASE engine's waveforms (a C port of the oscillator of
+  Felucca, the base this fork builds on; the PHASE engine's waveforms (a C port of the oscillator of
   [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the DRUM voices and kits; the Hügelton Sample
   Pack (the drum samples, GPL-3.0-only, not CC0); the [Fukiai](https://github.com/hugelton/Fukiai) icon
   font ([MIT](LICENSES/MIT-Fukiai.txt))
@@ -445,7 +439,7 @@ For more details, see [On AI-Assisted Development and Responsibility](https://gi
 - FM6 engine: msfa from [Dexed](https://github.com/asb2m10/dexed) by Google Inc. and Pascal Gauthier ([Apache-2.0](LICENSES/Apache-2.0-msfa.txt))
 - Browser emulator: after [X0X](https://github.com/charlesvestal/fm1-x0x) by [charlesvestal](https://github.com/charlesvestal) (GPL-3.0), a Felucca fork whose browser build showed the way
 - Package format and boot files: [JieLi AC79 SDK](https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK) ([Apache-2.0](LICENSES/Apache-2.0.txt); three of its files are in every package, none in this tree)
-- Contributions: [keremimo](https://github.com/keremimo) (white-key scales, #2), [ChanceTheMaker](https://github.com/ChanceTheMaker)
+- Contributions (upstream and here): [keremimo](https://github.com/keremimo) (white-key scales, #2), [ChanceTheMaker](https://github.com/ChanceTheMaker)
   (TRS MIDI, bend, sustain and clock, palettes, favourites, editor display settings: #8, #10, #11, #12),
   [andreahaku](https://github.com/andreahaku) (sample recording and trim, #29; SLICE manual slices and tests, #27, #22),
   [spinkham](https://github.com/spinkham) (the boot fix for 0.9 projects, #111),
@@ -458,6 +452,7 @@ For more details, see [On AI-Assisted Development and Responsibility](https://gi
 Free software: [GPL-3.0-only](LICENSE), the Hügelton Sample Pack included. The bundled fonts and the
 ported DSP keep their own licences ([LICENSES/](LICENSES/)); details in [LICENSING.md](LICENSING.md).
 
-M-VAVE and FM-1 are trademarks of their respective owners. Felucca is not affiliated with or endorsed by them.
+M-VAVE and FM-1 are trademarks of their respective owners. Araminta is not affiliated with or endorsed by them.
 
 Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+Copyright (C) 2026 Wulgaren (Marcin O) for Araminta fork changes
