@@ -1174,7 +1174,7 @@ static uint32_t graph_signature(void)
             h ^= (uint32_t)graph_project_used(i) << (20u + i);
         h += graph_pname_sig;
     }
-    if (pg->graph == GR_DXSND)                       /* DRUM-X SOUND / SOUND 2 / SOUND 3 cards */
+    if (pg->graph == GR_DXSND)                       /* DRUM-X SOUND / SOUND 2 cards */
         h ^= dx_sig();
     if (pg->graph == GR_EVENTS)                      /* AUTOMATION: the rows, the one selected, + ADD's place, PLAY,
                                                       * QUANTIZE */

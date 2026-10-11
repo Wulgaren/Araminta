@@ -341,7 +341,7 @@ In the order the device lists them:
 - **PHYS**: physical models: modal resonators, strings, struck membranes, sympathetic strings
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
 - **DRUM**: DRUM-X, an 8-lane morphable kit on the General MIDI key map (JIANT port). EDIT sections
-  **Sound** (MRPH / TUNE / TONE / DECY and NOIS / FM / FOLD / DRV), **Kit** (SOUND / SOUND 2 / SOUND 3) and **Lanes**.
+  **Sound** (MRPH / TUNE / TONE / DECY and NOIS / FM / FOLD / DRV), **Kit** (SOUND / SOUND 2) and **Lanes**.
   Kit and mute persist in FUN11 projects (FUN10 opens with the factory kit). Old Felucca KIT values
   still play as DRUM-X. SLICE is retired; old stores load as DRUM
 

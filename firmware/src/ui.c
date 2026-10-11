@@ -391,7 +391,7 @@ static int page_visible(uint32_t i)
 {
     int analog = ENGINES[TSEL->eng_req % NENGINES] == &ENG_ANALOG;
     int drum = TSEL->eng_req % NENGINES == ENGI_DRUM;
-    if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / SOUND 2 / SOUND 3 */
+    if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / SOUND 2 */
         return drum;
     if (PAGES[i].sec == EDIT_SEC_VOX && drum)         /* Voice hidden on DRUM */
         return 0;
@@ -1684,9 +1684,9 @@ static void track_select(uint32_t i)
 }
 
 #include "ui_events.c"                            /* SEQ > AUTOMATION: locks, events, CHANCE, RATCH as a list (an action page) */
-/* EDIT > SOUND / SOUND 2 / SOUND 3 (ui_dx.c, included by ui_input.c): the DRUM-X sound edited and its patch */
+/* EDIT > SOUND / SOUND 2 (ui_dx.c, included by ui_input.c): the DRUM-X sound edited and its patch */
 static uint8_t dx_ui_lane, dx_ui_side;
-static uint32_t dx_pagen(const page_t *pg)            /* "SOUND" -> 1; "SOUND 2" / "SOUND 3" -> 2 / 3 */
+static uint32_t dx_pagen(const page_t *pg)            /* "SOUND" -> 1; "SOUND 2" -> 2 */
 {
     return pg->title[5] == ' ' ? (uint32_t)(pg->title[6] - '0') : 1u;
 }

@@ -491,10 +491,9 @@ static const page_t PAGES[] = {
     /* ANALOG: page 2 FILTER (TYPE CUT RES KTR), page 3 FILTER DRIVE (DRV); EDIT 2 hidden (ui.c) */
     {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_FTYPE, P_E4, P_E5, P_E7}},
     {"FILTER DRIVE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_E6, 0xFF, 0xFF, 0xFF}},
-    /* DRUM-X kit (ui_dx.c): SOUND / SOUND 2 / SOUND 3 (X-MOD page retired; bytes still in FUN11) */
+    /* DRUM-X kit (ui_dx.c): SOUND / SOUND 2 (SOUND 3 / X-MOD retired; FUN11 still stores dx_mot) */
     {"SOUND", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"SOUND 2", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"SOUND 3", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN0, P_LN1, P_LN2, P_LN3}},
     {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN4, P_LN5, P_LN6, P_LN7}},
     {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
