@@ -357,7 +357,8 @@ static void step_set_nudge(step_t *s, int32_t v)
     s->flags = (uint8_t)((s->flags & ~SF_NUDGE) | (u & 7u) << 5 | (u >> 1 & 4u));
 }
 #define MOTION_MAX 128u          /* RAM / old FUN10 (np<=111): 128 records. New saves (np==P_COUNT): see MOTION_FILE_MAX */
-#define MOTION_FILE_MAX 110u     /* disk: 4+110*3=334; +2 B/track for P_IORD (0..719) leaves 2 B before FM6 */
+#define MOTION_FILE_MAX_V10 110u /* FUN10 disk: 4+110*3=334; +2 B/track for P_IORD left 2 B before FM6 */
+#define MOTION_FILE_MAX 78u      /* FUN11 disk: 4+78*3=238; frees 96 B for the DRUM-X kit (project.c PROJ_DX_*) */
 /* Four tracks x64 steps fit one byte. Values retain their signed parameter range (-64..127: an int8_t, 1.2).
  * param: the P_* id (< 128: P_COUNT is at most 127, project.c), bit 7 (MOTION_LOCK, 1.1) a parameter lock: the value
  * sounds on that step only and goes back after it (motion.c motion_step); without it an automation event, the
@@ -367,8 +368,10 @@ static void step_set_nudge(step_t *s, int32_t v)
 typedef struct { uint8_t place, param; int8_t value; } motion_event_t;
 typedef struct { uint8_t count, on, rsv[2]; motion_event_t event[MOTION_MAX]; } motion_store_t;
 _Static_assert(sizeof(motion_store_t) == 388u, "motion RAM layout (128 records)");
+#define MOTION_FILE_SIZE_V10 (4u + MOTION_FILE_MAX_V10 * sizeof(motion_event_t))
 #define MOTION_FILE_SIZE (4u + MOTION_FILE_MAX * sizeof(motion_event_t))
-_Static_assert(MOTION_FILE_SIZE == 334u, "motion disk layout when insert chain is stored");
+_Static_assert(MOTION_FILE_SIZE_V10 == 334u, "FUN10 motion disk layout");
+_Static_assert(MOTION_FILE_SIZE == 238u, "FUN11 motion disk layout (kit before FM6)");
 #define CHAIN_ROWS 16u
 /* A song section (1.2, FUN10): the PROJECT slot each track plays (0..3, A..D; CHAIN_SILENT "-": that track plays
  * nothing there) and its repeats (1..16). Up to 1.1 a row was {slot, repeat}, all four tracks on that slot

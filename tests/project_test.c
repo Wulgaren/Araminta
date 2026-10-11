@@ -420,10 +420,11 @@ int main(void)
         project_t a, c;
         project_store_t st, st2;
         uint32_t i, zero = 1;
-        bad += check("FUN10 name at the end of the reserved tail, the FM6 patches before it, after the data (2 spare)",
-                     PROJ_NAME_OFF == 3824u && PROJ_FM6_OFF == 3312u &&
+        bad += check("FUN11 name at the end of the reserved tail; kit before FM6 (2 spare before kit)",
+                     PROJ_NAME_OFF == 3824u && PROJ_FM6_OFF == 3312u && PROJ_DX_OFF == 3216u &&
+                     PROJ_DX_OFF + PROJ_DX_SIZE == PROJ_FM6_OFF &&
                      68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + sizeof(chain_config_t) + MOTION_FILE_SIZE + 2u ==
-                         PROJ_FM6_OFF);
+                         PROJ_DX_OFF);
         memset(&a, 0, sizeof a);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);
@@ -472,13 +473,13 @@ int main(void)
         }
         memcpy(a.name, "FM SONG", 7);
         a.sum = proj_sum(&a);
-        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E41u && proj_import(&c, &st, sizeof st);
+        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E42u && proj_import(&c, &st, sizeof st);
         for (k = 0; k < NTRK; k++)
             ok &= !memcmp(c.fm6[k], FM6_FACTORY[k * 2u], FM6_PACKED) && c.t[k].engine == ENGI_FM6 &&
                   !memcmp(st.raw + PROJ_FM6_OFF + k * FM6_PACKED, FM6_FACTORY[k * 2u], FM6_PACKED);
-        bad += check("FUN10: the four FM6 patches round trip (bytes at PROJ_FM6_OFF)", ok && !memcmp(c.name, "FM SONG", 7));
+        bad += check("FUN11: the four FM6 patches round trip (bytes at PROJ_FM6_OFF)", ok && !memcmp(c.name, "FM SONG", 7));
         st.raw[PROJ_FM6_OFF + 5] ^= 1u;
-        bad += check("FUN10: a patch byte changed: the hash refuses it", !proj_import(&c, &st, sizeof st));
+        bad += check("FUN11: a patch byte changed: the hash refuses it", !proj_import(&c, &st, sizeof st));
         st.raw[PROJ_FM6_OFF + 5] ^= 1u;
         {   /* FUN8 as 1.0.x wrote it (3584 bytes, 91 parameters: E0..E7 at 83..90, the patches at 3056): the DRUM
              * lane levels 100 %, E0..E7 and their motion at today's P_E0.., the patches and the name kept */
@@ -707,7 +708,7 @@ int main(void)
         a.t[3].engine = 0;
         a.sum = proj_sum(&a);
         ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
-        bad += check("FUN10 GRAIN/NOISE stay, SLICE->DRUM kit; shared LEVEL kept",
+        bad += check("FUN11 GRAIN/NOISE stay, SLICE->DRUM kit; shared LEVEL kept",
                      ok && c.t[0].engine == ENGI_GRAIN && c.t[0].p[P_LEVEL] == 88 &&
                      c.t[1].engine == ENGI_NOISE && c.t[1].p[P_LEVEL] == 77 &&
                      c.t[2].engine == ENGI_DRUM && c.t[2].preset == 0u &&
@@ -715,6 +716,37 @@ int main(void)
                      c.t[3].engine == 0u && proj_ok(&c));
         bad += check("  imported again: as it is",
                      proj_import(&a, &c, sizeof c) && !memcmp(&a, &c, sizeof c));
+    }
+    {   /* FUN11: DRUM-X kit / mute / X-MOD at PROJ_DX_OFF; FUN10 (FUNA) loads the factory kit */
+        project_t a, c;
+        static project_store_t st, funa;
+        uint32_t sum;
+        memset(&a, 0, sizeof a);
+        a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
+        chain_defaults(&a.chain);
+        memcpy(a.dx, DX_KIT_DEF, sizeof a.dx);
+        a.dx[0].a[0] = 11; a.dx[0].b[2] = 99; a.dx[3].a[4] = 55;
+        a.dx_mute = (uint16_t)(DXG_KICK | (1u << 8) | (4u << 8));
+        a.dx_mot[XM_RATE] = 3; a.dx_mot[XM_DPTH] = 40; a.dx_mot[XM_SHPE] = 2; a.dx_mot[XM_RAND] = 17;
+        memcpy(a.name, "DX KIT", 6);
+        a.sum = proj_sum(&a);
+        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E42u &&
+             !memcmp(st.raw + PROJ_DX_OFF, a.dx, sizeof a.dx) &&
+             st.raw[PROJ_DX_OFF + sizeof a.dx] == (uint8_t)(a.dx_mute & DXG_ALL) &&
+             st.raw[PROJ_DX_OFF + sizeof a.dx + 1u] == (uint8_t)(a.dx_mute >> 8) &&
+             st.raw[PROJ_DX_OFF + sizeof a.dx + 2u] == 1u &&
+             !memcmp(st.raw + PROJ_DX_OFF + sizeof a.dx + 3u, a.dx_mot, sizeof a.dx_mot) &&
+             proj_import(&c, &st, sizeof st) && !memcmp(&a, &c, sizeof a);
+        bad += check("FUN11: DRUM-X kit, mute and X-MOD round trip (bytes at PROJ_DX_OFF)", ok);
+        funa = st;
+        ((uint32_t *)funa.raw)[0] = 0x46554E41u;       /* FUNA / FUN10: same 3840 layout, no kit block */
+        memset(funa.raw + PROJ_DX_OFF, 0, PROJ_DX_SIZE);
+        sum = proj_hash(funa.raw, PROJ_STORE_SIZE - 4u);
+        memcpy(funa.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+        ok = proj_import(&c, &funa, sizeof funa) && !memcmp(c.dx, DX_KIT_DEF, sizeof c.dx) &&
+             !c.dx_mute && !c.dx_mot[0] && !c.dx_mot[1] && !c.dx_mot[2] && !c.dx_mot[3] &&
+             !memcmp(c.name, "DX KIT", 6);
+        bad += check("FUN10 (FUNA): loads with the factory DRUM-X kit (custom kit not on disk)", ok);
     }
     printf("%s\n", bad ? "PROJECT FORMAT TEST FAILED" : "project format test passed");
     return bad != 0;

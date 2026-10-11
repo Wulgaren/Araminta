@@ -120,7 +120,8 @@ Araminta builds on Felucca 1.5.x with these ports and layout changes:
   does not open punch-ins), plus master **CLIP / PNCH / DUCK** and reverb models **SHIMR / CLOUD**
 - **Melodee:** silent tracks still run LFO, bend, engine block and fades so modulation keeps moving
 - **DRUM-X** replaces Felucca's sampled/VA kit enum: one morphable 8-lane kit (EDIT **Sound** → **Kit** → **Lanes**;
-  Voice hidden on DRUM). Old projects that stored a KIT value still play as DRUM-X
+  Voice hidden on DRUM). The kit, mutes and X-MOD save with the project (**FUN11** / `FUNB`, same size as FUN10;
+  disk motion max 78). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X
 - **SAMPLE, GRAIN and NOISE** restored (SLICE stays retired). CR78 is not in the ROM sample bank — upload a kit as
   a USR sample. On upload, the web editor's **Drum kit grid** checkbox tags the slot (`FSMP` header); SAMPLE on that
   USR set then shows the drum grid on SEQ instead of the piano roll (zones mapped by hand)
@@ -347,7 +348,8 @@ In the order the device lists them:
 - **SLICE**: retired (reserved index; old stores load as DRUM)
 - **DRUM**: **DRUM-X**, an 8-lane morphable kit on the General MIDI key map (JIANT port). EDIT sections
   **Sound** (MRPH / TUNE / TONE / DECY and NOIS / FM / FOLD / DRV), **Kit** (SOUND … X-MOD) and **Lanes**;
-  kit edits are RAM-only until a later project-store bump. Old Felucca KIT values still play as DRUM-X
+  kit / mute / X-MOD persist in **FUN11** projects (FUN10 opens with the factory kit). Old Felucca KIT values
+  still play as DRUM-X
 
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
 as FM6 sounds converted from them. The SAMPLE engine's PERC kit was removed in 1.0.2: sounds and
