@@ -394,6 +394,45 @@ static void test_math(void)
     check("CHRD / VOIC restored after the block", t->p[P_CHRD] == CH_OFF && t->p[P_VOIC] == VC_CLOSE);
     check("DST names: CHRD / VOIC",
           str_eq(mod_dst_name(t, MD_CHRD), "CHRD") && str_eq(mod_dst_name(t, MD_VOIC), "VOIC"));
+
+    /* insert continuous knobs + MIX (append after CHORD; CHOR MIX is CHO) */
+    fresh(0, 0);
+    t->p[P_ED_FX] = 0;
+    t->p[P_IDMIX] = 40;
+    t->p[P_IFCUT] = 64;
+    t->p[P_IFMIX] = 40;
+    t->p[P_ICBITS] = 64;
+    t->p[P_ICMIX] = 40;
+    t->p[P_IPRATE] = 64;
+    t->p[P_ILDEP] = 64;
+    t->p[P_ILMIX] = 40;
+    t->p[P_IHDEP] = 64;
+    t->mw = 127;
+    slot(t, 0, MS_MODW, MD_TONE, 63);
+    slot(t, 1, MS_MODW, MD_DMIX, 63);
+    slot(t, 2, MS_MODW, MD_FCUT, 63);
+    slot(t, 3, MS_MODW, MD_FMIX, 63);
+    mod_begin(t);
+    check("MODW -> TONE / DMIX / FCUT / FMIX: whole range at AMT 63",
+          t->p[P_ED_FX] == TP[P_ED_FX].max && t->p[P_IDMIX] == TP[P_IDMIX].max &&
+          t->p[P_IFCUT] == TP[P_IFCUT].max && t->p[P_IFMIX] == TP[P_IFMIX].max);
+    mod_end(t);
+    slot(t, 0, MS_MODW, MD_BITS, 63);
+    slot(t, 1, MS_MODW, MD_CMIX, 63);
+    slot(t, 2, MS_MODW, MD_LMIX, 63);
+    slot(t, 3, MS_MODW, MD_HDEP, 63);
+    mod_begin(t);
+    check("MODW -> CRUSH BITS/CMIX, FLANG LMIX, CHOR HDEP",
+          t->p[P_ICBITS] == TP[P_ICBITS].max && t->p[P_ICMIX] == TP[P_ICMIX].max &&
+          t->p[P_ILMIX] == TP[P_ILMIX].max && t->p[P_IHDEP] == TP[P_IHDEP].max);
+    mod_end(t);
+    check("insert knobs restored after the block",
+          t->p[P_ED_FX] == 0 && t->p[P_IDMIX] == 40 && t->p[P_IFCUT] == 64 && t->p[P_IFMIX] == 40 &&
+          t->p[P_ICBITS] == 64 && t->p[P_ICMIX] == 40 && t->p[P_ILMIX] == 40 && t->p[P_IHDEP] == 64);
+    check("DST names: TONE / DMIX / HDEP; CHO is CHOR MIX; DLY/REV amounts stay",
+          str_eq(mod_dst_name(t, MD_TONE), "TONE") && str_eq(mod_dst_name(t, MD_DMIX), "DMIX") &&
+          str_eq(mod_dst_name(t, MD_HDEP), "HDEP") && mod_param(MD_CHO) == P_IHMIX &&
+          mod_param(MD_DLY) == P_DLY && mod_param(MD_REV) == P_REV && MD_TONE == 26 && MD_N == 44);
 }
 
 /* ------------------------------------------------------------------ 3 --- */

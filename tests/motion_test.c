@@ -38,6 +38,14 @@ static int motion_recording(void)
     bad += check("CHRD / VOIC are automatable",
         motion_param(P_CHRD) && motion_param(P_VOIC) && motion_set_event(t, 1, P_CHRD, CH_DIA3) == 0 &&
         motion_set_event(t, 1, P_VOIC, VC_OPEN) == 0);
+    bad += check("insert continuous + MIX lockable (ORDER not)",
+        motion_param(P_ED_FX) && motion_param(P_DIST) &&
+        motion_param(P_IDMIX) && motion_param(P_IFCUT) && motion_param(P_IFRES) && motion_param(P_IFMIX) &&
+        motion_param(P_ICBITS) && motion_param(P_ICRATE) && motion_param(P_ICLPF) && motion_param(P_ICMIX) &&
+        motion_param(P_IPRATE) && motion_param(P_IPDEP) && motion_param(P_IPFBK) && motion_param(P_IPMIX) &&
+        motion_param(P_ILRATE) && motion_param(P_ILDEP) && motion_param(P_ILMIX) &&
+        motion_param(P_IHRATE) && motion_param(P_IHDEP) && motion_param(P_IHMIX) &&
+        !motion_param(P_IORD));
     seq_stop(); motion_clear(t);
     t->p[P_REV] = 42; song.rec = 1; seq_start(); seq_tick(t, CTL);
     motion_clear(t); t->p[P_REV] = 70; motion_capture(t, P_REV, 70); seq_stop();
@@ -871,7 +879,7 @@ static int auto_list(void)
     turn(EN_K3, 1);
     bad += check("#223 MOD DST: pick list opens", ui.pick == PK_MDST && pk_n > 8u && pk_cur < pk_n);
     {
-        uint32_t i, dist = 0, spat = 0;
+        uint32_t i, dist = 0, spat = 0, fcut = 0, cho = 0;
         for (i = 0; i < pk_n; i++) {
             if (pk_rows[i].id == MD_DIST && str_eq(pk_rows[i].tag, "SEND") &&
                 str_eq(pk_rows[i].name, "DISTORT"))
@@ -879,8 +887,16 @@ static int auto_list(void)
             if (pk_rows[i].id == MD_SLPAT && str_eq(pk_rows[i].tag, "SLICER") &&
                 str_eq(pk_rows[i].name, "PATTERN"))
                 spat = 1;
+            if (pk_rows[i].id == MD_FCUT && str_eq(pk_rows[i].tag, "FILTER") &&
+                str_eq(pk_rows[i].name, "CUTOFF"))
+                fcut = 1;
+            if (pk_rows[i].id == MD_CHO && str_eq(pk_rows[i].tag, "CHOR") &&
+                str_eq(pk_rows[i].name, "MIX"))
+                cho = 1;
         }
         bad += check("#223 MOD DST: SEND / DISTORT and SLICER / PATTERN", dist && spat);
+        bad += check("MOD DST: FILTER / CUTOFF (insert continuous)", fcut);
+        bad += check("MOD DST: CHO is CHOR / MIX", cho);
     }
     {
         uint32_t i, n = 0;
