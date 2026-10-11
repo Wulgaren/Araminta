@@ -66,9 +66,9 @@ static const layer_t LAYERS[LAYER_N] = {
 };
 static const uint8_t LY_KC[LAYER_N] = {0, KC_FX, KC_GLO, KC_SCL, KC_EDIT, KC_SEQ, KC_REC};
 /* SCL's knobs: the key and its chord (cur_page() while the layer edits or draws them: page_over) */
-static const page_t LY_SCL = {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCALE, P_CHRD, P_VOIC}};
-/* SEQ TOOLS' knobs: LEN DIV SWING GATE (the length the tools work in; up to 1.1.5 the PATTERN page's) */
-static const page_t LY_SEQ = {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}};
+static const page_t LY_SCL = {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, 0, {P_ROOT, P_SCALE, P_CHRD, P_VOIC}};
+/* SEQ TOOLS' knobs: LEN DIV SWING GATE (PATTERN section; also the PATTERN page's) */
+static const page_t LY_SEQ = {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_PAT, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}};
 static const page_t *ly_page(uint32_t l) { return l == LAYER_SCL ? &LY_SCL : l == LAYER_SEQ ? &LY_SEQ : 0; }
 #define LY_OPEN 2u                     /* ui.ly_t0: the map opened (no tap any more) */
 #define LY_COMBO 4u                    /* .. by a combo */
@@ -119,7 +119,12 @@ static uint32_t layer_bits(void)
 }
 static uint32_t layer_btn(void) { return LAYERS[ui.layer % LAYER_N].btn; }
 static const char *layer_head(void) { return ui.layer == LAYER_FX && perf_latch_on ? "[FX] LATCH" : LAYERS[ui.layer % LAYER_N].head; }
-static uint32_t layer_open(void) { return ui.ly && (ui.ly_t0 & LY_OPEN) && ly_down(ui.ly) && layer_allowed() ? ui.ly : 0u; }
+/* map open: sticky section lock (Punch-in / Pattern / Record), or a button held past open (retired for maps) */
+static uint32_t layer_open(void)
+{
+    uint32_t l = ui.lock ? ui.lock : (ui.ly && (ui.ly_t0 & LY_OPEN) ? ui.ly : 0u);
+    return l && ly_down(l) && layer_allowed() ? l : 0u;
+}
 static int layer_set_open(void)                 /* (FX LATCH: FX is one too, OCT- turns all off) */
 {
     return layer_open() && (LAYERS[layer_open()].kind == LK_SET || (layer_open() == LAYER_FX && perf_latch_on));
@@ -253,31 +258,27 @@ static void layer_opened(uint32_t l)
         lys.v[0] = ui_rec_prefs;
 }
 
-/* the armed button: 0, or the layer whose button was tapped (let go) */
+/* the armed button: 0, or the layer whose button was tapped (let go). Maps are section-sticky (section_apply),
+ * not hold or double-tap. Holding the button still counts as a combo modifier (FX+SELECT on REORDER). */
 static uint32_t layer_gesture(uint32_t now, uint32_t combo)
 {
     uint32_t *t0 = &ui.ly_t0, l = ui.ly;
+    (void)now;
     if (!l)
         return 0;
     if (!layer_allowed()) {
         *t0 |= LY_DEAD;
-        ui.lock = 0;                                    /* (the menu, a dialog, NAME: the lock closes) */
+        if (!section_map_layer())
+            ui.lock = 0;                                /* (menu / dialog / NAME: drop lock unless a section needs it) */
     }
-    if (ly_down(l)) {
-        if (!(*t0 & (LY_OPEN | LY_DEAD)) &&
-            (combo || now - (*t0 & ~15u) >= (uint32_t)HOLD_MS[settings_hold % 4u] * 1000u * FM1_TICKS_PER_US)) {
-            *t0 |= LY_OPEN | (combo ? LY_COMBO : 0u);
-            layer_opened(l);
-        }
-        return 0;
+    if (ly_down(l) && (fm1_in.buttons & ly_bit(l)))
+        return 0;                                       /* button still down: wait for release (no hold-open) */
+    l = *t0 & LY_DEAD || combo ? 0u : l;               /* combo on release: no page tap */
+    {
+        uint32_t keep = ui.lock;                        /* section sticky lock survives the button release */
+        layer_let_go(0);
+        ui.lock = keep;
     }
-    l = *t0 & (LY_OPEN | LY_DEAD) || combo ? 0u : l;   /* (a knob turned as it was let go: a combo, no tap) */
-    if (l && lys.dtap) {                                /* #83: a double tap: locked open (no tap) */
-        lys.dtap = 0;
-        layer_lock(l, now);
-        return 0;
-    }
-    layer_let_go(*t0 & LY_OPEN || combo);
     return l;
 }
 
@@ -288,7 +289,8 @@ static int layer_knobs_quiet(void)
 {
     if (lys.quiet && fm1_ms - lys.quiet_t >= LY_QUIET_MS)
         lys.quiet = 0;
-    return layer_allowed() && (ui.ly || ui.layer || lys.quiet);
+    /* sticky section maps (ui.lock): knobs are the map's; quiet only for a held button, post-release, or LY_QUIET */
+    return layer_allowed() && (ui.ly || lys.quiet || (ui.layer && !ui.lock));
 }
 
 /* the map shows while the button is held open, and after it while its keys are still held */
@@ -301,36 +303,15 @@ static void layer_show(void)
     }
 }
 
-/* a tap: the button's page; the hint until its layer has been opened once (unless the tap said something, or
- * opened NAME: EDIT on USER / PROJECT renames; never over a dialog or the menu) */
+/* a tap: the button's section / page (REC: arm only). No hold hint, no double-tap lock. */
 static void layer_tap(uint32_t l)
 {
-    uint8_t m = ui.msg_t;
-    int acted;
-    lys.nv.home = ui.home;                              /* (#83: the page this tap leaves, for a double tap) */
-    lys.nv.page = ui.page;
-    lys.nv.act = ui.act;
-    lys.nv.seq = song.seq_mode;
-    memcpy(lys.nv.fam, ui.fam_last, sizeof lys.nv.fam);
-    lys.nv.rec = song.rec;
-    if (l == LAYER_REC) {                               /* REC: arms / disarms (no page); said nothing: no double tap */
-        uint32_t idle = !song.playing && !seq_counting() && transport_req != 1u;
-        acted = !rec_tap();
-        lys.nv.go = (uint8_t)(idle && transport_req == 1u);
-    } else {
-        acted = page_tap(LAYERS[l].btn);
-    }
-    lys.dt_hint = 0;
-    if (!((layer_seen >> l) & 1u) && ui.msg_t == m && !name_on() && !ui.confirm && !ui.menu) {
-        ui_say("HOLD [", KC[LY_KC[l]].label);
-        str_cpy(ui.msg + str_len(ui.msg), "] QUICK", sizeof ui.msg - str_len(ui.msg));
-        ui.msg_t = 90;                                  /* ~1.5 s */
-        lys.dt_hint = 1;
-    }
-    if (!acted && !name_on() && !ui.confirm && !ui.menu) {   /* a page opened: a second tap soon locks the layer */
-        lys.dt_l = (uint8_t)l;
-        lys.dt_ms = fm1_ms;
-    }
+    if (l == LAYER_REC)
+        rec_tap();
+    else
+        page_tap(LAYERS[l].btn);
+    lys.dt_l = 0;
+    lys.dtap = 0;
 }
 
 /* EDIT: a sound load in the layer. The first one takes the undo copy as the track is now (when the layer
@@ -652,17 +633,12 @@ static void layer_key(uint32_t l, uint32_t k)
 /* each pass: the keys the layer got now; then GLO's solo: the tracks of its keys still held (perform.c) */
 static void layer_keys(uint32_t keys)
 {
-    uint32_t k, l = layer_open() ? layer_open() : ui.layer, s = 0;
+    uint32_t k, l = layer_open() ? layer_open() : ui.layer;
     for (k = 0; keys && k < 27u; k++)
         if ((keys >> k) & 1u)
             layer_key(l, k);
     if (lys.eqh)
         eqa_release();
-    lys.solo &= kb_layer;
-    for (k = 0; k < 27u; k++)
-        if ((lys.solo >> k) & 1u)
-            s |= 1u << key_place(k);
-    perf_solo = (uint8_t)s;
 }
 
 /* KNOB 1..4 in the open layer: its own (FX macros, GLO levels, EDIT's sound), else the four of its page */
@@ -701,11 +677,10 @@ static void layer_knob(uint32_t k, int32_t s)
     }
 }
 
-/* PLAY with GLO held open: RESTART (from the top, playing on); stopped: PLAY. 1 = done here. GLO's lock is not
- * held: PLAY starts and stops there as in every layer (#183: locked, PLAY restarted and never stopped) */
+/* OCT+ held + PLAY: RESTART (from the top while playing); stopped: PLAY. 1 = done here. */
 static int layer_play(void)
 {
-    if (layer_open() != LAYER_GLO || !(fm1_in.buttons & ly_bit(LAYER_GLO)) || chain_busy())
+    if (!(fm1_in.buttons & (1u << panel.btn[B_OCTUP])) || chain_busy())
         return 0;
     if (song.g[G_CLOCK] && song.playing) {
         ui_message("RESTART: CLK IS EXT");

@@ -390,6 +390,8 @@ static uint32_t layer_btn(void);
  * track's (its patch's operators, ui_fm6op.c) */
 static int page_visible(uint32_t i)
 {
+    if (PAGES[i].graph == GR_DMUTE)                   /* HOME Mixer: drum lane mutes, DRUM track only */
+        return TSEL->eng_req % NENGINES == ENGI_DRUM;
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return TSEL->eng_req % NENGINES == ENGI_DRUM;
     if (PAGES[i].id[0] == P_FTYPE)                    /* FILTER (1.5, #104): ANALOG's */
@@ -400,14 +402,43 @@ static int page_visible(uint32_t i)
              PAGES[i].id[0] <= P_FM4_LEVEL) || (FELUCCA_FM4 && TSEL->eng_req % NENGINES == ENGI_DIGITAL);
 }
 
-static uint32_t page_first(uint32_t fam)
+static uint32_t fam_nsec(uint32_t fam)
+{
+    return fam == FAM_FX ? FX_NSEC : fam == FAM_SEQ ? SEQ_NSEC : fam == FAM_EDIT ? EDIT_NSEC :
+           fam == FAM_TRK ? TRK_NSEC : 1u;
+}
+
+static uint32_t page_first_sec(uint32_t fam, uint32_t sec)
 {
     uint32_t i;
     for (i = 0; i < NPAGES; i++)
-        if (PAGES[i].fam == fam)
+        if (PAGES[i].fam == fam && PAGES[i].sec == sec && page_visible(i))
+            return i;
+    for (i = 0; i < NPAGES; i++)
+        if (PAGES[i].fam == fam && page_visible(i))
             return i;
     return 0;
 }
+
+static uint32_t page_first(uint32_t fam) { return page_first_sec(fam, 0); }
+
+/* section sticky maps: Punch-in / Pattern tools / Record prefs (ui.lock; no hold or double-tap) */
+static uint32_t section_map_layer(void)
+{
+    const page_t *pg;
+    if (ui.home)
+        return 0;
+    pg = &PAGES[ui.page % NPAGES];
+    if (pg->fam == FAM_FX && pg->sec == FX_SEC_PUNCH)
+        return LAYER_FX;
+    if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_PAT)
+        return LAYER_SEQ;
+    if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_REC)
+        return LAYER_REC;
+    return 0;
+}
+
+static void section_apply(void);
 
 /* transient message in the top bar, right of the transport and the BPM: a + b */
 static void ui_say(const char *a, const char *b)
@@ -478,6 +509,22 @@ static void ev_enter(void);
 #define HELP_FRAMES 120u                       /* (~2 s at the UI's ~60 frames a second) */
 static int help_on(void) { return (ui_prefs2 & (PREF_HELP >> 16)) != 0u; }
 static void help_start(void) { ui.help_t = (uint8_t)(help_on() ? HELP_FRAMES : 0u); }
+static void layer_opened(uint32_t l);            /* ui_layer.c: sticky section maps call it */
+static void section_apply(void)
+{
+    uint32_t want = section_map_layer();
+    if (want) {
+        if (ui.lock != want) {
+            ui.lock = (uint8_t)want;
+            layer_opened(want);
+            ui.force = 1;
+        }
+    } else if (ui.lock && !ui.ly) {
+        ui.lock = 0;
+        ui.force = 1;
+    }
+}
+
 static void page_entered(void)
 {
     const page_t *pg = cur_page();
@@ -492,6 +539,7 @@ static void page_entered(void)
     ui.act = pg->graph == GR_USER ? 4u : 0u;     /* the save screen is ready for OCT+ */
     help_start();
     ui.force = 1;
+    section_apply();
 }
 
 static int step_on(const step_t *st) { return st->time == ST_NOTE && (st->n || st->hit); }
@@ -645,28 +693,23 @@ static void note_name(char *b, uint32_t n)
     fmt_int(b + str_len(b), (int32_t)(n / 12u) - 1);
 }
 
-/* a page button tapped (1.2, Discussion #153: SEQ STEP <-> AUTOMATION, GLO SONG (its only page: GLOBAL became HOME's
- * CLOCK, SYSTEM went to the MENU), SAVE USER -> PRESETS -> PHRASES -> PROJECT -> TOOLS (1.5, #173: PRESETS second; up
- * to 1.4.1 the last); HOME: home_tap). From another
- * family the family's page shown last (SAVE: USER); one that is not the family's any more (a page that moved, as GLOBAL
- * and SYSTEM in 1.2), or not shown for this track, gives the family's first */
+/* page button: cycle sections (wrap). One-section families: enter/resume only. SELECT walks pages inside the section.
+ * Resume last page in the family when entering from elsewhere (SAVE always USER). */
 static void open_family(uint32_t fam)
 {
-    if (!ui.home && cur_page()->fam == fam) {          /* same button again: next page */
-        uint32_t n, i = ui.page;
-        for (n = 0; n < NPAGES; n++) {
-            i = (i + 1u) % NPAGES;
-            if (PAGES[i].fam == fam && page_visible(i)) break;
-        }
-        ui.page = (uint8_t)i;
+    uint32_t nsec = fam_nsec(fam), sec, i;
+    if (!ui.home && cur_page()->fam == fam) {
+        if (nsec <= 1u)
+            return;                                   /* single section: press does not invent pages */
+        sec = (cur_page()->sec + 1u) % nsec;
+        ui.page = (uint8_t)page_first_sec(fam, sec);
     } else if (fam == FAM_SAVE) {
-        uint32_t i;
         for (i = 0; i < NPAGES; i++)
             if (PAGES[i].graph == GR_USER) break;
-        ui.page = (uint8_t)i;                         /* SAVE enters the sound save screen directly */
+        ui.page = (uint8_t)i;
     } else {
-        uint32_t i = ui.fam_last[fam];
-        ui.page = (uint8_t)(i && i < NPAGES && PAGES[i].fam == fam && page_visible(i) ? i : page_first(fam));
+        i = ui.fam_last[fam];
+        ui.page = (uint8_t)(i < NPAGES && PAGES[i].fam == fam && page_visible(i) ? i : page_first(fam));
     }
     ui.fam_last[fam] = ui.page;
     ui.home = 0;
@@ -682,34 +725,36 @@ static void go_home(void)
     song.seq_mode = 0;
     ui.force = 1;
     help_start();
+    section_apply();                             /* leave sticky maps */
 }
 
-/* HOME tapped (1.2): HOME -> MIXER (up to 1.1.5 GLO's first page) -> CLOCK (up to 1.1.5 GLO > GLOBAL) -> HOME; from any
- * other page HOME. HOME's pages are FAM_TRK's, in PAGES order, always from the first (none remembered). Held: the menu
- * (ui_input) */
+/* HOME: Home → Mixer section → Clock section → Home. SELECT walks pages inside Mixer (mix + lane mutes). Held: MENU */
 static void home_tap(void)
 {
-    uint32_t i = ui.page + 1u;
     if (ui.home) {
-        ui.fam_last[FAM_TRK] = 0;                     /* (open_family: the family's first, the MIXER) */
-        open_family(FAM_TRK);
-    } else if (cur_page()->fam == FAM_TRK && i < NPAGES && PAGES[i].fam == FAM_TRK) {
-        open_family(FAM_TRK);                         /* (on HOME's page again: the next one) */
+        ui.page = (uint8_t)page_first_sec(FAM_TRK, TRK_SEC_MIX);
+        ui.fam_last[FAM_TRK] = ui.page;
+        ui.home = 0;
+        page_entered();
+    } else if (cur_page()->fam == FAM_TRK && cur_page()->sec == TRK_SEC_MIX) {
+        ui.page = (uint8_t)page_first_sec(FAM_TRK, TRK_SEC_CLK);
+        ui.fam_last[FAM_TRK] = ui.page;
+        page_entered();
+    } else if (cur_page()->fam == FAM_TRK) {
+        go_home();
     } else {
         go_home();
     }
 }
 
-/* SELECT encoder: one step in the current family (same cycle as tapping its button; HOME's is home_tap). dir > 0 next,
- * dir < 0 previous. Tempo is GLO+SELECT, not bare SELECT (ui_input.c) */
+/* SELECT: pages that share fam+sec. On HOME / TRK: Home ↔ Mixer pages ↔ Clock (not section jumps). Tempo: OCT++SELECT */
 static void select_page_step(int32_t dir)
 {
-    uint32_t fam, i, k;
+    uint32_t fam, sec, i, k, idx[NPAGES], n = 0, cur = 0;
     if (dir == 0)
         return;
-    if (ui.home || cur_page()->fam == FAM_TRK) {       /* HOME button cycle: HOME <-> MIXER <-> CLOCK */
-        uint32_t idx[1u + NPAGES], n = 1u, cur = 0u;
-        idx[0] = 0xFFFFu;                              /* HOME sentinel */
+    if (ui.home || cur_page()->fam == FAM_TRK) {
+        idx[n++] = 0xFFFFu;                            /* HOME sentinel */
         for (i = 0; i < NPAGES; i++)
             if (PAGES[i].fam == FAM_TRK && page_visible(i))
                 idx[n++] = i;
@@ -720,7 +765,7 @@ static void select_page_step(int32_t dir)
         if (idx[cur] == 0xFFFFu) {
             go_home();
         } else if (ui.home && dir > 0) {
-            home_tap();                               /* HOME -> MIXER (fam_last cleared, as the HOME button) */
+            home_tap();
         } else {
             ui.page = (uint8_t)idx[cur];
             ui.home = 0;
@@ -730,16 +775,16 @@ static void select_page_step(int32_t dir)
         return;
     }
     fam = cur_page()->fam;
-    if (dir > 0) {
-        open_family(fam);                             /* same as tapping the family's button */
+    sec = cur_page()->sec;
+    for (i = 0; i < NPAGES; i++)
+        if (PAGES[i].fam == fam && PAGES[i].sec == sec && page_visible(i)) {
+            if (i == ui.page) cur = n;
+            idx[n++] = i;
+        }
+    if (n == 0)
         return;
-    }
-    i = ui.page;
-    for (k = 0; k < NPAGES; k++) {
-        i = (i + NPAGES - 1u) % NPAGES;
-        if (PAGES[i].fam == fam && page_visible(i)) break;
-    }
-    ui.page = (uint8_t)i;
+    cur = (cur + (dir > 0 ? 1u : n - 1u)) % n;
+    ui.page = (uint8_t)idx[cur];
     ui.fam_last[fam] = ui.page;
     page_entered();
 }
@@ -1235,7 +1280,9 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     }
 #endif
     if (eng_retired(t->eng_req % NENGINES)) {
-        set_engine_of(t, eng_play_as(t->eng_req % NENGINES));
+        uint32_t e = t->eng_req % NENGINES;
+        /* SAMPLE preset 4 was PERC (GM kit): load as DRUM, not ANALOG (eng_play_as) */
+        set_engine_of(t, e == ENGI_SAMPLE && pi == SMP_SET_PERC ? ENGI_DRUM : eng_play_as(e));
         return;
     }
     load_begin(t, UNDO_SOUND);

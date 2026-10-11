@@ -500,6 +500,39 @@ static int roll_on(void)
     return !ui.home && !ui.menu && !ui.confirm && song.seq_mode && cur_page()->graph == GR_ROLL && !drum_track(TSEL);
 }
 
+/* HOME Mixer section: latched track solo (white keys T1..T4); on LANE MUTE, black keys 1..8 toggle drum lanes */
+static uint8_t mix_solo;
+static int mixer_keys_on(void)
+{
+    return !ui.home && !ui.menu && !ui.confirm && !name_on() && !ui.lock && !ui.ly &&
+           cur_page()->fam == FAM_TRK && cur_page()->sec == TRK_SEC_MIX;
+}
+static void mixer_keys(uint32_t notes)
+{
+    uint32_t k, p;
+    for (k = 0; k < 27u; k++) {
+        if (!((notes >> k) & 1u))
+            continue;
+        p = key_place(k);
+        if (cur_page()->graph == GR_DMUTE && key_black(k) && p < NLANE && drum_track(TSEL)) {
+            uint32_t t = song.sel % NPART;
+            drum_mute[t] ^= (uint8_t)(1u << p);
+            ui_say(drum_lane_name(TSEL, p), (drum_mute[t] >> p) & 1u ? " MUTED" : " ON");
+            ui.force = 1;
+        } else if (!key_black(k) && p < NTRK) {
+            mix_solo ^= (uint8_t)(1u << p);
+            {
+                char a[8], b[12];
+                str_cpy(a, "T", sizeof a);
+                fmt_int(a + 1, (int32_t)p + 1);
+                str_cpy(b, (mix_solo >> p) & 1u ? " SOLO" : " SOLO OFF", sizeof b);
+                ui_say(a, b);
+            }
+            ui.force = 1;
+        }
+    }
+}
+
 /* SONG: + ADD selected (song_row == count < CHAIN_ROWS): a section there, copying the one before it (the first: every
  * track on A, x1) */
 static void song_add(void)
@@ -1319,6 +1352,7 @@ static uint32_t btn_hold(uint32_t *t0, uint32_t label, uint32_t now, int hold_ok
 
 /* the quick layers: ui_layer.c (included after this file) */
 static void layer_masks(void);
+static uint32_t layer_open(void);                       /* ui_layer.c */
 static void layer_arm(uint32_t pressed, uint32_t now);
 static uint32_t layer_held(void);
 static int layer_knobs_quiet(void);
@@ -1424,7 +1458,7 @@ static void ui_input(void)
             trk[k].preset = 0;
             fm1_irq_on();
         }
-    perf_latch_on = fx_latch & 1u;                      /* (MENU > FX LATCH; a settings load sets it too) */
+    perf_latch_on = 0;                                  /* FX LATCH retired: Punch-in section is momentary */
     fx_map_sync();                                      /* (the FX layer's key map: ui_layer.c, a settings load too) */
     fx_usb_fixed = (ui_prefs & PREF_USB_FIXED) != 0u;   /* (MENU > USB LEVEL: fx.c, audio.c) */
     scope_mix = (ui_prefs2 & (PREF_SCOPE_MIX >> 16)) != 0u;   /* (MENU > SCOPE: fx.c, audio.c) */
@@ -1455,7 +1489,7 @@ static void ui_input(void)
     oct = layer_oct(pressed, oct);                      /* (a SET layer's OCT-: put back) */
     layer_masks();                                      /* seq.c: keys pressed with a layer's button are its own */
     lay = layer_held();
-    glo = lay && ui.ly == LAYER_GLO;                    /* GLO held: SELECT is the tempo (bare SELECT: pages) */
+    glo = (fm1_in.buttons & (1u << panel.btn[B_OCTUP])) != 0u;   /* OCT+ held: SELECT is tempo (bare SELECT: pages) */
     if (!layer_allowed()) {
         perf_kill = 1;                                  /* (effects off until their keys are let go) */
         perf_latched = 0;                               /* (FX LATCH: the latched ones and the macros off) */
@@ -1496,8 +1530,8 @@ static void ui_input(void)
             ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + (s > 0 ? 1 : -1), 0, (int32_t)INS_N - 1);
             ui.force = 1;
             combo = 1;
-        } else if (glo && (sel = panel_enc(EN_SELECT)) != 0)   /* GLO + SELECT: the tempo, a combo (OCT- puts it back) */
-            combo = 1;
+        } else if ((sel = panel_enc(EN_SELECT)) != 0)
+            combo = 1;                                  /* SELECT with a layer button: not a page walk */
     } else if ((kq = (uint32_t)layer_knobs_quiet()) != 0) {   /* a layer letting go: KNOB 1..4 are nobody's (#39) */
         for (k = 0; k < 4u; k++)
             if (panel_enc(EN_K1 + k) != 0)
@@ -1505,13 +1539,30 @@ static void ui_input(void)
     }
     lytap = layer_gesture(now, combo);
     layer_show();
+    section_apply();                                    /* sticky Punch-in / Pattern / Record maps */
     layer_keys(lkeys);
-    for (k = 0; k < 4u; k++)
-        if (ks[k]) {
-            layer_knob(k, ks[k]);
-            ui.hot_col = (uint8_t)k;
-            ui.hot_t = 40;
-        }
+    perf_solo = mix_solo;                               /* after layer_keys: Mixer latched solos */
+    if (!lay && layer_open()) {                         /* section map, no button held: knobs + FX assign */
+        for (k = 0; k < 4u; k++)
+            if ((ks[k] = panel_enc(EN_K1 + k)) != 0) {
+                layer_knob(k, ks[k]);
+                ui.hot_col = (uint8_t)k;
+                ui.hot_t = 40;
+            }
+        if (layer_open() == LAYER_FX && (s = panel_enc(EN_PRESET)) != 0)
+            fx_assign(s);
+        if (layer_open() == LAYER_FX && ((pressed >> panel.btn[B_EDIT]) & 1u))
+            fx_default();
+        panel_enc(EN_ALGO);
+        panel_enc(EN_SELECT);
+    } else {
+        for (k = 0; k < 4u; k++)
+            if (ks[k]) {
+                layer_knob(k, ks[k]);
+                ui.hot_col = (uint8_t)k;
+                ui.hot_t = 40;
+            }
+    }
     song.grid = (uint8_t)keys_mode();                 /* (the menu, a dialog: the keys play again; NAME: silent) */
     if (home == BT_TAP && ui.menu) {                    /* HOME (pressed, or held) closes the menu, from ABOUT too; */
         menu_close();                                   /* the release of the hold that opened it is no tap */
@@ -1609,6 +1660,11 @@ static void ui_input(void)
         layer_tap(lytap);                               /* on every page since 1.2, its tap the SEQ pages) */
     if (home == BT_TAP)                                 /* HOME acts on release: a hold opens the menu */
         home_tap();
+    if (lytap || home == BT_TAP) {                      /* section map after navigation */
+        section_apply();
+        layer_show();
+        layer_masks();                                  /* kb_lock for Punch-in keys this frame */
+    }
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
     for (id = 0; id < 14u; id++) {
         if (!((pressed >> id) & 1u))
@@ -1670,7 +1726,10 @@ static void ui_input(void)
     }
     song.grid = (uint8_t)keys_mode();                 /* (seq.c: the keys are the grid's) */
     lock_keys();                                        /* (a grid key on a hit let go: the hit goes) */
-    if (song.grid == 3u) {
+    if (song.grid == 4u) {
+        mixer_keys(notes);                              /* HOME Mixer: latched track solo / drum lane mutes */
+        perf_solo = mix_solo;
+    } else if (song.grid == 3u) {
         song_keys(notes);
     } else if (song.grid) {
         grid_keys(notes);
@@ -1708,16 +1767,11 @@ static void ui_input(void)
     }
     if (!lay && (s = panel_enc(EN_ALGO)) != 0)     /* ALGORITHM: the selected track, on every page */
         track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
-    if ((s = glo ? sel : panel_enc(EN_SELECT)) != 0) {
-        if (glo) {                                      /* GLO + SELECT: the tempo (CLOCK's BPM knob too) */
+    if (!lay && (s = panel_enc(EN_SELECT)) != 0) {
+        if (glo) {                                      /* OCT+ + SELECT: tempo (CLOCK K1 too) */
             song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), GP[G_BPM].min, GP[G_BPM].max);
-            ui.bpm_t = 40;                              /* the header's BPM lights up; no message over the header */
-        } else if (cur_page()->graph == GR_IORD && (ui.pg_down & (1u << panel.btn[B_FX]))) {
-            /* REORDER: FX held + SELECT moves the highlighted stage */
-            ins_order_move(TSEL, ui.ior_sel, s > 0 ? 1 : -1);
-            ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + (s > 0 ? 1 : -1), 0, (int32_t)INS_N - 1);
-            ui.force = 1;
-        } else {                                        /* SELECT: next / previous page in the current family */
+            ui.bpm_t = 40;
+        } else {                                        /* SELECT: pages inside the current section */
             int32_t n = s > 0 ? s : -s;
             while (n--)
                 select_page_step(s > 0 ? 1 : -1);
