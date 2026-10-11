@@ -1461,31 +1461,27 @@ static void graph_slots(void)
  * knobs (P / R inside, values under). Knobs: a 270 degree ring, the track RAISE, the value arc THEME (the knob
  * just turned: ACCENT; muted: DIM); PAN from 12 o'clock. Each column is its own canvas with its own signature:
  * while the transport runs only the meters move. */
-#define TS_MY 39                                     /* meter slot: column rows 39 .. 70 */
+#define TS_MY 44                                     /* meter slot: beside LEVEL */
 #define TS_MH 32
-#define KB_X 4                                       /* LEVEL knob: box 4..37 x 37..70, centre (21, 54) */
-#define KB_Y 37
-#define KS_Y 89                                      /* PAN / REV: clear of LEVEL (no PAN/REV captions); P/R inside */
+#define KB_X 4                                       /* LEVEL knob: box 4..37 x 42..75, centre (21, 59) */
+#define KB_Y 42                                      /* a little lower: closer to PAN / REV */
+#define KS_Y 80                                      /* PAN / REV: pulled up toward LEVEL */
 #define MB_S 12                                      /* status squares: track #, REC, MUTE */
 #define MB_G 3
-/* a REC mark in the square at (x, y): filled while recording, ring when armed; empty square when off */
+/* REC mark in the square at (x, y): filled while recording, ring when armed (no mark when off) */
 static void mixer_rec_mark(int32_t x, int32_t y, uint32_t st)
 {
     int32_t cx = x + MB_S / 2, cy = y + MB_S / 2, r = 3, dx, dy;
     GFX_HOOK_ALIGN(x, y, x + MB_S, y + MB_S, AL_HV, "mixer REC in its square");
-    if (st == 1u || st == 2u) {
-        for (dy = -r; dy <= r; dy++)
-            for (dx = -r; dx <= r; dx++) {
-                int32_t d2 = dx * dx + dy * dy;
-                if (st == 1u ? d2 <= r * r : (d2 >= (r - 1) * (r - 1) && d2 <= r * r))
-                    cv_rect(cx + dx, cy + dy, 1, 1, T_REC);
-            }
-        GFX_HOOK_ITEM(cx - r, cy - r, cx + r + 1, cy + r + 1);
-    } else {
-        GFX_HOOK_ITEM(x + 2, y + 2, x + MB_S - 2, y + MB_S - 2);
-    }
+    for (dy = -r; dy <= r; dy++)
+        for (dx = -r; dx <= r; dx++) {
+            int32_t d2 = dx * dx + dy * dy;
+            if (st == 1u ? d2 <= r * r : (d2 >= (r - 1) * (r - 1) && d2 <= r * r))
+                cv_rect(cx + dx, cy + dy, 1, 1, T_REC);
+        }
+    GFX_HOOK_ITEM(cx - r, cy - r, cx + r + 1, cy + r + 1);
 }
-/* three small status squares on a line: track cushion, REC circle, MUTE icon */
+/* track cushion always; REC / MUTE squares only when active (no empty backgrounds) */
 static void mixer_status(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, uint32_t hot, int32_t y)
 {
     int32_t x = 4;
@@ -1493,16 +1489,17 @@ static void mixer_status(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, u
     GFX_HOOK_ALIGN(x, y, x + MB_S, y + MB_S, AL_HV, "mixer track number in its square");
     cv_icon_on(x, y, MB_S, trk_icon(c, 1), sel ? T_ACCENT : T_MID, T_SURF);
     x += MB_S + MB_G;
-    cv_rrect(x, y, MB_S, MB_S, 2, T_RAISE, T_SURF);
-    mixer_rec_mark(x, y, st);
+    if (st == 1u || st == 2u) {
+        cv_rrect(x, y, MB_S, MB_S, 2, T_RAISE, T_SURF);
+        mixer_rec_mark(x, y, st);
+    }
     x += MB_S + MB_G;
-    fill = mute ? (hot == 4u ? T_ACCENT : T_KEY) : T_RAISE;
-    cv_rrect(x, y, MB_S, MB_S, 2, fill, T_SURF);
-    GFX_HOOK_ALIGN(x, y, x + MB_S, y + MB_S, AL_HV, "mixer MUTE in its square");
-    if (mute)
+    if (mute) {
+        fill = hot == 4u ? T_ACCENT : T_KEY;
+        cv_rrect(x, y, MB_S, MB_S, 2, fill, T_SURF);
+        GFX_HOOK_ALIGN(x, y, x + MB_S, y + MB_S, AL_HV, "mixer MUTE in its square");
         cv_icon_in(x, y, MB_S, MB_S, 12, ICON_MUTE, T_INK, fill);
-    else
-        GFX_HOOK_ITEM(x + 2, y + 2, x + MB_S - 2, y + MB_S - 2);
+    }
 }
 static struct {
     uint32_t col[NTRK];
