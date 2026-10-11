@@ -159,8 +159,8 @@ static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16
  * 166 px; while the BPM is being changed (a SELECT turn: bpm_t) or in the GLO layer the centre stays and the message
  * goes right of the BPM (over the right slot). Every element's ink centred on row 12 (H_HEAD / 2; ui_test.c
  * test_head_centres): icons by cv_icon_mid, text by its capitals' band (CAP_IN; the odd row left over above it, as
- * everywhere): M (BPM, the song row, the octave, a message: capitals rows 6..16) from y 2, S (OCT, a key hint: rows 7..15)
- * from y 4 */
+ * everywhere): M (BPM, the song row, the octave, a message: capitals rows 7..16) from y 5, S (OCT, a key hint: CAP_IN)
+ * from HEAD_SY */
 #define HEAD_SY CAP_IN(S, H_HEAD)
 #define HEAD_MY CAP_IN(M, H_HEAD)
 #define HEAD_TRK_X 4                                   /* the track cushion's cell */
