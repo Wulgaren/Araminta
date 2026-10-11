@@ -522,7 +522,7 @@ static void ev_delete(void)
 }
 
 /* ------------------------------------------------------------ #223 pick --- */
-/* Grouped full-screen lists for AUTOMATION's PARAM, MOD's DST, and ENV DEST / LFO DEST (GR_DESTS).
+/* Grouped full-screen lists for AUTOMATION's PARAM and MOD's DST.
  * A row is either a group tag (id 0xFFFF: the name in the tag column, no value) or a selectable item. */
 #define PK_ROWS 96u
 #define PK_GROUP 0xFFFFu
@@ -704,28 +704,6 @@ static uint32_t pk_build_mdst(const track_t *t, uint32_t d, uint32_t *sel)
         if (i == d)
             *sel = pk_n;
         pk_add_item(i, g, nm);
-    }
-    return pk_n;
-}
-/* ENV DEST / LFO DEST page: the four knobs as a grouped list (full names) */
-static uint32_t pk_build_page(const page_t *pg, uint32_t *sel)
-{
-    static const char *const ENV_N[] = {"FILTER", "PITCH", "SHAPE", "ENV SYNC"};
-    static const char *const LFO_N[] = {"PITCH", "FILTER", "SHAPE", "AMP"};
-    const char *const *names = pg->id[0] == P_ED_FLT ? ENV_N : LFO_N;
-    const char *g0 = pg->id[0] == P_ED_FLT ? "ENV" : "LFO";
-    uint32_t k;
-    pk_n = 0;
-    *sel = ui.hot_t ? ui.hot_col & 3u : 0u;
-    pk_add_group(g0);
-    for (k = 0; k < 4u; k++) {
-        if (pg->id[k] == 0xFFu)
-            continue;
-        if (pg->id[k] == P_ESYNC)
-            pk_add_group("SYNC");
-        pk_add_item(k, pg->id[k] == P_ESYNC ? "SYNC" : g0, names[k]);
-        if ((ui.hot_t ? ui.hot_col : 0u) == k)
-            *sel = pk_n - 1u;
     }
     return pk_n;
 }

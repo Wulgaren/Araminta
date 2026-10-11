@@ -841,7 +841,7 @@ static int auto_list(void)
     ui_prefs |= PREF_LARGE;
     bad += check("  MENU > LARGE: the list layout with labels in M (as the other lists)", large_kind() == LK_LABEL);
     ui_prefs &= ~PREF_LARGE;
-    /* #223: PARAM opens a grouped full-screen list; ENV DEST / LFO DEST use GR_DESTS */
+    /* #223: PARAM opens a grouped full-screen list. ENV DEST / LFO DEST are knob pages again. */
     ui.ev_row = 0xFFFFu;                                 /* + ADD */
     ui.ev_id = (uint8_t)P_LEVEL;
     ui.ev_step = 0;
@@ -863,10 +863,10 @@ static int auto_list(void)
         uint32_t i, n = 0;
         for (i = 0; i < NPAGES; i++)
             if (str_eq(PAGES[i].title, "ENV DEST") || str_eq(PAGES[i].title, "LFO DEST")) {
-                bad += check(PAGES[i].title, PAGES[i].graph == GR_DESTS);
+                bad += check(PAGES[i].title, PAGES[i].graph == GR_NONE);
                 n++;
             }
-        bad += check("#223 ENV DEST and LFO DEST both use GR_DESTS", n == 2u);
+        bad += check("ENV DEST and LFO DEST are knob pages (scope), not a pick list", n == 2u);
     }
     return bad;
 }

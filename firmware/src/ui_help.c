@@ -17,7 +17,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"ENV", "[K1-4]A D S R[ENV]ENV DEST"},
     {"ENV DEST", "[K1-4]ENV AMOUNTS[ENV]ENV"},
     {"LFO", "[K1-4]SHAPE[LFO]HOLD: MOMENTARY"},
-    {"LFO 2", "[K1]SYNC TO BPM[LFO]LFO DEST"},
+    {"LFO 2", "[K1]SYNC TO BPM[SELECT]LFO DEST"},   /* SELECT walks the LFO section; the LFO button opens MOD */
     {"LFO DEST", "[K1-4]LFO AMOUNTS[LFO]MOD"},
     {"MOD", "[K1]SLOT[K2]SOURCE[K3]DEST"},
     {"FX", "[K1-4]SENDS[FX]HOLD: PERFORM"},

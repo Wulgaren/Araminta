@@ -2609,7 +2609,7 @@ static int test_presets_knob(void)
                 sel_ok &= same_snd && same_steps && ui.page == i && ui.ev_row == 1u;
             } else if (g == GR_TOOLS) {
                 tools_ok &= same_snd && same_steps && !ui.confirm;
-            } else if (g == GR_IORD || g == GR_DESTS) {   /* REORDER / dest pickers: PRESETS walks, no sound load */
+            } else if (g == GR_IORD) {                    /* REORDER: PRESETS walks the stage, no sound load */
                 sel_ok &= same_snd && same_steps && ui.page == i;
             } else if (g == GR_PUNCH) {                 /* Punch-in sticky: PRESETS assigns an FX key, no sound load */
                 sel_ok &= same_snd && same_steps && ui.page == i;
@@ -6542,6 +6542,21 @@ static int test_select_pages(void)
     press(B_ENV);
     ok &= str_eq(cur_page()->title, "ENV") && ui.page == env0;
     bad += check("SELECT walks ENV pages; ENV button while in ENV does not advance", ok);
+
+    go_title("LFO"); frame();
+    turn(EN_SELECT, 1);
+    ok = str_eq(cur_page()->title, "LFO 2") && cur_page()->sec == LFO_SEC_LFO && cur_page()->graph == GR_LFO;
+    turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "LFO DEST") && cur_page()->sec == LFO_SEC_LFO && cur_page()->graph == GR_NONE;
+    turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "LFO") && cur_page()->sec == LFO_SEC_LFO;
+    press(B_LFO);
+    ok &= str_eq(cur_page()->title, "MOD") && cur_page()->sec == LFO_SEC_MOD && cur_page()->fam == FAM_LFO;
+    turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "MOD");
+    press(B_LFO);
+    ok &= str_eq(cur_page()->title, "LFO") && cur_page()->sec == LFO_SEC_LFO;
+    bad += check("LFO section is LFO / LFO 2 / LFO DEST; LFO button opens the MOD section", ok);
 
     go_title("ENV"); frame();
     page = ui.page;
