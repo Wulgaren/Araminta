@@ -1061,7 +1061,6 @@ static int test_map(void)
 static void dly_clear(void)
 {
     memset(dly_buf, 0, sizeof dly_buf);
-    memset(cho_buf, 0, sizeof cho_buf);
     memset(rev_comb, 0, sizeof rev_comb);
     memset(&rev_u, 0, sizeof rev_u);
     memset(&fx, 0, sizeof fx);
@@ -1072,7 +1071,7 @@ static void dly_run(const int32_t *in, int32_t *wet_out, uint32_t frames)
     static int32_t z[CTL], w[CTL];
     uint32_t t, i;
     for (t = 0; t < frames; t += CTL) {
-        fx_buses(z, in + t, z, w, CTL);
+        fx_buses(in + t, z, w, CTL);
         for (i = 0; i < CTL; i++)
             wet_out[t + i] = w[i];
     }
@@ -1196,18 +1195,20 @@ static int test_throw(void)
     song.g[G_CLOCK] = 0;
     song.g[G_BPM] = 120;
     bad += check("TIME 1/4D: fits from 61 BPM, clamps to 65535 samples at 60 and below; the external clock's quarter", ok);
-    {   /* the list: append-only, its own; the knob longest first; ARP RATE / SEQ DIV keep ten */
+    {   /* the list: append-only names; knob skips 1/1 2BAR 4BAR (they never fit the line). ARP/SEQ keep ten. */
         const param_desc_t *d = &GP[G_DTIME];
-        static const uint8_t SHOWN[13] = {9, 8, 7, 6, 12, 0, 10, 1, 11, 4, 2, 5, 3};
-        int32_t x = 9;
-        ok = d->max == 12 && d->names[1][0] == '1' && d->names[1][2] == '8' && !d->names[1][3] && d->names[9][0] == '4' &&
+        static const uint8_t SHOWN[10] = {6, 12, 0, 10, 1, 11, 4, 2, 5, 3};
+        int32_t x = 6, seen = 0;
+        ok = d->max == 12 && d->names[9][0] == '4' &&   /* stored 4BAR id remains for old projects */
              TP[P_ARATE].max == 9 && TP[P_SDIV].max == 9 && TP[P_ARATE].names == TP[P_SDIV].names;
-        for (v = 0; v < 13u; v++) {
-            ok &= x == SHOWN[v];
+        for (v = 0; v < 10u; v++) {
+            ok &= x == SHOWN[v] && x != 7 && x != 8 && x != 9;
+            seen |= 1 << x;
             x = param_turn(d, x, 1);
         }
-        ok &= x == 3 && param_turn(d, 0, -1) == 12 && param_turn(d, 0, 1) == 10;
-        bad += check("TIME list: 10 1/8D, 11 1/16D, 12 1/4D appended; knob 4BAR .. 1/2 1/4D 1/4 1/8D 1/8 1/16D 8T .. 1/32", ok);
+        ok &= x == 3 && param_turn(d, 0, -1) == 12 && param_turn(d, 6, -1) == 6 &&
+              param_turn(d, 9, 1) != 9 && (seen & 0x380) == 0;   /* never visits 7..9; legacy 4BAR steps to the list */
+        bad += check("TIME list: knob 1/2 .. 1/32 (no 1/1 2BAR 4BAR); dotted 10..12 stay; max 12 for loads", ok);
     }
     {   /* the delay itself at 1/8D: a burst comes back 16537 samples later */
         uint32_t first = 0;
@@ -1373,7 +1374,7 @@ static int test_throw(void)
                 memset(sr, 0, sizeof sr);
                 if (pf.thr)
                     perf_throw(tk, b1, sd, sr, CTL);
-                fx_buses(z, sd, sr, wb, CTL);
+                fx_buses(sd, sr, wb, CTL);
                 perf_block(z, z, CTL);
                 for (i = 0; i < CTL; i++) {
                     double a = fabs((double)wb[i]);

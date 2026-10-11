@@ -62,7 +62,7 @@ _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 
 /* the track parameter of a per-block destination */
 static uint32_t mod_param(uint32_t d)
 {
-    static const uint8_t ID[MD_E1] = {[MD_PAN] = P_PAN, [MD_DIST] = P_DIST, [MD_CHO] = P_CHOR, [MD_DLY] = P_DLY,
+    static const uint8_t ID[MD_E1] = {[MD_PAN] = P_PAN, [MD_DIST] = P_DIST, [MD_CHO] = P_IHMIX, [MD_DLY] = P_DLY,
                                       [MD_REV] = P_REV, [MD_RATE] = P_LRATE, [MD_VIB] = P_LD_PIT};
     static const uint8_t SL[3] = {P_SLPAT, P_SLRATE, P_SLDEPTH};
     static const uint8_t CH[2] = {P_CHRD, P_VOIC};

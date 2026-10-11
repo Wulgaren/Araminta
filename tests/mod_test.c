@@ -81,7 +81,6 @@ static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails
 {
     uint32_t k;
     memset(dly_buf, 0, sizeof dly_buf);
-    memset(cho_buf, 0, sizeof cho_buf);
     memset(rev_comb, 0, sizeof rev_comb);
     memset(rev_ap, 0, sizeof rev_ap);
     memset(&fx, 0, sizeof fx);
@@ -297,7 +296,7 @@ static void test_math(void)
     slot(t, 1, MS_LFO, MD_CHO, -32);
     slot(t, 2, MS_LFO, MD_RATE, 32);
     slot(t, 3, MS_LFO, MD_VIB, 32);
-    t->p[P_DIST] = t->p[P_CHOR] = 64;
+    t->p[P_DIST] = t->p[P_IHMIX] = 64;
     t->p[P_LRATE] = 100;
     t->p[P_LD_PIT] = 0;
     lfo = mulq15(-32768, 32767);
@@ -305,11 +304,11 @@ static void test_math(void)
     {
         int32_t up = (((lfo * 32) >> 6) * 127) >> 15, dn = (((lfo * -32) >> 6) * 127) >> 15;
         check("LFO -> DIST / CHO (+-32), RATE, VIB: bipolar, half the range each",
-              up < -30 && dn > 30 && t->p[P_DIST] == 64 + up && t->p[P_CHOR] == 64 + dn && t->p[P_LRATE] == 100 + up &&
+              up < -30 && dn > 30 && t->p[P_DIST] == 64 + up && t->p[P_IHMIX] == 64 + dn && t->p[P_LRATE] == 100 + up &&
               t->p[P_LD_PIT] == up);
     }
     mod_end(t);
-    check("every per-block value restored", t->p[P_DIST] == 64 && t->p[P_CHOR] == 64 && t->p[P_LRATE] == 100 && t->p[P_LD_PIT] == 0);
+    check("every per-block value restored", t->p[P_DIST] == 64 && t->p[P_IHMIX] == 64 && t->p[P_LRATE] == 100 && t->p[P_LD_PIT] == 0);
 
     /* an engine parameter: its descriptor's range */
     e_trio = eng_by_name("TRIO");
@@ -419,7 +418,7 @@ static int pan_e2e(void)                       /* MODW -> PAN moves the pan the 
     uint32_t i, k;
     fresh(0, 0);
     slot(&trk[0], 0, MS_MODW, MD_PAN, 63);
-    trk[0].p[P_CHOR] = trk[0].p[P_DLY] = trk[0].p[P_REV] = 0;   /* (the buses are in the middle) */
+    trk[0].p[P_DLY] = trk[0].p[P_REV] = 0;   /* (the buses are in the middle) */
     pkt(0xB0, 1, 127);
     trk_note_on(&trk[0], 60, 100);
     blocks(FS / 10u / CTL);

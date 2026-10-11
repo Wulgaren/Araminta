@@ -3,8 +3,8 @@
 /* The reverb bus's models (src/fx.c: REVERB TYPE, G_RTYPE: ROOM, SPRING, HALL, JIANT SHIMR / CLOUD) on the Mac,
  * through hostsim.c as regress.c.
  *   build/host/reverb_test [DEMODIR [DEMODIR2]]          (run_tests.sh: build/fx_demo build/reverb_demo)
- * 1. ROOM bit-identical: fx_buses against a copy of the buses as they were before SPRING (chorus, delay and the
- *    4-comb room in one loop), on noise sends with SIZE / DAMP / the delay and chorus settings changing, sample
+ * 1. ROOM bit-identical: fx_buses against a copy of the buses as they were before SPRING (delay and the
+ *    4-comb room in one loop), on noise sends with SIZE / DAMP / the delay settings changing, sample
  *    for sample. (The goldens of regress.c, all rendered with ROOM, say the same for the whole mix.)
  * 2. SPRING decay: the impulse response's RT60 (Schroeder integral, -5 .. -35 dB) rises with SIZE, within
  *    0.15 .. 1 s at SIZE 0 and 2 .. 6 s at 127.
@@ -65,33 +65,21 @@ static int32_t noise(int32_t amp)
 }
 
 /* ------------------------------------------------- the buses before SPRING --- */
-static int16_t ref_dly[DLY_LEN], ref_cho[CHO_LEN], ref_comb[1116 + 1188 + 1277 + 1356], ref_ap[556 + 441];
+static int16_t ref_dly[DLY_LEN], ref_comb[1116 + 1188 + 1277 + 1356], ref_ap[556 + 441];
 static struct {
-    uint32_t dly_w, cho_w, cho_ph;
+    uint32_t dly_w;
     int32_t dly_lp;
     uint16_t comb_i[4], ap_i[2];
     int32_t comb_lp[4];
 } rf;
-static void ref_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t *rev_in, int32_t *wet, uint32_t n)
+static void ref_buses(const int32_t *dly_in, const int32_t *rev_in, int32_t *wet, uint32_t n)
 {
     uint32_t i, k, dl = delay_samples();
     int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
     int32_t dmix = song.g[G_DMIX] * 258;
     int32_t size = 25000 + song.g[G_RSIZE] * 50, damp = 32767 - song.g[G_RDAMP] * 200;
-    int32_t cdepth = song.g[G_CDEPTH] * 6;
-    uint32_t cinc = LFO_INC[song.g[G_CRATE] & 127] / CTL;
     for (i = 0; i < n; i++) {
-        int32_t y = 0, x, r, a;
-        ref_cho[rf.cho_w & (CHO_LEN - 1u)] = (int16_t)clamp(cho_in[i] >> 1, -32768, 32767);
-        rf.cho_ph += cinc;
-        r = (400 << 8) + ((osc_sine(rf.cho_ph) + 32768) * cdepth >> 8);
-        {
-            uint32_t ri = (uint32_t)r >> 8;
-            int32_t f = r & 255, c0 = ref_cho[(rf.cho_w - ri) & (CHO_LEN - 1u)];
-            int32_t c1 = ref_cho[(rf.cho_w - ri - 1u) & (CHO_LEN - 1u)];
-            y += (c0 + (((c1 - c0) * f) >> 8)) << 1;
-        }
-        rf.cho_w++;
+        int32_t y = 0, x, a;
         x = ref_dly[(rf.dly_w - dl) & (DLY_LEN - 1u)];
         rf.dly_lp += mulq15(x - rf.dly_lp, col);
         ref_dly[rf.dly_w & (DLY_LEN - 1u)] = (int16_t)clamp((dly_in[i] >> 1) + mulq15(rf.dly_lp, fb), -32768, 32767);
@@ -128,26 +116,25 @@ static void ref_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_
 
 static void test_room_identical(void)
 {
-    static int32_t c[CTL], d[CTL], r[CTL], w0[CTL], w1[CTL];
+    static int32_t d[CTL], r[CTL], w0[CTL], w1[CTL];
     uint32_t b, i, diff = 0, nb = 30u * FS / CTL;
     host_tracks_init();
     song.g[G_RTYPE] = 0;                                        /* (HALL is the default since 1.2) */
+    song.g[G_DLYOWN] = song.g[G_REVOWN] = 0;                    /* SEND mode for both buses */
     for (b = 0; b < nb; b++) {
         if (b % 700u == 0u) {                                   /* the settings move now and then */
             song.g[G_RSIZE] = (int16_t)((uint32_t)noise(1 << 30) % 128u);
             song.g[G_RDAMP] = (int16_t)((uint32_t)noise(1 << 30) % 128u);
             song.g[G_DTIME] = (int16_t)((uint32_t)noise(1 << 30) % 6u);
             song.g[G_DFDBK] = (int16_t)((uint32_t)noise(1 << 30) % 121u);
-            song.g[G_CDEPTH] = (int16_t)((uint32_t)noise(1 << 30) % 128u);
         }
         for (i = 0; i < CTL; i++) {
             int32_t on = (b / 300u) % 3u != 2u;                 /* bursts and silences: the tails too */
-            c[i] = on ? noise(60000) : 0;
             d[i] = on ? noise(60000) : 0;
             r[i] = on ? noise(b % 2000u < 1000u ? 90000 : 4000) : 0;
         }
-        fx_buses(c, d, r, w0, CTL);
-        ref_buses(c, d, r, w1, CTL);
+        fx_buses(d, r, w0, CTL);
+        ref_buses(d, r, w1, CTL);
         for (i = 0; i < CTL; i++)
             diff += w0[i] != w1[i];
     }
@@ -306,7 +293,6 @@ static void test_spring_identical(void)
     host_tracks_init();
     memset(&fx, 0, sizeof fx);                                  /* (as a fresh start) */
     memset(dly_buf, 0, sizeof dly_buf);
-    memset(cho_buf, 0, sizeof cho_buf);
     rev_clear();
     xs = 0x2468ACEu;
     for (b = 0; b < nb; b++) {
@@ -320,7 +306,7 @@ static void test_spring_identical(void)
             c[i] = d[i] = 0;
             r[i] = on ? noise(b % 2000u < 1000u ? 90000 : 4000) : 0;
         }
-        fx_buses(c, d, r, w, CTL);
+        fx_buses(d, r, w, CTL);
         for (i = 0; i < CTL; i++)
             h = (h ^ (uint32_t)w[i]) * 16777619u;
     }
@@ -751,7 +737,6 @@ static void test_switch(void)
             host_tracks_init();
             rev_clear();
             memset(dly_buf, 0, sizeof dly_buf);                 /* (the delay and chorus quiet: only the reverb) */
-            memset(cho_buf, 0, sizeof cho_buf);
             fx.dly_lp = 0;
             song.g[G_RTYPE] = (int16_t)from;
             fx.rtype = (uint8_t)from;
@@ -762,7 +747,7 @@ static void test_switch(void)
                     c[i] = d[i] = 0;
                     r[i] = b < FS / CTL ? (int32_t)(30000 * sin(2 * M_PI * 220 * (b * CTL + i) / FS)) : 0;
                 }
-                fx_buses(c, d, r, w, CTL);
+                fx_buses(d, r, w, CTL);
                 for (i = 0; i < CTL; i++) {
                     int32_t L = w[i] + (hl.side ? rev_side[i] : 0), s = abs(L - prev);   /* the left channel */
                     if (b >= 2u * FS / CTL - 4u && b <= 2u * FS / CTL + 4u)
@@ -780,7 +765,7 @@ static void test_switch(void)
         }
     }
     song.g[G_RTYPE] = 0;
-    fx_buses(c, d, r, w, CTL);
+    fx_buses(d, r, w, CTL);
     check("  and back to ROOM", fx.rtype == 0 && !hl.side);
 }
 
@@ -802,7 +787,7 @@ static double cost_of(int m, int bus)        /* model m alone, or the bus stage 
     i0 = instr_now();
     for (b = 0; b < nb; b++) {
         if (bus) {
-            fx_buses(c, d, r, w, CTL);
+            fx_buses(d, r, w, CTL);
             if (hl.side)
                 rev_side_mix(c, d, CTL);                /* (as mix_block: HALL's stereo) */
         } else if (m == M_HALL)
@@ -836,7 +821,7 @@ static void test_cost(void)
     snprintf(what, sizeof what, "  SHIMR %.0f (+%.0f %%), CLOUD %.0f (+%.0f %%) (printed; CLOUD is heavier)",
              shim, (shim / room - 1) * 100, cld, (cld / room - 1) * 100);
     check(what, shim > 0 && cld > 0);
-    snprintf(what, sizeof what, "  the bus stage (chorus, delay, reverb) ROOM %.0f (~%.1f %%), SPRING %.0f (~%.1f %%): +%.0f (~%.2f %% CPU)",
+    snprintf(what, sizeof what, "  the bus stage (delay, reverb) ROOM %.0f (~%.1f %%), SPRING %.0f (~%.1f %%): +%.0f (~%.2f %% CPU)",
              broom, broom * 0.017, bspr, bspr * 0.017, bspr - broom, (bspr - broom) * 0.017);
     check(what, (bspr - broom) * 0.017 <= 2.0);
     snprintf(what, sizeof what, "  .. HALL %.0f (~%.1f %%, with its stereo): +%.0f (~%.2f %% CPU)",
@@ -900,7 +885,7 @@ static void demo_block(int32_t *out, uint32_t n, int comb8_on)
     uint32_t i;
     int32_t mg = (int32_t)song.master_q12;
     for (i = 0; i < n; i++)
-        send_c[i] = send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
+        send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
     events_block(n);
     for (i = 0; i < NPART; i++)
         mix_part(&trk[i], n);
@@ -909,7 +894,7 @@ static void demo_block(int32_t *out, uint32_t n, int comb8_on)
             wet[i] = 0;                                 /* (no chorus or delay in the demos) */
         comb8(send_r, wet, n);
     } else {
-        fx_buses(send_c, send_d, send_r, wet, n);
+        fx_buses(send_d, send_r, wet, n);
         if (hl.side)
             rev_side_mix(mix_l, mix_r, n);
     }

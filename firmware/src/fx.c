@@ -1,11 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Effects: per-track insert chain (6 reorderable stages), then sends into three
- * shared buses (chorus, tempo delay, reverb). Mono buses, stereo dry mix. */
+/* Effects: per-track insert chain (6 reorderable stages) plus shared delay/reverb
+ * (SEND for all, or CHAIN on one track). Mono buses, stereo dry mix. */
 #define DLY_LEN 65536u           /* 1.49 s: 1/4 fits from 41 BPM, 1/4D from 61, 1/2 from 81 */
-#define CHO_LEN 2048u
 static int16_t dly_buf[DLY_LEN] __attribute__((section(".pool")));
-static int16_t cho_buf[CHO_LEN] __attribute__((section(".pool")));
 static const uint16_t REV_COMB[4] = {1116, 1188, 1277, 1356};
 static const uint16_t REV_AP[2] = {556, 441};
 static int16_t rev_comb[1116 + 1188 + 1277 + 1356] __attribute__((section(".pool")));
@@ -15,7 +13,7 @@ static union {                          /* ROOM's allpasses; SPRING's allpass ch
 } rev_u __attribute__((section(".pool")));
 #define rev_ap (rev_u.ap)
 static struct {
-    uint32_t dly_w, cho_w, cho_ph;
+    uint32_t dly_w;
     int32_t dly_lp;
     uint16_t comb_i[4], ap_i[2];
     int32_t comb_lp[4];
@@ -174,10 +172,110 @@ static void ins_order_move(track_t *t, uint32_t h, int32_t dir)
     { uint8_t tmp = ord[h]; ord[h] = ord[n]; ord[n] = tmp; }
     ins_order_set(t, ord);
 }
+/* G_DLYOWN / G_REVOWN: 0 = SEND for every track; 1..4 = that track has CHAIN (others USED). */
+static int32_t bus_own(uint32_t which)   /* 0 delay, 1 reverb; returns -1 SEND, else track index */
+{
+    int32_t v = song.g[which ? G_REVOWN : G_DLYOWN];
+    return v >= 1 && v <= (int32_t)NTRK ? v - 1 : -1;
+}
+static void bus_own_set(uint32_t which, int32_t tr)   /* tr -1 = SEND; else claim for track tr */
+{
+    song.g[which ? G_REVOWN : G_DLYOWN] = tr < 0 || tr >= (int32_t)NTRK ? 0 : (int16_t)(tr + 1);
+}
+static void bus_own_sanitize(void)
+{
+    if (song.g[G_DLYOWN] < 0 || song.g[G_DLYOWN] > (int16_t)NTRK)
+        song.g[G_DLYOWN] = 0;
+    if (song.g[G_REVOWN] < 0 || song.g[G_REVOWN] > (int16_t)NTRK)
+        song.g[G_REVOWN] = 0;
+}
+/* P_CHOR packs EFFECTS list slots for DLY/REV: bit6 marks the new layout; low 3 = DLY, next 3 = REV.
+ * Older CHO send values (0..63) load as DLY at 6, REV at 7. */
+#define FX_POS_MARK 64
+static void fx_pos_get(const track_t *t, uint32_t *dp, uint32_t *rp)
+{
+    int32_t v = t->p[P_CHOR];
+    if (v < FX_POS_MARK) {
+        *dp = 6;
+        *rp = 7;
+        return;
+    }
+    v -= FX_POS_MARK;
+    *dp = (uint32_t)v & 7u;
+    *rp = ((uint32_t)v >> 3) & 7u;
+    if (*rp == *dp)
+        *rp = *dp + 1u < FX_LIST_N ? *dp + 1u : 0u;
+}
+static void fx_pos_set(track_t *t, uint32_t dp, uint32_t rp)
+{
+    t->p[P_CHOR] = (int16_t)(FX_POS_MARK + (int32_t)(dp & 7u) + (int32_t)((rp & 7u) << 3));
+}
+/* EFFECTS list: 6 inserts (P_IORD) with DLY/REV slotted via P_CHOR. */
+static void fx_list_get(const track_t *t, uint8_t ord[FX_LIST_N])
+{
+    uint8_t ins[INS_N], used[FX_LIST_N];
+    uint32_t i, j = 0, dp, rp;
+    ins_order_get(t, ins);
+    fx_pos_get(t, &dp, &rp);
+    for (i = 0; i < FX_LIST_N; i++)
+        used[i] = 0;
+    ord[dp] = INS_DLY;
+    used[dp] = 1;
+    ord[rp] = INS_REV;
+    used[rp] = 1;
+    for (i = 0; i < FX_LIST_N; i++) {
+        if (used[i])
+            continue;
+        ord[i] = ins[j++];
+    }
+}
+static void fx_list_set(track_t *t, const uint8_t ord[FX_LIST_N])
+{
+    uint8_t ins[INS_N];
+    uint32_t i, j = 0, dp = 6, rp = 7;
+    for (i = 0; i < FX_LIST_N; i++) {
+        if (ord[i] == INS_DLY)
+            dp = i;
+        else if (ord[i] == INS_REV)
+            rp = i;
+        else if (j < INS_N)
+            ins[j++] = ord[i];
+    }
+    if (j != INS_N)
+        for (j = 0; j < INS_N; j++)
+            ins[j] = (uint8_t)j;
+    fx_pos_set(t, dp, rp);
+    ins_order_set(t, ins);
+}
+static void fx_list_move(track_t *t, uint32_t h, int32_t dir)
+{
+    uint8_t ord[FX_LIST_N];
+    uint32_t n = h + (uint32_t)dir;
+    if (h >= FX_LIST_N || n >= FX_LIST_N)
+        return;
+    fx_list_get(t, ord);
+    { uint8_t tmp = ord[h]; ord[h] = ord[n]; ord[n] = tmp; }
+    fx_list_set(t, ord);
+}
 static int32_t ins_mix_of(const track_t *t, uint32_t st)
 {
     static const uint8_t MIX[INS_N] = {P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX, P_IHMIX};
+    if (st == INS_DLY)
+        return t->p[P_DLY];
+    if (st == INS_REV)
+        return t->p[P_REV];
     return st < INS_N ? t->p[MIX[st]] : 0;
+}
+/* mode string for EFFECTS: SEND, CHAIN, or USED (another track owns the shared bus). */
+static const char *fx_list_mode(const track_t *t, uint32_t st)
+{
+    int32_t own, tr = (int32_t)(t - trk);
+    if (st < INS_N)
+        return ins_is_send(t, st) ? "SEND" : "CHAIN";
+    own = bus_own(st == INS_REV ? 1u : 0u);
+    if (own < 0)
+        return "SEND";
+    return own == tr ? "CHAIN" : "USED";
 }
 static int ins_any(const track_t *t)
 {
@@ -777,15 +875,11 @@ static __attribute__((noinline)) void rev_switch(const int32_t *rev_in, int32_t 
     fx.rtype = (uint8_t)rt;
 }
 
-/* process the three buses for one block; sends in, wet stereo-equal out */
-static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t *rev_in, int32_t *wet,
-                     uint32_t n)
+/* Shared delay line: write `in`, read into `out` (may alias). Used as SEND bus or insert CHAIN. */
+static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet_q15)
 {
     uint32_t i, dl = delay_samples();
     int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
-    int32_t dmix = song.g[G_DMIX] * 258;
-    int32_t cdepth = song.g[G_CDEPTH] * 6, rt;
-    uint32_t cinc = LFO_INC[song.g[G_CRATE] & 127] / CTL;
     int free_ms = dtime_free();
     uint32_t tgt = 0;
     if (!free_ms) {
@@ -799,23 +893,9 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
         }
     }
     if (pf.ew1 && fb < THR_FB)
-        fb += mulq16(THR_FB - fb, (uint32_t)pf.ew1 << 1);   /* ECHO THROW (perform.c): more feedback while held, 0.7
-                                                             * at most (the loop's gain below 1: it never runs away) */
+        fb += mulq16(THR_FB - fb, (uint32_t)pf.ew1 << 1);
     for (i = 0; i < n; i++) {
-        int32_t y = 0, x, r;
-        /* chorus: modulated short delay, 5..15 ms */
-        cho_buf[fx.cho_w & (CHO_LEN - 1u)] = (int16_t)clamp(cho_in[i] >> 1, -32768, 32767);
-        fx.cho_ph += cinc;
-        r = (400 << 8) + ((osc_sine(fx.cho_ph) + 32768) * cdepth >> 8);   /* Q8 delay: read between samples */
-        {
-            uint32_t ri = (uint32_t)r >> 8;
-            int32_t f = r & 255, c0 = cho_buf[(fx.cho_w - ri) & (CHO_LEN - 1u)];
-            int32_t c1 = cho_buf[(fx.cho_w - ri - 1u) & (CHO_LEN - 1u)];
-            y += (c0 + (((c1 - c0) * f) >> 8)) << 1;
-        }
-        fx.cho_w++;
-        /* delay with a low-passed feedback. RATE: the division, one sample, as before. TIME: fractional
-         * milliseconds, the read gliding toward the knob */
+        int32_t x;
         if (free_ms) {
             int32_t err = (int32_t)tgt - (int32_t)dly_q8;
             int32_t st = err > 512 ? 512 : err < -512 ? -512 : err;
@@ -832,17 +912,31 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
         }
         fx.dly_lp += mulq15(x - fx.dly_lp, col);
         dly_buf[fx.dly_w & (DLY_LEN - 1u)] =
-            (int16_t)clamp((dly_in[i] >> 1) + mulq15(fx.dly_lp, fb), -32768, 32767);
+            (int16_t)clamp((in[i] >> 1) + mulq15(fx.dly_lp, fb), -32768, 32767);
         fx.dly_w++;
-        y += mulq15(x << 1, dmix);
-        wet[i] = y;
+        out[i] = mulq15(x << 1, wet_q15);
     }
+}
+/* process delay + reverb buses; sends in, wet stereo-equal out. When an engine is CHAIN on a track,
+ * that bus's send path is silent (the owner runs it in track_insert). */
+static void fx_buses(const int32_t *dly_in, const int32_t *rev_in, int32_t *wet, uint32_t n)
+{
+    uint32_t i;
+    int32_t rt, dmix = song.g[G_DMIX] * 258;
+    int dly_send = bus_own(0) < 0, rev_send = bus_own(1) < 0;
+    if (dly_send)
+        dly_process(dly_in, wet, n, dmix);
+    else
+        for (i = 0; i < n; i++)
+            wet[i] = 0;                           /* CHAIN: owner advances the line in track_insert */
     rt = rev_rtype();
     hl.side = 0;
-    if (rt != fx.rtype)
-        rev_switch(rev_in, wet, n, rt);
-    else
-        rev_run((uint32_t)rt, rev_in, wet, n);
+    if (rev_send) {
+        if (rt != fx.rtype)
+            rev_switch(rev_in, wet, n, rt);
+        else
+            rev_run((uint32_t)rt, rev_in, wet, n);
+    }
 }
 
 /* after the buses: HALL's stereo difference to the left and from the right of the dry mix (the wet bus adds the
@@ -874,11 +968,9 @@ typedef struct {
 static ins_st_t ins_st[NTRK][INS_N] __attribute__((section(".pool")));
 static int16_t ins_lines[NTRK][2][IL_LEN] __attribute__((section(".pool")));
 
-/* Power-on (audio.c audio_init): the chorus and delay buses always read their lines into the wet mix
- * (fx_buses), even with every track send at 0 and CHORUS DEPTH 0 (a fixed tap). Garbage in those lines, or
- * in the reverb, is a loud click on the first blocks. The pool is zeroed in fm1_cstart; clear again here and
- * match fx.rtype to G_RTYPE (HALL by default since 1.2) so the first block does not rev_switch. boot_fade
- * stays at 0 until audio_amp_on (main.c) starts a ~20 ms ramp (audio.c audio_block). */
+/* Power-on (audio.c audio_init): clear delay/reverb lines so the first blocks are silent. The pool is
+ * zeroed in fm1_cstart; clear again here and match fx.rtype to G_RTYPE. boot_fade stays at 0 until
+ * audio_amp_on (main.c) starts a ~20 ms ramp (audio.c audio_block). */
 static uint16_t boot_fade = 32768;           /* Q15 out gain; 32768 = full (host tests that skip audio_init) */
 static uint8_t boot_fade_run;                /* 1: ramp boot_fade up (after the amp is on) */
 #define BOOT_FADE_STEP 37                    /* ~20 ms: 32768 / (0.02 * FS) */
@@ -887,8 +979,8 @@ static void fx_boot(void)
     uint32_t i;
     int32_t rt;
     memset(dly_buf, 0, sizeof dly_buf);
-    memset(cho_buf, 0, sizeof cho_buf);
     rev_clear();
+    bus_own_sanitize();
     memset(&fx, 0, sizeof fx);
     memset(&hl, 0, sizeof hl);
     memset(ins_st, 0, sizeof ins_st);
@@ -1100,27 +1192,67 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
 }
 
 static int32_t ins_dry[CTL], ins_wet[CTL];
-/* Chain stages run in order. A stage flagged as a send is left out of that series: the dry
- * continues, and after the chain a fully wet copy is added, scaled by the stage's mix. */
+/* Run shared DLY/REV as an insert stage (CHAIN owner only): wet mixed by the track's send amount. */
+static void fx_bus_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n)
+{
+    uint32_t k;
+    int32_t amt = ins_mix_of(t, st), g, rt;
+    if (amt <= 0 && st == INS_DLY) {
+        dly_process(b, ins_wet, n, 0);           /* advance the line even at mix 0 */
+        return;
+    }
+    if (amt <= 0)
+        return;
+    g = ins_mixq(amt);
+    for (k = 0; k < n; k++)
+        ins_dry[k] = b[k];
+    if (st == INS_DLY) {
+        dly_process(ins_dry, ins_wet, n, 32768);
+    } else {
+        rt = rev_rtype();
+        hl.side = 0;
+        for (k = 0; k < n; k++)
+            ins_wet[k] = 0;
+        if (rt != fx.rtype)
+            rev_switch(ins_dry, ins_wet, n, rt);
+        else
+            rev_run((uint32_t)rt, ins_dry, ins_wet, n);
+    }
+    for (k = 0; k < n; k++) {
+        int64_t s = (int64_t)ins_dry[k] + ((((int64_t)ins_wet[k] - ins_dry[k]) * g) >> 15);
+        b[k] = s > 2147483647 ? 2147483647 : s < -2147483647 - 1 ? (int32_t)(-2147483647 - 1) : (int32_t)s;
+    }
+    t->ins_run = 1;
+}
+/* Chain stages run in list order. Insert SEND stages are left out of the series and added after.
+ * Shared DLY/REV run here only when this track owns them as CHAIN. */
 static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint32_t n)
 {
-    uint8_t ord[INS_N];
+    uint8_t ord[FX_LIST_N];
     uint32_t i;
     uint16_t raw;
+    int32_t tr = (int32_t)(t - trk);
     t->ins_run = 0;
-    ins_order_get(t, ord);
+    fx_list_get(t, ord);
     raw = iord_bits(t);
-    for (i = 0; i < INS_N; i++)
-        if (!(raw & (uint16_t)(1u << (10u + ord[i]))))
-            ins_stage(t, ord[i], b, n, -1);
+    for (i = 0; i < FX_LIST_N; i++) {
+        uint32_t st = ord[i];
+        if (st == INS_DLY || st == INS_REV) {
+            if (bus_own(st == INS_REV ? 1u : 0u) == tr)
+                fx_bus_stage(t, st, b, n);
+            continue;
+        }
+        if (!(raw & (uint16_t)(1u << (10u + st))))
+            ins_stage(t, st, b, n, -1);
+    }
     if (!(raw & IORD_SEND) || !n || n > CTL)
         return;
     for (i = 0; i < n; i++)
         ins_dry[i] = b[i];
-    for (i = 0; i < INS_N; i++) {
+    for (i = 0; i < FX_LIST_N; i++) {
         uint32_t st = ord[i], k;
         int32_t amt, g;
-        if (!(raw & (uint16_t)(1u << (10u + st))))
+        if (st >= INS_N || !(raw & (uint16_t)(1u << (10u + st))))
             continue;
         amt = ins_mix_of(t, st);
         if (amt <= 0)
@@ -1139,7 +1271,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
 /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
  * -> dist -> INSERT -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
 static void events_block(uint32_t n);                    /* seq.c */
-static int32_t send_c[CTL], send_d[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_r[CTL];
+static int32_t send_d[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_r[CTL];
 
 /* (JIANT) CLIP: mix driven into soft clip ahead of the limiter (before MASTER); wet folded in */
 static __attribute__((noinline)) void clip_block(uint32_t n)
@@ -1205,14 +1337,14 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     int32_t gla = 4096 - (pa > 0 ? pa * 64 : 0), gra = 4096 + (pa < 0 ? pa * 64 : 0);
     int32_t glb = 4096 - (pb > 0 ? pb * 64 : 0), grb = 4096 + (pb < 0 ? pb * 64 : 0);
     int32_t glm = (gla + glb) >> 1, grm = (gra + grb) >> 1, gld = (gla - glb) >> 1, grd = (gra - grb) >> 1;
-    int32_t c = t->p[P_CHOR] * 258, dl = t->p[P_DLY] * 258, r = t->p[P_REV] * 258, pk = t->peak;
-    int32_t xmax = c > dl ? c : dl, lq = lvl << 8, dlv = 0;
-    xmax = 0x7FFFFFFF / ((xmax > r ? xmax : r) | 1);
+    int32_t dl = bus_own(0) < 0 ? t->p[P_DLY] * 258 : 0, r = bus_own(1) < 0 ? t->p[P_REV] * 258 : 0, pk = t->peak;
+    int32_t xmax = dl > r ? dl : r, lq = lvl << 8, dlv = 0;
+    xmax = 0x7FFFFFFF / (xmax | 1);
     if ((duck_g0 < 32767 || duck_g1 < 32767) && ENGINES[t->engine] != &ENG_DRUM)
         lq = duck_ramp(lvl, &dlv);
     for (i = 0; i < n; i++)
         d[i] = (d[i] << 1) - b[i];                      /* left - right */
-    if (ins_any(t) | t->ins_run)
+    if (ins_any(t) | t->ins_run || bus_own(0) == (int32_t)(t - trk) || bus_own(1) == (int32_t)(t - trk))
         track_insert(t, b, n);
     slicer_track_sd(t, b, d, n);
     if ((pf.mute >> (t - trk)) & 1u)
@@ -1222,8 +1354,6 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
         int32_t xs = clamp(x, -xmax, xmax);
         if (a > pk)
             pk = a;
-        if (c)
-            send_c[i] += mulq15(xs, c);
         if (dl)
             send_d[i] += mulq15(xs, dl);
         if (r)
@@ -1237,29 +1367,26 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
 /* Keys are the effective values after mod_begin, so automation and matrix
  * modulation invalidate the same cache as direct edits and preset loads. */
 typedef struct {
-    int16_t level, pan, chor, dly, rev;
+    int16_t level, pan, dly, rev, dlyown, revown;
     uint8_t valid;
-    int32_t lvl, gl, gr, c, d, r, xmax;
+    int32_t lvl, gl, gr, d, r, xmax;
 } mix_cache_t;
 static mix_cache_t mix_cache[NTRK];
 static __attribute__((noinline)) void mix_cache_update(const track_t *t, mix_cache_t *mc)
 {
     mc->level = t->p[P_LEVEL];
     mc->pan = t->p[P_PAN];
-    mc->chor = t->p[P_CHOR];
     mc->dly = t->p[P_DLY];
     mc->rev = t->p[P_REV];
+    mc->dlyown = song.g[G_DLYOWN];
+    mc->revown = song.g[G_REVOWN];
     mc->valid = 1;
     mc->lvl = LEVEL_Q12[mc->level & 127];
     mc->gl = 4096 - (mc->pan > 0 ? mc->pan * 64 : 0);
     mc->gr = 4096 + (mc->pan < 0 ? mc->pan * 64 : 0);
-    mc->c = mc->chor * 258;
-    mc->d = mc->dly * 258;
-    mc->r = mc->rev * 258;
-    {
-        int32_t m = mc->c > mc->d ? mc->c : mc->d;
-        mc->xmax = 0x7FFFFFFF / ((m > mc->r ? m : mc->r) | 1);
-    }
+    mc->d = bus_own(0) < 0 ? mc->dly * 258 : 0;
+    mc->r = bus_own(1) < 0 ? mc->rev * 258 : 0;
+    mc->xmax = 0x7FFFFFFF / ((mc->d > mc->r ? mc->d : mc->r) | 1);
 }
 
 /* one synth part into the dry mix and the sends; a part with no voice sounding costs
@@ -1287,10 +1414,11 @@ static void mix_part(track_t *t, uint32_t n)
         uint32_t ti = (uint32_t)(t - trk);
         mix_cache_t *mc = &mix_cache[ti];
         if (!mc->valid || mc->level != t->p[P_LEVEL] || mc->pan != t->p[P_PAN] ||
-            mc->chor != t->p[P_CHOR] || mc->dly != t->p[P_DLY] || mc->rev != t->p[P_REV])
+            mc->dly != t->p[P_DLY] || mc->rev != t->p[P_REV] ||
+            mc->dlyown != song.g[G_DLYOWN] || mc->revown != song.g[G_REVOWN])
             mix_cache_update(t, mc);
-        int32_t lvl = mc->lvl, gl = mc->gl, gr = mc->gr, c = mc->c, d = mc->d, r = mc->r, xmax = mc->xmax, pk = t->peak;
-        if (ins_any(t) | t->ins_run)
+        int32_t lvl = mc->lvl, gl = mc->gl, gr = mc->gr, d = mc->d, r = mc->r, xmax = mc->xmax, pk = t->peak;
+        if (ins_any(t) | t->ins_run || bus_own(0) == (int32_t)ti || bus_own(1) == (int32_t)ti)
             track_insert(t, b, n);
         slicer_track(t, b, n);
         if ((pf.mute >> (t - trk)) & 1u)
@@ -1303,8 +1431,6 @@ static void mix_part(track_t *t, uint32_t n)
             int32_t xs = clamp(x, -xmax, xmax);         /* sends: mulq15 would overflow */
             if (a > pk)
                 pk = a;
-            if (c)
-                send_c[i] += mulq15(xs, c);
             if (d)
                 send_d[i] += mulq15(xs, d);
             if (r)
@@ -1399,7 +1525,7 @@ static void mix_block(int32_t *out, uint32_t n)
     int perf;
     int32_t mg = fx_usb_fixed ? MASTER_FULL : (int32_t)song.master_q12;   /* (USB LEVEL FIXED: MASTER after) */
     for (i = 0; i < n; i++)
-        send_c[i] = send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
+        send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
     pfx_block(n, (perf_kill ? 0u : (perf_held | perf_latched) & PF_MIDI) | scene_pfx);
     events_block(n);
     clip_eff = song.g[G_CLIP];                          /* (JIANT) CLIP / PNCH for this block */
@@ -1414,7 +1540,7 @@ static void mix_block(int32_t *out, uint32_t n)
         pfx_end();                                      /* (DEC- / DEC+ / ATK+ params back) */
     if (perf)
         perf_pre(mix_l, mix_r, send_d, send_r, n);
-    fx_buses(send_c, send_d, send_r, wet, n);
+    fx_buses(send_d, send_r, wet, n);
     if (hl.side)
         rev_side_mix(mix_l, mix_r, n);                  /* HALL: stereo */
     if (clip_g)

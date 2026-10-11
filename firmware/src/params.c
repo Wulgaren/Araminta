@@ -68,7 +68,7 @@ static const char *const N_IBITS[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9
 static const char *const N_IRATE[] = {"689", "919", "1.1k", "1.4k", "1.8k", "2.2k", "2.8k", "3.7k", "4.4k", "5.5k",
                                       "7.4k", "8.8k", "11k", "15k", "22k", "44k", 0};
 /* EFFECTS page: stage names in chain order (fx.c). K1 chooses, K2 moves */
-static const char *const N_ISTAGE[] = {"DIST", "FILTER", "CRUSH", "PHASR", "FLANG", "CHOR"};
+static const char *const N_ISTAGE[] = {"DIST", "FILTER", "CRUSH", "PHASR", "FLANG", "CHOR", "DLY", "REV"};
 /* modulation matrix (mod.c): sources, destinations (E1..E8 = P_E0..P_E7: shown with the engine's labels).
  * Append-only (stored values keep their meaning): S&H SLEW and DEPTH (#132) came after EXPR and E8 */
 static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR", "S&H", "SLEW"};
@@ -119,7 +119,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_SSWING] = PD("SWG", F_PCT, 0, 100, 0),
     [P_SGATE] = PD("GATE", F_PCT, 1, 127, 64),
     [P_DIST] = PD("DRIVE", F_PCT, 0, 127, 0),   /* DIST stage drive (insert chain); was the pre-insert DST */
-    [P_CHOR] = PD("CHO", F_PCT, 0, 127, 0),
+    [P_CHOR] = PD("FXPOS", F_INT, 0, 127, 64 + 6 + (7 << 3)), /* EFFECTS DLY/REV slots; was CHO send */
     [P_DLY] = PD("DLY", F_PCT, 0, 127, 0),
     [P_REV] = PD("REV", F_PCT, 0, 127, 0),
     [P_VOICE] = PE("VCE", N_VOICE, 0),
@@ -196,8 +196,8 @@ static const param_desc_t GP[G_COUNT] = {
     [G_DMIX] = PD("MIX", F_PCT, 0, 127, 90),
     [G_RSIZE] = PD("SIZE", F_PCT, 0, 127, 90),
     [G_RDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
-    [G_CRATE] = PD("CRT", F_LFOHZ, 0, 127, 40),
-    [G_CDEPTH] = PD("CDP", F_PCT, 0, 127, 60),
+    [G_CRATE] = PD("DLYOWN", F_INT, 0, 4, 0),     /* 0 SEND; 1..4 track with delay CHAIN (was bus CRT) */
+    [G_CDEPTH] = PD("REVOWN", F_INT, 0, 4, 0),    /* 0 SEND; 1..4 track with reverb CHAIN (was bus CDP) */
     /* G_MIDI, G_INFO: the old SYSTEM page's (gone in 1.2), on no page. G_DREL was G_SYNC (placeholder). */
     [G_MIDI] = PE("MIDI", N_MIDI_INPUT, 0),
     [G_DREL] = PD("REL", F_PCT, 0, 100, 30),     /* DUCK's release: 40 .. 600 ms (fx.c duck_block) */
@@ -287,21 +287,31 @@ static int32_t enum_step(const param_desc_t *d, int32_t from, int32_t v)
  * -> the shown order of d's values (index: position, entry: value), 0 = the values' own order */
 static const uint8_t DIV_ORDER[10] = {9, 8, 7, 6, 0, 1, 4, 2, 5, 3};   /* 4BAR 2BAR 1/1 1/2 1/4 1/8 8T 1/16 16T 1/32 */
 static const uint8_t SLDIV_ORDER[6] = {0, 3, 1, 4, 2, 5};              /* 1/8 8T 1/16 16T 1/32 32T */
-static const uint8_t DTIME_ORDER[13] = {9, 8, 7, 6, 12, 0, 10, 1, 11, 4, 2, 5, 3};   /* 4BAR 2BAR 1/1 1/2 1/4D 1/4 1/8D
-                                                                                      * 1/8 1/16D 8T 1/16 16T 1/32 */
+/* Delay TIME: names 0..12 stay (loads). Knob omits 1/1 2BAR 4BAR (7..9); they never fit DLY_LEN. */
+static const uint8_t DTIME_ORDER[10] = {6, 12, 0, 10, 1, 11, 4, 2, 5, 3}; /* 1/2 1/4D 1/4 1/8D 1/8 1/16D 8T 1/16 16T 1/32 */
 static const uint8_t PLAY_ORDER[3] = {1, 0, 2};                    /* OFF, ON, SOLO (stored PLAY_OFF, PLAY_ON, PLAY_SOLO) */
 static const uint8_t *enum_order(const param_desc_t *d)
 {
     return d->names == N_DIV ? DIV_ORDER : d->names == N_SLDIV ? SLDIV_ORDER : d->names == N_DTIME ? DTIME_ORDER
          : d->names == N_PLAY ? PLAY_ORDER : 0;
 }
+static int32_t enum_order_n(const param_desc_t *d)   /* shown steps; DTIME shorter than max (legacy 7..9) */
+{
+    if (d->names == N_DTIME)
+        return 10;
+    return d->max - d->min + 1;
+}
 static int32_t enum_rank(const param_desc_t *d, int32_t v)   /* v's place in the shown order (+ min): the gauges */
 {
     const uint8_t *o = enum_order(d);
-    int32_t r;
-    for (r = 0; o && r < d->max - d->min; r++)
-        if (o[r] == v - d->min)
+    int32_t r, n = enum_order_n(d), key = v - d->min;
+    if (d->names == N_DTIME && key >= 7 && key <= 9)
+        key = 6;                                      /* legacy 1/1 2BAR 4BAR sit on 1/2 for the knob */
+    for (r = 0; o && r < n; r++)
+        if (o[r] == key)
             break;
+    if (o && r >= n)
+        r = 0;
     return o ? r + d->min : v;
 }
 /* a knob turned `steps` (signed) from v: clamped, over the shown order, past aliases (enum_step) */
@@ -309,7 +319,7 @@ static int32_t param_turn(const param_desc_t *d, int32_t v, int32_t steps)
 {
     const uint8_t *o = enum_order(d);
     if (o)
-        return o[clamp(enum_rank(d, v) - d->min + steps, 0, d->max - d->min)] + d->min;
+        return o[clamp(enum_rank(d, v) - d->min + steps, 0, enum_order_n(d) - 1)] + d->min;
     if (d->names == ESYNC_NAMES) {                    /* ENV SYNC: a note value a step (the first value showing it) */
         int32_t k = clamp((int32_t)esync_idx(v) + steps, 0, ESYNC_N - 1);
         return (k * 128 + ESYNC_N - 1) / ESYNC_N;
@@ -468,7 +478,6 @@ static const page_t PAGES[] = {
     {"CHOR", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IHRATE, P_IHDEP, 0xFF, 0xFF}},
     {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_DTIME, G_DFDBK, G_DCOLOR, 0xFF}},
     {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},
-    {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_CRATE, G_CDEPTH, 0xFF, 0xFF}},
     {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, FX_SEC_SLCR, {P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH}},
     {"PUNCH", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"MASTER", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_MASTER, {G_CLIP, G_PUNCH, G_DUCK, G_DREL}},

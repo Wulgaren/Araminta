@@ -162,13 +162,14 @@ int main(void)
         p = original; assert(settings_import(&p, sizeof p) == 1);
     }
     {   /* 1.2 RESTORE LAST (ui.c PREF_RESTORE_OFF, bit 7 of MENU's flags, favorites.factory[15][30]): clear in every
-         * older record = ON; set = OFF, kept as saved with the other flags */
+         * older record = ON; set = OFF, kept as saved with the other flags. ANIM retired: import always sets bit 1
+         * (PREF_ANIM_OFF). */
         persist_t q;
         p = original; p.magic = 0x50455233u;
         assert(settings_import(&p, sizeof p - sizeof p.favorites) == 2 && !(favorites.factory[15][30] & 128u));
         p = original; p.favorites.factory[15][30] = 128u | 64u | 1u;
-        assert(settings_import(&p, sizeof p) == 1 && favorites.factory[15][30] == (128u | 64u | 1u));
-        q = p; settings_export(&q); assert(q.favorites.factory[15][30] == (128u | 64u | 1u));
+        assert(settings_import(&p, sizeof p) == 1 && favorites.factory[15][30] == (128u | 64u | 1u | 2u));
+        q = p; settings_export(&q); assert(q.favorites.factory[15][30] == (128u | 64u | 1u | 2u));
         p = original; assert(settings_import(&p, sizeof p) == 1);
     }
     {   /* 1.2 the FX layer's key map (ui_layer.c fx_keys, favorites.factory[15][14..23], 16 x 5 bits, 0 = the key's
@@ -201,8 +202,16 @@ int main(void)
         for (i = 0; i < 32u; i++) p.favorites.factory[14][i] = (uint8_t)(i * 29u + 3u);
         assert(settings_import(&p, sizeof p) == 1);
         for (i = 0; i < 32u; i++) assert(favorites.factory[14][i] == (uint8_t)(i * 29u + 3u));
-        assert(!memcmp(favorites.factory[13], original.favorites.factory[13], 32) &&
-               !memcmp(favorites.factory[15], original.favorites.factory[15], 32));
+        /* factory[15] STYLE/ANIM bytes are normalized on import; the rest of the row and [13] stay */
+        {
+            uint8_t want15[32];
+            memcpy(want15, original.favorites.factory[15], 32);
+            want15[29] = 0;
+            want15[30] |= 2u;
+            want15[10] &= (uint8_t)~1u;
+            assert(!memcmp(favorites.factory[13], original.favorites.factory[13], 32) &&
+                   !memcmp(favorites.factory[15], want15, 32));
+        }
         memset(&q, 0, sizeof q); settings_export(&q); assert(!memcmp(&q.favorites, &p.favorites, sizeof q.favorites));
         assert(settings_import(&q, sizeof q) == 1 && settings_import(&q, sizeof q) == 1);
         for (i = 0; i < 32u; i++) assert(favorites.factory[14][i] == (uint8_t)(i * 29u + 3u));

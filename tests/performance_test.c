@@ -16,7 +16,7 @@ static void setup(void)
     host_tracks_init();
     for (uint32_t k = 0; k < NTRK; k++) {
         host_preset(&trk[k], 0, 0);
-        trk[k].p[P_CHOR] = trk[k].p[P_REV] = trk[k].p[P_DIST] = 0;
+        trk[k].p[P_DLY] = trk[k].p[P_REV] = trk[k].p[P_DIST] = 0;
     }
 }
 
@@ -28,15 +28,16 @@ static void cache_transitions(void)
     for (int32_t k = -64; k <= 64; k += 16) {
         t->p[P_LEVEL] = (int16_t)(k + 64);
         t->p[P_PAN] = (int16_t)k;
-        t->p[P_CHOR] = (int16_t)(k + 64);
+        t->p[P_DLY] = (int16_t)(k + 64);
         t->p[P_REV] = (int16_t)(64 - k);
         song.g[G_TUNE] = (int16_t)k;
+        song.g[G_DLYOWN] = song.g[G_REVOWN] = 0;         /* SEND mode: cache holds send amounts */
         mix_block(out, CTL);
         assert(mix_cache[0].lvl == LEVEL_Q12[t->p[P_LEVEL] & 127]);
         assert(mix_cache[0].gl == 4096 - (k > 0 ? k * 64 : 0) &&
                mix_cache[0].gr == 4096 + (k < 0 ? k * 64 : 0));
-        assert(mix_cache[0].c == t->p[P_CHOR] * 258 && mix_cache[0].r == t->p[P_REV] * 258);
-        int32_t max = mix_cache[0].c > mix_cache[0].r ? mix_cache[0].c : mix_cache[0].r;
+        assert(mix_cache[0].d == t->p[P_DLY] * 258 && mix_cache[0].r == t->p[P_REV] * 258);
+        int32_t max = mix_cache[0].d > mix_cache[0].r ? mix_cache[0].d : mix_cache[0].r;
         assert(mix_cache[0].xmax == 0x7fffffff / (max | 1));
         int32_t pitch = k >= 0 ? k * 16 / 100 : -((-k * 16 + 99) / 100);
         assert(tune_cache.pitch == pitch &&

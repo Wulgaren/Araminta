@@ -555,8 +555,6 @@ static void pk_auto_name(const track_t *t, uint32_t id, char *b)
         str_cpy(b, "SPREAD", 16);
     else if (id == P_DIST)
         str_cpy(b, "DIST", 16);
-    else if (id == P_CHOR)
-        str_cpy(b, "CHORUS", 16);
     else if (id == P_DLY)
         str_cpy(b, "DELAY", 16);
     else if (id == P_REV)
@@ -588,7 +586,7 @@ static const char *pk_auto_group(uint32_t id)
         return "VOICE";
     if (id == P_ED_FX || id == P_DIST || (id >= P_IDMODE && id < P_FTYPE))
         return "INSERT";
-    if (id >= P_CHOR && id <= P_REV)
+    if (id == P_DLY || id == P_REV)
         return "SEND";
     if (id == P_PAN || id == P_SPRD)
         return "MIX";

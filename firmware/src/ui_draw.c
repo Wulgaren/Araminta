@@ -1191,22 +1191,26 @@ static void draw_columns(void)
         }
         return;
     }
-    if (cur_page()->graph == GR_IORD) {                 /* CHOOSE, ORDER, USE AS (CHAIN or SEND), MIX */
-        uint8_t ord[INS_N];
-        uint32_t id = ior_pct_id(), slot = ui.ior_sel < INS_N ? ui.ior_sel : 0u;
+    if (cur_page()->graph == GR_IORD) {                 /* CHOOSE, ORDER, USE AS (CHAIN/SEND/USED), MIX */
+        uint8_t ord[FX_LIST_N];
+        uint32_t id = ior_pct_id(), slot = ui.ior_sel < FX_LIST_N ? ui.ior_sel : 0u, st;
         const param_desc_t *d = track_desc(TSEL, id);
+        const char *mode;
         char pos[8];
-        int send;
-        ins_order_get(TSEL, ord);
-        send = ins_is_send(TSEL, ord[slot]);
+        int used;
+        fx_list_get(TSEL, ord);
+        st = ord[slot];
+        mode = fx_list_mode(TSEL, st);
+        used = mode[0] == 'U';
         fmt_int(pos, (int32_t)slot + 1);
-        draw_column(0, "CHOOSE", N_ISTAGE[ord[slot]], "", VAL(0u),
-                    (int32_t)slot * 1000 / (int32_t)(INS_N - 1u), ICON_AUTO);
-        draw_column(1, "ORDER", pos, "/6", VAL(1u), (int32_t)slot * 1000 / (int32_t)(INS_N - 1u), ICON_ORDER);
-        draw_column(2, "USE AS", send ? "SEND" : "CHAIN", "", VAL(2u), send ? 1000 : 0, ICON_NONE);
+        draw_column(0, "CHOOSE", N_ISTAGE[st], "", VAL(0u),
+                    (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_AUTO);
+        draw_column(1, "ORDER", pos, "/8", VAL(1u), (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_ORDER);
+        draw_column(2, "USE AS", mode, "", used ? T_DIM : VAL(2u),
+                    mode[0] == 'S' ? 1000 : mode[0] == 'C' ? 0 : -1, ICON_NONE);
         param_format(d, TSEL->p[id], val, &unit);
         card_mot_of(&TSEL->p[id]);
-        draw_column(3, "MIX", val, unit, VAL(3u), RATIO(d, TSEL->p[id]), param_icon(d, TSEL->p[id]));
+        draw_column(3, "MIX", val, unit, used ? T_DIM : VAL(3u), RATIO(d, TSEL->p[id]), param_icon(d, TSEL->p[id]));
         return;
     }
     if (dly_page(cur_page())) {                         /* K1 division or free ms; K4 RATE / TIME reloads K1 */

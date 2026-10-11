@@ -59,7 +59,8 @@ enum {                          /* per-track parameters */
     P_ASWING, P_APROB, P_AHOLD, P_AORDER,
     P_ROOT, P_SCALE, P_QUANT, P_TRANS,
     P_SLEN, P_SDIV, P_SSWING, P_SGATE,
-    P_DIST, P_CHOR, P_DLY, P_REV,              /* P_DIST: DIST stage drive (insert chain); CHO/DLY/REV: sends */
+    P_DIST, P_CHOR, P_DLY, P_REV,              /* P_DIST: DIST drive. P_CHOR: EFFECTS DLY/REV list slots
+                                                * (fx.c; was bus CHO send). P_DLY/P_REV: send or chain mix */
     P_VOICE, P_GLIDE, P_PAN, P_MUTE,
     P_GLMODE, P_PRIO, P_ALLOC, P_DETUNE,
     P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH,      /* SLICER insert (slicer.c) */
@@ -95,14 +96,16 @@ enum {                          /* per-track parameters */
 enum { PLAY_ON = 0, PLAY_OFF = 1, PLAY_SOLO = 2 };
 /* 1.5 INSERT ids (np 111): migrated to the chain in project.c / upreset.c ins_migrate */
 enum { P_ITYPE_LEG = 96, P_IA_LEG = 97, P_IB_LEG = 98, P_IC_LEG = 99, P_IMIX_LEG = 100 };
-enum { INS_N = 6, INS_DIST = 0, INS_FILTER = 1, INS_CRUSH = 2, INS_PHASR = 3, INS_FLANG = 4, INS_CHOR = 5 };
+enum { INS_N = 6, INS_DIST = 0, INS_FILTER = 1, INS_CRUSH = 2, INS_PHASR = 3, INS_FLANG = 4, INS_CHOR = 5,
+       INS_DLY = 6, INS_REV = 7, FX_LIST_N = 8 };   /* DLY/REV: shared engines; list slots with the inserts */
 enum { IDM_SOFT, IDM_HARD, IDM_FOLD, IDM_FUZZ, IDM_N };
 enum { IFT_LP, IFT_HP, IFT_BP, IFT_COMB, IFT_N };
 
 enum {                          /* global parameters */
     G_BPM, G_SWING, G_CLOCK, G_TUNE,
     G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX,
-    G_RSIZE, G_RDAMP, G_CRATE, G_CDEPTH,
+    G_RSIZE, G_RDAMP, G_CRATE, G_CDEPTH,       /* G_CRATE/G_CDEPTH: was bus chorus; now DLY/REV chain owner
+                                                * (0 = SEND for all, 1..4 = track). Old CRT/CDP values > 4 load as 0. */
     G_MIDI, G_DREL, G_ROUTE, G_INFO,   /* G_DREL (JIANT): DUCK's release; was G_SYNC, a placeholder.
                                         * G_ROUTE: MIDI IN, 0 CH1-4 (channels 1..4 -> parts 1..4, 5..16 ignored), 1 SEL;
                                         * 1.2: 2..4 CH5-8 CH9-12 CH13-16 (seq.c midi_base) */
@@ -123,6 +126,8 @@ enum {                          /* global parameters */
 #define G_ENGGO G_CLIP
 #define G_DRLVL G_PUNCH
 #define G_DRREV G_DUCK
+#define G_DLYOWN G_CRATE                /* EFFECTS: who has delay as CHAIN (0 = SEND) */
+#define G_REVOWN G_CDEPTH               /* EFFECTS: who has reverb as CHAIN (0 = SEND) */
 
 /* stored parameters of an older layout -> today's P_* order. A store keeps np = the P_COUNT it was
  * written with; common parameters are only ever added just before P_E0, so the first np - 8 are
@@ -157,6 +162,7 @@ static void ins_migrate(int16_t *p, uint32_t np)
     for (i = P_IORD; i < P_FTYPE; i++)
         p[i] = 0;
     p[P_IORD] = 0;
+    p[P_CHOR] = 64 + 6 + (7 << 3);             /* EFFECTS: DLY at 6, REV at 7 (fx.c FX_POS_MARK) */
     p[P_IDMODE] = IDM_SOFT;
     p[P_IFTYPE] = IFT_LP;
     p[P_IFCUT] = 96;
