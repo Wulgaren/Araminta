@@ -634,17 +634,29 @@ static void layer_key(uint32_t l, uint32_t k)
 static void layer_keys(uint32_t keys)
 {
     uint32_t k, l = layer_open() ? layer_open() : ui.layer;
+    /* hold maps removed: GLO + D4 still toggles MIDI LEARN (no mute/solo map on hold) */
+    if (!l && ui.ly == LAYER_GLO && layer_held()) {
+        for (k = 0; keys && k < 27u; k++)
+            if (((keys >> k) & 1u) && !key_black(k) && key_place(k) == 5u)
+                ml_toggle();
+        return;
+    }
     for (k = 0; keys && k < 27u; k++)
         if ((keys >> k) & 1u)
             layer_key(l, k);
     if (lys.eqh)
         eqa_release();
 }
+/* GLO held while MIDI LEARN is on: knobs still pick Tk LEVEL (map itself stays closed) */
+static int glo_learn_knobs(void)
+{
+    return ui.ml.on && ui.ly == LAYER_GLO && layer_held() && !layer_open();
+}
 
 /* KNOB 1..4 in the open layer: its own (FX macros, GLO levels, EDIT's sound), else the four of its page */
 static void layer_knob(uint32_t k, int32_t s)
 {
-    uint32_t l = layer_open();
+    uint32_t l = layer_open() ? layer_open() : (glo_learn_knobs() ? LAYER_GLO : 0u);
     if (l == LAYER_FX) {                                /* perform.c perf_k, not recorded */
         if (k == 3u && !perf_harm_on())
             s = -s;                                     /* DEPTH (100 - perf_k[3]) rises to the right (#40: it fell) */
@@ -882,8 +894,13 @@ static void lcell(int32_t x, int32_t y, int32_t h, const char *note, uint32_t ic
         cv_icon_in(x, t, LC_W, 0, 16, icon, ink, fill);
         GFX_HOOK_ALIGN(x, 0, x + LC_W, 0, AL_H | AL_PASS, "layer cell icon / name centred across");
         cv_text_in(x, t + 22 - AF_S_CAP_Y, LC_W, &AF_S, name, ink, fill);
-    } else if (name && h > 24) {                           /* the same, 12 px, 2 px between (the icon at a side) */
-        int32_t t = y + HALF_UP(h - (12 + 2 + AF_S_CAP_H));
+    } else if (name && h > 24) {                           /* 12 px icon, 2 px to the name's caps (cell bottom → caps) */
+        int32_t ib[4], t;
+        icon_ink(12, icon, ib);
+        /* no note: centre by icon ink (MOUTH &c. sit low in the cell). with a note, keep the cell stack so the
+         * name stays clear of the key letter */
+        t = note ? y + HALF_UP(h - (12 + 2 + AF_S_CAP_H))
+                 : y + HALF_UP(h - (14 + AF_S_CAP_H - ib[1])) - ib[1];
         GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V | AL_N(2), "layer cell icon + name centred up/down");
         cv_icon_on(note ? x + LC_W - 17 : x + 5, t, 12, icon, ink, fill);
         GFX_HOOK_ALIGN(x, 0, x + LC_W, 0, AL_H | AL_PASS, "layer cell icon / name centred across");

@@ -18,6 +18,7 @@ static void lcd_wake_now(void) {}
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
 { (void)x; (void)y; (void)w; (void)h; (void)p; }
 #include "../firmware/src/gfx.c"
+static volatile uint32_t ft_btn_mask, ft_drop_mask;   /* seq.c; panel_init writes them (free take) */
 #include "../firmware/src/panel.c"
 static void settings_save(void) {}
 #if __has_include("../firmware/src/favorites.c")

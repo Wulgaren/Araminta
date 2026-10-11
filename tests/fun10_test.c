@@ -429,7 +429,7 @@ static int nudge(void)
         t->p[P_SLEN] = 16;
         ui.lane = 0;
         go_home();
-        open_family(FAM_SEQ);
+        go_seq_step();
         frame();
         grid_hit(t, 4, 0, 1);
         k4 = key_at(0, 4);
@@ -458,7 +458,7 @@ static int nudge(void)
         track_defaults_steps(t);
         t->p[P_SLEN] = 16;
         go_home();
-        open_family(FAM_SEQ);
+        go_seq_step();
         frame();
         t->step[3] = (step_t){{60}, 1, ST_NOTE, 0, 96};
         ui.cursor = 3;

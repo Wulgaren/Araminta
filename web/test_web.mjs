@@ -159,7 +159,7 @@ async function editorMock() {
   {   /* the lists in the device's order (engines.c ENGINE_ORDER): FM6 second, DRUM last, "-" never; the numbers stay */
     const shown = E.engineOrder(info.engines).map((i) => info.engines[i]);
     ok(shown.join() === "ANALOG,FM6,PHASE,LOFI,VOICE,TRIO,WHEEL,PHYS,DRUM" &&
-       E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines)[12] === 10,
+       E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines).at(-1) === 10,
        "editor: engines listed FM6 second, DRUM last (indices kept)");
     ok(E.engineOrder(["ANALOG", "X", "-", "DRUM", "FM6"]).join() === "0,4,3,1", "editor: an unknown engine follows the known ones");
     m.state.favorites[10][0] = m.state.favorites[12][0] = true;
@@ -409,7 +409,11 @@ function mockTables() {
   ok(fw.PCT && fw.PCT.length && !pd.length, `editor: percent values == firmware (${fw.PCT ? fw.PCT.length : 0} values)`);
   /* #48: every list's order in the editor == the order the device's knobs step it (descdump SHOWN: param_turn);
      the note divisions longest first, with the triplets by their length */
-  const shown = (d) => E.enumShown(d).filter((v) => E.aliasOf(d.names, v - d.min) === v - d.min).map((v) => d.names[v - d.min]);
+  /* "-" reserved engines stay (param_turn walks each); other aliases collapse as the UI does */
+  const shown = (d) => E.enumShown(d).filter((v) => {
+    const i = v - d.min, n = d.names && d.names[i];
+    return n === "-" || E.aliasOf(d.names, i) === i;
+  }).map((v) => d.names[v - d.min]);
   const sd = (fw.SHOWN || []).filter(([sc, i, names]) => JSON.stringify(shown((sc ? T.GP : T.TP)[i])) !== JSON.stringify(names));
   sd.slice(0, 5).forEach((x) => console.log("  SHOWN " + JSON.stringify(x) + " editor " + JSON.stringify(shown((x[0] ? T.GP : T.TP)[x[1]]))));
   ok(fw.SHOWN && fw.SHOWN.length > 20 && !sd.length, `editor: enum lists in the device's knob order (${fw.SHOWN ? fw.SHOWN.length : 0} lists)`);

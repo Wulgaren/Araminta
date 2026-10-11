@@ -2893,8 +2893,13 @@ static int test_product_ux(void)
     for (i = 0; i < 8u; i++) { open_family(FAM_EDIT); ok &= page_visible(ui.page) && !(cur_page()->id[0] >= P_FM1_ATK && cur_page()->id[0] <= P_FM4_LEVEL); }
     bad += check("operator envelope pages are hidden on non-DIGITAL instruments", ok);
 #if FELUCCA_FM4
-    set_engine_of(TSEL, 1); open_family(FAM_EDIT); ok = 0;
-    for (i = 0; i < 12u; i++) { if (cur_page()->id[0] == P_FM1_ATK) ok = 1; open_family(FAM_EDIT); }
+    set_engine_of(TSEL, 1);
+    go_title("EDIT 1");                                /* Sound section (EDIT button may have left Voice) */
+    ok = 0;
+    for (i = 0; i < NPAGES; i++) {                     /* SELECT walks Sound pages */
+        if (cur_page()->id[0] == P_FM1_ATK) ok = 1;
+        turn(EN_SELECT, 1); frame();
+    }
     bad += check("DIGITAL exposes four envelopes and independent operator levels", ok);
     go_title("OP1 ENV"); turn(EN_K1, 4);
     bad += check("operator envelope K1 edits only OP1 attack", TSEL->p[P_FM1_ATK] == 4 && !TSEL->p[P_FM2_ATK]);
