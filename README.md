@@ -83,7 +83,7 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
   from every earlier version load. The PRESETS knob changes the sound from every page that is not a list.
   Turn the FM-1 off and on and the music is as you left it (MENU > RESTORE LAST, an autosave of its own,
   written only when stopped and idle)
-- **Screen:** flat UI with Inter Tight and Fukiai icons, FLAT or LINE style, 10 palettes including
+- **Screen:** flat UI with Terminus and Fukiai icons, 10 palettes including
   grayscale, black and white, high contrast and NIGHT; type in sizes by role (what you read in the larger size,
   labels and hints in the smaller); MENU > LARGE for tall knob cards with larger labels and values; the menu in
   five tabs. The header shows the track and the **project slot of its pattern** ("1 A", "1 A*" once edited), the
@@ -417,7 +417,9 @@ For more details, see [On AI-Assisted Development and Responsibility](https://gi
   [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the DRUM voices and kits; the Hügelton Sample
   Pack (the drum samples, GPL-3.0-only, not CC0); the [Fukiai](https://github.com/hugelton/Fukiai) icon
   font ([MIT](LICENSES/MIT-Fukiai.txt))
-- Fonts: [Inter Tight](https://github.com/rsms/inter-tight) by The Inter Project Authors, [SIL OFL 1.1](LICENSES/OFL-InterTight.txt);
+- Fonts: [Terminus](https://terminus-font.sourceforge.net/) by Dimitar Toshkov Zhekov, [SIL OFL 1.1](LICENSES/OFL-Terminus.txt)
+  (the UI text, as in Felucca 0.9); [Inter Tight](https://github.com/rsms/inter-tight) by The Inter Project Authors,
+  [SIL OFL 1.1](LICENSES/OFL-InterTight.txt) (keycap labels and diagrams);
   the browser emulator's labels: [DotGothic16](https://github.com/fontworks-fonts/DotGothic16) by The DotGothic16 Project Authors, [SIL OFL 1.1](LICENSES/OFL-DotGothic16.txt)
 - Samples: [Versilian Studios](https://versilian-studios.com/) [VSCO-2 Community Edition](https://github.com/sgossner/VSCO-2-CE) and [VCSL](https://github.com/sgossner/VCSL), CC0 1.0: the SAMPLE sets, also SLICE's PIANO and PIANO HD ([attribution](assets/samples-cc0/ATTRIBUTION.txt))
 - VOICE engine: after [klattsch](https://github.com/tgies/klattsch) by Tony Gies (MIT); formant data from Klatt (1980) and Hillenbrand et al. (1995)

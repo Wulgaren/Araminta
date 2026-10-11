@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FELUCCA user interface.
- * Flat: no raised SURF (SURF = BG on every palette), no rule dividers, one type family (Inter Tight, three sizes), tracks
+ * Flat: no raised SURF (SURF = BG on every palette), no rule dividers, one type family (Terminus, three sizes), tracks
  * named by their numbers 1..4 on a cushion (icons.c trk_icon). Four columns <-> KNOB 1..4. Rendering is lazy:
  * every element remembers what it last drew and is redrawn only on change. */
 static int project_save(uint32_t slot);

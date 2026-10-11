@@ -3631,7 +3631,7 @@ static int test_bughunt_ui(void)
     chain_defaults(&chain_config);                      /* no song rows */
     turn(EN_K1 + 2, 1);                                 /* DELETE ROW */
     press(B_OCTUP);
-    ok = !ui.confirm && msg_is("NOTHING TO DELETE") && text_w(&AF_S, ui.msg) <= 236 - 106;   /* (fits the header) */
+    ok = !ui.confirm && msg_is("NOTHING TO DEL") && text_w(&AF_S, ui.msg) <= 236 - 106;   /* (fits the header) */
     turn(EN_K1 + 3, 1);                                 /* CLEAR SONG */
     press(B_OCTUP);
     ok &= !ui.confirm && msg_is("NOTHING TO CLEAR");
@@ -6820,6 +6820,9 @@ static int head_centres(const char *what, int print)
             if (ink) x1 = x;
         }
         x = x1 + 1;
+        /* Terminus ellipsis / punctuation can leave 1–2 px islands on the baseline; skip those for the centre check */
+        if (x1 - x0 <= 1 && top >= 14 && bot - top <= 2)
+            continue;
         if (print) printf("    head %-10s x %3d..%3d ink rows %2d..%2d centre %4.1f (%+.1f)\n", what, x0, x1, top, bot,
                           (top + bot + 1) / 2.0, (top + bot + 1) / 2.0 - H_HEAD / 2);
         ok &= top + bot + 1 >= H_HEAD - 2 && top + bot + 1 <= H_HEAD + 2;

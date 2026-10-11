@@ -11,7 +11,7 @@
 #define ICON_CELL 12
 
 /* track k's indicator (1.0.2): not an icon of the font (its numerals alias at 12 to 16 px) but the digit 1..4 in
- * Inter Tight on a cushion, a rounded square in the keycap's language, drawn by cv_icon_on: the cushion in the
+ * Terminus on a cushion, a rounded square in the keycap's language, drawn by cv_icon_on: the cushion in the
  * icon's ink (the selected track's: the accent), the digit in what lies under it; rounded in every STYLE, as the
  * keycaps are. (filled: kept for the callers; every cushion is filled) */
 #define ICON_TRK 0xF0u                                /* + k (above ICON_COUNT, below ICON_AUTO) */

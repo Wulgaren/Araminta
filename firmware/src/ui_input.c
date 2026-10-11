@@ -1087,7 +1087,7 @@ static void act_do(void)
     if (cur_page()->graph == GR_TOOLS) {
         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
         if (!act_ready()) {                               /* nothing there to clear or delete */
-            ui_message(c == 2u ? "NOTHING TO DELETE" : "NOTHING TO CLEAR");
+            ui_message(c == 2u ? "NOTHING TO DEL" : "NOTHING TO CLEAR");
             return;
         }
         confirm_open(c == 0u ? CF_CLEAR_SEQ : c == 1u ? CF_INIT_SOUND :

@@ -68,8 +68,9 @@ static void draw_battery(int32_t bx)
 #define ROLL_FRAMES 9u
 #define ROLL_SNAP 3u                                    /* frames (~45 ms) */
 #define ROLL_BPM 4u                                     /* ui.roll[]: the four cards, then the header BPM */
-#define ROLL_Y 18                                       /* a card's value strip: rows 18..34, its figures (21..31) in the middle, */
+#define ROLL_Y 18                                       /* a card's value strip: rows 18..34, its figures in the middle, */
 #define ROLL_H 17                                       /* the label (MONO's chip: to row 17) above it, the gauge (38) below */
+#define CARD_VY(F) (ROLL_Y + CAP_IN(F, ROLL_H))         /* value's line top: capitals centred in the roll window */
 static const uint8_t ROLL_EASE[17] = {0, 45, 84, 118, 147, 172, 193, 210, 223, 234, 242, 247, 251, 253, 254, 255, 255};
 
 static int roll_digit(char c) { return c >= '0' && c <= '9'; }
@@ -659,17 +660,22 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
             } else
                 cv_text_fit(lx, ly, lf, label, lc, T_SURF, COL_W - 2 - lx);
         }
-        if (kid >= 0)                                   /* "[OCT+]": the keycap (accent: it would act; DIM: it would not) */
-            x = cv_keycap(5, 20, (uint32_t)kid, vc == T_ACCENT || vc == T_DIM ? vc : T_KEY, T_INK, T_SURF);
-        else if (vf == &AF_M) {
-            if (!ui.roll[c].from[0] && val[0])
-                GFX_HOOK_ALIGN(0, ROLL_Y, COL_W, ROLL_Y + ROLL_H, AL_V, "card value in its roll window");
-            x = roll_text(c, 5, 17, val, vc);
-        } else
-            x = cv_text_fit(5, 20, vf, val, vc, T_SURF, room - uw);
-        if (unit[0]) {
-            GFX_HOOK_ALIGN(0, 0, 0, vf == &AF_M ? 17 + AF_M.asc : 20 + AF_S.asc, AL_B, "card unit on its value's baseline");
-            cv_text_on(x + 3, 20, &AF_S, unit, T_MID, T_SURF);     /* on the value's baseline (S) */
+        {
+            int32_t vy = vf == &AF_M ? CARD_VY(M) : CARD_VY(S);
+            if (kid >= 0)                               /* "[OCT+]": the keycap (accent: it would act; DIM: it would not) */
+                x = cv_keycap(5, vy + HALF_UP(AF_M_CAP_H - KC_H), (uint32_t)kid,
+                              vc == T_ACCENT || vc == T_DIM ? vc : T_KEY, T_INK, T_SURF);
+            else if (vf == &AF_M) {
+                if (!ui.roll[c].from[0] && val[0])
+                    GFX_HOOK_ALIGN(0, ROLL_Y, COL_W, ROLL_Y + ROLL_H, AL_V, "card value in its roll window");
+                x = roll_text(c, 5, vy, val, vc);
+            } else
+                x = cv_text_fit(5, vy, vf, val, vc, T_SURF, room - uw);
+            if (unit[0]) {
+                int32_t uy = vy + (vf == &AF_M ? AF_M.asc : AF_S.asc) - AF_S.asc;
+                GFX_HOOK_ALIGN(0, 0, 0, vy + (vf == &AF_M ? AF_M.asc : AF_S.asc), AL_B, "card unit on its value's baseline");
+                cv_text_on(x + 3, uy, &AF_S, unit, T_MID, T_SURF);   /* on the value's baseline (S) */
+            }
         }
         if (!strip && ratio >= 0) {
             int32_t gw = COL_W - 10, fx = ratio * gw / 1000, w = fx < 3 ? 3 : fx;

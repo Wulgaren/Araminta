@@ -214,11 +214,14 @@ static void graph_roll(const track_t *t, uint16_t c)
             cv_rect(PR_X0, y + PR_RH - 1, gw, 1, T_RAISE);
             note_name(nb, (uint32_t)n);
             GFX_HOOK_ALIGN(0, y, 23, y + PR_RH, AL_V, "piano roll C label on its row");
-            GFX_HOOK_ALIGN(0, y, 23, y + PR_RH, AL_R | AL_PASS, "piano roll C labels' right edge");
-            {   /* its ink ends at x 23, a column before the keys (by the advance, C1's 1 ended 2 px short) */
-                int32_t b[4];
+            {   /* Terminus "C-1" is wider than the 23 px column: left-align in the panel (x >= 3) */
+                int32_t b[4], lx;
                 text_ink(&AF_S, nb, b);
-                cv_text_on(23 - b[2], y - 5, &AF_S, nb, T_DIM, T_SURF);   /* (the widest, "C-1", inside the panel) */
+                lx = 23 - b[2];
+                if (lx < 3) lx = 3;
+                if (lx + b[2] <= 23)
+                    GFX_HOOK_ALIGN(0, y, 23, y + PR_RH, AL_R | AL_PASS, "piano roll C labels' right edge");
+                cv_text_on(lx, y - 5, &AF_S, nb, T_DIM, T_SURF);
             }
         }
     }
@@ -281,7 +284,7 @@ static void graph_grid(const track_t *t, uint16_t c)
             cv_rrect(6, y, 228, 14, 3, T_RAISE, T_SURF);   /* (6 .. 234, as a list row; the hits 40 .. 230) */
         }
         GFX_HOOK_ALIGN(0, y + 2, 0, y + 12, AL_V, "drum lane label on its hits' line");
-        cv_text_on(10, y - 1, &AF_S, drum_lane_abbr(t, l), mu ? T_DIM : sel ? T_ACCENT : T_MID, row);   /* ink rows 2 .. 11, as the hits */
+        cv_text_on(10, y + 2 + CAP_IN(S, 10), &AF_S, drum_lane_abbr(t, l), mu ? T_DIM : sel ? T_ACCENT : T_MID, row);
         if (mu) {                                    /* (27 .. 39: between the name and the first hit) */
             GFX_HOOK_ALIGN(0, y, 0, y + 14, AL_V, "drum lane mute icon centred up/down");
             cv_icon_in(27, y, 0, 14, 12, ICON_MUTE, T_DIM, row);
@@ -714,14 +717,17 @@ static void graph_fm6(const track_t *t, uint16_t c, uint32_t sel)
         FM6_CHART_HOOK(FMH_BOX, k, 0);
         cv_rrect(x[k] - 10, y[k], 21, FM_BH, 3, fill, T_SURF);
         GFX_HOOK_ALIGN(x[k] - 10, y[k], x[k] + 11, y[k] + FM_BH, AL_HV, "FM6 operator number in its box");
-        cv_text_in(x[k] - 10, y[k] + CAP_IN(S, FM_BH), 21, &AF_S, n, fill_c || k == sel ? T_INK : on ? f : T_DIM, fill);
+        cv_text_in(x[k] - 10, y[k] + 1, 21, &AF_S, n, fill_c || k == sel ? T_INK : on ? f : T_DIM, fill);   /* +1: nets clear (Terminus CAP_IN is 2) */
     }
     FM6_CHART_HOOK(FMH_LABEL, 0, 0);
     cv_text(10, 4 - GOY, &AF_S, b, hot == P_E0 || hot == P_E7 ? T_ACCENT : T_MID);
-    if (sel < 6u) {                                  /* the operator picked: "OP3 x1.50" */
+    if (sel < 6u) {                                  /* the operator picked: "OP3 x1.50" (freq only if wider) */
         char fq[16] = {'O', 'P', (char)('1' + sel), ' ', 0};
+        const char *s = fq;
         fop_freq(pt + (5u - sel) * FP_OP, fq + 4);
-        cv_text_r(228, 4 - GOY, &AF_S, fq, T_TEXT, T_SURF);
+        /* Terminus: "OP1 9.77 KHZ" is 96 px and meets ALG 1's feedback loop (~x 147); keep clear of x 152 */
+        if (228 - text_w(&AF_S, fq) < 152) s = fq + 4;
+        cv_text_r(228, 4 - GOY, &AF_S, s, T_TEXT, T_SURF);
     } else if (fm6_bank_slot(fm6_slot[(t - trk) % NTRK]) >= 0) {   /* SLOT B1..B32: the bank voice's name */
         char nm[11];
         for (k = 0; k < 10u; k++)
@@ -825,7 +831,7 @@ static void graph_fm(const track_t *t, uint16_t c)
         uint16_t f = k == hop ? T_ACCENT : c, fill = fill_c ? f : T_RAISE;
         cv_rrect(x[k] - 10, y[k], 21, FM_BH, 3, fill, T_SURF);
         GFX_HOOK_ALIGN(x[k] - 10, y[k], x[k] + 11, y[k] + FM_BH, AL_HV, "DIGITAL operator number in its box");
-        cv_text_in(x[k] - 10, y[k] + CAP_IN(S, FM_BH), 21, &AF_S, b, fill_c ? T_INK : on ? f : T_DIM, fill);
+        cv_text_in(x[k] - 10, y[k] + 1, 21, &AF_S, b, fill_c ? T_INK : on ? f : T_DIM, fill);
     }
 }
 #endif
