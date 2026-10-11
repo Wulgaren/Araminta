@@ -51,7 +51,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"OP ENV", H_FMOP},
     {"OPERATOR 2", H_FMOP},
     {"VOICE", "[K1]POLY, MONO[K2]GLIDE"},
-    {"VOICE 2", "[K1]SPREAD[K2]DETUNE[K3]PAN[K4]MUTE"},
+    {"VOICE 2", "[K1]SPREAD[K2]DETUNE[K3]PAN[K4]PLAY"},
     {"SONG", "[K1]SECTION[KEYS]A-D[PLAY]SONG"},
     {"PRESETS", "[K2]ENGINE[K3]FAV[K4]LIST"},
     {"USER", "[K1]SLOT[OCT+]SAVE[SELECT]PHRASES"},
@@ -66,7 +66,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"AUTOMATION", "[K1]ROW[OCT+]DO[EDIT]DELETE"},
     {"RECORD", "[KEYS]CLICK COUNT[K1-4]PREFS"},
     {"PUNCH", "[KEYS]EFFECTS[K1-4]MACROS"},
-    {"MIXER", "[K4]OFF ON SOLO[ALGO]TRACK"},
+    {"MIXER", "[K4]PLAY[ALGO]TRACK"},
     {"LANE MUTE", "[KEYS]LANES[HOME]MIXER"},
     {"CLOCK", "[OCT+]SELECT: TEMPO[GLO]SONG"},
 };

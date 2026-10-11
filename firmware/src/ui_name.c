@@ -57,9 +57,9 @@ static void name_close(void)
         ui.force = 1;
     nm.kind = NK_NONE;
 }
-/* the keys: 2 = NAME's (silent), 1 = the DRUM grid, 3 = SONG's A..D (ui.c song_keys_on), 0 = notes (seq.c keyboard_block
- * reads song.grid) */
-static int mixer_keys_on(void);                      /* ui_input.c: HOME Mixer solo / lane mutes */
+/* the keys: 2 = NAME's (silent), 1 = the DRUM grid, 3 = SONG's A..D (ui.c song_keys_on), 4 = LANE MUTE's black
+ * keys, 0 = notes (seq.c keyboard_block reads song.grid). MIXER's keys play. */
+static int mixer_keys_on(void);                      /* ui_input.c: LANE MUTE lane toggles */
 static uint32_t keys_mode(void)
 {
     return name_on() ? 2u : grid_on() ? 1u : song_keys_on() ? 3u : mixer_keys_on() ? 4u : 0u;

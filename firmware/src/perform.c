@@ -91,21 +91,21 @@ static volatile uint8_t perf_remap;   /* main: perf_map changed (seq.c: a key he
 static volatile uint32_t perf_mask;   /* main: the FX button's bit while its layer may own keys, 0 = none */
 static volatile uint32_t kb_mask;     /* main: the button bits whose hold makes keys a layer's (ui_layer.c), 0 = none */
 static volatile uint8_t kb_lock;      /* main: a layer locked open (#83, no button held): 1 keys are the layer's, 2 FX's */
-static volatile uint8_t perf_solo;    /* main: tracks soloed in the GLO layer and on MIXER's keys (the others muted as by a black key) */
-/* GLO / MIXER key solos, plus any track whose MIXER MUTE is SOLO. A set bit sounds; the rest are muted. */
+static volatile uint8_t perf_solo;    /* main: tracks soloed while GLO's white keys are held (the others muted as by a black key) */
+/* GLO's held solos, plus any track whose PLAY is SOLO. A set bit sounds; the rest are muted. */
 static uint32_t solo_mask(void)
 {
     uint32_t m = perf_solo, k;
     for (k = 0; k < NTRK; k++)
-        if (trk[k].p[P_MUTE] == MUTE_SOLO)
+        if (trk[k].p[P_MUTE] == PLAY_SOLO)
             m |= 1u << k;
     return m;
 }
-/* 1 when track k is heard: not MUTE ON, and not left out by a solo */
+/* 1 when track k is heard: PLAY is not OFF, and it is not left out by a solo */
 static int trk_heard(uint32_t k)
 {
     uint32_t s = solo_mask();
-    return trk[k].p[P_MUTE] != MUTE_ON && (!s || ((s >> k) & 1u));
+    return trk[k].p[P_MUTE] != PLAY_OFF && (!s || ((s >> k) & 1u));
 }
 static volatile uint32_t scene_pfx;   /* song row scene punch-ins (song_play), PF_MIDI bits; 0 when unused */
 static volatile uint8_t perf_kill;    /* main: every effect off (the menu, a dialog, UBOOT) */

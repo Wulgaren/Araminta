@@ -1451,7 +1451,7 @@ static void graph_slots(void)
     }
 }
 /* MIXER page: four SURF columns, one under each card: the track number on its cushion (in the accent:
- * the selected track) with a REC / ARM / MUTE / SOLO badge (P_MUTE, KNOB 4), the sound's short name (a MUTE badge
+ * the selected track) with a REC / ARM / OFF / SOLO badge (PLAY, KNOB 4), the sound's short name (an OFF badge
  * when armed and muted), the LEVEL knob (dB inside) with the output meter beside it, then the PAN and REV
  * knobs with their values. Knobs: a 270 degree ring, the track RAISE, the value arc THEME (the knob just
  * turned: ACCENT; muted: DIM); PAN from 12 o'clock. Each column is its own canvas with its own signature:
@@ -1579,11 +1579,11 @@ static void draw_tracks(void)
     for (c = 0; c < NTRK; c++) {
         track_t *t = &trk[c];
         uint32_t sel = c == song.sel, lvl = trk_level(c);
-        uint32_t mode = t->p[P_MUTE] == MUTE_SOLO ? (uint32_t)MUTE_SOLO : t->p[P_MUTE] == MUTE_ON ? (uint32_t)MUTE_ON : 0u;
-        uint32_t mute = !trk_heard(c);               /* dim: MUTE ON, or left out by a solo */
-        uint32_t arm = (song.rec >> c) & 1u, st = arm ? (song.playing ? 1u : 2u) : mode == MUTE_ON ? 3u : mode == MUTE_SOLO ? 4u : 0u, sig;
+        uint32_t mode = t->p[P_MUTE] == PLAY_SOLO ? (uint32_t)PLAY_SOLO : t->p[P_MUTE] == PLAY_OFF ? (uint32_t)PLAY_OFF : 0u;
+        uint32_t mute = !trk_heard(c);               /* dim: PLAY OFF, or left out by a solo */
+        uint32_t arm = (song.rec >> c) & 1u, st = arm ? (song.playing ? 1u : 2u) : mode == PLAY_OFF ? 3u : mode == PLAY_SOLO ? 4u : 0u, sig;
         uint32_t hot = sel && ui.hot_t ? ui.hot_col + 1u : 0u;   /* the knob just turned (hot_col + 1): 1 LEVEL, 2 PAN,
-                                                                * 3 REV, 4 MUTE (its badge) */
+                                                                * 3 REV, 4 PLAY (its badge) */
         int32_t pk = t->peak, m, pan = clamp(t->p[P_PAN], -64, 63), rv = clamp(t->p[P_REV], 0, 127);
         uint16_t vc = mute ? T_DIM : T_THEME;
         char b[16];
@@ -1693,8 +1693,8 @@ static void home_track_row(uint32_t c)
     track_t *t = &trk[c];
     const step_t *s = seq_steps(t);
     uint32_t sel = c == song.sel, large = (ui_prefs & PREF_LARGE) != 0u;
-    uint32_t mode = t->p[P_MUTE] == MUTE_SOLO ? (uint32_t)MUTE_SOLO : t->p[P_MUTE] == MUTE_ON ? (uint32_t)MUTE_ON : 0u;
-    uint32_t mute = !trk_heard(c);                   /* dim: MUTE ON, or left out by a solo */
+    uint32_t mode = t->p[P_MUTE] == PLAY_SOLO ? (uint32_t)PLAY_SOLO : t->p[P_MUTE] == PLAY_OFF ? (uint32_t)PLAY_OFF : 0u;
+    uint32_t mute = !trk_heard(c);                   /* dim: PLAY OFF, or left out by a solo */
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), np = (len + 15u) / 16u, pg, p0, ph, i, sig, carry = 0;
     int32_t y = Y_GRAPH + (int32_t)c * TR_PITCH, m, x, xr = 222, ch = large ? AF_M_CAP_H : AF_S_CAP_H;
     uint16_t bg = sel ? T_THEME : T_SURF, half = ux_mix(T_THEME, T_INK, 35);
@@ -1728,8 +1728,8 @@ static void home_track_row(uint32_t c)
     cv_begin(TR_W, TR_H, T_BG);
     cv_rrect(0, 0, TR_W, TR_H, 5, bg, T_BG);
     cv_icon_mid(4, TR_H / 2, 16, trk_icon(c, 1), sel ? T_INK : mute ? T_DIM : T_MID, bg);
-    if (mode == MUTE_ON || mode == MUTE_SOLO) {      /* MUTE or SOLO: its badge at the name line's end */
-        uint32_t cap = mode == MUTE_SOLO ? KC_SOLO : KC_MUTE;
+    if (mode == PLAY_OFF || mode == PLAY_SOLO) {     /* OFF or SOLO: its badge at the name line's end */
+        uint32_t cap = mode == PLAY_SOLO ? KC_SOLO : KC_MUTE;
         xr -= kc_w(cap);
         GFX_HOOK_ALIGN(0, TR_NY(large), 0, TR_NY(large) + ch, AL_V, "tracks row badge on the name's line");
         cv_keycap(xr, TR_NY(large) + (ch - KC_H) / 2, cap, sel ? T_INK : T_KEY, sel ? T_THEME : T_INK, bg);

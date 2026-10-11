@@ -18,9 +18,10 @@ static const char *const N_DTIME[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T",
 static const char *const N_SCALE[] = {"CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM",
                                     "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"};
 static const char *const N_ONOFF[] = {"OFF", "ON"};
-/* MIXER KNOB 4 (and VOICE 2): OFF sounds, ON mutes, SOLO sounds and silences every track that is not SOLO.
- * Append-only (MUTE_OFF .. MUTE_SOLO): 0 and 1 stay what stored projects already hold */
-static const char *const N_MUTE[] = {"OFF", "ON", "SOLO"};
+/* MIXER KNOB 4 (and VOICE 2): PLAY. Stored 0 is ON (sounds, the default), 1 is OFF (silent), 2 is SOLO
+ * (sounds, and silences every track that is not SOLO). The knob shows OFF, ON, SOLO (PLAY_ORDER): left of
+ * ON is OFF, right is SOLO. Append-only: stored projects keep 0 playing and 1 silent. */
+static const char *const N_PLAY[] = {"ON", "OFF", "SOLO"};
 /* ANALOG's filter TYPE (1.5, #104; eng_analog.c): LP / BP / HP, and COMB (insert chain / Araminta) */
 static const char *const N_FTYPE[] = {"LP", "BP", "HP", "COMB"};
 /* ENV SYNC (1.5, #175; voice.c esync_coef): ATK DEC REL as note values of the tempo, shortest first. 0..127 split
@@ -128,7 +129,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_ALLOC] = PE("ALLOC", N_ALLOC, 0),
     [P_DETUNE] = PD("DTUNE", F_INT, 0, 127, 40),
     [P_PAN] = PD("PAN", F_BIPCT, -64, 63, 0),
-    [P_MUTE] = PE("MUTE", N_MUTE, 0),
+    [P_MUTE] = PE("PLAY", N_PLAY, 0),
     [P_SLCR] = PE("SLCR", N_SLCR, 0),
     [P_SLPAT] = PD("PAT", F_INT, 1, 16, 1),        /* SL_PAT[] */
     [P_SLRATE] = PE("RATE", N_SLDIV, 1),
@@ -292,9 +293,11 @@ static const uint8_t DIV_ORDER[10] = {9, 8, 7, 6, 0, 1, 4, 2, 5, 3};   /* 4BAR 2
 static const uint8_t SLDIV_ORDER[6] = {0, 3, 1, 4, 2, 5};              /* 1/8 8T 1/16 16T 1/32 32T */
 static const uint8_t DTIME_ORDER[13] = {9, 8, 7, 6, 12, 0, 10, 1, 11, 4, 2, 5, 3};   /* 4BAR 2BAR 1/1 1/2 1/4D 1/4 1/8D
                                                                                       * 1/8 1/16D 8T 1/16 16T 1/32 */
+static const uint8_t PLAY_ORDER[3] = {1, 0, 2};                    /* OFF, ON, SOLO (stored PLAY_OFF, PLAY_ON, PLAY_SOLO) */
 static const uint8_t *enum_order(const param_desc_t *d)
 {
-    return d->names == N_DIV ? DIV_ORDER : d->names == N_SLDIV ? SLDIV_ORDER : d->names == N_DTIME ? DTIME_ORDER : 0;
+    return d->names == N_DIV ? DIV_ORDER : d->names == N_SLDIV ? SLDIV_ORDER : d->names == N_DTIME ? DTIME_ORDER
+         : d->names == N_PLAY ? PLAY_ORDER : 0;
 }
 static int32_t enum_rank(const param_desc_t *d, int32_t v)   /* v's place in the shown order (+ min): the gauges */
 {

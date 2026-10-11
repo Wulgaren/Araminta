@@ -992,7 +992,7 @@ static void draw_columns(void)
         for (c = 0; c < 4u; c++) draw_act_column(c, labels[c], VAL(c), icons[c]);
         return;
     }
-    if (cur_page()->scope == SC_TRK) {                 /* LEVEL PAN REV MUTE of the selected track */
+    if (cur_page()->scope == SC_TRK) {                 /* LEVEL PAN REV PLAY of the selected track */
         const track_t *t = TSEL;
         uint32_t lvl = trk_level(song.sel);
         param_format(&TP[P_LEVEL], (int32_t)lvl, val, &unit);   /* (0: OFF) */
@@ -1005,7 +1005,7 @@ static void draw_columns(void)
         card_mot_of(&TSEL->p[P_REV]);
         draw_column(2, "REV", val, unit, VAL(2u), RATIO(&TP[P_REV], t->p[P_REV]), ICON_AUTO);
         param_format(&TP[P_MUTE], t->p[P_MUTE], val, &unit);
-        draw_column(3, "MUTE", val, "", t->p[P_MUTE] ? T_ACCENT : VAL(3u),
+        draw_column(3, "PLAY", val, "", t->p[P_MUTE] != PLAY_ON ? T_ACCENT : VAL(3u),
                     RATIO(&TP[P_MUTE], enum_rank(&TP[P_MUTE], t->p[P_MUTE])), ICON_AUTO);
         return;
     }

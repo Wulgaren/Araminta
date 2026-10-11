@@ -351,15 +351,15 @@ static void mono_remove(track_t *t, uint32_t note)
 }
 
 static int pfx_note(track_t *t, uint32_t note, uint32_t vel);   /* pfx.c (in fx.c) */
-/* MUTE ON blocks the track. MUTE SOLO on any track blocks the ones that are not SOLO (the mix ramps those
- * out too: perform.c solo_mask). Key solos stay a ramp only, as before. */
+/* PLAY OFF blocks the track. PLAY SOLO on any track blocks the ones that are not SOLO (the mix ramps those
+ * out too: perform.c solo_mask). GLO's held solos stay a ramp only. */
 static int mix_blocks_note(const track_t *t)
 {
     uint32_t i, solo = 0, me = (uint32_t)(t - trk);
-    if (t->p[P_MUTE] == MUTE_ON)
+    if (t->p[P_MUTE] == PLAY_OFF)
         return 1;
     for (i = 0; i < NTRK; i++)
-        if (trk[i].p[P_MUTE] == MUTE_SOLO)
+        if (trk[i].p[P_MUTE] == PLAY_SOLO)
             solo |= 1u << i;
     return solo && !((solo >> me) & 1u);
 }
