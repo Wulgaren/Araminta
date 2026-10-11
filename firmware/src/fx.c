@@ -274,14 +274,62 @@ static uint32_t div_samples(uint32_t div)
 #include "click.c"                                   /* the metronome's click (after the master: audio.c) */
 
 /* the delay's TIME (params.c N_DTIME): N_DIV's ten (div_samples), then 1.5.1's dotted 1/8D 1/16D 1/4D (10, 11, 12: 3/4,
- * 3/8, 3/2 of a quarter); at most DLY_LEN - 1 samples (1.486 s): 1/4D clamps at 60 BPM and below (1/2 below 81) */
+ * 3/8, 3/2 of a quarter); at most DLY_LEN - 1 samples (1.486 s): 1/4D clamps at 60 BPM and below (1/2 below 81).
+ * G_DTIME stays that enum (0..12, the descriptor) in RATE mode. TIME mode stores a free millisecond at
+ * DTIME_FREE + ms (1 .. DTIME_MS_MAX), in the same global: 13..63 stay free so another division can still be
+ * appended. A project load keeps a free-ms value (dtime_load); the descriptor's max stays 12. */
+#define DTIME_FREE 64
+#define DTIME_MS_MAX ((DLY_LEN - 1u) * 1000u / (uint32_t)FS)   /* 1486 ms: the line, one millisecond at a time */
 static const uint8_t DIV_DOT[3] = {2, 3, 1};           /* 3 quarters >> this */
+static int dtime_free(void) { return song.g[G_DTIME] >= DTIME_FREE; }
+static uint32_t dtime_ms(void)
+{
+    int32_t m = (int32_t)song.g[G_DTIME] - DTIME_FREE;
+    if (m < 1)
+        m = 1;
+    if (m > (int32_t)DTIME_MS_MAX)
+        m = (int32_t)DTIME_MS_MAX;
+    return (uint32_t)m;
+}
+static void dtime_set_ms(uint32_t ms)
+{
+    if (ms < 1u)
+        ms = 1u;
+    if (ms > DTIME_MS_MAX)
+        ms = DTIME_MS_MAX;
+    song.g[G_DTIME] = (int16_t)(DTIME_FREE + (int32_t)ms);
+}
+/* free milliseconds as a fractional delay (Q8 samples). One millisecond is 44.1 samples: the fraction is the
+ * time, not a rounded step */
+static uint32_t dtime_q8(void)
+{
+    uint32_t num = dtime_ms() * (uint32_t)FS;
+    uint32_t q = (num / 1000u << 8) + (num % 1000u) * 256u / 1000u;
+    if (q < 16u << 8)
+        q = 16u << 8;
+    if (q > (DLY_LEN - 1u) << 8)
+        q = (DLY_LEN - 1u) << 8;
+    return q;
+}
+static int16_t dtime_load(int32_t v)               /* a saved free-ms time survives the descriptor's 0..12 */
+{
+    if (v >= DTIME_FREE && v <= DTIME_FREE + (int32_t)DTIME_MS_MAX)
+        return (int16_t)v;
+    return (int16_t)clamp(v, GP[G_DTIME].min, GP[G_DTIME].max);
+}
 static uint32_t delay_samples(void)
 {
-    uint32_t d = (uint32_t)song.g[G_DTIME];
-    uint32_t s = d - 10u < 3u ? (beat_samples() * 3u) >> DIV_DOT[d - 10u] : div_samples(d);
+    uint32_t d, s;
+    if (dtime_free())
+        return (dtime_q8() + 128u) >> 8;
+    d = (uint32_t)song.g[G_DTIME];
+    s = d - 10u < 3u ? (beat_samples() * 3u) >> DIV_DOT[d - 10u] : div_samples(d);
     return s < 16u ? 16u : s >= DLY_LEN ? DLY_LEN - 1u : s;
 }
+/* free-ms read position (Q8). 0, and the first block after RATE: snap, so a loaded time is exact. While TIME
+ * stays selected the read glides (at most 2 samples a sample), so a millisecond sweep does not click */
+static uint32_t dly_q8;
+static uint8_t dly_free;
 
 /* ROOM (G_RTYPE 0): 4 damped combs + 2 allpasses (Freeverb-like, mono), added to out */
 static __attribute__((noinline)) void rev_room(const int32_t *rev_in, int32_t *out, uint32_t n)
@@ -702,6 +750,18 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
     int32_t dmix = song.g[G_DMIX] * 258;
     int32_t cdepth = song.g[G_CDEPTH] * 6, rt;
     uint32_t cinc = LFO_INC[song.g[G_CRATE] & 127] / CTL;
+    int free_ms = dtime_free();
+    uint32_t tgt = 0;
+    if (!free_ms) {
+        dly_q8 = 0;
+        dly_free = 0;
+    } else {
+        tgt = dtime_q8();
+        if (!dly_free) {
+            dly_q8 = tgt;
+            dly_free = 1;
+        }
+    }
     if (pf.ew1 && fb < THR_FB)
         fb += mulq16(THR_FB - fb, (uint32_t)pf.ew1 << 1);   /* ECHO THROW (perform.c): more feedback while held, 0.7
                                                              * at most (the loop's gain below 1: it never runs away) */
@@ -718,8 +778,22 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
             y += (c0 + (((c1 - c0) * f) >> 8)) << 1;
         }
         fx.cho_w++;
-        /* delay with a low-passed feedback */
-        x = dly_buf[(fx.dly_w - dl) & (DLY_LEN - 1u)];
+        /* delay with a low-passed feedback. RATE: the division, one sample, as before. TIME: fractional
+         * milliseconds, the read gliding toward the knob */
+        if (free_ms) {
+            int32_t err = (int32_t)tgt - (int32_t)dly_q8;
+            int32_t st = err > 512 ? 512 : err < -512 ? -512 : err;
+            uint32_t ri;
+            int32_t fr, c0, c1;
+            dly_q8 = (uint32_t)((int32_t)dly_q8 + st);
+            ri = dly_q8 >> 8;
+            fr = (int32_t)(dly_q8 & 255u);
+            c0 = dly_buf[(fx.dly_w - ri) & (DLY_LEN - 1u)];
+            c1 = dly_buf[(fx.dly_w - ri - 1u) & (DLY_LEN - 1u)];
+            x = c0 + (((c1 - c0) * fr) >> 8);
+        } else {
+            x = dly_buf[(fx.dly_w - dl) & (DLY_LEN - 1u)];
+        }
         fx.dly_lp += mulq15(x - fx.dly_lp, col);
         dly_buf[fx.dly_w & (DLY_LEN - 1u)] =
             (int16_t)clamp((dly_in[i] >> 1) + mulq15(fx.dly_lp, fb), -32768, 32767);

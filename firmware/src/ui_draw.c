@@ -1192,6 +1192,26 @@ static void draw_columns(void)
         draw_column(3, "PCT", val, unit, VAL(3u), RATIO(d, TSEL->p[id]), param_icon(d, TSEL->p[id]));
         return;
     }
+    if (dly_page(cur_page())) {                         /* K1 division or free ms; K4 RATE / TIME reloads K1 */
+        int16_t *vp;
+        const param_desc_t *d;
+        if (dtime_free()) {
+            int32_t ms = (int32_t)dtime_ms();
+            fmt_int(val, ms);
+            draw_column(0, "TIME", val, "ms", VAL(0u), ms * 1000 / (int32_t)DTIME_MS_MAX, ICON_AUTO);
+        } else {
+            d = page_desc(cur_page(), 0, &vp);
+            param_format(d, *vp, val, &unit);
+            draw_column(0, "DIV", val, unit, VAL(0u), RATIO(d, enum_rank(d, *vp)), param_icon(d, *vp));
+        }
+        for (c = 1; c < 3u; c++) {
+            d = page_desc(cur_page(), c, &vp);
+            param_format(d, *vp, val, &unit);
+            draw_column(c, d->label, val, unit, VAL(c), RATIO(d, *vp), param_icon(d, *vp));
+        }
+        draw_column(3, "MODE", dtime_free() ? "TIME" : "RATE", "", VAL(3u), -1, ICON_AUTO);
+        return;
+    }
     for (c = 0; c < 4u; c++) {
         int16_t *vp;
         const param_desc_t *d = page_desc(cur_page(), c, &vp);

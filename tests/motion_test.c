@@ -655,11 +655,11 @@ static int lock_ui(void)
         !motion_lock_get(t, 4, P_E1, &v) && motion_lock_get(t, 0, P_E4, &v) && (t->step[4].hit & 1u) &&
         str_eq(ui.msg, "LOCKS CLEARED"));
     bad += check("the steps with a lock (the grid marks them): step 1", motion_lock_steps(3) == 1u);
-    go_title("REORDER");
+    go_title("EFFECTS");
     ui.ior_tgt = 3;                                      /* K4 edits REV */
-    go_seq_step();                                       /* STEP keeps REORDER plk_src (STEP is not lock_page_ok) */
+    go_seq_step();                                       /* STEP keeps EFFECTS plk_src (STEP is not lock_page_ok) */
     frame();
-    bad += check("from REORDER: K4 locks the chosen send (REV)", lock_id(3) == P_REV && lock_id(0) == 0xFFu);
+    bad += check("from EFFECTS: K4 locks the chosen send (REV)", lock_id(3) == P_REV && lock_id(0) == 0xFFu);
     lk_down(k4); turn(EN_K4, 5); lk_up(k4);              /* K4 = REV percent */
     bad += check("  step 5 gets a REV lock", motion_lock_get(t, 4, P_REV, &v) && v == t->p[P_REV] + 5);
     go_auto_top();

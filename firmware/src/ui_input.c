@@ -973,12 +973,17 @@ static void step_edit(uint32_t slot, int32_t steps)
     }
 }
 
+static void dly_knob(uint32_t slot, int32_t steps);
 static void edit_param(uint32_t slot, int32_t steps)
 {
     int16_t *vp;
     const page_t *pg = cur_page();
     const param_desc_t *d;
     int32_t v;
+    if (dly_page(pg) && (slot == 0u || slot == 3u)) {     /* TIME: division or free ms; MODE: RATE / TIME */
+        dly_knob(slot, steps);
+        return;
+    }
     if (pg->graph == GR_EVENTS) {                         /* AUTOMATION (ui_events.c) */
         ev_knob(slot, steps);
         return;
@@ -1080,7 +1085,43 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
 }
 
-/* REORDER: K1 chooses the stage, K2 moves it, K3 picks FX (that stage's mix) or a send, K4 is the percent */
+/* DLY: K4 RATE (divisions, triplets and dotted) or TIME (free milliseconds). Switching reloads K1.
+ * The division last used is remembered so TIME and back lands on the same note value. */
+static uint8_t dly_div = 1;
+static void dly_knob(uint32_t slot, int32_t steps)
+{
+    if (!steps)
+        return;
+    if (slot == 3u) {
+        int to_ms = steps > 0;
+        if (to_ms == dtime_free())
+            return;
+        if (to_ms) {
+            uint32_t ms;
+            if (song.g[G_DTIME] >= 0 && song.g[G_DTIME] <= GP[G_DTIME].max)
+                dly_div = (uint8_t)song.g[G_DTIME];
+            ms = (delay_samples() * 1000u + (uint32_t)FS / 2u) / (uint32_t)FS;
+            dtime_set_ms(ms);
+        } else {
+            song.g[G_DTIME] = dly_div <= GP[G_DTIME].max ? (int16_t)dly_div : GP[G_DTIME].def;
+        }
+        ui.force = 1;
+        return;
+    }
+    if (slot != 0u)
+        return;
+    if (dtime_free()) {
+        int32_t ms = (int32_t)dtime_ms() + accel(EN_K1, steps, (int32_t)DTIME_MS_MAX);
+        dtime_set_ms((uint32_t)clamp(ms, 1, (int32_t)DTIME_MS_MAX));
+    } else {
+        const param_desc_t *d = &GP[G_DTIME];
+        song.g[G_DTIME] = (int16_t)param_turn(d, song.g[G_DTIME], steps);
+        if (song.g[G_DTIME] >= 0 && song.g[G_DTIME] <= d->max)
+            dly_div = (uint8_t)song.g[G_DTIME];
+    }
+    ui.force = 1;
+}
+/* EFFECTS: K1 chooses the stage, K2 moves it, K3 picks FX (that stage's mix) or a send, K4 is the percent */
 static void ior_knob(uint32_t k, int32_t s)
 {
     int32_t n = s > 0 ? s : -s, dir = s > 0 ? 1 : -1;
@@ -1780,7 +1821,7 @@ static void ui_input(void)
                     sound_dice();
             }
             sd_ms = fm1_ms | 1u;
-        } else if (cur_page()->graph == GR_IORD) {      /* REORDER: PRESETS / (K1 below) pick the stage */
+        } else if (cur_page()->graph == GR_IORD) {      /* EFFECTS: PRESETS / (K1 below) pick the stage */
             ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + (s > 0 ? 1 : -1), 0, (int32_t)INS_N - 1);
             ui.force = 1;
         } else
@@ -1819,8 +1860,8 @@ static void ui_input(void)
         }
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
             ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
-            || pg->graph == GR_SONG || pg->graph == GR_IORD || fop_page(pg->graph)) {   /* (not an empty
-                                                                                                          * column) */
+            || pg->graph == GR_SONG || pg->graph == GR_IORD || (dly_page(pg) && k == 3u) ||
+            fop_page(pg->graph)) {   /* (not an empty column; DLY K4 is RATE / TIME, not a parameter) */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;
         }

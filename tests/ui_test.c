@@ -8162,12 +8162,12 @@ static int test_fx_sections(void)
     uint32_t i, nins, held;
     ui_power_on();
     press(B_FX);
-    ok = !ui.home && cur_page()->fam == FAM_FX && str_eq(cur_page()->title, "REORDER");
-    for (nins = 0, i = 0; i < 20u && str_eq(cur_page()->title, "REORDER") == (nins == 0); i++) {
+    ok = !ui.home && cur_page()->fam == FAM_FX && str_eq(cur_page()->title, "EFFECTS");
+    for (nins = 0, i = 0; i < 20u && str_eq(cur_page()->title, "EFFECTS") == (nins == 0); i++) {
         if (cur_page()->sec == 0u) nins++;
         turn(EN_SELECT, 1);
     }
-    ok &= nins >= 9u;                                   /* REORDER + 6 inserts + DLY REVERB CHORUS */
+    ok &= nins >= 9u;                                   /* EFFECTS + 6 inserts + DLY REVERB CHORUS */
     ok &= cur_page()->sec == FX_SEC_INS;                /* SELECT stayed in Effects */
     press(B_FX);
     ok &= cur_page()->fam == FAM_FX && cur_page()->sec == FX_SEC_SLCR && str_eq(cur_page()->title, "SLICER");
@@ -8181,11 +8181,11 @@ static int test_fx_sections(void)
     ok &= (perf_held & PF_BIT(PF_LPF)) != 0u;
     key_up(white(3)); frame();
     press(B_FX);
-    ok &= cur_page()->sec == FX_SEC_INS && str_eq(cur_page()->title, "REORDER");
+    ok &= cur_page()->sec == FX_SEC_INS && str_eq(cur_page()->title, "EFFECTS");
     bad += check("FX sections: Effects → Slicer → Master → Punch-in; SELECT stays in section; punch keys in Punch-in", ok);
 
     ui_power_on();
-    go_title("REORDER");
+    go_title("EFFECTS");
     ui.ior_sel = 0;
     {
         uint8_t before[INS_N], after[INS_N];
@@ -8205,7 +8205,28 @@ static int test_fx_sections(void)
         ins_order_get(TSEL, before);
         ok &= before[0] == after[0] && before[1] == after[1];
     }
-    bad += check("REORDER: K1 chooses, K2 moves, K3 send, K4 percent; FX+SELECT does not move", ok);
+    bad += check("EFFECTS: K1 chooses, K2 moves, K3 send, K4 percent; FX+SELECT does not move", ok);
+
+    ui_power_on();
+    go_title("DLY");
+    ok = song.g[G_DTIME] == 1 && !dtime_free();          /* 1/8, RATE */
+    turn(EN_K1, -1);                                     /* 1/8D, still a division (triplets and dotted stay) */
+    ok &= song.g[G_DTIME] == 10 && !dtime_free();
+    turn(EN_K4, 1);                                      /* TIME: free ms, the view's first knob */
+    {
+        uint32_t ms = dtime_ms();
+        ok &= dtime_free() && ms >= 1u && ms <= DTIME_MS_MAX;
+        turn(EN_K1, 1);                                  /* one detent is one millisecond */
+        ok &= dtime_ms() == ms + 1u;
+        turn(EN_K1, 1);
+        ok &= dtime_ms() == ms + 2u;
+        song.g[G_DTIME] = (int16_t)(DTIME_FREE + 100);
+        ok &= dtime_ms() == 100u && delay_samples() == (dtime_q8() + 128u) >> 8;
+        ok &= delay_samples() > 16u && delay_samples() < DLY_LEN;
+        turn(EN_K4, -1);                                 /* RATE again: the division we left */
+        ok &= !dtime_free() && song.g[G_DTIME] == 10;
+    }
+    bad += check("DLY: K4 RATE/TIME reloads K1; divisions keep dotted; free ms steps by 1", ok);
 
     ui_power_on();
     btn_down(B_FX); frames(600);
