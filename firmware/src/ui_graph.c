@@ -484,14 +484,15 @@ static void graph_iord(const track_t *t, uint16_t c)
     for (i = 0; i < INS_N; i++) {
         int32_t y = y0 + (int32_t)i * row, mix = ins_mix_of(t, ord[i]);
         uint16_t col = i == ui.ior_sel ? c : T_DIM;
+        if (ins_is_send(t, ord[i]))
+            cv_rect(PANEL_X0, y + 3, 2, 6, col);          /* a send: a tick beside the name */
         cv_text(PANEL_X0 + 4, y, &AF_S, N_ISTAGE[ord[i]], col);
         if (mix)
             cv_rrect(PANEL_X0 + 48, y + 4, 2 + mix * 40 / 127, 5, 2, col, T_SURF);
     }
     for (i = 0; i < 3u; i++) {
         int32_t cx = 136 + (int32_t)i * 36, h = t->p[SID[i]] * hmax / 127, x = cx - 2;
-        int hot = ui.ior_tgt == i + 1u;
-        uint16_t col = hot ? c : T_MID;
+        uint16_t col = T_MID;
         int32_t pw, lw;
         cv_rrect(x, 2, 4, hmax, 2, T_RAISE, T_SURF);
         if (h > 2)
@@ -501,7 +502,7 @@ static void graph_iord(const track_t *t, uint16_t c)
         pw = text_w(&AF_S, pct);
         lw = text_w(&AF_S, SN[i]);
         cv_text(cx - pw / 2, hmax + 10, &AF_S, pct, col);
-        cv_text(cx - lw / 2, hmax + 24, &AF_S, SN[i], hot ? c : T_DIM);
+        cv_text(cx - lw / 2, hmax + 24, &AF_S, SN[i], T_DIM);
     }
 }
 /* SLICER page: the pattern's 16 steps, a 'x' step a full bar; a '.' step: GATE a bar as high as it stays
@@ -1124,7 +1125,7 @@ static uint32_t graph_signature(void)
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
     if (pg->graph == GR_IORD)                        /* EFFECTS: highlighted slot, send or effect */
-        h ^= (ui.ior_sel + 1u) * 40503u + (ui.ior_tgt + 1u) * 7919u;
+        h ^= (ui.ior_sel + 1u) * 40503u + ((uint32_t)iord_bits(t) + 1u) * 7919u;
     if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
         for (i = 0; i < 4u; i++)
             h ^= (uint32_t)graph_project_used(i) << (20u + i);

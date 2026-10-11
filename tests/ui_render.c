@@ -1488,7 +1488,7 @@ static void setup(int s)
             uint32_t i;
             for (i = 0; i < NPAGES && PAGES[i].graph != GR_IORD; i++)
                 ;
-            ui.ior_tgt = 3;                             /* K4 is REV, the lock the held step shows */
+            ui.ior_sel = 0;                             /* K4 is the chosen stage's mix */
             ui.plk_src = (uint8_t)(i + 1u);
             fm1_in.notes = 1u << key_at(0, 4);
             ui.hot_col = 3; ui.hot_t = 30;

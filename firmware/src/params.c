@@ -63,7 +63,7 @@ static const char *const N_IBITS[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9
                                       "16", 0};
 static const char *const N_IRATE[] = {"689", "919", "1.1k", "1.4k", "1.8k", "2.2k", "2.8k", "3.7k", "4.4k", "5.5k",
                                       "7.4k", "8.8k", "11k", "15k", "22k", "44k", 0};
-/* reorder page: stage names in chain order (fx.c); K1 / PRESETS pick, K2 moves */
+/* EFFECTS page: stage names in chain order (fx.c). K1 chooses, K2 moves */
 static const char *const N_ISTAGE[] = {"DIST", "FILTER", "CRUSH", "PHASR", "FLANG", "CHOR"};
 /* modulation matrix (mod.c): sources, destinations (E1..E8 = P_E0..P_E7: shown with the engine's labels).
  * Append-only (stored values keep their meaning): S&H SLEW and DEPTH (#132) came after EXPR and E8 */
@@ -453,8 +453,8 @@ static const page_t PAGES[] = {
     {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, 0, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},
     {"LFO DEST", FAM_LFO, SC_TRACK, GR_DESTS, 0, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
     {"MOD", FAM_LFO, SC_TRACK, GR_MOD, 0, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},
-    /* FX: Effects → Slicer → Master → Punch-in. Mix and sends (CHO DLY REV) live on EFFECTS, not on the
-     * stage pages. DLY knob 4 is RATE / TIME (ui_input.c dly_knob): knob 1 is the division or free ms. */
+    /* FX: Effects → Slicer → Master → Punch-in. Each stage's mix lives on EFFECTS (K4). K3 is
+     * FX (in the chain) or SEND. DLY knob 4 is RATE / TIME (ui_input.c dly_knob). */
     {"EFFECTS", FAM_FX, SC_TRACK, GR_IORD, FX_SEC_INS, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"DIST", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IDMODE, P_DIST, P_ED_FX, 0xFF}},
     {"FILTER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IFTYPE, P_IFCUT, P_IFRES, 0xFF}},

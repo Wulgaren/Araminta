@@ -145,7 +145,6 @@ static struct {
                                   * go, unless the key was held for a lock (its accent: plk_acc) */
     uint8_t hot_col, hot_t;      /* column whose knob was just turned (drawn white) */
     uint8_t ior_sel;             /* EFFECTS page: highlighted chain slot 0..INS_N-1 */
-    uint8_t ior_tgt;             /* EFFECTS KNOB 3: 0 the stage's mix, 1 CHO, 2 DLY, 3 REV */
     uint8_t menu;                /* 0 off, 1 list, 2 about + credits, 3 info (1.2) (HOME held) */
     uint8_t menu_sel;            /* MENU: the row (menu_items.c MI_*; its tab MI_TAB), kept while the device runs */
     uint8_t menu_row[5];         /* MENU: the row last picked in each tab, from its first (ALGORITHM comes back to it) */
@@ -491,20 +490,16 @@ static void chain_play_ui(void)
 }
 
 
-/* EFFECTS KNOB 4: the stage's mix, or CHO / DLY / REV (ui.ior_tgt) */
+/* EFFECTS KNOB 4: the chosen stage's mix (dry/wet in the chain, or the send amount). */
 /* DLY: knob 1 is G_DTIME (a division, or free ms above it). Knob 4 is not a parameter (ui_input.c) */
 static int dly_page(const page_t *pg)
 {
     return pg->scope == SC_GLOBAL && pg->id[0] == G_DTIME;
 }
-static const char *const N_IORTGT[] = {"FX", "CHO", "DLY", "REV"};
 static uint32_t ior_pct_id(void)
 {
     static const uint8_t MIX[INS_N] = {P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX, P_IHMIX};
-    static const uint8_t SEND[3] = {P_CHOR, P_DLY, P_REV};
     uint8_t ord[INS_N];
-    if (ui.ior_tgt >= 1u && ui.ior_tgt <= 3u)
-        return SEND[ui.ior_tgt - 1u];
     ins_order_get(TSEL, ord);
     return MIX[ord[ui.ior_sel < INS_N ? ui.ior_sel : 0u]];
 }
@@ -514,7 +509,7 @@ static int lock_page_ok(uint32_t i)
 {
     uint32_t k;
     if (i < NPAGES && PAGES[i].graph == GR_IORD)
-        return 1;                                     /* KNOB 4 locks the send or the stage mix */
+        return 1;                                     /* KNOB 4 locks the chosen stage's mix */
     if (i >= NPAGES || (PAGES[i].scope != SC_TRACK && PAGES[i].scope != SC_ENGINE) || PAGES[i].graph == GR_MOD)
         return 0;
     for (k = 0; k < 4u; k++)

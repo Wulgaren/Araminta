@@ -626,10 +626,11 @@ static int proj_pack(project_store_t *out, const project_t *q)
     memcpy(b + 8, q->g, sizeof q->g); b[62] = q->sel; b[63] = q->parts; b[64] = q->phys; b[66] = P_COUNT;
     for (t = 0; t < NTRK; t++) {
         for (i = 0; i < P_COUNT; i++) {
-            if (i == P_IORD) {                          /* factorial 0..719: two bytes LE (not value+64) */
-                uint32_t o = (uint32_t)clamp(q->t[t].p[i], 0, 719);
-                b[pos++] = (uint8_t)(o & 255u);
-                b[pos++] = (uint8_t)(o >> 8);
+            if (i == P_IORD) {                          /* order in bits 0..9; send flags in 10..15 */
+                uint16_t raw = (uint16_t)q->t[t].p[i];
+                if ((raw & 1023u) > 719u) return 0;
+                b[pos++] = (uint8_t)(raw & 255u);
+                b[pos++] = (uint8_t)(raw >> 8);
                 continue;
             }
             if (q->t[t].p[i] < -64 || q->t[t].p[i] > 127) return 0;
@@ -721,11 +722,11 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     for (t = 0; t < NTRK; t++) {
         int16_t values[P_COUNT], def[P_COUNT];
         for (i = 0; i < np; i++) {
-            if (iord2 && i == P_IORD) {                  /* two bytes LE, 0..719 */
+            if (iord2 && i == P_IORD) {                  /* two bytes LE: order 0..719, send flags above it */
                 uint32_t o = b[pos] | (uint32_t)b[pos + 1u] << 8;
                 pos += 2u;
-                if (o > 719u) return 0;
-                values[i] = (int16_t)o;
+                if ((o & 1023u) > 719u) return 0;
+                values[i] = (int16_t)(uint16_t)o;
                 continue;
             }
             if (b[pos] > 191u) return 0;
