@@ -2168,6 +2168,14 @@ int main(int argc, char **argv)
     {   /* STYLE retired: always FLAT (no LINE pass) */
         fprintf(rep, "STYLE retired: always FLAT (no LINE render pass)\n");
     }
+    {   /* every palette's MIXER (P/R-in-knob columns): OUTDIR/ppm/<PALETTE>_mixer.ppm */
+        for (p = 0; p < NPALETTES; p++) {
+            setup(S_MIXER);
+            pal(p);
+            draw(S_MIXER);
+            write_ppm(out, UI_PALETTES[p].name, "mixer");
+        }
+    }
     {   /* MENU > LARGE (ui.c large_kind): every screen in every palette in FLAT, linted (GREY: gray, MONO:
          * neutral); GREY MONO as OUTDIR/ppm/LARGE_<PALETTE>_<screen>.ppm (ui_render.py: sheet_LARGE_<PALETTE>.png);
          * the tall cards' value faces counted (lg_hook) */
