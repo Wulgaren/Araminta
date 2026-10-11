@@ -8313,9 +8313,25 @@ static int test_fx_sections(void)
             if (ord[i] == INS_REV) { ui.ior_sel = (uint8_t)i; break; }
         turn(EN_K3, 1);
         ok &= song.g[G_REVOWN] == 1 && fx_list_mode(TSEL, INS_REV)[0] == 'C' &&
-              fx_list_mode(&trk[2], INS_REV)[0] == 'U';
+              fx_list_mode(&trk[2], INS_REV)[0] == 'S';   /* REV non-owner: SEND (tank 1), not USED */
+        {
+            int16_t rv = trk[2].p[P_REV];
+            song.sel = 2;
+            ui.ior_sel = (uint8_t)0;
+            fx_list_get(&trk[2], ord);
+            for (i = 0; i < FX_LIST_N; i++)
+                if (ord[i] == INS_REV) { ui.ior_sel = (uint8_t)i; break; }
+            turn(EN_K4, 8);                             /* SEND: mix still editable */
+            ok &= trk[2].p[P_REV] != rv;
+            turn(EN_K3, 1);                             /* cannot steal CHAIN */
+            ok &= song.g[G_REVOWN] == 1 && fx_list_mode(&trk[2], INS_REV)[0] == 'S';
+            song.sel = 0;
+        }
+        song.g[G_DLYOWN] = 1;                           /* DLY still exclusive USED when chained */
+        ok &= fx_list_mode(&trk[1], INS_DLY)[0] == 'U';
+        song.g[G_DLYOWN] = 0;
     }
-    bad += check("EFFECTS: DLY/REV exclusive CHAIN; others USED; release restores SEND", ok);
+    bad += check("EFFECTS: DLY USED when chained; REV non-owners SEND; release restores SEND", ok);
 
     ui_power_on();
     go_title("EFFECTS");

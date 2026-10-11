@@ -1261,7 +1261,7 @@ static void ior_knob(uint32_t k, int32_t s)
                 bus_own_set(which, -1);               /* CHAIN -> SEND for all */
             else if (own < 0)
                 bus_own_set(which, tr);               /* SEND -> this track CHAIN */
-            /* USED: another track owns it; K3 does nothing */
+            /* DLY USED / REV already owned elsewhere: K3 does nothing (no steal) */
         } else {
             ins_send_set(TSEL, st, !ins_is_send(TSEL, st));
         }
