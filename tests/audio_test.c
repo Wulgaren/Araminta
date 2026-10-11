@@ -296,7 +296,8 @@ static void boot_click(void)
     song.master_q12 = 4096;
     kb_boot_hold = 1;
     memset(dly_buf, 0x7F, sizeof dly_buf);
-    memset(rev_comb, 0x7F, sizeof rev_comb);
+    memset(rev_tank, 0x7F, sizeof rev_tank);
+    R = &rev_tank[0];
     dirty = boot_peak(4);
     fx_boot();                                         /* lines + master DC state; soft-start held at 0 */
     muted = boot_peak(8);

@@ -37,8 +37,8 @@ static void fresh(void)
 {
     uint32_t k;
     memset(dly_buf, 0, sizeof dly_buf);
-    memset(rev_comb, 0, sizeof rev_comb);
-    memset(rev_ap, 0, sizeof rev_ap);
+    memset(rev_tank, 0, sizeof rev_tank);
+    R = &rev_tank[0];
     memset(&fx, 0, sizeof fx);
     memset(&pf, 0, sizeof pf);
     memset(ins_st, 0, sizeof ins_st);
@@ -270,6 +270,14 @@ int main(void)
         ck("release ownership restores SEND for all",
            song.g[G_DLYOWN] == 0 && fx_list_mode(&trk[0], INS_DLY)[0] == 'S' &&
            fx_list_mode(&trk[1], INS_DLY)[0] == 'S');
+        /* REV CHAIN: owner CHAIN, others SEND (not USED); DLY stays USED when chained. */
+        song.g[G_REVOWN] = 1;
+        song.g[G_DLYOWN] = 2;
+        ck("REV chained: owner CHAIN, others SEND; DLY non-owner USED",
+           fx_list_mode(&trk[0], INS_REV)[0] == 'C' && fx_list_mode(&trk[1], INS_REV)[0] == 'S' &&
+           fx_list_mode(&trk[0], INS_DLY)[0] == 'U' && fx_list_mode(&trk[1], INS_DLY)[0] == 'C');
+        bus_own_set(1, -1);
+        bus_own_set(0, -1);
     }
 
     /* FX pages: EFFECTS, REVERB, DLY, DIST, …; SLICER; Punch-in. MASTER on GLO.

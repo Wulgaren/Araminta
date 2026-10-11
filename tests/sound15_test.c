@@ -65,8 +65,8 @@ static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails
 {
     uint32_t k;
     memset(dly_buf, 0, sizeof dly_buf);
-    memset(rev_comb, 0, sizeof rev_comb);
-    memset(rev_ap, 0, sizeof rev_ap);
+    memset(rev_tank, 0, sizeof rev_tank);
+    R = &rev_tank[0];
     memset(&fx, 0, sizeof fx);
     memset(&pf, 0, sizeof pf);
     for (k = 0; k < NTRK; k++)

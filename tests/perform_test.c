@@ -1061,8 +1061,8 @@ static int test_map(void)
 static void dly_clear(void)
 {
     memset(dly_buf, 0, sizeof dly_buf);
-    memset(rev_comb, 0, sizeof rev_comb);
-    memset(&rev_u, 0, sizeof rev_u);
+    memset(rev_tank, 0, sizeof rev_tank);
+    R = &rev_tank[0];
     memset(&fx, 0, sizeof fx);
     dly_q8 = 0;
     dly_free = 0;

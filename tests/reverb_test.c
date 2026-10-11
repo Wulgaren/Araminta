@@ -138,7 +138,7 @@ static void test_room_identical(void)
         for (i = 0; i < CTL; i++)
             diff += w0[i] != w1[i];
     }
-    check("ROOM: the buses bit for bit as before SPRING (30 s of noise sends, settings changing)", !diff && !fx.rtype);
+    check("ROOM: the buses bit for bit as before SPRING (30 s of noise sends, settings changing)", !diff && !R->rtype);
 }
 
 /* ------------------------------------------------------------- SPRING --- */
@@ -150,10 +150,10 @@ static void spring_reset(int32_t size, int32_t damp)
     song.g[G_RSIZE] = (int16_t)size;
     song.g[G_RDAMP] = (int16_t)damp;
     rev_clear();
-    fx.rtype = 1;
-    fx.sp_w = 0;
-    fx.sp_size = 0;
-    fx.sp_ph = 0;
+    R->rtype = 1;
+    R->sp_w = 0;
+    R->sp_size = 0;
+    R->sp_ph = 0;
 }
 /* the spring's response to x[] (len samples, the rest silence) into ir[0 .. n) */
 static void spring_run(const int32_t *x, uint32_t len, uint32_t n)
@@ -261,7 +261,7 @@ static void test_spring(void)
         for (m = 0; m < 2u; m++) {
             host_tracks_init();
             rev_clear();
-            fx.sp_size = 0;
+            R->sp_size = 0;
             xs = 99;
             for (t = 0; t < 2u * FS; t += CTL) {
                 for (i = 0; i < CTL; i++) {
@@ -315,7 +315,7 @@ static void test_spring_identical(void)
     check(what, h == 0xdd93d2f8u);
     song.g[G_RTYPE] = 0;
     rev_clear();
-    fx.rtype = 0;
+    R->rtype = 0;
 }
 
 /* --------------------------------------------------------------- HALL --- */
@@ -363,12 +363,12 @@ static void model_reset(int m, int32_t size, int32_t damp)
     song.g[G_RSIZE] = (int16_t)size;
     song.g[G_RDAMP] = (int16_t)damp;
     rev_clear();
-    fx.rtype = (uint8_t)song.g[G_RTYPE];
-    fx.sp_w = 0;
-    fx.sp_size = 0;
-    fx.sp_ph = 0;
-    hl.ph = 0;
-    hl.sz = 0;
+    R->rtype = (uint8_t)song.g[G_RTYPE];
+    R->sp_w = 0;
+    R->sp_size = 0;
+    R->sp_ph = 0;
+    R->hl.ph = 0;
+    R->hl.sz = 0;
     memset(c8_buf, 0, sizeof c8_buf);
     memset(c8_lp, 0, sizeof c8_lp);
 }
@@ -376,7 +376,7 @@ static void model_reset(int m, int32_t size, int32_t damp)
 static void model_block(int m, const int32_t *in, int32_t *out, int32_t *side, uint32_t n)
 {
     uint32_t i;
-    hl.side = 0;
+    R->hl.side = 0;
     if (m == M_HALL)
         rev_hall(in, out, n);
     else if (m == M_SPRING)
@@ -386,7 +386,7 @@ static void model_block(int m, const int32_t *in, int32_t *out, int32_t *side, u
     else
         rev_room(in, out, n);
     for (i = 0; i < n; i++)
-        side[i] = hl.side ? rev_side[i] : 0;
+        side[i] = R->hl.side ? rev_side[i] : 0;
 }
 /* the response of model m to x[] (len samples, then silence): left (mid + side) into ir, side into irs */
 static int32_t irs[IRN];
@@ -479,7 +479,7 @@ static quality_t quality(int m, int32_t size, int32_t damp)
         for (i = 0; i < 64u; i++)
             ex[i] = noise(1 << 17);
         model_reset(m, size, damp);
-        hl.ph = r * 0x40000000u;
+        R->hl.ph = r * 0x40000000u;
         model_run(m, ex, 64, IRN);
         q.ned += ned_mean(ir, 50, 300, &t90) / 4;
         q.t90 += (t90 < 0 ? 300 : t90) / 4;
@@ -705,13 +705,13 @@ static void test_hall(void)
 static void test_clear(void)
 {
     uint32_t i, left = 0;
-    for (i = 0; i < sizeof rev_u.ap / 2u; i++)
-        rev_u.ap[i] = 1000;
+    for (i = 0; i < sizeof R->u.ap / 2u; i++)
+        R->u.ap[i] = 1000;
     for (i = 0; i < sizeof rev_comb / 2u; i++)
         rev_comb[i] = 1000;
     rev_clear();
-    for (i = 0; i < sizeof rev_u.ap / 2u; i++)
-        left += rev_u.ap[i] != 0;
+    for (i = 0; i < sizeof R->u.ap / 2u; i++)
+        left += R->u.ap[i] != 0;
     for (i = 0; i < sizeof rev_comb / 2u; i++)
         left += rev_comb[i] != 0;
     check("rev_clear: every sample of the combs and the allpasses silent", !left);
@@ -739,7 +739,7 @@ static void test_switch(void)
             memset(dly_buf, 0, sizeof dly_buf);                 /* (the delay and chorus quiet: only the reverb) */
             fx.dly_lp = 0;
             song.g[G_RTYPE] = (int16_t)from;
-            fx.rtype = (uint8_t)from;
+            R->rtype = (uint8_t)from;
             for (b = 0; b < 4u * FS / CTL; b++) {
                 if (b == 2u * FS / CTL)
                     song.g[G_RTYPE] = (int16_t)to;
@@ -749,24 +749,24 @@ static void test_switch(void)
                 }
                 fx_buses(d, r, w, CTL);
                 for (i = 0; i < CTL; i++) {
-                    int32_t L = w[i] + (hl.side ? rev_side[i] : 0), s = abs(L - prev);   /* the left channel */
+                    int32_t L = w[i] + (R->hl.side ? rev_side[i] : 0), s = abs(L - prev);   /* the left channel */
                     if (b >= 2u * FS / CTL - 4u && b <= 2u * FS / CTL + 4u)
                         step = s > step ? s : step;
                     else if (b > FS / CTL + 100u && b < 2u * FS / CTL - 4u)
                         own = s > own ? s : own;
                     if (b > 2u * FS / CTL)
-                        after = abs(w[i]) + (hl.side ? abs(rev_side[i]) : 0) > after ? abs(w[i]) + (hl.side ? abs(rev_side[i]) : 0) : after;
+                        after = abs(w[i]) + (R->hl.side ? abs(rev_side[i]) : 0) > after ? abs(w[i]) + (R->hl.side ? abs(rev_side[i]) : 0) : after;
                     prev = L;
                 }
             }
             snprintf(what, sizeof what, "%s -> %s while the tail rings: largest step %d (the tail's own %d), silent after: %d",
                      RN[from], RN[to], step, own, after);
-            check(what, step <= 2 * own + 64 && after == 0 && fx.rtype == to);
+            check(what, step <= 2 * own + 64 && after == 0 && R->rtype == to);
         }
     }
     song.g[G_RTYPE] = 0;
     fx_buses(d, r, w, CTL);
-    check("  and back to ROOM", fx.rtype == 0 && !hl.side);
+    check("  and back to ROOM", R->rtype == 0 && !R->hl.side);
 }
 
 /* ---------------------------------------------------------------- cost --- */
@@ -778,7 +778,7 @@ static double cost_of(int m, int bus)        /* model m alone, or the bus stage 
     host_tracks_init();
     rev_clear();
     song.g[G_RTYPE] = (int16_t)m;
-    fx.rtype = (uint8_t)m;
+    R->rtype = (uint8_t)m;
     for (i = 0; i < CTL; i++) {
         c[i] = noise(30000);
         d[i] = noise(30000);
@@ -788,7 +788,7 @@ static double cost_of(int m, int bus)        /* model m alone, or the bus stage 
     for (b = 0; b < nb; b++) {
         if (bus) {
             fx_buses(d, r, w, CTL);
-            if (hl.side)
+            if (R->hl.side)
                 rev_side_mix(c, d, CTL);                /* (as mix_block: HALL's stereo) */
         } else if (m == M_HALL)
             rev_hall(r, w, CTL);
@@ -841,7 +841,7 @@ static void demo(const char *dir, const char *name, int rtype, int pluck)
     memset(trk, 0, sizeof trk);
     host_tracks_init();
     rev_clear();
-    fx.rtype = (uint8_t)rtype;
+    R->rtype = (uint8_t)rtype;
     song.g[G_RTYPE] = (int16_t)rtype;
     song.g[G_BPM] = 100;
     if (pluck) {
@@ -895,7 +895,7 @@ static void demo_block(int32_t *out, uint32_t n, int comb8_on)
         comb8(send_r, wet, n);
     } else {
         fx_buses(send_d, send_r, wet, n);
-        if (hl.side)
+        if (R->hl.side)
             rev_side_mix(mix_l, mix_r, n);
     }
     for (i = 0; i < n; i++) {
@@ -974,10 +974,10 @@ static void jiant_reset(int rtype, int32_t size, int32_t damp)
     song.g[G_RSIZE] = (int16_t)size;
     song.g[G_RDAMP] = (int16_t)damp;
     rev_clear();
-    fx.rtype = (uint8_t)rtype;
-    fx.sh_w = fx.sh_ph = 0;
-    fx.cl_w = fx.cl_rng = 0;
-    fx.cl_next = fx.cl_lp = fx.cl_half = 0;
+    R->rtype = (uint8_t)rtype;
+    R->sh_w = R->sh_ph = 0;
+    R->cl_w = R->cl_rng = 0;
+    R->cl_next = R->cl_lp = R->cl_half = 0;
 }
 static void jiant_run(int rtype, const int32_t *x, uint32_t len, uint32_t n)
 {
@@ -1048,13 +1048,13 @@ static void test_jiant(void)
             rev_cloud(a, o0, CTL);
         }
         song.g[G_RSIZE] = 127;
-        w0 = fx.cl_w;
+        w0 = R->cl_w;
         for (i = 0; i < CTL; i++) {
             a[i] = 30000;
             o0[i] = 0;
         }
         rev_cloud(a, o0, CTL);
-        w1 = fx.cl_w;
+        w1 = R->cl_w;
         snprintf(what, sizeof what, "CLOUD SIZE 127 freezes the line: cl_w stayed %u (was %u)", w1, w0);
         check(what, w1 == w0 && w0 > 0);
     }
