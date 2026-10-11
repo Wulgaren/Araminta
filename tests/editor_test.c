@@ -78,7 +78,7 @@ static void reset(void)
     memset(&ed_w, 0, sizeof ed_w); memset(&ui, 0, sizeof ui);
     memset(&favorites, 0, sizeof favorites); memset(&settings, 0, sizeof settings); settings_init();
     memset(proj_slot, 0, sizeof proj_slot); memset(up_bank, 0, sizeof up_bank);
-    memset(&um, 0, sizeof um); memset(usr_nz, 0, sizeof usr_nz);
+    memset(&um, 0, sizeof um); memset(usr_nz, 0, sizeof usr_nz); memset(usr_drum, 0, sizeof usr_drum);
     host_progress = 1; host_erases = host_writes = host_wire_n = 0;
     transport_req = panic_req = 0; sx_ready = sx_collect = sx_busy = 0;
     so_r = so_w = mi_r = mi_w = 0; midi_in_overflow = 0; usb.config = 1;

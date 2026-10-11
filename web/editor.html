@@ -525,7 +525,10 @@ const parse = {
   [CMD.SMP_INFO](a) {
     const r = new Reader(a);
     const o = { nslots: r.b(), slotKiB: r.b(), slots: [] };
-    for (let i = 0; i < o.nslots; i++) o.slots.push({ zones: r.b(), name: r.s(), kib: r.b() });
+    for (let i = 0; i < o.nslots; i++) {
+      const zb = r.b();                              /* zones 0..16; bit 6: drum kit grid (FSMP hdr.rsv; 7-bit SysEx) */
+      o.slots.push({ zones: zb & 0x3f, drum: !!(zb & 0x40), name: r.s(), kib: r.b() });
+    }
     return o;
   },
   [CMD.UP_LIST](a) {
@@ -979,8 +982,9 @@ function rootFromName(name) {
   return Math.max(0, Math.min(127, n));
 }
 
-/* zones: [{s: Int16Array (22050 Hz), root, lo?, hi?}] -> {hdr (480 B), data, zones} (sampleio.user_slot) */
-function buildSlot(name, zonesIn) {
+/* zones: [{s: Int16Array (22050 Hz), root, lo?, hi?}] -> {hdr (480 B), data, zones} (sampleio.user_slot).
+ * opts.drumGrid: FSMP hdr.rsv bit 0 — device SEQ shows the drum grid for SAMPLE on this USR slot. */
+function buildSlot(name, zonesIn, opts = {}) {
   const zones = [], parts = [];
   let len = 0;
   for (const z of zonesIn) {
@@ -1005,6 +1009,7 @@ function buildSlot(name, zonesIn) {
   v.setUint32(0, 0x504D5346, true);
   v.setUint16(4, 1, true);
   hdr[6] = zones.length;
+  hdr[7] = opts.drumGrid ? 1 : 0;                 /* rsv: drum kit grid */
   const nm = String(name).toUpperCase().replace(/[^\x20-\x7E]/g, "").slice(0, 8);
   for (let i = 0; i < nm.length; i++) hdr[8 + i] = nm.charCodeAt(i);
   v.setUint32(16, len, true);
@@ -1850,7 +1855,7 @@ function makeMockDevice(opt = {}) {
     tracks: [0, 1, 2, 3].map(newTrack), sel: 0, rec: 0,
     g: GP.map((d) => d.def),
     slots: [null, null, null, null], songRows: [], chainPlaying: false, chainRow: 0, chainRemaining: 0,
-    smp: [0, 1, 2].map(() => ({ flash: new Uint8Array(SMP.SLOT_SIZE).fill(0xFF), zones: 0, name: "", len: 0, next: SMP.DATA_OFF })),
+    smp: [0, 1, 2].map(() => ({ flash: new Uint8Array(SMP.SLOT_SIZE).fill(0xFF), zones: 0, drum: false, name: "", len: 0, next: SMP.DATA_OFF })),
     bank: new Array(opt.slots || 32).fill(null),     /* user presets: {engine, name, p, pattern, grid, fm6 (FM6: its patch)} */
     uiCaps: opt.legacy || opt.v3 || opt.v5 ? 0 : opt.uiCaps ?? 9,
     palette: 0, font: 0, monitor: 0, filter: 0, bankSig: 0,
@@ -2282,7 +2287,7 @@ function makeMockDevice(opt = {}) {
         if (a.length < 1 || a[0] >= 3) return null;
         const u = st.smp[a[0]];
         if (cmd === CMD.SMP_ERASE) u.flash.fill(0xFF); else u.flash.fill(0xFF, 0, 4096);
-        u.zones = 0; u.name = ""; u.len = 0; u.next = SMP.DATA_OFF;
+        u.zones = 0; u.drum = false; u.name = ""; u.len = 0; u.next = SMP.DATA_OFF;
         b(a[0]); b(0);
         break;
       }
@@ -2311,7 +2316,7 @@ function makeMockDevice(opt = {}) {
           else if (crc32(u.flash.subarray(SMP.DATA_OFF, SMP.DATA_OFF + len)) !== dv.getUint32(20, true)) rc = 3;
           else {
             u.flash.set(hd, 0);
-            u.zones = hd[6]; u.len = len;
+            u.zones = hd[6]; u.drum = !!(hd[7] & 1); u.len = len;
             u.name = String.fromCharCode(...hd.slice(8, 16)).replace(/\0.*$/, "");
           }
         }
@@ -2320,7 +2325,11 @@ function makeMockDevice(opt = {}) {
       }
       case CMD.SMP_INFO:
         b(3); b(SMP.SLOT_SIZE / 1024);
-        st.smp.forEach((u) => { b(u.zones); s(u.zones ? u.name : ""); b(u.zones ? Math.ceil(u.len / 1024) : 0); });
+        st.smp.forEach((u) => {
+          b(u.zones ? (u.zones | (u.drum ? 0x40 : 0)) : 0);
+          s(u.zones ? u.name : "");
+          b(u.zones ? Math.ceil(u.len / 1024) : 0);
+        });
         break;
       default:
         return null;
@@ -2614,6 +2623,7 @@ const TEXT = {
     confirmClear: "シーケンスを全部消しますか？", confirmInit: "音色を初期化しますか？ シーケンスはそのままです（本体の SAVE 長押しで元に戻せます）。",
     samples: "サンプル", smpHelp: "ファイルを選択、または入力から録音。波形の両端でトリム、ホイールで拡大。1枠に16音、合計約7秒。",
     zones: "ゾーン", smpName: "名前", chooseFiles: "ファイルを選ぶ", upload: "書き込む", erase: "消去", clearList: "リストを消す",
+    smpDrumGrid: "ドラムキットグリッド", smpDrumOn: "ドラムグリッド",
     file: "ファイル", root: "ルート", keys: "鍵盤", length: "長さ", remove: "外す",
     record: "録音", stopRec: "停止", recInput: "入力", recDenied: "録音できません", recFull: "スロットがいっぱいです", recSilent: "無音でした。入力を確かめてください",
     preview: "試聴", autoTrim: "自動トリム", trim: "切り取り",
@@ -2719,6 +2729,7 @@ const TEXT = {
     confirmClear: "Clear the whole sequence?", confirmInit: "Reset the sound to the engine defaults? The sequence stays (hold SAVE on the device to undo).",
     samples: "Samples", smpHelp: "Choose files or record an input. Drag waveform ends to trim; wheel to zoom. Up to 16 sounds and about 7 s per slot.",
     zones: "zones", smpName: "Name", chooseFiles: "Choose files", upload: "Upload", erase: "Erase", clearList: "Clear list",
+    smpDrumGrid: "Drum kit grid", smpDrumOn: "drum grid",
     file: "File", root: "Root", keys: "Keys", length: "Length", remove: "Remove",
     record: "Record", stopRec: "Stop", recInput: "Input", recDenied: "Cannot record", recFull: "The slot is full", recSilent: "Silence: check the input",
     preview: "Play", autoTrim: "Auto trim", trim: "Trim",
@@ -3668,7 +3679,7 @@ $("clearseq").addEventListener("click", async () => {
 });
 
 /* ---------------------------------------------------------- samples --- */
-const smpDraft = [0, 1, 2].map(() => ({ name: "", files: [] }));
+const smpDraft = [0, 1, 2].map(() => ({ name: "", files: [], drumGrid: false }));
 let smpBusy = false;
 const SMP_RC = { 1: "size", 2: "header", 3: "data CRC", 4: "flash", 5: "zones" };
 const kib = (n) => (n / 1024).toFixed(1);
@@ -3990,7 +4001,10 @@ function renderSamples() {
   const max = SMP.MAX_DATA;
   box.replaceChildren(...dev.smp.slots.map((u, k) => {
     const d = smpDraft[k];
-    const status = u.zones ? `${u.name || "—"}, ${u.zones} ${t("zones")}, ${u.kib} KiB` : t("empty");
+    if (u.zones && !d.files.length) d.drumGrid = !!u.drum;   /* slot on device: draft follows until files are staged */
+    const status = u.zones
+      ? `${u.name || "—"}, ${u.zones} ${t("zones")}, ${u.kib} KiB` + (u.drum ? `, ${t("smpDrumOn")}` : "")
+      : t("empty");
     const bar = el("progress", { max: dev.smp.slotKiB, value: u.kib, title: `${u.kib} / ${dev.smp.slotKiB} KiB` });
     const file = el("input", { type: "file", accept: ".wav,audio/wav,audio/x-wav,audio/*", multiple: true, hidden: true });
     file.addEventListener("change", () => { addFiles(k, [...file.files]); file.value = ""; });
@@ -4000,6 +4014,10 @@ function renderSamples() {
       if (v !== name.value) name.value = v;
       d.name = v;
     });
+    const drum = el("input", { type: "checkbox" });
+    drum.checked = !!d.drumGrid;
+    drum.disabled = smpBusy || recActive();
+    drum.addEventListener("change", () => { d.drumGrid = drum.checked; });
     const bytes = draftBytes(d), tooBig = bytes > max;
     const size = el("span", { class: tooBig ? "bad" : "dim",
       text: d.files.length ? `${kib(bytes)} / ${kib(max)} KiB` + (tooBig ? " " + t("smpTooBig") : "") : "" });
@@ -4008,6 +4026,7 @@ function renderSamples() {
       el("div", { class: "head" }, el("b", { text: `USR${k + 1}` }), el("span", { text: status }), bar,
         el("button", { ic: "symbol_trash", disabled: smpBusy || !u.zones, onclick: () => smpErase(k) }, t("erase"))),
       el("div", { class: "head" }, el("span", { text: t("smpName") }), name,
+        el("label", {}, drum, " ", el("span", { text: t("smpDrumGrid") })),
         el("button", { ic: "symbol_folder_open", disabled: smpBusy || recActive(), onclick: () => file.click() }, t("chooseFiles")), file,
         el("button", { ic: "symbol_upload", disabled: smpBusy || recActive() || !d.files.length || tooBig || !d.name, onclick: () => smpUpload(k, prog) }, t("upload")),
         d.files.length ? el("button", { text: t("clearList"), disabled: smpBusy || recActive(), onclick: () => { d.files = []; renderSamples(); } }) : "",
@@ -4057,7 +4076,7 @@ async function smpInfo(d = dev) { d.smp = parse[CMD.SMP_INFO](await sessionReque
 async function smpUpload(k, prog) {
   const d = smpDraft[k];
   let built;
-  try { built = buildSlot(d.name, d.files.map((f) => ({ s: f.s, root: f.root }))); }
+  try { built = buildSlot(d.name, d.files.map((f) => ({ s: f.s, root: f.root })), { drumGrid: !!d.drumGrid }); }
   catch (e) { sayK("smpFail", e.message); return; }
   if (!confirm(t("confirmUpload").replace("{n}", k + 1))) return;
   const { hdr, data } = built;

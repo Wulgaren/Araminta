@@ -636,7 +636,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             const smp_user_hdr_t *h = (const smp_user_hdr_t *)smp_user_xip(i);
             char nm[9] = {0};
             uint32_t j;
-            ed_b(usr_nz[i]);
+            ed_b(usr_nz[i] | (usr_drum[i] ? 0x40u : 0u));   /* bit 6: drum kit grid (FSMP rsv; 7-bit SysEx) */
             for (j = 0; usr_nz[i] && j < 8u; j++)
                 nm[j] = h->name[j] >= 32 && h->name[j] < 127 ? h->name[j] : 0;
             ed_str(nm, 8);
