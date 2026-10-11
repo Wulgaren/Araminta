@@ -1090,8 +1090,8 @@ static uint32_t graph_signature(void)
     }
     if (pg->graph == GR_MOD)
         h ^= (mod_ui_slot + 1u) * 40503u;
-    if (ui.pick || pg->graph == GR_DESTS)
-        h ^= pk_sig() + (pg->graph == GR_DESTS ? (ui.hot_t ? ui.hot_col + 1u : 0u) * 5779u : 0u);
+    if (ui.pick)
+        h ^= pk_sig();
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
     if (pg->graph == GR_IORD)                        /* REORDER: highlighted slot */
@@ -1320,7 +1320,7 @@ static int32_t ev_value(int32_t y, const char *v, const char *unit, uint16_t fg,
     }
     return cv_text_r(x, y + LIST_TY, &AF_M, v, fg, bg);
 }
-/* #223: flat full-screen pick list (AUTOMATION PARAM, MOD DST, or the rebuilt pk_rows for GR_DESTS) */
+/* #223: flat full-screen pick list (AUTOMATION PARAM, MOD DST) */
 static void graph_pick(void)
 {
     int32_t row, first = clamp((int32_t)pk_cur - 3, 0, (int32_t)pk_n > 7 ? (int32_t)pk_n - 7 : 0);
@@ -1329,14 +1329,6 @@ static void graph_pick(void)
         const pk_row_t *r = &pk_rows[k];
         list_row(LIST_Y(row), k == pk_cur, r->tag, T_MID, r->name, T_TEXT, 232);
     }
-}
-/* ENV DEST / LFO DEST: the page's destinations as a flat tag+name list (#223) */
-static void graph_dests(void)
-{
-    uint32_t sel = 0;
-    pk_build_page(cur_page(), &sel);
-    pk_cur = (uint8_t)sel;
-    graph_pick();
 }
 
 /* SEQ > AUTOMATION (ui_events.c): the track's rows around the one selected: PLAY first (ON / OFF and the counts),
@@ -2191,10 +2183,6 @@ static void draw_graph(void)
                 graph_pick();
             else
                 graph_mod(t, c);
-            break;
-        case GR_DESTS:
-            cv_oy = 0;
-            graph_dests();
             break;
         case GR_BROWSE:
             cv_oy = 0;
