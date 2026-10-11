@@ -354,7 +354,7 @@ static int pfx_note(track_t *t, uint32_t note, uint32_t vel);   /* pfx.c (in fx.
 static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
 {
     uint32_t any = 0, i, mode = trk_vmode(t);
-    if (t->p[P_MUTE])
+    if (t->p[P_MUTE] || (t->engine == ENGI_DRUM && drum_muted_of(t, note)))
         return;
     if (pfx_note(t, note, vel))                         /* punch-in effects (pfx.c): a repeat holds the track */
         return;

@@ -243,26 +243,23 @@ static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
 
 /* a retired F_ENUM value kept as an alias, so stored values stay valid: SAMPLE SET and GRAIN SRC 1, once
  * TRANH, and 4, once PERC (a SAMPLE sound of it loads as DRUM: core.h drum_from_perc), play PIANO
- * (tools/gen_samples.py SMP_SET_ORIG); DRUM KIT 1..3, once HAND CYM H+CYM, play 66 10 77 (eng_drum.c DK_PLAYS).
- * It shows the original's name; knobs step over it and the editor's SET lands on the original. -> the value v
- * stands for */
+ * (tools/gen_samples.py SMP_SET_ORIG). DRUM-X retired Felucca's KIT enum (P_E0 is MRPH 0..127; old KIT values
+ * clamp). It shows the original's name; knobs step over it and the editor's SET lands on the original. */
 static int32_t enum_orig(const param_desc_t *d, int32_t v)
 {
-    if (d->names == N_DRUM_KIT)
-        return v >= 0 && v < DK_COUNT ? (int32_t)DK_PLAYS[v] : v;
+    (void)d;
     return v;
 }
 
-/* a stored value as the parameter takes it (projects, user presets, motion): inside d's range, and a retired
- * DRUM KIT (1..3) as the kit it plays, so KIT never holds one again. (SAMPLE / GRAIN's aliases keep their
- * number: they are what the sound was saved with, and play the original anyway.) FM6's SLOT is never stored as a
- * bank slot: 9..40 (1.4.1's B1..B32; 1.0.2's B1..B27 were 8..34) is 8, OWN, and the patch comes with what is loaded */
+/* a stored value as the parameter takes it (projects, user presets, motion): inside d's range.
+ * FM6's SLOT is never stored as a bank slot: 9..40 (1.4.1's B1..B32; 1.0.2's B1..B27 were 8..34) is 8, OWN,
+ * and the patch comes with what is loaded */
 static int32_t param_fit(const param_desc_t *d, int32_t v)
 {
     v = clamp(v, d->min, d->max);
     if (d->names == N_FM6_PATCH)
         return v > (int32_t)FM6_OWN ? (int32_t)FM6_OWN : v;
-    return d->names == N_DRUM_KIT ? enum_orig(d, v) : v;
+    return v;
 }
 
 /* v is a value a knob passes over: an alias, or one of FM6's bank slots without a voice */
@@ -431,11 +428,11 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHORD, GR_SLICES, GR_EVENTS,
-       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_REC, GR_DMUTE };
+       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_REC, GR_DMUTE, GR_DXSND };
 /* page.sec: button cycles sections; SELECT walks pages that share fam+sec (ui.c open_family / select_page_step) */
 enum { FX_SEC_INS = 0, FX_SEC_SEND = 1, FX_SEC_PUNCH = 2, FX_NSEC = 3,
        SEQ_SEC_PAT = 0, SEQ_SEC_STEP = 1, SEQ_SEC_AUTO = 2, SEQ_NSEC = 3,
-       EDIT_SEC_SND = 0, EDIT_SEC_VOX = 1, EDIT_NSEC = 2,
+       EDIT_SEC_SND = 0, EDIT_SEC_KIT = 1, EDIT_SEC_LAN = 2, EDIT_SEC_VOX = 3, EDIT_NSEC = 4,
        GLO_SEC_SONG = 0, GLO_SEC_CLK = 1, GLO_SEC_REC = 2, GLO_NSEC = 3,
        SAVE_SEC_PRE = 0, SAVE_SEC_PROJ = 1, SAVE_NSEC = 2,
        TRK_SEC_MIX = 0 };
@@ -475,8 +472,13 @@ static const page_t PAGES[] = {
     /* ANALOG: page 2 FILTER (TYPE CUT RES KTR), page 3 FILTER DRIVE (DRV); EDIT 2 hidden (ui.c) */
     {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_FTYPE, P_E4, P_E5, P_E7}},
     {"FILTER DRIVE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_E6, 0xFF, 0xFF, 0xFF}},
-    {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_LN0, P_LN1, P_LN2, P_LN3}},
-    {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_LN4, P_LN5, P_LN6, P_LN7}},
+    /* DRUM-X kit (ui_dx.c): SOUND / SOUND 2 / SOUND 3 / X-MOD */
+    {"SOUND", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"SOUND 2", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"SOUND 3", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"X-MOD", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN0, P_LN1, P_LN2, P_LN3}},
+    {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN4, P_LN5, P_LN6, P_LN7}},
     {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"OP ENV", FAM_EDIT, SC_TRACK, GR_FMENV, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"OPERATOR 2", FAM_EDIT, SC_TRACK, GR_FMOP2, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},

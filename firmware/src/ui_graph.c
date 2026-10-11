@@ -1172,6 +1172,8 @@ static uint32_t graph_signature(void)
             h ^= (uint32_t)graph_project_used(i) << (20u + i);
         h += graph_pname_sig;
     }
+    if (pg->graph == GR_DXSND)                       /* DRUM-X SOUND / X-MOD cards */
+        h ^= dx_sig();
     if (pg->graph == GR_EVENTS)                      /* AUTOMATION: the rows, the one selected, + ADD's place, PLAY,
                                                       * QUANTIZE */
         h = (h ^ ev_sig()) * 16777619u;
@@ -2187,6 +2189,25 @@ static void graph_song(void)
                      i < 4u ? "[K3] ADD SECTION" : "[SAVE] PROJECT A-D", T_MID, T_SURF, x0 - 10 - SG_X0);
     }
 }
+/* DRUM-X: two rows of four lane cells; MORPH bar A..B (X-MOD live via dx_mot_v) */
+static void graph_colony(const track_t *t, int32_t sel)
+{
+    static const char *const AB[8] = {"BD", "SD", "CP", "CH", "OH", "TM", "RS", "CB"};
+    int32_t morph = clamp(t->p[P_E0] + dx_mot_v, 0, 127), mx = 30 + morph * 180 / 127;
+    uint32_t l;
+    cv_rect(30, 12, 180, 1, T_LINE);
+    cv_rect(30, 11, mx - 30, 3, ACC);
+    cv_text(12, 8, &AF_S, "A", morph < 64 ? T_THEME : T_DIM);
+    cv_text_r(226, 8, &AF_S, "B", morph >= 64 ? T_THEME : T_DIM, T_SURF);
+    for (l = 0; l < 8u; l++) {
+        int32_t x = 33 + (int32_t)(l % 4u) * 58, y = 38 + (int32_t)(l / 4u) * 46;
+        int muted = dx_lane_muted(t, l);
+        uint16_t fill = muted ? T_DIM : (sel == (int32_t)l ? T_THEME : T_RAISE);
+        cv_rrect(x - 14, y - 10, 28, 22, 3, fill, T_SURF);
+        cv_text_in(x - 14, y - 2, 28, &AF_S, AB[l], sel == (int32_t)l ? T_INK : muted ? T_SURF : T_MID, fill);
+    }
+}
+
 static void draw_graph(void)
 {
     const page_t *pg = cur_page();
@@ -2300,6 +2321,10 @@ static void draw_graph(void)
             cv_oy = 0;
             panel_note("TURN TO PICK", "[OCT+] CONFIRM", 0);
             break;
+        case GR_DXSND:
+            cv_oy = 0;
+            graph_colony(t, (int32_t)(dx_ui_lane & 7u));
+            break;
         case GR_FMOP:
         case GR_FMOP2:
             if (fop_ok()) graph_fm6(t, c, fop_op % 6u);   /* the chart, the operator picked */
@@ -2311,6 +2336,10 @@ static void draw_graph(void)
             if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL) graph_wheel(t, c);
             else if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE && sample_wave.ready) graph_sample(c);
             else if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_FM6) graph_fm6(t, c, 6u);   /* EDIT 1 and 2 */
+            else if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_DRUM) {
+                cv_oy = 0;
+                graph_colony(t, -1);
+            }
 #if FELUCCA_FM4
             else if ((pg->scope == SC_ENGINE || pg->id[0] == P_FM1_LEVEL) && t->eng_req % NENGINES == ENGI_DIGITAL)
                 graph_fm(t, c);                      /* (OP LEVEL too: the levels on the chart) */

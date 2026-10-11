@@ -1033,6 +1033,9 @@ static int project_restore_runtime(const project_t *input)
     if (!proj_ok(input) || !proj_engines_ok(input)) return 1;
     mom_back(0);                                  /* (ui_input.c MOMENTARY: the values as they were, then the load) */
     memset(drum_mute, 0, sizeof drum_mute);       /* (1.4.1: the DRUM lanes' mutes, performance state) */
+    memcpy(dx_kit, DX_KIT_DEF, sizeof dx_kit);    /* DRUM-X kit: RAM until FUN11 persist (ST_PAYLOAD_MAX) */
+    memset(dx_mot, 0, sizeof dx_mot);
+    dx_mute_set(0);
     if (p != input) memcpy(p, input, sizeof *p);
     proj_drums_to_part(p);                              /* a RAM slot of firmware before 1.0 */
     proj_phys(p);                                       /* .. before PHYS lost DUST and DRUM */

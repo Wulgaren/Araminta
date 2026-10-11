@@ -3505,11 +3505,20 @@ static int test_edit_cycle(void)
     ui_power_on();
     set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;
     press(B_EDIT); frame();
-    ok = cur_page()->fam == FAM_EDIT && cur_page()->sec == EDIT_SEC_SND;
-    for (i = 0; i < 8u && !str_eq(cur_page()->title, "LANES"); i++)
-        turn(EN_SELECT, 1);
-    ok &= str_eq(cur_page()->title, "LANES") || str_eq(cur_page()->title, "EDIT 1");
-    bad += check("EDIT Sound section reaches LANES on DRUM via SELECT (or stays on EDIT pages)", ok);
+    ok = cur_page()->fam == FAM_EDIT && cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "EDIT 1");
+    press(B_EDIT); frame();                           /* Sound → Kit */
+    ok &= cur_page()->sec == EDIT_SEC_KIT && str_eq(cur_page()->title, "SOUND");
+    turn(EN_SELECT, 1); frame();
+    ok &= str_eq(cur_page()->title, "SOUND 2");
+    turn(EN_SELECT, 1); frame();
+    ok &= str_eq(cur_page()->title, "SOUND 3");
+    turn(EN_SELECT, 1); frame();
+    ok &= str_eq(cur_page()->title, "X-MOD");
+    press(B_EDIT); frame();                           /* Kit → Lanes */
+    ok &= cur_page()->sec == EDIT_SEC_LAN && str_eq(cur_page()->title, "LANES");
+    press(B_EDIT); frame();                           /* Lanes → Sound (Voice hidden on DRUM) */
+    ok &= cur_page()->sec == EDIT_SEC_SND;
+    bad += check("EDIT on DRUM: Sound → Kit (SOUND..X-MOD) → Lanes; Voice skipped", ok);
     return bad;
 }
 

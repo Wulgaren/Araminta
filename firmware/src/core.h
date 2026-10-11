@@ -197,14 +197,15 @@ static void ins_migrate(int16_t *p, uint32_t np)
 #define ENGI_PHYS 9u
 #define ENGI_DRUM 10u
 /* PHYS MODEL DRUM (MODEL 4, before 1.0) -> the DRUM engine, its E values in place: {MODEL, TUNE, TONE, DECY,
- * SNAP, ACC, KICK 0..127, PERC 0..127} -> {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK 0..1, DRV 0}. 1 = it was one
+ * SNAP, ACC, KICK 0..127, PERC 0..127} -> {MRPH, TUNE, TONE, DECY, NOIS, FM, FOLD, DRV} with the old PERC/KICK
+ * packed into the first slots so stored projects stay finite (DRUM-X plays them as MRPH / FOLD). 1 = it was one
  * (its engine is ENGI_DRUM now); projects (project.c) and user presets (upreset.c) */
 static int drum_from_phys(uint32_t engine, int16_t *e)
 {
     if (engine != ENGI_PHYS || e[0] != 4)
         return 0;
-    e[0] = (int16_t)((e[7] < 0 ? 0 : e[7] > 127 ? 127 : e[7]) >> 5);   /* PERC -> KIT: STD HAND CYM H+CYM */
-    e[6] = (int16_t)(e[6] >= 64);                                       /* KICK: PUNCH, ROUND */
+    e[0] = (int16_t)((e[7] < 0 ? 0 : e[7] > 127 ? 127 : e[7]) >> 5);   /* PERC -> MRPH (was KIT index) */
+    e[6] = (int16_t)(e[6] >= 64);                                       /* KICK -> FOLD on/off (was PUNCH/ROUND) */
     e[7] = 0;
     return 1;
 }
@@ -214,7 +215,7 @@ static int drum_from_phys(uint32_t engine, int16_t *e)
  * its default kit (same GM map). projects (proj_perc), user presets (up_migrate), favourites
  * (settings_persist.c). Idempotent. */
 #define SMP_SET_PERC 4u
-#define DRUM_KIT_E {0, 64, 70, 64, 64, 100, 0, 0}   /* {KIT STD, TUNE, TONE, DECY, SNAP, ACC, KICK PUNCH, DRV} */
+#define DRUM_KIT_E {64, 64, 70, 64, 64, 0, 0, 0}   /* {MRPH, TUNE, TONE, DECY, NOIS, FM, FOLD, DRV} (DRUM-X) */
 static int drum_from_perc(uint32_t engine, int16_t *e)
 {
     static const int16_t KIT[8] = DRUM_KIT_E;

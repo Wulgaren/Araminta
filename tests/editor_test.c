@@ -1043,11 +1043,9 @@ static int menu_protocol(void)
     return bad;
 }
 
-/* DRUM KIT 1..3 (HAND CYM H+CYM until 1.0.4, retired): DESC names them as the kit they play (66 10 77), a SET of
- * one lands on that kit (the reply says so), a user preset sent with one loads as that kit */
+/* DRUM-X: P_E0 is MRPH 0..127 (Felucca KIT enum retired). DESC is F_PCT; SET clamps; old KIT bytes load as MRPH. */
 static int drum_kit_retired(void)
 {
-    static const uint8_t MAP[4] = {0, 6, 5, 8};
     static uint8_t a[16 + 2u * P_COUNT + 32u];
     int16_t got[P_COUNT];
     uint32_t r, i, k = 0, ok = 1;
@@ -1057,22 +1055,23 @@ static int drum_kit_retired(void)
     request(ED_SET, a, 4);
     a[0] = 0; a[1] = P_E0;
     request(ED_DESC, a, 2);
-    {   /* scope, id, fmt, min, max, def (v14 each), "KIT", "", then the 10 names */
-        const char *n = (const char *)host_wire + 5 + 3 + 6;
-        static const char *const WANT[10] = {"STD", "66", "10", "77", "80", "10", "66", "55", "77", "78"};
-        n += strlen(n) + 1; n += strlen(n) + 1;
-        for (i = 0; i < 10u; i++, n += strlen(n) + 1)
-            ok &= !strcmp(n, WANT[i]);
+    {   /* scope, id, fmt, min, max, def (v14 each), "MRPH", unit */
+        const uint8_t *b = host_wire + 5;
+        ok &= b[0] == 0 && b[1] == P_E0 && b[2] == F_PCT;
+        ok &= ((int32_t)(b[3] | b[4] << 7) - 8192) == 0;
+        ok &= ((int32_t)(b[5] | b[6] << 7) - 8192) == 127;
+        ok &= ((int32_t)(b[7] | b[8] << 7) - 8192) == 64;
+        ok &= !strcmp((const char *)(b + 9), "MRPH");
     }
-    bad += check("DESC of DRUM KIT: STD 66 10 77 80 10 66 55 77 78 (1..3 as the kits they play)", ok);
-    for (r = 1, ok = ed_eng(TSEL) == ENGI_DRUM; r < 4u; r++) {
+    bad += check("DESC of DRUM-X MRPH: F_PCT 0..127 def 64", ok);
+    for (r = 0, ok = ed_eng(TSEL) == ENGI_DRUM; r <= 127u; r += 32u) {
         uint32_t u = r + 8192u;
         a[0] = 0; a[1] = P_E0; a[2] = u & 127u; a[3] = u >> 7;
         request(ED_SET, a, 4);
-        ok &= TSEL->p[P_E0] == MAP[r] && (int32_t)(host_wire[7] | host_wire[8] << 7) - 8192 == MAP[r];
+        ok &= TSEL->p[P_E0] == (int16_t)r && (int32_t)(host_wire[7] | host_wire[8] << 7) - 8192 == (int32_t)r;
     }
-    bad += check("SET of DRUM KIT 1..3 lands on 66 10 77 (and replies it)", ok);
-    a[k++] = 5; a[k++] = ENGI_DRUM;                        /* slot U06, DRUM, KIT 3 (H+CYM) */
+    bad += check("SET of DRUM-X MRPH lands on 0..127 (and replies it)", ok);
+    a[k++] = 5; a[k++] = ENGI_DRUM;                        /* slot U06, DRUM, MRPH 3 (old KIT byte) */
     memcpy(a + k, "OLDKIT", 6); k += 6; a[k++] = 0;
     for (i = 0; i < P_COUNT; i++) {
         uint32_t u = (uint32_t)((i == P_E0 ? 3 : param_desc_of(ENGI_DRUM, i)->def) + 8192);
@@ -1081,8 +1080,8 @@ static int drum_kit_retired(void)
     for (i = 0; i < 16u; i++) { a[k++] = 0; a[k++] = 0; }
     request(ED_UP_PUT, a, k);
     up_values(up_rec(5), got);
-    bad += check("a user preset of DRUM KIT 3 (H+CYM) loads as 77", up_used(5) && got[P_E0] == 8);
-    {   /* a project whose DRUM tracks hold KIT 0..3: loaded (and bounded, as from flash) as STD 66 10 77 */
+    bad += check("a user preset with old KIT byte 3 loads as MRPH 3", up_used(5) && got[P_E0] == 3);
+    {   /* a project whose DRUM tracks hold 0..3: load/bound keep them as MRPH */
         static project_t p;
         for (r = 0; r < NTRK; r++) {
             set_engine_of(&trk[r], ENGI_DRUM); apply_preset_to(&trk[r], 0);
@@ -1092,11 +1091,11 @@ static int drum_kit_retired(void)
         for (r = 0; r < NTRK; r++) p.t[r].p[P_E0] = (int16_t)r;
         p.sum = proj_sum(&p);
         ok = !project_restore_runtime(&p);
-        for (r = 0; r < NTRK; r++) ok &= trk[r].p[P_E0] == MAP[r];
+        for (r = 0; r < NTRK; r++) ok &= trk[r].p[P_E0] == (int16_t)r;
         for (r = 0; r < NTRK; r++) p.t[r].p[P_E0] = (int16_t)r;
         proj_bound(&p);
-        for (r = 0; r < NTRK; r++) ok &= p.t[r].p[P_E0] == MAP[r];
-        bad += check("a project of DRUM KIT 1..3 loads as 66 10 77 (STD stays)", ok);
+        for (r = 0; r < NTRK; r++) ok &= p.t[r].p[P_E0] == (int16_t)r;
+        bad += check("a project of DRUM MRPH 0..3 loads as those values", ok);
     }
     return bad;
 }

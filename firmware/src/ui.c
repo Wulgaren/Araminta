@@ -385,17 +385,22 @@ static int layer_locked(void);
 static uint32_t layer_leds(uint32_t *br);
 static uint32_t layer_btn(void);
 
-/* FM operator pages belong to DIGITAL; they never appear on other instruments (without FELUCCA_FM4: never). SLICES:
- * a SLICE track's (ui_slice.c); LANES / LANES 2 a DRUM track's (its lane levels); FILTER / FILTER DRIVE an ANALOG
- * track's (EDIT 2 is the other engines' second sound page; ANALOG uses FILTER + FILTER DRIVE instead); OPERATOR,
- * OP ENV, OPERATOR 2 an FM6 track's (its patch's operators, ui_fm6op.c) */
+/* FM operator pages belong to DIGITAL; they never appear on other instruments (without FELUCCA_FM4: never).
+ * LANES / LANES 2 and SOUND* / X-MOD (GR_DXSND) a DRUM track's; FILTER / FILTER DRIVE an ANALOG track's
+ * (EDIT 2 is the other engines' second sound page; ANALOG uses FILTER + FILTER DRIVE instead); OPERATOR,
+ * OP ENV, OPERATOR 2 an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM (PAN/MUTE on MIXER). */
 static int page_visible(uint32_t i)
 {
     int analog = ENGINES[TSEL->eng_req % NENGINES] == &ENG_ANALOG;
+    int drum = TSEL->eng_req % NENGINES == ENGI_DRUM;
     if (PAGES[i].graph == GR_DMUTE)                   /* HOME Mixer: drum lane mutes, DRUM track only */
-        return TSEL->eng_req % NENGINES == ENGI_DRUM;
+        return drum;
+    if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / X-MOD */
+        return drum;
+    if (PAGES[i].sec == EDIT_SEC_VOX && drum)         /* Voice hidden on DRUM */
+        return 0;
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
-        return TSEL->eng_req % NENGINES == ENGI_DRUM;
+        return drum;
     if (PAGES[i].scope == SC_ENGINE && PAGES[i].id[0] == P_E4)   /* EDIT 2: not ANALOG (FILTER is page 2) */
         return !analog;
     if (PAGES[i].id[0] == P_FTYPE)                    /* FILTER (1.5, #104): ANALOG's */
@@ -701,6 +706,15 @@ static void note_name(char *b, uint32_t n)
 
 /* page button: cycle sections (wrap). One-section families: enter/resume only. SELECT walks pages inside the section.
  * Resume last page in the family when entering from elsewhere (SAVE always PRESETS). */
+static int page_sec_any(uint32_t fam, uint32_t sec)
+{
+    uint32_t i;
+    for (i = 0; i < NPAGES; i++)
+        if (PAGES[i].fam == fam && PAGES[i].sec == sec && page_visible(i))
+            return 1;
+    return 0;
+}
+
 static void open_family(uint32_t fam)
 {
     uint32_t nsec = fam_nsec(fam), sec, i;
@@ -708,7 +722,13 @@ static void open_family(uint32_t fam)
         if (nsec <= 1u)
             return;                                   /* single section: press does not invent pages */
         sec = (cur_page()->sec + 1u) % nsec;
-        ui.page = (uint8_t)page_first_sec(fam, sec);
+        for (i = 0; i < nsec; i++) {                  /* skip sections with no visible pages (Kit/Lanes on synth) */
+            if (page_sec_any(fam, sec)) {
+                ui.page = (uint8_t)page_first_sec(fam, sec);
+                break;
+            }
+            sec = (sec + 1u) % nsec;
+        }
     } else if (fam == FAM_SAVE) {
         for (i = 0; i < NPAGES; i++)
             if (PAGES[i].graph == GR_BROWSE) break;
@@ -1327,21 +1347,13 @@ static void set_engine(uint32_t ei) { set_engine_of(TSEL, ei); }
 
 /* MIDI Program Change (1.5.1, #179 by renebohne): program n on track t, as the PRESETS list numbers the engine's sounds
  * from 0: its n-th preset, the aliases skipped (preset_orig), loaded as from there (the track's own settings kept, one
- * undo for a run of them). DRUM: its n-th KIT, the retired variants skipped (enum_orig); FM6: its presets (F1..F8),
- * then the voice bank's B1..B32 through SLOT as the knob loads them (fm6_poll; the rest of the sound stays), an empty
- * one ignored. A program past the last is ignored, not wrapped: a number is always the same sound */
+ * undo for a run of them). DRUM-X: its factory presets (one: DRUM-X), like every other engine. FM6: its presets
+ * (F1..F8), then the voice bank's B1..B32 through SLOT as the knob loads them (fm6_poll; the rest of the sound stays),
+ * an empty one ignored. A program past the last is ignored, not wrapped: a number is always the same sound */
 static volatile uint8_t *const mpc_io = ui.mpc;
 static void midi_pc_load(track_t *t, uint32_t n)
 {
     uint32_t e = t->eng_req % NENGINES, k;
-    if (e == ENGI_DRUM) {
-        const param_desc_t *d = param_desc_of(e, P_E0);
-        for (k = (uint32_t)d->min; k <= (uint32_t)d->max && (enum_orig(d, (int32_t)k) != (int32_t)k || n--); k++)
-            ;
-        if (k <= (uint32_t)d->max)
-            t->p[P_E0] = (int16_t)k;
-        return;
-    }
     if (n >= preset_shown(e)) {
         int32_t s = (int32_t)(FM6_OWN + 1u + n - preset_shown(e));
         if (e == ENGI_FM6 && fm6_bank_slot(s) >= 0 && fm6_slot_ok(s))
@@ -1628,6 +1640,16 @@ static void track_select(uint32_t i)
 }
 
 #include "ui_events.c"                            /* SEQ > AUTOMATION: locks, events, CHANCE, RATCH as a list (an action page) */
+/* EDIT > SOUND / SOUND 2 / SOUND 3 / X-MOD (ui_dx.c, included by ui_input.c): the DRUM-X sound edited and its patch */
+static uint8_t dx_ui_lane, dx_ui_side;
+static uint32_t dx_pagen(const page_t *pg)            /* "SOUND 2"; "X-MOD": 4 */
+{
+    return pg->title[0] == 'X' ? 4u : pg->title[5] == ' ' ? (uint32_t)(pg->title[6] - '0') : 1u;
+}
+static uint32_t dx_page2(const page_t *pg) { return dx_pagen(pg) == 2u; }
+static void dx_knob(const page_t *pg, uint32_t k, int32_t s);
+static void dx_cards(const page_t *pg);
+static uint32_t dx_sig(void);
 #include "midi_learn.c"                           /* MIDI LEARN (1.5): GLO + D4, a knob, a CC */
 
 /* ---------------------------------------------------- action pages --- */

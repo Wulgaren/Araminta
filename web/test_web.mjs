@@ -319,14 +319,13 @@ async function editorSamplePresets() {
   ok(alias.preset === 0 && setAlias.value === 0 && setPerc.value === 0,
     "SAMPLE: preset 1 and SET 1 / 4 (once TRANH, PERC) land on PIANO");
   await rq(E.req.preset(10, 0));
+  const dumpDx = E.parse[C.DUMP](await rq(E.req.dump()), info);
   const kitD = E.parse[C.DESC](await rq(E.req.desc(0, info.pe0)));
   const kitSet = [];
-  for (const v of [1, 2, 3]) kitSet.push(E.parse[C.SET](await rq(E.req.set(0, info.pe0, v))).value);
-  ok(eq(kitD.names, ["STD", "66", "10", "77", "80", "10", "66", "55", "77", "78"]) &&
-     eq([0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((v) => E.aliasOf(kitD.names, v)), [0, 6, 5, 8, 4, 5, 6, 7, 8, 9]) &&
-     eq(E.enumShown(kitD).filter((v) => E.aliasOf(kitD.names, v) === v).map((v) => kitD.names[v]), ["STD", "80", "10", "66", "55", "77", "78"]) &&
-     eq(kitSet, [6, 5, 8]),
-    "DRUM: KIT 1..3 (once HAND CYM H+CYM) named 66 10 77, aliases of 6 5 8: hidden, a SET lands there");
+  for (const v of [0, 64, 127]) kitSet.push(E.parse[C.SET](await rq(E.req.set(0, info.pe0, v))).value);
+  ok(dumpDx.engine === 10 && kitD.label === "MRPH" && kitD.fmt === E.F.PCT && kitD.min === 0 && kitD.max === 127 &&
+     kitD.def === 64 && kitSet[0] === 0 && kitSet[1] === 64 && kitSet[2] === 127,
+    "DRUM-X: P_E0 is MRPH F_PCT 0..127 (Felucca KIT enum retired)");
   const removed = E.parse[C.PRESET](await rq(E.req.preset(4, 4)));
   const kit = E.parse[C.DUMP](await rq(E.req.dump()), info);
   ok(removed.engine === 10 && removed.preset === 0 && kit.engine === 10 && eq(kit.p.slice(info.pe0), E.DRUM_KIT_E),
@@ -371,9 +370,9 @@ function mockTables() {
     ok(ph.name === "PHYS" && ph.edit[0].names.join() === "MODAL,STRNG,MEMB,SYMP" && ph.edit[0].max === 3 &&
        ph.presets.length === 9 && !ph.presets.some((p) => p.name === "RAIN" || p.name === "DRUM KIT"),
        "editor: PHYS models MODAL STRNG MEMB SYMP (no DUST, no DRUM), 9 presets");
-    ok(dr.name === "DRUM" && dr.edit.map((d) => d.label).join() === "KIT,TUNE,TONE,DECY,SNAP,ACC,KICK,DRV" &&
-       dr.presets.length === 1 && dr.presets.every((p) => p.pat === 12),
-       "editor: DRUM engine 10 (KIT TUNE TONE DECY SNAP ACC KICK DRV), one kit suggesting BEAT");
+    ok(dr.name === "DRUM" && dr.edit.map((d) => d.label).join() === "MRPH,TUNE,TONE,DECY,NOIS,FM,FOLD,DRV" &&
+       dr.presets.length === 1 && dr.presets[0].name === "DRUM-X" && dr.presets.every((p) => p.pat === 12),
+       "editor: DRUM engine 10 (MRPH TUNE TONE DECY NOIS FM FOLD DRV), DRUM-X suggesting BEAT");
   }
   const dj = DESC;
   if (!existsSync(dj)) { console.log("editor: mock tables == firmware (no build/host/desc.json)        skip"); return; }

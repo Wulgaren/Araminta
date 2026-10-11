@@ -979,6 +979,10 @@ static void edit_param(uint32_t slot, int32_t steps)
     const page_t *pg = cur_page();
     const param_desc_t *d;
     int32_t v;
+    if (pg->graph == GR_DXSND) {                          /* EDIT > SOUND: the DRUM-X kit (ui_dx.c) */
+        dx_knob(pg, slot, steps);
+        return;
+    }
     if (pg->graph == GR_EVENTS) {                         /* AUTOMATION (ui_events.c) */
         ev_knob(slot, steps);
         return;
@@ -1277,7 +1281,21 @@ static int32_t dice_by(int32_t v, int32_t lo, int32_t hi, int32_t span)
 static void sound_dice(void)
 {
     track_t *t = TSEL;
-    uint32_t e = t->eng_req % NENGINES, i;
+    uint32_t e = t->eng_req % NENGINES, i, l;
+    if (e == ENGI_DRUM) {
+        for (l = 0; l < 8u; l++) {
+            const dx_lane_t *D = &DX_KIT_DEF[l];
+            dx_lane_t *L = &dx_kit[l];
+            for (i = 0; i < DXP_N; i++) {               /* (COLOR: brightness, down 40 but up 12 at most) */
+                int32_t up = i == DXP_COLOR ? 12 : 127;
+                L->a[i] = (uint8_t)dice_by(D->a[i], 0, D->a[i] + up < 127 ? D->a[i] + up : 127, 40);
+                L->b[i] = (uint8_t)dice_by(D->b[i], 0, D->b[i] + up < 127 ? D->b[i] + up : 127, 40);
+            }
+            L->mode = (uint8_t)((D->mode & ~3u) | (rng() % 5u ? (D->mode & 3u) : rng() % 2u));
+        }
+        ui_message("KIT DICED");
+        return;
+    }
     if (ENGINES[e]->npresets)
         apply_preset(rng() % ENGINES[e]->npresets);
     for (i = 0; i < 8u; i++) {
@@ -1631,8 +1649,15 @@ static void ui_input(void)
                 }
             } else if (kind == CF_CLEAR_SONG) {
                 if (!chain_busy()) { chain_defaults(&chain_config); ui.song_row = 0; ui_message("SONG CLEARED"); }
-            } else if (kind == CF_INIT_SOUND) {
-                if (!chain_busy()) { set_engine(TSEL->eng_req); ui_message("SOUND INIT"); }
+            } else if (kind == CF_INIT_SOUND) {         /* (DRUM: the factory DRUM-X kit too) */
+                if (!chain_busy()) {
+                    set_engine(TSEL->eng_req);
+                    if (drum_track(TSEL)) {
+                        memcpy(dx_kit, DX_KIT_DEF, sizeof dx_kit);
+                        memset(dx_mot, 0, sizeof dx_mot);
+                    }
+                    ui_message("SOUND INIT");
+                }
             } else {
                 track_t *t = &trk[ui.confirm_trk % NTRK];
                 load_begin(t, UNDO_PAT);
@@ -1798,7 +1823,7 @@ static void ui_input(void)
         }
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
             ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
-            || pg->graph == GR_SONG || fop_page(pg->graph)) {   /* (not an empty
+            || pg->graph == GR_SONG || pg->graph == GR_DXSND || fop_page(pg->graph)) {   /* (not an empty
                                                                                                           * column) */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;
@@ -1908,3 +1933,5 @@ timeout:
     ui.force = 1;
     ui_message("SETUP CANCELLED");
 }
+
+#include "ui_dx.c"                                   /* EDIT > SOUND / X-MOD: DRUM-X kit editor */
