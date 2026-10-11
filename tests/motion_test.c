@@ -35,6 +35,9 @@ static int motion_recording(void)
         motion_set_event(t, 0, P_SLEN, 8) == 1);
     bad += check("#222 SLICER pattern / rate / depth are automatable (not MODE)",
         motion_param(P_SLPAT) && motion_param(P_SLRATE) && motion_param(P_SLDEPTH) && !motion_param(P_SLCR));
+    bad += check("CHRD / VOIC are automatable",
+        motion_param(P_CHRD) && motion_param(P_VOIC) && motion_set_event(t, 1, P_CHRD, CH_DIA3) == 0 &&
+        motion_set_event(t, 1, P_VOIC, VC_OPEN) == 0);
     seq_stop(); motion_clear(t);
     t->p[P_REV] = 42; song.rec = 1; seq_start(); seq_tick(t, CTL);
     motion_clear(t); t->p[P_REV] = 70; motion_capture(t, P_REV, 70); seq_stop();

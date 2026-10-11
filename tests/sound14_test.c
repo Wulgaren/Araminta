@@ -152,16 +152,19 @@ static void test_matrix(void)
         ok &= str_eq(N_MSRC[i], SRC_V12[i]);
     for (i = 0; i < NELEM(DST_V12); i++)
         ok &= str_eq(N_MDST[i], DST_V12[i]);
-    check("SRC / DST lists only grew: every stored value keeps its name (S&H SLEW, DEPTH, SLICER appended)",
+    check("SRC / DST lists only grew: every stored value keeps its name (S&H SLEW, DEPTH, SLICER, CHORD appended)",
           ok && MS_SH == 9 && MS_SLEW == 10 && MS_N == 11 && MD_DEPTH == 20 &&
-          MD_SLPAT == 21 && MD_SLRATE == 22 && MD_SLDEPTH == 23 && MD_N == 24 &&
+          MD_SLPAT == 21 && MD_SLRATE == 22 && MD_SLDEPTH == 23 &&
+          MD_CHRD == 24 && MD_VOIC == 25 && MD_N == 26 &&
           str_eq(N_MSRC[MS_SH], "S&H") && str_eq(N_MSRC[MS_SLEW], "SLEW") && str_eq(N_MDST[MD_DEPTH], "DEPTH") &&
           str_eq(N_MDST[MD_SLPAT], "PAT") && str_eq(N_MDST[MD_SLRATE], "SRATE") && str_eq(N_MDST[MD_SLDEPTH], "SDEP") &&
+          str_eq(N_MDST[MD_CHRD], "CHRD") && str_eq(N_MDST[MD_VOIC], "VOIC") &&
           TP[P_M1SRC].max == MS_N - 1 && TP[P_M1DST].max == MD_N - 1);
-    check("DST names: DEPTH / SLICER are not engine parameters (E1..E8 only)",
+    check("DST names: DEPTH / SLICER / CHORD are not engine parameters (E1..E8 only)",
           str_eq(mod_dst_name(t, MD_DEPTH), "DEPTH") && !MD_ENGINE(MD_DEPTH) && !MD_ENGINE(MD_SLDEPTH) &&
+          !MD_ENGINE(MD_CHRD) && !MD_ENGINE(MD_VOIC) &&
           MD_ENGINE(MD_E1 + 7) && mod_param(MD_SLPAT) == P_SLPAT && mod_param(MD_SLRATE) == P_SLRATE &&
-          mod_param(MD_SLDEPTH) == P_SLDEPTH);
+          mod_param(MD_SLDEPTH) == P_SLDEPTH && mod_param(MD_CHRD) == P_CHRD && mod_param(MD_VOIC) == P_VOIC);
 
     /* S&H and SLEW over a few LFO cycles: one value per cycle, the steps at the wraps; SLEW continuous */
     fresh(0, 0);

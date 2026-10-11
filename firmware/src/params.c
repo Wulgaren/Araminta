@@ -68,10 +68,11 @@ static const char *const N_ISTAGE[] = {"DIST", "FILTER", "CRUSH", "PHASR", "FLAN
 /* modulation matrix (mod.c): sources, destinations (E1..E8 = P_E0..P_E7: shown with the engine's labels).
  * Append-only (stored values keep their meaning): S&H SLEW and DEPTH (#132) came after EXPR and E8 */
 static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR", "S&H", "SLEW"};
-/* destinations (append-only): DEPTH = LFO depth (#132); SLPAT / SLRATE / SLDEP = the SLICER (#222) */
+/* destinations (append-only): DEPTH = LFO depth (#132); SLPAT / SLRATE / SLDEP = the SLICER (#222);
+ * CHRD / VOIC = chord keys */
 static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY", "REV", "RATE",
                                      "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH",
-                                     "PAT", "SRATE", "SDEP"};
+                                     "PAT", "SRATE", "SDEP", "CHRD", "VOIC"};
 static const char *const N_ENGNAME[] = {"ANALOG", FELUCCA_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", "-", "VOICE", "TRIO", "WHEEL", "-", "PHYS",
                                              "DRUM", "-", "FM6", "-",
 };

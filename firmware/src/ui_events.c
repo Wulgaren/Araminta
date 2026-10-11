@@ -582,6 +582,10 @@ static void pk_auto_name(const track_t *t, uint32_t id, char *b)
         str_cpy(b + str_len(b), "RATE", 16 - str_len(b));
     else if (id == P_SLDEPTH)
         str_cpy(b + str_len(b), "DEPTH", 16 - str_len(b));
+    else if (id == P_CHRD)
+        str_cpy(b + str_len(b), "CHORD", 16 - str_len(b));
+    else if (id == P_VOIC)
+        str_cpy(b + str_len(b), "VOICING", 16 - str_len(b));
     else
         str_cpy(b + str_len(b), track_desc(t, id)->label, 16 - str_len(b));
 }
@@ -605,6 +609,8 @@ static const char *pk_auto_group(uint32_t id)
         return "MIX";
     if (id >= P_SLPAT && id <= P_SLDEPTH)
         return "SLICER";
+    if (id == P_CHRD || id == P_VOIC)
+        return "CHORD";
     if (id >= P_LN0 && id <= P_LN7)
         return "DRUM";
     if (id >= P_E0)
@@ -652,7 +658,7 @@ static void pk_mdst_name(const track_t *t, uint32_t d, char *b)
     static const char *const LONG[] = {
         "OFF", "PITCH", "CUTOFF", "SHAPE", "AMP", "PAN", "DISTORT", "CHORUS", "DELAY", "REVERB", "LFO RATE",
         "VIBRATO", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "LFO DEPTH", "SLICER PATTERN", "SLICER RATE",
-        "SLICER DEPTH"};
+        "SLICER DEPTH", "CHORD", "VOICING"};
     d = (uint32_t)clamp((int32_t)d, 0, MD_N - 1);
     if (MD_ENGINE(d)) {
         const char *l = track_desc(t, P_E0 + d - MD_E1)->label;
@@ -675,6 +681,8 @@ static const char *pk_mdst_group(uint32_t d)
         return "LFO";
     if (MD_SLICER(d))
         return "SLICER";
+    if (MD_CHORD(d))
+        return "CHORD";
     if (MD_ENGINE(d))
         return "EDIT";
     return "OTHER";
