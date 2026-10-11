@@ -1135,7 +1135,7 @@ static void setup(int s)
     case S_CHORD_KIT: eng(ENGI_DRUM); TSEL->p[P_CHRD] = CH_DIA3; go_title("CHORD"); break;
     case S_ARP: go_title("ARP"); break;
     case S_VOICE: go_title("VOICE"); break;
-    case S_CLOCK: go_title("CLOCK"); break;          /* (1.2: HOME > MIXER > CLOCK; up to 1.1.5 GLO > GLOBAL) */
+    case S_CLOCK: go_title("CLOCK"); break;          /* GLO > CLOCK */
     /* 1.2: the old SYSTEM page's items in the MENU: MIDI > MIDI IN (ROUT) on CH5-8; AUDIO > TUNE (-12 ct) selected;
      * SYSTEM > INFO (the USB state, the CPU load) */
     case S_MENU_MIDI: ui.menu = 1; ui.menu_sel = MI_MIDIIN; song.g[G_ROUTE] = 2; break;
@@ -1737,7 +1737,7 @@ static void sweep_columns(void)
     }
 }
 
-/* the rolling digits (ui_draw.c roll_*): a page over HOME > CLOCK (ui_test.c ROLL_PG: K1 BPM, K4 TUNE;
+/* the rolling digits (ui_draw.c roll_*): a page over GLO > CLOCK (ui_test.c ROLL_PG: K1 BPM, K4 TUNE;
  * bare SELECT is pages since 1.2). KNOB 1 and KNOB 4 turned together: BPM 129 -> 130 in the header and
  * TUNE 19 -> 20 on a card, then back. Every frame is linted and (GREY, MONO) checked for gray; with a directory,
  * filmstrips of both (each frame side by side, x4: the static frame before, then the roll's frames) as
