@@ -197,8 +197,9 @@ int main(void)
     ok = proj_import(&q, &buf, (int)sizeof v2);
     bad += check("FUN2 -> FUN6: converted, valid format 5 slot", ok && proj_ok(&q) && q.magic == PROJ_MAGIC);
     ok = q.sel == 2;
-    for (i = 0; i < G_COUNT; i++)
+    for (i = 0; i < PROJ_NG_WIRE; i++)
         ok &= q.g[i] == (i == G_RTYPE || i == G_DRLVL || i == G_DRREV ? 0 : (int16_t)(500 + i));
+    ok &= q.g[G_CRTYPE] == q.g[G_RTYPE] && q.g[G_CRSIZE] == q.g[G_RSIZE] && q.g[G_CRDAMP] == q.g[G_RDAMP];
     bad += check("FUN2 -> FUN6: globals (id 24, the old drum channel: ROOM) and selected track", ok);
     ok = 1;
     for (t = 0; t < NTRK; t++)
@@ -217,7 +218,7 @@ int main(void)
     memset(&v3, 0, sizeof v3);
     v3.magic = PROJ_MAGIC_V3;
     v3.size = sizeof v3;
-    for (i = 0; i < G_COUNT; i++)
+    for (i = 0; i < PROJ_NG_WIRE; i++)
         v3.g[i] = (int16_t)(600 + i);
     v3.sel = 3;
     v3.parts = NPART;
@@ -228,8 +229,9 @@ int main(void)
     memcpy(&buf, &v3, sizeof v3);
     ok = proj_import(&q, &buf, (int)sizeof v3) && proj_ok(&q) && q.magic == PROJ_MAGIC && q.sel == 3 &&
          q.parts == NPART;
-    for (i = 0; i < G_COUNT; i++)
+    for (i = 0; i < PROJ_NG_WIRE; i++)
         ok &= q.g[i] == (i == G_RTYPE ? 0 : (int16_t)(600 + i));
+    ok &= q.g[G_CRTYPE] == q.g[G_RTYPE] && q.g[G_CRSIZE] == q.g[G_RSIZE] && q.g[G_CRDAMP] == q.g[G_RDAMP];
     for (t = 0; t < NTRK; t++)
         ok &= track_v3_ok(&q.t[t], &v3.t[t], t);
     bad += check("FUN3 -> FUN6: every parameter kept, the matrix OFF, steps, globals (24: ROOM)", ok);

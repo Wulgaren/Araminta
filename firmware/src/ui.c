@@ -497,6 +497,11 @@ static int dly_page(const page_t *pg)
 {
     return pg->scope == SC_GLOBAL && pg->id[0] == G_DTIME;
 }
+/* REVERB: knobs 1..3 TYPE/SIZE/DAMP (CHAIN tank while this track owns it); knob 4 shows SEND/CHAIN */
+static int rev_page(const page_t *pg)
+{
+    return pg->scope == SC_GLOBAL && pg->id[0] == G_RTYPE;
+}
 static uint32_t ior_pct_id(void)
 {
     static const uint8_t MIX[INS_N] = {P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX, P_IHMIX};

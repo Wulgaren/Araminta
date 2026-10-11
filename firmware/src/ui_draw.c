@@ -1239,6 +1239,19 @@ static void draw_columns(void)
         draw_column(3, "MODE", dtime_free() ? "TIME" : "RATE", "", VAL(3u), -1, ICON_AUTO);
         return;
     }
+    if (rev_page(cur_page())) {                         /* K1..3 TYPE SIZE DAMP; K4 which tank is edited */
+        int16_t *vp;
+        const param_desc_t *d;
+        int chain = bus_own(1) == (int32_t)(TSEL - trk);
+        for (c = 0; c < 3u; c++) {
+            d = page_desc(cur_page(), c, &vp);
+            param_format(d, *vp, val, &unit);
+            draw_column(c, d->label, val, unit, VAL(c),
+                        d->fmt == F_ENUM ? RATIO(d, enum_rank(d, *vp)) : RATIO(d, *vp), param_icon(d, *vp));
+        }
+        draw_column(3, "TANK", chain ? "CHAIN" : "SEND", "", T_MID, -1, ICON_AUTO);
+        return;
+    }
     for (c = 0; c < 4u; c++) {
         int16_t *vp;
         const param_desc_t *d = page_desc(cur_page(), c, &vp);

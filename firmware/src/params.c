@@ -214,10 +214,13 @@ static const param_desc_t GP[G_COUNT] = {
     [G_CLRSEQ] = PE("CLRSQ", N_GO, 0),
     [G_INITSND] = PE("INIT", N_GO, 0),
     /* the reverb's model on the REVERB page: the id of the old GM drum channel (G_DRCH, inert since 1.0) */
-    [G_RTYPE] = PE("TYPE", N_RTYPE, 2),         /* HALL at power-on since 1.2 (ROOM before; projects keep theirs) */
+    [G_RTYPE] = PE("TYPE", N_RTYPE, 2),         /* SEND tank; HALL at power-on since 1.2 */
     /* (JIANT) drum bus and kick ducking; ids were G_DRLVL / G_DRREV (GM drum part). proj_drums_to_part clears them. */
     [G_PUNCH] = PD("PNCH", F_PCT, 0, 100, 0),   /* DRUM fattened: attack + body (eng_drum.c) */
     [G_DUCK] = PD("DUCK", F_PCT, 0, 100, 0),    /* the kick ducks the other parts: up to -30 dB */
+    [G_CRTYPE] = PE("TYPE", N_RTYPE, 2),        /* CHAIN tank: same models, separate values */
+    [G_CRSIZE] = PD("SIZE", F_PCT, 0, 127, 90),
+    [G_CRDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
 };
 
 static const param_desc_t INS_BITS = {"BITS", F_INT, 0, 127, 64, N_IBITS, 0};
@@ -543,6 +546,14 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         return 0;
     }
     if (pg->scope == SC_GLOBAL) {
+        /* REVERB: selected track owns CHAIN → edit CHAIN tank globals; else SEND. */
+        if (pg->id[0] == G_RTYPE && slot < 3u) {
+            int32_t own = song.g[G_REVOWN];
+            if (own >= 1 && own <= (int32_t)NTRK && own - 1 == (int32_t)(TSEL - trk)) {
+                static const uint8_t CR[3] = {G_CRTYPE, G_CRSIZE, G_CRDAMP};
+                id = CR[slot];
+            }
+        }
         *valp = &song.g[id];
         return &GP[id];
     }
