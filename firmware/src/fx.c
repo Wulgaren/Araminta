@@ -127,7 +127,7 @@ static void ins_order_set(track_t *t, const uint8_t ord[INS_N])
     }
     t->p[P_IORD] = (int16_t)(n > 719u ? 719 : n);
 }
-/* swap chain slots at highlight h with h+dir (dir ±1); used by FX+SELECT on REORDER */
+/* swap chain slots at highlight h with h+dir (dir ±1); REORDER KNOB 2 */
 static void ins_order_move(track_t *t, uint32_t h, int32_t dir)
 {
     uint8_t ord[INS_N];
@@ -822,7 +822,9 @@ static inline uint32_t ins_bits_sh(int32_t a) { return 15u - (uint32_t)(clamp(a,
 static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n, int32_t tw)
 {
     uint32_t i, mode = (uint32_t)clamp(t->p[P_IDMODE], 0, IDM_N - 1);
-    int32_t a = t->p[P_DIST], g = 4096 + a * a * 3, k = ins_lpk(96 - (a >> 2));
+    int32_t a = t->p[P_DIST], g = 4096 + a * a * 3;
+    /* cutoff follows drive (96 at 0, darker as drive rises); P_ED_FX (TONE) offsets it, 0 = as before */
+    int32_t k = ins_lpk(clamp((96 - (a >> 2)) + t->p[P_ED_FX], 0, 127));
     for (i = 0; i < n; i++) {
         int32_t x = b[i], y, v;
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);

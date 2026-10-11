@@ -145,6 +145,7 @@ static struct {
                                   * go, unless the key was held for a lock (its accent: plk_acc) */
     uint8_t hot_col, hot_t;      /* column whose knob was just turned (drawn white) */
     uint8_t ior_sel;             /* REORDER page: highlighted chain slot 0..INS_N-1 */
+    uint8_t ior_tgt;             /* REORDER KNOB 3: 0 the stage's mix, 1 CHO, 2 DLY, 3 REV */
     uint8_t menu;                /* 0 off, 1 list, 2 about + credits, 3 info (1.2) (HOME held) */
     uint8_t menu_sel;            /* MENU: the row (menu_items.c MI_*; its tab MI_TAB), kept while the device runs */
     uint8_t menu_row[5];         /* MENU: the row last picked in each tab, from its first (ALGORITHM comes back to it) */
@@ -490,11 +491,25 @@ static void chain_play_ui(void)
 }
 
 
+/* REORDER KNOB 4: the stage's mix, or CHO / DLY / REV (ui.ior_tgt) */
+static const char *const N_IORTGT[] = {"FX", "CHO", "DLY", "REV"};
+static uint32_t ior_pct_id(void)
+{
+    static const uint8_t MIX[INS_N] = {P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX, P_IHMIX};
+    static const uint8_t SEND[3] = {P_CHOR, P_DLY, P_REV};
+    uint8_t ord[INS_N];
+    if (ui.ior_tgt >= 1u && ui.ior_tgt <= 3u)
+        return SEND[ui.ior_tgt - 1u];
+    ins_order_get(TSEL, ord);
+    return MIX[ord[ui.ior_sel < INS_N ? ui.ior_sel : 0u]];
+}
 /* parameter locks: a page whose KNOB 1..4 can lock (a track's sound: one of its parameters can be motion; not MOD's
  * slots), the parameter KNOB k locks (ui.plk_src's page, HOME's four), 0xFF = none */
 static int lock_page_ok(uint32_t i)
 {
     uint32_t k;
+    if (i < NPAGES && PAGES[i].graph == GR_IORD)
+        return 1;                                     /* KNOB 4 locks the send or the stage mix */
     if (i >= NPAGES || (PAGES[i].scope != SC_TRACK && PAGES[i].scope != SC_ENGINE) || PAGES[i].graph == GR_MOD)
         return 0;
     for (k = 0; k < 4u; k++)
@@ -504,8 +519,12 @@ static int lock_page_ok(uint32_t i)
 }
 static uint32_t lock_id(uint32_t k)
 {
-    uint32_t id = ui.plk_src && lock_page_ok(ui.plk_src - 1u) ? PAGES[ui.plk_src - 1u].id[k & 3u]
-                                                               : ENGINES[TSEL->eng_req % NENGINES]->knob[k & 3u];
+    uint32_t id;
+    if (ui.plk_src && lock_page_ok(ui.plk_src - 1u) && PAGES[ui.plk_src - 1u].graph == GR_IORD)
+        id = k == 3u ? ior_pct_id() : 0xFFu;
+    else
+        id = ui.plk_src && lock_page_ok(ui.plk_src - 1u) ? PAGES[ui.plk_src - 1u].id[k & 3u]
+                                                          : ENGINES[TSEL->eng_req % NENGINES]->knob[k & 3u];
     return id < P_COUNT && motion_param(id) ? id : 0xFFu;
 }
 

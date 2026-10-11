@@ -56,7 +56,7 @@ static int ev_id_ok(const track_t *t, uint32_t id)
     const param_desc_t *d;
     if (ev_sid(id))
         return 1;
-    if (id >= P_COUNT || !motion_param(id) || id == P_ED_FX || (id >= P_FM1_ATK && id <= P_FM4_LEVEL))
+    if (id >= P_COUNT || !motion_param(id) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL))
         return 0;
     if (id >= P_LN0 && id <= P_LN7)
         return drum_track(t);
@@ -67,8 +67,8 @@ static int ev_id_ok(const track_t *t, uint32_t id)
  * would say two things (ENV ATK, ENV FLT: ENV DEST's, LFO FLT: LFO DEST's; SLICER RATE / PAT / DEPTH: #222) */
 static void ev_name(const track_t *t, uint32_t id, char *b)
 {
-    const char *pre = id >= P_ATK && id <= P_ED_SHP ? "ENV " : id >= P_LRATE && id <= P_LD_AMP ? "LFO " :
-                      id >= P_SLPAT && id <= P_SLDEPTH ? "SL " : "";
+    const char *pre = id == P_ED_FX ? "DIST " : id >= P_ATK && id <= P_ED_SHP ? "ENV " :
+                      id >= P_LRATE && id <= P_LD_AMP ? "LFO " : id >= P_SLPAT && id <= P_SLDEPTH ? "SL " : "";
     if (ev_sid(id)) {
         str_cpy(b, id == EV_CHANCE ? "CHANCE" : id == EV_RATCH ? "RATCH" : id == EV_VEL ? "VEL" : "NUDGE", 12);
         return;
@@ -586,7 +586,7 @@ static const char *pk_auto_group(uint32_t id)
         return "LFO";
     if (id == P_GLIDE || id == P_DETUNE)
         return "VOICE";
-    if (id == P_DIST || (id >= P_IDMODE && id < P_FTYPE))
+    if (id == P_ED_FX || id == P_DIST || (id >= P_IDMODE && id < P_FTYPE))
         return "INSERT";
     if (id >= P_CHOR && id <= P_REV)
         return "SEND";
