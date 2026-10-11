@@ -1199,13 +1199,16 @@ static int test_grid(void)
     ok &= t->step[2].hit == 1u << DV_CLAP && t->step[2].acc == 1u << DV_CLAP;
     bad += check("KNOB 1 STEP, 2 LANE, 3 HIT on / off, 4 ACC (an accent adds the hit)", ok);
     press(B_EDIT);
-    bad += check("EDIT: the cursor step cleared, on to the next", t->step[2].time == ST_REST && !t->step[2].hit && ui.cursor == 3u &&
-                 grid_on());
+    bad += check("EDIT on the grid opens EDIT; the hit stays (KNOB 3 turns it off)",
+                 t->step[2].hit == (1u << DV_CLAP) && ui.cursor == 2u && cur_page()->fam == FAM_EDIT);
+    go_seq_step();
+    ui.cursor = 2;
+    frame();
     /* pages: LEN 32, the page keys */
     t->p[P_SLEN] = 32;
     leds = grid_leds();
     tap_key(key_at(1, GK_PGUP));
-    ok = ui.bank == 1u && ui.cursor == 19u && (leds >> key_at(1, GK_PGUP) & 1u) && (leds >> key_at(1, GK_PGDN) & 1u);
+    ok = ui.bank == 1u && ui.cursor == 18u && (leds >> key_at(1, GK_PGUP) & 1u) && (leds >> key_at(1, GK_PGDN) & 1u);
     tap_key(key_at(0, 15));
     ok &= t->step[31].hit == 1u << DV_CLAP;
     tap_key(key_at(1, GK_PGDN));
@@ -2568,8 +2571,8 @@ static int test_song_timeline(void)
 
 /* Product controls are exercised through the actual button/encoder handlers
  * and canvas, including all pages, both fonts and every shipped palette. */
-/* Discussions #92 / #94: the PRESETS knob on every page. STEP and the DRUM grid: the step cursor (a step held: its
- * NUDGE, 1.2: tests/fun10_test.c), the sound and the steps untouched; AUTOMATION, USER, PROJECT, PHRASES, SONG: the
+/* Discussions #92 / #94: the PRESETS knob on every page. DETAIL and the DRUM grid: the step cursor. The piano
+ * roll: the note under the cursor moves in time (the sound stays). AUTOMATION, USER, PROJECT, PHRASES, SONG: the
  * selection, as KNOB 1; TOOLS: nothing; HOME, PRESETS and every other page: the next sound, the steps untouched, SAVE
  * held undoes it */
 static int test_presets_knob(void)
@@ -2594,8 +2597,12 @@ static int test_presets_knob(void)
             int same_snd = TSEL->preset == before.preset && TSEL->eng_req == before.eng_req &&
                            !memcmp(TSEL->p, before.p, sizeof before.p);
             int same_steps = !memcmp(TSEL->step, before.step, sizeof before.step);
-            if (g == GR_ROLL) {
+            if (g == GR_ROLL && str_eq(PAGES[i].title, "DETAIL")) {
                 cur_ok &= ui.cursor == 1u && same_snd && same_steps && ui.page == i;
+                n_cur++;
+            } else if (g == GR_ROLL) {                 /* STEP: the note at the cursor moves one step, the cursor with it */
+                cur_ok &= ui.cursor == 1u && same_snd && ui.page == i && TSEL->step[1].note[0] == before.step[0].note[0] &&
+                          TSEL->step[1].time == ST_NOTE && TSEL->step[0].time == ST_REST && !TSEL->step[0].n;
                 n_cur++;
             } else if (g == GR_USER) {
                 sel_ok &= ui.uslot == uslot + 1u && same_snd && same_steps;
@@ -2622,7 +2629,7 @@ static int test_presets_knob(void)
             }
         }
     }
-    bad += check("#92 PRESETS on STEP (and 1.5.1's DETAIL): the step cursor; the sound and the steps stay", cur_ok && n_cur == 2u);
+    bad += check("#92 PRESETS on STEP moves the note; on DETAIL, the cursor; the sound stays", cur_ok && n_cur == 2u);
     bad += check("#94 PRESETS on USER, PROJECT, PHRASES, SONG, AUTOMATION: the selection (KNOB 1's); nothing loaded", sel_ok);
     bad += check("#94 PRESETS on TOOLS does nothing", tools_ok);
     bad += check("#94 PRESETS elsewhere (EDIT, ENV, LFO, FX, SCL, ARP, MIXER, GLOBAL, ...): the next sound, the steps stay",
@@ -3192,9 +3199,10 @@ static int test_layer(void)
     ui_power_on();
     go_seq_step(); my_steps(TSEL); ui.cursor = 0; frame();
     btn_down(B_EDIT); frame();
-    ok = step_on(&TSEL->step[0]) && ui.cursor == 0;
+    ok = step_on(&TSEL->step[0]) && ui.cursor == 0 && cur_page()->graph == GR_ROLL;
     btn_up(B_EDIT); frame();
-    bad += check("EDIT on STEP clears the step when let go (not on press)", ok && !step_on(&TSEL->step[0]) && ui.cursor == 1);
+    bad += check("EDIT on STEP opens EDIT when let go; the step stays", ok && step_on(&TSEL->step[0]) &&
+                 ui.cursor == 0 && cur_page()->fam == FAM_EDIT);
     ui_power_on(); hold(B_HOME);
     ok = ui.menu == 1; hold(B_HOME); ok &= !ui.menu;
     go_home(); hold(B_SEQ);
@@ -3960,14 +3968,15 @@ static int test_step_preview_chord_entry(void)
     blocks(div_samples(2) / CTL + 2u);
     ok &= !gated(t, 128u);
     bad += check("STEP PREVIEW ON: KNOB 1 to a step sounds it once on the track (a chord whole; chance not rolled), a 1/16 at GATE", ok);
-    turn(EN_PRESET, 1);
+    turn(EN_K1, -1);                                    /* cursor 2, a rest (the chord is at index 3) */
+    turn(EN_PRESET, 1);                                 /* onto the chord: sounds it, writes nothing */
     blocks(1);
-    ok = ui.cursor == 4u && gated(t, 67) == 1u;
+    ok = ui.cursor == 3u && gated(t, 60) && gated(t, 64);
     blocks(div_samples(2) / CTL + 2u);
-    turn(EN_K1, -3);                                    /* (an empty step: nothing) */
+    turn(EN_K1, -2);                                    /* (an empty step: nothing) */
     blocks(1);
     ok &= ui.cursor == 1u && !gated(t, 128u);
-    bad += check("STEP PREVIEW: PRESETS moves the cursor too and sounds it; an empty step sounds nothing", ok);
+    bad += check("STEP PREVIEW: PRESETS from a rest moves the cursor and sounds it; an empty step sounds nothing", ok);
     ok = !memcmp(before, t->step, sizeof before) && song.rec == rec0 && motion.count == mc0 && !song.playing;
     bad += check("STEP PREVIEW never writes: the steps, the arming and the motion as they were", ok);
     song.playing = 1;
@@ -4064,8 +4073,8 @@ static int test_step_preview_chord_entry(void)
     key_up(7); key_up(11); frame();
     ok = ui.cursor == 8u && t->step[8].n == 2u;
     press(B_EDIT);
-    ok &= !t->step[8].n && ui.cursor == 9u;             /* (EDIT still clears the step and moves on) */
-    bad += check("#155 ADD: keys held together add each; EDIT clears the step and moves on as before", ok);
+    ok &= t->step[8].n == 2u && ui.cursor == 8u && cur_page()->fam == FAM_EDIT;
+    bad += check("#155 ADD: keys held together add each; the chord stays (EDIT opens the sound)", ok);
     song.rec = 0;
     memcpy(before, t->step, sizeof before);
     tap_k(7);
@@ -8038,7 +8047,7 @@ static uint64_t qa_beat(uint32_t lanes, double *low)
 static int test_edit_quick_actions(void)
 {
     int bad = 0, ok;
-    /* EDIT engine hold map removed; EDIT still clears steps on STEP and cycles sections */
+    /* EDIT engine hold map removed; EDIT on STEP opens the sound and leaves the step */
     ui_power_on();
     go_home(); frame();
     btn_down(B_EDIT); frames(600);
@@ -8050,8 +8059,8 @@ static int test_edit_quick_actions(void)
     ui_power_on();
     go_seq_step(); my_steps(TSEL); ui.cursor = 0; frame();
     press(B_EDIT);
-    ok = !step_on(&TSEL->step[0]) && ui.cursor == 1 && !ui.lock;
-    bad += check("EDIT on STEP still clears the cursor step (no lock)", ok);
+    ok = step_on(&TSEL->step[0]) && ui.cursor == 0 && !ui.lock && cur_page()->fam == FAM_EDIT;
+    bad += check("EDIT on STEP opens EDIT and leaves the cursor step (no lock)", ok);
 
     ui_power_on();
     set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;

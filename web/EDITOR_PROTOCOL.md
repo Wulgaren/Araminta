@@ -661,7 +661,9 @@ INFO advertises `4C 01 1` after the ratchet tag (`52 01 4`). Firmware without it
   page shown last before (HOME's four, ENV, LFO, FX, EDIT 1 / 2, ..; the cards show them while a step is held). On
   the DRUM grid a step is its white key (several held: each gets the lock; a key pressed on a hit takes it away
   only when let go without a knob turned); on the piano roll the step being entered (its note keys held). [EDIT]
-  tapped with a step held clears its locks; EDIT alone clears the step and its locks. The roll and the grid mark
+  tapped with a step held clears its locks. EDIT alone opens the EDIT section. On the piano roll, KNOB 3 (LEN)
+  turned to 0 clears the note and its locks, and the knob becomes TIME. On the drum grid, KNOB 3 (HIT) turned
+  off clears the hit. The roll and the grid mark
   the steps that hold a lock; AUTOMATION shows the count (LOCK).
 
 ## 1.2: LFO 2, NUDGE, 128 records (FUN10)
@@ -684,7 +686,9 @@ in 1/16 of a step) after the locks tag (`4C 01 1`). Firmware without them: 64 re
 - **Nudge:** the byte after the ratchet in `STEP_GET` / `STEP_SET` / `TRACK_STEP` (a change on the device pushes
   `STEP_CHANGED`), nudge + 8 (0..15:
   −8 = half a step early .. +7 = 7/16 late, 8 = on the step). A write without it keeps the step's. The device records it
-  live and sets it on SEQ > AUTOMATION's NUDGE rows (and STEP, steps held + PRESETS); it plays with the track's `QNTZ` OFF
+  live and sets it on SEQ > AUTOMATION's NUDGE rows and on SEQ > DETAIL. On SEQ > STEP, PRESETS moves notes in
+  time (the drum grid: the steps held; the piano roll: the note under the cursor, ties included) and does not set
+  NUDGE. NUDGE plays with the track's `QNTZ` OFF
   (on the device: AUTOMATION's QUANTIZE row; not for a ratcheted step: its parts divide the step).
 - **Motion:** 128 records shared by the four tracks, both kinds. Ops 1..7 reply as before 1.2 (`max` 64, at most the
   track's first 64 records in store order: an editor of before keeps working while a track holds no more); op 8

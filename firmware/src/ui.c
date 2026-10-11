@@ -570,7 +570,8 @@ static void step_clear(step_t *st)
  * (inside LEN, no wrap); SEQ > STEP's KNOB 3 on a note sets it (ui_input.c step_edit). Longer: the steps after it
  * become clean TIEs (a REST or an empty step; it stops at the next step holding notes or hits, a REST's kept ones too,
  * which stays, and at LEN);
- * shorter: its last TIEs become RESTs (step_clear). The steps' locks stay. Returns the length it got */
+ * shorter: its last TIEs become RESTs (step_clear). The steps' locks stay. 0 clears the note and those TIEs (a real
+ * rest: the note bytes go too). Returns the length it got (0: the note is gone) */
 static uint32_t note_len(const track_t *t, uint32_t i)
 {
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), n = 1;
@@ -580,7 +581,14 @@ static uint32_t note_len(const track_t *t, uint32_t i)
 }
 static uint32_t note_set_len(track_t *t, uint32_t i, uint32_t want)
 {
-    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), n = note_len(t, i);
+    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), n = note_len(t, i), k;
+    if (!want) {
+        for (k = 0; k < n && i + k < NSTEP; k++) {
+            memset(&t->step[i + k], 0, sizeof t->step[i + k]);
+            t->step[i + k].time = ST_REST;
+        }
+        return 0;
+    }
     for (; n > want && n > 1u; n--)
         step_clear(&t->step[i + n - 1u]);
     for (; n < want && i + n < len && !t->step[i + n].n && !t->step[i + n].hit; n++) {
