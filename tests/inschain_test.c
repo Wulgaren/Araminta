@@ -214,28 +214,27 @@ int main(void)
            got[P_FTYPE] == 2 && got[P_ESYNC] == 1 && got[P_E0] == 10 && got[P_E7] == 17);
     }
 
-    /* FX pages: effects (EFFECTS, stages, DLY, REVERB), then SLICER, Punch-in, then MASTER.
-     * Stage pages have no mix knob: the percent is EFFECTS K4. */
+    /* FX pages: effects (EFFECTS, stages, DLY, REVERB), then SLICER, Punch-in.
+     * MASTER is on GLO. Stage pages have no mix knob: the percent is EFFECTS K4. */
     {
         uint32_t i, pr = NPAGES, ps = NPAGES, pd = NPAGES, pdl = NPAGES, pm = NPAGES, mix = 0;
         static const uint8_t MIXK[] = {P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX, P_IHMIX};
         for (i = 0; i < NPAGES; i++) {
             uint32_t k, m;
-            if (PAGES[i].fam != FAM_FX) continue;
-            if (str_eq(PAGES[i].title, "EFFECTS") && pr == NPAGES) pr = i;
-            if (str_eq(PAGES[i].title, "SLICER") && ps == NPAGES) ps = i;
-            if (str_eq(PAGES[i].title, "DIST") && pd == NPAGES) pd = i;
-            if (str_eq(PAGES[i].title, "DLY") && pdl == NPAGES) pdl = i;
+            if (str_eq(PAGES[i].title, "EFFECTS") && PAGES[i].fam == FAM_FX && pr == NPAGES) pr = i;
+            if (str_eq(PAGES[i].title, "SLICER") && PAGES[i].fam == FAM_FX && ps == NPAGES) ps = i;
+            if (str_eq(PAGES[i].title, "DIST") && PAGES[i].fam == FAM_FX && pd == NPAGES) pd = i;
+            if (str_eq(PAGES[i].title, "DLY") && PAGES[i].fam == FAM_FX && pdl == NPAGES) pdl = i;
             if (str_eq(PAGES[i].title, "MASTER") && pm == NPAGES) pm = i;
-            if (PAGES[i].graph == GR_INS)
+            if (PAGES[i].fam == FAM_FX && PAGES[i].graph == GR_INS)
                 for (k = 0; k < 4u; k++)
                     for (m = 0; m < sizeof MIXK; m++)
                         mix |= PAGES[i].id[k] == MIXK[m];
         }
-        ck("FX pages: EFFECTS, DIST (with TONE), DLY in effects; SLICER and MASTER are their own sections",
-           pr < pd && pd < pdl && pdl < ps && ps < pm && PAGES[pr].graph == GR_IORD &&
+        ck("FX pages: EFFECTS, DIST (with TONE), DLY in effects; SLICER own section; MASTER on GLO",
+           pr < pd && pd < pdl && pdl < ps && PAGES[pr].graph == GR_IORD &&
            PAGES[pr].sec == FX_SEC_INS && PAGES[pdl].sec == FX_SEC_INS &&
-           PAGES[ps].sec == FX_SEC_SLCR && PAGES[pm].sec == FX_SEC_MASTER &&
+           PAGES[ps].sec == FX_SEC_SLCR && PAGES[pm].fam == FAM_GLO && PAGES[pm].sec == GLO_SEC_MASTER &&
            PAGES[pd].id[2] == P_ED_FX && PAGES[pd].id[3] == 0xFFu && !mix &&
            PAGES[pdl].id[3] == 0xFFu && PAGES[pdl].id[0] == G_DTIME);
     }

@@ -5,11 +5,11 @@
  *   blocker); LOWCUT cuts below ~110 Hz (12 dB/oct), BASS+ below ~220 Hz; both leave 1 kHz and up alone.
  *   BASS+: a 55 Hz tone gains energy at 250 Hz..1 kHz, the sub is cut, the output settles back to 0 after the
  *   tone and nothing reaches full scale.
- * #180 (BASS+ distorted a kick): a full-scale kick pattern (the DRUM-X KICK lane STD / DRIVE, 4 hits, at full scale
- *   and twice that: a loud mix) through each mode. BASS+ keeps the samples off the rails (under 30000: the soft clip
- *   tops out at 31600) with no flat tops, and leaves the limiter no busier than LOWCUT (its envelope's peak at most
- *   +0.5 dB): the harmonics of 1.4 peaked at 1.5 .. 3.5 x the kick itself, and the limiter pulled the whole mix down
- *   by up to 16 dB on every hit. The harmonics' energy against the kick's: 1.4 -5 dB, now -11 dB.
+ * #180 (BASS+ distorted a kick): a full-scale kick pattern (DRUM-X factory KICK, patches A and B, 4 hits, at full
+ *   scale and twice that: a loud mix) through each mode. BASS+ keeps the samples off the rails (under 30000: the soft
+ *   clip tops out at 31600) with no flat tops, and leaves the limiter no busier than LOWCUT (its envelope's peak at
+ *   most +0.5 dB): the harmonics of 1.4 peaked at 1.5 .. 3.5 x the kick itself, and the limiter pulled the whole mix
+ *   down by up to 16 dB on every hit. The harmonics' energy against the kick's: 1.4 -5 dB, now -11 dB.
  * The EQ is on the master: the speaker, the headphone / line out (the same DAC) and USB audio (uac_tap reads the
  * same output) all get it. */
 #include <math.h>
@@ -66,21 +66,18 @@ static void master_reset(uint32_t mode)
 /* #180: a kick pattern (4 hits, one each 0.5 s) at 1 and 2 x full scale through each mode; fails counted */
 static uint32_t kick_pattern(void)
 {
-    static const char *const NAME[2] = {"STD", "DRIVE"};
+    static const char *const NAME[2] = {"A", "B"};   /* factory KICK morph 0 / 127 */
     static float f[2 * FS];
     static dx_voice_t v;
-    static dx_lane_t lane;
+    const dx_lane_t *L = &DX_KIT_DEF[DV_KICK];
     uint32_t type, gi, mode, i, k, fails = 0;
     for (type = 0; type < 2u; type++) {
-        int32_t y[CTL], pk = 1;
-        lane = dx_kit[DV_KICK];
-        if (type)
-            lane.mode |= DX_DRIVE;                      /* denser kick for the second pass */
+        int32_t y[CTL], morph = type ? 127 : 0, pk = 1;
         memset(&v, 0, sizeof v);
         for (i = 0; i < 2u * FS; i += CTL) {
             if (i % (FS / 2u) < CTL)
                 dx_trigger(&v);
-            dx_run(&lane, &v, 0, 0, 0, 0, 0, 0, 0, y, CTL);
+            dx_run(L, &v, morph, 0, 0, 0, 0, 0, 0, y, CTL);
             for (k = 0; k < CTL; k++) {
                 f[i + k] = (float)y[k];
                 pk = abs(y[k]) > pk ? abs(y[k]) : pk;
