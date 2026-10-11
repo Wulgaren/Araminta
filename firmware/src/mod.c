@@ -34,6 +34,9 @@
  *     follows the note's envelope. A DEPTH slot whose source is the LFO takes it unscaled
  *   SLPAT / SLRATE / SLDEP (#222, per track): the SLICER's pattern, step rate and depth (P_SLPAT P_SLRATE P_SLDEPTH),
  *     as the other per-block destinations (AMT 64 = the whole range)
+ *   insert continuous (per track): TONE + DMIX (DIST), FILTER CUT/RES/MIX, CRUSH BITS/RATE/LPF/MIX,
+ *     PHASR RATE/DEP/FBK/MIX, FLANG RATE/DEP/MIX, CHOR RATE/DEP (CHOR MIX is CHO); no MODE/TYPE enums.
+ *     DIST drive and DLY/REV amounts stay DIST/DLY/REV
  * A per-voice source on a per-block destination takes the latest note-on's value (VEL, KEY, RAND), ENV the
  * envelope of the latest note-on's voice (one block late, 0 when it has ended).
  *
@@ -49,7 +52,9 @@ static uint32_t clk_pos = CLK_START, clk_step;  /* (seq.c click_tick) samples in
                                                  * events_block: the block's start. Declared here so fx.c / pfx.c
                                                  * (included before seq.c) can read the grid. */
 enum { MD_OFF, MD_PITCH, MD_CUT, MD_SHP, MD_AMP, MD_PAN, MD_DIST, MD_CHO, MD_DLY, MD_REV, MD_RATE, MD_VIB, MD_E1,
-       MD_DEPTH = MD_E1 + 8, MD_SLPAT, MD_SLRATE, MD_SLDEPTH, MD_CHRD, MD_VOIC, MD_N };   /* (append-only) */
+       MD_DEPTH = MD_E1 + 8, MD_SLPAT, MD_SLRATE, MD_SLDEPTH, MD_CHRD, MD_VOIC,
+       MD_TONE, MD_DMIX, MD_FCUT, MD_FRES, MD_FMIX, MD_BITS, MD_CRAT, MD_CLPF, MD_CMIX,
+       MD_PRAT, MD_PDEP, MD_PFBK, MD_PMIX, MD_FRAT, MD_FDEP, MD_LMIX, MD_HRAT, MD_HDEP, MD_N }; /* (append-only) */
 _Static_assert(NELEM(N_MSRC) == MS_N && NELEM(N_MDST) == MD_N, "N_MSRC / N_MDST == MS_* / MD_*");
 _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 == P_FM1_ATK, "matrix slots: 3 ids each");
 #define NMSLOT 4u
@@ -58,6 +63,7 @@ _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 
 #define MD_ENGINE(d) ((d) >= MD_E1 && (d) < MD_E1 + 8)           /* E1..E8: P_E0..P_E7 */
 #define MD_SLICER(d) ((d) >= MD_SLPAT && (d) <= MD_SLDEPTH)
 #define MD_CHORD(d) ((d) >= MD_CHRD && (d) <= MD_VOIC)
+#define MD_INS(d) ((d) >= MD_TONE && (d) <= MD_HDEP)             /* insert continuous + MIX (CHOR MIX = CHO) */
 
 /* the track parameter of a per-block destination */
 static uint32_t mod_param(uint32_t d)
@@ -66,12 +72,17 @@ static uint32_t mod_param(uint32_t d)
                                       [MD_REV] = P_REV, [MD_RATE] = P_LRATE, [MD_VIB] = P_LD_PIT};
     static const uint8_t SL[3] = {P_SLPAT, P_SLRATE, P_SLDEPTH};
     static const uint8_t CH[2] = {P_CHRD, P_VOIC};
+    static const uint8_t INS[] = {
+        P_ED_FX, P_IDMIX, P_IFCUT, P_IFRES, P_IFMIX, P_ICBITS, P_ICRATE, P_ICLPF, P_ICMIX,
+        P_IPRATE, P_IPDEP, P_IPFBK, P_IPMIX, P_ILRATE, P_ILDEP, P_ILMIX, P_IHRATE, P_IHDEP};
     if (MD_ENGINE(d))
         return P_E0 + d - MD_E1;
     if (MD_SLICER(d))
         return SL[d - MD_SLPAT];
     if (MD_CHORD(d))
         return CH[d - MD_CHRD];
+    if (MD_INS(d))
+        return INS[d - MD_TONE];
     return ID[d];
 }
 

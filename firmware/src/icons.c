@@ -224,7 +224,7 @@ static uint32_t mod_dst_icon(const track_t *t, int32_t d)
     d = clamp(d, 0, MD_N - 1);
     if (d == MD_DEPTH)
         return ICON_LFO_WAVE;
-    if (MD_SLICER(d) || MD_CHORD(d)) {
+    if (MD_SLICER(d) || MD_CHORD(d) || MD_INS(d)) {
         id = mod_param((uint32_t)d);
         return param_icon(&TP[id], t->p[id]);
     }

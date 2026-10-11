@@ -73,10 +73,14 @@ static const char *const N_ISTAGE[] = {"DIST", "FILTER", "CRUSH", "PHASR", "FLAN
  * Append-only (stored values keep their meaning): S&H SLEW and DEPTH (#132) came after EXPR and E8 */
 static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR", "S&H", "SLEW"};
 /* destinations (append-only): DEPTH = LFO depth (#132); SLPAT / SLRATE / SLDEP = the SLICER (#222);
- * CHRD / VOIC = chord keys */
+ * CHRD / VOIC = chord keys; then insert continuous knobs + MIX (no MODE/TYPE enums): TONE/DMIX,
+ * FILTER, CRUSH, PHASR, FLANG, CHOR RATE/DEP (CHOR MIX is already CHO; DLY/REV amounts stay DLY/REV;
+ * DRIVE stays DIST) */
 static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY", "REV", "RATE",
                                      "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH",
-                                     "PAT", "SRATE", "SDEP", "CHRD", "VOIC"};
+                                     "PAT", "SRATE", "SDEP", "CHRD", "VOIC",
+                                     "TONE", "DMIX", "FCUT", "FRES", "FMIX", "BITS", "CRAT", "CLPF", "CMIX",
+                                     "PRAT", "PDEP", "PFBK", "PMIX", "FRAT", "FDEP", "LMIX", "HRAT", "HDEP"};
 static const char *const N_ENGNAME[] = {"ANALOG", FELUCCA_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS",
                                              "DRUM", "NOISE", "FM6", "-",
 };
