@@ -357,7 +357,7 @@ static uint32_t large_kind(void)
         return home_tracks() ? LK_LABEL : LK_TALL;      /* a list page; the rows' names in M: draw_home_tracks) */
     g = cur_page()->graph;
     return g == GR_BROWSE || g == GR_SLOTS || g == GR_USER || g == GR_PATS || g == GR_SONG || g == GR_ROLL ||
-           g == GR_EVENTS || g == GR_DESTS || (ui.pick && g == GR_MOD) ? LK_LABEL : LK_TALL;
+           g == GR_EVENTS || (ui.pick && g == GR_MOD) ? LK_LABEL : LK_TALL;
 }
 /* the geometry of the page shown: the cards' height, the panel's top and height */
 static uint32_t card_h(void) { return large_kind() == LK_TALL ? LG_CARD_H : CARD_H; }
@@ -409,7 +409,7 @@ static int page_visible(uint32_t i)
 static uint32_t fam_nsec(uint32_t fam)
 {
     return fam == FAM_FX ? FX_NSEC : fam == FAM_SEQ ? SEQ_NSEC : fam == FAM_EDIT ? EDIT_NSEC :
-           fam == FAM_GLO ? GLO_NSEC : fam == FAM_SAVE ? SAVE_NSEC : 1u;
+           fam == FAM_GLO ? GLO_NSEC : fam == FAM_SAVE ? SAVE_NSEC : fam == FAM_LFO ? LFO_NSEC : 1u;
 }
 
 static uint32_t page_first_sec(uint32_t fam, uint32_t sec)
