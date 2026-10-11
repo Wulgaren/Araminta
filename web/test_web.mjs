@@ -440,8 +440,10 @@ function mockTables() {
   /* #48: every list's order in the editor == the order the device's knobs step it (descdump SHOWN: param_turn);
      the note divisions longest first, with the triplets by their length */
   const shown = (d) => E.enumShown(d).filter((v) => E.aliasOf(d.names, v - d.min) === v - d.min).map((v) => d.names[v - d.min]);
-  const sd = (fw.SHOWN || []).filter(([sc, i, names]) => JSON.stringify(shown((sc ? T.GP : T.TP)[i])) !== JSON.stringify(names));
-  sd.slice(0, 5).forEach((x) => console.log("  SHOWN " + JSON.stringify(x) + " editor " + JSON.stringify(shown((x[0] ? T.GP : T.TP)[x[1]]))));
+  /* Knob walk (descdump SHOWN) keeps reserved ENG "-" slots; aliasOf would collapse them. */
+  const shownKnob = (d) => E.enumShown(d).map((v) => d.names[v - d.min]);
+  const sd = (fw.SHOWN || []).filter(([sc, i, names]) => JSON.stringify(shownKnob((sc ? T.GP : T.TP)[i])) !== JSON.stringify(names));
+  sd.slice(0, 5).forEach((x) => console.log("  SHOWN " + JSON.stringify(x) + " editor " + JSON.stringify(shownKnob((x[0] ? T.GP : T.TP)[x[1]]))));
   ok(fw.SHOWN && fw.SHOWN.length > 20 && !sd.length, `editor: enum lists in the device's knob order (${fw.SHOWN ? fw.SHOWN.length : 0} lists)`);
   const div = T.TP.find((d) => d.label === "DIV"), slr = T.TP.filter((d) => d.label === "RATE" && d.fmt === E.F.ENUM);
   ok(shown(div).join() === "4BAR,2BAR,1/1,1/2,1/4,1/8,8T,1/16,16T,1/32" &&

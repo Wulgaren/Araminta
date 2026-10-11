@@ -392,7 +392,7 @@ static int nudge(void)
         turn(EN_K4, 1);
         ok &= t->p[P_SQNT] == 1;
         press(B_OCTUP); press(B_EDIT);
-        ok &= t->p[P_SQNT] == 1 && msg_is("NOTHING TO DELETE") && !act_ready() && str_eq(act_name(4), "--");
+        ok &= t->p[P_SQNT] == 1 && msg_is("NOTHING TO DEL") && !act_ready() && str_eq(act_name(4), "--");
         bad += check("AUTOMATION's QUANTIZE row (the second): KNOB 4 OFF / ON; OCT+ and EDIT nothing", ok);
         memcpy(ref, t->step, sizeof ref);
         go_auto_add(EV_NUDGE, 3); frame();
