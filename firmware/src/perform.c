@@ -4,8 +4,8 @@
  * layer (seq.c keyboard_block): it plays no note, sends no MIDI, records nothing, and holds its effect until
  * it is let go (ui_input.c opens the layer and shows the map). The 16 white keys (F3 .. G5) hold the effect the map
  * gives them (perf_map: the settings, ui_layer.c; any effect on any key, or none). The default (PF_DEF, JIANT):
- *   REPEAT 1/8 1/16 1/32, LPF | HPF, then D4..F5 the punch-in MIDI set (pfx.c: OCT± note octave, 1/2 tempo, DEC±,
- *   stutter, ATK+, ARP, RANDOM); G5 clears the punch-in lane; black keys 1..4 mute tracks 1..4; A#4 steps the MIDI
+ *   REPEAT 1/8 1/16 1/32, then 1/2 so LPF HPF OCT- OCT+ sit together, then DEC±, stutter, ATK+, ARP, RANDOM
+ *   (pfx.c); G5 clears the punch-in lane (the cell reads CLR); black keys 1..4 mute tracks 1..4; A#4 steps the MIDI
  *   effects' tracks (ALL / SYN / DRM). Audio REVERSE / TAPE / FREEZE / harmonizer OCT / FLANGER / PHASER / THROW stay
  *   assignable on the map, not on the default keys.
  * REV THROW / ECHO THROW (1.5.1): while held every track's reverb / delay send is full (as REV / DLY 127; perf_throw),
@@ -80,10 +80,10 @@ enum { BM_NONE, BM_LOOP, BM_TAPE, BM_FRZ, BM_HARM };
 #define THR_SLOPE 64                          /* REV / ECHO THROW: the sends' glide a sample, Q15 (11.6 ms end to end) */
 #define THR_FB 22938                          /* ECHO THROW: the delay's feedback while held at least this, Q15 (0.7) */
 
-/* the white keys' effects by default (JIANT: REPEAT + LPF/HPF + MIDI punch-ins on D4..F5; G5 lane clear) */
-static const uint8_t PF_DEF[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_HALF, PF_DSHT,
+/* the white keys' effects by default (JIANT: REPEAT, 1/2, then LPF/HPF/OCT together; G5 lane clear) */
+static const uint8_t PF_DEF[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_HALF, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_DSHT,
                                         PF_DLNG, PF_S8, PF_S16, PF_ATK, PF_ARP, PF_RND, PF_N};
-static volatile uint8_t perf_map[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_HALF, PF_DSHT,
+static volatile uint8_t perf_map[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_HALF, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_DSHT,
                                              PF_DLNG, PF_S8, PF_S16, PF_ATK, PF_ARP, PF_RND, PF_N};
                                       /* main: white key p's effect (PF_N none), from the settings (ui_layer.c) */
 static volatile uint8_t perf_remap;   /* main: perf_map changed (seq.c: a key held takes its new effect) */
@@ -91,7 +91,22 @@ static volatile uint8_t perf_remap;   /* main: perf_map changed (seq.c: a key he
 static volatile uint32_t perf_mask;   /* main: the FX button's bit while its layer may own keys, 0 = none */
 static volatile uint32_t kb_mask;     /* main: the button bits whose hold makes keys a layer's (ui_layer.c), 0 = none */
 static volatile uint8_t kb_lock;      /* main: a layer locked open (#83, no button held): 1 keys are the layer's, 2 FX's */
-static volatile uint8_t perf_solo;    /* main: tracks soloed in the GLO layer (the others muted as by a black key) */
+static volatile uint8_t perf_solo;    /* main: tracks soloed while GLO's white keys are held (the others muted as by a black key) */
+/* GLO's held solos, plus any track whose PLAY is SOLO. A set bit sounds; the rest are muted. */
+static uint32_t solo_mask(void)
+{
+    uint32_t m = perf_solo, k;
+    for (k = 0; k < NTRK; k++)
+        if (trk[k].p[P_MUTE] == PLAY_SOLO)
+            m |= 1u << k;
+    return m;
+}
+/* 1 when track k is heard: PLAY is not OFF, and it is not left out by a solo */
+static int trk_heard(uint32_t k)
+{
+    uint32_t s = solo_mask();
+    return trk[k].p[P_MUTE] != PLAY_OFF && (!s || ((s >> k) & 1u));
+}
 static volatile uint32_t scene_pfx;   /* song row scene punch-ins (song_play), PF_MIDI bits; 0 when unused */
 static volatile uint8_t perf_kill;    /* main: every effect off (the menu, a dialog, UBOOT) */
 static volatile int8_t perf_k[4];     /* main: the knob macros, 0 = untouched: FILTER -100..100 (- LPF, + HPF),
@@ -309,7 +324,7 @@ static void perf_buf_select(uint32_t e)
  * Returns 1 when a stage has something to do */
 static __attribute__((noinline)) int perf_begin(uint32_t n)
 {
-    uint32_t held = perf_kill ? 0u : (perf_held | perf_latched | (perf_solo ? (~(uint32_t)perf_solo & 15u) << PF_M1 : 0u)) & perf_avail() & ~PF_MIDI;
+    uint32_t solo = solo_mask(), held = perf_kill ? 0u : (perf_held | perf_latched | (solo ? (~solo & 15u) << PF_M1 : 0u)) & perf_avail() & ~PF_MIDI;
     uint32_t q, k, ph0, bnd;
     int32_t m;
     if (!held && !pf.busy && !(perf_k[0] | perf_k[1] | perf_k[2])) {   /* idle: the clock only */

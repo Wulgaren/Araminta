@@ -4,10 +4,8 @@
  *   build/host/union_test [GOLDEN_FILE]      (run_tests.sh builds and runs it against tests/union_golden.txt)
  *
  * Every pair (and A -> B -> A) of the engines that keep state per part (PHYS, DRUM, FM6), with ANALOG and WHEEL
- * (state outside the region) among them; SAMPLE / GRAIN / SLICE retired (P2-E). Part 1 switches while part 3
- * plays other engines alongside, at three presets: a chord and a low note held, released, still ringing at the
- * next switch (the fade on the old engine), and once more with the next notes inside the fade.
- * Each sequence runs in its own fork()ed child from boot state; its mix is one 64-bit FNV-1a hash (270 lines).
+ * among them. SAMPLE/GRAIN are live again but omitted here until union_golden is regenerated (GOLDEN_UPDATE=1).
+ * SLICE stays retired. Part 1 switches while part 3 plays other engines alongside.
  * env: GOLDEN_UPDATE=1 rewrites GOLDEN_FILE (only with a reason: a switch is to sound as it did). */
 #define main hostsim_main
 #include "hostsim.c"

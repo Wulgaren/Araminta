@@ -588,6 +588,31 @@ static int test_misc(void)
         snprintf(what, sizeof what, "black key 1: track 1 muted while held (peak %d -> %d), P_MUTE untouched", before, during);
         bad += check(what, before > 1000 && during < 200 && !trk[0].p[P_MUTE]);
     }
+    {   /* PLAY SOLO on a silent track: the one that was playing ramps out, its own PLAY stays ON */
+        int32_t o[2 * CTL];
+        uint32_t f;
+        int32_t before = 0, during = 0;
+        song_setup();
+        trk[1].p[P_SLEN] = 1; trk[3].p[P_SLEN] = 1;
+        trk[1].step[0].n = 0; trk[3].step[0].n = 0;
+        trk[0].p[P_CHOR] = trk[0].p[P_DLY] = trk[0].p[P_REV] = 0;
+        transport_req = 1;
+        for (f = 0; f < 2u * FS; f += CTL) {
+            uint32_t i;
+            if (f == 44096u)
+                trk[1].p[P_MUTE] = PLAY_SOLO;
+            mix_block(o, CTL);
+            for (i = 0; i < CTL; i++) {
+                if (f > FS / 2u && f < 44096u) before = abs(o[2 * i]) > before ? abs(o[2 * i]) : before;
+                if (f > FS + 512u) during = abs(o[2 * i]) > during ? abs(o[2 * i]) : during;
+            }
+        }
+        transport_req = 2;
+        mix_block(o, CTL);
+        snprintf(what, sizeof what, "PLAY SOLO on track 2: track 1 silent (peak %d -> %d), its PLAY stays ON", before, during);
+        bad += check(what, before > 1000 && during < 200 && trk[0].p[P_MUTE] == PLAY_ON && trk[1].p[P_MUTE] == PLAY_SOLO);
+        trk[1].p[P_MUTE] = PLAY_ON;
+    }
     return bad;
 }
 
@@ -914,9 +939,9 @@ static int test_map(void)
     memset(b, 0, sizeof b);
     for (p = 0; p < PF_KEYS; p++)                       /* all 0 (every setting before 1.2): the default */
         ok &= perf_map_of(b, p) == PF_DEF[p];
-    bad += check("map: settings of 0 read as the default (REPEAT + LPF/HPF + JIANT MIDI on D4..F5)",
-                 ok && PF_DEF[0] == PF_R8 && PF_DEF[3] == PF_LPF && PF_DEF[4] == PF_HPF && PF_DEF[5] == PF_OCTD &&
-                 PF_DEF[6] == PF_OCTU && PF_DEF[14] == PF_RND && PF_DEF[15] == PF_N);
+    bad += check("map: settings of 0 read as the default (REPEAT, 1/2, then LPF/HPF/OCT together)",
+                 ok && PF_DEF[0] == PF_R8 && PF_DEF[3] == PF_HALF && PF_DEF[4] == PF_LPF && PF_DEF[5] == PF_HPF &&
+                 PF_DEF[6] == PF_OCTD && PF_DEF[7] == PF_OCTU && PF_DEF[14] == PF_RND && PF_DEF[15] == PF_N);
     ok = 1;
     for (p = 0; p < PF_KEYS; p++)                       /* any effect (or none) on any key, the others untouched */
         for (e = 0; e <= PF_NFX; e++) {
@@ -1015,7 +1040,7 @@ static int test_map(void)
         fm1_in.buttons = 0;
         kb_mask = perf_mask = 0;
     }
-    snprintf(what, sizeof what, "map: the default map on the keys: F3..C4 REPEAT/LPF/HPF, D4..F5 JIANT MIDI, G5 lane clear");
+    snprintf(what, sizeof what, "map: the default map on the keys: F3..B3 REPEAT/1/2, C4..F4 LPF/HPF/OCT, G4..F5 the rest, G5 lane clear");
     {
         uint32_t k;
         ok = 1;
@@ -1024,8 +1049,8 @@ static int test_map(void)
                 uint32_t p = key_place(k);
                 ok &= perf_key(k) == (p == 15u ? PF_CLR : p < PF_KEYS ? PF_DEF[p] : PF_N);
             }
-        ok &= perf_key(6) == PF_LPF && perf_key(7) == PF_HPF && perf_key(9) == PF_OCTD && perf_key(11) == PF_OCTU &&
-              perf_key(21) == PF_ATK && perf_key(23) == PF_ARP && perf_key(24) == PF_RND;
+        ok &= perf_key(6) == PF_HALF && perf_key(7) == PF_LPF && perf_key(9) == PF_HPF && perf_key(11) == PF_OCTD &&
+              perf_key(12) == PF_OCTU && perf_key(21) == PF_ATK && perf_key(23) == PF_ARP && perf_key(24) == PF_RND;
     }
     bad += check(what, ok);
     return bad;

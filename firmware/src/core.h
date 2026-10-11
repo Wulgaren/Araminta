@@ -3,8 +3,8 @@
 /* FELUCCA core types: tracks, voices, engines, parameters.
  * Four tracks, each a synth part: its own engine, preset, parameters, voices and 64-step
  * pattern. The parts share one budget of NVOICE sounding voices (voice.c). Drums are the DRUM
- * engine (General MIDI map) on any part. SAMPLE / GRAIN / NOISE / SLICE are retired (eng_retire.c);
- * SAMPLE PERC still maps to DRUM (drum_from_perc).
+ * engine (General MIDI map) on any part. SLICE is retired (eng_retire.c); SAMPLE PERC still maps
+ * to DRUM (drum_from_perc).
  * Sections: sizes, parameters, voices and engines, tracks and the song, system. */
 #include <stdint.h>
 
@@ -18,15 +18,19 @@
 #define FELUCCA_FM4 0            /* the DIGITAL engine (eng_digital.c, four-operator FM): kept in the tree, not built
                                   * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
 #endif
-/* Engine table is append-only. Indices 4 SAMPLE, 8 GRAIN, 11 NOISE, 13 SLICE stay reserved (eng_retire.c):
- * never selectable; old stores load as ANALOG or DRUM. FELUCCA_SLICE is gone (always reserved). */
+#ifndef FELUCCA_SLICE
+#define FELUCCA_SLICE 0          /* SLICE engine retired (eng_retire.c ENG_SLICE_GONE); keep 0 so sample/grain
+                                  * stubs compile without eng_slice.c */
+#endif
+/* Engine table is append-only. Index 13 SLICE stays reserved (eng_retire.c): never selectable; old stores
+ * load as DRUM. SAMPLE (4), GRAIN (8), NOISE (11) are live again. */
 #define NENGINES 14u
 #define ENGI_DIGITAL 1u          /* reserved without FELUCCA_FM4: never selectable (eng_ok), its sounds load as FM6 */
-#define ENGI_SAMPLE 4u           /* reserved: SAMPLE retired (eng_retire.c) */
-#define ENGI_GRAIN 8u            /* reserved: GRAIN retired */
-#define ENGI_NOISE 11u           /* reserved: NOISE retired */
-#define ENGI_SLICE 13u           /* reserved: SLICE retired */
-#define NENG_SHOWN (9u + FELUCCA_FM4)   /* pickable: ANALOG FM6 [DIGITAL] PHASE LOFI VOICE TRIO WHEEL PHYS DRUM */
+#define ENGI_SAMPLE 4u
+#define ENGI_GRAIN 8u
+#define ENGI_NOISE 11u
+#define ENGI_SLICE 13u           /* reserved: SLICE retired (eng_retire.c) */
+#define NENG_SHOWN (12u + FELUCCA_FM4)   /* pickable: ANALOG FM6 [DIGITAL] PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM */
 #define UP_SLOTS 32u             /* user presets (upreset.c) */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -87,6 +91,8 @@ enum {                          /* per-track parameters */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
+/* P_MUTE (params.c N_PLAY). Append-only: stored 0 plays (PLAY ON), 1 is silent (PLAY OFF). */
+enum { PLAY_ON = 0, PLAY_OFF = 1, PLAY_SOLO = 2 };
 /* 1.5 INSERT ids (np 111): migrated to the chain in project.c / upreset.c ins_migrate */
 enum { P_ITYPE_LEG = 96, P_IA_LEG = 97, P_IB_LEG = 98, P_IC_LEG = 99, P_IMIX_LEG = 100 };
 enum { INS_N = 6, INS_DIST = 0, INS_FILTER = 1, INS_CRUSH = 2, INS_PHASR = 3, INS_FLANG = 4, INS_CHOR = 5 };
@@ -202,25 +208,25 @@ static void ins_migrate(int16_t *p, uint32_t np)
 #define ENGI_PHYS 9u
 #define ENGI_DRUM 10u
 /* PHYS MODEL DRUM (MODEL 4, before 1.0) -> the DRUM engine, its E values in place: {MODEL, TUNE, TONE, DECY,
- * SNAP, ACC, KICK 0..127, PERC 0..127} -> {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK 0..1, DRV 0}. 1 = it was one
+ * SNAP, ACC, KICK 0..127, PERC 0..127} -> {MRPH, TUNE, TONE, DECY, NOIS, FM, FOLD, DRV} with the old PERC/KICK
+ * packed into the first slots so stored projects stay finite (DRUM-X plays them as MRPH / FOLD). 1 = it was one
  * (its engine is ENGI_DRUM now); projects (project.c) and user presets (upreset.c) */
 static int drum_from_phys(uint32_t engine, int16_t *e)
 {
     if (engine != ENGI_PHYS || e[0] != 4)
         return 0;
-    e[0] = (int16_t)((e[7] < 0 ? 0 : e[7] > 127 ? 127 : e[7]) >> 5);   /* PERC -> KIT: STD HAND CYM H+CYM */
-    e[6] = (int16_t)(e[6] >= 64);                                       /* KICK: PUNCH, ROUND */
+    e[0] = (int16_t)((e[7] < 0 ? 0 : e[7] > 127 ? 127 : e[7]) >> 5);   /* PERC -> MRPH (was KIT index) */
+    e[6] = (int16_t)(e[6] >= 64);                                       /* KICK -> FOLD on/off (was PUNCH/ROUND) */
     e[7] = 0;
     return 1;
 }
 
-/* SAMPLE (engine 4) is retired (eng_retire.c). SET 4 was PERC, the GM kit: a SAMPLE sound that still selects
- * it loads as DRUM with its default kit (same GM map). projects (proj_perc), user presets (up_migrate),
- * favourites (settings_persist.c). CR78 WAVs under assets/samples-cc0/CR78/ are listening reference for DRUM KIT 78
- * (drum_voice.c; synthesized, not sample playback).
- * Idempotent. */
+/* SAMPLE SET 4 was PERC, the GM kit (tools/gen_samples.py); retired after 1.0.2: its index stays
+ * (SET / GRAIN SRC 4 is an alias of PIANO). A sound that selected it is the DRUM engine with
+ * its default kit (same GM map). projects (proj_perc), user presets (up_migrate), favourites
+ * (settings_persist.c). Idempotent. */
 #define SMP_SET_PERC 4u
-#define DRUM_KIT_E {0, 64, 70, 64, 64, 100, 0, 0}   /* {KIT STD, TUNE, TONE, DECY, SNAP, ACC, KICK PUNCH, DRV} */
+#define DRUM_KIT_E {64, 64, 70, 64, 64, 0, 0, 0}   /* {MRPH, TUNE, TONE, DECY, NOIS, FM, FOLD, DRV} (DRUM-X) */
 static int drum_from_perc(uint32_t engine, int16_t *e)
 {
     static const int16_t KIT[8] = DRUM_KIT_E;
@@ -346,7 +352,8 @@ static void step_set_ratchet(step_t *s, uint32_t hits)
 }
 /* NUDGE (1.2, #162, D98): a step's timing, in 1/NUDGE_DIV of the track's DIV, -8..+7 (half a step early .. 7/16 late);
  * live recording keeps it, SEQ > AUTOMATION's NUDGE rows and DETAIL's NUDGE set it, the track's QUANTIZE
- * OFF (P_SQNT, AUTOMATION's QUANTIZE row) plays it (seq.c seq_tick). STEP steps held + PRESETS moves steps in time.
+ * OFF (P_SQNT, AUTOMATION's QUANTIZE row) plays it (seq.c seq_tick). On the drum grid, steps held + PRESETS moves
+ * those steps in time; on the piano roll, PRESETS moves the note under the cursor (its ties with it).
  * Four bits of the flags no other field uses: 4 (bit 3 of the nudge, its sign) and 32 64 128 (bits 0..2). 0 = on the
  * step: every older pattern. A user preset's pattern keeps none (upreset.c up_pat_norm) */
 #define NUDGE_DIV 16
@@ -362,7 +369,8 @@ static void step_set_nudge(step_t *s, int32_t v)
     s->flags = (uint8_t)((s->flags & ~SF_NUDGE) | (u & 7u) << 5 | (u >> 1 & 4u));
 }
 #define MOTION_MAX 128u          /* RAM / old FUN10 (np<=111): 128 records. New saves (np==P_COUNT): see MOTION_FILE_MAX */
-#define MOTION_FILE_MAX 110u     /* disk: 4+110*3=334; +2 B/track for P_IORD (0..719) leaves 2 B before FM6 */
+#define MOTION_FILE_MAX_V10 110u /* FUN10 disk: 4+110*3=334; +2 B/track for P_IORD left 2 B before FM6 */
+#define MOTION_FILE_MAX 78u      /* FUN11 disk: 4+78*3=238; frees 96 B for the DRUM-X kit (project.c PROJ_DX_*) */
 /* Four tracks x64 steps fit one byte. Values retain their signed parameter range (-64..127: an int8_t, 1.2).
  * param: the P_* id (< 128: P_COUNT is at most 127, project.c), bit 7 (MOTION_LOCK, 1.1) a parameter lock: the value
  * sounds on that step only and goes back after it (motion.c motion_step); without it an automation event, the
@@ -372,8 +380,10 @@ static void step_set_nudge(step_t *s, int32_t v)
 typedef struct { uint8_t place, param; int8_t value; } motion_event_t;
 typedef struct { uint8_t count, on, rsv[2]; motion_event_t event[MOTION_MAX]; } motion_store_t;
 _Static_assert(sizeof(motion_store_t) == 388u, "motion RAM layout (128 records)");
+#define MOTION_FILE_SIZE_V10 (4u + MOTION_FILE_MAX_V10 * sizeof(motion_event_t))
 #define MOTION_FILE_SIZE (4u + MOTION_FILE_MAX * sizeof(motion_event_t))
-_Static_assert(MOTION_FILE_SIZE == 334u, "motion disk layout when insert chain is stored");
+_Static_assert(MOTION_FILE_SIZE_V10 == 334u, "FUN10 motion disk layout");
+_Static_assert(MOTION_FILE_SIZE == 238u, "FUN11 motion disk layout (kit before FM6)");
 #define CHAIN_ROWS 16u
 /* A song section (1.2, FUN10): the PROJECT slot each track plays (0..3, A..D; CHAIN_SILENT "-": that track plays
  * nothing there) and its repeats (1..16). Up to 1.1 a row was {slot, repeat}, all four tracks on that slot

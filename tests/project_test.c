@@ -367,7 +367,6 @@ int main(void)
     {
         static const int16_t OLD_KIT[8] = {4, 64, 70, 64, 64, 100, 0, 0};   /* PHYS DRUM KIT before 1.0 */
         static const int16_t E0[8] = {4, 70, 80, 60, 50, 110, 100, 70}, E1[8] = {2, 10, 20, 30, 40, 50, 60, 70};
-        const preset_t *dk = &ENGINES[ENGI_DRUM]->presets[0];
         q.t[0].engine = ENGI_PHYS;                      /* MODEL DRUM, PERC 70 (CYM), KICK 100 (ROUND) */
         q.t[0].preset = 9;
         q.t[1].engine = ENGI_PHYS;                      /* MEMB (2: DUST only before phys 1) */
@@ -393,9 +392,12 @@ int main(void)
             ok &= q2.t[0].p[P_E0 + i] == E0[i];         /* TUNE TONE DECY SNAP ACC in place */
         ok &= q2.t[1].engine == ENGI_PHYS && !memcmp(q2.t[1].p, q.t[1].p, sizeof q.t[1].p);
         ok &= q2.t[3].engine == ENGI_PHYS && !memcmp(q2.t[3].p, q.t[3].p, sizeof q.t[3].p);
-        ok &= q2.t[2].engine == ENGI_DRUM;              /* the old DRUM KIT: DRUM's DRUM KIT */
-        for (i = 0; i < 8u; i++)
-            ok &= q2.t[2].p[P_E0 + i] == dk->e[i];
+        ok &= q2.t[2].engine == ENGI_DRUM;              /* PHYS MODEL DRUM -> DRUM-X (E values via drum_from_phys) */
+        {
+            static const int16_t CONV[8] = {0, 64, 70, 64, 64, 100, 0, 0};   /* OLD_KIT after drum_from_phys */
+            for (i = 0; i < 8u; i++)
+                ok &= q2.t[2].p[P_E0 + i] == CONV[i];
+        }
         ok &= !memcmp(&q2.t[0].step[1], &q.t[0].step[1], sizeof q.t[0].step - sizeof(step_t)) &&
               q2.t[0].p[P_LEVEL] == q.t[0].p[P_LEVEL];
         ok &= q2.t[0].step[0].n == 0 && q2.t[0].step[0].hit == ((1u << DV_KICK) | (1u << DV_HATC));   /* the grid */
@@ -418,10 +420,11 @@ int main(void)
         project_t a, c;
         project_store_t st, st2;
         uint32_t i, zero = 1;
-        bad += check("FUN10 name at the end of the reserved tail, the FM6 patches before it, after the data (2 spare)",
-                     PROJ_NAME_OFF == 3824u && PROJ_FM6_OFF == 3312u &&
+        bad += check("FUN11 name at the end of the reserved tail; kit before FM6 (2 spare before kit)",
+                     PROJ_NAME_OFF == 3824u && PROJ_FM6_OFF == 3312u && PROJ_DX_OFF == 3216u &&
+                     PROJ_DX_OFF + PROJ_DX_SIZE == PROJ_FM6_OFF &&
                      68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + sizeof(chain_config_t) + MOTION_FILE_SIZE + 2u ==
-                         PROJ_FM6_OFF);
+                         PROJ_DX_OFF);
         memset(&a, 0, sizeof a);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);
@@ -470,13 +473,13 @@ int main(void)
         }
         memcpy(a.name, "FM SONG", 7);
         a.sum = proj_sum(&a);
-        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E41u && proj_import(&c, &st, sizeof st);
+        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E42u && proj_import(&c, &st, sizeof st);
         for (k = 0; k < NTRK; k++)
             ok &= !memcmp(c.fm6[k], FM6_FACTORY[k * 2u], FM6_PACKED) && c.t[k].engine == ENGI_FM6 &&
                   !memcmp(st.raw + PROJ_FM6_OFF + k * FM6_PACKED, FM6_FACTORY[k * 2u], FM6_PACKED);
-        bad += check("FUN10: the four FM6 patches round trip (bytes at PROJ_FM6_OFF)", ok && !memcmp(c.name, "FM SONG", 7));
+        bad += check("FUN11: the four FM6 patches round trip (bytes at PROJ_FM6_OFF)", ok && !memcmp(c.name, "FM SONG", 7));
         st.raw[PROJ_FM6_OFF + 5] ^= 1u;
-        bad += check("FUN10: a patch byte changed: the hash refuses it", !proj_import(&c, &st, sizeof st));
+        bad += check("FUN11: a patch byte changed: the hash refuses it", !proj_import(&c, &st, sizeof st));
         st.raw[PROJ_FM6_OFF + 5] ^= 1u;
         {   /* FUN8 as 1.0.x wrote it (3584 bytes, 91 parameters: E0..E7 at 83..90, the patches at 3056): the DRUM
              * lane levels 100 %, E0..E7 and their motion at today's P_E0.., the patches and the name kept */
@@ -637,8 +640,9 @@ int main(void)
 #undef FM4_OK
     }
 #endif
-    {   /* SAMPLE tracks: PERC (SET 4) -> DRUM kit; any other SAMPLE -> ANALOG (SAMPLE engine retired).
-         * EDIT motion on remapped tracks goes; shared-param motion stays. Idempotent. */
+    {   /* SAMPLE tracks of SET 4 (PERC, the GM kit, retired after 1.0.2) in FUN8 / FUN4 projects load as DRUM with its
+         * default kit: the E values the kit's, the rest of the sound, the steps and the preset byte's meaning kept; their
+         * motion on the EDIT values goes, the rest stays; another SAMPLE set stays SAMPLE. Idempotent */
         project_t a, c, d;
         static project_store_t st;
         static project_v4_t w4;
@@ -659,33 +663,33 @@ int main(void)
         a.t[2].preset = 4;
         a.t[2].step[0] = (step_t){{36, 42, 0, 0}, 2, ST_NOTE, SF_ACCENT, 100, 0, 0};
         a.t[2].step[4] = (step_t){{38, 49, 0, 0}, 2, ST_NOTE, 0, 90, 0, 0};
-        a.t[0].p[P_E0] = 2;                             /* track 1: was FLUTE; now ANALOG */
+        a.t[0].p[P_E0] = 2;                             /* track 1: FLUTE stays */
         a.motion.count = 3;
         a.motion.event[0] = (motion_event_t){2u << 6 | 3u, P_E4, 20};          /* track 3: CUT: goes */
         a.motion.event[1] = (motion_event_t){2u << 6 | 5u, P_REV, 60};         /* track 3: a send: stays */
-        a.motion.event[2] = (motion_event_t){0u << 6 | 3u, P_E4, 70};          /* track 1 EDIT: goes (ANALOG) */
+        a.motion.event[2] = (motion_event_t){0u << 6 | 3u, P_E4, 70};          /* track 1: stays */
         a.sum = proj_sum(&a);
 #define PERC_OK(c) ((c).t[2].engine == ENGI_DRUM && (c).t[2].preset == 0u && !memcmp(&(c).t[2].p[P_E0], KIT, sizeof KIT) && \
                     !memcmp((c).t[2].p, a.t[2].p, P_E0 * sizeof(int16_t)) && \
                     !memcmp((c).t[2].step, a.t[2].step, sizeof a.t[2].step) && \
-                    (c).t[0].engine == 0u && (c).t[1].engine == 0u)
+                    (c).t[0].engine == ENGI_SAMPLE && (c).t[0].p[P_E0] == 2 && (c).t[1].engine == ENGI_SAMPLE)
         ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
-        bad += check("FUN8 with SAMPLE PERC + SAMPLE: PERC->DRUM, others->ANALOG", ok && PERC_OK(c) &&
-                     str_eq(ENGINES[ENGI_DRUM]->presets[0].name, "DRUM KIT") &&
+        bad += check("FUN8 with a SAMPLE PERC track: DRUM's kit, the rest of the sound and the steps kept", ok && PERC_OK(c) &&
+                     str_eq(ENGINES[ENGI_DRUM]->presets[0].name, "DRUM-X") &&
                      !memcmp(ENGINES[ENGI_DRUM]->presets[0].e, (int8_t[8])DRUM_KIT_E, 8));
-        bad += check("  EDIT motion on remapped tracks goes; a send stays",
-                     c.motion.count == 1u && c.motion.event[0].param == P_REV &&
+        bad += check("  its motion on CUT goes; a send's and the other track's stay",
+                     c.motion.count == 2u && c.motion.event[0].param == P_REV && c.motion.event[1].place == 3u &&
                      motion_valid(&c.motion) && proj_ok(&c));
-        bad += check("  imported again: as it is (DRUM / ANALOG now)", proj_import(&d, &c, sizeof c) && !memcmp(&d, &c, sizeof d));
+        bad += check("  imported again: as it is (DRUM now)", proj_import(&d, &c, sizeof c) && !memcmp(&d, &c, sizeof d));
         memset(&a.motion, 0, sizeof a.motion);
         a.sum = proj_sum(&a);
         to_v4(&w4, &a);
         memcpy(&buf, &w4, sizeof w4);
         ok = proj_import(&c, &buf, (int)sizeof w4) && PERC_OK(c);
-        bad += check("FUN4 with SAMPLE PERC + SAMPLE: the same", ok);
+        bad += check("FUN4 with a SAMPLE PERC track: DRUM's kit, the same", ok);
 #undef PERC_OK
     }
-    {   /* GRAIN / NOISE -> ANALOG; SLICE -> DRUM (eng_retire.c). Idempotent. */
+    {   /* GRAIN / NOISE stay; SLICE -> DRUM (eng_retire.c). Idempotent. */
         project_t a, c;
         static project_store_t st;
         uint32_t i;
@@ -704,9 +708,9 @@ int main(void)
         a.t[3].engine = 0;
         a.sum = proj_sum(&a);
         ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
-        bad += check("FUN10 GRAIN/NOISE->ANALOG, SLICE->DRUM kit; shared LEVEL kept",
-                     ok && c.t[0].engine == 0u && c.t[0].p[P_LEVEL] == 88 &&
-                     c.t[1].engine == 0u && c.t[1].p[P_LEVEL] == 77 &&
+        bad += check("FUN11 GRAIN/NOISE stay, SLICE->DRUM kit; shared LEVEL kept",
+                     ok && c.t[0].engine == ENGI_GRAIN && c.t[0].p[P_LEVEL] == 88 &&
+                     c.t[1].engine == ENGI_NOISE && c.t[1].p[P_LEVEL] == 77 &&
                      c.t[2].engine == ENGI_DRUM && c.t[2].preset == 0u &&
                      !memcmp(&c.t[2].p[P_E0], KIT, sizeof KIT) && c.t[2].p[P_LEVEL] == 66 &&
                      c.t[3].engine == 0u && proj_ok(&c));
@@ -730,6 +734,37 @@ int main(void)
         a.t[0].p[P_IORD] = 800;
         a.sum = proj_sum(&a);
         bad += check("FUN10 P_IORD order above 719 is refused", !proj_pack(&st, &a));
+    }
+    {   /* FUN11: DRUM-X kit / mute / X-MOD at PROJ_DX_OFF; FUN10 (FUNA) loads the factory kit */
+        project_t a, c;
+        static project_store_t st, funa;
+        uint32_t sum;
+        memset(&a, 0, sizeof a);
+        a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
+        chain_defaults(&a.chain);
+        memcpy(a.dx, DX_KIT_DEF, sizeof a.dx);
+        a.dx[0].a[0] = 11; a.dx[0].b[2] = 99; a.dx[3].a[4] = 55;
+        a.dx_mute = (uint16_t)(DXG_KICK | (1u << 8) | (4u << 8));
+        a.dx_mot[XM_RATE] = 3; a.dx_mot[XM_DPTH] = 40; a.dx_mot[XM_SHPE] = 2; a.dx_mot[XM_RAND] = 17;
+        memcpy(a.name, "DX KIT", 6);
+        a.sum = proj_sum(&a);
+        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E42u &&
+             !memcmp(st.raw + PROJ_DX_OFF, a.dx, sizeof a.dx) &&
+             st.raw[PROJ_DX_OFF + sizeof a.dx] == (uint8_t)(a.dx_mute & DXG_ALL) &&
+             st.raw[PROJ_DX_OFF + sizeof a.dx + 1u] == (uint8_t)(a.dx_mute >> 8) &&
+             st.raw[PROJ_DX_OFF + sizeof a.dx + 2u] == 1u &&
+             !memcmp(st.raw + PROJ_DX_OFF + sizeof a.dx + 3u, a.dx_mot, sizeof a.dx_mot) &&
+             proj_import(&c, &st, sizeof st) && !memcmp(&a, &c, sizeof a);
+        bad += check("FUN11: DRUM-X kit, mute and X-MOD round trip (bytes at PROJ_DX_OFF)", ok);
+        funa = st;
+        ((uint32_t *)funa.raw)[0] = 0x46554E41u;       /* FUNA / FUN10: same 3840 layout, no kit block */
+        memset(funa.raw + PROJ_DX_OFF, 0, PROJ_DX_SIZE);
+        sum = proj_hash(funa.raw, PROJ_STORE_SIZE - 4u);
+        memcpy(funa.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+        ok = proj_import(&c, &funa, sizeof funa) && !memcmp(c.dx, DX_KIT_DEF, sizeof c.dx) &&
+             !c.dx_mute && !c.dx_mot[0] && !c.dx_mot[1] && !c.dx_mot[2] && !c.dx_mot[3] &&
+             !memcmp(c.name, "DX KIT", 6);
+        bad += check("FUN10 (FUNA): loads with the factory DRUM-X kit (custom kit not on disk)", ok);
     }
     printf("%s\n", bad ? "PROJECT FORMAT TEST FAILED" : "project format test passed");
     return bad != 0;

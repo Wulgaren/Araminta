@@ -501,7 +501,7 @@ static void ev_delete(void)
     uint32_t n, c = ev_cur(rw, &n), r = ev_row(n), k = c >> 8;
     const motion_event_t *e;
     if (k == EVK_TOP || k == EVK_QNT || k == EVK_ADD) {
-        ui_message("NOTHING TO DELETE");
+        ui_message("NOTHING TO DEL");
         return;
     }
     if (ev_busy())
@@ -522,7 +522,7 @@ static void ev_delete(void)
 }
 
 /* ------------------------------------------------------------ #223 pick --- */
-/* Flat full-screen lists for AUTOMATION's PARAM, MOD's DST, and ENV DEST / LFO DEST (GR_DESTS).
+/* Flat full-screen lists for AUTOMATION's PARAM and MOD's DST.
  * Each row is selectable: tag = family (left), name = short label (right). */
 #define PK_ROWS 96u
 typedef struct { uint16_t id; const char *tag; char name[16]; } pk_row_t;
@@ -550,7 +550,7 @@ static void pk_auto_name(const track_t *t, uint32_t id, char *b)
     else if (id == P_GLIDE)
         str_cpy(b, "GLIDE", 16);
     else if (id == P_DETUNE)
-        str_cpy(b, "DETUNE", 16);
+        str_cpy(b, "UNI DETUNE", 16);
     else if (id == P_SPRD)
         str_cpy(b, "SPREAD", 16);
     else if (id == P_DIST)
@@ -675,25 +675,6 @@ static uint32_t pk_build_mdst(const track_t *t, uint32_t d, uint32_t *sel)
         if (i == d)
             *sel = pk_n;
         pk_add_item(i, pk_mdst_group(i), nm);
-    }
-    return pk_n;
-}
-/* ENV DEST / LFO DEST page: the four knobs as a flat tag+name list */
-static uint32_t pk_build_page(const page_t *pg, uint32_t *sel)
-{
-    static const char *const ENV_N[] = {"FILTER", "PITCH", "SHAPE", "ENV SYNC"};
-    static const char *const LFO_N[] = {"PITCH", "FILTER", "SHAPE", "AMP"};
-    const char *const *names = pg->id[0] == P_ED_FLT ? ENV_N : LFO_N;
-    const char *g0 = pg->id[0] == P_ED_FLT ? "ENV" : "LFO";
-    uint32_t k;
-    pk_n = 0;
-    *sel = ui.hot_t ? ui.hot_col & 3u : 0u;
-    for (k = 0; k < 4u; k++) {
-        if (pg->id[k] == 0xFFu)
-            continue;
-        pk_add_item(k, pg->id[k] == P_ESYNC ? "SYNC" : g0, names[k]);
-        if ((ui.hot_t ? ui.hot_col : 0u) == k)
-            *sel = pk_n - 1u;
     }
     return pk_n;
 }

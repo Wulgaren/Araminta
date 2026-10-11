@@ -42,7 +42,8 @@ All by Hügelton Instruments (Leo Kuroshita), in this tree:
 
 | What | Licence | Where |
 | --- | --- | --- |
-| Inter Tight font by The Inter Project Authors: the UI text, rasterised into the firmware at build time (`tools/gen_aa_font.py`; the generated tables are not offered as a font, and the font declares no Reserved Font Name) | SIL OFL 1.1 | `assets/fonts/InterTight[wght].ttf`, `LICENSES/OFL-InterTight.txt` (also `assets/fonts/OFL.txt`) |
+| Terminus font by Dimitar Toshkov Zhekov: the UI text (Felucca 0.9), rasterised into the firmware at build time (`tools/gen_aa_font.py --preset terminus`; the generated tables are not offered as a font) | SIL OFL 1.1 | `assets/fonts/ter-u16n.bdf`, `LICENSES/OFL-Terminus.txt` (also `assets/fonts/Terminus-LICENSE.txt`) |
+| Inter Tight font by The Inter Project Authors: keycap labels and panel diagrams (`tools/gen_aa_keycaps.py`, `tools/gen_panel_diagram.py`; the font declares no Reserved Font Name) | SIL OFL 1.1 | `assets/fonts/InterTight[wght].ttf`, `LICENSES/OFL-InterTight.txt` (also `assets/fonts/OFL.txt`) |
 | Instrument samples (Versilian Studios VSCO-2 Community Edition, VCSL): the SAMPLE sets PIANO / FLUTE / SAX, also the SLICE engine's PIANO (the PIANO set's middle C) | CC0 1.0 | `assets/samples-cc0/`, provenance in `ATTRIBUTION.txt` there |
 | CR78 drum one-shots (Araminta SAMPLE kit set 5): user-provided CR-78 style WAVs | not CC0; see attribution | `assets/samples-cc0/CR78/`, note in `ATTRIBUTION.txt` |
 | DaisySP by Electrosmith, Corp and Emilie Gillet (<https://github.com/electro-smith/DaisySP>): the PHYS engine's modal and string models and the resonator, ported to fixed point | MIT | `firmware/src/phys_dsp.c`, `LICENSES/MIT-DaisySP.txt` |
