@@ -747,33 +747,12 @@ static void home_tap(void)
     }
 }
 
-/* SELECT: pages that share fam+sec. On HOME / TRK: Home ↔ Mixer pages ↔ Clock (not section jumps). Tempo: OCT++SELECT */
+/* SELECT: pages that share fam+sec (HOME button cycles Home / Mixer / Clock). Tempo: OCT++SELECT */
 static void select_page_step(int32_t dir)
 {
-    uint32_t fam, sec, i, k, idx[NPAGES], n = 0, cur = 0;
-    if (dir == 0)
-        return;
-    if (ui.home || cur_page()->fam == FAM_TRK) {
-        idx[n++] = 0xFFFFu;                            /* HOME sentinel */
-        for (i = 0; i < NPAGES; i++)
-            if (PAGES[i].fam == FAM_TRK && page_visible(i))
-                idx[n++] = i;
-        if (!ui.home)
-            for (i = 1u; i < n; i++)
-                if (idx[i] == ui.page) { cur = i; break; }
-        cur = (cur + (dir > 0 ? 1u : n - 1u)) % n;
-        if (idx[cur] == 0xFFFFu) {
-            go_home();
-        } else if (ui.home && dir > 0) {
-            home_tap();
-        } else {
-            ui.page = (uint8_t)idx[cur];
-            ui.home = 0;
-            ui.fam_last[FAM_TRK] = ui.page;
-            page_entered();
-        }
-        return;
-    }
+    uint32_t fam, sec, i, idx[NPAGES], n = 0, cur = 0;
+    if (dir == 0 || ui.home)
+        return;                                        /* Home is its own section; no pages to walk */
     fam = cur_page()->fam;
     sec = cur_page()->sec;
     for (i = 0; i < NPAGES; i++)
