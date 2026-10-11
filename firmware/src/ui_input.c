@@ -1064,7 +1064,8 @@ static void step_edit(uint32_t slot, int32_t steps)
                 for (k = 0; k < span && ui.cursor + k < NSTEP; k++)
                     (void)motion_clear_locks(TSEL, ui.cursor + k);
                 motion_undo_done(TSEL);
-                ui_message("NOTE CLEARED");               /* KNOB 3 is TIME now (the cards follow the step) */
+                ui_message("NOTE CLEARED");               /* on to the next step (wraps inside LEN, as step entry) */
+                cursor_set(ui.cursor + 1);
                 ui.force = 1;
                 break;
             }

@@ -166,9 +166,9 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **ENV SYNC** (Discussion #175): ENV DEST's KNOB 4 (ESYNC) makes ENV's ATK, DEC and REL note values of the tempo
   (1/64T to 4 bars, dotted and triplets) instead of milliseconds; they follow the tempo and an external clock.
 - **A note's length on the piano roll** (Discussions #178, #173): on SEQ > STEP, KNOB 3 on a note step is its **LEN**:
-  right ties the steps after it on, left takes them back, and left until 0 clears the note (KNOB 3 becomes TIME).
-  It stops before the next note ("NOTE AHEAD"). PRESETS moves that note in time, cursor with it; on a rest it
-  moves the cursor. On the drum grid, hold the step keys and turn PRESETS.
+  right ties the steps after it on, left takes them back, and left until 0 clears the note and moves the cursor
+  on one step (wrapping inside LEN). It stops before the next note ("NOTE AHEAD"). PRESETS moves that note in
+  time, cursor with it; on a rest it moves the cursor. On the drum grid, hold the step keys and turn PRESETS.
 - **Per-step velocity** (Discussion #173): SEQ > AUTOMATION, **+ ADD VEL** (OCT+: SHOW) lists every note step's
   velocity, KNOB 4 sets it (1-127). Steps entered by hand play 96, steps recorded live keep how hard you played.
 - **HELP** (Discussion #156; MENU > SYSTEM > HELP, OFF by default): ON shows a short hint, key caps and a few words, in

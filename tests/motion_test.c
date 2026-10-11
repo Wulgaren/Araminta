@@ -697,9 +697,10 @@ static int lock_ui(void)
     go_seq_step();
     ui.cursor = 0;
     frame();
-    turn(EN_K3, -1);                                     /* LEN 1 -> 0: the note and its locks */
-    bad += check("  KNOB 3 to LEN 0 clears the note and its locks",
-                 !t->step[0].n && t->step[0].time == ST_REST && !motion_lock_count(t) && msg_is("NOTE CLEARED"));
+    turn(EN_K3, -1);                                     /* LEN 1 -> 0: the note and its locks; cursor on */
+    bad += check("  KNOB 3 to LEN 0 clears the note and its locks; the cursor moves on",
+                 !t->step[0].n && t->step[0].time == ST_REST && !motion_lock_count(t) && msg_is("NOTE CLEARED") &&
+                 ui.cursor == 1u);
     song.playing = 1; chain.running = 1;
     lk_down(kn); turn(EN_K3, 1); lk_up(kn);
     bad += check("  a song playing: STOP TO EDIT, no lock", !motion_lock_count(t) && msg_is("STOP TO EDIT"));
