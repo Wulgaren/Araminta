@@ -13,6 +13,8 @@
 /* the height ADSR and LFO are drawn on: 100 px, or (MENU > LARGE's strip: draw_graph) the strip's ~ 56 */
 static int32_t graph_ht = 100;
 #include "ui_fm6op.c"                                /* EDIT > OPERATOR, OP ENV, OPERATOR 2: FM6's operators (their charts below) */
+/* FX technical graphs (DIST DLY REVERB CHOR MASTER + insert stages): after JIANT FM, flat tokens */
+#include "ui_tech.c"
 
 /* Matches voice.c: attack is linear, decay and release are exponential
  * (env += (target - env) * k each tick, ~99 % after the set time). Time
@@ -1133,8 +1135,8 @@ static uint32_t graph_signature(void)
     h ^= (uint32_t)pg->graph * 131u + TSEL->eng_req + song.sel * 7777u + ui.page * 1291u;
     if (strip_kind() == SK_TITLE)                    /* MENU > LARGE: the page's title (its engine, its number) */
         return h ^ 0x5A17u;
-    if (pg->graph == GR_NONE || pg->graph == GR_ARP || pg->graph == GR_STEPS)
-        h ^= ui.frame / 2u;                          /* scope (PATTERN / SEQ TOOLS fall through to it) */
+    if (pg->graph == GR_NONE || pg->graph == GR_ARP || pg->graph == GR_STEPS || pg->graph == GR_INS)
+        h ^= ui.frame / 2u;                          /* scope / FX tech (live playhead, chorus taps, energy) */
     for (i = 0; i < P_COUNT; i++)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
     h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u +
@@ -2299,7 +2301,9 @@ static void draw_graph(void)
             graph_iord(t, c);
             break;
         case GR_INS:
-            graph_insert(t, c);
+            cv_oy = 0;
+            if (!graph_tech(t, pg))
+                graph_insert(t, c);
             break;
         case GR_MOD:
             cv_oy = 0;
@@ -2362,7 +2366,11 @@ static void draw_graph(void)
             else if ((pg->scope == SC_ENGINE || pg->id[0] == P_FM1_LEVEL) && t->eng_req % NENGINES == ENGI_DIGITAL)
                 graph_fm(t, c);                      /* (OP LEVEL too: the levels on the chart) */
 #endif
-            else { cv_oy = 0; graph_scope(c); }
+            else {
+                cv_oy = 0;
+                if (!graph_tech(t, pg))
+                    graph_scope(c);
+            }
             break;
         }
     }
