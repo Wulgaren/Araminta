@@ -26,7 +26,16 @@ If you must invoke the script while iterating, use `SANITIZE=0 tests/run_tests.s
 
 ### Handoff
 
-Before handing control back after firmware/UI/host-test edits: run a full `tests/run_tests.sh` with sanitizers left on (default). Done when it prints `ALL HOST TESTS PASSED`.
+Gate by blast radius of the edit, not the full script by default.
+
+1. List the distinct `build/host/*` binaries that cover the touched paths (use the map below; `ui_test` and `ui_render` count as two).
+2. If that list has **1 or 2** binaries: compile and run each. If `web/` also moved, run the matching `node web/test_*.mjs` too. Docs-only / no behaviour change: no suite.
+3. If the list has **3 or more** binaries: run full `tests/run_tests.sh` with sanitizers on (default).
+4. Done when every required command exits 0 (full suite: `ALL HOST TESTS PASSED`).
+
+Firmware + web in one change: run the host side from steps 2–3 **and** the web tests; do not skip one because the other passed.
+
+Full suite on request, or before a commit/PR the user asks for, still wins over this rule when they ask for it.
 
 ## Rough map (source → host binary)
 

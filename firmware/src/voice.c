@@ -174,13 +174,11 @@ static voice_t *voice_reuse(track_t *t, voice_t *v)
 }
 
 /* POLY allocation (within the engine's voice cap). DRUM: reuse its lane; other engines: the same note.
- * Else a free voice: ROTATE takes
- * the next one round-robin (release tails ring out), REUSE (or any GLIDE) takes
- * the free voice whose last pitch is closest, so poly portamento moves each
- * voice the shortest way. Steal: the oldest released voice, else the oldest
- * held one, never the lowest held note (the bass). A free voice needs room in the
- * shared budget: when the voice to give up is one of this part's, it is restarted
- * in place instead. */
+ * Else a free voice: round-robin (ROT; release tails ring out), or with GLIDE the free voice
+ * whose last pitch is closest so poly portamento moves each voice the shortest way. Steal: the
+ * oldest released voice, else the oldest held one, never the lowest held note (the bass). A free
+ * voice needs room in the shared budget: when the voice to give up is one of this part's, it is
+ * restarted in place instead. */
 static voice_t *voice_alloc(track_t *t, uint32_t note)
 {
     uint32_t i, np = trk_nvoice(t), best = np, low = np, nfree = 0;
@@ -203,7 +201,7 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
         if (k < NVOICE)
             voice_kill(&vp->v[k]);
     }
-    if (t->p[P_ALLOC] || t->p[P_GLIDE]) {
+    if (t->p[P_GLIDE]) {
         for (i = 0; i < np; i++) {
             int32_t d = t->v[i].pitch_cur - (int32_t)note * 16;
             if (t->v[i].active)
@@ -335,20 +333,12 @@ static void mono_play(track_t *t, uint32_t note, uint32_t vel, int retrig, int g
     t->mono_note = (uint8_t)note;
 }
 
-/* the note the mono stack asks for (PRIO: LAST / LOW / HIGH), 0 = none */
+/* the note the mono stack asks for (always LAST note), 0 = none */
 static uint32_t mono_pick(const track_t *t)
 {
-    uint32_t i, n;
     if (!t->nmono)
         return 0;
-    n = t->mono_stack[t->nmono - 1u];
-    for (i = 0; i < t->nmono; i++) {
-        if (t->p[P_PRIO] == 1 && t->mono_stack[i] < n)
-            n = t->mono_stack[i];
-        if (t->p[P_PRIO] == 2 && t->mono_stack[i] > n)
-            n = t->mono_stack[i];
-    }
-    return n;
+    return t->mono_stack[t->nmono - 1u];
 }
 
 static void mono_remove(track_t *t, uint32_t note)
@@ -402,7 +392,7 @@ static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
         t->mono_stack[t->nmono++] = (uint8_t)note;
         want = mono_pick(t);
         if (sounding && want == t->mono_note)
-            return;                                     /* LOW / HIGH priority: this key does not win */
+            return;                                     /* already the lead (LAST) */
         if (mode == V_MONO)                             /* MONO: always retrigger, glide when GLIDE is set */
             mono_play(t, want, vel, 1, t->p[P_GLIDE] != 0 || t->slide_glide);
         else                                            /* LEGATO / UNISON: glide only between held notes */
