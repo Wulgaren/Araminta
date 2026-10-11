@@ -1121,7 +1121,7 @@ static void dly_knob(uint32_t slot, int32_t steps)
     }
     ui.force = 1;
 }
-/* EFFECTS: K1 chooses the stage, K2 moves it, K3 picks FX (that stage's mix) or a send, K4 is MIX */
+/* EFFECTS: K1 chooses the stage, K2 moves it, K3 toggles that stage between the chain and a send, K4 is MIX */
 static void ior_knob(uint32_t k, int32_t s)
 {
     int32_t n = s > 0 ? s : -s, dir = s > 0 ? 1 : -1;
@@ -1135,8 +1135,11 @@ static void ior_knob(uint32_t k, int32_t s)
             ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + dir, 0, (int32_t)INS_N - 1);
         }
     } else if (k == 2u) {
-        int32_t t = ((int32_t)ui.ior_tgt + s) % 4;
-        ui.ior_tgt = (uint8_t)(t < 0 ? t + 4 : t);
+        uint8_t ord[INS_N];
+        uint32_t st;
+        ins_order_get(TSEL, ord);
+        st = ord[ui.ior_sel < INS_N ? ui.ior_sel : 0u];
+        ins_send_set(TSEL, st, !ins_is_send(TSEL, st));
     } else {
         uint32_t id = ior_pct_id();
         const param_desc_t *d = track_desc(TSEL, id);
@@ -1393,7 +1396,7 @@ static void presets_turn(int32_t s)
         ui.hot_col = 0;
         ui.hot_t = 40;
     } else if (g != GR_TOOLS && g != GR_DESTS) {
-        /* GR_DESTS: no sound load (dest pickers walk with knobs; REORDER handled above PRESETS) */
+        /* GR_DESTS: no sound load (dest pickers walk with knobs) */
         preset_step(s);
     }
 }
@@ -1821,9 +1824,6 @@ static void ui_input(void)
                     sound_dice();
             }
             sd_ms = fm1_ms | 1u;
-        } else if (cur_page()->graph == GR_IORD) {      /* EFFECTS: PRESETS / (K1 below) pick the stage */
-            ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + (s > 0 ? 1 : -1), 0, (int32_t)INS_N - 1);
-            ui.force = 1;
         } else
             presets_turn(s);
     }

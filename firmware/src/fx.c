@@ -93,7 +93,43 @@ static struct {                          /* HALL's state (in the pool: no .bss) 
 } hl __attribute__((section(".pool")));
 #define rev_side (hl.sd)
 
-/* insert chain order: P_IORD is a factorial number 0..719 for a permutation of the 6 stages */
+/* P_IORD: low 10 bits are the chain order (factorial 0..719). Bits 10..15 are one flag per
+ * stage (INS_DIST .. INS_CHOR): 0 the stage is in the chain, 1 it is a parallel send.
+ * Flags 0 is every older project. A project with a flag set does not load on firmware that
+ * still rejects any P_IORD above 719. */
+#define IORD_PERM 1023u
+#define IORD_SEND 0xFC00u
+static uint16_t iord_bits(const track_t *t)
+{
+    return (uint16_t)t->p[P_IORD];
+}
+static uint32_t iord_perm_of(uint16_t raw)
+{
+    uint32_t n = raw & IORD_PERM;
+    return n > 719u ? 0u : n;
+}
+static int ins_is_send(const track_t *t, uint32_t st)
+{
+    return st < INS_N && (iord_bits(t) & (uint16_t)(1u << (10u + st))) != 0;
+}
+static void ins_send_set(track_t *t, uint32_t st, int on)
+{
+    uint16_t raw, bit;
+    if (st >= INS_N)
+        return;
+    raw = iord_bits(t);
+    bit = (uint16_t)(1u << (10u + st));
+    raw = on ? (uint16_t)(raw | bit) : (uint16_t)(raw & (uint16_t)~bit);
+    t->p[P_IORD] = (int16_t)raw;
+}
+static void iord_set_perm(track_t *t, uint32_t n)
+{
+    uint16_t raw = iord_bits(t);
+    if (n > 719u)
+        n = 719u;
+    t->p[P_IORD] = (int16_t)(uint16_t)((raw & (uint16_t)~IORD_PERM) | (uint16_t)n);
+}
+/* insert chain order: the low 10 bits of P_IORD, a factorial number 0..719 */
 static uint32_t ins_fact(uint32_t n)
 {
     static const uint16_t F[6] = {120, 24, 6, 2, 1, 1};   /* 5! .. 0! */
@@ -101,7 +137,7 @@ static uint32_t ins_fact(uint32_t n)
 }
 static void ins_order_get(const track_t *t, uint8_t ord[INS_N])
 {
-    uint32_t n = (uint32_t)clamp(t->p[P_IORD], 0, 719), i, j;
+    uint32_t n = iord_perm_of(iord_bits(t)), i, j;
     uint8_t av[INS_N] = {0, 1, 2, 3, 4, 5};
     for (i = 0; i < INS_N; i++) {
         uint32_t f = ins_fact(INS_N - 1u - i), idx = n / f;
@@ -125,7 +161,7 @@ static void ins_order_set(track_t *t, const uint8_t ord[INS_N])
         for (j = idx; j + 1u < INS_N - i; j++)
             av[j] = av[j + 1u];
     }
-    t->p[P_IORD] = (int16_t)(n > 719u ? 719 : n);
+    iord_set_perm(t, n);
 }
 /* swap chain slots at highlight h with h+dir (dir ±1); REORDER KNOB 2 */
 static void ins_order_move(track_t *t, uint32_t h, int32_t dir)
@@ -1041,11 +1077,13 @@ static __attribute__((noinline)) void ins_rest(track_t *t)
     t->ins_run = 0;
 }
 
-static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n)
+/* tw_force < 0: the stage's own mix. Else that Q15 wet (a send runs fully wet; the amount
+ * scales the add in track_insert). */
+static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n, int32_t tw_force)
 {
     uint32_t k = (uint32_t)(t - trk) % NTRK;
     ins_st_t *s = &ins_st[k][st];
-    int32_t tw = ins_mixq(ins_mix_of(t, st));
+    int32_t tw = tw_force >= 0 ? tw_force : ins_mixq(ins_mix_of(t, st));
     if (!s->w && !tw)
         return;                                         /* MIX 0 and faded: skip DSP */
     if (!s->w && tw) {
@@ -1061,14 +1099,41 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
         t->ins_run = 1;
 }
 
+static int32_t ins_dry[CTL], ins_wet[CTL];
+/* Chain stages run in order. A stage flagged as a send is left out of that series: the dry
+ * continues, and after the chain a fully wet copy is added, scaled by the stage's mix. */
 static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint32_t n)
 {
     uint8_t ord[INS_N];
     uint32_t i;
+    uint16_t raw;
     t->ins_run = 0;
     ins_order_get(t, ord);
+    raw = iord_bits(t);
     for (i = 0; i < INS_N; i++)
-        ins_stage(t, ord[i], b, n);
+        if (!(raw & (uint16_t)(1u << (10u + ord[i]))))
+            ins_stage(t, ord[i], b, n, -1);
+    if (!(raw & IORD_SEND) || !n || n > CTL)
+        return;
+    for (i = 0; i < n; i++)
+        ins_dry[i] = b[i];
+    for (i = 0; i < INS_N; i++) {
+        uint32_t st = ord[i], k;
+        int32_t amt, g;
+        if (!(raw & (uint16_t)(1u << (10u + st))))
+            continue;
+        amt = ins_mix_of(t, st);
+        if (amt <= 0)
+            continue;
+        for (k = 0; k < n; k++)
+            ins_wet[k] = ins_dry[k];
+        ins_stage(t, st, ins_wet, n, 32768);
+        g = ins_mixq(amt);
+        for (k = 0; k < n; k++) {
+            int64_t s = (int64_t)b[k] + (((int64_t)ins_wet[k] * g) >> 15);
+            b[k] = s > 2147483647 ? 2147483647 : s < -2147483647 - 1 ? (int32_t)(-2147483647 - 1) : (int32_t)s;
+        }
+    }
 }
 
 /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)

@@ -116,6 +116,32 @@ int main(void)
     t->p[P_IDMODE] = IDM_HARD;
     t->p[P_DIST] = 100;
     t->p[P_IDMIX] = 127;
+    ins_send_set(t, INS_DIST, 1);
+    {
+        uint8_t o[INS_N] = {INS_FILTER, INS_DIST, INS_CRUSH, INS_PHASR, INS_FLANG, INS_CHOR};
+        ins_order_set(t, o);
+    }
+    ins_order_get(t, ord);
+    ck("DIST as a send stays a send when the chain is reordered",
+       ins_is_send(t, INS_DIST) && !ins_is_send(t, INS_FILTER) && ord[0] == INS_FILTER && ord[1] == INS_DIST);
+    trk_note_on(t, 60, 100);
+    render_blocks(8);
+    ck("DIST as a send sounds different from DIST in the chain", hash_out(32) != wet);
+    fresh();
+    t = &trk[0];
+    t->p[P_IDMODE] = IDM_HARD;
+    t->p[P_DIST] = 100;
+    t->p[P_IDMIX] = t->p[P_IFMIX] = t->p[P_ICMIX] = t->p[P_IPMIX] = t->p[P_ILMIX] = t->p[P_IHMIX] = 0;
+    t->p[P_CHOR] = t->p[P_DLY] = t->p[P_REV] = 0;
+    ins_send_set(t, INS_DIST, 1);
+    trk_note_on(t, 60, 100);
+    render_blocks(8);
+    ck("a send at MIX 0 is silent, the same as bypass", hash_out(32) == bypass);
+    fresh();
+    t = &trk[0];
+    t->p[P_IDMODE] = IDM_HARD;
+    t->p[P_DIST] = 100;
+    t->p[P_IDMIX] = 127;
     t->p[P_ED_FX] = -64;
     trk_note_on(t, 60, 100);
     render_blocks(8);

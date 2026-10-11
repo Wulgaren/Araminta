@@ -656,12 +656,12 @@ static int lock_ui(void)
         str_eq(ui.msg, "LOCKS CLEARED"));
     bad += check("the steps with a lock (the grid marks them): step 1", motion_lock_steps(3) == 1u);
     go_title("EFFECTS");
-    ui.ior_tgt = 3;                                      /* K4 edits REV */
+    ui.ior_sel = 0;                                      /* K4 edits the chosen stage's mix (DIST) */
     go_seq_step();                                       /* STEP keeps EFFECTS plk_src (STEP is not lock_page_ok) */
     frame();
-    bad += check("from EFFECTS: K4 locks the chosen send (REV)", lock_id(3) == P_REV && lock_id(0) == 0xFFu);
-    lk_down(k4); turn(EN_K4, 5); lk_up(k4);              /* K4 = REV percent */
-    bad += check("  step 5 gets a REV lock", motion_lock_get(t, 4, P_REV, &v) && v == t->p[P_REV] + 5);
+    bad += check("from EFFECTS: K4 locks the chosen stage's mix", lock_id(3) == P_IDMIX && lock_id(0) == 0xFFu);
+    lk_down(k4); turn(EN_K4, 5); lk_up(k4);              /* K4 = that mix */
+    bad += check("  step 5 gets a MIX lock", motion_lock_get(t, 4, P_IDMIX, &v) && v == t->p[P_IDMIX] + 5);
     go_auto_top();
     frame();
     bad += check("AUTOMATION: EVENT 0, LOCK 3", motion_count(t) - motion_lock_count(t) == 0u && motion_lock_count(t) == 3u);

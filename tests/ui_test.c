@@ -2609,7 +2609,7 @@ static int test_presets_knob(void)
                 sel_ok &= same_snd && same_steps && ui.page == i && ui.ev_row == 1u;
             } else if (g == GR_TOOLS) {
                 tools_ok &= same_snd && same_steps && !ui.confirm;
-            } else if (g == GR_IORD || g == GR_DESTS) {   /* REORDER / dest pickers: PRESETS walks, no sound load */
+            } else if (g == GR_DESTS) {                /* dest pickers: PRESETS walks, no sound load */
                 sel_ok &= same_snd && same_steps && ui.page == i;
             } else if (g == GR_PUNCH) {                 /* Punch-in sticky: PRESETS assigns an FX key, no sound load */
                 sel_ok &= same_snd && same_steps && ui.page == i;
@@ -8195,17 +8195,27 @@ static int test_fx_sections(void)
         ok = ui.ior_sel == 1u && before[0] == after[1] && before[1] == after[0];
         turn(EN_K1, 1);
         ok &= ui.ior_sel == 2u;
-        turn(EN_K3, 1);                                 /* SEND: FX → CHO */
-        TSEL->p[P_CHOR] = 0;
-        turn(EN_K4, 8);
-        ok &= ui.ior_tgt == 1u && TSEL->p[P_CHOR] > 0;
+        ins_order_get(TSEL, before);
+        ok &= !ins_is_send(TSEL, before[2]);
+        turn(EN_K3, 1);                                 /* that stage: in the chain → a send */
+        ins_order_get(TSEL, before);
+        ok &= ins_is_send(TSEL, before[2]) && before[0] == after[0] && before[1] == after[1];
+        TSEL->p[P_ICMIX] = 0;
+        turn(EN_K4, 8);                                 /* MIX is that stage's amount */
+        ok &= TSEL->p[P_ICMIX] > 0;
         btn_down(B_FX);
         turn(EN_SELECT, 1);                             /* holding FX does not reorder */
         btn_up(B_FX); frame();
         ins_order_get(TSEL, before);
         ok &= before[0] == after[0] && before[1] == after[1];
+        go_title("EFFECTS");
+        {
+            uint8_t pr = TSEL->preset;
+            turn(EN_PRESET, 1);                         /* PRESETS loads a sound, it does not pick a stage */
+            ok &= TSEL->preset != pr && ui.ior_sel == 2u && str_eq(cur_page()->title, "EFFECTS");
+        }
     }
-    bad += check("EFFECTS: K1 chooses, K2 moves, K3 send, K4 mix; FX+SELECT does not move", ok);
+    bad += check("EFFECTS: K1 chooses, K2 moves, K3 send or chain, K4 mix; PRESETS loads a sound", ok);
 
     ui_power_on();
     go_title("DLY");

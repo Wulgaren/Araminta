@@ -73,7 +73,8 @@ enum {                          /* per-track parameters */
     P_SQNT,                                    /* 1.2 (#162): QUANTIZE, the steps' recorded / nudged timing (ON: none) */
     P_SPRD,                                    /* (#148): SPREAD, the voices of a POLY / UNISON track around PAN (fx.c) */
     /* insert chain (6 stages, reorderable; MIX 0 = bypass). Replaces 1.5's P_ITYPE..P_IMIX. Drive = P_DIST. */
-    P_IORD,                                    /* stage order, factorial number 0..719 (fx.c ins_order) */
+    P_IORD,                                    /* low 10 bits: stage order 0..719 (fx.c). Bits 10..15:
+                                                * that stage is a send, not in the chain */
     P_IDMODE, P_IDMIX,                         /* DIST: mode SOFT/HARD/FOLD/FUZZ, mix.
                                                 * Tone is P_ED_FX: 0 follows drive, else an offset */
     P_IFTYPE, P_IFCUT, P_IFRES, P_IFMIX,       /* FILTER: LP/HP/BP/COMB */
