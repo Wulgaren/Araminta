@@ -1236,26 +1236,36 @@ static void dly_knob(uint32_t slot, int32_t steps)
     }
     ui.force = 1;
 }
-/* EFFECTS: K1 chooses the stage, K2 moves it, K3 is USE AS (CHAIN or SEND), K4 is MIX */
+/* EFFECTS: K1 chooses the stage, K2 moves it, K3 is USE AS (CHAIN / SEND / USED), K4 is MIX */
 static void ior_knob(uint32_t k, int32_t s)
 {
     int32_t n = s > 0 ? s : -s, dir = s > 0 ? 1 : -1;
+    uint8_t ord[FX_LIST_N];
+    uint32_t st;
     if (n > 12)
         n = 12;
+    fx_list_get(TSEL, ord);
+    st = ord[ui.ior_sel < FX_LIST_N ? ui.ior_sel : 0u];
     if (k == 0u) {
-        ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + dir * n, 0, (int32_t)INS_N - 1);
+        ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + dir * n, 0, (int32_t)FX_LIST_N - 1);
     } else if (k == 1u) {
         while (n--) {
-            ins_order_move(TSEL, ui.ior_sel, dir);
-            ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + dir, 0, (int32_t)INS_N - 1);
+            fx_list_move(TSEL, ui.ior_sel, dir);
+            ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + dir, 0, (int32_t)FX_LIST_N - 1);
         }
     } else if (k == 2u) {
-        uint8_t ord[INS_N];
-        uint32_t st;
-        ins_order_get(TSEL, ord);
-        st = ord[ui.ior_sel < INS_N ? ui.ior_sel : 0u];
-        ins_send_set(TSEL, st, !ins_is_send(TSEL, st));
-    } else {
+        if (st == INS_DLY || st == INS_REV) {
+            uint32_t which = st == INS_REV ? 1u : 0u;
+            int32_t own = bus_own(which), tr = (int32_t)(TSEL - trk);
+            if (own == tr)
+                bus_own_set(which, -1);               /* CHAIN -> SEND for all */
+            else if (own < 0)
+                bus_own_set(which, tr);               /* SEND -> this track CHAIN */
+            /* DLY USED / REV already owned elsewhere: K3 does nothing (no steal) */
+        } else {
+            ins_send_set(TSEL, st, !ins_is_send(TSEL, st));
+        }
+    } else if (fx_list_mode(TSEL, st)[0] != 'U') {
         uint32_t id = ior_pct_id();
         const param_desc_t *d = track_desc(TSEL, id);
         int16_t *vp = &TSEL->p[id];
