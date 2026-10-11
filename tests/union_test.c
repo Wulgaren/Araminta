@@ -3,14 +3,11 @@
 /* Engine switches on a part, hashed (1.5: the engines' per-part state shares one region, engines.c eng_mem).
  *   build/host/union_test [GOLDEN_FILE]      (run_tests.sh builds and runs it against tests/union_golden.txt)
  *
- * Every pair (and A -> B -> A) of the engines that keep state per part (GRAIN, PHYS, DRUM, FM6, SLICE), with
- * ANALOG, SAMPLE and WHEEL (state outside the region) among them, on part 1 while part 3 plays other engines
- * alongside, at three presets: a chord and a low note held, released, still ringing at the next switch (the
- * fade on the old engine), and once more with the next notes inside the fade (they wait for the switch).
- * Each sequence runs in its own fork()ed child from boot state; its mix is one 64-bit FNV-1a hash. The file
- * holds the hashes of 1.4 (the engines' own arrays, before the shared region): any difference fails. The 380
- * sequences that play SAMPLE's PIANO (SAMPLE presets 0 / 1, GRAIN's FROZEN / SHIMMER) were rewritten in 1.5, when
- * PIANO went back to the full piano of 1.1.5; the other 340 are 1.4's.
+ * Every pair (and A -> B -> A) of the engines that keep state per part (PHYS, DRUM, FM6), with ANALOG and WHEEL
+ * (state outside the region) among them; SAMPLE / GRAIN / SLICE retired (P2-E). Part 1 switches while part 3
+ * plays other engines alongside, at three presets: a chord and a low note held, released, still ringing at the
+ * next switch (the fade on the old engine), and once more with the next notes inside the fade.
+ * Each sequence runs in its own fork()ed child from boot state; its mix is one 64-bit FNV-1a hash (270 lines).
  * env: GOLDEN_UPDATE=1 rewrites GOLDEN_FILE (only with a reason: a switch is to sound as it did). */
 #define main hostsim_main
 #include "hostsim.c"

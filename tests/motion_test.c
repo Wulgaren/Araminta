@@ -618,7 +618,7 @@ static int lock_ui(void)
     track_defaults_steps(t);
     t->p[P_SLEN] = 16;
     go_home();
-    open_family(FAM_SEQ);
+    go_seq_step();                                       /* SEQ button opens PATTERN; STEP for the grid */
     frame();
     k0 = key_at(0, 0); k4 = key_at(0, 4);
     grid_hit(t, 0, 0, 1);                                /* a KICK on step 1 */
@@ -658,7 +658,7 @@ static int lock_ui(void)
     open_family(FAM_FX);                                 /* REORDER first; advance to sends page */
     while (cur_page()->graph != GR_FX)
         open_family(FAM_FX);
-    open_family(FAM_SEQ);
+    go_seq_step();                                       /* STEP keeps FX plk_src (STEP is not lock_page_ok) */
     frame();
     bad += check("from FX: the knobs lock CHO DLY REV (sends page)", lock_id(0) == P_CHOR && lock_id(2) == P_REV);
     lk_down(k4); turn(EN_K3, 5); lk_up(k4);              /* K3 = REV on CHO/DLY/REV */
@@ -671,7 +671,7 @@ static int lock_ui(void)
     t = &trk[0];
     track_defaults_steps(t);
     go_home();
-    open_family(FAM_SEQ);
+    go_seq_step();
     frame();
     for (kn = 0; kn < 27u && kb_map(t, kn) > 127u; kn++)
         ;
@@ -712,7 +712,7 @@ static int lock_undo(void)
     track_defaults_steps(t);
     t->p[P_SLEN] = 16;
     go_home();
-    open_family(FAM_SEQ);
+    go_seq_step();
     frame();
     k4 = key_at(0, 4);
     lk_down(k4);

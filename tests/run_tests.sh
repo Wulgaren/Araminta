@@ -328,7 +328,7 @@ if [ -f build/gen/felucca_tables.h ]; then
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/regress" tests/regress.c -lm
     run "regression: golden renders, health, voices, CPU budget" "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/union_test" tests/union_test.c -lm
-    run "engine memory (1.5): every switch between the engines with per-part state sounds as in 1.4 (720 sequences)" \
+    run "engine memory (1.5): every switch between the engines with per-part state (270 sequences; retired SAMPLE/GRAIN/SLICE out)" \
         "$OUT/union_test" tests/union_golden.txt
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/descdump" tests/descdump.c -lm
     echo "== parameter and engine tables as JSON (for the editor mock test)"
@@ -390,7 +390,6 @@ else
     run "ASan/UBSan fuzz: editor SysEx and raw USB-MIDI packets (20000, seed 7)" "$A/fuzz_ed" 20000 7
     $SCC -o "$A/fuzz_proj" tests/fuzz_proj.c -lm
     run "ASan/UBSan fuzz: project stores -> import -> restore -> render (5000, seed 13)" "$A/fuzz_proj" 5000 13
-    $SCC -o "$A/fuzz_smp" tests/fuzz_smp.c -lm
     echo "== skip fuzz_smp (SAMPLE/GRAIN/SLICE retired)"
 fi
 

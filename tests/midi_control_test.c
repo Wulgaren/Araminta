@@ -439,12 +439,11 @@ static int learn_test(void)
     queued(0xB0, 20, 99, 1);
     bad += check("  an unlearned CC changes nothing (as before)", !memcmp(before, trk[0].p, sizeof before));
 
-    /* on: GLO + D4 */
+    /* on: GLO + D4 (hold maps removed: combo toggles learn, no GLO map) */
     lay_combo(B_GLO, white(5)); key_up(white(5)); frame();
-    ok = ui.ml.on && msg_is("MIDI LEARN ON") && ui.layer == LAYER_GLO;
-    ok &= ((leds_at(0) | leds_at(250)) >> white(5)) & 1u;          /* (lit: on) */
+    ok = ui.ml.on && msg_is("MIDI LEARN ON") && !ui.layer;
     btn_up(B_GLO); frame();
-    bad += check("GLO + D4: MIDI LEARN on (the D4 cell / LED lit), the map closes with GLO", ok && ui.ml.on && !ui.layer);
+    bad += check("GLO + D4: MIDI LEARN on (hold map removed: no GLO layer)", ok && ui.ml.on && !ui.layer);
     queued(0xB0, 20, 99, 1); frame();
     bad += check("  no parameter picked yet: a CC learns nothing, sets nothing", !ml_count() &&
                  !memcmp(before, trk[0].p, sizeof before));
