@@ -1185,7 +1185,7 @@ static uint32_t graph_signature(void)
             h ^= (uint32_t)graph_project_used(i) << (20u + i);
         h += graph_pname_sig;
     }
-    if (pg->graph == GR_DXSND)                       /* DRUM-X SOUND / X-MOD cards */
+    if (pg->graph == GR_DXSND)                       /* DRUM-X SOUND / SOUND 2 cards */
         h ^= dx_sig();
     if (pg->graph == GR_EVENTS)                      /* AUTOMATION: the rows, the one selected, + ADD's place, PLAY,
                                                       * QUANTIZE */
@@ -2226,7 +2226,7 @@ static void graph_song(void)
                      i < 4u ? "[K3] ADD SECTION" : "[SAVE] PROJECT A-D", T_MID, T_SURF, x0 - 10 - SG_X0);
     }
 }
-/* DRUM-X: two rows of four lane cells; MORPH bar A..B (X-MOD live via dx_mot_v) */
+/* DRUM-X: two rows of four lane cells; MORPH bar A..B (FUN11 X-MOD offset via dx_mot_v when set) */
 static void graph_colony(const track_t *t, int32_t sel)
 {
     static const char *const AB[8] = {"BD", "SD", "CP", "CH", "OH", "TM", "RS", "CB"};

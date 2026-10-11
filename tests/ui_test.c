@@ -3485,15 +3485,13 @@ static int test_edit_cycle(void)
     ok &= cur_page()->sec == EDIT_SEC_KIT && str_eq(cur_page()->title, "SOUND");
     turn(EN_SELECT, 1); frame();
     ok &= str_eq(cur_page()->title, "SOUND 2");
-    turn(EN_SELECT, 1); frame();
-    ok &= str_eq(cur_page()->title, "SOUND 3");
-    turn(EN_SELECT, 1); frame();
-    ok &= str_eq(cur_page()->title, "X-MOD");
+    turn(EN_SELECT, 1); frame();                      /* wraps within Kit: SOUND 2 → SOUND */
+    ok &= str_eq(cur_page()->title, "SOUND");
     press(B_EDIT); frame();                           /* Kit → Lanes */
     ok &= cur_page()->sec == EDIT_SEC_LAN && str_eq(cur_page()->title, "LANES");
     press(B_EDIT); frame();                           /* Lanes → Sound (Voice hidden on DRUM) */
     ok &= cur_page()->sec == EDIT_SEC_SND;
-    bad += check("EDIT on DRUM: Sound → Kit (SOUND..X-MOD) → Lanes; Voice skipped", ok);
+    bad += check("EDIT on DRUM: Sound → Kit (SOUND..SOUND 2) → Lanes; Voice skipped", ok);
     return bad;
 }
 
