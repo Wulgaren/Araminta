@@ -214,7 +214,7 @@ int main(void)
            got[P_FTYPE] == 2 && got[P_ESYNC] == 1 && got[P_E0] == 10 && got[P_E7] == 17);
     }
 
-    /* FX pages: effects (EFFECTS, stages, DLY, REVERB), then SLICER, then MASTER.
+    /* FX pages: effects (EFFECTS, stages, DLY, REVERB), then SLICER, Punch-in, then MASTER.
      * Stage pages have no mix knob: the percent is EFFECTS K4. */
     {
         uint32_t i, pr = NPAGES, ps = NPAGES, pd = NPAGES, pdl = NPAGES, pm = NPAGES, mix = 0;

@@ -3135,7 +3135,7 @@ static int test_layer(void)
     /* Punch-in sticky: keys and macros */
     ui_power_on();
     usb.config = 1; mo = mo_w;
-    press(B_FX); press(B_FX); press(B_FX); press(B_FX); frame();   /* Effects, Slicer, Master, Punch-in */
+    press(B_FX); press(B_FX); press(B_FX); frame();   /* Effects, Slicer, Punch-in */
     ok = ui.lock == LAYER_FX && ui.layer == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
     key_down(white(2)); frame();
     ok &= !gates() && mo_w == mo && (perf_held & PF_BIT(PF_R32));
@@ -5951,10 +5951,10 @@ static int test_layer_lock(void)
     ok &= str_eq(cur_page()->title, "AUTOMATION") && !ui.lock;
     bad += check("  SEQ taps cycle sections (Pattern → Step → Automation), no double-tap lock", ok);
     ui_power_on();
-    press(B_FX); press(B_FX); press(B_FX); press(B_FX); frame();    /* Punch-in sticky */
+    press(B_FX); press(B_FX); press(B_FX); frame();    /* Effects, Slicer, Punch-in */
     ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
     press(B_FX); frame();
-    ok &= ui.lock == 0 && cur_page()->sec == FX_SEC_INS;
+    ok &= ui.lock == 0 && cur_page()->sec == FX_SEC_MASTER;
     bad += check("  only Punch-in sticky-locks LAYER_FX; leaving clears the lock", ok);
     return bad;
 }
@@ -8146,7 +8146,7 @@ static int test_no_layer_lock(void)
             ok &= !ui.lock;
     }
     ui_power_on();
-    press(B_FX); frames(64); press(B_FX); frames(64); press(B_FX); frames(64); press(B_FX); frame();
+    press(B_FX); frames(64); press(B_FX); frames(64); press(B_FX); frame();
     ok &= ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
     press(B_GLO); frames(64); press(B_GLO); frames(64); press(B_GLO); frame();
     ok &= ui.lock == LAYER_REC && cur_page()->sec == GLO_SEC_REC;
@@ -8154,7 +8154,7 @@ static int test_no_layer_lock(void)
     return bad;
 }
 
-/* Araminta nav: FX button cycles sections (Effects → Slicer → Master → Punch-in); SELECT walks pages
+/* Araminta nav: FX button cycles sections (Effects → Slicer → Punch-in → Master); SELECT walks pages
  * inside a section. Hold FX alone does not open punch-ins; punch-in keys work only in the Punch-in section. */
 static int test_fx_sections(void)
 {
@@ -8174,15 +8174,15 @@ static int test_fx_sections(void)
     turn(EN_SELECT, 1);
     ok &= cur_page()->sec == FX_SEC_SLCR;               /* Slicer has one page */
     press(B_FX);
-    ok &= cur_page()->sec == FX_SEC_MASTER && str_eq(cur_page()->title, "MASTER") && !ui.lock;
-    press(B_FX);
     ok &= cur_page()->sec == FX_SEC_PUNCH && ui.lock == LAYER_FX && ui.layer == LAYER_FX;
     key_down(white(3)); frame();                       /* B3: LPF punch-in (JIANT default) */
     ok &= (perf_held & PF_BIT(PF_LPF)) != 0u;
     key_up(white(3)); frame();
     press(B_FX);
+    ok &= cur_page()->sec == FX_SEC_MASTER && str_eq(cur_page()->title, "MASTER") && !ui.lock;
+    press(B_FX);
     ok &= cur_page()->sec == FX_SEC_INS && str_eq(cur_page()->title, "EFFECTS");
-    bad += check("FX sections: Effects → Slicer → Master → Punch-in; SELECT stays in section; punch keys in Punch-in", ok);
+    bad += check("FX sections: Effects → Slicer → Punch-in → Master; SELECT stays in section; punch keys in Punch-in", ok);
 
     ui_power_on();
     go_title("EFFECTS");
