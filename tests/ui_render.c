@@ -1230,8 +1230,8 @@ static void setup(int s)
         eng(ENGI_FM6); TSEL->p[P_E0] = 32; fm6_patch[song.sel][FP_OL] = 0; fm6_pgen[song.sel]++;   /* (op 6: the patch's first) */
         go_title("EDIT 1"); ui.hot_col = 2; ui.hot_t = 30;
         break;
-    /* FM6's operator pages (ui_fm6op.c): OPERATOR on TINE EP's OP 3, LEVEL just turned; OP 5 FIXED (277 HZ), COARSE just
-     * turned; OPERATOR 2 on OP 2 with DTUN -3 just turned; OP ENV: OP 1's DEC stage, its RATE just turned; OP 6's REL */
+    /* FM6's operator pages (ui_fm6op.c): OPERATOR on TINE EP's OP 3, LEVEL just turned; OP 5 FIXED (277 HZ), FREQ just
+     * turned; OPERATOR FREQ at fixed 1000 Hz on OP 2; OP ENV: OP 1's DEC stage, its RATE just turned; OP 6's REL */
     case S_FM6_OP: eng(ENGI_FM6); fop_op = 2; go_title("OPERATOR"); ui.hot_col = 3; ui.hot_t = 30; break;
     case S_FM6_OP_FIXED:
         eng(ENGI_FM6); fop_op = 4;
@@ -1240,8 +1240,10 @@ static void setup(int s)
         go_title("OPERATOR"); ui.hot_col = 1; ui.hot_t = 30;
         break;
     case S_FM6_OP2:
-        eng(ENGI_FM6); fop_op = 1; fm6_patch[song.sel][4u * FP_OP + FP_DET] = 4; fm6_pgen[song.sel]++;
-        go_title("OPERATOR 2"); ui.hot_col = 2; ui.hot_t = 30;
+        eng(ENGI_FM6); fop_op = 1;
+        fm6_patch[song.sel][4u * FP_OP + FP_MODE] = 1; fm6_patch[song.sel][4u * FP_OP + FP_FC] = 3;
+        fm6_pgen[song.sel]++;
+        go_title("OPERATOR"); ui.hot_col = 1; ui.hot_t = 30;
         break;
     case S_FM6_OP_ENV: eng(ENGI_FM6); fop_op = 0; fop_stg = 1; go_title("OP ENV"); ui.hot_col = 2; ui.hot_t = 30; break;
     case S_FM6_OP_ENV_REL: eng(ENGI_FM6); fop_op = 5; fop_stg = 3; go_title("OP ENV"); break;
@@ -1716,37 +1718,50 @@ static void sweep_columns(void)
         draw(-1);
         lint();
     }
-    {   /* FM6's operator pages (ui_fm6op.c): every operator, stage and value of each byte KNOB 2..4 edit (COARSE in both
-         * modes), then the page with its chart / envelope */
-        static const char *const PG[3] = {"OPERATOR", "OPERATOR 2", "OP ENV"};
-        uint32_t g, k, o, st, m;
-        for (g = 0; g < 3u; g++) {
+    {   /* FM6's operator pages (ui_fm6op.c): every operator, stage and value of each field KNOB 2..4 edit (FREQ spans
+         * ratio + fixed), then the page with its chart / envelope */
+        static const char *const PG[2] = {"OPERATOR", "OP ENV"};
+        uint32_t g, k, o, st;
+        for (g = 0; g < 2u; g++) {
             state(); pal(UI_GREY_INDEX); eng(ENGI_FM6); go_title(PG[g]);
             cur_name = large_on ? "LARGE FM6 operator sweep" : "FM6 operator sweep";
             for (o = 0; o < 6u; o++)
-                for (st = 0; st < (g == 2u ? 4u : 1u); st++)
-                    for (m = 0; m < 2u; m++)
-                        for (k = 1; k < 4u; k++) {
-                            uint32_t f, b, v, v0, mb;
-                            fop_op = (uint8_t)o; fop_stg = (uint8_t)st;
-                            f = fop_field(k);
-                            if (f == FO_STG) continue;
-                            b = fop_byte(f); mb = (5u - o) * FP_OP + FP_MODE;
-                            fm6_patch[song.sel][mb] = (uint8_t)m;
-                            v0 = fm6_patch[song.sel][b];
-                            for (v = 0; v <= fm6_max(b); v++) {
-                                fm6_patch[song.sel][b] = (uint8_t)v;
+                for (st = 0; st < (g == 1u ? 4u : 1u); st++)
+                    for (k = 1; k < 4u; k++) {
+                        uint32_t f, b, v, v0, mb, vmax;
+                        fop_op = (uint8_t)o; fop_stg = (uint8_t)st;
+                        f = fop_field(k);
+                        if (f == FO_STG) continue;
+                        mb = (5u - o) * FP_OP + FP_MODE;
+                        if (f == FO_CRS) {
+                            for (v = 0; v < FO_FREQ_N; v++) {
+                                fm6_patch[song.sel][mb] = v >= 32u;
+                                fm6_patch[song.sel][(5u - o) * FP_OP + FP_FC] = (uint8_t)(v >= 32u ? v - 32u : v);
                                 nscr = npend = 0;
                                 ui.force = 1;
                                 draw_columns();
                                 lint();
                                 nsweep++;
                             }
-                            fm6_patch[song.sel][b] = (uint8_t)v0;
                             fm6_pgen[song.sel]++;
                             draw(-1);
                             lint();
+                            continue;
                         }
+                        b = fop_byte(f); v0 = fm6_patch[song.sel][b]; vmax = fm6_max(b);
+                        for (v = 0; v <= vmax; v++) {
+                            fm6_patch[song.sel][b] = (uint8_t)v;
+                            nscr = npend = 0;
+                            ui.force = 1;
+                            draw_columns();
+                            lint();
+                            nsweep++;
+                        }
+                        fm6_patch[song.sel][b] = (uint8_t)v0;
+                        fm6_pgen[song.sel]++;
+                        draw(-1);
+                        lint();
+                    }
         }
     }
     for (e = 0; e < 4u; e++) {                           /* the MOD page: every source and destination */

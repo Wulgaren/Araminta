@@ -27,7 +27,7 @@
  *              direction, retarget, the snaps (fast turn, names, shape, page, track, palette, force).
  *   SOAK       #63: 150000 random frames (turns, pages, transport, REC / motion, wrapping clocks): no roll
  *              outlives ROLL_FRAMES, the cards always equal a forced redraw once the rolls are over.
- *   FM6 OPS    (1.2, #76) EDIT > OPERATOR, OP ENV, OPERATOR 2 on an FM6 track: KNOB 1 the operator, each of the 84 bytes
+ *   FM6 OPS    (1.2, #76) EDIT > OPERATOR, OP ENV on an FM6 track: KNOB 1 the operator; FREQ (ratio then fixed), FINE, LEVEL, ENV bytes
  *              the pages edit written alone, SLOT OWN, the sound following, one undo per gesture, the macros on top,
  *              projects and user presets keep the patch; FM6 only, not automatable.
  *   USB SERIAL #67: MENU > USB SERIAL ON (default, the descriptors as before) / OFF (audio + MIDI only, class 0):
@@ -7443,11 +7443,11 @@ static int test_head_slot(void)
     return bad;
 }
 
-/* FM6's operator pages (EDIT > OPERATOR, OP ENV, OPERATOR 2: ui_fm6op.c, Discussion #76): in an FM6 track's EDIT cycle
- * only; KNOB 1 the operator (shared by the three pages), KNOB 2..4 one byte each of the track's patch: every operator's
- * 14 bytes, each detent exactly that byte, SLOT OWN; the sound follows (a modulator's LEVEL brightens, a carrier's
- * lowers it, COARSE doubles the pitch, a slower attack, FIXED); a gesture is one undo (SAVE held: the patch and SLOT
- * back, held again: redone); projects and user presets keep the edited patch; the macros stay on top of it */
+/* FM6's operator pages (EDIT > OPERATOR, OP ENV: ui_fm6op.c, Discussion #76): in an FM6 track's EDIT cycle only;
+ * KNOB 1 the operator (shared by the two pages), KNOB 2..4 the track's patch: FREQ (MODE+COARSE: ratio then fixed Hz),
+ * FINE, LEVEL, ENV rates/levels; SLOT OWN; the sound follows (a modulator's LEVEL brightens, a carrier's lowers it,
+ * FREQ doubles the pitch, a slower attack, fixed Hz); a gesture is one undo (SAVE held: the patch and SLOT back, held
+ * again: redone); projects and user presets keep the edited patch; the macros stay on top of it */
 typedef struct { double e, early, hf; uint32_t zc; } fm6_snd_t;
 static fm6_snd_t fm6_sound(void)                    /* the selected track's C4 at velocity 100, 128 blocks held */
 {
@@ -7501,20 +7501,19 @@ static void fop_pick(uint32_t opn)                   /* KNOB 1: OP opn (1..6) */
 static int slot_own(void) { return TSEL->p[P_E7] == FM6_OWN && fm6_slot[song.sel] == FM6_OWN; }
 static int test_fm6_ops(void)
 {
-    static const char *const CYC_F[] = {"EDIT 1", "EDIT 2", "OPERATOR", "OP ENV", "OPERATOR 2", "VOICE", "EDIT 1"};
+    static const char *const CYC_F[] = {"EDIT 1", "EDIT 2", "OPERATOR", "OP ENV", "VOICE", "EDIT 1"};
 
     static const struct { const char *page; uint32_t k, off; } F[] = {
-        {"OPERATOR", EN_K2, FP_FC}, {"OPERATOR", EN_K3, FP_FF}, {"OPERATOR", EN_K4, FP_OL},
-        {"OPERATOR 2", EN_K2, FP_MODE}, {"OPERATOR 2", EN_K3, FP_DET}, {"OPERATOR 2", EN_K4, FP_KVS},
+        {"OPERATOR", EN_K3, FP_FF}, {"OPERATOR", EN_K4, FP_OL},
         {"OP ENV", EN_K3, FP_R1}, {"OP ENV", EN_K4, FP_L1}};
     int bad = 0, ok;
-    uint32_t opn, f, s, at, n = 0, tr;
+    uint32_t opn, f, s, at, n = 0, tr, i;
     uint8_t before[FP_SIZE + 1u], v[FP_SIZE + 1u], mine[FP_SIZE + 1u];
     fm6_snd_t s0, s1;
     ui_power_on();
     song.sel = 1;                                    /* T2: FM6 PAD (SLOT F5) */
     tr = song.sel;
-    bad += check("FM6 ops: FM6's EDIT cycle EDIT 1 EDIT 2 OPERATOR OP ENV OPERATOR 2 VOICE EDIT 1",
+    bad += check("FM6 ops: FM6's EDIT cycle EDIT 1 EDIT 2 OPERATOR OP ENV VOICE EDIT 1",
                  TSEL->eng_req == ENGI_FM6 && engine_cycle(CYC_F, NELEM(CYC_F)));
     ok = TSEL->p[P_E7] == 4 && fm6_slot[tr] == 4u;
     go_title("OPERATOR"); frame();
@@ -7536,7 +7535,7 @@ static int test_fm6_ops(void)
           fm6_patch[tr][3u * FP_OP + FP_FF] == before[3u * FP_OP + FP_FF] && slot_own();
     bad += check("FM6 ops: SAVE held undoes the gesture (patch and SLOT F5 back), again redoes; one undo per gesture", ok);
 
-    ok = 1;                                          /* every operator, every byte the pages edit: that byte only */
+    ok = 1;                                          /* FINE / LEVEL / ENV: each knob writes its byte only */
     for (opn = 1; opn <= 6u; opn++)
         for (f = 0; f < NELEM(F); f++)
             for (s = 0; s < (F[f].off == FP_R1 || F[f].off == FP_L1 ? 4u : 1u); s++) {
@@ -7560,7 +7559,39 @@ static int test_fm6_ops(void)
                 ok &= fm6_patch[tr][b] == 0u;
                 n++;
             }
-    bad += check("FM6 ops: 6 operators x 14 bytes, each knob writes its byte only (+-1, 0..its highest), SLOT OWN", ok && n == 84u);
+    bad += check("FM6 ops: 6 operators x FINE LEVEL + ENV rates/levels, each knob writes its byte only, SLOT OWN",
+                 ok && n == 60u);
+
+    ok = 1;                                          /* FREQ: ratio 0..31 then fixed 1/10/100/1000 Hz (MODE+FC) */
+    n = 0;
+    for (opn = 1; opn <= 6u; opn++) {
+        uint32_t bm = (6u - opn) * FP_OP + FP_MODE, bf = (6u - opn) * FP_OP + FP_FC;
+        go_title("OPERATOR"); frame();
+        fop_pick(opn);
+        frames(50);
+        turn(EN_K2, -200);                           /* ratio 0.50 */
+        ok &= !fm6_patch[tr][bm] && fm6_patch[tr][bf] == 0u && slot_own();
+        for (i = 0; i < 31u; i++) {                  /* one step; frames > ACC_GAP so no accel */
+            frames(50);
+            turn(EN_K2, 1);
+            ok &= !fm6_patch[tr][bm] && fm6_patch[tr][bf] == i + 1u;
+        }
+        frames(50);
+        turn(EN_K2, 1);                              /* into fixed 1 Hz */
+        ok &= fm6_patch[tr][bm] == 1u && fm6_patch[tr][bf] == 0u;
+        for (i = 1; i < 4u; i++) {
+            frames(50);
+            turn(EN_K2, 1);
+            ok &= fm6_patch[tr][bm] == 1u && fm6_patch[tr][bf] == i;
+        }
+        turn(EN_K2, 200);
+        ok &= fm6_patch[tr][bm] == 1u && fm6_patch[tr][bf] == 3u;   /* 1000 Hz, not past */
+        frames(50);
+        turn(EN_K2, -1);                             /* back toward ratios: 100 Hz */
+        ok &= fm6_patch[tr][bm] == 1u && fm6_patch[tr][bf] == 2u;
+        n++;
+    }
+    bad += check("FM6 ops: FREQ walks ratio 0.50..31 then fixed 1/10/100/1000 Hz (MODE+COARSE), SLOT OWN", ok && n == 6u);
 
     /* the sound: the init voice (ALG 1: OP 1 the carrier at 99, OP 2 its modulator at 0), the track's other sends off */
     TSEL->p[P_CHOR] = TSEL->p[P_DLY] = TSEL->p[P_REV] = TSEL->p[P_DIST] = 0;
@@ -7587,10 +7618,12 @@ static int test_fm6_ops(void)
     ok = s1.e < 0.2 * s0.e && s1.e > 0;
     printf("    OP 1 LEVEL 79: energy x%.3f", s1.e / s0.e);
     turn(EN_K4, 20);
-    turn(EN_K2, 1);                                  /* OP 1 COARSE 1 -> 2: an octave up */
+    frames(1600);
+    turn(EN_K2, 1);                                  /* OP 1 FREQ 1 -> 2: an octave up */
     s1 = fm6_sound();
     ok &= s1.zc > 1.8 * s0.zc && s1.zc < 2.2 * s0.zc;
-    printf("; COARSE 2: zero crossings %u -> %u", s0.zc, s1.zc);
+    printf("; FREQ 2: zero crossings %u -> %u", s0.zc, s1.zc);
+    frames(1600);
     turn(EN_K2, -1);
     go_title("OP ENV"); frame();
     turn(EN_K2, -4);
@@ -7599,26 +7632,39 @@ static int test_fm6_ops(void)
     ok &= s1.early < 0.5 * s0.early;
     printf("; ATK RATE 29: the first 2048 samples' energy x%.3f", s1.early / s0.early);
     turn(EN_K3, 70);
-    go_title("OPERATOR 2"); frame();
-    turn(EN_K2, 1);                                  /* OP 1 MODE FIXED (COARSE 1: 10 Hz x 10 ^ FINE / 100) */
+    go_title("OPERATOR"); frame();
+    fop_pick(1);
+    frames(50);
+    turn(EN_K2, -200);                               /* FREQ to 0.50 */
+    for (i = 0; i < 33u; i++) {                      /* ..31 ratio, then fixed 1 Hz, then 10 Hz */
+        frames(50);
+        turn(EN_K2, 1);
+    }
+    ok &= fm6_patch[tr][5u * FP_OP + FP_MODE] == 1u && fm6_patch[tr][5u * FP_OP + FP_FC] == 1u;
     s1 = fm6_sound();
     ok &= s1.zc < s0.zc / 4u;
-    printf("; FIXED: zero crossings %u\n", s1.zc);
-    turn(EN_K2, -1);
+    printf("; FIXED 10 Hz: zero crossings %u\n", s1.zc);
+    for (i = 0; i < 32u; i++) {                      /* back to ratio 1 */
+        frames(50);
+        turn(EN_K2, -1);
+    }
+    ok &= !fm6_patch[tr][5u * FP_OP + FP_MODE] && fm6_patch[tr][5u * FP_OP + FP_FC] == 1u;
     s1 = fm6_sound();
     ok &= fm6_same(&s0, &s1);
-    bad += check("FM6 ops: a carrier's LEVEL lowers it, COARSE 2 an octave up, ATK RATE 29 slower, FIXED 10 Hz; undone: as before",
+    bad += check("FM6 ops: a carrier's LEVEL lowers it, FREQ 2 an octave up, ATK RATE 29 slower, FIXED 10 Hz; undone: as before",
                  ok);
 
     /* the macros on top: MRAT / MLVL move the edited patch as they move any (the patch itself stays) */
     go_title("OPERATOR"); frame();
     fop_pick(2);
-    turn(EN_K4, 70);                                 /* OP 2 LEVEL 70, COARSE 1 -> 3 */
+    turn(EN_K4, 70);                                 /* OP 2 LEVEL 70, FREQ 1 -> 3 */
+    frames(1600);
     turn(EN_K2, 2);
     memcpy(mine, fm6_patch[tr], FP_SIZE);
     TSEL->p[P_E3] = 2;                               /* MRAT +2 */
     s1 = fm6_sound();
     ok = fm6_eff[tr].p[4u * FP_OP + FP_FC] == 5u && !memcmp(mine, fm6_patch[tr], FP_SIZE);
+    frames(1600);
     turn(EN_K2, 1);                                  /* an edit under MRAT: the macro still adds to it */
     s1 = fm6_sound();
     ok &= fm6_eff[tr].p[4u * FP_OP + FP_FC] == 6u && fm6_patch[tr][4u * FP_OP + FP_FC] == 4u;
@@ -7650,7 +7696,7 @@ static int test_fm6_ops(void)
     ok = 1;
     song.sel = 0;                                    /* T1 ANALOG: no operator page */
     for (f = 0; f < NPAGES; f++)
-        if (PAGES[f].graph >= GR_FMOP && PAGES[f].graph <= GR_FMENV) ok &= !page_visible(f);
+        if (PAGES[f].graph == GR_FMOP || PAGES[f].graph == GR_FMENV) ok &= !page_visible(f);
     song.sel = 1;
     go_title("OPERATOR"); frame();
     song.rec = 2u; song.playing = 1;
