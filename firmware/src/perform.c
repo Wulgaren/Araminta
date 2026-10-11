@@ -4,8 +4,8 @@
  * layer (seq.c keyboard_block): it plays no note, sends no MIDI, records nothing, and holds its effect until
  * it is let go (ui_input.c opens the layer and shows the map). The 16 white keys (F3 .. G5) hold the effect the map
  * gives them (perf_map: the settings, ui_layer.c; any effect on any key, or none). The default (PF_DEF, JIANT):
- *   REPEAT 1/8 1/16 1/32, LPF | HPF, then D4..F5 the punch-in MIDI set (pfx.c: OCT± note octave, 1/2 tempo, DEC±,
- *   stutter, ATK+, ARP, RANDOM); G5 clears the punch-in lane; black keys 1..4 mute tracks 1..4; A#4 steps the MIDI
+ *   REPEAT 1/8 1/16 1/32, then 1/2 so LPF HPF OCT- OCT+ sit together, then DEC±, stutter, ATK+, ARP, RANDOM
+ *   (pfx.c); G5 clears the punch-in lane (the cell reads CLR); black keys 1..4 mute tracks 1..4; A#4 steps the MIDI
  *   effects' tracks (ALL / SYN / DRM). Audio REVERSE / TAPE / FREEZE / harmonizer OCT / FLANGER / PHASER / THROW stay
  *   assignable on the map, not on the default keys.
  * REV THROW / ECHO THROW (1.5.1): while held every track's reverb / delay send is full (as REV / DLY 127; perf_throw),
@@ -80,10 +80,10 @@ enum { BM_NONE, BM_LOOP, BM_TAPE, BM_FRZ, BM_HARM };
 #define THR_SLOPE 64                          /* REV / ECHO THROW: the sends' glide a sample, Q15 (11.6 ms end to end) */
 #define THR_FB 22938                          /* ECHO THROW: the delay's feedback while held at least this, Q15 (0.7) */
 
-/* the white keys' effects by default (JIANT: REPEAT + LPF/HPF + MIDI punch-ins on D4..F5; G5 lane clear) */
-static const uint8_t PF_DEF[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_HALF, PF_DSHT,
+/* the white keys' effects by default (JIANT: REPEAT, 1/2, then LPF/HPF/OCT together; G5 lane clear) */
+static const uint8_t PF_DEF[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_HALF, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_DSHT,
                                         PF_DLNG, PF_S8, PF_S16, PF_ATK, PF_ARP, PF_RND, PF_N};
-static volatile uint8_t perf_map[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_HALF, PF_DSHT,
+static volatile uint8_t perf_map[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_HALF, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_DSHT,
                                              PF_DLNG, PF_S8, PF_S16, PF_ATK, PF_ARP, PF_RND, PF_N};
                                       /* main: white key p's effect (PF_N none), from the settings (ui_layer.c) */
 static volatile uint8_t perf_remap;   /* main: perf_map changed (seq.c: a key held takes its new effect) */

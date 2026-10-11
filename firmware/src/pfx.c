@@ -2,9 +2,9 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* PFX (JIANT, FELUCCA-TONIC-SPEC.md fase 7): the punch-in MIDI effects of the FX layer. They act on the notes and
  * the sound of the tracks while their key is held (or latched: FX LATCH), never on what is stored: let go, all is
- * as it was. White keys after the audio ones (perform.c PF_*):
- *   D4 OCT-, E4 OCT+   every voice an octave down / up (both: none), at once, notes held too
- *   F4 1/2 TEMPO       the track's sequencer at half speed; let go, it is back where it would have been
+ * as it was. The MIDI keys (perform.c PF_DEF; 1/2 is the 4th white key so the filters and the octaves sit together):
+ *   B3 1/2 TEMPO       the track's sequencer at half speed; let go, it is back where it would have been
+ *   E4 OCT-, F4 OCT+   every voice an octave down / up (both: none), at once, notes held too
  *   G4 DEC-, A4 DEC+   short / long decays: a synth's DEC and REL, DRUM's DECY (DEC- wins); (JIANT 0.4) DEC- also
  *                      takes a synth's sustain to 0: the whole instrument plucks
  *   B4 C5              STUTTER 1/8, 1/16 (JIANT 0.4; were 1/16 1/32): the notes the track struck last together (a
@@ -20,7 +20,7 @@
  * Of the repeats (STUTTER, ARP) the fastest held plays. A#4 (black key 8) steps the tracks they act on: ALL,
  * SYN (the synths), DRM (DRUM tracks) (pfx_tgt; the layer's header says it).
  * The punch-in lane (the automation): a section's 64 steps of 1/16 (4 bars, from the transport's start or the
- * section's), one effect a step (pfx_lane: a nibble, 0 none, 1..10 D4 .. F5) and the tracks it acts on (pfx_ltgt).
+ * section's), one effect a step (pfx_lane: a nibble, 0 none, 1..10 OCT- .. RANDOM) and the tracks it acts on (pfx_ltgt).
  * Recording (REC armed, playing, not a song): the steps that pass while a MIDI effect is held get it (the lowest held),
  * with the tracks A#4 picked; G5 held erases them. Stopped, FX + G5 clears the lane. Played back with the held ones.
  * Saved with the section (project.c FUNA: the 33 spare bytes at PROJ_PFX_OFF), staged by the song (song_chain.c).
