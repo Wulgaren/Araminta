@@ -3419,7 +3419,7 @@ static int engine_cycle(const char *const *want, uint32_t n) /* EDIT sections + 
     go_home(); frame();
     press(B_EDIT); frames(100);
     for (i = 0; i < n; i++) {
-        if (str_eq(want[i], "VOICE") || str_eq(want[i], "VOICE 2") || str_eq(want[i], "VOICE 3")) {
+        if (str_eq(want[i], "VOICE") || str_eq(want[i], "VOICE 2")) {
             if (cur_page()->sec != EDIT_SEC_VOX) { press(B_EDIT); frames(100); }
         } else if (cur_page()->sec != EDIT_SEC_SND) {
             press(B_EDIT); frames(100);
@@ -3428,7 +3428,7 @@ static int engine_cycle(const char *const *want, uint32_t n) /* EDIT sections + 
             turn(EN_SELECT, 1); frames(50);
         }
         ok &= str_eq(cur_page()->title, want[i]);
-        if (i + 1u < n && str_eq(want[i + 1u], "EDIT 1") && str_eq(want[i], "VOICE 3")) {
+        if (i + 1u < n && str_eq(want[i + 1u], "EDIT 1") && str_eq(want[i], "VOICE 2")) {
             press(B_EDIT); frames(100);               /* wrap Sound ← Voice */
         }
     }
@@ -3453,11 +3453,17 @@ static int test_edit_cycle(void)
     ok &= !str_eq(cur_page()->title, "EDIT 2");
     press(B_EDIT); frame();
     ok &= cur_page()->sec == EDIT_SEC_VOX && str_eq(cur_page()->title, "VOICE");
+    ok &= cur_page()->id[0] == P_VOICE && cur_page()->id[1] == P_GLIDE &&
+          cur_page()->id[2] == P_GLMODE && cur_page()->id[3] == 0xFFu;   /* no PRIO */
     turn(EN_SELECT, 1); frame();
-    ok &= cur_page()->sec == EDIT_SEC_VOX;
+    ok &= cur_page()->sec == EDIT_SEC_VOX && str_eq(cur_page()->title, "VOICE 2");
+    ok &= cur_page()->id[0] == P_SPRD && cur_page()->id[1] == P_DETUNE &&
+          cur_page()->id[2] == P_PAN && cur_page()->id[3] == P_MUTE;     /* SPRD, no ALLOC / no VOICE 3 */
+    turn(EN_SELECT, 1); frame();
+    ok &= str_eq(cur_page()->title, "VOICE");                            /* Voice section: two pages only */
     press(B_EDIT); frame();
     ok &= cur_page()->sec == EDIT_SEC_SND;
-    bad += check("EDIT cycle: ANALOG Sound is OSC→FILTER→FILTER DRIVE; button toggles Voice", ok);
+    bad += check("EDIT cycle: ANALOG Sound is OSC→FILTER→FILTER DRIVE; Voice is VOICE→VOICE 2 (SPRD)", ok);
 
     ui_power_on();
     set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;
@@ -6382,6 +6388,8 @@ static int test_click_menu(void)
 
     /* the count-in from the UI */
     ui_power_on();
+    last_note = 61;                                   /* empty roll centres here; CI_Y pixel pair matches */
+    proll.init = 0;
     menu_put(MI_COUNTIN, 1u);
     go_page(GR_ROLL);
     frame();
@@ -7433,7 +7441,7 @@ static void fop_pick(uint32_t opn)                   /* KNOB 1: OP opn (1..6) */
 static int slot_own(void) { return TSEL->p[P_E7] == FM6_OWN && fm6_slot[song.sel] == FM6_OWN; }
 static int test_fm6_ops(void)
 {
-    static const char *const CYC_F[] = {"EDIT 1", "EDIT 2", "OPERATOR", "OP ENV", "OPERATOR 2", "VOICE", "VOICE 2", "VOICE 3", "EDIT 1"};
+    static const char *const CYC_F[] = {"EDIT 1", "EDIT 2", "OPERATOR", "OP ENV", "OPERATOR 2", "VOICE", "VOICE 2", "EDIT 1"};
     static const struct { const char *page; uint32_t k, off; } F[] = {
         {"OPERATOR", EN_K2, FP_FC}, {"OPERATOR", EN_K3, FP_FF}, {"OPERATOR", EN_K4, FP_OL},
         {"OPERATOR 2", EN_K2, FP_MODE}, {"OPERATOR 2", EN_K3, FP_DET}, {"OPERATOR 2", EN_K4, FP_KVS},

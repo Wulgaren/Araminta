@@ -63,7 +63,7 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
   or FREE, **POL** bipolar or unipolar (LFO > LFO 2)
 - **Modulation matrix:** 4 slots per track, MIDI controllers as sources, **S&H** and **SLEW** (a random value per
   LFO cycle, held or gliding), and **DEPTH** as a destination, so the matrix can modulate the LFO itself
-- **SPREAD** (EDIT > VOICE 3): the voices of a POLY or UNISON track alternate left and right of its PAN
+- **SPREAD** (EDIT > VOICE 2): the voices of a POLY or UNISON track alternate left and right of its PAN
 - **ENV SYNC** (ENV > ENV DEST): the envelope's attack, decay and release as note values of the tempo
 - **Effects:** distortion, an **INSERT** (drives, CRUSH, phaser, flanger, chorus, with a dry / wet MIX) and the
   SLICER per track; chorus, delay (in time with the tempo, dotted values included) and reverb sends (the reverb as
@@ -233,7 +233,7 @@ The pages by button:
 | GLO | SONG | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
 | SAVE | USER, PRESETS, PHRASES (the pattern loader), PROJECT, TOOLS | UNDO |
 | LFO | LFO, LFO 2, LFO DEST, MOD | MOMENTARY (with a knob) |
-| EDIT | EDIT 1, EDIT 2, VOICE, VOICE 2, VOICE 3 (FM6 adds OPERATOR, OP ENV, OPERATOR 2; DRUM LANES; ANALOG FILTER, FILTER DRIVE instead of EDIT 2) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
+| EDIT | EDIT 1, EDIT 2, VOICE, VOICE 2 (FM6 adds OPERATOR, OP ENV, OPERATOR 2; DRUM LANES; ANALOG FILTER, FILTER DRIVE instead of EDIT 2) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
 | FX, SCL, ENV, ARP | their pages (FX: INSERT and INSERT 2 after the SLICER) | FX and SCL: their layers |
 | REC | arms the track | the REC layer (CLEAR, CLICK, COUNT-IN, CLICK LEVEL) |
 
