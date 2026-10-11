@@ -31,7 +31,8 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
 - **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM engine);
   8 voices shared between them. ALGORITHM selects the track on every page
 - **Sequencer:** 64 steps per track with chords, ties, accent, slide, per-step chance, velocity and ratchets
-  (a step played 2, 3 or 4 times in its length); a piano roll of the steps, where KNOB 3 sets a note's length; a drum grid (white keys =
+  (a step played 2, 3 or 4 times in its length); a piano roll of the steps, where KNOB 3 sets a note's length
+  (0 clears it) and PRESETS moves that note in time; a drum grid (white keys =
   steps, black keys = lanes); **SEQ > DETAIL**: the cursor step's chance, ratchet, nudge and velocity on the four
   knobs, drawn as lanes over the steps; automation: recording of knob moves per step (an automation icon marks the cards it
   drives); live loop recording with overdub; step recording at the cursor (REC on SEQ > STEP while stopped), one
@@ -152,7 +153,9 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
 - **ENV SYNC** (Discussion #175): ENV DEST's KNOB 4 (ESYNC) makes ENV's ATK, DEC and REL note values of the tempo
   (1/64T to 4 bars, dotted and triplets) instead of milliseconds; they follow the tempo and an external clock.
 - **A note's length on the piano roll** (Discussions #178, #173): on SEQ → STEP, KNOB 3 on a note step is its **LEN**:
-  right ties the steps after it on, left takes them back. It stops before the next note ("NOTE AHEAD").
+  right ties the steps after it on, left takes them back, and left until 0 clears the note (KNOB 3 becomes TIME).
+  It stops before the next note ("NOTE AHEAD"). PRESETS moves that note in time, cursor with it; on a rest it
+  moves the cursor. On the drum grid, hold the step keys and turn PRESETS.
 - **Per-step velocity** (Discussion #173): SEQ → AUTOMATION, **+ ADD VEL** (OCT+: SHOW) lists every note step's
   velocity, KNOB 4 sets it (1–127). Steps entered by hand play 96, steps recorded live keep how hard you played.
 - **HELP** (Discussion #156; MENU > SYSTEM > HELP, OFF by default): ON shows a short hint, key caps and a few words, in

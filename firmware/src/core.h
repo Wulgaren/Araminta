@@ -337,7 +337,8 @@ static void step_set_ratchet(step_t *s, uint32_t hits)
 }
 /* NUDGE (1.2, #162, D98): a step's timing, in 1/NUDGE_DIV of the track's DIV, -8..+7 (half a step early .. 7/16 late);
  * live recording keeps it, SEQ > AUTOMATION's NUDGE rows and DETAIL's NUDGE set it, the track's QUANTIZE
- * OFF (P_SQNT, AUTOMATION's QUANTIZE row) plays it (seq.c seq_tick). STEP steps held + PRESETS moves steps in time.
+ * OFF (P_SQNT, AUTOMATION's QUANTIZE row) plays it (seq.c seq_tick). On the drum grid, steps held + PRESETS moves
+ * those steps in time; on the piano roll, PRESETS moves the note under the cursor (its ties with it).
  * Four bits of the flags no other field uses: 4 (bit 3 of the nudge, its sign) and 32 64 128 (bits 0..2). 0 = on the
  * step: every older pattern. A user preset's pattern keeps none (upreset.c up_pat_norm) */
 #define NUDGE_DIV 16
