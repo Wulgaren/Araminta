@@ -454,7 +454,7 @@ static const page_t PAGES[] = {
     {"LFO DEST", FAM_LFO, SC_TRACK, GR_DESTS, 0, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
     {"MOD", FAM_LFO, SC_TRACK, GR_MOD, 0, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},
     /* FX: Effects → Slicer → Punch-in → Master. Each stage's mix lives on EFFECTS (K4). K3 is
-     * FX (in the chain) or SEND. DLY knob 4 is RATE / TIME (ui_input.c dly_knob). */
+     * CHAIN or SEND. DLY knob 4 is RATE / TIME (ui_input.c dly_knob). */
     {"EFFECTS", FAM_FX, SC_TRACK, GR_IORD, FX_SEC_INS, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"DIST", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IDMODE, P_DIST, P_ED_FX, 0xFF}},
     {"FILTER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IFTYPE, P_IFCUT, P_IFRES, 0xFF}},
