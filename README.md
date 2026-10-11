@@ -2,7 +2,7 @@
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
 
-![Araminta 1.5](docs/araminta-1.5.png)
+![Araminta](docs/araminta.png)
 
 **TL;DR:** Araminta v1.5.1 is a fork of [Felucca](https://github.com/hugelton/Felucca) for the M-VAVE FM-1.
 On top of Felucca 1.5.1 you get DRUM-X, SAMPLE / GRAIN / NOISE back, JIANT punch-ins, Sloop free take, Melodee silent-track motion, and a tighter VOICE page.
