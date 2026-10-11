@@ -500,11 +500,22 @@ static uint32_t delay_samples(void)
 static uint32_t dly_q8;
 static uint8_t dly_free;
 
+/* Active tank's globals: tank 0 uses CHAIN params while someone owns CHAIN; else SEND. Tank 1 is always SEND. */
+static int rev_use_chain_g(void) { return R == &rev_tank[0] && bus_own(1) >= 0; }
+static int32_t rev_pg_size(void) { return song.g[rev_use_chain_g() ? G_CRSIZE : G_RSIZE]; }
+static int32_t rev_pg_damp(void) { return song.g[rev_use_chain_g() ? G_CRDAMP : G_RDAMP]; }
+/* clamp TYPE to a known model (out of range -> ROOM) */
+static int32_t rev_rtype(void)
+{
+    int32_t rt = song.g[rev_use_chain_g() ? G_CRTYPE : G_RTYPE];
+    return (uint32_t)rt <= 4u ? rt : 0;
+}
+
 /* ROOM (G_RTYPE 0): 4 damped combs + 2 allpasses (Freeverb-like, mono), added to out */
 static __attribute__((noinline)) void rev_room(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
     uint32_t i, k;
-    int32_t size = 25000 + song.g[G_RSIZE] * 50, damp = 32767 - song.g[G_RDAMP] * 200;
+    int32_t size = 25000 + rev_pg_size() * 50, damp = 32767 - rev_pg_damp() * 200;
     for (i = 0; i < n; i++) {
         int32_t a = 0;
         int16_t *c = rev_comb;
@@ -535,9 +546,9 @@ static __attribute__((noinline)) void rev_room(const int32_t *rev_in, int32_t *o
 /* SPRING (see the top), added to out */
 static __attribute__((noinline)) void rev_spring(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
-    uint32_t i, k, s = (uint32_t)song.g[G_RSIZE];
+    uint32_t i, k, s = (uint32_t)rev_pg_size();
     int32_t g = 19661 + (int32_t)s * 85;                /* the loop's gain: 0.6 .. 0.93 */
-    int32_t kl = 26000 - song.g[G_RDAMP] * 160;         /* its low-pass: ~9 kHz .. ~1.3 kHz */
+    int32_t kl = 26000 - rev_pg_damp() * 160;           /* its low-pass: ~9 kHz .. ~1.3 kHz */
     int32_t len = (int32_t)(1323u + ((s * 1323u) >> 7)) << 8, L, L2, L3, f, w;
     int16_t *ln = rev_comb;
     int32_t *ap = R->u.sp;
@@ -665,11 +676,11 @@ static __attribute__((noinline)) void rev_hall(const int32_t *rev_in, int32_t *o
 {
     int16_t *b = rev_comb, *a = rev_ap;
     uint32_t i, k, s, m, d;
-    int32_t kd = HL_KD(song.g[G_RDAMP]);
+    int32_t kd = HL_KD(rev_pg_damp());
     int32_t xp = R->hl.x, hp = R->hl.hp, he = R->hl.he, mp = R->hl.m, sp = R->hl.s;
     (void)n;
-    if (R->hl.sz != song.g[G_RSIZE] + 1)
-        hall_gains(song.g[G_RSIZE]);
+    if (R->hl.sz != rev_pg_size() + 1)
+        hall_gains(rev_pg_size());
     for (i = 0; i < HL_NC; i++) {
         int32_t x = (xp + 2 * rev_in[2u * i] + rev_in[2u * i + 1u]) >> 2, v;   /* every other sample, 1 2 1 */
         xp = rev_in[2u * i + 1u];
@@ -781,9 +792,9 @@ static uint32_t cl_rand(void) { R->cl_rng = R->cl_rng * 1664525u + 1013904223u; 
 static __attribute__((noinline)) void rev_cloud(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
     static const uint32_t PITCH[4] = {65536u, 131072u, 32768u, 98184u};   /* x1, octave up, down, fifth up (Q16) */
-    uint32_t i, k, freeze = song.g[G_RSIZE] >= 127;
-    int32_t dk = 32767 - song.g[G_RDAMP] * 220;
-    int32_t fb = song.g[G_RSIZE] * 24, fg = song.g[G_RSIZE] * 110, g[CTL], t[CTL];
+    uint32_t i, k, freeze = rev_pg_size() >= 127;
+    int32_t dk = 32767 - rev_pg_damp() * 220;
+    int32_t sz = rev_pg_size(), fb = sz * 24, fg = sz * 110, g[CTL], t[CTL];
     for (i = 0; i < n; i++) {
         int32_t l = 0, r = 0, m;
         if (!freeze) {                                   /* the line: the input and the tail, two samples into one */
@@ -890,13 +901,6 @@ static void rev_clear_all(void)
 }
 
 static int32_t part_buf[CTL];                            /* a part's block (mix_part); the fade of a model change */
-
-/* clamp G_RTYPE to a known model (out of range -> ROOM) */
-static int32_t rev_rtype(void)
-{
-    int32_t rt = song.g[G_RTYPE];
-    return (uint32_t)rt <= 4u ? rt : 0;
-}
 
 /* the model changed (to rt): the old one's block fades out (HALL's stereo difference with it), its buffers are
  * cleared, the new one starts from silence */
@@ -1038,9 +1042,10 @@ static void fx_boot(void)
     memset(lce, 0, sizeof lce);
     lim_env = LIM_T;
     sb_lp1 = sb_lp2 = sb_lp3 = sb_lp4 = sb_env = sb_h1 = sb_h2 = sb_hl = 0;
-    rt = rev_rtype();
-    rev_tank[0].rtype = rev_tank[1].rtype = (uint8_t)rt;
+    R = &rev_tank[1];
+    rev_tank[1].rtype = (uint8_t)rev_rtype();           /* SEND tank */
     R = &rev_tank[0];
+    rev_tank[0].rtype = (uint8_t)rev_rtype();           /* CHAIN if owned, else SEND */
     boot_fade = 0;
     boot_fade_run = 0;
 }

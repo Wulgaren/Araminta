@@ -276,6 +276,33 @@ int main(void)
         ck("REV chained: owner CHAIN, others SEND; DLY non-owner USED",
            fx_list_mode(&trk[0], INS_REV)[0] == 'C' && fx_list_mode(&trk[1], INS_REV)[0] == 'S' &&
            fx_list_mode(&trk[0], INS_DLY)[0] == 'U' && fx_list_mode(&trk[1], INS_DLY)[0] == 'C');
+        /* CHAIN tank has its own TYPE/SIZE/DAMP; SEND keeps G_R*. */
+        {
+            uint64_t h_send, h_chain;
+            song.g[G_RTYPE] = 2; song.g[G_RSIZE] = 90; song.g[G_RDAMP] = 60;
+            song.g[G_CRTYPE] = 0; song.g[G_CRSIZE] = 40; song.g[G_CRDAMP] = 100;
+            song.g[G_REVOWN] = 1;
+            t = &trk[0];
+            t->p[P_REV] = 100; t->p[P_DLY] = 0;
+            trk[1].p[P_REV] = 0; trk[1].p[P_DLY] = 0;
+            trk_note_on(t, 60, 100);
+            render_blocks(24);
+            h_chain = hash_out(48);
+            song.g[G_CRTYPE] = 2; song.g[G_CRSIZE] = 90; song.g[G_CRDAMP] = 60; /* match SEND */
+            fresh();
+            t = &trk[0];
+            song.g[G_RTYPE] = 2; song.g[G_RSIZE] = 90; song.g[G_RDAMP] = 60;
+            song.g[G_CRTYPE] = 2; song.g[G_CRSIZE] = 90; song.g[G_CRDAMP] = 60;
+            song.g[G_REVOWN] = 1;
+            t->p[P_REV] = 100; t->p[P_DLY] = 0;
+            trk_note_on(t, 60, 100);
+            render_blocks(24);
+            h_send = hash_out(48);
+            ck("CHAIN reverb params diverge from SEND (ROOM/40 vs HALL/90 changes render)",
+               h_chain != h_send);
+            ck("GP has CHAIN TYPE/SIZE/DAMP",
+               G_COUNT == 30u && GP[G_CRTYPE].names == GP[G_RTYPE].names && GP[G_CRSIZE].max == 127);
+        }
         bus_own_set(1, -1);
         bus_own_set(0, -1);
     }
