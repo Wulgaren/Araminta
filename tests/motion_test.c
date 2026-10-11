@@ -879,7 +879,7 @@ static int auto_list(void)
     turn(EN_K3, 1);
     bad += check("#223 MOD DST: pick list opens", ui.pick == PK_MDST && pk_n > 8u && pk_cur < pk_n);
     {
-        uint32_t i, dist = 0, spat = 0, fcut = 0;
+        uint32_t i, dist = 0, spat = 0, fcut = 0, cho = 0;
         for (i = 0; i < pk_n; i++) {
             if (pk_rows[i].id == MD_DIST && str_eq(pk_rows[i].tag, "SEND") &&
                 str_eq(pk_rows[i].name, "DISTORT"))
@@ -890,9 +890,13 @@ static int auto_list(void)
             if (pk_rows[i].id == MD_FCUT && str_eq(pk_rows[i].tag, "FILTER") &&
                 str_eq(pk_rows[i].name, "CUTOFF"))
                 fcut = 1;
+            if (pk_rows[i].id == MD_CHO && str_eq(pk_rows[i].tag, "CHOR") &&
+                str_eq(pk_rows[i].name, "MIX"))
+                cho = 1;
         }
         bad += check("#223 MOD DST: SEND / DISTORT and SLICER / PATTERN", dist && spat);
         bad += check("MOD DST: FILTER / CUTOFF (insert continuous)", fcut);
+        bad += check("MOD DST: CHO is CHOR / MIX", cho);
     }
     {
         uint32_t i, n = 0;

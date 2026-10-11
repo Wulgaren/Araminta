@@ -631,7 +631,7 @@ static uint32_t pk_build_auto(const track_t *t, uint32_t id, uint32_t step, uint
 static void pk_mdst_name(const track_t *t, uint32_t d, char *b)
 {
     static const char *const LONG[] = {
-        "OFF", "PITCH", "CUTOFF", "SHAPE", "AMP", "PAN", "DISTORT", "CHORUS", "DELAY", "REVERB", "RATE",
+        "OFF", "PITCH", "CUTOFF", "SHAPE", "AMP", "PAN", "DISTORT", "MIX", "DELAY", "REVERB", "RATE",
         "VIBRATO", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH", "PATTERN", "RATE",
         "DEPTH", "CHORD", "VOICING",
         "TONE", "MIX", "CUTOFF", "RESO", "MIX", "BITS", "RATE", "LPF", "MIX",
@@ -653,6 +653,8 @@ static const char *pk_mdst_group(uint32_t d)
         return "OFF";
     if (d <= MD_AMP)
         return "VOICE";
+    if (d == MD_CHO)                                    /* insert CHOR mix (P_IHMIX); not a bus send */
+        return "CHOR";
     if (d <= MD_REV)
         return "SEND";
     if (d == MD_RATE || d == MD_VIB || d == MD_DEPTH)
