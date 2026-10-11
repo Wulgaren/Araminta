@@ -1457,16 +1457,16 @@ static void graph_slots(void)
     }
 }
 /* MIXER page: four SURF columns, one under each card: the track number on its cushion (in the accent:
- * the selected track) with a REC / ARM / MUTE badge (P_MUTE, KNOB 1), the sound's short name (a MUTE badge
+ * the selected track) with a REC / ARM / MUTE badge (P_MUTE, KNOB 4), the sound's short name (a MUTE badge
  * when armed and muted), the LEVEL knob (dB inside) with the output meter beside it, then the PAN and REV
- * knobs with their values. Knobs: a 270 degree ring, the track RAISE, the value arc THEME (the knob just
- * turned: ACCENT; muted: DIM); PAN from 12 o'clock. Each column is its own canvas with its own signature:
+ * knobs (P / R inside, values under). Knobs: a 270 degree ring, the track RAISE, the value arc THEME (the knob
+ * just turned: ACCENT; muted: DIM); PAN from 12 o'clock. Each column is its own canvas with its own signature:
  * while the transport runs only the meters move. */
 #define TS_MY 39                                     /* meter slot: column rows 39 .. 70 */
 #define TS_MH 32
 #define KB_X 4                                       /* LEVEL knob: box 4..37 x 37..70, centre (21, 54) */
 #define KB_Y 37
-#define KS_Y 86                                      /* PAN / REV knobs: boxes 86..105, centres x 15 and 42 */
+#define KS_Y 89                                      /* PAN / REV: clear of LEVEL (no PAN/REV captions); P/R inside */
 static struct {
     uint32_t col[NTRK];
     uint8_t meter[NTRK];
@@ -1643,22 +1643,23 @@ static void draw_tracks(void)
             if (ts.meter[c])
                 cv_rrect(45, TS_MY + TS_MH - 1 - ts.meter[c], 4, ts.meter[c] + 1, ts.meter[c] >= 4 ? 2 : 0, T_MID, T_RAISE);
         }
-        {   /* PAN (from the centre) and the REV send: captions, knobs, values */
+        {   /* PAN (from the centre) and the REV send: P / R inside the knobs, values under */
             char v[8];
             uint16_t pc = hot == 2u ? T_ACCENT : vc, rc = hot == 3u ? T_ACCENT : vc;
-            GFX_HOOK_ALIGN(15 - KNOB_SMALL_R, 0, 15 + KNOB_SMALL_R, 0, AL_H, "mixer caption over its knob");
-            cv_text_in(15 - KNOB_SMALL_R, 72, 2 * KNOB_SMALL_R, &AF_S, "PAN", T_DIM, T_SURF);   /* (by their ink) */
-            GFX_HOOK_ALIGN(42 - KNOB_SMALL_R, 0, 42 + KNOB_SMALL_R, 0, AL_H, "mixer caption over its knob");
-            cv_text_in(42 - KNOB_SMALL_R, 72, 2 * KNOB_SMALL_R, &AF_S, "REV", T_DIM, T_SURF);
-            knob(15 - KNOB_SMALL_R, KS_Y, KNOB_SMALL_R, KNOB_SMALL_COV, KNOB_SMALL_ANG, pan, -64, 63, pc);
-            knob(42 - KNOB_SMALL_R, KS_Y, KNOB_SMALL_R, KNOB_SMALL_COV, KNOB_SMALL_ANG, rv, 0, 127, rc);
+            int32_t px = 15 - KNOB_SMALL_R, rx = 42 - KNOB_SMALL_R, ly = KS_Y + CAP_IN(S, 2 * KNOB_SMALL_R);
+            knob(px, KS_Y, KNOB_SMALL_R, KNOB_SMALL_COV, KNOB_SMALL_ANG, pan, -64, 63, pc);
+            knob(rx, KS_Y, KNOB_SMALL_R, KNOB_SMALL_COV, KNOB_SMALL_ANG, rv, 0, 127, rc);
+            GFX_HOOK_ALIGN(px, KS_Y, px + 2 * KNOB_SMALL_R, KS_Y + 2 * KNOB_SMALL_R, AL_HV, "mixer letter in its knob");
+            cv_text_in(px, ly, 2 * KNOB_SMALL_R, &AF_S, "P", pc, T_SURF);
+            GFX_HOOK_ALIGN(rx, KS_Y, rx + 2 * KNOB_SMALL_R, KS_Y + 2 * KNOB_SMALL_R, AL_HV, "mixer letter in its knob");
+            cv_text_in(rx, ly, 2 * KNOB_SMALL_R, &AF_S, "R", rc, T_SURF);
             v[0] = '+';                              /* the cards' numbers, without the % */
             fmt_int(pan > 0 ? v + 1 : v, pan * 100 / 64);
-            GFX_HOOK_ALIGN(15 - KNOB_SMALL_R, 0, 15 + KNOB_SMALL_R, 0, AL_H, "mixer value under its knob");
-            cv_text_in(15 - KNOB_SMALL_R, KS_Y + 17, 2 * KNOB_SMALL_R, &AF_S, v, pc, T_SURF);
+            GFX_HOOK_ALIGN(px, 0, px + 2 * KNOB_SMALL_R, 0, AL_H, "mixer value under its knob");
+            cv_text_in(px, KS_Y + 17, 2 * KNOB_SMALL_R, &AF_S, v, pc, T_SURF);
             fmt_int(v, (rv * 100 + 63) / 127);
-            GFX_HOOK_ALIGN(42 - KNOB_SMALL_R, 0, 42 + KNOB_SMALL_R, 0, AL_H, "mixer value under its knob");
-            cv_text_in(42 - KNOB_SMALL_R, KS_Y + 17, 2 * KNOB_SMALL_R, &AF_S, v, rc, T_SURF);
+            GFX_HOOK_ALIGN(rx, 0, rx + 2 * KNOB_SMALL_R, 0, AL_H, "mixer value under its knob");
+            cv_text_in(rx, KS_Y + 17, 2 * KNOB_SMALL_R, &AF_S, v, rc, T_SURF);
         }
         cv_blit((uint32_t)CARD_X(c), Y_GRAPH);
     }
