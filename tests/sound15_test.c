@@ -202,13 +202,18 @@ static void test_filter(void)
           str_eq(d->names[0], "LP") && str_eq(d->names[1], "BP") && str_eq(d->names[2], "HP") &&
           str_eq(d->names[3], "COMB") && !motion_param(P_FTYPE));
     {
-        uint32_t i, k = 0;
-        for (i = 0; i < NPAGES; i++)
-            if (str_eq(PAGES[i].title, "FILTER"))
-                k = i + 1u;
-        check("EDIT > FILTER: TYPE CUT RES KTR (ANALOG's), after EDIT 2",
-              k && PAGES[k - 1u].fam == FAM_EDIT && PAGES[k - 1u].id[0] == P_FTYPE && PAGES[k - 1u].id[1] == P_E4 &&
-              PAGES[k - 1u].id[2] == P_E5 && PAGES[k - 1u].id[3] == P_E7 && str_eq(PAGES[k - 2u].title, "EDIT 2"));
+        uint32_t i, flt = 0, drv = 0;
+        for (i = 0; i < NPAGES; i++) {
+            if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] == P_FTYPE)
+                flt = i + 1u;
+            if (str_eq(PAGES[i].title, "FILTER DRIVE"))
+                drv = i + 1u;
+        }
+        check("EDIT > FILTER: TYPE CUT RES KTR (ANALOG's)",
+              flt && PAGES[flt - 1u].id[0] == P_FTYPE && PAGES[flt - 1u].id[1] == P_E4 &&
+              PAGES[flt - 1u].id[2] == P_E5 && PAGES[flt - 1u].id[3] == P_E7);
+        check("EDIT > FILTER DRIVE: DRV alone, after FILTER",
+              drv && drv == flt + 1u && PAGES[drv - 1u].id[0] == P_E6 && PAGES[drv - 1u].id[1] == 0xFFu);
     }
     /* every engine but ANALOG ignores TYPE; ANALOG's LP is the golden renders' (regress.c) */
     for (e = 1; e < NENGINES; e++) {

@@ -15,7 +15,7 @@ enum { AW_SYNC = 5, AW_SUB = 6 };
 static const param_desc_t ANALOG_SYNC = {"SYNC", F_INT, 0, 127, 10, 0, 0};   /* DTN's range and default */
 static const param_desc_t ANALOG_SUB = {"SUB", F_PCT, 0, 127, 64, 0, 0};      /* MIX's */
 
-/* the filter's TYPE (P_FTYPE, EDIT > FILTER): 0 LP, 1 BP, 2 HP, 3 COMB (feedback comb on the LP tap). */
+/* the filter's TYPE (P_FTYPE, EDIT > FILTER; FILTER DRIVE is DRV): 0 LP, 1 BP, 2 HP, 3 COMB. */
 static inline int32_t analog_tap(const tsvf_t *c, int32_t k, int32_t in, int32_t *ic1, int32_t *ic2, uint32_t ft)
 {
     int32_t v3 = in - *ic2;
@@ -222,7 +222,7 @@ static const preset_t ANALOG_PRESETS[] = {
 
 static const engine_t ENG_ANALOG = {
     .name = "ANALOG",
-    .page_title = {"OSC", "FLT"},
+    .page_title = {"OSC", "FILTER"}, /* EDIT 2 hidden on ANALOG; FILTER / FILTER DRIVE are the sound pages */
     .edit = {
         {"WAVE", F_ENUM, 0, 6, 0, N_ANALOG_WAVE, 0},
         {"DTN", F_INT, 0, 127, 10, 0, "ct"},

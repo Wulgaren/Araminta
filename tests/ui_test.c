@@ -2900,6 +2900,32 @@ static int test_product_ux(void)
     ok = 1;
     for (i = 0; i < 8u; i++) { open_family(FAM_EDIT); ok &= page_visible(ui.page) && !(cur_page()->id[0] >= P_FM1_ATK && cur_page()->id[0] <= P_FM4_LEVEL); }
     bad += check("operator envelope pages are hidden on non-DIGITAL instruments", ok);
+    {   /* ANALOG: OSC → FILTER → FILTER DRIVE (no EDIT 2 / FLT duplicate) */
+        uint32_t saw_flt = 0, saw_drv = 0, saw_e2 = 0;
+        set_engine_of(TSEL, 0);
+        go_title("EDIT 1");
+        ok = str_eq(ENGINES[TSEL->eng_req % NENGINES]->page_title[0], "OSC");
+        for (i = 0; i < NPAGES; i++) {
+            if (PAGES[i].fam != FAM_EDIT || PAGES[i].sec != EDIT_SEC_SND || !page_visible(i))
+                continue;
+            if (PAGES[i].scope == SC_ENGINE && PAGES[i].id[0] == P_E4) saw_e2 = 1;
+            if (PAGES[i].id[0] == P_FTYPE) saw_flt = 1;
+            if (str_eq(PAGES[i].title, "FILTER DRIVE")) saw_drv = 1;
+        }
+        bad += check("ANALOG EDIT sound: FILTER + FILTER DRIVE, no EDIT 2",
+                     ok && saw_flt && saw_drv && !saw_e2);
+        set_engine_of(TSEL, 6);                    /* TRIO */
+        ok = 1;
+        saw_e2 = 0;
+        for (i = 0; i < NPAGES; i++) {
+            if (PAGES[i].scope == SC_ENGINE && PAGES[i].id[0] == P_E4) {
+                ok &= page_visible(i);
+                saw_e2 = 1;
+            }
+        }
+        bad += check("other engines still show EDIT 2", ok && saw_e2);
+        set_engine_of(TSEL, 0);
+    }
 #if FELUCCA_FM4
     set_engine_of(TSEL, 1);
     go_title("EDIT 1");                                /* Sound section (EDIT button may have left Voice) */
@@ -3419,14 +3445,19 @@ static int test_edit_cycle(void)
     press(B_EDIT); frame();
     ok = cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "EDIT 1");
     turn(EN_SELECT, 1); frame();
-    ok &= cur_page()->sec == EDIT_SEC_SND;              /* next sound page */
+    ok &= cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "FILTER");
+    turn(EN_SELECT, 1); frame();
+    ok &= cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "FILTER DRIVE");
+    turn(EN_SELECT, 1); frame();
+    ok &= cur_page()->sec == EDIT_SEC_SND;              /* next sound page (not EDIT 2) */
+    ok &= !str_eq(cur_page()->title, "EDIT 2");
     press(B_EDIT); frame();
     ok &= cur_page()->sec == EDIT_SEC_VOX && str_eq(cur_page()->title, "VOICE");
     turn(EN_SELECT, 1); frame();
     ok &= cur_page()->sec == EDIT_SEC_VOX;
     press(B_EDIT); frame();
     ok &= cur_page()->sec == EDIT_SEC_SND;
-    bad += check("EDIT cycle: button toggles Sound ↔ Voice; SELECT walks pages inside the section", ok);
+    bad += check("EDIT cycle: ANALOG Sound is OSC→FILTER→FILTER DRIVE; button toggles Voice", ok);
 
     ui_power_on();
     set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;
