@@ -844,21 +844,49 @@ static void rev_run(uint32_t ty, const int32_t *rev_in, int32_t *out, uint32_t n
     }
 }
 
-/* the active tank's buffers and states to silence (the model changed) */
+/* the active tank's buffers and states to silence (the model changed). Indices and
+ * SPRING's glide (sp_w / sp_size / sp_ph) stay: ROOM <-> SPRING stays bit-identical. */
 static void rev_clear(void)
 {
-    uint8_t rt = R->rtype;
-    memset(R, 0, sizeof *R);
-    R->rtype = rt;
+    uint32_t i;
+    for (i = 0; i < sizeof R->comb / 2u; i++)
+        R->comb[i] = 0;
+    for (i = 0; i < sizeof R->u.ap / 2u; i++)          /* (int16: 997 of them, an odd count the int32 view misses one of) */
+        R->u.ap[i] = 0;
+    for (i = 0; i < 4u; i++)
+        R->comb_lp[i] = 0;
+    for (i = 0; i < HL_NL; i++)
+        R->hl.lp[i] = R->hl.le[i] = 0;
+    R->sp_lp = R->sp_hp = R->sp_he = 0;
+    R->hl.x = R->hl.m = R->hl.s = R->hl.hp = R->hl.he = 0;
+    memset(&R->gran, 0, sizeof R->gran);
+    for (i = 0; i < CTL; i++)
+        shim_fb[i] = 0;
+    for (i = 0; i < CL_N; i++)
+        cl_g[i].len = 0;
+    R->sh_w = R->sh_ph = 0;
+    R->cl_w = R->cl_rng = 0;
+    R->cl_next = R->cl_lp = R->cl_half = 0;
 }
 /* both tanks silent; R left on tank 0 */
 static void rev_clear_all(void)
 {
+    rev_tank_t *save = R;
     R = &rev_tank[0];
     rev_clear();
+    memset(&R->hl, 0, sizeof R->hl);
+    R->comb_i[0] = R->comb_i[1] = R->comb_i[2] = R->comb_i[3] = 0;
+    R->ap_i[0] = R->ap_i[1] = 0;
+    R->sp_w = 0;
+    R->sp_size = R->sp_ph = 0;
     R = &rev_tank[1];
     rev_clear();
-    R = &rev_tank[0];
+    memset(&R->hl, 0, sizeof R->hl);
+    R->comb_i[0] = R->comb_i[1] = R->comb_i[2] = R->comb_i[3] = 0;
+    R->ap_i[0] = R->ap_i[1] = 0;
+    R->sp_w = 0;
+    R->sp_size = R->sp_ph = 0;
+    R = save ? save : &rev_tank[0];
 }
 
 static int32_t part_buf[CTL];                            /* a part's block (mix_part); the fade of a model change */

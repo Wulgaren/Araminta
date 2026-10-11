@@ -291,9 +291,10 @@ static void test_spring_identical(void)
     uint32_t b, i, h = 2166136261u, nb = 20u * FS / CTL, x0 = xs;
     char what[200];
     host_tracks_init();
-    memset(&fx, 0, sizeof fx);                                  /* (as a fresh start) */
+    memset(rev_tank, 0, sizeof rev_tank);                       /* (as a fresh start; was memset fx) */
+    R = &rev_tank[0];
+    memset(&fx, 0, sizeof fx);
     memset(dly_buf, 0, sizeof dly_buf);
-    rev_clear();
     xs = 0x2468ACEu;
     for (b = 0; b < nb; b++) {
         if (b % 700u == 0u) {
