@@ -237,7 +237,8 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
     return voice_reuse(t, &t->v[best == np ? 0 : best]);
 }
 
-/* glide: RATE = a fixed speed, TIME = the same time for any interval */
+/* glide: free ms (F_TIME on GLD). Always TIME-duration (same time for any interval). P_GLMODE stays in the
+ * store (append-only) but is not shown and is not read here. */
 static void glide_set(track_t *t, voice_t *v, int glide)
 {
     if (!glide || !v->pitch_cur) {
@@ -245,12 +246,10 @@ static void glide_set(track_t *t, voice_t *v, int glide)
         v->gstep = 0;
         return;
     }
-    if (t->p[P_GLMODE]) {
+    {
         int32_t d = v->pitch16 - v->pitch_cur, ticks = 1 + t->p[P_GLIDE] * t->p[P_GLIDE] / 8;
         d = d < 0 ? -d : d;
         v->gstep = d / ticks > 0 ? d / ticks : 1;
-    } else {
-        v->gstep = 0;
     }
 }
 
