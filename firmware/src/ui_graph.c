@@ -1749,7 +1749,7 @@ static void draw_tracks(void)
             uint16_t lc = hot == 1u ? T_ACCENT : lvl ? vc : T_DIM;
             knob(KB_X, KB_Y, KNOB_BIG_R, KNOB_BIG_COV, KNOB_BIG_ANG, (int32_t)lvl, 0, 127, hot == 1u ? T_ACCENT : vc);
             if (lvl)
-                fmt_frac(v, LEVEL_DB_X10[lvl], 1);
+                fmt_fix(v, LEVEL_DB_X10[lvl], 1);
             else
                 str_cpy(v, "OFF", sizeof v);
             GFX_HOOK_ALIGN(KB_X, 0, KB_X + under_w, 0, AL_H, "mixer level value under its knob");

@@ -3581,7 +3581,7 @@ static int test_quick_layers(void)
         for (flash = 0, k = 0; k < 40u; k++) { frame(); flash |= ui.layer | ui.lock; }
         btn_up(LB[i]); frame();
         ok &= !flash && !ui.home && !ui.layer && !ui.lock;
-        ok &= LB[i] == B_GLO ? str_eq(cur_page()->title, "SONG") :
+        ok &= LB[i] == B_GLO ? str_eq(cur_page()->title, "MASTER") :
               LB[i] == B_SCL ? cur_page()->fam == FAM_SCL : str_eq(cur_page()->title, "EDIT 1");
     }
     bad += check("GLO SCL EDIT: tap opens the page; hold never opens a quick map", ok);
