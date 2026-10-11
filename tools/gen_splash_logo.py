@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Rasterise assets/splash_logo.png into a 1-bit packed bitmap for the power-on splash
+"""Generate the power-on splash mark: rhodonea r = sin(b·θ) with a dotted polar grid
 (run by tools/build.py generate()).
 
-  gen_splash_logo.py OUT.h [--src assets/splash_logo.png] [--size 128] [--threshold 16]
+  gen_splash_logo.py OUT.h [--size 128] [--a 8] [--b 5.1] [--turns 6] [--hub 0.12]
 
-Binarise at full resolution, then area-downsample (BOX) and re-threshold so thin dotted
-rings survive the shrink. Output:
+Open hub: strands are not stroked for r < hub·R, so the centre stays clear at device scale.
+
+Output:
   SPL_LOGO_W / SPL_LOGO_H   square size in px
   SPL_LOGO_STRIDE           bytes per row
   SPL_LOGO[]                rows of STRIDE bytes, bit 0 = leftmost pixel (1 = white ink)
 """
 import argparse
+import math
 from pathlib import Path
-
-from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -29,52 +29,88 @@ def pack_row(bits):
     return out
 
 
+def set_px(grid, x, y, s):
+    if 0 <= x < s and 0 <= y < s:
+        grid[y][x] = 1
+
+
+def stamp(grid, x, y, s):
+    """Single pixel: neighbour fattening fills the petals at 128 px."""
+    set_px(grid, int(round(x)), int(round(y)), s)
+
+
+def draw_rose(grid, s, a_scale, b, turns, hub):
+    """r = sin(b·θ), scaled so |r| max fits inside the polar ring; skip |r| < hub."""
+    cx = cy = (s - 1) * 0.5
+    R = s * 0.42                          # rose amplitude in px (inside the dotted ring)
+    hub_r = hub * R
+    _ = a_scale                            # documented amplitude; on-screen size sets R
+    # Dense θ so each pass lays a strand; non-integer b offsets each turn
+    steps = max(3000, int(turns * 360 * 5))
+    t_max = turns * 2 * math.pi
+    for i in range(steps + 1):
+        th = t_max * i / steps
+        r = math.sin(b * th)              # -1..1
+        rad = abs(r) * R
+        if rad < hub_r:
+            continue
+        ang = th if r >= 0 else th + math.pi
+        stamp(grid, cx + rad * math.sin(ang), cy - rad * math.cos(ang), s)
+
+
+def draw_polar_grid(grid, s):
+    """Dotted circle, a couple of concentric rings, and radial spokes."""
+    cx = cy = (s - 1) * 0.5
+    R = s * 0.46
+    # outer ring + two inner rings
+    for rr in (R, R * 0.66, R * 0.33):
+        circ = 2 * math.pi * rr
+        n = max(48, int(circ / 2.2))      # ~every 2 px
+        for i in range(n):
+            if i % 2:
+                continue                  # dotted
+            th = 2 * math.pi * i / n
+            x = cx + rr * math.sin(th)
+            y = cy - rr * math.cos(th)
+            set_px(grid, int(round(x)), int(round(y)), s)
+    # 8 radial spokes, dotted
+    for k in range(8):
+        th = k * math.pi / 4
+        for t in range(4, int(R), 3):
+            x = cx + t * math.sin(th)
+            y = cy - t * math.cos(th)
+            set_px(grid, int(round(x)), int(round(y)), s)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out", type=Path)
-    ap.add_argument("--src", type=Path, default=ROOT / "assets" / "splash_logo.png")
     ap.add_argument("--size", type=int, default=128)
-    ap.add_argument("--threshold", type=int, default=16,
-                    help="after BOX downsample of a 1-bit source (0..255 mean), ink if above this")
+    ap.add_argument("--a", type=float, default=8.0, help="documented amplitude (scale via size)")
+    ap.add_argument("--b", type=float, default=5.1, help="rose frequency (non-integer → layered strands)")
+    ap.add_argument("--turns", type=float, default=5.0, help="full turns of θ (~15 strands/petal at 6; 5 keeps them open at 128)")
+    ap.add_argument("--hub", type=float, default=0.12, help="open centre as fraction of rose radius")
     a = ap.parse_args()
 
-    im = Image.open(a.src).convert("L")
-    bw = im.point(lambda v: 255 if v > 128 else 0)
-    bbox = bw.getbbox()
-    if not bbox:
-        raise SystemExit(f"splash logo: {a.src} has no ink")
-    pad = 4
-    crop = bw.crop((max(0, bbox[0] - pad), max(0, bbox[1] - pad),
-                    min(im.width, bbox[2] + pad), min(im.height, bbox[3] + pad)))
-    # BOX averages the binary source; a low threshold keeps single-pixel rings
-    r = crop.resize((a.size, a.size), Image.Resampling.BOX).point(
-        lambda v: 255 if v > a.threshold else 0)
+    s = a.size
+    grid = [[0] * s for _ in range(s)]
+    draw_polar_grid(grid, s)
+    draw_rose(grid, s, a.a, a.b, a.turns, a.hub)
 
-    stride = (a.size + 7) // 8
-    rows = []
-    ink = 0
-    for y in range(a.size):
-        row_bits = []
-        for x in range(a.size):
-            on = 1 if r.getpixel((x, y)) else 0
-            row_bits.append(on)
-            ink += on
-        rows.append(pack_row(row_bits))
+    stride = (s + 7) // 8
+    rows = [pack_row(row) for row in grid]
+    ink = sum(sum(row) for row in grid)
     if not ink:
-        raise SystemExit(f"splash logo: threshold {a.threshold} left no ink")
+        raise SystemExit("splash logo: generated mark has no ink")
 
     blob = b"".join(rows)
-    try:
-        rel = a.src.relative_to(ROOT)
-    except ValueError:
-        rel = a.src
     lines = [
-        f"/* generated by tools/gen_splash_logo.py from {rel} "
-        f"({a.size}x{a.size}, 1-bit, BOX threshold {a.threshold}) */",
+        f"/* generated by tools/gen_splash_logo.py: r=sin({a.b}·θ), a={a.a}, "
+        f"{a.turns:g} turns, hub {a.hub:g}, {s}x{s} 1-bit */",
         "#pragma once",
         "#include <stdint.h>",
-        f"#define SPL_LOGO_W {a.size}",
-        f"#define SPL_LOGO_H {a.size}",
+        f"#define SPL_LOGO_W {s}",
+        f"#define SPL_LOGO_H {s}",
         f"#define SPL_LOGO_STRIDE {stride}",
         f"static const uint8_t SPL_LOGO[{len(blob)}] = {{",
     ]
@@ -84,7 +120,8 @@ def main():
     lines += ["};", ""]
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text("\n".join(lines))
-    print(f"splash logo: {a.size}x{a.size} 1-bit, {ink} ink px, {len(blob)} bytes -> {a.out}")
+    print(f"splash logo: rose b={a.b} {a.turns:g} turns hub={a.hub:g} "
+          f"{s}x{s} 1-bit, {ink} ink px, {len(blob)} bytes -> {a.out}")
 
 
 if __name__ == "__main__":
