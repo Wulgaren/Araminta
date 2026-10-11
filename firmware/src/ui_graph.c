@@ -429,19 +429,6 @@ static void graph_chord(const track_t *t, uint16_t c)
                  !on ? T_RAISE : note % 12u == (uint32_t)r % 12u ? T_ACCENT : c, T_SURF);
     }
 }
-/* the four sends as faders under their cards: a RAISE slot, the THEME fill from the bottom, a cap */
-static void graph_fx(const track_t *t, uint16_t c)
-{
-    static const uint8_t ID[3] = {P_CHOR, P_DLY, P_REV};
-    uint32_t i;
-    for (i = 0; i < 3u; i++) {
-        int32_t h = t->p[ID[i]] * 76 / 127, x = CARD_X(i) + 26;
-        cv_rrect(x, 6, 4, 82, 2, T_RAISE, T_SURF);
-        if (h > 3)
-            cv_rrect(x, 88 - h, 4, h, 2, c, T_RAISE);
-        cv_rrect(x - 4, 85 - h, 12, 6, 3, c, T_SURF);
-    }
-}
 /* insert stage page: dry/wet mix as a blend line (MIX 0 = dry diagonal). The mix knob lives on EFFECTS;
  * the stage page still draws that stage's mix */
 static void graph_insert(const track_t *t, uint16_t c)
@@ -462,40 +449,27 @@ static void graph_insert(const track_t *t, uint16_t c)
         py = y;
     }
 }
-/* "40%" into b (8 bytes) from a 0..127 send or mix */
-static void ior_pct_txt(char *b, int32_t v)
-{
-    uint32_t n;
-    fmt_int(b, (clamp(v, 0, 127) * 100 + 63) / 127);
-    n = str_len(b);
-    if (n + 1u < 8u) {
-        b[n] = '%';
-        b[n + 1u] = 0;
-    }
-}
-/* EFFECTS: one list. Nine faders do not fit the panel, so each amount is a row: the six chain
- * stages (name, CHAIN or SEND, mix %) and, under them, the track's chorus, delay and reverb sends. */
+/* EFFECTS: name | gray mix fader | SEND / CHAIN / USED. Eight rows (6 inserts + DLY + REV). */
 static void ior_row(int32_t y, const char *name, const char *mode, int32_t amt, uint16_t col)
 {
-    char pct[8];
-    ior_pct_txt(pct, amt);
-    cv_text(16, y, &AF_S, name, col);
-    if (mode[0])
-        cv_text(112, y, &AF_S, mode, col);
-    cv_text(226 - text_w(&AF_S, pct), y, &AF_S, pct, col);
+    int32_t fw = 2 + clamp(amt, 0, 127) * 48 / 127;
+    cv_text(PANEL_X0 + 4, y + 1, &AF_S, name, col);
+    cv_rrect(PANEL_X0 + 56, y + 3, 50, 7, 2, T_RAISE, T_SURF);   /* empty track */
+    if (amt > 0)
+        cv_rrect(PANEL_X0 + 56, y + 3, fw, 7, 2, col, T_SURF);
+    cv_text(PANEL_X0 + PANEL_W - 4 - text_w(&AF_S, mode), y + 1, &AF_S, mode, col);
 }
 static void graph_iord(const track_t *t, uint16_t c)
 {
-    static const uint8_t SID[3] = {P_CHOR, P_DLY, P_REV};
-    static const char *const SN[3] = {"CHORUS", "DELAY", "REVERB"};
-    uint8_t ord[INS_N];
+    uint8_t ord[FX_LIST_N];
     uint32_t i;
-    ins_order_get(t, ord);
-    for (i = 0; i < INS_N; i++)
-        ior_row(4 + (int32_t)i * 12, N_ISTAGE[ord[i]], ins_is_send(t, ord[i]) ? "SEND" : "CHAIN",
-                ins_mix_of(t, ord[i]), i == ui.ior_sel ? c : T_DIM);
-    for (i = 0; i < 3u; i++)
-        ior_row(82 + (int32_t)i * 12, SN[i], "", t->p[SID[i]], T_MID);
+    fx_list_get(t, ord);
+    for (i = 0; i < FX_LIST_N; i++) {
+        uint32_t st = ord[i];
+        const char *mode = fx_list_mode(t, st);
+        uint16_t col = i == ui.ior_sel ? c : mode[0] == 'U' ? T_DIM : T_MID;
+        ior_row(2 + (int32_t)i * 11, N_ISTAGE[st], mode, ins_mix_of(t, st), col);
+    }
 }
 /* SLICER page: the pattern's 16 steps, a 'x' step a full bar; a '.' step: GATE a bar as high as it stays
  * open (DEPTH), STUT hatched (it repeats the last 'x'); the step playing underlined. Grey when OFF. */
@@ -2316,9 +2290,6 @@ static void draw_graph(void)
         case GR_CHORD:
             cv_oy = 0;
             graph_chord(t, c);
-            break;
-        case GR_FX:
-            graph_fx(t, c);
             break;
         case GR_SLCR:
             graph_slicer(t, c);

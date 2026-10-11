@@ -116,7 +116,9 @@
 #define PROJ_MAGIC_V2 0x46554E32u              /* "FUN2": four tracks, PROJ_NP_V2 parameters; read only */
 #define PROJ_MAGIC_V1 0x46554E31u              /* "FUN1": one instrument; loads into track 1 */
 #define PROJ_NP_V2 53u                         /* P_COUNT of formats 1 and 2 (P_E0 was 45) */
-#define PROJ_NG_V2 27u                         /* G_COUNT of formats 1 and 2 */
+#define PROJ_NG_V2 27u                         /* wire header globals (FUN1..FUN11 at b+8); G_COUNT may be larger */
+#define PROJ_NG_WIRE PROJ_NG_V2
+#define PROJ_CRV_OFF 3214u                     /* FUN11: CRSIZE, CRDAMP (CRTYPE in b[65]; b[67]=1 marks present) */
 #define PROJ_NP_V3 57u                         /* P_COUNT of format 3 (P_E0 was 49) */
 #define PROJ_NP_V4 69u                         /* P_COUNT of format 4 (P_E0 61) */
 #define PROJ_PHYS 2u                           /* project_t.phys: PHYS without DUST and DRUM (see the top) */
@@ -149,12 +151,12 @@ typedef struct { uint8_t note[4], n, time, flags, vel, hit, acc; } step10_t;
 typedef struct { int16_t p[69]; uint8_t engine, preset; step10_t step[NSTEP]; uint8_t lane[NLANE][5]; } proj_trk_v5_t;
 typedef struct {                               /* format 5, before the song chain */
     uint32_t magic, size;
-    int16_t g[G_COUNT];
+    int16_t g[PROJ_NG_WIRE];
     uint8_t sel, parts, phys, rsv;
     proj_trk_v5_t t[NTRK];
     uint32_t sum;
 } project_v5_t;
-typedef struct { uint32_t magic, size; int16_t g[G_COUNT]; uint8_t sel, parts, phys, rsv;
+typedef struct { uint32_t magic, size; int16_t g[PROJ_NG_WIRE]; uint8_t sel, parts, phys, rsv;
     proj_trk_v5_t t[NTRK]; chain_v9_t chain; uint32_t sum; } project_v6_t;
 _Static_assert(sizeof(project_v5_t) == 3352u && sizeof(project_v6_t) == 3388u, "frozen formats 5 / 6 sizes");
 /* Serialized FUN7 keeps the retained cache's exact extent. Params are biased
@@ -174,8 +176,10 @@ _Static_assert(sizeof(project_v5_t) == 3352u && sizeof(project_v6_t) == 3388u, "
 #define PROJ_DX_SIZE 96u                       /* kit 88 + mute 2 + marker 1 + X-MOD 4 + 1 pad (JIANT FUNA) */
 #define PROJ_DX_OFF (PROJ_FM6_OFF - PROJ_DX_SIZE)
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
-_Static_assert(G_COUNT == 27u, "FUN7 globals retain original IDs");
+_Static_assert(PROJ_NG_WIRE == 27u && G_COUNT >= PROJ_NG_WIRE, "FUN7 wire globals keep IDs 0..26");
+_Static_assert(G_COUNT == 30u, "CHAIN reverb globals G_CRTYPE..G_CRDAMP appended");
 _Static_assert(sizeof(project_store_t) == 3840u && PROJ_STORE_V7 == sizeof(project_v6_t), "FUN11 / FUN7 sizes");
+_Static_assert(PROJ_CRV_OFF + 2u <= PROJ_DX_OFF, "CHAIN reverb bytes before DX kit");
 _Static_assert(sizeof(dx_lane_t[8]) == 88u && PROJ_DX_OFF == 3216u, "FUN11 kit place before FM6");
 _Static_assert(MOTION_FILE_SIZE + PROJ_DX_SIZE == MOTION_FILE_SIZE_V10, "kit takes FUN10's motion spare");
 typedef struct {                               /* a track of format 4, read only */
@@ -185,7 +189,7 @@ typedef struct {                               /* a track of format 4, read only
 } proj_trk_v4_t;
 typedef struct {                               /* format 4 (1.0 development builds), read only */
     uint32_t magic, size;
-    int16_t g[G_COUNT];
+    int16_t g[PROJ_NG_WIRE];
     uint8_t sel, parts, phys, rsv;
     proj_trk_v4_t t[NTRK];
     uint32_t sum;
@@ -197,7 +201,7 @@ typedef struct {                               /* a track of format 3, read only
 } proj_trk_v3_t;
 typedef struct {                               /* format 3 (0.9 .. 1.0), read only */
     uint32_t magic, size;
-    int16_t g[G_COUNT];
+    int16_t g[PROJ_NG_WIRE];
     uint8_t sel, parts, rsv[2];
     proj_trk_v3_t t[NTRK];
     uint32_t sum;
@@ -250,6 +254,21 @@ static void proj_g_from_v2(int16_t *g, const int16_t *g2)
     for (i = 0; i < G_COUNT; i++)
         g[i] = i < PROJ_NG_V2 ? g2[i] : GP[i].def;
     proj_rtype_room(g);
+    g[G_CRTYPE] = g[G_RTYPE];                         /* CHAIN tank starts as SEND */
+    g[G_CRSIZE] = g[G_RSIZE];
+    g[G_CRDAMP] = g[G_RDAMP];
+}
+/* wire header globals (27) -> today's g[]; CHAIN reverb matches SEND until a FUN11 spare says otherwise */
+static void proj_g_from_wire(int16_t *g, const int16_t *w)
+{
+    uint32_t i;
+    for (i = 0; i < PROJ_NG_WIRE; i++)
+        g[i] = w[i];
+    for (; i < G_COUNT; i++)
+        g[i] = GP[i].def;
+    g[G_CRTYPE] = g[G_RTYPE];
+    g[G_CRSIZE] = g[G_RSIZE];
+    g[G_CRDAMP] = g[G_RDAMP];
 }
 
 /* np stored parameters, engine, preset and steps of an older track -> today's, mapped by count (see the top);
@@ -437,8 +456,11 @@ static int proj_from_v4(project_t *q, const project_v4_t *v4, int n)
     memset(q, 0, sizeof *q);
     q->magic = PROJ_MAGIC;
     q->size = sizeof *q;
-    memcpy(q->g, v4->g, sizeof q->g);
+    proj_g_from_wire(q->g, v4->g);
     proj_rtype_room(q->g);
+    q->g[G_CRTYPE] = q->g[G_RTYPE];
+    q->g[G_CRSIZE] = q->g[G_RSIZE];
+    q->g[G_CRDAMP] = q->g[G_RDAMP];
     q->sel = v4->sel;
     q->parts = v4->parts;
     q->phys = v4->phys;
@@ -459,8 +481,11 @@ static int proj_from_v3(project_t *q, const project_v3_t *v3, int n)
     memset(q, 0, sizeof *q);
     q->magic = PROJ_MAGIC;
     q->size = sizeof *q;
-    memcpy(q->g, v3->g, sizeof q->g);
+    proj_g_from_wire(q->g, v3->g);
     proj_rtype_room(q->g);
+    q->g[G_CRTYPE] = q->g[G_RTYPE];
+    q->g[G_CRSIZE] = q->g[G_RSIZE];
+    q->g[G_CRDAMP] = q->g[G_RDAMP];
     q->sel = v3->sel;
     q->parts = v3->parts;
     for (i = 0; i < NTRK; i++)
@@ -584,8 +609,11 @@ static int proj_import_old(project_t *q, const void *b, int n)
             v->size == bytes && ((const uint32_t *)b)[bytes / 4u - 1u] == proj_hash(b, bytes - 4u)) {
             memset(q, 0, sizeof *q);
             q->magic = PROJ_MAGIC; q->size = sizeof *q;
-            memcpy(q->g, v->g, sizeof q->g);
+            proj_g_from_wire(q->g, v->g);
             proj_rtype_room(q->g);
+            q->g[G_CRTYPE] = q->g[G_RTYPE];
+            q->g[G_CRSIZE] = q->g[G_RSIZE];
+            q->g[G_CRDAMP] = q->g[G_RDAMP];
             q->sel = v->sel; q->parts = v->parts; q->phys = v->phys;
             for (i = 0; i < NTRK; i++) {
                 int16_t def[P_COUNT];
@@ -637,7 +665,12 @@ static int proj_pack(project_store_t *out, const project_t *q)
             if (q->fm6[t][i] > 127u) return 0;
     if (!chain_valid(&q->chain) || !motion_valid(&q->motion) || P_COUNT > 127u || !dx_kit_ok(q->dx)) return 0;
     memset(out, 0, sizeof *out); memcpy(b, &magic, 4); memcpy(b + 4, &size, 4);
-    memcpy(b + 8, q->g, sizeof q->g); b[62] = q->sel; b[63] = q->parts; b[64] = q->phys; b[66] = P_COUNT;
+    memcpy(b + 8, q->g, PROJ_NG_WIRE * sizeof(int16_t));
+    b[62] = q->sel; b[63] = q->parts; b[64] = q->phys; b[66] = P_COUNT;
+    b[65] = (uint8_t)clamp(q->g[G_CRTYPE], 0, 4);       /* CHAIN tank TYPE/SIZE/DAMP (spare; not in wire g[]) */
+    b[67] = 1;
+    b[PROJ_CRV_OFF] = (uint8_t)clamp(q->g[G_CRSIZE], 0, 127);
+    b[PROJ_CRV_OFF + 1u] = (uint8_t)clamp(q->g[G_CRDAMP], 0, 127);
     for (t = 0; t < NTRK; t++) {
         for (i = 0; i < P_COUNT; i++) {
             if (i == P_IORD) {                          /* order in bits 0..9; send flags in 10..15 */
@@ -757,9 +790,25 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         np < 8u || np > P_COUNT || 68u + NTRK * (np + iord2 + 2u + NSTEP * 9u) + chn + mot > data_end)
         return 0;
     memset(q, 0, sizeof *q); q->magic = PROJ_MAGIC; q->size = sizeof *q;
-    memcpy(q->g, b + 8, sizeof q->g); q->sel = b[62]; q->parts = b[63]; q->phys = b[64];
+    memcpy(q->g, b + 8, PROJ_NG_WIRE * sizeof(int16_t));
+    for (i = PROJ_NG_WIRE; i < G_COUNT; i++)
+        q->g[i] = GP[i].def;
+    q->sel = b[62]; q->parts = b[63]; q->phys = b[64];
+    if (q->g[G_DLYOWN] < 0 || q->g[G_DLYOWN] > (int16_t)NTRK)   /* was bus chorus CRT/CDP */
+        q->g[G_DLYOWN] = 0;
+    if (q->g[G_REVOWN] < 0 || q->g[G_REVOWN] > (int16_t)NTRK)
+        q->g[G_REVOWN] = 0;
     if (v7 && (q->g[G_RTYPE] < 0 || q->g[G_RTYPE] > 1))   /* a FUN7 may still hold the old drum channel there */
         proj_rtype_room(q->g);
+    if (v11 && b[67] == 1) {                              /* CHAIN tank params in FUN11 spare */
+        q->g[G_CRTYPE] = b[65] <= 4u ? (int16_t)b[65] : 0;
+        q->g[G_CRSIZE] = (int16_t)b[PROJ_CRV_OFF];
+        q->g[G_CRDAMP] = (int16_t)b[PROJ_CRV_OFF + 1u];
+    } else {
+        q->g[G_CRTYPE] = q->g[G_RTYPE];                   /* older projects: CHAIN matches SEND */
+        q->g[G_CRSIZE] = q->g[G_RSIZE];
+        q->g[G_CRDAMP] = q->g[G_RDAMP];
+    }
     for (t = 0; t < NTRK; t++) {
         int16_t values[P_COUNT], def[P_COUNT];
         for (i = 0; i < np; i++) {
