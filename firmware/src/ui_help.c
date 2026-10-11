@@ -70,7 +70,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"LANE MUTE", "[KEYS]LANES[HOME]MIXER"},
     {"CLOCK", "[OCT+]SELECT: TEMPO[GLO]SONG"},
 };
-#define H_HOME "[PRESETS]SOUND[HOME]HOLD: MENU"
+#define H_HOME "[OCT+]PRESETS RND[HOME]HOLD: MENU"
 #define H_LEVELS "[K1-4]T1-T4 LEVEL[HOME]MIXER"
 #define H_GRID "[KEYS]STEPS[K2]LANE[SEQ]RATCH"
 /* a layer's (LAYER_*): what its footer row (LAYERS[].foot) does not say */
