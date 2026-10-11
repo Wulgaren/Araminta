@@ -44,14 +44,18 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"EDIT 2", H_EDIT},
     {"FILTER", "[K1]TYPE[K2]CUTOFF[K3]RES[K4]KTR"},
     {"FILTER DRIVE", "[K1]DRIVE[EDIT]FILTER"},
+    {"SOUND", "[K1]LANE[K2]A/B[K3]PITCH[K4]PMOD"},
+    {"SOUND 2", "[K1]DECAY[K2]NOISE[K3]COLOR[K4]MODE"},
+    {"SOUND 3", "[K1]LANE[K2]PMOD[K3]DRIVE[K4]WAVE"},
+    {"X-MOD", "[K1]RATE[K2]DEPTH[K3]SHAPE[K4]RAND"},
     {"LANES", H_LANES},
     {"LANES 2", H_LANES},
     {"SLICES", "[K1]SLICE[K2]MOVE[OCT+]SPLIT, JOIN"},
     {"OPERATOR", H_FMOP},
     {"OP ENV", H_FMOP},
     {"OPERATOR 2", H_FMOP},
-    {"VOICE", "[K1]POLY, MONO[K2]GLIDE"},
-    {"VOICE 2", "[K1]SPREAD[K2]DETUNE[K3]PAN[K4]MUTE"},
+    {"VOICE", "[K1]VOICE[K2]GLIDE[K3]UNI DTN[K4]SPREAD"}, /* UNI DTN / SPRD blank off UNI / off POLY+UNI */
+
     {"SONG", "[K1]SECTION[KEYS]A-D[PLAY]SONG"},
     {"PRESETS", "[K2]ENGINE[K3]FAV[K4]LIST"},
     {"USER", "[K1]SLOT[OCT+]SAVE[SELECT]LIST"},
@@ -60,14 +64,14 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"TOOLS", "[K1]CLEAR[K2]INIT SOUND[OCT+]DO"},
     {"ARP", "[K1]MODE[KEYS]CHORD[ARP]ARP 2"},
     {"ARP 2", "[K3]LATCH[K4]ORDER[ARP]ARP"},
-    {"PATTERN", "[K1]LEN[K2]DIV[KEYS]TOOLS"},
+    {"PATTERN", "[K1]LEN[K2]DIV[SEQ]TOOLS"},
+    {"SEQ TOOLS", "[KEYS]TOOLS[K1]LEN[K2]DIV"},
     {"STEP", "[KEYS]WRITE[K1]STEP[SEQ]RATCH"},   /* (1.5.1: SEQ to DETAIL) */
     {"DETAIL", "[PRESETS]STEP[K1]CHANCE[K2]RATCH"},
     {"AUTOMATION", "[K1]ROW[OCT+]DO[EDIT]DELETE"},
     {"RECORD", "[KEYS]CLICK COUNT[K1-4]PREFS"},
     {"PUNCH", "[KEYS]EFFECTS[K1-4]MACROS"},
-    {"MIXER", "[K4]MUTE[ALGO]TRACK[HOME]HOME"},
-    {"LANE MUTE", "[KEYS]LANES[HOME]MIXER"},
+    {"MIXER", "[K4]PLAY[ALGO]TRACK"},
     {"CLOCK", "[OCT+]SELECT: TEMPO[GLO]SONG"},
 };
 #define H_HOME "[OCT+]PRESETS[HOME]MENU"          /* Terminus: shorter than Inter Tight so the row fits */

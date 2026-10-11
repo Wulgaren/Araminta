@@ -13,11 +13,9 @@ Libraries:
              PIANO, FLUTE, SAX (set 1, once TRANH, and set 4, once PERC, are aliases of PIANO).
              PIANO is the 5-zone piano of 1.0 .. 1.1.5 (1.2 .. 1.4.1 built a reduced 2-zone
              one at 11,025 Hz; 1.5 went back to the full one, the same bytes as 1.1.5)
-  CR78       assets/samples-cc0/CR78/: one-shot kit (kind "kit"), chromatic from C4; set 5,
-             after the retired PERC alias. USR1..3 stay at 6..8.
+  CR78       omitted from the ROM bank (Araminta: upload as USR). USR1..3 are indices 5..7.
 SAMPLE's factory presets cover every named set (aliases skipped when browsing); set 4
-(SMP_PERC_SLOT) still loads as DRUM when selected as a preset. Every sample set and SET /
-USR index stays in its place aside from CR78 appended after PERC.
+(SMP_PERC_SLOT) still loads as DRUM when selected as a preset.
 A retired set keeps its index as an alias: the original's name and zones (no data), and a
 preset equal to the original's (SMP_SET_ORIG), so old projects and presets play it and
 browsing skips it (params.c enum_orig, ui.c preset_orig).
@@ -69,12 +67,12 @@ CC0 = SRC / "assets" / "samples-cc0"
 TR = 22050                                   # stored sample rate
 
 # CC0 library: set -> kind ("oneshot" decaying, "sus" looped sustain, "kit" one sample per key)
-# Built-in sets (piano, flute, sax, CR78 kit); user slots USR1-3 follow (indices 6..8). TRANH was
+# Built-in sets (piano, flute, sax); user slots USR1-3 follow (indices 5..7). TRANH was
 # removed (66 KB of flash); its index 1 stays, an alias of PIANO ("alias": the set named). PERC
 # (the GM kit) was removed (66 KB); its index 4 stays, an alias of PIANO too (PERC_SLOT; its
-# sounds load as the DRUM engine). CR78 is set 5.
+# sounds load as the DRUM engine). CR78 ROM kit omitted (Araminta: upload as USR).
 CC0_SETS = [("PIANO", "oneshot"), ("PIANO", "alias"), ("FLUTE", "sus"), ("SAX", "sus"),
-            ("PIANO", "alias"), ("CR78", "kit")]
+            ("PIANO", "alias")]
 PERC_SLOT = 4                                # core.h SMP_SET_PERC: retired PERC alias
 MEASURED_TUNING = ()                         # sets whose recordings are not at A440 (was TRANH, ~+35 ct)
 
@@ -104,9 +102,8 @@ ENV = {"wave":(5, 80, 100, 50), "kit": (0, 127, 127, 60), "multi": (0, 85, 0, 75
        "oneshot": (0, 127, 127, 70), "sus": (12, 80, 120, 60)}
 
 # PIANO's notes cut to 0.75 s (saves flash), faded out over the last SET_FADE s.
-# CR78 one-shots: 0.45 s keeps the kit under ~80 KB ADPCM (guiro long is truncated).
-SET_KEEP = {"PIANO": 0.75, "CR78": 0.45}
-SET_FADE = {"PIANO": 0.15, "CR78": 0.08}
+SET_KEEP = {"PIANO": 0.75}
+SET_FADE = {"PIANO": 0.15}
 
 _wavs = {}
 

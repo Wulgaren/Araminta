@@ -48,8 +48,8 @@
  * its 91 parameters mapped by count: the lane levels 100 %) and FUN7 are read; the retained cache grew again (its
  * slot 1 still starts with the older record, read as above).
  *
- * Format 10 ("FUNA", written since 1.2; FUN10 in the docs) = FUN9 laid out the same way, 3840 bytes (a whole storage
- * object, storage.c ST_PAYLOAD_MAX), for four changes made together:
+ * Format 10 ("FUNA", written since 1.2; FUN10 in the docs; read only since FUN11) = FUN9 laid out the same way, 3840
+ * bytes (a whole storage object, storage.c ST_PAYLOAD_MAX), for four changes made together:
  *   - P_COUNT 104 (P_E0 96): LFO 2's SYNC TRIG POL, QUANTIZE and SPREAD (P_LSYNC .. P_SPRD) before the engine
  *     values. SPREAD (#148) came before FUN10's release, into the spare bytes below: a FUN10 of a 1.2 build before
  *     it holds 103 (byte 66) and loads by count (SPREAD 0, its engine values and their motion moved up by one);
@@ -92,13 +92,20 @@
  * as they are, the rest of its sound kept; proj_perc, on every import as proj_fm4). Its motion events on the
  * EDIT values are dropped (SAMPLE's meanings, not DRUM's).
  *
- * SAMPLE / GRAIN / NOISE / SLICE were removed (eng_retire.c): any other SAMPLE, GRAIN or NOISE track loads as
- * ANALOG (E0..E7 ANALOG defaults, shared params kept); SLICE loads as DRUM's kit. Motion on EDIT values is
- * dropped. Runs after proj_perc so SAMPLE PERC still becomes DRUM. Idempotent (proj_retire).
+ * SLICE (engine 13) stays retired (eng_retire.c): a SLICE track loads as DRUM's kit. Motion on EDIT values is
+ * dropped. SAMPLE / GRAIN / NOISE are live again; SAMPLE PERC still becomes DRUM via proj_perc first.
+ * Idempotent (proj_retire).
+ *
+ * Format 11 ("FUNB", written now; FUN11 in the docs) = FUN10 with the DRUM-X kit (drumx_voice.c dx_lane_t[8], 88
+ * bytes, then mute lo/hi, a marker byte, X-MOD dx_mot[4]: 96 bytes at PROJ_DX_OFF just before the FM6 patches),
+ * as JIANT's FUNA did. Still 3840 bytes: the motion disk block shrinks from 110 to 78 records (MOTION_FILE_MAX;
+ * RAM still holds 128) so the kit fits. FUN10 loads with the factory kit (DX_KIT_DEF). Firmware that only knows
+ * FUN10 refuses a FUN11 (magic): its slot shows EMPTY there until saved over.
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
-#define PROJ_MAGIC 0x46554E41u                 /* "FUNA" (FUN10): 104 (1.5: 111) parameters, 128 motion records, nudges */
+#define PROJ_MAGIC 0x46554E42u                 /* "FUNB" (FUN11): FUN10 + DRUM-X kit; 78 motion records on disk */
+#define PROJ_MAGIC_V10 0x46554E41u             /* "FUNA" (FUN10): read only; no kit, 110 motion records on disk */
 #define PROJ_MAGIC_V9 0x46554E39u              /* "FUN9": FUN8, 64 bytes longer (the DRUM lane levels, 99 parameters) */
 #define PROJ_MAGIC_V8 0x46554E38u              /* "FUN8": FUN7 + the tracks' FM6 patches */
 #define PROJ_MAGIC_V7 0x46554E37u              /* "FUN7": serialized (byte params, packed steps), chain, motion */
@@ -131,6 +138,9 @@ typedef struct {
     chain_config_t chain;
     motion_store_t motion;
     uint8_t fm6[NTRK][FM6_PACKED];             /* each track's FM6 patch, packed (eng_fm6.c) */
+    dx_lane_t dx[8];                           /* the DRUM-X kit (drumx_voice.c); FUN11 */
+    uint16_t dx_mute;                          /* group + lane mutes (eng_drum.c dx_mute) */
+    uint8_t dx_mot[4];                         /* X-MOD RATE DPTH SHPE RAND (eng_drum.c) */
     char name[PROJ_NAME_LEN];                  /* the project's name: upper-case ASCII 32..126, 0-padded; "" = none */
     uint32_t sum;
 } project_t;
@@ -154,16 +164,20 @@ _Static_assert(sizeof(project_v5_t) == 3352u && sizeof(project_v6_t) == 3388u, "
  * never reads them, so every FUN7 file stays valid both ways; FUN6..FUN1 imports get no name.
  * FUN8: the same, 3584 bytes, the four packed FM6 patches at PROJ_FM6_OFF (before the name); 16 bytes of the
  * reserved tail were left for parameters added later. FUN9: the same, 3648 bytes (see the top). */
-#define PROJ_STORE_SIZE 3840u                  /* FUN10: a whole storage object (storage.c ST_PAYLOAD_MAX) */
+#define PROJ_STORE_SIZE 3840u                  /* FUN11 / FUN10: a whole storage object (storage.c ST_PAYLOAD_MAX) */
 #define PROJ_STORE_V9 3648u                    /* FUN9 */
 #define PROJ_MOTION_V9 260u                    /* the motion block of FUN7..FUN9: 64 x (place, id, i16 value) */
 #define PROJ_STORE_V8 3584u                    /* FUN8 */
 #define PROJ_STORE_V7 3388u                    /* FUN7 */
 #define PROJ_NAME_OFF (PROJ_STORE_SIZE - 4u - PROJ_NAME_LEN)
 #define PROJ_FM6_OFF (PROJ_NAME_OFF - NTRK * FM6_PACKED)
+#define PROJ_DX_SIZE 96u                       /* kit 88 + mute 2 + marker 1 + X-MOD 4 + 1 pad (JIANT FUNA) */
+#define PROJ_DX_OFF (PROJ_FM6_OFF - PROJ_DX_SIZE)
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(G_COUNT == 27u, "FUN7 globals retain original IDs");
-_Static_assert(sizeof(project_store_t) == 3840u && PROJ_STORE_V7 == sizeof(project_v6_t), "FUN10 / FUN7 sizes");
+_Static_assert(sizeof(project_store_t) == 3840u && PROJ_STORE_V7 == sizeof(project_v6_t), "FUN11 / FUN7 sizes");
+_Static_assert(sizeof(dx_lane_t[8]) == 88u && PROJ_DX_OFF == 3216u, "FUN11 kit place before FM6");
+_Static_assert(MOTION_FILE_SIZE + PROJ_DX_SIZE == MOTION_FILE_SIZE_V10, "kit takes FUN10's motion spare");
 typedef struct {                               /* a track of format 4, read only */
     int16_t p[PROJ_NP_V4];
     uint8_t engine, preset;
@@ -383,7 +397,7 @@ static void proj_perc(project_t *q)
     q->sum = proj_sum(q);
 }
 
-/* SAMPLE / GRAIN / NOISE / SLICE tracks -> ANALOG or DRUM (see the top; eng_retire.c). After proj_perc.
+/* SLICE tracks -> DRUM (see the top; eng_retire.c). After proj_perc.
  * EDIT motion on those tracks is dropped. Idempotent */
 static void proj_retire(project_t *q)
 {
@@ -536,7 +550,7 @@ static int proj_import(project_t *q, const void *b, int n)
 }
 static int proj_import_any(project_t *q, const void *b, int n)
 {
-    if (n == PROJ_STORE_SIZE && ((const uint32_t *)b)[0] == PROJ_MAGIC)
+    if (n == PROJ_STORE_SIZE && (((const uint32_t *)b)[0] == PROJ_MAGIC || ((const uint32_t *)b)[0] == PROJ_MAGIC_V10))
         return proj_unpack(q, b, PROJ_STORE_SIZE);
     if (n == PROJ_STORE_SIZE && ((const uint32_t *)b)[1] >= 8u && ((const uint32_t *)b)[1] < PROJ_STORE_SIZE)
         n = (int)((const uint32_t *)b)[1];      /* a retained slot holding an older, shorter record: its own size
@@ -617,11 +631,11 @@ static uint32_t proj_name_get(char *d, const uint8_t *s)   /* its length */
 static int proj_pack(project_store_t *out, const project_t *q)
 {
     uint8_t *b = out->raw; uint32_t pos = 68u, t, i; uint32_t magic = PROJ_MAGIC, size = PROJ_STORE_SIZE, sum;
+    motion_store_t mot;
     for (t = 0; t < NTRK; t++)
         for (i = 0; i < FM6_PACKED; i++)
             if (q->fm6[t][i] > 127u) return 0;
-    if (!chain_valid(&q->chain) || !motion_valid(&q->motion) || P_COUNT > 127u) return 0;
-    if (q->motion.count > MOTION_FILE_MAX) return 0;   /* insert chain: MOTION_FILE_MAX + 2 B/track for P_IORD */
+    if (!chain_valid(&q->chain) || !motion_valid(&q->motion) || P_COUNT > 127u || !dx_kit_ok(q->dx)) return 0;
     memset(out, 0, sizeof *out); memcpy(b, &magic, 4); memcpy(b + 4, &size, 4);
     memcpy(b + 8, q->g, sizeof q->g); b[62] = q->sel; b[63] = q->parts; b[64] = q->phys; b[66] = P_COUNT;
     for (t = 0; t < NTRK; t++) {
@@ -651,9 +665,17 @@ static int proj_pack(project_store_t *out, const project_t *q)
             b[pos++] = (uint8_t)(s->probability | (r >> 1) << 7);
         }
     }
-    if (pos + sizeof q->chain + MOTION_FILE_SIZE > PROJ_FM6_OFF) return 0;
+    if (pos + sizeof q->chain + MOTION_FILE_SIZE > PROJ_DX_OFF) return 0;
     memcpy(b + pos, &q->chain, sizeof q->chain); pos += sizeof q->chain;
-    memcpy(b + pos, &q->motion, MOTION_FILE_SIZE);     /* count.. + first MOTION_FILE_MAX events; rest of RAM unused */
+    mot = q->motion;                                   /* FUN11: at most MOTION_FILE_MAX on disk (kit takes the rest) */
+    if (mot.count > MOTION_FILE_MAX)
+        mot.count = (uint8_t)MOTION_FILE_MAX;
+    memcpy(b + pos, &mot, MOTION_FILE_SIZE);
+    memcpy(b + PROJ_DX_OFF, q->dx, sizeof q->dx);
+    b[PROJ_DX_OFF + sizeof q->dx] = (uint8_t)(q->dx_mute & DXG_ALL);
+    b[PROJ_DX_OFF + sizeof q->dx + 1u] = (uint8_t)(q->dx_mute >> 8);
+    b[PROJ_DX_OFF + sizeof q->dx + 2u] = 1u;            /* marker: kit layout as today */
+    memcpy(b + PROJ_DX_OFF + sizeof q->dx + 3u, q->dx_mot, sizeof q->dx_mot);
     memcpy(b + PROJ_FM6_OFF, q->fm6, sizeof q->fm6);
     {   /* the name (0-padded; stops at the first 0) */
         char n[PROJ_NAME_LEN + 1u];
@@ -699,20 +721,39 @@ static int proj_motion_v9(motion_store_t *m, const uint8_t *b)
     }
     return 1;
 }
-/* a stored FUN10 (st = PROJ_STORE_SIZE), FUN9 (PROJ_STORE_V9: 64 motion records of 4 bytes, no nudges), FUN8
+/* a stored FUN11 / FUN10 (st = PROJ_STORE_SIZE), FUN9 (PROJ_STORE_V9: 64 motion records of 4 bytes, no nudges), FUN8
  * (PROJ_STORE_V8: FUN9 with its tail 64 bytes shorter) or FUN7 (PROJ_STORE_V7: no patches, the init one) */
 static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
 {
     uint32_t pos = 68u, t, i, magic, size, sum, np = b[66], v7 = st == PROJ_STORE_V7, v10 = st == PROJ_STORE_SIZE;
     uint32_t name_off = st - 4u - PROJ_NAME_LEN, end = v7 ? name_off : name_off - NTRK * FM6_PACKED;
-    /* np>111: insert chain; P_IORD is 2 bytes; motion is MOTION_FILE_SIZE. np<=111 (1.5): full 128-record block */
-    uint32_t mot = !v10 ? PROJ_MOTION_V9 : np > 111u ? MOTION_FILE_SIZE : sizeof q->motion;
-    uint32_t chn = v10 ? sizeof q->chain : sizeof(chain_v9_t);
+    uint32_t v11 = 0, data_end = end;
+    /* np>111: insert chain; P_IORD is 2 bytes. FUN11: MOTION_FILE_SIZE + kit; FUN10: MOTION_FILE_SIZE_V10;
+     * np<=111 (1.5): full 128-record block (no insert chain yet) */
+    uint32_t mot, chn = v10 ? sizeof q->chain : sizeof(chain_v9_t);
     uint32_t iord2 = np > 111u ? 1u : 0u;               /* +1 byte per track for P_IORD high */
+    uint32_t mot_max;
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + st - 4u, 4);
-    if (magic != (v7 ? PROJ_MAGIC_V7 : st == PROJ_STORE_V8 ? PROJ_MAGIC_V8 : st == PROJ_STORE_V9 ? PROJ_MAGIC_V9 : PROJ_MAGIC) ||
-        size != st || sum != proj_hash(b, st - 4u) ||
-        np < 8u || np > P_COUNT || 68u + NTRK * (np + iord2 + 2u + NSTEP * 9u) + chn + mot > end)
+    if (v10) {
+        if (magic == PROJ_MAGIC)
+            v11 = 1u;
+        else if (magic != PROJ_MAGIC_V10)
+            return 0;
+    } else if (magic != (v7 ? PROJ_MAGIC_V7 : st == PROJ_STORE_V8 ? PROJ_MAGIC_V8 : PROJ_MAGIC_V9))
+        return 0;
+    if (v11) {
+        mot = np > 111u ? MOTION_FILE_SIZE : sizeof q->motion;
+        data_end = PROJ_DX_OFF;
+        mot_max = MOTION_FILE_MAX;
+    } else if (v10) {
+        mot = np > 111u ? MOTION_FILE_SIZE_V10 : sizeof q->motion;
+        mot_max = MOTION_FILE_MAX_V10;
+    } else {
+        mot = PROJ_MOTION_V9;
+        mot_max = 64u;
+    }
+    if (size != st || sum != proj_hash(b, st - 4u) ||
+        np < 8u || np > P_COUNT || 68u + NTRK * (np + iord2 + 2u + NSTEP * 9u) + chn + mot > data_end)
         return 0;
     memset(q, 0, sizeof *q); q->magic = PROJ_MAGIC; q->size = sizeof *q;
     memcpy(q->g, b + 8, sizeof q->g); q->sel = b[62]; q->parts = b[63]; q->phys = b[64];
@@ -754,7 +795,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
             step_set_nudge(s, (int32_t)(nd ^ 8u) - 8);
         }
     }
-    if (v10)                                            /* (FUN10: sections, a slot per track; before: rows) */
+    if (v10)                                            /* (FUN10/11: sections, a slot per track; before: rows) */
         memcpy(&q->chain, b + pos, sizeof q->chain);
     else {
         chain_v9_t c9;
@@ -765,7 +806,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     if (v10) {
         memset(&q->motion, 0, sizeof q->motion);
         memcpy(&q->motion, b + pos, mot);
-        if (q->motion.count > (np > 111u ? MOTION_FILE_MAX : MOTION_MAX))
+        if (q->motion.count > (np > 111u ? mot_max : MOTION_MAX))
             return 0;
     } else if (!proj_motion_v9(&q->motion, b + pos))
         return 0;
@@ -776,6 +817,21 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         else
             for (i = 0; i < FM6_PACKED; i++)
                 q->fm6[t][i] = b[end + t * FM6_PACKED + i] & 0x7Fu;
+    }
+    if (v11) {                                          /* DRUM-X kit (a broken one: not a project) */
+        memcpy(q->dx, b + PROJ_DX_OFF, sizeof q->dx);
+        if (!dx_kit_ok(q->dx)) return 0;
+        q->dx_mute = (uint16_t)((b[PROJ_DX_OFF + sizeof q->dx] & DXG_ALL) |
+                                (uint32_t)b[PROJ_DX_OFF + sizeof q->dx + 1u] << 8);
+        memcpy(q->dx_mot, b + PROJ_DX_OFF + sizeof q->dx + 3u, sizeof q->dx_mot);
+        q->dx_mot[XM_RATE] = q->dx_mot[XM_RATE] > 8u ? 0u : q->dx_mot[XM_RATE];
+        q->dx_mot[XM_DPTH] &= 127u;
+        q->dx_mot[XM_SHPE] = q->dx_mot[XM_SHPE] > 4u ? 0u : q->dx_mot[XM_SHPE];
+        q->dx_mot[XM_RAND] &= 127u;
+    } else {
+        memcpy(q->dx, DX_KIT_DEF, sizeof q->dx);
+        q->dx_mute = 0;
+        memset(q->dx_mot, 0, sizeof q->dx_mot);
     }
     {
         char n[PROJ_NAME_LEN + 1u];
@@ -894,6 +950,9 @@ static void project_capture(project_t *p)
         fm6_pack(fm6_patch[i], p->fm6[i]);
     }
     p->motion = motion;
+    memcpy(p->dx, dx_kit, sizeof p->dx);
+    p->dx_mute = dx_mute;
+    memcpy(p->dx_mot, dx_mot, sizeof p->dx_mot);
     motion_unguard(f);
     memcpy(p->name, proj_name, str_len(proj_name));
     p->sum = proj_sum(p);
@@ -1034,6 +1093,9 @@ static int project_restore_runtime(const project_t *input)
     mom_back(0);                                  /* (ui_input.c MOMENTARY: the values as they were, then the load) */
     memset(drum_mute, 0, sizeof drum_mute);       /* (1.4.1: the DRUM lanes' mutes, performance state) */
     if (p != input) memcpy(p, input, sizeof *p);
+    memcpy(dx_kit, dx_kit_ok(p->dx) ? p->dx : DX_KIT_DEF, sizeof dx_kit);   /* FUN11 kit (FUN10: factory) */
+    memcpy(dx_mot, p->dx_mot, sizeof dx_mot);
+    dx_mute_set(p->dx_mute);
     proj_drums_to_part(p);                              /* a RAM slot of firmware before 1.0 */
     proj_phys(p);                                       /* .. before PHYS lost DUST and DRUM */
     proj_fm4(p);                                        /* .. that had DIGITAL tracks */

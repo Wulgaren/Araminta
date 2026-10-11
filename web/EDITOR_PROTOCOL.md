@@ -90,7 +90,7 @@ watches (v2, `WATCH`), the device also sends push frames (cmds 23, 24, 26) at an
 | string | ASCII bytes, ended by a 0 byte |
 | scope | 0 = parameter of the selected track (`P_*`, 0..P_COUNT−1); 1 = global parameter (`G_*`, 0..G_COUNT−1) |
 | track | 0..3: tracks 1..4 (synth parts) |
-| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 reserved (SAMPLE retired: see below), 5 VOICE, 6 TRIO, 7 WHEEL, 8 reserved (GRAIN), 9 PHYS, 10 DRUM, 11 reserved (NOISE), 12 FM6, 13 reserved (SLICE). NENGINES is 14. The device and the editor list pickable engines in another order (ANALOG FM6 PHASE LOFI VOICE TRIO WHEEL PHYS DRUM: `ENGINE_ORDER`); the numbers stay |
+| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 SAMPLE, 5 VOICE, 6 TRIO, 7 WHEEL, 8 GRAIN, 9 PHYS, 10 DRUM, 11 NOISE, 12 FM6, 13 reserved (SLICE retired). NENGINES is 14. The device and the editor list pickable engines in another order (ANALOG FM6 PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM: `ENGINE_ORDER`); the numbers stay |
 
 The engine parameters are `P_E0..P_E7`: P_COUNT−8 .. P_COUNT−1 (103..110 since 1.5; 96..103 in 1.2 .. 1.4; 91..98 in
 1.1), and `INFO` gives `P_E0`.
@@ -201,7 +201,7 @@ at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device 
 | 12 SMP_WRITE | slot, offset (3 × 7 bit, LSB first), pack7 data (≤ 256 bytes) | slot, offset, rc: 0 ok, 1 arguments, 2 erase, 3 write, 4 slot in use (send SMP_BEGIN first). Offset ≥ 512 and a multiple of 256; writes go in increasing order (a write at a 4 KiB boundary erases that sector) |
 | 13 SMP_END | slot, pack7 header (480 bytes) | slot, rc: 0 ok, 1 size, 2 header, 3 data CRC, 4 flash, 5 zones |
 | 14 SMP_ERASE | slot | slot, rc (erases the whole slot, ~1 s) |
-| 15 SMP_INFO | — | slots, slot KiB, then per slot: zone count (0 = empty), name string, data KiB |
+| 15 SMP_INFO | — | slots, slot KiB, then per slot: zone byte (low bits = zone count 0 = empty, max 16; bit 6 = drum kit grid from FSMP `hdr.rsv`; 7-bit SysEx), name string, data KiB |
 | 16 UP_LIST | start, count (1..16) | start, count, total slots, then per slot: used (0/1), engine, name string ("" if unused); 1.2: then one category byte per slot listed (below; 0 if unused) |
 | 17 UP_GET | slot | slot, used, engine, name, P_COUNT × v14, 16 × (note, flags), then (v5) kind (0 a note pattern, 1 a drum grid) and for kind 1 16 × hi; 1.2: then the category |
 | 18 UP_PUT | slot, engine, name, P_COUNT × v14, 16 × (note, flags) [, kind 0 or 1, 16 × hi (v5) [, category (1.2)]] | slot, rc (0 ok, 1 args, 2 flash). Writes flash: allow 1 s |
@@ -247,7 +247,7 @@ checked byte for byte by `web/test_web.mjs`): header at 0, ADPCM data at 512.
 
 | Offset | Field |
 | --- | --- |
-| 0 | magic `"FSMP"` (u32 0x504D5346), u16 version 1, u8 zone count 1..16, u8 0 |
+| 0 | magic `"FSMP"` (u32 0x504D5346), u16 version 1, u8 zone count 1..16, u8 rsv (bit 0 = drum kit grid: SEQ shows the drum grid for SAMPLE on this USR slot; zones mapped by hand on upload) |
 | 8 | name, 8 ASCII bytes (0-padded) |
 | 16 | u32 data length (bytes), u32 CRC-32 (zlib) of the data, 8 bytes 0 |
 | 32 | 16 zones × 28 bytes: u32 off (in the data), n (samples), loop start, loop end, rate (Hz / 44100 × 65536); i16 root × 16 (MIDI note), ADPCM predictor at the loop start; u8 step index at the loop start, lo note, hi note, looped (0/1) |
@@ -603,12 +603,12 @@ when the track's engine is not the saved one).
 - **Projects (FUN10, since 1.2).** FUN9 laid out the same way, `46 55 4E 41` ("FUNA", FUN10 in these notes), size
   3840 (a whole storage object): P_COUNT 104 at byte 66 and 104 bytes per track (103 in builds before SPREAD: loaded by count); each step's nudge (−8..+7, two's
   complement in 4 bits) in bit 7 of its four note bytes (bit j of the nudge in note j; every older format wrote them 0);
-  the motion block 388 bytes: count, on mask, 2 reserved, 128 × (track << 6 | step, id (bit 7 a lock), value as a signed
-  byte −64..127); the song's chain is its sections (84 bytes, see "1.2: song sections"). 68 + 4 × (104 + 2 + 576) + chain + motion = 3268; the FM6 patches at 3312..3823 (44 bytes to spare
-  before them), the name at 3824..3835, the hash last. FUN9 (3648, 99 parameters, 64 records of 4 bytes) loads mapped by
+  the motion block on disk holds up to 110 records (4 + 110 × 3 = 334; RAM still 128); the song's chain is its sections (84 bytes, see "1.2: song sections"). With today's parameter count the FM6 patches stay at 3312..3823 (2 bytes to spare before them after the 334-byte motion), the name at 3824..3835, the hash last. FUN9 (3648, 99 parameters, 64 records of 4 bytes) loads mapped by
   count (LFO 2 off, QUANTIZE ON, SPREAD 0, the engine values and their motion from 91..98 to 96..103), every nudge 0; FUN8 and
   older as before. Firmware before 1.2 refuses a FUN10 (its size and magic), so an editor must not send one there
   (`BACKUP_PUT` begin answers rc 1 for its size). Backups, `PROJECT` and the editor's project files carry the 3840 bytes.
+  **Read only since FUN11:** a FUN10 loads with the factory DRUM-X kit (no kit bytes on disk).
+- **Projects (FUN11, Araminta).** Same 3840-byte object as FUN10, magic `46 55 4E 42` ("FUNB", FUN11 in these notes): the DRUM-X kit (`dx_lane_t[8]`, 88 bytes), mute lo/hi, a marker byte, and X-MOD `dx_mot[4]` (96 bytes total) at offset 3216 just before the FM6 patches — as JIANT's FUNA kit placement. Disk motion shrinks to 78 records (4 + 78 × 3 = 238) so the kit fits; RAM still holds 128. Firmware that only knows FUN10 refuses a FUN11 (magic): its slot shows EMPTY until saved over. Backups, `PROJECT` and the editor's project files still carry 3840 bytes (begin accepts the size as for FUN10; the magic distinguishes the layout).
 - **MIDI clock** has no SysEx. `G_CLOCK` selects the source: 0 INT, 1 USB, 2 TRS. With 1 or 2 the sequencer
   steps on that port's Clock pulses (the other port's are ignored), Start (0xFA) restarts from step 0,
   Continue (0xFB) resumes and Stop (0xFC) stops; BPM follows the incoming tempo (40..240), and 500 ms
@@ -661,7 +661,9 @@ INFO advertises `4C 01 1` after the ratchet tag (`52 01 4`). Firmware without it
   page shown last before (HOME's four, ENV, LFO, FX, EDIT 1 / 2, ..; the cards show them while a step is held). On
   the DRUM grid a step is its white key (several held: each gets the lock; a key pressed on a hit takes it away
   only when let go without a knob turned); on the piano roll the step being entered (its note keys held). [EDIT]
-  tapped with a step held clears its locks; EDIT alone clears the step and its locks. The roll and the grid mark
+  tapped with a step held clears its locks. EDIT alone opens the EDIT section. On the piano roll, KNOB 3 (LEN)
+  turned to 0 clears the note and its locks, and the knob becomes TIME. On the drum grid, KNOB 3 (HIT) turned
+  off clears the hit. The roll and the grid mark
   the steps that hold a lock; AUTOMATION shows the count (LOCK).
 
 ## 1.2: LFO 2, NUDGE, 128 records (FUN10)
@@ -684,7 +686,9 @@ in 1/16 of a step) after the locks tag (`4C 01 1`). Firmware without them: 64 re
 - **Nudge:** the byte after the ratchet in `STEP_GET` / `STEP_SET` / `TRACK_STEP` (a change on the device pushes
   `STEP_CHANGED`), nudge + 8 (0..15:
   −8 = half a step early .. +7 = 7/16 late, 8 = on the step). A write without it keeps the step's. The device records it
-  live and sets it on SEQ > AUTOMATION's NUDGE rows (and STEP, steps held + PRESETS); it plays with the track's `QNTZ` OFF
+  live and sets it on SEQ > AUTOMATION's NUDGE rows and on SEQ > DETAIL. On SEQ > STEP, PRESETS moves notes in
+  time (the drum grid: the steps held; the piano roll: the note under the cursor, ties included) and does not set
+  NUDGE. NUDGE plays with the track's `QNTZ` OFF
   (on the device: AUTOMATION's QUANTIZE row; not for a ratcheted step: its parts divide the step).
 - **Motion:** 128 records shared by the four tracks, both kinds. Ops 1..7 reply as before 1.2 (`max` 64, at most the
   track's first 64 records in store order: an editor of before keeps working while a track holds no more); op 8
@@ -781,9 +785,9 @@ this firmware sends 3. Requests name objects, never flash addresses.
 
 | id | object | size |
 | --- | --- | --- |
-| 0 | runtime: the music being played now, as a FUN10 project (1.1: FUN9, 3648; 1.0.x: FUN8, 3584; firmware before FM6: FUN7, 3388) | 3840 |
+| 0 | runtime: the music being played now, as a FUN11 project (FUN10/FUNA still load; 1.1: FUN9, 3648; 1.0.x: FUN8, 3584; firmware before FM6: FUN7, 3388) | 3840 |
 | 1 | settings (palette, speaker, HOLD time, favorites, panel calibration, ...) | the settings record's size |
-| 2..5 | PROJECT slots 1..4 (FUN10; 1.1: FUN9, 3648; 1.0.x: FUN8, 3584) | 3840, or 0 if empty |
+| 2..5 | PROJECT slots 1..4 (FUN11; FUN10 still load; 1.1: FUN9, 3648; 1.0.x: FUN8, 3584) | 3840, or 0 if empty |
 | 6, 7 | user preset banks (slots 1..16, 17..32) | the bank's size, or 0 if empty |
 | 8 | the FM6 patch bank of 1.0..1.0.2 (B1..B27). Since 1.0.3 always listed empty (see below) | 3472, or 0 if empty |
 | 9 | the user presets' FM6 patches (1.0.3; `up_fm6.c`: per slot a tag and the packed patch) | 3728, or 0 if none |
@@ -796,11 +800,11 @@ they are in RAM or flash. Then `BACKUP_GET` reads an object in pieces: `id, offs
 against the list; if it differs the device changed, so start again.
 
 Restoring: `BACKUP_PUT` takes ids 0..9 (firmware before 1.0.3: 0..8, id 9 answers rc 1 at begin and nothing is written) (the samples are written with `SMP_BEGIN` / `SMP_WRITE` / `SMP_END`,
-or `SMP_ERASE` for an empty slot). Begin: `0, id, size u32, crc u32`: size is 3840 (FUN10), 3648 (FUN9), 3584 (FUN8) or 3388 (FUN7, FUN6) for id 0,
+or `SMP_ERASE` for an empty slot). Begin: `0, id, size u32, crc u32`: size is 3840 (FUN11 / FUN10), 3648 (FUN9), 3584 (FUN8) or 3388 (FUN7, FUN6) for id 0,
 the settings record's size for id 1, 3840, 3648, 3584, 3388 or 0 (empty the slot) for ids 2..5, the bank's size or 0 for 6 and 7,
 3472 or 0 for 8 (the FM6 bank: its magic, layout and every byte below 128 are checked), 3728 or 0 for 9 (its magic,
-version and slot count checked; 0 clears the patches). FUN9, FUN8, FUN7 and FUN6 become FUN10 (1.2; firmware before
-1.2 refuses a 3840-byte project at begin, rc 1).
+version and slot count checked; 0 clears the patches). FUN9, FUN8, FUN7 and FUN6 become FUN11 (FUN10 still loads; firmware before
+1.2 refuses a 3840-byte project at begin, rc 1; firmware that only knows FUN10 refuses FUNB magic on load).
 An archive without id 8 (written before FM6) still restores; the web editor reads all three kinds (11, 12, 13 objects).
 Since 1.0.3 an id 8 with data (an archive of 1.0..1.0.2) is not stored: like the first boot after the update, every FM6
 user preset whose stored SLOT is a B slot (8..34) and has no patch yet gets that bank slot's patch, and id 9 is written.

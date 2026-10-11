@@ -42,8 +42,8 @@
  * A record of engine 1 (DIGITAL, retired in 1.0) stays as it is (UP_PUT takes it too): its values are DIGITAL's,
  * and every load converts them to an FM6 sound with its own patch (ui.c fm4_apply, fm4_convert.c); lists count it
  * with FM6's (up_engine).
- * A record of SAMPLE / GRAIN / NOISE / SLICE (retired) stays as stored too: every load remaps to ANALOG or DRUM
- * (eng_retire.c); lists use eng_play_as.
+ * A record of SLICE (retired) stays as stored too: every load remaps to DRUM (eng_retire.c); lists use eng_play_as.
+ * SAMPLE / GRAIN / NOISE load as themselves again.
  *
  * With -DUP_HOST (host test) only the part above #ifndef UP_HOST is built;
  * it needs nothing but core.h. */
@@ -496,7 +496,7 @@ static int up_load(uint32_t k)
         fm4_apply(t, p);
     } else
 #endif
-    if (eng_retired(r->engine)) {                       /* SAMPLE / GRAIN / NOISE / SLICE: ANALOG or DRUM */
+    if (eng_retired(r->engine)) {                       /* SLICE: DRUM */
         int16_t p[P_COUNT];
         uint32_t to;
         for (i = 0; i < P_COUNT; i++)

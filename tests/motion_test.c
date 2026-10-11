@@ -692,10 +692,17 @@ static int lock_ui(void)
         motion_lock_count(t) == 1u && motion_lock_steps(0) == 1u);
     cursor_set(0);
     press(B_EDIT);
-    bad += check("  [EDIT] alone clears the step and its locks", !t->step[0].n && !motion_lock_count(t));
+    bad += check("  [EDIT] alone leaves the note and its lock; it opens EDIT",
+                 t->step[0].n == 1u && motion_lock_count(t) == 1u && cur_page()->fam == FAM_EDIT);
+    go_seq_step();
+    ui.cursor = 0;
+    frame();
+    turn(EN_K3, -1);                                     /* LEN 1 -> 0: the note and its locks */
+    bad += check("  KNOB 3 to LEN 0 clears the note and its locks",
+                 !t->step[0].n && t->step[0].time == ST_REST && !motion_lock_count(t) && msg_is("NOTE CLEARED"));
     song.playing = 1; chain.running = 1;
     lk_down(kn); turn(EN_K3, 1); lk_up(kn);
-    bad += check("  a song playing: STOP TO EDIT, no lock", !motion_lock_count(t));
+    bad += check("  a song playing: STOP TO EDIT, no lock", !motion_lock_count(t) && msg_is("STOP TO EDIT"));
     song.playing = 0; chain.running = 0; song.rec = 0;
     return bad;
 }

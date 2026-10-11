@@ -237,7 +237,8 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
     return voice_reuse(t, &t->v[best == np ? 0 : best]);
 }
 
-/* glide: RATE = a fixed speed, TIME = the same time for any interval */
+/* glide: free ms (F_TIME on GLD). Always TIME-duration (same time for any interval). P_GLMODE stays in the
+ * store (append-only) but is not shown and is not read here. */
 static void glide_set(track_t *t, voice_t *v, int glide)
 {
     if (!glide || !v->pitch_cur) {
@@ -245,12 +246,10 @@ static void glide_set(track_t *t, voice_t *v, int glide)
         v->gstep = 0;
         return;
     }
-    if (t->p[P_GLMODE]) {
+    {
         int32_t d = v->pitch16 - v->pitch_cur, ticks = 1 + t->p[P_GLIDE] * t->p[P_GLIDE] / 8;
         d = d < 0 ? -d : d;
         v->gstep = d / ticks > 0 ? d / ticks : 1;
-    } else {
-        v->gstep = 0;
     }
 }
 
@@ -351,10 +350,22 @@ static void mono_remove(track_t *t, uint32_t note)
 }
 
 static int pfx_note(track_t *t, uint32_t note, uint32_t vel);   /* pfx.c (in fx.c) */
+/* PLAY OFF blocks the track. PLAY SOLO on any track blocks the ones that are not SOLO (the mix ramps those
+ * out too: perform.c solo_mask). GLO's held solos stay a ramp only. */
+static int mix_blocks_note(const track_t *t)
+{
+    uint32_t i, solo = 0, me = (uint32_t)(t - trk);
+    if (t->p[P_MUTE] == PLAY_OFF)
+        return 1;
+    for (i = 0; i < NTRK; i++)
+        if (trk[i].p[P_MUTE] == PLAY_SOLO)
+            solo |= 1u << i;
+    return solo && !((solo >> me) & 1u);
+}
 static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
 {
     uint32_t any = 0, i, mode = trk_vmode(t);
-    if (t->p[P_MUTE])
+    if (mix_blocks_note(t) || (t->engine == ENGI_DRUM && drum_muted_of(t, note)))
         return;
     if (pfx_note(t, note, vel))                         /* punch-in effects (pfx.c): a repeat holds the track */
         return;

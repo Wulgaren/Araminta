@@ -998,7 +998,7 @@ static void setup(int s)
     case S_HOME_IDLE: song.playing = 0; song.batt_raw = 570; ui.hot_col = 1; ui.hot_t = 30; break;
     case S_MESSAGE: ui_say("LOADED ", "07 A VERY LONG PATTERN NAME"); break;
     case S_MESSAGE_KEY: ui_message("[SAVE] HOLD TO UNDO"); break;            /* a message with a keycap */
-    case S_MESSAGE_NOFILE:                          /* no-file message (SAMPLE engine retired) */
+    case S_MESSAGE_NOFILE:                          /* no-file message (SAMPLE empty USR) */
         ui_message(MSG_NOFILE "NO SAMPLE"); break;
     case S_PRESETS: favorite_set(0, 4, 1); favorite_set(0, 5, 1); go_page(GR_BROWSE); break;
     case S_PRESETS_NOFAV: favorites.filter = 1; go_page(GR_BROWSE); break;
@@ -1106,7 +1106,8 @@ static void setup(int s)
         go_page(GR_TRK);
         trk[0].p[P_LEVEL] = 100; trk[1].p[P_LEVEL] = 84; trk[2].p[P_LEVEL] = 64; trk[3].p[P_LEVEL] = 110;
         trk[0].p[P_PAN] = -20; trk[1].p[P_PAN] = 24; trk[3].p[P_PAN] = -4; trk[1].p[P_REV] = 80;
-        trk[2].p[P_MUTE] = 1; trk[3].p[P_MUTE] = 1; song.rec = 2u | 8u; trk[0].peak = 9000;
+        trk[0].p[P_MUTE] = PLAY_SOLO; trk[2].p[P_MUTE] = PLAY_OFF; trk[3].p[P_MUTE] = PLAY_OFF;
+        song.rec = 2u | 8u; trk[0].peak = 9000;
         break;
     case S_MIXER_HOME: go_home(); home_tap(); break;   /* 1.2: HOME tapped on HOME (its LED lit: MIXER is HOME's) */
     case S_MIXER_PAN:                           /* PAN just turned, the ends of each knob, OFF, armed while stopped */
@@ -1209,8 +1210,8 @@ static void setup(int s)
     case S_EDIT_DIGITAL: eng(E_FM); go_title("EDIT 1"); break;
     case S_OP_ENV: eng(1); go_title("OP1 ENV"); break;
     case S_EDIT_WHEEL: eng(7); go_title("EDIT 1"); ui.hot_col = 1; ui.hot_t = 30; break;
-    case S_EDIT_SAMPLE: eng(0); go_title("EDIT 1"); break;
-    case S_EDIT_GRAIN: eng(0); go_title("EDIT 2"); break; /* GRAIN retired */
+    case S_EDIT_SAMPLE: eng(ENGI_SAMPLE); go_title("EDIT 1"); break;
+    case S_EDIT_GRAIN: eng(ENGI_GRAIN); go_title("EDIT 2"); break;
     case S_EDIT_PHYS: eng(9); go_title("EDIT 1"); break;
     case S_ALG1: case S_ALG2: case S_ALG3: case S_ALG4: case S_ALG5: case S_ALG6: case S_ALG7: case S_ALG8:
         eng(1); TSEL->p[P_E0] = (int16_t)(s - S_ALG1);      /* the 8 DIGITAL charts; FB on the odd ones, IDX high .. 0 */
@@ -1357,8 +1358,8 @@ static void setup(int s)
     /* #83: locked open by a double tap (the lock after the header's name): EDIT and FX */
     case S_LAYER_LOCK: go_title("ENV"); ui.layer = ui.lock = LAYER_EDIT; break;
     case S_LAYER_LOCK_FX: go_title("ENV"); ui.layer = ui.lock = LAYER_FX; break;
-    /* 1.2 SEQ TOOLS (SEQ held on STEP): a melodic track (the sequence's tools), the DRUM grid (+ BEAT, the lane's tools,
-     * the lanes; CLAP selected), a song playing (every tool dimmed: STOP TO EDIT) */
+    /* 1.2 SEQ TOOLS (SEQ held on STEP): a melodic track (the sequence's tools), the DRUM grid (+ BEAT, MUTE, the lane's
+     * tools, the lanes; CLAP selected), a song playing (pattern tools dimmed: STOP TO EDIT; MUTE stays) */
     case S_SEQ_TOOLS: go_page(GR_ROLL); ui.layer = LAYER_SEQ; break;
     case S_SEQ_TOOLS_DRUM: drum(0); go_page(GR_ROLL); ui.lane = 2; ui.layer = LAYER_SEQ; break;
     case S_SEQ_TOOLS_SONG: drum(1); go_page(GR_ROLL); ui.lane = 5; chain.running = 1; ui.layer = LAYER_SEQ; break;
@@ -2027,7 +2028,7 @@ static void align_sweeps(void)
         for (v = 0; v < 256; v++) {                    /* (then with LARGE: the strip) */
             ui_prefs = v >= 128 ? PREF_LARGE : 0u;
             trk[0].p[P_LEVEL] = (int16_t)(v & 127); trk[0].p[P_PAN] = (int16_t)((v & 127) - 64); trk[0].p[P_REV] = (int16_t)(v & 127);
-            trk[1].p[P_MUTE] = (int16_t)(v & 1); song.rec = v & 2 ? 2u : 0u; ui.hot_t = (uint8_t)(v & 4); ui.hot_col = 3;
+            trk[1].p[P_MUTE] = (int16_t)(v % 3); song.rec = v & 2 ? 2u : 0u; ui.hot_t = (uint8_t)(v & 4); ui.hot_col = 3;
             ts.meter[0] = (uint8_t)(v % (TS_MH - 1));
             ui.force = 1;
             draw_tracks();

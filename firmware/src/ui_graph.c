@@ -556,7 +556,78 @@ static uint32_t str_hash(uint32_t h, const char *s)
 /* One shared, reduced sample display. Decode only in the UI/main loop with a
  * private IMA state, 512 samples per frame; no audio voice state is touched.
  * Cache follows the sample zone, selected note and user-slot generation. */
+#define SAMPLE_WAVE_COLS 96u
+static struct {
+    int16_t lo[SAMPLE_WAVE_COLS], hi[SAMPLE_WAVE_COLS];
+    const smp_zone_t *zone;
+    uint32_t key, gen, pos;
+    int32_t pred, index, peak;
+    uint8_t ready;
+} sample_wave;
 
+static uint32_t sample_wave_zone(const track_t *t)
+{
+    uint32_t si = (uint32_t)t->p[P_E0] % SMP_NALL, i, zi = 0xFFFFu;
+    if (si < SMP_NSETS) {
+        const smp_set_t *set = &SMP_SETS[si];
+        for (i = 0; i < set->nz; i++)
+            if (last_note >= SMP_ZONES[set->z0 + i].lo && last_note <= SMP_ZONES[set->z0 + i].hi) zi = set->z0 + i;
+        if (zi == 0xFFFFu && set->nz) zi = set->z0;
+    } else {
+        uint32_t k = si - SMP_NSETS;
+        for (i = 0; i < usr_nz[k]; i++)
+            if (last_note >= usr_zone[k][i].lo && last_note <= usr_zone[k][i].hi) zi = 0x8000u | k << 5 | i;
+        if (zi == 0xFFFFu && usr_nz[k]) zi = 0x8000u | k << 5;
+    }
+    return zi;
+}
+
+static void sample_wave_tick(const track_t *t)
+{
+    uint32_t zi = sample_wave_zone(t), key = zi + ((uint32_t)last_note << 16), i;
+    if (key != sample_wave.key || sample_wave.gen != smp_user_gen || !sample_wave.zone) {
+        sample_wave.key = key; sample_wave.gen = smp_user_gen;
+        sample_wave.zone = zi == 0xFFFFu ? 0 : smp_zone(zi);
+        sample_wave.pos = 0; sample_wave.pred = sample_wave.index = 0;
+        sample_wave.peak = 1; sample_wave.ready = 0;
+        for (i = 0; i < SAMPLE_WAVE_COLS; i++) sample_wave.lo[i] = sample_wave.hi[i] = 0;
+    }
+    const smp_zone_t *z = sample_wave.zone;
+    if (!z || !z->n || sample_wave.ready) return;
+    for (i = 0; i < 512u && sample_wave.pos < z->n; i++) {
+        uint32_t pos = sample_wave.pos, b = SMP_DATA[z->off + (pos >> 1)];
+        uint32_t code = (pos & 1u) ? b >> 4 : b & 15u;
+        int32_t step = IMA_STEP[sample_wave.index], d = step >> 3;
+        if (code & 4u) d += step;
+        if (code & 2u) d += step >> 1;
+        if (code & 1u) d += step >> 2;
+        sample_wave.pred = clamp(sample_wave.pred + ((code & 8u) ? -d : d), -32768, 32767);
+        sample_wave.index = clamp(sample_wave.index + IMA_IDX[code & 7u], 0, 88);
+        uint32_t col = pos * SAMPLE_WAVE_COLS / z->n;
+        int32_t v = sample_wave.pred, a = v < 0 ? -v : v;
+        if (v < sample_wave.lo[col]) sample_wave.lo[col] = (int16_t)v;
+        if (v > sample_wave.hi[col]) sample_wave.hi[col] = (int16_t)v;
+        if (a > sample_wave.peak) sample_wave.peak = a;
+        sample_wave.pos++;
+    }
+    sample_wave.ready = sample_wave.pos == z->n;
+}
+
+static void graph_sample(uint16_t c)
+{
+    uint32_t i;
+    const smp_zone_t *z = sample_wave.zone;
+    cv_rect(PANEL_X0, 48, PANEL_W, 1, T_RAISE);
+    for (i = 0; i < SAMPLE_WAVE_COLS; i++) {
+        int32_t x = 12 + (int32_t)i * 216 / (SAMPLE_WAVE_COLS - 1u);
+        cv_line(x, 48 - sample_wave.hi[i] * 38 / sample_wave.peak,
+                x, 48 - sample_wave.lo[i] * 38 / sample_wave.peak, c);
+    }
+    if (z->looped && TSEL->p[P_E3]) {
+        int32_t left = 12 + (int32_t)(z->ls * 216u / z->n), right = 12 + (int32_t)(z->le * 216u / z->n);
+        cv_line(left, 4, left, 90, T_MID); cv_line(right, 4, right, 90, T_MID);
+    }
+}
 
 /* WHEEL: the nine drawbars as rounded bars over RAISE slots (the bars of the knob just turned: the accent),
  * their footages under them */
@@ -1107,9 +1178,12 @@ static uint32_t graph_signature(void)
             h ^= (uint32_t)graph_project_used(i) << (20u + i);
         h += graph_pname_sig;
     }
+    if (pg->graph == GR_DXSND)                       /* DRUM-X SOUND / X-MOD cards */
+        h ^= dx_sig();
     if (pg->graph == GR_EVENTS)                      /* AUTOMATION: the rows, the one selected, + ADD's place, PLAY,
                                                       * QUANTIZE */
         h = (h ^ ev_sig()) * 16777619u;
+    if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE) h ^= sample_wave.pos * 13u + sample_wave.key;
     if (pg->scope == SC_ENGINE && (ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL || t->eng_req % NENGINES == ENGI_FM6 ||
                                    (FELUCCA_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL)))
         h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
@@ -1144,9 +1218,9 @@ static const char *eng_abbr(const char *name)
                                        {"DIGITAL", "DGTL"},
 #endif
                                        {"PHASE", "PHAS"}, {"LOFI", "LOFI"},
-                                       {"VOICE", "VOCL"}, {"TRIO", "TRIO"}, {"WHEEL", "WHEL"},
-                                       {"PHYS", "PHYS"}, {"DRUM", "DRUM"},
-                                       {"FM6", "FM6"}};
+                                       {"SAMPLE", "SMPL"}, {"VOICE", "VOCL"}, {"TRIO", "TRIO"}, {"WHEEL", "WHEL"},
+                                       {"GRAIN", "GRAN"}, {"PHYS", "PHYS"}, {"DRUM", "DRUM"},
+                                       {"NOISE", "NOIS"}, {"FM6", "FM6"}, {"SLICE", "SLCE"}};
     uint32_t i;
     for (i = 0; i < sizeof A / sizeof A[0]; i++)
         if (str_eq(name, A[i][0]))
@@ -1155,11 +1229,13 @@ static const char *eng_abbr(const char *name)
 }
 
 /* a list row (17 px), in M as every list's (PRESETS, USER, PHRASES, PROJECT, AUTOMATION, MOD, the MENU): the selected
- * one a THEME bar with INK text; tag at x 14 (the widest, DRUM, to x 57), free text from x LIST_NX to x1 */
+ * one a THEME bar with INK text; tag at x 14 (a preset tag, DRUM, ends near x 57), the name from x nx */
 #define LIST_Y(k) (3 + 17 * (int32_t)(k))
 #define LIST_TY CAP_IN(M, 16)                           /* a row's text: its capitals rows 2 .. 12 of the row */
 #define LIST_NX 64
-static void list_row(int32_t y, int sel, const char *tag, uint16_t tc, const char *name, uint16_t nc, int32_t x1)
+#define PK_NX 88                                        /* pick tags (INSERT, SLICER) run past a preset tag */
+static void list_row(int32_t y, int sel, const char *tag, uint16_t tc, const char *name, uint16_t nc, int32_t x1,
+                     int32_t nx)
 {
     uint16_t bg = sel ? T_THEME : T_SURF;
     if (sel)
@@ -1168,7 +1244,7 @@ static void list_row(int32_t y, int sel, const char *tag, uint16_t tc, const cha
     cv_text_on(14, y + LIST_TY, &AF_M, tag, sel ? T_INK : tc, bg);
     if (name[0])
         GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
-    cv_free_text(LIST_NX, y + LIST_TY, &AF_M, name, sel ? T_INK : nc, bg, x1 - LIST_NX);
+    cv_free_text(nx, y + LIST_TY, &AF_M, name, sel ? T_INK : nc, bg, x1 - nx);
 }
 /* an empty list: a title and a hint, centred */
 static void note_line(int32_t y, const char *s, uint16_t fg)   /* centred S; "[K2] ADD PATTERN": a key hint */
@@ -1248,7 +1324,7 @@ static void graph_browse(void)
             pat_label((uint32_t)hint, pt, pn);
             x1 = 206 - text_w(&AF_M, pt) - 6;
         }
-        list_row(y, sel, tag, T_DIM, nm, T_TEXT, x1);
+        list_row(y, sel, tag, T_DIM, nm, T_TEXT, x1, LIST_NX);
         if (hint >= 0) {
             GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
             cv_text_r(206, y + LIST_TY, &AF_M, pt, T_INK, T_THEME);
@@ -1276,7 +1352,7 @@ static void engine_sound_row(int32_t y)
         tag[2] = 0;
         str_cpy(nm, e->npresets ? e->presets[TSEL->preset % e->npresets].name : "", sizeof nm);
     }
-    list_row(y, 1, tag, T_DIM, nm, T_TEXT, fav ? 212 : 232);
+    list_row(y, 1, tag, T_DIM, nm, T_TEXT, fav ? 212 : 232, LIST_NX);
     if (fav) {
         GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row star centred up/down");
         cv_icon_in(214, y, 0, 16, 12, ICON_X_STAR, T_INK, T_THEME);
@@ -1296,7 +1372,7 @@ static void graph_user(void)
             up_name(k, nm);
         else
             str_cpy(nm, "--", sizeof nm);
-        list_row(LIST_Y(row), k == ui.uslot, tag, T_MID, nm, used ? T_TEXT : T_DIM, 232);
+        list_row(LIST_Y(row), k == ui.uslot, tag, T_MID, nm, used ? T_TEXT : T_DIM, 232, LIST_NX);
     }
 }
 /* SAVE > PHRASES: the pattern list around the one picked ("03  MELODY", "U07  MY BASS") */
@@ -1308,7 +1384,7 @@ static void graph_pats(void)
         uint32_t k = (uint32_t)(first + row);
         char tag[4], nm[13];
         pat_label(k, tag, nm);
-        list_row(LIST_Y(row), k == cur, tag, T_MID, nm, T_TEXT, 232);
+        list_row(LIST_Y(row), k == cur, tag, T_MID, nm, T_TEXT, 232, LIST_NX);
     }
 }
 /* the AUTOMATION rows' columns (M): the kind at 14 (LOCK AUTO STEP PLAY, to x 54), the step / PLAY's ON at EV_SX, the
@@ -1333,7 +1409,7 @@ static void graph_pick(void)
     for (row = 0; row < 7 && (uint32_t)(first + row) < pk_n; row++) {
         uint32_t k = (uint32_t)(first + row);
         const pk_row_t *r = &pk_rows[k];
-        list_row(LIST_Y(row), k == pk_cur, r->tag, T_MID, r->name, T_TEXT, 232);
+        list_row(LIST_Y(row), k == pk_cur, r->tag, T_MID, r->name, T_TEXT, 232, PK_NX);
     }
 }
 
@@ -1453,20 +1529,21 @@ static void graph_slots(void)
         const char *n = graph_project_name(i);
         b[0] = (char)('A' + i);
         b[1] = 0;
-        list_row(y, sel, b, T_MID, !used ? "--" : n[0] ? n : "USED", used ? T_TEXT : T_DIM, 232);
+        list_row(y, sel, b, T_MID, !used ? "--" : n[0] ? n : "USED", used ? T_TEXT : T_DIM, 232, LIST_NX);
     }
 }
-/* MIXER page: four SURF columns, one under each card: three 12 px status squares (track #, REC circle, MUTE
- * icon), the sound's short name, the LEVEL knob (dB inside) with the output meter beside it, then the PAN and REV
- * knobs (P / R inside, values under). Knobs: a 270 degree ring, the track RAISE, the value arc THEME (the knob
- * just turned: ACCENT; muted: DIM); PAN from 12 o'clock. Each column is its own canvas with its own signature:
+/* MIXER page: four SURF columns, one under each card: three 12 px status squares (track #, REC circle, MUTE icon
+ * or S when SOLO — PLAY, KNOB 4), the sound's short name, the LEVEL knob (dB inside) with the output meter beside
+ * it, then the PAN and REV knobs (P / R inside, values under). Knobs: a 270 degree ring, the track RAISE, the value
+ * arc THEME (the knob just turned: ACCENT; muted: DIM); PAN from 12 o'clock. Each column is its own canvas with its
+ * own signature:
  * while the transport runs only the meters move. */
 #define TS_MY 44                                     /* meter slot: beside LEVEL */
 #define TS_MH 32
 #define KB_X 4                                       /* LEVEL knob: box 4..37 x 42..75, centre (21, 59) */
 #define KB_Y 42                                      /* a little lower: closer to PAN / REV */
 #define KS_Y 80                                      /* PAN / REV: pulled up toward LEVEL */
-#define MB_S 12                                      /* status squares: track #, REC, MUTE */
+#define MB_S 12                                      /* status squares: track #, REC, MUTE / SOLO */
 #define MB_G 3
 /* REC mark in the square at (x, y): filled while recording, ring when armed (no mark when off) */
 static void mixer_rec_mark(int32_t x, int32_t y, uint32_t st)
@@ -1481,11 +1558,13 @@ static void mixer_rec_mark(int32_t x, int32_t y, uint32_t st)
         }
     GFX_HOOK_ITEM(cx - r, cy - r, cx + r + 1, cy + r + 1);
 }
-/* track cushion always; REC / MUTE squares only when active (no empty backgrounds) */
+/* track cushion always; REC / MUTE / SOLO squares only when active (no empty backgrounds). st: 1 REC, 2 ARM,
+ * 3 PLAY OFF (mute icon), 4 SOLO ("S"); mute is only dimming of the column (trk_heard) */
 static void mixer_status(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, uint32_t hot, int32_t y)
 {
     int32_t x = 4;
     uint16_t fill;
+    (void)mute;
     GFX_HOOK_ALIGN(x, y, x + MB_S, y + MB_S, AL_HV, "mixer track number in its square");
     cv_icon_on(x, y, MB_S, trk_icon(c, 1), sel ? T_ACCENT : T_MID, T_SURF);
     x += MB_S + MB_G;
@@ -1494,11 +1573,16 @@ static void mixer_status(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, u
         mixer_rec_mark(x, y, st);
     }
     x += MB_S + MB_G;
-    if (mute) {
+    if (st == 3u || st == 4u) {                       /* PLAY OFF: mute icon; SOLO: S (KNOB 4) */
         fill = hot == 4u ? T_ACCENT : T_KEY;
         cv_rrect(x, y, MB_S, MB_S, 2, fill, T_SURF);
-        GFX_HOOK_ALIGN(x, y, x + MB_S, y + MB_S, AL_HV, "mixer MUTE in its square");
-        cv_icon_in(x, y, MB_S, MB_S, 12, ICON_MUTE, T_INK, fill);
+        if (st == 4u) {
+            GFX_HOOK_ALIGN(x, y, x + MB_S, y + MB_S, AL_HV, "mixer SOLO S in its square");
+            cv_text_in(x, y + CAP_IN(S, MB_S), MB_S, &AF_S, "S", T_INK, fill);
+        } else {
+            GFX_HOOK_ALIGN(x, y, x + MB_S, y + MB_S, AL_HV, "mixer MUTE in its square");
+            cv_icon_in(x, y, MB_S, MB_S, 12, ICON_MUTE, T_INK, fill);
+        }
     }
 }
 static struct {
@@ -1609,10 +1693,12 @@ static void draw_tracks(void)
     }
     for (c = 0; c < NTRK; c++) {
         track_t *t = &trk[c];
-        uint32_t sel = c == song.sel, lvl = trk_level(c), mute = t->p[P_MUTE] != 0;
-        uint32_t arm = (song.rec >> c) & 1u, st = arm ? (song.playing ? 1u : 2u) : mute ? 3u : 0u, sig;
+        uint32_t sel = c == song.sel, lvl = trk_level(c);
+        uint32_t mode = t->p[P_MUTE] == PLAY_SOLO ? (uint32_t)PLAY_SOLO : t->p[P_MUTE] == PLAY_OFF ? (uint32_t)PLAY_OFF : 0u;
+        uint32_t mute = !trk_heard(c);               /* dim: PLAY OFF, or left out by a solo */
+        uint32_t arm = (song.rec >> c) & 1u, st = arm ? (song.playing ? 1u : 2u) : mode == PLAY_OFF ? 3u : mode == PLAY_SOLO ? 4u : 0u, sig;
         uint32_t hot = sel && ui.hot_t ? ui.hot_col + 1u : 0u;   /* the knob just turned (hot_col + 1): 1 LEVEL, 2 PAN,
-                                                                * 3 REV, 4 MUTE (its badge) */
+                                                                * 3 REV, 4 PLAY (its badge) */
         int32_t pk = t->peak, m, pan = clamp(t->p[P_PAN], -64, 63), rv = clamp(t->p[P_REV], 0, 127);
         uint16_t vc = mute ? T_DIM : T_THEME;
         char b[16];
@@ -1622,8 +1708,9 @@ static void draw_tracks(void)
         if (m < ts.meter[c] - 1)
             m = ts.meter[c] - 1;                     /* falls ~2 dB a frame */
         ts.meter[c] = (uint8_t)(m < 0 ? 0 : m);
-        sig = str_hash(1u + sel + st * 2u + mute * 16u + hot * 32u, b) + lvl * 7919u +
-              ts.meter[c] * 131u + (uint32_t)(pan + 128) * 104729u + (uint32_t)rv * 1299709u + mute * 3u + sk * 0x9E37u;
+        sig = str_hash(1u + sel + st * 2u + (st == 3u && arm) * 16u + hot * 32u, b) + lvl * 7919u +
+              ts.meter[c] * 131u + (uint32_t)(pan + 128) * 104729u + (uint32_t)rv * 1299709u + mute * 3u +
+              solo_mask() * 17u + sk * 0x9E37u;
         if (!ui.force && sig == ts.col[c])
             continue;
         ts.col[c] = sig;
@@ -1706,7 +1793,9 @@ static void home_track_row(uint32_t c)
 {
     track_t *t = &trk[c];
     const step_t *s = seq_steps(t);
-    uint32_t sel = c == song.sel, mute = t->p[P_MUTE] != 0, large = (ui_prefs & PREF_LARGE) != 0u;
+    uint32_t sel = c == song.sel, large = (ui_prefs & PREF_LARGE) != 0u;
+    uint32_t mode = t->p[P_MUTE] == PLAY_SOLO ? (uint32_t)PLAY_SOLO : t->p[P_MUTE] == PLAY_OFF ? (uint32_t)PLAY_OFF : 0u;
+    uint32_t mute = !trk_heard(c);                   /* dim: PLAY OFF, or left out by a solo */
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), np = (len + 15u) / 16u, pg, p0, ph, i, sig, carry = 0;
     int32_t y = Y_GRAPH + (int32_t)c * TR_PITCH, m, x, xr = 222, ch = large ? AF_M_CAP_H : AF_S_CAP_H;
     uint16_t bg = sel ? T_THEME : T_SURF, half = ux_mix(T_THEME, T_INK, 35);
@@ -1724,8 +1813,8 @@ static void home_track_row(uint32_t c)
     t->peak = 0;
     if (m < ts.meter[c] - 1)
         m = ts.meter[c] - 1;                         /* (falls as the MIXER's) */
-    sig = str_hash(1u + sel + mute * 2u + large * 4u + t->eng_req * 8u, b) + steps_hash(t) * 31u + pg * 7919u +
-          ph * 104729u + len * 1299709u;
+    sig = str_hash(1u + sel + mute * 2u + large * 4u + t->eng_req * 8u + mode * 32u, b) + steps_hash(t) * 31u +
+          pg * 7919u + ph * 104729u + len * 1299709u + solo_mask() * 17u;
     if (!ui.force && sig == ts.col[c]) {
         if (m != ts.meter[c]) {                      /* the meter alone: its slot */
             ts.meter[c] = (uint8_t)m;
@@ -1740,10 +1829,11 @@ static void home_track_row(uint32_t c)
     cv_begin(TR_W, TR_H, T_BG);
     cv_rrect(0, 0, TR_W, TR_H, 5, bg, T_BG);
     cv_icon_mid(4, TR_H / 2, 16, trk_icon(c, 1), sel ? T_INK : mute ? T_DIM : T_MID, bg);
-    if (mute) {                                      /* MUTE: its badge at the name line's end */
-        xr -= kc_w(KC_MUTE);
+    if (mode == PLAY_OFF || mode == PLAY_SOLO) {     /* OFF or SOLO: its badge at the name line's end */
+        uint32_t cap = mode == PLAY_SOLO ? KC_SOLO : KC_MUTE;
+        xr -= kc_w(cap);
         GFX_HOOK_ALIGN(0, TR_NY(large), 0, TR_NY(large) + ch, AL_V, "tracks row badge on the name's line");
-        cv_keycap(xr, TR_NY(large) + (ch - KC_H) / 2, KC_MUTE, sel ? T_INK : T_KEY, sel ? T_THEME : T_INK, bg);
+        cv_keycap(xr, TR_NY(large) + (ch - KC_H) / 2, cap, sel ? T_INK : T_KEY, sel ? T_THEME : T_INK, bg);
         xr -= 6;
     }
     x = 24;
@@ -2128,6 +2218,25 @@ static void graph_song(void)
                      i < 4u ? "[K3] ADD SECTION" : "[SAVE] PROJECT A-D", T_MID, T_SURF, x0 - 10 - SG_X0);
     }
 }
+/* DRUM-X: two rows of four lane cells; MORPH bar A..B (X-MOD live via dx_mot_v) */
+static void graph_colony(const track_t *t, int32_t sel)
+{
+    static const char *const AB[8] = {"BD", "SD", "CP", "CH", "OH", "TM", "RS", "CB"};
+    int32_t morph = clamp(t->p[P_E0] + dx_mot_v, 0, 127), mx = 30 + morph * 180 / 127;
+    uint32_t l;
+    cv_rect(30, 12, 180, 1, T_LINE);
+    cv_rect(30, 11, mx - 30, 3, ACC);
+    cv_text(12, 8, &AF_S, "A", morph < 64 ? T_THEME : T_DIM);
+    cv_text_r(226, 8, &AF_S, "B", morph >= 64 ? T_THEME : T_DIM, T_SURF);
+    for (l = 0; l < 8u; l++) {
+        int32_t x = 33 + (int32_t)(l % 4u) * 58, y = 38 + (int32_t)(l / 4u) * 46;
+        int muted = dx_lane_muted(t, l);
+        uint16_t fill = muted ? T_DIM : (sel == (int32_t)l ? T_THEME : T_RAISE);
+        cv_rrect(x - 14, y - 10, 28, 22, 3, fill, T_SURF);
+        cv_text_in(x - 14, y - 2, 28, &AF_S, AB[l], sel == (int32_t)l ? T_INK : muted ? T_SURF : T_MID, fill);
+    }
+}
+
 static void draw_graph(void)
 {
     const page_t *pg = cur_page();
@@ -2142,6 +2251,7 @@ static void draw_graph(void)
         draw_home_tracks();
         return;
     }
+    if (!ui.home && pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE) sample_wave_tick(t);
     sig = graph_signature();
     if (!ui.force && sig == ui.graph_sig)
         return;
@@ -2236,6 +2346,10 @@ static void draw_graph(void)
             cv_oy = 0;
             panel_note("TURN TO PICK", "[OCT+] CONFIRM", 0);
             break;
+        case GR_DXSND:
+            cv_oy = 0;
+            graph_colony(t, (int32_t)(dx_ui_lane & 7u));
+            break;
         case GR_FMOP:
         case GR_FMOP2:
             if (fop_ok()) graph_fm6(t, c, fop_op % 6u);   /* the chart, the operator picked */
@@ -2245,7 +2359,12 @@ static void draw_graph(void)
             break;
         default:
             if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL) graph_wheel(t, c);
+            else if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE && sample_wave.ready) graph_sample(c);
             else if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_FM6) graph_fm6(t, c, 6u);   /* EDIT 1 and 2 */
+            else if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_DRUM) {
+                cv_oy = 0;
+                graph_colony(t, -1);
+            }
 #if FELUCCA_FM4
             else if ((pg->scope == SC_ENGINE || pg->id[0] == P_FM1_LEVEL) && t->eng_req % NENGINES == ENGI_DIGITAL)
                 graph_fm(t, c);                      /* (OP LEVEL too: the levels on the chart) */

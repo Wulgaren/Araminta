@@ -64,7 +64,17 @@ static int32_t midi_base(void)
 /* MIDI channel 0..15 of track i (keys -> MIDI out): its channel in ROUT's block (SEL, CH1-4: 1..4) */
 static uint32_t trk_midi_ch(uint32_t i) { return (midi_base() > 0 ? (uint32_t)midi_base() : 0u) + i % NTRK; }
 
-static int drum_track(const track_t *t) { return ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM; }
+/* DRUM engine, or SAMPLE on a USR slot tagged drum kit grid (FSMP hdr.rsv; eng_sample.c usr_drum) */
+static int drum_track(const track_t *t)
+{
+    uint32_t e = eng_idx(t->eng_req), set;
+    if (ENGINES[e] == &ENG_DRUM)
+        return 1;
+    if (ENGINES[e] != &ENG_SAMPLE)
+        return 0;
+    set = (uint32_t)t->p[P_E0];
+    return set >= SMP_NSETS && set < SMP_NALL && smp_user_drum(set - SMP_NSETS);
+}
 
 /* the 27 keys from F: black or white, and the key's place among the keys of its colour (white 0..15, black
  * 0..10). The DRUM grid: white keys are steps, black keys 1..8 lanes, 9 ACC, 10 / 11 the page */
@@ -982,7 +992,7 @@ static void keyboard_block(void)
     }
     lay = (fm1_in.buttons & kb_mask) || kb_lock;  /* (#83: kb_lock, a layer locked open with no button held) */
     fx = (fm1_in.buttons & perf_mask) || (kb_lock & 2u);
-    mute = song.grid == 2u || song.grid == 4u ? ~0u : song.grid == 3u ? SONG_KEYS : 0u;   /* 2 NAME, 4 Mixer UI */
+    mute = song.grid == 2u ? ~0u : song.grid == 3u ? SONG_KEYS : 0u;   /* 2 NAME, 3 SONG's A..D */
     for (k = 0; k < 27u; k++) {
         if (!((ch >> k) & 1u))
             continue;
