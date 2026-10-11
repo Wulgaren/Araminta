@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FELUCCA user interface.
- * Flat: SURF cards and panels on the palette's background, no rules, one type family (Inter Tight, three sizes), tracks
+ * Flat: no raised SURF (SURF = BG on every palette), no rule dividers, one type family (Terminus, three sizes), tracks
  * named by their numbers 1..4 on a cushion (icons.c trk_icon). Four columns <-> KNOB 1..4. Rendering is lazy:
  * every element remembers what it last drew and is redrawn only on change. */
 static int project_save(uint32_t slot);
@@ -43,7 +43,7 @@ static uint32_t up_gen;                      /* bumped on every user bank change
  * its default is 0) */
 #define ui_prefs (favorites.factory[15][30])
 #define PREF_LATCH 1u                          /* MENU > FX LATCH ON (#40) */
-#define PREF_ANIM_OFF 2u                       /* MENU > ANIM OFF (#46): values snap (no rolling digits, no glide) */
+#define PREF_ANIM_OFF 2u                       /* ANIM retired: always set (no rolling digits, glide, LED sweep) */
 #define PREF_ACCEL 4u                          /* MENU > KNOB ACCEL ON (#52): fast turns of wide values x2..x8 */
 #define PREF_USB_FIXED 8u                      /* MENU > USB LEVEL FIXED: USB audio at the full level, MASTER after */
 #define PREF_BPM_LOCK 16u                      /* MENU > BPM LOCK ON: lock icon by the BPM (tempo is GLO+SELECT / CLOCK) */
@@ -100,9 +100,7 @@ static void rp_put(uint32_t f, uint32_t v)
     ui_rec_prefs = (uint8_t)((ui_rec_prefs & ~(3u << (2u * f))) | st << (2u * f));
     rp_apply();
 }
-/* MENU > STYLE (ui_menu.c): ST_FLAT ST_LINE (gfx.c) in another byte no engine uses, saved with the settings;
- * 0 in older ones = FLAT; 2, the retired PIXEL (1.0.1), reads as LINE; anything else unknown as FLAT (settings_persist.c). gfx.c draws from its copy, ux.style
- * (ui_draw.c style_apply) */
+/* STYLE retired: always FLAT (ui_draw.c style_apply). Byte kept in the settings record; LINE / PIXEL ignored */
 #define ui_style (favorites.factory[15][29])
 static void draw_gaps(uint32_t y, uint32_t h);        /* (ui_draw.c) */
 
@@ -357,7 +355,7 @@ static uint32_t large_kind(void)
         return home_tracks() ? LK_LABEL : LK_TALL;      /* a list page; the rows' names in M: draw_home_tracks) */
     g = cur_page()->graph;
     return g == GR_BROWSE || g == GR_SLOTS || g == GR_USER || g == GR_PATS || g == GR_SONG || g == GR_ROLL ||
-           g == GR_EVENTS || g == GR_DESTS || (ui.pick && g == GR_MOD) ? LK_LABEL : LK_TALL;
+           g == GR_EVENTS || (ui.pick && g == GR_MOD) ? LK_LABEL : LK_TALL;
 }
 /* the geometry of the page shown: the cards' height, the panel's top and height */
 static uint32_t card_h(void) { return large_kind() == LK_TALL ? LG_CARD_H : CARD_H; }
@@ -385,17 +383,20 @@ static int layer_locked(void);
 static uint32_t layer_leds(uint32_t *br);
 static uint32_t layer_btn(void);
 
-/* FM operator pages belong to DIGITAL; they never appear on other instruments (without FELUCCA_FM4: never). SLICES:
- * a SLICE track's (ui_slice.c); LANES / LANES 2 a DRUM track's (its lane levels); FILTER / FILTER DRIVE an ANALOG
- * track's (EDIT 2 is the other engines' second sound page; ANALOG uses FILTER + FILTER DRIVE instead); OPERATOR,
- * OP ENV, OPERATOR 2 an FM6 track's (its patch's operators, ui_fm6op.c) */
+/* FM operator pages belong to DIGITAL; they never appear on other instruments (without FELUCCA_FM4: never).
+ * LANES / LANES 2 and SOUND* / X-MOD (GR_DXSND) a DRUM track's; FILTER / FILTER DRIVE an ANALOG track's
+ * (EDIT 2 is the other engines' second sound page; ANALOG uses FILTER + FILTER DRIVE instead); OPERATOR,
+ * OP ENV, OPERATOR 2 an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM (PAN/MUTE on MIXER). */
 static int page_visible(uint32_t i)
 {
     int analog = ENGINES[TSEL->eng_req % NENGINES] == &ENG_ANALOG;
-    if (PAGES[i].graph == GR_DMUTE)                   /* HOME Mixer: drum lane mutes, DRUM track only */
-        return TSEL->eng_req % NENGINES == ENGI_DRUM;
+    int drum = TSEL->eng_req % NENGINES == ENGI_DRUM;
+    if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / X-MOD */
+        return drum;
+    if (PAGES[i].sec == EDIT_SEC_VOX && drum)         /* Voice hidden on DRUM */
+        return 0;
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
-        return TSEL->eng_req % NENGINES == ENGI_DRUM;
+        return drum;
     if (PAGES[i].scope == SC_ENGINE && PAGES[i].id[0] == P_E4)   /* EDIT 2: not ANALOG (FILTER is page 2) */
         return !analog;
     if (PAGES[i].id[0] == P_FTYPE)                    /* FILTER (1.5, #104): ANALOG's */
@@ -411,7 +412,7 @@ static int page_visible(uint32_t i)
 static uint32_t fam_nsec(uint32_t fam)
 {
     return fam == FAM_FX ? FX_NSEC : fam == FAM_SEQ ? SEQ_NSEC : fam == FAM_EDIT ? EDIT_NSEC :
-           fam == FAM_GLO ? GLO_NSEC : fam == FAM_SAVE ? SAVE_NSEC : 1u;
+           fam == FAM_GLO ? GLO_NSEC : fam == FAM_SAVE ? SAVE_NSEC : fam == FAM_LFO ? LFO_NSEC : 1u;
 }
 
 static uint32_t page_first_sec(uint32_t fam, uint32_t sec)
@@ -428,7 +429,7 @@ static uint32_t page_first_sec(uint32_t fam, uint32_t sec)
 
 static uint32_t page_first(uint32_t fam) { return page_first_sec(fam, 0); }
 
-/* section sticky maps: Punch-in / Pattern tools / Record prefs (ui.lock; no hold or double-tap) */
+/* section sticky maps: Punch-in / SEQ tools / Record prefs (ui.lock; no hold or double-tap) */
 static uint32_t section_map_layer(void)
 {
     const page_t *pg;
@@ -437,7 +438,7 @@ static uint32_t section_map_layer(void)
     pg = &PAGES[ui.page % NPAGES];
     if (pg->fam == FAM_FX && pg->sec == FX_SEC_PUNCH)
         return LAYER_FX;
-    if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_PAT)
+    if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_TOOL)
         return LAYER_SEQ;
     if (pg->fam == FAM_GLO && pg->sec == GLO_SEC_REC)
         return LAYER_REC;
@@ -589,7 +590,8 @@ static void step_clear(step_t *st)
  * (inside LEN, no wrap); SEQ > STEP's KNOB 3 on a note sets it (ui_input.c step_edit). Longer: the steps after it
  * become clean TIEs (a REST or an empty step; it stops at the next step holding notes or hits, a REST's kept ones too,
  * which stays, and at LEN);
- * shorter: its last TIEs become RESTs (step_clear). The steps' locks stay. Returns the length it got */
+ * shorter: its last TIEs become RESTs (step_clear). The steps' locks stay. 0 clears the note and those TIEs (a real
+ * rest: the note bytes go too). Returns the length it got (0: the note is gone) */
 static uint32_t note_len(const track_t *t, uint32_t i)
 {
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), n = 1;
@@ -599,7 +601,14 @@ static uint32_t note_len(const track_t *t, uint32_t i)
 }
 static uint32_t note_set_len(track_t *t, uint32_t i, uint32_t want)
 {
-    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), n = note_len(t, i);
+    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), n = note_len(t, i), k;
+    if (!want) {
+        for (k = 0; k < n && i + k < NSTEP; k++) {
+            memset(&t->step[i + k], 0, sizeof t->step[i + k]);
+            t->step[i + k].time = ST_REST;
+        }
+        return 0;
+    }
     for (; n > want && n > 1u; n--)
         step_clear(&t->step[i + n - 1u]);
     for (; n < want && i + n < len && !t->step[i + n].n && !t->step[i + n].hit; n++) {
@@ -720,6 +729,15 @@ static void note_name(char *b, uint32_t n)
 
 /* page button: cycle sections (wrap). One-section families: enter/resume only. SELECT walks pages inside the section.
  * Resume last page in the family when entering from elsewhere (SAVE always PRESETS). */
+static int page_sec_any(uint32_t fam, uint32_t sec)
+{
+    uint32_t i;
+    for (i = 0; i < NPAGES; i++)
+        if (PAGES[i].fam == fam && PAGES[i].sec == sec && page_visible(i))
+            return 1;
+    return 0;
+}
+
 static void open_family(uint32_t fam)
 {
     uint32_t nsec = fam_nsec(fam), sec, i;
@@ -727,7 +745,13 @@ static void open_family(uint32_t fam)
         if (nsec <= 1u)
             return;                                   /* single section: press does not invent pages */
         sec = (cur_page()->sec + 1u) % nsec;
-        ui.page = (uint8_t)page_first_sec(fam, sec);
+        for (i = 0; i < nsec; i++) {                  /* skip sections with no visible pages (Kit/Lanes on synth) */
+            if (page_sec_any(fam, sec)) {
+                ui.page = (uint8_t)page_first_sec(fam, sec);
+                break;
+            }
+            sec = (sec + 1u) % nsec;
+        }
     } else if (fam == FAM_SAVE) {
         for (i = 0; i < NPAGES; i++)
             if (PAGES[i].graph == GR_BROWSE) break;
@@ -753,7 +777,7 @@ static void go_home(void)
     section_apply();                             /* leave sticky maps */
 }
 
-/* HOME: Home ↔ Mixer. SELECT walks pages inside Mixer (mix + lane mutes). Held: MENU */
+/* HOME: Home ↔ Mixer. Held: MENU */
 static void home_tap(void)
 {
     if (ui.home) {
@@ -1218,10 +1242,22 @@ static int param_kept(uint32_t i)
            (i >= P_SLCR && i <= P_SLDEPTH) || i == P_CHRD || i == P_VOIC || i == P_SQNT;
 }
 
-/* browsing: every factory preset is shown (SAMPLE aliases are gone with the SAMPLE engine) */
-static uint32_t preset_orig(const engine_t *e, uint32_t k) { (void)e; return k; }
-static uint32_t preset_rank(const engine_t *e, uint32_t k) { (void)e; return k; }
-#define preset_shown(e) (ENGINES[e]->npresets)
+/* browsing: SAMPLE aliases (TRANH, PERC) are skipped; they still load as their original (SMP_SET_ORIG) */
+static uint32_t preset_orig(const engine_t *e, uint32_t k)
+{
+    return e->presets == SMP_PRESET_TABLE && k < SMP_NSETS ? SMP_SET_ORIG[k] : k;
+}
+/* the presets of engine e that browsing shows before preset k (k = npresets: all of them) */
+static uint32_t preset_rank(const engine_t *e, uint32_t k)
+{
+    uint32_t i, n = 0;
+    if (e->presets != SMP_PRESET_TABLE)
+        return k;
+    for (i = 0; i < k && i < e->npresets; i++)
+        n += preset_orig(e, i) == i;
+    return n;
+}
+#define preset_shown(e) (ENGINES[e]->npresets - (ENGINES[e]->presets == SMP_PRESET_TABLE ? SMP_NALIAS : 0u))
 
 #if !FELUCCA_FM4
 /* DIGITAL (engine 1, retired): t's sound = p, values as DIGITAL has them, converted to FM6 with a patch of its own
@@ -1277,10 +1313,13 @@ static void apply_preset_to(track_t *t, uint32_t pi)
         return;
     }
 #endif
+    /* SAMPLE preset 4 was PERC (GM kit): load as DRUM (core.h drum_from_perc), not PIANO */
+    if (t->eng_req % NENGINES == ENGI_SAMPLE && pi % (e->npresets ? e->npresets : 1u) == SMP_SET_PERC) {
+        set_engine_of(t, ENGI_DRUM);
+        return;
+    }
     if (eng_retired(t->eng_req % NENGINES)) {
-        uint32_t e = t->eng_req % NENGINES;
-        /* SAMPLE preset 4 was PERC (GM kit): load as DRUM, not ANALOG (eng_play_as) */
-        set_engine_of(t, e == ENGI_SAMPLE && pi == SMP_SET_PERC ? ENGI_DRUM : eng_play_as(e));
+        set_engine_of(t, eng_play_as(t->eng_req % NENGINES));
         return;
     }
     load_begin(t, UNDO_SOUND);
@@ -1327,7 +1366,7 @@ static void set_engine_of(track_t *t, uint32_t ei)
         return;
     }
 #endif
-    if (eng_retired(ei % NENGINES)) {               /* SAMPLE / GRAIN / NOISE / SLICE: ANALOG or DRUM */
+    if (eng_retired(ei % NENGINES)) {               /* SLICE (retired): DRUM */
         set_engine_of(t, eng_play_as(ei % NENGINES));
         return;
     }
@@ -1346,21 +1385,13 @@ static void set_engine(uint32_t ei) { set_engine_of(TSEL, ei); }
 
 /* MIDI Program Change (1.5.1, #179 by renebohne): program n on track t, as the PRESETS list numbers the engine's sounds
  * from 0: its n-th preset, the aliases skipped (preset_orig), loaded as from there (the track's own settings kept, one
- * undo for a run of them). DRUM: its n-th KIT, the retired variants skipped (enum_orig); FM6: its presets (F1..F8),
- * then the voice bank's B1..B32 through SLOT as the knob loads them (fm6_poll; the rest of the sound stays), an empty
- * one ignored. A program past the last is ignored, not wrapped: a number is always the same sound */
+ * undo for a run of them). DRUM-X: its factory presets (one: DRUM-X), like every other engine. FM6: its presets
+ * (F1..F8), then the voice bank's B1..B32 through SLOT as the knob loads them (fm6_poll; the rest of the sound stays),
+ * an empty one ignored. A program past the last is ignored, not wrapped: a number is always the same sound */
 static volatile uint8_t *const mpc_io = ui.mpc;
 static void midi_pc_load(track_t *t, uint32_t n)
 {
     uint32_t e = t->eng_req % NENGINES, k;
-    if (e == ENGI_DRUM) {
-        const param_desc_t *d = param_desc_of(e, P_E0);
-        for (k = (uint32_t)d->min; k <= (uint32_t)d->max && (enum_orig(d, (int32_t)k) != (int32_t)k || n--); k++)
-            ;
-        if (k <= (uint32_t)d->max)
-            t->p[P_E0] = (int16_t)k;
-        return;
-    }
     if (n >= preset_shown(e)) {
         int32_t s = (int32_t)(FM6_OWN + 1u + n - preset_shown(e));
         if (e == ENGI_FM6 && fm6_bank_slot(s) >= 0 && fm6_slot_ok(s))
@@ -1647,6 +1678,16 @@ static void track_select(uint32_t i)
 }
 
 #include "ui_events.c"                            /* SEQ > AUTOMATION: locks, events, CHANCE, RATCH as a list (an action page) */
+/* EDIT > SOUND / SOUND 2 / SOUND 3 / X-MOD (ui_dx.c, included by ui_input.c): the DRUM-X sound edited and its patch */
+static uint8_t dx_ui_lane, dx_ui_side;
+static uint32_t dx_pagen(const page_t *pg)            /* "SOUND 2"; "X-MOD": 4 */
+{
+    return pg->title[0] == 'X' ? 4u : pg->title[5] == ' ' ? (uint32_t)(pg->title[6] - '0') : 1u;
+}
+static uint32_t dx_page2(const page_t *pg) { return dx_pagen(pg) == 2u; }
+static void dx_knob(const page_t *pg, uint32_t k, int32_t s);
+static void dx_cards(const page_t *pg);
+static uint32_t dx_sig(void);
 #include "midi_learn.c"                           /* MIDI LEARN (1.5): GLO + D4, a knob, a CC */
 
 /* ---------------------------------------------------- action pages --- */

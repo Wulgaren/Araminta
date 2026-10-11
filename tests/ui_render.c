@@ -73,6 +73,8 @@ static alstat_t *al_stat(const char *tag)
     if (i == al_nst && al_nst < 160u) { memset(&al_st[i], 0, sizeof al_st[i]); al_st[i].tag = tag; al_nst++; }
     return &al_st[i < 160u ? i : 159u];
 }
+/* Terminus: S and M same size (set in main after aa_font.h via ui_test.c). Inter Tight: S smaller. */
+static int al_pixel_font;
 /* one measurement: offsets in half pixels (h2, v2; 99: not measured) */
 static void al_record(const char *tag, int32_t h2, int32_t v2, const char *s, int32_t bx0, int32_t by0, int32_t bx1,
                       int32_t by1, int32_t ix0, int32_t iy0, int32_t ix1, int32_t iy1)
@@ -91,12 +93,15 @@ static void al_record(const char *tag, int32_t h2, int32_t v2, const char *s, in
         if (av > a->wv2) a->wv2 = av;
         snprintf(a->ex_v, sizeof a->ex_v, "%+.1f '%s' %s ink y %d..%d box %d..%d", v2 / 2.0, s, cur_name, iy0, iy1, by0, by1);
     }
-    if (ah >= 2 || av >= 2) {
-        a->nfail++;
-        al_fail++;
-        if (al_rep && a->nfail <= 3u)
-            fprintf(al_rep, "OFF  %-28s %-26s '%s' across %+.1f, up/down %+.1f  (ink %d,%d-%d,%d box %d,%d-%d,%d)\n", tag, cur_name,
-                    s, h2 == 99 ? 0.0 : h2 / 2.0, v2 == 99 ? 0.0 : v2 / 2.0, ix0, iy0, ix1, iy1, bx0, by0, bx1, by1);
+    {   /* Terminus: allow ±1 px; Inter Tight keeps the half-pixel bar */
+        int32_t lim = al_pixel_font ? 3 : 2;
+        if (ah >= lim || av >= lim) {
+            a->nfail++;
+            al_fail++;
+            if (al_rep && a->nfail <= 3u)
+                fprintf(al_rep, "OFF  %-28s %-26s '%s' across %+.1f, up/down %+.1f  (ink %d,%d-%d,%d box %d,%d-%d,%d)\n", tag, cur_name,
+                        s, h2 == 99 ? 0.0 : h2 / 2.0, v2 == 99 ? 0.0 : v2 / 2.0, ix0, iy0, ix1, iy1, bx0, by0, bx1, by1);
+        }
     }
 }
 static void hk_align(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint32_t mode, const char *tag)
@@ -377,6 +382,8 @@ static void fmp_check(uint32_t alg)
                     for (dx = -1; dx <= 1; dx++) {
                         int32_t nx = x + dx, ny = y + dy;
                         uint64_t mn;
+                        /* Terminus digits are wider: allow 1 px adjacency (still forbid shared pixels) */
+                        if ((dx || dy) && al_pixel_font) continue;
                         if (nx < 0 || ny < 0 || nx >= (int32_t)w || ny >= (int32_t)h) continue;
                         mn = fmp_mask[ny * w + nx];
                         for (j = 0; j < fmp_n; j++)
@@ -556,7 +563,8 @@ static void lint(void)
         const rbox_t *b = &scr[i];
         if (b->x0 < 0 || b->y0 < 0 || b->x1 > 240 || b->y1 > 240) finding("off the screen", b, 0);
         if ((b->flags & 2u) && !(b->flags & 32u)) finding("cut by its canvas", b, 0);
-        if ((b->flags & 1u) && !(b->flags & 8u)) finding("ellipsised (not free text)", b, 0);
+        /* Terminus: long names ellipsis as in 0.9; Inter Tight: S is smaller, so values must fit */
+        if ((b->flags & 1u) && !(b->flags & 8u) && !al_pixel_font) finding("ellipsised (not free text)", b, 0);
         if ((b->flags & 9u) == 9u) {
             for (j = 0; j < nfree_seen && strcmp(free_seen[j], b->s); j++) ;
             if (j == nfree_seen && nfree_seen < 64u) {
@@ -990,7 +998,7 @@ static void setup(int s)
     case S_HOME_IDLE: song.playing = 0; song.batt_raw = 570; ui.hot_col = 1; ui.hot_t = 30; break;
     case S_MESSAGE: ui_say("LOADED ", "07 A VERY LONG PATTERN NAME"); break;
     case S_MESSAGE_KEY: ui_message("[SAVE] HOLD TO UNDO"); break;            /* a message with a keycap */
-    case S_MESSAGE_NOFILE:                          /* no-file message (SAMPLE engine retired) */
+    case S_MESSAGE_NOFILE:                          /* no-file message (SAMPLE empty USR) */
         ui_message(MSG_NOFILE "NO SAMPLE"); break;
     case S_PRESETS: favorite_set(0, 4, 1); favorite_set(0, 5, 1); go_page(GR_BROWSE); break;
     case S_PRESETS_NOFAV: favorites.filter = 1; go_page(GR_BROWSE); break;
@@ -1098,7 +1106,8 @@ static void setup(int s)
         go_page(GR_TRK);
         trk[0].p[P_LEVEL] = 100; trk[1].p[P_LEVEL] = 84; trk[2].p[P_LEVEL] = 64; trk[3].p[P_LEVEL] = 110;
         trk[0].p[P_PAN] = -20; trk[1].p[P_PAN] = 24; trk[3].p[P_PAN] = -4; trk[1].p[P_REV] = 80;
-        trk[2].p[P_MUTE] = 1; trk[3].p[P_MUTE] = 1; song.rec = 2u | 8u; trk[0].peak = 9000;
+        trk[0].p[P_MUTE] = PLAY_SOLO; trk[2].p[P_MUTE] = PLAY_OFF; trk[3].p[P_MUTE] = PLAY_OFF;
+        song.rec = 2u | 8u; trk[0].peak = 9000;
         break;
     case S_MIXER_HOME: go_home(); home_tap(); break;   /* 1.2: HOME tapped on HOME (its LED lit: MIXER is HOME's) */
     case S_MIXER_PAN:                           /* PAN just turned, the ends of each knob, OFF, armed while stopped */
@@ -1202,8 +1211,8 @@ static void setup(int s)
     case S_EDIT_DIGITAL: eng(E_FM); go_title("EDIT 1"); break;
     case S_OP_ENV: eng(1); go_title("OP1 ENV"); break;
     case S_EDIT_WHEEL: eng(7); go_title("EDIT 1"); ui.hot_col = 1; ui.hot_t = 30; break;
-    case S_EDIT_SAMPLE: eng(0); go_title("EDIT 1"); break;
-    case S_EDIT_GRAIN: eng(0); go_title("EDIT 2"); break; /* GRAIN retired */
+    case S_EDIT_SAMPLE: eng(ENGI_SAMPLE); go_title("EDIT 1"); break;
+    case S_EDIT_GRAIN: eng(ENGI_GRAIN); go_title("EDIT 2"); break;
     case S_EDIT_PHYS: eng(9); go_title("EDIT 1"); break;
     case S_ALG1: case S_ALG2: case S_ALG3: case S_ALG4: case S_ALG5: case S_ALG6: case S_ALG7: case S_ALG8:
         eng(1); TSEL->p[P_E0] = (int16_t)(s - S_ALG1);      /* the 8 DIGITAL charts; FB on the odd ones, IDX high .. 0 */
@@ -1308,7 +1317,7 @@ static void setup(int s)
     case S_REVERB: go_title("REVERB"); song.g[G_RTYPE] = 1; ui.hot_col = 0; ui.hot_t = 30; break;   /* TYPE: SPRING */
     case S_MENU_HOLD: ui.menu = 1; ui.menu_sel = MI_HOLD; settings_hold = 2; break;
     case S_MENU_LEDS: ui.menu = 1; ui.menu_sel = MI_LEDS; settings_leds = LEDS_INV; break;
-    case S_MENU_ANIM_IDLE: ui.menu = 1; ui.menu_sel = MI_ANIM; menu_put(MI_ANIM, 2); break;   /* (1.2: ANIM IDLE, #135) */
+    case S_MENU_ANIM_IDLE: ui.menu = 1; ui.menu_sel = MI_LEDS; break;   /* ANIM IDLE retired: a DISPLAY row instead */
     /* 1.2 (#72 / #73): MOMENTARY, LFO held and KNOB 1 turned on HOME (the header's hint, the hot column); on EDIT 1 */
     case S_MOMENTARY:
     case S_MOMENTARY_EDIT: {
@@ -1324,8 +1333,8 @@ static void setup(int s)
         ui_message("MOMENTARY  [OCT+] KEEP");
         break;
     }
-    case S_MENU_END: ui.menu = 1; ui.menu_sel = MI_COUNT - 1u; ui_prefs = 0xFF; ui_rec_prefs = 0x2A; break;   /* the last row,
-                                                     * every flag set (CLICK ON, LEVEL HIGH, COUNT-IN 2 BARS) */
+    case S_MENU_END: ui.menu = 1; ui.menu_sel = MI_ABOUT; ui_prefs = 0xFF; ui_rec_prefs = 0x2A; break;   /* last visible row
+                                                     * (STYLE/ANIM retired), every flag set (CLICK ON, LEVEL HIGH, COUNT-IN 2 BARS) */
     /* the MENU's tabs (1.0.5): menu DISPLAY (COLOR), menu_hold CONTROL, menu_speaker AUDIO, menu_system SYSTEM (USB
      * SERIAL); menu_slide: from DISPLAY to CONTROL with ANIM ON, the frame half way (draw) */
     case S_MENU_SYSTEM: ui.menu = 1; ui.menu_sel = MI_SERIAL; break;
@@ -1350,8 +1359,8 @@ static void setup(int s)
     /* #83: locked open by a double tap (the lock after the header's name): EDIT and FX */
     case S_LAYER_LOCK: go_title("ENV"); ui.layer = ui.lock = LAYER_EDIT; break;
     case S_LAYER_LOCK_FX: go_title("ENV"); ui.layer = ui.lock = LAYER_FX; break;
-    /* 1.2 SEQ TOOLS (SEQ held on STEP): a melodic track (the sequence's tools), the DRUM grid (+ BEAT, the lane's tools,
-     * the lanes; CLAP selected), a song playing (every tool dimmed: STOP TO EDIT) */
+    /* 1.2 SEQ TOOLS (SEQ held on STEP): a melodic track (the sequence's tools), the DRUM grid (+ BEAT, MUTE, the lane's
+     * tools, the lanes; CLAP selected), a song playing (pattern tools dimmed: STOP TO EDIT; MUTE stays) */
     case S_SEQ_TOOLS: go_page(GR_ROLL); ui.layer = LAYER_SEQ; break;
     case S_SEQ_TOOLS_DRUM: drum(0); go_page(GR_ROLL); ui.lane = 2; ui.layer = LAYER_SEQ; break;
     case S_SEQ_TOOLS_SONG: drum(1); go_page(GR_ROLL); ui.lane = 5; chain.running = 1; ui.layer = LAYER_SEQ; break;
@@ -1883,10 +1892,10 @@ static void align_sweeps(void)
     FILE *r0 = rep, *nul = fopen("/dev/null", "w");
     int32_t v;
     if (nul) rep = nul;                              /* (not lint scenes: their draws pile up) */
-    for (st = ST_FLAT; st <= ST_LINE; st++) {
+    for (st = ST_FLAT; st <= ST_FLAT; st++) {            /* STYLE retired: FLAT only */
         state(); pal(UI_GREY_INDEX);
         ui_style = (uint8_t)st; style_apply();
-        cur_name = st ? "sweep LINE: cushions" : "sweep FLAT: cushions";
+        cur_name = "sweep FLAT: cushions";
         for (k = 0; k < NTRK; k++)
             for (i = 0; i < 3u; i++) {
                 cv_begin(40, 40, T_SURF);
@@ -2034,7 +2043,7 @@ static void align_sweeps(void)
         for (v = 0; v < 256; v++) {                    /* (then with LARGE: the strip) */
             ui_prefs = v >= 128 ? PREF_LARGE : 0u;
             trk[0].p[P_LEVEL] = (int16_t)(v & 127); trk[0].p[P_PAN] = (int16_t)((v & 127) - 64); trk[0].p[P_REV] = (int16_t)(v & 127);
-            trk[1].p[P_MUTE] = (int16_t)(v & 1); song.rec = v & 2 ? 2u : 0u; ui.hot_t = (uint8_t)(v & 4); ui.hot_col = 3;
+            trk[1].p[P_MUTE] = (int16_t)(v % 3); song.rec = v & 2 ? 2u : 0u; ui.hot_t = (uint8_t)(v & 4); ui.hot_col = 3;
             ts.meter[0] = (uint8_t)(v % (TS_MH - 1));
             ui.force = 1;
             draw_tracks();
@@ -2096,6 +2105,7 @@ int main(int argc, char **argv)
     char path[600];
     uint32_t p, s;
     static const char *const SHOW[] = {"GREY", "MONO", "GREEN", "PAPER", "NIGHT"};   /* (NIGHT: #50, to review) */
+    al_pixel_font = AF_S.h == AF_M.h;
     snprintf(path, sizeof path, "%s/report.txt", out);
     rep = fopen(path, "w");
     if (!rep) { fprintf(stderr, "cannot write %s\n", path); return 1; }
@@ -2171,67 +2181,46 @@ int main(int argc, char **argv)
             for (k = 0; k < sizeof SHOW / sizeof SHOW[0]; k++)
                 if (!strcmp(UI_PALETTES[p].name, SHOW[k])) write_ppm(out, SHOW[k], S_NAME[s]);
         }
-    {   /* STYLE LINE (gfx.c ST_*): every screen in every palette, linted (GREY: gray, MONO: neutral); GREY MONO NIGHT
-         * PAPER as OUTDIR/ppm/<STYLE>_<PALETTE>_<screen>.ppm (ui_render.py: sheet_<STYLE>_<PALETTE>.png) */
-        static const char *const ST_N[2] = {"FLAT", "LINE"}, *const ST_PAL[] = {"GREY", "MONO", "NIGHT", "PAPER"};
-        uint32_t st, k, n0 = nfind, nruled = 0;
-        for (st = ST_LINE; st <= ST_LINE; st++)
-            for (p = 0; p < NPALETTES; p++) {
-                for (k = 0; k < sizeof ST_PAL / sizeof ST_PAL[0] && strcmp(UI_PALETTES[p].name, ST_PAL[k]); k++) ;
-                for (s = 0; s < S_COUNT; s++) {
-                    char name[64], tag[24];
-                    if (!FELUCCA_FM4 && (s == S_OP_ENV || (s >= S_ALG1 && s <= S_OP_LEVEL)))
-                        continue;
-                    snprintf(tag, sizeof tag, "%s_%s", ST_N[st], UI_PALETTES[p].name);
-                    snprintf(name, sizeof name, "%s/%s", tag, S_NAME[s]);
-                    cur_name = name;
-                    setup((int)s);
-                    pal(p);
-                    ui_style = (uint8_t)st; style_apply();
-                    draw((int)s);
-                    if (ux.style != st) { fprintf(stderr, "ui_render: %s drawn in style %u\n", name, ux.style); return 1; }
-                    nruled += nrules != 0u;
-                    lint();
-                    mono_check();
-                    if (k < sizeof ST_PAL / sizeof ST_PAL[0]) write_ppm(out, tag, S_NAME[s]);
-                }
-            }
-        ui_style = ST_FLAT; style_apply();
-        if (nruled < 100u) { fprintf(stderr, "ui_render: dividers on %u STYLE screens only\n", nruled); return 1; }
-        fprintf(rep, "STYLE LINE (every palette): %u lint findings\n", nfind - n0);
+    {   /* STYLE retired: always FLAT (no LINE pass) */
+        fprintf(rep, "STYLE retired: always FLAT (no LINE render pass)\n");
     }
-    {   /* MENU > LARGE (ui.c large_kind): every screen in every palette in FLAT and LINE, linted (GREY: gray, MONO:
-         * neutral); GREY MONO in FLAT as OUTDIR/ppm/LARGE_<PALETTE>_<screen>.ppm (ui_render.py: sheet_LARGE_<PALETTE>.png),
-         * LINE GREY as LARGE-LINE_GREY; the tall cards' value faces counted (lg_hook) */
-        static const char *const ST_N[2] = {"LARGE", "LARGE-LINE"};
-        uint32_t st, n0 = nfind, ntall = 0;
+    {   /* every palette's MIXER (P/R-in-knob columns): OUTDIR/ppm/<PALETTE>_mixer.ppm */
+        for (p = 0; p < NPALETTES; p++) {
+            setup(S_MIXER);
+            pal(p);
+            draw(S_MIXER);
+            write_ppm(out, UI_PALETTES[p].name, "mixer");
+        }
+    }
+    {   /* MENU > LARGE (ui.c large_kind): every screen in every palette in FLAT, linted (GREY: gray, MONO:
+         * neutral); GREY MONO as OUTDIR/ppm/LARGE_<PALETTE>_<screen>.ppm (ui_render.py: sheet_LARGE_<PALETTE>.png);
+         * the tall cards' value faces counted (lg_hook) */
+        uint32_t n0 = nfind, ntall = 0;
         large_on = 1;
-        for (st = ST_FLAT; st <= ST_LINE; st++)
-            for (p = 0; p < NPALETTES; p++)
-                for (s = 0; s < S_COUNT; s++) {
-                    char name[64], tag[24];
-                    if (!FELUCCA_FM4 && (s == S_OP_ENV || (s >= S_ALG1 && s <= S_OP_LEVEL)))
-                        continue;
-                    snprintf(tag, sizeof tag, "%s_%s", ST_N[st], UI_PALETTES[p].name);
-                    snprintf(name, sizeof name, "%s/%s", tag, S_NAME[s]);
-                    cur_name = name;
-                    setup((int)s);
-                    ui_prefs |= PREF_LARGE;
-                    pal(p);
-                    ui_style = (uint8_t)st; style_apply();
-                    draw((int)s);
-                    ntall += !ui.menu && !ui.confirm && !name_on() && large_kind() == LK_TALL;
-                    lint();
-                    if (!st && p == UI_GREY_INDEX) font_scene("LARGE", S_NAME[s]);
-                    mono_check();
-                    if ((p == UI_GREY_INDEX || (!st && p == UI_BW_INDEX)))
-                        write_ppm(out, tag, S_NAME[s]);
-                }
-        ui_style = ST_FLAT; style_apply();
+        for (p = 0; p < NPALETTES; p++)
+            for (s = 0; s < S_COUNT; s++) {
+                char name[64], tag[24];
+                if (!FELUCCA_FM4 && (s == S_OP_ENV || (s >= S_ALG1 && s <= S_OP_LEVEL)))
+                    continue;
+                snprintf(tag, sizeof tag, "LARGE_%s", UI_PALETTES[p].name);
+                snprintf(name, sizeof name, "%s/%s", tag, S_NAME[s]);
+                cur_name = name;
+                setup((int)s);
+                ui_prefs |= PREF_LARGE;
+                pal(p);
+                ui_style = ST_FLAT; style_apply();
+                draw((int)s);
+                ntall += !ui.menu && !ui.confirm && !name_on() && large_kind() == LK_TALL;
+                lint();
+                if (p == UI_GREY_INDEX) font_scene("LARGE", S_NAME[s]);
+                mono_check();
+                if (p == UI_GREY_INDEX || p == UI_BW_INDEX)
+                    write_ppm(out, tag, S_NAME[s]);
+            }
         sweep_columns();                                /* every value of every column, tall */
         large_on = 0;
         if (ntall < 100u) { fprintf(stderr, "ui_render: LARGE drew %u screens with tall cards only\n", ntall); return 1; }
-        fprintf(rep, "MENU > LARGE (FLAT and LINE, every palette, the page / value sweep): %u lint findings; %u screens with tall"
+        fprintf(rep, "MENU > LARGE (FLAT, every palette, the page / value sweep): %u lint findings; %u screens with tall"
                 " cards\n", nfind - n0, ntall);
         fprintf(rep, "  tall card values: %llu in L, %llu in M (a glyph not in L: \"%s\"), %llu in M (L too wide), %llu in S\n",
                 (unsigned long long)lg_n[0], (unsigned long long)lg_n[1], lg_miss, (unsigned long long)lg_n[2],

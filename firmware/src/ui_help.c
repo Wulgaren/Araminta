@@ -11,13 +11,13 @@
  * the timer: ui.c help_on, help_start (PREF_HELP, ui.help_t) */
 
 static const char H_EDIT[] = "[K1-4]SOUND[EDIT]HOLD: ENGINES";
-static const char H_LANES[] = "[K1-4]LANE LEVELS[EDIT]HOLD: MUTES";
+static const char H_LANES[] = "[K1-4]LANES[EDIT]MUTES";
 static const char H_FMOP[] = "[K1]OPERATOR[SAVE]HOLD: UNDO";
 static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"ENV", "[K1-4]A D S R[ENV]ENV DEST"},
     {"ENV DEST", "[K1-4]ENV AMOUNTS[ENV]ENV"},
     {"LFO", "[K1-4]SHAPE[LFO]HOLD: MOMENTARY"},
-    {"LFO 2", "[K1]SYNC TO BPM[LFO]LFO DEST"},
+    {"LFO 2", "[K1]SYNC TO BPM[SELECT]LFO DEST"},   /* SELECT walks the LFO section; the LFO button opens MOD */
     {"LFO DEST", "[K1-4]LFO AMOUNTS[LFO]MOD"},
     {"MOD", "[K1]SLOT[K2]SOURCE[K3]DEST"},
     {"EFFECTS", "[K1]CHOOSE[K2]ORDER[K3]USE AS"},
@@ -31,50 +31,48 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"REVERB", "[K1]ROOM..CLOUD[SELECT]CHORUS"},
     {"CHORUS", "[K1-4]ALL TRACKS[FX]SLICER"},
     {"MASTER", "[K1-4]CLIP PNCH DUCK[FX]EFFECTS"},
-    {"EFFECTS", "[K1]CHOOSE[K2]ORDER[K3]USE AS"},
-    {"DIST", "[K1]MODE[K2]DRIVE[K3]TONE"},
-    {"CRUSH", "[K1]BITS[K2]RATE[K3]LPF"},
-    {"PHASR", "[K1]RATE[K2]DEPTH[K3]FDBK"},
-    {"FLANG", "[K1]RATE[K2]DEPTH"},
-    {"CHOR", "[K1]RATE[K2]DEPTH"},
-    {"SCL", "[K2]SCALE[K3]QUANTIZE[SCL]CHORDS"},
-    {"CHORD", "[K1]CHORD[KEYS]ONE FINGER[SCL]SCL"},
+    {"SCL", "[K2]SCALE[K3]QNT[SCL]CHORDS"},
+    {"CHORD", "[K1]CHORD[KEYS]CHORD[SCL]SCL"},
     {"EDIT 1", H_EDIT},
     {"EDIT 2", H_EDIT},
     {"FILTER", "[K1]TYPE[K2]CUTOFF[K3]RES[K4]KTR"},
     {"FILTER DRIVE", "[K1]DRIVE[EDIT]FILTER"},
+    {"SOUND", "[K1]LANE[K2]A/B[K3]PITCH[K4]PMOD"},
+    {"SOUND 2", "[K1]DECAY[K2]NOISE[K3]COLOR[K4]MODE"},
+    {"SOUND 3", "[K1]LANE[K2]PMOD[K3]DRIVE[K4]WAVE"},
+    {"X-MOD", "[K1]RATE[K2]DEPTH[K3]SHAPE[K4]RAND"},
     {"LANES", H_LANES},
     {"LANES 2", H_LANES},
     {"SLICES", "[K1]SLICE[K2]MOVE[OCT+]SPLIT, JOIN"},
     {"OPERATOR", H_FMOP},
     {"OP ENV", H_FMOP},
     {"OPERATOR 2", H_FMOP},
-    {"VOICE", "[K1]POLY, MONO[K2]GLIDE"},
-    {"VOICE 2", "[K1]SPREAD[K2]DETUNE[K3]PAN[K4]MUTE"},
+    {"VOICE", "[K1]VOICE[K2]GLIDE[K3]UNI DTN[K4]SPREAD"}, /* UNI DTN / SPRD blank off UNI / off POLY+UNI */
+
     {"SONG", "[K1]SECTION[KEYS]A-D[PLAY]SONG"},
     {"PRESETS", "[K2]ENGINE[K3]FAV[K4]LIST"},
-    {"USER", "[K1]SLOT[OCT+]SAVE[SELECT]PHRASES"},
-    {"PHRASES", "[K1]PHRASE[OCT+]LOAD[SAVE]PROJECT"},
+    {"USER", "[K1]SLOT[OCT+]SAVE[SELECT]LIST"},
+    {"PHRASES", "[K1]PHRASE[OCT+]LOAD[SAVE]PROJ"},
     {"PROJECT", "[K1]SLOT[K4]SAVE[EDIT]NAME"},
     {"TOOLS", "[K1]CLEAR[K2]INIT SOUND[OCT+]DO"},
     {"ARP", "[K1]MODE[KEYS]CHORD[ARP]ARP 2"},
     {"ARP 2", "[K3]LATCH[K4]ORDER[ARP]ARP"},
-    {"PATTERN", "[K1]LEN[K2]DIV[KEYS]TOOLS"},
+    {"PATTERN", "[K1]LEN[K2]DIV[SEQ]TOOLS"},
+    {"SEQ TOOLS", "[KEYS]TOOLS[K1]LEN[K2]DIV"},
     {"STEP", "[KEYS]WRITE[K1]STEP[SEQ]RATCH"},   /* (1.5.1: SEQ to DETAIL) */
     {"DETAIL", "[PRESETS]STEP[K1]CHANCE[K2]RATCH"},
     {"AUTOMATION", "[K1]ROW[OCT+]DO[EDIT]DELETE"},
     {"RECORD", "[KEYS]CLICK COUNT[K1-4]PREFS"},
     {"PUNCH", "[KEYS]FX[K1-4]MACROS[FX]MASTER"},
-    {"MIXER", "[K4]MUTE[ALGO]TRACK[HOME]HOME"},
-    {"LANE MUTE", "[KEYS]LANES[HOME]MIXER"},
+    {"MIXER", "[K4]PLAY[ALGO]TRACK"},
     {"CLOCK", "[OCT+]SELECT: TEMPO[GLO]SONG"},
 };
-#define H_HOME "[OCT+]PRESETS RND[HOME]HOLD: MENU"
+#define H_HOME "[OCT+]PRESETS[HOME]MENU"          /* Terminus: shorter than Inter Tight so the row fits */
 #define H_LEVELS "[K1-4]T1-T4 LEVEL[HOME]MIXER"
 #define H_GRID "[KEYS]STEPS[K2]LANE[SEQ]RATCH"
 /* a layer's (LAYER_*): what its footer row (LAYERS[].foot) does not say */
 static const char *const HELP_LAYER[LAYER_N] = {
-    "", "[KEYS]BLACK: MUTES[FX]2 TAPS: LOCK", "[KEYS]SOLO MUTE TAP[K1-4]LEVELS", "[KEYS]ROOT[K1-4]ROOT SCL CHORD",
+    "", "[KEYS]MUTES[FX]LOCK", "[KEYS]SOLO MUTE TAP[K1-4]LEVELS", "[KEYS]ROOT[K1-4]ROOT SCL CHORD",
     "[K1]ENGINE[K2]SOUND[K3]FAV", "[K1]LENGTH[K3]SWING[K4]GATE", "[K1]CLICK[K2]COUNT-IN[K3]LEVEL",
 };
 

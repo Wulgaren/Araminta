@@ -31,7 +31,8 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
 - **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM engine);
   8 voices shared between them. ALGORITHM selects the track on every page
 - **Sequencer:** 64 steps per track with chords, ties, accent, slide, per-step chance, velocity and ratchets
-  (a step played 2, 3 or 4 times in its length); a piano roll of the steps, where KNOB 3 sets a note's length; a drum grid (white keys =
+  (a step played 2, 3 or 4 times in its length); a piano roll of the steps, where KNOB 3 sets a note's length
+  (0 clears it) and PRESETS moves that note in time; a drum grid (white keys =
   steps, black keys = lanes); **SEQ > DETAIL**: the cursor step's chance, ratchet, nudge and velocity on the four
   knobs, drawn as lanes over the steps; automation: recording of knob moves per step (an automation icon marks the cards it
   drives); live loop recording with overdub; step recording at the cursor (REC on SEQ > STEP while stopped), one
@@ -63,7 +64,7 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
   or FREE, **POL** bipolar or unipolar (LFO > LFO 2)
 - **Modulation matrix:** 4 slots per track, MIDI controllers as sources, **S&H** and **SLEW** (a random value per
   LFO cycle, held or gliding), and **DEPTH** as a destination, so the matrix can modulate the LFO itself
-- **SPREAD** (EDIT > VOICE 2): the voices of a POLY or UNISON track alternate left and right of its PAN
+- **SPREAD** (EDIT > VOICE, SPRD): the voices of a POLY or UNISON track alternate left and right of its PAN
 - **ENV SYNC** (ENV > ENV DEST): the envelope's attack, decay and release as note values of the tempo
 - **Effects:** distortion, an **INSERT** (drives, CRUSH, phaser, flanger, chorus, with a dry / wet MIX) and the
   SLICER per track; chorus, delay (in time with the tempo, dotted values included) and reverb sends (the reverb as
@@ -83,7 +84,7 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
   from every earlier version load. The PRESETS knob changes the sound from every page that is not a list.
   Turn the FM-1 off and on and the music is as you left it (MENU > RESTORE LAST, an autosave of its own,
   written only when stopped and idle)
-- **Screen:** flat UI with Inter Tight and Fukiai icons, FLAT or LINE style, 10 palettes including
+- **Screen:** flat UI with Terminus and Fukiai icons, 10 palettes including
   grayscale, black and white, high contrast and NIGHT; type in sizes by role (what you read in the larger size,
   labels and hints in the smaller); MENU > LARGE for tall knob cards with larger labels and values; the menu in
   five tabs. The header shows the track and the **project slot of its pattern** ("1 A", "1 A*" once edited), the
@@ -93,8 +94,7 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
 - **LEDs:** idle buttons and keys glow dim so the panel can be found in the dark (MENU > LEDS: OFF,
   DIM LO, DIM HI or INV, the official firmware's look); PLAY turns green while playing; the keys show
   the notes the sequencer and MIDI IN play, and on SEQ > STEP (stopped) the notes of the step under the cursor;
-  the drum grid marks the beats (steps 1, 5, 9, 13); MENU > SCALE LEDS shows the track's scale on the keys;
-  a soft light sweeps over the keys at power-on, and with MENU > ANIM IDLE drifts over them while the FM-1 waits
+  the drum grid marks the beats (steps 1, 5, 9, 13); MENU > SCALE LEDS shows the track's scale on the keys
 - **USB:** class-compliant MIDI in and out, and a stereo audio input ("Felucca") at 44.1 or 48 kHz
   (the computer picks) that records the master output on the computer, no driver needed (at a fixed level with MENU > USB LEVEL FIXED;
   on macOS 13–15, set MENU > USB SERIAL to OFF so the audio input appears)
@@ -109,6 +109,24 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
   step grid, mixer, preset library, sample upload and recording with trim, the MENU settings; full backup and restore
   (everything but the FM6 voice bank: keep its .syx file);
   return to the official firmware; Felucca itself running in the browser
+
+## Araminta
+
+Araminta builds on Felucca 1.5.x with these ports and layout changes:
+
+- **Sloop free take:** with the project empty and a track armed while stopped, the first note starts a free take
+  (record without a prior pattern)
+- **JIANT MIDI punch-ins** on the FX **Punch-in** section (SELECT walks pages inside FX sections; hold FX alone
+  does not open punch-ins), plus master **CLIP / PNCH / DUCK** and reverb models **SHIMR / CLOUD**
+- **Melodee:** silent tracks still run LFO, bend, engine block and fades so modulation keeps moving
+- **DRUM-X** replaces Felucca's sampled/VA kit enum: one morphable 8-lane kit (EDIT **Sound** → **Kit** → **Lanes**;
+  Voice hidden on DRUM). The kit, mutes and X-MOD save with the project (**FUN11** / `FUNB`, same size as FUN10;
+  disk motion max 78). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X
+- **SAMPLE, GRAIN and NOISE** restored (SLICE stays retired). CR78 is not in the ROM sample bank — upload a kit as
+  a USR sample. On upload, the web editor's **Drum kit grid** checkbox tags the slot (`FSMP` header); SAMPLE on that
+  USR set then shows the drum grid on SEQ instead of the piano roll (zones mapped by hand)
+- **VOICE** is one page: **VCE, GLD, UNI DTN, SPRD**. GLD is free milliseconds (no GLMOD on the page). PAN / MUTE live
+  on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON (blank cards otherwise; values stay stored).
 
 ## New in 1.5.1
 
@@ -152,7 +170,9 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
 - **ENV SYNC** (Discussion #175): ENV DEST's KNOB 4 (ESYNC) makes ENV's ATK, DEC and REL note values of the tempo
   (1/64T to 4 bars, dotted and triplets) instead of milliseconds; they follow the tempo and an external clock.
 - **A note's length on the piano roll** (Discussions #178, #173): on SEQ → STEP, KNOB 3 on a note step is its **LEN**:
-  right ties the steps after it on, left takes them back. It stops before the next note ("NOTE AHEAD").
+  right ties the steps after it on, left takes them back, and left until 0 clears the note (KNOB 3 becomes TIME).
+  It stops before the next note ("NOTE AHEAD"). PRESETS moves that note in time, cursor with it; on a rest it
+  moves the cursor. On the drum grid, hold the step keys and turn PRESETS.
 - **Per-step velocity** (Discussion #173): SEQ → AUTOMATION, **+ ADD VEL** (OCT+: SHOW) lists every note step's
   velocity, KNOB 4 sets it (1–127). Steps entered by hand play 96, steps recorded live keep how hard you played.
 - **HELP** (Discussion #156; MENU > SYSTEM > HELP, OFF by default): ON shows a short hint, key caps and a few words, in
@@ -164,8 +184,10 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
   KNOB 1–4 set the LEVEL of T1–T4.
 - ⚠ **SAMPLE's PIANO is the full piano again** (five notes, as in 1.0 to 1.1.5): sounds and projects made on 1.4 or
   1.4.1 that use PIANO play the full piano. PIANO HD in a user slot is no longer needed.
-- Fixed: the arpeggiator follows TRN, ROOT, SCALE and QNT on held and latched notes (#191); MENU > DISPLAY > ANIM no
-  longer changes HOME.
+- Fixed: the arpeggiator follows TRN, ROOT, SCALE and QNT on held and latched notes (#191).
+- **STYLE and ANIM removed** from the menu: the UI is always flat (no raised card fills, no rule dividers), and
+  values snap with no rolling digits, piano-roll glide, tab slide or LED sweep / idle animation. Knob gauges again
+  show a 1 px end line at the fill's tip (as in 0.9).
 - ⚠ The INSERT, the filter TYPE and ENV SYNC are new sound parameters (OFF, LP, OFF by default): everything saved
   before plays as before. But **a project saved by 1.5 does not open on 1.2 to 1.4.1**: its slot shows EMPTY there
   (the data stays in flash until you save something into that slot there), and a backup that holds one is refused.
@@ -232,33 +254,28 @@ The pages by button:
 | SEQ | STEP (the piano roll, or the drum grid), DETAIL, AUTOMATION | SEQ TOOLS, on every page |
 | GLO | SONG | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
 | SAVE | USER, PRESETS, PHRASES (the pattern loader), PROJECT, TOOLS | UNDO |
-| LFO | LFO, LFO 2, LFO DEST, MOD | MOMENTARY (with a knob) |
-| EDIT | EDIT 1, EDIT 2, VOICE, VOICE 2 (FM6 adds OPERATOR, OP ENV, OPERATOR 2; DRUM LANES; ANALOG FILTER, FILTER DRIVE instead of EDIT 2) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
+| LFO | LFO, LFO 2, LFO DEST; then MOD | MOMENTARY (with a knob) |
+| EDIT | EDIT 1, EDIT 2, VOICE (VCE/GLD/UNI DTN/SPRD; FM6 adds OPERATOR, OP ENV, OPERATOR 2; DRUM: Sound / Kit / Lanes, no Voice; ANALOG FILTER, FILTER DRIVE instead of EDIT 2) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
 | FX, SCL, ENV, ARP | their pages (FX: INSERT and INSERT 2 after the SLICER) | FX and SCL: their layers |
 | REC | arms the track | the REC layer (CLEAR, CLICK, COUNT-IN, CLICK LEVEL) |
 
 ## Menu
 
-Hold **HOME** for the menu, in five tabs: **DISPLAY** (COLOR, STYLE, LARGE, ANIM, LEDS, SCREEN OFF, SCOPE, HOME),
+Hold **HOME** for the menu, in five tabs: **DISPLAY** (COLOR, LARGE, LEDS, SCREEN OFF, SCOPE, HOME),
 **CONTROL** (HOLD, KNOB ACCEL, FX LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW, CHORD ENTRY), **AUDIO** (SPEAKER EQ,
 USB LEVEL, CLICK, CLICK LEVEL, COUNT-IN, TUNE), **MIDI** (MIDI IN, LEARN CLEAR) and **SYSTEM** (USB SERIAL,
 RESTORE LAST, HELP, HARDWARE CALIBRATION, INFO, ABOUT).
 ALGORITHM moves between the tabs and PRESETS through the rows of one; any of KNOB 1–4, or OCT+ / OCT−,
 changes the value (OCT+ opens HARDWARE CALIBRATION, INFO and ABOUT); press HOME to close the menu. Every new
 setting defaults to the earlier behaviour. The web editor's Settings tab reads and changes them too, saved the same
-way as from the menu, in the same tabs.
+way as from the menu, in the same tabs. STYLE and ANIM are gone from the menu (always flat, no UI animations).
 
 - **COLOR:** the palette. GREY (grayscale, called MONO up to 1.0.1), GREEN, AMBER, ICE, VIOLET, ROSE,
   PAPER (light), HI-CON (high contrast), NIGHT (the 0.9 look: true black, green-tinted text) and MONO
-  (black and white)
-- **STYLE:** FLAT (filled cards) or LINE (areas divided by thin lines)
+  (black and white). Every palette draws without a raised card fill (SURF matches the background, as MONO)
 - **LARGE:** OFF or ON: on HOME and the value pages the four knob cards grow tall, marked K1–K4, with
   larger labels and values about twice the size; the graph below becomes a strip. Lists, the piano roll,
   the drum grid and the quick layers keep their layout with larger labels
-- **ANIM:** ON, OFF or IDLE. OFF shows every change at once, without rolling digits, a gliding piano roll or
-  the LED sweep at power-on. IDLE is ON plus a gentle LED animation after a minute without input: a soft light drifts
-  over the keys and the buttons breathe; any key, button or knob ends it and does what it always does. It never runs
-  while playing, with a track armed, in a layer, the menu or a dialog
 - **LEDS:** OFF (no glow), DIM LO, DIM HI (default) or INV (the idle LEDs lit, the active ones dark).
   What can be pressed breathes up to about 60 % of a lit LED, about 30 % with DIM LO
 - **SCREEN OFF:** NEVER (default), 5 MIN, 15 MIN, 30 MIN or 60 MIN: after that long with no button, key or knob
@@ -319,22 +336,19 @@ In the order the device lists them:
   operator at a time on the algorithm chart; macros on top; SLOT picks a factory patch (F1–F8), the track's own (OWN) or a voice of the bank the web editor sent (B1–B32)
 - **PHASE**: phase distortion (ported from CrispyZebra)
 - **LOFI**: chiptune; pulse, triangle, saw, noise and a 4-bit wave RAM, stepped envelope, sweep, arpeggio
-- **SAMPLE**: multisampled instruments (PIANO, FLUTE, SAX) and 3 user sample slots
+- **SAMPLE**: multisampled instruments (PIANO, FLUTE, SAX) and 3 user sample slots; a USR slot can be tagged
+  **drum kit grid** in the web editor so SEQ uses the drum grid (zones mapped by hand)
 - **VOICE**: formant oscillator, sung vowels
 - **TRIO**: 3 oscillators with ring modulation and sync, multimode filter
 - **WHEEL**: tonewheel-style organ; drawbar registrations, percussion, key click, drive, rotary speaker
 - **GRAIN**: granular textures from the built-in samples or a user slot
 - **PHYS**: physical models: modal resonators, strings, struck membranes, sympathetic strings
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
-- **SLICE**: a drum break, a piano note (both built in) or your own sample cut into slices, one per key;
-  set the slices by hand on the SLICES page
-- **DRUM**: an 8-lane kit of Felucca's own drum voices on the General MIDI key map. KIT picks the
-  standard kit or one of five virtual-analog (VA) kits in the manner of
-  classic analog drum machines (the numbers are a hint), every lane its own voice: **80** (deep sine kick with a long decay, noisy snare,
-  six-square hats), **10** (swept kick, white-noise snare, long-tailed claps, a cymbal), **66** (soft
-  round kick, bright snare, noise hats, a conga), **55** (dropping kick, high metal hats, a metal bell)
-  and **77** (swelling kick, multi-burst claps, claves, a cymbal). All of them are synthesized by
-  Felucca, no samples. EDIT > LANES and LANES 2 set each lane's level
+- **SLICE**: retired (reserved index; old stores load as DRUM)
+- **DRUM**: **DRUM-X**, an 8-lane morphable kit on the General MIDI key map (JIANT port). EDIT sections
+  **Sound** (MRPH / TUNE / TONE / DECY and NOIS / FM / FOLD / DRV), **Kit** (SOUND … X-MOD) and **Lanes**;
+  kit / mute / X-MOD persist in **FUN11** projects (FUN10 opens with the factory kit). Old Felucca KIT values
+  still play as DRUM-X
 
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
 as FM6 sounds converted from them. The SAMPLE engine's PERC kit was removed in 1.0.2: sounds and
@@ -421,7 +435,9 @@ For more details, see [On AI-Assisted Development and Responsibility](https://gi
   [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the DRUM voices and kits; the Hügelton Sample
   Pack (the drum samples, GPL-3.0-only, not CC0); the [Fukiai](https://github.com/hugelton/Fukiai) icon
   font ([MIT](LICENSES/MIT-Fukiai.txt))
-- Fonts: [Inter Tight](https://github.com/rsms/inter-tight) by The Inter Project Authors, [SIL OFL 1.1](LICENSES/OFL-InterTight.txt);
+- Fonts: [Terminus](https://terminus-font.sourceforge.net/) by Dimitar Toshkov Zhekov, [SIL OFL 1.1](LICENSES/OFL-Terminus.txt)
+  (the UI text, as in Felucca 0.9); [Inter Tight](https://github.com/rsms/inter-tight) by The Inter Project Authors,
+  [SIL OFL 1.1](LICENSES/OFL-InterTight.txt) (keycap labels and diagrams);
   the browser emulator's labels: [DotGothic16](https://github.com/fontworks-fonts/DotGothic16) by The DotGothic16 Project Authors, [SIL OFL 1.1](LICENSES/OFL-DotGothic16.txt)
 - Samples: [Versilian Studios](https://versilian-studios.com/) [VSCO-2 Community Edition](https://github.com/sgossner/VSCO-2-CE) and [VCSL](https://github.com/sgossner/VCSL), CC0 1.0: the SAMPLE sets, also SLICE's PIANO and PIANO HD ([attribution](assets/samples-cc0/ATTRIBUTION.txt))
 - VOICE engine: after [klattsch](https://github.com/tgies/klattsch) by Tony Gies (MIT); formant data from Klatt (1980) and Hillenbrand et al. (1995)
