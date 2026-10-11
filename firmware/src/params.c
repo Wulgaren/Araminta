@@ -18,6 +18,9 @@ static const char *const N_DTIME[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T",
 static const char *const N_SCALE[] = {"CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM",
                                     "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"};
 static const char *const N_ONOFF[] = {"OFF", "ON"};
+/* MIXER KNOB 4 (and VOICE 2): OFF sounds, ON mutes, SOLO sounds and silences every track that is not SOLO.
+ * Append-only (MUTE_OFF .. MUTE_SOLO): 0 and 1 stay what stored projects already hold */
+static const char *const N_MUTE[] = {"OFF", "ON", "SOLO"};
 /* ANALOG's filter TYPE (1.5, #104; eng_analog.c): LP / BP / HP, and COMB (insert chain / Araminta) */
 static const char *const N_FTYPE[] = {"LP", "BP", "HP", "COMB"};
 /* ENV SYNC (1.5, #175; voice.c esync_coef): ATK DEC REL as note values of the tempo, shortest first. 0..127 split
@@ -125,7 +128,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_ALLOC] = PE("ALLOC", N_ALLOC, 0),
     [P_DETUNE] = PD("DTUNE", F_INT, 0, 127, 40),
     [P_PAN] = PD("PAN", F_BIPCT, -64, 63, 0),
-    [P_MUTE] = PE("MUTE", N_ONOFF, 0),
+    [P_MUTE] = PE("MUTE", N_MUTE, 0),
     [P_SLCR] = PE("SLCR", N_SLCR, 0),
     [P_SLPAT] = PD("PAT", F_INT, 1, 16, 1),        /* SL_PAT[] */
     [P_SLRATE] = PE("RATE", N_SLDIV, 1),

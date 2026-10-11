@@ -598,12 +598,13 @@ static void layer_key(uint32_t l, uint32_t k)
     } else if (l == LAYER_GLO) {
         if (key_black(k)) {
             if (p < NTRK)
-                trk[p].p[P_MUTE] = (int16_t)!trk[p].p[P_MUTE];
+                trk[p].p[P_MUTE] = (int16_t)(trk[p].p[P_MUTE] == MUTE_ON ? MUTE_OFF : MUTE_ON);
         } else if (p < NTRK) {
             lys.solo |= 1u << k;                        /* (layer_masks: perf_solo while held) */
         } else if (p == 4u) {
             for (i = 0; i < NTRK; i++)
-                trk[i].p[P_MUTE] = 0;
+                if (trk[i].p[P_MUTE] == MUTE_ON)
+                    trk[i].p[P_MUTE] = MUTE_OFF;
         } else if (p == 7u) {
             glo_tap();
         } else if (p == 5u) {
@@ -778,7 +779,7 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
 /* --------------------------------------------------------- the LEDs --- */
 /* lit = in effect now (held, the value, a track sounding), breathing = can be pressed (*br: dark .. ~60 % and
  * back, ~1.1 s, hal/fm1_input.h fm1_led_breath; was a hard 250 ms blink, #119), dark = nothing there */
-static int glo_sounding(uint32_t t) { return !trk[t].p[P_MUTE] && (!perf_solo || ((perf_solo >> t) & 1u)); }
+static int glo_sounding(uint32_t t) { return trk_heard(t); }
 static int rec_clearable(void) { return !seq_is_empty(TSEL) || motion_count(TSEL) != 0u; }
 static uint32_t layer_leds(uint32_t *br)
 {
@@ -963,7 +964,7 @@ static void layer_glo(void)
     lcell(LC_X(3), 50, LC_H, n, ICON_TEMPO, 0, "TAP", song.g[G_CLOCK] ? LS_DIM : LS_OFF, 0);
     for (e = 0; e < NTRK; e++) {                        /* the black keys 1..4: MUTE, latched */
         bnote(n, e);
-        lcell(LC_X(e), LM_Y, LM_H, n, ICON_MUTE, trk_icon(e, 0), 0, trk[e].p[P_MUTE] ? LS_MUTE : LS_OFF, 0);
+        lcell(LC_X(e), LM_Y, LM_H, n, ICON_MUTE, trk_icon(e, 0), 0, trk[e].p[P_MUTE] == MUTE_ON ? LS_MUTE : LS_OFF, 0);
     }
 }
 static void layer_scl(void)                             /* KNOB 2's scales, 4 x 4, the one now selected */
@@ -1153,7 +1154,8 @@ static void draw_layer(void)
     }
     else if (l == LAYER_GLO)
         sig += perf_solo * 31u + (uint32_t)song.g[G_CLOCK] * 5u + ui.ml.on * 7u +
-               (uint32_t)(trk[0].p[P_MUTE] | trk[1].p[P_MUTE] << 1 | trk[2].p[P_MUTE] << 2 | trk[3].p[P_MUTE] << 3) * 131u;
+               (uint32_t)((trk[0].p[P_MUTE] & 3) | (trk[1].p[P_MUTE] & 3) << 2 | (trk[2].p[P_MUTE] & 3) << 4 |
+                          (trk[3].p[P_MUTE] & 3) << 6) * 131u;
     else if (l == LAYER_SCL)
         sig += (uint32_t)TSEL->p[P_SCALE] * 31u;
     else if (l == LAYER_REC)

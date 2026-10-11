@@ -66,7 +66,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"AUTOMATION", "[K1]ROW[OCT+]DO[EDIT]DELETE"},
     {"RECORD", "[KEYS]CLICK COUNT[K1-4]PREFS"},
     {"PUNCH", "[KEYS]EFFECTS[K1-4]MACROS"},
-    {"MIXER", "[K4]MUTE[ALGO]TRACK[HOME]HOME"},
+    {"MIXER", "[K4]OFF ON SOLO[ALGO]TRACK"},
     {"LANE MUTE", "[KEYS]LANES[HOME]MIXER"},
     {"CLOCK", "[OCT+]SELECT: TEMPO[GLO]SONG"},
 };

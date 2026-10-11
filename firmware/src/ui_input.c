@@ -464,8 +464,9 @@ static int32_t accel(uint32_t role, int32_t s, int32_t range)
     return s * (int32_t)m;
 }
 
-/* MIXER page: KNOB 1 LEVEL, 2 PAN, 3 REV send, 4 MUTE of the selected track (right = ON, left = OFF: the
- * track itself is ALGORITHM's, on every page). Pattern length stays on SEQ. */
+/* MIXER page: KNOB 1 LEVEL, 2 PAN, 3 REV send, 4 MUTE of the selected track (OFF, ON, or SOLO: SOLO
+ * sounds and silences every track that is not also SOLO). The track itself is ALGORITHM's, on every page.
+ * Pattern length stays on SEQ. */
 static void tracks_edit(uint32_t slot, int32_t steps)
 {
     track_t *t = TSEL;
@@ -473,7 +474,7 @@ static void tracks_edit(uint32_t slot, int32_t steps)
     const param_desc_t *d;
     switch (slot) {
     case 3:
-        t->p[P_MUTE] = (int16_t)(steps > 0);
+        t->p[P_MUTE] = (int16_t)param_turn(&TP[P_MUTE], t->p[P_MUTE], accel(EN_K1 + slot, steps, 0));
         ml_knob(t, P_MUTE);                             /* (MIDI LEARN: picked) */
         return;
     case 0:

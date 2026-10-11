@@ -351,10 +351,22 @@ static void mono_remove(track_t *t, uint32_t note)
 }
 
 static int pfx_note(track_t *t, uint32_t note, uint32_t vel);   /* pfx.c (in fx.c) */
+/* MUTE ON blocks the track. MUTE SOLO on any track blocks the ones that are not SOLO (the mix ramps those
+ * out too: perform.c solo_mask). Key solos stay a ramp only, as before. */
+static int mix_blocks_note(const track_t *t)
+{
+    uint32_t i, solo = 0, me = (uint32_t)(t - trk);
+    if (t->p[P_MUTE] == MUTE_ON)
+        return 1;
+    for (i = 0; i < NTRK; i++)
+        if (trk[i].p[P_MUTE] == MUTE_SOLO)
+            solo |= 1u << i;
+    return solo && !((solo >> me) & 1u);
+}
 static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
 {
     uint32_t any = 0, i, mode = trk_vmode(t);
-    if (t->p[P_MUTE])
+    if (mix_blocks_note(t))
         return;
     if (pfx_note(t, note, vel))                         /* punch-in effects (pfx.c): a repeat holds the track */
         return;

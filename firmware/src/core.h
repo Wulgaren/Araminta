@@ -84,6 +84,8 @@ enum {                          /* per-track parameters */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
+/* P_MUTE (params.c N_MUTE). Append-only: stored projects keep 0 OFF and 1 ON. */
+enum { MUTE_OFF = 0, MUTE_ON = 1, MUTE_SOLO = 2 };
 /* 1.5 INSERT ids (np 111): migrated to the chain in project.c / upreset.c ins_migrate */
 enum { P_ITYPE_LEG = 96, P_IA_LEG = 97, P_IB_LEG = 98, P_IC_LEG = 99, P_IMIX_LEG = 100 };
 enum { INS_N = 6, INS_DIST = 0, INS_FILTER = 1, INS_CRUSH = 2, INS_PHASR = 3, INS_FLANG = 4, INS_CHOR = 5 };

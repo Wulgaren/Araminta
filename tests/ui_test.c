@@ -1104,6 +1104,15 @@ static int test_tracks(void)
     bad += check("KNOB 2 changes PAN", trk[0].p[P_PAN] == before.p[P_PAN] + 2);
     turn(EN_K4, -1);
     bad += check("MIXER KNOB 4 left: MUTE OFF", trk[0].p[P_MUTE] == 0);
+    turn(EN_K4, 1);
+    turn(EN_K4, 1);
+    bad += check("MIXER KNOB 4: OFF, ON, then SOLO", trk[0].p[P_MUTE] == MUTE_SOLO && song.sel == 0);
+    turn(EN_K4, 1);
+    bad += check("MIXER KNOB 4 stays on SOLO at the end of the list", trk[0].p[P_MUTE] == MUTE_SOLO);
+    turn(EN_K4, -1);
+    bad += check("MIXER KNOB 4 left from SOLO: MUTE ON", trk[0].p[P_MUTE] == MUTE_ON);
+    turn(EN_K4, -1);
+    bad += check("MIXER KNOB 4 left again: MUTE OFF", trk[0].p[P_MUTE] == MUTE_OFF);
     turn(EN_ALGO, 1);
     bad += check("ALGORITHM selects the track", song.sel == 1);
     return bad;
