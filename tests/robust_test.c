@@ -43,6 +43,19 @@ static int sample_slots(void)
     h->zone[1].idx = 0;
     smp_user_scan(1);
     bad += check("the same slot made valid scans again", usr_nz[1] == 2u);
+    /* FSMP hdr.rsv bit 0: SAMPLE on this USR slot uses the drum grid (seq.c drum_track) */
+    h->rsv = SMP_USR_DRUM;
+    smp_user_scan(1);
+    bad += check("FSMP rsv drum kit grid sets usr_drum", usr_nz[1] == 2u && smp_user_drum(1));
+    {
+        track_t *t = &trk[0];
+        set_engine_of(t, ENGI_SAMPLE);
+        t->p[P_E0] = (int16_t)(SMP_NSETS + 1);
+        bad += check("SAMPLE USR2 with drum flag: drum_track", drum_track(t));
+        h->rsv = 0;
+        smp_user_scan(1);
+        bad += check("clearing rsv clears drum grid", usr_nz[1] == 2u && !smp_user_drum(1) && !drum_track(t));
+    }
     return bad;
 }
 

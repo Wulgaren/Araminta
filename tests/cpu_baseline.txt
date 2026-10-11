@@ -46,7 +46,7 @@ cpu/PHYS/05_HAND_DRUM 950
 cpu/PHYS/06_TOMS 947
 cpu/PHYS/07_DRONE_STRING 1006
 cpu/PHYS/08_HARP 1027
-cpu/DRUM/00_DRUM_KIT 1169
+cpu/DRUM/00_DRUM-X 1169
 cpu/FM6/00_TINE_EP 1339
 cpu/FM6/01_BELL 1333
 cpu/FM6/02_FM_BASS 1113
@@ -55,12 +55,6 @@ cpu/FM6/04_PAD 1403
 cpu/FM6/05_MARIMBA 496
 cpu/FM6/06_ORGAN 1357
 cpu/FM6/07_PLUCK 854
-cpu/DRUM/kit_80 1187
-cpu/DRUM/kit_10 1200
-cpu/DRUM/kit_66 1227
-cpu/DRUM/kit_55 1221
-cpu/DRUM/kit_77 1242
-cpu/DRUM/kit_78 1252
 cpu/mix/idle 305
 cpu/mix/idle_drums 563
 cpu/mix/3parts_full_drums 1581

@@ -1212,6 +1212,46 @@ static __attribute__((noinline)) void perf_master(int32_t *out, uint32_t n)
     }
 }
 
+/* DRUM-X X-MOD LFO (eng_drum.c dx_mot / dx_mot_v): tempo-synced while playing (clk_step + clk_pos), free while stopped */
+static uint32_t dx_mot_free, dx_mot_cyc, dx_ms;
+static int32_t dx_mot_sh;
+static __attribute__((noinline)) void dx_mot_block(uint32_t n)
+{
+    static const uint8_t Q8[9] = {0, 64, 32, 16, 8, 4, 2, 1, 1};   /* cycle in 1/16 notes x 4 .. (1/32: half) */
+    uint32_t r = dx_mot[XM_RATE], len, pos, ph, cyc;
+    int32_t w;
+    dx_mot_free += n;
+    if (song.playing)
+        dx_ms = clk_pos == CLK_START ? dx_ms + n : clk_step * div_samples(2) + clk_pos + n;
+    if (!r || r > 8u || !dx_mot[XM_DPTH]) {
+        dx_mot_v = 0;
+        return;
+    }
+    len = beat_samples() * Q8[r] / 4u;
+    if (r == 8u)
+        len = beat_samples() / 8u;
+    if (len < 64u)
+        len = 64u;
+    pos = song.playing ? dx_ms : dx_mot_free;
+    cyc = pos / len;
+    ph = (uint32_t)(((uint64_t)(pos % len) << 32) / len);
+    switch (dx_mot[XM_SHPE]) {
+    case 1: w = ph < 0x80000000u ? (int32_t)(ph >> 15) - 32768 : 98303 - (int32_t)(ph >> 15); break;   /* TRI */
+    case 2: w = (int32_t)(ph >> 16) - 32768; break;                                                   /* SAW */
+    case 3: w = 32767 - (int32_t)(ph >> 16); break;                                                   /* RAMP */
+    case 4:                                                                                             /* S&H */
+        if (cyc != dx_mot_cyc) {
+            dx_mot_rng = dx_mot_rng * 1664525u + 1013904223u;
+            dx_mot_sh = (int32_t)(dx_mot_rng >> 16) - 32768;
+        }
+        w = dx_mot_sh;
+        break;
+    default: w = osc_sine(ph); break;                                                                  /* SINE */
+    }
+    dx_mot_cyc = cyc;
+    dx_mot_v = (w * dx_mot[XM_DPTH]) >> 16;             /* (+-DPTH / 2) */
+}
+
 static void mix_block(int32_t *out, uint32_t n)
 {
     uint32_t i;
@@ -1223,6 +1263,7 @@ static void mix_block(int32_t *out, uint32_t n)
     events_block(n);
     clip_eff = song.g[G_CLIP];                          /* (JIANT) CLIP / PNCH for this block */
     pnch_eff = song.g[G_PUNCH];
+    dx_mot_block(n);                                    /* DRUM-X X-MOD LFO */
     master_begin();
     duck_block();
     perf = perf_begin(n);                               /* the FX hold layer at work (perform.c) */

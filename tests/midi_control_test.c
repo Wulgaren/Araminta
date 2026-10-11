@@ -661,27 +661,16 @@ static int pc_test(void)
     bad += check("  PHASE: PC selects factory presets by shown index", ok);
 
 
-    /* DRUM: the kits as KIT steps through them */
+    /* DRUM-X: Program Change loads its factory presets (one: DRUM-X); past the last ignored */
     {
-        const param_desc_t *d = param_desc_of(ENGI_DRUM, P_E0);
         track_t *dr = &trk[3];
         set_engine_of(dr, ENGI_DRUM);
-        dr->p[P_E0] = 1;                                 /* (HAND, retired: plays 66) */
-        ok = 1;
-        for (n = 0, last = -1;; n++) {
-            was = *dr;
-            pc(3, n); frame();
-            if (!memcmp(was.p, dr->p, sizeof was.p))
-                break;
-            ok &= dr->p[P_E0] > last && enum_orig(d, dr->p[P_E0]) == dr->p[P_E0] && dr->preset == was.preset;
-            for (k = 0; k < P_COUNT; k++)
-                ok &= k == P_E0 || dr->p[k] == was.p[k];
-            last = dr->p[P_E0];
-        }
-        ok &= n == 7u && last == d->max;
-        pc(3, DK_COUNT + 2u); frame();
-        ok &= dr->p[P_E0] == last;
-        bad += check("  DRUM: 0..6 the seven kits (STD 80 10 66 55 77 78; HAND CYM H+CYM skipped), only KIT; 7.. ignored", ok);
+        pc(3, 0); frame();
+        ok = dr->eng_req == ENGI_DRUM && dr->preset == 0u && str_eq(ENGINES[ENGI_DRUM]->presets[0].name, "DRUM-X");
+        was = *dr;
+        pc(3, 1); frame(); pc(3, 127); frame();
+        ok &= !memcmp(was.p, dr->p, sizeof was.p) && dr->preset == was.preset;
+        bad += check("  DRUM-X: PC 0 loads DRUM-X; past the last ignored", ok);
     }
 
     /* FM6: its presets, then the bank's voices */

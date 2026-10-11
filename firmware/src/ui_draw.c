@@ -881,6 +881,10 @@ static void draw_columns(void)
         }
         return;
     }
+    if (cur_page()->graph == GR_DXSND) {               /* EDIT > SOUND (ui_dx.c) */
+        dx_cards(cur_page());
+        return;
+    }
     if (cur_page()->graph == GR_SONG) {             /* SECTION, TRACK, its PAT (A..D, -), REPS (the section's) */
         uint32_t row = ui.song_row < CHAIN_ROWS ? ui.song_row : CHAIN_ROWS - 1u, k = ui.song_trk % NTRK, sl;
         int used = row < chain_config.count;

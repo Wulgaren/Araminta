@@ -525,7 +525,10 @@ const parse = {
   [CMD.SMP_INFO](a) {
     const r = new Reader(a);
     const o = { nslots: r.b(), slotKiB: r.b(), slots: [] };
-    for (let i = 0; i < o.nslots; i++) o.slots.push({ zones: r.b(), name: r.s(), kib: r.b() });
+    for (let i = 0; i < o.nslots; i++) {
+      const zb = r.b();                              /* zones 0..16; bit 6: drum kit grid (FSMP hdr.rsv; 7-bit SysEx) */
+      o.slots.push({ zones: zb & 0x3f, drum: !!(zb & 0x40), name: r.s(), kib: r.b() });
+    }
     return o;
   },
   [CMD.UP_LIST](a) {
@@ -979,8 +982,9 @@ function rootFromName(name) {
   return Math.max(0, Math.min(127, n));
 }
 
-/* zones: [{s: Int16Array (22050 Hz), root, lo?, hi?}] -> {hdr (480 B), data, zones} (sampleio.user_slot) */
-function buildSlot(name, zonesIn) {
+/* zones: [{s: Int16Array (22050 Hz), root, lo?, hi?}] -> {hdr (480 B), data, zones} (sampleio.user_slot).
+ * opts.drumGrid: FSMP hdr.rsv bit 0 — device SEQ shows the drum grid for SAMPLE on this USR slot. */
+function buildSlot(name, zonesIn, opts = {}) {
   const zones = [], parts = [];
   let len = 0;
   for (const z of zonesIn) {
@@ -1005,6 +1009,7 @@ function buildSlot(name, zonesIn) {
   v.setUint32(0, 0x504D5346, true);
   v.setUint16(4, 1, true);
   hdr[6] = zones.length;
+  hdr[7] = opts.drumGrid ? 1 : 0;                 /* rsv: drum kit grid */
   const nm = String(name).toUpperCase().replace(/[^\x20-\x7E]/g, "").slice(0, 8);
   for (let i = 0; i < nm.length; i++) hdr[8 + i] = nm.charCodeAt(i);
   v.setUint32(16, len, true);
@@ -1145,8 +1150,7 @@ function libraryFile(kind, patches, ctx) {
 }
 /* -> {patches, skipped, keys (the file's, for a library that has none yet)}; throws on a file it cannot read.
    A DIGITAL patch (the engine retired in 1.0) where ctx has no DIGITAL imports as FM6 (fromDigital); a SAMPLE PERC
-   one (the set retired after 1.0.2) as DRUM's kit (fromPerc); SAMPLE / GRAIN / NOISE / SLICE as ANALOG or DRUM
-   (fromRetire) */
+   one (the set retired after 1.0.2) as DRUM's kit (fromPerc); SLICE as DRUM (fromRetire) */
 function readLibraryFile(obj, ctx) {
   if (!obj || typeof obj !== "object") throw new Error("not JSON");
   const noFm4 = !(ctx.engines || []).includes("DIGITAL");
@@ -1655,31 +1659,26 @@ const reservedFm4 = (engines, e) => e === 1 && (engines || [])[1] === "-";   /* 
    engine with its default kit (eng_drum.c DRUM_PRESETS[0], the same GM key map); the rest of its values stay. engines:
    the names ("SAMPLE", "DRUM"; none: the firmware's indices 4, 10), pe0: P_E0 in its p. -> the DRUM patch, or null when
    pt is no such sound or there is no DRUM. The device converts its own (projects, user presets) the same way */
-const PERC_SET = 4, DRUM_KIT_E = [0, 64, 70, 64, 64, 100, 0, 0];
+const PERC_SET = 4, DRUM_KIT_E = [64, 64, 70, 64, 64, 0, 0, 0];   /* DRUM-X {MRPH,TUNE,TONE,DECY,NOIS,FM,FOLD,DRV} */
 
-/* SAMPLE / GRAIN / NOISE / SLICE (engines "-", reserved): ANALOG or DRUM, as firmware eng_retire.c.
-   SAMPLE PERC still becomes DRUM via fromPerc first. */
+/* SLICE (engine 13, "-" reserved): DRUM, as firmware eng_retire.c. SAMPLE PERC still becomes DRUM via fromPerc. */
 function fromRetire(pt, engines, pe0) {
   const e = pt.engine, name = pt.engineName || (engines || [])[e];
-  const retired = (engines || [])[e] === "-" && (e === 4 || e === 8 || e === 11 || e === 13);
-  if (!retired && name !== "SAMPLE" && name !== "GRAIN" && name !== "NOISE" && name !== "SLICE") return null;
-  if (e === 4 || name === "SAMPLE") {
-    const perc = fromPerc(pt, engines, pe0);
-    if (perc) return perc;
-  }
-  const to = (e === 13 || name === "SLICE") ? (engines || []).indexOf("DRUM") : (engines || []).indexOf("ANALOG");
+  const retired = (e === 13 || name === "SLICE") && ((engines || [])[e] === "-" || name === "SLICE");
+  if (!retired) return null;
+  const to = (engines || []).indexOf("DRUM");
   if (to < 0) return null;
   const p = pt.p.slice();
-  const kit = [0, 64, 70, 64, 64, 100, 0, 0];
-  for (let i = 0; i < 8; i++) p[pe0 + i] = (e === 13 || name === "SLICE") ? kit[i] : 0; /* ANALOG edit defs approx; device clamps */
+  const kit = DRUM_KIT_E;
+  for (let i = 0; i < 8; i++) p[pe0 + i] = kit[i];
   return { ...pt, engine: to, engineName: engines[to], p };
 }
 function fromPerc(pt, engines, pe0) {
   const names = engines && engines.length ? engines : null;
   const name = pt.engineName || (names || [])[pt.engine];
   const p = pt.p || pt.params, drum = names ? names.indexOf("DRUM") : 10;
-  /* SAMPLE name, or reserved index 4 ("-" after P2-E): PERC set still becomes DRUM */
-  const sample = name === "SAMPLE" || (pt.engine === 4 && (!name || name === "-"));
+  /* SAMPLE name (index 4): PERC set still becomes DRUM */
+  const sample = name === "SAMPLE" || pt.engine === 4;
   if (!sample || !Array.isArray(p) || drum < 0) return null;
   const e0 = pe0 ?? p.length - 8;
   if (p[e0] !== PERC_SET) return null;
@@ -1691,7 +1690,6 @@ function fromPerc(pt, engines, pe0) {
 const engineLabel = (engines, e) => {
   const n = (engines || [])[e];
   if (e === 1 && n === "-") return "FM6";
-  if (n === "-" && (e === 4 || e === 8 || e === 11)) return "ANALOG";
   if (n === "-" && e === 13) return "DRUM";
   return n ?? String(e);
 };
@@ -1714,7 +1712,7 @@ function makeMockDevice(opt = {}) {
     D("LEN", F.STEPS, 1, 64, 16), E("DIV", NDIV, 2), D("SWG", F.PCT, 0, 100, 0), D("GATE", F.PCT, 1, 127, 64),
     D("DRIVE", F.PCT, 0, 127, 0), D("CHO", F.PCT, 0, 127, 0), D("DLY", F.PCT, 0, 127, 0), D("REV", F.PCT, 0, 127, 0),
     E("VCE", ["POLY", "MONO", "LEG", "UNI"], 0), D("GLD", F.TIME, 0, 127, 0), D("PAN", F.BIPCT, -64, 63, 0), E("MUTE", NONOFF, 0),
-    E("GLMOD", ["RATE", "TIME"], 0), E("PRIO", ["LAST", "LOW", "HIGH"], 0), E("ALLOC", ["ROT", "REUSE"], 0), D("DTUNE", F.INT, 0, 127, 40),
+    E("GLMOD", ["RATE", "TIME"], 0), E("PRIO", ["LAST", "LOW", "HIGH"], 0), E("ALLOC", ["ROT", "REUSE"], 0), D("UNI DTN", F.INT, 0, 127, 40),
     E("SLCR", ["OFF", "GATE", "STUT"], 0), D("PAT", F.INT, 1, 16, 1), E("RATE", ["1/8", "1/16", "1/32", "8T", "16T", "32T"], 1), D("DEPTH", F.PCT, 0, 127, 127),
     ...[1, 2, 3, 4].flatMap((k) => [E("SRC" + k, MSRC, 0), E("DST" + k, MDST, 0), D("AMT" + k, F.BIPCT, -64, 63, 0)]),   /* the matrix */
   ];
@@ -1724,8 +1722,8 @@ function makeMockDevice(opt = {}) {
     D("SIZE", F.PCT, 0, 127, 90), D("DAMP", F.PCT, 0, 127, 60), D("CRT", F.LFOHZ, 0, 127, 40), D("CDP", F.PCT, 0, 127, 60),
     E("MIDI", ["USB", "TRS"], 0), D("REL", F.PCT, 0, 100, 30), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], 0), D("CPU", F.INT, 0, 0, 0),
     D("SLOT", F.INT, 1, 4, 1), E("NAME", NDASH, 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
-    E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "-", "VOICE", "TRIO", "WHEEL",
-      "-", "PHYS", "DRUM", "-", "FM6", "-"], 0), D("CLIP", F.PCT, 0, 100, 0),
+    E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL",
+      "GRAIN", "PHYS", "DRUM", "NOISE", "FM6", "-"], 0), D("CLIP", F.PCT, 0, 100, 0),
     E("CLRSQ", NGO, 0), E("INIT", NGO, 0),
     E("TYPE", ["ROOM", "SPRING", "HALL", "SHIMR", "CLOUD"], 2), /* G_RTYPE (id 24): HALL default; JIANT SHIMR/CLOUD */
     D("PNCH", F.PCT, 0, 100, 0), D("DUCK", F.PCT, 0, 100, 0),   /* G_PUNCH / G_DUCK (was G_DRLVL / G_DRREV) */
@@ -1758,8 +1756,11 @@ function makeMockDevice(opt = {}) {
       presets: [P("PULSE LD", [0, 0, 32, 0, 0, 20, 0, 127], [0, 60, 90, 30], 1, 4), P("WAVE BASS", [1, 1, 0, 0, 0, 0, 0, 90], [0, 50, 70, 20], 1, 2),
         P("ARP 8BIT", [2, 0, 96, 0, 0, 0, 2, 110], [0, 60, 80, 40], 0, 13), P("WAVE LEAD", [0, 4, 92, 0, 0, 18, 0, 110], [0, 70, 90, 30], 1, 3),
         P("STEP LEAD", [4, 0, 40, 34, 0, 16, 0, 127], [0, 64, 127, 55], 1, 4)] },
-    /* SAMPLE / GRAIN / NOISE / SLICE retired (eng_retire.c RETIRE_EDIT) */
-    { name: "-", titles: ["-", "-"], edit: [RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE], presets: [] },
+    { name: "SAMPLE", titles: ["SET", "TONE"], edit: [E("SET", ["PIANO", "PIANO", "FLUTE", "SAX", "PIANO", "USR1", "USR2", "USR3"], 0), D("TUNE", F.SEMI, -24, 24, 0), D("BITS", F.INT, 0, 127, 0),
+        E("LOOP", NONOFF, 1), D("CUT", F.INT, 0, 127, 127), NONE, D("DRV", F.PCT, 0, 127, 0), NONE],
+      presets: [P("PIANO", [0, 0, 0, 1, 127, 0, 0, 0], [0, 127, 127, 70]), P("PIANO", [0, 0, 0, 1, 127, 0, 0, 0], [0, 127, 127, 70]),
+        P("FLUTE", [2, 0, 0, 1, 127, 0, 0, 0], [12, 80, 120, 60]), P("SAX", [3, 0, 0, 1, 127, 0, 0, 0], [12, 80, 120, 60]),
+        P("PIANO", [0, 0, 0, 1, 127, 0, 0, 0], [0, 127, 127, 70])] },
     { name: "VOICE", titles: ["VOWL", "TONE"], edit: [D("VOWL", F.INT, 0, 127, 0), D("VOWL2", F.INT, 0, 127, 64), D("TALK", F.TIME, 0, 127, 0),
         D("SHIFT", F.SEMI, -12, 12, 0), D("BUZZ", F.PCT, 0, 127, 64), D("BRTH", F.PCT, 0, 127, 10), D("Q", F.PCT, 0, 127, 64), D("RAND", F.PCT, 0, 127, 0)],
       presets: [P("CHOIR AAH", [0, 0, 0, 0, 40, 22, 60, 0], [85, 90, 115, 95], 0, 5), P("VOX LEAD", [32, 0, 0, 2, 90, 8, 72, 0], [6, 70, 105, 55], 1, 4),
@@ -1776,7 +1777,11 @@ function makeMockDevice(opt = {}) {
       presets: [P("FULL ORGAN", [15, 0, 0, 0, 0, 30, 20, 1], [0, 64, 127, 45], 0, 5), P("JAZZ PERC", [4, 0, 0, 0, 2, 50, 8, 1], [0, 64, 127, 40], 0, 3),
         P("GOSPEL", [6, 0, 0, 0, 1, 60, 40, 2], [0, 64, 127, 45], 0, 6), P("SOFT FLUTE", [1, 0, -2, 0, 0, 10, 0, 1], [0, 64, 127, 55], 0, 5),
         P("ROCK DRIVE", [7, 0, 0, 0, 0, 70, 100, 2], [0, 64, 127, 40], 0, 4)] },
-    { name: "-", titles: ["-", "-"], edit: [RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE], presets: [] },
+    { name: "GRAIN", titles: ["GRAN", "SPRY"], edit: [E("SRC", ["PIANO", "PIANO", "FLUTE", "SAX", "PIANO", "USR1", "USR2", "USR3"], 0),
+        D("POS", F.PCT, 0, 127, 32), D("SIZE", F.PCT, 0, 127, 80), D("DENS", F.PCT, 0, 127, 80),
+        D("PTCH", F.SEMI, -24, 24, 0), D("SPRD", F.PCT, 0, 127, 30), D("RAND", F.PCT, 0, 127, 10), D("TONE", F.PCT, 0, 127, 127)],
+      presets: [P("CLOUD PAD", [2, 50, 92, 88, 0, 40, 14, 100], [70, 90, 120, 90], 0, 5), P("GLITCH", [3, 64, 24, 112, 0, 100, 90, 127], [0, 70, 100, 30], 0, 4),
+        P("FROZEN", [0, 40, 108, 72, 0, 0, 10, 92], [50, 100, 127, 100], 0, 5), P("SHIMMER", [0, 30, 70, 100, 12, 30, 24, 110], [30, 90, 110, 90], 0, 7)] },
     { name: "PHYS", titles: ["BODY", "EXCT"], edit: [E("MODEL", ["MODAL", "STRNG", "MEMB", "SYMP"], 0), D("STRC", F.PCT, 0, 127, 64),
         D("BRIT", F.PCT, 0, 127, 80), D("DAMP", F.PCT, 0, 127, 80), D("POS", F.PCT, 0, 127, 20), D("ACC", F.PCT, 0, 127, 90),
         D("BOW", F.PCT, 0, 127, 0), D("EXC", F.PCT, 0, 127, 0)],
@@ -1785,11 +1790,15 @@ function makeMockDevice(opt = {}) {
         P("KALIMBA", [0, 34, 16, 56, 100, 90, 0, 48], [0, 100, 127, 60], 0, 7), P("HAND DRUM", [2, 112, 76, 56, 44, 100, 14, 24], [0, 100, 127, 64], 0, 6),
         P("TOMS", [2, 0, 52, 40, 30, 100, 40, 30], [0, 100, 127, 70], 0, 2), P("DRONE STRING", [3, 127, 80, 88, 64, 100, 92, 0], [0, 100, 127, 90], 0, 3),
         P("HARP", [3, 8, 62, 74, 60, 90, 0, 0], [0, 100, 127, 80], 0, 3)] },
-    { name: "DRUM", titles: ["KIT", "HIT"], edit: [E("KIT", ["STD", "66", "10", "77", "80", "10", "66", "55", "77", "78"], 0), D("TUNE", F.PCT, 0, 127, 64),
-        D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("SNAP", F.PCT, 0, 127, 64), D("ACC", F.PCT, 0, 127, 100),
-        E("KICK", ["PUNCH", "ROUND"], 0), D("DRV", F.PCT, 0, 127, 0)],
-      presets: [P("DRUM KIT", [0, 64, 70, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12)] },
-    { name: "-", titles: ["-", "-"], edit: [RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE], presets: [] },
+    { name: "DRUM", titles: ["KIT", "HIT"], edit: [D("MRPH", F.PCT, 0, 127, 64), D("TUNE", F.PCT, 0, 127, 64),
+        D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("NOIS", F.PCT, 0, 127, 64), D("FM", F.PCT, 0, 127, 0),
+        D("FOLD", F.PCT, 0, 127, 0), D("DRV", F.PCT, 0, 127, 0)],
+      presets: [P("DRUM-X", [64, 64, 70, 64, 64, 0, 0, 0], [0, 100, 127, 100], 0, 12)] },
+    { name: "NOISE", titles: ["SRC", "MOVE"], edit: [E("MODE", ["ANLG", "DUST", "LFSR", "META"], 0), D("COLR", F.PCT, 0, 127, 64),
+        D("FREQ", F.CUTOFF, 0, 127, 80), D("RES", F.PCT, 0, 127, 30), D("TRK", F.PCT, 0, 127, 64), D("DENS", F.PCT, 0, 127, 0),
+        D("DRFT", F.PCT, 0, 127, 0), D("CRSH", F.PCT, 0, 127, 0)],
+      presets: [P("WIND", [0, 64, 70, 100, 127, 0, 70, 0], [90, 90, 110, 90], 0, 5), P("RAIN", [1, 30, 88, 80, 64, 105, 40, 0], [10, 90, 127, 70], 0, 5),
+        P("ARCADE", [2, 0, 127, 0, 127, 112, 0, 84], [0, 80, 0, 50], 0, 3), P("METAL", [3, 0, 100, 40, 100, 32, 0, 0], [0, 75, 40, 60], 0, 7)] },
     { name: "FM6", titles: ["OPS", "PATCH"], edit: [D("ALG", F.INT, 0, 32, 0), D("FB", F.INT, -7, 7, 0), D("MLVL", F.BIPCT, -64, 63, 0),
         D("MRAT", F.INT, -16, 16, 0), D("MEG", F.BIPCT, -64, 63, 0), D("VMOD", F.INT, -7, 7, 0), D("DTUN", F.PCT, 0, 127, 0),
         D("SLOT", F.INT, 0, FM6.FACTORY_PK.length + 32, 0)],   /* F1..F8, then OWN (eng_fm6.c, 1.0.3), B1..B32 (1.4.1) */
@@ -1846,7 +1855,7 @@ function makeMockDevice(opt = {}) {
     tracks: [0, 1, 2, 3].map(newTrack), sel: 0, rec: 0,
     g: GP.map((d) => d.def),
     slots: [null, null, null, null], songRows: [], chainPlaying: false, chainRow: 0, chainRemaining: 0,
-    smp: [0, 1, 2].map(() => ({ flash: new Uint8Array(SMP.SLOT_SIZE).fill(0xFF), zones: 0, name: "", len: 0, next: SMP.DATA_OFF })),
+    smp: [0, 1, 2].map(() => ({ flash: new Uint8Array(SMP.SLOT_SIZE).fill(0xFF), zones: 0, drum: false, name: "", len: 0, next: SMP.DATA_OFF })),
     bank: new Array(opt.slots || 32).fill(null),     /* user presets: {engine, name, p, pattern, grid, fm6 (FM6: its patch)} */
     uiCaps: opt.legacy || opt.v3 || opt.v5 ? 0 : opt.uiCaps ?? 9,
     palette: 0, font: 0, monitor: 0, filter: 0, bankSig: 0,
@@ -1955,7 +1964,7 @@ function makeMockDevice(opt = {}) {
     st.bank[slot] = snapshot(name);
     clearSteps(); st.p[29] = 16;
   });
-  /* the power-on sounds (engines.c TRK_DEF): ACID, PAD, PULSE LD, DRUM KIT */
+  /* the power-on sounds (engines.c TRK_DEF): ACID, PAD, PULSE LD, DRUM-X */
   [[1, FM6_E, 4], [2, 3, 0], [3, 10, 0], [0, 0, 4]].forEach(([i, e, p]) => { st.sel = i; setEngine(e); applyPreset(p); });
   /* the device powers on with its sequencers empty; the mock starts as a little demo to look at: track 1 with
      the ACID pattern, track 4 with BEAT (as SAVE > PHRASES would load them), pads left, lead right */
@@ -2218,7 +2227,7 @@ function makeMockDevice(opt = {}) {
         if (a.length < 2 || a[0] >= ENG.length) return null;
         if (a[0] === 1) fm4Load(a[1]);              /* a DIGITAL preset: its sound, as FM6 */
         else if (ENG[a[0]].name === "-" && (a[0] === 4 || a[0] === 8 || a[0] === 11 || a[0] === 13))
-          setEngine(a[0]);                          /* SAMPLE / GRAIN / NOISE / SLICE: ANALOG or DRUM */
+          setEngine(a[0]);                          /* SLICE / DIGITAL reserved: eng_play_as on device */
         else {
           if (a[0] !== st.engine) setEngine(a[0]);
           applyPreset(a[1]);
@@ -2253,7 +2262,7 @@ function makeMockDevice(opt = {}) {
         if (a[0] === 1) { st.chainPlaying = false; st.slots[k] = project(); }
         else if (a[0] === 0 && st.slots[k]) {
           st.chainPlaying = false; Object.assign(st, JSON.parse(JSON.stringify(st.slots[k])));
-          /* SAMPLE / GRAIN / NOISE / SLICE (and SAMPLE PERC): ANALOG or DRUM (project.c proj_retire / proj_perc). */
+          /* SLICE -> DRUM; SAMPLE PERC -> DRUM (project.c proj_retire / proj_perc). */
           st.tracks.forEach((t) => {
             const names = ENG.map((x) => x.name);
             const pc = fromRetire({ engine: t.engine, p: t.p }, names, P_E0)
@@ -2278,7 +2287,7 @@ function makeMockDevice(opt = {}) {
         if (a.length < 1 || a[0] >= 3) return null;
         const u = st.smp[a[0]];
         if (cmd === CMD.SMP_ERASE) u.flash.fill(0xFF); else u.flash.fill(0xFF, 0, 4096);
-        u.zones = 0; u.name = ""; u.len = 0; u.next = SMP.DATA_OFF;
+        u.zones = 0; u.drum = false; u.name = ""; u.len = 0; u.next = SMP.DATA_OFF;
         b(a[0]); b(0);
         break;
       }
@@ -2307,7 +2316,7 @@ function makeMockDevice(opt = {}) {
           else if (crc32(u.flash.subarray(SMP.DATA_OFF, SMP.DATA_OFF + len)) !== dv.getUint32(20, true)) rc = 3;
           else {
             u.flash.set(hd, 0);
-            u.zones = hd[6]; u.len = len;
+            u.zones = hd[6]; u.drum = !!(hd[7] & 1); u.len = len;
             u.name = String.fromCharCode(...hd.slice(8, 16)).replace(/\0.*$/, "");
           }
         }
@@ -2316,7 +2325,11 @@ function makeMockDevice(opt = {}) {
       }
       case CMD.SMP_INFO:
         b(3); b(SMP.SLOT_SIZE / 1024);
-        st.smp.forEach((u) => { b(u.zones); s(u.zones ? u.name : ""); b(u.zones ? Math.ceil(u.len / 1024) : 0); });
+        st.smp.forEach((u) => {
+          b(u.zones ? (u.zones | (u.drum ? 0x40 : 0)) : 0);
+          s(u.zones ? u.name : "");
+          b(u.zones ? Math.ceil(u.len / 1024) : 0);
+        });
         break;
       default:
         return null;
@@ -2446,8 +2459,8 @@ async function readDevicePreferences(rq, info, names, previous = null) {
 }
 /* an enum value or a preset named like another is an alias kept for stored numbers: the device loads the original,
    the lists hide the alias (shown when set). The original: the first entry when it has that name (SAMPLE / GRAIN 1
-   and 4, once TRANH and PERC: PIANO 0), else the last with it (DRUM KIT 1..3, once HAND CYM H+CYM: 66 10 77 at 6 5 8;
-   EDITOR_PROTOCOL.md). -> the original's index */
+   and 4, once TRANH and PERC: PIANO 0). DRUM-X retired the KIT enum (P_E0 is MRPH). EDITOR_PROTOCOL.md).
+   -> the original's index */
 function aliasOf(names, i) {
   if (!names || names[i] == null) return i;
   const k = names[0] === names[i] ? 0 : names.lastIndexOf(names[i]);
@@ -2470,7 +2483,7 @@ function enumShown(d) {
 /* the order the device shows its engines in (src/engines.c ENGINE_ORDER): the lists here follow it, the protocol keeps
    the engine numbers. engineOrder(names): the indices of names in that order, "-" (a reserved number) left out; a name
    the list does not know (another firmware) follows in index order */
-const ENGINE_ORDER = ["ANALOG", "FM6", "DIGITAL", "PHASE", "LOFI", "VOICE", "TRIO", "WHEEL", "PHYS", "DRUM"];
+const ENGINE_ORDER = ["ANALOG", "FM6", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS", "NOISE", "DRUM"];
 function engineOrder(names) {
   const rank = (n) => { const k = ENGINE_ORDER.indexOf(n); return k < 0 ? ENGINE_ORDER.length : k; };
   return (names || []).map((n, i) => i).filter((i) => names[i] !== "-")
@@ -2610,6 +2623,7 @@ const TEXT = {
     confirmClear: "シーケンスを全部消しますか？", confirmInit: "音色を初期化しますか？ シーケンスはそのままです（本体の SAVE 長押しで元に戻せます）。",
     samples: "サンプル", smpHelp: "ファイルを選択、または入力から録音。波形の両端でトリム、ホイールで拡大。1枠に16音、合計約7秒。",
     zones: "ゾーン", smpName: "名前", chooseFiles: "ファイルを選ぶ", upload: "書き込む", erase: "消去", clearList: "リストを消す",
+    smpDrumGrid: "ドラムキットグリッド", smpDrumOn: "ドラムグリッド",
     file: "ファイル", root: "ルート", keys: "鍵盤", length: "長さ", remove: "外す",
     record: "録音", stopRec: "停止", recInput: "入力", recDenied: "録音できません", recFull: "スロットがいっぱいです", recSilent: "無音でした。入力を確かめてください",
     preview: "試聴", autoTrim: "自動トリム", trim: "切り取り",
@@ -2715,6 +2729,7 @@ const TEXT = {
     confirmClear: "Clear the whole sequence?", confirmInit: "Reset the sound to the engine defaults? The sequence stays (hold SAVE on the device to undo).",
     samples: "Samples", smpHelp: "Choose files or record an input. Drag waveform ends to trim; wheel to zoom. Up to 16 sounds and about 7 s per slot.",
     zones: "zones", smpName: "Name", chooseFiles: "Choose files", upload: "Upload", erase: "Erase", clearList: "Clear list",
+    smpDrumGrid: "Drum kit grid", smpDrumOn: "drum grid",
     file: "File", root: "Root", keys: "Keys", length: "Length", remove: "Remove",
     record: "Record", stopRec: "Stop", recInput: "Input", recDenied: "Cannot record", recFull: "The slot is full", recSilent: "Silence: check the input",
     preview: "Play", autoTrim: "Auto trim", trim: "Trim",
@@ -2895,7 +2910,8 @@ const LAYOUT = (pe0) => [
                                                     FELUCCA_FM4=1 firmware only: DIGITAL retired, its engine is "-") */
     ...[0, 1, 2, 3].map((k) => [`OP${k + 1}`, 0, [61 + 5 * k, 62 + 5 * k, 63 + 5 * k, 64 + 5 * k]]),
     ["OP LVL", 0, [65, 70, 75, 80]]] }] : []),
-  { t: "VOICE", pages: [["LEVEL", 0, [0]], ["VOICE", 0, [37, 38, 41]], ["VOICE 2", 0, [95, 44, 39, 40]]] },
+  { t: "VOICE", pages: [["LEVEL", 0, [0]], ["VOICE", 0, [37, 38, 44, 95]]] },   /* VCE GLD UNI DTN SPRD (GLMOD/PAN/PLAY off the page) */
+
   { t: "FX", pages: [["FX", 0, [33, 34, 35, 36]], ["SLICER", 0, [45, 46, 47, 48]], ["DLY", 1, [4, 5, 6, 7]], ["REVERB", 1, [24, 8, 9]], ["CHORUS", 1, [10, 11]]] },   /* G_RTYPE 24: ROOM..CLOUD */
   { t: "SCL", pages: [["SCL", 0, [25, 26, 27, 28]], ...(pe0 >= 83 ? [["CHORD", 0, P_CHORD]] : [])] },   /* CHRD VOIC 81, 82 */
   { t: "ARP", pages: [["ARP", 0, [17, 18, 19, 20]], ["ARP 2", 0, [21, 22, 23, 24]]] },
@@ -3664,7 +3680,7 @@ $("clearseq").addEventListener("click", async () => {
 });
 
 /* ---------------------------------------------------------- samples --- */
-const smpDraft = [0, 1, 2].map(() => ({ name: "", files: [] }));
+const smpDraft = [0, 1, 2].map(() => ({ name: "", files: [], drumGrid: false }));
 let smpBusy = false;
 const SMP_RC = { 1: "size", 2: "header", 3: "data CRC", 4: "flash", 5: "zones" };
 const kib = (n) => (n / 1024).toFixed(1);
@@ -3986,7 +4002,10 @@ function renderSamples() {
   const max = SMP.MAX_DATA;
   box.replaceChildren(...dev.smp.slots.map((u, k) => {
     const d = smpDraft[k];
-    const status = u.zones ? `${u.name || "—"}, ${u.zones} ${t("zones")}, ${u.kib} KiB` : t("empty");
+    if (u.zones && !d.files.length) d.drumGrid = !!u.drum;   /* slot on device: draft follows until files are staged */
+    const status = u.zones
+      ? `${u.name || "—"}, ${u.zones} ${t("zones")}, ${u.kib} KiB` + (u.drum ? `, ${t("smpDrumOn")}` : "")
+      : t("empty");
     const bar = el("progress", { max: dev.smp.slotKiB, value: u.kib, title: `${u.kib} / ${dev.smp.slotKiB} KiB` });
     const file = el("input", { type: "file", accept: ".wav,audio/wav,audio/x-wav,audio/*", multiple: true, hidden: true });
     file.addEventListener("change", () => { addFiles(k, [...file.files]); file.value = ""; });
@@ -3996,6 +4015,10 @@ function renderSamples() {
       if (v !== name.value) name.value = v;
       d.name = v;
     });
+    const drum = el("input", { type: "checkbox" });
+    drum.checked = !!d.drumGrid;
+    drum.disabled = smpBusy || recActive();
+    drum.addEventListener("change", () => { d.drumGrid = drum.checked; });
     const bytes = draftBytes(d), tooBig = bytes > max;
     const size = el("span", { class: tooBig ? "bad" : "dim",
       text: d.files.length ? `${kib(bytes)} / ${kib(max)} KiB` + (tooBig ? " " + t("smpTooBig") : "") : "" });
@@ -4004,6 +4027,7 @@ function renderSamples() {
       el("div", { class: "head" }, el("b", { text: `USR${k + 1}` }), el("span", { text: status }), bar,
         el("button", { ic: "symbol_trash", disabled: smpBusy || !u.zones, onclick: () => smpErase(k) }, t("erase"))),
       el("div", { class: "head" }, el("span", { text: t("smpName") }), name,
+        el("label", {}, drum, " ", el("span", { text: t("smpDrumGrid") })),
         el("button", { ic: "symbol_folder_open", disabled: smpBusy || recActive(), onclick: () => file.click() }, t("chooseFiles")), file,
         el("button", { ic: "symbol_upload", disabled: smpBusy || recActive() || !d.files.length || tooBig || !d.name, onclick: () => smpUpload(k, prog) }, t("upload")),
         d.files.length ? el("button", { text: t("clearList"), disabled: smpBusy || recActive(), onclick: () => { d.files = []; renderSamples(); } }) : "",
@@ -4053,7 +4077,7 @@ async function smpInfo(d = dev) { d.smp = parse[CMD.SMP_INFO](await sessionReque
 async function smpUpload(k, prog) {
   const d = smpDraft[k];
   let built;
-  try { built = buildSlot(d.name, d.files.map((f) => ({ s: f.s, root: f.root }))); }
+  try { built = buildSlot(d.name, d.files.map((f) => ({ s: f.s, root: f.root })), { drumGrid: !!d.drumGrid }); }
   catch (e) { sayK("smpFail", e.message); return; }
   if (!confirm(t("confirmUpload").replace("{n}", k + 1))) return;
   const { hdr, data } = built;
@@ -4641,7 +4665,7 @@ async function libUpdate(p) {
 /* the device's parameter layout becomes the library's; patches stored with another layout are mapped by key.
    A device without DIGITAL (engine 1 "-", retired in 1.0): the library's DIGITAL sounds become FM6 (fromDigital,
    as readLibraryFile does), also when the layout itself is unchanged; so do its SAMPLE PERC sounds (the set retired
-   after 1.0.2): DRUM's kit (fromPerc). SAMPLE / GRAIN / NOISE / SLICE (also "-") become ANALOG or DRUM (fromRetire). */
+   after 1.0.2): DRUM's kit (fromPerc). SLICE ("-") becomes DRUM (fromRetire). */
 async function libAdopt(d) {
   const keys = d.keys, engines = d.info.engines, changed = [];
   const relayout = (libMeta.keys && !sameKeys(libMeta.keys, keys)) || (libMeta.engines && !sameKeys(libMeta.engines, engines));
@@ -4650,10 +4674,13 @@ async function libAdopt(d) {
     const name = p.engineName || (libMeta.engines || [])[p.engine];
     const digital = noFm4 && !p.fm6 && (name === "DIGITAL" || ((!name || name === "-") && p.engine === 1));
     const pe0 = () => (keys && p.p.length === keys.length ? d.info.pe0 : p.p.length - 8);   /* (E1..E8: the last 8) */
-    const retired = !digital && !!fromRetire({ ...p, engineName: name }, engines, p.p.length - 8);
-    if (!relayout && !digital && !retired) continue;
+    const migrate = !digital && (fromRetire({ ...p, engineName: name }, engines, p.p.length - 8)
+      || fromPerc({ ...p, engineName: name }, engines, p.p.length - 8));
+    if (!relayout && !digital && !migrate) continue;
     if (relayout) p.p = remapParams(p.p, libMeta.keys, keys);
-    const pt = digital ? fromDigital(p, engines, pe0()) : retired ? fromRetire({ ...p, engineName: name }, engines, pe0()) : null;
+    const pt = digital ? fromDigital(p, engines, pe0())
+      : (fromRetire({ ...p, engineName: name }, engines, pe0())
+         || fromPerc({ ...p, engineName: name }, engines, pe0()));
     if (pt) Object.assign(p, cleanPatch(pt));
     else {
       const e = name ? engines.indexOf(name) : p.engine;
