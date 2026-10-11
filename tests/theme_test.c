@@ -96,13 +96,16 @@ int main(int argc, char **argv)
             uint16_t under = b ? T_SEL : T_BG, ink = b ? T_INK : T_THEME;
             cv_begin(3, 1, under);
             cv_text_on(0, 0, &probe, "A", ink, under);
-            assert(swap16(cv_px[0]) == under && swap16(cv_px[2]) == ink);
-            for (unsigned k = 0; k < 3; k++) {
-                unsigned a = channel(under, k), z = channel(ink, k), m = channel(swap16(cv_px[1]), k);
-                assert(m >= (a < z ? a : z) && m <= (a > z ? a : z));   /* no halo */
+            assert(cv_peek(0) == under && cv_peek(2) == ink);
+            {   /* 4-bit canvas: the edge snaps to a theme slot (may leave the under->ink channel box) */
+                uint16_t mid = cv_peek(1);
+                unsigned i, ok = 0;
+                for (i = 0; i < CV_SENT; i++)
+                    if (cv_tok[i] == mid) ok = 1;
+                assert(ok);
+                if (p == UI_GREY_INDEX) assert(gray(mid));
+                if (p == UI_BW_INDEX) assert(neutral(mid));
             }
-            if (p == UI_GREY_INDEX) assert(gray(swap16(cv_px[1])));
-            if (p == UI_BW_INDEX) assert(neutral(swap16(cv_px[1])));
         }
         assert(text_w(&AF_S, UI_PALETTES[p].name) <= 60);     /* the COLOR row's value */
         cv_begin(240, 124, T_BG);
@@ -125,7 +128,7 @@ int main(int argc, char **argv)
         cv_key_hint(150, 108, KC_OCTDN, "BACK", 0, T_BG);
         for (unsigned y = 0; y < 124; y++)
             for (unsigned x = 0; x < 240; x++) {
-                uint16_t v = swap16(cv_px[y * 240 + x]);
+                uint16_t v = cv_peek(y * 240 + x);
                 if (p == UI_GREY_INDEX) assert(gray(v));          /* every blended pixel of GREY */
                 if (p == UI_BW_INDEX) assert(neutral(v));         /* and of MONO */
                 sheet[(p / 4 * 124 + y) * 960 + p % 4 * 240 + x] = v;
@@ -134,10 +137,10 @@ int main(int argc, char **argv)
     /* the ramp cache follows the palette (a stale ramp would blend toward the old background) */
     palette_set(1);
     cv_begin(3, 1, T_BG); cv_text(0, 0, &probe, "A", T_THEME);
-    uint16_t green = swap16(cv_px[1]);
+    uint16_t green = cv_peek(1);
     palette_set(6);
     cv_begin(3, 1, T_BG); cv_text(0, 0, &probe, "A", T_THEME);
-    assert(swap16(cv_px[1]) != green);
+    assert(cv_peek(1) != green);
     /* fonts: Terminus S 12 px (6x12), M 16 px (8x16 1x), L 32 px (8x16 2x); monospace digits; the ellipsis; L capitals only */
     assert(AF_S.h == 12 && AF_S.asc == 10 && AF_M.h == 16 && AF_M.asc == 12 && AF_L.h == 32 && AF_L.asc == 24);
     assert(text_w(&AF_M, "0000") == text_w(&AF_M, "1111") && text_w(&AF_S, "1.25") == text_w(&AF_S, "8.75"));

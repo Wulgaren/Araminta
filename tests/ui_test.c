@@ -7056,9 +7056,8 @@ static int test_head_centres(void)
                     okp &= head_span2(HEAD_BAT_X, 239, &a, &b) && a >= 214 && b <= 236;
                     okp &= !head_span2(HEAD_GRP_R, HEAD_BAT_X - 1, &a, &b);
                 } else {                               /* GLO, the tempo turned: the BPM, its lock, the label after */
-                    head_geo_t g;
-                    head_geo(&g, "124");
-                    okp &= head_span2(g.bx + g.b[2] + 20, 239, &a, &b) && a >= 142;
+                    /* layer head is the keycap alone ("[GLO]"); older "[GLO] SET" put SET further right of +20 */
+                    okp &= head_span2(142, 239, &a, &b) && a >= 142;
                 }
                 if (!msg) {                            /* the BPM's ink on x 120 (between the metronome and the lock) */
                     head_geo_t g;

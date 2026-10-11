@@ -1630,7 +1630,7 @@ static int32_t meter_px(int32_t a)                   /* |sample| (Q15) -> px: 60
 static void knob_arc(int32_t x, int32_t y, int32_t r, const uint8_t *cov, const uint8_t *ang, int32_t lo, int32_t hi,
                      uint16_t tr, uint16_t vc, uint16_t bg)
 {
-    const uint16_t *rt = ramp(tr, bg), *rv = ramp(vc, bg);
+    const uint8_t *rt = ramp(tr, bg), *rv = ramp(vc, bg);
     int32_t i, j, m;
     for (j = 0; j < r; j++)
         for (i = 0; i < r; i++) {
@@ -1643,7 +1643,7 @@ static void knob_arc(int32_t x, int32_t y, int32_t r, const uint8_t *cov, const 
                 int32_t px = m < 2 ? x + r + i : x + r - 1 - i, py = (m == 0 || m == 3 ? y + r - 1 - j : y + r + j) + cv_oy;
                 if (s < -KA_END || s > KA_END || (uint32_t)px >= cv_w || (uint32_t)py >= cv_h)
                     continue;
-                cv_px[(uint32_t)py * cv_w + (uint32_t)px] = (s >= lo && s <= hi ? rv : rt)[a];
+                cv_nput((uint32_t)py * cv_w + (uint32_t)px, (s >= lo && s <= hi ? rv : rt)[a]);
             }
         }
 }

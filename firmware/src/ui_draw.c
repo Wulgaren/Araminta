@@ -1258,18 +1258,36 @@ static void draw_columns(void)
 }
 
 
-/* The power-on splash (main.c fm1_main, web/emu felucca_web.c): full black screen, ARAMINTA and the version in
- * AF_M centred, "based on Felucca" in AF_S lower. Fixed black / white, outside the palettes (settings_init before it). */
+/* The power-on splash (main.c fm1_main, web/emu felucca_web.c): full black screen, the mark (r=sin(b·θ) rose in
+ * ui_splash_logo.h), ARAMINTA and the version in AF_M centred, "based on Felucca" in AF_S lower. Fixed black /
+ * white, outside the palettes (settings_init before it). */
+#include "ui_splash_logo.h"
 #define SPL_BLACK RGB(0, 0, 0)
-#define SPL_WHITE RGB(255, 255, 255)
+#define SPL_WHITE ((uint16_t)((31u << 11) | (62u << 5) | 31u))  /* ux_gray(31): GREY's R=B, G=2R */
 #define SPL_PITCH 22                                /* name to version */
+#define SPL_LOGO_Y 8                                /* mark above the name */
+#define SPL_NAME_Y (SPL_LOGO_Y + SPL_LOGO_H + 6)    /* under the mark */
 static const char *const SPLASH_LINES[] = {"ARAMINTA", FELUCCA_VERSION, "based on Felucca"};
+static void draw_splash_logo(void)
+{
+    /* Direct row blits: fixed black/white outside the theme LUT (indexed canvas). */
+    uint32_t x0 = (240u - SPL_LOGO_W) / 2u, y, x;
+    uint16_t white = swap16(SPL_WHITE), black = swap16(SPL_BLACK);
+    for (y = 0; y < SPL_LOGO_H; y++) {
+        const uint8_t *row = SPL_LOGO + y * SPL_LOGO_STRIDE;
+        for (x = 0; x < SPL_LOGO_W; x++)
+            cv_row[x] = ((row[x >> 3] >> (x & 7u)) & 1u) ? white : black;
+        lcd_blit(x0, SPL_LOGO_Y + y, SPL_LOGO_W, 1u, cv_row);
+    }
+    lcd_sync();
+}
 static void draw_splash(void)
 {
     lcd_fill(0, 0, 240, 240, SPL_BLACK);
-    draw_text_line(0, 88, 240, &AF_M, SPLASH_LINES[0], SPL_WHITE, SPL_BLACK, 1);
-    draw_text_line(0, 88 + SPL_PITCH, 240, &AF_M, SPLASH_LINES[1], SPL_WHITE, SPL_BLACK, 1);
-    draw_text_line(0, 196, 240, &AF_S, SPLASH_LINES[2], SPL_WHITE, SPL_BLACK, 1);
+    draw_splash_logo();
+    draw_text_line(0, SPL_NAME_Y, 240, &AF_M, SPLASH_LINES[0], SPL_WHITE, SPL_BLACK, 1);
+    draw_text_line(0, SPL_NAME_Y + SPL_PITCH, 240, &AF_M, SPLASH_LINES[1], SPL_WHITE, SPL_BLACK, 1);
+    draw_text_line(0, 208, 240, &AF_S, SPLASH_LINES[2], SPL_WHITE, SPL_BLACK, 1);
 }
 
 /* UPDATE MODE countdown (main.c: OCT- + OCT+ held): over everything, the menu and the dialogs too */
