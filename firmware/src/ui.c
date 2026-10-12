@@ -1460,6 +1460,8 @@ static void track_defaults(track_t *t)
     uint32_t i;
     for (i = 0; i < P_E0; i++)
         t->p[i] = TP[i].def;
+    t->scl_lock = SCL_LOCK_SCALE;
+    t->scl_stash_ok = 0;
     track_defaults_steps(t);
 }
 

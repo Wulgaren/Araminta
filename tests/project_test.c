@@ -424,11 +424,12 @@ int main(void)
         project_t a, c;
         project_store_t st, st2;
         uint32_t i, zero = 1;
-        bad += check("FUN11 name at the end of the reserved tail; kit before FM6 (2 spare before kit)",
+        bad += check("FUN12 name at the end of the reserved tail; kit before FM6; SCALE LOCK before CRV",
                      PROJ_NAME_OFF == 3824u && PROJ_FM6_OFF == 3312u && PROJ_DX_OFF == 3216u &&
                      PROJ_DX_OFF + PROJ_DX_SIZE == PROJ_FM6_OFF &&
-                     68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + sizeof(chain_config_t) + MOTION_FILE_SIZE + 2u ==
-                         PROJ_DX_OFF);
+                     PROJ_SCL_OFF + PROJ_SCL_SIZE + 2u == PROJ_CRV_OFF &&
+                     68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + sizeof(chain_config_t) + MOTION_FILE_SIZE ==
+                     PROJ_SCL_OFF);
         memset(&a, 0, sizeof a);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);
@@ -477,13 +478,13 @@ int main(void)
         }
         memcpy(a.name, "FM SONG", 7);
         a.sum = proj_sum(&a);
-        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E42u && proj_import(&c, &st, sizeof st);
+        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E43u && proj_import(&c, &st, sizeof st);
         for (k = 0; k < NTRK; k++)
             ok &= !memcmp(c.fm6[k], FM6_FACTORY[k * 2u], FM6_PACKED) && c.t[k].engine == ENGI_FM6 &&
                   !memcmp(st.raw + PROJ_FM6_OFF + k * FM6_PACKED, FM6_FACTORY[k * 2u], FM6_PACKED);
-        bad += check("FUN11: the four FM6 patches round trip (bytes at PROJ_FM6_OFF)", ok && !memcmp(c.name, "FM SONG", 7));
+        bad += check("FUN12: the four FM6 patches round trip (bytes at PROJ_FM6_OFF)", ok && !memcmp(c.name, "FM SONG", 7));
         st.raw[PROJ_FM6_OFF + 5] ^= 1u;
-        bad += check("FUN11: a patch byte changed: the hash refuses it", !proj_import(&c, &st, sizeof st));
+        bad += check("FUN12: a patch byte changed: the hash refuses it", !proj_import(&c, &st, sizeof st));
         st.raw[PROJ_FM6_OFF + 5] ^= 1u;
         {   /* FUN8 as 1.0.x wrote it (3584 bytes, 91 parameters: E0..E7 at 83..90, the patches at 3056): the DRUM
              * lane levels 100 %, E0..E7 and their motion at today's P_E0.., the patches and the name kept */
@@ -760,14 +761,14 @@ int main(void)
         a.dx_mot[XM_RATE] = 3; a.dx_mot[XM_DPTH] = 40; a.dx_mot[XM_SHPE] = 2; a.dx_mot[XM_RAND] = 17;
         memcpy(a.name, "DX KIT", 6);
         a.sum = proj_sum(&a);
-        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E42u &&
+        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E43u &&
              !memcmp(st.raw + PROJ_DX_OFF, a.dx, sizeof a.dx) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx] == (uint8_t)(a.dx_mute & DXG_ALL) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx + 1u] == (uint8_t)(a.dx_mute >> 8) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx + 2u] == 1u &&
              !memcmp(st.raw + PROJ_DX_OFF + sizeof a.dx + 3u, a.dx_mot, sizeof a.dx_mot) &&
              proj_import(&c, &st, sizeof st) && !memcmp(&a, &c, sizeof a);
-        bad += check("FUN11: DRUM-X kit, mute and X-MOD round trip (bytes at PROJ_DX_OFF)", ok);
+        bad += check("FUN12: DRUM-X kit, mute and X-MOD round trip (bytes at PROJ_DX_OFF)", ok);
         funa = st;
         ((uint32_t *)funa.raw)[0] = 0x46554E41u;       /* FUNA / FUN10: same 3840 layout, no kit block */
         memset(funa.raw + PROJ_DX_OFF, 0, PROJ_DX_SIZE);
@@ -777,6 +778,29 @@ int main(void)
              !c.dx_mute && !c.dx_mot[0] && !c.dx_mot[1] && !c.dx_mot[2] && !c.dx_mot[3] &&
              !memcmp(c.name, "DX KIT", 6);
         bad += check("FUN10 (FUNA): loads with the factory DRUM-X kit (custom kit not on disk)", ok);
+    }
+    {   /* FUN12: SCALE LOCK + stash round trip */
+        project_t a, c;
+        static project_store_t st;
+        memset(&a, 0, sizeof a);
+        a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
+        chain_defaults(&a.chain);
+        a.t[0].scl_lock = SCL_LOCK_SCALE;
+        a.t[1].scl_lock = SCL_LOCK_OFF;
+        a.t[1].scl_stash_ok = 1;
+        a.t[1].scl_stash[0] = 5; a.t[1].scl_stash[1] = 2; a.t[1].scl_stash[2] = 1;
+        a.t[2].scl_lock = SCL_LOCK_SCALE;
+        a.t[3].scl_lock = SCL_LOCK_SCALE;
+        a.sum = proj_sum(&a);
+        ok = proj_pack(&st, &a) && st.raw[PROJ_SCL_OFF] == 1u &&
+             st.raw[PROJ_SCL_OFF + 4u] == (uint8_t)(0x80u) &&
+             st.raw[PROJ_SCL_OFF + 5u] == 5u && st.raw[PROJ_SCL_OFF + 6u] == 2u &&
+             st.raw[PROJ_SCL_OFF + 7u] == 1u &&
+             proj_import(&c, &st, sizeof st) &&
+             c.t[0].scl_lock == SCL_LOCK_SCALE && c.t[1].scl_lock == SCL_LOCK_OFF &&
+             c.t[1].scl_stash_ok && c.t[1].scl_stash[0] == 5 && c.t[1].scl_stash[1] == 2 &&
+             c.t[1].scl_stash[2] == 1;
+        bad += check("FUN12: SCALE LOCK and stash round trip (bytes at PROJ_SCL_OFF)", ok);
     }
     {   /* Felucca 1.5 FUNA (np 111): INSERT + FTYPE/ESYNC through proj_import end-to-end */
         project_t c;

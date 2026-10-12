@@ -1210,10 +1210,17 @@ static void edit_param(uint32_t slot, int32_t steps)
     if (pg->graph != GR_MOD)
         pk_close();
     v = param_turn(d, *vp, accel(EN_K1 + slot, steps, d->fmt == F_ENUM ? 0 : d->max - d->min));
+    if (pg->id[slot] == PG_SLOCK) {
+        scale_lock_set(TSEL, (int16_t)v);
+        ui.force = 1;
+        return;
+    }
     *vp = (int16_t)v;
     if (pg->scope != SC_GLOBAL) {
-        motion_capture(TSEL, (uint32_t)(vp - TSEL->p), *vp);
-        ml_knob(TSEL, (uint32_t)(vp - TSEL->p));        /* (MIDI LEARN: picked) */
+        uint32_t id = (uint32_t)(vp - TSEL->p);
+        motion_capture(TSEL, id, *vp);
+        ml_knob(TSEL, id);                              /* (MIDI LEARN: picked) */
+        scale_lock_after(TSEL, id);
     }
 }
 
