@@ -890,13 +890,13 @@ static int auto_list(void)
             if (pk_rows[i].id == MD_FCUT && str_eq(pk_rows[i].tag, "FILTER") &&
                 str_eq(pk_rows[i].name, "CUTOFF"))
                 fcut = 1;
-            if (pk_rows[i].id == MD_CHO && str_eq(pk_rows[i].tag, "CHOR") &&
+            if (pk_rows[i].id == MD_CHO && str_eq(pk_rows[i].tag, "CHORUS") &&
                 str_eq(pk_rows[i].name, "MIX"))
                 cho = 1;
         }
         bad += check("#223 MOD DST: SEND / DISTORT and SLICER / PATTERN", dist && spat);
         bad += check("MOD DST: FILTER / CUTOFF (insert continuous)", fcut);
-        bad += check("MOD DST: CHO is CHOR / MIX", cho);
+        bad += check("MOD DST: CHO is CHORUS / MIX", cho);
     }
     {
         uint32_t i, n = 0;
