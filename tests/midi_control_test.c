@@ -357,12 +357,13 @@ static int route_block_test(void)
 static int cc_map_test(void)
 {
     static const struct { uint8_t cc; uint8_t id; } COMMON[] = {
-        {5, P_GLIDE}, {7, P_LEVEL}, {72, P_REL}, {73, P_ATK}, {75, P_DEC}, {91, P_REV}, {93, P_CHOR}, {94, P_DLY},
+        {5, P_GLIDE}, {7, P_LEVEL}, {72, P_REL}, {73, P_ATK}, {75, P_DEC}, {91, P_REV}, {93, P_IHMIX}, {94, P_DLY},
     };
-    int bad = 0, ok = 1; uint32_t i, e; int16_t before[P_COUNT];
+    int bad = 0, ok = 1; uint32_t i, e; int16_t before[P_COUNT], fxpos;
     midi_test_reset();
     bad += check("power-on parts: ANALOG, FM6, LOFI, DRUM", trk[0].eng_req == 0u && trk[1].eng_req == ENGI_FM6 &&
                  trk[2].eng_req == 3u && trk[3].eng_req == ENGI_DRUM);
+    fxpos = trk[0].p[P_CHOR];                          /* FXPOS: EFFECTS DLY/REV slots, not a send */
     for (i = 0; i < NELEM(COMMON); i++) {
         queued(0xB0, COMMON[i].cc, 127, 1);
         ok &= trk[0].p[COMMON[i].id] == TP[COMMON[i].id].max;
@@ -371,7 +372,9 @@ static int cc_map_test(void)
         queued(0xB0, COMMON[i].cc, 37, 1);
         ok &= trk[0].p[COMMON[i].id] == 37;
     }
-    bad += check("CC5 7 72 73 75 91 93 94: GLIDE LEVEL REL ATK DEC REV CHO DLY, 0..127 over their range", ok);
+    bad += check("CC5 7 72 73 75 91 93 94: GLIDE LEVEL REL ATK DEC REV CHOR-MIX DLY, 0..127 over their range", ok);
+    bad += check("CC93 sets insert CHOR MIX, leaves FXPOS (P_CHOR) alone",
+                 trk[0].p[P_IHMIX] == 37 && trk[0].p[P_CHOR] == fxpos);
     queued(0xB0, 10, 0, 1); ok = trk[0].p[P_PAN] == -64;
     queued(0xB0, 10, 127, 1); ok &= trk[0].p[P_PAN] == 63;
     queued(0xB0, 10, 64, 1); ok &= trk[0].p[P_PAN] == 0;
