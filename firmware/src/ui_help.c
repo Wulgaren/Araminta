@@ -58,10 +58,9 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"STEP", "[KEYS]WRITE[K1]STEP[SELECT]DETAIL"},
     {"DETAIL", "[PRESETS]STEP[K1]CHANCE[K2]RATCH"},
     {"AUTOMATION", "[K1]ROW[OCT+]DO[EDIT]DELETE"},
-    {"RECORD", "[KEYS]CLICK COUNT[K1-4]PREFS"},
     {"PUNCH", "[KEYS]FX[K1-4]MACROS[FX]EFFECTS"},
     {"MIXER", "[K4]PLAY[ALGO]TRACK"},
-    {"CLOCK", "[OCT+]SELECT: TEMPO[GLO]RECORD"},
+    {"CLOCK", "[OCT+]SELECT: TEMPO[GLO]MASTER"},
 };
 #define H_HOME "[OCT+]PRESETS[HOME]MENU"          /* Terminus: shorter than Inter Tight so the row fits */
 #define H_LEVELS "[K1-4]T1-T4 LEVEL[HOME]MIXER"
@@ -69,7 +68,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
 /* a layer's (LAYER_*): what its footer row (LAYERS[].foot) does not say */
 static const char *const HELP_LAYER[LAYER_N] = {
     "", "[KEYS]MUTES[FX]LOCK", "[KEYS]SOLO MUTE TAP[K1-4]LEVELS", "[KEYS]ROOT[K1-4]ROOT SCL CHORD",
-    "[K1]ENGINE[K2]SOUND[K3]FAV", "[K1]LENGTH[K3]SWING[K4]GATE", "[K1]CLICK[K2]COUNT-IN[K3]LEVEL",
+    "[K1]ENGINE[K2]SOUND[K3]FAV", "[K1]LENGTH[K3]SWING[K4]GATE",
 };
 
 /* the hint of the page shown, 0 = none */

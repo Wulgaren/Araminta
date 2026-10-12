@@ -451,13 +451,13 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHORD, GR_SLICES, GR_EVENTS,
-       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_REC, GR_DXSND };
+       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_DXSND };
 /* page.sec: button cycles sections; SELECT walks pages that share fam+sec and stops at the ends
  * (ui.c open_family / select_page_step) */
 enum { FX_SEC_INS = 0, FX_SEC_SLCR = 1, FX_SEC_PUNCH = 2, FX_NSEC = 3,
        SEQ_SEC_STEP = 0, SEQ_SEC_AUTO = 1, SEQ_SEC_TOOL = 2, SEQ_NSEC = 3,
        EDIT_SEC_SND = 0, EDIT_SEC_KIT = 1, EDIT_SEC_LAN = 2, EDIT_SEC_VOX = 3, EDIT_NSEC = 4,
-       GLO_SEC_MASTER = 0, GLO_SEC_SONG = 1, GLO_SEC_CLK = 2, GLO_SEC_REC = 3, GLO_NSEC = 4,
+       GLO_SEC_MASTER = 0, GLO_SEC_SONG = 1, GLO_SEC_CLK = 2, GLO_NSEC = 3,
        SAVE_SEC_PRE = 0, SAVE_SEC_PROJ = 1, SAVE_NSEC = 2,
        LFO_SEC_LFO = 0, LFO_SEC_MOD = 1, LFO_NSEC = 2,
        TRK_SEC_MIX = 0 };
@@ -512,11 +512,10 @@ static const page_t PAGES[] = {
     /* VOICE: one page (VCE GLD UNI DTN SPRD). GLMOD / PRIO / ALLOC stay stored, not shown; PAN/PLAY on MIXER */
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_VOICE, P_GLIDE, P_DETUNE, P_SPRD}},
 
-    /* GLO: Master → Song → Clock → Record */
+    /* GLO: Master → Song → Clock (CLICK / COUNT-IN / LEVEL: MENU > AUDIO) */
     {"MASTER", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_MASTER, {G_CLIP, G_PUNCH, G_DUCK, G_DREL}},
     {"SONG", FAM_GLO, SC_GLOBAL, GR_SONG, GLO_SEC_SONG, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"CLOCK", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_CLK, {G_BPM, G_SWING, G_CLOCK, 0xFF}},
-    {"RECORD", FAM_GLO, SC_GLOBAL, GR_REC, GLO_SEC_REC, {0xFF, 0xFF, 0xFF, 0xFF}},
     /* SAVE: Presets (PRESETS / USER / PHRASES) → Project (PROJECT / TOOLS) */
     {"PRESETS", FAM_SAVE, SC_GLOBAL, GR_BROWSE, SAVE_SEC_PRE, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"USER", FAM_SAVE, SC_GLOBAL, GR_USER, SAVE_SEC_PRE, {0xFF, 0xFF, 0xFF, 0xFF}},

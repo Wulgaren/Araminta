@@ -37,12 +37,13 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - Upload a drum kit as a USR sample: in the web editor, Drum kit grid tags the slot (`FSMP` header); SAMPLE on that set uses the drum grid on SEQ, zones mapped by hand.
 - **VOICE** is one page: VCE, GLD, UNI DTN, SPRD. GLD is free milliseconds (no GLMOD on the page). PAN / PLAY live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
 - **EFFECTS.** One list for the insert chain: CHOOSE a stage, ORDER moves it, USE AS is CHAIN or SEND, MIX is dry/wet (or send amount). Delay and reverb sit in that list (bus chorus is gone). Dual reverb tanks keep SEND and CHAIN settings while REV is chained.
-- Reverb modes from JIANT - SHIMR and CLOUD
+- Reverb modes from JIANT - SHIMR and CLOUD.
 - Delay has divisions or smooth ms.
-- Assign FX values in LFO MOD or SEQ param locks
+- Assign FX values in LFO MOD or SEQ param locks.
 - **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
 - **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.
 - **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN.
+- **Following playhead** in the SEQ. Start selecting a step to pause the following, returns after 3 seconds of inactivity.
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
@@ -57,7 +58,9 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   DETAIL), AUTOMATION, then SEQ TOOLS; a piano roll of the steps, where KNOB 3 sets a note's length (0 clears it and advances the cursor)
   and PRESETS moves that note in time (or, while step-recording with a key held, sets its LEN); a drum grid (white keys =
   steps, black keys = lanes); **SEQ > DETAIL**: the cursor step's chance, ratchet, nudge and velocity on the four
-  knobs, drawn as lanes over the steps; automation: recording of knob moves per step (an automation icon marks the cards it
+  knobs, drawn as lanes over the steps; while playing on PATTERN / STEP / DETAIL the edit cursor follows the playhead
+  (the playhead line only shows when you have moved the cursor away); twiddling STEP or editing the sequence pauses
+  follow for a few seconds, then it resumes; automation: recording of knob moves per step (an automation icon marks the cards it
   drives); live loop recording with overdub; Sloop free take when the project is empty; step recording at the cursor (REC on SEQ > STEP while stopped), one
   chord at a time or note by note (MENU > CHORD ENTRY ADD); divisions listed by length, 4 bars to 1/32; loading a
   sound never touches your patterns
@@ -77,8 +80,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   of 1 or 2 bars before recording from stop; the click goes to the headphones and speaker only, never to
   USB audio or into a pattern
 - **Songs** (GLO > SONG): up to 16 sections, each naming the project slot (A-D) **every track** plays, or "-" for a
-  track that rests there, with its repeats; drawn as a timeline with a lane per track. GLO also holds MASTER, CLOCK
-  and RECORD (HOME is only Home ↔ Mixer). **MIXER** KNOB 4 is PLAY: ON, OFF or SOLO
+  track that rests there, with its repeats; drawn as a timeline with a lane per track. GLO also holds MASTER and CLOCK
+  (HOME is only Home ↔ Mixer). **MIXER** KNOB 4 is PLAY: ON, OFF or SOLO
 - **Chord keys:** one finger plays an in-key chord (triads or sevenths of the scale, or fixed chord
   shapes), with voicings; on the keys, MIDI in, recording and the arpeggiator
 - **Arpeggiator** with UP, DN, UPDN, RND, ORD (the notes in the order you pressed them), REPEAT and, for chords,
@@ -160,7 +163,7 @@ What changes when you save:
 Day-to-day differences after the flash (not data loss):
 
 - FX pages: Effects list with mix faders, reorderable chain, SEND vs CHAIN for DLY / REV (dual tanks when REV is chained).
-- SEQ / GLO / SAVE layout shifts (PATTERN, DETAIL, MASTER, CLOCK / RECORD under GLO); see Controls.
+- SEQ / GLO / SAVE layout shifts (PATTERN, DETAIL, MASTER, CLOCK under GLO); see Controls.
 - Upstream 1.5.1 extras still apply: SEQ > DETAIL, MIDI Program Change, dotted delay TIME, REV / ECHO THROW.
 - Full backup still omits the FM6 voice bank: keep the `.syx` if you use B1–B32.
 
@@ -184,13 +187,13 @@ The pages by button:
 |---|---|---|
 | HOME | Home ↔ Mixer | the menu |
 | SEQ | Step group (SELECT: PATTERN / STEP / DETAIL), AUTOMATION, SEQ TOOLS | SEQ TOOLS, on every page |
-| GLO | MASTER, SONG, CLOCK, RECORD | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
+| GLO | MASTER, SONG, CLOCK | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
 | SAVE | Presets (SELECT: PRESETS / USER / PHRASES), Project (SELECT: PROJECT / TOOLS) | UNDO |
 | LFO | LFO (SELECT: LFO / LFO 2 / LFO DEST), then MOD | MOMENTARY (with a knob) |
 | EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG FILTER / FILTER DRIVE), Kit, Lanes, Voice (hidden on DRUM) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
 | FX | EFFECTS (SELECT: list + stage pages), SLICER, PUNCH | the FX layer |
 | SCL, ENV, ARP | their pages | SCL: its layer |
-| REC | arms the track | the REC layer (CLEAR, CLICK, COUNT-IN, CLICK LEVEL) |
+| REC | arms the track | — |
 
 ## Menu
 
