@@ -1,10 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Small-canvas renderer (no full framebuffer). Draw text/lines into
- * an off-screen strip, then expand each row to RGB565 and DMA it.
+ * an off-screen strip, then expand CV_STRIP rows at a time to RGB565 and DMA them.
  * The strip stores 4-bit palette indices (two pixels per byte, ~14.5 KiB for 240 x 124: about 40 KiB
  * less than RGB565). Index 15 is reserved (host FM6 lint sentinel); blends quantise to the nearest of
- * 0..14. The panel still takes byte-swapped RGB565.
+ * 0..14. The panel still takes byte-swapped RGB565. lcd_sync before rewriting the expand buffer:
+ * a blit may still be reading it (lcd.c lcd_busy).
  * Text and icons are 4-bit alpha bitmaps made at build time (tools/gen_aa_font.py: Terminus S 6x12 /
  * M 8x16 / L 2x; tools/gen_aa_icons.py: Fukiai). A glyph is trimmed to its ink box, advances are in 1/16 px, and
  * each glyph is rasterised at 1 << psh horizontal phases (bitmap faces 1, outline faces more);
@@ -72,10 +73,12 @@ typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
 #define CV_MAX (240u * 124u)      /* the graph strip is 240 x 124 */
 #define CV_NIDX 16u               /* nibble indices; 15 = sentinel (not a theme colour) */
 #define CV_SENT 15u
+#define CV_STRIP 16u              /* expanded rows per lcd_blit (few KiB scratch) */
 static uint8_t cv_px[(CV_MAX + 1u) / 2u] __attribute__((section(".pool")));   /* packed indices */
 static uint16_t cv_tok[CV_NIDX]; /* logical RGB565 for slots 0..14 */
 static uint16_t cv_lut[CV_NIDX]; /* panel-swapped RGB565 */
-static uint16_t cv_row[240];     /* one expanded row for lcd_blit */
+static uint16_t cv_row[240];     /* splash / one-row expand */
+static uint16_t cv_strip[240u * CV_STRIP] __attribute__((section(".pool")));
 static uint32_t cv_w, cv_h;
 static uint16_t cv_bg;           /* what cv_begin cleared the canvas to (logical) */
 static uint8_t cv_bg_i;          /* its index */
@@ -239,11 +242,15 @@ static void cv_lut_build(void)
 static uint16_t cv_peek(uint32_t i) { return cv_tok[cv_nget(i) & 15u]; }
 
 /* ------------------------------------------------------------ canvas --- */
-static void cv_expand_row(uint32_t row)
+static void cv_expand_rows(uint32_t row0, uint32_t n, uint16_t *dst)
 {
-    uint32_t x, base = row * cv_w;
-    for (x = 0; x < cv_w; x++)
-        cv_row[x] = cv_lut[cv_nget(base + x)];
+    uint32_t y, x;
+    for (y = 0; y < n; y++) {
+        uint32_t base = (row0 + y) * cv_w;
+        uint16_t *d = dst + y * cv_w;
+        for (x = 0; x < cv_w; x++)
+            d[x] = cv_lut[cv_nget(base + x)];
+    }
 }
 
 static void cv_begin(uint32_t w, uint32_t h, uint16_t bg)
@@ -251,7 +258,7 @@ static void cv_begin(uint32_t w, uint32_t h, uint16_t bg)
     uint32_t i, n;
     if (w * h > CV_MAX)
         h = CV_MAX / w;
-    lcd_sync();                     /* the last blit may still read cv_row */
+    lcd_sync();                     /* the last blit may still read cv_strip / cv_row */
     GFX_HOOK_BEGIN();
     cv_w = w;
     cv_h = h;
@@ -264,25 +271,31 @@ static void cv_begin(uint32_t w, uint32_t h, uint16_t bg)
         cv_nput(i, cv_bg_i);
 }
 
+static void cv_blit_rows(uint32_t x, uint32_t y, uint32_t r0)
+{
+    uint32_t row = r0;
+    while (row < cv_h) {
+        uint32_t n = cv_h - row;
+        if (n > CV_STRIP)
+            n = CV_STRIP;
+        lcd_sync();                 /* before rewriting cv_strip */
+        cv_expand_rows(row, n, cv_strip);
+        lcd_blit(x, y + row, cv_w, n, cv_strip);
+        row += n;
+    }
+}
+
 static void cv_blit(uint32_t x, uint32_t y)
 {
-    uint32_t row;
     GFX_HOOK_BLIT(x, y, 0u);
-    for (row = 0; row < cv_h; row++) {
-        cv_expand_row(row);
-        lcd_blit(x, y + row, cv_w, 1u, cv_row);
-    }
+    cv_blit_rows(x, y, 0u);
 }
 
 /* canvas rows r0 .. cv_h-1 only, to screen row y + r0 */
 static void cv_blit_from(uint32_t x, uint32_t y, uint32_t r0)
 {
-    uint32_t row;
     GFX_HOOK_BLIT(x, y, r0);
-    for (row = r0; row < cv_h; row++) {
-        cv_expand_row(row);
-        lcd_blit(x, y + row, cv_w, 1u, cv_row);
-    }
+    cv_blit_rows(x, y, r0);
 }
 
 static inline void cv_pset(int32_t x, int32_t y, uint16_t c)

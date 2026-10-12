@@ -2,6 +2,8 @@
 /* The palettes and the real canvas/text renderer (src/gfx.c): GREY stays gray in every token and blend, MONO is
  * black and white in every token (one grey: DIM LINE RAISE LANE) and neutral in every blend,
  * every palette's text contrast, the alpha blend, the ramp cache, the fonts' metrics and the ellipsis.
+ * Also: thin glyphs (3 / S) keep a middle ink run after 4-bit quantise; cv_blit must not rewrite its expand
+ * buffer while a transfer is in flight, and a full graph strip uses CV_STRIP rows per lcd_blit.
  * Optional: a palette sheet (PPM). */
 #include <stdint.h>
 #include <stdio.h>
@@ -9,12 +11,57 @@
 #include <math.h>
 #include <string.h>
 #define __attribute__(x)
-static void lcd_sync(void) {}
+/* host stub: leave the blit source "in flight" until lcd_sync, as the panel DMA does */
+static uint32_t lcd_nblit, lcd_live_n;
+static const uint16_t *lcd_live;
+static uint16_t lcd_snap[240 * 32];
+static void lcd_sync(void)
+{
+    if (lcd_live) {
+        assert(memcmp(lcd_live, lcd_snap, lcd_live_n * sizeof(uint16_t)) == 0);
+        lcd_live = 0;
+    }
+}
 static void lcd_power(uint32_t s) { (void)s; }   /* (MENU > SCREEN OFF: lcd.c) */
 static void lcd_wake_now(void) {}
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
-{ (void)x; (void)y; (void)w; (void)h; (void)p; }
+{
+    (void)x; (void)y;
+    lcd_nblit++;
+    lcd_sync();                                         /* next access waits, like lcd_window */
+    lcd_live_n = w * h;
+    assert(lcd_live_n && lcd_live_n <= sizeof lcd_snap / sizeof lcd_snap[0]);
+    memcpy(lcd_snap, p, lcd_live_n * sizeof(uint16_t));
+    lcd_live = p;                                       /* DMA still reading p */
+}
 #include "../firmware/src/gfx.c"
+
+/* thin AA strokes (3, S) must keep a middle horizontal ink run after 4-bit quantise */
+static int glyph_mid_run(const aafont_t *f, const char *s, uint16_t ink, uint16_t under)
+{
+    uint32_t x, y, ymin = 0xffffffffu, ymax = 0, best = 0, mid, row, run;
+    cv_begin(24, f->h + 2u, under);
+    cv_text_on(2, 1, f, s, ink, under);
+    for (y = 0; y < cv_h; y++)
+        for (x = 0; x < cv_w; x++)
+            if (cv_peek(y * cv_w + x) != under) {
+                if (y < ymin) ymin = y;
+                if (y > ymax) ymax = y;
+            }
+    if (ymin > ymax)
+        return 0;
+    mid = (ymin + ymax) / 2u;
+    for (row = mid > 0u ? mid - 1u : mid; row <= mid + 1u && row < cv_h; row++) {
+        run = 0;
+        for (x = 0; x < cv_w; x++) {
+            if (cv_peek(row * cv_w + x) != under) {
+                if (++run > best) best = run;
+            } else
+                run = 0;
+        }
+    }
+    return best >= 2u;
+}
 
 #define SHEET_W 960u
 #define SHEET_H (((NPALETTES + 3u) / 4u) * 124u)
@@ -141,6 +188,27 @@ int main(int argc, char **argv)
     palette_set(6);
     cv_begin(3, 1, T_BG); cv_text(0, 0, &probe, "A", T_THEME);
     assert(cv_peek(1) != green);
+    /* 4-bit canvas: THEME on SURF must keep the middle bar of 3 / S (card values, preset engine names) */
+    for (unsigned p = 0; p < NPALETTES; p++) {
+        palette_set(p);
+        assert(glyph_mid_run(&AF_M, "3", T_THEME, T_SURF));
+        assert(glyph_mid_run(&AF_S, "S", T_THEME, T_SURF));
+        assert(glyph_mid_run(&AF_S, "3", T_THEME, T_SURF));
+    }
+    /* expand buffer must not change while a blit is in flight; graph strip fewer transfers than 1 row each */
+    {
+        uint32_t want;
+        palette_set(0);
+        lcd_nblit = 0;
+        cv_begin(240, 124, T_BG);
+        cv_rect(0, 0, 240, 124, T_SURF);
+        cv_text(8, 40, &AF_M, "PHAS", T_THEME);
+        cv_blit(0, 0);
+        lcd_sync();
+        want = (124u + CV_STRIP - 1u) / CV_STRIP;
+        assert(lcd_nblit == want);
+        assert(lcd_nblit < 124u);
+    }
     /* fonts: Terminus S 12 px (6x12), M 16 px (8x16 1x), L 32 px (8x16 2x); monospace digits; the ellipsis; L capitals only */
     assert(AF_S.h == 12 && AF_S.asc == 10 && AF_M.h == 16 && AF_M.asc == 12 && AF_L.h == 32 && AF_L.asc == 24);
     assert(text_w(&AF_M, "0000") == text_w(&AF_M, "1111") && text_w(&AF_S, "1.25") == text_w(&AF_S, "8.75"));

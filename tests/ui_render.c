@@ -2175,6 +2175,27 @@ int main(int argc, char **argv)
         fprintf(rep, "(self-test: %u findings above are expected)\n\n", nfind);
         nfind = 0;
     }
+    {   /* MONO EFFECTS: selected row is a THEME bar (list style); idle rows stay on SURF */
+        uint32_t x, ns = 0, nss = 0, ni = 0, nis = 0, sy, iy;
+        uint16_t tw, sw;
+        setup(S_FX);
+        pal(UI_BW_INDEX);
+        draw(S_FX);
+        tw = swap16(T_THEME);
+        sw = swap16(T_SURF);
+        sy = Y_GRAPH + 2u + (uint32_t)ui.ior_sel * 11u + 5u;
+        iy = Y_GRAPH + 2u + 5u;                      /* row 0 idle */
+        for (x = 12; x < 80u; x++) {
+            uint16_t a = host_screen[sy * 240u + x], b = host_screen[iy * 240u + x];
+            if (a == tw) ns++; else if (a == sw) nss++;
+            if (b == tw) ni++; else if (b == sw) nis++;
+        }
+        if (!(ns > nss && nis > ni)) {
+            fprintf(stderr, "ui_render: MONO EFFECTS highlight: sel THEME/SURF %u/%u, idle %u/%u\n",
+                    ns, nss, ni, nis);
+            return 1;
+        }
+    }
     for (p = 0; p < NPALETTES; p++)
         for (s = 0; s < S_COUNT; s++) {
             char name[64];
