@@ -300,8 +300,9 @@ Hold **HOME** for the menu, in five tabs: **DISPLAY** (COLOR, LARGE, LEDS, SCREE
 **CONTROL** (HOLD, FX LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW, CHORD ENTRY), **AUDIO** (SPEAKER EQ,
 USB LEVEL, CLICK, CLICK LEVEL, COUNT-IN, TUNE), **MIDI** (MIDI IN, LEARN CLEAR) and **SYSTEM** (USB SERIAL,
 RESTORE LAST, HELP, HARDWARE CALIBRATION, INFO, ABOUT).
-ALGORITHM moves between the tabs and PRESETS through the rows of one; any of KNOB 1-4, or OCT+ / OCT−,
-changes the value (OCT+ opens HARDWARE CALIBRATION, INFO and ABOUT); press HOME to close the menu. Every new
+SELECT moves between the tabs and ALGORITHM through the rows of one (PRESETS is idle there; ALGORITHM also scrolls
+ABOUT); any of KNOB 1-4, or OCT+ / OCT−, changes the value (OCT+ opens HARDWARE CALIBRATION, INFO and ABOUT); press
+HOME to close the menu. Every new
 setting defaults to the earlier behaviour. The web editor's Settings tab reads and changes them too, saved the same
 way as from the menu, in the same tabs. STYLE, ANIM and KNOB ACCEL are gone from the menu (always flat, no UI
 animations; knob acceleration always on for wide values).

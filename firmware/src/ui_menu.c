@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Felucca menu (HOME held): its rows in tabs (1.0.5: DISPLAY CONTROL AUDIO SYSTEM; 1.2: MIDI before SYSTEM; ALGORITHM
- * between them, PRESETS within one; no scrolling), the rows in menu_items.c (the settings, shared with the editor's
- * MENU_DESC / MENU_SET; 1.2: TUNE and MIDI IN, the project's). No BACK row: HOME closes it (ui_input.c). The two-valued
- * rows are bits of ui_prefs (MENU_FLAGS). PRESETS scrolls from ABOUT through all credits (OCT- back to the tabs).
- * ui.menu: 1 the tabs, 2 ABOUT (information and credits), 3 INFO (1.2: the device's state, the old SYSTEM page's USB and
- * CPU readings). */
+/* Felucca menu (HOME held): its rows in tabs (1.0.5: DISPLAY CONTROL AUDIO SYSTEM; 1.2: MIDI before SYSTEM; SELECT
+ * between them, ALGORITHM within one; PRESETS idle; no scrolling), the rows in menu_items.c (the settings, shared with
+ * the editor's MENU_DESC / MENU_SET; 1.2: TUNE and MIDI IN, the project's). No BACK row: HOME closes it (ui_input.c).
+ * The two-valued rows are bits of ui_prefs (MENU_FLAGS). ALGORITHM scrolls from ABOUT through all credits (OCT- back to
+ * the tabs). ui.menu: 1 the tabs, 2 ABOUT (information and credits), 3 INFO (1.2: the device's state, the old SYSTEM
+ * page's USB and CPU readings). */
 /* ------------------------------------------------------------ menu --- */
 /* (the rows, their values and names, usb_serial_apply: menu_items.c) */
 
@@ -183,7 +183,7 @@ static void menu_head(void)
  *                   between them; the selected row THEME with INK, as the browser's. A value THEME (M) at the right,
  *                   ON / OFF as a switch, COLOR its palette's five colours, CALIBRATION and ABOUT a chevron (OCT+
  *                   opens them); the labels in M too (a list's rows). LARGE: 28 px rows (a tab of up to 5)
- *   keys   224      ALGO TAB, PRESETS ROW, OCT-/+ VALUE (any of KNOB 1..4 too; CALIBRATION, ABOUT: OCT+ OPEN). HOME
+ *   keys   224      SELECT TAB, ALGO ROW, OCT-/+ VALUE (any of KNOB 1..4 too; CALIBRATION, ABOUT: OCT+ OPEN). HOME
  *                   CLOSE is in the header: the four would not fit in S (cv_key_row drops words, from the last)
  * Drawn in two bands (the canvas holds 124 rows) split in a gap between two rows; while the tabs slide only their
  * strip (24..58) is drawn again */
@@ -404,9 +404,9 @@ static uint32_t menu_split(uint32_t n)
 }
 static void draw_menu(void)
 {
-    static const khint_t KEYS[3][3] = {{{KC_ALGO, "TAB"}, {KC_PRESETS, "ROW"}, {KC_OCTPM, "VALUE"}},
-                                       {{KC_ALGO, "TAB"}, {KC_PRESETS, "ROW"}, {KC_OCTUP, "OPEN"}},
-                                       {{KC_ALGO, "TAB"}, {KC_PRESETS, "ROW"}, {KC_OCTUP, "CLEAR"}}};
+    static const khint_t KEYS[3][3] = {{{KC_SELECT, "TAB"}, {KC_ALGO, "ROW"}, {KC_OCTPM, "VALUE"}},
+                                       {{KC_SELECT, "TAB"}, {KC_ALGO, "ROW"}, {KC_OCTUP, "OPEN"}},
+                                       {{KC_SELECT, "TAB"}, {KC_ALGO, "ROW"}, {KC_OCTUP, "CLEAR"}}};
     uint32_t pass, k, first, n, split, sig;
     int32_t pos0 = mt.pos;
     if (ui.menu == 1)
@@ -458,7 +458,7 @@ static void draw_menu(void)
             cv_blit(0, H_HEAD + pass * 124u);
         }
         cv_begin(240, 240 - (H_HEAD + MENU_DOC_H), T_BG);
-        cv_key_hint(8, 4, KC_PRESETS, "SCROLL", 1, T_BG);
+        cv_key_hint(8, 4, KC_ALGO, "SCROLL", 1, T_BG);
         cv_blit(0, H_HEAD + MENU_DOC_H);
         return;
     }
@@ -497,17 +497,17 @@ static void menu_close(void)
     go_home();
 }
 
-/* menu: ALGORITHM steps between the tabs, PRESETS between the rows of one (both wrap; a tab comes back at the row
- * last picked in it), any of KNOB 1..4 or OCT+ / OCT- change a value (menu_items.c menu_step), OCT+ opens CALIBRATION /
- * INFO / ABOUT (OCT- nothing there); OCT- in INFO and ABOUT goes back to the tabs. HOME closes it, from them too
- * (ui_input.c) */
-static void menu_move(int32_t s)                       /* PRESETS: the next / previous row of the tab */
+/* menu: SELECT steps between the tabs, ALGORITHM between the rows of one (both wrap; a tab comes back at the row last
+ * picked in it); PRESETS idle. Any of KNOB 1..4 or OCT+ / OCT- change a value (menu_items.c menu_step), OCT+ opens
+ * CALIBRATION / INFO / ABOUT (OCT- nothing there); OCT- in INFO and ABOUT goes back to the tabs. HOME closes it, from
+ * them too (ui_input.c) */
+static void menu_move(int32_t s)                       /* ALGORITHM: the next / previous row of the tab */
 {
     uint32_t t = menu_tab(), f = mtab_first(t), n = mtab_rows(t), k = (ui.menu_sel - f + (s > 0 ? 1u : n - 1u)) % n;
     ui.menu_sel = (uint8_t)(f + k);
     ui.menu_row[t] = (uint8_t)k;
 }
-static void menu_tab_go(int32_t s)                     /* ALGORITHM: the next / previous tab, at its last row */
+static void menu_tab_go(int32_t s)                     /* SELECT: the next / previous tab, at its last row */
 {
     uint32_t t = menu_tab(), k;
     ui.menu_row[t] = (uint8_t)(ui.menu_sel - mtab_first(t));
@@ -519,18 +519,18 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
 {
     int32_t s;
     uint32_t k, up = (oct >> 1) & 1u, dn = oct & 1u;
-    if (ui.menu >= 2) {                                /* ABOUT: PRESETS scrolls (bounded); INFO, ABOUT: OCT- back to
+    if (ui.menu >= 2) {                                /* ABOUT: ALGORITHM scrolls (bounded); INFO, ABOUT: OCT- back to
                                                         * the tabs */
         if (dn)
             ui.menu = 1, ui.force = 1;
-        else if (ui.menu == 2 && (s = panel_enc(EN_PRESET)) != 0)
+        else if (ui.menu == 2 && (s = panel_enc(EN_ALGO)) != 0)
             ui.menu_scroll = (uint16_t)clamp((int32_t)ui.menu_scroll + clamp(s, -128, 128) * 18, 0, menu_scroll_max());
         enc_drop();
         return;
     }
-    if ((s = panel_enc(EN_PRESET)) != 0)
-        menu_move(s);
     if ((s = panel_enc(EN_ALGO)) != 0)
+        menu_move(s);
+    if ((s = panel_enc(EN_SELECT)) != 0)
         menu_tab_go(s);
     for (s = 0, k = 0; k < 4u; k++)                    /* KNOB 1..4, any of them */
         s += panel_enc(EN_K1 + k);
