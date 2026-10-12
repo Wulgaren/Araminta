@@ -1264,7 +1264,7 @@ static void draw_columns(void)
 
 /* The power-on splash (main.c fm1_main, web/emu felucca_web.c): full black screen, the mark (r=sin(b·θ) rose in
  * ui_splash_logo.h), ARAMINTA and the version in AF_M centred, "based on Felucca" in AF_S lower. Fixed black /
- * white, outside the palettes (settings_init before it). */
+ * white: the mark blits raw; the lines use a temporary GREY+black LUT so pads are not theme-tinted. */
 #include "ui_splash_logo.h"
 #define SPL_BLACK RGB(0, 0, 0)
 #define SPL_WHITE ((uint16_t)((31u << 11) | (62u << 5) | 31u))  /* ux_gray(31): GREY's R=B, G=2R */
@@ -1288,11 +1288,18 @@ static void draw_splash_logo(void)
 }
 static void draw_splash(void)
 {
+    /* Indexed text: SPL_BLACK snaps to T_BG under a chromatic theme. GREY with BG forced black
+     * keeps true black pads and grey-axis AA; then restore the user's palette. */
     lcd_fill(0, 0, 240, 240, SPL_BLACK);
     draw_splash_logo();
+    palette_set(UI_GREY_INDEX);
+    ux.bg = ux.surf = ux.ink = SPL_BLACK;
+    cv_lut_build();
+    ux.gen++;
     draw_text_line(0, SPL_NAME_Y, 240, &AF_M, SPLASH_LINES[0], SPL_WHITE, SPL_BLACK, 1);
     draw_text_line(0, SPL_NAME_Y + SPL_PITCH, 240, &AF_M, SPLASH_LINES[1], SPL_WHITE, SPL_BLACK, 1);
     draw_text_line(0, 208, 240, &AF_S, SPLASH_LINES[2], SPL_WHITE, SPL_BLACK, 1);
+    palette_set(settings.palette);
 }
 
 /* UPDATE MODE countdown (main.c: OCT- + OCT+ held): over everything, the menu and the dialogs too */
