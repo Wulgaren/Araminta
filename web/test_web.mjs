@@ -53,8 +53,8 @@ async function editorMock() {
   inp.onmidimessage = (e) => link.receive(e.data);
   const rq = async (r, o) => link.request(r, o);
   const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
-  ok(info.nengines === 14 && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "SLICE"
- && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "GRAIN" && info.engines[9] === "PHYS" && info.engines[10] === "DRUM" && info.engines[11] === "NOISE" && info.pcount === 111 && info.pe0 === 103 && info.engines[4] === "SAMPLE",
+  ok(info.nengines === 14 && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "-"
+ && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "GRAIN" && info.engines[9] === "PHYS" && info.engines[10] === "DRUM" && info.engines[11] === "NOISE" && info.pcount === 127 && info.pe0 === 119 && info.engines[4] === "SAMPLE",
     "editor: INFO");
   let descs = 0;
   for (let i = 0; i < info.pcount; i++) if (E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))).label) descs++;
@@ -76,13 +76,15 @@ async function editorMock() {
   }
   {
     /* the modulation matrix (core.h P_M1SRC..P_M4AMT = 49..60, just before P_E0 61): SRC / DST / AMT x 4, the
-       DST names (20: more than 16) over DESC, every slot OFF after a factory preset (ui.c apply_preset_to) */
+       DST names over DESC, every slot OFF after a factory preset (ui.c apply_preset_to) */
     const md = [];
     for (let i = 49; i < 61; i++) md.push(E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))));
     ok(md.map((d) => d.label).join() === "SRC1,DST1,AMT1,SRC2,DST2,AMT2,SRC3,DST3,AMT3,SRC4,DST4,AMT4"
-      && md[0].names.join() === "OFF,LFO,ENV,VEL,KEY,RAND,MODW,AT,EXPR,S&H,SLEW" && md[1].names.length === 21
-      && md[1].names[11] === "VIB" && md[1].names[19] === "E8" && md[1].names[20] === "DEPTH" && md[2].min === -64 && md[2].max === 63 && md.every((d) => d.def === 0),
-      "editor: matrix parameters 49..60 over DESC (21 DST names: DEPTH appended; S&H SLEW)");
+      && md[0].names.join() === "OFF,LFO,ENV,VEL,KEY,RAND,MODW,AT,EXPR,S&H,SLEW" && md[1].names.length === 44
+      && md[1].names[11] === "VIB" && md[1].names[19] === "E8" && md[1].names[20] === "DEPTH" && md[1].names[23] === "SDEP"
+      && md[1].names[25] === "VOIC" && md[1].names[26] === "TONE" && md[1].names[27] === "DMIX" && md[1].names[43] === "HDEP"
+      && md[2].min === -64 && md[2].max === 63 && md.every((d) => d.def === 0),
+      "editor: matrix parameters 49..60 over DESC (44 DST names: insert knobs+MIX; S&H SLEW)");
     await rq(E.req.set(0, 52, 1));
     await rq(E.req.set(0, 53, 12));
     await rq(E.req.set(0, 54, -30));
@@ -132,11 +134,11 @@ async function editorMock() {
   const names = [];
   for (let e = 0; e < info.nengines; e++) names.push(E.parse[E.CMD.NAMES](await rq(E.req.names(e))).names);
   let prefs = await E.readDevicePreferences(rq, info, names);
-  ok(info.uiCaps === 9 && prefs.palettes.length === 10 && prefs.palettes[0] === "GREY" && prefs.palettes.includes("HI-CON") && prefs.palettes[8] === "NIGHT" && prefs.palettes[9] === "MONO",
+  ok(info.uiCaps === 9 && prefs.palettes.length === 9 && prefs.palettes[0] === "GREY" && prefs.palettes.includes("HI-CON") && prefs.palettes[8] === "NIGHT" && !prefs.palettes.includes("MONO"),
      "editor: preference capabilities (palette, favorites) and palette names");
   const pal = E.parse[E.CMD.UI_SET](await rq(E.req.uiSet(0, 2)));
   ok(pal.rc === 0 && pal.palette === 2, "editor: display preference 0 (palette) round trip");
-  ok(E.parse[E.CMD.UI_SET](await rq(E.req.uiSet(0, 10))).rc === 1, "editor: out-of-range palette refused");
+  ok(E.parse[E.CMD.UI_SET](await rq(E.req.uiSet(0, 9))).rc === 1, "editor: out-of-range palette refused");
   ok(E.parse[E.CMD.UI_SET](await rq(E.req.uiSet(1, 1))).rc === 2, "editor: the retired font weight answers not supported");
   ok(E.parse[E.CMD.FAV_SET](await rq(E.req.favSet(info.nengines, 31, true))).rc === 1, "editor: empty user slot cannot be favorited");
   await rq(E.req.favSet(0, 0, true));
@@ -158,8 +160,8 @@ async function editorMock() {
   ok(!prefs.favorites[info.nengines][31] && !E.devicePresetRows(info, names, prefs).some((r) => r.user), "editor: erased slot disappears and loses star");
   {   /* the lists in the device's order (engines.c ENGINE_ORDER): FM6 second, DRUM last, "-" never; the numbers stay */
     const shown = E.engineOrder(info.engines).map((i) => info.engines[i]);
-    ok(shown.join() === "ANALOG,FM6,PHASE,LOFI,SAMPLE,VOICE,TRIO,WHEEL,GRAIN,PHYS,NOISE,SLICE,DRUM" &&
-       E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines)[12] === 10,
+    ok(shown.join() === "ANALOG,FM6,PHASE,LOFI,SAMPLE,VOICE,TRIO,WHEEL,GRAIN,PHYS,NOISE,DRUM" &&
+       E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines).at(-1) === 10,
        "editor: engines listed FM6 second, DRUM last (indices kept)");
     ok(E.engineOrder(["ANALOG", "X", "-", "DRUM", "FM6"]).join() === "0,4,3,1", "editor: an unknown engine follows the known ones");
     m.state.favorites[10][0] = m.state.favorites[12][0] = true;
@@ -201,8 +203,8 @@ async function editorMock() {
        "editor: MENU_SET round trip (LEDS INV)");
     const pal = m.state.palette;
     r = E.parse[E.CMD.MENU_SET](await rq(E.req.menuSet(0, 50)));
-    ok(r.rc === 0 && r.value === 9 && E.parse[E.CMD.UI_STATE](await rq(E.req.uiState())).palette === 9,
-       "editor: MENU_SET clamps (COLOR 50 -> 9), the same setting as UI_SET 0");
+    ok(r.rc === 0 && r.value === 8 && E.parse[E.CMD.UI_STATE](await rq(E.req.uiState())).palette === 8,
+       "editor: MENU_SET clamps (COLOR 50 -> 8), the same setting as UI_SET 0");
     r = E.parse[E.CMD.MENU_SET](await rq(E.req.menuSet(14, 1)));
     ok(r.rc === 0 && r.id === 14 && r.value === 1 && E.parse[E.CMD.MENU_DESC](await rq(E.req.menuDesc(14))).value === 1,
        "editor: MENU_SET round trip (1.1: COUNT-IN 1 BAR)");
@@ -265,20 +267,17 @@ async function editorMock() {
     const rd = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 14)));
     const r1 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 5)));
     const r0 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 0)));
-    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 27,
+    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 30,
       "editor: MIDI IN routing (ROUT CH1-4 / SEL / CH5-8 / CH9-12 / CH13-16, global id 14)");
   }
   {
-    /* FX > REVERB TYPE (G_RTYPE 24, the old drum channel's id): ROOM (0) / SPRING (1) / HALL (2, 1.2: the default);
-     * G_COUNT unchanged; 10 clamps to the last */
+    /* FX > REVERB TYPE (G_RTYPE 24): ROOM / SPRING / HALL / SHIMR / CLOUD; CHAIN tank adds G_CR* (G_COUNT 30) */
     const rd = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 24)));
     const r1 = E.parse[E.CMD.SET](await rq(E.req.set(1, 24, 10)));
     const r0 = E.parse[E.CMD.SET](await rq(E.req.set(1, 24, 0)));
-    const inert = [25, 26].map(async (id) => E.parse[E.CMD.DESC](await rq(E.req.desc(1, id))));
-    const [d25, d26] = await Promise.all(inert);
-    ok(rd.label === "TYPE" && rd.def === 2 && eq(rd.names, ["ROOM", "SPRING", "HALL"]) && r1.value === 2 && r0.value === 0 &&
-       d25.label === "-" && d26.label === "-" && d25.max === 0 && info.gcount === 27,
-      "editor: REVERB TYPE (ROOM / SPRING / HALL, global id 24; 25, 26 still inert)");
+    ok(rd.label === "TYPE" && rd.def === 2 && eq(rd.names, ["ROOM", "SPRING", "HALL", "SHIMR", "CLOUD"]) &&
+       r1.value === 4 && r0.value === 0 && info.gcount === 30,
+      "editor: REVERB TYPE (ROOM / SPRING / HALL / SHIMR / CLOUD, global id 24)");
   }
   const st = E.parse[E.CMD.STEP_SET](await rq(E.req.stepSet(5, { n: 2, notes: [60, 64], time: 0, flags: 1, vel: 100 })));
   ok(st.n === 2 && st.notes[1] === 64 && st.vel === 100, "editor: STEP_SET");
@@ -287,13 +286,25 @@ async function editorMock() {
   /* sample upload as smpUpload() does it */
   const s = Int16Array.from({ length: 3000 }, (_, i) => Math.round(8000 * Math.sin(i / 7)));
   const { hdr, data } = E.buildSlot("test", [{ s, root: 60 }]);
+  ok(hdr[7] === 0, "editor: buildSlot default rsv (no drum grid)");
   let rc = E.parse[E.CMD.SMP_BEGIN](await rq(E.req.smpBegin(1), { timeout: 1000, retries: 0 })).rc;
   for (let off = 0; off < data.length && !rc; off += 256) {
     rc = E.parse[E.CMD.SMP_WRITE](await rq(E.req.smpWrite(1, E.SMP.DATA_OFF + off, data.subarray(off, off + 256)), { timeout: 1000 })).rc;
   }
   rc = rc || E.parse[E.CMD.SMP_END](await rq(E.req.smpEnd(1, hdr), { timeout: 2000, retries: 0 })).rc;
   const si = E.parse[E.CMD.SMP_INFO](await rq(E.req.smpInfo()));
-  ok(rc === 0 && si.slots[1].zones === 1 && si.slots[1].name === "TEST", "editor: sample upload (CRC checked by the mock)");
+  ok(rc === 0 && si.slots[1].zones === 1 && !si.slots[1].drum && si.slots[1].name === "TEST",
+    "editor: sample upload (CRC checked by the mock)");
+  const drum = E.buildSlot("kit78", [{ s, root: 36 }], { drumGrid: true });
+  ok(drum.hdr[7] === 1, "editor: buildSlot drumGrid sets FSMP hdr.rsv bit 0");
+  rc = E.parse[E.CMD.SMP_BEGIN](await rq(E.req.smpBegin(0), { timeout: 1000, retries: 0 })).rc;
+  for (let off = 0; off < drum.data.length && !rc; off += 256) {
+    rc = E.parse[E.CMD.SMP_WRITE](await rq(E.req.smpWrite(0, E.SMP.DATA_OFF + off, drum.data.subarray(off, off + 256)), { timeout: 1000 })).rc;
+  }
+  rc = rc || E.parse[E.CMD.SMP_END](await rq(E.req.smpEnd(0, drum.hdr), { timeout: 2000, retries: 0 })).rc;
+  const si2 = E.parse[E.CMD.SMP_INFO](await rq(E.req.smpInfo()));
+  ok(rc === 0 && si2.slots[0].zones === 1 && si2.slots[0].drum && si2.slots[0].name === "KIT78",
+    "editor: SMP_INFO bit 6 reports drum kit grid");
   /* a device that never answers */
   const dead = new E.Link(() => {}, { timeout: 30 });
   const err = await dead.request(E.req.info(), { retries: 1 }).then(() => null, (e) => e.message);
@@ -309,9 +320,11 @@ async function editorSamplePresets() {
   const names = E.parse[C.NAMES](await rq(E.req.names(4)));
   await rq(E.req.preset(4, 0));
   const set = E.parse[C.DESC](await rq(E.req.desc(0, info.pe0)));
-  ok(eq(names.names, ["PIANO", "PIANO", "FLUTE", "SAX"]) && eq(set.names.slice(0, 4), ["PIANO", "PIANO", "FLUTE", "SAX"])
+  ok(eq(names.names, ["PIANO", "PIANO", "FLUTE", "SAX", "PIANO"]) && eq(set.names.slice(0, 4), ["PIANO", "PIANO", "FLUTE", "SAX"])
     && set.names[4] === "PIANO" && eq(set.names.slice(5), ["USR1", "USR2", "USR3"]),
     "SAMPLE: TRANH and PERC removed, SET 1 and 4 kept as PIANO aliases, indices unchanged");
+  const slice = E.parse[C.NAMES](await rq(E.req.names(13)));
+  ok(info.engines[13] === "-" && !slice.names.length, "SLICE retired: engine 13 reserved");
   ok(E.aliasOf(names.names, 1) === 0 && E.aliasOf(names.names, 2) === 2 && E.aliasOf(set.names, 5) === 5 &&
      E.aliasOf(set.names, 4) === 0, "SAMPLE: an entry named like an earlier one is an alias of it");
   const alias = E.parse[C.PRESET](await rq(E.req.preset(4, 1)));
@@ -320,14 +333,13 @@ async function editorSamplePresets() {
   ok(alias.preset === 0 && setAlias.value === 0 && setPerc.value === 0,
     "SAMPLE: preset 1 and SET 1 / 4 (once TRANH, PERC) land on PIANO");
   await rq(E.req.preset(10, 0));
+  const dumpDx = E.parse[C.DUMP](await rq(E.req.dump()), info);
   const kitD = E.parse[C.DESC](await rq(E.req.desc(0, info.pe0)));
   const kitSet = [];
-  for (const v of [1, 2, 3]) kitSet.push(E.parse[C.SET](await rq(E.req.set(0, info.pe0, v))).value);
-  ok(eq(kitD.names, ["STD", "66", "10", "77", "80", "10", "66", "55", "77"]) &&
-     eq([0, 1, 2, 3, 4, 5, 6, 7, 8].map((v) => E.aliasOf(kitD.names, v)), [0, 6, 5, 8, 4, 5, 6, 7, 8]) &&
-     eq(E.enumShown(kitD).filter((v) => E.aliasOf(kitD.names, v) === v).map((v) => kitD.names[v]), ["STD", "80", "10", "66", "55", "77"]) &&
-     eq(kitSet, [6, 5, 8]),
-    "DRUM: KIT 1..3 (once HAND CYM H+CYM) named 66 10 77, aliases of 6 5 8: hidden, a SET lands there");
+  for (const v of [0, 64, 127]) kitSet.push(E.parse[C.SET](await rq(E.req.set(0, info.pe0, v))).value);
+  ok(dumpDx.engine === 10 && kitD.label === "MRPH" && kitD.fmt === E.F.PCT && kitD.min === 0 && kitD.max === 127 &&
+     kitD.def === 64 && kitSet[0] === 0 && kitSet[1] === 64 && kitSet[2] === 127,
+    "DRUM-X: P_E0 is MRPH F_PCT 0..127 (Felucca KIT enum retired)");
   const removed = E.parse[C.PRESET](await rq(E.req.preset(4, 4)));
   const kit = E.parse[C.DUMP](await rq(E.req.dump()), info);
   ok(removed.engine === 10 && removed.preset === 0 && kit.engine === 10 && eq(kit.p.slice(info.pe0), E.DRUM_KIT_E),
@@ -372,9 +384,9 @@ function mockTables() {
     ok(ph.name === "PHYS" && ph.edit[0].names.join() === "MODAL,STRNG,MEMB,SYMP" && ph.edit[0].max === 3 &&
        ph.presets.length === 9 && !ph.presets.some((p) => p.name === "RAIN" || p.name === "DRUM KIT"),
        "editor: PHYS models MODAL STRNG MEMB SYMP (no DUST, no DRUM), 9 presets");
-    ok(dr.name === "DRUM" && dr.edit.map((d) => d.label).join() === "KIT,TUNE,TONE,DECY,SNAP,ACC,KICK,DRV" &&
-       dr.presets.length === 1 && dr.presets.every((p) => p.pat === 12),
-       "editor: DRUM engine 10 (KIT TUNE TONE DECY SNAP ACC KICK DRV), one kit suggesting BEAT");
+    ok(dr.name === "DRUM" && dr.edit.map((d) => d.label).join() === "MRPH,TUNE,TONE,DECY,NOIS,FM,FOLD,DRV" &&
+       dr.presets.length === 1 && dr.presets[0].name === "DRUM-X" && dr.presets.every((p) => p.pat === 12),
+       "editor: DRUM engine 10 (MRPH TUNE TONE DECY NOIS FM FOLD DRV), DRUM-X suggesting BEAT");
   }
   const dj = DESC;
   if (!existsSync(dj)) { console.log("editor: mock tables == firmware (no build/host/desc.json)        skip"); return; }
@@ -430,18 +442,20 @@ function mockTables() {
   /* #48: every list's order in the editor == the order the device's knobs step it (descdump SHOWN: param_turn);
      the note divisions longest first, with the triplets by their length */
   const shown = (d) => E.enumShown(d).filter((v) => E.aliasOf(d.names, v - d.min) === v - d.min).map((v) => d.names[v - d.min]);
-  const sd = (fw.SHOWN || []).filter(([sc, i, names]) => JSON.stringify(shown((sc ? T.GP : T.TP)[i])) !== JSON.stringify(names));
-  sd.slice(0, 5).forEach((x) => console.log("  SHOWN " + JSON.stringify(x) + " editor " + JSON.stringify(shown((x[0] ? T.GP : T.TP)[x[1]]))));
+  /* Knob walk (descdump SHOWN) keeps reserved ENG "-" slots; aliasOf would collapse them. */
+  const shownKnob = (d) => E.enumShown(d).map((v) => d.names[v - d.min]);
+  const sd = (fw.SHOWN || []).filter(([sc, i, names]) => JSON.stringify(shownKnob((sc ? T.GP : T.TP)[i])) !== JSON.stringify(names));
+  sd.slice(0, 5).forEach((x) => console.log("  SHOWN " + JSON.stringify(x) + " editor " + JSON.stringify(shownKnob((x[0] ? T.GP : T.TP)[x[1]]))));
   ok(fw.SHOWN && fw.SHOWN.length > 20 && !sd.length, `editor: enum lists in the device's knob order (${fw.SHOWN ? fw.SHOWN.length : 0} lists)`);
   const div = T.TP.find((d) => d.label === "DIV"), slr = T.TP.filter((d) => d.label === "RATE" && d.fmt === E.F.ENUM);
   ok(shown(div).join() === "4BAR,2BAR,1/1,1/2,1/4,1/8,8T,1/16,16T,1/32" &&
      slr.some((d) => shown(d).join() === "1/8,8T,1/16,16T,1/32,32T") && div.names[2] === "1/16",
      "editor: #48 DIV / RATE / TIME longest first (values unchanged: 2 is still 1/16)");
   const tim = T.GP.filter((d) => d.label === "TIME");
-  ok(tim.length === 1 && shown(tim[0]).join() === "4BAR,2BAR,1/1,1/2,1/4D,1/4,1/8D,1/8,1/16D,8T,1/16,16T,1/32" &&
+  ok(tim.length === 1 && shown(tim[0]).join() === "1/2,1/4D,1/4,1/8D,1/8,1/16D,8T,1/16,16T,1/32" &&
      tim[0].names.slice(0, 10).join() === "1/4,1/8,1/16,1/32,8T,16T,1/2,1/1,2BAR,4BAR" && tim[0].names[10] === "1/8D" &&
-     shown(div).length === 10,
-     "editor: 1.5.1 delay TIME: 1/8D 1/16D 1/4D appended (10..12), shown by length; DIV keeps its ten");
+     shown(tim[0]).length === 10 && shown(div).length === 10,
+     "editor: delay TIME knob 1/2..1/32 (no 1/1 2BAR 4BAR); dotted 10..12 stay; DIV keeps its ten");
   const swg = [T.TP, T.GP].flatMap((tb) => tb.filter((d) => d.label === "SWG"));
   ok(swg.length === 3 && swg.every((d) => E.fmtValue(d, 100)[0] === "100" && E.fmtValue(d, 50)[0] === "50") &&
      E.fmtValue({ fmt: swg[0].fmt, min: 0, max: 127 }, 127)[0] === "100" && E.fmtValue({ fmt: swg[0].fmt, min: 0, max: 127 }, 64)[0] === "50",
@@ -499,7 +513,7 @@ async function editorFm4() {
   want = E.FM4.convert(digital(5, d0.p), info.pe0);
   ok(d.engine === 12 && d.preset === 4 && eq(d.p, owned(want.p)) && E.FM6.name(E.FM6.unpack(await fm6Of())) === "PAD",
     "DIGITAL retired: PRESET 1 5 (its PAD) -> FM6, the converted patch named PAD, SLOT OWN, preset FM6 PAD");
-  /* library files of DIGITAL sounds: today's 111 parameters (P_E0 103), 91 (P_E0 83: before the DRUM lane levels),
+  /* library files of DIGITAL sounds: today's 127 parameters (P_E0 119), 91 (P_E0 83: before the DRUM lane levels),
      89 (P_E0 81), 69 (P_E0 61, no OP ENV) */
   const PC = info.pcount, PE = info.pe0;
   const base = Array.from({ length: PC }, (_, i) => (i < PE ? pdesc[i].def : 0));
@@ -553,8 +567,7 @@ async function editorFm4() {
     L.set(entry(), { keys, engines: info.engines });       /* (adopted before: the layout is the device's already) */
     await L.libAdopt(dv);
     ok(isFm6(L.lib()[0], pad) && L.written().length === 1, "library: .. also when the layout is unchanged (only those written)");
-    /* SAMPLE PERC (SET 4, retired after 1.0.2): libAdopt and a library file give DRUM's kit, the rest of the sound kept;
-       another SAMPLE set stays; adopted again: nothing to write */
+    /* SAMPLE PERC -> DRUM kit; other SAMPLE stays */
     const perc = base.slice(); perc[PE] = 4; perc[PE + 3] = 0; perc[0] = 77; perc[36] = 41;
     const flute = base.slice(); flute[PE] = 2;
     const isKit = (r) => r && r.engine === 10 && r.engineName === "DRUM" && eq(r.p.slice(0, PE), perc.slice(0, PE)) &&
@@ -568,14 +581,15 @@ async function editorFm4() {
     ok(isKit(c1) && c1.id === "c" && c1.tags.join() === "d" && e1.engine === 4 && eq(e1.p, flute) &&
       L.written().length === 1 && L.written()[0] === c1, "library: libAdopt turns its SAMPLE PERC sounds into DRUM's kit");
     await L.libAdopt(dv);
-    ok(isKit(L.lib()[0]) && L.written().length === 1, "library: .. adopted again: as it is (nothing more written)");
+    ok(isKit(L.lib()[0]) && L.lib()[1].engine === 4 && L.written().length === 1,
+      "library: .. adopted again: nothing to write");
     const fileP = { format: "felucca-library", version: 1, kind: "library", pCount: PC, pE0: PE, paramLabels: keys,
       engines: info.engines, patches: [{ name: "OLD PERC", engine: 4, engineName: "SAMPLE", params: perc, pattern: null, tags: [] },
         { name: "FLUTE", engine: 4, engineName: "SAMPLE", params: flute, pattern: null, tags: [] }] };
     const rp = E.readLibraryFile(fileP, ctx).patches;
     const one = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: 4, engineName: "SAMPLE", p: perc }, ctx).patches[0];
-    ok(isKit(rp[0]) && rp[1].engine === 4 && eq(rp[1].p, flute) && isKit(one),
-      "library file: a SAMPLE PERC patch imports as DRUM's kit (a single-patch file too)");
+    ok(isKit(rp[0]) && rp[1].engine === 4 && isKit(one),
+      "library file: SAMPLE PERC->DRUM, other SAMPLE stays");
   }
   /* put to the device: its DIGITAL values as engine 1 (the device converts them on load); read back as FM6 */
   let rc = await E.bank.put(rq, 9, { ...r91, engine: 1, p: r91.fm4 });
@@ -694,9 +708,9 @@ async function editorLibrarian() {
   const ctx = { keys, engines: info.engines, firmware: info.version, pe0: info.pe0 };
   const pts = [cap, { ...bass, engineName: info.engines[bass.engine], tags: ["bass", "device"] }];
   const file = JSON.parse(JSON.stringify(E.libraryFile("library", pts, ctx)));
-  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === 111 && file.paramLabels.length === 111 && file.paramLabels[81] === "CHRD" && file.paramLabels[82] === "VOIC" &&
+  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === 127 && file.paramLabels.length === 127 && file.paramLabels[81] === "CHRD" && file.paramLabels[82] === "VOIC" &&
     file.paramLabels[83] === "KICK" && file.paramLabels[90] === "BELL" && file.paramLabels.slice(91, 96).join() === "SYNC,TRIG,POL,QNTZ,SPRD" &&
-    file.paramLabels.slice(96, 103).join() === "INSRT,INS A,INS B,INS C,MIX,TYPE,ESYNC" &&
+    file.paramLabels[96] === "ORDER" && file.paramLabels[117] === "TYPE#2" && file.paramLabels[118] === "ESYNC" &&
     file.engines.length === 14,
     "library file: versioned, with P_COUNT, labels and engines");
   const back = E.readLibraryFile(file, ctx);
@@ -708,54 +722,54 @@ async function editorLibrarian() {
   const eng2 = ["PHASE", "ANALOG", "SAMPLE"];
   const fut = E.readLibraryFile(file, { keys: keys2, engines: eng2 });
   const p0 = fut.patches[0].p;
-  ok(fut.patches.length === 2 && p0.length === 112 && p0[5] === null && p0[6] === cap.p[5] && p0[111] === cap.p[110]
+  ok(fut.patches.length === 2 && p0.length === 128 && p0[5] === null && p0[6] === cap.p[5] && p0[127] === cap.p[126]
     && fut.patches[0].engine === 1 && fut.patches[1].engine === 0, "library file: other ids / engine order mapped by label and name");
   const lost = E.readLibraryFile({ ...file, patches: [{ ...file.patches[0], engineName: "WAVETABLE" }] }, ctx);
   ok(lost.patches.length === 0 && lost.skipped === 1, "library file: a patch for an unknown engine is skipped");
   const bankFile = E.libraryFile("bank", [{ ...g, engineName: "ANALOG", slot: 10 }], ctx);
   ok(bankFile.kind === "bank" && bankFile.patches[0].slot === 10 && E.readLibraryFile(bankFile, ctx).patches[0].slot === 10, "library file: bank export keeps slot numbers");
-  {   /* files from the 69-parameter firmware (P_E0 61): the engine's 8 land on E0..E7 (103..110), FM op ENV, the
+  {   /* files from the 69-parameter firmware (P_E0 61): the engine's 8 land on E0..E7 (119..126), FM op ENV, the
          chord keys and the lane levels stay unset */
-    const p69 = [...cap.p.slice(0, 61), ...cap.p.slice(103, 111)];
+    const p69 = [...cap.p.slice(0, 61), ...cap.p.slice(119, 127)];
     const sp = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: cap.engine, engineName: info.engines[cap.engine], p: p69 }, ctx).patches[0].p;
-    const keys69 = [...keys.slice(0, 61), ...keys.slice(103)];
+    const keys69 = [...keys.slice(0, 61), ...keys.slice(119)];
     const lp = E.readLibraryFile({ ...file, pCount: 69, paramLabels: keys69, patches: [{ ...file.patches[0], params: p69 }] }, ctx).patches[0].p;
     const nk = E.readLibraryFile({ ...file, paramLabels: undefined, patches: [{ ...file.patches[0], params: p69 }] }, ctx).patches[0].p;
-    const good = (q) => q.length === 111 && eq(q.slice(0, 61), cap.p.slice(0, 61)) && eq(q.slice(103), cap.p.slice(103)) && q.slice(61, 103).every((v) => v === null);
-    ok(good(sp) && good(lp) && good(nk), "library file: 69-parameter files (patch, labelled, unlabelled) map the engine's 8 to 103..110");
+    const good = (q) => q.length === 127 && eq(q.slice(0, 61), cap.p.slice(0, 61)) && eq(q.slice(119), cap.p.slice(119)) && q.slice(61, 119).every((v) => v === null);
+    ok(good(sp) && good(lp) && good(nk), "library file: 69-parameter files (patch, labelled, unlabelled) map the engine's 8 to 119..126");
   }
-  {   /* files from the 89-parameter firmware (P_E0 81, before the chord keys): the engine's 8 land on 103..110, the FM
+  {   /* files from the 89-parameter firmware (P_E0 81, before the chord keys): the engine's 8 land on 119..126, the FM
          op ENV in place, CHRD VOIC unset (left as the track has them), the lane levels unset */
-    const p89 = [...cap.p.slice(0, 81), ...cap.p.slice(103, 111)];
-    const keys89 = [...keys.slice(0, 81), ...keys.slice(103)];
+    const p89 = [...cap.p.slice(0, 81), ...cap.p.slice(119, 127)];
+    const keys89 = [...keys.slice(0, 81), ...keys.slice(119)];
     const sp = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: cap.engine, engineName: info.engines[cap.engine], p: p89 }, ctx).patches[0].p;
     const lp = E.readLibraryFile({ ...file, pCount: 89, pE0: 81, paramLabels: keys89, patches: [{ ...file.patches[0], params: p89 }] }, ctx).patches[0].p;
     const nk = E.readLibraryFile({ ...file, paramLabels: undefined, patches: [{ ...file.patches[0], params: p89 }] }, ctx).patches[0].p;
-    const good = (q) => q.length === 111 && eq(q.slice(0, 81), cap.p.slice(0, 81)) && q.slice(81, 103).every((v) => v === null) && eq(q.slice(103), cap.p.slice(103));
+    const good = (q) => q.length === 127 && eq(q.slice(0, 81), cap.p.slice(0, 81)) && q.slice(81, 119).every((v) => v === null) && eq(q.slice(119), cap.p.slice(119));
     ok(keys89[81] === "E0" && good(sp) && good(lp) && good(nk),
-      "library file: 89-parameter files (patch, labelled, unlabelled) map the engine's 8 to 103..110, the chord keys unset");
+      "library file: 89-parameter files (patch, labelled, unlabelled) map the engine's 8 to 119..126, the chord keys unset");
   }
-  {   /* files from 1.0.x (91 parameters, P_E0 83, before the DRUM lane levels): the engine's 8 land on 103..110, the
+  {   /* files from 1.0.x (91 parameters, P_E0 83, before the DRUM lane levels): the engine's 8 land on 119..126, the
          chord keys in place, the lane levels unset (a sound load sets them to 100 %) */
-    const p91 = [...cap.p.slice(0, 83), ...cap.p.slice(103, 111)];
-    const keys91 = [...keys.slice(0, 83), ...keys.slice(103)];
+    const p91 = [...cap.p.slice(0, 83), ...cap.p.slice(119, 127)];
+    const keys91 = [...keys.slice(0, 83), ...keys.slice(119)];
     const sp = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: cap.engine, engineName: info.engines[cap.engine], p: p91 }, ctx).patches[0].p;
     const lp = E.readLibraryFile({ ...file, pCount: 91, pE0: 83, paramLabels: keys91, patches: [{ ...file.patches[0], params: p91 }] }, ctx).patches[0].p;
     const nk = E.readLibraryFile({ ...file, paramLabels: undefined, patches: [{ ...file.patches[0], params: p91 }] }, ctx).patches[0].p;
-    const good = (q) => q.length === 111 && eq(q.slice(0, 83), cap.p.slice(0, 83)) && q.slice(83, 103).every((v) => v === null) && eq(q.slice(103), cap.p.slice(103));
+    const good = (q) => q.length === 127 && eq(q.slice(0, 83), cap.p.slice(0, 83)) && q.slice(83, 119).every((v) => v === null) && eq(q.slice(119), cap.p.slice(119));
     ok(keys91[83] === "E0" && good(sp) && good(lp) && good(nk),
-      "library file: 91-parameter files (1.0.x: patch, labelled, unlabelled) map the engine's 8 to 103..110, the lane levels unset");
+      "library file: 91-parameter files (1.0.x: patch, labelled, unlabelled) map the engine's 8 to 119..126, the lane levels unset");
   }
   {   /* files from 1.2 .. 1.4 (104 parameters, P_E0 96, before 1.5's INSERT, filter TYPE and ENV SYNC): the engine's 8 land
-         on 103..110, SPREAD and the rest in place, the INSERT, TYPE, ESYNC unset (a sound load sets them to OFF, LP, OFF) */
-    const p104 = [...cap.p.slice(0, 96), ...cap.p.slice(103, 111)];
-    const keys104 = [...keys.slice(0, 96), ...keys.slice(103)];
+         on 119..126, SPREAD and the rest in place, the INSERT, TYPE, ESYNC unset (a sound load sets them to OFF, LP, OFF) */
+    const p104 = [...cap.p.slice(0, 96), ...cap.p.slice(119, 127)];
+    const keys104 = [...keys.slice(0, 96), ...keys.slice(119)];
     const sp = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: cap.engine, engineName: info.engines[cap.engine], p: p104 }, ctx).patches[0].p;
     const lp = E.readLibraryFile({ ...file, pCount: 104, pE0: 96, paramLabels: keys104, patches: [{ ...file.patches[0], params: p104 }] }, ctx).patches[0].p;
     const nk = E.readLibraryFile({ ...file, paramLabels: undefined, patches: [{ ...file.patches[0], params: p104 }] }, ctx).patches[0].p;
-    const good = (q) => q.length === 111 && eq(q.slice(0, 96), cap.p.slice(0, 96)) && q.slice(96, 103).every((v) => v === null) && eq(q.slice(103), cap.p.slice(103));
+    const good = (q) => q.length === 127 && eq(q.slice(0, 96), cap.p.slice(0, 96)) && q.slice(96, 119).every((v) => v === null) && eq(q.slice(119), cap.p.slice(119));
     ok(keys104[96] === "E0" && good(sp) && good(lp) && good(nk),
-      "library file: 104-parameter files (1.2 .. 1.4: patch, labelled, unlabelled) map the engine's 8 to 103..110, the INSERT, TYPE, ESYNC unset");
+      "library file: 104-parameter files (1.2 .. 1.4: patch, labelled, unlabelled) map the engine's 8 to 119..126, the INSERT, TYPE, ESYNC unset");
   }
   const old = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: 0, preset: 4, engineName: "ANALOG", presetName: "ACID", p: d2.p, steps: E.stepsFromPattern(cap.pattern) }, ctx);
   ok(old.patches.length === 1 && eq(old.patches[0].p, d2.p) && js(old.patches[0].pattern) === js(cap.pattern), "library file: reads the old \"Save to file\" format");
@@ -860,7 +874,7 @@ async function editorLive() {
   const dump = E.parse[C.DUMP](await pend, info);
   const ch = ev.pushes.find((f) => f.cmd === C.CHANGED);
   const cv = ch && E.parse[C.CHANGED](ch.a);
-  ok(dump.p.length === 111 && ch && ch.pending === C.DUMP && cv.scope === 0 && cv.id === 9 && cv.value === kn.value && !ev.unknown.length,
+  ok(dump.p.length === 127 && ch && ch.pending === C.DUMP && cv.scope === 0 && cv.id === 9 && cv.value === kn.value && !ev.unknown.length,
     "live: CHANGED while DUMP waits -> push handler, reply still matched");
   const rl = m.sim.reload();
   m.sim.step(3);

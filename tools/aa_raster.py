@@ -165,6 +165,79 @@ def raster_font(spec, px, chars, tracking=0.0, gamma=1.0, tabular=True, kern_min
     return {"h": h, "asc": asc, "glyphs": glyphs, "kern": kern, "px": px, "phases": phases}
 
 
+def _upscale(px_, w, h, scale):
+    """integer nearest-neighbour enlargement of a w x h glyph"""
+    if scale == 1:
+        return px_
+    big = []
+    for y in range(h):
+        row = []
+        for x in range(w):
+            row += [px_[y * w + x]] * scale
+        big += row * scale
+    return big
+
+
+def raster_bdf(path, scale, chars):
+    """Terminus-style BDF (pixel font) -> the same dict as raster_font (1 phase, no kerning).
+
+    Cell = FONTBOUNDINGBOX; lit pixels are alpha 15. scale is an integer enlargement (1 = design size,
+    2 = Felucca 0.9's L face). Missing glyphs fall back to '?'.
+    """
+    path = Path(os.path.expanduser(path))
+    if not path.exists():
+        raise SystemExit(f"font not found: {path}")
+    lines = path.read_text(errors="replace").splitlines()
+    fbb = next(l for l in lines if l.startswith("FONTBOUNDINGBOX")).split()
+    cw, ch, fx, fy = int(fbb[1]), int(fbb[2]), int(fbb[3]), int(fbb[4])
+    base = ch + fy                                     # rows above the baseline
+    raw, i = {}, 0
+    while i < len(lines):
+        if lines[i].startswith("ENCODING"):
+            code = int(lines[i].split()[1])
+            j = i
+            while not lines[j].startswith("BBX"):
+                j += 1
+            bw, bh, bx, by = map(int, lines[j].split()[1:5])
+            dw, k = cw, i
+            while not lines[k].startswith("BITMAP"):
+                if lines[k].startswith("DWIDTH"):
+                    dw = int(lines[k].split()[1])
+                k += 1
+            rows = [int(r, 16) for r in lines[k + 1:k + 1 + bh]]
+            nbits = ((bw + 7) // 8) * 8
+            cell = [0] * (cw * ch)
+            top = base - (by + bh)
+            for r, bits in enumerate(rows):
+                for c in range(bw):
+                    if bits >> (nbits - 1 - c) & 1:
+                        x, y = bx + c, top + r
+                        if 0 <= x < cw and 0 <= y < ch:
+                            cell[y * cw + x] = 15
+            raw[code] = (dw, cell)
+            i = k + bh
+        i += 1
+    if ord("?") not in raw:
+        raise SystemExit(f"{path.name}: no '?' glyph")
+    glyphs = {}
+    for chs in chars:
+        code = ord(chs)
+        dw, cell = raw.get(code, raw[ord("?")])
+        big = _upscale(cell, cw, ch, scale)
+        bw, bh = cw * scale, ch * scale
+        # trim to ink (space stays empty)
+        xs = [x for y in range(bh) for x in range(bw) if big[y * bw + x]]
+        if not xs:
+            glyphs[chs] = (dw * scale * 16, [(0, 0, 0, 0, b"")])
+            continue
+        ys = [y for y in range(bh) for x in range(bw) if big[y * bw + x]]
+        x0, x1, y0, y1 = min(xs), max(xs) + 1, min(ys), max(ys) + 1
+        nib = [big[y * bw + x] for y in range(y0, y1) for x in range(x0, x1)]
+        glyphs[chs] = (dw * scale * 16, [(x0, y0, x1 - x0, y1 - y0, pack(nib))])
+    return {"h": ch * scale, "asc": base * scale, "glyphs": glyphs, "kern": {},
+            "px": ch * scale, "phases": 1}
+
+
 def raster_icon(spec, px, codepoint, gamma=1.0):
     """one icon glyph in a px x px cell (icon fonts are drawn on a square em) -> bytes (4-bit alpha)."""
     font = open_font(spec, px * SS)            # 16 x and box-filtered: hinting at px squashed flat glyphs

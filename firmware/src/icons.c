@@ -11,7 +11,7 @@
 #define ICON_CELL 12
 
 /* track k's indicator (1.0.2): not an icon of the font (its numerals alias at 12 to 16 px) but the digit 1..4 in
- * Inter Tight on a cushion, a rounded square in the keycap's language, drawn by cv_icon_on: the cushion in the
+ * Terminus on a cushion, a rounded square in the keycap's language, drawn by cv_icon_on: the cushion in the
  * icon's ink (the selected track's: the accent), the digit in what lies under it; rounded in every STYLE, as the
  * keycaps are. (filled: kept for the callers; every cushion is filled) */
 #define ICON_TRK 0xF0u                                /* + k (above ICON_COUNT, below ICON_AUTO) */
@@ -22,7 +22,8 @@ static int32_t cv_trk(int32_t x, int32_t y, uint32_t size, uint32_t k, uint16_t 
     char s[2] = {(char)('1' + k), 0};
     const aag_t *g = &f->g[glyph(f, (uint8_t)s[0])];
     int32_t in = size > 16u ? 2 : 0, w = (int32_t)size - 2 * in;
-    int32_t nud = k == 0u ? 1 : 0;   /* the 1's ink centred looks right of centre (its flag): nudged left 1 px (2 looked left) */
+    /* Terminus: bbox-centring leaves the 1's stem 1 px left of the cushion; nudge right (Inter Tight needed left) */
+    int32_t nud = k == 0u ? -1 : 0;
     cv_rrect(x + in, y + in, w, w, -(w / 4), fill, under);
     GFX_HOOK_ALIGN(x + in - nud, y + in, x + in + w - nud, y + in + w, AL_HV, "track cushion digit");   /* (the 1: measured against its nudge) */
     cv_text_on(x + in + (w - g->bw) / 2 - g->bx - nud, y + in + (w - g->bh) / 2 - g->by, f, s, under, fill);   /* its ink centred */
@@ -125,7 +126,8 @@ static const icon_map_t ICON_MAP[] = {
     /* fx sends, voice */
     {"DST", ICON_DIST}, {"CHO", ICON_CHORUS}, {"DLY", ICON_DELAY}, {"REV", ICON_REVERB},
     {"VCE", ICON_VOICE}, {"GLD", ICON_GLIDE}, {"GLMOD", ICON_GLIDE}, {"PRIO", ICON_ORDER},
-    {"ALLOC", ICON_VOICE}, {"DTUNE", ICON_DETUNE}, {"PAN", ICON_PAN}, {"MUTE", ICON_MUTE},
+    {"ALLOC", ICON_VOICE}, {"UNI DTN", ICON_DETUNE}, {"PAN", ICON_PAN}, {"MUTE", ICON_MUTE}, {"PLAY", ICON_MUTE},
+
     /* global */
     {"BPM", ICON_TEMPO}, {"CLK", ICON_TEMPO}, {"TUNE", ICON_TUNE}, {"TIME", ICON_TIME},
     {"FDBK", ICON_FEEDBACK}, {"COLR", ICON_TONE}, {"MIX", ICON_MIX}, {"SIZE", ICON_SIZE},
@@ -204,14 +206,6 @@ static uint32_t param_icon(const param_desc_t *d, int32_t v)
         return ICON_NOISE;                    /* NOISE's MODE is the source; its CLK the register clock */
     if (d == &NOISE_CLK)
         return ICON_RATE;
-#if FELUCCA_SLICE
-    if (d->names == N_SLC_DIV)
-        return ICON_SLICE;                    /* SLICE: DIV is the slicing, MODE the gate, REV the direction */
-    if (d->names == N_SLC_MODE)
-        return ICON_GATE;
-    if (d->names == N_SLC_REV)
-        return ICON_ORDER;
-#endif
     return icon_for_label(d->label);
 }
 
@@ -230,6 +224,10 @@ static uint32_t mod_dst_icon(const track_t *t, int32_t d)
     d = clamp(d, 0, MD_N - 1);
     if (d == MD_DEPTH)
         return ICON_LFO_WAVE;
+    if (MD_SLICER(d) || MD_CHORD(d) || MD_INS(d)) {
+        id = mod_param((uint32_t)d);
+        return param_icon(&TP[id], t->p[id]);
+    }
     if (d < MD_E1)
         return I[d];
     id = P_E0 + (uint32_t)(d - MD_E1);

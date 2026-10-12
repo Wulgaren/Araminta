@@ -357,12 +357,13 @@ static int route_block_test(void)
 static int cc_map_test(void)
 {
     static const struct { uint8_t cc; uint8_t id; } COMMON[] = {
-        {5, P_GLIDE}, {7, P_LEVEL}, {72, P_REL}, {73, P_ATK}, {75, P_DEC}, {91, P_REV}, {93, P_CHOR}, {94, P_DLY},
+        {5, P_GLIDE}, {7, P_LEVEL}, {72, P_REL}, {73, P_ATK}, {75, P_DEC}, {91, P_REV}, {93, P_IHMIX}, {94, P_DLY},
     };
-    int bad = 0, ok = 1; uint32_t i, e; int16_t before[P_COUNT];
+    int bad = 0, ok = 1; uint32_t i, e; int16_t before[P_COUNT], fxpos;
     midi_test_reset();
     bad += check("power-on parts: ANALOG, FM6, LOFI, DRUM", trk[0].eng_req == 0u && trk[1].eng_req == ENGI_FM6 &&
                  trk[2].eng_req == 3u && trk[3].eng_req == ENGI_DRUM);
+    fxpos = trk[0].p[P_CHOR];                          /* FXPOS: EFFECTS DLY/REV slots, not a send */
     for (i = 0; i < NELEM(COMMON); i++) {
         queued(0xB0, COMMON[i].cc, 127, 1);
         ok &= trk[0].p[COMMON[i].id] == TP[COMMON[i].id].max;
@@ -371,7 +372,9 @@ static int cc_map_test(void)
         queued(0xB0, COMMON[i].cc, 37, 1);
         ok &= trk[0].p[COMMON[i].id] == 37;
     }
-    bad += check("CC5 7 72 73 75 91 93 94: GLIDE LEVEL REL ATK DEC REV CHO DLY, 0..127 over their range", ok);
+    bad += check("CC5 7 72 73 75 91 93 94: GLIDE LEVEL REL ATK DEC REV CHOR-MIX DLY, 0..127 over their range", ok);
+    bad += check("CC93 sets insert CHOR MIX, leaves FXPOS (P_CHOR) alone",
+                 trk[0].p[P_IHMIX] == 37 && trk[0].p[P_CHOR] == fxpos);
     queued(0xB0, 10, 0, 1); ok = trk[0].p[P_PAN] == -64;
     queued(0xB0, 10, 127, 1); ok &= trk[0].p[P_PAN] == 63;
     queued(0xB0, 10, 64, 1); ok &= trk[0].p[P_PAN] == 0;
@@ -439,21 +442,27 @@ static int learn_test(void)
     queued(0xB0, 20, 99, 1);
     bad += check("  an unlearned CC changes nothing (as before)", !memcmp(before, trk[0].p, sizeof before));
 
-    /* on: GLO + D4 */
+    /* on: GLO + D4 (hold maps removed: combo toggles learn, no GLO map) */
     lay_combo(B_GLO, white(5)); key_up(white(5)); frame();
-    ok = ui.ml.on && msg_is("MIDI LEARN ON") && ui.layer == LAYER_GLO;
-    ok &= ((leds_at(0) | leds_at(250)) >> white(5)) & 1u;          /* (lit: on) */
+    ok = ui.ml.on && msg_is("MIDI LEARN ON") && !ui.layer;
     btn_up(B_GLO); frame();
-    bad += check("GLO + D4: MIDI LEARN on (the D4 cell / LED lit), the map closes with GLO", ok && ui.ml.on && !ui.layer);
+    bad += check("GLO + D4: MIDI LEARN on (hold map removed: no GLO layer)", ok && ui.ml.on && !ui.layer);
     queued(0xB0, 20, 99, 1); frame();
     bad += check("  no parameter picked yet: a CC learns nothing, sets nothing", !ml_count() &&
                  !memcmp(before, trk[0].p, sizeof before));
 
-    /* a knob picks (as it edits), a CC is learned */
+    /* a knob picks (as it edits), a CC is learned. ANALOG: CUT/RES live on EDIT > FILTER (EDIT 2 is hidden). */
     frames(300);                                                     /* (#39: the knobs quiet after a layer) */
-    go_title("EDIT 2");
+    {
+        uint32_t i;
+        for (i = 0; i < NPAGES && !(str_eq(PAGES[i].title, "FILTER") && PAGES[i].fam == FAM_EDIT); i++)
+            ;
+        ui.home = 0;
+        ui.page = (uint8_t)i;
+        page_entered();
+    }
     cut = trk[0].p[P_E4];
-    turn(EN_K1, -3);
+    turn(EN_K2, -3);                                                 /* FILTER: K2 CUT, K3 RES */
     ok = ui.ml.pick && ui.ml.trk == 0u && ui.ml.id == P_E4 && trk[0].p[P_E4] == cut - 3 && ml_arm;
     { char b[24]; ml_line(b); ok &= str_eq(b, "T1 CUT: SEND A CC"); }
     queued(0xB0, 1, 99, 1); queued(0xB0, 64, 127, 1); queued(0xB0, 64, 0, 1); queued(0xB0, 0, 5, 1);
@@ -463,12 +472,12 @@ static int learn_test(void)
     ok &= ml_count() == 1u && ml_entry(20, 0, P_E4) && msg_is("CC20 -> T1 CUT") && !ui.ml.pick && !ml_arm;
     ok &= trk[0].p[P_E4] == cut - 3;                                /* (the learning CC sets nothing itself) */
     { char b[24]; ml_line(b); ok &= str_eq(b, "LEARN: TURN A KNOB"); }
-    bad += check("  EDIT 2 KNOB 1 picks T1 CUT; CC1 / CC64 / CC0 are passed over; CC20 is learned", ok);
+    bad += check("  FILTER KNOB 2 picks T1 CUT; CC1 / CC64 / CC0 are passed over; CC20 is learned", ok);
     queued(0xB0, 20, 127, 1);
     ok = trk[0].p[P_E4] == 127;
     queued(0xB2, 20, 0, 1);                                          /* (channel 3: track 3's, still T1 CUT) */
     ok &= trk[0].p[P_E4] == 0;
-    turn(EN_K1, 1);
+    turn(EN_K2, 1);
     { char b[24]; ml_line(b); ok &= str_eq(b, "T1 CUT = CC20"); }
     bad += check("  CC20 sets T1 CUT on any channel ROUT hears; the knob again shows its CC", ok);
     song.g[G_ROUTE] = 0; queued(0xB9, 20, 64, 1);
@@ -487,19 +496,26 @@ static int learn_test(void)
     bad += check("  GLO + KNOB 2 picks T2 LEVEL; CC74 learned: T2 LEVEL, no more T1 CUT (the standard map)", ok);
 
     /* one CC one parameter, a parameter one CC */
-    go_title("EDIT 2");
-    turn(EN_K1, 1);
+    {
+        uint32_t i;
+        for (i = 0; i < NPAGES && !(str_eq(PAGES[i].title, "FILTER") && PAGES[i].fam == FAM_EDIT); i++)
+            ;
+        ui.home = 0;
+        ui.page = (uint8_t)i;
+        page_entered();
+    }
+    turn(EN_K2, 1);
     queued(0xB0, 21, 0, 1); frame();
     ok = ml_count() == 2u && ml_entry(21, 0, P_E4) && !ml_entry(20, 0, P_E4);
     queued(0xB0, 20, 99, 1);
     ok &= trk[0].p[P_E4] != 99;
-    turn(EN_K2, 1);                                                  /* T1 RES */
+    turn(EN_K3, 1);                                                  /* T1 RES */
     queued(0xB0, 21, 0, 1); frame();
     ok &= ml_count() == 2u && ml_entry(21, 0, P_E5) && !ml_cc_of(0, P_E4);
     bad += check("  learning again replaces: CUT on CC21 drops CC20; CC21 on RES drops CUT's", ok);
 
     /* OCT- clears the picked parameter's CC; no octave */
-    turn(EN_K2, -1);
+    turn(EN_K3, -1);
     press(B_OCTDN);
     ok = !ml_cc_of(0, P_E5) && msg_is("T1 RES CC CLEARED") && song.octave == 0 && ui.ml.on;
     press(B_OCTDN);
@@ -512,7 +528,7 @@ static int learn_test(void)
     /* review 1.5: OCT- on one parameter keeps CC16 learned elsewhere (16 = ML_N was the "no CC" mark) */
     ml_learn(16, 2, P_LEVEL);
     ml_learn(30, 0, P_E5);
-    turn(EN_K2, -1);                                                   /* T1 RES picked again */
+    turn(EN_K3, -1);                                                   /* T1 RES picked again */
     press(B_OCTDN);                                                    /* T1 RES picked: drops CC30 only */
     ok = ml_entry(16, 2, P_LEVEL) && !ml_cc_of(0, P_E5) && msg_is("T1 RES CC CLEARED");
     press(B_OCTDN);
@@ -523,7 +539,7 @@ static int learn_test(void)
     /* full: ML_N; a CC never learned */
     for (i = 0; i < ML_N - 1u; i++)
         ml_learn(40u + i, 2, P_ATK + i);
-    turn(EN_K1, 1);
+    turn(EN_K2, 1);
     queued(0xB0, 90, 5, 1); frame();
     ok = msg_is("LEARN FULL") && ml_count() == ML_N && !ml_cc_of(0, P_E4);
     ok &= ml_learn(64, 0, P_E4) == 2u && ml_learn(1, 0, P_E4) == 2u && ml_learn(123, 0, P_E4) == 2u;
@@ -544,7 +560,7 @@ static int learn_test(void)
 
     /* MENU > MIDI > LEARN CLEAR (1.5): OCT+ clears every learned CC */
     hold(B_HOME);
-    turn(EN_ALGO, 1); turn(EN_ALGO, 1); turn(EN_ALGO, 1); turn(EN_PRESET, 1);
+    turn(EN_SELECT, 1); turn(EN_SELECT, 1); turn(EN_SELECT, 1); turn(EN_ALGO, 1);   /* tabs SELECT, rows ALGO */
     ok = ui.menu == 1 && ui.menu_sel == MI_LCLEAR && menu_tab() == MTAB_MIDI && str_eq(MI_NAME[MI_LCLEAR], "LEARN CLEAR") &&
          ml_count() == ML_N && oct_leds() == OCT_BREATH && !menu_valued(MI_LCLEAR) && menu_valued(MI_MIDIIN);
     turn(EN_K1, 3); press(B_OCTDN);
@@ -562,19 +578,19 @@ static int learn_test(void)
 
     /* the stored codes with 1.5's parameters (the INSERT 96..100, TYPE 101, ESYNC 102, P_E0 103): a common parameter
      * id + 1, below ML_E0; an engine one ML_E0 + k whatever P_E0 is; every id back as it went in */
-    ok = P_E0 == 103u && P_COUNT == 111u && P_E0 < ML_E0;
+    ok = P_E0 == 119u && P_COUNT == 127u && P_E0 < ML_E0;
     for (i = 0; i < P_COUNT; i++)
         ok &= ml_id(ml_code(i)) == i && (i < P_E0 ? ml_code(i) == i + 1u && ml_code(i) < ML_E0 : ml_code(i) == ML_E0 + i - P_E0);
-    ok &= ml_id(0) == P_COUNT && ml_id(P_E0 + 1u) == P_COUNT && ml_id(ML_E0 - 1u) == P_COUNT;   /* (no such parameter) */
+    ok &= ml_id(0) == P_COUNT && ml_id(ML_E0 + 8u) == P_COUNT;   /* 0 none; past last engine slot (no gap before ML_E0) */
     memset(favorites.factory[14], 0, 32);
-    ok &= ml_learn(30, 1, P_IMIX) == 1u && ml_learn(31, 2, P_ESYNC) == 1u && ml_learn(33, 3, P_E0 + 3u) == 1u;
-    ok &= ml_get(0) == (30u | 1u << 7 | (P_IMIX + 1u) << 9) && ml_get(1) == (31u | 2u << 7 | (P_ESYNC + 1u) << 9) &&
+    ok &= ml_learn(30, 1, P_IDMIX) == 1u && ml_learn(31, 2, P_ESYNC) == 1u && ml_learn(33, 3, P_E0 + 3u) == 1u;
+    ok &= ml_get(0) == (30u | 1u << 7 | (P_IDMIX + 1u) << 9) && ml_get(1) == (31u | 2u << 7 | (P_ESYNC + 1u) << 9) &&
           ml_get(2) == (33u | 3u << 7 | (ML_E0 + 3u) << 9);
     queued(0xB0, 30, 0, 1);
     queued(0xB0, 31, 127, 1);
     queued(0xB0, 33, 127, 1);
-    ok &= trk[1].p[P_IMIX] == 0 && trk[2].p[P_ESYNC] == 1 && trk[3].p[P_E0 + 3u] == param_desc_of(eng_idx(trk[3].eng_req), P_E0 + 3u)->max;
-    bad += check("MIDI LEARN codes with 1.5's P_E0 103: common ids + 1 (INSERT MIX, ESYNC), engine ML_E0 + k; all ids round trip", ok);
+    ok &= trk[1].p[P_IDMIX] == 0 && trk[2].p[P_ESYNC] == 1 && trk[3].p[P_E0 + 3u] == param_desc_of(eng_idx(trk[3].eng_req), P_E0 + 3u)->max;
+    bad += check("MIDI LEARN codes with P_E0 119: common ids + 1 (DIST MIX, ESYNC), engine ML_E0 + k; all ids round trip", ok);
     memset(favorites.factory[14], 0, 32);
     return bad;
 }
@@ -598,7 +614,7 @@ static int pc_test(void)
     midi_test_reset();
     set_engine_of(t, 0);                                 /* ANALOG */
     t->p[P_LEVEL] = 90; t->p[P_AMODE] = 2; t->p[P_SLCR] = SL_GATE;
-    t->p[P_ITYPE] = 1; t->p[P_FTYPE] = 1; t->p[P_ESYNC] = 1; t->p[P_E4] = 11;
+    t->p[P_IDMODE] = 1; t->p[P_IDMIX] = 64; t->p[P_FTYPE] = 1; t->p[P_ESYNC] = 1; t->p[P_E4] = 11;
     my_steps(t);
     was = *t;
     pc(0, 3);
@@ -611,8 +627,9 @@ static int pc_test(void)
     apply_preset_to(t, 3);
     ok = !memcmp(got.p, t->p, sizeof got.p) && !memcmp(got.step, was.step, sizeof got.step);
     ok &= got.p[P_LEVEL] == 90 && got.p[P_AMODE] == 2 && got.p[P_SLCR] == SL_GATE;
-    ok &= got.p[P_ITYPE] == TP[P_ITYPE].def && got.p[P_FTYPE] == TP[P_FTYPE].def && got.p[P_ESYNC] == TP[P_ESYNC].def;
-    bad += check("  as PRESETS loads it: steps, LEVEL, ARP, SLICER kept; INSERT, TYPE, ESYNC the preset's", ok);
+    ok &= got.p[P_IDMODE] == TP[P_IDMODE].def && got.p[P_IDMIX] == TP[P_IDMIX].def &&
+          got.p[P_FTYPE] == TP[P_FTYPE].def && got.p[P_ESYNC] == TP[P_ESYNC].def;
+    bad += check("  as PRESETS loads it: steps, LEVEL, ARP, SLICER kept; insert chain, TYPE, ESYNC the preset's", ok);
 
     /* a run of them: the last wins, one undo */
     midi_test_reset();
@@ -653,34 +670,24 @@ static int pc_test(void)
         ok &= !memcmp(was.p, t->p, sizeof was.p) && t->preset == was.preset && t->eng_req == e;
     }
     bad += check("  every engine: 0.. its presets in PRESETS' order (no alias twice); past the last ignored", ok);
-    set_engine_of(t, ENGI_SAMPLE);
-    pc(0, 1); frame();
-    ok = str_eq(ENGINES[ENGI_SAMPLE]->presets[t->preset].name, "FLUTE");
-    pc(0, 4); frame();
-    ok &= t->eng_req == ENGI_SAMPLE && str_eq(ENGINES[ENGI_SAMPLE]->presets[t->preset].name, "FLUTE");
-    bad += check("  SAMPLE: PC 1 is FLUTE (not PIANO's alias); PC 4 (once PERC) does not turn the track into DRUM", ok);
+        set_engine_of(t, 2);   /* PHASE */
+    midi_pc_load(t, 1);
+    ok = str_eq(ENGINES[2]->presets[t->preset].name, "ORGAN");
+    midi_pc_load(t, 0);
+    ok &= t->eng_req == 2 && str_eq(ENGINES[2]->presets[t->preset].name, "BRASS");
+    bad += check("  PHASE: PC selects factory presets by shown index", ok);
 
-    /* DRUM: the kits as KIT steps through them */
+
+    /* DRUM-X: Program Change loads its factory presets (one: DRUM-X); past the last ignored */
     {
-        const param_desc_t *d = param_desc_of(ENGI_DRUM, P_E0);
         track_t *dr = &trk[3];
         set_engine_of(dr, ENGI_DRUM);
-        dr->p[P_E0] = 1;                                 /* (HAND, retired: plays 66) */
-        ok = 1;
-        for (n = 0, last = -1;; n++) {
-            was = *dr;
-            pc(3, n); frame();
-            if (!memcmp(was.p, dr->p, sizeof was.p))
-                break;
-            ok &= dr->p[P_E0] > last && enum_orig(d, dr->p[P_E0]) == dr->p[P_E0] && dr->preset == was.preset;
-            for (k = 0; k < P_COUNT; k++)
-                ok &= k == P_E0 || dr->p[k] == was.p[k];
-            last = dr->p[P_E0];
-        }
-        ok &= n == 6u && last == d->max;
-        pc(3, DK_COUNT + 2u); frame();
-        ok &= dr->p[P_E0] == last;
-        bad += check("  DRUM: 0..5 the six kits (STD 80 10 66 55 77; HAND CYM H+CYM skipped), only KIT; 6.. ignored", ok);
+        pc(3, 0); frame();
+        ok = dr->eng_req == ENGI_DRUM && dr->preset == 0u && str_eq(ENGINES[ENGI_DRUM]->presets[0].name, "DRUM-X");
+        was = *dr;
+        pc(3, 1); frame(); pc(3, 127); frame();
+        ok &= !memcmp(was.p, dr->p, sizeof was.p) && dr->preset == was.preset;
+        bad += check("  DRUM-X: PC 0 loads DRUM-X; past the last ignored", ok);
     }
 
     /* FM6: its presets, then the bank's voices */

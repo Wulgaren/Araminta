@@ -18,6 +18,7 @@ static void lcd_wake_now(void) {}
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
 { (void)x; (void)y; (void)w; (void)h; (void)p; }
 #include "../firmware/src/gfx.c"
+static volatile uint32_t ft_btn_mask, ft_drop_mask;   /* seq.c; panel_init writes them (free take) */
 #include "../firmware/src/panel.c"
 static void settings_save(void) {}
 #if __has_include("../firmware/src/favorites.c")
@@ -42,11 +43,11 @@ int main(void)
         assert(palette_from_stored(13) == 6u && palette_from_stored(11) == 7u && palette_from_stored(19) == 7u);
         for (uint32_t i = 0; i < NPALETTES; i++) assert(palette_from_stored(palette_to_stored(i)) == i);
         assert(palette_from_stored(40) == UI_GREY_INDEX && !palette_stored_ok(40) && palette_stored_ok(3));
-        /* 1.0.2: the old MONO keeps its id as GREY (a saved MONO looks the same); the new black and white MONO is
-         * appended, a new id */
+        /* old MONO (pre-1.0.2 id and retired tagged index) maps to GREY */
         assert(palette_from_stored(UI_PAL_TAG + 0u) == UI_GREY_INDEX && !strcmp(UI_PALETTES[UI_GREY_INDEX].name, "GREY"));
-        assert(UI_BW_INDEX == NPALETTES - 1u && !strcmp(UI_PALETTES[UI_BW_INDEX].name, "MONO") &&
-               palette_from_stored(UI_PAL_TAG + UI_BW_INDEX) == UI_BW_INDEX && palette_stored_ok(UI_PAL_TAG + UI_BW_INDEX));
+        assert(UI_RETIRED_MONO_INDEX == 9u &&
+               palette_from_stored(UI_PAL_TAG + UI_RETIRED_MONO_INDEX) == UI_GREY_INDEX &&
+               palette_stored_ok(UI_PAL_TAG + UI_RETIRED_MONO_INDEX));
         q.palette = palette_to_stored(5);
         assert(settings_import(&q, sizeof q) == 1 && settings.palette == 5u);
         settings.magic = SETTINGS_MAGIC_OLD; settings.palette = 13; settings_init();   /* retained SET3 */
@@ -161,13 +162,16 @@ int main(void)
         p = original; assert(settings_import(&p, sizeof p) == 1);
     }
     {   /* 1.2 RESTORE LAST (ui.c PREF_RESTORE_OFF, bit 7 of MENU's flags, favorites.factory[15][30]): clear in every
-         * older record = ON; set = OFF, kept as saved with the other flags */
+         * older record = ON; set = OFF, kept as saved with the other flags. ANIM retired: import always sets bit 1
+         * (PREF_ANIM_OFF) and clears IDLE (settings_persist.c). */
         persist_t q;
+        uint8_t want = 128u | 64u | 2u | 1u;               /* RESTORE OFF | SERIAL OFF | ANIM OFF | LATCH */
         p = original; p.magic = 0x50455233u;
-        assert(settings_import(&p, sizeof p - sizeof p.favorites) == 2 && !(favorites.factory[15][30] & 128u));
+        assert(settings_import(&p, sizeof p - sizeof p.favorites) == 2 && !(favorites.factory[15][30] & 128u) &&
+               (favorites.factory[15][30] & 2u));
         p = original; p.favorites.factory[15][30] = 128u | 64u | 1u;
-        assert(settings_import(&p, sizeof p) == 1 && favorites.factory[15][30] == (128u | 64u | 1u));
-        q = p; settings_export(&q); assert(q.favorites.factory[15][30] == (128u | 64u | 1u));
+        assert(settings_import(&p, sizeof p) == 1 && favorites.factory[15][30] == want);
+        q = p; settings_export(&q); assert(q.favorites.factory[15][30] == want);
         p = original; assert(settings_import(&p, sizeof p) == 1);
     }
     {   /* 1.2 the FX layer's key map (ui_layer.c fx_keys, favorites.factory[15][14..23], 16 x 5 bits, 0 = the key's
@@ -200,8 +204,13 @@ int main(void)
         for (i = 0; i < 32u; i++) p.favorites.factory[14][i] = (uint8_t)(i * 29u + 3u);
         assert(settings_import(&p, sizeof p) == 1);
         for (i = 0; i < 32u; i++) assert(favorites.factory[14][i] == (uint8_t)(i * 29u + 3u));
-        assert(!memcmp(favorites.factory[13], original.favorites.factory[13], 32) &&
-               !memcmp(favorites.factory[15], original.favorites.factory[15], 32));
+        assert(!memcmp(favorites.factory[13], original.favorites.factory[13], 32));
+        {   /* [15]: STYLE/ANIM/IDLE normalized on every import; the rest of the row untouched */
+            uint8_t exp[32];
+            memcpy(exp, original.favorites.factory[15], 32);
+            exp[29] = 0; exp[30] |= 2u; exp[10] &= (uint8_t)~1u;
+            assert(!memcmp(favorites.factory[15], exp, 32));
+        }
         memset(&q, 0, sizeof q); settings_export(&q); assert(!memcmp(&q.favorites, &p.favorites, sizeof q.favorites));
         assert(settings_import(&q, sizeof q) == 1 && settings_import(&q, sizeof q) == 1);
         for (i = 0; i < 32u; i++) assert(favorites.factory[14][i] == (uint8_t)(i * 29u + 3u));

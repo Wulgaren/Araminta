@@ -3,11 +3,11 @@
 /* PERFORM: the effects of the FX hold layer, on the master. A key pressed while FX is held belongs to the
  * layer (seq.c keyboard_block): it plays no note, sends no MIDI, records nothing, and holds its effect until
  * it is let go (ui_input.c opens the layer and shows the map). The 16 white keys (F3 .. G5) hold the effect the map
- * gives them (perf_map: the settings, ui_layer.c; any effect on any key, or none). The default (PF_DEF, 1.1.5's
- * keys and the two of 1.2 after them):
- *   REPEAT 1/8 1/16 1/32, REVERSE, LPF | HPF, TAPE STOP, FREEZE, OCT UP, OCT DN, FLANGER, PHASER, REV THROW, ECHO
- *   THROW (1.5.1, D5 E5);  the other 2 white keys nothing; black keys 1..4 (F#3 G#3 A#3 C#4): tracks 1..4 muted while
- *   held (not P_MUTE, never saved).
+ * gives them (perf_map: the settings, ui_layer.c; any effect on any key, or none). The default (PF_DEF, JIANT):
+ *   REPEAT 1/8 1/16 1/32, then 1/2 so LPF HPF OCT- OCT+ sit together, then DEC±, stutter, ATK+, ARP, RANDOM
+ *   (pfx.c); G5 clears the punch-in lane (the cell reads CLR); black keys 1..4 mute tracks 1..4; A#4 steps the MIDI
+ *   effects' tracks (ALL / SYN / DRM). Audio REVERSE / TAPE / FREEZE / harmonizer OCT / FLANGER / PHASER / THROW stay
+ *   assignable on the map, not on the default keys.
  * REV THROW / ECHO THROW (1.5.1): while held every track's reverb / delay send is full (as REV / DLY 127; perf_throw),
  * ECHO THROW also lifts the delay's feedback to 0.7 if it is lower (fx.c fx_buses); both glide in and out over 11.6 ms
  * (THR_SLOPE). Let go, the sends are the tracks' own again and what the buses hold rings out. The buses are the song's
@@ -47,7 +47,9 @@
  * PF_M1), then the mutes of the black keys */
 enum { PF_R8, PF_R16, PF_R32, PF_REV, PF_LPF, PF_HPF, PF_TAPE, PF_FRZ, PF_OUP, PF_ODN, PF_FLG, PF_PHS,
        PF_RTHR, PF_ETHR,                      /* 1.5.1: REV THROW, ECHO THROW */
-       PF_M1, PF_N = PF_M1 + NTRK };
+       PF_OCTD, PF_OCTU, PF_HALF, PF_DSHT, PF_DLNG, PF_S8, PF_S16, PF_ATK, PF_ARP, PF_RND,   /* MIDI: pfx.c */
+       PF_M1, PF_N = PF_M1 + NTRK, PF_TGT = PF_N + 1,   /* A#4: MIDI effects' tracks (pfx_tgt) */
+       PF_CLR = PF_N + 2 };                              /* G5: erase the punch-in lane (pfx.c) */
 #define PF_NFX PF_M1                          /* the effects a white key can hold */
 #define PF_KEYS 16u                           /* the white keys F3 .. G5 */
 #define PF_BIT(e) (1u << (e))
@@ -57,6 +59,7 @@ enum { PF_R8, PF_R16, PF_R32, PF_REV, PF_LPF, PF_HPF, PF_TAPE, PF_FRZ, PF_OUP, P
 #define PF_BUF (PF_REPEAT | PF_BIT(PF_REV) | PF_BIT(PF_TAPE) | PF_BIT(PF_FRZ) | PF_HARM)
 #define PF_MUTE (((1u << NTRK) - 1u) << PF_M1)
 #define PF_MOD (PF_BIT(PF_FLG) | PF_BIT(PF_PHS))   /* FLANGER, PHASER: their own stages after CRUSH */
+#define PF_MIDI (((1u << (PF_RND + 1)) - 1u) & ~((1u << PF_OCTD) - 1u))   /* PF_OCTD .. PF_RND (pfx.c) */
 #define PB_FRAMES (NTRK * SL_LEN / 2u)        /* stereo frames in sl_buf: 8192, 371 ms at 22.05 kHz */
 #define PB_MAX (2u * PB_FRAMES)               /* the longest loop, 44.1 kHz samples */
 #define PB_TAPE 32000u                        /* TAPE STOP takes 1 beat, at most this (it lags a quarter of it) */
@@ -77,19 +80,34 @@ enum { BM_NONE, BM_LOOP, BM_TAPE, BM_FRZ, BM_HARM };
 #define THR_SLOPE 64                          /* REV / ECHO THROW: the sends' glide a sample, Q15 (11.6 ms end to end) */
 #define THR_FB 22938                          /* ECHO THROW: the delay's feedback while held at least this, Q15 (0.7) */
 
-/* the white keys' effects by default (1.1.5's ten, then FLANGER and PHASER, 1.5.1's REV THROW and ECHO THROW on D5
- * and E5; PF_N: none) */
-static const uint8_t PF_DEF[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_REV, PF_LPF, PF_HPF, PF_TAPE, PF_FRZ, PF_OUP, PF_ODN,
-                                        PF_FLG, PF_PHS, PF_RTHR, PF_ETHR, PF_N, PF_N};
-static volatile uint8_t perf_map[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_REV, PF_LPF, PF_HPF, PF_TAPE, PF_FRZ, PF_OUP,
-                                             PF_ODN, PF_FLG, PF_PHS, PF_RTHR, PF_ETHR, PF_N, PF_N};
+/* the white keys' effects by default (JIANT: REPEAT, 1/2, then LPF/HPF/OCT together; G5 lane clear) */
+static const uint8_t PF_DEF[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_HALF, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_DSHT,
+                                        PF_DLNG, PF_S8, PF_S16, PF_ATK, PF_ARP, PF_RND, PF_N};
+static volatile uint8_t perf_map[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_HALF, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_DSHT,
+                                             PF_DLNG, PF_S8, PF_S16, PF_ATK, PF_ARP, PF_RND, PF_N};
                                       /* main: white key p's effect (PF_N none), from the settings (ui_layer.c) */
 static volatile uint8_t perf_remap;   /* main: perf_map changed (seq.c: a key held takes its new effect) */
 
 static volatile uint32_t perf_mask;   /* main: the FX button's bit while its layer may own keys, 0 = none */
 static volatile uint32_t kb_mask;     /* main: the button bits whose hold makes keys a layer's (ui_layer.c), 0 = none */
 static volatile uint8_t kb_lock;      /* main: a layer locked open (#83, no button held): 1 keys are the layer's, 2 FX's */
-static volatile uint8_t perf_solo;    /* main: tracks soloed in the GLO layer (the others muted as by a black key) */
+static volatile uint8_t perf_solo;    /* main: tracks soloed while GLO's white keys are held (the others muted as by a black key) */
+/* GLO's held solos, plus any track whose PLAY is SOLO. A set bit sounds; the rest are muted. */
+static uint32_t solo_mask(void)
+{
+    uint32_t m = perf_solo, k;
+    for (k = 0; k < NTRK; k++)
+        if (trk[k].p[P_MUTE] == PLAY_SOLO)
+            m |= 1u << k;
+    return m;
+}
+/* 1 when track k is heard: PLAY is not OFF, and it is not left out by a solo */
+static int trk_heard(uint32_t k)
+{
+    uint32_t s = solo_mask();
+    return trk[k].p[P_MUTE] != PLAY_OFF && (!s || ((s >> k) & 1u));
+}
+static volatile uint32_t scene_pfx;   /* song row scene punch-ins (song_play), PF_MIDI bits; 0 when unused */
 static volatile uint8_t perf_kill;    /* main: every effect off (the menu, a dialog, UBOOT) */
 static volatile int8_t perf_k[4];     /* main: the knob macros, 0 = untouched: FILTER -100..100 (- LPF, + HPF),
                                        * CRUSH 0..100, THROW 0..100, DEPTH cut 0..100 (the buffer effects' level) */
@@ -184,8 +202,16 @@ static uint32_t perf_avail(void)
 }
 
 /* seq.c keyboard_block: a layer key down / up (e: PF_*, PF_N = no effect) */
+static volatile uint8_t pfx_tgt;      /* main / keys: MIDI effects' tracks, 0 ALL, 1 SYN, 2 DRM (pfx.c) */
+static volatile uint8_t pfx_clr;      /* keys: G5 held (pfx.c: lane erased where it passes, or all of it) */
+static uint32_t pfx_lph;              /* samples into the punch-in lane (pfx.c) */
+static uint8_t pfx_lane[32], pfx_ltgt;   /* the section's punch-in lane (pfx.c), its tracks (as pfx_tgt) */
 static void perf_press(uint32_t e, int down)
 {
+    if (e == PF_TGT && down)
+        pfx_tgt = (uint8_t)((pfx_tgt + 1u) % 3u);
+    if (e == PF_CLR)
+        pfx_clr = (uint8_t)(down ? 1u : 0u);
     if (e >= PF_N)
         return;
     if (perf_latch_on) {                  /* FX LATCH: a press turns it on or off, letting go does nothing */
@@ -203,7 +229,7 @@ static void perf_press(uint32_t e, int down)
     }
 }
 
-static void perf_start(void) { pf.ph = 0; pf.sync = 1; }      /* seq_start: a 1/16 starts with the transport */
+static void perf_start(void) { pf.ph = 0; pf.sync = 1; pfx_lph = 0; }   /* seq_start: a 1/16 with the transport */
 
 /* the SLICER's recordings dropped (when the buffer is taken and given back) */
 static void perf_drop_slicer(void)
@@ -298,7 +324,7 @@ static void perf_buf_select(uint32_t e)
  * Returns 1 when a stage has something to do */
 static __attribute__((noinline)) int perf_begin(uint32_t n)
 {
-    uint32_t held = perf_kill ? 0u : (perf_held | perf_latched | (perf_solo ? (~(uint32_t)perf_solo & 15u) << PF_M1 : 0u)) & perf_avail();
+    uint32_t solo = solo_mask(), held = perf_kill ? 0u : (perf_held | perf_latched | (solo ? (~solo & 15u) << PF_M1 : 0u)) & perf_avail() & ~PF_MIDI;
     uint32_t q, k, ph0, bnd;
     int32_t m;
     if (!held && !pf.busy && !(perf_k[0] | perf_k[1] | perf_k[2])) {   /* idle: the clock only */

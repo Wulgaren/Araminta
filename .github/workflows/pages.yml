@@ -1,0 +1,110 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Build Araminta, run host tests, publish installer / editor / try to GitHub Pages.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Python deps
+        run: pip3 install Pillow fonttools
+
+      - name: Cache JieLi toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.jieli
+          key: jieli-linux-toolchain-v1
+
+      - name: JieLi toolchain
+        run: |
+          if [ ! -x "$HOME/.jieli/toolchain/pi32v2/bin/clang" ]; then
+            tools/get_toolchain.sh
+          fi
+          echo "JIELI_TOOLCHAIN=$HOME/.jieli/toolchain" >> "$GITHUB_ENV"
+
+      - name: Cache AC79 SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/fw-AC79_AIoT_SDK
+          key: ac79-sdk-V1.2.1-2023-12-13
+
+      - name: AC79 SDK
+        run: |
+          if [ ! -f "$HOME/fw-AC79_AIoT_SDK/cpu/wl82/tools/uboot.boot" ]; then
+            # gitee is flaky from GitHub runners (connection resets); retry with backoff
+            n=0
+            until [ -f "$HOME/fw-AC79_AIoT_SDK/cpu/wl82/tools/uboot.boot" ]; do
+              n=$((n + 1))
+              [ "$n" -le 5 ] || exit 1
+              rm -rf "$HOME/fw-AC79_AIoT_SDK"
+              echo "AC79 SDK clone attempt $n/5"
+              git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 \
+                https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git "$HOME/fw-AC79_AIoT_SDK" && break
+              sleep $((n * 15))
+            done
+          fi
+          echo "AC79_SDK=$HOME/fw-AC79_AIoT_SDK" >> "$GITHUB_ENV"
+
+      - name: Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.74
+
+      - name: Firmware package
+        run: ./build.sh
+
+      - name: Host tests (incl. WASM try)
+        run: tests/run_tests.sh
+
+      - name: Site tree
+        if: github.event_name != 'pull_request'
+        run: |
+          VER=$(sed -n 's/^#define FELUCCA_VERSION "\([^"]*\)".*/\1/p' firmware/src/felucca.c)
+          SHA=$(git rev-parse --short HEAD)
+          SITE_VER="${VER}-g${SHA}"
+          echo "site version: $SITE_VER"
+          python3 web/make_site.py build/felucca.fwsc "$SITE_VER" site
+          mkdir -p site/webapp/try
+          cp -a build/emu/. site/webapp/try/
+
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: site
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

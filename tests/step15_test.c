@@ -4,9 +4,10 @@
  *   LEN   SEQ > STEP's KNOB 3 on a note (ui.c note_set_len): right writes clean TIE steps after it (a REST or an empty
  *         step; a chord ties whole), stopping at the next step holding notes (NOTE AHEAD; a REST's kept notes too) and
  *         at LEN (END OF PATTERN); left turns its last TIEs back into RESTs, never the note itself; nothing else moves
- *         (the steps' locks stay); one undo per turn (SAVE held), redo; on a REST / TIE / empty step KNOB 3 is TIME as
- *         before; the DRUM grid's KNOB 3 is still HIT. Played: one note-on, held to the end of its last TIE (as a
- *         recorded hold plays).
+ *         (the steps' locks stay); one more left, to 0, clears the note and its locks (NOTE CLEARED) and moves the
+ *         cursor on one step (wrapping inside LEN); one undo per turn (SAVE held), redo; on a REST / TIE / empty
+ *         step KNOB 3 is TIME as before; the DRUM grid's KNOB 3 is still HIT. Played: one note-on, held to the end
+ *         of its last TIE (as a recorded hold plays).
  *   VEL   step_t.vel as it plays (seq.c seq_step: 0 = 96, ACC 127, a DRUM step's accented hit 127, its other hits the
  *         step's); SEQ > AUTOMATION: no VEL rows until + ADD VEL's OCT+ (SHOW) lists every note step inside LEN, KNOB 4
  *         1..127, EDIT back to 96, SAVE held undoes, KNOB 2 nothing, HIDE / leaving the page hides them; a pattern
@@ -84,7 +85,6 @@ static int len_edit(void)
     int bad = 0, ok;
     step_t ref[NSTEP];
     track_t *t;
-    uint32_t i;
 
     t = roll(1);
     t->step[1] = (step_t){{60, 64}, 2, ST_NOTE, SF_ACCENT, 90};   /* a chord on step 2 */
@@ -106,11 +106,11 @@ static int len_edit(void)
     bad += check("  it stops before the next note (NOTE AHEAD, that note kept)", ok);
     turn(EN_K3, -1);
     ok = note_len(t, 1) == 3u && is_rest(&t->step[4]);
-    for (i = 0; i < 6u; i++)
-        turn(EN_K3, -1);
+    turn(EN_K3, -1);
+    turn(EN_K3, -1);
     ok &= note_len(t, 1) == 1u && is_rest(&t->step[2]) && is_rest(&t->step[3]) && t->step[1].n == 2u &&
           t->step[1].time == ST_NOTE;
-    bad += check("  left: its last TIEs become RESTs, down to LEN 1 (the note stays)", ok);
+    bad += check("  left: its last TIEs become RESTs, down to LEN 1 (the note stays; 0 clears it)", ok);
     hold(B_SAVE);                                    /* (the turns 1.5 s apart or less: one undo) */
     ok = !memcmp(t->step, ref, sizeof ref);
     hold(B_SAVE);
@@ -140,6 +140,37 @@ static int len_edit(void)
     turn(EN_K3, 1);
     ok &= note_len(t, 3) == 1u && msg_is("NOTE AHEAD") && t->step[4].hit == 1u;
     bad += check("  a REST / TIE / empty step: KNOB 3 TIME (NOTE TIE REST); a REST keeping notes or hits is kept", ok);
+
+    t = roll(2);                                      /* LEN 0: the note goes; the cursor moves on */
+    put(t, 2, 60, ST_NOTE);
+    t->step[3].time = ST_TIE;
+    t->step[4].time = ST_TIE;
+    motion_set_lock(t, 2, P_ATK, 9);
+    motion_set_lock(t, 3, P_DEC, 4);
+    turn(EN_K3, -8);                                  /* one turn, past 0: the note and both TIEs */
+    ok = is_rest(&t->step[2]) && is_rest(&t->step[3]) && is_rest(&t->step[4]) && msg_is("NOTE CLEARED") &&
+         motion_find(t, 2, P_ATK) < 0 && motion_find(t, 3, P_DEC) < 0 && ui.cursor == 3u;
+    bad += check("LEN 0: KNOB 3 left clears the note, its TIEs and their locks; the cursor moves on", ok);
+    hold(B_SAVE);                                     /* the clear (cursor stays; the note and TIEs come back) */
+    ok = t->step[2].note[0] == 60u && t->step[2].time == ST_NOTE && t->step[3].time == ST_TIE &&
+         t->step[4].time == ST_TIE && motion_find(t, 2, P_ATK) >= 0 && motion_find(t, 3, P_DEC) >= 0 &&
+         ui.cursor == 3u;
+    bad += check("  SAVE held: the note, its TIEs and their locks back", ok);
+    cursor_set(2);
+    frames(2000);
+    turn(EN_K3, -1);                                  /* one detent at a time, as a slow hand: LEN 3, 2, 1, then 0 */
+    turn(EN_K3, -1);
+    turn(EN_K3, -1);
+    ok = is_rest(&t->step[2]) && is_rest(&t->step[3]) && is_rest(&t->step[4]) && msg_is("NOTE CLEARED") &&
+         motion_find(t, 2, P_ATK) < 0 && motion_find(t, 3, P_DEC) < 0 && motion_find(t, 4, P_ATK) < 0 &&
+         ui.cursor == 3u;
+    bad += check("  detents down to 0: the note, the TIEs it started with, and their locks; cursor on", ok);
+
+    t = roll(15);                                     /* the last step of LEN: clear wraps to step 1 */
+    put(t, 15, 60, ST_NOTE);
+    turn(EN_K3, -1);
+    bad += check("  clear on the last step: cursor wraps to step 1",
+                 is_rest(&t->step[15]) && msg_is("NOTE CLEARED") && ui.cursor == 0u);
 
     ui_power_on();                                    /* the DRUM grid: KNOB 3 is still HIT */
     song.sel = 3;
@@ -230,8 +261,10 @@ static int vel(void)
     bad += check("  KNOB 4 the step's velocity (1..127), KNOB 2 nothing; SAVE held: the turn undone", ok);
     press(B_EDIT);
     ok = t->step[4].vel == 0u && msg_is("VEL 96") && auto_cur() == EVC(EVK_VEL, 4) && ev_list(rw) == n;
-    for (n = 0; n < 20u; n++)
+    for (n = 0; n < 20u; n++) {
+        frames(50);                                      /* > ACC_GAP: one step each (accel always on) */
         turn(EN_K4, -1);
+    }
     ok &= t->step[4].vel == 76u;
     bad += check("  EDIT: back to 96 (stored 0), the row stays", ok);
     {   /* drawn: DIM where it does not play (the ACC step) */

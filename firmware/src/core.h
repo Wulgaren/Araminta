@@ -3,7 +3,8 @@
 /* FELUCCA core types: tracks, voices, engines, parameters.
  * Four tracks, each a synth part: its own engine, preset, parameters, voices and 64-step
  * pattern. The parts share one budget of NVOICE sounding voices (voice.c). Drums are the DRUM
- * engine (General MIDI map) on any part; the SAMPLE engine's PERC set is retired (drum_from_perc).
+ * engine (General MIDI map) on any part. SLICE is retired (eng_retire.c); SAMPLE PERC still maps
+ * to DRUM (drum_from_perc).
  * Sections: sizes, parameters, voices and engines, tracks and the song, system. */
 #include <stdint.h>
 
@@ -13,17 +14,23 @@
 #define NTRK NPART               /* tracks (the formats and the protocol count these): every track is a part */
 #define NSTEP 64
 #define HALF_FRAMES 128          /* I2S half buffer: 2.9 ms at 44.1 kHz (a key waits 0..1 half, then plays 1 half later) */
-#ifndef FELUCCA_SLICE
-#define FELUCCA_SLICE 1          /* the SLICE engine (eng_slice.c), engine 13; FELUCCA_SLICE=0 builds without it */
-#endif
 #ifndef FELUCCA_FM4
 #define FELUCCA_FM4 0            /* the DIGITAL engine (eng_digital.c, four-operator FM): kept in the tree, not built
                                   * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
 #endif
-#define NENGINES (13 + FELUCCA_SLICE)   /* SLICE (13) comes last: the other engines keep their numbers */
+#ifndef FELUCCA_SLICE
+#define FELUCCA_SLICE 0          /* SLICE engine retired (eng_retire.c ENG_SLICE_GONE); keep 0 so sample/grain
+                                  * stubs compile without eng_slice.c */
+#endif
+/* Engine table is append-only. Index 13 SLICE stays reserved (eng_retire.c): never selectable; old stores
+ * load as DRUM. SAMPLE (4), GRAIN (8), NOISE (11) are live again. */
+#define NENGINES 14u
 #define ENGI_DIGITAL 1u          /* reserved without FELUCCA_FM4: never selectable (eng_ok), its sounds load as FM6 */
-#define NENG_SHOWN (NENGINES - !FELUCCA_FM4)   /* the engines one can pick: PRESETS, the EDIT layer, the editor,
-                                                * in the display order of engines.c ENGINE_ORDER */
+#define ENGI_SAMPLE 4u
+#define ENGI_GRAIN 8u
+#define ENGI_NOISE 11u
+#define ENGI_SLICE 13u           /* reserved: SLICE retired (eng_retire.c) */
+#define NENG_SHOWN (12u + FELUCCA_FM4)   /* pickable: ANALOG FM6 [DIGITAL] PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM */
 #define UP_SLOTS 32u             /* user presets (upreset.c) */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -44,14 +51,16 @@ typedef struct {
 enum {                          /* per-track parameters */
     P_LEVEL,
     P_ATK, P_DEC, P_SUS, P_REL,
-    P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ED_FX,     /* P_ED_FX: unused, kept for the formats / protocol */
+    P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ED_FX,     /* P_ED_FX: DIST tone, an offset on the drive-linked
+                                                * cutoff (0 = follows drive). Kept at this id for the formats */
     P_LRATE, P_LWAVE, P_LPHASE, P_LFADE,
     P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP,
     P_AMODE, P_ARATE, P_AOCT, P_AGATE,
     P_ASWING, P_APROB, P_AHOLD, P_AORDER,
     P_ROOT, P_SCALE, P_QUANT, P_TRANS,
     P_SLEN, P_SDIV, P_SSWING, P_SGATE,
-    P_DIST, P_CHOR, P_DLY, P_REV,
+    P_DIST, P_CHOR, P_DLY, P_REV,              /* P_DIST: DIST drive. P_CHOR: EFFECTS DLY/REV list slots
+                                                * (fx.c; was bus CHO send). P_DLY/P_REV: send or chain mix */
     P_VOICE, P_GLIDE, P_PAN, P_MUTE,
     P_GLMODE, P_PRIO, P_ALLOC, P_DETUNE,
     P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH,      /* SLICER insert (slicer.c) */
@@ -68,31 +77,59 @@ enum {                          /* per-track parameters */
     P_LSYNC, P_LTRIG, P_LPOL,                  /* 1.2 (#154): LFO SYNC (OFF, a note value), TRIG (NOTE, FREE), POL (BI, UNI) */
     P_SQNT,                                    /* 1.2 (#162): QUANTIZE, the steps' recorded / nudged timing (ON: none) */
     P_SPRD,                                    /* (#148): SPREAD, the voices of a POLY / UNISON track around PAN (fx.c) */
-    P_ITYPE, P_IA, P_IB, P_IC, P_IMIX,         /* 1.5 (#78, #177): the INSERT, its TYPE, three values and MIX (fx.c) */
-    P_FTYPE,                                   /* 1.5 (#104): ANALOG's filter TYPE, LP (as before) / BP / HP (eng_analog.c) */
+    /* insert chain (6 stages, reorderable; MIX 0 = bypass). Replaces 1.5's P_ITYPE..P_IMIX. Drive = P_DIST. */
+    P_IORD,                                    /* low 10 bits: stage order 0..719 (fx.c). Bits 10..15:
+                                                * that stage is a send, not in the chain */
+    P_IDMODE, P_IDMIX,                         /* DIST: mode SOFT/HARD/FOLD/FUZZ, mix.
+                                                * Tone is P_ED_FX: 0 follows drive, else an offset */
+    P_IFTYPE, P_IFCUT, P_IFRES, P_IFMIX,       /* FILTER: LP/HP/BP/COMB */
+    P_ICBITS, P_ICRATE, P_ICLPF, P_ICMIX,      /* CRUSH */
+    P_IPRATE, P_IPDEP, P_IPFBK, P_IPMIX,       /* PHASR */
+    P_ILRATE, P_ILDEP, P_ILMIX,                /* FLANG (fixed feedback) */
+    P_IHRATE, P_IHDEP, P_IHMIX,                /* CHOR (fixed feedback) */
+    P_FTYPE,                                   /* ANALOG's filter TYPE: LP / BP / HP / COMB (eng_analog.c) */
     P_ESYNC,                                   /* 1.5 (#175): ENV SYNC: ATK DEC REL as note values of the tempo (voice.c) */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
+/* P_MUTE (params.c N_PLAY). Append-only: stored 0 plays (PLAY ON), 1 is silent (PLAY OFF). */
+enum { PLAY_ON = 0, PLAY_OFF = 1, PLAY_SOLO = 2 };
+/* 1.5 INSERT ids (np 111): migrated to the chain in project.c / upreset.c ins_migrate */
+enum { P_ITYPE_LEG = 96, P_IA_LEG = 97, P_IB_LEG = 98, P_IC_LEG = 99, P_IMIX_LEG = 100 };
+enum { INS_N = 6, INS_DIST = 0, INS_FILTER = 1, INS_CRUSH = 2, INS_PHASR = 3, INS_FLANG = 4, INS_CHOR = 5,
+       INS_DLY = 6, INS_REV = 7, FX_LIST_N = 8 };   /* DLY/REV: shared engines; list slots with the inserts */
+enum { IDM_SOFT, IDM_HARD, IDM_FOLD, IDM_FUZZ, IDM_N };
+enum { IFT_LP, IFT_HP, IFT_BP, IFT_COMB, IFT_N };
 
 enum {                          /* global parameters */
     G_BPM, G_SWING, G_CLOCK, G_TUNE,
     G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX,
-    G_RSIZE, G_RDAMP, G_CRATE, G_CDEPTH,
-    G_MIDI, G_SYNC, G_ROUTE, G_INFO,   /* G_ROUTE: MIDI IN, 0 CH1-4 (channels 1..4 -> parts 1..4, 5..16 ignored), 1 SEL;
+    G_RSIZE, G_RDAMP, G_CRATE, G_CDEPTH,       /* G_CRATE/G_CDEPTH: was bus chorus; now DLY/REV chain owner
+                                                * (0 = SEND for all, 1..4 = track). Old CRT/CDP values > 4 load as 0. */
+    G_MIDI, G_DREL, G_ROUTE, G_INFO,   /* G_DREL (JIANT): DUCK's release; was G_SYNC, a placeholder.
+                                        * G_ROUTE: MIDI IN, 0 CH1-4 (channels 1..4 -> parts 1..4, 5..16 ignored), 1 SEL;
                                         * 1.2: 2..4 CH5-8 CH9-12 CH13-16 (seq.c midi_base) */
     G_SLOT, G_NAME, G_LOAD, G_SAVE,
-    G_ENGSEL, G_ENGGO,          /* no page: the editor switches the engine with a SET of G_ENGSEL; G_ENGGO is
-                                 * unused (ids are fixed by the formats and the protocol) */
+    G_ENGSEL, G_CLIP,           /* no page for ENGSEL: the editor switches the engine with a SET of G_ENGSEL.
+                                 * G_CLIP (JIANT): master soft-clip amount on FX > MASTER */
     G_CLRSEQ, G_INITSND,
-    G_RTYPE,                    /* REVERB TYPE: 0 ROOM, 1 SPRING, 2 HALL (1.2, the power-on default) (fx.c). Was
-                                 * G_DRCH, the GM drum part's MIDI channel (inert since 1.0, never read); projects
-                                 * of formats before FUN7 load it as ROOM (project.c proj_rtype_room) */
-    G_DRLVL, G_DRREV,           /* inert (label "-", on no page): the GM drum part they set is gone; kept
-                                 * because the ids and G_COUNT are fixed by the formats and the protocol (only
-                                 * the import of an old project reads them: proj_drums_to_part) */
+    G_RTYPE,                    /* REVERB TYPE (SEND tank): 0 ROOM, 1 SPRING, 2 HALL (1.2 power-on), 3 SHIMR,
+                                 * 4 CLOUD (JIANT) (fx.c). Was G_DRCH, the GM drum part's MIDI channel (inert since
+                                 * 1.0, never read); projects of formats before FUN7 load it as ROOM
+                                 * (project.c proj_rtype_room) */
+    G_PUNCH, G_DUCK,            /* (JIANT) drum bus PNCH and kick DUCK of the synths (fx.c, eng_drum.c).
+                                 * Was G_DRLVL / G_DRREV (GM drum part); old projects still read them in
+                                 * proj_drums_to_part, which clears them after */
+    G_CRTYPE, G_CRSIZE, G_CRDAMP, /* REVERB CHAIN tank (separate from SEND G_R*). Wire: FUN11 spare bytes
+                                   * (project.c); older projects copy SEND on load. */
     G_COUNT
 };
+#define G_SYNC G_DREL                   /* (old names: formats' importers and their tests) */
+#define G_ENGGO G_CLIP
+#define G_DRLVL G_PUNCH
+#define G_DRREV G_DUCK
+#define G_DLYOWN G_CRATE                /* EFFECTS: who has delay as CHAIN (0 = SEND) */
+#define G_REVOWN G_CDEPTH               /* EFFECTS: who has reverb as CHAIN (0 = SEND) */
 
 /* stored parameters of an older layout -> today's P_* order. A store keeps np = the P_COUNT it was
  * written with; common parameters are only ever added just before P_E0, so the first np - 8 are
@@ -107,31 +144,97 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const 
         out[P_E0 + i] = in[nc + i];
 }
 
+/* 1.5 (np 111): INSERT at 96..100 and FTYPE/ESYNC at 101..102 land mid-chain after params_by_count
+ * (P_E0 moved). Rebuild the chain and park TYPE/ESYNC at today's ids. np > 111: no-op. */
+static void ins_migrate(int16_t *p, uint32_t np)
+{
+    int16_t ty = 0, a = 64, b = 96, c = 96, mix = 127, ft = 0, es = 0, dist = p[P_DIST];
+    uint32_t i;
+    if (np > 111u)
+        return;
+    if (np == 111u) {
+        ty = p[96];
+        a = p[97];
+        b = p[98];
+        c = p[99];
+        mix = p[100];
+        ft = p[101];
+        es = p[102];
+    }
+    for (i = P_IORD; i < P_FTYPE; i++)
+        p[i] = 0;
+    p[P_IORD] = 0;
+    p[P_CHOR] = 64 + 6 + (7 << 3);             /* EFFECTS: DLY at 6, REV at 7 (fx.c FX_POS_MARK) */
+    p[P_IDMODE] = IDM_SOFT;
+    p[P_IFTYPE] = IFT_LP;
+    p[P_IFCUT] = 96;
+    p[P_IFRES] = 40;
+    p[P_ICBITS] = 64;
+    p[P_ICRATE] = 96;
+    p[P_ICLPF] = 96;
+    p[P_IPRATE] = p[P_ILRATE] = p[P_IHRATE] = 64;
+    p[P_IPDEP] = p[P_ILDEP] = p[P_IHDEP] = 96;
+    p[P_IPFBK] = 96;
+    p[P_FTYPE] = ft;
+    p[P_ESYNC] = es;
+    if (dist)
+        p[P_IDMIX] = 127;
+    if (np < 111u || ty <= 0)
+        return;
+    if (ty >= 1 && ty <= 4) {
+        int32_t base, off;
+        p[P_IDMODE] = (int16_t)(ty - 1);
+        p[P_DIST] = a;
+        p[P_IDMIX] = mix;
+        /* 1.5 INSERT: P_IB was the distortion's TONE (a cutoff). The chain's cutoff follows drive;
+         * the difference is P_ED_FX so the old tone comes back as closely as ±64 allows */
+        base = 96 - ((a < 0 ? 0 : a > 127 ? 127 : a) >> 2);
+        off = (int32_t)b - base;
+        p[P_ED_FX] = (int16_t)(off < -64 ? -64 : off > 63 ? 63 : off);
+    } else if (ty == 5) {
+        p[P_ICBITS] = a;
+        p[P_ICRATE] = b;
+        p[P_ICLPF] = c;
+        p[P_ICMIX] = mix;
+    } else if (ty == 6) {
+        p[P_IPRATE] = a;
+        p[P_IPDEP] = b;
+        p[P_IPFBK] = c;
+        p[P_IPMIX] = mix;
+    } else if (ty == 7) {
+        p[P_ILRATE] = a;
+        p[P_ILDEP] = b;
+        p[P_ILMIX] = mix;
+    } else if (ty == 8) {
+        p[P_IHRATE] = a;
+        p[P_IHDEP] = b;
+        p[P_IHMIX] = mix;
+    }
+}
+
 /* engine indices the stores name (engines.c ENGINES[]: append-only) */
 #define ENGI_PHYS 9u
 #define ENGI_DRUM 10u
 /* PHYS MODEL DRUM (MODEL 4, before 1.0) -> the DRUM engine, its E values in place: {MODEL, TUNE, TONE, DECY,
- * SNAP, ACC, KICK 0..127, PERC 0..127} -> {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK 0..1, DRV 0}. 1 = it was one
+ * SNAP, ACC, KICK 0..127, PERC 0..127} -> {MRPH, TUNE, TONE, DECY, NOIS, FM, FOLD, DRV} with the old PERC/KICK
+ * packed into the first slots so stored projects stay finite (DRUM-X plays them as MRPH / FOLD). 1 = it was one
  * (its engine is ENGI_DRUM now); projects (project.c) and user presets (upreset.c) */
 static int drum_from_phys(uint32_t engine, int16_t *e)
 {
     if (engine != ENGI_PHYS || e[0] != 4)
         return 0;
-    e[0] = (int16_t)((e[7] < 0 ? 0 : e[7] > 127 ? 127 : e[7]) >> 5);   /* PERC -> KIT: STD HAND CYM H+CYM */
-    e[6] = (int16_t)(e[6] >= 64);                                       /* KICK: PUNCH, ROUND */
+    e[0] = (int16_t)((e[7] < 0 ? 0 : e[7] > 127 ? 127 : e[7]) >> 5);   /* PERC -> MRPH (was KIT index) */
+    e[6] = (int16_t)(e[6] >= 64);                                       /* KICK -> FOLD on/off (was PUNCH/ROUND) */
     e[7] = 0;
     return 1;
 }
 
-/* SAMPLE SET 4 was PERC, the GM-mapped drum kit (tools/gen_samples.py); retired after 1.0.2: its index stays
- * (SET / GRAIN SRC 4 is an alias of PIANO, USR1..3 keep 5..7). A sound that selected it is the DRUM engine with
- * its default kit (eng_drum.c DRUM_PRESETS[0]: the same GM key map, so its patterns still play as drums): its E
- * values become the kit's, the rest of the sound (mix, sends, matrix, ..) stays. 1 = it was one (its engine is
- * ENGI_DRUM now); projects (project.c proj_perc), user presets (upreset.c up_migrate), factory preset 4 and
- * favourites (ui.c, settings_persist.c). Idempotent */
-#define ENGI_SAMPLE 4u
+/* SAMPLE SET 4 was PERC, the GM kit (tools/gen_samples.py); retired after 1.0.2: its index stays
+ * (SET / GRAIN SRC 4 is an alias of PIANO). A sound that selected it is the DRUM engine with
+ * its default kit (same GM map). projects (proj_perc), user presets (up_migrate), favourites
+ * (settings_persist.c). Idempotent. */
 #define SMP_SET_PERC 4u
-#define DRUM_KIT_E {0, 64, 70, 64, 64, 100, 0, 0}   /* {KIT STD, TUNE, TONE, DECY, SNAP, ACC, KICK PUNCH, DRV} */
+#define DRUM_KIT_E {64, 64, 70, 64, 64, 0, 0, 0}   /* {MRPH, TUNE, TONE, DECY, NOIS, FM, FOLD, DRV} (DRUM-X) */
 static int drum_from_perc(uint32_t engine, int16_t *e)
 {
     static const int16_t KIT[8] = DRUM_KIT_E;
@@ -256,8 +359,9 @@ static void step_set_ratchet(step_t *s, uint32_t hits)
     s->flags = (uint8_t)((s->flags & ~SF_RATCH) | ((hits < 1u ? 0u : hits > 4u ? 3u : hits - 1u) << SF_RATCH_SH));
 }
 /* NUDGE (1.2, #162, D98): a step's timing, in 1/NUDGE_DIV of the track's DIV, -8..+7 (half a step early .. 7/16 late);
- * live recording keeps it, SEQ > AUTOMATION's NUDGE rows and STEP (steps held + PRESETS) set it, the track's QUANTIZE
- * OFF (P_SQNT, AUTOMATION's QUANTIZE row) plays it (seq.c seq_tick).
+ * live recording keeps it, SEQ > AUTOMATION's NUDGE rows and DETAIL's NUDGE set it, the track's QUANTIZE
+ * OFF (P_SQNT, AUTOMATION's QUANTIZE row) plays it (seq.c seq_tick). On the drum grid, steps held + PRESETS moves
+ * those steps in time; on the piano roll, PRESETS moves the note under the cursor (its ties with it).
  * Four bits of the flags no other field uses: 4 (bit 3 of the nudge, its sign) and 32 64 128 (bits 0..2). 0 = on the
  * step: every older pattern. A user preset's pattern keeps none (upreset.c up_pat_norm) */
 #define NUDGE_DIV 16
@@ -272,7 +376,9 @@ static void step_set_nudge(step_t *s, int32_t v)
     uint32_t u = (uint32_t)(v < -8 ? -8 : v > 7 ? 7 : v) & 15u;
     s->flags = (uint8_t)((s->flags & ~SF_NUDGE) | (u & 7u) << 5 | (u >> 1 & 4u));
 }
-#define MOTION_MAX 128u          /* 1.2 (FUN10): 64 before */
+#define MOTION_MAX 128u          /* RAM / old FUN10 (np<=111): 128 records. New saves (np==P_COUNT): see MOTION_FILE_MAX */
+#define MOTION_FILE_MAX_V10 110u /* FUN10 disk: 4+110*3=334; +2 B/track for P_IORD left 2 B before FM6 */
+#define MOTION_FILE_MAX 78u      /* FUN11 disk: 4+78*3=238; frees 96 B for the DRUM-X kit (project.c PROJ_DX_*) */
 /* Four tracks x64 steps fit one byte. Values retain their signed parameter range (-64..127: an int8_t, 1.2).
  * param: the P_* id (< 128: P_COUNT is at most 127, project.c), bit 7 (MOTION_LOCK, 1.1) a parameter lock: the value
  * sounds on that step only and goes back after it (motion.c motion_step); without it an automation event, the
@@ -281,7 +387,11 @@ static void step_set_nudge(step_t *s, int32_t v)
 #define MOTION_ID(e) ((uint32_t)(e)->param & 0x7Fu)
 typedef struct { uint8_t place, param; int8_t value; } motion_event_t;
 typedef struct { uint8_t count, on, rsv[2]; motion_event_t event[MOTION_MAX]; } motion_store_t;
-_Static_assert(sizeof(motion_store_t) == 388u, "motion disk layout (FUN10)");
+_Static_assert(sizeof(motion_store_t) == 388u, "motion RAM layout (128 records)");
+#define MOTION_FILE_SIZE_V10 (4u + MOTION_FILE_MAX_V10 * sizeof(motion_event_t))
+#define MOTION_FILE_SIZE (4u + MOTION_FILE_MAX * sizeof(motion_event_t))
+_Static_assert(MOTION_FILE_SIZE_V10 == 334u, "FUN10 motion disk layout");
+_Static_assert(MOTION_FILE_SIZE == 238u, "FUN11 motion disk layout (kit before FM6)");
 #define CHAIN_ROWS 16u
 /* A song section (1.2, FUN10): the PROJECT slot each track plays (0..3, A..D; CHAIN_SILENT "-": that track plays
  * nothing there) and its repeats (1..16). Up to 1.1 a row was {slot, repeat}, all four tracks on that slot
@@ -356,7 +466,20 @@ typedef struct track {
     int32_t dist_hp, dist_lp1, dist_lp2;   /* DIST insert state (fx.c) */
     uint8_t tail;                /* blocks to mix after the last voice (the DIST / INSERT tail) */
     uint8_t ins_run;             /* the INSERT still sounds (fx.c track_insert: its wet share above 0) */
-    uint8_t rsv_sz[15];          /* (sizeof(track_t) a multiple of 16: below) */
+    /* punch-in MIDI (pfx.c): ISR only, never saved */
+    uint8_t pfx;                 /* PFX_* */
+    int16_t pfx_pit;             /* OCT- / OCT+: 1/16 semitones on every voice */
+    int16_t pfx_rpit;            /* RANDOM: the next note's offset (1/16 semitones) */
+    uint8_t pfx_half;            /* 1/2 TEMPO: the odd sample carried; pfx_rs: let go, resync */
+    uint8_t pfx_rs;
+    uint16_t pfx_idx0;           /* where 1/2 TEMPO was pressed (step, samples into it) */
+    uint32_t pfx_pos0, pfx_el;
+    uint8_t pfx_ln[4], pfx_lv[4], pfx_lnn;   /* last notes struck together (STUTTER / ARP) */
+    uint32_t pfx_lblk;           /* block they were struck in */
+    uint8_t pfx_sn[4], pfx_snn;  /* notes a repeat holds now */
+    uint8_t pfx_si;              /* ARP: the next of them */
+    uint32_t pfx_sc;             /* samples since the last repeat */
+    uint8_t rsv_sz[1];           /* sizeof(track_t) a multiple of 16 */
     int16_t armp, aholdp;        /* P_AMODE / P_AHOLD as last seen by the ISR */
     /* engine switch (voice.c engine_block): the old engine's voices fade out, then it switches */
     uint8_t xf_on, xf;           /* fading; blocks of the fade still to render */
@@ -370,6 +493,7 @@ typedef struct track {
     int16_t m_rnd;               /* .. its RAND */
     int32_t m_env;               /* the amp envelope of voice m_vi, last block (Q15) */
 } track_t;
+enum { PFX_RND = 1, PFX_HALF = 2, PFX_REP = 4, PFX_DEC = 8, PFX_ATK = 16 };   /* (track_t.pfx) */
 /* the audio ISR indexes trk[] with a multiply by a small immediate and a shift while the size is a multiple of 16; 1.5's
  * new track parameters (the INSERT, the filter TYPE, ENV SYNC) and state would make it no multiple (the constant
  * loaded first: +3 % on the ISR's static cost, target_budget.py): one pad, rsv_sz, keeps it */

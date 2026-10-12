@@ -214,16 +214,13 @@ static int midi_track_held(uint32_t track)
 #define MCC_RES 0xFFu
 static const uint8_t MIDI_CC_MAP[][2] = {
     {5, P_GLIDE}, {7, P_LEVEL}, {10, P_PAN}, {71, MCC_RES}, {72, P_REL}, {73, P_ATK}, {74, MCC_CUT}, {75, P_DEC},
-    {91, P_REV}, {93, P_CHOR}, {94, P_DLY},
+    {91, P_REV}, {93, P_IHMIX}, {94, P_DLY},   /* 93: insert CHOR MIX (bus CHO send retired; P_CHOR is FXPOS) */
 };
 /* per engine (ENGINES[] order): CC74's E index + 1 in the high nibble, CC71's in the low one, 0 = none */
 static const uint8_t MIDI_CC_ENG[NENGINES] = {
     0x56, 0x00, 0x30, 0x80, 0x50, 0x07, 0x67, 0x00,   /* ANALOG CUT RES, -, PHASE DCW, LOFI TONE, SAMPLE CUT, VOICE Q,
                                                        * TRIO CUT RES, WHEEL - */
     0x80, 0x30, 0x30, 0x34, 0x30,                     /* GRAIN TONE, PHYS BRIT, DRUM TONE, NOISE FREQ RES, FM6 MLVL */
-#if FELUCCA_SLICE
-    0x80,                                             /* SLICE TONE */
-#endif
 };
 /* a CC sets parameter id of track t as a knob would: 0..127 over its range */
 static void midi_cc_set(track_t *t, uint32_t id, uint32_t value)

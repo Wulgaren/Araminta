@@ -1,11 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Small-canvas renderer (no full framebuffer). Draw text/lines into
- * an off-screen strip, then blit it in one DMA transfer. Pixels are stored
- * byte-swapped (the panel takes RGB565 big-endian).
- * Text and icons are 4-bit alpha bitmaps made at build time (tools/gen_aa_font.py: Inter Tight;
- * tools/gen_aa_icons.py: Fukiai). A glyph is trimmed to its ink box, advances are in 1/16 px, and
- * each glyph is rasterised at 1 << psh horizontal phases (S M 4, L 2: drawn at a pen of +0, +1/4 .. px);
+ * an off-screen strip, then expand CV_STRIP rows at a time to RGB565 and DMA them.
+ * The strip stores 4-bit palette indices (two pixels per byte, ~14.5 KiB for 240 x 124: about 40 KiB
+ * less than RGB565). Index 15 is reserved (host FM6 lint sentinel); blends quantise to the nearest of
+ * 0..14. The panel still takes byte-swapped RGB565. lcd_sync before rewriting the expand buffer:
+ * a blit may still be reading it (lcd.c lcd_busy).
+ * Text and icons are 4-bit alpha bitmaps made at build time (tools/gen_aa_font.py: Terminus S 6x12 /
+ * M 8x16 / L 2x; tools/gen_aa_icons.py: Fukiai). A glyph is trimmed to its ink box, advances are in 1/16 px, and
+ * each glyph is rasterised at 1 << psh horizontal phases (bitmap faces 1, outline faces more);
  * cv_text takes the phase that puts it within a phase step of its true place. Blending uses a 16-entry
  * ramp per (ink, background) pair, cached, so a pixel costs a nibble read and a store. Colours come from the theme tokens. */
 typedef struct { uint16_t off, adv; int8_t bx; uint8_t by, bw, bh; } aag_t;
@@ -22,7 +25,7 @@ typedef struct {
 } aafont_t;
 typedef struct { const char *name; uint16_t bg, surf, text, theme, accent; } ui_pal_t;
 typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
-#include "ui_fonts.h"                   /* AF_S 12 px / 400, AF_M 15 px / 500, AF_L 28 px / 600 */
+#include "ui_fonts.h"                   /* AF_S Terminus 12 px, AF_M 16 px, AF_L 32 px (0.9) */
 #include "ui_palettes.h"
 #include "ui_keycaps.h"                 /* KC_*: the keycaps / badges (tools/gen_aa_keycaps.py), KNOB_* arcs */
 #define ELLIPSIS '\x85'                 /* the ellipsis glyph of AF_S and AF_M */
@@ -68,14 +71,35 @@ typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
 #define AL_N(n) ((uint32_t)(n) << 8)
 
 #define CV_MAX (240u * 124u)      /* the graph strip is 240 x 124 */
-static uint16_t cv_px[CV_MAX] __attribute__((section(".pool")));
+#define CV_NIDX 16u               /* nibble indices; 15 = sentinel (not a theme colour) */
+#define CV_SENT 15u
+#define CV_STRIP 16u              /* expanded rows per lcd_blit (few KiB scratch) */
+static uint8_t cv_px[(CV_MAX + 1u) / 2u] __attribute__((section(".pool")));   /* packed indices */
+static uint16_t cv_tok[CV_NIDX]; /* logical RGB565 for slots 0..14 */
+static uint16_t cv_lut[CV_NIDX]; /* panel-swapped RGB565 */
+static uint16_t cv_row[240];     /* splash / one-row expand */
+static uint16_t cv_strip[240u * CV_STRIP] __attribute__((section(".pool")));
 static uint32_t cv_w, cv_h;
-static uint16_t cv_bg;           /* what cv_begin cleared the canvas to */
+static uint16_t cv_bg;           /* what cv_begin cleared the canvas to (logical) */
+static uint8_t cv_bg_i;          /* its index */
 static uint8_t cv_scroll;        /* 1: drawing a scrolled view (its text may run past the canvas) */
 static int32_t cv_oy;            /* y offset for graph drawing */
 static int16_t cv_cy0, cv_cy1;   /* text clip: canvas rows cv_cy0 .. cv_cy1 - 1 (cv_begin: the whole canvas) */
 static uint8_t cv_flip;          /* cv_alpha_hc: the cell mirrored left <-> right (the header's metronome, ui_draw.c) */
 
+static inline uint8_t cv_nget(uint32_t i)
+{
+    uint8_t b = cv_px[i >> 1];
+    return (i & 1u) ? (uint8_t)(b >> 4) : (uint8_t)(b & 15u);
+}
+static inline void cv_nput(uint32_t i, uint8_t n)
+{
+    uint8_t *p = &cv_px[i >> 1];
+    if (i & 1u)
+        *p = (uint8_t)((*p & 0x0Fu) | (n << 4));
+    else
+        *p = (uint8_t)((*p & 0xF0u) | (n & 15u));
+}
 #define RGB(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
 
 /* ------------------------------------------------------------- theme --- */
@@ -84,17 +108,16 @@ static struct {
     uint16_t bg, surf, text, theme, accent;
     uint16_t mid, dim, line, sel, tint, ink, rec, raise, key, lane, grid;
     uint8_t light, mono;
-    uint8_t style;               /* MENU > STYLE (ui.c style_apply): ST_FLAT, ST_LINE */
+    uint8_t style;               /* always ST_FLAT (STYLE retired; ST_LINE kept for host tests of the old path) */
     uint32_t gen;                /* bumped by palette_set (the text ramps follow) */
 } ux;
-/* STYLE: FLAT, the filled SURF cards and panels; LINE, no SURF (it is BG) and 1 px T_RULE dividers between the
- * areas instead (ui_draw.c draw_frame). (1.0.2: PIXEL, LINE un-antialiased, retired; a saved PIXEL reads as LINE.)
- * Selections, accents, keys and gauges keep their fills in every style */
+/* STYLE: always FLAT (no 1 px rule dividers). SURF is BG on every palette (no raised card fill).
+ * ST_LINE remains in the draw paths for host tests only. (1.0.2: PIXEL retired.) */
 #define ST_FLAT 0u
 #define ST_LINE 1u
-#define T_RULE ux.dim            /* LINE: the dividers (DIM: visible on NIGHT, GREY, MONO and PAPER, quieter than labels) */
+#define T_RULE ux.dim            /* LINE: the dividers (DIM: visible on NIGHT, GREY and PAPER, quieter than labels) */
 #define T_BG ux.bg               /* background */
-#define T_SURF ux.surf           /* dialogs, menu rows, mixer strips */
+#define T_SURF ux.surf           /* dialogs, menu rows, mixer strips (equals BG: no card fill) */
 #define T_TEXT ux.text           /* primary text */
 #define T_THEME ux.theme         /* values, curves, the gauge's end line */
 #define T_ACCENT ux.accent       /* the one active thing: hot knob, cursor, playhead */
@@ -104,7 +127,7 @@ static struct {
 #define T_SEL ux.sel             /* selection and gauge fill */
 #define T_TINT ux.tint           /* a faint theme area */
 #define T_INK ux.ink             /* text on T_SEL / T_THEME */
-#define T_REC ux.rec             /* REC: fixed red (GREY, MONO: the accent) */
+#define T_REC ux.rec             /* REC: fixed red (GREY: the accent) */
 #define T_RAISE ux.raise         /* a raised area on a surface: stubs, guides, slots, chips, button wells */
 #define T_KEY ux.key             /* a keycap's fill (its label: T_INK; unavailable: a T_DIM fill) */
 #define T_LANE ux.lane           /* the piano roll: an in-scale row (SURF -> THEME 10 %) */
@@ -132,87 +155,160 @@ static uint32_t ux_luma(uint16_t c)        /* 0..255 */
     return ((c >> 11) * 255u / 31u * 54u + ((c >> 5) & 63u) * 255u / 63u * 183u + (c & 31u) * 255u / 31u * 19u) >> 8;
 }
 
+static void cv_lut_build(void);
+
 static void palette_set(uint32_t i)
 {
     const ui_pal_t *p = &UI_PALETTES[i % NPALETTES];
     i %= NPALETTES;
     ux.mono = i == UI_GREY_INDEX;
-    ux.bg = p->bg; ux.surf = ux.style ? p->bg : p->surf; ux.text = p->text; ux.theme = p->theme; ux.accent = p->accent;
+    ux.bg = p->bg; ux.surf = p->bg; ux.text = p->text; ux.theme = p->theme; ux.accent = p->accent;   /* SURF = BG */
     ux.mid = ux_mix(p->bg, p->text, UI_MID_PCT);
     ux.dim = ux_mix(p->bg, p->text, UI_DIM_PCT);
     ux.line = ux_mix(p->bg, p->text, UI_LINE_PCT);
     ux.sel = ux_mix(p->bg, p->theme, UI_SEL_PCT);
     ux.tint = ux_mix(p->bg, p->theme, UI_TINT_PCT);
     ux.ink = p->bg;
-    ux.raise = ux_mix(p->surf, p->text, UI_RAISE_PCT);
+    ux.raise = ux_mix(p->bg, p->text, UI_RAISE_PCT);
     ux.key = ux_mix(p->bg, p->text, UI_KEY_PCT);
     ux.lane = ux_mix(ux.surf, p->theme, 10);
     ux.grid = ux_mix(ux.surf, p->text, 6);
     ux.light = ux_luma(p->bg) > 128u;
     ux.rec = ux.mono ? p->accent : ux.light ? UI_REC_LIGHT : UI_REC_DARK;
-    if (i == UI_BW_INDEX) {                      /* MONO: black and white, set, not blended (tools/gen_ui_palettes.py) */
-        ux.mid = ux.sel = ux.key = ux.rec = p->text;   /* a selection, a keycap, REC: white, its INK black */
-        ux.dim = ux.line = ux.raise = ux.lane = UI_BW_GREY;   /* the one grey: inactive, tracks, wells */
-        ux.tint = ux.grid = p->bg;
-    }
     ux.gen++;                                    /* the text ramps change with the coverage curve */
+    cv_lut_build();
 }
 
 /* settings store a tagged id; ids below 20 are the palettes of earlier firmware */
 static uint32_t palette_from_stored(uint32_t v)
 {
+    if (v == UI_PAL_TAG + UI_RETIRED_MONO_INDEX) return UI_GREY_INDEX;   /* retired MONO -> GREY */
     if (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES) return v - UI_PAL_TAG;
     return v < 20u ? UI_PALETTE_MIGRATE[v] : UI_GREY_INDEX;
 }
 static uint32_t palette_to_stored(uint32_t i) { return UI_PAL_TAG + i % NPALETTES; }
-static int palette_stored_ok(uint32_t v) { return v < 20u || (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES); }
+static int palette_stored_ok(uint32_t v)
+{
+    return v < 20u || (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES) ||
+           v == UI_PAL_TAG + UI_RETIRED_MONO_INDEX;   /* retired MONO still imports */
+}
 
 static inline uint16_t swap16(uint32_t c) { return (uint16_t)(((c >> 8) & 0xFFu) | ((c & 0xFFu) << 8)); }
 
+/* nearest theme slot 0..14 (15 unused for drawing) */
+static uint8_t cv_idx(uint16_t c)
+{
+    uint32_t i, best = 0, bd = 0xffffffffu;
+    static const uint8_t SH[3] = {11, 5, 0}, MK[3] = {31, 63, 31};
+    for (i = 0; i < CV_SENT; i++) {
+        uint32_t k, d = 0;
+        if (cv_tok[i] == c)
+            return (uint8_t)i;
+        for (k = 0; k < 3u; k++) {
+            int32_t a = (c >> SH[k]) & MK[k], b = (cv_tok[i] >> SH[k]) & MK[k], e = a - b;
+            d += (uint32_t)(e * e);
+        }
+        if (d < bd) {
+            bd = d;
+            best = i;
+        }
+    }
+    return (uint8_t)best;
+}
+static void cv_lut_build(void)
+{
+    uint16_t src[16] = {
+        ux.bg, ux.surf, ux.text, ux.theme, ux.accent, ux.mid, ux.dim, ux.line,
+        ux.sel, ux.tint, ux.ink, ux.rec, ux.raise, ux.key, ux.lane, ux.grid
+    };
+    uint32_t i, n = 0;
+    for (i = 0; i < 16u; i++) {
+        uint32_t j;
+        for (j = 0; j < n; j++)
+            if (cv_tok[j] == src[i])
+                break;
+        if (j < n)
+            continue;
+        if (n < CV_SENT)
+            cv_tok[n++] = src[i];
+    }
+    while (n < CV_SENT)
+        cv_tok[n++] = ux.bg;
+    cv_tok[CV_SENT] = 0;
+    for (i = 0; i < CV_NIDX; i++)
+        cv_lut[i] = swap16(cv_tok[i]);
+}
+/* logical RGB565 of canvas pixel i (host tests) */
+static uint16_t cv_peek(uint32_t i) { return cv_tok[cv_nget(i) & 15u]; }
+
 /* ------------------------------------------------------------ canvas --- */
+static void cv_expand_rows(uint32_t row0, uint32_t n, uint16_t *dst)
+{
+    uint32_t y, x;
+    for (y = 0; y < n; y++) {
+        uint32_t base = (row0 + y) * cv_w;
+        uint16_t *d = dst + y * cv_w;
+        for (x = 0; x < cv_w; x++)
+            d[x] = cv_lut[cv_nget(base + x)];
+    }
+}
+
 static void cv_begin(uint32_t w, uint32_t h, uint16_t bg)
 {
     uint32_t i, n;
-    uint16_t s = swap16(bg);
     if (w * h > CV_MAX)
         h = CV_MAX / w;
-    lcd_sync();                     /* the last blit may still read cv_px */
+    lcd_sync();                     /* the last blit may still read cv_strip / cv_row */
     GFX_HOOK_BEGIN();
     cv_w = w;
     cv_h = h;
     cv_cy0 = 0;
     cv_cy1 = (int16_t)h;
     cv_bg = bg;
+    cv_bg_i = cv_idx(bg);
     n = w * h;
     for (i = 0; i < n; i++)
-        cv_px[i] = s;
+        cv_nput(i, cv_bg_i);
+}
+
+static void cv_blit_rows(uint32_t x, uint32_t y, uint32_t r0)
+{
+    uint32_t row = r0;
+    while (row < cv_h) {
+        uint32_t n = cv_h - row;
+        if (n > CV_STRIP)
+            n = CV_STRIP;
+        lcd_sync();                 /* before rewriting cv_strip */
+        cv_expand_rows(row, n, cv_strip);
+        lcd_blit(x, y + row, cv_w, n, cv_strip);
+        row += n;
+    }
 }
 
 static void cv_blit(uint32_t x, uint32_t y)
 {
     GFX_HOOK_BLIT(x, y, 0u);
-    lcd_blit(x, y, cv_w, cv_h, cv_px);
+    cv_blit_rows(x, y, 0u);
 }
 
 /* canvas rows r0 .. cv_h-1 only, to screen row y + r0 */
 static void cv_blit_from(uint32_t x, uint32_t y, uint32_t r0)
 {
     GFX_HOOK_BLIT(x, y, r0);
-    if (r0 < cv_h)
-        lcd_blit(x, y + r0, cv_w, cv_h - r0, cv_px + r0 * cv_w);
+    cv_blit_rows(x, y, r0);
 }
 
 static inline void cv_pset(int32_t x, int32_t y, uint16_t c)
 {
     y += cv_oy;
     if ((uint32_t)x < cv_w && (uint32_t)y < cv_h)
-        cv_px[(uint32_t)y * cv_w + (uint32_t)x] = swap16(c);
+        cv_nput((uint32_t)y * cv_w + (uint32_t)x, cv_idx(c));
 }
 
 static void cv_rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)
 {
     int32_t x1 = x + w, y1 = y + h + cv_oy, i;
-    uint16_t sc = swap16(c);
+    uint8_t id = cv_idx(c);
     y += cv_oy;                             /* clipped once, then filled row by row */
     if (x < 0)
         x = 0;
@@ -224,7 +320,7 @@ static void cv_rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)
         y1 = (int32_t)cv_h;
     for (; y < y1; y++)
         for (i = x; i < x1; i++)
-            cv_px[(uint32_t)y * cv_w + (uint32_t)i] = sc;
+            cv_nput((uint32_t)y * cv_w + (uint32_t)i, id);
 }
 
 /* a divider (LINE): a 1 px T_RULE line on the canvas, a cell edge for the host lint */
@@ -317,18 +413,19 @@ static const uint8_t CURVE_DARK[16] = {0, 24, 43, 62, 80, 97, 114, 130, 147, 163
 static const uint8_t CURVE_LIGHT[16] = {0, 12, 27, 42, 58, 75, 91, 109, 126, 144, 162, 180, 199, 217, 236, 255};
 #define NRAMP 6u
 static struct {
-    uint16_t fg[NRAMP], bg[NRAMP], v[NRAMP][16];   /* v: byte-swapped panel values */
+    uint16_t fg[NRAMP], bg[NRAMP];
+    uint8_t v[NRAMP][16];                    /* v: canvas palette indices */
     uint32_t gen;
     uint8_t next, n;
 } rc;
 
-static const uint16_t *ramp(uint16_t fg, uint16_t bg)
+static const uint8_t *ramp(uint16_t fg, uint16_t bg)
 {
     static const uint8_t SH[3] = {11, 5, 0}, MK[3] = {31, 63, 31};
     const uint8_t *cv = ux.light ? CURVE_LIGHT : CURVE_DARK;
     uint32_t i, a, k;
-    uint16_t *v;
-    if (fg == bg)                                /* MONO: DIM on a RAISE well (one grey): black, recessed */
+    uint8_t *v;
+    if (fg == bg)                                /* same colour on itself: black, recessed */
         fg = ux.bg;
     GFX_HOOK_INK(fg, bg);
     if (rc.gen != ux.gen) {
@@ -357,29 +454,29 @@ static const uint16_t *ramp(uint16_t fg, uint16_t bg)
                 out |= (uint32_t)(x + (((y - x) * w + 128) >> 8)) << SH[k];
             }
         }
-        v[a] = swap16(out);
+        v[a] = cv_idx((uint16_t)out);
     }
     return v;
 }
 
 /* w x h nibbles, rows back to back, at canvas (x, y) */
-static void cv_alpha(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t *d, const uint16_t *rv)
+static void cv_alpha(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t *d, const uint8_t *rv)
 {
     uint32_t k = 0, gx, gy;
     y += cv_oy;
     for (gy = 0; gy < h; gy++) {
         int32_t py = y + (int32_t)gy;
-        uint16_t *row;
+        uint32_t base;
         if (py < cv_cy0 || py >= cv_cy1) {
             k += w;
             continue;
         }
-        row = cv_px + (uint32_t)py * cv_w;
+        base = (uint32_t)py * cv_w;
         for (gx = 0; gx < w; gx++, k++) {
             uint32_t v = (d[k >> 1] >> ((k & 1u) ? 0 : 4)) & 15u;
             int32_t px = x + (int32_t)gx;
             if (v && (uint32_t)px < cv_w)
-                row[px] = rv[v];
+                cv_nput(base + (uint32_t)px, rv[v]);
         }
     }
     GFX_HOOK_PIXELS(w * h);
@@ -412,14 +509,14 @@ static const uint16_t *hc_lut(const uint8_t *hc)
 }
 
 static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t *d, const uint8_t *hc,
-                        const uint16_t *rv)
+                        const uint8_t *rv)
 {
     const uint16_t *lut = hc_lut(hc);
     uint32_t gy, v = 0, run = 0, acc = 0, nb = 0;
     y += cv_oy;
     for (gy = 0; gy < h; gy++) {
         int32_t py = y + (int32_t)gy;
-        uint16_t *row = py < cv_cy0 || py >= cv_cy1 ? 0 : cv_px + (uint32_t)py * cv_w;
+        uint32_t base = py < cv_cy0 || py >= cv_cy1 ? 0xffffffffu : (uint32_t)py * cv_w;
         uint32_t gx = 0;
         while (gx < w) {
             uint32_t n;
@@ -450,12 +547,12 @@ static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint
                 run = (s >> 4) + 1u;
             }
             n = run < w - gx ? run : w - gx;
-            if (v && row) {
+            if (v && base != 0xffffffffu) {
                 int32_t px = cv_flip ? x + (int32_t)(w - 1u - gx) : x + (int32_t)gx, dx = cv_flip ? -1 : 1;
                 uint32_t k;
                 for (k = 0; k < n; k++, px += dx)
                     if ((uint32_t)px < cv_w)
-                        row[px] = rv[v];
+                        cv_nput(base + (uint32_t)px, rv[v]);
             }
             gx += n;
             run -= n;
@@ -521,7 +618,7 @@ static int32_t text_w(const aafont_t *f, const char *s)
     return (pen + 8) >> 4;
 }
 
-static int32_t text_run(int32_t x, int32_t y, const aafont_t *f, const char *s, const uint16_t *rv, int32_t *bb)
+static int32_t text_run(int32_t x, int32_t y, const aafont_t *f, const char *s, const uint8_t *rv, int32_t *bb)
 {
     int32_t pen = 0, err = 0, x0 = 0x7FFF, y0 = 0x7FFF, x1 = -0x7FFF, y1 = -0x7FFF;
     const int32_t step = 16 >> f->psh;
@@ -678,14 +775,15 @@ static int32_t cv_free_text(int32_t x, int32_t y, const aafont_t *f, const char 
  * 6..15 the label over the fill; the 16 colours per (under, fill, ink) are cached like the text ramps */
 #define NKRAMP 4u
 static struct {
-    uint16_t key[NKRAMP][3], v[NKRAMP][16];
+    uint16_t key[NKRAMP][3];
+    uint8_t v[NKRAMP][16];
     uint32_t gen;
     uint8_t next, n;
 } kr __attribute__((section(".pool")));      /* (zero-initialised; outside .bss) */
-static const uint16_t *kc_ramp(uint16_t under, uint16_t fill, uint16_t ink)
+static const uint8_t *kc_ramp(uint16_t under, uint16_t fill, uint16_t ink)
 {
     uint32_t i, a;
-    uint16_t *v;
+    uint8_t *v;
     if (ink == fill)                             /* (as ramp) */
         ink = ux.bg;
     GFX_HOOK_INK(ink, fill);
@@ -704,10 +802,10 @@ static const uint16_t *kc_ramp(uint16_t under, uint16_t fill, uint16_t ink)
     kr.key[i][1] = fill;
     kr.key[i][2] = ink;
     v = kr.v[i];
-    v[0] = swap16(under);
+    v[0] = cv_idx(under);
     for (a = 1; a < 16u; a++) {
         int32_t p = a < 5u ? (int32_t)a * 20 : (int32_t)(a - 5u) * 10;
-        v[a] = swap16(a < 5u ? ux_mix(under, fill, p) : ux_mix(fill, ink, p));
+        v[a] = cv_idx(a < 5u ? ux_mix(under, fill, p) : ux_mix(fill, ink, p));
     }
     return v;
 }
@@ -717,7 +815,7 @@ static int32_t kc_w(uint32_t id) { return id < KC_COUNT ? KC[id].w : 0; }
 static int32_t cv_keycap(int32_t x, int32_t y, uint32_t id, uint16_t fill, uint16_t ink, uint16_t under)
 {
     const kc_t *k = &KC[id < KC_COUNT ? id : 0u];
-    const uint16_t *rv = kc_ramp(under, fill, ink);
+    const uint8_t *rv = kc_ramp(under, fill, ink);
     cv_alpha(x, y, k->w, KC_H, KC_DATA + k->off, rv);
     if (x < 0 || x + k->w > (int32_t)cv_w || y + cv_oy < 0 || y + KC_H + cv_oy > (int32_t)cv_h)
         GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 6u);      /* cut by the canvas */
@@ -726,9 +824,10 @@ static int32_t cv_keycap(int32_t x, int32_t y, uint32_t id, uint16_t fill, uint1
     return x + k->w;
 }
 
-/* a key hint: the keycap, then what it does (S, TEXT); unavailable: a DIM keycap and a DIM word. The word sits on
- * the keycap's centre line (S caps 9 rows, the keycap's 7). act may be 0 (the keycap alone); returns the end x */
+/* a key hint: the keycap, then what it does (S, TEXT); unavailable: a DIM keycap and a DIM word. The word's
+ * capitals sit on the keycap's centre line (CAP_IN). act may be 0 (the keycap alone); returns the end x */
 #define KH_GAP 4                                  /* keycap -> its word */
+#define KH_WORD_Y(ky) ((ky) + CAP_IN(S, KC_H))    /* S line top for a keycap whose top is ky */
 static int32_t kh_w(uint32_t id, const char *act) { return kc_w(id) + (act && act[0] ? KH_GAP + text_w(&AF_S, act) : 0); }
 /* .. its ink: the keycap to the word's last inked column (centring a hint by what is seen) */
 static int32_t kh_ink(uint32_t id, const char *act)
@@ -744,7 +843,7 @@ static int32_t cv_key_hint(int32_t x, int32_t y, uint32_t id, const char *act, i
     x = cv_keycap(x, y, id, on ? T_KEY : T_DIM, T_INK, under);
     if (act && act[0]) {
         GFX_HOOK_ALIGN(0, y, 0, y + KC_H, AL_V | AL_PASS, "key hint word on its keycap's line");
-        x = cv_text_on(x + KH_GAP, y - 1, &AF_S, act, on ? T_TEXT : T_DIM, under);
+        x = cv_text_on(x + KH_GAP, KH_WORD_Y(y), &AF_S, act, on ? T_TEXT : T_DIM, under);
     }
     return x;
 }
@@ -796,11 +895,12 @@ static int32_t kc_tag(const char *s, uint32_t *len)
     return -1;
 }
 /* free text (S) that may start with a keycap, "[SAVE] HOLD TO UNDO", or have one after its first word,
- * "HOLD [GLO] QUICK": the word, the keycap, then the rest, cut to maxw */
+ * "HOLD [GLO] QUICK": the word, the keycap, then the rest, cut to maxw. y is the S line (HEAD_SY in the
+ * header); the keycap is placed so KH_WORD_Y(ky) == y (S=16: ky = y + 1; S=12: ky = y). */
 static int32_t cv_free_hint(int32_t x, int32_t y, const char *s, uint16_t fg, uint16_t bg, int32_t maxw)
 {
     uint32_t n, i;
-    int32_t id = kc_tag(s, &n), x0 = x;
+    int32_t id = kc_tag(s, &n), x0 = x, ty = y, ky = y - CAP_IN(S, KC_H);
     for (i = 0; id < 0 && i < 7u && s[i] && s[i] != ' '; i++)
         ;
     if (id < 0 && i && s[i] == ' ' && (id = kc_tag(s + i + 1u, &n)) >= 0) {
@@ -808,20 +908,20 @@ static int32_t cv_free_hint(int32_t x, int32_t y, const char *s, uint16_t fg, ui
         uint32_t j;
         for (j = 0; j < i; j++)
             w[j] = s[j];
-        GFX_HOOK_ALIGN(0, y + 1, 0, y + 1 + KC_H, AL_V | AL_PASS, "free hint words on the keycap's line");
-        x = cv_text_on(x, y, &AF_S, w, fg, bg) + KH_GAP;
+        GFX_HOOK_ALIGN(0, ky, 0, ky + KC_H, AL_V | AL_PASS, "free hint words on the keycap's line");
+        x = cv_text_on(x, ty, &AF_S, w, fg, bg) + KH_GAP;
         s += i + 1u;
     }
     if (id >= 0 && kc_w((uint32_t)id) + KH_GAP < maxw - (x - x0)) {
-        x = cv_keycap(x, y + 1, (uint32_t)id, T_KEY, T_INK, bg) + KH_GAP;
+        x = cv_keycap(x, ky, (uint32_t)id, T_KEY, T_INK, bg) + KH_GAP;
         s += n;
         while (*s == ' ')
             s++;
         if (!*s)
             return x - KH_GAP;
-        GFX_HOOK_ALIGN(0, y + 1, 0, y + 1 + KC_H, AL_V | AL_PASS, "free hint words on the keycap's line");
+        GFX_HOOK_ALIGN(0, ky, 0, ky + KC_H, AL_V | AL_PASS, "free hint words on the keycap's line");
     }
-    return cv_free_text(x, y, &AF_S, s, fg, bg, maxw - (x - x0));
+    return cv_free_text(x, ty, &AF_S, s, fg, bg, maxw - (x - x0));
 }
 
 /* one-shot: a line of text in a box of colour bg, blitted (align: 0 left, 1 centre, 2 right) */

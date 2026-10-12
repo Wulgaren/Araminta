@@ -63,9 +63,8 @@ static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails
 {
     uint32_t k;
     memset(dly_buf, 0, sizeof dly_buf);
-    memset(cho_buf, 0, sizeof cho_buf);
-    memset(rev_comb, 0, sizeof rev_comb);
-    memset(rev_ap, 0, sizeof rev_ap);
+    memset(rev_tank, 0, sizeof rev_tank);
+    R = &rev_tank[0];
     memset(&fx, 0, sizeof fx);
     memset(&pf, 0, sizeof pf);
     memset(ins, 0, sizeof ins);
@@ -411,7 +410,7 @@ static void test_stored(void)
             if (str_eq(PAGES[p].title, "SLICER")) ps = p;
             if (str_eq(PAGES[p].title, "INSERT")) pi = p;
             if (str_eq(PAGES[p].title, "INSERT 2")) pi2 = p;
-            if (str_eq(PAGES[p].title, "DLY")) pd = p;
+            if (str_eq(PAGES[p].title, "DELAY")) pd = p;
         }
         ok = pi == ps + 1u && pi2 == pi + 1u && pd == pi2 + 1u && PAGES[pi].fam == FAM_FX && PAGES[pi].id[0] == P_ITYPE &&
              PAGES[pi2].id[0] == P_IMIX;

@@ -58,7 +58,10 @@ typedef struct {
 } smp_user_hdr_t;                                   /* 32 + 16 x 28 = 480 B, data at +512 */
 static smp_zone_t usr_zone[SMP_USER_SLOTS][16];     /* RAM copy, off rebased onto SMP_DATA */
 static uint8_t usr_nz[SMP_USER_SLOTS];
+static uint8_t usr_drum[SMP_USER_SLOTS];             /* FSMP hdr.rsv bit 0: SEQ shows the drum grid for SAMPLE */
+#define SMP_USR_DRUM 1u                             /* hdr.rsv: drum kit grid (zones mapped by hand on upload) */
 static const char *const SMP_ALL_NAMES[SMP_NALL] = {SMP_SET_NAMES_INIT, "USR1", "USR2", "USR3"};
+static int smp_user_drum(uint32_t k) { return k < SMP_USER_SLOTS && usr_drum[k]; }
 
 #ifndef SMP_USER_XIP                                /* host tests: a RAM image of the slots */
 #define SMP_USER_XIP(k) fm1_xip_ptr(SMP_USER_BASE + (k) * SMP_USER_SIZE)
@@ -81,6 +84,7 @@ static void smp_user_scan(uint32_t k)
     uint32_t i, base, nz = 0;
     smp_user_gen++;
     usr_nz[k] = 0;
+    usr_drum[k] = 0;
     slc_user_scan(k, 0);
     if (h->magic == SMP_USER_MAGIC && h->version == 1 && h->nz && h->nz <= 16u &&
         h->data_len <= SMP_USER_SIZE - SMP_USER_DATA) {
@@ -101,6 +105,7 @@ static void smp_user_scan(uint32_t k)
     if (!nz)
         return;
     usr_nz[k] = (uint8_t)nz;
+    usr_drum[k] = (h->rsv & SMP_USR_DRUM) ? 1u : 0u;
     slc_user_scan(k, 1);
 }
 

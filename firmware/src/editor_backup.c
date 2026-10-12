@@ -155,7 +155,7 @@ static uint32_t ed_bk_commit(void)
     sync_reload = 1; ui.force = 1;
     return 0;
 }
-/* a project object's length: FUN10 (today's, 1.2), FUN9 (1.1), FUN8 (before the DRUM lane levels, 1.0.x), FUN7 */
+/* a project object's length: FUN11 / FUN10 (3840), FUN9 (1.1), FUN8 (before the DRUM lane levels, 1.0.x), FUN7 */
 static int proj_store_len(uint32_t len)
 {
     return len == sizeof(project_store_t) || len == PROJ_STORE_V9 || len == PROJ_STORE_V8 || len == PROJ_STORE_V7;

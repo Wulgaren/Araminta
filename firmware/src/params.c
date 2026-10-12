@@ -18,8 +18,12 @@ static const char *const N_DTIME[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T",
 static const char *const N_SCALE[] = {"CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM",
                                     "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"};
 static const char *const N_ONOFF[] = {"OFF", "ON"};
-/* ANALOG's filter TYPE (1.5, #104; eng_analog.c): the SVF's low-pass (as always), band-pass, high-pass output */
-static const char *const N_FTYPE[] = {"LP", "BP", "HP"};
+/* MIXER KNOB 4 (and VOICE 2): PLAY. Stored 0 is ON (sounds, the default), 1 is OFF (silent), 2 is SOLO
+ * (sounds, and silences every track that is not SOLO). The knob shows OFF, ON, SOLO (PLAY_ORDER): left of
+ * ON is OFF, right is SOLO. Append-only: stored projects keep 0 playing and 1 silent. */
+static const char *const N_PLAY[] = {"ON", "OFF", "SOLO"};
+/* ANALOG's filter TYPE (1.5, #104; eng_analog.c): LP / BP / HP, and COMB (insert chain / Araminta) */
+static const char *const N_FTYPE[] = {"LP", "BP", "HP", "COMB"};
 /* ENV SYNC (1.5, #175; voice.c esync_coef): ATK DEC REL as note values of the tempo, shortest first. 0..127 split
  * evenly over these 25 (param_format's F_INT name list: value v is ESYNC_NAMES[v * 25 / 128]); ESYNC_UNITS: each in
  * 1/384 of a bar of 4/4 (a quarter 96), 0 = the shortest time ATK / DEC / REL 0 has. 0-terminated (param_format) */
@@ -43,8 +47,8 @@ static const char *const N_CHRD[] = {"OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7"
 static const char *const N_VOIC[] = {"CLOSE", "OPEN", "INV1", "INV2", "+OCT"};   /* VC_CLOSE .. VC_BASS */
 static const char *const N_VOICE[] = {"POLY", "MONO", "LEG", "UNI"};   /* V_POLY .. V_UNISON */
 static const char *const N_GLMODE[] = {"RATE", "TIME"};
-static const char *const N_PRIO[] = {"LAST", "LOW", "HIGH"};
-static const char *const N_ALLOC[] = {"ROT", "REUSE"};
+static const char *const N_PRIO[] = {"LAST", "LOW", "HIGH"};   /* stored; voice always LAST */
+static const char *const N_ALLOC[] = {"ROT", "REUSE"};         /* stored; voice always ROT (REUSE if GLD) */
 static const char *const N_ORDER[] = {"NOTE", "PLAY"};
 static const char *const N_CLOCK[] = {"INT", "USB", "TRS"};
 static const char *const N_MIDI_INPUT[] = {"USB", "TRS"};
@@ -52,27 +56,34 @@ static const char *const N_MIDI_INPUT[] = {"USB", "TRS"};
 static const char *const N_ROUTE[] = {"CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"};
 static const char *const N_NOTE[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 static const char *const N_DASH[] = {"--"};
-static const char *const N_RTYPE[] = {"ROOM", "SPRING", "HALL"};   /* G_RTYPE: the reverb bus's model (fx.c) */
+static const char *const N_RTYPE[] = {"ROOM", "SPRING", "HALL", "SHIMR", "CLOUD"};   /* G_RTYPE (fx.c; JIANT SHIMR/CLOUD) */
 static const char *const N_GO[] = {"--", "GO"};
 static const char *const N_SLCR[] = {"OFF", "GATE", "STUT"};             /* SL_OFF .. SL_STUT (slicer.c) */
 static const char *const N_SLDIV[] = {"1/8", "1/16", "1/32", "8T", "16T", "32T"};   /* SL_DEN */
-/* the INSERT's types (1.5, fx.c IT_*; append-only: stored). Its three values A B C mean what the type says (ins_desc) */
-static const char *const N_ITYPE[] = {"OFF", "SOFT", "HARD", "FOLD", "FUZZ", "CRUSH", "PHASR", "FLANG", "CHOR"};
-/* CRUSH: BITS 1..16 and RATE (the held sample's rate, fx.c INS_HOLD) over the range in 16 even parts (0-terminated) */
+/* insert chain: DIST modes, FILTER types (also N_FTYPE's COMB), CRUSH rate labels */
+static const char *const N_IDMODE[] = {"SOFT", "HARD", "FOLD", "FUZZ"};
+static const char *const N_IFTYPE[] = {"LP", "HP", "BP", "COMB"};
 static const char *const N_IBITS[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
                                       "16", 0};
 static const char *const N_IRATE[] = {"689", "919", "1.1k", "1.4k", "1.8k", "2.2k", "2.8k", "3.7k", "4.4k", "5.5k",
                                       "7.4k", "8.8k", "11k", "15k", "22k", "44k", 0};
+/* EFFECTS page: stage names in chain order (fx.c). K1 chooses, K2 moves.
+ * Same strings as the stage page titles (PAGES[] below); name column sized to FLANGER/DISTORT. */
+static const char *const N_ISTAGE[] = {"DISTORT", "FILTER", "CRUSH", "PHASER", "FLANGER", "CHORUS", "DELAY", "REVERB"};
 /* modulation matrix (mod.c): sources, destinations (E1..E8 = P_E0..P_E7: shown with the engine's labels).
  * Append-only (stored values keep their meaning): S&H SLEW and DEPTH (#132) came after EXPR and E8 */
 static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR", "S&H", "SLEW"};
+/* destinations (append-only): DEPTH = LFO depth (#132); SLPAT / SLRATE / SLDEP = the SLICER (#222);
+ * CHRD / VOIC = chord keys; then insert continuous knobs + MIX (no MODE/TYPE enums): TONE/DMIX,
+ * FILTER, CRUSH, PHASR, FLANG, CHOR RATE/DEP (CHOR MIX is already CHO; DLY/REV amounts stay DLY/REV;
+ * DRIVE stays DIST) */
 static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY", "REV", "RATE",
-                                     "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH"};
+                                     "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH",
+                                     "PAT", "SRATE", "SDEP", "CHRD", "VOIC",
+                                     "TONE", "DMIX", "FCUT", "FRES", "FMIX", "BITS", "CRAT", "CLPF", "CMIX",
+                                     "PRAT", "PDEP", "PFBK", "PMIX", "FRAT", "FDEP", "LMIX", "HRAT", "HDEP"};
 static const char *const N_ENGNAME[] = {"ANALOG", FELUCCA_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS",
-                                             "DRUM", "NOISE", "FM6",
-#if FELUCCA_SLICE
-                                             "SLICE",
-#endif
+                                             "DRUM", "NOISE", "FM6", "-",
 };
 
 #define PD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
@@ -87,7 +98,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_ED_FLT] = PD("FLT", F_BIPCT, -64, 63, 0),
     [P_ED_PIT] = PD("PIT", F_BIPCT, -64, 63, 0),
     [P_ED_SHP] = PD("SHP", F_BIPCT, -64, 63, 0),
-    [P_ED_FX] = PD("FX", F_BIPCT, -64, 63, 0),
+    [P_ED_FX] = PD("TONE", F_BIPCT, -64, 63, 0),   /* DIST: brighter / darker than the drive-linked cutoff */
     [P_LRATE] = PD("RATE", F_LFOHZ, 0, 127, 60),
     [P_LWAVE] = PE("WAVE", N_LWAVE, 0),
     [P_LPHASE] = PD("PHS", F_INT, 0, 127, 0),
@@ -112,8 +123,8 @@ static const param_desc_t TP[P_COUNT] = {
     [P_SDIV] = PE("DIV", N_DIV, 2),
     [P_SSWING] = PD("SWG", F_PCT, 0, 100, 0),
     [P_SGATE] = PD("GATE", F_PCT, 1, 127, 64),
-    [P_DIST] = PD("DST", F_PCT, 0, 127, 0),
-    [P_CHOR] = PD("CHO", F_PCT, 0, 127, 0),
+    [P_DIST] = PD("DRIVE", F_PCT, 0, 127, 0),   /* DIST stage drive (insert chain); was the pre-insert DST */
+    [P_CHOR] = PD("FXPOS", F_INT, 0, 127, 64 + 6 + (7 << 3)), /* EFFECTS DLY/REV slots; was CHO send */
     [P_DLY] = PD("DLY", F_PCT, 0, 127, 0),
     [P_REV] = PD("REV", F_PCT, 0, 127, 0),
     [P_VOICE] = PE("VCE", N_VOICE, 0),
@@ -121,9 +132,9 @@ static const param_desc_t TP[P_COUNT] = {
     [P_GLMODE] = PE("GLMOD", N_GLMODE, 0),
     [P_PRIO] = PE("PRIO", N_PRIO, 0),
     [P_ALLOC] = PE("ALLOC", N_ALLOC, 0),
-    [P_DETUNE] = PD("DTUNE", F_INT, 0, 127, 40),
+    [P_DETUNE] = PD("UNI DTN", F_INT, 0, 127, 40),   /* UNISON voice spread only (voice.c mono_play) */
     [P_PAN] = PD("PAN", F_BIPCT, -64, 63, 0),
-    [P_MUTE] = PE("MUTE", N_ONOFF, 0),
+    [P_MUTE] = PE("PLAY", N_PLAY, 0),
     [P_SLCR] = PE("SLCR", N_SLCR, 0),
     [P_SLPAT] = PD("PAT", F_INT, 1, 16, 1),        /* SL_PAT[] */
     [P_SLRATE] = PE("RATE", N_SLDIV, 1),
@@ -154,51 +165,47 @@ static const param_desc_t TP[P_COUNT] = {
     [P_LPOL] = PE("POL", N_LPOL, 0),
     [P_SQNT] = PE("QNTZ", N_ONOFF, 1),            /* ON: every step on its start, as before 1.2 */
     [P_SPRD] = PD("SPRD", F_PCT, 0, 127, 0),      /* #148: 0 = every voice on PAN, as before (fx.c mix_spread) */
-    /* the INSERT (1.5, fx.c track_insert): TYPE OFF = as before. A B C as the editor protocol names them; the device
-     * shows the type's own labels (ins_desc) */
-    [P_ITYPE] = PE("INSRT", N_ITYPE, 0),
-    [P_IA] = PD("INS A", F_PCT, 0, 127, 64),
-    [P_IB] = PD("INS B", F_PCT, 0, 127, 96),
-    [P_IC] = PD("INS C", F_PCT, 0, 127, 96),
-    [P_IMIX] = PD("MIX", F_PCT, 0, 127, 127),
-    [P_FTYPE] = PE("TYPE", N_FTYPE, 0),           /* 1.5 (#104): ANALOG's filter, LP = as before (eng_analog.c) */
+    [P_IORD] = PD("ORDER", F_INT, 0, 719, 0),      /* factorial index of the 6-stage permutation (fx.c) */
+    [P_IDMODE] = PE("MODE", N_IDMODE, 0),
+    [P_IDMIX] = PD("MIX", F_PCT, 0, 127, 0),
+    [P_IFTYPE] = PE("TYPE", N_IFTYPE, 0),
+    [P_IFCUT] = PD("CUT", F_CUTOFF, 0, 127, 96),
+    [P_IFRES] = PD("RES", F_PCT, 0, 127, 40),
+    [P_IFMIX] = PD("MIX", F_PCT, 0, 127, 0),
+    [P_ICBITS] = PD("BITS", F_INT, 0, 127, 64),
+    [P_ICRATE] = PD("RATE", F_INT, 0, 127, 96),
+    [P_ICLPF] = PD("LPF", F_CUTOFF, 0, 127, 96),
+    [P_ICMIX] = PD("MIX", F_PCT, 0, 127, 0),
+    [P_IPRATE] = PD("RATE", F_LFOHZ, 0, 127, 64),
+    [P_IPDEP] = PD("DEPTH", F_PCT, 0, 127, 96),
+    [P_IPFBK] = PD("FDBK", F_PCT, 0, 127, 96),
+    [P_IPMIX] = PD("MIX", F_PCT, 0, 127, 0),
+    [P_ILRATE] = PD("RATE", F_LFOHZ, 0, 127, 64),
+    [P_ILDEP] = PD("DEPTH", F_PCT, 0, 127, 96),
+    [P_ILMIX] = PD("MIX", F_PCT, 0, 127, 0),
+    [P_IHRATE] = PD("RATE", F_LFOHZ, 0, 127, 64),
+    [P_IHDEP] = PD("DEPTH", F_PCT, 0, 127, 96),
+    [P_IHMIX] = PD("MIX", F_PCT, 0, 127, 0),
+    [P_FTYPE] = PE("TYPE", N_FTYPE, 0),           /* ANALOG filter: LP / BP / HP / COMB */
     [P_ESYNC] = PE("ESYNC", N_ONOFF, 0),          /* 1.5 (#175): OFF = ATK DEC REL in ms, as before (voice.c esync) */
 };
-
-/* the INSERT's A B C as its TYPE means them (TP's ranges and defaults): the drives DRIVE TONE LEVEL, CRUSH BITS RATE
- * LPF, the swept ones RATE DEPTH FDBK; OFF TP's own */
-#define PU(l, f, df, n, u) {l, f, 0, 127, df, n, u}
-static const param_desc_t INS_DESC[3][3] = {
-    {PU("DRIVE", F_PCT, 64, 0, 0), PU("TONE", F_CUTOFF, 96, 0, 0), PU("LEVEL", F_DB, 96, 0, 0)},
-    {PU("BITS", F_INT, 64, N_IBITS, 0), PU("RATE", F_INT, 96, N_IRATE, "Hz"), PU("LPF", F_CUTOFF, 96, 0, 0)},
-    {PU("RATE", F_LFOHZ, 64, 0, 0), PU("DEPTH", F_PCT, 96, 0, 0), PU("FDBK", F_PCT, 96, 0, 0)},
-};
-#undef PU
-static const param_desc_t *ins_desc(int32_t type, uint32_t k)
-{
-    if (type <= 0 || type >= (int32_t)NELEM(N_ITYPE))
-        return &TP[P_IA + k];
-    return &INS_DESC[type < 5 ? 0 : type == 5 ? 1 : 2][k];   /* (IT_SOFT .. IT_FUZZ, IT_CRUSH, the swept ones) */
-}
 
 static const param_desc_t GP[G_COUNT] = {
     [G_BPM] = PD("BPM", F_BPM, 40, 240, 120),
     [G_SWING] = PD("SWG", F_PCT, 0, 100, 0),
     [G_CLOCK] = PE("CLK", N_CLOCK, 0),
     [G_TUNE] = PD("TUNE", F_INT, -50, 50, 0),     /* cents; edited on MENU > AUDIO TUNE (1.2: menu_items.c MI_TUNE) */
-    [G_DTIME] = PE("TIME", N_DTIME, 1),
+    [G_DTIME] = PE("TIME", N_DTIME, 1),   /* 0..12 divisions. Free ms is DTIME_FREE+ms in the same word (fx.c) */
     [G_DFDBK] = PD("FDBK", F_PCT, 0, 120, 60),
     [G_DCOLOR] = PD("COLR", F_PCT, 0, 127, 70),
     [G_DMIX] = PD("MIX", F_PCT, 0, 127, 90),
     [G_RSIZE] = PD("SIZE", F_PCT, 0, 127, 90),
     [G_RDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
-    [G_CRATE] = PD("CRT", F_LFOHZ, 0, 127, 40),
-    [G_CDEPTH] = PD("CDP", F_PCT, 0, 127, 60),
-    /* G_MIDI, G_SYNC, G_INFO: the old SYSTEM page's (gone in 1.2), on no page: MIDI's value was never read (its card
-     * showed the USB state), SYNC was a placeholder, CPU a reading; the USB state and the CPU load are MENU > SYSTEM >
-     * INFO's now (ui_menu.c). Kept: the ids and G_COUNT are fixed by the formats and the protocol */
+    [G_CRATE] = PD("DLYOWN", F_INT, 0, 4, 0),     /* 0 SEND; 1..4 track with delay CHAIN (was bus CRT) */
+    [G_CDEPTH] = PD("REVOWN", F_INT, 0, 4, 0),    /* 0 SEND; 1..4 track with reverb CHAIN (was bus CDP) */
+    /* G_MIDI, G_INFO: the old SYSTEM page's (gone in 1.2), on no page. G_DREL was G_SYNC (placeholder). */
     [G_MIDI] = PE("MIDI", N_MIDI_INPUT, 0),
-    [G_SYNC] = PE("SYNC", N_DASH, 0),
+    [G_DREL] = PD("REL", F_PCT, 0, 100, 30),     /* DUCK's release: 40 .. 600 ms (fx.c duck_block) */
     /* MIDI IN's routing, edited on MENU > MIDI > MIDI IN (1.2: menu_items.c MI_MIDIIN; up to 1.1.5 GLO > SYSTEM ROUT),
      * stored with the project as before. (was "--": stored 0 = CH1-4, as MIDI IN always was) */
     [G_ROUTE] = PE("ROUT", N_ROUTE, 0),
@@ -208,18 +215,21 @@ static const param_desc_t GP[G_COUNT] = {
     [G_LOAD] = PE("LOAD", N_GO, 0),
     [G_SAVE] = PE("SAVE", N_GO, 0),
     [G_ENGSEL] = PE("ENG", N_ENGNAME, 0),
-    [G_ENGGO] = PE("SET", N_GO, 0),
+    [G_CLIP] = PD("CLIP", F_PCT, 0, 100, 0),     /* master clipper: drive x1 .. x4 into the soft clip */
     [G_CLRSEQ] = PE("CLRSQ", N_GO, 0),
     [G_INITSND] = PE("INIT", N_GO, 0),
     /* the reverb's model on the REVERB page: the id of the old GM drum channel (G_DRCH, inert since 1.0) */
-    [G_RTYPE] = PE("TYPE", N_RTYPE, 2),         /* HALL at power-on since 1.2 (ROOM before; projects keep theirs) */
-    /* inert: they set the GM drum part (level, reverb send), which is gone (drums are the DRUM engine
-     * on any part). On no page; kept so the ids and G_COUNT, which the project format and the
-     * editor protocol depend on, do not move */
-    [G_DRLVL] = PD("-", F_INT, 0, 0, 0),
-    [G_DRREV] = PD("-", F_INT, 0, 0, 0),
+    [G_RTYPE] = PE("TYPE", N_RTYPE, 2),         /* SEND tank; HALL at power-on since 1.2 */
+    /* (JIANT) drum bus and kick ducking; ids were G_DRLVL / G_DRREV (GM drum part). proj_drums_to_part clears them. */
+    [G_PUNCH] = PD("PNCH", F_PCT, 0, 100, 0),   /* DRUM fattened: attack + body (eng_drum.c) */
+    [G_DUCK] = PD("DUCK", F_PCT, 0, 100, 0),    /* the kick ducks the other parts: up to -30 dB */
+    [G_CRTYPE] = PE("TYPE", N_RTYPE, 2),        /* CHAIN tank: same models, separate values */
+    [G_CRSIZE] = PD("SIZE", F_PCT, 0, 127, 90),
+    [G_CRDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
 };
 
+static const param_desc_t INS_BITS = {"BITS", F_INT, 0, 127, 64, N_IBITS, 0};
+static const param_desc_t INS_RATE = {"RATE", F_INT, 0, 127, 96, N_IRATE, "Hz"};
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
     if (id >= P_E0 && id <= P_E7) {                   /* the engine asked for (t->engine follows after a fade) */
@@ -227,8 +237,10 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
         const param_desc_t *d = e->desc ? e->desc(t, id - P_E0) : 0;   /* a mode-dependent label / names */
         return d ? d : &e->edit[id - P_E0];
     }
-    if (id >= P_IA && id <= P_IC)                     /* the INSERT's values as its TYPE names them */
-        return ins_desc(t->p[P_ITYPE], id - P_IA);
+    if (id == P_ICBITS)
+        return &INS_BITS;
+    if (id == P_ICRATE)
+        return &INS_RATE;
     if (t->p[P_ESYNC] && (id == P_ATK || id == P_DEC || id == P_REL))   /* ENV SYNC: note values (1.5, #175) */
         return &ESYNC_DESC[id == P_ATK ? 0 : id == P_DEC ? 1 : 2];
     return &TP[id];
@@ -243,26 +255,22 @@ static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
 
 /* a retired F_ENUM value kept as an alias, so stored values stay valid: SAMPLE SET and GRAIN SRC 1, once
  * TRANH, and 4, once PERC (a SAMPLE sound of it loads as DRUM: core.h drum_from_perc), play PIANO
- * (tools/gen_samples.py SMP_SET_ORIG); DRUM KIT 1..3, once HAND CYM H+CYM, play 66 10 77 (eng_drum.c DK_PLAYS).
- * It shows the original's name; knobs step over it and the editor's SET lands on the original. -> the value v
- * stands for */
+ * (tools/gen_samples.py SMP_SET_ORIG). DRUM-X retired Felucca's KIT enum (P_E0 is MRPH 0..127; old KIT values
+ * clamp). It shows the original's name; knobs step over it and the editor's SET lands on the original. */
 static int32_t enum_orig(const param_desc_t *d, int32_t v)
 {
-    if (d->names == N_DRUM_KIT)
-        return v >= 0 && v < DK_COUNT ? (int32_t)DK_PLAYS[v] : v;
-    return d->names == SMP_ALL_NAMES && v >= 0 && v < SMP_NSETS ? SMP_SET_ORIG[v] : v;
+    return d->names == SMP_ALL_NAMES && v >= 0 && v < (int32_t)SMP_NSETS ? (int32_t)SMP_SET_ORIG[v] : v;
 }
 
-/* a stored value as the parameter takes it (projects, user presets, motion): inside d's range, and a retired
- * DRUM KIT (1..3) as the kit it plays, so KIT never holds one again. (SAMPLE / GRAIN's aliases keep their
- * number: they are what the sound was saved with, and play the original anyway.) FM6's SLOT is never stored as a
- * bank slot: 9..40 (1.4.1's B1..B32; 1.0.2's B1..B27 were 8..34) is 8, OWN, and the patch comes with what is loaded */
+/* a stored value as the parameter takes it (projects, user presets, motion): inside d's range.
+ * FM6's SLOT is never stored as a bank slot: 9..40 (1.4.1's B1..B32; 1.0.2's B1..B27 were 8..34) is 8, OWN,
+ * and the patch comes with what is loaded */
 static int32_t param_fit(const param_desc_t *d, int32_t v)
 {
     v = clamp(v, d->min, d->max);
     if (d->names == N_FM6_PATCH)
         return v > (int32_t)FM6_OWN ? (int32_t)FM6_OWN : v;
-    return d->names == N_DRUM_KIT ? enum_orig(d, v) : v;
+    return v;
 }
 
 /* v is a value a knob passes over: an alias, or one of FM6's bank slots without a voice */
@@ -287,19 +295,31 @@ static int32_t enum_step(const param_desc_t *d, int32_t from, int32_t v)
  * -> the shown order of d's values (index: position, entry: value), 0 = the values' own order */
 static const uint8_t DIV_ORDER[10] = {9, 8, 7, 6, 0, 1, 4, 2, 5, 3};   /* 4BAR 2BAR 1/1 1/2 1/4 1/8 8T 1/16 16T 1/32 */
 static const uint8_t SLDIV_ORDER[6] = {0, 3, 1, 4, 2, 5};              /* 1/8 8T 1/16 16T 1/32 32T */
-static const uint8_t DTIME_ORDER[13] = {9, 8, 7, 6, 12, 0, 10, 1, 11, 4, 2, 5, 3};   /* 4BAR 2BAR 1/1 1/2 1/4D 1/4 1/8D
-                                                                                      * 1/8 1/16D 8T 1/16 16T 1/32 */
+/* Delay TIME: names 0..12 stay (loads). Knob omits 1/1 2BAR 4BAR (7..9); they never fit DLY_LEN. */
+static const uint8_t DTIME_ORDER[10] = {6, 12, 0, 10, 1, 11, 4, 2, 5, 3}; /* 1/2 1/4D 1/4 1/8D 1/8 1/16D 8T 1/16 16T 1/32 */
+static const uint8_t PLAY_ORDER[3] = {1, 0, 2};                    /* OFF, ON, SOLO (stored PLAY_OFF, PLAY_ON, PLAY_SOLO) */
 static const uint8_t *enum_order(const param_desc_t *d)
 {
-    return d->names == N_DIV ? DIV_ORDER : d->names == N_SLDIV ? SLDIV_ORDER : d->names == N_DTIME ? DTIME_ORDER : 0;
+    return d->names == N_DIV ? DIV_ORDER : d->names == N_SLDIV ? SLDIV_ORDER : d->names == N_DTIME ? DTIME_ORDER
+         : d->names == N_PLAY ? PLAY_ORDER : 0;
+}
+static int32_t enum_order_n(const param_desc_t *d)   /* shown steps; DTIME shorter than max (legacy 7..9) */
+{
+    if (d->names == N_DTIME)
+        return 10;
+    return d->max - d->min + 1;
 }
 static int32_t enum_rank(const param_desc_t *d, int32_t v)   /* v's place in the shown order (+ min): the gauges */
 {
     const uint8_t *o = enum_order(d);
-    int32_t r;
-    for (r = 0; o && r < d->max - d->min; r++)
-        if (o[r] == v - d->min)
+    int32_t r, n = enum_order_n(d), key = v - d->min;
+    if (d->names == N_DTIME && key >= 7 && key <= 9)
+        key = 6;                                      /* legacy 1/1 2BAR 4BAR sit on 1/2 for the knob */
+    for (r = 0; o && r < n; r++)
+        if (o[r] == key)
             break;
+    if (o && r >= n)
+        r = 0;
     return o ? r + d->min : v;
 }
 /* a knob turned `steps` (signed) from v: clamped, over the shown order, past aliases (enum_step) */
@@ -307,7 +327,7 @@ static int32_t param_turn(const param_desc_t *d, int32_t v, int32_t steps)
 {
     const uint8_t *o = enum_order(d);
     if (o)
-        return o[clamp(enum_rank(d, v) - d->min + steps, 0, d->max - d->min)] + d->min;
+        return o[clamp(enum_rank(d, v) - d->min + steps, 0, enum_order_n(d) - 1)] + d->min;
     if (d->names == ESYNC_NAMES) {                    /* ENV SYNC: a note value a step (the first value showing it) */
         int32_t k = clamp((int32_t)esync_idx(v) + steps, 0, ESYNC_N - 1);
         return (k * 128 + ESYNC_N - 1) / ESYNC_N;
@@ -431,76 +451,94 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHORD, GR_SLICES, GR_EVENTS,
-       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS };   /* (GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
+       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_DXSND };
+/* page.sec: button cycles sections; SELECT walks pages that share fam+sec and stops at the ends
+ * (ui.c open_family / select_page_step) */
+enum { FX_SEC_INS = 0, FX_SEC_SLCR = 1, FX_SEC_PUNCH = 2, FX_NSEC = 3,
+       SEQ_SEC_STEP = 0, SEQ_SEC_AUTO = 1, SEQ_SEC_TOOL = 2, SEQ_NSEC = 3,
+       EDIT_SEC_SND = 0, EDIT_SEC_KIT = 1, EDIT_SEC_LAN = 2, EDIT_SEC_VOX = 3, EDIT_NSEC = 4,
+       GLO_SEC_MASTER = 0, GLO_SEC_SONG = 1, GLO_SEC_CLK = 2, GLO_NSEC = 3,
+       SAVE_SEC_PRE = 0, SAVE_SEC_PROJ = 1, SAVE_NSEC = 2,
+       LFO_SEC_LFO = 0, LFO_SEC_MOD = 1, LFO_NSEC = 2,
+       TRK_SEC_MIX = 0 };
 
 typedef struct {
     const char *title;
-    uint8_t fam, scope, graph;
+    uint8_t fam, scope, graph, sec;
     uint8_t id[4];               /* param ids; 0xFF = empty slot */
 } page_t;
 
 static const page_t PAGES[] = {
-    {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, {P_ATK, P_DEC, P_SUS, P_REL}},
-    {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, {P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ESYNC}},   /* (P_ED_FX: nothing reads it);
+    {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, 0, {P_ATK, P_DEC, P_SUS, P_REL}},
+    {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, 0, {P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ESYNC}},   /* knob cards + scope (P_ED_FX unused);
                                                                              * 1.5: ESYNC, ENV's times as note values */
-    {"LFO", FAM_LFO, SC_TRACK, GR_LFO, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},
-    {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},   /* 1.2: SYNC TRIG POL */
-    {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
-    {"MOD", FAM_LFO, SC_TRACK, GR_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* KNOB 1: the slot (mod_ui_slot) */
-    {"FX", FAM_FX, SC_TRACK, GR_FX, {P_DIST, P_CHOR, P_DLY, P_REV}},
-    {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, {P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH}},
-    {"INSERT", FAM_FX, SC_TRACK, GR_INS, {P_ITYPE, P_IA, P_IB, P_IC}},   /* 1.5: the track's INSERT (fx.c) */
-    {"INSERT 2", FAM_FX, SC_TRACK, GR_INS, {P_IMIX, 0xFF, 0xFF, 0xFF}},  /* .. its dry / wet */
-    {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
-    {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},   /* TYPE: ROOM / SPRING / HALL */
-    {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, {G_CRATE, G_CDEPTH, 0xFF, 0xFF}},
-    {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
-    {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, {P_CHRD, P_VOIC, 0xFF, 0xFF}},   /* SCL again: the chord keys (chord.c) */
-    {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E0, P_E1, P_E2, P_E3}},
-    {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E4, P_E5, P_E6, P_E7}},
-    {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, {P_FTYPE, P_E4, P_E5, P_E7}},   /* ANALOG only (1.5, #104): TYPE CUT RES KTR */
-    {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN0, P_LN1, P_LN2, P_LN3}},   /* DRUM only: the lane levels */
-    {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN4, P_LN5, P_LN6, P_LN7}},
-    {"SLICES", FAM_EDIT, SC_TRACK, GR_SLICES, {0xFF, 0xFF, 0xFF, 0xFF}},   /* SLICE only: the slices by hand (ui_slice.c) */
-    {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, {0xFF, 0xFF, 0xFF, 0xFF}},    /* FM6 only: KNOB 1 the operator, then its */
-    {"OP ENV", FAM_EDIT, SC_TRACK, GR_FMENV, {0xFF, 0xFF, 0xFF, 0xFF}},     /* bytes of the track's patch (ui_fm6op.c): */
-    {"OPERATOR 2", FAM_EDIT, SC_TRACK, GR_FMOP2, {0xFF, 0xFF, 0xFF, 0xFF}}, /* CRS FINE LEVEL / STG RATE LEVEL / MODE DTUN VEL */
-    {"OP1 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM1_ATK, P_FM1_DEC, P_FM1_SUS, P_FM1_REL}},
-    {"OP2 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM2_ATK, P_FM2_DEC, P_FM2_SUS, P_FM2_REL}},
-    {"OP3 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL}},
-    {"OP4 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM4_ATK, P_FM4_DEC, P_FM4_SUS, P_FM4_REL}},
-    {"OP LEVEL", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM1_LEVEL, P_FM2_LEVEL, P_FM3_LEVEL, P_FM4_LEVEL}},
-    {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
-    {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_ALLOC, P_DETUNE, P_PAN, P_MUTE}},
-    {"VOICE 3", FAM_EDIT, SC_TRACK, GR_NONE, {P_SPRD, 0xFF, 0xFF, 0xFF}},   /* #148: SPREAD */
-    /* 1.2 (Discussion #153): a family's pages go round in this order, a tap of its button each (ui.c open_family) */
-    {"SONG", FAM_GLO, SC_GLOBAL, GR_SONG, {0xFF, 0xFF, 0xFF, 0xFF}},        /* GLO's only page (1.2; up to 1.1.5 SEQ's) */
-    /* SAVE's taps (1.5, #173): USER (SAVE from another page: the quick save, SAVE OCT+ OCT+), PRESETS (the engines and
-     * sounds one tap on; up to 1.4.1 the last), PHRASES, PROJECT, TOOLS */
-    {"USER", FAM_SAVE, SC_GLOBAL, GR_USER, {0xFF, 0xFF, 0xFF, 0xFF}},       /* user presets: SLOT LOAD ERASE SAVE */
-    {"PRESETS", FAM_SAVE, SC_GLOBAL, GR_BROWSE, {0xFF, 0xFF, 0xFF, 0xFF}},   /* browser: PRESETS knob / KNOB 1 */
-    {"PHRASES", FAM_SAVE, SC_GLOBAL, GR_PATS, {0xFF, 0xFF, 0xFF, 0xFF}},    /* pattern loader: PAT LOAD (ui.c pat_load);
-                                                                             * the tap after PRESETS (up to 1.1.5 SEQ's) */
-    {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, {G_SLOT, 0xFF, G_LOAD, G_SAVE}},
-    {"TOOLS", FAM_SAVE, SC_GLOBAL, GR_TOOLS, {G_CLRSEQ, G_INITSND, 0xFF, 0xFF}},
-    {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
-    {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
-    {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
-    {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},   /* 1.5.1 (#199): the cursor step's CHANCE RATCH NUDGE VEL
-                                                             * (ui.c detail_on, ui_input.c sd_turn) */
-    {"AUTOMATION", FAM_SEQ, SC_TRACK, GR_EVENTS, {0xFF, 0xFF, 0xFF, 0xFF}},  /* the locks, events, CHANCE and RATCH as a
-                                                                             * list, PLAY and CLEAR (ui_events.c) */
-    /* HOME's pages (1.2): HOME tapped on HOME the MIXER (up to 1.1.5 GLO's; LEVEL PAN REV MUTE), again CLOCK (up to 1.1.5
-     * GLO > GLOBAL; its TUNE is MENU > AUDIO's now), again HOME (ui.c home_tap) */
-    {"MIXER", FAM_TRK, SC_TRK, GR_TRK, {0, 1, 2, 3}},
-    {"CLOCK", FAM_TRK, SC_GLOBAL, GR_NONE, {G_BPM, G_SWING, G_CLOCK, 0xFF}},
+    {"LFO", FAM_LFO, SC_TRACK, GR_LFO, LFO_SEC_LFO, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},
+    {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, LFO_SEC_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},   /* 1.2: SYNC TRIG POL */
+    {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, LFO_SEC_LFO, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
+    {"MOD", FAM_LFO, SC_TRACK, GR_MOD, LFO_SEC_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* its own section: LFO button cycles here */
+    /* FX: Effects → Slicer → Punch-in. Page order: REVERB, DELAY, DISTORT, then the other inserts.
+     * Each stage's mix lives on EFFECTS (K4). K3 is USE AS: CHAIN or SEND. DELAY knob 4 is
+     * RATE / TIME (ui_input.c dly_knob). */
+    {"EFFECTS", FAM_FX, SC_TRACK, GR_IORD, FX_SEC_INS, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},
+    {"DELAY", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_DTIME, G_DFDBK, G_DCOLOR, 0xFF}},
+    {"DISTORT", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IDMODE, P_DIST, P_ED_FX, 0xFF}},
+    {"FILTER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IFTYPE, P_IFCUT, P_IFRES, 0xFF}},
+    {"CRUSH", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_ICBITS, P_ICRATE, P_ICLPF, 0xFF}},
+    {"PHASER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IPRATE, P_IPDEP, P_IPFBK, 0xFF}},
+    {"FLANGER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_ILRATE, P_ILDEP, 0xFF, 0xFF}},
+    {"CHORUS", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IHRATE, P_IHDEP, 0xFF, 0xFF}},
+    {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, FX_SEC_SLCR, {P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH}},
+    {"PUNCH", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, 0, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
+    {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, 0, {P_CHRD, P_VOIC, 0xFF, 0xFF}},
+    {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, EDIT_SEC_SND, {P_E0, P_E1, P_E2, P_E3}},
+    {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, EDIT_SEC_SND, {P_E4, P_E5, P_E6, P_E7}},
+    /* ANALOG: page 2 FILTER (TYPE CUT RES KTR), page 3 FILTER DRIVE (DRV); EDIT 2 hidden (ui.c) */
+    {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_FTYPE, P_E4, P_E5, P_E7}},
+    {"FILTER DRIVE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_E6, 0xFF, 0xFF, 0xFF}},
+    /* DRUM-X kit (ui_dx.c): SOUND / SOUND 2 (SOUND 3 / X-MOD retired; FUN11 still stores dx_mot) */
+    {"SOUND", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"SOUND 2", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN0, P_LN1, P_LN2, P_LN3}},
+    {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN4, P_LN5, P_LN6, P_LN7}},
+    {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"OP ENV", FAM_EDIT, SC_TRACK, GR_FMENV, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"OP1 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, EDIT_SEC_SND, {P_FM1_ATK, P_FM1_DEC, P_FM1_SUS, P_FM1_REL}},
+    {"OP2 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, EDIT_SEC_SND, {P_FM2_ATK, P_FM2_DEC, P_FM2_SUS, P_FM2_REL}},
+    {"OP3 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, EDIT_SEC_SND, {P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL}},
+    {"OP4 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, EDIT_SEC_SND, {P_FM4_ATK, P_FM4_DEC, P_FM4_SUS, P_FM4_REL}},
+    {"OP LEVEL", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_FM1_LEVEL, P_FM2_LEVEL, P_FM3_LEVEL, P_FM4_LEVEL}},
+    /* VOICE: one page (VCE GLD UNI DTN SPRD). GLMOD / PRIO / ALLOC stay stored, not shown; PAN/PLAY on MIXER */
+    {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_VOICE, P_GLIDE, P_DETUNE, P_SPRD}},
+
+    /* GLO: Master → Song → Clock (CLICK / COUNT-IN / LEVEL: MENU > AUDIO) */
+    {"MASTER", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_MASTER, {G_CLIP, G_PUNCH, G_DUCK, G_DREL}},
+    {"SONG", FAM_GLO, SC_GLOBAL, GR_SONG, GLO_SEC_SONG, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"CLOCK", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_CLK, {G_BPM, G_SWING, G_CLOCK, 0xFF}},
+    /* SAVE: Presets (PRESETS / USER / PHRASES) → Project (PROJECT / TOOLS) */
+    {"PRESETS", FAM_SAVE, SC_GLOBAL, GR_BROWSE, SAVE_SEC_PRE, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"USER", FAM_SAVE, SC_GLOBAL, GR_USER, SAVE_SEC_PRE, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"PHRASES", FAM_SAVE, SC_GLOBAL, GR_PATS, SAVE_SEC_PRE, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, SAVE_SEC_PROJ, {G_SLOT, 0xFF, G_LOAD, G_SAVE}},
+    {"TOOLS", FAM_SAVE, SC_GLOBAL, GR_TOOLS, SAVE_SEC_PROJ, {G_CLRSEQ, G_INITSND, 0xFF, 0xFF}},
+    {"ARP", FAM_ARP, SC_TRACK, GR_ARP, 0, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
+    {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, 0, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
+    /* SEQ: Step group (SELECT: PATTERN / STEP / DETAIL) → Automation → Tools (tools map: last section) */
+    {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_STEP, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
+    {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
+    {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
+    {"AUTOMATION", FAM_SEQ, SC_TRACK, GR_EVENTS, SEQ_SEC_AUTO, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"SEQ TOOLS", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_TOOL, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
+    /* HOME: Mixer; ui.home is its own section (home_tap). Drum lane mutes live in SEQ TOOLS. */
+    {"MIXER", FAM_TRK, SC_TRK, GR_TRK, TRK_SEC_MIX, {0, 1, 2, 3}},
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */
 
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
-    uint32_t id = pg->id[slot];
+    uint32_t id = pg->id[slot], mode;
     if (id == 0xFFu) {
         *valp = 0;
         return 0;
@@ -510,11 +548,30 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         return 0;
     }
     if (pg->scope == SC_GLOBAL) {
+        /* REVERB: selected track owns CHAIN → edit CHAIN tank globals; else SEND. */
+        if (pg->id[0] == G_RTYPE && slot < 3u) {
+            int32_t own = song.g[G_REVOWN];
+            if (own >= 1 && own <= (int32_t)NTRK && own - 1 == (int32_t)(TSEL - trk)) {
+                static const uint8_t CR[3] = {G_CRTYPE, G_CRSIZE, G_CRDAMP};
+                id = CR[slot];
+            }
+        }
         *valp = &song.g[id];
         return &GP[id];
     }
     if (pg->graph == GR_MOD)                          /* SRC DST AMT of the slot shown */
         id += 3u * mod_ui_slot;
+    /* VOICE page: blank knobs the mode does not use (values stay stored). UNI DTN = UNISON only;
+     * SPRD = POLY / UNISON (fx.c mix_spread). MONO / LEG: neither. */
+    mode = (uint32_t)TSEL->p[P_VOICE];
+    if (id == P_DETUNE && mode != V_UNISON) {
+        *valp = 0;
+        return 0;
+    }
+    if (id == P_SPRD && mode != V_POLY && mode != V_UNISON) {
+        *valp = 0;
+        return 0;
+    }
     *valp = &TSEL->p[id];
     return track_desc(TSEL, id);
 }

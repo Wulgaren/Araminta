@@ -58,8 +58,11 @@ static void name_close(void)
     nm.kind = NK_NONE;
 }
 /* the keys: 2 = NAME's (silent), 1 = the DRUM grid, 3 = SONG's A..D (ui.c song_keys_on), 0 = notes (seq.c keyboard_block
- * reads song.grid) */
-static uint32_t keys_mode(void) { return name_on() ? 2u : grid_on() ? 1u : song_keys_on() ? 3u : 0u; }
+ * reads song.grid). MIXER's keys play. Drum lane mutes are SEQ TOOLS. */
+static uint32_t keys_mode(void)
+{
+    return name_on() ? 2u : grid_on() ? 1u : song_keys_on() ? 3u : 0u;
+}
 
 static const char *nm_group(uint32_t p)                /* white key place p's characters */
 {
@@ -418,12 +421,12 @@ static void nm_draw_panel(void)
         cv_rrect(x, y, 42, 36, 4, T_KEY, T_SURF);
         GFX_HOOK_ALIGN(0, y, 0, y + 36, AL_V | AL_N(2), "name black key name + use centred up/down");
         GFX_HOOK_ALIGN(x, 0, x + 42, 0, AL_H | AL_PASS, "name black key name / use centred across");
-        cv_text_in(x, y + 2, 42, &AF_S, FN[i], T_INK, T_KEY);
+        cv_text_in(x, y + 3, 42, &AF_S, FN[i], T_INK, T_KEY);
         GFX_HOOK_ALIGN(x, 0, x + 42, 0, AL_H | AL_PASS, "name black key name / use centred across");
         if (i == NB_LEFT || i == NB_RIGHT)
-            cv_icon_in(x, y + 20, 42, 0, 12, i == NB_LEFT ? ICON_X_LEFT : ICON_X_RIGHT, T_INK, T_KEY);
+            cv_icon_in(x, y + 21, 42, 0, 12, i == NB_LEFT ? ICON_X_LEFT : ICON_X_RIGHT, T_INK, T_KEY);
         else
-            cv_text_in(x, y + 18, 42, &AF_S, i == NB_SPACE ? "SPACE" : i == NB_DEL ? "DEL" : nm.num ? "ABC" : "123",
+            cv_text_in(x, y + 19, 42, &AF_S, i == NB_SPACE ? "SPACE" : i == NB_DEL ? "DEL" : nm.num ? "ABC" : "123",
                       T_INK, T_KEY);
     }
     cv_blit(0, Y_GRAPH);

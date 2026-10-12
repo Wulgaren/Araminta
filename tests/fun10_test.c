@@ -12,7 +12,9 @@
  *              already; a ratcheted step on its start; every nudge 0 (older patterns) plays the same either way;
  *              the controls (1.2 pages, Discussion #153): SEQ > AUTOMATION's QUANTIZE row (KNOB 4 ON / OFF) and NUDGE
  *              rows (+ ADD NUDGE +4/16, KNOB 4 -8..+7, KNOB 2 the step, EDIT 0, SAVE held undoes; "QUANTIZE IS ON"
- *              while it is), and on STEP steps held + the PRESETS knob (let go: the cursor).
+ *              while it is). The drum grid: a held step key + PRESETS moves those steps; nothing held moves the hit
+ *              under the cursor (the cursor stays on it). The piano roll: PRESETS moves the note under the cursor
+ *              (its ties with it); pitch stays on the NOTE knob.
  *   MOTION     128 records shared by the four tracks, all played.
  *   FORMATS    FUN10 round trip (nudges, 128 records, the four parameters), FUN9 / FUN8 / FUN7 as 1.1 / 1.0 wrote
  *              them load as before (tests/old_pack.h), a FUN9 claiming more than 64 records or a nudge bit refused, a
@@ -374,7 +376,7 @@ static int nudge(void)
     seq_stop();
     bad += check("REC into a step before its nudged play: 60 at its time, the live 67 not again (2 note-ons)", ok);
 
-    /* the controls: SEQ > AUTOMATION's QUANTIZE and NUDGE rows, STEP with steps held + PRESETS */
+    /* the controls: SEQ > AUTOMATION's QUANTIZE and NUDGE rows; STEP held + PRESETS moves notes in time */
     t = seq1(1);
     song.sel = 0;
     note_step(t, 3, 63, 0);
@@ -390,7 +392,7 @@ static int nudge(void)
         turn(EN_K4, 1);
         ok &= t->p[P_SQNT] == 1;
         press(B_OCTUP); press(B_EDIT);
-        ok &= t->p[P_SQNT] == 1 && msg_is("NOTHING TO DELETE") && !act_ready() && str_eq(act_name(4), "--");
+        ok &= t->p[P_SQNT] == 1 && msg_is("NOTHING TO DEL") && !act_ready() && str_eq(act_name(4), "--");
         bad += check("AUTOMATION's QUANTIZE row (the second): KNOB 4 OFF / ON; OCT+ and EDIT nothing", ok);
         memcpy(ref, t->step, sizeof ref);
         go_auto_add(EV_NUDGE, 3); frame();
@@ -421,31 +423,95 @@ static int nudge(void)
         bad += check("  EDIT: back to 0 (the row goes)", ok && ev_list(rw) == n);
         t->p[P_SQNT] = 1;
     }
-    {   /* the DRUM grid on STEP: a step key held + the PRESETS knob; let go: the hit stays */
-        uint32_t k4;
+    {   /* STEP grid: held steps + PRESETS shift them in time (not NUDGE); let go: cursor again */
+        uint32_t k4, k6, cur;
         song.sel = 3;
         t = &trk[3];
         track_defaults_steps(t);
         t->p[P_SLEN] = 16;
-        t->p[P_SQNT] = 0;
+        ui.lane = 0;
         go_home();
-        open_family(FAM_SEQ);
+        go_seq_step();
         frame();
         grid_hit(t, 4, 0, 1);
         k4 = key_at(0, 4);
-        uint32_t cur;
         fm1_in.notes |= 1u << k4; host_notes |= 1u << k4; frame();
         cur = ui.cursor;
-        turn(EN_PRESET, -1); turn(EN_PRESET, -1);
-        ok = step_nudge(&t->step[4]) == -2 && msg_is("NUDGE -2") && ui.cursor == cur;
-        fm1_in.notes &= ~(1u << k4); frame();
-        ok &= (t->step[4].hit & 1u) != 0u;
         turn(EN_PRESET, 1);
-        ok &= ui.cursor == cur + 1u && step_nudge(&t->step[4]) == -2;
-        bad += check("STEP (the grid): a step held + PRESETS: its NUDGE (-2); let go, the hit stays; alone, the cursor", ok);
+        ok = (t->step[5].hit & 1u) != 0u && !(t->step[4].hit & 1u) && t->step[4].time == ST_REST &&
+             ui.cursor == cur && step_nudge(&t->step[5]) == 0;
+        fm1_in.notes &= ~(1u << k4); frame();
+        hold(B_SAVE);                                   /* undo the move */
+        ok &= (t->step[4].hit & 1u) != 0u && !(t->step[5].hit & 1u);
+        grid_hit(t, 6, 0, 1);                           /* same lane as the hold (else a press adds a hit) */
+        k4 = key_at(0, 4);
+        k6 = key_at(0, 6);
+        fm1_in.notes |= (1u << k4) | (1u << k6); host_notes |= (1u << k4) | (1u << k6); frame();
+        turn(EN_PRESET, -1);                            /* held 4 and 6: both one earlier */
+        ok &= (t->step[3].hit & 1u) != 0u && (t->step[5].hit & 1u) != 0u &&
+              !(t->step[4].hit & 1u) && !(t->step[6].hit & 1u);
+        fm1_in.notes &= ~((1u << k4) | (1u << k6)); frame();
+        cur = ui.cursor;
+        turn(EN_PRESET, 1);
+        ok &= ui.cursor == cur + 1u;                     /* alone: the cursor */
+        bad += check("STEP (the grid): held + PRESETS moves hits in time; nudge 0; alone, the cursor; SAVE undoes", ok);
+        track_defaults_steps(t);
+        t->p[P_SLEN] = 16;
+        ui.lane = 0;
+        grid_hit(t, 4, 0, 1);
+        ui.cursor = 4;
+        frame();
+        turn(EN_PRESET, 1);                             /* nothing held: the hit under the cursor, as the roll */
+        ok = (t->step[5].hit & 1u) != 0u && !(t->step[4].hit & 1u) && ui.cursor == 5u;
+        turn(EN_PRESET, 1);
+        ok &= (t->step[6].hit & 1u) != 0u && ui.cursor == 6u;
+        grid_hit(t, 7, 0, 1);
+        ui.msg_t = 0;
+        turn(EN_PRESET, 1);
+        ok &= msg_is("NOTE AHEAD") && (t->step[6].hit & 1u) != 0u && (t->step[7].hit & 1u) != 0u && ui.cursor == 6u;
+        ui.cursor = 0;
+        frame();
+        turn(EN_PRESET, 1);
+        ok &= ui.cursor == 1u && !(t->step[0].hit & 1u) && (t->step[6].hit & 1u) != 0u;
+        bad += check("STEP (the grid): PRESETS moves the hit under the cursor and stays on it; a rest walks", ok);
+        song.sel = 0;                                   /* melodic STEP: NOTE knob still sets pitch */
+        t = &trk[0];
+        track_defaults_steps(t);
+        t->p[P_SLEN] = 16;
+        go_home();
+        go_seq_step();
+        frame();
+        t->step[3] = (step_t){{60}, 1, ST_NOTE, 0, 96};
+        ui.cursor = 3;
+        turn(EN_K2, 2);
+        bad += check("STEP: NOTE knob (K2) still changes pitch, not time",
+                     t->step[3].note[0] == 62u && t->step[3].time == ST_NOTE && t->step[4].time == ST_REST);
+        /* piano roll: PRESETS moves that note (and its TIEs); the cursor stays on it. A rest: the cursor. */
+        t->step[3] = (step_t){{60}, 1, ST_NOTE, 0, 96};
+        t->step[4] = (step_t){{0}, 0, ST_TIE, 0, 0};
+        t->step[5] = (step_t){{0}, 0, ST_TIE, 0, 0};
+        t->step[8] = (step_t){{72}, 1, ST_NOTE, 0, 96};
+        motion_set_lock(t, 3, P_ATK, 11);
+        ui.cursor = 4;                                  /* on a TIE of the note at step 4 */
+        frame();
+        turn(EN_PRESET, 1);
+        ok = t->step[4].note[0] == 60u && t->step[4].time == ST_NOTE && t->step[5].time == ST_TIE &&
+             t->step[6].time == ST_TIE && t->step[3].time == ST_REST && !t->step[3].n && ui.cursor == 5u &&
+             motion_find(t, 4, P_ATK) >= 0 && motion_find(t, 3, P_ATK) < 0 && t->step[8].note[0] == 72u;
+        turn(EN_PRESET, 1);                             /* 5,6,7: still clear of the note at 9 */
+        ok &= t->step[5].note[0] == 60u && t->step[7].time == ST_TIE && ui.cursor == 6u;
+        ui.msg_t = 0;
+        turn(EN_PRESET, 1);                             /* 6,7,8 would land on the other note */
+        ok &= msg_is("NOTE AHEAD") && t->step[5].note[0] == 60u && t->step[8].note[0] == 72u && ui.cursor == 6u;
+        ui.cursor = 0;                                  /* a rest: PRESETS walks, and does not pull the note */
+        frame();
+        turn(EN_PRESET, 1);
+        ok &= ui.cursor == 1u && t->step[5].note[0] == 60u && t->step[0].time == ST_REST;
+        bad += check("STEP (the roll): PRESETS moves the note and its TIEs, cursor with it; a rest walks", ok);
         hold(B_SAVE);
-        bad += check("  SAVE held: that turn undone (one undo), the hit kept", step_nudge(&t->step[4]) == 0 &&
-                     (t->step[4].hit & 1u) != 0u);
+        ok = t->step[3].note[0] == 60u && t->step[3].time == ST_NOTE && t->step[4].time == ST_TIE &&
+             t->step[5].time == ST_TIE && motion_find(t, 3, P_ATK) >= 0;
+        bad += check("  SAVE held undoes the moves (one gesture)", ok);
     }
     return bad;
 }
@@ -485,58 +551,28 @@ static int formats(void)
     note_step(t, 3, 63, 1);
     step_set_ratchet(&t->step[3], 4);
     step_set_chance(&t->step[3], 33);
-    for (i = 0; i < MOTION_MAX; i++)
+    motion_clear(&trk[0]);
+    for (i = 0; i < MOTION_FILE_MAX - 1u; i++)
         motion_set_event(&trk[i % 4u], (i / 4u) % NSTEP, i / 4u < NSTEP ? P_REV : P_PAN, (int16_t)(i / 4u < NSTEP ? i / 4u : -(int32_t)(i % 60u)));
     motion_set_lock(&trk[2], 9, P_E0 + 3, 7);
     project_capture(&a);
-    ok = motion.count == MOTION_MAX && proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E41u &&
+    memset(a.motion.event + a.motion.count, 0, (MOTION_MAX - a.motion.count) * sizeof a.motion.event[0]);
+    ok = motion.count == MOTION_FILE_MAX && proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E42u &&
          ((uint32_t *)st.raw)[1] == 3840u && st.raw[66] == P_COUNT && proj_import(&b, &st, sizeof st) && !memcmp(&a, &b, sizeof a);
     ok &= step_nudge(&b.t[0].step[0]) == -8 && step_nudge(&b.t[0].step[1]) == 7 && step_nudge(&b.t[0].step[2]) == -1 &&
           step_ratchet(&b.t[0].step[3]) == 4u && step_nudge(&b.t[0].step[3]) == 1 && step_chance(&b.t[0].step[3]) == 33u;
     ok &= b.t[0].p[P_LSYNC] == 8 && b.t[0].p[P_LTRIG] == 1 && b.t[0].p[P_LPOL] == 1 && b.t[0].p[P_SQNT] == 0;
-    ok &= !(st.raw[68u + P_COUNT + 2u] & 0x80u) && (st.raw[68u + P_COUNT + 2u + 3u] & 0x80u) &&   /* -8: bit 3 only */
-          (st.raw[68u + P_COUNT + 2u + 9u] & 0x80u) && !(st.raw[68u + P_COUNT + 2u + 12u] & 0x80u);   /* +7: bits 0..2 */
-    bad += check("FUN10 round trip: 3840 bytes, nudges (bit 7 of the note bytes), 128 records, LFO 2, QUANTIZE", ok);
-    /* a FUN10 of a 1.2 build before SPREAD (#148): 103 parameters (no P_SPRD, nor 1.5's); one of 1.2 .. 1.4: 104 (no
-     * INSERT, filter TYPE, ENV SYNC: 1.5). Their engine values and their motion (the lock on E3) as many ids lower. They
-     * load by count: SPREAD 0, the INSERT OFF (its defaults), TYPE LP, ENV SYNC OFF, the rest as written */
-    for (uint32_t from = P_SPRD; from <= P_ITYPE; from += P_ITYPE - P_SPRD) {
-        static project_store_t so;
-        uint32_t pi = 68u, po = 68u, tr, m0, drop = P_E0 - from;
-        memset(&so, 0, sizeof so);
-        ok = proj_pack(&st, &a) && !a.t[0].p[P_SPRD] && !a.t[0].p[P_ITYPE] && !a.t[0].p[P_FTYPE] && !a.t[0].p[P_ESYNC];
-        memcpy(so.raw, st.raw, 68u);
-        so.raw[66] = (uint8_t)(P_COUNT - drop);
-        for (tr = 0; tr < NTRK; tr++) {
-            for (i = 0; i < P_COUNT; i++, pi++)
-                if (i < from || i >= P_E0)
-                    so.raw[po++] = st.raw[pi];
-            memcpy(so.raw + po, st.raw + pi, 2u + NSTEP * 9u);
-            pi += 2u + NSTEP * 9u;
-            po += 2u + NSTEP * 9u;
-        }
-        memcpy(so.raw + po, st.raw + pi, sizeof(chain_config_t) + sizeof(motion_store_t));
-        m0 = po + sizeof(chain_config_t);
-        for (i = 0; i < so.raw[m0]; i++) {
-            uint8_t *id = &so.raw[m0 + 4u + 3u * i + 1u];
-            if ((*id & 0x7Fu) >= P_E0)
-                *id = (uint8_t)(*id - drop);            /* (the lock bit kept) */
-        }
-        memcpy(so.raw + PROJ_FM6_OFF, st.raw + PROJ_FM6_OFF, PROJ_STORE_SIZE - 4u - PROJ_FM6_OFF);
-        i = proj_hash(so.raw, PROJ_STORE_SIZE - 4u);
-        memcpy(so.raw + PROJ_STORE_SIZE - 4u, &i, 4);
-        ok &= so.raw[66] == (from == P_SPRD ? 103u : 104u) && proj_import(&b, &so, sizeof so) && !memcmp(&a, &b, sizeof a) &&
-              b.t[2].p[P_E0 + 3] == 5 && b.t[1].p[P_ITYPE] == 0 && b.t[1].p[P_IMIX] == 127 && b.t[1].p[P_FTYPE] == 0 &&
-              b.t[1].p[P_ESYNC] == 0;
-        bad += check(from == P_SPRD ? "a FUN10 of 103 parameters (1.2 before SPREAD): SPREAD 0, the INSERT OFF, TYPE LP, ENV SYNC OFF, "
-                                      "engine values and motion in place"
-                                    : "a FUN10 of 104 parameters (1.2 .. 1.4): the INSERT OFF, TYPE LP, ENV SYNC OFF, engine values and motion "
-                                      "in place",
-                     ok);
+    /* P_IORD is 2 bytes LE: first step notes start at 68 + (P_COUNT + 1) + 2 */
+    {
+        uint32_t n0 = 68u + (P_COUNT + 1u) + 2u;
+        ok &= !(st.raw[n0] & 0x80u) && (st.raw[n0 + 3u] & 0x80u) &&   /* -8: bit 3 only */
+              (st.raw[n0 + 9u] & 0x80u) && !(st.raw[n0 + 12u] & 0x80u);   /* +7: bits 0..2 */
     }
+    bad += check("FUN11 round trip: 3840 bytes, nudges, MOTION_FILE_MAX disk records, LFO 2, QUANTIZE", ok);
+    /* Old np 103/104 (pre-insert-chain) migration: inschain_test + params_by_count / ins_migrate. */
     {   /* the song's sections (1.2): a slot per track, "-" silent, 5 bytes a row, 84 in all, right after the steps */
         project_t c = a, d;
-        uint32_t at = 68u + NTRK * (P_COUNT + 2u + NSTEP * 9u);
+        uint32_t at = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u);   /* +1/track: P_IORD high byte */
         c.chain.count = CHAIN_ROWS;
         for (i = 0; i < CHAIN_ROWS; i++)
             c.chain.row[i] = (chain_row_t){{(uint8_t)(i % 5u), (uint8_t)((i + 1u) % 5u), (uint8_t)((i + 2u) % 5u),
@@ -548,13 +584,13 @@ static int formats(void)
         c.chain.row[3].slot[2] = 5;                   /* past "-": refused (pack and load) */
         c.sum = proj_sum(&c);
         ok &= !proj_pack(&st, &c);
-        bad += check("FUN10 round trip: 16 sections, a slot per track (A..D, -), the bytes in place", ok);
+        bad += check("FUN11 round trip: 16 sections, a slot per track (A..D, -), the bytes in place", ok);
     }
     project_save(2);
     motion_clear(t); t->p[P_SQNT] = 1; step_set_nudge(&t->step[1], 0);
     project_load(2);
     bad += check("  saved and loaded on the device: the same", step_nudge(&t->step[1]) == 7 && t->p[P_SQNT] == 0 &&
-                 motion.count == MOTION_MAX && t->p[P_LSYNC] == 8);
+                 motion.count == MOTION_FILE_MAX && t->p[P_LSYNC] == 8);
     st.raw[68u + 4u] |= 0x80u;                       /* a nudge bit in a FUN10 note byte: fine; in a FUN9: refused */
 
     /* FUN9 (1.1), FUN8 (1.0.x), FUN7: as before; the four parameters at their defaults, every nudge 0 */
@@ -574,6 +610,8 @@ static int formats(void)
     chain_defaults(&a.chain);                         /* a song of rows {slot, repeat} (36 bytes then) */
     a.chain.count = 3;
     a.chain.row[0] = chain_row_of(0, 4); a.chain.row[1] = chain_row_of(3, 16); a.chain.row[2] = chain_row_of(1, 1);
+    for (k = 0; k < NTRK; k++)
+        ins_migrate(a.t[k].p, 99u);                   /* insert chain as load of np 99 would leave it */
     a.sum = proj_sum(&a);
     ok = old_pack(v9, &a, OLD_FUN9, 99u) == sizeof v9 && proj_import(&b, v9, sizeof v9) && !memcmp(&a, &b, sizeof a);
     bad += check("FUN9 (1.1, 64 records of 4 bytes): exactly the project (LFO 2 / QUANTIZE defaults, nudges 0)", ok);
@@ -610,12 +648,19 @@ static int formats(void)
         for (i = P_LN0; i <= P_LN7; i++)
             a.t[k].p[i] = 127;
     a.motion.event[9].param &= 0x7Fu;
+    for (k = 0; k < NTRK; k++)
+        ins_migrate(a.t[k].p, 91u);
     a.sum = proj_sum(&a);
     ok = old_pack(v8, &a, OLD_FUN8, 91u) == sizeof v8 && proj_import(&b, v8, sizeof v8) && !memcmp(&a, &b, sizeof a);
     bad += check("FUN8 (1.0.x, 91 parameters): exactly the project", ok);
     for (k = 0; k < NTRK; k++)
         memcpy(a.fm6[k], FM6_INIT, FM6_PACKED);
     a.g[G_RTYPE] = 1;                                /* (a FUN7 knew ROOM and SPRING: above, the old drum channel) */
+    a.g[G_CRTYPE] = a.g[G_RTYPE];                    /* FUN7 has no CHAIN spare: import copies SEND -> CHAIN */
+    a.g[G_CRSIZE] = a.g[G_RSIZE];
+    a.g[G_CRDAMP] = a.g[G_RDAMP];
+    for (k = 0; k < NTRK; k++)
+        ins_migrate(a.t[k].p, 91u);
     a.sum = proj_sum(&a);
     ok = old_pack(v7, &a, OLD_FUN7, 91u) == sizeof v7 && proj_import(&b, v7, sizeof v7) && !memcmp(&a, &b, sizeof a);
     bad += check("FUN7 (91 parameters): exactly the project, the init patches", ok);
