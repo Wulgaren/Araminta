@@ -5,7 +5,7 @@
 ![Araminta](docs/araminta.png)
 
 **TL;DR:** Araminta v1.5.1 is a fork of [Felucca](https://github.com/hugelton/Felucca) for the M-VAVE FM-1.
-On top of Felucca 1.5.1 you get DRUM-X, SAMPLE / GRAIN / NOISE back, JIANT punch-ins, Sloop free take, Melodee silent-track motion, and a tighter VOICE page.
+On top of Felucca 1.5.1 you get DRUM-X, SAMPLE / GRAIN / NOISE back, JIANT punch-ins, Sloop free take, Melodee silent-track motion, a tighter VOICE page, an EFFECTS list (CHAIN / SEND + MIX), MIXER PLAY, and SEQ starting on PATTERN.
 Upstream 1.5.1 still brings SEQ > DETAIL, MIDI Program Change, dotted delay times and REV / ECHO THROW.
 Plug the FM-1 into a computer by USB, open the [web installer](https://wulgaren.github.io/Araminta/) in Chrome or Edge, and press Install.
 Install at your own risk: M-VAVE's updater or the installer's **Return to official V15** takes you back.
@@ -30,11 +30,12 @@ Araminta keeps Felucca 1.5.x as the base and layers a few ports and layout shift
 These are the differences that matter day to day:
 
 - **Sloop free take.** Project empty, track armed, transport stopped: the first note starts a free take, so you can record without building a pattern first.
-- **JIANT MIDI punch-ins.** They live on FX under the Punch-in section. SELECT walks pages inside FX sections; holding FX alone does not open punch-ins. Master gets CLIP / PNCH / DUCK. Reverb models add SHIMR / CLOUD.
+- **JIANT MIDI punch-ins.** They live on FX under the Punch-in section (FX taps: EFFECTS → SLICER → PUNCH). SELECT walks pages inside a section; holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK. Reverb models add SHIMR / CLOUD.
 - **Melodee.** Silent tracks still run LFO, bend, the engine block and fades, so modulation keeps moving when a track is muted or resting.
-- **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit and mutes save with the project as FUN11 / `FUNB` (same size as FUN10; disk motion max 78). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
+- **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project as FUN11 / `FUNB` (same size as FUN10; disk motion max 78). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
 - **SAMPLE, GRAIN and NOISE** are back (SLICE stays retired). CR78 is not in the ROM sample bank; upload a kit as a USR sample. In the web editor, the Drum kit grid checkbox tags the slot (`FSMP` header); SAMPLE on that USR set then shows the drum grid on SEQ instead of the piano roll, with zones mapped by hand.
-- **VOICE** is one page: VCE, GLD, UNI DTN, SPRD. GLD is free milliseconds (no GLMOD on the page). PAN / MUTE live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
+- **VOICE** is one page: VCE, GLD, UNI DTN, SPRD. GLD is free milliseconds (no GLMOD on the page). PAN / PLAY live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
+- **EFFECTS.** One list for the insert chain: CHOOSE a stage, ORDER moves it, USE AS is CHAIN or SEND, MIX is dry/wet (or send amount). Delay and reverb sit in that list (bus chorus is gone). Dual reverb tanks keep SEND and CHAIN settings while REV is chained; the REVERB page is TYPE / SIZE / DAMP (no TANK column).
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
@@ -45,8 +46,9 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM / DRUM-X engine);
   8 voices shared between them. ALGORITHM selects the track on every page
 - **Sequencer:** 64 steps per track with chords, ties, accent, slide, per-step chance, velocity and ratchets
-  (a step played 2, 3 or 4 times in its length); a piano roll of the steps, where KNOB 3 sets a note's length
-  (0 clears it) and PRESETS moves that note in time; a drum grid (white keys =
+  (a step played 2, 3 or 4 times in its length); **SEQ** sections are PATTERN, STEP (SELECT: DETAIL), AUTOMATION,
+  then SEQ TOOLS; a piano roll of the steps, where KNOB 3 sets a note's length (0 clears it and advances the cursor)
+  and PRESETS moves that note in time (or, while step-recording with a key held, sets its LEN); a drum grid (white keys =
   steps, black keys = lanes); **SEQ > DETAIL**: the cursor step's chance, ratchet, nudge and velocity on the four
   knobs, drawn as lanes over the steps; automation: recording of knob moves per step (an automation icon marks the cards it
   drives); live loop recording with overdub; Sloop free take when the project is empty; step recording at the cursor (REC on SEQ > STEP while stopped), one
@@ -62,13 +64,14 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   delete one. 128 records shared by the four tracks. SAVE held undoes every edit
 - **SEQ TOOLS:** hold SEQ on any page for tools on the keys: CLEAR, REVERSE, SHIFT < / >, **RANDOM** (a new beat,
   or new notes in the scale on the same rhythm) and **COOK** (changes the pattern a little each press); on a DRUM
-  track also BEAT and each lane's CLEAR, REVERSE, FILL and RANDOM; KNOB 1-4 are LEN, DIV, SWING and GATE. Each tool
-  is one undo (SAVE held); OCT- puts the track back as the layer found it
+  track also BEAT, **MUTE** (F4 toggles the selected lane) and each lane's CLEAR, REVERSE, FILL and RANDOM;
+  KNOB 1-4 are LEN, DIV, SWING and GATE. Each tool is one undo (SAVE held); OCT- puts the track back as the layer found it
 - **Metronome and count-in:** CLICK (OFF, while recording, or always) with three levels, and a count-in
   of 1 or 2 bars before recording from stop; the click goes to the headphones and speaker only, never to
   USB audio or into a pattern
 - **Songs** (GLO > SONG): up to 16 sections, each naming the project slot (A-D) **every track** plays, or "-" for a
-  track that rests there, with its repeats; drawn as a timeline with a lane per track
+  track that rests there, with its repeats; drawn as a timeline with a lane per track. GLO also holds MASTER, CLOCK
+  and RECORD (HOME is only Home ↔ Mixer)
 - **Chord keys:** one finger plays an in-key chord (triads or sevenths of the scale, or fixed chord
   shapes), with voicings; on the keys, MIDI in, recording and the arpeggiator
 - **Arpeggiator** with UP, DN, UPDN, RND, ORD (the notes in the order you pressed them), REPEAT and, for chords,
@@ -80,9 +83,10 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   LFO cycle, held or gliding), and **DEPTH** as a destination, so the matrix can modulate the LFO itself
 - **SPREAD** (EDIT > VOICE, SPRD): the voices of a POLY or UNISON track alternate left and right of its PAN
 - **ENV SYNC** (ENV > ENV DEST): the envelope's attack, decay and release as note values of the tempo
-- **Effects:** distortion, an **INSERT** (drives, CRUSH, phaser, flanger, chorus, with a dry / wet MIX) and the
-  SLICER per track; chorus, delay (in time with the tempo, dotted values included) and reverb sends (the reverb as
-  **HALL**, ROOM, SPRING, plus Araminta's **SHIMR** / **CLOUD**); master limiter, with CLIP / PNCH / DUCK on the master
+- **Effects:** an **EFFECTS** list per track (DIST, FILTER, CRUSH, PHASR, FLANG, CHOR, DLY, REV / SLICER stages):
+  CHAIN or SEND with a MIX fader; delay in time with the tempo (divisions or smooth ms, dotted values included);
+  reverb as **HALL**, ROOM, SPRING, plus Araminta's **SHIMR** / **CLOUD**; technical graphs on the FX pages;
+  insert knobs and MIX are mod-matrix destinations; master limiter, with CLIP / PNCH / DUCK on the master
 - **FX layer:** hold FX for repeat, reverse, filter sweeps, tape stop, freeze, a harmonizer
   (OCT UP / OCT DN with shimmer), **FLANGER** and **PHASER** (in time with the tempo), **REV THROW** and **ECHO THROW**
   (every track's reverb or delay send full while held), JIANT punch-ins on their own FX section, and mutes on the black keys;
@@ -219,10 +223,10 @@ where marked here:
 - **ARP ORD now plays the held notes in the order you pressed them** (up to 1.1.5 it played them as UP): a sound
   or project using ORD sounds different when its notes were pressed in another order than low to high.
 - **SAMPLE's PIANO** was a lighter lo-fi piano in 1.4 and 1.4.1; since 1.5 it is the full piano of 1.1.5 again.
-- **The pages moved** (Discussion #153): see Controls below. In short: SEQ is STEP and AUTOMATION; **SEQ held is SEQ
-  TOOLS on every page** (it no longer opens SONG); **GLO opens SONG**; PHRASES is on SAVE; HOME goes round HOME,
-  MIXER and CLOCK (BPM, swing, clock source); TUNE is MENU > AUDIO, MIDI IN (ROUT) is MENU > MIDI, and the USB state
-  and CPU load are MENU > SYSTEM > INFO. REC held is the REC layer as before.
+- **The pages moved** (Discussion #153): see Controls below. In short: SEQ is PATTERN, STEP / DETAIL, AUTOMATION,
+  then SEQ TOOLS; **SEQ held is SEQ TOOLS on every page** (it no longer opens SONG); **GLO** goes MASTER, SONG,
+  CLOCK, RECORD; PHRASES is on SAVE; HOME is Home ↔ Mixer; TUNE is MENU > AUDIO, MIDI IN (ROUT) is MENU > MIDI,
+  and the USB state and CPU load are MENU > SYSTEM > INFO. REC held is the REC layer as before.
 - **SONG has a lane per track**: older songs load with all four tracks on each row's slot and play as before; its
   knobs are KNOB 1 SECTION, 2 TRACK, 3 PAT, 4 REPS, and on SONG the white keys A3 B3 C4 D4 set the slot.
 - **A fresh start uses the HALL reverb** (up to 1.1.5: ROOM). Saved projects keep their reverb TYPE.
@@ -238,21 +242,23 @@ where marked here:
 - Hold FX, GLO, SCL, EDIT, REC or SEQ for its quick layer; hold SAVE to undo, HOME for the menu; hold LFO and turn a
   knob for a MOMENTARY change
 - Double-tap a layer's button to keep its layer open without holding; tap it again to close
-- On SEQ > STEP, hold a step and turn KNOB 1-4 to lock those parameters on that step (PRESETS: move the held steps in time)
+- On SEQ > STEP, hold a step and turn KNOB 1-4 to lock those parameters on that step (PRESETS: move the held steps in time; while step-recording with a key held, PRESETS sets that note's LEN)
+- On MIXER, KNOB 4 is **PLAY**: ON (default), OFF, or SOLO (saved with the track)
 - On action pages and in dialogs, OCT+ does it and OCT− goes back; in the menu, OCT+ / OCT− change the value and HOME closes it
 - Save a sound: stop, tap SAVE, pick a slot with KNOB 1, then OCT+ and OCT+ again (name it with the keys)
 
 The pages by button:
 
-| Button | Taps go round | Held |
+| Button | Taps go round (sections; SELECT walks pages inside one) | Held |
 |---|---|---|
-| HOME | HOME, MIXER, CLOCK (BPM, swing, clock source) | the menu |
-| SEQ | STEP (the piano roll, or the drum grid), DETAIL, AUTOMATION | SEQ TOOLS, on every page |
-| GLO | SONG | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
-| SAVE | USER, PRESETS, PHRASES (the pattern loader), PROJECT, TOOLS | UNDO |
-| LFO | LFO, LFO 2, LFO DEST; then MOD | MOMENTARY (with a knob) |
-| EDIT | EDIT 1, EDIT 2, VOICE (VCE/GLD/UNI DTN/SPRD; FM6 adds OPERATOR, OP ENV; DRUM: Sound / Kit / Lanes, no Voice; ANALOG FILTER, FILTER DRIVE instead of EDIT 2) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
-| FX, SCL, ENV, ARP | their pages (FX: INSERT and INSERT 2 after the SLICER) | FX and SCL: their layers |
+| HOME | Home ↔ Mixer | the menu |
+| SEQ | PATTERN, STEP (SELECT: STEP / DETAIL), AUTOMATION, SEQ TOOLS | SEQ TOOLS, on every page |
+| GLO | MASTER, SONG, CLOCK, RECORD | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
+| SAVE | Presets (SELECT: PRESETS / USER / PHRASES), Project (SELECT: PROJECT / TOOLS) | UNDO |
+| LFO | LFO (SELECT: LFO / LFO 2 / LFO DEST), then MOD | MOMENTARY (with a knob) |
+| EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG FILTER / FILTER DRIVE), Kit, Lanes, Voice (hidden on DRUM) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
+| FX | EFFECTS (SELECT: list + stage pages), SLICER, PUNCH | the FX layer |
+| SCL, ENV, ARP | their pages | SCL: its layer |
 | REC | arms the track | the REC layer (CLEAR, CLICK, COUNT-IN, CLICK LEVEL) |
 
 ## Menu
@@ -327,9 +333,10 @@ In the order the device lists them:
 - **ANALOG**: virtual analog; two oscillators (WAVE SYNC: the second hard-synced to the first; SUB: a square an
   octave down), noise, drive, a resonant filter: low-pass, band-pass or high-pass (EDIT > FILTER)
 - **FM6**: classic 6-operator FM (Dexed-based): 32 algorithms, a full patch per track, edited in the
-  web editor (which imports .syx files) or on the device: EDIT > OPERATOR (FREQ: ratio then fixed Hz, fine, level)
-  and OP ENV (each stage's rate and level, drawn as the envelope), one operator at a time on the algorithm chart;
-  macros on top; SLOT picks a factory patch (F1-F8), the track's own (OWN) or a voice of the bank the web editor sent (B1-B32)
+  web editor (which imports .syx files) or on the device: EDIT > OPERATOR (FREQ is one list: ratio then fixed Hz,
+  fine, level; no OPERATOR 2 page) and OP ENV (each stage's rate and level, drawn as the envelope), one operator
+  at a time on the algorithm chart; macros on top; SLOT picks a factory patch (F1-F8), the track's own (OWN) or a
+  voice of the bank the web editor sent (B1-B32)
 - **PHASE**: phase distortion (ported from CrispyZebra)
 - **LOFI**: chiptune; pulse, triangle, saw, noise and a 4-bit wave RAM, stepped envelope, sweep, arpeggio
 - **SAMPLE**: multisampled instruments (PIANO, FLUTE, SAX) and 3 user sample slots; a USR slot can be tagged
@@ -341,8 +348,8 @@ In the order the device lists them:
 - **PHYS**: physical models: modal resonators, strings, struck membranes, sympathetic strings
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
 - **DRUM**: DRUM-X, an 8-lane morphable kit on the General MIDI key map (JIANT port). EDIT sections
-  **Sound** (MRPH / TUNE / TONE / DECY and NOIS / FM / FOLD / DRV), **Kit** (SOUND / SOUND 2) and **Lanes**.
-  Kit and mute persist in FUN11 projects (FUN10 opens with the factory kit). Old Felucca KIT values
+  **Sound** (MRPH / TUNE / TONE / DECY), **Kit** (SOUND: lane A/B plus pitch env; SOUND 2: DCAY / NOIS / COLR / MODE)
+  and **Lanes**. Kit and mute persist in FUN11 projects (FUN10 opens with the factory kit). Old Felucca KIT values
   still play as DRUM-X. SLICE is retired; old stores load as DRUM
 
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
@@ -359,9 +366,10 @@ PIANO HD); 1.5 brings the full piano back.
 
 **SLICER** (FX page, every track): a tempo-synced 16-step gate or stutter, with 16 patterns.
 
-**Reverb** (FX > REVERB, TYPE): **HALL** (since 1.4, the default on a fresh start: eight delay lines feeding each
-other with slowly drifting taps, stereo, SIZE the decay up to about 4.5 s, DAMP how fast the highs die), **ROOM** (the
-default up to 1.1.5) and **SPRING**. A project plays the TYPE it was saved with.
+**Reverb** (FX > REVERB): KNOB 1–3 are TYPE / SIZE / DAMP for the tank the track owns (SEND or CHAIN).
+**HALL** (since 1.4, the default on a fresh start: eight delay lines feeding each other with slowly drifting taps,
+stereo, SIZE the decay up to about 4.5 s, DAMP how fast the highs die), **ROOM** (the default up to 1.1.5),
+**SPRING**, plus Araminta's **SHIMR** / **CLOUD**. A project plays the TYPE it was saved with.
 
 ## Scale keyboard
 
