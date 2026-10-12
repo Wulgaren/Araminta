@@ -603,7 +603,8 @@ static void rec_release(track_t *t, uint32_t note)
 
 /* FREE TAKE (from SLOOP): empty project, REC armed while stopped, no count-in. Play with no tempo;
  * REC on the next downbeat closes the loop (1 / 2 / 4 bars, tempo nearest the current BPM; within 3 %
- * the tempo is kept), notes quantised to 1/16 with lengths; PLAY drops the take. */
+ * the tempo is kept), notes quantised to 1/16 with lengths; a note started while an earlier one is still
+ * held sets SF_SLIDE on the previous NOTE step (acid legato); PLAY drops the take. */
 #define FT_MAX 192u
 #define FT_BLOCKS (24u * FS / CTL)            /* 24 s: 4 bars at 40 BPM, the longest loop */
 #define FT_OPEN 0xFFFFu                       /* the key is still down */
@@ -765,7 +766,7 @@ static void ft_close(void)
         uint32_t idx = (ft_ev[i].t * len * 2u + T) / (2u * T) % len;
         ft_put(t, idx, ft_ev[i].note, ft_ev[i].vel);
     }
-    if (!drum_track(t))
+    if (!drum_track(t)) {
         for (i = 0; i < ft_n; i++) {
             uint32_t d = ft_ev[i].d == FT_OPEN || ft_ev[i].t + ft_ev[i].d > T ? T - ft_ev[i].t : ft_ev[i].d;
             uint32_t idx = (ft_ev[i].t * len * 2u + T) / (2u * T) % len;
@@ -778,6 +779,28 @@ static void ft_close(void)
                 s->time = ST_TIE;
             }
         }
+        /* hold A, press B / C / …: SF_SLIDE on the previous NOTE step (skip TIE / rest; no wrap) */
+        for (i = 1; i < ft_n; i++) {
+            uint32_t idx = (ft_ev[i].t * len * 2u + T) / (2u * T) % len, j, held = 0;
+            for (j = 0; j < i; j++) {
+                uint32_t end = ft_ev[j].d == FT_OPEN || ft_ev[j].t + ft_ev[j].d > T
+                                   ? T : (uint32_t)ft_ev[j].t + ft_ev[j].d;
+                if (ft_ev[j].t < ft_ev[i].t && end > ft_ev[i].t) {
+                    held = 1;
+                    break;
+                }
+            }
+            if (!held)
+                continue;
+            for (k = idx; k > 0; ) {                /* earlier steps only (same-step chord: no slide) */
+                step_t *s = &t->step[--k];
+                if (s->time == ST_NOTE && s->n) {
+                    s->flags |= SF_SLIDE;
+                    break;
+                }
+            }
+        }
+    }
     t->seq_active = 1;
     song.g[G_BPM] = (int16_t)bpm;
     ft_bars = (uint8_t)bars;

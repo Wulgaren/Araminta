@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Free take (SLOOP port): empty project, REC armed while stopped, first note starts a take with no
- * tempo; REC closes the loop (length sets tempo), PLAY / STOP drops it. */
+ * tempo; REC closes the loop (length sets tempo), PLAY / STOP drops it; a note started while an
+ * earlier one is still held sets SF_SLIDE on the previous NOTE step. */
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -167,6 +168,126 @@ int main(void)
     mix_block(out, CTL);
     ft_btn_mask = 0;
 
-    puts("free take: empty project sets loop and tempo, REC closes, PLAY/STOP drops, 24 s auto-close PASS");
+    /* hold A, tap B / C / D while A held → SF_SLIDE on A, B, C (not D); staccato → none; chord → none */
+    {
+        double beat = 60.0 / 120.0;
+        uint32_t blk = 0, bi;
+        static const uint8_t KOFF[4] = {0, 2, 4, 5};
+        host_tracks_init();
+        song.g[G_BPM] = 120;
+        song.g[G_CLOCK] = 0;
+        song.sel = 0;
+        song.playing = 0;
+        cin_bars = 0;
+        clear_patterns();
+        ft_btn_mask = rb;
+        ft_drop_mask = 0;
+        fm1_in.buttons = 0;
+        ft_bars = 0;
+        song.rec = 1u;
+        mix_block(out, CTL);
+        fm1_in.notes = 1u << k0;                       /* A held for the whole bar */
+        mix_block(out, CTL);
+        blk = 1;
+        assert(ft_on);
+        for (bi = 1; bi < 4u; bi++) {
+            uint32_t on = (uint32_t)(bi * beat * FS / CTL + 0.5);
+            uint32_t off = on + (uint32_t)((beat / 8.0) * FS / CTL);
+            while (blk < on) {
+                mix_block(out, CTL);
+                blk++;
+            }
+            fm1_in.notes = (1u << k0) | (1u << (k0 + KOFF[bi]));
+            mix_block(out, CTL);
+            blk++;
+            while (blk < off) {
+                mix_block(out, CTL);
+                blk++;
+            }
+            fm1_in.notes = 1u << k0;
+            mix_block(out, CTL);
+            blk++;
+        }
+        {
+            uint32_t close_at = (uint32_t)(4.0 * beat * FS / CTL + 0.5);
+            while (blk < close_at) {
+                mix_block(out, CTL);
+                blk++;
+            }
+        }
+        fm1_in.buttons = rb;
+        mix_block(out, CTL);
+        fm1_in.buttons = 0;
+        fm1_in.notes = 0;
+        mix_block(out, CTL);
+        assert(!ft_on && song.playing && ft_bars == 1);
+        assert(trk[0].step[0].time == ST_NOTE && trk[0].step[0].note[0] == 60 &&
+               (trk[0].step[0].flags & SF_SLIDE));
+        assert(trk[0].step[4].time == ST_NOTE && trk[0].step[4].note[0] == 62 &&
+               (trk[0].step[4].flags & SF_SLIDE));
+        assert(trk[0].step[8].time == ST_NOTE && trk[0].step[8].note[0] == 64 &&
+               (trk[0].step[8].flags & SF_SLIDE));
+        assert(trk[0].step[12].time == ST_NOTE && trk[0].step[12].note[0] == 65 &&
+               !(trk[0].step[12].flags & SF_SLIDE));
+        transport_req = 2;
+        mix_block(out, CTL);
+
+        /* staccato: release A before B → no slides */
+        clear_patterns();
+        ft_bars = 0;
+        song.playing = 0;
+        song.rec = 1u;
+        fm1_in.buttons = 0;
+        fm1_in.notes = 1u << k0;
+        mix_block(out, CTL);
+        assert(ft_on);
+        for (j = 0; j < (uint32_t)((beat / 8.0) * FS / CTL); j++)
+            mix_block(out, CTL);
+        fm1_in.notes = 0;
+        mix_block(out, CTL);
+        for (j = 0; j < (uint32_t)((beat * 7.0 / 8.0) * FS / CTL); j++)
+            mix_block(out, CTL);
+        fm1_in.notes = 1u << (k0 + 2);
+        mix_block(out, CTL);
+        for (j = 0; j < (uint32_t)((beat / 8.0) * FS / CTL); j++)
+            mix_block(out, CTL);
+        fm1_in.notes = 0;
+        for (j = 0; j < (uint32_t)((2.0 * beat) * FS / CTL); j++)
+            mix_block(out, CTL);
+        fm1_in.buttons = rb;
+        mix_block(out, CTL);
+        fm1_in.buttons = 0;
+        mix_block(out, CTL);
+        assert(!ft_on && song.playing);
+        for (j = 0; j < 16u; j++)
+            assert(!(trk[0].step[j].flags & SF_SLIDE));
+        transport_req = 2;
+        mix_block(out, CTL);
+
+        /* same-step chord while nothing earlier is held into a later step: no slide */
+        clear_patterns();
+        ft_bars = 0;
+        song.playing = 0;
+        song.rec = 1u;
+        fm1_in.notes = (1u << k0) | (1u << (k0 + 2));
+        mix_block(out, CTL);
+        assert(ft_on);
+        for (j = 0; j < (uint32_t)((beat / 4.0) * FS / CTL); j++)
+            mix_block(out, CTL);
+        fm1_in.notes = 0;
+        for (j = 0; j < (uint32_t)((2.0 * beat) * FS / CTL); j++)
+            mix_block(out, CTL);
+        fm1_in.buttons = rb;
+        mix_block(out, CTL);
+        fm1_in.buttons = 0;
+        mix_block(out, CTL);
+        assert(!ft_on && song.playing && trk[0].step[0].n >= 2);
+        assert(!(trk[0].step[0].flags & SF_SLIDE));
+        transport_req = 2;
+        mix_block(out, CTL);
+    }
+
+    puts("free take: empty project sets loop and tempo, REC closes, PLAY/STOP drops, 24 s auto-close, "
+         "held-note slides PASS");
     return 0;
 }
