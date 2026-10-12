@@ -943,13 +943,14 @@ static void input_off(track_t *t, uint32_t note)
     trk_note_off(t, note);                          /* other mode (ARP switched while held) */
 }
 
-/* the effect of key k in the FX layer (PF_N none): white keys F3 .. F5 the map's (perf_map), G5 clears the
- * punch-in lane, black keys 1..4 the track mutes, A#4 the MIDI effects' tracks (pfx_tgt) */
+/* the effect of key k in the FX layer (PF_N none): white keys F3 .. F5 the map's (perf_map); with FX LATCH,
+ * G5 is CLR (turns latched effects and macros off); black keys 1..4 the track mutes, A#4 the MIDI effects'
+ * tracks (pfx_tgt) */
 static uint32_t perf_key(uint32_t k)
 {
     uint32_t p = key_place(k);
     if (!key_black(k))
-        return p == 15u ? PF_CLR : p < PF_KEYS ? perf_map[p] : PF_N;
+        return p == 15u && perf_latch_on ? PF_CLR : p < PF_KEYS ? perf_map[p] : PF_N;
     return p < NTRK ? PF_M1 + p : p == 7u ? PF_TGT : PF_N;
 }
 

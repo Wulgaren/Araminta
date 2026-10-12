@@ -865,12 +865,38 @@ static int auto_list(void)
     bad += check("#223 AUTOMATION PARAM: pick list opens", ui.pick == PK_AUTO && pk_n > 8u &&
         pk_cur < pk_n);
     {
-        uint32_t i, found = 0;
-        for (i = 0; i < pk_n; i++)
+        uint32_t i, found = 0, dly = 0, rev = 0, send = 0;
+        int32_t i_dist = -1, i_filt = -1, i_crush = -1, i_phas = -1, i_flang = -1, i_chor = -1, i_dly = -1, i_rev = -1;
+        for (i = 0; i < pk_n; i++) {
             if (pk_rows[i].id == P_SLRATE && str_eq(pk_rows[i].tag, "SLICER") &&
                 str_eq(pk_rows[i].name, "RATE"))
                 found = 1;
+            if (pk_rows[i].id == P_DIST && str_eq(pk_rows[i].tag, "DISTORT"))
+                i_dist = (int32_t)i;
+            if (pk_rows[i].id == P_IFCUT && str_eq(pk_rows[i].tag, "FILTER"))
+                i_filt = (int32_t)i;
+            if (pk_rows[i].id == P_ICMIX && str_eq(pk_rows[i].tag, "CRUSH"))
+                i_crush = (int32_t)i;
+            if (pk_rows[i].id == P_IPMIX && str_eq(pk_rows[i].tag, "PHASER"))
+                i_phas = (int32_t)i;
+            if (pk_rows[i].id == P_ILMIX && str_eq(pk_rows[i].tag, "FLANGER"))
+                i_flang = (int32_t)i;
+            if (pk_rows[i].id == P_IHMIX && str_eq(pk_rows[i].tag, "CHORUS"))
+                i_chor = (int32_t)i;
+            if (pk_rows[i].id == P_DLY && str_eq(pk_rows[i].tag, "DELAY") &&
+                str_eq(pk_rows[i].name, "DELAY"))
+                dly = 1, i_dly = (int32_t)i;
+            if (pk_rows[i].id == P_REV && str_eq(pk_rows[i].tag, "REVERB") &&
+                str_eq(pk_rows[i].name, "REVERB"))
+                rev = 1, i_rev = (int32_t)i;
+            if (str_eq(pk_rows[i].tag, "SEND"))
+                send = 1;
+        }
         bad += check("#223 AUTOMATION PARAM: SLICER / RATE", found);
+        bad += check("AUTOMATION PARAM: no SEND; DELAY / REVERB tags", dly && rev && !send);
+        bad += check("AUTOMATION PARAM: FX stages in EFFECTS order",
+                     i_dist >= 0 && i_filt > i_dist && i_crush > i_filt && i_phas > i_crush &&
+                     i_flang > i_phas && i_chor > i_flang && i_dly > i_chor && i_rev > i_dly);
     }
     turn(EN_K1, -1);
     bad += check("#223 leaving the row closes the pick list", !ui.pick);
@@ -879,24 +905,42 @@ static int auto_list(void)
     turn(EN_K3, 1);
     bad += check("#223 MOD DST: pick list opens", ui.pick == PK_MDST && pk_n > 8u && pk_cur < pk_n);
     {
-        uint32_t i, dist = 0, spat = 0, fcut = 0, cho = 0;
+        uint32_t i, dist = 0, spat = 0, fcut = 0, cho = 0, dly = 0, rev = 0, send = 0, pan = 0;
+        int32_t i_dist = -1, i_filt = -1, i_crush = -1, i_phas = -1, i_flang = -1, i_chor = -1, i_dly = -1, i_rev = -1;
         for (i = 0; i < pk_n; i++) {
-            if (pk_rows[i].id == MD_DIST && str_eq(pk_rows[i].tag, "SEND") &&
+            if (pk_rows[i].id == MD_DIST && str_eq(pk_rows[i].tag, "DISTORT") &&
                 str_eq(pk_rows[i].name, "DISTORT"))
-                dist = 1;
+                dist = 1, i_dist = (int32_t)i;
             if (pk_rows[i].id == MD_SLPAT && str_eq(pk_rows[i].tag, "SLICER") &&
                 str_eq(pk_rows[i].name, "PATTERN"))
                 spat = 1;
             if (pk_rows[i].id == MD_FCUT && str_eq(pk_rows[i].tag, "FILTER") &&
                 str_eq(pk_rows[i].name, "CUTOFF"))
-                fcut = 1;
+                fcut = 1, i_filt = (int32_t)i;
+            if (pk_rows[i].id == MD_CMIX && str_eq(pk_rows[i].tag, "CRUSH"))
+                i_crush = (int32_t)i;
+            if (pk_rows[i].id == MD_PMIX && str_eq(pk_rows[i].tag, "PHASER"))
+                i_phas = (int32_t)i;
+            if (pk_rows[i].id == MD_LMIX && str_eq(pk_rows[i].tag, "FLANGER"))
+                i_flang = (int32_t)i;
             if (pk_rows[i].id == MD_CHO && str_eq(pk_rows[i].tag, "CHORUS") &&
                 str_eq(pk_rows[i].name, "MIX"))
-                cho = 1;
+                cho = 1, i_chor = (int32_t)i;
+            if (pk_rows[i].id == MD_DLY && str_eq(pk_rows[i].tag, "DELAY"))
+                dly = 1, i_dly = (int32_t)i;
+            if (pk_rows[i].id == MD_REV && str_eq(pk_rows[i].tag, "REVERB"))
+                rev = 1, i_rev = (int32_t)i;
+            if (pk_rows[i].id == MD_PAN && str_eq(pk_rows[i].tag, "MIX"))
+                pan = 1;
+            if (str_eq(pk_rows[i].tag, "SEND"))
+                send = 1;
         }
-        bad += check("#223 MOD DST: SEND / DISTORT and SLICER / PATTERN", dist && spat);
-        bad += check("MOD DST: FILTER / CUTOFF (insert continuous)", fcut);
-        bad += check("MOD DST: CHO is CHORUS / MIX", cho);
+        bad += check("#223 MOD DST: DISTORT / SLICER / FILTER / CHORUS; no SEND",
+                     dist && spat && fcut && cho && !send);
+        bad += check("MOD DST: PAN is MIX; DELAY / REVERB tags", pan && dly && rev);
+        bad += check("MOD DST: FX stages in EFFECTS order",
+                     i_dist >= 0 && i_filt > i_dist && i_crush > i_filt && i_phas > i_crush &&
+                     i_flang > i_phas && i_chor > i_flang && i_dly > i_chor && i_rev > i_dly);
     }
     {
         uint32_t i, n = 0;
