@@ -5,11 +5,11 @@
 ![Araminta](docs/araminta.png)
 
 **TL;DR:** Araminta is a fork of [Felucca](https://github.com/hugelton/Felucca) for the M-VAVE FM-1
-(Felucca 1.5.x base; splash / ABOUT show `v2`).
 On top of Felucca 1.5.1 you get DRUM-X, SAMPLE / GRAIN / NOISE back, JIANT punch-ins, Sloop free take, Melodee silent-track motion, a tighter VOICE page, an EFFECTS list (CHAIN / SEND + MIX), MIXER PLAY, and SEQ starting on PATTERN.
-Upstream 1.5.1 still brings SEQ > DETAIL, MIDI Program Change, dotted delay times and REV / ECHO THROW.
+
 Plug the FM-1 into a computer by USB, open the [web installer](https://wulgaren.github.io/Araminta/) in Chrome or Edge, and press Install.
 Install at your own risk: M-VAVE's updater or the installer's **Return to official V15** takes you back.
+
 Coming from Felucca **1.5 / 1.5.1**? Read [Coming from 1.5](#coming-from-15): your projects load; after you
 save on Araminta, Felucca 1.5 cannot open those slots.
 Coming from 1.1.5.x? Read [Coming from 1.1.5](#coming-from-115) first: projects saved by 1.4 or later do not open on 1.1.5.x.
