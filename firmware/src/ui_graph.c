@@ -436,8 +436,8 @@ static void graph_chord(const track_t *t, uint16_t c)
 static void graph_insert(const track_t *t, uint16_t c)
 {
     const char *n = cur_page()->title;
-    uint32_t id = str_eq(n, "DIST") ? P_IDMIX : str_eq(n, "FILTER") ? P_IFMIX : str_eq(n, "CRUSH") ? P_ICMIX :
-                  str_eq(n, "PHASR") ? P_IPMIX : str_eq(n, "FLANG") ? P_ILMIX : str_eq(n, "CHOR") ? P_IHMIX : 0xFFu;
+    uint32_t id = str_eq(n, "DISTORT") ? P_IDMIX : str_eq(n, "FILTER") ? P_IFMIX : str_eq(n, "CRUSH") ? P_ICMIX :
+                  str_eq(n, "PHASER") ? P_IPMIX : str_eq(n, "FLANGER") ? P_ILMIX : str_eq(n, "CHORUS") ? P_IHMIX : 0xFFu;
     int32_t x, cy = graph_ht / 2, a = 38 * graph_ht / 100, py = cy, m = id == 0xFFu ? 0 : ins_mixq(t->p[id]);
     cv_rect(PANEL_X0, cy, PANEL_W, 1, T_RAISE);
     cv_line(PANEL_X0 + PANEL_W / 6, cy + a, PANEL_X0 + PANEL_W * 5 / 6, cy - a, m ? T_RAISE : T_DIM);

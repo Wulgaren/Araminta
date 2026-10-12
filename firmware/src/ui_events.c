@@ -554,7 +554,7 @@ static void pk_auto_name(const track_t *t, uint32_t id, char *b)
     else if (id == P_SPRD)
         str_cpy(b, "SPREAD", 16);
     else if (id == P_DIST)
-        str_cpy(b, "DIST", 16);
+        str_cpy(b, "DISTORT", 16);
     else if (id == P_DLY)
         str_cpy(b, "DELAY", 16);
     else if (id == P_REV)
@@ -653,8 +653,8 @@ static const char *pk_mdst_group(uint32_t d)
         return "OFF";
     if (d <= MD_AMP)
         return "VOICE";
-    if (d == MD_CHO)                                    /* insert CHOR mix (P_IHMIX); not a bus send */
-        return "CHOR";
+    if (d == MD_CHO)                                    /* insert CHORUS mix (P_IHMIX); not a bus send */
+        return "CHORUS";
     if (d <= MD_REV)
         return "SEND";
     if (d == MD_RATE || d == MD_VIB || d == MD_DEPTH)
@@ -666,17 +666,17 @@ static const char *pk_mdst_group(uint32_t d)
     if (MD_ENGINE(d))
         return "EDIT";
     if (d <= MD_DMIX)
-        return "DIST";
+        return "DISTORT";
     if (d <= MD_FMIX)
         return "FILTER";
     if (d <= MD_CMIX)
         return "CRUSH";
     if (d <= MD_PMIX)
-        return "PHASR";
+        return "PHASER";
     if (d <= MD_LMIX)
-        return "FLANG";
+        return "FLANGER";
     if (MD_INS(d))
-        return "CHOR";
+        return "CHORUS";
     return "OTHER";
 }
 static uint32_t pk_build_mdst(const track_t *t, uint32_t d, uint32_t *sel)

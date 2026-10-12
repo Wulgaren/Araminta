@@ -3148,8 +3148,8 @@ static int test_layer(void)
     project_load(2);
     bad += check("REVERB page: TYPE HALL (power-on) / ROOM / SPRING; a project keeps SPRING",
                  ok && song.g[G_RTYPE] == 1);
-    go_title("CHOR");
-    bad += check("  CHOR insert page (no bus CHORUS)", cur_page()->fam == FAM_FX && cur_page()->graph == GR_INS &&
+    go_title("CHORUS");
+    bad += check("  CHORUS insert page (no bus CHORUS)", cur_page()->fam == FAM_FX && cur_page()->graph == GR_INS &&
                  cur_page()->id[0] == P_IHRATE);
 
     ui_power_on();
@@ -8450,7 +8450,7 @@ static int test_fx_sections(void)
     bad += check("EFFECTS list: 8 rows with CHOR+DLY+REV; fader page GR_IORD; default SEND", ok);
 
     ui_power_on();
-    go_title("DLY");
+    go_title("DELAY");
     ok = song.g[G_DTIME] == 1 && !dtime_free();          /* 1/8, RATE */
     turn(EN_K1, -1);                                     /* 1/8D, still a division (triplets and dotted stay) */
     ok &= song.g[G_DTIME] == 10 && !dtime_free();

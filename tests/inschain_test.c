@@ -384,16 +384,16 @@ int main(void)
             if (str_eq(PAGES[i].title, "EFFECTS") && PAGES[i].fam == FAM_FX && pr == NPAGES) pr = i;
             if (str_eq(PAGES[i].title, "REVERB") && PAGES[i].fam == FAM_FX && prev == NPAGES) prev = i;
             if (str_eq(PAGES[i].title, "SLICER") && PAGES[i].fam == FAM_FX && ps == NPAGES) ps = i;
-            if (str_eq(PAGES[i].title, "DIST") && PAGES[i].fam == FAM_FX && pd == NPAGES) pd = i;
-            if (str_eq(PAGES[i].title, "DLY") && PAGES[i].fam == FAM_FX && pdl == NPAGES) pdl = i;
+            if (str_eq(PAGES[i].title, "DISTORT") && PAGES[i].fam == FAM_FX && pd == NPAGES) pd = i;
+            if (str_eq(PAGES[i].title, "DELAY") && PAGES[i].fam == FAM_FX && pdl == NPAGES) pdl = i;
             if (str_eq(PAGES[i].title, "MASTER") && pm == NPAGES) pm = i;
-            if (str_eq(PAGES[i].title, "CHORUS")) chor = 1;
+            if (str_eq(PAGES[i].title, "CHORUS") && PAGES[i].scope == SC_GLOBAL) chor = 1;
             if (PAGES[i].fam == FAM_FX && PAGES[i].graph == GR_INS)
                 for (k = 0; k < 4u; k++)
                     for (m = 0; m < sizeof MIXK; m++)
                         mix |= PAGES[i].id[k] == MIXK[m];
         }
-        ck("FX pages: EFFECTS, REVERB, DLY, DIST…; SLICER own section; MASTER on GLO",
+        ck("FX pages: EFFECTS, REVERB, DELAY, DISTORT…; SLICER own section; MASTER on GLO",
            pr < prev && prev < pdl && pdl < pd && pd < ps && PAGES[pr].graph == GR_IORD &&
            PAGES[pr].sec == FX_SEC_INS && PAGES[pdl].sec == FX_SEC_INS &&
            PAGES[ps].sec == FX_SEC_SLCR && PAGES[pm].fam == FAM_GLO && PAGES[pm].sec == GLO_SEC_MASTER &&
