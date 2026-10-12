@@ -1279,6 +1279,7 @@ static void draw_splash_logo(void)
     uint16_t white = swap16(SPL_WHITE), black = swap16(SPL_BLACK);
     for (y = 0; y < SPL_LOGO_H; y++) {
         const uint8_t *row = SPL_LOGO + y * SPL_LOGO_STRIDE;
+        lcd_sync();                                 /* cv_row may still be in flight */
         for (x = 0; x < SPL_LOGO_W; x++)
             cv_row[x] = ((row[x >> 3] >> (x & 7u)) & 1u) ? white : black;
         lcd_blit(x0, SPL_LOGO_Y + y, SPL_LOGO_W, 1u, cv_row);
