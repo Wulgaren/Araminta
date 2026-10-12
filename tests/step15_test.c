@@ -261,8 +261,10 @@ static int vel(void)
     bad += check("  KNOB 4 the step's velocity (1..127), KNOB 2 nothing; SAVE held: the turn undone", ok);
     press(B_EDIT);
     ok = t->step[4].vel == 0u && msg_is("VEL 96") && auto_cur() == EVC(EVK_VEL, 4) && ev_list(rw) == n;
-    for (n = 0; n < 20u; n++)
+    for (n = 0; n < 20u; n++) {
+        frames(50);                                      /* > ACC_GAP: one step each (accel always on) */
         turn(EN_K4, -1);
+    }
     ok &= t->step[4].vel == 76u;
     bad += check("  EDIT: back to 96 (stored 0), the row stays", ok);
     {   /* drawn: DIM where it does not play (the ACC step) */

@@ -828,7 +828,7 @@ static int auto_list(void)
     turn(EN_K1, -5);
     turn(EN_K1, 2);                                      /* (the first record: the row after PLAY and QUANTIZE) */
     v = motion.event[0].value;
-    turn(EN_K4, 2); turn(EN_K4, 2); turn(EN_K4, 2);
+    turn(EN_K4, 2); frames(100); turn(EN_K4, 2); frames(100); turn(EN_K4, 2);  /* > ACC_GAP per detent: no accel */
     ok = motion.event[0].value == v + 6;
     hold(B_SAVE);
     bad += check("  KNOB 4 turned on (three turns): one undo", ok && motion.event[0].value == v);
