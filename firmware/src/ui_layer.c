@@ -533,6 +533,8 @@ static uint32_t eqa_sig(void)
 }
 
 static void clear_key(uint32_t p);                       /* SAVE > CLEAR sticky map */
+static uint32_t clear_kind(uint32_t p);
+static int clear_ready(uint32_t kind);
 
 /* a key pressed in layer l (k: 0 = F3 .. 26 = G5) */
 static void layer_key(uint32_t l, uint32_t k)
@@ -772,6 +774,9 @@ static uint32_t layer_leds(uint32_t *br)
                 on = b && p < NLANE && drum && p == ui.lane;
                 can = b ? p < NLANE && drum : tl_cell(TSEL, p) && !chain_busy();
             }
+        } else if (l == LAYER_CLR && !b) {              /* white keys with an action breathe when ready */
+            uint32_t kind = clear_kind(p);
+            can = kind != CF_NONE && clear_ready(kind);
         }
         m |= on << k;
         n |= (can & !on) << k;
@@ -996,10 +1001,14 @@ static void layer_edit(void)                            /* the engines from F3, 
         engine_sound_row(104);
 }
 
-/* SAVE > CLEAR: white keys (Punch-in layout). Selected track / all tracks / song / session. Key opens confirm. */
-enum { CL_PAT = 0, CL_SND, CL_MOT, CL_ALLPAT = 4, CL_ALLSND, CL_ALLMOT, CL_SEC = 8, CL_SONG, CL_INIT = 12 };
+/* SAVE > CLEAR: white keys in columns under the cards (TRACK | ALL | SONG | BOOT). Key opens confirm. */
+enum {
+    CL_PAT = 0, CL_ALLPAT, CL_SEC, CL_INIT,             /* F3 G3 A3 B3 */
+    CL_SND = 4, CL_ALLSND, CL_SONG,                     /* C4 D4 E4 */
+    CL_MOT = 8, CL_ALLMOT                               /* G4 A4 */
+};
 static const char *const CL_CELL[16] = {
-    "PAT", "SND", "MOT", "", "PATS", "SNDS", "MOTS", "", "SEC", "SONG", "", "", "INIT", "", "", ""
+    "PAT", "PATS", "SEC", "INIT", "SND", "SNDS", "SONG", "", "MOT", "MOTS", "", "", "", "", "", ""
 };
 static uint32_t clear_kind(uint32_t p)
 {
