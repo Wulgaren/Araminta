@@ -30,6 +30,7 @@ Report what you find in [Araminta Issues](https://github.com/Wulgaren/Araminta/i
 Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 
 - **Sloop free take.** Project empty, track armed, transport stopped: the first note starts a free take. No pattern required first.
+  Hold a note and press others while it is still down: those steps get slide flags (acid legato) when the take closes.
 - **JIANT MIDI punch-ins.** On FX under Punch-in (FX taps: EFFECTS → SLICER → PUNCH). SELECT walks pages inside a section; holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK. Reverb adds SHIMR / CLOUD.
 - **Melodee.** Silent tracks still run LFO, bend, the engine block and fades, so modulation keeps moving when a track is muted or resting.
 - **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project as FUN11 / `FUNB` (same size as FUN10; disk motion max 78). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
