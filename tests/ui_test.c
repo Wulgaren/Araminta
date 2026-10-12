@@ -8434,8 +8434,14 @@ static int test_fx_sections(void)
             has_rev |= ord[i] == INS_REV;
         }
         ok = FX_LIST_N == 8u && has_chor && has_dly && has_rev &&
-             str_eq(N_ISTAGE[INS_CHOR], "CHOR") && str_eq(N_ISTAGE[INS_DLY], "DLY") &&
-             str_eq(N_ISTAGE[INS_REV], "REV") && str_eq(fx_list_mode(TSEL, INS_DLY), "SEND");
+             str_eq(N_ISTAGE[INS_PHASR], "PHASER") && str_eq(N_ISTAGE[INS_FLANG], "FLANGER") &&
+             str_eq(N_ISTAGE[INS_CHOR], "CHORUS") && str_eq(N_ISTAGE[INS_DLY], "DELAY") &&
+             str_eq(N_ISTAGE[INS_REV], "REVERB") && str_eq(fx_list_mode(TSEL, INS_DLY), "SEND") &&
+             text_w(&AF_S, "FLANGER") >= text_w(&AF_S, "FILTER") &&
+             text_w(&AF_S, N_ISTAGE[INS_PHASR]) <= text_w(&AF_S, "FLANGER") &&
+             text_w(&AF_S, N_ISTAGE[INS_CHOR]) <= text_w(&AF_S, "FLANGER") &&
+             text_w(&AF_S, N_ISTAGE[INS_DLY]) <= text_w(&AF_S, "FLANGER") &&
+             text_w(&AF_S, N_ISTAGE[INS_REV]) <= text_w(&AF_S, "FLANGER");
         ui.ior_sel = 0;
         ok &= cur_page()->graph == GR_IORD;
     }
