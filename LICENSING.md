@@ -53,7 +53,7 @@ All by Hügelton Instruments (Leo Kuroshita), in this tree:
 | DotGothic16 font by The DotGothic16 Project Authors (<https://github.com/fontworks-fonts/DotGothic16>): the browser emulator's knob labels, served with its page (cut to printable ASCII; the font declares no Reserved Font Name) | SIL OFL 1.1 | `web/emu/fonts/DotGothic16-subset.woff`, `LICENSES/OFL-DotGothic16.txt` (also `web/emu/fonts/OFL.txt`) |
 | JieLi AC79 SDK by JieLi Technology: three of its files go into every `.fwsc` package (below); none are in this tree | Apache-2.0 | `LICENSES/Apache-2.0.txt` |
 
-On the device, HOME held > ABOUT opens the information screen; turning PRESETS scrolls on into
+On the device, HOME held > ABOUT opens the information screen; turning ALGORITHM scrolls on into
 CREDITS, a short list of these authors, licences and source URLs.
 
 ## JieLi SDK files in the packages (Apache-2.0)
