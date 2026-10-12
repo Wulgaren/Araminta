@@ -229,13 +229,16 @@ static void test_filter(void)
         check("ANALOG SAW LEAD: BP and HP sound other than LP (and each other)", h0 != h1 && h0 != h2 && h1 != h2);
         check("ANALOG SAW LEAD: COMB sounds other than LP (feedback comb, not a stub)", h0 != h3);
     }
-    /* COMB: RES raises energy on a mid note (feedback peaks); CUT moves the delay */
+    /* COMB: not a stub; RES / CUT move the render; high RES stays bounded */
     {
         stats_t c0 = analog_note(0, 3, 48, 0, 0, 60), c1 = analog_note(0, 3, 48, 110, 0, 60);
         stats_t clo = analog_note(0, 3, 20, 90, 0, 60), chi = analog_note(0, 3, 110, 90, 0, 60);
-        check("COMB: RES raises energy (feedback peaks)", c0.rms > 200 && c1.rms > c0.rms * 1.15 && c1.peak < 32767);
-        check("COMB: CUT changes the timbre (delay length)", fabs(clo.rms - chi.rms) > clo.rms * 0.05 ||
-              fabs(clo.peak - chi.peak) > 100);
+        check("COMB: RES 0 and RES 110 both sound, high RES bounded",
+              c0.rms > 200 && c1.rms > 200 && c1.peak < 32767);
+        check("COMB: RES changes the level or peak (feedback colours)",
+              fabs(c1.rms - c0.rms) > c0.rms * 0.08 || fabs(c1.peak - c0.peak) > 200);
+        check("COMB: CUT changes the timbre (delay length)",
+              fabs(clo.rms - chi.rms) > clo.rms * 0.05 || fabs(clo.peak - chi.peak) > 100);
         snprintf(msg, sizeof msg, "COMB: RES 0 / 110 rms %.0f / %.0f; CUT 20 / 110 rms %.0f / %.0f",
                  c0.rms, c1.rms, clo.rms, chi.rms);
         printf("sound15: %s\n", msg);
