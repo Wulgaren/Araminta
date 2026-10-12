@@ -2622,7 +2622,7 @@ static int test_presets_knob(void)
 }
 
 /* Pages by button. HOME: Home ↔ Mixer; SEQ: step group → Automation → Tools;
- * GLO: Master → Song → Clock → Record; SAVE: Presets (PRESETS/USER/PHRASES) → Project (PROJECT/TOOLS).
+ * GLO: Master → Song → Clock; SAVE: Presets (PRESETS/USER/PHRASES) → Project (PROJECT/TOOLS).
  * AUTOMATION's list edits a step's CHANCE / RATCH (the step's own fields, nothing else), one undo each;
  * a remembered page that left its family */
 static int steps_but(const track_t *t, const step_t *ref, uint32_t at, const step_t *want)   /* the steps = ref, at: want */
@@ -2664,7 +2664,7 @@ static int test_page_cycles(void)
         uint32_t f = PAGES[i].fam;
         ok &= f != FAM_SEQ || PAGES[i].graph == GR_ROLL || PAGES[i].graph == GR_EVENTS ||
               PAGES[i].graph == GR_STEPS;
-        ok &= f != FAM_GLO || PAGES[i].graph == GR_SONG || PAGES[i].graph == GR_REC ||
+        ok &= f != FAM_GLO || PAGES[i].graph == GR_SONG ||
               str_eq(PAGES[i].title, "CLOCK") || str_eq(PAGES[i].title, "MASTER");
         ok &= f != FAM_TRK || PAGES[i].graph == GR_TRK;
         ok &= PAGES[i].graph != GR_TRK || f == FAM_TRK;
@@ -2674,7 +2674,7 @@ static int test_page_cycles(void)
     }
     for (i = 0; i < NPAGES; i++)
         ok &= !str_eq(PAGES[i].title, "CHANCE") && !str_eq(PAGES[i].title, "AUTO LIST");
-    bad += check("SEQ has PATTERN/STEP/DETAIL/AUTOMATION; GLO has MASTER/SONG/CLOCK/RECORD; MIXER is HOME's", ok);
+    bad += check("SEQ has PATTERN/STEP/DETAIL/AUTOMATION; GLO has MASTER/SONG/CLOCK; MIXER is HOME's", ok);
     {   /* GLOBAL and SYSTEM are gone; BPM SWG CLK on GLO > CLOCK, TUNE and ROUT on no page (the MENU's) */
         uint32_t k, clock = 0;
         ok = 1;
@@ -2707,7 +2707,7 @@ static int test_page_cycles(void)
     go_home(); open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "MASTER");
     open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "SONG"); /* section cycle */
     open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "CLOCK");
-    open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "RECORD");
+    open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "MASTER"); /* wrap */
     for (i = 0; i < 256u; i++) {                         /* any remembered index */
         go_home(); ui.fam_last[FAM_GLO] = (uint8_t)i; open_family(FAM_GLO);
         if (i < NPAGES && PAGES[i].fam == FAM_GLO && page_visible(i))
@@ -2812,8 +2812,6 @@ static int test_product_ux(void)
             ok &= song.rec == 0 && !transport_req && msg_is("[SEQ] TO RECORD");
         else if (PAGES[i].graph == GR_ROLL)            /* STEP / DETAIL: step recording when not empty project */
             ok &= song.rec == 1 && !transport_req && ui.page == i && !ui.home;
-        else if (PAGES[i].graph == GR_REC)             /* Record section sticky: arm only, prefs live here */
-            ok &= song.rec == 1 && ui.page == i && !ui.home;
         else ok &= song.rec == 1 && (transport_req == 1 || msg_is("PLAY FREELY")) && ui.page == i && !ui.home;
     }
     bad += check("REC stays on every page, SONG stopped asks for pattern recording (STEP: step recording, stopped)", ok);
@@ -2862,9 +2860,8 @@ static int test_product_ux(void)
         ok &= song.g[G_BPM] == bpm + 1 && song.g[G_SWING] == swg + 1 && song.g[G_CLOCK] != clk && song.g[G_TUNE] == tune;
         song.g[G_CLOCK] = clk;
     }
-    press(B_GLO); frames(320); ok &= str_eq(cur_page()->title, "RECORD") && ui.lock == LAYER_REC;
-    press(B_GLO); frames(320); ok &= str_eq(cur_page()->title, "MASTER");
-    bad += check("GLO cycles Master → Song → Clock → Record → Master", ok);
+    press(B_GLO); frames(320); ok &= str_eq(cur_page()->title, "MASTER") && !ui.lock;
+    bad += check("GLO cycles Master → Song → Clock → Master", ok);
     go_home(); btn_down(B_SEQ); frames(500);
     ok = !ui.layer && ui.home;                          /* hold alone: no map */
     btn_up(B_SEQ); frame();
@@ -4900,8 +4897,7 @@ static int test_breath(void)
         ok &= !ui.layer && !ui.lock;                   /* hold peek removed */
         btn_up(LB[i]); frame();
         press(LB[i]); frames(64); press(LB[i]); frames(100);
-        ok &= !ui.lock || (LB[i] == B_FX && cur_page()->sec == FX_SEC_PUNCH) ||
-              (LB[i] == B_GLO && cur_page()->sec == GLO_SEC_REC);
+        ok &= !ui.lock || (LB[i] == B_FX && cur_page()->sec == FX_SEC_PUNCH);
     }
     bad += check("#119 hold/double-tap layer maps removed (no breath map without sticky section)", ok);
     ui_leds();
@@ -6060,20 +6056,10 @@ static int test_layer_lock(void)
     return bad;
 }
 
-/* 1.1.5: the REC layer (ui_layer.c). REC held past HOLD on any page opens it (up to 1.1.4 REC held on SEQ asked "CLEAR Tn
- * SEQUENCE?", Discussion #91: gone, and its "HOLD: CLEAR" hint and the footer's REC + trash with it); a tap still
- * arms / disarms. F3 CLEAR (no dialog, SAVE held undoes it), G3 CLICK, A3 COUNT-IN, B3 CLICK LEVEL (each the next
- * value, the same store as MENU > AUDIO, saved when the layer closes), KNOB 1..3 the same; OCT- puts back; the LEDs;
- * the double-tap lock (the arming as before the taps); REC in another layer still arms */
-static void rec_down(void) { btn_down(B_REC); }
-static void rec_up(void) { btn_up(B_REC); frame(); }
-static uint32_t menu_rec(uint32_t r) { return menu_get(r == 0u ? MI_CLICK : r == 1u ? MI_COUNTIN : MI_CLKLVL); }
-
+/* REC tap arms / disarms; hold never opens a prefs map (CLICK / COUNT-IN / LEVEL: MENU > AUDIO). */
 static int test_rec_layer(void)
 {
     int bad = 0, ok;
-    uint32_t n;
-    step_t before[NSTEP];
     ui_power_on();
     go_seq_step(); frame();
     press(B_REC);
@@ -6083,24 +6069,12 @@ static int test_rec_layer(void)
     bad += check("REC tap arms / disarms step recording on STEP (no hold map)", ok);
     ui_power_on();
     go_home(); frame();
-    n = ui.page;
     btn_down(B_REC); frames(600);
     ok = !ui.layer && !ui.lock && song.rec == 0u;       /* still down: arming on release */
     btn_up(B_REC); frame();
     ok &= !ui.layer && !ui.lock && song.rec == 1u && ui.home &&
           (transport_req == 1u || msg_is("PLAY FREELY"));
     bad += check("REC hold never opens a layer; release still arms on HOME", ok);
-    ui_power_on();
-    open_family(FAM_GLO);                              /* Master */
-    open_family(FAM_GLO);                              /* Song */
-    open_family(FAM_GLO);                              /* Clock */
-    open_family(FAM_GLO); frame();                     /* Record sticky */
-    ok = str_eq(cur_page()->title, "RECORD") && ui.lock == LAYER_REC && ui.layer == LAYER_REC;
-    my_steps(TSEL);
-    memcpy(before, TSEL->step, sizeof before);
-    key_down(white(0)); frame(); key_up(white(0)); frame(); /* F3 CLEAR */
-    ok &= msg_is("SEQUENCE CLEARED") && seq_is_empty(TSEL);
-    bad += check("GLO Record section sticky LAYER_REC: CLEAR key clears the sequence", ok);
     return bad;
 }
 
@@ -7061,10 +7035,10 @@ static int32_t head_span2(int32_t a, int32_t b, int32_t *x0, int32_t *x1)
     return *x1 < 0 ? 0 : *x0 + *x1 + 1;
 }
 enum { HS_STOPPED, HS_PLAY_REC, HS_SONG, HS_MSG, HS_OCT, HS_USB, HS_KEYCAP, HS_REC_OTHER, HS_BPM_TURN, HS_BPM_LOCK,
-       HS_NOFILE, HS_REC_LAYER, HS_LAYER_LOCK, HS_GLO_TURN, HS_MSG2, HS_BEAT2, HS_COUNTIN, HS_BATT1, HS_BATT0, HS_BPM90,
+       HS_NOFILE, HS_LAYER_LOCK, HS_GLO_TURN, HS_MSG2, HS_BEAT2, HS_COUNTIN, HS_BATT1, HS_BATT0, HS_BPM90,
        HS_N };
 static const char *const HS_NAME[HS_N] = {"stopped", "play+REC", "song", "message", "OCT", "USB", "keycap", "REC other",
-    "BPM turn", "BPM LOCK", "NO SAMPLE", "REC layer", "EDIT lock", "GLO turn", "msg2", "beat 2", "count-in", "battery 1",
+    "BPM turn", "BPM LOCK", "NO SAMPLE", "EDIT lock", "GLO turn", "msg2", "beat 2", "count-in", "battery 1",
     "battery 0", "BPM 90"};
 static void head_state(uint32_t s)
 {
@@ -7081,7 +7055,6 @@ static void head_state(uint32_t s)
     if (s == HS_BPM_TURN || s == HS_GLO_TURN) ui.bpm_t = 40;
     if (s == HS_BPM_LOCK || s == HS_GLO_TURN) ui_prefs |= PREF_BPM_LOCK;
     if (s == HS_NOFILE) ui_message(MSG_NO_SAMPLE);
-    if (s == HS_REC_LAYER) { song.rec = 1u << song.sel; ui.layer = LAYER_REC; }
     if (s == HS_LAYER_LOCK) ui.layer = ui.lock = LAYER_EDIT;
     if (s == HS_GLO_TURN) ui.layer = LAYER_GLO;
     if (s == HS_COUNTIN) { cin_total = 4; cin_left = 3; }
@@ -7100,7 +7073,7 @@ static int test_head_centres(void)
     for (st = ST_FLAT; st <= ST_LINE; st++)
         for (p = 0; p < NPALETTES; p++)
             for (s = 0; s < HS_N; s++) {
-                int32_t a, b, c2, msg = s == HS_MSG || s == HS_KEYCAP || s == HS_NOFILE || s == HS_REC_LAYER ||
+                int32_t a, b, c2, msg = s == HS_MSG || s == HS_KEYCAP || s == HS_NOFILE ||
                                         s == HS_LAYER_LOCK || s == HS_MSG2;
                 int pr = !st && !p, okp;
                 ui_power_on();
@@ -8338,7 +8311,7 @@ static int test_mixer_solo(void)
     return bad;
 }
 
-/* Double-tap never locks; Punch-in and Record section stickies are the exceptions. */
+/* Double-tap never locks; Punch-in section sticky is the exception. */
 static int test_no_layer_lock(void)
 {
     int bad = 0, ok = 1;
@@ -8351,16 +8324,16 @@ static int test_no_layer_lock(void)
         if (B[i] == B_FX)
             ok &= ui.lock == 0 || cur_page()->sec == FX_SEC_PUNCH; /* two taps: Effects then Slicer, no lock */
         else if (B[i] == B_GLO)
-            ok &= ui.lock == 0 || cur_page()->sec == GLO_SEC_SONG; /* Master → Song, no lock yet */
+            ok &= ui.lock == 0 || cur_page()->sec == GLO_SEC_SONG; /* Master → Song, no lock */
         else
             ok &= !ui.lock;
     }
     ui_power_on();
     press(B_FX); frames(64); press(B_FX); frames(64); press(B_FX); frame();
     ok &= ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
-    press(B_GLO); frames(64); press(B_GLO); frames(64); press(B_GLO); frames(64); press(B_GLO); frame();
-    ok &= ui.lock == LAYER_REC && cur_page()->sec == GLO_SEC_REC;
-    bad += check("no layer lock: double-tap FX/SCL/EDIT; Punch-in / Record sticky on those sections", ok);
+    press(B_GLO); frames(64); press(B_GLO); frames(64); press(B_GLO); frame();
+    ok &= !ui.lock && cur_page()->sec == GLO_SEC_CLK;
+    bad += check("no layer lock: double-tap FX/SCL/EDIT; Punch-in sticky; GLO has no Record map", ok);
     return bad;
 }
 

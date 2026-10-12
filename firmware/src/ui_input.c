@@ -375,9 +375,9 @@ static void ui_leds(void)
         led_put(nl, panel.btn[B_FX], 1);                /* FX LATCH: lit while an effect or a macro is on */
     if (ui.layer)                                       /* the layer's button breathes while its map is up */
         led_put(nb, panel.btn[layer_btn()], 1);
-    led_put(nl, panel.btn[B_REC], ui.layer != LAYER_REC &&
-            (ft_on || (song.rec != 0u && (song.playing || ((fm1_ms / 125u) & 1u)))));   /* free take / armed: lit;
-                                                         * armed and stopped: blinks; its layer: it breathes */
+    led_put(nl, panel.btn[B_REC],
+            ft_on || (song.rec != 0u && (song.playing || ((fm1_ms / 125u) & 1u))));   /* free take / armed: lit;
+                                                         * armed and stopped: blinks */
     k = oct_leds();
     led_put(nl, panel.btn[B_OCTDN], (int)(k & 1u));
     led_put(nl, panel.btn[B_OCTUP], (int)((k >> 1) & 1u));
@@ -1739,12 +1739,10 @@ static void ui_input(void)
         ui_message("KEPT");
     }
     home = btn_hold(&ui.home_t0, B_HOME, now, 1);
-    rec = btn_hold(&ui.rec_t0, B_REC, now, 0);          /* (a tap; held, the REC layer: ui_layer.c) */
+    rec = btn_hold(&ui.rec_t0, B_REC, now, 0);          /* (a tap arms; hold does nothing) */
     save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);   /* held: UNDO (ui.c undo_swap) */
     layer_lock_input(pressed);                          /* (#83: a button closes a locked layer) */
     layer_arm(pressed, now);
-    if (((pressed >> panel.btn[B_REC]) & 1u) && ui.ly == LAYER_REC)
-        ui.rec_t0 |= 2u;                                /* (REC is its layer's button now: its tap is layer_tap's) */
     layer_oct_open(pressed);                            /* (OCT± with a SET layer's button down: it opens now) */
     oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open() || ui.ml.on);
     oct = layer_oct(pressed, oct);                      /* (a SET layer's OCT-: put back) */
@@ -1768,8 +1766,7 @@ static void ui_input(void)
         lkeys |= notes & ~fm1_in.notes;                 /* (tapped and let go already) */
     notes &= ~kb_layer;
     if (lay) {                                          /* a layer's button held: keys, knobs and buttons are combos */
-        combo |= (pressed & ~ly_bit(ui.ly) &            /* (REC + PLAY: PLAY plays and REC let go soon is still */
-                  ~(ui.ly == LAYER_REC ? 1u << panel.btn[B_PLAY] : 0u)) != 0u;   /* a tap, it arms: as before) */
+        combo |= (pressed & ~ly_bit(ui.ly) & ~(1u << panel.btn[B_PLAY]) & ~(1u << panel.btn[B_REC])) != 0u;
         notes = 0;                                      /* (the keys are the layer's, not the grid's or a step's) */
         if (pressed & (1u << panel.btn[B_SAVE]))       /* no UNDO, no page */
             ui.save_t0 |= 2u;
@@ -1794,7 +1791,7 @@ static void ui_input(void)
     }
     lytap = layer_gesture(now, combo);
     layer_show();
-    section_apply();                                    /* sticky Punch-in / SEQ tools / Record maps */
+    section_apply();                                    /* sticky Punch-in / SEQ tools maps */
     layer_keys(lkeys);                                  /* GLO: held white keys set perf_solo */
     if (!lay && layer_open()) {                         /* section map, no button held: knobs + FX assign */
         for (k = 0; k < 4u; k++)
@@ -1832,8 +1829,8 @@ static void ui_input(void)
             song.seq_mode = 0;
         }
     }
-    if (rec == BT_TAP && !ui.menu && !ui.confirm && !name_on())   /* REC pressed in another layer (REC alone: */
-        rec_tap();                                      /* its layer's tap); nothing in the menu, a dialog or NAME */
+    if (rec == BT_TAP && !ui.menu && !ui.confirm && !name_on())
+        rec_tap();                                      /* arms / disarms; nothing in the menu, a dialog or NAME */
     if (ui.menu) {                                      /* SAVE / REC taps do nothing here (HOME: above) */
         if (ui.save_t0)
             ui.save_t0 |= 2u;
@@ -1945,7 +1942,7 @@ static void ui_input(void)
                 transport_req = 1;
             break;
         case B_SEQ:
-        case B_REC:                                     /* tap: above; held, its layer (ui_layer.c) */
+        case B_REC:                                     /* tap: above */
         case B_SAVE:
         case B_FX:                                      /* the layers' buttons: ui_layer.c */
         case B_GLO:

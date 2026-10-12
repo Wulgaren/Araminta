@@ -377,7 +377,7 @@ static int32_t ink_w(const aafont_t *f, const char *s)
 }
 
 /* the quick layers (ui_layer.c): a button held, the keys and KNOB 1..4 are its shortcuts, its map over the page */
-enum { LAYER_NONE, LAYER_FX, LAYER_GLO, LAYER_SCL, LAYER_EDIT, LAYER_SEQ, LAYER_REC, LAYER_N };
+enum { LAYER_NONE, LAYER_FX, LAYER_GLO, LAYER_SCL, LAYER_EDIT, LAYER_SEQ, LAYER_N };
 static void draw_layer(void);
 static const char *layer_head(void);
 static int layer_locked(void);
@@ -430,7 +430,7 @@ static uint32_t page_first_sec(uint32_t fam, uint32_t sec)
 
 static uint32_t page_first(uint32_t fam) { return page_first_sec(fam, 0); }
 
-/* section sticky maps: Punch-in / SEQ tools / Record prefs (ui.lock; no hold or double-tap) */
+/* section sticky maps: Punch-in / SEQ tools (ui.lock; no hold or double-tap) */
 static uint32_t section_map_layer(void)
 {
     const page_t *pg;
@@ -441,8 +441,6 @@ static uint32_t section_map_layer(void)
         return LAYER_FX;
     if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_TOOL)
         return LAYER_SEQ;
-    if (pg->fam == FAM_GLO && pg->sec == GLO_SEC_REC)
-        return LAYER_REC;
     return 0;
 }
 
