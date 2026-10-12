@@ -733,8 +733,9 @@ static void note_name(char *b, uint32_t n)
     fmt_int(b + str_len(b), (int32_t)(n / 12u) - 1);
 }
 
-/* page button: cycle sections (wrap). One-section families: enter/resume only. SELECT walks pages inside the section.
- * Resume last page in the family when entering from elsewhere (SAVE always PRESETS). */
+/* page button: cycle sections (wrap). One-section families: enter/resume only. SELECT walks pages inside
+ * the section and stops at the ends. Resume last page in the family when entering from elsewhere
+ * (SAVE always PRESETS). */
 static int page_sec_any(uint32_t fam, uint32_t sec)
 {
     uint32_t i;
@@ -796,7 +797,7 @@ static void home_tap(void)
     }
 }
 
-/* SELECT: pages that share fam+sec (HOME button: Home ↔ Mixer). Tempo: OCT++SELECT */
+/* SELECT: pages that share fam+sec; stops at the first / last (no wrap). Tempo: OCT++SELECT */
 static void select_page_step(int32_t dir)
 {
     uint32_t fam, sec, i, idx[NPAGES], n = 0, cur = 0;
@@ -811,7 +812,15 @@ static void select_page_step(int32_t dir)
         }
     if (n == 0)
         return;
-    cur = (cur + (dir > 0 ? 1u : n - 1u)) % n;
+    if (dir > 0) {
+        if (cur + 1u >= n)
+            return;
+        cur++;
+    } else {
+        if (!cur)
+            return;
+        cur--;
+    }
     ui.page = (uint8_t)idx[cur];
     ui.fam_last[fam] = ui.page;
     page_entered();

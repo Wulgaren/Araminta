@@ -2649,7 +2649,7 @@ static int test_page_cycles(void)
               cur_page()->sec == SAVE_SEC_PRE;
     }
     turn(EN_SELECT, 1); frames(100);
-    ok &= str_eq(cur_page()->title, "PRESETS");
+    ok &= str_eq(cur_page()->title, "PHRASES");         /* stop at last Presets page */
     press(B_SAVE); frames(100);
     ok &= str_eq(cur_page()->title, "PROJECT") && cur_page()->sec == SAVE_SEC_PROJ;
     turn(EN_SELECT, 1); frames(100);
@@ -3488,8 +3488,8 @@ static int test_edit_cycle(void)
     ok &= cur_page()->sec == EDIT_SEC_KIT && str_eq(cur_page()->title, "SOUND");
     turn(EN_SELECT, 1); frame();
     ok &= str_eq(cur_page()->title, "SOUND 2");
-    turn(EN_SELECT, 1); frame();                      /* wraps within Kit: SOUND 2 → SOUND */
-    ok &= str_eq(cur_page()->title, "SOUND");
+    turn(EN_SELECT, 1); frame();                      /* Kit: stop at last page */
+    ok &= str_eq(cur_page()->title, "SOUND 2");
     press(B_EDIT); frame();                           /* Kit → Lanes */
     ok &= cur_page()->sec == EDIT_SEC_LAN && str_eq(cur_page()->title, "LANES");
     press(B_EDIT); frame();                           /* Lanes → Sound (Voice hidden on DRUM) */
@@ -6350,8 +6350,8 @@ static int test_knob_accel(void)
             fm1_ms -= 6u;
             frame();
         }
-        /* three fast detents: three page steps (not multiplied); ENV section has three pages */
-        ok &= ui.page == p0;
+        /* three fast detents: one page each, not multiplied; stop at last (ENV DEST) */
+        ok &= ui.page == p1 && str_eq(cur_page()->title, "ENV DEST");
         bad += check("#52 OCT+SELECT tempo accelerates; SELECT page walk is one page per detent", ok);
     }
     ui_prefs = 0;
@@ -6652,6 +6652,8 @@ static int test_select_pages(void)
     ok = !ui.home && cur_page()->fam == FAM_ENV && ui.page != env0 && song.g[G_BPM] == b0 &&
          str_eq(cur_page()->title, "ENV DEST");
     turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "ENV DEST");        /* stop at last page */
+    turn(EN_SELECT, -1);
     ok &= str_eq(cur_page()->title, "ENV") && ui.page == env0;
     press(B_ENV);
     ok &= str_eq(cur_page()->title, "ENV");             /* one-section: ENV button does not advance */
@@ -6665,7 +6667,9 @@ static int test_select_pages(void)
     turn(EN_SELECT, 1);
     ok &= str_eq(cur_page()->title, "LFO DEST") && cur_page()->sec == LFO_SEC_LFO && cur_page()->graph == GR_NONE;
     turn(EN_SELECT, 1);
-    ok &= str_eq(cur_page()->title, "LFO") && cur_page()->sec == LFO_SEC_LFO;
+    ok &= str_eq(cur_page()->title, "LFO DEST");        /* stop at last page */
+    turn(EN_SELECT, -1);
+    ok &= str_eq(cur_page()->title, "LFO 2");
     press(B_LFO);
     ok &= str_eq(cur_page()->title, "MOD") && cur_page()->sec == LFO_SEC_MOD && cur_page()->fam == FAM_LFO;
     turn(EN_SELECT, 1);
