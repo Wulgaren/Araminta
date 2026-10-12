@@ -201,9 +201,10 @@ static struct {
 } ui;
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER, CF_LOAD_PAT,
-       CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER };   /* ui.confirm: TOOLS' clears;
-                                   * SAVE over a used slot; a pattern over the user's steps;
-                                   * USER ERASE */
+       CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER,
+       CF_CLEAR_ALL_SEQ, CF_INIT_ALL_SOUND, CF_CLEAR_ALL_MOTION, CF_INIT_SESSION };
+                                   /* ui.confirm: CLEAR map; SAVE over a used slot; a pattern over the user's steps;
+                                    * USER ERASE */
 
 /* MENU > DISPLAY > SCREEN OFF (1.1.5): after a while with no input on the panel the screen goes dark (the backlight
  * stays on: lcd.c lcd_power)
@@ -377,7 +378,7 @@ static int32_t ink_w(const aafont_t *f, const char *s)
 }
 
 /* the quick layers (ui_layer.c): a button held, the keys and KNOB 1..4 are its shortcuts, its map over the page */
-enum { LAYER_NONE, LAYER_FX, LAYER_GLO, LAYER_SCL, LAYER_EDIT, LAYER_SEQ, LAYER_N };
+enum { LAYER_NONE, LAYER_FX, LAYER_GLO, LAYER_SCL, LAYER_EDIT, LAYER_SEQ, LAYER_CLR, LAYER_N };
 static void draw_layer(void);
 static const char *layer_head(void);
 static int layer_locked(void);
@@ -430,7 +431,7 @@ static uint32_t page_first_sec(uint32_t fam, uint32_t sec)
 
 static uint32_t page_first(uint32_t fam) { return page_first_sec(fam, 0); }
 
-/* section sticky maps: Punch-in / SEQ tools (ui.lock; no hold or double-tap) */
+/* section sticky maps: Punch-in / SEQ tools / SAVE Clear (ui.lock; no hold or double-tap) */
 static uint32_t section_map_layer(void)
 {
     const page_t *pg;
@@ -441,6 +442,8 @@ static uint32_t section_map_layer(void)
         return LAYER_FX;
     if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_TOOL)
         return LAYER_SEQ;
+    if (pg->fam == FAM_SAVE && pg->sec == SAVE_SEC_CLEAR)
+        return LAYER_CLR;
     return 0;
 }
 
@@ -859,7 +862,7 @@ static int seq_is_empty(const track_t *t)
     return 1;
 }
 
-/* One-step UNDO of a load. A sound load (a factory or user preset, an engine jump, TOOLS INIT, the
+/* One-step UNDO of a load. A sound load (a factory or user preset, an engine jump, CLEAR INIT, the
  * editor's PRESET / G_ENGSEL / UP_LOAD) changes the sound only; a pattern load (SAVE > PHRASES) changes
  * the steps and the pattern parameters only. Each first copies the track as it was; SAVE held 0.7 s
  * swaps back what the loads changed (held again: the loads again), so steps recorded after a sound
@@ -1271,7 +1274,7 @@ static void pat_load_ui(track_t *t, uint32_t n)
 }
 
 /* the track's settings, not the sound's: what a sound load (factory or user preset, an engine jump,
- * TOOLS INIT) leaves alone. The mix (LEVEL, PAN, MUTE: the TRACKS faders), the arpeggiator (ARP, ARP 2),
+ * CLEAR INIT) leaves alone. The mix (LEVEL, PAN, MUTE: the TRACKS faders), the arpeggiator (ARP, ARP 2),
  * the scale and key map (SCL), the pattern parameters (LEN, DIV, SWING, GATE; 1.2: QUANTIZE) and the SLICER
  * insert, which chops whatever the track plays in time with its sequencer */
 static int param_kept(uint32_t i)
@@ -1463,6 +1466,38 @@ static void track_defaults(track_t *t)
     t->scl_lock = SCL_LOCK_SCALE;
     t->scl_stash_ok = 0;
     track_defaults_steps(t);
+}
+
+/* RAM as a clean boot (RESTORE LAST off): default globals, sounds, empty (or factory) steps, song chain.
+ * Flash, user bank and autosave stay. SAVE > CLEAR's INIT key and main.c felucca_init. */
+static void session_defaults(void)
+{
+    uint32_t i;
+    chain_defaults(&chain_config);
+    for (i = 0; i < G_COUNT; i++)
+        song.g[i] = GP[i].def;
+    undo_depth++;
+    fm6_init();
+    for (i = 0; i < NTRK; i++) {
+        track_t *t = &trk[i];
+        track_defaults(t);
+        set_engine_of(t, TRK_DEF[i][0]);
+        apply_preset_to(t, TRK_DEF[i][1]);
+        t->engine = t->eng_req;
+        eng_mem_claim(t);
+        track_defaults_steps(t);
+        if (TRK_DEF[i][2])
+            load_pat16(t, PATTERNS[TRK_DEF[i][2] - 1u].note, PATTERNS[TRK_DEF[i][2] - 1u].flags);
+        pat_sig[i] = steps_sig(t);
+        pat_last[i] = TRK_DEF[i][2];
+        t->nheld = 0;
+        t->arp_phys = 0;
+    }
+    undo_depth--;
+    undo.trk = 0;
+    song.sel = 0;
+    ui.song_row = 0;
+    ui.force = 1;
 }
 
 /* switch engine (its defaults + first preset) and say so */
@@ -1731,10 +1766,10 @@ static uint32_t dx_sig(void);
 #include "midi_learn.c"                           /* MIDI LEARN (1.5): GLO + D4, a knob, a CC */
 
 /* ---------------------------------------------------- action pages --- */
-/* Pages whose purpose is an action (SAVE > USER, PHRASES, PROJECT, TOOLS, EDIT > SLICES, SEQ > AUTOMATION): the knobs pick,
+/* Pages whose purpose is an action (SAVE > USER, PHRASES, PROJECT, EDIT > SLICES, SEQ > AUTOMATION): the knobs pick,
  * OCT+ does it, OCT- cancels the picked action or goes HOME (ui_input.c). There OCT- / OCT+ do not
  * shift the octave */
-static int go_id(uint32_t id) { return id == G_LOAD || id == G_SAVE || id == G_CLRSEQ || id == G_INITSND; }
+static int go_id(uint32_t id) { return id == G_LOAD || id == G_SAVE; }
 
 static uint32_t act_cols(void)                   /* the columns that are actions, a bit each; 0 = not such a page */
 {
@@ -1743,7 +1778,6 @@ static uint32_t act_cols(void)                   /* the columns that are actions
     if (ui.home)
         return 0;
     if (pg->graph == GR_EVENTS) return 16u;     /* AUTOMATION: no knob is an action; OCT+ by the row (ev_oct) */
-    if (pg->graph == GR_TOOLS) return 15u;
     if (pg->graph == GR_SONG)
         return 1u;                               /* PLAY / STOP (also the PLAY button) */
     if (pg->graph == GR_PATS)
@@ -1770,17 +1804,13 @@ static const char *act_name(uint32_t c)          /* column c's action (the foote
     static const char *const UP_GO[3] = {"LOAD", "ERASE", "SAVE"};
     uint32_t id = cur_page()->id[c & 3u];
     if (cur_page()->graph == GR_EVENTS) return ev_act_name();
-    if (cur_page()->graph == GR_TOOLS) {
-        static const char *const actions[] = {"CLEAR", "INIT", "DELETE", "CLEAR"};
-        return actions[c & 3u];
-    }
     if (cur_page()->graph == GR_SONG)
         return song.playing || chain_busy() ? "STOP" : "PLAY";
     if (cur_page()->graph == GR_PATS)
         return "LOAD";
     if (cur_page()->graph == GR_USER)
         return UP_GO[(c + 2u) % 3u];
-    return id == G_CLRSEQ ? "CLEAR" : id == G_INITSND ? "INIT" : id == G_LOAD ? "LOAD" : "SAVE";
+    return id == G_LOAD ? "LOAD" : "SAVE";
 }
 
 /* the picked action would do something now (OCT+ breathes): another pattern, a used slot, stopped for
@@ -1791,9 +1821,6 @@ static int act_ready(void)
     if (!c--)
         return 0;
     if (cur_page()->graph == GR_EVENTS) return ev_act_ready();
-    if (cur_page()->graph == GR_TOOLS)                  /* one case per column: CLEAR PAT, INIT, DELETE ROW, CLEAR SONG */
-        return !chain_busy() && (c == 0u ? !seq_is_empty(TSEL) || motion_count(TSEL) : c == 1u ? 1 :
-                                 c == 2u ? ui.song_row < chain_config.count : chain_config.count != 0u);
     if (cur_page()->graph == GR_SONG)
         return song.playing || chain_busy() || chain_config.count;
     if (cur_page()->graph == GR_PATS)
@@ -1805,7 +1832,5 @@ static int act_ready(void)
         return project_used((uint32_t)song.g[G_SLOT] - 1u);
     if (id == G_SAVE)
         return !song.playing;
-    if (id == G_CLRSEQ)
-        return !seq_is_empty(TSEL);
     return 1;
 }

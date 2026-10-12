@@ -23,7 +23,7 @@
  *              tools (ui_tools.c: CLEAR, REVERSE, SHIFT < >, RANDOM, COOK; on a DRUM track BEAT, MUTE and the lane's
  *              CLEAR REVERSE FILL RANDOM), black keys 1..8 the lane (DRUM); KNOB 1..4 LEN DIV SWING GATE (PATTERN's).
  *              Each action one undo (SAVE held), OCT- the track as the layer opened (tl_open)
- * REC taps arm / disarm (ui_input.c); CLICK / COUNT-IN / LEVEL live in MENU > AUDIO; CLEAR sequence on SAVE > TOOLS
+ * REC taps arm / disarm (ui_input.c); CLICK / COUNT-IN / LEVEL live in MENU > AUDIO; CLEAR sequence on SAVE > CLEAR
  * and SEQ TOOLS.
  * The gesture: let go before HOLD (the menu: 0.3 .. 0.6 s) with nothing else touched: a tap, the button's page.
  * Held past HOLD alone: the map (a peek), letting go does nothing. A key, a knob or a button meanwhile: a combo,
@@ -57,8 +57,10 @@ static const layer_t LAYERS[LAYER_N] = {
     {B_SCL, LK_SET, FAM_SCL, "[SCL]", {{KC_KEYS, "ROOT"}, {KC_OCTDN, "UNDO"}, {KC_SCL, "DONE"}}},
     {B_EDIT, LK_SET, FAM_HOME, "[EDIT]", {{KC_KEYS, "ENGINE"}, {KC_OCTDN, "UNDO"}, {KC_EDIT, "DONE"}}},
     {B_SEQ, LK_SET, FAM_SEQ, "[SEQ]", {{KC_KEYS, "TOOLS"}, {KC_OCTDN, "UNDO"}, {KC_SEQ, "DONE"}}},
+    /* sticky-only (section_apply): not armed by SAVE; SAVE still opens the family via btn_hold */
+    {B_SAVE, LK_HOLD, FAM_SAVE, "[CLEAR]", {{KC_KEYS, "ACTION"}, {KC_SAVE, "DONE"}, {0, 0}}},
 };
-static const uint8_t LY_KC[LAYER_N] = {0, KC_FX, KC_GLO, KC_SCL, KC_EDIT, KC_SEQ};
+static const uint8_t LY_KC[LAYER_N] = {0, KC_FX, KC_GLO, KC_SCL, KC_EDIT, KC_SEQ, KC_SAVE};
 /* SCL's knobs: the key and its chord (cur_page() while the layer edits or draws them: page_over) */
 static const page_t LY_SCL = {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, 0, {P_ROOT, P_SCALE, P_CHRD, P_VOIC}};
 /* SEQ TOOLS' knobs: LEN DIV SWING GATE (also the PATTERN page's) */
@@ -107,7 +109,8 @@ static uint32_t layer_bits(void)
 {
     uint32_t l, m = 0;
     for (l = LAYER_FX; l < LAYER_N; l++)
-        m |= ly_bit(l);                                 /* (1.2: every layer on every page, SEQ's too) */
+        if (l != LAYER_CLR)                             /* CLEAR: sticky section only (SAVE is not a hold layer) */
+            m |= ly_bit(l);                             /* (1.2: every layer on every page, SEQ's too) */
     return m;
 }
 static uint32_t layer_btn(void) { return LAYERS[ui.layer % LAYER_N].btn; }
@@ -145,7 +148,7 @@ static void layer_arm(uint32_t pressed, uint32_t now)
     if (ui.ly)
         return;
     for (l = LAYER_FX; l < LAYER_N; l++)
-        if (pressed & ly_bit(l)) {
+        if (l != LAYER_CLR && (pressed & ly_bit(l))) {
             ui.ly = (uint8_t)l;
             ui.ly_t0 = (now & ~15u) | 1u | (layer_allowed() ? 0u : LY_DEAD);
             lys.dtap = lys.dt_l == l && fm1_ms - lys.dt_ms <= LY_DTAP_MS;   /* (#83: the second tap of a double tap?) */
@@ -529,6 +532,8 @@ static uint32_t eqa_sig(void)
     return h;
 }
 
+static void clear_key(uint32_t p);                       /* SAVE > CLEAR sticky map */
+
 /* a key pressed in layer l (k: 0 = F3 .. 26 = G5) */
 static void layer_key(uint32_t l, uint32_t k)
 {
@@ -566,6 +571,9 @@ static void layer_key(uint32_t l, uint32_t k)
             tools_key(p);
         else if (p < NLANE && drum_track(TSEL))
             ui.lane = (uint8_t)p;                       /* (black keys 1..8: the lane, as on the grid) */
+    } else if (l == LAYER_CLR) {
+        if (!key_black(k))
+            clear_key(p);
     }
 }
 /* GLO open: white keys F3..B3 solo that track while held (perform.c perf_solo). LEDs read lys.solo by key. */
@@ -635,7 +643,7 @@ static void layer_knob(uint32_t k, int32_t s)
             edit_load(NENGINES, s);
         else if (k == 2u)
             preset_mark(s > 0);
-    } else if (l) {                                     /* the page's knobs, wherever the page is */
+    } else if (l && l != LAYER_CLR) {                   /* the page's knobs, wherever the page is */
         uint8_t h = ui.home, pg = ui.page;
         ui.home = 0;
         ui.page = (uint8_t)page_first(LAYERS[l].fam);
@@ -988,6 +996,79 @@ static void layer_edit(void)                            /* the engines from F3, 
         engine_sound_row(104);
 }
 
+/* SAVE > CLEAR: white keys (Punch-in layout). Selected track / all tracks / song / session. Key opens confirm. */
+enum { CL_PAT = 0, CL_SND, CL_MOT, CL_ALLPAT = 4, CL_ALLSND, CL_ALLMOT, CL_SEC = 8, CL_SONG, CL_INIT = 12 };
+static const char *const CL_CELL[16] = {
+    "PAT", "SND", "MOT", "", "PATS", "SNDS", "MOTS", "", "SEC", "SONG", "", "", "INIT", "", "", ""
+};
+static uint32_t clear_kind(uint32_t p)
+{
+    switch (p) {
+    case CL_PAT: return CF_CLEAR_SEQ;
+    case CL_SND: return CF_INIT_SOUND;
+    case CL_MOT: return CF_CLEAR_MOTION;
+    case CL_ALLPAT: return CF_CLEAR_ALL_SEQ;
+    case CL_ALLSND: return CF_INIT_ALL_SOUND;
+    case CL_ALLMOT: return CF_CLEAR_ALL_MOTION;
+    case CL_SEC: return CF_DEL_ROW;
+    case CL_SONG: return CF_CLEAR_SONG;
+    case CL_INIT: return CF_INIT_SESSION;
+    default: return CF_NONE;
+    }
+}
+static int clear_ready(uint32_t kind)
+{
+    uint32_t i;
+    if (chain_busy())
+        return 0;
+    switch (kind) {
+    case CF_CLEAR_SEQ: return !seq_is_empty(TSEL) || motion_count(TSEL);
+    case CF_INIT_SOUND: return 1;
+    case CF_CLEAR_MOTION: return motion_count(TSEL) != 0u;
+    case CF_CLEAR_ALL_SEQ:
+        for (i = 0; i < NTRK; i++)
+            if (!seq_is_empty(&trk[i]) || motion_count(&trk[i]))
+                return 1;
+        return 0;
+    case CF_INIT_ALL_SOUND: return 1;
+    case CF_CLEAR_ALL_MOTION:
+        for (i = 0; i < NTRK; i++)
+            if (motion_count(&trk[i]))
+                return 1;
+        return 0;
+    case CF_DEL_ROW: return ui.song_row < chain_config.count;
+    case CF_CLEAR_SONG: return chain_config.count != 0u;
+    case CF_INIT_SESSION: return 1;
+    default: return 0;
+    }
+}
+static void clear_key(uint32_t p)
+{
+    uint32_t kind = clear_kind(p);
+    if (!kind)
+        return;
+    if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
+    if (!clear_ready(kind)) {
+        ui_message(kind == CF_DEL_ROW ? "NOTHING TO DEL" : "NOTHING TO CLEAR");
+        return;
+    }
+    confirm_open(kind, kind == CF_DEL_ROW ? ui.song_row : song.sel);
+}
+static void layer_clr(void)
+{
+    uint32_t p, kind, st;
+    char n[3] = {0, 0, 0};
+    for (p = 0; p < 16u; p++) {
+        if (!CL_CELL[p][0])
+            continue;
+        kind = clear_kind(p);
+        st = chain_busy() || !clear_ready(kind) ? LS_DIM : LS_OFF;
+        n[0] = W_NOTE[p];
+        lcell(LC_X(p % 4u), 4 + (LF_H + 4) * (int32_t)(p / 4u), LF_H, n, 0, 0, CL_CELL[p],
+              st | (p & 1u ? LS_ALT : 0u), 0);
+    }
+}
+
 /* SEQ TOOLS: the white keys' tools, 4 a row from F3 (the whole sequence; RANDOM COOK BEAT MUTE; the lane's), on a
  * DRUM track the lanes of black keys 1..8 under them (the selected one filled, a muted lane as a muted track). A
  * melodic track: the two rows of the sequence's tools only */
@@ -1060,6 +1141,11 @@ static void layer_cards(uint32_t l)
         }
     } else if (l == LAYER_EDIT) {
         engine_columns();
+    } else if (l == LAYER_CLR) {                        /* categories; ALGORITHM still picks the track */
+        draw_column(0, "TRACK", "TSEL", "", VAL(0u), -1, ICON_AUTO);
+        draw_column(1, "ALL", "TRKS", "", VAL(1u), -1, ICON_AUTO);
+        draw_column(2, "SONG", "ORDER", "", VAL(2u), -1, ICON_X_SONG);
+        draw_column(3, "BOOT", "INIT", "", VAL(3u), -1, ICON_X_WARN);
     } else {                                            /* the page's four (SCL: LY_SCL) */
         uint8_t h = ui.home, pg = ui.page;
         ui.home = 0;
@@ -1098,6 +1184,9 @@ static void draw_layer(void)
     else if (l == LAYER_SEQ)
         sig += (uint32_t)drum_track(TSEL) * 31u + ui.lane * 5u + (uint32_t)chain_busy() * 3u + (uint32_t)TSEL->p[P_E0] * 131u + song.sel * 977u +
                drum_mute[trk_index(TSEL) % NPART] * 2654435761u;
+    else if (l == LAYER_CLR)
+        sig += song.sel * 31u + (uint32_t)chain_busy() * 5u + chain_config.count * 7u + ui.song_row * 11u +
+               (uint32_t)(!seq_is_empty(TSEL)) * 13u + motion_count(TSEL) * 17u;
     else
         sig += snd_id() * 31u + (uint32_t)preset_favorite() * 5u + (uint32_t)chain_busy() * 3u + up_gen * 101u +
                eqa_sig() * 2654435761u;
@@ -1114,6 +1203,8 @@ static void draw_layer(void)
             layer_scl();
         else if (l == LAYER_SEQ)
             layer_seq();
+        else if (l == LAYER_CLR)
+            layer_clr();
         else
             layer_edit();
         cv_blit(0, Y_GRAPH);

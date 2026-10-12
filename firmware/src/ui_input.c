@@ -1312,16 +1312,6 @@ static void act_do(void)
         ev_oct();
         return;
     }
-    if (cur_page()->graph == GR_TOOLS) {
-        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        if (!act_ready()) {                               /* nothing there to clear or delete */
-            ui_message(c == 2u ? "NOTHING TO DEL" : "NOTHING TO CLEAR");
-            return;
-        }
-        confirm_open(c == 0u ? CF_CLEAR_SEQ : c == 1u ? CF_INIT_SOUND :
-                     c == 2u ? CF_DEL_ROW : CF_CLEAR_SONG, c == 2u ? ui.song_row : song.sel);
-        return;
-    }
     if (cur_page()->graph == GR_SONG) {
         if (song.playing || chain_busy() || seq_counting()) transport_req = 2;
         else chain_play_ui();
@@ -1365,14 +1355,7 @@ static void act_do(void)
         else
             name_open(NK_PROJ_SAVE, k);
         break;
-    case G_CLRSEQ:
-        if (chain_busy()) { ui_message("STOP TO EDIT"); break; }
-        confirm_open(CF_CLEAR_SEQ, song.sel);
-        break;
-    default:                                              /* G_INITSND */
-        set_engine(TSEL->eng_req);                        /* engine defaults + its first preset (the steps stay) */
-        ui_message("SOUND INIT");
-        ui.force = 1;
+    default:
         break;
     }
 }
@@ -1573,7 +1556,7 @@ static void presets_turn(int32_t s)
         edit_param(0, s);                                 /* KNOB 1's (STEP: STOP TO EDIT while a song plays) */
         ui.hot_col = 0;
         ui.hot_t = 40;
-    } else if (g != GR_TOOLS) {
+    } else if (g != GR_CLEAR) {
         preset_step(s);
     }
 }
@@ -1895,12 +1878,55 @@ static void ui_input(void)
                 if (!chain_busy()) { chain_defaults(&chain_config); ui.song_row = 0; ui_message("SONG CLEARED"); }
             } else if (kind == CF_INIT_SOUND) {         /* (DRUM: the factory DRUM-X kit too) */
                 if (!chain_busy()) {
-                    set_engine(TSEL->eng_req);
-                    if (drum_track(TSEL)) {
+                    track_t *t = &trk[ui.confirm_trk % NTRK];
+                    uint32_t was = song.sel;
+                    song.sel = (uint8_t)(ui.confirm_trk % NTRK);
+                    set_engine(t->eng_req);
+                    if (drum_track(t)) {
                         memcpy(dx_kit, DX_KIT_DEF, sizeof dx_kit);
                         memset(dx_mot, 0, sizeof dx_mot);
                     }
+                    song.sel = (uint8_t)was;
                     ui_message("SOUND INIT");
+                }
+            } else if (kind == CF_CLEAR_ALL_SEQ) {
+                uint32_t i;
+                if (!chain_busy()) {
+                    for (i = 0; i < NTRK; i++) {
+                        track_t *t = &trk[i];
+                        track_defaults_steps(t);
+                        t->nheld = 0;
+                        t->arp_phys = 0;
+                    }
+                    undo.trk = 0;
+                    ui_message("ALL PATTERNS CLEARED");
+                }
+            } else if (kind == CF_INIT_ALL_SOUND) {
+                uint32_t i, was = song.sel;
+                if (!chain_busy()) {
+                    for (i = 0; i < NTRK; i++) {
+                        song.sel = (uint8_t)i;
+                        set_engine(trk[i].eng_req);
+                        if (drum_track(&trk[i])) {
+                            memcpy(dx_kit, DX_KIT_DEF, sizeof dx_kit);
+                            memset(dx_mot, 0, sizeof dx_mot);
+                        }
+                    }
+                    song.sel = (uint8_t)was;
+                    ui_message("ALL SOUNDS INIT");
+                }
+            } else if (kind == CF_CLEAR_ALL_MOTION) {
+                uint32_t i;
+                if (!chain_busy()) {
+                    for (i = 0; i < NTRK; i++)
+                        motion_clear(&trk[i]);
+                    undo.trk = 0;
+                    ui_message("ALL AUTOMATION CLEARED");
+                }
+            } else if (kind == CF_INIT_SESSION) {
+                if (!chain_busy()) {
+                    session_defaults();
+                    ui_message("SESSION INIT");
                 }
             } else {
                 track_t *t = &trk[ui.confirm_trk % NTRK];
