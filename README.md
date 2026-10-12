@@ -4,16 +4,15 @@
 
 ![Araminta](docs/araminta.png?v=2)
 
-**TL;DR:** Araminta is a fork of [Felucca](https://github.com/hugelton/Felucca) for the M-VAVE FM-1
-On top of Felucca 1.5.1 you get DRUM-X, SAMPLE / GRAIN / NOISE back, JIANT punch-ins, Sloop free take, Melodee silent-track motion, a tighter VOICE page, an EFFECTS list (CHAIN / SEND + MIX), MIXER PLAY, and SEQ starting on PATTERN.
+**TL;DR:** Araminta is an opinionated fork of [Felucca](https://github.com/hugelton/Felucca) for the M-VAVE FM-1.
+Felucca 1.5.1 underneath; on top, JIANT's DRUM-X and punch-ins, Sloop free take, Melodee, MIXER solo, Felucca's
+0.9 flat look, and an EFFECTS list you chain or send.
 
 Plug the FM-1 into a computer by USB, open the [web installer](https://wulgaren.github.io/Araminta/) in Chrome or Edge, and press Install.
 Install at your own risk: M-VAVE's updater or the installer's **Return to official V15** takes you back.
 
-Coming from Felucca **1.5 / 1.5.1**? Read [Coming from 1.5](#coming-from-15): your projects load; after you
-save on Araminta, Felucca 1.5 cannot open those slots.
-Coming from 1.1.5.x? Read [Coming from 1.1.5](#coming-from-115) first: projects saved by 1.4 or later do not open on 1.1.5.x.
-Going back from 1.5.x to 1.4.1? Read [New in 1.5](#new-in-15) first: projects saved by 1.5 do not open on 1.2 to 1.4.1.
+Coming from Felucca **1.5 / 1.5.1**? Read [Coming from 1.5](#coming-from-felucca-15--151): your projects load; once
+you save on Araminta, Felucca 1.5 cannot open those slots.
 Want a look without hardware? [Try it in your browser](https://wulgaren.github.io/Araminta/webapp/try/).
 
 Multi-engine synthesizer firmware for the M-VAVE FM-1, based on Felucca.
@@ -28,16 +27,19 @@ Report what you find in [Araminta Issues](https://github.com/Wulgaren/Araminta/i
 
 ## What Araminta changes
 
-Araminta keeps Felucca 1.5.x as the base and layers a few ports and layout shifts on top.
-These are the differences that matter day to day:
+Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 
-- **Sloop free take.** Project empty, track armed, transport stopped: the first note starts a free take, so you can record without building a pattern first.
-- **JIANT MIDI punch-ins.** They live on FX under the Punch-in section (FX taps: EFFECTS → SLICER → PUNCH). SELECT walks pages inside a section; holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK. Reverb models add SHIMR / CLOUD.
+- **Sloop free take.** Project empty, track armed, transport stopped: the first note starts a free take. No pattern required first.
+- **JIANT MIDI punch-ins.** On FX under Punch-in (FX taps: EFFECTS → SLICER → PUNCH). SELECT walks pages inside a section; holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK. Reverb adds SHIMR / CLOUD.
 - **Melodee.** Silent tracks still run LFO, bend, the engine block and fades, so modulation keeps moving when a track is muted or resting.
 - **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project as FUN11 / `FUNB` (same size as FUN10; disk motion max 78). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
-- **SAMPLE, GRAIN and NOISE** are back (SLICE stays retired). CR78 is not in the ROM sample bank; upload a kit as a USR sample. In the web editor, the Drum kit grid checkbox tags the slot (`FSMP` header); SAMPLE on that USR set then shows the drum grid on SEQ instead of the piano roll, with zones mapped by hand.
+- **SLICE retired.** 
+- Upload a drum kit as a USR sample: in the web editor, Drum kit grid tags the slot (`FSMP` header); SAMPLE on that set uses the drum grid on SEQ, zones mapped by hand.
 - **VOICE** is one page: VCE, GLD, UNI DTN, SPRD. GLD is free milliseconds (no GLMOD on the page). PAN / PLAY live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
 - **EFFECTS.** One list for the insert chain: CHOOSE a stage, ORDER moves it, USE AS is CHAIN or SEND, MIX is dry/wet (or send amount). Delay and reverb sit in that list (bus chorus is gone). Dual reverb tanks keep SEND and CHAIN settings while REV is chained; the REVERB page is TYPE / SIZE / DAMP (no TANK column).
+- **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
+- **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.
+- **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN.
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
@@ -73,7 +75,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   USB audio or into a pattern
 - **Songs** (GLO > SONG): up to 16 sections, each naming the project slot (A-D) **every track** plays, or "-" for a
   track that rests there, with its repeats; drawn as a timeline with a lane per track. GLO also holds MASTER, CLOCK
-  and RECORD (HOME is only Home ↔ Mixer)
+  and RECORD (HOME is only Home ↔ Mixer). **MIXER** KNOB 4 is PLAY: ON, OFF or SOLO
 - **Chord keys:** one finger plays an in-key chord (triads or sevenths of the scale, or fixed chord
   shapes), with voicings; on the keys, MIDI in, recording and the arpeggiator
 - **Arpeggiator** with UP, DN, UPDN, RND, ORD (the notes in the order you pressed them), REPEAT and, for chords,
@@ -104,13 +106,12 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   from every earlier version load. The PRESETS knob changes the sound from every page that is not a list.
   Turn the FM-1 off and on and the music is as you left it (MENU > RESTORE LAST, an autosave of its own,
   written only when stopped and idle)
-- **Screen:** flat UI with Terminus and Fukiai icons, 10 palettes including
-  grayscale, black and white, high contrast and NIGHT; type in sizes by role (what you read in the larger size,
-  labels and hints in the smaller); MENU > LARGE for tall knob cards with larger labels and values; the menu in
-  five tabs. The header shows the track and the **project slot of its pattern** ("1 A", "1 A*" once edited), the
-  play state and the tempo. HOME shows the oscilloscope or, with MENU > HOME TRACKS, **the four tracks** with their
-  steps playing (LEVELS: with the four tracks' levels on the knobs); the screen can go dark when the panel is left
-  alone (MENU > SCREEN OFF); MENU > HELP shows a short hint when a page or a layer opens
+- **Screen:** Felucca 0.9's flat look (Terminus + Fukiai), 10 palettes including grayscale, black and white,
+  high contrast and NIGHT; type sized by role; MENU > LARGE for tall knob cards; the menu in five tabs. The header
+  shows the track and the **project slot of its pattern** ("1 A", "1 A*" once edited), play state and tempo. HOME
+  shows the oscilloscope or, with MENU > HOME TRACKS, **the four tracks** with their steps (LEVELS: track levels on
+  the knobs); MENU > SCREEN OFF can darken the panel when left alone; MENU > HELP shows a short hint when a page
+  or layer opens
 - **LEDs:** idle buttons and keys glow dim so the panel can be found in the dark (MENU > LEDS: OFF,
   DIM LO, DIM HI or INV, the official firmware's look); PLAY turns green while playing; the keys show
   the notes the sequencer and MIDI IN play, and on SEQ > STEP (stopped) the notes of the step under the cursor;
@@ -130,94 +131,11 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   (everything but the FM6 voice bank: keep its .syx file);
   return to the official firmware; Araminta itself running in the browser
 
-## New in 1.5.1
-
-- **SEQ > DETAIL** (Discussion #199): SEQ now goes STEP, **DETAIL**, AUTOMATION. DETAIL is the STEP page (the same
-  cursor, the same piano roll or drum grid) with KNOB 1-4 as the cursor step's **CHANCE**, **RATCH**, **NUDGE** and
-  **VEL**; PRESETS walks the steps, and on a DRUM track a white key picks its step. The four are drawn as lanes over
-  the steps; EDIT puts the step's four back. On STEP and the drum grid a step with a CHANCE, RATCH or NUDGE gets a
-  small mark. These are the values AUTOMATION lists (EDIT there still deletes a row): nothing new is stored.
-- **MIDI Program Change** (PR #179 by [renebohne](https://github.com/renebohne)): a Program Change on a track's
-  channel (routed as notes by MENU > MIDI > MIDI IN) loads that track's sound, numbered from 0 as PRESETS lists
-  the engine's sounds. DRUM: its kits (0-6: STD, 80, 10, 66, 55, 77, 78). FM6: 0-7 its presets (F1-F8), 8-39 the voice
-  bank's B1-B32 that hold a voice. A number past the last is ignored; the engine never changes. SAVE held undoes it.
-- **Dotted delay times:** the DLY page's TIME has **1/4D, 1/8D and 1/16D**, and the knob steps them by length
-  (… 1/2, 1/4D, 1/4, 1/8D, 1/8, 1/16D, 8T …). The delay holds 1.49 s, so 1/4D is held to that at 60 BPM and below.
-- **REV THROW and ECHO THROW** in the FX layer, on **D5** and **E5** by default: while held, every track's reverb
-  send (REV THROW) or delay send (ECHO THROW) is full, gliding in and out without a click; ECHO THROW also lifts the
-  delay's FDBK to 70 % if it is lower. Let go and the tails ring out. Nothing is saved or recorded. If you had set
-  D5 or E5 to NONE, they now hold the throws: set them to NONE again (hold the key in the FX layer, turn PRESETS).
-- Fixed: turning KNOB 4 (LIST) or KNOB 3 (FAV) on PRESETS made all the LEDs flash; the change is now saved once you
-  leave the page or after 10 s idle (#197). MOMENTARY (LFO held) now works on MIXER too: LEVEL, PAN, REV and MUTE go
-  back when LFO is let go (#195).
-- USB audio: the descriptors list the audio streaming interface before the MIDI one, for the USB audio driver of
-  older macOS, where the audio input did not appear (#67; expected to fix macOS 15 and earlier, to be confirmed).
-- 1.5.1 keeps 1.5's formats: projects, presets and settings move between 1.5 and 1.5.1 both ways (on 1.5 a
-  dotted delay TIME plays as 4BAR).
-
-## New in 1.5
-
-- **An INSERT effect on every track, with a dry / wet MIX** (Discussions #78, #177): FX > INSERT. KNOB 1 TYPE: SOFT,
-  HARD, FOLD, FUZZ (drives: DRIVE, TONE, LEVEL), CRUSH (BITS, RATE, LPF), PHASR, FLANG, CHOR (RATE, DEPTH, FDBK);
-  INSERT 2: MIX. It comes after DIST and before the SLICER, is part of the sound (user presets and projects keep it)
-  and works with automation and locks. TYPE OFF, the default, plays exactly as before.
-- **MIDI LEARN** (Discussion #170): on any page hold GLO and press D4 (MIDI LEARN ON), turn the FM-1 knob of a
-  parameter, then move a knob or fader on your controller: that CC now sets the parameter (the header says e.g.
-  "CC74 -> T1 CUT"). Turn the next knob and move the next control; OCT− clears the picked parameter's CC, OCT+ (or
-  GLO + D4 again) ends it. Up to 16 CCs, kept with the settings; **MENU > MIDI > LEARN CLEAR** (OCT+) clears them all.
-  Nothing changes for anyone who never learns.
-- **ANALOG's filter TYPE: LP, BP, HP** (Discussion #104): EDIT > FILTER after OSC (EDIT 1); no EDIT 2 / FLT on
-  ANALOG. KNOB 1 TYPE (LP the low-pass as before, BP band-pass, HP high-pass), KNOB 2-4 CUT, RES, KTR. Next page
-  FILTER DRIVE is DRV alone.
-- **ENV SYNC** (Discussion #175): ENV DEST's KNOB 4 (ESYNC) makes ENV's ATK, DEC and REL note values of the tempo
-  (1/64T to 4 bars, dotted and triplets) instead of milliseconds; they follow the tempo and an external clock.
-- **A note's length on the piano roll** (Discussions #178, #173): on SEQ > STEP, KNOB 3 on a note step is its **LEN**:
-  right ties the steps after it on, left takes them back, and left until 0 clears the note and moves the cursor
-  on one step (wrapping inside LEN). It stops before the next note ("NOTE AHEAD"). PRESETS moves that note in
-  time, cursor with it; on a rest it moves the cursor. On the drum grid, hold the step keys and turn PRESETS.
-- **Per-step velocity** (Discussion #173): SEQ > AUTOMATION, **+ ADD VEL** (OCT+: SHOW) lists every note step's
-  velocity, KNOB 4 sets it (1-127). Steps entered by hand play 96, steps recorded live keep how hard you played.
-- **HELP** (Discussion #156; MENU > SYSTEM > HELP, OFF by default): ON shows a short hint, key caps and a few words, in
-  the footer for about 2 s when a page opens, and under a quick layer's map while it shows.
-- **SAVE reaches PRESETS on its second tap** (#173): SAVE's pages go USER, PRESETS, PHRASES, PROJECT, TOOLS. The quick
-  save (SAVE, OCT+, OCT+) is unchanged.
-- **The FX layer's map alternates light and dark columns** (#173), so neighbouring effects are told apart at a glance.
-- **HOME LEVELS** (#134): MENU > DISPLAY > HOME has a third value, LEVELS: HOME shows the four tracks' rows and
-  KNOB 1-4 set the LEVEL of T1-T4.
-- **SAMPLE's PIANO is the full piano again** (five notes, as in 1.0 to 1.1.5): sounds and projects made on 1.4 or
-  1.4.1 that use PIANO play the full piano. PIANO HD in a user slot is no longer needed.
-- Fixed: the arpeggiator follows TRN, ROOT, SCALE and QNT on held and latched notes (#191).
-- **STYLE and ANIM removed** from the menu: the UI is always flat (no raised card fills, no rule dividers), and
-  values snap with no rolling digits, piano-roll glide, tab slide or LED sweep / idle animation. Knob gauges again
-  show a 1 px end line at the fill's tip (as in 0.9).
-- The INSERT, the filter TYPE and ENV SYNC are new sound parameters (OFF, LP, OFF by default): everything saved
-  before plays as before. But **a project saved by 1.5 does not open on 1.2 to 1.4.1**: its slot shows EMPTY there
-  (the data stays in flash until you save something into that slot there), and a backup that holds one is refused.
-  User presets saved by 1.5 load there without the new values. The full backup still does not include the FM6
-  voice bank.
-
-## New in 1.4.1
-
-- **Engine quick actions on the EDIT layer's black keys.** Hold EDIT: the black keys do what the selected track's
-  engine offers, and the map shows it. On a DRUM track, black keys 1-8 (F#3 … A#4) mute its lanes KICK, SNARE, CLAP,
-  HATCL, HATOP, TOM, RIM and BELL, one press to mute, the next to unmute. The LEDs show which lanes sound, the drum
-  grid dims a muted lane. A muted lane keeps playing unheard, so unmuting brings it back in time. The mutes are for
-  live play: never saved, not recorded, not undone; a sound or project load clears them, OCT− in the layer puts them
-  back as they were when it opened. Other engines have no quick actions yet.
-- **FM6 voice bank** (Discussion #168). The web editor's 6-OP FM tab sends a whole 32-voice SysEx bank (the standard
-  4096-byte file) to the FM-1 in one go, with its name. On an FM6 track SLOT (EDIT 2, KNOB 4) now goes F1-F8, OWN,
-  then **B1-B32**, the bank's voices; the algorithm chart shows the voice's name. Picking a voice copies it into the
-  track, as F1-F8 do, so a project or user preset saved with it keeps that sound after you send another bank (it
-  loads with SLOT OWN). With no bank sent, SLOT stops at OWN as before. The bank has its own flash sector and is only
-  replaced once a new one arrived whole; projects, presets, samples and settings are not touched. **The full backup
-  does not include the bank: keep the .syx file.**
-- 1.4.1 opens and saves everything 1.4 does, in the same formats.
-
-## Coming from 1.5
+## Coming from Felucca 1.5 / 1.5.1
 
 **Yes: you can install Araminta over Felucca 1.5 / 1.5.1 without wiping the FM-1.**
 Projects, user presets, settings, samples and the FM6 voice bank stay in flash; the installer only replaces the app
-(and its update loader). Host tests cover FUN10 load, 1.5 INSERT → chain migration, backups and persistence.
+(and its update loader).
 
 What loads:
 
@@ -233,7 +151,7 @@ What changes when you save:
 
 - **New project format is FUN11 (`FUNB`).** Same 3840-byte size as FUN10, different magic, plus the DRUM-X kit.
   **Felucca 1.5 / 1.5.1 refuses FUN11:** that slot shows EMPTY there until you save over it (flash data stays until then).
-  A backup that holds a FUN11 is refused on 1.5. So: upgrade is one-way for anything you re-save on Araminta.
+  A backup that holds a FUN11 is refused on 1.5. Upgrade is one-way for anything you re-save on Araminta.
 - **P_COUNT is 127** (1.5: 111). Editors that read `INFO` keep working; a 1.5-only editor will not know the new ids.
 
 Day-to-day differences after the flash (not data loss):
@@ -245,29 +163,6 @@ Day-to-day differences after the flash (not data loss):
 
 Rollback: installer's **Return to official V15**, or M-VAVE's updater. That is stock FM-1, not Felucca 1.5.
 To keep a Felucca 1.5-readable copy of a project, back it up (web editor) **before** you save it on Araminta.
-
-## Coming from 1.1.5
-
-1.4 is the first release since 1.1.5.1 and holds a lot (all of this holds for 1.4.1 and 1.5 too). Everything you saved loads and sounds as before, except
-where marked here:
-
-- **Projects are saved in a new format (FUN10).** 1.4 opens every older project, but **1.1.5.x and older cannot
-  open a project saved by 1.4 or later**: they show its slot as empty (the data stays in flash until you save something into
-  that slot there), and refuse a backup that holds one. User presets saved by 1.4 load on 1.1.5.x without the five
-  new values (LFO 2's SYNC, TRIG and POL, QUANTIZE, SPREAD).
-- **ARP ORD now plays the held notes in the order you pressed them** (up to 1.1.5 it played them as UP): a sound
-  or project using ORD sounds different when its notes were pressed in another order than low to high.
-- **SAMPLE's PIANO** was a lighter lo-fi piano in 1.4 and 1.4.1; since 1.5 it is the full piano of 1.1.5 again.
-- **The pages moved** (Discussion #153): see Controls below. In short: SEQ is PATTERN, STEP / DETAIL, AUTOMATION,
-  then SEQ TOOLS; **SEQ held is SEQ TOOLS on every page** (it no longer opens SONG); **GLO** goes MASTER, SONG,
-  CLOCK, RECORD; PHRASES is on SAVE; HOME is Home ↔ Mixer; TUNE is MENU > AUDIO, MIDI IN (ROUT) is MENU > MIDI,
-  and the USB state and CPU load are MENU > SYSTEM > INFO. REC held is the REC layer as before.
-- **SONG has a lane per track**: older songs load with all four tracks on each row's slot and play as before; its
-  knobs are KNOB 1 SECTION, 2 TRACK, 3 PAT, 4 REPS, and on SONG the white keys A3 B3 C4 D4 set the slot.
-- **A fresh start uses the HALL reverb** (up to 1.1.5: ROOM). Saved projects keep their reverb TYPE.
-- **BASS+ (MENU > SPEAKER EQ) is softer:** its added harmonics are at half the level, so a full-scale kick no longer
-  distorts (#180).
-- **The web editor** needs its update for the new features; use the one on the site.
 
 ## Controls
 
@@ -304,8 +199,8 @@ SELECT moves between the tabs and ALGORITHM through the rows of one (PRESETS is 
 ABOUT); any of KNOB 1-4, or OCT+ / OCT−, changes the value (OCT+ opens HARDWARE CALIBRATION, INFO and ABOUT); press
 HOME to close the menu. Every new
 setting defaults to the earlier behaviour. The web editor's Settings tab reads and changes them too, saved the same
-way as from the menu, in the same tabs. STYLE, ANIM and KNOB ACCEL are gone from the menu (always flat, no UI
-animations; knob acceleration always on for wide values).
+way as from the menu, in the same tabs. STYLE and ANIM are gone (0.9 flat look; see What Araminta changes).
+KNOB ACCEL is always on for wide values.
 
 - **COLOR:** the palette. GREY (grayscale, called MONO up to 1.0.1), GREEN, AMBER, ICE, VIOLET, ROSE,
   PAPER (light), HI-CON (high contrast), NIGHT (the 0.9 look: true black, green-tinted text) and MONO
@@ -408,10 +303,10 @@ stereo, SIZE the decay up to about 4.5 s, DAMP how fast the highs die), **ROOM**
 On the **SCL** page, set **QNT** to WHITE to play the selected scale using only the
 white keys (SNAP keeps every key and rounds it down to the scale). C4 plays **ROOT**; consecutive white keys play consecutive scale notes
 above and below it. Black keys are silent, including during live recording and
-step entry. **TRN** transposes the resulting notes; the octave buttons shift them
-by full octaves. Set QNT to OFF for the normal chromatic keyboard. QNT SEQ snaps the keys like SNAP and
-also maps the sequenced notes onto the current ROOT / SCALE as they play (the steps are not changed; drum
-kits are never quantized).
+step entry. **TRN** transposes the resulting notes (and sequence playback; steps stay as stored); the octave
+buttons shift them by full octaves. Set QNT to OFF for the normal chromatic keyboard. QNT SEQ snaps the keys like
+SNAP and also maps sequenced notes onto the current ROOT / SCALE as they play (steps unchanged; kits never
+quantized).
 
 Available scales: chromatic (CHR), major (MAJ), natural minor (MIN), Dorian (DOR),
 Mixolydian (MIX), major pentatonic (PEN), minor pentatonic (MPEN), harmonic minor
