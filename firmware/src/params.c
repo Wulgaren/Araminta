@@ -67,8 +67,10 @@ static const char *const N_IBITS[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9
                                       "16", 0};
 static const char *const N_IRATE[] = {"689", "919", "1.1k", "1.4k", "1.8k", "2.2k", "2.8k", "3.7k", "4.4k", "5.5k",
                                       "7.4k", "8.8k", "11k", "15k", "22k", "44k", 0};
-/* EFFECTS page: stage names in chain order (fx.c). K1 chooses, K2 moves */
-static const char *const N_ISTAGE[] = {"DIST", "FILTER", "CRUSH", "PHASR", "FLANG", "CHOR", "DLY", "REV"};
+/* EFFECTS page: stage names in chain order (fx.c). K1 chooses, K2 moves.
+ * Full names that fit the list's name column (ui_graph.c ior_row: sized to FLANGER/DISTORT).
+ * Stage page titles stay short (DIST PHASR FLANG CHOR DLY); REVERB's page already matches. */
+static const char *const N_ISTAGE[] = {"DISTORT", "FILTER", "CRUSH", "PHASER", "FLANGER", "CHORUS", "DELAY", "REVERB"};
 /* modulation matrix (mod.c): sources, destinations (E1..E8 = P_E0..P_E7: shown with the engine's labels).
  * Append-only (stored values keep their meaning): S&H SLEW and DEPTH (#132) came after EXPR and E8 */
 static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR", "S&H", "SLEW"};
