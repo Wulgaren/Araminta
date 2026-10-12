@@ -5,7 +5,7 @@
 ![Araminta](docs/araminta.png?v=2)
 
 **TL;DR:** Araminta is an opinionated fork of [Felucca](https://github.com/hugelton/Felucca) for the M-VAVE FM-1.
-Felucca 1.5.1 underneath; on top, JIANT's DRUM-X and punch-ins, Sloop free take, Melodee, MIXER solo, Felucca's
+Felucca 1.5.1 underneath; on top, JIANT's DRUM-X and punch-ins, Sloop free take, MIXER solo, Felucca's
 0.9 flat look, and an EFFECTS list you chain or send.
 
 Plug the FM-1 into a computer by USB, open the [web installer](https://wulgaren.github.io/Araminta/) in Chrome or Edge, and press Install.
