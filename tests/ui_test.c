@@ -1662,8 +1662,8 @@ static int test_menu_tabs(void)
         ok &= mr_y(n) - mr_gap() + MP_PAD <= MK_Y - 6;
     }
     ok &= MP_Y + MP_PAD + (int32_t)MTAB_ROWS * 19 - 1 + MP_PAD <= MK_Y - 6;   /* (room for MTAB_ROWS: 18 px rows 1 px apart) */
-    for (i = 0; i < MI_COUNT; i++)                      /* STYLE / ANIM: MTAB_COUNT (hidden); every other row a real tab */
-        ok &= (i == MI_STYLE || i == MI_ANIM) ? MI_TAB[i] == MTAB_COUNT : MI_TAB[i] < MTAB_COUNT;
+    for (i = 0; i < MI_COUNT; i++)                      /* STYLE / ANIM / ACCEL: MTAB_COUNT (hidden); every other row a real tab */
+        ok &= (i == MI_STYLE || i == MI_ANIM || i == MI_ACCEL) ? MI_TAB[i] == MTAB_COUNT : MI_TAB[i] < MTAB_COUNT;
     {   /* the tab bar: MT_GAP between every two tabs at every place of the slide, inside MT_X0..MT_X1 (S and LARGE) */
         int32_t a[MTAB_COUNT], x[MTAB_COUNT], w[MTAB_COUNT], p;
         for (n = 0; n < 2u; n++)
@@ -1676,13 +1676,13 @@ static int test_menu_tabs(void)
             }
     }
     ui_prefs = 0;
-    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (6 7 6 2 6 rows), 1..8 each in a run, fit the page; tab gaps "
-                 "constant (S, LARGE); STYLE/ANIM hidden",
+    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (6 6 6 2 6 rows), 1..8 each in a run, fit the page; tab gaps "
+                 "constant (S, LARGE); STYLE/ANIM/KNOB ACCEL hidden",
                  ok && MTAB_COUNT == 5u && str_eq(MTAB_NAME[0], "DISPLAY") && str_eq(MTAB_NAME[MTAB_MIDI], "MIDI") &&
-                 mtab_rows(MTAB_DISPLAY) == 6u && MI_TAB[MI_HOME] == MTAB_DISPLAY && mtab_rows(MTAB_CONTROL) == 7u && mtab_rows(MTAB_AUDIO) == 6u &&
+                 mtab_rows(MTAB_DISPLAY) == 6u && MI_TAB[MI_HOME] == MTAB_DISPLAY && mtab_rows(MTAB_CONTROL) == 6u && mtab_rows(MTAB_AUDIO) == 6u &&
                  mtab_rows(MTAB_MIDI) == 2u && MI_TAB[MI_LCLEAR] == MTAB_MIDI && mtab_rows(MTAB_SYSTEM) == 6u && MI_TAB[MI_TUNE] == MTAB_AUDIO &&   /* (1.5: LEARN CLEAR, HELP) */
                  MI_TAB[MI_MIDIIN] == MTAB_MIDI && MI_TAB[MI_INFO] == MTAB_SYSTEM && MI_INFO >= MI_VALUES &&
-                 MI_TAB[MI_STYLE] == MTAB_COUNT && MI_TAB[MI_ANIM] == MTAB_COUNT);
+                 MI_TAB[MI_STYLE] == MTAB_COUNT && MI_TAB[MI_ANIM] == MTAB_COUNT && MI_TAB[MI_ACCEL] == MTAB_COUNT);
 
     ui_power_on();
     hold(B_HOME);
@@ -1694,7 +1694,7 @@ static int test_menu_tabs(void)
     turn(EN_PRESET, -1); turn(EN_PRESET, -1); turn(EN_PRESET, -1); ok &= ui.menu_sel == MI_LEDS;
     bad += check("MENU: PRESETS moves within the tab and wraps there (COLOR .. HOME)", ok);
     turn(EN_ALGO, 1); ok = ui.menu_sel == MI_HOLD && menu_tab() == MTAB_CONTROL;
-    turn(EN_PRESET, 1); turn(EN_PRESET, 1); ok &= ui.menu_sel == MI_LATCH;
+    turn(EN_PRESET, 1); ok &= ui.menu_sel == MI_LATCH;   /* (KNOB ACCEL retired: HOLD -> FX LATCH) */
     turn(EN_ALGO, 1); ok &= ui.menu_sel == MI_LOWCUT && menu_tab() == MTAB_AUDIO;
     turn(EN_ALGO, 1); ok &= ui.menu_sel == MI_MIDIIN && menu_tab() == MTAB_MIDI;   /* (1.2) */
     turn(EN_PRESET, 1); ok &= ui.menu_sel == MI_LCLEAR;  /* (1.5: LEARN CLEAR, then round) */
@@ -1706,11 +1706,11 @@ static int test_menu_tabs(void)
     turn(EN_ALGO, -1); ok &= ui.menu_sel == MI_SERIAL && menu_tab() == MTAB_SYSTEM;   /* (wraps) */
     turn(EN_ALGO, 1); ok &= ui.menu_sel == MI_LEDS;
     bad += check("MENU: ALGORITHM steps between the tabs and wraps, each tab back at its last row", ok && ui.menu == 1);
-    turn(EN_ALGO, 1); turn(EN_PRESET, -1);            /* CONTROL: from FX LATCH up to KNOB ACCEL */
-    ok = ui.menu_sel == MI_ACCEL && !(ui_prefs & PREF_ACCEL);
+    turn(EN_ALGO, 1);                                   /* CONTROL: FX LATCH */
+    ok = ui.menu_sel == MI_LATCH && !(ui_prefs & PREF_LATCH);
     for (i = 0; i < 4u; i++) {                         /* any of KNOB 1..4: right ON, left OFF */
-        turn(EN_K1 + i, 1); ok &= (ui_prefs & PREF_ACCEL) != 0u;
-        turn(EN_K1 + i, -1); ok &= !(ui_prefs & PREF_ACCEL);
+        turn(EN_K1 + i, 1); ok &= (ui_prefs & PREF_LATCH) != 0u;
+        turn(EN_K1 + i, -1); ok &= !(ui_prefs & PREF_LATCH);
     }
     turn(EN_ALGO, 1); turn(EN_PRESET, 1);             /* AUDIO: USB LEVEL */
     ok &= ui.menu_sel == MI_USB;
@@ -1760,7 +1760,7 @@ static int test_menu_tabs(void)
     song.g[G_TUNE] = 0; song.g[G_ROUTE] = 0;
     bad += check("MENU: OCT+ / OCT- step every value row up / down (COLOR wraps, the rest stop), the menu stays", ok);
     {   /* the ON / OFF rows: up (a knob right, OCT+) is ON, the switch's knob to the right, whichever bit it is */
-        static const uint8_t SW[] = {MI_LARGE, MI_ACCEL, MI_LATCH, MI_BPMLOCK, MI_SERIAL, MI_RESTORE};
+        static const uint8_t SW[] = {MI_LARGE, MI_LATCH, MI_BPMLOCK, MI_SERIAL, MI_RESTORE};
         ok = 1;
         for (i = 0; i < NELEM(SW); i++) {
             ui.menu_sel = SW[i];
@@ -1769,14 +1769,17 @@ static int test_menu_tabs(void)
             turn(EN_K2, -1); ok &= str_eq(menu_vname(SW[i], menu_get(SW[i])), "OFF");
             turn(EN_K2, 1); ok &= str_eq(menu_vname(SW[i], menu_get(SW[i])), "ON");
         }
-        ui.menu_sel = MI_STYLE;                         /* STYLE / ANIM retired: knob / OCT leave them fixed */
+        ui.menu_sel = MI_STYLE;                         /* STYLE / ANIM / ACCEL retired: knob / OCT leave them fixed */
         press(B_OCTUP); ok &= ui_style == ST_FLAT && menu_get(MI_STYLE) == 0u;
         press(B_OCTDN); ok &= ui_style == ST_FLAT && menu_get(MI_STYLE) == 0u;
         ui.menu_sel = MI_ANIM;
         press(B_OCTUP); ok &= (ui_prefs & PREF_ANIM_OFF) && menu_get(MI_ANIM) == 1u;
         press(B_OCTDN); ok &= (ui_prefs & PREF_ANIM_OFF) && menu_get(MI_ANIM) == 1u;
+        ui.menu_sel = MI_ACCEL;
+        press(B_OCTUP); ok &= menu_get(MI_ACCEL) == 1u;
+        press(B_OCTDN); ok &= menu_get(MI_ACCEL) == 1u;
         ui_prefs = PREF_ANIM_OFF;
-        bad += check("MENU: on an ON / OFF row OCT+ / a knob right is ON, OCT- / left OFF (USB SERIAL, RESTORE LAST too); STYLE/ANIM fixed", ok);
+        bad += check("MENU: on an ON / OFF row OCT+ / a knob right is ON, OCT- / left OFF (USB SERIAL, RESTORE LAST too); STYLE/ANIM/ACCEL fixed", ok);
     }
     ui.menu_sel = MI_USB;
     press(B_HOME);
@@ -6211,9 +6214,9 @@ static int test_div_order(void)
     return bad;
 }
 
-/* #52 MENU > KNOB ACCEL (OFF by default, #23): ON, a sustained fast turn of a wide value goes x2..x4 (x8 over a range
- * above 64, #126); a slow turn, the start of a turn, a lone quick detent and a reversal are one step per detent; the
- * sign is always the detents' */
+/* #52 knob acceleration (always on; KNOB ACCEL menu row retired): a sustained fast turn of a wide value goes
+ * x2..x4 (x8 over a range above 64, #126); a slow turn, the start of a turn, a lone quick detent and a reversal are
+ * one step per detent; the sign is always the detents'. SELECT's page walk never uses accel; OCT+ tempo does. */
 static uint32_t acc_ms(uint32_t role, const uint16_t *gaps, uint32_t n, int32_t dir, int32_t range, int32_t *out)
 {
     uint32_t k, sum = 0;
@@ -6233,12 +6236,10 @@ static int test_knob_accel(void)
                           F20[8] = {500, 20, 20, 20, 20, 20, 20, 20}, F10[8] = {500, 10, 10, 10, 10, 10, 10, 10},
                           BOUNCE[8] = {500, 2, 300, 1, 300, 3, 300, 2};
     ui_power_on();
-    ok = acc_ms(EN_K1, F10, 8, 1, 127, o) == 8u;                  /* OFF (the default) */
-    ui_prefs = PREF_ACCEL;
-    memset(ui.enc_t, 0, sizeof ui.enc_t);
+    ok = menu_get(MI_ACCEL) == 1u && MI_TAB[MI_ACCEL] == MTAB_COUNT && str_eq(MI_NAME[MI_ACCEL], "KNOB ACCEL");
     ok &= acc_ms(EN_K1, SLOW, 8, 1, 127, o) == 8u && acc_ms(EN_K2, MID, 8, -1, 127, o) == 8u && o[7] == -1;
     ok &= acc_ms(EN_K3, BOUNCE, 8, 1, 127, o) == 8u;
-    bad += check("#52 KNOB ACCEL: OFF by default; ON, slow (>= 26 ms a detent) and lone quick detents: 1 step each", ok);
+    bad += check("#52 KNOB ACCEL always on (retired); slow (>= 26 ms a detent) and lone quick detents: 1 step each", ok);
     fm1_ms += 1000;
     acc_ms(EN_K1, F20, 8, 1, 64, o);
     ok = o[0] == 1 && o[1] == 1 && o[2] == 2 && o[7] == 2;          /* 20 ms a detent: x2 from the third */
@@ -6249,7 +6250,7 @@ static int test_knob_accel(void)
     fm1_ms += 10; ok &= accel(EN_K1, -1, 64) == -1;                /* (the turn starts again) */
     fm1_ms += 10; ok &= accel(EN_K1, -1, 64) == -4;
     fm1_ms += 30; ok &= accel(EN_K1, -3, 64) == -12;               /* 3 detents in one read (10 ms each): x4 */
-    bad += check("#52 KNOB ACCEL ON: 20 ms a detent x2, 15 ms x3, 10 ms x4 from a turn's third detent; reversal x1", ok);
+    bad += check("#52 KNOB ACCEL: 20 ms a detent x2, 15 ms x3, 10 ms x4 from a turn's third detent; reversal x1", ok);
     {   /* #126 a range above 64: 10 ms x5, 8 ms x6, 6 ms and less x8; a flick of 12 detents in ~120 ms, faster in
          * the middle, moves a -100..100 value ~50 (was 38); 12 even ones 52 */
         static const uint16_t FLICK[12] = {500, 16, 12, 10, 8, 7, 7, 8, 10, 12, 16, 20}, F6[8] = {500, 6, 6, 5, 4, 6, 6, 6};
@@ -6266,7 +6267,7 @@ static int test_knob_accel(void)
         fm1_ms += 1000;
         ok &= acc_ms(EN_K2, F6, 8, 1, 0, o) == 8u;                  /* (a list) */
         printf("  #126 a flick of 12 detents over %u ms on -100..100: %u steps\n", 126u, (unsigned)f);
-        bad += check("#126 KNOB ACCEL ON over a range above 64: 10 ms x5 .. 6 ms x8; a 12-detent flick ~120 ms: 47", ok);
+        bad += check("#126 KNOB ACCEL over a range above 64: 10 ms x5 .. 6 ms x8; a 12-detent flick ~120 ms: 47", ok);
     }
     fm1_ms += 1000; acc_ms(EN_K4, F10, 8, 1, 32, o);
     ok = o[7] == 1;                                                /* a narrow range (<= 32): never */
@@ -6283,40 +6284,35 @@ static int test_knob_accel(void)
         if (gap >= 40 * (s < 0 ? -s : s) && r != s) ok = 0;
     }
     bad += check("#52 KNOB ACCEL: never on narrow values or lists; 20000 random reads keep the sign, x1..x8, slow = x1", ok);
-    {   /* the real knob: LEVEL on MIXER, a detent a frame (16 ms): 1 + 1 + 3 x 6 = 20 for 8 detents; OFF: 8 */
+    {   /* the real knob: LEVEL on MIXER, a detent a frame (16 ms): 1 + 1 + 3 x 6 = 20 for 8 detents */
         int16_t v0;
-        ui_power_on(); ui_prefs = PREF_ACCEL;
+        ui_power_on();
         go_title("MIXER");
         TSEL->p[P_LEVEL] = 40; v0 = TSEL->p[P_LEVEL];
         fm1_ms += 1000;
         for (k = 0; k < 8u; k++) turn(EN_K1, 1);
         ok = TSEL->p[P_LEVEL] - v0 == 20;
-        ui_prefs = 0; TSEL->p[P_LEVEL] = 40; fm1_ms += 1000;
-        for (k = 0; k < 8u; k++) turn(EN_K1, 1);
-        ok &= TSEL->p[P_LEVEL] == 48;
-        bad += check("#52 KNOB ACCEL on MIXER LEVEL: a fast turn of 8 detents moves 20 (OFF: 8)", ok);
+        bad += check("#52 KNOB ACCEL on MIXER LEVEL: a fast turn of 8 detents moves 20", ok);
     }
-    {   /* #126 Punch-in sticky FX map KNOB 1 (FILTER -100..100): flick of 12 detents; OFF: 12; slow: 12;
+    {   /* #126 Punch-in sticky FX map KNOB 1 (FILTER -100..100): flick of 12 detents; slow: 12;
          * 6 right then 6 left: 0. (GLO hold map removed: MIXER LEVEL covers accel on a track level above.) */
-        static const uint32_t GAP[4] = {10u, 10u, 60u, 10u};
-        static const uint32_t ON[4] = {1u, 0u, 1u, 1u};
-        int32_t got[4];
+        static const uint32_t GAP[3] = {10u, 60u, 10u};
+        int32_t got[3];
         uint32_t c;
-        for (c = 0; c < 4u; c++) {
+        for (c = 0; c < 3u; c++) {
             ui_power_on();
-            ui_prefs = ON[c] ? PREF_ACCEL : 0u;
             go_title("PUNCH"); frames(64);
             for (k = 0; k < 12u; k++) {
-                host_enc[panel.enc[EN_K1]] += (c == 3u && k >= 6u ? -1 : 1) * panel.dir[EN_K1];
+                host_enc[panel.enc[EN_K1]] += (c == 2u && k >= 6u ? -1 : 1) * panel.dir[EN_K1];
                 fm1_ms += GAP[c] - 16u;                         /* (frame() adds 16) */
                 frame();
             }
             got[c] = perf_k[0];
         }
-        printf("  #126 FX FILTER, 12 detents: ON 10 ms %d, OFF %d, ON 60 ms %d, ON 6 right 6 left %d\n", (int)got[0],
-               (int)got[1], (int)got[2], (int)got[3]);
-        ok = got[0] >= 35 && got[0] <= 60 && got[1] == 12 && got[2] == 12 && got[3] == 0;
-        ui_power_on(); ui_prefs = PREF_ACCEL;
+        printf("  #126 FX FILTER, 12 detents: 10 ms %d, 60 ms %d, 6 right 6 left %d\n", (int)got[0],
+               (int)got[1], (int)got[2]);
+        ok = got[0] >= 35 && got[0] <= 60 && got[1] == 12 && got[2] == 0;
+        ui_power_on();
         go_title("MIXER"); frames(64);
         trk[song.sel].p[P_LEVEL] = 0;
         for (k = 0; k < 12u; k++) {
@@ -6325,19 +6321,38 @@ static int test_knob_accel(void)
             frame();
         }
         ok &= trk[song.sel].p[P_LEVEL] > 12 + 12;
-        bad += check("#126 KNOB ACCEL on the FX layer (FILTER: a 12-detent flick >= 35, OFF 12, slow 12) and GLO LEVEL", ok);
+        bad += check("#126 KNOB ACCEL on the FX layer (FILTER: a 12-detent flick >= 35, slow 12) and LEVEL", ok);
     }
-    {   /* saved with the settings; settings from before it: OFF (ANIM always OFF too) */
-        persist_t p;
-        ui_prefs = PREF_ACCEL;
-        settings_export(&p);
-        ui_prefs = 0;
-        ok = settings_import(&p, (int)sizeof p) == 1 &&
-             ui_prefs == (uint8_t)(PREF_ACCEL | PREF_ANIM_OFF);
-        memset(&p.favorites, 0, sizeof p.favorites);
-        p.magic = 0x50455233u;
-        ok &= settings_import(&p, (int)(sizeof p - sizeof p.favorites)) == 2 && ui_prefs == PREF_ANIM_OFF;
-        bad += check("#52 KNOB ACCEL saved with the settings; settings from before it: OFF", ok);
+    {   /* OCT+ + SELECT tempo accelerates; SELECT page walk does not (one page per detent) */
+        int16_t b0;
+        uint32_t p0, p1;
+        ui_power_on();
+        go_title("ENV"); frame();
+        p0 = ui.page;
+        b0 = song.g[G_BPM];
+        btn_down(B_OCTUP); frame();
+        fm1_ms += 1000;
+        for (k = 0; k < 8u; k++) {
+            host_enc[panel.enc[EN_SELECT]] += panel.dir[EN_SELECT];
+            fm1_ms -= 6u;
+            frame();
+        }
+        ok = song.g[G_BPM] - b0 > 8 && ui.page == p0;
+        btn_up(B_OCTUP); frame();
+        go_title("ENV"); frame();
+        p0 = ui.page;
+        turn(EN_SELECT, 1); frame();
+        p1 = ui.page;
+        ok &= p1 != p0 && cur_page()->fam == FAM_ENV;
+        fm1_ms += 1000;
+        for (k = 0; k < 3u; k++) {
+            host_enc[panel.enc[EN_SELECT]] += panel.dir[EN_SELECT];
+            fm1_ms -= 6u;
+            frame();
+        }
+        /* three fast detents: three page steps (not multiplied); ENV section has three pages */
+        ok &= ui.page == p0;
+        bad += check("#52 OCT+SELECT tempo accelerates; SELECT page walk is one page per detent", ok);
     }
     ui_prefs = 0;
     return bad;
