@@ -1019,6 +1019,37 @@ static void sd_reset(void)
     ui_message("STEP RESET");
 }
 
+/* KNOB 3 LEN, and PRESETS while a step-rec key is held on the roll: grow / shrink the note at the cursor
+ * (ui.c note_set_len). Right writes TIEs, left takes them back, 0 clears (NOTE CLEARED). One undo per turn.
+ * Returns 1 when the note was cleared (KNOB 3 then advances the cursor; entry PRESETS leaves it). */
+static int note_len_turn(int32_t steps)
+{
+    track_t *t = TSEL;
+    uint32_t was = note_len(t, ui.cursor), n, k, span, slen;
+    int32_t want = clamp((int32_t)was + steps, 0, (int32_t)NSTEP);
+    step_undo_take(t, 0x2000u);                           /* (a knob turned on: one undo, SAVE held) */
+    n = note_set_len(t, ui.cursor, (uint32_t)want);
+    if (!n) {
+        /* a slow turn already shortened this note: the copy still has the TIEs it started with */
+        slen = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
+        span = 1;
+        while (ui.cursor + span < slen && undo.step[ui.cursor + span].time == ST_TIE)
+            span++;
+        if (span < was)
+            span = was;
+        for (k = 0; k < span && ui.cursor + k < NSTEP; k++)
+            (void)motion_clear_locks(t, ui.cursor + k);
+        motion_undo_done(t);
+        ui_message("NOTE CLEARED");                       /* KNOB 3 is TIME now (the cards follow the step) */
+        ui.force = 1;
+        return 1;
+    }
+    motion_undo_done(t);
+    if (steps > 0 && n == was)
+        ui_message(ui.cursor + n < (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP) ? "NOTE AHEAD" : "END OF PATTERN");
+    return 0;
+}
+
 static void step_edit(uint32_t slot, int32_t steps)
 {
     step_t *st = &TSEL->step[ui.cursor];
@@ -1047,31 +1078,10 @@ static void step_edit(uint32_t slot, int32_t steps)
         st->time = ST_NOTE;
         last_note = st->note[0];
         break;
-    case 2:                                               /* TIME; a note's LEN (1.5: ui.c note_set_len). 0 clears it */
+    case 2:                                               /* TIME; a note's LEN (1.5: note_len_turn). 0 clears it */
         if (step_on(st)) {
-            uint32_t was = note_len(TSEL, ui.cursor), n, k, span, slen;
-            int32_t want = clamp((int32_t)was + steps, 0, (int32_t)NSTEP);
-            step_undo_take(TSEL, 0x2000u);                /* (a knob turned on: one undo, SAVE held) */
-            n = note_set_len(TSEL, ui.cursor, (uint32_t)want);
-            if (!n) {
-                /* a slow turn already shortened this note: the copy still has the TIEs it started with */
-                slen = (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP);
-                span = 1;
-                while (ui.cursor + span < slen && undo.step[ui.cursor + span].time == ST_TIE)
-                    span++;
-                if (span < was)
-                    span = was;
-                for (k = 0; k < span && ui.cursor + k < NSTEP; k++)
-                    (void)motion_clear_locks(TSEL, ui.cursor + k);
-                motion_undo_done(TSEL);
-                ui_message("NOTE CLEARED");               /* on to the next step (wraps inside LEN, as step entry) */
-                cursor_set(ui.cursor + 1);
-                ui.force = 1;
-                break;
-            }
-            motion_undo_done(TSEL);
-            if (steps > 0 && n == was)
-                ui_message(ui.cursor + n < (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP) ? "NOTE AHEAD" : "END OF PATTERN");
+            if (note_len_turn(steps))
+                cursor_set(ui.cursor + 1);                 /* on to the next step (wraps inside LEN, as step entry) */
             break;
         }
         st->time = (uint8_t)clamp((int32_t)st->time + (steps > 0 ? 1 : -1), ST_NOTE, ST_REST);
@@ -1415,7 +1425,8 @@ static void step_toggle(const track_t *t, step_t *st, const uint8_t *ch, uint32_
 
 /* SEQ step entry = step recording (1.2, Discussion #133: only with the track armed and the transport stopped), acid
  * style: the keys pressed together (POLY: up to 4 notes, MONO: the last one) become the cursor step; releasing all
- * keys moves on one step (wrapping inside LEN). With CHRD on a key writes what it sounds, as live recording does:
+ * keys moves on past that note (its TIEs too, wrapping inside LEN). While held, PRESETS sets its LEN (note_len_turn;
+ * without a hold PRESETS still moves the note). With CHRD on a key writes what it sounds, as live recording does:
  * POLY its chord, MONO the chord's root. MENU > CONTROL > CHORD ENTRY ADD (1.2, #155): each key adds its notes to
  * the cursor step or takes them out (step_toggle), one after another with one hand, and letting go moves nothing: the
  * cursor moves by KNOB 1 (STEP) or, on a rest, PRESETS (EDIT opens the sound; LEN 0 clears the step) */
@@ -1460,8 +1471,10 @@ static void seq_entry(uint32_t pressed)
     if (ui.entry_open && !(fm1_in.notes & ~kb_layer)) {
         if (add)
             ui.entry_open = 0;                          /* (ADD: the cursor stays) */
-        else
-            cursor_set(ui.cursor + 1);
+        else {
+            uint32_t n = step_on(st) ? note_len(t, ui.cursor) : 1u;
+            cursor_set(ui.cursor + (int32_t)(n ? n : 1u));
+        }
     }
 }
 
@@ -1508,7 +1521,8 @@ static void sound_dice(void)
 
 /* Discussions #92 / #94: the PRESETS knob by page (the menu, a dialog, NAME and the layers: ui_input before this).
  *   the SEQ pages (the DRUM grid: a held step key moves those steps, otherwise the hit under the cursor, a rest
- *     the cursor; the piano roll: the note under the cursor, a rest the cursor; AUTOMATION: the row). USER,
+ *     the cursor; the piano roll: the note under the cursor, a rest the cursor; step recording with a key held:
+ *     LEN of that note instead; AUTOMATION: the row). USER,
  *     PHRASES, PROJECT, SONG: as their KNOB 1 (a SEQ sound load would drop the track's motion: never).
  *     1.2: with PATTERN, CHANCE and the old AUTOMATION gone, KNOB 1 is the cursor or the row on every SEQ page, so
  *     the PRESETS knob is no longer a second cursor where KNOB 1 was something else; TOOLS and SLICES: nothing
@@ -1532,6 +1546,10 @@ static void presets_turn(int32_t s)
         return;
     }
     if (!ui.home && g == GR_ROLL) {                       /* roll, and the grid with nothing held: the note there */
+        if (ui.entry_open && !grid_on() && (fm1_in.notes & ~kb_layer)) {
+            note_len_turn(s);                             /* step recording: PRESETS elongates while held */
+            return;
+        }
         note_shift_cursor(s);
         return;
     }

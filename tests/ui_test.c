@@ -3942,6 +3942,34 @@ static int test_step_rec(void)
     frame();
     key_down(9); frame(); key_up(9); frame();
     bad += check("#133 the last step of LEN 8: written, the cursor wraps to step 1", t->step[7].n == 1u && ui.cursor == 0u);
+    /* step recording: PRESETS while a key is held sets LEN (TIEs); release moves past the whole note */
+    t->p[P_SLEN] = 16;
+    t->p[P_VOICE] = V_POLY;
+    cursor_set(8);
+    step_clear(&t->step[8]);
+    step_clear(&t->step[9]);
+    step_clear(&t->step[10]);
+    step_clear(&t->step[11]);
+    frame();
+    key_down(7); frame();
+    ok = ui.entry_open && t->step[8].n == 1u && t->step[8].time == ST_NOTE && ui.cursor == 8u;
+    turn(EN_PRESET, 2);
+    ok &= t->step[8].time == ST_NOTE && t->step[9].time == ST_TIE && t->step[10].time == ST_TIE &&
+          !t->step[9].n && !t->step[10].n && note_len(t, 8) == 3u && ui.cursor == 8u && ui.entry_open;
+    turn(EN_PRESET, -1);
+    ok &= note_len(t, 8) == 2u && t->step[10].time == ST_REST && ui.cursor == 8u && ui.entry_open;
+    key_up(7); frame();
+    ok &= !ui.entry_open && ui.cursor == 10u && t->step[8].n == 1u && t->step[9].time == ST_TIE;
+    bad += check("#133 armed, stopped: PRESETS while held sets LEN; let go moves past the note", ok);
+    key_down(7); frame();
+    turn(EN_PRESET, 1);                                               /* LEN 2 at step 10 */
+    key_up(7); frame();
+    cursor_set(10);                                                   /* back on that note, nothing held */
+    frame();
+    turn(EN_PRESET, 1);                                               /* not held: PRESETS still moves the note */
+    ok = t->step[11].n == 1u && t->step[11].time == ST_NOTE && t->step[12].time == ST_TIE &&
+         t->step[10].time == ST_REST && !t->step[10].n && ui.cursor == 11u;
+    bad += check("#133 PRESETS with no key held still moves the note (and its TIEs)", ok);
     cursor_set(4);                                                    /* (an empty step, away from the play head) */
     step_clear(&t->step[4]);
     frame();
