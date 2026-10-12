@@ -123,7 +123,7 @@ static uint8_t sync_reload;                  /* engine / preset / project / user
 #define Y_FOOT 202
 #define H_FOOT 38
 /* MENU > LARGE (large_kind below): on the value pages the cards are tall (28..132) and the panel a strip
- * (136..198); elsewhere (lists, rolls, layers) the layout above, its card labels in M */
+ * (136..198); elsewhere (lists, rolls, layers) the compact layout (card labels in M when they fit) */
 #define LG_CARD_H 104
 #define LG_Y_GRAPH 136
 #define LG_H_GRAPH 62
@@ -341,7 +341,7 @@ static const page_t *cur_page(void) { return page_over ? page_over : &PAGES[ui.p
  *            page's title and number in L on the others (their charts cannot be read that small);
  *   LK_LABEL the list and graph pages (PRESETS, USER, PROJECT, PHRASES, SONG, the piano roll and the drum grid,
  *            AUTOMATION, SLICES), HOME with MENU > HOME TRACKS (1.3) and the quick layers' maps: the layout as it
- *            is, the card labels in M;
+ *            is (card labels are M on every compact card when they fit; draw_column);
  *   LK_OFF   LARGE off; the menu (its own LARGE: ui_menu.c), the dialogs and NAME keep their own layout in every case. */
 enum { LK_OFF, LK_LABEL, LK_TALL };
 static uint32_t large_kind(void)

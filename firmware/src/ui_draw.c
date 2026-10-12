@@ -4,11 +4,11 @@
  * and the frame; the panel between the cards and the footer is ui_graph.c. The layout:
  * flat SURF cards and panels on BG,
  * rounded corners, no rules (MENU > STYLE LINE: no SURF, 1 px rules between the areas instead: draw_gaps), colours from the theme tokens only (gfx.c T_*).
- * Type, by role: M (15 px) what is read: values, titles, messages, every list's rows, the
- * selected item's detail; S (12 px) what describes it: labels, units, key hints (a keycap's word), the footer, map
+ * Type, by role: M (16 px) what is read: values, knob labels, titles, messages, every list's rows, the
+ * selected item's detail; S (12 px) what describes it: units, key hints (a keycap's word), the footer, map
  * and layer cells, graph annotations, document text; L (28 px) the one big readout of a screen. Where M cannot fit
- * (a card value with its unit wider than the card, a dialog question or a header message too long) it is set in S;
- * free text (names) is ellipsised at its size. */
+ * (a card value with its unit wider than the card, a long knob label, a dialog question or a header message too long)
+ * it is set in S; free text (names) is ellipsised at its size. */
 static void draw_menu(void);
 static int name_on(void);                              /* NAME (ui_name.c) */
 static uint64_t lock_held(void);                       /* parameter locks: the steps held on STEP (ui_input.c) */
@@ -639,9 +639,9 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     }
     if (label[0] || val[0]) {
         if (!strip && label[0]) {
-            /* MENU > LARGE on a list / graph page or a layer (LK_LABEL): the label in M where it fits the card (its
-             * capitals rows 5..15, the icon on them when it fits too), else in S as without LARGE */
-            const aafont_t *lf = kind == LK_LABEL && 5 + text_w(&AF_M, label) <= COL_W - 2 ? &AF_M : &AF_S;
+            /* Knob labels in M where they fit the card (capitals rows 5..15, icon on them when it fits too);
+             * else S. MENU > LARGE / LK_LABEL used the same rule; after Terminus S=12, every compact card does. */
+            const aafont_t *lf = 5 + text_w(&AF_M, label) <= COL_W - 2 ? &AF_M : &AF_S;
             int32_t lw = text_w(lf, label), ix = 5, ly = lf == &AF_M ? 1 : 3;
             int32_t cy = ly + (lf == &AF_M ? AF_M_CAP_Y : AF_S_CAP_Y), chh = lf == &AF_M ? AF_M_CAP_H : AF_S_CAP_H;
             uint32_t ic = mot ? ICON_X_MOTION : icon;
