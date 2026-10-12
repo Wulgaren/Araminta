@@ -604,7 +604,7 @@ static void rec_release(track_t *t, uint32_t note)
 /* FREE TAKE (from SLOOP): empty project, REC armed while stopped, no count-in. Play with no tempo;
  * REC on the next downbeat closes the loop (1 / 2 / 4 bars, tempo nearest the current BPM; within 3 %
  * the tempo is kept), notes quantised to 1/16 with lengths; a note started while an earlier one is still
- * held sets SF_SLIDE on the previous NOTE step (acid legato); PLAY drops the take. */
+ * held sets SF_SLIDE on the previous NOTE step and TIEs the gap (acid legato); PLAY drops the take. */
 #define FT_MAX 192u
 #define FT_BLOCKS (24u * FS / CTL)            /* 24 s: 4 bars at 40 BPM, the longest loop */
 #define FT_OPEN 0xFFFFu                       /* the key is still down */
@@ -779,9 +779,11 @@ static void ft_close(void)
                 s->time = ST_TIE;
             }
         }
-        /* hold A, press B / C / …: SF_SLIDE on the previous NOTE step (skip TIE / rest; no wrap) */
+        /* hold A, press B / C / …: SF_SLIDE on the previous NOTE step, TIEs through any gap to it
+         * (a REST would seq_release and drop the voice), and SF_SLIDE on the last TIE so hold/glide
+         * carry into the destination (a TIE clears seq_hold when the next step is a NOTE). */
         for (i = 1; i < ft_n; i++) {
-            uint32_t idx = (ft_ev[i].t * len * 2u + T) / (2u * T) % len, j, held = 0;
+            uint32_t idx = (ft_ev[i].t * len * 2u + T) / (2u * T) % len, j, held = 0, prev;
             for (j = 0; j < i; j++) {
                 uint32_t end = ft_ev[j].d == FT_OPEN || ft_ev[j].t + ft_ev[j].d > T
                                    ? T : (uint32_t)ft_ev[j].t + ft_ev[j].d;
@@ -792,13 +794,28 @@ static void ft_close(void)
             }
             if (!held)
                 continue;
+            prev = idx;
             for (k = idx; k > 0; ) {                /* earlier steps only (same-step chord: no slide) */
                 step_t *s = &t->step[--k];
                 if (s->time == ST_NOTE && s->n) {
                     s->flags |= SF_SLIDE;
+                    prev = k;
                     break;
                 }
             }
+            if (prev >= idx)
+                continue;
+            for (k = prev + 1u; k < idx; k++) {
+                step_t *s = &t->step[k];
+                if (s->time == ST_NOTE && s->n)
+                    break;
+                if (s->time != ST_TIE) {
+                    memset(s, 0, sizeof *s);
+                    s->time = ST_TIE;
+                }
+            }
+            if (idx > prev + 1u && t->step[idx - 1u].time == ST_TIE)
+                t->step[idx - 1u].flags |= SF_SLIDE;
         }
     }
     t->seq_active = 1;
