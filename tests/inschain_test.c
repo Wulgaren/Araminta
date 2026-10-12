@@ -563,6 +563,65 @@ int main(void)
         t->p[P_DLY] = 120; h1 = note_hash(delay_samples() / CTL + 16u, 64);
         ck("DLY send amount moves the render (after the first echo)", h0 != h1);
 
+        /* Short tap: CHAIN delay/reverb must keep ringing after the voice dies (SEND already does).
+         * Tap ~2 blocks, REL 0, then measure past the insert tail / first echo. */
+        {
+            int64_t send_e, chain_e;
+            uint32_t echo_b;
+            fresh(); t = &trk[0]; clear_stages(t);
+            t->p[P_ATK] = 0; t->p[P_DEC] = 0; t->p[P_SUS] = 127; t->p[P_REL] = 0;
+            song.g[G_DLYOWN] = 0;
+            song.g[G_DTIME] = (int16_t)(DTIME_FREE + 80);
+            song.g[G_DFDBK] = 100; song.g[G_DMIX] = 127; song.g[G_DCOLOR] = 127;
+            t->p[P_DLY] = 127;
+            echo_b = delay_samples() / CTL + 8u;
+            trk_note_on(t, 60, 110);
+            render_blocks(2);
+            trk_note_off(t, 60);
+            render_blocks(echo_b);                      /* dry + release + first echo arrival */
+            send_e = energy_out(0, 48);
+            fresh(); t = &trk[0]; clear_stages(t);
+            t->p[P_ATK] = 0; t->p[P_DEC] = 0; t->p[P_SUS] = 127; t->p[P_REL] = 0;
+            song.g[G_DLYOWN] = 1;                        /* track 0 owns delay as CHAIN */
+            song.g[G_DTIME] = (int16_t)(DTIME_FREE + 80);
+            song.g[G_DFDBK] = 100; song.g[G_DMIX] = 127; song.g[G_DCOLOR] = 127;
+            t->p[P_DLY] = 127;
+            trk_note_on(t, 60, 110);
+            render_blocks(2);
+            trk_note_off(t, 60);
+            render_blocks(echo_b);
+            chain_e = energy_out(0, 48);
+            printf("inschain:   short-tap delay energy SEND %lld / CHAIN %lld\n",
+                   (long long)send_e, (long long)chain_e);
+            ck("delay CHAIN: short tap still rings after the voice (like SEND)",
+               send_e > 10000 && chain_e > send_e / 4);
+
+            fresh(); t = &trk[0]; clear_stages(t);
+            t->p[P_ATK] = 0; t->p[P_DEC] = 0; t->p[P_SUS] = 127; t->p[P_REL] = 0;
+            song.g[G_REVOWN] = 0;
+            song.g[G_RTYPE] = 2; song.g[G_RSIZE] = 100; song.g[G_RDAMP] = 20;
+            t->p[P_REV] = 127;
+            trk_note_on(t, 60, 110);
+            render_blocks(2);
+            trk_note_off(t, 60);
+            render_blocks(64);                          /* past voice + insert tail */
+            send_e = energy_out(0, 48);
+            fresh(); t = &trk[0]; clear_stages(t);
+            t->p[P_ATK] = 0; t->p[P_DEC] = 0; t->p[P_SUS] = 127; t->p[P_REL] = 0;
+            song.g[G_REVOWN] = 1;
+            song.g[G_CRTYPE] = 2; song.g[G_CRSIZE] = 100; song.g[G_CRDAMP] = 20;
+            t->p[P_REV] = 127;
+            trk_note_on(t, 60, 110);
+            render_blocks(2);
+            trk_note_off(t, 60);
+            render_blocks(64);
+            chain_e = energy_out(0, 48);
+            printf("inschain:   short-tap reverb energy SEND %lld / CHAIN %lld\n",
+                   (long long)send_e, (long long)chain_e);
+            ck("reverb CHAIN: short tap still rings after the voice (like SEND)",
+               send_e > 10000 && chain_e > send_e / 4);
+        }
+
         fresh(); t = &trk[0]; clear_stages(t);
         song.g[G_REVOWN] = 0; song.g[G_RTYPE] = 2; song.g[G_RSIZE] = 90; song.g[G_RDAMP] = 60;
         t->p[P_REV] = 40; h0 = note_hash(24, 64);
