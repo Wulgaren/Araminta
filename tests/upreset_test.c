@@ -345,6 +345,37 @@ int main(void)
     for (i = 0; i < P_COUNT; i++)
         ok &= v[i] == (int16_t)i;
     bad += check("np == P_COUNT: as stored", ok);
+    {   /* Felucca 1.5 user preset (np 111, ver 4): INSERT at 96..100 as one biased byte each.
+         * Must not decode index 96 as today's 2-byte P_IORD (that lives only at np > 111). */
+        up_rec_t o;
+        memset(&o, 0, sizeof o);
+        o.used = UP_USED; o.ver = UP_VER; o.engine = 0; o.np = 111;
+        memcpy(o.name, "INS15", 5);
+        for (i = 0; i < 111u; i++)
+            o.packed[i] = 64;                          /* zeros as 1.5 wrote them */
+        o.packed[P_DIST] = (uint8_t)(70 + 64);
+        o.packed[96] = (uint8_t)(5 + 64);              /* IT_CRUSH */
+        o.packed[97] = (uint8_t)(40 + 64);
+        o.packed[98] = (uint8_t)(50 + 64);
+        o.packed[99] = (uint8_t)(60 + 64);
+        o.packed[100] = (uint8_t)(110 + 64);
+        o.packed[101] = (uint8_t)(2 + 64);             /* HP */
+        o.packed[102] = (uint8_t)(1 + 64);             /* ESYNC */
+        for (i = 0; i < 8u; i++)
+            o.packed[103 + i] = (uint8_t)(20 + i + 64);
+        bad += check("1.5 preset (np 111): valid as packed INSERT bytes", up_valid(&o));
+        bad += check("1.5 preset: index 96 is TYPE 5, not a 2-byte IORD", up_value(&o, 96) == 5);
+        memset(def, 0, sizeof def);
+        up_params(&o, v, def);
+        bad += check("1.5 preset: CRUSH INSERT migrates into the chain",
+                     v[P_ICBITS] == 40 && v[P_ICRATE] == 50 && v[P_ICLPF] == 60 && v[P_ICMIX] == 110 &&
+                     v[P_DIST] == 70 && v[P_IDMIX] == 127 && v[P_FTYPE] == 2 && v[P_ESYNC] == 1 &&
+                     v[P_E0] == 20 && v[P_E7] == 27);
+        o.packed[96] = (uint8_t)(0 + 64);              /* TYPE OFF */
+        up_params(&o, v, def);
+        bad += check("1.5 preset: INSERT TYPE OFF stays dry",
+                     v[P_ICMIX] == 0 && v[P_IPMIX] == 0 && v[P_ILMIX] == 0 && v[P_IHMIX] == 0);
+    }
 
     {   /* steps -> pattern (UP_STORE) */
         step_t st[NSTEP];
