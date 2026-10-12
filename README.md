@@ -4,11 +4,14 @@
 
 ![Araminta](docs/araminta.png)
 
-**TL;DR:** Araminta v1.5.1 is a fork of [Felucca](https://github.com/hugelton/Felucca) for the M-VAVE FM-1.
+**TL;DR:** Araminta is a fork of [Felucca](https://github.com/hugelton/Felucca) for the M-VAVE FM-1
+(Felucca 1.5.x base; splash / ABOUT show `v2`).
 On top of Felucca 1.5.1 you get DRUM-X, SAMPLE / GRAIN / NOISE back, JIANT punch-ins, Sloop free take, Melodee silent-track motion, a tighter VOICE page, an EFFECTS list (CHAIN / SEND + MIX), MIXER PLAY, and SEQ starting on PATTERN.
 Upstream 1.5.1 still brings SEQ > DETAIL, MIDI Program Change, dotted delay times and REV / ECHO THROW.
 Plug the FM-1 into a computer by USB, open the [web installer](https://wulgaren.github.io/Araminta/) in Chrome or Edge, and press Install.
 Install at your own risk: M-VAVE's updater or the installer's **Return to official V15** takes you back.
+Coming from Felucca **1.5 / 1.5.1**? Read [Coming from 1.5](#coming-from-15): your projects load; after you
+save on Araminta, Felucca 1.5 cannot open those slots.
 Coming from 1.1.5.x? Read [Coming from 1.1.5](#coming-from-115) first: projects saved by 1.4 or later do not open on 1.1.5.x.
 Going back from 1.5.x to 1.4.1? Read [New in 1.5](#new-in-15) first: projects saved by 1.5 do not open on 1.2 to 1.4.1.
 Want a look without hardware? [Try it in your browser](https://wulgaren.github.io/Araminta/webapp/try/).
@@ -210,6 +213,39 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   replaced once a new one arrived whole; projects, presets, samples and settings are not touched. **The full backup
   does not include the bank: keep the .syx file.**
 - 1.4.1 opens and saves everything 1.4 does, in the same formats.
+
+## Coming from 1.5
+
+**Yes: you can install Araminta over Felucca 1.5 / 1.5.1 without wiping the FM-1.**
+Projects, user presets, settings, samples and the FM6 voice bank stay in flash; the installer only replaces the app
+(and its update loader). Host tests cover FUN10 load, 1.5 INSERT → chain migration, backups and persistence.
+
+What loads:
+
+- **Projects (FUN10 / `FUNA`).** Every 1.5 / 1.5.1 project opens. Patterns, motion, songs, FM6 patches and globals
+  stay. Disk motion max on new saves shrinks from 110 to 78 records so the DRUM-X kit fits (RAM still 128).
+- **1.5 INSERT.** TYPE / A / B / C / MIX migrate into the six-stage chain (DIST drive / CRUSH / PHASR / FLANG / CHOR
+  and MIX). DIST TONE comes back as an offset on the drive-linked cutoff. TYPE OFF stays dry.
+- **ANALOG filter TYPE and ENV SYNC.** Kept at their values.
+- **User presets and MENU settings.** Load; new chain / kit fields take defaults where the old store had none.
+- **DRUM.** Plays as DRUM-X. A FUN10 has no kit bytes: the factory kit. An old KIT enum value still maps into MRPH.
+
+What changes when you save:
+
+- **New project format is FUN11 (`FUNB`).** Same 3840-byte size as FUN10, different magic, plus the DRUM-X kit.
+  **Felucca 1.5 / 1.5.1 refuses FUN11:** that slot shows EMPTY there until you save over it (flash data stays until then).
+  A backup that holds a FUN11 is refused on 1.5. So: upgrade is one-way for anything you re-save on Araminta.
+- **P_COUNT is 127** (1.5: 111). Editors that read `INFO` keep working; a 1.5-only editor will not know the new ids.
+
+Day-to-day differences after the flash (not data loss):
+
+- FX pages: Effects list with mix faders, reorderable chain, SEND vs CHAIN for DLY / REV (dual tanks when REV is chained).
+- SEQ / GLO / SAVE layout shifts (PATTERN, DETAIL, MASTER, CLOCK / RECORD under GLO); see Controls.
+- Upstream 1.5.1 extras still apply: SEQ > DETAIL, MIDI Program Change, dotted delay TIME, REV / ECHO THROW.
+- Full backup still omits the FM6 voice bank: keep the `.syx` if you use B1–B32.
+
+Rollback: installer's **Return to official V15**, or M-VAVE's updater. That is stock FM-1, not Felucca 1.5.
+To keep a Felucca 1.5-readable copy of a project, back it up (web editor) **before** you save it on Araminta.
 
 ## Coming from 1.1.5
 
