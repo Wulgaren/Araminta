@@ -1006,12 +1006,6 @@ static void draw_columns(void)
                     k != EVK_ADD ? VAL(3u) : T_DIM, RATIO(d, enum_rank(d, v)), param_icon(d, v));
         return;
     }
-    if (cur_page()->graph == GR_TOOLS) {
-        static const char *const labels[] = {"PAT", "SOUND", "SEC", "SONG"};
-        static const uint8_t icons[] = {ICON_AUTO, ICON_AUTO, ICON_X_SONG, ICON_X_SONG};   /* ROW, SONG: the song's */
-        for (c = 0; c < 4u; c++) draw_act_column(c, labels[c], VAL(c), icons[c]);
-        return;
-    }
     if (cur_page()->scope == SC_TRK) {                 /* LEVEL PAN REV PLAY of the selected track */
         const track_t *t = TSEL;
         uint32_t lvl = trk_level(song.sel);
@@ -1407,6 +1401,19 @@ static void confirm_text(char *a, char *b)
         break;
     case CF_CLEAR_MOTION:
         str_cpy(a, "CLEAR T1 AUTOMATION?", 24); a[7] = (char)('1' + k % NTRK);
+        break;
+    case CF_CLEAR_ALL_SEQ:
+        str_cpy(a, "CLEAR ALL SEQUENCES?", 24);
+        break;
+    case CF_INIT_ALL_SOUND:
+        str_cpy(a, "INIT ALL SOUNDS?", 24);
+        break;
+    case CF_CLEAR_ALL_MOTION:
+        str_cpy(a, "CLEAR ALL AUTOMATION?", 24);
+        break;
+    case CF_INIT_SESSION:
+        str_cpy(a, "INIT SESSION?", 24);
+        str_cpy(b, "LIKE A FRESH BOOT", 24);
         break;
     case CF_OVR_USER:
         str_cpy(a, "OVERWRITE ", 24);

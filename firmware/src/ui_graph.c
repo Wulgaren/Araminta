@@ -2353,10 +2353,9 @@ static void draw_graph(void)
             else
                 graph_events();
             break;
-        case GR_TOOLS:
+        case GR_CLEAR:
             cv_oy = 0;
-            panel_note("TURN TO PICK", "[OCT+] CONFIRM", 0);
-            break;
+            break;                                      /* sticky CLEAR map (ui_layer.c) draws over this */
         case GR_DXSND:
             cv_oy = 0;
             graph_colony(t, (int32_t)(dx_ui_lane & 7u));
