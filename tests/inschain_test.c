@@ -476,6 +476,35 @@ int main(void)
         filter_setup(t, IFT_COMB, 110, 90, 127);
         ck("FILTER COMB: CUT changes the comb delay (and the render)",
            wet != note_hash(16, 48));
+
+        /* COMB must colour the dry signal (not near-transparent). RES 0 ≈ bypass;
+         * high RES raises energy via the feedback peaks. */
+        {
+            int64_t e_res0, e_res;
+            fresh();
+            t = &trk[0];
+            clear_stages(t);
+            wet = note_hash(16, 48);
+            fresh();
+            t = &trk[0];
+            filter_setup(t, IFT_COMB, 40, 100, 127);
+            ck("FILTER COMB: full MIX changes the render vs dry", wet != note_hash(16, 48));
+
+            fresh();
+            t = &trk[0];
+            filter_setup(t, IFT_COMB, 48, 0, 127);
+            trk_note_on(t, 48, 110);
+            e_res0 = energy_out(16, 64);
+            fresh();
+            t = &trk[0];
+            filter_setup(t, IFT_COMB, 48, 110, 127);
+            trk_note_on(t, 48, 110);
+            e_res = energy_out(16, 64);
+            ck("FILTER COMB: RES raises energy (feedback peaks)",
+               e_res0 > 0 && e_res > e_res0 + e_res0 / 5);
+            printf("inschain:   COMB energy RES 0 / 110: %lld / %lld\n",
+                   (long long)e_res0, (long long)e_res);
+        }
     }
 
     /* Every insert stage: MIX engages, and each exposed knob moves the render. */
