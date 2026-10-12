@@ -454,9 +454,8 @@ static void graph_insert(const track_t *t, uint16_t c)
 }
 /* EFFECTS: name | gray mix fader | SEND / CHAIN / USED. Eight rows (6 inserts + DLY + REV).
  * Fader spans the row between the name column and the mode label (full width of that gap).
- * Name column sized to the longest N_ISTAGE label (FLANGER); shorter names left-align.
- * Selected row: THEME bar + INK (as list_row / MOD), so MONO keeps a visible highlight. */
-static void ior_row(int32_t y, const char *name, const char *mode, int32_t amt, uint16_t col, uint16_t bg)
+ * Name column sized to the longest N_ISTAGE label (FLANGER); shorter names left-align. */
+static void ior_row(int32_t y, const char *name, const char *mode, int32_t amt, uint16_t col)
 {
     int32_t nx = PANEL_X0 + 4, gap = 4, mw = text_w(&AF_S, "CHAIN");
     int32_t bx = nx + text_w(&AF_S, "FLANGER") + gap;
@@ -467,27 +466,22 @@ static void ior_row(int32_t y, const char *name, const char *mode, int32_t amt, 
     fw = amt > 0 ? 2 + clamp(amt, 0, 127) * (bw - 2) / 127 : 0;
     if (fw > bw)
         fw = bw;
-    cv_text_on(nx, y + 1, &AF_S, name, col, bg);
-    cv_rrect(bx, y + 3, bw, 7, 2, T_RAISE, bg);           /* empty track */
+    cv_text(nx, y + 1, &AF_S, name, col);
+    cv_rrect(bx, y + 3, bw, 7, 2, T_RAISE, T_SURF);           /* empty track */
     if (fw > 0)
-        cv_rrect(bx, y + 3, fw, 7, 2, col, bg);
-    cv_text_on(PANEL_X0 + PANEL_W - 4 - text_w(&AF_S, mode), y + 1, &AF_S, mode, col, bg);
+        cv_rrect(bx, y + 3, fw, 7, 2, col, T_SURF);
+    cv_text(PANEL_X0 + PANEL_W - 4 - text_w(&AF_S, mode), y + 1, &AF_S, mode, col);
 }
 static void graph_iord(const track_t *t, uint16_t c)
 {
     uint8_t ord[FX_LIST_N];
     uint32_t i;
-    (void)c;
     fx_list_get(t, ord);
     for (i = 0; i < FX_LIST_N; i++) {
         uint32_t st = ord[i];
         const char *mode = fx_list_mode(t, st);
-        int sel = i == ui.ior_sel;
-        uint16_t bg = sel ? T_THEME : T_SURF, col = sel ? T_INK : mode[0] == 'U' ? T_DIM : T_MID;
-        int32_t y = 2 + (int32_t)i * 11;
-        if (sel)
-            cv_rrect(PANEL_X0, y, PANEL_W, 11, 2, T_THEME, T_SURF);
-        ior_row(y, N_ISTAGE[st], mode, ins_mix_of(t, st), col, bg);
+        uint16_t col = i == ui.ior_sel ? c : mode[0] == 'U' ? T_DIM : T_MID;
+        ior_row(2 + (int32_t)i * 11, N_ISTAGE[st], mode, ins_mix_of(t, st), col);
     }
 }
 /* SLICER page: the pattern's 16 steps, a 'x' step a full bar; a '.' step: GATE a bar as high as it stays

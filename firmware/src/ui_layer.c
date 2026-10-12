@@ -789,11 +789,13 @@ static const char B_NOTE[NTRK] = {'F', 'G', 'A', 'C'};  /* black keys 1..4: F# G
 enum { LS_OFF, LS_SEL, LS_HELD, LS_WAIT, LS_DIM, LS_MUTE };
 /* 1.5 (#173): | LS_ALT, an idle (OFF, DIM) cell of the FX map's 2nd and 4th columns in a fill of its own, the columns
  * light / dark in turn as the piano roll's keys, so the effects are told apart at a glance: SURF -> TEXT 22 % (the
- * idle RAISE is 12 %); LINE (idle cells unfilled) 10 %; MONO (its one grey) none */
+ * idle RAISE is 12 %); LINE (idle cells unfilled) 10 %. GREY: LINE's 10 % and RAISE's 12 % land on the same gray
+ * step (and LINE blanks any fill that equals RAISE), so bump LINE's alt to stay distinct. */
 #define LS_ALT 0x10u
 static uint16_t lc_alt(void)
 {
-    return ux.raise == UI_BW_GREY && ux.dim == UI_BW_GREY ? T_RAISE : ux_mix(T_SURF, T_TEXT, ux.style ? 10 : 22);
+    int pct = ux.style ? (ux.mono ? 28 : 10) : 22;
+    return ux_mix(T_SURF, T_TEXT, pct);
 }
 
 static uint16_t lc_fill(uint32_t st, uint16_t *ink)
@@ -837,10 +839,11 @@ static void lcell(int32_t x, int32_t y, int32_t h, const char *note, uint32_t ic
                   uint32_t st, int tri)
 {
     uint16_t ink, fill = lc_fill(st, &ink), idle = fill == T_RAISE || ((st & LS_ALT) && fill == lc_alt());
-    /* FX punch-ins (note + short name, no icon): draw note with the name, left-aligned on one band */
+    /* FX punch-ins (note + short name, no icon): draw note with the name, left-aligned on one band.
+     * Mute row (note + icons, no name): note centred with the icons, not pinned to the top. */
     uint32_t punch = note && name && name[0] && h <= 24 && !icon && !icon2;
     fill = lc_box(x, y, LC_W, h, fill);
-    if (note && !punch)
+    if (note && !punch && name)
         cv_text_on(x + 5, y + 3, &AF_S, note, idle ? T_MID : ink, fill);
     if (h > 30) {                                   /* the icon's cell over the name, 6 px between, centred */
         int32_t t = y + HALF_UP(h - (16 + 6 + AF_S_CAP_H));
@@ -875,10 +878,14 @@ static void lcell(int32_t x, int32_t y, int32_t h, const char *note, uint32_t ic
             GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "layer key cell icon / name centred up/down");
             cv_text_r(x + LC_W - 5, y + CAP_IN(S, h), &AF_S, name, ink, fill);
         }
-    } else if (!name) {                                    /* (an empty name: the note alone) */
-        GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "layer key cell icon / name centred up/down");
+    } else if (!name) {                                    /* mute row: note + MUTE + track cushion, one band */
+        if (note) {
+            GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "layer mute cell note centred up/down");
+            cv_text_on(x + 5, y + CAP_IN(S, h), &AF_S, note, idle ? T_MID : ink, fill);
+        }
+        GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "layer mute icons centred up/down");
         cv_icon_in(x + LC_W - 31, y, 0, h, 12, icon, ink, fill);
-        GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "layer key cell icon / name centred up/down");
+        GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "layer mute icons centred up/down");
         cv_icon_in(x + LC_W - 17, y, 0, h, 12, icon2, ink, fill);
     }
     if (tri) {

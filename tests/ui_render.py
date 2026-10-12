@@ -28,19 +28,19 @@ for f in sorted((out / "ppm").glob("*.ppm")):
     shots.setdefault(pal, []).append((name, img))
     if styled:
         continue
-    if pal in ("GREY", "MONO", "GREEN") and (name.startswith("perform_") or name == "menu_hold"):   # the FX layer's screens
+    if pal in ("GREY", "GREEN") and (name.startswith("perform_") or name == "menu_hold"):   # the FX layer's screens
         (out.parent / "ui_fx").mkdir(parents=True, exist_ok=True)
         img.save(out.parent / "ui_fx" / f"{pal}_{name}.png")
-    if pal in ("GREY", "MONO", "GREEN") and (name.startswith("layer_") or name.startswith("perform_")):   # the quick layers
+    if pal in ("GREY", "GREEN") and (name.startswith("layer_") or name.startswith("perform_")):   # the quick layers
         (out.parent / "ui_layers").mkdir(parents=True, exist_ok=True)
         img.save(out.parent / "ui_layers" / f"{pal}_{name}.png")
     if name.startswith("roll_") or name in ("step", "chance", "drum"):   # the STEP page's piano roll (and the grid)
         (out.parent / "ui_roll").mkdir(parents=True, exist_ok=True)
         img.save(out.parent / "ui_roll" / f"{pal}_{name}.png")
-    if pal in ("GREY", "MONO", "GREEN") and (name.startswith("name_") or name in ("project_named", "song_named", "user_foot")):
+    if pal in ("GREY", "GREEN") and (name.startswith("name_") or name in ("project_named", "song_named", "user_foot")):
         (out.parent / "ui_name").mkdir(parents=True, exist_ok=True)   # NAME (src/ui_name.c) and the names it shows
         img.save(out.parent / "ui_name" / f"{pal}_{name}.png")
-for pal in ("GREY", "MONO", "GREEN"):   # DIGITAL's 8 algorithm charts (+ OP LEVEL): x3, the panel, in build/ui_alg/
+for pal in ("GREY", "GREEN"):   # DIGITAL's 8 algorithm charts (+ OP LEVEL): x3, the panel, in build/ui_alg/
     algs = [(n, im) for n, im in shots.get(pal, []) if n.startswith("alg_") or n == "op_level"]
     if not algs:
         continue

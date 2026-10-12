@@ -113,7 +113,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   from every earlier version load. The PRESETS knob changes the sound from every page that is not a list.
   Turn the FM-1 off and on and the music is as you left it (MENU > RESTORE LAST, an autosave of its own,
   written only when stopped and idle)
-- **Screen:** Felucca 0.9's flat look (Terminus + Fukiai), 10 palettes including grayscale, black and white,
+- **Screen:** Felucca 0.9's flat look (Terminus + Fukiai), 9 palettes including pitch-black grayscale,
   high contrast and NIGHT; type sized by role; MENU > LARGE for tall knob cards; the menu in five tabs. The header
   shows the track and the **project slot of its pattern** ("1 A", "1 A*" once edited), play state and tempo. HOME
   shows the oscilloscope or, with MENU > HOME TRACKS, **the four tracks** with their steps (LEVELS: track levels on
@@ -209,9 +209,9 @@ setting defaults to the earlier behaviour. The web editor's Settings tab reads a
 way as from the menu, in the same tabs. STYLE and ANIM are gone (0.9 flat look; see What Araminta changes).
 KNOB ACCEL is always on for wide values.
 
-- **COLOR:** the palette. GREY (grayscale, called MONO up to 1.0.1), GREEN, AMBER, ICE, VIOLET, ROSE,
-  PAPER (light), HI-CON (high contrast), NIGHT (the 0.9 look: true black, green-tinted text) and MONO
-  (black and white). Every palette draws without a raised card fill (SURF matches the background, as MONO)
+- **COLOR:** the palette. GREY (pitch-black grayscale, called MONO up to 1.0.1), GREEN, AMBER, ICE, VIOLET,
+  ROSE, PAPER (light), HI-CON (high contrast) and NIGHT (the 0.9 look: true black, green-tinted text).
+  Every palette draws without a raised card fill (SURF matches the background)
 - **LARGE:** OFF or ON: on HOME and the value pages the four knob cards grow tall, marked K1-K4, with
   larger labels and values about twice the size; the graph below becomes a strip. Lists, the piano roll,
   the drum grid and the quick layers keep their layout with larger labels
