@@ -14,7 +14,6 @@
  * plays are recorded, not the keys held (what plays back is what was heard). A key or MIDI note plays a
  * chord when the track's CHRD is on (chord.c): its notes go through the same input as so many keys. */
 static const uint16_t SCALE_MASK[] = {
-    0xFFF,                                   /* CHR */
     (1 << 0) | (1 << 2) | (1 << 4) | (1 << 5) | (1 << 7) | (1 << 9) | (1 << 11),   /* MAJ */
     (1 << 0) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 8) | (1 << 10),   /* MIN */
     (1 << 0) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 9) | (1 << 10),   /* DOR */
@@ -38,7 +37,7 @@ static volatile uint8_t kb_boot_hold;    /* #137: set from power-on to the end o
                                           * and one held across its end stays silent until it is let go and pressed again */
 static uint8_t kb_note[27], kb_trk[27];  /* per key: the note it started and on which track */
 static uint8_t in_key;                   /* the key (+ 1) whose notes go into input_on now (key_on), 0: none (MIDI IN) */
-/* #191: where each track's held[i] came from, so the arp maps it again as it plays (arp_list: TRN, ROOT, SCALE, QNT as
+/* #191: where each track's held[i] came from, so the arp maps it again as it plays (arp_list: TRN, ROOT, SCALE, MAP as
  * they are now). held_key: the key + 1 (bits 0..4) and the octave buttons then + 3 (bits 5..7); 0: not a key's own
  * mapping (MIDI IN, the DRUM grid, an engine's own key map), held[i] plays as it is. held_dt: held[i] above the key's
  * note (a CHRD chord's other notes). Out of track_t: its size stays as the audio ISR's trk[] indexing wants it */
@@ -108,7 +107,7 @@ static uint32_t scale_mask(const track_t *t)
     return SCALE_MASK[clamp(t->p[P_SCALE], 0, sizeof SCALE_MASK / sizeof SCALE_MASK[0] - 1)];
 }
 
-/* note n moved down onto the track's scale (ROOT, SCALE): QNT SNAP's keys and QNT SEQ's sequenced notes */
+/* note n moved down onto the track's scale (ROOT, SCALE): MAP ALL's keys and MAP SEQ's sequenced notes */
 static int32_t scale_snap(const track_t *t, int32_t n)
 {
     uint32_t mask = scale_mask(t), guard = 12;
@@ -117,7 +116,19 @@ static int32_t scale_snap(const track_t *t, int32_t n)
     return n;
 }
 
-enum { QN_OFF, QN_SNAP, QN_WHITE, QN_SEQ };      /* P_QUANT */
+/* nearest in-scale pitch to n (tie: lower). MAP KBD's black keys */
+static int32_t scale_nearest(const track_t *t, int32_t n)
+{
+    int32_t down = scale_snap(t, n), up = n;
+    uint32_t mask = scale_mask(t), guard = 12;
+    while (guard-- && !((mask >> (uint32_t)((up - t->p[P_ROOT] + 120) % 12)) & 1u))
+        up++;
+    return n - down <= up - n ? down : up;
+}
+
+enum { QN_OFF, QN_ALL, QN_KBD, QN_SEQ };          /* P_QUANT (MAP): ALL was SNAP, KBD was WHITE */
+#define QN_SNAP QN_ALL                           /* (older tests / comments) */
+#define QN_WHITE QN_KBD
 
 /* the engine's own key map (DRUM's GM map, slices) for key k, -1 none */
 static int32_t kb_engine(const track_t *t, uint32_t k)
@@ -126,21 +137,21 @@ static int32_t kb_engine(const track_t *t, uint32_t k)
     return e->keys ? e->keys(t, k) : -1;
 }
 
-/* key k's note with the octave buttons at oct: QNT, ROOT, SCALE, TRN (KB_SILENT: a black key under WHITE). The keys
- * (kb_map) and the arp's latched keys (arp_list, #191: as the keys play now, the octave they were pressed in) */
+/* key k's note with the octave buttons at oct: MAP, ROOT, SCALE, TRN. The keys (kb_map) and the arp's latched
+ * keys (arp_list, #191: as the keys play now, the octave they were pressed in) */
 static uint32_t kb_pitch(const track_t *t, uint32_t k, int32_t oct)
 {
     static const int8_t DEGREE[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
     int32_t n = 53 + (int32_t)k;
-    if (t->p[P_QUANT] == QN_SNAP || t->p[P_QUANT] == QN_SEQ)   /* SNAP (and SEQ): every key, rounded down */
+    if (t->p[P_QUANT] == QN_ALL)                        /* ALL: every key, rounded down onto the scale */
         return (uint32_t)clamp(scale_snap(t, n + 12 * oct + t->p[P_TRANS]), 0, 127);
-    if (t->p[P_QUANT] == QN_WHITE) {                    /* WHITE: white keys walk the scale, black keys are silent */
+    if (t->p[P_QUANT] == QN_KBD) {                      /* KBD: white keys walk the scale; black -> nearest */
         uint32_t mask = scale_mask(t), i;
         int32_t count = 0, degree = DEGREE[n % 12], wo;
-        if (degree < 0)
-            return KB_SILENT;
+        if (degree < 0)                                 /* black: chromatic pitch, closest in-scale (dup OK) */
+            return (uint32_t)clamp(scale_nearest(t, n + 12 * oct + t->p[P_TRANS]), 0, 127);
         /* C4 is the root. Walk scale degrees on successive white keys, including
-         * below C4; scales with 5, 6, 8 or 12 notes still have no duplicated degrees. */
+         * below C4; scales with 5, 6 or 8 notes still have no duplicated degrees. */
         degree += (n / 12 - 5) * 7;
         for (i = 0; i < 12u; i++)
             count += (mask >> i) & 1u;
@@ -157,7 +168,9 @@ static uint32_t kb_pitch(const track_t *t, uint32_t k, int32_t oct)
                 degree--;
             }
         n = 60 + t->p[P_ROOT] + 12 * wo + (int32_t)i;
+        return (uint32_t)clamp(n + 12 * oct + t->p[P_TRANS], 0, 127);
     }
+    /* OFF and SEQ: chromatic piano (SEQ remaps sequenced notes only, in seq_step) */
     return (uint32_t)clamp(n + 12 * oct + t->p[P_TRANS], 0, 127);
 }
 
@@ -361,7 +374,7 @@ static int click_wanted(void)                  /* CLICK REC: while a track is ar
 /* the arp's note list (list, its length returned; 0: nothing to play): the held notes (sorted or as played) over OCT
  * octaves, *cnt of them. #191: the notes as they play now, a key's mapped again through kb_pitch (TRN, ROOT, SCALE,
  * QNT now, the octave it was pressed in; a chord's note as far above it), the rest (MIDI IN) as they came; each once
- * (two keys may meet on one note now), a key silent now (a black key, QNT WHITE since) left out. With nothing changed
+ * (two keys may meet on one note now), a key that maps silent now left out. With nothing changed
  * since the keys were pressed, exactly the list of held[] as before */
 static uint32_t arp_list(const track_t *t, uint32_t *list, uint32_t *cnt)
 {
@@ -402,7 +415,7 @@ static uint32_t arp_list(const track_t *t, uint32_t *list, uint32_t *cnt)
 static __attribute__((noinline)) void arp_fire(track_t *t, uint32_t period)
 {
     uint32_t cnt, list[64], len, j;
-    if (!(len = arp_list(t, list, &cnt))) {        /* (every key silent now: QNT WHITE's black keys) */
+    if (!(len = arp_list(t, list, &cnt))) {        /* (every held key silent now) */
         if (t->arp_note)
             arp_off(t);
         return;

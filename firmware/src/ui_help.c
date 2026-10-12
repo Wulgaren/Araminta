@@ -30,7 +30,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"DELAY", "[K1]DIV OR MS[K4]RATE, TIME"},
     {"REVERB", "[K1]TYPE[K2]SIZE[K3]DAMP"},
     {"MASTER", "[K1-4]CLIP PNCH DUCK[GLO]SONG"},
-    {"SCL", "[K2]SCALE[K3]QNT[SCL]CHORDS"},
+    {"SCL", "[K2]SCALE[K3]MAP[SCL]CHORDS"},
     {"CHORD", "[K1]CHORD[K3]LOCK[KEYS]CHORD"},
     {"EDIT 1", H_EDIT},
     {"EDIT 2", H_EDIT},
