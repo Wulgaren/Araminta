@@ -1595,19 +1595,27 @@ static void draw(int s)
         in_splash = 1;
         draw_splash();
         in_splash = 0;
-        {   /* full black: corners black (RGB 0), and some ink (name / version / credit) on the field */
-            uint16_t bg = host_screen[0];
-            int32_t x, y, ink = 0, bad = bg != 0;
-            bad |= host_screen[239] != bg || host_screen[239u * 240u] != bg || host_screen[239u * 240u + 239u] != bg;
-            for (y = 0; y < 240 && !ink; y++)
-                for (x = 0; x < 240; x++)
-                    if (host_screen[(uint32_t)y * 240u + (uint32_t)x] != bg) {
+        {   /* full black under any theme: every non-ink pixel is true black (0). Logo/text AA is grey
+             * (R≈G≈B, not near-black); a theme pad (SPL_BLACK snapped to T_BG via the canvas LUT) fails. */
+            int32_t x, y, ink = 0, bad = 0;
+            for (y = 0; y < 240; y++)
+                for (x = 0; x < 240; x++) {
+                    uint16_t raw = host_screen[(uint32_t)y * 240u + (uint32_t)x], c;
+                    uint32_t r, g, b, g5;
+                    if (raw == 0)
+                        continue;
+                    c = swap16(raw);
+                    r = c >> 11; g = (c >> 5) & 63u; b = c & 31u; g5 = g >> 1;
+                    if (r < 6u && g5 < 6u && b < 6u)
+                        bad = 1;                     /* dark non-zero: theme pad (e.g. GREY 14,14,14) */
+                    else if (!((r + 1u >= g5 && g5 + 1u >= r) && (b + 1u >= g5 && g5 + 1u >= b)))
+                        bad = 1;                     /* chromatic: theme tint */
+                    else
                         ink = 1;
-                        break;
-                    }
+                }
             if (bad || !ink) {
-                if (rep) fprintf(rep, "FIND %-26s the splash is not full black (bg %u) or has no text ink\n",
-                                 cur_name, (unsigned)bg);
+                if (rep) fprintf(rep, "FIND %-26s the splash has a theme-tinted pad or no text ink\n",
+                                 cur_name);
                 nfind++;
             }
         }
