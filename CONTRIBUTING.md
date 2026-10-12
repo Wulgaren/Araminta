@@ -30,4 +30,4 @@ Pull requests are welcome, including AI-assisted ones, with the same bar for all
 
 By contributing you agree that your contribution is licensed under GPL-3.0-only.
 
-The web editor and installer live in [Felucca-WebApp](https://github.com/hugelton/Felucca-WebApp).
+The web editor and installer live in `web/` in this repository.
