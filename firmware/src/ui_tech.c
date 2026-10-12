@@ -2,13 +2,13 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * Araminta: technical graphs for FX pages (after JIANT FM's ui_tech.c). Flat theme tokens only
  * (T_THEME / T_MID / T_DIM / T_RAISE / T_TEXT / T_ACCENT) — no thermal heat_col.
- *   DIST     transfer curve by TYPE + DRIVE; TONE as a low-pass response
+ *   DISTORT  transfer curve by TYPE + DRIVE; TONE as a low-pass response
  *   FILTER   frequency response by TYPE / CUT / RES
  *   CRUSH    bit staircase + hold steps; LPF corner
- *   PHASR    allpass notches sweeping with RATE / DEP / FBK
- *   FLANG    short comb modulating with RATE / DEP
- *   CHOR     three modulated delay taps (JIANT chorus graph; insert RATE / DEPTH)
- *   DLY      echo impulse train (MIX / FDBK / COLR); playhead while playing
+ *   PHASER   allpass notches sweeping with RATE / DEP / FBK
+ *   FLANGER  short comb modulating with RATE / DEP
+ *   CHORUS   three modulated delay taps (JIANT chorus graph; insert RATE / DEPTH)
+ *   DELAY    echo impulse train (MIX / FDBK / COLR); playhead while playing
  *   REVERB   impulse response by TYPE (ROOM / SPRING / HALL / SHIMR / CLOUD)
  *   MASTER   CLIP curve, PUNCH envelope, DUCK meter */
 #define TK_X0 PANEL_X0
@@ -343,13 +343,13 @@ static int graph_tech(const track_t *t, const page_t *pg)
     }
     if (pg->fam != FAM_FX)
         return 0;
-    if (str_eq(pg->title, "DIST")) { tech_dist(t); return 1; }
+    if (str_eq(pg->title, "DISTORT")) { tech_dist(t); return 1; }
     if (str_eq(pg->title, "FILTER")) { tech_filter(t); return 1; }
     if (str_eq(pg->title, "CRUSH")) { tech_crush(t); return 1; }
-    if (str_eq(pg->title, "PHASR")) { tech_phasr(t); return 1; }
-    if (str_eq(pg->title, "FLANG")) { tech_flang(t); return 1; }
-    if (str_eq(pg->title, "CHOR")) { tech_chor(t); return 1; }
-    if (str_eq(pg->title, "DLY")) { tech_dly(); return 1; }
+    if (str_eq(pg->title, "PHASER")) { tech_phasr(t); return 1; }
+    if (str_eq(pg->title, "FLANGER")) { tech_flang(t); return 1; }
+    if (str_eq(pg->title, "CHORUS")) { tech_chor(t); return 1; }
+    if (str_eq(pg->title, "DELAY")) { tech_dly(); return 1; }
     if (str_eq(pg->title, "REVERB")) { tech_rev(); return 1; }
     return 0;
 }
