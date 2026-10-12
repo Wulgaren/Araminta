@@ -81,9 +81,8 @@ static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails
 {
     uint32_t k;
     memset(dly_buf, 0, sizeof dly_buf);
-    memset(cho_buf, 0, sizeof cho_buf);
-    memset(rev_comb, 0, sizeof rev_comb);
-    memset(rev_ap, 0, sizeof rev_ap);
+    memset(rev_tank, 0, sizeof rev_tank);
+    R = &rev_tank[0];
     memset(&fx, 0, sizeof fx);
     lim_env = LIM_T;
     memset(trk, 0, sizeof trk);
@@ -297,7 +296,7 @@ static void test_math(void)
     slot(t, 1, MS_LFO, MD_CHO, -32);
     slot(t, 2, MS_LFO, MD_RATE, 32);
     slot(t, 3, MS_LFO, MD_VIB, 32);
-    t->p[P_DIST] = t->p[P_CHOR] = 64;
+    t->p[P_DIST] = t->p[P_IHMIX] = 64;
     t->p[P_LRATE] = 100;
     t->p[P_LD_PIT] = 0;
     lfo = mulq15(-32768, 32767);
@@ -305,11 +304,11 @@ static void test_math(void)
     {
         int32_t up = (((lfo * 32) >> 6) * 127) >> 15, dn = (((lfo * -32) >> 6) * 127) >> 15;
         check("LFO -> DIST / CHO (+-32), RATE, VIB: bipolar, half the range each",
-              up < -30 && dn > 30 && t->p[P_DIST] == 64 + up && t->p[P_CHOR] == 64 + dn && t->p[P_LRATE] == 100 + up &&
+              up < -30 && dn > 30 && t->p[P_DIST] == 64 + up && t->p[P_IHMIX] == 64 + dn && t->p[P_LRATE] == 100 + up &&
               t->p[P_LD_PIT] == up);
     }
     mod_end(t);
-    check("every per-block value restored", t->p[P_DIST] == 64 && t->p[P_CHOR] == 64 && t->p[P_LRATE] == 100 && t->p[P_LD_PIT] == 0);
+    check("every per-block value restored", t->p[P_DIST] == 64 && t->p[P_IHMIX] == 64 && t->p[P_LRATE] == 100 && t->p[P_LD_PIT] == 0);
 
     /* an engine parameter: its descriptor's range */
     e_trio = eng_by_name("TRIO");
@@ -356,6 +355,84 @@ static void test_math(void)
     mod_begin(t);
     check("ENV -> PAN: the latest note's envelope (sounding: > 0)", t->p[P_PAN] > 20 && t->m_env > 0);
     mod_end(t);
+
+    /* #222: SLICER pattern / rate / depth as per-block destinations */
+    fresh(0, 0);
+    t->p[P_SLPAT] = 8;
+    t->p[P_SLRATE] = 1;
+    t->p[P_SLDEPTH] = 64;
+    t->mw = 127;
+    slot(t, 0, MS_MODW, MD_SLPAT, 63);
+    slot(t, 1, MS_MODW, MD_SLRATE, 63);
+    slot(t, 2, MS_MODW, MD_SLDEPTH, 63);
+    mod_begin(t);
+    check("#222 MODW -> SLICER PAT / RATE / DEPTH: whole range at AMT 63",
+          t->p[P_SLPAT] == TP[P_SLPAT].max && t->p[P_SLRATE] == TP[P_SLRATE].max &&
+          t->p[P_SLDEPTH] == 127);
+    mod_end(t);
+    check("#222 SLICER params restored after the block",
+          t->p[P_SLPAT] == 8 && t->p[P_SLRATE] == 1 && t->p[P_SLDEPTH] == 64);
+    check("#222 DST names: PAT / SRATE / SDEP",
+          str_eq(mod_dst_name(t, MD_SLPAT), "PAT") && str_eq(mod_dst_name(t, MD_SLRATE), "SRATE") &&
+          str_eq(mod_dst_name(t, MD_SLDEPTH), "SDEP"));
+
+    /* CHRD / VOIC as per-block destinations (append after SLICER) */
+    fresh(0, 0);
+    t->p[P_CHRD] = CH_OFF;
+    t->p[P_VOIC] = VC_CLOSE;
+    t->mw = 127;
+    slot(t, 0, MS_MODW, MD_CHRD, 63);
+    slot(t, 1, MS_MODW, MD_VOIC, 63);
+    mod_begin(t);
+    {
+        int32_t ch = ((((127 * 258) * 63) >> 6) * (TP[P_CHRD].max - TP[P_CHRD].min)) >> 15;
+        int32_t vc = ((((127 * 258) * 63) >> 6) * (TP[P_VOIC].max - TP[P_VOIC].min)) >> 15;
+        check("MODW -> CHRD / VOIC: per-block enum scale at AMT 63",
+              t->p[P_CHRD] == ch && t->p[P_VOIC] == vc && ch > 0 && vc > 0);
+    }
+    mod_end(t);
+    check("CHRD / VOIC restored after the block", t->p[P_CHRD] == CH_OFF && t->p[P_VOIC] == VC_CLOSE);
+    check("DST names: CHRD / VOIC",
+          str_eq(mod_dst_name(t, MD_CHRD), "CHRD") && str_eq(mod_dst_name(t, MD_VOIC), "VOIC"));
+
+    /* insert continuous knobs + MIX (append after CHORD; CHOR MIX is CHO) */
+    fresh(0, 0);
+    t->p[P_ED_FX] = 0;
+    t->p[P_IDMIX] = 40;
+    t->p[P_IFCUT] = 64;
+    t->p[P_IFMIX] = 40;
+    t->p[P_ICBITS] = 64;
+    t->p[P_ICMIX] = 40;
+    t->p[P_IPRATE] = 64;
+    t->p[P_ILDEP] = 64;
+    t->p[P_ILMIX] = 40;
+    t->p[P_IHDEP] = 64;
+    t->mw = 127;
+    slot(t, 0, MS_MODW, MD_TONE, 63);
+    slot(t, 1, MS_MODW, MD_DMIX, 63);
+    slot(t, 2, MS_MODW, MD_FCUT, 63);
+    slot(t, 3, MS_MODW, MD_FMIX, 63);
+    mod_begin(t);
+    check("MODW -> TONE / DMIX / FCUT / FMIX: whole range at AMT 63",
+          t->p[P_ED_FX] == TP[P_ED_FX].max && t->p[P_IDMIX] == TP[P_IDMIX].max &&
+          t->p[P_IFCUT] == TP[P_IFCUT].max && t->p[P_IFMIX] == TP[P_IFMIX].max);
+    mod_end(t);
+    slot(t, 0, MS_MODW, MD_BITS, 63);
+    slot(t, 1, MS_MODW, MD_CMIX, 63);
+    slot(t, 2, MS_MODW, MD_LMIX, 63);
+    slot(t, 3, MS_MODW, MD_HDEP, 63);
+    mod_begin(t);
+    check("MODW -> CRUSH BITS/CMIX, FLANG LMIX, CHOR HDEP",
+          t->p[P_ICBITS] == TP[P_ICBITS].max && t->p[P_ICMIX] == TP[P_ICMIX].max &&
+          t->p[P_ILMIX] == TP[P_ILMIX].max && t->p[P_IHDEP] == TP[P_IHDEP].max);
+    mod_end(t);
+    check("insert knobs restored after the block",
+          t->p[P_ED_FX] == 0 && t->p[P_IDMIX] == 40 && t->p[P_IFCUT] == 64 && t->p[P_IFMIX] == 40 &&
+          t->p[P_ICBITS] == 64 && t->p[P_ICMIX] == 40 && t->p[P_ILMIX] == 40 && t->p[P_IHDEP] == 64);
+    check("DST names: TONE / DMIX / HDEP; CHO is CHOR MIX; DLY/REV amounts stay",
+          str_eq(mod_dst_name(t, MD_TONE), "TONE") && str_eq(mod_dst_name(t, MD_DMIX), "DMIX") &&
+          str_eq(mod_dst_name(t, MD_HDEP), "HDEP") && mod_param(MD_CHO) == P_IHMIX &&
+          mod_param(MD_DLY) == P_DLY && mod_param(MD_REV) == P_REV && MD_TONE == 26 && MD_N == 44);
 }
 
 /* ------------------------------------------------------------------ 3 --- */
@@ -380,7 +457,7 @@ static int pan_e2e(void)                       /* MODW -> PAN moves the pan the 
     uint32_t i, k;
     fresh(0, 0);
     slot(&trk[0], 0, MS_MODW, MD_PAN, 63);
-    trk[0].p[P_CHOR] = trk[0].p[P_DLY] = trk[0].p[P_REV] = 0;   /* (the buses are in the middle) */
+    trk[0].p[P_DLY] = trk[0].p[P_REV] = 0;   /* (the buses are in the middle) */
     pkt(0xB0, 1, 127);
     trk_note_on(&trk[0], 60, 100);
     blocks(FS / 10u / CTL);

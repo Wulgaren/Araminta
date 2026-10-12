@@ -88,8 +88,6 @@ static int ed_smp_erase(uint32_t k, uint32_t all)  /* header sector, or the whol
     uint32_t i, took;
     int rc = 0;
     usr_nz[k] = 0;
-    for (i = 0; i < 16u; i++)
-        usr_zone[k][i].n = 0;                     /* a sounding voice ends instead of reading 0xFF */
     for (i = 0; i < (all ? SMP_USER_SIZE / 0x1000u : 1u) && !rc; i++) {
         audio_silence();
         rc = fl_erase4k(ed_smp_slot(k) + i * 0x1000u, &took);
@@ -250,7 +248,7 @@ static void ed_sync(void)                                /* main loop */
         ed_begin(ED_CHANGED);
         ed_b(k < P_COUNT ? 0u : 1u);
         ed_b(k < P_COUNT ? k : k - P_COUNT);
-        ed_v(v);
+        ed_v(k == P_IORD ? (int16_t)iord_perm_of((uint16_t)v) : v);   /* order only; send flags stay on the device */
         ed_send();
         n++;
         ed_w.pos = k + 1u;
@@ -457,7 +455,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         break;
     }
     case ED_INFO:
-        ed_str("FELUCCA " FELUCCA_VERSION, 24);
+        ed_str("ARAMINTA " FELUCCA_VERSION, 24);
         ed_b(NENGINES);
         ed_b(P_COUNT);
         ed_b(G_COUNT);
@@ -494,6 +492,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 ed_load_before(&b);
                 set_engine((uint32_t)clamp(ed_rv(a + 2), 0, NENGINES - 1));
                 ed_load_after(&b);
+            } else if (a[0] == 0 && a[1] == P_IORD) {
+                iord_set_perm(TSEL, (uint32_t)clamp(ed_rv(a + 2), 0, 719));
             } else if (d->max > d->min) {
                 *vp = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
                 if (a[0] == 0) {
@@ -506,7 +506,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         }
         ed_b(a[0]);
         ed_b(a[1]);
-        ed_v(*vp);
+        ed_v(a[0] == 0 && a[1] == P_IORD ? (int16_t)iord_perm_of((uint16_t)*vp) : *vp);
         break;
     case ED_DUMP:
         for (i = 0; i < ED_NV; i++)                       /* the editor gets them all here */
@@ -529,8 +529,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_v(d->def);
         ed_str(d->label, 8);
         ed_str(d->unit, 8);
-        if (d->fmt == F_ENUM && d->names)                  /* up to 24 (the matrix DST has 20) */
-            for (i = 0; i <= (uint32_t)(d->max - d->min) && i < 24u; i++)
+        if (d->fmt == F_ENUM && d->names)                  /* up to 48 (matrix DST grew past 24) */
+            for (i = 0; i <= (uint32_t)(d->max - d->min) && i < 48u; i++)
                 ed_str(d->names[i], 8);
         break;
     case ED_STEP_GET:
@@ -638,7 +638,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             const smp_user_hdr_t *h = (const smp_user_hdr_t *)smp_user_xip(i);
             char nm[9] = {0};
             uint32_t j;
-            ed_b(usr_nz[i]);
+            ed_b(usr_nz[i] | (usr_drum[i] ? 0x40u : 0u));   /* bit 6: drum kit grid (FSMP rsv; 7-bit SysEx) */
             for (j = 0; usr_nz[i] && j < 8u; j++)
                 nm[j] = h->name[j] >= 32 && h->name[j] < 127 ? h->name[j] : 0;
             ed_str(nm, 8);
@@ -785,7 +785,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             ed_b(ed_eng(&trk[i]));
             ed_b(trk[i].preset);
             ed_v(trk[i].p[P_LEVEL]);
-            ed_b(trk[i].p[P_MUTE] != 0);
+            ed_b(trk[i].p[P_MUTE] == PLAY_OFF);
             ed_b((song.rec >> i) & 1u);
         }
         break;
@@ -798,14 +798,17 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         lv = &t->p[P_LEVEL];
         if (na >= 4u) {
             *lv = (int16_t)clamp(ed_rv(a + 1), 0, 127);
-            t->p[P_MUTE] = (int16_t)(a[3] ? 1 : 0);
+            if (a[3])
+                t->p[P_MUTE] = PLAY_OFF;
+            else if (t->p[P_MUTE] == PLAY_OFF)         /* mute 0 leaves SOLO (the byte is only OFF / not) */
+                t->p[P_MUTE] = PLAY_ON;
             ed_known(a[0], P_LEVEL);                       /* the editor's own change: no push */
             ed_known(a[0], P_MUTE);
             ui.force = 1;
         }
         ed_b(a[0]);
         ed_v(*lv);
-        ed_b(t->p[P_MUTE] != 0);
+        ed_b(t->p[P_MUTE] == PLAY_OFF);
         break;
     }
     case ED_TRACK_DUMP:                                    /* track -> track, engine, preset, P_COUNT x v14 */
@@ -814,8 +817,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(a[0]);
         ed_b(ed_eng(&trk[a[0]]));
         ed_b(trk[a[0]].preset);
-        for (i = 0; i < P_COUNT; i++)
-            ed_v(motion_base_value(&trk[a[0]], i));
+        for (i = 0; i < P_COUNT; i++) {
+            int16_t v = motion_base_value(&trk[a[0]], i);
+            ed_v(i == P_IORD ? (int16_t)iord_perm_of((uint16_t)v) : v);
+        }
         break;
     case ED_TRACK_STEP: {                                  /* track, index [, step] -> track, index, step (as STEP_GET) */
         step_t *st;
@@ -838,7 +843,9 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         t = &trk[a[0]];
         d = ed_tdesc(t, a[1]);
         if (na >= 4u && !(chain_busy() && chain_owns(a[1]))) {
-            if (d->max > d->min)                           /* as SET: clamped; a fixed value stays */
+            if (a[1] == P_IORD)
+                iord_set_perm(t, (uint32_t)clamp(ed_rv(a + 2), 0, 719));
+            else if (d->max > d->min)                      /* as SET: clamped; a fixed value stays */
                 t->p[a[1]] = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
             (void)motion_capture(t, a[1], t->p[a[1]]);
             ed_known(a[0], a[1]);
@@ -846,7 +853,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         }
         ed_b(a[0]);
         ed_b(a[1]);
-        ed_v(t->p[a[1]]);
+        ed_v(a[1] == P_IORD ? (int16_t)iord_perm_of((uint16_t)t->p[a[1]]) : t->p[a[1]]);
         break;
     }
     case ED_SONG: {                                     /* ops 0..3 rows of one slot (v6); 4..7 the same with a slot

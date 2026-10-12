@@ -128,20 +128,19 @@ static void felucca_init(void)
  * and settle on the glow; ~0.70 s), started before the scan and run by it: nothing waits for it, the splash's 430 ms
  * and the first ~0.27 s of the UI go by under it (the UI's LEDs from its end, or at once on a key or a button down).
  * Every LEDS setting: it is no idle glow; with DIM HI / DIM LO it ends on that glow (and is drawn over that glow
- * level), with OFF / INV dark. Not with MENU > ANIM OFF (no motion: the LEDs as the UI has them at once), not after a crash (a crash record newer than the last boot saw: the crash screen's
+ * level), with OFF / INV dark. ANIM is retired (always OFF): no sweep; the LEDs as the UI has them at once. Not after a crash (a crash record newer than the last boot saw: the crash screen's
  * reset), a hang (a WDT reset) or a failed boot (bootguard: the last one died within its first 30 s): straight to the
  * UI. The UBOOT paths never get here. */
 static uint32_t crash_seen __attribute__((section(".noinit")));   /* fm1_crash.count at the last boot */
 static uint8_t boot_clean;                    /* no crash, hang (WDT) or failed boot before this one (boot_leds):
-                                               * the sweep runs and the autosave is restored (project.c autosave_boot) */
+                                               * the autosave is restored (project.c autosave_boot); LED sweep retired */
 static void boot_leds(void)
 {
     uint32_t crashed = fm1_crash.magic == FM1_CRASH_MAGIC && fm1_crash.count != crash_seen;
     crash_seen = fm1_crash.count;
     boot_clean = !crashed && !bootguard.failed && !(fm1_boot.p3_rst & 4u);
     fm1_led_dim_level(settings_leds == LEDS_DIM_LO);
-    if (boot_clean && !(ui_prefs & PREF_ANIM_OFF))
-        fm1_led_anim_start(settings_leds == LEDS_DIM || settings_leds == LEDS_DIM_LO);
+    (void)boot_clean;                         /* ANIM retired: no power-on sweep */
 }
 
 static void fm1_main(void)
@@ -184,7 +183,8 @@ static void fm1_main(void)
     timer5_start();
     fm1_guard_lock_top();
     fm1_irq_enable_all();
-    fm1_delay_ms(30);
+    fm1_delay_ms(30);                         /* DMA zeros into the codec while the amp is still muted */
+    audio_amp_on();                           /* PC6 on, then the soft-start ramp (audio.c / fx.c) */
     if ((fm1_in.buttons & 3u) == 3u) {
         panel_setup();                        /* OCT- + OCT+ held at power-on */
         settings_save();

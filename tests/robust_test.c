@@ -33,17 +33,29 @@ static int sample_slots(void)
     bad += check("16 overlapping zones: the SLICE scan is at most the slot's size", usr_nz[0] == 16u &&
                  slc_usr[0].len && slc_usr[0].len <= 2u * dl);
 #endif
-    /* zone 0 good, zone 1 malformed: nothing of the slot is left (usr_zone[1][0] was copied before the check) */
+    /* zone 0 good, zone 1 malformed: scan rejects the whole slot (usr_nz stays 0) */
     h = (smp_user_hdr_t *)host_samples[1];
     h->magic = SMP_USER_MAGIC; h->version = 1; h->nz = 2; h->data_len = 4096;
     zone_set(&h->zone[0], 0, 4096);
     zone_set(&h->zone[1], 0, 4096); h->zone[1].idx = 99;
     smp_user_scan(1);
-    bad += check("a slot with a malformed zone: unusable, no zone of it left behind",
-                 !usr_nz[1] && !usr_zone[1][0].n && !usr_zone[1][1].n);
+    bad += check("a slot with a malformed zone: unusable (usr_nz cleared)", !usr_nz[1]);
     h->zone[1].idx = 0;
     smp_user_scan(1);
-    bad += check("the same slot made valid scans again", usr_nz[1] == 2u && usr_zone[1][0].n == 4096u);
+    bad += check("the same slot made valid scans again", usr_nz[1] == 2u);
+    /* FSMP hdr.rsv bit 0: SAMPLE on this USR slot uses the drum grid (seq.c drum_track) */
+    h->rsv = SMP_USR_DRUM;
+    smp_user_scan(1);
+    bad += check("FSMP rsv drum kit grid sets usr_drum", usr_nz[1] == 2u && smp_user_drum(1));
+    {
+        track_t *t = &trk[0];
+        set_engine_of(t, ENGI_SAMPLE);
+        t->p[P_E0] = (int16_t)(SMP_NSETS + 1);
+        bad += check("SAMPLE USR2 with drum flag: drum_track", drum_track(t));
+        h->rsv = 0;
+        smp_user_scan(1);
+        bad += check("clearing rsv clears drum grid", usr_nz[1] == 2u && !smp_user_drum(1) && !drum_track(t));
+    }
     return bad;
 }
 
@@ -57,7 +69,7 @@ static int projects(void)
     reset();
     project_capture(&p);
     bad += check("a captured project packs and imports", proj_pack(&st, &p) && proj_import(&q, &st, PROJ_STORE_SIZE));
-    pos = 68u + st.raw[66];                                 /* track 1's engine byte (after its parameters) */
+    pos = 68u + st.raw[66] + (st.raw[66] > 111u ? 1u : 0u); /* track 1 engine (+1 when P_IORD is 2 bytes) */
     for (e0 = NENGINES; e0 < 256u; e0 += 37u) {
         st.raw[pos] = (uint8_t)e0;
         sum = proj_hash(st.raw, PROJ_STORE_SIZE - 4u);

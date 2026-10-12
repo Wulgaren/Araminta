@@ -4,7 +4,7 @@
  * define, so the order matters. */
 
 /* ---------------------------------------------------- build options --- */
-/* build.py: FELUCCA_<NAME>=0 / 1 in the environment overrides these. Elsewhere: FELUCCA_SLICE, FELUCCA_FM4
+/* build.py: FELUCCA_<NAME>=0 / 1 in the environment overrides these. Elsewhere: FELUCCA_FM4
  * (core.h: the SLICE engine, the DIGITAL engine), FELUCCA_ICONS (icons.c, the parameter icons; on by default),
  * FELUCCA_OTA_RAMONLY (ota.c). */
 #ifndef FELUCCA_FLASH
@@ -32,7 +32,7 @@
 #define FELUCCA_ID "FM-1_900"    /* package identity (build.py: the .fwsc marker string) */
 #endif
 #ifndef FELUCCA_VERSION
-#define FELUCCA_VERSION "v1.5.1" /* shown in the menu, the console and the editor; build.py --release X.Y */
+#define FELUCCA_VERSION "v2" /* shown in the menu, the console and the editor; build.py --release X.Y */
 #endif
 #if FELUCCA_OTA && !FELUCCA_FLASH
 #error "FELUCCA_OTA needs FELUCCA_FLASH"
@@ -63,7 +63,7 @@
 #include "mod.c"               /* the modulation matrix, used by voice.c and fx.c */
 #include "voice.c"
 #include "slicer.c"              /* per-track SLICER insert, used by fx.c */
-#include "fx.c"
+#include "fx.c"                  /* includes perform.c and pfx.c (JIANT punch-in MIDI) */
 
 /* ------------------------------------------------- MIDI, sequencer --- */
 #include "usb.c"

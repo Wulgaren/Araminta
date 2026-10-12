@@ -2,3 +2,6 @@ build/
 .DS_Store
 __pycache__/
 *.fwsc
+.venv
+tests/out/
+docs/ARAMINTA_TASKS.md

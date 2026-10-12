@@ -595,7 +595,7 @@ int main(void)
     {   /* FUN7 itself refuses a step outside its fields: a damaged slot is empty, the tracks stay */
         step_t keep = trk[0].step[0];
         old = proj_slot[0];
-        proj_slot[0].raw[68 + P_COUNT + 2 + 4] = 7;               /* track 1 step 1: n = 7 */
+        proj_slot[0].raw[68 + P_COUNT + 1 + 2 + 4] = 7;           /* +1: P_IORD hi; track 1 step 1: n = 7 */
         bad += check("damaged FUN7 slot (hash ok, n > 4) is refused", (memcpy(proj_slot[0].raw + PROJ_STORE_SIZE - 4,
                       &(uint32_t){proj_hash(proj_slot[0].raw, PROJ_STORE_SIZE - 4)}, 4), !project_used(0)));
         st_save(OBJ_PROJECT0, &proj_slot[0], sizeof proj_slot[0]);
@@ -629,6 +629,8 @@ int main(void)
         bad += check("FUN5 load clamps a parameter into its range", trk[0].p[P_LEVEL] == TP[P_LEVEL].max);
         for (i = 0; i < P_COUNT; i++) {
             uint32_t e;
+            if (i == P_IORD)                        /* 0..719: FUN10 / user presets store 2 bytes (upreset.c) */
+                continue;
             for (e = 0; e < NENGINES; e++)
                 if (param_desc_of(e, i)->min < -64 || param_desc_of(e, i)->max > 127) {
                     printf("param %u engine %u: range %d..%d does not fit FUN7's byte\n", i, e,

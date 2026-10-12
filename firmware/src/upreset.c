@@ -42,6 +42,8 @@
  * A record of engine 1 (DIGITAL, retired in 1.0) stays as it is (UP_PUT takes it too): its values are DIGITAL's,
  * and every load converts them to an FM6 sound with its own patch (ui.c fm4_apply, fm4_convert.c); lists count it
  * with FM6's (up_engine).
+ * A record of SLICE (retired) stays as stored too: every load remaps to DRUM (eng_retire.c); lists use eng_play_as.
+ * SAMPLE / GRAIN / NOISE load as themselves again.
  *
  * With -DUP_HOST (host test) only the part above #ifndef UP_HOST is built;
  * it needs nothing but core.h. */
@@ -90,13 +92,14 @@ static int up_to_v4(up_rec_t *r)                 /* 1 = r is version 4 / 5 (now)
         return 1;
     if (r->ver == 1u && r->engine == ENGI_PHYS)
         return 0;
+    /* ver < 4: np <= UP_PMAX (72). P_IORD (96) cannot appear; its 2-byte pack is only for ver >= 4. */
     for (i = 0; i < r->np; i++)
         if ((v[i] = r->p[i]) < -64 || v[i] > 127)
             return 0;
     memset(r->packed, 0, sizeof r->packed);
     r->ver = r->ver == 3u ? UP_VER_GRID : UP_VER;
     for (i = 0; i < r->np; i++)
-        r->packed[i] = (uint8_t)(v[i] + 64);
+        r->packed[i] = (uint8_t)(uint32_t)(v[i] + 64);
     return 1;
 }
 static void up_set_cat(up_rec_t *r, uint32_t c)  /* c CAT_BASS..CAT_OTHER; a record that cannot hold one keeps none */
@@ -109,17 +112,46 @@ static int up_valid(const up_rec_t *r)
 {
     if (!(r->used == UP_USED && r->ver >= 1u && r->ver <= UP_VER_GRID && r->engine < NENGINES &&
           r->np >= 8u && r->np <= (r->ver >= 4u ? UP_PMAX * 2u : UP_PMAX) && r->name[0])) return 0;
-    if (r->ver >= 4u) for (uint32_t i = 0; i < r->np; i++) if (r->packed[i] > 191u) return 0;
+    if (r->ver >= 4u)
+        for (uint32_t i = 0; i < r->np; i++)
+            /* P_IORD's low byte only: high byte lives at packed[np] when np > 111 (insert chain) */
+            if (!(i == P_IORD && r->np > 111u) && r->packed[i] > 191u) return 0;
     return 1;
 }
 
 static int up_used(uint32_t k) { return k < UP_SLOTS && up_valid(up_rec(k)); }
 
 static int up_grid(const up_rec_t *r) { return r->ver == 3u || r->ver == UP_VER_GRID; }
-static int16_t up_value(const up_rec_t *r, uint32_t k) { return r->ver >= 4u ? (int16_t)r->packed[k] - 64 : r->p[k]; }
+/* Insert-chain records (np > 111): P_IORD is two bytes (low at packed[P_IORD], high at packed[np]).
+ * Felucca 1.5 (np 111): index 96 is INSERT TYPE, one biased byte — same rule as project.c iord2. */
+static int up_iord2(const up_rec_t *r) { return r->ver >= 4u && r->np > 111u; }
+static int16_t up_value(const up_rec_t *r, uint32_t k)
+{
+    if (up_iord2(r) && k == P_IORD) {
+        /* low byte + the next byte: bits 0..9 the order, bits 10..15 the send flags.
+         * Firmware that masks the high byte with 3 keeps the order and drops the flags. */
+        uint32_t o = r->packed[k] | (uint32_t)r->packed[r->np] << 8;
+        uint32_t perm = o & 1023u;
+        if (perm > 719u)
+            perm = 0u;
+        return (int16_t)(uint16_t)((o & ~1023u) | perm);
+    }
+    return r->ver >= 4u ? (int16_t)r->packed[k] - 64 : r->p[k];
+}
 static void up_set_value(up_rec_t *r, uint32_t k, int16_t v)
 {
-    if (r->ver >= 4u) r->packed[k] = (uint8_t)(v + 64); else r->p[k] = v;
+    if (up_iord2(r) && k == P_IORD) {
+        uint16_t raw = (uint16_t)v;
+        uint32_t perm = raw & 1023u;
+        if (perm > 719u)
+            perm = 719u;
+        raw = (uint16_t)((raw & (uint16_t)~1023u) | (uint16_t)perm);
+        r->packed[k] = (uint8_t)(raw & 255u);
+        r->packed[r->np] = (uint8_t)(raw >> 8);
+    } else if (r->ver >= 4u)
+        r->packed[k] = (uint8_t)(v + 64);
+    else
+        r->p[k] = v;
 }
 /* Legacy PHYS drums map through decoded parameters, not their disk representation. */
 static void up_migrate(up_rec_t *r)
@@ -162,6 +194,7 @@ static void up_params(const up_rec_t *r, int16_t *out, const int16_t *def)
     int16_t values[UP_PMAX * 2u];
     for (uint32_t i = 0; i < r->np && i < NELEM(values); i++) values[i] = up_value(r, i);
     params_by_count(out, values, r->np, def);
+    ins_migrate(out, r->np);
 }
 
 static int up_name_ok(const uint8_t *s, uint32_t n)   /* 1..12 printable ASCII */
@@ -243,7 +276,10 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
     for (i = 0; i < P_COUNT; i++, k += 2u)
         {
             int32_t value = (int32_t)((a[k] & 127u) | (a[k + 1] & 127u) << 7) - 8192;
-            if (value < -64 || value > 127) return 1;
+            if (i == P_IORD) {
+                if (value < 0 || value > 719) return 1;   /* order fits the 14-bit field (0..719) */
+            } else if (value < -64 || value > 127)
+                return 1;
             up_set_value(r, i, (int16_t)value);
         }
     if (na >= k + 33u + 16u && a[k + 32u] == 1u) {    /* a drum grid */
@@ -371,7 +407,7 @@ static void up_auto_name(char *b, uint32_t e, uint32_t k)
 {
     char l[4];
     e %= NENGINES;
-    str_cpy(b, ENGINES[eng_ok(e) ? e : ENGI_FM6]->name, 9);   /* (a DIGITAL record plays as FM6) */
+    str_cpy(b, ENGINES[eng_play_as(e)]->name, 9);   /* (retired / DIGITAL: the engine it plays as) */
     up_slot_label(l, k);
     str_cpy(b + str_len(b), " ", 2);
     str_cpy(b + str_len(b), l + 1, 3);
@@ -472,7 +508,18 @@ static int up_load(uint32_t k)
         fm4_apply(t, p);
     } else
 #endif
-    {
+    if (eng_retired(r->engine)) {                       /* SLICE: DRUM */
+        int16_t p[P_COUNT];
+        uint32_t to;
+        for (i = 0; i < P_COUNT; i++)
+            p[i] = param_kept(i) ? t->p[i] : v[i];
+        to = retire_remap_params(r->engine, p);
+        fm1_irq_off();
+        t->eng_req = (uint8_t)to;
+        memcpy(t->p, p, sizeof t->p);
+        t->preset = 0;
+        fm1_irq_on();
+    } else {
         fm1_irq_off();                                  /* the audio ISR must not see half a sound */
         t->eng_req = r->engine;
         for (i = 0; i < P_COUNT; i++)
@@ -538,7 +585,7 @@ static void up_pat_load(track_t *t, uint32_t k)
 }
 
 /* the engine a used slot's sound plays on (a DIGITAL record: FM6, without FELUCCA_FM4) */
-static uint32_t up_engine(uint32_t k) { return eng_ok(up_rec(k)->engine) ? up_rec(k)->engine : ENGI_FM6; }
+static uint32_t up_engine(uint32_t k) { return eng_play_as(up_rec(k)->engine); }
 
 static uint32_t up_count(void)                 /* used slots */
 {

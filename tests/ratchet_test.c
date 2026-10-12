@@ -172,7 +172,7 @@ static int projects(void)
               after.t[0].step[i].vel == before.t[0].step[i].vel;
     bad += check("FUN8: x1..x4 round trip with their velocity, accent, chance (0 and 30 %) and lane hits", ok &&
                  step_ratchet(&after.t[3].step[5]) == 4u && after.t[3].step[5].hit == 0x81);
-    pos = 68u + P_COUNT + 2u + 3u * 9u;              /* step 3 of track 1: x4 -> bit 7 of its velocity and chance */
+    pos = 68u + (P_COUNT + 1u) + 2u + 3u * 9u;       /* +1: P_IORD high byte; step 3 of track 1 */
     bad += check("  x4 is bit 7 of the velocity and the chance bytes", (packed.raw[pos + 5] & 128u) && (packed.raw[pos + 8] & 128u) &&
                  (packed.raw[pos + 5] & 127u) == before.t[0].step[3].vel);
     for (k = 0; k < NTRK; k++)
@@ -181,9 +181,10 @@ static int projects(void)
     project_capture(&before);
     proj_pack(&packed, &before);
     ok = 1;
-    for (k = 0, pos = 68u; k < NTRK; k++, pos += P_COUNT + 2u + NSTEP * 9u)
+    for (k = 0, pos = 68u; k < NTRK; k++, pos += P_COUNT + 1u + 2u + NSTEP * 9u)
         for (i = 0; i < NSTEP; i++)
-            ok &= packed.raw[pos + P_COUNT + 2u + i * 9u + 5u] < 128u && packed.raw[pos + P_COUNT + 2u + i * 9u + 8u] < 128u;
+            ok &= packed.raw[pos + P_COUNT + 1u + 2u + i * 9u + 5u] < 128u &&
+                  packed.raw[pos + P_COUNT + 1u + 2u + i * 9u + 8u] < 128u;
     bad += check("  a project without ratchets: every velocity and chance byte below 128, as firmware before wrote", ok);
     {   /* a FUN7 image (its tracks without patches) as firmware before RATCH wrote it: x1 */
         project_store_t old;

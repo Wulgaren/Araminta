@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* MENU's rows and their settings: what ui_menu.c draws and steps, and what the editor reads and sets (editor_menu.c
- * MENU_DESC / MENU_SET). One apply path for both: menu_put. Grouped: the screen (COLOR, STYLE, LARGE, ANIM, LEDS; 1.1.5:
+ * MENU_DESC / MENU_SET). One apply path for both: menu_put. Grouped: the screen (COLOR, LARGE, LEDS; 1.1.5:
  * SCREEN OFF; 1.2: SCOPE; 1.3: HOME), the
- * controls (HOLD: the layer threshold, KNOB ACCEL, FX LATCH, BPM LOCK; 1.2: SCALE LEDS, the keys, STEP PREVIEW, CHORD
+ * controls (HOLD: the layer threshold, FX LATCH, BPM LOCK; 1.2: SCALE LEDS, the keys, STEP PREVIEW, CHORD
  * ENTRY), the sound (SPEAKER EQ: FLAT LOWCUT BASS+,
  * USB LEVEL; 1.1: CLICK, CLICK LEVEL, COUNT-IN; 1.2: TUNE), MIDI (1.2: MIDI IN; 1.5: LEARN CLEAR), USB SERIAL, RESTORE
  * LAST (1.2), then CALIBRATION (the setup screen: HARDWARE CALIBRATION), INFO (1.2) and ABOUT, the rows with no value
@@ -12,38 +12,41 @@
  * has LEARN_SET op 2 for it, so MENU_DESC does not offer it); the row shows how many CCs are learned
  * 1.2: TUNE and MIDI IN are not settings: they edit the project's G_TUNE and G_ROUTE (up to 1.1.5 on GLO > GLOBAL and
  * GLO > SYSTEM), the values the project holds and saves as before (no format change; a project load brings its own);
- * nothing of theirs is in the settings record (MI_PROJECT: menu_get / menu_put read and write song.g) */
-enum { MI_COLOR, MI_STYLE, MI_LARGE, MI_ANIM, MI_LEDS, MI_SCROFF, MI_SCOPE, MI_HOME, MI_HOLD, MI_ACCEL, MI_LATCH, MI_BPMLOCK, MI_SCLLED,
+ * nothing of theirs is in the settings record (MI_PROJECT: menu_get / menu_put read and write song.g).
+ * STYLE, ANIM and KNOB ACCEL are retired (always FLAT, always OFF, always ON): kept for the editor's fixed ids, not
+ * shown on the device */
+enum { MI_COLOR, MI_LARGE, MI_LEDS, MI_SCROFF, MI_SCOPE, MI_HOME, MI_HOLD, MI_LATCH, MI_BPMLOCK, MI_SCLLED,
        MI_PREVIEW, MI_CHADD, MI_LOWCUT, MI_USB,
        MI_CLICK, MI_CLKLVL, MI_COUNTIN, MI_TUNE, MI_MIDIIN, MI_LCLEAR, MI_SERIAL, MI_RESTORE, MI_HELP, MI_PANEL, MI_INFO,
-       MI_ABOUT, MI_COUNT };
+       MI_ABOUT, MI_STYLE, MI_ANIM, MI_ACCEL, MI_COUNT };
                                                        /* (1.1: the metronome's rows in AUDIO; 1.2: RESTORE LAST in
                                                         * SYSTEM, SCALE LEDS STEP PREVIEW CHORD ENTRY in CONTROL, SCOPE in
                                                         * DISPLAY, TUNE in AUDIO, MIDI IN in MIDI, INFO in SYSTEM;
-                                                        * 1.3: HOME in DISPLAY; 1.5: HELP in SYSTEM) */
+                                                        * 1.3: HOME in DISPLAY; 1.5: HELP in SYSTEM;
+                                                        * STYLE / ANIM / KNOB ACCEL retired: after ABOUT, no tab) */
 #define MI_VALUES MI_PANEL
 static int menu_valued(uint32_t row) { return row < MI_VALUES && row != MI_LCLEAR; }   /* (a row with a value) */
 #define MI_PROJECT(row) ((row) == MI_TUNE || (row) == MI_MIDIIN)   /* the project's values (song.g), not settings */
-static const char *const MI_NAME[MI_COUNT] = {"COLOR", "STYLE", "LARGE", "ANIM", "LEDS", "SCREEN OFF", "SCOPE", "HOME", "HOLD", "KNOB ACCEL",
+static const char *const MI_NAME[MI_COUNT] = {"COLOR", "LARGE", "LEDS", "SCREEN OFF", "SCOPE", "HOME", "HOLD",
                                               "FX LATCH", "BPM LOCK", "SCALE LEDS", "STEP PREVIEW", "CHORD ENTRY",
                                               "SPEAKER EQ", "USB LEVEL", "CLICK", "CLICK LEVEL", "COUNT-IN", "TUNE",
                                               "MIDI IN", "LEARN CLEAR", "USB SERIAL", "RESTORE LAST", "HELP", "CALIBRATION", "INFO",
-                                              "ABOUT"};
-/* 1.0.5: the MENU's tabs (ui_menu.c: ALGORITHM steps between them, PRESETS among one tab's rows; the editor gets a
+                                              "ABOUT", "STYLE", "ANIM", "KNOB ACCEL"};
+/* 1.0.5: the MENU's tabs (ui_menu.c: SELECT steps between them, ALGORITHM among one tab's rows; the editor gets a
  * row's tab after its MENU_DESC reply). A tab's rows follow each other in MI order (tests/ui_test.c checks it); at
  * most MTAB_ROWS each (the page does not scroll: ui_menu.c fits them; 1.2: 7, the rows of such a tab 21 px; 1.3: 8,
  * 18 px). A new row
  * joins a tab here. Tabs are in the order the device shows them; a tab's index is what the editor is told, not an id
- * (1.2: MIDI came in before SYSTEM, SYSTEM's index 3 -> 4) */
+ * (1.2: MIDI came in before SYSTEM, SYSTEM's index 3 -> 4). STYLE, ANIM and KNOB ACCEL use MTAB_COUNT (hidden) */
 enum { MTAB_DISPLAY, MTAB_CONTROL, MTAB_AUDIO, MTAB_MIDI, MTAB_SYSTEM, MTAB_COUNT };
 #define MTAB_ROWS 8u
 static const char *const MTAB_NAME[MTAB_COUNT] = {"DISPLAY", "CONTROL", "AUDIO", "MIDI", "SYSTEM"};
 static const uint8_t MI_TAB[MI_COUNT] = {
-    MTAB_DISPLAY, MTAB_DISPLAY, MTAB_DISPLAY, MTAB_DISPLAY, MTAB_DISPLAY,   /* COLOR STYLE LARGE ANIM LEDS */
+    MTAB_DISPLAY, MTAB_DISPLAY, MTAB_DISPLAY,                               /* COLOR LARGE LEDS */
     MTAB_DISPLAY,                                                           /* SCREEN OFF (1.1.5) */
     MTAB_DISPLAY,                                                           /* SCOPE (1.2) */
     MTAB_DISPLAY,                                                           /* HOME (1.3) */
-    MTAB_CONTROL, MTAB_CONTROL, MTAB_CONTROL, MTAB_CONTROL,                 /* HOLD KNOB ACCEL FX LATCH BPM LOCK */
+    MTAB_CONTROL, MTAB_CONTROL, MTAB_CONTROL,                               /* HOLD FX LATCH BPM LOCK */
     MTAB_CONTROL,                                                           /* SCALE LEDS (1.2) */
     MTAB_CONTROL, MTAB_CONTROL,                                             /* STEP PREVIEW, CHORD ENTRY (1.2) */
     MTAB_AUDIO, MTAB_AUDIO, MTAB_AUDIO, MTAB_AUDIO, MTAB_AUDIO,             /* SPEAKER EQ, USB LEVEL, CLICK, CLICK LEVEL,
@@ -53,6 +56,7 @@ static const uint8_t MI_TAB[MI_COUNT] = {
     MTAB_MIDI,                                                              /* LEARN CLEAR (1.5) */
     MTAB_SYSTEM, MTAB_SYSTEM, MTAB_SYSTEM,                                  /* USB SERIAL, RESTORE LAST, HELP (1.5) */
     MTAB_SYSTEM, MTAB_SYSTEM, MTAB_SYSTEM,                                  /* CALIBRATION, INFO (1.2), ABOUT */
+    MTAB_COUNT, MTAB_COUNT, MTAB_COUNT,                                     /* STYLE, ANIM, KNOB ACCEL (retired) */
 };
 /* TUNE: the project's tuning in cents (G_TUNE, -50..+50); as a row its values 0..TUNE_N - 1 (value - TUNE_MIN). The
  * editor gets it as a number (EDM_INT: the cents, min..max, its unit) */
@@ -73,20 +77,20 @@ static uint32_t mtab_rows(uint32_t t)                  /* .. and how many it has
         n += MI_TAB[i] == t;
     return n;
 }
-/* STYLE (ui_style, gfx.c ST_*): FLAT the filled cards; LINE black areas divided by 1 px rules (#50, #57: the 0.9 look)
- * (1.0.2: PIXEL retired, a saved PIXEL reads as LINE) */
+/* STYLE (retired: always FLAT). Kept for the editor's id 1; LINE / PIXEL no longer offered */
 static const char *const STYLE_N[2] = {"FLAT", "LINE"};
+/* KNOB ACCEL (retired: always ON). Kept for the editor's id 6; OFF no longer offered */
+static const char *const ACCEL_N[2] = {"OFF", "ON"};
 /* the two-valued rows: a bit of ui_prefs (PREF_REC: of ui_rec_prefs, ui.c PREF_SCALE_LEDS) and its names (bit clear =
  * the default, bit set). A step up (a knob right,
- * OCT+) = ON on the ON / OFF rows (the switch's knob to the right; ANIM, USB SERIAL: their bit clears), else the
- * second name (STYLE LINE, USB LEVEL FIXED); a step down the other (menu_step) */
+ * OCT+) = ON on the ON / OFF rows (the switch's knob to the right; USB SERIAL: its bit clears), else the
+ * second name (USB LEVEL FIXED); a step down the other (menu_step) */
 typedef struct { uint8_t row; uint32_t bit; const char *name[2]; } menu_flag_t;
 static const menu_flag_t MENU_FLAGS[] = {
     {MI_LARGE, PREF_LARGE, {"OFF", "ON"}},            /* #15 / Discussion #80: ON, big knob labels and values (ui.c large_kind) */
-    {MI_ACCEL, PREF_ACCEL, {"OFF", "ON"}},            /* #52: ui_input.c accel */
     {MI_LATCH, PREF_LATCH, {"OFF", "ON"}},
     {MI_USB, PREF_USB_FIXED, {"MASTER", "FIXED"}},     /* fx.c fx_usb_fixed: FIXED, USB at the full level */
-    {MI_BPMLOCK, PREF_BPM_LOCK, {"OFF", "ON"}},        /* #58: ON, SELECT sets the tempo with GLO held only (ui_input.c) */
+    {MI_BPMLOCK, PREF_BPM_LOCK, {"OFF", "ON"}},        /* ON: lock icon by the BPM; tempo is GLO+SELECT / CLOCK */
     {MI_SERIAL, PREF_SERIAL_OFF, {"ON", "OFF"}},       /* #67: OFF, no serial console (usb_serial_apply) */
     {MI_RESTORE, PREF_RESTORE_OFF, {"ON", "OFF"}},     /* 1.2, #130: OFF, no autosave, power-on as new (project.c) */
     {MI_SCLLED, PREF_SCALE_LEDS, {"OFF", "ON"}},      /* 1.2, Discussion #127: ON, the keys show the scale (ui_input.c) */
@@ -107,11 +111,8 @@ static const char *const CLKLVL_N[3] = {"LOW", "MID", "HIGH"};
 static const char *const COUNTIN_N[3] = {"OFF", "1 BAR", "2 BARS"};
 /* 1.1.5: SCREEN OFF (ui.c scr_*: the screen dark after this long without panel input; NEVER the default since 1.1.5.1) */
 static const char *const SCROFF_N[5] = {"NEVER", "5 MIN", "15 MIN", "30 MIN", "60 MIN"};
-/* ANIM (#46: OFF, values snap: ui_draw.c roll_note, ui_graph.c pr_follow; no power-on sweep, main.c boot_leds). 1.2
- * (Discussion #135): IDLE, as ON and the LEDs' idle animation after a minute without input (ui_input.c idle_leds; ui.c
- * ui_idle). Its values keep 1.1's: 0 ON, 1 OFF (the editor's), 2 IDLE; the menu steps them OFF, ON, IDLE (ANIM_ORD) */
+/* ANIM (retired: always OFF). Kept for the editor's id 3; ON / IDLE no longer offered. Values stay 0 ON, 1 OFF, 2 IDLE */
 static const char *const ANIM_N[3] = {"ON", "OFF", "IDLE"};
-static const uint8_t ANIM_ORD[3] = {1, 0, 2};          /* (a value's place in the menu's order, and back: its own inverse) */
 /* 1.3 (Discussions #112, #134): what HOME shows under its cards (ui.c ui_home_view): the scope, or the four tracks */
 static const char *const HOME_N[HV_COUNT] = {"SCOPE", "TRACKS", "LEVELS"};   /* (1.5, #134: LEVELS) */
 
@@ -157,11 +158,12 @@ static uint32_t menu_get(uint32_t row)
         return ((ui_prefs | (uint32_t)ui_rec_prefs << 8 | (uint32_t)ui_prefs2 << 16) & f->bit) != 0;
     switch (row) {
     case MI_COLOR: return settings.palette % NPALETTES;
-    case MI_STYLE: return ui_style == ST_LINE;
+    case MI_STYLE: return 0u;                          /* retired: always FLAT */
     case MI_LOWCUT: return settings.lowcut % 3u;
     case MI_HOLD: return settings_hold % 4u;
     case MI_SCROFF: return scr_get();
-    case MI_ANIM: return ui_prefs & PREF_ANIM_OFF ? 1u : (ui_idle & 1u) ? 2u : 0u;
+    case MI_ANIM: return 1u;                           /* retired: always OFF */
+    case MI_ACCEL: return 1u;                          /* retired: always ON */
     case MI_HOME: return ui_home_view < HV_COUNT ? ui_home_view : HV_SCOPE;
     case MI_CLICK: case MI_CLKLVL: case MI_COUNTIN: return rp_get(row - MI_CLICK);
     case MI_TUNE: return (uint32_t)(clamp(song.g[G_TUNE], TUNE_MIN, TUNE_MIN + (int32_t)TUNE_N - 1) - TUNE_MIN);
@@ -188,6 +190,7 @@ static const char *menu_vname(uint32_t row, uint32_t v)
     case MI_COUNTIN: return COUNTIN_N[v % 3u];
     case MI_SCROFF: return SCROFF_N[v % NELEM(SCROFF_N)];
     case MI_ANIM: return ANIM_N[v % 3u];
+    case MI_ACCEL: return ACCEL_N[v & 1u];
     case MI_HOME: return HOME_N[v % HV_COUNT];
     case MI_LEDS: return LEDS_NAME[LEDS_MENU[v % LEDS_COUNT]];
     case MI_MIDIIN: return N_ROUTE[v % NELEM(N_ROUTE)];
@@ -202,10 +205,10 @@ static const char *menu_vname(uint32_t row, uint32_t v)
     return "";
 }
 /* set a row (v below menu_n(row)) and do what the menu does on a change: the palette, the EQ and USB LEVEL at once;
- * STYLE (ui_draw.c style_apply), LARGE, ANIM, LEDS, HOLD, the flags are read where they are used, every frame;
- * USB SERIAL when the menu has closed (usb_serial_apply). Saved by the caller (menu_close, the editor). TUNE and MIDI IN:
- * the project's values, as their page knobs set them up to 1.1.5 (voice.c reads TUNE, seq.c events_block ROUT's change);
- * kept with the project (PROJECT SAVE, the autosave), not by settings_save */
+ * LARGE, LEDS, HOLD, the flags are read where they are used, every frame; STYLE, ANIM and KNOB ACCEL are retired
+ * (ignored); USB SERIAL when the menu has closed (usb_serial_apply). Saved by the caller (menu_close, the editor).
+ * TUNE and MIDI IN: the project's values, as their page knobs set them up to 1.1.5 (voice.c reads TUNE, seq.c
+ * events_block ROUT's change); kept with the project (PROJECT SAVE, the autosave), not by settings_save */
 static void menu_put(uint32_t row, uint32_t v)
 {
     const menu_flag_t *f = menu_flag(row);
@@ -226,14 +229,13 @@ static void menu_put(uint32_t row, uint32_t v)
         palette_set(v);                                /* (the menu signature redraws) */
         ui.force = 1;
         break;
-    case MI_STYLE: ui_style = (uint8_t)(v ? ST_LINE : ST_FLAT); break;   /* (drawn so from the next frame) */
+    case MI_STYLE:                                     /* retired: always FLAT */
+    case MI_ANIM:                                      /* retired: always OFF */
+    case MI_ACCEL:                                     /* retired: always ON */
+        break;
     case MI_LOWCUT: settings.lowcut = v; fx_lowcut = (uint8_t)v; break;
     case MI_HOLD: settings_hold = (uint8_t)v; break;
     case MI_SCROFF: scr_put(v); break;                 /* (read every frame: ui.c scr_frame) */
-    case MI_ANIM:                                      /* (read where they are used, every frame) */
-        ui_prefs = (uint8_t)(v == 1u ? ui_prefs | PREF_ANIM_OFF : ui_prefs & ~PREF_ANIM_OFF);
-        ui_idle = (uint8_t)(v == 2u ? ui_idle | 1u : ui_idle & ~1u);
-        break;                                         /* (1.5: up to 1.4.1 it fell through: ANIM set HOME too) */
     case MI_HOME:                                      /* (another look: HOME drawn anew) */
         ui_home_view = (uint8_t)(v < HV_COUNT ? v : HV_SCOPE);
         ui.force = 1;
@@ -253,9 +255,9 @@ static uint32_t menu_step(uint32_t row, int32_t s)
     uint32_t v = menu_get(row), n = menu_n(row);
     if (row == MI_TUNE)
         return (uint32_t)clamp((int32_t)v + s, 0, (int32_t)n - 1);
-    if (row == MI_ANIM)                                /* OFF ON IDLE, stopping at the ends */
-        return ANIM_ORD[clamp((int32_t)ANIM_ORD[v % 3u] + (s > 0) - (s < 0), 0, 2)];
-    if (f && str_eq(f->name[0], "ON"))                 /* (ANIM, USB SERIAL, RESTORE LAST: ON is their value 0) */
+    if (row == MI_STYLE || row == MI_ANIM || row == MI_ACCEL)   /* retired: fixed value */
+        return v;
+    if (f && str_eq(f->name[0], "ON"))                 /* (USB SERIAL, RESTORE LAST: ON is their value 0) */
         s = -s;
     if (s > 0)
         return v + 1u < n ? v + 1u : row == MI_COLOR ? 0u : v;

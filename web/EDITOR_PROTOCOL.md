@@ -90,7 +90,7 @@ watches (v2, `WATCH`), the device also sends push frames (cmds 23, 24, 26) at an
 | string | ASCII bytes, ended by a 0 byte |
 | scope | 0 = parameter of the selected track (`P_*`, 0..P_COUNT−1); 1 = global parameter (`G_*`, 0..G_COUNT−1) |
 | track | 0..3: tracks 1..4 (synth parts) |
-| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 SAMPLE, 5 VOICE, 6 TRIO, 7 WHEEL, 8 GRAIN, 9 PHYS, 10 DRUM, 11 NOISE, 12 FM6, 13 SLICE (NENGINES 14; a build with `FELUCCA_SLICE=0` has 13). The device and the editor list them in another order (ANALOG FM6 PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE SLICE DRUM: `ENGINE_ORDER`); the numbers stay |
+| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 SAMPLE, 5 VOICE, 6 TRIO, 7 WHEEL, 8 GRAIN, 9 PHYS, 10 DRUM, 11 NOISE, 12 FM6, 13 reserved (SLICE retired). NENGINES is 14. The device and the editor list pickable engines in another order (ANALOG FM6 PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM: `ENGINE_ORDER`); the numbers stay |
 
 The engine parameters are `P_E0..P_E7`: P_COUNT−8 .. P_COUNT−1 (103..110 since 1.5; 96..103 in 1.2 .. 1.4; 91..98 in
 1.1), and `INFO` gives `P_E0`.
@@ -103,7 +103,7 @@ P_COUNT 69): slot k (1..4) is `SRCk`, `DSTk`, `AMTk` at ids 49 + 3 (k − 1) .. 
 | id | label | values |
 | --- | --- | --- |
 | 49, 52, 55, 58 | SRC1..SRC4 | enum: 0 OFF, 1 LFO, 2 ENV, 3 VEL, 4 KEY, 5 RAND, 6 MODW (CC1), 7 AT (channel aftertouch), 8 EXPR (CC11), 9 S&H (a random value held for one cycle of the track LFO), 10 SLEW (S&H gliding from the cycle before's value) |
-| 50, 53, 56, 59 | DST1..DST4 | enum (21 names): 0 OFF, 1 PITCH, 2 CUT, 3 SHP, 4 AMP (per voice); 5 PAN, 6 DIST, 7 CHO, 8 DLY, 9 REV, 10 RATE (LFO rate), 11 VIB (LFO pitch depth), 12..19 E1..E8 = `P_E0..P_E7`, 20 DEPTH (the track LFO's depth: a gain on LFO DEST and the matrix's LFO source) (per block) |
+| 50, 53, 56, 59 | DST1..DST4 | enum (44 names): 0 OFF, 1 PITCH, 2 CUT, 3 SHP, 4 AMP (per voice); 5 PAN, 6 DIST (insert drive), 7 CHO (insert CHOR mix), 8 DLY, 9 REV, 10 RATE (LFO rate), 11 VIB (LFO pitch depth), 12..19 E1..E8 = `P_E0..P_E7`, 20 DEPTH (LFO depth), 21..23 PAT/SRATE/SDEP (SLICER), 24..25 CHRD/VOIC, 26..43 insert continuous + MIX (no MODE/TYPE enums): TONE, DMIX, FCUT, FRES, FMIX, BITS, CRAT, CLPF, CMIX, PRAT, PDEP, PFBK, PMIX, FRAT, FDEP, LMIX, HRAT, HDEP (per block). `DESC` lists all 44 (cap 48) |
 | 51, 54, 57, 60 | AMT1..AMT4 | −64..63 (fmt BIPCT) |
 
 `DESC` names E1..E8 as such; the device shows the engine's label of that parameter instead (`DESC` of
@@ -120,6 +120,12 @@ reads it, a project keeps it): `SET` of `G_ENGSEL` = 1 (DIGITAL's first preset),
 load converts them), projects with DIGITAL tracks (their motion on E1..E8 and ids 61..80 is dropped). The track
 reports engine 12 (FM6) and the FM6 preset that covers the sound. The editor converts DIGITAL patches of library
 files the same way (it equals the firmware's, `test_web.mjs`).
+
+**SAMPLE (4), GRAIN (8), NOISE (11) and SLICE (13) were removed.** Their numbers stay reserved: `INFO` names
+them "-", `NAMES` lists no presets, and no track keeps them. A project or user preset with one of those engines
+loads as ANALOG (SAMPLE / GRAIN / NOISE; SAMPLE SET 4 PERC still becomes DRUM's kit) or DRUM (SLICE), with EDIT
+motion dropped (`firmware/src/eng_retire.c`, `project.c` `proj_retire`). `UP_PUT` still takes the old engine byte;
+every load converts. The editor remaps the same way (`fromRetire`).
 
 The four FM operator envelopes (the DIGITAL engine's OP1..OP4 ENV and OP LEVEL pages, `eng_digital.c`) are
 twenty track parameters at ids 61..80, five per operator: operator k (1..4) has `ATK`, `DEC`, `SUS`, `REL`,
@@ -173,8 +179,8 @@ The FX layer's REV THROW and ECHO THROW (1.5.1) are performance only: no paramet
 and the reply says so) and its knob steps over it. Of a repeated name, the original is the first value when that has
 the name, else the last one with it; an editor should list only the originals and show an alias by its name when
 it ever sees one. Today: SAMPLE SET and GRAIN SRC 1 and 4 (once TRANH, PERC) = 0 PIANO; DRUM KIT (engine 10, E1)
-1, 2, 3 (once HAND, CYM, H+CYM; 1.0.5) = 6 (66), 5 (10), 8 (77): its names are STD 66 10 77 80 10 66 55 77, the
-device's knob steps STD 80 10 66 55 77. An editor of before 1.0.5 (first of a name = original) offers 66 10 77
+1, 2, 3 (once HAND, CYM, H+CYM; 1.0.5) = 6 (66), 5 (10), 8 (77): its names are STD 66 10 77 80 10 66 55 77 78, the
+device's knob steps STD 80 10 66 55 77 78. An editor of before 1.0.5 (first of a name = original) offers 66 10 77
 at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device answers with 6 5 8.
 
 ## Commands
@@ -195,7 +201,7 @@ at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device 
 | 12 SMP_WRITE | slot, offset (3 × 7 bit, LSB first), pack7 data (≤ 256 bytes) | slot, offset, rc: 0 ok, 1 arguments, 2 erase, 3 write, 4 slot in use (send SMP_BEGIN first). Offset ≥ 512 and a multiple of 256; writes go in increasing order (a write at a 4 KiB boundary erases that sector) |
 | 13 SMP_END | slot, pack7 header (480 bytes) | slot, rc: 0 ok, 1 size, 2 header, 3 data CRC, 4 flash, 5 zones |
 | 14 SMP_ERASE | slot | slot, rc (erases the whole slot, ~1 s) |
-| 15 SMP_INFO | — | slots, slot KiB, then per slot: zone count (0 = empty), name string, data KiB |
+| 15 SMP_INFO | — | slots, slot KiB, then per slot: zone byte (low bits = zone count 0 = empty, max 16; bit 6 = drum kit grid from FSMP `hdr.rsv`; 7-bit SysEx), name string, data KiB |
 | 16 UP_LIST | start, count (1..16) | start, count, total slots, then per slot: used (0/1), engine, name string ("" if unused); 1.2: then one category byte per slot listed (below; 0 if unused) |
 | 17 UP_GET | slot | slot, used, engine, name, P_COUNT × v14, 16 × (note, flags), then (v5) kind (0 a note pattern, 1 a drum grid) and for kind 1 16 × hi; 1.2: then the category |
 | 18 UP_PUT | slot, engine, name, P_COUNT × v14, 16 × (note, flags) [, kind 0 or 1, 16 × hi (v5) [, category (1.2)]] | slot, rc (0 ok, 1 args, 2 flash). Writes flash: allow 1 s |
@@ -241,7 +247,7 @@ checked byte for byte by `web/test_web.mjs`): header at 0, ADPCM data at 512.
 
 | Offset | Field |
 | --- | --- |
-| 0 | magic `"FSMP"` (u32 0x504D5346), u16 version 1, u8 zone count 1..16, u8 0 |
+| 0 | magic `"FSMP"` (u32 0x504D5346), u16 version 1, u8 zone count 1..16, u8 rsv (bit 0 = drum kit grid: SEQ shows the drum grid for SAMPLE on this USR slot; zones mapped by hand on upload) |
 | 8 | name, 8 ASCII bytes (0-padded) |
 | 16 | u32 data length (bytes), u32 CRC-32 (zlib) of the data, 8 bytes 0 |
 | 32 | 16 zones × 28 bytes: u32 off (in the data), n (samples), loop start, loop end, rate (Hz / 44100 × 65536); i16 root × 16 (MIDI note), ADPCM predictor at the loop start; u8 step index at the loop start, lo note, hi note, looped (0/1) |
@@ -292,7 +298,7 @@ numbered 0..31 (the device shows U01..U32).
   = 4, stored then or sent by `UP_PUT`, is the DRUM engine with its default kit: the device rewrites it (engine 10,
   E1..E8 = DRUM KIT's {0, 64, 70, 64, 64, 100, 0, 0}, the other values and the pattern as they were). Projects
   and `PRESET` 4 / 4 do the same (a project's track keeps its steps). SET 4 itself stays (`DESC` names it "PIANO":
-  an alias, as SET 1; a `SET` of 4 lands on 0), and USR1..USR3 stay 5..7; GRAIN's SRC 4 plays PIANO.
+  an alias, as SET 1; a `SET` of 4 lands on 0), SET 5 is CR78, and USR1..USR3 are 6..8; GRAIN's SRC 4 plays PIANO.
 - **DRUM KIT 1..3** were HAND, CYM and H+CYM until 1.0.4 (STD with a conga / claves, a cymbal, both). Since 1.0.5
   they play the VA kits 66, 10 and 77, and a record holding one loads as that kit: `UP_GET` / `UP_LOAD` give KIT 6, 5
   or 8 (the record itself is not rewritten). Projects, motion events and `SET` do the same.
@@ -406,10 +412,11 @@ grid lives in the steps themselves, so every engine has it:
 - The globals `G_DRCH`, `G_DRLVL`, `G_DRREV` (ids 24..26: the old drum track's MIDI channel, level and
   reverb send) keep their ids, and `G_COUNT` stays 27. `G_DRLVL` and `G_DRREV` are inert: `DESC` gives
   label "-", range 0..0, and no page shows them. Id 24 (`G_DRCH`, never read since 1.0) is `G_RTYPE`
-  since 1.0: the reverb's model, `DESC` label "TYPE", enum ROOM (0) / SPRING (1) / HALL (2, since 1.2), on the
-  REVERB page (FX). The power-on value (`DESC` def) is HALL since 1.2, ROOM before; a project keeps its own, and
-  projects of formats before FUN7 load it as ROOM. MIDI channel 10 is no longer special (channels 1..4 play
-  tracks 1..4, channels 5..16 are ignored since 1.0.3; with ROUT SEL every channel the selected track).
+  since 1.0: the reverb's model, `DESC` label "TYPE", enum ROOM (0) / SPRING (1) / HALL (2, since 1.2) /
+  SHIMR (3) / CLOUD (4, JIANT), on the REVERB page (FX). The power-on value (`DESC` def) is HALL since 1.2,
+  ROOM before; a project keeps its own, and projects of formats before FUN7 load it as ROOM. MIDI channel 10
+  is no longer special (channels 1..4 play tracks 1..4, channels 5..16 are ignored since 1.0.3; with ROUT SEL
+  every channel the selected track).
 - Selecting a track with `TRACK` does not push `RELOAD` (the editor re-reads `DUMP`, the steps and the
   engine `DESC` itself); selecting one on the device does (`RELOAD` with the new track).
 - Pushes are about the selected track only: `CHANGED` (scope 0) and `STEP_CHANGED` refer to it, and
@@ -596,12 +603,12 @@ when the track's engine is not the saved one).
 - **Projects (FUN10, since 1.2).** FUN9 laid out the same way, `46 55 4E 41` ("FUNA", FUN10 in these notes), size
   3840 (a whole storage object): P_COUNT 104 at byte 66 and 104 bytes per track (103 in builds before SPREAD: loaded by count); each step's nudge (−8..+7, two's
   complement in 4 bits) in bit 7 of its four note bytes (bit j of the nudge in note j; every older format wrote them 0);
-  the motion block 388 bytes: count, on mask, 2 reserved, 128 × (track << 6 | step, id (bit 7 a lock), value as a signed
-  byte −64..127); the song's chain is its sections (84 bytes, see "1.2: song sections"). 68 + 4 × (104 + 2 + 576) + chain + motion = 3268; the FM6 patches at 3312..3823 (44 bytes to spare
-  before them), the name at 3824..3835, the hash last. FUN9 (3648, 99 parameters, 64 records of 4 bytes) loads mapped by
+  the motion block on disk holds up to 110 records (4 + 110 × 3 = 334; RAM still 128); the song's chain is its sections (84 bytes, see "1.2: song sections"). With today's parameter count the FM6 patches stay at 3312..3823 (2 bytes to spare before them after the 334-byte motion), the name at 3824..3835, the hash last. FUN9 (3648, 99 parameters, 64 records of 4 bytes) loads mapped by
   count (LFO 2 off, QUANTIZE ON, SPREAD 0, the engine values and their motion from 91..98 to 96..103), every nudge 0; FUN8 and
   older as before. Firmware before 1.2 refuses a FUN10 (its size and magic), so an editor must not send one there
   (`BACKUP_PUT` begin answers rc 1 for its size). Backups, `PROJECT` and the editor's project files carry the 3840 bytes.
+  **Read only since FUN11:** a FUN10 loads with the factory DRUM-X kit (no kit bytes on disk).
+- **Projects (FUN11, Araminta).** Same 3840-byte object as FUN10, magic `46 55 4E 42` ("FUNB", FUN11 in these notes): the DRUM-X kit (`dx_lane_t[8]`, 88 bytes), mute lo/hi, a marker byte, and X-MOD `dx_mot[4]` (96 bytes total) at offset 3216 just before the FM6 patches — as JIANT's FUNA kit placement. Disk motion shrinks to 78 records (4 + 78 × 3 = 238) so the kit fits; RAM still holds 128. Firmware that only knows FUN10 refuses a FUN11 (magic): its slot shows EMPTY until saved over. Backups, `PROJECT` and the editor's project files still carry 3840 bytes (begin accepts the size as for FUN10; the magic distinguishes the layout).
 - **MIDI clock** has no SysEx. `G_CLOCK` selects the source: 0 INT, 1 USB, 2 TRS. With 1 or 2 the sequencer
   steps on that port's Clock pulses (the other port's are ignored), Start (0xFA) restarts from step 0,
   Continue (0xFB) resumes and Stop (0xFC) stops; BPM follows the incoming tempo (40..240), and 500 ms
@@ -654,7 +661,9 @@ INFO advertises `4C 01 1` after the ratchet tag (`52 01 4`). Firmware without it
   page shown last before (HOME's four, ENV, LFO, FX, EDIT 1 / 2, ..; the cards show them while a step is held). On
   the DRUM grid a step is its white key (several held: each gets the lock; a key pressed on a hit takes it away
   only when let go without a knob turned); on the piano roll the step being entered (its note keys held). [EDIT]
-  tapped with a step held clears its locks; EDIT alone clears the step and its locks. The roll and the grid mark
+  tapped with a step held clears its locks. EDIT alone opens the EDIT section. On the piano roll, KNOB 3 (LEN)
+  turned to 0 clears the note and its locks, and the knob becomes TIME. On the drum grid, KNOB 3 (HIT) turned
+  off clears the hit. The roll and the grid mark
   the steps that hold a lock; AUTOMATION shows the count (LOCK).
 
 ## 1.2: LFO 2, NUDGE, 128 records (FUN10)
@@ -677,7 +686,9 @@ in 1/16 of a step) after the locks tag (`4C 01 1`). Firmware without them: 64 re
 - **Nudge:** the byte after the ratchet in `STEP_GET` / `STEP_SET` / `TRACK_STEP` (a change on the device pushes
   `STEP_CHANGED`), nudge + 8 (0..15:
   −8 = half a step early .. +7 = 7/16 late, 8 = on the step). A write without it keeps the step's. The device records it
-  live and sets it on SEQ > AUTOMATION's NUDGE rows (and STEP, steps held + PRESETS); it plays with the track's `QNTZ` OFF
+  live and sets it on SEQ > AUTOMATION's NUDGE rows and on SEQ > DETAIL. On SEQ > STEP, PRESETS moves notes in
+  time (the drum grid: the steps held; the piano roll: the note under the cursor, ties included) and does not set
+  NUDGE. NUDGE plays with the track's `QNTZ` OFF
   (on the device: AUTOMATION's QUANTIZE row; not for a ratcheted step: its parts divide the step).
 - **Motion:** 128 records shared by the four tracks, both kinds. Ops 1..7 reply as before 1.2 (`max` 64, at most the
   track's first 64 records in store order: an editor of before keeps working while a track holds no more); op 8
@@ -742,7 +753,7 @@ No new command or INFO tag: P_COUNT 111 and P_E0 103 (from `INFO`, with the INSE
 
 | id | label | values |
 | --- | --- | --- |
-| 101 | `TYPE` | enum LP BP HP, default LP. ANALOG's filter (Discussion #104): the state-variable filter's low-pass (as before, bit for bit), band-pass or high-pass output, CUT / RES / KTR and every cutoff routing as they are. Other engines ignore it. On the device: EDIT > FILTER (TYPE CUT RES KTR), an ANALOG track's page after EDIT 2 |
+| 101 | `TYPE` | enum LP BP HP, default LP. ANALOG's filter (Discussion #104): the state-variable filter's low-pass (as before, bit for bit), band-pass or high-pass output, CUT / RES / KTR and every cutoff routing as they are. Other engines ignore it. On the device: EDIT > FILTER (TYPE CUT RES KTR) after OSC; FILTER DRIVE is DRV; ANALOG has no EDIT 2 |
 | 102 | `ESYNC` | enum OFF ON, default OFF. ENV SYNC (Discussion #175): ON, the amp envelope's ATK DEC REL (ids 1, 2, 4) are note values of the tempo (BPM, or the external clock's measured tempo) instead of 1 ms .. 10 s. On the device: ENV DEST's KNOB 4 |
 
 Both are the sound's (a factory preset or TOOLS INIT sets LP / OFF; user presets and library files store them). Neither can
@@ -774,9 +785,9 @@ this firmware sends 3. Requests name objects, never flash addresses.
 
 | id | object | size |
 | --- | --- | --- |
-| 0 | runtime: the music being played now, as a FUN10 project (1.1: FUN9, 3648; 1.0.x: FUN8, 3584; firmware before FM6: FUN7, 3388) | 3840 |
+| 0 | runtime: the music being played now, as a FUN11 project (FUN10/FUNA still load; 1.1: FUN9, 3648; 1.0.x: FUN8, 3584; firmware before FM6: FUN7, 3388) | 3840 |
 | 1 | settings (palette, speaker, HOLD time, favorites, panel calibration, ...) | the settings record's size |
-| 2..5 | PROJECT slots 1..4 (FUN10; 1.1: FUN9, 3648; 1.0.x: FUN8, 3584) | 3840, or 0 if empty |
+| 2..5 | PROJECT slots 1..4 (FUN11; FUN10 still load; 1.1: FUN9, 3648; 1.0.x: FUN8, 3584) | 3840, or 0 if empty |
 | 6, 7 | user preset banks (slots 1..16, 17..32) | the bank's size, or 0 if empty |
 | 8 | the FM6 patch bank of 1.0..1.0.2 (B1..B27). Since 1.0.3 always listed empty (see below) | 3472, or 0 if empty |
 | 9 | the user presets' FM6 patches (1.0.3; `up_fm6.c`: per slot a tag and the packed patch) | 3728, or 0 if none |
@@ -789,11 +800,11 @@ they are in RAM or flash. Then `BACKUP_GET` reads an object in pieces: `id, offs
 against the list; if it differs the device changed, so start again.
 
 Restoring: `BACKUP_PUT` takes ids 0..9 (firmware before 1.0.3: 0..8, id 9 answers rc 1 at begin and nothing is written) (the samples are written with `SMP_BEGIN` / `SMP_WRITE` / `SMP_END`,
-or `SMP_ERASE` for an empty slot). Begin: `0, id, size u32, crc u32`: size is 3840 (FUN10), 3648 (FUN9), 3584 (FUN8) or 3388 (FUN7, FUN6) for id 0,
+or `SMP_ERASE` for an empty slot). Begin: `0, id, size u32, crc u32`: size is 3840 (FUN11 / FUN10), 3648 (FUN9), 3584 (FUN8) or 3388 (FUN7, FUN6) for id 0,
 the settings record's size for id 1, 3840, 3648, 3584, 3388 or 0 (empty the slot) for ids 2..5, the bank's size or 0 for 6 and 7,
 3472 or 0 for 8 (the FM6 bank: its magic, layout and every byte below 128 are checked), 3728 or 0 for 9 (its magic,
-version and slot count checked; 0 clears the patches). FUN9, FUN8, FUN7 and FUN6 become FUN10 (1.2; firmware before
-1.2 refuses a 3840-byte project at begin, rc 1).
+version and slot count checked; 0 clears the patches). FUN9, FUN8, FUN7 and FUN6 become FUN11 (FUN10 still loads; firmware before
+1.2 refuses a 3840-byte project at begin, rc 1; firmware that only knows FUN10 refuses FUNB magic on load).
 An archive without id 8 (written before FM6) still restores; the web editor reads all three kinds (11, 12, 13 objects).
 Since 1.0.3 an id 8 with data (an archive of 1.0..1.0.2) is not stored: like the first boot after the update, every FM6
 user preset whose stored SLOT is a B slot (8..34) and has no patch yet gets that bank slot's patch, and id 9 is written.
@@ -819,6 +830,14 @@ earlier objects restored; the file is still the source.
 `BACKUP_LIST` answers `1, rc, 0` when rc is not 0. `GET` and `PUT` answer id 127 when they got no arguments.
 A `LIST` replaces the snapshot, and a `PUT` begin ends it: a `GET` after a begin gets rc 5.
 
+**Single-project files (editor).** The web editor can export or import one PROJECT slot without a complete
+archive. It uses the same `BACKUP_LIST` / `BACKUP_GET` / `BACKUP_PUT` commands on object ids 2..5 only (slot
+A..D). The file is JSON `format: "felucca-project"`, `version: 1`, with `slot` (0..3, the source), `size`,
+`crc` and base64 `data` of the FUN10 / FUN9 / FUN8 / FUN7 bytes (3840, 3648, 3584 or 3388). Import runs
+`BACKUP_PUT` begin / data / commit for the chosen destination id alone: other project slots, banks, samples,
+settings and the current music stay. Needs the same INFO `42 01` caps as a full backup (bit 0 to read, bit 1
+to write). No new command.
+
 ## FM6 patches (68-71)
 
 The FM6 engine (12) plays a 6-operator patch per track; its eight EDIT parameters are macros on top of it
@@ -840,11 +859,12 @@ it had: a `GET` or the `CHANGED` push shows it), and the device's knob passes ov
 a bank slot: a stored 9..40 (in a project, a user preset or a motion record; 1.0.2 wrote 8..34 for its B1..B27) loads
 as 8, OWN, with the patch that came with it (DESC: SLOT max 40; firmware before 1.4.1: 8).
 
-Since 1.2 the device edits the patch too (EDIT > OPERATOR, OP ENV, OPERATOR 2: an operator's coarse / fine
-frequency, output level, mode, detune, velocity sensitivity, R1..R4 and L1..L4). Each such edit writes that byte of
-the track's patch and sets SLOT to 8 (OWN), which the editor sees as any SLOT change; the patch it holds for the
-track may then be stale: read it again with `FM6_GET` (target 0). Nothing new on the wire: no command, parameter
-id or INFO tag (the operator values are the patch, not parameters: no `SET`, no automation).
+Since 1.2 the device edits the patch too (EDIT > OPERATOR, OP ENV: an operator's FREQ — ratio 0.50 / 1..31 then
+fixed 1 / 10 / 100 / 1000 Hz, writing mode + coarse — fine, output level, R1..R4 and L1..L4). Detune and velocity
+sensitivity stay in the patch (editor / syx) but are not on those pages. Each such edit writes the patch and sets
+SLOT to 8 (OWN), which the editor sees as any SLOT change; the patch it holds for the track may then be stale: read
+it again with `FM6_GET` (target 0). Nothing new on the wire: no command, parameter id or INFO tag (the operator
+values are the patch, not parameters: no `SET`, no automation).
 
 A patch is the 128-byte packed record of the generic 6-operator voice (the 32-voice bank's record; every byte is
 7-bit, so it travels as it is, no pack7). Operators come sixth first: per operator 17 bytes (R1..R4, L1..L4,
@@ -959,7 +979,7 @@ advertises 9 (palette and favorites).
 | 38 FAV_SET | engine, preset v14, on/off | rc; when applied: engine, preset v14, on/off |
 
 UI_SET ids: 0 palette (0..count-1, the order of UI_PALETTES: GREY GREEN AMBER ICE VIOLET ROSE PAPER
-HI-CON NIGHT MONO; 1.0.2: GREY is the MONO of 1.0.1, MONO a new black and white palette), 1 font (retired: rc 2), 2 reserved, 3 preset filter (0 all, 1 favorites). Unsupported state
+HI-CON NIGHT; GREY is pitch-black grayscale; retired MONO tagged id maps to GREY), 1 font (retired: rc 2), 2 reserved, 3 preset filter (0 all, 1 favorites). Unsupported state
 fields are 127.
 Both u28 signatures are four least-significant-first 7-bit bytes; compare them
 to refresh changed favorites and user slots. Factory references use stable
@@ -1006,7 +1026,7 @@ is told: no list of settings is fixed in the editor. INFO advertises `4E 01 coun
   device shows the MENU page, it redraws with the new value. There is no push: an editor that wants to follow
   changes made on the device reads MENU_DESC again (for instance when its settings page opens).
 - CALIBRATION, INFO (1.2) and ABOUT have no value and are not offered. COLOR (id 0) is the same setting as `UI_SET` id 0.
-- **tab** (1.0.5): the MENU shows its settings in tabs (ALGORITHM steps between them on the device). After the
+- **tab** (1.0.5): the MENU shows its settings in tabs (SELECT steps between them on the device). After the
   names (kind 0) or the unit (kind 1) the reply carries the item's tab: its index (0.., the device's tab order,
   left to right) and its name (≤ 12 characters). An editor that wants the device's grouping shows the items by tab,
   in tab-index order, each tab's items in index order; the tab names come from the device, as the item names do.
@@ -1024,13 +1044,13 @@ before MIDI IN the first 21, 1.2 the first 23, 1.3 / 1.4 the first 24):
 
 | index | id | name | kind | values (min 0) | default | tab |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | 0 | COLOR | 0 | 0..9: GREY GREEN AMBER ICE VIOLET ROSE PAPER HI-CON NIGHT MONO (the order of `UI_PALETTES`) | GREY | 0 DISPLAY |
-| 1 | 1 | STYLE | 0 | 0 FLAT, 1 LINE | FLAT | 0 DISPLAY |
+| 0 | 0 | COLOR | 0 | 0..8: GREY GREEN AMBER ICE VIOLET ROSE PAPER HI-CON NIGHT (the order of `UI_PALETTES`) | GREY | 0 DISPLAY |
+| 1 | 1 | STYLE | 0 | 0 FLAT, 1 LINE (retired: always FLAT; MENU_SET ignored; not on the device menu) | FLAT | 0 DISPLAY |
 | 2 | 2 | LARGE | 0 | 0 OFF, 1 ON | OFF | 0 DISPLAY |
-| 3 | 3 | ANIM | 0 | 0 ON, 1 OFF, 2 IDLE (1.2: ON plus the LEDs' idle animation; firmware before: max 1) | ON | 0 DISPLAY |
+| 3 | 3 | ANIM | 0 | 0 ON, 1 OFF, 2 IDLE (retired: always OFF; MENU_SET ignored; not on the device menu) | OFF | 0 DISPLAY |
 | 4 | 4 | LEDS | 0 | 0 OFF, 1 DIM LO, 2 DIM HI, 3 INV (darkest first, as the menu steps them) | DIM HI | 0 DISPLAY |
 | 5 | 5 | HOLD | 0 | 0 "0.3 s", 1 "0.4 s", 2 "0.5 s", 3 "0.6 s" | 0.4 s | 1 CONTROL |
-| 6 | 6 | KNOB ACCEL | 0 | 0 OFF, 1 ON | OFF | 1 CONTROL |
+| 6 | 6 | KNOB ACCEL | 0 | 0 OFF, 1 ON (retired: always ON; MENU_SET ignored; not on the device menu) | ON | 1 CONTROL |
 | 7 | 7 | FX LATCH | 0 | 0 OFF, 1 ON | OFF | 1 CONTROL |
 | 8 | 8 | BPM LOCK | 0 | 0 OFF, 1 ON | OFF | 1 CONTROL |
 | 9 | 9 | SPEAKER EQ | 0 | 0 FLAT, 1 LOWCUT, 2 BASS+ | FLAT | 2 AUDIO |
@@ -1062,22 +1082,22 @@ and ABOUT): ON (the default)
 keeps the music as it is in an autosave while the device is stopped and idle, and brings it back at power-on; OFF
 writes no autosave and starts with the power-on sounds (README: Restore the last session).
 
-SCALE LEDS (id 16, 1.2, Discussion #127; the CONTROL tab shows HOLD, KNOB ACCEL, FX LATCH, BPM LOCK and SCALE LEDS,
-index 5..8 and 16): ON shows the selected track's scale on the key LEDs outside the layers (README: Key LEDs).
-Applied at once.
+SCALE LEDS (id 16, 1.2, Discussion #127; the CONTROL tab shows HOLD, FX LATCH, BPM LOCK and SCALE LEDS,
+index 5, 7, 8 and 16; KNOB ACCEL retired): ON shows the selected track's scale on the key LEDs outside the layers
+(README: Key LEDs). Applied at once.
 
-SCREEN OFF (id 17, 1.1.5; the DISPLAY tab shows COLOR, STYLE, LARGE, ANIM, LEDS and SCREEN OFF, index 0..4 and 17):
+SCREEN OFF (id 17, 1.1.5; the DISPLAY tab shows COLOR, LARGE, LEDS and SCREEN OFF, index 0, 2, 4 and 17; STYLE / ANIM retired):
 after that long without input on the panel (a button, a key, a knob; not MIDI, not the editor) the screen and its
 backlight go off while the sound, the sequencer, MIDI and USB go on; the next touch wakes it and does nothing else.
 NEVER keeps it on. A change counts from then (a MENU_SET to 5 MIN does not turn it off at once). Applied at once.
 
-SCOPE (id 18, 1.2, Discussion #165; DISPLAY now shows COLOR, STYLE, LARGE, ANIM, LEDS, SCREEN OFF and SCOPE, index
-0..4, 17, 18): what HOME's oscilloscope draws. OUT (the default, as before) the sound after MASTER, so it shrinks with
+SCOPE (id 18, 1.2, Discussion #165; DISPLAY now shows COLOR, LARGE, LEDS, SCREEN OFF and SCOPE, index
+0, 2, 4, 17, 18; STYLE / ANIM retired): what HOME's oscilloscope draws. OUT (the default, as before) the sound after MASTER, so it shrinks with
 the volume; MIX the mix before MASTER (and before the FX layer, SPEAKER EQ and the limiter), drawn at the size MASTER
 at its top would give, whatever the knob. The metronome's click is in neither. Applied at once.
 
-STEP PREVIEW (id 19, 1.2, Discussion #169) and CHORD ENTRY (id 20, 1.2, #155; CONTROL now shows HOLD, KNOB ACCEL, FX
-LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW and CHORD ENTRY, index 5..8, 16, 19, 20). STEP PREVIEW ON: on SEQ > STEP
+STEP PREVIEW (id 19, 1.2, Discussion #169) and CHORD ENTRY (id 20, 1.2, #155; CONTROL now shows HOLD, FX
+LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW and CHORD ENTRY, index 5, 7, 8, 16, 19, 20; KNOB ACCEL retired). STEP PREVIEW ON: on SEQ > STEP
 (the piano roll and the DRUM grid) with the transport stopped, moving the cursor with KNOB 1 or PRESETS (or the
 grid's page keys) plays the step it lands on once on the selected track, through its sound (a 1/16 at the track's
 GATE); never while playing, and it never writes. CHORD ENTRY ADD: in step recording (STEP, stopped, the track armed)
@@ -1095,13 +1115,13 @@ Example (bytes in hex): `F0 7D 46 4C 48 04 F7` asks for index 4; the reply
 `F0 7D 46 4C 48 04 04 00 02 40 00 40 03 40 4C 45 44 53 00 4F 46 46 00 44 49 4D 20 4C 4F 00 44 49 4D 20 48 49 00 49 4E 56 00 00 44 49 53 50 4C 41 59 00 F7`
 is index 4, id 4, kind 0, value 2 (`02 40`), min 0 (`00 40`), max 3 (`03 40`), "LEDS", then "OFF" "DIM LO"
 "DIM HI" "INV", then tab 0 "DISPLAY" (1.0.4 firmware: the same reply without `00 44 49 53 50 4C 41 59 00`). `F0 7D 46 4C 49 04 03 40 F7` sets LEDS to INV and answers `F0 7D 46 4C 49 00 04 03 40 F7` (rc 0).
-`F0 7D 46 4C 49 00 32 40 F7` (COLOR 50) answers `F0 7D 46 4C 49 00 00 09 40 F7` (clamped to 9, MONO).
+`F0 7D 46 4C 49 00 32 40 F7` (COLOR 50) answers `F0 7D 46 4C 49 00 00 08 40 F7` (clamped to 8, NIGHT).
 `F0 7D 46 4C 49 0E 01 40 F7` sets COUNT-IN to 1 BAR and answers `F0 7D 46 4C 49 00 0E 01 40 F7` (1.1).
 `F0 7D 46 4C 49 16 74 3F F7` (TUNE -12) answers `F0 7D 46 4C 49 00 16 74 3F F7` (rc 0, 1.2).
 `F0 7D 46 4C 48 19 F7` answers `F0 7D 46 4C 48 19 7F F7` (no index 25; 1.3 / 1.4: none past 23, `18`; 1.2: none past 22, `17`; before MIDI IN: none past 20, `15`; before SCOPE: none past 17, `12`; before SCREEN OFF: none past 16, `11`; 1.2 before SCALE LEDS: none past 15, `10`; 1.1 firmware: none past 14, `0F`; 1.0.5: none past 11, `0C`).
 
-HOME (id 23, 1.3, Discussions #112 / #134; DISPLAY now shows COLOR, STYLE, LARGE, ANIM, LEDS, SCREEN OFF, SCOPE and
-HOME, index 0..4, 17, 18, 23): what the device's HOME page shows under its four cards. SCOPE (the default, as before)
+HOME (id 23, 1.3, Discussions #112 / #134; DISPLAY now shows COLOR, LARGE, LEDS, SCREEN OFF, SCOPE and
+HOME, index 0, 2, 4, 17, 18, 23; STYLE / ANIM retired): what the device's HOME page shows under its four cards. SCOPE (the default, as before)
 the oscilloscope; TRACKS the four tracks as rows: each track's cushion, engine icon and sound name, the 16 steps of its
 pattern's page that plays (LEN > 16: the play head's page, stopped the selected track's cursor page; a pip per page),
 a MUTE badge, the output meter; the selected track's row highlighted. Only the look changes: HOME's knobs, ALGORITHM

@@ -91,18 +91,19 @@ def tc_all(*cmds):
 
 
 def generate():
-    """generated headers (UI fonts, icons, keycaps, palettes, tables, samples)"""
+    """generated headers (UI fonts, icons, keycaps, palettes, tables, samples, splash logo)"""
     GEN.mkdir(parents=True, exist_ok=True)
     for old in ("felucca_font.h", "felucca_icons.h"):     # headers of the bitmap font and icon atlas
         (GEN / old).unlink(missing_ok=True)
     tools = SRC / "tools"
-    cmds = [[tools / "gen_aa_font.py", GEN / "ui_fonts.h", "--preset", "inter-tight"],
+    cmds = [[tools / "gen_aa_font.py", GEN / "ui_fonts.h", "--preset", "terminus"],
             [tools / "gen_aa_icons.py", GEN / "ui_icons.h"],
             [tools / "gen_aa_keycaps.py", GEN / "ui_keycaps.h"],
             [tools / "gen_ui_palettes.py", GEN / "ui_palettes.h"],
             [tools / "gen_tables.py", GEN / "felucca_tables.h"],
             [tools / "gen_fm6_patches.py", GEN / "felucca_fm6.h"],
-            [tools / "gen_samples.py", GEN / "felucca_samples.h"]]
+            [tools / "gen_samples.py", GEN / "felucca_samples.h"],
+            [tools / "gen_splash_logo.py", GEN / "ui_splash_logo.h"]]
     procs = [subprocess.Popen([sys.executable, *map(str, c)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True) for c in cmds]
     failed = []

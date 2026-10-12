@@ -18,7 +18,7 @@
 # UI renders (tests/ui_render.c): every screen in every palette from the real drawing code: the layout lint (no text
 #                   off the screen, cut, hidden, overlapping or spilling out of its cell / card; only free text
 #                   ellipsised), GREY gray, MONO neutral, the draw cost, the text audit (build/ui_new/text_audit.tsv);
-#                   PNGs of GREY MONO GREEN PAPER NIGHT in build/ui_new (tests/ui_render.py), the findings in build/ui_new/report.txt;
+#                   PNGs of GREY GREEN PAPER NIGHT HI-CON in build/ui_new (tests/ui_render.py), the findings in build/ui_new/report.txt;
 #                   FM6's 32 algorithm charts as drawn (no box overlapping, no route through a box or crossing another), again
 #                   on OPERATOR with each operator picked and its frequency text at its widest (1.2, #76);
 #                   DIGITAL's screens (its algorithm charts, OP ENV) with FELUCCA_FM4=1 too (build/ui_fm4: lint, GREY, MONO);
@@ -52,13 +52,13 @@
 #                   for bit as before; TRIG NOTE / FREE; POL UNI 0..+1, the matrix's AMP), NUDGE (live recording keeps a
 #                   note's time, QUANTIZE ON plays as before, OFF plays the nudges late and early once a pass, never twice
 #                   with live notes, RATCH on its start, nudges 0 play the same either way, a tempo change of the external
-#                   clock, SEQ > AUTOMATION's QUANTIZE and NUDGE rows, STEP steps held + PRESETS), 128 motion records, FUN10 round trip, FUN9 /
+#                   clock, SEQ > AUTOMATION's QUANTIZE and NUDGE rows, PRESETS moves notes in time), 128 motion records, FUN10 round trip, FUN9 /
 #                   FUN8 / FUN7 as 1.1 / 1.0 wrote them (tests/old_pack.h) loading exactly, user presets of 99 / 103.
 # RATCH (tests/ratchet_test.c): a step's ratchet (x1..x4): its parts in the sequencer (equal, gated, chords and drum
 #                   hits whole, one chance roll, swing, no slide or tie out, STOP), FUN8 round trip and older projects x1,
 #                   user preset patterns, SEQ > AUTOMATION's RATCH rows and the roll / grid drawing.
 # STEP 1.5 (tests/step15_test.c, #178 #173): SEQ > STEP's KNOB 3 LEN on a note (clean TIEs written after it and taken
-#                   back, stopping at the next note and at LEN, chords, undo, TIME elsewhere, the DRUM grid untouched,
+#                   back, stopping at the next note and at LEN, LEN 0 clears the note, chords, undo, TIME elsewhere, the DRUM grid untouched,
 #                   the longer note played), a step's VEL as it plays (96 by default, ACC 127, drum hits) and
 #                   SEQ > AUTOMATION's VEL rows (SHOW / HIDE, KNOB 4, EDIT, undo).
 # DETAIL 1.5.1 (tests/detail_test.c, #199): SEQ > DETAIL (STEP -> DETAIL -> AUTOMATION), KNOB 1..4 the cursor step's
@@ -98,7 +98,7 @@
 # SLICE (tests/slice_test.c): slice tables, AUTO onsets of a user-slot loop, reverse, keys, modes, the MAN slices
 #                   (SLICES page) and their store in the slot (src/slice_store.c); the presets and the loop;
 #                   demos in build/slice_demo/.
-# SAMPLE (tests/sample_test.c, 1.5): PIANO is the 5-zone piano of 1.0 .. 1.1.5 again: zones, splits, pitch over the
+# SAMPLE (tests/sample_test.c, 1.5): PIANO (5 zones), CR78 kit (set 5), USR1..3 at 6..8; zones, splits, pitch over the
 #                   keyboard (YIN), 0.75 s at a root, the aliases, GRAIN SRC 0; SLICE's PIANO its middle C zone (shared);
 #                   1.2's PIANO HD user-slot file (gen_samples.py --user-slot: build/piano_hd/PIANO_HD), as old users may
 #                   have installed it: valid in USR1 and bit for bit as SET 0.
@@ -116,6 +116,10 @@
 #                   and SWING too), the accent, the frequencies, length, LEVEL, MASTER, OFF / REC / ON, USB audio bit for bit
 #                   without it; COUNT-IN 1 / 2 BARS (step 1 exactly N bars after PLAY, STOP cancels, PLAY again nothing,
 #                   never with an external clock), notes in its last eighth onto step 1; build/click_demo/.
+# FREE TAKE (tests/freetake_test.c, P2-A / SLOOP): empty project, REC armed while stopped, first note starts a take with
+#                   no tempo; REC closes 1/2/4 bars and sets BPM; PLAY button / STOP drops; transport PLAY closes; 24 s auto-close;
+#                   a note started while an earlier one is still held sets SF_SLIDE; releasing it while held
+#                   records a return to the held pitch.
 # USB audio (tests/uac_test.c): the UAC1 descriptors as a host parses them (with and without CDC; 44100 and
 #                   48000 Hz), the ring and packetiser: 44.1 frames per packet, every frame in order (bit for bit),
 #                   underrun / overrun, restart; SET_CUR; the 44.1 -> 48 kHz resampler (every frame against a
@@ -221,6 +225,8 @@ run "update loader: other app -> this build" "$OUT/ldr_test" "$OUT/old.fwsc" bui
 
 if [ -f build/gen/felucca_tables.h ]; then
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/hostsim" tests/hostsim.c -lm
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/performance_test" tests/performance_test.c -lm
+    run "mixer caches and silent-track clocks (Melodee P2-F)" "$OUT/performance_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/scale_test" tests/scale_test.c -lm
     run "scales: white-key mapping and note lifecycle" "$OUT/scale_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/chord_test" tests/chord_test.c -lm
@@ -231,7 +237,7 @@ if [ -f build/gen/felucca_tables.h ]; then
     mkdir -p build/tracks_demo
     run "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" env TRACKS=build/tracks_demo "$OUT/hostsim" 0 0 1 "$OUT/tracks.wav"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/project_test" tests/project_test.c -lm
-    run "project formats (FUN1..FUN5 -> FUN6, the grid and song chain; DIGITAL tracks -> FM6, SAMPLE PERC -> DRUM)" "$OUT/project_test"
+    run "project formats (FUN1..FUN5 -> FUN6, the grid and song chain; DIGITAL tracks -> FM6, SAMPLE PERC -> DRUM, SLICE -> DRUM)" "$OUT/project_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/motion_test" tests/motion_test.c -lm
     run "motion, whole-step chance, FUN7 migration, song restore, ARP repeat and the 1.2 ARP modes" "$OUT/motion_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/ratchet_test" tests/ratchet_test.c -lm
@@ -265,7 +271,7 @@ if [ -f build/gen/felucca_tables.h ]; then
     $CC -O1 -w -Ibuild/gen -o "$OUT/settings_test" tests/settings_test.c
     run "settings: PER1..PER4 migration, palette ids and preference preservation" "$OUT/settings_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test" tests/ui_test.c -lm
-    run "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, GREY gray, MONO neutral" "$OUT/ui_test"
+    run "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, GREY gray" "$OUT/ui_test"
     FV=$(sed -n 's/^#define FELUCCA_VERSION "\([^"]*\)".*/\1/p' firmware/src/felucca.c)   # (the splash, ABOUT: the real version)
     $CC -O1 -w "-DFELUCCA_VERSION=\"$FV\"" -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/ui_render" tests/ui_render.c -lm
     mkdir -p build/ui_new/ppm build/ui_slot
@@ -282,6 +288,8 @@ if [ -f build/gen/felucca_tables.h ]; then
     run "audio: overload protection, bounded fades and DMA diagnostics" "$OUT/audio_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/click_test" tests/click_test.c -lm
     run "metronome and count-in: beats sample for sample (internal and external clock), accent, level, MASTER, not in USB, count-in timing, notes onto step 1" "$OUT/click_test"
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/freetake_test" tests/freetake_test.c -lm
+    run "free take: empty project, REC armed, first note starts take, REC closes loop/tempo, PLAY/STOP drops, 24 s auto-close, held-note slides and returns" "$OUT/freetake_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/persistence_test" tests/persistence_test.c -lm
     run "persistence: deferred settings, retry and failed-save rollback" "$OUT/persistence_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/backup_test" tests/backup_test.c -lm
@@ -301,10 +309,9 @@ if [ -f build/gen/felucca_tables.h ]; then
     mkdir -p build/sound14_demo
     run "sound items: matrix S&H / SLEW / DEPTH, ANALOG SYNC / SUB, SPREAD (bit for bit at 0, L / R, mono sum), cost, demos" \
         "$OUT/sound14_test" build/sound14_demo
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/insert_test" tests/insert_test.c -lm
-    mkdir -p build/insert_demo
-    run "INSERT (1.5): OFF / MIX 0 bit for bit, each TYPE (no DC, bounded, dry / wet), MIX glide, automation, stored, cost, demos" \
-        "$OUT/insert_test" build/insert_demo
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/inschain_test" tests/inschain_test.c -lm
+    run "insert chain (P1-C): order, MIX 0 bypass, 1.5 INSERT migration, FX page order" "$OUT/inschain_test"
+    # legacy insert_test (single TYPE) not rebuilt until updated for the 6-stage chain
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/sound15_test" tests/sound15_test.c -lm
     mkdir -p build/sound15_demo
     run "1.5 sound items: ANALOG filter TYPE LP / BP / HP (responses, LP and other engines bit for bit), ENV SYNC (times at several tempi), cost, demos" \
@@ -319,11 +326,11 @@ if [ -f build/gen/felucca_tables.h ]; then
     run "FX layer effects: on the 1/16, stereo, too-long REPEAT, SLICER, silent keys, idle bit-identical, clicks, OCT UP / DN, FLANGER, PHASER, the key map, dotted TIME, REV / ECHO THROW, cost, demos" "$OUT/perform_test" build/perform_demo build/fx_demo build/throw_demo
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/reverb_test" tests/reverb_test.c -lm
     mkdir -p build/reverb_demo
-    run "REVERB TYPE: ROOM / SPRING bit-identical, SPRING and HALL decay / stability / level, HALL silence / stereo / ringing, model changes, cost, demos" "$OUT/reverb_test" build/fx_demo build/reverb_demo
+    run "REVERB TYPE: ROOM / SPRING bit-identical, SPRING/HALL/SHIMR/CLOUD decay / stability, model changes, cost, demos" "$OUT/reverb_test" build/fx_demo build/reverb_demo
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/regress" tests/regress.c -lm
     run "regression: golden renders, health, voices, CPU budget" "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/union_test" tests/union_test.c -lm
-    run "engine memory (1.5): every switch between the engines with per-part state sounds as in 1.4 (720 sequences)" \
+    run "engine memory (1.5): every switch between the engines with per-part state (270 sequences; retired SAMPLE/GRAIN/SLICE out)" \
         "$OUT/union_test" tests/union_golden.txt
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/descdump" tests/descdump.c -lm
     echo "== parameter and engine tables as JSON (for the editor mock test)"
@@ -351,24 +358,13 @@ if [ -f build/gen/felucca_tables.h ]; then
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_test" tests/fm6_test.c -lm
     mkdir -p build/fm6_demo
     run "FM6: algorithms, envelopes, retrigger, DC, clipping, macros, patch formats, voices, cost, demos" "$OUT/fm6_test" build/fm6_demo
-    # SLICE is in the standard build (firmware/src/core.h): its test always runs (after #22 by andreahaku)
-    if grep -q '^#define SLC_BREAK_BPM ' build/gen/felucca_samples.h; then
-        mkdir -p build/slice_demo
-        python3 tests/slice_loop.py build/slice_demo/loop
-        python3 tools/fm1_sample_upload.py build LOOP build/slice_demo/loop build/slice_demo/loop.wav:60 >/dev/null
-        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/slice_test" tests/slice_test.c -lm
-        run "SLICE: tables, onsets, reverse, keys, modes, MAN slices and their store, demos" "$OUT/slice_test" \
-            build/slice_demo/loop build/slice_demo
-    else
-        echo "== SLICE: build/ was made with FELUCCA_SLICE=0 (no BREAK); run ./build.sh without it first"
-        fail=1
-    fi
-    # SAMPLE's PIANO (1.5: as 1.1.5), SLICE's PIANO (its middle C zone), 1.2's PIANO HD in a user slot
+    echo "== skip SLICE (engine retired)"
+    # SAMPLE's PIANO (1.5: as 1.1.5); CR78 ROM omitted; 1.2's PIANO HD in a user slot
     if grep -q '^    {"PIANO", 0, 5},' build/gen/felucca_samples.h; then
         mkdir -p build/sample_demo build/piano_hd
         python3 tools/gen_samples.py --user-slot PIANO "PIANO HD" build/piano_hd/PIANO_HD >/dev/null
         $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/sample_test" tests/sample_test.c -lm
-        run "SAMPLE: PIANO (5 zones as 1.1.5: splits, pitch, length, GRAIN), SLICE's PIANO, a PIANO HD slot" "$OUT/sample_test" \
+        run "SAMPLE: PIANO (5 zones as 1.1.5: splits, pitch, length, GRAIN), a PIANO HD slot (no CR78 ROM)" "$OUT/sample_test" \
             build/piano_hd/PIANO_HD build/sample_demo
     else
         echo "== skip SAMPLE's PIANO (no CC0 library: assets/samples-cc0, tools/fetch_cc0.py)"
@@ -408,7 +404,7 @@ else
     $SCC -o "$A/fuzz_proj" tests/fuzz_proj.c -lm
     run "ASan/UBSan fuzz: project stores -> import -> restore -> render (5000, seed 13)" "$A/fuzz_proj" 5000 13
     $SCC -o "$A/fuzz_smp" tests/fuzz_smp.c -lm
-    run "ASan/UBSan fuzz: user sample slot headers -> scan -> SAMPLE / GRAIN / SLICE (1000, seed 17)" "$A/fuzz_smp" 1000 17
+    run "ASan/UBSan fuzz: user sample slot headers -> scan -> SAMPLE / GRAIN (1000, seed 17)" "$A/fuzz_smp" 1000 17
 fi
 
 run "regression: target cost of the render loops (pi32v2 disassembly)" python3 tests/target_budget.py \

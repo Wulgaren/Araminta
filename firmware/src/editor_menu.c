@@ -16,6 +16,8 @@
  * unit "ct"), the only one so far */
 enum { ED_MENU_DESC = 72, ED_MENU_SET };
 enum { EDM_ENUM, EDM_INT };                            /* kind: names follow; or a unit (none yet) */
+/* STYLE (id 1), ANIM (id 3) and KNOB ACCEL (id 6) are retired: always FLAT / OFF / ON; kept so an older editor's
+ * indices stay put */
 static const uint8_t ED_MENU[][2] = {
     {MI_COLOR, 0}, {MI_STYLE, 1}, {MI_LARGE, 2}, {MI_ANIM, 3}, {MI_LEDS, 4}, {MI_HOLD, 5}, {MI_ACCEL, 6},
     {MI_LATCH, 7}, {MI_BPMLOCK, 8}, {MI_LOWCUT, 9}, {MI_USB, 10}, {MI_SERIAL, 11},
@@ -75,8 +77,13 @@ static int ed_menu_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         else
             for (i = 0; i < k; i++)
                 ed_str(menu_vname(row, i), 12);
-        ed_b(MI_TAB[row]);                             /* (after the names: an older editor stops before it) */
-        ed_str(MTAB_NAME[MI_TAB[row]], 12);
+        {
+            /* STYLE / ANIM: retired, still DISPLAY; KNOB ACCEL: retired, still CONTROL */
+            uint8_t tab = MI_TAB[row] < MTAB_COUNT ? MI_TAB[row]
+                        : row == MI_ACCEL ? MTAB_CONTROL : MTAB_DISPLAY;
+            ed_b(tab);                                 /* (after the names: an older editor stops before it) */
+            ed_str(MTAB_NAME[tab], 12);
+        }
         return 1;
     }
     if (cmd != ED_MENU_SET)

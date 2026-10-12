@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* 1.5.1, Discussion #199: SEQ > DETAIL, the step page between STEP and AUTOMATION, on the real sequencer and UI
  * sources (with the stubs of tests/ui_test.c):
- *   the page   SEQ goes STEP -> DETAIL -> AUTOMATION -> STEP; the cursor is STEP's
+ *   the page   SELECT walks PATTERN > STEP > DETAIL; SEQ cycles sections (Step -> Automation -> …); the cursor is STEP's
  *   knobs      KNOB 1 CHANCE, 2 RATCH, 3 NUDGE, 4 VEL of the cursor step, PRESETS walks the cursor (KNOB 1 does not),
  *              nothing else of the step changes; a REST / an empty step takes none (NO NOTE), a TIE its CHANCE only
  *   AUTOMATION the same fields: a value set here is its row there, back at its default the row is gone; EDIT there
@@ -100,22 +100,23 @@ static int page_cycle(void)
     int bad = 0, ok;
     pattern(4);
     ok = str_eq(cur_page()->title, "STEP");
-    press(B_SEQ); frames(320);
+    turn(EN_SELECT, 1); frames(100);                 /* SELECT: pages inside the Step section */
     ok &= str_eq(cur_page()->title, "DETAIL") && detail_on() && cur_page()->graph == GR_ROLL && ui.cursor == 4u &&
           song.seq_mode;
-    press(B_SEQ); frames(320);
+    press(B_SEQ); frames(320);                        /* SEQ: Step -> Automation */
     ok &= cur_page()->graph == GR_EVENTS && !detail_on();
-    press(B_SEQ); frames(320);
-    ok &= str_eq(cur_page()->title, "STEP") && !detail_on();
-    bad += check("SEQ: STEP -> DETAIL (the same cursor) -> AUTOMATION -> STEP", ok);
+    press(B_SEQ); frames(320);                        /* Automation -> SEQ TOOLS */
+    press(B_SEQ); frames(320);                        /* SEQ TOOLS -> Pattern (first page of the Step section) */
+    ok &= str_eq(cur_page()->title, "PATTERN") && !detail_on();
+    bad += check("SEQ: SELECT STEP <-> DETAIL; SEQ button sections back to PATTERN", ok);
     go_detail();
     {
         char ti[20];
         page_title(ti);
-        ok = str_eq(ti, "DETAIL 2/3");
+        ok = str_eq(ti, "DETAIL 3/3");
     }
     ok &= help_page() && str_eq(help_page(), "[PRESETS]STEP[K1]CHANCE[K2]RATCH");
-    bad += check("  its footer title DETAIL 2/3 (not the scale), its HELP hint", ok);
+    bad += check("  its footer title DETAIL 3/3 (not the scale), its HELP hint", ok);
     return bad;
 }
 

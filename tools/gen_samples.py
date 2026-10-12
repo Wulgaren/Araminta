@@ -13,8 +13,9 @@ Libraries:
              PIANO, FLUTE, SAX (set 1, once TRANH, and set 4, once PERC, are aliases of PIANO).
              PIANO is the 5-zone piano of 1.0 .. 1.1.5 (1.2 .. 1.4.1 built a reduced 2-zone
              one at 11,025 Hz; 1.5 went back to the full one, the same bytes as 1.1.5)
-SAMPLE's factory presets end before set 4 (SMP_PERC_SLOT); every sample set and SET / USR
-index stays in its original place.
+  CR78       omitted from the ROM bank (Araminta: upload as USR). USR1..3 are indices 5..7.
+SAMPLE's factory presets cover every named set (aliases skipped when browsing); set 4
+(SMP_PERC_SLOT) still loads as DRUM when selected as a preset.
 A retired set keeps its index as an alias: the original's name and zones (no data), and a
 preset equal to the original's (SMP_SET_ORIG), so old projects and presets play it and
 browsing skips it (params.c enum_orig, ui.c preset_orig).
@@ -66,16 +67,17 @@ CC0 = SRC / "assets" / "samples-cc0"
 TR = 22050                                   # stored sample rate
 
 # CC0 library: set -> kind ("oneshot" decaying, "sus" looped sustain, "kit" one sample per key)
-# Built-in sets (piano, flute, sax); the other slots of the 8 are for the user (USR1-3, loaded
-# from the web editor). TRANH was removed (66 KB of flash); its index 1 stays, an alias of PIANO
-# ("alias": the set named). PERC (the GM kit) was removed (66 KB); its index 4 stays, an alias of
-# PIANO too (PERC_SLOT; its sounds load as the DRUM engine)
-CC0_SETS = [("PIANO", "oneshot"), ("PIANO", "alias"), ("FLUTE", "sus"), ("SAX", "sus"), ("PIANO", "alias")]
-PERC_SLOT = 4                                # core.h SMP_SET_PERC: SAMPLE's factory presets end before it
+# Built-in sets (piano, flute, sax); user slots USR1-3 follow (indices 5..7). TRANH was
+# removed (66 KB of flash); its index 1 stays, an alias of PIANO ("alias": the set named). PERC
+# (the GM kit) was removed (66 KB); its index 4 stays, an alias of PIANO too (PERC_SLOT; its
+# sounds load as the DRUM engine). CR78 ROM kit omitted (Araminta: upload as USR).
+CC0_SETS = [("PIANO", "oneshot"), ("PIANO", "alias"), ("FLUTE", "sus"), ("SAX", "sus"),
+            ("PIANO", "alias")]
+PERC_SLOT = 4                                # core.h SMP_SET_PERC: retired PERC alias
 MEASURED_TUNING = ()                         # sets whose recordings are not at A440 (was TRANH, ~+35 ct)
 
 
-KIT_BASE = 53                     # F3, the lowest FM-1 key
+KIT_BASE = 53                     # F3, fallback root when a kit file has no note in its name
 
 NOTE = {"C": 0, "C#": 1, "D": 2, "D#": 3, "E": 4, "F": 5, "F#": 6, "G": 7, "G#": 8, "A": 9, "A#": 10, "B": 11}
 
@@ -99,7 +101,7 @@ SLC_GRID, SLC_AUTO = 128, 32                # eng_slice.c slc_src_t
 ENV = {"wave":(5, 80, 100, 50), "kit": (0, 127, 127, 60), "multi": (0, 85, 0, 75),
        "oneshot": (0, 127, 127, 70), "sus": (12, 80, 120, 60)}
 
-# PIANO's notes cut to 0.75 s (saves flash), faded out over the last SET_FADE s
+# PIANO's notes cut to 0.75 s (saves flash), faded out over the last SET_FADE s.
 SET_KEEP = {"PIANO": 0.75}
 SET_FADE = {"PIANO": 0.15}
 
@@ -109,6 +111,9 @@ _wavs = {}
 def cos_fade(x, fade):
     """fade the last `fade` samples of x out on a raised cosine (no corner at either end)"""
     n = len(x)
+    fade = min(fade, n)
+    if fade < 1:
+        return
     for i in range(fade):
         x[n - fade + i] *= 0.5 + 0.5 * math.cos(math.pi * (i + 1) / fade)
 
@@ -141,6 +146,12 @@ def octave_conv(files):
     return 2 if votes[2] >= votes[1] else 1
 
 
+def kit_root(name, index):
+    """MIDI root for a kit zone: note in the file name (C4 = 60), else KIT_BASE + index"""
+    nn = name_note(name)
+    return (nn[0] + 1) * 12 + nn[1] if nn else KIT_BASE + index
+
+
 def cc0_entries(setname, kind):
     """-> [(file name, int16 samples at TR, loop or None, root)]"""
     files = sorted((CC0 / setname).glob("*.wav"))
@@ -152,7 +163,7 @@ def cc0_entries(setname, kind):
         x = x[max(0, onset(x) - 16):]
         nn = name_note(p.name)
         if kind == "kit":
-            root = KIT_BASE + k
+            root = kit_root(p.name, k)
         elif nn:
             root = (nn[0] + conv) * 12 + nn[1]
             if setname in MEASURED_TUNING:              # tuned off A440: the measured pitch near the named note
@@ -323,7 +334,7 @@ class Builder:
             off, st = self.add(s, ls)
             entries.append(dict(off=off, n=len(s), ls=ls, le=le, looped=bool(loop), sr=TR,
                                 root16=int(round(root * 16)), pred=st[0], idx=st[1],
-                                key=KIT_BASE + k if kind == "kit" else None))
+                                key=int(round(root)) if kind == "kit" else None))
         self.add_set(name, kind, entries)
 
     def header(self):
@@ -352,11 +363,13 @@ class Builder:
         L.append("};")
         L.append(f"#define SMP_NSETS {max(1, len(sets))}")
         named = sets or [("NONE", 0, 0)]
-        perc = PERC_SLOT if len(named) > PERC_SLOT else len(named)
-        L.append(f"#define SMP_NPRESETS {perc}")
+        # Factory presets: every named set. Aliases (TRANH, PERC) are skipped when browsing; selecting
+        # preset PERC_SLOT still loads as DRUM (ui.c). CR78 and later sit after that slot.
+        npre = len(named)
+        L.append(f"#define SMP_NPRESETS {npre}")
         if len(named) > PERC_SLOT:
             L.append(f"#define SMP_PERC_SLOT {PERC_SLOT}   /* once PERC (the GM kit): an alias, its sounds load as DRUM */")
-        L.append("/* the initializers from SMP_NPRESETS on (the retired PERC's alias) are outside factory browsing */")
+        L.append("/* aliases among the presets are skipped when browsing (params.c enum_orig / ui.c preset_orig) */")
         L.append("static const preset_t SMP_PRESET_TABLE[] = {")
         for i, (name, _, _) in enumerate(named):
             k = self.kinds.get(name, "wave")
@@ -369,7 +382,7 @@ class Builder:
         orig = [self.alias.get(i, i) for i in range(len(named))]
         L.append("/* SET i plays SMP_SET_ORIG[i]: != i for a retired set kept as an alias (its preset i too) */")
         L.append("static const uint8_t SMP_SET_ORIG[] = {" + ", ".join(map(str, orig)) + "};")
-        L.append(f"#define SMP_NALIAS {sum(1 for i, o in enumerate(orig) if o != i and i < perc)}   /* among the presets */")
+        L.append(f"#define SMP_NALIAS {sum(1 for i, o in enumerate(orig) if o != i and i < npre)}   /* among the presets */")
         names = ", ".join(f'"{n}"' for n, _, _ in named)
         L.append("#define SMP_SET_NAMES_INIT " + names)
         L.append("static const char *const SMP_SET_NAMES[] = {" + names + "};")

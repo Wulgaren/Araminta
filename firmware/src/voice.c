@@ -174,13 +174,11 @@ static voice_t *voice_reuse(track_t *t, voice_t *v)
 }
 
 /* POLY allocation (within the engine's voice cap). DRUM: reuse its lane; other engines: the same note.
- * Else a free voice: ROTATE takes
- * the next one round-robin (release tails ring out), REUSE (or any GLIDE) takes
- * the free voice whose last pitch is closest, so poly portamento moves each
- * voice the shortest way. Steal: the oldest released voice, else the oldest
- * held one, never the lowest held note (the bass). A free voice needs room in the
- * shared budget: when the voice to give up is one of this part's, it is restarted
- * in place instead. */
+ * Else a free voice: round-robin (ROT; release tails ring out), or with GLIDE the free voice
+ * whose last pitch is closest so poly portamento moves each voice the shortest way. Steal: the
+ * oldest released voice, else the oldest held one, never the lowest held note (the bass). A free
+ * voice needs room in the shared budget: when the voice to give up is one of this part's, it is
+ * restarted in place instead. */
 static voice_t *voice_alloc(track_t *t, uint32_t note)
 {
     uint32_t i, np = trk_nvoice(t), best = np, low = np, nfree = 0;
@@ -203,7 +201,7 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
         if (k < NVOICE)
             voice_kill(&vp->v[k]);
     }
-    if (t->p[P_ALLOC] || t->p[P_GLIDE]) {
+    if (t->p[P_GLIDE]) {
         for (i = 0; i < np; i++) {
             int32_t d = t->v[i].pitch_cur - (int32_t)note * 16;
             if (t->v[i].active)
@@ -239,7 +237,8 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
     return voice_reuse(t, &t->v[best == np ? 0 : best]);
 }
 
-/* glide: RATE = a fixed speed, TIME = the same time for any interval */
+/* glide: free ms (F_TIME on GLD). Always TIME-duration (same time for any interval). P_GLMODE stays in the
+ * store (append-only) but is not shown and is not read here. */
 static void glide_set(track_t *t, voice_t *v, int glide)
 {
     if (!glide || !v->pitch_cur) {
@@ -247,12 +246,10 @@ static void glide_set(track_t *t, voice_t *v, int glide)
         v->gstep = 0;
         return;
     }
-    if (t->p[P_GLMODE]) {
+    {
         int32_t d = v->pitch16 - v->pitch_cur, ticks = 1 + t->p[P_GLIDE] * t->p[P_GLIDE] / 8;
         d = d < 0 ? -d : d;
         v->gstep = d / ticks > 0 ? d / ticks : 1;
-    } else {
-        v->gstep = 0;
     }
 }
 
@@ -269,7 +266,7 @@ static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
     v->active = 1;
     v->stage = 1;
     v->age = ++vage;
-    v->pitch16 = (int32_t)note * 16;
+    v->pitch16 = (int32_t)note * 16 + t->pfx_rpit;      /* (pfx.c RANDOM: 0 but while it is held) */
     v->mvel = t->m_vel;                                 /* mod.c: the note's VEL and RAND */
     v->mrnd = t->m_rnd;
     t->m_vi = (uint8_t)(v - t->v);
@@ -324,7 +321,7 @@ static void mono_play(track_t *t, uint32_t note, uint32_t vel, int retrig, int g
             }
         } else {                                            /* legato: new pitch, same envelope */
             v->note = (uint8_t)note;
-            v->pitch16 = (int32_t)note * 16;
+            v->pitch16 = (int32_t)note * 16 + t->pfx_rpit;
             v->mvel = t->m_vel;
             v->mrnd = t->m_rnd;
             if (vel > v->vel && nv == 1u)
@@ -335,20 +332,12 @@ static void mono_play(track_t *t, uint32_t note, uint32_t vel, int retrig, int g
     t->mono_note = (uint8_t)note;
 }
 
-/* the note the mono stack asks for (PRIO: LAST / LOW / HIGH), 0 = none */
+/* the note the mono stack asks for (always LAST note), 0 = none */
 static uint32_t mono_pick(const track_t *t)
 {
-    uint32_t i, n;
     if (!t->nmono)
         return 0;
-    n = t->mono_stack[t->nmono - 1u];
-    for (i = 0; i < t->nmono; i++) {
-        if (t->p[P_PRIO] == 1 && t->mono_stack[i] < n)
-            n = t->mono_stack[i];
-        if (t->p[P_PRIO] == 2 && t->mono_stack[i] > n)
-            n = t->mono_stack[i];
-    }
-    return n;
+    return t->mono_stack[t->nmono - 1u];
 }
 
 static void mono_remove(track_t *t, uint32_t note)
@@ -360,10 +349,25 @@ static void mono_remove(track_t *t, uint32_t note)
     t->nmono = (uint8_t)k;
 }
 
+static int pfx_note(track_t *t, uint32_t note, uint32_t vel);   /* pfx.c (in fx.c) */
+/* PLAY OFF blocks the track. PLAY SOLO on any track blocks the ones that are not SOLO (the mix ramps those
+ * out too: perform.c solo_mask). GLO's held solos stay a ramp only. */
+static int mix_blocks_note(const track_t *t)
+{
+    uint32_t i, solo = 0, me = (uint32_t)(t - trk);
+    if (t->p[P_MUTE] == PLAY_OFF)
+        return 1;
+    for (i = 0; i < NTRK; i++)
+        if (trk[i].p[P_MUTE] == PLAY_SOLO)
+            solo |= 1u << i;
+    return solo && !((solo >> me) & 1u);
+}
 static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
 {
     uint32_t any = 0, i, mode = trk_vmode(t);
-    if (t->p[P_MUTE])
+    if (mix_blocks_note(t) || (t->engine == ENGI_DRUM && drum_muted_of(t, note)))
+        return;
+    if (pfx_note(t, note, vel))                         /* punch-in effects (pfx.c): a repeat holds the track */
         return;
     if (t->xf_on || t->eng_req != t->engine) {          /* engine switch under way: after the fade */
         for (i = 0; i < t->xp_n && t->xp_note[i] != note; i++)
@@ -399,7 +403,7 @@ static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
         t->mono_stack[t->nmono++] = (uint8_t)note;
         want = mono_pick(t);
         if (sounding && want == t->mono_note)
-            return;                                     /* LOW / HIGH priority: this key does not win */
+            return;                                     /* already the lead (LAST) */
         if (mode == V_MONO)                             /* MONO: always retrigger, glide when GLIDE is set */
             mono_play(t, want, vel, 1, t->p[P_GLIDE] != 0 || t->slide_glide);
         else                                            /* LEGATO / UNISON: glide only between held notes */
@@ -594,20 +598,31 @@ static __attribute__((noinline)) void spread_sum(int32_t *out)
         out[i] += spread_buf[i];
 }
 
-/* render one block of a part into out (cleared here); returns the voices rendered */
+/* render one block of a part into out; returns the voices rendered.
+ * clear_idle 0: leave out untouched when no voice is live (mixer may omit the
+ * zero fill). Melodee: silent tracks still run LFO, bend, engine block and fades. */
 /* Channel bend is live performance state, outside projects/presets. Q8 semitones. */
 static int32_t midi_bend_q8[NTRK], midi_bend_target[NTRK];
-static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
+static struct { int16_t cents; uint8_t valid; int32_t pitch, fine; } tune_cache;
+static __attribute__((noinline)) void tune_cache_update(void)
+{
+    tune_cache.cents = song.g[G_TUNE];
+    tune_cache.valid = 1;
+    /* TUNE in cents: whole 1/16 semitones plus the exact residual. */
+    tune_cache.pitch = song.g[G_TUNE] >= 0 ? song.g[G_TUNE] * 16 / 100 : -((-song.g[G_TUNE] * 16 + 99) / 100);
+    tune_cache.fine = (song.g[G_TUNE] * 16 - tune_cache.pitch * 100) * 2367 / 16000;
+}
+static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t *out, uint32_t n, int clear_idle)
 {
     const engine_t *e = ENGINES[t->engine];
     const int16_t *p = t->p;
     uint32_t i;
     int32_t lfo = mulq15(t->lfo_val, t->lfo_fade);
-    /* TUNE in cents: whole 1/16 semitones in the pitch, the rest as a fine factor (no dead zone) */
-    int32_t tune = song.g[G_TUNE] >= 0 ? song.g[G_TUNE] * 16 / 100 : -((-song.g[G_TUNE] * 16 + 99) / 100);
-    int32_t tune_fine = (song.g[G_TUNE] * 16 - tune * 100) * 2367 / 16000;   /* rest, in 1/4096 (1 ct = 2.367) */
+    int32_t tune, tune_fine;
     int32_t bend, bend16, bend_fine;
     uint32_t ti = (uint32_t)(t - trk);
+    uint32_t nr = 0, fade = t->xf_on && t->xf, live = 0;
+    int16_t pe_new[8];
     if (ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM) {
         midi_bend_q8[ti] = midi_bend_target[ti] = 0;
     } else {
@@ -615,13 +630,14 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
         /* ~6 ms smoothing, with an exact landing (no permanent small offset). */
         midi_bend_q8[ti] += d > 0 ? (d < 4 ? d : (d + 3) / 4) : (d > -4 ? d : (d - 3) / 4);
     }
-    bend = midi_bend_q8[ti];
-    bend16 = bend >= 0 ? bend / 16 : -((-bend + 15) / 16);
-    bend_fine = (bend - bend16 * 16) * 2367 / 2560;
-    uint32_t nr = 0, fade = t->xf_on && t->xf;
-    int16_t pe_new[8];
-    for (i = 0; i < n; i++)
-        out[i] = 0;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].active) {
+            live = 1;
+            break;
+        }
+    if (live || clear_idle)
+        for (i = 0; i < n; i++)
+            out[i] = 0;
     if (mod.on && mod.ldep < 32767)                     /* the matrix's DEPTH (mod.c) */
         lfo = mulq15(lfo, mod.ldep);
     if (spread_on)
@@ -635,6 +651,15 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
     esync_coef(t);                                      /* this block's envelope steps for env_tick (ENV SYNC) */
     if (e->block)                                       /* the engine's per-part work (WHEEL: bars, rotor) */
         e->block(t);
+    if (!live)
+        goto track_render_done;
+    if (!tune_cache.valid || tune_cache.cents != song.g[G_TUNE])
+        tune_cache_update();
+    tune = tune_cache.pitch;
+    tune_fine = tune_cache.fine;
+    bend = midi_bend_q8[ti];
+    bend16 = bend >= 0 ? bend / 16 : -((-bend + 15) / 16);
+    bend_fine = (bend - bend16 * 16) * 2367 / 2560;
     for (i = 0; i < NVOICE; i++) {
         voice_t *v = &t->v[i];
         vmod_t m;
@@ -673,7 +698,7 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
         }
         if (!env && !m.amp0 && v->stage == 2 && !e->sampled)
             continue;                                   /* held at a silent sustain (SUS 0): nothing to render */
-        pitch = v->pitch_cur + tune + bend16 + ((lfo * p[P_LD_PIT] * 3) >> 15) + ((m.envq15 * p[P_ED_PIT] * 3) >> 15);
+        pitch = v->pitch_cur + t->pfx_pit + tune + bend16 + ((lfo * p[P_LD_PIT] * 3) >> 15) + ((m.envq15 * p[P_ED_PIT] * 3) >> 15);
         m.pitch16 = clamp(pitch, 0, 2047);
         m.inc = pitch_inc(m.pitch16);
         m.fine = v->fine + tune_fine + bend_fine;
@@ -690,10 +715,17 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
     }
     if (spread_on)
         spread_sum(out);                                /* out: every voice; spread_buf: the left ones */
+track_render_done:
     if (fade) {
         for (i = 0; i < 8u; i++)
             t->p[P_E0 + i] = pe_new[i];
         t->xf--;
     }
     return nr;
+}
+/* Direct callers receive a cleared buffer even for silence. The mixer can
+ * omit that write when neither an insert tail nor a stutter needs the zeros. */
+static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
+{
+    return track_render_audio(t, out, n, 1);
 }

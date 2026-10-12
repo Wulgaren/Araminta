@@ -24,14 +24,14 @@ static const char *const PRESET_CAT[16] = {
     "",                          /* 1 DIGITAL (retired) */
     "LKPLUU",                    /* 2 PHASE: BRASS, ORGAN, STRING, RESO, BELL, WIRE */
     "LBLLL",                     /* 3 LOFI: PULSE LD, WAVE BASS, ARP 8BIT, WAVE LEAD, STEP LEAD */
-    "KKLL",                      /* 4 SAMPLE: PIANO, (PIANO: the retired TRANH's alias), FLUTE, SAX */
+    "KKLLK",                     /* 4 SAMPLE: PIANO, TRANH→PIANO, FLUTE, SAX, PERC→PIANO */
     "PLBF",                      /* 5 VOICE: CHOIR AAH, VOX LEAD, WOW BASS, WHISPER */
     "BLLUP",                     /* 6 TRIO: FAT BASS, ARP LEAD, SYNC LEAD, RING BELL, CHIP CHOIR */
     "KKKKK",                     /* 7 WHEEL: the organs */
     "PFPP",                      /* 8 GRAIN: CLOUD PAD, GLITCH, FROZEN, SHIMMER */
     "UUUPUDDPU",                 /* 9 PHYS: BELL TREE, MARIMBA, PLUCK, BOWED METAL, KALIMBA, HAND DRUM, TOMS, DRONE
                                   * STRING, HARP */
-    "D",                         /* 10 DRUM: DRUM KIT */
+    "D",                         /* 10 DRUM: DRUM-X */
     "FFFF",                      /* 11 NOISE: WIND, RAIN, ARCADE, METAL */
     "KUBLPUKU",                  /* 12 FM6: TINE EP, BELL, FM BASS, BRASS, PAD, MARIMBA, ORGAN, PLUCK */
     "DD",                        /* 13 SLICE: CHOP, STUTTER */

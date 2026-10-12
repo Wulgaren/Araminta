@@ -33,6 +33,19 @@ static int motion_recording(void)
     bad += check("only the selected track captures knob motion", motion_count(&trk[1]) == 0u);
     bad += check("transport and engine-switch parameters cannot be captured", !motion_param(P_SLEN) && !motion_param(P_AMODE) &&
         motion_set_event(t, 0, P_SLEN, 8) == 1);
+    bad += check("#222 SLICER pattern / rate / depth are automatable (not MODE)",
+        motion_param(P_SLPAT) && motion_param(P_SLRATE) && motion_param(P_SLDEPTH) && !motion_param(P_SLCR));
+    bad += check("CHRD / VOIC are automatable",
+        motion_param(P_CHRD) && motion_param(P_VOIC) && motion_set_event(t, 1, P_CHRD, CH_DIA3) == 0 &&
+        motion_set_event(t, 1, P_VOIC, VC_OPEN) == 0);
+    bad += check("insert continuous + MIX lockable (ORDER not)",
+        motion_param(P_ED_FX) && motion_param(P_DIST) &&
+        motion_param(P_IDMIX) && motion_param(P_IFCUT) && motion_param(P_IFRES) && motion_param(P_IFMIX) &&
+        motion_param(P_ICBITS) && motion_param(P_ICRATE) && motion_param(P_ICLPF) && motion_param(P_ICMIX) &&
+        motion_param(P_IPRATE) && motion_param(P_IPDEP) && motion_param(P_IPFBK) && motion_param(P_IPMIX) &&
+        motion_param(P_ILRATE) && motion_param(P_ILDEP) && motion_param(P_ILMIX) &&
+        motion_param(P_IHRATE) && motion_param(P_IHDEP) && motion_param(P_IHMIX) &&
+        !motion_param(P_IORD));
     seq_stop(); motion_clear(t);
     t->p[P_REV] = 42; song.rec = 1; seq_start(); seq_tick(t, CTL);
     motion_clear(t); t->p[P_REV] = 70; motion_capture(t, P_REV, 70); seq_stop();
@@ -86,7 +99,7 @@ static int compact_project(void)
     corrupt = packed; corrupt.raw[68] = 255; uint32_t sum = proj_hash(corrupt.raw, sizeof corrupt - 4u);
     memcpy(corrupt.raw + sizeof corrupt - 4u, &sum, 4);
     bad += check("compact parameter range is validated even with a correct hash", !proj_import(&after, &corrupt, sizeof corrupt));
-    corrupt = packed; uint32_t probability_byte = 68u + P_COUNT + 2u + 8u; corrupt.raw[probability_byte] = 127;
+    corrupt = packed; uint32_t probability_byte = 68u + P_COUNT + 1u + 2u + 8u; corrupt.raw[probability_byte] = 127;
     sum = proj_hash(corrupt.raw, sizeof corrupt - 4u); memcpy(corrupt.raw + sizeof corrupt - 4u, &sum, 4);
     bad += check("invalid probability is refused even with a correct hash", !proj_import(&after, &corrupt, sizeof corrupt));
     project_v6_t old; memset(&old, 0, sizeof old); old.magic = PROJ_MAGIC_V6; old.size = sizeof old;
@@ -154,7 +167,8 @@ static int fun7_89(void)
     ok = proj_import(&after, &old, sizeof old);
     for (k = 0; ok && k < NTRK; k++) {
         for (i = 0; i < 8u; i++) ok &= after.t[k].p[P_E0 + i] == before.t[k].p[P_E0 + i];
-        for (i = 0; i < 81u; i++) ok &= after.t[k].p[i] == before.t[k].p[i];
+        for (i = 0; i < 81u; i++)
+            ok &= after.t[k].p[i] == (i == P_CHOR ? (int16_t)(64 + 6 + (7 << 3)) : before.t[k].p[i]);
         ok &= after.t[k].p[P_CHRD] == 0 && after.t[k].p[P_VOIC] == 0;
         for (i = P_LN0; i <= P_LN7; i++) ok &= after.t[k].p[i] == 127;
     }
@@ -613,20 +627,20 @@ static int lock_ui(void)
     track_defaults_steps(t);
     t->p[P_SLEN] = 16;
     go_home();
-    open_family(FAM_SEQ);
+    go_seq_step();                                       /* SEQ button opens PATTERN; STEP for the grid */
     frame();
     k0 = key_at(0, 0); k4 = key_at(0, 4);
     grid_hit(t, 0, 0, 1);                                /* a KICK on step 1 */
-    bad += check("the grid on SEQ > STEP; the locks' knobs: HOME's (DRUM: E2..E5)", grid_on() && lock_id(0) == P_E1 &&
-        lock_id(3) == P_E4);
+    bad += check("the grid on SEQ > STEP; the locks' knobs: HOME's (DRUM: E1..E4)", grid_on() && lock_id(0) == P_E0 &&
+        lock_id(3) == P_E3);
     lk_down(k4);
     bad += check("a step key down: its step held (an empty one gets its hit at once)", lock_held() == (1u << 4) &&
         (t->step[4].hit & 1u));
     turn(EN_K1, 3);
-    ok = motion_lock_get(t, 4, P_E1, &v) && v == motion_base_value(t, P_E1) + 3;
+    ok = motion_lock_get(t, 4, P_E0, &v) && v == motion_base_value(t, P_E0) + 3;
     turn(EN_K1, 2);
-    bad += check("  KNOB 1 turned: step 5 gets a lock of E2 (TUNE), from the sound's own value", ok &&
-        motion_lock_get(t, 4, P_E1, &v) && v == motion_base_value(t, P_E1) + 5 && t->p[P_E1] == motion_base_value(t, P_E1));
+    bad += check("  KNOB 1 turned: step 5 gets a lock of E1 (MORPH), from the sound's own value", ok &&
+        motion_lock_get(t, 4, P_E0, &v) && v == motion_base_value(t, P_E0) + 5 && t->p[P_E0] == motion_base_value(t, P_E0));
     lk_up(k4);
     bad += check("  let go: the hit stays, the lock is there, the sound unchanged", (t->step[4].hit & 1u) &&
         motion_lock_count(t) == 1u && !lock_held());
@@ -634,28 +648,29 @@ static int lock_ui(void)
     turn(EN_K2, -4);
     lk_up(k0);
     bad += check("a key pressed on a hit and held for a lock: the hit stays", (t->step[0].hit & 1u) &&
-        motion_lock_get(t, 0, P_E2, &v));
+        motion_lock_get(t, 0, P_E1, &v));
     tap_key(k0);
     bad += check("  tapped alone: the hit goes (when let go), its lock stays", !(t->step[0].hit & 1u) &&
         motion_lock_count(t) == 2u);
     fm1_in.notes |= 1u << k0 | 1u << k4; host_notes |= 1u << k0 | 1u << k4; frame();
     turn(EN_K4, 1);
     fm1_in.notes = 0; frame();
-    bad += check("two step keys held: both get the lock", motion_lock_get(t, 0, P_E4, &v) && motion_lock_get(t, 4, P_E4, &v) &&
+    bad += check("two step keys held: both get the lock", motion_lock_get(t, 0, P_E3, &v) && motion_lock_get(t, 4, P_E3, &v) &&
         motion_lock_count(t) == 4u);
     lk_down(k4);
     press(B_EDIT);
     lk_up(k4);
     bad += check("a step held + [EDIT]: its locks go, the step and the others' locks stay", motion_lock_count(t) == 2u &&
-        !motion_lock_get(t, 4, P_E1, &v) && motion_lock_get(t, 0, P_E4, &v) && (t->step[4].hit & 1u) &&
+        !motion_lock_get(t, 4, P_E0, &v) && motion_lock_get(t, 0, P_E3, &v) && (t->step[4].hit & 1u) &&
         str_eq(ui.msg, "LOCKS CLEARED"));
     bad += check("the steps with a lock (the grid marks them): step 1", motion_lock_steps(3) == 1u);
-    open_family(FAM_FX);                                 /* the lock's knobs: the sound page shown last */
-    open_family(FAM_SEQ);
+    go_title("EFFECTS");
+    ui.ior_sel = 0;                                      /* K4 edits the chosen stage's mix (DIST) */
+    go_seq_step();                                       /* STEP keeps EFFECTS plk_src (STEP is not lock_page_ok) */
     frame();
-    bad += check("from FX: the knobs lock DIST CHO DLY REV", lock_id(0) == P_DIST && lock_id(3) == P_REV);
-    lk_down(k4); turn(EN_K4, 5); lk_up(k4);
-    bad += check("  step 5 gets a REV lock", motion_lock_get(t, 4, P_REV, &v) && v == t->p[P_REV] + 5);
+    bad += check("from EFFECTS: K4 locks the chosen stage's mix", lock_id(3) == P_IDMIX && lock_id(0) == 0xFFu);
+    lk_down(k4); turn(EN_K4, 5); lk_up(k4);              /* K4 = that mix */
+    bad += check("  step 5 gets a MIX lock", motion_lock_get(t, 4, P_IDMIX, &v) && v == t->p[P_IDMIX] + 5);
     go_auto_top();
     frame();
     bad += check("AUTOMATION: EVENT 0, LOCK 3", motion_count(t) - motion_lock_count(t) == 0u && motion_lock_count(t) == 3u);
@@ -664,7 +679,7 @@ static int lock_ui(void)
     t = &trk[0];
     track_defaults_steps(t);
     go_home();
-    open_family(FAM_SEQ);
+    go_seq_step();
     frame();
     for (kn = 0; kn < 27u && kb_map(t, kn) > 127u; kn++)
         ;
@@ -685,10 +700,18 @@ static int lock_ui(void)
         motion_lock_count(t) == 1u && motion_lock_steps(0) == 1u);
     cursor_set(0);
     press(B_EDIT);
-    bad += check("  [EDIT] alone clears the step and its locks", !t->step[0].n && !motion_lock_count(t));
+    bad += check("  [EDIT] alone leaves the note and its lock; it opens EDIT",
+                 t->step[0].n == 1u && motion_lock_count(t) == 1u && cur_page()->fam == FAM_EDIT);
+    go_seq_step();
+    ui.cursor = 0;
+    frame();
+    turn(EN_K3, -1);                                     /* LEN 1 -> 0: the note and its locks; cursor on */
+    bad += check("  KNOB 3 to LEN 0 clears the note and its locks; the cursor moves on",
+                 !t->step[0].n && t->step[0].time == ST_REST && !motion_lock_count(t) && msg_is("NOTE CLEARED") &&
+                 ui.cursor == 1u);
     song.playing = 1; chain.running = 1;
     lk_down(kn); turn(EN_K3, 1); lk_up(kn);
-    bad += check("  a song playing: STOP TO EDIT, no lock", !motion_lock_count(t));
+    bad += check("  a song playing: STOP TO EDIT, no lock", !motion_lock_count(t) && msg_is("STOP TO EDIT"));
     song.playing = 0; chain.running = 0; song.rec = 0;
     return bad;
 }
@@ -705,28 +728,28 @@ static int lock_undo(void)
     track_defaults_steps(t);
     t->p[P_SLEN] = 16;
     go_home();
-    open_family(FAM_SEQ);
+    go_seq_step();
     frame();
     k4 = key_at(0, 4);
     lk_down(k4);
     turn(EN_K1, 3);
     turn(EN_K1, 2);
     lk_up(k4);
-    bad += check("lock undo: a step held, KNOB 1 turned twice: one lock", motion_lock_get(t, 4, P_E1, &v) &&
-        v == motion_base_value(t, P_E1) + 5);
+    bad += check("lock undo: a step held, KNOB 1 turned twice: one lock", motion_lock_get(t, 4, P_E0, &v) &&
+        v == motion_base_value(t, P_E0) + 5);
     hold(B_SAVE);
     bad += check("  SAVE held: the lock is gone (one undo for the whole turn), the step's hit stays",
         !motion_lock_count(t) && (t->step[4].hit & 1u));
     hold(B_SAVE);
-    bad += check("  held again (redo): the lock is back at its value", motion_lock_get(t, 4, P_E1, &v) &&
-        v == motion_base_value(t, P_E1) + 5);
+    bad += check("  held again (redo): the lock is back at its value", motion_lock_get(t, 4, P_E0, &v) &&
+        v == motion_base_value(t, P_E0) + 5);
     frames(2000);
     lk_down(k4);
     press(B_EDIT);
     lk_up(k4);
     bad += check("  a step held + [EDIT] clears it", !motion_lock_count(t) && str_eq(ui.msg, "LOCKS CLEARED"));
     hold(B_SAVE);
-    bad += check("  SAVE held brings it back", motion_lock_get(t, 4, P_E1, &v) && v == motion_base_value(t, P_E1) + 5);
+    bad += check("  SAVE held brings it back", motion_lock_get(t, 4, P_E0, &v) && v == motion_base_value(t, P_E0) + 5);
     frames(2000);
     lk_down(k4);
     press(B_EDIT);
@@ -805,7 +828,7 @@ static int auto_list(void)
     turn(EN_K1, -5);
     turn(EN_K1, 2);                                      /* (the first record: the row after PLAY and QUANTIZE) */
     v = motion.event[0].value;
-    turn(EN_K4, 2); turn(EN_K4, 2); turn(EN_K4, 2);
+    turn(EN_K4, 2); frames(100); turn(EN_K4, 2); frames(100); turn(EN_K4, 2);  /* > ACC_GAP per detent: no accel */
     ok = motion.event[0].value == v + 6;
     hold(B_SAVE);
     bad += check("  KNOB 4 turned on (three turns): one undo", ok && motion.event[0].value == v);
@@ -826,13 +849,64 @@ static int auto_list(void)
     bad += check("  KNOB 3's list: what motion records and the sound has (no OP ENV, no DRUM lanes off DRUM)", i == P_COUNT &&
         ev_id_ok(&trk[3], P_LN0));
     {
-        char a[12], b[12];
-        ev_name(t, P_ED_FLT, a); ev_name(t, P_LD_FLT, b);
-        bad += check("  names: ENV FLT / LFO FLT", str_eq(a, "ENV FLT") && str_eq(b, "LFO FLT"));
+        char a[12], b[12], c[12];
+        ev_name(t, P_ED_FLT, a); ev_name(t, P_LD_FLT, b); ev_name(t, P_SLRATE, c);
+        bad += check("  names: ENV FLT / LFO FLT / SL RATE",
+            str_eq(a, "ENV FLT") && str_eq(b, "LFO FLT") && str_eq(c, "SL RATE"));
     }
     ui_prefs |= PREF_LARGE;
     bad += check("  MENU > LARGE: the list layout with labels in M (as the other lists)", large_kind() == LK_LABEL);
     ui_prefs &= ~PREF_LARGE;
+    /* #223: PARAM / MOD DST are flat tag+name lists. ENV DEST / LFO DEST are knob pages. */
+    ui.ev_row = 0xFFFFu;                                 /* + ADD */
+    ui.ev_id = (uint8_t)P_LEVEL;
+    ui.ev_step = 0;
+    turn(EN_K3, 1);
+    bad += check("#223 AUTOMATION PARAM: pick list opens", ui.pick == PK_AUTO && pk_n > 8u &&
+        pk_cur < pk_n);
+    {
+        uint32_t i, found = 0;
+        for (i = 0; i < pk_n; i++)
+            if (pk_rows[i].id == P_SLRATE && str_eq(pk_rows[i].tag, "SLICER") &&
+                str_eq(pk_rows[i].name, "RATE"))
+                found = 1;
+        bad += check("#223 AUTOMATION PARAM: SLICER / RATE", found);
+    }
+    turn(EN_K1, -1);
+    bad += check("#223 leaving the row closes the pick list", !ui.pick);
+    go_title("MOD");
+    frame();
+    turn(EN_K3, 1);
+    bad += check("#223 MOD DST: pick list opens", ui.pick == PK_MDST && pk_n > 8u && pk_cur < pk_n);
+    {
+        uint32_t i, dist = 0, spat = 0, fcut = 0, cho = 0;
+        for (i = 0; i < pk_n; i++) {
+            if (pk_rows[i].id == MD_DIST && str_eq(pk_rows[i].tag, "SEND") &&
+                str_eq(pk_rows[i].name, "DISTORT"))
+                dist = 1;
+            if (pk_rows[i].id == MD_SLPAT && str_eq(pk_rows[i].tag, "SLICER") &&
+                str_eq(pk_rows[i].name, "PATTERN"))
+                spat = 1;
+            if (pk_rows[i].id == MD_FCUT && str_eq(pk_rows[i].tag, "FILTER") &&
+                str_eq(pk_rows[i].name, "CUTOFF"))
+                fcut = 1;
+            if (pk_rows[i].id == MD_CHO && str_eq(pk_rows[i].tag, "CHORUS") &&
+                str_eq(pk_rows[i].name, "MIX"))
+                cho = 1;
+        }
+        bad += check("#223 MOD DST: SEND / DISTORT and SLICER / PATTERN", dist && spat);
+        bad += check("MOD DST: FILTER / CUTOFF (insert continuous)", fcut);
+        bad += check("MOD DST: CHO is CHORUS / MIX", cho);
+    }
+    {
+        uint32_t i, n = 0;
+        for (i = 0; i < NPAGES; i++)
+            if (str_eq(PAGES[i].title, "ENV DEST") || str_eq(PAGES[i].title, "LFO DEST")) {
+                bad += check(PAGES[i].title, PAGES[i].graph == GR_NONE);
+                n++;
+            }
+        bad += check("ENV DEST and LFO DEST are knob pages (scope), not a pick list", n == 2u);
+    }
     return bad;
 }
 int main(void)

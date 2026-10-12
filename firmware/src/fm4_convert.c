@@ -3,7 +3,7 @@
 /* DIGITAL (engine 1, four-operator FM): retired, and its sounds converted to FM6.
  *
  * "The DIGITAL engine has been replaced by FM6 (Dexed-based)" (1.0). Its DSP stays in the tree (eng_digital.c)
- * and builds with FELUCCA_FM4=1 (core.h; off by default, as FELUCCA_SLICE), so it can come back. Engine index 1
+ * and builds with FELUCCA_FM4=1 (core.h; off by default), so it can come back. Engine index 1
  * stays reserved: the stores name engines by index and the table is append-only. Without FELUCCA_FM4 engine 1 is
  * ENG_FM4_GONE below: no presets, never offered (PRESETS, the EDIT layer, the editor's lists skip it: engines.c
  * eng_ok), and a DIGITAL sound that arrives anyway -- a project (FUN1..FUN8), a user preset, the editor's PRESET /
@@ -372,8 +372,12 @@ static void fm4_preset_values(int16_t *p, uint32_t k)
     p[P_REL] = pr->env[3];
     p[P_ED_FLT] = pr->fenv;
     p[P_VOICE] = pr->mono ? V_LEGATO : V_POLY;
-    for (i = 0; i < 4u; i++)
-        p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
+    /* Old DIGITAL fx[] was DIST/CHO/DLY/REV sends. Bus CHO is gone: CHO -> insert CHOR mix; DIST send ignored
+     * (P_DIST is drive). DLY/REV stay sends. P_CHOR holds EFFECTS DLY/REV list slots. */
+    p[P_CHOR] = 64 + 6 + (7 << 3);
+    p[P_IHMIX] = (int16_t)(pr->fx[1] ? pr->fx[1] - 1 : FX_DEF[1]);
+    p[P_DLY] = (int16_t)(pr->fx[2] ? pr->fx[2] - 1 : FX_DEF[2]);
+    p[P_REV] = (int16_t)(pr->fx[3] ? pr->fx[3] - 1 : FX_DEF[3]);
     for (i = P_FM1_ATK; i <= P_FM4_LEVEL; i++)
         p[i] = (i - P_FM1_ATK) % 5u == 2u || (i - P_FM1_ATK) % 5u == 4u ? 127 : 0;
 }

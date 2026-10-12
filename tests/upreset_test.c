@@ -264,8 +264,9 @@ int main(void)
     /* map by count: a record from a build with 2 parameters fewer */
     for (i = 0; i < P_COUNT; i++)
         def[i] = (int16_t)(1000 + i);
+    r.ver = UP_VER;
     r.np = P_COUNT - 2u;
-    for (i = 0; i < P_COUNT; i++)
+    for (i = 0; i < r.np; i++)
         up_set_value(&r, i, (int16_t)i);
     up_params(&r, v, def);
     ok = 1;
@@ -282,15 +283,16 @@ int main(void)
         r.p[i] = (int16_t)(2000 + i);
     up_params(&r, v, def);
     ok = P_SLCR == 45 && P_SLDEPTH + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD &&
-         P_VOIC + 1 == P_LN0 && P_LN7 + 1 == P_LSYNC && P_SQNT + 1 == P_SPRD && P_SPRD + 1 == P_ITYPE &&
-         P_IMIX + 1 == P_FTYPE && P_ESYNC + 1 == P_E0 && P_E0 == 103 && P_COUNT == 111;
+         P_VOIC + 1 == P_LN0 && P_LN7 + 1 == P_LSYNC && P_SQNT + 1 == P_SPRD && P_SPRD + 1 == P_IORD &&
+         P_IHMIX + 1 == P_FTYPE && P_ESYNC + 1 == P_E0 && P_E0 == 119 && P_COUNT == 127;
     for (i = 0; i < 45u; i++)
-        ok &= v[i] == (int16_t)(2000 + i);
-    for (i = P_SLCR; i < P_E0; i++)
+        ok &= v[i] == (i == P_CHOR ? (int16_t)(64 + 6 + (7 << 3)) : (int16_t)(2000 + i)); /* CHO send -> FXPOS */
+    for (i = P_SLCR; i < P_IORD; i++)
         ok &= v[i] == def[i];
+    ok &= !v[P_IORD] && v[P_IDMODE] == IDM_SOFT && v[P_IFTYPE] == IFT_LP && !v[P_FTYPE] && !v[P_ESYNC];
     for (i = 0; i < 8u; i++)
         ok &= v[P_E0 + i] == (int16_t)(2000 + 45 + i);
-    bad += check("old record (np 53): SLICER and matrix defaults, E0..E7 kept", ok);
+    bad += check("old record (np 53): SLICER and matrix defaults, insert chain migrated, E0..E7 kept", ok);
     /* a record saved before the modulation matrix (P_COUNT 57, P_E0 49): the twelve matrix parameters (just
      * before P_E0) take their defaults (every slot OFF), the SLICER and everything else keep their ids */
     r.np = 57;
@@ -299,7 +301,7 @@ int main(void)
     up_params(&r, v, def);
     ok = 1;
     for (i = 0; i < 49u; i++)
-        ok &= v[i] == (int16_t)(3000 + i);
+        ok &= v[i] == (i == P_CHOR ? (int16_t)(64 + 6 + (7 << 3)) : (int16_t)(3000 + i));
     for (i = P_M1SRC; i <= P_M4AMT; i++)
         ok &= v[i] == def[i];
     for (i = 0; i < 8u; i++)
@@ -325,13 +327,14 @@ int main(void)
                 ok &= up_valid(&o);
                 up_params(&o, v, def);
                 for (i = 0; i < np - 8u; i++)
-                    ok &= v[i] == (int16_t)(i % 100u - 30);
-                for (i = np - 8u; i < P_E0; i++)
+                    ok &= v[i] == (i == P_CHOR ? (int16_t)(64 + 6 + (7 << 3)) : (int16_t)(i % 100u - 30));
+                for (i = np - 8u; i < P_IORD; i++)
                     ok &= v[i] == def[i];
+                ok &= !v[P_IORD] && v[P_IDMODE] == IDM_SOFT && v[P_IFTYPE] == IFT_LP && !v[P_FTYPE] && !v[P_ESYNC];
                 for (i = 0; i < 8u; i++)
                     ok &= v[P_E0 + i] == (int16_t)((np - 8u + i) % 100u - 30);
             }
-        bad += check("v4 / v5 records of 91, 89 and 69 parameters: E0..E7 at P_E0, lane levels and chord keys defaults", ok);
+        bad += check("v4 / v5 records of 91, 89 and 69 parameters: E0..E7 at P_E0, insert chain migrated", ok);
     }
     r.ver = UP_VER;
     r.np = P_COUNT;
@@ -342,6 +345,37 @@ int main(void)
     for (i = 0; i < P_COUNT; i++)
         ok &= v[i] == (int16_t)i;
     bad += check("np == P_COUNT: as stored", ok);
+    {   /* Felucca 1.5 user preset (np 111, ver 4): INSERT at 96..100 as one biased byte each.
+         * Must not decode index 96 as today's 2-byte P_IORD (that lives only at np > 111). */
+        up_rec_t o;
+        memset(&o, 0, sizeof o);
+        o.used = UP_USED; o.ver = UP_VER; o.engine = 0; o.np = 111;
+        memcpy(o.name, "INS15", 5);
+        for (i = 0; i < 111u; i++)
+            o.packed[i] = 64;                          /* zeros as 1.5 wrote them */
+        o.packed[P_DIST] = (uint8_t)(70 + 64);
+        o.packed[96] = (uint8_t)(5 + 64);              /* IT_CRUSH */
+        o.packed[97] = (uint8_t)(40 + 64);
+        o.packed[98] = (uint8_t)(50 + 64);
+        o.packed[99] = (uint8_t)(60 + 64);
+        o.packed[100] = (uint8_t)(110 + 64);
+        o.packed[101] = (uint8_t)(2 + 64);             /* HP */
+        o.packed[102] = (uint8_t)(1 + 64);             /* ESYNC */
+        for (i = 0; i < 8u; i++)
+            o.packed[103 + i] = (uint8_t)(20 + i + 64);
+        bad += check("1.5 preset (np 111): valid as packed INSERT bytes", up_valid(&o));
+        bad += check("1.5 preset: index 96 is TYPE 5, not a 2-byte IORD", up_value(&o, 96) == 5);
+        memset(def, 0, sizeof def);
+        up_params(&o, v, def);
+        bad += check("1.5 preset: CRUSH INSERT migrates into the chain",
+                     v[P_ICBITS] == 40 && v[P_ICRATE] == 50 && v[P_ICLPF] == 60 && v[P_ICMIX] == 110 &&
+                     v[P_DIST] == 70 && v[P_IDMIX] == 127 && v[P_FTYPE] == 2 && v[P_ESYNC] == 1 &&
+                     v[P_E0] == 20 && v[P_E7] == 27);
+        o.packed[96] = (uint8_t)(0 + 64);              /* TYPE OFF */
+        up_params(&o, v, def);
+        bad += check("1.5 preset: INSERT TYPE OFF stays dry",
+                     v[P_ICMIX] == 0 && v[P_IPMIX] == 0 && v[P_ILMIX] == 0 && v[P_IHMIX] == 0);
+    }
 
     {   /* steps -> pattern (UP_STORE) */
         step_t st[NSTEP];
@@ -392,6 +426,15 @@ int main(void)
         up_set_cat(&got, CAT_FX);
         bad += check("category: a version 3 grid -> 5 with it, values kept; one that cannot be packed keeps none",
                      ok && got.ver == 3u && up_cat_of(&got) == CAT_DRUM && !memcmp(&got, &r, sizeof r));
+    }
+    {   /* GRAIN / SLICE / NOISE records stay as stored (DIGITAL-style); load remaps in up_load */
+        uint8_t a[512]; uint32_t n, slot; up_rec_t r;
+        n = put_frame(a, 4, ENGI_GRAIN, "Old grain", 0);
+        bad += check("UP_PUT GRAIN: kept as stored", up_parse(a, n, &r, &slot) == 0 && r.engine == ENGI_GRAIN && up_valid(&r));
+        n = put_frame(a, 5, ENGI_NOISE, "Old noise", 0);
+        bad += check("UP_PUT NOISE: kept as stored", up_parse(a, n, &r, &slot) == 0 && r.engine == ENGI_NOISE);
+        n = put_frame(a, 6, ENGI_SLICE, "Old slice", 0);
+        bad += check("UP_PUT SLICE: kept as stored", up_parse(a, n, &r, &slot) == 0 && r.engine == ENGI_SLICE);
     }
     printf("%s\n", bad ? "USER PRESET TEST FAILED" : "user preset test passed");
     return bad != 0;
