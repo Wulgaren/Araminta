@@ -70,7 +70,7 @@ static const page_t *ly_page(uint32_t l) { return l == LAYER_SCL ? &LY_SCL : l =
 #define LY_INIT ((uint32_t)NENG_SHOWN) /* EDIT: the white key of INIT, the one after the engines (13: E5), its map cell */
 typedef char ly_init_fits[LY_INIT < 16u ? 1 : -1];   /* (a white key: F3 .. G5) */
 #define layer_seen (favorites.factory[15][31])   /* bit l: layer l opened once (a byte no engine uses) */
-static const khint_t FX_LATCH_FOOT[3] = {{KC_KEYS, "ON / OFF"}, {KC_K14, "MACROS"}, {KC_OCTDN, "ALL OFF"}};
+static const khint_t FX_LATCH_FOOT[3] = {{KC_KEYS, "ON / OFF"}, {KC_K14, "MACROS"}, {KC_KEYS, "ALL OFF"}};
 static const khint_t FX_KEY_FOOT[3] = {{KC_PRESETS, "ASSIGN"}, {KC_EDIT, "DEFAULT"}, {KC_K14, "MACROS"}};   /* (a key held) */
 static const khint_t GLO_LOCK_FOOT[3] = {{KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}, {0, 0}};   /* (locked: PLAY plays, #183) */
 /* the FX layer's key map (perform.c perf_map_of / perf_map_put: 16 x 5 bits; all 0, every older setting: the default
@@ -119,9 +119,9 @@ static uint32_t layer_open(void)
     uint32_t l = ui.lock ? ui.lock : (ui.ly && (ui.ly_t0 & LY_OPEN) ? ui.ly : 0u);
     return l && ly_down(l) && layer_allowed() ? l : 0u;
 }
-static int layer_set_open(void)                 /* (FX LATCH: FX is one too, OCT- turns all off) */
+static int layer_set_open(void)
 {
-    return layer_open() && (LAYERS[layer_open()].kind == LK_SET || (layer_open() == LAYER_FX && perf_latch_on));
+    return layer_open() && LAYERS[layer_open()].kind == LK_SET;
 }
 static uint32_t layer_held(void) { return ui.ly && ly_down(ui.ly) && layer_allowed(); }
 
@@ -659,19 +659,20 @@ static int layer_play(void)
     return 1;
 }
 
-/* OCT- / OCT+ pressed with a SET layer's button down (FX LATCH: FX's) before it opened: a combo, so it opens now,
- * before oct_taps and layer_oct read it (else the press was nobody's: no put back / ALL OFF, no octave) */
+/* OCT- / OCT+ pressed with a SET layer's button down before it opened: a combo, so it opens now,
+ * before oct_taps and layer_oct read it (else the press was nobody's: no put back, no octave) */
 static void layer_oct_open(uint32_t pressed)
 {
     uint32_t l = ui.ly, oct = 1u << panel.btn[B_OCTDN] | 1u << panel.btn[B_OCTUP];
     if ((pressed & oct) && l && !(ui.ly_t0 & (LY_OPEN | LY_DEAD)) && layer_held() &&
-        (LAYERS[l].kind == LK_SET || (l == LAYER_FX && perf_latch_on))) {
+        LAYERS[l].kind == LK_SET) {
         ui.ly_t0 |= LY_OPEN | LY_COMBO;
         layer_opened(l);
     }
 }
 
-/* OCT- / OCT+ in a SET layer: no octave; OCT- let go puts back what the layer changed. Returns the taps left */
+/* OCT- / OCT+ in a SET layer: no octave; OCT- let go puts back what the layer changed. Returns the taps left.
+ * FX LATCH Punch-in is not a SET layer: OCT± shift octave; G5 CLR turns latched FX off. */
 static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
 {
     uint32_t dn = panel.btn[B_OCTDN], up = panel.btn[B_OCTUP], k, mine;
@@ -679,11 +680,7 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
         lys.oct |= (uint8_t)(((pressed >> dn) & 1u) | ((pressed >> up) & 1u) << 1);
     mine = oct & lys.oct;
     if (mine & 1u) {                                    /* OCT-: back to when it opened */
-        if (lys.l == LAYER_FX) {                        /* (FX LATCH) every effect and macro off */
-            perf_latched = 0;
-            perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;
-            ui_message("FX ALL OFF");
-        } else if (lys.l == LAYER_EDIT) {
+        if (lys.l == LAYER_EDIT) {
             uint32_t ld = lys.loaded;
             if (ld)
                 undo_swap();                            /* (the copy from its first load) */
@@ -904,7 +901,7 @@ static void layer_fx(void)
     for (p = 0; p < PF_KEYS; p++) {                     /* the white keys F3 .. G5, 4 a row: the effect each holds */
         const char *cell;
         e = perf_map[p];
-        if (p == 15u) {                                 /* G5 always clears the lane (seq.c perf_key); the cell says so */
+        if (p == 15u && perf_latch_on) {                /* G5 CLR: latched punch-ins + macros off */
             cell = "CLR";
             st = p == ed ? LS_SEL : pfx_clr ? LS_HELD : LS_OFF;
         } else {

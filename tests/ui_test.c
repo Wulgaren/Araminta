@@ -6103,30 +6103,33 @@ static int test_fx_map(void)
     return bad;
 }
 
-/* #40: MENU > FX LATCH ON: a Punch-in key toggles its effect (press again off); macros stay; OCT- all off;
- * the menu turns them off; OFF (default): punch keys are momentary. Punch-in is the sticky FX map. */
+/* #40: MENU > FX LATCH ON: a Punch-in key toggles its effect (press again off); macros stay; G5 CLR turns
+ * latched effects and FILTER/CRUSH/THROW/DEPTH off; OCT± shift octave; the menu turns them off; OFF (default):
+ * punch keys are momentary and G5 is not CLR. Punch-in is the sticky FX map. */
 
 static int test_fx_latch(void)
 {
     int bad = 0, ok;
-    uint32_t lpf = white(4), m1 = black(0);             /* C4: LPF (1/2 is the 4th white key, B3); A#3 mute T1 */
+    uint32_t lpf = white(4), m1 = black(0), clr = white(15); /* C4: LPF; A#3 mute T1; G5 CLR when LATCH on */
     ui_power_on();
     ok = !(fx_latch & 1u);
     go_title("PUNCH"); frame();
     ok &= ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
+    ok &= perf_key(clr) != PF_CLR;                      /* LATCH off: no CLR on G5 */
     key_down(lpf); frame();
     ok &= (perf_held & PF_BIT(PF_LPF)) != 0u && !perf_latched;
     key_up(lpf); frame();
     ok &= !(perf_held & PF_BIT(PF_LPF)) && !perf_latched;
-    bad += check("#40 FX LATCH OFF: Punch-in keys are momentary (effect ends when let go)", ok);
+    bad += check("#40 FX LATCH OFF: Punch-in keys are momentary; G5 is not CLR", ok);
     /* ON */
     ui_power_on();
     fx_latch = 1;
     frame();                                            /* (ui_input hands the setting to the ISR) */
     go_title("PUNCH"); frame();
+    ok = perf_key(clr) == PF_CLR;
     key_down(lpf); frame(); key_up(lpf); frame();
     turn(EN_K2, 30);
-    ok = perf_latched == PF_BIT(PF_LPF) && !perf_held && ui.layer == LAYER_FX &&
+    ok &= perf_latched == PF_BIT(PF_LPF) && !perf_held && ui.layer == LAYER_FX &&
          str_eq(layer_head(), "[FX] LATCH") && ((layer_leds(0) >> lpf) & 1u);
     ok &= perf_k[1] == 30;
     ok &= perf_begin(CTL) && (perf_act & PF_BIT(PF_LPF));   /* it runs with nothing held */
@@ -6137,9 +6140,18 @@ static int test_fx_latch(void)
     ok &= perf_latched == PF_BIT(PF_M1);
     bad += check("  a mute key latches; C4 again: LPF off", ok);
     turn(EN_K1, -40);
+    key_down(lpf); frame(); key_up(lpf); frame();       /* LPF on again with FILTER -40, CRUSH 30 */
+    ok = perf_latched == (PF_BIT(PF_LPF) | PF_BIT(PF_M1)) && perf_k[0] == -40 && perf_k[1] == 30;
+    press(B_OCTUP);
+    ok &= perf_latched == (PF_BIT(PF_LPF) | PF_BIT(PF_M1)) && perf_k[0] == -40 && perf_k[1] == 30 &&
+          song.octave == 1;
     press(B_OCTDN);
-    ok = !perf_latched && !perf_k[0] && !perf_k[1] && song.octave == 0 && msg_is("FX ALL OFF");
-    bad += check("  OCT- on Punch-in with LATCH: every latched effect and macro off (no octave)", ok);
+    ok &= perf_latched == (PF_BIT(PF_LPF) | PF_BIT(PF_M1)) && perf_k[0] == -40 && perf_k[1] == 30 &&
+          song.octave == 0;
+    bad += check("  OCT± on Punch-in with LATCH: shift octave; latched effects and knobs stay", ok);
+    key_down(clr); frame(); key_up(clr); frame();
+    ok = !perf_latched && !perf_k[0] && !perf_k[1] && msg_is("FX ALL OFF");
+    bad += check("  G5 CLR: every latched effect and FILTER/CRUSH/THROW/DEPTH off", ok);
     key_down(lpf); frame(); key_up(lpf); frame();
     ok = perf_latched == PF_BIT(PF_LPF);
     hold(B_HOME);

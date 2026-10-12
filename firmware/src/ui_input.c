@@ -1793,6 +1793,10 @@ static void ui_input(void)
     layer_show();
     section_apply();                                    /* sticky Punch-in / SEQ tools maps */
     layer_keys(lkeys);                                  /* GLO: held white keys set perf_solo */
+    if (perf_clr_say) {                                 /* G5 CLR (ISR): latched punch-ins + macros off */
+        perf_clr_say = 0;
+        ui_message("FX ALL OFF");
+    }
     if (!lay && layer_open()) {                         /* section map, no button held: knobs + FX assign */
         for (k = 0; k < 4u; k++)
             if ((ks[k] = panel_enc(EN_K1 + k)) != 0) {
