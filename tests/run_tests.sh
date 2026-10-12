@@ -118,7 +118,8 @@
 #                   never with an external clock), notes in its last eighth onto step 1; build/click_demo/.
 # FREE TAKE (tests/freetake_test.c, P2-A / SLOOP): empty project, REC armed while stopped, first note starts a take with
 #                   no tempo; REC closes 1/2/4 bars and sets BPM; PLAY button / STOP drops; transport PLAY closes; 24 s auto-close;
-#                   a note started while an earlier one is still held sets SF_SLIDE on the previous NOTE step.
+#                   a note started while an earlier one is still held sets SF_SLIDE; releasing it while held
+#                   records a return to the held pitch.
 # USB audio (tests/uac_test.c): the UAC1 descriptors as a host parses them (with and without CDC; 44100 and
 #                   48000 Hz), the ring and packetiser: 44.1 frames per packet, every frame in order (bit for bit),
 #                   underrun / overrun, restart; SET_CUR; the 44.1 -> 48 kHz resampler (every frame against a
@@ -288,7 +289,7 @@ if [ -f build/gen/felucca_tables.h ]; then
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/click_test" tests/click_test.c -lm
     run "metronome and count-in: beats sample for sample (internal and external clock), accent, level, MASTER, not in USB, count-in timing, notes onto step 1" "$OUT/click_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/freetake_test" tests/freetake_test.c -lm
-    run "free take: empty project, REC armed, first note starts take, REC closes loop/tempo, PLAY/STOP drops, 24 s auto-close, held-note slides" "$OUT/freetake_test"
+    run "free take: empty project, REC armed, first note starts take, REC closes loop/tempo, PLAY/STOP drops, 24 s auto-close, held-note slides and returns" "$OUT/freetake_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/persistence_test" tests/persistence_test.c -lm
     run "persistence: deferred settings, retry and failed-save rollback" "$OUT/persistence_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/backup_test" tests/backup_test.c -lm
