@@ -229,6 +229,16 @@ int main(void)
                (trk[0].step[8].flags & SF_SLIDE));
         assert(trk[0].step[12].time == ST_NOTE && trk[0].step[12].note[0] == 65 &&
                !(trk[0].step[12].flags & SF_SLIDE));
+        /* gaps in the held chain are TIEs (not REST: that would drop the voice), last TIE slides in */
+        for (j = 1; j < 4u; j++)
+            assert(trk[0].step[j].time == ST_TIE);
+        assert(trk[0].step[3].flags & SF_SLIDE);
+        for (j = 5; j < 8u; j++)
+            assert(trk[0].step[j].time == ST_TIE);
+        assert(trk[0].step[7].flags & SF_SLIDE);
+        for (j = 9; j < 12u; j++)
+            assert(trk[0].step[j].time == ST_TIE);
+        assert(trk[0].step[11].flags & SF_SLIDE);
         transport_req = 2;
         mix_block(out, CTL);
 
