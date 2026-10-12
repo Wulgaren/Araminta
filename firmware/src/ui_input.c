@@ -1719,7 +1719,7 @@ static void ui_input(void)
             trk[k].preset = 0;
             fm1_irq_on();
         }
-    perf_latch_on = 0;                                  /* FX LATCH retired: Punch-in section is momentary */
+    perf_latch_on = fx_latch & 1u;                      /* (MENU > FX LATCH; a settings load sets it too) */
     fx_map_sync();                                      /* (the FX layer's key map: ui_layer.c, a settings load too) */
     fx_usb_fixed = (ui_prefs & PREF_USB_FIXED) != 0u;   /* (MENU > USB LEVEL: fx.c, audio.c) */
     scope_mix = (ui_prefs2 & (PREF_SCOPE_MIX >> 16)) != 0u;   /* (MENU > SCOPE: fx.c, audio.c) */
