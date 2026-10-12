@@ -134,6 +134,7 @@ static struct {
     uint8_t fam_last[FAM_COUNT]; /* last page used per family */
     uint8_t bank;                /* SEQ: 16-step bank (follows the cursor) */
     uint8_t cursor;              /* SEQ: step being edited (STEP page KNOB 1 moves it) */
+    uint8_t seq_follow_t;        /* SEQ follow pause: frames until cursor snaps to seq_idx again (0 = follow) */
     uint8_t entry_open;          /* SEQ: keys held since the first press of this entry */
     uint8_t lane;                /* SEQ > STEP on a DRUM track (the grid): the lane the keys and KNOB 3 / 4 edit */
     uint8_t plk_src;             /* parameter locks (ui_input.c lock_*): the sound page whose KNOB 1..4 a step held
@@ -725,6 +726,30 @@ static void cursor_fix(void)                           /* LEN got shorter: onto 
 {
     if (ui.cursor >= (uint32_t)TSEL->p[P_SLEN])
         cursor_set(TSEL->p[P_SLEN] - 1);
+}
+
+/* SEQ follow: while playing on PATTERN/STEP/DETAIL, the cursor tracks seq_idx unless paused (~3 s) */
+#define SEQ_FOLLOW_FRAMES 180u
+static int seq_step_sec(void)
+{
+    const page_t *pg = cur_page();
+    return !ui.home && pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_STEP;
+}
+static void seq_follow_bump(void)
+{
+    if (seq_step_sec())
+        ui.seq_follow_t = (uint8_t)SEQ_FOLLOW_FRAMES;
+}
+static void seq_follow_tick(void)
+{
+    if (!song.playing || !seq_step_sec()) {
+        ui.seq_follow_t = 0;
+        return;
+    }
+    if (ui.seq_follow_t)
+        ui.seq_follow_t--;
+    else
+        cursor_set((int32_t)TSEL->seq_idx);
 }
 
 static void note_name(char *b, uint32_t n)

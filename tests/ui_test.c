@@ -2355,8 +2355,7 @@ static int test_chain(void)
             if (k < P_SLEN || k > P_SGATE) ok &= trk[i].p[k] == sounds[i][k];
     }
     bad += check("SONG row change: four tracks together, sounds unchanged", ok);
-    open_family(FAM_SEQ);
-    for (k = 0; k < NPAGES && cur_page()->scope != SC_STEP; k++) open_family(FAM_SEQ);
+    go_seq_step();
     turn(EN_K2, 1); press(B_EDIT); hold(B_REC); hold(B_SAVE);
     bad += check("SONG playing: step edits, clears, recording and undo are blocked", !memcmp(trk[0].step, before[0], sizeof before[0]) && !ui.confirm);
     events_block(period);
@@ -2622,7 +2621,7 @@ static int test_presets_knob(void)
     return bad;
 }
 
-/* Pages by button. HOME: Home ↔ Mixer; SEQ: Pattern → Step → Automation;
+/* Pages by button. HOME: Home ↔ Mixer; SEQ: step group → Automation → Tools;
  * GLO: Master → Song → Clock → Record; SAVE: Presets (PRESETS/USER/PHRASES) → Project (PROJECT/TOOLS).
  * AUTOMATION's list edits a step's CHANCE / RATCH (the step's own fields, nothing else), one undo each;
  * a remembered page that left its family */
@@ -3917,8 +3916,9 @@ static int test_step_rec(void)
     song.playing = 1;
     key_down(7); frame(); key_up(7); frame();
     song.playing = 0;
-    bad += check("#133 STEP, not armed, playing: nothing written either", !memcmp(before, t->step, sizeof before) &&
-                 ui.cursor == 3u);
+    bad += check("#133 STEP, not armed, playing: nothing written either", !memcmp(before, t->step, sizeof before));
+    cursor_set(3);                                                    /* follow moved the cursor while playing */
+    frame();
     song.rec = 2u;                                                    /* T2 armed, T1 selected */
     key_down(7); frame(); key_up(7); frame();
     bad += check("#133 another track armed: the selected track's STEP writes nothing",
@@ -3978,21 +3978,24 @@ static int test_step_rec(void)
     ok = t->step[11].n == 1u && t->step[11].time == ST_NOTE && t->step[12].time == ST_TIE &&
          t->step[10].time == ST_REST && !t->step[10].n && ui.cursor == 11u;
     bad += check("#133 PRESETS with no key held still moves the note (and its TIEs)", ok);
-    cursor_set(4);                                                    /* (an empty step, away from the play head) */
+    cursor_set(4);                                                    /* (an empty step; follow will track the play head) */
     step_clear(&t->step[4]);
     frame();
     press(B_PLAY);
     events_block(CTL);
     ok = song.playing && live_rec_sel() && t->seq_idx < 2u;
     key_down(7); frame(); key_up(7); frame();
-    ok &= ui.cursor == 4u && !t->step[4].n && !t->step[4].hit && (t->step[0].n || t->step[1].n);
-    bad += check("#133 PLAY with the track armed: live recording at the play head (the cursor and its step stay)", ok);
+    ok &= ui.cursor == t->seq_idx && !t->step[4].n && !t->step[4].hit && (t->step[0].n || t->step[1].n);
+    bad += check("#133 PLAY with the track armed: live recording at the play head (cursor follows)", ok);
     stop_transport();
-    press(B_REC);                                                     /* disarm: the keys only play again */
-    memcpy(before, t->step, sizeof before);
-    key_down(7); frame(); key_up(7); frame();
-    bad += check("#133 REC again disarms: the keys only play, nothing written",
-                 !song.rec && !memcmp(before, t->step, sizeof before) && ui.cursor == 4u);
+    {
+        uint8_t cur = ui.cursor;
+        press(B_REC);                                                 /* disarm: the keys only play again */
+        memcpy(before, t->step, sizeof before);
+        key_down(7); frame(); key_up(7); frame();
+        bad += check("#133 REC again disarms: the keys only play, nothing written",
+                     !song.rec && !memcmp(before, t->step, sizeof before) && ui.cursor == cur);
+    }
     /* the DRUM grid as before: white keys are the steps (armed or not), REC from stop starts PLAY */
     ui_power_on();
     t = TSEL;
@@ -4733,7 +4736,7 @@ static int test_cursor_step_leds(void)
     turn(EN_K1, -4);
     seq_start();
     events_block(CTL);
-    bad += check("#89 playing: the keys show what plays, not the cursor step", song.playing && ui.cursor == 0u &&
+    bad += check("#89 playing: the keys show what plays, not the cursor step", song.playing &&
                  key_leds(0) == play_leds());
     turn(EN_K1, 3);
     bad += check("#89   (the cursor on G4's step changes nothing while playing)", key_leds(0) == play_leds() &&
@@ -5275,7 +5278,7 @@ static int test_momentary(void)
     }
     bad += check("  a sound load with LFO held: the values back first (the undo copy is the sound as it was), the load stays", ok);
     /* STEP: the knobs edit the step as ever (no momentary) */
-    for (k = 0; k < NPAGES && cur_page()->graph != GR_ROLL; k++) { open_family(FAM_SEQ); frame(); }
+    go_seq_step(); frame();
     btn_down(B_LFO); frame();
     turn(EN_K2, 1);
     ok = !mom.n;
@@ -5911,7 +5914,7 @@ static int test_seq_tools(void)
     ui_power_on();
     press(B_SEQ); frames(100);
     ok = str_eq(cur_page()->title, "PATTERN") && !ui.lock;
-    press(B_SEQ); frames(100);
+    turn(EN_SELECT, 1); frames(100);
     ok &= str_eq(cur_page()->title, "STEP") && !ui.lock;
     turn(EN_SELECT, 1); frames(100);
     ok &= str_eq(cur_page()->title, "DETAIL");
@@ -5921,7 +5924,7 @@ static int test_seq_tools(void)
     ok &= str_eq(cur_page()->title, "SEQ TOOLS") && ui.lock == LAYER_SEQ && ui.layer == LAYER_SEQ;
     press(B_SEQ); frames(100);
     ok &= str_eq(cur_page()->title, "PATTERN") && !ui.lock;
-    bad += check("SEQ sections: Pattern → Step (SELECT: DETAIL) → Automation → SEQ TOOLS → Pattern", ok);
+    bad += check("SEQ sections: step group (SELECT PATTERN>STEP>DETAIL) → Automation → SEQ TOOLS → Pattern", ok);
 
     /* tools on the SEQ TOOLS section (no button held) */
     ui_power_on();
@@ -6008,10 +6011,10 @@ static int test_seq_tools(void)
 
     ui_power_on();
     go_title("PATTERN"); frame();
-    press(B_SEQ); frames(64); press(B_SEQ); frames(100); /* Pattern, Step, Automation: no sticky map */
+    press(B_SEQ); frames(100);                           /* Pattern → Automation: no sticky map */
     ok = !ui.lock && str_eq(cur_page()->title, "AUTOMATION");
     go_seq_step(); frame();
-    ok = !ui.lock && str_eq(cur_page()->title, "STEP");
+    ok &= !ui.lock && str_eq(cur_page()->title, "STEP");
     bad += check("  no double-tap SEQ lock; Step section has no sticky map", ok);
     chain.running = 1;
     go_title("SEQ TOOLS"); frame();
@@ -6039,13 +6042,15 @@ static int test_layer_lock(void)
     bad += check("no layer lock: double-tap FX/GLO/SCL/EDIT does not set ui.lock", ok);
     ui_power_on();
     go_title("ENV"); frame();
-    press(B_SEQ); frames(64); press(B_SEQ); frames(100);
-    ok = !ui.lock && str_eq(cur_page()->title, "STEP"); /* Pattern then Step */
+    press(B_SEQ); frames(100);
+    ok = !ui.lock && str_eq(cur_page()->title, "PATTERN"); /* step group lands on PATTERN */
+    turn(EN_SELECT, 1); frames(100);
+    ok &= str_eq(cur_page()->title, "STEP") && !ui.lock;
     press(B_SEQ); frames(100);
     ok &= str_eq(cur_page()->title, "AUTOMATION") && !ui.lock;
     press(B_SEQ); frames(100);
     ok &= str_eq(cur_page()->title, "SEQ TOOLS") && ui.lock == LAYER_SEQ;
-    bad += check("  SEQ taps cycle Pattern → Step → Automation → SEQ TOOLS; only tools stick", ok);
+    bad += check("  SEQ taps cycle step group → Automation → SEQ TOOLS; only tools stick", ok);
     ui_power_on();
     press(B_FX); press(B_FX); press(B_FX); frame();    /* Effects, Slicer, Punch-in */
     ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
@@ -8209,24 +8214,67 @@ static int test_edit_quick_actions(void)
 }
 
 
-/* SEQ button cycles sections: Pattern → Step → Automation → SEQ TOOLS; SELECT walks pages inside a section. */
+/* SEQ button cycles sections: Step group → Automation → SEQ TOOLS; SELECT walks PATTERN / STEP / DETAIL. */
 static int test_seq_sections(void)
 {
     int bad = 0, ok;
     ui_power_on();
     press(B_SEQ);
-    ok = str_eq(cur_page()->title, "PATTERN") && !ui.lock && cur_page()->sec == SEQ_SEC_PAT;
-    press(B_SEQ);
+    ok = str_eq(cur_page()->title, "PATTERN") && !ui.lock && cur_page()->sec == SEQ_SEC_STEP;
+    turn(EN_SELECT, 1);
     ok &= str_eq(cur_page()->title, "STEP") && !ui.lock && cur_page()->sec == SEQ_SEC_STEP;
     turn(EN_SELECT, 1);
     ok &= str_eq(cur_page()->title, "DETAIL") && cur_page()->sec == SEQ_SEC_STEP;
+    turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "DETAIL");          /* SELECT stops at the end of the section */
     press(B_SEQ);
     ok &= str_eq(cur_page()->title, "AUTOMATION") && !ui.lock && cur_page()->sec == SEQ_SEC_AUTO;
     press(B_SEQ);
     ok &= str_eq(cur_page()->title, "SEQ TOOLS") && ui.lock == LAYER_SEQ && cur_page()->sec == SEQ_SEC_TOOL;
     press(B_SEQ);
-    ok &= str_eq(cur_page()->title, "PATTERN") && !ui.lock;
-    bad += check("SEQ sections: Pattern → Step → Automation → SEQ TOOLS (wrap); SELECT stays in Step for DETAIL", ok);
+    ok &= str_eq(cur_page()->title, "PATTERN") && !ui.lock && cur_page()->sec == SEQ_SEC_STEP;
+    bad += check("SEQ sections: step group (SELECT PATTERN>STEP>DETAIL) → Automation → SEQ TOOLS (wrap)", ok);
+    return bad;
+}
+
+/* While playing on the step group, the cursor follows seq_idx; STEP knob pauses ~3 s; idle resumes. */
+static int test_seq_follow(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    uint32_t i;
+    ui_power_on();
+    song.sel = 0;
+    t = TSEL;
+    t->p[P_SLEN] = 32;
+    go_seq_step();
+    frame();
+    ui.cursor = 0;
+    seq_start();
+    events_block(CTL);
+    t->seq_idx = 5;
+    frame();
+    ok = song.playing && ui.cursor == 5u && ui.bank == 0u;
+    t->seq_idx = 20;
+    frame();
+    ok &= ui.cursor == 20u && ui.bank == 1u;
+    turn(EN_K1, -5);                                    /* pause follow */
+    ok &= ui.cursor == 15u && ui.seq_follow_t != 0u;
+    t->seq_idx = 22;
+    frame();
+    ok &= ui.cursor == 15u;                             /* held while paused */
+    for (i = 0; i < 200u; i++)
+        frame();
+    ok &= ui.seq_follow_t == 0u && ui.cursor == 22u;     /* resumed */
+    turn(EN_K1, 1);
+    ok &= ui.seq_follow_t != 0u;
+    turn(EN_K2, 1);                                     /* SEQ edit refreshes the pause clock */
+    ok &= ui.seq_follow_t > 100u;
+    transport_req = 2;
+    events_block(CTL);
+    frame();
+    ok &= !song.playing && ui.cursor == 23u;             /* stop leaves the cursor */
+    bad += check("SEQ follow: tracks seq_idx, STEP pauses, idle resumes, stop keeps cursor", ok);
     return bad;
 }
 
@@ -8514,6 +8562,7 @@ int main(void)
     int bad = 0;
     bad += test_fx_sections();
     bad += test_seq_sections();
+    bad += test_seq_follow();
     bad += test_nav_chords();
     bad += test_no_layer_lock();
     bad += test_mixer_solo();

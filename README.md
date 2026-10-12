@@ -53,8 +53,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM / DRUM-X engine);
   8 voices shared between them. ALGORITHM selects the track on every page
 - **Sequencer:** 64 steps per track with chords, ties, accent, slide, per-step chance, velocity and ratchets
-  (a step played 2, 3 or 4 times in its length); **SEQ** sections are PATTERN, STEP (SELECT: DETAIL), AUTOMATION,
-  then SEQ TOOLS; a piano roll of the steps, where KNOB 3 sets a note's length (0 clears it and advances the cursor)
+  (a step played 2, 3 or 4 times in its length); **SEQ** sections are the step group (SELECT: PATTERN / STEP /
+  DETAIL), AUTOMATION, then SEQ TOOLS; a piano roll of the steps, where KNOB 3 sets a note's length (0 clears it and advances the cursor)
   and PRESETS moves that note in time (or, while step-recording with a key held, sets its LEN); a drum grid (white keys =
   steps, black keys = lanes); **SEQ > DETAIL**: the cursor step's chance, ratchet, nudge and velocity on the four
   knobs, drawn as lanes over the steps; automation: recording of knob moves per step (an automation icon marks the cards it
@@ -183,7 +183,7 @@ The pages by button:
 | Button | Taps go round (sections; SELECT walks pages inside one) | Held |
 |---|---|---|
 | HOME | Home ↔ Mixer | the menu |
-| SEQ | PATTERN, STEP (SELECT: STEP / DETAIL), AUTOMATION, SEQ TOOLS | SEQ TOOLS, on every page |
+| SEQ | Step group (SELECT: PATTERN / STEP / DETAIL), AUTOMATION, SEQ TOOLS | SEQ TOOLS, on every page |
 | GLO | MASTER, SONG, CLOCK, RECORD | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
 | SAVE | Presets (SELECT: PRESETS / USER / PHRASES), Project (SELECT: PROJECT / TOOLS) | UNDO |
 | LFO | LFO (SELECT: LFO / LFO 2 / LFO DEST), then MOD | MOMENTARY (with a knob) |
