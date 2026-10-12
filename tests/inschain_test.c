@@ -277,6 +277,31 @@ int main(void)
            got[P_IDMODE] == IDM_HARD && got[P_DIST] == 80 && got[P_IDMIX] == 90 && got[P_ED_FX] == 40 - (96 - (80 >> 2)));
         ck("migrate: FTYPE/ESYNC and engine values moved",
            got[P_FTYPE] == 2 && got[P_ESYNC] == 1 && got[P_E0] == 10 && got[P_E7] == 17);
+        old[96] = 0;                                    /* TYPE OFF */
+        old[100] = 64;
+        params_by_count(got, old, 111u, def);
+        ins_migrate(got, 111u);
+        ck("migrate: TYPE OFF leaves stage MIX at 0 (dry)",
+           got[P_ICMIX] == 0 && got[P_IPMIX] == 0 && got[P_ILMIX] == 0 && got[P_IHMIX] == 0 &&
+           (got[P_DIST] ? got[P_IDMIX] == 127 : got[P_IDMIX] == 0));
+        old[96] = 6;                                    /* PHASR */
+        old[97] = 30; old[98] = 40; old[99] = 50; old[100] = 80;
+        params_by_count(got, old, 111u, def);
+        ins_migrate(got, 111u);
+        ck("migrate: PHASR RATE/DEP/FBK/MIX",
+           got[P_IPRATE] == 30 && got[P_IPDEP] == 40 && got[P_IPFBK] == 50 && got[P_IPMIX] == 80);
+        old[96] = 7;                                    /* FLANG */
+        old[97] = 33; old[98] = 44; old[100] = 55;
+        params_by_count(got, old, 111u, def);
+        ins_migrate(got, 111u);
+        ck("migrate: FLANG RATE/DEP/MIX",
+           got[P_ILRATE] == 33 && got[P_ILDEP] == 44 && got[P_ILMIX] == 55);
+        old[96] = 8;                                    /* CHOR */
+        old[97] = 22; old[98] = 33; old[100] = 44;
+        params_by_count(got, old, 111u, def);
+        ins_migrate(got, 111u);
+        ck("migrate: CHOR RATE/DEP/MIX",
+           got[P_IHRATE] == 22 && got[P_IHDEP] == 33 && got[P_IHMIX] == 44);
     }
 
     /* Exclusive DLY CHAIN: owner mixes in track_insert; others' sends ignored; SEND restores bus. */

@@ -114,16 +114,20 @@ static int up_valid(const up_rec_t *r)
           r->np >= 8u && r->np <= (r->ver >= 4u ? UP_PMAX * 2u : UP_PMAX) && r->name[0])) return 0;
     if (r->ver >= 4u)
         for (uint32_t i = 0; i < r->np; i++)
-            if (i != P_IORD && r->packed[i] > 191u) return 0;
+            /* P_IORD's low byte only: high byte lives at packed[np] when np > 111 (insert chain) */
+            if (!(i == P_IORD && r->np > 111u) && r->packed[i] > 191u) return 0;
     return 1;
 }
 
 static int up_used(uint32_t k) { return k < UP_SLOTS && up_valid(up_rec(k)); }
 
 static int up_grid(const up_rec_t *r) { return r->ver == 3u || r->ver == UP_VER_GRID; }
+/* Insert-chain records (np > 111): P_IORD is two bytes (low at packed[P_IORD], high at packed[np]).
+ * Felucca 1.5 (np 111): index 96 is INSERT TYPE, one biased byte — same rule as project.c iord2. */
+static int up_iord2(const up_rec_t *r) { return r->ver >= 4u && r->np > 111u; }
 static int16_t up_value(const up_rec_t *r, uint32_t k)
 {
-    if (r->ver >= 4u && k == P_IORD && r->np > P_IORD) {
+    if (up_iord2(r) && k == P_IORD) {
         /* low byte + the next byte: bits 0..9 the order, bits 10..15 the send flags.
          * Firmware that masks the high byte with 3 keeps the order and drops the flags. */
         uint32_t o = r->packed[k] | (uint32_t)r->packed[r->np] << 8;
@@ -136,15 +140,14 @@ static int16_t up_value(const up_rec_t *r, uint32_t k)
 }
 static void up_set_value(up_rec_t *r, uint32_t k, int16_t v)
 {
-    if (r->ver >= 4u && k == P_IORD) {
+    if (up_iord2(r) && k == P_IORD) {
         uint16_t raw = (uint16_t)v;
         uint32_t perm = raw & 1023u;
         if (perm > 719u)
             perm = 719u;
         raw = (uint16_t)((raw & (uint16_t)~1023u) | (uint16_t)perm);
         r->packed[k] = (uint8_t)(raw & 255u);
-        if (r->np > P_IORD)
-            r->packed[r->np] = (uint8_t)(raw >> 8);
+        r->packed[r->np] = (uint8_t)(raw >> 8);
     } else if (r->ver >= 4u)
         r->packed[k] = (uint8_t)(v + 64);
     else
