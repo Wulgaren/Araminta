@@ -36,7 +36,10 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **SLICE retired.** 
 - Upload a drum kit as a USR sample: in the web editor, Drum kit grid tags the slot (`FSMP` header); SAMPLE on that set uses the drum grid on SEQ, zones mapped by hand.
 - **VOICE** is one page: VCE, GLD, UNI DTN, SPRD. GLD is free milliseconds (no GLMOD on the page). PAN / PLAY live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
-- **EFFECTS.** One list for the insert chain: CHOOSE a stage, ORDER moves it, USE AS is CHAIN or SEND, MIX is dry/wet (or send amount). Delay and reverb sit in that list (bus chorus is gone). Dual reverb tanks keep SEND and CHAIN settings while REV is chained; the REVERB page is TYPE / SIZE / DAMP (no TANK column).
+- **EFFECTS.** One list for the insert chain: CHOOSE a stage, ORDER moves it, USE AS is CHAIN or SEND, MIX is dry/wet (or send amount). Delay and reverb sit in that list (bus chorus is gone). Dual reverb tanks keep SEND and CHAIN settings while REV is chained.
+- Reverb modes from JIANT - SHIMR and CLOUD
+- Delay has divisions or smooth ms.
+- Assign FX values in LFO MOD or SEQ param locks
 - **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
 - **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.
 - **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN.
@@ -87,7 +90,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   LFO cycle, held or gliding), and **DEPTH** as a destination, so the matrix can modulate the LFO itself
 - **SPREAD** (EDIT > VOICE, SPRD): the voices of a POLY or UNISON track alternate left and right of its PAN
 - **ENV SYNC** (ENV > ENV DEST): the envelope's attack, decay and release as note values of the tempo
-- **Effects:** an **EFFECTS** list per track (DIST, FILTER, CRUSH, PHASR, FLANG, CHOR, DLY, REV / SLICER stages):
+- **Effects list** chained or sendable per track (DIST, FILTER, CRUSH, PHASR, FLANG, CHOR, DLY, REV stages):
   CHAIN or SEND with a MIX fader; delay in time with the tempo (divisions or smooth ms, dotted values included);
   reverb as **HALL**, ROOM, SPRING, plus Araminta's **SHIMR** / **CLOUD**; technical graphs on the FX pages;
   insert knobs and MIX are mod-matrix destinations; master limiter, with CLIP / PNCH / DUCK on the master
