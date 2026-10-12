@@ -1608,11 +1608,10 @@ static int test_display_preferences(void)
                  settings.palette == 6 && T_BG == UI_PALETTES[6].bg && ux.light && ui.menu == 1 && !song.octave &&
                  memcmp(before, host_screen, sizeof before) && !memcmp(sounds, trk, sizeof sounds));
     turn(EN_K1, 1);
-    bad += check("COLOR KNOB 1 steps on to HI-CON, NIGHT (#50: true black), MONO (1.0.2: black and white), then wraps to GREY",
+    bad += check("COLOR KNOB 1 steps on to HI-CON, NIGHT (#50: true black), then wraps to GREY (pitch black)",
                  settings.palette == 7 && (turn(EN_K1, 1), settings.palette == 8u) && T_BG == 0u &&
-                 str_eq(UI_PALETTES[8].name, "NIGHT") && (turn(EN_K1, 1), settings.palette == UI_BW_INDEX) &&
-                 str_eq(UI_PALETTES[UI_BW_INDEX].name, "MONO") && T_BG == 0u && T_TEXT == 0xFFFFu &&
-                 (turn(EN_K1, 1), settings.palette == UI_GREY_INDEX) && str_eq(UI_PALETTES[UI_GREY_INDEX].name, "GREY"));
+                 str_eq(UI_PALETTES[8].name, "NIGHT") && (turn(EN_K1, 1), settings.palette == UI_GREY_INDEX) &&
+                 str_eq(UI_PALETTES[UI_GREY_INDEX].name, "GREY") && T_BG == 0u);
     settings.lowcut = 2;
     ui.menu_sel = MI_LOWCUT;
     press(B_OCTUP);
@@ -1969,13 +1968,23 @@ static int test_information(void)
     memcpy(battery, host_screen, sizeof battery);
     uint32_t signature = ui.head_sig;
     for (x = 0; x < 4; x++) { fm1_ms += 600; draw_head(); }
-    bad += check("USB power shows a steady bolt inside the battery without animation",
-                 batt_shown() == 4 && ui.head_sig == signature && !memcmp(battery, host_screen, sizeof battery) &&
-                 host_screen[6 * 240 + 217] != 0 && host_screen[9 * 240 + 225] != 0);
-    usb.suspended = 1;
-    draw_head();
-    bad += check("USB suspension restores the battery outline and measured level",
-                 batt_shown() == 0 && ui.head_sig != signature && host_screen[6 * 240 + 217] != 0);
+    {   /* GREY bg is pitch black (0): probe the battery cell for ink, not "pixel != 0" alone */
+        uint32_t ink = 0, bx, by, bg = host_screen[0];
+        for (by = 4u; by < 20u; by++)
+            for (bx = HEAD_BAT_X; bx < HEAD_BAT_X + 24u; bx++)
+                if (host_screen[by * 240u + bx] != bg) ink++;
+        bad += check("USB power shows a steady bolt inside the battery without animation",
+                     batt_shown() == 4 && ui.head_sig == signature && !memcmp(battery, host_screen, sizeof battery) &&
+                     ink > 40u);
+        usb.suspended = 1;
+        draw_head();
+        ink = 0;
+        for (by = 4u; by < 20u; by++)
+            for (bx = HEAD_BAT_X; bx < HEAD_BAT_X + 24u; bx++)
+                if (host_screen[by * 240u + bx] != bg) ink++;
+        bad += check("USB suspension restores the battery outline and measured level",
+                     batt_shown() == 0 && ui.head_sig != signature && ink > 20u);
+    }
     usb.config = 0; usb.suspended = 0;
     song.batt_raw = 531; int levels = batt_shown() == 1;
     song.batt_raw = 561; levels &= batt_shown() == 2;
@@ -1985,25 +1994,13 @@ static int test_information(void)
 }
 
 /* GREY is grayscale on every screen: every page of every engine, HOME, the menu, ABOUT, the dialogs (RGB565 gray:
- * R = B, G = 2 R). MONO (black and white, blended per channel) is neutral on every screen: R = B, G within 2 of 2 R
- * (the 5-6-5 rounding of its edges) */
+ * R = B, G = 2 R). */
 static int screen_gray(void)
 {
     uint32_t i;
     for (i = 0; i < 240u * 240u; i++) {
         uint16_t c = swap16(host_screen[i]);
         if ((c >> 11) != (c & 31u) || ((c >> 5) & 63u) != (c >> 11) * 2u)
-            return 0;
-    }
-    return 1;
-}
-static int screen_neutral(void)
-{
-    uint32_t i;
-    for (i = 0; i < 240u * 240u; i++) {
-        uint16_t c = swap16(host_screen[i]);
-        int32_t d = (int32_t)((c >> 5) & 63u) - (int32_t)(c >> 11) * 2;
-        if ((c >> 11) != (c & 31u) || d < -2 || d > 2)
             return 0;
     }
     return 1;
@@ -2042,12 +2039,9 @@ static int mono_screens(uint32_t pal, int (*chk)(void), uint32_t *n)
 static int test_mono_screens(void)
 {
     int bad = 0, ok;
-    uint32_t e, n = 0, nb = 0;
+    uint32_t e, n = 0;
     ok = mono_screens(UI_GREY_INDEX, screen_gray, &n);
     bad += check("GREY: every pixel of every page, HOME, menu, ABOUT, dialog and countdown is gray", ok && n > 200u);
-    ok = mono_screens(UI_BW_INDEX, screen_neutral, &nb);
-    bad += check("MONO (black and white): every pixel of every page, HOME, menu, ABOUT, dialog and countdown is neutral",
-                 ok && nb == n);
     ui_power_on();
     for (e = 0; e < NPALETTES; e++) {               /* the other palettes are not gray: the check sees colour */
         ui_power_on(); palette_set(e); ui.force = 1; ui_draw();
@@ -2200,7 +2194,7 @@ static int test_roll(void)
     turn(EN_K1, 9);
     turn(EN_K4, -1);
     for (k = 0; k < 3u; k++) { ok &= screen_gray() && !ui.roll[0].from[0] && !ui.roll[3].from[0]; frame(); }
-    bad += check("roll: MONO value changes stay gray and static", ok);
+    bad += check("roll: GREY value changes stay gray and static", ok);
     page_over = 0;
     ui_power_on();
     return bad;
@@ -7788,31 +7782,30 @@ static int32_t tr_y(uint32_t c) { return Y_GRAPH + (int32_t)c * TR_PITCH; }
 static int32_t tr_x(uint32_t i) { return 3 + tr_bx(i) + TR_BW / 2; }   /* a step's bar, its middle column */
 /* 1.5 (#173): the FX map's columns light / dark in turn (ui_layer.c LS_ALT): an idle cell's fill, read inside its top
  * edge, the same in columns 1 and 3 and in 2 and 4 and different between them, every row, FLAT and LINE (LINE: the
- * 1st / 3rd unfilled, the panel's colour); MONO (its one grey) all alike */
+ * 1st / 3rd unfilled, the panel's colour) */
 static int test_fx_map_columns(void)
 {
     int bad = 0, ok = 1;
-    uint32_t st, pal, r, c;
-    for (pal = 0; pal < 2u; pal++)
-        for (st = ST_FLAT; st <= ST_LINE; st++) {
-            ui_power_on();
-            settings.palette = (uint8_t)(pal ? UI_BW_INDEX : UI_GREY_INDEX);
-            style_apply();                              /* STYLE retired: forces FLAT / ANIM OFF */
-            ux.style = (uint8_t)st;                     /* host: still exercise the LINE draw path */
-            palette_set(settings.palette);
-            ui.home = 1; ui.layer = LAYER_FX; ui.force = 1;
-            draw_layer();
-            for (r = 0; r < 4u; r++) {
-                uint16_t px[4];
-                for (c = 0; c < 4u; c++)
-                    px[c] = tr_px(LC_X(c) + 27, Y_GRAPH + 4 + (LF_H + 4) * (int32_t)r + 1);
-                ok &= px[0] == px[2] && px[1] == px[3] && (pal ? px[0] == px[1] : px[0] != px[1]);
-                ok &= !st || pal || px[0] == T_SURF;
-            }
-            ui.layer = 0;
+    uint32_t st, r, c;
+    for (st = ST_FLAT; st <= ST_LINE; st++) {
+        ui_power_on();
+        settings.palette = UI_GREY_INDEX;
+        style_apply();                              /* STYLE retired: forces FLAT / ANIM OFF */
+        ux.style = (uint8_t)st;                     /* host: still exercise the LINE draw path */
+        palette_set(settings.palette);
+        ui.home = 1; ui.layer = LAYER_FX; ui.force = 1;
+        draw_layer();
+        for (r = 0; r < 4u; r++) {
+            uint16_t px[4];
+            for (c = 0; c < 4u; c++)
+                px[c] = tr_px(LC_X(c) + 27, Y_GRAPH + 4 + (LF_H + 4) * (int32_t)r + 1);
+            ok &= px[0] == px[2] && px[1] == px[3] && px[0] != px[1];
+            ok &= !st || px[0] == T_SURF;
         }
+        ui.layer = 0;
+    }
     ui_style = ST_FLAT; style_apply(); settings.palette = UI_GREY_INDEX; palette_set(UI_GREY_INDEX);
-    bad += check("1.5 #173: the FX map's columns alternate light / dark (FLAT, LINE; MONO: one grey)", ok);
+    bad += check("1.5 #173: the FX map's columns alternate light / dark (FLAT, LINE)", ok);
     return bad;
 }
 

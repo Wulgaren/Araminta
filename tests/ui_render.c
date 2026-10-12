@@ -1,27 +1,25 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Renders of the firmware UI (firmware/src/ui*.c on tests/ui_test.c's stubs), the layout lint, the GREY and MONO
+/* Renders of the firmware UI (firmware/src/ui*.c on tests/ui_test.c's stubs), the layout lint, the GREY
  * checks and the host draw cost.
  *   ui_render OUTDIR [SLOTDIR]   (run by tests/run_tests.sh; tests/ui_render.py makes the PNGs;
- *                                 SLOTDIR: filmstrips of the rolling digits, GREY MONO and GREEN)
+ *                                 SLOTDIR: filmstrips of the rolling digits, GREY and GREEN)
  * Layout lint, over every screen below in every palette, every page of every engine and every value of every
  * column: the ink box of every text and icon drawn (gfx.c GFX_HOOK_TEXT) as it lands on the screen. A finding:
  * a box off the screen, cut by its canvas, partly covered by a later strip or fill, overlapping another box, or
  * ellipsised when it is not free text (labels and values must fit; names and messages may be ellipsised), or
  * spilling out of its cell: touching a rounded rectangle of its canvas (gfx.c cv_rrect: a cell, card, row, button,
  * GFX_HOOK_CELL) without lying inside it, though still on the screen (the FX map's REVERSE), or drawn in the
- * colour it is drawn on (gfx.c GFX_HOOK_INK: a text, icon or keycap label that cannot be seen; MONO's tokens share
- * values, DIM and RAISE its one grey).
- * GREY: every pixel of every screen is RGB565 gray (R = B, G = 2 R). MONO (black and white, blended per channel):
- * every pixel is neutral (R = B, G within 2 of 2 R).
+ * colour it is drawn on (gfx.c GFX_HOOK_INK: a text, icon or keycap label that cannot be seen).
+ * GREY: every pixel of every screen is RGB565 gray (R = B, G = 2 R).
  * MENU > STYLE LINE: every screen again in every palette, the same lint; a text or icon on a divider
  * (ui_draw.c lcd_rule, GFX_HOOK_RULE: the rules between the strips; cv_rule's are cells) is a finding too.
- * Rolling digits: every frame of a header BPM roll and a card roll, up and down, in every palette (lint, GREY, MONO).
+ * Rolling digits: every frame of a header BPM roll and a card roll, up and down, in every palette (lint, GREY).
  * FM6 charts (ui_graph.c graph_fm6, its parts through FM6_CHART_HOOK), every algorithm and every chart drawn: no two
  * operator boxes overlapping or touching, no route, loop, bus or label inside a box or touching one it does not
  * connect, no two nets (one gap's routes that share an operator, the output, the loop, the label) sharing or
  * touching a pixel, everything inside the panel.
- * Output: OUTDIR/ppm/<PALETTE>_<screen>.ppm for GREY MONO GREEN PAPER NIGHT, OUTDIR/report.txt (findings, ellipsised
+ * Output: OUTDIR/ppm/<PALETTE>_<screen>.ppm for GREY GREEN PAPER NIGHT HI-CON, OUTDIR/report.txt (findings, ellipsised
  * free text, the draw cost), OUTDIR/text_audit.tsv (GREY, per screen: texts, icons and keycaps with their ink-box px,
  * the ellipsised ones, the texts closer than 2 px to their cell's edge, the words).
  * Alignment (gfx.c GFX_HOOK_ALIGN): every place where a text, icon or keycap is meant to sit centred (in a cell, a
@@ -32,7 +30,7 @@
  * it, on every screen above in FLAT and LINE and every palette, the page / value sweep, and align_sweeps (every value
  * each place can show). 0.5 px is the odd pixel left over (it goes left / up); 1 px or more is a finding.
  * OUTDIR/align.txt: per place, how often measured, the worst offsets and where.
- * Exit 1 on a finding, a GREY pixel off gray, a MONO one off neutral, or an alignment 1 px or more off. */
+ * Exit 1 on a finding, a GREY pixel off gray, or an alignment 1 px or more off. */
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
@@ -619,19 +617,17 @@ static void font_scene(const char *mode, const char *name)
                 b->s, (b->flags & 1u) ? "\t(ellipsised)" : "");
     }
 }
-/* GREY: every pixel RGB565 gray (R = B, G = 2 R); MONO (black and white, its edges blended per channel): neutral
- * (R = B, G within 2 of 2 R, the 5-6-5 rounding). Other palettes: nothing */
+/* GREY: every pixel RGB565 gray (R = B, G = 2 R). Other palettes: nothing */
 static uint32_t mono_bad;
 static void mono_check(void)
 {
-    uint32_t i, bw = settings.palette == UI_BW_INDEX;
-    if (settings.palette != UI_GREY_INDEX && !bw) return;
+    uint32_t i;
+    if (settings.palette != UI_GREY_INDEX) return;
     for (i = 0; i < 240u * 240u; i++) {
         uint16_t c = swap16(host_screen[i]);
         int32_t d = (int32_t)((c >> 5) & 63u) - (int32_t)(c >> 11) * 2;
-        if ((c >> 11) != (c & 31u) || (bw ? d < -2 || d > 2 : d != 0)) {
-            if (!mono_bad) fprintf(rep, "%s %s: pixel %u,%u = %04x off %s\n", bw ? "MONO" : "GREY", cur_name, i % 240u, i / 240u, c,
-                                   bw ? "neutral" : "gray");
+        if ((c >> 11) != (c & 31u) || d != 0) {
+            if (!mono_bad) fprintf(rep, "GREY %s: pixel %u,%u = %04x off gray\n", cur_name, i % 240u, i / 240u, c);
             mono_bad++;
         }
     }
@@ -1783,7 +1779,7 @@ static void sweep_columns(void)
 
 /* the rolling digits (ui_draw.c roll_*): a page over GLO > CLOCK (ui_test.c ROLL_PG: K1 BPM, K4 TUNE;
  * bare SELECT is pages since 1.2). KNOB 1 and KNOB 4 turned together: BPM 129 -> 130 in the header and
- * TUNE 19 -> 20 on a card, then back. Every frame is linted and (GREY, MONO) checked for gray; with a directory,
+ * TUNE 19 -> 20 on a card, then back. Every frame is linted and (GREY) checked for gray; with a directory,
  * filmstrips of both (each frame side by side, x4: the static frame before, then the roll's frames) as
  * DIR/<PALETTE>_bpm_roll.ppm and DIR/<PALETTE>_card_roll.ppm, the up roll above the down roll. */
 #define FS_N (1u + ROLL_FRAMES)                   /* frames per filmstrip row */
@@ -1859,7 +1855,7 @@ static void roll_frames(const char *dir)
             }
             for (k = 0; k < 8u; k++) ui_draw();
         }
-        if (dir && (p == UI_GREY_INDEX || p == UI_BW_INDEX || !strcmp(UI_PALETTES[p].name, "GREEN"))) {
+        if (dir && (p == UI_GREY_INDEX || !strcmp(UI_PALETTES[p].name, "GREEN"))) {
             roll_film_save(dir, UI_PALETTES[p].name, "bpm_roll", bimg, biw, bih);
             roll_film_save(dir, UI_PALETTES[p].name, "card_roll", cimg, ciw, cih);
         }
@@ -2116,7 +2112,7 @@ int main(int argc, char **argv)
     const char *out = argc > 1 ? argv[1] : "build/ui_new";
     char path[600];
     uint32_t p, s;
-    static const char *const SHOW[] = {"GREY", "MONO", "GREEN", "PAPER", "NIGHT"};   /* (NIGHT: #50, to review) */
+    static const char *const SHOW[] = {"GREY", "GREEN", "PAPER", "NIGHT", "HI-CON"};   /* (NIGHT: #50, to review) */
     al_pixel_font = !AF_S.psh;   /* Terminus: one phase; outline presets use 2/4 */
     snprintf(path, sizeof path, "%s/report.txt", out);
     rep = fopen(path, "w");
@@ -2175,27 +2171,6 @@ int main(int argc, char **argv)
         fprintf(rep, "(self-test: %u findings above are expected)\n\n", nfind);
         nfind = 0;
     }
-    {   /* MONO EFFECTS: selected row is a THEME bar (list style); idle rows stay on SURF */
-        uint32_t x, ns = 0, nss = 0, ni = 0, nis = 0, sy, iy;
-        uint16_t tw, sw;
-        setup(S_FX);
-        pal(UI_BW_INDEX);
-        draw(S_FX);
-        tw = swap16(T_THEME);
-        sw = swap16(T_SURF);
-        sy = Y_GRAPH + 2u + (uint32_t)ui.ior_sel * 11u + 5u;
-        iy = Y_GRAPH + 2u + 5u;                      /* row 0 idle */
-        for (x = 12; x < 80u; x++) {
-            uint16_t a = host_screen[sy * 240u + x], b = host_screen[iy * 240u + x];
-            if (a == tw) ns++; else if (a == sw) nss++;
-            if (b == tw) ni++; else if (b == sw) nis++;
-        }
-        if (!(ns > nss && nis > ni)) {
-            fprintf(stderr, "ui_render: MONO EFFECTS highlight: sel THEME/SURF %u/%u, idle %u/%u\n",
-                    ns, nss, ni, nis);
-            return 1;
-        }
-    }
     for (p = 0; p < NPALETTES; p++)
         for (s = 0; s < S_COUNT; s++) {
             char name[64];
@@ -2225,8 +2200,8 @@ int main(int argc, char **argv)
             write_ppm(out, UI_PALETTES[p].name, "mixer");
         }
     }
-    {   /* MENU > LARGE (ui.c large_kind): every screen in every palette in FLAT, linted (GREY: gray, MONO:
-         * neutral); GREY MONO as OUTDIR/ppm/LARGE_<PALETTE>_<screen>.ppm (ui_render.py: sheet_LARGE_<PALETTE>.png);
+    {   /* MENU > LARGE (ui.c large_kind): every screen in every palette in FLAT, linted (GREY: gray);
+         * GREY as OUTDIR/ppm/LARGE_<PALETTE>_<screen>.ppm (ui_render.py: sheet_LARGE_<PALETTE>.png);
          * the tall cards' value faces counted (lg_hook) */
         uint32_t n0 = nfind, ntall = 0;
         large_on = 1;
@@ -2247,7 +2222,7 @@ int main(int argc, char **argv)
                 lint();
                 if (p == UI_GREY_INDEX) font_scene("LARGE", S_NAME[s]);
                 mono_check();
-                if (p == UI_GREY_INDEX || p == UI_BW_INDEX)
+                if (p == UI_GREY_INDEX)
                     write_ppm(out, tag, S_NAME[s]);
             }
         sweep_columns();                                /* every value of every column, tall */
@@ -2399,14 +2374,14 @@ int main(int argc, char **argv)
         for (i = 0; i < cs_n; i++) fprintf(rep, " '%s'", cs_seen[i]);
         fprintf(rep, "\n");
     }
-    fprintf(rep, "\n%u lint findings, %u inks on their own colour, %u ellipsised free texts, %u GREY / MONO pixels off gray / "
-            "neutral; %u column values swept; %u FM6 charts linted; %u cards linted with MOTION's icon\n", nfind, nink, nfree, mono_bad,
+    fprintf(rep, "\n%u lint findings, %u inks on their own colour, %u ellipsised free texts, %u GREY pixels off gray; "
+            "%u column values swept; %u FM6 charts linted; %u cards linted with MOTION's icon\n", nfind, nink, nfree, mono_bad,
             nsweep, fmp_charts, nmotion);
     if (!nmotion) { fprintf(stderr, "ui_render: the MOTION sweep marked no card\n"); nfind++; }
     if (!nsong_txt) { fprintf(stderr, "ui_render: SONG's bands checked no text\n"); nfind++; }
     fclose(rep);
     printf("ui_render: %u screens x %u palettes + the page/value sweep; %u lint findings, %u ellipsised free texts (%u distinct), "
-           "%u inks on their own colour, %u GREY / MONO pixels off gray / neutral; report %s\n",
+           "%u inks on their own colour, %u GREY pixels off gray; report %s\n",
            (unsigned)(S_COUNT - (FELUCCA_FM4 ? 0 : 1 + S_OP_LEVEL - S_ALG1 + 1)), (unsigned)NPALETTES, nfind, nfree, nfree_seen, nink,
            mono_bad, path);
     printf("ui_render: alignment: %u measurements of %u places, %u off by 1 px or more%s\n", al_count, al_nst - 1u, al_fail,

@@ -111,11 +111,11 @@ static struct {
     uint8_t style;               /* always ST_FLAT (STYLE retired; ST_LINE kept for host tests of the old path) */
     uint32_t gen;                /* bumped by palette_set (the text ramps follow) */
 } ux;
-/* STYLE: always FLAT (no 1 px rule dividers). SURF is BG on every palette (as MONO: no raised card fill).
+/* STYLE: always FLAT (no 1 px rule dividers). SURF is BG on every palette (no raised card fill).
  * ST_LINE remains in the draw paths for host tests only. (1.0.2: PIXEL retired.) */
 #define ST_FLAT 0u
 #define ST_LINE 1u
-#define T_RULE ux.dim            /* LINE: the dividers (DIM: visible on NIGHT, GREY, MONO and PAPER, quieter than labels) */
+#define T_RULE ux.dim            /* LINE: the dividers (DIM: visible on NIGHT, GREY and PAPER, quieter than labels) */
 #define T_BG ux.bg               /* background */
 #define T_SURF ux.surf           /* dialogs, menu rows, mixer strips (equals BG: no card fill) */
 #define T_TEXT ux.text           /* primary text */
@@ -127,7 +127,7 @@ static struct {
 #define T_SEL ux.sel             /* selection and gauge fill */
 #define T_TINT ux.tint           /* a faint theme area */
 #define T_INK ux.ink             /* text on T_SEL / T_THEME */
-#define T_REC ux.rec             /* REC: fixed red (GREY, MONO: the accent) */
+#define T_REC ux.rec             /* REC: fixed red (GREY: the accent) */
 #define T_RAISE ux.raise         /* a raised area on a surface: stubs, guides, slots, chips, button wells */
 #define T_KEY ux.key             /* a keycap's fill (its label: T_INK; unavailable: a T_DIM fill) */
 #define T_LANE ux.lane           /* the piano roll: an in-scale row (SURF -> THEME 10 %) */
@@ -162,7 +162,7 @@ static void palette_set(uint32_t i)
     const ui_pal_t *p = &UI_PALETTES[i % NPALETTES];
     i %= NPALETTES;
     ux.mono = i == UI_GREY_INDEX;
-    ux.bg = p->bg; ux.surf = p->bg; ux.text = p->text; ux.theme = p->theme; ux.accent = p->accent;   /* SURF = BG (as MONO) */
+    ux.bg = p->bg; ux.surf = p->bg; ux.text = p->text; ux.theme = p->theme; ux.accent = p->accent;   /* SURF = BG */
     ux.mid = ux_mix(p->bg, p->text, UI_MID_PCT);
     ux.dim = ux_mix(p->bg, p->text, UI_DIM_PCT);
     ux.line = ux_mix(p->bg, p->text, UI_LINE_PCT);
@@ -175,11 +175,6 @@ static void palette_set(uint32_t i)
     ux.grid = ux_mix(ux.surf, p->text, 6);
     ux.light = ux_luma(p->bg) > 128u;
     ux.rec = ux.mono ? p->accent : ux.light ? UI_REC_LIGHT : UI_REC_DARK;
-    if (i == UI_BW_INDEX) {                      /* MONO: black and white, set, not blended (tools/gen_ui_palettes.py) */
-        ux.mid = ux.sel = ux.key = ux.rec = p->text;   /* a selection, a keycap, REC: white, its INK black */
-        ux.dim = ux.line = ux.raise = ux.lane = UI_BW_GREY;   /* the one grey: inactive, tracks, wells */
-        ux.tint = ux.grid = p->bg;
-    }
     ux.gen++;                                    /* the text ramps change with the coverage curve */
     cv_lut_build();
 }
@@ -187,11 +182,16 @@ static void palette_set(uint32_t i)
 /* settings store a tagged id; ids below 20 are the palettes of earlier firmware */
 static uint32_t palette_from_stored(uint32_t v)
 {
+    if (v == UI_PAL_TAG + UI_RETIRED_MONO_INDEX) return UI_GREY_INDEX;   /* retired MONO -> GREY */
     if (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES) return v - UI_PAL_TAG;
     return v < 20u ? UI_PALETTE_MIGRATE[v] : UI_GREY_INDEX;
 }
 static uint32_t palette_to_stored(uint32_t i) { return UI_PAL_TAG + i % NPALETTES; }
-static int palette_stored_ok(uint32_t v) { return v < 20u || (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES); }
+static int palette_stored_ok(uint32_t v)
+{
+    return v < 20u || (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES) ||
+           v == UI_PAL_TAG + UI_RETIRED_MONO_INDEX;   /* retired MONO still imports */
+}
 
 static inline uint16_t swap16(uint32_t c) { return (uint16_t)(((c >> 8) & 0xFFu) | ((c & 0xFFu) << 8)); }
 
@@ -425,7 +425,7 @@ static const uint8_t *ramp(uint16_t fg, uint16_t bg)
     const uint8_t *cv = ux.light ? CURVE_LIGHT : CURVE_DARK;
     uint32_t i, a, k;
     uint8_t *v;
-    if (fg == bg)                                /* MONO: DIM on a RAISE well (one grey): black, recessed */
+    if (fg == bg)                                /* same colour on itself: black, recessed */
         fg = ux.bg;
     GFX_HOOK_INK(fg, bg);
     if (rc.gen != ux.gen) {
