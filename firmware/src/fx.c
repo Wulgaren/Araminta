@@ -1454,17 +1454,20 @@ static __attribute__((noinline)) void mix_cache_update(const track_t *t, mix_cac
 }
 
 /* one synth part into the dry mix and the sends; a part with no voice sounding costs
- * its control clocks only after insert and stutter tails have run out (Melodee). */
+ * its control clocks only after insert and stutter tails have run out (Melodee).
+ * CHAIN delay/reverb: keep feeding zeros so the bus rings after a short note (SEND already does). */
 static void mix_part(track_t *t, uint32_t n)
 {
     int32_t *b = part_buf;
     uint32_t i;
-    int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t);
+    int32_t tr = (int32_t)(t - trk);
+    int chain = bus_own(0) == tr || bus_own(1) == tr;
+    int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t) || chain;
     mod_begin(t);                                       /* the matrix's per-block values into t->p (mod.c) */
     spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON);   /* (SPREAD, mix_spread) */
     if (track_render_audio(t, b, n, need_zeros))
         t->tail = ins_any(t) ? 64 : 16;                 /* blocks of insert state to run out after the last voice */
-    else if ((!t->tail || !(ins_any(t) | t->ins_run) || !--t->tail) && !slicer_busy(t)) {
+    else if ((!t->tail || !(ins_any(t) | t->ins_run) || !--t->tail) && !slicer_busy(t) && !chain) {
         slicer_track(t, 0, n);
         if (t->ins_run && !ins_any(t))
             ins_rest(t);                                /* all MIX 0 while silent: clear state for the next note */
@@ -1482,7 +1485,7 @@ static void mix_part(track_t *t, uint32_t n)
             mc->dlyown != song.g[G_DLYOWN] || mc->revown != song.g[G_REVOWN])
             mix_cache_update(t, mc);
         int32_t lvl = mc->lvl, gl = mc->gl, gr = mc->gr, d = mc->d, r = mc->r, xmax = mc->xmax, pk = t->peak;
-        if (ins_any(t) | t->ins_run || bus_own(0) == (int32_t)ti || bus_own(1) == (int32_t)ti)
+        if (ins_any(t) | t->ins_run || chain)
             track_insert(t, b, n);
         slicer_track(t, b, n);
         if ((pf.mute >> (t - trk)) & 1u)
