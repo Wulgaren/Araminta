@@ -8148,6 +8148,39 @@ static int test_no_flash(void)
     return bad;
 }
 
+/* Live graphs (HOME scope, PATTERN steps, FX tech, …): redraw every UI frame. graph_sig must change and the
+ * panel must push (H_GRAPH rows) on each of two consecutive frames, not every other. */
+static int live_panel_each_frame(void)
+{
+    uint32_t i, sig, rows;
+    int ok = 1;
+    ui.force = 1;
+    draw_graph();
+    ui.force = 0;
+    for (i = 0; i < 2u; i++) {
+        sig = ui.graph_sig;
+        rows = host_blit_rows;
+        ui.frame++;
+        draw_graph();
+        ok &= ui.graph_sig != sig;
+        ok &= host_blit_rows - rows >= H_GRAPH;
+    }
+    return ok;
+}
+static int test_live_graph_rate(void)
+{
+    int bad = 0, ok;
+    ui_power_on();
+    go_home();
+    ok = live_panel_each_frame();
+    bad += check("HOME scope: graph_sig and panel blit every consecutive frame", ok);
+    ui_power_on();
+    go_title("PATTERN");
+    ok = cur_page()->graph == GR_STEPS && live_panel_each_frame();
+    bad += check("PATTERN (live steps): graph_sig and panel blit every consecutive frame", ok);
+    return bad;
+}
+
 /* 1.4.1 ENGINE QUICK ACTIONS (ui_layer.c EQA): the EDIT layer's black keys are the selected track's engine's. DRUM:
  * black keys 1..8 MUTE its lanes (eng_drum.c drum_mute). qa_beat: T4's own output (track_render) of a beat whose hits
  * strike the lanes of `lanes` (trk_note_on: the keys', MIDI's and the sequencer's way in), 16 steps of 8 blocks; its
@@ -8649,6 +8682,7 @@ int main(void)
     bad += test_fx_map_columns();
     bad += test_help();
     bad += test_no_flash();
+    bad += test_live_graph_rate();
 #if FELUCCA_FM4
     bad += test_fm_charts();                        /* (DIGITAL's charts: built with FELUCCA_FM4=1 only) */
 #else

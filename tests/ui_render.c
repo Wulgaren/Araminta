@@ -2287,7 +2287,7 @@ int main(int argc, char **argv)
     sweep_columns();
     roll_frames(argc > 2 ? argv[2] : 0);
     al_off = 1;                                     /* (the alignment check is not timed) */
-    /* draw cost: a full redraw of a screen (all strips), and HOME frame by frame (the scope, every other frame) */
+    /* draw cost: a full redraw of a screen (all strips), and HOME frame by frame (the scope, every frame) */
     {
         static const int COST[] = {S_HOME, S_PRESETS, S_STEP, S_ROLL_CHORDS, S_DRUM, S_MIXER, S_MENU, S_ABOUT_CREDITS, S_CONFIRM_PROJ};
         enum { N = 200 };
