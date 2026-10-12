@@ -4,8 +4,8 @@
 """Build docs/araminta.png from the device splash mark + Terminus (AF_M).
 
 Matches firmware/src/ui_draw.c draw_splash(): 240×240 black, rose at y=8,
-ARAMINTA in ter-u16n (Terminus), then nearest-neighbour scale to a 1200×600
-README banner.
+ARAMINTA in ter-u16n (Terminus). Crops to the mark + name, then nearest-
+neighbour scales (integer) to fit a 1200×600 README banner without clipping.
 
   tools/gen_readme_splash.py [OUT.png]
 """
@@ -108,14 +108,30 @@ def main() -> None:
     name_y = y0 + lh + 6  # SPL_NAME_Y
     blit_text(canvas, (240 - text_w(glyphs, name)) // 2, name_y, name, glyphs)
 
-    # 5× nearest → 1200×1200, centre-crop to 1200×600 README banner
-    big = canvas.resize((1200, 1200), Image.NEAREST)
-    top = (1200 - 600) // 2
-    banner = big.crop((0, top, 1200, top + 600))
+    # Fit mark + name in 1200×600 (integer nearest scale; no centre-crop clip)
+    bw, bh = 1200, 600
+    box = canvas.getbbox()
+    if box is None:
+        raise SystemExit("splash canvas empty")
+    pad = 4
+    left = max(0, box[0] - pad)
+    top = max(0, box[1] - pad)
+    right = min(canvas.width, box[2] + pad)
+    bottom = min(canvas.height, box[3] + pad)
+    crop = canvas.crop((left, top, right, bottom))
+    cw, ch = crop.size
+    margin = 24  # keep breathing room like the previous README banner
+    scale = max(1, min((bw - 2 * margin) // cw, (bh - 2 * margin) // ch))
+    scaled = crop.resize((cw * scale, ch * scale), Image.NEAREST)
+    banner = Image.new("L", (bw, bh), 0)
+    banner.paste(scaled, ((bw - scaled.width) // 2, (bh - scaled.height) // 2))
     rgb = Image.merge("RGB", (banner, banner, banner))
     out.parent.mkdir(parents=True, exist_ok=True)
     rgb.save(out)
-    print(f"readme splash: {out} {rgb.size[0]}x{rgb.size[1]} Terminus ARAMINTA + device rose")
+    print(
+        f"readme splash: {out} {rgb.size[0]}x{rgb.size[1]} "
+        f"Terminus ARAMINTA + device rose ({scale}×, no clip)"
+    )
 
 
 if __name__ == "__main__":
