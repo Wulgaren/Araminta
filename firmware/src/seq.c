@@ -604,7 +604,8 @@ static void rec_release(track_t *t, uint32_t note)
 /* FREE TAKE (from SLOOP): empty project, REC armed while stopped, no count-in. Play with no tempo;
  * REC on the next downbeat closes the loop (1 / 2 / 4 bars, tempo nearest the current BPM; within 3 %
  * the tempo is kept), notes quantised to 1/16 with lengths; a note started while an earlier one is still
- * held sets SF_SLIDE on the previous NOTE step (acid legato); PLAY drops the take. */
+ * held sets SF_SLIDE on the previous NOTE step and TIEs the gap (acid legato); when that tap ends while
+ * a key is still held, a return to the last held pitch is recorded (mono fall-back); PLAY drops the take. */
 #define FT_MAX 192u
 #define FT_BLOCKS (24u * FS / CTL)            /* 24 s: 4 bars at 40 BPM, the longest loop */
 #define FT_OPEN 0xFFFFu                       /* the key is still down */
@@ -744,10 +745,97 @@ static void ft_put(track_t *t, uint32_t idx, uint8_t note, uint8_t vel)
     if (vel > s->vel)
         s->vel = vel;
 }
+static uint32_t ft_q(uint32_t t, uint32_t len, uint32_t T)
+{
+    return (t * len * 2u + T) / (2u * T) % len;
+}
+static uint32_t ft_end(const ft_ev_t *e, uint32_t T)
+{
+    return e->d == FT_OPEN || (uint32_t)e->t + e->d > T ? T : (uint32_t)e->t + e->d;
+}
+/* length ties from each note; then for notes started while another is held: SF_SLIDE on the previous
+ * NOTE and on the TIE before the destination (seq_hold drops on a plain TIE→NOTE). */
+static void ft_legato(track_t *t, uint32_t n, uint32_t len, uint32_t T)
+{
+    uint32_t i, k;
+    for (i = 0; i < n; i++) {
+        uint32_t d = ft_end(&ft_ev[i], T) - ft_ev[i].t;
+        uint32_t idx = ft_q(ft_ev[i].t, len, T);
+        uint32_t steps = (d * len * 2u + T) / (2u * T);
+        for (k = 1; k < steps && k < len; k++) {
+            step_t *s = &t->step[(idx + k) % len];
+            if (s->time == ST_NOTE && s->n)
+                break;
+            memset(s, 0, sizeof *s);
+            s->time = ST_TIE;
+        }
+    }
+    for (i = 1; i < n; i++) {
+        uint32_t idx = ft_q(ft_ev[i].t, len, T), j, held = 0;
+        for (j = 0; j < i; j++) {
+            if (ft_ev[j].t < ft_ev[i].t && ft_end(&ft_ev[j], T) > ft_ev[i].t) {
+                held = 1;
+                break;
+            }
+        }
+        if (!held)
+            continue;
+        for (k = idx; k > 0; ) {                    /* earlier steps only (same-step chord: no slide) */
+            step_t *s = &t->step[--k];
+            if (s->time == ST_NOTE && s->n) {
+                s->flags |= SF_SLIDE;
+                break;
+            }
+        }
+        if (idx && t->step[idx - 1u].time == ST_TIE)
+            t->step[idx - 1u].flags |= SF_SLIDE;
+    }
+}
+/* mono fall-back returns: a tap that ends while another key is held records the last held pitch.
+ * A release that quantises onto the tap's step is bumped to the next step. */
+static void ft_returns(uint32_t len, uint32_t T)
+{
+    uint32_t base = ft_n, i;
+    for (i = 0; i < base && ft_n < FT_MAX; i++) {
+        uint32_t end, j, last = ~0u, held_end = 0, tap_idx, ret_idx, ret_t;
+        if (ft_ev[i].d == FT_OPEN)
+            continue;
+        end = (uint32_t)ft_ev[i].t + ft_ev[i].d;
+        if (end >= T)
+            continue;
+        for (j = 0; j < base; j++) {
+            uint32_t je;
+            if (j == i)
+                continue;
+            je = ft_end(&ft_ev[j], T);
+            if (ft_ev[j].t < end && je > end && (last == ~0u || ft_ev[j].t >= ft_ev[last].t)) {
+                last = j;
+                held_end = je;
+            }
+        }
+        if (last == ~0u)
+            continue;
+        tap_idx = ft_q(ft_ev[i].t, len, T);
+        ret_idx = ft_q(end, len, T);
+        if (ret_idx == tap_idx) {
+            if (tap_idx + 1u >= len)
+                continue;
+            ret_idx = tap_idx + 1u;
+        }
+        ret_t = (ret_idx * 2u * T + len) / (2u * len);
+        if (ret_t >= held_end)
+            continue;
+        ft_ev[ft_n].t = (uint16_t)ret_t;
+        ft_ev[ft_n].d = (uint16_t)(held_end - ret_t);
+        ft_ev[ft_n].note = ft_ev[last].note;
+        ft_ev[ft_n].vel = ft_ev[last].vel;
+        ft_n++;
+    }
+}
 static void ft_close(void)
 {
     track_t *t = &trk[ft_trk % NTRK];
-    uint32_t T = ft_t, bars, bpm = 0, len, i, k;
+    uint32_t T = ft_t, bars, bpm = 0, len, i;
     ft_on = 0;
     ft_close_ms = fm1_ms;
     ft_closed = 1;
@@ -762,45 +850,12 @@ static void ft_close(void)
         trk[i].p[P_SLEN] = (int16_t)len;
         trk[i].p[P_SDIV] = 2;                         /* 1/16 */
     }
-    for (i = 0; i < ft_n; i++) {
-        uint32_t idx = (ft_ev[i].t * len * 2u + T) / (2u * T) % len;
-        ft_put(t, idx, ft_ev[i].note, ft_ev[i].vel);
-    }
-    if (!drum_track(t)) {
-        for (i = 0; i < ft_n; i++) {
-            uint32_t d = ft_ev[i].d == FT_OPEN || ft_ev[i].t + ft_ev[i].d > T ? T - ft_ev[i].t : ft_ev[i].d;
-            uint32_t idx = (ft_ev[i].t * len * 2u + T) / (2u * T) % len;
-            uint32_t steps = (d * len * 2u + T) / (2u * T);
-            for (k = 1; k < steps && k < len; k++) {
-                step_t *s = &t->step[(idx + k) % len];
-                if (s->time == ST_NOTE && s->n)
-                    break;
-                memset(s, 0, sizeof *s);
-                s->time = ST_TIE;
-            }
-        }
-        /* hold A, press B / C / …: SF_SLIDE on the previous NOTE step (skip TIE / rest; no wrap) */
-        for (i = 1; i < ft_n; i++) {
-            uint32_t idx = (ft_ev[i].t * len * 2u + T) / (2u * T) % len, j, held = 0;
-            for (j = 0; j < i; j++) {
-                uint32_t end = ft_ev[j].d == FT_OPEN || ft_ev[j].t + ft_ev[j].d > T
-                                   ? T : (uint32_t)ft_ev[j].t + ft_ev[j].d;
-                if (ft_ev[j].t < ft_ev[i].t && end > ft_ev[i].t) {
-                    held = 1;
-                    break;
-                }
-            }
-            if (!held)
-                continue;
-            for (k = idx; k > 0; ) {                /* earlier steps only (same-step chord: no slide) */
-                step_t *s = &t->step[--k];
-                if (s->time == ST_NOTE && s->n) {
-                    s->flags |= SF_SLIDE;
-                    break;
-                }
-            }
-        }
-    }
+    if (!drum_track(t))
+        ft_returns(len, T);
+    for (i = 0; i < ft_n; i++)
+        ft_put(t, ft_q(ft_ev[i].t, len, T), ft_ev[i].note, ft_ev[i].vel);
+    if (!drum_track(t))
+        ft_legato(t, ft_n, len, T);
     t->seq_active = 1;
     song.g[G_BPM] = (int16_t)bpm;
     ft_bars = (uint8_t)bars;
