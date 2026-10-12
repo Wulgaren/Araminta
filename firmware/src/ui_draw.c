@@ -1555,6 +1555,7 @@ static void ui_draw_page(uint32_t counting)
         page_entered();
     }
     cursor_fix();
+    seq_follow_tick();
     if (ui.force)
         draw_frame();
     felucca_dbg.stage = 3;

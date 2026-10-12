@@ -601,6 +601,7 @@ static void confirm_open(uint32_t kind, uint32_t trk)
 static void cursor_move(int32_t c)
 {
     cursor_set(c);
+    seq_follow_bump();
     if ((ui_prefs2 & (PREF_PREVIEW >> 16)) && !song.playing && !seq_counting() && transport_req != 1u && !chain_busy() &&
         !ui.home && song.seq_mode && cur_page()->graph == GR_ROLL)
         aud_req = (uint16_t)((uint32_t)ui.cursor << 8 | (song.sel + 1u));
@@ -645,6 +646,7 @@ static void grid_keys(uint32_t pressed)
                 continue;                               /* past LEN: no step there */
             if (detail_on()) {                          /* DETAIL (1.5.1): the key picks the step, no hit toggled */
                 cursor_set((int32_t)i);
+                seq_follow_bump();
                 continue;
             }
             {   /* a hit (an accent) there goes when the key is let go, unless it was held for a lock (lock_keys) */
@@ -663,6 +665,7 @@ static void grid_keys(uint32_t pressed)
                 }
             }
             cursor_set((int32_t)i);
+            seq_follow_bump();
         } else if (p < NLANE) {
             ui.lane = (uint8_t)p;
         } else if (p != GK_ACC) {
@@ -1103,6 +1106,8 @@ static void edit_param(uint32_t slot, int32_t steps)
     const page_t *pg = cur_page();
     const param_desc_t *d;
     int32_t v;
+    if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_STEP)
+        seq_follow_bump();                                /* PATTERN / STEP / DETAIL: pause playhead follow */
     if (pg->graph == GR_DXSND) {                          /* EDIT > SOUND: the DRUM-X kit (ui_dx.c) */
         dx_knob(pg, slot, steps);
         return;
@@ -1475,6 +1480,7 @@ static void seq_entry(uint32_t pressed)
         else {
             uint32_t n = step_on(st) ? note_len(t, ui.cursor) : 1u;
             cursor_set(ui.cursor + (int32_t)(n ? n : 1u));
+            seq_follow_bump();
         }
     }
 }

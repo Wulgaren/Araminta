@@ -81,8 +81,9 @@ static int32_t bar_x(uint32_t i) { return 12 + (int32_t)(i % 16u) * 13 + (int32_
  * their notes (a RATCH step's bars in its 2..4 parts, 1 px apart); a TIE carries the bars of the note before through
  * its column; a REST is empty; a slide is a TEXT diagonal from the end of its bar into the next note (not from a
  * RATCH step: it never slides out). Notes outside
- * the view: a 1 px mark on the edge. The cursor: a TEXT column frame; the playhead: a 1 px ACCENT line. The view
- * (proll.lo, the bottom row) fits the notes of the page, else centres on the cursor's note, and follows in steps (a
+ * the view: a 1 px mark on the edge. The cursor: a TEXT column frame; the playhead (only when it is not the cursor
+ * step): a 1 px ACCENT line. The view (proll.lo, the bottom row) fits the notes of the page, else centres on the
+ * cursor's note, and follows in steps (a
  * third of the way per frame); graph_signature() holds it, so a page that does not change is not drawn again. */
 #define PR_ROWS 21                                  /* semitones shown (1.75 octaves) */
 #define PR_RH 5                                     /* px per row */
@@ -234,7 +235,7 @@ static void graph_roll(const track_t *t, uint16_t c)
         int32_t x = PR_X0 + (int32_t)i * PR_CW;
         if (si == ui.cursor)
             cv_frame(x, PR_Y0 - 2, PR_CW + 1, ybot - PR_Y0 + 4, T_TEXT);
-        if (song.playing && si == t->seq_idx)
+        else if (song.playing && si == t->seq_idx)   /* playhead only when follow is paused (cursor elsewhere) */
             cv_rect(x + 6, PR_Y0, 1, ybot - PR_Y0, T_ACCENT);
         if ((locks >> si) & 1u)                       /* a parameter lock: a mark under the step */
             cv_rect(x + 3, ybot + 3, 7, 2, T_ACCENT);
@@ -264,8 +265,8 @@ static void graph_roll(const track_t *t, uint16_t c)
 /* SEQ > STEP on a DRUM track: the grid, 8 lanes x the 16 steps of the page shown. Lanes by their two-letter
  * names (BD SD CP CH OH TM RS CB; CG CL CY on the other kits). A hit is a rounded square (accented: the
  * accent; a RATCH step's: its 2..4 parts as bars), an empty step a dot (brighter on the beats and on the selected lane); the selected lane is
- * underlaid RAISE, the cursor framed in TEXT; a TEXT bar over the step playing. 1.4.1: a muted lane (the EDIT layer's
- * black keys, eng_drum.c drum_mute): its name DIM, the MUTE icon after it, its hits DIM */
+ * underlaid RAISE, the cursor framed in TEXT; a TEXT bar over the step playing when it is not the cursor. 1.4.1: a
+ * muted lane (the EDIT layer's black keys, eng_drum.c drum_mute): its name DIM, the MUTE icon after it, its hits DIM */
 static void graph_grid(const track_t *t, uint16_t c)
 {
     uint32_t l, i, len = (uint32_t)t->p[P_SLEN], base = ui.bank * 16u, mute = drum_mute[trk_index(t) % NPART];
@@ -305,7 +306,7 @@ static void graph_grid(const track_t *t, uint16_t c)
                 cv_frame(x - 1, y + 1, 12, 12, T_TEXT);
         }
     }
-    if (song.playing && t->seq_idx < len && t->seq_idx / 16u == ui.bank)
+    if (song.playing && t->seq_idx < len && t->seq_idx / 16u == ui.bank && t->seq_idx != ui.cursor)
         cv_rect(40 + (int32_t)(t->seq_idx % 16u) * 12, y0 - 1, 10, 3, T_TEXT);
 }
 /* SEQ > DETAIL (1.5.1, Discussion #199): the cursor's 16 steps as four lanes, the knobs' order top to bottom, each
@@ -314,7 +315,7 @@ static void graph_grid(const track_t *t, uint16_t c)
  * as high as the velocity (an ACC step's full, TEXT). Off its default a value is bright (THEME, the cursor's ACCENT),
  * at it faint (RAISE: 100 %, x1, 0, a VEL never set); DIM where it does not play (a NUDGE with QUANTIZE ON or on a
  * ratchet, a VEL under ACC). A step that plays nothing: a dot (a value left on it DIM); past LEN nothing. The cursor
- * framed through the lanes, the step playing a line */
+ * framed through the lanes; the step playing a line only when it is not the cursor */
 #define SD_X0 36                                    /* the first step column (12 px each) */
 static void graph_detail(const track_t *t, uint16_t c)
 {
@@ -334,7 +335,7 @@ static void graph_detail(const track_t *t, uint16_t c)
         uint16_t hi = si == ui.cursor ? T_ACCENT : c;
         if (si == ui.cursor)
             cv_frame(x, 1, 13, 116, T_TEXT);
-        if (song.playing && si == t->seq_idx)
+        else if (song.playing && si == t->seq_idx)
             cv_rect(x + 6, 2, 1, 114, T_ACCENT);
         for (l = 0; l < 4u; l++) {
             uint32_t k = SD_KIND[l];
@@ -1094,7 +1095,7 @@ static uint32_t strip_kind(void)
     return g == GR_ADSR ? SK_ADSR : g == GR_LFO ? SK_LFO : g == GR_TRK ? SK_TRK : SK_TITLE;
 }
 /* the page's title and its number in its family ("ENV DEST 2/2", EDIT: the engine's "OSC 1/2"); the piano roll: its
- * scale ("C MIN"); ti holds 20 (the footer, the strip) */
+ * scale plus sibling index ("C MIN 2/3"); ti holds 20 (the footer, the strip) */
 static void page_title(char *ti)
 {
     const page_t *pg = cur_page();
@@ -1108,17 +1109,18 @@ static void page_title(char *ti)
             if (i == ui.page)
                 k = n;
         }
-    str_cpy(ti, pt ? pt : grid_on() && !detail_on() ? "GRID" : pg->title, 12);
+    if (pg->graph == GR_ROLL && !drum_track(t) && !detail_on()) {   /* piano roll: tinted rows' scale */
+        str_cpy(ti, N_NOTE[(uint32_t)t->p[P_ROOT] % 12u], 4);
+        str_cpy(ti + str_len(ti), " ", 4);
+        str_cpy(ti + str_len(ti), N_SCALE[clamp(t->p[P_SCALE], 0, (int32_t)(sizeof N_SCALE / sizeof N_SCALE[0]) - 1)], 8);
+    } else {
+        str_cpy(ti, pt ? pt : grid_on() && !detail_on() ? "GRID" : pg->title, 12);
+    }
     if (n > 1) {
         str_cpy(ti + str_len(ti), " ", 4);
         fmt_int(ti + str_len(ti), (int32_t)k);
         str_cpy(ti + str_len(ti), "/", 4);
         fmt_int(ti + str_len(ti), (int32_t)n);
-    }
-    if (pg->graph == GR_ROLL && !drum_track(t) && !detail_on()) {   /* the piano roll: its tinted rows' scale ("C MIN") */
-        str_cpy(ti, N_NOTE[(uint32_t)t->p[P_ROOT] % 12u], 4);
-        str_cpy(ti + str_len(ti), " ", 4);
-        str_cpy(ti + str_len(ti), N_SCALE[clamp(t->p[P_SCALE], 0, (int32_t)(sizeof N_SCALE / sizeof N_SCALE[0]) - 1)], 8);
     }
 }
 /* the strip's title: L centred (M when L lacks a glyph or is too wide) */
