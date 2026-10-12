@@ -1,10 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* The palettes and the real canvas/text renderer (src/gfx.c): GREY stays gray in every token and blend, MONO is
- * black and white in every token (one grey: DIM LINE RAISE LANE) and neutral in every blend,
- * every palette's text contrast, the alpha blend, the ramp cache, the fonts' metrics and the ellipsis.
- * Also: thin glyphs (3 / S) keep a middle ink run after 4-bit quantise; cv_blit must not rewrite its expand
- * buffer while a transfer is in flight, and a full graph strip uses CV_STRIP rows per lcd_blit.
- * Optional: a palette sheet (PPM). */
+/* The palettes and the real canvas/text renderer (src/gfx.c): GREY stays gray in every token and blend
+ * (pitch-black background), every palette's text contrast, the alpha blend, the ramp cache, the fonts'
+ * metrics and the ellipsis. Also: thin glyphs (3 / S) keep a middle ink run after 4-bit quantise; cv_blit
+ * must not rewrite its expand buffer while a transfer is in flight, and a full graph strip uses CV_STRIP
+ * rows per lcd_blit. Optional: a palette sheet (PPM). */
 #include <stdint.h>
 #include <stdio.h>
 #include <assert.h>
@@ -69,9 +68,6 @@ static uint16_t sheet[SHEET_W * SHEET_H];
 static unsigned channel(uint16_t c, unsigned n)
 { return n == 0 ? c >> 11 : n == 1 ? (c >> 5) & 63 : c & 31; }
 static int gray(uint16_t c) { return channel(c, 0) == channel(c, 2) && channel(c, 1) == channel(c, 0) * 2u; }
-/* MONO's blends: R = B, G within 2 of 2 R (blended per channel, the 5-6-5 rounding) */
-static int neutral(uint16_t c)
-{ return channel(c, 0) == channel(c, 2) && (int)channel(c, 1) - 2 * (int)channel(c, 0) >= -2 && (int)channel(c, 1) - 2 * (int)channel(c, 0) <= 2; }
 static double luminance(uint16_t color)
 {
     const double weight[] = {0.2126, 0.7152, 0.0722};
@@ -94,29 +90,16 @@ int main(int argc, char **argv)
     static const uint8_t pd[] = {0x08, 0xf0};
     const aafont_t probe = {1, 1, 'A', 'A', 0, 0, pg, pd, 0, 0, 0};
     double worst = 100;
-    assert(NPALETTES == 10u && !strcmp(UI_PALETTES[0].name, "GREY") && !strcmp(UI_PALETTES[7].name, "HI-CON") &&
-           !strcmp(UI_PALETTES[8].name, "NIGHT") && !strcmp(UI_PALETTES[9].name, "MONO") && UI_BW_INDEX == 9u);
-    /* (#50, 1.0.2: appended, the ids stay; GREY is the MONO of 1.0.1, id 0) */
-    for (unsigned st = ST_FLAT; st <= ST_LINE; st++) {   /* MONO: every token black or white, in FLAT and LINE */
-        uint16_t *tok = &ux.bg;
-        ux.style = (uint8_t)st;
-        palette_set(UI_BW_INDEX);
-        assert(&ux.grid - tok == 15);
-        for (unsigned i = 0; i < 16; i++) {
-            /* the one grey: DIM (inactive), LINE (tracks), RAISE (wells under white text), LANE (the piano roll) */
-            int grey_ok = tok[i] == UI_BW_GREY && (&tok[i] == &ux.dim || &tok[i] == &ux.line || &tok[i] == &ux.raise ||
-                                                   &tok[i] == &ux.lane);
-            if (!(tok[i] == 0x0000u || tok[i] == 0xFFFFu || grey_ok))
-                printf("MONO (%s): token %u = %04x is not black or white\n", st ? "LINE" : "FLAT", i, tok[i]);
-            assert(tok[i] == 0x0000u || tok[i] == 0xFFFFu || grey_ok);
-        }
-        assert(T_BG == 0u && T_SURF == 0u && T_TEXT == 0xFFFFu && T_SEL == 0xFFFFu && T_INK == 0u && T_REC == 0xFFFFu);
-    }
+    assert(NPALETTES == 9u && !strcmp(UI_PALETTES[0].name, "GREY") && !strcmp(UI_PALETTES[7].name, "HI-CON") &&
+           !strcmp(UI_PALETTES[8].name, "NIGHT") && UI_RETIRED_MONO_INDEX == 9u);
+    /* (#50: NIGHT appended; GREY is the MONO of 1.0.1, id 0; MONO palette retired) */
     ux.style = ST_FLAT;
+    palette_set(UI_GREY_INDEX);
+    assert(T_BG == 0u && T_SURF == 0u);                 /* GREY: pitch black */
     for (unsigned p = 0; p < NPALETTES; p++) {
         uint16_t *tok = &ux.bg;
         palette_set(p);
-        assert(ux.surf == ux.bg);                      /* SURF = BG in every palette (STYLE FLAT; as MONO) */
+        assert(ux.surf == ux.bg);                      /* SURF = BG in every palette (STYLE FLAT) */
         if (p == UI_GREY_INDEX)
             for (unsigned i = 0; i < 14; i++) assert(gray(tok[i]));      /* every token, derived ones too (RAISE, KEY the last) */
         /* text and the things read on the screen; the generator checks the same (tools/gen_ui_palettes.py) */
@@ -137,7 +120,7 @@ int main(int argc, char **argv)
         printf("%-7s text %.1f:1, labels %.1f:1, values %.1f:1, selection %.1f:1\n", UI_PALETTES[p].name,
                contrast(T_TEXT, T_BG), contrast(T_MID, T_BG), contrast(T_THEME, T_BG), contrast(T_INK, T_SEL));
         assert((p == 6u) == ux.light);                         /* PAPER is the light one */
-        assert(T_REC == (p == UI_GREY_INDEX || p == UI_BW_INDEX ? T_ACCENT : ux.light ? UI_REC_LIGHT : UI_REC_DARK));
+        assert(T_REC == (p == UI_GREY_INDEX ? T_ACCENT : ux.light ? UI_REC_LIGHT : UI_REC_DARK));
         /* the blend: transparent, solid and an edge between the two, on two backgrounds */
         for (unsigned b = 0; b < 2; b++) {
             uint16_t under = b ? T_SEL : T_BG, ink = b ? T_INK : T_THEME;
@@ -151,7 +134,6 @@ int main(int argc, char **argv)
                     if (cv_tok[i] == mid) ok = 1;
                 assert(ok);
                 if (p == UI_GREY_INDEX) assert(gray(mid));
-                if (p == UI_BW_INDEX) assert(neutral(mid));
             }
         }
         assert(text_w(&AF_S, UI_PALETTES[p].name) <= 60);     /* the COLOR row's value */
@@ -177,7 +159,6 @@ int main(int argc, char **argv)
             for (unsigned x = 0; x < 240; x++) {
                 uint16_t v = cv_peek(y * 240 + x);
                 if (p == UI_GREY_INDEX) assert(gray(v));          /* every blended pixel of GREY */
-                if (p == UI_BW_INDEX) assert(neutral(v));         /* and of MONO */
                 sheet[(p / 4 * 124 + y) * 960 + p % 4 * 240 + x] = v;
             }
     }
@@ -231,6 +212,6 @@ int main(int argc, char **argv)
         }
         fclose(f);
     }
-    printf("Palettes: GREY gray, MONO black and white, contrast (worst margin x%.2f), blending, ramp cache, font metrics and ellipsis passed.\n", worst);
+    printf("Palettes: GREY gray (pitch black), contrast (worst margin x%.2f), blending, ramp cache, font metrics and ellipsis passed.\n", worst);
     return 0;
 }
