@@ -22,8 +22,7 @@ Report what you find in [Araminta Issues](https://github.com/Wulgaren/Araminta/i
 - Install: [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Try: [Araminta in your browser](https://wulgaren.github.io/Araminta/webapp/try/): the same firmware compiled to
   WebAssembly, with the panel on screen (mouse, touch, computer keyboard, Web MIDI in)
-- Editor: [web editor](https://wulgaren.github.io/Araminta/webapp/editor/); upstream editor work continues in
-  [Felucca-WebApp](https://github.com/hugelton/Felucca-WebApp)
+- Editor: [web editor](https://wulgaren.github.io/Araminta/webapp/editor/)
 - Upstream: [hugelton/Felucca](https://github.com/hugelton/Felucca) (and its [itch.io](https://hugelton.itch.io/felucca) page)
 - Build: [BUILDING.md](BUILDING.md)
 
@@ -272,8 +271,6 @@ where marked here:
 
 ## Controls
 
-![FM-1 controls with Araminta](docs/controls.jpg)
-
 - Tap a page button for its page, again for the next; HOME returns home. Page buttons act when let go
 - Hold FX, GLO, SCL, EDIT, REC or SEQ for its quick layer; hold SAVE to undo, HOME for the menu; hold LFO and turn a
   knob for a MOMENTARY change
@@ -433,7 +430,7 @@ sevenths, or a fixed shape) and VOIC the voicing.
 | `firmware/` | firmware sources: `src/` app, `hal/` hardware layer, `loader/` update loader |
 | `tools/` | build script, generators, package maker, installer and sample uploader |
 | `assets/` | UI font, icon names, CC0 instrument samples |
-| `web/` | the web installer, the earlier editor and the browser emulator (`web/emu/`); the new editor: [Felucca-WebApp](https://github.com/hugelton/Felucca-WebApp) |
+| `web/` | the web installer, editor and browser emulator (`web/emu/`) |
 | `tests/` | tests that run on the build machine |
 | `LICENSES/` | licence texts of the bundled fonts, icons, ported DSP and SDK files |
 
@@ -465,7 +462,7 @@ Upstream context: [On AI-Assisted Development and Responsibility](https://github
 
 ## Credits
 
-- **Fork:** [Wulgaren/Araminta](https://github.com/Wulgaren/Araminta) by [Wulgaren](https://github.com/Wulgaren) (Marcin O)
+- **Fork:** [Wulgaren/Araminta](https://github.com/Wulgaren/Araminta) by [Wulgaren](https://github.com/Wulgaren)
 - **[Hügelton Instruments](https://hugelton.com)** (Leo Kuroshita, [@kurogedelic](https://github.com/kurogedelic)):
   Felucca, the base this fork builds on; the PHASE engine's waveforms (a C port of the oscillator of
   [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the DRUM voices and kits; the Hügelton Sample
@@ -497,4 +494,4 @@ ported DSP keep their own licences ([LICENSES/](LICENSES/)); details in [LICENSI
 M-VAVE and FM-1 are trademarks of their respective owners. Araminta is not affiliated with or endorsed by them.
 
 Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-Copyright (C) 2026 Wulgaren (Marcin O) for Araminta fork changes
+Copyright (C) 2026 Wulgaren for Araminta fork changes
