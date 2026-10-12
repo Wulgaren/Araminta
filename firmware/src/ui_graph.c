@@ -452,11 +452,12 @@ static void graph_insert(const track_t *t, uint16_t c)
     }
 }
 /* EFFECTS: name | gray mix fader | SEND / CHAIN / USED. Eight rows (6 inserts + DLY + REV).
- * Fader spans the row between the name column and the mode label (full width of that gap). */
+ * Fader spans the row between the name column and the mode label (full width of that gap).
+ * Name column sized to the longest N_ISTAGE label (FLANGER); shorter names left-align. */
 static void ior_row(int32_t y, const char *name, const char *mode, int32_t amt, uint16_t col)
 {
     int32_t nx = PANEL_X0 + 4, gap = 4, mw = text_w(&AF_S, "CHAIN");
-    int32_t bx = nx + text_w(&AF_S, "FILTER") + gap;
+    int32_t bx = nx + text_w(&AF_S, "FLANGER") + gap;
     int32_t bw = (PANEL_X0 + PANEL_W - 4 - mw - gap) - bx;
     int32_t fw;
     if (bw < 8)
