@@ -778,6 +778,80 @@ int main(void)
              !memcmp(c.name, "DX KIT", 6);
         bad += check("FUN10 (FUNA): loads with the factory DRUM-X kit (custom kit not on disk)", ok);
     }
+    {   /* Felucca 1.5 FUNA (np 111): INSERT + FTYPE/ESYNC through proj_import end-to-end */
+        project_t c;
+        static project_store_t funa;
+        int16_t p111[111];
+        uint32_t i, t, pos, magic = PROJ_MAGIC_V10, size = PROJ_STORE_SIZE, sum;
+        chain_config_t ch;
+        memset(&funa, 0, sizeof funa);
+        memcpy(funa.raw, &magic, 4);
+        memcpy(funa.raw + 4, &size, 4);
+        for (i = 0; i < PROJ_NG_WIRE; i++)
+            ((int16_t *)(funa.raw + 8))[i] = GP[i].def;
+        ((int16_t *)(funa.raw + 8))[G_RTYPE] = 2;      /* HALL */
+        ((int16_t *)(funa.raw + 8))[G_RSIZE] = 90;
+        ((int16_t *)(funa.raw + 8))[G_RDAMP] = 40;
+        funa.raw[62] = 0; funa.raw[63] = NPART; funa.raw[64] = PROJ_PHYS; funa.raw[66] = 111;
+        for (i = 0; i < 111u; i++)
+            p111[i] = 0;
+        p111[P_LEVEL] = 100;
+        p111[P_DIST] = 70;
+        p111[96] = 5;                                  /* IT_CRUSH */
+        p111[97] = 40; p111[98] = 50; p111[99] = 60; p111[100] = 110;
+        p111[101] = 1;                                 /* BP */
+        p111[102] = 1;                                 /* ESYNC */
+        for (i = 0; i < 8u; i++)
+            p111[103 + i] = (int16_t)(20 + i);
+        pos = 68u;
+        for (t = 0; t < NTRK; t++) {
+            for (i = 0; i < 111u; i++)
+                funa.raw[pos++] = (uint8_t)(p111[i] + 64);
+            funa.raw[pos++] = (uint8_t)(t == 0u ? 0u : ENGI_FM6);   /* ANALOG, then FM6 */
+            funa.raw[pos++] = 0;
+            for (i = 0; i < NSTEP; i++) {
+                funa.raw[pos++] = 0; funa.raw[pos++] = 0; funa.raw[pos++] = 0; funa.raw[pos++] = 0;
+                funa.raw[pos++] = (uint8_t)(ST_REST << 3);
+                funa.raw[pos++] = 96; funa.raw[pos++] = 0; funa.raw[pos++] = 0; funa.raw[pos++] = 100;
+            }
+        }
+        chain_defaults(&ch);
+        memcpy(funa.raw + pos, &ch, sizeof ch);        /* then 388 B zero motion (1.5 full block) */
+        for (t = 0; t < NTRK; t++)
+            memcpy(funa.raw + PROJ_FM6_OFF + t * FM6_PACKED, FM6_INIT, FM6_PACKED);
+        memcpy(funa.raw + PROJ_NAME_OFF, "V15 CRUSH", 9);
+        sum = proj_hash(funa.raw, PROJ_STORE_SIZE - 4u);
+        memcpy(funa.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+        ok = proj_import(&c, &funa, sizeof funa);
+        bad += check("FUNA np111: imports (Felucca 1.5 INSERT project)", ok);
+        bad += check("FUNA np111: CRUSH INSERT -> chain crush params + MIX",
+                     ok && c.t[0].p[P_ICBITS] == 40 && c.t[0].p[P_ICRATE] == 50 &&
+                     c.t[0].p[P_ICLPF] == 60 && c.t[0].p[P_ICMIX] == 110 &&
+                     c.t[0].p[P_DIST] == 70 && c.t[0].p[P_IDMIX] == 127);
+        bad += check("FUNA np111: FTYPE/ESYNC and engine values kept",
+                     ok && c.t[0].p[P_FTYPE] == 1 && c.t[0].p[P_ESYNC] == 1 &&
+                     c.t[0].p[P_E0] == 20 && c.t[0].p[P_E7] == 27 && c.t[0].p[P_LEVEL] == 100);
+        bad += check("FUNA np111: factory DRUM-X kit, CHAIN reverb = SEND, name kept",
+                     ok && !memcmp(c.dx, DX_KIT_DEF, sizeof c.dx) && !c.dx_mute &&
+                     c.g[G_CRTYPE] == c.g[G_RTYPE] && c.g[G_CRSIZE] == c.g[G_RSIZE] &&
+                     c.g[G_CRDAMP] == c.g[G_RDAMP] && c.g[G_RTYPE] == 2 &&
+                     !memcmp(c.name, "V15 CRUSH", 9) && c.t[0].engine == 0u && c.t[1].engine == ENGI_FM6);
+        /* TYPE OFF: dry chain defaults, FTYPE/ESYNC still apply */
+        p111[96] = 0; p111[100] = 64;
+        pos = 68u;
+        for (t = 0; t < NTRK; t++) {
+            for (i = 0; i < 111u; i++)
+                funa.raw[pos++] = (uint8_t)(p111[i] + 64);
+            funa.raw[pos++] = 0; funa.raw[pos++] = 0;
+            pos += NSTEP * 9u;
+        }
+        sum = proj_hash(funa.raw, PROJ_STORE_SIZE - 4u);
+        memcpy(funa.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+        ok = proj_import(&c, &funa, sizeof funa);
+        bad += check("FUNA np111: INSERT TYPE OFF stays dry (ICMIX 0), ESYNC kept",
+                     ok && c.t[0].p[P_ICMIX] == 0 && c.t[0].p[P_IPMIX] == 0 &&
+                     c.t[0].p[P_ILMIX] == 0 && c.t[0].p[P_IHMIX] == 0 && c.t[0].p[P_ESYNC] == 1);
+    }
     printf("%s\n", bad ? "PROJECT FORMAT TEST FAILED" : "project format test passed");
     return bad != 0;
 }
