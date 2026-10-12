@@ -5,7 +5,7 @@
 ![Araminta](docs/araminta.png)
 
 **TL;DR:** Araminta v1.5.1 is a fork of [Felucca](https://github.com/hugelton/Felucca) for the M-VAVE FM-1.
-On top of Felucca 1.5.1 you get DRUM-X, SAMPLE / GRAIN / NOISE back, JIANT punch-ins, Sloop free take, Melodee silent-track motion, and a tighter VOICE page.
+On top of Felucca 1.5.1 you get DRUM-X, SAMPLE / GRAIN / NOISE back, JIANT punch-ins, Sloop free take, Melodee silent-track motion, a tighter VOICE page, an EFFECTS list (CHAIN / SEND + MIX), MIXER PLAY, and SEQ starting on PATTERN.
 Upstream 1.5.1 still brings SEQ > DETAIL, MIDI Program Change, dotted delay times and REV / ECHO THROW.
 Plug the FM-1 into a computer by USB, open the [web installer](https://wulgaren.github.io/Araminta/) in Chrome or Edge, and press Install.
 Install at your own risk: M-VAVE's updater or the installer's **Return to official V15** takes you back.
@@ -30,7 +30,7 @@ Araminta keeps Felucca 1.5.x as the base and layers a few ports and layout shift
 These are the differences that matter day to day:
 
 - **Sloop free take.** Project empty, track armed, transport stopped: the first note starts a free take, so you can record without building a pattern first.
-- **JIANT MIDI punch-ins.** They live on FX under the Punch-in section. SELECT walks pages inside FX sections; holding FX alone does not open punch-ins. Master gets CLIP / PNCH / DUCK. Reverb models add SHIMR / CLOUD.
+- **JIANT MIDI punch-ins.** They live on FX under the Punch-in section (FX taps: EFFECTS → SLICER → PUNCH). SELECT walks pages inside a section; holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK. Reverb models add SHIMR / CLOUD.
 - **Melodee.** Silent tracks still run LFO, bend, the engine block and fades, so modulation keeps moving when a track is muted or resting.
 - **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project as FUN11 / `FUNB` (same size as FUN10; disk motion max 78). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
 - **SAMPLE, GRAIN and NOISE** are back (SLICE stays retired). CR78 is not in the ROM sample bank; upload a kit as a USR sample. In the web editor, the Drum kit grid checkbox tags the slot (`FSMP` header); SAMPLE on that USR set then shows the drum grid on SEQ instead of the piano roll, with zones mapped by hand.
@@ -46,9 +46,9 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM / DRUM-X engine);
   8 voices shared between them. ALGORITHM selects the track on every page
 - **Sequencer:** 64 steps per track with chords, ties, accent, slide, per-step chance, velocity and ratchets
-  (a step played 2, 3 or 4 times in its length); **SEQ** goes PATTERN, STEP, DETAIL, AUTOMATION, then SEQ TOOLS;
-  a piano roll of the steps, where KNOB 3 sets a note's length (0 clears it and advances the cursor) and PRESETS
-  moves that note in time (or, while step-recording with a key held, sets its LEN); a drum grid (white keys =
+  (a step played 2, 3 or 4 times in its length); **SEQ** sections are PATTERN, STEP (SELECT: DETAIL), AUTOMATION,
+  then SEQ TOOLS; a piano roll of the steps, where KNOB 3 sets a note's length (0 clears it and advances the cursor)
+  and PRESETS moves that note in time (or, while step-recording with a key held, sets its LEN); a drum grid (white keys =
   steps, black keys = lanes); **SEQ > DETAIL**: the cursor step's chance, ratchet, nudge and velocity on the four
   knobs, drawn as lanes over the steps; automation: recording of knob moves per step (an automation icon marks the cards it
   drives); live loop recording with overdub; Sloop free take when the project is empty; step recording at the cursor (REC on SEQ > STEP while stopped), one
@@ -70,7 +70,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   of 1 or 2 bars before recording from stop; the click goes to the headphones and speaker only, never to
   USB audio or into a pattern
 - **Songs** (GLO > SONG): up to 16 sections, each naming the project slot (A-D) **every track** plays, or "-" for a
-  track that rests there, with its repeats; drawn as a timeline with a lane per track
+  track that rests there, with its repeats; drawn as a timeline with a lane per track. GLO also holds MASTER, CLOCK
+  and RECORD (HOME is only Home ↔ Mixer)
 - **Chord keys:** one finger plays an in-key chord (triads or sevenths of the scale, or fixed chord
   shapes), with voicings; on the keys, MIDI in, recording and the arpeggiator
 - **Arpeggiator** with UP, DN, UPDN, RND, ORD (the notes in the order you pressed them), REPEAT and, for chords,
@@ -222,10 +223,10 @@ where marked here:
 - **ARP ORD now plays the held notes in the order you pressed them** (up to 1.1.5 it played them as UP): a sound
   or project using ORD sounds different when its notes were pressed in another order than low to high.
 - **SAMPLE's PIANO** was a lighter lo-fi piano in 1.4 and 1.4.1; since 1.5 it is the full piano of 1.1.5 again.
-- **The pages moved** (Discussion #153): see Controls below. In short: SEQ is STEP and AUTOMATION; **SEQ held is SEQ
-  TOOLS on every page** (it no longer opens SONG); **GLO opens SONG**; PHRASES is on SAVE; HOME goes round HOME,
-  MIXER and CLOCK (BPM, swing, clock source); TUNE is MENU > AUDIO, MIDI IN (ROUT) is MENU > MIDI, and the USB state
-  and CPU load are MENU > SYSTEM > INFO. REC held is the REC layer as before.
+- **The pages moved** (Discussion #153): see Controls below. In short: SEQ is PATTERN, STEP / DETAIL, AUTOMATION,
+  then SEQ TOOLS; **SEQ held is SEQ TOOLS on every page** (it no longer opens SONG); **GLO** goes MASTER, SONG,
+  CLOCK, RECORD; PHRASES is on SAVE; HOME is Home ↔ Mixer; TUNE is MENU > AUDIO, MIDI IN (ROUT) is MENU > MIDI,
+  and the USB state and CPU load are MENU > SYSTEM > INFO. REC held is the REC layer as before.
 - **SONG has a lane per track**: older songs load with all four tracks on each row's slot and play as before; its
   knobs are KNOB 1 SECTION, 2 TRACK, 3 PAT, 4 REPS, and on SONG the white keys A3 B3 C4 D4 set the slot.
 - **A fresh start uses the HALL reverb** (up to 1.1.5: ROOM). Saved projects keep their reverb TYPE.
@@ -241,21 +242,23 @@ where marked here:
 - Hold FX, GLO, SCL, EDIT, REC or SEQ for its quick layer; hold SAVE to undo, HOME for the menu; hold LFO and turn a
   knob for a MOMENTARY change
 - Double-tap a layer's button to keep its layer open without holding; tap it again to close
-- On SEQ > STEP, hold a step and turn KNOB 1-4 to lock those parameters on that step (PRESETS: move the held steps in time)
+- On SEQ > STEP, hold a step and turn KNOB 1-4 to lock those parameters on that step (PRESETS: move the held steps in time; while step-recording with a key held, PRESETS sets that note's LEN)
+- On MIXER, KNOB 4 is **PLAY**: ON (default), OFF, or SOLO (saved with the track)
 - On action pages and in dialogs, OCT+ does it and OCT− goes back; in the menu, OCT+ / OCT− change the value and HOME closes it
 - Save a sound: stop, tap SAVE, pick a slot with KNOB 1, then OCT+ and OCT+ again (name it with the keys)
 
 The pages by button:
 
-| Button | Taps go round | Held |
+| Button | Taps go round (sections; SELECT walks pages inside one) | Held |
 |---|---|---|
-| HOME | HOME, MIXER, CLOCK (BPM, swing, clock source) | the menu |
-| SEQ | PATTERN, STEP (piano roll or drum grid), DETAIL, AUTOMATION, SEQ TOOLS | SEQ TOOLS, on every page |
-| GLO | SONG | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
-| SAVE | USER, PRESETS, PHRASES (the pattern loader), PROJECT, TOOLS | UNDO |
-| LFO | LFO, LFO 2, LFO DEST; then MOD | MOMENTARY (with a knob) |
-| EDIT | EDIT 1, EDIT 2, VOICE (VCE/GLD/UNI DTN/SPRD; FM6 adds OPERATOR, OP ENV; DRUM: Sound / Kit / Lanes, no Voice; ANALOG FILTER, FILTER DRIVE instead of EDIT 2) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
-| FX, SCL, ENV, ARP | their pages (FX: EFFECTS list with CHAIN/SEND/MIX, then stage pages) | FX and SCL: their layers |
+| HOME | Home ↔ Mixer | the menu |
+| SEQ | PATTERN, STEP (SELECT: STEP / DETAIL), AUTOMATION, SEQ TOOLS | SEQ TOOLS, on every page |
+| GLO | MASTER, SONG, CLOCK, RECORD | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
+| SAVE | Presets (SELECT: PRESETS / USER / PHRASES), Project (SELECT: PROJECT / TOOLS) | UNDO |
+| LFO | LFO (SELECT: LFO / LFO 2 / LFO DEST), then MOD | MOMENTARY (with a knob) |
+| EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG FILTER / FILTER DRIVE), Kit, Lanes, Voice (hidden on DRUM) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
+| FX | EFFECTS (SELECT: list + stage pages), SLICER, PUNCH | the FX layer |
+| SCL, ENV, ARP | their pages | SCL: its layer |
 | REC | arms the track | the REC layer (CLEAR, CLICK, COUNT-IN, CLICK LEVEL) |
 
 ## Menu
