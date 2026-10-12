@@ -1,6 +1,7 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: GPL-3.0-only
-     Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments -->
+     Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+     Copyright (C) 2026 Wulgaren (Marcin O) -->
 <!-- Sample input recording and waveform trimming adapted from Andrea (@andreahaku), PR #29.
      Felucca web editor. One file, no libraries. Protocol: EDITOR_PROTOCOL.md.
      Add ?mock=1 to the URL to use a built-in simulated device. -->
@@ -344,8 +345,9 @@
     </div>
   </section>
 
-  <footer>Felucca by Leo Kuroshita (@kurogedelic), <a href="https://hugelton.com" target="_blank" rel="noopener">Hügelton Instruments</a>. GPL-3.0.<br>
-    <span data-t="foot"></span> M-VAVE and FM-1 are trademarks of their respective owners.<br>
+  <footer>Araminta by <a href="https://github.com/Wulgaren" target="_blank" rel="noopener">Wulgaren</a> (Marcin O), based on <a href="https://github.com/hugelton/Felucca" target="_blank" rel="noopener">Felucca</a> by Leo Kuroshita (@kurogedelic), <a href="https://hugelton.com" target="_blank" rel="noopener">Hügelton Instruments</a>. GPL-3.0.<br>
+    <span data-t="foot"></span> M-VAVE and FM-1 are trademarks of their respective owners. Araminta is not affiliated with or endorsed by them.<br>
+    <a href="https://github.com/Wulgaren/Araminta" target="_blank" rel="noopener">github.com/Wulgaren/Araminta</a> ·
     <a href="FUKIAI-LICENSE.txt" data-t="iconsCredit"></a></footer>
 </main>
 <script>
@@ -2662,7 +2664,7 @@ const TEXT = {
     putDone: "本体に書き込みました: スロット ", storedSlot: "本体に保存しました: スロット ", erasedSlot: "消去しました: スロット ",
     loadedUser: "音色を読み込みました（シーケンスはそのまま。パターンは本体の SAVE > PHRASES から。SAVE 長押しで元に戻せます）: ", reloaded: "本体で音色が変わったので読み直しました", readingBank: "スロットを読み込み中",
     badEngine: "このファームウェアにないエンジンです: ", flashFail: "書き込みに失敗しました（rc {rc}）",
-    installer: "Felucca インストーラー",
+    installer: "Araminta インストーラー",
     tabSeq: "シーケンサー", tabTracks: "トラック", tabSettings: "設定",
     needDevice: "FM-1 を接続すると編集できます。", smpNone: "このファームウェアにはユーザーサンプルのスロットがありません。",
     bankConnect: "FM-1 を接続すると本体のユーザープリセットも扱えます。", bankNone: "このファームウェアにはユーザープリセットがありません。",
@@ -2768,7 +2770,7 @@ const TEXT = {
     putDone: "Written to the device: slot ", storedSlot: "Stored on the device: slot ", erasedSlot: "Erased slot ",
     loadedUser: "Sound loaded (the sequence stays; its pattern is on the device under SAVE > PHRASES; hold SAVE to undo): ", reloaded: "The sound changed on the device: read again", readingBank: "Reading the slots",
     badEngine: "This firmware has no such engine: ", flashFail: "Write failed (rc {rc})",
-    installer: "Felucca installer",
+    installer: "Araminta installer",
     tabSeq: "Sequencer", tabTracks: "Tracks", tabSettings: "Settings",
     needDevice: "Connect the FM-1 to edit.", smpNone: "This firmware has no user sample slots.",
     bankConnect: "Connect the FM-1 to see its user presets too.", bankNone: "This firmware has no user presets.",
@@ -3384,7 +3386,7 @@ async function exportProjectSlot(slot) {
     d.slotUsed[slot] = true;
     renderSlots();
     const slug = fileSlug(readProject(file).name || String.fromCharCode(65 + slot));
-    download(`felucca-project-${slug}-${today()}.json`, file);
+    download(`araminta-project-${slug}-${today()}.json`, file);
     sayK("projExported", String.fromCharCode(65 + slot));
   });
 }
@@ -3478,7 +3480,7 @@ $("backup-export").addEventListener("click", () => op(async () => {
   assertSession(d);
   const file = await captureBackup((r, o) => sessionRequest(d, r, o), d.info.version, backupProgress);
   assertSession(d);
-  download(`Felucca-backup-${new Date().toISOString().slice(0, 10)}.json`, file);
+  download(`Araminta-backup-${new Date().toISOString().slice(0, 10)}.json`, file);
   sayK("backupDone");
 }));
 $("backup-import").addEventListener("click", () => { if (dev?.info?.backupCaps & 2) $("backup-file").click(); });
@@ -4555,7 +4557,7 @@ $("savefile").addEventListener("click", () => {
     engineName: dev.info.engines[engine], presetName: (dev.names[engine] || [])[preset],
     engine, preset, p: dev.dump.p.slice(), g: dev.dump.g.slice(),
     steps: dev.steps.map((s) => ({ n: s.n, notes: s.notes.slice(), time: s.time, flags: s.flags, vel: s.vel })) };
-  download(`felucca-${fileSlug(data.engineName || "patch")}-${fileSlug(data.presetName || preset)}.json`, data);
+  download(`araminta-${fileSlug(data.engineName || "patch")}-${fileSlug(data.presetName || preset)}.json`, data);
 });
 $("loadfile").addEventListener("click", () => { $("file").value = ""; $("file").click(); });
 $("file").addEventListener("change", async () => {
@@ -4934,9 +4936,9 @@ const fileSlug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").repl
 const today = () => new Date().toISOString().slice(0, 10);
 $("libexp1").addEventListener("click", () => {
   const p = lib.find((x) => x.id === libSel);
-  if (p) download(`felucca-patch-${fileSlug(p.name)}.json`, libraryFile("patch", [p], libCtx()));
+  if (p) download(`araminta-patch-${fileSlug(p.name)}.json`, libraryFile("patch", [p], libCtx()));
 });
-$("libexport").addEventListener("click", () => download(`felucca-library-${today()}.json`, libraryFile("library", lib, libCtx())));
+$("libexport").addEventListener("click", () => download(`araminta-library-${today()}.json`, libraryFile("library", lib, libCtx())));
 $("libimport").addEventListener("click", () => { $("libfile").value = ""; $("libfile").click(); });
 $("libfile").addEventListener("change", async () => {
   let n = 0, skipped = 0;
@@ -5021,7 +5023,7 @@ $("bkexport").addEventListener("click", () => libOp(async (d, rqf) => {
     if (u.used) out.push({ name: u.name, engine: u.engine, p: u.p, pattern: u.pattern, grid: u.grid, slot: x.slot, fm6: u.fm6,
       engineName: reservedFm4(dev.info.engines, u.engine) ? "DIGITAL" : dev.info.engines[u.engine] });   /* (DIGITAL's values) */
   }
-  download(`felucca-bank-${today()}.json`, libraryFile("bank", out, libCtx()));
+  download(`araminta-bank-${today()}.json`, libraryFile("bank", out, libCtx()));
   sayK("ready");
 }));
 
