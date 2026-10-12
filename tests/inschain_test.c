@@ -476,6 +476,59 @@ int main(void)
         filter_setup(t, IFT_COMB, 110, 90, 127);
         ck("FILTER COMB: CUT changes the comb delay (and the render)",
            wet != note_hash(16, 48));
+
+        /* COMB must colour the dry signal (not near-transparent). RES 0 ≈ bypass;
+         * high RES changes the render and rings after the note (feedback). */
+        {
+            int64_t e_res0, e_res;
+            uint64_t h0, h1;
+            fresh();
+            t = &trk[0];
+            clear_stages(t);
+            wet = note_hash(16, 48);
+            fresh();
+            t = &trk[0];
+            filter_setup(t, IFT_COMB, 40, 100, 127);
+            ck("FILTER COMB: full MIX changes the render vs dry", wet != note_hash(16, 48));
+
+            fresh();
+            t = &trk[0];
+            filter_setup(t, IFT_COMB, 48, 0, 127);
+            h0 = note_hash(16, 48);
+            fresh();
+            t = &trk[0];
+            filter_setup(t, IFT_COMB, 48, 110, 127);
+            h1 = note_hash(16, 48);
+            ck("FILTER COMB: RES changes the render (feedback)", h0 != h1);
+
+            /* short pluck then measure the tail: high RES keeps the comb ringing */
+            fresh();
+            t = &trk[0];
+            filter_setup(t, IFT_COMB, 32, 0, 127);
+            t->p[P_ATK] = 0;
+            t->p[P_DEC] = 20;
+            t->p[P_SUS] = 0;
+            t->p[P_REL] = 10;
+            trk_note_on(t, 48, 120);
+            render_blocks(8);
+            trk_note_off(t, 48);
+            e_res0 = energy_out(16, 48);
+            fresh();
+            t = &trk[0];
+            filter_setup(t, IFT_COMB, 32, 110, 127);
+            t->p[P_ATK] = 0;
+            t->p[P_DEC] = 20;
+            t->p[P_SUS] = 0;
+            t->p[P_REL] = 10;
+            trk_note_on(t, 48, 120);
+            render_blocks(8);
+            trk_note_off(t, 48);
+            e_res = energy_out(16, 48);
+            ck("FILTER COMB: high RES rings longer after the note",
+               e_res > e_res0 + e_res0 / 4 || (e_res0 < 1000 && e_res > 5000));
+            printf("inschain:   COMB tail energy RES 0 / 110: %lld / %lld\n",
+                   (long long)e_res0, (long long)e_res);
+        }
     }
 
     /* Every insert stage: MIX engages, and each exposed knob moves the render. */

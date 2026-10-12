@@ -2,11 +2,12 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of 1.5's sound items (Discussions #104, #175), same sources as the firmware (hostsim.c):
  *   build/host/sound15_test [DEMO_DIR]      (run_tests.sh builds and runs it; demos in build/sound15_demo/)
- * 1. ANALOG's filter TYPE (P_FTYPE, eng_analog.c analog_tap): the parameter (LP BP HP, default LP, not recordable, on
- *    EDIT > FILTER), LP untouched (the golden renders: regress.c) and TYPE ignored by every other engine (bit for bit),
- *    the responses (sines through a 1 kHz cutoff: LP falls above it, HP below, BP peaks at it; the three alike at the
- *    cutoff; RES raises BP's peak), bounded and without DC at the corners (RES and DRV 127, low and high notes, every
- *    WAVE, SYNC and SUB too), a TYPE change while a note sounds stays bounded.
+ * 1. ANALOG's filter TYPE (P_FTYPE, eng_analog.c analog_tap / analog_comb): the parameter (LP BP HP COMB, default LP,
+ *    not recordable, on EDIT > FILTER), LP untouched (the golden renders: regress.c) and TYPE ignored by every other
+ *    engine (bit for bit), the responses (sines through a 1 kHz cutoff: LP falls above it, HP below, BP peaks at it;
+ *    the three alike at the cutoff; RES raises BP's peak), COMB colours vs LP and RES raises its energy, bounded and
+ *    without DC at the corners (RES and DRV 127, low and high notes, every WAVE, SYNC and SUB too), a TYPE change
+ *    while a note sounds stays bounded.
  * 2. ENV SYNC (P_ESYNC, voice.c esync_coef): the parameter (OFF / ON, default OFF, not recordable, ENV DEST's KNOB 4);
  *    OFF takes the tables whatever esync_k holds (bit for bit); ON: ATK DEC REL show note values (1/64T .. 4BAR, 25
  *    names over 0..127, a knob detent each), and the attack reaches the top, the decay and the release -40 dB, after
@@ -186,6 +187,7 @@ static stats_t analog_note(uint32_t w, uint32_t ft, int32_t cut, int32_t res, in
 
 static void type_bp(track_t *t) { t->p[P_FTYPE] = 1; }
 static void type_hp(track_t *t) { t->p[P_FTYPE] = 2; }
+static void type_comb(track_t *t) { t->p[P_FTYPE] = 3; }
 
 static void test_filter(void)
 {
@@ -222,8 +224,24 @@ static void test_filter(void)
     }
     check("TYPE BP / HP on every other engine: its phrase bit for bit (only ANALOG reads it)", same);
     {
-        uint64_t h0 = phrase_child(0, 0, 0), h1 = phrase_child(0, 0, type_bp), h2 = phrase_child(0, 0, type_hp);
+        uint64_t h0 = phrase_child(0, 0, 0), h1 = phrase_child(0, 0, type_bp), h2 = phrase_child(0, 0, type_hp),
+                 h3 = phrase_child(0, 0, type_comb);
         check("ANALOG SAW LEAD: BP and HP sound other than LP (and each other)", h0 != h1 && h0 != h2 && h1 != h2);
+        check("ANALOG SAW LEAD: COMB sounds other than LP (feedback comb, not a stub)", h0 != h3);
+    }
+    /* COMB: not a stub; RES / CUT move the render; high RES stays bounded */
+    {
+        stats_t c0 = analog_note(0, 3, 48, 0, 0, 60), c1 = analog_note(0, 3, 48, 110, 0, 60);
+        stats_t clo = analog_note(0, 3, 20, 90, 0, 60), chi = analog_note(0, 3, 110, 90, 0, 60);
+        check("COMB: RES 0 and RES 110 both sound, high RES bounded",
+              c0.rms > 200 && c1.rms > 200 && c1.peak < 32767);
+        check("COMB: RES changes the level or peak (feedback colours)",
+              fabs(c1.rms - c0.rms) > c0.rms * 0.08 || fabs(c1.peak - c0.peak) > 200);
+        check("COMB: CUT changes the timbre (delay length)",
+              fabs(clo.rms - chi.rms) > clo.rms * 0.05 || fabs(clo.peak - chi.peak) > 100);
+        snprintf(msg, sizeof msg, "COMB: RES 0 / 110 rms %.0f / %.0f; CUT 20 / 110 rms %.0f / %.0f",
+                 c0.rms, c1.rms, clo.rms, chi.rms);
+        printf("sound15: %s\n", msg);
     }
     /* the responses: sines (WAVE SIN) at 65 Hz .. 8.4 kHz through a cutoff at C6 (1047 Hz), RES 0 */
     for (n = 1; n < 128u; n++)
@@ -289,14 +307,14 @@ static void test_filter(void)
         trk_note_on(t, 45, 120);
         for (k = 0; k < 3u * FS / CTL; k++) {
             if (!(k % 40u))
-                t->p[P_FTYPE] = (int16_t)((k / 40u) % 3u);
+                t->p[P_FTYPE] = (int16_t)((k / 40u) % 4u);
             blocks(1);
             for (i = 0; i < CTL; i++)
                 pk = abs(out_buf[2u * i]) > pk ? abs(out_buf[2u * i]) : pk;
         }
         trk_note_off(t, 45);
         blocks(FS / CTL);
-        snprintf(msg, sizeof msg, "TYPE switched every 29 ms under a resonant ACID note: bounded (peak %d)", pk);
+        snprintf(msg, sizeof msg, "TYPE switched every 29 ms under a resonant ACID note (LP..COMB): bounded (peak %d)", pk);
         check(msg, pk < 32767);
     }
 }
