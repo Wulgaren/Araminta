@@ -1050,7 +1050,7 @@ before MIDI IN the first 21, 1.2 the first 23, 1.3 / 1.4 the first 24):
 | 3 | 3 | ANIM | 0 | 0 ON, 1 OFF, 2 IDLE (retired: always OFF; MENU_SET ignored; not on the device menu) | OFF | 0 DISPLAY |
 | 4 | 4 | LEDS | 0 | 0 OFF, 1 DIM LO, 2 DIM HI, 3 INV (darkest first, as the menu steps them) | DIM HI | 0 DISPLAY |
 | 5 | 5 | HOLD | 0 | 0 "0.3 s", 1 "0.4 s", 2 "0.5 s", 3 "0.6 s" | 0.4 s | 1 CONTROL |
-| 6 | 6 | KNOB ACCEL | 0 | 0 OFF, 1 ON | OFF | 1 CONTROL |
+| 6 | 6 | KNOB ACCEL | 0 | 0 OFF, 1 ON (retired: always ON; MENU_SET ignored; not on the device menu) | ON | 1 CONTROL |
 | 7 | 7 | FX LATCH | 0 | 0 OFF, 1 ON | OFF | 1 CONTROL |
 | 8 | 8 | BPM LOCK | 0 | 0 OFF, 1 ON | OFF | 1 CONTROL |
 | 9 | 9 | SPEAKER EQ | 0 | 0 FLAT, 1 LOWCUT, 2 BASS+ | FLAT | 2 AUDIO |
@@ -1082,9 +1082,9 @@ and ABOUT): ON (the default)
 keeps the music as it is in an autosave while the device is stopped and idle, and brings it back at power-on; OFF
 writes no autosave and starts with the power-on sounds (README: Restore the last session).
 
-SCALE LEDS (id 16, 1.2, Discussion #127; the CONTROL tab shows HOLD, KNOB ACCEL, FX LATCH, BPM LOCK and SCALE LEDS,
-index 5..8 and 16): ON shows the selected track's scale on the key LEDs outside the layers (README: Key LEDs).
-Applied at once.
+SCALE LEDS (id 16, 1.2, Discussion #127; the CONTROL tab shows HOLD, FX LATCH, BPM LOCK and SCALE LEDS,
+index 5, 7, 8 and 16; KNOB ACCEL retired): ON shows the selected track's scale on the key LEDs outside the layers
+(README: Key LEDs). Applied at once.
 
 SCREEN OFF (id 17, 1.1.5; the DISPLAY tab shows COLOR, LARGE, LEDS and SCREEN OFF, index 0, 2, 4 and 17; STYLE / ANIM retired):
 after that long without input on the panel (a button, a key, a knob; not MIDI, not the editor) the screen and its
@@ -1096,8 +1096,8 @@ SCOPE (id 18, 1.2, Discussion #165; DISPLAY now shows COLOR, LARGE, LEDS, SCREEN
 the volume; MIX the mix before MASTER (and before the FX layer, SPEAKER EQ and the limiter), drawn at the size MASTER
 at its top would give, whatever the knob. The metronome's click is in neither. Applied at once.
 
-STEP PREVIEW (id 19, 1.2, Discussion #169) and CHORD ENTRY (id 20, 1.2, #155; CONTROL now shows HOLD, KNOB ACCEL, FX
-LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW and CHORD ENTRY, index 5..8, 16, 19, 20). STEP PREVIEW ON: on SEQ > STEP
+STEP PREVIEW (id 19, 1.2, Discussion #169) and CHORD ENTRY (id 20, 1.2, #155; CONTROL now shows HOLD, FX
+LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW and CHORD ENTRY, index 5, 7, 8, 16, 19, 20; KNOB ACCEL retired). STEP PREVIEW ON: on SEQ > STEP
 (the piano roll and the DRUM grid) with the transport stopped, moving the cursor with KNOB 1 or PRESETS (or the
 grid's page keys) plays the step it lands on once on the selected track, through its sound (a 1/16 at the track's
 GATE); never while playing, and it never writes. CHORD ENTRY ADD: in step recording (STEP, stopped, the track armed)

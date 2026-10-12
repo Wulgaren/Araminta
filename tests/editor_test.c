@@ -878,7 +878,7 @@ static int menu_protocol(void)
         {"MIDI IN", "CH1-4,SEL,CH5-8,CH9-12,CH13-16"}, {"TUNE", 0},   /* (1.2: the project's ROUT and TUNE; TUNE a number) */
         {"HOME", "SCOPE,TRACKS,LEVELS"},                                                       /* (1.3; 1.5: LEVELS) */
         {"HELP", "OFF,ON"}};                                                                         /* (1.5) */
-    static const int32_t DEF[25] = {-1, 0, 0, 1, 2, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};   /* (COLOR: the default palette; ANIM retired: OFF) */
+    static const int32_t DEF[25] = {-1, 0, 0, 1, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};   /* (COLOR: the default palette; ANIM retired: OFF; KNOB ACCEL retired: ON) */
     static const uint8_t TAB[25] = {0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 4, 2, 2, 2, 4, 1, 0, 0, 1, 1, 3, 2, 0, 4};   /* DISPLAY CONTROL AUDIO
                                                                                                          * MIDI SYSTEM (1.2) */
     static const char *const TABN[5] = {"DISPLAY", "CONTROL", "AUDIO", "MIDI", "SYSTEM"};
@@ -949,7 +949,8 @@ static int menu_protocol(void)
     ok &= menu_set(3, 2) == 3 && menu_get(MI_ANIM) == 1u && ed_rv(host_wire + 7) == 1;
     ok &= menu_set(4, 0) == 3 && settings_leds == LEDS_OFF && menu_set(4, 1) == 3 && settings_leds == LEDS_DIM_LO;
     ok &= menu_set(5, 3) == 3 && settings_hold == 3u;
-    ok &= menu_set(6, 1) == 3 && (ui_prefs & PREF_ACCEL);
+    ok &= menu_set(6, 0) == 3 && menu_get(MI_ACCEL) == 1u;   /* KNOB ACCEL retired: always ON (MENU_SET ignored) */
+    ok &= menu_set(6, 1) == 3 && menu_get(MI_ACCEL) == 1u && ed_rv(host_wire + 7) == 1;
     ok &= menu_set(7, 1) == 3 && (ui_prefs & PREF_LATCH);
     ok &= menu_set(8, 1) == 3 && (ui_prefs & PREF_BPM_LOCK);
     ok &= menu_set(9, 2) == 3 && settings.lowcut == 2u && fx_lowcut == 2u;
@@ -972,10 +973,11 @@ static int menu_protocol(void)
         menu_desc(i, &it);                              /* STYLE forced FLAT (0); ANIM forced OFF (1) */
         ok &= it.value == SET[i];
     }
-    bad += check("MENU_SET: every setting applied as the menu does (palette, EQ, USB LEVEL, CLICK, COUNT-IN at once, RESTORE LAST, SCALE LEDS, SCREEN OFF, SCOPE, STEP PREVIEW, CHORD ENTRY, HOME; STYLE/ANIM retired fixed), read back", ok);
+    bad += check("MENU_SET: every setting applied as the menu does (palette, EQ, USB LEVEL, CLICK, COUNT-IN at once, RESTORE LAST, SCALE LEDS, SCREEN OFF, SCOPE, STEP PREVIEW, CHORD ENTRY, HOME; STYLE/ANIM/KNOB ACCEL retired fixed), read back", ok);
     ok = menu_set(3, 0) == 3 && menu_get(MI_ANIM) == 1u && (ui_prefs & PREF_LARGE) && menu_set(10, 0) == 3 &&
-         !fx_usb_fixed && menu_set(1, 1) == 3 && ui_style == ST_FLAT && menu_get(MI_STYLE) == 0u;
-    bad += check("MENU_SET: a flag back to its default leaves the other flags (STYLE/ANIM stay FLAT/OFF)", ok);
+         !fx_usb_fixed && menu_set(1, 1) == 3 && ui_style == ST_FLAT && menu_get(MI_STYLE) == 0u &&
+         menu_get(MI_ACCEL) == 1u;
+    bad += check("MENU_SET: a flag back to its default leaves the other flags (STYLE/ANIM/ACCEL stay FLAT/OFF/ON)", ok);
 
     /* clamping: the reply carries the device's value */
     ok = menu_set(0, 50) == 3 && ed_rv(host_wire + 7) == (int32_t)NPALETTES - 1 && settings.palette == NPALETTES - 1u;
