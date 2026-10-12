@@ -6109,31 +6109,68 @@ static int test_fx_map(void)
     return bad;
 }
 
-/* #40: KNOB 4's DEPTH rises to the right (it fell); MENU > FX LATCH ON: a key with FX turns its effect on, again off,
- * nothing held needed; the macros stay after FX; FX + OCT- all off; the menu turns them off; FX's LED shows them;
- * OFF (the default, and every older setting): as before */
+/* #40: MENU > FX LATCH ON: a Punch-in key toggles its effect (press again off); macros stay; OCT- all off;
+ * the menu turns them off; OFF (default): punch keys are momentary. Punch-in is the sticky FX map. */
 
 static int test_fx_latch(void)
 {
     int bad = 0, ok;
-    uint32_t lpf = white(4);                            /* C4: LPF (1/2 is the 4th white key, B3) */
+    uint32_t lpf = white(4), m1 = black(0);             /* C4: LPF (1/2 is the 4th white key, B3); A#3 mute T1 */
     ui_power_on();
     ok = !(fx_latch & 1u);
-    btn_down(B_FX); frames(600);
-    ok &= !ui.layer && !ui.lock;
-    key_down(lpf); frame(); key_up(lpf); frame();
-    ok &= !perf_latched && !perf_held;
-    btn_up(B_FX); frame();
-    bad += check("no FX LATCH: hold FX opens no map; a key with FX held does not latch", ok);
-    ui_power_on();
-    fx_latch = 0; frame();
     go_title("PUNCH"); frame();
-    ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
+    ok &= ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
     key_down(lpf); frame();
-    ok &= (perf_held & PF_BIT(PF_LPF)) != 0u;
+    ok &= (perf_held & PF_BIT(PF_LPF)) != 0u && !perf_latched;
     key_up(lpf); frame();
-    ok &= !(perf_held & PF_BIT(PF_LPF));
-    bad += check("  Punch-in sticky map: punch keys while held; no hold-open FX map", ok && !ui.ly);
+    ok &= !(perf_held & PF_BIT(PF_LPF)) && !perf_latched;
+    bad += check("#40 FX LATCH OFF: Punch-in keys are momentary (effect ends when let go)", ok);
+    /* ON */
+    ui_power_on();
+    fx_latch = 1;
+    frame();                                            /* (ui_input hands the setting to the ISR) */
+    go_title("PUNCH"); frame();
+    key_down(lpf); frame(); key_up(lpf); frame();
+    turn(EN_K2, 30);
+    ok = perf_latched == PF_BIT(PF_LPF) && !perf_held && ui.layer == LAYER_FX &&
+         str_eq(layer_head(), "[FX] LATCH") && ((layer_leds(0) >> lpf) & 1u);
+    ok &= perf_k[1] == 30;
+    ok &= perf_begin(CTL) && (perf_act & PF_BIT(PF_LPF));   /* it runs with nothing held */
+    bad += check("  FX LATCH ON: Punch-in C4 latches LPF, CRUSH stays at 30 after the key is let go", ok);
+    key_down(m1); frame(); key_up(m1); frame();         /* a mute latches too */
+    ok = perf_latched == (PF_BIT(PF_LPF) | PF_BIT(PF_M1));
+    key_down(lpf); frame(); key_up(lpf); frame();       /* C4 again: LPF off */
+    ok &= perf_latched == PF_BIT(PF_M1);
+    bad += check("  a mute key latches; C4 again: LPF off", ok);
+    turn(EN_K1, -40);
+    press(B_OCTDN);
+    ok = !perf_latched && !perf_k[0] && !perf_k[1] && song.octave == 0 && msg_is("FX ALL OFF");
+    bad += check("  OCT- on Punch-in with LATCH: every latched effect and macro off (no octave)", ok);
+    key_down(lpf); frame(); key_up(lpf); frame();
+    ok = perf_latched == PF_BIT(PF_LPF);
+    hold(B_HOME);
+    ok &= ui.menu && !perf_latched;
+    ui.menu_sel = MI_LATCH;
+    press(B_OCTDN); ok &= !(fx_latch & 1u) && ui.menu;
+    press(B_OCTUP); ok &= (fx_latch & 1u) && ui.menu;
+    turn(EN_K1, -1); ok &= !(fx_latch & 1u);
+    turn(EN_K1, 1); ok &= (fx_latch & 1u) != 0u;
+    turn(EN_K1, -1); ok &= !(fx_latch & 1u);
+    press(B_HOME);
+    bad += check("  the menu turns the latched effects off; MENU > FX LATCH: OCT+ / KNOB 1 right ON, OCT- / left OFF",
+                 ok && !ui.menu);
+    {   /* kept with the settings, in the favorites record (an older one: OFF) */
+        persist_t p;
+        fx_latch = 1;
+        settings_export(&p);
+        fx_latch = 0;
+        ok = settings_import(&p, (int)sizeof p) == 1 && (fx_latch & 1u);
+        memset(&p.favorites, 0, sizeof p.favorites);
+        p.magic = 0x50455233u;                          /* PER3: no favorites */
+        ok &= settings_import(&p, (int)(sizeof p - sizeof p.favorites)) == 2 && !(fx_latch & 1u);
+        bad += check("  FX LATCH saved with the settings; settings from before it: OFF", ok);
+    }
+    fx_latch = 0;
     return bad;
 }
 
