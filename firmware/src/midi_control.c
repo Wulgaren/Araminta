@@ -231,6 +231,7 @@ static void midi_cc_set(track_t *t, uint32_t id, uint32_t value)
         return;
     t->p[id] = (int16_t)v;
     (void)motion_capture(t, id, (int16_t)v);
+    scale_lock_after(t, id);
 }
 /* MIDI LEARN (1.5, Discussion #170): up to ML_N CCs, each set to one parameter of one track, whatever channel it
  * comes on (a channel ROUT ignores stays ignored) and whichever track that channel plays. Kept with the settings in

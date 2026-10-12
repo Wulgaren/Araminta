@@ -3824,9 +3824,9 @@ static int test_bughunt_ui(void)
     return bad;
 }
 
-/* the chord keys on the device (chord.c): SCL tapped again is the CHORD page, KNOB 1 CHRD, KNOB 2 VOIC, the graph
- * names the last chord (MONO gray); a sound load keeps them; the SCL layer's KNOB 3 / 4 are CHRD / VOIC, OCT-
- * puts them back */
+/* the chord keys on the device (chord.c): SCL tapped again is the CHORD page, KNOB 1 CHRD, KNOB 2 VOIC, KNOB 3
+ * LOCK; the graph names the last chord (MONO gray); a sound load keeps them; the SCL layer's KNOB 3 / 4 are CHRD /
+ * VOIC, OCT- puts them back */
 
 static int test_chord_page(void)
 {
@@ -3840,7 +3840,8 @@ static int test_chord_page(void)
     ok &= TSEL->p[P_CHRD] != 0;
     turn(EN_K2, 1);
     ok &= TSEL->p[P_VOIC] != 0;
-    bad += check("SCL: SELECT opens CHORD; KNOB 1 CHRD, KNOB 2 VOIC", ok);
+    ok &= TSEL->scl_lock == SCL_LOCK_SCALE;
+    bad += check("SCL: SELECT opens CHORD; KNOB 1 CHRD, KNOB 2 VOIC; LOCK SCALE by default", ok);
     press(B_SCL); frames(100);
     ok = str_eq(cur_page()->title, "CHORD");           /* button does not advance */
     bad += check("SCL button while in SCL family does not advance pages", ok);
@@ -3850,6 +3851,56 @@ static int test_chord_page(void)
     ok = !ui.layer && !ui.lock;
     btn_up(B_SCL); frame();
     bad += check("SCL hold never opens a quick ROOT map", ok && cur_page()->fam == FAM_SCL);
+    return bad;
+}
+
+/* CHORD KNOB 3 LOCK: OFF / SCALE. SCALE (default) copies ROOT / SCL / QNT to every other SCALE track; OFF restores
+ * that track's stash. */
+static int test_scale_lock(void)
+{
+    int bad = 0, ok;
+    ui_power_on();
+    ok = trk[0].scl_lock == SCL_LOCK_SCALE && trk[1].scl_lock == SCL_LOCK_SCALE &&
+         trk[2].scl_lock == SCL_LOCK_SCALE && trk[3].scl_lock == SCL_LOCK_SCALE;
+    bad += check("SCALE LOCK: every track SCALE at power-on", ok);
+
+    trk[0].scl_lock = SCL_LOCK_OFF;
+    trk[1].scl_lock = SCL_LOCK_SCALE;
+    trk[1].p[P_ROOT] = 5;
+    trk[1].p[P_SCALE] = 2;
+    trk[1].p[P_QUANT] = 1;
+    trk[2].scl_lock = SCL_LOCK_OFF;
+    trk[2].p[P_ROOT] = 7;
+    trk[0].p[P_ROOT] = 0;
+    trk[0].p[P_SCALE] = 0;
+    trk[0].p[P_QUANT] = 0;
+    song.sel = 0;
+    press(B_SCL); frames(100);
+    turn(EN_SELECT, 1); frames(100);
+    turn(EN_K3, 1);                                    /* OFF -> SCALE on track 1 */
+    ok = trk[0].scl_lock == SCL_LOCK_SCALE &&
+         trk[1].p[P_ROOT] == 0 && trk[1].p[P_SCALE] == 0 && trk[1].p[P_QUANT] == 0 &&
+         trk[1].scl_stash_ok && trk[1].scl_stash[0] == 5 && trk[1].scl_stash[1] == 2 &&
+         trk[1].scl_stash[2] == 1 &&
+         trk[2].p[P_ROOT] == 7 && trk[2].scl_lock == SCL_LOCK_OFF;
+    bad += check("LOCK->SCALE: other SCALE tracks stash then take selected ROOT/SCL/QNT; OFF tracks stay", ok);
+
+    song.sel = 1;
+    turn(EN_K3, -1);                                   /* SCALE -> OFF on track 2: restore stash */
+    ok = trk[1].scl_lock == SCL_LOCK_OFF &&
+         trk[1].p[P_ROOT] == 5 && trk[1].p[P_SCALE] == 2 && trk[1].p[P_QUANT] == 1 &&
+         !trk[1].scl_stash_ok;
+    bad += check("LOCK->OFF: that track's stash restores", ok);
+
+    ui_power_on();
+    trk[3].scl_lock = SCL_LOCK_OFF;
+    trk[3].p[P_ROOT] = 9;
+    song.sel = 0;
+    press(B_SCL); frames(100);
+    turn(EN_K1, 1);                                    /* ROOT++ on SCL page (all but T4 SCALE) */
+    ok = trk[0].p[P_ROOT] == 1 && trk[1].p[P_ROOT] == 1 && trk[2].p[P_ROOT] == 1 &&
+         trk[3].p[P_ROOT] == 9;
+    bad += check("ROOT edit with LOCK=SCALE: writes every SCALE track; OFF track untouched", ok);
     return bad;
 }
 
@@ -8674,6 +8725,7 @@ int main(void)
     bad += test_sample_alert();
     bad += test_quick_layers();
     bad += test_chord_page();
+    bad += test_scale_lock();
     bad += test_bughunt_ui();
     bad += test_bughunt_ui2();
     bad += test_piano_roll();

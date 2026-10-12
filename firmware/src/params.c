@@ -42,6 +42,8 @@ static uint32_t esync_idx(int32_t v) { return (uint32_t)(v & 127) * ESYNC_N >> 7
 /* seq.c kb_map; 1 = SNAP (stored projects: the former ON); 3 = SEQ: SNAP, and the sequencer's notes snap too as
  * they play (seq.c seq_step; the steps keep what was written). Append-only: older projects hold 0..2 */
 static const char *const N_QUANT[] = {"OFF", "SNAP", "WHITE", "SEQ"};
+/* CHORD KNOB 3: link ROOT / SCL / QNT across tracks that have SCALE (not a P_*: P_COUNT ceiling) */
+static const char *const N_SLOCK[] = {"OFF", "SCALE"};
 /* chord keys (chord.c): OFF, the diatonic triad / seventh of the track's ROOT and SCALE on the key, fixed shapes */
 static const char *const N_CHRD[] = {"OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW"};
 static const char *const N_VOIC[] = {"CLOSE", "OPEN", "INV1", "INV2", "+OCT"};   /* VC_CLOSE .. VC_BASS */
@@ -465,8 +467,9 @@ enum { FX_SEC_INS = 0, FX_SEC_SLCR = 1, FX_SEC_PUNCH = 2, FX_NSEC = 3,
 typedef struct {
     const char *title;
     uint8_t fam, scope, graph, sec;
-    uint8_t id[4];               /* param ids; 0xFF = empty slot */
+    uint8_t id[4];               /* param ids; 0xFF = empty slot; PG_SLOCK = SCALE LOCK (track_t.scl_lock) */
 } page_t;
+#define PG_SLOCK 0xFEu           /* CHORD KNOB 3: not in p[] (params.c scale_lock_*) */
 
 static const page_t PAGES[] = {
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, 0, {P_ATK, P_DEC, P_SUS, P_REL}},
@@ -491,7 +494,7 @@ static const page_t PAGES[] = {
     {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, FX_SEC_SLCR, {P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH}},
     {"PUNCH", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, 0, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
-    {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, 0, {P_CHRD, P_VOIC, 0xFF, 0xFF}},
+    {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, 0, {P_CHRD, P_VOIC, PG_SLOCK, 0xFF}},
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, EDIT_SEC_SND, {P_E0, P_E1, P_E2, P_E3}},
     {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, EDIT_SEC_SND, {P_E4, P_E5, P_E6, P_E7}},
     /* ANALOG: page 2 FILTER (TYPE CUT RES KTR), page 3 FILTER DRIVE (DRV); EDIT 2 hidden (ui.c) */
@@ -536,12 +539,79 @@ static const page_t PAGES[] = {
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */
 
+static const param_desc_t SLOCK_DESC = PE("LOCK", N_SLOCK, SCL_LOCK_SCALE);
+
+/* SCALE LOCK: ROOT / SCL / QNT shared by every track with scl_lock == SCALE */
+static void scale_lock_stash(track_t *t)
+{
+    if (t->scl_stash_ok)
+        return;
+    t->scl_stash[0] = t->p[P_ROOT];
+    t->scl_stash[1] = t->p[P_SCALE];
+    t->scl_stash[2] = t->p[P_QUANT];
+    t->scl_stash_ok = 1;
+}
+static void scale_lock_restore(track_t *t)
+{
+    if (!t->scl_stash_ok)
+        return;
+    t->p[P_ROOT] = t->scl_stash[0];
+    t->p[P_SCALE] = t->scl_stash[1];
+    t->p[P_QUANT] = t->scl_stash[2];
+    t->scl_stash_ok = 0;
+}
+static void scale_lock_copy(track_t *dst, const track_t *src)
+{
+    dst->p[P_ROOT] = src->p[P_ROOT];
+    dst->p[P_SCALE] = src->p[P_SCALE];
+    dst->p[P_QUANT] = src->p[P_QUANT];
+}
+static void scale_lock_push(track_t *src)
+{
+    uint32_t k;
+    if (src->scl_lock != SCL_LOCK_SCALE)
+        return;
+    for (k = 0; k < NTRK; k++) {
+        track_t *t = &trk[k];
+        if (t == src || t->scl_lock != SCL_LOCK_SCALE)
+            continue;
+        scale_lock_copy(t, src);
+    }
+}
+static void scale_lock_set(track_t *t, int16_t v)
+{
+    uint32_t k;
+    v = v ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
+    if (v == t->scl_lock)
+        return;
+    t->scl_lock = v;
+    if (v == SCL_LOCK_SCALE) {
+        for (k = 0; k < NTRK; k++) {
+            track_t *u = &trk[k];
+            if (u == t || u->scl_lock != SCL_LOCK_SCALE)
+                continue;
+            scale_lock_stash(u);
+            scale_lock_copy(u, t);
+        }
+    } else
+        scale_lock_restore(t);
+}
+static void scale_lock_after(track_t *t, uint32_t id)
+{
+    if (id == P_ROOT || id == P_SCALE || id == P_QUANT)
+        scale_lock_push(t);
+}
+
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
     uint32_t id = pg->id[slot], mode;
     if (id == 0xFFu) {
         *valp = 0;
         return 0;
+    }
+    if (id == PG_SLOCK) {
+        *valp = &TSEL->scl_lock;
+        return &SLOCK_DESC;
     }
     if (pg->scope == SC_STEP || pg->scope == SC_TRK) {
         *valp = 0;

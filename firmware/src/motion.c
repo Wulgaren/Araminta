@@ -115,7 +115,10 @@ static void motion_restore(track_t *t)
 {
     uint32_t k = trk_index(t), id, f = motion_guard();
     for (id = 0; id < P_COUNT; id++)
-        if ((motion_active[k][id / 32u] >> (id % 32u)) & 1u) t->p[id] = motion_base[k][id];
+        if ((motion_active[k][id / 32u] >> (id % 32u)) & 1u) {
+            t->p[id] = motion_base[k][id];
+            scale_lock_after(t, id);
+        }
     memset(motion_active[k], 0, sizeof motion_active[k]);
     memset(motion_locked[k], 0, sizeof motion_locked[k]);
     motion_unguard(f);
@@ -261,6 +264,7 @@ static __attribute__((noinline)) void motion_unlock(track_t *t, uint32_t step, c
             v = (int16_t)param_fit(param_desc_of(eng_idx(t->eng_req), id), e->value);
         }
         t->p[id] = v;
+        scale_lock_after(t, id);
     }
     memset(motion_locked[k], 0, sizeof motion_locked[k]);
 }
@@ -286,6 +290,7 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t step, con
         motion_active[k][id / 32u] |= 1u << (id % 32u);
         if (e->param & MOTION_LOCK)
             motion_locked[k][id / 32u] |= 1u << (id % 32u);
+        scale_lock_after(t, id);
     }
 }
 static void motion_snapshot_track(track_t *t, motion_store_t *out)

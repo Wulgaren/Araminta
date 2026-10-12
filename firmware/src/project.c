@@ -96,15 +96,19 @@
  * dropped. SAMPLE / GRAIN / NOISE are live again; SAMPLE PERC still becomes DRUM via proj_perc first.
  * Idempotent (proj_retire).
  *
- * Format 11 ("FUNB", written now; FUN11 in the docs) = FUN10 with the DRUM-X kit (drumx_voice.c dx_lane_t[8], 88
- * bytes, then mute lo/hi, a marker byte, X-MOD dx_mot[4]: 96 bytes at PROJ_DX_OFF just before the FM6 patches),
- * as JIANT's FUNA did. Still 3840 bytes: the motion disk block shrinks from 110 to 78 records (MOTION_FILE_MAX;
- * RAM still holds 128) so the kit fits. FUN10 loads with the factory kit (DX_KIT_DEF). Firmware that only knows
- * FUN10 refuses a FUN11 (magic): its slot shows EMPTY there until saved over.
+ * Format 11 ("FUNB", FUN11 in the docs; read only since FUN12) = FUN10 with the DRUM-X kit (drumx_voice.c
+ * dx_lane_t[8], 88 bytes, then mute lo/hi, a marker byte, X-MOD dx_mot[4]: 96 bytes at PROJ_DX_OFF just before the
+ * FM6 patches), as JIANT's FUNA did. Still 3840 bytes: the motion disk block shrinks from 110 to 78 records
+ * (MOTION_FILE_MAX_V11; RAM still holds 128) so the kit fits. FUN10 loads with the factory kit (DX_KIT_DEF).
+ *
+ * Format 12 ("FUNC", written now; FUN12 in the docs) = FUN11 with SCALE LOCK + ROOT/SCL/QNT stash (16 bytes at
+ * PROJ_SCL_OFF before CRV). Motion on disk shrinks to 72 records (MOTION_FILE_MAX). FUN11 loads with LOCK=SCALE
+ * and no stash. Firmware that only knows FUN11 refuses a FUN12 (magic): its slot shows EMPTY until saved over.
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
-#define PROJ_MAGIC 0x46554E42u                 /* "FUNB" (FUN11): FUN10 + DRUM-X kit; 78 motion records on disk */
+#define PROJ_MAGIC 0x46554E43u                 /* "FUNC" (FUN12): FUN11 + SCALE LOCK/stash; 72 motion records on disk */
+#define PROJ_MAGIC_V11 0x46554E42u             /* "FUNB" (FUN11): read only; kit, 78 motion records */
 #define PROJ_MAGIC_V10 0x46554E41u             /* "FUNA" (FUN10): read only; no kit, 110 motion records on disk */
 #define PROJ_MAGIC_V9 0x46554E39u              /* "FUN9": FUN8, 64 bytes longer (the DRUM lane levels, 99 parameters) */
 #define PROJ_MAGIC_V8 0x46554E38u              /* "FUN8": FUN7 + the tracks' FM6 patches */
@@ -118,7 +122,9 @@
 #define PROJ_NP_V2 53u                         /* P_COUNT of formats 1 and 2 (P_E0 was 45) */
 #define PROJ_NG_V2 27u                         /* wire header globals (FUN1..FUN11 at b+8); G_COUNT may be larger */
 #define PROJ_NG_WIRE PROJ_NG_V2
-#define PROJ_CRV_OFF 3214u                     /* FUN11: CRSIZE, CRDAMP (CRTYPE in b[65]; b[67]=1 marks present) */
+#define PROJ_CRV_OFF 3214u                     /* FUN11+: CRSIZE, CRDAMP (CRTYPE in b[65]; b[67]=1 marks present) */
+#define PROJ_SCL_SIZE 16u                      /* FUN12: 4 x (lock|ok, ROOT, SCL, QNT stash) */
+#define PROJ_SCL_OFF (PROJ_CRV_OFF - 18u)      /* 16 scl + 2 pad before CRV; motion ends here */
 #define PROJ_NP_V3 57u                         /* P_COUNT of format 3 (P_E0 was 49) */
 #define PROJ_NP_V4 69u                         /* P_COUNT of format 4 (P_E0 61) */
 #define PROJ_PHYS 2u                           /* project_t.phys: PHYS without DUST and DRUM (see the top) */
@@ -127,6 +133,9 @@ typedef struct {                               /* one track */
     int16_t p[P_COUNT];
     uint8_t engine, preset;
     step_t step[NSTEP];
+    int16_t scl_lock;                          /* SCL_LOCK_*: FUN12 wire; older loads -> SCALE */
+    int16_t scl_stash[3];
+    uint8_t scl_stash_ok;
 } proj_trk_t;
 typedef struct {
     uint32_t magic, size;
@@ -181,7 +190,10 @@ _Static_assert(G_COUNT == 30u, "CHAIN reverb globals G_CRTYPE..G_CRDAMP appended
 _Static_assert(sizeof(project_store_t) == 3840u && PROJ_STORE_V7 == sizeof(project_v6_t), "FUN11 / FUN7 sizes");
 _Static_assert(PROJ_CRV_OFF + 2u <= PROJ_DX_OFF, "CHAIN reverb bytes before DX kit");
 _Static_assert(sizeof(dx_lane_t[8]) == 88u && PROJ_DX_OFF == 3216u, "FUN11 kit place before FM6");
-_Static_assert(MOTION_FILE_SIZE + PROJ_DX_SIZE == MOTION_FILE_SIZE_V10, "kit takes FUN10's motion spare");
+_Static_assert(MOTION_FILE_SIZE_V11 + PROJ_DX_SIZE == MOTION_FILE_SIZE_V10, "kit takes FUN10's motion spare");
+_Static_assert(PROJ_SCL_OFF + PROJ_SCL_SIZE + 2u == PROJ_CRV_OFF, "FUN12 SCALE LOCK before CRV");
+_Static_assert(68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + sizeof(chain_config_t) + MOTION_FILE_SIZE ==
+               PROJ_SCL_OFF, "FUN12 motion ends at SCALE LOCK");
 typedef struct {                               /* a track of format 4, read only */
     int16_t p[PROJ_NP_V4];
     uint8_t engine, preset;
@@ -283,6 +295,9 @@ static void proj_trk_from(proj_trk_t *d, const int16_t *p, uint32_t np, uint8_t 
     ins_migrate(d->p, np);
     d->engine = engine;                         /* (indices 0..7 of formats 1 and 2 as they were) */
     d->preset = preset;
+    d->scl_lock = SCL_LOCK_SCALE;
+    d->scl_stash_ok = 0;
+    d->scl_stash[0] = d->scl_stash[1] = d->scl_stash[2] = 0;
     for (k = 0; k < NSTEP; k++) {
         step_t *s = &d->step[k];
         memcpy(s->note, step[k].note, 4);
@@ -622,6 +637,8 @@ static int proj_import_old(project_t *q, const void *b, int n)
                 params_by_count(q->t[i].p, v->t[i].p, 69u, def);
                 ins_migrate(q->t[i].p, 69u);
                 q->t[i].engine = v->t[i].engine; q->t[i].preset = v->t[i].preset;
+                q->t[i].scl_lock = SCL_LOCK_SCALE;
+                q->t[i].scl_stash_ok = 0;
                 for (k = 0; k < NSTEP; k++) {
                     memcpy(&q->t[i].step[k], &v->t[i].step[k], sizeof(step10_t));
                     q->t[i].step[k].flags &= 3u;       /* (x1: no RATCH then) */
@@ -699,12 +716,22 @@ static int proj_pack(project_store_t *out, const project_t *q)
             b[pos++] = (uint8_t)(s->probability | (r >> 1) << 7);
         }
     }
-    if (pos + sizeof q->chain + MOTION_FILE_SIZE > PROJ_DX_OFF) return 0;
+    if (pos + sizeof q->chain + MOTION_FILE_SIZE > PROJ_SCL_OFF) return 0;
     memcpy(b + pos, &q->chain, sizeof q->chain); pos += sizeof q->chain;
-    mot = q->motion;                                   /* FUN11: at most MOTION_FILE_MAX on disk (kit takes the rest) */
+    mot = q->motion;                                   /* FUN12: at most MOTION_FILE_MAX on disk (SCALE LOCK takes the rest) */
     if (mot.count > MOTION_FILE_MAX)
         mot.count = (uint8_t)MOTION_FILE_MAX;
     memcpy(b + pos, &mot, MOTION_FILE_SIZE);
+    for (t = 0; t < NTRK; t++) {                       /* SCALE LOCK + stash (4 bytes a track) */
+        const proj_trk_t *tr = &q->t[t];
+        uint8_t *s = b + PROJ_SCL_OFF + t * 4u;
+        int16_t root = tr->scl_stash[0], sc = tr->scl_stash[1], qn = tr->scl_stash[2];
+        if (root < 0 || root > 11 || sc < 0 || sc > 15 || qn < 0 || qn > 3) return 0;
+        s[0] = (uint8_t)((tr->scl_stash_ok ? 0x80u : 0u) | (tr->scl_lock ? 1u : 0u));
+        s[1] = (uint8_t)root;
+        s[2] = (uint8_t)sc;
+        s[3] = (uint8_t)qn;
+    }
     memcpy(b + PROJ_DX_OFF, q->dx, sizeof q->dx);
     b[PROJ_DX_OFF + sizeof q->dx] = (uint8_t)(q->dx_mute & DXG_ALL);
     b[PROJ_DX_OFF + sizeof q->dx + 1u] = (uint8_t)(q->dx_mute >> 8);
@@ -755,30 +782,36 @@ static int proj_motion_v9(motion_store_t *m, const uint8_t *b)
     }
     return 1;
 }
-/* a stored FUN11 / FUN10 (st = PROJ_STORE_SIZE), FUN9 (PROJ_STORE_V9: 64 motion records of 4 bytes, no nudges), FUN8
+/* a stored FUN12 / FUN11 / FUN10 (st = PROJ_STORE_SIZE), FUN9 (PROJ_STORE_V9: 64 motion records of 4 bytes, no nudges), FUN8
  * (PROJ_STORE_V8: FUN9 with its tail 64 bytes shorter) or FUN7 (PROJ_STORE_V7: no patches, the init one) */
 static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
 {
     uint32_t pos = 68u, t, i, magic, size, sum, np = b[66], v7 = st == PROJ_STORE_V7, v10 = st == PROJ_STORE_SIZE;
     uint32_t name_off = st - 4u - PROJ_NAME_LEN, end = v7 ? name_off : name_off - NTRK * FM6_PACKED;
-    uint32_t v11 = 0, data_end = end;
-    /* np>111: insert chain; P_IORD is 2 bytes. FUN11: MOTION_FILE_SIZE + kit; FUN10: MOTION_FILE_SIZE_V10;
-     * np<=111 (1.5): full 128-record block (no insert chain yet) */
+    uint32_t v11 = 0, v12 = 0, data_end = end;
+    /* np>111: insert chain; P_IORD is 2 bytes. FUN12: MOTION_FILE_SIZE + SCALE LOCK; FUN11: MOTION_FILE_SIZE_V11 + kit;
+     * FUN10: MOTION_FILE_SIZE_V10; np<=111 (1.5): full 128-record block (no insert chain yet) */
     uint32_t mot, chn = v10 ? sizeof q->chain : sizeof(chain_v9_t);
     uint32_t iord2 = np > 111u ? 1u : 0u;               /* +1 byte per track for P_IORD high */
     uint32_t mot_max;
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + st - 4u, 4);
     if (v10) {
         if (magic == PROJ_MAGIC)
+            v11 = v12 = 1u;
+        else if (magic == PROJ_MAGIC_V11)
             v11 = 1u;
         else if (magic != PROJ_MAGIC_V10)
             return 0;
     } else if (magic != (v7 ? PROJ_MAGIC_V7 : st == PROJ_STORE_V8 ? PROJ_MAGIC_V8 : PROJ_MAGIC_V9))
         return 0;
-    if (v11) {
+    if (v12) {
         mot = np > 111u ? MOTION_FILE_SIZE : sizeof q->motion;
         data_end = PROJ_DX_OFF;
         mot_max = MOTION_FILE_MAX;
+    } else if (v11) {
+        mot = np > 111u ? MOTION_FILE_SIZE_V11 : sizeof q->motion;
+        data_end = PROJ_DX_OFF;
+        mot_max = MOTION_FILE_MAX_V11;
     } else if (v10) {
         mot = np > 111u ? MOTION_FILE_SIZE_V10 : sizeof q->motion;
         mot_max = MOTION_FILE_MAX_V10;
@@ -861,6 +894,20 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     } else if (!proj_motion_v9(&q->motion, b + pos))
         return 0;
     if (!proj_motion_ids(&q->motion, np) || !chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
+    for (t = 0; t < NTRK; t++) {
+        if (v12) {
+            const uint8_t *s = b + PROJ_SCL_OFF + t * 4u;
+            q->t[t].scl_lock = (s[0] & 1u) ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
+            q->t[t].scl_stash_ok = (s[0] & 0x80u) ? 1u : 0u;
+            q->t[t].scl_stash[0] = (int16_t)(s[1] <= 11u ? s[1] : 0u);
+            q->t[t].scl_stash[1] = (int16_t)(s[2] <= 15u ? s[2] : 0u);
+            q->t[t].scl_stash[2] = (int16_t)(s[3] <= 3u ? s[3] : 0u);
+        } else {
+            q->t[t].scl_lock = SCL_LOCK_SCALE;
+            q->t[t].scl_stash_ok = 0;
+            q->t[t].scl_stash[0] = q->t[t].scl_stash[1] = q->t[t].scl_stash[2] = 0;
+        }
+    }
     for (t = 0; t < NTRK; t++) {
         if (v7)
             memcpy(q->fm6[t], FM6_INIT, FM6_PACKED);
@@ -997,6 +1044,11 @@ static void project_capture(project_t *p)
         p->t[i].engine = trk[i].eng_req;
         p->t[i].preset = trk[i].preset;
         memcpy(p->t[i].step, trk[i].step, sizeof trk[i].step);
+        p->t[i].scl_lock = trk[i].scl_lock ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
+        p->t[i].scl_stash_ok = trk[i].scl_stash_ok ? 1u : 0u;
+        p->t[i].scl_stash[0] = trk[i].scl_stash[0];
+        p->t[i].scl_stash[1] = trk[i].scl_stash[1];
+        p->t[i].scl_stash[2] = trk[i].scl_stash[2];
         fm6_pack(fm6_patch[i], p->fm6[i]);
     }
     p->motion = motion;
@@ -1178,6 +1230,11 @@ static int project_restore_runtime(const project_t *input)
         t->preset = (uint8_t)(ENGINES[e]->npresets ? (s->preset >= PROJ_DEF_KEEP ? 0u : s->preset) % ENGINES[e]->npresets : 0u);
         memcpy(t->step, s->step, sizeof t->step);
         proj_steps(t->step);
+        t->scl_lock = s->scl_lock ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
+        t->scl_stash_ok = s->scl_stash_ok ? 1u : 0u;
+        t->scl_stash[0] = s->scl_stash[0];
+        t->scl_stash[1] = s->scl_stash[1];
+        t->scl_stash[2] = s->scl_stash[2];
         {   /* the project's own FM6 patch, never reloaded from SLOT: F n if it is that factory patch, else OWN */
             uint8_t v[FP_SIZE + 1u];
             fm6_unpack(p->fm6[k], v);

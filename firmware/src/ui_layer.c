@@ -551,6 +551,7 @@ static void layer_key(uint32_t l, uint32_t k)
         }
     } else if (l == LAYER_SCL) {
         TSEL->p[P_ROOT] = (int16_t)((k + 5u) % 12u);    /* the key's note name (F3 = F) */
+        scale_lock_after(TSEL, P_ROOT);
     } else if (l == LAYER_EDIT && !key_black(k)) {
         if (p < NENG_SHOWN && p < LY_INIT)
             edit_load(eng_vis(p), 0);
@@ -712,10 +713,12 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
             song.g[G_BPM] = lys.v[8];
             ui_message("MIX PUT BACK");
         } else {
+            track_t *t = &trk[lys.trk % NTRK];
             for (k = 0; k < 4u; k++)
-                trk[lys.trk % NTRK].p[P_ROOT + k] = lys.v[k];
-            trk[lys.trk % NTRK].p[P_CHRD] = lys.v[4];
-            trk[lys.trk % NTRK].p[P_VOIC] = lys.v[5];
+                t->p[P_ROOT + k] = lys.v[k];
+            t->p[P_CHRD] = lys.v[4];
+            t->p[P_VOIC] = lys.v[5];
+            scale_lock_push(t);
             ui_message("SCALE PUT BACK");
         }
     }

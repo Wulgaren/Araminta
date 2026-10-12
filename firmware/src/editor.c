@@ -845,8 +845,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (na >= 4u && !(chain_busy() && chain_owns(a[1]))) {
             if (a[1] == P_IORD)
                 iord_set_perm(t, (uint32_t)clamp(ed_rv(a + 2), 0, 719));
-            else if (d->max > d->min)                      /* as SET: clamped; a fixed value stays */
+            else if (d->max > d->min) {                    /* as SET: clamped; a fixed value stays */
                 t->p[a[1]] = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
+                scale_lock_after(t, a[1]);
+            }
             (void)motion_capture(t, a[1], t->p[a[1]]);
             ed_known(a[0], a[1]);
             ui.force = 1;

@@ -378,7 +378,8 @@ static void step_set_nudge(step_t *s, int32_t v)
 }
 #define MOTION_MAX 128u          /* RAM / old FUN10 (np<=111): 128 records. New saves (np==P_COUNT): see MOTION_FILE_MAX */
 #define MOTION_FILE_MAX_V10 110u /* FUN10 disk: 4+110*3=334; +2 B/track for P_IORD left 2 B before FM6 */
-#define MOTION_FILE_MAX 78u      /* FUN11 disk: 4+78*3=238; frees 96 B for the DRUM-X kit (project.c PROJ_DX_*) */
+#define MOTION_FILE_MAX_V11 78u  /* FUN11 disk: 4+78*3=238; frees 96 B for the DRUM-X kit (project.c PROJ_DX_*) */
+#define MOTION_FILE_MAX 72u      /* FUN12 disk: 4+72*3=220; 16 B for SCALE LOCK + stash before CRV */
 /* Four tracks x64 steps fit one byte. Values retain their signed parameter range (-64..127: an int8_t, 1.2).
  * param: the P_* id (< 128: P_COUNT is at most 127, project.c), bit 7 (MOTION_LOCK, 1.1) a parameter lock: the value
  * sounds on that step only and goes back after it (motion.c motion_step); without it an automation event, the
@@ -389,9 +390,12 @@ typedef struct { uint8_t place, param; int8_t value; } motion_event_t;
 typedef struct { uint8_t count, on, rsv[2]; motion_event_t event[MOTION_MAX]; } motion_store_t;
 _Static_assert(sizeof(motion_store_t) == 388u, "motion RAM layout (128 records)");
 #define MOTION_FILE_SIZE_V10 (4u + MOTION_FILE_MAX_V10 * sizeof(motion_event_t))
+#define MOTION_FILE_SIZE_V11 (4u + MOTION_FILE_MAX_V11 * sizeof(motion_event_t))
 #define MOTION_FILE_SIZE (4u + MOTION_FILE_MAX * sizeof(motion_event_t))
 _Static_assert(MOTION_FILE_SIZE_V10 == 334u, "FUN10 motion disk layout");
-_Static_assert(MOTION_FILE_SIZE == 238u, "FUN11 motion disk layout (kit before FM6)");
+_Static_assert(MOTION_FILE_SIZE_V11 == 238u, "FUN11 motion disk layout (kit before FM6)");
+_Static_assert(MOTION_FILE_SIZE == 220u, "FUN12 motion disk layout (SCALE LOCK before CRV)");
+enum { SCL_LOCK_OFF = 0, SCL_LOCK_SCALE = 1 };   /* track_t.scl_lock / CHORD KNOB 3 (params.c PG_SLOCK) */
 #define CHAIN_ROWS 16u
 /* A song section (1.2, FUN10): the PROJECT slot each track plays (0..3, A..D; CHAIN_SILENT "-": that track plays
  * nothing there) and its repeats (1..16). Up to 1.1 a row was {slot, repeat}, all four tracks on that slot
@@ -479,7 +483,11 @@ typedef struct track {
     uint8_t pfx_sn[4], pfx_snn;  /* notes a repeat holds now */
     uint8_t pfx_si;              /* ARP: the next of them */
     uint32_t pfx_sc;             /* samples since the last repeat */
-    uint8_t rsv_sz[1];           /* sizeof(track_t) a multiple of 16 */
+    /* SCALE LOCK (CHORD KNOB 3): not a P_* (P_COUNT is at the 127 ceiling). Default SCALE. */
+    int16_t scl_lock;            /* SCL_LOCK_OFF / SCL_LOCK_SCALE */
+    int16_t scl_stash[3];        /* ROOT / SCL / QNT restored on OFF (project.c FUN12) */
+    uint8_t scl_stash_ok;        /* 1: scl_stash holds values from before a lock overwrite */
+    uint8_t rsv_sz[8];           /* sizeof(track_t) a multiple of 16 */
     int16_t armp, aholdp;        /* P_AMODE / P_AHOLD as last seen by the ISR */
     /* engine switch (voice.c engine_block): the old engine's voices fade out, then it switches */
     uint8_t xf_on, xf;           /* fading; blocks of the fade still to render */
