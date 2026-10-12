@@ -1006,7 +1006,7 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
  * MIX 0 skips the stage (no DSP). Shared delay-line pool (2 lines/track for FLANG+CHOR). State per
  * stage in the pool; SLICER stays after the chain. */
 #define IL_LEN 256u
-#define IC_LEN 64u                      /* FILTER COMB delay */
+#define IC_LEN 128u                     /* FILTER COMB delay (~2.9 ms: teeth down to ~345 Hz) */
 static const uint8_t INS_HOLD[16] = {64, 48, 40, 32, 24, 20, 16, 12, 10, 8, 6, 5, 4, 3, 2, 1};
 typedef struct {
     int32_t w;                          /* wet share Q15 */
@@ -1112,18 +1112,8 @@ static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, const track_t 
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
         if (!s->w && !tw) { b[i] = x; continue; }
         if (ft == IFT_COMB) {
-            /* CUT sets the comb delay (FS / cutoff Hz), clamped to the 64-sample line */
-            uint32_t len = (uint32_t)FS / CUTOFF_HZ[clamp(cut, 0, 127)];
-            int32_t d, fbk = res * 200;
-            if (len < 2u)
-                len = 2u;
-            if (len >= IC_LEN)
-                len = IC_LEN - 1u;
-            d = s->comb[(s->wp + IC_LEN - len) % IC_LEN];
-            y = x + mulq15(d, fbk);
-            s->comb[s->wp % IC_LEN] = (int16_t)clamp(y >> 2, -32767, 32767);
-            s->wp = (uint16_t)((s->wp + 1u) % IC_LEN);
-            y = d << 2;
+            /* CUT = delay across the line (0 longest); RES = feedback; out = x + g * delayed */
+            y = comb_process(s->comb, IC_LEN, &s->wp, x, cut, res);
         } else {
             int32_t v3 = (x >> 1) - s->ic2;
             int32_t v1 = (flt.a1 * s->ic1 + flt.a2 * v3) >> 13;

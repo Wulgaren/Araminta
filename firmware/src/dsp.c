@@ -140,6 +140,29 @@ static inline int32_t soft_knee(int32_t y, int32_t k)
     return y < 0 ? -a : a;
 }
 
+/* Feedback comb (ANALOG TYPE / insert FILTER COMB). CUT 0 = longest delay (lowest teeth), 127 =
+ * shortest; RES sets feedback (0 = transparent). line[] stores samples at 1/4 scale. */
+static inline uint32_t comb_delay_len(int32_t cut, uint32_t line_len)
+{
+    cut = clamp(cut, 0, 127);
+    if (line_len < 3u)
+        return 2u;
+    return 2u + (uint32_t)(127 - cut) * (line_len - 3u) / 127u;
+}
+static inline int32_t comb_process(int16_t *line, uint32_t line_len, uint16_t *wp,
+                                   int32_t x, int32_t cut, int32_t res)
+{
+    uint32_t len = comb_delay_len(cut, line_len);
+    uint32_t w = (uint32_t)(*wp) % line_len;
+    int32_t d = line[(w + line_len - len) % line_len];
+    int32_t fbk = clamp(res, 0, 127) * 200;            /* Q15, up to ~0.77 */
+    int32_t y = x + (mulq15(d, fbk) << 2);              /* restore stored 1/4 scale into the sum */
+    y = clamp(y, -230000, 230000);
+    line[w] = (int16_t)clamp(y >> 2, -32767, 32767);
+    *wp = (uint16_t)((w + 1u) % line_len);
+    return y;
+}
+
 /* phase increment of pitch16 (1/16 semitone) plus ct cents: whole 1/16 semitones from the table,
  * the rest (and fine, in 1/4096) as a factor (1 ct = 2.367 / 4096) */
 static inline uint32_t cents_inc(int32_t pitch16, int32_t ct, int32_t fine)
