@@ -407,6 +407,12 @@ static int page_visible(uint32_t i)
         return analog;
     if (PAGES[i].graph == GR_FMOP || PAGES[i].graph == GR_FMENV)
         return TSEL->eng_req % NENGINES == ENGI_FM6;
+    /* DELAY / SLICER: hide when this track is USED (another track owns CHAIN). EFFECTS list
+     * still shows the USED row; knobs would be misleading (delay globals / ignored slicer). */
+    if (PAGES[i].fam == FAM_FX && PAGES[i].id[0] == G_DTIME && fx_list_mode(TSEL, INS_DLY)[0] == 'U')
+        return 0;
+    if (PAGES[i].fam == FAM_FX && PAGES[i].graph == GR_SLCR && fx_list_mode(TSEL, INS_SLCR)[0] == 'U')
+        return 0;
     return !(PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] >= P_FM1_ATK &&
              PAGES[i].id[0] <= P_FM4_LEVEL) || (FELUCCA_FM4 && TSEL->eng_req % NENGINES == ENGI_DIGITAL);
 }

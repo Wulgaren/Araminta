@@ -8600,9 +8600,31 @@ static int test_fx_sections(void)
         }
         song.g[G_DLYOWN] = 1;                           /* DLY still exclusive USED when chained */
         ok &= fx_list_mode(&trk[1], INS_DLY)[0] == 'U';
+        /* USED: DELAY page hidden (SELECT skips it; stuck page falls back in the section) */
+        song.sel = 1;
+        {
+            uint32_t saw_dly = 0, k, dly_i = NPAGES;
+            go_title("EFFECTS");
+            for (k = 0; k < 24u && cur_page()->sec == FX_SEC_INS; k++) {
+                if (str_eq(cur_page()->title, "DELAY"))
+                    saw_dly = 1;
+                turn(EN_SELECT, 1);
+            }
+            for (k = 0; k < NPAGES; k++)
+                if (str_eq(PAGES[k].title, "DELAY") && PAGES[k].fam == FAM_FX) {
+                    dly_i = k;
+                    break;
+                }
+            ok &= !saw_dly && dly_i < NPAGES && !page_visible(dly_i);
+            go_title("DELAY");
+            frame();                                    /* leave the forced DELAY title */
+            ok &= !str_eq(cur_page()->title, "DELAY") && cur_page()->fam == FAM_FX &&
+                  cur_page()->sec == FX_SEC_INS;
+        }
+        song.sel = 0;
         song.g[G_DLYOWN] = 0;
     }
-    bad += check("EFFECTS: DLY USED when chained; REV non-owners SEND; release restores SEND", ok);
+    bad += check("EFFECTS: DLY USED when chained; REV non-owners SEND; DELAY page hidden when USED", ok);
 
     ui_power_on();
     go_title("EFFECTS");
@@ -8648,6 +8670,25 @@ static int test_fx_sections(void)
             ui.ior_sel = (uint8_t)sl_slot;
             turn(EN_K4, 8);                             /* USED: mix ignored */
             ok &= trk[1].p[P_SLDEPTH] == mix0;
+            {
+                uint32_t saw_sl = 0, k, sl_i = NPAGES;
+                go_title("EFFECTS");
+                for (k = 0; k < 24u && cur_page()->sec == FX_SEC_INS; k++) {
+                    if (str_eq(cur_page()->title, "SLICER"))
+                        saw_sl = 1;
+                    turn(EN_SELECT, 1);
+                }
+                for (k = 0; k < NPAGES; k++)
+                    if (str_eq(PAGES[k].title, "SLICER") && PAGES[k].fam == FAM_FX) {
+                        sl_i = k;
+                        break;
+                    }
+                ok &= !saw_sl && sl_i < NPAGES && !page_visible(sl_i);
+                go_title("SLICER");
+                frame();
+                ok &= !str_eq(cur_page()->title, "SLICER") && cur_page()->fam == FAM_FX &&
+                      cur_page()->sec == FX_SEC_INS;
+            }
             song.sel = 0;
             ui.ior_sel = (uint8_t)sl_slot;
             turn(EN_K3, 1);                             /* release → SEND */
@@ -8659,7 +8700,7 @@ static int test_fx_sections(void)
             ok = 0;
         }
     }
-    bad += check("EFFECTS list: 9 rows with SLCR; SEND/CHAIN/USED; MIX is P_SLDEPTH", ok);
+    bad += check("EFFECTS list: 9 rows with SLCR; SEND/CHAIN/USED; MIX is P_SLDEPTH; page hidden when USED", ok);
 
     ui_power_on();
     go_title("DELAY");
