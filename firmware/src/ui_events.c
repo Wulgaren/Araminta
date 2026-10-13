@@ -604,16 +604,20 @@ static const fx_dst_t FX_DST[] = {
     {P_SLRATE, MD_SLRATE, INS_SLCR, 0, "SLICER", "RATE"},
     {P_SLDEPTH, MD_SLDEPTH, INS_SLCR, 1, "SLICER", "MIX"},
 };
-/* CHAIN: all stage knobs. SEND: MIX only. USED (other track owns DLY/REV/SLCR): hide. */
+/* Inserts: CHAIN all knobs, SEND MIX only. DLY/REV/SLCR: all listed knobs unless USED.
+ * SLICER SEND PAT/RATE modulate fx_bus_trk. */
 static int fx_dst_visible(const track_t *t, uint32_t st, int is_mix)
 {
     int32_t tr = (int32_t)(t - trk), own;
     if (st < INS_N)
         return ins_is_send(t, st) ? is_mix : 1;
-    own = bus_own(st == INS_REV ? 1u : st == INS_SLCR ? 2u : 0u);
+    if (st == INS_SLCR)
+        return !sl_trk_used(t);
+    own = bus_own(st == INS_REV ? 1u : 0u);
     if (own >= 0 && own != tr)
         return 0;
-    return is_mix || own == tr;
+    (void)is_mix;
+    return 1;
 }
 static int pk_auto_fx(uint32_t id)
 {

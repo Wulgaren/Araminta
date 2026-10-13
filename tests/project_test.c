@@ -816,13 +816,14 @@ int main(void)
         a.t[2].scl_lock = SCL_LOCK_SCALE;
         a.t[3].scl_lock = SCL_LOCK_SCALE;
         a.t[0].fx_sl_pos = 3; a.t[1].fx_sl_pos = 5; a.t[2].fx_sl_pos = 7; a.t[3].fx_sl_pos = 8;
-        a.g[G_SLOWN] = 2;
+        a.g[G_SLOWN] = 2;                                 /* legacy: track 1 CHAIN → mask 0xD */
         for (i = 0; i < FX_BUS_N; i++)
             a.fx_bus[i] = (uint8_t)(20u + i * 3u);
         a.sum = proj_sum(&a);
         ok = proj_pack(&st, &a) &&
              (st.raw[PROJ_SCL_OFF] & 0x8Fu) == 0x8Du &&   /* mark + locks t0/t2/t3 */
-             ((st.raw[PROJ_SCL_OFF] >> 4) & 7u) == 2u &&  /* G_SLOWN */
+             ((st.raw[PROJ_SCL_OFF] >> 4) & 7u) == 2u &&  /* legacy owner for old readers */
+             (st.raw[PROJ_SL_SEND_OFF] & 0x1Fu) == 0x1Du && /* mask 0xD | mark */
              st.raw[PROJ_SLPOS_OFF] == (uint8_t)(3u | (5u << 4)) &&
              st.raw[PROJ_SLPOS_OFF + 1u] == (uint8_t)(7u | (8u << 4)) &&
              proj_import(&c, &st, sizeof st) &&
@@ -831,7 +832,7 @@ int main(void)
              !c.t[1].scl_stash_ok && !c.t[1].scl_stash[0] && !c.t[1].scl_stash[1] &&
              !c.t[1].scl_stash[2] && !memcmp(c.fx_bus, a.fx_bus, FX_BUS_N) &&
              c.t[0].fx_sl_pos == 3 && c.t[1].fx_sl_pos == 5 && c.t[2].fx_sl_pos == 7 &&
-             c.t[3].fx_sl_pos == 8 && c.g[G_SLOWN] == 2;
+             c.t[3].fx_sl_pos == 8 && c.g[G_SLOWN] == 0xD;
         bad += check("FUN14: SCALE LOCK + SLCR slots; stash not on disk; SEND bus knobs round trip", ok);
     }
     {   /* Felucca 1.5 FUNA (np 111): INSERT + FTYPE/ESYNC through proj_import end-to-end */

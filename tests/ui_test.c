@@ -8695,43 +8695,25 @@ static int test_fx_sections(void)
              text_w(&AF_S, N_ISTAGE[INS_SLCR]) <= text_w(&AF_S, "FLANGER");
         ui.ior_sel = 0;
         ok &= cur_page()->graph == GR_IORD;
-        /* SLICER: K3 CHAIN/SEND, K4 MIX (P_SLDEPTH); USED on other tracks while claimed */
+        /* SLICER: K3 toggles this track SEND/CHAIN; other tracks keep their own mode (no USED) */
         if (sl_slot < FX_LIST_N) {
             int16_t mix0;
-            song.g[G_SLOWN] = 0;
+            song.g[G_SLOWN] = 0;                          /* legacy all-SEND → sanitize on toggle */
             TSEL->p[P_SLDEPTH] = 40;
             ui.ior_sel = (uint8_t)sl_slot;
             turn(EN_K3, 1);
-            ok &= song.g[G_SLOWN] == 1 && fx_list_mode(TSEL, INS_SLCR)[0] == 'C';
+            ok &= sl_trk_chain(TSEL) && fx_list_mode(TSEL, INS_SLCR)[0] == 'C';
             song.sel = 1;
-            ok &= fx_list_mode(&trk[1], INS_SLCR)[0] == 'U';
+            ok &= sl_trk_send(&trk[1]) && fx_list_mode(&trk[1], INS_SLCR)[0] == 'S';
+            trk[1].p[P_SLDEPTH] = 40;
             mix0 = trk[1].p[P_SLDEPTH];
             ui.ior_sel = (uint8_t)sl_slot;
-            turn(EN_K4, 8);                             /* USED: mix ignored */
-            ok &= trk[1].p[P_SLDEPTH] == mix0;
-            {
-                uint32_t saw_sl = 0, k, sl_i = NPAGES;
-                go_title("EFFECTS");
-                for (k = 0; k < 24u && cur_page()->sec == FX_SEC_INS; k++) {
-                    if (str_eq(cur_page()->title, "SLICER"))
-                        saw_sl = 1;
-                    turn(EN_SELECT, 1);
-                }
-                for (k = 0; k < NPAGES; k++)
-                    if (str_eq(PAGES[k].title, "SLICER") && PAGES[k].fam == FAM_FX) {
-                        sl_i = k;
-                        break;
-                    }
-                ok &= !saw_sl && sl_i < NPAGES && !page_visible(sl_i);
-                go_title("SLICER");
-                frame();
-                ok &= !str_eq(cur_page()->title, "SLICER") && cur_page()->fam == FAM_FX &&
-                      cur_page()->sec == FX_SEC_INS;
-            }
+            turn(EN_K4, 8);                             /* track 1 still SEND: MIX edits */
+            ok &= trk[1].p[P_SLDEPTH] != mix0;
             song.sel = 0;
             ui.ior_sel = (uint8_t)sl_slot;
-            turn(EN_K3, 1);                             /* release → SEND */
-            ok &= song.g[G_SLOWN] == 0 && fx_list_mode(TSEL, INS_SLCR)[0] == 'S';
+            turn(EN_K3, 1);                             /* track 0 back to SEND */
+            ok &= sl_trk_send(TSEL) && fx_list_mode(TSEL, INS_SLCR)[0] == 'S';
             mix0 = TSEL->p[P_SLDEPTH];
             turn(EN_K4, 8);
             ok &= TSEL->p[P_SLDEPTH] != mix0 && str_eq(TP[P_SLDEPTH].label, "MIX");
@@ -8739,7 +8721,7 @@ static int test_fx_sections(void)
             ok = 0;
         }
     }
-    bad += check("EFFECTS list: 9 rows with SLCR; SEND/CHAIN/USED; MIX is P_SLDEPTH; page hidden when USED", ok);
+    bad += check("EFFECTS list: 9 rows with SLCR; per-track SEND/CHAIN; MIX is P_SLDEPTH", ok);
 
     ui_power_on();
     go_title("DELAY");

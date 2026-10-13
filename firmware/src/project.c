@@ -111,8 +111,9 @@
  * a FUN13 (magic): its slot shows EMPTY until saved over.
  * Format 14 ("FUNE", written now; FUN14 in the docs) = FUN13 wire with SCALE LOCK lock-only, X-MOD dropped,
  * SEND bus knobs in those bytes, and each track's EFFECTS SLICER slot (fx_sl_pos) in the two pad bytes.
- * Lock byte: bits 0..3 lock, bits 4..6 G_SLOWN, bit 7 = bus+slcr layout mark. FUN13 ("FUND") still loads:
- * its pad mark at +17 means bus knobs without SLCR slots (fx_sl_pos defaults to 8).
+ * Lock byte: bits 0..3 lock, bits 4..6 legacy G_SLOWN owner (0..4), bit 7 = bus+slcr layout mark.
+ * Per-track SLICER SEND mask (bits 0..3 of G_SLOWN) is in the DX pad byte with mark 0x10.
+ * FUN13 ("FUND") still loads: its pad mark at +17 means bus knobs without SLCR slots (fx_sl_pos defaults to 8).
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
@@ -201,6 +202,7 @@ _Static_assert(sizeof(project_v5_t) == 3352u && sizeof(project_v6_t) == 3388u, "
 #define PROJ_FM6_OFF (PROJ_NAME_OFF - NTRK * FM6_PACKED)
 #define PROJ_DX_SIZE 96u                       /* kit 88 + mute 2 + marker 1 + X-MOD 4 + 1 pad (JIANT FUNA) */
 #define PROJ_DX_OFF (PROJ_FM6_OFF - PROJ_DX_SIZE)
+#define PROJ_SL_SEND_OFF (PROJ_DX_OFF + PROJ_DX_SIZE - 1u) /* SLICER SEND mask | 0x10 mark */
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(PROJ_NG_WIRE == 27u && G_COUNT >= PROJ_NG_WIRE, "FUN7 wire globals keep IDs 0..26");
 _Static_assert(G_COUNT == 31u, "CHAIN reverb + G_SLOWN appended");
@@ -768,7 +770,25 @@ static int proj_pack(project_store_t *out, const project_t *q)
                 locks |= (uint8_t)(1u << t);
             slpos |= (uint16_t)((sp & 15u) << (t * 4u));
         }
-        b[PROJ_SCL_OFF] = (uint8_t)(0x80u | ((uint32_t)clamp(q->g[G_SLOWN], 0, 4) << 4) | locks);
+        {   /* write SEND mask to DX pad; lock bits 4..6 keep a legacy owner when possible */
+            uint32_t raw = (uint32_t)q->g[G_SLOWN], mask, ch, leg = 0;
+            if (raw <= NTRK) {                       /* still legacy 0..4 in the project_t */
+                leg = raw;
+                mask = raw == 0u ? (1u << NTRK) - 1u : ((1u << NTRK) - 1u) ^ (1u << (raw - 1u));
+            } else {
+                mask = raw & ((1u << NTRK) - 1u);
+                ch = (~mask) & ((1u << NTRK) - 1u);
+                if (ch && !(ch & (ch - 1u))) {
+                    while (!(ch & 1u)) {
+                        ch >>= 1;
+                        leg++;
+                    }
+                    leg++;
+                }
+            }
+            b[PROJ_SCL_OFF] = (uint8_t)(0x80u | (leg << 4) | locks);
+            b[PROJ_SL_SEND_OFF] = (uint8_t)(mask | 0x10u);
+        }
         memcpy(b + PROJ_SCL_OFF + 1u, q->fx_bus, PROJ_FXBUS_SCL_N);
         memcpy(b + PROJ_DX_MOT_OFF, q->fx_bus + PROJ_FXBUS_SCL_N, FX_BUS_N - PROJ_FXBUS_SCL_N);
         b[PROJ_SLPOS_OFF] = (uint8_t)(slpos & 255u);
@@ -877,8 +897,11 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         q->g[G_DLYOWN] = 0;
     if (q->g[G_REVOWN] < 0 || q->g[G_REVOWN] > (int16_t)NTRK)
         q->g[G_REVOWN] = 0;
-    /* G_SLOWN: FUN14 lock byte bits 4..6; FUN13 pad at +16; older 0 */
-    if (magic == PROJ_MAGIC && (b[PROJ_SCL_OFF] & 0x80u)) {
+    /* G_SLOWN: DX pad mask|0x10 (per-track SEND), else FUN14 lock bits 4..6 / FUN13 pad / 0 */
+    if (magic == PROJ_MAGIC && (b[PROJ_SCL_OFF] & 0x80u) && (b[PROJ_SL_SEND_OFF] & 0x10u)) {
+        uint8_t mask = (uint8_t)(b[PROJ_SL_SEND_OFF] & ((1u << NTRK) - 1u));
+        q->g[G_SLOWN] = mask == (uint8_t)((1u << NTRK) - 1u) ? 0 : (int16_t)mask; /* 0 = all SEND */
+    } else if (magic == PROJ_MAGIC && (b[PROJ_SCL_OFF] & 0x80u)) {
         uint8_t so = (b[PROJ_SCL_OFF] >> 4) & 7u;
         q->g[G_SLOWN] = so <= 4u ? (int16_t)so : 0;
     } else if (v12 || v13) {

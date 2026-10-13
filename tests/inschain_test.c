@@ -467,15 +467,15 @@ int main(void)
                 uint8_t before[FX_LIST_N], after[FX_LIST_N];
                 uint32_t sl = 8;
                 fx_list_get(t, before);
-                ck("SLICER SEND→CHAIN→SEND via ownership",
-                   bus_own(2) < 0 && fx_list_mode(t, INS_SLCR)[0] == 'S');
-                bus_own_set(2, 0);
-                ck("SLICER CHAIN on track 0; other tracks USED",
-                   bus_own(2) == 0 && fx_list_mode(t, INS_SLCR)[0] == 'C' &&
-                   fx_list_mode(&trk[1], INS_SLCR)[0] == 'U');
+                ck("SLICER SEND→CHAIN→SEND per track",
+                   sl_trk_send(t) && fx_list_mode(t, INS_SLCR)[0] == 'S');
+                bus_own_set(2, 0);                       /* track 0 CHAIN, others SEND */
+                ck("SLICER CHAIN on track 0; track 1 still SEND",
+                   sl_trk_chain(t) && fx_list_mode(t, INS_SLCR)[0] == 'C' &&
+                   sl_trk_send(&trk[1]) && fx_list_mode(&trk[1], INS_SLCR)[0] == 'S');
                 bus_own_set(2, -1);
-                ck("SLICER release restores SEND for all",
-                   bus_own(2) < 0 && fx_list_mode(&trk[1], INS_SLCR)[0] == 'S');
+                ck("SLICER all-SEND restores SEND on every track",
+                   sl_trk_send(t) && sl_trk_send(&trk[1]) && fx_list_mode(&trk[1], INS_SLCR)[0] == 'S');
                 fx_list_get(t, before);
                 fx_list_move(t, sl, -1);                /* SLCR past REV */
                 fx_list_get(t, after);
