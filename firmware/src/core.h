@@ -59,11 +59,11 @@ enum {                          /* per-track parameters */
     P_ASWING, P_APROB, P_AHOLD, P_AORDER,
     P_ROOT, P_SCALE, P_QUANT, P_TRANS,
     P_SLEN, P_SDIV, P_SSWING, P_SGATE,
-    P_DIST, P_CHOR, P_DLY, P_REV,              /* P_DIST: DIST drive. P_CHOR: EFFECTS DLY/REV list slots
+    P_DIST, P_CHOR, P_DLY, P_REV,              /* P_DIST: DIST drive. P_CHOR: EFFECTS DLY/REV/SLCR list slots
                                                 * (fx.c; was bus CHO send). P_DLY/P_REV: send or chain mix */
     P_VOICE, P_GLIDE, P_PAN, P_MUTE,
     P_GLMODE, P_PRIO, P_ALLOC, P_DETUNE,
-    P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH,      /* SLICER insert (slicer.c) */
+    P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH,      /* SLICER (slicer.c): MODE PAT RATE; P_SLDEPTH is MIX */
     P_M1SRC, P_M1DST, P_M1AMT,                 /* modulation matrix (mod.c): 4 slots of SRC, DST, AMT; */
     P_M2SRC, P_M2DST, P_M2AMT,                 /* new common parameters go just before P_E0 (user presets */
     P_M3SRC, P_M3DST, P_M3AMT,                 /* and projects map by count) */
@@ -97,10 +97,12 @@ enum { PLAY_ON = 0, PLAY_OFF = 1, PLAY_SOLO = 2 };
 /* 1.5 INSERT ids (np 111): migrated to the chain in project.c / upreset.c ins_migrate */
 enum { P_ITYPE_LEG = 96, P_IA_LEG = 97, P_IB_LEG = 98, P_IC_LEG = 99, P_IMIX_LEG = 100 };
 enum { INS_N = 6, INS_DIST = 0, INS_FILTER = 1, INS_CRUSH = 2, INS_PHASR = 3, INS_FLANG = 4, INS_CHOR = 5,
-       INS_DLY = 6, INS_REV = 7, FX_LIST_N = 8 };   /* DLY/REV: shared engines; list slots with the inserts */
+       INS_DLY = 6, INS_REV = 7, INS_SLCR = 8, FX_LIST_N = 9 }; /* DLY/REV/SLCR: shared buses; list with inserts */
 /* Default P_IORD permutation (Lehmer): DIST, CRUSH, FILTER, PHASR, FLANG, CHOR. Stage ids stay
  * FILTER=1 / CRUSH=2 so send flags and saved orders keep their meaning; only the factory order moved. */
 #define IORD_DEF 24u
+/* EFFECTS DLY/REV list slots in P_CHOR (fx.c). SLCR slot is RAM-only (track.fx_sl_pos) until FUN14. */
+#define FX_POS_DEF (64 + 6 + (7 << 3))           /* DLY at 6, REV at 7; SLCR defaults to 8 */
 enum { IDM_SOFT, IDM_HARD, IDM_FOLD, IDM_FUZZ, IDM_N };
 enum { IFT_LP, IFT_HP, IFT_BP, IFT_COMB, IFT_N };
 
@@ -125,6 +127,7 @@ enum {                          /* global parameters */
                                  * proj_drums_to_part, which clears them after */
     G_CRTYPE, G_CRSIZE, G_CRDAMP, /* REVERB CHAIN tank (separate from SEND G_R*). Wire: FUN11 spare bytes
                                    * (project.c); older projects copy SEND on load. */
+    G_SLOWN,                      /* EFFECTS: who has slicer as CHAIN (0 = SEND for all, 1..4 = track) */
     G_COUNT
 };
 #define G_SYNC G_DREL                   /* (old names: formats' importers and their tests) */
@@ -167,7 +170,7 @@ static void ins_migrate(int16_t *p, uint32_t np)
     for (i = P_IORD; i < P_FTYPE; i++)
         p[i] = 0;
     p[P_IORD] = (int16_t)IORD_DEF;
-    p[P_CHOR] = 64 + 6 + (7 << 3);             /* EFFECTS: DLY at 6, REV at 7 (fx.c FX_POS_MARK) */
+    p[P_CHOR] = (int16_t)FX_POS_DEF;           /* EFFECTS: DLY at 6, REV at 7 */
     p[P_IDMODE] = IDM_SOFT;
     p[P_IFTYPE] = IFT_LP;
     p[P_IFCUT] = 96;
@@ -490,7 +493,8 @@ typedef struct track {
     int16_t scl_lock;            /* SCL_LOCK_OFF / SCL_LOCK_SCALE */
     int16_t scl_stash[3];        /* ROOT / SCL / MAP restored on OFF (project.c FUN12+) */
     uint8_t scl_stash_ok;        /* 1: scl_stash holds values from before a lock overwrite */
-    uint8_t rsv_sz[8];           /* sizeof(track_t) a multiple of 16 */
+    uint8_t fx_sl_pos;           /* EFFECTS INS_SLCR list slot 0..8; RAM until FUN14 (default 8) */
+    uint8_t rsv_sz[7];           /* sizeof(track_t) a multiple of 16 */
     int16_t armp, aholdp;        /* P_AMODE / P_AHOLD as last seen by the ISR */
     /* engine switch (voice.c engine_block): the old engine's voices fade out, then it switches */
     uint8_t xf_on, xf;           /* fading; blocks of the fade still to render */

@@ -394,18 +394,19 @@ int main(void)
             ck("CHAIN reverb params diverge from SEND (ROOM/40 vs HALL/90 changes render)",
                h_chain != h_send);
             ck("GP has CHAIN TYPE/SIZE/DAMP",
-               G_COUNT == 30u && GP[G_CRTYPE].names == GP[G_RTYPE].names && GP[G_CRSIZE].max == 127);
+               G_COUNT == 31u && GP[G_CRTYPE].names == GP[G_RTYPE].names && GP[G_CRSIZE].max == 127);
         }
         bus_own_set(1, -1);
         bus_own_set(0, -1);
     }
 
-    /* FX pages: EFFECTS, REVERB, DLY, DIST, …; SLICER; Punch-in. MASTER on GLO.
-     * Stage pages have no mix knob: the percent is EFFECTS K4. No bus CHORUS page. */
+    /* FX pages: EFFECTS (incl. SLICER), REVERB, DLY, DIST, …; Punch-in. MASTER on GLO.
+     * Stage pages have no mix knob: the percent is EFFECTS K4. No bus CHORUS page.
+     * SLICER is folded into EFFECTS (FX_SEC_INS); MIX is P_SLDEPTH (no DEPTH knob on the page). */
     {
         uint32_t i, pr = NPAGES, prev = NPAGES, ps = NPAGES, pd = NPAGES, pdl = NPAGES, pm = NPAGES;
         uint32_t mix = 0, chor = 0;
-        static const uint8_t MIXK[] = {P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX, P_IHMIX};
+        static const uint8_t MIXK[] = {P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX, P_IHMIX, P_SLDEPTH};
         for (i = 0; i < NPAGES; i++) {
             uint32_t k, m;
             if (str_eq(PAGES[i].title, "EFFECTS") && PAGES[i].fam == FAM_FX && pr == NPAGES) pr = i;
@@ -420,10 +421,12 @@ int main(void)
                     for (m = 0; m < sizeof MIXK; m++)
                         mix |= PAGES[i].id[k] == MIXK[m];
         }
-        ck("FX pages: EFFECTS, REVERB, DELAY, DISTORT…; SLICER own section; MASTER on GLO",
+        ck("FX pages: EFFECTS, REVERB, DELAY, DISTORT…; SLICER in EFFECTS; MASTER on GLO",
            pr < prev && prev < pdl && pdl < pd && pd < ps && PAGES[pr].graph == GR_IORD &&
            PAGES[pr].sec == FX_SEC_INS && PAGES[pdl].sec == FX_SEC_INS &&
-           PAGES[ps].sec == FX_SEC_SLCR && PAGES[pm].fam == FAM_GLO && PAGES[pm].sec == GLO_SEC_MASTER &&
+           PAGES[ps].sec == FX_SEC_INS && PAGES[ps].id[3] == 0xFFu &&
+           str_eq(TP[P_SLDEPTH].label, "MIX") && FX_NSEC == 2u &&
+           PAGES[pm].fam == FAM_GLO && PAGES[pm].sec == GLO_SEC_MASTER &&
            PAGES[pd].id[2] == P_ED_FX && PAGES[pd].id[3] == 0xFFu && !mix &&
            PAGES[pdl].id[3] == 0xFFu && PAGES[pdl].id[0] == G_DTIME && !chor);
         {
@@ -439,8 +442,9 @@ int main(void)
         {
             uint8_t list[FX_LIST_N], defo[INS_N];
             fx_list_get(&trk[0], list);
-            ck("EFFECTS list is 8: inserts + DLY + REV",
-               FX_LIST_N == 8u && list[6] == INS_DLY && list[7] == INS_REV);
+            ck("EFFECTS list is 9: inserts + DLY + REV + SLCR",
+               FX_LIST_N == 9u && list[6] == INS_DLY && list[7] == INS_REV && list[8] == INS_SLCR &&
+               str_eq(N_ISTAGE[INS_SLCR], "SLICER"));
             fresh();
             t = &trk[0];
             ck("factory P_IORD is IORD_DEF (DIST→CRUSH→FILTER→…)",
@@ -450,9 +454,29 @@ int main(void)
                defo[0] == INS_DIST && defo[1] == INS_CRUSH && defo[2] == INS_FILTER &&
                defo[3] == INS_PHASR && defo[4] == INS_FLANG && defo[5] == INS_CHOR);
             fx_list_get(t, list);
-            ck("factory EFFECTS list: DIST, CRUSH, FILTER before DLY/REV",
+            ck("factory EFFECTS list: DIST…CHOR, DLY, REV, SLCR; SLCR default SEND",
                list[0] == INS_DIST && list[1] == INS_CRUSH && list[2] == INS_FILTER &&
-               list[6] == INS_DLY && list[7] == INS_REV);
+               list[5] == INS_CHOR && list[6] == INS_DLY && list[7] == INS_REV && list[8] == INS_SLCR &&
+               str_eq(fx_list_mode(t, INS_SLCR), "SEND") && ins_mix_of(t, INS_SLCR) == t->p[P_SLDEPTH]);
+            {
+                uint8_t before[FX_LIST_N], after[FX_LIST_N];
+                uint32_t sl = 8;
+                fx_list_get(t, before);
+                ck("SLICER SEND→CHAIN→SEND via ownership",
+                   bus_own(2) < 0 && fx_list_mode(t, INS_SLCR)[0] == 'S');
+                bus_own_set(2, 0);
+                ck("SLICER CHAIN on track 0; other tracks USED",
+                   bus_own(2) == 0 && fx_list_mode(t, INS_SLCR)[0] == 'C' &&
+                   fx_list_mode(&trk[1], INS_SLCR)[0] == 'U');
+                bus_own_set(2, -1);
+                ck("SLICER release restores SEND for all",
+                   bus_own(2) < 0 && fx_list_mode(&trk[1], INS_SLCR)[0] == 'S');
+                fx_list_get(t, before);
+                fx_list_move(t, sl, -1);                /* SLCR past REV */
+                fx_list_get(t, after);
+                ck("SLICER reorderable in EFFECTS list (swap with REV)",
+                   before[8] == INS_SLCR && after[7] == INS_SLCR && after[8] == INS_REV);
+            }
         }
     }
 

@@ -73,7 +73,7 @@ static const char *const N_IRATE[] = {"689", "919", "1.1k", "1.4k", "1.8k", "2.2
                                       "7.4k", "8.8k", "11k", "15k", "22k", "44k", 0};
 /* EFFECTS page: stage names in chain order (fx.c). K1 chooses, K2 moves.
  * Same strings as the stage page titles (PAGES[] below); name column sized to FLANGER/DISTORT. */
-static const char *const N_ISTAGE[] = {"DISTORT", "FILTER", "CRUSH", "PHASER", "FLANGER", "CHORUS", "DELAY", "REVERB"};
+static const char *const N_ISTAGE[] = {"DISTORT", "FILTER", "CRUSH", "PHASER", "FLANGER", "CHORUS", "DELAY", "REVERB", "SLICER"};
 /* modulation matrix (mod.c): sources, destinations (E1..E8 = P_E0..P_E7: shown with the engine's labels).
  * Append-only (stored values keep their meaning): S&H SLEW and DEPTH (#132) came after EXPR and E8 */
 static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR", "S&H", "SLEW"};
@@ -128,7 +128,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_SSWING] = PD("SWG", F_PCT, 0, 100, 0),
     [P_SGATE] = PD("GATE", F_PCT, 1, 127, 64),
     [P_DIST] = PD("DRIVE", F_PCT, 0, 127, 0),   /* DIST stage drive (insert chain); was the pre-insert DST */
-    [P_CHOR] = PD("FXPOS", F_INT, 0, 127, 64 + 6 + (7 << 3)), /* EFFECTS DLY/REV slots; was CHO send */
+    [P_CHOR] = PD("FXPOS", F_INT, 0, 127, FX_POS_DEF), /* EFFECTS DLY/REV slots; SLCR in track.fx_sl_pos */
     [P_DLY] = PD("DLY", F_PCT, 0, 127, 0),
     [P_REV] = PD("REV", F_PCT, 0, 127, 0),
     [P_VOICE] = PE("VCE", N_VOICE, 0),
@@ -142,7 +142,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_SLCR] = PE("SLCR", N_SLCR, 0),
     [P_SLPAT] = PD("PAT", F_INT, 1, 16, 1),        /* SL_PAT[] */
     [P_SLRATE] = PE("RATE", N_SLDIV, 1),
-    [P_SLDEPTH] = PD("DEPTH", F_PCT, 0, 127, 127),
+    [P_SLDEPTH] = PD("MIX", F_PCT, 0, 127, 127),   /* was DEPTH; EFFECTS K4 amount */
 #define MSLOT(k) [P_M##k##SRC] = PE("SRC" #k, N_MSRC, 0), [P_M##k##DST] = PE("DST" #k, N_MDST, 0), \
                  [P_M##k##AMT] = PD("AMT" #k, F_BIPCT, -64, 63, 0)
     MSLOT(1), MSLOT(2), MSLOT(3), MSLOT(4),
@@ -230,6 +230,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_CRTYPE] = PE("TYPE", N_RTYPE, 2),        /* CHAIN tank: same models, separate values */
     [G_CRSIZE] = PD("SIZE", F_PCT, 0, 127, 90),
     [G_CRDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
+    [G_SLOWN] = PD("SLOWN", F_INT, 0, 4, 0),    /* 0 SEND; 1..4 track with slicer CHAIN */
 };
 
 static const param_desc_t INS_BITS = {"BITS", F_INT, 0, 127, 64, N_IBITS, 0};
@@ -458,7 +459,7 @@ enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_
        GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_DXSND };
 /* page.sec: button cycles sections; SELECT walks pages that share fam+sec and stops at the ends
  * (ui.c open_family / select_page_step) */
-enum { FX_SEC_INS = 0, FX_SEC_SLCR = 1, FX_SEC_PUNCH = 2, FX_NSEC = 3,
+enum { FX_SEC_INS = 0, FX_SEC_PUNCH = 1, FX_NSEC = 2,
        SEQ_SEC_STEP = 0, SEQ_SEC_AUTO = 1, SEQ_SEC_TOOL = 2, SEQ_NSEC = 3,
        EDIT_SEC_SND = 0, EDIT_SEC_KIT = 1, EDIT_SEC_LAN = 2, EDIT_SEC_VOX = 3, EDIT_NSEC = 4,
        GLO_SEC_MASTER = 0, GLO_SEC_SONG = 1, GLO_SEC_CLK = 2, GLO_NSEC = 3,
@@ -481,9 +482,9 @@ static const page_t PAGES[] = {
     {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, LFO_SEC_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},   /* 1.2: SYNC TRIG POL */
     {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, LFO_SEC_LFO, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
     {"MOD", FAM_LFO, SC_TRACK, GR_MOD, LFO_SEC_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* its own section: LFO button cycles here */
-    /* FX: Effects → Slicer → Punch-in. Page order: REVERB, DELAY, DISTORT, CRUSH, FILTER, then the rest.
-     * Each stage's mix lives on EFFECTS (K4). K3 is USE AS: CHAIN or SEND. DELAY knob 4 is
-     * RATE / TIME (ui_input.c dly_knob). */
+    /* FX: Effects → Punch-in. SLICER is an EFFECTS page (open from the list / SELECT).
+     * Page order: REVERB, DELAY, DISTORT, CRUSH, FILTER, then the rest. Each stage's mix
+     * lives on EFFECTS (K4). K3 is USE AS: CHAIN or SEND. DELAY knob 4 is RATE / TIME. */
     {"EFFECTS", FAM_FX, SC_TRACK, GR_IORD, FX_SEC_INS, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},
     {"DELAY", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_DTIME, G_DFDBK, G_DCOLOR, 0xFF}},
@@ -493,7 +494,7 @@ static const page_t PAGES[] = {
     {"PHASER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IPRATE, P_IPDEP, P_IPFBK, 0xFF}},
     {"FLANGER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_ILRATE, P_ILDEP, 0xFF, 0xFF}},
     {"CHORUS", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IHRATE, P_IHDEP, 0xFF, 0xFF}},
-    {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, FX_SEC_SLCR, {P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH}},
+    {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, FX_SEC_INS, {P_SLCR, P_SLPAT, P_SLRATE, 0xFF}},
     {"PUNCH", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, 0, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
     {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, 0, {P_CHRD, P_VOIC, PG_SLOCK, 0xFF}},

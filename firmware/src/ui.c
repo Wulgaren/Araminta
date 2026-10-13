@@ -510,6 +510,8 @@ static uint32_t ior_pct_id(void)
         return P_DLY;
     if (st == INS_REV)
         return P_REV;
+    if (st == INS_SLCR)
+        return P_SLDEPTH;
     return MIX[st < INS_N ? st : 0u];
 }
 /* parameter locks: a page whose KNOB 1..4 can lock (a track's sound: one of its parameters can be motion; not MOD's
@@ -1465,6 +1467,7 @@ static void track_defaults(track_t *t)
         t->p[i] = TP[i].def;
     t->scl_lock = SCL_LOCK_SCALE;
     t->scl_stash_ok = 0;
+    t->fx_sl_pos = 8;                            /* EFFECTS: SLICER last until moved */
     track_defaults_steps(t);
 }
 
