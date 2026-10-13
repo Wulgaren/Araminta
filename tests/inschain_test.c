@@ -125,7 +125,7 @@ static void test_fx_reservations(void)
     pk_build_mdst(&trk[0], MD_OFF, &sel);
     ck("FX list has continuous delay/reverb controls and explicit MIX", pick_has(MD_DTIME, "TIME") &&
        pick_has(MD_DFB, "FDBK") && pick_has(MD_DCOLOR, "COLOR") && pick_has(MD_RSIZE, "SIZE") &&
-       pick_has(MD_RDAMP, "DAMP") && pick_has(MD_DLY, "DLY MIX") && pick_has(MD_REV, "REV MIX"));
+       pick_has(MD_RDAMP, "DAMP") && pick_has(MD_DLY, "MIX") && pick_has(MD_REV, "MIX"));
     trk[0].p[P_M1DST] = MD_RSIZE;
     pk_build_mdst(&trk[1], MD_OFF, &sel);
     ck("a stored SEND assignment hides its control on other tracks", !pick_has(MD_RSIZE, 0));
