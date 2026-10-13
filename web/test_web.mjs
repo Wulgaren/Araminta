@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { logicalImage, productOf } from "./fm1pkg.js";
 import { Updater, pack7, unpack7 } from "./fm1ota.js";
@@ -22,7 +23,7 @@ let failed = 0;
 const ok = (cond, what) => { console.log(`${what.padEnd(64)} ${cond ? "ok" : "FAIL"}`); if (!cond) failed++; };
 const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 const py = (code, ...args) => execFileSync("python3", ["-c", code, ...args], { maxBuffer: 1 << 26 });
-const HERE = new URL(".", import.meta.url).pathname;
+const HERE = fileURLToPath(new URL(".", import.meta.url));
 /* what lives outside web/, each overridable (a web-only checkout passes them, or the checks skip):
    FELUCCA_DESC  the firmware's parameter / protocol table (tests/descdump.c -> build/host/desc.json)
    FELUCCA_TOOLS the firmware's tools (tools/fm1_sample_upload.py, the sample format's reference)
@@ -64,7 +65,7 @@ async function editorMock() {
        track's: a factory preset keeps it, as ui.c apply_preset_to does (param_kept) */
     const sd = [];
     for (let i = 45; i < 49; i++) sd.push(E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))));
-    ok(sd.map((d) => d.label).join() === "SLCR,PAT,RATE,DEPTH" && sd[0].names.join() === "OFF,GATE,STUT",
+    ok(sd.map((d) => d.label).join() === "SLCR,PAT,RATE,MIX" && sd[0].names.join() === "OFF,GATE,STUT",
       "editor: SLICER parameters 45..48 over DESC");
     await rq(E.req.set(0, 45, 2));
     await rq(E.req.set(0, 46, 7));
@@ -80,11 +81,12 @@ async function editorMock() {
     const md = [];
     for (let i = 49; i < 61; i++) md.push(E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))));
     ok(md.map((d) => d.label).join() === "SRC1,DST1,AMT1,SRC2,DST2,AMT2,SRC3,DST3,AMT3,SRC4,DST4,AMT4"
-      && md[0].names.join() === "OFF,LFO,ENV,VEL,KEY,RAND,MODW,AT,EXPR,S&H,SLEW" && md[1].names.length === 44
+      && md[0].names.join() === "OFF,LFO,ENV,VEL,KEY,RAND,MODW,AT,EXPR,S&H,SLEW" && md[1].names.length === 49
       && md[1].names[11] === "VIB" && md[1].names[19] === "E8" && md[1].names[20] === "DEPTH" && md[1].names[23] === "SDEP"
       && md[1].names[25] === "VOIC" && md[1].names[26] === "TONE" && md[1].names[27] === "DMIX" && md[1].names[43] === "HDEP"
+      && md[1].names[44] === "DTIME" && md[1].names[48] === "RDAMP"
       && md[2].min === -64 && md[2].max === 63 && md.every((d) => d.def === 0),
-      "editor: matrix parameters 49..60 over DESC (44 DST names: insert knobs+MIX; S&H SLEW)");
+      "editor: matrix parameters 49..60 over DESC (49 DST names: insert+MIX+FX TIME/FB/SIZE; S&H SLEW)");
     await rq(E.req.set(0, 52, 1));
     await rq(E.req.set(0, 53, 12));
     await rq(E.req.set(0, 54, -30));
@@ -253,10 +255,12 @@ async function editorMock() {
   }
   await rq(E.req.uiSet(3, 0));
   const scale = E.parse[E.CMD.DESC](await rq(E.req.desc(0, 26)));
-  const scaleNames = ["CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM", "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"];
-  ok(scale.label === "SCL" && scale.max === 15 && eq(scale.names, scaleNames), "editor: all 16 scale names exposed");
-  const scaleSet = E.parse[E.CMD.SET](await rq(E.req.set(0, scale.id, 15)));
-  ok(scaleSet.value === 15, "editor: new scale selection is not clamped to the old range");
+  const scaleNames = ["MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM", "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"];
+  ok(scale.label === "SCL" && scale.max === 14 && eq(scale.names, scaleNames), "editor: all 15 scale names exposed");
+  const scaleSet = E.parse[E.CMD.SET](await rq(E.req.set(0, scale.id, 14)));
+  ok(scaleSet.value === 14, "editor: new scale selection is not clamped to the old range");
+  const map = E.parse[E.CMD.DESC](await rq(E.req.desc(0, 27)));
+  ok(map.label === "MAP" && map.names.join() === "OFF,ALL,KBD,SEQ", "editor: MAP names exposed");
   const dump = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info);
   ok(dump.p.length === info.pcount && dump.g.length === info.gcount, "editor: DUMP");
   const set = E.parse[E.CMD.SET](await rq(E.req.set(0, 3, 500)));
@@ -267,16 +271,16 @@ async function editorMock() {
     const rd = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 14)));
     const r1 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 5)));
     const r0 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 0)));
-    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 30,
+    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 31,
       "editor: MIDI IN routing (ROUT CH1-4 / SEL / CH5-8 / CH9-12 / CH13-16, global id 14)");
   }
   {
-    /* FX > REVERB TYPE (G_RTYPE 24): ROOM / SPRING / HALL / SHIMR / CLOUD; CHAIN tank adds G_CR* (G_COUNT 30) */
+    /* FX > REVERB TYPE (G_RTYPE 24): ROOM / SPRING / HALL / SHIMR / CLOUD; CHAIN tank + G_SLOWN (G_COUNT 31) */
     const rd = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 24)));
     const r1 = E.parse[E.CMD.SET](await rq(E.req.set(1, 24, 10)));
     const r0 = E.parse[E.CMD.SET](await rq(E.req.set(1, 24, 0)));
     ok(rd.label === "TYPE" && rd.def === 2 && eq(rd.names, ["ROOM", "SPRING", "HALL", "SHIMR", "CLOUD"]) &&
-       r1.value === 4 && r0.value === 0 && info.gcount === 30,
+       r1.value === 4 && r0.value === 0 && info.gcount === 31,
       "editor: REVERB TYPE (ROOM / SPRING / HALL / SHIMR / CLOUD, global id 24)");
   }
   const st = E.parse[E.CMD.STEP_SET](await rq(E.req.stepSet(5, { n: 2, notes: [60, 64], time: 0, flags: 1, vel: 100 })));
@@ -1431,6 +1435,44 @@ async function editorSong() {
   l.close(); old.stop();
 }
 
+/* Render actual motion rows so aliases never borrow matrix parameter labels or limits. */
+async function editorMotionRows() {
+  const start = html.indexOf("function renderMotion()");
+  const render = html.slice(start, html.indexOf('\n$("motion-on")', start));
+  const nodes = new Map(), inputs = [], labels = [], requests = [];
+  const pdesc = Array.from({length: 127}, () => ({label: "PARAM", min: 0, max: 127}));
+  pdesc[49] = {label: "SRC1", min: 0, max: 10};
+  pdesc[50] = {label: "DST1", min: 0, max: 48};
+  pdesc[51] = {label: "AMT1", min: -64, max: 63};
+  pdesc[52] = {label: "SRC2", min: 0, max: 10};
+  pdesc[53] = {label: "DST2", min: 0, max: 48};
+  const motion = {track: 0, count: 5, max: 128, on: true, events:
+    [{step: 0, param: 49, value: 1550}, {step: 1, param: 50, value: 110}, {step: 2, param: 51, value: 100},
+     {step: 3, param: 52, value: 90}, {step: 4, param: 53, value: 80}]};
+  const d = {pdesc, info: {motionMax: 128}, motion};
+  const R = vm.runInNewContext(`${render}; renderMotion;`, {
+    dev: d, document: {activeElement: null},
+    $: id => { if (!nodes.has(id)) nodes.set(id, {contains: () => false, replaceChildren: () => {}}); return nodes.get(id); },
+    el: (tag, attrs = {}, ...children) => {
+      const node = {...attrs, children, addEventListener: (kind, fn) => {node[kind] = fn;}};
+      if (tag === "input") inputs.push(node);
+      if (tag === "td" && typeof attrs.text === "string") labels.push(attrs.text);
+      return node;
+    },
+    t: key => key, op: fn => fn(), assertSession: () => {}, CMD: {MOTION: 64},
+    req: {motion: (track, op, value) => ({track, op, value})},
+    sessionRequest: async (device, request) => {requests.push(request); return motion;},
+    parse: {64: reply => ({...reply, rc: 0})},
+  });
+  R();
+  ok(labels.join() === "DLY TIME,DLY FDBK,DLY COLOR,REV SIZE,REV DAMP" && inputs[0].value === 1486 &&
+     inputs[0].min === 1 && inputs[0].max === 1486 && inputs[1].max === 120 && inputs[2].min === 0 && inputs[2].max === 127,
+     "editor: FX motion rows use their own labels, ranges and exact TIME milliseconds");
+  inputs[0].value = 1; await inputs[0].change();
+  ok(requests[0].value.param === 49 && requests[0].value.value === 65 && pdesc[49].label === "SRC1" && pdesc[49].max === 10,
+     "editor: TIME edits encode milliseconds while ordinary matrix descriptors stay intact");
+}
+
 /* Run the page's actual session helpers and connect-load path with delayed replies. */
 async function editorSessions() {
   const state = html.slice(html.indexOf("let busy = 0;"), html.indexOf("let dragging", html.indexOf("let busy = 0;")));
@@ -1724,6 +1766,7 @@ await editorTracks();
 await editorMixer();
 await editorTrackParam();
 await editorSong();
+await editorMotionRows();
 await editorSessions();
 await editorFm6();
 await editorFm6Bank();

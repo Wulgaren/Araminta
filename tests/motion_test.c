@@ -55,6 +55,25 @@ static int motion_recording(void)
 static int motion_capacity(void)
 {
     int bad = 0; ui_power_on();
+    motion_save_lim = 0;
+    for (uint32_t i = 0; i < MOTION_FILE_MAX; i++)
+        bad += motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : P_DLY, (int16_t)(i % 60u));
+    bad += check("disk-full count does not raise save-limit flag", !motion_save_lim && motion.count == MOTION_FILE_MAX);
+    bad += check("73rd event raises save-limit flag once",
+                 !motion_set_event(&trk[0], MOTION_FILE_MAX % NSTEP, P_PAN, 10) &&
+                 motion.count == MOTION_FILE_MAX + 1u && motion_save_lim);
+    motion_save_lim = 0;
+    bad += check("further adds past disk max do not re-raise the flag",
+                 !motion_set_event(&trk[0], (MOTION_FILE_MAX + 1u) % NSTEP, P_LEVEL, 40) && !motion_save_lim);
+    {
+        project_t q;
+        project_store_t st;
+        project_capture(&q);
+        bad += check("proj_pack clips motion to MOTION_FILE_MAX",
+                     q.motion.count > MOTION_FILE_MAX && proj_pack(&st, &q) &&
+                     proj_import(&q, &st, sizeof st) && q.motion.count == MOTION_FILE_MAX);
+    }
+    ui_power_on();
     for (uint32_t i = 0; i < MOTION_MAX; i++)          /* (128 since 1.2: two ids on each of the 64 steps) */
         bad += motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : P_DLY, (int16_t)(i % NSTEP));
     motion_store_t saved = motion;
@@ -130,7 +149,7 @@ static int compact_project(void)
  * 81..88, motion ids from 81 on for E0..E7 (m: its events as that firmware numbered them) */
 static void pack_fun7_89(project_store_t *out, const project_t *q, const motion_store_t *m)
 {
-    uint8_t *b = out->raw; uint32_t pos = 68u, t, i, magic = PROJ_MAGIC, size = PROJ_STORE_SIZE, sum;
+    uint8_t *b = out->raw; uint32_t pos = 68u, t, i, magic = PROJ_MAGIC_V10, size = PROJ_STORE_SIZE, sum;
     memset(out, 0, sizeof *out); memcpy(b, &magic, 4); memcpy(b + 4, &size, 4);
     memcpy(b + 8, q->g, sizeof q->g); b[62] = q->sel; b[63] = q->parts; b[64] = q->phys; b[66] = 89;
     for (t = 0; t < NTRK; t++) {
@@ -144,7 +163,12 @@ static void pack_fun7_89(project_store_t *out, const project_t *q, const motion_
         }
     }
     memcpy(b + pos, &q->chain, sizeof q->chain); pos += sizeof q->chain;
-    memcpy(b + pos, m, sizeof *m);
+    b[pos] = m->count; b[pos + 1u] = m->on;
+    for (i = 0; i < m->count; i++) {
+        b[pos + 4u + 3u * i] = m->event[i].place;
+        b[pos + 5u + 3u * i] = m->event[i].param;
+        b[pos + 6u + 3u * i] = (uint8_t)m->event[i].value;
+    }
     sum = proj_hash(b, PROJ_STORE_SIZE - 4u); memcpy(b + PROJ_STORE_SIZE - 4u, &sum, 4);
 }
 static int fun7_89(void)
@@ -267,14 +291,14 @@ static int arp_new_modes(void)
     track_t *t;
     ui_power_on();
     t = &trk[0];
-    ok = TP[P_AMODE].max == 14 && str_eq(TP[P_AMODE].names[6], "REPEAT") && str_eq(TP[P_AMODE].names[7], "DNUP") &&
+    ok = TP[P_AMODE].max == 15 && str_eq(TP[P_AMODE].names[6], "REPEAT") && str_eq(TP[P_AMODE].names[7], "DNUP") &&
          str_eq(TP[P_AMODE].names[8], "UP+8") && str_eq(TP[P_AMODE].names[9], "CONV") &&
          str_eq(TP[P_AMODE].names[10], "DIVG") && str_eq(TP[P_AMODE].names[11], "PINKY") &&
          str_eq(TP[P_AMODE].names[12], "THUMB") && str_eq(TP[P_AMODE].names[13], "WALK") &&
-         str_eq(TP[P_AMODE].names[14], "CHORD");
-    for (i = 0; i <= 14u; i++)
+         str_eq(TP[P_AMODE].names[14], "CHORD") && str_eq(TP[P_AMODE].names[15], "DRONE");
+    for (i = 0; i <= 15u; i++)
         ok &= strlen(TP[P_AMODE].names[i]) <= 6u;
-    bad += check("ARP modes: OFF..REPEAT keep their numbers, DNUP UP+8 CONV DIVG PINKY THUMB WALK CHORD appended (<= 6 chars)", ok);
+    bad += check("ARP modes: OFF..REPEAT keep their numbers, DNUP..CHORD..DRONE appended (<= 6 chars)", ok);
     /* the modes before 1.2 play as they did */
     arp_fresh(t, AM_UP, 1, CEG, 3);   ok = arp_plays(t, (const uint8_t[]){60, 64, 67, 60}, 4);
     arp_fresh(t, AM_DN, 1, CEG, 3);   ok &= arp_plays(t, (const uint8_t[]){67, 64, 60, 67}, 4);
@@ -418,6 +442,100 @@ static int arp_new_modes(void)
     seq_stop();
     song.rec = 0;
     bad += check("ARP CHORD recorded: C E G into one step", k == 1u);
+    arp_fresh(t, AM_OFF, 1, CEG, 0);
+    return bad;
+}
+
+/* DRONE: sustain all held notes (no RATE retrigger); OCT = fixed transpose; HOLD forced on + restored */
+static int drone_sounds(const track_t *t, const uint8_t *want, uint32_t n)
+{
+    uint32_t i;
+    if (!n)
+        return !t->arp_note;
+    if (t->arp_note != want[0])
+        return 0;
+    for (i = 1; i < n; i++)
+        if (t->arp_ch[i - 1u] != want[i])
+            return 0;
+    for (; i < 16u; i++)
+        if (t->arp_ch[i - 1u])
+            return 0;
+    return 1;
+}
+static int arp_drone_mode(void)
+{
+    static const uint8_t CEG[3] = {60, 64, 67};
+    static const uint8_t SIX[6] = {60, 62, 64, 65, 67, 69};
+    int bad = 0, ok;
+    uint32_t i;
+    track_t *t;
+    ui_power_on();
+    t = &trk[0];
+    ok = TP[P_AMODE].max == 15 && str_eq(TP[P_AMODE].names[14], "CHORD") && str_eq(TP[P_AMODE].names[15], "DRONE") &&
+         str_eq(TP[P_AMODE].names[6], "REPEAT") && param_turn(&TP[P_AMODE], 5, 1) == 7 &&
+         param_turn(&TP[P_AMODE], 7, -1) == 5;
+    bad += check("ARP DRONE appended; REPEAT kept at 6 but MODE knob skips it", ok);
+
+    arp_fresh(t, AM_DRONE, 1, CEG, 3);
+    arp_tick(t, CTL);
+    ok = drone_sounds(t, CEG, 3);
+    t->arp_off = 1;
+    for (i = 0; i < 8u; i++)
+        arp_tick(t, CTL);                              /* RATE / GATE would have retriggered or released */
+    ok &= drone_sounds(t, CEG, 3);
+    bad += check("ARP DRONE sustains C E G with no RATE retrigger or GATE release", ok);
+
+    arp_fresh(t, AM_DRONE, 2, CEG, 3);
+    arp_tick(t, CTL);
+    ok = drone_sounds(t, (const uint8_t[]){72, 76, 79}, 3);
+    bad += check("ARP DRONE OCT 2 is a fixed +12, not an octave walk", ok);
+
+    arp_fresh(t, AM_DRONE, 1, SIX, 6);
+    arp_tick(t, CTL);
+    ok = drone_sounds(t, SIX, 6);
+    bad += check("ARP DRONE sounds more than CHORD's 4 notes", ok);
+
+    t->p[P_AHOLD] = 0;
+    t->armp = AM_UP;
+    t->aholdp = 0;
+    t->p[P_AMODE] = AM_DRONE;
+    events_block(CTL);
+    ok = t->p[P_AHOLD] == 1;
+    t->p[P_AMODE] = AM_UP;
+    events_block(CTL);
+    ok &= t->p[P_AHOLD] == 0;
+    t->p[P_AHOLD] = 1;
+    t->armp = AM_UP;
+    t->aholdp = 1;
+    t->p[P_AMODE] = AM_DRONE;
+    events_block(CTL);
+    t->p[P_AMODE] = AM_CHORD;
+    events_block(CTL);
+    ok &= t->p[P_AHOLD] == 1;
+    bad += check("ARP DRONE forces HOLD on and restores the prior HOLD on leave", ok);
+
+    /* key-up must not kill latched drone voices (input_off used to trk_note_off while HOLD kept held[]) */
+    {
+        uint32_t i, gated = 0;
+        arp_fresh(t, AM_OFF, 1, CEG, 0);
+        t->p[P_VOICE] = V_POLY;
+        t->p[P_AMODE] = AM_DRONE;
+        t->p[P_AHOLD] = 1;
+        t->p[P_AOCT] = 1;
+        t->p[P_APROB] = 127;
+        input_on(t, 60, 100);
+        input_on(t, 64, 100);
+        arp_tick(t, CTL);
+        input_off(t, 60);
+        input_off(t, 64);
+        arp_tick(t, CTL);
+        ok = drone_sounds(t, (const uint8_t[]){60, 64}, 2) && t->nheld == 2u;
+        for (i = 0; i < NVOICE; i++)
+            gated += t->v[i].gate && (t->v[i].note == 60 || t->v[i].note == 64);
+        ok &= gated >= 2u;
+        bad += check("ARP DRONE keeps sounding after both keys are released (HOLD latch)", ok);
+    }
+
     arp_fresh(t, AM_OFF, 1, CEG, 0);
     return bad;
 }
@@ -857,7 +975,16 @@ static int auto_list(void)
     ui_prefs |= PREF_LARGE;
     bad += check("  MENU > LARGE: the list layout with labels in M (as the other lists)", large_kind() == LK_LABEL);
     ui_prefs &= ~PREF_LARGE;
-    /* #223: PARAM / MOD DST are flat tag+name lists. ENV DEST / LFO DEST are knob pages. */
+    /* #223: PARAM / MOD DST are flat tag+name lists. ENV DEST / LFO DEST are knob pages.
+     * Shared SEND controls stay visible until another track reserves them. */
+    song.g[G_SLOWN] = 1;                                 /* track 0 owns SLICER CHAIN */
+    song.g[G_DLYOWN] = 1;
+    song.g[G_REVOWN] = 1;
+    {
+        uint32_t st;
+        for (st = 0; st < INS_N; st++)
+            ins_send_set(TSEL, st, 0);
+    }
     ui.ev_row = 0xFFFFu;                                 /* + ADD */
     ui.ev_id = (uint8_t)P_LEVEL;
     ui.ev_step = 0;
@@ -865,12 +992,47 @@ static int auto_list(void)
     bad += check("#223 AUTOMATION PARAM: pick list opens", ui.pick == PK_AUTO && pk_n > 8u &&
         pk_cur < pk_n);
     {
-        uint32_t i, found = 0;
-        for (i = 0; i < pk_n; i++)
+        uint32_t i, found = 0, dly = 0, rev = 0, send = 0, chor_mix_last = 1;
+        int32_t i_dist = -1, i_filt = -1, i_crush = -1, i_phas = -1, i_flang = -1, i_chor = -1;
+        int32_t i_dly = -1, i_rev = -1, i_sl = -1, i_hrat = -1, i_hdep = -1;
+        for (i = 0; i < pk_n; i++) {
             if (pk_rows[i].id == P_SLRATE && str_eq(pk_rows[i].tag, "SLICER") &&
                 str_eq(pk_rows[i].name, "RATE"))
-                found = 1;
+                found = 1, i_sl = (int32_t)i;
+            if (pk_rows[i].id == P_DIST && str_eq(pk_rows[i].tag, "DISTORT"))
+                i_dist = (int32_t)i;
+            if (pk_rows[i].id == P_IFCUT && str_eq(pk_rows[i].tag, "FILTER"))
+                i_filt = (int32_t)i;
+            if (pk_rows[i].id == P_ICMIX && str_eq(pk_rows[i].tag, "CRUSH"))
+                i_crush = (int32_t)i;
+            if (pk_rows[i].id == P_IPMIX && str_eq(pk_rows[i].tag, "PHASER"))
+                i_phas = (int32_t)i;
+            if (pk_rows[i].id == P_ILMIX && str_eq(pk_rows[i].tag, "FLANGER"))
+                i_flang = (int32_t)i;
+            if (pk_rows[i].id == P_IHRATE && str_eq(pk_rows[i].tag, "CHORUS"))
+                i_hrat = (int32_t)i;
+            if (pk_rows[i].id == P_IHDEP && str_eq(pk_rows[i].tag, "CHORUS"))
+                i_hdep = (int32_t)i;
+            if (pk_rows[i].id == P_IHMIX && str_eq(pk_rows[i].tag, "CHORUS"))
+                i_chor = (int32_t)i;
+            if (pk_rows[i].id == P_DLY && str_eq(pk_rows[i].tag, "DELAY") &&
+                str_eq(pk_rows[i].name, "MIX"))
+                dly = 1, i_dly = (int32_t)i;
+            if (pk_rows[i].id == P_REV && str_eq(pk_rows[i].tag, "REVERB") &&
+                str_eq(pk_rows[i].name, "MIX"))
+                rev = 1, i_rev = (int32_t)i;
+            if (str_eq(pk_rows[i].tag, "SEND"))
+                send = 1;
+        }
+        if (i_chor >= 0 && ((i_hrat >= 0 && i_chor < i_hrat) || (i_hdep >= 0 && i_chor < i_hdep)))
+            chor_mix_last = 0;
         bad += check("#223 AUTOMATION PARAM: SLICER / RATE", found);
+        bad += check("AUTOMATION PARAM: no SEND; DELAY / REVERB tags", dly && rev && !send);
+        bad += check("AUTOMATION PARAM: FX stages in EFFECTS order",
+                     i_dist >= 0 && i_crush > i_dist && i_filt > i_crush && i_phas > i_filt &&
+                     i_flang > i_phas && i_chor > i_flang && i_dly > i_chor && i_rev > i_dly &&
+                     i_sl > i_rev);
+        bad += check("AUTOMATION PARAM: Chorus MIX last in CHORUS", chor_mix_last && i_chor >= 0);
     }
     turn(EN_K1, -1);
     bad += check("#223 leaving the row closes the pick list", !ui.pick);
@@ -879,24 +1041,85 @@ static int auto_list(void)
     turn(EN_K3, 1);
     bad += check("#223 MOD DST: pick list opens", ui.pick == PK_MDST && pk_n > 8u && pk_cur < pk_n);
     {
-        uint32_t i, dist = 0, spat = 0, fcut = 0, cho = 0;
+        uint32_t i, dist = 0, spat = 0, fcut = 0, cho = 0, dly = 0, rev = 0, send = 0, pan = 0, chor_mix_last = 1;
+        int32_t i_dist = -1, i_filt = -1, i_crush = -1, i_phas = -1, i_flang = -1, i_chor = -1;
+        int32_t i_dly = -1, i_rev = -1, i_sl = -1, i_hrat = -1, i_hdep = -1;
         for (i = 0; i < pk_n; i++) {
-            if (pk_rows[i].id == MD_DIST && str_eq(pk_rows[i].tag, "SEND") &&
+            if (pk_rows[i].id == MD_DIST && str_eq(pk_rows[i].tag, "DISTORT") &&
                 str_eq(pk_rows[i].name, "DISTORT"))
-                dist = 1;
+                dist = 1, i_dist = (int32_t)i;
             if (pk_rows[i].id == MD_SLPAT && str_eq(pk_rows[i].tag, "SLICER") &&
                 str_eq(pk_rows[i].name, "PATTERN"))
-                spat = 1;
+                spat = 1, i_sl = (int32_t)i;
             if (pk_rows[i].id == MD_FCUT && str_eq(pk_rows[i].tag, "FILTER") &&
                 str_eq(pk_rows[i].name, "CUTOFF"))
-                fcut = 1;
+                fcut = 1, i_filt = (int32_t)i;
+            if (pk_rows[i].id == MD_CMIX && str_eq(pk_rows[i].tag, "CRUSH"))
+                i_crush = (int32_t)i;
+            if (pk_rows[i].id == MD_PMIX && str_eq(pk_rows[i].tag, "PHASER"))
+                i_phas = (int32_t)i;
+            if (pk_rows[i].id == MD_LMIX && str_eq(pk_rows[i].tag, "FLANGER"))
+                i_flang = (int32_t)i;
+            if (pk_rows[i].id == MD_HRAT && str_eq(pk_rows[i].tag, "CHORUS"))
+                i_hrat = (int32_t)i;
+            if (pk_rows[i].id == MD_HDEP && str_eq(pk_rows[i].tag, "CHORUS"))
+                i_hdep = (int32_t)i;
             if (pk_rows[i].id == MD_CHO && str_eq(pk_rows[i].tag, "CHORUS") &&
                 str_eq(pk_rows[i].name, "MIX"))
-                cho = 1;
+                cho = 1, i_chor = (int32_t)i;
+            if (pk_rows[i].id == MD_DLY && str_eq(pk_rows[i].tag, "DELAY"))
+                dly = 1, i_dly = (int32_t)i;
+            if (pk_rows[i].id == MD_REV && str_eq(pk_rows[i].tag, "REVERB"))
+                rev = 1, i_rev = (int32_t)i;
+            if (pk_rows[i].id == MD_PAN && str_eq(pk_rows[i].tag, "MIX"))
+                pan = 1;
+            if (str_eq(pk_rows[i].tag, "SEND"))
+                send = 1;
         }
-        bad += check("#223 MOD DST: SEND / DISTORT and SLICER / PATTERN", dist && spat);
-        bad += check("MOD DST: FILTER / CUTOFF (insert continuous)", fcut);
-        bad += check("MOD DST: CHO is CHORUS / MIX", cho);
+        if (i_chor >= 0 && ((i_hrat >= 0 && i_chor < i_hrat) || (i_hdep >= 0 && i_chor < i_hdep)))
+            chor_mix_last = 0;
+        bad += check("#223 MOD DST: DISTORT / SLICER / FILTER / CHORUS; no SEND",
+                     dist && spat && fcut && cho && !send);
+        bad += check("MOD DST: PAN is MIX; DELAY / REVERB tags", pan && dly && rev);
+        bad += check("MOD DST: FX stages in EFFECTS order",
+                     i_dist >= 0 && i_crush > i_dist && i_filt > i_crush && i_phas > i_filt &&
+                     i_flang > i_phas && i_chor > i_flang && i_dly > i_chor && i_rev > i_dly &&
+                     i_sl > i_rev);
+        bad += check("MOD DST: Chorus MIX last in CHORUS", chor_mix_last && i_chor >= 0);
+    }
+    /* An unreserved SEND FILTER exposes its shared continuous controls. */
+    {
+        uint32_t i, cut = 0, mix = 0;
+        ins_send_set(TSEL, INS_FILTER, 1);
+        pk_open(PK_MDST);
+        for (i = 0; i < pk_n; i++) {
+            if (pk_rows[i].id == MD_FCUT) cut = 1;
+            if (pk_rows[i].id == MD_FMIX) mix = 1;
+        }
+        bad += check("MOD DST SEND FILTER: unreserved CUT and MIX visible", mix && cut);
+        ins_send_set(TSEL, INS_FILTER, 0);
+        pk_open(PK_MDST);
+        cut = mix = 0;
+        for (i = 0; i < pk_n; i++) {
+            if (pk_rows[i].id == MD_FCUT) cut = 1;
+            if (pk_rows[i].id == MD_FMIX) mix = 1;
+        }
+        bad += check("MOD DST CHAIN FILTER: CUT and MIX visible", cut && mix);
+        pk_close();
+    }
+    /* SLICER SEND: PAT/RATE/MIX all listed (bus knobs + per-track MIX). */
+    {
+        uint32_t i, spat = 0, srate = 0, smix = 0;
+        song.g[G_SLOWN] = 0;
+        pk_open(PK_MDST);
+        for (i = 0; i < pk_n; i++) {
+            if (pk_rows[i].id == MD_SLPAT) spat = 1;
+            if (pk_rows[i].id == MD_SLRATE) srate = 1;
+            if (pk_rows[i].id == MD_SLDEPTH) smix = 1;
+        }
+        bad += check("MOD DST SEND SLICER: PATTERN / RATE / MIX visible", spat && srate && smix);
+        pk_close();
+        song.g[G_SLOWN] = 1;
     }
     {
         uint32_t i, n = 0;
@@ -909,10 +1132,64 @@ static int auto_list(void)
     }
     return bad;
 }
+static int fx_lock_time(void)
+{
+    int bad = 0; ui_power_on(); track_t *t = &trk[0];
+    song.g[G_DTIME] = 1;
+    bad += check("delay TIME lock accepts an exact 1486 ms value", !motion_set_lock(t, 0, 49u, 1550));
+    seq_start(); motion_step(t, 0, &motion, 1);
+    bad += check("delay TIME lock changes the shared delay without changing matrix SRC", song.g[G_DTIME] == 1550 && t->p[P_M1SRC] == 0);
+    bad += check("TIME lock defaults preserve the underlying 250 ms division", motion_target_base_value(t, MFX_TIME) == 314);
+    project_t q, restored; project_store_t disk;
+    project_capture(&q);
+    bad += check("delay TIME project saves the base division and exact lock", q.g[G_DTIME] == 1 && proj_pack(&disk, &q) &&
+        proj_import(&restored, &disk, sizeof disk) && restored.motion.count == 1 && restored.motion.event[0].value == 1550);
+    motion_step(t, 1, &motion, 1);
+    bad += check("delay TIME lock restores its original division on the next step", song.g[G_DTIME] == 1);
+    seq_stop();
+    return bad;
+}
+static int fx_lock_banks_and_capacity(void)
+{
+    int bad = 0; ui_power_on(); track_t *t = &trk[0];
+    song.g[G_RSIZE] = 24; song.g[G_RDAMP] = 35;
+    song.g[G_CRSIZE] = 46; song.g[G_CRDAMP] = 57;
+    bad += check("continuous SEND controls accept independent locks", !motion_set_lock(t, 0, MFX_FB, 100) &&
+        !motion_set_lock(t, 0, MFX_COLOR, 17) && !motion_set_lock(t, 0, MFX_SIZE, 88) && !motion_set_lock(t, 0, MFX_DAMP, 99));
+    bad += check("a SEND lock reserves its control until removed", !fx_target_available(&trk[1], MFX_SIZE));
+    seq_start(); motion_step(t, 0, &motion, 1);
+    bad += check("SEND reverb locks leave the CHAIN bank alone", song.g[G_RSIZE] == 88 && song.g[G_RDAMP] == 99 &&
+        song.g[G_CRSIZE] == 46 && song.g[G_CRDAMP] == 57);
+    motion_step(t, 1, &motion, 1);
+    bad += check("FX locks restore their continuous base values", song.g[G_DFDBK] == GP[G_DFDBK].def &&
+        song.g[G_DCOLOR] == GP[G_DCOLOR].def && song.g[G_RSIZE] == 24 && song.g[G_RDAMP] == 35);
+    seq_stop(); motion_clear(t);
+    bad += check("removing SEND locks frees those settings", fx_target_available(&trk[1], MFX_SIZE));
+    song.g[G_REVOWN] = 1;
+    motion_set_lock(t, 0, MFX_SIZE, 103); motion_set_lock(t, 0, MFX_DAMP, 104);
+    seq_start(); motion_step(t, 0, &motion, 1);
+    bad += check("CHAIN reverb locks use the selected track bank", song.g[G_CRSIZE] == 103 && song.g[G_CRDAMP] == 104 &&
+        song.g[G_RSIZE] == 24 && song.g[G_RDAMP] == 35 && fx_target_available(&trk[1], MFX_SIZE));
+    seq_stop(); motion_clear(t);
+    bad += check("stopping restores CHAIN reverb bases", song.g[G_CRSIZE] == 46 && song.g[G_CRDAMP] == 57);
+    for (uint32_t i = 0; i < MOTION_MAX; i++)
+        bad += motion_set_lock(t, i % NSTEP, i < NSTEP ? MFX_TIME : MFX_FB, i < NSTEP ? 1550 : 110);
+    bad += check("FX locks retain all 128 RAM entries and overwrite at capacity", motion.count == 128 &&
+        motion_set_lock(t, 0, MFX_COLOR, 25) == 2 && !motion_set_lock(t, 0, MFX_TIME, 65));
+    project_t q, loaded; project_store_t st;
+    project_capture(&q);
+    bad += check("FX locks retain 72 saved entries with exact TIME values", proj_pack(&st, &q) && sizeof st == 3840 &&
+        proj_import(&loaded, &st, sizeof st) && loaded.motion.count == 72 && loaded.motion.event[0].value == 65 &&
+        loaded.motion.event[63].value == 1550 && loaded.motion.event[71].value == 110);
+    return bad;
+}
 int main(void)
 {
     int bad = motion_recording() + motion_capacity() + probability_playback() + compact_project() + fun7_89() + loads_and_song() + repeat_mode();
     bad += arp_new_modes();
+    bad += arp_drone_mode();
     bad += lock_playback() + lock_edit() + lock_project() + lock_ui() + lock_undo() + auto_list();
+    bad += fx_lock_time();
+    bad += fx_lock_banks_and_capacity();
     printf("%s\n", bad ? "MOTION TEST FAILED" : "motion/chance/compact storage tests passed"); return bad != 0;
 }

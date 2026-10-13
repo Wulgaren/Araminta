@@ -90,6 +90,8 @@ static int mom_turn(uint32_t k, int32_t s)
     if (!d || !vp || d->max == d->min ||
         !((vp >= t->p && vp < t->p + P_COUNT) || (g <= G_CDEPTH && g != G_CLOCK) || g == G_RTYPE))
         return 0;                                      /* (only the values a sound and the FX are: no CLK, no actions) */
+    if (arp_drone_frozen(TSEL, vp))
+        return 0;
     for (i = 0; i < mom.n && mom.vp[i] != vp; i++)
         ;
     if (i == mom.n) {                                  /* the first turn of this value: what it was */
@@ -211,19 +213,19 @@ static uint32_t midi_leds(const track_t *t)
 }
 
 /* the keys of the notes the selected track's sequencer and ARP sound now (#38), bit k = key k: where the keys
- * play that note (kb_map: the octave, TRN, QNT, an engine's own map), the lowest key that gives it (QNT SNAP
+ * play that note (kb_map: the octave, TRN, MAP, an engine's own map), the lowest key that gives it (MAP KBD/ALL
  * rounds the keys above down onto it); a note no key plays is not shown. A snapshot of the ISR's seq_notes /
  * arp_note (arp_ch): no state of its own, nothing to do while nothing sounds */
 static uint32_t play_leds(void)
 {
     const track_t *t = TSEL;
-    uint8_t s[4 + NLANE + 4];
+    uint8_t s[4 + NLANE + 16];
     uint32_t n = t->seq_n < 4u + NLANE ? t->seq_n : 4u + NLANE, i, k, note, used = 0, m = 0, hit;
     for (i = 0; i < n; i++)
         s[i] = t->seq_notes[i];
     if (t->arp_note)
         s[n++] = t->arp_note;
-    for (i = 0; i < 3u; i++)                            /* (the ARP's CHORD) */
+    for (i = 0; i < 15u; i++)                           /* (CHORD / DRONE extras) */
         if (t->arp_ch[i])
             s[n++] = t->arp_ch[i];
     for (k = 0; n && k < 27u; k++) {
@@ -273,9 +275,9 @@ static int keys_own(void)
 }
 
 /* Discussion #127 (1.2): MENU > SCALE LEDS ON, the keys of the selected track's scale (ROOT, SCALE), bit k = key k, as
- * the keys play now: the note a key gives with TRN (QNT SNAP / SEQ: the key's own note; the others round down onto
- * the scale); QNT WHITE every white key (they walk the scale; the black ones are silent). *root: the keys of the
- * scale's root. None where the engine maps the keys itself (DRUM's GM map, the slices): 0 there, and OFF */
+ * the keys play now: MAP KBD / ALL = white-key layout (blacks only duplicate, skipped here); OFF / SEQ = chromatic
+ * pitch of the key. *root: the keys of the scale's root. None where the engine maps the keys itself (DRUM's GM map,
+ * the slices): 0 there, and OFF */
 static uint32_t scale_leds(uint32_t *root)
 {
     const track_t *t = TSEL;
@@ -288,10 +290,12 @@ static uint32_t scale_leds(uint32_t *root)
     for (k = 0; k < 27u; k++) {
         if (e->keys && e->keys(t, k) >= 0)
             continue;
-        if (t->p[P_QUANT] == QN_WHITE) {
+        if (t->p[P_QUANT] == QN_KBD || t->p[P_QUANT] == QN_ALL) {
+            if (key_black(k))
+                continue;                               /* layout is white keys; blacks only duplicate */
             if ((note = kb_map(t, k)) > 127u)
-                continue;                               /* (a black key: silent) */
-            pc = (int32_t)note - t->p[P_TRANS];         /* (WHITE walks the scale before TRN) */
+                continue;
+            pc = (int32_t)note - t->p[P_TRANS];         /* (KBD/ALL walk the scale before TRN) */
         } else {
             pc = 53 + (int32_t)k + t->p[P_TRANS];
         }
@@ -728,7 +732,7 @@ static void lock_turn(uint32_t k, int32_t s, uint64_t held)
     if (id == 0xFFu)
         return;                                         /* (an empty card: nothing to lock) */
     ui.plk_rm &= ~held;                                 /* (held for a lock: its hit stays) */
-    d = track_desc(t, id);
+    d = motion_target_desc(t, id);
     s = accel(EN_K1 + k, s, d->fmt == F_ENUM ? 0 : d->max - d->min);
     motion_undo_take(t, 0x100u | k);                    /* (1.1.5: SAVE held takes the locks back) */
     for (i = 0; i < NSTEP; i++) {
@@ -736,7 +740,7 @@ static void lock_turn(uint32_t k, int32_t s, uint64_t held)
         if (!((held >> i) & 1u))
             continue;
         if (!motion_lock_get(t, i, id, &v))
-            v = motion_base_value(t, id);
+            v = motion_target_base_value(t, id);
         if (motion_set_lock(t, i, id, (int16_t)param_turn(d, v, s)) == 2)
             break;                                      /* (full: ui_notices says so) */
     }
@@ -1209,11 +1213,23 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     if (pg->graph != GR_MOD)
         pk_close();
+    if (arp_drone_frozen(TSEL, vp))
+        return;
     v = param_turn(d, *vp, accel(EN_K1 + slot, steps, d->fmt == F_ENUM ? 0 : d->max - d->min));
+    if (pg->id[slot] == PG_SLOCK) {
+        scale_lock_set(TSEL, (int16_t)v);
+        ui.force = 1;
+        return;
+    }
     *vp = (int16_t)v;
     if (pg->scope != SC_GLOBAL) {
-        motion_capture(TSEL, (uint32_t)(vp - TSEL->p), *vp);
-        ml_knob(TSEL, (uint32_t)(vp - TSEL->p));        /* (MIDI LEARN: picked) */
+        uint32_t id = pg->id[slot];
+        if (pg->graph == GR_MOD)
+            id += 3u * mod_ui_slot;
+        /* id from the page: vp may point at fx_bus_trk for SEND knobs */
+        motion_capture(TSEL, id, *vp);
+        ml_knob(TSEL, id);                              /* (MIDI LEARN: picked) */
+        scale_lock_after(TSEL, id);
     }
 }
 
@@ -1272,14 +1288,21 @@ static void ior_knob(uint32_t k, int32_t s)
             ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + dir, 0, (int32_t)FX_LIST_N - 1);
         }
     } else if (k == 2u) {
-        if (st == INS_DLY || st == INS_REV) {
+        if (st == INS_SLCR) {
+            int32_t tr = (int32_t)(TSEL - trk);
+            uint32_t bit = 1u << (uint32_t)tr;
+            sl_own_sanitize();
+            motion_fx_route(TSEL, INS_SLCR, 0);
+            song.g[G_SLOWN] = (int16_t)((uint32_t)song.g[G_SLOWN] ^ bit);  /* this track SEND <-> CHAIN */
+            motion_fx_route(TSEL, INS_SLCR, 1);
+        } else if (st == INS_DLY || st == INS_REV) {
             uint32_t which = st == INS_REV ? 1u : 0u;
             int32_t own = bus_own(which), tr = (int32_t)(TSEL - trk);
             if (own == tr)
                 bus_own_set(which, -1);               /* CHAIN -> SEND for all */
             else if (own < 0)
                 bus_own_set(which, tr);               /* SEND -> this track CHAIN */
-            /* DLY USED / REV already owned elsewhere: K3 does nothing (no steal) */
+            /* USED / already owned elsewhere: K3 does nothing (no steal) */
         } else {
             ins_send_set(TSEL, st, !ins_is_send(TSEL, st));
         }
@@ -1303,16 +1326,6 @@ static void act_do(void)
         return;
     if (cur_page()->graph == GR_EVENTS) {
         ev_oct();
-        return;
-    }
-    if (cur_page()->graph == GR_TOOLS) {
-        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        if (!act_ready()) {                               /* nothing there to clear or delete */
-            ui_message(c == 2u ? "NOTHING TO DEL" : "NOTHING TO CLEAR");
-            return;
-        }
-        confirm_open(c == 0u ? CF_CLEAR_SEQ : c == 1u ? CF_INIT_SOUND :
-                     c == 2u ? CF_DEL_ROW : CF_CLEAR_SONG, c == 2u ? ui.song_row : song.sel);
         return;
     }
     if (cur_page()->graph == GR_SONG) {
@@ -1353,19 +1366,14 @@ static void act_do(void)
     case G_SAVE:                                          /* the NAME screen writes it */
         if (transport_busy())
             ui_message("STOP TO SAVE");
+        else if (motion.count > MOTION_FILE_MAX)
+            confirm_open(CF_SAVE_PROJ, k);               /* extras past disk limit won't save */
         else if (project_used(k))
             confirm_open(CF_OVR_PROJ, k);
         else
             name_open(NK_PROJ_SAVE, k);
         break;
-    case G_CLRSEQ:
-        if (chain_busy()) { ui_message("STOP TO EDIT"); break; }
-        confirm_open(CF_CLEAR_SEQ, song.sel);
-        break;
-    default:                                              /* G_INITSND */
-        set_engine(TSEL->eng_req);                        /* engine defaults + its first preset (the steps stay) */
-        ui_message("SOUND INIT");
-        ui.force = 1;
+    default:
         break;
     }
 }
@@ -1566,7 +1574,7 @@ static void presets_turn(int32_t s)
         edit_param(0, s);                                 /* KNOB 1's (STEP: STOP TO EDIT while a song plays) */
         ui.hot_col = 0;
         ui.hot_t = 40;
-    } else if (g != GR_TOOLS) {
+    } else if (g != GR_CLEAR) {
         preset_step(s);
     }
 }
@@ -1681,6 +1689,7 @@ static void ui_notices(void)
     sample_notice();
     ml_poll();                                          /* (MIDI LEARN: a CC came for the picked parameter) */
     if (motion_full) { motion_full = 0; ui_message("AUTOMATION FULL"); }
+    if (motion_save_lim) { motion_save_lim = 0; ui_message("AUTOMATION SAVE LIMIT"); }
     if (midi_hint) {                                    /* MIDI notes into a track that is not selected */
         uint32_t h = midi_hint;
         midi_hint = 0;
@@ -1793,6 +1802,10 @@ static void ui_input(void)
     layer_show();
     section_apply();                                    /* sticky Punch-in / SEQ tools maps */
     layer_keys(lkeys);                                  /* GLO: held white keys set perf_solo */
+    if (perf_clr_say) {                                 /* G5 CLR (ISR): latched punch-ins + macros off */
+        perf_clr_say = 0;
+        ui_message("FX ALL OFF");
+    }
     if (!lay && layer_open()) {                         /* section map, no button held: knobs + FX assign */
         for (k = 0; k < 4u; k++)
             if ((ks[k] = panel_enc(EN_K1 + k)) != 0) {
@@ -1860,7 +1873,7 @@ static void ui_input(void)
             uint32_t kind = ui.confirm;
             ui.confirm = 0;
             ui.force = 1;
-            if (kind == CF_OVR_PROJ) {                  /* overwrite: the NAME screen writes it */
+            if (kind == CF_OVR_PROJ || kind == CF_SAVE_PROJ) { /* overwrite / trim warn: NAME writes it */
                 name_open(NK_PROJ_SAVE, ui.confirm_trk & 3u);
             } else if (kind == CF_OVR_USER) {
                 name_open(NK_USER_SAVE, ui.confirm_trk);
@@ -1882,14 +1895,67 @@ static void ui_input(void)
                 }
             } else if (kind == CF_CLEAR_SONG) {
                 if (!chain_busy()) { chain_defaults(&chain_config); ui.song_row = 0; ui_message("SONG CLEARED"); }
-            } else if (kind == CF_INIT_SOUND) {         /* (DRUM: the factory DRUM-X kit too) */
+            } else if (kind == CF_INIT_SOUND || kind == CF_CLEAR_TRACK_ALL) { /* DRUM: the factory DRUM-X kit too */
                 if (!chain_busy()) {
-                    set_engine(TSEL->eng_req);
-                    if (drum_track(TSEL)) {
+                    track_t *t = &trk[ui.confirm_trk % NTRK];
+                    uint32_t was = song.sel;
+                    if (kind == CF_CLEAR_TRACK_ALL)
+                        load_begin(t, UNDO_SOUND | UNDO_PAT);
+                    song.sel = (uint8_t)(ui.confirm_trk % NTRK);
+                    set_engine(t->eng_req);
+                    if (drum_track(t)) {
                         memcpy(dx_kit, DX_KIT_DEF, sizeof dx_kit);
                         memset(dx_mot, 0, sizeof dx_mot);
                     }
-                    ui_message("SOUND INIT");
+                    song.sel = (uint8_t)was;
+                    if (kind == CF_CLEAR_TRACK_ALL) {
+                        track_defaults_steps(t);
+                        t->nheld = 0;
+                        t->arp_phys = 0;
+                        load_end(t);
+                    }
+                    ui_message(kind == CF_CLEAR_TRACK_ALL ? "TRACK CLEARED" : "SOUND INIT");
+                }
+            } else if (kind == CF_CLEAR_ALL_SEQ) {
+                uint32_t i;
+                if (!chain_busy()) {
+                    for (i = 0; i < NTRK; i++) {
+                        track_t *t = &trk[i];
+                        track_defaults_steps(t);
+                        t->nheld = 0;
+                        t->arp_phys = 0;
+                    }
+                    undo.trk = 0;
+                    ui_message("ALL PATTERNS CLEARED");
+                }
+            } else if (kind == CF_INIT_ALL_SOUND || kind == CF_CLEAR_EVERY_TRACK_ALL) {
+                uint32_t i, was = song.sel;
+                if (!chain_busy()) {
+                    for (i = 0; i < NTRK; i++) {
+                        song.sel = (uint8_t)i;
+                        set_engine(trk[i].eng_req);
+                        if (drum_track(&trk[i])) {
+                            memcpy(dx_kit, DX_KIT_DEF, sizeof dx_kit);
+                            memset(dx_mot, 0, sizeof dx_mot);
+                        }
+                        if (kind == CF_CLEAR_EVERY_TRACK_ALL) {
+                            track_defaults_steps(&trk[i]);
+                            trk[i].nheld = 0;
+                            trk[i].arp_phys = 0;
+                        }
+                    }
+                    song.sel = (uint8_t)was;
+                    if (kind == CF_CLEAR_EVERY_TRACK_ALL)
+                        undo.trk = 0;
+                    ui_message(kind == CF_CLEAR_EVERY_TRACK_ALL ? "ALL TRACKS CLEARED" : "ALL SOUNDS INIT");
+                }
+            } else if (kind == CF_CLEAR_ALL_MOTION) {
+                uint32_t i;
+                if (!chain_busy()) {
+                    for (i = 0; i < NTRK; i++)
+                        motion_clear(&trk[i]);
+                    undo.trk = 0;
+                    ui_message("ALL AUTOMATION CLEARED");
                 }
             } else {
                 track_t *t = &trk[ui.confirm_trk % NTRK];

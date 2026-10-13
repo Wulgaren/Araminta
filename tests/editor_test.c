@@ -97,6 +97,40 @@ static uint32_t request(uint32_t cmd, const uint8_t *a, uint32_t n)
     sysex_byte(0xF7); ed_service(); host_drain();
     return host_wire_n;
 }
+static int matrix_edits_preserve_fx_locks(void)
+{
+    int bad = 0;
+    const uint32_t commands[] = {ED_SET, ED_TRACK_PARAM};
+    const int16_t edits[] = {3, MD_PAN, 32, 1, MD_PAN};
+    const uint32_t globals[] = {G_DTIME, G_DFDBK, G_DCOLOR, G_RSIZE, G_RDAMP};
+    for (uint32_t c = 0; c < 2; c++) {
+        for (uint32_t record = 0; record < 2; record++) {
+            reset();
+            for (uint32_t k = 0; k < NTRK; k++) motion_clear(&trk[k]);
+            song.g[G_DTIME] = 1;
+            int16_t base[5];
+            for (uint32_t i = 0; i < 5; i++) {
+                base[i] = song.g[globals[i]];
+                motion_set_lock(&trk[0], 0, MFX_TIME + i, i ? 100 : 1550);
+            }
+            seq_start(); motion_step(&trk[0], 0, &motion, 1); song.rec = (uint8_t)record;
+            motion_store_t saved = motion;
+            int ok = 1;
+            for (uint32_t i = 0; i < 5; i++) {
+                uint16_t raw = (uint16_t)(edits[i] + 8192);
+                uint8_t args[] = {0, (uint8_t)(P_M1SRC + i), (uint8_t)(raw & 127u), (uint8_t)(raw >> 7)};
+                request(commands[c], args, sizeof args);
+                ok &= trk[0].p[P_M1SRC + i] == edits[i];
+            }
+            for (uint32_t i = 0; i < 5; i++) ok &= motion_fx_base(&song.g[globals[i]]) == base[i];
+            ok &= !memcmp(&saved, &motion, sizeof saved);
+            bad += check(commands[c] == ED_SET ? "SET matrix fields preserves active FX lock bases and records" :
+                         "TRACK_PARAM matrix fields preserves active FX lock bases and records", ok);
+            seq_stop();
+        }
+    }
+    return bad;
+}
 static uint32_t pack7(const uint8_t *p, uint32_t n, uint8_t *a)
 {
     uint32_t o = 0, i;
@@ -1164,7 +1198,7 @@ static int learn_protocol(void)
 #ifndef EDITOR_TEST_NO_MAIN                              /* (robust_test.c, fuzz_*.c: this file is their base) */
 int main(void)
 {
-    int bad = preferences() + motion_locks() + framing() + uart_recovery() + steps() + samples() + song_protocol() + malformed_saves() +
+    int bad = preferences() + motion_locks() + matrix_edits_preserve_fx_locks() + framing() + uart_recovery() + steps() + samples() + song_protocol() + malformed_saves() +
               fm6_patches() + user_preset_roundtrip() + live_sync() + usb_burst() + menu_protocol() + drum_kit_retired() +
               learn_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");

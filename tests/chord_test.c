@@ -4,7 +4,7 @@
  * and voice code: the diatonic triads and sevenths of several scales and roots as music theory has them, the
  * fixed shapes, the voicings, at most 4 notes, the names, MONO plays the root, a key's or a MIDI note's release
  * ends exactly the notes it started (CHRD / VOIC changed while held too), shared notes, live recording writes the
- * chord into one step, the ARP gets the chord as held notes, QNT WHITE maps the key first, a kit (the DRUM engine,
+ * chord into one step, the ARP gets the chord as held notes, MAP KBD maps the key first, a kit (the DRUM engine,
  * SAMPLE PERC) ignores CHRD, MIDI OUT of the keys, and OFF plays exactly as before.
  * Run by tests/run_tests.sh (needs build/gen from one firmware build). */
 #define UI_TEST_NO_MAIN 1
@@ -26,7 +26,7 @@ static void reset(void)
     ui_power_on();
     memset(kb_chn, 0, sizeof kb_chn); memset(mchord, 0, sizeof mchord); memset(chord_last, 0, sizeof chord_last);
     fm1_in.notes = kb_prev = 0; mo_w = mo_r = 0; usb.config = 1;
-    trk[0].p[P_VOICE] = V_POLY; trk[0].p[P_SCALE] = 1; trk[0].p[P_ROOT] = 0;   /* C major, POLY */
+    trk[0].p[P_VOICE] = V_POLY; trk[0].p[P_SCALE] = 0; trk[0].p[P_ROOT] = 0;   /* C major, POLY */
     events_block(CTL);
 }
 /* the chord track 0 plays on note r: "n1 n2 n3 [n4]" compared with want (0-terminated) */
@@ -77,12 +77,12 @@ static int theory(void)
         t->p[P_CHRD] = CH_DIA7; ok &= name_is(CMAJ[i], MAJ7[i]);
     }
     bad += check("C major: C Dm Em F G Am Bdim, Cmaj7 Dm7 Em7 Fmaj7 G7 Am7 Bm7b5", ok);
-    t->p[P_SCALE] = 2; t->p[P_ROOT] = 9; t->p[P_CHRD] = CH_DIA3;   /* A minor */
+    t->p[P_SCALE] = 1; t->p[P_ROOT] = 9; t->p[P_CHRD] = CH_DIA3;   /* A minor */
     bad += check("A minor DIA3 on B: B D F", chord_is(71, (const uint8_t[]){71, 74, 77, 0}));
     bad += check("A minor DIA3 on A: A C E (Am), on C: C E G, on E: E G B (Em)",
                  chord_is(69, (const uint8_t[]){69, 72, 76, 0}) && chord_is(60, (const uint8_t[]){60, 64, 67, 0}) &&
                  chord_is(64, (const uint8_t[]){64, 67, 71, 0}) && name_is(69, "Am") && name_is(64, "Em"));
-    t->p[P_SCALE] = 7;                                             /* A harmonic minor */
+    t->p[P_SCALE] = 6;                                             /* A harmonic minor */
     bad += check("A harmonic minor DIA3 on E: E G# B (E), on C: C E G# (Caug)",
                  chord_is(64, (const uint8_t[]){64, 68, 71, 0}) && name_is(64, "E") &&
                  chord_is(60, (const uint8_t[]){60, 64, 68, 0}) && name_is(60, "Caug"));
@@ -90,22 +90,22 @@ static int theory(void)
     bad += check("A harmonic minor DIA7 on E: E G# B D (E7), on G#: G# B D F (G#dim7), on A: AmM7",
                  chord_is(64, (const uint8_t[]){64, 68, 71, 74}) && name_is(64, "E7") && name_is(68, "G#dim7") &&
                  name_is(69, "AmM7"));
-    t->p[P_SCALE] = 1; t->p[P_ROOT] = 3;                           /* Eb major */
+    t->p[P_SCALE] = 0; t->p[P_ROOT] = 3;                           /* Eb major */
     bad += check("Eb major DIA7 on Bb: Bb D F Ab (A#7)", chord_is(58, (const uint8_t[]){58, 62, 65, 68}) && name_is(58, "A#7"));
-    t->p[P_SCALE] = 3; t->p[P_ROOT] = 2; t->p[P_CHRD] = CH_DIA3;   /* D dorian */
+    t->p[P_SCALE] = 2; t->p[P_ROOT] = 2; t->p[P_CHRD] = CH_DIA3;   /* D dorian */
     bad += check("D dorian DIA3 on D: Dm, on G: G (the major IV)", name_is(62, "Dm") && name_is(67, "G") &&
                  chord_is(67, (const uint8_t[]){67, 71, 74, 0}));
-    t->p[P_SCALE] = 1; t->p[P_ROOT] = 0;
+    t->p[P_SCALE] = 0; t->p[P_ROOT] = 0;
     bad += check("a key outside the scale: the scale note below (C# in C major: C)", chord_is(61, (const uint8_t[]){60, 64, 67, 0}));
-    t->p[P_SCALE] = 0; t->p[P_ROOT] = 7;                           /* CHR: the major scale of G */
-    bad += check("CHR: the major scale of ROOT (G: on A, Am; on F#, F#dim)", name_is(69, "Am") && name_is(66, "F#dim"));
-    t->p[P_SCALE] = 5; t->p[P_ROOT] = 0;                           /* C major pentatonic: every other note */
+    t->p[P_SCALE] = 0; t->p[P_ROOT] = 7;                           /* G major */
+    bad += check("G major DIA3 (on A, Am; on F#, F#dim)", name_is(69, "Am") && name_is(66, "F#dim"));
+    t->p[P_SCALE] = 4; t->p[P_ROOT] = 0;                           /* C major pentatonic: every other note */
     bad += check("pentatonic DIA3: in the scale (C E A: C6)", chord_is(60, (const uint8_t[]){60, 64, 69, 0}) && name_is(60, "C6"));
     {   /* every scale, root, mode: every note in the scale */
         uint32_t s, r, n, k, note;
         uint8_t out[CHORD_MAX];
         ok = 1;
-        for (s = 1; s <= (uint32_t)TP[P_SCALE].max; s++)
+        for (s = 0; s <= (uint32_t)TP[P_SCALE].max; s++)
             for (r = 0; r < 12u; r++)
                 for (note = 36; note < 96u; note++) {
                     t->p[P_SCALE] = (int16_t)s; t->p[P_ROOT] = (int16_t)r;
@@ -132,7 +132,7 @@ static int shapes_voicings(void)
     t->p[P_CHRD] = CH_MIN7; bad += check("MIN7: C Eb G Bb (Cm7)", chord_is(60, (const uint8_t[]){60, 63, 67, 70}) && name_is(60, "Cm7"));
     t->p[P_CHRD] = CH_SUS4; bad += check("SUS4: C F G (Csus4)", chord_is(60, (const uint8_t[]){60, 65, 67, 0}) && name_is(60, "Csus4"));
     t->p[P_CHRD] = CH_POW; bad += check("POW: C G C (C5)", chord_is(60, (const uint8_t[]){60, 67, 72, 0}) && name_is(60, "C5"));
-    t->p[P_CHRD] = CH_MIN; t->p[P_SCALE] = 1;
+    t->p[P_CHRD] = CH_MIN; t->p[P_SCALE] = 0;
     bad += check("a fixed shape ignores the scale (MIN on D# in C major: D# F# A#)", chord_is(63, (const uint8_t[]){63, 66, 70, 0}));
     t->p[P_CHRD] = CH_MAJ;
     t->p[P_VOIC] = VC_OPEN; bad += check("OPEN: C G E (1-5-3)", chord_is(60, (const uint8_t[]){60, 67, 76, 0}));
@@ -207,10 +207,10 @@ static int keys(void)
     bad += check("LEGATO: the root alone (E)", ngated(t) == 1u && gate_note(t, 64));
     key_up(K_E4);
     t->p[P_VOICE] = V_POLY;
-    t->p[P_QUANT] = 2;                                             /* WHITE in A minor: D4 is the 4th degree */
-    t->p[P_SCALE] = 2; t->p[P_ROOT] = 9;
-    key_down(K_D4);                                                /* WHITE: C4 = A4 (the root), D4 = B4 */
-    bad += check("QNT WHITE: the key mapped first (A minor, D4 -> B4), then its chord B D F",
+    t->p[P_QUANT] = 2;                                             /* KBD in A minor: D4 is the 4th degree */
+    t->p[P_SCALE] = 1; t->p[P_ROOT] = 9;
+    key_down(K_D4);                                                /* KBD: C4 = A4 (the root), D4 = B4 */
+    bad += check("MAP KBD: the key mapped first (A minor, D4 -> B4), then its chord B D F",
                  kb_note[K_D4] == 71 && gate_note(t, 71) && gate_note(t, 74) && gate_note(t, 77));
     key_up(K_D4);
     bad += check("  released", !ngated(t));

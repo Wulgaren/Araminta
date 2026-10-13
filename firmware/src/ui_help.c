@@ -30,8 +30,8 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"DELAY", "[K1]DIV OR MS[K4]RATE, TIME"},
     {"REVERB", "[K1]TYPE[K2]SIZE[K3]DAMP"},
     {"MASTER", "[K1-4]CLIP PNCH DUCK[GLO]SONG"},
-    {"SCL", "[K2]SCALE[K3]QNT[SCL]CHORDS"},
-    {"CHORD", "[K1]CHORD[KEYS]CHORD[SCL]SCL"},
+    {"SCL", "[K2]SCALE[K3]MAP[SCL]CHORDS"},
+    {"CHORD", "[K1]CHORD[K3]LOCK[KEYS]CHORD"},
     {"EDIT 1", H_EDIT},
     {"EDIT 2", H_EDIT},
     {"FILTER", "[K1]TYPE[K2]CUTOFF[K3]RES[K4]KTR"},
@@ -50,12 +50,12 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"USER", "[K1]SLOT[OCT+]SAVE[SELECT]LIST"},
     {"PHRASES", "[K1]PHRASE[OCT+]LOAD[SAVE]PROJ"},
     {"PROJECT", "[K1]SLOT[K4]SAVE[EDIT]NAME"},
-    {"TOOLS", "[K1]CLEAR[K2]INIT SOUND[OCT+]DO"},
+    {"CLEAR", "[KEYS]CLEAR[SAVE]PROJECT"},
     {"ARP", "[K1]MODE[KEYS]CHORD[ARP]ARP 2"},
     {"ARP 2", "[K3]LATCH[K4]ORDER[ARP]ARP"},
     {"PATTERN", "[K1]LEN[K2]DIV[SEQ]TOOLS"},
     {"SEQ TOOLS", "[KEYS]TOOLS[K1]LEN[K2]DIV"},
-    {"STEP", "[KEYS]WRITE[K1]STEP[SELECT]DETAIL"},
+    {"STEP", "[KEYS]WRITE[K1]STEP[SELECT]PATTERN"},
     {"DETAIL", "[PRESETS]STEP[K1]CHANCE[K2]RATCH"},
     {"AUTOMATION", "[K1]ROW[OCT+]DO[EDIT]DELETE"},
     {"PUNCH", "[KEYS]FX[K1-4]MACROS[FX]EFFECTS"},
@@ -68,7 +68,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
 /* a layer's (LAYER_*): what its footer row (LAYERS[].foot) does not say */
 static const char *const HELP_LAYER[LAYER_N] = {
     "", "[KEYS]MUTES[FX]LOCK", "[KEYS]SOLO MUTE TAP[K1-4]LEVELS", "[KEYS]ROOT[K1-4]ROOT SCL CHORD",
-    "[K1]ENGINE[K2]SOUND[K3]FAV", "[K1]LENGTH[K3]SWING[K4]GATE",
+    "[K1]ENGINE[K2]SOUND[K3]FAV", "[K1]LENGTH[K3]SWING[K4]GATE", "[KEYS]CLEAR[OCT+]YES",
 };
 
 /* the hint of the page shown, 0 = none */
