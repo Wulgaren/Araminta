@@ -657,7 +657,7 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         else if (id == P_IHRATE || id == P_IHDEP) st = INS_CHOR;
         else if (id == P_SLCR || id == P_SLPAT || id == P_SLRATE) st = INS_SLCR;
         if (st == INS_SLCR)
-            send = song.g[G_SLOWN] == 0;
+            send = sl_trk_send(TSEL);
         else if (st < INS_N)
             send = ((uint16_t)TSEL->p[P_IORD] & (uint16_t)(1u << (10u + st))) != 0;
         if (st != 0xFFu && send) {

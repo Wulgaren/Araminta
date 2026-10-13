@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* SLICER: tempo-synced 16-step gate / stutter on the EFFECTS list (INS_SLCR).
- * CHAIN: private DSP in list order (fx.c track_insert). SEND: one shared bus DSP (sl_bus);
- * only MIX (P_SLDEPTH) is per-track. USED: another track owns CHAIN — signal untouched.
+ * CHAIN: private DSP in list order (fx.c track_insert); each track may CHAIN at once.
+ * SEND: one shared bus DSP (sl_bus); MODE/PAT/RATE shared (fx_bus_trk), MIX per-track.
+ * Legacy G_SLOWN 1..4: one CHAIN owner, others USED (untouched) until sanitized to a mask.
  *   P_SLCR    OFF / GATE / STUT
  *   P_SLPAT   one of SL_NPAT patterns of 16 steps ('x' live / open, '.' gated / repeated)
  *   P_SLRATE  the step: 1/8, 1/16, 1/32, 8T, 16T, 32T
@@ -43,8 +44,7 @@ static const uint16_t SL_PAT[SL_NPAT] = {
 static const uint8_t SL_DEN[6] = {2, 4, 8, 3, 6, 12};   /* P_SLRATE (N_SLDIV): a step = 1 / DEN beats */
 
 static int16_t sl_buf[NTRK][SL_LEN] __attribute__((section(".pool")));
-/* SEND recording reuses sl_buf[driver]: when G_SLOWN is SEND, no track holds CHAIN so the
- * driver's private buffer is free for the shared bus (max one CHAIN + shared SEND, never both). */
+/* SEND STUT recording uses a SEND track's sl_buf (CHAIN tracks keep theirs for private STUT). */
 typedef struct {
     uint32_t pos, len;           /* samples into the step, its length */
     uint32_t base;               /* the step without swing */
@@ -66,20 +66,23 @@ static uint8_t sl_bus_applied;   /* 1 after the first SEND track committed the b
 static uint8_t sl_bus_driver;    /* track that advanced the bus this block (re-calls keep advancing) */
 static uint8_t sl_lent;          /* perform.c has borrowed sl_buf: STUT plays live, records nothing */
 
-/* G_SLOWN: 0 SEND, 1..4 CHAIN owner (same rule as fx.c bus_own(2); kept local — fx.c is below). */
-static int32_t sl_own(void)
-{
-    int32_t v = song.g[G_SLOWN];
-    return v >= 1 && v <= (int32_t)NTRK ? v - 1 : -1;
-}
 /* which DSP state this track uses: shared bus (SEND), private (CHAIN), or null (USED) */
 static sl_t *sl_state(const track_t *t)
 {
-    int32_t own = sl_own(), tr = (int32_t)(t - trk);
-    if (own < 0)
+    uint32_t tr = (uint32_t)(t - trk);
+    if (sl_trk_used(t))
+        return 0;
+    if (sl_trk_send(t))
         return &sl_bus;
-    if (own == tr)
-        return &sl[tr];
+    return &sl[tr];
+}
+/* a free STUT buffer for the SEND bus: any SEND track's slot (idle while that track is SEND) */
+static uint32_t sl_send_buf(void)
+{
+    uint32_t k;
+    for (k = 0; k < NTRK; k++)
+        if (sl_trk_send(&trk[k]))
+            return k;
     return 0;
 }
 
@@ -234,15 +237,15 @@ static void sl_run_send(const track_t *t, int32_t *b, int32_t *sd, uint32_t n)
     tmp = drive && sl_bus_applied ? sl_bus : sl_bus_blk;
     tmp.gc = sl_send_gc[k];
     tmp.w = sl_send_w[k];
-    /* driver records into its slot; followers replay from that same buffer */
-    sl_run(pt, t, &tmp, sl_buf[drive ? k : sl_bus_driver], b, sd, n);
+    /* record into a SEND track's buffer; followers replay from the driver's pick */
+    sl_run(pt, t, &tmp, sl_buf[drive ? sl_send_buf() : sl_bus_driver], b, sd, n);
     sl_send_gc[k] = tmp.gc;
     sl_send_w[k] = tmp.w;
     if (drive) {
         tmp.gc = tmp.w = 0;
         sl_bus = tmp;
         sl_bus_applied = 1;
-        sl_bus_driver = (uint8_t)k;
+        sl_bus_driver = (uint8_t)sl_send_buf();        /* buffer index followers replay from */
     }
 }
 

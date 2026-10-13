@@ -176,8 +176,16 @@ static __attribute__((noinline)) int32_t mod_depth(const track_t *t, int32_t lfo
     return g;
 }
 
-/* before a part's block (fx.c mix_part): the per-track offsets, the per-block destinations into t->p.
- * 0 = no slot active (then nothing changed) */
+/* SLICER PAT/RATE on SEND live in fx_bus_trk (shared bus); MIX and CHAIN stay on the track. */
+static int16_t *mod_dst_ptr(track_t *t, uint32_t id)
+{
+    if ((id == P_SLPAT || id == P_SLRATE) && sl_trk_send(t))
+        return &fx_bus_trk.p[id];
+    return &t->p[id];
+}
+
+/* before a part's block (fx.c mix_part): the per-track offsets, the per-block destinations into t->p
+ * (or fx_bus_trk for SEND slicer PAT/RATE). 0 = no slot active (then nothing changed) */
 static __attribute__((noinline)) int mod_begin(track_t *t)
 {
     const int16_t *p = t->p;
@@ -218,12 +226,13 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
         {                                               /* per block: AMT 64 = the whole range */
             uint32_t id = mod_param(d);
             const param_desc_t *pd = id >= P_E0 ? &ENGINES[t->engine]->edit[id - P_E0] : &TP[id];
+            int16_t *dst = mod_dst_ptr(t, id);
             x = mod_tsrc(t, s, lfo);
             for (j = 0; j < mod.nk && mod.kid[j] != id; j++)
                 ;
             if (j == mod.nk) {
                 mod.kid[j] = (uint8_t)id;
-                mod.keep[j] = p[id];
+                mod.keep[j] = *dst;
                 off[j] = 0;
                 mod.nk++;
             }
@@ -233,7 +242,7 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     for (j = 0; j < mod.nk; j++) {
         uint32_t id = mod.kid[j];
         const param_desc_t *pd = id >= P_E0 ? &ENGINES[t->engine]->edit[id - P_E0] : &TP[id];
-        t->p[id] = (int16_t)clamp(mod.keep[j] + off[j], pd->min, pd->max);
+        *mod_dst_ptr(t, id) = (int16_t)clamp(mod.keep[j] + off[j], pd->min, pd->max);
     }
     return 1;
 }
@@ -243,7 +252,7 @@ static __attribute__((noinline)) void mod_end(track_t *t)
 {
     uint32_t j;
     for (j = 0; j < mod.nk; j++)
-        t->p[mod.kid[j]] = mod.keep[j];
+        *mod_dst_ptr(t, mod.kid[j]) = mod.keep[j];
     mod.on = 0;
 }
 

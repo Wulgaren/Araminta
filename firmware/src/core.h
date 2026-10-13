@@ -138,7 +138,8 @@ enum {                          /* global parameters */
                                  * proj_drums_to_part, which clears them after */
     G_CRTYPE, G_CRSIZE, G_CRDAMP, /* REVERB CHAIN tank (separate from SEND G_R*). Wire: FUN11 spare bytes
                                    * (project.c); older projects copy SEND on load. */
-    G_SLOWN,                      /* EFFECTS: who has slicer as CHAIN (0 = SEND for all, 1..4 = track) */
+    G_SLOWN,                      /* EFFECTS SLICER: bits 0..3 = per-track SEND (1) / CHAIN (0).
+                                   * Legacy 0 = all SEND, 1..4 = one CHAIN owner (others USED); sanitized to a mask. */
     G_COUNT
 };
 #define G_SYNC G_DREL                   /* (old names: formats' importers and their tests) */
@@ -543,6 +544,42 @@ static track_t trk[NTRK];        /* the instrument: four parts */
 static song_t song;
 #define TSEL (&trk[song.sel])    /* the selected track */
 static track_t fx_bus_trk;       /* SEND insert/slicer knobs in .p[]; other fields unused */
+
+/* SLICER ownership (G_SLOWN). Legacy exclusive owner is still readable until sl_own_sanitize. */
+static void sl_own_sanitize(void)
+{
+    int32_t v = song.g[G_SLOWN];
+    if (v >= 0 && v <= (int32_t)NTRK) {
+        if (v == 0)
+            song.g[G_SLOWN] = (int16_t)((1u << NTRK) - 1u);   /* all SEND */
+        else
+            song.g[G_SLOWN] = (int16_t)(((1u << NTRK) - 1u) ^ (1u << (uint32_t)(v - 1)));
+    } else if (v < 0 || v > (int16_t)((1u << NTRK) - 1u))
+        song.g[G_SLOWN] = (int16_t)((1u << NTRK) - 1u);
+}
+static int sl_trk_send(const track_t *t)
+{
+    int32_t v = song.g[G_SLOWN];
+    uint32_t tr = (uint32_t)(t - trk);
+    if (v >= 0 && v <= (int32_t)NTRK)
+        return v == 0;                                   /* legacy: only all-SEND; else CHAIN/USED */
+    return (v & (int32_t)(1u << tr)) != 0;
+}
+static int sl_trk_chain(const track_t *t)
+{
+    int32_t v = song.g[G_SLOWN];
+    uint32_t tr = (uint32_t)(t - trk);
+    if (v >= 0 && v <= (int32_t)NTRK)
+        return v == (int32_t)(tr + 1u);
+    return !(v & (int32_t)(1u << tr));
+}
+static int sl_trk_used(const track_t *t)
+{
+    int32_t v = song.g[G_SLOWN];
+    if (v >= 1 && v <= (int32_t)NTRK)
+        return v != (int32_t)((t - trk) + 1u);            /* legacy exclusive owner */
+    return 0;                                            /* mask form: never USED */
+}
 
 /* SWING of a track's step clock: the track's own plus the global one, at most 100 (#31). The sequencer
  * (seq.c step_samples) and the SLICER (slicer.c sl_enter) both time steps with it. At 100 the even

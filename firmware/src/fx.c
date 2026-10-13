@@ -204,15 +204,27 @@ static void ins_order_move(track_t *t, uint32_t h, int32_t dir)
 }
 /* G_DLYOWN: 0 = SEND for every track; 1..4 = that track has CHAIN (others USED).
  * G_REVOWN: 0 = SEND for every track; 1..4 = that track has CHAIN (others still SEND into tank 1).
- * G_SLOWN:  0 = SEND for every track; 1..4 = that track has CHAIN (others USED). */
-static int32_t bus_own(uint32_t which)   /* 0 delay, 1 reverb, 2 slicer; returns -1 SEND, else track index */
+ * G_SLOWN:  per-track SEND/CHAIN mask (core.h sl_trk_*); bus_own(2) is legacy-only. */
+static int32_t bus_own(uint32_t which)   /* 0 delay, 1 reverb, 2 slicer(legacy); -1 SEND, else track index */
 {
     int32_t v = song.g[which == 2u ? G_SLOWN : which ? G_REVOWN : G_DLYOWN];
+    if (which == 2u) {                               /* after sanitize: mask, not an owner index */
+        if (v >= 1 && v <= (int32_t)NTRK)
+            return v - 1;
+        return -1;
+    }
     return v >= 1 && v <= (int32_t)NTRK ? v - 1 : -1;
 }
 static void bus_own_set(uint32_t which, int32_t tr)   /* tr -1 = SEND; else claim for track tr */
 {
-    song.g[which == 2u ? G_SLOWN : which ? G_REVOWN : G_DLYOWN] =
+    if (which == 2u) {                               /* SLICER: per-track toggle lives in ui_input */
+        if (tr < 0)
+            song.g[G_SLOWN] = (int16_t)((1u << NTRK) - 1u);
+        else if (tr < (int32_t)NTRK)
+            song.g[G_SLOWN] = (int16_t)(((1u << NTRK) - 1u) ^ (1u << (uint32_t)tr));
+        return;
+    }
+    song.g[which ? G_REVOWN : G_DLYOWN] =
         tr < 0 || tr >= (int32_t)NTRK ? 0 : (int16_t)(tr + 1);
 }
 static void bus_own_sanitize(void)
@@ -221,8 +233,7 @@ static void bus_own_sanitize(void)
         song.g[G_DLYOWN] = 0;
     if (song.g[G_REVOWN] < 0 || song.g[G_REVOWN] > (int16_t)NTRK)
         song.g[G_REVOWN] = 0;
-    if (song.g[G_SLOWN] < 0 || song.g[G_SLOWN] > (int16_t)NTRK)
-        song.g[G_SLOWN] = 0;
+    sl_own_sanitize();
 }
 /* P_CHOR packs EFFECTS DLY/REV among the 8 non-SLCR slots (bit6 marks the layout; low 3 = DLY,
  * next 3 = REV). SLCR's absolute slot is track.fx_sl_pos (0..8; default 8; FUN14 project wire).
@@ -336,14 +347,19 @@ static int32_t ins_mix_of(const track_t *t, uint32_t st)
         return t->p[P_SLDEPTH];
     return st < INS_N ? t->p[MIX[st]] : 0;
 }
-/* mode string for EFFECTS: SEND, CHAIN, or USED (delay/slicer owned elsewhere).
+/* mode string for EFFECTS: SEND, CHAIN, or USED (delay owned elsewhere; slicer never USED after sanitize).
  * REV non-owners stay SEND (second tank) while another track has CHAIN. */
 static const char *fx_list_mode(const track_t *t, uint32_t st)
 {
     int32_t own, tr = (int32_t)(t - trk);
     if (st < INS_N)
         return ins_is_send(t, st) ? "SEND" : "CHAIN";
-    own = bus_own(st == INS_SLCR ? 2u : st == INS_REV ? 1u : 0u);
+    if (st == INS_SLCR) {
+        if (sl_trk_used(t))
+            return "USED";
+        return sl_trk_send(t) ? "SEND" : "CHAIN";
+    }
+    own = bus_own(st == INS_REV ? 1u : 0u);
     if (own < 0)
         return "SEND";
     if (own == tr)
@@ -1423,7 +1439,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
             continue;
         }
         if (st == INS_SLCR) {
-            if (bus_own(2) == tr) {
+            if (sl_trk_chain(t)) {
                 /* CHAIN at list position: gate mono b; with SPREAD also gate side d
                  * (spread_buf already holds left-right from mix_spread). SEND still
                  * runs after the chain via slicer_track_sd. */
@@ -1538,9 +1554,9 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     for (i = 0; i < n; i++)
         d[i] = (d[i] << 1) - b[i];                      /* left - right */
     if (ins_any(t) | t->ins_run || bus_own(0) == (int32_t)(t - trk) || bus_own(1) == (int32_t)(t - trk) ||
-        bus_own(2) == (int32_t)(t - trk))
+        sl_trk_chain(t))
         track_insert(t, b, n);
-    if (bus_own(2) < 0)                                 /* SEND: shared bus after the chain */
+    if (sl_trk_send(t))                                 /* SEND: shared bus after the chain */
         slicer_track_sd(t, b, d, n);
     /* CHAIN: already in track_insert; USED: skip */
     if ((pf.mute >> (t - trk)) & 1u)
@@ -1594,8 +1610,8 @@ static void mix_part(track_t *t, uint32_t n)
     int32_t *b = part_buf;
     uint32_t i;
     int32_t tr = (int32_t)(t - trk);
-    int chain = bus_own(0) == tr || bus_own(1) == tr || bus_own(2) == tr;
-    int sl_send = bus_own(2) < 0;
+    int chain = bus_own(0) == tr || bus_own(1) == tr || sl_trk_chain(t);
+    int sl_send = sl_trk_send(t);
     int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t) || chain;
     mod_begin(t);                                       /* the matrix's per-block values into t->p (mod.c) */
     spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON);   /* (SPREAD, mix_spread) */

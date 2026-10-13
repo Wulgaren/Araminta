@@ -877,7 +877,7 @@ static int auto_list(void)
     bad += check("  MENU > LARGE: the list layout with labels in M (as the other lists)", large_kind() == LK_LABEL);
     ui_prefs &= ~PREF_LARGE;
     /* #223: PARAM / MOD DST are flat tag+name lists. ENV DEST / LFO DEST are knob pages.
-     * Full FX rows need CHAIN on the selected track (SEND hides non-MIX). */
+     * Insert SEND hides non-MIX; DLY/REV/SLCR list all knobs unless USED. */
     song.g[G_SLOWN] = 1;                                 /* track 0 owns SLICER CHAIN */
     song.g[G_DLYOWN] = 1;
     song.g[G_REVOWN] = 1;
@@ -1007,6 +1007,20 @@ static int auto_list(void)
         }
         bad += check("MOD DST CHAIN FILTER: CUT and MIX visible", cut && mix);
         pk_close();
+    }
+    /* SLICER SEND: PAT/RATE/MIX all listed (bus knobs + per-track MIX). */
+    {
+        uint32_t i, spat = 0, srate = 0, smix = 0;
+        song.g[G_SLOWN] = 0;
+        pk_open(PK_MDST);
+        for (i = 0; i < pk_n; i++) {
+            if (pk_rows[i].id == MD_SLPAT) spat = 1;
+            if (pk_rows[i].id == MD_SLRATE) srate = 1;
+            if (pk_rows[i].id == MD_SLDEPTH) smix = 1;
+        }
+        bad += check("MOD DST SEND SLICER: PATTERN / RATE / MIX visible", spat && srate && smix);
+        pk_close();
+        song.g[G_SLOWN] = 1;
     }
     {
         uint32_t i, n = 0;
