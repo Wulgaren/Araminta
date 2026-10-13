@@ -22,7 +22,7 @@
  * The punch-in lane (the automation): a section's 64 steps of 1/16 (4 bars, from the transport's start or the
  * section's), one effect a step (pfx_lane: a nibble, 0 none, 1..10 OCT- .. RANDOM) and the tracks it acts on (pfx_ltgt).
  * Recording (REC armed, playing, not a song): the steps that pass while a MIDI effect is held get it (the lowest held),
- * with the tracks A#4 picked; G5 held erases them. Stopped, FX + G5 clears the lane. Played back with the held ones.
+ * with the tracks A#4 picked. Played back with the held ones. (G5 CLR is latched-FX all-off when FX LATCH is on.)
  * Saved with the section (project.c FUNA: the 33 spare bytes at PROJ_PFX_OFF), staged by the song (song_chain.c).
  * In the ISR: pfx_block before the events (what acts on each track, the repeats, the decays put in), pfx_end after
  * the parts (the decays back: as mod.c, nothing outside the ISR sees them). Idle: one test a block. */
@@ -138,7 +138,7 @@ static __attribute__((noinline)) void pfx_block(uint32_t n, uint32_t held)
     held = pfx_qon;
     if (song.playing && b >= 4u) {                      /* the lane: record, or play */
         uint32_t s16 = b / 4u, st = (pfx_lph / s16) & 63u, half = pfx_lph % s16 >= s16 / 2u;
-        uint32_t w = pfx_rec_ok() && (raw || pfx_clr) ? (raw ? (uint32_t)__builtin_ctz(raw) - PF_OCTD + 1u : 0u) : 16u;
+        uint32_t w = pfx_rec_ok() && raw ? (uint32_t)__builtin_ctz(raw) - PF_OCTD + 1u : 16u;
         pfx_lph += n;
         if (w < 16u) {                                  /* recording, to the nearest step: a press in a step's second */
             if (!pfx_rh) {                              /* half starts at the next one */
@@ -162,8 +162,6 @@ static __attribute__((noinline)) void pfx_block(uint32_t n, uint32_t held)
             if ((k = pfx_lane_at(st)) != 0u && k <= 10u)
                 lane = PF_BIT(PF_OCTD + k - 1u);
         }
-    } else if (pfx_clr) {
-        memset(pfx_lane, 0, sizeof pfx_lane);
     }
     if (!held && !pfx_any && !lane && !nw)
         return;

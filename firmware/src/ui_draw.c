@@ -999,17 +999,12 @@ static void draw_columns(void)
                         sk == EVK_CHANCE ? (int32_t)sv * 10 : ((int32_t)sv - 1) * 333, sk == EVK_CHANCE ? ICON_PROB : ICON_X_REPEAT);
             return;
         }
-        v = k == EVK_REC ? motion.event[c & 0xFFu].value : motion_base_value(t, id);
-        d = track_desc(t, id);
+        v = k == EVK_REC ? motion.event[c & 0xFFu].value : motion_target_base_value(t, id);
+        d = motion_target_desc(t, id);
         param_format(d, v, val, &unit);
+        if (id == MFX_TIME) fmt_int(val, v - DTIME_FREE);
         draw_column(3, k == EVK_ADD ? "VALUE" : (motion.event[c & 0xFFu].param & MOTION_LOCK) ? "LOCK" : "AUTO", val, unit,
                     k != EVK_ADD ? VAL(3u) : T_DIM, RATIO(d, enum_rank(d, v)), param_icon(d, v));
-        return;
-    }
-    if (cur_page()->graph == GR_TOOLS) {
-        static const char *const labels[] = {"PAT", "SOUND", "SEC", "SONG"};
-        static const uint8_t icons[] = {ICON_AUTO, ICON_AUTO, ICON_X_SONG, ICON_X_SONG};   /* ROW, SONG: the song's */
-        for (c = 0; c < 4u; c++) draw_act_column(c, labels[c], VAL(c), icons[c]);
         return;
     }
     if (cur_page()->scope == SC_TRK) {                 /* LEVEL PAN REV PLAY of the selected track */
@@ -1134,11 +1129,12 @@ static void draw_columns(void)
                 draw_column(c, "", "", "", T_THEME, -1, ICON_AUTO);
                 continue;
             }
-            d = track_desc(TSEL, id);
+            d = motion_target_desc(TSEL, id);
             on = motion_lock_get(TSEL, st, id, &v);
             if (!on)
-                v = motion_base_value(TSEL, id);      /* not locked: the sound's own, DIM */
+                v = motion_target_base_value(TSEL, id);      /* not locked: the sound's own, DIM */
             param_format(d, v, val, &unit);
+            if (id == MFX_TIME) fmt_int(val, v - DTIME_FREE);
             draw_column(c, d->label, val, unit, on ? VAL(c) : T_DIM, RATIO(d, enum_rank(d, v)), param_icon(d, v));
         }
         return;
@@ -1211,7 +1207,7 @@ static void draw_columns(void)
         fmt_int(pos, (int32_t)slot + 1);
         draw_column(0, "CHOOSE", N_ISTAGE[st], "", VAL(0u),
                     (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_AUTO);
-        draw_column(1, "ORDER", pos, "/8", VAL(1u), (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_ORDER);
+        draw_column(1, "ORDER", pos, "/9", VAL(1u), (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_ORDER);
         draw_column(2, "USE AS", mode, "", used ? T_DIM : VAL(2u),
                     mode[0] == 'S' ? 1000 : mode[0] == 'C' ? 0 : -1, ICON_NONE);
         param_format(d, TSEL->p[id], val, &unit);
@@ -1253,6 +1249,10 @@ static void draw_columns(void)
         param_format(d, *vp, val, &unit);
         card_mot_of(vp);                                /* (a global: never) */
         if (vp == &TSEL->p[P_LRATE] && TSEL->p[P_LSYNC]) {   /* LFO 2 SYNC on: RATE does nothing, DIM (1.2) */
+            draw_column(c, d->label, val, unit, T_DIM, RATIO(d, *vp), param_icon(d, *vp));
+            continue;
+        }
+        if (arp_drone_frozen(TSEL, vp)) {
             draw_column(c, d->label, val, unit, T_DIM, RATIO(d, *vp), param_icon(d, *vp));
             continue;
         }
@@ -1396,6 +1396,16 @@ static void confirm_text(char *a, char *b)
         if (!project_name(k & 3u, b) || !b[0])          /* the project's name, else what SONG plays from it */
             str_cpy(b, "SONG PATTERN CHANGES", 24);
         break;
+    case CF_SAVE_PROJ:                                   /* motion.count > MOTION_FILE_MAX */
+        if (project_used(k & 3u)) {
+            str_cpy(a, "OVERWRITE PROJECT A?", 24);
+            a[18] = (char)('A' + (k & 3u));
+        } else {
+            str_cpy(a, "SAVE PROJECT A?", 24);
+            a[13] = (char)('A' + (k & 3u));
+        }
+        str_cpy(b, "AUTOMATION WON'T SAVE", 24);
+        break;
     case CF_DEL_ROW:
         str_cpy(a, "DELETE SECTION?", 24);
         break;
@@ -1405,8 +1415,23 @@ static void confirm_text(char *a, char *b)
     case CF_INIT_SOUND:
         str_cpy(a, "INITIALIZE SOUND?", 24);
         break;
+    case CF_CLEAR_TRACK_ALL:
+        str_cpy(a, "CLEAR T1 ALL?", 24); a[7] = (char)('1' + k % NTRK);
+        break;
+    case CF_CLEAR_EVERY_TRACK_ALL:
+        str_cpy(a, "CLEAR ALL TRACKS?", 24);
+        break;
     case CF_CLEAR_MOTION:
         str_cpy(a, "CLEAR T1 AUTOMATION?", 24); a[7] = (char)('1' + k % NTRK);
+        break;
+    case CF_CLEAR_ALL_SEQ:
+        str_cpy(a, "CLEAR ALL SEQUENCES?", 24);
+        break;
+    case CF_INIT_ALL_SOUND:
+        str_cpy(a, "INIT ALL SOUNDS?", 24);
+        break;
+    case CF_CLEAR_ALL_MOTION:
+        str_cpy(a, "CLEAR ALL AUTOMATION?", 24);
         break;
     case CF_OVR_USER:
         str_cpy(a, "OVERWRITE ", 24);
@@ -1557,9 +1582,10 @@ static void ui_draw_page(uint32_t counting)
         ui.force = 0;
         return;
     }
-    if (!ui.home && !page_visible(ui.page)) {          /* an OP page of a track that is not DIGITAL (without
-                                                         * FELUCCA_FM4: any track): EDIT 1 */
-        ui.page = (uint8_t)page_first(FAM_EDIT);
+    if (!ui.home && !page_visible(ui.page)) {          /* OP page on a non-FM track, or DELAY/SLICER
+                                                         * while this track is USED: stay in fam/sec */
+        const page_t *pg = &PAGES[ui.page];
+        ui.page = (uint8_t)page_first_sec(pg->fam, pg->sec);
         page_entered();
     }
     cursor_fix();

@@ -424,8 +424,8 @@ static int test_keys(void)
             ok &= !kb_layer && !perf_held && mo_w == mo0;
         }
         fm1_in.buttons = 0;
-        bad += check("the keys without an effect (G5 lane clear, A#4 target, black past mutes): silent, nothing held",
-                     ok && assigned == 0x1AD5BFFu);  /* F3..F5 + mute blacks; G5/A#4 are PF_CLR/PF_TGT (>= PF_N) */
+        bad += check("the keys without an effect (G5 unassigned when LATCH off, A#4 target, black past mutes): silent, nothing held",
+                     ok && assigned == 0x1AD5BFFu);  /* F3..F5 + mute blacks; G5/A#4 are PF_N/PF_TGT (>= PF_N) */
         kb_mask = perf_mask = 0;
     }
     usb.config = 0;
@@ -972,6 +972,7 @@ static int test_map(void)
         ok = 1;
         for (p = 0; p < PF_KEYS; p++)
             perf_map[p] = (uint8_t)(p < PF_NFX ? PF_NFX - 1u - p : PF_N);
+        perf_map[15] = PF_N;                            /* G5: empty when LATCH off (CLR only with LATCH) */
         for (k = 0; k < 27u; k++) {
             if (key_black(k))
                 continue;
@@ -985,7 +986,7 @@ static int test_map(void)
             ok &= !perf_held && !kb_layer;
             white++;
         }
-        bad += check("keys: a remapped layer (white key p holds effect NFX-1-p; G5 always lane clear), all 16 white keys",
+        bad += check("keys: a remapped layer (white key p holds effect NFX-1-p; G5 unassigned when LATCH off), all 16 white keys",
                      ok && white == 16u);
         /* remapped while held: the key takes the new effect at once, the old one let go */
         fm1_in.notes = 1u << 0;                         /* F3 */
@@ -1040,17 +1041,22 @@ static int test_map(void)
         fm1_in.buttons = 0;
         kb_mask = perf_mask = 0;
     }
-    snprintf(what, sizeof what, "map: the default map on the keys: F3..B3 REPEAT/1/2, C4..F4 LPF/HPF/OCT, G4..F5 the rest, G5 lane clear");
+    snprintf(what, sizeof what, "map: the default map on the keys: F3..B3 REPEAT/1/2, C4..F4 LPF/HPF/OCT, G4..F5 the rest; G5 CLR only with LATCH");
     {
         uint32_t k;
         ok = 1;
         for (k = 0; k < 27u; k++)
             if (!key_black(k)) {
                 uint32_t p = key_place(k);
-                ok &= perf_key(k) == (p == 15u ? PF_CLR : p < PF_KEYS ? PF_DEF[p] : PF_N);
+                ok &= perf_key(k) == (p < PF_KEYS ? PF_DEF[p] : PF_N);   /* LATCH off: G5 is PF_N */
             }
         ok &= perf_key(6) == PF_HALF && perf_key(7) == PF_LPF && perf_key(9) == PF_HPF && perf_key(11) == PF_OCTD &&
               perf_key(12) == PF_OCTU && perf_key(21) == PF_ATK && perf_key(23) == PF_ARP && perf_key(24) == PF_RND;
+        perf_latch_on = 1;
+        for (k = 0; k < 27u; k++)
+            if (!key_black(k) && key_place(k) == 15u)
+                ok &= perf_key(k) == PF_CLR;
+        perf_latch_on = 0;
     }
     bad += check(what, ok);
     return bad;
@@ -1304,7 +1310,8 @@ static int test_throw(void)
             tail = peak(w0, 7u * FS + FS / 2u, 8u * FS);
             snprintf(what, sizeof what, "  FDBK %d + ECHO THROW on 4x full-scale squares: peak %d .. %d (no growth), 3.5 s after: %d",
                      v ? 90 : 120, pk1, pk4, tail);
-            bad += check(what, drive <= 2 * 32767 && pk4 <= pk1 + pk1 / 50 && tail < drive / 100);
+            /* wet is mulq15(x<<1, …): int16 min (-32768) yields peak 65536 */
+            bad += check(what, drive <= 2 * 32768 && pk4 <= pk1 + pk1 / 50 && tail < drive / 100);
         }
         perf_reset();
     }

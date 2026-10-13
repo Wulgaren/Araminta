@@ -34,6 +34,21 @@ static int check(const char *what, int ok)
 static int16_t oldv(uint32_t t, uint32_t k) { return (int16_t)(t * 100u + k * 3u + 1u); }
 
 static const uint8_t OLD_ENG[NTRK] = {7, 0, 6, 0};   /* WHEEL, ANALOG, TRIO; the drum track: 0 (no engine) */
+
+/* FUN13 dropped CHR: old wire SCL 0 was CHR -> MAJ; 1..15 -> 0..14. Tests writing pre-FUN13 images use scl_to_v12. */
+static int16_t test_scl_from_v12(int16_t sc)
+{
+    if (sc <= 0) return 0;
+    if (sc > 15) return 0;
+    return (int16_t)(sc - 1);
+}
+static int16_t test_scl_to_v12(int16_t sc)
+{
+    if (sc <= 0) return 0;                              /* MAJ stored as old CHR slot; loads back as MAJ */
+    if (sc > 14) return 15;
+    return (int16_t)(sc + 1);
+}
+
 static void fill_v2_track(proj_trk_v2_t *d, uint32_t t)
 {
     uint32_t k;
@@ -91,7 +106,8 @@ static void to_v4(project_v4_t *v, const project_t *q)
     v->parts = q->parts;
     v->phys = q->phys;
     for (t = 0; t < NTRK; t++) {
-        for (k = 0; k < 61u; k++) v->t[t].p[k] = q->t[t].p[k];
+        for (k = 0; k < 61u; k++)
+            v->t[t].p[k] = k == (uint32_t)P_SCALE ? test_scl_to_v12(q->t[t].p[k]) : q->t[t].p[k];
         for (k = 0; k < 8u; k++) v->t[t].p[61u + k] = q->t[t].p[P_E0 + k];
         v->t[t].engine = q->t[t].engine;
         v->t[t].preset = q->t[t].preset;
@@ -116,6 +132,7 @@ static int track_ok(const proj_trk_t *n, const proj_trk_v2_t *o, uint32_t t, int
     for (k = 0; k <= P_DETUNE; k++)
         ok &= n->p[k] == (drum && k == P_LEVEL ? lvl : drum && k == P_REV ? rev
                          : k == P_CHOR ? TP[P_CHOR].def   /* bus CHO send retired: FXPOS default */
+                         : k == P_SCALE ? test_scl_from_v12(oldv(t, k))
                          : oldv(t, k));
     ok &= n->p[P_SLCR] == 0 && n->p[P_SLPAT] == TP[P_SLPAT].def && n->p[P_SLRATE] == TP[P_SLRATE].def &&
           n->p[P_SLDEPTH] == TP[P_SLDEPTH].def;
@@ -149,7 +166,9 @@ static int track_v3_ok(const proj_trk_t *n, const proj_trk_v3_t *o, uint32_t t)
     uint32_t k;
     int ok = n->engine == o->engine && n->preset == o->preset && steps_same(n->step, o->step);
     for (k = 0; k <= P_SLDEPTH; k++)
-        ok &= n->p[k] == (k == P_CHOR ? TP[P_CHOR].def : oldv3(t, k));  /* CHO send -> FXPOS */
+        ok &= n->p[k] == (k == P_CHOR ? TP[P_CHOR].def
+                         : k == P_SCALE ? test_scl_from_v12(oldv3(t, k))
+                         : oldv3(t, k));  /* CHO send -> FXPOS */
     for (k = P_M1SRC; k <= P_M4AMT; k++)
         ok &= n->p[k] == TP[k].def && TP[k].def == 0;
     for (k = 0; k < 8u; k++)
@@ -157,6 +176,36 @@ static int track_v3_ok(const proj_trk_t *n, const proj_trk_v3_t *o, uint32_t t)
     return ok;
 }
 
+static int fx_motion_wire(void)
+{
+    int bad = 0, ok = 1;
+    project_t q, loaded; project_store_t st;
+    memset(&q, 0, sizeof q);
+    q.magic = PROJ_MAGIC; q.size = sizeof q; q.parts = NPART; q.phys = PROJ_PHYS;
+    chain_defaults(&q.chain); memcpy(q.dx, DX_KIT_DEF, sizeof q.dx);
+    q.g[G_DMIX] = 19; q.g[G_DTIME] = 65; q.g[G_RSIZE] = 21;
+    q.g[G_CRSIZE] = 22; q.g[G_CRDAMP] = 23;
+    q.motion.count = 1; q.motion.on = 15;
+    for (uint32_t ms = 1; ms <= 1486; ms++) {
+        q.motion.event[0] = (motion_event_t){(uint8_t)(ms & 255u), (uint8_t)(MFX_TIME | (ms & 1u ? MOTION_LOCK : 0u)), (int16_t)(64 + ms)};
+        ok &= proj_pack(&st, &q) && proj_import(&loaded, &st, sizeof st) &&
+            loaded.motion.event[0].place == (ms & 255u) && loaded.motion.event[0].param == q.motion.event[0].param &&
+            loaded.motion.event[0].value == 64 + (int32_t)ms && loaded.g[G_DMIX] == 19 && loaded.g[G_DTIME] == 65 &&
+            loaded.g[G_RSIZE] == 21 && loaded.g[G_CRSIZE] == 22 && loaded.g[G_CRDAMP] == 23;
+    }
+    bad += check("FUN15 stores every exact TIME value without shifting globals", ok);
+    q.motion.event[0] = (motion_event_t){17, P_REV | MOTION_LOCK, 109};
+    q.motion.count = 1; q.motion.on = 1;
+    ok = proj_pack(&st, &q);
+    uint32_t old_magic = 0x46554E45u;
+    memcpy(st.raw, &old_magic, 4);
+    uint32_t sum = proj_hash(st.raw, sizeof st - 4u);
+    memcpy(st.raw + sizeof st - 4u, &sum, 4);
+    bad += check("FUN14 projects retain their three-byte locks and global IDs", ok && proj_import(&loaded, &st, sizeof st) &&
+        loaded.motion.count == 1 && loaded.motion.event[0].param == (P_REV | MOTION_LOCK) &&
+        loaded.motion.event[0].value == 109 && loaded.g[G_DMIX] == 19 && loaded.g[G_CRSIZE] == 22);
+    return bad;
+}
 int main(void)
 {
     static project_v4_t v4;
@@ -172,7 +221,7 @@ int main(void)
         project_v1_t v1;
     } buf;
     uint32_t i, t;
-    int bad = 0, ok;
+    int bad = fx_motion_wire(), ok;
 
     bad += check("layout: SLICER after DETUNE, then the matrix just before P_E0",
                  P_SLCR == P_DETUNE + 1 && P_SLDEPTH + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD && P_VOIC + 1 == P_LN0 &&
@@ -274,7 +323,7 @@ int main(void)
         memset(&old, 0, sizeof old);
         memcpy(old.g, q.g, sizeof old.g); old.sel = q.sel; old.parts = q.parts; old.phys = q.phys;
         for (uint32_t k = 0; k < NTRK; k++) {
-            for (uint32_t j = 0; j < 61u; j++) old.t[k].p[j] = q.t[k].p[j];
+            for (uint32_t j = 0; j < 61u; j++) old.t[k].p[j] = j == (uint32_t)P_SCALE ? test_scl_to_v12(q.t[k].p[j]) : q.t[k].p[j];
             for (uint32_t j = 0; j < 8u; j++) old.t[k].p[61u + j] = q.t[k].p[P_E0 + j];
             old.t[k].engine = q.t[k].engine; old.t[k].preset = q.t[k].preset;
             for (uint32_t j = 0; j < NSTEP; j++) memcpy(&old.t[k].step[j], &q.t[k].step[j], sizeof(step10_t));
@@ -424,11 +473,12 @@ int main(void)
         project_t a, c;
         project_store_t st, st2;
         uint32_t i, zero = 1;
-        bad += check("FUN11 name at the end of the reserved tail; kit before FM6 (2 spare before kit)",
+        bad += check("FUN13 name at the end of the reserved tail; kit before FM6; SCALE LOCK before CRV",
                      PROJ_NAME_OFF == 3824u && PROJ_FM6_OFF == 3312u && PROJ_DX_OFF == 3216u &&
                      PROJ_DX_OFF + PROJ_DX_SIZE == PROJ_FM6_OFF &&
-                     68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + sizeof(chain_config_t) + MOTION_FILE_SIZE + 2u ==
-                         PROJ_DX_OFF);
+                     PROJ_SCL_OFF + PROJ_SCL_SIZE + 2u == PROJ_CRV_OFF &&
+                     68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + sizeof(chain_config_t) + MOTION_FILE_SIZE ==
+                     PROJ_SCL_OFF);
         memset(&a, 0, sizeof a);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);
@@ -477,13 +527,13 @@ int main(void)
         }
         memcpy(a.name, "FM SONG", 7);
         a.sum = proj_sum(&a);
-        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E42u && proj_import(&c, &st, sizeof st);
+        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E46u && proj_import(&c, &st, sizeof st);
         for (k = 0; k < NTRK; k++)
             ok &= !memcmp(c.fm6[k], FM6_FACTORY[k * 2u], FM6_PACKED) && c.t[k].engine == ENGI_FM6 &&
                   !memcmp(st.raw + PROJ_FM6_OFF + k * FM6_PACKED, FM6_FACTORY[k * 2u], FM6_PACKED);
-        bad += check("FUN11: the four FM6 patches round trip (bytes at PROJ_FM6_OFF)", ok && !memcmp(c.name, "FM SONG", 7));
+        bad += check("FUN14: the four FM6 patches round trip (bytes at PROJ_FM6_OFF)", ok && !memcmp(c.name, "FM SONG", 7));
         st.raw[PROJ_FM6_OFF + 5] ^= 1u;
-        bad += check("FUN11: a patch byte changed: the hash refuses it", !proj_import(&c, &st, sizeof st));
+        bad += check("FUN14: a patch byte changed: the hash refuses it", !proj_import(&c, &st, sizeof st));
         st.raw[PROJ_FM6_OFF + 5] ^= 1u;
         {   /* FUN8 as 1.0.x wrote it (3584 bytes, 91 parameters: E0..E7 at 83..90, the patches at 3056): the DRUM
              * lane levels 100 %, E0..E7 and their motion at today's P_E0.., the patches and the name kept */
@@ -747,10 +797,10 @@ int main(void)
         a.sum = proj_sum(&a);
         bad += check("FUN10 P_IORD order above 719 is refused", !proj_pack(&st, &a));
     }
-    {   /* FUN11: DRUM-X kit / mute / X-MOD at PROJ_DX_OFF; FUN10 (FUNA) loads the factory kit */
+    {   /* FUN11 kit/mute still on disk; X-MOD (dx_mot) is RAM-only — those 4 bytes hold SEND bus knobs. */
         project_t a, c;
         static project_store_t st, funa;
-        uint32_t sum;
+        uint32_t sum, i;
         memset(&a, 0, sizeof a);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);
@@ -758,16 +808,20 @@ int main(void)
         a.dx[0].a[0] = 11; a.dx[0].b[2] = 99; a.dx[3].a[4] = 55;
         a.dx_mute = (uint16_t)(DXG_KICK | (1u << 8) | (4u << 8));
         a.dx_mot[XM_RATE] = 3; a.dx_mot[XM_DPTH] = 40; a.dx_mot[XM_SHPE] = 2; a.dx_mot[XM_RAND] = 17;
+        for (i = 0; i < FX_BUS_N; i++)
+            a.fx_bus[i] = (uint8_t)(10u + i);
         memcpy(a.name, "DX KIT", 6);
         a.sum = proj_sum(&a);
-        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E42u &&
+        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E46u &&
              !memcmp(st.raw + PROJ_DX_OFF, a.dx, sizeof a.dx) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx] == (uint8_t)(a.dx_mute & DXG_ALL) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx + 1u] == (uint8_t)(a.dx_mute >> 8) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx + 2u] == 1u &&
-             !memcmp(st.raw + PROJ_DX_OFF + sizeof a.dx + 3u, a.dx_mot, sizeof a.dx_mot) &&
-             proj_import(&c, &st, sizeof st) && !memcmp(&a, &c, sizeof a);
-        bad += check("FUN11: DRUM-X kit, mute and X-MOD round trip (bytes at PROJ_DX_OFF)", ok);
+             proj_import(&c, &st, sizeof st) &&
+             !memcmp(c.dx, a.dx, sizeof a.dx) && c.dx_mute == a.dx_mute &&
+             !c.dx_mot[0] && !c.dx_mot[1] && !c.dx_mot[2] && !c.dx_mot[3] &&
+             !memcmp(c.fx_bus, a.fx_bus, FX_BUS_N) && !memcmp(c.name, "DX KIT", 6);
+        bad += check("FUN14: DRUM-X kit/mute round trip; X-MOD not on disk; SEND bus knobs round trip", ok);
         funa = st;
         ((uint32_t *)funa.raw)[0] = 0x46554E41u;       /* FUNA / FUN10: same 3840 layout, no kit block */
         memset(funa.raw + PROJ_DX_OFF, 0, PROJ_DX_SIZE);
@@ -777,6 +831,39 @@ int main(void)
              !c.dx_mute && !c.dx_mot[0] && !c.dx_mot[1] && !c.dx_mot[2] && !c.dx_mot[3] &&
              !memcmp(c.name, "DX KIT", 6);
         bad += check("FUN10 (FUNA): loads with the factory DRUM-X kit (custom kit not on disk)", ok);
+    }
+    {   /* FUN14: SCALE LOCK + SLCR slots on disk; stash RAM-only; SEND bus in reclaimed bytes. */
+        project_t a, c;
+        static project_store_t st;
+        uint32_t i;
+        memset(&a, 0, sizeof a);
+        a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
+        chain_defaults(&a.chain);
+        a.t[0].scl_lock = SCL_LOCK_SCALE;
+        a.t[1].scl_lock = SCL_LOCK_OFF;
+        a.t[1].scl_stash_ok = 1;
+        a.t[1].scl_stash[0] = 5; a.t[1].scl_stash[1] = 2; a.t[1].scl_stash[2] = 1;
+        a.t[2].scl_lock = SCL_LOCK_SCALE;
+        a.t[3].scl_lock = SCL_LOCK_SCALE;
+        a.t[0].fx_sl_pos = 3; a.t[1].fx_sl_pos = 5; a.t[2].fx_sl_pos = 7; a.t[3].fx_sl_pos = 8;
+        a.g[G_SLOWN] = 2;                                 /* legacy: track 1 CHAIN → mask 0xD */
+        for (i = 0; i < FX_BUS_N; i++)
+            a.fx_bus[i] = (uint8_t)(20u + i * 3u);
+        a.sum = proj_sum(&a);
+        ok = proj_pack(&st, &a) &&
+             (st.raw[PROJ_SCL_OFF] & 0x8Fu) == 0x8Du &&   /* mark + locks t0/t2/t3 */
+             ((st.raw[PROJ_SCL_OFF] >> 4) & 7u) == 2u &&  /* legacy owner for old readers */
+             (st.raw[PROJ_SL_SEND_OFF] & 0x1Fu) == 0x1Du && /* mask 0xD | mark */
+             st.raw[PROJ_SLPOS_OFF] == (uint8_t)(3u | (5u << 4)) &&
+             st.raw[PROJ_SLPOS_OFF + 1u] == (uint8_t)(7u | (8u << 4)) &&
+             proj_import(&c, &st, sizeof st) &&
+             c.t[0].scl_lock == SCL_LOCK_SCALE && c.t[1].scl_lock == SCL_LOCK_OFF &&
+             c.t[2].scl_lock == SCL_LOCK_SCALE && c.t[3].scl_lock == SCL_LOCK_SCALE &&
+             !c.t[1].scl_stash_ok && !c.t[1].scl_stash[0] && !c.t[1].scl_stash[1] &&
+             !c.t[1].scl_stash[2] && !memcmp(c.fx_bus, a.fx_bus, FX_BUS_N) &&
+             c.t[0].fx_sl_pos == 3 && c.t[1].fx_sl_pos == 5 && c.t[2].fx_sl_pos == 7 &&
+             c.t[3].fx_sl_pos == 8 && c.g[G_SLOWN] == 0xD;
+        bad += check("FUN14: SCALE LOCK + SLCR slots; stash not on disk; SEND bus knobs round trip", ok);
     }
     {   /* Felucca 1.5 FUNA (np 111): INSERT + FTYPE/ESYNC through proj_import end-to-end */
         project_t c;

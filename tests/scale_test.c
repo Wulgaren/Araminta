@@ -8,7 +8,6 @@
 
 static const uint8_t WHITE_KEYS[] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const struct { uint8_t count, notes[12]; } EXPECTED[] = {
-    {12, {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}},
     {7, {0, 2, 4, 5, 7, 9, 11}}, {7, {0, 2, 3, 5, 7, 8, 10}},
     {7, {0, 2, 3, 5, 7, 9, 10}}, {7, {0, 2, 4, 5, 7, 9, 10}},
     {5, {0, 2, 4, 7, 9}}, {5, {0, 3, 5, 7, 10}},
@@ -41,7 +40,7 @@ static void mapping_test(void)
                     t->p[P_TRANS] = (int16_t)trans;
                     for (k = w = 0; k < 27u; k++) {
                         uint32_t actual = kb_map(t, k);
-                        if (k == WHITE_KEYS[w]) {
+                        if (w < 16u && k == WHITE_KEYS[w]) {
                             /* Four white keys precede C4; use a positive cycle
                              * offset to independently handle the lower degrees. */
                             int d = (int)w - 4 + 12 * EXPECTED[s].count;
@@ -50,7 +49,16 @@ static void mapping_test(void)
                             assert(actual == (uint32_t)clamp(want, 0, 127));
                             w++;
                         } else {
-                            assert(actual == KB_SILENT);
+                            /* black: chromatic pitch nearest in-scale (tie: lower) */
+                            int32_t chrom = 53 + (int32_t)k + 12 * oct + trans;
+                            int32_t down = chrom, up = chrom, guard, want;
+                            uint32_t mask = scale_mask(t);
+                            for (guard = 12; guard-- && !((mask >> (uint32_t)((down - root + 120) % 12)) & 1u);)
+                                down--;
+                            for (guard = 12; guard-- && !((mask >> (uint32_t)((up - root + 120) % 12)) & 1u);)
+                                up++;
+                            want = chrom - down <= up - chrom ? down : up;
+                            assert(actual == (uint32_t)clamp(want, 0, 127));
                         }
                     }
                 }
@@ -65,14 +73,15 @@ static void mapping_test(void)
     t->engine = t->eng_req = ENGI_DRUM;        /* C is the kick */
     for (k = 0; k < 27u; k++)
         assert(kb_map(t, k) == 29u + k);
-    t->engine = t->eng_req = 0;                /* SNAP (QNT 1, the old ON): every key, rounded down */
+    t->engine = t->eng_req = 0;                /* ALL: same key map as KBD (C minor) */
     t->p[P_QUANT] = 1;
-    t->p[P_SCALE] = 2;                         /* C minor */
+    t->p[P_SCALE] = 1;                         /* C minor */
     t->p[P_ROOT] = 0;
     t->p[P_TRANS] = 0;
     song.octave = 0;
-    assert(kb_map(t, 11) == 63u && kb_map(t, 10) == 63u && kb_map(t, 7) == 60u && kb_map(t, 8) == 60u);
-    puts("scales: all 16 scales, 12 roots, octave/transpose ranges, bypass, drums and SNAP ok");
+    assert(kb_map(t, 7) == 60u && kb_map(t, 8) == 60u);   /* C4 root; C# -> C */
+    assert(kb_map(t, 11) == 63u && kb_map(t, 10) == 63u); /* E white = Eb; D# -> Eb */
+    puts("scales: all 15 scales, 12 roots, octave/transpose ranges, bypass, drums and ALL(=KBD keys) ok");
 }
 
 static void key_events_test(void)
@@ -86,25 +95,26 @@ static void key_events_test(void)
     usb.config = 1;
     mo_w = mo_r = 0;
     t->p[P_QUANT] = 2;
-    t->p[P_SCALE] = 2;                      /* C minor: E key plays Eb */
+    t->p[P_SCALE] = 1;                      /* C minor: E key plays Eb */
     t->p[P_AMODE] = 1;
     song.playing = song.rec = 1;
-    fm1_in.notes = 1u << 8;                /* C# is silent */
+    fm1_in.notes = 1u << 8;                /* C#: nearest is C */
     keyboard_block();
-    assert(t->arp_phys == 0 && t->nheld == 0 && t->step[0].n == 0 && mo_w == 0);
-    t->p[P_QUANT] = 0;                    /* releasing a muted key stays silent */
+    assert(t->arp_phys == 1 && t->nheld == 1 && t->held[0] == 60 && t->step[0].n == 0);
+    t->p[P_QUANT] = 0;                    /* release under OFF */
     fm1_in.notes = 0;
     keyboard_block();
-    assert(mo_w == 0);
+    assert(t->arp_phys == 0 && t->nheld == 0);
     t->p[P_QUANT] = 2;
-    fm1_in.notes = (1u << 11) | (1u << 10); /* E and D#: only Eb sounds/records */
+    mo_w = mo_r = 0;                       /* (C# already sent MIDI; count from here) */
+    fm1_in.notes = (1u << 11) | (1u << 10); /* E and D#: Eb (dup) */
     keyboard_block();
     assert(t->arp_phys == 1 && t->nheld == 1 && t->held[0] == 63);
     assert(t->step[0].n == 0);             /* ARP on: the arp's notes are recorded, not the keys */
     arp_tick(t, 1);
     assert(t->step[0].n == 1 && t->step[0].note[0] == 63);
-    assert(mo_w == 1 && ((midi_out_q[0] >> 16) & 127u) == 63);
-    t->p[P_SCALE] = 9;
+    assert(mo_w >= 1 && ((midi_out_q[mo_w - 1] >> 16) & 127u) == 63);
+    t->p[P_SCALE] = 8;
     t->p[P_ROOT] = 6;
     t->p[P_TRANS] = 12;
     song.octave = 1;
@@ -124,7 +134,7 @@ static void key_events_test(void)
     fm1_in.notes = 0;
     keyboard_block();
     assert(t->arp_phys == 0 && t->nheld == 0 && mo_w == before + 1);
-    puts("scales: silent keys, arp, live recording, MIDI out and held-note changes ok");
+    puts("scales: KBD keys, arp, live recording, MIDI out and held-note changes ok");
 }
 
 /* the voices of t holding a note (gate on), and whether note n is one of them */
@@ -159,8 +169,8 @@ static int stray(const track_t *t)
     return 0;
 }
 
-/* QNT SEQ (#37): the sequencer's notes snap to the scale as they play, the steps stay as written; a scale
- * changed while notes ring ends exactly the notes that sounded (no stuck notes); drum kits never snap */
+/* MAP SEQ (#37): the sequencer's notes snap to the scale as they play, the steps stay as written; live keys
+ * stay chromatic (OFF); a scale changed while notes ring ends exactly the notes that sounded; kits never snap */
 static void seq_quant_test(void)
 {
     track_t *t = &trk[0];
@@ -185,19 +195,26 @@ static void seq_quant_test(void)
     for (i = 0; i < NELEM(STEPS); i++)
         t->step[i] = STEPS[i];
     t->seq_active = 1;
-    t->p[P_SCALE] = 1;                             /* C major */
+    t->p[P_SCALE] = 0;                             /* C major */
     t->p[P_ROOT] = 0;
     period = div_samples((uint32_t)t->p[P_SDIV]);
 
-    t->p[P_QUANT] = 0;                             /* OFF and SNAP: the sequence plays as written */
+    t->p[P_QUANT] = 0;                             /* OFF and KBD: the sequence plays as written */
     seq_start();
     events_block(CTL);
     assert(t->seq_n == 2 && t->seq_notes[0] == 61 && t->seq_notes[1] == 64 && gated_note(t, 61));
     seq_stop();
-    t->p[P_QUANT] = 1;
+    t->p[P_QUANT] = 2;                             /* KBD: keys remapped, seq as written */
     seq_start();
     events_block(CTL);
     assert(t->seq_n == 2 && t->seq_notes[0] == 61 && gated_note(t, 61));
+    seq_stop();
+    assert(gated(t) == 0);
+
+    t->p[P_QUANT] = 1;                             /* ALL: seq snaps like SEQ */
+    seq_start();
+    events_block(CTL);
+    assert(t->seq_n == 2 && t->seq_notes[0] == 60 && t->seq_notes[1] == 64 && gated_note(t, 60));
     seq_stop();
     assert(gated(t) == 0);
 
@@ -213,21 +230,21 @@ static void seq_quant_test(void)
     assert(t->seq_idx == 1 && t->seq_n == 1 && t->seq_notes[0] == 65 && gated(t) == 1);
     events_block(period);                          /* step 3: C#4 -> C4, held into the TIEs */
     assert(t->seq_idx == 2 && t->seq_n == 1 && t->seq_notes[0] == 60 && gated_note(t, 60) && gated(t) == 1);
-    t->p[P_SCALE] = 0;                             /* CHR while it is held: C#4 itself now, but C4 sounds */
+    t->p[P_SCALE] = 4;                             /* PEN while it is held: still C4 sounding */
     events_block(period);
     t->p[P_ROOT] = 1;                              /* and a new root */
-    t->p[P_SCALE] = 1;
+    t->p[P_SCALE] = 0;
     events_block(period);
     assert(t->seq_idx == 4 && gated_note(t, 60) && gated(t) == 1);
     t->p[P_ROOT] = 0;
     events_block(period);                          /* step 6: C#4 and C4 both C4 now: one note, C4 retriggered */
     assert(t->seq_idx == 5 && t->seq_n == 1 && t->seq_notes[0] == 60 && gated(t) == 1);
-    t->p[P_SCALE] = 5;                             /* PEN while it rings */
+    t->p[P_SCALE] = 4;                             /* PEN while it rings */
     events_block(period);                          /* REST: released */
     assert(t->seq_idx == 6 && t->seq_n == 0 && gated(t) == 0);
     events_block(period);                          /* round again, then stop with notes sounding */
     assert(t->seq_idx == 0 && gated(t) == 2 && gated_note(t, 60) && gated_note(t, 64));
-    t->p[P_SCALE] = 2;
+    t->p[P_SCALE] = 1;
     seq_stop();
     assert(gated(t) == 0);
     for (i = 0; i < NELEM(STEPS); i++)
@@ -237,7 +254,7 @@ static void seq_quant_test(void)
     t->step[1].flags = SF_SLIDE;
     seq_start();
     for (i = 0; i < 4000u; i++) {
-        t->p[P_SCALE] = (int16_t)(i * 7u % 16u);
+        t->p[P_SCALE] = (int16_t)(i * 7u % 15u);
         t->p[P_ROOT] = (int16_t)(i * 5u % 12u);
         events_block(CTL);
         assert(!stray(t));
@@ -249,7 +266,7 @@ static void seq_quant_test(void)
     /* drum kits and the DRUM engine never snap: their notes are GM drums */
     host_preset(t, ENGI_DRUM, 0);
     t->engine = t->eng_req = ENGI_DRUM;
-    t->p[P_SCALE] = 1;
+    t->p[P_SCALE] = 0;
     t->p[P_ROOT] = 0;
     t->step[0] = (step_t){.note = {37, 39}, .n = 2, .hit = 1u << 0, .time = ST_NOTE};
     seq_start();
@@ -257,10 +274,10 @@ static void seq_quant_test(void)
     assert(t->seq_n == 3 && t->seq_notes[0] == 37 && t->seq_notes[1] == 39 && t->seq_notes[2] == DRUM_LANE_NOTE[0]);
     seq_stop();
     assert(gated(t) == 0);
-    puts("scales: QNT SEQ snaps the sequence as it plays (steps unchanged), no stuck notes over scale changes, kits never");
+    puts("scales: MAP ALL/SEQ snap the sequence as it plays (steps unchanged), no stuck notes over scale changes, kits never");
 }
 
-/* #218: SCL TRN offsets sequencer playback only; stored step pitches stay put (QNT SNAP included) */
+/* #218: SCL TRN offsets sequencer playback only; stored step pitches stay put (MAP KBD included) */
 static void seq_trn_test(void)
 {
     track_t *t = &trk[0];
@@ -280,9 +297,9 @@ static void seq_trn_test(void)
     for (i = 0; i < NELEM(STEPS); i++)
         t->step[i] = STEPS[i];
     t->seq_active = 1;
-    t->p[P_SCALE] = 1;                             /* C major */
+    t->p[P_SCALE] = 0;                             /* C major */
     t->p[P_ROOT] = 0;
-    t->p[P_QUANT] = QN_SNAP;                       /* SNAP: keys snap; pattern still plays with TRN */
+    t->p[P_QUANT] = QN_KBD;                        /* KBD: keys remapped; pattern plays with TRN only */
     t->p[P_TRANS] = 2;                             /* +2 semitones */
 
     seq_start();
@@ -349,7 +366,7 @@ static void arp_reset(track_t *t)
     t->p[P_VOICE] = V_POLY;
     t->p[P_AMODE] = 1;                             /* UP */
     t->p[P_AOCT] = 1;
-    t->p[P_SCALE] = 2;                             /* C minor */
+    t->p[P_SCALE] = 1;                             /* C minor */
     t->p[P_ROOT] = 0;
     t->p[P_TRANS] = 0;
 }
@@ -359,28 +376,28 @@ static void arp_follow_test(void)
     track_t *t = &trk[0];
     uint32_t i;
 
-    /* the report: QNT SNAP, HOLD, a chord latched, then TRN */
+    /* MAP KBD (and ALL keys): HOLD, a chord latched, then TRN / SCALE / ROOT */
     arp_reset(t);
-    t->p[P_QUANT] = QN_SNAP;
+    t->p[P_QUANT] = QN_KBD;
     t->p[P_AHOLD] = 1;
     events_block(CTL);                             /* (the ISR sees HOLD on) */
-    fm1_in.notes = (1u << 7) | (1u << 11);         /* C4, E4 -> Eb4 in C minor */
+    fm1_in.notes = (1u << 7) | (1u << 11);         /* C4, E4 -> Eb4 in C minor (KBD walk) */
     keyboard_block();
     fm1_in.notes = 0;
     keyboard_block();
     assert(t->nheld == 2 && t->held[0] == 60 && t->held[1] == 63);
     assert(arp_is(t, 60, 63));
-    t->p[P_TRANS] = 2;                             /* D4, F#4 -> F4: transposed, then onto the scale */
+    t->p[P_TRANS] = 2;                             /* +2 after the walk: D4, F4 */
     assert(arp_is(t, 62, 65));
-    t->p[P_TRANS] = 1;                             /* C#4 -> C4, F4 */
-    assert(arp_is(t, 60, 65));
+    t->p[P_TRANS] = 1;                             /* +1: C#4, E4 */
+    assert(arp_is(t, 61, 64));
     t->p[P_TRANS] = 0;
-    t->p[P_SCALE] = 1;                             /* SCALE: C major, E4 itself now */
+    t->p[P_SCALE] = 0;                             /* SCALE: C major, E4 itself now */
     assert(arp_is(t, 60, 64));
-    t->p[P_ROOT] = 2;                              /* ROOT: D major, C4 -> B3, E4 */
-    assert(arp_is(t, 59, 64));
+    t->p[P_ROOT] = 2;                              /* ROOT: D major walk from D */
+    assert(arp_is(t, 62, 66));                     /* C4->D, E4->F# (degrees 0 and 2 of D maj) */
     t->p[P_ROOT] = 0;
-    t->p[P_SCALE] = 2;                             /* back as it was: exactly the notes latched */
+    t->p[P_SCALE] = 1;                             /* back as it was: exactly the notes latched */
     assert(arp_is(t, 60, 63));
     song.octave = 1;                               /* the octave buttons: the next keys, not the latched ones */
     assert(arp_is(t, 60, 63));
@@ -391,7 +408,7 @@ static void arp_follow_test(void)
     arp_run(t, 2);
     assert(t->nheld == 0 && t->arp_note == 0 && gated(t) == 0);
 
-    /* QNT OFF, no HOLD: the keys held follow TRN too; their release ends them, whatever TRN is now */
+    /* MAP OFF, no HOLD: the keys held follow TRN too; their release ends them, whatever TRN is now */
     arp_reset(t);
     t->p[P_QUANT] = QN_OFF;
     fm1_in.notes = (1u << 7) | (1u << 11);         /* C4, E4 */
@@ -411,7 +428,7 @@ static void arp_follow_test(void)
 
     /* MIDI IN into the arp: its notes are not the keyboard's, TRN never moved them (nor does it now) */
     arp_reset(t);
-    t->p[P_QUANT] = QN_SNAP;
+    t->p[P_QUANT] = QN_KBD;
     t->p[P_AHOLD] = 1;
     input_on(t, 61, 100);
     input_on(t, 66, 100);
@@ -419,7 +436,7 @@ static void arp_follow_test(void)
     input_off(t, 66);
     assert(arp_is(t, 61, 66));
     t->p[P_TRANS] = 5;
-    t->p[P_SCALE] = 1;
+    t->p[P_SCALE] = 0;
     assert(arp_is(t, 61, 66));
 
     /* CHRD: a key's chord moves with it (its notes as far above the key's note) */
@@ -439,7 +456,7 @@ static void arp_follow_test(void)
     assert(arp_seen[0] == 62 && arp_seen[1] == 69 && arp_seen[2] == 74);
     t->p[P_CHRD] = 0;
 
-    /* QNT WHITE after the keys: a black key latched is silent now (left out); all of them: the arp rests */
+    /* MAP KBD after the keys: a black key latched maps to nearest (C# -> C); both may meet on C */
     arp_reset(t);
     t->p[P_QUANT] = QN_OFF;
     t->p[P_AHOLD] = 1;
@@ -448,7 +465,7 @@ static void arp_follow_test(void)
     fm1_in.notes = 0;
     keyboard_block();
     assert(arp_is(t, 60, 61));
-    t->p[P_QUANT] = QN_WHITE;                      /* C4 is the root, C#4 silent */
+    t->p[P_QUANT] = QN_KBD;                        /* C4 root, C#4 -> C4 (same note) */
     arp_run(t, 4);
     for (i = 0; i < 4u; i++)
         assert(arp_seen[i] == 60);
@@ -457,9 +474,8 @@ static void arp_follow_test(void)
     keyboard_block();
     fm1_in.notes = 0;
     keyboard_block();
-    t->p[P_QUANT] = QN_WHITE;
-    arp_run(t, 4);
-    assert(t->nheld == 1 && t->arp_note == 0 && gated(t) == 0);
+    t->p[P_QUANT] = QN_KBD;                        /* C# -> C (one note) */
+    assert(arp_is(t, 60, 60));
     t->p[P_QUANT] = QN_OFF;
     arp_run(t, 1);
     assert(arp_seen[0] == 61);
@@ -479,7 +495,7 @@ static void arp_follow_test(void)
     assert(arp_is(t, kb_map(t, 7), kb_map(t, 9)));
     t->p[P_TRANS] = 7;
     assert(arp_is(t, t->held[0], t->held[1]));
-    puts("scales: the arp's latched / held keys follow TRN, ROOT, SCALE and QNT (#191); octave, MIDI IN, kits as before");
+    puts("scales: the arp's latched / held keys follow TRN, ROOT, SCALE and MAP (#191); octave, MIDI IN, kits as before");
 }
 
 int main(void)

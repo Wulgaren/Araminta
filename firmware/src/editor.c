@@ -529,8 +529,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_v(d->def);
         ed_str(d->label, 8);
         ed_str(d->unit, 8);
-        if (d->fmt == F_ENUM && d->names)                  /* up to 48 (matrix DST grew past 24) */
-            for (i = 0; i <= (uint32_t)(d->max - d->min) && i < 48u; i++)
+        if (d->fmt == F_ENUM && d->names)                  /* up to 64 (matrix DST grew past 48) */
+            for (i = 0; i <= (uint32_t)(d->max - d->min) && i < 64u; i++)
                 ed_str(d->names[i], 8);
         break;
     case ED_STEP_GET:
@@ -845,8 +845,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (na >= 4u && !(chain_busy() && chain_owns(a[1]))) {
             if (a[1] == P_IORD)
                 iord_set_perm(t, (uint32_t)clamp(ed_rv(a + 2), 0, 719));
-            else if (d->max > d->min)                      /* as SET: clamped; a fixed value stays */
+            else if (d->max > d->min) {                    /* as SET: clamped; a fixed value stays */
                 t->p[a[1]] = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
+                scale_lock_after(t, a[1]);
+            }
             (void)motion_capture(t, a[1], t->p[a[1]]);
             ed_known(a[0], a[1]);
             ui.force = 1;

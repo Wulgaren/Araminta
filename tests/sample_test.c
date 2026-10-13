@@ -7,8 +7,7 @@
  *    1.2 .. 1.4.1 had a reduced 2-zone one): SAMPLE plays the right zone, at the note's pitch (YIN on the render)
  *    over the keyboard, for 0.75 s at a root; GRAIN's SRC 0 plays it. Renders into DEMO_DIR.
  * 1b. CR78 is not in the ROM bank (upload as USR); USR1..3 are 5..7.
- * 2. SLICE's PIANO (when FELUCCA_SLICE=1) is SAMPLE PIANO's middle C zone itself.
- * 3. PIANO HD (PIANO_HD.hdr / .bin: gen_samples.py --user-slot PIANO "PIANO HD", the file 1.2 offered for the old
+ * 2. PIANO HD (PIANO_HD.hdr / .bin: gen_samples.py --user-slot PIANO "PIANO HD", the file 1.2 offered for the old
  *    piano): a user who installed it keeps it; in USR1 it is valid and renders bit for bit as SET 0 at every key.
  * (Bit identity with 1.1.5.1 itself: tests/golden.txt's SAMPLE / GRAIN PIANO renders are 1.1.5.1's hashes.) */
 #include <stdint.h>
@@ -226,17 +225,10 @@ int main(int argc, char **argv)
 
     /* 1b: CR78 omitted from ROM (Araminta: upload as USR) */
     check("CR78 ROM set omitted (USR1 at index 5)", str_eq(SMP_ALL_NAMES[5], "USR1") && SMP_NSETS == 5u);
+    check("SAMPLE blob is sets only (no retired SLICE BREAK)",
+          sizeof SMP_DATA == 104194u);
 
-#if FELUCCA_SLICE
-    /* 2: SLICE's PIANO, SAMPLE PIANO's middle C zone itself */
-    check("SLICE PIANO: SAMPLE PIANO's middle C zone itself (16537 samples at 22,050 Hz, no copy)",
-          SLC_PIANO.len == 16537u && SLC_PIANO.rate == 32768u && SLC_PIANO.seg[0].off == SMP_ZONES[2].off &&
-          SLC_PIANO.len == SMP_ZONES[2].n);
-#else
-    check("SLICE PIANO skipped (FELUCCA_SLICE=0)", 1);
-#endif
-
-    /* 3: PIANO HD (1.2's file of the old piano), from a user slot: as SET 0, bit for bit */
+    /* 2: PIANO HD (1.2's file of the old piano), from a user slot: as SET 0, bit for bit */
     snprintf(path, sizeof path, "%s.hdr", argv[1]);
     if (load(path, host_slots, SMP_USER_DATA) != (long)sizeof(smp_user_hdr_t)) {
         printf("sample: no %s (gen_samples.py --user-slot PIANO \"PIANO HD\" ...)\n", path);

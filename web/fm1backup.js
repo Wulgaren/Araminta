@@ -150,7 +150,10 @@ export async function restoreBackup(request, file, onProgress = () => {}) {
 }
 
 /* One PROJECT slot (backup ids 2..5) as its own file. Uses LIST/GET/PUT only; other slots stay. */
-const PROJECT_MAGIC = { 3388: 0x46554e37, 3584: 0x46554e38, 3648: 0x46554e39, 3840: 0x46554e41 };
+const PROJECT_MAGIC = {
+  3388: [0x46554e37], 3584: [0x46554e38], 3648: [0x46554e39],
+  3840: [0x46554e41, 0x46554e42, 0x46554e43, 0x46554e44, 0x46554e45, 0x46554e46],
+};
 const projId = (slot) => {
   if (!Number.isInteger(slot) || slot < 0 || slot > 3) throw new Error("Project slot must be 0..3");
   return 2 + slot;
@@ -169,7 +172,7 @@ export function projectName(bytes) {
 }
 function checkProjectBytes(bytes) {
   const want = PROJECT_MAGIC[bytes.length];
-  if (!want || projMagic(bytes) !== want) throw new Error("Not a Felucca project");
+  if (!want || !want.includes(projMagic(bytes))) throw new Error("Not a Felucca project");
   return bytes;
 }
 export function readProject(file) {

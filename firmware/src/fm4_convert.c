@@ -374,7 +374,7 @@ static void fm4_preset_values(int16_t *p, uint32_t k)
     p[P_VOICE] = pr->mono ? V_LEGATO : V_POLY;
     /* Old DIGITAL fx[] was DIST/CHO/DLY/REV sends. Bus CHO is gone: CHO -> insert CHOR mix; DIST send ignored
      * (P_DIST is drive). DLY/REV stay sends. P_CHOR holds EFFECTS DLY/REV list slots. */
-    p[P_CHOR] = 64 + 6 + (7 << 3);
+    p[P_CHOR] = (int16_t)FX_POS_DEF;           /* DLY at 6, REV at 7; caller sets fx_sl_pos */
     p[P_IHMIX] = (int16_t)(pr->fx[1] ? pr->fx[1] - 1 : FX_DEF[1]);
     p[P_DLY] = (int16_t)(pr->fx[2] ? pr->fx[2] - 1 : FX_DEF[2]);
     p[P_REV] = (int16_t)(pr->fx[3] ? pr->fx[3] - 1 : FX_DEF[3]);

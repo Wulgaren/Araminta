@@ -124,6 +124,21 @@ ok(await athrows(() => restoreBackup(failing.request, file)) && failing.log.incl
     && target.objs.get(3).every((v, i) => v === b[i]) && !target.log.includes(0) && !target.log.includes(1),
     "project: import writes one slot only; A, B, live music and settings stay");
   ok(target.log.filter((x) => typeof x === "number").join() === "4", "project: only backup id 4 was committed");
+  for (const magicByte of [0x42, 0x43, 0x44, 0x45, 0x46]) {
+    const bytes = fun10(50, "FX LOCKS"); bytes[0] = magicByte;
+    const fixture = { ...exported, data: Buffer.from(bytes).toString("base64"), crc: bkCrc(bytes) };
+    ok(!throws(() => readProject(fixture)), `project: FUN${magicByte - 0x41 + 10} recognized at its existing 3840-byte size`);
+  }
+  const fun15 = fun10(51, "FX LOCKS"); fun15[0] = 0x46;
+  const fun15Device = device([[2, fun15]]);
+  let currentFile;
+  try { currentFile = await captureProject(fun15Device.request, 0, "TEST"); } catch { currentFile = null; }
+  ok(currentFile !== null, "project: export current FUN15 with FX locks");
+  if (currentFile !== null) {
+    const restored = device([]);
+    await restoreProject(restored.request, currentFile, 1);
+    ok(restored.objs.get(3).every((v, i) => v === fun15[i]), "project: FUN15 export/import retains every lock byte");
+  }
 }
 
 console.log(fails ? `BACKUP WEB TESTS FAILED (${fails})` : "backup web tests passed");
