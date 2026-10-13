@@ -225,7 +225,7 @@ static void bus_own_sanitize(void)
         song.g[G_SLOWN] = 0;
 }
 /* P_CHOR packs EFFECTS DLY/REV among the 8 non-SLCR slots (bit6 marks the layout; low 3 = DLY,
- * next 3 = REV). SLCR's absolute slot is track.fx_sl_pos (0..8; default 8) until FUN14 wires it.
+ * next 3 = REV). SLCR's absolute slot is track.fx_sl_pos (0..8; default 8; FUN14 project wire).
  * Older CHO send values (0..63) load as DLY at 6, REV at 7, SLCR at 8. */
 #define FX_POS_MARK 64
 static void fx_pos_get(const track_t *t, uint32_t *dp, uint32_t *rp, uint32_t *sp)

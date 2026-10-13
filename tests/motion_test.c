@@ -857,7 +857,16 @@ static int auto_list(void)
     ui_prefs |= PREF_LARGE;
     bad += check("  MENU > LARGE: the list layout with labels in M (as the other lists)", large_kind() == LK_LABEL);
     ui_prefs &= ~PREF_LARGE;
-    /* #223: PARAM / MOD DST are flat tag+name lists. ENV DEST / LFO DEST are knob pages. */
+    /* #223: PARAM / MOD DST are flat tag+name lists. ENV DEST / LFO DEST are knob pages.
+     * Full FX rows need CHAIN on the selected track (SEND hides non-MIX). */
+    song.g[G_SLOWN] = 1;                                 /* track 0 owns SLICER CHAIN */
+    song.g[G_DLYOWN] = 1;
+    song.g[G_REVOWN] = 1;
+    {
+        uint32_t st;
+        for (st = 0; st < INS_N; st++)
+            ins_send_set(TSEL, st, 0);
+    }
     ui.ev_row = 0xFFFFu;                                 /* + ADD */
     ui.ev_id = (uint8_t)P_LEVEL;
     ui.ev_step = 0;
@@ -865,12 +874,13 @@ static int auto_list(void)
     bad += check("#223 AUTOMATION PARAM: pick list opens", ui.pick == PK_AUTO && pk_n > 8u &&
         pk_cur < pk_n);
     {
-        uint32_t i, found = 0, dly = 0, rev = 0, send = 0;
-        int32_t i_dist = -1, i_filt = -1, i_crush = -1, i_phas = -1, i_flang = -1, i_chor = -1, i_dly = -1, i_rev = -1;
+        uint32_t i, found = 0, dly = 0, rev = 0, send = 0, chor_mix_last = 1;
+        int32_t i_dist = -1, i_filt = -1, i_crush = -1, i_phas = -1, i_flang = -1, i_chor = -1;
+        int32_t i_dly = -1, i_rev = -1, i_sl = -1, i_hrat = -1, i_hdep = -1;
         for (i = 0; i < pk_n; i++) {
             if (pk_rows[i].id == P_SLRATE && str_eq(pk_rows[i].tag, "SLICER") &&
                 str_eq(pk_rows[i].name, "RATE"))
-                found = 1;
+                found = 1, i_sl = (int32_t)i;
             if (pk_rows[i].id == P_DIST && str_eq(pk_rows[i].tag, "DISTORT"))
                 i_dist = (int32_t)i;
             if (pk_rows[i].id == P_IFCUT && str_eq(pk_rows[i].tag, "FILTER"))
@@ -881,6 +891,10 @@ static int auto_list(void)
                 i_phas = (int32_t)i;
             if (pk_rows[i].id == P_ILMIX && str_eq(pk_rows[i].tag, "FLANGER"))
                 i_flang = (int32_t)i;
+            if (pk_rows[i].id == P_IHRATE && str_eq(pk_rows[i].tag, "CHORUS"))
+                i_hrat = (int32_t)i;
+            if (pk_rows[i].id == P_IHDEP && str_eq(pk_rows[i].tag, "CHORUS"))
+                i_hdep = (int32_t)i;
             if (pk_rows[i].id == P_IHMIX && str_eq(pk_rows[i].tag, "CHORUS"))
                 i_chor = (int32_t)i;
             if (pk_rows[i].id == P_DLY && str_eq(pk_rows[i].tag, "DELAY") &&
@@ -892,11 +906,15 @@ static int auto_list(void)
             if (str_eq(pk_rows[i].tag, "SEND"))
                 send = 1;
         }
+        if (i_chor >= 0 && ((i_hrat >= 0 && i_chor < i_hrat) || (i_hdep >= 0 && i_chor < i_hdep)))
+            chor_mix_last = 0;
         bad += check("#223 AUTOMATION PARAM: SLICER / RATE", found);
         bad += check("AUTOMATION PARAM: no SEND; DELAY / REVERB tags", dly && rev && !send);
         bad += check("AUTOMATION PARAM: FX stages in EFFECTS order",
                      i_dist >= 0 && i_crush > i_dist && i_filt > i_crush && i_phas > i_filt &&
-                     i_flang > i_phas && i_chor > i_flang && i_dly > i_chor && i_rev > i_dly);
+                     i_flang > i_phas && i_chor > i_flang && i_dly > i_chor && i_rev > i_dly &&
+                     i_sl > i_rev);
+        bad += check("AUTOMATION PARAM: Chorus MIX last in CHORUS", chor_mix_last && i_chor >= 0);
     }
     turn(EN_K1, -1);
     bad += check("#223 leaving the row closes the pick list", !ui.pick);
@@ -905,15 +923,16 @@ static int auto_list(void)
     turn(EN_K3, 1);
     bad += check("#223 MOD DST: pick list opens", ui.pick == PK_MDST && pk_n > 8u && pk_cur < pk_n);
     {
-        uint32_t i, dist = 0, spat = 0, fcut = 0, cho = 0, dly = 0, rev = 0, send = 0, pan = 0;
-        int32_t i_dist = -1, i_filt = -1, i_crush = -1, i_phas = -1, i_flang = -1, i_chor = -1, i_dly = -1, i_rev = -1;
+        uint32_t i, dist = 0, spat = 0, fcut = 0, cho = 0, dly = 0, rev = 0, send = 0, pan = 0, chor_mix_last = 1;
+        int32_t i_dist = -1, i_filt = -1, i_crush = -1, i_phas = -1, i_flang = -1, i_chor = -1;
+        int32_t i_dly = -1, i_rev = -1, i_sl = -1, i_hrat = -1, i_hdep = -1;
         for (i = 0; i < pk_n; i++) {
             if (pk_rows[i].id == MD_DIST && str_eq(pk_rows[i].tag, "DISTORT") &&
                 str_eq(pk_rows[i].name, "DISTORT"))
                 dist = 1, i_dist = (int32_t)i;
             if (pk_rows[i].id == MD_SLPAT && str_eq(pk_rows[i].tag, "SLICER") &&
                 str_eq(pk_rows[i].name, "PATTERN"))
-                spat = 1;
+                spat = 1, i_sl = (int32_t)i;
             if (pk_rows[i].id == MD_FCUT && str_eq(pk_rows[i].tag, "FILTER") &&
                 str_eq(pk_rows[i].name, "CUTOFF"))
                 fcut = 1, i_filt = (int32_t)i;
@@ -923,6 +942,10 @@ static int auto_list(void)
                 i_phas = (int32_t)i;
             if (pk_rows[i].id == MD_LMIX && str_eq(pk_rows[i].tag, "FLANGER"))
                 i_flang = (int32_t)i;
+            if (pk_rows[i].id == MD_HRAT && str_eq(pk_rows[i].tag, "CHORUS"))
+                i_hrat = (int32_t)i;
+            if (pk_rows[i].id == MD_HDEP && str_eq(pk_rows[i].tag, "CHORUS"))
+                i_hdep = (int32_t)i;
             if (pk_rows[i].id == MD_CHO && str_eq(pk_rows[i].tag, "CHORUS") &&
                 str_eq(pk_rows[i].name, "MIX"))
                 cho = 1, i_chor = (int32_t)i;
@@ -935,12 +958,36 @@ static int auto_list(void)
             if (str_eq(pk_rows[i].tag, "SEND"))
                 send = 1;
         }
+        if (i_chor >= 0 && ((i_hrat >= 0 && i_chor < i_hrat) || (i_hdep >= 0 && i_chor < i_hdep)))
+            chor_mix_last = 0;
         bad += check("#223 MOD DST: DISTORT / SLICER / FILTER / CHORUS; no SEND",
                      dist && spat && fcut && cho && !send);
         bad += check("MOD DST: PAN is MIX; DELAY / REVERB tags", pan && dly && rev);
         bad += check("MOD DST: FX stages in EFFECTS order",
                      i_dist >= 0 && i_crush > i_dist && i_filt > i_crush && i_phas > i_filt &&
-                     i_flang > i_phas && i_chor > i_flang && i_dly > i_chor && i_rev > i_dly);
+                     i_flang > i_phas && i_chor > i_flang && i_dly > i_chor && i_rev > i_dly &&
+                     i_sl > i_rev);
+        bad += check("MOD DST: Chorus MIX last in CHORUS", chor_mix_last && i_chor >= 0);
+    }
+    /* SEND FILTER: only MIX is listed; CHAIN shows CUT too. */
+    {
+        uint32_t i, cut = 0, mix = 0;
+        ins_send_set(TSEL, INS_FILTER, 1);
+        pk_open(PK_MDST);
+        for (i = 0; i < pk_n; i++) {
+            if (pk_rows[i].id == MD_FCUT) cut = 1;
+            if (pk_rows[i].id == MD_FMIX) mix = 1;
+        }
+        bad += check("MOD DST SEND FILTER: MIX visible, CUT hidden", mix && !cut);
+        ins_send_set(TSEL, INS_FILTER, 0);
+        pk_open(PK_MDST);
+        cut = mix = 0;
+        for (i = 0; i < pk_n; i++) {
+            if (pk_rows[i].id == MD_FCUT) cut = 1;
+            if (pk_rows[i].id == MD_FMIX) mix = 1;
+        }
+        bad += check("MOD DST CHAIN FILTER: CUT and MIX visible", cut && mix);
+        pk_close();
     }
     {
         uint32_t i, n = 0;

@@ -564,7 +564,7 @@ static void pk_auto_name(const track_t *t, uint32_t id, char *b)
     else if (id == P_SLRATE)
         str_cpy(b, "RATE", 16);
     else if (id == P_SLDEPTH)
-        str_cpy(b, "DEPTH", 16);
+        str_cpy(b, "MIX", 16);
     else if (id == P_CHRD)
         str_cpy(b, "CHORD", 16);
     else if (id == P_VOIC)
@@ -572,17 +572,66 @@ static void pk_auto_name(const track_t *t, uint32_t id, char *b)
     else
         str_cpy(b, track_desc(t, id)->label, 16);
 }
-/* FX stage params for the pick list: EFFECTS order (DISTORT→CRUSH→FILTER→…→REVERB). Not P_IORD. */
+/* Shared FX destination list for AUTOMATION PARAM and MOD DST (EFFECTS order).
+ * Chorus MIX last. md 0xFF = automation-only (no matrix destination). */
+typedef struct { uint8_t pid, md, st, mix; const char *tag, *name; } fx_dst_t;
+static const fx_dst_t FX_DST[] = {
+    {P_DIST, MD_DIST, INS_DIST, 0, "DISTORT", "DISTORT"},
+    {P_ED_FX, MD_TONE, INS_DIST, 0, "DISTORT", "TONE"},
+    {P_IDMODE, 0xFF, INS_DIST, 0, "DISTORT", "MODE"},
+    {P_IDMIX, MD_DMIX, INS_DIST, 1, "DISTORT", "MIX"},
+    {P_ICBITS, MD_BITS, INS_CRUSH, 0, "CRUSH", "BITS"},
+    {P_ICRATE, MD_CRAT, INS_CRUSH, 0, "CRUSH", "RATE"},
+    {P_ICLPF, MD_CLPF, INS_CRUSH, 0, "CRUSH", "LPF"},
+    {P_ICMIX, MD_CMIX, INS_CRUSH, 1, "CRUSH", "MIX"},
+    {P_IFTYPE, 0xFF, INS_FILTER, 0, "FILTER", "TYPE"},
+    {P_IFCUT, MD_FCUT, INS_FILTER, 0, "FILTER", "CUTOFF"},
+    {P_IFRES, MD_FRES, INS_FILTER, 0, "FILTER", "RESO"},
+    {P_IFMIX, MD_FMIX, INS_FILTER, 1, "FILTER", "MIX"},
+    {P_IPRATE, MD_PRAT, INS_PHASR, 0, "PHASER", "RATE"},
+    {P_IPDEP, MD_PDEP, INS_PHASR, 0, "PHASER", "DEPTH"},
+    {P_IPFBK, MD_PFBK, INS_PHASR, 0, "PHASER", "FDBK"},
+    {P_IPMIX, MD_PMIX, INS_PHASR, 1, "PHASER", "MIX"},
+    {P_ILRATE, MD_FRAT, INS_FLANG, 0, "FLANGER", "RATE"},
+    {P_ILDEP, MD_FDEP, INS_FLANG, 0, "FLANGER", "DEPTH"},
+    {P_ILMIX, MD_LMIX, INS_FLANG, 1, "FLANGER", "MIX"},
+    {P_IHRATE, MD_HRAT, INS_CHOR, 0, "CHORUS", "RATE"},
+    {P_IHDEP, MD_HDEP, INS_CHOR, 0, "CHORUS", "DEPTH"},
+    {P_IHMIX, MD_CHO, INS_CHOR, 1, "CHORUS", "MIX"},
+    {P_DLY, MD_DLY, INS_DLY, 1, "DELAY", "DELAY"},
+    {P_REV, MD_REV, INS_REV, 1, "REVERB", "REVERB"},
+    {P_SLPAT, MD_SLPAT, INS_SLCR, 0, "SLICER", "PATTERN"},
+    {P_SLRATE, MD_SLRATE, INS_SLCR, 0, "SLICER", "RATE"},
+    {P_SLDEPTH, MD_SLDEPTH, INS_SLCR, 1, "SLICER", "MIX"},
+};
+/* CHAIN: all stage knobs. SEND: MIX only. USED (other track owns DLY/REV/SLCR): hide. */
+static int fx_dst_visible(const track_t *t, uint32_t st, int is_mix)
+{
+    int32_t tr = (int32_t)(t - trk), own;
+    if (st < INS_N)
+        return ins_is_send(t, st) ? is_mix : 1;
+    own = bus_own(st == INS_REV ? 1u : st == INS_SLCR ? 2u : 0u);
+    if (own >= 0 && own != tr)
+        return 0;
+    return is_mix || own == tr;
+}
 static int pk_auto_fx(uint32_t id)
 {
-    return id == P_ED_FX || id == P_DIST || id == P_DLY || id == P_REV ||
-           (id >= P_IDMODE && id < P_FTYPE);
+    uint32_t i;
+    if (id == P_ED_FX || id == P_DIST || id == P_DLY || id == P_REV ||
+        (id >= P_SLPAT && id <= P_SLDEPTH) || (id >= P_IDMODE && id < P_FTYPE))
+        return 1;
+    for (i = 0; i < NELEM(FX_DST); i++)
+        if (FX_DST[i].pid == id)
+            return 1;
+    return 0;
 }
 static const char *pk_auto_group(uint32_t id)
 {
+    uint32_t i;
     if (ev_sid(id))
         return "STEP";
-    if (id == P_LEVEL)
+    if (id == P_LEVEL || id == P_PAN || id == P_SPRD)
         return "MIX";
     if (id >= P_ATK && id <= P_ED_SHP)
         return "ENV";
@@ -590,26 +639,9 @@ static const char *pk_auto_group(uint32_t id)
         return "LFO";
     if (id == P_GLIDE || id == P_DETUNE)
         return "VOICE";
-    if (id == P_DIST || id == P_ED_FX || id == P_IDMODE || id == P_IDMIX)
-        return "DISTORT";
-    if (id >= P_ICBITS && id <= P_ICMIX)
-        return "CRUSH";
-    if (id >= P_IFTYPE && id <= P_IFMIX)
-        return "FILTER";
-    if (id >= P_IPRATE && id <= P_IPMIX)
-        return "PHASER";
-    if (id >= P_ILRATE && id <= P_ILMIX)
-        return "FLANGER";
-    if (id >= P_IHRATE && id <= P_IHMIX)
-        return "CHORUS";
-    if (id == P_DLY)
-        return "DELAY";
-    if (id == P_REV)
-        return "REVERB";
-    if (id == P_PAN || id == P_SPRD)
-        return "MIX";
-    if (id >= P_SLPAT && id <= P_SLDEPTH)
-        return "SLICER";
+    for (i = 0; i < NELEM(FX_DST); i++)
+        if (FX_DST[i].pid == id)
+            return FX_DST[i].tag;
     if (id == P_CHRD || id == P_VOIC)
         return "CHORD";
     if (id >= P_LN0 && id <= P_LN7)
@@ -624,14 +656,6 @@ static const char *pk_auto_group(uint32_t id)
 static uint32_t pk_build_auto(const track_t *t, uint32_t id, uint32_t step, uint32_t *sel)
 {
     static const uint32_t STEP[] = {EV_CHANCE, EV_RATCH, EV_NUDGE, EV_VEL};
-    static const uint8_t FX[] = {
-        P_DIST, P_ED_FX, P_IDMODE, P_IDMIX,
-        P_ICBITS, P_ICRATE, P_ICLPF, P_ICMIX,
-        P_IFTYPE, P_IFCUT, P_IFRES, P_IFMIX,
-        P_IPRATE, P_IPDEP, P_IPFBK, P_IPMIX,
-        P_ILRATE, P_ILDEP, P_ILMIX,
-        P_IHRATE, P_IHDEP, P_IHMIX,
-        P_DLY, P_REV};
     char nm[16];
     uint32_t i;
     pk_n = 0;
@@ -652,27 +676,28 @@ static uint32_t pk_build_auto(const track_t *t, uint32_t id, uint32_t step, uint
             *sel = pk_n;
         pk_add_item(i, pk_auto_group(i), nm);
     }
-    for (i = 0; i < NELEM(FX); i++) {
-        uint32_t x = FX[i];
-        if (!ev_id_ok(t, x) || (step < NSTEP && x != id && !ev_id_free(t, step, x)))
+    for (i = 0; i < NELEM(FX_DST); i++) {
+        uint32_t x = FX_DST[i].pid;
+        if (!fx_dst_visible(t, FX_DST[i].st, FX_DST[i].mix) ||
+            !ev_id_ok(t, x) || (step < NSTEP && x != id && !ev_id_free(t, step, x)))
             continue;
-        pk_auto_name(t, x, nm);
+        if (FX_DST[i].name)
+            str_cpy(nm, FX_DST[i].name, 16);
+        else
+            pk_auto_name(t, x, nm);
         if (x == id)
             *sel = pk_n;
-        pk_add_item(x, pk_auto_group(x), nm);
+        pk_add_item(x, FX_DST[i].tag, nm);
     }
     return pk_n;
 }
-/* short name for a matrix destination (family is the row tag) */
+/* short name for a non-FX matrix destination (FX rows use FX_DST[].name) */
 static void pk_mdst_name(const track_t *t, uint32_t d, char *b)
 {
     static const char *const LONG[] = {
         "OFF", "PITCH", "CUTOFF", "SHAPE", "AMP", "PAN", "DISTORT", "MIX", "DELAY", "REVERB", "RATE",
         "VIBRATO", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH", "PATTERN", "RATE",
-        "DEPTH", "CHORD", "VOICING",
-        "TONE", "MIX", "CUTOFF", "RESO", "MIX", "BITS", "RATE", "LPF", "MIX",
-        "RATE", "DEPTH", "FDBK", "MIX", "RATE", "DEPTH", "MIX", "RATE", "DEPTH"};
-    _Static_assert(NELEM(LONG) == MD_N, "pk_mdst LONG == MD_N");
+        "MIX", "CHORD", "VOICING"};
     d = (uint32_t)clamp((int32_t)d, 0, MD_N - 1);
     if (MD_ENGINE(d)) {
         const char *l = track_desc(t, P_E0 + d - MD_E1)->label;
@@ -681,69 +706,59 @@ static void pk_mdst_name(const track_t *t, uint32_t d, char *b)
             return;
         }
     }
-    str_cpy(b, LONG[d], 16);
+    if (d < NELEM(LONG))
+        str_cpy(b, LONG[d], 16);
+    else
+        str_cpy(b, N_MDST[d], 16);
 }
 static const char *pk_mdst_group(uint32_t d)
 {
+    uint32_t i;
     if (d == MD_OFF)
         return "OFF";
     if (d <= MD_AMP)
         return "VOICE";
     if (d == MD_PAN)
         return "MIX";
-    if (d == MD_DIST || d == MD_TONE || d == MD_DMIX)
-        return "DISTORT";
-    if (d == MD_CHO || d == MD_HRAT || d == MD_HDEP)
-        return "CHORUS";
-    if (d == MD_DLY)
-        return "DELAY";
-    if (d == MD_REV)
-        return "REVERB";
     if (d == MD_RATE || d == MD_VIB || d == MD_DEPTH)
         return "LFO";
-    if (MD_SLICER(d))
-        return "SLICER";
     if (MD_CHORD(d))
         return "CHORD";
     if (MD_ENGINE(d))
         return "EDIT";
-    if (d >= MD_BITS && d <= MD_CMIX)
-        return "CRUSH";
-    if (d >= MD_FCUT && d <= MD_FMIX)
-        return "FILTER";
-    if (d <= MD_PMIX)
-        return "PHASER";
-    if (d <= MD_LMIX)
-        return "FLANGER";
+    for (i = 0; i < NELEM(FX_DST); i++)
+        if (FX_DST[i].md == d)
+            return FX_DST[i].tag;
     return "OTHER";
 }
-/* MOD DST rows in family order; FX stages match EFFECTS (DISTORT→CRUSH→FILTER→…→REVERB).
- * MD_* values stay append-only. */
+/* MOD DST: voice/LFO/EDIT/CHORD first, then shared FX_DST (EFFECTS order, Chorus MIX last).
+ * MD_* values stay append-only; visibility follows CHAIN/SEND/ownership. */
 static uint32_t pk_build_mdst(const track_t *t, uint32_t d, uint32_t *sel)
 {
-    static const uint8_t ORD[] = {
+    static const uint8_t HEAD[] = {
         MD_OFF, MD_PITCH, MD_CUT, MD_SHP, MD_AMP, MD_PAN,
         MD_RATE, MD_VIB, MD_DEPTH,
         MD_E1, MD_E1 + 1, MD_E1 + 2, MD_E1 + 3, MD_E1 + 4, MD_E1 + 5, MD_E1 + 6, MD_E1 + 7,
-        MD_SLPAT, MD_SLRATE, MD_SLDEPTH, MD_CHRD, MD_VOIC,
-        MD_DIST, MD_TONE, MD_DMIX,
-        MD_BITS, MD_CRAT, MD_CLPF, MD_CMIX,
-        MD_FCUT, MD_FRES, MD_FMIX,
-        MD_PRAT, MD_PDEP, MD_PFBK, MD_PMIX,
-        MD_FRAT, MD_FDEP, MD_LMIX,
-        MD_CHO, MD_HRAT, MD_HDEP,
-        MD_DLY, MD_REV};
+        MD_CHRD, MD_VOIC};
     char nm[16];
     uint32_t i;
-    _Static_assert(NELEM(ORD) == MD_N, "pk_build_mdst ORD == MD_N");
     pk_n = 0;
     *sel = 0;
-    for (i = 0; i < NELEM(ORD); i++) {
-        uint32_t x = ORD[i];
+    for (i = 0; i < NELEM(HEAD); i++) {
+        uint32_t x = HEAD[i];
         pk_mdst_name(t, x, nm);
         if (x == d)
             *sel = pk_n;
         pk_add_item(x, pk_mdst_group(x), nm);
+    }
+    for (i = 0; i < NELEM(FX_DST); i++) {
+        uint32_t x = FX_DST[i].md;
+        if (x == 0xFFu || !fx_dst_visible(t, FX_DST[i].st, FX_DST[i].mix))
+            continue;
+        str_cpy(nm, FX_DST[i].name, 16);
+        if (x == d)
+            *sel = pk_n;
+        pk_add_item(x, FX_DST[i].tag, nm);
     }
     return pk_n;
 }
