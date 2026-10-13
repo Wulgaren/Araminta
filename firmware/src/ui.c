@@ -202,7 +202,8 @@ static struct {
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER, CF_LOAD_PAT,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER,
-       CF_CLEAR_ALL_SEQ, CF_INIT_ALL_SOUND, CF_CLEAR_ALL_MOTION, CF_SAVE_PROJ };
+       CF_CLEAR_ALL_SEQ, CF_INIT_ALL_SOUND, CF_CLEAR_ALL_MOTION, CF_SAVE_PROJ,
+       CF_CLEAR_TRACK_ALL, CF_CLEAR_EVERY_TRACK_ALL };
                                    /* ui.confirm: CLEAR map; SAVE over a used slot; a pattern over the user's steps;
                                     * USER ERASE; CF_SAVE_PROJ: motion over MOTION_FILE_MAX (extras won't save) */
 
@@ -525,6 +526,9 @@ static uint32_t ior_pct_id(void)
 static int lock_page_ok(uint32_t i)
 {
     uint32_t k;
+    if (i < NPAGES && PAGES[i].scope == SC_GLOBAL &&
+        (PAGES[i].id[0] == G_DTIME || PAGES[i].id[0] == G_RTYPE))
+        return 1;
     if (i < NPAGES && PAGES[i].graph == GR_IORD)
         return 1;                                     /* KNOB 4 locks the chosen stage's mix */
     if (i >= NPAGES || (PAGES[i].scope != SC_TRACK && PAGES[i].scope != SC_ENGINE) || PAGES[i].graph == GR_MOD)
@@ -537,12 +541,18 @@ static int lock_page_ok(uint32_t i)
 static uint32_t lock_id(uint32_t k)
 {
     uint32_t id;
+    if (ui.plk_src && lock_page_ok(ui.plk_src - 1u) && PAGES[ui.plk_src - 1u].scope == SC_GLOBAL) {
+        const page_t *pg = &PAGES[ui.plk_src - 1u];
+        id = pg->id[0] == G_DTIME ? (k < 3u ? MFX_TIME + k : 0xFFu)
+                                 : (k == 1u || k == 2u ? MFX_SIZE + k - 1u : 0xFFu);
+        return id != 0xFFu && fx_target_available(TSEL, id) ? id : 0xFFu;
+    }
     if (ui.plk_src && lock_page_ok(ui.plk_src - 1u) && PAGES[ui.plk_src - 1u].graph == GR_IORD)
         id = k == 3u ? ior_pct_id() : 0xFFu;
     else
         id = ui.plk_src && lock_page_ok(ui.plk_src - 1u) ? PAGES[ui.plk_src - 1u].id[k & 3u]
                                                           : ENGINES[TSEL->eng_req % NENGINES]->knob[k & 3u];
-    return id < P_COUNT && motion_param(id) ? id : 0xFFu;
+    return id < P_COUNT && motion_param(id) && fx_target_available(TSEL, id) ? id : 0xFFu;
 }
 
 static void ev_enter(void);

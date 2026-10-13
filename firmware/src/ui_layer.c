@@ -1003,12 +1003,12 @@ static void layer_edit(void)                            /* the engines from F3, 
 
 /* SAVE > CLEAR: white keys in columns under the cards (TRACK | ALL | SONG). Key opens confirm. */
 enum {
-    CL_PAT = 0, CL_ALLPAT, CL_SEC,                      /* F3 G3 A3 */
-    CL_SND = 4, CL_ALLSND, CL_SONG,                     /* C4 D4 E4 */
-    CL_MOT = 8, CL_ALLMOT                               /* G4 A4 */
+    CL_PAT = 0, CL_SND, CL_MOT, CL_TRACKALL,             /* F3 G3 A3 B3 */
+    CL_ALLPAT = 4, CL_ALLSND, CL_ALLMOT, CL_ALL,          /* C4 D4 E4 F4 */
+    CL_SEC = 8, CL_SONG                                 /* G4 A4 */
 };
 static const char *const CL_CELL[16] = {
-    "PAT", "PATS", "SEC", "", "SND", "SNDS", "SONG", "", "MOT", "MOTS", "", "", "", "", "", ""
+    "PAT", "SND", "MOT", "ALL", "PATS", "SNDS", "MOTS", "ALL", "SEC", "SONG", "", "", "", "", "", ""
 };
 static uint32_t clear_kind(uint32_t p)
 {
@@ -1016,9 +1016,11 @@ static uint32_t clear_kind(uint32_t p)
     case CL_PAT: return CF_CLEAR_SEQ;
     case CL_SND: return CF_INIT_SOUND;
     case CL_MOT: return CF_CLEAR_MOTION;
+    case CL_TRACKALL: return CF_CLEAR_TRACK_ALL;
     case CL_ALLPAT: return CF_CLEAR_ALL_SEQ;
     case CL_ALLSND: return CF_INIT_ALL_SOUND;
     case CL_ALLMOT: return CF_CLEAR_ALL_MOTION;
+    case CL_ALL: return CF_CLEAR_EVERY_TRACK_ALL;
     case CL_SEC: return CF_DEL_ROW;
     case CL_SONG: return CF_CLEAR_SONG;
     default: return CF_NONE;
@@ -1031,14 +1033,16 @@ static int clear_ready(uint32_t kind)
         return 0;
     switch (kind) {
     case CF_CLEAR_SEQ: return !seq_is_empty(TSEL) || motion_count(TSEL);
-    case CF_INIT_SOUND: return 1;
+    case CF_INIT_SOUND:
+    case CF_CLEAR_TRACK_ALL: return 1;
     case CF_CLEAR_MOTION: return motion_count(TSEL) != 0u;
     case CF_CLEAR_ALL_SEQ:
         for (i = 0; i < NTRK; i++)
             if (!seq_is_empty(&trk[i]) || motion_count(&trk[i]))
                 return 1;
         return 0;
-    case CF_INIT_ALL_SOUND: return 1;
+    case CF_INIT_ALL_SOUND:
+    case CF_CLEAR_EVERY_TRACK_ALL: return 1;
     case CF_CLEAR_ALL_MOTION:
         for (i = 0; i < NTRK; i++)
             if (motion_count(&trk[i]))
@@ -1071,8 +1075,8 @@ static void layer_clr(void)
         kind = clear_kind(p);
         st = chain_busy() || !clear_ready(kind) ? LS_DIM : LS_OFF;
         n[0] = W_NOTE[p];
-        lcell(LC_X(p % 4u), 4 + (LF_H + 4) * (int32_t)(p / 4u), LF_H, n, 0, 0, CL_CELL[p],
-              st | (p & 1u ? LS_ALT : 0u), 0);
+        lcell(LC_X(p / 4u), 4 + (LF_H + 4) * (int32_t)(p % 4u), LF_H, n, 0, 0, CL_CELL[p],
+              st | ((p / 4u) & 1u ? LS_ALT : 0u), 0);
     }
 }
 

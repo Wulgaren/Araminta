@@ -54,7 +54,8 @@ static uint32_t clk_pos = CLK_START, clk_step;  /* (seq.c click_tick) samples in
 enum { MD_OFF, MD_PITCH, MD_CUT, MD_SHP, MD_AMP, MD_PAN, MD_DIST, MD_CHO, MD_DLY, MD_REV, MD_RATE, MD_VIB, MD_E1,
        MD_DEPTH = MD_E1 + 8, MD_SLPAT, MD_SLRATE, MD_SLDEPTH, MD_CHRD, MD_VOIC,
        MD_TONE, MD_DMIX, MD_FCUT, MD_FRES, MD_FMIX, MD_BITS, MD_CRAT, MD_CLPF, MD_CMIX,
-       MD_PRAT, MD_PDEP, MD_PFBK, MD_PMIX, MD_FRAT, MD_FDEP, MD_LMIX, MD_HRAT, MD_HDEP, MD_N }; /* (append-only) */
+       MD_PRAT, MD_PDEP, MD_PFBK, MD_PMIX, MD_FRAT, MD_FDEP, MD_LMIX, MD_HRAT, MD_HDEP,
+       MD_DTIME, MD_DFB, MD_DCOLOR, MD_RSIZE, MD_RDAMP, MD_N }; /* (append-only) */
 _Static_assert(NELEM(N_MSRC) == MS_N && NELEM(N_MDST) == MD_N, "N_MSRC / N_MDST == MS_* / MD_*");
 _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 == P_FM1_ATK, "matrix slots: 3 ids each");
 #define NMSLOT 4u
@@ -64,6 +65,13 @@ _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 
 #define MD_SLICER(d) ((d) >= MD_SLPAT && (d) <= MD_SLDEPTH)
 #define MD_CHORD(d) ((d) >= MD_CHRD && (d) <= MD_VOIC)
 #define MD_INS(d) ((d) >= MD_TONE && (d) <= MD_HDEP)             /* insert continuous + MIX (CHOR MIX = CHO) */
+#define MD_FX(d) ((d) >= MD_DTIME && (d) <= MD_RDAMP)
+static int16_t *fx_target_ptr(const track_t *t, uint32_t id);
+static const param_desc_t *fx_target_desc(const track_t *t, uint32_t id);
+static int fx_target_send(const track_t *t, uint32_t id);
+static int fx_target_available(const track_t *t, uint32_t id);
+static int16_t fx_time_value(int16_t raw);
+static void motion_fx_route(track_t *t, uint32_t st, int capture);
 
 /* the track parameter of a per-block destination */
 static uint32_t mod_param(uint32_t d)
@@ -83,6 +91,8 @@ static uint32_t mod_param(uint32_t d)
         return CH[d - MD_CHRD];
     if (MD_INS(d))
         return INS[d - MD_TONE];
+    if (MD_FX(d))
+        return MFX_TIME + d - MD_DTIME;
     return ID[d];
 }
 
@@ -97,6 +107,25 @@ static struct {                  /* the part in mix_part (one at a time) */
     uint8_t kid[NMSLOT];         /* per-block: the parameter, its stored value */
     int16_t keep[NMSLOT];
 } mod;
+
+/* SEND buses run after the parts. Hold their effective settings until that DSP has consumed them. */
+static struct { int16_t *ptr, value, keep; } mod_bus[5];
+static uint32_t mod_bus_n;
+static void mod_bus_begin(void)
+{
+    uint32_t i;
+    for (i = 0; i < mod_bus_n; i++) {
+        mod_bus[i].keep = *mod_bus[i].ptr;
+        *mod_bus[i].ptr = mod_bus[i].value;
+    }
+}
+static void mod_bus_end(void)
+{
+    uint32_t i;
+    for (i = 0; i < mod_bus_n; i++)
+        *mod_bus[i].ptr = mod_bus[i].keep;
+    mod_bus_n = 0;
+}
 
 static uint32_t mod_seed = 0x2545F491u;
 static int16_t mod_rand(void)    /* RAND of a note-on: xorshift32, bipolar */
@@ -179,9 +208,7 @@ static __attribute__((noinline)) int32_t mod_depth(const track_t *t, int32_t lfo
 /* SLICER PAT/RATE on SEND live in fx_bus_trk (shared bus); MIX and CHAIN stay on the track. */
 static int16_t *mod_dst_ptr(track_t *t, uint32_t id)
 {
-    if ((id == P_SLPAT || id == P_SLRATE) && sl_trk_send(t))
-        return &fx_bus_trk.p[id];
-    return &t->p[id];
+    return fx_target_ptr(t, id);
 }
 
 /* before a part's block (fx.c mix_part): the per-track offsets, the per-block destinations into t->p
@@ -225,8 +252,10 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
         }
         {                                               /* per block: AMT 64 = the whole range */
             uint32_t id = mod_param(d);
-            const param_desc_t *pd = id >= P_E0 ? &ENGINES[t->engine]->edit[id - P_E0] : &TP[id];
+            const param_desc_t *pd = fx_target_desc(t, id);
             int16_t *dst = mod_dst_ptr(t, id);
+            if (!fx_target_available(t, id))
+                continue;
             x = mod_tsrc(t, s, lfo);
             for (j = 0; j < mod.nk && mod.kid[j] != id; j++)
                 ;
@@ -241,8 +270,9 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     }
     for (j = 0; j < mod.nk; j++) {
         uint32_t id = mod.kid[j];
-        const param_desc_t *pd = id >= P_E0 ? &ENGINES[t->engine]->edit[id - P_E0] : &TP[id];
-        *mod_dst_ptr(t, id) = (int16_t)clamp(mod.keep[j] + off[j], pd->min, pd->max);
+        const param_desc_t *pd = fx_target_desc(t, id);
+        int32_t base = id == MFX_TIME && mod.keep[j] < pd->min ? fx_time_value(mod.keep[j]) : mod.keep[j];
+        *mod_dst_ptr(t, id) = (int16_t)clamp(base + off[j], pd->min, pd->max);
     }
     return 1;
 }
@@ -251,8 +281,18 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
 static __attribute__((noinline)) void mod_end(track_t *t)
 {
     uint32_t j;
-    for (j = 0; j < mod.nk; j++)
-        *mod_dst_ptr(t, mod.kid[j]) = mod.keep[j];
+    for (j = 0; j < mod.nk; j++) {
+        uint32_t id = mod.kid[j];
+        int16_t *ptr = mod_dst_ptr(t, id);
+        if (MFX_PARAM(id) && fx_target_send(t, id)) {
+            uint32_t i;
+            for (i = 0; i < mod_bus_n && mod_bus[i].ptr != ptr; i++) ;
+            if (i == mod_bus_n) mod_bus_n++;
+            mod_bus[i].ptr = ptr;
+            mod_bus[i].value = *ptr;
+        }
+        *ptr = mod.keep[j];
+    }
     mod.on = 0;
 }
 

@@ -1068,20 +1068,20 @@ static int test_actions(void)
     key_down(white(0)); frame(); key_up(white(0)); frame();
     bad += check("nothing to clear: NOTHING TO CLEAR", !ui.confirm && msg_is("NOTHING TO CLEAR"));
     t->p[P_E0] = (int16_t)(t->p[P_E0] + 1);
-    key_down(white(4)); frame(); key_up(white(4)); frame();   /* C4 SND (TRACK col) */
+    key_down(white(1)); frame(); key_up(white(1)); frame();   /* G3 SND (TRACK col) */
     bad += check("CLEAR SND key first asks confirmation", ui.confirm == CF_INIT_SOUND);
     press(B_OCTUP);
     bad += check("confirmed INIT: SOUND INIT; map stays", msg_is("SOUND INIT") && ui.lock == LAYER_CLR);
     my_steps(&trk[1]);
     frame();
-    key_down(white(1)); frame(); key_up(white(1)); frame();   /* G3 PATS (ALL col) */
+    key_down(white(4)); frame(); key_up(white(4)); frame();   /* C4 PATS (ALL col) */
     bad += check("CLEAR PATS asks for every track", ui.confirm == CF_CLEAR_ALL_SEQ);
     press(B_OCTUP);
     bad += check("confirmed PATS: every track empty", seq_is_empty(&trk[0]) && seq_is_empty(&trk[1]) &&
                  msg_is("ALL PATTERNS CLEARED"));
     frame();
-    key_down(white(3)); frame(); key_up(white(3)); frame();   /* B3: no BOOT / INIT */
-    bad += check("CLEAR B3 does nothing (no session INIT)", !ui.confirm && ui.lock == LAYER_CLR);
+    key_down(white(10)); frame(); key_up(white(10)); frame();   /* B4: unused */
+    bad += check("CLEAR B4 does nothing", !ui.confirm && ui.lock == LAYER_CLR);
     press(B_HOME);
     bad += check("HOME leaves Clear", ui.home && !ui.lock);
     /* the dialogs and the menu */
@@ -1099,6 +1099,93 @@ static int test_actions(void)
     frame();
     bad += check("..OCT+ let go: cleared", ui.confirm == CF_NONE && seq_is_empty(t));
     bad += check("back on SEQ: the octave LEDs again", oct_leds() != 0u || song.octave == 1);
+    return bad;
+}
+
+static int test_clear_selected_all(void)
+{
+    int bad = 0;
+    char a[24], b[24];
+    ui_power_on();
+    song.sel = 1;
+    track_t *t = TSEL;
+    int16_t base_sound = t->p[P_E0];
+    my_steps(t);
+    t->p[P_E0] = (int16_t)(base_sound + 1);
+    motion_set_lock(t, 0, P_REV, 50);
+    my_steps(&trk[0]);
+    trk[0].p[P_E0]++;
+    motion_set_lock(&trk[0], 0, P_REV, 70);
+    chain_config.count = 1;
+    chain_config.row[0] = chain_row_of(0, 1);
+    uint32_t selected_before = track_sig(t), other_before = track_sig(&trk[0]);
+    go_title("CLEAR"); frame();
+    key_down(white(3)); frame(); key_up(white(3)); frame();   /* B3 ALL for selected track */
+    confirm_text(a, b);
+    bad += check("CLEAR B3 ALL asks once for the selected track", ui.confirm && str_eq(a, "CLEAR T2 ALL?"));
+    press(B_OCTDN);
+    bad += check("cancel selected ALL preserves sound, pattern, automation and song", !ui.confirm &&
+                 track_sig(t) == selected_before && track_sig(&trk[0]) == other_before && chain_config.count == 1);
+    frame();
+    key_down(white(3)); frame(); key_up(white(3)); frame();
+    press(B_OCTUP);
+    bad += check("selected ALL initializes sound and clears pattern and automation only for T2", !ui.confirm &&
+                 seq_is_empty(t) && !motion_count(t) && t->p[P_E0] == base_sound &&
+                 track_sig(&trk[0]) == other_before && song.sel == 1 && chain_config.count == 1);
+    return bad;
+}
+
+static int test_clear_column_keys(void)
+{
+    int bad = 0;
+    ui_power_on();
+    motion_set_lock(TSEL, 0, P_REV, 50);
+    go_title("CLEAR"); frame();
+    key_down(white(2)); frame(); key_up(white(2)); frame();   /* A3 MOT */
+    bad += check("CLEAR A3 is selected-track automation", ui.confirm == CF_CLEAR_MOTION);
+    press(B_OCTDN); frame();
+    key_down(white(5)); frame(); key_up(white(5)); frame();   /* D4 SNDS */
+    bad += check("CLEAR D4 is every-track sound", ui.confirm == CF_INIT_ALL_SOUND);
+    press(B_OCTDN); frame();
+    key_down(white(6)); frame(); key_up(white(6)); frame();   /* E4 MOTS */
+    bad += check("CLEAR E4 is every-track automation", ui.confirm == CF_CLEAR_ALL_MOTION);
+    press(B_OCTDN);
+    return bad;
+}
+
+static int test_clear_every_track_all(void)
+{
+    int bad = 0, ok = 1;
+    char a[24], b[24];
+    int16_t base_sound[NTRK];
+    uint32_t before[NTRK], i;
+    ui_power_on();
+    song.sel = 2;
+    for (i = 0; i < NTRK; i++) {
+        base_sound[i] = trk[i].p[P_E0];
+        my_steps(&trk[i]);
+        trk[i].p[P_E0]++;
+        motion_set_lock(&trk[i], 0, P_REV, 50);
+        before[i] = track_sig(&trk[i]);
+    }
+    chain_config.count = 1;
+    chain_config.row[0] = chain_row_of(0, 1);
+    go_title("CLEAR"); frame();
+    key_down(white(7)); frame(); key_up(white(7)); frame();   /* F4 ALL for every track */
+    confirm_text(a, b);
+    bad += check("CLEAR F4 ALL asks once for every track", ui.confirm && str_eq(a, "CLEAR ALL TRACKS?"));
+    press(B_OCTDN);
+    for (i = 0; i < NTRK; i++)
+        ok &= track_sig(&trk[i]) == before[i];
+    bad += check("cancel every-track ALL preserves sound, patterns, automation and song", ok && !ui.confirm &&
+                 song.sel == 2 && chain_config.count == 1);
+    frame();
+    key_down(white(7)); frame(); key_up(white(7)); frame();
+    press(B_OCTUP);
+    for (ok = 1, i = 0; i < NTRK; i++)
+        ok &= seq_is_empty(&trk[i]) && !motion_count(&trk[i]) && trk[i].p[P_E0] == base_sound[i];
+    bad += check("every-track ALL initializes all sounds and clears all patterns and automation, keeps song", ok &&
+                 !ui.confirm && song.sel == 2 && chain_config.count == 1);
     return bad;
 }
 
@@ -2437,12 +2524,12 @@ static int test_chain(void)
     for (k = chain_config.count; k < CHAIN_ROWS; k++) { turn(EN_K1, 1); turn(EN_K3, 1); }
     bad += check("SONG append row stays bounded at 16", chain_config.count == CHAIN_ROWS && chain_valid(&chain_config));
     go_title("CLEAR"); frame();
-    key_down(white(6)); frame(); key_up(white(6)); frame();   /* E4 SONG (SONG col) */
+    key_down(white(9)); frame(); key_up(white(9)); frame();   /* A4 SONG (SONG col) */
     bad += check("CLEAR SONG requires explicit confirmation", ui.confirm == CF_CLEAR_SONG && chain_config.count == CHAIN_ROWS);
     press(B_OCTDN);
     bad += check("cancel preserves the full song", chain_config.count == CHAIN_ROWS);
     frame();
-    key_down(white(6)); frame(); key_up(white(6)); frame();
+    key_down(white(9)); frame(); key_up(white(9)); frame();
     press(B_OCTUP);
     bad += check("confirmed CLEAR SONG keeps musical steps", !chain_config.count && !ui.song_row);
     return bad;
@@ -3812,15 +3899,15 @@ static int test_bughunt_ui(void)
     ui_power_on();
     go_title("CLEAR"); frame();
     chain_defaults(&chain_config);                      /* no song rows */
-    key_down(white(2)); frame(); key_up(white(2)); frame();   /* A3 SEC */
+    key_down(white(8)); frame(); key_up(white(8)); frame();   /* G4 SEC */
     ok = !ui.confirm && msg_is("NOTHING TO DEL") && text_w(&AF_S, ui.msg) <= 236 - 106;   /* (fits the header) */
-    key_down(white(6)); frame(); key_up(white(6)); frame();   /* E4 SONG */
+    key_down(white(9)); frame(); key_up(white(9)); frame();   /* A4 SONG */
     ok &= !ui.confirm && msg_is("NOTHING TO CLEAR");
     track_defaults_steps(TSEL);
     chain_config.count = 1; chain_config.row[0] = chain_row_of(0, 1);
     key_down(white(0)); frame(); key_up(white(0)); frame();   /* F3 PAT empty */
     ok &= !ui.confirm && msg_is("NOTHING TO CLEAR");
-    key_down(white(6)); frame(); key_up(white(6)); frame();
+    key_down(white(9)); frame(); key_up(white(9)); frame();
     bad += check("CLEAR: DELETE SEC / CLEAR SONG / CLEAR PAT with nothing there: NOTHING TO ..; a song: its dialog",
                  ok && ui.confirm == CF_CLEAR_SONG);
     /* 7: REC while a family button is held still arms (combo); hold alone opens no map */
@@ -8832,6 +8919,9 @@ int main(void)
     bad += test_midi();
     bad += test_save();
     bad += test_actions();
+    bad += test_clear_selected_all();
+    bad += test_clear_column_keys();
+    bad += test_clear_every_track_all();
     bad += test_tracks();
     bad += test_grid();
     bad += test_screen();

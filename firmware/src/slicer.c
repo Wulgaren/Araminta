@@ -285,6 +285,6 @@ static int slicer_busy(const track_t *t)
     if (!s)
         return 0;
     if (s == &sl_bus)
-        return sl_send_w[k] || (fx_bus_trk.p[P_SLCR] == SL_STUT && sl_bus.loop);
-    return s->w || (t->p[P_SLCR] == SL_STUT && s->loop);
+        return sl_send_w[k] || (t->p[P_SLDEPTH] && fx_bus_trk.p[P_SLCR] == SL_STUT && sl_bus.loop);
+    return s->w || (t->p[P_SLDEPTH] && t->p[P_SLCR] == SL_STUT && s->loop);
 }

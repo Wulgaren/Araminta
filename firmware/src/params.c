@@ -81,11 +81,12 @@ static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", 
  * CHRD / VOIC = chord keys; then insert continuous knobs + MIX (no MODE/TYPE enums): TONE/DMIX,
  * CRUSH, FILTER, PHASR, FLANG, CHOR RATE/DEP (CHOR MIX is already CHO; DLY/REV amounts stay DLY/REV;
  * DRIVE stays DIST). Pick-list order is ORD[] in ui_events.c (CRUSH before FILTER). */
-static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY", "REV", "RATE",
+static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY MIX", "REV MIX", "RATE",
                                      "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH",
                                      "PAT", "SRATE", "SDEP", "CHRD", "VOIC",
                                      "TONE", "DMIX", "FCUT", "FRES", "FMIX", "BITS", "CRAT", "CLPF", "CMIX",
-                                     "PRAT", "PDEP", "PFBK", "PMIX", "FRAT", "FDEP", "LMIX", "HRAT", "HDEP"};
+                                     "PRAT", "PDEP", "PFBK", "PMIX", "FRAT", "FDEP", "LMIX", "HRAT", "HDEP",
+                                     "DTIME", "DFBK", "DCOL", "RSIZE", "RDAMP"};
 static const char *const N_ENGNAME[] = {"ANALOG", FELUCCA_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS",
                                              "DRUM", "NOISE", "FM6", "-",
 };
@@ -202,7 +203,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_DTIME] = PE("TIME", N_DTIME, 1),   /* 0..12 divisions. Free ms is DTIME_FREE+ms in the same word (fx.c) */
     [G_DFDBK] = PD("FDBK", F_PCT, 0, 120, 60),
     [G_DCOLOR] = PD("COLR", F_PCT, 0, 127, 70),
-    [G_DMIX] = PD("MIX", F_PCT, 0, 127, 90),
+    [G_DMIX] = PD("-", F_INT, 0, 127, 90), /* retired return gain: keep its wire id and stored value */
     [G_RSIZE] = PD("SIZE", F_PCT, 0, 127, 90),
     [G_RDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
     [G_CRATE] = PD("DLYOWN", F_INT, 0, 4, 0),     /* 0 SEND; 1..4 track with delay CHAIN (was bus CRT) */

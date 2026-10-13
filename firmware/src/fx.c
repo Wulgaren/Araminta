@@ -147,7 +147,10 @@ static void ins_send_set(track_t *t, uint32_t st, int on)
     raw = iord_bits(t);
     bit = (uint16_t)(1u << (10u + st));
     raw = on ? (uint16_t)(raw | bit) : (uint16_t)(raw & (uint16_t)~bit);
+    if (raw == iord_bits(t)) return;
+    motion_fx_route(t, st, 0);
     t->p[P_IORD] = (int16_t)raw;
+    motion_fx_route(t, st, 1);
 }
 static void iord_set_perm(track_t *t, uint32_t n)
 {
@@ -217,15 +220,21 @@ static int32_t bus_own(uint32_t which)   /* 0 delay, 1 reverb, 2 slicer(legacy);
 }
 static void bus_own_set(uint32_t which, int32_t tr)   /* tr -1 = SEND; else claim for track tr */
 {
+    uint32_t k, st = which == 2u ? INS_SLCR : INS_REV;
+    if (which)
+        for (k = 0; k < NTRK; k++) motion_fx_route(&trk[k], st, 0);
     if (which == 2u) {                               /* SLICER: per-track toggle lives in ui_input */
         if (tr < 0)
             song.g[G_SLOWN] = (int16_t)((1u << NTRK) - 1u);
         else if (tr < (int32_t)NTRK)
             song.g[G_SLOWN] = (int16_t)(((1u << NTRK) - 1u) ^ (1u << (uint32_t)tr));
+        for (k = 0; k < NTRK; k++) motion_fx_route(&trk[k], st, 1);
         return;
     }
     song.g[which ? G_REVOWN : G_DLYOWN] =
         tr < 0 || tr >= (int32_t)NTRK ? 0 : (int16_t)(tr + 1);
+    if (which)
+        for (k = 0; k < NTRK; k++) motion_fx_route(&trk[k], st, 1);
 }
 static void bus_own_sanitize(void)
 {
@@ -548,6 +557,68 @@ static uint32_t delay_samples(void)
     d = (uint32_t)song.g[G_DTIME];
     s = d - 10u < 3u ? (beat_samples() * 3u) >> DIV_DOT[d - 10u] : div_samples(d);
     return s < 16u ? 16u : s >= DLY_LEN ? DLY_LEN - 1u : s;
+}
+
+/* The stage owning a shared SEND setting; MIX always stays on its track. */
+static uint32_t fx_target_stage(uint32_t id)
+{
+    if (id == P_DIST || id == P_ED_FX || id == P_IDMODE) return INS_DIST;
+    if (id >= P_IFTYPE && id <= P_IFRES) return INS_FILTER;
+    if (id >= P_ICBITS && id <= P_ICLPF) return INS_CRUSH;
+    if (id >= P_IPRATE && id <= P_IPFBK) return INS_PHASR;
+    if (id >= P_ILRATE && id <= P_ILDEP) return INS_FLANG;
+    if (id >= P_IHRATE && id <= P_IHDEP) return INS_CHOR;
+    if (id == P_SLPAT || id == P_SLRATE) return INS_SLCR;
+    return FX_LIST_N;
+}
+/* Motion ids identify settings without adding track parameters to the frozen project layout. */
+static int16_t *fx_target_ptr(const track_t *t, uint32_t id)
+{
+    uint32_t st;
+    if (MFX_PARAM(id)) {
+        static const uint8_t G[] = {G_DTIME, G_DFDBK, G_DCOLOR, G_RSIZE, G_RDAMP};
+        uint32_t g = G[id - MFX_TIME];
+        if (id >= MFX_SIZE && bus_own(1) == (int32_t)(t - trk))
+            g = id == MFX_SIZE ? G_CRSIZE : G_CRDAMP;
+        return &song.g[g];
+    }
+    if ((id == P_SLPAT || id == P_SLRATE) && sl_trk_send(t))
+        return &fx_bus_trk.p[id];
+    st = fx_target_stage(id);
+    if (st < INS_N && ins_is_send(t, st))
+        return &fx_bus_trk.p[id];
+    return (int16_t *)&t->p[id];
+}
+/* RATE's selected division is the starting point for continuous TIME modulation and locks. */
+static int16_t fx_time_value(int16_t raw)
+{
+    uint32_t d = (uint32_t)raw, s;
+    if (raw >= DTIME_FREE) return raw;
+    s = d - 10u < 3u ? (beat_samples() * 3u) >> DIV_DOT[d - 10u] : div_samples(d);
+    s = s < 16u ? 16u : s >= DLY_LEN ? DLY_LEN - 1u : s;
+    return (int16_t)(DTIME_FREE + clamp((int32_t)((s * 1000u + FS / 2u) / FS),
+                                      1, (int32_t)DTIME_MS_MAX));
+}
+static const param_desc_t *fx_target_desc(const track_t *t, uint32_t id)
+{
+    static const param_desc_t TIME = {"TIME", F_INT, DTIME_FREE + 1, DTIME_FREE + DTIME_MS_MAX,
+                                    DTIME_FREE + 250, 0, "ms"};
+    if (id == MFX_TIME)
+        return &TIME;
+    if (MFX_PARAM(id)) {
+        static const uint8_t G[] = {G_DTIME, G_DFDBK, G_DCOLOR, G_RSIZE, G_RDAMP};
+        return &GP[G[id - MFX_TIME]];
+    }
+    return id >= P_E0 ? &ENGINES[t->engine]->edit[id - P_E0] : &TP[id];
+}
+/* These settings are consumed by the SEND DSP after all track renders. */
+static int fx_target_send(const track_t *t, uint32_t id)
+{
+    if (id >= MFX_TIME && id <= MFX_COLOR)
+        return bus_own(0) < 0;
+    if (id == MFX_SIZE || id == MFX_DAMP)
+        return bus_own(1) != (int32_t)(t - trk);
+    return (id == P_SLPAT || id == P_SLRATE) && sl_trk_send(t);
 }
 /* free-ms read position (Q8). 0, and the first block after RATE: snap, so a loaded time is exact. While TIME
  * stays selected the read glides toward the knob (tape pitch): at most DLY_SLEW Q8/sample (~0.25 samp/samp,
@@ -1023,10 +1094,11 @@ static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet
 static void fx_buses(const int32_t *dly_in, const int32_t *rev_in, int32_t *wet, uint32_t n)
 {
     uint32_t i;
-    int32_t rt, dmix = song.g[G_DMIX] * 258;
+    int32_t rt;
     int dly_send = bus_own(0) < 0, rev_chain = bus_own(1) >= 0;
+    mod_bus_begin();
     if (dly_send)
-        dly_process(dly_in, wet, n, dmix);
+        dly_process(dly_in, wet, n, 32768);
     else
         for (i = 0; i < n; i++)
             wet[i] = 0;                           /* CHAIN: owner advances the line in track_insert */
@@ -1039,6 +1111,7 @@ static void fx_buses(const int32_t *dly_in, const int32_t *rev_in, int32_t *wet,
         rev_switch(rev_in, wet, n, rt);
     else
         rev_run((uint32_t)rt, rev_in, wet, n);
+    mod_bus_end();
 }
 
 /* after the buses: HALL stereo difference from either tank (CHAIN insert and/or SEND) */
@@ -1742,6 +1815,7 @@ static void mix_block(int32_t *out, uint32_t n)
 {
     uint32_t i;
     int perf;
+    mod_bus_n = 0;
     int32_t mg = fx_usb_fixed ? MASTER_FULL : (int32_t)song.master_q12;   /* (USB LEVEL FIXED: MASTER after) */
     for (i = 0; i < n; i++)
         send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;

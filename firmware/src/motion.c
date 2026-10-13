@@ -13,6 +13,18 @@ static int16_t motion_base[NTRK][P_COUNT];
 static uint32_t motion_active[NTRK][(P_COUNT + 31u) / 32u];
 static uint32_t motion_locked[NTRK][(P_COUNT + 31u) / 32u];   /* the ids a lock holds now (put back at the next step) */
 static uint8_t motion_base_valid, motion_full, motion_save_lim;
+static const param_desc_t *motion_target_desc(const track_t *t, uint32_t id)
+{
+    return MFX_PARAM(id) ? fx_target_desc(t, id) : param_desc_of(eng_idx(t->eng_req), id);
+}
+static void motion_capture_base(track_t *t)
+{
+    uint32_t k = trk_index(t);
+    memcpy(motion_base[k], t->p, sizeof t->p);
+    for (uint32_t id = MFX_TIME; id <= MFX_DAMP; id++) motion_base[k][id] = *fx_target_ptr(t, id);
+    for (uint32_t i = 0; i < FX_BUS_N; i++)
+        motion_base[k][FX_BUS_PID[i]] = *fx_target_ptr(t, FX_BUS_PID[i]);
+}
 static uint32_t motion_guard(void)
 {
 #if defined(FM1_IRQ_TARGET)
@@ -35,14 +47,38 @@ static int motion_param(uint32_t id)
 {
     /* Sound only: transport, routing, voice allocation and discrete engine
      * changes never become automation. FX sends and continuous mix are safe. */
-    return id < P_COUNT && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
+    return MFX_PARAM(id) || (id < P_COUNT && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
         (id >= P_DIST && id <= P_REV) || id == P_GLIDE || id == P_PAN ||
         id == P_DETUNE || (id >= P_SLPAT && id <= P_SLDEPTH) ||   /* #222: SLICER pattern / rate / depth (not MODE) */
         id == P_CHRD || id == P_VOIC ||                           /* chord type / voicing */
         (id >= P_FM1_ATK && id <= P_FM4_LEVEL) || (id >= P_LN0 && id <= P_LN7) ||
-        id == P_SPRD || (id >= P_IDMODE && id < P_FTYPE) || id >= P_E0);   /* insert chain (not P_IORD: 0..719
-                                        * does not fit motion's int8); not LFO SYNC TRIG POL / QUANTIZE /
+        id == P_SPRD || (id >= P_IDMODE && id < P_FTYPE) || id >= P_E0));   /* insert chain (not P_IORD: 0..719
+                                        * exceeds the track-value range); not LFO SYNC TRIG POL / QUANTIZE /
                                         * FTYPE / ESYNC; DRUM lanes, SPREAD, E0..E7 */
+}
+
+/* A shared setting is reserved by its first stored assignment or motion record, even while disabled. */
+static int fx_target_available(const track_t *t, uint32_t id)
+{
+    uint32_t k, j;
+    int16_t *ptr;
+    if (!MFX_PARAM(id) && fx_target_stage(id) == FX_LIST_N)
+        return 1;
+    ptr = fx_target_ptr(t, id);
+    for (k = 0; k < NTRK; k++) {
+        const track_t *other = &trk[k];
+        if (fx_target_ptr(other, id) != ptr)
+            continue;
+        for (j = 0; j < NMSLOT; j++) {
+            uint32_t d = (uint32_t)other->p[P_M1DST + j * 3u];
+            if (d > MD_AMP && d < MD_N && d != MD_DEPTH && mod_param(d) == id)
+                return other == t;
+        }
+        for (j = 0; j < motion.count; j++)
+            if ((motion.event[j].place >> 6) == k && MOTION_ID(&motion.event[j]) == id)
+                return other == t;
+    }
+    return 1;
 }
 static int motion_valid(const motion_store_t *m)
 {
@@ -50,7 +86,13 @@ static int motion_valid(const motion_store_t *m)
     if (m->count > MOTION_MAX || (m->on & ~((1u << NTRK) - 1u))) return 0;
     for (i = 0; i < m->count; i++) {
         const motion_event_t *e = &m->event[i];
-        if (!motion_param(MOTION_ID(e)) || e->value < -64 || e->value > 127) return 0;
+        uint32_t id = MOTION_ID(e);
+        if (!motion_param(id)) return 0;
+        if (id == MFX_TIME) {
+            if (e->value < DTIME_FREE + 1 || e->value > DTIME_FREE + (int32_t)DTIME_MS_MAX) return 0;
+        } else if (MFX_PARAM(id)) {
+            if (e->value < 0 || e->value > (id == MFX_FB ? 120 : 127)) return 0;
+        } else if (e->value < -64 || e->value > 127) return 0;
         for (j = 0; j < i; j++)
             if (m->event[j].place == e->place && MOTION_ID(&m->event[j]) == MOTION_ID(e)) return 0;
     }
@@ -109,15 +151,32 @@ static uint32_t motion_mask(uint32_t k, uint32_t m[(P_COUNT + 31u) / 32u])
 static int16_t motion_base_value(const track_t *t, uint32_t id)
 {
     uint32_t k = trk_index(t);
+    if (MFX_PARAM(id) || fx_target_ptr(t, id) != &t->p[id]) return t->p[id];
     return (motion_active[k][id / 32u] >> (id % 32u)) & 1u ? motion_base[k][id] : t->p[id];
+}
+/* The base of a lock destination, which may live outside the track's sound parameters. */
+static int16_t motion_target_base_value(const track_t *t, uint32_t id)
+{
+    uint32_t k = trk_index(t);
+    int16_t v = (motion_active[k][id / 32u] >> (id % 32u)) & 1u ? motion_base[k][id] : *fx_target_ptr(t, id);
+    return id == MFX_TIME ? fx_time_value(v) : v;
+}
+/* Save the base of a shared FX setting, including while a step lock is sounding. */
+static int16_t motion_fx_base(const int16_t *ptr)
+{
+    for (uint32_t k = 0; k < NTRK; k++)
+        for (uint32_t id = 0; id < P_COUNT; id++)
+            if (((motion_active[k][id / 32u] >> (id % 32u)) & 1u) &&
+                fx_target_ptr(&trk[k], id) == ptr) return motion_base[k][id];
+    return *ptr;
 }
 static void motion_restore(track_t *t)
 {
     uint32_t k = trk_index(t), id, f = motion_guard();
     for (id = 0; id < P_COUNT; id++)
-        if ((motion_active[k][id / 32u] >> (id % 32u)) & 1u) {
-            t->p[id] = motion_base[k][id];
-            scale_lock_after(t, id);
+        if (((motion_active[k][id / 32u] >> (id % 32u)) & 1u) && fx_target_available(t, id)) {
+            *fx_target_ptr(t, id) = motion_base[k][id];
+            if (!MFX_PARAM(id)) scale_lock_after(t, id);
         }
     memset(motion_active[k], 0, sizeof motion_active[k]);
     memset(motion_locked[k], 0, sizeof motion_locked[k]);
@@ -127,8 +186,28 @@ static void motion_rebase(track_t *t)
 {
     uint32_t k = trk_index(t), f = motion_guard();
     motion_restore(t);
-    memcpy(motion_base[k], t->p, sizeof t->p);
+    motion_capture_base(t);
     motion_base_valid = (uint8_t)((motion_base_valid & ~(1u << k)) | (song.playing ? 1u << k : 0u));
+    motion_unguard(f);
+}
+
+/* Restore a stage's old destinations before routing changes; capture the new bank afterward. */
+static void motion_fx_route(track_t *t, uint32_t st, int capture)
+{
+    uint32_t k = trk_index(t), id, f = motion_guard();
+    for (id = 0; id < P_COUNT; id++) {
+        uint32_t word = id / 32u, bit = 1u << (id % 32u);
+        if (fx_target_stage(id) != st && !(st == INS_REV && (id == MFX_SIZE || id == MFX_DAMP)))
+            continue;
+        if (capture) {
+            motion_base[k][id] = *fx_target_ptr(t, id);
+        } else {
+            if ((motion_active[k][word] & bit) && fx_target_available(t, id))
+                *fx_target_ptr(t, id) = motion_base[k][id];
+            motion_active[k][word] &= ~bit;
+            motion_locked[k][word] &= ~bit;
+        }
+    }
     motion_unguard(f);
 }
 static void motion_begin(void)
@@ -136,7 +215,7 @@ static void motion_begin(void)
     uint32_t k;
     for (k = 0; k < NTRK; k++) {
         motion_restore(&trk[k]);
-        memcpy(motion_base[k], trk[k].p, sizeof trk[k].p);
+        motion_capture_base(&trk[k]);
     }
     motion_base_valid = (1u << NTRK) - 1u;
 }
@@ -173,9 +252,9 @@ static int motion_put(track_t *t, uint32_t step, uint32_t id, int16_t value, uin
 {
     uint32_t k = trk_index(t), i, f;
     const param_desc_t *d;
-    if (k >= NTRK || step >= NSTEP || !motion_param(id)) return 1;
-    d = param_desc_of(eng_idx(t->eng_req), id);
-    if (value < d->min || value > d->max || value < -64 || value > 127) return 1;
+    if (k >= NTRK || step >= NSTEP || !motion_param(id) || !fx_target_available(t, id)) return 1;
+    d = motion_target_desc(t, id);
+    if (value < d->min || value > d->max || (id != MFX_TIME && (value < -64 || value > 127))) return 1;
     value = (int16_t)param_fit(d, value);                    /* (a retired KIT: the kit it plays) */
     f = motion_guard();
     for (i = 0; i < motion.count; i++)
@@ -183,7 +262,7 @@ static int motion_put(track_t *t, uint32_t step, uint32_t id, int16_t value, uin
     if (i == MOTION_MAX) { motion_full = 1; motion_unguard(f); return 2; }
     motion.event[i].place = (uint8_t)(k << 6 | step);
     motion.event[i].param = (uint8_t)(id | kind);
-    motion.event[i].value = (int8_t)value;
+    motion.event[i].value = value;
     RING_PUBLISH();
     if (i == motion.count) {
         motion.count++;
@@ -257,7 +336,7 @@ static __attribute__((noinline)) void motion_unlock(track_t *t, uint32_t step, c
     for (id = 0; id < P_COUNT; id++) {
         int32_t best = -1;
         int16_t v;
-        if (!((motion_locked[k][id / 32u] >> (id % 32u)) & 1u))
+        if (!((motion_locked[k][id / 32u] >> (id % 32u)) & 1u) || !fx_target_available(t, id))
             continue;
         v = motion_base[k][id];
         for (i = 0; i < m->count; i++) {
@@ -266,10 +345,10 @@ static __attribute__((noinline)) void motion_unlock(track_t *t, uint32_t step, c
             if ((e->place >> 6) != k || e->param != id || s > (int32_t)step || s <= best)
                 continue;                               /* (e->param == id: automation only, no MOTION_LOCK) */
             best = s;
-            v = (int16_t)param_fit(param_desc_of(eng_idx(t->eng_req), id), e->value);
+            v = (int16_t)param_fit(motion_target_desc(t, id), e->value);
         }
-        t->p[id] = v;
-        scale_lock_after(t, id);
+        *fx_target_ptr(t, id) = v;
+        if (!MFX_PARAM(id)) scale_lock_after(t, id);
     }
     memset(motion_locked[k], 0, sizeof motion_locked[k]);
 }
@@ -279,7 +358,7 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t step, con
     uint32_t k = trk_index(t), i, w, any = 0;
     if (!((m->on >> k) & 1u)) return;
     if (!((motion_base_valid >> k) & 1u)) {
-        memcpy(motion_base[k], t->p, sizeof t->p);
+        motion_capture_base(t);
         motion_base_valid |= (uint8_t)(1u << k);
     }
     for (w = 0; w < (P_COUNT + 31u) / 32u; w++)
@@ -289,13 +368,13 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t step, con
     for (i = 0; i < m->count; i++) {
         const motion_event_t *e = &m->event[i];
         uint32_t id = MOTION_ID(e);
-        if (e->place != (k << 6 | step) || ((e->param & MOTION_LOCK) && !play)) continue;
-        const param_desc_t *d = param_desc_of(eng_idx(t->eng_req), id);
-        t->p[id] = (int16_t)param_fit(d, e->value);
+        if (e->place != (k << 6 | step) || ((e->param & MOTION_LOCK) && !play) || !fx_target_available(t, id)) continue;
+        const param_desc_t *d = motion_target_desc(t, id);
+        *fx_target_ptr(t, id) = (int16_t)param_fit(d, e->value);
         motion_active[k][id / 32u] |= 1u << (id % 32u);
         if (e->param & MOTION_LOCK)
             motion_locked[k][id / 32u] |= 1u << (id % 32u);
-        scale_lock_after(t, id);
+        if (!MFX_PARAM(id)) scale_lock_after(t, id);
     }
 }
 static void motion_snapshot_track(track_t *t, motion_store_t *out)
@@ -358,20 +437,20 @@ static int motion_move(track_t *t, uint32_t i, uint32_t step, uint32_t id, int16
     const param_desc_t *d;
     int32_t at;
     uint32_t f;
-    if (i >= motion.count || (motion.event[i].place >> 6) != trk_index(t) || step >= NSTEP || !motion_param(id))
+    if (i >= motion.count || (motion.event[i].place >> 6) != trk_index(t) || step >= NSTEP || !motion_param(id) || !fx_target_available(t, id))
         return 1;
     at = motion_find(t, step, id);
     if (at >= 0 && (uint32_t)at != i)
         return 1;
-    d = param_desc_of(eng_idx(t->eng_req), id);
-    if (v < d->min || v > d->max || v < -64 || v > 127)
+    d = motion_target_desc(t, id);
+    if (v < d->min || v > d->max || (id != MFX_TIME && (v < -64 || v > 127)))
         return 1;
     f = motion_guard();
     if (motion.event[i].place != (trk_index(t) << 6 | step) || MOTION_ID(&motion.event[i]) != id)
         motion_restore(t);                              /* (a value alone: what sounds stays) */
     motion.event[i].place = (uint8_t)(trk_index(t) << 6 | step);
     motion.event[i].param = (uint8_t)((motion.event[i].param & MOTION_LOCK) | id);
-    motion.event[i].value = (int8_t)param_fit(d, v);
+    motion.event[i].value = (int16_t)param_fit(d, v);
     motion_unguard(f);
     return 0;
 }
