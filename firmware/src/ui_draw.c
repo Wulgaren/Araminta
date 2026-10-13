@@ -1564,9 +1564,10 @@ static void ui_draw_page(uint32_t counting)
         ui.force = 0;
         return;
     }
-    if (!ui.home && !page_visible(ui.page)) {          /* an OP page of a track that is not DIGITAL (without
-                                                         * FELUCCA_FM4: any track): EDIT 1 */
-        ui.page = (uint8_t)page_first(FAM_EDIT);
+    if (!ui.home && !page_visible(ui.page)) {          /* OP page on a non-FM track, or DELAY/SLICER
+                                                         * while this track is USED: stay in fam/sec */
+        const page_t *pg = &PAGES[ui.page];
+        ui.page = (uint8_t)page_first_sec(pg->fam, pg->sec);
         page_entered();
     }
     cursor_fix();
