@@ -407,26 +407,53 @@ static void demos(const char *dir)
 
 /* -------------------------------------------------- 6. MIX + SEND bus --- */
 /* MIX (P_SLDEPTH) is the amount: 0 is transparent even when MODE is GATE.
- * SEND: one shared bus DSP. CHAIN: that track keeps a private slicer. */
+ * SEND: MODE/PAT/RATE from fx_bus_trk (set_slicer keeps the bus in sync for host setups). */
 static int test_mix_send(void)
 {
-    uint32_t f, i, same = 1;
+    uint32_t f, i, same = 1, gated = 0;
     track_t *t0 = &trk[0], *t1 = &trk[1];
     int bad = 0;
     host_tracks_init();
     memset(sl, 0, sizeof sl);
     song.g[G_SLOWN] = 0;                                /* SEND for all */
-    set_slicer(t0, SL_GATE, 1, 1, 0);                   /* MIX 0 */
+    set_slicer(t0, SL_GATE, 1, 1, 0);                   /* MIX 0; bus MODE via set_slicer */
     set_slicer(t1, SL_GATE, 1, 1, 0);
     slicer_start();
     for (f = 0; f < FS / 2u; f += CTL) {
         int32_t b[CTL], c[CTL];
+        slicer_block();
         for (i = 0; i < CTL; i++)
             b[i] = c[i] = (int32_t)((f + i) * 2654435761u >> 17) - 16384;
         slicer_track(t0, b, CTL);
         same &= !memcmp(b, c, sizeof b);
     }
     bad += check("MIX 0: GATE mode is transparent (bypass)", same);
+    t0->p[P_SLDEPTH] = 127;                            /* MIX only; leave bus MODE/PAT/RATE */
+    slicer_start();
+    for (f = 0; f < FS / 2u; f += CTL) {
+        int32_t b[CTL], c[CTL];
+        slicer_block();
+        for (i = 0; i < CTL; i++)
+            b[i] = c[i] = (int32_t)((f + i) * 2654435761u >> 17) - 16384;
+        slicer_track(t0, b, CTL);
+        if (memcmp(b, c, sizeof b))
+            gated = 1;
+    }
+    bad += check("MIX 127: SEND bus GATE closes some steps", gated);
+    /* track MODE ignored on SEND: bus stays GATE while track MODE is OFF */
+    t0->p[P_SLCR] = SL_OFF;
+    slicer_start();
+    gated = 0;
+    for (f = 0; f < FS / 4u; f += CTL) {
+        int32_t b[CTL], c[CTL];
+        slicer_block();
+        for (i = 0; i < CTL; i++)
+            b[i] = c[i] = (int32_t)((f + i) * 2654435761u >> 17) - 16384;
+        slicer_track(t0, b, CTL);
+        if (memcmp(b, c, sizeof b))
+            gated = 1;
+    }
+    bad += check("SEND: track MODE OFF ignored (bus GATE still runs)", gated);
     /* two SEND tracks share one DSP state pointer */
     host_tracks_init();
     memset(sl, 0, sizeof sl);

@@ -64,7 +64,7 @@ static int ev_id_ok(const track_t *t, uint32_t id)
     return d && d->label && d->label[0] && d->label[0] != '-' && d->max > d->min;
 }
 /* its name in the list and on the card (b holds 12): the page's word before the card's label where the label alone
- * would say two things (ENV ATK, ENV FLT: ENV DEST's, LFO FLT: LFO DEST's; SLICER RATE / PAT / DEPTH: #222) */
+ * would say two things (ENV ATK, ENV FLT: ENV DEST's, LFO FLT: LFO DEST's; SLICER RATE / PAT / MIX: #222) */
 static void ev_name(const track_t *t, uint32_t id, char *b)
 {
     const char *pre = id == P_ED_FX ? "DIST " : id >= P_ATK && id <= P_ED_SHP ? "ENV " :
@@ -617,14 +617,9 @@ static int fx_dst_visible(const track_t *t, uint32_t st, int is_mix)
 }
 static int pk_auto_fx(uint32_t id)
 {
-    uint32_t i;
-    if (id == P_ED_FX || id == P_DIST || id == P_DLY || id == P_REV ||
-        (id >= P_SLPAT && id <= P_SLDEPTH) || (id >= P_IDMODE && id < P_FTYPE))
-        return 1;
-    for (i = 0; i < NELEM(FX_DST); i++)
-        if (FX_DST[i].pid == id)
-            return 1;
-    return 0;
+    /* Every FX_DST pid falls in these ranges (insert knobs before P_FTYPE; SLICER PAT..MIX). */
+    return id == P_ED_FX || id == P_DIST || id == P_DLY || id == P_REV ||
+           (id >= P_SLPAT && id <= P_SLDEPTH) || (id >= P_IDMODE && id < P_FTYPE);
 }
 static const char *pk_auto_group(uint32_t id)
 {
@@ -681,10 +676,7 @@ static uint32_t pk_build_auto(const track_t *t, uint32_t id, uint32_t step, uint
         if (!fx_dst_visible(t, FX_DST[i].st, FX_DST[i].mix) ||
             !ev_id_ok(t, x) || (step < NSTEP && x != id && !ev_id_free(t, step, x)))
             continue;
-        if (FX_DST[i].name)
-            str_cpy(nm, FX_DST[i].name, 16);
-        else
-            pk_auto_name(t, x, nm);
+        str_cpy(nm, FX_DST[i].name, 16);
         if (x == id)
             *sel = pk_n;
         pk_add_item(x, FX_DST[i].tag, nm);

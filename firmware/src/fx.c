@@ -1067,32 +1067,6 @@ static void fx_bus_init(void)
     uint32_t i;
     for (i = 0; i < P_COUNT; i++)
         fx_bus_trk.p[i] = TP[i].def;
-    fx_bus_trk.p[P_IDMODE] = IDM_SOFT;
-    fx_bus_trk.p[P_IFTYPE] = IFT_LP;
-    fx_bus_trk.p[P_IFCUT] = 96;
-    fx_bus_trk.p[P_IFRES] = 40;
-    fx_bus_trk.p[P_ICBITS] = 64;
-    fx_bus_trk.p[P_ICRATE] = 96;
-    fx_bus_trk.p[P_ICLPF] = 96;
-    fx_bus_trk.p[P_IPRATE] = fx_bus_trk.p[P_ILRATE] = fx_bus_trk.p[P_IHRATE] = 64;
-    fx_bus_trk.p[P_IPDEP] = fx_bus_trk.p[P_ILDEP] = fx_bus_trk.p[P_IHDEP] = 96;
-    fx_bus_trk.p[P_IPFBK] = 96;
-    fx_bus_trk.p[P_DIST] = 0;
-    fx_bus_trk.p[P_ED_FX] = 0;
-    fx_bus_trk.p[P_SLCR] = 0;
-    fx_bus_trk.p[P_SLPAT] = 1;
-    fx_bus_trk.p[P_SLRATE] = 1;
-}
-static void fx_bus_set(uint32_t st, uint32_t pid, int32_t v)
-{
-    (void)st;
-    if (pid < P_COUNT)
-        fx_bus_trk.p[pid] = (int16_t)v;
-}
-static int16_t fx_bus_get(uint32_t st, uint32_t pid)
-{
-    (void)st;
-    return pid < P_COUNT ? fx_bus_trk.p[pid] : 0;
 }
 static void fx_bus_from_wire(const uint8_t w[FX_BUS_N])
 {
