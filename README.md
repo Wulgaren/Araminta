@@ -294,9 +294,9 @@ as FM6 sounds converted from them. The SAMPLE engine's PERC kit was removed in 1
 projects that used it load as the DRUM engine's kit, on the same key map. FM6's patch bank (the B
 slots) was removed in 1.0.3: user presets keep their own FM6 patch, and presets that used a B slot get
 that patch on the first start of 1.0.3. 1.4.1 brings B slots back as a voice bank sent from the web editor
-(B1-B32): a voice picked from it becomes the track's own patch, so nothing saved depends on the bank. SLICE gained a second built-in sound in 1.0.4, PIANO (the SAMPLE
-engine's middle C as it was then), next to BREAK. Since 1.0.4 a missing sample (an empty user slot, or a set missing
-from the build) plays a plain sine at the note's pitch on SAMPLE, GRAIN and SLICE, and the screen says
+(B1-B32): a voice picked from it becomes the track's own patch, so nothing saved depends on the bank. SLICE once had
+BREAK and (from 1.0.4) PIANO; both left the ROM with the engine. Since 1.0.4 a missing sample (an empty user slot, or a set missing
+from the build) plays a plain sine at the note's pitch on SAMPLE and GRAIN, and the screen says
 NO SAMPLE once. DRUM's KIT variants HAND, CYM and H+CYM were retired in 1.0.5: sounds and projects that
 used them play the 66, 10 and 77 kits. SAMPLE's PIANO was a lo-fi piano in 1.4 and 1.4.1 (the full one installed into a user slot from the web editor as
 PIANO HD); 1.5 brings the full piano back.
@@ -378,7 +378,7 @@ Upstream context: [On AI-Assisted Development and Responsibility](https://github
   (the UI text, as in Felucca 0.9); [Inter Tight](https://github.com/rsms/inter-tight) by The Inter Project Authors,
   [SIL OFL 1.1](LICENSES/OFL-InterTight.txt) (keycap labels and diagrams);
   the browser emulator's labels: [DotGothic16](https://github.com/fontworks-fonts/DotGothic16) by The DotGothic16 Project Authors, [SIL OFL 1.1](LICENSES/OFL-DotGothic16.txt)
-- Samples: [Versilian Studios](https://versilian-studios.com/) [VSCO-2 Community Edition](https://github.com/sgossner/VSCO-2-CE) and [VCSL](https://github.com/sgossner/VCSL), CC0 1.0: the SAMPLE sets, also SLICE's PIANO and PIANO HD ([attribution](assets/samples-cc0/ATTRIBUTION.txt))
+- Samples: [Versilian Studios](https://versilian-studios.com/) [VSCO-2 Community Edition](https://github.com/sgossner/VSCO-2-CE) and [VCSL](https://github.com/sgossner/VCSL), CC0 1.0: the SAMPLE sets and PIANO HD ([attribution](assets/samples-cc0/ATTRIBUTION.txt))
 - VOICE engine: after [klattsch](https://github.com/tgies/klattsch) by Tony Gies (MIT); formant data from Klatt (1980) and Hillenbrand et al. (1995)
 - PHYS engine: models ported from [DaisySP](https://github.com/electro-smith/DaisySP) by Electrosmith and Emilie Gillet ([MIT](LICENSES/MIT-DaisySP.txt)) and from Emilie Gillet's [eurorack](https://github.com/pichenettes/eurorack) code ([MIT](LICENSES/MIT-Rings.txt))
 - FM6 engine: msfa from [Dexed](https://github.com/asb2m10/dexed) by Google Inc. and Pascal Gauthier ([Apache-2.0](LICENSES/Apache-2.0-msfa.txt))

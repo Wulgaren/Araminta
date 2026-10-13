@@ -34,7 +34,7 @@ All by Hügelton Instruments (Leo Kuroshita), in this tree:
 | Felucca: firmware, tools, web pages, tests | GPL-3.0-only | `LICENSE` |
 | The PHASE engine's waveforms: a C port of the oscillator of CrispyZebra (<https://github.com/hugelton/CrispyZebra>) | GPL-3.0 | `firmware/src/eng_phase.c` |
 | The DRUM voices and kit | GPL-3.0-only | `firmware/src/drum_voice.c`, `firmware/src/eng_drum.c` |
-| The Hügelton Sample Pack: Felucca's drum sounds, made by `tools/gen_waves.py`, from which the SLICE engine's BREAK is built (not CC0) | GPL-3.0-only | `tools/gen_waves.py` |
+| The Hügelton Sample Pack: Felucca's drum sounds, made by `tools/gen_waves.py` (SLICE BREAK retired; script kept for demos/tests) | GPL-3.0-only | `tools/gen_waves.py` |
 | The Fukiai icon font (<https://github.com/hugelton/Fukiai>): the firmware's icons (rasterised at build time by `tools/gen_aa_icons.py`) and the web editor's | MIT | `web/fukiai.ttf`, `LICENSES/MIT-Fukiai.txt`, `web/FUKIAI-LICENSE.txt` |
 
 ## Third-party material
@@ -43,7 +43,7 @@ All by Hügelton Instruments (Leo Kuroshita), in this tree:
 | --- | --- | --- |
 | Terminus font by Dimitar Toshkov Zhekov: the UI text (Felucca 0.9), rasterised into the firmware at build time (`tools/gen_aa_font.py --preset terminus`; the generated tables are not offered as a font) | SIL OFL 1.1 | `assets/fonts/ter-u12n.bdf` (S), `assets/fonts/ter-u16n.bdf` (M/L), `LICENSES/OFL-Terminus.txt` (also `assets/fonts/Terminus-LICENSE.txt`) |
 | Inter Tight font by The Inter Project Authors: keycap labels and panel diagrams (`tools/gen_aa_keycaps.py`, `tools/gen_panel_diagram.py`; the font declares no Reserved Font Name) | SIL OFL 1.1 | `assets/fonts/InterTight[wght].ttf`, `LICENSES/OFL-InterTight.txt` (also `assets/fonts/OFL.txt`) |
-| Instrument samples (Versilian Studios VSCO-2 Community Edition, VCSL): the SAMPLE sets PIANO / FLUTE / SAX, also the SLICE engine's PIANO (the PIANO set's middle C) | CC0 1.0 | `assets/samples-cc0/`, provenance in `ATTRIBUTION.txt` there |
+| Instrument samples (Versilian Studios VSCO-2 Community Edition, VCSL): the SAMPLE sets PIANO / FLUTE / SAX | CC0 1.0 | `assets/samples-cc0/`, provenance in `ATTRIBUTION.txt` there |
 | CR78 drum one-shots (Araminta SAMPLE kit set 5): user-provided CR-78 style WAVs | not CC0; see attribution | `assets/samples-cc0/CR78/`, note in `ATTRIBUTION.txt` |
 | DaisySP by Electrosmith, Corp and Emilie Gillet (<https://github.com/electro-smith/DaisySP>): the PHYS engine's modal and string models and the resonator, ported to fixed point | MIT | `firmware/src/phys_dsp.c`, `LICENSES/MIT-DaisySP.txt` |
 | Rings by Emilie Gillet (<https://github.com/pichenettes/eurorack>): the PHYS engine's sympathetic strings, ported to fixed point | MIT | `firmware/src/phys_symp.c`, `LICENSES/MIT-Rings.txt` |

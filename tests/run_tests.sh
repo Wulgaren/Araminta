@@ -98,8 +98,8 @@
 # SLICE (tests/slice_test.c): slice tables, AUTO onsets of a user-slot loop, reverse, keys, modes, the MAN slices
 #                   (SLICES page) and their store in the slot (src/slice_store.c); the presets and the loop;
 #                   demos in build/slice_demo/.
-# SAMPLE (tests/sample_test.c, 1.5): PIANO (5 zones), CR78 kit (set 5), USR1..3 at 6..8; zones, splits, pitch over the
-#                   keyboard (YIN), 0.75 s at a root, the aliases, GRAIN SRC 0; SLICE's PIANO its middle C zone (shared);
+# SAMPLE (tests/sample_test.c, 1.5): PIANO (5 zones), CR78 kit omitted (USR), USR1..3 at 5..7; zones, splits, pitch over the
+#                   keyboard (YIN), 0.75 s at a root, the aliases, GRAIN SRC 0; no SLICE BREAK in the ROM blob;
 #                   1.2's PIANO HD user-slot file (gen_samples.py --user-slot: build/piano_hd/PIANO_HD), as old users may
 #                   have installed it: valid in USR1 and bit for bit as SET 0.
 # INPUT (tests/input_test.c): the key / button debounce of hal/fm1_input.h against the TIMER5 scan and bouncing
