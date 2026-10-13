@@ -148,6 +148,7 @@ static uint32_t motion_mask(uint32_t k, uint32_t m[(P_COUNT + 31u) / 32u])
     }
     return any;
 }
+/* Track p[] dump only. Shared FX / bus ids alias matrix slots; use motion_target_base_value for locks. */
 static int16_t motion_base_value(const track_t *t, uint32_t id)
 {
     uint32_t k = trk_index(t);

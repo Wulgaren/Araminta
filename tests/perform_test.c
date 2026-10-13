@@ -1310,7 +1310,8 @@ static int test_throw(void)
             tail = peak(w0, 7u * FS + FS / 2u, 8u * FS);
             snprintf(what, sizeof what, "  FDBK %d + ECHO THROW on 4x full-scale squares: peak %d .. %d (no growth), 3.5 s after: %d",
                      v ? 90 : 120, pk1, pk4, tail);
-            bad += check(what, drive <= 2 * 32767 && pk4 <= pk1 + pk1 / 50 && tail < drive / 100);
+            /* wet is mulq15(x<<1, …): int16 min (-32768) yields peak 65536 */
+            bad += check(what, drive <= 2 * 32768 && pk4 <= pk1 + pk1 / 50 && tail < drive / 100);
         }
         perf_reset();
     }

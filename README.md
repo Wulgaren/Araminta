@@ -12,7 +12,7 @@ Plug the FM-1 into a computer by USB, open the [web installer](https://wulgaren.
 Install at your own risk: M-VAVE's updater or the installer's **Return to official V15** takes you back.
 
 Coming from Felucca **1.5 / 1.5.1**? Read [Coming from 1.5](#coming-from-felucca-15--151): your projects load; once
-you save on Araminta, Felucca 1.5 cannot open those slots.
+you save (or quiet autosave runs) on Araminta, Felucca 1.5 cannot open those slots.
 Want a look without hardware? [Try it in your browser](https://wulgaren.github.io/Araminta/webapp/try/).
 
 Multi-engine synthesizer firmware for the M-VAVE FM-1, based on Felucca.
@@ -34,7 +34,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
   and releasing a tap while the hold continues records a return to the held pitch.
 - **JIANT MIDI punch-ins.** On FX under Punch-in (FX taps: EFFECTS → SLICER → PUNCH). SELECT walks pages inside a section; holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK. Reverb adds SHIMR / CLOUD.
 - **Melodee.** Silent tracks still run LFO, bend, the engine block and fades, so modulation keeps moving when a track is muted or resting.
-- **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project as FUN11 / `FUNB` (same size as FUN10; disk motion max 78). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
+- **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project (FUN15 / `FUNF`; same 3840-byte size as FUN10; disk motion max 72). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
 - **SLICE retired.** 
 - Upload a drum kit as a USR sample: in the web editor, Drum kit grid tags the slot (`FSMP` header); SAMPLE on that set uses the drum grid on SEQ, zones mapped by hand.
 - **VOICE** is one page: VCE, GLD, UNI DTN, SPRD. GLD is free milliseconds (no GLMOD on the page). PAN / PLAY live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
@@ -45,7 +45,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
 - **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.
 - **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN.
-- **MAP (was QNT).** SCL knob: OFF / ALL / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); ALL is KBD plus sequence follows the scale; SEQ is chromatic keys plus sequence follows. Chromatic (CHR) scale removed — use MAP OFF. Projects save as FUN13 (`FUND`); older slots migrate.
+- **MAP (was QNT).** SCL knob: OFF / ALL / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); ALL is KBD plus sequence follows the scale; SEQ is chromatic keys plus sequence follows. Chromatic (CHR) scale removed; use MAP OFF. SCALE LOCK stash lands in FUN12+; current saves are FUN15 (`FUNF`).
 - **Following playhead** in the SEQ. Start selecting a step to pause the following, returns after 3 seconds of inactivity.
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
@@ -149,18 +149,22 @@ Projects, user presets, settings, samples and the FM6 voice bank stay in flash; 
 What loads:
 
 - **Projects (FUN10 / `FUNA`).** Every 1.5 / 1.5.1 project opens. Patterns, motion, songs, FM6 patches and globals
-  stay. Disk motion max on new saves shrinks from 110 to 78 records so the DRUM-X kit fits (RAM still 128).
+  stay. Disk motion max on new saves shrinks from 110 to 72 records (SCALE LOCK + SEND bus layout; RAM still 128).
 - **1.5 INSERT.** TYPE / A / B / C / MIX migrate into the six-stage chain (DIST drive / CRUSH / PHASR / FLANG / CHOR
   and MIX). DIST TONE comes back as an offset on the drive-linked cutoff. TYPE OFF stays dry.
 - **ANALOG filter TYPE and ENV SYNC.** Kept at their values.
 - **User presets and MENU settings.** Load; new chain / kit fields take defaults where the old store had none.
 - **DRUM.** Plays as DRUM-X. A FUN10 has no kit bytes: the factory kit. An old KIT enum value still maps into MRPH.
 
-What changes when you save:
+What changes when you save (or when quiet autosave writes after idle):
 
-- **New project format is FUN11 (`FUNB`).** Same 3840-byte size as FUN10, different magic, plus the DRUM-X kit.
-  **Felucca 1.5 / 1.5.1 refuses FUN11:** that slot shows EMPTY there until you save over it (flash data stays until then).
-  A backup that holds a FUN11 is refused on 1.5. Upgrade is one-way for anything you re-save on Araminta.
+- **New project format is FUN15 (`FUNF`).** Same 3840-byte size as FUN10, different magic: DRUM-X kit, SCALE LOCK,
+  SEND bus knobs, SLICER list slots, exact FX lock packing. Intermediate FUN11–FUN14 load; only FUN15 is written.
+  **Felucca 1.5 / 1.5.1 (and FUN11-only builds) refuse FUN15:** that slot shows EMPTY there until you save over it
+  (flash data stays until then). A backup that holds FUN15 is refused on 1.5. Upgrade is one-way for anything you
+  re-save on Araminta.
+- **Motion on disk max is 72** (FUN10: 110; RAM still 128). Extra locks stay in RAM until truncated on pack; the UI
+  can warn when you cross the save limit.
 - **P_COUNT is 127** (1.5: 111). Editors that read `INFO` keep working; a 1.5-only editor will not know the new ids.
 
 Day-to-day differences after the flash (not data loss):
@@ -171,7 +175,8 @@ Day-to-day differences after the flash (not data loss):
 - Full backup still omits the FM6 voice bank: keep the `.syx` if you use B1–B32.
 
 Rollback: installer's **Return to official V15**, or M-VAVE's updater. That is stock FM-1, not Felucca 1.5.
-To keep a Felucca 1.5-readable copy of a project, back it up (web editor) **before** you save it on Araminta.
+It will not reopen FUN15 projects. Back up in the web editor **before** the first save or quiet autosave on Araminta
+if you still need a Felucca 1.5-readable copy.
 
 ## Controls
 
@@ -286,7 +291,7 @@ In the order the device lists them:
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
 - **DRUM**: DRUM-X, an 8-lane morphable kit on the General MIDI key map (JIANT port). EDIT sections
   **Sound** (MRPH / TUNE / TONE / DECY), **Kit** (SOUND: lane A/B plus pitch env; SOUND 2: DCAY / NOIS / COLR / MODE)
-  and **Lanes**. Kit and mute persist in FUN11 projects (FUN10 opens with the factory kit). Old Felucca KIT values
+  and **Lanes**. Kit and mute persist in FUN15 projects (FUN10 opens with the factory kit). Old Felucca KIT values
   still play as DRUM-X. SLICE is retired; old stores load as DRUM
 
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
