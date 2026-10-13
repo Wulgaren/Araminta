@@ -307,7 +307,9 @@ static uint32_t motion_clear_locks(track_t *t, uint32_t step)
 static int motion_capture(track_t *t, uint32_t id, int16_t value)
 {
     uint32_t k = trk_index(t), idx, len, period, f;
-    if (!motion_param(id)) return 0;
+    /* MFX_* reuse matrix ids (P_M1SRC..). FX locks/automation use motion_set_*;
+     * track matrix edits must not rewrite those shared bases or events. */
+    if (MFX_PARAM(id) || !motion_param(id)) return 0;
     if (!rec_on(t) || t != TSEL) {
         /* A live edit becomes a new base, even when an earlier motion value is
          * currently sounding. Subsequent recorded events can still override it. */

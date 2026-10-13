@@ -105,6 +105,7 @@ static struct {                  /* the part in mix_part (one at a time) */
     uint8_t vsrc[NMSLOT], vdst[NMSLOT];
     int8_t vamt[NMSLOT];
     uint8_t kid[NMSLOT];         /* per-block: the parameter, its stored value */
+    uint8_t kshared[NMSLOT];     /* 1: FX/insert/slicer bus path (desc + availability) */
     int16_t keep[NMSLOT];
 } mod;
 
@@ -252,15 +253,24 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
         }
         {                                               /* per block: AMT 64 = the whole range */
             uint32_t id = mod_param(d);
-            const param_desc_t *pd = fx_target_desc(t, id);
-            int16_t *dst = mod_dst_ptr(t, id);
-            if (!fx_target_available(t, id))
-                continue;
+            int shared = MD_FX(d) || MD_INS(d) || MD_SLICER(d);
+            const param_desc_t *pd;
+            int16_t *dst;
+            if (shared) {
+                pd = fx_target_desc(t, id);
+                dst = mod_dst_ptr(t, id);
+                if (!fx_target_available(t, id))
+                    continue;
+            } else {
+                pd = id >= P_E0 ? &ENGINES[t->engine]->edit[id - P_E0] : &TP[id];
+                dst = &t->p[id];
+            }
             x = mod_tsrc(t, s, lfo);
             for (j = 0; j < mod.nk && mod.kid[j] != id; j++)
                 ;
             if (j == mod.nk) {
                 mod.kid[j] = (uint8_t)id;
+                mod.kshared[j] = (uint8_t)shared;
                 mod.keep[j] = *dst;
                 off[j] = 0;
                 mod.nk++;
@@ -270,9 +280,19 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     }
     for (j = 0; j < mod.nk; j++) {
         uint32_t id = mod.kid[j];
-        const param_desc_t *pd = fx_target_desc(t, id);
-        int32_t base = id == MFX_TIME && mod.keep[j] < pd->min ? fx_time_value(mod.keep[j]) : mod.keep[j];
-        *mod_dst_ptr(t, id) = (int16_t)clamp(base + off[j], pd->min, pd->max);
+        const param_desc_t *pd;
+        int16_t *dst;
+        int32_t base;
+        if (mod.kshared[j]) {
+            pd = fx_target_desc(t, id);
+            dst = mod_dst_ptr(t, id);
+            base = id == MFX_TIME && mod.keep[j] < pd->min ? fx_time_value(mod.keep[j]) : mod.keep[j];
+        } else {
+            pd = id >= P_E0 ? &ENGINES[t->engine]->edit[id - P_E0] : &TP[id];
+            dst = &t->p[id];
+            base = mod.keep[j];
+        }
+        *dst = (int16_t)clamp(base + off[j], pd->min, pd->max);
     }
     return 1;
 }
@@ -283,7 +303,7 @@ static __attribute__((noinline)) void mod_end(track_t *t)
     uint32_t j;
     for (j = 0; j < mod.nk; j++) {
         uint32_t id = mod.kid[j];
-        int16_t *ptr = mod_dst_ptr(t, id);
+        int16_t *ptr = mod.kshared[j] ? mod_dst_ptr(t, id) : &t->p[id];
         if (MFX_PARAM(id) && fx_target_send(t, id)) {
             uint32_t i;
             for (i = 0; i < mod_bus_n && mod_bus[i].ptr != ptr; i++) ;
