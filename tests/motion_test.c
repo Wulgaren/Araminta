@@ -291,14 +291,14 @@ static int arp_new_modes(void)
     track_t *t;
     ui_power_on();
     t = &trk[0];
-    ok = TP[P_AMODE].max == 14 && str_eq(TP[P_AMODE].names[6], "REPEAT") && str_eq(TP[P_AMODE].names[7], "DNUP") &&
+    ok = TP[P_AMODE].max == 15 && str_eq(TP[P_AMODE].names[6], "REPEAT") && str_eq(TP[P_AMODE].names[7], "DNUP") &&
          str_eq(TP[P_AMODE].names[8], "UP+8") && str_eq(TP[P_AMODE].names[9], "CONV") &&
          str_eq(TP[P_AMODE].names[10], "DIVG") && str_eq(TP[P_AMODE].names[11], "PINKY") &&
          str_eq(TP[P_AMODE].names[12], "THUMB") && str_eq(TP[P_AMODE].names[13], "WALK") &&
-         str_eq(TP[P_AMODE].names[14], "CHORD");
-    for (i = 0; i <= 14u; i++)
+         str_eq(TP[P_AMODE].names[14], "CHORD") && str_eq(TP[P_AMODE].names[15], "DRONE");
+    for (i = 0; i <= 15u; i++)
         ok &= strlen(TP[P_AMODE].names[i]) <= 6u;
-    bad += check("ARP modes: OFF..REPEAT keep their numbers, DNUP UP+8 CONV DIVG PINKY THUMB WALK CHORD appended (<= 6 chars)", ok);
+    bad += check("ARP modes: OFF..REPEAT keep their numbers, DNUP..CHORD..DRONE appended (<= 6 chars)", ok);
     /* the modes before 1.2 play as they did */
     arp_fresh(t, AM_UP, 1, CEG, 3);   ok = arp_plays(t, (const uint8_t[]){60, 64, 67, 60}, 4);
     arp_fresh(t, AM_DN, 1, CEG, 3);   ok &= arp_plays(t, (const uint8_t[]){67, 64, 60, 67}, 4);
@@ -442,6 +442,100 @@ static int arp_new_modes(void)
     seq_stop();
     song.rec = 0;
     bad += check("ARP CHORD recorded: C E G into one step", k == 1u);
+    arp_fresh(t, AM_OFF, 1, CEG, 0);
+    return bad;
+}
+
+/* DRONE: sustain all held notes (no RATE retrigger); OCT = fixed transpose; HOLD forced on + restored */
+static int drone_sounds(const track_t *t, const uint8_t *want, uint32_t n)
+{
+    uint32_t i;
+    if (!n)
+        return !t->arp_note;
+    if (t->arp_note != want[0])
+        return 0;
+    for (i = 1; i < n; i++)
+        if (t->arp_ch[i - 1u] != want[i])
+            return 0;
+    for (; i < 16u; i++)
+        if (t->arp_ch[i - 1u])
+            return 0;
+    return 1;
+}
+static int arp_drone_mode(void)
+{
+    static const uint8_t CEG[3] = {60, 64, 67};
+    static const uint8_t SIX[6] = {60, 62, 64, 65, 67, 69};
+    int bad = 0, ok;
+    uint32_t i;
+    track_t *t;
+    ui_power_on();
+    t = &trk[0];
+    ok = TP[P_AMODE].max == 15 && str_eq(TP[P_AMODE].names[14], "CHORD") && str_eq(TP[P_AMODE].names[15], "DRONE") &&
+         str_eq(TP[P_AMODE].names[6], "REPEAT") && param_turn(&TP[P_AMODE], 5, 1) == 7 &&
+         param_turn(&TP[P_AMODE], 7, -1) == 5;
+    bad += check("ARP DRONE appended; REPEAT kept at 6 but MODE knob skips it", ok);
+
+    arp_fresh(t, AM_DRONE, 1, CEG, 3);
+    arp_tick(t, CTL);
+    ok = drone_sounds(t, CEG, 3);
+    t->arp_off = 1;
+    for (i = 0; i < 8u; i++)
+        arp_tick(t, CTL);                              /* RATE / GATE would have retriggered or released */
+    ok &= drone_sounds(t, CEG, 3);
+    bad += check("ARP DRONE sustains C E G with no RATE retrigger or GATE release", ok);
+
+    arp_fresh(t, AM_DRONE, 2, CEG, 3);
+    arp_tick(t, CTL);
+    ok = drone_sounds(t, (const uint8_t[]){72, 76, 79}, 3);
+    bad += check("ARP DRONE OCT 2 is a fixed +12, not an octave walk", ok);
+
+    arp_fresh(t, AM_DRONE, 1, SIX, 6);
+    arp_tick(t, CTL);
+    ok = drone_sounds(t, SIX, 6);
+    bad += check("ARP DRONE sounds more than CHORD's 4 notes", ok);
+
+    t->p[P_AHOLD] = 0;
+    t->armp = AM_UP;
+    t->aholdp = 0;
+    t->p[P_AMODE] = AM_DRONE;
+    events_block(CTL);
+    ok = t->p[P_AHOLD] == 1;
+    t->p[P_AMODE] = AM_UP;
+    events_block(CTL);
+    ok &= t->p[P_AHOLD] == 0;
+    t->p[P_AHOLD] = 1;
+    t->armp = AM_UP;
+    t->aholdp = 1;
+    t->p[P_AMODE] = AM_DRONE;
+    events_block(CTL);
+    t->p[P_AMODE] = AM_CHORD;
+    events_block(CTL);
+    ok &= t->p[P_AHOLD] == 1;
+    bad += check("ARP DRONE forces HOLD on and restores the prior HOLD on leave", ok);
+
+    /* key-up must not kill latched drone voices (input_off used to trk_note_off while HOLD kept held[]) */
+    {
+        uint32_t i, gated = 0;
+        arp_fresh(t, AM_OFF, 1, CEG, 0);
+        t->p[P_VOICE] = V_POLY;
+        t->p[P_AMODE] = AM_DRONE;
+        t->p[P_AHOLD] = 1;
+        t->p[P_AOCT] = 1;
+        t->p[P_APROB] = 127;
+        input_on(t, 60, 100);
+        input_on(t, 64, 100);
+        arp_tick(t, CTL);
+        input_off(t, 60);
+        input_off(t, 64);
+        arp_tick(t, CTL);
+        ok = drone_sounds(t, (const uint8_t[]){60, 64}, 2) && t->nheld == 2u;
+        for (i = 0; i < NVOICE; i++)
+            gated += t->v[i].gate && (t->v[i].note == 60 || t->v[i].note == 64);
+        ok &= gated >= 2u;
+        bad += check("ARP DRONE keeps sounding after both keys are released (HOLD latch)", ok);
+    }
+
     arp_fresh(t, AM_OFF, 1, CEG, 0);
     return bad;
 }
@@ -1093,6 +1187,7 @@ int main(void)
 {
     int bad = motion_recording() + motion_capacity() + probability_playback() + compact_project() + fun7_89() + loads_and_song() + repeat_mode();
     bad += arp_new_modes();
+    bad += arp_drone_mode();
     bad += lock_playback() + lock_edit() + lock_project() + lock_ui() + lock_undo() + auto_list();
     bad += fx_lock_time();
     bad += fx_lock_banks_and_capacity();

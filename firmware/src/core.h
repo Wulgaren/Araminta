@@ -458,7 +458,7 @@ typedef struct track {
     uint32_t arp_idx;
     uint8_t arp_note;            /* sounding arp note, 0 = none */
     uint8_t arp_walk;            /* WALK: the place in the note list it stands on */
-    uint8_t arp_ch[3];           /* CHORD: the other notes sounding with arp_note, 0 = none */
+    uint8_t arp_ch[15];          /* CHORD / DRONE: other notes with arp_note (up to 16), 0 = none */
     uint32_t arp_off;            /* q8 sample time of its note-off */
     /* sequencer */
     step_t step[NSTEP];
@@ -511,8 +511,9 @@ typedef struct track {
     int16_t scl_stash[3];        /* ROOT / SCL / MAP restored on OFF (project.c FUN12+) */
     uint8_t scl_stash_ok;        /* 1: scl_stash holds values from before a lock overwrite */
     uint8_t fx_sl_pos;           /* EFFECTS INS_SLCR list slot 0..8; RAM until FUN14 (default 8) */
-    uint8_t rsv_sz[7];           /* sizeof(track_t) a multiple of 16 */
+    uint8_t rsv_sz[9];           /* sizeof(track_t) a multiple of 16 */
     int16_t armp, aholdp;        /* P_AMODE / P_AHOLD as last seen by the ISR */
+    int16_t ahold_sv;            /* HOLD before DRONE forced it on (restored on leave) */
     /* engine switch (voice.c engine_block): the old engine's voices fade out, then it switches */
     uint8_t xf_on, xf;           /* fading; blocks of the fade still to render */
     int16_t pe_old[8];           /* P_E0..P_E7 of the sounding engine: the fade renders with these */

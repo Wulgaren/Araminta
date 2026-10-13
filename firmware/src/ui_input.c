@@ -90,6 +90,8 @@ static int mom_turn(uint32_t k, int32_t s)
     if (!d || !vp || d->max == d->min ||
         !((vp >= t->p && vp < t->p + P_COUNT) || (g <= G_CDEPTH && g != G_CLOCK) || g == G_RTYPE))
         return 0;                                      /* (only the values a sound and the FX are: no CLK, no actions) */
+    if (arp_drone_frozen(TSEL, vp))
+        return 0;
     for (i = 0; i < mom.n && mom.vp[i] != vp; i++)
         ;
     if (i == mom.n) {                                  /* the first turn of this value: what it was */
@@ -217,13 +219,13 @@ static uint32_t midi_leds(const track_t *t)
 static uint32_t play_leds(void)
 {
     const track_t *t = TSEL;
-    uint8_t s[4 + NLANE + 4];
+    uint8_t s[4 + NLANE + 16];
     uint32_t n = t->seq_n < 4u + NLANE ? t->seq_n : 4u + NLANE, i, k, note, used = 0, m = 0, hit;
     for (i = 0; i < n; i++)
         s[i] = t->seq_notes[i];
     if (t->arp_note)
         s[n++] = t->arp_note;
-    for (i = 0; i < 3u; i++)                            /* (the ARP's CHORD) */
+    for (i = 0; i < 15u; i++)                           /* (CHORD / DRONE extras) */
         if (t->arp_ch[i])
             s[n++] = t->arp_ch[i];
     for (k = 0; n && k < 27u; k++) {
@@ -1211,6 +1213,8 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     if (pg->graph != GR_MOD)
         pk_close();
+    if (arp_drone_frozen(TSEL, vp))
+        return;
     v = param_turn(d, *vp, accel(EN_K1 + slot, steps, d->fmt == F_ENUM ? 0 : d->max - d->min));
     if (pg->id[slot] == PG_SLOCK) {
         scale_lock_set(TSEL, (int16_t)v);
