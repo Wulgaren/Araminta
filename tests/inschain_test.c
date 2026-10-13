@@ -88,7 +88,11 @@ static void fresh(void)
     memset(&fx, 0, sizeof fx);
     memset(&pf, 0, sizeof pf);
     memset(ins_st, 0, sizeof ins_st);
+    memset(ins_bus, 0, sizeof ins_bus);
     memset(ins_lines, 0, sizeof ins_lines);
+    memset(ins_bus_lines, 0, sizeof ins_bus_lines);
+    memset(ins_bus_applied, 0, sizeof ins_bus_applied);
+    fx_bus_init();
     for (k = 0; k < NTRK; k++)
         pf.mg[k] = 32768;
     lim_env = LIM_T;
@@ -102,6 +106,9 @@ static void fresh(void)
     memset(&motion, 0, sizeof motion);
     host_tracks_init();
     host_preset(&trk[0], 0, 0);                     /* ANALOG first preset */
+    host_preset(&trk[1], 0, 0);
+    host_preset(&trk[2], 0, 0);
+    host_preset(&trk[3], 0, 0);
     song.sel = 0;
 }
 
@@ -481,6 +488,78 @@ int main(void)
     }
 
     ck("ANALOG FILTER TYPE includes COMB", NELEM(N_FTYPE) == 4u && str_eq(N_FTYPE[3], "COMB"));
+
+    /* Test A: two tracks SEND FILTER share one CUT; a CHAIN track keeps a private CUT. */
+    {
+        uint64_t h_lo, h_hi, h_a, h_b, h_chain_lo, h_chain_hi;
+        fresh();
+        filter_setup(&trk[0], IFT_LP, 64, 40, 127);
+        filter_setup(&trk[1], IFT_LP, 64, 40, 127);
+        ins_send_set(&trk[0], INS_FILTER, 1);
+        ins_send_set(&trk[1], INS_FILTER, 1);
+        fx_bus_set(INS_FILTER, P_IFTYPE, IFT_LP);
+        fx_bus_set(INS_FILTER, P_IFRES, 40);
+        fx_bus_set(INS_FILTER, P_IFCUT, 32);
+        trk_note_on(&trk[0], 60, 100);
+        trk_note_on(&trk[1], 60, 100);
+        render_blocks(8);
+        h_lo = hash_out(48);
+        fresh();
+        filter_setup(&trk[0], IFT_LP, 64, 40, 127);
+        filter_setup(&trk[1], IFT_LP, 64, 40, 127);
+        ins_send_set(&trk[0], INS_FILTER, 1);
+        ins_send_set(&trk[1], INS_FILTER, 1);
+        fx_bus_set(INS_FILTER, P_IFTYPE, IFT_LP);
+        fx_bus_set(INS_FILTER, P_IFRES, 40);
+        fx_bus_set(INS_FILTER, P_IFCUT, 110);
+        trk_note_on(&trk[0], 60, 100);
+        trk_note_on(&trk[1], 60, 100);
+        render_blocks(8);
+        h_hi = hash_out(48);
+        ck("SEND FILTER: shared bus CUT moves both tracks' render", h_lo != h_hi);
+        /* track-local P_IFCUT must not drive the SEND bus */
+        fresh();
+        filter_setup(&trk[0], IFT_LP, 110, 40, 127);
+        filter_setup(&trk[1], IFT_LP, 110, 40, 127);
+        ins_send_set(&trk[0], INS_FILTER, 1);
+        ins_send_set(&trk[1], INS_FILTER, 1);
+        fx_bus_set(INS_FILTER, P_IFTYPE, IFT_LP);
+        fx_bus_set(INS_FILTER, P_IFRES, 40);
+        fx_bus_set(INS_FILTER, P_IFCUT, 32);
+        trk_note_on(&trk[0], 60, 100);
+        trk_note_on(&trk[1], 60, 100);
+        render_blocks(8);
+        h_a = hash_out(48);
+        fresh();
+        filter_setup(&trk[0], IFT_LP, 32, 40, 127);
+        filter_setup(&trk[1], IFT_LP, 32, 40, 127);
+        ins_send_set(&trk[0], INS_FILTER, 1);
+        ins_send_set(&trk[1], INS_FILTER, 1);
+        fx_bus_set(INS_FILTER, P_IFTYPE, IFT_LP);
+        fx_bus_set(INS_FILTER, P_IFRES, 40);
+        fx_bus_set(INS_FILTER, P_IFCUT, 32);
+        trk_note_on(&trk[0], 60, 100);
+        trk_note_on(&trk[1], 60, 100);
+        render_blocks(8);
+        h_b = hash_out(48);
+        ck("SEND FILTER: track P_IFCUT ignored (bus CUT is the source)", h_a == h_b);
+        /* CHAIN track: private CUT from P_IFCUT; bus CUT ignored */
+        fresh();
+        filter_setup(&trk[0], IFT_LP, 32, 40, 127);
+        ins_send_set(&trk[0], INS_FILTER, 0);
+        fx_bus_set(INS_FILTER, P_IFCUT, 110);
+        trk_note_on(&trk[0], 60, 100);
+        render_blocks(8);
+        h_chain_lo = hash_out(48);
+        fresh();
+        filter_setup(&trk[0], IFT_LP, 110, 40, 127);
+        ins_send_set(&trk[0], INS_FILTER, 0);
+        fx_bus_set(INS_FILTER, P_IFCUT, 32);
+        trk_note_on(&trk[0], 60, 100);
+        render_blocks(8);
+        h_chain_hi = hash_out(48);
+        ck("CHAIN FILTER: private CUT moves; bus CUT ignored", h_chain_lo != h_chain_hi);
+    }
 
     /* insert FILTER: CUT is Q8 into tsvf_coef (same as ANALOG). A low CUT must muffle a bright saw;
      * RES must raise a band-pass peak. Regression for the raw 0..127 cutoff bug (wet ≈ silence). */
