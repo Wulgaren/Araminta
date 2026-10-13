@@ -452,7 +452,7 @@ static void graph_insert(const track_t *t, uint16_t c)
         py = y;
     }
 }
-/* EFFECTS: name | gray mix fader | SEND / CHAIN / USED. Eight rows (6 inserts + DLY + REV).
+/* EFFECTS: name | gray mix fader | SEND / CHAIN / USED. Nine rows (6 inserts + DLY + REV + SLCR).
  * Fader spans the row between the name column and the mode label (full width of that gap).
  * Name column sized to the longest N_ISTAGE label (FLANGER); shorter names left-align. */
 static void ior_row(int32_t y, const char *name, const char *mode, int32_t amt, uint16_t col)
@@ -481,16 +481,18 @@ static void graph_iord(const track_t *t, uint16_t c)
         uint32_t st = ord[i];
         const char *mode = fx_list_mode(t, st);
         uint16_t col = i == ui.ior_sel ? c : mode[0] == 'U' ? T_DIM : T_MID;
-        ior_row(2 + (int32_t)i * 11, N_ISTAGE[st], mode, ins_mix_of(t, st), col);
+        ior_row(2 + (int32_t)i * 10, N_ISTAGE[st], mode, ins_mix_of(t, st), col);
     }
 }
 /* SLICER page: the pattern's 16 steps, a 'x' step a full bar; a '.' step: GATE a bar as high as it stays
- * open (DEPTH), STUT hatched (it repeats the last 'x'); the step playing underlined. Grey when OFF. */
+ * open (MIX), STUT hatched (it repeats the last 'x'); the step playing underlined. Grey when OFF. */
 static void graph_slicer(const track_t *t, uint16_t c)
 {
-    uint32_t i, pat = sl_pattern(t), mode = (uint32_t)t->p[P_SLCR], cur = sl[t - trk].idx;
+    uint32_t i, pat = sl_pattern(t), mode = (uint32_t)t->p[P_SLCR], cur;
+    sl_t *ss = sl_state(t);
     int32_t open = 70 - t->p[P_SLDEPTH] * 70 / 127;      /* px a closed GATE step keeps */
     uint16_t col = mode == SL_OFF ? T_DIM : c;
+    cur = ss ? ss->idx : 0;
     for (i = 0; i < 16u; i++) {
         int32_t x = bar_x(i), y;
         if ((pat >> i) & 1u) {

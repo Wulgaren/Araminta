@@ -203,15 +203,17 @@ static void ins_order_move(track_t *t, uint32_t h, int32_t dir)
     ins_order_set(t, ord);
 }
 /* G_DLYOWN: 0 = SEND for every track; 1..4 = that track has CHAIN (others USED).
- * G_REVOWN: 0 = SEND for every track; 1..4 = that track has CHAIN (others still SEND into tank 1). */
-static int32_t bus_own(uint32_t which)   /* 0 delay, 1 reverb; returns -1 SEND, else track index */
+ * G_REVOWN: 0 = SEND for every track; 1..4 = that track has CHAIN (others still SEND into tank 1).
+ * G_SLOWN:  0 = SEND for every track; 1..4 = that track has CHAIN (others USED). */
+static int32_t bus_own(uint32_t which)   /* 0 delay, 1 reverb, 2 slicer; returns -1 SEND, else track index */
 {
-    int32_t v = song.g[which ? G_REVOWN : G_DLYOWN];
+    int32_t v = song.g[which == 2u ? G_SLOWN : which ? G_REVOWN : G_DLYOWN];
     return v >= 1 && v <= (int32_t)NTRK ? v - 1 : -1;
 }
 static void bus_own_set(uint32_t which, int32_t tr)   /* tr -1 = SEND; else claim for track tr */
 {
-    song.g[which ? G_REVOWN : G_DLYOWN] = tr < 0 || tr >= (int32_t)NTRK ? 0 : (int16_t)(tr + 1);
+    song.g[which == 2u ? G_SLOWN : which ? G_REVOWN : G_DLYOWN] =
+        tr < 0 || tr >= (int32_t)NTRK ? 0 : (int16_t)(tr + 1);
 }
 static void bus_own_sanitize(void)
 {
@@ -219,41 +221,72 @@ static void bus_own_sanitize(void)
         song.g[G_DLYOWN] = 0;
     if (song.g[G_REVOWN] < 0 || song.g[G_REVOWN] > (int16_t)NTRK)
         song.g[G_REVOWN] = 0;
+    if (song.g[G_SLOWN] < 0 || song.g[G_SLOWN] > (int16_t)NTRK)
+        song.g[G_SLOWN] = 0;
 }
-/* P_CHOR packs EFFECTS list slots for DLY/REV: bit6 marks the new layout; low 3 = DLY, next 3 = REV.
- * Older CHO send values (0..63) load as DLY at 6, REV at 7. */
+/* P_CHOR packs EFFECTS DLY/REV among the 8 non-SLCR slots (bit6 marks the layout; low 3 = DLY,
+ * next 3 = REV). SLCR's absolute slot is track.fx_sl_pos (0..8; default 8) until FUN14 wires it.
+ * Older CHO send values (0..63) load as DLY at 6, REV at 7, SLCR at 8. */
 #define FX_POS_MARK 64
-static void fx_pos_get(const track_t *t, uint32_t *dp, uint32_t *rp)
+static void fx_pos_get(const track_t *t, uint32_t *dp, uint32_t *rp, uint32_t *sp)
 {
     int32_t v = t->p[P_CHOR];
+    uint32_t d8, r8, s;
+    s = t->fx_sl_pos < FX_LIST_N ? t->fx_sl_pos : 8u;
     if (v < FX_POS_MARK) {
-        *dp = 6;
-        *rp = 7;
-        return;
+        d8 = 6;
+        r8 = 7;
+        s = 8;
+    } else {
+        v -= FX_POS_MARK;
+        d8 = (uint32_t)v & 7u;
+        r8 = ((uint32_t)v >> 3) & 7u;
+        if (r8 == d8)
+            r8 = d8 + 1u < 8u ? d8 + 1u : 0u;
     }
-    v -= FX_POS_MARK;
-    *dp = (uint32_t)v & 7u;
-    *rp = ((uint32_t)v >> 3) & 7u;
-    if (*rp == *dp)
-        *rp = *dp + 1u < FX_LIST_N ? *dp + 1u : 0u;
+    *sp = s;
+    *dp = d8 < s ? d8 : d8 + 1u;                     /* absolute slots: skip SLCR's */
+    *rp = r8 < s ? r8 : r8 + 1u;
 }
-static void fx_pos_set(track_t *t, uint32_t dp, uint32_t rp)
+static void fx_pos_set(track_t *t, uint32_t dp, uint32_t rp, uint32_t sp)
 {
-    t->p[P_CHOR] = (int16_t)(FX_POS_MARK + (int32_t)(dp & 7u) + (int32_t)((rp & 7u) << 3));
+    uint32_t d8, r8;
+    if (sp >= FX_LIST_N)
+        sp = 8u;
+    if (dp >= FX_LIST_N)
+        dp = 6u;
+    if (rp >= FX_LIST_N)
+        rp = 7u;
+    if (dp == sp)
+        dp = sp > 0u ? sp - 1u : sp + 1u;
+    if (rp == sp || rp == dp)
+        rp = (sp + 1u) % FX_LIST_N == dp ? (sp + 2u) % FX_LIST_N : (sp + 1u) % FX_LIST_N;
+    d8 = dp < sp ? dp : dp - 1u;
+    r8 = rp < sp ? rp : rp - 1u;
+    if (d8 > 7u)
+        d8 = 7u;
+    if (r8 > 7u)
+        r8 = 7u;
+    if (r8 == d8)
+        r8 = d8 + 1u < 8u ? d8 + 1u : 0u;
+    t->p[P_CHOR] = (int16_t)(FX_POS_MARK + (int32_t)d8 + (int32_t)(r8 << 3));
+    t->fx_sl_pos = (uint8_t)sp;
 }
-/* EFFECTS list: 6 inserts (P_IORD) with DLY/REV slotted via P_CHOR. */
+/* EFFECTS list: 6 inserts (P_IORD) with DLY/REV/SLCR slotted via P_CHOR. */
 static void fx_list_get(const track_t *t, uint8_t ord[FX_LIST_N])
 {
     uint8_t ins[INS_N], used[FX_LIST_N];
-    uint32_t i, j = 0, dp, rp;
+    uint32_t i, j = 0, dp, rp, sp;
     ins_order_get(t, ins);
-    fx_pos_get(t, &dp, &rp);
+    fx_pos_get(t, &dp, &rp, &sp);
     for (i = 0; i < FX_LIST_N; i++)
         used[i] = 0;
     ord[dp] = INS_DLY;
     used[dp] = 1;
     ord[rp] = INS_REV;
     used[rp] = 1;
+    ord[sp] = INS_SLCR;
+    used[sp] = 1;
     for (i = 0; i < FX_LIST_N; i++) {
         if (used[i])
             continue;
@@ -263,19 +296,21 @@ static void fx_list_get(const track_t *t, uint8_t ord[FX_LIST_N])
 static void fx_list_set(track_t *t, const uint8_t ord[FX_LIST_N])
 {
     uint8_t ins[INS_N];
-    uint32_t i, j = 0, dp = 6, rp = 7;
+    uint32_t i, j = 0, dp = 6, rp = 7, sp = 8;
     for (i = 0; i < FX_LIST_N; i++) {
         if (ord[i] == INS_DLY)
             dp = i;
         else if (ord[i] == INS_REV)
             rp = i;
+        else if (ord[i] == INS_SLCR)
+            sp = i;
         else if (j < INS_N)
             ins[j++] = ord[i];
     }
     if (j != INS_N)
         for (j = 0; j < INS_N; j++)
             ins[j] = (uint8_t)j;
-    fx_pos_set(t, dp, rp);
+    fx_pos_set(t, dp, rp, sp);
     ins_order_set(t, ins);
 }
 /* swap list slots h and h+dir; 1 if swapped, 0 if out of range (ORDER keeps the highlight) */
@@ -297,16 +332,18 @@ static int32_t ins_mix_of(const track_t *t, uint32_t st)
         return t->p[P_DLY];
     if (st == INS_REV)
         return t->p[P_REV];
+    if (st == INS_SLCR)
+        return t->p[P_SLDEPTH];
     return st < INS_N ? t->p[MIX[st]] : 0;
 }
-/* mode string for EFFECTS: SEND, CHAIN, or USED (delay owned elsewhere).
+/* mode string for EFFECTS: SEND, CHAIN, or USED (delay/slicer owned elsewhere).
  * REV non-owners stay SEND (second tank) while another track has CHAIN. */
 static const char *fx_list_mode(const track_t *t, uint32_t st)
 {
     int32_t own, tr = (int32_t)(t - trk);
     if (st < INS_N)
         return ins_is_send(t, st) ? "SEND" : "CHAIN";
-    own = bus_own(st == INS_REV ? 1u : 0u);
+    own = bus_own(st == INS_SLCR ? 2u : st == INS_REV ? 1u : 0u);
     if (own < 0)
         return "SEND";
     if (own == tr)
@@ -1277,7 +1314,7 @@ static void fx_bus_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n)
     t->ins_run = 1;
 }
 /* Chain stages run in list order. Insert SEND stages are left out of the series and added after.
- * Shared DLY/REV run here only when this track owns them as CHAIN. */
+ * Shared DLY/REV/SLCR run here only when this track owns them as CHAIN. */
 static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint32_t n)
 {
     uint8_t ord[FX_LIST_N];
@@ -1292,6 +1329,11 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
         if (st == INS_DLY || st == INS_REV) {
             if (bus_own(st == INS_REV ? 1u : 0u) == tr)
                 fx_bus_stage(t, st, b, n);
+            continue;
+        }
+        if (st == INS_SLCR) {
+            if (bus_own(2) == tr)
+                slicer_track(t, b, n);
             continue;
         }
         if (!(raw & (uint16_t)(1u << (10u + st))))
@@ -1397,9 +1439,12 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
         lq = duck_ramp(lvl, &dlv);
     for (i = 0; i < n; i++)
         d[i] = (d[i] << 1) - b[i];                      /* left - right */
-    if (ins_any(t) | t->ins_run || bus_own(0) == (int32_t)(t - trk) || bus_own(1) == (int32_t)(t - trk))
+    if (ins_any(t) | t->ins_run || bus_own(0) == (int32_t)(t - trk) || bus_own(1) == (int32_t)(t - trk) ||
+        bus_own(2) == (int32_t)(t - trk))
         track_insert(t, b, n);
-    slicer_track_sd(t, b, d, n);
+    if (bus_own(2) < 0)                                 /* SEND: shared bus after the chain */
+        slicer_track_sd(t, b, d, n);
+    /* CHAIN: already in track_insert; USED: skip */
     if ((pf.mute >> (t - trk)) & 1u)
         perf_mute_sd((uint32_t)(t - trk), b, d, n);
     for (i = 0; i < n; i++, lq += dlv) {
@@ -1451,14 +1496,16 @@ static void mix_part(track_t *t, uint32_t n)
     int32_t *b = part_buf;
     uint32_t i;
     int32_t tr = (int32_t)(t - trk);
-    int chain = bus_own(0) == tr || bus_own(1) == tr;
+    int chain = bus_own(0) == tr || bus_own(1) == tr || bus_own(2) == tr;
+    int sl_send = bus_own(2) < 0;
     int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t) || chain;
     mod_begin(t);                                       /* the matrix's per-block values into t->p (mod.c) */
     spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON);   /* (SPREAD, mix_spread) */
     if (track_render_audio(t, b, n, need_zeros))
         t->tail = ins_any(t) ? 64 : 16;                 /* blocks of insert state to run out after the last voice */
     else if ((!t->tail || !(ins_any(t) | t->ins_run) || !--t->tail) && !slicer_busy(t) && !chain) {
-        slicer_track(t, 0, n);
+        if (sl_send)
+            slicer_track(t, 0, n);
         if (t->ins_run && !ins_any(t))
             ins_rest(t);                                /* all MIX 0 while silent: clear state for the next note */
         if (mod.on)
@@ -1477,7 +1524,8 @@ static void mix_part(track_t *t, uint32_t n)
         int32_t lvl = mc->lvl, gl = mc->gl, gr = mc->gr, d = mc->d, r = mc->r, xmax = mc->xmax, pk = t->peak;
         if (ins_any(t) | t->ins_run || chain)
             track_insert(t, b, n);
-        slicer_track(t, b, n);
+        if (sl_send)
+            slicer_track(t, b, n);
         if ((pf.mute >> (t - trk)) & 1u)
             perf_mute((uint32_t)(t - trk), b, n);       /* perform.c: a black key in the FX layer */
         int32_t lq = lvl << 8, dl = 0;
@@ -1583,6 +1631,7 @@ static void mix_block(int32_t *out, uint32_t n)
     int32_t mg = fx_usb_fixed ? MASTER_FULL : (int32_t)song.master_q12;   /* (USB LEVEL FIXED: MASTER after) */
     for (i = 0; i < n; i++)
         send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
+    slicer_block();                                     /* shared SEND bus: one clock advance this block */
     pfx_block(n, (perf_kill ? 0u : (perf_held | perf_latched) & PF_MIDI) | scene_pfx);
     events_block(n);
     clip_eff = song.g[G_CLIP];                          /* (JIANT) CLIP / PNCH for this block */

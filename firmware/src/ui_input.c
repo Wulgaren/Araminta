@@ -1281,14 +1281,14 @@ static void ior_knob(uint32_t k, int32_t s)
             ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + dir, 0, (int32_t)FX_LIST_N - 1);
         }
     } else if (k == 2u) {
-        if (st == INS_DLY || st == INS_REV) {
-            uint32_t which = st == INS_REV ? 1u : 0u;
+        if (st == INS_DLY || st == INS_REV || st == INS_SLCR) {
+            uint32_t which = st == INS_SLCR ? 2u : st == INS_REV ? 1u : 0u;
             int32_t own = bus_own(which), tr = (int32_t)(TSEL - trk);
             if (own == tr)
                 bus_own_set(which, -1);               /* CHAIN -> SEND for all */
             else if (own < 0)
                 bus_own_set(which, tr);               /* SEND -> this track CHAIN */
-            /* DLY USED / REV already owned elsewhere: K3 does nothing (no steal) */
+            /* USED / already owned elsewhere: K3 does nothing (no steal) */
         } else {
             ins_send_set(TSEL, st, !ins_is_send(TSEL, st));
         }

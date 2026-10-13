@@ -78,6 +78,7 @@ static void host_tracks_init(void)                /* as felucca_init: defaults, 
     for (k = 0; k < NTRK; k++) {
         for (i = 0; i < P_E0; i++)
             trk[k].p[i] = TP[i].def;
+        trk[k].fx_sl_pos = 8;                    /* EFFECTS: SLICER last until moved */
         for (i = 0; i < NSTEP; i++)
             trk[k].step[i].time = ST_REST;
     }

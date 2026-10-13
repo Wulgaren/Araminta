@@ -192,7 +192,7 @@ _Static_assert(sizeof(project_v5_t) == 3352u && sizeof(project_v6_t) == 3388u, "
 #define PROJ_DX_OFF (PROJ_FM6_OFF - PROJ_DX_SIZE)
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(PROJ_NG_WIRE == 27u && G_COUNT >= PROJ_NG_WIRE, "FUN7 wire globals keep IDs 0..26");
-_Static_assert(G_COUNT == 30u, "CHAIN reverb globals G_CRTYPE..G_CRDAMP appended");
+_Static_assert(G_COUNT == 31u, "CHAIN reverb + G_SLOWN appended");
 _Static_assert(sizeof(project_store_t) == 3840u && PROJ_STORE_V7 == sizeof(project_v6_t), "FUN11 / FUN7 sizes");
 _Static_assert(PROJ_CRV_OFF + 2u <= PROJ_DX_OFF, "CHAIN reverb bytes before DX kit");
 _Static_assert(sizeof(dx_lane_t[8]) == 88u && PROJ_DX_OFF == 3216u, "FUN11 kit place before FM6");
@@ -757,6 +757,7 @@ static int proj_pack(project_store_t *out, const project_t *q)
         s[2] = (uint8_t)sc;
         s[3] = (uint8_t)qn;
     }
+    b[PROJ_SCL_OFF + PROJ_SCL_SIZE] = (uint8_t)clamp(q->g[G_SLOWN], 0, 4); /* pad: slicer CHAIN owner */
     memcpy(b + PROJ_DX_OFF, q->dx, sizeof q->dx);
     b[PROJ_DX_OFF + sizeof q->dx] = (uint8_t)(q->dx_mute & DXG_ALL);
     b[PROJ_DX_OFF + sizeof q->dx + 1u] = (uint8_t)(q->dx_mute >> 8);
@@ -859,6 +860,12 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         q->g[G_DLYOWN] = 0;
     if (q->g[G_REVOWN] < 0 || q->g[G_REVOWN] > (int16_t)NTRK)
         q->g[G_REVOWN] = 0;
+    if (v12 || v13) {                                  /* FUN12+: pad byte holds G_SLOWN */
+        uint8_t so = b[PROJ_SCL_OFF + PROJ_SCL_SIZE];
+        q->g[G_SLOWN] = so <= 4u ? (int16_t)so : 0;
+    } else {
+        q->g[G_SLOWN] = 0;
+    }
     if (v7 && (q->g[G_RTYPE] < 0 || q->g[G_RTYPE] > 1))   /* a FUN7 may still hold the old drum channel there */
         proj_rtype_room(q->g);
     if (v11 && b[67] == 1) {                              /* CHAIN tank params in FUN11 spare */
@@ -1267,6 +1274,7 @@ static int project_restore_runtime(const project_t *input)
         t->scl_stash[0] = s->scl_stash[0];
         t->scl_stash[1] = s->scl_stash[1];
         t->scl_stash[2] = s->scl_stash[2];
+        t->fx_sl_pos = 8;                               /* SLCR list slot: RAM until FUN14 */
         {   /* the project's own FM6 patch, never reloaded from SLOT: F n if it is that factory patch, else OWN */
             uint8_t v[FP_SIZE + 1u];
             fm6_unpack(p->fm6[k], v);

@@ -3101,8 +3101,8 @@ static int test_layer(void)
     bad += check("FX tap: nothing on press, the FX page when let go", ok && !ui.home && cur_page()->fam == FAM_FX);
     frames(320);
     press(B_FX);
-    bad += check("  a second tap: Slicer section, not the next effect page",
-                 cur_page()->sec == FX_SEC_SLCR && str_eq(cur_page()->title, "SLICER"));
+    bad += check("  a second tap: Punch-in section (SLICER lives under EFFECTS)",
+                 cur_page()->sec == FX_SEC_PUNCH && str_eq(cur_page()->title, "PUNCH"));
     ui_power_on();
     btn_down(B_FX);
     for (flash = 0, i = 0; i < 40u; i++) { frame(); flash |= ui.layer; }  /* past old HOLD */
@@ -3131,7 +3131,7 @@ static int test_layer(void)
     /* Punch-in sticky: keys and macros */
     ui_power_on();
     usb.config = 1; mo = mo_w;
-    press(B_FX); press(B_FX); press(B_FX); frame();   /* Effects, Slicer, Punch-in */
+    press(B_FX); press(B_FX); frame();                 /* Effects → Punch-in */
     ok = ui.lock == LAYER_FX && ui.layer == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
     key_down(white(2)); frame();
     ok &= !gates() && mo_w == mo && (perf_held & PF_BIT(PF_R32));
@@ -6083,9 +6083,12 @@ static int test_layer_lock(void)
         go_title("ENV"); frame();
         pg = ui.page;
         press(LB[i]); frames(64); press(LB[i]); frames(500);
-        ok &= !ui.lock && ui.page != pg;               /* second tap: section/page, never a lock */
+        if (LB[i] == B_FX)
+            ok &= ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH; /* Effects → Punch-in */
+        else
+            ok &= !ui.lock && ui.page != pg;           /* second tap: section/page, never a lock */
     }
-    bad += check("no layer lock: double-tap FX/GLO/SCL/EDIT does not set ui.lock", ok);
+    bad += check("no layer lock: double-tap GLO/SCL/EDIT; FX second tap is Punch-in", ok);
     ui_power_on();
     go_title("ENV"); frame();
     press(B_SEQ); frames(100);
@@ -6098,7 +6101,7 @@ static int test_layer_lock(void)
     ok &= str_eq(cur_page()->title, "SEQ TOOLS") && ui.lock == LAYER_SEQ;
     bad += check("  SEQ taps cycle step group → Automation → SEQ TOOLS; only tools stick", ok);
     ui_power_on();
-    press(B_FX); press(B_FX); press(B_FX); frame();    /* Effects, Slicer, Punch-in */
+    press(B_FX); press(B_FX); frame();                 /* Effects → Punch-in */
     ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
     press(B_FX); frame();
     ok &= ui.lock == 0 && cur_page()->sec == FX_SEC_INS && str_eq(cur_page()->title, "EFFECTS");
@@ -6154,8 +6157,8 @@ static int test_fx_map(void)
     ui_power_on();
     go_title("ENV"); frame();
     press(B_FX); frames(64); press(B_FX); frames(100);
-    ok = !ui.lock && cur_page()->sec == FX_SEC_SLCR;
-    bad += check("FX double-tap does not lock; second tap is Slicer", ok);
+    ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
+    bad += check("FX double-tap: second tap is Punch-in (sticky)", ok);
     return bad;
 }
 
@@ -8442,7 +8445,7 @@ static int test_mixer_solo(void)
     return bad;
 }
 
-/* Double-tap never locks; Punch-in section sticky is the exception. */
+/* Double-tap never locks except Punch-in (FX's second section). */
 static int test_no_layer_lock(void)
 {
     int bad = 0, ok = 1;
@@ -8453,41 +8456,41 @@ static int test_no_layer_lock(void)
         go_title("ENV"); frame();
         press(B[i]); frames(64); press(B[i]); frames(200);
         if (B[i] == B_FX)
-            ok &= ui.lock == 0 || cur_page()->sec == FX_SEC_PUNCH; /* two taps: Effects then Slicer, no lock */
+            ok &= ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH; /* Effects → Punch-in */
         else if (B[i] == B_GLO)
             ok &= ui.lock == 0 || cur_page()->sec == GLO_SEC_SONG; /* Master → Song, no lock */
         else
             ok &= !ui.lock;
     }
     ui_power_on();
-    press(B_FX); frames(64); press(B_FX); frames(64); press(B_FX); frame();
+    press(B_FX); frames(64); press(B_FX); frame();     /* Effects → Punch-in */
     ok &= ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
     press(B_GLO); frames(64); press(B_GLO); frames(64); press(B_GLO); frame();
     ok &= !ui.lock && cur_page()->sec == GLO_SEC_CLK;
-    bad += check("no layer lock: double-tap FX/SCL/EDIT; Punch-in sticky; GLO has no Record map", ok);
+    bad += check("no layer lock: double-tap SCL/EDIT; Punch-in sticky; GLO has no Record map", ok);
     return bad;
 }
 
-/* Araminta nav: FX button cycles sections (Effects → Slicer → Punch-in); SELECT walks pages
- * inside a section. Hold FX alone does not open punch-ins; punch-in keys work only in the Punch-in section.
- * MASTER lives on GLO. */
+/* Araminta nav: FX button cycles sections (Effects → Punch-in); SLICER is an EFFECTS page.
+ * SELECT walks pages inside a section. Hold FX alone does not open punch-ins; punch-in keys
+ * work only in the Punch-in section. MASTER lives on GLO. */
 static int test_fx_sections(void)
 {
     int bad = 0, ok;
-    uint32_t i, nins, held;
+    uint32_t i, nins, held, saw_slcr;
     ui_power_on();
     press(B_FX);
     ok = !ui.home && cur_page()->fam == FAM_FX && str_eq(cur_page()->title, "EFFECTS");
-    for (nins = 0, i = 0; i < 20u && str_eq(cur_page()->title, "EFFECTS") == (nins == 0); i++) {
-        if (cur_page()->sec == 0u) nins++;
+    for (nins = 0, saw_slcr = 0, i = 0; i < 24u; i++) {
+        if (cur_page()->sec != FX_SEC_INS)
+            break;
+        nins++;
+        if (str_eq(cur_page()->title, "SLICER"))
+            saw_slcr = 1;
         turn(EN_SELECT, 1);
     }
-    ok &= nins >= 8u;                                   /* EFFECTS + 6 inserts + DLY REVERB */
+    ok &= nins >= 9u && saw_slcr;                       /* EFFECTS + stages + DLY REV SLCR */
     ok &= cur_page()->sec == FX_SEC_INS;                /* SELECT stayed in Effects */
-    press(B_FX);
-    ok &= cur_page()->fam == FAM_FX && cur_page()->sec == FX_SEC_SLCR && str_eq(cur_page()->title, "SLICER");
-    turn(EN_SELECT, 1);
-    ok &= cur_page()->sec == FX_SEC_SLCR;               /* Slicer has one page */
     press(B_FX);
     ok &= cur_page()->sec == FX_SEC_PUNCH && ui.lock == LAYER_FX && ui.layer == LAYER_FX;
     key_down(white(4)); frame();                       /* C4: LPF (B3 is 1/2, so the filters sit with the octaves) */
@@ -8495,7 +8498,7 @@ static int test_fx_sections(void)
     key_up(white(4)); frame();
     press(B_FX);
     ok &= cur_page()->sec == FX_SEC_INS && str_eq(cur_page()->title, "EFFECTS") && !ui.lock;
-    bad += check("FX sections: Effects → Slicer → Punch-in; SELECT stays in section; punch keys in Punch-in", ok);
+    bad += check("FX sections: Effects → Punch-in; SLICER under EFFECTS; punch keys in Punch-in", ok);
     ui_power_on();
     press(B_GLO);
     ok = str_eq(cur_page()->title, "MASTER") && cur_page()->fam == FAM_GLO && cur_page()->sec == GLO_SEC_MASTER;
@@ -8605,28 +8608,58 @@ static int test_fx_sections(void)
     go_title("EFFECTS");
     {
         uint8_t ord[FX_LIST_N];
-        uint32_t i, has_chor = 0, has_dly = 0, has_rev = 0;
+        uint32_t i, has_chor = 0, has_dly = 0, has_rev = 0, has_slcr = 0, sl_slot = 0xFFu;
         fx_list_get(TSEL, ord);
         for (i = 0; i < FX_LIST_N; i++) {
             has_chor |= ord[i] == INS_CHOR;
             has_dly |= ord[i] == INS_DLY;
             has_rev |= ord[i] == INS_REV;
+            has_slcr |= ord[i] == INS_SLCR;
+            if (ord[i] == INS_SLCR)
+                sl_slot = i;
         }
-        ok = FX_LIST_N == 8u && has_chor && has_dly && has_rev &&
+        ok = FX_LIST_N == 9u && has_chor && has_dly && has_rev && has_slcr &&
              str_eq(N_ISTAGE[INS_DIST], "DISTORT") && str_eq(N_ISTAGE[INS_PHASR], "PHASER") &&
              str_eq(N_ISTAGE[INS_FLANG], "FLANGER") && str_eq(N_ISTAGE[INS_CHOR], "CHORUS") &&
              str_eq(N_ISTAGE[INS_DLY], "DELAY") && str_eq(N_ISTAGE[INS_REV], "REVERB") &&
+             str_eq(N_ISTAGE[INS_SLCR], "SLICER") &&
              str_eq(fx_list_mode(TSEL, INS_DLY), "SEND") &&
+             str_eq(fx_list_mode(TSEL, INS_SLCR), "SEND") &&
              text_w(&AF_S, "FLANGER") == text_w(&AF_S, "DISTORT") &&
              text_w(&AF_S, N_ISTAGE[INS_DIST]) <= text_w(&AF_S, "FLANGER") &&
              text_w(&AF_S, N_ISTAGE[INS_PHASR]) <= text_w(&AF_S, "FLANGER") &&
              text_w(&AF_S, N_ISTAGE[INS_CHOR]) <= text_w(&AF_S, "FLANGER") &&
              text_w(&AF_S, N_ISTAGE[INS_DLY]) <= text_w(&AF_S, "FLANGER") &&
-             text_w(&AF_S, N_ISTAGE[INS_REV]) <= text_w(&AF_S, "FLANGER");
+             text_w(&AF_S, N_ISTAGE[INS_REV]) <= text_w(&AF_S, "FLANGER") &&
+             text_w(&AF_S, N_ISTAGE[INS_SLCR]) <= text_w(&AF_S, "FLANGER");
         ui.ior_sel = 0;
         ok &= cur_page()->graph == GR_IORD;
+        /* SLICER: K3 CHAIN/SEND, K4 MIX (P_SLDEPTH); USED on other tracks while claimed */
+        if (sl_slot < FX_LIST_N) {
+            int16_t mix0;
+            song.g[G_SLOWN] = 0;
+            TSEL->p[P_SLDEPTH] = 40;
+            ui.ior_sel = (uint8_t)sl_slot;
+            turn(EN_K3, 1);
+            ok &= song.g[G_SLOWN] == 1 && fx_list_mode(TSEL, INS_SLCR)[0] == 'C';
+            song.sel = 1;
+            ok &= fx_list_mode(&trk[1], INS_SLCR)[0] == 'U';
+            mix0 = trk[1].p[P_SLDEPTH];
+            ui.ior_sel = (uint8_t)sl_slot;
+            turn(EN_K4, 8);                             /* USED: mix ignored */
+            ok &= trk[1].p[P_SLDEPTH] == mix0;
+            song.sel = 0;
+            ui.ior_sel = (uint8_t)sl_slot;
+            turn(EN_K3, 1);                             /* release → SEND */
+            ok &= song.g[G_SLOWN] == 0 && fx_list_mode(TSEL, INS_SLCR)[0] == 'S';
+            mix0 = TSEL->p[P_SLDEPTH];
+            turn(EN_K4, 8);
+            ok &= TSEL->p[P_SLDEPTH] != mix0 && str_eq(TP[P_SLDEPTH].label, "MIX");
+        } else {
+            ok = 0;
+        }
     }
-    bad += check("EFFECTS list: 8 rows with CHOR+DLY+REV; fader page GR_IORD; default SEND", ok);
+    bad += check("EFFECTS list: 9 rows with SLCR; SEND/CHAIN/USED; MIX is P_SLDEPTH", ok);
 
     ui_power_on();
     go_title("DELAY");

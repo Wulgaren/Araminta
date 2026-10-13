@@ -1205,7 +1205,7 @@ static void draw_columns(void)
         fmt_int(pos, (int32_t)slot + 1);
         draw_column(0, "CHOOSE", N_ISTAGE[st], "", VAL(0u),
                     (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_AUTO);
-        draw_column(1, "ORDER", pos, "/8", VAL(1u), (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_ORDER);
+        draw_column(1, "ORDER", pos, "/9", VAL(1u), (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_ORDER);
         draw_column(2, "USE AS", mode, "", used ? T_DIM : VAL(2u),
                     mode[0] == 'S' ? 1000 : mode[0] == 'C' ? 0 : -1, ICON_NONE);
         param_format(d, TSEL->p[id], val, &unit);
