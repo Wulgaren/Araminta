@@ -1928,11 +1928,6 @@ static void ui_input(void)
                     undo.trk = 0;
                     ui_message("ALL AUTOMATION CLEARED");
                 }
-            } else if (kind == CF_INIT_SESSION) {
-                if (!chain_busy()) {
-                    session_defaults();
-                    ui_message("SESSION INIT");
-                }
             } else {
                 track_t *t = &trk[ui.confirm_trk % NTRK];
                 load_begin(t, UNDO_PAT);

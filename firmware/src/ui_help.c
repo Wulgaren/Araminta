@@ -68,7 +68,7 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
 /* a layer's (LAYER_*): what its footer row (LAYERS[].foot) does not say */
 static const char *const HELP_LAYER[LAYER_N] = {
     "", "[KEYS]MUTES[FX]LOCK", "[KEYS]SOLO MUTE TAP[K1-4]LEVELS", "[KEYS]ROOT[K1-4]ROOT SCL CHORD",
-    "[K1]ENGINE[K2]SOUND[K3]FAV", "[K1]LENGTH[K3]SWING[K4]GATE", "[KEYS]CLEAR INIT[OCT+]YES",
+    "[K1]ENGINE[K2]SOUND[K3]FAV", "[K1]LENGTH[K3]SWING[K4]GATE", "[KEYS]CLEAR[OCT+]YES",
 };
 
 /* the hint of the page shown, 0 = none */

@@ -98,7 +98,7 @@ static void fm1_fault(const fm1_crash_t *c)
 /* power-on: the parts with their default sounds (TRK_DEF); the sequencers empty */
 static void felucca_init(void)
 {
-    session_defaults();                       /* (ui.c: same RAM wipe as SAVE > CLEAR > INIT) */
+    session_defaults();                       /* (ui.c: power-on RAM wipe) */
     song.master_q12 = 2048;                   /* (the pot's level replaces it before the audio starts: master_boot) */
     ui.home = 1;
     ui.force = 1;

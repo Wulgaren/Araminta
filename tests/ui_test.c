@@ -1080,12 +1080,8 @@ static int test_actions(void)
     bad += check("confirmed PATS: every track empty", seq_is_empty(&trk[0]) && seq_is_empty(&trk[1]) &&
                  msg_is("ALL PATTERNS CLEARED"));
     frame();
-    key_down(white(3)); frame(); key_up(white(3)); frame();   /* B3 INIT (BOOT col) */
-    bad += check("CLEAR INIT session asks", ui.confirm == CF_INIT_SESSION);
-    trk[2].p[P_E0] = 11;
-    press(B_OCTUP);
-    bad += check("confirmed session: boot defaults, map stays", trk[2].p[P_E0] != 11 &&
-                 msg_is("SESSION INIT") && ui.lock == LAYER_CLR && song.sel == 0u);
+    key_down(white(3)); frame(); key_up(white(3)); frame();   /* B3: no BOOT / INIT */
+    bad += check("CLEAR B3 does nothing (no session INIT)", !ui.confirm && ui.lock == LAYER_CLR);
     press(B_HOME);
     bad += check("HOME leaves Clear", ui.home && !ui.lock);
     /* the dialogs and the menu */

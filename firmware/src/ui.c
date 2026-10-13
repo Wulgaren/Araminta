@@ -202,8 +202,7 @@ static struct {
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER, CF_LOAD_PAT,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER,
-       CF_CLEAR_ALL_SEQ, CF_INIT_ALL_SOUND, CF_CLEAR_ALL_MOTION, CF_INIT_SESSION,
-       CF_SAVE_PROJ };
+       CF_CLEAR_ALL_SEQ, CF_INIT_ALL_SOUND, CF_CLEAR_ALL_MOTION, CF_SAVE_PROJ };
                                    /* ui.confirm: CLEAR map; SAVE over a used slot; a pattern over the user's steps;
                                     * USER ERASE; CF_SAVE_PROJ: motion over MOTION_FILE_MAX (extras won't save) */
 
