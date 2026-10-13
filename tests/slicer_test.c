@@ -33,6 +33,10 @@ static void set_slicer(track_t *t, int mode, int pat, int rate, int depth)
     t->p[P_SLPAT] = (int16_t)pat;
     t->p[P_SLRATE] = (int16_t)rate;
     t->p[P_SLDEPTH] = (int16_t)depth;
+    /* SEND reads MODE/PAT/RATE from the shared bus; keep it in sync for host setups. */
+    fx_bus_trk.p[P_SLCR] = (int16_t)mode;
+    fx_bus_trk.p[P_SLPAT] = (int16_t)pat;
+    fx_bus_trk.p[P_SLRATE] = (int16_t)rate;
 }
 
 /* ---------------------------------------------------------- 1. clicks --- */
@@ -134,6 +138,7 @@ static int test_timing(void)
     memset(sl, 0, sizeof sl);
     song.g[G_BPM] = 97;
     song.g[G_SWING] = 10;
+    song.g[G_SLOWN] = 1;                          /* CHAIN: track swing shapes the private clock */
     t->p[P_SSWING] = 20;
     set_slicer(t, SL_GATE, (int)pat, 1, 127);
     slicer_start();
@@ -210,31 +215,59 @@ static void song_setup(void)
 }
 
 /* ------------------------------------------------------------ 3. sync --- */
+/* SEND bus: one shared clock (MODE/PAT/RATE from fx_bus_trk). CHAIN: that track's private clock.
+ * Older per-track SEND clocks are gone — a shared bus cannot swing differently per track. */
 static int test_sync(void)
 {
-    uint32_t f, k, blocks = 0, miss = 0;
+    uint32_t f, k, blocks = 0, miss = 0, miss_ch = 0;
     char what[160];
+    int bad = 0;
     song_setup();
-    song.g[G_SWING] = 15;
+    song.g[G_SWING] = 0;
+    song.g[G_SLOWN] = 0;                          /* SEND for all */
     for (k = 0; k < NTRK; k++) {
-        trk[k].p[P_SSWING] = (int16_t)(10 * k);
+        trk[k].p[P_SSWING] = 0;
         trk[k].p[P_SLEN] = 16;                    /* 16 steps of 1/16: the SLICER's bar */
-        set_slicer(&trk[k], k & 1u ? SL_STUT : SL_GATE, (int)(3u + k), 1, 127);
+        set_slicer(&trk[k], SL_GATE, 1, 1, 127);
     }
     song.g[G_BPM] = 131;
     transport_req = 1;
     for (f = 0; f < 12u * FS; f += CTL) {
         int32_t o[2 * CTL];
+        const sl_t *s;
+        uint32_t idx;
         mix_block(o, CTL);
         blocks++;
-        for (k = 0; k < NTRK; k++) {              /* the SLICER step that holds the block's first sample */
-            uint32_t idx = sl[k].pos >= CTL ? sl[k].idx : (sl[k].idx + 15u) & 15u;
-            miss += idx != trk[k].seq_idx % 16u;
-        }
+        s = sl_state(&trk[0]);
+        idx = s && s->pos >= CTL ? s->idx : s ? (s->idx + 15u) & 15u : 0u;
+        miss += !s || idx != trk[0].seq_idx % 16u;
+        for (k = 1; k < NTRK; k++)
+            miss += sl_state(&trk[k]) != s;       /* every SEND track shares the bus */
     }
     transport_req = 2;
-    snprintf(what, sizeof what, "sync: 4 tracks, 131 BPM, swing per track: the sequencer's step at %u blocks x 4", blocks);
-    return check(what, !miss);
+    snprintf(what, sizeof what, "sync: SEND bus follows track 0 sequencer at %u blocks", blocks);
+    bad += check(what, !miss);
+    /* CHAIN on track 1: private clock; others USED */
+    song_setup();
+    song.g[G_SLOWN] = 2;                          /* track 1 CHAIN */
+    song.g[G_BPM] = 120;
+    set_slicer(&trk[1], SL_GATE, 1, 1, 127);
+    slicer_start();
+    transport_req = 1;
+    for (f = 0; f < 4u * FS; f += CTL) {
+        int32_t o[2 * CTL];
+        const sl_t *s;
+        uint32_t idx;
+        mix_block(o, CTL);
+        s = sl_state(&trk[1]);
+        idx = s && s->pos >= CTL ? s->idx : s ? (s->idx + 15u) & 15u : 0u;
+        miss_ch += !s || s != &sl[1] || idx != trk[1].seq_idx % 16u;
+        miss_ch += sl_state(&trk[0]) != 0;        /* USED */
+    }
+    transport_req = 2;
+    song.g[G_SLOWN] = 0;
+    bad += check("sync: CHAIN track private clock; others USED", !miss_ch);
+    return bad;
 }
 
 /* ------------------------------------------------------- 4. OFF / STUT --- */
@@ -372,6 +405,112 @@ static void demos(const char *dir)
     printf("slicer: demos in %s (song_dry / song_slicers, pad, acid, drums: dry and sliced)\n", dir);
 }
 
+/* -------------------------------------------------- 6. MIX + SEND bus --- */
+/* MIX (P_SLDEPTH) is the amount: 0 is transparent even when MODE is GATE.
+ * SEND: MODE/PAT/RATE from fx_bus_trk (set_slicer keeps the bus in sync for host setups). */
+static int test_mix_send(void)
+{
+    uint32_t f, i, same = 1, gated = 0;
+    track_t *t0 = &trk[0], *t1 = &trk[1];
+    int bad = 0;
+    host_tracks_init();
+    memset(sl, 0, sizeof sl);
+    song.g[G_SLOWN] = 0;                                /* SEND for all */
+    set_slicer(t0, SL_GATE, 1, 1, 0);                   /* MIX 0; bus MODE via set_slicer */
+    set_slicer(t1, SL_GATE, 1, 1, 0);
+    slicer_start();
+    for (f = 0; f < FS / 2u; f += CTL) {
+        int32_t b[CTL], c[CTL];
+        slicer_block();
+        for (i = 0; i < CTL; i++)
+            b[i] = c[i] = (int32_t)((f + i) * 2654435761u >> 17) - 16384;
+        slicer_track(t0, b, CTL);
+        same &= !memcmp(b, c, sizeof b);
+    }
+    bad += check("MIX 0: GATE mode is transparent (bypass)", same);
+    t0->p[P_SLDEPTH] = 127;                            /* MIX only; leave bus MODE/PAT/RATE */
+    slicer_start();
+    for (f = 0; f < FS / 2u; f += CTL) {
+        int32_t b[CTL], c[CTL];
+        slicer_block();
+        for (i = 0; i < CTL; i++)
+            b[i] = c[i] = (int32_t)((f + i) * 2654435761u >> 17) - 16384;
+        slicer_track(t0, b, CTL);
+        if (memcmp(b, c, sizeof b))
+            gated = 1;
+    }
+    bad += check("MIX 127: SEND bus GATE closes some steps", gated);
+    /* track MODE ignored on SEND: bus stays GATE while track MODE is OFF */
+    t0->p[P_SLCR] = SL_OFF;
+    slicer_start();
+    gated = 0;
+    for (f = 0; f < FS / 4u; f += CTL) {
+        int32_t b[CTL], c[CTL];
+        slicer_block();
+        for (i = 0; i < CTL; i++)
+            b[i] = c[i] = (int32_t)((f + i) * 2654435761u >> 17) - 16384;
+        slicer_track(t0, b, CTL);
+        if (memcmp(b, c, sizeof b))
+            gated = 1;
+    }
+    bad += check("SEND: track MODE OFF ignored (bus GATE still runs)", gated);
+    /* two SEND tracks share one DSP state pointer */
+    host_tracks_init();
+    memset(sl, 0, sizeof sl);
+    song.g[G_SLOWN] = 0;
+    set_slicer(t0, SL_GATE, 1, 1, 127);
+    set_slicer(t1, SL_GATE, 8, 2, 127);
+    bad += check("SEND: two tracks share one slicer bus DSP",
+                 sl_state(t0) == sl_state(t1) && sl_state(t0) == &sl_bus);
+    song.g[G_SLOWN] = 1;                                /* track 0 CHAIN; others USED (like DLY) */
+    bad += check("CHAIN track keeps private slicer; other tracks USED",
+                 sl_state(t0) == &sl[0] && sl_state(t1) == 0);
+    song.g[G_SLOWN] = 0;
+    return bad;
+}
+
+/* An active gate/repeat must finish its ramp, then leave both stereo signals untouched. */
+static int test_mix_zero_after_ramp(void)
+{
+    int bad = 0;
+    uint32_t chain, mode, f, i;
+    for (chain = 0; chain < 2; chain++) {
+        for (mode = SL_GATE; mode <= SL_STUT; mode++) {
+            track_t *t = &trk[0];
+            int active = 0, same = 1;
+            host_tracks_init();
+            memset(sl, 0, sizeof sl);
+            memset(&sl_bus, 0, sizeof sl_bus);
+            song.g[G_SLOWN] = chain ? 1 : 0;
+            set_slicer(t, (int)mode, 1, 1, 127);
+            slicer_start();
+            for (f = 0; f < FS / 5u; f += CTL) {
+                int32_t b[CTL], sd[CTL];
+                for (i = 0; i < CTL; i++) b[i] = 12000, sd[i] = 6000;
+                slicer_block();
+                slicer_track_sd(t, b, sd, CTL);
+                active |= mode == SL_GATE ? (chain ? sl[0].gc : sl_send_gc[0]) != 0
+                                         : (chain ? sl[0].w : sl_send_w[0]) != 0;
+            }
+            bad += check("MIX 0 setup reaches an active gate/repeat", active);
+            t->p[P_SLDEPTH] = 0;
+            for (f = 0; f < SL_RAMP + 2u * CTL; f += CTL) {
+                int32_t b[CTL], sd[CTL], dry[CTL], side[CTL];
+                for (i = 0; i < CTL; i++) {
+                    b[i] = dry[i] = 17000 + (int32_t)i;
+                    sd[i] = side[i] = -3000 - (int32_t)i;
+                }
+                slicer_block();
+                slicer_track_sd(t, b, sd, CTL);
+                if (f >= SL_RAMP)
+                    same &= !memcmp(b, dry, sizeof b) && !memcmp(sd, side, sizeof sd);
+            }
+            bad += check("MIX 0 settles to stereo bypass and releases the repeat", same && !slicer_busy(t));
+        }
+    }
+    return bad;
+}
+
 int main(int argc, char **argv)
 {
     int bad = 0;
@@ -380,6 +519,8 @@ int main(int argc, char **argv)
     bad += test_sync();
     bad += test_off_stut();
     bad += test_cost();
+    bad += test_mix_send();
+    bad += test_mix_zero_after_ramp();
     if (argc > 1)
         demos(argv[1]);
     printf("%s\n", bad ? "SLICER TEST FAILED" : "slicer test passed");

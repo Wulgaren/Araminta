@@ -240,6 +240,7 @@ static void job_slicer(const job_t *j)
     track_t *t = &trk[0];
     uint32_t i;
     host_tracks_init();
+    song.g[G_SLOWN] = 1;                          /* CHAIN: private MODE/PAT/RATE on this track */
     host_preset(t, j->e, j->pi);
     t->p[P_AMODE] = 0;
     for (i = 0; i < 4u; i++)
@@ -250,7 +251,7 @@ static void job_slicer(const job_t *j)
 /* the 4-track mix: T1 ANALOG ACID, T2 the power-on pad (TRK_DEF: FM6 PAD since DIGITAL was retired; DIGITAL PAD
  * before) (tied chords), T3 LOFI lead (12 steps against 16),
  * T4 DRUM drums (SAMPLE PERC until 1.0.2); 120 BPM, 4 bars (the hostsim TRACKS demo without the recording), stop, the tail.
- * arg 1: with the SLICER (GATE on the pad, STUT on the acid line and the drums, SWING 20 %) */
+ * arg 1: with the SLICER (GATE CHAIN on the pad; other tracks USED; SWING 20 %) */
 static void job_song(const job_t *j)
 {
     static const uint8_t ACID[16] = {45, 45, 57, 45, 0, 48, 45, 55, 45, 0, 57, 52, 45, 48, 0, 50};
@@ -291,14 +292,14 @@ static void job_song(const job_t *j)
         put_step(td, i, k, n, k ? ST_NOTE : ST_REST, i % 4u == 0u ? SF_ACCENT : 0u);
     }
     if (j->arg) {
-        static const int16_t S[4][4] = {{SL_STUT, 9, 1, 127}, {SL_GATE, 1, 1, 127}, {0, 1, 1, 127},
-                                        {SL_STUT, 12, 2, 110}};
-        for (i = 0; i < NTRK; i++) {
-            uint32_t k;
-            for (k = 0; k < 4u; k++)
-                trk[i].p[P_SLCR + k] = S[i][k];
-        }
+        /* One CHAIN owner at a time (G_SLOWN). Pad (T2) keeps private GATE; other tracks
+         * are USED (signal untouched). SEND would share one MODE for all. */
+        static const int16_t S[4] = {SL_GATE, 1, 1, 127};
+        uint32_t k;
+        song.g[G_SLOWN] = 2;                       /* track 1 CHAIN */
         song.g[G_SWING] = 20;
+        for (k = 0; k < 4u; k++)
+            t2->p[P_SLCR + k] = S[k];
     }
     transport_req = 1;
     run_to(8u * FS);

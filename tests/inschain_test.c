@@ -89,6 +89,8 @@ static void fresh(void)
     memset(&pf, 0, sizeof pf);
     memset(ins_st, 0, sizeof ins_st);
     memset(ins_lines, 0, sizeof ins_lines);
+    memset(ins_bus_applied, 0, sizeof ins_bus_applied);
+    fx_bus_init();
     for (k = 0; k < NTRK; k++)
         pf.mg[k] = 32768;
     lim_env = LIM_T;
@@ -102,7 +104,133 @@ static void fresh(void)
     memset(&motion, 0, sizeof motion);
     host_tracks_init();
     host_preset(&trk[0], 0, 0);                     /* ANALOG first preset */
+    host_preset(&trk[1], 0, 0);
+    host_preset(&trk[2], 0, 0);
+    host_preset(&trk[3], 0, 0);
     song.sel = 0;
+}
+
+static int pick_has(uint32_t id, const char *name)
+{
+    uint32_t i;
+    for (i = 0; i < pk_n; i++)
+        if (pk_rows[i].id == id && (!name || str_eq(pk_rows[i].name, name))) return 1;
+    return 0;
+}
+
+static void test_fx_reservations(void)
+{
+    uint32_t sel;
+    fresh();
+    pk_build_mdst(&trk[0], MD_OFF, &sel);
+    ck("FX list has continuous delay/reverb controls and explicit MIX", pick_has(MD_DTIME, "TIME") &&
+       pick_has(MD_DFB, "FDBK") && pick_has(MD_DCOLOR, "COLOR") && pick_has(MD_RSIZE, "SIZE") &&
+       pick_has(MD_RDAMP, "DAMP") && pick_has(MD_DLY, "MIX") && pick_has(MD_REV, "MIX"));
+    trk[0].p[P_M1DST] = MD_RSIZE;
+    pk_build_mdst(&trk[1], MD_OFF, &sel);
+    ck("a stored SEND assignment hides its control on other tracks", !pick_has(MD_RSIZE, 0));
+    pk_build_auto(&trk[1], MFX_SIZE, NSTEP, &sel);
+    ck("the SEND assignment also reserves the lock destination", !pick_has(MFX_SIZE, 0));
+    trk[0].p[P_M1DST] = MD_OFF;
+    ck("shared reverb SIZE accepts a parameter lock", !motion_set_lock(&trk[0], 0, MFX_SIZE, 90));
+    pk_build_mdst(&trk[1], MD_OFF, &sel);
+    ck("a SEND lock reserves the LFO destination", !pick_has(MD_RSIZE, 0));
+    motion_clear_locks(&trk[0], NSTEP);
+    pk_build_mdst(&trk[1], MD_OFF, &sel);
+    ck("removing the lock releases the shared control", pick_has(MD_RSIZE, 0));
+    song.g[G_REVOWN] = 1;
+    trk[0].p[P_M1DST] = MD_RSIZE;
+    pk_build_mdst(&trk[1], MD_OFF, &sel);
+    ck("private CHAIN reverb does not reserve the SEND bank", pick_has(MD_RSIZE, 0));
+}
+
+static void test_retired_delay_mix(void)
+{
+    uint32_t legacy, block, i;
+    for (legacy = 0; legacy < 2; legacy++) {
+        int32_t peak = 0;
+        fresh();
+        song.g[G_DTIME] = DTIME_FREE + 100;
+        song.g[G_DFDBK] = 0;
+        song.g[G_DMIX] = legacy ? 127 : 0;
+        for (block = 0; block < FS / CTL / 5u; block++) {
+            int32_t d[CTL] = {0}, r[CTL] = {0}, w[CTL];
+            if (!block) d[0] = 24000;
+            fx_buses(d, r, w, CTL);
+            for (i = 0; i < CTL; i++) if (w[i] > peak) peak = w[i];
+        }
+        ck("delay SEND impulse returns at full level regardless of retired MIX", peak == 24000);
+    }
+}
+
+static void test_fx_bank_switch(void)
+{
+    fresh();
+    song.g[G_RSIZE] = 30;
+    song.g[G_CRSIZE] = 90;
+    trk[1].p[P_PAN] = -10;
+    ck("bank switch setup creates a SEND size lock", !motion_set_lock(&trk[0], 0, MFX_SIZE, 120));
+    ck("bank switch setup creates independent pan automation", !motion_set_event(&trk[1], 0, P_PAN, 40));
+    motion_begin();
+    motion_step(&trk[0], 0, &motion, 1);
+    motion_step(&trk[1], 0, &motion, 1);
+    bus_own_set(1, 0);
+    ck("SEND to CHAIN restores the old bank and preserves the new base",
+       song.g[G_RSIZE] == 30 && song.g[G_CRSIZE] == 90 && trk[1].p[P_PAN] == 40);
+    motion_step(&trk[0], 0, &motion, 1);
+    ck("the size lock follows the selected CHAIN bank", song.g[G_CRSIZE] == 120 && song.g[G_RSIZE] == 30);
+    motion_step(&trk[0], 1, &motion, 1);
+    ck("the CHAIN lock restores its own bank's base", song.g[G_CRSIZE] == 90);
+    motion_end();
+}
+
+static void test_fx_edit_paths(void)
+{
+    uint32_t i;
+    int16_t value;
+    fresh();
+    ui_power_on();
+    song.g[G_DTIME] = 1;
+    ck("edit setup creates a TIME lock", !motion_set_lock(TSEL, 0, MFX_TIME, DTIME_FREE + 100));
+    motion_begin();
+    motion_step(TSEL, 0, &motion, 1);
+    for (i = 0; i < NPAGES; i++) if (PAGES[i].graph == GR_MOD) break;
+    ui.home = 0; ui.page = i; mod_ui_slot = 0;
+    edit_param(1, 1);
+    motion_end();
+    ck("editing a MOD source preserves the delay RATE base", song.g[G_DTIME] == 1);
+
+    fresh();
+    ui_power_on();
+    ins_send_set(TSEL, INS_FILTER, 1);
+    ck("edit setup creates a shared FILTER cut lock", !motion_set_lock(TSEL, 0, P_IFCUT, 100));
+    motion_begin();
+    motion_step(TSEL, 0, &motion, 1);
+    go_title("FILTER");
+    edit_param(1, -1);
+    value = fx_bus_trk.p[P_IFCUT];
+    motion_end();
+    ck("editing a shared SEND knob updates its motion base", fx_bus_trk.p[P_IFCUT] == value);
+
+    fresh();
+    ui_power_on();
+    fx_bus_trk.p[P_SLRATE] = 3;
+    TSEL->p[P_SLRATE] = 8;
+    ck("edit setup creates a shared SLICER rate lock", !motion_set_lock(TSEL, 0, P_SLRATE, 5));
+    motion_begin();
+    motion_step(TSEL, 0, &motion, 1);
+    {
+        uint8_t order[FX_LIST_N];
+        fx_list_get(TSEL, order);
+        for (i = 0; i < FX_LIST_N && order[i] != INS_SLCR; i++) ;
+        ui.ior_sel = i;
+    }
+    ior_knob(2, 1);
+    ck("SLICER mode switch restores the shared rate before selecting CHAIN",
+       sl_trk_chain(TSEL) && fx_bus_trk.p[P_SLRATE] == 3 && TSEL->p[P_SLRATE] == 8);
+    motion_step(TSEL, 0, &motion, 1);
+    motion_end();
+    ck("SLICER lock restores its private rate after switching", TSEL->p[P_SLRATE] == 8);
 }
 
 int main(void)
@@ -202,7 +330,7 @@ int main(void)
     t->p[P_ICRATE] = 20;
     t->p[P_ICLPF] = 80;
     t->p[P_ICMIX] = 127;
-    t->p[P_IORD] = 0;                               /* DIST, FILTER, CRUSH, ... */
+    t->p[P_IORD] = 0;                               /* identity: DIST, FILTER, CRUSH, ... */
     trk_note_on(t, 60, 100);
     render_blocks(8);
     wet = hash_out(32);
@@ -284,6 +412,8 @@ int main(void)
         ck("migrate: TYPE OFF leaves stage MIX at 0 (dry)",
            got[P_ICMIX] == 0 && got[P_IPMIX] == 0 && got[P_ILMIX] == 0 && got[P_IHMIX] == 0 &&
            (got[P_DIST] ? got[P_IDMIX] == 127 : got[P_IDMIX] == 0));
+        ck("migrate: factory order is IORD_DEF (CRUSH before FILTER)",
+           got[P_IORD] == (int16_t)IORD_DEF);
         old[96] = 6;                                    /* PHASR */
         old[97] = 30; old[98] = 40; old[99] = 50; old[100] = 80;
         params_by_count(got, old, 111u, def);
@@ -392,18 +522,19 @@ int main(void)
             ck("CHAIN reverb params diverge from SEND (ROOM/40 vs HALL/90 changes render)",
                h_chain != h_send);
             ck("GP has CHAIN TYPE/SIZE/DAMP",
-               G_COUNT == 30u && GP[G_CRTYPE].names == GP[G_RTYPE].names && GP[G_CRSIZE].max == 127);
+               G_COUNT == 31u && GP[G_CRTYPE].names == GP[G_RTYPE].names && GP[G_CRSIZE].max == 127);
         }
         bus_own_set(1, -1);
         bus_own_set(0, -1);
     }
 
-    /* FX pages: EFFECTS, REVERB, DLY, DIST, …; SLICER; Punch-in. MASTER on GLO.
-     * Stage pages have no mix knob: the percent is EFFECTS K4. No bus CHORUS page. */
+    /* FX pages: EFFECTS (incl. SLICER), REVERB, DLY, DIST, …; Punch-in. MASTER on GLO.
+     * Stage pages have no mix knob: the percent is EFFECTS K4. No bus CHORUS page.
+     * SLICER is folded into EFFECTS (FX_SEC_INS); MIX is P_SLDEPTH (no DEPTH knob on the page). */
     {
         uint32_t i, pr = NPAGES, prev = NPAGES, ps = NPAGES, pd = NPAGES, pdl = NPAGES, pm = NPAGES;
         uint32_t mix = 0, chor = 0;
-        static const uint8_t MIXK[] = {P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX, P_IHMIX};
+        static const uint8_t MIXK[] = {P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX, P_IHMIX, P_SLDEPTH};
         for (i = 0; i < NPAGES; i++) {
             uint32_t k, m;
             if (str_eq(PAGES[i].title, "EFFECTS") && PAGES[i].fam == FAM_FX && pr == NPAGES) pr = i;
@@ -418,21 +549,167 @@ int main(void)
                     for (m = 0; m < sizeof MIXK; m++)
                         mix |= PAGES[i].id[k] == MIXK[m];
         }
-        ck("FX pages: EFFECTS, REVERB, DELAY, DISTORT…; SLICER own section; MASTER on GLO",
+        ck("FX pages: EFFECTS, REVERB, DELAY, DISTORT…; SLICER in EFFECTS; MASTER on GLO",
            pr < prev && prev < pdl && pdl < pd && pd < ps && PAGES[pr].graph == GR_IORD &&
            PAGES[pr].sec == FX_SEC_INS && PAGES[pdl].sec == FX_SEC_INS &&
-           PAGES[ps].sec == FX_SEC_SLCR && PAGES[pm].fam == FAM_GLO && PAGES[pm].sec == GLO_SEC_MASTER &&
+           PAGES[ps].sec == FX_SEC_INS && PAGES[ps].id[3] == 0xFFu &&
+           str_eq(TP[P_SLDEPTH].label, "MIX") && FX_NSEC == 2u &&
+           PAGES[pm].fam == FAM_GLO && PAGES[pm].sec == GLO_SEC_MASTER &&
            PAGES[pd].id[2] == P_ED_FX && PAGES[pd].id[3] == 0xFFu && !mix &&
            PAGES[pdl].id[3] == 0xFFu && PAGES[pdl].id[0] == G_DTIME && !chor);
         {
-            uint8_t list[FX_LIST_N];
+            uint32_t pc = NPAGES, pf = NPAGES;
+            for (i = 0; i < NPAGES; i++) {
+                if (str_eq(PAGES[i].title, "CRUSH") && PAGES[i].fam == FAM_FX && pc == NPAGES) pc = i;
+                if (str_eq(PAGES[i].title, "FILTER") && PAGES[i].fam == FAM_FX &&
+                    PAGES[i].graph == GR_INS && pf == NPAGES)
+                    pf = i;
+            }
+            ck("FX pages: CRUSH before FILTER (after DISTORT)", pd < pc && pc < pf && pf < ps);
+        }
+        {
+            uint8_t list[FX_LIST_N], defo[INS_N];
             fx_list_get(&trk[0], list);
-            ck("EFFECTS list is 8: inserts + DLY + REV",
-               FX_LIST_N == 8u && list[6] == INS_DLY && list[7] == INS_REV);
+            ck("EFFECTS list is 9: inserts + DLY + REV + SLCR",
+               FX_LIST_N == 9u && list[6] == INS_DLY && list[7] == INS_REV && list[8] == INS_SLCR &&
+               str_eq(N_ISTAGE[INS_SLCR], "SLICER"));
+            fresh();
+            t = &trk[0];
+            ck("factory P_IORD is IORD_DEF (DIST→CRUSH→FILTER→…)",
+               (uint16_t)t->p[P_IORD] == IORD_DEF && TP[P_IORD].def == (int16_t)IORD_DEF);
+            ins_order_get(t, defo);
+            ck("factory chain order: DIST, CRUSH, FILTER, PHASR, FLANG, CHOR",
+               defo[0] == INS_DIST && defo[1] == INS_CRUSH && defo[2] == INS_FILTER &&
+               defo[3] == INS_PHASR && defo[4] == INS_FLANG && defo[5] == INS_CHOR);
+            fx_list_get(t, list);
+            ck("factory EFFECTS list: DIST…CHOR, DLY, REV, SLCR; SLCR default SEND",
+               list[0] == INS_DIST && list[1] == INS_CRUSH && list[2] == INS_FILTER &&
+               list[5] == INS_CHOR && list[6] == INS_DLY && list[7] == INS_REV && list[8] == INS_SLCR &&
+               str_eq(fx_list_mode(t, INS_SLCR), "SEND") && ins_mix_of(t, INS_SLCR) == t->p[P_SLDEPTH]);
+            {
+                uint8_t before[FX_LIST_N], after[FX_LIST_N];
+                uint32_t sl = 8;
+                fx_list_get(t, before);
+                ck("SLICER SEND→CHAIN→SEND per track",
+                   sl_trk_send(t) && fx_list_mode(t, INS_SLCR)[0] == 'S');
+                bus_own_set(2, 0);                       /* track 0 CHAIN, others SEND */
+                ck("SLICER CHAIN on track 0; track 1 still SEND",
+                   sl_trk_chain(t) && fx_list_mode(t, INS_SLCR)[0] == 'C' &&
+                   sl_trk_send(&trk[1]) && fx_list_mode(&trk[1], INS_SLCR)[0] == 'S');
+                bus_own_set(2, -1);
+                ck("SLICER all-SEND restores SEND on every track",
+                   sl_trk_send(t) && sl_trk_send(&trk[1]) && fx_list_mode(&trk[1], INS_SLCR)[0] == 'S');
+                fx_list_get(t, before);
+                fx_list_move(t, sl, -1);                /* SLCR past REV */
+                fx_list_get(t, after);
+                ck("SLICER reorderable in EFFECTS list (swap with REV)",
+                   before[8] == INS_SLCR && after[7] == INS_SLCR && after[8] == INS_REV);
+            }
         }
     }
 
     ck("ANALOG FILTER TYPE includes COMB", NELEM(N_FTYPE) == 4u && str_eq(N_FTYPE[3], "COMB"));
+
+    /* Test A: two tracks SEND FILTER share one CUT; a CHAIN track keeps a private CUT. */
+    {
+        uint64_t h_lo, h_hi, h_a, h_b, h_chain_lo, h_chain_hi;
+        fresh();
+        filter_setup(&trk[0], IFT_LP, 64, 40, 127);
+        filter_setup(&trk[1], IFT_LP, 64, 40, 127);
+        ins_send_set(&trk[0], INS_FILTER, 1);
+        ins_send_set(&trk[1], INS_FILTER, 1);
+        fx_bus_trk.p[P_IFTYPE] = IFT_LP;
+        fx_bus_trk.p[P_IFRES] = 40;
+        fx_bus_trk.p[P_IFCUT] = 32;
+        trk_note_on(&trk[0], 60, 100);
+        trk_note_on(&trk[1], 60, 100);
+        render_blocks(8);
+        h_lo = hash_out(48);
+        fresh();
+        filter_setup(&trk[0], IFT_LP, 64, 40, 127);
+        filter_setup(&trk[1], IFT_LP, 64, 40, 127);
+        ins_send_set(&trk[0], INS_FILTER, 1);
+        ins_send_set(&trk[1], INS_FILTER, 1);
+        fx_bus_trk.p[P_IFTYPE] = IFT_LP;
+        fx_bus_trk.p[P_IFRES] = 40;
+        fx_bus_trk.p[P_IFCUT] = 110;
+        trk_note_on(&trk[0], 60, 100);
+        trk_note_on(&trk[1], 60, 100);
+        render_blocks(8);
+        h_hi = hash_out(48);
+        ck("SEND FILTER: shared bus CUT moves both tracks' render", h_lo != h_hi);
+        /* track-local P_IFCUT must not drive the SEND bus */
+        fresh();
+        filter_setup(&trk[0], IFT_LP, 110, 40, 127);
+        filter_setup(&trk[1], IFT_LP, 110, 40, 127);
+        ins_send_set(&trk[0], INS_FILTER, 1);
+        ins_send_set(&trk[1], INS_FILTER, 1);
+        fx_bus_trk.p[P_IFTYPE] = IFT_LP;
+        fx_bus_trk.p[P_IFRES] = 40;
+        fx_bus_trk.p[P_IFCUT] = 32;
+        trk_note_on(&trk[0], 60, 100);
+        trk_note_on(&trk[1], 60, 100);
+        render_blocks(8);
+        h_a = hash_out(48);
+        fresh();
+        filter_setup(&trk[0], IFT_LP, 32, 40, 127);
+        filter_setup(&trk[1], IFT_LP, 32, 40, 127);
+        ins_send_set(&trk[0], INS_FILTER, 1);
+        ins_send_set(&trk[1], INS_FILTER, 1);
+        fx_bus_trk.p[P_IFTYPE] = IFT_LP;
+        fx_bus_trk.p[P_IFRES] = 40;
+        fx_bus_trk.p[P_IFCUT] = 32;
+        trk_note_on(&trk[0], 60, 100);
+        trk_note_on(&trk[1], 60, 100);
+        render_blocks(8);
+        h_b = hash_out(48);
+        ck("SEND FILTER: track P_IFCUT ignored (bus CUT is the source)", h_a == h_b);
+        /* CHAIN track: private CUT from P_IFCUT; bus CUT ignored */
+        fresh();
+        filter_setup(&trk[0], IFT_LP, 32, 40, 127);
+        ins_send_set(&trk[0], INS_FILTER, 0);
+        fx_bus_trk.p[P_IFCUT] = 110;
+        trk_note_on(&trk[0], 60, 100);
+        render_blocks(8);
+        h_chain_lo = hash_out(48);
+        fresh();
+        filter_setup(&trk[0], IFT_LP, 110, 40, 127);
+        ins_send_set(&trk[0], INS_FILTER, 0);
+        fx_bus_trk.p[P_IFCUT] = 32;
+        trk_note_on(&trk[0], 60, 100);
+        render_blocks(8);
+        h_chain_hi = hash_out(48);
+        ck("CHAIN FILTER: private CUT moves; bus CUT ignored", h_chain_lo != h_chain_hi);
+    }
+
+    /* UI: FILTER page knobs edit the SEND bus when the stage is SEND; track P_* when CHAIN. MIX stays track. */
+    {
+        const page_t *pg = 0;
+        int16_t *vp = 0;
+        uint32_t i;
+        for (i = 0; i < NPAGES; i++)
+            if (str_eq(PAGES[i].title, "FILTER") && PAGES[i].fam == FAM_FX && PAGES[i].graph == GR_INS) {
+                pg = &PAGES[i];
+                break;
+            }
+        fresh();
+        ins_send_set(&trk[0], INS_FILTER, 1);
+        song.sel = 0;
+        fx_bus_trk.p[P_IFCUT] = 40;
+        trk[0].p[P_IFCUT] = 90;
+        trk[0].p[P_IFMIX] = 55;
+        ck("FILTER page found for SEND/CHAIN knob binding", pg != 0);
+        if (pg) {
+            page_desc(pg, 1, &vp);
+            ck("SEND FILTER: CUT knob binds the bus", vp == &fx_bus_trk.p[P_IFCUT]);
+            ins_send_set(&trk[0], INS_FILTER, 0);
+            page_desc(pg, 1, &vp);
+            ck("CHAIN FILTER: CUT knob binds the track", vp == &trk[0].p[P_IFCUT]);
+            /* MIX is on EFFECTS, not this page; IDMIX binding would stay track if present */
+            ck("FILTER MIX stays on the track even when SEND", trk[0].p[P_IFMIX] == 55 &&
+               fx_bus_trk.p[P_IFMIX] != 55);
+        }
+    }
 
     /* insert FILTER: CUT is Q8 into tsvf_coef (same as ANALOG). A low CUT must muffle a bright saw;
      * RES must raise a band-pass peak. Regression for the raw 0..127 cutoff bug (wet ≈ silence). */
@@ -684,6 +961,10 @@ int main(void)
         ck("REV send amount moves the render", h0 != h1);
     }
 
+    test_fx_reservations();
+    test_retired_delay_mix();
+    test_fx_bank_switch();
+    test_fx_edit_paths();
     printf("inschain: %d failure(s)\n", bad);
     return bad ? 1 : 0;
 }

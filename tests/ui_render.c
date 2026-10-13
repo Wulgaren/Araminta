@@ -846,7 +846,7 @@ static void roll_scene(int s)
         ui.cursor = 4;
         break;
     case S_ROLL_TIES:
-        t->p[P_ROOT] = 0; t->p[P_SCALE] = 1;
+        t->p[P_ROOT] = 0; t->p[P_SCALE] = 0;
         for (i = 0; i < 16u; i++) {
             uint8_t n = LINE[i];
             uint32_t f = (i == 3u || i == 9u ? SF_SLIDE : 0u) | (i == 0u || i == 8u || i == 13u ? SF_ACCENT : 0u);
@@ -866,7 +866,7 @@ static void roll_scene(int s)
         ui.cursor = 20; song.playing = 1; t->seq_idx = 22;
         break;
     case S_ROLL_LEN:                                 /* 1.5 (#178): step 5's note made 4 steps long (KNOB 3 LEN, hot) */
-        t->p[P_ROOT] = 0; t->p[P_SCALE] = 1;
+        t->p[P_ROOT] = 0; t->p[P_SCALE] = 0;
         for (i = 0; i < 16u; i += 4u) {
             uint8_t n = LINE[i] ? LINE[i] : 60;
             step_put(&t->step[i], ST_NOTE, i == 8u ? SF_ACCENT : 0u, 1, &n);
@@ -1003,7 +1003,7 @@ static void setup(int s)
     case S_USER: song.playing = 0; up_store(3, "MY LONG BASS NAME"); up_store(4, "PAD"); ui.uslot = 3; go_page(GR_USER); break;
     case S_PHRASES: go_page(GR_PATS); break;
     case S_PROJECT: song.playing = 0; project_save(1); song.g[G_SLOT] = 2; go_page(GR_SLOTS); ui.act = 4; break;
-    case S_TOOLS: go_page(GR_TOOLS); ui.act = 1; break;
+    case S_TOOLS: go_title_page("CLEAR"); break;       /* SAVE > CLEAR sticky map */
     case S_SONG_EMPTY: song.playing = 0; go_page(GR_SONG); break;
     case S_SONG:
         song.playing = 0; project_save(0); project_save(1);
@@ -2287,7 +2287,7 @@ int main(int argc, char **argv)
     sweep_columns();
     roll_frames(argc > 2 ? argv[2] : 0);
     al_off = 1;                                     /* (the alignment check is not timed) */
-    /* draw cost: a full redraw of a screen (all strips), and HOME frame by frame (the scope, every other frame) */
+    /* draw cost: a full redraw of a screen (all strips), and HOME frame by frame (the scope, every frame) */
     {
         static const int COST[] = {S_HOME, S_PRESETS, S_STEP, S_ROLL_CHORDS, S_DRUM, S_MIXER, S_MENU, S_ABOUT_CREDITS, S_CONFIRM_PROJ};
         enum { N = 200 };

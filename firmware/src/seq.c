@@ -14,7 +14,6 @@
  * plays are recorded, not the keys held (what plays back is what was heard). A key or MIDI note plays a
  * chord when the track's CHRD is on (chord.c): its notes go through the same input as so many keys. */
 static const uint16_t SCALE_MASK[] = {
-    0xFFF,                                   /* CHR */
     (1 << 0) | (1 << 2) | (1 << 4) | (1 << 5) | (1 << 7) | (1 << 9) | (1 << 11),   /* MAJ */
     (1 << 0) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 8) | (1 << 10),   /* MIN */
     (1 << 0) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 9) | (1 << 10),   /* DOR */
@@ -38,7 +37,7 @@ static volatile uint8_t kb_boot_hold;    /* #137: set from power-on to the end o
                                           * and one held across its end stays silent until it is let go and pressed again */
 static uint8_t kb_note[27], kb_trk[27];  /* per key: the note it started and on which track */
 static uint8_t in_key;                   /* the key (+ 1) whose notes go into input_on now (key_on), 0: none (MIDI IN) */
-/* #191: where each track's held[i] came from, so the arp maps it again as it plays (arp_list: TRN, ROOT, SCALE, QNT as
+/* #191: where each track's held[i] came from, so the arp maps it again as it plays (arp_list: TRN, ROOT, SCALE, MAP as
  * they are now). held_key: the key + 1 (bits 0..4) and the octave buttons then + 3 (bits 5..7); 0: not a key's own
  * mapping (MIDI IN, the DRUM grid, an engine's own key map), held[i] plays as it is. held_dt: held[i] above the key's
  * note (a CHRD chord's other notes). Out of track_t: its size stays as the audio ISR's trk[] indexing wants it */
@@ -108,7 +107,7 @@ static uint32_t scale_mask(const track_t *t)
     return SCALE_MASK[clamp(t->p[P_SCALE], 0, sizeof SCALE_MASK / sizeof SCALE_MASK[0] - 1)];
 }
 
-/* note n moved down onto the track's scale (ROOT, SCALE): QNT SNAP's keys and QNT SEQ's sequenced notes */
+/* note n moved down onto the track's scale (ROOT, SCALE): MAP ALL / SEQ sequenced notes */
 static int32_t scale_snap(const track_t *t, int32_t n)
 {
     uint32_t mask = scale_mask(t), guard = 12;
@@ -117,7 +116,19 @@ static int32_t scale_snap(const track_t *t, int32_t n)
     return n;
 }
 
-enum { QN_OFF, QN_SNAP, QN_WHITE, QN_SEQ };      /* P_QUANT */
+/* nearest in-scale pitch to n (tie: lower). MAP KBD's black keys */
+static int32_t scale_nearest(const track_t *t, int32_t n)
+{
+    int32_t down = scale_snap(t, n), up = n;
+    uint32_t mask = scale_mask(t), guard = 12;
+    while (guard-- && !((mask >> (uint32_t)((up - t->p[P_ROOT] + 120) % 12)) & 1u))
+        up++;
+    return n - down <= up - n ? down : up;
+}
+
+enum { QN_OFF, QN_ALL, QN_KBD, QN_SEQ };          /* P_QUANT (MAP) */
+#define QN_WHITE QN_KBD                          /* (older tests / comments) */
+#define QN_SNAP QN_KBD                           /* old SNAP tests: closest remaining is KBD layout */
 
 /* the engine's own key map (DRUM's GM map, slices) for key k, -1 none */
 static int32_t kb_engine(const track_t *t, uint32_t k)
@@ -126,21 +137,19 @@ static int32_t kb_engine(const track_t *t, uint32_t k)
     return e->keys ? e->keys(t, k) : -1;
 }
 
-/* key k's note with the octave buttons at oct: QNT, ROOT, SCALE, TRN (KB_SILENT: a black key under WHITE). The keys
- * (kb_map) and the arp's latched keys (arp_list, #191: as the keys play now, the octave they were pressed in) */
+/* key k's note with the octave buttons at oct: MAP, ROOT, SCALE, TRN. The keys (kb_map) and the arp's latched
+ * keys (arp_list, #191: as the keys play now, the octave they were pressed in) */
 static uint32_t kb_pitch(const track_t *t, uint32_t k, int32_t oct)
 {
     static const int8_t DEGREE[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
     int32_t n = 53 + (int32_t)k;
-    if (t->p[P_QUANT] == QN_SNAP || t->p[P_QUANT] == QN_SEQ)   /* SNAP (and SEQ): every key, rounded down */
-        return (uint32_t)clamp(scale_snap(t, n + 12 * oct + t->p[P_TRANS]), 0, 127);
-    if (t->p[P_QUANT] == QN_WHITE) {                    /* WHITE: white keys walk the scale, black keys are silent */
+    if (t->p[P_QUANT] == QN_KBD || t->p[P_QUANT] == QN_ALL) {  /* KBD / ALL: white walk; black -> nearest */
         uint32_t mask = scale_mask(t), i;
         int32_t count = 0, degree = DEGREE[n % 12], wo;
-        if (degree < 0)
-            return KB_SILENT;
+        if (degree < 0)                                 /* black: chromatic pitch, closest in-scale (dup OK) */
+            return (uint32_t)clamp(scale_nearest(t, n + 12 * oct + t->p[P_TRANS]), 0, 127);
         /* C4 is the root. Walk scale degrees on successive white keys, including
-         * below C4; scales with 5, 6, 8 or 12 notes still have no duplicated degrees. */
+         * below C4; scales with 5, 6 or 8 notes still have no duplicated degrees. */
         degree += (n / 12 - 5) * 7;
         for (i = 0; i < 12u; i++)
             count += (mask >> i) & 1u;
@@ -157,7 +166,9 @@ static uint32_t kb_pitch(const track_t *t, uint32_t k, int32_t oct)
                 degree--;
             }
         n = 60 + t->p[P_ROOT] + 12 * wo + (int32_t)i;
+        return (uint32_t)clamp(n + 12 * oct + t->p[P_TRANS], 0, 127);
     }
+    /* OFF and SEQ: chromatic piano (ALL / SEQ remap sequenced notes in seq_step) */
     return (uint32_t)clamp(n + 12 * oct + t->p[P_TRANS], 0, 127);
 }
 
@@ -228,21 +239,32 @@ static int pfx_rec_ok(void) { return song.rec && song.playing && !chain.running;
  * across OCT octaves), C E G held: DNUP G E C E; UP+8 C E G C' (the first note again an octave above the top);
  * CONV C G E (outside in); DIVG E G C (inside out); PINKY C G E G (the top note between the others); THUMB
  * C E C G (the bottom one); WALK a random step up or down the list (bouncing off its ends); CHORD all the held
- * notes together (the first 4), an octave higher each step through OCT */
+ * notes together (the first 4), an octave higher each step through OCT; DRONE sustains all held notes (up to 16)
+ * with no RATE retrigger (OCT = fixed transpose) */
 enum { AM_OFF, AM_UP, AM_DN, AM_UPDN, AM_RND, AM_ORD, AM_REPEAT, AM_DNUP, AM_UP8, AM_CONV, AM_DIVG, AM_PINKY,
-       AM_THUMB, AM_WALK, AM_CHORD };
+       AM_THUMB, AM_WALK, AM_CHORD, AM_DRONE };
+
+/* DRONE: RATE GATE SWG PROB HOLD ORD frozen (MODE + OCT still turn). UI draw + knobs. */
+static int arp_drone_frozen(const track_t *t, const int16_t *vp)
+{
+    return t->p[P_AMODE] == AM_DRONE && vp != &t->p[P_AMODE] && vp != &t->p[P_AOCT] &&
+           vp >= t->p + P_AMODE && vp <= t->p + P_AORDER;
+}
 
 static void arp_forget(track_t *t)               /* (its notes ended otherwise: trk_all_off) */
 {
-    t->arp_note = t->arp_ch[0] = t->arp_ch[1] = t->arp_ch[2] = 0;
+    uint32_t i;
+    t->arp_note = 0;
+    for (i = 0; i < 15u; i++)
+        t->arp_ch[i] = 0;
 }
 
-/* CHORD's notes. Not inlined: they run once an arp step, and kept out of the audio ISR's loop over the tracks
+/* CHORD / DRONE extras. Not inlined: they run once an arp step, and kept out of the audio ISR's loop over the tracks
  * (tests/target_budget.py) */
 static __attribute__((noinline)) void arp_chord_off(track_t *t, int rec)   /* the other notes end */
 {
     uint32_t i;
-    for (i = 0; i < 3u; i++)
+    for (i = 0; i < 15u; i++)
         if (t->arp_ch[i]) {
             if (rec)
                 rec_release(t, t->arp_ch[i]);
@@ -270,9 +292,18 @@ static __attribute__((noinline)) void arp_chord(track_t *t, const uint32_t *list
     }
 }
 
+static int arp_ch_any(const track_t *t)
+{
+    uint32_t i;
+    for (i = 0; i < 15u; i++)
+        if (t->arp_ch[i])
+            return 1;
+    return 0;
+}
+
 static void arp_silence(track_t *t)              /* the sounding arp note(s) end */
 {
-    if (t->arp_ch[0] | t->arp_ch[1] | t->arp_ch[2])
+    if (arp_ch_any(t))
         arp_chord_off(t, 0);
     trk_note_off(t, t->arp_note);
     t->arp_note = 0;
@@ -280,7 +311,7 @@ static void arp_silence(track_t *t)              /* the sounding arp note(s) end
 
 static void arp_off(track_t *t)                  /* the sounding arp note(s) end (a recorded one too) */
 {
-    if (t->arp_ch[0] | t->arp_ch[1] | t->arp_ch[2])
+    if (arp_ch_any(t))
         arp_chord_off(t, rec_on(t));
     trk_note_off(t, t->arp_note);
     if (rec_on(t))
@@ -361,7 +392,7 @@ static int click_wanted(void)                  /* CLICK REC: while a track is ar
 /* the arp's note list (list, its length returned; 0: nothing to play): the held notes (sorted or as played) over OCT
  * octaves, *cnt of them. #191: the notes as they play now, a key's mapped again through kb_pitch (TRN, ROOT, SCALE,
  * QNT now, the octave it was pressed in; a chord's note as far above it), the rest (MIDI IN) as they came; each once
- * (two keys may meet on one note now), a key silent now (a black key, QNT WHITE since) left out. With nothing changed
+ * (two keys may meet on one note now), a key that maps silent now left out. With nothing changed
  * since the keys were pressed, exactly the list of held[] as before */
 static uint32_t arp_list(const track_t *t, uint32_t *list, uint32_t *cnt)
 {
@@ -390,6 +421,12 @@ static uint32_t arp_list(const track_t *t, uint32_t *list, uint32_t *cnt)
                 list[j] = list[j - 1];
                 list[j - 1] = x;
             }
+    if (n && t->p[P_AMODE] == AM_DRONE) {          /* DRONE: one fixed transpose, not an OCT walk */
+        int32_t off = 12 * (t->p[P_AOCT] > 1 ? t->p[P_AOCT] - 1 : 0);
+        for (i = 0; i < n && len < 64u; i++)
+            list[len++] = (uint32_t)clamp((int32_t)list[i] + off, 0, 127);
+        return len;
+    }
     for (o = 0; o < (uint32_t)t->p[P_AOCT]; o++)
         for (i = 0; i < n && len < 64u; i++)
             list[len++] = clamp((int32_t)list[i] + 12 * (int32_t)o, 0, 127);
@@ -397,12 +434,47 @@ static uint32_t arp_list(const track_t *t, uint32_t *list, uint32_t *cnt)
     return len;
 }
 
+/* DRONE: sustain the held notes (up to 16). Refresh only when the set changes (no RATE / GATE). */
+static __attribute__((noinline)) void arp_drone_sync(track_t *t)
+{
+    uint32_t cnt, list[64], len, i, same = 1;
+    if (!(len = arp_list(t, list, &cnt))) {
+        if (t->arp_note)
+            arp_off(t);
+        return;
+    }
+    if (len > 16u)
+        len = 16u;
+    if (!t->arp_note || t->arp_note != list[0])
+        same = 0;
+    for (i = 1; same && i < len; i++)
+        if (t->arp_ch[i - 1u] != list[i])
+            same = 0;
+    for (; same && i < 16u; i++)
+        if (t->arp_ch[i - 1u])
+            same = 0;
+    if (same)
+        return;
+    if (t->arp_note)
+        arp_off(t);
+    for (i = 0; i < len; i++) {
+        uint32_t nt = list[i];
+        if (!t->arp_note)
+            t->arp_note = (uint8_t)nt;
+        else
+            t->arp_ch[i - 1u] = (uint8_t)nt;
+        if (rec_on(t))
+            rec_note(t, nt, 100);
+        trk_note_on(t, nt, 100);
+    }
+}
+
 /* an arp step starts (period: its length): the next note of the list. Not inlined: once a step, kept out of the audio
  * ISR's loop over the tracks (tests/target_budget.py) */
 static __attribute__((noinline)) void arp_fire(track_t *t, uint32_t period)
 {
     uint32_t cnt, list[64], len, j;
-    if (!(len = arp_list(t, list, &cnt))) {        /* (every key silent now: QNT WHITE's black keys) */
+    if (!(len = arp_list(t, list, &cnt))) {        /* (every held key silent now) */
         if (t->arp_note)
             arp_off(t);
         return;
@@ -428,6 +500,15 @@ static void arp_step(track_t *t, uint32_t n, uint32_t gate_n)
 {
     uint32_t period;
     int32_t sw;
+    if (t->p[P_AMODE] == AM_DRONE) {               /* no RATE / GATE: hold until the latch clears */
+        if (!t->nheld) {
+            if (t->arp_note)
+                arp_off(t);
+            return;
+        }
+        arp_drone_sync(t);
+        return;
+    }
     if (t->arp_note) {
         if (t->arp_off <= gate_n)
             arp_off(t);
@@ -940,16 +1021,26 @@ static void input_off(track_t *t, uint32_t note)
     }
     rec_release(t, note);
     arp_remove(t, note);                            /* both: the note may have started in the */
-    trk_note_off(t, note);                          /* other mode (ARP switched while held) */
+    {                                               /* other mode (ARP switched while held) */
+        uint32_t i, keep = 0;
+        /* HOLD / DRONE: note still latched — arp owns the voice (DRONE has no RATE retrigger) */
+        if (t->p[P_AMODE])
+            for (i = 0; i < t->nheld; i++)
+                if (t->held[i] == note)
+                    keep = 1;
+        if (!keep)
+            trk_note_off(t, note);
+    }
 }
 
-/* the effect of key k in the FX layer (PF_N none): white keys F3 .. F5 the map's (perf_map), G5 clears the
- * punch-in lane, black keys 1..4 the track mutes, A#4 the MIDI effects' tracks (pfx_tgt) */
+/* the effect of key k in the FX layer (PF_N none): white keys F3 .. F5 the map's (perf_map); with FX LATCH,
+ * G5 is CLR (turns latched effects and macros off); black keys 1..4 the track mutes, A#4 the MIDI effects'
+ * tracks (pfx_tgt) */
 static uint32_t perf_key(uint32_t k)
 {
     uint32_t p = key_place(k);
     if (!key_black(k))
-        return p == 15u ? PF_CLR : p < PF_KEYS ? perf_map[p] : PF_N;
+        return p == 15u && perf_latch_on ? PF_CLR : p < PF_KEYS ? perf_map[p] : PF_N;
     return p < NTRK ? PF_M1 + p : p == 7u ? PF_TGT : PF_N;
 }
 
@@ -1192,12 +1283,12 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     uint32_t hits = step_ratchet(s);
     uint8_t nn[4 + NLANE], vv[4 + NLANE];           /* the notes it plays: its notes, then its hits */
     uint32_t m = 0, sk = 0;
-    /* QNT SEQ: the step's notes (not the lane hits) snap to the scale as they play; never on a drum kit, the slices
+    /* MAP ALL / SEQ: the step's notes (not the lane hits) snap to the scale as they play; never on a drum kit, the slices
      * or another engine that maps the keys itself. #218: TRN is a playback offset only (stored pitches stay);
      * same kit skip as QNT SEQ. seq_notes keeps the notes that sound: their note-offs match */
     const engine_t *e = ENGINES[eng_idx(t->eng_req)];
     uint32_t kit = e->keys && e->keys(t, 0) >= 0;
-    uint32_t qseq = t->p[P_QUANT] == QN_SEQ && !kit;
+    uint32_t qseq = (t->p[P_QUANT] == QN_SEQ || t->p[P_QUANT] == QN_ALL) && !kit;
     if (!(skip & SEQ_REP)) {
         t->rat_left = 0;
         if ((skip & SEQ_MISS) ||
@@ -1617,6 +1708,14 @@ static void events_block(uint32_t n)
             arp_forget(t);
         }
         engine_block(t);                              /* engine switch: fade, then switch (voice.c) */
+        /* DRONE: force HOLD on while active; restore the prior value on leave */
+        if (t->p[P_AMODE] == AM_DRONE && t->armp != AM_DRONE) {
+            t->ahold_sv = t->p[P_AHOLD];
+            t->p[P_AHOLD] = 1;
+        } else if (t->armp == AM_DRONE && t->p[P_AMODE] != AM_DRONE) {
+            t->p[P_AHOLD] = t->ahold_sv;
+            t->arp_pos = 0xFFFFFFF;                 /* next mode fires on this block */
+        }
         /* ARP turned off, or HOLD released with no key down: drop the latched chord */
         if ((t->armp && !t->p[P_AMODE]) || (t->aholdp && !t->p[P_AHOLD] && !t->arp_phys)) {
             t->nheld = 0;
