@@ -164,8 +164,9 @@ editor shows them on a DRUM track only (the device's pages). They are the sound'
 sets them back to 127, user presets and projects store them (older ones load at 127), motion records them.
 
 Other enums that grew: `P_SDIV` (DIV, id 30) has 10 names (1/4, 1/8, 1/16, 1/32, 8T, 16T, 1/2, 1/1, 2BAR,
-4BAR; the first six keep their numbers), `P_AMODE` (id 17) 15 (OFF, UP, DN, UPDN, RND, ORD, REPEAT, and since 1.2 DNUP, UP+8, CONV, DIVG, PINKY, THUMB, WALK,
-CHORD: values 7..14, appended; an editor that knows only 7 names shows the value by `DESC`'s name) and the
+4BAR; the first six keep their numbers), `P_AMODE` (id 17) 16 (OFF, UP, DN, UPDN, RND, ORD, REPEAT, and since 1.2 DNUP, UP+8, CONV, DIVG, PINKY, THUMB, WALK,
+CHORD, then DRONE: values 7..15, appended; REPEAT id 6 is kept for loads but the device MODE knob skips it;
+an editor that knows only 7 names shows the value by `DESC`'s name) and the
 global `G_CLOCK` (id 2, label "CLK") 3 (INT, USB, TRS). `G_MIDI` (id 12) is an enum of USB / TRS that nothing reads.
 Since 1.5.1 the delay's `G_DTIME` (global id 4, label "TIME") has 13 names: P_SDIV's ten at the same values, then
 1/8D, 1/16D, 1/4D (values 10..12, dotted: 3/4, 3/8, 3/2 of a quarter); `DESC` sends all 13, max 12. P_SDIV, P_ARATE

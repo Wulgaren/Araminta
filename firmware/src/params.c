@@ -9,7 +9,7 @@ static const uint8_t LSYNC_DIV[11] = {0, 9, 8, 7, 6, 0, 1, 4, 2, 5, 3};
 static const char *const N_LTRIG[] = {"NOTE", "FREE"};
 static const char *const N_LPOL[] = {"BI", "UNI"};
 static const char *const N_AMODE[] = {"OFF", "UP", "DN", "UPDN", "RND", "ORD", "REPEAT",   /* (append-only: seq.c AM_*) */
-                                       "DNUP", "UP+8", "CONV", "DIVG", "PINKY", "THUMB", "WALK", "CHORD"};
+                                       "DNUP", "UP+8", "CONV", "DIVG", "PINKY", "THUMB", "WALK", "CHORD", "DRONE"};
 static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"};
 /* the delay's TIME (G_DTIME): N_DIV's ten (their values kept), then 1.5.1's dotted ones appended (stored values:
  * append-only). A list of its own: ARP RATE, SEQ DIV and LFO SYNC keep N_DIV's ten (fx.c delay_samples) */
@@ -279,10 +279,12 @@ static int32_t param_fit(const param_desc_t *d, int32_t v)
     return v;
 }
 
-/* v is a value a knob passes over: an alias, or one of FM6's bank slots without a voice */
+/* v is a value a knob passes over: an alias, or one of FM6's bank slots without a voice, or ARP REPEAT
+ * (id 6 kept for loads; the MODE knob steps ORD ↔ DNUP) */
 static int enum_skip(const param_desc_t *d, int32_t v)
 {
-    return enum_orig(d, v) != v || (d->names == N_FM6_PATCH && !fm6_slot_ok(v));
+    return enum_orig(d, v) != v || (d->names == N_FM6_PATCH && !fm6_slot_ok(v)) ||
+           (d->names == N_AMODE && v == 6);
 }
 /* a knob moved an F_ENUM from `from` to v: past any value it skips in that direction; with none left to the end, the
  * last one it does not skip on the way from `from` (else `from`) */

@@ -239,21 +239,32 @@ static int pfx_rec_ok(void) { return song.rec && song.playing && !chain.running;
  * across OCT octaves), C E G held: DNUP G E C E; UP+8 C E G C' (the first note again an octave above the top);
  * CONV C G E (outside in); DIVG E G C (inside out); PINKY C G E G (the top note between the others); THUMB
  * C E C G (the bottom one); WALK a random step up or down the list (bouncing off its ends); CHORD all the held
- * notes together (the first 4), an octave higher each step through OCT */
+ * notes together (the first 4), an octave higher each step through OCT; DRONE sustains all held notes (up to 16)
+ * with no RATE retrigger (OCT = fixed transpose) */
 enum { AM_OFF, AM_UP, AM_DN, AM_UPDN, AM_RND, AM_ORD, AM_REPEAT, AM_DNUP, AM_UP8, AM_CONV, AM_DIVG, AM_PINKY,
-       AM_THUMB, AM_WALK, AM_CHORD };
+       AM_THUMB, AM_WALK, AM_CHORD, AM_DRONE };
+
+/* DRONE: RATE GATE SWG PROB HOLD ORD frozen (MODE + OCT still turn). UI draw + knobs. */
+static int arp_drone_frozen(const track_t *t, const int16_t *vp)
+{
+    return t->p[P_AMODE] == AM_DRONE && vp != &t->p[P_AMODE] && vp != &t->p[P_AOCT] &&
+           vp >= t->p + P_AMODE && vp <= t->p + P_AORDER;
+}
 
 static void arp_forget(track_t *t)               /* (its notes ended otherwise: trk_all_off) */
 {
-    t->arp_note = t->arp_ch[0] = t->arp_ch[1] = t->arp_ch[2] = 0;
+    uint32_t i;
+    t->arp_note = 0;
+    for (i = 0; i < 15u; i++)
+        t->arp_ch[i] = 0;
 }
 
-/* CHORD's notes. Not inlined: they run once an arp step, and kept out of the audio ISR's loop over the tracks
+/* CHORD / DRONE extras. Not inlined: they run once an arp step, and kept out of the audio ISR's loop over the tracks
  * (tests/target_budget.py) */
 static __attribute__((noinline)) void arp_chord_off(track_t *t, int rec)   /* the other notes end */
 {
     uint32_t i;
-    for (i = 0; i < 3u; i++)
+    for (i = 0; i < 15u; i++)
         if (t->arp_ch[i]) {
             if (rec)
                 rec_release(t, t->arp_ch[i]);
@@ -281,9 +292,18 @@ static __attribute__((noinline)) void arp_chord(track_t *t, const uint32_t *list
     }
 }
 
+static int arp_ch_any(const track_t *t)
+{
+    uint32_t i;
+    for (i = 0; i < 15u; i++)
+        if (t->arp_ch[i])
+            return 1;
+    return 0;
+}
+
 static void arp_silence(track_t *t)              /* the sounding arp note(s) end */
 {
-    if (t->arp_ch[0] | t->arp_ch[1] | t->arp_ch[2])
+    if (arp_ch_any(t))
         arp_chord_off(t, 0);
     trk_note_off(t, t->arp_note);
     t->arp_note = 0;
@@ -291,7 +311,7 @@ static void arp_silence(track_t *t)              /* the sounding arp note(s) end
 
 static void arp_off(track_t *t)                  /* the sounding arp note(s) end (a recorded one too) */
 {
-    if (t->arp_ch[0] | t->arp_ch[1] | t->arp_ch[2])
+    if (arp_ch_any(t))
         arp_chord_off(t, rec_on(t));
     trk_note_off(t, t->arp_note);
     if (rec_on(t))
@@ -401,11 +421,52 @@ static uint32_t arp_list(const track_t *t, uint32_t *list, uint32_t *cnt)
                 list[j] = list[j - 1];
                 list[j - 1] = x;
             }
+    if (n && t->p[P_AMODE] == AM_DRONE) {          /* DRONE: one fixed transpose, not an OCT walk */
+        int32_t off = 12 * (t->p[P_AOCT] > 1 ? t->p[P_AOCT] - 1 : 0);
+        for (i = 0; i < n && len < 64u; i++)
+            list[len++] = (uint32_t)clamp((int32_t)list[i] + off, 0, 127);
+        return len;
+    }
     for (o = 0; o < (uint32_t)t->p[P_AOCT]; o++)
         for (i = 0; i < n && len < 64u; i++)
             list[len++] = clamp((int32_t)list[i] + 12 * (int32_t)o, 0, 127);
     if (n && t->p[P_AMODE] == AM_REPEAT) { list[0] = last; len = 1; } /* REPEAT: last played note, no octave traversal */
     return len;
+}
+
+/* DRONE: sustain the held notes (up to 16). Refresh only when the set changes (no RATE / GATE). */
+static __attribute__((noinline)) void arp_drone_sync(track_t *t)
+{
+    uint32_t cnt, list[64], len, i, same = 1;
+    if (!(len = arp_list(t, list, &cnt))) {
+        if (t->arp_note)
+            arp_off(t);
+        return;
+    }
+    if (len > 16u)
+        len = 16u;
+    if (!t->arp_note || t->arp_note != list[0])
+        same = 0;
+    for (i = 1; same && i < len; i++)
+        if (t->arp_ch[i - 1u] != list[i])
+            same = 0;
+    for (; same && i < 16u; i++)
+        if (t->arp_ch[i - 1u])
+            same = 0;
+    if (same)
+        return;
+    if (t->arp_note)
+        arp_off(t);
+    for (i = 0; i < len; i++) {
+        uint32_t nt = list[i];
+        if (!t->arp_note)
+            t->arp_note = (uint8_t)nt;
+        else
+            t->arp_ch[i - 1u] = (uint8_t)nt;
+        if (rec_on(t))
+            rec_note(t, nt, 100);
+        trk_note_on(t, nt, 100);
+    }
 }
 
 /* an arp step starts (period: its length): the next note of the list. Not inlined: once a step, kept out of the audio
@@ -439,6 +500,15 @@ static void arp_step(track_t *t, uint32_t n, uint32_t gate_n)
 {
     uint32_t period;
     int32_t sw;
+    if (t->p[P_AMODE] == AM_DRONE) {               /* no RATE / GATE: hold until the latch clears */
+        if (!t->nheld) {
+            if (t->arp_note)
+                arp_off(t);
+            return;
+        }
+        arp_drone_sync(t);
+        return;
+    }
     if (t->arp_note) {
         if (t->arp_off <= gate_n)
             arp_off(t);
@@ -951,7 +1021,16 @@ static void input_off(track_t *t, uint32_t note)
     }
     rec_release(t, note);
     arp_remove(t, note);                            /* both: the note may have started in the */
-    trk_note_off(t, note);                          /* other mode (ARP switched while held) */
+    {                                               /* other mode (ARP switched while held) */
+        uint32_t i, keep = 0;
+        /* HOLD / DRONE: note still latched — arp owns the voice (DRONE has no RATE retrigger) */
+        if (t->p[P_AMODE])
+            for (i = 0; i < t->nheld; i++)
+                if (t->held[i] == note)
+                    keep = 1;
+        if (!keep)
+            trk_note_off(t, note);
+    }
 }
 
 /* the effect of key k in the FX layer (PF_N none): white keys F3 .. F5 the map's (perf_map); with FX LATCH,
@@ -1629,6 +1708,14 @@ static void events_block(uint32_t n)
             arp_forget(t);
         }
         engine_block(t);                              /* engine switch: fade, then switch (voice.c) */
+        /* DRONE: force HOLD on while active; restore the prior value on leave */
+        if (t->p[P_AMODE] == AM_DRONE && t->armp != AM_DRONE) {
+            t->ahold_sv = t->p[P_AHOLD];
+            t->p[P_AHOLD] = 1;
+        } else if (t->armp == AM_DRONE && t->p[P_AMODE] != AM_DRONE) {
+            t->p[P_AHOLD] = t->ahold_sv;
+            t->arp_pos = 0xFFFFFFF;                 /* next mode fires on this block */
+        }
         /* ARP turned off, or HOLD released with no key down: drop the latched chord */
         if ((t->armp && !t->p[P_AMODE]) || (t->aholdp && !t->p[P_AHOLD] && !t->arp_phys)) {
             t->nheld = 0;
