@@ -64,7 +64,7 @@ async function editorMock() {
        track's: a factory preset keeps it, as ui.c apply_preset_to does (param_kept) */
     const sd = [];
     for (let i = 45; i < 49; i++) sd.push(E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))));
-    ok(sd.map((d) => d.label).join() === "SLCR,PAT,RATE,DEPTH" && sd[0].names.join() === "OFF,GATE,STUT",
+    ok(sd.map((d) => d.label).join() === "SLCR,PAT,RATE,MIX" && sd[0].names.join() === "OFF,GATE,STUT",
       "editor: SLICER parameters 45..48 over DESC");
     await rq(E.req.set(0, 45, 2));
     await rq(E.req.set(0, 46, 7));
@@ -269,16 +269,16 @@ async function editorMock() {
     const rd = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 14)));
     const r1 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 5)));
     const r0 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 0)));
-    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 30,
+    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 31,
       "editor: MIDI IN routing (ROUT CH1-4 / SEL / CH5-8 / CH9-12 / CH13-16, global id 14)");
   }
   {
-    /* FX > REVERB TYPE (G_RTYPE 24): ROOM / SPRING / HALL / SHIMR / CLOUD; CHAIN tank adds G_CR* (G_COUNT 30) */
+    /* FX > REVERB TYPE (G_RTYPE 24): ROOM / SPRING / HALL / SHIMR / CLOUD; CHAIN tank + G_SLOWN (G_COUNT 31) */
     const rd = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 24)));
     const r1 = E.parse[E.CMD.SET](await rq(E.req.set(1, 24, 10)));
     const r0 = E.parse[E.CMD.SET](await rq(E.req.set(1, 24, 0)));
     ok(rd.label === "TYPE" && rd.def === 2 && eq(rd.names, ["ROOM", "SPRING", "HALL", "SHIMR", "CLOUD"]) &&
-       r1.value === 4 && r0.value === 0 && info.gcount === 30,
+       r1.value === 4 && r0.value === 0 && info.gcount === 31,
       "editor: REVERB TYPE (ROOM / SPRING / HALL / SHIMR / CLOUD, global id 24)");
   }
   const st = E.parse[E.CMD.STEP_SET](await rq(E.req.stepSet(5, { n: 2, notes: [60, 64], time: 0, flags: 1, vel: 100 })));
