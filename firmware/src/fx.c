@@ -1055,7 +1055,54 @@ typedef struct {
     int16_t comb[IC_LEN];
 } ins_st_t;
 static ins_st_t ins_st[NTRK][INS_N] __attribute__((section(".pool")));
+static ins_st_t ins_bus[INS_N] __attribute__((section(".pool")));   /* shared SEND DSP (one per stage) */
+static ins_st_t ins_bus_blk[INS_N];                                  /* SEND state at mix-block start */
+static uint8_t ins_bus_applied[INS_N];                               /* first SEND track committed this block */
+static uint8_t ins_bus_driver[INS_N];
 static int16_t ins_lines[NTRK][2][IL_LEN] __attribute__((section(".pool")));
+static int16_t ins_bus_lines[2][IL_LEN] __attribute__((section(".pool")));
+/* SEND bus knobs (song globals in RAM; packed into reclaimed project bytes). MIX stays per-track. */
+static int16_t fx_bus_p[P_COUNT];
+static track_t fx_bus_trk;                                           /* param view for SEND DSP reads */
+static void fx_bus_init(void)
+{
+    uint32_t i;
+    for (i = 0; i < P_COUNT; i++)
+        fx_bus_p[i] = TP[i].def;
+    fx_bus_p[P_IDMODE] = IDM_SOFT;
+    fx_bus_p[P_IFTYPE] = IFT_LP;
+    fx_bus_p[P_IFCUT] = 96;
+    fx_bus_p[P_IFRES] = 40;
+    fx_bus_p[P_ICBITS] = 64;
+    fx_bus_p[P_ICRATE] = 96;
+    fx_bus_p[P_ICLPF] = 96;
+    fx_bus_p[P_IPRATE] = fx_bus_p[P_ILRATE] = fx_bus_p[P_IHRATE] = 64;
+    fx_bus_p[P_IPDEP] = fx_bus_p[P_ILDEP] = fx_bus_p[P_IHDEP] = 96;
+    fx_bus_p[P_IPFBK] = 96;
+    fx_bus_p[P_DIST] = 0;
+    fx_bus_p[P_ED_FX] = 0;
+    fx_bus_p[P_SLCR] = 0;
+    fx_bus_p[P_SLPAT] = 1;
+    fx_bus_p[P_SLRATE] = 1;
+    memcpy(fx_bus_trk.p, fx_bus_p, sizeof fx_bus_trk.p);
+}
+static void fx_bus_set(uint32_t st, uint32_t pid, int32_t v)
+{
+    (void)st;
+    if (pid < P_COUNT) {
+        fx_bus_p[pid] = (int16_t)v;
+        fx_bus_trk.p[pid] = (int16_t)v;
+    }
+}
+static int16_t fx_bus_get(uint32_t st, uint32_t pid)
+{
+    (void)st;
+    return pid < P_COUNT ? fx_bus_p[pid] : 0;
+}
+static const track_t *ins_param_src(const track_t *t, uint32_t st)
+{
+    return st < INS_N && ins_is_send(t, st) ? &fx_bus_trk : t;
+}
 
 /* Power-on (audio.c audio_init): clear delay/reverb lines so the first blocks are silent. The pool is
  * zeroed in fm1_cstart; clear again here and match R->rtype to G_RTYPE. boot_fade stays at 0 until
@@ -1073,7 +1120,11 @@ static void fx_boot(void)
     dly_q8 = 0;
     dly_free = 0;
     memset(ins_st, 0, sizeof ins_st);
+    memset(ins_bus, 0, sizeof ins_bus);
     memset(ins_lines, 0, sizeof ins_lines);
+    memset(ins_bus_lines, 0, sizeof ins_bus_lines);
+    memset(ins_bus_applied, 0, sizeof ins_bus_applied);
+    fx_bus_init();
     for (i = 0; i < NTRK; i++)
         trk[i].ins_run = 0;
     dc_l = dc_r = dce_l = dce_r = 0;            /* master_out: a prior spike must not settle audibly at unmute */
@@ -1257,25 +1308,57 @@ static __attribute__((noinline)) void ins_rest(track_t *t)
     t->ins_run = 0;
 }
 
+static void ins_bus_block(void)                      /* mix_block: new block for shared SEND DSP */
+{
+    memset(ins_bus_applied, 0, sizeof ins_bus_applied);
+}
+
 /* tw_force < 0: the stage's own mix. Else that Q15 wet (a send runs fully wet; the amount
- * scales the add in track_insert). */
+ * scales the add in track_insert). SEND: shared DSP + fx_bus knobs; CHAIN: private. */
 static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n, int32_t tw_force)
 {
     uint32_t k = (uint32_t)(t - trk) % NTRK;
-    ins_st_t *s = &ins_st[k][st];
+    int send = st < INS_N && ins_is_send(t, st);
+    ins_st_t *s, tmp, *run;
+    const track_t *src = ins_param_src(t, st);
     int32_t tw = tw_force >= 0 ? tw_force : ins_mixq(ins_mix_of(t, st));
-    if (!s->w && !tw)
-        return;                                         /* MIX 0 and faded: skip DSP */
-    if (!s->w && tw) {
-        memset(s, 0, sizeof *s);
-        if (st == INS_FLANG) s->line_i = 0;
-        if (st == INS_CHOR) s->line_i = 1;
+    int16_t *lines;
+    if (send) {
+        s = &ins_bus[st];
+        lines = &ins_bus_lines[0][0];
+        (void)lines;
+        if (!ins_bus_applied[st])
+            ins_bus_blk[st] = *s;
+        if (!ins_bus_applied[st] || k == ins_bus_driver[st]) {
+            run = s;
+            if (ins_bus_applied[st])
+                ;                                       /* keep advancing the bus */
+            else
+                *s = ins_bus_blk[st];
+        } else {
+            tmp = ins_bus_blk[st];
+            run = &tmp;
+        }
+    } else {
+        s = &ins_st[k][st];
+        run = s;
     }
-    if (st == INS_DIST) ins_run_dist(s, t, b, n, tw);
-    else if (st == INS_FILTER) ins_run_filter(s, t, b, n, tw);
-    else if (st == INS_CRUSH) ins_run_crush(s, t, b, n, tw);
-    else ins_run_swept(s, t, b, n, tw, st);
-    if (s->w)
+    if (!run->w && !tw)
+        return;                                         /* MIX 0 and faded: skip DSP */
+    if (!run->w && tw) {
+        memset(run, 0, sizeof *run);
+        if (st == INS_FLANG) run->line_i = 0;
+        if (st == INS_CHOR) run->line_i = 1;
+    }
+    if (st == INS_DIST) ins_run_dist(run, src, b, n, tw);
+    else if (st == INS_FILTER) ins_run_filter(run, src, b, n, tw);
+    else if (st == INS_CRUSH) ins_run_crush(run, src, b, n, tw);
+    else ins_run_swept(run, src, b, n, tw, st);
+    if (send && run == s) {
+        ins_bus_applied[st] = 1;
+        ins_bus_driver[st] = (uint8_t)k;
+    }
+    if (run->w)
         t->ins_run = 1;
 }
 
@@ -1632,6 +1715,7 @@ static void mix_block(int32_t *out, uint32_t n)
     for (i = 0; i < n; i++)
         send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
     slicer_block();                                     /* shared SEND bus: one clock advance this block */
+    ins_bus_block();                                    /* shared insert SEND DSP */
     pfx_block(n, (perf_kill ? 0u : (perf_held | perf_latched) & PF_MIDI) | scene_pfx);
     events_block(n);
     clip_eff = song.g[G_CLIP];                          /* (JIANT) CLIP / PNCH for this block */
