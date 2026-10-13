@@ -79,8 +79,8 @@ static const char *const N_ISTAGE[] = {"DISTORT", "FILTER", "CRUSH", "PHASER", "
 static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR", "S&H", "SLEW"};
 /* destinations (append-only): DEPTH = LFO depth (#132); SLPAT / SLRATE / SLDEP = the SLICER (#222);
  * CHRD / VOIC = chord keys; then insert continuous knobs + MIX (no MODE/TYPE enums): TONE/DMIX,
- * FILTER, CRUSH, PHASR, FLANG, CHOR RATE/DEP (CHOR MIX is already CHO; DLY/REV amounts stay DLY/REV;
- * DRIVE stays DIST) */
+ * CRUSH, FILTER, PHASR, FLANG, CHOR RATE/DEP (CHOR MIX is already CHO; DLY/REV amounts stay DLY/REV;
+ * DRIVE stays DIST). Pick-list order is ORD[] in ui_events.c (CRUSH before FILTER). */
 static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY", "REV", "RATE",
                                      "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH",
                                      "PAT", "SRATE", "SDEP", "CHRD", "VOIC",
@@ -169,7 +169,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_LPOL] = PE("POL", N_LPOL, 0),
     [P_SQNT] = PE("QNTZ", N_ONOFF, 1),            /* ON: every step on its start, as before 1.2 */
     [P_SPRD] = PD("SPRD", F_PCT, 0, 127, 0),      /* #148: 0 = every voice on PAN, as before (fx.c mix_spread) */
-    [P_IORD] = PD("ORDER", F_INT, 0, 719, 0),      /* factorial index of the 6-stage permutation (fx.c) */
+    [P_IORD] = PD("ORDER", F_INT, 0, 719, IORD_DEF), /* Lehmer 0..719; default DIST→CRUSH→FILTER→… (fx.c) */
     [P_IDMODE] = PE("MODE", N_IDMODE, 0),
     [P_IDMIX] = PD("MIX", F_PCT, 0, 127, 0),
     [P_IFTYPE] = PE("TYPE", N_IFTYPE, 0),
@@ -481,15 +481,15 @@ static const page_t PAGES[] = {
     {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, LFO_SEC_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},   /* 1.2: SYNC TRIG POL */
     {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, LFO_SEC_LFO, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
     {"MOD", FAM_LFO, SC_TRACK, GR_MOD, LFO_SEC_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* its own section: LFO button cycles here */
-    /* FX: Effects → Slicer → Punch-in. Page order: REVERB, DELAY, DISTORT, then the other inserts.
+    /* FX: Effects → Slicer → Punch-in. Page order: REVERB, DELAY, DISTORT, CRUSH, FILTER, then the rest.
      * Each stage's mix lives on EFFECTS (K4). K3 is USE AS: CHAIN or SEND. DELAY knob 4 is
      * RATE / TIME (ui_input.c dly_knob). */
     {"EFFECTS", FAM_FX, SC_TRACK, GR_IORD, FX_SEC_INS, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},
     {"DELAY", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_DTIME, G_DFDBK, G_DCOLOR, 0xFF}},
     {"DISTORT", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IDMODE, P_DIST, P_ED_FX, 0xFF}},
-    {"FILTER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IFTYPE, P_IFCUT, P_IFRES, 0xFF}},
     {"CRUSH", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_ICBITS, P_ICRATE, P_ICLPF, 0xFF}},
+    {"FILTER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IFTYPE, P_IFCUT, P_IFRES, 0xFF}},
     {"PHASER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IPRATE, P_IPDEP, P_IPFBK, 0xFF}},
     {"FLANGER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_ILRATE, P_ILDEP, 0xFF, 0xFF}},
     {"CHORUS", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IHRATE, P_IHDEP, 0xFF, 0xFF}},

@@ -34,7 +34,7 @@
  *     follows the note's envelope. A DEPTH slot whose source is the LFO takes it unscaled
  *   SLPAT / SLRATE / SLDEP (#222, per track): the SLICER's pattern, step rate and depth (P_SLPAT P_SLRATE P_SLDEPTH),
  *     as the other per-block destinations (AMT 64 = the whole range)
- *   insert continuous (per track): TONE + DMIX (DIST), FILTER CUT/RES/MIX, CRUSH BITS/RATE/LPF/MIX,
+ *   insert continuous (per track): TONE + DMIX (DIST), CRUSH BITS/RATE/LPF/MIX, FILTER CUT/RES/MIX,
  *     PHASR RATE/DEP/FBK/MIX, FLANG RATE/DEP/MIX, CHOR RATE/DEP (CHOR MIX is CHO); no MODE/TYPE enums.
  *     DIST drive and DLY/REV amounts stay DIST/DLY/REV
  * A per-voice source on a per-block destination takes the latest note-on's value (VEL, KEY, RAND), ENV the

@@ -98,6 +98,9 @@ enum { PLAY_ON = 0, PLAY_OFF = 1, PLAY_SOLO = 2 };
 enum { P_ITYPE_LEG = 96, P_IA_LEG = 97, P_IB_LEG = 98, P_IC_LEG = 99, P_IMIX_LEG = 100 };
 enum { INS_N = 6, INS_DIST = 0, INS_FILTER = 1, INS_CRUSH = 2, INS_PHASR = 3, INS_FLANG = 4, INS_CHOR = 5,
        INS_DLY = 6, INS_REV = 7, FX_LIST_N = 8 };   /* DLY/REV: shared engines; list slots with the inserts */
+/* Default P_IORD permutation (Lehmer): DIST, CRUSH, FILTER, PHASR, FLANG, CHOR. Stage ids stay
+ * FILTER=1 / CRUSH=2 so send flags and saved orders keep their meaning; only the factory order moved. */
+#define IORD_DEF 24u
 enum { IDM_SOFT, IDM_HARD, IDM_FOLD, IDM_FUZZ, IDM_N };
 enum { IFT_LP, IFT_HP, IFT_BP, IFT_COMB, IFT_N };
 
@@ -163,7 +166,7 @@ static void ins_migrate(int16_t *p, uint32_t np)
     }
     for (i = P_IORD; i < P_FTYPE; i++)
         p[i] = 0;
-    p[P_IORD] = 0;
+    p[P_IORD] = (int16_t)IORD_DEF;
     p[P_CHOR] = 64 + 6 + (7 << 3);             /* EFFECTS: DLY at 6, REV at 7 (fx.c FX_POS_MARK) */
     p[P_IDMODE] = IDM_SOFT;
     p[P_IFTYPE] = IFT_LP;

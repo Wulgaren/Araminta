@@ -8507,18 +8507,19 @@ static int test_fx_sections(void)
     {
         uint8_t before[FX_LIST_N], after[FX_LIST_N];
         fx_list_get(TSEL, before);
-        turn(EN_K2, 1);                                 /* ORDER moves the chosen stage (DIST↔FILTER) */
+        ok = before[0] == INS_DIST && before[1] == INS_CRUSH && before[2] == INS_FILTER;
+        turn(EN_K2, 1);                                 /* ORDER moves the chosen stage (DIST↔CRUSH) */
         fx_list_get(TSEL, after);
-        ok = ui.ior_sel == 1u && before[0] == after[1] && before[1] == after[0] &&
-             after[0] == INS_FILTER && after[1] == INS_DIST;
-        /* mid-list move: FILTER past CRUSH (Lehmer bug only survived DIST↔FILTER) */
+        ok &= ui.ior_sel == 1u && before[0] == after[1] && before[1] == after[0] &&
+              after[0] == INS_CRUSH && after[1] == INS_DIST;
+        /* mid-list move: CRUSH past FILTER (Lehmer must survive non-adjacent ids) */
         ui_power_on();
         go_title("EFFECTS");
-        ui.ior_sel = 1;                                 /* FILTER in the default list */
+        ui.ior_sel = 1;                                 /* CRUSH in the default list */
         fx_list_get(TSEL, before);
         turn(EN_K2, 1);
         fx_list_get(TSEL, after);
-        ok &= ui.ior_sel == 2u && before[1] == INS_FILTER && after[2] == INS_FILTER &&
+        ok &= ui.ior_sel == 2u && before[1] == INS_CRUSH && after[2] == INS_CRUSH &&
               after[1] == before[2] && after[0] == before[0];
         turn(EN_K1, 1);
         ok &= ui.ior_sel == 3u;
@@ -8549,7 +8550,7 @@ static int test_fx_sections(void)
             ok &= TSEL->preset != pr && ui.ior_sel == 3u && str_eq(cur_page()->title, "EFFECTS");
         }
     }
-    bad += check("EFFECTS: K1 chooses, K2 moves (incl. FILTER), K3 send or chain, K4 mix; PRESETS loads a sound", ok);
+    bad += check("EFFECTS: K1 chooses, K2 moves (incl. CRUSH), K3 send or chain, K4 mix; PRESETS loads a sound", ok);
 
     ui_power_on();
     go_title("EFFECTS");

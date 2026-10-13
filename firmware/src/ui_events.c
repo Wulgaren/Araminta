@@ -572,7 +572,7 @@ static void pk_auto_name(const track_t *t, uint32_t id, char *b)
     else
         str_cpy(b, track_desc(t, id)->label, 16);
 }
-/* FX stage params for the pick list: EFFECTS order (DISTORT..REVERB). Not P_IORD. */
+/* FX stage params for the pick list: EFFECTS order (DISTORT→CRUSH→FILTER→…→REVERB). Not P_IORD. */
 static int pk_auto_fx(uint32_t id)
 {
     return id == P_ED_FX || id == P_DIST || id == P_DLY || id == P_REV ||
@@ -592,10 +592,10 @@ static const char *pk_auto_group(uint32_t id)
         return "VOICE";
     if (id == P_DIST || id == P_ED_FX || id == P_IDMODE || id == P_IDMIX)
         return "DISTORT";
-    if (id >= P_IFTYPE && id <= P_IFMIX)
-        return "FILTER";
     if (id >= P_ICBITS && id <= P_ICMIX)
         return "CRUSH";
+    if (id >= P_IFTYPE && id <= P_IFMIX)
+        return "FILTER";
     if (id >= P_IPRATE && id <= P_IPMIX)
         return "PHASER";
     if (id >= P_ILRATE && id <= P_ILMIX)
@@ -626,8 +626,8 @@ static uint32_t pk_build_auto(const track_t *t, uint32_t id, uint32_t step, uint
     static const uint32_t STEP[] = {EV_CHANCE, EV_RATCH, EV_NUDGE, EV_VEL};
     static const uint8_t FX[] = {
         P_DIST, P_ED_FX, P_IDMODE, P_IDMIX,
-        P_IFTYPE, P_IFCUT, P_IFRES, P_IFMIX,
         P_ICBITS, P_ICRATE, P_ICLPF, P_ICMIX,
+        P_IFTYPE, P_IFCUT, P_IFRES, P_IFMIX,
         P_IPRATE, P_IPDEP, P_IPFBK, P_IPMIX,
         P_ILRATE, P_ILDEP, P_ILMIX,
         P_IHRATE, P_IHDEP, P_IHMIX,
@@ -707,17 +707,18 @@ static const char *pk_mdst_group(uint32_t d)
         return "CHORD";
     if (MD_ENGINE(d))
         return "EDIT";
-    if (d <= MD_FMIX)
-        return "FILTER";
-    if (d <= MD_CMIX)
+    if (d >= MD_BITS && d <= MD_CMIX)
         return "CRUSH";
+    if (d >= MD_FCUT && d <= MD_FMIX)
+        return "FILTER";
     if (d <= MD_PMIX)
         return "PHASER";
     if (d <= MD_LMIX)
         return "FLANGER";
     return "OTHER";
 }
-/* MOD DST rows in family order; FX stages match EFFECTS (DISTORT..REVERB). MD_* values stay append-only. */
+/* MOD DST rows in family order; FX stages match EFFECTS (DISTORT→CRUSH→FILTER→…→REVERB).
+ * MD_* values stay append-only. */
 static uint32_t pk_build_mdst(const track_t *t, uint32_t d, uint32_t *sel)
 {
     static const uint8_t ORD[] = {
@@ -726,8 +727,8 @@ static uint32_t pk_build_mdst(const track_t *t, uint32_t d, uint32_t *sel)
         MD_E1, MD_E1 + 1, MD_E1 + 2, MD_E1 + 3, MD_E1 + 4, MD_E1 + 5, MD_E1 + 6, MD_E1 + 7,
         MD_SLPAT, MD_SLRATE, MD_SLDEPTH, MD_CHRD, MD_VOIC,
         MD_DIST, MD_TONE, MD_DMIX,
-        MD_FCUT, MD_FRES, MD_FMIX,
         MD_BITS, MD_CRAT, MD_CLPF, MD_CMIX,
+        MD_FCUT, MD_FRES, MD_FMIX,
         MD_PRAT, MD_PDEP, MD_PFBK, MD_PMIX,
         MD_FRAT, MD_FDEP, MD_LMIX,
         MD_CHO, MD_HRAT, MD_HDEP,

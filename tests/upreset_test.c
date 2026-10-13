@@ -289,7 +289,8 @@ int main(void)
         ok &= v[i] == (i == P_CHOR ? (int16_t)(64 + 6 + (7 << 3)) : (int16_t)(2000 + i)); /* CHO send -> FXPOS */
     for (i = P_SLCR; i < P_IORD; i++)
         ok &= v[i] == def[i];
-    ok &= !v[P_IORD] && v[P_IDMODE] == IDM_SOFT && v[P_IFTYPE] == IFT_LP && !v[P_FTYPE] && !v[P_ESYNC];
+    ok &= v[P_IORD] == (int16_t)IORD_DEF && v[P_IDMODE] == IDM_SOFT && v[P_IFTYPE] == IFT_LP &&
+          !v[P_FTYPE] && !v[P_ESYNC];
     for (i = 0; i < 8u; i++)
         ok &= v[P_E0 + i] == (int16_t)(2000 + 45 + i);
     bad += check("old record (np 53): SLICER and matrix defaults, insert chain migrated, E0..E7 kept", ok);
@@ -330,7 +331,8 @@ int main(void)
                     ok &= v[i] == (i == P_CHOR ? (int16_t)(64 + 6 + (7 << 3)) : (int16_t)(i % 100u - 30));
                 for (i = np - 8u; i < P_IORD; i++)
                     ok &= v[i] == def[i];
-                ok &= !v[P_IORD] && v[P_IDMODE] == IDM_SOFT && v[P_IFTYPE] == IFT_LP && !v[P_FTYPE] && !v[P_ESYNC];
+                ok &= v[P_IORD] == (int16_t)IORD_DEF && v[P_IDMODE] == IDM_SOFT &&
+                      v[P_IFTYPE] == IFT_LP && !v[P_FTYPE] && !v[P_ESYNC];
                 for (i = 0; i < 8u; i++)
                     ok &= v[P_E0 + i] == (int16_t)((np - 8u + i) % 100u - 30);
             }
