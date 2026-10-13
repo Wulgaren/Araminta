@@ -831,19 +831,46 @@ static void home_tap(void)
     }
 }
 
+/* Visible pages of fam+sec in SELECT order. EFFECTS: list page, then stages in fx_list order. */
+static uint32_t sec_page_list(uint32_t fam, uint32_t sec, uint32_t idx[NPAGES])
+{
+    uint32_t n = 0, i;
+    if (fam == FAM_FX && sec == FX_SEC_INS) {
+        uint8_t ord[FX_LIST_N];
+        for (i = 0; i < NPAGES; i++)
+            if (PAGES[i].fam == fam && PAGES[i].sec == sec && PAGES[i].graph == GR_IORD &&
+                page_visible(i))
+                idx[n++] = i;
+        fx_list_get(TSEL, ord);
+        for (i = 0; i < FX_LIST_N; i++) {
+            uint32_t st = ord[i], j;
+            for (j = 0; j < NPAGES; j++)
+                if (PAGES[j].fam == fam && PAGES[j].sec == sec && page_visible(j) &&
+                    str_eq(PAGES[j].title, N_ISTAGE[st])) {
+                    idx[n++] = j;
+                    break;
+                }
+        }
+        return n;
+    }
+    for (i = 0; i < NPAGES; i++)
+        if (PAGES[i].fam == fam && PAGES[i].sec == sec && page_visible(i))
+            idx[n++] = i;
+    return n;
+}
+
 /* SELECT: pages that share fam+sec; stops at the first / last (no wrap). Tempo: OCT++SELECT */
 static void select_page_step(int32_t dir)
 {
-    uint32_t fam, sec, i, idx[NPAGES], n = 0, cur = 0;
+    uint32_t fam, sec, i, idx[NPAGES], n, cur = 0;
     if (dir == 0 || ui.home)
         return;                                        /* Home is its own section; no pages to walk */
     fam = cur_page()->fam;
     sec = cur_page()->sec;
-    for (i = 0; i < NPAGES; i++)
-        if (PAGES[i].fam == fam && PAGES[i].sec == sec && page_visible(i)) {
-            if (i == ui.page) cur = n;
-            idx[n++] = i;
-        }
+    n = sec_page_list(fam, sec, idx);
+    for (i = 0; i < n; i++)
+        if (idx[i] == ui.page)
+            cur = i;
     if (n == 0)
         return;
     if (dir > 0) {
