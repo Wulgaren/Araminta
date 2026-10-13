@@ -3859,7 +3859,7 @@ static int test_chord_page(void)
     return bad;
 }
 
-/* CHORD KNOB 3 LOCK: OFF / SCALE. SCALE (default) copies ROOT / SCL / QNT to every other SCALE track; OFF restores
+/* CHORD KNOB 3 LOCK: OFF / SCALE. SCALE (default) copies ROOT / SCL / MAP to every other SCALE track; OFF restores
  * that track's stash. */
 static int test_scale_lock(void)
 {
@@ -3888,7 +3888,7 @@ static int test_scale_lock(void)
          trk[1].scl_stash_ok && trk[1].scl_stash[0] == 5 && trk[1].scl_stash[1] == 2 &&
          trk[1].scl_stash[2] == 1 &&
          trk[2].p[P_ROOT] == 7 && trk[2].scl_lock == SCL_LOCK_OFF;
-    bad += check("LOCK->SCALE: other SCALE tracks stash then take selected ROOT/SCL/QNT; OFF tracks stay", ok);
+    bad += check("LOCK->SCALE: other SCALE tracks stash then take selected ROOT/SCL/MAP; OFF tracks stay", ok);
 
     song.sel = 1;
     turn(EN_K3, -1);                                   /* SCALE -> OFF on track 2: restore stash */
@@ -4331,13 +4331,13 @@ static int test_bughunt_ui2(void)
             for (j = 0; j < 2u; j++) {
                 track_t *t;
                 step_t e, r;
-                ui_power_on(); t = TSEL; t->p[P_VOICE] = v ? V_MONO : V_POLY; t->p[P_CHRD] = CH_DIA3; t->p[P_SCALE] = 1;
+                ui_power_on(); t = TSEL; t->p[P_VOICE] = v ? V_MONO : V_POLY; t->p[P_CHRD] = CH_DIA3; t->p[P_SCALE] = 0;
 project_not_empty();                 track_defaults_steps(t); go_page(GR_ROLL); cursor_set(0); frame(); song.rec = 1;   /* (#133: armed) */
                 key_down(KEY[j]); frame();
                 e = t->step[0];
                 key_up(KEY[j]); frame(); song.rec = 0;
                 ok &= e.n == (v ? 1u : 3u) && e.note[0] == 60u && (v || (e.note[1] == 64u && e.note[2] == 67u));
-                ui_power_on(); t = TSEL; t->p[P_VOICE] = v ? V_MONO : V_POLY; t->p[P_CHRD] = CH_DIA3; t->p[P_SCALE] = 1;
+                ui_power_on(); t = TSEL; t->p[P_VOICE] = v ? V_MONO : V_POLY; t->p[P_CHRD] = CH_DIA3; t->p[P_SCALE] = 0;
                 track_defaults_steps(t); go_home(); frame();
                 song.rec = 1; song.playing = 1; t->seq_idx = 3; t->seq_pos = 0;
                 fm1_in.notes = 1u << KEY[j]; keyboard_block();
@@ -4706,12 +4706,12 @@ static int test_play_leds(void)
     ok &= play_leds() == (1u << 5 | 1u << 9);
     t->p[P_TRANS] = 0;
     bad += check("the keys follow the octave and TRN; notes off the keyboard are not shown", ok);
-    t->p[P_QUANT] = 1;                                 /* SNAP in C major: C#4 rounds down to C4 too */
-    t->p[P_SCALE] = 1;
+    t->p[P_QUANT] = 1;                                 /* ALL(=KBD keys) in C major: C#4 -> C4 */
+    t->p[P_SCALE] = 0;
     t->p[P_ROOT] = 0;
     ok = kb_map(t, 8) == 60u && play_leds() == (1u << 7 | 1u << 11);
-    t->p[P_QUANT] = t->p[P_SCALE] = 0;
-    bad += check("QNT SNAP: only the key of the note itself lights, not the keys rounding onto it", ok);
+    t->p[P_QUANT] = 0;
+    bad += check("MAP ALL(=KBD): only the key of the note itself lights, not the keys rounding onto it", ok);
     t->arp_note = 65;
     bad += check("the ARP's note lights its key too", play_leds() == (1u << 7 | 1u << 11 | 1u << 12));
     t->arp_note = 0;
@@ -4861,14 +4861,14 @@ static int test_midi_leds(void)
     usb_note(0, 100, 0);
     usb_note(0, 40, 0);
     bad += check("  the keys follow the octave; notes off the keyboard are not shown", ok);
-    trk[0].p[P_QUANT] = 1;                             /* SNAP in C major: C#4 rounds down to C4 too */
-    trk[0].p[P_SCALE] = 1;
+    trk[0].p[P_QUANT] = 1;                             /* ALL(=KBD keys) in C major: C#4 -> C4 */
+    trk[0].p[P_SCALE] = 0;
     trk[0].p[P_ROOT] = 0;
     usb_note(0, 60, 100);
     ok = kb_map(&trk[0], 8) == 60u && key_leds(0) == 1u << 7;
     usb_note(0, 60, 0);
-    trk[0].p[P_QUANT] = trk[0].p[P_SCALE] = 0;
-    bad += check("  QNT SNAP: only the lowest key giving the note lights", ok && key_leds(0) == 0u);
+    trk[0].p[P_QUANT] = 0;
+    bad += check("  MAP ALL(=KBD): only the lowest key giving the note lights", ok && key_leds(0) == 0u);
     midi_event(0xB0, 0, 64, 127);                      /* the pedal down: a released note still sounds */
     usb_note(0, 65, 100);
     usb_note(0, 65, 0);
@@ -5186,7 +5186,7 @@ static int test_step_leds(void)
 
 /* Discussion #127 (1.2): MENU > SCALE LEDS ON, outside the keys' own maps the keys of the selected track's scale glow
  * (the others dark), the root's at the mid level; the keys held / playing lit over it; LEDS OFF / DIM LO / DIM HI
- * alike, INV turned round (root lit, scale mid, the others glowing, the active dark); TRN; QNT WHITE: the white
+ * alike, INV turned round (root lit, scale mid, the others glowing, the active dark); TRN; MAP KBD: the white
  * keys; a DRUM track, a layer, the default OFF: as before */
 /* MENU > DISPLAY > SCREEN OFF (1.1.5, ui.c scr_*): the screen and its backlight off after NEVER / 5 / 15 / 30 (default)
  * / 60 minutes without panel input; the press, key or turn that wakes it does nothing else; the dialogs, the count-in
@@ -5600,7 +5600,7 @@ static int test_scale_leds(void)
         white |= (uint32_t)!key_black(k) << k;
     song.sel = 0;
     t = TSEL;
-    t->p[P_SCALE] = 1;                                  /* C major */
+    t->p[P_SCALE] = 0;                                  /* C major */
     t->p[P_ROOT] = 0;
     settings_leds = LEDS_DIM;
     ui_leds();
@@ -5647,21 +5647,21 @@ static int test_scale_leds(void)
     ok &= (sc & 1u) && !(sc >> 1 & 1u) && root == (1u << 5 | 1u << 17);
     t->p[P_TRANS] = 0;
     bad += check("#127 the keys as they play: ROOT D, TRN +2", ok);
-    t->p[P_QUANT] = QN_SNAP;                            /* SNAP: the keys' own notes (the others round down) */
+    t->p[P_QUANT] = QN_ALL;                             /* ALL: same white-key layout LEDs as KBD */
     sc = scale_leds(&root);
     ok = sc == white && root == C_KEYS;
-    t->p[P_QUANT] = QN_WHITE;                           /* WHITE, PEN: every white key; a root every 5 white keys */
-    t->p[P_SCALE] = 5;
+    t->p[P_QUANT] = QN_KBD;                             /* KBD, PEN: every white key; a root every 5 white keys */
+    t->p[P_SCALE] = 4;
     sc = scale_leds(&root);
     ok &= sc == white && root == (1u << 7 | 1u << 16 | 1u << 24);
     ui_leds();
     ok &= lit_keys(fm1_led_dim) == white && lit_keys(fm1_led_mid) == root;
-    t->p[P_QUANT] = QN_OFF;
-    t->p[P_SCALE] = 0;                                  /* CHR: every key, the C keys brighter */
+    t->p[P_QUANT] = QN_SEQ;                             /* SEQ keys as OFF: glow by chromatic pitch in MAJ */
+    t->p[P_SCALE] = 0;
     sc = scale_leds(&root);
-    ok &= sc == ALL && root == C_KEYS;
-    bad += check("#127 QNT SNAP: the keys of the scale; QNT WHITE: all the white keys, its roots; CHR: every key", ok);
-    t->p[P_SCALE] = 1;
+    ok &= sc == white && root == C_KEYS;
+    bad += check("#127 MAP ALL/KBD: white-key layout; SEQ as OFF chromatic scale glow", ok);
+    t->p[P_SCALE] = 0;
     ui.layer = LAYER_SCL;                               /* a layer: its own map, no scale glow under it */
     ui_leds();
     ok = !lit_keys(fm1_led_mid) && !lit_keys(fm1_led_dim);
@@ -5687,7 +5687,7 @@ static int test_scale_leds(void)
     return bad;
 }
 
-/* #37: QNT SEQ on the SCL page: the keys as SNAP, the sequence snapped as it plays, saved with the project */
+/* #37: MAP SEQ on the SCL page: keys chromatic; ALL is KBD keys + seq snap; SEQ saved with the project */
 static int test_seq_quant(void)
 {
     int bad = 0, ok;
@@ -5701,11 +5701,11 @@ static int test_seq_quant(void)
     ok = cur_page()->id[2] == P_QUANT && t->p[P_QUANT] == 0;
     turn(EN_K3, 10);
     param_format(&TP[P_QUANT], t->p[P_QUANT], val, &unit);
-    bad += check("SCL KNOB 3 QNT: OFF SNAP WHITE SEQ, SEQ last (default OFF)", ok && t->p[P_QUANT] == 3 &&
+    bad += check("SCL KNOB 3 MAP: OFF ALL KBD SEQ, SEQ last (default OFF)", ok && t->p[P_QUANT] == 3 &&
                  str_eq(val, "SEQ"));
-    t->p[P_SCALE] = 1;
+    t->p[P_SCALE] = 0;
     t->p[P_ROOT] = 0;
-    ok = kb_map(t, 8) == 60u && kb_map(t, 7) == 60u;   /* C#4 key -> C4, as SNAP */
+    ok = kb_map(t, 8) == 61u && kb_map(t, 7) == 60u;   /* SEQ keys as OFF: C#4 stays C#4 */
     t->step[0] = (step_t){.note = {61, 66}, .n = 2, .time = ST_NOTE};
     t->seq_active = 1;
     seq_start();
@@ -5714,11 +5714,11 @@ static int test_seq_quant(void)
           t->step[0].note[1] == 66u;
     transport_req = 2;
     events_block(CTL);
-    bad += check("QNT SEQ: the keys snap as SNAP; C#4 F#4 of a step play C4 F4 in C major, the step keeps C#4 F#4", ok);
+    bad += check("MAP SEQ: keys chromatic; C#4 F#4 of a step play C4 F4 in C major, the step keeps C#4 F#4", ok);
     project_save(1);
     t->p[P_QUANT] = 0;
     project_load(1);
-    bad += check("QNT SEQ saved and loaded with the project", trk[0].p[P_QUANT] == 3);
+    bad += check("MAP SEQ saved and loaded with the project", trk[0].p[P_QUANT] == 3);
     return bad;
 }
 

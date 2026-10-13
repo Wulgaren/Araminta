@@ -846,7 +846,7 @@ static void roll_scene(int s)
         ui.cursor = 4;
         break;
     case S_ROLL_TIES:
-        t->p[P_ROOT] = 0; t->p[P_SCALE] = 1;
+        t->p[P_ROOT] = 0; t->p[P_SCALE] = 0;
         for (i = 0; i < 16u; i++) {
             uint8_t n = LINE[i];
             uint32_t f = (i == 3u || i == 9u ? SF_SLIDE : 0u) | (i == 0u || i == 8u || i == 13u ? SF_ACCENT : 0u);
@@ -866,7 +866,7 @@ static void roll_scene(int s)
         ui.cursor = 20; song.playing = 1; t->seq_idx = 22;
         break;
     case S_ROLL_LEN:                                 /* 1.5 (#178): step 5's note made 4 steps long (KNOB 3 LEN, hot) */
-        t->p[P_ROOT] = 0; t->p[P_SCALE] = 1;
+        t->p[P_ROOT] = 0; t->p[P_SCALE] = 0;
         for (i = 0; i < 16u; i += 4u) {
             uint8_t n = LINE[i] ? LINE[i] : 60;
             step_put(&t->step[i], ST_NOTE, i == 8u ? SF_ACCENT : 0u, 1, &n);

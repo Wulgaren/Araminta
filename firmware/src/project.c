@@ -101,13 +101,19 @@
  * FM6 patches), as JIANT's FUNA did. Still 3840 bytes: the motion disk block shrinks from 110 to 78 records
  * (MOTION_FILE_MAX_V11; RAM still holds 128) so the kit fits. FUN10 loads with the factory kit (DX_KIT_DEF).
  *
- * Format 12 ("FUNC", written now; FUN12 in the docs) = FUN11 with SCALE LOCK + ROOT/SCL/QNT stash (16 bytes at
- * PROJ_SCL_OFF before CRV). Motion on disk shrinks to 72 records (MOTION_FILE_MAX). FUN11 loads with LOCK=SCALE
- * and no stash. Firmware that only knows FUN11 refuses a FUN12 (magic): its slot shows EMPTY until saved over.
+ * Format 12 ("FUNC", FUN12 in the docs; read only since FUN13) = FUN11 with SCALE LOCK + ROOT/SCL/MAP stash
+ * (16 bytes at PROJ_SCL_OFF before CRV). Motion on disk shrinks to 72 records (MOTION_FILE_MAX). FUN11 loads with
+ * LOCK=SCALE and no stash. Firmware that only knows FUN11 refuses a FUN12 (magic): its slot shows EMPTY until
+ * saved over.
+ *
+ * Format 13 ("FUND", written now; FUN13 in the docs) = FUN12 layout with CHR removed from SCL (15 scales: MAJ..DIMWH).
+ * FUN12 and older: SCL index 0 was CHR -> MAJ; 1..15 -> 0..14 (stash too). Firmware that only knows FUN12 refuses
+ * a FUN13 (magic): its slot shows EMPTY until saved over.
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
-#define PROJ_MAGIC 0x46554E43u                 /* "FUNC" (FUN12): FUN11 + SCALE LOCK/stash; 72 motion records on disk */
+#define PROJ_MAGIC 0x46554E44u                 /* "FUND" (FUN13): FUN12 + no CHR scale; 72 motion records on disk */
+#define PROJ_MAGIC_V12 0x46554E43u             /* "FUNC" (FUN12): read only; SCALE LOCK/stash, CHR at SCL 0 */
 #define PROJ_MAGIC_V11 0x46554E42u             /* "FUNB" (FUN11): read only; kit, 78 motion records */
 #define PROJ_MAGIC_V10 0x46554E41u             /* "FUNA" (FUN10): read only; no kit, 110 motion records on disk */
 #define PROJ_MAGIC_V9 0x46554E39u              /* "FUN9": FUN8, 64 bytes longer (the DRUM lane levels, 99 parameters) */
@@ -577,6 +583,14 @@ static int proj_engines_ok(const project_t *q)
             return 0;
     return 1;
 }
+/* FUN12 and older: SCL 0 was CHR (removed); 1..15 -> 0..14. FUN13 wire already uses the new indices. */
+static int16_t scl_from_v12(int16_t sc)
+{
+    if (sc <= 0) return 0;                              /* CHR -> MAJ */
+    if (sc > 15) return 0;
+    return (int16_t)(sc - 1);
+}
+
 /* n bytes of a stored project (any format) -> q as today's, DIGITAL and SAMPLE PERC tracks converted; 0 = not a
  * project */
 static int proj_import(project_t *q, const void *b, int n)
@@ -590,8 +604,11 @@ static int proj_import(project_t *q, const void *b, int n)
 }
 static int proj_import_any(project_t *q, const void *b, int n)
 {
-    if (n == PROJ_STORE_SIZE && (((const uint32_t *)b)[0] == PROJ_MAGIC || ((const uint32_t *)b)[0] == PROJ_MAGIC_V10))
-        return proj_unpack(q, b, PROJ_STORE_SIZE);
+    if (n == PROJ_STORE_SIZE) {
+        uint32_t m = ((const uint32_t *)b)[0];
+        if (m == PROJ_MAGIC || m == PROJ_MAGIC_V12 || m == PROJ_MAGIC_V11 || m == PROJ_MAGIC_V10)
+            return proj_unpack(q, b, PROJ_STORE_SIZE);
+    }
     if (n == PROJ_STORE_SIZE && ((const uint32_t *)b)[1] >= 8u && ((const uint32_t *)b)[1] < PROJ_STORE_SIZE)
         n = (int)((const uint32_t *)b)[1];      /* a retained slot holding an older, shorter record: its own size
                                                  * (every format checks its magic and hash) */
@@ -610,6 +627,14 @@ static int proj_import_any(project_t *q, const void *b, int n)
     if (!proj_import_old(q, b, n))
         return 0;
     proj_fm6_init(q);
+    {   /* FUN6..FUN1 still carried CHR at SCL 0 */
+        uint32_t t;
+        for (t = 0; t < NTRK; t++) {
+            q->t[t].p[P_SCALE] = scl_from_v12(q->t[t].p[P_SCALE]);
+            q->t[t].scl_stash[1] = scl_from_v12(q->t[t].scl_stash[1]);
+        }
+        q->sum = proj_sum(q);
+    }
     return 1;
 }
 static int proj_import_old(project_t *q, const void *b, int n)
@@ -726,7 +751,7 @@ static int proj_pack(project_store_t *out, const project_t *q)
         const proj_trk_t *tr = &q->t[t];
         uint8_t *s = b + PROJ_SCL_OFF + t * 4u;
         int16_t root = tr->scl_stash[0], sc = tr->scl_stash[1], qn = tr->scl_stash[2];
-        if (root < 0 || root > 11 || sc < 0 || sc > 15 || qn < 0 || qn > 3) return 0;
+        if (root < 0 || root > 11 || sc < 0 || sc > 14 || qn < 0 || qn > 3) return 0;
         s[0] = (uint8_t)((tr->scl_stash_ok ? 0x80u : 0u) | (tr->scl_lock ? 1u : 0u));
         s[1] = (uint8_t)root;
         s[2] = (uint8_t)sc;
@@ -782,13 +807,14 @@ static int proj_motion_v9(motion_store_t *m, const uint8_t *b)
     }
     return 1;
 }
+
 /* a stored FUN12 / FUN11 / FUN10 (st = PROJ_STORE_SIZE), FUN9 (PROJ_STORE_V9: 64 motion records of 4 bytes, no nudges), FUN8
  * (PROJ_STORE_V8: FUN9 with its tail 64 bytes shorter) or FUN7 (PROJ_STORE_V7: no patches, the init one) */
 static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
 {
     uint32_t pos = 68u, t, i, magic, size, sum, np = b[66], v7 = st == PROJ_STORE_V7, v10 = st == PROJ_STORE_SIZE;
     uint32_t name_off = st - 4u - PROJ_NAME_LEN, end = v7 ? name_off : name_off - NTRK * FM6_PACKED;
-    uint32_t v11 = 0, v12 = 0, data_end = end;
+    uint32_t v11 = 0, v12 = 0, v13 = 0, data_end = end;
     /* np>111: insert chain; P_IORD is 2 bytes. FUN12: MOTION_FILE_SIZE + SCALE LOCK; FUN11: MOTION_FILE_SIZE_V11 + kit;
      * FUN10: MOTION_FILE_SIZE_V10; np<=111 (1.5): full 128-record block (no insert chain yet) */
     uint32_t mot, chn = v10 ? sizeof q->chain : sizeof(chain_v9_t);
@@ -797,7 +823,9 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + st - 4u, 4);
     if (v10) {
         if (magic == PROJ_MAGIC)
-            v11 = v12 = 1u;
+            v11 = v12 = v13 = 1u;
+        else if (magic == PROJ_MAGIC_V12)
+            v11 = v12 = 1u;                         /* FUN12: migrate SCL (CHR removed) after unpack */
         else if (magic == PROJ_MAGIC_V11)
             v11 = 1u;
         else if (magic != PROJ_MAGIC_V10)
@@ -860,6 +888,8 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         for (i = 0; i < P_COUNT; i++) def[i] = param_desc_of(q->t[t].engine, i)->def;
         params_by_count(q->t[t].p, values, np, def);
         ins_migrate(q->t[t].p, np);
+        if (!v13)
+            q->t[t].p[P_SCALE] = scl_from_v12(q->t[t].p[P_SCALE]);
         for (i = 0; i < NSTEP; i++) {
             step_t *s = &q->t[t].step[i]; uint32_t meta, nd = 0;
             for (uint32_t j = 0; j < 4u; j++) {         /* (FUN10: bit 7 of note j is bit j of the nudge) */
@@ -900,8 +930,10 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
             q->t[t].scl_lock = (s[0] & 1u) ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
             q->t[t].scl_stash_ok = (s[0] & 0x80u) ? 1u : 0u;
             q->t[t].scl_stash[0] = (int16_t)(s[1] <= 11u ? s[1] : 0u);
-            q->t[t].scl_stash[1] = (int16_t)(s[2] <= 15u ? s[2] : 0u);
+            q->t[t].scl_stash[1] = (int16_t)(s[2] <= (v13 ? 14u : 15u) ? s[2] : 0u);
             q->t[t].scl_stash[2] = (int16_t)(s[3] <= 3u ? s[3] : 0u);
+            if (!v13)
+                q->t[t].scl_stash[1] = scl_from_v12(q->t[t].scl_stash[1]);
         } else {
             q->t[t].scl_lock = SCL_LOCK_SCALE;
             q->t[t].scl_stash_ok = 0;
