@@ -1390,6 +1390,16 @@ static void confirm_text(char *a, char *b)
         if (!project_name(k & 3u, b) || !b[0])          /* the project's name, else what SONG plays from it */
             str_cpy(b, "SONG PATTERN CHANGES", 24);
         break;
+    case CF_SAVE_PROJ:                                   /* motion.count > MOTION_FILE_MAX */
+        if (project_used(k & 3u)) {
+            str_cpy(a, "OVERWRITE PROJECT A?", 24);
+            a[18] = (char)('A' + (k & 3u));
+        } else {
+            str_cpy(a, "SAVE PROJECT A?", 24);
+            a[13] = (char)('A' + (k & 3u));
+        }
+        str_cpy(b, "AUTOMATION WON'T SAVE", 24);
+        break;
     case CF_DEL_ROW:
         str_cpy(a, "DELETE SECTION?", 24);
         break;

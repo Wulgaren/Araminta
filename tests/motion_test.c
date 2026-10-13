@@ -55,6 +55,25 @@ static int motion_recording(void)
 static int motion_capacity(void)
 {
     int bad = 0; ui_power_on();
+    motion_save_lim = 0;
+    for (uint32_t i = 0; i < MOTION_FILE_MAX; i++)
+        bad += motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : P_DLY, (int16_t)(i % 60u));
+    bad += check("disk-full count does not raise save-limit flag", !motion_save_lim && motion.count == MOTION_FILE_MAX);
+    bad += check("73rd event raises save-limit flag once",
+                 !motion_set_event(&trk[0], MOTION_FILE_MAX % NSTEP, P_PAN, 10) &&
+                 motion.count == MOTION_FILE_MAX + 1u && motion_save_lim);
+    motion_save_lim = 0;
+    bad += check("further adds past disk max do not re-raise the flag",
+                 !motion_set_event(&trk[0], (MOTION_FILE_MAX + 1u) % NSTEP, P_LEVEL, 40) && !motion_save_lim);
+    {
+        project_t q;
+        project_store_t st;
+        project_capture(&q);
+        bad += check("proj_pack clips motion to MOTION_FILE_MAX",
+                     q.motion.count > MOTION_FILE_MAX && proj_pack(&st, &q) &&
+                     proj_import(&q, &st, sizeof st) && q.motion.count == MOTION_FILE_MAX);
+    }
+    ui_power_on();
     for (uint32_t i = 0; i < MOTION_MAX; i++)          /* (128 since 1.2: two ids on each of the 64 steps) */
         bad += motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : P_DLY, (int16_t)(i % NSTEP));
     motion_store_t saved = motion;

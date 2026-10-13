@@ -12,7 +12,7 @@ static motion_store_t motion;
 static int16_t motion_base[NTRK][P_COUNT];
 static uint32_t motion_active[NTRK][(P_COUNT + 31u) / 32u];
 static uint32_t motion_locked[NTRK][(P_COUNT + 31u) / 32u];   /* the ids a lock holds now (put back at the next step) */
-static uint8_t motion_base_valid, motion_full;
+static uint8_t motion_base_valid, motion_full, motion_save_lim;
 static uint32_t motion_guard(void)
 {
 #if defined(FM1_IRQ_TARGET)
@@ -167,7 +167,8 @@ static void motion_clear(track_t *t)
 }
 static void motion_reset(track_t *t) { motion_clear(t); }
 /* a record of kind 0 (automation) or MOTION_LOCK on track t's step / id: a new one, or the one there (of either kind)
- * becomes this. 0 ok, 1 invalid, 2 the MOTION_MAX are used (motion_full: "AUTOMATION FULL") */
+ * becomes this. 0 ok, 1 invalid, 2 the MOTION_MAX are used (motion_full: "AUTOMATION FULL").
+ * Crossing MOTION_FILE_MAX (disk) sets motion_save_lim once (ui: AUTOMATION SAVE LIMIT). */
 static int motion_put(track_t *t, uint32_t step, uint32_t id, int16_t value, uint32_t kind)
 {
     uint32_t k = trk_index(t), i, f;
@@ -184,7 +185,11 @@ static int motion_put(track_t *t, uint32_t step, uint32_t id, int16_t value, uin
     motion.event[i].param = (uint8_t)(id | kind);
     motion.event[i].value = (int8_t)value;
     RING_PUBLISH();
-    if (i == motion.count) motion.count++;
+    if (i == motion.count) {
+        motion.count++;
+        if (motion.count == MOTION_FILE_MAX + 1u)
+            motion_save_lim = 1;
+    }
     motion.on |= (uint8_t)(1u << k);
     motion_unguard(f);
     return 0;
