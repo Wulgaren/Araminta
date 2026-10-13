@@ -485,10 +485,12 @@ static void graph_iord(const track_t *t, uint16_t c)
     }
 }
 /* SLICER page: the pattern's 16 steps, a 'x' step a full bar; a '.' step: GATE a bar as high as it stays
- * open (MIX), STUT hatched (it repeats the last 'x'); the step playing underlined. Grey when OFF. */
+ * open (MIX), STUT hatched (it repeats the last 'x'); the step playing underlined. Grey when OFF.
+ * SEND: MODE/PAT from the shared bus (fx_bus_trk); playhead from sl_bus via sl_state. MIX stays per-track. */
 static void graph_slicer(const track_t *t, uint16_t c)
 {
-    uint32_t i, pat = sl_pattern(t), mode = (uint32_t)t->p[P_SLCR], cur;
+    const track_t *pt = sl_trk_send(t) ? &fx_bus_trk : t;
+    uint32_t i, pat = sl_pattern(pt), mode = (uint32_t)pt->p[P_SLCR], cur;
     sl_t *ss = sl_state(t);
     int32_t open = 70 - t->p[P_SLDEPTH] * 70 / 127;      /* px a closed GATE step keeps */
     uint16_t col = mode == SL_OFF ? T_DIM : c;
@@ -1103,14 +1105,12 @@ static void page_title(char *ti)
     const page_t *pg = cur_page();
     const track_t *t = TSEL;
     const engine_t *e = ENGINES[t->eng_req % NENGINES];
-    uint32_t i, n = 0, k = 0;
+    uint32_t i, n = 0, k = 0, idx[NPAGES];
     const char *pt = pg->scope == SC_ENGINE ? e->page_title[pg->id[0] != P_E0] : 0;   /* EDIT: the engine's */
-    for (i = 0; i < NPAGES; i++)
-        if (PAGES[i].fam == pg->fam && PAGES[i].sec == pg->sec && page_visible(i)) {
-            n++;
-            if (i == ui.page)
-                k = n;
-        }
+    n = sec_page_list(pg->fam, pg->sec, idx);
+    for (i = 0; i < n; i++)
+        if (idx[i] == ui.page)
+            k = i + 1u;
     if (pg->graph == GR_ROLL && !drum_track(t) && !detail_on()) {   /* piano roll: tinted rows' scale */
         str_cpy(ti, N_NOTE[(uint32_t)t->p[P_ROOT] % 12u], 4);
         str_cpy(ti + str_len(ti), " ", 4);
@@ -1179,8 +1179,12 @@ static uint32_t graph_signature(void)
         h ^= (mod_ui_slot + 1u) * 40503u;
     if (ui.pick)
         h ^= pk_sig();
-    if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
-        h ^= (sl[song.sel].idx + 1u) * 2654435761u;
+    if (pg->graph == GR_SLCR) {                       /* step playing: SEND uses sl_bus + bus MODE */
+        const track_t *pt = sl_trk_send(t) ? &fx_bus_trk : t;
+        const sl_t *ss = sl_state(t);
+        if (pt->p[P_SLCR] && ss)
+            h ^= (ss->idx + 1u) * 2654435761u;
+    }
     if (pg->graph == GR_IORD)                        /* EFFECTS: slot, order (P_IORD + DLY/REV slots), mixes */
         h ^= (ui.ior_sel + 1u) * 40503u + ((uint32_t)iord_bits(t) + 1u) * 7919u +
              ((uint32_t)t->p[P_CHOR] + 1u) * 2246822519u +

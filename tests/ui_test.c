@@ -8723,6 +8723,62 @@ static int test_fx_sections(void)
     }
     bad += check("EFFECTS list: 9 rows with SLCR; per-track SEND/CHAIN; MIX is P_SLDEPTH", ok);
 
+    /* SELECT walks stage pages in EFFECTS list order (not static PAGES[]). */
+    ui_power_on();
+    go_title("EFFECTS");
+    {
+        uint8_t ord[FX_LIST_N];
+        uint32_t i;
+        fx_list_get(TSEL, ord);
+        ok = str_eq(cur_page()->title, "EFFECTS");
+        for (i = 0; i < FX_LIST_N; i++) {
+            turn(EN_SELECT, 1);
+            ok &= str_eq(cur_page()->title, N_ISTAGE[ord[i]]);
+        }
+        go_title("EFFECTS");
+        ui.ior_sel = 0;
+        turn(EN_K2, 1);                                 /* swap slots 0 and 1 */
+        fx_list_get(TSEL, ord);
+        ok &= ord[0] == INS_CRUSH && ord[1] == INS_DIST;
+        for (i = 0; i < FX_LIST_N; i++) {
+            turn(EN_SELECT, 1);
+            ok &= str_eq(cur_page()->title, N_ISTAGE[ord[i]]);
+        }
+    }
+    bad += check("EFFECTS SELECT pages follow the list order (incl. after K2 reorder)", ok);
+
+    /* SLICER playhead: SEND (default) advances sl_bus; graph_sig must track it. */
+    ui_power_on();
+    go_title("SLICER");
+    {
+        uint32_t i, sig0, changed = 0;
+        int32_t o[2 * CTL];
+        ok = sl_trk_send(TSEL) && cur_page()->graph == GR_SLCR;
+        fx_bus_trk.p[P_SLCR] = SL_GATE;
+        fx_bus_trk.p[P_SLPAT] = 1;
+        fx_bus_trk.p[P_SLRATE] = 1;
+        TSEL->p[P_SLDEPTH] = 100;
+        TSEL->p[P_SLCR] = SL_OFF;                       /* track MODE unused on SEND */
+        song.g[G_BPM] = 180;
+        slicer_start();
+        transport_req = 1;
+        ui.force = 1;
+        draw_graph();
+        ui.force = 0;
+        sig0 = ui.graph_sig;
+        for (i = 0; i < 400u; i++) {
+            mix_block(o, CTL);
+            draw_graph();
+            if (ui.graph_sig != sig0) {
+                changed = 1;
+                break;
+            }
+        }
+        transport_req = 2;
+        ok &= changed && sl_state(TSEL) == &sl_bus;
+    }
+    bad += check("SLICER SEND: playhead graph_sig advances with sl_bus", ok);
+
     ui_power_on();
     go_title("DELAY");
     ok = song.g[G_DTIME] == 1 && !dtime_free();          /* 1/8, RATE */
