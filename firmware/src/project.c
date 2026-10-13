@@ -109,13 +109,15 @@
  * Format 13 ("FUND", written now; FUN13 in the docs) = FUN12 layout with CHR removed from SCL (15 scales: MAJ..DIMWH).
  * FUN12 and older: SCL index 0 was CHR -> MAJ; 1..15 -> 0..14 (stash too). Firmware that only knows FUN12 refuses
  * a FUN13 (magic): its slot shows EMPTY until saved over.
- * Same magic still: SCALE LOCK is lock-only on disk (stash RAM-only); X-MOD (dx_mot) is not saved. Those bytes
- * hold SEND bus knobs (FX_BUS_N). Pad byte after G_SLOWN marks the bus layout (1); older FUND images without
- * the mark still load lock+stash and dx_mot, with bus knobs at factory defaults.
+ * Format 14 ("FUNE", written now; FUN14 in the docs) = FUN13 wire with SCALE LOCK lock-only, X-MOD dropped,
+ * SEND bus knobs in those bytes, and each track's EFFECTS SLICER slot (fx_sl_pos) in the two pad bytes.
+ * Lock byte: bits 0..3 lock, bits 4..6 G_SLOWN, bit 7 = bus+slcr layout mark. FUN13 ("FUND") still loads:
+ * its pad mark at +17 means bus knobs without SLCR slots (fx_sl_pos defaults to 8).
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
-#define PROJ_MAGIC 0x46554E44u                 /* "FUND" (FUN13): FUN12 + no CHR scale; 72 motion records on disk */
+#define PROJ_MAGIC 0x46554E45u                 /* "FUNE" (FUN14): FUN13 + SLCR list slots on disk */
+#define PROJ_MAGIC_V13 0x46554E44u             /* "FUND" (FUN13): read only; bus knobs, no SLCR slots */
 #define PROJ_MAGIC_V12 0x46554E43u             /* "FUNC" (FUN12): read only; SCALE LOCK/stash, CHR at SCL 0 */
 #define PROJ_MAGIC_V11 0x46554E42u             /* "FUNB" (FUN11): read only; kit, 78 motion records */
 #define PROJ_MAGIC_V10 0x46554E41u             /* "FUNA" (FUN10): read only; no kit, 110 motion records on disk */
@@ -134,9 +136,10 @@
 #define PROJ_CRV_OFF 3214u                     /* FUN11+: CRSIZE, CRDAMP (CRTYPE in b[65]; b[67]=1 marks present) */
 #define PROJ_SCL_SIZE 16u                      /* region before CRV pad: lock + SEND bus (or old stash) */
 #define PROJ_SCL_OFF (PROJ_CRV_OFF - 18u)      /* 16 scl + 2 pad before CRV; motion ends here */
-#define PROJ_SCL_MARK_OFF (PROJ_SCL_OFF + PROJ_SCL_SIZE + 1u) /* pad after G_SLOWN: 1 = bus layout */
+#define PROJ_SCL_MARK_OFF (PROJ_SCL_OFF + PROJ_SCL_SIZE + 1u) /* FUN13 pad after G_SLOWN: 1 = bus layout */
 #define PROJ_FXBUS_SCL_N 15u                   /* first 15 SEND knobs after the lock byte */
 #define PROJ_DX_MOT_OFF (PROJ_DX_OFF + 88u + 2u + 1u) /* was X-MOD; last 4 SEND knobs */
+#define PROJ_SLPOS_OFF (PROJ_SCL_OFF + PROJ_SCL_SIZE) /* FUN14: 4 x nibble fx_sl_pos in 2 pad bytes */
 #define PROJ_NP_V3 57u                         /* P_COUNT of format 3 (P_E0 was 49) */
 #define PROJ_NP_V4 69u                         /* P_COUNT of format 4 (P_E0 61) */
 #define PROJ_PHYS 2u                           /* project_t.phys: PHYS without DUST and DRUM (see the top) */
@@ -148,6 +151,7 @@ typedef struct {                               /* one track */
     int16_t scl_lock;                          /* SCL_LOCK_*: FUN12 wire; older loads -> SCALE */
     int16_t scl_stash[3];
     uint8_t scl_stash_ok;
+    uint8_t fx_sl_pos;                         /* EFFECTS SLICER list slot 0..8; FUN14 wire */
 } proj_trk_t;
 typedef struct {
     uint32_t magic, size;
@@ -613,7 +617,8 @@ static int proj_import_any(project_t *q, const void *b, int n)
 {
     if (n == PROJ_STORE_SIZE) {
         uint32_t m = ((const uint32_t *)b)[0];
-        if (m == PROJ_MAGIC || m == PROJ_MAGIC_V12 || m == PROJ_MAGIC_V11 || m == PROJ_MAGIC_V10)
+        if (m == PROJ_MAGIC || m == PROJ_MAGIC_V13 || m == PROJ_MAGIC_V12 || m == PROJ_MAGIC_V11 ||
+            m == PROJ_MAGIC_V10)
             return proj_unpack(q, b, PROJ_STORE_SIZE);
     }
     if (n == PROJ_STORE_SIZE && ((const uint32_t *)b)[1] >= 8u && ((const uint32_t *)b)[1] < PROJ_STORE_SIZE)
@@ -754,17 +759,21 @@ static int proj_pack(project_store_t *out, const project_t *q)
     if (mot.count > MOTION_FILE_MAX)
         mot.count = (uint8_t)MOTION_FILE_MAX;
     memcpy(b + pos, &mot, MOTION_FILE_SIZE);
-    {   /* SCALE LOCK (1 byte) + SEND bus knobs (15 here + 4 in former X-MOD); stash / dx_mot stay RAM-only */
+    {   /* SCALE LOCK + G_SLOWN + SEND bus + SLCR slots; stash / dx_mot stay RAM-only */
         uint8_t locks = 0;
-        for (t = 0; t < NTRK; t++)
+        uint16_t slpos = 0;
+        for (t = 0; t < NTRK; t++) {
+            uint8_t sp = q->t[t].fx_sl_pos < FX_LIST_N ? q->t[t].fx_sl_pos : 8u;
             if (q->t[t].scl_lock)
                 locks |= (uint8_t)(1u << t);
-        b[PROJ_SCL_OFF] = locks;
+            slpos |= (uint16_t)((sp & 15u) << (t * 4u));
+        }
+        b[PROJ_SCL_OFF] = (uint8_t)(0x80u | ((uint32_t)clamp(q->g[G_SLOWN], 0, 4) << 4) | locks);
         memcpy(b + PROJ_SCL_OFF + 1u, q->fx_bus, PROJ_FXBUS_SCL_N);
         memcpy(b + PROJ_DX_MOT_OFF, q->fx_bus + PROJ_FXBUS_SCL_N, FX_BUS_N - PROJ_FXBUS_SCL_N);
+        b[PROJ_SLPOS_OFF] = (uint8_t)(slpos & 255u);
+        b[PROJ_SLPOS_OFF + 1u] = (uint8_t)(slpos >> 8);
     }
-    b[PROJ_SCL_OFF + PROJ_SCL_SIZE] = (uint8_t)clamp(q->g[G_SLOWN], 0, 4); /* pad: slicer CHAIN owner */
-    b[PROJ_SCL_MARK_OFF] = 1u;                         /* bus-layout mark (lock-only + SEND knobs) */
     memcpy(b + PROJ_DX_OFF, q->dx, sizeof q->dx);
     b[PROJ_DX_OFF + sizeof q->dx] = (uint8_t)(q->dx_mute & DXG_ALL);
     b[PROJ_DX_OFF + sizeof q->dx + 1u] = (uint8_t)(q->dx_mute >> 8);
@@ -830,7 +839,9 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + st - 4u, 4);
     if (v10) {
         if (magic == PROJ_MAGIC)
-            v11 = v12 = v13 = 1u;
+            v11 = v12 = v13 = 1u;                    /* FUN14: bus knobs + SLCR slots */
+        else if (magic == PROJ_MAGIC_V13)
+            v11 = v12 = v13 = 1u;                    /* FUN13: bus knobs, no SLCR slots */
         else if (magic == PROJ_MAGIC_V12)
             v11 = v12 = 1u;                         /* FUN12: migrate SCL (CHR removed) after unpack */
         else if (magic == PROJ_MAGIC_V11)
@@ -866,7 +877,11 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         q->g[G_DLYOWN] = 0;
     if (q->g[G_REVOWN] < 0 || q->g[G_REVOWN] > (int16_t)NTRK)
         q->g[G_REVOWN] = 0;
-    if (v12 || v13) {                                  /* FUN12+: pad byte holds G_SLOWN */
+    /* G_SLOWN: FUN14 lock byte bits 4..6; FUN13 pad at +16; older 0 */
+    if (magic == PROJ_MAGIC && (b[PROJ_SCL_OFF] & 0x80u)) {
+        uint8_t so = (b[PROJ_SCL_OFF] >> 4) & 7u;
+        q->g[G_SLOWN] = so <= 4u ? (int16_t)so : 0;
+    } else if (v12 || v13) {
         uint8_t so = b[PROJ_SCL_OFF + PROJ_SCL_SIZE];
         q->g[G_SLOWN] = so <= 4u ? (int16_t)so : 0;
     } else {
@@ -937,13 +952,28 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     } else if (!proj_motion_v9(&q->motion, b + pos))
         return 0;
     if (!proj_motion_ids(&q->motion, np) || !chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
+    /* Old CHO send locks (P_CHOR 0..63) -> CHORUS MIX. FXPOS values (64+) stay. */
+    if (magic != PROJ_MAGIC) {
+        for (i = 0; i < q->motion.count && i < MOTION_MAX; i++) {
+            motion_event_t *e = &q->motion.event[i];
+            if (MOTION_ID(e) == P_CHOR && e->value >= 0 && e->value < (int8_t)FX_POS_MARK)
+                e->param = (uint8_t)((e->param & MOTION_LOCK) | P_IHMIX);
+        }
+    }
     {
-        int bus_layout = v13 && b[PROJ_SCL_MARK_OFF] == 1u;
+        int fun14 = magic == PROJ_MAGIC && (b[PROJ_SCL_OFF] & 0x80u);
+        int bus_layout = fun14 || (v13 && magic == PROJ_MAGIC_V13 && b[PROJ_SCL_MARK_OFF] == 1u);
         for (t = 0; t < NTRK; t++) {
             if (v12 && bus_layout) {
                 q->t[t].scl_lock = (b[PROJ_SCL_OFF] & (1u << t)) ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
                 q->t[t].scl_stash_ok = 0;
                 q->t[t].scl_stash[0] = q->t[t].scl_stash[1] = q->t[t].scl_stash[2] = 0;
+                if (fun14) {
+                    uint8_t sp = (b[PROJ_SLPOS_OFF + t / 2u] >> ((t & 1u) * 4u)) & 15u;
+                    q->t[t].fx_sl_pos = sp < FX_LIST_N ? sp : 8u;
+                } else {
+                    q->t[t].fx_sl_pos = 8u;
+                }
             } else if (v12) {
                 const uint8_t *s = b + PROJ_SCL_OFF + t * 4u;
                 q->t[t].scl_lock = (s[0] & 1u) ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
@@ -953,10 +983,12 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
                 q->t[t].scl_stash[2] = (int16_t)(s[3] <= 3u ? s[3] : 0u);
                 if (!v13)
                     q->t[t].scl_stash[1] = scl_from_v12(q->t[t].scl_stash[1]);
+                q->t[t].fx_sl_pos = 8u;
             } else {
                 q->t[t].scl_lock = SCL_LOCK_SCALE;
                 q->t[t].scl_stash_ok = 0;
                 q->t[t].scl_stash[0] = q->t[t].scl_stash[1] = q->t[t].scl_stash[2] = 0;
+                q->t[t].fx_sl_pos = 8u;
             }
         }
         if (bus_layout) {
@@ -974,7 +1006,8 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
                 q->fm6[t][i] = b[end + t * FM6_PACKED + i] & 0x7Fu;
     }
     if (v11) {                                          /* DRUM-X kit (a broken one: not a project) */
-        int bus_layout = v13 && b[PROJ_SCL_MARK_OFF] == 1u;
+        int bus_layout = (magic == PROJ_MAGIC && (b[PROJ_SCL_OFF] & 0x80u)) ||
+                         (magic == PROJ_MAGIC_V13 && b[PROJ_SCL_MARK_OFF] == 1u);
         memcpy(q->dx, b + PROJ_DX_OFF, sizeof q->dx);
         if (!dx_kit_ok(q->dx)) return 0;
         q->dx_mute = (uint16_t)((b[PROJ_DX_OFF + sizeof q->dx] & DXG_ALL) |
@@ -1112,6 +1145,7 @@ static void project_capture(project_t *p)
         p->t[i].scl_stash[0] = trk[i].scl_stash[0];
         p->t[i].scl_stash[1] = trk[i].scl_stash[1];
         p->t[i].scl_stash[2] = trk[i].scl_stash[2];
+        p->t[i].fx_sl_pos = trk[i].fx_sl_pos < FX_LIST_N ? trk[i].fx_sl_pos : 8u;
         fm6_pack(fm6_patch[i], p->fm6[i]);
     }
     p->motion = motion;
@@ -1300,7 +1334,7 @@ static int project_restore_runtime(const project_t *input)
         t->scl_stash[0] = s->scl_stash[0];
         t->scl_stash[1] = s->scl_stash[1];
         t->scl_stash[2] = s->scl_stash[2];
-        t->fx_sl_pos = 8;                               /* SLCR list slot: RAM until FUN14 */
+        t->fx_sl_pos = s->fx_sl_pos < FX_LIST_N ? s->fx_sl_pos : 8u;
         {   /* the project's own FM6 patch, never reloaded from SLOT: F n if it is that factory patch, else OWN */
             uint8_t v[FP_SIZE + 1u];
             fm6_unpack(p->fm6[k], v);

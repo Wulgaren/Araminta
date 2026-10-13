@@ -101,7 +101,7 @@ enum { INS_N = 6, INS_DIST = 0, INS_FILTER = 1, INS_CRUSH = 2, INS_PHASR = 3, IN
 /* Default P_IORD permutation (Lehmer): DIST, CRUSH, FILTER, PHASR, FLANG, CHOR. Stage ids stay
  * FILTER=1 / CRUSH=2 so send flags and saved orders keep their meaning; only the factory order moved. */
 #define IORD_DEF 24u
-/* EFFECTS DLY/REV list slots in P_CHOR (fx.c). SLCR slot is RAM-only (track.fx_sl_pos) until FUN14. */
+/* EFFECTS DLY/REV list slots in P_CHOR (fx.c). SLCR slot is track.fx_sl_pos (FUN14 wire). */
 #define FX_POS_DEF (64 + 6 + (7 << 3))           /* DLY at 6, REV at 7; SLCR defaults to 8 */
 /* SEND bus knobs (no MIX): packed into reclaimed FUN13 bytes (SCALE LOCK stash + X-MOD). */
 #define FX_BUS_N 19u
