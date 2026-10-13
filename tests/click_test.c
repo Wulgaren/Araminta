@@ -394,7 +394,7 @@ static void count_in(void)
 }
 
 /* notes in the count-in: in its last eighth onto step 1 (held on: ties; let go: one step); earlier ones not recorded */
-static uint32_t key_of(uint32_t note)                  /* the key that plays `note` on track 1 (OCT 0, CHR) */
+static uint32_t key_of(uint32_t note)                  /* the key that plays `note` on track 1 (OCT 0, MAP OFF) */
 {
     uint32_t k;
     for (k = 0; k < 27u; k++)

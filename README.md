@@ -45,6 +45,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
 - **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.
 - **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN.
+- **MAP (was QNT).** SCL knob: OFF / ALL / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); ALL is KBD plus sequence follows the scale; SEQ is chromatic keys plus sequence follows. Chromatic (CHR) scale removed — use MAP OFF. Projects save as FUN13 (`FUND`); older slots migrate.
 - **Following playhead** in the SEQ. Start selecting a step to pause the following, returns after 3 seconds of inactivity.
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
@@ -87,7 +88,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **Chord keys:** one finger plays an in-key chord (triads or sevenths of the scale, or fixed chord
   shapes), with voicings; on the keys, MIDI in, recording and the arpeggiator
 - **Arpeggiator** with UP, DN, UPDN, RND, ORD (the notes in the order you pressed them), REPEAT and, for chords,
-  DNUP, UP+8, CONV, DIVG, PINKY, THUMB, WALK and CHORD; a beat LED; 16 scales with a white-key mode, glide,
+  DNUP, UP+8, CONV, DIVG, PINKY, THUMB, WALK and CHORD; a beat LED; 15 scales with MAP (OFF/ALL/KBD/SEQ), glide,
   MONO / LEGATO / UNISON
 - **LFO:** RATE or **SYNC** to a note value (4 bars to 1/32, following the tempo or an external clock), **TRIG** NOTE
   or FREE, **POL** bipolar or unipolar (LFO > LFO 2)
@@ -309,21 +310,21 @@ stereo, SIZE the decay up to about 4.5 s, DAMP how fast the highs die), **ROOM**
 
 ## Scale keyboard
 
-On the **SCL** page, set **QNT** to WHITE to play the selected scale using only the
-white keys (SNAP keeps every key and rounds it down to the scale). C4 plays **ROOT**; consecutive white keys play consecutive scale notes
-above and below it. Black keys are silent, including during live recording and
-step entry. **TRN** transposes the resulting notes (and sequence playback; steps stay as stored); the octave
-buttons shift them by full octaves. Set QNT to OFF for the normal chromatic keyboard. QNT SEQ snaps the keys like
-SNAP and also maps sequenced notes onto the current ROOT / SCALE as they play (steps unchanged; kits never
-quantized).
+On the **SCL** page, **MAP** chooses how the keys (and optionally the sequence) sit on the scale:
 
-Available scales: chromatic (CHR), major (MAJ), natural minor (MIN), Dorian (DOR),
-Mixolydian (MIX), major pentatonic (PEN), minor pentatonic (MPEN), harmonic minor
-(HARM), Phrygian (PHRY), Lydian (LYD), Locrian (LOC), ascending melodic minor (MEL),
-minor blues (BLUES), whole tone (WHOLE), half-whole diminished (DIMHW), and
-whole-half diminished (DIMWH). Scales with other than seven notes continue across
-the white keys without repeating notes; their roots need not fall on every C key.
-Drum kits and incoming MIDI keep their own note mapping.
+- **OFF** — normal chromatic piano. Sequence plays as stored.
+- **KBD** — white keys walk the scale (C4 = **ROOT**; consecutive white keys = consecutive scale notes). Black keys play the closest in-scale note (often the same as a neighbour). Sequence plays as stored.
+- **ALL** — same keys as KBD, and sequenced notes map onto the current ROOT / SCALE as they play (steps unchanged; kits never remapped).
+- **SEQ** — live keys as OFF; sequenced notes map onto the scale as they play (same as ALL for the sequence).
+
+**TRN** transposes the resulting notes (and sequence playback; steps stay as stored); the octave buttons shift them by full octaves.
+
+Available scales: major (MAJ), natural minor (MIN), Dorian (DOR), Mixolydian (MIX),
+major pentatonic (PEN), minor pentatonic (MPEN), harmonic minor (HARM), Phrygian (PHRY),
+Lydian (LYD), Locrian (LOC), ascending melodic minor (MEL), minor blues (BLUES), whole tone
+(WHOLE), half-whole diminished (DIMHW), and whole-half diminished (DIMWH). Scales with other
+than seven notes continue across the white keys without repeating notes; their roots need not
+fall on every C key. Chromatic play is MAP OFF. Drum kits and incoming MIDI keep their own note mapping.
 
 Press **SCL** again for the **CHORD** page: CHRD picks the chord keys (OFF, the scale's triads or
 sevenths, or a fixed shape) and VOIC the voicing.

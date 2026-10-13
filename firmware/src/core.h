@@ -485,7 +485,7 @@ typedef struct track {
     uint32_t pfx_sc;             /* samples since the last repeat */
     /* SCALE LOCK (CHORD KNOB 3): not a P_* (P_COUNT is at the 127 ceiling). Default SCALE. */
     int16_t scl_lock;            /* SCL_LOCK_OFF / SCL_LOCK_SCALE */
-    int16_t scl_stash[3];        /* ROOT / SCL / QNT restored on OFF (project.c FUN12) */
+    int16_t scl_stash[3];        /* ROOT / SCL / MAP restored on OFF (project.c FUN12+) */
     uint8_t scl_stash_ok;        /* 1: scl_stash holds values from before a lock overwrite */
     uint8_t rsv_sz[8];           /* sizeof(track_t) a multiple of 16 */
     int16_t armp, aholdp;        /* P_AMODE / P_AHOLD as last seen by the ISR */
