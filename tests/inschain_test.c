@@ -561,6 +561,35 @@ int main(void)
         ck("CHAIN FILTER: private CUT moves; bus CUT ignored", h_chain_lo != h_chain_hi);
     }
 
+    /* UI: FILTER page knobs edit the SEND bus when the stage is SEND; track P_* when CHAIN. MIX stays track. */
+    {
+        const page_t *pg = 0;
+        int16_t *vp = 0;
+        uint32_t i;
+        for (i = 0; i < NPAGES; i++)
+            if (str_eq(PAGES[i].title, "FILTER") && PAGES[i].fam == FAM_FX && PAGES[i].graph == GR_INS) {
+                pg = &PAGES[i];
+                break;
+            }
+        fresh();
+        ins_send_set(&trk[0], INS_FILTER, 1);
+        song.sel = 0;
+        fx_bus_trk.p[P_IFCUT] = 40;
+        trk[0].p[P_IFCUT] = 90;
+        trk[0].p[P_IFMIX] = 55;
+        ck("FILTER page found for SEND/CHAIN knob binding", pg != 0);
+        if (pg) {
+            page_desc(pg, 1, &vp);
+            ck("SEND FILTER: CUT knob binds the bus", vp == &fx_bus_trk.p[P_IFCUT]);
+            ins_send_set(&trk[0], INS_FILTER, 0);
+            page_desc(pg, 1, &vp);
+            ck("CHAIN FILTER: CUT knob binds the track", vp == &trk[0].p[P_IFCUT]);
+            /* MIX is on EFFECTS, not this page; IDMIX binding would stay track if present */
+            ck("FILTER MIX stays on the track even when SEND", trk[0].p[P_IFMIX] == 55 &&
+               fx_bus_trk.p[P_IFMIX] != 55);
+        }
+    }
+
     /* insert FILTER: CUT is Q8 into tsvf_coef (same as ANALOG). A low CUT must muffle a bright saw;
      * RES must raise a band-pass peak. Regression for the raw 0..127 cutoff bug (wet ≈ silence). */
     {

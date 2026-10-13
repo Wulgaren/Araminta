@@ -645,6 +645,26 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         *valp = 0;
         return 0;
     }
+    /* INSERT/SLICER stage knobs (not MIX): SEND edits the shared bus; CHAIN edits the track. */
+    {
+        uint32_t st = 0xFFu;
+        int send = 0;
+        if (id == P_IDMODE || id == P_DIST || id == P_ED_FX) st = INS_DIST;
+        else if (id == P_IFTYPE || id == P_IFCUT || id == P_IFRES) st = INS_FILTER;
+        else if (id == P_ICBITS || id == P_ICRATE || id == P_ICLPF) st = INS_CRUSH;
+        else if (id == P_IPRATE || id == P_IPDEP || id == P_IPFBK) st = INS_PHASR;
+        else if (id == P_ILRATE || id == P_ILDEP) st = INS_FLANG;
+        else if (id == P_IHRATE || id == P_IHDEP) st = INS_CHOR;
+        else if (id == P_SLCR || id == P_SLPAT || id == P_SLRATE) st = INS_SLCR;
+        if (st == INS_SLCR)
+            send = song.g[G_SLOWN] == 0;
+        else if (st < INS_N)
+            send = ((uint16_t)TSEL->p[P_IORD] & (uint16_t)(1u << (10u + st))) != 0;
+        if (st != 0xFFu && send) {
+            *valp = &fx_bus_trk.p[id];
+            return track_desc(TSEL, id);
+        }
+    }
     *valp = &TSEL->p[id];
     return track_desc(TSEL, id);
 }

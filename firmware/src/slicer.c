@@ -103,13 +103,25 @@ static void slicer_start(void)   /* seq_start: the next block starts step 0 of e
 
 static uint32_t sl_pattern(const track_t *t) { return SL_PAT[(uint32_t)(t->p[P_SLPAT] - 1) % SL_NPAT]; }
 
+/* SEND bus clock: song swing only (one shared length). CHAIN: track + song swing. */
+static uint32_t sl_step_len(const track_t *pt, uint32_t base, uint32_t idx)
+{
+    if (pt == &fx_bus_trk) {
+        int32_t sw = song.g[G_SWING];
+        if (sw < 0) sw = 0;
+        if (sw > SWING_MAX) sw = SWING_MAX;
+        sw = sw * (int32_t)base / 250;
+        return base + (uint32_t)((idx & 1u) ? -sw : sw);
+    }
+    return swing_step_len(pt, base, idx);
+}
 /* the step clock enters the next step */
 static void sl_enter(const track_t *t, sl_t *s)
 {
     uint32_t mode = (uint32_t)t->p[P_SLCR];
     s->idx = (uint8_t)((s->idx + 1u) & 15u);
     s->base = (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM] / SL_DEN[(uint32_t)t->p[P_SLRATE] % 6u];
-    s->len = swing_step_len(t, s->base, s->idx);   /* core.h, as seq.c step_samples */
+    s->len = sl_step_len(t, s->base, s->idx);
     s->pos = 0;
     s->bit = (uint8_t)((sl_pattern(t) >> s->idx) & 1u);
     s->rp = 0;
@@ -213,7 +225,7 @@ static void sl_run(const track_t *pt, const track_t *t, sl_t *s, int16_t *buf, i
 static void sl_run_send(const track_t *t, int32_t *b, int32_t *sd, uint32_t n)
 {
     uint32_t k = (uint32_t)(t - trk);
-    const track_t *pt = &trk[0];                     /* bus MODE/PAT/RATE (WO3: song globals) */
+    const track_t *pt = &fx_bus_trk;                 /* SEND bus MODE/PAT/RATE */
     sl_t tmp;
     int drive = !sl_bus_applied || k == sl_bus_driver;
     if (!sl_bus_applied)
@@ -268,6 +280,6 @@ static int slicer_busy(const track_t *t)
     if (!s)
         return 0;
     if (s == &sl_bus)
-        return sl_send_w[k] || (t->p[P_SLCR] == SL_STUT && sl_bus.loop);
+        return sl_send_w[k] || (fx_bus_trk.p[P_SLCR] == SL_STUT && sl_bus.loop);
     return s->w || (t->p[P_SLCR] == SL_STUT && s->loop);
 }

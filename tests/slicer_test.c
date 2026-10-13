@@ -33,6 +33,10 @@ static void set_slicer(track_t *t, int mode, int pat, int rate, int depth)
     t->p[P_SLPAT] = (int16_t)pat;
     t->p[P_SLRATE] = (int16_t)rate;
     t->p[P_SLDEPTH] = (int16_t)depth;
+    /* SEND reads MODE/PAT/RATE from the shared bus; keep it in sync for host setups. */
+    fx_bus_trk.p[P_SLCR] = (int16_t)mode;
+    fx_bus_trk.p[P_SLPAT] = (int16_t)pat;
+    fx_bus_trk.p[P_SLRATE] = (int16_t)rate;
 }
 
 /* ---------------------------------------------------------- 1. clicks --- */
@@ -134,6 +138,7 @@ static int test_timing(void)
     memset(sl, 0, sizeof sl);
     song.g[G_BPM] = 97;
     song.g[G_SWING] = 10;
+    song.g[G_SLOWN] = 1;                          /* CHAIN: track swing shapes the private clock */
     t->p[P_SSWING] = 20;
     set_slicer(t, SL_GATE, (int)pat, 1, 127);
     slicer_start();
@@ -210,7 +215,7 @@ static void song_setup(void)
 }
 
 /* ------------------------------------------------------------ 3. sync --- */
-/* SEND bus: one shared clock (MODE/PAT/RATE from track 0). CHAIN: that track's private clock.
+/* SEND bus: one shared clock (MODE/PAT/RATE from fx_bus_trk). CHAIN: that track's private clock.
  * Older per-track SEND clocks are gone — a shared bus cannot swing differently per track. */
 static int test_sync(void)
 {
