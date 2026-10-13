@@ -1001,14 +1001,14 @@ static void layer_edit(void)                            /* the engines from F3, 
         engine_sound_row(104);
 }
 
-/* SAVE > CLEAR: white keys in columns under the cards (TRACK | ALL | SONG | BOOT). Key opens confirm. */
+/* SAVE > CLEAR: white keys in columns under the cards (TRACK | ALL | SONG). Key opens confirm. */
 enum {
-    CL_PAT = 0, CL_ALLPAT, CL_SEC, CL_INIT,             /* F3 G3 A3 B3 */
+    CL_PAT = 0, CL_ALLPAT, CL_SEC,                      /* F3 G3 A3 */
     CL_SND = 4, CL_ALLSND, CL_SONG,                     /* C4 D4 E4 */
     CL_MOT = 8, CL_ALLMOT                               /* G4 A4 */
 };
 static const char *const CL_CELL[16] = {
-    "PAT", "PATS", "SEC", "INIT", "SND", "SNDS", "SONG", "", "MOT", "MOTS", "", "", "", "", "", ""
+    "PAT", "PATS", "SEC", "", "SND", "SNDS", "SONG", "", "MOT", "MOTS", "", "", "", "", "", ""
 };
 static uint32_t clear_kind(uint32_t p)
 {
@@ -1021,7 +1021,6 @@ static uint32_t clear_kind(uint32_t p)
     case CL_ALLMOT: return CF_CLEAR_ALL_MOTION;
     case CL_SEC: return CF_DEL_ROW;
     case CL_SONG: return CF_CLEAR_SONG;
-    case CL_INIT: return CF_INIT_SESSION;
     default: return CF_NONE;
     }
 }
@@ -1047,7 +1046,6 @@ static int clear_ready(uint32_t kind)
         return 0;
     case CF_DEL_ROW: return ui.song_row < chain_config.count;
     case CF_CLEAR_SONG: return chain_config.count != 0u;
-    case CF_INIT_SESSION: return 1;
     default: return 0;
     }
 }
@@ -1151,10 +1149,11 @@ static void layer_cards(uint32_t l)
     } else if (l == LAYER_EDIT) {
         engine_columns();
     } else if (l == LAYER_CLR) {                        /* categories; ALGORITHM still picks the track */
-        draw_column(0, "TRACK", "TSEL", "", VAL(0u), -1, ICON_AUTO);
+        char tn[3] = {'T', (char)('1' + song.sel % NTRK), 0};
+        draw_column(0, "TRACK", tn, "", VAL(0u), -1, ICON_AUTO);
         draw_column(1, "ALL", "TRKS", "", VAL(1u), -1, ICON_AUTO);
         draw_column(2, "SONG", "ORDER", "", VAL(2u), -1, ICON_X_SONG);
-        draw_column(3, "BOOT", "INIT", "", VAL(3u), -1, ICON_X_WARN);
+        draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
     } else {                                            /* the page's four (SCL: LY_SCL) */
         uint8_t h = ui.home, pg = ui.page;
         ui.home = 0;

@@ -1421,10 +1421,6 @@ static void confirm_text(char *a, char *b)
     case CF_CLEAR_ALL_MOTION:
         str_cpy(a, "CLEAR ALL AUTOMATION?", 24);
         break;
-    case CF_INIT_SESSION:
-        str_cpy(a, "INIT SESSION?", 24);
-        str_cpy(b, "LIKE A FRESH BOOT", 24);
-        break;
     case CF_OVR_USER:
         str_cpy(a, "OVERWRITE ", 24);
         up_slot_label(a + str_len(a), k);
