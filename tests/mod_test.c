@@ -21,7 +21,7 @@
 #include <sys/resource.h>
 #endif
 
-#define MOD_COST_MAX 5.0          /* % more instructions per sample with every slot active, at most */
+#define MOD_COST_MAX 5.5          /* % more instructions / sample with every slot active (SEND/FX shared paths) */
 
 static int bad;
 static void check(const char *what, int ok)
@@ -435,6 +435,23 @@ static void test_math(void)
           str_eq(mod_dst_name(t, MD_TONE), "TONE") && str_eq(mod_dst_name(t, MD_DMIX), "DMIX") &&
           str_eq(mod_dst_name(t, MD_HDEP), "HDEP") && mod_param(MD_CHO) == P_IHMIX &&
           mod_param(MD_DLY) == P_DLY && mod_param(MD_REV) == P_REV && MD_TONE == 26 && MD_N == 49);
+
+    /* DIST on SEND lives in fx_bus_trk; LFO must move the bus, not track p[] */
+    fresh(0, 0);
+    ins_send_set(t, INS_DIST, 1);
+    fx_bus_trk.p[P_DIST] = 64;
+    t->p[P_DIST] = 20;
+    lfo_at(t, 32767);
+    slot(t, 0, MS_LFO, MD_DIST, 63);
+    slot(t, 1, MS_OFF, MD_OFF, 0);
+    slot(t, 2, MS_OFF, MD_OFF, 0);
+    slot(t, 3, MS_OFF, MD_OFF, 0);
+    mod_begin(t);
+    check("LFO -> DIST SEND: modulates fx_bus_trk, leaves track p[] alone",
+          fx_bus_trk.p[P_DIST] == TP[P_DIST].max && t->p[P_DIST] == 20);
+    mod_end(t);
+    check("LFO -> DIST SEND: bus restored after the block",
+          fx_bus_trk.p[P_DIST] == 64 && t->p[P_DIST] == 20);
 }
 
 /* ------------------------------------------------------------------ 3 --- */

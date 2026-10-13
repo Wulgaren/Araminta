@@ -1517,7 +1517,7 @@ static void track_defaults(track_t *t)
 }
 
 /* RAM as a clean boot (RESTORE LAST off): default globals, sounds, empty (or factory) steps, song chain.
- * Flash, user bank and autosave stay. SAVE > CLEAR's INIT key and main.c felucca_init. */
+ * Flash, user bank and autosave stay. Power-on / main.c felucca_init. */
 static void session_defaults(void)
 {
     uint32_t i;

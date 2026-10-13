@@ -206,14 +206,8 @@ static __attribute__((noinline)) int32_t mod_depth(const track_t *t, int32_t lfo
     return g;
 }
 
-/* SLICER PAT/RATE on SEND live in fx_bus_trk (shared bus); MIX and CHAIN stay on the track. */
-static int16_t *mod_dst_ptr(track_t *t, uint32_t id)
-{
-    return fx_target_ptr(t, id);
-}
-
 /* before a part's block (fx.c mix_part): the per-track offsets, the per-block destinations into t->p
- * (or fx_bus_trk for SEND slicer PAT/RATE). 0 = no slot active (then nothing changed) */
+ * (or fx_bus_trk / song.g via fx_target_ptr). 0 = no slot active (then nothing changed) */
 static __attribute__((noinline)) int mod_begin(track_t *t)
 {
     const int16_t *p = t->p;
@@ -256,9 +250,15 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
             int shared = MD_FX(d) || MD_INS(d) || MD_SLICER(d);
             const param_desc_t *pd;
             int16_t *dst;
-            if (shared) {
+            if (d == MD_DIST) {                         /* SEND: bus; CHAIN: track p[] */
+                dst = fx_target_ptr(t, id);
+                shared = dst != &t->p[id];
+                pd = shared ? fx_target_desc(t, id) : &TP[id];
+                if (shared && !fx_target_available(t, id))
+                    continue;
+            } else if (shared) {
                 pd = fx_target_desc(t, id);
-                dst = mod_dst_ptr(t, id);
+                dst = fx_target_ptr(t, id);
                 if (!fx_target_available(t, id))
                     continue;
             } else {
@@ -285,7 +285,7 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
         int32_t base;
         if (mod.kshared[j]) {
             pd = fx_target_desc(t, id);
-            dst = mod_dst_ptr(t, id);
+            dst = fx_target_ptr(t, id);
             base = id == MFX_TIME && mod.keep[j] < pd->min ? fx_time_value(mod.keep[j]) : mod.keep[j];
         } else {
             pd = id >= P_E0 ? &ENGINES[t->engine]->edit[id - P_E0] : &TP[id];
@@ -303,11 +303,17 @@ static __attribute__((noinline)) void mod_end(track_t *t)
     uint32_t j;
     for (j = 0; j < mod.nk; j++) {
         uint32_t id = mod.kid[j];
-        int16_t *ptr = mod.kshared[j] ? mod_dst_ptr(t, id) : &t->p[id];
+        int16_t *ptr = mod.kshared[j] ? fx_target_ptr(t, id) : &t->p[id];
         if (MFX_PARAM(id) && fx_target_send(t, id)) {
             uint32_t i;
             for (i = 0; i < mod_bus_n && mod_bus[i].ptr != ptr; i++) ;
-            if (i == mod_bus_n) mod_bus_n++;
+            if (i == mod_bus_n) {
+                if (mod_bus_n >= NELEM(mod_bus)) {
+                    *ptr = mod.keep[j];
+                    continue;
+                }
+                mod_bus_n++;
+            }
             mod_bus[i].ptr = ptr;
             mod_bus[i].value = *ptr;
         }
