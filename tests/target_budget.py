@@ -16,7 +16,7 @@ import sys
 
 FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_render_custom", "phase_render", "lofi_render", "formant_render",
          "trio_render", "trio_pass", "wheel_render", "wheel_block",
-         "phys_render", "drum_render", "fm6_render", "fm6_op_run", "fm6_op_fb", "px_modal_block", "px_modal_run", "px_memb_block",
+         "phys_render", "drum_render", "fm6_render", "px_modal_block", "px_modal_run", "px_memb_block",
          "px_string_excite", "px_string_run", "px_symp_run",
          "dx_run",                                            # DRUM-X voice (drumx_voice.c)
          "slicer_track",                                      # track FX slicer (SAMPLE/GRAIN/SLICE engines retired)

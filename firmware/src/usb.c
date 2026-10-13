@@ -74,20 +74,18 @@ static struct {
  * (the 44.1 pattern) and one more or one fewer while the ring's fill drifts out of its band.
  * The render writes HALF_FRAMES (128) frames every 2.9 ms; the fill measured when a render starts is
  * the low point of that saw tooth, and is kept in UA_LO..UA_HI. A frame waits in the ring for that fill
- * plus its place in the render: 80..256 frames, ~3.8 ms on average (256-frame halves and a 96..160
- * band: ~5.8 ms). Measured under load (65 % CPU): a 64..112 band started renders at
- * 48..119 with no glitch; one render was once seen 29 frames under the floor: a packet (46) must
- * still be in hand then. */
+ * plus its place in the render: 124..300 frames, ~4.8 ms on average (256-frame halves and a 140..188
+ * band: ~6.8 ms). ~+1 ms vs the old 80..128 band: more slack when a render runs late under load. */
 #define UA_N 512u                /* ring, frames (16-bit L | R << 16); a power of two */
-#define UA_PRIME 104u            /* silence ahead of the first rendered frame */
-#define UA_LO 80u                /* a render may start late: keep a packet and more in hand */
-#define UA_HI 128u
+#define UA_PRIME 148u            /* silence ahead of the first rendered frame (~+1 ms vs 104) */
+#define UA_LO 124u               /* a render may start late: keep a packet and more in hand */
+#define UA_HI 172u
 #define UAC_RATE 44100u
 #if FELUCCA_UAC_48K
 /* 48 kHz: the same times in 48 kHz frames (x 160 / 147); a render of HALF_FRAMES gives 139..140 frames */
-#define UA_PRIME48 113u
-#define UA_LO48 87u
-#define UA_HI48 139u
+#define UA_PRIME48 161u
+#define UA_LO48 135u
+#define UA_HI48 187u
 #define UA_REND48 ((HALF_FRAMES * 160u + 146u) / 147u)
 #define UA_MAXF 49u              /* frames in the largest packet: 48 + 1 */
 _Static_assert(UA_HI48 + UA_REND48 + UA_MAXF < UA_N, "the ring holds the band, a render and a packet (48 kHz)");
