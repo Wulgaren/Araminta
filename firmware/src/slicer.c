@@ -148,10 +148,10 @@ static inline __attribute__((always_inline)) void sl_seg(const track_t *pt, cons
                                                           int16_t *buf, int32_t *b, int32_t *sd, uint32_t m)
 {
     uint32_t mode = (uint32_t)pt->p[P_SLCR], j, nbit = (sl_pattern(pt) >> ((s->idx + 1u) & 15u)) & 1u;
-    int32_t depth = t->p[P_SLDEPTH] * 258;          /* Q15, 0..32766 */
-    int32_t tc = mode == SL_GATE && !s->bit ? depth : 0;           /* gate closure of this step */
-    int32_t tn = mode == SL_GATE && !nbit ? depth : 0;             /* .. of the next one */
-    int32_t tw = mode == SL_STUT && s->loop ? depth : 0;           /* repeat level */
+    int32_t mix = t->p[P_SLDEPTH] * 258;            /* Q15, 0..32766 (MIX amount) */
+    int32_t tc = mode == SL_GATE && !s->bit ? mix : 0;             /* gate closure of this step */
+    int32_t tn = mode == SL_GATE && !nbit ? mix : 0;               /* .. of the next one */
+    int32_t tw = mode == SL_STUT && s->loop ? mix : 0;             /* repeat level */
     for (j = 0; j < m; j++) {
         int32_t x = b[j], y, tg = tc;
         uint32_t left = s->len - s->pos - j;        /* samples to the step end, >= 1 */
@@ -199,7 +199,7 @@ static inline __attribute__((always_inline)) void sl_seg(const track_t *pt, cons
     }
 }
 
-/* pt: MODE/PAT/RATE source (SEND bus uses track 0 until song globals land). MIX from t. */
+/* pt: MODE/PAT/RATE (SEND: fx_bus_trk; CHAIN: the track). MIX from t. */
 static void sl_run(const track_t *pt, const track_t *t, sl_t *s, int16_t *buf, int32_t *b, int32_t *sd,
                    uint32_t n)
 {
