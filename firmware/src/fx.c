@@ -1423,8 +1423,15 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
             continue;
         }
         if (st == INS_SLCR) {
-            if (bus_own(2) == tr)
-                slicer_track(t, b, n);
+            if (bus_own(2) == tr) {
+                /* CHAIN at list position: gate mono b; with SPREAD also gate side d
+                 * (spread_buf already holds left-right from mix_spread). SEND still
+                 * runs after the chain via slicer_track_sd. */
+                if (spread_on)
+                    slicer_track_sd(t, b, spread_buf, n);
+                else
+                    slicer_track(t, b, n);
+            }
             continue;
         }
         if (!(raw & (uint16_t)(1u << (10u + st))))

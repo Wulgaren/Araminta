@@ -85,4 +85,4 @@ sends/ANALOG/all 7205963da1c64ddc
 sends/ANALOG/dist 4d70625d9b876788
 song/4track_mix 66db3591a0cf4270
 slicer/gate/ANALOG_ACID 6a975fccb729d548
-slicer/song_gate_stut b09223f1c216eb70
+slicer/song_gate_stut 3a42bc271fd23634

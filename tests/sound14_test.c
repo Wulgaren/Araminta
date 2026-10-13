@@ -589,9 +589,11 @@ static void test_spread_fx(void)
     uint32_t k, i, closed = 0;
     double side_closed = 0, side_open = 0;
     char msg[160];
-    /* SLICER GATE, pattern 1 (x.x.), DEPTH 100 %: in the closed steps L and R both near silent */
+    /* SLICER GATE, pattern 1 (x.x.), MIX 100 %: in the closed steps L and R both near silent.
+     * CHAIN on this track so private sl[0] / track MODE-PAT-RATE apply (SEND would use sl_bus). */
     fresh(0, preset_by_name(0, "SOFT PAD"));
     dry(t);
+    song.g[G_SLOWN] = 1;
     t->p[P_ATK] = 0;
     t->p[P_SPRD] = 127;
     t->p[P_SLCR] = SL_GATE;
