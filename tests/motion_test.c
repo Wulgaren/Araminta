@@ -895,7 +895,7 @@ static int auto_list(void)
         bad += check("#223 AUTOMATION PARAM: SLICER / RATE", found);
         bad += check("AUTOMATION PARAM: no SEND; DELAY / REVERB tags", dly && rev && !send);
         bad += check("AUTOMATION PARAM: FX stages in EFFECTS order",
-                     i_dist >= 0 && i_filt > i_dist && i_crush > i_filt && i_phas > i_crush &&
+                     i_dist >= 0 && i_crush > i_dist && i_filt > i_crush && i_phas > i_filt &&
                      i_flang > i_phas && i_chor > i_flang && i_dly > i_chor && i_rev > i_dly);
     }
     turn(EN_K1, -1);
@@ -939,7 +939,7 @@ static int auto_list(void)
                      dist && spat && fcut && cho && !send);
         bad += check("MOD DST: PAN is MIX; DELAY / REVERB tags", pan && dly && rev);
         bad += check("MOD DST: FX stages in EFFECTS order",
-                     i_dist >= 0 && i_filt > i_dist && i_crush > i_filt && i_phas > i_crush &&
+                     i_dist >= 0 && i_crush > i_dist && i_filt > i_crush && i_phas > i_filt &&
                      i_flang > i_phas && i_chor > i_flang && i_dly > i_chor && i_rev > i_dly);
     }
     {

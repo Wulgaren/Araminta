@@ -202,7 +202,7 @@ int main(void)
     t->p[P_ICRATE] = 20;
     t->p[P_ICLPF] = 80;
     t->p[P_ICMIX] = 127;
-    t->p[P_IORD] = 0;                               /* DIST, FILTER, CRUSH, ... */
+    t->p[P_IORD] = 0;                               /* identity: DIST, FILTER, CRUSH, ... */
     trk_note_on(t, 60, 100);
     render_blocks(8);
     wet = hash_out(32);
@@ -284,6 +284,8 @@ int main(void)
         ck("migrate: TYPE OFF leaves stage MIX at 0 (dry)",
            got[P_ICMIX] == 0 && got[P_IPMIX] == 0 && got[P_ILMIX] == 0 && got[P_IHMIX] == 0 &&
            (got[P_DIST] ? got[P_IDMIX] == 127 : got[P_IDMIX] == 0));
+        ck("migrate: factory order is IORD_DEF (CRUSH before FILTER)",
+           got[P_IORD] == (int16_t)IORD_DEF);
         old[96] = 6;                                    /* PHASR */
         old[97] = 30; old[98] = 40; old[99] = 50; old[100] = 80;
         params_by_count(got, old, 111u, def);
@@ -425,10 +427,32 @@ int main(void)
            PAGES[pd].id[2] == P_ED_FX && PAGES[pd].id[3] == 0xFFu && !mix &&
            PAGES[pdl].id[3] == 0xFFu && PAGES[pdl].id[0] == G_DTIME && !chor);
         {
-            uint8_t list[FX_LIST_N];
+            uint32_t pc = NPAGES, pf = NPAGES;
+            for (i = 0; i < NPAGES; i++) {
+                if (str_eq(PAGES[i].title, "CRUSH") && PAGES[i].fam == FAM_FX && pc == NPAGES) pc = i;
+                if (str_eq(PAGES[i].title, "FILTER") && PAGES[i].fam == FAM_FX &&
+                    PAGES[i].graph == GR_INS && pf == NPAGES)
+                    pf = i;
+            }
+            ck("FX pages: CRUSH before FILTER (after DISTORT)", pd < pc && pc < pf && pf < ps);
+        }
+        {
+            uint8_t list[FX_LIST_N], defo[INS_N];
             fx_list_get(&trk[0], list);
             ck("EFFECTS list is 8: inserts + DLY + REV",
                FX_LIST_N == 8u && list[6] == INS_DLY && list[7] == INS_REV);
+            fresh();
+            t = &trk[0];
+            ck("factory P_IORD is IORD_DEF (DIST→CRUSH→FILTER→…)",
+               (uint16_t)t->p[P_IORD] == IORD_DEF && TP[P_IORD].def == (int16_t)IORD_DEF);
+            ins_order_get(t, defo);
+            ck("factory chain order: DIST, CRUSH, FILTER, PHASR, FLANG, CHOR",
+               defo[0] == INS_DIST && defo[1] == INS_CRUSH && defo[2] == INS_FILTER &&
+               defo[3] == INS_PHASR && defo[4] == INS_FLANG && defo[5] == INS_CHOR);
+            fx_list_get(t, list);
+            ck("factory EFFECTS list: DIST, CRUSH, FILTER before DLY/REV",
+               list[0] == INS_DIST && list[1] == INS_CRUSH && list[2] == INS_FILTER &&
+               list[6] == INS_DLY && list[7] == INS_REV);
         }
     }
 

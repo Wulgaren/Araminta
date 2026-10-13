@@ -1002,9 +1002,9 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
     }
 }
 
-/* Insert chain: six stages per track (DIST, FILTER, CRUSH, PHASR, FLANG, CHOR), order from P_IORD.
- * MIX 0 skips the stage (no DSP). Shared delay-line pool (2 lines/track for FLANG+CHOR). State per
- * stage in the pool; SLICER stays after the chain. */
+/* Insert chain: six stages per track (DIST, FILTER, CRUSH, PHASR, FLANG, CHOR), order from P_IORD
+ * (factory IORD_DEF: DIST, CRUSH, FILTER, …). MIX 0 skips the stage (no DSP). Shared delay-line
+ * pool (2 lines/track for FLANG+CHOR). State per stage in the pool; SLICER stays after the chain. */
 #define IL_LEN 256u
 #define IC_LEN 128u                     /* FILTER COMB delay (~2.9 ms: teeth down to ~345 Hz) */
 static const uint8_t INS_HOLD[16] = {64, 48, 40, 32, 24, 20, 16, 12, 10, 8, 6, 5, 4, 3, 2, 1};
