@@ -1219,7 +1219,10 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
     *vp = (int16_t)v;
     if (pg->scope != SC_GLOBAL) {
-        uint32_t id = (uint32_t)(vp - TSEL->p);
+        uint32_t id = pg->id[slot];
+        if (pg->graph == GR_MOD)
+            id += 3u * mod_ui_slot;
+        /* id from the page: vp may point at fx_bus_trk for SEND knobs */
         motion_capture(TSEL, id, *vp);
         ml_knob(TSEL, id);                              /* (MIDI LEARN: picked) */
         scale_lock_after(TSEL, id);
@@ -1285,7 +1288,9 @@ static void ior_knob(uint32_t k, int32_t s)
             int32_t tr = (int32_t)(TSEL - trk);
             uint32_t bit = 1u << (uint32_t)tr;
             sl_own_sanitize();
+            motion_fx_route(TSEL, INS_SLCR, 0);
             song.g[G_SLOWN] = (int16_t)((uint32_t)song.g[G_SLOWN] ^ bit);  /* this track SEND <-> CHAIN */
+            motion_fx_route(TSEL, INS_SLCR, 1);
         } else if (st == INS_DLY || st == INS_REV) {
             uint32_t which = st == INS_REV ? 1u : 0u;
             int32_t own = bus_own(which), tr = (int32_t)(TSEL - trk);

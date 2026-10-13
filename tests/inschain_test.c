@@ -202,7 +202,7 @@ static void test_fx_edit_paths(void)
 
     fresh();
     ui_power_on();
-    ins_send_set(TSEL, INS_FLT, 1);
+    ins_send_set(TSEL, INS_FILTER, 1);
     ck("edit setup creates a shared FILTER cut lock", !motion_set_lock(TSEL, 0, P_IFCUT, 100));
     motion_begin();
     motion_step(TSEL, 0, &motion, 1);
