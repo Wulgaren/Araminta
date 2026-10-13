@@ -88,9 +88,7 @@ static void fresh(void)
     memset(&fx, 0, sizeof fx);
     memset(&pf, 0, sizeof pf);
     memset(ins_st, 0, sizeof ins_st);
-    memset(ins_bus, 0, sizeof ins_bus);
     memset(ins_lines, 0, sizeof ins_lines);
-    memset(ins_bus_lines, 0, sizeof ins_bus_lines);
     memset(ins_bus_applied, 0, sizeof ins_bus_applied);
     fx_bus_init();
     for (k = 0; k < NTRK; k++)

@@ -43,7 +43,8 @@ static const uint16_t SL_PAT[SL_NPAT] = {
 static const uint8_t SL_DEN[6] = {2, 4, 8, 3, 6, 12};   /* P_SLRATE (N_SLDIV): a step = 1 / DEN beats */
 
 static int16_t sl_buf[NTRK][SL_LEN] __attribute__((section(".pool")));
-static int16_t sl_bus_buf[SL_LEN] __attribute__((section(".pool")));
+/* SEND recording reuses sl_buf[driver]: when G_SLOWN is SEND, no track holds CHAIN so the
+ * driver's private buffer is free for the shared bus (max one CHAIN + shared SEND, never both). */
 typedef struct {
     uint32_t pos, len;           /* samples into the step, its length */
     uint32_t base;               /* the step without swing */
@@ -233,7 +234,8 @@ static void sl_run_send(const track_t *t, int32_t *b, int32_t *sd, uint32_t n)
     tmp = drive && sl_bus_applied ? sl_bus : sl_bus_blk;
     tmp.gc = sl_send_gc[k];
     tmp.w = sl_send_w[k];
-    sl_run(pt, t, &tmp, sl_bus_buf, b, sd, n);
+    /* driver records into its slot; followers replay from that same buffer */
+    sl_run(pt, t, &tmp, sl_buf[drive ? k : sl_bus_driver], b, sd, n);
     sl_send_gc[k] = tmp.gc;
     sl_send_w[k] = tmp.w;
     if (drive) {

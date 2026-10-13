@@ -1055,13 +1055,21 @@ typedef struct {
     int16_t comb[IC_LEN];
 } ins_st_t;
 static ins_st_t ins_st[NTRK][INS_N] __attribute__((section(".pool")));
-static ins_st_t ins_bus[INS_N] __attribute__((section(".pool")));   /* shared SEND DSP (one per stage) */
+/* SEND DSP reuses ins_st[bus_tr][st] / ins_lines[bus_tr] (first SEND track for that stage).
+ * Max 4 instances/stage: CHAIN private + SEND shared coexist, never 4+1. */
 static ins_st_t ins_bus_blk[INS_N];                                  /* SEND state at mix-block start */
 static uint8_t ins_bus_applied[INS_N];                               /* first SEND track committed this block */
 static uint8_t ins_bus_driver[INS_N];
 static int16_t ins_lines[NTRK][2][IL_LEN] __attribute__((section(".pool")));
-static int16_t ins_bus_lines[2][IL_LEN] __attribute__((section(".pool")));
 /* SEND bus knobs live in fx_bus_trk.p (core.h); packed into reclaimed project bytes. MIX stays per-track. */
+static uint32_t ins_bus_tr(uint32_t st)
+{
+    uint32_t k;
+    for (k = 0; k < NTRK; k++)
+        if (ins_is_send(&trk[k], st))
+            return k;
+    return 0;
+}
 static void fx_bus_init(void)
 {
     uint32_t i;
@@ -1109,9 +1117,7 @@ static void fx_boot(void)
     dly_q8 = 0;
     dly_free = 0;
     memset(ins_st, 0, sizeof ins_st);
-    memset(ins_bus, 0, sizeof ins_bus);
     memset(ins_lines, 0, sizeof ins_lines);
-    memset(ins_bus_lines, 0, sizeof ins_bus_lines);
     memset(ins_bus_applied, 0, sizeof ins_bus_applied);
     fx_bus_init();
     for (i = 0; i < NTRK; i++)
@@ -1289,10 +1295,24 @@ static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, const track_t *
 
 static __attribute__((noinline)) void ins_rest(track_t *t)
 {
-    uint32_t k = (uint32_t)(t - trk) % NTRK, s;
-    for (s = 0; s < INS_N; s++)
+    uint32_t k = (uint32_t)(t - trk) % NTRK, s, clear_lines = 1;
+    for (s = 0; s < INS_N; s++) {
+        /* Shared SEND state lives in the first SEND track's slot; keep it while
+         * another SEND track still has MIX > 0 on this stage. */
+        if (ins_is_send(t, s) && ins_bus_tr(s) == k) {
+            uint32_t j, keep = 0;
+            for (j = 0; j < NTRK; j++)
+                if (j != k && ins_is_send(&trk[j], s) && ins_mix_of(&trk[j], s) > 0)
+                    keep = 1;
+            if (keep) {
+                clear_lines = 0;                     /* FLANG/CHOR lines may be shared too */
+                continue;
+            }
+        }
         memset(&ins_st[k][s], 0, sizeof(ins_st_t));
-    memset(ins_lines[k], 0, sizeof ins_lines[k]);
+    }
+    if (clear_lines)
+        memset(ins_lines[k], 0, sizeof ins_lines[k]);
     t->ins_run = 0;
 }
 
@@ -1302,17 +1322,20 @@ static void ins_bus_block(void)                      /* mix_block: new block for
 }
 
 /* tw_force < 0: the stage's own mix. Else that Q15 wet (a send runs fully wet; the amount
- * scales the add in track_insert). SEND: shared DSP + fx_bus knobs; CHAIN: private. */
+ * scales the add in track_insert). SEND: shared DSP in first SEND track's slot + fx_bus knobs;
+ * CHAIN: private ins_st[tr][st]. */
 static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n, int32_t tw_force)
 {
-    uint32_t k = (uint32_t)(t - trk) % NTRK;
+    uint32_t k = (uint32_t)(t - trk) % NTRK, bus_tr;
     int send = st < INS_N && ins_is_send(t, st);
     ins_st_t *s, tmp, *run;
     const track_t *src = ins_param_src(t, st);
     int32_t tw = tw_force >= 0 ? tw_force : ins_mixq(ins_mix_of(t, st));
-    int16_t (*lines)[IL_LEN] = send ? ins_bus_lines : ins_lines[k];
+    int16_t (*lines)[IL_LEN];
     if (send) {
-        s = &ins_bus[st];
+        bus_tr = ins_bus_tr(st);
+        s = &ins_st[bus_tr][st];
+        lines = ins_lines[bus_tr];
         if (!ins_bus_applied[st])
             ins_bus_blk[st] = *s;
         if (!ins_bus_applied[st] || k == ins_bus_driver[st]) {
@@ -1326,6 +1349,7 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
     } else {
         s = &ins_st[k][st];
         run = s;
+        lines = ins_lines[k];
     }
     if (!run->w && !tw)
         return;                                         /* MIX 0 and faded: skip DSP */
