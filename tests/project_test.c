@@ -767,10 +767,10 @@ int main(void)
         a.sum = proj_sum(&a);
         bad += check("FUN10 P_IORD order above 719 is refused", !proj_pack(&st, &a));
     }
-    {   /* FUN11: DRUM-X kit / mute / X-MOD at PROJ_DX_OFF; FUN10 (FUNA) loads the factory kit */
+    {   /* FUN11 kit/mute still on disk; X-MOD (dx_mot) is RAM-only — those 4 bytes hold SEND bus knobs. */
         project_t a, c;
         static project_store_t st, funa;
-        uint32_t sum;
+        uint32_t sum, i;
         memset(&a, 0, sizeof a);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);
@@ -778,6 +778,8 @@ int main(void)
         a.dx[0].a[0] = 11; a.dx[0].b[2] = 99; a.dx[3].a[4] = 55;
         a.dx_mute = (uint16_t)(DXG_KICK | (1u << 8) | (4u << 8));
         a.dx_mot[XM_RATE] = 3; a.dx_mot[XM_DPTH] = 40; a.dx_mot[XM_SHPE] = 2; a.dx_mot[XM_RAND] = 17;
+        for (i = 0; i < FX_BUS_N; i++)
+            a.fx_bus[i] = (uint8_t)(10u + i);
         memcpy(a.name, "DX KIT", 6);
         a.sum = proj_sum(&a);
         ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E44u &&
@@ -785,9 +787,11 @@ int main(void)
              st.raw[PROJ_DX_OFF + sizeof a.dx] == (uint8_t)(a.dx_mute & DXG_ALL) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx + 1u] == (uint8_t)(a.dx_mute >> 8) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx + 2u] == 1u &&
-             !memcmp(st.raw + PROJ_DX_OFF + sizeof a.dx + 3u, a.dx_mot, sizeof a.dx_mot) &&
-             proj_import(&c, &st, sizeof st) && !memcmp(&a, &c, sizeof a);
-        bad += check("FUN13: DRUM-X kit, mute and X-MOD round trip (bytes at PROJ_DX_OFF)", ok);
+             proj_import(&c, &st, sizeof st) &&
+             !memcmp(c.dx, a.dx, sizeof a.dx) && c.dx_mute == a.dx_mute &&
+             !c.dx_mot[0] && !c.dx_mot[1] && !c.dx_mot[2] && !c.dx_mot[3] &&
+             !memcmp(c.fx_bus, a.fx_bus, FX_BUS_N) && !memcmp(c.name, "DX KIT", 6);
+        bad += check("FUN13: DRUM-X kit/mute round trip; X-MOD not on disk; SEND bus knobs round trip", ok);
         funa = st;
         ((uint32_t *)funa.raw)[0] = 0x46554E41u;       /* FUNA / FUN10: same 3840 layout, no kit block */
         memset(funa.raw + PROJ_DX_OFF, 0, PROJ_DX_SIZE);
@@ -798,9 +802,10 @@ int main(void)
              !memcmp(c.name, "DX KIT", 6);
         bad += check("FUN10 (FUNA): loads with the factory DRUM-X kit (custom kit not on disk)", ok);
     }
-    {   /* FUN13: SCALE LOCK + stash round trip */
+    {   /* FUN13: SCALE LOCK on disk; stash is RAM-only (reclaimed for SEND bus knobs). */
         project_t a, c;
         static project_store_t st;
+        uint32_t i;
         memset(&a, 0, sizeof a);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);
@@ -810,16 +815,18 @@ int main(void)
         a.t[1].scl_stash[0] = 5; a.t[1].scl_stash[1] = 2; a.t[1].scl_stash[2] = 1;
         a.t[2].scl_lock = SCL_LOCK_SCALE;
         a.t[3].scl_lock = SCL_LOCK_SCALE;
+        for (i = 0; i < FX_BUS_N; i++)
+            a.fx_bus[i] = (uint8_t)(20u + i * 3u);
         a.sum = proj_sum(&a);
-        ok = proj_pack(&st, &a) && st.raw[PROJ_SCL_OFF] == 1u &&
-             st.raw[PROJ_SCL_OFF + 4u] == (uint8_t)(0x80u) &&
-             st.raw[PROJ_SCL_OFF + 5u] == 5u && st.raw[PROJ_SCL_OFF + 6u] == 2u &&
-             st.raw[PROJ_SCL_OFF + 7u] == 1u &&
+        ok = proj_pack(&st, &a) &&
+             (st.raw[PROJ_SCL_OFF] & 0x0Fu) == 0x0Du &&   /* locks: t0/t2/t3 on, t1 off */
+             st.raw[PROJ_SCL_OFF + PROJ_SCL_SIZE + 1u] == 1u && /* bus-layout mark */
              proj_import(&c, &st, sizeof st) &&
              c.t[0].scl_lock == SCL_LOCK_SCALE && c.t[1].scl_lock == SCL_LOCK_OFF &&
-             c.t[1].scl_stash_ok && c.t[1].scl_stash[0] == 5 && c.t[1].scl_stash[1] == 2 &&
-             c.t[1].scl_stash[2] == 1;
-        bad += check("FUN13: SCALE LOCK and stash round trip (bytes at PROJ_SCL_OFF)", ok);
+             c.t[2].scl_lock == SCL_LOCK_SCALE && c.t[3].scl_lock == SCL_LOCK_SCALE &&
+             !c.t[1].scl_stash_ok && !c.t[1].scl_stash[0] && !c.t[1].scl_stash[1] &&
+             !c.t[1].scl_stash[2] && !memcmp(c.fx_bus, a.fx_bus, FX_BUS_N);
+        bad += check("FUN13: SCALE LOCK round trip; stash not on disk; SEND bus knobs in reclaimed bytes", ok);
     }
     {   /* Felucca 1.5 FUNA (np 111): INSERT + FTYPE/ESYNC through proj_import end-to-end */
         project_t c;

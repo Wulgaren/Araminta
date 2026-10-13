@@ -109,6 +109,9 @@
  * Format 13 ("FUND", written now; FUN13 in the docs) = FUN12 layout with CHR removed from SCL (15 scales: MAJ..DIMWH).
  * FUN12 and older: SCL index 0 was CHR -> MAJ; 1..15 -> 0..14 (stash too). Firmware that only knows FUN12 refuses
  * a FUN13 (magic): its slot shows EMPTY until saved over.
+ * Same magic still: SCALE LOCK is lock-only on disk (stash RAM-only); X-MOD (dx_mot) is not saved. Those bytes
+ * hold SEND bus knobs (FX_BUS_N). Pad byte after G_SLOWN marks the bus layout (1); older FUND images without
+ * the mark still load lock+stash and dx_mot, with bus knobs at factory defaults.
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
@@ -129,8 +132,11 @@
 #define PROJ_NG_V2 27u                         /* wire header globals (FUN1..FUN11 at b+8); G_COUNT may be larger */
 #define PROJ_NG_WIRE PROJ_NG_V2
 #define PROJ_CRV_OFF 3214u                     /* FUN11+: CRSIZE, CRDAMP (CRTYPE in b[65]; b[67]=1 marks present) */
-#define PROJ_SCL_SIZE 16u                      /* FUN12: 4 x (lock|ok, ROOT, SCL, QNT stash) */
+#define PROJ_SCL_SIZE 16u                      /* region before CRV pad: lock + SEND bus (or old stash) */
 #define PROJ_SCL_OFF (PROJ_CRV_OFF - 18u)      /* 16 scl + 2 pad before CRV; motion ends here */
+#define PROJ_SCL_MARK_OFF (PROJ_SCL_OFF + PROJ_SCL_SIZE + 1u) /* pad after G_SLOWN: 1 = bus layout */
+#define PROJ_FXBUS_SCL_N 15u                   /* first 15 SEND knobs after the lock byte */
+#define PROJ_DX_MOT_OFF (PROJ_DX_OFF + 88u + 2u + 1u) /* was X-MOD; last 4 SEND knobs */
 #define PROJ_NP_V3 57u                         /* P_COUNT of format 3 (P_E0 was 49) */
 #define PROJ_NP_V4 69u                         /* P_COUNT of format 4 (P_E0 61) */
 #define PROJ_PHYS 2u                           /* project_t.phys: PHYS without DUST and DRUM (see the top) */
@@ -157,7 +163,8 @@ typedef struct {
     uint8_t fm6[NTRK][FM6_PACKED];             /* each track's FM6 patch, packed (eng_fm6.c) */
     dx_lane_t dx[8];                           /* the DRUM-X kit (drumx_voice.c); FUN11 */
     uint16_t dx_mute;                          /* group + lane mutes (eng_drum.c dx_mute) */
-    uint8_t dx_mot[4];                         /* X-MOD RATE DPTH SHPE RAND (eng_drum.c) */
+    uint8_t dx_mot[4];                         /* X-MOD RATE DPTH SHPE RAND (eng_drum.c); RAM-only since bus layout */
+    uint8_t fx_bus[FX_BUS_N];                  /* SEND insert+slicer knobs (wire in reclaimed SCL/X-MOD bytes) */
     char name[PROJ_NAME_LEN];                  /* the project's name: upper-case ASCII 32..126, 0-padded; "" = none */
     uint32_t sum;
 } project_t;
@@ -747,22 +754,21 @@ static int proj_pack(project_store_t *out, const project_t *q)
     if (mot.count > MOTION_FILE_MAX)
         mot.count = (uint8_t)MOTION_FILE_MAX;
     memcpy(b + pos, &mot, MOTION_FILE_SIZE);
-    for (t = 0; t < NTRK; t++) {                       /* SCALE LOCK + stash (4 bytes a track) */
-        const proj_trk_t *tr = &q->t[t];
-        uint8_t *s = b + PROJ_SCL_OFF + t * 4u;
-        int16_t root = tr->scl_stash[0], sc = tr->scl_stash[1], qn = tr->scl_stash[2];
-        if (root < 0 || root > 11 || sc < 0 || sc > 14 || qn < 0 || qn > 3) return 0;
-        s[0] = (uint8_t)((tr->scl_stash_ok ? 0x80u : 0u) | (tr->scl_lock ? 1u : 0u));
-        s[1] = (uint8_t)root;
-        s[2] = (uint8_t)sc;
-        s[3] = (uint8_t)qn;
+    {   /* SCALE LOCK (1 byte) + SEND bus knobs (15 here + 4 in former X-MOD); stash / dx_mot stay RAM-only */
+        uint8_t locks = 0;
+        for (t = 0; t < NTRK; t++)
+            if (q->t[t].scl_lock)
+                locks |= (uint8_t)(1u << t);
+        b[PROJ_SCL_OFF] = locks;
+        memcpy(b + PROJ_SCL_OFF + 1u, q->fx_bus, PROJ_FXBUS_SCL_N);
+        memcpy(b + PROJ_DX_MOT_OFF, q->fx_bus + PROJ_FXBUS_SCL_N, FX_BUS_N - PROJ_FXBUS_SCL_N);
     }
     b[PROJ_SCL_OFF + PROJ_SCL_SIZE] = (uint8_t)clamp(q->g[G_SLOWN], 0, 4); /* pad: slicer CHAIN owner */
+    b[PROJ_SCL_MARK_OFF] = 1u;                         /* bus-layout mark (lock-only + SEND knobs) */
     memcpy(b + PROJ_DX_OFF, q->dx, sizeof q->dx);
     b[PROJ_DX_OFF + sizeof q->dx] = (uint8_t)(q->dx_mute & DXG_ALL);
     b[PROJ_DX_OFF + sizeof q->dx + 1u] = (uint8_t)(q->dx_mute >> 8);
     b[PROJ_DX_OFF + sizeof q->dx + 2u] = 1u;            /* marker: kit layout as today */
-    memcpy(b + PROJ_DX_OFF + sizeof q->dx + 3u, q->dx_mot, sizeof q->dx_mot);
     memcpy(b + PROJ_FM6_OFF, q->fm6, sizeof q->fm6);
     {   /* the name (0-padded; stops at the first 0) */
         char n[PROJ_NAME_LEN + 1u];
@@ -931,20 +937,33 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     } else if (!proj_motion_v9(&q->motion, b + pos))
         return 0;
     if (!proj_motion_ids(&q->motion, np) || !chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
-    for (t = 0; t < NTRK; t++) {
-        if (v12) {
-            const uint8_t *s = b + PROJ_SCL_OFF + t * 4u;
-            q->t[t].scl_lock = (s[0] & 1u) ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
-            q->t[t].scl_stash_ok = (s[0] & 0x80u) ? 1u : 0u;
-            q->t[t].scl_stash[0] = (int16_t)(s[1] <= 11u ? s[1] : 0u);
-            q->t[t].scl_stash[1] = (int16_t)(s[2] <= (v13 ? 14u : 15u) ? s[2] : 0u);
-            q->t[t].scl_stash[2] = (int16_t)(s[3] <= 3u ? s[3] : 0u);
-            if (!v13)
-                q->t[t].scl_stash[1] = scl_from_v12(q->t[t].scl_stash[1]);
+    {
+        int bus_layout = v13 && b[PROJ_SCL_MARK_OFF] == 1u;
+        for (t = 0; t < NTRK; t++) {
+            if (v12 && bus_layout) {
+                q->t[t].scl_lock = (b[PROJ_SCL_OFF] & (1u << t)) ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
+                q->t[t].scl_stash_ok = 0;
+                q->t[t].scl_stash[0] = q->t[t].scl_stash[1] = q->t[t].scl_stash[2] = 0;
+            } else if (v12) {
+                const uint8_t *s = b + PROJ_SCL_OFF + t * 4u;
+                q->t[t].scl_lock = (s[0] & 1u) ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
+                q->t[t].scl_stash_ok = (s[0] & 0x80u) ? 1u : 0u;
+                q->t[t].scl_stash[0] = (int16_t)(s[1] <= 11u ? s[1] : 0u);
+                q->t[t].scl_stash[1] = (int16_t)(s[2] <= (v13 ? 14u : 15u) ? s[2] : 0u);
+                q->t[t].scl_stash[2] = (int16_t)(s[3] <= 3u ? s[3] : 0u);
+                if (!v13)
+                    q->t[t].scl_stash[1] = scl_from_v12(q->t[t].scl_stash[1]);
+            } else {
+                q->t[t].scl_lock = SCL_LOCK_SCALE;
+                q->t[t].scl_stash_ok = 0;
+                q->t[t].scl_stash[0] = q->t[t].scl_stash[1] = q->t[t].scl_stash[2] = 0;
+            }
+        }
+        if (bus_layout) {
+            memcpy(q->fx_bus, b + PROJ_SCL_OFF + 1u, PROJ_FXBUS_SCL_N);
+            memcpy(q->fx_bus + PROJ_FXBUS_SCL_N, b + PROJ_DX_MOT_OFF, FX_BUS_N - PROJ_FXBUS_SCL_N);
         } else {
-            q->t[t].scl_lock = SCL_LOCK_SCALE;
-            q->t[t].scl_stash_ok = 0;
-            q->t[t].scl_stash[0] = q->t[t].scl_stash[1] = q->t[t].scl_stash[2] = 0;
+            fx_bus_wire_def(q->fx_bus);
         }
     }
     for (t = 0; t < NTRK; t++) {
@@ -955,15 +974,20 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
                 q->fm6[t][i] = b[end + t * FM6_PACKED + i] & 0x7Fu;
     }
     if (v11) {                                          /* DRUM-X kit (a broken one: not a project) */
+        int bus_layout = v13 && b[PROJ_SCL_MARK_OFF] == 1u;
         memcpy(q->dx, b + PROJ_DX_OFF, sizeof q->dx);
         if (!dx_kit_ok(q->dx)) return 0;
         q->dx_mute = (uint16_t)((b[PROJ_DX_OFF + sizeof q->dx] & DXG_ALL) |
                                 (uint32_t)b[PROJ_DX_OFF + sizeof q->dx + 1u] << 8);
-        memcpy(q->dx_mot, b + PROJ_DX_OFF + sizeof q->dx + 3u, sizeof q->dx_mot);
-        q->dx_mot[XM_RATE] = q->dx_mot[XM_RATE] > 8u ? 0u : q->dx_mot[XM_RATE];
-        q->dx_mot[XM_DPTH] &= 127u;
-        q->dx_mot[XM_SHPE] = q->dx_mot[XM_SHPE] > 4u ? 0u : q->dx_mot[XM_SHPE];
-        q->dx_mot[XM_RAND] &= 127u;
+        if (bus_layout) {
+            memset(q->dx_mot, 0, sizeof q->dx_mot);     /* X-MOD not on disk */
+        } else {
+            memcpy(q->dx_mot, b + PROJ_DX_OFF + sizeof q->dx + 3u, sizeof q->dx_mot);
+            q->dx_mot[XM_RATE] = q->dx_mot[XM_RATE] > 8u ? 0u : q->dx_mot[XM_RATE];
+            q->dx_mot[XM_DPTH] &= 127u;
+            q->dx_mot[XM_SHPE] = q->dx_mot[XM_SHPE] > 4u ? 0u : q->dx_mot[XM_SHPE];
+            q->dx_mot[XM_RAND] &= 127u;
+        }
     } else {
         memcpy(q->dx, DX_KIT_DEF, sizeof q->dx);
         q->dx_mute = 0;
@@ -1093,7 +1117,8 @@ static void project_capture(project_t *p)
     p->motion = motion;
     memcpy(p->dx, dx_kit, sizeof p->dx);
     p->dx_mute = dx_mute;
-    memcpy(p->dx_mot, dx_mot, sizeof p->dx_mot);
+    memcpy(p->dx_mot, dx_mot, sizeof p->dx_mot);       /* RAM snapshot; not written to disk */
+    fx_bus_to_wire(p->fx_bus);
     motion_unguard(f);
     memcpy(p->name, proj_name, str_len(proj_name));
     p->sum = proj_sum(p);
@@ -1235,7 +1260,8 @@ static int project_restore_runtime(const project_t *input)
     memset(drum_mute, 0, sizeof drum_mute);       /* (1.4.1: the DRUM lanes' mutes, performance state) */
     if (p != input) memcpy(p, input, sizeof *p);
     memcpy(dx_kit, dx_kit_ok(p->dx) ? p->dx : DX_KIT_DEF, sizeof dx_kit);   /* FUN11 kit (FUN10: factory) */
-    memcpy(dx_mot, p->dx_mot, sizeof dx_mot);
+    memcpy(dx_mot, p->dx_mot, sizeof dx_mot);           /* RAM-only; new saves do not restore from disk */
+    fx_bus_from_wire(p->fx_bus);
     dx_mute_set(p->dx_mute);
     proj_drums_to_part(p);                              /* a RAM slot of firmware before 1.0 */
     proj_phys(p);                                       /* .. before PHYS lost DUST and DRUM */

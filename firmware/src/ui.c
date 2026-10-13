@@ -979,7 +979,9 @@ static void mom_back(const track_t *t)            /* a sound load into t (0: a p
 {
     uint32_t i, k = 0;
     for (i = 0; i < mom.n; i++)
-        if (!t || (mom.vp[i] >= t->p && mom.vp[i] < t->p + P_COUNT) || (mom.vp[i] >= song.g && mom.vp[i] < song.g + G_COUNT)) {
+        if (!t || (mom.vp[i] >= t->p && mom.vp[i] < t->p + P_COUNT) ||
+            (mom.vp[i] >= song.g && mom.vp[i] < song.g + G_COUNT) ||
+            (mom.vp[i] >= fx_bus_trk.p && mom.vp[i] < fx_bus_trk.p + P_COUNT)) {
             *mom.vp[i] = mom.v[i];                /* (a global: back too, before the load's undo copy) */
         } else {
             mom.vp[k] = mom.vp[i];

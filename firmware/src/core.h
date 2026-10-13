@@ -103,6 +103,17 @@ enum { INS_N = 6, INS_DIST = 0, INS_FILTER = 1, INS_CRUSH = 2, INS_PHASR = 3, IN
 #define IORD_DEF 24u
 /* EFFECTS DLY/REV list slots in P_CHOR (fx.c). SLCR slot is RAM-only (track.fx_sl_pos) until FUN14. */
 #define FX_POS_DEF (64 + 6 + (7 << 3))           /* DLY at 6, REV at 7; SLCR defaults to 8 */
+/* SEND bus knobs (no MIX): packed into reclaimed FUN13 bytes (SCALE LOCK stash + X-MOD). */
+#define FX_BUS_N 19u
+static const uint8_t FX_BUS_PID[FX_BUS_N] = {
+    P_IDMODE, P_DIST, P_ED_FX,
+    P_IFTYPE, P_IFCUT, P_IFRES,
+    P_ICBITS, P_ICRATE, P_ICLPF,
+    P_IPRATE, P_IPDEP, P_IPFBK,
+    P_ILRATE, P_ILDEP,
+    P_IHRATE, P_IHDEP,
+    P_SLCR, P_SLPAT, P_SLRATE
+};
 enum { IDM_SOFT, IDM_HARD, IDM_FOLD, IDM_FUZZ, IDM_N };
 enum { IFT_LP, IFT_HP, IFT_BP, IFT_COMB, IFT_N };
 
@@ -531,6 +542,7 @@ typedef struct {
 static track_t trk[NTRK];        /* the instrument: four parts */
 static song_t song;
 #define TSEL (&trk[song.sel])    /* the selected track */
+static track_t fx_bus_trk;       /* SEND insert/slicer knobs in .p[]; other fields unused */
 
 /* SWING of a track's step clock: the track's own plus the global one, at most 100 (#31). The sequencer
  * (seq.c step_samples) and the SLICER (slicer.c sl_enter) both time steps with it. At 100 the even

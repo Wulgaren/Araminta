@@ -1061,43 +1061,58 @@ static uint8_t ins_bus_applied[INS_N];                               /* first SE
 static uint8_t ins_bus_driver[INS_N];
 static int16_t ins_lines[NTRK][2][IL_LEN] __attribute__((section(".pool")));
 static int16_t ins_bus_lines[2][IL_LEN] __attribute__((section(".pool")));
-/* SEND bus knobs (song globals in RAM; packed into reclaimed project bytes). MIX stays per-track. */
-static int16_t fx_bus_p[P_COUNT];
-static track_t fx_bus_trk;                                           /* param view for SEND DSP reads */
+/* SEND bus knobs live in fx_bus_trk.p (core.h); packed into reclaimed project bytes. MIX stays per-track. */
 static void fx_bus_init(void)
 {
     uint32_t i;
     for (i = 0; i < P_COUNT; i++)
-        fx_bus_p[i] = TP[i].def;
-    fx_bus_p[P_IDMODE] = IDM_SOFT;
-    fx_bus_p[P_IFTYPE] = IFT_LP;
-    fx_bus_p[P_IFCUT] = 96;
-    fx_bus_p[P_IFRES] = 40;
-    fx_bus_p[P_ICBITS] = 64;
-    fx_bus_p[P_ICRATE] = 96;
-    fx_bus_p[P_ICLPF] = 96;
-    fx_bus_p[P_IPRATE] = fx_bus_p[P_ILRATE] = fx_bus_p[P_IHRATE] = 64;
-    fx_bus_p[P_IPDEP] = fx_bus_p[P_ILDEP] = fx_bus_p[P_IHDEP] = 96;
-    fx_bus_p[P_IPFBK] = 96;
-    fx_bus_p[P_DIST] = 0;
-    fx_bus_p[P_ED_FX] = 0;
-    fx_bus_p[P_SLCR] = 0;
-    fx_bus_p[P_SLPAT] = 1;
-    fx_bus_p[P_SLRATE] = 1;
-    memcpy(fx_bus_trk.p, fx_bus_p, sizeof fx_bus_trk.p);
+        fx_bus_trk.p[i] = TP[i].def;
+    fx_bus_trk.p[P_IDMODE] = IDM_SOFT;
+    fx_bus_trk.p[P_IFTYPE] = IFT_LP;
+    fx_bus_trk.p[P_IFCUT] = 96;
+    fx_bus_trk.p[P_IFRES] = 40;
+    fx_bus_trk.p[P_ICBITS] = 64;
+    fx_bus_trk.p[P_ICRATE] = 96;
+    fx_bus_trk.p[P_ICLPF] = 96;
+    fx_bus_trk.p[P_IPRATE] = fx_bus_trk.p[P_ILRATE] = fx_bus_trk.p[P_IHRATE] = 64;
+    fx_bus_trk.p[P_IPDEP] = fx_bus_trk.p[P_ILDEP] = fx_bus_trk.p[P_IHDEP] = 96;
+    fx_bus_trk.p[P_IPFBK] = 96;
+    fx_bus_trk.p[P_DIST] = 0;
+    fx_bus_trk.p[P_ED_FX] = 0;
+    fx_bus_trk.p[P_SLCR] = 0;
+    fx_bus_trk.p[P_SLPAT] = 1;
+    fx_bus_trk.p[P_SLRATE] = 1;
 }
 static void fx_bus_set(uint32_t st, uint32_t pid, int32_t v)
 {
     (void)st;
-    if (pid < P_COUNT) {
-        fx_bus_p[pid] = (int16_t)v;
+    if (pid < P_COUNT)
         fx_bus_trk.p[pid] = (int16_t)v;
-    }
 }
 static int16_t fx_bus_get(uint32_t st, uint32_t pid)
 {
     (void)st;
-    return pid < P_COUNT ? fx_bus_p[pid] : 0;
+    return pid < P_COUNT ? fx_bus_trk.p[pid] : 0;
+}
+static void fx_bus_from_wire(const uint8_t w[FX_BUS_N])
+{
+    uint32_t i;
+    fx_bus_init();
+    for (i = 0; i < FX_BUS_N; i++)
+        fx_bus_trk.p[FX_BUS_PID[i]] = (int16_t)w[i];
+}
+static void fx_bus_to_wire(uint8_t w[FX_BUS_N])
+{
+    uint32_t i;
+    for (i = 0; i < FX_BUS_N; i++) {
+        int32_t v = fx_bus_trk.p[FX_BUS_PID[i]];
+        w[i] = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
+    }
+}
+static void fx_bus_wire_def(uint8_t w[FX_BUS_N])
+{
+    fx_bus_init();
+    fx_bus_to_wire(w);
 }
 static const track_t *ins_param_src(const track_t *t, uint32_t st)
 {
@@ -1238,11 +1253,10 @@ static __attribute__((noinline)) void ins_run_crush(ins_st_t *s, const track_t *
 }
 
 static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n,
-                                                    int32_t tw, uint32_t kind)
+                                                    int32_t tw, uint32_t kind, int16_t *line)
 {
-    uint32_t i, trk_i = (uint32_t)(t - trk) % NTRK;
+    uint32_t i;
     int32_t rate, dep, fbk_p;
-    int16_t *line = ins_lines[trk_i][s->line_i & 1u];
     if (kind == INS_PHASR) {
         rate = t->p[P_IPRATE]; dep = t->p[P_IPDEP]; fbk_p = t->p[P_IPFBK];
     } else if (kind == INS_FLANG) {
@@ -1322,18 +1336,14 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
     ins_st_t *s, tmp, *run;
     const track_t *src = ins_param_src(t, st);
     int32_t tw = tw_force >= 0 ? tw_force : ins_mixq(ins_mix_of(t, st));
-    int16_t *lines;
+    int16_t (*lines)[IL_LEN] = send ? ins_bus_lines : ins_lines[k];
     if (send) {
         s = &ins_bus[st];
-        lines = &ins_bus_lines[0][0];
-        (void)lines;
         if (!ins_bus_applied[st])
             ins_bus_blk[st] = *s;
         if (!ins_bus_applied[st] || k == ins_bus_driver[st]) {
             run = s;
-            if (ins_bus_applied[st])
-                ;                                       /* keep advancing the bus */
-            else
+            if (!ins_bus_applied[st])
                 *s = ins_bus_blk[st];
         } else {
             tmp = ins_bus_blk[st];
@@ -1353,7 +1363,7 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
     if (st == INS_DIST) ins_run_dist(run, src, b, n, tw);
     else if (st == INS_FILTER) ins_run_filter(run, src, b, n, tw);
     else if (st == INS_CRUSH) ins_run_crush(run, src, b, n, tw);
-    else ins_run_swept(run, src, b, n, tw, st);
+    else ins_run_swept(run, src, b, n, tw, st, lines[run->line_i & 1u]);
     if (send && run == s) {
         ins_bus_applied[st] = 1;
         ins_bus_driver[st] = (uint8_t)k;
