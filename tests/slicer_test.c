@@ -469,6 +469,48 @@ static int test_mix_send(void)
     return bad;
 }
 
+/* An active gate/repeat must finish its ramp, then leave both stereo signals untouched. */
+static int test_mix_zero_after_ramp(void)
+{
+    int bad = 0;
+    uint32_t chain, mode, f, i;
+    for (chain = 0; chain < 2; chain++) {
+        for (mode = SL_GATE; mode <= SL_STUT; mode++) {
+            track_t *t = &trk[0];
+            int active = 0, same = 1;
+            host_tracks_init();
+            memset(sl, 0, sizeof sl);
+            memset(&sl_bus, 0, sizeof sl_bus);
+            song.g[G_SLOWN] = chain ? 1 : 0;
+            set_slicer(t, (int)mode, 1, 1, 127);
+            slicer_start();
+            for (f = 0; f < FS / 5u; f += CTL) {
+                int32_t b[CTL], sd[CTL];
+                for (i = 0; i < CTL; i++) b[i] = 12000, sd[i] = 6000;
+                slicer_block();
+                slicer_track_sd(t, b, sd, CTL);
+                active |= mode == SL_GATE ? (chain ? sl[0].gc : sl_send_gc[0]) != 0
+                                         : (chain ? sl[0].w : sl_send_w[0]) != 0;
+            }
+            bad += check("MIX 0 setup reaches an active gate/repeat", active);
+            t->p[P_SLDEPTH] = 0;
+            for (f = 0; f < SL_RAMP + 2u * CTL; f += CTL) {
+                int32_t b[CTL], sd[CTL], dry[CTL], side[CTL];
+                for (i = 0; i < CTL; i++) {
+                    b[i] = dry[i] = 17000 + (int32_t)i;
+                    sd[i] = side[i] = -3000 - (int32_t)i;
+                }
+                slicer_block();
+                slicer_track_sd(t, b, sd, CTL);
+                if (f >= SL_RAMP)
+                    same &= !memcmp(b, dry, sizeof b) && !memcmp(sd, side, sizeof sd);
+            }
+            bad += check("MIX 0 settles to stereo bypass and releases the repeat", same && !slicer_busy(t));
+        }
+    }
+    return bad;
+}
+
 int main(int argc, char **argv)
 {
     int bad = 0;
@@ -478,6 +520,7 @@ int main(int argc, char **argv)
     bad += test_off_stut();
     bad += test_cost();
     bad += test_mix_send();
+    bad += test_mix_zero_after_ramp();
     if (argc > 1)
         demos(argv[1]);
     printf("%s\n", bad ? "SLICER TEST FAILED" : "slicer test passed");

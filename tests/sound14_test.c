@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of the roadmap's sound items (Discussions #132, #104, #148), same sources as the firmware (hostsim.c):
  *   build/host/sound14_test [DEMO_DIR]      (run_tests.sh builds and runs it; demos in build/sound14_demo/)
- * 1. the matrix (mod.c): the lists only grew (every stored SRC / DST keeps its name), S&H holds one value a cycle of the
+ * 1. the matrix (mod.c): lists keep stored IDs (DLY / REV labels clarify MIX), S&H holds one value a cycle of the
  *    track LFO (the value LFO WAVE S&H plays), steps at the cycle's start, spreads over both signs; SLEW is continuous,
  *    glides from the cycle before's value to this one's, stays inside S&H's range; DEPTH scales the LFO (its LFO DEST
  *    routings and the matrix's LFO source) as AMP does a voice, several slots multiply, none = untouched (bit for bit);
@@ -140,7 +140,7 @@ static uint64_t phrase_child(uint32_t e, uint32_t pi, void (*setup)(track_t *t))
 static void test_matrix(void)
 {
     static const char *const SRC_V12[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR"};
-    static const char *const DST_V12[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY", "REV", "RATE",
+    static const char *const DST_V12[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY MIX", "REV MIX", "RATE",
                                           "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"};
     track_t *t = &trk[0];
     uint32_t i, k, steps = 0, changes_in_cycle = 0, pos = 0, neg = 0, same_as_wave = 1;
@@ -151,10 +151,11 @@ static void test_matrix(void)
         ok &= str_eq(N_MSRC[i], SRC_V12[i]);
     for (i = 0; i < NELEM(DST_V12); i++)
         ok &= str_eq(N_MDST[i], DST_V12[i]);
-    check("SRC / DST lists only grew: every stored value keeps its name (S&H SLEW, DEPTH, SLICER, CHORD, insert)",
+    check("SRC / DST keep stored IDs, rename send MIX labels and append continuous FX controls",
           ok && MS_SH == 9 && MS_SLEW == 10 && MS_N == 11 && MD_DEPTH == 20 &&
           MD_SLPAT == 21 && MD_SLRATE == 22 && MD_SLDEPTH == 23 &&
-          MD_CHRD == 24 && MD_VOIC == 25 && MD_TONE == 26 && MD_DMIX == 27 && MD_HDEP == 43 && MD_N == 44 &&
+          MD_CHRD == 24 && MD_VOIC == 25 && MD_TONE == 26 && MD_DMIX == 27 && MD_HDEP == 43 && MD_N == 49 &&
+          MD_DTIME == 44 && MD_DFB == 45 && MD_DCOLOR == 46 && MD_RSIZE == 47 && MD_RDAMP == 48 &&
           str_eq(N_MSRC[MS_SH], "S&H") && str_eq(N_MSRC[MS_SLEW], "SLEW") && str_eq(N_MDST[MD_DEPTH], "DEPTH") &&
           str_eq(N_MDST[MD_SLPAT], "PAT") && str_eq(N_MDST[MD_SLRATE], "SRATE") && str_eq(N_MDST[MD_SLDEPTH], "SDEP") &&
           str_eq(N_MDST[MD_CHRD], "CHRD") && str_eq(N_MDST[MD_VOIC], "VOIC") &&

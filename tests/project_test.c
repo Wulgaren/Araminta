@@ -176,6 +176,36 @@ static int track_v3_ok(const proj_trk_t *n, const proj_trk_v3_t *o, uint32_t t)
     return ok;
 }
 
+static int fx_motion_wire(void)
+{
+    int bad = 0, ok = 1;
+    project_t q, loaded; project_store_t st;
+    memset(&q, 0, sizeof q);
+    q.magic = PROJ_MAGIC; q.size = sizeof q; q.parts = NPART; q.phys = PROJ_PHYS;
+    chain_defaults(&q.chain); memcpy(q.dx, DX_KIT_DEF, sizeof q.dx);
+    q.g[G_DMIX] = 19; q.g[G_DTIME] = 65; q.g[G_RSIZE] = 21;
+    q.g[G_CRSIZE] = 22; q.g[G_CRDAMP] = 23;
+    q.motion.count = 1; q.motion.on = 15;
+    for (uint32_t ms = 1; ms <= 1486; ms++) {
+        q.motion.event[0] = (motion_event_t){(uint8_t)(ms & 255u), (uint8_t)(MFX_TIME | (ms & 1u ? MOTION_LOCK : 0u)), (int16_t)(64 + ms)};
+        ok &= proj_pack(&st, &q) && proj_import(&loaded, &st, sizeof st) &&
+            loaded.motion.event[0].place == (ms & 255u) && loaded.motion.event[0].param == q.motion.event[0].param &&
+            loaded.motion.event[0].value == 64 + (int32_t)ms && loaded.g[G_DMIX] == 19 && loaded.g[G_DTIME] == 65 &&
+            loaded.g[G_RSIZE] == 21 && loaded.g[G_CRSIZE] == 22 && loaded.g[G_CRDAMP] == 23;
+    }
+    bad += check("FUN15 stores every exact TIME value without shifting globals", ok);
+    q.motion.event[0] = (motion_event_t){17, P_REV | MOTION_LOCK, 109};
+    q.motion.count = 1; q.motion.on = 1;
+    ok = proj_pack(&st, &q);
+    uint32_t old_magic = 0x46554E45u;
+    memcpy(st.raw, &old_magic, 4);
+    uint32_t sum = proj_hash(st.raw, sizeof st - 4u);
+    memcpy(st.raw + sizeof st - 4u, &sum, 4);
+    bad += check("FUN14 projects retain their three-byte locks and global IDs", ok && proj_import(&loaded, &st, sizeof st) &&
+        loaded.motion.count == 1 && loaded.motion.event[0].param == (P_REV | MOTION_LOCK) &&
+        loaded.motion.event[0].value == 109 && loaded.g[G_DMIX] == 19 && loaded.g[G_CRSIZE] == 22);
+    return bad;
+}
 int main(void)
 {
     static project_v4_t v4;
@@ -191,7 +221,7 @@ int main(void)
         project_v1_t v1;
     } buf;
     uint32_t i, t;
-    int bad = 0, ok;
+    int bad = fx_motion_wire(), ok;
 
     bad += check("layout: SLICER after DETUNE, then the matrix just before P_E0",
                  P_SLCR == P_DETUNE + 1 && P_SLDEPTH + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD && P_VOIC + 1 == P_LN0 &&
@@ -497,7 +527,7 @@ int main(void)
         }
         memcpy(a.name, "FM SONG", 7);
         a.sum = proj_sum(&a);
-        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E45u && proj_import(&c, &st, sizeof st);
+        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E46u && proj_import(&c, &st, sizeof st);
         for (k = 0; k < NTRK; k++)
             ok &= !memcmp(c.fm6[k], FM6_FACTORY[k * 2u], FM6_PACKED) && c.t[k].engine == ENGI_FM6 &&
                   !memcmp(st.raw + PROJ_FM6_OFF + k * FM6_PACKED, FM6_FACTORY[k * 2u], FM6_PACKED);
@@ -782,7 +812,7 @@ int main(void)
             a.fx_bus[i] = (uint8_t)(10u + i);
         memcpy(a.name, "DX KIT", 6);
         a.sum = proj_sum(&a);
-        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E45u &&
+        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E46u &&
              !memcmp(st.raw + PROJ_DX_OFF, a.dx, sizeof a.dx) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx] == (uint8_t)(a.dx_mute & DXG_ALL) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx + 1u] == (uint8_t)(a.dx_mute >> 8) &&

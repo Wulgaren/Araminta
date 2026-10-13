@@ -149,7 +149,7 @@ static int compact_project(void)
  * 81..88, motion ids from 81 on for E0..E7 (m: its events as that firmware numbered them) */
 static void pack_fun7_89(project_store_t *out, const project_t *q, const motion_store_t *m)
 {
-    uint8_t *b = out->raw; uint32_t pos = 68u, t, i, magic = PROJ_MAGIC, size = PROJ_STORE_SIZE, sum;
+    uint8_t *b = out->raw; uint32_t pos = 68u, t, i, magic = PROJ_MAGIC_V10, size = PROJ_STORE_SIZE, sum;
     memset(out, 0, sizeof *out); memcpy(b, &magic, 4); memcpy(b + 4, &size, 4);
     memcpy(b + 8, q->g, sizeof q->g); b[62] = q->sel; b[63] = q->parts; b[64] = q->phys; b[66] = 89;
     for (t = 0; t < NTRK; t++) {
@@ -163,7 +163,12 @@ static void pack_fun7_89(project_store_t *out, const project_t *q, const motion_
         }
     }
     memcpy(b + pos, &q->chain, sizeof q->chain); pos += sizeof q->chain;
-    memcpy(b + pos, m, sizeof *m);
+    b[pos] = m->count; b[pos + 1u] = m->on;
+    for (i = 0; i < m->count; i++) {
+        b[pos + 4u + 3u * i] = m->event[i].place;
+        b[pos + 5u + 3u * i] = m->event[i].param;
+        b[pos + 6u + 3u * i] = (uint8_t)m->event[i].value;
+    }
     sum = proj_hash(b, PROJ_STORE_SIZE - 4u); memcpy(b + PROJ_STORE_SIZE - 4u, &sum, 4);
 }
 static int fun7_89(void)
@@ -877,7 +882,7 @@ static int auto_list(void)
     bad += check("  MENU > LARGE: the list layout with labels in M (as the other lists)", large_kind() == LK_LABEL);
     ui_prefs &= ~PREF_LARGE;
     /* #223: PARAM / MOD DST are flat tag+name lists. ENV DEST / LFO DEST are knob pages.
-     * Insert SEND hides non-MIX; DLY/REV/SLCR list all knobs unless USED. */
+     * Shared SEND controls stay visible until another track reserves them. */
     song.g[G_SLOWN] = 1;                                 /* track 0 owns SLICER CHAIN */
     song.g[G_DLYOWN] = 1;
     song.g[G_REVOWN] = 1;
@@ -917,10 +922,10 @@ static int auto_list(void)
             if (pk_rows[i].id == P_IHMIX && str_eq(pk_rows[i].tag, "CHORUS"))
                 i_chor = (int32_t)i;
             if (pk_rows[i].id == P_DLY && str_eq(pk_rows[i].tag, "DELAY") &&
-                str_eq(pk_rows[i].name, "DELAY"))
+                str_eq(pk_rows[i].name, "DLY MIX"))
                 dly = 1, i_dly = (int32_t)i;
             if (pk_rows[i].id == P_REV && str_eq(pk_rows[i].tag, "REVERB") &&
-                str_eq(pk_rows[i].name, "REVERB"))
+                str_eq(pk_rows[i].name, "REV MIX"))
                 rev = 1, i_rev = (int32_t)i;
             if (str_eq(pk_rows[i].tag, "SEND"))
                 send = 1;
@@ -988,7 +993,7 @@ static int auto_list(void)
                      i_sl > i_rev);
         bad += check("MOD DST: Chorus MIX last in CHORUS", chor_mix_last && i_chor >= 0);
     }
-    /* SEND FILTER: only MIX is listed; CHAIN shows CUT too. */
+    /* An unreserved SEND FILTER exposes its shared continuous controls. */
     {
         uint32_t i, cut = 0, mix = 0;
         ins_send_set(TSEL, INS_FILTER, 1);
@@ -997,7 +1002,7 @@ static int auto_list(void)
             if (pk_rows[i].id == MD_FCUT) cut = 1;
             if (pk_rows[i].id == MD_FMIX) mix = 1;
         }
-        bad += check("MOD DST SEND FILTER: MIX visible, CUT hidden", mix && !cut);
+        bad += check("MOD DST SEND FILTER: unreserved CUT and MIX visible", mix && cut);
         ins_send_set(TSEL, INS_FILTER, 0);
         pk_open(PK_MDST);
         cut = mix = 0;
@@ -1033,10 +1038,63 @@ static int auto_list(void)
     }
     return bad;
 }
+static int fx_lock_time(void)
+{
+    int bad = 0; ui_power_on(); track_t *t = &trk[0];
+    song.g[G_DTIME] = 1;
+    bad += check("delay TIME lock accepts an exact 1486 ms value", !motion_set_lock(t, 0, 49u, 1550));
+    seq_start(); motion_step(t, 0, &motion, 1);
+    bad += check("delay TIME lock changes the shared delay without changing matrix SRC", song.g[G_DTIME] == 1550 && t->p[P_M1SRC] == 0);
+    bad += check("TIME lock defaults preserve the underlying 250 ms division", motion_target_base_value(t, MFX_TIME) == 314);
+    project_t q, restored; project_store_t disk;
+    project_capture(&q);
+    bad += check("delay TIME project saves the base division and exact lock", q.g[G_DTIME] == 1 && proj_pack(&disk, &q) &&
+        proj_import(&restored, &disk, sizeof disk) && restored.motion.count == 1 && restored.motion.event[0].value == 1550);
+    motion_step(t, 1, &motion, 1);
+    bad += check("delay TIME lock restores its original division on the next step", song.g[G_DTIME] == 1);
+    seq_stop();
+    return bad;
+}
+static int fx_lock_banks_and_capacity(void)
+{
+    int bad = 0; ui_power_on(); track_t *t = &trk[0];
+    song.g[G_RSIZE] = 24; song.g[G_RDAMP] = 35;
+    song.g[G_CRSIZE] = 46; song.g[G_CRDAMP] = 57;
+    bad += check("continuous SEND controls accept independent locks", !motion_set_lock(t, 0, MFX_FB, 100) &&
+        !motion_set_lock(t, 0, MFX_COLOR, 17) && !motion_set_lock(t, 0, MFX_SIZE, 88) && !motion_set_lock(t, 0, MFX_DAMP, 99));
+    bad += check("a SEND lock reserves its control until removed", !fx_target_available(&trk[1], MFX_SIZE));
+    seq_start(); motion_step(t, 0, &motion, 1);
+    bad += check("SEND reverb locks leave the CHAIN bank alone", song.g[G_RSIZE] == 88 && song.g[G_RDAMP] == 99 &&
+        song.g[G_CRSIZE] == 46 && song.g[G_CRDAMP] == 57);
+    motion_step(t, 1, &motion, 1);
+    bad += check("FX locks restore their continuous base values", song.g[G_DFDBK] == GP[G_DFDBK].def &&
+        song.g[G_DCOLOR] == GP[G_DCOLOR].def && song.g[G_RSIZE] == 24 && song.g[G_RDAMP] == 35);
+    seq_stop(); motion_clear(t);
+    bad += check("removing SEND locks frees those settings", fx_target_available(&trk[1], MFX_SIZE));
+    song.g[G_REVOWN] = 1;
+    motion_set_lock(t, 0, MFX_SIZE, 103); motion_set_lock(t, 0, MFX_DAMP, 104);
+    seq_start(); motion_step(t, 0, &motion, 1);
+    bad += check("CHAIN reverb locks use the selected track bank", song.g[G_CRSIZE] == 103 && song.g[G_CRDAMP] == 104 &&
+        song.g[G_RSIZE] == 24 && song.g[G_RDAMP] == 35 && fx_target_available(&trk[1], MFX_SIZE));
+    seq_stop(); motion_clear(t);
+    bad += check("stopping restores CHAIN reverb bases", song.g[G_CRSIZE] == 46 && song.g[G_CRDAMP] == 57);
+    for (uint32_t i = 0; i < MOTION_MAX; i++)
+        bad += motion_set_lock(t, i % NSTEP, i < NSTEP ? MFX_TIME : MFX_FB, i < NSTEP ? 1550 : 110);
+    bad += check("FX locks retain all 128 RAM entries and overwrite at capacity", motion.count == 128 &&
+        motion_set_lock(t, 0, MFX_COLOR, 25) == 2 && !motion_set_lock(t, 0, MFX_TIME, 65));
+    project_t q, loaded; project_store_t st;
+    project_capture(&q);
+    bad += check("FX locks retain 72 saved entries with exact TIME values", proj_pack(&st, &q) && sizeof st == 3840 &&
+        proj_import(&loaded, &st, sizeof st) && loaded.motion.count == 72 && loaded.motion.event[0].value == 65 &&
+        loaded.motion.event[63].value == 1550 && loaded.motion.event[71].value == 110);
+    return bad;
+}
 int main(void)
 {
     int bad = motion_recording() + motion_capacity() + probability_playback() + compact_project() + fun7_89() + loads_and_song() + repeat_mode();
     bad += arp_new_modes();
     bad += lock_playback() + lock_edit() + lock_project() + lock_ui() + lock_undo() + auto_list();
+    bad += fx_lock_time();
+    bad += fx_lock_banks_and_capacity();
     printf("%s\n", bad ? "MOTION TEST FAILED" : "motion/chance/compact storage tests passed"); return bad != 0;
 }

@@ -110,6 +110,129 @@ static void fresh(void)
     song.sel = 0;
 }
 
+static int pick_has(uint32_t id, const char *name)
+{
+    uint32_t i;
+    for (i = 0; i < pk_n; i++)
+        if (pk_rows[i].id == id && (!name || str_eq(pk_rows[i].name, name))) return 1;
+    return 0;
+}
+
+static void test_fx_reservations(void)
+{
+    uint32_t sel;
+    fresh();
+    pk_build_mdst(&trk[0], MD_OFF, &sel);
+    ck("FX list has continuous delay/reverb controls and explicit MIX", pick_has(MD_DTIME, "TIME") &&
+       pick_has(MD_DFB, "FDBK") && pick_has(MD_DCOLOR, "COLOR") && pick_has(MD_RSIZE, "SIZE") &&
+       pick_has(MD_RDAMP, "DAMP") && pick_has(MD_DLY, "DLY MIX") && pick_has(MD_REV, "REV MIX"));
+    trk[0].p[P_M1DST] = MD_RSIZE;
+    pk_build_mdst(&trk[1], MD_OFF, &sel);
+    ck("a stored SEND assignment hides its control on other tracks", !pick_has(MD_RSIZE, 0));
+    pk_build_auto(&trk[1], MFX_SIZE, NSTEP, &sel);
+    ck("the SEND assignment also reserves the lock destination", !pick_has(MFX_SIZE, 0));
+    trk[0].p[P_M1DST] = MD_OFF;
+    ck("shared reverb SIZE accepts a parameter lock", !motion_set_lock(&trk[0], 0, MFX_SIZE, 90));
+    pk_build_mdst(&trk[1], MD_OFF, &sel);
+    ck("a SEND lock reserves the LFO destination", !pick_has(MD_RSIZE, 0));
+    motion_clear_locks(&trk[0], NSTEP);
+    pk_build_mdst(&trk[1], MD_OFF, &sel);
+    ck("removing the lock releases the shared control", pick_has(MD_RSIZE, 0));
+    song.g[G_REVOWN] = 1;
+    trk[0].p[P_M1DST] = MD_RSIZE;
+    pk_build_mdst(&trk[1], MD_OFF, &sel);
+    ck("private CHAIN reverb does not reserve the SEND bank", pick_has(MD_RSIZE, 0));
+}
+
+static void test_retired_delay_mix(void)
+{
+    uint32_t legacy, block, i;
+    for (legacy = 0; legacy < 2; legacy++) {
+        int32_t peak = 0;
+        fresh();
+        song.g[G_DTIME] = DTIME_FREE + 100;
+        song.g[G_DFDBK] = 0;
+        song.g[G_DMIX] = legacy ? 127 : 0;
+        for (block = 0; block < FS / CTL / 5u; block++) {
+            int32_t d[CTL] = {0}, r[CTL] = {0}, w[CTL];
+            if (!block) d[0] = 24000;
+            fx_buses(d, r, w, CTL);
+            for (i = 0; i < CTL; i++) if (w[i] > peak) peak = w[i];
+        }
+        ck("delay SEND impulse returns at full level regardless of retired MIX", peak == 24000);
+    }
+}
+
+static void test_fx_bank_switch(void)
+{
+    fresh();
+    song.g[G_RSIZE] = 30;
+    song.g[G_CRSIZE] = 90;
+    trk[1].p[P_PAN] = -10;
+    ck("bank switch setup creates a SEND size lock", !motion_set_lock(&trk[0], 0, MFX_SIZE, 120));
+    ck("bank switch setup creates independent pan automation", !motion_set_event(&trk[1], 0, P_PAN, 40));
+    motion_begin();
+    motion_step(&trk[0], 0, &motion, 1);
+    motion_step(&trk[1], 0, &motion, 1);
+    bus_own_set(1, 0);
+    ck("SEND to CHAIN restores the old bank and preserves the new base",
+       song.g[G_RSIZE] == 30 && song.g[G_CRSIZE] == 90 && trk[1].p[P_PAN] == 40);
+    motion_step(&trk[0], 0, &motion, 1);
+    ck("the size lock follows the selected CHAIN bank", song.g[G_CRSIZE] == 120 && song.g[G_RSIZE] == 30);
+    motion_step(&trk[0], 1, &motion, 1);
+    ck("the CHAIN lock restores its own bank's base", song.g[G_CRSIZE] == 90);
+    motion_end();
+}
+
+static void test_fx_edit_paths(void)
+{
+    uint32_t i;
+    int16_t value;
+    fresh();
+    ui_power_on();
+    song.g[G_DTIME] = 1;
+    ck("edit setup creates a TIME lock", !motion_set_lock(TSEL, 0, MFX_TIME, DTIME_FREE + 100));
+    motion_begin();
+    motion_step(TSEL, 0, &motion, 1);
+    for (i = 0; i < NPAGES; i++) if (PAGES[i].graph == GR_MOD) break;
+    ui.home = 0; ui.page = i; mod_ui_slot = 0;
+    edit_param(1, 1);
+    motion_end();
+    ck("editing a MOD source preserves the delay RATE base", song.g[G_DTIME] == 1);
+
+    fresh();
+    ui_power_on();
+    ins_send_set(TSEL, INS_FLT, 1);
+    ck("edit setup creates a shared FILTER cut lock", !motion_set_lock(TSEL, 0, P_IFCUT, 100));
+    motion_begin();
+    motion_step(TSEL, 0, &motion, 1);
+    go_title("FILTER");
+    edit_param(1, -1);
+    value = fx_bus_trk.p[P_IFCUT];
+    motion_end();
+    ck("editing a shared SEND knob updates its motion base", fx_bus_trk.p[P_IFCUT] == value);
+
+    fresh();
+    ui_power_on();
+    fx_bus_trk.p[P_SLRATE] = 3;
+    TSEL->p[P_SLRATE] = 8;
+    ck("edit setup creates a shared SLICER rate lock", !motion_set_lock(TSEL, 0, P_SLRATE, 5));
+    motion_begin();
+    motion_step(TSEL, 0, &motion, 1);
+    {
+        uint8_t order[FX_LIST_N];
+        fx_list_get(TSEL, order);
+        for (i = 0; i < FX_LIST_N && order[i] != INS_SLCR; i++) ;
+        ui.ior_sel = i;
+    }
+    ior_knob(2, 1);
+    ck("SLICER mode switch restores the shared rate before selecting CHAIN",
+       sl_trk_chain(TSEL) && fx_bus_trk.p[P_SLRATE] == 3 && TSEL->p[P_SLRATE] == 8);
+    motion_step(TSEL, 0, &motion, 1);
+    motion_end();
+    ck("SLICER lock restores its private rate after switching", TSEL->p[P_SLRATE] == 8);
+}
+
 int main(void)
 {
     track_t *t;
@@ -838,6 +961,10 @@ int main(void)
         ck("REV send amount moves the render", h0 != h1);
     }
 
+    test_fx_reservations();
+    test_retired_delay_mix();
+    test_fx_bank_switch();
+    test_fx_edit_paths();
     printf("inschain: %d failure(s)\n", bad);
     return bad ? 1 : 0;
 }

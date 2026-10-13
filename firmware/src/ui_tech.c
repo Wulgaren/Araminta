@@ -230,10 +230,8 @@ static void tech_chor(const track_t *t)
 /* DLY: echoes as an impulse train */
 static void tech_dly(void)
 {
-    int32_t time = (int32_t)delay_samples(), mix = song.g[G_DMIX], fb = song.g[G_DFDBK], amp = mix * 1000 / 127, n;
+    int32_t time = (int32_t)delay_samples(), fb = song.g[G_DFDBK], amp = TSEL->p[P_DLY] * 1000 / 127, n;
     int32_t x0 = TK_X0 + 6, w = PANEL_W - 12, base = TK_Y1 - 4, h = 88, tone = song.g[G_DCOLOR] - 64;
-    if (amp < 40)                                       /* MIX low: still show from the selected track's send */
-        amp = TSEL->p[P_DLY] * 1000 / 127;
     tk_axes(x0, TK_Y0, x0 + w, base);
     cv_rect(x0, base - h, 3, h, T_TEXT);
     for (n = 1; n <= 6 && amp > 4; n++) {

@@ -999,9 +999,10 @@ static void draw_columns(void)
                         sk == EVK_CHANCE ? (int32_t)sv * 10 : ((int32_t)sv - 1) * 333, sk == EVK_CHANCE ? ICON_PROB : ICON_X_REPEAT);
             return;
         }
-        v = k == EVK_REC ? motion.event[c & 0xFFu].value : motion_base_value(t, id);
-        d = track_desc(t, id);
+        v = k == EVK_REC ? motion.event[c & 0xFFu].value : motion_target_base_value(t, id);
+        d = motion_target_desc(t, id);
         param_format(d, v, val, &unit);
+        if (id == MFX_TIME) fmt_int(val, v - DTIME_FREE);
         draw_column(3, k == EVK_ADD ? "VALUE" : (motion.event[c & 0xFFu].param & MOTION_LOCK) ? "LOCK" : "AUTO", val, unit,
                     k != EVK_ADD ? VAL(3u) : T_DIM, RATIO(d, enum_rank(d, v)), param_icon(d, v));
         return;
@@ -1128,11 +1129,12 @@ static void draw_columns(void)
                 draw_column(c, "", "", "", T_THEME, -1, ICON_AUTO);
                 continue;
             }
-            d = track_desc(TSEL, id);
+            d = motion_target_desc(TSEL, id);
             on = motion_lock_get(TSEL, st, id, &v);
             if (!on)
-                v = motion_base_value(TSEL, id);      /* not locked: the sound's own, DIM */
+                v = motion_target_base_value(TSEL, id);      /* not locked: the sound's own, DIM */
             param_format(d, v, val, &unit);
+            if (id == MFX_TIME) fmt_int(val, v - DTIME_FREE);
             draw_column(c, d->label, val, unit, on ? VAL(c) : T_DIM, RATIO(d, enum_rank(d, v)), param_icon(d, v));
         }
         return;
@@ -1408,6 +1410,12 @@ static void confirm_text(char *a, char *b)
         break;
     case CF_INIT_SOUND:
         str_cpy(a, "INITIALIZE SOUND?", 24);
+        break;
+    case CF_CLEAR_TRACK_ALL:
+        str_cpy(a, "CLEAR T1 ALL?", 24); a[7] = (char)('1' + k % NTRK);
+        break;
+    case CF_CLEAR_EVERY_TRACK_ALL:
+        str_cpy(a, "CLEAR ALL TRACKS?", 24);
         break;
     case CF_CLEAR_MOTION:
         str_cpy(a, "CLEAR T1 AUTOMATION?", 24); a[7] = (char)('1' + k % NTRK);

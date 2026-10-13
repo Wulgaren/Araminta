@@ -730,7 +730,7 @@ static void lock_turn(uint32_t k, int32_t s, uint64_t held)
     if (id == 0xFFu)
         return;                                         /* (an empty card: nothing to lock) */
     ui.plk_rm &= ~held;                                 /* (held for a lock: its hit stays) */
-    d = track_desc(t, id);
+    d = motion_target_desc(t, id);
     s = accel(EN_K1 + k, s, d->fmt == F_ENUM ? 0 : d->max - d->min);
     motion_undo_take(t, 0x100u | k);                    /* (1.1.5: SAVE held takes the locks back) */
     for (i = 0; i < NSTEP; i++) {
@@ -738,7 +738,7 @@ static void lock_turn(uint32_t k, int32_t s, uint64_t held)
         if (!((held >> i) & 1u))
             continue;
         if (!motion_lock_get(t, i, id, &v))
-            v = motion_base_value(t, id);
+            v = motion_target_base_value(t, id);
         if (motion_set_lock(t, i, id, (int16_t)param_turn(d, v, s)) == 2)
             break;                                      /* (full: ui_notices says so) */
     }
@@ -1886,10 +1886,12 @@ static void ui_input(void)
                 }
             } else if (kind == CF_CLEAR_SONG) {
                 if (!chain_busy()) { chain_defaults(&chain_config); ui.song_row = 0; ui_message("SONG CLEARED"); }
-            } else if (kind == CF_INIT_SOUND) {         /* (DRUM: the factory DRUM-X kit too) */
+            } else if (kind == CF_INIT_SOUND || kind == CF_CLEAR_TRACK_ALL) { /* DRUM: the factory DRUM-X kit too */
                 if (!chain_busy()) {
                     track_t *t = &trk[ui.confirm_trk % NTRK];
                     uint32_t was = song.sel;
+                    if (kind == CF_CLEAR_TRACK_ALL)
+                        load_begin(t, UNDO_SOUND | UNDO_PAT);
                     song.sel = (uint8_t)(ui.confirm_trk % NTRK);
                     set_engine(t->eng_req);
                     if (drum_track(t)) {
@@ -1897,7 +1899,13 @@ static void ui_input(void)
                         memset(dx_mot, 0, sizeof dx_mot);
                     }
                     song.sel = (uint8_t)was;
-                    ui_message("SOUND INIT");
+                    if (kind == CF_CLEAR_TRACK_ALL) {
+                        track_defaults_steps(t);
+                        t->nheld = 0;
+                        t->arp_phys = 0;
+                        load_end(t);
+                    }
+                    ui_message(kind == CF_CLEAR_TRACK_ALL ? "TRACK CLEARED" : "SOUND INIT");
                 }
             } else if (kind == CF_CLEAR_ALL_SEQ) {
                 uint32_t i;
@@ -1911,7 +1919,7 @@ static void ui_input(void)
                     undo.trk = 0;
                     ui_message("ALL PATTERNS CLEARED");
                 }
-            } else if (kind == CF_INIT_ALL_SOUND) {
+            } else if (kind == CF_INIT_ALL_SOUND || kind == CF_CLEAR_EVERY_TRACK_ALL) {
                 uint32_t i, was = song.sel;
                 if (!chain_busy()) {
                     for (i = 0; i < NTRK; i++) {
@@ -1921,9 +1929,16 @@ static void ui_input(void)
                             memcpy(dx_kit, DX_KIT_DEF, sizeof dx_kit);
                             memset(dx_mot, 0, sizeof dx_mot);
                         }
+                        if (kind == CF_CLEAR_EVERY_TRACK_ALL) {
+                            track_defaults_steps(&trk[i]);
+                            trk[i].nheld = 0;
+                            trk[i].arp_phys = 0;
+                        }
                     }
                     song.sel = (uint8_t)was;
-                    ui_message("ALL SOUNDS INIT");
+                    if (kind == CF_CLEAR_EVERY_TRACK_ALL)
+                        undo.trk = 0;
+                    ui_message(kind == CF_CLEAR_EVERY_TRACK_ALL ? "ALL TRACKS CLEARED" : "ALL SOUNDS INIT");
                 }
             } else if (kind == CF_CLEAR_ALL_MOTION) {
                 uint32_t i;

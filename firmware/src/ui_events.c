@@ -60,13 +60,18 @@ static int ev_id_ok(const track_t *t, uint32_t id)
         return 0;
     if (id >= P_LN0 && id <= P_LN7)
         return drum_track(t);
-    d = track_desc(t, id);
+    d = motion_target_desc(t, id);
     return d && d->label && d->label[0] && d->label[0] != '-' && d->max > d->min;
 }
 /* its name in the list and on the card (b holds 12): the page's word before the card's label where the label alone
  * would say two things (ENV ATK, ENV FLT: ENV DEST's, LFO FLT: LFO DEST's; SLICER RATE / PAT / MIX: #222) */
 static void ev_name(const track_t *t, uint32_t id, char *b)
 {
+    if (MFX_PARAM(id)) {
+        static const char *const NAME[] = {"DLY TIME", "DLY FDBK", "DLY COLOR", "REV SIZE", "REV DAMP"};
+        str_cpy(b, NAME[id - MFX_TIME], 12);
+        return;
+    }
     const char *pre = id == P_ED_FX ? "DIST " : id >= P_ATK && id <= P_ED_SHP ? "ENV " :
                       id >= P_LRATE && id <= P_LD_AMP ? "LFO " : id >= P_SLPAT && id <= P_SLDEPTH ? "SL " : "";
     if (ev_sid(id)) {
@@ -408,7 +413,7 @@ static void ev_knob(uint32_t slot, int32_t s)
         return;
     } else {                                            /* the value */
         pk_close();
-        d = track_desc(t, id);
+        d = motion_target_desc(t, id);
         s = accel(EN_K1 + slot, s, d->fmt == F_ENUM ? 0 : d->max - d->min);
         motion_undo_take(t, 0x200u | slot | i << 4);   /* (a knob turned on, this record) */
         (void)motion_move(t, i, step, id, (int16_t)param_turn(d, e->value, s));
@@ -470,7 +475,7 @@ static void ev_oct(void)
             return;
         }
         motion_undo_take(t, 0);
-        (void)motion_set_lock(t, ui.ev_step, ui.ev_id, motion_base_value(t, ui.ev_id));
+        (void)motion_set_lock(t, ui.ev_step, ui.ev_id, motion_target_base_value(t, ui.ev_id));
         motion_undo_done(t);
         if ((at = motion_find(t, ui.ev_step, ui.ev_id)) >= 0)
             ev_follow(EVC(EVK_REC, at));
@@ -598,19 +603,23 @@ static const fx_dst_t FX_DST[] = {
     {P_IHRATE, MD_HRAT, INS_CHOR, 0, "CHORUS", "RATE"},
     {P_IHDEP, MD_HDEP, INS_CHOR, 0, "CHORUS", "DEPTH"},
     {P_IHMIX, MD_CHO, INS_CHOR, 1, "CHORUS", "MIX"},
-    {P_DLY, MD_DLY, INS_DLY, 1, "DELAY", "DELAY"},
-    {P_REV, MD_REV, INS_REV, 1, "REVERB", "REVERB"},
+    {MFX_TIME, MD_DTIME, INS_DLY, 0, "DELAY", "TIME"},
+    {MFX_FB, MD_DFB, INS_DLY, 0, "DELAY", "FDBK"},
+    {MFX_COLOR, MD_DCOLOR, INS_DLY, 0, "DELAY", "COLOR"},
+    {P_DLY, MD_DLY, INS_DLY, 1, "DELAY", "DLY MIX"},
+    {MFX_SIZE, MD_RSIZE, INS_REV, 0, "REVERB", "SIZE"},
+    {MFX_DAMP, MD_RDAMP, INS_REV, 0, "REVERB", "DAMP"},
+    {P_REV, MD_REV, INS_REV, 1, "REVERB", "REV MIX"},
     {P_SLPAT, MD_SLPAT, INS_SLCR, 0, "SLICER", "PATTERN"},
     {P_SLRATE, MD_SLRATE, INS_SLCR, 0, "SLICER", "RATE"},
     {P_SLDEPTH, MD_SLDEPTH, INS_SLCR, 1, "SLICER", "MIX"},
 };
-/* Inserts: CHAIN all knobs, SEND MIX only. DLY/REV/SLCR: all listed knobs unless USED.
- * SLICER SEND PAT/RATE modulate fx_bus_trk. */
+/* Reverb SEND and CHAIN have separate banks. Delay and legacy SLICER USED tracks stay unavailable. */
 static int fx_dst_visible(const track_t *t, uint32_t st, int is_mix)
 {
     int32_t tr = (int32_t)(t - trk), own;
-    if (st < INS_N)
-        return ins_is_send(t, st) ? is_mix : 1;
+    if (st < INS_N || st == INS_REV)
+        return 1;
     if (st == INS_SLCR)
         return !sl_trk_used(t);
     own = bus_own(st == INS_REV ? 1u : 0u);
@@ -622,7 +631,7 @@ static int fx_dst_visible(const track_t *t, uint32_t st, int is_mix)
 static int pk_auto_fx(uint32_t id)
 {
     /* Every FX_DST pid falls in these ranges (insert knobs before P_FTYPE; SLICER PAT..MIX). */
-    return id == P_ED_FX || id == P_DIST || id == P_DLY || id == P_REV ||
+    return MFX_PARAM(id) || id == P_ED_FX || id == P_DIST || id == P_DLY || id == P_REV ||
            (id >= P_SLPAT && id <= P_SLDEPTH) || (id >= P_IDMODE && id < P_FTYPE);
 }
 static const char *pk_auto_group(uint32_t id)
@@ -677,7 +686,7 @@ static uint32_t pk_build_auto(const track_t *t, uint32_t id, uint32_t step, uint
     }
     for (i = 0; i < NELEM(FX_DST); i++) {
         uint32_t x = FX_DST[i].pid;
-        if (!fx_dst_visible(t, FX_DST[i].st, FX_DST[i].mix) ||
+        if (!fx_dst_visible(t, FX_DST[i].st, FX_DST[i].mix) || !fx_target_available(t, x) ||
             !ev_id_ok(t, x) || (step < NSTEP && x != id && !ev_id_free(t, step, x)))
             continue;
         str_cpy(nm, FX_DST[i].name, 16);
@@ -749,7 +758,7 @@ static uint32_t pk_build_mdst(const track_t *t, uint32_t d, uint32_t *sel)
     }
     for (i = 0; i < NELEM(FX_DST); i++) {
         uint32_t x = FX_DST[i].md;
-        if (x == 0xFFu || !fx_dst_visible(t, FX_DST[i].st, FX_DST[i].mix))
+        if (x == 0xFFu || !fx_dst_visible(t, FX_DST[i].st, FX_DST[i].mix) || !fx_target_available(t, FX_DST[i].pid))
             continue;
         str_cpy(nm, FX_DST[i].name, 16);
         if (x == d)
@@ -813,7 +822,7 @@ static void pk_apply(void)
             from = MOTION_ID(&motion.event[c & 0xFFu]);
             if (id != from && ev_id_free(t, step, id)) {
                 motion_undo_take(t, 0x200u | 2u | (c & 0xFFu) << 4);
-                (void)motion_move(t, c & 0xFFu, step, id, motion_base_value(t, id));
+                (void)motion_move(t, c & 0xFFu, step, id, motion_target_base_value(t, id));
                 motion_undo_done(t);
                 ui.ev_id = (uint8_t)id;
                 ev_follow(c);
