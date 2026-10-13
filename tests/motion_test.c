@@ -922,10 +922,10 @@ static int auto_list(void)
             if (pk_rows[i].id == P_IHMIX && str_eq(pk_rows[i].tag, "CHORUS"))
                 i_chor = (int32_t)i;
             if (pk_rows[i].id == P_DLY && str_eq(pk_rows[i].tag, "DELAY") &&
-                str_eq(pk_rows[i].name, "DLY MIX"))
+                str_eq(pk_rows[i].name, "MIX"))
                 dly = 1, i_dly = (int32_t)i;
             if (pk_rows[i].id == P_REV && str_eq(pk_rows[i].tag, "REVERB") &&
-                str_eq(pk_rows[i].name, "REV MIX"))
+                str_eq(pk_rows[i].name, "MIX"))
                 rev = 1, i_rev = (int32_t)i;
             if (str_eq(pk_rows[i].tag, "SEND"))
                 send = 1;
