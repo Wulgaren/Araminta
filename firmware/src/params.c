@@ -40,9 +40,9 @@ static const param_desc_t ESYNC_DESC[3] = {   /* ATK DEC REL with ENV SYNC on: t
     {"REL", F_INT, 0, 127, 60, ESYNC_NAMES, 0},
 };
 static uint32_t esync_idx(int32_t v) { return (uint32_t)(v & 127) * ESYNC_N >> 7; }   /* (param_format's split) */
-/* seq.c kb_map (MAP on SCL). Values kept: 0 OFF, 1 ALL (was SNAP / former ON), 2 KBD (was WHITE), 3 SEQ.
- * ALL: piano layout, every key snaps down to the scale. KBD: white keys walk the scale; black keys play the
- * closest in-scale note (duplicate OK). SEQ: live keys as OFF; sequenced notes snap as they play (steps kept). */
+/* seq.c kb_map (MAP on SCL). Values kept: 0 OFF, 1 ALL (was SNAP label), 2 KBD (was WHITE), 3 SEQ.
+ * KBD: white keys walk the scale; black keys play the closest in-scale note (duplicate OK). ALL: same keys as
+ * KBD, and sequenced notes snap as they play. SEQ: live keys as OFF; sequenced notes snap (steps kept). */
 static const char *const N_QUANT[] = {"OFF", "ALL", "KBD", "SEQ"};
 /* CHORD KNOB 3: link ROOT / SCL / MAP across tracks that have SCALE (not a P_*: P_COUNT ceiling) */
 static const char *const N_SLOCK[] = {"OFF", "SCALE"};

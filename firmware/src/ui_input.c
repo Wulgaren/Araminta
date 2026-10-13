@@ -211,7 +211,7 @@ static uint32_t midi_leds(const track_t *t)
 }
 
 /* the keys of the notes the selected track's sequencer and ARP sound now (#38), bit k = key k: where the keys
- * play that note (kb_map: the octave, TRN, MAP, an engine's own map), the lowest key that gives it (MAP ALL
+ * play that note (kb_map: the octave, TRN, MAP, an engine's own map), the lowest key that gives it (MAP KBD/ALL
  * rounds the keys above down onto it); a note no key plays is not shown. A snapshot of the ISR's seq_notes /
  * arp_note (arp_ch): no state of its own, nothing to do while nothing sounds */
 static uint32_t play_leds(void)
@@ -273,9 +273,9 @@ static int keys_own(void)
 }
 
 /* Discussion #127 (1.2): MENU > SCALE LEDS ON, the keys of the selected track's scale (ROOT, SCALE), bit k = key k, as
- * the keys play now: the note a key gives with TRN (MAP ALL: the key's own note; the others round down onto the
- * scale); MAP KBD every key (whites walk the scale; blacks nearest in-scale). *root: the keys of the
- * scale's root. None where the engine maps the keys itself (DRUM's GM map, the slices): 0 there, and OFF */
+ * the keys play now: MAP KBD / ALL = white-key layout (blacks only duplicate, skipped here); OFF / SEQ = chromatic
+ * pitch of the key. *root: the keys of the scale's root. None where the engine maps the keys itself (DRUM's GM map,
+ * the slices): 0 there, and OFF */
 static uint32_t scale_leds(uint32_t *root)
 {
     const track_t *t = TSEL;
@@ -288,12 +288,12 @@ static uint32_t scale_leds(uint32_t *root)
     for (k = 0; k < 27u; k++) {
         if (e->keys && e->keys(t, k) >= 0)
             continue;
-        if (t->p[P_QUANT] == QN_KBD) {
+        if (t->p[P_QUANT] == QN_KBD || t->p[P_QUANT] == QN_ALL) {
             if (key_black(k))
                 continue;                               /* layout is white keys; blacks only duplicate */
             if ((note = kb_map(t, k)) > 127u)
                 continue;
-            pc = (int32_t)note - t->p[P_TRANS];         /* (KBD walks the scale before TRN) */
+            pc = (int32_t)note - t->p[P_TRANS];         /* (KBD/ALL walk the scale before TRN) */
         } else {
             pc = 53 + (int32_t)k + t->p[P_TRANS];
         }

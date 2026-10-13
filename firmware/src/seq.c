@@ -107,7 +107,7 @@ static uint32_t scale_mask(const track_t *t)
     return SCALE_MASK[clamp(t->p[P_SCALE], 0, sizeof SCALE_MASK / sizeof SCALE_MASK[0] - 1)];
 }
 
-/* note n moved down onto the track's scale (ROOT, SCALE): MAP ALL's keys and MAP SEQ's sequenced notes */
+/* note n moved down onto the track's scale (ROOT, SCALE): MAP ALL / SEQ sequenced notes */
 static int32_t scale_snap(const track_t *t, int32_t n)
 {
     uint32_t mask = scale_mask(t), guard = 12;
@@ -126,9 +126,9 @@ static int32_t scale_nearest(const track_t *t, int32_t n)
     return n - down <= up - n ? down : up;
 }
 
-enum { QN_OFF, QN_ALL, QN_KBD, QN_SEQ };          /* P_QUANT (MAP): ALL was SNAP, KBD was WHITE */
-#define QN_SNAP QN_ALL                           /* (older tests / comments) */
-#define QN_WHITE QN_KBD
+enum { QN_OFF, QN_ALL, QN_KBD, QN_SEQ };          /* P_QUANT (MAP) */
+#define QN_WHITE QN_KBD                          /* (older tests / comments) */
+#define QN_SNAP QN_KBD                           /* old SNAP tests: closest remaining is KBD layout */
 
 /* the engine's own key map (DRUM's GM map, slices) for key k, -1 none */
 static int32_t kb_engine(const track_t *t, uint32_t k)
@@ -143,9 +143,7 @@ static uint32_t kb_pitch(const track_t *t, uint32_t k, int32_t oct)
 {
     static const int8_t DEGREE[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
     int32_t n = 53 + (int32_t)k;
-    if (t->p[P_QUANT] == QN_ALL)                        /* ALL: every key, rounded down onto the scale */
-        return (uint32_t)clamp(scale_snap(t, n + 12 * oct + t->p[P_TRANS]), 0, 127);
-    if (t->p[P_QUANT] == QN_KBD) {                      /* KBD: white keys walk the scale; black -> nearest */
+    if (t->p[P_QUANT] == QN_KBD || t->p[P_QUANT] == QN_ALL) {  /* KBD / ALL: white walk; black -> nearest */
         uint32_t mask = scale_mask(t), i;
         int32_t count = 0, degree = DEGREE[n % 12], wo;
         if (degree < 0)                                 /* black: chromatic pitch, closest in-scale (dup OK) */
@@ -170,7 +168,7 @@ static uint32_t kb_pitch(const track_t *t, uint32_t k, int32_t oct)
         n = 60 + t->p[P_ROOT] + 12 * wo + (int32_t)i;
         return (uint32_t)clamp(n + 12 * oct + t->p[P_TRANS], 0, 127);
     }
-    /* OFF and SEQ: chromatic piano (SEQ remaps sequenced notes only, in seq_step) */
+    /* OFF and SEQ: chromatic piano (ALL / SEQ remap sequenced notes in seq_step) */
     return (uint32_t)clamp(n + 12 * oct + t->p[P_TRANS], 0, 127);
 }
 
@@ -1206,12 +1204,12 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     uint32_t hits = step_ratchet(s);
     uint8_t nn[4 + NLANE], vv[4 + NLANE];           /* the notes it plays: its notes, then its hits */
     uint32_t m = 0, sk = 0;
-    /* QNT SEQ: the step's notes (not the lane hits) snap to the scale as they play; never on a drum kit, the slices
+    /* MAP ALL / SEQ: the step's notes (not the lane hits) snap to the scale as they play; never on a drum kit, the slices
      * or another engine that maps the keys itself. #218: TRN is a playback offset only (stored pitches stay);
      * same kit skip as QNT SEQ. seq_notes keeps the notes that sound: their note-offs match */
     const engine_t *e = ENGINES[eng_idx(t->eng_req)];
     uint32_t kit = e->keys && e->keys(t, 0) >= 0;
-    uint32_t qseq = t->p[P_QUANT] == QN_SEQ && !kit;
+    uint32_t qseq = (t->p[P_QUANT] == QN_SEQ || t->p[P_QUANT] == QN_ALL) && !kit;
     if (!(skip & SEQ_REP)) {
         t->rat_left = 0;
         if ((skip & SEQ_MISS) ||

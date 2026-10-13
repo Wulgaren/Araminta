@@ -4706,12 +4706,12 @@ static int test_play_leds(void)
     ok &= play_leds() == (1u << 5 | 1u << 9);
     t->p[P_TRANS] = 0;
     bad += check("the keys follow the octave and TRN; notes off the keyboard are not shown", ok);
-    t->p[P_QUANT] = 1;                                 /* ALL in C major: C#4 rounds down to C4 too */
+    t->p[P_QUANT] = 1;                                 /* ALL(=KBD keys) in C major: C#4 -> C4 */
     t->p[P_SCALE] = 0;
     t->p[P_ROOT] = 0;
     ok = kb_map(t, 8) == 60u && play_leds() == (1u << 7 | 1u << 11);
     t->p[P_QUANT] = 0;
-    bad += check("MAP ALL: only the key of the note itself lights, not the keys rounding onto it", ok);
+    bad += check("MAP ALL(=KBD): only the key of the note itself lights, not the keys rounding onto it", ok);
     t->arp_note = 65;
     bad += check("the ARP's note lights its key too", play_leds() == (1u << 7 | 1u << 11 | 1u << 12));
     t->arp_note = 0;
@@ -4861,14 +4861,14 @@ static int test_midi_leds(void)
     usb_note(0, 100, 0);
     usb_note(0, 40, 0);
     bad += check("  the keys follow the octave; notes off the keyboard are not shown", ok);
-    trk[0].p[P_QUANT] = 1;                             /* ALL in C major: C#4 rounds down to C4 too */
+    trk[0].p[P_QUANT] = 1;                             /* ALL(=KBD keys) in C major: C#4 -> C4 */
     trk[0].p[P_SCALE] = 0;
     trk[0].p[P_ROOT] = 0;
     usb_note(0, 60, 100);
     ok = kb_map(&trk[0], 8) == 60u && key_leds(0) == 1u << 7;
     usb_note(0, 60, 0);
     trk[0].p[P_QUANT] = 0;
-    bad += check("  MAP ALL: only the lowest key giving the note lights", ok && key_leds(0) == 0u);
+    bad += check("  MAP ALL(=KBD): only the lowest key giving the note lights", ok && key_leds(0) == 0u);
     midi_event(0xB0, 0, 64, 127);                      /* the pedal down: a released note still sounds */
     usb_note(0, 65, 100);
     usb_note(0, 65, 0);
@@ -5647,7 +5647,7 @@ static int test_scale_leds(void)
     ok &= (sc & 1u) && !(sc >> 1 & 1u) && root == (1u << 5 | 1u << 17);
     t->p[P_TRANS] = 0;
     bad += check("#127 the keys as they play: ROOT D, TRN +2", ok);
-    t->p[P_QUANT] = QN_ALL;                             /* ALL: the keys' own notes (the others round down) */
+    t->p[P_QUANT] = QN_ALL;                             /* ALL: same white-key layout LEDs as KBD */
     sc = scale_leds(&root);
     ok = sc == white && root == C_KEYS;
     t->p[P_QUANT] = QN_KBD;                             /* KBD, PEN: every white key; a root every 5 white keys */
@@ -5660,7 +5660,7 @@ static int test_scale_leds(void)
     t->p[P_SCALE] = 0;
     sc = scale_leds(&root);
     ok &= sc == white && root == C_KEYS;
-    bad += check("#127 MAP ALL: the keys of the scale; MAP KBD: all the white keys, its roots; SEQ as OFF", ok);
+    bad += check("#127 MAP ALL/KBD: white-key layout; SEQ as OFF chromatic scale glow", ok);
     t->p[P_SCALE] = 0;
     ui.layer = LAYER_SCL;                               /* a layer: its own map, no scale glow under it */
     ui_leds();
@@ -5687,7 +5687,7 @@ static int test_scale_leds(void)
     return bad;
 }
 
-/* #37: MAP SEQ on the SCL page: the keys as OFF (chromatic), the sequence snapped as it plays, saved with the project */
+/* #37: MAP SEQ on the SCL page: keys chromatic; ALL is KBD keys + seq snap; SEQ saved with the project */
 static int test_seq_quant(void)
 {
     int bad = 0, ok;

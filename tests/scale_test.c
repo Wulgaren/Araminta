@@ -73,14 +73,15 @@ static void mapping_test(void)
     t->engine = t->eng_req = ENGI_DRUM;        /* C is the kick */
     for (k = 0; k < 27u; k++)
         assert(kb_map(t, k) == 29u + k);
-    t->engine = t->eng_req = 0;                /* ALL (MAP 1, was SNAP / old ON): every key, rounded down */
+    t->engine = t->eng_req = 0;                /* ALL: same key map as KBD (C minor) */
     t->p[P_QUANT] = 1;
     t->p[P_SCALE] = 1;                         /* C minor */
     t->p[P_ROOT] = 0;
     t->p[P_TRANS] = 0;
     song.octave = 0;
-    assert(kb_map(t, 11) == 63u && kb_map(t, 10) == 63u && kb_map(t, 7) == 60u && kb_map(t, 8) == 60u);
-    puts("scales: all 15 scales, 12 roots, octave/transpose ranges, bypass, drums and ALL ok");
+    assert(kb_map(t, 7) == 60u && kb_map(t, 8) == 60u);   /* C4 root; C# -> C */
+    assert(kb_map(t, 11) == 63u && kb_map(t, 10) == 63u); /* E white = Eb; D# -> Eb */
+    puts("scales: all 15 scales, 12 roots, octave/transpose ranges, bypass, drums and ALL(=KBD keys) ok");
 }
 
 static void key_events_test(void)
@@ -198,15 +199,22 @@ static void seq_quant_test(void)
     t->p[P_ROOT] = 0;
     period = div_samples((uint32_t)t->p[P_SDIV]);
 
-    t->p[P_QUANT] = 0;                             /* OFF and ALL: the sequence plays as written */
+    t->p[P_QUANT] = 0;                             /* OFF and KBD: the sequence plays as written */
     seq_start();
     events_block(CTL);
     assert(t->seq_n == 2 && t->seq_notes[0] == 61 && t->seq_notes[1] == 64 && gated_note(t, 61));
     seq_stop();
-    t->p[P_QUANT] = 1;
+    t->p[P_QUANT] = 2;                             /* KBD: keys remapped, seq as written */
     seq_start();
     events_block(CTL);
     assert(t->seq_n == 2 && t->seq_notes[0] == 61 && gated_note(t, 61));
+    seq_stop();
+    assert(gated(t) == 0);
+
+    t->p[P_QUANT] = 1;                             /* ALL: seq snaps like SEQ */
+    seq_start();
+    events_block(CTL);
+    assert(t->seq_n == 2 && t->seq_notes[0] == 60 && t->seq_notes[1] == 64 && gated_note(t, 60));
     seq_stop();
     assert(gated(t) == 0);
 
@@ -266,10 +274,10 @@ static void seq_quant_test(void)
     assert(t->seq_n == 3 && t->seq_notes[0] == 37 && t->seq_notes[1] == 39 && t->seq_notes[2] == DRUM_LANE_NOTE[0]);
     seq_stop();
     assert(gated(t) == 0);
-    puts("scales: MAP SEQ snaps the sequence as it plays (steps unchanged), no stuck notes over scale changes, kits never");
+    puts("scales: MAP ALL/SEQ snap the sequence as it plays (steps unchanged), no stuck notes over scale changes, kits never");
 }
 
-/* #218: SCL TRN offsets sequencer playback only; stored step pitches stay put (MAP ALL included) */
+/* #218: SCL TRN offsets sequencer playback only; stored step pitches stay put (MAP KBD included) */
 static void seq_trn_test(void)
 {
     track_t *t = &trk[0];
@@ -291,7 +299,7 @@ static void seq_trn_test(void)
     t->seq_active = 1;
     t->p[P_SCALE] = 0;                             /* C major */
     t->p[P_ROOT] = 0;
-    t->p[P_QUANT] = QN_ALL;                        /* ALL: keys snap; pattern still plays with TRN */
+    t->p[P_QUANT] = QN_KBD;                        /* KBD: keys remapped; pattern plays with TRN only */
     t->p[P_TRANS] = 2;                             /* +2 semitones */
 
     seq_start();
@@ -368,26 +376,26 @@ static void arp_follow_test(void)
     track_t *t = &trk[0];
     uint32_t i;
 
-    /* the report: MAP ALL, HOLD, a chord latched, then TRN */
+    /* MAP KBD (and ALL keys): HOLD, a chord latched, then TRN / SCALE / ROOT */
     arp_reset(t);
-    t->p[P_QUANT] = QN_ALL;
+    t->p[P_QUANT] = QN_KBD;
     t->p[P_AHOLD] = 1;
     events_block(CTL);                             /* (the ISR sees HOLD on) */
-    fm1_in.notes = (1u << 7) | (1u << 11);         /* C4, E4 -> Eb4 in C minor */
+    fm1_in.notes = (1u << 7) | (1u << 11);         /* C4, E4 -> Eb4 in C minor (KBD walk) */
     keyboard_block();
     fm1_in.notes = 0;
     keyboard_block();
     assert(t->nheld == 2 && t->held[0] == 60 && t->held[1] == 63);
     assert(arp_is(t, 60, 63));
-    t->p[P_TRANS] = 2;                             /* D4, F#4 -> F4: transposed, then onto the scale */
+    t->p[P_TRANS] = 2;                             /* +2 after the walk: D4, F4 */
     assert(arp_is(t, 62, 65));
-    t->p[P_TRANS] = 1;                             /* C#4 -> C4, F4 */
-    assert(arp_is(t, 60, 65));
+    t->p[P_TRANS] = 1;                             /* +1: C#4, E4 */
+    assert(arp_is(t, 61, 64));
     t->p[P_TRANS] = 0;
     t->p[P_SCALE] = 0;                             /* SCALE: C major, E4 itself now */
     assert(arp_is(t, 60, 64));
-    t->p[P_ROOT] = 2;                              /* ROOT: D major, C4 -> B3, E4 */
-    assert(arp_is(t, 59, 64));
+    t->p[P_ROOT] = 2;                              /* ROOT: D major walk from D */
+    assert(arp_is(t, 62, 66));                     /* C4->D, E4->F# (degrees 0 and 2 of D maj) */
     t->p[P_ROOT] = 0;
     t->p[P_SCALE] = 1;                             /* back as it was: exactly the notes latched */
     assert(arp_is(t, 60, 63));
@@ -420,7 +428,7 @@ static void arp_follow_test(void)
 
     /* MIDI IN into the arp: its notes are not the keyboard's, TRN never moved them (nor does it now) */
     arp_reset(t);
-    t->p[P_QUANT] = QN_ALL;
+    t->p[P_QUANT] = QN_KBD;
     t->p[P_AHOLD] = 1;
     input_on(t, 61, 100);
     input_on(t, 66, 100);

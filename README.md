@@ -45,7 +45,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
 - **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.
 - **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN.
-- **MAP (was QNT).** SCL knob: OFF / ALL / KBD / SEQ. ALL snaps every key to the scale; KBD walks the scale on white keys (blacks play the closest in-scale note); SEQ remaps sequence playback only (live keys stay chromatic). Chromatic (CHR) scale removed — use MAP OFF. Projects save as FUN13 (`FUND`); older slots migrate.
+- **MAP (was QNT).** SCL knob: OFF / ALL / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); ALL is KBD plus sequence follows the scale; SEQ is chromatic keys plus sequence follows. Chromatic (CHR) scale removed — use MAP OFF. Projects save as FUN13 (`FUND`); older slots migrate.
 - **Following playhead** in the SEQ. Start selecting a step to pause the following, returns after 3 seconds of inactivity.
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
@@ -313,9 +313,9 @@ stereo, SIZE the decay up to about 4.5 s, DAMP how fast the highs die), **ROOM**
 On the **SCL** page, **MAP** chooses how the keys (and optionally the sequence) sit on the scale:
 
 - **OFF** — normal chromatic piano. Sequence plays as stored.
-- **ALL** — every key keeps the piano layout and rounds down onto the scale.
-- **KBD** — white keys walk the scale (C4 = **ROOT**; consecutive white keys = consecutive scale notes). Black keys play the closest in-scale note (often the same as a neighbour).
-- **SEQ** — live keys as OFF; sequenced notes map onto the current ROOT / SCALE as they play (steps unchanged; kits never remapped).
+- **KBD** — white keys walk the scale (C4 = **ROOT**; consecutive white keys = consecutive scale notes). Black keys play the closest in-scale note (often the same as a neighbour). Sequence plays as stored.
+- **ALL** — same keys as KBD, and sequenced notes map onto the current ROOT / SCALE as they play (steps unchanged; kits never remapped).
+- **SEQ** — live keys as OFF; sequenced notes map onto the scale as they play (same as ALL for the sequence).
 
 **TRN** transposes the resulting notes (and sequence playback; steps stay as stored); the octave buttons shift them by full octaves.
 

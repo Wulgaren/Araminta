@@ -3,12 +3,12 @@
 /* Chord keys (SCL > CHORD: P_CHRD, P_VOIC): one key, MIDI note or arp input plays a chord. Included by seq.c
  * after kb_map; runs in the audio ISR with the rest of the note input.
  *   CHRD OFF; DIA3 / DIA7: the triad / seventh of the track's scale (ROOT, SCALE) built on the key, every tone
- *        in key (a key outside the scale takes the scale note below it, as MAP ALL does); MAJ MIN DOM7 MAJ7
- *        MIN7 SUS4 POW: that shape on the key, whatever the scale.
+ *        in key (a key outside the scale takes the scale note below it); MAJ MIN DOM7 MAJ7 MIN7 SUS4 POW: that
+ *        shape on the key, whatever the scale.
  *   VOIC CLOSE (root position); OPEN (the second tone an octave up: 1-5-3); INV1 / INV2 (the lowest tone, then
  *        the next, an octave up); +OCT (the root an octave down added; a seventh drops its fifth). At most
  *        CHORD_MAX notes, notes outside 0..127 left out.
- * The key is mapped first (kb_map: MAP ALL / KBD, TRN, the octave), the chord is built on the note it gives.
+ * The key is mapped first (kb_map: MAP KBD / ALL, TRN, the octave), the chord is built on the note it gives.
  * MONO / LEGATO / UNISON parts play the chord's root only; a kit (the DRUM engine, slices: an
  * engine that maps the keys itself) ignores CHRD. Every source keeps the notes it started (kb_chord for a
  * key, mchord for a MIDI note) and its release ends exactly those, so CHRD / VOIC changed while it is held
