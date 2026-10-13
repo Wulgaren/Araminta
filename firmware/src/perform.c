@@ -5,9 +5,9 @@
  * it is let go (ui_input.c opens the layer and shows the map). The 16 white keys (F3 .. G5) hold the effect the map
  * gives them (perf_map: the settings, ui_layer.c; any effect on any key, or none). The default (PF_DEF, JIANT):
  *   REPEAT 1/8 1/16 1/32, then 1/2 so LPF HPF OCT- OCT+ sit together, then DEC±, stutter, ATK+, ARP, RANDOM
- *   (pfx.c); G5 clears the punch-in lane (the cell reads CLR); black keys 1..4 mute tracks 1..4; A#4 steps the MIDI
- *   effects' tracks (ALL / SYN / DRM). Audio REVERSE / TAPE / FREEZE / harmonizer OCT / FLANGER / PHASER / THROW stay
- *   assignable on the map, not on the default keys.
+ *   (pfx.c); with FX LATCH, G5 is CLR (latched effects and FILTER/CRUSH/THROW/DEPTH off); black keys 1..4 mute
+ *   tracks 1..4; A#4 steps the MIDI effects' tracks (ALL / SYN / DRM). Audio REVERSE / TAPE / FREEZE / harmonizer
+ *   OCT / FLANGER / PHASER / THROW stay assignable on the map, not on the default keys.
  * REV THROW / ECHO THROW (1.5.1): while held every track's reverb / delay send is full (as REV / DLY 127; perf_throw),
  * ECHO THROW also lifts the delay's feedback to 0.7 if it is lower (fx.c fx_buses); both glide in and out over 11.6 ms
  * (THR_SLOPE). Let go, the sends are the tracks' own again and what the buses hold rings out. The buses are the song's
@@ -39,7 +39,7 @@
  * sends), DEPTH (the buffer effects' level, FLANGER's and PHASER's; OCT UP / DN: the shimmer).
  * MENU > FX LATCH ON (#40, a hand that cannot hold FX, a key and a knob together): a key pressed with FX turns its
  * effect on, the next press turns it off (perf_latched; letting the key or FX go does nothing), the macros keep
- * their values when FX is let go, FX + OCT- turns everything off (ui_layer.c), so does the menu or a dialog.
+ * their values when FX is let go, G5 CLR turns everything off, so does the menu or a dialog. OCT± shift octave.
  * Chain: [REPEAT / REVERSE / TAPE / FREEZE] -> LPF -> HPF -> CRUSH -> FLANGER -> PHASER, after the master level and
  * before master_out (the limiter); THROW and the mutes act before the buses (fx.c mix_block / mix_part).
  * Idle (no key, no knob, no ramp left) every stage is skipped: the output is bit-identical. */
@@ -49,7 +49,7 @@ enum { PF_R8, PF_R16, PF_R32, PF_REV, PF_LPF, PF_HPF, PF_TAPE, PF_FRZ, PF_OUP, P
        PF_RTHR, PF_ETHR,                      /* 1.5.1: REV THROW, ECHO THROW */
        PF_OCTD, PF_OCTU, PF_HALF, PF_DSHT, PF_DLNG, PF_S8, PF_S16, PF_ATK, PF_ARP, PF_RND,   /* MIDI: pfx.c */
        PF_M1, PF_N = PF_M1 + NTRK, PF_TGT = PF_N + 1,   /* A#4: MIDI effects' tracks (pfx_tgt) */
-       PF_CLR = PF_N + 2 };                              /* G5: erase the punch-in lane (pfx.c) */
+       PF_CLR = PF_N + 2 };                              /* G5 with FX LATCH: all latched effects + macros off */
 #define PF_NFX PF_M1                          /* the effects a white key can hold */
 #define PF_KEYS 16u                           /* the white keys F3 .. G5 */
 #define PF_BIT(e) (1u << (e))
@@ -80,7 +80,7 @@ enum { BM_NONE, BM_LOOP, BM_TAPE, BM_FRZ, BM_HARM };
 #define THR_SLOPE 64                          /* REV / ECHO THROW: the sends' glide a sample, Q15 (11.6 ms end to end) */
 #define THR_FB 22938                          /* ECHO THROW: the delay's feedback while held at least this, Q15 (0.7) */
 
-/* the white keys' effects by default (JIANT: REPEAT, 1/2, then LPF/HPF/OCT together; G5 lane clear) */
+/* the white keys' effects by default (JIANT: REPEAT, 1/2, then LPF/HPF/OCT together; G5 CLR with LATCH) */
 static const uint8_t PF_DEF[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_HALF, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_DSHT,
                                         PF_DLNG, PF_S8, PF_S16, PF_ATK, PF_ARP, PF_RND, PF_N};
 static volatile uint8_t perf_map[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_HALF, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_DSHT,
@@ -114,7 +114,7 @@ static volatile int8_t perf_k[4];     /* main: the knob macros, 0 = untouched: F
 static volatile uint32_t kb_layer;    /* ISR: the keys held that are the layer's, a bit per key */
 static volatile uint32_t perf_held;   /* ISR: the effects held (PF_*) */
 static volatile uint8_t perf_latch_on;   /* main: MENU > FX LATCH ON (#40): a key with FX toggles its effect */
-static volatile uint32_t perf_latched;   /* ISR: the effects latched (FX LATCH; main clears it: OCT-, the menu) */
+static volatile uint32_t perf_latched;   /* ISR: the effects latched (FX LATCH; CLR / menu clear it) */
 static volatile uint32_t perf_act;    /* ISR: .. running (a 1/16 one from its start on) */
 static uint32_t perf_ord[PF_N], perf_seq;   /* press order: the last pressed buffer effect plays */
 
@@ -203,15 +203,23 @@ static uint32_t perf_avail(void)
 
 /* seq.c keyboard_block: a layer key down / up (e: PF_*, PF_N = no effect) */
 static volatile uint8_t pfx_tgt;      /* main / keys: MIDI effects' tracks, 0 ALL, 1 SYN, 2 DRM (pfx.c) */
-static volatile uint8_t pfx_clr;      /* keys: G5 held (pfx.c: lane erased where it passes, or all of it) */
+static volatile uint8_t pfx_clr;      /* keys: G5 CLR held (map highlight); down clears latched FX when LATCH on */
+static volatile uint8_t perf_clr_say; /* ISR: CLR just cleared; UI shows "FX ALL OFF" */
 static uint32_t pfx_lph;              /* samples into the punch-in lane (pfx.c) */
 static uint8_t pfx_lane[32], pfx_ltgt;   /* the section's punch-in lane (pfx.c), its tracks (as pfx_tgt) */
 static void perf_press(uint32_t e, int down)
 {
     if (e == PF_TGT && down)
         pfx_tgt = (uint8_t)((pfx_tgt + 1u) % 3u);
-    if (e == PF_CLR)
+    if (e == PF_CLR) {
         pfx_clr = (uint8_t)(down ? 1u : 0u);
+        if (down && perf_latch_on) {              /* latched punch-ins + FILTER/CRUSH/THROW/DEPTH */
+            perf_latched = 0;
+            perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;
+            perf_clr_say = 1;
+        }
+        return;
+    }
     if (e >= PF_N)
         return;
     if (perf_latch_on) {                  /* FX LATCH: a press turns it on or off, letting go does nothing */

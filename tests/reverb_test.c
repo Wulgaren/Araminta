@@ -76,7 +76,6 @@ static void ref_buses(const int32_t *dly_in, const int32_t *rev_in, int32_t *wet
 {
     uint32_t i, k, dl = delay_samples();
     int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
-    int32_t dmix = song.g[G_DMIX] * 258;
     int32_t size = 25000 + song.g[G_RSIZE] * 50, damp = 32767 - song.g[G_RDAMP] * 200;
     for (i = 0; i < n; i++) {
         int32_t y = 0, x, a;
@@ -84,7 +83,7 @@ static void ref_buses(const int32_t *dly_in, const int32_t *rev_in, int32_t *wet
         rf.dly_lp += mulq15(x - rf.dly_lp, col);
         ref_dly[rf.dly_w & (DLY_LEN - 1u)] = (int16_t)clamp((dly_in[i] >> 1) + mulq15(rf.dly_lp, fb), -32768, 32767);
         rf.dly_w++;
-        y += mulq15(x << 1, dmix);
+        y += x << 1;
         a = 0;
         {
             int16_t *c = ref_comb;

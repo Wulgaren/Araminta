@@ -5,8 +5,8 @@
  * 1. the sum: a track's SWG plus the global SWG is at most 100 (core.h track_swing).
  * 2. the sequencer: with both at 100 the steps play 1.4 x / 0.6 x the straight length (not 1.8 x /
  *    0.2 x), measured from the transport; with the sum at 100 or below nothing changes.
- * 3. the SLICER: its step lengths are the sequencer's (one helper), and it stays on the sequencer's
- *    step at the extremes.
+ * 3. the SLICER: its step lengths are the sequencer's (one helper), and each CHAIN owner stays on
+ *    that track's sequencer step at the extremes (SEND is one shared bus; see slicer_test).
  * 4. the display: SWG (0..100) shows its value, 100 is "100" (not 79); 0..127 percents unchanged. */
 #define main hostsim_main
 #include "hostsim.c"
@@ -116,30 +116,35 @@ static int test_slicer(void)
     }
     bad += check("SLICER step lengths == the sequencer's (one helper) at 100+100, 100+0, 0+100, 80+70, 0+0", !lens);
 
-    host_tracks_init();
-    song.g[G_BPM] = 131;
-    for (k = 0; k < NTRK; k++) {                     /* every track past 100 in sum, the SLICER on */
-        trk[k].p[P_SLEN] = 16;
-        trk[k].p[P_SLRATE] = 1;
-        trk[k].p[P_SLCR] = SL_GATE;
-        trk[k].p[P_SLPAT] = (int16_t)(3u + k);
-        trk[k].p[P_SLDEPTH] = 127;
-        trk[k].p[P_SSWING] = (int16_t)(40 + 20 * k);
-    }
-    song.g[G_SWING] = 100;
-    memset(sl, 0, sizeof sl);
-    transport_req = 1;
-    for (f = 0; f < 8u * FS; f += CTL) {
-        int32_t o[2 * CTL];
-        mix_block(o, CTL);
-        blocks++;
-        for (k = 0; k < NTRK; k++) {                 /* the SLICER step that holds the block's first sample */
-            uint32_t idx = sl[k].pos >= CTL ? sl[k].idx : (sl[k].idx + 15u) & 15u;
-            miss += idx != trk[k].seq_idx % 16u;
+    /* One track owns CHAIN at a time (G_SLOWN); private sl[k] must stay on that track's seq step
+     * under extreme track+global swing. SEND would share sl_bus and ignore track SWG. */
+    for (k = 0; k < NTRK; k++) {
+        uint32_t own = k;
+        host_tracks_init();
+        song.g[G_BPM] = 131;
+        song.g[G_SWING] = 100;
+        song.g[G_SLOWN] = (int16_t)(own + 1u);
+        trk[own].p[P_SLEN] = 16;
+        trk[own].p[P_SLRATE] = 1;
+        trk[own].p[P_SLCR] = SL_GATE;
+        trk[own].p[P_SLPAT] = (int16_t)(3u + own);
+        trk[own].p[P_SLDEPTH] = 127;
+        trk[own].p[P_SSWING] = (int16_t)(40 + 20 * (int)own);
+        memset(sl, 0, sizeof sl);
+        transport_req = 1;
+        for (f = 0; f < 8u * FS; f += CTL) {
+            int32_t o[2 * CTL];
+            mix_block(o, CTL);
+            blocks++;
+            {
+                uint32_t idx = sl[own].pos >= CTL ? sl[own].idx : (sl[own].idx + 15u) & 15u;
+                miss += idx != trk[own].seq_idx % 16u;
+            }
         }
+        transport_req = 2;
     }
-    transport_req = 2;
-    bad += check("SLICER on the sequencer's step, SWG 40..100 + global 100, 131 BPM, 4 tracks", !miss && blocks > 1000u);
+    bad += check("SLICER on the sequencer's step, SWG 40..100 + global 100, 131 BPM, each CHAIN track",
+                 !miss && blocks > 1000u);
     return bad;
 }
 

@@ -1,22 +1,20 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* SLICER: a per-track insert, a tempo-synced 16-step gate / stutter. It works on the track's dry
- * mono signal after DIST and before LEVEL / PAN / the sends (fx.c mix_part), so the sends follow
- * the chopped sound.
+/* SLICER: tempo-synced 16-step gate / stutter on the EFFECTS list (INS_SLCR).
+ * CHAIN: private DSP in list order (fx.c track_insert); each track may CHAIN at once.
+ * SEND: one shared bus DSP (sl_bus); MODE/PAT/RATE shared (fx_bus_trk), MIX per-track.
+ * Legacy G_SLOWN 1..4: one CHAIN owner, others USED (untouched) until sanitized to a mask.
  *   P_SLCR    OFF / GATE / STUT
  *   P_SLPAT   one of SL_NPAT patterns of 16 steps ('x' live / open, '.' gated / repeated)
  *   P_SLRATE  the step: 1/8, 1/16, 1/32, 8T, 16T, 32T
- *   P_SLDEPTH GATE: how far a '.' step closes (100 % = silent); STUT: the level of the repeat
+ *   P_SLDEPTH MIX: GATE how far a '.' step closes (100 % = silent); STUT: the level of the repeat.
+ *             MIX 0 is transparent (bypass).
  * GATE: the gain moves at most 1 / SL_RAMP per sample (2.9 ms from open to closed): a closing
  *   ramp ends on the step boundary, an opening one starts on it.
- * STUT: an 'x' step plays live and is recorded (22.05 kHz, 16 bit, SL_LEN samples a track); a '.'
- *   step plays that recording from its start, looped at the step length (halved until it fits the
- *   recording), cross-faded with the live sound by DEPTH. Every pass of the loop is windowed
- *   (SL_RAMP at both ends and at the step end), the cross-fade moves as the gate does.
- * The step clock: per track, always running (also with the SLICER OFF, so switching it on lands
- * in time), restarted with the transport (seq_start -> slicer_start: step 0 starts with the
- * sequencer's step 0), BPM and the track's + the global SWING as the sequencer has them (seq.c
- * step_samples); sample exact. With the SLICER OFF and no ramp left, the signal is not touched. */
+ * STUT: an 'x' step plays live and is recorded (22.05 kHz, 16 bit, SL_LEN); a '.' step plays that
+ *   recording from its start, looped at the step length, cross-faded with the live sound by MIX.
+ * The step clock: always running (also with the SLICER OFF, so switching it on lands in time),
+ * restarted with the transport (seq_start -> slicer_start). With OFF and no ramp left, untouched. */
 #define SL_NPAT 16
 #define SL_LEN 4096u                    /* recording, 22.05 kHz samples a track: 186 ms, 8 KB */
 #define SL_RAMP_LOG2 7
@@ -46,6 +44,7 @@ static const uint16_t SL_PAT[SL_NPAT] = {
 static const uint8_t SL_DEN[6] = {2, 4, 8, 3, 6, 12};   /* P_SLRATE (N_SLDIV): a step = 1 / DEN beats */
 
 static int16_t sl_buf[NTRK][SL_LEN] __attribute__((section(".pool")));
+/* SEND STUT recording uses a SEND track's sl_buf (CHAIN tracks keep theirs for private STUT). */
 typedef struct {
     uint32_t pos, len;           /* samples into the step, its length */
     uint32_t base;               /* the step without swing */
@@ -59,7 +58,39 @@ typedef struct {
     uint8_t rec_on;              /* recording this step */
 } sl_t;
 static sl_t sl[NTRK];
+static sl_t sl_bus;              /* shared SEND bus clock (idx/pos/len/bit/loop) */
+static sl_t sl_bus_blk;          /* sl_bus at the start of the current mix block */
+static int32_t sl_send_gc[NTRK]; /* per-track gate envelope while SEND (MIX is per-track) */
+static int32_t sl_send_w[NTRK];
+static uint8_t sl_bus_applied;   /* 1 after the first SEND track committed the bus clock this block */
+static uint8_t sl_bus_driver;    /* track that advanced the bus this block (re-calls keep advancing) */
 static uint8_t sl_lent;          /* perform.c has borrowed sl_buf: STUT plays live, records nothing */
+
+/* which DSP state this track uses: shared bus (SEND), private (CHAIN), or null (USED) */
+static sl_t *sl_state(const track_t *t)
+{
+    uint32_t tr = (uint32_t)(t - trk);
+    if (sl_trk_used(t))
+        return 0;
+    if (sl_trk_send(t))
+        return &sl_bus;
+    return &sl[tr];
+}
+/* a free STUT buffer for the SEND bus: any SEND track's slot (idle while that track is SEND) */
+static uint32_t sl_send_buf(void)
+{
+    uint32_t k;
+    for (k = 0; k < NTRK; k++)
+        if (sl_trk_send(&trk[k]))
+            return k;
+    return 0;
+}
+
+static void slicer_block(void)   /* fx.c mix_block: new audio block for the shared SEND bus */
+{
+    sl_bus_applied = 0;
+    sl_bus_driver = 0xFF;
+}
 
 static void slicer_start(void)   /* seq_start: the next block starts step 0 of every track */
 {
@@ -67,18 +98,34 @@ static void slicer_start(void)   /* seq_start: the next block starts step 0 of e
     for (k = 0; k < NTRK; k++) {
         sl[k].idx = 15;
         sl[k].pos = sl[k].len = 0;
+        sl_send_gc[k] = sl_send_w[k] = 0;
     }
+    sl_bus.idx = 15;
+    sl_bus.pos = sl_bus.len = 0;
+    sl_bus_applied = 0;
 }
 
 static uint32_t sl_pattern(const track_t *t) { return SL_PAT[(uint32_t)(t->p[P_SLPAT] - 1) % SL_NPAT]; }
 
+/* SEND bus clock: song swing only (one shared length). CHAIN: track + song swing. */
+static uint32_t sl_step_len(const track_t *pt, uint32_t base, uint32_t idx)
+{
+    if (pt == &fx_bus_trk) {
+        int32_t sw = song.g[G_SWING];
+        if (sw < 0) sw = 0;
+        if (sw > SWING_MAX) sw = SWING_MAX;
+        sw = sw * (int32_t)base / 250;
+        return base + (uint32_t)((idx & 1u) ? -sw : sw);
+    }
+    return swing_step_len(pt, base, idx);
+}
 /* the step clock enters the next step */
 static void sl_enter(const track_t *t, sl_t *s)
 {
     uint32_t mode = (uint32_t)t->p[P_SLCR];
     s->idx = (uint8_t)((s->idx + 1u) & 15u);
     s->base = (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM] / SL_DEN[(uint32_t)t->p[P_SLRATE] % 6u];
-    s->len = swing_step_len(t, s->base, s->idx);   /* core.h, as seq.c step_samples */
+    s->len = sl_step_len(t, s->base, s->idx);
     s->pos = 0;
     s->bit = (uint8_t)((sl_pattern(t) >> s->idx) & 1u);
     s->rp = 0;
@@ -100,14 +147,15 @@ static void sl_enter(const track_t *t, sl_t *s)
 /* m samples of one step (no boundary inside). sd: SPREAD's side signal (fx.c mix_spread) or 0: it gets the gate and
  * the live sound's share of the cross-fade (the repeat is the mono recording: on PAN). Inlined into both callers:
  * slicer_track's (sd 0) is the code it always was */
-static inline __attribute__((always_inline)) void sl_seg(const track_t *t, sl_t *s, int16_t *buf, int32_t *b,
-                                                          int32_t *sd, uint32_t m)
+/* pt: MODE/PAT (and STUT clock); t: MIX (P_SLDEPTH). CHAIN passes the same track for both. */
+static inline __attribute__((always_inline)) void sl_seg(const track_t *pt, const track_t *t, sl_t *s,
+                                                          int16_t *buf, int32_t *b, int32_t *sd, uint32_t m)
 {
-    uint32_t mode = (uint32_t)t->p[P_SLCR], j, nbit = (sl_pattern(t) >> ((s->idx + 1u) & 15u)) & 1u;
-    int32_t depth = t->p[P_SLDEPTH] * 258;          /* Q15, 0..32766 */
-    int32_t tc = mode == SL_GATE && !s->bit ? depth : 0;           /* gate closure of this step */
-    int32_t tn = mode == SL_GATE && !nbit ? depth : 0;             /* .. of the next one */
-    int32_t tw = mode == SL_STUT && s->loop ? depth : 0;           /* repeat level */
+    uint32_t mode = (uint32_t)pt->p[P_SLCR], j, nbit = (sl_pattern(pt) >> ((s->idx + 1u) & 15u)) & 1u;
+    int32_t mix = t->p[P_SLDEPTH] * 258;            /* Q15, 0..32766 (MIX amount) */
+    int32_t tc = mode == SL_GATE && !s->bit ? mix : 0;             /* gate closure of this step */
+    int32_t tn = mode == SL_GATE && !nbit ? mix : 0;               /* .. of the next one */
+    int32_t tw = mode == SL_STUT && s->loop ? mix : 0;             /* repeat level */
     for (j = 0; j < m; j++) {
         int32_t x = b[j], y, tg = tc;
         uint32_t left = s->len - s->pos - j;        /* samples to the step end, >= 1 */
@@ -155,49 +203,88 @@ static inline __attribute__((always_inline)) void sl_seg(const track_t *t, sl_t 
     }
 }
 
-/* the step clock over n samples and the SLICER on b (0: the clock only, the track is silent) */
-static void slicer_track(const track_t *t, int32_t *b, uint32_t n)
+/* pt: MODE/PAT/RATE (SEND: fx_bus_trk; CHAIN: the track). MIX from t. */
+static void sl_run(const track_t *pt, const track_t *t, sl_t *s, int16_t *buf, int32_t *b, int32_t *sd,
+                   uint32_t n)
 {
-    uint32_t k = (uint32_t)(t - trk), i = 0;
-    sl_t *s = &sl[k];
-    int act = b && (t->p[P_SLCR] != SL_OFF || s->gc || s->w);
+    uint32_t i = 0;
+    int act = b && (pt->p[P_SLCR] != SL_OFF || s->gc || s->w);
     while (i < n) {
         uint32_t m;
         if (s->pos >= s->len)
-            sl_enter(t, s);
+            sl_enter(pt, s);
         m = s->len - s->pos;
         if (m > n - i)
             m = n - i;
         if (act)
-            sl_seg(t, s, sl_buf[k], b + i, 0, m);
+            sl_seg(pt, t, s, buf, b + i, sd ? sd + i : 0, m);
         s->pos += m;
         i += m;
     }
+}
+
+/* SEND: shared clock in sl_bus, per-track MIX envelopes in sl_send_gc/w.
+ * First SEND track in a mix block advances the bus; others replay from the block start.
+ * The same driver calling again (host tests without slicer_block) keeps advancing. */
+static void sl_run_send(const track_t *t, int32_t *b, int32_t *sd, uint32_t n)
+{
+    uint32_t k = (uint32_t)(t - trk);
+    const track_t *pt = &fx_bus_trk;                 /* SEND bus MODE/PAT/RATE */
+    sl_t tmp;
+    int drive = !sl_bus_applied || k == sl_bus_driver;
+    if (!sl_bus_applied)
+        sl_bus_blk = sl_bus;
+    tmp = drive && sl_bus_applied ? sl_bus : sl_bus_blk;
+    tmp.gc = sl_send_gc[k];
+    tmp.w = sl_send_w[k];
+    /* record into a SEND track's buffer; followers replay from the driver's pick */
+    sl_run(pt, t, &tmp, sl_buf[drive ? sl_send_buf() : sl_bus_driver], b, sd, n);
+    sl_send_gc[k] = tmp.gc;
+    sl_send_w[k] = tmp.w;
+    if (drive) {
+        tmp.gc = tmp.w = 0;
+        sl_bus = tmp;
+        sl_bus_applied = 1;
+        sl_bus_driver = (uint8_t)sl_send_buf();        /* buffer index followers replay from */
+    }
+}
+
+/* the step clock over n samples and the SLICER on b (0: the clock only, the track is silent) */
+static void slicer_track(const track_t *t, int32_t *b, uint32_t n)
+{
+    uint32_t k = (uint32_t)(t - trk);
+    sl_t *s = sl_state(t);
+    if (!s)                                          /* USED: another track has CHAIN */
+        return;
+    if (s == &sl_bus) {
+        sl_run_send(t, b, 0, n);
+        return;
+    }
+    sl_run(t, t, s, sl_buf[k], b, 0, n);
 }
 
 /* slicer_track with SPREAD's side signal sd (fx.c mix_spread; b != 0) */
 static __attribute__((noinline)) void slicer_track_sd(const track_t *t, int32_t *b, int32_t *sd, uint32_t n)
 {
-    uint32_t k = (uint32_t)(t - trk), i = 0;
-    sl_t *s = &sl[k];
-    int act = t->p[P_SLCR] != SL_OFF || s->gc || s->w;
-    while (i < n) {
-        uint32_t m;
-        if (s->pos >= s->len)
-            sl_enter(t, s);
-        m = s->len - s->pos;
-        if (m > n - i)
-            m = n - i;
-        if (act)
-            sl_seg(t, s, sl_buf[k], b + i, sd + i, m);
-        s->pos += m;
-        i += m;
+    uint32_t k = (uint32_t)(t - trk);
+    sl_t *s = sl_state(t);
+    if (!s)
+        return;
+    if (s == &sl_bus) {
+        sl_run_send(t, b, sd, n);
+        return;
     }
+    sl_run(t, t, s, sl_buf[k], b, sd, n);
 }
 
 /* a silent part must still be rendered: a repeat is playing or fading (fx.c mix_part) */
 static int slicer_busy(const track_t *t)
 {
-    const sl_t *s = &sl[t - trk];
-    return s->w || (t->p[P_SLCR] == SL_STUT && s->loop);
+    uint32_t k = (uint32_t)(t - trk);
+    const sl_t *s = sl_state(t);
+    if (!s)
+        return 0;
+    if (s == &sl_bus)
+        return sl_send_w[k] || (t->p[P_SLDEPTH] && fx_bus_trk.p[P_SLCR] == SL_STUT && sl_bus.loop);
+    return s->w || (t->p[P_SLDEPTH] && t->p[P_SLCR] == SL_STUT && s->loop);
 }

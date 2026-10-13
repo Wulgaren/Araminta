@@ -72,8 +72,8 @@ Build options (environment, `0` or `1`; defaults in `firmware/src/felucca.c`, `c
 The CC0 instrument samples that the SAMPLE engine uses are in `assets/samples-cc0/`
 (Versilian Studios, see `ATTRIBUTION.txt` there). `tools/fetch_cc0.py` downloads them
 again from the source repositories. Without that folder the build still works, with no
-instrument sets in the SAMPLE engine and no PIANO in SLICE (the PIANO set's middle C): they play a plain sine
-at the note's pitch instead, and the screen says NO SAMPLE.
+instrument sets in the SAMPLE engine: they play a plain sine at the note's pitch instead, and the
+screen says NO SAMPLE.
 
 ## Browser emulator
 

@@ -121,7 +121,7 @@ static const icon_map_t ICON_MAP[] = {
     /* arp, scale, pattern */
     {"MODE", ICON_ARP}, {"OCT", ICON_OCTAVE}, {"GATE", ICON_GATE}, {"SWG", ICON_SWING},
     {"PROB", ICON_PROB}, {"HOLD", ICON_HOLD}, {"ORD", ICON_ORDER}, {"ROOT", ICON_PITCH},
-    {"SCL", ICON_SCALE}, {"QNT", ICON_QUANTIZE}, {"TRN", ICON_TRANSPOSE}, {"LEN", ICON_LENGTH},
+    {"SCL", ICON_SCALE}, {"MAP", ICON_SCALE}, {"TRN", ICON_TRANSPOSE}, {"LEN", ICON_LENGTH},
     {"DIV", ICON_DIVISION}, {"VOIC", ICON_OCTAVE},   /* (CHRD: below, PHYS's) */
     /* fx sends, voice */
     {"DST", ICON_DIST}, {"CHO", ICON_CHORUS}, {"DLY", ICON_DELAY}, {"REV", ICON_REVERB},
@@ -224,6 +224,10 @@ static uint32_t mod_dst_icon(const track_t *t, int32_t d)
     d = clamp(d, 0, MD_N - 1);
     if (d == MD_DEPTH)
         return ICON_LFO_WAVE;
+    if (MD_FX(d)) {
+        id = mod_param((uint32_t)d);
+        return param_icon(fx_target_desc(t, id), *fx_target_ptr(t, id));
+    }
     if (MD_SLICER(d) || MD_CHORD(d) || MD_INS(d)) {
         id = mod_param((uint32_t)d);
         return param_icon(&TP[id], t->p[id]);

@@ -75,8 +75,8 @@ static int32_t bar_x(uint32_t i) { return 12 + (int32_t)(i % 16u) * 13 + (int32_
 
 /* STEP page (a melodic track): a piano roll of the cursor's 16-step page. PR_ROWS semitone rows of PR_RH px,
  * the highest on top; on the left the C rows named (S, DIM) and a keyboard strip (white keys RAISE, black keys a
- * shorter DIM; a key held on the track: its row ACCENT). Rows in the track's scale (SCL ROOT / SCALE; CHR: the white
- * keys) are tinted LANE, a C row closes with a RAISE line; step lines GRID, every 4th RAISE. A note is a 9 x 3 bar in
+ * shorter DIM; a key held on the track: its row ACCENT). Rows in the track's scale (SCL ROOT / SCALE) are tinted
+ * LANE, a C row closes with a RAISE line; step lines GRID, every 4th RAISE. A note is a 9 x 3 bar in
  * its column (an accent: TEXT, the row's full height; the cursor step's notes: ACCENT), chords stacked, lane hits as
  * their notes (a RATCH step's bars in its 2..4 parts, 1 px apart); a TIE carries the bars of the note before through
  * its column; a REST is empty; a slide is a TEXT diagonal from the end of its bar into the next note (not from a
@@ -452,7 +452,7 @@ static void graph_insert(const track_t *t, uint16_t c)
         py = y;
     }
 }
-/* EFFECTS: name | gray mix fader | SEND / CHAIN / USED. Eight rows (6 inserts + DLY + REV).
+/* EFFECTS: name | gray mix fader | SEND / CHAIN / USED. Nine rows (6 inserts + DLY + REV + SLCR).
  * Fader spans the row between the name column and the mode label (full width of that gap).
  * Name column sized to the longest N_ISTAGE label (FLANGER); shorter names left-align. */
 static void ior_row(int32_t y, const char *name, const char *mode, int32_t amt, uint16_t col)
@@ -481,16 +481,20 @@ static void graph_iord(const track_t *t, uint16_t c)
         uint32_t st = ord[i];
         const char *mode = fx_list_mode(t, st);
         uint16_t col = i == ui.ior_sel ? c : mode[0] == 'U' ? T_DIM : T_MID;
-        ior_row(2 + (int32_t)i * 11, N_ISTAGE[st], mode, ins_mix_of(t, st), col);
+        ior_row(2 + (int32_t)i * 10, N_ISTAGE[st], mode, ins_mix_of(t, st), col);
     }
 }
 /* SLICER page: the pattern's 16 steps, a 'x' step a full bar; a '.' step: GATE a bar as high as it stays
- * open (DEPTH), STUT hatched (it repeats the last 'x'); the step playing underlined. Grey when OFF. */
+ * open (MIX), STUT hatched (it repeats the last 'x'); the step playing underlined. Grey when OFF.
+ * SEND: MODE/PAT from the shared bus (fx_bus_trk); playhead from sl_bus via sl_state. MIX stays per-track. */
 static void graph_slicer(const track_t *t, uint16_t c)
 {
-    uint32_t i, pat = sl_pattern(t), mode = (uint32_t)t->p[P_SLCR], cur = sl[t - trk].idx;
+    const track_t *pt = sl_trk_send(t) ? &fx_bus_trk : t;
+    uint32_t i, pat = sl_pattern(pt), mode = (uint32_t)pt->p[P_SLCR], cur;
+    sl_t *ss = sl_state(t);
     int32_t open = 70 - t->p[P_SLDEPTH] * 70 / 127;      /* px a closed GATE step keeps */
     uint16_t col = mode == SL_OFF ? T_DIM : c;
+    cur = ss ? ss->idx : 0;
     for (i = 0; i < 16u; i++) {
         int32_t x = bar_x(i), y;
         if ((pat >> i) & 1u) {
@@ -1101,14 +1105,12 @@ static void page_title(char *ti)
     const page_t *pg = cur_page();
     const track_t *t = TSEL;
     const engine_t *e = ENGINES[t->eng_req % NENGINES];
-    uint32_t i, n = 0, k = 0;
+    uint32_t i, n = 0, k = 0, idx[NPAGES];
     const char *pt = pg->scope == SC_ENGINE ? e->page_title[pg->id[0] != P_E0] : 0;   /* EDIT: the engine's */
-    for (i = 0; i < NPAGES; i++)
-        if (PAGES[i].fam == pg->fam && PAGES[i].sec == pg->sec && page_visible(i)) {
-            n++;
-            if (i == ui.page)
-                k = n;
-        }
+    n = sec_page_list(pg->fam, pg->sec, idx);
+    for (i = 0; i < n; i++)
+        if (idx[i] == ui.page)
+            k = i + 1u;
     if (pg->graph == GR_ROLL && !drum_track(t) && !detail_on()) {   /* piano roll: tinted rows' scale */
         str_cpy(ti, N_NOTE[(uint32_t)t->p[P_ROOT] % 12u], 4);
         str_cpy(ti + str_len(ti), " ", 4);
@@ -1143,12 +1145,12 @@ static uint32_t graph_signature(void)
     const track_t *t = TSEL;
     uint32_t h = 2166136261u, i;
     if (ui.home)
-        return h ^ (ui.frame / 2u);                  /* scope: redraw every other frame */
+        return h ^ ui.frame;                         /* scope: every UI frame */
     h ^= (uint32_t)pg->graph * 131u + TSEL->eng_req + song.sel * 7777u + ui.page * 1291u;
     if (strip_kind() == SK_TITLE)                    /* MENU > LARGE: the page's title (its engine, its number) */
         return h ^ 0x5A17u;
     if (pg->graph == GR_NONE || pg->graph == GR_ARP || pg->graph == GR_STEPS || pg->graph == GR_INS)
-        h ^= ui.frame / 2u;                          /* scope / FX tech (live playhead, chorus taps, energy) */
+        h ^= ui.frame;                               /* scope / FX tech (live playhead, chorus taps, energy) */
     for (i = 0; i < P_COUNT; i++)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
     h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u +
@@ -1177,8 +1179,12 @@ static uint32_t graph_signature(void)
         h ^= (mod_ui_slot + 1u) * 40503u;
     if (ui.pick)
         h ^= pk_sig();
-    if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
-        h ^= (sl[song.sel].idx + 1u) * 2654435761u;
+    if (pg->graph == GR_SLCR) {                       /* step playing: SEND uses sl_bus + bus MODE */
+        const track_t *pt = sl_trk_send(t) ? &fx_bus_trk : t;
+        const sl_t *ss = sl_state(t);
+        if (pt->p[P_SLCR] && ss)
+            h ^= (ss->idx + 1u) * 2654435761u;
+    }
     if (pg->graph == GR_IORD)                        /* EFFECTS: slot, order (P_IORD + DLY/REV slots), mixes */
         h ^= (ui.ior_sel + 1u) * 40503u + ((uint32_t)iord_bits(t) + 1u) * 7919u +
              ((uint32_t)t->p[P_CHOR] + 1u) * 2246822519u +
@@ -2353,10 +2359,9 @@ static void draw_graph(void)
             else
                 graph_events();
             break;
-        case GR_TOOLS:
+        case GR_CLEAR:
             cv_oy = 0;
-            panel_note("TURN TO PICK", "[OCT+] CONFIRM", 0);
-            break;
+            break;                                      /* sticky CLEAR map (ui_layer.c) draws over this */
         case GR_DXSND:
             cv_oy = 0;
             graph_colony(t, (int32_t)(dx_ui_lane & 7u));

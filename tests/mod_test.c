@@ -21,7 +21,7 @@
 #include <sys/resource.h>
 #endif
 
-#define MOD_COST_MAX 5.0          /* % more instructions per sample with every slot active, at most */
+#define MOD_COST_MAX 5.5          /* % more instructions / sample with every slot active (SEND/FX shared paths) */
 
 static int bad;
 static void check(const char *what, int ok)
@@ -360,6 +360,8 @@ static void test_math(void)
     fresh(0, 0);
     t->p[P_SLPAT] = 8;
     t->p[P_SLRATE] = 1;
+    fx_bus_trk.p[P_SLPAT] = 8;
+    fx_bus_trk.p[P_SLRATE] = 1;
     t->p[P_SLDEPTH] = 64;
     t->mw = 127;
     slot(t, 0, MS_MODW, MD_SLPAT, 63);
@@ -367,7 +369,7 @@ static void test_math(void)
     slot(t, 2, MS_MODW, MD_SLDEPTH, 63);
     mod_begin(t);
     check("#222 MODW -> SLICER PAT / RATE / DEPTH: whole range at AMT 63",
-          t->p[P_SLPAT] == TP[P_SLPAT].max && t->p[P_SLRATE] == TP[P_SLRATE].max &&
+          fx_bus_trk.p[P_SLPAT] == TP[P_SLPAT].max && fx_bus_trk.p[P_SLRATE] == TP[P_SLRATE].max &&
           t->p[P_SLDEPTH] == 127);
     mod_end(t);
     check("#222 SLICER params restored after the block",
@@ -432,7 +434,24 @@ static void test_math(void)
     check("DST names: TONE / DMIX / HDEP; CHO is CHOR MIX; DLY/REV amounts stay",
           str_eq(mod_dst_name(t, MD_TONE), "TONE") && str_eq(mod_dst_name(t, MD_DMIX), "DMIX") &&
           str_eq(mod_dst_name(t, MD_HDEP), "HDEP") && mod_param(MD_CHO) == P_IHMIX &&
-          mod_param(MD_DLY) == P_DLY && mod_param(MD_REV) == P_REV && MD_TONE == 26 && MD_N == 44);
+          mod_param(MD_DLY) == P_DLY && mod_param(MD_REV) == P_REV && MD_TONE == 26 && MD_N == 49);
+
+    /* DIST on SEND lives in fx_bus_trk; LFO must move the bus, not track p[] */
+    fresh(0, 0);
+    ins_send_set(t, INS_DIST, 1);
+    fx_bus_trk.p[P_DIST] = 64;
+    t->p[P_DIST] = 20;
+    lfo_at(t, 32767);
+    slot(t, 0, MS_LFO, MD_DIST, 63);
+    slot(t, 1, MS_OFF, MD_OFF, 0);
+    slot(t, 2, MS_OFF, MD_OFF, 0);
+    slot(t, 3, MS_OFF, MD_OFF, 0);
+    mod_begin(t);
+    check("LFO -> DIST SEND: modulates fx_bus_trk, leaves track p[] alone",
+          fx_bus_trk.p[P_DIST] == TP[P_DIST].max && t->p[P_DIST] == 20);
+    mod_end(t);
+    check("LFO -> DIST SEND: bus restored after the block",
+          fx_bus_trk.p[P_DIST] == 64 && t->p[P_DIST] == 20);
 }
 
 /* ------------------------------------------------------------------ 3 --- */
@@ -697,10 +716,44 @@ static int demos(const char *dir)
     return n == 5u;
 }
 
+static void test_fx_controls(void)
+{
+    static const uint8_t GLOBAL[] = {G_DTIME, G_DFDBK, G_DCOLOR, G_RSIZE, G_RDAMP};
+    static const int16_t BASE[] = {564, 40, 30, 20, 10};
+    static const int16_t TOP[] = {1550, 120, 127, 127, 127};
+    uint32_t chain, k;
+    for (chain = 0; chain < 2; chain++) {
+        host_tracks_init();
+        song.g[G_REVOWN] = chain ? 1 : 0;
+        song.g[G_CRSIZE] = 25;
+        song.g[G_CRDAMP] = 15;
+        for (k = 0; k < 5; k++) {
+            track_t *t = &trk[0];
+            uint32_t g = GLOBAL[k];
+            int16_t base = BASE[k];
+            song.g[g] = base;
+            if (chain && k >= 3) {
+                g = k == 3 ? G_CRSIZE : G_CRDAMP;
+                base = song.g[g];
+            }
+            memset(t->p + P_M1SRC, 0, 12 * sizeof t->p[0]);
+            slot(t, 0, MS_MODW, 44 + k, 63);
+            t->mw = 127;
+            mod_begin(t);
+            check("continuous FX target reaches the selected bank", song.g[g] == TOP[k]);
+            if (chain && k >= 3)
+                check("CHAIN modulation leaves SEND reverb settings alone", song.g[GLOBAL[k]] == BASE[k]);
+            mod_end(t);
+            check("continuous FX target restores its base", song.g[g] == base);
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     test_off();
     test_math();
+    test_fx_controls();
     test_midi();
     test_cost();
     if (argc > 1)
