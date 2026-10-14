@@ -130,6 +130,8 @@ static __attribute__((noinline)) void chain_apply(void)
         }
         t->seq_idx = (uint16_t)(t->p[P_SLEN] - 1);
         t->seq_pos = 0x7FFFFFFFu;
+        t->arp_pos = 0xFFFFFFF;                    /* with the section's step 1 */
+        t->arp_idx = 0xFFFFFFFFu;
         t->rh_n = t->rskip_n = 0;
     }
 }

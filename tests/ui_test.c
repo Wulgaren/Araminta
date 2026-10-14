@@ -2709,9 +2709,9 @@ static int test_presets_knob(void)
 }
 
 /* Pages by button. HOME: Home ↔ Mixer; SEQ: step group → Automation → Tools;
- * GLO: Master → Song → Clock; SAVE: Presets → Project → Clear.
+ * GLO: Master → Clock → Song; SAVE: Presets → Project → Clear.
  * AUTOMATION's list edits a step's CHANCE / RATCH (the step's own fields, nothing else), one undo each;
- * a remembered page that left its family */
+ * re-enter from elsewhere always the family's first page */
 static int steps_but(const track_t *t, const step_t *ref, uint32_t at, const step_t *want)   /* the steps = ref, at: want */
 {
     uint32_t i;
@@ -2779,34 +2779,40 @@ static int test_page_cycles(void)
               PAGES[clock - 1u].id[3] == 0xFFu;
         bad += check("no GLOBAL, no SYSTEM page; GLO > CLOCK has BPM SWG CLK (three knobs), TUNE and ROUT on no page", ok);
     }
-    /* remembered pages: one that left its family, or out of range, gives the family's first;
-     * SAVE always PRESETS; HOME's never remembered: from HOME the MIXER */
+    /* re-enter from elsewhere: always the family's first section/page (Punch-in → EFFECTS; ENV DEST → ENV);
+     * in-family button still cycles; HOME → MIXER; in-page cursors stay */
     ui_power_on();
-    for (i = 0; i < NPAGES; i++)
-        if (PAGES[i].graph == GR_TRK) ui.fam_last[FAM_GLO] = (uint8_t)i;
-        else if (PAGES[i].graph == GR_PATS) ui.fam_last[FAM_SEQ] = (uint8_t)i;
-    ui.fam_last[FAM_SAVE] = 200u;
-    ui.fam_last[FAM_ENV] = 250u;
-    open_family(FAM_GLO); ok = str_eq(cur_page()->title, "MASTER"); /* invalid fam_last → MASTER */
-    open_family(FAM_SEQ); ok &= str_eq(cur_page()->title, "PATTERN") || cur_page()->graph == GR_ROLL ||
-                              cur_page()->graph == GR_STEPS; /* invalid fam_last → first SEQ page (PATTERN) */
-    open_family(FAM_ENV); ok &= str_eq(cur_page()->title, "ENV");
-    open_family(FAM_SAVE); ok &= str_eq(cur_page()->title, "PRESETS");
+    go_title("PUNCH");
+    ok = cur_page()->sec == FX_SEC_PUNCH && ui.lock == LAYER_FX;
+    open_family(FAM_SEQ);
+    ok &= str_eq(cur_page()->title, "STEP") || cur_page()->graph == GR_ROLL;
+    open_family(FAM_FX);
+    ok &= str_eq(cur_page()->title, "EFFECTS") && cur_page()->sec == FX_SEC_INS && !ui.lock;
+    go_title("ENV DEST");
+    open_family(FAM_SEQ);
+    open_family(FAM_ENV);
+    ok &= str_eq(cur_page()->title, "ENV");
+    go_title("CLEAR");
+    open_family(FAM_GLO);
+    open_family(FAM_SAVE);
+    ok &= str_eq(cur_page()->title, "PRESETS");
     go_home(); open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "MASTER");
-    open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "SONG"); /* section cycle */
-    open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "CLOCK");
+    open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "CLOCK"); /* section cycle */
+    open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "SONG");
     open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "MASTER"); /* wrap */
-    for (i = 0; i < 256u; i++) {                         /* any remembered index */
+    go_title("EFFECTS");
+    ui.ior_sel = 2;
+    open_family(FAM_SEQ);
+    open_family(FAM_FX);
+    ok &= str_eq(cur_page()->title, "EFFECTS") && ui.ior_sel == 2u; /* page resets; list cursor stays */
+    for (i = 0; i < 256u; i++) {                         /* fam_last ignored on re-enter */
         go_home(); ui.fam_last[FAM_GLO] = (uint8_t)i; open_family(FAM_GLO);
-        if (i < NPAGES && PAGES[i].fam == FAM_GLO && page_visible(i))
-            ok &= ui.page == i && ui.fam_last[FAM_GLO] == ui.page;
-        else
-            ok &= str_eq(cur_page()->title, "MASTER") && ui.fam_last[FAM_GLO] == ui.page;
+        ok &= str_eq(cur_page()->title, "MASTER") && ui.fam_last[FAM_GLO] == ui.page;
         go_home(); ui.fam_last[FAM_TRK] = (uint8_t)i; press(B_HOME);
         ok &= cur_page()->graph == GR_TRK && !ui.home;
     }
-    bad += check("remembered page no longer in its family (or none) lands on the family's first; SAVE always PRESETS, "
-                 "HOME always the MIXER first", ok);
+    bad += check("re-enter family opens its first page (FX Effects, ENV, SAVE PRESETS); GLO cycles "
+                 "Master → Clock → Song; HOME always the MIXER first; EFFECTS list cursor kept", ok);
 
     /* AUTOMATION: + ADD CHANCE / RATCH, the knobs, EDIT: the step's fields only */
     ui_power_on();
@@ -2929,7 +2935,6 @@ static int test_product_ux(void)
     ui_power_on();
     frames(320);                                       /* (taps further apart than a double tap: #83) */
     press(B_GLO); frames(320); ok = cur_page()->fam == FAM_GLO && str_eq(cur_page()->title, "MASTER");
-    press(B_GLO); frames(320); ok &= str_eq(cur_page()->title, "SONG") && cur_page()->fam == FAM_GLO;
     press(B_GLO); frames(320); ok &= str_eq(cur_page()->title, "CLOCK") && cur_page()->fam == FAM_GLO;
     {   /* CLOCK: GLO's LED lit; HOME's not */
         uint8_t pos0[sizeof led_pos];
@@ -2948,8 +2953,9 @@ static int test_product_ux(void)
         ok &= song.g[G_BPM] == bpm + 1 && song.g[G_SWING] == swg + 1 && song.g[G_CLOCK] != clk && song.g[G_TUNE] == tune;
         song.g[G_CLOCK] = clk;
     }
+    press(B_GLO); frames(320); ok &= str_eq(cur_page()->title, "SONG") && cur_page()->fam == FAM_GLO;
     press(B_GLO); frames(320); ok &= str_eq(cur_page()->title, "MASTER") && !ui.lock;
-    bad += check("GLO cycles Master → Song → Clock → Master", ok);
+    bad += check("GLO cycles Master → Clock → Song → Master", ok);
     go_home(); btn_down(B_SEQ); frames(500);
     ok = !ui.layer && ui.home;                          /* hold alone: no map */
     btn_up(B_SEQ); frame();
@@ -6481,6 +6487,16 @@ static int test_knob_accel(void)
         printf("  #126 a flick of 12 detents over %u ms on -100..100: %u steps\n", 126u, (unsigned)f);
         bad += check("#126 KNOB ACCEL over a range above 64: 10 ms x5 .. 6 ms x8; a 12-detent flick ~120 ms: 47", ok);
     }
+    {   /* free-ms TIME (~1486): slow still x1; once accel is on, x8 of the usual so a flick covers hundreds of ms */
+        static const uint16_t F6[8] = {500, 6, 6, 5, 4, 6, 6, 6};
+        fm1_ms += 1000;
+        ok = acc_ms(EN_K3, SLOW, 8, 1, (int32_t)DTIME_MS_MAX, o) == 8u;
+        fm1_ms += 1000;
+        ok &= acc_ms(EN_K3, F6, 8, 1, (int32_t)DTIME_MS_MAX, o) == 2u + 6u * 64u && o[7] == 64;
+        fm1_ms += 1000;
+        ok &= acc_ms(EN_K3, F10, 8, 1, (int32_t)DTIME_MS_MAX, o) == 2u + 6u * 40u && o[7] == 40;
+        bad += check("KNOB ACCEL free-ms range: slow x1, 6 ms x64, 10 ms x40", ok);
+    }
     fm1_ms += 1000; acc_ms(EN_K4, F10, 8, 1, 32, o);
     ok = o[7] == 1;                                                /* a narrow range (<= 32): never */
     fm1_ms += 1000; acc_ms(EN_K4, F10, 8, 1, 0, o);
@@ -8584,7 +8600,7 @@ static int test_no_layer_lock(void)
         if (B[i] == B_FX)
             ok &= ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH; /* Effects → Punch-in */
         else if (B[i] == B_GLO)
-            ok &= ui.lock == 0 || cur_page()->sec == GLO_SEC_SONG; /* Master → Song, no lock */
+            ok &= ui.lock == 0 || cur_page()->sec == GLO_SEC_CLK; /* Master → Clock, no lock */
         else
             ok &= !ui.lock;
     }
@@ -8592,7 +8608,7 @@ static int test_no_layer_lock(void)
     press(B_FX); frames(64); press(B_FX); frame();     /* Effects → Punch-in */
     ok &= ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
     press(B_GLO); frames(64); press(B_GLO); frames(64); press(B_GLO); frame();
-    ok &= !ui.lock && cur_page()->sec == GLO_SEC_CLK;
+    ok &= !ui.lock && cur_page()->sec == GLO_SEC_SONG; /* Master → Clock → Song */
     bad += check("no layer lock: double-tap SCL/EDIT; Punch-in sticky; GLO has no Record map", ok);
     return bad;
 }
@@ -8882,10 +8898,46 @@ static int test_fx_sections(void)
         song.g[G_DTIME] = (int16_t)(DTIME_FREE + 100);
         ok &= dtime_ms() == 100u && delay_samples() == (dtime_q8() + 128u) >> 8;
         ok &= delay_samples() > 16u && delay_samples() < DLY_LEN;
+        {   /* slow: 1 ms a detent; fast flick: tens of ms a detent (accel on the free-ms range) */
+            uint32_t k, ms0;
+            fm1_ms += 1000;
+            for (k = 0; k < 8u; k++) {
+                host_enc[panel.enc[EN_K1]] += panel.dir[EN_K1];
+                fm1_ms += 60u - 16u;
+                frame();
+            }
+            ok &= dtime_ms() == 108u;
+            song.g[G_DTIME] = (int16_t)(DTIME_FREE + 100);
+            ms0 = dtime_ms();
+            fm1_ms += 1000;
+            for (k = 0; k < 8u; k++) {
+                host_enc[panel.enc[EN_K1]] += panel.dir[EN_K1];
+                fm1_ms += 10u - 16u;
+                frame();
+            }
+            ok &= dtime_ms() >= ms0 + 100u;
+        }
         turn(EN_K4, -1);                                 /* RATE again: the division we left */
         ok &= !dtime_free() && song.g[G_DTIME] == 10;
     }
     bad += check("DLY: K4 RATE/TIME reloads K1; divisions keep dotted; free ms steps by 1", ok);
+
+    ui_power_on();
+    go_title("CRUSH");
+    TSEL->p[P_ICBITS] = 64;
+    TSEL->p[P_ICRATE] = 96;
+    turn(EN_K1, 1);
+    ok = TSEL->p[P_ICBITS] == 72;                        /* one detent: one BITS label (8 units) */
+    turn(EN_K1, -1);
+    ok &= TSEL->p[P_ICBITS] == 64;
+    turn(EN_K2, 1);
+    ok &= TSEL->p[P_ICRATE] == 104;
+    turn(EN_K2, -1);
+    ok &= TSEL->p[P_ICRATE] == 96;
+    TSEL->p[P_ICBITS] = 40;                              /* off a label boundary: snap to the next named step */
+    turn(EN_K1, 1);
+    ok &= TSEL->p[P_ICBITS] == 48;
+    bad += check("CRUSH: BITS and RATE one label per detent", ok);
 
     ui_power_on();
     btn_down(B_FX); frames(600);

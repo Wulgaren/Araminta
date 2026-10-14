@@ -435,12 +435,13 @@ static void ui_leds(void)
 /* Predictable hardware response (#23): each decoded detent is one value step; a fast turn keeps its full signed
  * detent count. Fast turns of a wide value (range > 32, not a list of names; the FX and GLO layers' knobs too, #126;
  * OCT+ + SELECT tempo too) multiply by 2..4, by up to 8 over a range above 64 (#52: always on; KNOB ACCEL menu row
- * retired). SELECT's page walk is never accelerated (one page per detent). The main loop reads the knobs many times
- * a frame (main.c), so a read holds one detent as a rule: the speed is the time per detent, ACC_RATE / ms -> 25 ms
- * x2, 16 ms x3, 12 ms x4, 10 ms x5 .. 6 ms or less x8 (a flick: 12 detents in 120 ms move a -100..100 FX macro ~50).
- * Only the longer of this read's and the previous read's time counts, and only while the turn goes on (both under
- * ACC_GAP ms) in one direction: a slow turn, the first two detents of a turn, a single quick detent (a bounce) and a
- * reversal are one step per detent, and the sign is always the detents'.
+ * retired). A range above 512 (DLY free ms ~1486): once accel is already on, x8 of that so a flick covers hundreds of
+ * ms while a slow turn stays one millisecond a detent. SELECT's page walk is never accelerated (one page per detent).
+ * The main loop reads the knobs many times a frame (main.c), so a read holds one detent as a rule: the speed is the
+ * time per detent, ACC_RATE / ms -> 25 ms x2, 16 ms x3, 12 ms x4, 10 ms x5 .. 6 ms or less x8 (a flick: 12 detents in
+ * 120 ms move a -100..100 FX macro ~50). Only the longer of this read's and the previous read's time counts, and only
+ * while the turn goes on (both under ACC_GAP ms) in one direction: a slow turn, the first two detents of a turn, a
+ * single quick detent (a bounce) and a reversal are one step per detent, and the sign is always the detents'.
  * ui.enc_t[role]: bits 0..23 the ms of its last read, bit 24 its direction (+1), 25..31 its ms per detent (127 slow) */
 #define ACC_GAP 40u
 #define ACC_RATE 50u
@@ -455,8 +456,13 @@ static int32_t accel(uint32_t role, int32_t s, int32_t range)
         i = 127u;                                       /* a new turn, or reversed */
     else if (pi < ACC_GAP) {
         m = ACC_RATE / (i > pi ? i : pi ? pi : 1u);
-        a = range > 64 ? 8u : 4u;                       /* (the cap) */
-        m = m < 1u ? 1u : m > a ? a : m;
+        if (m < 1u)
+            m = 1u;
+        if (range > 512 && m > 1u)                       /* free-ms: keep slow at x1; spin: usual m x8 */
+            m *= 8u;
+        a = range > 512 ? 64u : range > 64 ? 8u : 4u;    /* (the cap) */
+        if (m > a)
+            m = a;
     }
     ui.enc_t[role] = now | up << 24 | (i ? i : 1u) << 25;
     return s * (int32_t)m;

@@ -312,7 +312,7 @@ class Updater:
             served += 1
             progress(served, addr + n)
 
-    def check(self, dev, image, step):
+    def check(self, dev, image, product, step):
         """step 1: the running firmware checks the package and starts the loader"""
         step("start", dev.id.text)
         dev.link.send(UPGRADE)
@@ -326,7 +326,8 @@ class Updater:
                                f"{served} requests; nothing was written")
         step("loader")
         time.sleep(DELAY["loader"])
-        ota = self.wait_for(lambda i: i.loader, DELAY["wait_loader"])
+        model = model_of(product)
+        ota = self.wait_for(lambda i: i.loader and model_of(i.text) == model, DELAY["wait_loader"])
         if not ota:
             raise InstallError("noloader", "the update loader did not appear. Replug the USB cable and "
                                            "run the install again: the FM-1 stays in update mode until it is done")
@@ -364,7 +365,7 @@ class Updater:
         if model_of(dev.id.text) != model_of(product):
             dev.link.close()
             raise InstallError("model", f"the device is {dev.id.text}, the package is for {product}")
-        ota = dev if dev.id.loader else self.check(dev, image, step)
+        ota = dev if dev.id.loader else self.check(dev, image, product, step)
         self.write(ota, image, step)
         return self.verify(product, step)
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.2
+
+Leaner FM6 and USB audio timing, a thinner scope when the CPU is busy, and navigation that matches how people actually hop around the panel. Install from the [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB). Try it first in the [browser](https://wulgaren.github.io/Araminta/webapp/try/).
+
+Same project format as 2.1 (FUN15 / `FUNF`). Splash and ABOUT show `v2.2`.
+
+### Performance
+
+- Scope draws at 1 px when CPU load is high (≥ 60 %), 2 px otherwise.
+- USB audio fill band tightened (~1 ms more headroom; LO/HI 124–172, prime 148; 48 kHz scaled).
+- FM6: carrier table; skip flat pitch EG / idle AMS / unused pitch LFO math; operator kernels inlined (same sound).
+
+### UI and transport
+
+- Re-entering a button family from elsewhere always opens its first section/page (in-page cursors kept).
+- GLO cycles Master → Clock → Song.
+- Arp snaps to note 1 with the sequencer on PLAY, MIDI Start, and each song-section enter; free-run while stopped is unchanged.
+
 ## 2.1
 
 Effects you can chain or send, slicer on that same list, SCALE LOCK and MAP, playhead follow in the sequence, ARP drone, and a pile of fixes on top of Araminta v2. Install from the [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB). Try it first in the [browser](https://wulgaren.github.io/Araminta/webapp/try/).

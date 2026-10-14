@@ -14,6 +14,7 @@ name, C4 = 60, else 60); without LO-HI the zones split the keyboard between thei
 A slot holds 80 KiB (about 7 s at 22050 Hz). Protocol: web/EDITOR_PROTOCOL.md, cmds 11..15.
 Needs mido (and a backend such as python-rtmidi) for the device commands.
 """
+import re
 import sys
 import time
 from pathlib import Path
@@ -61,10 +62,12 @@ class Link:
         except ImportError:
             sys.exit("needs mido: pip install mido python-rtmidi")
         self.mido = mido
-        outs = [n for n in mido.get_output_names() if "Felucca" in n]
-        ins = [n for n in mido.get_input_names() if "Felucca" in n]
+        def is_fm1(n):
+            return re.search(r"felucca|fm-?1", n, re.I)
+        outs = [n for n in mido.get_output_names() if is_fm1(n)]
+        ins = [n for n in mido.get_input_names() if is_fm1(n)]
         if not outs or not ins:
-            sys.exit("no MIDI port named Felucca: connect the FM-1 (running Felucca) by USB")
+            sys.exit("no MIDI port named FM-1 or Felucca: connect the FM-1 by USB")
         self.o = mido.open_output(outs[0])
         self.i = mido.open_input(ins[0])
         for _ in range(3):                          # the first frame after opening the port can be lost

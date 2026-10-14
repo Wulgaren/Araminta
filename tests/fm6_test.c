@@ -248,6 +248,40 @@ static void envelopes(void)
               i < FS * 2u / CTL && trk[0].v[0].gate == 0);
     }
     (void)y;
+    {   /* live-edit to a flat pitch EG must not snap pitch (keep penv until level is 0) */
+        fm6_note_t *pn;
+        int32_t level0, freq0, freq1, df;
+        uint32_t k;
+        init_patch(base);
+        op_set(base, 1, (int[]){99, 99, 99, 99}, (int[]){99, 99, 99, 0}, 99, 1);
+        for (i = 2; i <= 6u; i++)
+            op_set(base, i, Z, LZ, 0, 1);
+        for (k = 0; k < 4u; k++) {
+            base[FP_PR1 + k] = 99;
+            base[FP_PL1 + k] = 99;                  /* non-flat: starts / stays away from 0 */
+        }
+        setup(base, 0);
+        trk_note_on(&trk[0], 60, 100);
+        pn = fm6_note_of(&trk[0], &trk[0].v[0]);
+        for (i = 0; i < 8u; i++) {                 /* sound a few blocks so op freq is real */
+            static int32_t b[CTL];
+            track_render(&trk[0], b, CTL);
+        }
+        level0 = pn ? pn->penv.level : 0;
+        freq0 = pn ? pn->op[5].freq : 0;
+        for (k = 0; k < 4u; k++)
+            base[FP_PL1 + k] = 50;                   /* flat 50/50/50/50 while the note still sounds */
+        fm6_set_patch(0, base);
+        for (i = 0; i < 8u; i++) {
+            static int32_t b[CTL];
+            track_render(&trk[0], b, CTL);
+        }
+        freq1 = pn ? pn->op[5].freq : 0;
+        df = freq1 > freq0 ? freq1 - freq0 : freq0 - freq1;
+        check("pitch EG: a held note has climbed before a flat edit", level0 != 0 && freq0 > 0);
+        check("pitch EG: live-edit to flat does not snap pitch in a few blocks",
+              freq1 > 0 && df < (freq0 / 8 + 1));
+    }
 }
 
 /* --------------------------------------------------------- retrigger --- */

@@ -1685,8 +1685,9 @@ static void mix_part(track_t *t, uint32_t n)
     int32_t tr = (int32_t)(t - trk);
     int chain = bus_own(0) == tr || bus_own(1) == tr || sl_trk_chain(t);
     int sl_send = sl_trk_send(t);
-    int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t) || chain;
     mod_begin(t);                                       /* the matrix's per-block values into t->p (mod.c) */
+    /* after mod: insert MIX may turn on and still need a cleared part_buf (shared across tracks) */
+    int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t) || chain;
     spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON);   /* (SPREAD, mix_spread) */
     if (track_render_audio(t, b, n, need_zeros))
         t->tail = ins_any(t) ? 64 : 16;                 /* blocks of insert state to run out after the last voice */

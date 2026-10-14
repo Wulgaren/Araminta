@@ -1214,6 +1214,8 @@ static void seq_start(void)
         track_t *t = &trk[i];
         t->seq_idx = (uint16_t)(t->p[P_SLEN] - 1);
         t->seq_pos = 0x7FFFFFFF;                   /* step 0 fires on the first block */
+        t->arp_pos = 0xFFFFFFF;                    /* arp from note 1 with the seq (PLAY / Start / restart) */
+        t->arp_idx = 0xFFFFFFFFu;
         t->rskip_n = 0;
         t->rh_n = 0;
         t->rat_left = 0;

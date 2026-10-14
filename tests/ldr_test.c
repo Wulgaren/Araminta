@@ -139,7 +139,7 @@ static int check(const char *what, int ok) { printf("%-56s %s\n", what, ok ? "ok
 int main(int argc, char **argv)
 {
     size_t olen;
-    static uint8_t user[0x1000];
+    static uint8_t user[0x1000], autosave[0x1000];
     uint8_t *old, head[0x4000];
     uint32_t ofo, nfo, i;
     int bad = 0, rc;
@@ -149,7 +149,8 @@ int main(int argc, char **argv)
     ofo = flash_off(old);
     nfo = flash_off(logical);
     /* device: OLD installed, plus a valid update record at 0xE4F00 (Felucca's step 1) and 0xE8F00 (the stock
-     * firmware's, a first install from it); user sample data in Felucca's store that looks like a record */
+     * firmware's, a first install from it); user sample data in Felucca's store that looks like a record;
+     * autosave A (0xE5000) also looks like a record (must survive; outside LDR_DATA) */
     memset(nor, 0xFF, sizeof nor);
     memcpy(nor, old + ofo, 0x93000);
     memcpy(head, nor, sizeof head);
@@ -162,6 +163,9 @@ int main(int argc, char **argv)
         for (i = 0; i < 0x1000u; i++) nor[0xA0000 + i] = (uint8_t)(i * 7u);
         memcpy(nor + 0xA0F00, r, sizeof r);
         memcpy(user, nor + 0xA0000, sizeof user);
+        for (i = 0; i < 0x1000u; i++) nor[0xE5000 + i] = (uint8_t)(i * 3u);
+        memcpy(nor + 0xE5F00, r, sizeof r);
+        memcpy(autosave, nor + 0xE5000, sizeof autosave);
     }
     /* a damaged package (one byte deep in the app area): refused before anything is erased */
     {
@@ -187,6 +191,7 @@ int main(int argc, char **argv)
     bad += check("update records cleared (RAM + flash 0xE4F00, the stock firmware's 0xE8F00)",
                  record_cleared && nor[0xE4F06] == 0xFF && nor[0xE8F06] == 0xFF);
     bad += check("user data in Felucca's store that looks like a record is kept", !memcmp(nor + 0xA0000, user, sizeof user));
+    bad += check("autosave that looks like a record is kept", !memcmp(nor + 0xE5000, autosave, sizeof autosave));
     bad += check("no write outside the allowed windows", bad_range == 0);
     /* same package again: nothing to erase */
     erases = 0; requests = 0;
