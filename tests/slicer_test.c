@@ -587,6 +587,85 @@ static int test_stut_mix_level(void)
     return bad;
 }
 
+/* A brick-wall jump in the take (acid filter zap) must not be machine-gunned on '.' —
+ * pat 6/9 long repeats made that sound like sharp electric clicks. */
+static int test_stut_slew(void)
+{
+    track_t *t = &trk[0];
+    uint32_t len = (uint32_t)FS * 60u / 120u / 4u, f;
+    int32_t *buf, mx = 0;
+    int bad = 0;
+
+    host_tracks_init();
+    memset(sl, 0, sizeof sl);
+    song.g[G_BPM] = 120;
+    song.g[G_SLOWN] = 1;
+    set_slicer(t, SL_STUT, 6, 1, 127);
+    slicer_start();
+    buf = calloc(8u * len, sizeof *buf);
+    for (f = 0; f < 8u * len; f++) {
+        uint32_t st = f / len;
+        /* xxxx.... : record a step that flips hard mid-way, then repeat it */
+        if (st < 4u)
+            buf[f] = (f % len) < len / 4u ? 10000 : -10000;
+        else
+            buf[f] = 0;
+    }
+    for (f = 0; f + CTL <= 8u * len; f += CTL)
+        slicer_track(t, buf + f, CTL);
+    for (f = 4u * len + SL_RAMP; f + 1u < 8u * len; f++) {
+        int32_t d = abs(buf[f] - buf[f - 1]);
+        if (d > mx)
+            mx = d;
+    }
+    bad += check("STUT: recorded hard edge is slew-limited on repeat", mx < 3500);
+    free(buf);
+    return bad;
+}
+
+/* STUT pat 9 xx..: a silent 'x' must not wipe the last loud take (acid rests on 'x' used to
+ * punch holes / chirps on the following '.'). */
+static int test_stut_keep_hit(void)
+{
+    track_t *t = &trk[0];
+    uint32_t len = (uint32_t)FS * 60u / 120u / 4u, f;
+    int32_t *buf;
+    int64_t e = 0, corr = 0;
+    uint32_t n = 0;
+    double rms;
+    int bad = 0;
+
+    host_tracks_init();
+    memset(sl, 0, sizeof sl);
+    song.g[G_BPM] = 120;
+    song.g[G_SLOWN] = 1;
+    set_slicer(t, SL_STUT, 9, 1, 127);
+    slicer_start();
+    buf = calloc(4u * len, sizeof *buf);
+    for (f = 0; f < 4u * len; f++) {
+        uint32_t st = f / len;
+        double ph = 2 * M_PI * 220.0 * (double)f / (double)FS;
+        if (st == 0 || st == 2)
+            buf[f] = (int32_t)(12000.0 * sin(ph));
+        else
+            buf[f] = 0;
+    }
+    for (f = 0; f + CTL <= 4u * len; f += CTL)
+        slicer_track(t, buf + f, CTL);
+    for (f = len * 2u + SL_RAMP; f < len * 3u - SL_RAMP; f++) {
+        double ph0 = 2 * M_PI * 220.0 * (double)(f - 2u * len) / (double)FS;
+        int32_t hit = (int32_t)(12000.0 * sin(ph0));
+        e += (int64_t)buf[f] * buf[f];
+        corr += (int64_t)buf[f] * hit;
+        n++;
+    }
+    rms = n ? sqrt((double)e / (double)n) : 0;
+    bad += check("STUT: '.' after silent 'x' keeps the prior loud take",
+                 rms > 4000.0 && corr > 0);
+    free(buf);
+    return bad;
+}
+
 /* An active gate/repeat must finish its ramp, then leave both stereo signals untouched. */
 static int test_mix_zero_after_ramp(void)
 {
@@ -639,6 +718,8 @@ int main(int argc, char **argv)
     bad += test_cost();
     bad += test_mix_send();
     bad += test_stut_mix_level();
+    bad += test_stut_keep_hit();
+    bad += test_stut_slew();
     bad += test_mix_zero_after_ramp();
     if (argc > 1)
         demos(argv[1]);
