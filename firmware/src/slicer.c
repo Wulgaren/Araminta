@@ -7,12 +7,13 @@
  *   P_SLCR    OFF / GATE / STUT
  *   P_SLPAT   one of SL_NPAT patterns of 16 steps ('x' live / open, '.' gated / repeated)
  *   P_SLRATE  the step: 1/8, 1/16, 1/32, 8T, 16T, 32T
- *   P_SLDEPTH MIX: GATE how far a '.' step closes (100 % = silent); STUT: the level of the repeat.
- *             MIX 0 is transparent (bypass).
+ *   P_SLDEPTH MIX: GATE how far a '.' step closes (100 % = silent); STUT: how much of the repeat
+ *             replaces live on a '.' step. MIX 0 is transparent (bypass) for both.
  * GATE: the gain moves at most 1 / SL_RAMP per sample (2.9 ms from open to closed): a closing
  *   ramp ends on the step boundary, an opening one starts on it.
- * STUT: an 'x' step plays live and is recorded (22.05 kHz, 16 bit, SL_LEN); a '.' step plays that
- *   recording from its start, looped at the step length, cross-faded with the live sound by MIX.
+ * STUT: an 'x' step plays live and is recorded (22.05 kHz, 16 bit, SL_LEN); a '.' step cross-fades
+ *   live with that recording at MIX. With a decayed live note, MIX scales how loud the hit is.
+ * Active GATE/STUT (MIX > 0 or a ramp left): output is ~-3 dB so the slicer sits under dry.
  * The step clock: always running (also with the SLICER OFF, so switching it on lands in time),
  * restarted with the transport (seq_start -> slicer_start). With OFF and no ramp left, untouched. */
 #define SL_NPAT 16
@@ -20,6 +21,7 @@
 #define SL_RAMP_LOG2 7
 #define SL_RAMP (1 << SL_RAMP_LOG2)     /* 128 samples, 2.9 ms */
 #define SL_SLOPE (32768 / SL_RAMP)
+#define SL_PAD 23170                    /* Q15: ~-3 dB while GATE/STUT is active (MIX 0 = bypass) */
 enum { SL_OFF, SL_GATE, SL_STUT };      /* P_SLCR (params.c N_SLCR) */
 
 /* bit k = step k: 1 = 'x' (open / live), 0 = '.' (closed / repeat) */
@@ -52,6 +54,7 @@ typedef struct {
     uint32_t rec;                /* recorded (22.05 kHz samples) */
     int32_t gc;                  /* gate closure, Q15: 0 = open */
     int32_t w;                   /* STUT cross-fade, Q15: 0 = live */
+    int32_t pa;                  /* output pad attenuation, Q15: 0 = full level */
     int32_t half;                /* recording: the first sample of a pair */
     uint8_t idx;                 /* step 0..15 */
     uint8_t bit;                 /* this step's pattern bit (latched at its start) */
@@ -62,6 +65,7 @@ static sl_t sl_bus;              /* shared SEND bus clock (idx/pos/len/bit/loop)
 static sl_t sl_bus_blk;          /* sl_bus at the start of the current mix block */
 static int32_t sl_send_gc[NTRK]; /* per-track gate envelope while SEND (MIX is per-track) */
 static int32_t sl_send_w[NTRK];
+static int32_t sl_send_pa[NTRK];
 static uint8_t sl_bus_applied;   /* 1 after the first SEND track committed the bus clock this block */
 static uint8_t sl_bus_driver;    /* track that advanced the bus this block (re-calls keep advancing) */
 static uint8_t sl_lent;          /* perform.c has borrowed sl_buf: STUT plays live, records nothing */
@@ -98,7 +102,8 @@ static void slicer_start(void)   /* seq_start: the next block starts step 0 of e
     for (k = 0; k < NTRK; k++) {
         sl[k].idx = 15;
         sl[k].pos = sl[k].len = 0;
-        sl_send_gc[k] = sl_send_w[k] = 0;
+        sl[k].pa = 0;
+        sl_send_gc[k] = sl_send_w[k] = sl_send_pa[k] = 0;
     }
     sl_bus.idx = 15;
     sl_bus.pos = sl_bus.len = 0;
@@ -144,9 +149,8 @@ static void sl_enter(const track_t *t, sl_t *s)
     }
 }
 
-/* m samples of one step (no boundary inside). sd: SPREAD's side signal (fx.c mix_spread) or 0: it gets the gate and
- * the live sound's share of the cross-fade (the repeat is the mono recording: on PAN). Inlined into both callers:
- * slicer_track's (sd 0) is the code it always was */
+/* m samples of one step (no boundary inside). sd: SPREAD's side signal (fx.c mix_spread) or 0: GATE closes it
+ * and STUT ducks it with MIX (the repeat is mono on PAN). Inlined into both callers. */
 /* pt: MODE/PAT (and STUT clock); t: MIX (P_SLDEPTH). CHAIN passes the same track for both. */
 static inline __attribute__((always_inline)) void sl_seg(const track_t *pt, const track_t *t, sl_t *s,
                                                           int16_t *buf, int32_t *b, int32_t *sd, uint32_t m)
@@ -155,7 +159,8 @@ static inline __attribute__((always_inline)) void sl_seg(const track_t *pt, cons
     int32_t mix = t->p[P_SLDEPTH] * 258;            /* Q15, 0..32766 (MIX amount) */
     int32_t tc = mode == SL_GATE && !s->bit ? mix : 0;             /* gate closure of this step */
     int32_t tn = mode == SL_GATE && !nbit ? mix : 0;               /* .. of the next one */
-    int32_t tw = mode == SL_STUT && s->loop ? mix : 0;             /* repeat level */
+    int32_t tw = mode == SL_STUT && s->loop ? mix : 0;             /* STUT cross-fade toward repeat */
+    int32_t tp = (mode == SL_GATE || mode == SL_STUT) && mix ? 32768 - SL_PAD : 0;
     for (j = 0; j < m; j++) {
         int32_t x = b[j], y, tg = tc;
         uint32_t left = s->len - s->pos - j;        /* samples to the step end, >= 1 */
@@ -163,6 +168,7 @@ static inline __attribute__((always_inline)) void sl_seg(const track_t *pt, cons
             tg = tn;                                /* close by the boundary */
         s->gc += clamp(tg - s->gc, -SL_SLOPE, SL_SLOPE);
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
+        s->pa += clamp(tp - s->pa, -SL_SLOPE, SL_SLOPE);
         y = s->gc ? x - mulq16(x, (uint32_t)s->gc << 1) : x;
         if (sd) {
             int32_t z = sd[j];
@@ -181,7 +187,7 @@ static inline __attribute__((always_inline)) void sl_seg(const track_t *pt, cons
                 s->half = x;
             }
         }
-        if (s->loop) {                              /* the repeat, windowed, read between samples */
+        if (s->loop) {                              /* repeat at MIX, windowed, cross-faded with live */
             uint32_t rp = s->rp, e = s->loop - 1u - rp;
             int32_t r = buf[rp >> 1];
             if (rp & 1u)
@@ -197,7 +203,12 @@ static inline __attribute__((always_inline)) void sl_seg(const track_t *pt, cons
                 s->rp = 0;
             y += mulq16(r - y, (uint32_t)s->w << 1);
         } else if (s->w) {
-            y -= mulq16(y, (uint32_t)s->w << 1);    /* (the repeat ended on a boundary: it is 0 there) */
+            y -= mulq16(y, (uint32_t)s->w << 1);    /* leave a repeat: fade live in as w falls */
+        }
+        if (s->pa) {                                /* ramped ~-3 dB under dry while GATE/STUT MIX > 0 */
+            y -= mulq16(y, (uint32_t)s->pa << 1);
+            if (sd)
+                sd[j] -= mulq16(sd[j], (uint32_t)s->pa << 1);
         }
         b[j] = y;
     }
@@ -208,7 +219,7 @@ static void sl_run(const track_t *pt, const track_t *t, sl_t *s, int16_t *buf, i
                    uint32_t n)
 {
     uint32_t i = 0;
-    int act = b && (pt->p[P_SLCR] != SL_OFF || s->gc || s->w);
+    int act = b && (pt->p[P_SLCR] != SL_OFF || s->gc || s->w || s->pa);
     while (i < n) {
         uint32_t m;
         if (s->pos >= s->len)
@@ -237,12 +248,14 @@ static void sl_run_send(const track_t *t, int32_t *b, int32_t *sd, uint32_t n)
     tmp = drive && sl_bus_applied ? sl_bus : sl_bus_blk;
     tmp.gc = sl_send_gc[k];
     tmp.w = sl_send_w[k];
+    tmp.pa = sl_send_pa[k];
     /* record into a SEND track's buffer; followers replay from the driver's pick */
     sl_run(pt, t, &tmp, sl_buf[drive ? sl_send_buf() : sl_bus_driver], b, sd, n);
     sl_send_gc[k] = tmp.gc;
     sl_send_w[k] = tmp.w;
+    sl_send_pa[k] = tmp.pa;
     if (drive) {
-        tmp.gc = tmp.w = 0;
+        tmp.gc = tmp.w = tmp.pa = 0;
         sl_bus = tmp;
         sl_bus_applied = 1;
         sl_bus_driver = (uint8_t)sl_send_buf();        /* buffer index followers replay from */
@@ -285,6 +298,7 @@ static int slicer_busy(const track_t *t)
     if (!s)
         return 0;
     if (s == &sl_bus)
-        return sl_send_w[k] || (t->p[P_SLDEPTH] && fx_bus_trk.p[P_SLCR] == SL_STUT && sl_bus.loop);
-    return s->w || (t->p[P_SLDEPTH] && t->p[P_SLCR] == SL_STUT && s->loop);
+        return sl_send_w[k] || sl_send_pa[k] ||
+               (t->p[P_SLDEPTH] && fx_bus_trk.p[P_SLCR] == SL_STUT && sl_bus.loop);
+    return s->w || s->pa || (t->p[P_SLDEPTH] && t->p[P_SLCR] == SL_STUT && s->loop);
 }
