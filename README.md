@@ -195,7 +195,7 @@ The pages by button:
 |---|---|---|
 | HOME | Home ↔ Mixer | the menu |
 | SEQ | Step group (SELECT: PATTERN / STEP / DETAIL), AUTOMATION, SEQ TOOLS | SEQ TOOLS, on every page |
-| GLO | MASTER, SONG, CLOCK | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
+| GLO | MASTER, CLOCK, SONG | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
 | SAVE | Presets (SELECT: PRESETS / USER / PHRASES), Project (SELECT: PROJECT / TOOLS) | UNDO |
 | LFO | LFO (SELECT: LFO / LFO 2 / LFO DEST), then MOD | MOMENTARY (with a knob) |
 | EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG FILTER / FILTER DRIVE), Kit, Lanes, Voice (hidden on DRUM) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |

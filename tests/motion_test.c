@@ -268,6 +268,23 @@ static void arp_fresh(track_t *t, int32_t mode, int32_t oct, const uint8_t *note
     for (i = 0; i < n; i++)
         arp_add(t, notes[i]);
 }
+
+/* PLAY / Start snaps the arp to the seq: mid-cycle free-run then seq_start → first note again */
+static int arp_play_sync(void)
+{
+    static const uint8_t CEG[3] = {60, 64, 67};
+    int bad = 0; ui_power_on(); track_t *t = &trk[0];
+    arp_fresh(t, AM_UP, 1, CEG, 3);
+    t->arp_pos = 0xFFFFFFF; arp_tick(t, CTL);          /* C */
+    t->arp_pos = 0xFFFFFFF; arp_tick(t, CTL);          /* E — mid cycle */
+    bad += check("arp free-runs past the first note before PLAY", t->arp_note == 64 && t->arp_idx != 0xFFFFFFFFu);
+    seq_start();
+    bad += check("seq_start resets arp phase with the seq", t->arp_pos == 0xFFFFFFF && t->arp_idx == 0xFFFFFFFFu);
+    arp_tick(t, CTL);
+    bad += check("first arp pulse after PLAY is the pattern's first note", t->arp_note == 60);
+    seq_stop();
+    return bad;
+}
 static int arp_plays(track_t *t, const uint8_t *want, uint32_t n)   /* the next n steps play these notes */
 {
     uint32_t i;
@@ -1186,6 +1203,7 @@ static int fx_lock_banks_and_capacity(void)
 int main(void)
 {
     int bad = motion_recording() + motion_capacity() + probability_playback() + compact_project() + fun7_89() + loads_and_song() + repeat_mode();
+    bad += arp_play_sync();
     bad += arp_new_modes();
     bad += arp_drone_mode();
     bad += lock_playback() + lock_edit() + lock_project() + lock_ui() + lock_undo() + auto_list();
