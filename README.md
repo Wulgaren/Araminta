@@ -125,7 +125,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   DIM LO, DIM HI or INV, the official firmware's look); PLAY turns green while playing; the keys show
   the notes the sequencer and MIDI IN play, and on SEQ > STEP (stopped) the notes of the step under the cursor;
   the drum grid marks the beats (steps 1, 5, 9, 13); MENU > SCALE LEDS shows the track's scale on the keys
-- **USB:** class-compliant MIDI in and out, and a stereo audio input (still named "Felucca" on the wire) at 44.1 or 48 kHz
+- **USB:** class-compliant MIDI in and out, and a stereo audio input (named "FM-1" on the wire; loader "FM-1 Update") at 44.1 or 48 kHz
   (the computer picks) that records the master output on the computer, no driver needed (at a fixed level with MENU > USB LEVEL FIXED;
   on macOS 13-15, set MENU > USB SERIAL to OFF so the audio input appears)
 - **MIDI:** USB and TRS MIDI in; MENU > MIDI > MIDI IN: CH1-4 (channels 1-4 play tracks 1-4), CH5-8, CH9-12 or

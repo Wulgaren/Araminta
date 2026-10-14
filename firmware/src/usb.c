@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* USB full-speed device on USB0: a
- * class-compliant USB-MIDI interface. All SIE traffic happens in one place,
- * usb_poll(), called from the TIMER5 ISR at 2 kHz, so INDEX is never shared
- * and no USB IRQ is needed. MIDI in goes to a ring the audio ISR drains;
- * MIDI out (the panel keys) comes from a ring the audio ISR fills.
+ * class-compliant USB-MIDI interface. SIE register access is serialized on
+ * INDEX: usb_poll() from the TIMER5 ISR at 2 kHz does MIDI/CDC/control, and
+ * uac_service() may also run nested from the audio path (EP4 only; main.c).
+ * Boot/config paths touch the SIE before polling starts. No USB IRQ. MIDI in
+ * goes to a ring the audio ISR drains; MIDI out (the panel keys) comes from a
+ * ring the audio ISR fills.
  * SysEx F0 22 24 35 7D F7 (the stock soft key, tools/fm1_softkey.py) asks
  * the main loop to enter UBOOT. VID 0x1209 / PID 0x0001 is the pid.codes
  * TEST id: fine for the bench, must be replaced before any release.
@@ -349,10 +351,10 @@ static const uint8_t STR0[4] = {4, 3, 0x09, 0x04};
 static const uint8_t STR1[] = {42, 3, 'H', 0, 0xFC, 0, 'g', 0, 'e', 0, 'l', 0, 't', 0, 'o', 0, 'n', 0, ' ', 0, 'I', 0,
                                'n', 0, 's', 0, 't', 0, 'r', 0, 'u', 0, 'm', 0, 'e', 0, 'n', 0, 't', 0, 's', 0};
 #ifdef FELUCCA_LOADER
-static const uint8_t STR2[] = {30, 3, 'F', 0, 'e', 0, 'l', 0, 'u', 0, 'c', 0, 'c', 0, 'a', 0, ' ', 0, 'U', 0, 'p', 0,
-                               'd', 0, 'a', 0, 't', 0, 'e', 0};
+static const uint8_t STR2[] = {24, 3, 'F', 0, 'M', 0, '-', 0, '1', 0, ' ', 0, 'U', 0, 'p', 0, 'd', 0, 'a', 0, 't', 0,
+                               'e', 0};                 /* "FM-1 Update" (stock-style name on the wire) */
 #else
-static const uint8_t STR2[] = {16, 3, 'F', 0, 'e', 0, 'l', 0, 'u', 0, 'c', 0, 'c', 0, 'a', 0};
+static const uint8_t STR2[] = {10, 3, 'F', 0, 'M', 0, '-', 0, '1', 0};
 #endif
 
 static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)

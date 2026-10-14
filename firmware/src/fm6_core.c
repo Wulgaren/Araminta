@@ -522,8 +522,8 @@ static int fm6_note_compute(fm6_note_t *n, const uint8_t *p, int32_t *out, int32
         pmod = pmod < 0 ? -pmod : pmod;
         pmod = senslfo < 0 ? -pmod : pmod;
     }
-    /* flat 50/50/50/50 pitch EG stays at 0: skip the stage walk (same output; ix idle until a non-flat edit) */
-    pitch_mod = (flat_penv ? 0 : fm6_penv_get(&n->penv, p)) + pmod;
+    /* flat 50/50/50/50 pitch EG is 0 once settled: keep walking while level is still non-zero (live edit) */
+    pitch_mod = (flat_penv && !n->penv.level ? 0 : fm6_penv_get(&n->penv, p)) + pmod;
     if (any_ams && (p[FP_LAMD] % 100u)) {
         uint32_t amd = (uint32_t)((p[FP_LAMD] % 100u) * 165u >> 6);
         amod = (uint32_t)(((int64_t)amd * lfo_delay) >> 8);                 /* Q24 */

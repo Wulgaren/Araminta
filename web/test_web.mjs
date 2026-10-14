@@ -1715,8 +1715,8 @@ class FakeFM1 {
       this.waiting = null;
       this.served++;
       if (this.served >= this.unplugAfter) { this.input.state = this.output.state = "disconnected"; return; }
-      if (addr === 0xE0000000) setTimeout(() => this.boot("ota-FM-1_900", "Felucca Update"), 300);
-      else if (addr === 0xF0000000) setTimeout(() => this.boot("FM-1_900", "Felucca"), 300);
+      if (addr === 0xE0000000) setTimeout(() => this.boot("ota-FM-1_900", "FM-1 Update"), 300);
+      else if (addr === 0xF0000000) setTimeout(() => this.boot("FM-1_900", "FM-1"), 300);
       else this.next();
     }
   }
@@ -1739,10 +1739,10 @@ async function updater() {
   const steps = [];
   const got = await new Updater(dev.access).install(image, "FM-1_900", (k) => steps.push(k));
   ok(got === "FM-1_900" && dev.bad === 0 && steps.includes("write") && steps.at(-1) === "done",
-    `fm1ota.js: install: running firmware -> loader -> Felucca (${dev.served} reads)`);
+    `fm1ota.js: install: running firmware -> loader -> FM-1 (${dev.served} reads)`);
 
   const dev2 = new FakeFM1(image, { unplugAfter: 3 });
-  dev2.boot("ota-FM-1_900", "Felucca Update");
+  dev2.boot("ota-FM-1_900", "FM-1 Update");
   const t0 = Date.now();
   const done = await new Updater(dev2.access).resume(image);
   ok(done === false && Date.now() - t0 < 6000, "fm1ota.js: unplugged during the write -> stops at once");
