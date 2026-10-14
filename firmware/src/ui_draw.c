@@ -901,6 +901,29 @@ static void draw_columns(void)
         dx_cards(cur_page());
         return;
     }
+    if (cur_page()->graph == GR_GENERATION) {
+        static const char *const density_labels[4] = {"LEN", "KICK", "SNARE", "HAT"};
+        const generation_t *g = &TSEL->generation;
+        for (c = 0; c < 4u; c++) {
+            int32_t v, max;
+            unit = "";
+            if (generation_page2()) {
+                v = c == 0 ? generation_map_index(g->x, g->y) : c == 1 ? g->x : c == 2 ? g->y : g->chaos;
+                max = c == 0 ? 25 : c == 3 ? 100 : 255;
+                if (c == 0 && v == 0) str_cpy(val, "CUSTOM", sizeof val);
+                else fmt_int(val, v);
+                if (c == 3) unit = "%";
+            } else {
+                v = c == 0 ? TSEL->p[P_SLEN] : g->density[c - 1u];
+                max = c == 0 ? NSTEP : 100;
+                fmt_int(val, v);
+                if (c != 0) unit = "%";
+            }
+            draw_column(c, generation_page2() ? GENERATION_MAP_LABELS[c] : density_labels[c], val, unit,
+                        VAL(c), v * 1000 / max, ICON_NONE);
+        }
+        return;
+    }
     if (cur_page()->graph == GR_SONG) {             /* SECTION, TRACK, its PAT (A..D, -), REPS (the section's) */
         uint32_t row = ui.song_row < CHAIN_ROWS ? ui.song_row : CHAIN_ROWS - 1u, k = ui.song_trk % NTRK, sl;
         int used = row < chain_config.count;
@@ -1590,6 +1613,11 @@ static void ui_draw_page(uint32_t counting)
     }
     cursor_fix();
     seq_follow_tick();
+    if (generation_map_on()) {
+        if (ui.force) draw_generation_map();
+        ui.force = !--ui.hot_t;                  /* repaint every strip when the full-screen map closes */
+        return;
+    }
     if (ui.force)
         draw_frame();
     felucca_dbg.stage = 3;
