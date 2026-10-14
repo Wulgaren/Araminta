@@ -34,6 +34,8 @@
 #define LDR_REC_HI 0xFC000u                     /* ... and below Felucca's globals (Felucca's records: 0xE4F00, */
 #define LDR_DATA_LO 0x97000u                    /* the stock firmware's: 0xE8F00), never in Felucca's store, whose */
 #define LDR_DATA_HI 0xE0000u                    /* bytes (user samples) the host writes */
+#define LDR_KEEP_LO 0xE5000u                    /* autosave A/B + FM6 voice bank (storage.c / fm1_flash.h) */
+#define LDR_KEEP_HI 0xE8000u                    /* still clear OTA staging (0xE4F00) and stock 0xE8F00 */
 #define LDR_NSEC ((LDR_APP_HI - LDR_APP_LO) >> 12)
 #define LDR_FL_MAX 0x100000u                    /* flash.bin: at most the 1 MiB part */
 
@@ -170,12 +172,13 @@ static int ldr_session(void)
     ldr_record_clear();
     for (s = LDR_REC_HI; s > LDR_REC_LO; s -= 0x1000u) {   /* flash records: 4K boundary - 256 */
         uint8_t r[80];
-        if (s - 0x1000u >= LDR_DATA_LO && s - 0x1000u < LDR_DATA_HI)
-            continue;                                    /* Felucca's store: user data that may look like one */
+        uint32_t sec = s - 0x1000u;
+        if ((sec >= LDR_DATA_LO && sec < LDR_DATA_HI) || (sec >= LDR_KEEP_LO && sec < LDR_KEEP_HI))
+            continue;                                    /* user store / autosave / FM6 bank: may look like one */
         if (ldr_fread(s - 0x100u, r, 80))
             break;
         if (ota_rd16(r + 6) == 0x5441u && ota_rd16(r) && ota_rd16(r) == ota_crc16(r + 2, 78, 0))
-            ldr_erase(s - 0x1000u);
+            ldr_erase(sec);
     }
     return 0;
 }
