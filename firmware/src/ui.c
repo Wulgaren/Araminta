@@ -340,7 +340,7 @@ static const char *const GENERATION_MAP_LABELS[4] = {"MAP", "MAP X", "MAP Y", "C
 static int generation_page2(void) { return str_eq(cur_page()->title, "GENERATION 2"); }
 static int generation_map_on(void)
 {
-    return !ui.home && !ui.layer && cur_page()->graph == GR_GENERATION && generation_page2() && ui.hot_t;
+    return !ui.home && !ui.layer && cur_page()->graph == GR_GENERATION && generation_page2() && ui.hot_t && ui.hot_col < 3u;
 }
 
 /* MENU > LARGE (#15, Discussion #80: what KNOB 1..4 do, in bigger type). Per page type:
@@ -405,7 +405,7 @@ static int page_visible(uint32_t i)
         return drum;
     if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / SOUND 2 */
         return drum;
-    if (PAGES[i].sec == EDIT_SEC_VOX && drum)         /* Voice hidden on DRUM */
+    if (PAGES[i].fam == FAM_EDIT && PAGES[i].sec == EDIT_SEC_VOX && drum)   /* Voice hidden on DRUM */
         return 0;
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return drum;

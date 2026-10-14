@@ -917,7 +917,7 @@ static void draw_columns(void)
                 v = c == 0 ? TSEL->p[P_SLEN] : g->density[c - 1u];
                 max = c == 0 ? NSTEP : 100;
                 fmt_int(val, v);
-                if (c != 0) unit = "%";
+                unit = c == 0 ? "STEP" : "%";
             }
             draw_column(c, generation_page2() ? GENERATION_MAP_LABELS[c] : density_labels[c], val, unit,
                         VAL(c), v * 1000 / max, ICON_NONE);

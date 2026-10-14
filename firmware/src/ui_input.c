@@ -1120,7 +1120,7 @@ static void generation_knob(uint32_t slot, int32_t steps)
     uint64_t used = 0;
     if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
     if (generation_page2()) {
-        ui.force = 1;                          /* show the map even when a knob is already at its limit */
+        ui.force = 1;                          /* open or close the map even when a knob is already at its limit */
         if (slot == 0) {
             uint32_t map = generation_map_index(next.x, next.y);
             if (!map) map = 1u + ((uint32_t)next.y * 4u + 127u) / 255u * 5u +
