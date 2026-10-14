@@ -6487,6 +6487,16 @@ static int test_knob_accel(void)
         printf("  #126 a flick of 12 detents over %u ms on -100..100: %u steps\n", 126u, (unsigned)f);
         bad += check("#126 KNOB ACCEL over a range above 64: 10 ms x5 .. 6 ms x8; a 12-detent flick ~120 ms: 47", ok);
     }
+    {   /* free-ms TIME (~1486): slow still x1; once accel is on, x8 of the usual so a flick covers hundreds of ms */
+        static const uint16_t F6[8] = {500, 6, 6, 5, 4, 6, 6, 6};
+        fm1_ms += 1000;
+        ok = acc_ms(EN_K3, SLOW, 8, 1, (int32_t)DTIME_MS_MAX, o) == 8u;
+        fm1_ms += 1000;
+        ok &= acc_ms(EN_K3, F6, 8, 1, (int32_t)DTIME_MS_MAX, o) == 2u + 6u * 64u && o[7] == 64;
+        fm1_ms += 1000;
+        ok &= acc_ms(EN_K3, F10, 8, 1, (int32_t)DTIME_MS_MAX, o) == 2u + 6u * 40u && o[7] == 40;
+        bad += check("KNOB ACCEL free-ms range: slow x1, 6 ms x64, 10 ms x40", ok);
+    }
     fm1_ms += 1000; acc_ms(EN_K4, F10, 8, 1, 32, o);
     ok = o[7] == 1;                                                /* a narrow range (<= 32): never */
     fm1_ms += 1000; acc_ms(EN_K4, F10, 8, 1, 0, o);
@@ -8888,10 +8898,46 @@ static int test_fx_sections(void)
         song.g[G_DTIME] = (int16_t)(DTIME_FREE + 100);
         ok &= dtime_ms() == 100u && delay_samples() == (dtime_q8() + 128u) >> 8;
         ok &= delay_samples() > 16u && delay_samples() < DLY_LEN;
+        {   /* slow: 1 ms a detent; fast flick: tens of ms a detent (accel on the free-ms range) */
+            uint32_t k, ms0;
+            fm1_ms += 1000;
+            for (k = 0; k < 8u; k++) {
+                host_enc[panel.enc[EN_K1]] += panel.dir[EN_K1];
+                fm1_ms += 60u - 16u;
+                frame();
+            }
+            ok &= dtime_ms() == 108u;
+            song.g[G_DTIME] = (int16_t)(DTIME_FREE + 100);
+            ms0 = dtime_ms();
+            fm1_ms += 1000;
+            for (k = 0; k < 8u; k++) {
+                host_enc[panel.enc[EN_K1]] += panel.dir[EN_K1];
+                fm1_ms += 10u - 16u;
+                frame();
+            }
+            ok &= dtime_ms() >= ms0 + 100u;
+        }
         turn(EN_K4, -1);                                 /* RATE again: the division we left */
         ok &= !dtime_free() && song.g[G_DTIME] == 10;
     }
     bad += check("DLY: K4 RATE/TIME reloads K1; divisions keep dotted; free ms steps by 1", ok);
+
+    ui_power_on();
+    go_title("CRUSH");
+    TSEL->p[P_ICBITS] = 64;
+    TSEL->p[P_ICRATE] = 96;
+    turn(EN_K1, 1);
+    ok = TSEL->p[P_ICBITS] == 72;                        /* one detent: one BITS label (8 units) */
+    turn(EN_K1, -1);
+    ok &= TSEL->p[P_ICBITS] == 64;
+    turn(EN_K2, 1);
+    ok &= TSEL->p[P_ICRATE] == 104;
+    turn(EN_K2, -1);
+    ok &= TSEL->p[P_ICRATE] == 96;
+    TSEL->p[P_ICBITS] = 40;                              /* off a label boundary: snap to the next named step */
+    turn(EN_K1, 1);
+    ok &= TSEL->p[P_ICBITS] == 48;
+    bad += check("CRUSH: BITS and RATE one label per detent", ok);
 
     ui_power_on();
     btn_down(B_FX); frames(600);

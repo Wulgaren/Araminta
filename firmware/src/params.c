@@ -340,6 +340,10 @@ static int32_t param_turn(const param_desc_t *d, int32_t v, int32_t steps)
         int32_t k = clamp((int32_t)esync_idx(v) + steps, 0, ESYNC_N - 1);
         return (k * 128 + ESYNC_N - 1) / ESYNC_N;
     }
+    if (d->names == N_IBITS || d->names == N_IRATE) { /* CRUSH: one detent = one label (audio uses >> 3) */
+        int32_t k = clamp((v >> 3) + steps, 0, 15);
+        return k << 3;
+    }
     return enum_step(d, v, clamp(v + steps, d->min, d->max));
 }
 
