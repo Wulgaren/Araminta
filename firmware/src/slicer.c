@@ -13,6 +13,10 @@
  *   ramp ends on the step boundary, an opening one starts on it.
  * STUT: an 'x' step plays live and is recorded (22.05 kHz, 16 bit, SL_LEN); a '.' step cross-fades
  *   live with that recording at MIX. With a decayed live note, MIX scales how loud the hit is.
+ *   A quiet 'x' (rest / ring) does not replace the last loud take — so acid rests on 'x' do not
+ *   punch holes on the following '.'.
+ *   Repeat playback slew-limits so a sharp zap in the take is not machine-gunned on long '.' runs
+ *   (pat 6/9): that read as electric clicks.
  * Active GATE/STUT (MIX > 0 or a ramp left): output is ~-3 dB so the slicer sits under dry.
  * The step clock: always running (also with the SLICER OFF, so switching it on lands in time),
  * restarted with the transport (seq_start -> slicer_start). With OFF and no ramp left, untouched. */
@@ -22,6 +26,8 @@
 #define SL_RAMP (1 << SL_RAMP_LOG2)     /* 128 samples, 2.9 ms */
 #define SL_SLOPE (32768 / SL_RAMP)
 #define SL_PAD 23170                    /* Q15: ~-3 dB while GATE/STUT is active (MIX 0 = bypass) */
+#define SL_MINPEAK 2048                 /* live peak below this: keep the previous loud take */
+#define SL_SLEW 2500                    /* max |Δ| per sample on the repeat (soften recorded zaps) */
 enum { SL_OFF, SL_GATE, SL_STUT };      /* P_SLCR (params.c N_SLCR) */
 
 /* bit k = step k: 1 = 'x' (open / live), 0 = '.' (closed / repeat) */
@@ -46,16 +52,21 @@ static const uint16_t SL_PAT[SL_NPAT] = {
 static const uint8_t SL_DEN[6] = {2, 4, 8, 3, 6, 12};   /* P_SLRATE (N_SLDIV): a step = 1 / DEN beats */
 
 static int16_t sl_buf[NTRK][SL_LEN] __attribute__((section(".pool")));
+static int16_t sl_pending[SL_LEN] __attribute__((section(".pool"))); /* last loud STUT take */
 /* SEND STUT recording uses a SEND track's sl_buf (CHAIN tracks keep theirs for private STUT). */
 typedef struct {
     uint32_t pos, len;           /* samples into the step, its length */
     uint32_t base;               /* the step without swing */
     uint32_t rp, loop;           /* repeat: read position, loop length (44.1 kHz samples), 0 = none */
     uint32_t rec;                /* recorded (22.05 kHz samples) */
+    uint32_t rec_ok;             /* last loud take length (22.05 kHz); '.' loops this */
     int32_t gc;                  /* gate closure, Q15: 0 = open */
     int32_t w;                   /* STUT cross-fade, Q15: 0 = live */
     int32_t pa;                  /* output pad attenuation, Q15: 0 = full level */
     int32_t half;                /* recording: the first sample of a pair */
+    int32_t rec_peak;            /* peak |x| while recording this live step */
+    int32_t ok_peak;             /* peak of the committed take (reject quieter rests) */
+    int32_t r_prev;              /* last repeat sample (slew limit) */
     uint8_t idx;                 /* step 0..15 */
     uint8_t bit;                 /* this step's pattern bit (latched at its start) */
     uint8_t rec_on;              /* recording this step */
@@ -124,10 +135,23 @@ static uint32_t sl_step_len(const track_t *pt, uint32_t base, uint32_t idx)
     }
     return swing_step_len(pt, base, idx);
 }
-/* the step clock enters the next step */
-static void sl_enter(const track_t *t, sl_t *s)
+/* the step clock enters the next step; buf is this track's STUT recording (or 0 if clock-only) */
+static void sl_enter(const track_t *t, sl_t *s, int16_t *buf)
 {
     uint32_t mode = (uint32_t)t->p[P_SLCR];
+    /* commit a loud take, or restore if this live step is quiet / a rest tail */
+    if (mode == SL_STUT && !sl_lent && buf && s->rec_on) {
+        int loud = s->rec_peak >= SL_MINPEAK && s->rec >= 2u * SL_RAMP &&
+                   (s->ok_peak == 0 || s->rec_peak * 2 >= s->ok_peak);
+        if (loud) {
+            s->rec_ok = s->rec;
+            s->ok_peak = s->rec_peak;
+            memcpy(sl_pending, buf, s->rec_ok * sizeof(int16_t));
+        } else if (s->rec_ok >= 2u * SL_RAMP) {
+            memcpy(buf, sl_pending, s->rec_ok * sizeof(int16_t));
+            s->rec = s->rec_ok;
+        }
+    }
     s->idx = (uint8_t)((s->idx + 1u) & 15u);
     s->base = (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM] / SL_DEN[(uint32_t)t->p[P_SLRATE] % 6u];
     s->len = sl_step_len(t, s->base, s->idx);
@@ -138,14 +162,18 @@ static void sl_enter(const track_t *t, sl_t *s)
     s->rec_on = 0;
     if (mode != SL_STUT || sl_lent) {
         s->rec = 0;                                 /* nothing old to repeat when STUT comes on */
+        s->rec_ok = 0;
+        s->rec_peak = 0;
+        s->ok_peak = 0;
     } else if (s->bit) {
         s->rec = 0;                                 /* a live step: record it */
+        s->rec_peak = 0;
         s->rec_on = 1;
-    } else if (s->rec >= 2u * SL_RAMP) {            /* a repeat: the last live step, looped */
+    } else if (s->rec_ok >= 2u * SL_RAMP) {         /* a repeat: the last loud take, looped */
         uint32_t l = s->base;
         while (l > 2u * SL_LEN)
             l >>= 1;                                /* (a long step: a half, a quarter .. of it) */
-        s->loop = l < 2u * s->rec ? l : 2u * s->rec;
+        s->loop = l < 2u * s->rec_ok ? l : 2u * s->rec_ok;
     }
 }
 
@@ -162,7 +190,7 @@ static inline __attribute__((always_inline)) void sl_seg(const track_t *pt, cons
     int32_t tw = mode == SL_STUT && s->loop ? mix : 0;             /* STUT cross-fade toward repeat */
     int32_t tp = (mode == SL_GATE || mode == SL_STUT) && mix ? 32768 - SL_PAD : 0;
     for (j = 0; j < m; j++) {
-        int32_t x = b[j], y, tg = tc;
+        int32_t x = b[j], y, tg = tc, ax;
         uint32_t left = s->len - s->pos - j;        /* samples to the step end, >= 1 */
         if (left <= (uint32_t)SL_RAMP && tn > tg)
             tg = tn;                                /* close by the boundary */
@@ -179,6 +207,9 @@ static inline __attribute__((always_inline)) void sl_seg(const track_t *pt, cons
             sd[j] = z;
         }
         if (s->rec_on) {                            /* 2:1, the pair's mean; Q15 >> 2 (the mix's headroom) */
+            ax = x < 0 ? -x : x;
+            if (ax > s->rec_peak)
+                s->rec_peak = ax;
             if ((s->pos + j) & 1u) {
                 buf[s->rec] = (int16_t)clamp((s->half + x) >> 3, -32768, 32767);
                 if (++s->rec >= SL_LEN)
@@ -188,10 +219,18 @@ static inline __attribute__((always_inline)) void sl_seg(const track_t *pt, cons
             }
         }
         if (s->loop) {                              /* repeat at MIX, windowed, cross-faded with live */
-            uint32_t rp = s->rp, e = s->loop - 1u - rp;
-            int32_t r = buf[rp >> 1];
-            if (rp & 1u)
-                r = (r + buf[((rp >> 1) + 1u) & (SL_LEN - 1u)]) >> 1;
+            uint32_t rp = s->rp, e = s->loop - 1u - rp, rl = s->rec_ok ? s->rec_ok : SL_LEN;
+            uint32_t i0 = rp >> 1;
+            int32_t r, d;
+            if (i0 >= rl)
+                i0 = 0;
+            r = buf[i0];
+            if (rp & 1u) {
+                uint32_t i1 = i0 + 1u;
+                if (i1 >= rl)
+                    i1 = 0;
+                r = (r + buf[i1]) >> 1;
+            }
             r <<= 2;
             if (rp < e)
                 e = rp;
@@ -199,11 +238,19 @@ static inline __attribute__((always_inline)) void sl_seg(const track_t *pt, cons
                 e = left - 1u;
             if (e < (uint32_t)SL_RAMP)
                 r = (r * (int32_t)e) >> SL_RAMP_LOG2;
+            d = r - s->r_prev;                      /* soften a brick-wall in the take */
+            if (d > SL_SLEW)
+                r = s->r_prev + SL_SLEW;
+            else if (d < -SL_SLEW)
+                r = s->r_prev - SL_SLEW;
+            s->r_prev = r;
             if (++s->rp >= s->loop)
                 s->rp = 0;
             y += mulq16(r - y, (uint32_t)s->w << 1);
-        } else if (s->w) {
-            y -= mulq16(y, (uint32_t)s->w << 1);    /* leave a repeat: fade live in as w falls */
+        } else {
+            s->r_prev = 0;
+            if (s->w)
+                y -= mulq16(y, (uint32_t)s->w << 1); /* leave a repeat: fade live in as w falls */
         }
         if (s->pa) {                                /* ramped ~-3 dB under dry while GATE/STUT MIX > 0 */
             y -= mulq16(y, (uint32_t)s->pa << 1);
@@ -219,11 +266,12 @@ static void sl_run(const track_t *pt, const track_t *t, sl_t *s, int16_t *buf, i
                    uint32_t n)
 {
     uint32_t i = 0;
-    int act = b && (pt->p[P_SLCR] != SL_OFF || s->gc || s->w || s->pa);
+    /* MIX 0 with envelopes settled: bypass (no record, no pad). Clock still advances. */
+    int act = b && ((pt->p[P_SLCR] != SL_OFF && t->p[P_SLDEPTH]) || s->gc || s->w || s->pa);
     while (i < n) {
         uint32_t m;
         if (s->pos >= s->len)
-            sl_enter(pt, s);
+            sl_enter(pt, s, buf);
         m = s->len - s->pos;
         if (m > n - i)
             m = n - i;
