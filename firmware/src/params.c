@@ -340,6 +340,10 @@ static int32_t param_turn(const param_desc_t *d, int32_t v, int32_t steps)
         int32_t k = clamp((int32_t)esync_idx(v) + steps, 0, ESYNC_N - 1);
         return (k * 128 + ESYNC_N - 1) / ESYNC_N;
     }
+    if (d->names == N_IBITS || d->names == N_IRATE) { /* CRUSH: one detent = one label (audio uses >> 3) */
+        int32_t k = clamp((v >> 3) + steps, 0, 15);
+        return k << 3;
+    }
     return enum_step(d, v, clamp(v + steps, d->min, d->max));
 }
 
@@ -465,7 +469,7 @@ enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_
 enum { FX_SEC_INS = 0, FX_SEC_PUNCH = 1, FX_NSEC = 2,
        SEQ_SEC_STEP = 0, SEQ_SEC_AUTO = 1, SEQ_SEC_TOOL = 2, SEQ_NSEC = 3,
        EDIT_SEC_SND = 0, EDIT_SEC_KIT = 1, EDIT_SEC_LAN = 2, EDIT_SEC_VOX = 3, EDIT_NSEC = 4,
-       GLO_SEC_MASTER = 0, GLO_SEC_SONG = 1, GLO_SEC_CLK = 2, GLO_NSEC = 3,
+       GLO_SEC_MASTER = 0, GLO_SEC_CLK = 1, GLO_SEC_SONG = 2, GLO_NSEC = 3,
        SAVE_SEC_PRE = 0, SAVE_SEC_PROJ = 1, SAVE_SEC_CLEAR = 2, SAVE_NSEC = 3,
        LFO_SEC_LFO = 0, LFO_SEC_MOD = 1, LFO_NSEC = 2,
        TRK_SEC_MIX = 0 };
@@ -521,10 +525,10 @@ static const page_t PAGES[] = {
     /* VOICE: one page (VCE GLD UNI DTN SPRD). GLMOD / PRIO / ALLOC stay stored, not shown; PAN/PLAY on MIXER */
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_VOICE, P_GLIDE, P_DETUNE, P_SPRD}},
 
-    /* GLO: Master → Song → Clock (CLICK / COUNT-IN / LEVEL: MENU > AUDIO) */
+    /* GLO: Master → Clock → Song (CLICK / COUNT-IN / LEVEL: MENU > AUDIO) */
     {"MASTER", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_MASTER, {G_CLIP, G_PUNCH, G_DUCK, G_DREL}},
-    {"SONG", FAM_GLO, SC_GLOBAL, GR_SONG, GLO_SEC_SONG, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"CLOCK", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_CLK, {G_BPM, G_SWING, G_CLOCK, 0xFF}},
+    {"SONG", FAM_GLO, SC_GLOBAL, GR_SONG, GLO_SEC_SONG, {0xFF, 0xFF, 0xFF, 0xFF}},
     /* SAVE: Presets (PRESETS / USER / PHRASES) → Project → Clear (sticky key map) */
     {"PRESETS", FAM_SAVE, SC_GLOBAL, GR_BROWSE, SAVE_SEC_PRE, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"USER", FAM_SAVE, SC_GLOBAL, GR_USER, SAVE_SEC_PRE, {0xFF, 0xFF, 0xFF, 0xFF}},

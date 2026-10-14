@@ -110,7 +110,7 @@ static int test_slicer(void)
         memset(&s, 0, sizeof s);
         s.idx = 15;
         for (k = 0; k < 32u; k++) {
-            sl_enter(&trk[0], &s);
+            sl_enter(&trk[0], &s, 0);
             lens += s.len != step_samples(&trk[0], s.base, s.idx);
         }
     }

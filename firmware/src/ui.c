@@ -131,7 +131,7 @@ static uint8_t sync_reload;                  /* engine / preset / project / user
 static struct {
     uint8_t home;
     uint8_t page;                /* index into PAGES */
-    uint8_t fam_last[FAM_COUNT]; /* last page used per family */
+    uint8_t fam_last[FAM_COUNT]; /* last page per family (layer NV snapshot; re-enter uses page_first) */
     uint8_t bank;                /* SEQ: 16-step bank (follows the cursor) */
     uint8_t cursor;              /* SEQ: step being edited (STEP page KNOB 1 moves it) */
     uint8_t seq_follow_t;        /* SEQ follow pause: frames until cursor snaps to seq_idx again (0 = follow) */
@@ -777,9 +777,9 @@ static void note_name(char *b, uint32_t n)
     fmt_int(b + str_len(b), (int32_t)(n / 12u) - 1);
 }
 
-/* page button: cycle sections (wrap). One-section families: enter/resume only. SELECT walks pages inside
- * the section and stops at the ends. Resume last page in the family when entering from elsewhere
- * (SAVE always PRESETS). */
+/* page button: cycle sections (wrap). One-section families: enter only (no cycle). SELECT walks pages
+ * inside the section and stops at the ends. Entering from elsewhere always opens the family's first
+ * section/first page (FX Effects not Punch-in; ENV not ENV DEST; SAVE PRESETS). */
 static int page_sec_any(uint32_t fam, uint32_t sec)
 {
     uint32_t i;
@@ -803,13 +803,8 @@ static void open_family(uint32_t fam)
             }
             sec = (sec + 1u) % nsec;
         }
-    } else if (fam == FAM_SAVE) {
-        for (i = 0; i < NPAGES; i++)
-            if (PAGES[i].graph == GR_BROWSE) break;
-        ui.page = (uint8_t)i;
     } else {
-        i = ui.fam_last[fam];
-        ui.page = (uint8_t)(i < NPAGES && PAGES[i].fam == fam && page_visible(i) ? i : page_first(fam));
+        ui.page = (uint8_t)page_first(fam);
     }
     ui.fam_last[fam] = ui.page;
     ui.home = 0;

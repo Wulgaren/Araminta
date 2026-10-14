@@ -1919,12 +1919,15 @@ static void draw_home_tracks(void)
         home_track_row(c);
 }
 /* oscilloscope of the output, triggered on a rising zero crossing: a RAISE centre line, the trace 2 px (in silence
- * a flat line on it; MENU > SCREEN OFF keeps it from staying on the panel for hours) */
+ * a flat line on it; MENU > SCREEN OFF keeps it from staying on the panel for hours). From ~60 % audio load the
+ * trace is 1 px: half the Bresenhams while the main loop is starved. */
+#define SCOPE_THIN_Q8 ((60u * 256u) / 100u)
 static void graph_scope(uint16_t c)
 {
     static int16_t snap[SCOPE_N] __attribute__((section(".pool")));
     uint32_t w = scope_w, i, trig = 0;
     int32_t cy = (int32_t)cv_h / 2, py = cy, x, peak = 1500, a = cv_h == H_GRAPH ? 46 : cy - 6;   /* (LARGE: the strip) */
+    int32_t thick = song.cpu_q8 >= SCOPE_THIN_Q8 ? 1 : 2;
     for (i = 0; i < SCOPE_N; i++) {
         snap[i] = scope_buf[(w + i) & (SCOPE_N - 1u)];
         if (snap[i] > peak)
@@ -1941,7 +1944,7 @@ static void graph_scope(uint16_t c)
     for (x = 0; x < PANEL_W; x++) {
         int32_t y = cy - snap[trig + (uint32_t)x] * a / peak;    /* auto-scaled */
         if (x)
-            cv_line_t(PANEL_X0 - 1 + x, py, PANEL_X0 + x, y, c, 2);
+            cv_line_t(PANEL_X0 - 1 + x, py, PANEL_X0 + x, y, c, thick);
         py = y;
     }
 }

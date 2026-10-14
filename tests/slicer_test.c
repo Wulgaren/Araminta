@@ -157,12 +157,15 @@ static int test_timing(void)
         if (b0 + len >= f)
             break;
         n++;
-        if (on ? out[b0 + len / 2u] != 16384 : abs(out[b0 + len / 2u]) > 2)
-            bad_mid++;
-        if (on && !non && (abs(out[b0 + len - 1u]) > 300 || out[b0 + len - 1u - SL_RAMP] != 16384))
-            bad_edge++;                           /* closed by the boundary, not earlier */
-        if (!on && non && (abs(out[b0 + len]) > 300 || out[b0 + len + SL_RAMP] != 16384))
-            bad_edge++;                           /* opens from the boundary */
+        {
+            int32_t open = mulq15(16384, 23170);  /* active GATE sits ~-3 dB under dry */
+            if (on ? abs(out[b0 + len / 2u] - open) > 2 : abs(out[b0 + len / 2u]) > 2)
+                bad_mid++;
+            if (on && !non && (abs(out[b0 + len - 1u]) > 300 || abs(out[b0 + len - 1u - SL_RAMP] - open) > 2))
+                bad_edge++;                       /* closed by the boundary, not earlier */
+            if (!on && non && (abs(out[b0 + len]) > 300 || abs(out[b0 + len + SL_RAMP] - open) > 2))
+                bad_edge++;                       /* opens from the boundary */
+        }
         b0 += len;
     }
     snprintf(what, sizeof what, "timing: GATE at 97 BPM, swing 20 + 10 %%: %u steps open / closed as the pattern says",
@@ -300,8 +303,9 @@ static int test_off_stut(void)
         for (f = 0; f + 4u * len < sizeof in / sizeof in[0]; f += 4u * len)   /* steps 1..3 of every 4 = step 0 */
             for (i = 1; i < 4u; i++) {
                 uint32_t a = f + i * len + len / 2u, b = f + len / 2u;
+                int32_t want = mulq15(in[b], 23170);   /* full MIX: repeat at -3 dB vs recorded */
                 rep_n++;
-                rep_ok += abs(out[a] - in[b]) < 400;   /* (22 kHz recording, read between samples) */
+                rep_ok += abs(out[a] - want) < 500;    /* (22 kHz recording, read between samples) */
             }
     }
     {
@@ -351,7 +355,7 @@ static int test_cost(void)
     }
     snprintf(what, sizeof what, "cost: the song, 4 SLICERs on: %.0f instructions / sample (off %.0f): +%.0f, %.0f a track",
              on, off, on - off, (on - off) / 4);
-    return check(what, (on - off) / 4 < 60);
+    return check(what, (on - off) / 4 < 80);   /* pad envelope (~-3 dB) sits in this budget */
 }
 
 /* ------------------------------------------------------------ demos --- */
@@ -469,6 +473,199 @@ static int test_mix_send(void)
     return bad;
 }
 
+/* Active GATE/STUT sit ~-3 dB under dry. MIX 0 is bypass. On a decayed live signal, lower STUT
+ * MIX clearly quiets the stutter. */
+static int test_stut_mix_level(void)
+{
+    track_t *t = &trk[0];
+    uint32_t f, i, len;
+    int64_t e127 = 0, e64 = 0, e0 = 0;
+    uint32_t n127 = 0, n64 = 0;
+    double r127, r64;
+    int bad = 0, same = 1;
+    char what[160];
+
+    host_tracks_init();
+    memset(sl, 0, sizeof sl);
+    song.g[G_BPM] = 120;
+    song.g[G_SLOWN] = 1;
+    len = (uint32_t)FS * 60u / 120u / 4u;                 /* 1/16 step */
+    set_slicer(t, SL_STUT, 1, 1, 0);
+    slicer_start();
+    for (f = 0; f < 2u * FS; f += CTL) {
+        int32_t b[CTL], c[CTL];
+        for (i = 0; i < CTL; i++)
+            b[i] = c[i] = (f / len) & 1u ? 2000 : 16000; /* loud on 'x', quiet on '.' */
+        slicer_track(t, b, CTL);
+        same &= !memcmp(b, c, sizeof b);
+    }
+    bad += check("STUT MIX 0: decayed tone stays dry (bypass)", same);
+
+    /* GATE open steps are padded too (not only STUT repeats). */
+    {
+        int64_t e_open = 0;
+        uint32_t n_open = 0;
+        double ro;
+        set_slicer(t, SL_GATE, 1, 1, 127);
+        slicer_start();
+        for (f = 0; f < 2u * FS; f += CTL) {
+            int32_t b[CTL];
+            for (i = 0; i < CTL; i++)
+                b[i] = 16000;
+            slicer_track(t, b, CTL);
+            if (f < FS / 2u)
+                continue;
+            for (i = 0; i < CTL; i++)
+                if (sl[0].bit && sl[0].pos > SL_RAMP) {
+                    e_open += (int64_t)b[i] * b[i];
+                    n_open++;
+                }
+        }
+        ro = n_open ? sqrt((double)e_open / n_open) / 16000.0 : 0;
+        snprintf(what, sizeof what, "GATE MIX 127: open steps ~-3 dB under dry (got %.2f)", ro);
+        bad += check(what, ro > 0.60 && ro < 0.85);
+    }
+
+    set_slicer(t, SL_STUT, 1, 1, 127);
+    slicer_start();
+    for (f = 0; f < 4u * FS; f += CTL) {
+        int32_t b[CTL];
+        for (i = 0; i < CTL; i++)
+            b[i] = (f / len) & 1u ? 2000 : 16000;
+        slicer_track(t, b, CTL);
+        if (f < FS / 2u)
+            continue;
+        for (i = 0; i < CTL; i++)
+            if (!sl[0].bit) {
+                e127 += (int64_t)b[i] * b[i];
+                n127++;
+            }
+    }
+    r127 = n127 ? sqrt((double)e127 / n127) / 16000.0 : 0;
+    snprintf(what, sizeof what, "STUT MIX 127: '.' ~-3 dB vs recorded hit (got %.2f)", r127);
+    bad += check(what, r127 > 0.58 && r127 < 0.82);
+
+    set_slicer(t, SL_STUT, 1, 1, 64);
+    slicer_start();
+    for (f = 0; f < 4u * FS; f += CTL) {
+        int32_t b[CTL];
+        for (i = 0; i < CTL; i++)
+            b[i] = (f / len) & 1u ? 2000 : 16000;
+        slicer_track(t, b, CTL);
+        if (f < FS / 2u)
+            continue;
+        for (i = 0; i < CTL; i++)
+            if (!sl[0].bit) {
+                e64 += (int64_t)b[i] * b[i];
+                n64++;
+            }
+    }
+    r64 = n64 ? sqrt((double)e64 / n64) / 16000.0 : 0;
+    snprintf(what, sizeof what, "STUT MIX 64: '.' quieter than full MIX (%.2f < %.2f)", r64, r127);
+    bad += check(what, r64 < r127 * 0.85 && r64 > 0.15);
+
+    set_slicer(t, SL_STUT, 1, 1, 127);
+    slicer_start();
+    e0 = 0;
+    n127 = 0;
+    for (f = 0; f < 2u * FS; f += CTL) {
+        int32_t b[CTL];
+        for (i = 0; i < CTL; i++)
+            b[i] = 16000;
+        slicer_track(t, b, CTL);
+        if (f < FS / 2u)
+            continue;
+        for (i = 0; i < CTL; i++)
+            if (!sl[0].bit) {
+                e0 += (int64_t)b[i] * b[i];
+                n127++;
+            }
+    }
+    r127 = n127 ? sqrt((double)e0 / n127) / 16000.0 : 0;
+    snprintf(what, sizeof what, "STUT MIX 127 constant: under unity from -3 dB pad (got %.2f)", r127);
+    bad += check(what, r127 > 0.60 && r127 < 0.85);
+    return bad;
+}
+
+/* A brick-wall jump in the take (acid filter zap) must not be machine-gunned on '.' —
+ * pat 6/9 long repeats made that sound like sharp electric clicks. */
+static int test_stut_slew(void)
+{
+    track_t *t = &trk[0];
+    uint32_t len = (uint32_t)FS * 60u / 120u / 4u, f;
+    int32_t *buf, mx = 0;
+    int bad = 0;
+
+    host_tracks_init();
+    memset(sl, 0, sizeof sl);
+    song.g[G_BPM] = 120;
+    song.g[G_SLOWN] = 1;
+    set_slicer(t, SL_STUT, 6, 1, 127);
+    slicer_start();
+    buf = calloc(8u * len, sizeof *buf);
+    for (f = 0; f < 8u * len; f++) {
+        uint32_t st = f / len;
+        /* xxxx.... : record a step that flips hard mid-way, then repeat it */
+        if (st < 4u)
+            buf[f] = (f % len) < len / 4u ? 10000 : -10000;
+        else
+            buf[f] = 0;
+    }
+    for (f = 0; f + CTL <= 8u * len; f += CTL)
+        slicer_track(t, buf + f, CTL);
+    for (f = 4u * len + SL_RAMP; f + 1u < 8u * len; f++) {
+        int32_t d = abs(buf[f] - buf[f - 1]);
+        if (d > mx)
+            mx = d;
+    }
+    bad += check("STUT: recorded hard edge is slew-limited on repeat", mx < 3500);
+    free(buf);
+    return bad;
+}
+
+/* STUT pat 9 xx..: a silent 'x' must not wipe the last loud take (acid rests on 'x' used to
+ * punch holes / chirps on the following '.'). */
+static int test_stut_keep_hit(void)
+{
+    track_t *t = &trk[0];
+    uint32_t len = (uint32_t)FS * 60u / 120u / 4u, f;
+    int32_t *buf;
+    int64_t e = 0, corr = 0;
+    uint32_t n = 0;
+    double rms;
+    int bad = 0;
+
+    host_tracks_init();
+    memset(sl, 0, sizeof sl);
+    song.g[G_BPM] = 120;
+    song.g[G_SLOWN] = 1;
+    set_slicer(t, SL_STUT, 9, 1, 127);
+    slicer_start();
+    buf = calloc(4u * len, sizeof *buf);
+    for (f = 0; f < 4u * len; f++) {
+        uint32_t st = f / len;
+        double ph = 2 * M_PI * 220.0 * (double)f / (double)FS;
+        if (st == 0 || st == 2)
+            buf[f] = (int32_t)(12000.0 * sin(ph));
+        else
+            buf[f] = 0;
+    }
+    for (f = 0; f + CTL <= 4u * len; f += CTL)
+        slicer_track(t, buf + f, CTL);
+    for (f = len * 2u + SL_RAMP; f < len * 3u - SL_RAMP; f++) {
+        double ph0 = 2 * M_PI * 220.0 * (double)(f - 2u * len) / (double)FS;
+        int32_t hit = (int32_t)(12000.0 * sin(ph0));
+        e += (int64_t)buf[f] * buf[f];
+        corr += (int64_t)buf[f] * hit;
+        n++;
+    }
+    rms = n ? sqrt((double)e / (double)n) : 0;
+    bad += check("STUT: '.' after silent 'x' keeps the prior loud take",
+                 rms > 4000.0 && corr > 0);
+    free(buf);
+    return bad;
+}
+
 /* An active gate/repeat must finish its ramp, then leave both stereo signals untouched. */
 static int test_mix_zero_after_ramp(void)
 {
@@ -520,6 +717,9 @@ int main(int argc, char **argv)
     bad += test_off_stut();
     bad += test_cost();
     bad += test_mix_send();
+    bad += test_stut_mix_level();
+    bad += test_stut_keep_hit();
+    bad += test_stut_slew();
     bad += test_mix_zero_after_ramp();
     if (argc > 1)
         demos(argv[1]);

@@ -125,7 +125,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   DIM LO, DIM HI or INV, the official firmware's look); PLAY turns green while playing; the keys show
   the notes the sequencer and MIDI IN play, and on SEQ > STEP (stopped) the notes of the step under the cursor;
   the drum grid marks the beats (steps 1, 5, 9, 13); MENU > SCALE LEDS shows the track's scale on the keys
-- **USB:** class-compliant MIDI in and out, and a stereo audio input (still named "Felucca" on the wire) at 44.1 or 48 kHz
+- **USB:** class-compliant MIDI in and out, and a stereo audio input (named "FM-1" on the wire; loader "FM-1 Update") at 44.1 or 48 kHz
   (the computer picks) that records the master output on the computer, no driver needed (at a fixed level with MENU > USB LEVEL FIXED;
   on macOS 13-15, set MENU > USB SERIAL to OFF so the audio input appears)
 - **MIDI:** USB and TRS MIDI in; MENU > MIDI > MIDI IN: CH1-4 (channels 1-4 play tracks 1-4), CH5-8, CH9-12 or
@@ -195,7 +195,7 @@ The pages by button:
 |---|---|---|
 | HOME | Home ↔ Mixer | the menu |
 | SEQ | Step group (SELECT: PATTERN / STEP / DETAIL), AUTOMATION, SEQ TOOLS | SEQ TOOLS, on every page |
-| GLO | MASTER, SONG, CLOCK | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
+| GLO | MASTER, CLOCK, SONG | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
 | SAVE | Presets (SELECT: PRESETS / USER / PHRASES), Project (SELECT: PROJECT / TOOLS) | UNDO |
 | LFO | LFO (SELECT: LFO / LFO 2 / LFO DEST), then MOD | MOMENTARY (with a knob) |
 | EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG FILTER / FILTER DRIVE), Kit, Lanes, Voice (hidden on DRUM) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
