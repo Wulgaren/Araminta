@@ -1110,12 +1110,68 @@ static void step_edit(uint32_t slot, int32_t steps)
 }
 
 static void dly_knob(uint32_t slot, int32_t steps);
+/* GENERATION changes the selected drum lane, or all three when its map or length changes. */
+static void generation_knob(uint32_t slot, int32_t steps)
+{
+    static const uint8_t lanes[3] = {DV_KICK, DV_SNARE, DV_HATC};
+    track_t *t = TSEL;
+    generation_t next = t->generation;
+    uint32_t len = (uint32_t)t->p[P_SLEN], first = 0, last = 3, i, part;
+    uint64_t used = 0;
+    if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
+    if (generation_page2()) {
+        ui.force = 1;                          /* show the map even when a knob is already at its limit */
+        if (slot == 0) {
+            uint32_t map = generation_map_index(next.x, next.y);
+            if (!map) map = 1u + ((uint32_t)next.y * 4u + 127u) / 255u * 5u +
+                                  ((uint32_t)next.x * 4u + 127u) / 255u;
+            map = (uint32_t)clamp((int32_t)map + steps, 1, 25);
+            generation_map_xy(map, &next.x, &next.y);
+        } else {
+            uint8_t *v = slot == 1 ? &next.x : slot == 2 ? &next.y : &next.chaos;
+            *v = (uint8_t)clamp((int32_t)*v + steps, 0, slot == 3 ? 100 : 255);
+        }
+    } else if (slot == 0) {
+        len = (uint32_t)clamp((int32_t)len + steps, 1, NSTEP);
+    } else {
+        first = slot - 1u; last = slot;
+        next.density[first] = (uint8_t)clamp((int32_t)next.density[first] + steps, 0, 100);
+    }
+    if (len == (uint32_t)t->p[P_SLEN] && !memcmp(&next, &t->generation, sizeof next)) return;
+    step_undo_take(t, 0x47454E00u + (generation_page2() ? 4u : 0u) + slot);
+    t->generation = next;
+    t->p[P_SLEN] = (int16_t)len;
+    for (i = 0; i < len; i++)
+        if (t->step[i].time != ST_REST) used |= (uint64_t)1u << i;
+    for (part = first; part < last; part++) {
+        uint32_t threshold = 255u - next.density[part] * 255u / 100u;
+        uint32_t perturb = ((rng() & 255u) * ((next.chaos * 255u / 100u) >> 2)) >> 8;
+        uint32_t div = (uint32_t)t->p[P_SDIV];
+        for (i = 0; i < len; i++) {
+            uint32_t tick = div < 6u ? i * 8u / DIV_DEN[div] : (i * 8u) << (div - 5u);
+            uint32_t level = generation_level(tick, part, next.x, next.y) + perturb;
+            if (level > 255u) level = 255u;
+            grid_hit(t, i, lanes[part], level > threshold);
+            if (level > threshold) grid_acc(t, i, lanes[part], level > 192u);
+        }
+    }
+    for (i = 0; i < len; i++)
+        if (((used >> i) & 1u) && t->step[i].time == ST_REST) (void)motion_clear_locks(t, i);
+    motion_undo_done(t);
+    cursor_fix();
+    ui.force = 1;
+}
+
 static void edit_param(uint32_t slot, int32_t steps)
 {
     int16_t *vp;
     const page_t *pg = cur_page();
     const param_desc_t *d;
     int32_t v;
+    if (pg->graph == GR_GENERATION) {
+        generation_knob(slot, steps);
+        return;
+    }
     if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_STEP)
         seq_follow_bump();                                /* PATTERN / STEP / DETAIL: pause playhead follow */
     if (pg->graph == GR_DXSND) {                          /* EDIT > SOUND: the DRUM-X kit (ui_dx.c) */
@@ -2122,7 +2178,7 @@ static void ui_input(void)
         }
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
             ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
-            || pg->graph == GR_SONG || pg->graph == GR_IORD || pg->graph == GR_DXSND ||
+            || pg->graph == GR_SONG || pg->graph == GR_IORD || pg->graph == GR_DXSND || pg->graph == GR_GENERATION ||
             (dly_page(pg) && k == 3u) || fop_page(pg->graph)) {   /* (not an empty column; DLY K4 is RATE / TIME) */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;

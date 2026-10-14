@@ -1206,7 +1206,9 @@ static uint32_t graph_signature(void)
     if ((pg->scope == SC_ENGINE || fop_page(pg->graph)) && t->eng_req % NENGINES == ENGI_FM6)   /* the patch (PAT's algorithm,
                                                      * levels, FB; the operator pages: the operator, the stage) */
         h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u + (fop_op + 1u) * 40503u + (fop_stg + 1u) * 7919u;
-    if (pg->graph == GR_ROLL) {
+    if (pg->graph == GR_GENERATION)
+        h = fnv(h, &t->generation, sizeof t->generation);
+    if (pg->graph == GR_ROLL || pg->graph == GR_GENERATION) {
         uint32_t ph = song.playing ? t->seq_idx : 0xFFFFu;
         if (ph / 16u != ui.bank)
             ph = 0xFFFFu;                            /* the roll shows the cursor's bank only */
@@ -1218,7 +1220,7 @@ static uint32_t graph_signature(void)
         }
         if (detail_on())                             /* DETAIL: QUANTIZE (NUDGE's DIM), the lane named in the accent */
             h = (h ^ (0xD1u + (uint32_t)t->p[P_SQNT] * 31u + (ui.hot_t ? ui.hot_col + 1u : 0u) * 977u)) * 2654435761u;
-        else if (!drum_track(t)) {                   /* the roll: its view and the keys held */
+        else if (pg->graph == GR_ROLL && !drum_track(t)) {   /* the roll: its view and the keys held */
             pr_follow(t);
             h = (h ^ (proll.lo + 1u)) * 16777619u;
             h = (h ^ pr_held()) * 16777619u;
@@ -2257,6 +2259,45 @@ static void graph_colony(const track_t *t, int32_t sel)
     }
 }
 
+/* The live map replaces the entire screen during a map-knob gesture. */
+static void draw_generation_map(void)
+{
+    const generation_t *g = &TSEL->generation;
+    uint32_t k, map = generation_map_index(g->x, g->y);
+    int32_t x = 32 + g->x * 176 / 255, y = 40 + g->y * 176 / 255;
+    char title[24], value[12];
+    uint32_t active = ui.hot_col & 3u;
+    str_cpy(title, GENERATION_MAP_LABELS[active], sizeof title);
+    str_cpy(title + str_len(title), " ", 2);
+    if (active == 0 && !map) str_cpy(value, "CUSTOM", sizeof value);
+    else fmt_int(value, (int32_t)(active == 0 ? map : active == 1 ? g->x : active == 2 ? g->y : g->chaos));
+    str_cpy(title + str_len(title), value, sizeof title - str_len(title));
+    if (active == 3) str_cpy(title + str_len(title), "%", 2);
+    /* Two strips fit the existing canvas without allocating another frame buffer. */
+    for (int32_t top = 0; top < 240; top += 120) {
+        cv_begin(240, 120, T_BG);
+        cv_oy = -top;
+        if (!top) cv_text_on((240 - text_w(&AF_M, title)) / 2, 6, &AF_M, title, T_THEME, T_BG);
+        for (k = 0; k < 5u; k++) {
+            cv_line(32 + (int32_t)k * 44, 40, 32 + (int32_t)k * 44, 216, T_LINE);
+            cv_line(32, 40 + (int32_t)k * 44, 208, 40 + (int32_t)k * 44, T_LINE);
+        }
+        for (k = 1; k <= 25u; k++) {
+            int32_t nx = 32 + (int32_t)((k - 1u) % 5u) * 44;
+            int32_t ny = 40 + (int32_t)((k - 1u) / 5u) * 44;
+            if (ny < top || ny >= top + 120) continue;
+            fmt_int(value, (int32_t)k);
+            cv_rect(nx - 11, ny - 8, 22, 16, k == map ? T_THEME : T_SURF);
+            cv_text_on(nx - text_w(&AF_S, value) / 2, ny - 6, &AF_S, value,
+                       k == map ? T_INK : T_MID, k == map ? T_THEME : T_SURF);
+        }
+        cv_rect(x - 4, y - 4, 9, 9, T_THEME);
+        cv_rect(x - 2, y - 2, 5, 5, T_INK);
+        cv_oy = 0;
+        cv_blit(0, (uint32_t)top);
+    }
+}
+
 static void draw_graph(void)
 {
     const page_t *pg = cur_page();
@@ -2294,6 +2335,10 @@ static void draw_graph(void)
         graph_scope(c);
     } else {
         switch (pg->graph) {
+        case GR_GENERATION:
+            cv_oy = 0;
+            graph_grid(t, c);
+            break;
         case GR_ADSR:
             graph_adsr(t, c);
             break;
