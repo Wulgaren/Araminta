@@ -10,8 +10,8 @@ felucca.fwsc (package). A release build (--release X.Y) writes felucca-X.Y.fwsc 
 release-X.Y/ with the package, the app, SHA256SUMS, the sample attribution and the licence files.
 See BUILDING.md for the toolchain and the SDK.
 
-The JieLi toolchain is Linux x86-64 only. JIELI_TOOLCHAIN points at it; on
-macOS (or with JIELI_DOCKER=1) each tool runs in a linux/amd64 container.
+JIELI_TOOLCHAIN points at the JieLi toolchain, native on Windows or Linux x86-64;
+on macOS (or with JIELI_DOCKER=1) each tool runs in a linux/amd64 container.
 """
 import argparse
 import hashlib
@@ -39,6 +39,12 @@ APP_SLOT = fm1pkg_make.APP_SLOT
 LOADER_LOAD = 0x01C0A800
 LOADER_NAME = b"usb_hid_ota.bin"    # the file name the SPL looks for
 DOCKER_IMAGE = os.environ.get("JIELI_DOCKER_IMAGE", "debian:bookworm-slim")
+WINDOWS_TOOLS = {
+    "pi32v2/bin/clang": "pi32/bin/clang.exe",
+    "pi32v2/bin/ld": "pi32/bin/pi32v2-ld.exe",
+    "common/bin/objcopy": "pi32/bin/llvm-objcopy.exe",
+    "common/bin/objdump": "pi32/bin/llvm-objdump.exe",
+}
 CFLAGS = ["-Os", "-ffunction-sections", "-fno-builtin", "-Wall", "-Wno-unused-function"]
 LINE = re.compile(r"^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*\t(.*)$")
 
@@ -55,14 +61,19 @@ VERSION = None                      # FELUCCA_VERSION for release builds (defaul
 
 def toolchain():
     tc = os.environ.get("JIELI_TOOLCHAIN")
-    if not tc or not (Path(tc) / "pi32v2" / "bin" / "clang").exists():
-        raise SystemExit("JIELI_TOOLCHAIN must point at the JieLi Linux toolchain "
-                         "(the directory with pi32v2/ and common/; see tools/get_toolchain.sh)")
+    compiler = "pi32v2/bin/clang"
+    if platform.system() == "Windows" and not use_docker():
+        compiler = WINDOWS_TOOLS[compiler]
+    if not tc or not (Path(tc) / compiler).is_file():
+        raise SystemExit(f"JIELI_TOOLCHAIN must point at the JieLi toolchain directory containing {compiler} "
+                         "(see BUILDING.md)")
     return Path(tc).resolve()
 
 
 def use_docker():
-    native = platform.system() == "Linux" and platform.machine() in ("x86_64", "AMD64")
+    native = platform.system() == "Windows" or (
+        platform.system() == "Linux" and platform.machine() in ("x86_64", "AMD64")
+    )
     return os.environ.get("JIELI_DOCKER", "0" if native else "1") == "1"
 
 
@@ -75,6 +86,8 @@ def tc(tool, *args):
         cmd = ["docker", "run", "--rm", "--platform", "linux/amd64", "-v", f"{SRC}:/work",
                "-v", f"{toolchain()}:/opt/jieli:ro", "-w", "/work", DOCKER_IMAGE, f"/opt/jieli/{tool}", *rel]
     else:
+        if platform.system() == "Windows":
+            tool = WINDOWS_TOOLS[tool]
         cmd = [str(toolchain() / tool), *rel]
     r = subprocess.run(cmd, cwd=SRC, capture_output=True, text=True)
     if r.returncode:
