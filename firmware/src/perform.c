@@ -222,11 +222,12 @@ static void perf_press(uint32_t e, int down)
     }
     if (e >= PF_N)
         return;
-    if (perf_latch_on) {                  /* FX LATCH: a press turns it on or off, letting go does nothing */
+    if (perf_latch_on) {                  /* FX LATCH: a press turns it on or off, letting go only clears a held bit */
         if (down) {
             perf_latched ^= PF_BIT(e);
             perf_ord[e] = ++perf_seq;
-        }
+        } else
+            perf_held &= ~PF_BIT(e);      /* a key held before the latch came on: no stuck effect */
         return;
     }
     if (down) {
