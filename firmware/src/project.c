@@ -149,6 +149,7 @@
 #define PROJ_NP_V4 69u                         /* P_COUNT of format 4 (P_E0 61) */
 #define PROJ_PHYS 2u                           /* project_t.phys: PHYS without DUST and DRUM (see the top) */
 #define PROJ_NAME_LEN 12u                      /* the name: FUN7 bytes PROJ_NAME_OFF.. (the reserved tail's end) */
+#define PROJ_GENERATION_MARK 0x47u             /* motion-header spare byte 2 marks FM6 high-bit controls */
 typedef struct {                               /* one track */
     int16_t p[P_COUNT];
     uint8_t engine, preset;
@@ -157,6 +158,7 @@ typedef struct {                               /* one track */
     int16_t scl_stash[3];
     uint8_t scl_stash_ok;
     uint8_t fx_sl_pos;                         /* EFFECTS SLICER list slot 0..8; FUN14 wire */
+    generation_t generation;
 } proj_trk_t;
 typedef struct {
     uint32_t magic, size;
@@ -644,6 +646,8 @@ static int proj_import_any(project_t *q, const void *b, int n)
     }
     if (!proj_import_old(q, b, n))
         return 0;
+    for (uint32_t t = 0; t < NTRK; t++)
+        q->t[t].generation = GENERATION_DEFAULT;
     proj_fm6_init(q);
     {   /* FUN6..FUN1 still carried CHR at SCL 0 */
         uint32_t t;
@@ -762,6 +766,7 @@ static int proj_pack(project_store_t *out, const project_t *q)
     memcpy(b + pos, &q->chain, sizeof q->chain); pos += sizeof q->chain;
     b[pos] = q->motion.count > MOTION_FILE_MAX ? MOTION_FILE_MAX : q->motion.count;
     b[pos + 1u] = q->motion.on;
+    b[pos + 2u] = PROJ_GENERATION_MARK;
     for (i = 0; i < b[pos]; i++) {
         const motion_event_t *e = &q->motion.event[i];
         uint32_t id = MOTION_ID(e);
@@ -810,6 +815,17 @@ static int proj_pack(project_store_t *out, const project_t *q)
     b[PROJ_DX_OFF + sizeof q->dx + 1u] = (uint8_t)(q->dx_mute >> 8);
     b[PROJ_DX_OFF + sizeof q->dx + 2u] = 1u;            /* marker: kit layout as today */
     memcpy(b + PROJ_FM6_OFF, q->fm6, sizeof q->fm6);
+    /* FM6 packed bytes are seven-bit SysEx data. Their unused high bits hold six controls per track;
+     * original readers mask those bits, leaving the patch and the 72 motion slots intact. */
+    for (t = 0; t < NTRK; t++) {
+        const generation_t *g = &q->t[t].generation;
+        const uint8_t *controls = (const uint8_t *)g;
+        if (g->density[0] > 100u || g->density[1] > 100u || g->density[2] > 100u || g->chaos > 100u)
+            return 0;
+        for (i = 0; i < sizeof *g; i++)
+            for (uint32_t bit = 0; bit < 8u; bit++)
+                b[PROJ_FM6_OFF + t * FM6_PACKED + i * 8u + bit] |= (uint8_t)(((controls[i] >> bit) & 1u) << 7);
+    }
     {   /* the name (0-padded; stops at the first 0) */
         char n[PROJ_NAME_LEN + 1u];
         memcpy(b + PROJ_NAME_OFF, n, proj_name_get(n, (const uint8_t *)q->name));
@@ -935,6 +951,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     }
     for (t = 0; t < NTRK; t++) {
         int16_t values[P_COUNT], def[P_COUNT];
+        q->t[t].generation = GENERATION_DEFAULT;
         for (i = 0; i < np; i++) {
             if (iord2 && i == P_IORD) {                  /* two bytes LE: order 0..719, send flags above it */
                 uint32_t o = b[pos] | (uint32_t)b[pos + 1u] << 8;
@@ -979,6 +996,18 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         if (!chain_from_v9(&q->chain, &c9)) return 0;
     }
     pos += chn;
+    if (magic == PROJ_MAGIC && b[pos + 2u] == PROJ_GENERATION_MARK) {
+        for (t = 0; t < NTRK; t++) {
+            generation_t *g = &q->t[t].generation;
+            uint8_t *controls = (uint8_t *)g;
+            memset(g, 0, sizeof *g);
+            for (i = 0; i < sizeof *g; i++)
+                for (uint32_t bit = 0; bit < 8u; bit++)
+                    controls[i] |= (uint8_t)((b[PROJ_FM6_OFF + t * FM6_PACKED + i * 8u + bit] >> 7) << bit);
+            if (g->density[0] > 100u || g->density[1] > 100u || g->density[2] > 100u || g->chaos > 100u)
+                return 0;
+        }
+    }
     if (v10) {
         memset(&q->motion, 0, sizeof q->motion);
         q->motion.count = b[pos]; q->motion.on = b[pos + 1u];
@@ -1195,6 +1224,7 @@ static void project_capture(project_t *p)
         p->t[i].scl_stash[1] = trk[i].scl_stash[1];
         p->t[i].scl_stash[2] = trk[i].scl_stash[2];
         p->t[i].fx_sl_pos = trk[i].fx_sl_pos < FX_LIST_N ? trk[i].fx_sl_pos : 8u;
+        p->t[i].generation = trk[i].generation;
         fm6_pack(fm6_patch[i], p->fm6[i]);
     }
     p->motion = motion;
@@ -1386,6 +1416,7 @@ static int project_restore_runtime(const project_t *input)
         t->scl_stash[1] = s->scl_stash[1];
         t->scl_stash[2] = s->scl_stash[2];
         t->fx_sl_pos = s->fx_sl_pos < FX_LIST_N ? s->fx_sl_pos : 8u;
+        t->generation = s->generation;
         {   /* the project's own FM6 patch, never reloaded from SLOT: F n if it is that factory patch, else OWN */
             uint8_t v[FP_SIZE + 1u];
             fm6_unpack(p->fm6[k], v);
@@ -1608,6 +1639,7 @@ static uint32_t autosave_sig(void)
         h = as_mix(h, &t->eng_req, 1);
         h = as_mix(h, &t->preset, 1);
         h = as_mix(h, t->step, sizeof t->step);
+        h = as_mix(h, &t->generation, sizeof t->generation);
         h = as_mix(h, fm6_patch[i], sizeof fm6_patch[i]);
     }
     for (i = 0; i < G_COUNT; i++)

@@ -47,6 +47,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN.
 - **MAP (was QNT).** SCL knob: OFF / ALL / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); ALL is KBD plus sequence follows the scale; SEQ is chromatic keys plus sequence follows. Chromatic (CHR) scale removed; use MAP OFF. SCALE LOCK stash lands in FUN12+; current saves are FUN15 (`FUNF`).
 - **Following playhead** in the SEQ. Start selecting a step to pause the following, returns after 3 seconds of inactivity.
+- **SEQ GENERATION.** On DRUM-X, the second SEQ section generates editable kick, snare and closed-hat steps from Mutable Instruments Grids. SELECT switches between LEN / KICK / SNARE / HAT and MAP / MAP X / MAP Y / CHAOS. MAP selects one of 25 templates; X/Y blend between them and show CUSTOM. Turning MAP, MAP X or MAP Y briefly shows the full-screen map, then returns to the drum grid; CHAOS keeps the grid visible. Density edits change only their lane; map, chaos and length edits regenerate all three. Other lanes stay as written, SAVE held undoes the gesture, and each track's controls save with the project. Tips follow MENU > HELP.
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
