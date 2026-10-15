@@ -436,6 +436,15 @@ typedef struct {
 } chain_v9_t;
 _Static_assert(sizeof(chain_config_t) == 84u && sizeof(chain_v9_t) == 36u, "song chain layouts (FUN10 / FUN6..FUN9)");
 
+/* GENERATION's per-track controls; LEN uses the existing sequencer P_SLEN. */
+typedef struct {
+    uint8_t density[3];          /* KICK / SNARE / HAT percentages, 0..100 */
+    uint8_t x, y;                /* original Grids map coordinates, 0..255 */
+    uint8_t chaos;               /* variation percentage, 0..100 */
+} generation_t;
+_Static_assert(sizeof(generation_t) == 6u, "GENERATION controls occupy six bytes");
+static const generation_t GENERATION_DEFAULT = {{50, 50, 50}, 128, 128, 0};
+
 typedef struct track {
     int16_t p[P_COUNT];
     uint8_t engine, preset;      /* engine: what the audio ISR renders */
@@ -511,7 +520,8 @@ typedef struct track {
     int16_t scl_stash[3];        /* ROOT / SCL / MAP restored on OFF (project.c FUN12+) */
     uint8_t scl_stash_ok;        /* 1: scl_stash holds values from before a lock overwrite */
     uint8_t fx_sl_pos;           /* EFFECTS INS_SLCR list slot 0..8; RAM until FUN14 (default 8) */
-    uint8_t rsv_sz[9];           /* sizeof(track_t) a multiple of 16 */
+    generation_t generation;
+    uint8_t rsv_sz[3];           /* sizeof(track_t) a multiple of 16 */
     int16_t armp, aholdp;        /* P_AMODE / P_AHOLD as last seen by the ISR */
     int16_t ahold_sv;            /* HOLD before DRONE forced it on (restored on leave) */
     /* engine switch (voice.c engine_block): the old engine's voices fade out, then it switches */

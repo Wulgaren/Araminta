@@ -2751,7 +2751,7 @@ static int test_page_cycles(void)
     for (i = 0; i < NPAGES; i++) {
         uint32_t f = PAGES[i].fam;
         ok &= f != FAM_SEQ || PAGES[i].graph == GR_ROLL || PAGES[i].graph == GR_EVENTS ||
-              PAGES[i].graph == GR_STEPS;
+              PAGES[i].graph == GR_STEPS || PAGES[i].graph == GR_GENERATION;
         ok &= f != FAM_GLO || PAGES[i].graph == GR_SONG ||
               str_eq(PAGES[i].title, "CLOCK") || str_eq(PAGES[i].title, "MASTER");
         ok &= f != FAM_TRK || PAGES[i].graph == GR_TRK;
@@ -8463,7 +8463,69 @@ static int test_edit_quick_actions(void)
 }
 
 
-/* SEQ button cycles sections: Step group → Automation → SEQ TOOLS; SELECT walks STEP / PATTERN / DETAIL. */
+/* A generation gesture owns one lane; undo restores its steps and its density. */
+static int test_generation_density_undo(void)
+{
+    step_t before[NSTEP];
+    int ok = 1;
+    uint32_t i;
+    ui_power_on();
+    set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;
+    TSEL->p[P_SLEN] = 16;
+    grid_hit(TSEL, 0, DV_KICK, 1);
+    grid_hit(TSEL, 4, DV_SNARE, 1);
+    grid_hit(TSEL, 2, DV_HATC, 1);
+    grid_hit(TSEL, 7, DV_TOM, 1);
+    memcpy(before, TSEL->step, sizeof before);
+    press(B_SEQ); press(B_SEQ);
+    turn(EN_K2, -100);
+    for (i = 0; i < 16; i++) {
+        ok &= !(step_lanes(&TSEL->step[i]) & (1u << DV_KICK));
+        ok &= (step_lanes(&TSEL->step[i]) & ~(1u << DV_KICK)) ==
+              (step_lanes(&before[i]) & ~(1u << DV_KICK));
+    }
+    ok &= TSEL->generation.density[0] == 0 && TSEL->p[P_SLEN] == 16;
+    hold(B_SAVE);
+    ok &= !memcmp(before, TSEL->step, sizeof before) && TSEL->generation.density[0] == 50;
+    return check("GENERATION kick density clears only kicks; SAVE undo restores beat and density", ok);
+}
+
+static int test_generation_navigation(void)
+{
+    int ok;
+    ui_power_on();
+    set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;
+    press(B_SEQ);
+    press(B_SEQ);
+    ok = str_eq(cur_page()->title, "GENERATION") && !ui.lock;
+    turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "GENERATION 2") && !ui.lock;
+    press(B_SEQ);
+    ok &= str_eq(cur_page()->title, "AUTOMATION");
+    return check("DRUM SEQ: GENERATION is second section, SELECT opens its map page", ok);
+}
+
+static int test_generation_map_display(void)
+{
+    int ok;
+    ui_power_on();
+    set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;
+    TSEL->p[P_SLEN] = 16;
+    press(B_SEQ); press(B_SEQ);
+    turn(EN_K1, 1);
+    ok = TSEL->p[P_SLEN] == 17 && TSEL->generation.density[0] == 50;
+    turn(EN_SELECT, 1);
+    turn(EN_K1, 1);
+    ok &= TSEL->generation.x == 192 && TSEL->generation.y == 128;
+    turn(EN_K2, 1);
+    ok &= generation_map_index(TSEL->generation.x, TSEL->generation.y) == 0;
+    ok &= swap16(host_screen[40u * 240u + 50u]) == T_LINE;
+    frames(1000);
+    ok &= swap16(host_screen[40u * 240u + 50u]) != T_LINE;
+    return check("GENERATION: LEN first; MAP presets and CUSTOM XY; full-screen map returns to grid", ok);
+}
+
+/* Synth SEQ skips GENERATION; SELECT stays inside STEP / PATTERN / DETAIL. */
 static int test_seq_sections(void)
 {
     int bad = 0, ok;
@@ -8957,6 +9019,9 @@ int main(void)
     int bad = 0;
     bad += test_fx_sections();
     bad += test_seq_sections();
+    bad += test_generation_navigation();
+    bad += test_generation_density_undo();
+    bad += test_generation_map_display();
     bad += test_seq_follow();
     bad += test_nav_chords();
     bad += test_no_layer_lock();
