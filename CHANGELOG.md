@@ -1,10 +1,24 @@
 # Changelog
 
-## 2.2
+## 2.3
 
-Leaner FM6 and USB audio timing, a thinner scope when the CPU is busy, and navigation that matches how people actually hop around the panel. Install from the [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB). Try it first in the [browser](https://wulgaren.github.io/Araminta/webapp/try/).
+Drum pattern generation on DRUM-X, cleaner slicer recording when tracks share a SEND, and a native Windows build path. Install from the [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB). Try it first in the [browser](https://wulgaren.github.io/Araminta/webapp/try/).
 
-Same project format as 2.1 (FUN15 / `FUNF`). Splash and ABOUT show `v2.2`.
+Same project format as 2.2 (FUN15 / `FUNF`); generation controls ride unused high bits in the FM6 pack so older readers ignore them. Splash and ABOUT show `v2.3`.
+
+### Sequencer
+
+- SEQ GENERATION on DRUM-X: second SEQ section builds editable kick, snare and closed-hat steps from Mutable Instruments Grids. SELECT flips between LEN / KICK / SNARE / HAT and MAP / MAP X / MAP Y / CHAOS. Density edits one lane; map, chaos and length regenerate all three. SAVE held undoes the gesture. Controls save with the project.
+
+### Slicer and transport
+
+- STUT records every live step, including silence, so rests replace the previous take.
+- SEND keeps shared MODE / PAT / RATE and clock, but records and MIX stay per-track so a quiet track cannot overwrite or replay another track's take.
+- Host coverage for REC / PLAY LED and click behaviour across track arming and clock changes.
+
+### Build
+
+- Native Windows builds via Git Bash (toolchain under `build/deps/`); macOS and Linux paths unchanged. See BUILDING.md.
 
 ### Performance
 

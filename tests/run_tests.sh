@@ -238,6 +238,8 @@ if [ -f build/gen/felucca_tables.h ]; then
     run "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" env TRACKS=build/tracks_demo "$OUT/hostsim" 0 0 1 "$OUT/tracks.wav"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/project_test" tests/project_test.c -lm
     run "project formats (FUN1..FUN5 -> FUN6, the grid and song chain; DIGITAL tracks -> FM6, SAMPLE PERC -> DRUM, SLICE -> DRUM)" "$OUT/project_test"
+    $CC -w -Ifirmware/src -o "$OUT/generation_test" tests/generation_test.c
+    run "original Grids rhythm fixtures" "$OUT/generation_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/motion_test" tests/motion_test.c -lm
     run "motion, whole-step chance, FUN7 migration, song restore, ARP repeat and the 1.2 ARP modes" "$OUT/motion_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/ratchet_test" tests/ratchet_test.c -lm
@@ -288,6 +290,8 @@ if [ -f build/gen/felucca_tables.h ]; then
     run "audio: overload protection, bounded fades and DMA diagnostics" "$OUT/audio_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/click_test" tests/click_test.c -lm
     run "metronome and count-in: beats sample for sample (internal and external clock), accent, level, MASTER, not in USB, count-in timing, notes onto step 1" "$OUT/click_test"
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/rec_transport_test" tests/rec_transport_test.c -lm
+    run "REC transport: panel taps, track changes, LED and click stop while USB audio records at 44.1 / 48 kHz" "$OUT/rec_transport_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/freetake_test" tests/freetake_test.c -lm
     run "free take: empty project, REC armed, first note starts take, REC closes loop/tempo, PLAY/STOP drops, 24 s auto-close, held-note slides and returns" "$OUT/freetake_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/persistence_test" tests/persistence_test.c -lm
