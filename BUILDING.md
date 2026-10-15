@@ -8,11 +8,37 @@ The build makes three files in `build/`:
 | `loader/ota.bin` | the update loader |
 | `felucca.fwsc` | the installable package (app + loader) |
 
-## Prerequisites (macOS)
+## Windows (Git Bash)
+
+The build runs natively with the Windows JieLi toolchain. It needs Git for Windows,
+Python 3, and the three AC79 SDK files listed below.
+
+Install Python dependencies locally:
+
+```powershell
+python -m pip install --target build/python Pillow fonttools
+```
+
+Download the [official Windows toolchain](https://pkgman.jieliapp.com/s/win-toolchain).
+Set `JIELI_TOOLCHAIN` to the directory containing `pi32/bin/clang.exe`, and `AC79_SDK`
+to the SDK checkout:
+
+```powershell
+$env:JIELI_TOOLCHAIN = 'C:/JL'
+$env:AC79_SDK = 'D:/path/to/fw-AC79_AIoT_SDK'
+bash ./build.sh
+```
+
+For a portable setup, the defaults are `build/deps/jieli-windows/C$/JL` for the
+extracted Windows toolchain and `build/deps/ac79` for the SDK. With those in place,
+run `bash ./build.sh` directly. The script loads Python packages from `build/python`
+when that directory exists. `JIELI_DOCKER=1` selects the Linux toolchain in Docker.
+
+## Prerequisites (macOS / Linux)
 
 - Python 3 with Pillow and fontTools: `pip3 install Pillow fonttools` (the UI font and icons are
   rasterised at build time)
-- Docker Desktop. The JieLi toolchain is Linux x86-64 only; the build runs each tool in a
+- Docker Desktop on macOS. The Linux toolchain runs on x86-64; the build runs each tool in a
   `linux/amd64` `debian:bookworm-slim` container (Rosetta on Apple silicon). Keep the source
   tree in a folder Docker can share, e.g. under `/Users`.
 - The JieLi Linux toolchain (clang 4.0.1 for pi32v2, from JieLi's package server):
@@ -41,7 +67,7 @@ On Linux x86-64 the toolchain runs natively and Docker is not needed.
 ```
 
 `JIELI_TOOLCHAIN` and `AC79_SDK` override the default locations
-(`~/.jieli/toolchain`, `~/fw-AC79_AIoT_SDK`).
+(`~/.jieli/toolchain`, `~/fw-AC79_AIoT_SDK` on macOS / Linux; Windows defaults above).
 
 `./build.sh --release 1.0` makes a release build: the package identity becomes `FM-1_910`
 and the version string `v1.0`; the package is `build/felucca-1.0.fwsc`, and

@@ -206,6 +206,50 @@ static int fx_motion_wire(void)
         loaded.motion.event[0].value == 109 && loaded.g[G_DMIX] == 19 && loaded.g[G_CRSIZE] == 22);
     return bad;
 }
+static int generation_wire(void)
+{
+    project_t saved, loaded;
+    project_store_t wire;
+    int ok = 1;
+    memset(&saved, 0, sizeof saved);
+    saved.magic = PROJ_MAGIC; saved.size = sizeof saved; saved.parts = NPART; saved.phys = PROJ_PHYS;
+    chain_defaults(&saved.chain); memcpy(saved.dx, DX_KIT_DEF, sizeof saved.dx);
+    for (uint32_t t = 0; t < NTRK; t++) {
+        saved.t[t].generation = (generation_t){{(uint8_t)(10u + t), 67, 100}, (uint8_t)(31u + t), 255, 43};
+        memcpy(saved.fm6[t], FM6_FACTORY[t * 2u], FM6_PACKED);
+    }
+    ok = proj_pack(&wire, &saved) && proj_import(&loaded, &wire, sizeof wire);
+    for (uint32_t t = 0; t < NTRK; t++)
+        ok &= !memcmp(&loaded.t[t].generation, &saved.t[t].generation, sizeof(generation_t)) &&
+              !memcmp(loaded.fm6[t], saved.fm6[t], FM6_PACKED);
+    return check("GENERATION controls round trip per track with FM6 patches preserved", ok);
+}
+
+static int generation_legacy_defaults(void)
+{
+    project_t saved, loaded;
+    project_store_t wire;
+    int ok = 1;
+    memset(&saved, 0, sizeof saved);
+    saved.magic = PROJ_MAGIC; saved.size = sizeof saved; saved.parts = NPART; saved.phys = PROJ_PHYS;
+    chain_defaults(&saved.chain); memcpy(saved.dx, DX_KIT_DEF, sizeof saved.dx);
+    for (uint32_t t = 0; t < NTRK; t++)
+        memcpy(saved.fm6[t], FM6_FACTORY[t], FM6_PACKED);
+    ok = proj_pack(&wire, &saved);
+    uint32_t motion_off = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + sizeof(chain_config_t);
+    wire.raw[motion_off + 2u] = 0;
+    uint32_t sum = proj_hash(wire.raw, sizeof wire - 4u);
+    memcpy(wire.raw + sizeof wire - 4u, &sum, 4);
+    ok &= proj_import(&loaded, &wire, sizeof wire);
+    for (uint32_t t = 0; t < NTRK; t++) {
+        const generation_t *g = &loaded.t[t].generation;
+        ok &= g->density[0] == 50u && g->density[1] == 50u && g->density[2] == 50u &&
+              g->x == 128u && g->y == 128u && g->chaos == 0u &&
+              !memcmp(loaded.fm6[t], saved.fm6[t], FM6_PACKED);
+    }
+    return check("Projects saved before GENERATION receive defaults with FM6 patches preserved", ok);
+}
+
 int main(void)
 {
     static project_v4_t v4;
@@ -939,6 +983,8 @@ int main(void)
                      ok && c.t[0].p[P_ICMIX] == 0 && c.t[0].p[P_IPMIX] == 0 &&
                      c.t[0].p[P_ILMIX] == 0 && c.t[0].p[P_IHMIX] == 0 && c.t[0].p[P_ESYNC] == 1);
     }
+    bad += generation_wire();
+    bad += generation_legacy_defaults();
     printf("%s\n", bad ? "PROJECT FORMAT TEST FAILED" : "project format test passed");
     return bad != 0;
 }

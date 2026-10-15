@@ -42,7 +42,7 @@ static void set_slicer(track_t *t, int mode, int pat, int rate, int depth)
 /* ---------------------------------------------------------- 1. clicks --- */
 /* n seconds of a 110 Hz sine (amplitude 20000) through track 1's SLICER; turn: change the settings
  * while it runs. Returns the largest |step| of the output; *in_step: the sine's own */
-static int32_t sine_run(double secs, int turn, int32_t *in_step, int64_t *closed_energy)
+static int32_t sine_run(double secs, int turn, int followers, int32_t *in_step, int64_t *closed_energy)
 {
     uint32_t f, i, frames = (uint32_t)(secs * FS) / CTL * CTL;
     int32_t prev = 0, pin = 0, mx = 0, mi = 0;
@@ -65,7 +65,12 @@ static int32_t sine_run(double secs, int turn, int32_t *in_step, int64_t *closed
             }
             pin = b[i];
         }
+        slicer_block();
         slicer_track(t, b, CTL);
+        if (followers) {
+            int32_t silent[CTL] = {0};
+            slicer_track(&trk[1], silent, CTL);
+        }
         for (i = 0; i < CTL; i++) {
             if (f + i) {
                 int32_t d = abs(b[i] - prev);
@@ -82,7 +87,7 @@ static int32_t sine_run(double secs, int turn, int32_t *in_step, int64_t *closed
 
 static int test_clicks(void)
 {
-    static const struct { const char *name; int mode, pat, rate, depth, bpm, swing; double secs; } C[] = {
+    static const struct { const char *name; int mode, pat, rate, depth, bpm, swing; double secs; int followers; } C[] = {
         {"GATE pattern 1, 1/16, 120 BPM, 100 %", SL_GATE, 1, 1, 127, 120, 0, 4},
         {"GATE pattern 12, 1/32, 240 BPM, 100 %", SL_GATE, 12, 2, 127, 240, 0, 3},
         {"GATE pattern 2, 32T, 240 BPM, swing 50 %", SL_GATE, 2, 5, 127, 240, 50, 3},
@@ -91,6 +96,7 @@ static int test_clicks(void)
         {"STUT pattern 3, 32T, 200 BPM, 70 %, swing 30 %", SL_STUT, 3, 5, 90, 200, 30, 3},
         {"STUT pattern 9, 1/8, 40 BPM (loop shorter than the step)", SL_STUT, 9, 0, 127, 40, 0, 8},
         {"STUT pattern 13, 16T, 133 BPM", SL_STUT, 13, 4, 127, 133, 0, 4},
+        {"STUT pattern 6, 170 BPM, unused SEND track", SL_STUT, 6, 1, 127, 170, 0, 4, 1},
     };
     uint32_t c;
     int bad = 0;
@@ -103,7 +109,7 @@ static int test_clicks(void)
         song.g[G_BPM] = (int16_t)C[c].bpm;
         trk[0].p[P_SSWING] = (int16_t)C[c].swing;
         set_slicer(&trk[0], C[c].mode, C[c].pat, C[c].rate, C[c].depth);
-        out = sine_run(C[c].secs, 0, &in, &ce);
+        out = sine_run(C[c].secs, 0, C[c].followers, &in, &ce);
         snprintf(what, sizeof what, "no clicks: %s: largest step %d (sine %d, %.1f x)", C[c].name, out, in,
                  (double)out / in);
         bad += check(what, out <= 4 * in);
@@ -117,7 +123,7 @@ static int test_clicks(void)
         int64_t ce;
         host_tracks_init();
         memset(sl, 0, sizeof sl);
-        out = sine_run(10, 1, &in, &ce);
+        out = sine_run(10, 1, 0, &in, &ce);
         snprintf(what, sizeof what, "no clicks: mode / pattern / depth / rate turned while it runs: %d (%.1f x)", out,
                  (double)out / in);
         bad += check(what, out <= 4 * in);
@@ -458,13 +464,13 @@ static int test_mix_send(void)
             gated = 1;
     }
     bad += check("SEND: track MODE OFF ignored (bus GATE still runs)", gated);
-    /* two SEND tracks share one DSP state pointer */
+    /* two SEND tracks share one clock pointer */
     host_tracks_init();
     memset(sl, 0, sizeof sl);
     song.g[G_SLOWN] = 0;
     set_slicer(t0, SL_GATE, 1, 1, 127);
     set_slicer(t1, SL_GATE, 8, 2, 127);
-    bad += check("SEND: two tracks share one slicer bus DSP",
+    bad += check("SEND: two tracks share one slicer clock",
                  sl_state(t0) == sl_state(t1) && sl_state(t0) == &sl_bus);
     song.g[G_SLOWN] = 1;                                /* track 0 CHAIN; others USED (like DLY) */
     bad += check("CHAIN track keeps private slicer; other tracks USED",
@@ -623,14 +629,13 @@ static int test_stut_slew(void)
     return bad;
 }
 
-/* STUT pat 9 xx..: a silent 'x' must not wipe the last loud take (acid rests on 'x' used to
- * punch holes / chirps on the following '.'). */
-static int test_stut_keep_hit(void)
+/* STUT repeats the latest live step, including a rest, as Felucca 1.5 did. */
+static int test_stut_latest_step(void)
 {
     track_t *t = &trk[0];
     uint32_t len = (uint32_t)FS * 60u / 120u / 4u, f;
     int32_t *buf;
-    int64_t e = 0, corr = 0;
+    int64_t e = 0;
     uint32_t n = 0;
     double rms;
     int bad = 0;
@@ -653,15 +658,12 @@ static int test_stut_keep_hit(void)
     for (f = 0; f + CTL <= 4u * len; f += CTL)
         slicer_track(t, buf + f, CTL);
     for (f = len * 2u + SL_RAMP; f < len * 3u - SL_RAMP; f++) {
-        double ph0 = 2 * M_PI * 220.0 * (double)(f - 2u * len) / (double)FS;
-        int32_t hit = (int32_t)(12000.0 * sin(ph0));
         e += (int64_t)buf[f] * buf[f];
-        corr += (int64_t)buf[f] * hit;
         n++;
     }
     rms = n ? sqrt((double)e / (double)n) : 0;
-    bad += check("STUT: '.' after silent 'x' keeps the prior loud take",
-                 rms > 4000.0 && corr > 0);
+    bad += check("STUT: '.' after silent 'x' repeats silence instead of an older hit",
+                 rms < 2.0);
     free(buf);
     return bad;
 }
@@ -686,8 +688,7 @@ static int test_mix_zero_after_ramp(void)
                 for (i = 0; i < CTL; i++) b[i] = 12000, sd[i] = 6000;
                 slicer_block();
                 slicer_track_sd(t, b, sd, CTL);
-                active |= mode == SL_GATE ? (chain ? sl[0].gc : sl_send_gc[0]) != 0
-                                         : (chain ? sl[0].w : sl_send_w[0]) != 0;
+                active |= mode == SL_GATE ? sl[0].gc != 0 : sl[0].w != 0;
             }
             bad += check("MIX 0 setup reaches an active gate/repeat", active);
             t->p[P_SLDEPTH] = 0;
@@ -708,9 +709,51 @@ static int test_mix_zero_after_ramp(void)
     return bad;
 }
 
+/* Only track 0 plays, panned left. SEND must isolate it; both routes must settle after stop. */
+static int test_stut_mixer(int chain)
+{
+    uint32_t f, i, k;
+    uint8_t note = 45;
+    int32_t left = 0, right = 0, after_stop = 0;
+    host_tracks_init();
+    host_preset(&trk[0], 0, 0);
+    song.g[G_BPM] = 170;
+    song.g[G_SLOWN] = chain ? 1 : 0;
+    for (k = 0; k < NTRK; k++) {
+        set_slicer(&trk[k], SL_STUT, 6, 1, 127);
+        trk[k].p[P_PAN] = k ? 63 : -64;
+        trk[k].p[P_DLY] = trk[k].p[P_REV] = 0;
+        trk[k].p[P_REL] = 0;
+    }
+    for (i = 0; i < 16u; i++)
+        put_step(&trk[0], i, 1, &note, ST_NOTE, 0);
+    transport_req = 1;
+    for (f = 0; f < 2u * FS; f += CTL) {
+        int32_t out[2 * CTL];
+        mix_block(out, CTL);
+        for (i = 0; i < CTL; i++) {
+            if (abs(out[2u * i]) > left) left = abs(out[2u * i]);
+            if (abs(out[2u * i + 1u]) > right) right = abs(out[2u * i + 1u]);
+        }
+    }
+    transport_req = 2;
+    for (f = 0; f < 6u * FS; f += CTL) {
+        int32_t out[2 * CTL];
+        mix_block(out, CTL);
+        if (f >= 5u * FS)
+            for (i = 0; i < 2u * CTL; i++)
+                if (abs(out[i]) > after_stop) after_stop = abs(out[i]);
+    }
+    return check("STUT: silent right-panned tracks never replay the left track", left > 100 && right == 0) +
+           check(chain ? "CHAIN STUT: transport stop settles to silence" : "SEND STUT: transport stop settles to silence",
+                 !song.playing && after_stop == 0);
+}
+
 int main(int argc, char **argv)
 {
     int bad = 0;
+    bad += test_stut_mixer(0);
+    bad += test_stut_mixer(1);
     bad += test_clicks();
     bad += test_timing();
     bad += test_sync();
@@ -718,7 +761,7 @@ int main(int argc, char **argv)
     bad += test_cost();
     bad += test_mix_send();
     bad += test_stut_mix_level();
-    bad += test_stut_keep_hit();
+    bad += test_stut_latest_step();
     bad += test_stut_slew();
     bad += test_mix_zero_after_ramp();
     if (argc > 1)

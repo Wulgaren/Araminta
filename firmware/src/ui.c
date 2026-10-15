@@ -335,6 +335,13 @@ static void scr_shown(void)                            /* after the frame: the r
 
 static const page_t *page_over;   /* a quick layer's own four knobs (ui_layer.c), while it edits or draws them */
 static const page_t *cur_page(void) { return page_over ? page_over : &PAGES[ui.page]; }
+#include "generation.c"                      /* original Grids rhythm map; the UI writes normal steps */
+static const char *const GENERATION_MAP_LABELS[4] = {"MAP", "MAP X", "MAP Y", "CHAOS"};
+static int generation_page2(void) { return str_eq(cur_page()->title, "GENERATION 2"); }
+static int generation_map_on(void)
+{
+    return !ui.home && !ui.layer && cur_page()->graph == GR_GENERATION && generation_page2() && ui.hot_t && ui.hot_col < 3u;
+}
 
 /* MENU > LARGE (#15, Discussion #80: what KNOB 1..4 do, in bigger type). Per page type:
  *   LK_TALL  HOME and the value pages (EDIT ENV LFO MOD FX SLICER SCL CHORD ARP VOICE, MIXER, CLOCK,
@@ -358,7 +365,7 @@ static uint32_t large_kind(void)
         return home_tracks() ? LK_LABEL : LK_TALL;      /* a list page; the rows' names in M: draw_home_tracks) */
     g = cur_page()->graph;
     return g == GR_BROWSE || g == GR_SLOTS || g == GR_USER || g == GR_PATS || g == GR_SONG || g == GR_ROLL ||
-           g == GR_EVENTS || (ui.pick && g == GR_MOD) ? LK_LABEL : LK_TALL;
+           g == GR_EVENTS || g == GR_GENERATION || (ui.pick && g == GR_MOD) ? LK_LABEL : LK_TALL;
 }
 /* the geometry of the page shown: the cards' height, the panel's top and height */
 static uint32_t card_h(void) { return large_kind() == LK_TALL ? LG_CARD_H : CARD_H; }
@@ -394,9 +401,11 @@ static int page_visible(uint32_t i)
 {
     int analog = ENGINES[TSEL->eng_req % NENGINES] == &ENG_ANALOG;
     int drum = TSEL->eng_req % NENGINES == ENGI_DRUM;
+    if (PAGES[i].graph == GR_GENERATION)
+        return drum;
     if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / SOUND 2 */
         return drum;
-    if (PAGES[i].sec == EDIT_SEC_VOX && drum)         /* Voice hidden on DRUM */
+    if (PAGES[i].fam == FAM_EDIT && PAGES[i].sec == EDIT_SEC_VOX && drum)   /* Voice hidden on DRUM */
         return 0;
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return drum;
@@ -924,6 +933,7 @@ static struct {
     uint8_t fm6[FP_SIZE + 1u];   /* patch is the track's own, not a factory one */
     int16_t p[P_COUNT];
     step_t step[NSTEP];
+    generation_t generation;
     motion_store_t motion_backup; /* one track only, swaps with the shared event pool on undo */
     uint32_t after;              /* track_sig right after the last load */
     uint32_t pat;                /* pat_sig[] of the copy */
@@ -1048,6 +1058,7 @@ static void load_begin(track_t *t, uint32_t what)
     undo.preset = t->preset;
     undo.user = t->user;
     memcpy(undo.p, t->p, sizeof undo.p);
+    undo.generation = t->generation;
     memcpy(undo.step, t->step, sizeof undo.step);
     memcpy(undo.fm6, fm6_patch[i], FP_SIZE);
     undo.fm6_slot = fm6_slot[i];
@@ -1091,8 +1102,12 @@ static void load_extend(track_t *t)
  * copy from before its first detent; tag 0 (an add, a delete, a clear, a kind) always takes its own.
  * motion_undo_done after each */
 static uint32_t undo_mot_tag;
-/* what an edit's copy compares (undo.after): the motion; with the steps (UNDO_PAT: step_undo_take) the steps too */
-static uint32_t edit_sig(const track_t *t) { return undo.what & UNDO_PAT ? motion_sig(t) ^ steps_sig(t) : motion_sig(t); }
+/* What an edit's copy compares: motion, plus steps and generator controls for a pattern edit. */
+static uint32_t edit_sig(const track_t *t)
+{
+    uint32_t h = motion_sig(t);
+    return undo.what & UNDO_PAT ? fnv(h ^ steps_sig(t), &t->generation, sizeof t->generation) : h;
+}
 static void edit_undo_take(track_t *t, uint32_t tag, uint32_t what)
 {
     uint32_t i = trk_index(t);
@@ -1106,6 +1121,7 @@ static void edit_undo_take(track_t *t, uint32_t tag, uint32_t what)
     undo.preset = t->preset;
     undo.user = t->user;
     memcpy(undo.p, t->p, sizeof undo.p);
+    undo.generation = t->generation;
     memcpy(undo.step, t->step, sizeof undo.step);
     memcpy(undo.fm6, fm6_patch[i], FP_SIZE);
     undo.fm6_slot = fm6_slot[i];
@@ -1131,7 +1147,7 @@ static int param_kept(uint32_t i);
 
 /* SAVE held: what the loads changed (undo.what) and the copy change places, so held again = the loads
  * again. The sound: engine, preset and its parameters (not param_kept); the pattern: the steps and LEN
- * DIV SWING GATE. The mix (LEVEL PAN MUTE) stays: no load changes it */
+ * DIV SWING GATE and generator controls. The mix (LEVEL PAN MUTE) stays: no load changes it */
 static void undo_swap(void)
 {
     track_t *t;
@@ -1168,6 +1184,9 @@ static void undo_swap(void)
             }
     }
     if (undo.what & UNDO_PAT) {
+        generation_t gen = t->generation;
+        t->generation = undo.generation;
+        undo.generation = gen;
         uint32_t ps = pat_sig[trk_index(t)];
         uint8_t pn = pat_last[trk_index(t)];
         pat_sig[trk_index(t)] = undo.pat;
@@ -1508,6 +1527,7 @@ static void track_defaults(track_t *t)
     t->scl_lock = SCL_LOCK_SCALE;
     t->scl_stash_ok = 0;
     t->fx_sl_pos = 8;                            /* EFFECTS: SLICER last until moved */
+    t->generation = GENERATION_DEFAULT;
     track_defaults_steps(t);
 }
 
