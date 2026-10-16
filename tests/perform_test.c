@@ -1215,7 +1215,8 @@ static int test_throw(void)
         song.g[G_DTIME] = 12;                          /* the 1/4D checks below keep this value */
         bad += check("TIME free ms: one millisecond a step, longer as the number grows, divisions unchanged", ok);
     }
-    {   /* free-ms TIME: read glides (tape pitch). Old 2 samp/samp slew chirped; keep ≤ DLY_SLEW. */
+    {   /* free-ms TIME: read glides (tape pitch). A move lands in about ten times its own size at DLY_SLEW
+          * Q8/sample (200 ms here), the last stretch eases in, and it lands exact. 2 samp/samp chirped "coins". */
         uint32_t settle = 0, prev, max_st = 0, step;
         host_tracks_init();
         dly_clear();
@@ -1226,8 +1227,8 @@ static int test_throw(void)
         dly_run(in, w0, CTL);                          /* snap onto 100 ms */
         ok = dly_free && dly_q8 == dtime_q8();
         prev = dly_q8;
-        song.g[G_DTIME] = (int16_t)(DTIME_FREE + 300); /* +200 ms → ~800 ms of pitch at DLY_SLEW */
-        for (t = 0; t < 2u * FS && dly_q8 != dtime_q8(); t += CTL) {
+        song.g[G_DTIME] = (int16_t)(DTIME_FREE + 300); /* +200 ms: ~2.15 s of pitch at DLY_SLEW */
+        for (t = 0; t < 8u * FS && dly_q8 != dtime_q8(); t += CTL) {
             dly_run(in, w0, CTL);
             step = dly_q8 > prev ? dly_q8 - prev : prev - dly_q8;
             if (step > max_st)
@@ -1235,7 +1236,8 @@ static int test_throw(void)
             prev = dly_q8;
         }
         settle = t;
-        ok &= settle > FS / 5u && max_st <= (uint32_t)DLY_SLEW * CTL && dly_q8 == dtime_q8();
+        ok &= settle > 2u * FS && settle < 2u * FS + FS / 4u && max_st <= (uint32_t)DLY_SLEW * CTL &&
+              dly_q8 == dtime_q8();
         snprintf(what, sizeof what,
                  "TIME free ms glide: +200 ms in %u samples, max step %u Q8/block (tape pitch, not coins)",
                  settle, max_st);
