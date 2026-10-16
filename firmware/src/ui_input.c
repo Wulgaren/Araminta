@@ -435,11 +435,11 @@ static void ui_leds(void)
 /* Predictable hardware response (#23): each decoded detent is one value step; a fast turn keeps its full signed
  * detent count. Fast turns of a wide value (range > 32, not a list of names; the FX and GLO layers' knobs too, #126;
  * OCT+ + SELECT tempo too) multiply by 2..4, by up to 8 over a range above 64 (#52: always on; KNOB ACCEL menu row
- * retired). A range above 512 (DLY free ms ~1486): once accel is already on, x8 of that so a flick covers hundreds of
- * ms while a slow turn stays one millisecond a detent. SELECT's page walk is never accelerated (one page per detent).
+ * retired). Free-ms delay (range above 512) accelerates from the second fast detent, using this read alone,
+ * with x8 gain up to x128. Slow turns stay one millisecond a detent. SELECT's page walk is never accelerated.
  * The main loop reads the knobs many times a frame (main.c), so a read holds one detent as a rule: the speed is the
  * time per detent, ACC_RATE / ms -> 25 ms x2, 16 ms x3, 12 ms x4, 10 ms x5 .. 6 ms or less x8 (a flick: 12 detents in
- * 120 ms move a -100..100 FX macro ~50). Only the longer of this read's and the previous read's time counts, and only
+ * 120 ms move a -100..100 FX macro ~50). Other ranges use the longer of this read's and the previous read's time,
  * while the turn goes on (both under ACC_GAP ms) in one direction: a slow turn, the first two detents of a turn, a
  * single quick detent (a bounce) and a reversal are one step per detent, and the sign is always the detents'.
  * ui.enc_t[role]: bits 0..23 the ms of its last read, bit 24 its direction (+1), 25..31 its ms per detent (127 slow) */
@@ -454,13 +454,14 @@ static int32_t accel(uint32_t role, int32_t s, int32_t range)
     i = ((now - st) & 0xFFFFFFu) / a;                   /* ms per detent of this read */
     if (!st || ((st >> 24) & 1u) != up || i >= ACC_GAP)
         i = 127u;                                       /* a new turn, or reversed */
-    else if (pi < ACC_GAP) {
-        m = ACC_RATE / (i > pi ? i : pi ? pi : 1u);
+    else if (range > 512 || pi < ACC_GAP) {
+        uint32_t interval = range > 512 ? i : i > pi ? i : pi;
+        m = ACC_RATE / (interval ? interval : 1u);
         if (m < 1u)
             m = 1u;
         if (range > 512 && m > 1u)                       /* free-ms: keep slow at x1; spin: usual m x8 */
             m *= 8u;
-        a = range > 512 ? 64u : range > 64 ? 8u : 4u;    /* (the cap) */
+        a = range > 512 ? 128u : range > 64 ? 8u : 4u;    /* (the cap) */
         if (m > a)
             m = a;
     }
@@ -1349,24 +1350,26 @@ static void ior_knob(uint32_t k, int32_t s)
             ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + dir, 0, (int32_t)FX_LIST_N - 1);
         }
     } else if (k == 2u) {
+        int send = s > 0;                              /* K3: left CHAIN, right SEND (as drawn), no wrap */
         if (st == INS_SLCR) {
             int32_t tr = (int32_t)(TSEL - trk);
             uint32_t bit = 1u << (uint32_t)tr;
             sl_own_sanitize();
-            motion_fx_route(TSEL, INS_SLCR, 0);
-            song.g[G_SLOWN] = (int16_t)((uint32_t)song.g[G_SLOWN] ^ bit);  /* this track SEND <-> CHAIN */
-            motion_fx_route(TSEL, INS_SLCR, 1);
+            if (sl_trk_send(TSEL) != send) {
+                motion_fx_route(TSEL, INS_SLCR, 0);
+                song.g[G_SLOWN] = (int16_t)((uint32_t)song.g[G_SLOWN] ^ bit);  /* this track SEND <-> CHAIN */
+                motion_fx_route(TSEL, INS_SLCR, 1);
+            }
         } else if (st == INS_DLY || st == INS_REV) {
             uint32_t which = st == INS_REV ? 1u : 0u;
             int32_t own = bus_own(which), tr = (int32_t)(TSEL - trk);
-            if (own == tr)
-                bus_own_set(which, -1);               /* CHAIN -> SEND for all */
-            else if (own < 0)
-                bus_own_set(which, tr);               /* SEND -> this track CHAIN */
-            /* USED / already owned elsewhere: K3 does nothing (no steal) */
-        } else {
-            ins_send_set(TSEL, st, !ins_is_send(TSEL, st));
-        }
+            if (send) {
+                if (own == tr)
+                    bus_own_set(which, -1);           /* right: release this track's CHAIN, SEND for all */
+            } else if (own < 0)                       /* left: claim CHAIN only when no other track owns it */
+                bus_own_set(which, tr);
+        } else if (send != ins_is_send(TSEL, st))
+            ins_send_set(TSEL, st, send);
     } else if (fx_list_mode(TSEL, st)[0] != 'U') {
         uint32_t id = ior_pct_id();
         const param_desc_t *d = track_desc(TSEL, id);
