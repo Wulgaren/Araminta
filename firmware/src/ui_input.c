@@ -435,34 +435,37 @@ static void ui_leds(void)
 /* Predictable hardware response (#23): each decoded detent is one value step; a fast turn keeps its full signed
  * detent count. Fast turns of a wide value (range > 32, not a list of names; the FX and GLO layers' knobs too, #126;
  * OCT+ + SELECT tempo too) multiply by 2..4, by up to 8 over a range above 64 (#52: always on; KNOB ACCEL menu row
- * retired). A range above 512 (DLY free ms ~1486): x8 of that, up to 128, so a flick covers the line's hundreds of
- * milliseconds while a slow turn stays one millisecond a detent. SELECT's page walk is never accelerated (one page per
- * detent). The main loop reads the knobs many times a frame (main.c), so a read holds one detent as a rule: the speed is
- * the time per detent of this read, ACC_RATE / ms -> 25 ms x2, 16 ms x3, 12 ms x4, 10 ms x5 .. 6 ms or less x8 (a flick:
- * 12 detents in 120 ms move a -100..100 FX macro ~50). Acceleration accumulates from the turn's first fast detent: a
- * short flick's second detent already multiplies (it used to need a third), while the first detent after stillness, a
- * slow read (ACC_GAP or more per detent) and a reversal are one step per detent. The sign is always the detents'.
- * ui.enc_t[role]: bits 0..23 the ms of its last read, bit 24 its direction (+1) */
+ * retired). Free-ms delay (range above 512) accelerates from the second fast detent, using this read alone,
+ * with x8 gain up to x128. Slow turns stay one millisecond a detent. SELECT's page walk is never accelerated.
+ * The main loop reads the knobs many times a frame (main.c), so a read holds one detent as a rule: the speed is the
+ * time per detent, ACC_RATE / ms -> 25 ms x2, 16 ms x3, 12 ms x4, 10 ms x5 .. 6 ms or less x8 (a flick: 12 detents in
+ * 120 ms move a -100..100 FX macro ~50). Other ranges use the longer of this read's and the previous read's time,
+ * while the turn goes on (both under ACC_GAP ms) in one direction: a slow turn, the first two detents of a turn, a
+ * single quick detent (a bounce) and a reversal are one step per detent, and the sign is always the detents'.
+ * ui.enc_t[role]: bits 0..23 the ms of its last read, bit 24 its direction (+1), 25..31 its ms per detent (127 slow) */
 #define ACC_GAP 40u
 #define ACC_RATE 50u
 static int32_t accel(uint32_t role, int32_t s, int32_t range)
 {
-    uint32_t now = fm1_ms & 0xFFFFFFu, st = ui.enc_t[role], up = s > 0, a, i, m = 1;
+    uint32_t now = fm1_ms & 0xFFFFFFu, st = ui.enc_t[role], up = s > 0, pi = st >> 25, a, i, m = 1;
     if (range <= 32 || !s)
         return s;
     a = (uint32_t)(s < 0 ? -s : s);
     i = ((now - st) & 0xFFFFFFu) / a;                   /* ms per detent of this read */
-    if (i < 1u)
-        i = 1u;                                        /* more detents than the ms they took: the fastest */
-    if (st && ((st >> 24) & 1u) == up && i < ACC_GAP) { /* the turn goes on, this read fast */
-        m = ACC_RATE / i;                                /* >= 1: i < ACC_GAP < ACC_RATE */
-        if (range > 512 && m > 1u)                       /* free-ms: x8 of that, the line's hundreds a detent */
+    if (!st || ((st >> 24) & 1u) != up || i >= ACC_GAP)
+        i = 127u;                                       /* a new turn, or reversed */
+    else if (range > 512 || pi < ACC_GAP) {
+        uint32_t interval = range > 512 ? i : i > pi ? i : pi;
+        m = ACC_RATE / (interval ? interval : 1u);
+        if (m < 1u)
+            m = 1u;
+        if (range > 512 && m > 1u)                       /* free-ms: keep slow at x1; spin: usual m x8 */
             m *= 8u;
-        a = range > 512 ? 128u : range > 64 ? 8u : 4u;   /* (the cap) */
+        a = range > 512 ? 128u : range > 64 ? 8u : 4u;    /* (the cap) */
         if (m > a)
             m = a;
     }
-    ui.enc_t[role] = now | up << 24;
+    ui.enc_t[role] = now | up << 24 | (i ? i : 1u) << 25;
     return s * (int32_t)m;
 }
 
@@ -1363,9 +1366,8 @@ static void ior_knob(uint32_t k, int32_t s)
             int32_t own = bus_own(which), tr = (int32_t)(TSEL - trk);
             if (send) {
                 if (own == tr)
-                    bus_own_set(which, -1);               /* right: release this track's CHAIN, SEND for all */
-            } else if (own < 0)                           /* left: this track takes the CHAIN; USED (another
-                                                           * track owns it) never steals */
+                    bus_own_set(which, -1);           /* right: release this track's CHAIN, SEND for all */
+            } else if (own < 0)                       /* left: claim CHAIN only when no other track owns it */
                 bus_own_set(which, tr);
         } else if (send != ins_is_send(TSEL, st))
             ins_send_set(TSEL, st, send);

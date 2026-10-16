@@ -278,17 +278,6 @@ static void turn(uint32_t role, int32_t s)
     frame();
     host_ticks += 200000u;                        /* (no knob acceleration between the turns) */
 }
-/* a deliberate turn: one value step per detent, with more than ACC_GAP (ui_input.c) between the reads, so a
- * knob acceleration never multiplies it. turn() itself is a fast one: 16 ms a read, as a flick on hardware */
-static void turn_slow(uint32_t role, int32_t s)
-{
-    uint32_t n = s < 0 ? (uint32_t)-s : (uint32_t)s;
-    int32_t one = s < 0 ? -1 : 1;
-    while (n--) {
-        fm1_ms += 60u;
-        turn(role, one);
-    }
-}
 static void stop_transport(void) { transport_req = 0; song.playing = 0; }
 static int16_t stored_param(uint32_t slot, uint32_t track, uint32_t id)
 {
@@ -2259,7 +2248,7 @@ static int test_roll(void)
 
     ui_power_on(); song.g[G_TUNE] = 1; roll_settle();
     turn(EN_K4, 1); turn(EN_K4, 1);
-    ok = song.g[G_TUNE] == 5 && !ui.roll[3].from[0] && roll_static_now();   /* 1 + 1 + 3 (a detent a frame) */
+    ok = song.g[G_TUNE] == 3 && !ui.roll[3].from[0] && roll_static_now();
     bad += check("roll: successive turns stay static (no mid-roll retarget)", ok);
 
     ui_power_on(); roll_settle();
@@ -6443,10 +6432,9 @@ static int test_div_order(void)
     return bad;
 }
 
-/* #52 knob acceleration (always on; KNOB ACCEL menu row retired): a fast turn of a wide value goes x2..x4 (x8 over a
- * range above 64, #126); a slow turn, the start of a turn and a reversal are one step per detent; the turn's second
- * fast detent is already multiplied, so a short flick registers; the sign is always the detents'. SELECT's page walk
- * never uses accel; OCT+ tempo does. */
+/* #52 knob acceleration (always on; KNOB ACCEL menu row retired): a sustained fast turn of a wide value goes
+ * x2..x4 (x8 over a range above 64, #126); a slow turn, the start of a turn, a lone quick detent and a reversal are
+ * one step per detent; the sign is always the detents'. SELECT's page walk never uses accel; OCT+ tempo does. */
 static uint32_t acc_ms(uint32_t role, const uint16_t *gaps, uint32_t n, int32_t dir, int32_t range, int32_t *out)
 {
     uint32_t k, sum = 0;
@@ -6468,35 +6456,36 @@ static int test_knob_accel(void)
     ui_power_on();
     ok = menu_get(MI_ACCEL) == 1u && MI_TAB[MI_ACCEL] == MTAB_COUNT && str_eq(MI_NAME[MI_ACCEL], "KNOB ACCEL");
     ok &= acc_ms(EN_K1, SLOW, 8, 1, 127, o) == 8u && acc_ms(EN_K2, MID, 8, -1, 127, o) == 8u && o[7] == -1;
-    ok &= acc_ms(EN_K3, BOUNCE, 8, 1, 127, o) == 36u && o[1] == 8;  /* a 2 ms pair is a fast turn: 1 + 8, 300 ms apart */
-    bad += check("#52 KNOB ACCEL always on (retired); slow (>= 26 ms a detent) and the first detent: 1 step each", ok);
+    ok &= acc_ms(EN_K3, BOUNCE, 8, 1, 127, o) == 8u;
+    bad += check("#52 KNOB ACCEL always on (retired); slow (>= 26 ms a detent) and lone quick detents: 1 step each", ok);
     fm1_ms += 1000;
     acc_ms(EN_K1, F20, 8, 1, 64, o);
-    ok = o[0] == 1 && o[1] == 2 && o[7] == 2;                    /* 20 ms a detent: x2 from the turn's second */
+    ok = o[0] == 1 && o[1] == 1 && o[2] == 2 && o[7] == 2;          /* 20 ms a detent: x2 from the third */
     acc_ms(EN_K1, F10, 8, 1, 64, o);                               /* (a pause of 500 ms first: a new turn) */
-    ok &= o[0] == 1 && o[1] == 4 && o[7] == 4;                    /* 10 ms: x4 (the cap of a range <= 64) */
+    ok &= o[0] == 1 && o[1] == 1 && o[2] == 4 && o[7] == 4;         /* 10 ms: x4 (the cap of a range <= 64) */
     fm1_ms += 15; ok &= accel(EN_K1, 1, 64) == 3;                  /* 15 ms: x3 */
     fm1_ms += 10; ok &= accel(EN_K1, -1, 64) == -1;                /* reversed: one step, the right sign */
-    fm1_ms += 10; ok &= accel(EN_K1, -1, 64) == -4;                /* (the turn starts again, its second detent) */
+    fm1_ms += 10; ok &= accel(EN_K1, -1, 64) == -1;                /* (the turn starts again) */
+    fm1_ms += 10; ok &= accel(EN_K1, -1, 64) == -4;
     fm1_ms += 30; ok &= accel(EN_K1, -3, 64) == -12;               /* 3 detents in one read (10 ms each): x4 */
-    bad += check("#52 KNOB ACCEL: 20 ms a detent x2, 15 ms x3, 10 ms x4 from a turn's second detent; reversal x1", ok);
+    bad += check("#52 KNOB ACCEL: 20 ms a detent x2, 15 ms x3, 10 ms x4 from a turn's third detent; reversal x1", ok);
     {   /* #126 a range above 64: 10 ms x5, 8 ms x6, 6 ms and less x8; a flick of 12 detents in ~120 ms, faster in
          * the middle, moves a -100..100 value ~50 (was 38); 12 even ones 52 */
         static const uint16_t FLICK[12] = {500, 16, 12, 10, 8, 7, 7, 8, 10, 12, 16, 20}, F6[8] = {500, 6, 6, 5, 4, 6, 6, 6};
         uint32_t f;
         fm1_ms += 1000;
         f = acc_ms(EN_K2, FLICK, 12, 1, 200, o);
-        ok = f == 53u && o[0] == 1 && o[1] == 3;
+        ok = f == 47u && o[0] == 1 && o[1] == 1;
         fm1_ms += 1000;
-        ok &= acc_ms(EN_K2, F10, 8, -1, 200, o) == 1u + 7u * 5u && o[7] == -5;
+        ok &= acc_ms(EN_K2, F10, 8, -1, 200, o) == 2u + 6u * 5u && o[7] == -5;
         fm1_ms += 1000;
-        ok &= acc_ms(EN_K2, F6, 8, 1, 127, o) == 1u + 7u * 8u;
+        ok &= acc_ms(EN_K2, F6, 8, 1, 127, o) == 2u + 6u * 8u;
         fm1_ms += 1000;
-        ok &= acc_ms(EN_K2, F6, 8, 1, 64, o) == 1u + 7u * 4u;      /* (a range <= 64: x4 at most) */
+        ok &= acc_ms(EN_K2, F6, 8, 1, 64, o) == 2u + 6u * 4u;      /* (a range <= 64: x4 at most) */
         fm1_ms += 1000;
         ok &= acc_ms(EN_K2, F6, 8, 1, 0, o) == 8u;                  /* (a list) */
         printf("  #126 a flick of 12 detents over %u ms on -100..100: %u steps\n", 126u, (unsigned)f);
-        bad += check("#126 KNOB ACCEL over a range above 64: 10 ms x5 .. 6 ms x8; a 12-detent flick ~120 ms: 53", ok);
+        bad += check("#126 KNOB ACCEL over a range above 64: 10 ms x5 .. 6 ms x8; a 12-detent flick ~120 ms: 47", ok);
     }
     {   /* free-ms TIME (~1486): slow still x1; x8 of the usual from the turn's second fast detent, so a small fast
           * turn registers; a hard flick covers hundreds of ms (6 ms x64, 4 ms x96, 3 ms and less: the x128 cap) */
@@ -6538,8 +6527,8 @@ static int test_knob_accel(void)
         TSEL->p[P_LEVEL] = 40; v0 = TSEL->p[P_LEVEL];
         fm1_ms += 1000;
         for (k = 0; k < 8u; k++) turn(EN_K1, 1);
-        ok = TSEL->p[P_LEVEL] - v0 == 22;                /* 1 + 7 x 3 (16 ms a detent) */
-        bad += check("#52 KNOB ACCEL on MIXER LEVEL: a fast turn of 8 detents moves 22", ok);
+        ok = TSEL->p[P_LEVEL] - v0 == 20;
+        bad += check("#52 KNOB ACCEL on MIXER LEVEL: a fast turn of 8 detents moves 20", ok);
     }
     {   /* #126 Punch-in sticky FX map KNOB 1 (FILTER -100..100): flick of 12 detents; slow: 12;
          * 6 right then 6 left: 0. (GLO hold map removed: MIXER LEVEL covers accel on a track level above.) */
@@ -7812,8 +7801,7 @@ static int test_fm6_ops(void)
     go_title("OPERATOR"); frame();
     fop_pick(3);
     memcpy(before, fm6_patch[tr], FP_SIZE);
-    turn(EN_K4, -5);                                 /* OP 3 LEVEL, one gesture of two turns (slower than a */
-    fm1_ms += 400u;                                 /* detent a frame: no acceleration inside a turn) */
+    turn(EN_K4, -5);                                 /* OP 3 LEVEL, one gesture of two turns */
     turn(EN_K4, -2);
     ok &= patch_diff(before, fm6_patch[tr], &at) == 1 && at == 3u * FP_OP + FP_OL &&
           fm6_patch[tr][at] == before[at] - 7u && slot_own() && fop_op == 2u;

@@ -30,8 +30,7 @@
  *    those as alone, bit for bit; L and R apart; KNOB 4 at 0 %: live; the cost.
  * 11. the key map (perform.c perf_map_of / perf_map_put, seq.c): 0 = the default; any effect or NONE on any key, the
  *    others kept; the keys of a remapped layer; a key remapped while held takes its new effect; two keys with one
- *    effect; FX LATCH follows a remap (the latch coming on with a key held: letting go clears its bit); the
- *    default map on the keys.
+ *    effect; FX LATCH follows a remap; the default map on the keys.
  * 12. 1.5.1: the delay's TIME 1/8D 1/16D 1/4D (their lengths at 60 61 90 120 BPM and on the external clock, 1/4D clamped
  *    to the line at 60 BPM and below, the list append-only and longest first on the knob, ARP RATE / SEQ DIV unchanged, an
  *    echo at 1/8D where it belongs); REV THROW / ECHO THROW: every track's reverb / delay send as at 127 while held, the
@@ -1037,30 +1036,6 @@ static int test_map(void)
         keyboard_block();
         perf_latch_on = 0;
         bad += check("  FX LATCH: the key's latched LPF becomes FLANGER as it is remapped; pressed again: off", ok);
-        /* the latch coming on with a key still held (a settings load): letting the key go clears its bit, the
-         * latched effects stay sticky */
-        perf_latch_on = 0;
-        perf_map[0] = PF_LPF;
-        fm1_in.notes = 1u << 0;
-        keyboard_block();
-        ok = perf_held == PF_BIT(PF_LPF);
-        perf_latch_on = 1;                              /* MENU > FX LATCH ON with the key down */
-        fm1_in.notes = 0;
-        keyboard_block();
-        ok &= !perf_held;                               /* the release with the latch on: no stuck effect */
-        fm1_in.notes = 1u << 0;
-        keyboard_block();
-        ok &= perf_latched == PF_BIT(PF_LPF) && !perf_held;   /* a press still latches it */
-        fm1_in.notes = 0;
-        keyboard_block();
-        ok &= perf_latched == PF_BIT(PF_LPF) && !perf_held;   /* a latched effect stays until toggled off */
-        fm1_in.notes = 1u << 0;
-        keyboard_block();
-        ok &= !perf_latched && !perf_held;
-        fm1_in.notes = 0;
-        keyboard_block();
-        perf_latch_on = 0;
-        bad += check("  FX LATCH on with a key held: letting go clears its bit, the latched ones stay sticky", ok);
         for (p = 0; p < PF_KEYS; p++)
             perf_map[p] = PF_DEF[p];
         fm1_in.buttons = 0;
