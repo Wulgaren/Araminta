@@ -1523,8 +1523,8 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
                 /* CHAIN at list position: gate mono b; with SPREAD also gate side d
                  * (spread_buf already holds left-right from mix_spread). SEND still
                  * runs after the chain via slicer_track_sd. */
-                if (spread_on)
-                    slicer_track_sd(t, b, spread_buf, n);
+                if (t->spread_on)
+                    slicer_track_sd(t, b, spread_buf[C1_PI(t)], n);
                 else
                     slicer_track(t, b, n);
             }
@@ -1618,7 +1618,7 @@ static __attribute__((noinline)) int32_t duck_ramp(int32_t lvl, int32_t *dl)
  * clear and sum of spread_buf, the side and a wider mix loop, per part; per voice none (it picks its buffer) */
 static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_t n)
 {
-    int32_t *d = spread_buf;
+    int32_t *d = spread_buf[C1_PI(t)];
     uint32_t i;
     int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], pan = t->p[P_PAN], s = (t->p[P_SPRD] + 1) >> 1;
     int32_t pa = clamp(pan - s, -64, 63), pb = clamp(pan + s, -64, 63);
@@ -1697,7 +1697,7 @@ static void mix_part(track_t *t, uint32_t n)
     mod_begin(t);                                       /* the matrix's per-block values into t->p (mod.c) */
     /* after mod: insert MIX may turn on and still need a cleared part_buf (shared across tracks) */
     int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t) || chain;
-    spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON);   /* (SPREAD, mix_spread) */
+    t->spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON);   /* (SPREAD, mix_spread) */
     if (track_render_audio(t, b, n, need_zeros))
         t->tail = ins_any(t) ? 64 : 16;                 /* blocks of insert state to run out after the last voice */
     else if ((!t->tail || !(ins_any(t) | t->ins_run) || !--t->tail) && !slicer_busy(t) && !chain) {
@@ -1705,11 +1705,11 @@ static void mix_part(track_t *t, uint32_t n)
             slicer_track(t, 0, n);
         if (t->ins_run && !ins_any(t))
             ins_rest(t);                                /* all MIX 0 while silent: clear state for the next note */
-        if (mod.on)
+        if (MOD(t).on)
             mod_end(t);
         return;
     }
-    if (spread_on)
+    if (t->spread_on)
         mix_spread(t, b, n);
     else {
         uint32_t ti = (uint32_t)(t - trk);
@@ -1744,7 +1744,7 @@ static void mix_part(track_t *t, uint32_t n)
     }
     if (pf.thr)
         perf_throw(t, b, send_d, send_r, n);            /* perform.c: REV / ECHO THROW (1.5.1), the sends towards full */
-    if (mod.on)
+    if (MOD(t).on)
         mod_end(t);                                     /* the stored values back */
 }
 
