@@ -252,9 +252,12 @@ static uint32_t perf_pick(uint32_t a)
 {
     uint32_t e, best = PF_N;
     a &= PF_BUF;
-    for (e = 0; e < PF_M1; e++)
-        if (((a >> e) & 1u) && (best == PF_N || perf_ord[e] - perf_ord[best] < 0x80000000u))
+    while (a) {                              /* the bits set only, low to high: the order the scan had */
+        e = (uint32_t)__builtin_ctz(a);
+        a &= a - 1u;
+        if (best == PF_N || perf_ord[e] - perf_ord[best] < 0x80000000u)
             best = e;
+    }
     return best;
 }
 
@@ -407,8 +410,11 @@ static __attribute__((noinline)) void perf_mute(uint32_t k, int32_t *b, uint32_t
 {
     uint32_t i;
     int32_t g = pf.mg[k], t = (pf.act >> (PF_M1 + k)) & 1u ? 0 : 32768;
+    if (g == 32768 && t == 32768)             /* open, and staying open: mulq16(x, 65536) is x */
+        return;
     for (i = 0; i < n; i++) {
-        g += clamp(t - g, -SL_SLOPE, SL_SLOPE);
+        if (t != g)
+            g += clamp(t - g, -SL_SLOPE, SL_SLOPE);
         b[i] = mulq16(b[i], (uint32_t)g << 1);
     }
     pf.mg[k] = g;
@@ -418,8 +424,11 @@ static __attribute__((noinline)) void perf_mute_sd(uint32_t k, int32_t *b, int32
 {
     uint32_t i;
     int32_t g = pf.mg[k], t = (pf.act >> (PF_M1 + k)) & 1u ? 0 : 32768;
+    if (g == 32768 && t == 32768)
+        return;
     for (i = 0; i < n; i++) {
-        g += clamp(t - g, -SL_SLOPE, SL_SLOPE);
+        if (t != g)
+            g += clamp(t - g, -SL_SLOPE, SL_SLOPE);
         b[i] = mulq16(b[i], (uint32_t)g << 1);
         sd[i] = mulq16(sd[i], (uint32_t)g << 1);
     }
@@ -432,8 +441,11 @@ static __attribute__((noinline)) void perf_pre(const int32_t *ml, const int32_t 
 {
     uint32_t i;
     int32_t m = perf_k[2] * 327;
+    if (!m && !pf.td)                        /* THROW off and the glide down finished: nothing to add */
+        return;
     for (i = 0; i < n; i++) {
-        pf.td += clamp(m - pf.td, -SL_SLOPE, SL_SLOPE);
+        if (m != pf.td)
+            pf.td += clamp(m - pf.td, -SL_SLOPE, SL_SLOPE);
         if (pf.td) {
             int32_t x = mulq16((ml[i] + mr[i]) >> 1, (uint32_t)pf.td << 1);
             sd[i] += x;
@@ -453,12 +465,22 @@ static __attribute__((noinline)) void perf_throw(const track_t *t, const int32_t
     int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127];
     int32_t rg = 32766 - t->p[P_REV] * 258, dg = 32766 - t->p[P_DLY] * 258;   /* full (127 * 258) less its own */
     int32_t rw = pf.rw, ew = pf.ew, r1 = pf.rw1, e1 = pf.ew1;
-    for (i = 0; i < n; i++) {
+    i = 0;
+    while (i < n && (rw != r1 || ew != e1)) {      /* the glide: at most 512 samples end to end */
         int32_t x = clamp(((b[i] >> 2) * lvl) >> 10, -65536, 65536);   /* (mix_part's xs at a full send) */
         rw += clamp(r1 - rw, -THR_SLOPE, THR_SLOPE);
         ew += clamp(e1 - ew, -THR_SLOPE, THR_SLOPE);
         sr[i] += mulq15(x, mulq16(rg, (uint32_t)rw << 1));
         sd[i] += mulq15(x, mulq16(dg, (uint32_t)ew << 1));
+        i++;
+    }
+    if (rw == r1 && ew == e1) {                    /* both settled: the gains are constant for the rest */
+        int32_t rgw = mulq16(rg, (uint32_t)rw << 1), dgw = mulq16(dg, (uint32_t)ew << 1);
+        for (; i < n; i++) {
+            int32_t x = clamp(((b[i] >> 2) * lvl) >> 10, -65536, 65536);
+            sr[i] += mulq15(x, rgw);
+            sd[i] += mulq15(x, dgw);
+        }
     }
 }
 
@@ -777,6 +799,7 @@ static __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint3
 {
     uint32_t i, a = pf.act0, sh, hold;
     int32_t c = perf_k[1], lt, ht, ct;
+    int32_t k0 = perf_k[0];                /* the FILTER macro: a block's value (the knob glides anyway) */
     if (c)
         pf.cc = c;
     ct = c ? 32768 : 0;
@@ -785,36 +808,41 @@ static __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint3
     if (pf.split)
         perf_switch(a);
     pf.hfb += clamp(perf_k[3] * HB_FB - pf.hfb, -512, 512);   /* OCT UP / DN's shimmer glides (~40 ms) */
+    lt = (a & PF_BIT(PF_LPF)) || k0 < 0 || pf.lc < PF_TOP ? 32768 : 0;
+    ht = (a & PF_BIT(PF_HPF)) || k0 > 0 || pf.hc > 0 ? 32768 : 0;
     for (i = 0; i < n; i++) {
         int32_t l = bl[i], r = br[i];
-        if (i == pf.split) {
+        if (i == pf.split) {              /* the effect set changed with this sample: re-read the target */
             a = pf.act;
             perf_switch(a);
+            lt = (a & PF_BIT(PF_LPF)) || k0 < 0 || pf.lc < PF_TOP ? 32768 : 0;
+            ht = (a & PF_BIT(PF_HPF)) || k0 > 0 || pf.hc > 0 ? 32768 : 0;
         }
         if (pf.mode != BM_NONE)
             perf_buf(&l, &r);
-        lt = (a & PF_BIT(PF_LPF)) || perf_k[0] < 0 || pf.lc < PF_TOP ? 32768 : 0;
-        pf.la += clamp(lt - pf.la, -SL_SLOPE, SL_SLOPE);
+        if (lt != pf.la)                  /* settled: the clamp adds nothing */
+            pf.la += clamp(lt - pf.la, -SL_SLOPE, SL_SLOPE);
         if (pf.la) {
             int32_t fl = pf_svf(clamp(l >> 2, -32767, 32767), &pf.lz[0], pf.lk, 0) << 2;
             int32_t fr = pf_svf(clamp(r >> 2, -32767, 32767), &pf.lz[2], pf.lk, 0) << 2;
             l = pf_mix(l, fl, pf.la);
             r = pf_mix(r, fr, pf.la);
-        } else {
+        } else if (pf.lz[0] | pf.lz[1] | pf.lz[2] | pf.lz[3]) {
             pf.lz[0] = pf.lz[1] = pf.lz[2] = pf.lz[3] = 0;
         }
-        ht = (a & PF_BIT(PF_HPF)) || perf_k[0] > 0 || pf.hc > 0 ? 32768 : 0;
-        pf.ha += clamp(ht - pf.ha, -SL_SLOPE, SL_SLOPE);
+        if (ht != pf.ha)
+            pf.ha += clamp(ht - pf.ha, -SL_SLOPE, SL_SLOPE);
         if (pf.ha) {
             int32_t fl = pf_svf(clamp(l >> 2, -32767, 32767), &pf.hz[0], pf.hk, 1) << 2;
             int32_t fr = pf_svf(clamp(r >> 2, -32767, 32767), &pf.hz[2], pf.hk, 1) << 2;
             l = pf_mix(l, fl, pf.ha);
             r = pf_mix(r, fr, pf.ha);
-        } else {
+        } else if (pf.hz[0] | pf.hz[1] | pf.hz[2] | pf.hz[3]) {
             pf.hz[0] = pf.hz[1] = pf.hz[2] = pf.hz[3] = 0;
         }
         {   /* CRUSH: fewer bits, a held sample (KNOB 2) */
-            pf.cw += clamp(ct - pf.cw, -SL_SLOPE, SL_SLOPE);
+            if (ct != pf.cw)
+                pf.cw += clamp(ct - pf.cw, -SL_SLOPE, SL_SLOPE);
             if (pf.cw) {
                 if (++pf.cn >= hold) {
                     pf.cn = 0;
