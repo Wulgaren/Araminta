@@ -1205,7 +1205,7 @@ static uint8_t ins_bus_driver[INS_N];                                /* the part
 static uint8_t ins_bus_ran[C1_NP];                                   /* bit per stage: this part ran the SEND DSP */
 static int32_t ins_send_in[C1_NP][CTL];                              /* .. its input, when the shared run is redone */
 static int16_t ins_win[C1_NP][2][CTL];                               /* each part's window of the line it writes */
-static int32_t ins_rb[CTL];                                          /* ins_bus_join's output (discarded) */
+static int32_t ins_rb[CTL];                                          /* ins_bus_join's run (its output stands) */
 static int16_t ins_lines[NTRK][2][IL_LEN] __attribute__((section(".pool")));
 /* SEND bus knobs live in fx_bus_trk.p (core.h); packed into reclaimed project bytes. MIX stays per-track. */
 static uint32_t ins_bus_tr(uint32_t st)
@@ -1572,7 +1572,9 @@ static __attribute__((noinline)) void ins_bus_join(uint32_t n)
             continue;                                    /* no consumer this block: the state stands */
         if ((uint8_t)lo != ins_bus_driver[st]) {
             tmp = ins_bus_blk[st];
-            (void)ins_run_st(&tmp, bus_knobs_track(&trk[lo]), ins_send_in[lo], n, 32768, st,
+            for (k = 0; k < n; k++)                    /* the runs are in place: a fresh copy per stage */
+                ins_rb[k] = ins_send_in[lo][k];
+            (void)ins_run_st(&tmp, bus_knobs_track(&trk[lo]), ins_rb, n, 32768, st,
                              ins_lines[bus_tr], lo);
             ins_st[bus_tr][st] = tmp;
         }
