@@ -28,12 +28,12 @@ mod_voice 30
 mod_end 75
 perf_begin 28
 perf_mute 21
-perf_pre 26
+perf_pre 30
 perf_block 853
 perf_master 32
 perf_flanger 368
 perf_phaser 448
-perf_throw 55
+perf_throw 82
 rev_room 226
 rev_spring 130
 rev_hall 1995
