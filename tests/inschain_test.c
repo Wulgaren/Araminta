@@ -120,6 +120,87 @@ static int pick_has(uint32_t id, const char *name)
     return 0;
 }
 
+/* The four DIST MODEs on a 344 Hz sine (128 samples a period, one voice's full scale): at high DRIVE
+ * they must not converge into one shape (the bug: SOFT, HARD and FUZZ all squared off and were
+ * indistinguishable maxed out), a MODE switch must not jump in level, and none of them may leave DC. */
+#define DM_N 8192u                                     /* 64 whole periods: settled, then measured */
+static int32_t dm_wet[IDM_N][DM_N];
+static double dm_corr(const int32_t *a, const int32_t *b)
+{
+    double sa = 0, sb = 0, sab = 0, va = 0, vb = 0;
+    uint32_t i;
+    for (i = 0; i < DM_N; i++) { sa += a[i]; sb += b[i]; }
+    sa /= DM_N; sb /= DM_N;
+    for (i = 0; i < DM_N; i++) {
+        double x = a[i] - sa, y = b[i] - sb;
+        va += x * x; vb += y * y; sab += x * y;
+    }
+    return va > 0 && vb > 0 ? sab / sqrt(va * vb) : 0.0;
+}
+static void dm_render(uint32_t mode, int32_t drive)
+{
+    track_t tt;
+    ins_st_t st;
+    int32_t buf[DM_N];
+    uint32_t i;
+    memset(&tt, 0, sizeof tt);
+    memset(&st, 0, sizeof st);
+    tt.p[P_IDMODE] = (int16_t)mode;
+    tt.p[P_DIST] = (int16_t)drive;
+    tt.p[P_ED_FX] = 0;                                 /* TONE at its default: the drive-linked cutoff alone */
+    for (i = 0; i < DM_N; i++)
+        buf[i] = (int32_t)(24000.0 * sin(2.0 * M_PI * (double)i / 128.0));
+    ins_run_dist(&st, &tt, buf, DM_N, 32768);          /* MIX 100 % (ins_mixq(127)), from rest */
+    for (i = 0; i < DM_N; i++)
+        buf[i] = (int32_t)(24000.0 * sin(2.0 * M_PI * (double)(i + DM_N) / 128.0));
+    ins_run_dist(&st, &tt, buf, DM_N, 32768);
+    for (i = 0; i < DM_N; i++)
+        dm_wet[mode][i] = buf[i];
+}
+static void test_dist_modes(void)
+{
+    static const char *const NM[IDM_N] = {"SOFT", "HARD", "FOLD", "FUZZ"};
+    static const int32_t DR[3] = {64, 96, 127};
+    double dm_rms[IDM_N];
+    uint32_t d, m, k;
+    for (d = 0; d < 3u; d++) {
+        double worst = 0, hi = 0, lo = 1e30, dc = 0;
+        for (m = 0; m < IDM_N; m++) {
+            double e = 0, s = 0;
+            dm_render(m, DR[d]);
+            for (k = 0; k < DM_N; k++) { e += (double)dm_wet[m][k] * dm_wet[m][k]; s += dm_wet[m][k]; }
+            dm_rms[m] = sqrt(e / DM_N);
+            dc = fabs(s / DM_N) > dc ? fabs(s / DM_N) : dc;
+            hi = dm_rms[m] > hi ? dm_rms[m] : hi;
+            lo = dm_rms[m] < lo ? dm_rms[m] : lo;
+        }
+        printf("inschain:   DIST MODEs at DRIVE %3d, RMS", DR[d]);
+        for (m = 0; m < IDM_N; m++)
+            printf(" %s %6.0f", NM[m], dm_rms[m]);
+        printf(" (worst DC %.0f)\n", dc);
+        for (m = 0; m < IDM_N; m++)
+            for (k = m + 1u; k < IDM_N; k++) {
+                double c = dm_corr(dm_wet[m], dm_wet[k]);
+                worst = c > worst ? c : worst;
+                printf("inschain:     %s/%s correlation %.5f\n", NM[m], NM[k], c);
+            }
+        {
+            /* the bar tightens with the drive: at DRIVE 64 every shape still shares the input's
+             * fundamental (a rounded sine vs a square correlate ~0.95); the bug to catch is the
+             * convergence at the top of the range, where they used to be sample-identical */
+            static const double LIM[3] = {0.97, 0.95, 0.90};
+            char w[96];
+            snprintf(w, sizeof w, "DIST MODE %d: every pair distinct (correlation < %.2f)", DR[d], LIM[d]);
+            ck(w, worst < LIM[d]);
+        }
+        if (DR[d] == 127) {
+            char w[96];
+            snprintf(w, sizeof w, "DIST MODE maxed: no level jump (RMS within 6 dB), no DC (< 2 %% of RMS)");
+            ck(w, hi < lo * 2.0 && dc < hi * 0.02);
+        }
+    }
+}
+
 static void test_fx_reservations(void)
 {
     uint32_t sel;
@@ -963,6 +1044,7 @@ int main(void)
         ck("REV send amount moves the render", h0 != h1);
     }
 
+    test_dist_modes();
     test_fx_reservations();
     test_retired_delay_mix();
     test_fx_bank_switch();

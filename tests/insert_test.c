@@ -267,7 +267,7 @@ static void test_types(void)
             for (v = -140000; v <= 140000; v += 7) {
                 uint32_t sh = ins_bits_sh(a);
                 int32_t half = sh && !((v + (1 << (sh - 1u))) & ((1 << sh) - 1));
-                ok &= half || ins_shape(IT_CRUSH, -v, sh) == -ins_shape(IT_CRUSH, v, sh);
+                ok &= half || ins_shape(IT_CRUSH, -v, sh, 4096u) == -ins_shape(IT_CRUSH, v, sh, 4096u);
             }
         ck("CRUSH: its steps are odd (no offset) at every BITS", ok);
     }
