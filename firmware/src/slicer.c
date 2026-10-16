@@ -263,7 +263,7 @@ static void sl_run_send(const track_t *t, int32_t *b, int32_t *sd, uint32_t n)
     sl_t *s = &sl[k];
     const sl_t *clock;
     int drive = k == sl_bus_driver || (sl_bus_driver == 0xFF && !sl_bus_applied);
-    if (!sl_bus_applied)
+    if (drive && !sl_bus_applied)      /* the block's start (slicer_block took it too): only the driver writes */
         sl_bus_blk = sl_bus;
     clock = drive && sl_bus_applied ? &sl_bus : &sl_bus_blk;
     s->idx = clock->idx;

@@ -603,12 +603,19 @@ static int16_t *mod_target_ptr(const track_t *t, uint32_t id)
         return &bus_knobs[C1_PI(t)].p[id];
     return (int16_t *)&t->p[id];
 }
-/* mod_begin: a part's copy of the shared knobs, as they are before its modulation */
+/* mod_begin: the SEND insert / slicer knobs of a part's copy, as they are before its modulation (fx_bus_trk.p
+ * is never written while the parts render: the matrix moves the copies) */
 static void bus_knobs_fill(const track_t *t)
+{
+    memcpy(bus_knobs[C1_PI(t)].p, fx_bus_trk.p, sizeof bus_knobs[0].p);
+}
+/* The DLY / REV bus settings of a part's copy (core.h bus_knobs). Every part's, at the block's start before the
+ * split (fx.c mix_block, after events_block: motion's values are in): the CHAIN owners put their copies into song.g
+ * while they render (fx_bus_stage), so nothing else may read the real ones then. */
+static void bus_knobs_g(const track_t *t)
 {
     bus_knobs_t *b = &bus_knobs[C1_PI(t)];
     uint32_t i;
-    memcpy(b->p, fx_bus_trk.p, sizeof b->p);
     for (i = 0; i < 5u; i++)
         b->g[i] = *fx_target_ptr(t, MFX_TIME + i);
 }
@@ -2042,6 +2049,8 @@ static void mix_block(int32_t *out, uint32_t n)
     duck_block();
     perf = perf_begin(n);                               /* the FX hold layer at work (perform.c) */
     rev_tank[0].hl.side = rev_tank[1].hl.side = 0;      /* HALL sides set this block by insert / send */
+    for (i = 0; i < NTRK; i++)                          /* every part's copy of the bus settings (core.h bus_knobs) */
+        bus_knobs_g(&trk[i]);
     {   /* the parts: some on the second core, into its own sums (mx[1]) */
         uint32_t m = C1_ON() ? C1_SPLIT() & ((1u << NPART) - 1u) : 0u;
         if (m && !C1_RUN(c1_parts, m | n << 8))

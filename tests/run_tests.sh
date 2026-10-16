@@ -154,6 +154,13 @@
 # ROBUST (tests/robust_test.c): damaged or crafted stored data and editor requests: a SLICE scan bounded by the slot,
 #                   a slot that fails its check leaves no zone, engine numbers past the last refused, a retained older
 #                   RAM project bounded, user preset patterns inside their fields, malformed requests never stop PLAY.
+# SECOND CORE (tests/dualcore_test.c, tests/c1_host.h): fx.c mix_block's second core as a thread (hal/fm1_cpu1.h's
+#                   job), rendering the parts handed to it at the same time as the main thread renders the others:
+#                   4 parts of every preset, engine mixes, per-part state torture and this fork's chain / send EFFECTS
+#                   (the shared SEND DSP and its driver, FLANG / CHOR lines' windows, the SLICER's shared clock, the
+#                   matrix moving the shared send knobs and the DLY / REV bus settings, CHAIN owners) rendered on one
+#                   core and on two with every split of the parts, the firmware's own (mix_split) included: bit for
+#                   bit the same (tests/regress.c built with -DC1_HOST: the same golden renders, tests/golden.txt).
 # Sanitizers (ASan + UBSan, when the compiler has them; SANITIZE=0 skips): the stored-data and protocol tests again
 #                   (loader, M-UPGRADE entry, editor, projects, backup, ROBUST) and three short fuzz runs with fixed
 #                   seeds: tests/fuzz_ed.c (editor SysEx and raw USB-MIDI packets), tests/fuzz_proj.c (mutated project
@@ -333,6 +340,13 @@ if [ -f build/gen/felucca_tables.h ]; then
     run "REVERB TYPE: ROOM / SPRING bit-identical, SPRING/HALL/SHIMR/CLOUD decay / stability, model changes, cost, demos" "$OUT/reverb_test" build/fx_demo build/reverb_demo
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/regress" tests/regress.c -lm
     run "regression: golden renders, health, voices, CPU budget" "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
+    # the second core (fx.c mix_block, hal/fm1_cpu1.h): a thread renders the parts handed to it (tests/c1_host.h)
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -DC1_HOST -pthread -o "$OUT/regress_c1" tests/regress.c -lm
+    run "second core: the golden renders with a thread taking every split of the parts in turn" \
+        "$OUT/regress_c1" tests/golden.txt tests/cpu_baseline.txt
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -pthread -o "$OUT/dualcore_test" tests/dualcore_test.c -lm
+    run "second core: 4 parts of every preset, mixes and the chain / send FX: bit for bit on one core and on two" \
+        "$OUT/dualcore_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/union_test" tests/union_test.c -lm
     run "engine memory (1.5): every switch between the engines with per-part state (270 sequences; retired SAMPLE/GRAIN/SLICE out)" \
         "$OUT/union_test" tests/union_golden.txt
@@ -409,6 +423,13 @@ else
     run "ASan/UBSan fuzz: project stores -> import -> restore -> render (5000, seed 13)" "$A/fuzz_proj" 5000 13
     $SCC -o "$A/fuzz_smp" tests/fuzz_smp.c -lm
     run "ASan/UBSan fuzz: user sample slot headers -> scan -> SAMPLE / GRAIN (1000, seed 17)" "$A/fuzz_smp" 1000 17
+    TSAN_CC="${CC%% *} -O1 -g -w -Ibuild/gen -Ifirmware/src -fsanitize=thread -pthread"
+    if $TSAN_CC -o "$OUT/dualcore_tsan" tests/dualcore_test.c -lm 2>/dev/null; then
+        run "second core under ThreadSanitizer: 4 parts of every preset, mixes and the chain / send FX" \
+            env TSAN_OPTIONS=halt_on_error=1 "$OUT/dualcore_tsan"
+    else
+        echo "== skip the ThreadSanitizer run (the compiler has no TSAN)"
+    fi
 fi
 
 run "regression: target cost of the render loops (pi32v2 disassembly)" python3 tests/target_budget.py \
