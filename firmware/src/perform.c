@@ -107,7 +107,6 @@ static int trk_heard(uint32_t k)
     uint32_t s = solo_mask();
     return trk[k].p[P_MUTE] != PLAY_OFF && (!s || ((s >> k) & 1u));
 }
-static volatile uint32_t scene_pfx;   /* song row scene punch-ins (song_play), PF_MIDI bits; 0 when unused */
 static volatile uint8_t perf_kill;    /* main: every effect off (the menu, a dialog, UBOOT) */
 static volatile int8_t perf_k[4];     /* main: the knob macros, 0 = untouched: FILTER -100..100 (- LPF, + HPF),
                                        * CRUSH 0..100, THROW 0..100, DEPTH cut 0..100 (the buffer effects' level) */
@@ -402,18 +401,8 @@ static __attribute__((noinline)) int perf_begin(uint32_t n)
     return 1;
 }
 
-/* a track muted by its black key: its signal ramps to 0 and back (fx.c mix_part, after the SLICER) */
-static __attribute__((noinline)) void perf_mute(uint32_t k, int32_t *b, uint32_t n)
-{
-    uint32_t i;
-    int32_t g = pf.mg[k], t = (pf.act >> (PF_M1 + k)) & 1u ? 0 : 32768;
-    for (i = 0; i < n; i++) {
-        g += clamp(t - g, -SL_SLOPE, SL_SLOPE);
-        b[i] = mulq16(b[i], (uint32_t)g << 1);
-    }
-    pf.mg[k] = g;
-}
-/* perf_mute with SPREAD's side signal sd (fx.c mix_spread): the same ramp on both */
+/* perf_mute with SPREAD's side signal sd (fx.c mix_spread): the same ramp on both; sd 0: the mono mix
+ * (fx.c mix_part) */
 static __attribute__((noinline)) void perf_mute_sd(uint32_t k, int32_t *b, int32_t *sd, uint32_t n)
 {
     uint32_t i;
@@ -421,10 +410,13 @@ static __attribute__((noinline)) void perf_mute_sd(uint32_t k, int32_t *b, int32
     for (i = 0; i < n; i++) {
         g += clamp(t - g, -SL_SLOPE, SL_SLOPE);
         b[i] = mulq16(b[i], (uint32_t)g << 1);
-        sd[i] = mulq16(sd[i], (uint32_t)g << 1);
+        if (sd)
+            sd[i] = mulq16(sd[i], (uint32_t)g << 1);
     }
     pf.mg[k] = g;
 }
+/* a track muted by its black key: its signal ramps to 0 and back (fx.c mix_part, after the SLICER) */
+static __attribute__((noinline)) void perf_mute(uint32_t k, int32_t *b, uint32_t n) { perf_mute_sd(k, b, 0, n); }
 
 /* before the buses: THROW (KNOB 3) adds the dry mix to the delay and reverb sends */
 static __attribute__((noinline)) void perf_pre(const int32_t *ml, const int32_t *mr, int32_t *sd, int32_t *sr,

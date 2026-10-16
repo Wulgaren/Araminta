@@ -110,10 +110,8 @@ static const uint8_t DRUM_LANE_NOTE[NLANE] = {36, 38, 39, 42, 46, 45, 37, 56};
 /* the lane a note strikes */
 static uint32_t drum_lane(uint32_t note) { return (uint32_t)DRUM_GM[drum_gm_ix(note)][0]; }
 
-/* a note of a muted group (dx_mute): voice.c trk_note_on drops it */
+/* a note of a muted group or lane (dx_mute, drum_mute): voice.c trk_note_on drops it */
 static int drum_muted_of(const track_t *t, uint32_t note) { return dx_lane_muted(t, drum_lane(note)); }
-/* voice.c may call drum_muted(note) without a track: groups only */
-static int drum_muted(uint32_t note) { return dx_lane_muted_g(drum_lane(note)); }
 
 /* the lane's name (5 characters at most) */
 static const char *drum_lane_name(const track_t *t, uint32_t l)

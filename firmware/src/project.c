@@ -736,15 +736,15 @@ static int proj_pack(project_store_t *out, const project_t *q)
     b[PROJ_CRV_OFF + 1u] = (uint8_t)clamp(q->g[G_CRDAMP], 0, 127);
     for (t = 0; t < NTRK; t++) {
         for (i = 0; i < P_COUNT; i++) {
+            uint32_t k;
             if (i == P_IORD) {                          /* order in bits 0..9; send flags in 10..15 */
-                uint16_t raw = (uint16_t)q->t[t].p[i];
-                if ((raw & 1023u) > 719u) return 0;
-                b[pos++] = (uint8_t)(raw & 255u);
-                b[pos++] = (uint8_t)(raw >> 8);
-                continue;
+                k = (uint32_t)wire_iord_put(b + pos, b + pos + 1u, (uint16_t)q->t[t].p[i]);
+            } else {
+                k = (uint32_t)wire_val_put(b + pos, q->t[t].p[i]);
             }
-            if (q->t[t].p[i] < -64 || q->t[t].p[i] > 127) return 0;
-            b[pos++] = (uint8_t)(q->t[t].p[i] + 64);
+            if (!k)
+                return 0;
+            pos += k;
         }
         b[pos++] = q->t[t].engine; b[pos++] = q->t[t].preset;
         for (i = 0; i < NSTEP; i++) {
@@ -954,14 +954,16 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         q->t[t].generation = GENERATION_DEFAULT;
         for (i = 0; i < np; i++) {
             if (iord2 && i == P_IORD) {                  /* two bytes LE: order 0..719, send flags above it */
-                uint32_t o = b[pos] | (uint32_t)b[pos + 1u] << 8;
+                uint16_t raw;
+                if (!wire_iord_get(b + pos, b + pos + 1u, &raw))
+                    return 0;
                 pos += 2u;
-                if ((o & 1023u) > 719u) return 0;
-                values[i] = (int16_t)(uint16_t)o;
+                values[i] = (int16_t)raw;
                 continue;
             }
-            if (b[pos] > 191u) return 0;
-            values[i] = (int16_t)b[pos++] - 64;
+            if (!wire_val_get(b + pos, &values[i]))
+                return 0;
+            pos++;
         }
         q->t[t].engine = b[pos++]; q->t[t].preset = b[pos++];
         if (q->t[t].engine >= NENGINES) return 0;
@@ -982,7 +984,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
             s->vel = b[pos] & 127u; meta |= (b[pos++] & 128u) << 1;      /* (RATCH bit 0 at bit 8 of meta) */
             s->hit = b[pos++]; s->acc = b[pos++];
             s->probability = b[pos] & 127u; meta |= (b[pos++] & 128u) << 2;   /* (bit 1 at bit 9) */
-            if ((meta & 255u) > 127u || s->n > 4u || s->time > ST_REST || s->probability > 101u) return 0;
+            if (s->n > 4u || s->time > ST_REST || s->probability > 101u) return 0;
             if (s->acc & ~s->hit) return 0;
             step_set_ratchet(s, (meta >> 8) + 1u);
             step_set_nudge(s, (int32_t)(nd ^ 8u) - 8);

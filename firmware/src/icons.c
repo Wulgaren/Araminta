@@ -163,15 +163,31 @@ static const icon_map_t ICON_MAP[] = {
     {"SLCR", ICON_SLICE}, {"PAT", ICON_STEPS}, {"DEPTH", ICON_MIX},   /* SLICER page (RATE: param_icon) */
 };
 
+/* icon_for_label scans ~200 entries, and the labels that reach it (d->label) are static, so a
+ * label's address is stable and maps to one icon for the life of the process: keep the last eight
+ * so a page's columns re-draw without re-scanning ICON_MAP (a mirror of the rc / kr ramp caches).
+ * Same icon for every label as before — the cache only skips the work, never changes a value. */
+static struct { const char *l[8]; uint32_t icon[8]; uint8_t next; } ic_cache __attribute__((section(".pool")));
 static uint32_t icon_for_label(const char *l)
 {
-    uint32_t i;
+    uint32_t i, k;
     if (!l || !l[0] || l[0] == '-')
         return ICON_NONE;
-    for (i = 0; i < sizeof(ICON_MAP) / sizeof(ICON_MAP[0]); i++)
-        if (str_eq(l, ICON_MAP[i].label))
-            return ICON_MAP[i].icon;
-    return ICON_GENERIC;
+    for (i = 0; i < NELEM(ic_cache.l) && ic_cache.l[i] != l; i++)
+        ;
+    if (i < NELEM(ic_cache.l))
+        return ic_cache.icon[i];
+    for (k = 0; k < sizeof(ICON_MAP) / sizeof(ICON_MAP[0]); k++)   /* miss: the scan, once per label */
+        if (str_eq(l, ICON_MAP[k].label)) {
+            i = ic_cache.next;
+            ic_cache.next = (uint8_t)((ic_cache.next + 1u) % NELEM(ic_cache.l));
+            ic_cache.l[i] = l;
+            return ic_cache.icon[i] = ICON_MAP[k].icon;
+        }
+    i = ic_cache.next;                                       /* not in the map: ICON_GENERIC, cached too */
+    ic_cache.next = (uint8_t)((ic_cache.next + 1u) % NELEM(ic_cache.l));
+    ic_cache.l[i] = l;
+    return ic_cache.icon[i] = ICON_GENERIC;
 }
 
 /* WAVE / WAVE2 set to a shape: that shape's icon (value names of the engines and the LFO) */

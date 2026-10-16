@@ -1030,10 +1030,12 @@ static void rev_clear_all(void)
 static int32_t part_buf[CTL];                            /* a part's block (mix_part); the fade of a model change */
 
 /* the model changed (to rt): the old one's block fades out (HALL's stereo difference with it), its buffers are
- * cleared, the new one starts from silence */
+ * cleared, the new one starts from silence. Its own scratch: the mixer's per-part buffer (part_buf) may be
+ * the caller's mix (track_insert) */
 static __attribute__((noinline)) void rev_switch(const int32_t *rev_in, int32_t *wet, uint32_t n, int32_t rt)
 {
-    int32_t *t = part_buf, g = 65536, d = 65536 / (int32_t)n;
+    static int32_t rev_fade[CTL];
+    int32_t *t = rev_fade, g = 65536, d = 65536 / (int32_t)n;
     uint32_t i;
     for (i = 0; i < n; i++)
         t[i] = 0;
@@ -1102,11 +1104,9 @@ static void fx_buses(const int32_t *dly_in, const int32_t *rev_in, int32_t *wet,
     else
         for (i = 0; i < n; i++)
             wet[i] = 0;                           /* CHAIN: owner advances the line in track_insert */
-    if (!rev_chain)
-        rev_tank[1].hl.side = 0;                  /* unused SEND tank: no stale HALL side */
     R = rev_chain ? &rev_tank[1] : &rev_tank[0];
     rt = rev_rtype();
-    R->hl.side = 0;
+    R->hl.side = 0;                               /* (both tanks cleared at mix_block's start) */
     if (rt != R->rtype)
         rev_switch(rev_in, wet, n, rt);
     else
@@ -1133,6 +1133,7 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
  * pool (2 lines/track for FLANG+CHOR). State per stage in the pool; SLICER stays after the chain. */
 #define IL_LEN 256u
 #define IC_LEN 128u                     /* FILTER COMB delay (~2.9 ms: teeth down to ~345 Hz) */
+_Static_assert((IC_LEN & (IC_LEN - 1u)) == 0u, "insert FILTER COMB line is a power of two (dsp.c comb_process)");
 static const uint8_t INS_HOLD[16] = {64, 48, 40, 32, 24, 20, 16, 12, 10, 8, 6, 5, 4, 3, 2, 1};
 typedef struct {
     int32_t w;                          /* wet share Q15 */
@@ -1277,6 +1278,7 @@ static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, const track_t 
     uint32_t i, ft = (uint32_t)clamp(t->p[P_IFTYPE], 0, IFT_N - 1);
     int32_t cut = t->p[P_IFCUT], res = t->p[P_IFRES], k = 8192 - res * 7600 / 127;
     tsvf_t flt;
+    int32_t clen = ft == IFT_COMB ? (int32_t)comb_delay_len(cut, IC_LEN) : 0;   /* block-constant */
     /* tsvf_coef takes cutoff in Q8 (0..127 << 8), as ANALOG / TRIO / NOISE do */
     tsvf_coef(&flt, cut << 8, res);
     for (i = 0; i < n; i++) {
@@ -1285,7 +1287,7 @@ static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, const track_t 
         if (!s->w && !tw) { b[i] = x; continue; }
         if (ft == IFT_COMB) {
             /* CUT = delay across the line (0 longest); RES = feedback; out = x + g * delayed */
-            y = comb_process(s->comb, IC_LEN, &s->wp, x, cut, res);
+            y = comb_process(s->comb, IC_LEN, &s->wp, x, clen, res);
         } else {
             int32_t v3 = (x >> 1) - s->ic2;
             int32_t v1 = (flt.a1 * s->ic1 + flt.a2 * v3) >> 13;
@@ -1426,11 +1428,9 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
         s = &ins_st[bus_tr][st];
         lines = ins_lines[bus_tr];
         if (!ins_bus_applied[st])
-            ins_bus_blk[st] = *s;
+            ins_bus_blk[st] = *s;             /* the block's start: later SEND tracks run their own copy of it */
         if (!ins_bus_applied[st] || k == ins_bus_driver[st]) {
             run = s;
-            if (!ins_bus_applied[st])
-                *s = ins_bus_blk[st];
         } else {
             tmp = ins_bus_blk[st];
             run = &tmp;
@@ -1677,7 +1677,16 @@ static __attribute__((noinline)) void mix_cache_update(const track_t *t, mix_cac
 
 /* one synth part into the dry mix and the sends; a part with no voice sounding costs
  * its control clocks only after insert and stutter tails have run out (Melodee).
- * CHAIN delay/reverb: keep feeding zeros so the bus rings after a short note (SEND already does). */
+ * CHAIN delay/reverb: keep feeding zeros so the bus rings after a short note (SEND already does).
+ *
+ * Does a silent part still need part_buf (shared by the parts) to run this block? track_render_audio
+ * clears it when a voice sounds (clear_idle 0), and for a silent part only when asked: an insert
+ * tail (MIX still up, or the chain's state ringing out), the SLICER, or a CHAIN bus that must keep
+ * being fed zeros. A part that needs none of those leaves before the buffer is read. */
+static int mix_needs_clear(const track_t *t, int chain, int sl_busy)
+{
+    return chain || sl_busy || (t->tail && (ins_any(t) | t->ins_run));
+}
 static void mix_part(track_t *t, uint32_t n)
 {
     int32_t *b = part_buf;
@@ -1687,10 +1696,13 @@ static void mix_part(track_t *t, uint32_t n)
     int sl_send = sl_trk_send(t);
     mod_begin(t);                                       /* the matrix's per-block values into t->p (mod.c) */
     /* after mod: insert MIX may turn on and still need a cleared part_buf (shared across tracks) */
-    int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t) || chain;
+    int need_zeros = mix_needs_clear(t, chain, slicer_busy(t));
     spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON);   /* (SPREAD, mix_spread) */
     if (track_render_audio(t, b, n, need_zeros))
         t->tail = ins_any(t) ? 64 : 16;                 /* blocks of insert state to run out after the last voice */
+    /* the same condition as need_zeros, with the tail's countdown: a silent part that needs none of
+     * them leaves here, before track_insert / the mix loop read part_buf (so a part never mixes
+     * another track's samples: nothing cleared it) */
     else if ((!t->tail || !(ins_any(t) | t->ins_run) || !--t->tail) && !slicer_busy(t) && !chain) {
         if (sl_send)
             slicer_track(t, 0, n);
@@ -1754,11 +1766,18 @@ static __attribute__((noinline)) void scope_take_mix(uint32_t n)
         scope_buf[scope_w++ & (SCOPE_N - 1u)] = (int16_t)clamp(mix_l[i] + wet[i], -32767, 32767);
 }
 
+/* the MASTER level this block: MASTER_FULL when USB LEVEL FIXED took it (USB audio took the full
+ * level: the DAC gets it after, audio.c usb_fixed_dac), else the knob */
+static inline int32_t master_gain(void)
+{
+    return fx_usb_fixed ? MASTER_FULL : (int32_t)song.master_q12;
+}
+
 /* the master with the FX layer's effects between its level and master_out (perform.c) */
 static __attribute__((noinline)) void perf_master(int32_t *out, uint32_t n)
 {
     uint32_t i;
-    int32_t mg = fx_usb_fixed ? MASTER_FULL : (int32_t)song.master_q12;   /* (USB LEVEL FIXED: MASTER after) */
+    int32_t mg = master_gain();
     for (i = 0; i < n; i++) {
         mix_l[i] = (((mix_l[i] + wet[i]) >> 2) * mg) >> 10;
         mix_r[i] = (((mix_r[i] + wet[i]) >> 2) * mg) >> 10;
@@ -1817,12 +1836,12 @@ static void mix_block(int32_t *out, uint32_t n)
     uint32_t i;
     int perf;
     mod_bus_n = 0;
-    int32_t mg = fx_usb_fixed ? MASTER_FULL : (int32_t)song.master_q12;   /* (USB LEVEL FIXED: MASTER after) */
+    int32_t mg = master_gain();                          /* (USB LEVEL FIXED: MASTER after usb_fixed_dac) */
     for (i = 0; i < n; i++)
         send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
     slicer_block();                                     /* shared SEND bus: one clock advance this block */
     ins_bus_block();                                    /* shared insert SEND DSP */
-    pfx_block(n, (perf_kill ? 0u : (perf_held | perf_latched) & PF_MIDI) | scene_pfx);
+    pfx_block(n, (perf_kill ? 0u : (perf_held | perf_latched) & PF_MIDI));
     events_block(n);
     clip_eff = song.g[G_CLIP];                          /* (JIANT) CLIP / PNCH for this block */
     pnch_eff = song.g[G_PUNCH];

@@ -921,10 +921,14 @@ static void ed_service(void)
     }
     {
         static uint8_t f[64];
-        uint32_t k = n > sizeof f ? sizeof f : n, i;
-        for (i = 0; i < k; i++)
+        uint32_t i;
+        if (n > sizeof f) {
+            ota_frame_done();                              /* (no reply: every cmd below ED_SMP_BEGIN is small) */
+            return;
+        }
+        for (i = 0; i < n; i++)
             f[i] = p[i];
         ota_frame_done();                                  /* free the frame buffer before replying */
-        ed_handle(f, k);
+        ed_handle(f, n);
     }
 }

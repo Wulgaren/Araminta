@@ -115,7 +115,6 @@ static void boot_leds(void)
     crash_seen = fm1_crash.count;
     boot_clean = !crashed && !bootguard.failed && !(fm1_boot.p3_rst & 4u);
     fm1_led_dim_level(settings_leds == LEDS_DIM_LO);
-    (void)boot_clean;                         /* ANIM retired: no power-on sweep */
 }
 
 static void fm1_main(void)
@@ -225,8 +224,10 @@ static void fm1_main(void)
             scr_wake_now();                             /* (its progress on the screen) */
             if (flash_ok)
                 ota_session();                          /* returns only if nothing was committed */
-            lcd_fill(0, 0, 240, 240, T_BG);
-            ui.force = 1;
+            if (!ota_msg_on()) {                        /* (ota_hw.c: a result message keeps the screen) */
+                lcd_fill(0, 0, 240, 240, T_BG);
+                ui.force = 1;
+            }
         }
 #endif
         if (usb.uboot_req) {                            /* SysEx F0 22 24 35 7D F7 from the host */
@@ -252,6 +253,11 @@ static void fm1_main(void)
         autosave_poll();                              /* (1.2) the music, stopped and idle: project.c */
         felucca_dbg.stage = 2;
         ui_leds();
+#if FELUCCA_OTA
+        if (ota_msg_on())                           /* (ota_hw.c: a result message keeps the screen) */
+            ota_poll();                             /* the editor, the UI and the autosave keep running */
+        else
+#endif
         ui_draw();
         felucca_dbg.stage = 9;
         while (fm1_ms - m < 15u) {                               /* ~60 UI frames/s at most */

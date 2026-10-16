@@ -21,6 +21,7 @@ static int ota_prog(uint32_t off, const void *p, uint32_t n)
     return fl_write(off, p, n);
 }
 static int ota_fread(uint32_t off, void *p, uint32_t n) { return st_read(off, p, n); }
+static uint32_t ota_msg_hold;             /* fm1_ms until a result message keeps the screen (0: none) */
 static void ota_show(uint32_t step, int32_t code)
 {
     static const char *const STEP[] = {"", "PACKAGE", "CHECK HEAD", "LOADER", "CONFIRM", "RESTART"};
@@ -44,7 +45,20 @@ static void ota_show(uint32_t step, int32_t code)
         b[k] = 0;
     }
     draw_text_box(0, 124, 240, &AF_S, b, T_THEME, 1);
-    fm1_delay_ms(1500);
+    ota_msg_hold = fm1_ms + 1500u;        /* (ota_msg_on / ota_poll: the main loop holds it, nothing stalls) */
+}
+/* 1 while a result message keeps the screen: the main loop keeps serving the editor, the UI and the
+ * autosave through the window, only its own draw waits for the message to age out */
+static int ota_msg_on(void)
+{
+    return ota_msg_hold && (uint32_t)(ota_msg_hold - fm1_ms) < 0x80000000u;
+}
+static void ota_poll(void)
+{
+    if (!ota_msg_hold || ota_msg_on())
+        return;
+    ota_msg_hold = 0;
+    ui.force = 1;                          /* the UI comes back over the message, whole */
 }
 static void ota_commit(const uint8_t *parm)
 {
