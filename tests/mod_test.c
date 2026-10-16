@@ -739,6 +739,7 @@ static void test_fx_controls(void)
             memset(t->p + P_M1SRC, 0, 12 * sizeof t->p[0]);
             slot(t, 0, MS_MODW, 44 + k, 63);
             t->mw = 127;
+            bus_knobs_g(t);                             /* (the block's start does this in fx.c mix_block) */
             mod_begin(t);
             if (chain && k >= 3) {
                 int32_t keep[5];
