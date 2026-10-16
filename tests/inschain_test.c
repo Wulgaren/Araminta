@@ -89,7 +89,8 @@ static void fresh(void)
     memset(&pf, 0, sizeof pf);
     memset(ins_st, 0, sizeof ins_st);
     memset(ins_lines, 0, sizeof ins_lines);
-    memset(ins_bus_applied, 0, sizeof ins_bus_applied);
+    memset(ins_bus_ran, 0, sizeof ins_bus_ran);
+    memset(bus_knobs_on, 0, sizeof bus_knobs_on);
     fx_bus_init();
     dly_q8 = 0;                                       /* (as power-on: the first block snaps onto the time) */
     dly_free = 0;
@@ -101,7 +102,7 @@ static void fresh(void)
     rng_state = 0x1234567u;
     song.playing = 0;
     memset(trk, 0, sizeof trk);
-    memset(&mod, 0, sizeof mod);
+    MOD_W_CLEAR();
     memset(sl, 0, sizeof sl);
     memset(&motion, 0, sizeof motion);
     host_tracks_init();

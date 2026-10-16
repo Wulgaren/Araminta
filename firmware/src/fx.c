@@ -589,6 +589,29 @@ static int16_t *fx_target_ptr(const track_t *t, uint32_t id)
         return &fx_bus_trk.p[id];
     return (int16_t *)&t->p[id];
 }
+/* the knob the matrix writes while a part renders: its copy of the shared ones (core.h bus_knobs), its own
+ * p[] otherwise. The real shared knobs stay the UI's, motion's and the bus DSP's. */
+static int16_t *mod_target_ptr(const track_t *t, uint32_t id)
+{
+    uint32_t st;
+    if (MFX_PARAM(id))
+        return &bus_knobs[C1_PI(t)].g[id - MFX_TIME];
+    if ((id == P_SLPAT || id == P_SLRATE) && sl_trk_send(t))
+        return &bus_knobs[C1_PI(t)].p[id];
+    st = fx_target_stage(id);
+    if (st < INS_N && ins_is_send(t, st))
+        return &bus_knobs[C1_PI(t)].p[id];
+    return (int16_t *)&t->p[id];
+}
+/* mod_begin: a part's copy of the shared knobs, as they are before its modulation */
+static void bus_knobs_fill(const track_t *t)
+{
+    bus_knobs_t *b = &bus_knobs[C1_PI(t)];
+    uint32_t i;
+    memcpy(b->p, fx_bus_trk.p, sizeof b->p);
+    for (i = 0; i < 5u; i++)
+        b->g[i] = *fx_target_ptr(t, MFX_TIME + i);
+}
 /* RATE's selected division is the starting point for continuous TIME modulation and locks. */
 static int16_t fx_time_value(int16_t raw)
 {
@@ -1166,10 +1189,16 @@ typedef struct {
 } ins_st_t;
 static ins_st_t ins_st[NTRK][INS_N] __attribute__((section(".pool")));
 /* SEND DSP reuses ins_st[bus_tr][st] / ins_lines[bus_tr] (first SEND track for that stage).
- * Max 4 instances/stage: CHAIN private + SEND shared coexist, never 4+1. */
+ * Max 4 instances/stage: CHAIN private + SEND shared coexist, never 4+1. Parts render at once on the two
+ * cores (mix_block): the shared state runs its one block in the lowest SEND consumer's part (ins_bus_block
+ * picks it; its own knobs and input, as the parts rendered one after another), every other consumer runs the
+ * copy of the block's start here. ins_bus_join puts the run in place after the join. */
 static ins_st_t ins_bus_blk[INS_N];                                  /* SEND state at mix-block start */
-static uint8_t ins_bus_applied[INS_N];                               /* first SEND track committed this block */
-static uint8_t ins_bus_driver[INS_N];
+static uint8_t ins_bus_driver[INS_N];                                /* the part that runs it (0xFF: no consumer) */
+static uint8_t ins_bus_ran[C1_NP];                                   /* bit per stage: this part ran the SEND DSP */
+static int32_t ins_send_in[C1_NP][CTL];                              /* .. its input, when the shared run is redone */
+static int16_t ins_win[C1_NP][2][CTL];                               /* each part's window of the line it writes */
+static int32_t ins_rb[CTL];                                          /* ins_bus_join's output (discarded) */
 static int16_t ins_lines[NTRK][2][IL_LEN] __attribute__((section(".pool")));
 /* SEND bus knobs live in fx_bus_trk.p (core.h); packed into reclaimed project bytes. MIX stays per-track. */
 static uint32_t ins_bus_tr(uint32_t st)
@@ -1208,7 +1237,7 @@ static void fx_bus_wire_def(uint8_t w[FX_BUS_N])
 }
 static const track_t *ins_param_src(const track_t *t, uint32_t st)
 {
-    return st < INS_N && ins_is_send(t, st) ? &fx_bus_trk : t;
+    return st < INS_N && ins_is_send(t, st) ? bus_knobs_track(t) : t;
 }
 
 /* Power-on (audio.c audio_init): clear delay/reverb lines so the first blocks are silent. The pool is
@@ -1228,7 +1257,7 @@ static void fx_boot(void)
     dly_free = 0;
     memset(ins_st, 0, sizeof ins_st);
     memset(ins_lines, 0, sizeof ins_lines);
-    memset(ins_bus_applied, 0, sizeof ins_bus_applied);
+    memset(ins_bus_ran, 0, sizeof ins_bus_ran);
     fx_bus_init();
     for (i = 0; i < NTRK; i++)
         trk[i].ins_run = 0;
@@ -1344,7 +1373,7 @@ static __attribute__((noinline)) void ins_run_crush(ins_st_t *s, const track_t *
 }
 
 static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n,
-                                                    int32_t tw, uint32_t kind, int16_t *line)
+                                                    int32_t tw, uint32_t kind, int16_t *line, int16_t *win)
 {
     uint32_t i;
     int32_t rate, dep, fbk_p;
@@ -1379,7 +1408,7 @@ static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, const track_t *
         }
         {
             int32_t chorus = kind == INS_CHOR, fbk = clamp(fbk_p, 0, 127) * (chorus ? 103 : 219);
-            uint32_t dq = depu * 516u;
+            uint32_t dq = depu * 516u, wbase = s->wp;   /* win[i] is this run's write at wbase + i */
             for (i = 0; i < n; i++, s->ph += inc) {
                 int32_t x = b[i], r0, r1, v, fr;
                 uint32_t d;
@@ -1393,8 +1422,16 @@ static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, const track_t *
                 r0 = (int32_t)(s->wp - (d >> 16)) & (int32_t)(IL_LEN - 1u);
                 r1 = (r0 - 1) & (int32_t)(IL_LEN - 1u);
                 fr = (int32_t)((d >> 1) & 0x7FFFu);
-                v = line[r0] + (((line[r1] - line[r0]) * fr) >> 15);
-                line[s->wp] = (int16_t)clamp((x >> 2) + softclip(mulq15(v, fbk)), -32767, 32767);
+                /* the window holds this run's writes (the runs of two parts never share one: fx.c
+                 * ins_stage); a read back into it takes its own write, behind it the shared line */
+                {
+                    int32_t o0 = (r0 - (int32_t)wbase) & (int32_t)(IL_LEN - 1u);
+                    int32_t o1 = (r1 - (int32_t)wbase) & (int32_t)(IL_LEN - 1u);
+                    int32_t a0 = o0 < (int32_t)i ? win[o0] : line[r0];
+                    int32_t a1 = o1 < (int32_t)i ? win[o1] : line[r1];
+                    v = a0 + (((a1 - a0) * fr) >> 15);
+                }
+                win[i] = (int16_t)clamp((x >> 2) + softclip(mulq15(v, fbk)), -32767, 32767);
                 s->wp = (uint16_t)((s->wp + 1u) & (IL_LEN - 1u));
                 v <<= 1;
                 s->dc += ((v << 8) - s->dc) >> 9;
@@ -1429,7 +1466,45 @@ static __attribute__((noinline)) void ins_rest(track_t *t)
 
 static void ins_bus_block(void)                      /* mix_block: new block for shared SEND DSP */
 {
-    memset(ins_bus_applied, 0, sizeof ins_bus_applied);
+    uint32_t k, st;
+    for (k = 0; k < C1_NP; k++)
+        ins_bus_ran[k] = 0;
+    for (st = 0; st < INS_N; st++) {
+        ins_bus_blk[st] = ins_st[ins_bus_tr(st)][st];   /* before any consumer: the copies' start */
+        ins_bus_driver[st] = 0xFF;
+        for (k = 0; k < NTRK; k++)                     /* the lowest SEND consumer runs the shared state */
+            if (ins_is_send(&trk[k], st) && ins_mix_of(&trk[k], st) != 0) {
+                ins_bus_driver[st] = (uint8_t)k;
+                break;
+            }
+    }
+}
+
+/* the window of a swept run into its line at wbase..wbase + n: what the run left there */
+static __attribute__((noinline)) void ins_win_put(int16_t *line, const int16_t *win, uint32_t wbase, uint32_t n)
+{
+    uint32_t i;
+    for (i = 0; i < n; i++)
+        line[(wbase + i) & (IL_LEN - 1u)] = win[i];
+}
+
+/* one stage's DSP on run, cold-started from silence when it faded out completely. Returns where the swept
+ * stages wrote their window (run->wp at the run's start). */
+static uint32_t ins_run_st(ins_st_t *run, const track_t *src, int32_t *b, uint32_t n, int32_t tw, uint32_t st,
+                           int16_t (*lines)[IL_LEN], uint32_t pi)
+{
+    uint32_t wbase;
+    if (!run->w && tw) {
+        memset(run, 0, sizeof *run);
+        if (st == INS_FLANG) run->line_i = 0;
+        if (st == INS_CHOR) run->line_i = 1;
+    }
+    wbase = run->wp;
+    if (st == INS_DIST) ins_run_dist(run, src, b, n, tw);
+    else if (st == INS_FILTER) ins_run_filter(run, src, b, n, tw);
+    else if (st == INS_CRUSH) ins_run_crush(run, src, b, n, tw);
+    else ins_run_swept(run, src, b, n, tw, st, lines[run->line_i & 1u], ins_win[pi][run->line_i & 1u]);
+    return wbase;
 }
 
 /* tw_force < 0: the stage's own mix. Else that Q15 wet (a send runs fully wet; the amount
@@ -1437,23 +1512,24 @@ static void ins_bus_block(void)                      /* mix_block: new block for
  * CHAIN: private ins_st[tr][st]. */
 static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n, int32_t tw_force)
 {
-    uint32_t k = (uint32_t)(t - trk) % NTRK, bus_tr;
+    uint32_t k = (uint32_t)(t - trk) % NTRK, pi = C1_PI(t), wbase, i;
     int send = st < INS_N && ins_is_send(t, st);
     ins_st_t *s, tmp, *run;
     const track_t *src = ins_param_src(t, st);
     int32_t tw = tw_force >= 0 ? tw_force : ins_mixq(ins_mix_of(t, st));
     int16_t (*lines)[IL_LEN];
     if (send) {
-        bus_tr = ins_bus_tr(st);
+        uint32_t bus_tr = ins_bus_tr(st);
         s = &ins_st[bus_tr][st];
         lines = ins_lines[bus_tr];
-        if (!ins_bus_applied[st])
-            ins_bus_blk[st] = *s;             /* the block's start: later SEND tracks run their own copy of it */
-        if (!ins_bus_applied[st] || k == ins_bus_driver[st]) {
-            run = s;
+        ins_bus_ran[pi] |= (uint8_t)(1u << st);
+        if (k == ins_bus_driver[st]) {
+            run = s;                                   /* the block's one run of the shared state */
         } else {
-            tmp = ins_bus_blk[st];
+            tmp = ins_bus_blk[st];                     /* the block's start: every other part runs its copy */
             run = &tmp;
+            for (i = 0; i < n; i++)                    /* ins_bus_join redoes the run from this input */
+                ins_send_in[pi][i] = b[i];
         }
     } else {
         s = &ins_st[k][st];
@@ -1462,35 +1538,82 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
     }
     if (!run->w && !tw)
         return;                                         /* MIX 0 and faded: skip DSP */
-    if (!run->w && tw) {
-        memset(run, 0, sizeof *run);
-        if (st == INS_FLANG) run->line_i = 0;
-        if (st == INS_CHOR) run->line_i = 1;
-    }
-    if (st == INS_DIST) ins_run_dist(run, src, b, n, tw);
-    else if (st == INS_FILTER) ins_run_filter(run, src, b, n, tw);
-    else if (st == INS_CRUSH) ins_run_crush(run, src, b, n, tw);
-    else ins_run_swept(run, src, b, n, tw, st, lines[run->line_i & 1u]);
-    if (send && run == s) {
-        ins_bus_applied[st] = 1;
-        ins_bus_driver[st] = (uint8_t)k;
-    }
+    wbase = ins_run_st(run, src, b, n, tw, st, lines, pi);
+    if (!send && (st == INS_FLANG || st == INS_CHOR))    /* CHAIN: the line is its own: the window at once */
+        ins_win_put(lines[run->line_i & 1u], ins_win[pi][run->line_i & 1u], wbase, n);
     if (run->w)
         t->ins_run = 1;
 }
 
-static int32_t ins_dry[CTL], ins_wet[CTL];
-/* Run shared DLY/REV as an insert stage (CHAIN owner only): wet mixed by the track's send amount. */
-static void fx_bus_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n)
+/* after the parts (mix_block): the shared state's one run of the block, when the picked driver did not make
+ * it (that part went silent this block, or the matrix brought a lower one in): the lowest part that ran the
+ * stage, its own input and knobs, from the block's start. Then the swept stages' line: the last consumer's
+ * writes are what a block of one-after-another renders leaves in the shared line. */
+static __attribute__((noinline)) void ins_bus_join(uint32_t n)
 {
-    uint32_t k;
-    int32_t amt = ins_mix_of(t, st), g, rt;
+    uint32_t st, k;
+    for (st = 0; st < INS_N; st++) {
+        uint32_t lo = NPART, hi = NPART, bus_tr = ins_bus_tr(st);
+        ins_st_t tmp;
+        for (k = 0; k < NPART; k++)
+            if (ins_bus_ran[k] >> st & 1u) {
+                if (lo == NPART)
+                    lo = k;
+                hi = k;
+            }
+        if (lo == NPART)
+            continue;                                    /* no consumer this block: the state stands */
+        if ((uint8_t)lo != ins_bus_driver[st]) {
+            tmp = ins_bus_blk[st];
+            (void)ins_run_st(&tmp, bus_knobs_track(&trk[lo]), ins_send_in[lo], n, 32768, st,
+                             ins_lines[bus_tr], lo);
+            ins_st[bus_tr][st] = tmp;
+        }
+        if (st == INS_FLANG || st == INS_CHOR) {
+            uint32_t wbase = ins_bus_blk[st].w ? ins_bus_blk[st].wp : 0u;
+            uint32_t li = ins_bus_blk[st].w ? (ins_bus_blk[st].line_i & 1u) : (st == INS_CHOR);
+            ins_win_put(ins_lines[bus_tr][li], ins_win[hi][li], wbase, n);
+        }
+    }
+}
+
+static int32_t ins_dry_buf[C1_NP][CTL], ins_wet_buf[C1_NP][CTL];   /* one part's send scratch (its own core) */
+/* The DLY / REV bus settings a part's render may modulate (core.h bus_knobs): its copy goes into song.g for
+ * its CHAIN run and comes out after (the DLY and REV owners write disjoint settings, never one slot at once) */
+static __attribute__((noinline)) void bus_g_put(const track_t *t, uint32_t first, uint32_t last, int32_t *keep,
+                                               int restore)
+{
+    uint32_t j;
+    for (j = first; j < last; j++) {
+        int16_t *p = fx_target_ptr(t, MFX_TIME + j);
+        if (restore)
+            *p = (int16_t)keep[j];
+        else {
+            keep[j] = *p;
+            *p = bus_knobs[C1_PI(t)].g[j];
+        }
+    }
+}
+/* Run shared DLY/REV as an insert stage (CHAIN owner only): wet mixed by the track's send amount.
+ * noinline: the CHAIN owner's path stays out of track_insert's loop (target_budget). */
+static __attribute__((noinline)) void fx_bus_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n)
+{
+    uint32_t k, pi = C1_PI(t), g0 = st == INS_DLY ? 0u : 3u, g1 = st == INS_DLY ? 3u : 5u;
+    int32_t *ins_dry = ins_dry_buf[pi], *ins_wet = ins_wet_buf[pi];
+    int32_t amt = ins_mix_of(t, st), g, rt, mfx_keep[5];
+    if (bus_knobs_on[pi])
+        bus_g_put(t, g0, g1, mfx_keep, 0);
     if (amt <= 0 && st == INS_DLY) {
         dly_process(b, ins_wet, n, 0);           /* advance the line even at mix 0 */
+        if (bus_knobs_on[pi])
+            bus_g_put(t, g0, g1, mfx_keep, 1);
         return;
     }
-    if (amt <= 0)
+    if (amt <= 0) {
+        if (bus_knobs_on[pi])
+            bus_g_put(t, g0, g1, mfx_keep, 1);
         return;
+    }
     g = ins_mixq(amt);
     for (k = 0; k < n; k++)
         ins_dry[k] = b[k];
@@ -1512,6 +1635,8 @@ static void fx_bus_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n)
         b[k] = s > 2147483647 ? 2147483647 : s < -2147483647 - 1 ? (int32_t)(-2147483647 - 1) : (int32_t)s;
     }
     t->ins_run = 1;
+    if (bus_knobs_on[pi])
+        bus_g_put(t, g0, g1, mfx_keep, 1);
 }
 /* Chain stages run in list order. Insert SEND stages are left out of the series and added after.
  * Shared DLY/REV/SLCR run here only when this track owns them as CHAIN. */
@@ -1521,6 +1646,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
     uint32_t i;
     uint16_t raw;
     int32_t tr = (int32_t)(t - trk);
+    int32_t *ins_dry = ins_dry_buf[C1_PI(t)], *ins_wet = ins_wet_buf[C1_PI(t)];   /* this part's scratch */
     t->ins_run = 0;
     fx_list_get(t, ord);
     raw = iord_bits(t);
@@ -1936,6 +2062,7 @@ static void mix_block(int32_t *out, uint32_t n)
             }
         }
     }
+    ins_bus_join(n);                                    /* the shared SEND state's run and line windows */
     for (i = 0; i < NPART; i++)                         /* the LFOs' blocks, part by part (voice.c) */
         track_lfo_end(&trk[i]);
     if (pfx_any)

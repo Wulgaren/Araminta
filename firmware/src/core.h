@@ -569,6 +569,28 @@ static song_t song;
 #define TSEL (&trk[song.sel])    /* the selected track */
 static track_t fx_bus_trk;       /* SEND insert/slicer knobs in .p[]; other fields unused */
 
+/* The shared SEND knobs, per part (the second core renders parts at once: fx.c mix_block). mod.c mod_begin
+ * fills one copy with fx_bus_trk.p and the DLY / REV bus settings of song.g, then writes the matrix's values
+ * into it; the part's DSP reads the copy (mod.c mod_target_ptr, fx.c ins_param_src, slicer.c sl_run_send), so
+ * two parts never write or read the same knobs and each sees its own modulation, as they did when the renders
+ * ran one after another. Nothing outside a render touches the copies; the real knobs stay the UI's, motion's
+ * and the bus DSP's (fx_buses after the parts). p[] is first, as track_t's: the DSP functions take a track_t
+ * and read its p[] (a cast of the copy). */
+typedef struct {
+    int16_t p[P_COUNT];
+    int16_t g[5];              /* MFX_TIME..MFX_DAMP: the DLY / REV bus settings of song.g */
+} bus_knobs_t;
+static bus_knobs_t bus_knobs[C1_NP];
+static uint8_t bus_knobs_on[C1_NP];         /* 1: this part's copy is its render's view (mod_begin) */
+_Static_assert(__builtin_offsetof(track_t, p) == 0 && __builtin_offsetof(bus_knobs_t, p) == 0 &&
+               sizeof ((track_t *)0)->p == sizeof ((bus_knobs_t *)0)->p,
+               "bus_knobs_t.p overlays track_t.p (the DSP reads the cast copy)");
+/* the knobs a part's render reads: its copy while the matrix modulates shared ones, else the real */
+static const track_t *bus_knobs_track(const track_t *t)
+{
+    return bus_knobs_on[C1_PI(t)] ? (const track_t *)&bus_knobs[C1_PI(t)] : &fx_bus_trk;
+}
+
 /* SLICER ownership (G_SLOWN). Legacy exclusive owner is still readable until sl_own_sanitize. */
 static void sl_own_sanitize(void)
 {

@@ -41,7 +41,10 @@
  * envelope of the latest note-on's voice (one block late, 0 when it has ended).
  *
  * Per-block destinations are modulated in place: mod_begin writes the modulated values into t->p for the
- * part's block (its render and its mix in fx.c mix_part) and mod_end puts the stored values back. Both run
+ * part's block (its render and its mix in fx.c mix_part) and mod_end puts the stored values back. The shared
+ * SEND knobs (fx_bus_trk / song.g) go to a per-part copy instead (core.h bus_knobs): the part's DSP reads it,
+ * so two cores rendering parts at once (fx.c mix_block) never touch one knob and each part sees its own
+ * modulation, as when the renders ran one after another. Both run
  * in the audio ISR, so nothing outside it ever sees a modulated value (the UI, the editor, projects and
  * presets read and write t->p from the main loop, which the ISR preempts; TIMER5 only fills the MIDI rings),
  * and the engines read t->p as before. An engine reads its parameters in note_on (events_block) unmodulated.
@@ -67,6 +70,8 @@ _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 
 #define MD_INS(d) ((d) >= MD_TONE && (d) <= MD_HDEP)             /* insert continuous + MIX (CHOR MIX = CHO) */
 #define MD_FX(d) ((d) >= MD_DTIME && (d) <= MD_RDAMP)
 static int16_t *fx_target_ptr(const track_t *t, uint32_t id);
+static int16_t *mod_target_ptr(const track_t *t, uint32_t id);   /* a part's copy of the shared knobs (fx.c) */
+static void bus_knobs_fill(const track_t *t);                    /* .. filled from the real ones (fx.c) */
 static const param_desc_t *fx_target_desc(const track_t *t, uint32_t id);
 static int fx_target_send(const track_t *t, uint32_t id);
 static int fx_target_available(const track_t *t, uint32_t id);
@@ -111,13 +116,32 @@ typedef struct {                 /* a part's, while mix_part renders it (one per
 } modw_t;
 static modw_t mod_w[C1_NP];
 #define MOD(t) (mod_w[C1_PI(t)])
+#define MOD_W_CLEAR() memset(&MOD(&trk[0]), 0, C1_NP * sizeof(modw_t))   /* (the host tests: every part's) */
 
-/* SEND buses run after the parts. Hold their effective settings until that DSP has consumed them. */
+/* SEND buses run after the parts. Hold their effective settings until that DSP has consumed them.
+ * Each part stages its own holds (its render may run on the other core: fx.c mix_block); mod_bus_begin folds
+ * them in part order into mod_bus, where a later part overwrites the value of the same setting, as when the
+ * parts rendered one after another. */
 static struct { int16_t *ptr, value, keep; } mod_bus[5];
+static struct { int16_t *ptr, value; } mod_bus_w[C1_NP][NMSLOT];
+static uint8_t mod_bus_wn[C1_NP];
 static uint32_t mod_bus_n;
 static void mod_bus_begin(void)
 {
-    uint32_t i;
+    uint32_t k, j, i;
+    mod_bus_n = 0;
+    for (k = 0; k < C1_NP; k++)
+        for (j = 0; j < mod_bus_wn[k]; j++) {
+            for (i = 0; i < mod_bus_n && mod_bus[i].ptr != mod_bus_w[k][j].ptr; i++)
+                ;
+            if (i == mod_bus_n) {
+                if (mod_bus_n >= NELEM(mod_bus))
+                    continue;                       /* (the full list drops it, as mod_end did) */
+                mod_bus_n++;
+            }
+            mod_bus[i].ptr = mod_bus_w[k][j].ptr;
+            mod_bus[i].value = mod_bus_w[k][j].value;
+        }
     for (i = 0; i < mod_bus_n; i++) {
         mod_bus[i].keep = *mod_bus[i].ptr;
         *mod_bus[i].ptr = mod_bus[i].value;
@@ -210,7 +234,8 @@ static __attribute__((noinline)) int32_t mod_depth(const track_t *t, int32_t lfo
 }
 
 /* before a part's block (fx.c mix_part): the per-track offsets, the per-block destinations into t->p
- * (or fx_bus_trk / song.g via fx_target_ptr). 0 = no slot active (then nothing changed) */
+ * (or the part's copy of fx_bus_trk / song.g via mod_target_ptr: two cores render parts at once). 0 = no
+ * slot active (then nothing changed) */
 static __attribute__((noinline)) int mod_begin(track_t *t)
 {
     modw_t *mw = &MOD(t);
@@ -218,11 +243,15 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     int32_t lfo, off[NMSLOT];
     uint32_t k, j;
     mw->on = 0;
+    bus_knobs_on[C1_PI(t)] = 0;                     /* without a slot the render reads the real knobs */
+    mod_bus_wn[C1_PI(t)] = 0;
     for (k = 0; k < NMSLOT; k++)
         if (p[P_M1SRC + 3u * k] && p[P_M1DST + 3u * k] && p[P_M1AMT + 3u * k])
             break;
     if (k == NMSLOT)
         return 0;
+    bus_knobs_fill(t);                              /* the shared knobs as they are, before this part's modulation */
+    bus_knobs_on[C1_PI(t)] = 1;
     lfo = mulq15(t->lfo_val, t->lfo_fade);              /* (the LFO of the block before: track_render ticks it) */
     mw->on = 1;
     mw->amp = 0;
@@ -255,14 +284,14 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
             const param_desc_t *pd;
             int16_t *dst;
             if (d == MD_DIST) {                         /* SEND: bus; CHAIN: track p[] */
-                dst = fx_target_ptr(t, id);
+                dst = mod_target_ptr(t, id);
                 shared = dst != &t->p[id];
                 pd = shared ? fx_target_desc(t, id) : &TP[id];
                 if (shared && !fx_target_available(t, id))
                     continue;
             } else if (shared) {
                 pd = fx_target_desc(t, id);
-                dst = fx_target_ptr(t, id);
+                dst = mod_target_ptr(t, id);
                 if (!fx_target_available(t, id))
                     continue;
             } else {
@@ -289,7 +318,7 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
         int32_t base;
         if (mw->kshared[j]) {
             pd = fx_target_desc(t, id);
-            dst = fx_target_ptr(t, id);
+            dst = mod_target_ptr(t, id);
             base = id == MFX_TIME && mw->keep[j] < pd->min ? fx_time_value(mw->keep[j]) : mw->keep[j];
         } else {
             pd = id >= P_E0 ? &ENGINES[t->engine]->edit[id - P_E0] : &TP[id];
@@ -301,28 +330,24 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     return 1;
 }
 
-/* after the part's block (when mw->on): the stored values back */
+/* after the part's block (when mw->on): the stored values back. A shared knob stays as this part's render saw
+ * it (its copy, core.h bus_knobs): the state its run left is computed from those values (fx.c ins_bus_join),
+ * and the next mod_begin refills the copy. The holds for the bus DSP go to this part's staging list; the fold
+ * is mod_bus_begin's, after the join. */
 static __attribute__((noinline)) void mod_end(track_t *t)
 {
     modw_t *mw = &MOD(t);
-    uint32_t j;
+    uint32_t j, pi = C1_PI(t);
     for (j = 0; j < mw->nk; j++) {
         uint32_t id = mw->kid[j];
-        int16_t *ptr = mw->kshared[j] ? fx_target_ptr(t, id) : &t->p[id];
+        int16_t *ptr = mw->kshared[j] ? mod_target_ptr(t, id) : &t->p[id];
         if (MFX_PARAM(id) && fx_target_send(t, id)) {
-            uint32_t i;
-            for (i = 0; i < mod_bus_n && mod_bus[i].ptr != ptr; i++) ;
-            if (i == mod_bus_n) {
-                if (mod_bus_n >= NELEM(mod_bus)) {
-                    *ptr = mw->keep[j];
-                    continue;
-                }
-                mod_bus_n++;
-            }
-            mod_bus[i].ptr = ptr;
-            mod_bus[i].value = *ptr;
+            mod_bus_w[pi][mod_bus_wn[pi]].ptr = fx_target_ptr(t, id);   /* the real knob: the fold's key */
+            mod_bus_w[pi][mod_bus_wn[pi]].value = *ptr;
+            mod_bus_wn[pi]++;
         }
-        *ptr = mw->keep[j];
+        if (ptr == (int16_t *)&t->p[id])
+            *ptr = mw->keep[j];
     }
     mw->on = 0;
 }
