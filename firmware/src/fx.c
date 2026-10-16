@@ -1028,7 +1028,20 @@ static void rev_clear_all(void)
     R = save ? save : &rev_tank[0];
 }
 
-static int32_t part_buf[CTL];                            /* a part's block (mix_part); the fade of a model change */
+/* the dry mix and the sends, as each core adds its parts into them (mx[1] is the second core's; mix_block merges
+ * the two: the sums are integers, so the order they add up in changes nothing: the output is bit for bit one
+ * core's) and a part's own block (b) */
+typedef struct { int32_t l[CTL], r[CTL], d[CTL], rv[CTL], b[CTL]; } mixsum_t;
+static mixsum_t mx[2];
+static uint16_t part_cost[NTRK];                       /* what a part's render cost the last block (mix_split) */
+#define mix_l (mx[0].l)
+#define mix_r (mx[0].r)
+#define send_d (mx[0].d)
+#define send_r (mx[0].rv)
+#define part_buf (mx[0].b)
+#define SM_DECL , mixsum_t *sm                          /* mix_part / mix_spread: the sums its parts add into */
+#define SM_ARG(x) , (x)
+#define SM(f) (sm->f)
 
 /* the model changed (to rt): the old one's block fades out (HALL's stereo difference with it), its buffers are
  * cleared, the new one starts from silence. Its own scratch: the mixer's per-part buffer (part_buf) may be
@@ -1559,7 +1572,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
 /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
  * -> dist -> INSERT -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
 static void events_block(uint32_t n);                    /* seq.c */
-static int32_t send_d[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_r[CTL];
+static int32_t wet[CTL];                                /* (the dry mix and the sends: mx[], above) */
 
 /* (JIANT) CLIP: mix driven into soft clip ahead of the limiter (before MASTER); wet folded in */
 static __attribute__((noinline)) void clip_block(uint32_t n)
@@ -1616,7 +1629,7 @@ static __attribute__((noinline)) int32_t duck_ramp(int32_t lvl, int32_t *dl)
  * perf_mute_sd) and passes DIST by (the spread of a distorted chord is its voices' clean difference). The sends
  * take b, mono, as before. SPRD 0, MONO or LEGATO: mix_part's own loop, bit for bit as before. The cost: a block's
  * clear and sum of spread_buf, the side and a wider mix loop, per part; per voice none (it picks its buffer) */
-static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_t n)
+static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_t n SM_DECL)
 {
     int32_t *d = spread_buf[C1_PI(t)];
     uint32_t i;
@@ -1647,11 +1660,11 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
         if (a > pk)
             pk = a;
         if (dl)
-            send_d[i] += mulq15(xs, dl);
+            SM(d)[i] += mulq15(xs, dl);
         if (r)
-            send_r[i] += mulq15(xs, r);
-        mix_l[i] += ((x * glm) >> 12) + ((y * gld) >> 12);
-        mix_r[i] += ((x * grm) >> 12) + ((y * grd) >> 12);
+            SM(rv)[i] += mulq15(xs, r);
+        SM(l)[i] += ((x * glm) >> 12) + ((y * gld) >> 12);
+        SM(r)[i] += ((x * grm) >> 12) + ((y * grd) >> 12);
     }
     t->peak = pk;
 }
@@ -1687,9 +1700,9 @@ static __attribute__((noinline)) void mix_cache_update(const track_t *t, mix_cac
  * CHAIN delay/reverb: keep feeding zeros so the bus rings after a short note (SEND already does).
  * need_zeros operand order matters: the audio ISR inlines this, and a different short-circuit order
  * reshapes the CFG into an extra nested loop that blows the target_budget cost. */
-static void mix_part(track_t *t, uint32_t n)
+static void mix_part(track_t *t, uint32_t n SM_DECL)
 {
-    int32_t *b = part_buf;
+    int32_t *b = SM(b);
     uint32_t i;
     int32_t tr = (int32_t)(t - trk);
     int chain = bus_own(0) == tr || bus_own(1) == tr || sl_trk_chain(t);
@@ -1698,7 +1711,10 @@ static void mix_part(track_t *t, uint32_t n)
     /* after mod: insert MIX may turn on and still need a cleared part_buf (shared across tracks) */
     int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t) || chain;
     t->spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON);   /* (SPREAD, mix_spread) */
-    if (track_render_audio(t, b, n, need_zeros))
+    uint32_t nr = track_render_audio(t, b, n, need_zeros);
+    part_cost[(uint32_t)tr % NTRK] = (uint16_t)(nr ? 40u * trk_nvoice(t) : 0u) +   /* mix_split's estimate */
+                                     (uint16_t)((nr || t->tail ? 60u : 0u) + 24u * (ins_any(t) != 0));
+    if (nr)
         t->tail = ins_any(t) ? 64 : 16;                 /* blocks of insert state to run out after the last voice */
     else if ((!t->tail || !(ins_any(t) | t->ins_run) || !--t->tail) && !slicer_busy(t) && !chain) {
         if (sl_send)
@@ -1710,7 +1726,7 @@ static void mix_part(track_t *t, uint32_t n)
         return;
     }
     if (t->spread_on)
-        mix_spread(t, b, n);
+        mix_spread(t, b, n SM_ARG(sm));
     else {
         uint32_t ti = (uint32_t)(t - trk);
         mix_cache_t *mc = &mix_cache[ti];
@@ -1734,16 +1750,16 @@ static void mix_part(track_t *t, uint32_t n)
             if (a > pk)
                 pk = a;
             if (d)
-                send_d[i] += mulq15(xs, d);
+                SM(d)[i] += mulq15(xs, d);
             if (r)
-                send_r[i] += mulq15(xs, r);
-            mix_l[i] += (x * gl) >> 12;
-            mix_r[i] += (x * gr) >> 12;
+                SM(rv)[i] += mulq15(xs, r);
+            SM(l)[i] += (x * gl) >> 12;
+            SM(r)[i] += (x * gr) >> 12;
         }
         t->peak = pk;
     }
     if (pf.thr)
-        perf_throw(t, b, send_d, send_r, n);            /* perform.c: REV / ECHO THROW (1.5.1), the sends towards full */
+        perf_throw(t, b, SM(d), SM(rv), n);             /* perform.c: REV / ECHO THROW (1.5.1), the sends towards full */
     if (MOD(t).on)
         mod_end(t);                                     /* the stored values back */
 }
@@ -1828,6 +1844,59 @@ static __attribute__((noinline)) void dx_mot_block(uint32_t n)
     dx_mot_v = (w * dx_mot[XM_DPTH]) >> 16;             /* (+-DPTH / 2) */
 }
 
+/* ---- the second core (hal/fm1_cpu1.h) renders some of the parts of each block into its own sums (mx[1]) while
+ * this core renders the others; then this core adds them in and goes on (the LFOs' blocks, the FX layer, the buses,
+ * the master) as with one core. The sums are integers, so the order they add up in changes nothing: the output is
+ * bit for bit one core's. A part's render touches its own state only (its track_t with its SPREAD, ENV SYNC and LFO
+ * phase, its voices, its matrix: mod.c MOD, its SPREAD buffer, its engine's memory) and what nobody writes meanwhile
+ * (song, the tables); what parts share is done before the split (events_block: the notes, voice stealing; the FX
+ * layer's perf_begin) or after it (the LFOs' S&H draw from the shared generator, part by part: voice.c
+ * track_lfo_end). tests/dualcore_test.c checks it, under ThreadSanitizer too. Without a second core (the host, the
+ * browser) C1_RUN takes nothing and this core renders them all */
+#ifndef C1_ON
+#define C1_ON() 0                                       /* a second core is answering */
+#define C1_RUN(fn, arg) 0                               /* hand it fn(arg): 1 = taken */
+#define C1_WAIT() 0                                     /* wait for it: 0 = done */
+#endif
+#ifndef C1_SPLIT
+#define C1_SPLIT() mix_split()
+#endif
+static uint32_t c1_blocks;                              /* blocks the second core took parts of */
+
+static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k = part k) | n << 8 */
+{
+    uint32_t i, n = arg >> 8;
+    mixsum_t *sm = &mx[1];
+    for (i = 0; i < n; i++)
+        sm->l[i] = sm->r[i] = sm->d[i] = sm->rv[i] = 0;
+    for (i = 0; i < NPART; i++)
+        if (arg >> i & 1u)
+            mix_part(&trk[i], n, sm);
+}
+
+/* which parts go to the second core: the split of the last block's costs that leaves the busier core the least; none
+ * when that saves less than handing them over costs (C1_HAND) */
+#define C1_HAND 40u
+static uint32_t mix_split(void)
+{
+    uint32_t m, i, best = 0, all = 0, lo;
+    for (i = 0; i < NPART; i++)
+        all += part_cost[i];
+    lo = all;
+    for (m = 1; m < (1u << NPART) - 1u; m++) {
+        uint32_t a = 0, w;
+        for (i = 0; i < NPART; i++)
+            if (m >> i & 1u)
+                a += part_cost[i];
+        w = (a > all - a ? a : all - a) + C1_HAND;
+        if (w < lo) {
+            lo = w;
+            best = m;
+        }
+    }
+    return best;
+}
+
 static void mix_block(int32_t *out, uint32_t n)
 {
     uint32_t i;
@@ -1847,8 +1916,28 @@ static void mix_block(int32_t *out, uint32_t n)
     duck_block();
     perf = perf_begin(n);                               /* the FX hold layer at work (perform.c) */
     rev_tank[0].hl.side = rev_tank[1].hl.side = 0;      /* HALL sides set this block by insert / send */
-    for (i = 0; i < NPART; i++)
-        mix_part(&trk[i], n);
+    {   /* the parts: some on the second core, into its own sums (mx[1]) */
+        uint32_t m = C1_ON() ? C1_SPLIT() & ((1u << NPART) - 1u) : 0u;
+        if (m && !C1_RUN(c1_parts, m | n << 8))
+            m = 0;
+        c1_blocks += m != 0;
+        for (i = 0; i < NPART; i++)
+            if (!(m >> i & 1u))
+                mix_part(&trk[i], n, &mx[0]);
+        if (m) {
+            const mixsum_t *sm = &mx[1];
+            if (C1_WAIT())                              /* it stopped answering (held from now on): its parts here */
+                c1_parts(m | n << 8);
+            for (i = 0; i < n; i++) {
+                mix_l[i] += sm->l[i];
+                mix_r[i] += sm->r[i];
+                send_d[i] += sm->d[i];
+                send_r[i] += sm->rv[i];
+            }
+        }
+    }
+    for (i = 0; i < NPART; i++)                         /* the LFOs' blocks, part by part (voice.c) */
+        track_lfo_end(&trk[i]);
     if (pfx_any)
         pfx_end();                                      /* (DEC- / DEC+ / ATK+ params back) */
     if (perf)

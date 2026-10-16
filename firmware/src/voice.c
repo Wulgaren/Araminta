@@ -59,11 +59,18 @@ static __attribute__((noinline)) uint32_t lfo_sync_inc(const track_t *t)   /* (n
     return q * CTL + (r * CTL + CTL) / cyc;
 }
 
-static void track_lfo_tick(track_t *t)
+/* the LFO's block, in two (the second core, fx.c mix_block): its phase on the part's own core, in track_render
+ * (at the RATE the matrix may have moved, mod.c), and the rest after the parts, part by part as before: lfo_rand's
+ * shared generator is drawn in the same order on one core or two. Nothing reads the LFO between the two */
+static void track_lfo_adv(track_t *t)
 {
     uint32_t old = t->lfo_ph;
     t->lfo_ph += t->p[P_LSYNC] ? lfo_sync_inc(t) : LFO_INC[t->p[P_LRATE] & 127];
-    if (t->lfo_ph < old) {
+    t->lfo_wrap = t->lfo_ph < old;
+}
+static void track_lfo_end(track_t *t)
+{
+    if (t->lfo_wrap) {
         t->lfo_prev = (int16_t)mod_sh(t);               /* mod.c SLEW: it glides on from there */
         t->lfo_rnd = lfo_rand(t);
     }
@@ -647,7 +654,7 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
             pe_new[i] = t->p[P_E0 + i];
             t->p[P_E0 + i] = t->pe_old[i];
         }
-    track_lfo_tick(t);
+    track_lfo_adv(t);
     esync_coef(t);                                      /* this block's envelope steps for env_tick (ENV SYNC) */
     if (e->block)                                       /* the engine's per-part work (WHEEL: bars, rotor) */
         e->block(t);
