@@ -91,6 +91,8 @@ static void fresh(void)
     memset(ins_lines, 0, sizeof ins_lines);
     memset(ins_bus_applied, 0, sizeof ins_bus_applied);
     fx_bus_init();
+    dly_q8 = 0;                                       /* (as power-on: the first block snaps onto the time) */
+    dly_free = 0;
     for (k = 0; k < NTRK; k++)
         pf.mg[k] = 32768;
     lim_env = LIM_T;
@@ -225,7 +227,7 @@ static void test_fx_edit_paths(void)
         for (i = 0; i < FX_LIST_N && order[i] != INS_SLCR; i++) ;
         ui.ior_sel = i;
     }
-    ior_knob(2, 1);
+    ior_knob(2, -1);                                /* left: this track takes the SLICER chain */
     ck("SLICER mode switch restores the shared rate before selecting CHAIN",
        sl_trk_chain(TSEL) && fx_bus_trk.p[P_SLRATE] == 3 && TSEL->p[P_SLRATE] == 8);
     motion_step(TSEL, 0, &motion, 1);

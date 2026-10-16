@@ -6481,15 +6481,23 @@ static int test_knob_accel(void)
         printf("  #126 a flick of 12 detents over %u ms on -100..100: %u steps\n", 126u, (unsigned)f);
         bad += check("#126 KNOB ACCEL over a range above 64: 10 ms x5 .. 6 ms x8; a 12-detent flick ~120 ms: 47", ok);
     }
-    {   /* free-ms TIME (~1486): slow still x1; once accel is on, x8 of the usual so a flick covers hundreds of ms */
-        static const uint16_t F6[8] = {500, 6, 6, 5, 4, 6, 6, 6};
+    {   /* free-ms TIME (~1486): slow still x1; x8 of the usual from the turn's second fast detent, so a small fast
+          * turn registers; a hard flick covers hundreds of ms (6 ms x64, 4 ms x96, 3 ms and less: the x128 cap) */
+        static const uint16_t F6[8] = {500, 6, 6, 6, 6, 6, 6, 6}, F4[8] = {500, 4, 4, 4, 4, 4, 4, 4},
+                               F3[8] = {500, 3, 3, 3, 3, 3, 3, 3};
         fm1_ms += 1000;
         ok = acc_ms(EN_K3, SLOW, 8, 1, (int32_t)DTIME_MS_MAX, o) == 8u;
         fm1_ms += 1000;
-        ok &= acc_ms(EN_K3, F6, 8, 1, (int32_t)DTIME_MS_MAX, o) == 2u + 6u * 64u && o[7] == 64;
+        ok &= acc_ms(EN_K3, F6, 8, 1, (int32_t)DTIME_MS_MAX, o) == 1u + 7u * 64u && o[7] == 64;
         fm1_ms += 1000;
-        ok &= acc_ms(EN_K3, F10, 8, 1, (int32_t)DTIME_MS_MAX, o) == 2u + 6u * 40u && o[7] == 40;
-        bad += check("KNOB ACCEL free-ms range: slow x1, 6 ms x64, 10 ms x40", ok);
+        ok &= acc_ms(EN_K3, F10, 8, 1, (int32_t)DTIME_MS_MAX, o) == 1u + 7u * 40u && o[7] == 40;
+        fm1_ms += 1000;
+        ok &= acc_ms(EN_K3, F20, 8, 1, (int32_t)DTIME_MS_MAX, o) == 1u + 7u * 16u && o[7] == 16;
+        fm1_ms += 1000;
+        ok &= acc_ms(EN_K3, F4, 8, 1, (int32_t)DTIME_MS_MAX, o) == 1u + 7u * 96u && o[7] == 96;
+        fm1_ms += 1000;
+        ok &= acc_ms(EN_K3, F3, 8, 1, (int32_t)DTIME_MS_MAX, o) == 1u + 7u * 128u && o[7] == 128;
+        bad += check("KNOB ACCEL free-ms range: slow x1, 20 ms x16, 10 ms x40, 6 ms x64, 4 ms x96, 3 ms x128", ok);
     }
     fm1_ms += 1000; acc_ms(EN_K4, F10, 8, 1, 32, o);
     ok = o[7] == 1;                                                /* a narrow range (<= 32): never */
@@ -8729,10 +8737,13 @@ static int test_fx_sections(void)
         ok &= ui.ior_sel == 3u;
         fx_list_get(TSEL, before);
         ok &= !ins_is_send(TSEL, before[3]);
-        turn(EN_K3, 1);                                 /* that stage: in the chain → a send */
+        turn(EN_K3, 1);                                 /* that stage: in the chain → a send (right) */
         fx_list_get(TSEL, after);
         ok &= ins_is_send(TSEL, after[3]) && after[0] == before[0] && after[1] == before[1] &&
               after[2] == before[2];
+        turn(EN_K3, -1);                                /* left: back into the chain, and it stays there */
+        fx_list_get(TSEL, after);
+        ok &= !ins_is_send(TSEL, after[3]);
         {
             uint32_t mix_id = after[3] == INS_DIST ? P_IDMIX : after[3] == INS_FILTER ? P_IFMIX :
                               after[3] == INS_CRUSH ? P_ICMIX : after[3] == INS_PHASR ? P_IPMIX :
@@ -8768,7 +8779,9 @@ static int test_fx_sections(void)
             if (ord[i] == INS_DLY) { dly_slot = i; break; }
         ok = dly_slot < FX_LIST_N && fx_list_mode(TSEL, INS_DLY)[0] == 'S';
         ui.ior_sel = (uint8_t)dly_slot;
-        turn(EN_K3, 1);                                 /* claim delay as CHAIN on track 0 */
+        turn(EN_K3, -1);                                /* left: claim delay as CHAIN on track 0 */
+        ok &= song.g[G_DLYOWN] == 1 && fx_list_mode(TSEL, INS_DLY)[0] == 'C';
+        turn(EN_K3, -1);                                /* already CHAIN: stays (no wrap) */
         ok &= song.g[G_DLYOWN] == 1 && fx_list_mode(TSEL, INS_DLY)[0] == 'C';
         song.sel = 1;
         ok &= fx_list_mode(&trk[1], INS_DLY)[0] == 'U';
@@ -8777,13 +8790,15 @@ static int test_fx_sections(void)
         ok &= trk[1].p[P_DLY] == 80;
         song.sel = 0;
         ui.ior_sel = (uint8_t)dly_slot;
-        turn(EN_K3, 1);                                 /* release → SEND for all */
+        turn(EN_K3, 1);                                 /* right: release -> SEND for all */
+        ok &= song.g[G_DLYOWN] == 0 && fx_list_mode(&trk[1], INS_DLY)[0] == 'S';
+        turn(EN_K3, 1);                                 /* already SEND: stays (no wrap back to CHAIN) */
         ok &= song.g[G_DLYOWN] == 0 && fx_list_mode(&trk[1], INS_DLY)[0] == 'S';
         song.g[G_REVOWN] = 0;
         fx_list_get(TSEL, ord);
         for (i = 0; i < FX_LIST_N; i++)
             if (ord[i] == INS_REV) { ui.ior_sel = (uint8_t)i; break; }
-        turn(EN_K3, 1);
+        turn(EN_K3, -1);
         ok &= song.g[G_REVOWN] == 1 && fx_list_mode(TSEL, INS_REV)[0] == 'C' &&
               fx_list_mode(&trk[2], INS_REV)[0] == 'S';   /* REV non-owner: SEND (tank 1), not USED */
         {
@@ -8795,7 +8810,9 @@ static int test_fx_sections(void)
                 if (ord[i] == INS_REV) { ui.ior_sel = (uint8_t)i; break; }
             turn(EN_K4, 8);                             /* SEND: mix still editable */
             ok &= trk[2].p[P_REV] != rv;
-            turn(EN_K3, 1);                             /* cannot steal CHAIN */
+            turn(EN_K3, -1);                            /* cannot steal CHAIN (left or right) */
+            ok &= song.g[G_REVOWN] == 1 && fx_list_mode(&trk[2], INS_REV)[0] == 'S';
+            turn(EN_K3, 1);                             /* right: USED stays SEND for this track */
             ok &= song.g[G_REVOWN] == 1 && fx_list_mode(&trk[2], INS_REV)[0] == 'S';
             song.sel = 0;
         }
@@ -8863,7 +8880,7 @@ static int test_fx_sections(void)
             song.g[G_SLOWN] = 0;                          /* legacy all-SEND → sanitize on toggle */
             TSEL->p[P_SLDEPTH] = 40;
             ui.ior_sel = (uint8_t)sl_slot;
-            turn(EN_K3, 1);
+            turn(EN_K3, -1);                                /* left: this track into the chain */
             ok &= sl_trk_chain(TSEL) && fx_list_mode(TSEL, INS_SLCR)[0] == 'C';
             song.sel = 1;
             ok &= sl_trk_send(&trk[1]) && fx_list_mode(&trk[1], INS_SLCR)[0] == 'S';
@@ -8952,6 +8969,7 @@ static int test_fx_sections(void)
         ok &= dtime_free() && ms >= 1u && ms <= DTIME_MS_MAX;
         turn(EN_K1, 1);                                  /* one detent is one millisecond */
         ok &= dtime_ms() == ms + 1u;
+        fm1_ms += 60u - 16u; frame();                   /* a real turn: slower than a detent a frame */
         turn(EN_K1, 1);
         ok &= dtime_ms() == ms + 2u;
         song.g[G_DTIME] = (int16_t)(DTIME_FREE + 100);
