@@ -111,7 +111,9 @@ static void up_set_cat(up_rec_t *r, uint32_t c)  /* c CAT_BASS..CAT_OTHER; a rec
 static int up_valid(const up_rec_t *r)
 {
     if (!(r->used == UP_USED && r->ver >= 1u && r->ver <= UP_VER_GRID && r->engine < NENGINES &&
-          r->np >= 8u && r->np <= (r->ver >= 4u ? UP_PMAX * 2u : UP_PMAX) && r->name[0])) return 0;
+          /* v4 / v5: UP_CAT_AT (143) is the last index a packed record may name: the category byte
+           * lives there, and a 2-byte P_IORD's high byte lives at packed[np] (up_iord2, below) */
+          r->np >= 8u && r->np <= (r->ver >= 4u ? UP_CAT_AT : UP_PMAX) && r->name[0])) return 0;
     if (r->ver >= 4u)
         for (uint32_t i = 0; i < r->np; i++)
             /* P_IORD's low byte only: high byte lives at packed[np] when np > 111 (insert chain) */
@@ -123,7 +125,9 @@ static int up_used(uint32_t k) { return k < UP_SLOTS && up_valid(up_rec(k)); }
 
 static int up_grid(const up_rec_t *r) { return r->ver == 3u || r->ver == UP_VER_GRID; }
 /* Insert-chain records (np > 111): P_IORD is two bytes (low at packed[P_IORD], high at packed[np]).
- * Felucca 1.5 (np 111): index 96 is INSERT TYPE, one biased byte — same rule as project.c iord2. */
+ * Felucca 1.5 (np 111): index 96 is INSERT TYPE, one biased byte — same rule as project.c iord2.
+ * The wire form is the same as a project's (params.c wire_val_* / wire_iord_*), which this file
+ * cannot share: its host test builds upreset.c on its own, without params.c. Keep the two in step. */
 static int up_iord2(const up_rec_t *r) { return r->ver >= 4u && r->np > 111u; }
 static int16_t up_value(const up_rec_t *r, uint32_t k)
 {

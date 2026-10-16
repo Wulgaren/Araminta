@@ -1439,15 +1439,14 @@ static void graph_pick(void)
 static void graph_events(void)
 {
     const track_t *t = TSEL;
-    uint16_t rw[EV_ROWS];
-    uint32_t n = ev_list(rw), cur = ev_row(n), k;
+    uint32_t n = ev_list(ev_rw), cur = ev_row(n), k;
     int32_t row, first = clamp((int32_t)cur - 3, 0, (int32_t)n > 7 ? (int32_t)n - 7 : 0);
     for (row = 0; row < 7 && (uint32_t)(first + row) < n; row++) {
         int32_t y = LIST_Y(row);
         int sel;
         uint16_t bg, c;
         k = (uint32_t)(first + row);
-        c = rw[k];
+        c = ev_rw[k];
         sel = k == cur;
         bg = sel ? T_THEME : T_SURF;
         if (sel)

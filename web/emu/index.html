@@ -90,7 +90,7 @@ footer small { font-size: 11px; opacity: .8; }
 </p>
 
 <footer>
-  <small class="version">@VERSION@@PREVIEW@</small><br>
+  <small class="version">@VERSION@@PREVIEW@</small> <small id="cpu" class="load" hidden></small><br>
   Araminta by <a href="https://github.com/Wulgaren">Wulgaren</a>, based on Felucca by Leo Kuroshita, Hügelton Instruments · <a href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0</a> · browser build after charlesvestal's <a href="https://github.com/charlesvestal/fm1-x0x">X0X</a> · DotGothic16 font, <a href="fonts/OFL.txt">SIL OFL 1.1</a><br>
   <nav><a href="../installer/">Install</a><a href="../editor/">Editor</a><a href="https://github.com/Wulgaren/Araminta">Source</a></nav>
   <small>M-VAVE and FM-1 are trademarks of their respective owners. Araminta is not affiliated with or endorsed by them.</small>
@@ -404,25 +404,39 @@ function drawLights([litB, litK, dimB, dimK, dimLo = 0, brB = 0, brK = 0, midK =
 }
 
 // ------------------------------------------------------------------ the flash, kept in this browser
+/* A save writes many sectors over several frames, so a sector's base64 is only recomputed when it differs from
+   what localStorage holds, and the map is written at most every FLUSH_MS (a pagehide flushes what is left: the
+   last save must not be lost). Without the diff and the pause one save burst meant a hundred base64+JSON of the
+   whole map, in a few frames, on the audio thread's control thread. */
+let flashRaw = {};                     /* offset -> base64: what is in localStorage now */
+let flashDirty = false;                /* sectors changed since the last write */
+let flashAt = 0;                       /* performance.now() of the last write */
+const FLUSH_MS = 2000;
+function flushFlash() {
+  try { localStorage.setItem(STORE, JSON.stringify(flashRaw)); flashDirty = false; flashAt = performance.now(); }
+  catch { /* private mode, full: this session only */ }
+}
 function loadFlash() {
   try {
     const raw = JSON.parse(localStorage.getItem(STORE) || "{}"), out = {};
     for (const [off, b64] of Object.entries(raw)) out[off] = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    flashRaw = raw;
     return out;
   } catch { return {}; }
 }
-function saveFlash(sectors) {
+function saveFlash(sectors, now) {
   try {
-    const raw = {};
     for (const [off, u8] of Object.entries(sectors)) {
       let s = "";
       for (let i = 0; i < u8.length; i += 4096) s += String.fromCharCode.apply(null, u8.subarray(i, i + 4096));
-      raw[off] = btoa(s);
+      const b64 = btoa(s);
+      if (flashRaw[off] !== b64) { flashRaw[off] = b64; flashDirty = true; }
     }
-    localStorage.setItem(STORE, JSON.stringify(raw));
+    if (flashDirty && now - flashAt >= FLUSH_MS) flushFlash();
     return true;
-  } catch { return false; }                                       // private mode, full: this session only
+  } catch { return false; }
 }
+addEventListener("pagehide", () => { if (flashDirty) flushFlash(); });
 
 // ------------------------------------------------------------------ Web MIDI in (channel messages)
 async function midiOn() {
@@ -457,6 +471,7 @@ async function switchOn() {
     node = new AudioWorkletNode(ac, "felucca", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
     node.connect(ac.destination);
     let warned = false;
+    const cpu = document.getElementById("cpu");
     await new Promise((res, rej) => {
       node.port.onmessage = (e) => {
         const m = e.data;
@@ -465,7 +480,11 @@ async function switchOn() {
         else if (m.type === "frame") {
           if (m.fb) drawScreen(m.fb);
           if (m.leds) drawLights(lastLeds = m.leds, m.anim);
-          if (m.sectors && !saveFlash(m.sectors) && !warned) {
+          if (m.load !== undefined) {                          // the share of real time running the device
+            cpu.hidden = false;
+            cpu.textContent = ` device: ${Math.round(m.load * 100)}% CPU`;
+          }
+          if (m.sectors && !saveFlash(m.sectors, performance.now()) && !warned) {
             warned = true;
             console.warn("Felucca: this browser does not keep the saves; they last until the page closes.");
           }
@@ -489,7 +508,10 @@ async function switchOn() {
   }
 }
 document.getElementById("go").addEventListener("click", switchOn);
-document.addEventListener("visibilitychange", () => send({ type: "visible", on: !document.hidden }));
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) flushFlash();                      /* a hidden tab can be dropped without a pagehide */
+  send({ type: "visible", on: !document.hidden });
+});
 </script>
 </body>
 </html>

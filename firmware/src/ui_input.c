@@ -1209,8 +1209,7 @@ static void edit_param(uint32_t slot, int32_t steps)
             r->repeat = (uint8_t)clamp((int32_t)r->repeat + steps, 1, 16);
         return;
     }
-    if (chain_busy() && (pg->scope == SC_STEP || pg->graph == GR_STEPS ||
-        0)) {
+    if (chain_busy() && (pg->scope == SC_STEP || pg->graph == GR_STEPS)) {
         ui_message("STOP TO EDIT"); return;
     }
     if (pg->scope == SC_STEP) {

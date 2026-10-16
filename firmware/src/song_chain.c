@@ -42,6 +42,7 @@ static void seq_release(track_t *t);
 static void seq_stop(void);
 static uint32_t div_samples(uint32_t div);
 static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx);
+#define ND_NONE 0u                      /* track_t nd_late / nd_early: nothing latched (seq_tick; else its seq_pos + 1) */
 
 static chain_row_t chain_row_of(uint32_t slot, uint32_t repeat)   /* a section with all four tracks on one slot */
 {
@@ -133,6 +134,8 @@ static __attribute__((noinline)) void chain_apply(void)
         t->arp_pos = 0xFFFFFFF;                    /* with the section's step 1 */
         t->arp_idx = 0xFFFFFFFFu;
         t->rh_n = t->rskip_n = 0;
+        t->nd_late = t->nd_early = ND_NONE;        /* (a nudged play of the old section: not after it) */
+        t->nd_fired = 0;
     }
 }
 static void chain_start(void)
@@ -168,7 +171,7 @@ static void chain_stop(void)
 }
 static void chain_tick(uint32_t n)
 {
-    const track_t *t = &trk[chain.clk % NTRK];
+    const track_t *t = &trk[chain.clk];           /* (chain_clock: 0..NTRK-1) */
     uint32_t length;
     if (!chain.running || t->seq_pos >= 0x7FFFFFFFu || t->seq_idx + 1u != (uint32_t)t->p[P_SLEN])
         return;

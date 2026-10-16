@@ -32,7 +32,7 @@ typedef struct {                                         /* a hit */
     uint32_t ph, ph2, inc;                               /* the phases; the last block's end increment */
     int32_t ea, en, ep;                                  /* amplitude, noise (Q30), pitch (Q15) envelopes */
     int32_t ic1, ic2, rng;                               /* the noise filter's state, the noise */
-    int32_t mo;                                          /* WARP: the modulator's last output (its feedback) */
+    int32_t mo;                                          /* FOLD (warp): the modulator's last output (its feedback) */
     uint32_t ph3;                                        /* (JIANT 0.4) the SINE pitch modulation's phase */
     int32_t lp;                                          /* (JIANT 0.5) the output's one-pole low-pass state */
     uint8_t live, trig, choke;
@@ -162,7 +162,9 @@ static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, 
             }
             v->ph2 = ph2;
         } else {                                         /* FM: harmonic, every wave */
-            uint32_t w = 0u;
+            /* w: the FOLD (warp) value: it feeds the modulator back into itself as well
+             * (0: no feedback, the modulator a plain function of its phase) */
+            uint32_t w = (uint32_t)fold;
             uint32_t ph2 = v->ph2, ratio = (fm ? FM_RATIO[(uint32_t)fm >> 4] : DX_RATIO[wave]) + w * 70u, fb = w << 10;
             int32_t idx = q[DXP_COLOR] * 3 + (int32_t)w * 3 + (fm ? (((fm & 15) + 3) * 12) : 0), mo = v->mo;   /* (JIANT
                                                           * 0.5: the band's index halved and more, no glassy edge) */

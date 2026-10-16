@@ -78,15 +78,28 @@ def blit_text(img: Image.Image, x: int, y_top: int, s: str, glyphs) -> None:
     px = x
     for ch in s:
         g = glyphs[ord(ch)]
-        ox = px + g["bx"]
-        oy = baseline - g["by"] - g["bh"]
+        w, h = g["bw"], g["bh"]
+        d = bytearray(w * h)                      # one image per glyph: no putpixel per pixel
         for ry, row in enumerate(g["rows"]):
+            base = ry * w
             for rx, bit in enumerate(row):
                 if bit:
-                    xx, yy = ox + rx, oy + ry
-                    if 0 <= xx < img.width and 0 <= yy < img.height:
-                        img.putpixel((xx, yy), 255)
+                    d[base + rx] = 255
+        if w and h:
+            img.paste(Image.frombytes("L", (w, h), bytes(d)), (px + g["bx"], baseline - g["by"] - h))
         px += g["adv"]
+
+
+def logo_image(w, h, stride, nums) -> Image.Image:
+    """the packed 1-bit rows as an L image (0 / 255 a pixel)"""
+    d = bytearray(w * h)
+    for y in range(h):
+        row = nums[y * stride:(y + 1) * stride]
+        base = y * w
+        for x in range(w):
+            if (row[x >> 3] >> (x & 7)) & 1:
+                d[base + x] = 255
+    return Image.frombytes("L", (w, h), bytes(d))
 
 
 def main() -> None:
@@ -98,11 +111,7 @@ def main() -> None:
     canvas = Image.new("L", (240, 240), 0)
     x0 = (240 - lw) // 2
     y0 = 8  # SPL_LOGO_Y
-    for y in range(lh):
-        row = nums[y * stride : (y + 1) * stride]
-        for x in range(lw):
-            if (row[x >> 3] >> (x & 7)) & 1:
-                canvas.putpixel((x0 + x, y0 + y), 255)
+    canvas.paste(logo_image(lw, lh, stride, nums), (x0, y0))
 
     name = "ARAMINTA"
     name_y = y0 + lh + 6  # SPL_NAME_Y

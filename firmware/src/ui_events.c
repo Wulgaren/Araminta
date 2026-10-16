@@ -46,6 +46,13 @@ enum { EVK_TOP, EVK_REC, EVK_CHANCE, EVK_RATCH, EVK_ADD, EVK_NUDGE, EVK_QNT, EVK
                                                                                            * #162; VEL: 1.5, #173) */
 #define EVC(k, a) ((uint16_t)((uint32_t)(k) << 8 | (a)))   /* a row: its kind, its record (EVK_REC) or its step */
 #define EV_ROWS (3u + MOTION_MAX + 4u * NSTEP)
+/* One shared row list for the whole AUTOMATION page, in place of the 387-entry / 774 B buffer a
+ * dozen callers used to put on their stacks. Safe to share: the main loop is single-threaded and
+ * every consumer takes the scalars it needs (ev_cur's returned code, the count) or else walks the
+ * list itself without calling another ev_* in between, so two are never live at once (ev_list /
+ * ev_cur / ev_follow never nest; the draw paths call them one at a time). In .pool (main loop
+ * only), off the audio ISR's .bss. */
+static uint16_t ev_rw[EV_ROWS] __attribute__((section(".pool")));
 static int ev_sid(uint32_t id) { return id >= EV_VEL && id <= EV_RATCH; }   /* a step's own field */
 static int ev_skd(uint32_t k) { return k == EVK_CHANCE || k == EVK_RATCH || k == EVK_NUDGE || k == EVK_VEL; }
 
@@ -228,9 +235,8 @@ static void ev_enter(void)
 /* the row showing c (after a move it may sit elsewhere in the order) */
 static void ev_follow(uint32_t c)
 {
-    uint16_t rw[EV_ROWS];
-    uint32_t n = ev_list(rw), r;
-    for (r = 0; r < n && rw[r] != c; r++)
+    uint32_t n = ev_list(ev_rw), r;
+    for (r = 0; r < n && ev_rw[r] != c; r++)
         ;
     if (r < n)
         ui.ev_row = (uint16_t)r;
@@ -240,7 +246,7 @@ static void ev_follow(uint32_t c)
 static uint32_t ev_sig(void)
 {
     const track_t *t = TSEL;
-    uint16_t rw[EV_ROWS];
+    uint16_t *rw = ev_rw;
     uint32_t n = ev_list(rw), h = 2166136261u, i, c;
     for (i = 0; i < n; i++) {
         c = rw[i];
@@ -258,8 +264,7 @@ static uint32_t ev_sig(void)
 
 static const char *ev_act_name(void)
 {
-    uint16_t rw[EV_ROWS];
-    uint32_t c = ev_cur(rw, 0), k = c >> 8;
+    uint32_t c = ev_cur(ev_rw, 0), k = c >> 8;
     if (k == EVK_TOP)
         return "CLEAR";
     if (k == EVK_ADD)
@@ -270,8 +275,7 @@ static const char *ev_act_name(void)
 }
 static int ev_act_ready(void)
 {
-    uint16_t rw[EV_ROWS];
-    uint32_t c = ev_cur(rw, 0), k = c >> 8;
+    uint32_t c = ev_cur(ev_rw, 0), k = c >> 8;
     if (chain_busy())
         return 0;
     if (k == EVK_TOP)
@@ -340,8 +344,7 @@ static int pk_knob(int32_t s);
 static void ev_knob(uint32_t slot, int32_t s)
 {
     track_t *t = TSEL;
-    uint16_t rw[EV_ROWS];
-    uint32_t n, c = ev_cur(rw, &n), r = ev_row(n), k = c >> 8, i, step, id;
+    uint32_t n, c = ev_cur(ev_rw, &n), r = ev_row(n), k = c >> 8, i, step, id;
     const motion_event_t *e;
     const param_desc_t *d;
     if (slot == 0u) {
@@ -350,7 +353,7 @@ static void ev_knob(uint32_t slot, int32_t s)
             pk_close();
             ui.ev_keep = 0;
             ui.ev_row = (uint16_t)to;
-            ev_follow(rw[to]);
+            ev_follow(ev_rw[to]);
         }
         return;
     }
@@ -414,6 +417,10 @@ static void ev_knob(uint32_t slot, int32_t s)
     } else {                                            /* the value */
         pk_close();
         d = motion_target_desc(t, id);
+        if (!d) {                                      /* a stale record: this engine has no such field */
+            ui_message("NO PARAM");
+            return;
+        }
         s = accel(EN_K1 + slot, s, d->fmt == F_ENUM ? 0 : d->max - d->min);
         motion_undo_take(t, 0x200u | slot | i << 4);   /* (a knob turned on, this record) */
         (void)motion_move(t, i, step, id, (int16_t)param_turn(d, e->value, s));
@@ -427,8 +434,7 @@ static void ev_knob(uint32_t slot, int32_t s)
 static void ev_oct(void)
 {
     track_t *t = TSEL;
-    uint16_t rw[EV_ROWS];
-    uint32_t c = ev_cur(rw, 0), k = c >> 8;
+    uint32_t c = ev_cur(ev_rw, 0), k = c >> 8;
     int32_t at;
     if (ev_busy())
         return;
@@ -502,8 +508,7 @@ static int sd_takes(const step_t *s, uint32_t k) { return step_on(s) || (k == EV
 static void ev_delete(void)
 {
     track_t *t = TSEL;
-    uint16_t rw[EV_ROWS];
-    uint32_t n, c = ev_cur(rw, &n), r = ev_row(n), k = c >> 8;
+    uint32_t n, c = ev_cur(ev_rw, &n), r = ev_row(n), k = c >> 8;
     const motion_event_t *e;
     if (k == EVK_TOP || k == EVK_QNT || k == EVK_ADD) {
         ui_message("NOTHING TO DEL");
@@ -783,12 +788,11 @@ static void pk_step(uint32_t *cur, int32_t dir)
 static void pk_open(uint32_t kind)
 {
     uint32_t sel = 0, id, step;
-    uint16_t rw[EV_ROWS];
     uint32_t c, k;
     const track_t *t = TSEL;
     ui.pick = (uint8_t)kind;
     if (kind == PK_AUTO) {
-        c = ev_cur(rw, 0);
+        c = ev_cur(ev_rw, 0);
         k = c >> 8;
         if (k == EVK_REC) {
             id = MOTION_ID(&motion.event[c & 0xFFu]);
@@ -813,8 +817,7 @@ static void pk_apply(void)
         return;
     id = pk_rows[pk_cur].id;
     if (ui.pick == PK_AUTO) {
-        uint16_t rw[EV_ROWS];
-        uint32_t c = ev_cur(rw, 0), k = c >> 8, step, from;
+        uint32_t c = ev_cur(ev_rw, 0), k = c >> 8, step, from;
         if (k == EVK_ADD) {
             ui.ev_id = (uint8_t)id;
         } else if (k == EVK_REC && id < P_COUNT) {

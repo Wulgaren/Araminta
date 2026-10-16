@@ -120,6 +120,7 @@ static __attribute__((noinline)) void digital_render_legacy(track_t *t, voice_t 
 
 /* Independent operator envelopes use a shared 640-byte runtime table, never
  * retained state. Transparent defaults retain the original DSP path exactly. */
+/* (the runtime table is digital_env + digital_stage, below: 512 B of envelopes and 128 B of stages) */
 static int digital_custom(const track_t *t)
 {
     uint32_t op;

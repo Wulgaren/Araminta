@@ -94,6 +94,7 @@ static void slicer_start(void)   /* seq_start: the next block starts step 0 of e
         sl[k].idx = 15;
         sl[k].pos = sl[k].len = 0;
         sl[k].pa = 0;
+        sl[k].rec = sl[k].loop = sl[k].rp = sl[k].rec_on = 0;   /* a fresh start: no take left to repeat */
     }
     sl_bus.idx = 15;
     sl_bus.pos = sl_bus.len = 0;
@@ -261,27 +262,17 @@ static void sl_run_send(const track_t *t, int32_t *b, int32_t *sd, uint32_t n)
     s->bit = clock->bit;
     sl_run(pt, t, s, sl_buf[k], b, sd, n);
     if (drive) {
-        sl_bus = *s;
+        sl_bus.idx = s->idx;                     /* the bus carries the clock only: the recordings and */
+        sl_bus.pos = s->pos;                     /* the envelopes stay per track, in sl[k] */
+        sl_bus.len = s->len;
+        sl_bus.base = s->base;
+        sl_bus.bit = s->bit;
         sl_bus_applied = 1;
         sl_bus_driver = (uint8_t)k;
     }
 }
 
-/* the step clock over n samples and the SLICER on b (0: the clock only, the track is silent) */
-static void slicer_track(const track_t *t, int32_t *b, uint32_t n)
-{
-    uint32_t k = (uint32_t)(t - trk);
-    sl_t *s = sl_state(t);
-    if (!s)                                          /* USED: another track has CHAIN */
-        return;
-    if (s == &sl_bus) {
-        sl_run_send(t, b, 0, n);
-        return;
-    }
-    sl_run(t, t, s, sl_buf[k], b, 0, n);
-}
-
-/* slicer_track with SPREAD's side signal sd (fx.c mix_spread; b != 0) */
+/* slicer_track with SPREAD's side signal sd (fx.c mix_spread; b != 0); sd 0: the mono mix (fx.c mix_part) */
 static __attribute__((noinline)) void slicer_track_sd(const track_t *t, int32_t *b, int32_t *sd, uint32_t n)
 {
     uint32_t k = (uint32_t)(t - trk);
@@ -295,6 +286,10 @@ static __attribute__((noinline)) void slicer_track_sd(const track_t *t, int32_t 
     sl_run(t, t, s, sl_buf[k], b, sd, n);
 }
 
+/* the step clock over n samples and the SLICER on b (0: the clock only, the track is silent).
+ * noinline: its three call sites (fx.c) stay out of the audio ISR's mix code, as its _sd twin's */
+static __attribute__((noinline)) void slicer_track(const track_t *t, int32_t *b, uint32_t n) { slicer_track_sd(t, b, 0, n); }
+
 /* a silent part must still be rendered: a repeat is playing or fading (fx.c mix_part) */
 static int slicer_busy(const track_t *t)
 {
@@ -303,5 +298,5 @@ static int slicer_busy(const track_t *t)
     const track_t *pt = sl_trk_send(t) ? &fx_bus_trk : t;
     if (sl_trk_used(t))
         return 0;
-    return s->w || s->pa || (t->p[P_SLDEPTH] && pt->p[P_SLCR] == SL_STUT && s->loop);
+    return s->gc || s->w || s->pa || (t->p[P_SLDEPTH] && pt->p[P_SLCR] == SL_STUT && s->loop);
 }

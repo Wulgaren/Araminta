@@ -864,6 +864,8 @@ static void cv_key_row(int32_t x0, int32_t x1, int32_t y, const khint_t *h, uint
         words--;
     }
     gap = n > 1u ? (x1 - x0 - w) / (int32_t)(n - 1u) : 0;
+    if (gap < 0)
+        gap = 0;                                       /* keycaps alone already fill the row: no overlap */
     for (i = 0; i < n; i++) {
         if (n > 1u && i + 1u == n)
             x = x1 - kh_w(h[i].key, i < words ? h[i].act : 0);   /* the last one flush right */

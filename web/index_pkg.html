@@ -89,6 +89,8 @@ const TEXT = {
     noreturn: "FM-1 が戻ってきません。電源を入れ直してください。",
     mismatch: "書き込みは終わりましたが、FM-1 が別のバージョンを報告しています: ",
     badpkg: "インストールするファイルが壊れています。ページを再読み込みしてください。",
+    template: "このページはテンプレートです。make_site.py でビルドしてください。",
+    nosecure: "このページを https:// か localhost で開いてください。公式ファイルの検証には安全な接続が必要です。",
     leave: "書き込み中です。ページを閉じないでください。",
     license: "GPL-3.0、無保証。ソース:",
   },
@@ -120,12 +122,14 @@ const TEXT = {
     noreturn: "The FM-1 did not come back. Power-cycle it.",
     mismatch: "Written, but the FM-1 reports another version: ",
     badpkg: "The file to install is damaged. Reload the page.",
+    template: "This page is a template. Build it with make_site.py.",
+    nosecure: "Open this page over https:// or on localhost. Validating the official firmware needs a secure context.",
     leave: "Writing. Do not close the page.",
     license: "GPL-3.0, no warranty. Source:",
   },
 };
 let lang = (navigator.language || "en").toLowerCase().startsWith("ja") ? "ja" : "en";
-const t = (k) => TEXT[lang][k];
+const t = (k) => TEXT[lang][k] ?? k;
 let lastKey = null, lastArg = "";
 function applyLang() {
   document.documentElement.lang = lang;
@@ -138,8 +142,17 @@ applyLang();
 const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textContent = t(k) + arg; };
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
 const log = (t) => { $("log").textContent += t + "\n"; };
+/* an updater error carries a code the pages translate; anything else falls back to its message (guarded: a throw
+   of null or of a string would otherwise turn the report into a fresh TypeError) */
+const showError = (e, fallback = "error") => {
+  if (e && e.code && TEXT[lang][e.code]) sayK(e.code, e.detail || "");
+  else sayK(fallback, (e && e.message) || String(e));
+};
 let image = null;
 const meta = /*META*/;
+/* the template's two markers are substituted by make_site.py; opening this file directly would leave them as
+   comments and every call below would fail with a TypeError */
+if (!meta || !meta.pkg || !meta.product) { sayK("template"); }
 
 let writing = false, stock = null, stockFileEpoch = 0;
 const lockInstaller = (on) => { writing = on; $("go").disabled = on || !image; $("stock-go").disabled = on || !stock; $("stock-file").disabled = on; $("stock-recovery").disabled = on; };
@@ -147,6 +160,8 @@ window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault
 
 (async () => {
   if (!navigator.requestMIDIAccess) { sayK("nomidi"); return; }
+  if (!meta || !meta.pkg) { sayK("template"); return; }   /* this file is a template: make_site.py fills it in */
+  if (!crypto || !crypto.subtle) { sayK("nosecure"); return; }
   try {
     const r = await fetch(meta.pkg);
     if (!r.ok) throw new Error(`${meta.pkg}: HTTP ${r.status}`);
@@ -155,7 +170,7 @@ window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault
     image = logicalImage(pkg);
     say(`Araminta ${meta.version}`);
     $("go").disabled = false;
-  } catch (e) { sayK("loadfail", e.message); }
+  } catch (e) { showError(e, "loadfail"); }
 })();
 
 $("go").addEventListener("click", async () => {
@@ -166,13 +181,16 @@ $("go").addEventListener("click", async () => {
   catch (e) { sayK("denied"); lockInstaller(false); return; }
   try {
     const up = new Updater(midi, log);
-    const total = 74 + 1167;
+    /* the progress bar is an estimate: the loader asks for up to 512 B at a time, so step 2 is the image in
+       512-byte reads and step 1 is the few reads before it. A firmware that asks differently moves the bar. */
+    const CHUNK = 512, VERIFY_READS = 74;
+    const total = VERIFY_READS + Math.ceil(image.length / CHUNK);
     const step = (k, a) => {
       log(`${k} ${a ?? ""}`);
       if (k === "start") sayK("start");
       if (k === "verify") { sayK("verify"); $("bar").value = (a / total) * 100; }
       if (k === "loader") sayK("loader");
-      if (k === "write") { sayK("write"); $("bar").value = ((74 + a) / total) * 100; }
+      if (k === "write") { sayK("write"); $("bar").value = ((VERIFY_READS + a) / total) * 100; }
       if (k === "reboot") sayK("reboot");
       if (k === "done") { $("bar").value = 100; sayK("done"); }
     };
@@ -184,8 +202,7 @@ $("go").addEventListener("click", async () => {
       await up.install(image, meta.product, step);
     }
   } catch (e) {
-    if (e && e.code && TEXT[lang][e.code]) sayK(e.code, e.detail || "");
-    else sayK("error", e && e.message);
+    showError(e);
     log(String(e && e.stack || e));
   }
   lockInstaller(false);
@@ -199,22 +216,32 @@ $("stock-file").addEventListener("change", async () => {
     const verified = await validateStockPackage(new Uint8Array(await file.arrayBuffer()));
     if (epoch !== stockFileEpoch) return;
     stock = verified; sayK("stockValid"); lockInstaller(false);
-  } catch (e) { if (epoch === stockFileEpoch) sayK("stockError", e.message); }
+  } catch (e) { if (epoch === stockFileEpoch) sayK("stockError", (e && e.message) || String(e)); }
 });
 function saveArchive(archive) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(archive)], {type:"application/json"}));
   const a = document.createElement("a"); a.href = url; a.download = `Araminta-backup-${new Date().toISOString().slice(0,10)}.json`;
   document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+/* the firmware's INFO (cmd 1): its version string, every engine name, the track count, and the tagged trailer
+   after it. Only a complete backup needs (16, 0x55, 1) + (0x4d, 1, 64) + (0x42, 1) with bit 0 set; a reply short of
+   that is a firmware that does not answer it, not one that cannot back up. */
 function archiveInfo(a) {
-  let pos = a.indexOf(0); if (pos < 0) throw new Error("Invalid INFO");
-  const version = String.fromCharCode(...a.slice(0,pos)); pos++;
+  let pos = a.indexOf(0);
+  if (pos < 0 || !a.length) throw new Error("Invalid INFO");
+  const version = String.fromCharCode(...a.slice(0, pos)); pos++;
   const engines = a[pos]; pos += 5;
-  for (let i = 0; i < engines; i++) { const end = a.indexOf(0,pos); if (end < 0) throw new Error("Invalid INFO"); pos = end + 1; }
+  for (let i = 0; i < engines; i++) { const end = a.indexOf(0, pos); if (end < 0) throw new Error("Invalid INFO"); pos = end + 1; }
   const ext = a.slice(pos + 1);
-  const supported = /^ARAMINTA /i.test(version) && ext[0] === 16 && ext[1] === 0x55 && ext[2] === 1 &&
-    ext[4] === 0x4d && ext[5] === 1 && ext[8] === 0x42 && ext[9] === 1 && (ext[10] & 1);
-  return {version,supported};
+  /* a firmware that advertises the preference tag has to carry the motion and the backup groups too; one with no
+     tagged trailer at all is simply an old firmware, which reports "not supported" rather than an error */
+  if (ext[0] === INFO_TAG.SONG && ext[1] === INFO_TAG.UI && ext[2] === 1 && ext.length < 11)
+    throw new Error("Short INFO reply");
+  const supported = /^ARAMINTA /i.test(version)
+    && ext[0] === INFO_TAG.SONG && ext[1] === INFO_TAG.UI && ext[2] === 1
+    && ext[4] === INFO_TAG.MOTION && ext[5] === 1
+    && ext[8] === INFO_TAG.BACKUP && ext[9] === 1 && (ext[10] & 1);
+  return { version, supported, backupCaps: ext[10] & 3 };
 }
 $("stock-go").addEventListener("click", async () => {
   if (!stock || writing) return;
@@ -245,8 +272,8 @@ $("stock-go").addEventListener("click", async () => {
       await up.install(selected.image, selected.product, step);
     }
   } catch (e) {
-    if (e.code && TEXT[lang][e.code]) sayK(e.code,e.detail || ""); else sayK("error",e.message);
-    log(String(e.stack || e));
+    showError(e);
+    log(String(e && e.stack || e));
   } finally { if (link) link.close(); lockInstaller(false); }
 });
 </script>

@@ -45,8 +45,12 @@ function chipkeyDecode(d) {
 const align32 = (v) => (v + 31) & ~31;
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
 const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
-function w16(b, o, v) { b[o] = v & 0xFF; b[o + 1] = (v >> 8) & 0xFF; }
-function w32(b, o, v) { w16(b, o, v & 0xFFFF); w16(b, o + 2, (v >>> 16) & 0xFFFF); }
+/* the .fwsc's first 20 blocks without their 20 marker bytes: the UFW header as it is addressed */
+function headerBytes(raw) {
+  const h = new Uint8Array(BLOCKS * KEEP);
+  for (let i = 0; i < BLOCKS; i++) h.set(raw.subarray(i * BLK, i * BLK + KEEP), i * KEEP);
+  return h;
+}
 
 class Entry {                                   // JLFS head, 32 bytes
   constructor(raw, off) {
@@ -63,16 +67,11 @@ class Entry {                                   // JLFS head, 32 bytes
     this.name = String.fromCharCode(...this.rawName.slice(0, z < 0 ? 16 : z));
     if (crc16(raw.subarray(off + 2, off + 32)) !== this.hcrc) throw new Error(`JLFS header CRC mismatch @${off.toString(16)}`);
   }
-  packInto(buf) {
-    const o = this.hdrOff;
-    w16(buf, o + 2, this.dcrc); w32(buf, o + 4, this.offset); w32(buf, o + 8, this.size);
-    buf[o + 12] = this.flags; buf[o + 13] = this.resvd; w16(buf, o + 14, this.index);
-    buf.set(this.rawName, o + 16);
-    this.hcrc = crc16(buf.subarray(o + 2, o + 32));
-    w16(buf, o, this.hcrc);
-  }
 }
 
+/* Reading only: packages are made by tools/fm1pkg_make.py (make_site.py's docstring), so nothing here writes one
+   back out. The old setApp / setProduct / serialize / packInto path had no caller outside this file and is gone;
+   the browser only validates a package and derives the image the device addresses. */
 export class Package {
   constructor(bytes) {
     this.raw = new Uint8Array(bytes);
@@ -83,31 +82,12 @@ export class Package {
 
   get product() { return productOf(this.raw); }
 
-  setProduct(name) {
-    if (name.length > BLOCKS) throw new Error("product name too long");
-    for (let i = 0; i < BLOCKS; i++) {
-      const m = i < name.length ? (name.charCodeAt(i) + i + 1) & 0xFF : 0x7D;
-      if (i < name.length && m === 0x7D) throw new Error("product name encodes to the unused marker");
-      this.raw[i * BLK + KEEP] = m;
-    }
-  }
-
-  headerBytes() {
-    const h = new Uint8Array(BLOCKS * KEEP);
-    for (let i = 0; i < BLOCKS; i++) h.set(this.raw.subarray(i * BLK, i * BLK + KEEP), i * KEEP);
-    return h;
-  }
-
-  hdrFileOff(i) { return Math.floor(i / KEEP) * BLK + (i % KEEP); }
-
   parseUfw() {
-    const h = this.headerBytes();
+    const h = headerBytes(this.raw);
     enc(h, 0, 0x40);
     const hcrc = u16(h, 0), lcrc = u16(h, 2), nent = u16(h, 8);
     if (crc16(h.subarray(2, 0x40)) !== hcrc) throw new Error("not an FM-1 .fwsc (UFW header CRC mismatch)");
     this.skew = BLOCKS * BLK - h.length;
-    this.ufw = h;
-    this.nent = nent;
     const hsize = 0x40 + nent * 0x50;
     if (crc16(h.subarray(0x40, hsize)) !== lcrc) throw new Error("UFW entry list CRC mismatch");
     this.entries = [];
@@ -120,7 +100,6 @@ export class Package {
     }
     const fl = this.entries.find((e) => e.type === 0);
     if (!fl) throw new Error("no flash.bin in the package");
-    this.flashEntry = fl;
     this.flashFileOff = fl.dataOff + this.skew;
     this.flashSize = fl.size;
     if (crc16(this.raw.subarray(this.flashFileOff, this.flashFileOff + fl.size)) !== fl.dcrc) throw new Error("flash.bin CRC mismatch");
@@ -173,41 +152,7 @@ export class Package {
     this.appOff = b + this.app.offset;
     this.dec = dec;
   }
-
-  // the new app, padded to the stock size (Felucca never changes the layout)
-  setApp(app) {
-    if (app.length > this.app.size) throw new Error(`app is ${app.length} B, the slot is ${this.app.size} B`);
-    const nw = new Uint8Array(this.app.size).fill(0xFF);
-    nw.set(app);
-    const a = this.app, h = this.head, b = this.appBase;
-    this.dec.set(nw, this.appOff);
-    a.dcrc = crc16(nw);
-    a.packInto(this.dec);
-    h.dcrc = crc16(this.dec.subarray(h.hdrOff + 32, h.hdrOff + h.size));
-    h.packInto(this.dec);
-    this.sfcEnd = Math.max(align32(b + 32), b + h.size + this.cfgLen);
-    const region = this.dec.slice(b, this.sfcEnd);
-    sfc(region, 0, region.length, 0, this.chipKey);
-    this.flash.set(region, b);
-  }
-
-  serialize() {
-    const out = this.raw.slice();
-    out.set(this.flash, this.flashFileOff);
-    const fl = this.flashEntry, e = fl.plain.slice();
-    w16(e, 4, crc16(this.flash));
-    enc(e, 0, 0x50);
-    const h = this.ufw.slice();
-    h.set(e, fl.off);
-    const hsize = 0x40 + this.nent * 0x50;
-    w16(h, 2, crc16(h.subarray(0x40, hsize)));
-    w16(h, 0, crc16(h.subarray(2, 0x40)));
-    enc(h, 0, 0x40);
-    for (let i = 0; i < hsize; i++) out[this.hdrFileOff(i)] = h[i];
-    return out;
-  }
 }
-
 // the package identity ("FM-1_904"): one marker byte after each of the first 20 blocks
 export function productOf(fwsc) {
   if (fwsc.length < BLOCKS * BLK) throw new Error("not an FM-1 package (too short)");
@@ -243,14 +188,4 @@ export async function validateStockPackage(bytes) {
       !pkg.entries.some((e) => e.type === 100 && e.name === "ota.bin" && e.size === 19969))
     throw new Error("The official firmware has an unsupported FM-1 layout.");
   return { product: pkg.product, image: logicalImage(bytes), sha256: STOCK_V15_SHA256 };
-}
-
-// official V15 + Felucca app -> installable package (Uint8Array)
-export async function buildFeluccaPackage(stockBytes, appBytes, product) {
-  const sha = await sha256hex(stockBytes);
-  if (sha !== STOCK_V15_SHA256) throw new Error("this is not the official FM-1 V15 firmware file (FM-1.fwsc)");
-  const pkg = new Package(stockBytes);
-  pkg.setApp(appBytes);
-  pkg.setProduct(product);
-  return pkg.serialize();
 }

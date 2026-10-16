@@ -4817,7 +4817,6 @@ static int test_play_leds(void)
     t->step[0] = (step_t){.note = {60, 64}, .n = 2, .time = ST_NOTE};
     t->step[1] = (step_t){.note = {100}, .n = 1, .time = ST_NOTE};
     trk[1].step[0] = (step_t){.note = {67}, .n = 1, .time = ST_NOTE};
-    t->seq_active = trk[1].seq_active = 1;
     bad += check("stopped, nothing held: no key lit", key_leds(0) == 0u && play_leds() == 0u);
     seq_start();
     events_block(CTL);
@@ -4888,7 +4887,6 @@ static int test_cursor_step_leds(void)
     t->step[1] = (step_t){.note = {100}, .n = 1, .time = ST_NOTE};
     t->step[2] = (step_t){.note = {62}, .n = 1, .time = ST_REST};
     t->step[3] = (step_t){.note = {67}, .n = 1, .time = ST_TIE};
-    t->seq_active = 1;
     bad += check("#89 HOME, stopped: no step's keys lit", key_leds(0) == 0u);
     go_page(GR_ROLL);
     frame();
@@ -5012,7 +5010,6 @@ static int test_midi_leds(void)
     ok = key_leds(0) == (1u << 0 | 1u << 7);
     fm1_in.notes = 0;
     trk[0].step[0] = (step_t){.note = {64}, .n = 1, .time = ST_NOTE};
-    trk[0].seq_active = 1;
     seq_start();
     events_block(CTL);
     ok &= key_leds(0) == (1u << 7 | 1u << 11);
@@ -5217,7 +5214,6 @@ static int test_step_leds(void)
                 } else {
                     TSEL->step[0] = (step_t){.note = {60}, .n = 1, .time = ST_NOTE};   /* C4 on step 1 */
                 }
-                TSEL->seq_active = 1;
                 settings_leds = (uint8_t)m;
                 go_seq_step();
                 frame();
@@ -5274,7 +5270,6 @@ static int test_step_leds(void)
             TSEL->p[P_SLEN] = 16;
             TSEL->step[4] = (step_t){.hit = kick, .time = ST_NOTE};   /* a kick on step 5 (a beat) and on step 3 */
             TSEL->step[2] = (step_t){.hit = kick, .time = ST_NOTE};
-            TSEL->seq_active = 1;
             settings_leds = (uint8_t)m;
             go_seq_step();
                 frame();
@@ -5839,7 +5834,6 @@ static int test_seq_quant(void)
     t->p[P_ROOT] = 0;
     ok = kb_map(t, 8) == 61u && kb_map(t, 7) == 60u;   /* SEQ keys as OFF: C#4 stays C#4 */
     t->step[0] = (step_t){.note = {61, 66}, .n = 2, .time = ST_NOTE};
-    t->seq_active = 1;
     seq_start();
     events_block(CTL);
     ok &= t->seq_n == 2u && t->seq_notes[0] == 60u && t->seq_notes[1] == 65u && t->step[0].note[0] == 61u &&
@@ -6274,10 +6268,10 @@ static int test_fx_map(void)
     /* Punch-in sticky: PRESETS assigns while a key is held; EDIT restores default */
     ui_power_on();
     go_title("PUNCH"); frame();
-    ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
+    ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH && perf_map[4] == PF_LPF;
     key_down(white(4)); frame();                       /* C4 */
     turn(EN_PRESET, 1);
-    ok &= perf_map[4] != 0 || perf_map[4] == 0;         /* assignment path runs */
+    ok &= perf_map[4] == PF_HPF && !msg_is("HOLD A KEY: ASSIGN");
     key_up(white(4)); frame();
     bad += check("Punch-in sticky: map open without holding FX; PRESETS can assign a held key", ok && ui.lock == LAYER_FX);
     ui_power_on();
