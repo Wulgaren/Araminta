@@ -1678,15 +1678,8 @@ static __attribute__((noinline)) void mix_cache_update(const track_t *t, mix_cac
 /* one synth part into the dry mix and the sends; a part with no voice sounding costs
  * its control clocks only after insert and stutter tails have run out (Melodee).
  * CHAIN delay/reverb: keep feeding zeros so the bus rings after a short note (SEND already does).
- *
- * Does a silent part still need part_buf (shared by the parts) to run this block? track_render_audio
- * clears it when a voice sounds (clear_idle 0), and for a silent part only when asked: an insert
- * tail (MIX still up, or the chain's state ringing out), the SLICER, or a CHAIN bus that must keep
- * being fed zeros. A part that needs none of those leaves before the buffer is read. */
-static int mix_needs_clear(const track_t *t, int chain, int sl_busy)
-{
-    return chain || sl_busy || (t->tail && (ins_any(t) | t->ins_run));
-}
+ * need_zeros operand order matters: the audio ISR inlines this, and a different short-circuit order
+ * reshapes the CFG into an extra nested loop that blows the target_budget cost. */
 static void mix_part(track_t *t, uint32_t n)
 {
     int32_t *b = part_buf;
@@ -1696,13 +1689,10 @@ static void mix_part(track_t *t, uint32_t n)
     int sl_send = sl_trk_send(t);
     mod_begin(t);                                       /* the matrix's per-block values into t->p (mod.c) */
     /* after mod: insert MIX may turn on and still need a cleared part_buf (shared across tracks) */
-    int need_zeros = mix_needs_clear(t, chain, slicer_busy(t));
+    int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t) || chain;
     spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON);   /* (SPREAD, mix_spread) */
     if (track_render_audio(t, b, n, need_zeros))
         t->tail = ins_any(t) ? 64 : 16;                 /* blocks of insert state to run out after the last voice */
-    /* the same condition as need_zeros, with the tail's countdown: a silent part that needs none of
-     * them leaves here, before track_insert / the mix loop read part_buf (so a part never mixes
-     * another track's samples: nothing cleared it) */
     else if ((!t->tail || !(ins_any(t) | t->ins_run) || !--t->tail) && !slicer_busy(t) && !chain) {
         if (sl_send)
             slicer_track(t, 0, n);
