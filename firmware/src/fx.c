@@ -1430,7 +1430,10 @@ static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, const track_t *
                 r1 = (r0 - 1) & (int32_t)(IL_LEN - 1u);
                 fr = (int32_t)((d >> 1) & 0x7FFFu);
                 /* the window holds this run's writes (the runs of two parts never share one: fx.c
-                 * ins_stage); a read back into it takes its own write, behind it the shared line */
+                 * ins_stage); a read back into it takes its own write, behind it the shared line. One
+                 * CHOR depth past 107 wraps its delay into the window's tail early in a block, where
+                 * one-after-another renders left the part before's writes: those samples of the later
+                 * parts now read the line as it stood before the block (FLANG never wraps there) */
                 {
                     int32_t o0 = (r0 - (int32_t)wbase) & (int32_t)(IL_LEN - 1u);
                     int32_t o1 = (r1 - (int32_t)wbase) & (int32_t)(IL_LEN - 1u);
