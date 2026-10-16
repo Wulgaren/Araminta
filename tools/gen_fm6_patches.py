@@ -12,6 +12,9 @@ Operators are listed as OP1..OP6; the packed record starts with OP6, as the form
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import cgen  # noqa: E402
+
 
 def op(r=(99, 99, 99, 99), l=(99, 99, 99, 0), ol=0, fc=1, ff=0, det=7, mode=0, kvs=0, ams=0, rs=0,
        bp=39, ld=0, rd=0, lc=0, rc=0):
@@ -122,7 +125,8 @@ PATCHES = [
 
 
 def c_rows(b):
-    return ",\n".join("     " + ", ".join(f"{x:3d}" for x in b[i:i + 16]) for i in range(0, len(b), 16))
+    """the rows of one packed 128-byte record (16 per row, 3 wide) inside the 2-D initializer"""
+    return cgen.c_rows(b, 16, "{:3d}", indent="     ")
 
 
 def main(path):

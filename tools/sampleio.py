@@ -48,23 +48,6 @@ def wav_format(d, ch):
     return tag, nch, sr, bits
 
 
-def read_wav(path):
-    """16-bit PCM, first channel, as ints -> (rate, samples, (loop start, loop end) from 'smpl' or None)"""
-    d = path.read_bytes()
-    ch = wav_chunks(d)
-    tag, nch, sr, bits = wav_format(d, ch)
-    if bits != 16:
-        raise ValueError(f"{path}: {bits}-bit, expected 16")
-    o, n = ch.get(b"data", (0, 0))
-    s = list(struct.unpack_from("<%dh" % (min(n, len(d) - o) // 2), d, o))[::nch]
-    loop = None
-    if b"smpl" in ch:
-        o = ch[b"smpl"][0]
-        if struct.unpack_from("<I", d, o + 28)[0]:          # number of loops
-            loop = struct.unpack_from("<II", d, o + 36 + 8)
-    return sr, s, loop
-
-
 def _channel_values(tag, bps, raw):
     """interleaved sample values as floats in [-1, 1)"""
     n = len(raw) // bps

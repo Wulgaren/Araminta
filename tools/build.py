@@ -106,8 +106,6 @@ def tc_all(*cmds):
 def generate():
     """generated headers (UI fonts, icons, keycaps, palettes, tables, samples, splash logo)"""
     GEN.mkdir(parents=True, exist_ok=True)
-    for old in ("felucca_font.h", "felucca_icons.h"):     # headers of the bitmap font and icon atlas
-        (GEN / old).unlink(missing_ok=True)
     tools = SRC / "tools"
     cmds = [[tools / "gen_aa_font.py", GEN / "ui_fonts.h", "--preset", "terminus"],
             [tools / "gen_aa_icons.py", GEN / "ui_icons.h"],
@@ -119,13 +117,17 @@ def generate():
             [tools / "gen_splash_logo.py", GEN / "ui_splash_logo.h"]]
     procs = [subprocess.Popen([sys.executable, *map(str, c)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True) for c in cmds]
-    failed = []
+    failed, missing = [], []
     for c, p in zip(cmds, procs):
         sys.stdout.write(p.communicate()[0])
         if p.returncode:
             failed.append(c[0].name)
+        elif not c[1].exists():       # a generator that exits 0 without writing its header
+            missing.append(c[1].name)
     if failed:
         raise SystemExit(f"build: {', '.join(failed)} failed")
+    if missing:
+        raise SystemExit(f"build: nothing written to {', '.join(missing)}")
 
 
 # ---- update loader
