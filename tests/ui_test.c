@@ -6268,10 +6268,10 @@ static int test_fx_map(void)
     /* Punch-in sticky: PRESETS assigns while a key is held; EDIT restores default */
     ui_power_on();
     go_title("PUNCH"); frame();
-    ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
+    ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH && perf_map[4] == PF_LPF;
     key_down(white(4)); frame();                       /* C4 */
     turn(EN_PRESET, 1);
-    ok &= perf_map[4] != 0 || perf_map[4] == 0;         /* assignment path runs */
+    ok &= perf_map[4] == PF_HPF && !msg_is("HOLD A KEY: ASSIGN");
     key_up(white(4)); frame();
     bad += check("Punch-in sticky: map open without holding FX; PRESETS can assign a held key", ok && ui.lock == LAYER_FX);
     ui_power_on();

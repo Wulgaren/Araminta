@@ -52,7 +52,7 @@ typedef struct {
 } layer_t;
 static const layer_t LAYERS[LAYER_N] = {
     {0, 0, 0, "", {{0, 0}, {0, 0}, {0, 0}}},
-    {B_FX, LK_HOLD, FAM_HOME, "[FX]", {{KC_KEYS, "EFFECTS"}, {KC_K14, "MACROS"}, {0, 0}}},
+    {B_FX, LK_HOLD, FAM_HOME, "[FX]", {{KC_KEYS, "HOLD"}, {KC_PRESETS, "REASSIGN"}, {0, 0}}},
     {B_GLO, LK_SET, FAM_HOME, "[GLO]", {{KC_PLAY, "RESTART"}, {KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}}},
     {B_SCL, LK_SET, FAM_SCL, "[SCL]", {{KC_KEYS, "ROOT"}, {KC_OCTDN, "UNDO"}, {KC_SCL, "DONE"}}},
     {B_EDIT, LK_SET, FAM_HOME, "[EDIT]", {{KC_KEYS, "ENGINE"}, {KC_OCTDN, "UNDO"}, {KC_EDIT, "DONE"}}},
@@ -72,8 +72,7 @@ static const page_t *ly_page(uint32_t l) { return l == LAYER_SCL ? &LY_SCL : l =
 #define LY_INIT ((uint32_t)NENG_SHOWN) /* EDIT: the white key of INIT, the one after the engines (13: E5), its map cell */
 typedef char ly_init_fits[LY_INIT < 16u ? 1 : -1];   /* (a white key: F3 .. G5) */
 #define layer_seen (favorites.factory[15][31])   /* bit l: layer l opened once (a byte no engine uses) */
-static const khint_t FX_LATCH_FOOT[3] = {{KC_KEYS, "ON / OFF"}, {KC_K14, "MACROS"}, {KC_KEYS, "ALL OFF"}};
-static const khint_t FX_KEY_FOOT[3] = {{KC_PRESETS, "ASSIGN"}, {KC_EDIT, "DEFAULT"}, {KC_K14, "MACROS"}};   /* (a key held) */
+static const khint_t FX_KEY_FOOT[3] = {{KC_PRESETS, "REASSIGN"}, {KC_EDIT, "DEFAULT"}, {0, 0}};   /* (a key held) */
 static const khint_t GLO_LOCK_FOOT[3] = {{KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}, {0, 0}};   /* (locked: PLAY plays, #183) */
 /* the FX layer's key map (perform.c perf_map_of / perf_map_put: 16 x 5 bits; all 0, every older setting: the default
  * map) in 10 bytes no engine uses, kept with the settings */
@@ -383,9 +382,9 @@ static void tools_key(uint32_t p)
 
 /* FX: the effects' names (the message; NONE: PF_N) and the map's cells' */
 static const char *const PF_NAME[PF_NFX + 1] = {"REPEAT 1/8", "REPEAT 1/16", "REPEAT 1/32", "REVERSE", "LPF", "HPF",
-    "TAPE STOP", "FREEZE", "OCT UP", "OCT DN", "FLANGER", "PHASER", "REV THROW", "ECHO THROW",
+    "TAPE STOP", "FREEZE", "PITCH UP", "PITCH DN", "FLANGER", "PHASER", "REV THROW", "ECHO THROW",
     "OCT-", "OCT+", "1/2 TEMPO", "DEC-", "DEC+", "STUTTER 1/8", "STUTTER 1/16", "ATK+", "ARP", "RANDOM", "NONE"};
-static const char *const PF_CELL[PF_NFX] = {"1/8", "1/16", "1/32", "REV", "LPF", "HPF", "STOP", "FRZ", "OCT+", "OCT-",
+static const char *const PF_CELL[PF_NFX] = {"1/8", "1/16", "1/32", "REV", "LPF", "HPF", "STOP", "FRZ", "PITCH+", "PITCH-",
     "FLNG", "PHSR", "VERB", "ECHO", "OCT-", "OCT+", "1/2", "DEC-", "DEC+", "ST8", "ST16", "ATK+", "ARP", "RND"};
 static const char W_NOTE[16] = {'F', 'G', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'A', 'B', 'C', 'D', 'E', 'F', 'G'};
 /* each pass: the map from the settings to the ISR (a change: seq.c makes a key held take its new effect) */
@@ -398,10 +397,10 @@ static void fx_map_sync(void)
             perf_remap = 1;
         }
 }
-/* the white key PRESETS assigns: the last pressed in the FX layer, while still held (+ 1; 0 none) */
+/* the white key PRESETS assigns: the last pressed in held or sticky FX, while still held (+ 1; 0 none) */
 static uint32_t fx_key_held(void)
 {
-    return lys.fxk && ui.ly == LAYER_FX && ((kb_layer >> (lys.fxk - 1u)) & 1u) ? lys.fxk : 0u;
+    return lys.fxk && ly_down(LAYER_FX) && ((kb_layer >> (lys.fxk - 1u)) & 1u) ? lys.fxk : 0u;
 }
 /* "B4 FLANGER": white key k's note (F3 .. G5) and effect e */
 static void fx_say(uint32_t k, uint32_t e, const char *tail)
@@ -1173,7 +1172,7 @@ static void layer_cards(uint32_t l)
 static void draw_layer(void)
 {
     uint32_t l = ui.layer % LAYER_N, sig = l * 7919u + ux.gen * 977u;
-    static uint8_t fx_foot;                             /* FX: the footer for a key held (PRESETS ASSIGN, EDIT DEFAULT) */
+    static uint8_t fx_foot;                             /* FX: a key held shows PRESETS REASSIGN, EDIT DEFAULT */
     if (fx_foot != (l == LAYER_FX && fx_key_held())) {
         fx_foot = (uint8_t)(l == LAYER_FX && fx_key_held());
         ui.force = 1;
@@ -1223,7 +1222,7 @@ static void draw_layer(void)
     }
     if (ui.force) {                                     /* the footer: what the keys, knobs and buttons do */
         cv_begin(240, H_FOOT, T_BG);
-        const khint_t *ft = l == LAYER_FX && fx_key_held() ? FX_KEY_FOOT : l == LAYER_FX && perf_latch_on ? FX_LATCH_FOOT :
+        const khint_t *ft = l == LAYER_FX && fx_key_held() ? FX_KEY_FOOT :
                             l == LAYER_GLO && ui.lock == LAYER_GLO ? GLO_LOCK_FOOT : LAYERS[l].foot;
         int h = help_on() && help_row(HELP_LAYER[l], 21);   /* 1.5, HELP ON: a second row, what this one does not say */
         cv_key_row(8, 232, h ? 2 : 9, ft, ft[2].act ? 3u : 2u, 7u, T_BG);
