@@ -569,6 +569,7 @@ static int test_misc(void)
         uint32_t f;
         int32_t before = 0, during = 0;
         song_setup();
+        fx_boot();                                      /* no previous song's bus tails in the dry mute check */
         trk[1].p[P_SLEN] = 1; trk[3].p[P_SLEN] = 1;
         trk[1].step[0].n = 0; trk[3].step[0].n = 0;          /* only track 1 plays, dry */
         trk[0].p[P_CHOR] = trk[0].p[P_DLY] = trk[0].p[P_REV] = 0;
@@ -594,6 +595,7 @@ static int test_misc(void)
         uint32_t f;
         int32_t before = 0, during = 0;
         song_setup();
+        fx_boot();                                      /* isolate this dry solo check from earlier bus tails */
         trk[1].p[P_SLEN] = 1; trk[3].p[P_SLEN] = 1;
         trk[1].step[0].n = 0; trk[3].step[0].n = 0;
         trk[0].p[P_CHOR] = trk[0].p[P_DLY] = trk[0].p[P_REV] = 0;
