@@ -347,6 +347,8 @@ if [ -f build/gen/felucca_tables.h ]; then
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -pthread -o "$OUT/dualcore_test" tests/dualcore_test.c -lm
     run "second core: 4 parts of every preset, mixes and the chain / send FX: bit for bit on one core and on two" \
         "$OUT/dualcore_test"
+    run "second core: the same with every job cut after its first part (mix_block renders the rest: no dropout)" \
+        env C1_STALL=1 "$OUT/dualcore_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/union_test" tests/union_test.c -lm
     run "engine memory (1.5): every switch between the engines with per-part state (270 sequences; retired SAMPLE/GRAIN/SLICE out)" \
         "$OUT/union_test" tests/union_golden.txt
@@ -427,6 +429,8 @@ else
     if $TSAN_CC -o "$OUT/dualcore_tsan" tests/dualcore_test.c -lm 2>/dev/null; then
         run "second core under ThreadSanitizer: 4 parts of every preset, mixes and the chain / send FX" \
             env TSAN_OPTIONS=halt_on_error=1 "$OUT/dualcore_tsan"
+        run "second core under ThreadSanitizer: the same with every job cut after its first part" \
+            env C1_STALL=1 TSAN_OPTIONS=halt_on_error=1 "$OUT/dualcore_tsan"
     else
         echo "== skip the ThreadSanitizer run (the compiler has no TSAN)"
     fi

@@ -2001,15 +2001,29 @@ static __attribute__((noinline)) void dx_mot_block(uint32_t n)
 #endif
 static uint32_t c1_blocks;                              /* blocks the second core took parts of */
 
+static mixsum_t c1_part;                /* a part's sums while it renders: whole only into the core's sums (a job
+                                         * cut mid-part leaves its half here, never in mx[1]) */
+volatile uint32_t c1_done;              /* the parts whose sums are whole in mx[1] (mix_block: only these merge) */
+
 static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k = part k) | n << 8 */
 {
-    uint32_t i, n = arg >> 8;
+    uint32_t i, k, n = arg >> 8;
     mixsum_t *sm = &mx[1];
     for (i = 0; i < n; i++)
         sm->l[i] = sm->r[i] = sm->d[i] = sm->rv[i] = 0;
-    for (i = 0; i < NPART; i++)
-        if (arg >> i & 1u)
-            mix_part(&trk[i], n, sm);
+    for (k = 0; k < NPART; k++)
+        if (arg >> k & 1u) {
+            for (i = 0; i < n; i++)
+                c1_part.l[i] = c1_part.r[i] = c1_part.d[i] = c1_part.rv[i] = 0;
+            mix_part(&trk[k], n, &c1_part);
+            for (i = 0; i < n; i++) {
+                sm->l[i] += c1_part.l[i];
+                sm->r[i] += c1_part.r[i];
+                sm->d[i] += c1_part.d[i];
+                sm->rv[i] += c1_part.rv[i];
+            }
+            c1_done |= 1u << k;                         /* this part's sums are whole in mx[1] */
+        }
 }
 
 /* which parts go to the second core: the split of the last block's costs that leaves the busier core the least; none
@@ -2017,7 +2031,17 @@ static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k
 #define C1_HAND 40u
 static uint32_t mix_split(void)
 {
-    uint32_t m, i, best = 0, all = 0, lo;
+    uint32_t m, i, best = 0, all = 0, lo, chor = 0, deep = 0;
+    for (i = 0; i < NTRK; i++)                      /* deep CHORUS as a shared send: its delay (up to 238) wraps into
+                                                     * the swept line's window, where this block's reads saw the
+                                                     * previous consumer's writes (ins_run_swept): that chain runs in
+                                                     * part order, so no split (exact to DEP 107; oracle-tested) */
+        if (ins_is_send(&trk[i], INS_CHOR) && ins_mix_of(&trk[i], INS_CHOR) != 0) {
+            chor++;
+            deep |= (uint32_t)ins_param_src(&trk[i], INS_CHOR)->p[P_IHDEP] >= 108u;
+        }
+    if (chor >= 2u && deep)
+        return 0;
     for (i = 0; i < NPART; i++)
         all += part_cost[i];
     lo = all;
@@ -2058,16 +2082,25 @@ static void mix_block(int32_t *out, uint32_t n)
         bus_knobs_g(&trk[i]);
     {   /* the parts: some on the second core, into its own sums (mx[1]) */
         uint32_t m = C1_ON() ? C1_SPLIT() & ((1u << NPART) - 1u) : 0u;
-        if (m && !C1_RUN(c1_parts, m | n << 8))
-            m = 0;
+        if (m) {
+            c1_done = 0;
+            if (!C1_RUN(c1_parts, m | n << 8))
+                m = 0;
+        }
         c1_blocks += m != 0;
         for (i = 0; i < NPART; i++)
             if (!(m >> i & 1u))
                 mix_part(&trk[i], n, &mx[0]);
         if (m) {
             const mixsum_t *sm = &mx[1];
-            if (C1_WAIT())                              /* it stopped answering (held from now on): its parts here */
-                c1_parts(m | n << 8);
+            if (C1_WAIT()) {                            /* it stopped answering (held from now on) */
+                uint32_t left = m & ~c1_done;           /* the parts whose sums never landed: this core renders them
+                                                         * (the one cut mid-part advances its state twice: one block's
+                                                         * artifact, not a dropout) */
+                for (i = 0; i < NPART; i++)
+                    if (left >> i & 1u)
+                        mix_part(&trk[i], n, &mx[0]);
+            }
             for (i = 0; i < n; i++) {
                 mix_l[i] += sm->l[i];
                 mix_r[i] += sm->r[i];
