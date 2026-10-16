@@ -127,6 +127,8 @@ def huff_pack(glyph_values):
     for g in syms:
         for s in g:
             count[s] = count.get(s, 0) + 1
+    if not count:                           # a face whose glyphs have no ink: a code with no symbols
+        return [0] * HC_MAXLEN, [b""] * len(glyph_values)
     length = huff_lengths(count)
     order = sorted(count, key=lambda s: (length[s], s))
     code, c, prev = {}, 0, length[order[0]]

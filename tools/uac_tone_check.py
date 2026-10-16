@@ -22,9 +22,13 @@ TRI = [tri(p) for p in range(100)]
 
 
 def check(path):
-    with wave.open(path, "rb") as w:
-        ch, width, rate, n = w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()
-        raw = w.readframes(n)
+    try:
+        with wave.open(path, "rb") as w:
+            ch, width, rate, n = w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()
+            raw = w.readframes(n)
+    except (OSError, wave.Error, EOFError) as e:
+        print(f"{path}: cannot read it as a WAV file: {e}")
+        return False
     if ch != 2 or width != 2:
         print(f"{path}: {ch} ch, {8 * width} bit: need a 16-bit stereo recording")
         return False

@@ -60,15 +60,11 @@ TR = 22050                                   # stored sample rate
 CC0_SETS = [("PIANO", "oneshot"), ("PIANO", "alias"), ("FLUTE", "sus"), ("SAX", "sus"),
             ("PIANO", "alias")]
 PERC_SLOT = 4                                # core.h SMP_SET_PERC: retired PERC alias
-MEASURED_TUNING = ()                         # sets whose recordings are not at A440 (was TRANH, ~+35 ct)
 
-
-KIT_BASE = 53                     # F3, fallback root when a kit file has no note in its name
 
 NOTE = {"C": 0, "C#": 1, "D": 2, "D#": 3, "E": 4, "F": 5, "F#": 6, "G": 7, "G#": 8, "A": 9, "A#": 10, "B": 11}
 
-ENV = {"wave":(5, 80, 100, 50), "kit": (0, 127, 127, 60), "multi": (0, 85, 0, 75),
-       "oneshot": (0, 127, 127, 70), "sus": (12, 80, 120, 60)}
+ENV = {"wave":(5, 80, 100, 50), "oneshot": (0, 127, 127, 70), "sus": (12, 80, 120, 60)}
 
 # PIANO's notes cut to 0.75 s (saves flash), faded out over the last SET_FADE s.
 SET_KEEP = {"PIANO": 0.75}
@@ -115,6 +111,9 @@ def octave_conv(files):
     return 2 if votes[2] >= votes[1] else 1
 
 
+KIT_BASE = 53                     # F3, fallback root when a kit file has no note in its name
+
+
 def kit_root(name, index):
     """MIDI root for a kit zone: note in the file name (C4 = 60), else KIT_BASE + index"""
     nn = name_note(name)
@@ -135,18 +134,16 @@ def cc0_entries(setname, kind):
             root = kit_root(p.name, k)
         elif nn:
             root = (nn[0] + conv) * 12 + nn[1]
-            if setname in MEASURED_TUNING:              # tuned off A440: the measured pitch near the named note
-                det = hz_to_midi(detect_hz(x, sr))
-                if abs(det - root) < 1.0:
-                    root = det
         else:
             root = hz_to_midi(detect_hz(x, sr))
         x = resample(x, sr, TR)
-        keep = SET_KEEP.get(setname) or {"oneshot": 1.0, "sus": 0.95, "kit": 0.6}[kind]
+        keep = SET_KEEP.get(setname) or {"oneshot": 1.0, "sus": 0.95}[kind]
         x = x[:int(keep * TR)]
         n = len(x)
         if kind == "sus":                            # crossfaded sustain loop in the steady part
             ls, le, xf = int(0.40 * TR), n - 1, int(0.06 * TR)
+            ls = min(ls, le)                         # a file shorter than 40 %: loop all of it
+            xf = max(0, min(xf, ls, le - ls + 1))    # the crossfade window stays inside the data (no wraparound)
             for i in range(xf):
                 a = i / xf
                 x[le - xf + i] = x[le - xf + i] * (1 - a) + x[ls - xf + i] * a
@@ -155,7 +152,7 @@ def cc0_entries(setname, kind):
             if setname in SET_FADE:                  # a shortened set: a long raised-cosine fade-out
                 cos_fade(x, int(SET_FADE[setname] * TR))
             else:
-                fade = int(0.08 * TR)
+                fade = min(int(0.08 * TR), n)        # a short file: fade what there is (as cos_fade)
                 for i in range(fade):
                     x[n - fade + i] *= 1 - i / fade
             loop = None
@@ -170,7 +167,10 @@ class Builder:
         self.alias = {}                         # set index -> the set index it aliases
 
     def add(self, s, loop_start):
-        """ADPCM-encode s into the blob (each sample starts on an even offset) -> (offset, state at loop_start)"""
+        """ADPCM-encode s into the blob (each sample starts on an even offset) -> (offset, state at loop_start)
+
+        ima_encode gives one byte per two samples, so a zone of an odd byte length (a sample count
+        of 2 mod 4) pads the blob back to an even offset for the next one."""
         enc, st = ima_encode(s, loop_start)
         off = len(self.blob)
         self.blob += enc
@@ -246,10 +246,8 @@ class Builder:
         for i, (name, _, _) in enumerate(named):
             k = self.kinds.get(name, "wave")
             a, d, s_, r = ENV[k]
-            loop = 0 if k == "kit" else 1
-            pat = ", PAT(12)" if k == "kit" else ""     # a kit: engines.c PATTERNS[11] BEAT
             si = self.alias.get(i, i)                   # an alias: the original's preset (hidden by its name)
-            L.append(f'    {{"{name}", {{{si}, 0, 0, {loop}, 127, 0, 0, 0}}, {{{a}, {d}, {s_}, {r}}}, 0, 0{pat}}},')
+            L.append(f'    {{"{name}", {{{si}, 0, 0, 1, 127, 0, 0, 0}}, {{{a}, {d}, {s_}, {r}}}, 0, 0}},')
         L.append("};")
         orig = [self.alias.get(i, i) for i in range(len(named))]
         L.append("/* SET i plays SMP_SET_ORIG[i]: != i for a retired set kept as an alias (its preset i too) */")

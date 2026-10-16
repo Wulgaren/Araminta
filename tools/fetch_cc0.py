@@ -8,68 +8,94 @@ The files are already in the tree; this re-creates them from the source:
   https://github.com/sgossner/VCSL       (CC0 1.0)
 Only the first RANGE bytes of each WAV are downloaded.
 """
+import functools
 import json
 import re
+import struct
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import sampleio as sio  # noqa: E402
+
 DEST = Path(__file__).resolve().parents[1] / "assets" / "samples-cc0"
 RANGE = 420_000
+TIMEOUT = 30                              # seconds per request: hung otherwise, with no clue why
 
 VCSL = "VCSL"
 VSCO = "VSCO-2-CE"
 # set: (repo, directory, [filename regexes, one file per regex, first match wins])
+# The sets gen_samples.py builds (CC0_SETS: PIANO, FLUTE, SAX): a set nothing builds is downloaded for
+# nothing. Retired sets (TRANH, PERC, CR78, the old kit) are not fetched here.
 PICK = {
     "PIANO": (VCSL, "Chordophones/Zithers/Grand Piano, Kawai/Sustains",
               [r"_C1_v2_rr1", r"_C2_v2_rr1", r"_C3_v2_rr1", r"_C4_v2_rr1", r"_C5_v2_rr1"]),
-    "HARP": (VCSL, "Chordophones/Composite Chordophones/Concert Harp", [r"_A2_mf1", r"_A4_mf1", r"_A6_mf1"]),
-    "MARIMBA": (VCSL, "Idiophones/Struck Idiophones/Marimba", [r"_C2_med", r"_B2_med", r"_B4_med"]),
-    "VIBES": (VCSL, "Idiophones/Struck Idiophones/Vibraphone/Soft Mallets", [r"_A2_v1", r"_C3_v1", r"_A4_v1"]),
-    "BELLS": (VCSL, "Idiophones/Struck Idiophones/Tubular Bells 1", [r"_C3_f", r"_C4_p"]),
-    "GLOCK": (VCSL, "Idiophones/Struck Idiophones/Glockenspiel", [r"medium_C5", r"medium_C6"]),
-    "PIZZ": (VSCO, "Strings/Violin Section/Pizz", [r"_A2_v1_rr1", r"_A3_v1_rr1", r"_A4_v1_rr1"]),
-    "SAX": (VCSL, "Aerophones/Reed Aerophones/Tenor Saxophone/Non-Vibrato",
-            [r"_A#1_vl2_rr1", r"_A#2_vl2_rr1", r"_A#3_vl2_rr1"]),
-    "ORGAN": (VCSL, "Aerophones/Edge-blown Aerophones/Pipe Organ/Quiet", [r"_C2_rr1", r"_C3_rr1", r"_C4_rr1"]),
-    "STRINGS": (VSCO, "Strings/Violin Section/susVib", [r"_A2_v1", r"_A3_v1", r"_B4_v1"]),
-    "BRASS": (VSCO, "Brass/Trumpet/sus", [r"_A2_v1_rr1", r"_C3_v1_rr1", r"_A4_v1_rr1"]),
     "FLUTE": (VSCO, "Woodwinds/Flute/susvib", [r"_C4_v1_1", r"_C5_v1_1", r"_C6_v1_1"]),
     "SAX": (VCSL, "Aerophones/Reed Aerophones/Tenor Saxophone/Non-Vibrato",
             [r"_A#1_vl2_rr1", r"_A#2_vl2_rr1", r"_A#3_vl2_rr1"]),
-    "KIT": (VCSL, None, [
-        ("Idiophones/Struck Idiophones/Tambourine 1", r"Tamb1_Hit_v2"),
-        ("Idiophones/Struck Idiophones/Shaker, Small", r"ShakerDouble_Down_rr1"),
-        ("Membranophones/Struck Membranophones/Conga", r"Conga_HitN_v2_rr1"),
-        ("Idiophones/Struck Idiophones/Claves", r"Claves1_Hit_v2"),
-        ("Idiophones/Struck Idiophones/Woodblock", r"wood_click_mp"),
-    ]),
 }
 
 
-def tree(repo, cache={}):
-    if repo not in cache:
-        url = f"https://api.github.com/repos/sgossner/{repo}/git/trees/master?recursive=1"
-        with urllib.request.urlopen(url) as r:
-            cache[repo] = [e["path"] for e in json.load(r)["tree"] if e["path"].lower().endswith(".wav")]
-    return cache[repo]
+@functools.lru_cache(maxsize=None)
+def tree(repo):
+    """the .wav paths of a repo's master tree (GitHub's API, unauthenticated: 60 calls an hour)"""
+    url = f"https://api.github.com/repos/sgossner/{repo}/git/trees/master?recursive=1"
+    try:
+        with urllib.request.urlopen(url, timeout=TIMEOUT) as r:
+            js = json.load(r)
+    except urllib.error.HTTPError as e:
+        raise SystemExit(f"fetch_cc0: {repo} tree: {e.code} {e.reason} (the unauthenticated API allows "
+                         f"60 calls an hour; set a token or retry later)")
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise SystemExit(f"fetch_cc0: {repo} tree: {e}")
+    if "tree" not in js:
+        raise SystemExit(f"fetch_cc0: {repo} tree: {js.get('message', 'no tree in the reply')}")
+    return [e["path"] for e in js["tree"] if e["path"].lower().endswith(".wav")]
+
+
+def check_wav(url, data):
+    """the prefix must be a WAV file whose fmt chunk (and the start of its data) is whole in it"""
+    try:
+        ch = sio.wav_chunks(data)
+        sio.wav_format(data, ch)                  # the fmt chunk must be whole in this prefix
+        if b"data" not in ch:
+            raise ValueError("no data chunk in these bytes")
+    except (ValueError, IndexError) as e:
+        raise SystemExit(f"fetch_cc0: {url}: {e}")
+    except struct.error as e:
+        raise SystemExit(f"fetch_cc0: {url}: the {RANGE} byte prefix ends inside the fmt chunk ({e})")
 
 
 def fetch(repo, path, dest):
+    """the first RANGE bytes of one WAV -> dest (0 when it is already there); the server's 206 and
+    the WAV header are checked before anything is written, so a short or error response never
+    lands in the library"""
     if dest.exists():
         return 0
     url = f"https://raw.githubusercontent.com/sgossner/{repo}/master/" + urllib.parse.quote(path)
     req = urllib.request.Request(url, headers={"Range": f"bytes=0-{RANGE - 1}"})
-    with urllib.request.urlopen(req) as r:
-        data = r.read()
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            status, data = r.status, r.read()
+    except urllib.error.HTTPError as e:
+        raise SystemExit(f"fetch_cc0: {url}: {e.code} {e.reason}")
+    except (urllib.error.URLError, OSError) as e:
+        raise SystemExit(f"fetch_cc0: {url}: {e}")
+    if status != 206:
+        raise SystemExit(f"fetch_cc0: {url}: expected 206 partial content, got {status}")
+    if not data:
+        raise SystemExit(f"fetch_cc0: {url}: no bytes")
+    check_wav(url, data)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
     return len(data)
 
 
 def main():
-    total, credits = 0, []
+    fetched = []                       # (set, dest, repo, src)
     for name, (repo, folder, pats) in PICK.items():
         files = tree(repo)
         for k, p in enumerate(pats):
@@ -80,14 +106,19 @@ def main():
                 continue
             src = cand[0]
             dest = DEST / name / f"{k:02d}_{src.rsplit('/', 1)[1]}"
-            n = fetch(repo, src, dest)
-            total += n
-            credits.append(f"{name}/{dest.name}  <-  sgossner/{repo}: {src}")
-            print(f"  {name:8s} {dest.name}  {n // 1024} KiB")
+            fetch(repo, src, dest)
+            fetched.append((name, dest, repo, src))
+            print(f"  {name:8s} {dest.name}  {dest.stat().st_size} B")
+    if not fetched:
+        raise SystemExit("fetch_cc0: nothing matched (a repository moved? a naming changed?)")
     import datetime
+    # written from what is on disk, so it cannot claim a file the fetch did not produce
+    credits = [f"{name}/{dest.name}  <-  sgossner/{repo}: {src}  ({dest.stat().st_size} bytes)"
+               for name, dest, repo, src in fetched]
     (DEST / "ATTRIBUTION.txt").write_text(
         "Felucca SAMPLE engine - source material\n"
-        f"Retrieved: {datetime.date.today().isoformat()} (first ~400 KB of each file)\n"
+        f"Retrieved: {datetime.date.today().isoformat()} (the first {RANGE // 1000} kB of each file, an HTTP "
+        "range request; the library is built by tools/gen_samples.py, the fetch only re-creates these files)\n"
         "Licence: CC0 1.0 Universal (public domain dedication)\n"
         "  https://creativecommons.org/publicdomain/zero/1.0/\n"
         "Sources: Versilian Studios (Sam Gossner)\n"
@@ -97,8 +128,9 @@ def main():
     (DEST / "CREDITS.txt").write_text(
         "Samples from Versilian Studios' VSCO-2 Community Edition and VCSL, both released\n"
         "under CC0 1.0 (public domain). Thanks to Versilian Studios / Sam Gossner.\n"
-        "Only the first ~1 s of each file is used.\n\n" + "\n".join(credits) + "\n")
-    print(f"fetched {total / 1e6:.1f} MB into {DEST}")
+        f"Only the first {RANGE // 1000} kB of each file is used (see the byte counts below).\n\n"
+        + "\n".join(credits) + "\n")
+    print(f"fetched {sum(dest.stat().st_size for _, dest, _, _ in fetched) / 1e6:.1f} MB into {DEST}")
 
 
 if __name__ == "__main__":
