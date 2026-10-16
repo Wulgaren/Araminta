@@ -12,6 +12,10 @@
 #define NVOICE 8                 /* voices per part, and the budget shared by all parts */
 #define NPART 4                  /* synth parts: tracks 1..4 */
 #define NTRK NPART               /* tracks (the formats and the protocol count these): every track is a part */
+/* the second core (fx.c mix_block) renders parts at once: C1_NP copies of the state a part's render writes that
+ * parts shared before (mod.c, voice.c SPREAD, eng_formant.c, eng_phys.c) */
+#define C1_NP NPART
+#define C1_PI(t) ((uint32_t)((t) - trk) % C1_NP)
 #define NSTEP 64
 #define HALF_FRAMES 128          /* I2S half buffer: 2.9 ms at 44.1 kHz (a key waits 0..1 half, then plays 1 half later) */
 #ifndef FELUCCA_FM4
@@ -534,6 +538,11 @@ typedef struct track {
     uint8_t sp_alt;              /* SPREAD: the side the next voice starts on (alternating, voice.c voice_start) */
     int16_t m_rnd;               /* .. its RAND */
     int32_t m_env;               /* the amp envelope of voice m_vi, last block (Q15) */
+    /* the second core (fx.c mix_block): what a part's render keeps of its own (was shared scratch, one part at a time) */
+    uint32_t esync_k[3];         /* ATK's step, DEC's and REL's coefficient (Q16; voice.c esync_coef / env_tick) */
+    uint8_t spread_on;           /* SPREAD while this part renders (voice.c / fx.c mix_part) */
+    uint8_t lfo_wrap;            /* the LFO's phase wrapped this block (track_lfo_adv) */
+    uint8_t rsv_c1[2];           /* sizeof(track_t) a multiple of 16 */
 } track_t;
 enum { PFX_RND = 1, PFX_HALF = 2, PFX_REP = 4, PFX_DEC = 8, PFX_ATK = 16 };   /* (track_t.pfx) */
 /* the audio ISR indexes trk[] with a multiply by a small immediate and a shift while the size is a multiple of 16; 1.5's

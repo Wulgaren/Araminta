@@ -511,7 +511,6 @@ static void engine_block(track_t *t)
  * up once a block here instead of once a voice in env_tick: the same numbers) */
 static uint32_t beat_samples(void);                /* (fx.c) */
 _Static_assert(CTL == 32, "esync_one: 4.6 CTL in Q16 is 9646899");
-static uint32_t esync_k[3];      /* ATK's step, DEC's and REL's coefficient (Q16): the part's, this block (env_tick) */
 static uint32_t esync_one(uint32_t quarter, int32_t v, uint32_t i)
 {
     uint32_t u = ESYNC_UNITS[esync_idx(v)], T = quarter * u / 96u, x, x2, x3, x4;   /* T: samples */
@@ -528,19 +527,19 @@ static uint32_t esync_one(uint32_t quarter, int32_t v, uint32_t i)
     x = x - x2 / 2u + x3 / 6u - x4 / 24u;
     return x < 1u ? 1u : x > 65535u ? 65535u : x;
 }
-static __attribute__((noinline)) void esync_coef(const track_t *t)   /* (not inlined: its divides stay out of the
-                                                                    * audio ISR's loop over the voices) */
+static __attribute__((noinline)) void esync_coef(track_t *t)   /* (not inlined: its divides stay out of the
+                                                               * audio ISR's loop over the voices) */
 {
     const int16_t *p = t->p;
     if (p[P_ESYNC]) {
         uint32_t q = beat_samples();
-        esync_k[0] = esync_one(q, p[P_ATK], 0);
-        esync_k[1] = esync_one(q, p[P_DEC], 1);
-        esync_k[2] = esync_one(q, p[P_REL], 2);
+        t->esync_k[0] = esync_one(q, p[P_ATK], 0);
+        t->esync_k[1] = esync_one(q, p[P_DEC], 1);
+        t->esync_k[2] = esync_one(q, p[P_REL], 2);
     } else {                                            /* OFF: the tables, as always */
-        esync_k[0] = ENV_LIN[p[P_ATK] & 127];
-        esync_k[1] = ENV_EXP[p[P_DEC] & 127];
-        esync_k[2] = ENV_EXP[p[P_REL] & 127];
+        t->esync_k[0] = ENV_LIN[p[P_ATK] & 127];
+        t->esync_k[1] = ENV_EXP[p[P_DEC] & 127];
+        t->esync_k[2] = ENV_EXP[p[P_REL] & 127];
     }
 }
 
@@ -551,17 +550,17 @@ static int32_t env_tick(track_t *t, voice_t *v)
     int32_t sus = (int32_t)p[P_SUS] << 17;              /* Q24 */
     switch (v->stage) {
     case 1:
-        v->env += (int32_t)esync_k[0];                  /* ATK's step (esync_coef: the table's, or ENV SYNC's) */
+        v->env += (int32_t)t->esync_k[0];               /* ATK's step (esync_coef: the table's, or ENV SYNC's) */
         if (v->env >= (1 << 24)) {
             v->env = 1 << 24;
             v->stage = 2;
         }
         break;
     case 2:
-        v->env += mulq16(sus - v->env, esync_k[1]);
+        v->env += mulq16(sus - v->env, t->esync_k[1]);
         break;
     case 3:
-        v->env -= mulq16(v->env, esync_k[2]);
+        v->env -= mulq16(v->env, t->esync_k[2]);
         if (v->env < (1 << 12)) {
             v->env = 0;
             v->stage = 0;
@@ -583,19 +582,20 @@ static int32_t env_tick(track_t *t, voice_t *v)
 /* SPREAD (#148, fx.c mix_spread): while spread_on (mix_part sets it for the part it renders), track_render renders the
  * voices of side 0 into spread_buf and the others into out, then adds spread_buf to out: out is every voice, as always
  * (the engines add into either the same way), spread_buf the left ones. A cost per block, none per voice */
-static uint8_t spread_on;
-static int32_t spread_buf[CTL];
-static __attribute__((noinline)) void spread_clear(void)
+static int32_t spread_buf[C1_NP][CTL];         /* (was one buffer: a part's own now, the parts render at once) */
+static __attribute__((noinline)) void spread_clear(track_t *t)
 {
     uint32_t i;
+    int32_t *b = spread_buf[C1_PI(t)];
     for (i = 0; i < CTL; i++)
-        spread_buf[i] = 0;
+        b[i] = 0;
 }
-static __attribute__((noinline)) void spread_sum(int32_t *out)
+static __attribute__((noinline)) void spread_sum(track_t *t, int32_t *out)
 {
     uint32_t i;
+    const int32_t *b = spread_buf[C1_PI(t)];
     for (i = 0; i < CTL; i++)
-        out[i] += spread_buf[i];
+        out[i] += b[i];
 }
 
 /* render one block of a part into out; returns the voices rendered.
@@ -638,10 +638,10 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
     if (live || clear_idle)
         for (i = 0; i < n; i++)
             out[i] = 0;
-    if (mod.on && mod.ldep < 32767)                     /* the matrix's DEPTH (mod.c) */
-        lfo = mulq15(lfo, mod.ldep);
-    if (spread_on)
-        spread_clear();
+    if (MOD(t).on && MOD(t).ldep < 32767)               /* the matrix's DEPTH (mod.c) */
+        lfo = mulq15(lfo, MOD(t).ldep);
+    if (t->spread_on)
+        spread_clear(t);
     if (fade)                                           /* engine switch: the old engine, its own values */
         for (i = 0; i < 8u; i++) {
             pe_new[i] = t->p[P_E0 + i];
@@ -708,13 +708,13 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
         if (v->vel > 110)                               /* accent opens the filter with the env */
             m.cutoff += (m.envq15 * 24) >> 7;
         m.shape = (64 << 8) + ((lfo * p[P_LD_SHP]) >> 7) + ((m.envq15 * p[P_ED_SHP]) >> 7);
-        if (mod.on)                                     /* the modulation matrix (mod.c) */
+        if (MOD(t).on)                                  /* the modulation matrix (mod.c) */
             mod_voice(t, v, &m, v->fine + tune_fine + bend_fine);
-        e->render(t, v, spread_on > v->side ? spread_buf : out, n, &m);   /* (SPREAD: the left ones) */
+        e->render(t, v, t->spread_on > v->side ? spread_buf[C1_PI(t)] : out, n, &m);   /* (SPREAD: the left ones) */
         nr++;
     }
-    if (spread_on)
-        spread_sum(out);                                /* out: every voice; spread_buf: the left ones */
+    if (t->spread_on)
+        spread_sum(t, out);                             /* out: every voice; spread_buf: the left ones */
 track_render_done:
     if (fade) {
         for (i = 0; i < 8u; i++)
