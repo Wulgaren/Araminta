@@ -31,6 +31,8 @@
 #ifndef FELUCCA_ID
 #define FELUCCA_ID "FM-1_900"    /* package identity (build.py: the .fwsc marker string) */
 #endif
+#define FM1_CPU1_USED 1          /* the second core is built in (Araminta: always, no toggle); every reset holds it
+                                  * first (hal/fm1_sys.h: its waiting loop is RAM the ROM and the SPL use at boot) */
 #ifndef FELUCCA_VERSION
 #define FELUCCA_VERSION "v2.2" /* shown in the menu, the console and the editor; build.py --release X.Y */
 #endif
@@ -44,6 +46,11 @@
 #include "fm1_sys.h"
 #include "fm1_irq.h"
 #include "fm1_guard.h"
+#include "fm1_cpu1.h"                            /* the second core (always built in): start, jobs, the failure policy */
+#define C1_ON() fm1_c1_on                        /* fx.c mix_block: a second core is answering */
+#define C1_RUN(fn, arg) fm1_cpu1_run(fn, arg)    /* hand it fn(arg): 1 = taken */
+#define C1_WAIT() fm1_cpu1_wait()                /* wait for it: 0 = done */
+#define C1_SPLIT() mix_split()                   /* fx.c: which parts it takes */
 #include "fm1_input.h"
 #include "fm1_timer.h"
 #include "fm1_audio.h"
