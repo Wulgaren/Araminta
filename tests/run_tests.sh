@@ -3,6 +3,7 @@
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 # Host tests of the Felucca sources (no hardware). Run from the repo root after ./build.sh:
 #   tests/run_tests.sh
+# TEST_JOBS=n: how many test units run at once (default: the CPUs, at most 10; TEST_JOBS=1 = one at a time).
 #
 # Regression suite (tests/regress.c, tests/target_budget.py; details at the top of regress.c):
 #   golden renders  every engine x preset, the GM map on DRUM, voice modes, FX sends, a 4-track mix: one hash
@@ -179,218 +180,534 @@ CC="${CC:-cc} -O1 -Wall -Wno-unused-function"
 fail=0
 run() { echo "== $1"; shift; "$@" || fail=1; }
 
-$CC -o "$OUT/storage_test" tests/storage_test.c
-run "flash storage (A/B, torn writes)" "$OUT/storage_test"
+# The suite runs as units: one unit = a shell function that compiles its binary and runs it
+# (the compile + run pairs below). Up to $TEST_JOBS units run at once (TEST_JOBS=1: one at a
+# time = the debug mode), each one's output into build/host/logs.<pid>/<n>.log: one log
+# directory per run, so a second run (or an orphaned one) cannot disturb this run's
+# transcript. The logs print in script order as they complete, so the transcript reads the
+# same as the serial suite's. A failing unit sets fail exactly as run() did; a compile that
+# dies under set -e stops the suite at that unit as before. Units sharing output files
+# (build/fx_demo) wait for each other. With units running together (TEST_JOBS > 1), JOBS=4
+# caps the fan-out of regress.c's own render children (default 8) so the machine is not
+# oversubscribed. build/host/logs.<pid>/times records each unit's start and end epoch
+# seconds (which unit owns the wall).
+for d in "$OUT"/logs.*; do   # sweep the log directories of dead runs
+    [ -d "$d" ] || continue
+    pid=${d##*.}
+    kill -0 "$pid" 2>/dev/null || rm -rf "$d"
+done
+LOGS=$OUT/logs.$$
+rm -rf "$LOGS"; mkdir -p "$LOGS"
+if [ -z "${TEST_JOBS:-}" ]; then
+    TEST_JOBS=$(sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+    if [ "$TEST_JOBS" -gt 10 ]; then TEST_JOBS=10; fi
+fi
+if [ "$TEST_JOBS" -lt 1 ]; then TEST_JOBS=1; fi
+if [ "$TEST_JOBS" -gt 1 ]; then export JOBS=4; fi
+n=0       # units queued so far (each one's log number)
+f=0       # logs printed so far
+jobs=     # "pid:log" of the units still running
+running=0
+trap flush EXIT
 
-$CC -o "$OUT/upreset_test" tests/upreset_test.c
-run "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM and SAMPLE PERC -> DRUM, grid records, DIGITAL kept)" "$OUT/upreset_test"
+# flush: print the finished logs in order (the transcript keeps the serial suite's order)
+flush() {
+    while [ -f "$LOGS/$((f + 1)).state" ]; do
+        f=$((f + 1))
+        cat "$LOGS/$f.log"
+    done
+}
 
-$CC -o "$OUT/input_test" tests/input_test.c
-run "keys and buttons: fast press, long release, bouncy contacts (one note each), glitches, encoders" "$OUT/input_test"
+# note <text>: a line that used to echo straight to the transcript (the skip lines)
+note() {
+    n=$((n + 1))
+    printf '%s\n' "$1" > "$LOGS/$n.log"
+    echo "0:0" > "$LOGS/$n.state"
+    flush
+}
 
-$CC -o "$OUT/midi_uart_test" tests/midi_uart_test.c
-run "TRS MIDI parser" "$OUT/midi_uart_test"
+# abort <log> <status>: a unit died mid-body (a compile error): stop here like the serial
+# suite did: the units before it finish and print, the later ones do not print
+abort() {
+    trap - EXIT
+    for j in $jobs; do
+        pid=${j%%:*}
+        log=${j#*:}
+        if [ "$log" -lt "$1" ]; then
+            wait "$pid" 2>/dev/null || :
+        else
+            kill "$pid" 2>/dev/null || :
+        fi
+    done
+    jobs=
+    running=0
+    while [ "$f" -lt "$1" ]; do f=$((f + 1)); cat "$LOGS/$f.log"; done
+    exit "${2%%:*}"
+}
+
+# reap: collect the units that finished; "0:1" in a state file = one of its runs failed
+reap() {
+    left=
+    for j in $jobs; do
+        pid=${j%%:*}
+        log=${j#*:}
+        if [ -f "$LOGS/$log.state" ]; then
+            wait "$pid" 2>/dev/null || :
+            echo "$log $(date +%s) end" >> "$LOGS/times"
+            case "$(cat "$LOGS/$log.state")" in
+            0:0) ;;
+            0:*) fail=1 ;;
+            *) abort "$log" "$(cat "$LOGS/$log.state")" ;;
+            esac
+            running=$((running - 1))
+        else
+            left="$left $j"
+        fi
+    done
+    jobs=$left
+    flush
+}
+
+# wait_slot: block until fewer than $TEST_JOBS units are running
+wait_slot() {
+    while [ "$running" -ge "$TEST_JOBS" ]; do sleep 0.2; reap; done
+}
+
+# unit_after <logs> <function> [args]: queue one unit; the logs it names (earlier units whose
+# output files it shares) must finish before it starts
+unit_after() {
+    waits=$1
+    shift
+    n=$((n + 1))
+    wait_slot
+    (
+        fail=0
+        trap 'echo "$?:$fail" > "$LOGS/$n.state"' EXIT
+        for w in $waits; do
+            while [ ! -f "$LOGS/$w.state" ]; do sleep 0.2; done
+        done
+        "$@"
+    ) > "$LOGS/$n.log" 2>&1 &
+    pid=$!
+    jobs="$jobs $pid:$n"
+    running=$((running + 1))
+    echo "$n $(date +%s) start" >> "$LOGS/times"
+    if [ "$TEST_JOBS" -eq 1 ]; then wait "$pid" 2>/dev/null || :; fi
+    reap
+}
+unit() { unit_after "" "$@"; }
+
+# drain: wait for every unit, then print what is left in order
+drain() {
+    for j in $jobs; do wait "${j%%:*}" 2>/dev/null || :; done
+    reap
+}
+
+u_storage() {
+    $CC -o "$OUT/storage_test" tests/storage_test.c
+    run "flash storage (A/B, torn writes)" "$OUT/storage_test"
+}
+unit u_storage
+
+u_upreset() {
+    $CC -o "$OUT/upreset_test" tests/upreset_test.c
+    run "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM and SAMPLE PERC -> DRUM, grid records, DIGITAL kept)" "$OUT/upreset_test"
+}
+unit u_upreset
+
+u_input() {
+    $CC -o "$OUT/input_test" tests/input_test.c
+    run "keys and buttons: fast press, long release, bouncy contacts (one note each), glitches, encoders" "$OUT/input_test"
+}
+unit u_input
+
+u_midi_uart() {
+    $CC -o "$OUT/midi_uart_test" tests/midi_uart_test.c
+    run "TRS MIDI parser" "$OUT/midi_uart_test"
+}
+unit u_midi_uart
 
 HALF=$(sed -n 's/^#define HALF_FRAMES \([0-9]*\).*/\1/p' firmware/src/core.h)
-$CC -O2 -DT_CDC=1 -DHALF_FRAMES=$HALF -o "$OUT/uac_test" tests/uac_test.c -lm
-run "USB audio input: descriptors (with CDC), ring and packets, 44.1 -> 48 kHz resampler, 48 kHz stream" "$OUT/uac_test"
-$CC -O2 -DT_CDC=0 -DHALF_FRAMES=$HALF -o "$OUT/uac_test_nocdc" tests/uac_test.c -lm
-run "USB audio input: descriptors (without CDC), ring and packets, resampler, 48 kHz stream" "$OUT/uac_test_nocdc"
+u_uac_cdc() {
+    $CC -O2 -DT_CDC=1 -DHALF_FRAMES=$HALF -o "$OUT/uac_test" tests/uac_test.c -lm
+    run "USB audio input: descriptors (with CDC), ring and packets, 44.1 -> 48 kHz resampler, 48 kHz stream" "$OUT/uac_test"
+}
+unit u_uac_cdc
+u_uac_nocdc() {
+    $CC -O2 -DT_CDC=0 -DHALF_FRAMES=$HALF -o "$OUT/uac_test_nocdc" tests/uac_test.c -lm
+    run "USB audio input: descriptors (without CDC), ring and packets, resampler, 48 kHz stream" "$OUT/uac_test_nocdc"
+}
+unit u_uac_nocdc
 # USB descriptor layouts (#67): CDC UAC LAYOUT CDC-presented 48K; layout 0 and the console left out = 1.0's bytes
 # (+ the 48 kHz rate with 48K = 1, the default; 48K = 0: byte for byte; + the AC collection's audio streaming
 # interface first, FELUCCA_UAC_AS_FIRST = 1, the default since 1.6)
-for v in 1.1.0.1.1 1.1.1.1.1 1.1.2.1.1 1.1.3.1.1 1.1.0.0.1 1.1.2.0.1 0.1.0.1.1 1.1.0.1.0 1.1.0.0.0 1.1.2.1.0 0.1.0.1.0 \
-         1.0.0.1.1 1.0.1.1.1 1.0.0.0.1 0.0.0.1.1; do
-    IFS=. read -r t_cdc t_uac t_lay t_on t_48 <<EOF
+# one unit (the iterations share the usb_desc_test binary)
+u_usb_desc() {
+    for v in 1.1.0.1.1 1.1.1.1.1 1.1.2.1.1 1.1.3.1.1 1.1.0.0.1 1.1.2.0.1 0.1.0.1.1 1.1.0.1.0 1.1.0.0.0 1.1.2.1.0 0.1.0.1.0 \
+             1.0.0.1.1 1.0.1.1.1 1.0.0.0.1 0.0.0.1.1; do
+        IFS=. read -r t_cdc t_uac t_lay t_on t_48 <<EOF
 $v
 EOF
-    $CC -DT_CDC="$t_cdc" -DT_UAC="$t_uac" -DT_LAYOUT="$t_lay" -DT_ON="$t_on" -DT_48K="$t_48" -o "$OUT/usb_desc_test" \
-        tests/usb_desc_test.c
-    run "USB descriptors: CDC $t_cdc (presented $t_on), UAC $t_uac (48 kHz $t_48), layout $t_lay" "$OUT/usb_desc_test"
-done
+        $CC -DT_CDC="$t_cdc" -DT_UAC="$t_uac" -DT_LAYOUT="$t_lay" -DT_ON="$t_on" -DT_48K="$t_48" -o "$OUT/usb_desc_test" \
+            tests/usb_desc_test.c
+        run "USB descriptors: CDC $t_cdc (presented $t_on), UAC $t_uac (48 kHz $t_48), layout $t_lay" "$OUT/usb_desc_test"
+    done
+}
+unit u_usb_desc
+USB_DESC=$n
 # FELUCCA_UAC_AS_FIRST=0 (#67): the AC collection of 1.0 .. 1.5 (MIDI first), 1.0's bytes; the parser model of the
 # kernel AppleUSBAudio (macOS <= 15) stops before the audio streaming interface there
-for v in 1.1.0.1.1 1.1.0.0.1 1.1.0.1.0 1.1.0.0.0 0.1.0.1.1; do
-    IFS=. read -r t_cdc t_uac t_lay t_on t_48 <<EOF
+u_usb_desc_asf() {
+    for v in 1.1.0.1.1 1.1.0.0.1 1.1.0.1.0 1.1.0.0.0 0.1.0.1.1; do
+        IFS=. read -r t_cdc t_uac t_lay t_on t_48 <<EOF
 $v
 EOF
-    $CC -DT_CDC="$t_cdc" -DT_UAC="$t_uac" -DT_LAYOUT="$t_lay" -DT_ON="$t_on" -DT_48K="$t_48" -DT_ASF=0 \
-        -o "$OUT/usb_desc_test" tests/usb_desc_test.c
-    run "USB descriptors (AC collection MIDI first): CDC $t_cdc (presented $t_on), UAC $t_uac (48 kHz $t_48)" \
-        "$OUT/usb_desc_test"
-done
+        $CC -DT_CDC="$t_cdc" -DT_UAC="$t_uac" -DT_LAYOUT="$t_lay" -DT_ON="$t_on" -DT_48K="$t_48" -DT_ASF=0 \
+            -o "$OUT/usb_desc_test" tests/usb_desc_test.c
+        run "USB descriptors (AC collection MIDI first): CDC $t_cdc (presented $t_on), UAC $t_uac (48 kHz $t_48)" \
+            "$OUT/usb_desc_test"
+    done
+}
+unit_after "$USB_DESC" u_usb_desc_asf   # both loops rebuild $OUT/usb_desc_test: not at the same time
 
-[ -f build/felucca.fwsc ] || { echo "run ./build.sh first"; exit 1; }
+[ -f build/felucca.fwsc ] || { note "run ./build.sh first"; abort "$n" 1; }
 
-$CC -DOWN_PKG=1 -o "$OUT/ota_test" tests/ota_test.c
-run "M-UPGRADE entry (own loader)" "$OUT/ota_test" build/felucca.fwsc
+u_ota() {
+    $CC -DOWN_PKG=1 -o "$OUT/ota_test" tests/ota_test.c
+    run "M-UPGRADE entry (own loader)" "$OUT/ota_test" build/felucca.fwsc
+}
+unit u_ota
 
 head -c 200000 build/felucca.bin > "$OUT/old_app.bin"
 python3 tools/fm1pkg_make.py "$OUT/old_app.bin" build/loader/ota.bin "$OUT/old.fwsc" >/dev/null
-$CC -o "$OUT/ldr_test" tests/ldr_test.c
-run "update loader: other app -> this build" "$OUT/ldr_test" "$OUT/old.fwsc" build/felucca.fwsc
+u_ldr() {
+    $CC -o "$OUT/ldr_test" tests/ldr_test.c
+    run "update loader: other app -> this build" "$OUT/ldr_test" "$OUT/old.fwsc" build/felucca.fwsc
+}
+unit u_ldr
 
 if [ -f build/gen/felucca_tables.h ]; then
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/hostsim" tests/hostsim.c -lm
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/performance_test" tests/performance_test.c -lm
-    run "mixer caches and silent-track clocks (Melodee P2-F)" "$OUT/performance_test"
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/scale_test" tests/scale_test.c -lm
-    run "scales: white-key mapping and note lifecycle" "$OUT/scale_test"
-    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/chord_test" tests/chord_test.c -lm
-    run "chord keys: diatonic and fixed chords, voicings, MONO root, releases, recording, ARP, MIDI IN, kits" "$OUT/chord_test"
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/speaker_test" tests/speaker_test.c -lm
-    run "SPEAKER EQ: FLAT / LOWCUT / BASS+ responses, BASS+ harmonics of the bass, the sub cut, no offset after, headroom on a full-scale kick (#180)" "$OUT/speaker_test"
-    run "DSP render (ANALOG preset 0)" "$OUT/hostsim" 0 0 1 "$OUT/render.wav"
-    mkdir -p build/tracks_demo
-    run "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" env TRACKS=build/tracks_demo "$OUT/hostsim" 0 0 1 "$OUT/tracks.wav"
-    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/project_test" tests/project_test.c -lm
-    run "project formats (FUN1..FUN5 -> FUN6, the grid and song chain; DIGITAL tracks -> FM6, SAMPLE PERC -> DRUM, SLICE -> DRUM)" "$OUT/project_test"
-    $CC -w -Ifirmware/src -o "$OUT/generation_test" tests/generation_test.c
-    run "original Grids rhythm fixtures" "$OUT/generation_test"
-    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/motion_test" tests/motion_test.c -lm
-    run "motion, whole-step chance, FUN7 migration, song restore, ARP repeat and the 1.2 ARP modes" "$OUT/motion_test"
-    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/ratchet_test" tests/ratchet_test.c -lm
-    run "RATCH: x1..x4 in a step (notes, chords, drum hits), gates, chance, swing, projects, user presets, AUTOMATION RATCH rows" "$OUT/ratchet_test"
-    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/step15_test" tests/step15_test.c -lm
-    run "1.5 STEP: a note's LEN (TIEs on KNOB 3), a step's VEL (playback, AUTOMATION's VEL rows)" "$OUT/step15_test"
-    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/detail_test" tests/detail_test.c -lm
-    run "1.5.1 SEQ > DETAIL: a step's CHANCE RATCH NUDGE VEL on KNOB 1..4 (walk, entries, undo, DRUM, chords, playback, marks)" "$OUT/detail_test"
-    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fun10_test" tests/fun10_test.c -lm
-    run "1.2 (FUN10): LFO 2 SYNC / TRIG / POL, NUDGE (record, QUANTIZE, play, controls), 128 motion records, FUN10 / FUN9 / FUN8 / FUN7, user presets" "$OUT/fun10_test"
-    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_control_test" tests/midi_control_test.c -lm
-    run "USB/TRS clock, bend, sustain, ownership and panic recovery" "$OUT/midi_control_test"
-    $CC -O1 -w -DFELUCCA_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/digital_test" tests/digital_test.c -lm
-    run "DIGITAL (retired, built here with FELUCCA_FM4=1): operator envelopes/levels" "$OUT/digital_test"
-    $CC -O2 -w -DFELUCCA_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/fm4_test" tests/fm4_test.c -lm
-    mkdir -p build/fm4_demo
-    run "DIGITAL -> FM6: the conversion against DIGITAL (FELUCCA_FM4=1): pitch, centroid, RMS envelope; demos" \
-        "$OUT/fm4_test" build/fm4_demo
-    $CC -O2 -w -fsanitize=integer-divide-by-zero -fno-sanitize-recover=all -Ibuild/gen -Ifirmware/src \
-        -o "$OUT/fm4_div0_test" tests/fm4_div0_test.c -lm
-    run "DIGITAL -> FM6 without a divide by zero (#61): the same values as before, a 0.9 ORGAN project (UBSan)" \
-        "$OUT/fm4_div0_test"
-    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/theme_test" tests/theme_test.c -lm
-    run "themes: contrast, text blending and font metrics" "$OUT/theme_test"
-    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/text_ref_test" tests/text_ref_test.c -lm
-    run "text: pens, kerning and pixels equal the reference renderer" "$OUT/text_ref_test"
-    if python3 -c "import PIL" 2>/dev/null; then
-        run "text spacing: glyph gaps against the font's own (16x supersampled), S M <= 0.25 px, L <= 0.5 px" \
-            python3 tests/text_spacing_test.py build/gen/ui_fonts.h
-    fi
-    $CC -O1 -w -Ibuild/gen -o "$OUT/settings_test" tests/settings_test.c
-    run "settings: PER1..PER4 migration, palette ids and preference preservation" "$OUT/settings_test"
-    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test" tests/ui_test.c -lm
-    run "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, GREY gray" "$OUT/ui_test"
+    u_performance() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/performance_test" tests/performance_test.c -lm
+        run "mixer caches and silent-track clocks (Melodee P2-F)" "$OUT/performance_test"
+    }
+    unit u_performance
+    u_scale() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/scale_test" tests/scale_test.c -lm
+        run "scales: white-key mapping and note lifecycle" "$OUT/scale_test"
+    }
+    unit u_scale
+    u_chord() {
+        $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/chord_test" tests/chord_test.c -lm
+        run "chord keys: diatonic and fixed chords, voicings, MONO root, releases, recording, ARP, MIDI IN, kits" "$OUT/chord_test"
+    }
+    unit u_chord
+    u_speaker() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/speaker_test" tests/speaker_test.c -lm
+        run "SPEAKER EQ: FLAT / LOWCUT / BASS+ responses, BASS+ harmonics of the bass, the sub cut, no offset after, headroom on a full-scale kick (#180)" "$OUT/speaker_test"
+    }
+    unit u_speaker
+    # hostsim serves two runs and the tracks demo directory
+    u_hostsim() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/hostsim" tests/hostsim.c -lm
+        run "DSP render (ANALOG preset 0)" "$OUT/hostsim" 0 0 1 "$OUT/render.wav"
+        mkdir -p build/tracks_demo
+        run "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" env TRACKS=build/tracks_demo "$OUT/hostsim" 0 0 1 "$OUT/tracks.wav"
+    }
+    unit u_hostsim
+    u_project() {
+        $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/project_test" tests/project_test.c -lm
+        run "project formats (FUN1..FUN5 -> FUN6, the grid and song chain; DIGITAL tracks -> FM6, SAMPLE PERC -> DRUM, SLICE -> DRUM)" "$OUT/project_test"
+    }
+    unit u_project
+    u_generation() {
+        $CC -w -Ifirmware/src -o "$OUT/generation_test" tests/generation_test.c
+        run "original Grids rhythm fixtures" "$OUT/generation_test"
+    }
+    unit u_generation
+    u_motion() {
+        $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/motion_test" tests/motion_test.c -lm
+        run "motion, whole-step chance, FUN7 migration, song restore, ARP repeat and the 1.2 ARP modes" "$OUT/motion_test"
+    }
+    unit u_motion
+    u_ratchet() {
+        $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/ratchet_test" tests/ratchet_test.c -lm
+        run "RATCH: x1..x4 in a step (notes, chords, drum hits), gates, chance, swing, projects, user presets, AUTOMATION RATCH rows" "$OUT/ratchet_test"
+    }
+    unit u_ratchet
+    u_step15() {
+        $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/step15_test" tests/step15_test.c -lm
+        run "1.5 STEP: a note's LEN (TIEs on KNOB 3), a step's VEL (playback, AUTOMATION's VEL rows)" "$OUT/step15_test"
+    }
+    unit u_step15
+    u_detail() {
+        $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/detail_test" tests/detail_test.c -lm
+        run "1.5.1 SEQ > DETAIL: a step's CHANCE RATCH NUDGE VEL on KNOB 1..4 (walk, entries, undo, DRUM, chords, playback, marks)" "$OUT/detail_test"
+    }
+    unit u_detail
+    u_fun10() {
+        $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fun10_test" tests/fun10_test.c -lm
+        run "1.2 (FUN10): LFO 2 SYNC / TRIG / POL, NUDGE (record, QUANTIZE, play, controls), 128 motion records, FUN10 / FUN9 / FUN8 / FUN7, user presets" "$OUT/fun10_test"
+    }
+    unit u_fun10
+    u_midi_control() {
+        $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_control_test" tests/midi_control_test.c -lm
+        run "USB/TRS clock, bend, sustain, ownership and panic recovery" "$OUT/midi_control_test"
+    }
+    unit u_midi_control
+    u_digital() {
+        $CC -O1 -w -DFELUCCA_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/digital_test" tests/digital_test.c -lm
+        run "DIGITAL (retired, built here with FELUCCA_FM4=1): operator envelopes/levels" "$OUT/digital_test"
+    }
+    unit u_digital
+    u_fm4() {
+        $CC -O2 -w -DFELUCCA_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/fm4_test" tests/fm4_test.c -lm
+        mkdir -p build/fm4_demo
+        run "DIGITAL -> FM6: the conversion against DIGITAL (FELUCCA_FM4=1): pitch, centroid, RMS envelope; demos" \
+            "$OUT/fm4_test" build/fm4_demo
+    }
+    unit u_fm4
+    u_fm4_div0() {
+        $CC -O2 -w -fsanitize=integer-divide-by-zero -fno-sanitize-recover=all -Ibuild/gen -Ifirmware/src \
+            -o "$OUT/fm4_div0_test" tests/fm4_div0_test.c -lm
+        run "DIGITAL -> FM6 without a divide by zero (#61): the same values as before, a 0.9 ORGAN project (UBSan)" \
+            "$OUT/fm4_div0_test"
+    }
+    unit u_fm4_div0
+    u_theme() {
+        $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/theme_test" tests/theme_test.c -lm
+        run "themes: contrast, text blending and font metrics" "$OUT/theme_test"
+    }
+    unit u_theme
+    u_text_ref() {
+        $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/text_ref_test" tests/text_ref_test.c -lm
+        run "text: pens, kerning and pixels equal the reference renderer" "$OUT/text_ref_test"
+    }
+    unit u_text_ref
+    u_text_spacing() {
+        if python3 -c "import PIL" 2>/dev/null; then
+            run "text spacing: glyph gaps against the font's own (16x supersampled), S M <= 0.25 px, L <= 0.5 px" \
+                python3 tests/text_spacing_test.py build/gen/ui_fonts.h
+        fi
+    }
+    unit u_text_spacing
+    u_settings() {
+        $CC -O1 -w -Ibuild/gen -o "$OUT/settings_test" tests/settings_test.c
+        run "settings: PER1..PER4 migration, palette ids and preference preservation" "$OUT/settings_test"
+    }
+    unit u_settings
+    u_ui_test() {
+        $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test" tests/ui_test.c -lm
+        run "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, GREY gray" "$OUT/ui_test"
+    }
+    unit u_ui_test
     FV=$(sed -n 's/^#define FELUCCA_VERSION "\([^"]*\)".*/\1/p' firmware/src/felucca.c)   # (the splash, ABOUT: the real version)
-    $CC -O1 -w "-DFELUCCA_VERSION=\"$FV\"" -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/ui_render" tests/ui_render.c -lm
-    mkdir -p build/ui_new/ppm build/ui_slot
-    run "UI renders: layout lint (every screen and palette, every page, engine and column value), GREY gray, MONO neutral, alignment by ink (1 px fails), draw cost" \
-        "$OUT/ui_render" build/ui_new build/ui_slot
-    if python3 -c "import PIL" 2>/dev/null; then python3 tests/ui_render.py build/ui_new build/ui_slot; fi
-    $CC -w -DFELUCCA_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test_fm4" tests/ui_test.c -lm
-    run "UI built with FELUCCA_FM4=1 (DIGITAL, kept in the tree): its OP pages, EDIT cycle, algorithm charts" "$OUT/ui_test_fm4"
-    $CC -O1 -w -DFELUCCA_FM4=1 "-DFELUCCA_VERSION=\"$FV\"" -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/ui_render_fm4" tests/ui_render.c -lm
-    mkdir -p build/ui_fm4/ppm build/ui_fm4_slot
-    run "UI renders with FELUCCA_FM4=1: DIGITAL's screens (EDIT, OP ENV, the 8 algorithm charts), lint, GREY gray, MONO neutral" \
-        "$OUT/ui_render_fm4" build/ui_fm4 build/ui_fm4_slot
-    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/audio_test" tests/audio_test.c -lm
-    run "audio: overload protection, bounded fades and DMA diagnostics" "$OUT/audio_test"
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/click_test" tests/click_test.c -lm
-    run "metronome and count-in: beats sample for sample (internal and external clock), accent, level, MASTER, not in USB, count-in timing, notes onto step 1" "$OUT/click_test"
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/rec_transport_test" tests/rec_transport_test.c -lm
-    run "REC transport: panel taps, track changes, LED and click stop while USB audio records at 44.1 / 48 kHz" "$OUT/rec_transport_test"
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/freetake_test" tests/freetake_test.c -lm
-    run "free take: empty project, REC armed, first note starts take, REC closes loop/tempo, PLAY/STOP drops, 24 s auto-close, held-note slides and returns" "$OUT/freetake_test"
-    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/persistence_test" tests/persistence_test.c -lm
-    run "persistence: deferred settings, retry and failed-save rollback" "$OUT/persistence_test"
-    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/backup_test" tests/backup_test.c -lm
-    run "full backup: CRC before writes, stale runtime, USB reset / timeout, malformed objects, older projects" "$OUT/backup_test"
-    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6bank_test" tests/fm6bank_test.c -lm
-    run "FM6 voice bank (1.4.1): write / read, power cuts, CRC, SLOT B1..B32, stored SLOT values as before" "$OUT/fm6bank_test"
-    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/editor_test" tests/editor_test.c -lm
-    run "editor: real C protocol, malformed transfers, queue recovery, MENU settings (writes build/host/menu.json)" \
-        env MENU_JSON="$OUT/menu.json" "$OUT/editor_test"
-    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/robust_test" tests/robust_test.c -lm
-    run "robustness: crafted sample slots, engine numbers, retained old projects, preset patterns, malformed requests" \
-        "$OUT/robust_test"
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/mod_test" tests/mod_test.c -lm
-    mkdir -p build/mod_demo
-    run "modulation matrix: off = bit-identical, the math, MIDI CC1 / CC11 / aftertouch, cost, demos" "$OUT/mod_test" build/mod_demo
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/sound14_test" tests/sound14_test.c -lm
-    mkdir -p build/sound14_demo
-    run "sound items: matrix S&H / SLEW / DEPTH, ANALOG SYNC / SUB, SPREAD (bit for bit at 0, L / R, mono sum), cost, demos" \
-        "$OUT/sound14_test" build/sound14_demo
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/inschain_test" tests/inschain_test.c -lm
-    run "insert chain (P1-C): order, MIX 0 bypass, 1.5 INSERT migration, FX page order" "$OUT/inschain_test"
+    # ui_render writes the report and PNGs of ui_render.py's own directories
+    u_ui_render() {
+        $CC -O1 -w "-DFELUCCA_VERSION=\"$FV\"" -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/ui_render" tests/ui_render.c -lm
+        mkdir -p build/ui_new/ppm build/ui_slot
+        run "UI renders: layout lint (every screen and palette, every page, engine and column value), GREY gray, MONO neutral, alignment by ink (1 px fails), draw cost" \
+            "$OUT/ui_render" build/ui_new build/ui_slot
+        if python3 -c "import PIL" 2>/dev/null; then python3 tests/ui_render.py build/ui_new build/ui_slot; fi
+    }
+    unit u_ui_render
+    u_ui_test_fm4() {
+        $CC -w -DFELUCCA_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test_fm4" tests/ui_test.c -lm
+        run "UI built with FELUCCA_FM4=1 (DIGITAL, kept in the tree): its OP pages, EDIT cycle, algorithm charts" "$OUT/ui_test_fm4"
+    }
+    unit u_ui_test_fm4
+    u_ui_render_fm4() {
+        $CC -O1 -w -DFELUCCA_FM4=1 "-DFELUCCA_VERSION=\"$FV\"" -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/ui_render_fm4" tests/ui_render.c -lm
+        mkdir -p build/ui_fm4/ppm build/ui_fm4_slot
+        run "UI renders with FELUCCA_FM4=1: DIGITAL's screens (EDIT, OP ENV, the 8 algorithm charts), lint, GREY gray, MONO neutral" \
+            "$OUT/ui_render_fm4" build/ui_fm4 build/ui_fm4_slot
+    }
+    unit u_ui_render_fm4
+    u_audio() {
+        $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/audio_test" tests/audio_test.c -lm
+        run "audio: overload protection, bounded fades and DMA diagnostics" "$OUT/audio_test"
+    }
+    unit u_audio
+    u_click() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/click_test" tests/click_test.c -lm
+        run "metronome and count-in: beats sample for sample (internal and external clock), accent, level, MASTER, not in USB, count-in timing, notes onto step 1" "$OUT/click_test"
+    }
+    unit u_click
+    u_rec_transport() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/rec_transport_test" tests/rec_transport_test.c -lm
+        run "REC transport: panel taps, track changes, LED and click stop while USB audio records at 44.1 / 48 kHz" "$OUT/rec_transport_test"
+    }
+    unit u_rec_transport
+    u_freetake() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/freetake_test" tests/freetake_test.c -lm
+        run "free take: empty project, REC armed, first note starts take, REC closes loop/tempo, PLAY/STOP drops, 24 s auto-close, held-note slides and returns" "$OUT/freetake_test"
+    }
+    unit u_freetake
+    u_persistence() {
+        $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/persistence_test" tests/persistence_test.c -lm
+        run "persistence: deferred settings, retry and failed-save rollback" "$OUT/persistence_test"
+    }
+    unit u_persistence
+    u_backup() {
+        $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/backup_test" tests/backup_test.c -lm
+        run "full backup: CRC before writes, stale runtime, USB reset / timeout, malformed objects, older projects" "$OUT/backup_test"
+    }
+    unit u_backup
+    u_fm6bank() {
+        $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6bank_test" tests/fm6bank_test.c -lm
+        run "FM6 voice bank (1.4.1): write / read, power cuts, CRC, SLOT B1..B32, stored SLOT values as before" "$OUT/fm6bank_test"
+    }
+    unit u_fm6bank
+    u_editor() {
+        $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/editor_test" tests/editor_test.c -lm
+        run "editor: real C protocol, malformed transfers, queue recovery, MENU settings (writes build/host/menu.json)" \
+            env MENU_JSON="$OUT/menu.json" "$OUT/editor_test"
+    }
+    unit u_editor
+    MENU_UNIT=$n    # the web tests compare against its menu.json
+    u_robust() {
+        $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/robust_test" tests/robust_test.c -lm
+        run "robustness: crafted sample slots, engine numbers, retained old projects, preset patterns, malformed requests" \
+            "$OUT/robust_test"
+    }
+    unit u_robust
+    u_mod() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/mod_test" tests/mod_test.c -lm
+        mkdir -p build/mod_demo
+        run "modulation matrix: off = bit-identical, the math, MIDI CC1 / CC11 / aftertouch, cost, demos" "$OUT/mod_test" build/mod_demo
+    }
+    unit u_mod
+    u_sound14() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/sound14_test" tests/sound14_test.c -lm
+        mkdir -p build/sound14_demo
+        run "sound items: matrix S&H / SLEW / DEPTH, ANALOG SYNC / SUB, SPREAD (bit for bit at 0, L / R, mono sum), cost, demos" \
+            "$OUT/sound14_test" build/sound14_demo
+    }
+    unit u_sound14
+    u_inschain() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/inschain_test" tests/inschain_test.c -lm
+        run "insert chain (P1-C): order, MIX 0 bypass, 1.5 INSERT migration, FX page order" "$OUT/inschain_test"
+    }
+    unit u_inschain
     # legacy insert_test (single TYPE) not rebuilt until updated for the 6-stage chain
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/sound15_test" tests/sound15_test.c -lm
-    mkdir -p build/sound15_demo
-    run "1.5 sound items: ANALOG filter TYPE LP / BP / HP (responses, LP and other engines bit for bit), ENV SYNC (times at several tempi), cost, demos" \
-        "$OUT/sound15_test" build/sound15_demo
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/slicer_test" tests/slicer_test.c -lm
-    mkdir -p build/slicer_demo
-    run "SLICER: no clicks, timing, sync with the sequencer, STUT, cost, demos" "$OUT/slicer_test" build/slicer_demo
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/swing_test" tests/swing_test.c -lm
-    run "SWING: track + global at most 100, sequencer and SLICER step lengths, the SWG display" "$OUT/swing_test"
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/perform_test" tests/perform_test.c -lm
-    mkdir -p build/perform_demo build/fx_demo build/throw_demo
-    run "FX layer effects: on the 1/16, stereo, too-long REPEAT, SLICER, silent keys, idle bit-identical, clicks, OCT UP / DN, FLANGER, PHASER, the key map, dotted TIME, REV / ECHO THROW, cost, demos" "$OUT/perform_test" build/perform_demo build/fx_demo build/throw_demo
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/reverb_test" tests/reverb_test.c -lm
-    mkdir -p build/reverb_demo
-    run "REVERB TYPE: ROOM / SPRING bit-identical, SPRING/HALL/SHIMR/CLOUD decay / stability, model changes, cost, demos" "$OUT/reverb_test" build/fx_demo build/reverb_demo
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/regress" tests/regress.c -lm
-    run "regression: golden renders, health, voices, CPU budget" "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
+    u_sound15() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/sound15_test" tests/sound15_test.c -lm
+        mkdir -p build/sound15_demo
+        run "1.5 sound items: ANALOG filter TYPE LP / BP / HP (responses, LP and other engines bit for bit), ENV SYNC (times at several tempi), cost, demos" \
+            "$OUT/sound15_test" build/sound15_demo
+    }
+    unit u_sound15
+    u_slicer() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/slicer_test" tests/slicer_test.c -lm
+        mkdir -p build/slicer_demo
+        run "SLICER: no clicks, timing, sync with the sequencer, STUT, cost, demos" "$OUT/slicer_test" build/slicer_demo
+    }
+    unit u_slicer
+    u_swing() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/swing_test" tests/swing_test.c -lm
+        run "SWING: track + global at most 100, sequencer and SLICER step lengths, the SWG display" "$OUT/swing_test"
+    }
+    unit u_swing
+    u_perform() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/perform_test" tests/perform_test.c -lm
+        mkdir -p build/perform_demo build/fx_demo build/throw_demo
+        run "FX layer effects: on the 1/16, stereo, too-long REPEAT, SLICER, silent keys, idle bit-identical, clicks, OCT UP / DN, FLANGER, PHASER, the key map, dotted TIME, REV / ECHO THROW, cost, demos" "$OUT/perform_test" build/perform_demo build/fx_demo build/throw_demo
+    }
+    unit u_perform
+    PERF_UNIT=$n
+    u_reverb() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/reverb_test" tests/reverb_test.c -lm
+        mkdir -p build/reverb_demo
+        run "REVERB TYPE: ROOM / SPRING bit-identical, SPRING/HALL/SHIMR/CLOUD decay / stability, model changes, cost, demos" "$OUT/reverb_test" build/fx_demo build/reverb_demo
+    }
+    unit_after "$PERF_UNIT" u_reverb    # both write build/fx_demo: not at the same time
+    u_regress() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/regress" tests/regress.c -lm
+        run "regression: golden renders, health, voices, CPU budget" "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
+    }
+    unit u_regress
     # the second core (fx.c mix_block, hal/fm1_cpu1.h): a thread renders the parts handed to it (tests/c1_host.h)
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -DC1_HOST -pthread -o "$OUT/regress_c1" tests/regress.c -lm
-    run "second core: the golden renders with a thread taking every split of the parts in turn" \
-        "$OUT/regress_c1" tests/golden.txt tests/cpu_baseline.txt
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -pthread -o "$OUT/dualcore_test" tests/dualcore_test.c -lm
-    run "second core: 4 parts of every preset, mixes and the chain / send FX: bit for bit on one core and on two" \
-        "$OUT/dualcore_test"
-    run "second core: the same with every job cut after its first part (mix_block renders the rest: no dropout)" \
-        env C1_STALL=1 "$OUT/dualcore_test"
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/union_test" tests/union_test.c -lm
-    run "engine memory (1.5): every switch between the engines with per-part state (270 sequences; retired SAMPLE/GRAIN/SLICE out)" \
-        "$OUT/union_test" tests/union_golden.txt
-    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/descdump" tests/descdump.c -lm
-    echo "== parameter and engine tables as JSON (for the editor mock test)"
-    "$OUT/descdump" > "$OUT/desc.json" || fail=1
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/phys_test" tests/phys_test.c -lm
-    mkdir -p build/phys_demo
-    run "PHYS: stability C-1..G9 over the parameter corners, worst-case cost against PHASE WIRE, demos" "$OUT/phys_test" build/phys_demo
+    u_regress_c1() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -DC1_HOST -pthread -o "$OUT/regress_c1" tests/regress.c -lm
+        run "second core: the golden renders with a thread taking every split of the parts in turn" \
+            "$OUT/regress_c1" tests/golden.txt tests/cpu_baseline.txt
+    }
+    unit u_regress_c1
+    u_dualcore() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -pthread -o "$OUT/dualcore_test" tests/dualcore_test.c -lm
+        run "second core: 4 parts of every preset, mixes and the chain / send FX: bit for bit on one core and on two" \
+            "$OUT/dualcore_test"
+        run "second core: the same with every job cut after its first part (mix_block renders the rest: no dropout)" \
+            env C1_STALL=1 "$OUT/dualcore_test"
+    }
+    unit u_dualcore
+    u_union() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/union_test" tests/union_test.c -lm
+        run "engine memory (1.5): every switch between the engines with per-part state (270 sequences; retired SAMPLE/GRAIN/SLICE out)" \
+            "$OUT/union_test" tests/union_golden.txt
+    }
+    unit u_union
+    u_descdump() {
+        $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/descdump" tests/descdump.c -lm
+        echo "== parameter and engine tables as JSON (for the editor mock test)"
+        "$OUT/descdump" > "$OUT/desc.json" || fail=1
+    }
+    unit u_descdump
+    DESC_UNIT=$n    # the web tests compare against its desc.json
+    u_phys() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/phys_test" tests/phys_test.c -lm
+        mkdir -p build/phys_demo
+        run "PHYS: stability C-1..G9 over the parameter corners, worst-case cost against PHASE WIRE, demos" "$OUT/phys_test" build/phys_demo
+    }
+    unit u_phys
     D=${DAISYSP:-vendor/DaisySP}/Source
-    if [ -d "$D/PhysicalModeling" ] && command -v c++ >/dev/null 2>&1; then
-        $CC -O2 -w -Ibuild/gen -Ifirmware/src -Itests -c -o "$OUT/phys_fixed.o" tests/phys_fixed.c
-        c++ -O2 -std=c++14 -w -I"$D" -I"$D/Utility" -o "$OUT/phys_ref" tests/phys_ref.cpp \
-            "$D/PhysicalModeling/modalvoice.cpp" "$D/PhysicalModeling/resonator.cpp" "$D/PhysicalModeling/stringvoice.cpp" \
-            "$D/PhysicalModeling/KarplusString.cpp" "$D/Filters/svf.cpp" "$D/Utility/dcblock.cpp" \
-            "$D/Dynamics/crossfade.cpp" "$OUT/phys_fixed.o"
-        run "PHYS: the fixed-point models against DaisySP's float originals (mode frequencies, decays, Svf)" "$OUT/phys_ref"
-    else
-        echo "== skip PHYS reference test (no DaisySP: set DAISYSP to a checkout)"
-    fi
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/drum_test" tests/drum_test.c -lm
-    mkdir -p build/drum_demo
-    run "DRUM: voice targets, controls, no clipping, retrigger, hat choke, the kick on a small speaker, keys, 8 lanes, cost, demos" "$OUT/drum_test" build/drum_demo
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/noise_test" tests/noise_test.c -lm
-    mkdir -p build/noise_demo
-    run "NOISE: colour slopes, key-tracked filter and clock, META period, DC, clipping, retrigger, cost, demos" "$OUT/noise_test" build/noise_demo
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_test" tests/fm6_test.c -lm
-    mkdir -p build/fm6_demo
-    run "FM6: algorithms, envelopes, retrigger, DC, clipping, macros, patch formats, voices, cost, demos" "$OUT/fm6_test" build/fm6_demo
-    echo "== skip SLICE (engine retired)"
-    # SAMPLE's PIANO (1.5: as 1.1.5); CR78 ROM omitted; 1.2's PIANO HD in a user slot
-    if grep -q '^    {"PIANO", 0, 5},' build/gen/felucca_samples.h; then
-        mkdir -p build/sample_demo build/piano_hd
-        python3 tools/gen_samples.py --user-slot PIANO "PIANO HD" build/piano_hd/PIANO_HD >/dev/null
-        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/sample_test" tests/sample_test.c -lm
-        run "SAMPLE: PIANO (5 zones as 1.1.5: splits, pitch, length, GRAIN), a PIANO HD slot (no CR78 ROM)" "$OUT/sample_test" \
-            build/piano_hd/PIANO_HD build/sample_demo
-    else
-        echo "== skip SAMPLE's PIANO (no CC0 library: assets/samples-cc0, tools/fetch_cc0.py)"
-    fi
+    u_phys_ref() {
+        if [ -d "$D/PhysicalModeling" ] && command -v c++ >/dev/null 2>&1; then
+            $CC -O2 -w -Ibuild/gen -Ifirmware/src -Itests -c -o "$OUT/phys_fixed.o" tests/phys_fixed.c
+            c++ -O2 -std=c++14 -w -I"$D" -I"$D/Utility" -o "$OUT/phys_ref" tests/phys_ref.cpp \
+                "$D/PhysicalModeling/modalvoice.cpp" "$D/PhysicalModeling/resonator.cpp" "$D/PhysicalModeling/stringvoice.cpp" \
+                "$D/PhysicalModeling/KarplusString.cpp" "$D/Filters/svf.cpp" "$D/Utility/dcblock.cpp" \
+                "$D/Dynamics/crossfade.cpp" "$OUT/phys_fixed.o"
+            run "PHYS: the fixed-point models against DaisySP's float originals (mode frequencies, decays, Svf)" "$OUT/phys_ref"
+        else
+            echo "== skip PHYS reference test (no DaisySP: set DAISYSP to a checkout)"
+        fi
+    }
+    unit u_phys_ref
+    u_drum() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/drum_test" tests/drum_test.c -lm
+        mkdir -p build/drum_demo
+        run "DRUM: voice targets, controls, no clipping, retrigger, hat choke, the kick on a small speaker, keys, 8 lanes, cost, demos" "$OUT/drum_test" build/drum_demo
+    }
+    unit u_drum
+    u_noise() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/noise_test" tests/noise_test.c -lm
+        mkdir -p build/noise_demo
+        run "NOISE: colour slopes, key-tracked filter and clock, META period, DC, clipping, retrigger, cost, demos" "$OUT/noise_test" build/noise_demo
+    }
+    unit u_noise
+    u_fm6() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_test" tests/fm6_test.c -lm
+        mkdir -p build/fm6_demo
+        run "FM6: algorithms, envelopes, retrigger, DC, clipping, macros, patch formats, voices, cost, demos" "$OUT/fm6_test" build/fm6_demo
+    }
+    unit u_fm6
+    note "== skip SLICE (engine retired)"
+    u_sample() {
+        # SAMPLE's PIANO (1.5: as 1.1.5); CR78 ROM omitted; 1.2's PIANO HD in a user slot
+        if grep -q '^    {"PIANO", 0, 5},' build/gen/felucca_samples.h; then
+            mkdir -p build/sample_demo build/piano_hd
+            python3 tools/gen_samples.py --user-slot PIANO "PIANO HD" build/piano_hd/PIANO_HD >/dev/null
+            $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/sample_test" tests/sample_test.c -lm
+            run "SAMPLE: PIANO (5 zones as 1.1.5: splits, pitch, length, GRAIN), a PIANO HD slot (no CR78 ROM)" "$OUT/sample_test" \
+                build/piano_hd/PIANO_HD build/sample_demo
+        else
+            echo "== skip SAMPLE's PIANO (no CC0 library: assets/samples-cc0, tools/fetch_cc0.py)"
+        fi
+    }
+    unit u_sample
 else
-    echo "== skip hostsim (run ./build.sh once)"
+    note "== skip hostsim (run ./build.sh once)"
 fi
 
 # ASan + UBSan: the stored-data and protocol paths, and short fuzz runs (fixed seeds: the same inputs every run)
@@ -401,68 +718,126 @@ san_ok() {
         ${CC%% *} $SAN -o "$OUT/san_probe" "$OUT/san_probe.c" 2>/dev/null && "$OUT/san_probe"
 }
 if [ "${SANITIZE:-1}" = 0 ]; then
-    echo "== skip the sanitizer runs (SANITIZE=0)"
+    note "== skip the sanitizer runs (SANITIZE=0)"
 elif [ ! -f build/gen/felucca_tables.h ]; then
-    echo "== skip the sanitizer runs (run ./build.sh once)"
+    note "== skip the sanitizer runs (run ./build.sh once)"
 elif ! san_ok; then
-    echo "== skip the sanitizer runs (the compiler has no ASan / UBSan)"
+    note "== skip the sanitizer runs (the compiler has no ASan / UBSan)"
 else
     mkdir -p "$OUT/asan"
     A="$OUT/asan"
     SCC="${CC%% *} $SAN -Ibuild/gen -Ifirmware/src"
     export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}"
-    $SCC -o "$A/ldr_test" tests/ldr_test.c
-    run "ASan/UBSan: update loader (other app -> this build)" "$A/ldr_test" "$OUT/old.fwsc" build/felucca.fwsc
-    $SCC -DOWN_PKG=1 -o "$A/ota_test" tests/ota_test.c
-    run "ASan/UBSan: M-UPGRADE entry (own loader)" "$A/ota_test" build/felucca.fwsc
+    u_asan_ldr() {
+        $SCC -o "$A/ldr_test" tests/ldr_test.c
+        run "ASan/UBSan: update loader (other app -> this build)" "$A/ldr_test" "$OUT/old.fwsc" build/felucca.fwsc
+    }
+    unit u_asan_ldr
+    u_asan_ota() {
+        $SCC -DOWN_PKG=1 -o "$A/ota_test" tests/ota_test.c
+        run "ASan/UBSan: M-UPGRADE entry (own loader)" "$A/ota_test" build/felucca.fwsc
+    }
+    unit u_asan_ota
+    u_asan_t() {
+        $SCC -o "$A/$1" tests/$1.c -lm
+        run "ASan/UBSan: $1" "$A/$1"
+    }
     for t in editor_test project_test backup_test robust_test fun10_test fm6bank_test; do
-        $SCC -o "$A/$t" tests/$t.c -lm
-        run "ASan/UBSan: $t" "$A/$t"
+        unit u_asan_t "$t"
     done
-    $SCC -o "$A/fuzz_ed" tests/fuzz_ed.c -lm
-    run "ASan/UBSan fuzz: editor SysEx and raw USB-MIDI packets (20000, seed 7)" "$A/fuzz_ed" 20000 7
-    $SCC -o "$A/fuzz_proj" tests/fuzz_proj.c -lm
-    run "ASan/UBSan fuzz: project stores -> import -> restore -> render (5000, seed 13)" "$A/fuzz_proj" 5000 13
-    $SCC -o "$A/fuzz_smp" tests/fuzz_smp.c -lm
-    run "ASan/UBSan fuzz: user sample slot headers -> scan -> SAMPLE / GRAIN (1000, seed 17)" "$A/fuzz_smp" 1000 17
-    TSAN_CC="${CC%% *} -O1 -g -w -Ibuild/gen -Ifirmware/src -fsanitize=thread -pthread"
-    if $TSAN_CC -o "$OUT/dualcore_tsan" tests/dualcore_test.c -lm 2>/dev/null; then
+    u_asan_fuzz_ed() {
+        $SCC -o "$A/fuzz_ed" tests/fuzz_ed.c -lm
+        run "ASan/UBSan fuzz: editor SysEx and raw USB-MIDI packets (20000, seed 7)" "$A/fuzz_ed" 20000 7
+    }
+    unit u_asan_fuzz_ed
+    u_asan_fuzz_proj() {
+        $SCC -o "$A/fuzz_proj" tests/fuzz_proj.c -lm
+        run "ASan/UBSan fuzz: project stores -> import -> restore -> render (5000, seed 13)" "$A/fuzz_proj" 5000 13
+    }
+    unit u_asan_fuzz_proj
+    u_asan_fuzz_smp() {
+        $SCC -o "$A/fuzz_smp" tests/fuzz_smp.c -lm
+        run "ASan/UBSan fuzz: user sample slot headers -> scan -> SAMPLE / GRAIN (1000, seed 17)" "$A/fuzz_smp" 1000 17
+    }
+    unit u_asan_fuzz_smp
+    u_asan_tsan_cc() {
+        TSAN_CC="${CC%% *} -O1 -g -w -Ibuild/gen -Ifirmware/src -fsanitize=thread -pthread"
+        if $TSAN_CC -o "$OUT/dualcore_tsan" tests/dualcore_test.c -lm 2>/dev/null; then
+            : > "$LOGS/tsan.ok"
+        else
+            echo "== skip the ThreadSanitizer run (the compiler has no TSAN)"
+        fi
+    }
+    unit u_asan_tsan_cc
+    TSAN_BUILD=$n
+    u_asan_tsan1() {
+        [ -f "$LOGS/tsan.ok" ] || return 0
         run "second core under ThreadSanitizer: 4 parts of every preset, mixes and the chain / send FX" \
             env TSAN_OPTIONS=halt_on_error=1 "$OUT/dualcore_tsan"
+    }
+    unit_after "$TSAN_BUILD" u_asan_tsan1
+    u_asan_tsan2() {
+        [ -f "$LOGS/tsan.ok" ] || return 0
         run "second core under ThreadSanitizer: the same with every job cut after its first part" \
             env C1_STALL=1 TSAN_OPTIONS=halt_on_error=1 "$OUT/dualcore_tsan"
-    else
-        echo "== skip the ThreadSanitizer run (the compiler has no TSAN)"
-    fi
+    }
+    unit_after "$TSAN_BUILD" u_asan_tsan2
 fi
 
-run "regression: target cost of the render loops (pi32v2 disassembly)" python3 tests/target_budget.py \
-    build/felucca.dis tests/target_budget.txt
+u_target_budget() {
+    run "regression: target cost of the render loops (pi32v2 disassembly)" python3 tests/target_budget.py \
+        build/felucca.dis tests/target_budget.txt
+}
+unit u_target_budget
 
-run "installer CLI (fm1_install.py) against a simulated FM-1" python3 tests/install_test.py
+u_install() {
+    run "installer CLI (fm1_install.py) against a simulated FM-1" python3 tests/install_test.py
+}
+unit u_install
 
+u_web() { run "$1" node "$2"; }
 if command -v node >/dev/null 2>&1; then
-    run "web pages: editor protocol + samples, package builder, update protocol" node web/test_web.mjs
-    run "web backup: capture, validation before writes, restore order" node web/test_backup.mjs
+    # the web tests wait for the units above: the mock's tables are checked against their
+    # build/host/desc.json and menu.json
+    unit_after "$DESC_UNIT $MENU_UNIT" u_web "web pages: editor protocol + samples, package builder, update protocol" web/test_web.mjs
+    unit_after "$DESC_UNIT $MENU_UNIT" u_web "web backup: capture, validation before writes, restore order" web/test_backup.mjs
     for t in test_crc test_info_tags test_installer test_steps_dom test_stock_sha; do
-        run "web: $t" node "web/$t.mjs"
+        unit_after "$DESC_UNIT $MENU_UNIT" u_web "web: $t" "web/$t.mjs"
     done
 else
-    echo "== skip web tests (no node)"
+    note "== skip web tests (no node)"
 fi
 
-run "stock firmware digest: the Python installer and the web validator agree" python3 tools/check_stock_sha.py
+u_stock_sha() {
+    run "stock firmware digest: the Python installer and the web validator agree" python3 tools/check_stock_sha.py
+}
+unit u_stock_sha
 
-if ! command -v emcc >/dev/null 2>&1; then
-    echo "== skip the browser emulator (no emcc: Emscripten builds web/emu)"
-elif ! command -v node >/dev/null 2>&1 || [ ! -f build/gen/felucca_tables.h ]; then
-    echo "== skip the browser emulator (needs node and build/gen)"
-else
+# the browser emulator: web/emu/build.sh writes build/emu, the native check writes
+# $OUT/emu_native.f32 (independent), and the test reads both
+u_emu_build() {
     run "browser emulator: the firmware to WebAssembly (web/emu/build.sh -> build/emu)" sh web/emu/build.sh
+}
+u_emu_native() {
     cc -O2 -ffp-contract=off -w -Ibuild/gen -Ifirmware/src -o "$OUT/emu_native" web/emu/native_check.c -lm
     run "browser emulator: the same song from the native build" "$OUT/emu_native" "$OUT/emu_native.f32"
+}
+u_emu_test() {
     run "browser emulator: boot, keys, MIDI, screen, LEDs, PLAY, a save kept across instances, = native, cost" \
         node web/emu/emu_test.mjs build/emu/felucca.wasm "$OUT/emu_native.f32"
+}
+if ! command -v emcc >/dev/null 2>&1; then
+    note "== skip the browser emulator (no emcc: Emscripten builds web/emu)"
+elif ! command -v node >/dev/null 2>&1 || [ ! -f build/gen/felucca_tables.h ]; then
+    note "== skip the browser emulator (needs node and build/gen)"
+else
+    unit u_emu_build
+    EMU_BUILD=$n
+    unit u_emu_native
+    EMU_NATIVE=$n
+    unit_after "$EMU_BUILD $EMU_NATIVE" u_emu_test
 fi
+
+drain
 
 [ $fail -eq 0 ] && echo "ALL HOST TESTS PASSED" || { echo "HOST TESTS FAILED"; exit 1; }
