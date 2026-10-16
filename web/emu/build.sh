@@ -4,6 +4,9 @@
 # Felucca in the browser: the firmware's sources as the host tests build them (web/emu/felucca_web.c), compiled
 # to WebAssembly with Emscripten, plus the page. After X0X's web/emu/build.sh (charlesvestal/fm1-x0x, GPL-3.0).
 #   web/emu/build.sh   ->  build/emu/{index.html, worklet.js, felucca.wasm, fonts/}
+#   build/emu/worklet.js is web/emu/store.js (its "export " stripped) in front of web/emu/worklet.js: the browser
+#   loads it with AudioWorklet.addModule, which compiles a classic script, so it may not contain a top-level
+#   "export". web/emu/store.js is the module the test (web/emu/emu_test.mjs) imports; edit it there, not here.
 # Run after one ./build.sh (build/gen: the tables, the fonts, the CC0 samples).
 # -ffp-contract=off: no fused multiply-adds, as the host build. EMU_OPT replaces -O2, EMU_CFLAGS adds flags
 # (EMU_CFLAGS=-msimd128: let the compiler vectorise; every browser with AudioWorklet has wasm SIMD).
@@ -21,6 +24,6 @@ emcc ${EMU_OPT:--O2} -ffp-contract=off -std=gnu99 -w ${EMU_CFLAGS:-} \
     -o build/emu/felucca.wasm web/emu/felucca_web.c
 [ "${EMU_PREVIEW:-1}" = 0 ] && PREVIEW='' || PREVIEW=' (preview)'
 sed -e "s/@VERSION@/$VERSION/g" -e "s/@PREVIEW@/$PREVIEW/g" web/emu/index.html > build/emu/index.html
-cp web/emu/worklet.js build/emu/
+{ sed 's/^export //' web/emu/store.js; echo; cat web/emu/worklet.js; } > build/emu/worklet.js
 cp web/emu/fonts/DotGothic16-subset.woff web/emu/fonts/OFL.txt build/emu/fonts/
 echo "emu: build/emu ($(wc -c < build/emu/felucca.wasm | tr -d ' ') B wasm, $VERSION)"
