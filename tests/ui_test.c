@@ -7863,6 +7863,9 @@ static int test_fm6_ops(void)
 
     /* the sound: the init voice (ALG 1: OP 1 the carrier at 99, OP 2 its modulator at 0), the track's other sends off */
     TSEL->p[P_CHOR] = TSEL->p[P_DLY] = TSEL->p[P_REV] = TSEL->p[P_DIST] = 0;
+    TSEL->p[P_SLDEPTH] = 0;                     /* the SLICER's MIX too: the SEND bus gates every track's
+                                                 * render on its free-running clock, so a round-trip below
+                                                 * would compare two different slicer phases */
     TSEL->p[P_LD_PIT] = TSEL->p[P_LD_FLT] = TSEL->p[P_LD_SHP] = TSEL->p[P_LD_AMP] = 0;
     TSEL->p[P_M1SRC] = TSEL->p[P_M2SRC] = TSEL->p[P_M3SRC] = TSEL->p[P_M4SRC] = 0;
     for (f = 0; f < 7u; f++) TSEL->p[P_E0 + f] = 0;
@@ -7874,7 +7877,7 @@ static int test_fm6_ops(void)
     fop_pick(2);
     turn(EN_K4, 80);                                 /* OP 2 LEVEL 0 -> 80: FM, brighter */
     s1 = fm6_sound();
-    ok = s1.hf > 2.0 * s0.hf && fm6_patch[tr][4u * FP_OP + FP_OL] == 80u;
+    ok = s1.hf > 2.0 * s0.hf && fm6_patch[tr][4u * FP_OP + FP_OL] == 80u && TSEL->p[P_SLDEPTH] == 0;
     printf("    OP 2 LEVEL 80: HF share %.4f -> %.4f\n", s0.hf, s1.hf);
     turn(EN_K4, -80);
     s1 = fm6_sound();

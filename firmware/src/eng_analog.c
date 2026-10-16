@@ -45,31 +45,6 @@ static inline int32_t analog_comb(track_t *t, voice_t *v, int32_t in, int32_t le
     return y;
 }
 
-/* The tail the two renderers share: the filter (TYPE ft: COMB, or the SVF's LP / BP / HP), the knee
- * and the sample written into out. s: the oscillator mix, after the drive, at the voice's level.
- * (analog_tap with ft 0 is tsvf_lp's, step for step) */
-static inline __attribute__((always_inline)) int32_t analog_tail(track_t *t, voice_t *v, int32_t s,
-                                                                  const tsvf_t *flt, int32_t fk, int32_t clen,
-                                                                  int32_t res, uint32_t ft, int32_t *ic1, int32_t *ic2)
-{
-    int32_t y;
-    if (ft == IFT_COMB)
-        y = analog_comb(t, v, s >> 1, clen, res, ic1);
-    else if (ft)
-        y = analog_tap(flt, fk, s >> 1, ic1, ic2, ft);
-    else
-        y = tsvf_lp(flt, s >> 1, ic1, ic2);
-    {   /* linear up to half scale, then a soft knee (only resonance peaks saturate); soft_knee()
-         * written out for SVF: the host compiler makes this loop 1 % slower with the call */
-        int32_t a = y < 0 ? -y : y;
-        if (a > 16000) {
-            a = 16000 + (softclip((a - 16000) * 2) >> 1);
-            y = y < 0 ? -a : a;
-        }
-    }
-    return y << 1;
-}
-
 static const param_desc_t *analog_desc(const track_t *t, uint32_t k)
 {
     if (k == 1u && t->p[P_E0] == AW_SYNC)
@@ -143,7 +118,11 @@ static __attribute__((noinline)) void analog_render_x(track_t *t, voice_t *v, in
             s += mulq15((int32_t)(noise32(&nst) >> 17) - 16384, nz);
         if (drv)
             s = softclip(((s >> 2) * (drive >> 2)) >> 11);
-        out[i] += voice_amp(analog_tail(t, v, s, &flt, fk, (int32_t)clen, p[P_E5], ft, &ic1, &ic2), m, i) << 1;
+        if (ft == IFT_COMB)
+            s = soft_knee(analog_comb(t, v, s >> 1, (int32_t)clen, p[P_E5], &ic1), 16000) << 1;
+        else
+            s = soft_knee(analog_tap(&flt, fk, s >> 1, &ic1, &ic2, ft), 16000) << 1;
+        out[i] += voice_amp(s, m, i) << 1;
     }
     v->ph[0] = ph0;
     v->ph[1] = ph1;
@@ -205,7 +184,23 @@ static inline __attribute__((always_inline)) void analog_osc(track_t *t, voice_t
             s += mulq15((int32_t)(noise32(&nst) >> 17) - 16384, nz);
         if (drv)
             s = softclip(((s >> 2) * (drive >> 2)) >> 11);   /* pre-shifts: drive is up to 3x, no overflow */
-        out[i] += voice_amp(analog_tail(t, v, s, &flt, fk, (int32_t)clen, p[P_E5], ft, &ic1, &ic2), m, i) << 1;
+        {   /* filter, linear up to half scale, then a soft knee (only resonance peaks saturate); soft_knee()
+             * written out for SVF: the host compiler makes this loop 1 % slower with the call */
+            int32_t y;
+            if (ft == IFT_COMB)
+                y = analog_comb(t, v, s >> 1, (int32_t)clen, p[P_E5], &ic1);
+            else if (ft)
+                y = analog_tap(&flt, fk, s >> 1, &ic1, &ic2, ft);
+            else
+                y = tsvf_lp(&flt, s >> 1, &ic1, &ic2);
+            int32_t a = y < 0 ? -y : y;
+            if (a > 16000) {
+                a = 16000 + (softclip((a - 16000) * 2) >> 1);
+                y = y < 0 ? -a : a;
+            }
+            s = y << 1;
+        }
+        out[i] += voice_amp(s, m, i) << 1;
     }
     v->ph[0] = ph0;
     v->ph[1] = ph1;
