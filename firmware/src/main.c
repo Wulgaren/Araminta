@@ -122,7 +122,6 @@ static void boot_leds(void)
 static void fm1_main(void)
 {
     uint32_t ms;
-    uint8_t c1_told = 0;                        /* "2ND CORE FAILED: 1 CORE" shown (once) */
     persist_boot();
 #if FELUCCA_OTA
     if (flash_ok)
@@ -198,10 +197,6 @@ static void fm1_main(void)
             fm1_guard_pc_open();                    /* (it starts in the chip's ROM) */
             fm1_cpu1_service();                     /* a hiccup comes back (2b); out of restarts: dead (fm1_cpu1.h) */
             fm1_guard_enable(FM1_GUARD_PC);
-        }
-        if (fm1_c1_dead && !c1_told) {
-            c1_told = 1;
-            ui_message("2ND CORE FAILED: 1 CORE");  /* (ui.msg: 23 characters at most) */
         }
         {
             int32_t b = fm1_adc_read(FM1_ADC_BATT);     /* battery: slow IIR */

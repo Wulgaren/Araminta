@@ -9,10 +9,10 @@
  *   - a job that fails (wrong job read, or no answer in 4 ms) holds core 1 and the caller renders that
  *     block's parts itself (a misread costs nothing at all, core 1 never touched the sums; an overrun
  *     costs one glitch);
- *   - the main loop (main.c) starts core 1 again, up to fm1_cpu1_RESTARTS times within a clean-run
+ *   - the main loop (main.c) starts core 1 again, up to FM1_C1_RESTARTS times within a clean-run
  *     window: a hiccup comes back by itself;
  *   - a core that keeps failing the window, or never reports in at start, is done for the session
- *     (fm1_c1_dead) and the screen says "2ND CORE FAILED: ONE CORE" once.
+ *     (fm1_c1_dead): one core, silently (the console still shows the counts).
  *
  * Start (the AC79 SDK's EnableOtherCpu): core 1's interrupt bank off (0x1EEF300..), its entry
  * address into the word at 0x01C7FFF8, bit 3 of 0x10008 held while it starts, C1_CON (0x1EEE004)
@@ -68,6 +68,10 @@ static uint8_t fm1_c1_restarts;                 /* restarts since the window las
 static uint16_t fm1_c1_ok;                      /* jobs finished since the last failure: clears the restarts */
 #define FM1_C1_RESTARTS 3u                      /* a hiccup comes back; this many within the window and it is dead */
 #define FM1_C1_OK_WINDOW 4096u                  /* clean jobs (~3 s of blocks) and the restart budget is whole again */
+#define FM1_C1_BAIL 24000u                      /* 1 ms in TIMER4 ticks: a healthy job is done well within (a half
+                                                 * buffer's budget is 2.9 ms). Waiting past it and redoing the work
+                                                 * would blow the deadline and click; giving up at it, mix_block still
+                                                 * finishes the block in time (fx.c c1_done) */
 static uint32_t fm1_c1_wait_max;                /* the longest wait for a job, TIMER4 ticks (24 / us) */
 static uint8_t fm1_c1_marked;                   /* its stack was marked (fm1_cpu1_start): fm1_cpu1_stack_used 0 before */
 
@@ -179,9 +183,10 @@ static inline int fm1_cpu1_run(void (*fn)(uint32_t), uint32_t arg)
 }
 
 /* 0 = done; -1 = it read a wrong job or did not finish in time. Core 1 is held either way (its job
- * bookkeeping is one behind and cannot be resumed) and the block's work is the caller's again: a
- * misread costs nothing (core 1 left the sums alone), an overrun costs one glitch. The main loop
- * starts core 1 again (fm1_cpu1_service) unless it is dead */
+ * bookkeeping is one behind and cannot be resumed) and the rest of the block's work is the caller's again:
+ * a misread costs nothing (core 1 left the sums alone), a stall costs at most the part it was cut in (its
+ * state advances twice for that one block). The main loop starts core 1 again (fm1_cpu1_service) unless
+ * it is dead */
 static inline int fm1_cpu1_wait(void)
 {
     uint32_t t0 = FM1_C1_T4;
@@ -203,8 +208,7 @@ static inline int fm1_cpu1_wait(void)
             }
             return 0;
         }
-        if (FM1_C1_T4 - t0 > 24000u * 4u) {     /* 4 ms (as Jangada): past any block's work, a half is 2.9 ms
-                                                 * (it faulted, or stalled) */
+        if (FM1_C1_T4 - t0 > FM1_C1_BAIL) {     /* (it faulted or stalled: held, mix_block covers the block) */
             fm1_cpu1_hold();
             fm1_c1_gave_up = 2;
             return -1;
