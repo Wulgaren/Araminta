@@ -428,6 +428,11 @@ class Reader {
   s() { let s = ""; for (;;) { const c = this.b(); if (!c) return s; s += String.fromCharCode(c); } }
 }
 
+/* the INFO reply's tagged trailer (EDITOR_PROTOCOL.md "INFO"): (16, 0x55, 1, caps) for the preferences, then
+   optional (0x4d, 1, 64, chance, ...) for motion and (0x42, 1, caps) for the complete backups. fm1ota.js's
+   INFO_TAG is the same table for the installer, which cannot import this block (web/test_web.mjs evaluates it on
+   its own); web/test_info_tags.mjs checks the two agree. */
+const INFO_TAG = { SONG: 16, UI: 0x55, MOTION: 0x4d, FM6: 0x46, SYNC: 0x53, FM6V2: 0x50, RATCH: 0x52, BACKUP: 0x42, MENU: 0x4E };
 const parse = {
   [CMD.INFO](a) {
     const r = new Reader(a);
@@ -437,25 +442,25 @@ const parse = {
     o.ntrk = r.i < a.length ? r.b() : 0;             /* v3: tracks (0 = older firmware, one instrument) */
     o.uiCaps = 0;
     const trailer = a.slice(r.i);
-    if (trailer[0] === 16) o.chainRows = 16;       /* existing v6 SONG capability */
-    if (trailer.length >= 4 && trailer[0] === 16 && trailer[1] === 0x55 && trailer[2] === 1)
+    if (trailer[0] === INFO_TAG.SONG) o.chainRows = 16;   /* existing v6 SONG capability */
+    if (trailer.length >= 4 && trailer[0] === INFO_TAG.SONG && trailer[1] === INFO_TAG.UI && trailer[2] === 1)
       o.uiCaps = trailer[3] & 15;                 /* tagged preferences; never interpret old PR bytes as SONG */
     o.motionMax = 0; o.chance = false; o.backupCaps = 0;
-    if (o.uiCaps && trailer[4] === 0x4d && trailer[5] === 1 && trailer[6] === 64) {
+    if (o.uiCaps && trailer[4] === INFO_TAG.MOTION && trailer[5] === 1 && trailer[6] === 64) {
       o.motionMax = 64; o.chance = trailer[7] === 1;
-      if (trailer[8] === 0x42 && trailer[9] === 1) o.backupCaps = trailer[10] & 3;
+      if (trailer[8] === INFO_TAG.BACKUP && trailer[9] === 1) o.backupCaps = trailer[10] & 3;
     }
     o.fm6 = null;                                 /* FM6 patches (cmds 68..71): the factory and bank slot counts */
     o.syncCaps = 0;                               /* live sync: bit 0 WATCH while on keeps pending pushes, bit 1 no RELOAD */
     o.ratchet = 0;                                /* a step's ratchet (STEP_SET's byte after the chance), 0 = none */
-    for (const p of [8, 11]) if (o.motionMax && trailer[p] === 0x46 && trailer[p + 1] === 1) {   /* for the editor's */
+    for (const p of [8, 11]) if (o.motionMax && trailer[p] === INFO_TAG.FM6 && trailer[p + 1] === 1) {   /* for the editor's */
       o.fm6 = { factory: trailer[p + 2], bank: trailer[p + 3], caps: 0 };                         /* PRESET / G_ENGSEL */
-      if (trailer[p + 4] === 0x53 && trailer[p + 5] === 1) o.syncCaps = trailer[p + 6] & 3;
+      if (trailer[p + 4] === INFO_TAG.SYNC && trailer[p + 5] === 1) o.syncCaps = trailer[p + 6] & 3;
       /* FM6 v2 (1.0.3): bit 0 no bank (SLOT F1..F8, 8 = OWN), bit 1 the user presets carry their patch (target 3) */
-      if (trailer[p + 7] === 0x50 && trailer[p + 8] === 1) o.fm6.caps = trailer[p + 9] & 3;
-      let r = trailer[p + 7] === 0x50 ? p + 10 : p + 7;                                   /* RATCH after FM6 v2 */
-      if (trailer[r] === 0x4E && trailer[r + 1] === 1) r += 3;                            /* and the MENU settings (1.0.4) */
-      if (o.syncCaps && trailer[r] === 0x52 && trailer[r + 1] === 1) o.ratchet = trailer[r + 2];   /* RATCH: max hits */
+      if (trailer[p + 7] === INFO_TAG.FM6V2 && trailer[p + 8] === 1) o.fm6.caps = trailer[p + 9] & 3;
+      let r = trailer[p + 7] === INFO_TAG.FM6V2 ? p + 10 : p + 7;                                   /* RATCH after FM6 v2 */
+      if (trailer[r] === INFO_TAG.MENU && trailer[r + 1] === 1) r += 3;                            /* and the MENU settings (1.0.4) */
+      if (o.syncCaps && trailer[r] === INFO_TAG.RATCH && trailer[r + 1] === 1) o.ratchet = trailer[r + 2];   /* RATCH: max hits */
     }
     return o;
   },
@@ -630,8 +635,8 @@ const req = {
   },
   names: (e) => [CMD.NAMES, [e & 0x7F]],
   smpBegin: (s) => [CMD.SMP_BEGIN, [s & 0x7F]],
-  smpWrite: (s, off, bytes) => [CMD.SMP_WRITE, [s & 0x7F, off & 0x7F, (off >> 7) & 0x7F, (off >> 14) & 0x7F, ...pack7(bytes)]],
-  smpEnd: (s, hdr) => [CMD.SMP_END, [s & 0x7F, ...pack7(hdr)]],
+  smpWrite: (s, off, bytes) => [CMD.SMP_WRITE, [s & 0x7F, off & 0x7F, (off >> 7) & 0x7F, (off >> 14) & 0x7F, ...fsmpPack7(bytes)]],
+  smpEnd: (s, hdr) => [CMD.SMP_END, [s & 0x7F, ...fsmpPack7(hdr)]],
   smpErase: (s) => [CMD.SMP_ERASE, [s & 0x7F]],
   smpInfo: () => [CMD.SMP_INFO, []],
   upList: (start, count) => [CMD.UP_LIST, [start & 0x7F, Math.max(1, Math.min(UP.LIST_MAX, count | 0))]],
@@ -817,8 +822,9 @@ function fmtValue(d, v) {
 const SMP = { SLOT_SIZE: 0x14000, DATA_OFF: 512, RATE: 22050, HDR_LEN: 32 + 16 * 28, MAX_ZONES: 16 };
 SMP.MAX_DATA = SMP.SLOT_SIZE - SMP.DATA_OFF;
 
-/* groups of up to 7 bytes, each preceded by their top bits */
-function pack7(b) {
+/* groups of up to 7 bytes, each preceded by their top bits: the FSMP sample upload's packing (EDITOR_PROTOCOL.md
+   "pack7"). Not fm1ota.js's sysexPack7, which is the update protocol's bit-stream packing. */
+function fsmpPack7(b) {
   const out = [];
   for (let i = 0; i < b.length; i += 7) {
     const g = Array.from(b.slice(i, i + 7));
@@ -827,7 +833,7 @@ function pack7(b) {
   }
   return out;
 }
-function unpack7(a) {
+function fsmpUnpack7(a) {
   const out = [];
   for (let i = 0; i < a.length; i += 8) {
     const top = a[i];
@@ -1485,7 +1491,7 @@ const FM6 = (() => {
   ];
   const init = () => unpack(INIT_PK);
   const factory = (k) => unpack(FACTORY_PK[k]);
-  return { OP, VOICE, OPI, VI, NAME, SIZE, PACKED, max, at, sanitize, unpack, pack, name, setName, checksum, parseSysex,
+  return { OP, VOICE, VI, NAME, SIZE, PACKED, max, at, sanitize, unpack, pack, name, setName, checksum, parseSysex,
     singleSysex, bankSysex, ALG, carriers, feedbackOp, freqText, INIT_PK, FACTORY_PK, init, factory,
     TARGET: { TRACK: 0, BANK: 1, FACTORY: 2, USER: 3 } };
 })();
@@ -2301,7 +2307,7 @@ function makeMockDevice(opt = {}) {
       }
       case CMD.SMP_WRITE: {
         if (a.length < 5 || a[0] >= 3) return null;
-        const u = st.smp[a[0]], off = a[1] | (a[2] << 7) | (a[3] << 14), dat = unpack7(a.slice(4));
+        const u = st.smp[a[0]], off = a[1] | (a[2] << 7) | (a[3] << 14), dat = fsmpUnpack7(a.slice(4));
         let rc = 0;
         if (off < SMP.DATA_OFF || (off & 0xFF) || !dat.length || off + dat.length > SMP.SLOT_SIZE || dat.length > 256) rc = 1;
         else {
@@ -2314,7 +2320,7 @@ function makeMockDevice(opt = {}) {
       }
       case CMD.SMP_END: {
         if (a.length < 2 || a[0] >= 3) return null;
-        const u = st.smp[a[0]], hd = unpack7(a.slice(1)), dv = new DataView(hd.buffer);
+        const u = st.smp[a[0]], hd = fsmpUnpack7(a.slice(1)), dv = new DataView(hd.buffer);
         let rc = 0;
         if (hd.length < SMP.HDR_LEN || dv.getUint32(0, true) !== 0x504D5346 || dv.getUint16(4, true) !== 1) rc = 2;
         else if (!hd[6] || hd[6] > 16) rc = 5;
@@ -3613,16 +3619,19 @@ function stepRow(i) {
 function fillStep(tr, s) {
   const c = tr._c;
   if (!s) return;
-  c.notes.value = stepNotes(s);
+  /* a field is written only when it actually changes: a poll or a push must not touch a row the user is in */
+  const setv = (e, v) => { if (e && e.value !== v) e.value = v; };
+  const setb = (e, v) => { if (e && e.checked !== !!v) e.checked = !!v; };
+  setv(c.notes, stepNotes(s));
   c.notes.classList.remove("bad");
-  c.hits.value = hitsText(s.hit | 0, s.acc | 0);
+  setv(c.hits, hitsText(s.hit | 0, s.acc | 0));
   c.hits.classList.remove("bad");
-  c.time.value = String(s.time);
-  c.acc.checked = !!(s.flags & 1);
-  c.sl.checked = !!(s.flags & 2);
-  c.vel.value = String(s.vel);
-  if (c.chance) c.chance.value = String(s.chance ?? 100);
-  if (c.ratchet) c.ratchet.value = String(s.ratchet ?? 1);
+  setv(c.time, String(s.time));
+  setb(c.acc, s.flags & 1);
+  setb(c.sl, s.flags & 2);
+  setv(c.vel, String(s.vel));
+  setv(c.chance, String(s.chance ?? 100));
+  setv(c.ratchet, String(s.ratchet ?? 1));
   tr.classList.toggle("off", !stepOn(s));
 }
 function updateStepRows() {
@@ -3638,7 +3647,13 @@ function renderGrid() {
   if (!dev || !dev.steps.length) { box.replaceChildren(); return; }
   const len = stepLen();
   if (box.children.length !== len) {
-    box.replaceChildren(...Array.from({ length: len }, (_, i) => el("button", { type: "button", "data-i": i, onclick: () => focusStep(i) })));
+    box.replaceChildren(...Array.from({ length: len }, (_, i) => {
+      const b = el("button", { type: "button", "data-i": i, onclick: () => focusStep(i) });
+      b._n = el("span", { class: "n" });              /* kept: only their text changes on a poll or a push */
+      b._x = el("span", { class: "x" });
+      b.append(b._n, b._x);
+      return b;
+    }));
   }
   for (const b of box.children) {
     const i = +b.dataset.i, s = dev.steps[i];
@@ -3647,7 +3662,8 @@ function renderGrid() {
     const marks = s && on ? (s.flags & 1 ? " >" : "") + (s.flags & 2 ? " ~" : "") + (s.ratchet > 1 ? " x" + s.ratchet : "") : "";
     b.className = [on && "on", tie && "tie", on && s.flags & 1 && "acc", i % 4 === 0 && "beat"].filter(Boolean).join(" ");
     b.title = `${i + 1}: ${on ? txt : tie ? "TIE" : "REST"}${marks}`;
-    b.replaceChildren(el("span", { class: "n", text: String(i + 1) + marks }), el("span", { class: "x", text: txt }));
+    b._n.textContent = String(i + 1) + marks;
+    b._x.textContent = txt;
   }
 }
 function focusStep(i) {
@@ -3853,9 +3869,21 @@ async function recStop() {
  * (at the pointer); zoomed in, a drag away from the ends (or shift + wheel) moves the view; a double
  * click shows it all. The view, [v0, v1)
  * of raw, is kept in the file (the list is drawn again after every trim). */
+/* --fg / --line come from :root and change only with the colour scheme, so they are read once per scheme
+   instead of on every pointermove while a trim is dragged (drawTrim then runs per move) */
+let trimInk = null;
+const trimColors = () => {
+  if (!trimInk) {
+    const cs = getComputedStyle(document.documentElement);
+    trimInk = { fg: cs.getPropertyValue("--fg").trim() || "#000", line: cs.getPropertyValue("--line").trim() || "#ccc" };
+  }
+  return trimInk;
+};
+try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { trimInk = null; }); }
+catch (e) { /* no matchMedia: the colours stay as they were first read */ }
 function drawTrim(cv, f) {
-  const w = cv.width, h = cv.height - 4, g = cv.getContext("2d"), cs = getComputedStyle(cv);
-  const fg = cs.getPropertyValue("--fg").trim() || "#000", line = cs.getPropertyValue("--line").trim() || "#ccc";
+  const w = cv.width, h = cv.height - 4, g = cv.getContext("2d");
+  const fg = trimColors().fg, line = trimColors().line;
   const n = f.raw.length, v0 = f.v0 ?? 0, v1 = f.v1 ?? n, span = v1 - v0;
   const xa = (f.a - v0) / span * w, xb = (f.b - v0) / span * w;
   if (f.pk === undefined) {                        /* raw never changes: its peak, once */
@@ -4104,19 +4132,23 @@ async function smpUpload(k, prog) {
   const session = dev;
   const releaseBusy = beginBusy();
   smpBusy = true;
-  renderSamples();
-  prog = $("smpslots").querySelector(`[data-k="${k}"] progress[max="1"]`);
-  prog.hidden = false;
   try {
+    renderSamples();
+    prog = $("smpslots").querySelector(`[data-k="${k}"] progress[max="1"]`);
+    if (prog) prog.hidden = false;
     const t0 = performance.now();
     let r = parse[CMD.SMP_BEGIN](await rq(req.smpBegin(k), { timeout: 1000, retries: 0 }));
     if (r.rc) throw new Error("begin rc " + r.rc);
+    let shown = 0;                                      /* the KiB numbers move slowly: one write per 2 KiB */
     for (let off = 0; off < data.length; off += 256) {
       const a = SMP.DATA_OFF + off;
       const w = parse[CMD.SMP_WRITE](await rq(req.smpWrite(k, a, data.subarray(off, off + 256)), { timeout: 1000, retries: 1 }));
       if (w.rc) throw new Error(`write at 0x${a.toString(16)} rc ${w.rc}`);
-      prog.value = (off + 256) / data.length;
-      sayK("smpUploading", `${k + 1}  ${kib(Math.min(data.length, off + 256))} / ${kib(data.length)} KiB`);
+      if (off - shown >= 2048 || off + 256 >= data.length) {
+        shown = off;
+        if (prog) prog.value = (off + 256) / data.length;
+        sayK("smpUploading", `${k + 1}  ${kib(Math.min(data.length, off + 256))} / ${kib(data.length)} KiB`);
+      }
     }
     r = parse[CMD.SMP_END](await rq(req.smpEnd(k, hdr), { timeout: 2000, retries: 0 }));
     if (r.rc) throw new Error(`end rc ${r.rc} (${SMP_RC[r.rc] || "?"})`);
@@ -4157,6 +4189,7 @@ async function smpErase(k) {
    The selected track's level / pan / mute are also Sound parameters: both views follow each other. */
 let mixDrag = null;                 /* "lv:i" / "pan:i" while a strip control is dragged */
 const mixEdit = new Map();          /* "lv:i" / "pan:i" -> time of the user's last change */
+const panWant = new Map();          /* track -> pan value v3 firmware has left to write (panOther) */
 const mixCtl = [];                  /* per track: the strip's elements */
 let panning = false;                /* v3 firmware: another track is selected for a moment (pan of a track that is not selected) */
 const mixTouched = (kind, i) => mixDrag === `${kind}:${i}` || performance.now() - (mixEdit.get(`${kind}:${i}`) || 0) < 600
@@ -4301,7 +4334,6 @@ async function sendMix(i) {
 }
 /* pan: the selected track as any Sound parameter; another track with TRACK_PARAM (v4: while dragging, one in
    flight and one queued with the latest value), or with v3 firmware on release (it is selected for a moment) */
-const panWant = new Map();
 function setPan(i, v, final) {
   if (!dev || !dev.mix) return;
   dev.mix.tracks[i].pan = v;
@@ -4756,22 +4788,35 @@ function renderLib() {
   const v = libView();
   if (libSel && !lib.some((p) => p.id === libSel)) libSel = null;
   const box = $("liblist");
-  if (!lib.length) box.replaceChildren(el("div", { class: "none", text: t("libEmpty") }));
-  else {
-    const tb = el("table", {}, el("colgroup", {}, el("col"), el("col", { class: "e" }), el("col"), el("col", { class: "d" })),
-      el("tr", {}, el("th", { text: t("name") }), el("th", { text: t("engine") }), el("th", { text: t("tagsCol") }), el("th", { text: t("date") })));
-    for (const p of v) {
-      const tr = el("tr", { "data-id": p.id, class: p.id === libSel ? "sel" : null, draggable: "true", title: p.name },
-        el("td", {}, p.pattern || p.grid ? icon("note_eight") : "", p.name),
-        el("td", { text: p.engineName || String(p.engine) }),
-        el("td", { text: p.tags.join(", ") }),
-        el("td", { text: new Date(p.modified).toLocaleDateString(lang) }));
-      tr.addEventListener("click", () => { libSel = p.id; renderLib(); });
-      tr.addEventListener("dblclick", () => libAudition(p.id));
-      tr.addEventListener("dragstart", (e) => { libSel = p.id; e.dataTransfer.setData("text/x-felucca-lib", p.id); e.dataTransfer.effectAllowed = "copy"; });
-      tb.append(tr);
+  const rows = renderLib.rows || (renderLib.rows = new Map());
+  /* everything the rows show, without the selection: a click then only moves the "sel" class */
+  const sig = [lang, libBusy, !!dev, !!(dev && dev.bank), $("libq").value, $("libeng").value, $("libtag").value,
+    $("libsort").value, libPersistent,
+    v.map((p) => p.id + "\u0001" + p.name + "\u0001" + (p.engineName || String(p.engine)) + "\u0001" + p.tags.join(",")
+      + "\u0001" + (p.pattern || p.grid ? "1" : "0") + "\u0001" + p.modified).join("\u0002")].join("\u0003");
+  if (sig === renderLib.sig) {
+    for (const [id, tr] of rows) tr.classList.toggle("sel", id === libSel);
+  } else {
+    renderLib.sig = sig;
+    rows.clear();
+    if (!lib.length) box.replaceChildren(el("div", { class: "none", text: t("libEmpty") }));
+    else {
+      const tb = el("table", {}, el("colgroup", {}, el("col"), el("col", { class: "e" }), el("col"), el("col", { class: "d" })),
+        el("tr", {}, el("th", { text: t("name") }), el("th", { text: t("engine") }), el("th", { text: t("tagsCol") }), el("th", { text: t("date") })));
+      for (const p of v) {
+        const tr = el("tr", { "data-id": p.id, class: p.id === libSel ? "sel" : null, draggable: "true", title: p.name },
+          el("td", {}, p.pattern || p.grid ? icon("note_eight") : "", p.name),
+          el("td", { text: p.engineName || String(p.engine) }),
+          el("td", { text: p.tags.join(", ") }),
+          el("td", { text: new Date(p.modified).toLocaleDateString(lang) }));
+        tr.addEventListener("click", () => { libSel = p.id; renderLib(); });
+        tr.addEventListener("dblclick", () => libAudition(p.id));
+        tr.addEventListener("dragstart", (e) => { libSel = p.id; e.dataTransfer.setData("text/x-felucca-lib", p.id); e.dataTransfer.effectAllowed = "copy"; });
+        rows.set(p.id, tr);
+        tb.append(tr);
+      }
+      box.replaceChildren(tb, ...(v.length ? [] : [el("div", { class: "none", text: t("noMatch") })]));
     }
-    box.replaceChildren(tb, ...(v.length ? [] : [el("div", { class: "none", text: t("noMatch") })]));
   }
   $("libcount").textContent = `${v.length} / ${lib.length}` + (libPersistent ? "" : " " + t("noLibDB"));
   const sel = lib.find((p) => p.id === libSel);
@@ -4949,7 +4994,7 @@ $("libexp1").addEventListener("click", () => {
 $("libexport").addEventListener("click", () => download(`araminta-library-${today()}.json`, libraryFile("library", lib, libCtx())));
 $("libimport").addEventListener("click", () => { $("libfile").value = ""; $("libfile").click(); });
 $("libfile").addEventListener("change", async () => {
-  let n = 0, skipped = 0;
+  let n = 0, skipped = 0, bad = [];
   for (const f of [...$("libfile").files]) {
     try {
       const obj = JSON.parse(await f.text());
@@ -4963,9 +5008,15 @@ $("libfile").addEventListener("change", async () => {
       await libAdd(r.patches);
       n += r.patches.length;
       skipped += r.skipped;
-    } catch (e) { sayK("badfile", `${f.name}: ${e.message}`); return; }
+    } catch (e) {
+      bad.push(`${f.name}: ${e.message}`);           /* the rest of the selection still imports */
+      if (bad.length === 1) sayK("badfile", bad[0]);
+      else sayK("badfile", `${bad.length}: ${bad[bad.length - 1]}`);
+      continue;
+    }
   }
-  sayK("imported", n + (skipped ? t("skippedN").replace("{n}", skipped) : t("patchesN")));
+  sayK("imported", n + (skipped ? t("skippedN").replace("{n}", skipped) : t("patchesN"))
+    + (bad.length ? ` · ${t("skippedN").replace("{n}", bad.length)}` : ""));
 });
 
 /* device bank */
@@ -5151,7 +5202,9 @@ $("fm6file").addEventListener("change", async (e) => {
   const f = e.target.files[0];
   e.target.value = "";
   if (!f) return;
-  const r = FM6.parseSysex(new Uint8Array(await f.arrayBuffer()));
+  let r;
+  try { r = FM6.parseSysex(new Uint8Array(await f.arrayBuffer())); }
+  catch (err) { sayK("badfile", `${f.name}: ${err.message}`); return; }
   if (!r.voices.length) { const [k, x] = fm6Why(r); sayK(k, `${x}: ${f.name}`); return; }
   fm6Imported = r.voices;
   fm6Picked = r.voices.length === 1 ? 0 : -1;
