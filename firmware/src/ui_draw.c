@@ -456,7 +456,7 @@ static uint32_t card_mot_mask[(P_COUNT + 31u) / 32u];
 static uint8_t card_mot_next, card_mot;
 static void card_mot_of(const int16_t *vp)
 {
-    uintptr_t id = ((uintptr_t)vp - (uintptr_t)TSEL->p) / sizeof *vp;   /* (not the track's: huge) */
+    uintptr_t id = (vp >= TSEL->p && vp < TSEL->p + P_COUNT) ? (uintptr_t)(vp - TSEL->p) : (uintptr_t)P_COUNT;   /* not the track's: none */
     card_mot_next = (uint8_t)(id < P_COUNT && ((card_mot_mask[id / 32u] >> (id % 32u)) & 1u));
 }
 
@@ -717,8 +717,7 @@ static uint32_t foot_rename(void)
 {
     uint32_t g = ui.home ? GR_NONE : cur_page()->graph;
     if (g == GR_EVENTS) {
-        uint16_t rw[EV_ROWS];
-        uint32_t k = ev_cur(rw, 0) >> 8;
+        uint32_t k = ev_cur(ev_rw, 0) >> 8;
         return k == EVK_TOP || k == EVK_QNT || k == EVK_ADD ? 1u : 2u;
     }
     if (g == GR_USER)
@@ -944,8 +943,7 @@ static void draw_columns(void)
     }
     if (cur_page()->graph == GR_EVENTS) {              /* AUTOMATION (ui_events.c): ROW STEP PARAM VALUE */
         const track_t *t = TSEL;
-        uint16_t rw[EV_ROWS];
-        uint32_t n, c = ev_cur(rw, &n), r = ev_row(n), k = c >> 8, step, id;
+        uint32_t n, c = ev_cur(ev_rw, &n), r = ev_row(n), k = c >> 8, step, id;
         int16_t v;
         char nm[12];
         const param_desc_t *d;

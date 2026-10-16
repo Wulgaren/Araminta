@@ -45,8 +45,10 @@ def slot_info(r):
         raise ValueError("malformed SMP_INFO reply from the device") from None
 
 
-def pack7(b):
-    """groups of up to 7 bytes, each preceded by their top bits"""
+def pack7_groups(b):
+    """groups of up to 7 bytes, each preceded by their top bits (editor.c ed_unpack7).
+
+    Named for the format: fm1_install.py's pack7_bits is a different packing (ota.c ota_pack7)."""
     out = []
     for i in range(0, len(b), 7):
         g = b[i:i + 7]
@@ -91,13 +93,18 @@ class Link:
 
 
 def build(name, specs):
-    """specs: "file.wav[:ROOT[:LO-HI]]" -> (header, ADPCM data) for SMP_END / SMP_WRITE"""
+    """specs: "file.wav[:ROOT[:LO-HI]]" -> (header, ADPCM data) for SMP_END / SMP_WRITE
+
+    The path comes first and the numeric fields are anchored to the end (a Windows drive letter's
+    ':' is part of the path)."""
     zones = []
     for spec in specs:
-        parts = spec.split(":")
-        path = Path(parts[0])
-        root = int(parts[1]) if len(parts) > 1 and parts[1] else sio.note_from_name(path.stem)
-        lo, hi = (int(v) for v in parts[2].split("-")) if len(parts) > 2 else (None, None)
+        m = re.fullmatch(r"(.+?)(?::(\d*))?(?::(\d+)-(\d+))?", spec)
+        if not m:
+            raise ValueError(f"{spec!r}: use file.wav[:ROOT[:LO-HI]]")
+        path = Path(m.group(1))
+        root = int(m.group(2)) if m.group(2) else sio.note_from_name(path.stem)
+        lo, hi = (int(m.group(3)), int(m.group(4))) if m.group(3) else (None, None)
         sr, x = sio.read_any_wav(path)
         x = sio.resample(x, sr, sio.SLOT_RATE)
         if not x:
@@ -142,11 +149,11 @@ def main():
     t0 = time.time()
     for off in range(0, len(data), 256):
         a = sio.SLOT_DATA_OFF + off
-        r = link.req(12, [slot, a & 0x7F, (a >> 7) & 0x7F, (a >> 14) & 0x7F] + pack7(data[off:off + 256]))
+        r = link.req(12, [slot, a & 0x7F, (a >> 7) & 0x7F, (a >> 14) & 0x7F] + pack7_groups(data[off:off + 256]))
         if r[4]:
             sys.exit(f"write at {a:#x} failed ({r[4]})")
         print(f"\r  {min(off + 256, len(data))} / {len(data)}", end="", flush=True)
-    r = link.req(13, [slot] + pack7(hdr), 5)
+    r = link.req(13, [slot] + pack7_groups(hdr), 5)
     print(f"\n  {time.time() - t0:.1f} s, end:", "ok" if r[1] == 0 else f"FAILED ({r[1]}, {RC.get(r[1], '?')})")
 
 

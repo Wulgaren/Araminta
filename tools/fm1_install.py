@@ -26,6 +26,7 @@ import queue
 import re
 import sys
 import time
+from pathlib import Path
 
 HS_QUERY = bytes([0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7])
 UPGRADE = bytes([0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7])
@@ -55,7 +56,7 @@ class InstallError(Exception):
 
 # ------------------------------------------------------------ wire format ---
 
-def pack7(data):
+def pack7_bits(data):
     out, acc, nb = [], 0, 0
     for b in data:
         acc |= b << nb
@@ -69,7 +70,7 @@ def pack7(data):
     return bytes(out)
 
 
-def unpack7(s):
+def unpack7_bits(s):
     out, acc, nb = [], 0, 0
     for b in s:
         acc |= (b & 0x7F) << nb
@@ -86,14 +87,14 @@ def response(addr, data, fl=0):
     body = bytearray([0x00, 0x59, 0x30, (n + 8) & 0xFF, ((n + 8) >> 8) & 0xFF, 0, fl])
     body += addr.to_bytes(4, "little") + bytes([n & 0xFF, (n >> 8) & 0xFF, 0]) + bytes(data)
     body.append(~sum(body[6:]) & 0xFF)
-    return b"\xF0" + pack7(body) + b"\xF7"
+    return b"\xF0" + pack7_bits(body) + b"\xF7"
 
 
 def parse_request(pkt):
     """-> (flags, addr, len) or None"""
     if len(pkt) < 2 or pkt[0] != 0xF0 or pkt[-1] != 0xF7:
         return None
-    u = unpack7(pkt[1:-1])
+    u = unpack7_bits(pkt[1:-1])
     if len(u) != 15 or u[:3] != b"\x00\x59\x30" or ~sum(u[6:14]) & 0xFF != u[14]:
         return None
     return u[6], int.from_bytes(u[7:11], "little"), int.from_bytes(u[11:14], "little")
@@ -116,7 +117,7 @@ def printable(b):
 def parse_identity(pkt):
     if len(pkt) < 2 or pkt[0] != 0xF0 or pkt[-1] != 0xF7:
         return None
-    d = unpack7(pkt[1:-1])
+    d = unpack7_bits(pkt[1:-1])
     if len(d) != 34 or d[:3] != b"\x00\x59\x11":
         return None
     txt = printable(d[6:33].rstrip(b"\0"))
@@ -374,7 +375,7 @@ class Updater:
 
 def load_package(path, force):
     try:
-        raw = open(path, "rb").read()
+        raw = Path(path).read_bytes()
     except OSError as e:
         raise InstallError("badpkg", f"cannot read {path}: {e.strerror}")
     product = product_of(raw)

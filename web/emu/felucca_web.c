@@ -433,6 +433,10 @@ EXPORT uint32_t web_breath_keys(void) { return led_keys(fm1_led_breath); }
 EXPORT uint32_t web_mid_keys(void) { return led_keys(fm1_led_mid); }   /* the DRUM grid's beats: a steady mid level */
 /* the power-on sweep (or 1.2's idle animation) running: each LED's level now (hal/fm1_led_anim.h: 0..64 /64 of lit, | 0x80 the glow under
  * it), 0..13 the buttons by label, 14..40 the keys F3..G5; 0 when it is not */
+EXPORT uint32_t web_anim_count(void)
+{
+    return FM1_ANIM_NBTN + FM1_ANIM_NKEY;     /* web_anim_levels' length: the page must not hardcode it */
+}
 EXPORT uint8_t *web_anim_levels(void)
 {
     static uint8_t lv[FM1_ANIM_NBTN + FM1_ANIM_NKEY];

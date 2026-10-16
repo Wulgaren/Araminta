@@ -224,7 +224,7 @@ static void arp_remove(track_t *t, uint32_t note)
     t->nheld = (uint8_t)k;
 }
 
-#define ND_NONE 0u                      /* track_t nd_late / nd_early: nothing latched (seq_tick; else its seq_pos + 1) */
+
 static void rec_note(track_t *t, uint32_t note, uint32_t vel);
 static void rec_release(track_t *t, uint32_t note);
 static void seq_start(void);
@@ -547,6 +547,61 @@ static __attribute__((noinline)) int32_t rec_nudge(int32_t off, uint32_t period)
     return (off * NUDGE_DIV + (off < 0 ? -(int32_t)period / 2 : (int32_t)period / 2)) / (int32_t)(period ? period : 1u);
 }
 
+/* a note into step s (an overdub): a fresh step is reset first, the drum hits with it. Returns 1 when the
+ * step was reset, so the caller can keep the note's timing on it (rec_note: NUDGE). mono: a MONO / LEGATO /
+ * UNISON part keeps one note per step, as step entry does (the free take overdubs freely) */
+static uint32_t step_add(const track_t *t, step_t *s, uint32_t note, uint32_t vel, uint32_t mono)
+{
+    uint32_t k, fresh;
+    if (drum_track(t)) {                            /* DRUM: into the grid, no holds (hits) */
+        uint32_t l = drum_lane(note);
+        fresh = s->time != ST_NOTE || (!s->n && !s->hit);
+        if (fresh) {
+            s->n = s->hit = s->acc = 0;
+            s->flags = 0;
+            s->vel = 0;
+        }
+        s->time = ST_NOTE;
+        if (note == DRUM_LANE_NOTE[l]) {            /* a lane's note: its hit */
+            s->hit |= (uint8_t)(1u << l);
+            if (vel > 110)
+                s->acc |= (uint8_t)(1u << l);
+        } else {                                    /* another GM drum (a low tom, a crash): a note */
+            for (k = 0; k < s->n && s->note[k] != note; k++)
+                ;
+            if (k == s->n) {
+                if (s->n < 4u)
+                    s->n++;
+                s->note[s->n - 1u] = (uint8_t)note;
+            }
+            if (vel > 110)
+                s->flags |= SF_ACCENT;
+        }
+        if (vel > s->vel)
+            s->vel = (uint8_t)vel;
+        return fresh;
+    }
+    fresh = s->time != ST_NOTE || !s->n || mono;
+    if (fresh) {
+        s->n = 0;                                   /* a fresh step */
+        s->flags = 0;
+        s->vel = 0;
+    }
+    for (k = 0; k < s->n && s->note[k] != note; k++)
+        ;
+    if (k == s->n) {
+        if (s->n < 4u)
+            s->n++;
+        s->note[s->n - 1u] = (uint8_t)note;
+    }
+    s->time = ST_NOTE;
+    if (vel > 110)
+        s->flags |= SF_ACCENT;
+    if (vel > s->vel)
+        s->vel = (uint8_t)vel;
+    return fresh;
+}
+
 /* live recording: the note goes into the nearest step, as swung (the one playing, or
  * the next one when it is past the middle of the playing one). Overdub: a step that
  * holds notes gets this one added (a chord of up to 4; when full, the last note is
@@ -569,77 +624,27 @@ static void rec_note(track_t *t, uint32_t note, uint32_t vel)
     /* the step's notes play later in this pass (it is the next one, not played early yet, or the one playing whose
      * nudge has not come yet): what sounds now must not play again there (rskip) */
     sounds = next ? t->nd_fired != idx + 1u : t->nd_late != ND_NONE;
-    if (drum_track(t)) {                            /* DRUM: into the grid, no holds (hits) */
-        uint32_t l = drum_lane(note);
-        if (s->time != ST_NOTE || (!s->n && !s->hit)) {
-            s->n = s->hit = s->acc = 0;
-            s->flags = 0;
-            s->vel = 0;
-            step_set_nudge(s, off);
-        }
-        s->time = ST_NOTE;
-        if (note == DRUM_LANE_NOTE[l]) {            /* a lane's note: its hit */
-            s->hit |= (uint8_t)(1u << l);
-            if (vel > 110)
-                s->acc |= (uint8_t)(1u << l);
-        } else {                                    /* another GM drum (a low tom, a crash): a note */
-            for (k = 0; k < s->n && s->note[k] != note; k++)
-                ;
-            if (k == s->n) {
-                if (s->n < 4u)
-                    s->n++;
-                s->note[s->n - 1u] = (uint8_t)note;
-            }
-            if (vel > 110)
-                s->flags |= SF_ACCENT;
-        }
-        if (vel > s->vel)
-            s->vel = (uint8_t)vel;
-        t->seq_active = 1;
-        if (sounds) {
-            if (t->rskip_idx != idx)
-                t->rskip_n = 0;
-            t->rskip_idx = (uint8_t)idx;
-            if (t->rskip_n < NLANE)
-                t->rskip[t->rskip_n++] = (uint8_t)note;
-        }
-        return;
-    }
-    if (s->time != ST_NOTE || !s->n || trk_vmode(t) != V_POLY) {
-        s->n = 0;                                   /* a fresh step */
-        s->flags = 0;
-        s->vel = 0;
-        step_set_nudge(s, off);
-    }
-    for (k = 0; k < s->n && s->note[k] != note; k++)
-        ;
-    if (k == s->n) {
-        if (s->n < 4u)
-            s->n++;
-        s->note[s->n - 1u] = (uint8_t)note;
-    }
-    s->time = ST_NOTE;
-    if (vel > 110)
-        s->flags |= SF_ACCENT;
-    if (vel > s->vel)
-        s->vel = (uint8_t)vel;
-    t->seq_active = 1;
+    if (step_add(t, s, note, vel, trk_vmode(t) != V_POLY))
+        step_set_nudge(s, off);                     /* a fresh step: it keeps the note's timing */
     if (sounds) {                                   /* it sounds now: the step must not trigger it again */
+        uint32_t rmax = drum_track(t) ? NLANE : 4u;
         if (t->rskip_idx != idx)
             t->rskip_n = 0;
         t->rskip_idx = (uint8_t)idx;
-        if (t->rskip_n < 4u)
+        if (t->rskip_n < rmax)
             t->rskip[t->rskip_n++] = (uint8_t)note;
     }
-    if (!t->rh_n || t->rh_start != idx) {           /* a new hold (one in another step ends) */
-        t->rh_n = 0;
-        t->rh_start = (uint8_t)idx;
-        t->rh_ties = 0;
+    if (!drum_track(t)) {                           /* the grid's hits hold nothing (as step entry: synth parts only) */
+        if (!t->rh_n || t->rh_start != idx) {       /* a new hold (one in another step ends) */
+            t->rh_n = 0;
+            t->rh_start = (uint8_t)idx;
+            t->rh_ties = 0;
+        }
+        for (k = 0; k < t->rh_n && t->rh_note[k] != note; k++)
+            ;
+        if (k == t->rh_n && t->rh_n < 4u)
+            t->rh_note[t->rh_n++] = (uint8_t)note;  /* a chord: held until its last key is up */
     }
-    for (k = 0; k < t->rh_n && t->rh_note[k] != note; k++)
-        ;
-    if (k == t->rh_n && t->rh_n < 4u)
-        t->rh_note[t->rh_n++] = (uint8_t)note;      /* a chord: held until its last key is up */
 }
 
 /* the sequencer enters step idx (before playing it): a recorded note still held ties into it */
@@ -777,55 +782,6 @@ static void ft_note_off(uint32_t note)
             return;
         }
 }
-static void ft_put(track_t *t, uint32_t idx, uint8_t note, uint8_t vel)
-{
-    step_t *s = &t->step[idx];
-    uint32_t k;
-    if (drum_track(t)) {
-        uint32_t l = drum_lane(note);
-        if (s->time != ST_NOTE || (!s->n && !s->hit)) {
-            s->n = s->hit = s->acc = 0;
-            s->flags = 0;
-            s->vel = 0;
-        }
-        s->time = ST_NOTE;
-        if (note == DRUM_LANE_NOTE[l]) {
-            s->hit |= (uint8_t)(1u << l);
-            if (vel > 110)
-                s->acc |= (uint8_t)(1u << l);
-        } else {
-            for (k = 0; k < s->n && s->note[k] != note; k++)
-                ;
-            if (k == s->n) {
-                if (s->n < 4u)
-                    s->n++;
-                s->note[s->n - 1u] = note;
-            }
-            if (vel > 110)
-                s->flags |= SF_ACCENT;
-        }
-        if (vel > s->vel)
-            s->vel = vel;
-        return;
-    }
-    if (s->time != ST_NOTE || !s->n) {
-        s->n = 0;
-        s->flags = 0;
-        s->vel = 0;
-    }
-    for (k = 0; k < s->n && s->note[k] != note; k++)
-        ;
-    if (k == s->n) {
-        if (s->n < 4u)
-            s->n++;
-        s->note[s->n - 1u] = note;
-    }
-    s->time = ST_NOTE;
-    if (vel > 110)
-        s->flags |= SF_ACCENT;
-    if (vel > s->vel)
-        s->vel = vel;
-}
 static uint32_t ft_q(uint32_t t, uint32_t len, uint32_t T)
 {
     return (t * len * 2u + T) / (2u * T) % len;
@@ -933,11 +889,10 @@ static void ft_close(void)
     }
     if (!drum_track(t))
         ft_returns(len, T);
-    for (i = 0; i < ft_n; i++)
-        ft_put(t, ft_q(ft_ev[i].t, len, T), ft_ev[i].note, ft_ev[i].vel);
+    for (i = 0; i < ft_n; i++)                         /* (a fresh step: its NUDGE is not kept) */
+        step_add(t, &t->step[ft_q(ft_ev[i].t, len, T)], ft_ev[i].note, ft_ev[i].vel, 0);
     if (!drum_track(t))
         ft_legato(t, ft_n, len, T);
-    t->seq_active = 1;
     song.g[G_BPM] = (int16_t)bpm;
     ft_bars = (uint8_t)bars;
     seq_start();

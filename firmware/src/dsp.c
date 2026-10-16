@@ -141,7 +141,9 @@ static inline int32_t soft_knee(int32_t y, int32_t k)
 }
 
 /* Feedback comb (ANALOG TYPE / insert FILTER COMB). CUT 0 = longest delay (lowest teeth), 127 =
- * shortest; RES sets feedback (0 = transparent). line[] stores samples at 1/4 scale. */
+ * shortest; RES sets feedback (0 = transparent). line[] stores samples at 1/4 scale.
+ * line_len is a power of two (the callers' lines: AC_LEN, IC_LEN), so the wrap is a mask, and the
+ * delay length (comb_delay_len) is block-constant: the caller passes it in. */
 static inline uint32_t comb_delay_len(int32_t cut, uint32_t line_len)
 {
     cut = clamp(cut, 0, 127);
@@ -149,17 +151,19 @@ static inline uint32_t comb_delay_len(int32_t cut, uint32_t line_len)
         return 2u;
     return 2u + (uint32_t)(127 - cut) * (line_len - 3u) / 127u;
 }
+/* one sample; len = comb_delay_len(cut, line_len), once per block (the cut is block-constant: the
+ * divide it holds would otherwise run once per sample, as would the three wraps below) */
 static inline int32_t comb_process(int16_t *line, uint32_t line_len, uint16_t *wp,
-                                   int32_t x, int32_t cut, int32_t res)
+                                   int32_t x, int32_t len, int32_t res)
 {
-    uint32_t len = comb_delay_len(cut, line_len);
-    uint32_t w = (uint32_t)(*wp) % line_len;
-    int32_t d = line[(w + line_len - len) % line_len];
+    uint32_t mask = line_len - 1u;
+    uint32_t w = (uint32_t)(*wp) & mask;
+    int32_t d = line[(w + line_len - len) & mask];
     int32_t fbk = clamp(res, 0, 127) * 200;            /* Q15, up to ~0.77 */
     int32_t y = x + (mulq15(d, fbk) << 2);              /* restore stored 1/4 scale into the sum */
     y = clamp(y, -230000, 230000);
     line[w] = (int16_t)clamp(y >> 2, -32767, 32767);
-    *wp = (uint16_t)((w + 1u) % line_len);
+    *wp = (uint16_t)((w + 1u) & mask);
     return y;
 }
 
