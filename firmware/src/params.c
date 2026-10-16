@@ -279,6 +279,48 @@ static int32_t param_fit(const param_desc_t *d, int32_t v)
     return v;
 }
 
+/* --------------------------------------------- the stored parameter wire form ---
+ * One parameter as a project (project.c) stores it: a biased byte (value + 64, so -64..127),
+ * and two bytes LE for P_IORD, whose low 10 bits are the chain order and whose high 6 are the
+ * per-stage send flags (core.h). Both the pack and the unpack of every format go through
+ * these, so the form and its limits exist once; a value or an order past them is refused,
+ * never clamped (a project that holds one is not written and not loaded). */
+#define WIRE_BIAS 64
+#define WIRE_MIN (-64)
+#define WIRE_MAX 127
+#define WIRE_IORD_MAX 719u
+/* -> 1 byte written (b), 0 = the value is outside the biased range */
+static int wire_val_put(uint8_t *b, int16_t v)
+{
+    if (v < WIRE_MIN || v > WIRE_MAX)
+        return 0;
+    *b = (uint8_t)(v + WIRE_BIAS);
+    return 1;
+}
+/* -> 1 byte read (*v), 0 = the byte is outside the biased range */
+static int wire_val_get(const uint8_t *b, int16_t *v)
+{
+    if (*b > (uint8_t)(WIRE_MAX - WIRE_MIN))
+        return 0;
+    *v = (int16_t)*b - WIRE_BIAS;
+    return 1;
+}
+/* P_IORD: order in lo, send flags in hi -> 2 bytes written, 0 = no such order */
+static int wire_iord_put(uint8_t *lo, uint8_t *hi, uint16_t raw)
+{
+    if ((raw & 1023u) > WIRE_IORD_MAX)
+        return 0;
+    *lo = (uint8_t)raw;
+    *hi = (uint8_t)(raw >> 8);
+    return 2;
+}
+/* -> 2 bytes read (lo, hi), 0 = no such order */
+static int wire_iord_get(const uint8_t *lo, const uint8_t *hi, uint16_t *raw)
+{
+    *raw = (uint16_t)(lo[0] | (uint32_t)hi[0] << 8);
+    return (*raw & 1023u) <= WIRE_IORD_MAX;
+}
+
 /* v is a value a knob passes over: an alias, or one of FM6's bank slots without a voice, or ARP REPEAT
  * (id 6 kept for loads; the MODE knob steps ORD ↔ DNUP) */
 static int enum_skip(const param_desc_t *d, int32_t v)

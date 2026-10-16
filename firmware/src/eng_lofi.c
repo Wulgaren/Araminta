@@ -39,6 +39,16 @@ static const uint8_t WRAM[16][16] = {
 };
 #define Q4 2184                  /* one 4-bit step (2 * 2184 * 7.5 = 32760) */
 
+/* Each WRAM table's mean, taken out of every sample (a lopsided shape has no DC): [k][0] the mean of
+ * the 16 samples' (2 v - 15) in Q4 (bits 4 / 8), [k][1] at 1 bit (+-32767). = (the sum over the 16
+ * samples) / 32, truncated towards zero as the per-block loop it replaces did. */
+static const int16_t WRAM_DC[16][2] = {
+    /* SQ50 SQ25 SQ12 SINE TRI SAW SAW2 BAS1 BAS2 */
+    { 0, 0 }, { -16380, -16383 }, { -24570, -24575 }, { 136, 2047 }, { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2866, 6143 },
+    /* ORGN HOLW VOXA VOXO VOXE BUZZ STAIR */
+    { 136, 2047 }, { 136, 2047 }, { 136, 2047 }, { 136, 2047 }, { -136, -2047 }, { -23068, -30719 }, { 0, 0 },
+};
+
 /* CHIP = STEP: CRSH as the envelope, CRSH / 4 = b: 0 constant volume, 1..16 a one-shot decay
  * (divider period 0..15), 17..31 a looping one (period 1..15) */
 static const char *const N_DCY[] = {"CONST", "D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10",
@@ -131,13 +141,7 @@ static void lofi_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     int32_t pitch, held = v->s[0], cnt = v->s[1], lp = v->s[4];   /* state in locals: out[] may alias v->s[] */
     uint32_t inc, ph0 = v->ph[0], lfsr = (uint32_t)v->s[2];
     const uint8_t *wr = WRAM[((uint32_t)p[P_E2] >> 3) & 15u];
-    int32_t wdc = 0;
-    if (wave == RW_WRAM) {                              /* the table's mean: no DC from lopsided shapes */
-        int32_t sum = 0;
-        for (i = 0; i < 16u; i++)
-            sum += bits == 1 ? ((wr[i] >> 7) + ((wr[i] >> 3) & 1)) * 2 - 2 : (wr[i] >> 4) + (wr[i] & 15) - 15;
-        wdc = bits == 1 ? sum * 32767 / 32 : sum * 2 * Q4 / 32;   /* (2 v - 15) Q4, or +-32767 at 1 bit */
-    }
+    int32_t wdc = wave == RW_WRAM ? WRAM_DC[((uint32_t)p[P_E2] >> 3) & 15u][bits == 1] : 0;
     /* sweep down, vibrato (uses the track LFO through m->pitch16 already) */
     if (v->s[3] < 4096)                                 /* past 2047 + an arp step the pitch is 0 anyway */
         v->s[3] += p[P_E4] / 8;

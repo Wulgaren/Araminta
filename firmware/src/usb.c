@@ -49,6 +49,40 @@ enum { S_FADDR = 0, S_POWER = 1, S_INTRTX1 = 2, S_INTRTX2 = 3, S_INTRRX1 = 4, S_
        S_TXMAXP = 16, S_CSR0 = 17, S_TXCSR1 = 17, S_TXCSR2 = 18, S_RXMAXP = 19, S_RXCSR1 = 20, S_RXCSR2 = 21,
        S_COUNT0 = 22, S_RXCOUNT1 = 22, S_RXCOUNT2 = 23 };
 
+/* ---- the register bits the code sets (the MUSB byte map; the composites used more than once) ---- */
+#define SIE_CSR0_RXPKTRDY        0x01u    /* a setup packet waits */
+#define SIE_CSR0_TXPKTRDY        0x02u    /* a packet has gone (clear the bit) / one is queued (set it) */
+#define SIE_CSR0_SENTSTALL       0x04u
+#define SIE_CSR0_DATAEND         0x08u    /* the last packet of the transfer */
+#define SIE_CSR0_SETUPEND        0x10u    /* the host abandoned the transfer */
+#define SIE_CSR0_SENDSTALL       0x20u
+#define SIE_CSR0_SERVICED_RX     0x40u    /* the data stage taken, no DataEnd yet */
+#define SIE_CSR0_SERVICED_SETUP  0x80u
+#define SIE_CSR0_ACK       (SIE_CSR0_SERVICED_RX | SIE_CSR0_DATAEND)        /* 0x48: a request accepted */
+#define SIE_CSR0_STALL     (SIE_CSR0_SERVICED_RX | SIE_CSR0_SENDSTALL)     /* 0x60: a request refused */
+#define SIE_CSR0_DATA_LAST (SIE_CSR0_DATAEND | SIE_CSR0_TXPKTRDY)          /* 0x0A: the last data packet */
+#define SIE_TXCSR1_TXPKTRDY      0x01u
+#define SIE_TXCSR1_UNDERRUN      0x04u
+#define SIE_TXCSR1_FLUSHFIFO     0x08u
+#define SIE_TXCSR1_CLRDATATOG    0x40u
+#define SIE_TXCSR1_SENTSTALL     0x80u
+#define SIE_TXCSR1_RESET   (SIE_TXCSR1_CLRDATATOG | SIE_TXCSR1_FLUSHFIFO)  /* 0x48: a fresh data toggle */
+#define SIE_TXCSR2_ISO           0x40u    /* isochronous mode (EP4) */
+#define SIE_RXCSR1_RXPKTRDY      0x01u    /* an OUT packet waits (the low byte of the RXCSR1/2 word) */
+#define SIE_RXCSR1_CLRDATATOG    0x80u
+#define SIE_RXCSR1_RESET         0x90u    /* a fresh data toggle (the RX counterpart of TXCSR1's) */
+#define SIE_RX_DONE              0x164u  /* cleared once the packet is taken: RxPktRdy and the error bits */
+#define SIE_RX_FLUSH             0x10u   /* the FIFO flushed with it */
+/* the polled interrupts, and the OUT endpoints whose interrupts are enabled */
+#define SIE_INTRUSBE_POLL        0x07u   /* suspend, resume, reset */
+#define SIE_INTRTX1E_EP0         0x01u
+#define SIE_INTRRX1E_EP1         0x02u
+#define SIE_INTRRX1E_EP3         0x08u
+#define SIE_REG_SPIN             500u    /* polls for one register access: the SIE answers in a few of
+                                          * them; only a wedged part reaches the end (usb.timeouts, then
+                                          * usb.up = 0), and TIMER5 outranks the audio ISR, so the bound
+                                          * stays short rather than generous */
+
 static uint8_t ep0buf[64 + 4] __attribute__((aligned(4)));
 static uint8_t ep1tx[64] __attribute__((aligned(4)));
 static uint8_t ep1rx[64 + 4] __attribute__((aligned(4)));
@@ -393,7 +427,7 @@ static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)
 /* ---------------------------------------------------------- the SIE --- */
 static void sie_wr(uint32_t r, uint32_t v)
 {
-    uint32_t n = 20000;
+    uint32_t n = SIE_REG_SPIN;
     if (!fm1_usb_sie_on())
         return;
     fm1_usb_sie_wr_start(r, v);
@@ -407,7 +441,7 @@ static void sie_wr(uint32_t r, uint32_t v)
 
 static uint32_t sie_rd(uint32_t r)
 {
-    uint32_t n = 20000;
+    uint32_t n = SIE_REG_SPIN;
     if (!fm1_usb_sie_on())
         return 0;
     fm1_usb_sie_rd_start(r);
@@ -425,10 +459,10 @@ static uint32_t sie_rd(uint32_t r)
 static void uac_ep4_reset(void)                         /* drop a queued packet; isochronous mode */
 {
     sie_wr(S_INDEX, 4);
-    sie_wr(S_TXCSR1, 0x48);                             /* ClrDataTog + FlushFIFO (SDK usb_g_ep_config) */
+    sie_wr(S_TXCSR1, SIE_TXCSR1_RESET);                /* a fresh data toggle (SDK usb_g_ep_config) */
     sie_wr(S_TXCSR2, 0);
     sie_wr(S_TXCSR1, 0);
-    sie_wr(S_TXCSR2, 0x40);                             /* ISO */
+    sie_wr(S_TXCSR2, SIE_TXCSR2_ISO);
 }
 
 static void uac_stream(uint32_t alt)                    /* SET_INTERFACE, configuration, bus reset */
@@ -470,12 +504,12 @@ static void ep1_config(void)
     fm1_usb_ep_rxbuf(1, ep1rx);
     sie_wr(S_INDEX, 1);
     sie_wr(S_TXMAXP, 0xFF);
-    sie_wr(S_TXCSR1, 0x48);
+    sie_wr(S_TXCSR1, SIE_TXCSR1_RESET);
     sie_wr(S_TXCSR2, 0);
     sie_wr(S_RXMAXP, 0xFF);
-    sie_wr(S_RXCSR1, 0x90);
+    sie_wr(S_RXCSR1, SIE_RXCSR1_RESET);
     sie_wr(S_RXCSR2, 0);
-    sie_wr(S_INTRRX1E, 0x02);
+    sie_wr(S_INTRRX1E, SIE_INTRRX1E_EP1);
     fm1_usb_ep_enable(1u << 1);
 #if FELUCCA_CDC
     if (!usb_cdc_on)
@@ -483,18 +517,18 @@ static void ep1_config(void)
     fm1_usb_ep_txbuf(2, ep2tx);
     sie_wr(S_INDEX, 2);
     sie_wr(S_TXMAXP, 0xFF);
-    sie_wr(S_TXCSR1, 0x48);
+    sie_wr(S_TXCSR1, SIE_TXCSR1_RESET);
     sie_wr(S_TXCSR2, 0);
     fm1_usb_ep_txbuf(3, ep3tx);
     fm1_usb_ep_rxbuf(3, ep3rx);
     sie_wr(S_INDEX, 3);
     sie_wr(S_TXMAXP, 0xFF);
-    sie_wr(S_TXCSR1, 0x48);
+    sie_wr(S_TXCSR1, SIE_TXCSR1_RESET);
     sie_wr(S_TXCSR2, 0);
     sie_wr(S_RXMAXP, 0xFF);
-    sie_wr(S_RXCSR1, 0x90);
+    sie_wr(S_RXCSR1, SIE_RXCSR1_RESET);
     sie_wr(S_RXCSR2, 0);
-    sie_wr(S_INTRRX1E, 0x0A);
+    sie_wr(S_INTRRX1E, SIE_INTRRX1E_EP1 | SIE_INTRRX1E_EP3);
     fm1_usb_ep_enable((1u << 2) | (1u << 3));
     cdc.rx_pend = 1;                                    /* look once: a packet may already wait */
 no_cdc:;
@@ -522,7 +556,7 @@ static void e0_chunk(void)
     if (usb.e0_left == 0 && n == 64u)
         usb.e0_zlp = 0;
     sie_wr(S_INDEX, 0);
-    sie_wr(S_CSR0, last ? 0x0A : 0x02);
+    sie_wr(S_CSR0, last ? SIE_CSR0_DATA_LAST : SIE_CSR0_TXPKTRDY);
     if (last)
         usb.e0_tx = 0;
 }
@@ -536,7 +570,7 @@ static void e0_send(const uint8_t *p, uint16_t len, uint16_t wlen)
     usb.e0_zlp = (len < wlen) && (len % 64u == 0);
     usb.e0_tx = 1;
     sie_wr(S_INDEX, 0);
-    sie_wr(S_CSR0, 0x40);
+    sie_wr(S_CSR0, SIE_CSR0_SERVICED_RX);
     e0_chunk();
 }
 
@@ -552,7 +586,7 @@ static void ep0_service(void)
     }
     sie_wr(S_INDEX, 0);
     csr = sie_rd(S_CSR0);
-    if (csr & 0x04u) {                                  /* SentStall */
+    if (csr & SIE_CSR0_SENTSTALL) {
         sie_wr(S_CSR0, 0);
         usb.e0_tx = 0;
 #if FELUCCA_CDC
@@ -563,8 +597,8 @@ static void ep0_service(void)
 #endif
         return;
     }
-    if (csr & 0x10u) {                                  /* SetupEnd: the host abandoned the transfer */
-        sie_wr(S_CSR0, 0x80);
+    if (csr & SIE_CSR0_SETUPEND) {                      /* the host abandoned the transfer */
+        sie_wr(S_CSR0, SIE_CSR0_SERVICED_SETUP);
         usb.e0_tx = 0;
 #if FELUCCA_CDC
         cdc.e0_rx = 0;                                  /* else the next SETUP is taken as line coding */
@@ -574,11 +608,11 @@ static void ep0_service(void)
 #endif
     }
     if (usb.e0_tx) {
-        if (!(csr & 0x02u))
+        if (!(csr & SIE_CSR0_TXPKTRDY))
             e0_chunk();
         return;
     }
-    if (!(csr & 0x01u))
+    if (!(csr & SIE_CSR0_RXPKTRDY))
         return;
     fm1_usb_rx_sync();
 #if FELUCCA_CDC
@@ -675,9 +709,9 @@ static void ep0_service(void)
         if (ep) {                                       /* (EP0 has no halt to clear) */
             sie_wr(S_INDEX, ep);
             if (s[4] & 0x80u)
-                sie_wr(S_TXCSR1, 0x40);
+                sie_wr(S_TXCSR1, SIE_TXCSR1_CLRDATATOG);
             else
-                sie_wr(S_RXCSR1, 0x80);
+                sie_wr(S_RXCSR1, SIE_RXCSR1_CLRDATATOG);
         }
         goto ack;
     }
@@ -688,7 +722,7 @@ static void ep0_service(void)
         if (wlength) {
             cdc.e0_rx = 1;
             sie_wr(S_INDEX, 0);
-            sie_wr(S_CSR0, 0x40);                       /* ServicedRxPktRdy, no DataEnd yet */
+            sie_wr(S_CSR0, SIE_CSR0_SERVICED_RX);      /* no DataEnd yet */
             return;
         }
         goto ack;
@@ -714,7 +748,7 @@ static void ep0_service(void)
         if (wlength) {
             uac.e0_rx = 1;
             sie_wr(S_INDEX, 0);
-            sie_wr(S_CSR0, 0x40);                       /* the 3 bytes follow */
+            sie_wr(S_CSR0, SIE_CSR0_SERVICED_RX);      /* the 3 bytes follow */
             return;
         }
         goto ack;
@@ -742,11 +776,11 @@ static void ep0_service(void)
     }
 ack:
     sie_wr(S_INDEX, 0);
-    sie_wr(S_CSR0, 0x48);
+    sie_wr(S_CSR0, SIE_CSR0_ACK);
     return;
 stall:
     sie_wr(S_INDEX, 0);
-    sie_wr(S_CSR0, 0x60);
+    sie_wr(S_CSR0, SIE_CSR0_STALL);
 }
 
 /* SysEx assembly: only short commands matter here */
@@ -850,7 +884,7 @@ static void ep1_rx(void)                                /* leaves the packet (NA
     uint32_t csr, n;
     sie_wr(S_INDEX, 1);
     csr = sie_rd(S_RXCSR1) | (sie_rd(S_RXCSR2) << 8);
-    if (!(csr & 1u)) {
+    if (!(csr & SIE_RXCSR1_RXPKTRDY)) {
         usb.rx_pend = 0;
         return;
     }
@@ -862,7 +896,7 @@ static void ep1_rx(void)                                /* leaves the packet (NA
         return;                                         /* rx_pend stays: retried next poll */
     usb.rx_pend = 0;
     usb.rx_pkts++;
-    csr = (csr & ~0x164u) | 0x10u;
+    csr = (csr & ~SIE_RX_DONE) | SIE_RX_FLUSH;
     sie_wr(S_RXCSR1, csr & 0xFFu);
     sie_wr(S_RXCSR2, csr >> 8);
 }
@@ -925,10 +959,10 @@ static void ep1_tx(void)
 #endif
     sie_wr(S_INDEX, 1);
     csr = sie_rd(S_TXCSR1);
-    if (csr & 0x01u)
+    if (csr & SIE_TXCSR1_TXPKTRDY)
         return;                                         /* previous packet still pending */
-    if (csr & 0x80u)
-        sie_wr(S_TXCSR1, csr & ~0x80u);
+    if (csr & SIE_TXCSR1_SENTSTALL)
+        sie_wr(S_TXCSR1, csr & ~SIE_TXCSR1_SENTSTALL);
 #if FELUCCA_OTA
     while (so_r != so_w && n < 64u) {                   /* SysEx first, never split by notes */
         uint32_t pkt = sx_out_q[so_r % SXQ];
@@ -957,7 +991,7 @@ static void ep1_tx(void)
     if (!n)
         return;
     fm1_usb_ep_send(1, ep1tx, n);
-    sie_wr(S_TXCSR1, sie_rd(S_TXCSR1) | 0x01u);
+    sie_wr(S_TXCSR1, sie_rd(S_TXCSR1) | SIE_TXCSR1_TXPKTRDY);
     usb.tx_pkts++;
 }
 
@@ -967,7 +1001,7 @@ static void ep3_rx(void)                                /* leaves the packet (NA
     uint32_t csr, n, i;
     sie_wr(S_INDEX, 3);
     csr = sie_rd(S_RXCSR1) | (sie_rd(S_RXCSR2) << 8);
-    if (!(csr & 1u)) {
+    if (!(csr & SIE_RXCSR1_RXPKTRDY)) {
         cdc.rx_pend = 0;
         return;
     }
@@ -983,7 +1017,7 @@ static void ep3_rx(void)                                /* leaves the packet (NA
     RING_PUBLISH();
     ci_w += n;
     cdc.rx_pkts++;
-    csr = (csr & ~0x164u) | 0x10u;
+    csr = (csr & ~SIE_RX_DONE) | SIE_RX_FLUSH;
     sie_wr(S_RXCSR1, csr & 0xFFu);
     sie_wr(S_RXCSR2, csr >> 8);
 }
@@ -995,14 +1029,14 @@ static void ep3_tx(void)                                /* <= 63 bytes per packe
         return;
     sie_wr(S_INDEX, 3);
     csr = sie_rd(S_TXCSR1);
-    if (csr & 0x01u)
+    if (csr & SIE_TXCSR1_TXPKTRDY)
         return;
-    if (csr & 0x80u)
-        sie_wr(S_TXCSR1, csr & ~0x80u);
+    if (csr & SIE_TXCSR1_SENTSTALL)
+        sie_wr(S_TXCSR1, csr & ~SIE_TXCSR1_SENTSTALL);
     while (co_r != co_w && n < 63u)
         ep3tx[n++] = cdc_out[co_r++ % CO_N];
     fm1_usb_ep_send(3, ep3tx, n);
-    sie_wr(S_TXCSR1, sie_rd(S_TXCSR1) | 0x01u);
+    sie_wr(S_TXCSR1, sie_rd(S_TXCSR1) | SIE_TXCSR1_TXPKTRDY);
     cdc.tx_pkts++;
 }
 #endif
@@ -1207,7 +1241,7 @@ static void uac_service(void)
         return;
     sie_wr(S_INDEX, 4);
     csr = sie_rd(S_TXCSR1);
-    if (csr & 0x01u) {                                  /* still queued */
+    if (csr & SIE_TXCSR1_TXPKTRDY) {                   /* still queued */
         if (uac.wait < 255u && ++uac.wait == 40u && uac.flowing) {
             uac.flowing = 0;
             uac.stalls++;
@@ -1215,7 +1249,7 @@ static void uac_service(void)
         return;
     }
     if (uac.queued) {
-        if (csr & 0x04u)
+        if (csr & SIE_TXCSR1_UNDERRUN)
             uac.missed++;                               /* UnderRun: an IN token found nothing queued */
         uac.flowing = 1;
     }
@@ -1223,7 +1257,7 @@ static void uac_service(void)
     uac.wait = 0;
     n = uac_packet(ep4tx);
     fm1_usb_ep4_send(ep4tx, n * 4u);
-    sie_wr(S_TXCSR1, 0x01);                             /* TxPktRdy (and UnderRun cleared) */
+    sie_wr(S_TXCSR1, SIE_TXCSR1_TXPKTRDY);             /* (and UnderRun cleared) */
 }
 #endif
 
@@ -1294,8 +1328,8 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
         uac_rate_set(UAC_RATE);
 #endif
         fm1_usb_ep0_buf(ep0buf);
-        sie_wr(S_INTRUSBE, 0x07);
-        sie_wr(S_INTRTX1E, 0x01);
+        sie_wr(S_INTRUSBE, SIE_INTRUSBE_POLL);
+        sie_wr(S_INTRTX1E, SIE_INTRTX1E_EP0);
         sie_wr(S_INTRRX1E, 0);
     }
     if (it & 0x01u)
@@ -1328,8 +1362,8 @@ static void usb_start(void)                             /* boot, or main-loop re
     fm1_delay_ms(25);
     fm1_usb_attach(ep0buf);
     sie_wr(S_POWER, 0x60);
-    sie_wr(S_INTRUSBE, 0x07);                           /* suspend, resume, reset (polled) */
-    sie_wr(S_INTRTX1E, 0x01);
+    sie_wr(S_INTRUSBE, SIE_INTRUSBE_POLL);             /* suspend, resume, reset (polled) */
+    sie_wr(S_INTRTX1E, SIE_INTRTX1E_EP0);
     sie_wr(S_INTRTX2E, 0);
     sie_wr(S_INTRRX1E, 0);
     sie_wr(S_INTRRX2E, 0);

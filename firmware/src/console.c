@@ -4,8 +4,15 @@
  * diagnostics. Runs in the main loop (cdc_task); usb_poll moves the bytes.
  * The baud rate is ignored. Nothing here writes memory or flash; `uboot`
  * does what the SysEx soft key does. */
-#define CON_LINE 64u
+/* The offset of a member of the scan statistics (hal/fm1_input.h fm1_in_stat: an anonymous struct,
+ * so offsetof has no type name to take). `last` is its first field and `gap_max` its second, which
+ * is what con_inp clears from; the two asserts below fail the build if that ever changes. */
+#define FM1_IN_STAT_OFF(m) ((unsigned)__builtin_offsetof(__typeof__(fm1_in_stat), m))
+_Static_assert(FM1_IN_STAT_OFF(last) == 0u, "the scan window's stamp is the first field");
+_Static_assert(FM1_IN_STAT_OFF(gap_max) == sizeof fm1_in_stat.last,
+               "the scan counters start after `last`: con_inp clears them from gap_max on");
 
+#define CON_LINE 64u
 static struct {
     char line[CON_LINE];
     uint32_t len;
@@ -308,7 +315,9 @@ static void con_inp(void)
     con_kv("nested", (int32_t)felucca_dbg.nested);
     {
         uint32_t k2 = fm1__lock();
-        memset((void *)&fm1_in_stat.gap_max, 0, sizeof fm1_in_stat - sizeof fm1_in_stat.last);
+        /* the counters that follow `last` (the window's own stamp), from gap_max on */
+        memset((void *)((uint8_t *)&fm1_in_stat + FM1_IN_STAT_OFF(gap_max)), 0,
+               sizeof fm1_in_stat - FM1_IN_STAT_OFF(gap_max));
         fm1__unlock(k2);
     }
 }
