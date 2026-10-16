@@ -620,12 +620,9 @@ static int fx_target_send(const track_t *t, uint32_t id)
         return bus_own(1) != (int32_t)(t - trk);
     return (id == P_SLPAT || id == P_SLRATE) && sl_trk_send(t);
 }
-/* free-ms read position (Q8). 0, and the first block after RATE: snap, so a loaded time is exact. While TIME
- * stays selected the read glides toward the knob (tape pitch): the step is the error over DLY_EASE samples, capped
- * at DLY_SLEW Q8/sample. That is the shape of a tape: a move lands in about ten times its own size (100 ms of
- * TIME over ~1.1 s, one millisecond a 10 ms blip) with the bend at about 1.6 semitones, and the last 6 ms of a
- * move eases in, so the pitch always returns instead of snapping. The old flat 64 Q8/sample held a major third
- * for the whole move and stopped dead; 2 samp/samp chirped "coins" on each 1 ms detent. */
+/* Free-ms read position (Q8). The first block after RATE snaps to the loaded time. Subsequent changes
+ * ease by 1/256 of the remaining error per sample, capped at 24 Q8 units (about 1.6 semitones of tape pitch).
+ * A 200 ms move settles in about 2.15 s; easing the arrival avoids an abrupt return to normal pitch. */
 #define DLY_EASE 8u
 #define DLY_SLEW 24u
 static uint32_t dly_q8;

@@ -771,9 +771,9 @@ static int lock_ui(void)
     lk_down(k4);
     bad += check("a step key down: its step held (an empty one gets its hit at once)", lock_held() == (1u << 4) &&
         (t->step[4].hit & 1u));
-    turn_slow(EN_K1, 3);
+    turn(EN_K1, 3);
     ok = motion_lock_get(t, 4, P_E0, &v) && v == motion_base_value(t, P_E0) + 3;
-    turn_slow(EN_K1, 2);
+    turn(EN_K1, 2);
     bad += check("  KNOB 1 turned: step 5 gets a lock of E1 (MORPH), from the sound's own value", ok &&
         motion_lock_get(t, 4, P_E0, &v) && v == motion_base_value(t, P_E0) + 5 && t->p[P_E0] == motion_base_value(t, P_E0));
     lk_up(k4);
@@ -804,7 +804,7 @@ static int lock_ui(void)
     go_seq_step();                                       /* STEP keeps EFFECTS plk_src (STEP is not lock_page_ok) */
     frame();
     bad += check("from EFFECTS: K4 locks the chosen stage's mix", lock_id(3) == P_IDMIX && lock_id(0) == 0xFFu);
-    lk_down(k4); turn_slow(EN_K4, 5); lk_up(k4);         /* K4 = that mix */
+    lk_down(k4); turn(EN_K4, 5); lk_up(k4);              /* K4 = that mix */
     bad += check("  step 5 gets a MIX lock", motion_lock_get(t, 4, P_IDMIX, &v) && v == t->p[P_IDMIX] + 5);
     go_auto_top();
     frame();
@@ -867,8 +867,8 @@ static int lock_undo(void)
     frame();
     k4 = key_at(0, 4);
     lk_down(k4);
-    turn_slow(EN_K1, 3);
-    turn_slow(EN_K1, 2);
+    turn(EN_K1, 3);
+    turn(EN_K1, 2);
     lk_up(k4);
     bad += check("lock undo: a step held, KNOB 1 turned twice: one lock", motion_lock_get(t, 4, P_E0, &v) &&
         v == motion_base_value(t, P_E0) + 5);
