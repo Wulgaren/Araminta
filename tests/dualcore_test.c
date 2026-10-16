@@ -71,15 +71,13 @@ static void part_setup(track_t *t, uint32_t k, uint32_t e, uint32_t fx)
         t->p[P_ICMIX] = (int16_t)(45 + 10 * k);
         t->p[P_ICBITS] = 60;
     }
-    if (fx & FX_SEND_SWEEP) {                       /* FLANG + CHOR shared: the lines' windows */
+    if (fx & FX_SEND_SWEEP) {                       /* FLANG + CHOR shared: the lines' windows. The knobs
+                                                     * are the bus's; CHOR deep wraps its delay into the
+                                                     * window's tail (see ins_run_swept) */
         ins_send_set(t, INS_FLANG, 1);
         ins_send_set(t, INS_CHOR, 1);
         t->p[P_ILMIX] = (int16_t)(50 + 15 * k);
-        t->p[P_ILRATE] = (int16_t)(30 + 20 * k);
-        t->p[P_ILDEP] = 60;
         t->p[P_IHMIX] = (int16_t)(40 + 15 * k);
-        t->p[P_IHRATE] = (int16_t)(25 + 15 * k);
-        t->p[P_IHDEP] = 50;
     }
     if (fx & FX_SEND_SLCR) {
         t->p[P_SLDEPTH] = (int16_t)(60 + 20 * k);    /* MIX per track; MODE / PAT / RATE on the bus */
@@ -129,6 +127,13 @@ static uint64_t render(const scen_t *sc, int dual, const char *mask)
         fx_bus_trk.p[P_SLCR] = SL_STUT;
         fx_bus_trk.p[P_SLPAT] = 3;
         fx_bus_trk.p[P_SLRATE] = 1;
+    }
+    if (sc->fx & FX_SEND_SWEEP) {                   /* the SEND sweeps read the bus knobs; CHOR at 127:
+                                                     * its delay wraps into the line windows' tail */
+        fx_bus_trk.p[P_ILRATE] = 40;
+        fx_bus_trk.p[P_ILDEP] = 80;
+        fx_bus_trk.p[P_IHRATE] = 35;
+        fx_bus_trk.p[P_IHDEP] = 127;
     }
     if (sc->fx & FX_CHAIN_OWN) {                    /* DLY on part 0, REVERB on part 1 (two owners at once) */
         bus_own_set(0, 0);
