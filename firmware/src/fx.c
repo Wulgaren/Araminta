@@ -621,9 +621,13 @@ static int fx_target_send(const track_t *t, uint32_t id)
     return (id == P_SLPAT || id == P_SLRATE) && sl_trk_send(t);
 }
 /* free-ms read position (Q8). 0, and the first block after RATE: snap, so a loaded time is exact. While TIME
- * stays selected the read glides toward the knob (tape pitch): at most DLY_SLEW Q8/sample (~0.25 samp/samp,
- * about ±5 semitones). Faster (2 samp/samp) made each 1 ms detent a reverse chirp ("coins"). */
-#define DLY_SLEW 64
+ * stays selected the read glides toward the knob (tape pitch): the step is the error over DLY_EASE samples, capped
+ * at DLY_SLEW Q8/sample. That is the shape of a tape: a move lands in about ten times its own size (100 ms of
+ * TIME over ~1.1 s, one millisecond a 10 ms blip) with the bend at about 1.6 semitones, and the last 6 ms of a
+ * move eases in, so the pitch always returns instead of snapping. The old flat 64 Q8/sample held a major third
+ * for the whole move and stopped dead; 2 samp/samp chirped "coins" on each 1 ms detent. */
+#define DLY_EASE 8u
+#define DLY_SLEW 24u
 static uint32_t dly_q8;
 static uint8_t dly_free;
 
@@ -1069,7 +1073,13 @@ static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet
         int32_t x;
         if (free_ms) {
             int32_t err = (int32_t)tgt - (int32_t)dly_q8;
-            int32_t st = err > DLY_SLEW ? DLY_SLEW : err < -DLY_SLEW ? -DLY_SLEW : err;
+            int32_t st = err >> DLY_EASE;              /* a long move eases toward the knob */
+            if (st > (int32_t)DLY_SLEW)
+                st = (int32_t)DLY_SLEW;                /* the tape pitch: about 1.6 semitones at most */
+            else if (st < -(int32_t)DLY_SLEW)
+                st = -(int32_t)DLY_SLEW;
+            else if (!st && err)
+                st = err > 0 ? 1 : -1;                 /* the last stretch creeps: an exact landing, no stall */
             uint32_t ri;
             int32_t fr, c0, c1;
             dly_q8 = (uint32_t)((int32_t)dly_q8 + st);
