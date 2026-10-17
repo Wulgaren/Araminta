@@ -650,11 +650,13 @@ static int fx_target_send(const track_t *t, uint32_t id)
         return bus_own(1) != (int32_t)(t - trk);
     return (id == P_SLPAT || id == P_SLRATE) && sl_trk_send(t);
 }
-/* Free-ms read position (Q8). The first block after RATE snaps to the loaded time. Subsequent changes
- * ease by 1/256 of the remaining error per sample, capped at 24 Q8 units (about 1.6 semitones of tape pitch).
- * A 200 ms move settles in about 2.15 s; easing the arrival avoids an abrupt return to normal pitch. */
+/* Free-ms read position (Q8). The first block after RATE snaps to the loaded time. Subsequent changes follow
+ * the knob: 1/256 of the remaining error per sample, capped at 224 Q8 units, so the read head keeps up with a
+ * quick turn. The tape pitch is therefore how fast the knob turns, not how far it moves: 455 -> 25 ms in half
+ * a second lands in half a second and swoops about 10.9 semitones (36 the other way: the head can speed up
+ * freely but barely slow). */
 #define DLY_EASE 8u
-#define DLY_SLEW 24u
+#define DLY_SLEW 224u
 static uint32_t dly_q8;
 static uint8_t dly_free;
 
@@ -1115,9 +1117,9 @@ static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet
         int32_t x;
         if (free_ms) {
             int32_t err = (int32_t)tgt - (int32_t)dly_q8;
-            int32_t st = err >> DLY_EASE;              /* a long move eases toward the knob */
+            int32_t st = err >> DLY_EASE;              /* 1/256 of what is left to go */
             if (st > (int32_t)DLY_SLEW)
-                st = (int32_t)DLY_SLEW;                /* the tape pitch: about 1.6 semitones at most */
+                st = (int32_t)DLY_SLEW;                /* the tape pitch: 10.9 semitones up, 36 down */
             else if (st < -(int32_t)DLY_SLEW)
                 st = -(int32_t)DLY_SLEW;
             else if (!st && err)
