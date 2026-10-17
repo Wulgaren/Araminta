@@ -86,7 +86,7 @@ static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails
     memset(&fx, 0, sizeof fx);
     lim_env = LIM_T;
     memset(trk, 0, sizeof trk);
-    memset(&mod, 0, sizeof mod);
+    MOD_W_CLEAR();
     host_tracks_init();
     for (k = 0; k < NPART; k++)
         host_preset(&trk[k], k ? 0u : e, k ? 0u : pi);
@@ -139,7 +139,7 @@ static uint64_t phrase_child(uint32_t k)
         }
         memcpy(keep, trk[0].p, sizeof keep);
         h = phrase();
-        if (memcmp(keep, trk[0].p, sizeof keep) || mod.on)
+        if (memcmp(keep, trk[0].p, sizeof keep) || MOD(&trk[0]).on)
             h = 0;
         if (write(fd[1], &h, sizeof h) != sizeof h)
             _exit(1);
@@ -181,43 +181,43 @@ static void test_math(void)
     lfo = mulq15(32767, 32767);
     slot(t, 0, MS_LFO, MD_CUT, 63);
     mod_begin(t);
-    check("LFO -> CUT +63: +63 steps at the top of the LFO (as ENV DEST)", mod.on && mod.cut == (lfo * 63) >> 7 && mod.cut / 256 == 62);
+    check("LFO -> CUT +63: +63 steps at the top of the LFO (as ENV DEST)", MOD(t).on && MOD(t).cut == (lfo * 63) >> 7 && MOD(t).cut / 256 == 62);
     mod_end(t);
     slot(t, 0, MS_LFO, MD_PITCH, 63);
     mod_begin(t);
-    check("LFO -> PITCH +63: +11.8 semitones (as LFO DEST PIT)", mod.pit == (lfo * 63 * 3) >> 15 && mod.pit == 188);
+    check("LFO -> PITCH +63: +11.8 semitones (as LFO DEST PIT)", MOD(t).pit == (lfo * 63 * 3) >> 15 && MOD(t).pit == 188);
     mod_end(t);
     lfo_at(t, -32768);
     slot(t, 0, MS_LFO, MD_SHP, 63);
     mod_begin(t);
-    check("LFO bipolar: the bottom of the LFO pulls SHP down", mod.shp < -16000);
+    check("LFO bipolar: the bottom of the LFO pulls SHP down", MOD(t).shp < -16000);
     mod_end(t);
     slot(t, 0, MS_LFO, MD_SHP, -64);
     mod_begin(t);
-    check("a negative AMT inverts it", mod.shp > 16000);
+    check("a negative AMT inverts it", MOD(t).shp > 16000);
     mod_end(t);
     lfo_at(t, 0);
     slot(t, 0, MS_MODW, MD_AMP, 64 - 1);
     t->mw = 0;
     mod_begin(t);
-    check("MODW -> AMP +63: the wheel down closes the amp (gain 1.6 %)", mod.amp && mod.gain >= 500 && mod.gain <= 512);
+    check("MODW -> AMP +63: the wheel down closes the amp (gain 1.6 %)", MOD(t).amp && MOD(t).gain >= 500 && MOD(t).gain <= 512);
     mod_end(t);
     t->mw = 127;
     mod_begin(t);
-    check("MODW -> AMP +63: the wheel up opens it fully", mod.gain >= 32760);
+    check("MODW -> AMP +63: the wheel up opens it fully", MOD(t).gain >= 32760);
     mod_end(t);
     slot(t, 0, MS_AT, MD_AMP, -64);
     t->at = 127;
     mod_begin(t);
-    check("AT -> AMP -64: full pressure closes it", mod.gain < 200);
+    check("AT -> AMP -64: full pressure closes it", MOD(t).gain < 200);
     mod_end(t);
     slot(t, 0, MS_EXPR, MD_AMP, 63);
     mod_begin(t);
-    check("EXPR before any CC11 is full (the MIDI default): AMP open", mod.gain >= 32760);
+    check("EXPR before any CC11 is full (the MIDI default): AMP open", MOD(t).gain >= 32760);
     mod_end(t);
     slot(t, 0, MS_LFO, MD_AMP, 64 - 1);
     mod_begin(t);
-    check("LFO -> AMP: bipolar as 0..1 (half way at an LFO of 0)", mod.gain > 16000 && mod.gain < 17000);
+    check("LFO -> AMP: bipolar as 0..1 (half way at an LFO of 0)", MOD(t).gain > 16000 && MOD(t).gain < 17000);
     mod_end(t);
 
     /* per-voice sources on per-voice destinations (mod_voice) */
@@ -369,7 +369,7 @@ static void test_math(void)
     slot(t, 2, MS_MODW, MD_SLDEPTH, 63);
     mod_begin(t);
     check("#222 MODW -> SLICER PAT / RATE / DEPTH: whole range at AMT 63",
-          fx_bus_trk.p[P_SLPAT] == TP[P_SLPAT].max && fx_bus_trk.p[P_SLRATE] == TP[P_SLRATE].max &&
+          *mod_target_ptr(t, P_SLPAT) == TP[P_SLPAT].max && *mod_target_ptr(t, P_SLRATE) == TP[P_SLRATE].max &&
           t->p[P_SLDEPTH] == 127);
     mod_end(t);
     check("#222 SLICER params restored after the block",
@@ -447,10 +447,10 @@ static void test_math(void)
     slot(t, 2, MS_OFF, MD_OFF, 0);
     slot(t, 3, MS_OFF, MD_OFF, 0);
     mod_begin(t);
-    check("LFO -> DIST SEND: modulates fx_bus_trk, leaves track p[] alone",
-          fx_bus_trk.p[P_DIST] == TP[P_DIST].max && t->p[P_DIST] == 20);
+    check("LFO -> DIST SEND: modulates the bus knobs, leaves track p[] alone",
+          *mod_target_ptr(t, P_DIST) == TP[P_DIST].max && t->p[P_DIST] == 20);
     mod_end(t);
-    check("LFO -> DIST SEND: bus restored after the block",
+    check("LFO -> DIST SEND: the real bus knobs hold the stored value (the copy is the render's view)",
           fx_bus_trk.p[P_DIST] == 64 && t->p[P_DIST] == 20);
 }
 
@@ -739,11 +739,21 @@ static void test_fx_controls(void)
             memset(t->p + P_M1SRC, 0, 12 * sizeof t->p[0]);
             slot(t, 0, MS_MODW, 44 + k, 63);
             t->mw = 127;
+            bus_knobs_g(t);                             /* (the block's start does this in fx.c mix_block) */
             mod_begin(t);
-            check("continuous FX target reaches the selected bank", song.g[g] == TOP[k]);
-            if (chain && k >= 3)
+            if (chain && k >= 3) {
+                int32_t keep[5];
+                bus_g_put(t, 3, 5, keep, 0);                /* fx.c: the CHAIN run takes the part's copy */
+                check("continuous FX target reaches the selected bank", song.g[g] == TOP[k]);
+                bus_g_put(t, 3, 5, keep, 1);
                 check("CHAIN modulation leaves SEND reverb settings alone", song.g[GLOBAL[k]] == BASE[k]);
+            }
             mod_end(t);
+            if (!(chain && k >= 3)) {
+                mod_bus_begin();                            /* fx.c fx_buses: the SEND buses take the held values */
+                check("continuous FX target reaches the selected bank", song.g[g] == TOP[k]);
+                mod_bus_end();
+            }
             check("continuous FX target restores its base", song.g[g] == base);
         }
     }

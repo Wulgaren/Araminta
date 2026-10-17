@@ -89,7 +89,8 @@ static void fresh(void)
     memset(&pf, 0, sizeof pf);
     memset(ins_st, 0, sizeof ins_st);
     memset(ins_lines, 0, sizeof ins_lines);
-    memset(ins_bus_applied, 0, sizeof ins_bus_applied);
+    memset(ins_bus_ran, 0, sizeof ins_bus_ran);
+    memset(bus_knobs_on, 0, sizeof bus_knobs_on);
     fx_bus_init();
     dly_q8 = 0;                                       /* (as power-on: the first block snaps onto the time) */
     dly_free = 0;
@@ -101,7 +102,7 @@ static void fresh(void)
     rng_state = 0x1234567u;
     song.playing = 0;
     memset(trk, 0, sizeof trk);
-    memset(&mod, 0, sizeof mod);
+    MOD_W_CLEAR();
     memset(sl, 0, sizeof sl);
     memset(&motion, 0, sizeof motion);
     host_tracks_init();
@@ -118,6 +119,87 @@ static int pick_has(uint32_t id, const char *name)
     for (i = 0; i < pk_n; i++)
         if (pk_rows[i].id == id && (!name || str_eq(pk_rows[i].name, name))) return 1;
     return 0;
+}
+
+/* The four DIST MODEs on a 344 Hz sine (128 samples a period, one voice's full scale): at high DRIVE
+ * they must not converge into one shape (the bug: SOFT, HARD and FUZZ all squared off and were
+ * indistinguishable maxed out), a MODE switch must not jump in level, and none of them may leave DC. */
+#define DM_N 8192u                                     /* 64 whole periods: settled, then measured */
+static int32_t dm_wet[IDM_N][DM_N];
+static double dm_corr(const int32_t *a, const int32_t *b)
+{
+    double sa = 0, sb = 0, sab = 0, va = 0, vb = 0;
+    uint32_t i;
+    for (i = 0; i < DM_N; i++) { sa += a[i]; sb += b[i]; }
+    sa /= DM_N; sb /= DM_N;
+    for (i = 0; i < DM_N; i++) {
+        double x = a[i] - sa, y = b[i] - sb;
+        va += x * x; vb += y * y; sab += x * y;
+    }
+    return va > 0 && vb > 0 ? sab / sqrt(va * vb) : 0.0;
+}
+static void dm_render(uint32_t mode, int32_t drive)
+{
+    track_t tt;
+    ins_st_t st;
+    int32_t buf[DM_N];
+    uint32_t i;
+    memset(&tt, 0, sizeof tt);
+    memset(&st, 0, sizeof st);
+    tt.p[P_IDMODE] = (int16_t)mode;
+    tt.p[P_DIST] = (int16_t)drive;
+    tt.p[P_ED_FX] = 0;                                 /* TONE at its default: the drive-linked cutoff alone */
+    for (i = 0; i < DM_N; i++)
+        buf[i] = (int32_t)(24000.0 * sin(2.0 * M_PI * (double)i / 128.0));
+    ins_run_dist(&st, &tt, buf, DM_N, 32768);          /* MIX 100 % (ins_mixq(127)), from rest */
+    for (i = 0; i < DM_N; i++)
+        buf[i] = (int32_t)(24000.0 * sin(2.0 * M_PI * (double)(i + DM_N) / 128.0));
+    ins_run_dist(&st, &tt, buf, DM_N, 32768);
+    for (i = 0; i < DM_N; i++)
+        dm_wet[mode][i] = buf[i];
+}
+static void test_dist_modes(void)
+{
+    static const char *const NM[IDM_N] = {"SOFT", "HARD", "FOLD", "FUZZ"};
+    static const int32_t DR[3] = {64, 96, 127};
+    double dm_rms[IDM_N];
+    uint32_t d, m, k;
+    for (d = 0; d < 3u; d++) {
+        double worst = 0, hi = 0, lo = 1e30, dc = 0;
+        for (m = 0; m < IDM_N; m++) {
+            double e = 0, s = 0;
+            dm_render(m, DR[d]);
+            for (k = 0; k < DM_N; k++) { e += (double)dm_wet[m][k] * dm_wet[m][k]; s += dm_wet[m][k]; }
+            dm_rms[m] = sqrt(e / DM_N);
+            dc = fabs(s / DM_N) > dc ? fabs(s / DM_N) : dc;
+            hi = dm_rms[m] > hi ? dm_rms[m] : hi;
+            lo = dm_rms[m] < lo ? dm_rms[m] : lo;
+        }
+        printf("inschain:   DIST MODEs at DRIVE %3d, RMS", DR[d]);
+        for (m = 0; m < IDM_N; m++)
+            printf(" %s %6.0f", NM[m], dm_rms[m]);
+        printf(" (worst DC %.0f)\n", dc);
+        for (m = 0; m < IDM_N; m++)
+            for (k = m + 1u; k < IDM_N; k++) {
+                double c = dm_corr(dm_wet[m], dm_wet[k]);
+                worst = c > worst ? c : worst;
+                printf("inschain:     %s/%s correlation %.5f\n", NM[m], NM[k], c);
+            }
+        {
+            /* the bar tightens with the drive: at DRIVE 64 every shape still shares the input's
+             * fundamental (a rounded sine vs a square correlate ~0.95); the bug to catch is the
+             * convergence at the top of the range, where they used to be sample-identical */
+            static const double LIM[3] = {0.97, 0.95, 0.90};
+            char w[96];
+            snprintf(w, sizeof w, "DIST MODE %d: every pair distinct (correlation < %.2f)", DR[d], LIM[d]);
+            ck(w, worst < LIM[d]);
+        }
+        if (DR[d] == 127) {
+            char w[96];
+            snprintf(w, sizeof w, "DIST MODE maxed: no level jump (RMS within 6 dB), no DC (< 2 %% of RMS)");
+            ck(w, hi < lo * 2.0 && dc < hi * 0.02);
+        }
+    }
 }
 
 static void test_fx_reservations(void)
@@ -235,6 +317,27 @@ static void test_fx_edit_paths(void)
     ck("SLICER lock restores its private rate after switching", TSEL->p[P_SLRATE] == 8);
 }
 
+/* Current dev (d035bf7): deep SEND chorus consumers read the preceding consumer's line writes. */
+static void test_shared_chorus(void)
+{
+    uint32_t k;
+    fresh();
+    for (k = 0; k < NPART; k++) {
+        clear_stages(&trk[k]);
+        trk[k].p[P_CHOR] = 0;
+    }
+    for (k = 0; k < 2u; k++) {
+        ins_send_set(&trk[k], INS_CHOR, 1);
+        trk[k].p[P_IHMIX] = 127;
+        trk_note_on(&trk[k], 60 + 7 * k, 110);
+    }
+    fx_bus_trk.p[P_IHDEP] = 127;
+    fx_bus_trk.p[P_IHRATE] = 0;
+    ins_st[ins_bus_tr(INS_CHOR)][INS_CHOR].w = 32768;
+    ins_st[ins_bus_tr(INS_CHOR)][INS_CHOR].ph = 0x40000000u;
+    ck("deep shared chorus preserves dev's sequential render", hash_out(1) == 0x03a45cf4814f7ccdull);
+}
+
 int main(void)
 {
     track_t *t;
@@ -243,6 +346,7 @@ int main(void)
     uint32_t i;
 
     printf("inschain_test: P_COUNT %u P_E0 %u INS_N %u\n", (unsigned)P_COUNT, (unsigned)P_E0, (unsigned)INS_N);
+    test_shared_chorus();
     ck("param layout: insert chain before FTYPE/ESYNC/E0",
        P_SPRD + 1 == P_IORD && P_IHMIX + 1 == P_FTYPE && P_ESYNC + 1 == P_E0 && P_COUNT == 127u && P_E0 == 119u);
 
@@ -963,6 +1067,7 @@ int main(void)
         ck("REV send amount moves the render", h0 != h1);
     }
 
+    test_dist_modes();
     test_fx_reservations();
     test_retired_delay_mix();
     test_fx_bank_switch();

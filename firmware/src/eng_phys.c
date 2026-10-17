@@ -121,6 +121,20 @@ static void phys_reset(phys_slot_t *S, uint32_t md, uint32_t seed)
     }
 }
 
+/* the model-change reset's seed: its own xorshift per part (the note-on's stays rng(), pre-split; this one runs
+ * inside the render where the parts render at once: Felucca 1.6.1's choice) */
+static uint32_t phys_nz[NTRK];
+static uint32_t phys_seed(track_t *t)
+{
+    uint32_t *z = &phys_nz[C1_PI(t)];
+    if (!*z)
+        *z = 0x2545F491u;                              /* (never 0: the xorshift would stick) */
+    *z ^= *z << 13;
+    *z ^= *z >> 17;
+    *z ^= *z << 5;
+    return *z;
+}
+
 static void phys_note_on(track_t *t, voice_t *v)
 {
     phys_slot_t *S = phys_slot_of(t, v);
@@ -167,8 +181,8 @@ static void phys_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         return;
     if (n > CTL)
         n = CTL;
-    if (S->model != md)                                  /* MODEL changed under a sounding note */
-        phys_reset(S, md, rng());
+    if (S->model != md)                                 /* MODEL changed under a sounding note */
+        phys_reset(S, md, phys_seed(t));
     switch (md) {
     case PM_MODAL: {
         px_modal_blk_t B;
