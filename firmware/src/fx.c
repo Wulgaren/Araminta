@@ -1290,35 +1290,56 @@ static int32_t ins_lpk(int32_t c)
     uint32_t g = SVF_G[clamp(c, 0, 127)];
     return (int32_t)((g << 16) / (4096u + g));
 }
-static inline int32_t ins_shape(uint32_t mode, int32_t v, uint32_t sh)
+/* tanh(x / 24000) * 24000 through the shared table: a soft plateau at the level HARD clips at, and
+ * unity slope at zero (89478 Q16 = 32768 / 24000, taking x to the table's own units and back) */
+static inline __attribute__((always_inline)) int32_t ins_sat(int32_t x)
+{
+    return (softclip(mulq16(x, 89478u)) * 24000) >> 15;
+}
+/* The shapers, one curve per MODE (SOFT .. FUZZ; the default is CRUSH's quantizer). The drive gain
+ * (ins_run_dist, per mode) keeps each in its own regime at DRIVE 127: they used to all square off
+ * and be indistinguishable maxed out. SOFT a rounded curve that never flat-tops, HARD a hard edge at
+ * 24000, FOLD a wavefolder that folds further in as it is driven, FUZZ a gated octave wave (it
+ * repeats twice a period, so unlike any square or fold whatever the drive). g is the mode's drive
+ * gain (Q12): FUZZ gates against the level it is driven to. All peak near 24000 so a MODE switch
+ * stays even. */
+static inline __attribute__((always_inline)) int32_t ins_shape(uint32_t mode, int32_t v, uint32_t sh, uint32_t g)
 {
     switch (mode) {
-    case IDM_SOFT: return softclip(v);
+    case IDM_SOFT: return ins_sat(v);
     case IDM_HARD: return clamp(v, -24000, 24000);
     case IDM_FOLD: {
-        int32_t u = (int32_t)((uint32_t)(v + 16384) & 0xFFFFu) - 32768;
-        u = 16384 - (u < 0 ? -u : u);
-        return u + (u >> 1);
+        int32_t p = (int32_t)((uint32_t)(v + 65536) & 0x1FFFFu) - 65536;
+        int32_t u = p < -32768 ? -65536 - p : p < 32768 ? p : 65536 - p;
+        return (u * 3) >> 2;
     }
-    case IDM_FUZZ: return v > 0 ? (v > 20000 ? 20000 : v) : softclip(v) >> 1;
+    case IDM_FUZZ: {
+        int32_t m = v < 0 ? -v : v;
+        return ins_sat((m - (int32_t)(4096u + (g << 1))) * 4);
+    }
     default: return sh ? ((v + (1 << (sh - 1u))) >> sh) << sh : v;
     }
 }
 static inline uint32_t ins_bits_sh(int32_t a) { return 15u - (uint32_t)(clamp(a, 0, 127) >> 3); }
 
+/* per MODE: the drive gain (Q12, 4096 = 1x) and how far the drive-linked cutoff drops (a >> DK of
+ * the drive). Each MODE keeps its own regime at DRIVE 127 instead of all squaring off together. */
+static const uint8_t INS_GSH[IDM_N] = {4, 0, 1, 3};       /* g = 4096 + (a * a * 3) >> GSH: 1.7 .. 12.8 x */
+static const uint8_t INS_DK[IDM_N] = {2, 4, 5, 4};        /* cutoff index 96 - (a >> DK) + TONE: SOFT darkest */
+
 static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n, int32_t tw)
 {
     uint32_t i, mode = (uint32_t)clamp(t->p[P_IDMODE], 0, IDM_N - 1);
-    int32_t a = t->p[P_DIST], g = 4096 + a * a * 3;
+    int32_t a = t->p[P_DIST], g = 4096 + ((a * a * 3) >> INS_GSH[mode]);
     /* cutoff follows drive (96 at 0, darker as drive rises); P_ED_FX (TONE) offsets it, 0 = as before */
-    int32_t k = ins_lpk(clamp((96 - (a >> 2)) + t->p[P_ED_FX], 0, 127));
+    int32_t k = ins_lpk(clamp((96 - (a >> INS_DK[mode])) + t->p[P_ED_FX], 0, 127));
     for (i = 0; i < n; i++) {
         int32_t x = b[i], y, v;
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
         if (!s->w && !tw) { b[i] = x; continue; }
         s->hp += ((x << 8) - s->hp) >> 8;
         v = clamp(x - (s->hp >> 8), -230000, 230000);
-        y = ins_shape(mode, ((v >> 3) * g) >> 9, 0);
+        y = ins_shape(mode, ((v >> 3) * g) >> 9, 0, (uint32_t)g);
         y <<= 4;
         v = mulq16(y - s->lp1, (uint32_t)k);
         y = v + s->lp1; s->lp1 = y + v;
@@ -1368,7 +1389,7 @@ static __attribute__((noinline)) void ins_run_crush(ins_st_t *s, const track_t *
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
         if (!s->w && !tw) { b[i] = x; continue; }
         if (!s->cnt) {
-            s->hold = ins_shape(4u, clamp(x, -262144, 262143), sh); /* crush quantize */
+            s->hold = ins_shape(4u, clamp(x, -262144, 262143), sh, 4096u); /* crush quantize */
             s->cnt = (uint8_t)hold;
         }
         s->cnt--;
