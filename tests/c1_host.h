@@ -21,6 +21,7 @@ static uint32_t c1h_arg, c1h_job, c1h_done, c1h_up, c1h_blocks, c1h_taken;
 static int c1h_off;                                 /* 1: no second core (the reference renders) */
 static int c1h_stall, c1h_fail;                     /* C1_STALL=1: every job dies after its lowest part (fx.c c1_done:
                                                      * mix_block renders the rest — the block must be the same anyway) */
+static int c1h_reject;                             /* C1_REJECT=1: reject every second job before touching its sums */
 
 static void *c1h_main(void *x)
 {
@@ -29,12 +30,15 @@ static void *c1h_main(void *x)
     for (;;) {
         void (*fn)(uint32_t);
         uint32_t arg;
+        int reject;
         while (c1h_done == c1h_job)
             pthread_cond_wait(&c1h_cv, &c1h_mu);
         fn = c1h_fn;
         arg = c1h_arg;
+        reject = c1h_reject && !(c1h_job & 1u);
         pthread_mutex_unlock(&c1h_mu);
-        if (c1h_stall) {                        /* as if it died after the first part of the job */
+        if (reject) {                          /* a bad mailbox read: no callback, the previous sums remain */
+        } else if (c1h_stall) {                 /* as if it died after the first part of the job */
             uint32_t part = arg & 15u;
             fn((arg & ~15u) | (part & (~part + 1u)));
         } else {
@@ -42,7 +46,7 @@ static void *c1h_main(void *x)
         }
         pthread_mutex_lock(&c1h_mu);
         c1h_done = c1h_job;
-        c1h_fail = c1h_stall;
+        c1h_fail = reject || c1h_stall;
         pthread_cond_broadcast(&c1h_cv);
     }
     return 0;
@@ -54,6 +58,8 @@ static int c1h_run(void (*fn)(uint32_t), uint32_t arg)
         pthread_t th;
         const char *e = getenv("C1_STALL");
         c1h_stall = e && *e == '1';
+        e = getenv("C1_REJECT");
+        c1h_reject = e && *e == '1';
         if (pthread_create(&th, 0, c1h_main, 0))
             return 0;
         c1h_up = 1;

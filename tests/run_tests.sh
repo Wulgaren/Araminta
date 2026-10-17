@@ -324,6 +324,11 @@ u_input() {
 }
 unit u_input
 
+u_cpu1() {
+    run "second core: protected restart and recovery after a rejected mailbox read" python3 tests/cpu1_test.py
+}
+unit u_cpu1
+
 u_midi_uart() {
     $CC -o "$OUT/midi_uart_test" tests/midi_uart_test.c
     run "TRS MIDI parser" "$OUT/midi_uart_test"
@@ -642,6 +647,8 @@ if [ -f build/gen/felucca_tables.h ]; then
             "$OUT/dualcore_test"
         run "second core: the same with every job cut after its first part (mix_block renders the rest: no dropout)" \
             env C1_STALL=1 "$OUT/dualcore_test"
+        run "second core: rejected jobs fall back without replaying the previous audio" \
+            env C1_REJECT=1 "$OUT/dualcore_test"
     }
     unit u_dualcore
     u_union() {

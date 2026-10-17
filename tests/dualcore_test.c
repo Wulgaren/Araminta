@@ -263,12 +263,16 @@ int main(void)
                 bad++;
             }
         }
-        if (took < 2u) {                                /* the thread must have rendered parts (auto may hand none) */
+        if ((sc[i].fx & FX_SEND_SWEEP) && took) {
+            printf("dualcore: %-34s deep shared chorus bypassed its one-core fallback   FAIL\n", sc[i].name);
+            bad++;
+        } else if (!(sc[i].fx & FX_SEND_SWEEP) && took < 2u) {
             printf("dualcore: %-34s the second core never took parts   FAIL\n", sc[i].name);
             bad++;
         }
         if (!bad)
-            printf("dualcore: %-34s the same on two cores, every split   ok\n", sc[i].name);
+            printf("dualcore: %-34s %s   ok\n", sc[i].name,
+                   sc[i].fx & FX_SEND_SWEEP ? "deep shared chorus stays on one core" : "the same on two cores, every split");
         fail += bad != 0;
     }
     printf("dualcore: %u of %u scenes differ\n", fail, n);

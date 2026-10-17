@@ -1204,6 +1204,7 @@ static ins_st_t ins_st[NTRK][INS_N] __attribute__((section(".pool")));
  * copy of the block's start here. ins_bus_join puts the run in place after the join. */
 static ins_st_t ins_bus_blk[INS_N];                                  /* SEND state at mix-block start */
 static uint8_t ins_bus_driver[INS_N];                                /* the part that runs it (0xFF: no consumer) */
+static uint8_t ins_bus_parallel;                                    /* SEND line windows commit after the join only on two cores */
 static uint8_t ins_bus_ran[C1_NP];                                   /* bit per stage: this part ran the SEND DSP */
 static int32_t ins_send_in[C1_NP][CTL];                              /* .. its input, when the shared run is redone */
 static int16_t ins_win[C1_NP][2][CTL];                               /* each part's window of the line it writes */
@@ -1456,7 +1457,8 @@ static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, const track_t *
                  * ins_stage); a read back into it takes its own write, behind it the shared line. One
                  * CHOR depth past 107 wraps its delay into the window's tail early in a block, where
                  * one-after-another renders left the part before's writes: those samples of the later
-                 * parts now read the line as it stood before the block (FLANG never wraps there) */
+                 * parts need the preceding consumer's writes, so deep shared CHORUS stays on one core
+                 * and commits each window before the next consumer (FLANG never wraps there) */
                 {
                     int32_t o0 = (r0 - (int32_t)wbase) & (int32_t)(IL_LEN - 1u);
                     int32_t o1 = (r1 - (int32_t)wbase) & (int32_t)(IL_LEN - 1u);
@@ -1555,6 +1557,10 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
         uint32_t bus_tr = ins_bus_tr(st);
         s = &ins_st[bus_tr][st];
         lines = ins_lines[bus_tr];
+        if (!ins_bus_parallel && ins_bus_driver[st] == 0xFF) {
+            ins_bus_blk[st] = *s;
+            ins_bus_driver[st] = (uint8_t)k;
+        }
         ins_bus_ran[pi] |= (uint8_t)(1u << st);
         if (k == ins_bus_driver[st]) {
             run = s;                                   /* the block's one run of the shared state */
@@ -1572,7 +1578,8 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
     if (!run->w && !tw)
         return;                                         /* MIX 0 and faded: skip DSP */
     wbase = ins_run_st(run, src, b, n, tw, st, lines, pi);
-    if (!send && (st == INS_FLANG || st == INS_CHOR))    /* CHAIN: the line is its own: the window at once */
+    if ((!send || !ins_bus_parallel) && (st == INS_FLANG || st == INS_CHOR))
+        /* one core commits before the next consumer, including deep shared CHORUS */
         ins_win_put(lines[run->line_i & 1u], ins_win[pi][run->line_i & 1u], wbase, n);
     if (run->w)
         t->ins_run = 1;
@@ -2019,9 +2026,6 @@ static __attribute__((noinline)) void dx_mot_block(uint32_t n)
 #define C1_RUN(fn, arg) 0                               /* hand it fn(arg): 1 = taken */
 #define C1_WAIT() 0                                     /* wait for it: 0 = done */
 #endif
-#ifndef C1_SPLIT
-#define C1_SPLIT() mix_split()
-#endif
 static uint32_t c1_blocks;                              /* blocks the second core took parts of */
 
 static mixsum_t c1_part;                /* a part's sums while it renders: whole only into the core's sums (a job
@@ -2032,8 +2036,6 @@ static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k
 {
     uint32_t i, k, n = arg >> 8;
     mixsum_t *sm = &mx[1];
-    for (i = 0; i < n; i++)
-        sm->l[i] = sm->r[i] = sm->d[i] = sm->rv[i] = 0;
     for (k = 0; k < NPART; k++)
         if (arg >> k & 1u) {
             for (i = 0; i < n; i++)
@@ -2050,9 +2052,10 @@ static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k
 }
 
 /* which parts go to the second core: the split of the last block's costs that leaves the busier core the least; none
- * when that saves less than handing them over costs (C1_HAND) */
+ * when that saves less than handing them over costs (C1_HAND). Keep this per-block scheduler out of the audio
+ * interrupt's render loops (target_budget). */
 #define C1_HAND 40u
-static uint32_t mix_split(void)
+static __attribute__((noinline)) uint32_t mix_split(void)
 {
     uint32_t m, i, best = 0, all = 0, lo, chor = 0, deep = 0;
     for (i = 0; i < NTRK; i++)                      /* deep CHORUS as a shared send: its delay (up to 238) wraps into
@@ -2104,11 +2107,22 @@ static void mix_block(int32_t *out, uint32_t n)
     for (i = 0; i < NTRK; i++)                          /* every part's copy of the bus settings (core.h bus_knobs) */
         bus_knobs_g(&trk[i]);
     {   /* the parts: some on the second core, into its own sums (mx[1]) */
-        uint32_t m = C1_ON() ? C1_SPLIT() & ((1u << NPART) - 1u) : 0u;
+        uint32_t m = C1_ON() ? mix_split() : 0u;
+#ifdef C1_SPLIT
+        if (m)                                         /* host splits cannot bypass the shared-chorus safety gate */
+            m = C1_SPLIT() & ((1u << NPART) - 1u);
+#endif
+        ins_bus_parallel = m != 0;
         if (m) {
             c1_done = 0;
+            for (i = 0; i < n; i++)                    /* rejected jobs never enter c1_parts */
+                mx[1].l[i] = mx[1].r[i] = mx[1].d[i] = mx[1].rv[i] = 0;
             if (!C1_RUN(c1_parts, m | n << 8))
                 m = 0;
+        }
+        if (!m) {
+            ins_bus_parallel = 0;
+            memset(ins_bus_driver, 0xFF, sizeof ins_bus_driver);
         }
         c1_blocks += m != 0;
         for (i = 0; i < NPART; i++)
@@ -2132,7 +2146,8 @@ static void mix_block(int32_t *out, uint32_t n)
             }
         }
     }
-    ins_bus_join(n);                                    /* the shared SEND state's run and line windows */
+    if (ins_bus_parallel)
+        ins_bus_join(n);                                /* the shared SEND state's run and line windows */
     for (i = 0; i < NPART; i++)                         /* the LFOs' blocks, part by part (voice.c) */
         track_lfo_end(&trk[i]);
     if (pfx_any)
