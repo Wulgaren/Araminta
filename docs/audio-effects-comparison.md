@@ -70,11 +70,13 @@ Relevant code: `firmware/src/fx.c`, `dtime_q8`, `delay_samples`, `dly_process`,
 - TIME stores free milliseconds, 1..1486 ms, and converts them to Q8 sample
   positions. Reads interpolate adjacent samples.
 - Entering TIME from RATE snaps to the selected time. While TIME stays active,
-  the delay position moves toward the target by at most 64/256 samples per
-  output sample, rather than crossfading between two fixed taps.
-- Thus turning time produces a pitch glide. Increasing delay slows the read
-  head and lowers pitch; decreasing delay raises pitch. At the slew limit,
-  read speed is approximately 0.75x or 1.25x, about -4.98/+3.86 semitones.
+  the read head follows the knob: 1/256 of the remaining error per output
+  sample, capped at 224/256, rather than crossfading between two fixed taps.
+- Thus turning time produces a pitch glide, and the glide is how fast the knob
+  turns rather than how far it moves. Increasing delay slows the read head and
+  lowers pitch; decreasing delay raises it. At the cap the read speed is
+  0.125x or 1.875x, about -36.0/+10.9 semitones. A 455 -> 25 ms turn in half a
+  second lands in about half a second.
 - The buffer stays intact. Feedback passes through a one-pole color filter;
   writes clamp to int16. Shared delay processing serves SEND or CHAIN.
 
