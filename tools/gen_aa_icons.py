@@ -208,6 +208,8 @@ def ink_box(b, s):
         if (b[i >> 1] >> (0 if i & 1 else 4)) & 15:
             xs.append(i % s)
             ys.append(i // s)
+    if not xs:                          # nothing left after the 4-bit quantisation: the whole cell
+        return 0, 0, s, s
     return min(xs), min(ys), max(xs) + 1, max(ys) + 1
 
 
@@ -260,6 +262,7 @@ def main():
         for n in subset:
             b, ink = ar.raster_icon(font if glyph_of[n] in mended else a.font, s, cps[glyph_of[n]], a.gamma)
             assert ink, f"{n} is empty at {s}px"
+            assert any(b), f"{n}: no ink at {s}px once its alpha is quantised to 4 bits"
             cells[s].append((n, [v for i in range(s * s) for v in (b[i >> 1] >> (0 if i & 1 else 4) & 15,)], b))
     # one Huffman code for every cell of every size (one decoding table in RAM: gfx.c hc_lut)
     hc, packed = huff_pack([v for s in sizes for _, v, _ in cells[s]])

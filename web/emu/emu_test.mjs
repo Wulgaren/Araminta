@@ -11,7 +11,7 @@
 // Then the cost: 1 s of a heavy song (FM6, PHYS, GRAIN chords, DRUM) against real time (BENCH_MAX, default 0.5:
 // fails above half of real time on this machine).
 import fs from "fs";
-import { storeSectors, restoreSectors } from "./worklet.js";
+import { storeSectors, restoreSectors } from "./store.js";
 
 const wasmPath = process.argv[2] || "build/emu/felucca.wasm", nativePath = process.argv[3];
 const bytes = fs.readFileSync(wasmPath);

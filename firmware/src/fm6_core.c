@@ -364,9 +364,10 @@ static inline void fm6_op_fb(int32_t *out, int32_t phase, int32_t freq, int32_t 
 
 /* msfa FmCore::render: the six operators of algorithm alg into out (Q24). Unlike msfa, out starts empty:
  * the first carrier sounding writes it, the next ones add. Returns 0 when none sounded (out untouched) */
-static int32_t fm6_bus[2][FM6_N];
 static int fm6_core_render(int32_t *out, fm6_op_t *op, uint32_t alg, int32_t *fb, int32_t fb_shift)
 {
+    int32_t fm6_bus[2][FM6_N];                         /* the carriers' sums: on the stack (was one .bss buffer;
+                                                        * the parts render at once with the second core) */
     const uint8_t *a = FM6_ALG[alg & 31u];
     uint8_t has[3] = {0, 0, 0};
     uint32_t k;

@@ -20,6 +20,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from cgen import c_array, c_rows  # noqa: F401  (re-exported: the rasterisers and their callers use ar.c_array)
+
 
 def open_font(spec, px):
     """spec = "path[#index][@wght]" (a .ttc takes the face index, a variable font the weight); '~' is expanded."""
@@ -243,11 +245,3 @@ def raster_icon(spec, px, codepoint, gamma=1.0):
     font = open_font(spec, px * SS)            # 16 x and box-filtered: hinting at px squashed flat glyphs
     img = render_cell(font, chr(codepoint), (px * SS, px * SS), 0, 0, anchor="la").reduce(SS)
     return pack([alpha4(v, gamma) for v in img.tobytes()]), img.getbbox() is not None
-
-
-def c_array(name, ctype, values, per_line=16, fmt="{}"):
-    lines = [f"static const {ctype} {name}[{len(values)}] = {{"]
-    for i in range(0, len(values), per_line):
-        lines.append("    " + ", ".join(fmt.format(v) for v in values[i:i + per_line]) + ",")
-    lines.append("};")
-    return "\n".join(lines)

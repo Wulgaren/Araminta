@@ -59,9 +59,10 @@ PCT = {"MID": 70, "DIM": 42, "LINE": 18, "SEL": 80, "TINT": 12, "KEY": 78}
 RAISE_PCT = 12                     # SURF -> TEXT
 
 
-def to565(c, exact=False):
+def to565(c):
+    """an 8-bit RGB tuple -> RGB565; a gray stays on the RGB565 gray axis (G = 2 R)"""
     r, g, b = c
-    if r == g == b and not exact:                     # a gray stays on the RGB565 gray axis (G = 2 R)
+    if r == g == b:
         return ((r >> 3) << 11) | ((r >> 3) << 6) | (r >> 3)
     return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
 

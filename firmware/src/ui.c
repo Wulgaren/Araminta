@@ -1446,10 +1446,10 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     t->p[P_REL] = e->presets[pi].env[3];
     t->p[P_ED_FLT] = e->presets[pi].fenv;
     t->p[P_VOICE] = e->presets[pi].mono ? V_LEGATO : V_POLY;   /* mono presets keep the legato feel */
-    {   /* CHO/DLY/REV sends; FX() first is DIST drive (MIX 0 unless set) */
+    {   /* Keep the default DIST drive; the old FX() DIST amount is not a stage mix. */
         static const uint8_t FX_DEF[4] = {0, 24, 28, 36};
         const preset_t *pr = &e->presets[pi];
-        for (i = 0; i < 4u; i++)
+        for (i = 1; i < 4u; i++)
             t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
     }
     fm6_track_loaded(t);                              /* FM6: the preset's patch (its SLOT) */

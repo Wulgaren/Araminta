@@ -188,15 +188,12 @@ static void ui_power_on(void)
     for (i = 0; i < G_COUNT; i++)
         song.g[i] = GP[i].def;
     undo_depth++;
-    memset(eng_mem, 0, sizeof eng_mem);                 /* prior tests leave engine note state in the pool */
-    memset(eng_mem_owner, 0, sizeof eng_mem_owner);
     for (i = 0; i < NTRK; i++) {
         track_t *t = &trk[i];
         track_defaults(t);
         set_engine_of(t, TRK_DEF[i][0]);
         apply_preset_to(t, TRK_DEF[i][1]);
         t->engine = t->eng_req;
-        eng_mem_claim(t);
         track_defaults_steps(t);
         if (TRK_DEF[i][2])
             load_pat16(t, PATTERNS[TRK_DEF[i][2] - 1u].note, PATTERNS[TRK_DEF[i][2] - 1u].flags);
@@ -4820,7 +4817,6 @@ static int test_play_leds(void)
     t->step[0] = (step_t){.note = {60, 64}, .n = 2, .time = ST_NOTE};
     t->step[1] = (step_t){.note = {100}, .n = 1, .time = ST_NOTE};
     trk[1].step[0] = (step_t){.note = {67}, .n = 1, .time = ST_NOTE};
-    t->seq_active = trk[1].seq_active = 1;
     bad += check("stopped, nothing held: no key lit", key_leds(0) == 0u && play_leds() == 0u);
     seq_start();
     events_block(CTL);
@@ -4891,7 +4887,6 @@ static int test_cursor_step_leds(void)
     t->step[1] = (step_t){.note = {100}, .n = 1, .time = ST_NOTE};
     t->step[2] = (step_t){.note = {62}, .n = 1, .time = ST_REST};
     t->step[3] = (step_t){.note = {67}, .n = 1, .time = ST_TIE};
-    t->seq_active = 1;
     bad += check("#89 HOME, stopped: no step's keys lit", key_leds(0) == 0u);
     go_page(GR_ROLL);
     frame();
@@ -5015,7 +5010,6 @@ static int test_midi_leds(void)
     ok = key_leds(0) == (1u << 0 | 1u << 7);
     fm1_in.notes = 0;
     trk[0].step[0] = (step_t){.note = {64}, .n = 1, .time = ST_NOTE};
-    trk[0].seq_active = 1;
     seq_start();
     events_block(CTL);
     ok &= key_leds(0) == (1u << 7 | 1u << 11);
@@ -5220,7 +5214,6 @@ static int test_step_leds(void)
                 } else {
                     TSEL->step[0] = (step_t){.note = {60}, .n = 1, .time = ST_NOTE};   /* C4 on step 1 */
                 }
-                TSEL->seq_active = 1;
                 settings_leds = (uint8_t)m;
                 go_seq_step();
                 frame();
@@ -5277,7 +5270,6 @@ static int test_step_leds(void)
             TSEL->p[P_SLEN] = 16;
             TSEL->step[4] = (step_t){.hit = kick, .time = ST_NOTE};   /* a kick on step 5 (a beat) and on step 3 */
             TSEL->step[2] = (step_t){.hit = kick, .time = ST_NOTE};
-            TSEL->seq_active = 1;
             settings_leds = (uint8_t)m;
             go_seq_step();
                 frame();
@@ -5842,7 +5834,6 @@ static int test_seq_quant(void)
     t->p[P_ROOT] = 0;
     ok = kb_map(t, 8) == 61u && kb_map(t, 7) == 60u;   /* SEQ keys as OFF: C#4 stays C#4 */
     t->step[0] = (step_t){.note = {61, 66}, .n = 2, .time = ST_NOTE};
-    t->seq_active = 1;
     seq_start();
     events_block(CTL);
     ok &= t->seq_n == 2u && t->seq_notes[0] == 60u && t->seq_notes[1] == 65u && t->step[0].note[0] == 61u &&
@@ -6277,10 +6268,10 @@ static int test_fx_map(void)
     /* Punch-in sticky: PRESETS assigns while a key is held; EDIT restores default */
     ui_power_on();
     go_title("PUNCH"); frame();
-    ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
+    ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH && perf_map[4] == PF_LPF;
     key_down(white(4)); frame();                       /* C4 */
     turn(EN_PRESET, 1);
-    ok &= perf_map[4] != 0 || perf_map[4] == 0;         /* assignment path runs */
+    ok &= perf_map[4] == PF_HPF && !msg_is("HOLD A KEY: ASSIGN");
     key_up(white(4)); frame();
     bad += check("Punch-in sticky: map open without holding FX; PRESETS can assign a held key", ok && ui.lock == LAYER_FX);
     ui_power_on();
@@ -6490,15 +6481,23 @@ static int test_knob_accel(void)
         printf("  #126 a flick of 12 detents over %u ms on -100..100: %u steps\n", 126u, (unsigned)f);
         bad += check("#126 KNOB ACCEL over a range above 64: 10 ms x5 .. 6 ms x8; a 12-detent flick ~120 ms: 47", ok);
     }
-    {   /* free-ms TIME (~1486): slow still x1; once accel is on, x8 of the usual so a flick covers hundreds of ms */
-        static const uint16_t F6[8] = {500, 6, 6, 5, 4, 6, 6, 6};
+    {   /* free-ms TIME (~1486): slow still x1; x8 of the usual from the turn's second fast detent, so a small fast
+          * turn registers; a hard flick covers hundreds of ms (6 ms x64, 4 ms x96, 3 ms and less: the x128 cap) */
+        static const uint16_t F6[8] = {500, 6, 6, 6, 6, 6, 6, 6}, F4[8] = {500, 4, 4, 4, 4, 4, 4, 4},
+                               F3[8] = {500, 3, 3, 3, 3, 3, 3, 3};
         fm1_ms += 1000;
         ok = acc_ms(EN_K3, SLOW, 8, 1, (int32_t)DTIME_MS_MAX, o) == 8u;
         fm1_ms += 1000;
-        ok &= acc_ms(EN_K3, F6, 8, 1, (int32_t)DTIME_MS_MAX, o) == 2u + 6u * 64u && o[7] == 64;
+        ok &= acc_ms(EN_K3, F6, 8, 1, (int32_t)DTIME_MS_MAX, o) == 1u + 7u * 64u && o[7] == 64;
         fm1_ms += 1000;
-        ok &= acc_ms(EN_K3, F10, 8, 1, (int32_t)DTIME_MS_MAX, o) == 2u + 6u * 40u && o[7] == 40;
-        bad += check("KNOB ACCEL free-ms range: slow x1, 6 ms x64, 10 ms x40", ok);
+        ok &= acc_ms(EN_K3, F10, 8, 1, (int32_t)DTIME_MS_MAX, o) == 1u + 7u * 40u && o[7] == 40;
+        fm1_ms += 1000;
+        ok &= acc_ms(EN_K3, F20, 8, 1, (int32_t)DTIME_MS_MAX, o) == 1u + 7u * 16u && o[7] == 16;
+        fm1_ms += 1000;
+        ok &= acc_ms(EN_K3, F4, 8, 1, (int32_t)DTIME_MS_MAX, o) == 1u + 7u * 96u && o[7] == 96;
+        fm1_ms += 1000;
+        ok &= acc_ms(EN_K3, F3, 8, 1, (int32_t)DTIME_MS_MAX, o) == 1u + 7u * 128u && o[7] == 128;
+        bad += check("KNOB ACCEL free-ms range: slow x1, 20 ms x16, 10 ms x40, 6 ms x64, 4 ms x96, 3 ms x128", ok);
     }
     fm1_ms += 1000; acc_ms(EN_K4, F10, 8, 1, 32, o);
     ok = o[7] == 1;                                                /* a narrow range (<= 32): never */
@@ -7872,6 +7871,9 @@ static int test_fm6_ops(void)
 
     /* the sound: the init voice (ALG 1: OP 1 the carrier at 99, OP 2 its modulator at 0), the track's other sends off */
     TSEL->p[P_CHOR] = TSEL->p[P_DLY] = TSEL->p[P_REV] = TSEL->p[P_DIST] = 0;
+    TSEL->p[P_SLDEPTH] = 0;                     /* the SLICER's MIX too: the SEND bus gates every track's
+                                                 * render on its free-running clock, so a round-trip below
+                                                 * would compare two different slicer phases */
     TSEL->p[P_LD_PIT] = TSEL->p[P_LD_FLT] = TSEL->p[P_LD_SHP] = TSEL->p[P_LD_AMP] = 0;
     TSEL->p[P_M1SRC] = TSEL->p[P_M2SRC] = TSEL->p[P_M3SRC] = TSEL->p[P_M4SRC] = 0;
     for (f = 0; f < 7u; f++) TSEL->p[P_E0 + f] = 0;
@@ -7883,7 +7885,7 @@ static int test_fm6_ops(void)
     fop_pick(2);
     turn(EN_K4, 80);                                 /* OP 2 LEVEL 0 -> 80: FM, brighter */
     s1 = fm6_sound();
-    ok = s1.hf > 2.0 * s0.hf && fm6_patch[tr][4u * FP_OP + FP_OL] == 80u;
+    ok = s1.hf > 2.0 * s0.hf && fm6_patch[tr][4u * FP_OP + FP_OL] == 80u && TSEL->p[P_SLDEPTH] == 0;
     printf("    OP 2 LEVEL 80: HF share %.4f -> %.4f\n", s0.hf, s1.hf);
     turn(EN_K4, -80);
     s1 = fm6_sound();
@@ -8735,10 +8737,13 @@ static int test_fx_sections(void)
         ok &= ui.ior_sel == 3u;
         fx_list_get(TSEL, before);
         ok &= !ins_is_send(TSEL, before[3]);
-        turn(EN_K3, 1);                                 /* that stage: in the chain → a send */
+        turn(EN_K3, 1);                                 /* that stage: in the chain → a send (right) */
         fx_list_get(TSEL, after);
         ok &= ins_is_send(TSEL, after[3]) && after[0] == before[0] && after[1] == before[1] &&
               after[2] == before[2];
+        turn(EN_K3, -1);                                /* left: back into the chain, and it stays there */
+        fx_list_get(TSEL, after);
+        ok &= !ins_is_send(TSEL, after[3]);
         {
             uint32_t mix_id = after[3] == INS_DIST ? P_IDMIX : after[3] == INS_FILTER ? P_IFMIX :
                               after[3] == INS_CRUSH ? P_ICMIX : after[3] == INS_PHASR ? P_IPMIX :
@@ -8774,7 +8779,9 @@ static int test_fx_sections(void)
             if (ord[i] == INS_DLY) { dly_slot = i; break; }
         ok = dly_slot < FX_LIST_N && fx_list_mode(TSEL, INS_DLY)[0] == 'S';
         ui.ior_sel = (uint8_t)dly_slot;
-        turn(EN_K3, 1);                                 /* claim delay as CHAIN on track 0 */
+        turn(EN_K3, -1);                                /* left: claim delay as CHAIN on track 0 */
+        ok &= song.g[G_DLYOWN] == 1 && fx_list_mode(TSEL, INS_DLY)[0] == 'C';
+        turn(EN_K3, -1);                                /* already CHAIN: stays (no wrap) */
         ok &= song.g[G_DLYOWN] == 1 && fx_list_mode(TSEL, INS_DLY)[0] == 'C';
         song.sel = 1;
         ok &= fx_list_mode(&trk[1], INS_DLY)[0] == 'U';
@@ -8783,13 +8790,15 @@ static int test_fx_sections(void)
         ok &= trk[1].p[P_DLY] == 80;
         song.sel = 0;
         ui.ior_sel = (uint8_t)dly_slot;
-        turn(EN_K3, 1);                                 /* release → SEND for all */
+        turn(EN_K3, 1);                                 /* right: release -> SEND for all */
+        ok &= song.g[G_DLYOWN] == 0 && fx_list_mode(&trk[1], INS_DLY)[0] == 'S';
+        turn(EN_K3, 1);                                 /* already SEND: stays (no wrap back to CHAIN) */
         ok &= song.g[G_DLYOWN] == 0 && fx_list_mode(&trk[1], INS_DLY)[0] == 'S';
         song.g[G_REVOWN] = 0;
         fx_list_get(TSEL, ord);
         for (i = 0; i < FX_LIST_N; i++)
             if (ord[i] == INS_REV) { ui.ior_sel = (uint8_t)i; break; }
-        turn(EN_K3, 1);
+        turn(EN_K3, -1);
         ok &= song.g[G_REVOWN] == 1 && fx_list_mode(TSEL, INS_REV)[0] == 'C' &&
               fx_list_mode(&trk[2], INS_REV)[0] == 'S';   /* REV non-owner: SEND (tank 1), not USED */
         {
@@ -8801,7 +8810,9 @@ static int test_fx_sections(void)
                 if (ord[i] == INS_REV) { ui.ior_sel = (uint8_t)i; break; }
             turn(EN_K4, 8);                             /* SEND: mix still editable */
             ok &= trk[2].p[P_REV] != rv;
-            turn(EN_K3, 1);                             /* cannot steal CHAIN */
+            turn(EN_K3, -1);                            /* cannot steal CHAIN (left or right) */
+            ok &= song.g[G_REVOWN] == 1 && fx_list_mode(&trk[2], INS_REV)[0] == 'S';
+            turn(EN_K3, 1);                             /* right: USED stays SEND for this track */
             ok &= song.g[G_REVOWN] == 1 && fx_list_mode(&trk[2], INS_REV)[0] == 'S';
             song.sel = 0;
         }
@@ -8869,7 +8880,7 @@ static int test_fx_sections(void)
             song.g[G_SLOWN] = 0;                          /* legacy all-SEND → sanitize on toggle */
             TSEL->p[P_SLDEPTH] = 40;
             ui.ior_sel = (uint8_t)sl_slot;
-            turn(EN_K3, 1);
+            turn(EN_K3, -1);                                /* left: this track into the chain */
             ok &= sl_trk_chain(TSEL) && fx_list_mode(TSEL, INS_SLCR)[0] == 'C';
             song.sel = 1;
             ok &= sl_trk_send(&trk[1]) && fx_list_mode(&trk[1], INS_SLCR)[0] == 'S';
@@ -8958,6 +8969,7 @@ static int test_fx_sections(void)
         ok &= dtime_free() && ms >= 1u && ms <= DTIME_MS_MAX;
         turn(EN_K1, 1);                                  /* one detent is one millisecond */
         ok &= dtime_ms() == ms + 1u;
+        fm1_ms += 60u - 16u; frame();                   /* a real turn: slower than a detent a frame */
         turn(EN_K1, 1);
         ok &= dtime_ms() == ms + 2u;
         song.g[G_DTIME] = (int16_t)(DTIME_FREE + 100);
@@ -9061,6 +9073,7 @@ int main(void)
     bad += test_page_cycles();
     bad += test_mono_screens();
     bad += test_roll();
+    bad += test_soak_cards();
     bad += test_panel();
     bad += test_layer();
     bad += test_layer_knob_leak();
@@ -9108,7 +9121,6 @@ int main(void)
     bad += test_momentary();
     bad += test_fm6_charts();
     bad += test_fm6_ops();
-    bad += test_soak_cards();
     bad += test_home_tracks();
     bad += test_fx_map_columns();
     bad += test_help();

@@ -83,7 +83,7 @@ static void silent_clocks(void)
     t->p[P_IDMIX] = 64;                                 /* DIST stage wet: insert tail still needs zeros */
     for (uint32_t i = 0; i < CTL; i++)
         part_buf[i] = 123456;
-    mix_part(t, CTL);
+    mix_part(t, CTL, &mx[0]);
     for (uint32_t i = 0; i < CTL; i++)
         assert(!part_buf[i]);
     host_preset(t, 7, 0);                               /* WHEEL */

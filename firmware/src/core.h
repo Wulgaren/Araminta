@@ -12,6 +12,10 @@
 #define NVOICE 8                 /* voices per part, and the budget shared by all parts */
 #define NPART 4                  /* synth parts: tracks 1..4 */
 #define NTRK NPART               /* tracks (the formats and the protocol count these): every track is a part */
+/* the second core (fx.c mix_block) renders parts at once: C1_NP copies of the state a part's render writes that
+ * parts shared before (mod.c, voice.c SPREAD, eng_formant.c, eng_phys.c) */
+#define C1_NP NPART
+#define C1_PI(t) ((uint32_t)((t) - trk) % C1_NP)
 #define NSTEP 64
 #define HALF_FRAMES 128          /* I2S half buffer: 2.9 ms at 44.1 kHz (a key waits 0..1 half, then plays 1 half later) */
 #ifndef FELUCCA_FM4
@@ -479,7 +483,6 @@ typedef struct track {
     uint8_t slide_glide;         /* next legato note glides (slide) */
     uint8_t rat_left;            /* RATCH: repeats of the playing step still to come (seq.c seq_ratchet) */
     uint32_t seq_off;
-    uint8_t seq_active;          /* any step programmed */
     uint8_t rskip_idx;           /* live recording put notes into the step about to play: */
     uint8_t rskip_n, rskip[NLANE];   /* do not trigger them again there (they sound already) */
     /* NUDGE (QUANTIZE OFF, seq.c seq_tick): a step plays at its start + its nudge. Latched as a step starts: */
@@ -535,6 +538,11 @@ typedef struct track {
     uint8_t sp_alt;              /* SPREAD: the side the next voice starts on (alternating, voice.c voice_start) */
     int16_t m_rnd;               /* .. its RAND */
     int32_t m_env;               /* the amp envelope of voice m_vi, last block (Q15) */
+    /* the second core (fx.c mix_block): what a part's render keeps of its own (was shared scratch, one part at a time) */
+    uint32_t esync_k[3];         /* ATK's step, DEC's and REL's coefficient (Q16; voice.c esync_coef / env_tick) */
+    uint8_t spread_on;           /* SPREAD while this part renders (voice.c / fx.c mix_part) */
+    uint8_t lfo_wrap;            /* the LFO's phase wrapped this block (track_lfo_adv) */
+    uint8_t rsv_c1[2];           /* sizeof(track_t) a multiple of 16 */
 } track_t;
 enum { PFX_RND = 1, PFX_HALF = 2, PFX_REP = 4, PFX_DEC = 8, PFX_ATK = 16 };   /* (track_t.pfx) */
 /* the audio ISR indexes trk[] with a multiply by a small immediate and a shift while the size is a multiple of 16; 1.5's
@@ -560,6 +568,28 @@ static track_t trk[NTRK];        /* the instrument: four parts */
 static song_t song;
 #define TSEL (&trk[song.sel])    /* the selected track */
 static track_t fx_bus_trk;       /* SEND insert/slicer knobs in .p[]; other fields unused */
+
+/* The shared SEND knobs, per part (the second core renders parts at once: fx.c mix_block). mod.c mod_begin
+ * fills one copy with fx_bus_trk.p and the DLY / REV bus settings of song.g, then writes the matrix's values
+ * into it; the part's DSP reads the copy (mod.c mod_target_ptr, fx.c ins_param_src, slicer.c sl_run_send), so
+ * two parts never write or read the same knobs and each sees its own modulation, as they did when the renders
+ * ran one after another. Nothing outside a render touches the copies; the real knobs stay the UI's, motion's
+ * and the bus DSP's (fx_buses after the parts). p[] is first, as track_t's: the DSP functions take a track_t
+ * and read its p[] (a cast of the copy). */
+typedef struct {
+    int16_t p[P_COUNT];
+    int16_t g[5];              /* MFX_TIME..MFX_DAMP: the DLY / REV bus settings of song.g */
+} bus_knobs_t;
+static bus_knobs_t bus_knobs[C1_NP];
+static uint8_t bus_knobs_on[C1_NP];         /* 1: this part's copy is its render's view (mod_begin) */
+_Static_assert(__builtin_offsetof(track_t, p) == 0 && __builtin_offsetof(bus_knobs_t, p) == 0 &&
+               sizeof ((track_t *)0)->p == sizeof ((bus_knobs_t *)0)->p,
+               "bus_knobs_t.p overlays track_t.p (the DSP reads the cast copy)");
+/* the knobs a part's render reads: its copy while the matrix modulates shared ones, else the real */
+static const track_t *bus_knobs_track(const track_t *t)
+{
+    return bus_knobs_on[C1_PI(t)] ? (const track_t *)&bus_knobs[C1_PI(t)] : &fx_bus_trk;
+}
 
 /* SLICER ownership (G_SLOWN). Legacy exclusive owner is still readable until sl_own_sanitize. */
 static void sl_own_sanitize(void)

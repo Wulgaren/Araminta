@@ -194,7 +194,6 @@ static void seq_quant_test(void)
     t->p[P_SLEN] = (int16_t)NELEM(STEPS);
     for (i = 0; i < NELEM(STEPS); i++)
         t->step[i] = STEPS[i];
-    t->seq_active = 1;
     t->p[P_SCALE] = 0;                             /* C major */
     t->p[P_ROOT] = 0;
     period = div_samples((uint32_t)t->p[P_SDIV]);
@@ -296,7 +295,6 @@ static void seq_trn_test(void)
     t->p[P_SLEN] = (int16_t)NELEM(STEPS);
     for (i = 0; i < NELEM(STEPS); i++)
         t->step[i] = STEPS[i];
-    t->seq_active = 1;
     t->p[P_SCALE] = 0;                             /* C major */
     t->p[P_ROOT] = 0;
     t->p[P_QUANT] = QN_KBD;                        /* KBD: keys remapped; pattern plays with TRN only */

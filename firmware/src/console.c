@@ -4,8 +4,15 @@
  * diagnostics. Runs in the main loop (cdc_task); usb_poll moves the bytes.
  * The baud rate is ignored. Nothing here writes memory or flash; `uboot`
  * does what the SysEx soft key does. */
-#define CON_LINE 64u
+/* The offset of a member of the scan statistics (hal/fm1_input.h fm1_in_stat: an anonymous struct,
+ * so offsetof has no type name to take). `last` is its first field and `gap_max` its second, which
+ * is what con_inp clears from; the two asserts below fail the build if that ever changes. */
+#define FM1_IN_STAT_OFF(m) ((unsigned)__builtin_offsetof(__typeof__(fm1_in_stat), m))
+_Static_assert(FM1_IN_STAT_OFF(last) == 0u, "the scan window's stamp is the first field");
+_Static_assert(FM1_IN_STAT_OFF(gap_max) == sizeof fm1_in_stat.last,
+               "the scan counters start after `last`: con_inp clears them from gap_max on");
 
+#define CON_LINE 64u
 static struct {
     char line[CON_LINE];
     uint32_t len;
@@ -250,6 +257,28 @@ static void con_dbg(void)
 #endif
 }
 
+/* the second core (hal/fm1_cpu1.h): its state and the failure policy's counters. c1_gave_up is the
+ * last failure: 1 = a job it would not run (a wrong read; c1_bad counts them), 2 = no answer within
+ * 1 ms (that block was core 0's: no dropout). c1_restarts is since the clean-run window last
+ * cleared: c1_ok jobs without a failure and the restart budget is whole again. */
+static void con_c1(void)
+{
+    con_kv("c1_on", fm1_c1_on);
+    con_kv("c1_dead", fm1_c1_dead);
+    con_kv("c1_restarts", fm1_c1_restarts);
+    con_kv("c1_ok", fm1_c1_ok);
+    con_kv("c1_gave_up", fm1_c1_gave_up);
+    con_kv("c1_bad", (int32_t)fm1_c1_mb.bad);
+    con_kv("c1_bad_job", (int32_t)fm1_c1_mb.bad_job);
+    con_kv("c1_bad_done", (int32_t)fm1_c1_mb.bad_done);
+    con_kx("c1_bad_fn", (uint32_t)(uintptr_t)fm1_c1_mb.bad_fn);
+    con_kv("c1_wait_max_us", (int32_t)(fm1_c1_wait_max / FM1_TICKS_PER_US));
+    con_kv("c1_jobs", (int32_t)fm1_c1_mb.job);
+    con_kv("c1_alive", (int32_t)fm1_c1_mb.alive);
+    con_kv("c1_stack_used", (int32_t)fm1_cpu1_stack_used());
+    con_kx("c1_trace", fm1_c1_trace);
+}
+
 /* input scan (hal/fm1_input.h fm1_in_stat) since the last `inp`, then cleared: tick gaps (= LED
  * on-time of a column), per-column LED share in 1/1000, the tick cost, the dim pulse (its average width and the
  * bits of the 595 shift it spans), encoder transitions */
@@ -308,7 +337,9 @@ static void con_inp(void)
     con_kv("nested", (int32_t)felucca_dbg.nested);
     {
         uint32_t k2 = fm1__lock();
-        memset((void *)&fm1_in_stat.gap_max, 0, sizeof fm1_in_stat - sizeof fm1_in_stat.last);
+        /* the counters that follow `last` (the window's own stamp), from gap_max on */
+        memset((void *)((uint8_t *)&fm1_in_stat + FM1_IN_STAT_OFF(gap_max)), 0,
+               sizeof fm1_in_stat - FM1_IN_STAT_OFF(gap_max));
         fm1__unlock(k2);
     }
 }
@@ -344,11 +375,13 @@ static void con_params(void)
 static void con_exec(const char *p)
 {
     if (con_word(&p, "help") || con_word(&p, "?"))
-        con_puts("status  dbg  inp  crash  params  memr ADDR [LEN]  flr OFF [LEN]  uboot yes\r\n");
+        con_puts("status  dbg  c1  inp  crash  params  memr ADDR [LEN]  flr OFF [LEN]  uboot yes\r\n");
     else if (con_word(&p, "status"))
         con_status();
     else if (con_word(&p, "dbg"))
         con_dbg();
+    else if (con_word(&p, "c1"))
+        con_c1();
     else if (con_word(&p, "crash"))
         con_crash();
     else if (con_word(&p, "inp"))
