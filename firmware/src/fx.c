@@ -589,6 +589,36 @@ static int16_t *fx_target_ptr(const track_t *t, uint32_t id)
         return &fx_bus_trk.p[id];
     return (int16_t *)&t->p[id];
 }
+/* the knob the matrix writes while a part renders: its copy of the shared ones (core.h bus_knobs), its own
+ * p[] otherwise. The real shared knobs stay the UI's, motion's and the bus DSP's. */
+static int16_t *mod_target_ptr(const track_t *t, uint32_t id)
+{
+    uint32_t st;
+    if (MFX_PARAM(id))
+        return &bus_knobs[C1_PI(t)].g[id - MFX_TIME];
+    if ((id == P_SLPAT || id == P_SLRATE) && sl_trk_send(t))
+        return &bus_knobs[C1_PI(t)].p[id];
+    st = fx_target_stage(id);
+    if (st < INS_N && ins_is_send(t, st))
+        return &bus_knobs[C1_PI(t)].p[id];
+    return (int16_t *)&t->p[id];
+}
+/* mod_begin: the SEND insert / slicer knobs of a part's copy, as they are before its modulation (fx_bus_trk.p
+ * is never written while the parts render: the matrix moves the copies) */
+static void bus_knobs_fill(const track_t *t)
+{
+    memcpy(bus_knobs[C1_PI(t)].p, fx_bus_trk.p, sizeof bus_knobs[0].p);
+}
+/* The DLY / REV bus settings of a part's copy (core.h bus_knobs). Every part's, at the block's start before the
+ * split (fx.c mix_block, after events_block: motion's values are in): the CHAIN owners put their copies into song.g
+ * while they render (fx_bus_stage), so nothing else may read the real ones then. */
+static void bus_knobs_g(const track_t *t)
+{
+    bus_knobs_t *b = &bus_knobs[C1_PI(t)];
+    uint32_t i;
+    for (i = 0; i < 5u; i++)
+        b->g[i] = *fx_target_ptr(t, MFX_TIME + i);
+}
 /* RATE's selected division is the starting point for continuous TIME modulation and locks. */
 static int16_t fx_time_value(int16_t raw)
 {
@@ -620,10 +650,13 @@ static int fx_target_send(const track_t *t, uint32_t id)
         return bus_own(1) != (int32_t)(t - trk);
     return (id == P_SLPAT || id == P_SLRATE) && sl_trk_send(t);
 }
-/* free-ms read position (Q8). 0, and the first block after RATE: snap, so a loaded time is exact. While TIME
- * stays selected the read glides toward the knob (tape pitch): at most DLY_SLEW Q8/sample (~0.25 samp/samp,
- * about ±5 semitones). Faster (2 samp/samp) made each 1 ms detent a reverse chirp ("coins"). */
-#define DLY_SLEW 64
+/* Free-ms read position (Q8). The first block after RATE snaps to the loaded time. Subsequent changes follow
+ * the knob: 1/256 of the remaining error per sample, capped at 224 Q8 units, so the read head keeps up with a
+ * quick turn. The tape pitch is therefore how fast the knob turns, not how far it moves: 455 -> 25 ms in half
+ * a second lands in half a second and swoops about 10.9 semitones (36 the other way: the head can speed up
+ * freely but barely slow). */
+#define DLY_EASE 8u
+#define DLY_SLEW 224u
 static uint32_t dly_q8;
 static uint8_t dly_free;
 
@@ -1027,13 +1060,28 @@ static void rev_clear_all(void)
     R = save ? save : &rev_tank[0];
 }
 
-static int32_t part_buf[CTL];                            /* a part's block (mix_part); the fade of a model change */
+/* the dry mix and the sends, as each core adds its parts into them (mx[1] is the second core's; mix_block merges
+ * the two: the sums are integers, so the order they add up in changes nothing: the output is bit for bit one
+ * core's) and a part's own block (b) */
+typedef struct { int32_t l[CTL], r[CTL], d[CTL], rv[CTL], b[CTL]; } mixsum_t;
+static mixsum_t mx[2];
+static uint16_t part_cost[NTRK];                       /* what a part's render cost the last block (mix_split) */
+#define mix_l (mx[0].l)
+#define mix_r (mx[0].r)
+#define send_d (mx[0].d)
+#define send_r (mx[0].rv)
+#define part_buf (mx[0].b)
+#define SM_DECL , mixsum_t *sm                          /* mix_part / mix_spread: the sums its parts add into */
+#define SM_ARG(x) , (x)
+#define SM(f) (sm->f)
 
 /* the model changed (to rt): the old one's block fades out (HALL's stereo difference with it), its buffers are
- * cleared, the new one starts from silence */
+ * cleared, the new one starts from silence. Its own scratch: the mixer's per-part buffer (part_buf) may be
+ * the caller's mix (track_insert) */
 static __attribute__((noinline)) void rev_switch(const int32_t *rev_in, int32_t *wet, uint32_t n, int32_t rt)
 {
-    int32_t *t = part_buf, g = 65536, d = 65536 / (int32_t)n;
+    static int32_t rev_fade[CTL];
+    int32_t *t = rev_fade, g = 65536, d = 65536 / (int32_t)n;
     uint32_t i;
     for (i = 0; i < n; i++)
         t[i] = 0;
@@ -1069,7 +1117,13 @@ static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet
         int32_t x;
         if (free_ms) {
             int32_t err = (int32_t)tgt - (int32_t)dly_q8;
-            int32_t st = err > DLY_SLEW ? DLY_SLEW : err < -DLY_SLEW ? -DLY_SLEW : err;
+            int32_t st = err >> DLY_EASE;              /* 1/256 of what is left to go */
+            if (st > (int32_t)DLY_SLEW)
+                st = (int32_t)DLY_SLEW;                /* the tape pitch: 10.9 semitones up, 36 down */
+            else if (st < -(int32_t)DLY_SLEW)
+                st = -(int32_t)DLY_SLEW;
+            else if (!st && err)
+                st = err > 0 ? 1 : -1;                 /* the last stretch creeps: an exact landing, no stall */
             uint32_t ri;
             int32_t fr, c0, c1;
             dly_q8 = (uint32_t)((int32_t)dly_q8 + st);
@@ -1102,11 +1156,9 @@ static void fx_buses(const int32_t *dly_in, const int32_t *rev_in, int32_t *wet,
     else
         for (i = 0; i < n; i++)
             wet[i] = 0;                           /* CHAIN: owner advances the line in track_insert */
-    if (!rev_chain)
-        rev_tank[1].hl.side = 0;                  /* unused SEND tank: no stale HALL side */
     R = rev_chain ? &rev_tank[1] : &rev_tank[0];
     rt = rev_rtype();
-    R->hl.side = 0;
+    R->hl.side = 0;                               /* (both tanks cleared at mix_block's start) */
     if (rt != R->rtype)
         rev_switch(rev_in, wet, n, rt);
     else
@@ -1133,6 +1185,7 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
  * pool (2 lines/track for FLANG+CHOR). State per stage in the pool; SLICER stays after the chain. */
 #define IL_LEN 256u
 #define IC_LEN 128u                     /* FILTER COMB delay (~2.9 ms: teeth down to ~345 Hz) */
+_Static_assert((IC_LEN & (IC_LEN - 1u)) == 0u, "insert FILTER COMB line is a power of two (dsp.c comb_process)");
 static const uint8_t INS_HOLD[16] = {64, 48, 40, 32, 24, 20, 16, 12, 10, 8, 6, 5, 4, 3, 2, 1};
 typedef struct {
     int32_t w;                          /* wet share Q15 */
@@ -1145,10 +1198,17 @@ typedef struct {
 } ins_st_t;
 static ins_st_t ins_st[NTRK][INS_N] __attribute__((section(".pool")));
 /* SEND DSP reuses ins_st[bus_tr][st] / ins_lines[bus_tr] (first SEND track for that stage).
- * Max 4 instances/stage: CHAIN private + SEND shared coexist, never 4+1. */
+ * Max 4 instances/stage: CHAIN private + SEND shared coexist, never 4+1. Parts render at once on the two
+ * cores (mix_block): the shared state runs its one block in the lowest SEND consumer's part (ins_bus_block
+ * picks it; its own knobs and input, as the parts rendered one after another), every other consumer runs the
+ * copy of the block's start here. ins_bus_join puts the run in place after the join. */
 static ins_st_t ins_bus_blk[INS_N];                                  /* SEND state at mix-block start */
-static uint8_t ins_bus_applied[INS_N];                               /* first SEND track committed this block */
-static uint8_t ins_bus_driver[INS_N];
+static uint8_t ins_bus_driver[INS_N];                                /* the part that runs it (0xFF: no consumer) */
+static uint8_t ins_bus_parallel;                                    /* SEND line windows commit after the join only on two cores */
+static uint8_t ins_bus_ran[C1_NP];                                   /* bit per stage: this part ran the SEND DSP */
+static int32_t ins_send_in[C1_NP][CTL];                              /* .. its input, when the shared run is redone */
+static int16_t ins_win[C1_NP][2][CTL];                               /* each part's window of the line it writes */
+static int32_t ins_rb[CTL];                                          /* ins_bus_join's run (its output stands) */
 static int16_t ins_lines[NTRK][2][IL_LEN] __attribute__((section(".pool")));
 /* SEND bus knobs live in fx_bus_trk.p (core.h); packed into reclaimed project bytes. MIX stays per-track. */
 static uint32_t ins_bus_tr(uint32_t st)
@@ -1187,7 +1247,7 @@ static void fx_bus_wire_def(uint8_t w[FX_BUS_N])
 }
 static const track_t *ins_param_src(const track_t *t, uint32_t st)
 {
-    return st < INS_N && ins_is_send(t, st) ? &fx_bus_trk : t;
+    return st < INS_N && ins_is_send(t, st) ? bus_knobs_track(t) : t;
 }
 
 /* Power-on (audio.c audio_init): clear delay/reverb lines so the first blocks are silent. The pool is
@@ -1207,7 +1267,7 @@ static void fx_boot(void)
     dly_free = 0;
     memset(ins_st, 0, sizeof ins_st);
     memset(ins_lines, 0, sizeof ins_lines);
-    memset(ins_bus_applied, 0, sizeof ins_bus_applied);
+    memset(ins_bus_ran, 0, sizeof ins_bus_ran);
     fx_bus_init();
     for (i = 0; i < NTRK; i++)
         trk[i].ins_run = 0;
@@ -1231,35 +1291,56 @@ static int32_t ins_lpk(int32_t c)
     uint32_t g = SVF_G[clamp(c, 0, 127)];
     return (int32_t)((g << 16) / (4096u + g));
 }
-static inline int32_t ins_shape(uint32_t mode, int32_t v, uint32_t sh)
+/* tanh(x / 24000) * 24000 through the shared table: a soft plateau at the level HARD clips at, and
+ * unity slope at zero (89478 Q16 = 32768 / 24000, taking x to the table's own units and back) */
+static inline __attribute__((always_inline)) int32_t ins_sat(int32_t x)
+{
+    return (softclip(mulq16(x, 89478u)) * 24000) >> 15;
+}
+/* The shapers, one curve per MODE (SOFT .. FUZZ; the default is CRUSH's quantizer). The drive gain
+ * (ins_run_dist, per mode) keeps each in its own regime at DRIVE 127: they used to all square off
+ * and be indistinguishable maxed out. SOFT a rounded curve that never flat-tops, HARD a hard edge at
+ * 24000, FOLD a wavefolder that folds further in as it is driven, FUZZ a gated octave wave (it
+ * repeats twice a period, so unlike any square or fold whatever the drive). g is the mode's drive
+ * gain (Q12): FUZZ gates against the level it is driven to. All peak near 24000 so a MODE switch
+ * stays even. */
+static inline __attribute__((always_inline)) int32_t ins_shape(uint32_t mode, int32_t v, uint32_t sh, uint32_t g)
 {
     switch (mode) {
-    case IDM_SOFT: return softclip(v);
+    case IDM_SOFT: return ins_sat(v);
     case IDM_HARD: return clamp(v, -24000, 24000);
     case IDM_FOLD: {
-        int32_t u = (int32_t)((uint32_t)(v + 16384) & 0xFFFFu) - 32768;
-        u = 16384 - (u < 0 ? -u : u);
-        return u + (u >> 1);
+        int32_t p = (int32_t)((uint32_t)(v + 65536) & 0x1FFFFu) - 65536;
+        int32_t u = p < -32768 ? -65536 - p : p < 32768 ? p : 65536 - p;
+        return (u * 3) >> 2;
     }
-    case IDM_FUZZ: return v > 0 ? (v > 20000 ? 20000 : v) : softclip(v) >> 1;
+    case IDM_FUZZ: {
+        int32_t m = v < 0 ? -v : v;
+        return ins_sat((m - (int32_t)(4096u + (g << 1))) * 4);
+    }
     default: return sh ? ((v + (1 << (sh - 1u))) >> sh) << sh : v;
     }
 }
 static inline uint32_t ins_bits_sh(int32_t a) { return 15u - (uint32_t)(clamp(a, 0, 127) >> 3); }
 
+/* per MODE: the drive gain (Q12, 4096 = 1x) and how far the drive-linked cutoff drops (a >> DK of
+ * the drive). Each MODE keeps its own regime at DRIVE 127 instead of all squaring off together. */
+static const uint8_t INS_GSH[IDM_N] = {4, 0, 1, 3};       /* g = 4096 + (a * a * 3) >> GSH: 1.7 .. 12.8 x */
+static const uint8_t INS_DK[IDM_N] = {2, 4, 5, 4};        /* cutoff index 96 - (a >> DK) + TONE: SOFT darkest */
+
 static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n, int32_t tw)
 {
     uint32_t i, mode = (uint32_t)clamp(t->p[P_IDMODE], 0, IDM_N - 1);
-    int32_t a = t->p[P_DIST], g = 4096 + a * a * 3;
+    int32_t a = t->p[P_DIST], g = 4096 + ((a * a * 3) >> INS_GSH[mode]);
     /* cutoff follows drive (96 at 0, darker as drive rises); P_ED_FX (TONE) offsets it, 0 = as before */
-    int32_t k = ins_lpk(clamp((96 - (a >> 2)) + t->p[P_ED_FX], 0, 127));
+    int32_t k = ins_lpk(clamp((96 - (a >> INS_DK[mode])) + t->p[P_ED_FX], 0, 127));
     for (i = 0; i < n; i++) {
         int32_t x = b[i], y, v;
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
         if (!s->w && !tw) { b[i] = x; continue; }
         s->hp += ((x << 8) - s->hp) >> 8;
         v = clamp(x - (s->hp >> 8), -230000, 230000);
-        y = ins_shape(mode, ((v >> 3) * g) >> 9, 0);
+        y = ins_shape(mode, ((v >> 3) * g) >> 9, 0, (uint32_t)g);
         y <<= 4;
         v = mulq16(y - s->lp1, (uint32_t)k);
         y = v + s->lp1; s->lp1 = y + v;
@@ -1277,6 +1358,7 @@ static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, const track_t 
     uint32_t i, ft = (uint32_t)clamp(t->p[P_IFTYPE], 0, IFT_N - 1);
     int32_t cut = t->p[P_IFCUT], res = t->p[P_IFRES], k = 8192 - res * 7600 / 127;
     tsvf_t flt;
+    int32_t clen = ft == IFT_COMB ? (int32_t)comb_delay_len(cut, IC_LEN) : 0;   /* block-constant */
     /* tsvf_coef takes cutoff in Q8 (0..127 << 8), as ANALOG / TRIO / NOISE do */
     tsvf_coef(&flt, cut << 8, res);
     for (i = 0; i < n; i++) {
@@ -1285,7 +1367,7 @@ static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, const track_t 
         if (!s->w && !tw) { b[i] = x; continue; }
         if (ft == IFT_COMB) {
             /* CUT = delay across the line (0 longest); RES = feedback; out = x + g * delayed */
-            y = comb_process(s->comb, IC_LEN, &s->wp, x, cut, res);
+            y = comb_process(s->comb, IC_LEN, &s->wp, x, clen, res);
         } else {
             int32_t v3 = (x >> 1) - s->ic2;
             int32_t v1 = (flt.a1 * s->ic1 + flt.a2 * v3) >> 13;
@@ -1308,7 +1390,7 @@ static __attribute__((noinline)) void ins_run_crush(ins_st_t *s, const track_t *
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
         if (!s->w && !tw) { b[i] = x; continue; }
         if (!s->cnt) {
-            s->hold = ins_shape(4u, clamp(x, -262144, 262143), sh); /* crush quantize */
+            s->hold = ins_shape(4u, clamp(x, -262144, 262143), sh, 4096u); /* crush quantize */
             s->cnt = (uint8_t)hold;
         }
         s->cnt--;
@@ -1322,7 +1404,7 @@ static __attribute__((noinline)) void ins_run_crush(ins_st_t *s, const track_t *
 }
 
 static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n,
-                                                    int32_t tw, uint32_t kind, int16_t *line)
+                                                    int32_t tw, uint32_t kind, int16_t *line, int16_t *win)
 {
     uint32_t i;
     int32_t rate, dep, fbk_p;
@@ -1357,7 +1439,7 @@ static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, const track_t *
         }
         {
             int32_t chorus = kind == INS_CHOR, fbk = clamp(fbk_p, 0, 127) * (chorus ? 103 : 219);
-            uint32_t dq = depu * 516u;
+            uint32_t dq = depu * 516u, wbase = s->wp;   /* win[i] is this run's write at wbase + i */
             for (i = 0; i < n; i++, s->ph += inc) {
                 int32_t x = b[i], r0, r1, v, fr;
                 uint32_t d;
@@ -1371,8 +1453,20 @@ static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, const track_t *
                 r0 = (int32_t)(s->wp - (d >> 16)) & (int32_t)(IL_LEN - 1u);
                 r1 = (r0 - 1) & (int32_t)(IL_LEN - 1u);
                 fr = (int32_t)((d >> 1) & 0x7FFFu);
-                v = line[r0] + (((line[r1] - line[r0]) * fr) >> 15);
-                line[s->wp] = (int16_t)clamp((x >> 2) + softclip(mulq15(v, fbk)), -32767, 32767);
+                /* the window holds this run's writes (the runs of two parts never share one: fx.c
+                 * ins_stage); a read back into it takes its own write, behind it the shared line. One
+                 * CHOR depth past 107 wraps its delay into the window's tail early in a block, where
+                 * one-after-another renders left the part before's writes: those samples of the later
+                 * parts need the preceding consumer's writes, so deep shared CHORUS stays on one core
+                 * and commits each window before the next consumer (FLANG never wraps there) */
+                {
+                    int32_t o0 = (r0 - (int32_t)wbase) & (int32_t)(IL_LEN - 1u);
+                    int32_t o1 = (r1 - (int32_t)wbase) & (int32_t)(IL_LEN - 1u);
+                    int32_t a0 = o0 < (int32_t)i ? win[o0] : line[r0];
+                    int32_t a1 = o1 < (int32_t)i ? win[o1] : line[r1];
+                    v = a0 + (((a1 - a0) * fr) >> 15);
+                }
+                win[i] = (int16_t)clamp((x >> 2) + softclip(mulq15(v, fbk)), -32767, 32767);
                 s->wp = (uint16_t)((s->wp + 1u) & (IL_LEN - 1u));
                 v <<= 1;
                 s->dc += ((v << 8) - s->dc) >> 9;
@@ -1407,7 +1501,45 @@ static __attribute__((noinline)) void ins_rest(track_t *t)
 
 static void ins_bus_block(void)                      /* mix_block: new block for shared SEND DSP */
 {
-    memset(ins_bus_applied, 0, sizeof ins_bus_applied);
+    uint32_t k, st;
+    for (k = 0; k < C1_NP; k++)
+        ins_bus_ran[k] = 0;
+    for (st = 0; st < INS_N; st++) {
+        ins_bus_blk[st] = ins_st[ins_bus_tr(st)][st];   /* before any consumer: the copies' start */
+        ins_bus_driver[st] = 0xFF;
+        for (k = 0; k < NTRK; k++)                     /* the lowest SEND consumer runs the shared state */
+            if (ins_is_send(&trk[k], st) && ins_mix_of(&trk[k], st) != 0) {
+                ins_bus_driver[st] = (uint8_t)k;
+                break;
+            }
+    }
+}
+
+/* the window of a swept run into its line at wbase..wbase + n: what the run left there */
+static __attribute__((noinline)) void ins_win_put(int16_t *line, const int16_t *win, uint32_t wbase, uint32_t n)
+{
+    uint32_t i;
+    for (i = 0; i < n; i++)
+        line[(wbase + i) & (IL_LEN - 1u)] = win[i];
+}
+
+/* one stage's DSP on run, cold-started from silence when it faded out completely. Returns where the swept
+ * stages wrote their window (run->wp at the run's start). */
+static uint32_t ins_run_st(ins_st_t *run, const track_t *src, int32_t *b, uint32_t n, int32_t tw, uint32_t st,
+                           int16_t (*lines)[IL_LEN], uint32_t pi)
+{
+    uint32_t wbase;
+    if (!run->w && tw) {
+        memset(run, 0, sizeof *run);
+        if (st == INS_FLANG) run->line_i = 0;
+        if (st == INS_CHOR) run->line_i = 1;
+    }
+    wbase = run->wp;
+    if (st == INS_DIST) ins_run_dist(run, src, b, n, tw);
+    else if (st == INS_FILTER) ins_run_filter(run, src, b, n, tw);
+    else if (st == INS_CRUSH) ins_run_crush(run, src, b, n, tw);
+    else ins_run_swept(run, src, b, n, tw, st, lines[run->line_i & 1u], ins_win[pi][run->line_i & 1u]);
+    return wbase;
 }
 
 /* tw_force < 0: the stage's own mix. Else that Q15 wet (a send runs fully wet; the amount
@@ -1415,25 +1547,28 @@ static void ins_bus_block(void)                      /* mix_block: new block for
  * CHAIN: private ins_st[tr][st]. */
 static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n, int32_t tw_force)
 {
-    uint32_t k = (uint32_t)(t - trk) % NTRK, bus_tr;
+    uint32_t k = (uint32_t)(t - trk) % NTRK, pi = C1_PI(t), wbase, i;
     int send = st < INS_N && ins_is_send(t, st);
     ins_st_t *s, tmp, *run;
     const track_t *src = ins_param_src(t, st);
     int32_t tw = tw_force >= 0 ? tw_force : ins_mixq(ins_mix_of(t, st));
     int16_t (*lines)[IL_LEN];
     if (send) {
-        bus_tr = ins_bus_tr(st);
+        uint32_t bus_tr = ins_bus_tr(st);
         s = &ins_st[bus_tr][st];
         lines = ins_lines[bus_tr];
-        if (!ins_bus_applied[st])
+        if (!ins_bus_parallel && ins_bus_driver[st] == 0xFF) {
             ins_bus_blk[st] = *s;
-        if (!ins_bus_applied[st] || k == ins_bus_driver[st]) {
-            run = s;
-            if (!ins_bus_applied[st])
-                *s = ins_bus_blk[st];
+            ins_bus_driver[st] = (uint8_t)k;
+        }
+        ins_bus_ran[pi] |= (uint8_t)(1u << st);
+        if (k == ins_bus_driver[st]) {
+            run = s;                                   /* the block's one run of the shared state */
         } else {
-            tmp = ins_bus_blk[st];
+            tmp = ins_bus_blk[st];                     /* the block's start: every other part runs its copy */
             run = &tmp;
+            for (i = 0; i < n; i++)                    /* ins_bus_join redoes the run from this input */
+                ins_send_in[pi][i] = b[i];
         }
     } else {
         s = &ins_st[k][st];
@@ -1442,35 +1577,85 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
     }
     if (!run->w && !tw)
         return;                                         /* MIX 0 and faded: skip DSP */
-    if (!run->w && tw) {
-        memset(run, 0, sizeof *run);
-        if (st == INS_FLANG) run->line_i = 0;
-        if (st == INS_CHOR) run->line_i = 1;
-    }
-    if (st == INS_DIST) ins_run_dist(run, src, b, n, tw);
-    else if (st == INS_FILTER) ins_run_filter(run, src, b, n, tw);
-    else if (st == INS_CRUSH) ins_run_crush(run, src, b, n, tw);
-    else ins_run_swept(run, src, b, n, tw, st, lines[run->line_i & 1u]);
-    if (send && run == s) {
-        ins_bus_applied[st] = 1;
-        ins_bus_driver[st] = (uint8_t)k;
-    }
+    wbase = ins_run_st(run, src, b, n, tw, st, lines, pi);
+    if ((!send || !ins_bus_parallel) && (st == INS_FLANG || st == INS_CHOR))
+        /* one core commits before the next consumer, including deep shared CHORUS */
+        ins_win_put(lines[run->line_i & 1u], ins_win[pi][run->line_i & 1u], wbase, n);
     if (run->w)
         t->ins_run = 1;
 }
 
-static int32_t ins_dry[CTL], ins_wet[CTL];
-/* Run shared DLY/REV as an insert stage (CHAIN owner only): wet mixed by the track's send amount. */
-static void fx_bus_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n)
+/* after the parts (mix_block): the shared state's one run of the block, when the picked driver did not make
+ * it (that part went silent this block, or the matrix brought a lower one in): the lowest part that ran the
+ * stage, its own input and knobs, from the block's start. Then the swept stages' line: the last consumer's
+ * writes are what a block of one-after-another renders leaves in the shared line. */
+static __attribute__((noinline)) void ins_bus_join(uint32_t n)
 {
-    uint32_t k;
-    int32_t amt = ins_mix_of(t, st), g, rt;
+    uint32_t st, k;
+    for (st = 0; st < INS_N; st++) {
+        uint32_t lo = NPART, hi = NPART, bus_tr = ins_bus_tr(st);
+        ins_st_t tmp;
+        for (k = 0; k < NPART; k++)
+            if (ins_bus_ran[k] >> st & 1u) {
+                if (lo == NPART)
+                    lo = k;
+                hi = k;
+            }
+        if (lo == NPART)
+            continue;                                    /* no consumer this block: the state stands */
+        if ((uint8_t)lo != ins_bus_driver[st]) {
+            tmp = ins_bus_blk[st];
+            for (k = 0; k < n; k++)                    /* the runs are in place: a fresh copy per stage */
+                ins_rb[k] = ins_send_in[lo][k];
+            (void)ins_run_st(&tmp, bus_knobs_track(&trk[lo]), ins_rb, n, 32768, st,
+                             ins_lines[bus_tr], lo);
+            ins_st[bus_tr][st] = tmp;
+        }
+        if (st == INS_FLANG || st == INS_CHOR) {
+            uint32_t wbase = ins_bus_blk[st].w ? ins_bus_blk[st].wp : 0u;
+            uint32_t li = ins_bus_blk[st].w ? (ins_bus_blk[st].line_i & 1u) : (st == INS_CHOR);
+            ins_win_put(ins_lines[bus_tr][li], ins_win[hi][li], wbase, n);
+        }
+    }
+}
+
+static int32_t ins_dry_buf[C1_NP][CTL], ins_wet_buf[C1_NP][CTL];   /* one part's send scratch (its own core) */
+/* The DLY / REV bus settings a part's render may modulate (core.h bus_knobs): its copy goes into song.g for
+ * its CHAIN run and comes out after (the DLY and REV owners write disjoint settings, never one slot at once) */
+static __attribute__((noinline)) void bus_g_put(const track_t *t, uint32_t first, uint32_t last, int32_t *keep,
+                                               int restore)
+{
+    uint32_t j;
+    for (j = first; j < last; j++) {
+        int16_t *p = fx_target_ptr(t, MFX_TIME + j);
+        if (restore)
+            *p = (int16_t)keep[j];
+        else {
+            keep[j] = *p;
+            *p = bus_knobs[C1_PI(t)].g[j];
+        }
+    }
+}
+/* Run shared DLY/REV as an insert stage (CHAIN owner only): wet mixed by the track's send amount.
+ * noinline: the CHAIN owner's path stays out of track_insert's loop (target_budget). */
+static __attribute__((noinline)) void fx_bus_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n)
+{
+    uint32_t k, pi = C1_PI(t), g0 = st == INS_DLY ? 0u : 3u, g1 = st == INS_DLY ? 3u : 5u;
+    int32_t *ins_dry = ins_dry_buf[pi], *ins_wet = ins_wet_buf[pi];
+    int32_t amt = ins_mix_of(t, st), g, rt, mfx_keep[5];
+    if (bus_knobs_on[pi])
+        bus_g_put(t, g0, g1, mfx_keep, 0);
     if (amt <= 0 && st == INS_DLY) {
         dly_process(b, ins_wet, n, 0);           /* advance the line even at mix 0 */
+        if (bus_knobs_on[pi])
+            bus_g_put(t, g0, g1, mfx_keep, 1);
         return;
     }
-    if (amt <= 0)
+    if (amt <= 0) {
+        if (bus_knobs_on[pi])
+            bus_g_put(t, g0, g1, mfx_keep, 1);
         return;
+    }
     g = ins_mixq(amt);
     for (k = 0; k < n; k++)
         ins_dry[k] = b[k];
@@ -1492,6 +1677,8 @@ static void fx_bus_stage(track_t *t, uint32_t st, int32_t *b, uint32_t n)
         b[k] = s > 2147483647 ? 2147483647 : s < -2147483647 - 1 ? (int32_t)(-2147483647 - 1) : (int32_t)s;
     }
     t->ins_run = 1;
+    if (bus_knobs_on[pi])
+        bus_g_put(t, g0, g1, mfx_keep, 1);
 }
 /* Chain stages run in list order. Insert SEND stages are left out of the series and added after.
  * Shared DLY/REV/SLCR run here only when this track owns them as CHAIN. */
@@ -1501,6 +1688,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
     uint32_t i;
     uint16_t raw;
     int32_t tr = (int32_t)(t - trk);
+    int32_t *ins_dry = ins_dry_buf[C1_PI(t)], *ins_wet = ins_wet_buf[C1_PI(t)];   /* this part's scratch */
     t->ins_run = 0;
     fx_list_get(t, ord);
     raw = iord_bits(t);
@@ -1516,8 +1704,8 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
                 /* CHAIN at list position: gate mono b; with SPREAD also gate side d
                  * (spread_buf already holds left-right from mix_spread). SEND still
                  * runs after the chain via slicer_track_sd. */
-                if (spread_on)
-                    slicer_track_sd(t, b, spread_buf, n);
+                if (t->spread_on)
+                    slicer_track_sd(t, b, spread_buf[C1_PI(t)], n);
                 else
                     slicer_track(t, b, n);
             }
@@ -1552,7 +1740,7 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
 /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
  * -> dist -> INSERT -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
 static void events_block(uint32_t n);                    /* seq.c */
-static int32_t send_d[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_r[CTL];
+static int32_t wet[CTL];                                /* (the dry mix and the sends: mx[], above) */
 
 /* (JIANT) CLIP: mix driven into soft clip ahead of the limiter (before MASTER); wet folded in */
 static __attribute__((noinline)) void clip_block(uint32_t n)
@@ -1609,9 +1797,9 @@ static __attribute__((noinline)) int32_t duck_ramp(int32_t lvl, int32_t *dl)
  * perf_mute_sd) and passes DIST by (the spread of a distorted chord is its voices' clean difference). The sends
  * take b, mono, as before. SPRD 0, MONO or LEGATO: mix_part's own loop, bit for bit as before. The cost: a block's
  * clear and sum of spread_buf, the side and a wider mix loop, per part; per voice none (it picks its buffer) */
-static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_t n)
+static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_t n SM_DECL)
 {
-    int32_t *d = spread_buf;
+    int32_t *d = spread_buf[C1_PI(t)];
     uint32_t i;
     int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], pan = t->p[P_PAN], s = (t->p[P_SPRD] + 1) >> 1;
     int32_t pa = clamp(pan - s, -64, 63), pb = clamp(pan + s, -64, 63);
@@ -1640,11 +1828,11 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
         if (a > pk)
             pk = a;
         if (dl)
-            send_d[i] += mulq15(xs, dl);
+            SM(d)[i] += mulq15(xs, dl);
         if (r)
-            send_r[i] += mulq15(xs, r);
-        mix_l[i] += ((x * glm) >> 12) + ((y * gld) >> 12);
-        mix_r[i] += ((x * grm) >> 12) + ((y * grd) >> 12);
+            SM(rv)[i] += mulq15(xs, r);
+        SM(l)[i] += ((x * glm) >> 12) + ((y * gld) >> 12);
+        SM(r)[i] += ((x * grm) >> 12) + ((y * grd) >> 12);
     }
     t->peak = pk;
 }
@@ -1677,10 +1865,12 @@ static __attribute__((noinline)) void mix_cache_update(const track_t *t, mix_cac
 
 /* one synth part into the dry mix and the sends; a part with no voice sounding costs
  * its control clocks only after insert and stutter tails have run out (Melodee).
- * CHAIN delay/reverb: keep feeding zeros so the bus rings after a short note (SEND already does). */
-static void mix_part(track_t *t, uint32_t n)
+ * CHAIN delay/reverb: keep feeding zeros so the bus rings after a short note (SEND already does).
+ * need_zeros operand order matters: the audio ISR inlines this, and a different short-circuit order
+ * reshapes the CFG into an extra nested loop that blows the target_budget cost. */
+static void mix_part(track_t *t, uint32_t n SM_DECL)
 {
-    int32_t *b = part_buf;
+    int32_t *b = SM(b);
     uint32_t i;
     int32_t tr = (int32_t)(t - trk);
     int chain = bus_own(0) == tr || bus_own(1) == tr || sl_trk_chain(t);
@@ -1688,20 +1878,23 @@ static void mix_part(track_t *t, uint32_t n)
     mod_begin(t);                                       /* the matrix's per-block values into t->p (mod.c) */
     /* after mod: insert MIX may turn on and still need a cleared part_buf (shared across tracks) */
     int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t) || chain;
-    spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON);   /* (SPREAD, mix_spread) */
-    if (track_render_audio(t, b, n, need_zeros))
+    t->spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON);   /* (SPREAD, mix_spread) */
+    uint32_t nr = track_render_audio(t, b, n, need_zeros);
+    part_cost[(uint32_t)tr % NTRK] = (uint16_t)(nr ? 40u * trk_nvoice(t) : 0u) +   /* mix_split's estimate */
+                                     (uint16_t)((nr || t->tail ? 60u : 0u) + 24u * (ins_any(t) != 0));
+    if (nr)
         t->tail = ins_any(t) ? 64 : 16;                 /* blocks of insert state to run out after the last voice */
     else if ((!t->tail || !(ins_any(t) | t->ins_run) || !--t->tail) && !slicer_busy(t) && !chain) {
         if (sl_send)
             slicer_track(t, 0, n);
         if (t->ins_run && !ins_any(t))
             ins_rest(t);                                /* all MIX 0 while silent: clear state for the next note */
-        if (mod.on)
+        if (MOD(t).on)
             mod_end(t);
         return;
     }
-    if (spread_on)
-        mix_spread(t, b, n);
+    if (t->spread_on)
+        mix_spread(t, b, n SM_ARG(sm));
     else {
         uint32_t ti = (uint32_t)(t - trk);
         mix_cache_t *mc = &mix_cache[ti];
@@ -1725,17 +1918,17 @@ static void mix_part(track_t *t, uint32_t n)
             if (a > pk)
                 pk = a;
             if (d)
-                send_d[i] += mulq15(xs, d);
+                SM(d)[i] += mulq15(xs, d);
             if (r)
-                send_r[i] += mulq15(xs, r);
-            mix_l[i] += (x * gl) >> 12;
-            mix_r[i] += (x * gr) >> 12;
+                SM(rv)[i] += mulq15(xs, r);
+            SM(l)[i] += (x * gl) >> 12;
+            SM(r)[i] += (x * gr) >> 12;
         }
         t->peak = pk;
     }
     if (pf.thr)
-        perf_throw(t, b, send_d, send_r, n);            /* perform.c: REV / ECHO THROW (1.5.1), the sends towards full */
-    if (mod.on)
+        perf_throw(t, b, SM(d), SM(rv), n);             /* perform.c: REV / ECHO THROW (1.5.1), the sends towards full */
+    if (MOD(t).on)
         mod_end(t);                                     /* the stored values back */
 }
 
@@ -1754,11 +1947,18 @@ static __attribute__((noinline)) void scope_take_mix(uint32_t n)
         scope_buf[scope_w++ & (SCOPE_N - 1u)] = (int16_t)clamp(mix_l[i] + wet[i], -32767, 32767);
 }
 
+/* the MASTER level this block: MASTER_FULL when USB LEVEL FIXED took it (USB audio took the full
+ * level: the DAC gets it after, audio.c usb_fixed_dac), else the knob */
+static inline int32_t master_gain(void)
+{
+    return fx_usb_fixed ? MASTER_FULL : (int32_t)song.master_q12;
+}
+
 /* the master with the FX layer's effects between its level and master_out (perform.c) */
 static __attribute__((noinline)) void perf_master(int32_t *out, uint32_t n)
 {
     uint32_t i;
-    int32_t mg = fx_usb_fixed ? MASTER_FULL : (int32_t)song.master_q12;   /* (USB LEVEL FIXED: MASTER after) */
+    int32_t mg = master_gain();
     for (i = 0; i < n; i++) {
         mix_l[i] = (((mix_l[i] + wet[i]) >> 2) * mg) >> 10;
         mix_r[i] = (((mix_r[i] + wet[i]) >> 2) * mg) >> 10;
@@ -1812,17 +2012,90 @@ static __attribute__((noinline)) void dx_mot_block(uint32_t n)
     dx_mot_v = (w * dx_mot[XM_DPTH]) >> 16;             /* (+-DPTH / 2) */
 }
 
+/* ---- the second core (hal/fm1_cpu1.h) renders some of the parts of each block into its own sums (mx[1]) while
+ * this core renders the others; then this core adds them in and goes on (the LFOs' blocks, the FX layer, the buses,
+ * the master) as with one core. The sums are integers, so the order they add up in changes nothing: the output is
+ * bit for bit one core's. A part's render touches its own state only (its track_t with its SPREAD, ENV SYNC and LFO
+ * phase, its voices, its matrix: mod.c MOD, its SPREAD buffer, its engine's memory) and what nobody writes meanwhile
+ * (song, the tables); what parts share is done before the split (events_block: the notes, voice stealing; the FX
+ * layer's perf_begin) or after it (the LFOs' S&H draw from the shared generator, part by part: voice.c
+ * track_lfo_end). tests/dualcore_test.c checks it, under ThreadSanitizer too. Without a second core (the host, the
+ * browser) C1_RUN takes nothing and this core renders them all */
+#ifndef C1_ON
+#define C1_ON() 0                                       /* a second core is answering */
+#define C1_RUN(fn, arg) 0                               /* hand it fn(arg): 1 = taken */
+#define C1_WAIT() 0                                     /* wait for it: 0 = done */
+#endif
+static uint32_t c1_blocks;                              /* blocks the second core took parts of */
+
+static mixsum_t c1_part;                /* a part's sums while it renders: whole only into the core's sums (a job
+                                         * cut mid-part leaves its half here, never in mx[1]) */
+volatile uint32_t c1_done;              /* the parts whose sums are whole in mx[1] (mix_block: only these merge) */
+
+static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k = part k) | n << 8 */
+{
+    uint32_t i, k, n = arg >> 8;
+    mixsum_t *sm = &mx[1];
+    for (k = 0; k < NPART; k++)
+        if (arg >> k & 1u) {
+            for (i = 0; i < n; i++)
+                c1_part.l[i] = c1_part.r[i] = c1_part.d[i] = c1_part.rv[i] = 0;
+            mix_part(&trk[k], n, &c1_part);
+            for (i = 0; i < n; i++) {
+                sm->l[i] += c1_part.l[i];
+                sm->r[i] += c1_part.r[i];
+                sm->d[i] += c1_part.d[i];
+                sm->rv[i] += c1_part.rv[i];
+            }
+            c1_done |= 1u << k;                         /* this part's sums are whole in mx[1] */
+        }
+}
+
+/* which parts go to the second core: the split of the last block's costs that leaves the busier core the least; none
+ * when that saves less than handing them over costs (C1_HAND). Keep this per-block scheduler out of the audio
+ * interrupt's render loops (target_budget). */
+#define C1_HAND 40u
+static __attribute__((noinline)) uint32_t mix_split(void)
+{
+    uint32_t m, i, best = 0, all = 0, lo, chor = 0, deep = 0;
+    for (i = 0; i < NTRK; i++)                      /* deep CHORUS as a shared send: its delay (up to 238) wraps into
+                                                     * the swept line's window, where this block's reads saw the
+                                                     * previous consumer's writes (ins_run_swept): that chain runs in
+                                                     * part order, so no split (exact to DEP 107; oracle-tested) */
+        if (ins_is_send(&trk[i], INS_CHOR) && ins_mix_of(&trk[i], INS_CHOR) != 0) {
+            chor++;
+            deep |= (uint32_t)ins_param_src(&trk[i], INS_CHOR)->p[P_IHDEP] >= 108u;
+        }
+    if (chor >= 2u && deep)
+        return 0;
+    for (i = 0; i < NPART; i++)
+        all += part_cost[i];
+    lo = all;
+    for (m = 1; m < (1u << NPART) - 1u; m++) {
+        uint32_t a = 0, w;
+        for (i = 0; i < NPART; i++)
+            if (m >> i & 1u)
+                a += part_cost[i];
+        w = (a > all - a ? a : all - a) + C1_HAND;
+        if (w < lo) {
+            lo = w;
+            best = m;
+        }
+    }
+    return best;
+}
+
 static void mix_block(int32_t *out, uint32_t n)
 {
     uint32_t i;
     int perf;
     mod_bus_n = 0;
-    int32_t mg = fx_usb_fixed ? MASTER_FULL : (int32_t)song.master_q12;   /* (USB LEVEL FIXED: MASTER after) */
+    int32_t mg = master_gain();                          /* (USB LEVEL FIXED: MASTER after usb_fixed_dac) */
     for (i = 0; i < n; i++)
         send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
     slicer_block();                                     /* shared SEND bus: one clock advance this block */
     ins_bus_block();                                    /* shared insert SEND DSP */
-    pfx_block(n, (perf_kill ? 0u : (perf_held | perf_latched) & PF_MIDI) | scene_pfx);
+    pfx_block(n, (perf_kill ? 0u : (perf_held | perf_latched) & PF_MIDI));
     events_block(n);
     clip_eff = song.g[G_CLIP];                          /* (JIANT) CLIP / PNCH for this block */
     pnch_eff = song.g[G_PUNCH];
@@ -1831,8 +2104,52 @@ static void mix_block(int32_t *out, uint32_t n)
     duck_block();
     perf = perf_begin(n);                               /* the FX hold layer at work (perform.c) */
     rev_tank[0].hl.side = rev_tank[1].hl.side = 0;      /* HALL sides set this block by insert / send */
-    for (i = 0; i < NPART; i++)
-        mix_part(&trk[i], n);
+    for (i = 0; i < NTRK; i++)                          /* every part's copy of the bus settings (core.h bus_knobs) */
+        bus_knobs_g(&trk[i]);
+    {   /* the parts: some on the second core, into its own sums (mx[1]) */
+        uint32_t m = C1_ON() ? mix_split() : 0u;
+#ifdef C1_SPLIT
+        if (m)                                         /* host splits cannot bypass the shared-chorus safety gate */
+            m = C1_SPLIT() & ((1u << NPART) - 1u);
+#endif
+        ins_bus_parallel = m != 0;
+        if (m) {
+            c1_done = 0;
+            for (i = 0; i < n; i++)                    /* rejected jobs never enter c1_parts */
+                mx[1].l[i] = mx[1].r[i] = mx[1].d[i] = mx[1].rv[i] = 0;
+            if (!C1_RUN(c1_parts, m | n << 8))
+                m = 0;
+        }
+        if (!m) {
+            ins_bus_parallel = 0;
+            memset(ins_bus_driver, 0xFF, sizeof ins_bus_driver);
+        }
+        c1_blocks += m != 0;
+        for (i = 0; i < NPART; i++)
+            if (!(m >> i & 1u))
+                mix_part(&trk[i], n, &mx[0]);
+        if (m) {
+            const mixsum_t *sm = &mx[1];
+            if (C1_WAIT()) {                            /* it stopped answering (held from now on) */
+                uint32_t left = m & ~c1_done;           /* the parts whose sums never landed: this core renders them
+                                                         * (the one cut mid-part advances its state twice: one block's
+                                                         * artifact, not a dropout) */
+                for (i = 0; i < NPART; i++)
+                    if (left >> i & 1u)
+                        mix_part(&trk[i], n, &mx[0]);
+            }
+            for (i = 0; i < n; i++) {
+                mix_l[i] += sm->l[i];
+                mix_r[i] += sm->r[i];
+                send_d[i] += sm->d[i];
+                send_r[i] += sm->rv[i];
+            }
+        }
+    }
+    if (ins_bus_parallel)
+        ins_bus_join(n);                                /* the shared SEND state's run and line windows */
+    for (i = 0; i < NPART; i++)                         /* the LFOs' blocks, part by part (voice.c) */
+        track_lfo_end(&trk[i]);
     if (pfx_any)
         pfx_end();                                      /* (DEC- / DEC+ / ATK+ params back) */
     if (perf)

@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.4
+
+The second core renders parts of the mix, the DIST MODEs keep their own character up to DRIVE 127, the delay's read head follows the knob, and an update refuses a package built for another board. Install from the [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB). Try it first in the [browser](https://wulgaren.github.io/Araminta/webapp/try/).
+
+Same project format as 2.3 (FUN15 / `FUNF`). Splash and ABOUT show `v2.4`.
+
+### Second core
+
+- Parts render on both AC79 cores: each block's parts are split by their measured cost. A core that rejects its mailbox costs one part of one block (rendered on core 0) and is restarted, up to three times in a clean-run window; one that keeps failing, or never answers at boot, is left off for the session, silently — the FM-1 plays on one core. The UART console shows the counters.
+- The update path holds the second core first (its waiting loop sits in RAM the ROM and the SPL use at boot). Staged updates are reliable with the core running.
+
+### Effects
+
+- DIST: one curve per MODE. SOFT a rounded curve that never flat-tops, HARD an edge at full scale, FOLD a wavefolder that folds further as it is driven, FUZZ a gated octave wave. Each has its own drive gain, so the MODEs stay distinct at DRIVE 127; all peak alike, so a MODE switch stays even (measured in `docs/audio-effects-comparison.md`). New DIST stages default DRIVE to 50 (MIX still starts at bypass).
+- Delay TIME: on the free-ms rates the read head follows the knob (1/256 of the remaining error per sample, capped at 224 Q8), so pitch is how fast you turn, not how far — 455 → 25 ms turned in half a second lands in half a second.
+- FX LATCH turned on while an FX key was held (a settings load) could leave the effect fully active with no key held until a power cycle. A release now always clears its held bit; deliberate latches stay sticky until toggled off or G5 CLR.
+
+### Update
+
+- The loader and OTA refuse a package whose `flash.bin` is not this board's app area exactly (another board's package, or one cut short) before any erase.
+
 ## 2.3
 
 Drum pattern generation on DRUM-X, cleaner slicer recording when tracks share a SEND, and a native Windows build path. Install from the [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB). Try it first in the [browser](https://wulgaren.github.io/Araminta/webapp/try/).
@@ -19,6 +40,12 @@ Same project format as 2.2 (FUN15 / `FUNF`); generation controls ride unused hig
 ### Build
 
 - Native Windows builds via Git Bash (toolchain under `build/deps/`); macOS and Linux paths unchanged. See BUILDING.md.
+
+## 2.2
+
+Leaner FM6 and USB audio timing, a thinner scope when the CPU is busy, and navigation that matches how people actually hop around the panel. Install from the [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB). Try it first in the [browser](https://wulgaren.github.io/Araminta/webapp/try/).
+
+Same project format as 2.1 (FUN15 / `FUNF`). Splash and ABOUT show `v2.2`.
 
 ### Performance
 

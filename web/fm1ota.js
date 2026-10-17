@@ -10,14 +10,27 @@
 const HS_QUERY = [0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7];
 const UPGRADE = [0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7];
 const MAXDATA = 512;
+/* The device (running firmware or loader) asks for 512 B at a time and cannot take the next frame before the
+   USB-MIDI port has drained: tools/fm1_install.py paces the same way. 10 ms keeps every device happy while a
+   whole update takes minutes anyway; the write step's 180 s idle timeout is the budget, not this. */
+const CHUNK_DELAY_MS = 10;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const IS_OTA = (id) => /^ota-/i.test(id.model);
+
+/* The INFO reply's tagged trailer (EDITOR_PROTOCOL.md "INFO"): (16, 0x55, 1, caps) for the preferences, then
+   optional (0x4d, 1, 64, chance, ...) for motion and (0x42, 1, caps) for the complete backups.
+   editor.html's protocol block decodes the same trailer itself -- web/test_web.mjs evaluates that block on its
+   own, so it cannot import this -- so the two tables stay in step through web/test_info_tags.mjs. */
+export const INFO_TAG = { SONG: 16, UI: 0x55, MOTION: 0x4d, BACKUP: 0x42 };
 
 // errors carry a code the pages translate: notfound, model, stopped, noloader, lost, noreturn,
 // mismatch (detail: the identity the device reports), badreq
 function fail(code, msg, detail = "") { const e = new Error(msg); e.code = code; e.detail = detail; return e; }
 
-export function pack7(data) {
+/* 7-bit SysEx (the update protocol): a bit stream in 7-bit groups, len*8/7 bytes. Not the FSMP sample upload's
+   fsmpPack7 in editor.html, which puts a mask byte before every 7: the same job, different bytes. The names here
+   say which is which; pack7 / unpack7 stay exported under the old names for web/test_web.mjs. */
+export function sysexPack7(data) {
   const out = []; let acc = 0, nb = 0;
   for (const b of data) {
     acc |= b << nb; nb += 8;
@@ -27,7 +40,7 @@ export function pack7(data) {
   return out;
 }
 
-export function unpack7(s) {
+export function sysexUnpack7(s) {
   const out = []; let acc = 0, nb = 0;
   for (const b of s) {
     acc |= (b & 0x7F) << nb; nb += 7;
@@ -35,6 +48,7 @@ export function unpack7(s) {
   }
   return out;
 }
+export const pack7 = sysexPack7, unpack7 = sysexUnpack7;
 
 function response(addr, data, fl = 0) {
   const len = data.length;
@@ -161,7 +175,7 @@ export class Updater {
         continue;
       }
       if (r.len > MAXDATA || r.addr + r.len > image.length) throw fail("badreq", `bad request ${r.addr.toString(16)}+${r.len}`);
-      await sleep(10);
+      await sleep(CHUNK_DELAY_MS);
       if (!link.send(response(r.addr, Array.from(image.subarray(r.addr, r.addr + r.len)), r.fl))) {
         return { served, finished: false, lost: true };
       }

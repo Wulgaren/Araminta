@@ -150,8 +150,10 @@ static int32_t menu_document(int32_t y, int draw)
 }
 static int32_t menu_scroll_max(void)
 {
-    int32_t h = menu_document(0, 0);
-    return h > MENU_DOC_H ? h - MENU_DOC_H : 0;
+    static int32_t cached = -1;                       /* the credits doc is fixed for this build */
+    if (cached < 0)
+        cached = menu_document(0, 0);
+    return cached > MENU_DOC_H ? cached - MENU_DOC_H : 0;
 }
 
 static void menu_dots(void);
@@ -344,7 +346,7 @@ static void menu_row(uint32_t k, uint32_t row)
     }
     {   /* COLOR: the palette's name and its five colours (BG SURF TEXT THEME ACCENT), live */
         uint32_t c;
-        const uint16_t *tok = &T_BG;
+        const uint16_t tok[5] = {T_BG, T_SURF, T_TEXT, T_THEME, T_ACCENT};   /* explicit (not laid out by field order) */
         int32_t x0 = MR_VR - 74, sy = y + HALF_UP(h - 12);
         cv_text_r(x0 - 6, vy, &AF_M, v, val, bg);
         for (c = 0; c < 5u; c++) {

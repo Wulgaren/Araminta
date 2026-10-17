@@ -49,8 +49,7 @@ static __attribute__((noinline)) void midi_clock_pulse(uint32_t ms)
                 /* Preserve each track's fractional step phase when the master
                  * changes tempo. The next pulse then lands on its new boundary. */
                 for (i = 0; i < NTRK; i++) {
-                    if (trk[i].seq_pos < (uint32_t)FS * 2u)
-                        trk[i].seq_pos = (uint32_t)(((uint64_t)trk[i].seq_pos * ratio + 2048u) >> 12);
+                    trk[i].seq_pos = (uint32_t)(((uint64_t)trk[i].seq_pos * ratio + 2048u) >> 12);
                     if (trk[i].seq_off)
                         trk[i].seq_off = (uint32_t)(((uint64_t)trk[i].seq_off * ratio + 2048u) >> 12);
                     if (trk[i].nd_late)            /* (NUDGE: the latched plays, seq_pos + 1, with the step) */

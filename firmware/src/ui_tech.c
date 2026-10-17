@@ -61,21 +61,22 @@ static void tk_dot(int32_t x, int32_t y) { cv_rrect(x - 3, y - 3, 7, 7, 3, T_TEX
 static int32_t tk_dist_y(uint32_t mode, int32_t x, int32_t g)
 {
     int32_t v = ((x >> 3) * g) >> 9;
-    return ins_shape(mode, v, 0) * 32767 / 26000;
+    return ins_shape(mode, v, 0, (uint32_t)g) * 32767 / 26000;
 }
 
 static void tech_dist(const track_t *t)
 {
-    int32_t d = t->p[P_DIST], g = 4096 + d * d * 3, i, py = 0, x0 = 22, y0 = TK_Y0, s = 100, cx = x0 + s / 2;
+    int32_t d = t->p[P_DIST], i, py = 0, x0 = 22, y0 = TK_Y0, s = 100, cx = x0 + s / 2;
     int32_t cy = y0 + s / 2, en = tk_energy(), tone = t->p[P_ED_FX];
     uint32_t mode = (uint32_t)clamp(t->p[P_IDMODE], 0, IDM_N - 1);
+    int32_t g = 4096 + ((d * d * 3) >> INS_GSH[mode]);
     tk_axes(x0, y0, x0 + s, y0 + s);
     cv_rect(x0, cy, s, 1, T_LINE);
     cv_rect(cx, y0, 1, s, T_LINE);
     for (i = 0; i <= s; i += 4)
         cv_rect(x0 + i, y0 + s - i, 1, 1, T_DIM);
     for (i = 0; i <= s; i++) {
-        int32_t x = (i - s / 2) * 131072 / (s / 2), y = cy - tk_dist_y(mode, x, d ? g : 4096) * (s / 2) / 32767;
+        int32_t x = (i - s / 2) * 131072 / (s / 2), y = cy - tk_dist_y(mode, x, g) * (s / 2) / 32767;
         y = clamp(y, y0, y0 + s);
         if (i)
             cv_line_t(x0 + i - 1, py, x0 + i, y, T_THEME, 2);
@@ -83,10 +84,10 @@ static void tech_dist(const track_t *t)
     }
     if (en > 2) {
         int32_t xi = s / 2 + en * (s / 2) / 256;
-        tk_dot(x0 + xi, clamp(cy - tk_dist_y(mode, en * 512, d ? g : 4096) * (s / 2) / 32767, y0, y0 + s));
+        tk_dot(x0 + xi, clamp(cy - tk_dist_y(mode, en * 512, g) * (s / 2) / 32767, y0, y0 + s));
     }
     {   /* TONE: low-pass corner from drive-linked cutoff + P_ED_FX (fx.c ins_run_dist) */
-        int32_t k = clamp(32000 - d * 95 + tone * 300, 2500, 32767), fx = 140, fw = 82;
+        int32_t k = clamp(32000 - (d >> INS_DK[mode]) * 380 + tone * 300, 2500, 32767), fx = 140, fw = 82;
         int32_t fc = fx + 8 + (k - 2500) * (fw - 34) / 30267, f;
         tk_axes(fx, y0 + 30, fx + fw, y0 + s);
         py = y0 + 34;

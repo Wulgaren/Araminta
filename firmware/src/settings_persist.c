@@ -15,29 +15,42 @@
  * key's default, an unknown code too: kept as saved, a later firmware's effect survives a round trip here).
  * MENU's flags (ui.c PREF_*) are append-only bits whose 0 is the default: BPM LOCK (16) is clear in every older setting
  * = unlocked, LARGE (32) = OFF, RESTORE LAST OFF (128, 1.2) = ON, read as saved (nothing to migrate, so importing twice changes nothing). */
+typedef struct { uint8_t factory[16][32]; uint32_t user, filter; } persist_fav_t;
 typedef struct {
     uint32_t magic, palette, lowcut, zoom;
     panel_t panel;
     uint32_t bold;
-    struct { uint8_t factory[16][32]; uint32_t user, filter; } favorites;
+    persist_fav_t favorites;
 } persist_t;
-#define PERSIST_MAGIC 0x50455234u
+#define PERSIST_MAGIC    0x50455234u                 /* "PER4" */
+#define PERSIST_MAGIC_V3 0x50455233u                 /* "PER3": PER4 without favorites */
+#define PERSIST_MAGIC_V2 0x50455232u                 /* "PER2": .. and without bold */
+#define PERSIST_MAGIC_V1 0x50455231u                 /* "PER1": the panel table alone */
+/* the layouts, oldest first: a record of one migrates forward, each keeping the fields it has */
+enum { PERSIST_V1, PERSIST_V2, PERSIST_V3, PERSIST_VNOW, PERSIST_NVERS };
+static const struct { uint32_t magic; uint16_t size; } PERSIST_LAYOUT[PERSIST_NVERS] = {
+    { PERSIST_MAGIC_V1, (uint16_t)(8u + sizeof(panel_t)) },
+    { PERSIST_MAGIC_V2, (uint16_t)(sizeof(persist_t) - sizeof(persist_fav_t) - sizeof(uint32_t)) },
+    { PERSIST_MAGIC_V3, (uint16_t)(sizeof(persist_t) - sizeof(persist_fav_t)) },
+    { PERSIST_MAGIC,    (uint16_t)sizeof(persist_t) },
+};
 
 /* Normalize in place; 1 = current, 2 = migrated, 0 = invalid. */
 static int settings_import(persist_t *p, int n)
 {
-    int current = n == (int)sizeof *p && p->magic == PERSIST_MAGIC;
-    int old3 = n == (int)(sizeof *p - sizeof p->favorites) && p->magic == 0x50455233u;
-    int old2 = n == (int)(sizeof *p - sizeof p->favorites - sizeof p->bold) && p->magic == 0x50455232u;
-    int old1 = n == (int)(8u + sizeof(panel_t)) && p->magic == 0x50455231u;
-    if (!(current || old3 || old2 || old1)) return 0;
-    if (old1) {
+    uint32_t v;
+    int current;
+    for (v = 0; v < PERSIST_NVERS && !(n == (int)PERSIST_LAYOUT[v].size && p->magic == PERSIST_LAYOUT[v].magic); v++)
+        ;
+    if (v == PERSIST_NVERS) return 0;
+    current = v == PERSIST_VNOW;
+    if (v == PERSIST_V1) {
         panel_t old;
         memcpy(&old, (uint8_t *)p + 8, sizeof old);
         p->panel = old;
         p->lowcut = p->zoom = 0;
     }
-    if (old1 || old2) p->bold = 0;
+    if (v <= PERSIST_V2) p->bold = 0;
     if (!current) memset(&p->favorites, 0, sizeof p->favorites);
     p->favorites.factory[15][29] = 0;            /* STYLE retired: always FLAT (LINE / PIXEL ignored) */
     p->favorites.factory[15][30] |= 2u;          /* ANIM retired: always OFF (PREF_ANIM_OFF); clear IDLE */

@@ -267,7 +267,7 @@ static void test_types(void)
             for (v = -140000; v <= 140000; v += 7) {
                 uint32_t sh = ins_bits_sh(a);
                 int32_t half = sh && !((v + (1 << (sh - 1u))) & ((1 << sh) - 1));
-                ok &= half || ins_shape(IT_CRUSH, -v, sh) == -ins_shape(IT_CRUSH, v, sh);
+                ok &= half || ins_shape(IT_CRUSH, -v, sh, 4096u) == -ins_shape(IT_CRUSH, v, sh, 4096u);
             }
         ck("CRUSH: its steps are odd (no offset) at every BITS", ok);
     }
@@ -337,7 +337,6 @@ static void test_motion(void)
     for (i = 0; i < 16u; i++)
         put_step(t, i, 1, NOTE, ST_NOTE, 0);
     t->p[P_SLEN] = 16;
-    t->seq_active = 1;
     ok_a &= !motion_set_event(t, 0, P_IMIX, 0) && !motion_set_event(t, 8, P_IMIX, 127);
     ok_l &= !motion_set_lock(t, 4, P_ITYPE, IT_CRUSH);
     seq_start();
@@ -528,7 +527,6 @@ static int demos(const char *dir)
             trk[1].step[i].vel = 100;
         }
         trk[0].p[P_SLEN] = trk[1].p[P_SLEN] = 16;
-        trk[0].seq_active = trk[1].seq_active = 1;
         trk[0].p[P_REV] = trk[1].p[P_REV] = 20;
         snprintf(name, sizeof name, "%d_%s", ty, N_ITYPE[ty]);
         for (k = 0; name[k]; k++)

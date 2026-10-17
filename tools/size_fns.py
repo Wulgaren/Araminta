@@ -49,7 +49,11 @@ def definitions(text):
 def size_names():
     names = set()
     for f in SIZE_FILES:
-        names.update(definitions((SRC / f).read_text()))
+        p = SRC / f
+        if not p.exists():                  # a file listed here was renamed or removed with the symbol
+            print(f"size_fns: {f}: not in {SRC} (its functions are not built for size)", file=sys.stderr)
+            continue
+        names.update(definitions(p.read_text()))
     return names
 
 

@@ -49,8 +49,8 @@ def compress(src: bytes) -> bytes:
     return bytes(out)
 
 
-def decompress(blk: bytes, prefix: bytes = b"") -> bytes:
-    out, i = bytearray(prefix), 0
+def decompress(blk: bytes) -> bytes:
+    out, i = bytearray(), 0
     while i < len(blk):
         tok = blk[i]
         i += 1
@@ -79,4 +79,4 @@ def decompress(blk: bytes, prefix: bytes = b"") -> bytes:
         ml += 4
         for _ in range(ml):
             out.append(out[-off])
-    return bytes(out[len(prefix):])
+    return bytes(out)

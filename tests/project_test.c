@@ -464,6 +464,8 @@ int main(void)
     {
         static const int16_t OLD_KIT[8] = {4, 64, 70, 64, 64, 100, 0, 0};   /* PHYS DRUM KIT before 1.0 */
         static const int16_t E0[8] = {4, 70, 80, 60, 50, 110, 100, 70}, E1[8] = {2, 10, 20, 30, 40, 50, 60, 70};
+        for (t = 0; t < NTRK; t++)
+            q.t[t].p[P_DIST] = 0;                     /* FUN4 bypass predates the separate DIST MIX. */
         q.t[0].engine = ENGI_PHYS;                      /* MODEL DRUM, PERC 70 (CYM), KICK 100 (ROUND) */
         q.t[0].preset = 9;
         q.t[1].engine = ENGI_PHYS;                      /* MEMB (2: DUST only before phys 1) */
@@ -760,6 +762,7 @@ int main(void)
         for (t = 0; t < NTRK; t++) {
             for (i = 0; i < P_COUNT; i++)
                 a.t[t].p[i] = param_desc_of(ENGI_SAMPLE, i)->def;
+            a.t[t].p[P_DIST] = 0;                     /* This sound is also encoded as FUN4, whose bypass was DRIVE 0. */
             a.t[t].engine = ENGI_SAMPLE;
             memcpy(a.fm6[t], FM6_INIT, FM6_PACKED);
         }

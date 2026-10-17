@@ -53,23 +53,30 @@ def digi(seed):
     return [(k, r.random() / math.sqrt(k), r.random() * 6.28) for k in range(1, 32)]
 
 
+def _sq(f, t):
+    """a square wave of frequency f at time t: 1.0 / -1.0"""
+    return 1.0 if math.sin(2 * math.pi * f * t) > 0 else -1.0
+
+
 def drum_kick():
     out, ph = [], 0.0
+    rnd = random.Random("kick")             # its own stream: a sound's samples never depend on the others
     for i in range(int(0.45 * SR)):
         t = i / SR
         f = 45 + 110 * math.exp(-t * 30)
         ph += 2 * math.pi * f / SR
-        out.append(math.sin(ph) * math.exp(-t * 7) + (random.uniform(-1, 1) * math.exp(-t * 400) * 0.3))
+        out.append(math.sin(ph) * math.exp(-t * 7) + (rnd.uniform(-1, 1) * math.exp(-t * 400) * 0.3))
     return out
 
 
 def drum_snare():
     out, ph1, ph2, lp = [], 0.0, 0.0, 0.0
+    rnd = random.Random("snare")
     for i in range(int(0.3 * SR)):
         t = i / SR
         ph1 += 2 * math.pi * 185 / SR
         ph2 += 2 * math.pi * 330 / SR
-        n = random.uniform(-1, 1)
+        n = rnd.uniform(-1, 1)
         lp += 0.5 * (n - lp)
         out.append(0.5 * (math.sin(ph1) + 0.6 * math.sin(ph2)) * math.exp(-t * 25) + (n - lp) * math.exp(-t * 14))
     return out
@@ -77,9 +84,10 @@ def drum_snare():
 
 def drum_hat(decay):
     out, hp = [], 0.0
+    rnd = random.Random(f"hat{decay}")
     for i in range(int(decay * 6 * SR)):
         t = i / SR
-        n = random.uniform(-1, 1)
+        n = rnd.uniform(-1, 1)
         hp += 0.2 * (n - hp)
         out.append((n - hp) * math.exp(-t / decay))
     return out
@@ -87,10 +95,11 @@ def drum_hat(decay):
 
 def drum_clap():
     out, bp1, bp2 = [], 0.0, 0.0
+    rnd = random.Random("clap")
     for i in range(int(0.35 * SR)):
         t = i / SR
         burst = 1.0 if (t < 0.03 and (t * 1000) % 10 < 2.5) else math.exp(-(t - 0.03) * 18) if t >= 0.03 else 0.0
-        n = random.uniform(-1, 1)
+        n = rnd.uniform(-1, 1)
         bp1 += 0.3 * (n - bp1)
         bp2 += 0.3 * (bp1 - bp2)
         out.append((bp1 - bp2) * burst)
@@ -118,8 +127,7 @@ def drum_cowbell():
     out = []
     for i in range(int(0.4 * SR)):
         t = i / SR
-        sq = lambda f: 1.0 if math.sin(2 * math.pi * f * t) > 0 else -1.0
-        out.append((sq(562) + sq(845)) * 0.5 * math.exp(-t * 9))
+        out.append((_sq(562, t) + _sq(845, t)) * 0.5 * math.exp(-t * 9))
     return out
 
 
@@ -127,6 +135,7 @@ def drum_metal_hat(decay):
     """metallic hat: six detuned squares + a little noise, band-passed, short"""
     fr = [205.3, 304.4, 369.6, 522.7, 540.0, 800.0]
     out, ph, lp, hp = [], [0.0] * 6, 0.0, 0.0
+    rnd = random.Random(f"metal{decay}")
     for i in range(int(decay * 5 * SR)):
         t = i / SR
         m = 0.0
@@ -134,7 +143,7 @@ def drum_metal_hat(decay):
             ph[k] += fr[k] * 3.0 / SR
             m += 1.0 if (ph[k] % 1.0) < 0.5 else -1.0
         m /= 6
-        x = 0.7 * m + 0.3 * random.uniform(-1, 1)
+        x = 0.7 * m + 0.3 * rnd.uniform(-1, 1)
         hp += 0.35 * (x - hp)
         y = x - hp                                   # high-pass
         lp += 0.6 * (y - lp)                         # tame the top
@@ -146,13 +155,14 @@ def drum_cymbal(decay, bell):
     """noise + six inharmonic square partials (those of drum_metal_hat), high-passed"""
     fr = [205.3, 304.4, 369.6, 522.7, 540.0, 800.0]
     out, hp, hp2, ph = [], 0.0, 0.0, [0.0] * 6
+    rnd = random.Random(f"cymbal{decay}{bell}")
     for i in range(int(decay * 4 * SR)):
         t = i / SR
         m = 0.0
         for k in range(6):
             ph[k] += fr[k] * (2.2 if bell else 3.3) / SR
             m += 1.0 if (ph[k] % 1.0) < 0.5 else -1.0
-        x = 0.55 * m / 6 + 0.45 * random.uniform(-1, 1)
+        x = 0.55 * m / 6 + 0.45 * rnd.uniform(-1, 1)
         hp += 0.25 * (x - hp)
         hp2 += 0.25 * ((x - hp) - hp2)
         y = (x - hp) - hp2
@@ -180,7 +190,8 @@ def pluck(freq, secs=1.6):
 def main(outdir):
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
-    random.seed(1)
+    # every sound draws from its own random.Random (drum_* / digi / pluck), so nothing here touches
+    # the module-global stream and no sound's samples depend on the order of the kit list
     for name, parts in WAVES.items():
         write_wav(out / f"W {name}.wav", cycle(parts), SR, loop=(0, 255))
     for k in range(3):

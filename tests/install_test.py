@@ -100,7 +100,7 @@ class FakeFM1:
     def rx(self, d):
         if d == I.HS_QUERY:
             t = self.identity.encode()
-            self.tx(b"\xF0" + I.pack7(bytes([0, 0x59, 0x11, 0, 0, 0]) + t + bytes(28 - len(t))) + b"\xF7")
+            self.tx(b"\xF0" + I.pack7_bits(bytes([0, 0x59, 0x11, 0, 0, 0]) + t + bytes(28 - len(t))) + b"\xF7")
         elif d == I.UPGRADE:
             self.upgrades += 1
             first = self.bad_addr if self.bad_addr is not None else 0
@@ -109,7 +109,7 @@ class FakeFM1:
                           else [(0, 64), (0x40, 160), (0x1000, 512), (I.FINISH_CHECK, 8)])
             self.next()
         elif self.waiting:
-            u = I.unpack7(d[1:-1])
+            u = I.unpack7_bits(d[1:-1])
             addr, n = self.waiting
             fin = addr >= I.FINISH_CHECK
             want = b"success\0" if fin else self.image[addr:addr + n]
@@ -135,7 +135,7 @@ class FakeFM1:
         self.waiting = addr, n = self.queue.pop(0)
         u = bytearray([0, 0x59, 0x30, 0, 0, 0, 0]) + addr.to_bytes(4, "little") + bytes([n & 0xFF, n >> 8, 0])
         u.append(~sum(u[6:14]) & 0xFF)
-        self.tx(b"\xF0" + I.pack7(u) + b"\xF7")
+        self.tx(b"\xF0" + I.pack7_bits(u) + b"\xF7")
 
 
 # ----------------------------------------------------------------- helpers ---
@@ -171,9 +171,9 @@ def cli(args, dev, answer=True):
 
 def wire():
     data = bytes(range(256)) * 3
-    ok(I.unpack7(I.pack7(data))[:len(data)] == data, "pack7 / unpack7 round trip")
+    ok(I.unpack7_bits(I.pack7_bits(data))[:len(data)] == data, "pack7_bits / unpack7_bits round trip")
     pkt = I.response(0x12345, b"\x01\x02\x03", fl=5)
-    u = I.unpack7(pkt[1:-1])
+    u = I.unpack7_bits(pkt[1:-1])
     ok(u[:3] == b"\x00\x59\x30" and int.from_bytes(u[7:11], "little") == 0x12345 and u[14:17] == b"\x01\x02\x03"
        and ~sum(u[6:17]) & 0xFF == u[17], "response: header, address, data, checksum")
     raw = package("FM-1_906")

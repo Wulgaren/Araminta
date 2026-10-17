@@ -113,7 +113,9 @@ def flash_image(app, key):
     # ---- head
     spl_off = 0xA0
     isd_off = spl_off + len(spl)
-    assert isd_off + len(isd) <= 0x4000
+    if isd_off + len(isd) > 0x4000:
+        raise SystemExit(f"fm1pkg_make: the head (SPL {len(spl)} B at {spl_off:#x} + isd_config {len(isd)} B) "
+                         f"ends at {isd_off + len(isd):#x}, past the {0x4000:#x} head area")
     f[spl_off:spl_off + len(spl)] = spl
     f[isd_off:isd_off + len(isd)] = isd
     top = (entry(crc16(spl), spl_off, len(spl), 0x00, 0x00, 0, "uboot.boot") +
@@ -147,6 +149,9 @@ def flash_image(app, key):
     cfg_body = eq_e + eq
     cfg = entry(crc16(cfg_body), 0x20, 0x20 + len(cfg_body), 0x83, 0xFF, 1, "cfg") + cfg_body
     region = bytearray(area + cfg)
+    if len(region) > FLASH_SIZE - 0x4000:
+        raise SystemExit(f"fm1pkg_make: the app area is {len(region)} B (cfg_tool {len(cfg_tool)} B, eq "
+                         f"{len(eq)} B), the flash has {FLASH_SIZE - 0x4000} B after the head")
     sfc(region, 0, len(region), 0, key)
     f[0x4000:0x4000 + len(region)] = region
     return bytes(f)

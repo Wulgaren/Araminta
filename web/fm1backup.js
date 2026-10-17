@@ -35,13 +35,18 @@ export function bkUnpack(a, size) {
   if (i !== a.length) throw new Error("Trailing archive bytes");
   return out;
 }
+/* the backup archives' CRC-32. Table-driven, like editor.html's crc32 (the sample header's), which the editor's
+   protocol block cannot import: web/test_web.mjs evaluates that block on its own. web/test_crc.mjs checks the two
+   agree, so the pairs below stay one checksum. */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t;
+})();
 export function bkCrc(bytes) {
-  let c = 0xffffffff;
-  for (const b of bytes) {
-    c ^= b;
-    for (let k = 0; k < 8; k++) c = c >>> 1 ^ (c & 1 ? 0xedb88320 : 0);
-  }
-  return (~c) >>> 0;
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
 }
 function bkCheck(rc) {
   if (rc) throw new Error(({ 1: "Invalid archive object", 2: "Archive data failed validation", 3: "Stop playback first", 4: "Flash write failed", 5: "Start a fresh backup" })[rc] || `Archive error ${rc}`);

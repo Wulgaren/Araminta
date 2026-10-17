@@ -327,7 +327,8 @@ def at(x, y):
 def photo(path):
     from PIL import Image, ImageEnhance
     im = Image.open(path).convert("RGB")
-    assert im.size == (1750, 1050), im.size
+    if im.size != (1750, 1050):                # every CTRL box below is measured in its pixels
+        raise SystemExit(f"{path}: expected a 1750 x 1050 photo of the panel, got {im.size[0]} x {im.size[1]}")
     im = im.crop(CROP).resize((PW * 2, round(PH * 2)), Image.LANCZOS)
     im = ImageEnhance.Brightness(ImageEnhance.Color(im).enhance(0.5)).enhance(0.55)
     buf = io.BytesIO()
@@ -355,7 +356,8 @@ def badge(n, cx, cy, reg_list, inside=None):
 def bands():
     for g in GROUPS:
         for i, names in enumerate(g["bands"]):
-            a, b = (at(*p) for p in zip(*[iter(band_box(names))] * 2))
+            x0, y0, x1, y1 = band_box(names)      # the photo's pixels
+            a, b = at(x0, y0), at(x1, y1)        # -> the SVG's
             rect(a[0], a[1], b[0] - a[0], b[1] - a[1], 7, fill=COLORS[g["n"]], fop=0.13,
                  stroke=COLORS[g["n"]], sw=2)
             marks.append((a[0], a[1], b[0], b[1], f"band {g['n']}.{i}"))
@@ -502,16 +504,18 @@ def main():
     for out_path in (a.png, a.jpg):
         if not out_path:
             continue
-        png = out_path + ".tmp.png"
-        subprocess.run(["rsvg-convert", "-w", str(W), "-h", str(H), "-o", png, a.svg], check=True)
-        from PIL import Image
-        im = Image.open(png).convert("RGB")
-        if out_path == a.jpg:
-            im.save(out_path, "JPEG", quality=90, optimize=True, progressive=True, subsampling=0)
-        else:
-            im.save(out_path, "PNG", optimize=True)
-        Path(png).unlink()
-        print(f"{out_path}: {Path(out_path).stat().st_size} bytes")
+        tmp = out_path + ".tmp.png"
+        try:
+            subprocess.run(["rsvg-convert", "-w", str(W), "-h", str(H), "-o", tmp, a.svg], check=True)
+            from PIL import Image
+            im = Image.open(tmp).convert("RGB")
+            if out_path == a.jpg:
+                im.save(out_path, "JPEG", quality=90, optimize=True, progressive=True, subsampling=0)
+            else:
+                im.save(out_path, "PNG", optimize=True)
+            print(f"{out_path}: {Path(out_path).stat().st_size} bytes")
+        finally:
+            Path(tmp).unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
