@@ -275,6 +275,50 @@ initial sound redesign. These are recommendations, not implemented DSP changes.
 Retuning existing modes will change the sound of presets that use them; account
 for that before implementation. Delay changes are a separate decision.
 
+## Distortion-mode redesign (landed)
+
+Implemented in `firmware/src/fx.c` (`ins_shape`, `ins_run_dist`) after the
+finding above that SOFT, HARD and FUZZ were sample-identical at DRIVE 127
+(correlation 0.99999). Each MODE now has its own curve, drive gain and share of
+the drive-linked darkening, so it keeps its own regime at the top of the range:
+
+- SOFT: `tanh(x / 24000) * 24000` (`ins_sat`), drive gain 1 .. 1.7x. Rounded
+  and dark; it does not flat-top, so DRIVE thickens it instead of squaring it.
+- HARD: hard clip at +-24000, drive gain 1 .. 12.8x (as before). The darkest
+  drop is halved (cutoff `96 - (a >> 4)`), so the edge stays sharp.
+- FOLD: a triangle wavefolder (period 65536, output +-24576), drive gain 1 ..
+  6.9x: folds come in as DRIVE rises. The old fold collapsed to about a tenth
+  of its level at DRIVE 127 (its wrap aliased past the darkening filter); it
+  now holds level with the others. Almost no drive-linked darkening.
+- FUZZ: a gated octave wave (`ins_sat` of `|x|` against a gate that follows the
+  driven level): it repeats twice a period, so it stays unlike any square or
+  fold whatever the drive. Quiet material sits under the gate and comes back as
+  DC, which the stage removes; DRIVE lowers the effective gate.
+
+Measured on a 24000-peak sine (344 Hz) at TONE 0, fully wet, Pearson
+correlation of the wet (tests/inschain_test.c `test_dist_modes`, the standing
+check):
+
+| DRIVE | worst pair before | worst pair after | RMS after (SOFT HARD FOLD FUZZ) |
+| ---: | ---: | ---: | --- |
+| 64 | 0.99942 | 0.95213 | 16242 21969 12811 15678 |
+| 96 | 0.99988 | 0.89718 | 16102 22227 14864 16560 |
+| 127 | 0.99999 | 0.79274 | 15478 22245 12715 16825 |
+
+At DRIVE 127 FUZZ is orthogonal to the rest (correlation about 0); SOFT/HARD
+is the closest pair at 0.79 (a rounded dark curve against a bright square).
+The bar in the test tightens with DRIVE (0.97 / 0.95 / 0.90): at DRIVE 64 every
+shape still shares the input's fundamental, so a rounded sine against a square
+correlates about 0.95 and is expected. MODE switches stay within 1.75x in RMS
+(a level check in the same test), and no mode leaves DC.
+
+The SOFT / FUZZ gain is deliberately capped so their curves stay in their
+character instead of squaring off; that is the whole difference from before.
+Presets that use the DIST insert with MIX up sound different now (the golden
+renders in `tests/golden.txt` did not cover the DIST stage with MIX up: all 86
+were unchanged, so the standing check above is what locks the modes apart).
+DRIVE 0 .. 63 is close to the old sound only for HARD.
+
 ## Default-drive follow-up
 
 The user requested roughly 50% DRIVE so raising MIX alone produces an effect.
@@ -282,7 +326,8 @@ Set the default to 64/127, displayed as 50%, while DIST MIX stays 0. Factory
 preset loading keeps this stage default instead of restoring the legacy FX()
 DIST amount. The offline editor and host preset renderer mirror that default.
 Existing saved user sounds and projects retain their recorded drive/mix values.
-This changes defaults only; the proposed SOFT/HARD/FUZZ redesign is still pending.
+This changes defaults only; the proposed SOFT/HARD/FUZZ redesign landed later,
+see “Distortion-mode redesign (landed)” above.
 
 Verification: a temporary diagnostic drove factory loading and the EFFECTS
 MIX knob. All 68 playable factory presets started at DRIVE 64 / MIX 0. MIX 0
