@@ -81,10 +81,18 @@ static sl_t *sl_state(const track_t *t)
         return &sl_bus;
     return &sl[tr];
 }
-static void slicer_block(void)   /* fx.c mix_block: new audio block for the shared SEND bus */
+static void slicer_block(void)   /* fx.c mix_block: new block for the shared SEND bus: one clock advance, by
+                                  * the lowest SEND track (every one of them calls sl_run_send once a block) */
 {
+    uint32_t k;
+    sl_bus_blk = sl_bus;
     sl_bus_applied = 0;
     sl_bus_driver = 0xFF;
+    for (k = 0; k < NTRK; k++)
+        if (sl_trk_send(&trk[k])) {
+            sl_bus_driver = (uint8_t)k;
+            break;
+        }
 }
 
 static void slicer_start(void)   /* seq_start: the next block starts step 0 of every track */
@@ -99,14 +107,15 @@ static void slicer_start(void)   /* seq_start: the next block starts step 0 of e
     sl_bus.idx = 15;
     sl_bus.pos = sl_bus.len = 0;
     sl_bus_applied = 0;
+    sl_bus_driver = 0xFF;        /* no block picked a driver yet: the next caller claims it (host tests) */
 }
 
 static uint32_t sl_pattern(const track_t *t) { return SL_PAT[(uint32_t)(t->p[P_SLPAT] - 1) % SL_NPAT]; }
 
 /* SEND bus clock: song swing only (one shared length). CHAIN: track + song swing. */
-static uint32_t sl_step_len(const track_t *pt, uint32_t base, uint32_t idx)
+static uint32_t sl_step_len(const track_t *pt, uint32_t base, uint32_t idx, int send)
 {
-    if (pt == &fx_bus_trk) {
+    if (send) {
         int32_t sw = song.g[G_SWING];
         if (sw < 0) sw = 0;
         if (sw > SWING_MAX) sw = SWING_MAX;
@@ -116,12 +125,12 @@ static uint32_t sl_step_len(const track_t *pt, uint32_t base, uint32_t idx)
     return swing_step_len(pt, base, idx);
 }
 /* Enter the next step, recording live input or looping the latest live step. */
-static void sl_enter(const track_t *t, sl_t *s)
+static void sl_enter(const track_t *t, sl_t *s, int send)
 {
     uint32_t mode = (uint32_t)t->p[P_SLCR];
     s->idx = (uint8_t)((s->idx + 1u) & 15u);
     s->base = (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM] / SL_DEN[(uint32_t)t->p[P_SLRATE] % 6u];
-    s->len = sl_step_len(t, s->base, s->idx);
+    s->len = sl_step_len(t, s->base, s->idx, send);
     s->pos = 0;
     s->bit = (uint8_t)((sl_pattern(t) >> s->idx) & 1u);
     s->rp = 0;
@@ -228,10 +237,11 @@ static void sl_run(const track_t *pt, const track_t *t, sl_t *s, int16_t *buf, i
     uint32_t i = 0;
     /* MIX 0 with envelopes settled: bypass (no record, no pad). Clock still advances. */
     int act = b && ((pt->p[P_SLCR] != SL_OFF && t->p[P_SLDEPTH]) || s->gc || s->w || s->pa);
+    int send = pt != t;                              /* SEND: the bus knobs for pt (a copy), CHAIN: the track */
     while (i < n) {
         uint32_t m;
         if (s->pos >= s->len)
-            sl_enter(pt, s);
+            sl_enter(pt, s, send);
         m = s->len - s->pos;
         if (m > n - i)
             m = n - i;
@@ -243,16 +253,21 @@ static void sl_run(const track_t *pt, const track_t *t, sl_t *s, int16_t *buf, i
 }
 
 /* SEND: every track keeps its own recording and envelopes, following one shared clock.
- * First SEND track in a mix block advances the bus; others start from the same clock position.
- * The same driver calling again (host tests without slicer_block) keeps advancing. */
+ * The lowest SEND track advances the bus (slicer_block picks it; every SEND track calls this once a mix
+ * block), the others start from the same clock position. Without a block around it (host tests) the first
+ * caller claims the bus and keeps advancing. */
 static void sl_run_send(const track_t *t, int32_t *b, int32_t *sd, uint32_t n)
 {
     uint32_t k = (uint32_t)(t - trk);
-    const track_t *pt = &fx_bus_trk;                 /* SEND bus MODE/PAT/RATE */
+    const track_t *pt = bus_knobs_track(t);          /* SEND bus MODE/PAT/RATE: the part's copy */
     sl_t *s = &sl[k];
     const sl_t *clock;
-    int drive = !sl_bus_applied || k == sl_bus_driver;
-    if (!sl_bus_applied)
+    int drive = k == sl_bus_driver || (sl_bus_driver == 0xFF && !sl_bus_applied);
+    if (drive && !sl_bus_applied && sl_bus_driver == 0xFF)
+        /* no block picked a driver (host tests calling this without mix_block): the first caller claims the
+         * bus and freezes the block's start here. With a block, slicer_block froze sl_bus_blk on core 0 before
+         * the split (the same sl_bus, nothing commits before the driver): the driver's part can be on core 1,
+         * and writing it again from there would race the tracks reading it (tests/dualcore_test.c) */
         sl_bus_blk = sl_bus;
     clock = drive && sl_bus_applied ? &sl_bus : &sl_bus_blk;
     s->idx = clock->idx;
@@ -268,7 +283,8 @@ static void sl_run_send(const track_t *t, int32_t *b, int32_t *sd, uint32_t n)
         sl_bus.base = s->base;
         sl_bus.bit = s->bit;
         sl_bus_applied = 1;
-        sl_bus_driver = (uint8_t)k;
+        if (sl_bus_driver == 0xFF)
+            sl_bus_driver = (uint8_t)k;
     }
 }
 
@@ -295,7 +311,7 @@ static int slicer_busy(const track_t *t)
 {
     uint32_t k = (uint32_t)(t - trk);
     const sl_t *s = &sl[k];
-    const track_t *pt = sl_trk_send(t) ? &fx_bus_trk : t;
+    const track_t *pt = sl_trk_send(t) ? bus_knobs_track(t) : t;
     if (sl_trk_used(t))
         return 0;
     return s->gc || s->w || s->pa || (t->p[P_SLDEPTH] && pt->p[P_SLCR] == SL_STUT && s->loop);
