@@ -162,6 +162,9 @@
 #                   matrix moving the shared send knobs and the DLY / REV bus settings, CHAIN owners) rendered on one
 #                   core and on two with every split of the parts, the firmware's own (mix_split) included: bit for
 #                   bit the same (tests/regress.c built with -DC1_HOST: the same golden renders, tests/golden.txt).
+#                   ThreadSanitizer (a compiler with it): both passes again, tests/tsan_canary.c first; a race
+#                   the runtime must report, so a silent runtime (Apple's missed the SEND clock race that GCC's
+#                   and clang's on Linux caught with both sides instrumented) fails the suite instead of passing it.
 # Sanitizers (ASan + UBSan, when the compiler has them; SANITIZE=0 skips): the stored-data and protocol tests again
 #                   (loader, M-UPGRADE entry, editor, projects, backup, ROBUST) and three short fuzz runs with fixed
 #                   seeds: tests/fuzz_ed.c (editor SysEx and raw USB-MIDI packets), tests/fuzz_proj.c (mutated project
@@ -760,8 +763,8 @@ else
         run "ASan/UBSan fuzz: user sample slot headers -> scan -> SAMPLE / GRAIN (1000, seed 17)" "$A/fuzz_smp" 1000 17
     }
     unit u_asan_fuzz_smp
+    TSAN_CC="${CC%% *} -O1 -g -w -Ibuild/gen -Ifirmware/src -fsanitize=thread -pthread"
     u_asan_tsan_cc() {
-        TSAN_CC="${CC%% *} -O1 -g -w -Ibuild/gen -Ifirmware/src -fsanitize=thread -pthread"
         if $TSAN_CC -o "$OUT/dualcore_tsan" tests/dualcore_test.c -lm 2>/dev/null; then
             : > "$LOGS/tsan.ok"
         else
@@ -770,6 +773,24 @@ else
     }
     unit u_asan_tsan_cc
     TSAN_BUILD=$n
+    u_asan_canary() {
+        [ -f "$LOGS/tsan.ok" ] || return 0
+        $TSAN_CC -o "$OUT/tsan_canary" tests/tsan_canary.c
+        echo "== ThreadSanitizer canary: the runtime must report the race it is handed (else the runs below prove nothing)"
+        "$OUT/tsan_canary" parent > "$LOGS/canary_parent.txt" 2>&1 || :
+        "$OUT/tsan_canary" fork > "$LOGS/canary_fork.txt" 2>&1 || :
+        canary=1
+        for mode in parent fork; do
+            if grep -q "ThreadSanitizer: data race" "$LOGS/canary_$mode.txt"; then
+                echo "canary $mode: $(grep -m1 "ThreadSanitizer: data race" "$LOGS/canary_$mode.txt")"
+            else
+                echo "canary $mode: no report (the runtime is not looking)   FAIL"
+                canary=0
+            fi
+        done
+        [ "$canary" = 1 ] || fail=1
+    }
+    unit_after "$TSAN_BUILD" u_asan_canary
     u_asan_tsan1() {
         [ -f "$LOGS/tsan.ok" ] || return 0
         run "second core under ThreadSanitizer: 4 parts of every preset, mixes and the chain / send FX" \
