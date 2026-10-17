@@ -21,6 +21,9 @@ def main() -> None:
     hal = (ROOT / "firmware/hal/fm1_cpu1.h").read_text(encoding="utf-8")
     hal = hal.replace('#include "fm1_sys.h"', '// simulated system registers')
     hal = hal.replace('__asm__ volatile("csync" ::: "memory")', "test_sync()")
+    hal = hal.replace('__attribute__((section(".c1_text"), noreturn, used)) ', "")
+    # ^ the host needs no section placement, and Mach-O rejects the ELF-style name (macOS: "section specifier
+    #   requires a segment and section separated by a comma")
     guard = (ROOT / "firmware/hal/fm1_guard.h").read_text(encoding="utf-8")
     guard = guard.replace('#include "fm1_irq.h"', '// simulated system registers')
     source = (ROOT / "firmware/src/main.c").read_text(encoding="utf-8")
