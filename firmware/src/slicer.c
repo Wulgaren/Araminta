@@ -263,7 +263,11 @@ static void sl_run_send(const track_t *t, int32_t *b, int32_t *sd, uint32_t n)
     sl_t *s = &sl[k];
     const sl_t *clock;
     int drive = k == sl_bus_driver || (sl_bus_driver == 0xFF && !sl_bus_applied);
-    if (drive && !sl_bus_applied)      /* the block's start (slicer_block took it too): only the driver writes */
+    if (drive && !sl_bus_applied && sl_bus_driver == 0xFF)
+        /* no block picked a driver (host tests calling this without mix_block): the first caller claims the
+         * bus and freezes the block's start here. With a block, slicer_block froze sl_bus_blk on core 0 before
+         * the split (the same sl_bus, nothing commits before the driver): the driver's part can be on core 1,
+         * and writing it again from there would race the tracks reading it (tests/dualcore_test.c) */
         sl_bus_blk = sl_bus;
     clock = drive && sl_bus_applied ? &sl_bus : &sl_bus_blk;
     s->idx = clock->idx;
