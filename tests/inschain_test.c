@@ -317,6 +317,27 @@ static void test_fx_edit_paths(void)
     ck("SLICER lock restores its private rate after switching", TSEL->p[P_SLRATE] == 8);
 }
 
+/* Current dev (d035bf7): deep SEND chorus consumers read the preceding consumer's line writes. */
+static void test_shared_chorus(void)
+{
+    uint32_t k;
+    fresh();
+    for (k = 0; k < NPART; k++) {
+        clear_stages(&trk[k]);
+        trk[k].p[P_CHOR] = 0;
+    }
+    for (k = 0; k < 2u; k++) {
+        ins_send_set(&trk[k], INS_CHOR, 1);
+        trk[k].p[P_IHMIX] = 127;
+        trk_note_on(&trk[k], 60 + 7 * k, 110);
+    }
+    fx_bus_trk.p[P_IHDEP] = 127;
+    fx_bus_trk.p[P_IHRATE] = 0;
+    ins_st[ins_bus_tr(INS_CHOR)][INS_CHOR].w = 32768;
+    ins_st[ins_bus_tr(INS_CHOR)][INS_CHOR].ph = 0x40000000u;
+    ck("deep shared chorus preserves dev's sequential render", hash_out(1) == 0x03a45cf4814f7ccdull);
+}
+
 int main(void)
 {
     track_t *t;
@@ -325,6 +346,7 @@ int main(void)
     uint32_t i;
 
     printf("inschain_test: P_COUNT %u P_E0 %u INS_N %u\n", (unsigned)P_COUNT, (unsigned)P_E0, (unsigned)INS_N);
+    test_shared_chorus();
     ck("param layout: insert chain before FTYPE/ESYNC/E0",
        P_SPRD + 1 == P_IORD && P_IHMIX + 1 == P_FTYPE && P_ESYNC + 1 == P_E0 && P_COUNT == 127u && P_E0 == 119u);
 

@@ -224,6 +224,7 @@ void isr_timer5(void) {}
 static void fm1_reboot(void) {}
 static void fm1_enter_uboot(void) {}
 static void fm1_guard_lock_top(void) {}
+static void fm1_guard_unlock_top(void) {}
 static void fm1_irq_enable_all(void) {}
 static void fm1_irq_init(void) {}
 static void fm1_time_init(void) {}

@@ -61,6 +61,7 @@ typedef struct {
 static fm1_c1_mb_t fm1_c1_mb __attribute__((aligned(64)));
 volatile uint32_t fm1_c1_trace;                 /* breadcrumbs (fm1_cpu1.S, fm1_c1_main) */
 static uint8_t fm1_c1_on;                       /* started and answering: core 0 may hand it work */
+static uint32_t fm1_c1_bad_at_start;            /* cumulative rejected jobs before the current run */
 #define FM1_C1_CHECK(fn, arg, job) ((uint32_t)(uintptr_t)(fn) ^ (arg) ^ (job) * 0x9E3779B1u)
 static uint8_t fm1_c1_gave_up;                  /* the last failure: 1 = it read a wrong job, 2 = it did not finish one */
 static uint8_t fm1_c1_dead;                     /* done for this session (start failed, or fm1_cpu1_RESTARTS in the window) */
@@ -138,6 +139,7 @@ static int fm1_cpu1_start(void)
     if (fm1_c1_on)
         return 0;
     fm1_cpu1_hold();
+    fm1_c1_bad_at_start = fm1_c1_mb.bad;
     for (i = 0; i < FM1_C1_STACK_WORDS; i++)
         _c1_ustack[i] = FM1_C1_MARK;
     fm1_c1_marked = 1;
@@ -192,7 +194,7 @@ static inline int fm1_cpu1_wait(void)
     uint32_t t0 = FM1_C1_T4;
     for (;;) {
         FM1_C1_SYNC();
-        if (fm1_c1_mb.bad) {                    /* a unit that cannot run it */
+        if (fm1_c1_mb.bad != fm1_c1_bad_at_start) { /* a new wrong mailbox read in this run */
             fm1_cpu1_hold();
             fm1_c1_gave_up = 1;
             return -1;

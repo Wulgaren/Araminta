@@ -194,9 +194,11 @@ static void fm1_main(void)
             bootguard.failed = 0;
         }
         if (!fm1_c1_on && !fm1_c1_dead && fm1_c1_gave_up) {   /* a failed job held it (fm1_cpu1_wait): back, or done */
+            fm1_guard_unlock_top();                 /* the ROM entry word is in protected top RAM */
             fm1_guard_pc_open();                    /* (it starts in the chip's ROM) */
             fm1_cpu1_service();                     /* a hiccup comes back (2b); out of restarts: dead (fm1_cpu1.h) */
             fm1_guard_enable(FM1_GUARD_PC);
+            fm1_guard_lock_top();
         }
         {
             int32_t b = fm1_adc_read(FM1_ADC_BATT);     /* battery: slow IIR */
