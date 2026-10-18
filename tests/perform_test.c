@@ -34,7 +34,8 @@
  *    default map on the keys.
  * 12. 1.5.1: the delay's TIME 1/8D 1/16D 1/4D (their lengths at 60 61 90 120 BPM and on the external clock, 1/4D clamped
  *    to the line at 60 BPM and below, the list append-only and longest first on the knob, ARP RATE / SEQ DIV unchanged, an
- *    echo at 1/8D where it belongs); REV THROW / ECHO THROW: every track's reverb / delay send as at 127 while held, the
+ *    echo at 1/8D where it belongs, free ms: the FM-1's one-pole roll (1.4391e-4 a sample to the target, tau 157 ms): a
+ *    fast turn rides at the turn's own speed, an instant jump sweeps its chirp and lands, up and down alike); REV THROW / ECHO THROW: every track's reverb / delay send as at 127 while held, the
  *    other bus untouched, the glide (11.6 ms, bounded steps) in and out, ECHO THROW's feedback 0 -> 0.7 and one above
  *    left alone, bounded on full-scale squares and dying away, the reverb tail ringing out after the release, idle
  *    again after it, assignable (key map codes 14 / 15, D5 / E5 by default), the tracks' values never touched.
@@ -1112,8 +1113,9 @@ static void dly_run(const int32_t *in, int32_t *wet_out, uint32_t frames)
     }
 }
 /* the free-ms knob turned from a to b ms over turn samples: samples from the turn's start until the read
- * position lands, and the largest Q8 step a block takes on the way. That step is the tape pitch (DLY_SLEW *
- * CTL is its ceiling): it follows how fast the knob turns, so the same move turned slowly bends far less. */
+ * position lands, and the largest Q8 step a block takes on the way. That step is the tape pitch, and the
+ * FM-1's own pole (DLY_K_NUM) sizes it: it is the speed the turn moves the target at, so the same move
+ * turned slowly bends far less, and the read lands when the pole's creep catches the rest. */
 static uint32_t knob_turn(uint32_t a_ms, uint32_t b_ms, uint32_t turn, uint32_t *settle)
 {
     int32_t z[2u * CTL], from = (int32_t)(DTIME_FREE + (int32_t)a_ms), to = (int32_t)(DTIME_FREE + (int32_t)b_ms);
@@ -1242,22 +1244,23 @@ static int test_throw(void)
         song.g[G_DTIME] = 12;                          /* the 1/4D checks below keep this value */
         bad += check("TIME free ms: one millisecond a step, longer as the number grows, divisions unchanged", ok);
     }
-    {   /* free-ms TIME: the read position follows the knob (tape pitch). 455 -> 25 ms turned in half a second
-          * lands in about half a second; the same move over four seconds bends far less, so the bend is how
-          * fast the knob turns, not how far it moves. */
+    {   /* free-ms TIME: the read position follows the knob with the FM-1's pole. 455 -> 25 ms in half a second
+           * moves the target 0.86 samples a sample; the read rides at the turn's own speed (0.82, about +11
+           * semitones) and lands 1.59 s in. The same move turned over four seconds bends at a seventh of that:
+           * the bend is how fast the knob turns, not how far it moves. */
         uint32_t settle, fast, slow;
         host_tracks_init();
         song.g[G_DMIX] = 127;
         song.g[G_DFDBK] = 0;
         fast = knob_turn(455, 25, FS / 2u, &settle);  /* a quick turn: 430 ms in half a second */
-        ok = settle >= FS / 2u && settle < FS / 2u + FS / 4u && fast == (uint32_t)DLY_SLEW * CTL &&
-              dly_q8 == dtime_q8();
+        ok = settle >= 7u * FS / 5u && settle < 9u * FS / 5u &&
+              fast / CTL >= 190u && fast / CTL <= 230u && dly_q8 == dtime_q8();
         snprintf(what, sizeof what,
                  "TIME free ms: 455 -> 25 in half a second lands in %u samples, max step %u Q8/block (tape pitch)",
                  settle, fast);
         bad += check(what, ok);
         slow = knob_turn(455, 25, 4u * FS, &settle); /* the same move, turned slowly */
-        ok = slow * 2u < fast && dly_q8 == dtime_q8();
+        ok = slow * 6u < fast && slow / CTL >= 20u && slow / CTL <= 35u && dly_q8 == dtime_q8();
         snprintf(what, sizeof what,
                  "TIME free ms: the same move over four seconds: max step %u Q8/block (the bend is the turn speed)",
                  slow);
@@ -1492,6 +1495,96 @@ static int test_throw(void)
         ok &= perf_map_of(m, 0) == PF_RTHR && (m[0] & 31u) == 14u;
         bad += check("assignable: REV / ECHO THROW are codes 14 / 15 on any key (not on the JIANT default map)", ok);
     }
+    return bad;
+}
+/* The FM-1-style tape roll: the read position walks toward the TIME target with one pole per sample, K =
+ * 1.4391e-4 (tau 6949 samples, 157 ms), no cap and no direction. An instant jump down (505 -> 174 ms) sizes
+ * its first step to the error (2.10 samples a sample), the error decays by e every tau, and the creep lands
+ * the read (54623 samples in, 1.24 s). The same move up is the mirror, a step for a step, and nothing else
+ * runs: one pole, then the creep to land. */
+static int test_dly_move(void)
+{
+    static int32_t z[2u * CTL], w[2u * CTL];
+    char what[200];
+    uint32_t t, prev, max_st, landed, first, e_tau, e0, st_last;
+    int bad = 0, ok;
+    memset(z, 0, sizeof z);
+    host_tracks_init();
+    /* an instant jump down: 505 -> 174 ms at one step */
+    dly_clear();
+    song.g[G_DTIME] = (int16_t)(DTIME_FREE + 505);
+    dly_process(z, w, 1, 32768);                       /* the first block snaps onto the time */
+    bad += check("tape roll: a fresh free TIME snaps onto the time", dly_q8 == dtime_q8());
+    song.g[G_DTIME] = (int16_t)(DTIME_FREE + 174);
+    e0 = dly_q8 - dtime_q8();                          /* the whole jump: 331 ms of error, Q8 */
+    prev = dly_q8;
+    max_st = landed = first = e_tau = st_last = 0;
+    ok = 1;
+    for (t = 0; t < 2u * FS; t++) {
+        uint32_t st;
+        dly_process(z, w, 1, 32768);
+        st = dly_q8 > prev ? dly_q8 - prev : prev - dly_q8;
+        if (st > max_st)
+            max_st = st;
+        if (t && st > st_last)                         /* the pole only decays: no step ever grows */
+            ok = 0;
+        st_last = st;
+        prev = dly_q8;
+        if (!t)
+            first = st;
+        if (t == 6948u)                                /* one tau in: e^-1 of the jump is left */
+            e_tau = dly_q8 - dtime_q8();
+        if (!landed && dly_q8 == dtime_q8())
+            landed = t + 1u;
+        else if (landed && dly_q8 != dtime_q8())       /* and it stays: nothing wired after it */
+            ok = 0;
+    }
+    ok &= first == (((e0 >> 4) * (uint32_t)DLY_K_NUM) >> 16);   /* the pole's first step, straight from K */
+    ok &= max_st == first;                             /* .. and it is the largest of the glide */
+    ok &= e_tau > e0 * 35u / 100u && e_tau < e0 * 39u / 100u;   /* the pole's time constant */
+    ok &= landed == 54623u && dly_q8 == dtime_q8();
+    snprintf(what, sizeof what,
+             "tape roll: 505 -> 174 ms: first step %u Q8, %u left one tau in, lands in %u samples (%.2f s)",
+             first, e_tau, landed, (double)landed / FS);
+    bad += check(what, ok);
+    /* the same 171 ms up and down: the pole is symmetric, a step for a step */
+    {
+        uint32_t down, up, first_down, first_up;
+        dly_clear();
+        song.g[G_DTIME] = (int16_t)(DTIME_FREE + 345);
+        dly_process(z, w, 1, 32768);
+        song.g[G_DTIME] = (int16_t)(DTIME_FREE + 174);
+        prev = dly_q8; down = first_down = 0;
+        for (t = 0; t < 2u * FS; t++) {
+            dly_process(z, w, 1, 32768);
+            if (!t)
+                first_down = prev - dly_q8;
+            if (dly_q8 == dtime_q8()) {
+                down = t + 1u;
+                break;
+            }
+        }
+        dly_clear();
+        song.g[G_DTIME] = (int16_t)(DTIME_FREE + 174);
+        dly_process(z, w, 1, 32768);
+        song.g[G_DTIME] = (int16_t)(DTIME_FREE + 345);
+        prev = dly_q8; up = first_up = 0;
+        for (t = 0; t < 2u * FS; t++) {
+            dly_process(z, w, 1, 32768);
+            if (!t)
+                first_up = dly_q8 - prev;
+            if (dly_q8 == dtime_q8()) {
+                up = t + 1u;
+                break;
+            }
+        }
+        ok = down == up && down == 50031u && first_down == first_up;
+        snprintf(what, sizeof what,
+                 "tape roll: 171 ms up and down are the mirror (first step %u Q8, lands in %u samples both ways)",
+                 first_down, down);
+        bad += check(what, ok);
+    }
+    song.g[G_DTIME] = 12;
     return bad;
 }
 
@@ -1851,6 +1944,7 @@ int main(int argc, char **argv)
     bad += test_mod();
     bad += test_map();
     bad += test_throw();
+    bad += test_dly_move();
     bad += test_pfx_restore();
     bad += test_cost();
     if (argc > 1)

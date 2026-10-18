@@ -64,21 +64,22 @@ The temporary probe source and executable were removed after measurement.
 ## Araminta delay baseline
 
 Relevant code: `firmware/src/fx.c`, `dtime_q8`, `delay_samples`, `dly_process`,
-`DLY_SLEW`.
+`DLY_K_NUM`.
 
 - RATE uses tempo divisions and an integer read tap.
 - TIME stores free milliseconds, 1..1486 ms, and converts them to Q8 sample
   positions. Reads interpolate adjacent samples.
 - Entering TIME from RATE snaps to the selected time. While TIME stays active,
-  the read head follows the knob: 1/256 of the remaining error per output
-  sample, capped at 224/256, rather than crossfading between two fixed taps.
-- Thus turning time produces a pitch glide, and the glide is how fast the knob
-  turns rather than how far it moves. Increasing delay slows the read head and
-  lowers pitch; decreasing delay raises it. At the cap the read speed is
-  0.125x or 1.875x, about -36.0/+10.9 semitones. A 455 -> 25 ms turn in half a
-  second lands in about half a second.
-- The buffer stays intact. Feedback passes through a one-pole color filter;
-  writes clamp to int16. Shared delay processing serves SEND or CHAIN.
+  the read head follows the knob with the FM-1's own pole: 0.00014391 of the
+  remaining error per output sample (tau 6 949 samples, 157 ms at 44.1 kHz),
+  with no step cap and no direction.
+- Thus turning time produces a pitch glide whose momentary bend is the turn's
+  own speed, not the distance moved: 455 -> 25 ms in half a second rides at
+  0.82 samples per sample (about +11 semitones) and lands in 1.59 s; the same
+  turn over four seconds bends at a seventh of that. Increasing delay slows the
+  read head and lowers pitch; decreasing delay raises it. The buffer stays
+  intact. Feedback passes through a one-pole color filter; writes clamp to
+  int16. Shared delay processing serves SEND or CHAIN.
 
 ## M-VAVE comparison
 
@@ -247,7 +248,9 @@ then run:
 No Araminta sound change was requested or made. A future design decision is
 whether to keep our tape-style delay-time glide or offer V10-style immediate
 time changes, and whether to adapt the idea of separate biased Soft and RAT
-drive paths. Original factory V15 behavior must be investigated separately.
+drive paths. The delay side settled the first: the factory's time edit is a
+per-sample one-pole glide, and the firmware now follows it (see "Araminta delay
+baseline").
 
 ## Recommended drive direction after comparison
 
