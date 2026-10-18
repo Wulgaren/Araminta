@@ -51,7 +51,8 @@ typedef struct {
 } layer_t;
 static const layer_t LAYERS[LAYER_N] = {
     {0, 0, 0, "", {{0, 0}, {0, 0}, {0, 0}}},
-    {B_FX, LK_HOLD, FAM_HOME, "[FX]", {{KC_KEYS, "HOLD"}, {KC_SELECT, "FX P-INS 1/2"}, {0, 0}}},
+    {B_FX, LK_HOLD, FAM_HOME, "[FX]", {{0, 0}, {0, 0}, {0, 0}}},   /* (the page's own footer: the punch map does not claim
+                                                      * it; keys, the mutes and G5 CLR show in the map itself) */
     {B_GLO, LK_SET, FAM_HOME, "[GLO]", {{KC_PLAY, "RESTART"}, {KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}}},
     {B_SCL, LK_SET, FAM_SCL, "[SCL]", {{KC_KEYS, "ROOT"}, {KC_OCTDN, "UNDO"}, {KC_SCL, "DONE"}}},
     {B_EDIT, LK_SET, FAM_HOME, "[EDIT]", {{KC_KEYS, "ENGINE"}, {KC_OCTDN, "UNDO"}, {KC_EDIT, "DONE"}}},
@@ -1153,11 +1154,15 @@ static void draw_layer(void)
         cv_blit(0, Y_GRAPH);
     }
     if (ui.force) {                                     /* the footer: what the keys, knobs and buttons do */
-        cv_begin(240, H_FOOT, T_BG);
-        const khint_t *ft = l == LAYER_GLO && ui.lock == LAYER_GLO ? GLO_LOCK_FOOT : LAYERS[l].foot;
-        int h = help_on() && help_row(HELP_LAYER[l], 21);   /* 1.5, HELP ON: a second row, what this one does not say */
-        cv_key_row(8, 232, h ? 2 : 9, ft, ft[2].act ? 3u : 2u, 7u, T_BG);
-        cv_blit(0, Y_FOOT);
-        ui.foot_sig = 0;
+        if (l == LAYER_FX) {                            /* 2.6: the punch map keeps the page's own bottom bar */
+            draw_foot();
+        } else {
+            cv_begin(240, H_FOOT, T_BG);
+            const khint_t *ft = l == LAYER_GLO && ui.lock == LAYER_GLO ? GLO_LOCK_FOOT : LAYERS[l].foot;
+            int h = help_on() && help_row(HELP_LAYER[l], 21);   /* 1.5, HELP ON: a second row, what this one does not say */
+            cv_key_row(8, 232, h ? 2 : 9, ft, ft[2].act ? 3u : 2u, 7u, T_BG);
+            cv_blit(0, Y_FOOT);
+            ui.foot_sig = 0;
+        }
     }
 }
