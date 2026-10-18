@@ -1674,9 +1674,6 @@ static void layer_show(void);
 static void layer_tap(uint32_t l);
 static void layer_keys(uint32_t keys);
 static void layer_knob(uint32_t k, int32_t s);
-static void fx_map_sync(void);
-static void fx_assign(int32_t s);
-static void fx_default(void);
 static int layer_play(void);
 static int layer_set_open(void);
 static uint32_t layer_oct(uint32_t pressed, uint32_t oct);
@@ -1793,7 +1790,6 @@ static void ui_input(void)
             fm1_irq_on();
         }
     perf_latch_on = fx_latch & 1u;                      /* (MENU > FX LATCH; a settings load sets it too) */
-    fx_map_sync();                                      /* (the FX layer's key map: ui_layer.c, a settings load too) */
     fx_usb_fixed = (ui_prefs & PREF_USB_FIXED) != 0u;   /* (MENU > USB LEVEL: fx.c, audio.c) */
     scope_mix = (ui_prefs2 & (PREF_SCOPE_MIX >> 16)) != 0u;   /* (MENU > SCOPE: fx.c, audio.c) */
     rp_apply();                                         /* (MENU > CLICK, CLICK LEVEL, COUNT-IN: click.c, seq.c) */
@@ -1848,12 +1844,8 @@ static void ui_input(void)
         for (k = 0; k < 4u; k++)                        /* KNOB 1..4: the layer's (ui_layer.c layer_knob) */
             if ((ks[k] = panel_enc(EN_K1 + k)) != 0)
                 combo = 1;
-        if ((s = panel_enc(EN_PRESET)) != 0 && ui.ly == LAYER_FX) {   /* (a stray turn would load another sound) */
-            fx_assign(s);                               /* FX: the white key held takes the next effect */
-            combo = 1;
-        }
-        if (ui.ly == LAYER_FX && ((pressed >> panel.btn[B_EDIT]) & 1u))
-            fx_default();                               /* .. EDIT: its default back */
+        if ((s = panel_enc(EN_PRESET)) != 0)            /* (a stray turn would load another sound) */
+            combo = 1;                                  /* (the reassignment is gone: PRESETS does nothing there) */
         panel_enc(EN_ALGO);                             /* (another track: OCT- puts back the layer's track only) */
         if ((sel = panel_enc(EN_SELECT)) != 0)
             combo = 1;                                  /* SELECT with a layer button: not a page walk */
@@ -1870,19 +1862,20 @@ static void ui_input(void)
         perf_clr_say = 0;
         ui_message("FX ALL OFF");
     }
-    if (!lay && layer_open()) {                         /* section map, no button held: knobs + FX assign */
+    if (!lay && layer_open()) {                         /* section map, no button held: knobs (FX sticky: the pages) */
         for (k = 0; k < 4u; k++)
             if ((ks[k] = panel_enc(EN_K1 + k)) != 0) {
                 layer_knob(k, ks[k]);
                 ui.hot_col = (uint8_t)k;
                 ui.hot_t = 40;
             }
-        if (layer_open() == LAYER_FX && (s = panel_enc(EN_PRESET)) != 0)
-            fx_assign(s);
-        if (layer_open() == LAYER_FX && ((pressed >> panel.btn[B_EDIT]) & 1u))
-            fx_default();
+        if (layer_open() == LAYER_FX)
+            panel_enc(EN_PRESET);                       /* (a stray turn must not load a sound behind the punch map) */
         panel_enc(EN_ALGO);
-        panel_enc(EN_SELECT);
+        if (layer_open() == LAYER_FX && (s = panel_enc(EN_SELECT)) != 0 && !glo)
+            select_page_step(s > 0 ? 1 : -1);           /* FX sticky: the punch map's pages (PUNCH, PUNCH 2) */
+        else
+            panel_enc(EN_SELECT);                       /* (or OCT+ + SELECT: tempo; the other sticky maps keep it) */
     } else {
         for (k = 0; k < 4u; k++)
             if (ks[k]) {

@@ -595,6 +595,7 @@ static void page_entered(void)
     if (!ui.home && lock_page_ok(ui.page))
         ui.plk_src = (uint8_t)(ui.page + 1u);
     song.seq_mode = !ui.home && pg->fam == FAM_SEQ;
+    perf_page(!ui.home && pg->fam == FAM_FX && pg->sec == FX_SEC_PUNCH && str_eq(pg->title, "PUNCH 2"));
     ui.entry_open = 0;
     ui.hot_t = 0;                                /* clear the previous page's emphasis */
     ui.act = pg->graph == GR_USER ? 4u : 0u;     /* the save screen is ready for OCT+ */

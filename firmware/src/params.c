@@ -589,6 +589,8 @@ static const page_t PAGES[] = {
     {"SEQ TOOLS", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_TOOL, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
     /* HOME: Mixer; ui.home is its own section (home_tap). Drum lane mutes live in SEQ TOOLS. */
     {"MIXER", FAM_TRK, SC_TRK, GR_TRK, TRK_SEC_MIX, {0, 1, 2, 3}},
+    {"PUNCH 2", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},   /* the second punch page
+                                                     * (SELECT walks the section's); its map is perform.c PF2_DEF */
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */

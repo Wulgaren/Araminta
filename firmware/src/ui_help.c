@@ -60,7 +60,8 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"GENERATION", "[K1]LEN[K2]KICK[SELECT]MAP"},
     {"GENERATION 2", "[K2]MAP X[K3]MAP Y[K4]CHAOS"},
     {"AUTOMATION", "[K1]ROW[OCT+]DO[EDIT]DELETE"},
-    {"PUNCH", "[KEYS]FX[K1-4]MACROS[FX]EFFECTS"},
+    {"PUNCH", "[K1-4]MACROS[SELECT]PUNCH 2"},
+    {"PUNCH 2", "[K1-4]MACROS[SELECT]PUNCH"},
     {"MIXER", "[K4]PLAY[ALGO]TRACK"},
     {"CLOCK", "[OCT+]SELECT: TEMPO[GLO]MASTER"},
 };

@@ -988,20 +988,19 @@ static void input_off(track_t *t, uint32_t note)
     }
 }
 
-/* the effect of key k in the FX layer (PF_N none): white keys F3 .. F5 the map's (perf_map); with FX LATCH,
- * G5 is CLR (turns latched effects and macros off); black keys 1..4 the track mutes, A#4 the MIDI effects'
- * tracks (pfx_tgt) */
+/* the effect of key k in the FX layer (PF_N none): white keys F3 .. F5 the page's fixed map (perform.c
+ * perf_map_now: PUNCH or PUNCH 2, ui.c page_entered); with FX LATCH, G5 is CLR (turns latched effects and macros
+ * off); black keys 1..4 the track mutes, A#4 the MIDI effects' tracks (pfx_tgt) */
 static uint32_t perf_key(uint32_t k)
 {
     uint32_t p = key_place(k);
     if (!key_black(k))
-        return p == 15u && perf_latch_on ? PF_CLR : p < PF_KEYS ? perf_map[p] : PF_N;
+        return p == 15u && perf_latch_on ? PF_CLR : p < PF_KEYS ? perf_map_now()[p] : PF_N;
     return p < NTRK ? PF_M1 + p : p == 7u ? PF_TGT : PF_N;
 }
 
-/* a key of the FX layer down (FX held) / up: the effect it holds. kb_fx: the one it took (+ 1, 0 none), so a key
- * remapped while held lets go of what it holds; an effect two keys hold ends with the last of them. noinline: out
- * of keyboard_block's loop (the audio ISR) */
+/* a key of the FX layer down (FX held) / up: the effect it holds. kb_fx: the one it took (+ 1, 0 none); an effect two
+ * keys hold ends with the last of them. noinline: out of keyboard_block's loop (the audio ISR) */
 static uint8_t kb_fx[27];
 static __attribute__((noinline)) void perf_key_press(uint32_t k, int down)
 {
@@ -1020,31 +1019,6 @@ static __attribute__((noinline)) void perf_key_press(uint32_t k, int down)
         if (kb_fx[j] == e + 1u)
             return;
     perf_press(e, 0);
-}
-
-/* the map changed (ui_layer.c: PRESETS with a key held, EDIT, a settings load): a white key held takes its new
- * effect at once (the old one let go); FX LATCH: a latched effect of the key's becomes the new one */
-static __attribute__((noinline)) void perf_key_remap(void)
-{
-    uint32_t k, e, o;
-    perf_remap = 0;
-    for (k = 0; k < 27u; k++) {
-        if (!kb_fx[k] || key_black(k) || (o = kb_fx[k] - 1u) == (e = perf_key(k)))
-            continue;
-        if (!perf_latch_on) {
-            perf_key_press(k, 0);
-            perf_key_press(k, 1);
-            continue;
-        }
-        kb_fx[k] = (uint8_t)(e + 1u);
-        if (o < PF_N && ((perf_latched >> o) & 1u)) {
-            perf_latched &= ~PF_BIT(o);
-            if (e < PF_N) {
-                perf_latched |= PF_BIT(e);
-                perf_ord[e] = ++perf_seq;
-            }
-        }
-    }
 }
 
 /* key k plays kb_note[k] on track t: its chord (chord.c; the note alone with CHRD OFF). A note another key
@@ -1103,8 +1077,6 @@ static void keyboard_block(void)
     uint32_t cur = fm1_in.notes, ch, k;
     uint32_t lay, fx, mute;
     ch = cur ^ kb_prev;                          /* keys also sound while entering steps */
-    if (perf_remap)
-        perf_key_remap();
     if (!ch)
         return;
     if (kb_boot_hold) {                           /* #137: under the splash; their release is silent too */
