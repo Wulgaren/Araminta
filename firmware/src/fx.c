@@ -650,13 +650,19 @@ static int fx_target_send(const track_t *t, uint32_t id)
         return bus_own(1) != (int32_t)(t - trk);
     return (id == P_SLPAT || id == P_SLRATE) && sl_trk_send(t);
 }
-/* Free-ms read position (Q8). The first block after RATE snaps to the loaded time. Subsequent changes follow
- * the knob: 1/256 of the remaining error per sample, capped at 224 Q8 units, so the read head keeps up with a
- * quick turn. The tape pitch is therefore how fast the knob turns, not how far it moves: 455 -> 25 ms in half
- * a second lands in half a second and swoops about 10.9 semitones (36 the other way: the head can speed up
- * freely but barely slow). */
-#define DLY_EASE 8u
-#define DLY_SLEW 224u
+/* Free-ms read position (Q8 samples): the FM-1-style tape roll — the read position walks toward the target
+ * with one pole per sample,
+ *
+ *     pos += (target - pos) * 1.4391e-4       (tau 6949 samples, 157 ms at 44.1k)
+ *
+ * and nothing else: no cap on the step, no direction, no jump detection. The bend is therefore how fast the
+ * knob turns, not how far it moves: a sustained turn rides at the turn's own sample speed (455 -> 25 ms in
+ * half a second moves the target 0.86 samples a sample and the read settles at 0.82, about +11 semitones),
+ * an instant jump sweeps through its own chirp and lands, and a poke barely bends. The FM-1's tail is an
+ * asymptotic float; in Q8 the pole stalls 27 samples short of the target and from there a Q8 a sample creeps
+ * the rest in (0.15 s: the same few cents that tail spends there). The first block after leaving RATE snaps
+ * onto the loaded time. */
+#define DLY_K_NUM 151u                                 /* the pole per sample: 151 / 2^20 = 1.4400e-4 */
 static uint32_t dly_q8;
 static uint8_t dly_free;
 
@@ -1108,7 +1114,7 @@ static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet
         tgt = dtime_q8();
         if (!dly_free) {
             dly_q8 = tgt;
-            dly_free = 1;
+            dly_free = 1;                          /* the first block after RATE: snap onto the time */
         }
     }
     if (pf.ew1 && fb < THR_FB)
@@ -1117,13 +1123,11 @@ static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet
         int32_t x;
         if (free_ms) {
             int32_t err = (int32_t)tgt - (int32_t)dly_q8;
-            int32_t st = err >> DLY_EASE;              /* 1/256 of what is left to go */
-            if (st > (int32_t)DLY_SLEW)
-                st = (int32_t)DLY_SLEW;                /* the tape pitch: 10.9 semitones up, 36 down */
-            else if (st < -(int32_t)DLY_SLEW)
-                st = -(int32_t)DLY_SLEW;
-            else if (!st && err)
-                st = err > 0 ? 1 : -1;                 /* the last stretch creeps: an exact landing, no stall */
+            int32_t st = (((err < 0 ? -err : err) >> 4) * (int32_t)DLY_K_NUM) >> 16;   /* the pole: * 1.44e-4 */
+            if (err < 0)
+                st = -st;
+            if (!st && err)
+                st = err > 0 ? 1 : -1;                 /* the last 27 samples creep: an exact landing */
             uint32_t ri;
             int32_t fr, c0, c1;
             dly_q8 = (uint32_t)((int32_t)dly_q8 + st);
