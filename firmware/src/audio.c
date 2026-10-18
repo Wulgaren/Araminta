@@ -19,8 +19,13 @@ struct felucca_dbg {
     uint32_t last_us, cpu_q8, boots;
     uint32_t stage, page, home;           /* where the main loop is (breadcrumbs) */
     uint32_t prev_stage, prev_page, prev_home, prev_rst, prev_frames;   /* as found at boot */
+    uint32_t late_over, late_t5, late_oth;/* late, by whose fault it seems (audio render / nested T5 / entry blocked) */
+    uint32_t wall_max;                    /* worst half's wall time, us (audio + all nested, incl. outside the ISR) */
+    uint32_t entry_gap;                   /* us since the previous half's ISR entry, worst seen */
 } felucca_dbg __attribute__((section(".noinit")));
 static volatile uint32_t audio_halves, audio_max_us;
+static uint32_t dbg_last_entry;                        /* the ISR entry before this one (TICKS): the gap between halves */
+static uint8_t dbg_entry_armed;                        /* first half's entry: no gap to trust */
 static volatile uint32_t t5_nested_ticks;              /* TIMER4 ticks TIMER5 spent nested in this ISR (main.c) */
 static uint32_t audio_cpu_rem;                         /* keep the fractional IIR step: no low-load bias */
 
@@ -109,7 +114,7 @@ static void shed_voice(void)
 void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) */
 {
     uint8_t p;
-    uint32_t t0;
+    uint32_t t0, gap_us, us, wall_us, nested_us;
     felucca_dbg.in_audio = 1;                   /* first: TIMER5 nests from here on (main.c) */
     p = fm1_audio_pending();
     t0 = fm1_ticks();
@@ -117,7 +122,10 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
     fm1_audio_ack_aux(p);
     if (p & FM1_AUDIO_HALF) {
         uint32_t half = fm1_audio_free_half(), b, us;
+        uint32_t gap_us;
         int32_t *o = &abuf[half * HALF_WORDS];
+        gap_us = (t0 - dbg_last_entry) / FM1_TICKS_PER_US;
+        dbg_last_entry = t0;
         if (shed_req) {
             shed_req = 0;
             shed_voice();
@@ -143,6 +151,24 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
         }
         if (fm1_audio_free_half() != half)
             felucca_dbg.late++;                         /* the DMA moved on while we rendered */
+        {   /* [DEBUG-late] whose fault the late half was: the render itself, TIMER5 nested in it, or the */
+            uint32_t hz = HALF_FRAMES * 1000000u / FS;  /* entry arriving late (blocked by code outside us) */
+            wall_us = (fm1_ticks() - t0) / FM1_TICKS_PER_US;
+            nested_us = t5_nested_ticks / FM1_TICKS_PER_US;
+            if (fm1_audio_free_half() != half) {
+                if (us > hz * 9u / 10u)
+                    felucca_dbg.late_over++;            /* the render alone nearly filled the half */
+                else if (nested_us > hz / 8u)
+                    felucca_dbg.late_t5++;              /* TIMER5 nested in the ISR ate the runway */
+                else
+                    felucca_dbg.late_oth++;             /* blocked before or by something else */
+            }
+            if (wall_us > felucca_dbg.wall_max)
+                felucca_dbg.wall_max = wall_us;
+            if (dbg_entry_armed && gap_us > felucca_dbg.entry_gap)
+                felucca_dbg.entry_gap = gap_us;
+            dbg_entry_armed = 1;
+        }
         felucca_dbg.halves++;
         felucca_dbg.last_us = us;
         if (us > felucca_dbg.max_us)

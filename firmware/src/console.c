@@ -248,7 +248,8 @@ static void con_dbg(void)
     static const char *const NAMES[] = {"magic", "halves", "max_us", "nested", "in_audio", "late",
                                         "timer_irqs", "ui_frames", "last_us", "cpu_q8", "boots",
                                         "stage", "page", "home", "prev_stage", "prev_page",
-                                        "prev_home", "prev_rst", "prev_frames"};
+                                        "prev_home", "prev_rst", "prev_frames",
+                                        "late_over", "late_t5", "late_oth", "wall_max_us", "entry_gap_us"};
     uint32_t i;
     for (i = 0; i < sizeof NAMES / sizeof NAMES[0] && i < sizeof felucca_dbg / 4u; i++)
         con_kx(NAMES[i], w[i]);
