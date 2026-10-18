@@ -87,7 +87,8 @@
 #                   OCT UP / DN (the harmonizer): pitch, stereo, clicks, the shimmer bounded, cost; FLANGER / PHASER (1.2): no DC,
 #                   bounded, the sweep in time with the tempo, clean release, stacked with REPEAT / LPF / HPF, cost; the key
 #                   map (any effect or none on any key, a key remapped while held, FX LATCH); build/fx_demo/; 1.5.1: the
-#                   delay's dotted TIME (lengths, the 1/4D clamp, the knob order), REV / ECHO THROW (the sends as at 127,
+#                   delay's dotted TIME (lengths, the 1/4D clamp, the knob order, free ms: the FM-1-style
+#                   one-pole roll, a fast turn riding at its own speed), REV / ECHO THROW (the sends as at 127,
 #                   the glide, ECHO's capped feedback bounded, the tails ringing out, assignable); build/throw_demo/.
 # REVERB (tests/reverb_test.c): REVERB TYPE (src/fx.c): ROOM bit for bit as before, SPRING's decay against SIZE,
 #                   its chirp (group delay rising with frequency), stability at the corners, level, a model change
