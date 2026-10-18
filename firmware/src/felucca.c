@@ -34,7 +34,7 @@
 #define FM1_CPU1_USED 1          /* the second core is built in (Araminta: always, no toggle); every reset holds it
                                   * first (hal/fm1_sys.h: its waiting loop is RAM the ROM and the SPL use at boot) */
 #ifndef FELUCCA_VERSION
-#define FELUCCA_VERSION "v2.4" /* shown in the menu, the console and the editor; build.py --release X.Y */
+#define FELUCCA_VERSION "v2.5" /* shown in the menu, the console and the editor; build.py --release X.Y */
 #endif
 #if FELUCCA_OTA && !FELUCCA_FLASH
 #error "FELUCCA_OTA needs FELUCCA_FLASH"
