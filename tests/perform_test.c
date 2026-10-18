@@ -28,17 +28,16 @@
  *    the sweep follows the tempo (a 441 Hz saw comes out the same a bar / half a bar later at 120 and 90 BPM, not
  *    after 120's bar at 90); no click in or out, the live signal back bit for bit; stacked with REPEAT + LPF, let go:
  *    those as alone, bit for bit; L and R apart; KNOB 4 at 0 %: live; the cost.
- * 11. the key map (perform.c perf_map_of / perf_map_put, seq.c): 0 = the default; any effect or NONE on any key, the
- *    others kept; the keys of a remapped layer; a key remapped while held takes its new effect; two keys with one
- *    effect; FX LATCH follows a remap (the latch coming on with a key held: letting go clears its bit); the
- *    default map on the keys.
+ * 11. the key map (perform.c PF_DEF / PF2_DEF, seq.c perf_key): two fixed pages, the punch page shown picks theirs:
+ *    the pages' contents; the keys of a page, a page flip while nothing held; FX LATCH on with a key held (letting go
+ *    clears its bit, the latched ones stay sticky); the pages' maps on the keys, G5 CLR only with LATCH.
  * 12. 1.5.1: the delay's TIME 1/8D 1/16D 1/4D (their lengths at 60 61 90 120 BPM and on the external clock, 1/4D clamped
  *    to the line at 60 BPM and below, the list append-only and longest first on the knob, ARP RATE / SEQ DIV unchanged, an
  *    echo at 1/8D where it belongs, free ms: the FM-1's one-pole roll (1.4391e-4 a sample to the target, tau 157 ms): a
  *    fast turn rides at the turn's own speed, an instant jump sweeps its chirp and lands, up and down alike); REV THROW / ECHO THROW: every track's reverb / delay send as at 127 while held, the
  *    other bus untouched, the glide (11.6 ms, bounded steps) in and out, ECHO THROW's feedback 0 -> 0.7 and one above
  *    left alone, bounded on full-scale squares and dying away, the reverb tail ringing out after the release, idle
- *    again after it, assignable (key map codes 14 / 15, D5 / E5 by default), the tracks' values never touched.
+ *    again after it, on PUNCH 2 (the map's 8th / 9th key), the tracks' values never touched.
  * Demos (WAV) into DEMO_DIR; with a third directory 1.5.1's throws (the loop dry, ECHO THROW at 1/8D, REV THROW); with a second directory, the harmonizer's (a melody with OCT UP, OCT DN, and
  * OCT UP with the shimmer) and FLANGER's and PHASER's (a loop plain, then with each) into it. */
 #define main hostsim_main
@@ -75,7 +74,7 @@ static void perf_reset(void)
     perf_held = perf_act = 0;
     perf_latched = 0;
     perf_kill = 0;
-    memcpy((void *)perf_map, PF_DEF, sizeof PF_DEF);
+    perf_page(0);
     memset((void *)perf_k, 0, sizeof perf_k);
     sl_lent = 0;
     memset(sl, 0, sizeof sl);
@@ -937,145 +936,81 @@ static int test_mod(void)
 static int test_map(void)
 {
     int bad = 0, ok = 1;
-    uint8_t b[16];
-    uint32_t p, e, q;
+    uint32_t p, k;
     char what[160];
-    memset(b, 0, sizeof b);
-    for (p = 0; p < PF_KEYS; p++)                       /* all 0 (every setting before 1.2): the default */
-        ok &= perf_map_of(b, p) == PF_DEF[p];
-    bad += check("map: settings of 0 read as the default (REPEAT, 1/2, then LPF/HPF/OCT together)",
-                 ok && PF_DEF[0] == PF_R8 && PF_DEF[3] == PF_HALF && PF_DEF[4] == PF_LPF && PF_DEF[5] == PF_HPF &&
-                 PF_DEF[6] == PF_OCTD && PF_DEF[7] == PF_OCTU && PF_DEF[14] == PF_RND && PF_DEF[15] == PF_N);
-    ok = 1;
-    for (p = 0; p < PF_KEYS; p++)                       /* any effect (or none) on any key, the others untouched */
-        for (e = 0; e <= PF_NFX; e++) {
-            uint32_t ee = e < PF_NFX ? e : PF_N;
-            memset(b, 0, sizeof b);
-            for (q = 0; q < PF_KEYS; q++)
-                perf_map_put(b, q, (q * 5u + 3u) % (PF_NFX + 1u) < PF_NFX ? (q * 5u + 3u) % (PF_NFX + 1u) : PF_N);
-            perf_map_put(b, p, ee);
-            ok &= perf_map_of(b, p) == ee && !b[10] && !b[11];
-            for (q = 0; q < PF_KEYS; q++)
-                if (q != p)
-                    ok &= perf_map_of(b, q) == ((q * 5u + 3u) % (PF_NFX + 1u) < PF_NFX ? (q * 5u + 3u) % (PF_NFX + 1u) : PF_N);
-        }
-    memset(b, 0, sizeof b);
-    for (p = 0; p < PF_KEYS; p++) {                     /* each key's default back: 0 again */
-        perf_map_put(b, p, PF_FLG);
-        perf_map_put(b, p, PF_DEF[p]);
-    }
-    for (p = 0; p < 10u; p++)
-        ok &= !b[p];
-    b[0] = 31;                                          /* an unknown code (a later firmware's effect): the default */
-    ok &= perf_map_of(b, 0) == PF_DEF[0];
-    bad += check("map: any effect or NONE on any of the 16 keys, the others kept, 10 bytes; the default stores 0", ok);
-    {   /* the keys: a rotated map, each white key holds its effect; NONE holds nothing */
-        uint32_t fx = 1u << 3, k, white = 0;
+    bad += check("map: the pages are fixed (PUNCH 1: REPEAT, 1/2, LPF/HPF/OCT, DEC, stutter, ATK ARP RANDOM; PUNCH 2: the audio effects)",
+                 PF_DEF[0] == PF_R8 && PF_DEF[3] == PF_HALF && PF_DEF[4] == PF_LPF && PF_DEF[5] == PF_HPF &&
+                 PF_DEF[6] == PF_OCTD && PF_DEF[7] == PF_OCTU && PF_DEF[14] == PF_RND && PF_DEF[15] == PF_N &&
+                 PF2_DEF[0] == PF_REV && PF2_DEF[1] == PF_TAPE && PF2_DEF[2] == PF_FRZ && PF2_DEF[3] == PF_OUP &&
+                 PF2_DEF[4] == PF_ODN && PF2_DEF[5] == PF_FLG && PF2_DEF[6] == PF_PHS && PF2_DEF[7] == PF_RTHR &&
+                 PF2_DEF[8] == PF_ETHR && PF2_DEF[9] == PF_N && PF2_DEF[14] == PF_N && PF2_DEF[15] == PF_N);
+    {   /* the keys: the shown page's fixed map (G5 none, LATCH off); a page flip (ui.c page_entered) follows */
+        uint32_t fx = 1u << 3, white = 0, ck = 0;
         song_setup();
+        while (key_place(ck) != 4u)
+            ck++;                                       /* C4 */
         kb_mask = perf_mask = fx;
         ok = 1;
-        for (p = 0; p < PF_KEYS; p++)
-            perf_map[p] = (uint8_t)(p < PF_NFX ? PF_NFX - 1u - p : PF_N);
-        perf_map[15] = PF_N;                            /* G5: empty when LATCH off (CLR only with LATCH) */
         for (k = 0; k < 27u; k++) {
+            uint32_t e;
             if (key_black(k))
                 continue;
             p = key_place(k);
+            e = perf_key(k);
             fm1_in.buttons = fx;
             fm1_in.notes = 1u << k;
             keyboard_block();
-            ok &= p == 15u ? !perf_held : p < PF_NFX ? perf_held == PF_BIT(PF_NFX - 1u - p) : !perf_held;
+            ok &= p == 15u ? !perf_held : perf_held == PF_BIT(e);
             fm1_in.notes = 0;
             keyboard_block();
             ok &= !perf_held && !kb_layer;
             white++;
         }
-        bad += check("keys: a remapped layer (white key p holds effect NFX-1-p; G5 unassigned when LATCH off), all 16 white keys",
+        bad += check("keys: the punch page's map under the notes (G5 unassigned, LATCH off), all 16 white keys",
                      ok && white == 16u);
-        /* remapped while held: the key takes the new effect at once, the old one let go */
-        fm1_in.notes = 1u << 0;                         /* F3 */
+        ok = 1;
+        perf_page(1);                                   /* PUNCH 2 (SELECT on the sticky map) */
+        fm1_in.notes = 1u << ck;                        /* C4 on PUNCH 2: PITCH DN */
         keyboard_block();
-        ok = perf_held == PF_BIT(perf_map[0]);
-        perf_map[0] = PF_PHS;
-        perf_remap = 1;
-        keyboard_block();
-        ok &= perf_held == PF_BIT(PF_PHS) && !perf_remap;
-        perf_map[0] = PF_N;                             /* .. to NONE: nothing held, the key still the layer's */
-        perf_remap = 1;
-        keyboard_block();
-        ok &= !perf_held && (kb_layer & 1u);
+        ok &= perf_held == PF_BIT(PF_ODN) && perf_latched == 0u;
         fm1_in.notes = 0;
         keyboard_block();
         ok &= !perf_held && !kb_layer;
-        bad += check("  a key remapped while held: its new effect at once (PHASER), then NONE: nothing; let go: clean", ok);
-        /* two keys the same effect: it ends with the last let go */
-        perf_map[0] = perf_map[1] = PF_LPF;
-        fm1_in.notes = 1u << 0 | 1u << 2;               /* F3, G3 */
-        keyboard_block();
-        ok = perf_held == PF_BIT(PF_LPF);
-        fm1_in.notes = 1u << 2;
-        keyboard_block();
-        ok &= perf_held == PF_BIT(PF_LPF);
-        fm1_in.notes = 0;
-        keyboard_block();
-        ok &= !perf_held;
-        bad += check("  two keys with LPF: it holds until the last of them is let go", ok);
-        /* FX LATCH: a latched effect follows its key's new mapping */
-        perf_latch_on = 1;
-        perf_map[0] = PF_LPF;
-        fm1_in.notes = 1u << 0;
-        keyboard_block();
-        ok = perf_latched == PF_BIT(PF_LPF);
-        perf_map[0] = PF_FLG;
-        perf_remap = 1;
-        keyboard_block();
-        ok &= perf_latched == PF_BIT(PF_FLG) && !perf_held;
-        fm1_in.notes = 0;
-        keyboard_block();
-        ok &= perf_latched == PF_BIT(PF_FLG);
-        fm1_in.notes = 1u << 0;
-        keyboard_block();
-        ok &= !perf_latched;
-        fm1_in.notes = 0;
-        keyboard_block();
-        perf_latch_on = 0;
-        bad += check("  FX LATCH: the key's latched LPF becomes FLANGER as it is remapped; pressed again: off", ok);
+        bad += check("  the page flipped: the keys hold PUNCH 2's effects (C4: PITCH DN)", ok);
         /* the latch coming on with a key still held (a settings load): letting the key go clears its bit, the
          * latched effects stay sticky */
+        perf_page(0);
         perf_latch_on = 0;
-        perf_map[0] = PF_LPF;
-        fm1_in.notes = 1u << 0;
+        fm1_in.notes = 1u << ck;                        /* C4: LPF on page 1 */
         keyboard_block();
         ok = perf_held == PF_BIT(PF_LPF);
         perf_latch_on = 1;                              /* MENU > FX LATCH ON with the key down */
         fm1_in.notes = 0;
         keyboard_block();
         ok &= !perf_held;                               /* the release with the latch on: no stuck effect */
-        fm1_in.notes = 1u << 0;
+        fm1_in.notes = 1u << ck;
         keyboard_block();
         ok &= perf_latched == PF_BIT(PF_LPF) && !perf_held;   /* a press still latches it */
         fm1_in.notes = 0;
         keyboard_block();
         ok &= perf_latched == PF_BIT(PF_LPF) && !perf_held;   /* a latched effect stays until toggled off */
-        fm1_in.notes = 1u << 0;
+        fm1_in.notes = 1u << ck;
         keyboard_block();
         ok &= !perf_latched && !perf_held;
         fm1_in.notes = 0;
         keyboard_block();
         perf_latch_on = 0;
         bad += check("  FX LATCH on with a key held: letting go clears its bit, the latched ones stay sticky", ok);
-        for (p = 0; p < PF_KEYS; p++)
-            perf_map[p] = PF_DEF[p];
+        perf_page(0);                                   /* (page 1's map back, ui.c page_entered) */
         fm1_in.buttons = 0;
         kb_mask = perf_mask = 0;
     }
     snprintf(what, sizeof what, "map: the default map on the keys: F3..B3 REPEAT/1/2, C4..F4 LPF/HPF/OCT, G4..F5 the rest; G5 CLR only with LATCH");
     {
-        uint32_t k;
         ok = 1;
         for (k = 0; k < 27u; k++)
             if (!key_black(k)) {
-                uint32_t p = key_place(k);
+                p = key_place(k);
                 ok &= perf_key(k) == (p < PF_KEYS ? PF_DEF[p] : PF_N);   /* LATCH off: G5 is PF_N */
             }
         ok &= perf_key(6) == PF_HALF && perf_key(7) == PF_LPF && perf_key(9) == PF_HPF && perf_key(11) == PF_OCTD &&
@@ -1085,6 +1020,13 @@ static int test_map(void)
             if (!key_black(k) && key_place(k) == 15u)
                 ok &= perf_key(k) == PF_CLR;
         perf_latch_on = 0;
+        perf_page(1);
+        for (k = 0; k < 27u; k++)
+            if (!key_black(k)) {
+                p = key_place(k);
+                ok &= perf_key(k) == (p < PF_KEYS ? PF2_DEF[p] : PF_N);
+            }
+        perf_page(0);                                   /* (page 1's map back) */
     }
     bad += check(what, ok);
     return bad;
@@ -1482,18 +1424,10 @@ static int test_throw(void)
                  v ? "ECHO THROW" : "REV THROW", v ? "delay" : "reverb", e0, e1, e2, ref);
         bad += check(what, ref == 0.0 && e0 > 500.0 && e1 > e0 / 20.0 && e2 < e1 / 8.0 && !pf.thr && !pf.busy);
     }
-    {   /* assignable: the key map's codes 14, 15; never saved: the track's and the song's values untouched */
-        uint8_t m[16];
-        memset(m, 0, sizeof m);
-        perf_map_put(m, 0, PF_RTHR);
-        perf_map_put(m, 1, PF_ETHR);
-        ok = (m[0] & 31u) == 14u && ((m[0] >> 5 | m[1] << 3) & 31u) == 15u && perf_map_of(m, 0) == PF_RTHR &&
-             perf_map_of(m, 1) == PF_ETHR && PF_RTHR == 12 && PF_ETHR == 13;
-        m[0] = (uint8_t)((m[0] & ~31u) | 31u);         /* code 31: a later firmware's effect -> the key's default */
-        ok &= perf_map_of(m, 0) == PF_DEF[0];
-        perf_map_put(m, 0, PF_RTHR);                   /* assignable on any key (not on the JIANT default map) */
-        ok &= perf_map_of(m, 0) == PF_RTHR && (m[0] & 31u) == 14u;
-        bad += check("assignable: REV / ECHO THROW are codes 14 / 15 on any key (not on the JIANT default map)", ok);
+    {   /* PUNCH 2 (1.5.1): REV / ECHO THROW are the effects 12 / 13 and the page's keys 8 / 9, no settings */
+        ok = PF_PHS == 11 && PF_RTHR == 12 && PF_ETHR == 13 && PF_HARM == (PF_BIT(PF_OUP) | PF_BIT(PF_ODN));
+        ok &= PF2_DEF[7] == PF_RTHR && PF2_DEF[8] == PF_ETHR && PF_PHS == 11;
+        bad += check("PUNCH 2: REV / ECHO THROW are the 8th / 9th key (the effects 12 / 13); no settings", ok);
     }
     return bad;
 }

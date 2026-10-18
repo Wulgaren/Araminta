@@ -4,9 +4,8 @@
  * are its shortcuts and its map shows over the page. One table (LAYERS) drives the gesture, the keys, the knobs,
  * the LEDs and the overlay:
  *   FX   HOLD  the performance effects (perform.c) and the track mutes while held; KNOB 1..4 its macros. The white
- *              keys' effects are the user's (1.2): a white key held in the layer (FX held or locked) + PRESETS turned
- *              steps that key through NONE and the effects (it holds the new one at once), EDIT puts the key's default
- *              back; kept with the settings (fx_keys) when the layer closes
+ *              keys hold the punch page's fixed map (PUNCH: PF_DEF, PUNCH 2: PF2_DEF; SELECT walks the two on the
+ *              sticky map; the 1.2 reassignment with PRESETS is retired)
  *   GLO  SET   black keys 1..4 (F#3 G#3 A#3 C#4) T1..T4 MUTE (latched; lit = sounding), F3..B3 SOLO T1..T4 while
  *              held (HOLD cells, a corner triangle), C4 UNMUTE ALL, D4 MIDI LEARN on / off (1.5, midi_learn.c), F4 TAP
  *              tempo; KNOB 1..4 T1..T4 LEVEL;
@@ -52,7 +51,7 @@ typedef struct {
 } layer_t;
 static const layer_t LAYERS[LAYER_N] = {
     {0, 0, 0, "", {{0, 0}, {0, 0}, {0, 0}}},
-    {B_FX, LK_HOLD, FAM_HOME, "[FX]", {{KC_KEYS, "HOLD"}, {KC_PRESETS, "REASSIGN"}, {0, 0}}},
+    {B_FX, LK_HOLD, FAM_HOME, "[FX]", {{KC_KEYS, "HOLD"}, {KC_SELECT, "FX P-INS 1/2"}, {0, 0}}},
     {B_GLO, LK_SET, FAM_HOME, "[GLO]", {{KC_PLAY, "RESTART"}, {KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}}},
     {B_SCL, LK_SET, FAM_SCL, "[SCL]", {{KC_KEYS, "ROOT"}, {KC_OCTDN, "UNDO"}, {KC_SCL, "DONE"}}},
     {B_EDIT, LK_SET, FAM_HOME, "[EDIT]", {{KC_KEYS, "ENGINE"}, {KC_OCTDN, "UNDO"}, {KC_EDIT, "DONE"}}},
@@ -72,18 +71,15 @@ static const page_t *ly_page(uint32_t l) { return l == LAYER_SCL ? &LY_SCL : l =
 #define LY_INIT ((uint32_t)NENG_SHOWN) /* EDIT: the white key of INIT, the one after the engines (13: E5), its map cell */
 typedef char ly_init_fits[LY_INIT < 16u ? 1 : -1];   /* (a white key: F3 .. G5) */
 #define layer_seen (favorites.factory[15][31])   /* bit l: layer l opened once (a byte no engine uses) */
-static const khint_t FX_KEY_FOOT[3] = {{KC_PRESETS, "REASSIGN"}, {KC_EDIT, "DEFAULT"}, {0, 0}};   /* (a key held) */
+/* (the 1.2 key map (favorites.factory[15][14..23]) is retired: the pages are fixed maps (perform.c
+ * PF_DEF / PF2_DEF); the 10 bytes are kept as saved but unused) */
 static const khint_t GLO_LOCK_FOOT[3] = {{KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}, {0, 0}};   /* (locked: PLAY plays, #183) */
-/* the FX layer's key map (perform.c perf_map_of / perf_map_put: 16 x 5 bits; all 0, every older setting: the default
- * map) in 10 bytes no engine uses, kept with the settings */
-#define fx_keys (&favorites.factory[15][14])
 
 static struct {
     uint8_t l, trk, loaded, oct;       /* SET: the layer and the track of the snapshot; EDIT: a sound loaded since
                                         * it opened (SEQ: a tool used); OCT- / OCT+ pressed in a SET layer (bits) */
     uint8_t cook;                      /* SEQ: COOK pressed since it opened */
-    uint8_t rp_dirty;                  /* FX: the key map changed (settings_save when the layer lets go) */
-    uint8_t fxk;                       /* FX: the white key pressed last in the layer (+ 1; 0 none): PRESETS assigns it */
+    uint8_t fxk;                       /* FX: the white key pressed last in the layer (+ 1; 0 none) */
     uint8_t mute[NPART];               /* EDIT: the DRUM lanes' mutes when it opened (eng_drum.c drum_mute; OCT-) */
     uint32_t eqh;                      /* EDIT: the keys (bits 0..26) of the HOLD quick actions held */
     int16_t v[9];                      /* the values when it opened: GLO mutes, levels, BPM; SCL ROOT..TRN, CHRD VOIC;
@@ -162,10 +158,6 @@ static void layer_let_go(uint32_t quiet)
 {
     if (ui.ly == LAYER_FX && !perf_latch_on)
         perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;
-    if (lys.rp_dirty) {                                 /* FX key map: kept as MENU does when it closes */
-        lys.rp_dirty = 0;
-        settings_save();                                /* (deferred while playing) */
-    }
     if (quiet) {
         lys.quiet = 1;
         lys.quiet_t = fm1_ms;
@@ -179,12 +171,9 @@ static void layer_let_go(uint32_t quiet)
  * the button held keeps it open (a peek: let go, it closes, no tap). Another button but PLAY, REC and OCT- / OCT+
  * (another page button, another layer's, HOME, SAVE, SEQ): closed now, and that button acts as always. Any other
  * button pressed between the taps of a double tap: no double tap */
-static uint32_t fx_key_held(void);
 static void layer_lock_input(uint32_t pressed)
 {
     uint32_t keep = 1u << panel.btn[B_PLAY] | 1u << panel.btn[B_REC] | 1u << panel.btn[B_OCTDN] | 1u << panel.btn[B_OCTUP];
-    if (ui.lock == LAYER_FX && fx_key_held())           /* (FX's lock, a key held: EDIT puts its default back) */
-        keep |= 1u << panel.btn[B_EDIT];
     if (lys.dt_l && (pressed & ~ly_bit(lys.dt_l)))
         lys.dt_l = 0;
     if (!ui.lock)
@@ -380,68 +369,16 @@ static void tools_key(uint32_t p)
     ui.force = 1;
 }
 
-/* FX: the effects' names (the message; NONE: PF_N) and the map's cells' */
-static const char *const PF_NAME[PF_NFX + 1] = {"REPEAT 1/8", "REPEAT 1/16", "REPEAT 1/32", "REVERSE", "LPF", "HPF",
-    "TAPE STOP", "FREEZE", "PITCH UP", "PITCH DN", "FLANGER", "PHASER", "REV THROW", "ECHO THROW",
-    "OCT-", "OCT+", "1/2 TEMPO", "DEC-", "DEC+", "STUTTER 1/8", "STUTTER 1/16", "ATK+", "ARP", "RANDOM", "NONE"};
+/* the FX layer's cells' names (NONE: PF_N) */
 static const char *const PF_CELL[PF_NFX] = {"1/8", "1/16", "1/32", "REV", "LPF", "HPF", "STOP", "FRZ", "PITCH+", "PITCH-",
     "FLNG", "PHSR", "VERB", "ECHO", "OCT-", "OCT+", "1/2", "DEC-", "DEC+", "ST8", "ST16", "ATK+", "ARP", "RND"};
 static const char W_NOTE[16] = {'F', 'G', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'A', 'B', 'C', 'D', 'E', 'F', 'G'};
-/* each pass: the map from the settings to the ISR (a change: seq.c makes a key held take its new effect) */
-static void fx_map_sync(void)
-{
-    uint32_t p, e;
-    for (p = 0; p < PF_KEYS; p++)
-        if (perf_map[p] != (e = perf_map_of(fx_keys, p))) {
-            perf_map[p] = (uint8_t)e;
-            perf_remap = 1;
-        }
-}
-/* the white key PRESETS assigns: the last pressed in held or sticky FX, while still held (+ 1; 0 none) */
+/* (fx_map_sync retired with the reassignment: the key maps are the pages' fixed PF_DEF / PF2_DEF) */
+
 static uint32_t fx_key_held(void)
 {
     return lys.fxk && ly_down(LAYER_FX) && ((kb_layer >> (lys.fxk - 1u)) & 1u) ? lys.fxk : 0u;
 }
-/* "B4 FLANGER": white key k's note (F3 .. G5) and effect e */
-static void fx_say(uint32_t k, uint32_t e, const char *tail)
-{
-    uint32_t p = key_place(k);
-    char n[4] = {W_NOTE[p % 16u], (char)('3' + (p >= 4u) + (p >= 11u)), ' ', 0};
-    ui_say(n, PF_NAME[e < PF_NFX ? e : PF_NFX]);
-    str_cpy(ui.msg + str_len(ui.msg), tail, sizeof ui.msg - str_len(ui.msg));
-}
-/* PRESETS turned (s) in the FX layer: the key held steps through NONE and the effects, round; none held: how */
-static void fx_assign(int32_t s)
-{
-    uint32_t k = fx_key_held(), p, i, n = PF_NFX + 1u;
-    if (!k) {
-        ui_message("HOLD A KEY: ASSIGN");
-        return;
-    }
-    p = key_place(--k);
-    i = perf_map_of(fx_keys, p);                        /* (the list: NONE, then the effects in order) */
-    i = i < PF_NFX ? i + 1u : 0u;
-    i = (i + (s > 0 ? 1u : n - 1u)) % n;
-    perf_map_put(fx_keys, p, i ? i - 1u : PF_N);
-    lys.rp_dirty = 1;
-    fx_map_sync();
-    fx_say(k, i ? i - 1u : PF_N, "");
-    ui.force = 1;
-}
-/* EDIT with a key held in the FX layer: its default effect back */
-static void fx_default(void)
-{
-    uint32_t k = fx_key_held(), p;
-    if (!k)
-        return;
-    p = key_place(--k);
-    perf_map_put(fx_keys, p, PF_DEF[p]);
-    lys.rp_dirty = 1;
-    fx_map_sync();
-    fx_say(k, PF_DEF[p], " (DEF)");
-    ui.force = 1;
-}
-
 /* 1.4.1 ENGINE QUICK ACTIONS: the EDIT layer's black keys (1..11: F#3 .. F#5) do what the selected track's engine
  * offers there: EQA, per engine up to 11, black key n the n-th; past them (and on an engine with none) a key is dark
  * and does nothing. An action: its cell's name, HOLD (on while its key is held: act down, then up; a corner triangle,
@@ -541,7 +478,7 @@ static void layer_key(uint32_t l, uint32_t k)
     uint32_t p = key_place(k), i;
     if (l == LAYER_FX) {
         if (!key_black(k) && p < PF_KEYS)
-            lys.fxk = (uint8_t)(k + 1u);                /* (PRESETS assigns it while held) */
+            lys.fxk = (uint8_t)(k + 1u);                /* (the held key's cell is marked) */
     } else if (l == LAYER_GLO) {
         if (key_black(k)) {
             if (p < NTRK)
@@ -915,14 +852,14 @@ static void layer_fx(void)
     char n[3] = {0, 0, 0};
     for (p = 0; p < PF_KEYS; p++) {                     /* the white keys F3 .. G5, 4 a row: the effect each holds */
         const char *cell;
-        e = perf_map[p];
+        e = perf_map_now()[p];
         if (p == 15u && perf_latch_on) {                /* G5 CLR: latched punch-ins + macros off */
             cell = "CLR";
             st = p == ed ? LS_SEL : pfx_clr ? LS_HELD : LS_OFF;
         } else {
             cell = e < PF_NFX ? PF_CELL[e] : "";
             st = p == ed ? LS_SEL : e >= PF_NFX || !((ok >> e) & 1u) ? LS_DIM : !((held >> e) & 1u) ? LS_OFF
-               : (act >> e) & 1u ? LS_HELD : LS_WAIT;   /* (the key PRESETS assigns: the selection's fill) */
+               : (act >> e) & 1u ? LS_HELD : LS_WAIT;
         }
         n[0] = W_NOTE[p];
         lcell(LC_X(p % 4u), 4 + (LF_H + 4) * (int32_t)(p / 4u), LF_H, n, 0, 0, cell,
@@ -1172,19 +1109,14 @@ static void layer_cards(uint32_t l)
 static void draw_layer(void)
 {
     uint32_t l = ui.layer % LAYER_N, sig = l * 7919u + ux.gen * 977u;
-    static uint8_t fx_foot;                             /* FX: a key held shows PRESETS REASSIGN, EDIT DEFAULT */
-    if (fx_foot != (l == LAYER_FX && fx_key_held())) {
-        fx_foot = (uint8_t)(l == LAYER_FX && fx_key_held());
-        ui.force = 1;
-    }
     layer_cards(l);
     if (l == LAYER_FX)
     {
         uint32_t p;
         sig += (perf_kill ? 0u : perf_held | perf_latched) * 31u + perf_latch_on * 11u + perf_act * 131u + perf_avail() * 7u + (uint32_t)perf_harm_on() * 3u +
-               fx_key_held() * 4099u;
-        for (p = 0; p < PF_KEYS; p++)                   /* (the key map) */
-            sig = sig * 33u + perf_map[p];
+               fx_key_held() * 4099u + perf_page2 * 17u;
+        for (p = 0; p < PF_KEYS; p++)                   /* (the key map: the punch page's) */
+            sig = sig * 33u + perf_map_now()[p];
     }
     else if (l == LAYER_GLO)
         sig += perf_solo * 31u + (uint32_t)song.g[G_CLOCK] * 5u + ui.ml.on * 7u +
@@ -1222,8 +1154,7 @@ static void draw_layer(void)
     }
     if (ui.force) {                                     /* the footer: what the keys, knobs and buttons do */
         cv_begin(240, H_FOOT, T_BG);
-        const khint_t *ft = l == LAYER_FX && fx_key_held() ? FX_KEY_FOOT :
-                            l == LAYER_GLO && ui.lock == LAYER_GLO ? GLO_LOCK_FOOT : LAYERS[l].foot;
+        const khint_t *ft = l == LAYER_GLO && ui.lock == LAYER_GLO ? GLO_LOCK_FOOT : LAYERS[l].foot;
         int h = help_on() && help_row(HELP_LAYER[l], 21);   /* 1.5, HELP ON: a second row, what this one does not say */
         cv_key_row(8, 232, h ? 2 : 9, ft, ft[2].act ? 3u : 2u, 7u, T_BG);
         cv_blit(0, Y_FOOT);

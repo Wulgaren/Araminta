@@ -220,8 +220,7 @@ static void ui_power_on(void)
     memset(chord_last, 0, sizeof chord_last);
     perf_held = perf_act = kb_layer = perf_mask = 0;      /* the FX layer: nothing held */
     perf_latched = 0;
-    memcpy((void *)perf_map, PF_DEF, sizeof PF_DEF);    /* .. its default key map (the settings' 0), no key's effect */
-    perf_remap = 0;
+    perf_page(0);                                       /* .. its default page (PUNCH) */
     memset(kb_fx, 0, sizeof kb_fx);
     perf_kill = 0;
     perf_mask = 1u << panel.btn[B_FX];                  /* (ui_input sets them every frame) */
@@ -2670,7 +2669,7 @@ static int test_presets_knob(void)
                 sel_ok &= same_snd && same_steps && ui.page == i && ui.ev_row == 1u;
             } else if (g == GR_CLEAR) {
                 tools_ok &= same_snd && same_steps && !ui.confirm;
-            } else if (g == GR_PUNCH) {                 /* Punch-in sticky: PRESETS assigns an FX key, no sound load */
+            } else if (g == GR_PUNCH) {                 /* Punch-in sticky: PRESETS does nothing (no reassign, no load) */
                 sel_ok &= same_snd && same_steps && ui.page == i;
             } else {                                 /* EFFECTS included: PRESETS loads a sound (also test_fx_sections) */
                 snd_ok &= !same_snd && same_steps && ui.page == i && !ui.home;
@@ -6257,23 +6256,31 @@ static int test_rec_layer(void)
     return bad;
 }
 
-/* 1.2: the FX layer's white keys are the user's: a key held in the layer + PRESETS steps its effect (NONE, the effects,
- * round; the key holds the new one at once), EDIT its default back; PRESETS loads no sound there, with no key held it
- * says how; kept with the settings when the layer closes (an older setting: the default map); the lock frees a hand */
+/* The FX layer's white keys hold the punch page's fixed map (no reassignment: PUNCH = PF_DEF, PUNCH 2 =
+ * PF2_DEF, SELECT walks the two on the sticky map); the lock frees a hand */
 
 static int test_fx_map(void)
 {
     int bad = 0, ok;
-    uint32_t i;
-    /* Punch-in sticky: PRESETS assigns while a key is held; EDIT restores default */
+    /* Punch-in sticky: the page's map under the keys; PRESETS does nothing; SELECT walks PUNCH / PUNCH 2 */
     ui_power_on();
     go_title("PUNCH"); frame();
-    ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH && perf_map[4] == PF_LPF;
+    ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH &&
+         perf_key(white(4)) == PF_LPF;                    /* C4: LPF */
     key_down(white(4)); frame();                       /* C4 */
     turn(EN_PRESET, 1);
-    ok &= perf_map[4] == PF_HPF && !msg_is("HOLD A KEY: ASSIGN");
+    ok &= (perf_held & PF_BIT(PF_LPF)) != 0u && perf_key(white(4)) == PF_LPF;   /* no reassignment */
     key_up(white(4)); frame();
-    bad += check("Punch-in sticky: map open without holding FX; PRESETS can assign a held key", ok && ui.lock == LAYER_FX);
+    bad += check("Punch-in sticky: map open without holding FX; the keys hold the page's map (PRESETS: nothing)", ok);
+    ui_power_on();
+    go_title("PUNCH"); frame();
+    ok = cur_page()->sec == FX_SEC_PUNCH && ui.lock == LAYER_FX;
+    turn(EN_SELECT, 1); frame();
+    ok &= !ui.home && cur_page()->sec == FX_SEC_PUNCH && str_eq(cur_page()->title, "PUNCH 2") &&
+          ui.lock == LAYER_FX && perf_key(white(4)) == PF_ODN;   /* PUNCH 2: C4 is PITCH DN */
+    turn(EN_SELECT, -1); frame();
+    ok &= str_eq(cur_page()->title, "PUNCH") && perf_key(white(4)) == PF_LPF;
+    bad += check("  SELECT walks the sticky punch map's pages (PUNCH, PUNCH 2), the map follows", ok && ui.lock == LAYER_FX);
     ui_power_on();
     btn_down(B_FX); frames(600);
     ok = !ui.layer && !ui.lock;
@@ -8705,9 +8712,16 @@ static int test_fx_sections(void)
     key_down(white(4)); frame();                       /* C4: LPF (B3 is 1/2, so the filters sit with the octaves) */
     ok &= (perf_held & PF_BIT(PF_LPF)) != 0u;
     key_up(white(4)); frame();
+    turn(EN_SELECT, 1); frame();
+    ok &= str_eq(cur_page()->title, "PUNCH 2") && (perf_held & PF_BIT(PF_LPF)) == 0u;
+    key_down(white(4)); frame();                       /* C4 on PUNCH 2: PITCH DN */
+    ok &= (perf_held & PF_BIT(PF_ODN)) != 0u;
+    key_up(white(4)); frame();
+    turn(EN_SELECT, -1); frame();
+    ok &= str_eq(cur_page()->title, "PUNCH");
     press(B_FX);
     ok &= cur_page()->sec == FX_SEC_INS && str_eq(cur_page()->title, "EFFECTS") && !ui.lock;
-    bad += check("FX sections: Effects → Punch-in; SLICER under EFFECTS; punch keys in Punch-in", ok);
+    bad += check("FX sections: Effects → Punch-in; SLICER under EFFECTS; punch keys in Punch-in; SELECT walks PUNCH / PUNCH 2", ok);
     ui_power_on();
     press(B_GLO);
     ok = str_eq(cur_page()->title, "MASTER") && cur_page()->fam == FAM_GLO && cur_page()->sec == GLO_SEC_MASTER;
