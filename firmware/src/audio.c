@@ -60,20 +60,23 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 
     }
 }
 
-/* Overload: two halves in a row above 85 % (the render plus TIMER5 nested in it), fade one voice over the
- * next block, and one more each half while it lasts. Keep each part's
+/* Overload: two halves in a row above 85 % (the render plus TIMER5 nested in it), or a single half above 92 %
+ * (a bursty load that sits well under 85 % between its spikes never built the pair: the one hot half alone sheds
+ * now), fade one voice over the next block, and one more each half while it lasts. Keep each part's
  * lowest POLY note and MONO / LEGATO / UNISON lead, as the shared budget does. */
 static volatile uint8_t shed_req;
 static uint8_t shed_over;                              /* bit k: the half k halves ago was over 85 % */
 #define SHED_TICKS ((HALF_FRAMES * 1000000u / FS) * 85u / 100u * FM1_TICKS_PER_US)   /* 85 % of a half */
+#define SHED_TICKS_1 ((HALF_FRAMES * 1000000u / FS) * 92u / 100u * FM1_TICKS_PER_US) /* 92 %: this half alone sheds */
 static uint32_t shed_count;
 
 /* end of a half: all = its ticks, TIMER5 nested in it included -> the render alone in us. The deadline sees
- * both; shed after 2 overloaded halves in a row (out of line: keeps the ISR's render loops as they were) */
+ * both; shed after 2 overloaded halves in a row, or one at 92 % (out of line: keeps the ISR's render loops as they
+ * were) */
 static __attribute__((noinline)) uint32_t shed_check(uint32_t all)
 {
     shed_over = (uint8_t)(shed_over << 1 | (all > SHED_TICKS));
-    if ((shed_over & 3u) == 3u)
+    if ((shed_over & 3u) == 3u || all > SHED_TICKS_1)
         shed_req = 1;
     return (all - t5_nested_ticks) / FM1_TICKS_PER_US;
 }
@@ -114,7 +117,7 @@ static void shed_voice(void)
 void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) */
 {
     uint8_t p;
-    uint32_t t0, gap_us, us, wall_us, nested_us;
+    uint32_t t0, wall_us, nested_us;
     felucca_dbg.in_audio = 1;                   /* first: TIMER5 nests from here on (main.c) */
     p = fm1_audio_pending();
     t0 = fm1_ticks();
