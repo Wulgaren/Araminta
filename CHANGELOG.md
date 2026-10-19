@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.6
+
+The FX punch-ins reach every effect again on two fixed pages, the second core takes the parts it actually costs, and an overload thins a voice the moment a half runs hot. Install from the [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB). Try it first in the [browser](https://wulgaren.github.io/Araminta/webapp/try/).
+
+Same project format as 2.5 (FUN15 / `FUNF`). Splash and ABOUT show `v2.6`.
+
+### Performance
+
+- **The FX punch-in maps are two fixed pages — the reassignment is gone.** Under PUNCH-IN, the white keys hold a fixed map; SELECT walks to the second page and every effect is reachable again. PUNCH-IN 1/2: REPEAT 1/8 1/16 1/32, 1/2 TEMPO, LPF, HPF, OCT- / OCT+, DEC- / DEC+, STUTTER 1/8 1/16, ATK+, ARP, RANDOM (G5 free). PUNCH-IN 2/2: REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW (G4 and G5 free). The FX layer keeps the page's own bottom bar (engine, sound, the PUNCH page title — no hint row). FX LATCH, the black-key mutes and A#4's ALL / SYN / DRM step behave as before on both pages. The 1.2 hold-key + PRESETS assign, EDIT's default reset and the saved key map (settings bytes 15][14..23) are retired: settings still keep those bytes, unused.
+
+### Second core
+
+- The block's splits are weighed by each part's measured render, no longer by the estimate formula: estimated ~35 % low on real projects (FM6 324 against 589, GRAIN 0 against 25) and left core 1 underused at about a quarter of the work. Measured where each part runs (TIMER4 ticks, core 0 in the mix, core 1 reporting its own parts back through the mailbox), the same splitter balances them — the busy core drops about 5 % of the render per block and keeps track as voices move. Core 1's reads are proved once at boot; a core that cannot read TIMER4 fails the probe and keeps the estimate (the console's `c1_t4_ok` tells which).
+- The insert-SEND copy in `ins_bus_block` runs only for stages a SEND reads: readers or not it copied all six stages every block, ~16 instructions/sample on projects without an insert SEND.
+
+### Audio
+
+- Overload sheds a voice on a single half over 92 % of the deadline, not only on two 85 % halves in a row: a load that sits at 56–79 % between its spikes never built the pair, so the protection sat out the exact moments it exists for. A hot burst now thins a voice per half instead of replaying whole halves. The console's `late` counter splits by cause (render / nested TIMER5 / blocked entry), with `wall_max` and `entry_gap`.
+
 ## 2.5
 
 The delay's TIME roll is the FM-1's own: one pole a sample, so the bend is how fast you turn, not how far. Install from the [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB). Try it first in the [browser](https://wulgaren.github.io/Araminta/webapp/try/).
@@ -9,6 +28,10 @@ Same project format as 2.4 (FUN15 / `FUNF`). Splash and ABOUT show `v2.5`.
 ### Effects
 
 - Delay TIME: on the free-ms rates the read head follows the knob with the FM-1's own tape law — a one-pole walk toward the target, 0.00014391 of the remaining error per sample (tau 157 ms at 44.1 kHz), with no step cap and no direction. A sustained turn rides at the turn's own speed (455 → 25 ms in half a second: 0.82 samples a sample, about +11 st, landing in 1.6 s); an instant jump sweeps its own chirp. The 2.4 slew and its ±224 Q8 caps are gone. RATE mode and the snap onto a loaded time are unchanged.
+
+### Performance
+
+- **The FX punch-in maps are two fixed pages — the reassignment is gone.** Under PUNCH-IN, the white keys hold a fixed map; SELECT walks to the second page and every effect is reachable again. PUNCH-IN 1/2: REPEAT 1/8 1/16 1/32, 1/2 TEMPO, LPF, HPF, OCT- / OCT+, DEC- / DEC+, STUTTER 1/8 1/16, ATK+, ARP, RANDOM (G5 free). PUNCH-IN 2/2: REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW (G4 and G5 free). The FX layer keeps the page's own bottom bar (engine, sound, the PUNCH page title — no hint row). FX LATCH, the black-key mutes and A#4's ALL / SYN / DRM step behave as before on both pages. The 1.2 hold-key + PRESETS assign, EDIT's default reset and the saved key map (settings bytes 15][14..23) are retired: settings still keep those bytes, unused.
 
 ## 2.4
 

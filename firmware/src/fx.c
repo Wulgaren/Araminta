@@ -1071,7 +1071,12 @@ static void rev_clear_all(void)
  * core's) and a part's own block (b) */
 typedef struct { int32_t l[CTL], r[CTL], d[CTL], rv[CTL], b[CTL]; } mixsum_t;
 static mixsum_t mx[2];
-static uint16_t part_cost[NTRK];                       /* what a part's render cost the last block (mix_split) */
+static uint16_t part_cost[NTRK];                       /* a part's render, measured: 24 MHz ticks on the target
+                                                         * (mix_block times the parts once c1_t4_ok); 0 until then */
+static uint16_t part_est[NTRK];                        /* the estimate formula (mix_part): the host's, and the target's
+                                                         * fallback while core 1 cannot read TIMER4 */
+static uint32_t c1_t4_ok;                              /* core 1's TIMER4 reads proved good (c1_probe_t4, main.c) */
+static uint16_t part_w(uint32_t i) { return c1_t4_ok ? part_cost[i] : part_est[i]; }   /* mix_split's weights */
 #define mix_l (mx[0].l)
 #define mix_r (mx[0].r)
 #define send_d (mx[0].d)
@@ -1509,13 +1514,19 @@ static void ins_bus_block(void)                      /* mix_block: new block for
     for (k = 0; k < C1_NP; k++)
         ins_bus_ran[k] = 0;
     for (st = 0; st < INS_N; st++) {
-        ins_bus_blk[st] = ins_st[ins_bus_tr(st)][st];   /* before any consumer: the copies' start */
-        ins_bus_driver[st] = 0xFF;
+        uint32_t tr = ins_bus_tr(st);
+        uint8_t driver = 0xFF, any = 0;
         for (k = 0; k < NTRK; k++)                     /* the lowest SEND consumer runs the shared state */
-            if (ins_is_send(&trk[k], st) && ins_mix_of(&trk[k], st) != 0) {
-                ins_bus_driver[st] = (uint8_t)k;
-                break;
+            if (ins_is_send(&trk[k], st)) {
+                any = 1;
+                if (driver == 0xFF && ins_mix_of(&trk[k], st) != 0)
+                    driver = (uint8_t)k;
             }
+        ins_bus_driver[st] = driver;
+        if (!any)                                      /* (no SEND user: the start's copy has no reader; a
+                                                        * first MIX-0 consumer takes its own where it enters) */
+            continue;
+        ins_bus_blk[st] = ins_st[tr][st];              /* before any consumer: the copies' start */
     }
 }
 
@@ -1884,7 +1895,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
     int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t) || chain;
     t->spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON);   /* (SPREAD, mix_spread) */
     uint32_t nr = track_render_audio(t, b, n, need_zeros);
-    part_cost[(uint32_t)tr % NTRK] = (uint16_t)(nr ? 40u * trk_nvoice(t) : 0u) +   /* mix_split's estimate */
+    part_est[(uint32_t)tr % NTRK] = (uint16_t)(nr ? 40u * trk_nvoice(t) : 0u) +    /* mix_split's estimate (part_w) */
                                      (uint16_t)((nr || t->tail ? 60u : 0u) + 24u * (ins_any(t) != 0));
     if (nr)
         t->tail = ins_any(t) ? 64 : 16;                 /* blocks of insert state to run out after the last voice */
@@ -2030,11 +2041,55 @@ static __attribute__((noinline)) void dx_mot_block(uint32_t n)
 #define C1_RUN(fn, arg) 0                               /* hand it fn(arg): 1 = taken */
 #define C1_WAIT() 0                                     /* wait for it: 0 = done */
 #endif
+#if FM1_CPU1_USED
+#define C1_TIMED 1                                      /* the target: TIMER4 (fm1_time.h) times the parts */
+#else
+#define C1_TIMED 0                                      /* the host: no TIMER4 there; the estimate stands */
+#endif
 static uint32_t c1_blocks;                              /* blocks the second core took parts of */
+static uint32_t c1_hand = 40u;                          /* handing one part over, in part_w's units (mix_split) */
 
 static mixsum_t c1_part;                /* a part's sums while it renders: whole only into the core's sums (a job
                                          * cut mid-part leaves its half here, never in mx[1]) */
 volatile uint32_t c1_done;              /* the parts whose sums are whole in mx[1] (mix_block: only these merge) */
+#if C1_TIMED
+static volatile uint16_t c1_cost[NTRK]; /* a handed part's own render: ticks (c1_parts, fm1_ticks) */
+static void part_ticks(uint32_t i, uint32_t d)          /* one part's render this block -> the weights */
+{
+    if (!c1_t4_ok)
+        return;
+    if (d > 60000u)
+        d = 60000u;
+    part_cost[i] = (uint16_t)(part_cost[i] ? (part_cost[i] + d) / 2u : d);
+}
+static volatile uint32_t c1_probe_view;
+static void c1_probe(uint32_t arg)                      /* core 1: reads TIMER4 (the weights' clock) */
+{
+    (void)arg;
+    c1_probe_view = fm1_ticks();
+}
+void c1_probe_t4(void)                                  /* main.c: once at boot, core 1 up, before the audio: the
+                                                         * probe job's read must land inside our own window (a core
+                                                         * that cannot read TIMER4 fails it and the estimate stands) */
+{
+    uint32_t a, b, v;
+    if (c1_t4_ok)
+        return;
+    c1_probe_view = 0;
+    a = fm1_ticks();
+    if (!C1_RUN(c1_probe, 0))
+        return;
+    if (C1_WAIT() != 0)
+        return;
+    b = fm1_ticks();
+    v = c1_probe_view;
+    if ((uint32_t)(b - a) < 24000u * 100u && (uint32_t)(v - a) <= (uint32_t)(b - a)) {
+        c1_t4_ok = 1;
+        c1_hand = 500u;                                 /* handing one over costs the mailbox and the sums' zero / merge */
+        memset(part_cost, 0, sizeof part_cost);         /* the units change: no estimate values in tick slots */
+    }
+}
+#endif
 
 static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k = part k) | n << 8 */
 {
@@ -2044,7 +2099,16 @@ static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k
         if (arg >> k & 1u) {
             for (i = 0; i < n; i++)
                 c1_part.l[i] = c1_part.r[i] = c1_part.d[i] = c1_part.rv[i] = 0;
+#if C1_TIMED
+            uint32_t ts = fm1_ticks();
+#endif
             mix_part(&trk[k], n, &c1_part);
+#if C1_TIMED
+            {
+                uint32_t d = fm1_ticks() - ts;
+                c1_cost[k] = (uint16_t)(d > 60000u ? 60000u : d);
+            }
+#endif
             for (i = 0; i < n; i++) {
                 sm->l[i] += c1_part.l[i];
                 sm->r[i] += c1_part.r[i];
@@ -2056,9 +2120,8 @@ static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k
 }
 
 /* which parts go to the second core: the split of the last block's costs that leaves the busier core the least; none
- * when that saves less than handing them over costs (C1_HAND). Keep this per-block scheduler out of the audio
- * interrupt's render loops (target_budget). */
-#define C1_HAND 40u
+ * when that saves less than handing them over costs (c1_hand: estimates' units, or measured ticks once c1_t4_ok).
+ * Keep this per-block scheduler out of the audio interrupt's render loops (target_budget). */
 static __attribute__((noinline)) uint32_t mix_split(void)
 {
     uint32_t m, i, best = 0, all = 0, lo, chor = 0, deep = 0;
@@ -2073,14 +2136,14 @@ static __attribute__((noinline)) uint32_t mix_split(void)
     if (chor >= 2u && deep)
         return 0;
     for (i = 0; i < NPART; i++)
-        all += part_cost[i];
+        all += part_w(i);
     lo = all;
     for (m = 1; m < (1u << NPART) - 1u; m++) {
         uint32_t a = 0, w;
         for (i = 0; i < NPART; i++)
             if (m >> i & 1u)
-                a += part_cost[i];
-        w = (a > all - a ? a : all - a) + C1_HAND;
+                a += part_w(i);
+        w = (a > all - a ? a : all - a) + c1_hand;
         if (w < lo) {
             lo = w;
             best = m;
@@ -2130,8 +2193,15 @@ static void mix_block(int32_t *out, uint32_t n)
         }
         c1_blocks += m != 0;
         for (i = 0; i < NPART; i++)
-            if (!(m >> i & 1u))
+            if (!(m >> i & 1u)) {
+#if C1_TIMED
+                uint32_t ts = fm1_ticks();
+#endif
                 mix_part(&trk[i], n, &mx[0]);
+#if C1_TIMED
+                part_ticks(i, fm1_ticks() - ts);
+#endif
+            }
         if (m) {
             const mixsum_t *sm = &mx[1];
             if (C1_WAIT()) {                            /* it stopped answering (held from now on) */
@@ -2139,9 +2209,22 @@ static void mix_block(int32_t *out, uint32_t n)
                                                          * (the one cut mid-part advances its state twice: one block's
                                                          * artifact, not a dropout) */
                 for (i = 0; i < NPART; i++)
-                    if (left >> i & 1u)
+                    if (left >> i & 1u) {
+#if C1_TIMED
+                        uint32_t ts = fm1_ticks();
+#endif
                         mix_part(&trk[i], n, &mx[0]);
+#if C1_TIMED
+                        part_ticks(i, fm1_ticks() - ts);
+#endif
+                    }
             }
+#if C1_TIMED
+            if (c1_t4_ok)                               /* the handed parts: their own render, as core 1 timed it */
+                for (i = 0; i < NPART; i++)
+                    if ((m >> i & 1u) && (c1_done >> i & 1u))
+                        part_ticks(i, c1_cost[i]);
+#endif
             for (i = 0; i < n; i++) {
                 mix_l[i] += sm->l[i];
                 mix_r[i] += sm->r[i];
