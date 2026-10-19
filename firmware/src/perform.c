@@ -3,10 +3,10 @@
 /* PERFORM: the effects of the FX hold layer, on the master. A key pressed while FX is held belongs to the
  * layer (seq.c keyboard_block): it plays no note, sends no MIDI, records nothing, and holds its effect until
  * it is let go (ui_input.c opens the layer and shows the map). The 16 white keys (F3 .. G5) hold the effect the map
- * gives them. Two pages in the FX section (PUNCH and PUNCH 2), each a fixed map — no reassignment: the defaults
+ * gives them. Two PUNCH-IN pages in the FX section, each a fixed map — no reassignment: the defaults
  * (PF_DEF, JIANT; PF2_DEF the audio effects they did not fit):
- *   PUNCH 1: REPEAT 1/8 1/16 1/32, 1/2, LPF, HPF, OCT-, OCT+, DEC±, stutter 1/8 1/16, ATK+, ARP, RANDOM; G5 none
- *   PUNCH 2: REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW; G4.. G5 none
+ *   PUNCH-IN 1/2: REPEAT 1/8 1/16 1/32, 1/2, LPF, HPF, OCT-, OCT+, DEC±, stutter 1/8 1/16, ATK+, ARP, RANDOM; G5 none
+ *   PUNCH-IN 2/2: REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW; G4.. G5 none
  *   both: with FX LATCH, G5 is CLR (latched effects and FILTER/CRUSH/THROW/DEPTH off); black keys 1..4 mute
  *   tracks 1..4; A#4 steps the MIDI effects' tracks (ALL / SYN / DRM).
  * REV THROW / ECHO THROW (1.5.1): while held every track's reverb / delay send is full (as REV / DLY 127; perf_throw),
@@ -82,12 +82,12 @@ enum { BM_NONE, BM_LOOP, BM_TAPE, BM_FRZ, BM_HARM };
 #define THR_FB 22938                          /* ECHO THROW: the delay's feedback while held at least this, Q15 (0.7) */
 
 /* the white keys' effects by default (JIANT: REPEAT, 1/2, then LPF/HPF/OCT together; G5 CLR with LATCH);
- * PUNCH 2 the audio effects the first page's keys do not hold (perform.c head) */
+ * the 2/2 page the audio effects the first one's keys do not hold (perform.c head) */
 static const uint8_t PF_DEF[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_HALF, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_DSHT,
                                         PF_DLNG, PF_S8, PF_S16, PF_ATK, PF_ARP, PF_RND, PF_N};
 static const uint8_t PF2_DEF[PF_KEYS] = {PF_REV, PF_TAPE, PF_FRZ, PF_OUP, PF_ODN, PF_FLG, PF_PHS, PF_RTHR, PF_ETHR,
                                          PF_N, PF_N, PF_N, PF_N, PF_N, PF_N, PF_N};
-static volatile uint8_t perf_page2;   /* main: the punch page shown (ui.c page_entered): 0 PUNCH, 1 PUNCH 2 — the map
+static volatile uint8_t perf_page2;   /* main: the punch page shown (ui.c page_entered): 0 = 1/2, 1 = 2/2 — the map
                                        * the FX layer's white keys hold (seq.c perf_key, ui_layer.c layer_fx) */
 #define perf_map_now() (perf_page2 ? PF2_DEF : PF_DEF)
 /* the page's map for the layer's white keys; nothing held can follow: the map only changes through the pages

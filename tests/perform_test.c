@@ -37,7 +37,7 @@
  *    fast turn rides at the turn's own speed, an instant jump sweeps its chirp and lands, up and down alike); REV THROW / ECHO THROW: every track's reverb / delay send as at 127 while held, the
  *    other bus untouched, the glide (11.6 ms, bounded steps) in and out, ECHO THROW's feedback 0 -> 0.7 and one above
  *    left alone, bounded on full-scale squares and dying away, the reverb tail ringing out after the release, idle
- *    again after it, on PUNCH 2 (the map's 8th / 9th key), the tracks' values never touched.
+ *    again after it, on PUNCH-IN 2/2 (the map's 8th / 9th key), the tracks' values never touched.
  * Demos (WAV) into DEMO_DIR; with a third directory 1.5.1's throws (the loop dry, ECHO THROW at 1/8D, REV THROW); with a second directory, the harmonizer's (a melody with OCT UP, OCT DN, and
  * OCT UP with the shimmer) and FLANGER's and PHASER's (a loop plain, then with each) into it. */
 #define main hostsim_main
@@ -938,7 +938,7 @@ static int test_map(void)
     int bad = 0, ok = 1;
     uint32_t p, k;
     char what[160];
-    bad += check("map: the pages are fixed (PUNCH 1: REPEAT, 1/2, LPF/HPF/OCT, DEC, stutter, ATK ARP RANDOM; PUNCH 2: the audio effects)",
+    bad += check("map: the pages are fixed (PUNCH 1: REPEAT, 1/2, LPF/HPF/OCT, DEC, stutter, ATK ARP RANDOM; PUNCH-IN 2/2: the audio effects)",
                  PF_DEF[0] == PF_R8 && PF_DEF[3] == PF_HALF && PF_DEF[4] == PF_LPF && PF_DEF[5] == PF_HPF &&
                  PF_DEF[6] == PF_OCTD && PF_DEF[7] == PF_OCTU && PF_DEF[14] == PF_RND && PF_DEF[15] == PF_N &&
                  PF2_DEF[0] == PF_REV && PF2_DEF[1] == PF_TAPE && PF2_DEF[2] == PF_FRZ && PF2_DEF[3] == PF_OUP &&
@@ -969,14 +969,14 @@ static int test_map(void)
         bad += check("keys: the punch page's map under the notes (G5 unassigned, LATCH off), all 16 white keys",
                      ok && white == 16u);
         ok = 1;
-        perf_page(1);                                   /* PUNCH 2 (SELECT on the sticky map) */
-        fm1_in.notes = 1u << ck;                        /* C4 on PUNCH 2: PITCH DN */
+        perf_page(1);                                   /* PUNCH-IN 2/2 (SELECT on the sticky map) */
+        fm1_in.notes = 1u << ck;                        /* C4 on PUNCH-IN 2/2: PITCH DN */
         keyboard_block();
         ok &= perf_held == PF_BIT(PF_ODN) && perf_latched == 0u;
         fm1_in.notes = 0;
         keyboard_block();
         ok &= !perf_held && !kb_layer;
-        bad += check("  the page flipped: the keys hold PUNCH 2's effects (C4: PITCH DN)", ok);
+        bad += check("  the page flipped: the keys hold PUNCH-IN 2/2's effects (C4: PITCH DN)", ok);
         /* the latch coming on with a key still held (a settings load): letting the key go clears its bit, the
          * latched effects stay sticky */
         perf_page(0);
@@ -1427,7 +1427,7 @@ static int test_throw(void)
     {   /* PUNCH 2 (1.5.1): REV / ECHO THROW are the effects 12 / 13 and the page's keys 8 / 9, no settings */
         ok = PF_PHS == 11 && PF_RTHR == 12 && PF_ETHR == 13 && PF_HARM == (PF_BIT(PF_OUP) | PF_BIT(PF_ODN));
         ok &= PF2_DEF[7] == PF_RTHR && PF2_DEF[8] == PF_ETHR && PF_PHS == 11;
-        bad += check("PUNCH 2: REV / ECHO THROW are the 8th / 9th key (the effects 12 / 13); no settings", ok);
+        bad += check("PUNCH-IN 2/2: REV / ECHO THROW are the 8th / 9th key (the effects 12 / 13); no settings", ok);
     }
     return bad;
 }

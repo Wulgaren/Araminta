@@ -1873,7 +1873,7 @@ static void ui_input(void)
             panel_enc(EN_PRESET);                       /* (a stray turn must not load a sound behind the punch map) */
         panel_enc(EN_ALGO);
         if (layer_open() == LAYER_FX && (s = panel_enc(EN_SELECT)) != 0 && !glo)
-            select_page_step(s > 0 ? 1 : -1);           /* FX sticky: the punch map's pages (PUNCH, PUNCH 2) */
+            select_page_step(s > 0 ? 1 : -1);           /* FX sticky: the punch map's PUNCH-IN pages */
         else
             panel_enc(EN_SELECT);                       /* (or OCT+ + SELECT: tempo; the other sticky maps keep it) */
     } else {

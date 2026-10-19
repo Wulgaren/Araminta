@@ -1298,8 +1298,9 @@ static void setup(int s)
         perf_held = perf_act = PF_BIT(PF_FLG) | PF_BIT(PF_PHS);
         perf_k[3] = 25; ui.hot_col = 3; ui.hot_t = 30;
         break;
-    case S_FX_PUNCH2:                                /* PUNCH 2's sticky map, a key held (its cell marked) */
-        go_title("PUNCH 2"); ui.layer = ui.ly = ui.lock = LAYER_FX;
+    case S_FX_PUNCH2:                                /* PUNCH-IN 2/2's sticky map, a key held (its cell marked) */
+        go_title("PUNCH-IN"); ui.page = (uint8_t)(NPAGES - 1); page_entered();   /* PUNCH-IN 2/2 (the table's last) */
+        ui.layer = ui.ly = ui.lock = LAYER_FX;
         kb_layer = 1u << key_at(0, 1); lys.fxk = (uint8_t)(key_at(0, 1) + 1u);
         perf_page(1); perf_held = perf_act = PF_BIT(PF_ODN);
         break;
