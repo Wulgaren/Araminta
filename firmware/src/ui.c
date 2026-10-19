@@ -595,6 +595,12 @@ static void page_entered(void)
     if (!ui.home && lock_page_ok(ui.page))
         ui.plk_src = (uint8_t)(ui.page + 1u);
     song.seq_mode = !ui.home && pg->fam == FAM_SEQ;
+    {   /* the punch page shown: the section's 2/2 page (two PUNCH-IN titles, the count tells them apart) */
+        uint32_t i = NPAGES;
+        while (i > 0 && !(PAGES[i - 1].fam == FAM_FX && PAGES[i - 1].sec == FX_SEC_PUNCH))
+            i--;                                        /* (the last PUNCH-IN page in the table: the 2/2) */
+        perf_page(!ui.home && pg->fam == FAM_FX && pg->sec == FX_SEC_PUNCH && pg == &PAGES[i - 1]);
+    }
     ui.entry_open = 0;
     ui.hot_t = 0;                                /* clear the previous page's emphasis */
     ui.act = pg->graph == GR_USER ? 4u : 0u;     /* the save screen is ready for OCT+ */

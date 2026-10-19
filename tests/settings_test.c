@@ -174,9 +174,9 @@ int main(void)
         q = p; settings_export(&q); assert(q.favorites.factory[15][30] == want);
         p = original; assert(settings_import(&p, sizeof p) == 1);
     }
-    {   /* 1.2 the FX layer's key map (ui_layer.c fx_keys, favorites.factory[15][14..23], 16 x 5 bits, 0 = the key's
-         * default): 0 in every older record; any bytes kept as saved (codes of a later firmware too), the bytes around
-         * them untouched; twice the same */
+    {   /* 1.2 the FX layer's key map (retired: fixed pages, perform.c PF_DEF / PF2_DEF) in favorites.factory[15][14..23],
+         * 0 in every older record: any bytes kept as saved (codes of a later firmware too), the bytes around them
+         * untouched; twice the same */
         persist_t q;
         uint32_t i;
         p = original; p.magic = 0x50455233u;
