@@ -544,7 +544,7 @@ static const page_t PAGES[] = {
     {"FLANGER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_ILRATE, P_ILDEP, 0xFF, 0xFF}},
     {"CHORUS", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IHRATE, P_IHDEP, 0xFF, 0xFF}},
     {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, FX_SEC_INS, {P_SLCR, P_SLPAT, P_SLRATE, 0xFF}},
-    {"PUNCH", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"PUNCH-IN", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, 0, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
     {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, 0, {P_CHRD, P_VOIC, PG_SLOCK, 0xFF}},
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, EDIT_SEC_SND, {P_E0, P_E1, P_E2, P_E3}},
@@ -589,6 +589,8 @@ static const page_t PAGES[] = {
     {"SEQ TOOLS", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_TOOL, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
     /* HOME: Mixer; ui.home is its own section (home_tap). Drum lane mutes live in SEQ TOOLS. */
     {"MIXER", FAM_TRK, SC_TRK, GR_TRK, TRK_SEC_MIX, {0, 1, 2, 3}},
+    {"PUNCH-IN", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},   /* the section's 2/2 (same
+                                                     * title, the footer's count tells); its map is perform.c PF2_DEF */
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */

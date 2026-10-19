@@ -248,7 +248,8 @@ static void con_dbg(void)
     static const char *const NAMES[] = {"magic", "halves", "max_us", "nested", "in_audio", "late",
                                         "timer_irqs", "ui_frames", "last_us", "cpu_q8", "boots",
                                         "stage", "page", "home", "prev_stage", "prev_page",
-                                        "prev_home", "prev_rst", "prev_frames"};
+                                        "prev_home", "prev_rst", "prev_frames",
+                                        "late_over", "late_t5", "late_oth", "wall_max_us", "entry_gap_us"};
     uint32_t i;
     for (i = 0; i < sizeof NAMES / sizeof NAMES[0] && i < sizeof felucca_dbg / 4u; i++)
         con_kx(NAMES[i], w[i]);
@@ -276,6 +277,7 @@ static void con_c1(void)
     con_kv("c1_jobs", (int32_t)fm1_c1_mb.job);
     con_kv("c1_alive", (int32_t)fm1_c1_mb.alive);
     con_kv("c1_stack_used", (int32_t)fm1_cpu1_stack_used());
+    con_kv("c1_t4_ok", (int32_t)c1_t4_ok);      /* core 1 times the parts with TIMER4 (fx.c mix_split's weights) */
     con_kx("c1_trace", fm1_c1_trace);
 }
 
