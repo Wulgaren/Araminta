@@ -158,6 +158,10 @@ static void fm1_main(void)
         if (fm1_cpu1_start() != 0)
             fm1_c1_dead = 1;
         fm1_guard_enable(FM1_GUARD_PC);
+#if FM1_CPU1_USED
+        if (fm1_c1_on)
+            c1_probe_t4();                        /* can core 1 read TIMER4? (fx.c mix_split's part weights) */
+#endif
     } else {
         fm1_c1_dead = 1;                      /* a crash in the last boot's first 30 s: not started this session */
     }

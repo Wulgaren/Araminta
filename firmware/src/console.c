@@ -277,6 +277,7 @@ static void con_c1(void)
     con_kv("c1_jobs", (int32_t)fm1_c1_mb.job);
     con_kv("c1_alive", (int32_t)fm1_c1_mb.alive);
     con_kv("c1_stack_used", (int32_t)fm1_cpu1_stack_used());
+    con_kv("c1_t4_ok", (int32_t)c1_t4_ok);      /* core 1 times the parts with TIMER4 (fx.c mix_split's weights) */
     con_kx("c1_trace", fm1_c1_trace);
 }
 
