@@ -62,22 +62,26 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 
 
 /* Overload: two halves in a row above 85 % (the render plus TIMER5 nested in it), or a single half above 92 %
  * (a bursty load that sits well under 85 % between its spikes never built the pair: the one hot half alone sheds
- * now), fade one voice over the next block, and one more each half while it lasts. Keep each part's
- * lowest POLY note and MONO / LEGATO / UNISON lead, as the shared budget does. */
-static volatile uint8_t shed_req;
+ * now), fade one voice over the next block; a half that blows past the deadline (~110 % bursts leave one voice's
+ * share short) asks for two at once, its next half late anyway. One more each half while it lasts. Keep each
+ * part's lowest POLY note and MONO / LEGATO / UNISON lead, as the shared budget does. */
+static volatile uint8_t shed_req;                      /* voices to kill at the next half's start (1, or 2 on a burst) */
 static uint8_t shed_over;                              /* bit k: the half k halves ago was over 85 % */
 #define SHED_TICKS ((HALF_FRAMES * 1000000u / FS) * 85u / 100u * FM1_TICKS_PER_US)   /* 85 % of a half */
 #define SHED_TICKS_1 ((HALF_FRAMES * 1000000u / FS) * 92u / 100u * FM1_TICKS_PER_US) /* 92 %: this half alone sheds */
+#define SHED_TICKS_2 ((HALF_FRAMES * 1000000u / FS) * 100u / 100u * FM1_TICKS_PER_US)/* 100 %: it needs two voices */
 static uint32_t shed_count;
 
 /* end of a half: all = its ticks, TIMER5 nested in it included -> the render alone in us. The deadline sees
  * both; shed after 2 overloaded halves in a row, or one at 92 % (out of line: keeps the ISR's render loops as they
- * were) */
+ * were); past the deadline the burst is bigger than one voice's share, so two */
 static __attribute__((noinline)) uint32_t shed_check(uint32_t all)
 {
     shed_over = (uint8_t)(shed_over << 1 | (all > SHED_TICKS));
     if ((shed_over & 3u) == 3u || all > SHED_TICKS_1)
         shed_req = 1;
+    if (all > SHED_TICKS_2)
+        shed_req = 2;
     return (all - t5_nested_ticks) / FM1_TICKS_PER_US;
 }
 
@@ -130,8 +134,10 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
         gap_us = (t0 - dbg_last_entry) / FM1_TICKS_PER_US;
         dbg_last_entry = t0;
         if (shed_req) {
+            uint8_t req = shed_req;
             shed_req = 0;
-            shed_voice();
+            while (req--)
+                shed_voice();
         }
 #if FELUCCA_UAC
         uac_render_start();
