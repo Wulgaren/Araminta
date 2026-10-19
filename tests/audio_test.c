@@ -61,7 +61,7 @@ static voice_t *held(track_t *t, uint32_t note)
 }
 static void overload(void)
 {
-    voice_t *lead, *bass, *extra;
+    voice_t *lead, *bass, *extra, *third;
     uint32_t mode, i;
     int32_t out[2 * CTL];
     fresh();
@@ -114,6 +114,7 @@ static void overload(void)
 static void dma(void)
 {
     uint32_t i, expected;
+    voice_t *lead = 0, *extra = 0, *third = 0;
     fresh();
     host_pending = 0;
     fm1_alnk0_irq();
@@ -121,7 +122,7 @@ static void dma(void)
     host_pending = FM1_AUDIO_HALF;
     host_us = 5000;
     fm1_alnk0_irq();
-    check("one half well over the deadline sheds on its own", host_acks == 1u && shed_req && felucca_dbg.last_us == 5000u && !felucca_dbg.late);
+    check("a half past the deadline asks for two voices", host_acks == 1u && shed_req == 2u && felucca_dbg.last_us == 5000u && !felucca_dbg.late);
     shed_req = 0;
     fm1_alnk0_irq();
     check("a second slow half in a row keeps shedding", host_acks == 2u && shed_req);
@@ -129,6 +130,19 @@ static void dma(void)
     host_half_reads = 0; host_dma_advanced = 1; host_us = 100;
     fm1_alnk0_irq();
     check("DMA advancing during a render is counted once", host_acks == 3u && felucca_dbg.late == 1u && !felucca_dbg.in_audio && !shed_req);
+    fresh();
+    trk[0].p[P_VOICE] = V_POLY;
+    trk_note_on(&trk[0], 60, 100); trk_note_on(&trk[0], 64, 100); trk_note_on(&trk[0], 67, 100);
+    lead = held(&trk[0], 60); extra = held(&trk[0], 64); third = held(&trk[0], 67);
+    host_pending = FM1_AUDIO_HALF;
+    host_nest = 0;
+    host_us = (HALF_FRAMES * 1000000u / FS) * 110u / 100u;   /* a burst past the deadline */
+    fm1_alnk0_irq();
+    host_pending = FM1_AUDIO_HALF;
+    host_us = 100;
+    fm1_alnk0_irq();                                        /* the request is carried out at the next half's start */
+    check("a burst past the deadline reclaims two voices at once",
+          shed_count == 2u && !extra->gate && !third->gate && lead->gate && lead->stage != 4u && !shed_req);
     fresh();
     expected = HALF_FRAMES * 1000000u / FS;            /* the half's deadline in us */
     host_us = expected * 90u / 100u; host_nest = expected * 30u / 100u;   /* the render 60 %, TIMER5 nested 30 % */
