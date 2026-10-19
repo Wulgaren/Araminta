@@ -121,9 +121,10 @@ static void dma(void)
     host_pending = FM1_AUDIO_HALF;
     host_us = 5000;
     fm1_alnk0_irq();
-    check("one slow half records elapsed load but does not shed yet", host_acks == 1u && !shed_req && felucca_dbg.last_us == 5000u && !felucca_dbg.late);
+    check("one half well over the deadline sheds on its own", host_acks == 1u && shed_req && felucca_dbg.last_us == 5000u && !felucca_dbg.late);
+    shed_req = 0;
     fm1_alnk0_irq();
-    check("a second slow half in a row requests shedding", host_acks == 2u && shed_req);
+    check("a second slow half in a row keeps shedding", host_acks == 2u && shed_req);
     shed_req = 0;
     host_half_reads = 0; host_dma_advanced = 1; host_us = 100;
     fm1_alnk0_irq();
@@ -134,9 +135,15 @@ static void dma(void)
     fm1_alnk0_irq(); fm1_alnk0_irq();
     check("TIMER5 nested in the render counts toward the deadline", shed_req && felucca_dbg.last_us == host_us - host_nest);
     fresh();
-    host_us = 5000;
-    fm1_alnk0_irq(); host_us = 100; fm1_alnk0_irq(); host_us = 5000; fm1_alnk0_irq();
-    check("slow halves that are not consecutive do not shed", !shed_req);
+    host_us = (HALF_FRAMES * 1000000u / FS) * 92u / 100u - 10u;   /* just under the single strike */
+    fm1_alnk0_irq();
+    check("a lone half under the single strike does not shed", !shed_req);
+    fresh();
+    host_us = (HALF_FRAMES * 1000000u / FS) * 86u / 100u;         /* over the pair threshold, under the strike */
+    fm1_alnk0_irq();
+    check("a lone half over 85 % still does not shed", !shed_req);
+    fm1_alnk0_irq();
+    check("two halves in a row over 85 % do shed", shed_req);
     fresh();
     host_us = 580;
     for (i = 0; i < 512u; i++) fm1_alnk0_irq();
