@@ -4,7 +4,7 @@
  * are its shortcuts and its map shows over the page. One table (LAYERS) drives the gesture, the keys, the knobs,
  * the LEDs and the overlay:
  *   FX   HOLD  the performance effects (perform.c) and the track mutes while held; KNOB 1..4 its macros. The white
- *              keys hold the punch page's fixed map (PUNCH: PF_DEF, PUNCH 2: PF2_DEF; SELECT walks the two on the
+ *              keys hold the punch page's fixed map (1/2: PF_DEF, 2/2: PF2_DEF; SELECT walks the two on the
  *              sticky map; the 1.2 reassignment with PRESETS is retired)
  *   GLO  SET   black keys 1..4 (F#3 G#3 A#3 C#4) T1..T4 MUTE (latched; lit = sounding), F3..B3 SOLO T1..T4 while
  *              held (HOLD cells, a corner triangle), C4 UNMUTE ALL, D4 MIDI LEARN on / off (1.5, midi_learn.c), F4 TAP
@@ -1154,7 +1154,7 @@ static void draw_layer(void)
         cv_blit(0, Y_GRAPH);
     }
     if (ui.force) {                                     /* the footer: what the keys, knobs and buttons do */
-        if (l == LAYER_FX) {                            /* 2.6: the punch map keeps the page's own bottom bar */
+        if (l == LAYER_FX) {                            /* the punch map keeps the page's own bottom bar */
             draw_foot();
         } else {
             cv_begin(240, H_FOOT, T_BG);
