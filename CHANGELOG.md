@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.7
+
+An overload that runs past the deadline sheds two voices at once, and the editor's project slots line up one per row. Install from the [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB). Try it first in the [browser](https://wulgaren.github.io/Araminta/webapp/try/).
+
+Same project format as 2.6 (FUN15 / `FUNF`). Splash and ABOUT show `v2.7`.
+
+### Audio
+
+- A half past 100 % of the deadline now sheds two voices at once. A burst around 110 % leaves one voice's share short, and the next half would be late anyway. The request is carried out at the next half's start, each voice fading over the block. A single half over 92 % and two 85 % halves in a row still shed one.
+
+### Editor
+
+- Project slots A to D are one row each: letter, used or empty, Load / Save, then Export / Import. The six controls per slot used to flow through a four-column grid, which put one slot's buttons beside the next slot's label.
+
 ## 2.6
 
 The FX punch-ins reach every effect again on two fixed pages, the second core takes the parts it actually costs, and an overload thins a voice the moment a half runs hot. Install from the [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB). Try it first in the [browser](https://wulgaren.github.io/Araminta/webapp/try/).
