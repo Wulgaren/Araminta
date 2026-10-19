@@ -1509,13 +1509,19 @@ static void ins_bus_block(void)                      /* mix_block: new block for
     for (k = 0; k < C1_NP; k++)
         ins_bus_ran[k] = 0;
     for (st = 0; st < INS_N; st++) {
-        ins_bus_blk[st] = ins_st[ins_bus_tr(st)][st];   /* before any consumer: the copies' start */
-        ins_bus_driver[st] = 0xFF;
+        uint32_t tr = ins_bus_tr(st);
+        uint8_t driver = 0xFF, any = 0;
         for (k = 0; k < NTRK; k++)                     /* the lowest SEND consumer runs the shared state */
-            if (ins_is_send(&trk[k], st) && ins_mix_of(&trk[k], st) != 0) {
-                ins_bus_driver[st] = (uint8_t)k;
-                break;
+            if (ins_is_send(&trk[k], st)) {
+                any = 1;
+                if (driver == 0xFF && ins_mix_of(&trk[k], st) != 0)
+                    driver = (uint8_t)k;
             }
+        ins_bus_driver[st] = driver;
+        if (!any)                                      /* (no SEND user: the start's copy has no reader; a
+                                                        * first MIX-0 consumer takes its own where it enters) */
+            continue;
+        ins_bus_blk[st] = ins_st[tr][st];              /* before any consumer: the copies' start */
     }
 }
 
