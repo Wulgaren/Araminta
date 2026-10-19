@@ -3,11 +3,12 @@
 /* PERFORM: the effects of the FX hold layer, on the master. A key pressed while FX is held belongs to the
  * layer (seq.c keyboard_block): it plays no note, sends no MIDI, records nothing, and holds its effect until
  * it is let go (ui_input.c opens the layer and shows the map). The 16 white keys (F3 .. G5) hold the effect the map
- * gives them (perf_map: the settings, ui_layer.c; any effect on any key, or none). The default (PF_DEF, JIANT):
- *   REPEAT 1/8 1/16 1/32, then 1/2 so LPF HPF OCT- OCT+ sit together, then DEC±, stutter, ATK+, ARP, RANDOM
- *   (pfx.c); with FX LATCH, G5 is CLR (latched effects and FILTER/CRUSH/THROW/DEPTH off); black keys 1..4 mute
- *   tracks 1..4; A#4 steps the MIDI effects' tracks (ALL / SYN / DRM). Audio REVERSE / TAPE / FREEZE / harmonizer
- *   OCT / FLANGER / PHASER / THROW stay assignable on the map, not on the default keys.
+ * gives them. Two PUNCH-IN pages in the FX section, each a fixed map — no reassignment: the defaults
+ * (PF_DEF, JIANT; PF2_DEF the audio effects they did not fit):
+ *   PUNCH-IN 1/2: REPEAT 1/8 1/16 1/32, 1/2, LPF, HPF, OCT-, OCT+, DEC±, stutter 1/8 1/16, ATK+, ARP, RANDOM; G5 none
+ *   PUNCH-IN 2/2: REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW; G4.. G5 none
+ *   both: with FX LATCH, G5 is CLR (latched effects and FILTER/CRUSH/THROW/DEPTH off); black keys 1..4 mute
+ *   tracks 1..4; A#4 steps the MIDI effects' tracks (ALL / SYN / DRM).
  * REV THROW / ECHO THROW (1.5.1): while held every track's reverb / delay send is full (as REV / DLY 127; perf_throw),
  * ECHO THROW also lifts the delay's feedback to 0.7 if it is lower (fx.c fx_buses); both glide in and out over 11.6 ms
  * (THR_SLOPE). Let go, the sends are the tracks' own again and what the buses hold rings out. The buses are the song's
@@ -43,8 +44,8 @@
  * Chain: [REPEAT / REVERSE / TAPE / FREEZE] -> LPF -> HPF -> CRUSH -> FLANGER -> PHASER, after the master level and
  * before master_out (the limiter); THROW and the mutes act before the buses (fx.c mix_block / mix_part).
  * Idle (no key, no knob, no ramp left) every stage is skipped: the output is bit-identical. */
-/* the effects (their numbers are stored: the key map in the settings, ui_layer.c perf_map_put; append-only, before
- * PF_M1), then the mutes of the black keys */
+/* the effects (their numbers are stored only in code: the maps are the pages', append-only, before PF_M1), then the
+ * mutes of the black keys */
 enum { PF_R8, PF_R16, PF_R32, PF_REV, PF_LPF, PF_HPF, PF_TAPE, PF_FRZ, PF_OUP, PF_ODN, PF_FLG, PF_PHS,
        PF_RTHR, PF_ETHR,                      /* 1.5.1: REV THROW, ECHO THROW */
        PF_OCTD, PF_OCTU, PF_HALF, PF_DSHT, PF_DLNG, PF_S8, PF_S16, PF_ATK, PF_ARP, PF_RND,   /* MIDI: pfx.c */
@@ -80,13 +81,18 @@ enum { BM_NONE, BM_LOOP, BM_TAPE, BM_FRZ, BM_HARM };
 #define THR_SLOPE 64                          /* REV / ECHO THROW: the sends' glide a sample, Q15 (11.6 ms end to end) */
 #define THR_FB 22938                          /* ECHO THROW: the delay's feedback while held at least this, Q15 (0.7) */
 
-/* the white keys' effects by default (JIANT: REPEAT, 1/2, then LPF/HPF/OCT together; G5 CLR with LATCH) */
+/* the white keys' effects by default (JIANT: REPEAT, 1/2, then LPF/HPF/OCT together; G5 CLR with LATCH);
+ * the 2/2 page the audio effects the first one's keys do not hold (perform.c head) */
 static const uint8_t PF_DEF[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_HALF, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_DSHT,
                                         PF_DLNG, PF_S8, PF_S16, PF_ATK, PF_ARP, PF_RND, PF_N};
-static volatile uint8_t perf_map[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_HALF, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_DSHT,
-                                             PF_DLNG, PF_S8, PF_S16, PF_ATK, PF_ARP, PF_RND, PF_N};
-                                      /* main: white key p's effect (PF_N none), from the settings (ui_layer.c) */
-static volatile uint8_t perf_remap;   /* main: perf_map changed (seq.c: a key held takes its new effect) */
+static const uint8_t PF2_DEF[PF_KEYS] = {PF_REV, PF_TAPE, PF_FRZ, PF_OUP, PF_ODN, PF_FLG, PF_PHS, PF_RTHR, PF_ETHR,
+                                         PF_N, PF_N, PF_N, PF_N, PF_N, PF_N, PF_N};
+static volatile uint8_t perf_page2;   /* main: the punch page shown (ui.c page_entered): 0 = 1/2, 1 = 2/2 — the map
+                                       * the FX layer's white keys hold (seq.c perf_key, ui_layer.c layer_fx) */
+#define perf_map_now() (perf_page2 ? PF2_DEF : PF_DEF)
+/* the page's map for the layer's white keys; nothing held can follow: the map only changes through the pages
+ * (SELECT on the sticky map), and no key is the layer's between a walk (ui_input.c turns SELECT with FX up) */
+void perf_page(uint32_t punch2) { perf_page2 = (uint8_t)(punch2 != 0u); }
 
 static volatile uint32_t perf_mask;   /* main: the FX button's bit while its layer may own keys, 0 = none */
 static volatile uint32_t kb_mask;     /* main: the button bits whose hold makes keys a layer's (ui_layer.c), 0 = none */
@@ -166,26 +172,6 @@ static struct {
 } pf = {.src = PF_N, .next = PF_N, .lc = PF_TOP, .mg = {32768, 32768, 32768, 32768}};
 
 static int16_t fl_buf[FL_LEN][2];      /* FLANGER's line: L R, at half the level (headroom) */
-
-/* the key map in the settings (ui_layer.c: favorites.factory[15][14..23]): white key p's code in 5 bits from bit 5p
- * of b: 0 its default (PF_DEF), 1 none, 2 + e effect e (an unknown code, a later firmware's effect: the default) */
-static uint32_t perf_map_of(const uint8_t *b, uint32_t p)
-{
-    uint32_t i = 5u * p, c = (uint32_t)b[i >> 3] >> (i & 7u);
-    if ((i & 7u) > 3u)
-        c |= (uint32_t)b[(i >> 3) + 1u] << (8u - (i & 7u));
-    c &= 31u;
-    return c == 1u ? PF_N : c >= 2u && c - 2u < PF_NFX ? c - 2u : PF_DEF[p];
-}
-static void perf_map_put(uint8_t *b, uint32_t p, uint32_t e)
-{
-    uint32_t i = 5u * p, sh = i & 7u, c = e == PF_DEF[p] ? 0u : e >= PF_NFX ? 1u : e + 2u, two = sh > 3u, v;
-    v = b[i >> 3] | (two ? (uint32_t)b[(i >> 3) + 1u] << 8 : 0u);
-    v = (v & ~(31u << sh)) | c << sh;
-    b[i >> 3] = (uint8_t)v;
-    if (two)
-        b[(i >> 3) + 1u] = (uint8_t)(v >> 8);
-}
 
 /* the loop length of a REPEAT / REVERSE (1/8) at the tempo, 44.1 kHz samples; 0 = not one */
 static const uint8_t PF_DEN[PF_REV + 1] = {2, 4, 8, 2};
