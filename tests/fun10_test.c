@@ -564,7 +564,7 @@ static int formats(void)
     motion_set_lock(&trk[2], 9, P_E0 + 3, 7);
     project_capture(&a);
     memset(a.motion.event + a.motion.count, 0, (MOTION_MAX - a.motion.count) * sizeof a.motion.event[0]);
-    ok = motion.count == MOTION_FILE_MAX && proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E46u &&
+    ok = motion.count == MOTION_FILE_MAX && proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == PROJ_MAGIC &&
          ((uint32_t *)st.raw)[1] == 3840u && st.raw[66] == P_COUNT && proj_import(&b, &st, sizeof st) && !memcmp(&a, &b, sizeof a);
     ok &= step_nudge(&b.t[0].step[0]) == -8 && step_nudge(&b.t[0].step[1]) == 7 && step_nudge(&b.t[0].step[2]) == -1 &&
           step_ratchet(&b.t[0].step[3]) == 4u && step_nudge(&b.t[0].step[3]) == 1 && step_chance(&b.t[0].step[3]) == 33u;
@@ -577,17 +577,25 @@ static int formats(void)
     }
     bad += check("FUN13 round trip: 3840 bytes, nudges, MOTION_FILE_MAX disk records, LFO 2, QUANTIZE", ok);
     /* Old np 103/104 (pre-insert-chain) migration: inschain_test + params_by_count / ins_migrate. */
-    {   /* the song's sections (1.2): a slot per track, "-" silent, 5 bytes a row, 84 in all, right after the steps */
+    {   /* the song's sections (1.2; FUN16 wire): a slot per track, "-" silent, 2 bytes a row, 36 in all after the steps */
         project_t c = a, d;
         uint32_t at = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u);   /* +1/track: P_IORD high byte */
+        uint32_t w0, w15;
         c.chain.count = CHAIN_ROWS;
         for (i = 0; i < CHAIN_ROWS; i++)
             c.chain.row[i] = (chain_row_t){{(uint8_t)(i % 5u), (uint8_t)((i + 1u) % 5u), (uint8_t)((i + 2u) % 5u),
                                             (uint8_t)((i * 3u) % 5u)}, (uint8_t)(1u + i)};
         c.sum = proj_sum(&c);
-        ok = proj_pack(&st, &c) && proj_import(&d, &st, sizeof st) && !memcmp(&c, &d, sizeof c) && st.raw[at] == CHAIN_ROWS &&
-             st.raw[at + 4u] == 0 && st.raw[at + 5u] == 1 && st.raw[at + 6u] == 2 && st.raw[at + 7u] == 0 && st.raw[at + 8u] == 1 &&
-             st.raw[at + 4u + 5u * 15u + 4u] == 16;
+        ok = proj_pack(&st, &c);
+        ok = ok && proj_import(&d, &st, sizeof st);
+        printf(" im=%d", ok);
+        ok = ok && !memcmp(&c, &d, sizeof c);
+        printf(" mc=%d hdr=%d ccount=%u dcount=%u\n", ok, st.raw[at] == CHAIN_ROWS, c.chain.count, d.chain.count);
+        ok = ok && st.raw[at] == CHAIN_ROWS && !st.raw[at + 1u] && !st.raw[at + 2u] && !st.raw[at + 3u];
+        w0 = (uint32_t)st.raw[at + 4u] | (uint32_t)st.raw[at + 5u] << 8;
+        w15 = (uint32_t)st.raw[at + 4u + 2u * 15u] | (uint32_t)st.raw[at + 5u + 2u * 15u] << 8;
+        ok &= (w0 & 7u) == 0 && (w0 >> 3 & 7u) == 1 && (w0 >> 6 & 7u) == 2 && (w0 >> 9 & 7u) == 0 && (w0 >> 12) == 0 &&
+              (w15 >> 12) == 15 && (w15 & 7u) == (15u * 3u) % 5u && (w15 >> 3 & 7u) == 16u % 5u;
         c.chain.row[3].slot[2] = 5;                   /* past "-": refused (pack and load) */
         c.sum = proj_sum(&c);
         ok &= !proj_pack(&st, &c);

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Sparse, bounded step automation. Main-loop writes publish under the same
- * interrupt guard as parameter batches. The ISR only scans MOTION_MAX fixed records (128 since 1.2, FUN10; 64 before).
+ * interrupt guard as parameter batches. The ISR only scans MOTION_MAX fixed records (192 since FUN16; 128 before).
  * p[] is the sounding value; motion_base_value() is the patch's saved value.
  * Two kinds of record share the MOTION_MAX (core.h MOTION_LOCK): an automation event sets its value at its step and the value
  * holds (to the next event, the loop's restart, a stop); a parameter lock (1.1, Discussions #75 / #53: hold a step,

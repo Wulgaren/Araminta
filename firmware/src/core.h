@@ -430,10 +430,13 @@ static void step_set_note(step_t *s, uint32_t j, uint32_t v)
 }
 static uint32_t step_fl(const step_t *s) { return s->flags; }
 static void step_set_fl(step_t *s, uint32_t fl) { s->flags = (uint8_t)(fl & (SF_ACCENT | SF_SLIDE)); }
-#define MOTION_MAX 128u          /* RAM / old FUN10 (np<=111): 128 records. New saves (np==P_COUNT): see MOTION_FILE_MAX */
+#define MOTION_MAX 192u          /* RAM records: more than a FUN16 project saves, so a long session keeps them until the
+                                  * save (which clips at MOTION_FILE_MAX and warns) */
+#define MOTION_FILE_MAX_128 128u /* the pre-release FUN10..FUN12 block with np<=111: 128 records of 3 bytes */
 #define MOTION_FILE_MAX_V10 110u /* FUN10 disk: 4+110*3=334; +2 B/track for P_IORD left 2 B before FM6 */
 #define MOTION_FILE_MAX_V11 78u  /* FUN11 disk: 4+78*3=238; frees 96 B for the DRUM-X kit (project.c PROJ_DX_*) */
-#define MOTION_FILE_MAX 72u      /* FUN12 disk: 4+72*3=220; 16 B for SCALE LOCK + stash before CRV */
+#define MOTION_FILE_MAX_V15 72u  /* FUN12..FUN15 disk: 4+72*3=220; 18 B for SCALE LOCK + pad before CRV */
+#define MOTION_FILE_MAX 88u      /* FUN16 disk: the song chain repacks 84 -> 36 B, freeing 48 B for 16 more records */
 /* Four tracks x64 steps fit one byte. Track values are -64..127; FX TIME retains exact milliseconds in RAM.
  * param: the P_* or MFX_* id (<128), bit 7 (MOTION_LOCK, 1.1) a parameter lock: the value
  * sounds on that step only and goes back after it (motion.c motion_step); without it an automation event, the
@@ -446,14 +449,18 @@ enum { MFX_TIME = P_M1SRC, MFX_FB, MFX_COLOR, MFX_SIZE, MFX_DAMP };
 typedef struct { uint8_t place, param; int16_t value; } motion_event_t;
 typedef struct { uint8_t place, param, value; } motion_file_event_t;
 typedef struct { uint8_t count, on, rsv[2]; motion_event_t event[MOTION_MAX]; } motion_store_t;
-_Static_assert(sizeof(motion_store_t) == 516u, "motion RAM layout (128 records, exact FX values)");
+_Static_assert(sizeof(motion_store_t) == 772u, "motion RAM layout (192 records, exact FX values)");
 _Static_assert(sizeof(motion_file_event_t) == 3u, "motion disk record preserves capacity");
+#define MOTION_FILE_SIZE_128 (4u + MOTION_FILE_MAX_128 * sizeof(motion_file_event_t))
 #define MOTION_FILE_SIZE_V10 (4u + MOTION_FILE_MAX_V10 * sizeof(motion_file_event_t))
 #define MOTION_FILE_SIZE_V11 (4u + MOTION_FILE_MAX_V11 * sizeof(motion_file_event_t))
+#define MOTION_FILE_SIZE_V15 (4u + MOTION_FILE_MAX_V15 * sizeof(motion_file_event_t))
 #define MOTION_FILE_SIZE (4u + MOTION_FILE_MAX * sizeof(motion_file_event_t))
+_Static_assert(MOTION_FILE_SIZE_128 == 388u, "pre-release FUN10..FUN12 motion disk layout");
 _Static_assert(MOTION_FILE_SIZE_V10 == 334u, "FUN10 motion disk layout");
 _Static_assert(MOTION_FILE_SIZE_V11 == 238u, "FUN11 motion disk layout (kit before FM6)");
-_Static_assert(MOTION_FILE_SIZE == 220u, "FUN12 motion disk layout (SCALE LOCK before CRV)");
+_Static_assert(MOTION_FILE_SIZE_V15 == 220u, "FUN12..FUN15 motion disk layout (SCALE LOCK before CRV)");
+_Static_assert(MOTION_FILE_SIZE == 268u, "FUN16 motion disk layout (88 records, packed chain)");
 enum { SCL_LOCK_OFF = 0, SCL_LOCK_SCALE = 1 };   /* track_t.scl_lock / CHORD KNOB 3 (params.c PG_SLOCK) */
 #define CHAIN_ROWS 16u
 /* A song section (1.2, FUN10): the PROJECT slot each track plays (0..3, A..D; CHAIN_SILENT "-": that track plays
@@ -470,7 +477,11 @@ typedef struct {
     uint8_t count, rsv[3];
     chain_row_v9_t row[CHAIN_ROWS];
 } chain_v9_t;
-_Static_assert(sizeof(chain_config_t) == 84u && sizeof(chain_v9_t) == 36u, "song chain layouts (FUN10 / FUN6..FUN9)");
+#define CHAIN_WIRE15_SIZE 84u            /* FUN10..FUN15: 4 + 16 x (4 slot bytes + repeat) */
+#define CHAIN_WIRE16_SIZE 36u            /* FUN16: 4 + 16 x (4 x 3 bits + (repeat-1) x 4 bits), a row 2 bytes */
+_Static_assert(sizeof(chain_config_t) == CHAIN_WIRE15_SIZE, "song chain RAM / FUN10..FUN15 wire");
+_Static_assert(CHAIN_WIRE16_SIZE + (MOTION_FILE_SIZE - MOTION_FILE_SIZE_V15) == CHAIN_WIRE15_SIZE,
+               "FUN16: the packed chain pays for the 16 more motion records");
 
 /* GENERATION's per-track controls; LEN uses the existing sequencer P_SLEN. */
 typedef struct {
