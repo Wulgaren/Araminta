@@ -27,7 +27,8 @@ static track_t *one_step(uint32_t hits, uint32_t flags)
     t->p[P_SGATE] = 64;
     t->p[P_SSWING] = 0;
     song.g[G_SWING] = 0;
-    t->step[0] = (step_t){{60}, 1, ST_NOTE, (uint8_t)flags, 100};
+    t->step[0] = (step_t){{60}, 1, ST_NOTE, 0, 100};
+    step_set_fl(&t->step[0], flags);
     step_set_ratchet(&t->step[0], hits);
     seq_start();
     return t;
@@ -76,7 +77,7 @@ static int play(void)
     bad += check("  x4 over 8 passes: 32 note-ons", run(t, passes(t, 8), 0, 0, 0) == 32u);
     t = one_step(3, 0);
     t->p[P_VOICE] = V_POLY;
-    t->step[0].n = 3; t->step[0].note[1] = 64; t->step[0].note[2] = 67;
+    t->step[0].n = 3; step_set_note(&t->step[0], 1, 64); step_set_note(&t->step[0], 2, 67);
     bad += check("  a chord of 3 at x3: 9 note-ons", run(t, passes(t, 1), 0, 0, 0) == 9u);
     t = one_step(1, SF_SLIDE);
     run(t, 4, 0, 0, 0);
@@ -159,7 +160,8 @@ static int projects(void)
     ui_power_on();
     t = &trk[0];
     for (i = 0; i < 8u; i++) {
-        t->step[i] = (step_t){{(uint8_t)(60 + i)}, 1, ST_NOTE, i & 1u ? SF_ACCENT : 0u, i & 2u ? 127u : 90u};
+        t->step[i] = (step_t){{(uint8_t)(60 + i)}, 1, ST_NOTE, 0, i & 2u ? 127u : 90u};
+        step_set_fl(&t->step[i], i & 1u ? SF_ACCENT : 0u);
         step_set_ratchet(&t->step[i], 1u + i % 4u);
         step_set_chance(&t->step[i], i < 4u ? 100u : i == 4u ? 0u : 30u);
     }
@@ -177,7 +179,7 @@ static int projects(void)
                  (packed.raw[pos + 5] & 127u) == before.t[0].step[3].vel);
     for (k = 0; k < NTRK; k++)
         for (i = 0; i < NSTEP; i++)
-            trk[k].step[i].flags &= (uint8_t)~SF_RATCH;
+            step_set_ratchet(&trk[k].step[i], 1);
     project_capture(&before);
     proj_pack(&packed, &before);
     ok = 1;
@@ -198,7 +200,7 @@ static int projects(void)
         for (k = 0; ok && k < NTRK; k++)
             for (i = 0; i < NSTEP; i++)
                 ok &= step_ratchet(&fun7.t[k].step[i]) == 1u;
-        bad += check("  FUN7 of before: every step x1", ok && fun7.t[0].step[1].flags == SF_ACCENT);
+        bad += check("  FUN7 of before: every step x1", ok && step_fl(&fun7.t[0].step[1]) == SF_ACCENT);
     }
     {   /* FUN6 (10-byte steps): only accent and slide come over, x1 */
         project_v6_t v6;
@@ -212,11 +214,11 @@ static int projects(void)
         }
         v6.sum = proj_hash(&v6, sizeof v6 - 4u);
         bad += check("  FUN6: x1, accent and slide kept", proj_import(&after, &v6, sizeof v6) &&
-                     step_ratchet(&after.t[0].step[0]) == 1u && after.t[0].step[0].flags == (SF_ACCENT | SF_SLIDE));
+                     step_ratchet(&after.t[0].step[0]) == 1u && step_fl(&after.t[0].step[0]) == (SF_ACCENT | SF_SLIDE));
     }
     ui_power_on();                                   /* a real save and load */
     step_set_ratchet(&trk[1].step[7], 3);
-    trk[1].step[7].time = ST_NOTE; trk[1].step[7].n = 1; trk[1].step[7].note[0] = 50;
+    trk[1].step[7].time = ST_NOTE; trk[1].step[7].n = 1; step_set_note(&trk[1].step[7], 0, 50);
     project_save(2);
     step_set_ratchet(&trk[1].step[7], 1);
     project_load(2);
@@ -237,14 +239,14 @@ static int presets(void)
     for (i = 0; i < 16u; i++)
         t->step[i] = (step_t){{(uint8_t)(48 + i)}, 1, ST_NOTE, 0, 100};
     step_set_ratchet(&t->step[2], 3);
-    t->step[5].flags = SF_ACCENT;
+    step_set_fl(&t->step[5], SF_ACCENT);
     step_set_ratchet(&t->step[5], 4);
     memset(&r, 0, sizeof r);
     up_pat_from(&r, t->step);
     track_defaults_steps(t);
     load_pat16(t, r.note, r.flags);
     bad += check("user preset note pattern: x3 and an accented x4 stored in its flags and loaded back",
-                 step_ratchet(&t->step[2]) == 3u && step_ratchet(&t->step[5]) == 4u && t->step[5].flags & SF_ACCENT &&
+                 step_ratchet(&t->step[2]) == 3u && step_ratchet(&t->step[5]) == 4u && step_fl(&t->step[5]) & SF_ACCENT &&
                  step_ratchet(&t->step[0]) == 1u && r.flags[2] == 2u << SF_RATCH_SH);
     k = 0;                                           /* UP_PUT: slot, engine, name, values, 16 x (note, flags) */
     a[k++] = 3; a[k++] = (uint8_t)t->eng_req;
@@ -338,13 +340,13 @@ static int screens(void)
     x = PR_X0 + 3u * PR_CW;
     bad += check("  the piano roll draws an x2 step in two parts (x1 whole)", ok && pr_is_bar(x + 6u, y));
     t->step[4] = (step_t){{64}, 1, ST_NOTE, 0, 100};   /* SLIDE into a note: the line, but not from x2 */
-    t->step[3].flags = SF_SLIDE;
-    t->step[1].flags |= SF_SLIDE;                     /* (x2 kept) */
+    step_set_fl(&t->step[3], SF_SLIDE);
+    step_set_fl(&t->step[1], step_fl(&t->step[1]) | SF_SLIDE);   /* (x2 kept) */
     t->step[2] = t->step[4];
     memset(host_screen, 0, sizeof host_screen); ui.force = 1; ui_draw();
     bad += check("  a slide line from an x1 SLIDE step, none from an x2 one", pr_slide_px(3, 60, 64) > 0u &&
                  pr_slide_px(1, 60, 64) == 0u);
-    t->step[1].flags &= (uint8_t)~SF_SLIDE; t->step[3].flags = 0;
+    step_set_fl(&t->step[1], step_fl(&t->step[1]) & ~SF_SLIDE); step_set_fl(&t->step[3], 0);
     t->step[2] = t->step[4] = (step_t){{0}, 0, ST_REST, 0, 0};
     set_engine_of(t, ENGI_DRUM);                     /* the grid: x3 in three bars */
     t->engine = t->eng_req;
