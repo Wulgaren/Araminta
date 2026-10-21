@@ -206,6 +206,10 @@ static void con_status(void)
     con_kv("cpu_pct", (int32_t)(song.cpu_q8 * 100u / 256u));
     con_kv("audio_max_us", (int32_t)felucca_dbg.max_us);
     con_kv("audio_late", (int32_t)felucca_dbg.late);
+    con_kv("ui_draw_us_max", (int32_t)ui_stat.us_max);
+    con_kv("ui_draw_us_avg", (int32_t)(ui_stat.frames ? ui_stat.us_sum / ui_stat.frames : 0u));
+    con_kv("lcd_bytes", (int32_t)ui_stat.bytes);
+    con_kv("lcd_skips", (int32_t)ui_stat.skips);
     con_kv("voices_shed", (int32_t)shed_count);
     con_kv("voices_given_up", (int32_t)voice_kills);
     con_kv("track", (int32_t)song.sel + 1);

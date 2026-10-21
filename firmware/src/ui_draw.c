@@ -1559,6 +1559,8 @@ static void ui_draw(void)
 }
 static void ui_draw_page(uint32_t counting)
 {
+    if (ui.force)
+        cv_cache_drop();                            /* a full redraw: do not trust the panel's bands */
     if (ui.uboot) {
         draw_uboot();
         draw_head();

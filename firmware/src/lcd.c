@@ -6,18 +6,34 @@
  * A pixel transfer is left running (lcd_busy): the next LCD access, or a write
  * to its source buffer (lcd_sync), waits for it, so the main loop works
  * while the last strip of a frame goes out. */
+/* A direct write (lcd_fill) or a panel command drops the bands it touches from gfx.c's strip cache, and so
+ * does a timeout: the cache may only skip a band while the panel still shows it. (The dirty-band idea is
+ * fm1_open app/screen.c paint_mark / paint_flush, GPL-3.0 WITH FM1 SDK linking exception.) */
 /* pins and SPI1: hal/fm1_lcd_hw.h */
 #ifndef LCD_BAUD
 #define LCD_BAUD 4u                /* lsb/(BAUD+1): 4 = 12 MHz */
 #endif
 
+/* gfx.c: the strip cache (bands the panel already shows) */
+static void cv_cache_drop(void);
+static void cv_cache_drop_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+
 static uint8_t lcd_small[64];
 static uint8_t lcd_busy;           /* a lcd_data DMA may still run; CS is low */
+static uint32_t lcd_timeouts_seen __attribute__((section(".pool")));   /* fm1_lcd_timeouts when the panel's content was last known */
 
 static void lcd_spin(uint32_t n)
 {
     for (volatile uint32_t i = 0; i < n; i++)
         ;
+}
+
+static void lcd_timeout_check(void)     /* a wait timed out: what the panel shows is unknown, so forget the cache */
+{
+    if (fm1_lcd_timeouts != lcd_timeouts_seen) {
+        lcd_timeouts_seen = fm1_lcd_timeouts;
+        cv_cache_drop();
+    }
 }
 
 static void lcd_sync(void)          /* finish the running transfer (before touching its buffer) */
@@ -27,6 +43,7 @@ static void lcd_sync(void)          /* finish the running transfer (before touch
     fm1_lcd_wait();
     fm1_lcd_deselect();
     lcd_busy = 0;
+    lcd_timeout_check();
 }
 
 static void lcd_cmd(uint8_t c)
@@ -35,6 +52,7 @@ static void lcd_cmd(uint8_t c)
     fm1_lcd_send_cmd(c);
     fm1_lcd_wait();
     fm1_lcd_deselect();
+    lcd_timeout_check();
 }
 
 static void lcd_data(const void *p, uint32_t n)
@@ -75,6 +93,7 @@ static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
         w = 240u - x;
     if (y + h > 240u)
         h = 240u - y;
+    cv_cache_drop_rect(x, y, w, h);         /* a direct write: those bands are no longer the canvas's */
     lcd_sync();
     k = 240u / w * w;                       /* whole rows per transfer (narrow fills: one DMA) */
     for (i = 0; i < k; i++)
@@ -137,6 +156,7 @@ static void lcd_init(void)
  * high no button, key or knob reads and nothing could wake the screen (#157 follow-up, found on 1.1.5) */
 static void lcd_power(uint32_t s)
 {
+    cv_cache_drop();                           /* asleep or woken: start from what is drawn again */
     if (s == 1u)
         lcd_cmd(0x11);                             /* SLPOUT */
     else if (s == 2u)
@@ -150,6 +170,7 @@ static void lcd_power(uint32_t s)
  * left as they are: the crash handler calls it) */
 static void lcd_wake_now(void)
 {
+    cv_cache_drop();
     lcd_spin(3000000u);                            /* (120 ms after a SLPIN) */
     lcd_cmd(0x11);
     lcd_spin(3000000u);
