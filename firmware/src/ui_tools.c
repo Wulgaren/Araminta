@@ -258,7 +258,7 @@ static void tl_random_notes(track_t *t, uint32_t len)
     uint32_t i, k, g = 0, nd = 0, at;
     for (i = 0; i < len; i++)
         if (tl_gate(&t->step[i])) {
-            c += t->step[i].note[0];
+            c += (int32_t)step_note(&t->step[i], 0);
             g++;
         }
     if (g) {
@@ -287,13 +287,13 @@ static void tl_random_notes(track_t *t, uint32_t len)
         if (!tl_gate(s))
             continue;
         at = at >= nd ? nd - 1u : at;
-        d = (int32_t)deg[at] - s->note[0];
-        s->note[0] = deg[at];
+        d = (int32_t)deg[at] - (int32_t)step_note(s, 0);
+        step_set_note(s, 0, deg[at]);
         for (k = 1; k < s->n && k < 4u; k++) {
-            x = clamp(s->note[k] + d, 1, 127);
+            x = clamp((int32_t)step_note(s, k) + d, 1, 127);
             while (!tl_in_scale(t, x) && x > 1)
                 x--;
-            s->note[k] = (uint8_t)x;
+            step_set_note(s, k, (uint32_t)x);
         }
         if (!tl_rnd(6)) {                               /* a leap now and then, else a step or two */
             at = tl_rnd(nd);
@@ -317,16 +317,16 @@ static void tl_cook_notes(track_t *t, uint32_t len, uint32_t g)
         s = &t->step[i % NSTEP];
         r = tl_rnd(8);
         if (r == 6u) {
-            s->flags ^= SF_ACCENT;
+            step_set_fl(s, step_fl(s) ^ SF_ACCENT);
         } else if (r == 7u) {
             step_set_chance(s, step_chance(s) < 100u ? 100u : tl_rnd(2) ? 75u : 50u);
         } else {
             int32_t d = tl_rnd(2) ? 1 : -1, o = r == 5u ? d * 12 : 0;
             for (k = 0; k < s->n && k < 4u; k++)       /* (an octave out of 24 .. 108: a scale step instead) */
-                if (s->note[k] + o < 24 || s->note[k] + o > 108)
+                if ((int32_t)step_note(s, k) + o < 24 || (int32_t)step_note(s, k) + o > 108)
                     o = 0;
             for (k = 0; k < s->n && k < 4u; k++)
-                s->note[k] = (uint8_t)(o ? s->note[k] + o : tl_neigh(t, s->note[k], d));
+                step_set_note(s, k, (uint32_t)(o ? (int32_t)step_note(s, k) + o : tl_neigh(t, (int32_t)step_note(s, k), d)));
         }
     }
 }

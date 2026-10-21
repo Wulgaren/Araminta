@@ -558,7 +558,9 @@ static uint32_t step_add(const track_t *t, step_t *s, uint32_t note, uint32_t ve
         fresh = s->time != ST_NOTE || (!s->n && !s->hit);
         if (fresh) {
             s->n = s->hit = s->acc = 0;
-            s->flags = 0;
+            step_set_fl(s, 0);
+            step_set_ratchet(s, 1);
+            step_set_nudge(s, 0);
             s->vel = 0;
         }
         s->time = ST_NOTE;
@@ -567,15 +569,15 @@ static uint32_t step_add(const track_t *t, step_t *s, uint32_t note, uint32_t ve
             if (vel > 110)
                 s->acc |= (uint8_t)(1u << l);
         } else {                                    /* another GM drum (a low tom, a crash): a note */
-            for (k = 0; k < s->n && s->note[k] != note; k++)
+            for (k = 0; k < s->n && step_note(s, k) != note; k++)
                 ;
             if (k == s->n) {
                 if (s->n < 4u)
                     s->n++;
-                s->note[s->n - 1u] = (uint8_t)note;
+                step_set_note(s, s->n - 1u, note);
             }
             if (vel > 110)
-                s->flags |= SF_ACCENT;
+                step_set_fl(s, step_fl(s) | SF_ACCENT);
         }
         if (vel > s->vel)
             s->vel = (uint8_t)vel;
@@ -584,19 +586,21 @@ static uint32_t step_add(const track_t *t, step_t *s, uint32_t note, uint32_t ve
     fresh = s->time != ST_NOTE || !s->n || mono;
     if (fresh) {
         s->n = 0;                                   /* a fresh step */
-        s->flags = 0;
+        step_set_fl(s, 0);
+        step_set_ratchet(s, 1);
+        step_set_nudge(s, 0);
         s->vel = 0;
     }
-    for (k = 0; k < s->n && s->note[k] != note; k++)
+    for (k = 0; k < s->n && step_note(s, k) != note; k++)
         ;
     if (k == s->n) {
         if (s->n < 4u)
             s->n++;
-        s->note[s->n - 1u] = (uint8_t)note;
+        step_set_note(s, s->n - 1u, note);
     }
     s->time = ST_NOTE;
     if (vel > 110)
-        s->flags |= SF_ACCENT;
+        step_set_fl(s, step_fl(s) | SF_ACCENT);
     if (vel > s->vel)
         s->vel = (uint8_t)vel;
     return fresh;
@@ -665,10 +669,12 @@ static void rec_hold(track_t *t, uint32_t idx, uint32_t len)
     t->rh_last = (uint8_t)idx;
     t->rh_ties++;
     for (k = 0; k < 4u; k++)
-        s->note[k] = 0;
+        step_set_note(s, k, 0);
     s->n = 0;
     s->time = ST_TIE;
-    s->flags = 0;
+    step_set_fl(s, 0);
+    step_set_ratchet(s, 1);
+    step_set_nudge(s, 0);
     s->vel = 0;
     s->hit = s->acc = 0;
 }
@@ -820,12 +826,12 @@ static void ft_legato(track_t *t, uint32_t n, uint32_t len, uint32_t T)
         for (k = idx; k > 0; ) {                    /* earlier steps only (same-step chord: no slide) */
             step_t *s = &t->step[--k];
             if (s->time == ST_NOTE && s->n) {
-                s->flags |= SF_SLIDE;
+                step_set_fl(s, step_fl(s) | SF_SLIDE);
                 break;
             }
         }
         if (idx && t->step[idx - 1u].time == ST_TIE)
-            t->step[idx - 1u].flags |= SF_SLIDE;
+            step_set_fl(&t->step[idx - 1u], step_fl(&t->step[idx - 1u]) | SF_SLIDE);
     }
 }
 /* mono fall-back returns: a tap that ends while another key is held records the last held pitch.
@@ -1205,7 +1211,7 @@ static void seq_stop(void)
 static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint32_t idx, uint32_t period, uint32_t skip)
 {
     uint32_t i, j, gate = period * (uint32_t)t->p[P_SGATE] / 128u;
-    uint32_t vel = (s->flags & SF_ACCENT) ? 127u : (s->vel ? s->vel : 96u);
+    uint32_t vel = (step_fl(s) & SF_ACCENT) ? 127u : (s->vel ? s->vel : 96u);
     uint32_t slide_in = t->seq_hold && t->seq_n && !(skip & SEQ_REP);
     uint32_t len = t->p[P_SLEN] ? (uint32_t)t->p[P_SLEN] : 1u;
     uint32_t next_tie = seq_steps(t)[(idx + 1u) % len].time == ST_TIE;
@@ -1229,7 +1235,7 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     if (s->time == ST_TIE) {
         if (t->seq_n) {
             t->seq_off = gate + period / 2u;
-            t->seq_hold = (s->flags & SF_SLIDE) != 0 || next_tie;   /* chains hold at any GATE / swing */
+            t->seq_hold = (step_fl(s) & SF_SLIDE) != 0 || next_tie;   /* chains hold at any GATE / swing */
         }
         return;
     }
@@ -1243,7 +1249,7 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
             t->rat_left = (uint8_t)(hits - 1u);
     }
     for (i = 0; i < s->n && i < 4u; i++) {
-        int32_t x = (int32_t)s->note[i];
+        int32_t x = (int32_t)step_note(s, i);
         uint32_t n;
         if (!kit)                                   /* #218: TRN then (SEQ) onto the scale; pattern untouched */
             x += t->p[P_TRANS];
@@ -1286,7 +1292,7 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
         if (!((sk >> i) & 1u))
             t->seq_notes[t->seq_n++] = nn[i];
     t->seq_off = gate;
-    t->seq_hold = hits == 1u && ((s->flags & SF_SLIDE) != 0 || next_tie);   /* next step a TIE: keep the notes to it */
+    t->seq_hold = hits == 1u && ((step_fl(s) & SF_SLIDE) != 0 || next_tie);   /* next step a TIE: keep the notes to it */
 }
 
 /* MENU > CONTROL > STEP PREVIEW (1.2, Discussion #169): the UI asks for a step of a track to sound once (aud_req: step
@@ -1364,7 +1370,7 @@ static __attribute__((noinline)) void seq_play(track_t *t, uint32_t idx, uint32_
     if (t->rskip_n && t->rskip_idx == idx) {
         for (k = 0; k < t->rskip_n; k++) {
             for (i = 0; i < s->n; i++)
-                if (s->note[i] == t->rskip[k])
+                if (step_note(s, i) == t->rskip[k])
                     skip |= 1u << i;
             for (i = 0; i < NLANE; i++)
                 if (((s->hit >> i) & 1u) && DRUM_LANE_NOTE[i] == t->rskip[k])

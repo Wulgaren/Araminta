@@ -97,7 +97,7 @@ static int projects(void)
     memcpy(&proj_slot[2], &v5, sizeof v5);
     project_load(2);
     bad += check("a retained FUN5 RAM slot loads bounded (velocity 200 -> inside 0..127)",
-                 trk[0].step[0].n == 1u && trk[0].step[0].note[0] == 60u && trk[0].step[0].vel <= 127u);
+                 trk[0].step[0].n == 1u && step_note(&trk[0].step[0], 0) == 60u && trk[0].step[0].vel <= 127u);
     return bad;
 }
 

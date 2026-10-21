@@ -236,8 +236,9 @@ static void up_pat_from(up_rec_t *r, const step_t *st)   /* the first 16 steps -
 {
     uint32_t i;
     for (i = 0; i < 16u; i++) {
-        r->note[i] = st[i].time == ST_NOTE && st[i].n ? st[i].note[0] : 0u;
-        r->flags[i] = st[i].time == ST_TIE ? 4u : (uint8_t)(st[i].flags & ~SF_NUDGE);   /* (no nudge: 4 is the tie here) */
+        r->note[i] = st[i].time == ST_NOTE && st[i].n ? step_note(&st[i], 0) : 0u;
+        r->flags[i] = st[i].time == ST_TIE ? 4u :        /* (no nudge: 4 is the tie here) */
+            (uint8_t)(step_fl(&st[i]) | ((step_ratchet(&st[i]) - 1u) << SF_RATCH_SH));
         up_pat_norm(&r->note[i], &r->flags[i]);
     }
 }

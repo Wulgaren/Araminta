@@ -33,8 +33,8 @@ static uint32_t old_pack(uint8_t *b, const project_t *q, uint32_t magic, uint32_
             const step_t *s = &q->t[t].step[i];
             uint32_t r = step_ratchet(s) - 1u, j;
             for (j = 0; j < 4u; j++)
-                b[pos++] = s->note[j] & 127u;
-            b[pos++] = (uint8_t)(s->n | s->time << 3 | (s->flags & 3u) << 5);
+                b[pos++] = (uint8_t)(step_note(s, j) & 127u);
+            b[pos++] = (uint8_t)(s->n | s->time << 3 | step_fl(s) << 5);
             b[pos++] = (uint8_t)((s->vel & 127u) | (r & 1u) << 7);
             b[pos++] = s->hit;
             b[pos++] = s->acc & s->hit;

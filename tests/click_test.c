@@ -421,7 +421,7 @@ static void count_in_notes(void)
     run(start - nb + 300u);                            /* held ~2 steps past the start */
     fm1_in.notes = 0;
     run(400);
-    ok &= trk[0].step[0].time == ST_NOTE && trk[0].step[0].n == 1u && trk[0].step[0].note[0] == 60u &&
+    ok &= trk[0].step[0].time == ST_NOTE && trk[0].step[0].n == 1u && step_note(&trk[0].step[0], 0) == 60u &&
           trk[0].step[1].time == ST_TIE && trk[0].step[2].time == ST_REST;
     check("a note held from the count-in's last eighth: on step 1, then tied while held (it sounded at once)", ok);
     /* let go before the start: one step */
@@ -431,7 +431,7 @@ static void count_in_notes(void)
     run(60);
     fm1_in.notes = 0;
     run(start - nb + 400u);
-    ok = trk[0].step[0].time == ST_NOTE && trk[0].step[0].note[0] == 64u && trk[0].step[1].time == ST_REST;
+    ok = trk[0].step[0].time == ST_NOTE && step_note(&trk[0].step[0], 0) == 64u && trk[0].step[1].time == ST_REST;
     check("a note let go before step 1 (in the last eighth): step 1 alone", ok);
     /* earlier in the last beat (its first half) or before: not recorded */
     fresh(); grid_track(); cin_bars = 1; song.rec = 1u; transport_req = 1;

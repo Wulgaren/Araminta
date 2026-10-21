@@ -336,7 +336,7 @@ static int steps(void)
     reset();
     TSEL->step[0].hit = TSEL->step[0].acc = 0x80;
     bad += check("legacy 8-byte step writes preserve lane data",
-                 request(ED_STEP_SET, a, 9) == 21u && TSEL->step[0].note[0] == 60 &&
+                 request(ED_STEP_SET, a, 9) == 21u && step_note(&TSEL->step[0], 0) == 60 &&
                  TSEL->step[0].hit == 0x80 && TSEL->step[0].acc == 0x80);
     bad += check("full grid step writes preserve high lane bits and constrain accents",
                  request(ED_STEP_SET, a, 12) == 21u && TSEL->step[0].hit == 0x92 && TSEL->step[0].acc == 2);
@@ -348,7 +348,7 @@ static int steps(void)
     bad += check("partial or oversized step payloads never mutate a valid step", ok);
     a[0] = 1; a[1] = 0; memcpy(a + 2, (const uint8_t[]){1,64,0,0,0,ST_NOTE,0,99}, 8);
     bad += check("TRACK_STEP accepts its legacy payload on an unselected track",
-                 request(ED_TRACK_STEP, a, 10) == 22u && trk[1].step[0].note[0] == 64 && song.sel == 0);
+                 request(ED_TRACK_STEP, a, 10) == 22u && step_note(&trk[1].step[0], 0) == 64 && song.sel == 0);
     before = trk[1].step[0]; a[3] = 65;
     bad += check("TRACK_STEP rejects an incomplete grid extension",
                  !request(ED_TRACK_STEP, a, 11) && !memcmp(&before, &trk[1].step[0], sizeof before));
@@ -359,7 +359,8 @@ static int steps(void)
                  n == 21u && step_ratchet(&TSEL->step[0]) == 3u && step_chance(&TSEL->step[0]) == 80u &&
                  host_wire[n - 3] == 3 && host_wire[n - 4] == 80 && host_wire[n - 2] == 8 && host_wire[12] == SF_ACCENT);
     a[7] = SF_SLIDE; n = request(ED_STEP_SET, a, 13);
-    ok = n == 21u && step_ratchet(&TSEL->step[0]) == 3u && TSEL->step[0].flags == (SF_SLIDE | 2u << SF_RATCH_SH);
+    ok = n == 21u && step_ratchet(&TSEL->step[0]) == 3u && step_fl(&TSEL->step[0]) == SF_SLIDE &&
+         step_nudge(&TSEL->step[0]) == 0;
     n = request(ED_STEP_SET, a, 9);
     bad += check("STEP_SET without the ratchet (an older editor) keeps the step's own",
                  ok && n == 21u && step_ratchet(&TSEL->step[0]) == 3u);
@@ -374,12 +375,12 @@ static int steps(void)
     ok = n == 22u && step_ratchet(&trk[1].step[2]) == 4u && host_wire[n - 3] == 4;
     a[14] = 1; n = request(ED_TRACK_STEP, a, 15);
     bad += check("TRACK_STEP sets the ratchet of any track (x4, then back to x1)",
-                 ok && n == 22u && step_ratchet(&trk[1].step[2]) == 1u && !(trk[1].step[2].flags & SF_RATCH));
+                 ok && n == 22u && step_ratchet(&trk[1].step[2]) == 1u);
     /* NUDGE (1.2, INFO 54 01 16): the nudge + 8 after the ratchet, both ways; a write without it keeps the step's */
     memcpy(a, (const uint8_t[]){0, 1, 60, 0, 0, 0, ST_NOTE, SF_ACCENT, 100, 0, 0, 0, 80, 1, 8 - 5}, 15);
     n = request(ED_STEP_SET, a, 15);
     ok = n == 21u && step_nudge(&TSEL->step[0]) == -5 && host_wire[n - 2] == 3 && host_wire[12] == SF_ACCENT &&
-         (TSEL->step[0].flags & (SF_ACCENT | SF_SLIDE)) == SF_ACCENT;
+         step_fl(&TSEL->step[0]) == SF_ACCENT;
     a[7] = SF_SLIDE; n = request(ED_STEP_SET, a, 14);
     ok &= n == 21u && step_nudge(&TSEL->step[0]) == -5 && host_wire[12] == SF_SLIDE;
     n = request(ED_STEP_SET, a, 9);
