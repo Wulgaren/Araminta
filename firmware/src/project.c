@@ -313,7 +313,7 @@ static void proj_g_from_wire(int16_t *g, const int16_t *w)
 static void proj_trk_from(proj_trk_t *d, const int16_t *p, uint32_t np, uint8_t engine, uint8_t preset, const step8_t *step)
 {
     int16_t def[P_E0];
-    uint32_t k;
+    uint32_t k, j;
     for (k = 0; k < P_E0; k++)
         def[k] = TP[k].def;
     params_by_count(d->p, p, np, def);
@@ -325,10 +325,11 @@ static void proj_trk_from(proj_trk_t *d, const int16_t *p, uint32_t np, uint8_t 
     d->scl_stash[0] = d->scl_stash[1] = d->scl_stash[2] = 0;
     for (k = 0; k < NSTEP; k++) {
         step_t *s = &d->step[k];
-        memcpy(s->note, step[k].note, 4);
+        for (j = 0; j < 4u; j++)
+            step_set_note(s, j, step[k].note[j]);
         s->n = step[k].n;
         s->time = step[k].time;
-        s->flags = step[k].flags & 3u;          /* accent, slide: x1 (no RATCH then) */
+        step_set_fl(s, step[k].flags & 3u);     /* accent, slide: x1 (no RATCH then) */
         s->vel = step[k].vel;
         s->hit = s->acc = 0;
     }
@@ -687,8 +688,17 @@ static int proj_import_old(project_t *q, const void *b, int n)
                 q->t[i].scl_lock = SCL_LOCK_SCALE;
                 q->t[i].scl_stash_ok = 0;
                 for (k = 0; k < NSTEP; k++) {
-                    memcpy(&q->t[i].step[k], &v->t[i].step[k], sizeof(step10_t));
-                    q->t[i].step[k].flags &= 3u;       /* (x1: no RATCH then) */
+                    const step10_t *o = &v->t[i].step[k];
+                    step_t *s = &q->t[i].step[k];
+                    uint32_t j;
+                    for (j = 0; j < 4u; j++)
+                        step_set_note(s, j, o->note[j]);
+                    s->n = o->n;
+                    s->time = o->time;
+                    step_set_fl(s, o->flags & 3u);      /* accent, slide: x1 (no RATCH then) */
+                    s->vel = o->vel;
+                    s->hit = o->hit;
+                    s->acc = o->acc;
                 }
             }
             if (bytes == sizeof *v6) q->chain = c6; else chain_defaults(&q->chain);
@@ -751,12 +761,12 @@ static int proj_pack(project_store_t *out, const project_t *q)
             const step_t *s = &q->t[t].step[i];
             uint32_t r = step_ratchet(s) - 1u;          /* RATCH: bit 7 of the velocity and chance bytes (see the top) */
             uint32_t nd = (uint32_t)step_nudge(s) & 15u;   /* NUDGE (FUN10): bit j in bit 7 of note j */
-            if (s->n > 4u || s->time > ST_REST || (s->flags & ~(3u | SF_RATCH | SF_NUDGE)) || s->probability > 101u)
+            if (s->n > 4u || s->time > ST_REST || s->probability > 101u)
                 return 0;
             for (uint32_t j = 0; j < 4u; j++)           /* what proj_unpack checks, so a saved project always loads: */
-                b[pos++] = (uint8_t)((s->note[j] > 127u ? 127u : s->note[j]) | (nd >> j & 1u) << 7);   /* notes and
+                b[pos++] = (uint8_t)((step_note(s, j) > 127u ? 127u : step_note(s, j)) | (nd >> j & 1u) << 7);   /* notes and
                                                          * velocity 0..127, accents */
-            b[pos++] = (uint8_t)(s->n | s->time << 3 | (s->flags & 3u) << 5);   /* only on hits */
+            b[pos++] = (uint8_t)(s->n | s->time << 3 | step_fl(s) << 5);   /* only on hits */
             b[pos++] = (uint8_t)((s->vel > 127u ? 127u : s->vel) | (r & 1u) << 7); b[pos++] = s->hit;
             b[pos++] = s->acc & s->hit;
             b[pos++] = (uint8_t)(s->probability | (r >> 1) << 7);
@@ -977,10 +987,10 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
             for (uint32_t j = 0; j < 4u; j++) {         /* (FUN10: bit 7 of note j is bit j of the nudge) */
                 if (b[pos] > 127u && !v10) return 0;
                 nd |= (uint32_t)(b[pos] >> 7) << j;
-                s->note[j] = b[pos++] & 127u;
+                step_set_note(s, j, b[pos++] & 127u);
             }
             meta = b[pos++];
-            s->n = meta & 7u; s->time = (meta >> 3) & 3u; s->flags = (meta >> 5) & 3u;
+            s->n = meta & 7u; s->time = (meta >> 3) & 3u; step_set_fl(s, (meta >> 5) & 3u);
             s->vel = b[pos] & 127u; meta |= (b[pos++] & 128u) << 1;      /* (RATCH bit 0 at bit 8 of meta) */
             s->hit = b[pos++]; s->acc = b[pos++];
             s->probability = b[pos] & 127u; meta |= (b[pos++] & 128u) << 2;   /* (bit 1 at bit 9) */
@@ -1159,7 +1169,7 @@ static void proj_steps(step_t *s)            /* a loaded sequence stays inside i
     for (i = 0; i < NSTEP; i++) {
         if (s[i].n > 4u) s[i].n = 4;
         if (s[i].time > ST_REST) s[i].time = ST_REST;
-        for (j = 0; j < 4u; j++) s[i].note[j] &= 127u;
+        for (j = 0; j < 4u; j++) step_set_note(&s[i], j, step_note(&s[i], j) & 127u);
         s[i].acc &= s[i].hit;
     }
 }
@@ -1172,7 +1182,7 @@ static void proj_bound(project_t *q)
         proj_steps(q->t[t].step);
         for (i = 0; i < NSTEP; i++) {
             step_t *s = &q->t[t].step[i];
-            s->flags &= 3u | SF_RATCH | SF_NUDGE;
+            step_set_fl(s, step_fl(s));
             s->vel &= 127u;
             if (s->probability > 101u) s->probability = 0;
         }
@@ -1305,7 +1315,7 @@ static uint32_t proj_density(const proj_trk_t *t, uint8_t *n)
             if (s->time == ST_TIE)
                 w += 1u;
             else if (s->time == ST_NOTE && (s->n || s->hit) && step_chance(s))
-                w += (s->flags & SF_ACCENT) || s->acc ? 3u : 2u;
+                w += (step_fl(s) & SF_ACCENT) || s->acc ? 3u : 2u;
         }
         w = (w + (i1 - i0) - 1u) / (i1 - i0);
         d |= (w < 3u ? w : 3u) << (2u * c);
