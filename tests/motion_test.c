@@ -59,7 +59,7 @@ static int motion_capacity(void)
     for (uint32_t i = 0; i < MOTION_FILE_MAX; i++)
         bad += motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : P_DLY, (int16_t)(i % 60u));
     bad += check("disk-full count does not raise save-limit flag", !motion_save_lim && motion.count == MOTION_FILE_MAX);
-    bad += check("73rd event raises save-limit flag once",
+    bad += check("the event past the disk max raises the save-limit flag once",
                  !motion_set_event(&trk[0], MOTION_FILE_MAX % NSTEP, P_PAN, 10) &&
                  motion.count == MOTION_FILE_MAX + 1u && motion_save_lim);
     motion_save_lim = 0;
@@ -74,8 +74,9 @@ static int motion_capacity(void)
                      proj_import(&q, &st, sizeof st) && q.motion.count == MOTION_FILE_MAX);
     }
     ui_power_on();
-    for (uint32_t i = 0; i < MOTION_MAX; i++)          /* (128 since 1.2: two ids on each of the 64 steps) */
-        bad += motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : P_DLY, (int16_t)(i % NSTEP));
+    for (uint32_t i = 0; i < MOTION_MAX; i++)          /* (192: three ids on each of the 64 steps) */
+        bad += motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_PAN,
+                                (int16_t)(i % NSTEP));
     motion_store_t saved = motion;
     bad += check("full event pool refuses append without overwriting earlier events", motion_set_event(&trk[1], 0, P_REV, 90) == 2 &&
         !memcmp(&motion, &saved, sizeof saved));
@@ -977,11 +978,11 @@ static int auto_list(void)
     turn(EN_K4, 1);
     bad += check("  a song playing: STOP TO EDIT", motion.event[0].value == v && str_eq(ui.msg, "STOP TO EDIT"));
     chain.running = 0;
-    for (i = 0; motion.count < MOTION_MAX; i++)          /* the 128 used (track 2) */
-        motion_set_event(&trk[1], i % NSTEP, i < NSTEP ? P_REV : P_DLY, 10);
+    for (i = 0; motion.count < MOTION_MAX; i++)          /* the 192 used (track 2) */
+        motion_set_event(&trk[1], i % NSTEP, i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_PAN, 10);
     turn(EN_K1, 5);
     press(B_OCTUP);
-    bad += check("  the 128 used: OCT+ adds nothing, AUTOMATION FULL", motion_count(t) == 1u &&
+    bad += check("  the 192 used: OCT+ adds nothing, AUTOMATION FULL", motion_count(t) == 1u &&
         str_eq(ui.msg, "AUTOMATION FULL") && !act_ready());
     motion_clear(&trk[1]);
     for (i = 0; i < P_COUNT; i++)                        /* names: an id each, none of DIGITAL's, lanes on DRUM only */
@@ -1196,13 +1197,14 @@ static int fx_lock_banks_and_capacity(void)
     seq_stop(); motion_clear(t);
     bad += check("stopping restores CHAIN reverb bases", song.g[G_CRSIZE] == 46 && song.g[G_CRDAMP] == 57);
     for (uint32_t i = 0; i < MOTION_MAX; i++)
-        bad += motion_set_lock(t, i % NSTEP, i < NSTEP ? MFX_TIME : MFX_FB, i < NSTEP ? 1550 : 110);
-    bad += check("FX locks retain all 128 RAM entries and overwrite at capacity", motion.count == 128 &&
-        motion_set_lock(t, 0, MFX_COLOR, 25) == 2 && !motion_set_lock(t, 0, MFX_TIME, 65));
+        bad += motion_set_lock(t, i % NSTEP, i < NSTEP ? MFX_TIME : i < 2u * NSTEP ? MFX_FB : MFX_COLOR,
+                               i < NSTEP ? 1550 : i < 2u * NSTEP ? 110 : 25);
+    bad += check("FX locks retain all 192 RAM entries and overwrite at capacity", motion.count == MOTION_MAX &&
+        motion_set_lock(t, 0, MFX_SIZE, 33) == 2 && !motion_set_lock(t, 0, MFX_TIME, 65));
     project_t q, loaded; project_store_t st;
     project_capture(&q);
-    bad += check("FX locks retain 72 saved entries with exact TIME values", proj_pack(&st, &q) && sizeof st == 3840 &&
-        proj_import(&loaded, &st, sizeof st) && loaded.motion.count == 72 && loaded.motion.event[0].value == 65 &&
+    bad += check("FX locks retain 88 saved entries with exact TIME values", proj_pack(&st, &q) && sizeof st == 3840 &&
+        proj_import(&loaded, &st, sizeof st) && loaded.motion.count == MOTION_FILE_MAX && loaded.motion.event[0].value == 65 &&
         loaded.motion.event[63].value == 1550 && loaded.motion.event[71].value == 110);
     return bad;
 }
