@@ -246,16 +246,16 @@ static int nudge(void)
     t->seq_pos = P16 * 3u / 16u;                     /* 3/16 into step 1 */
     input_on(t, 64, 100);
     input_off(t, 64);
-    ok = t->step[0].n == 1u && t->step[0].note[0] == 64u && step_nudge(&t->step[0]) == 3;
+    ok = t->step[0].n == 1u && step_note(&t->step[0], 0) == 64u && step_nudge(&t->step[0]) == 3;
     t->seq_pos = P16 - P16 / 4u;                     /* 1/4 before step 2 */
     input_on(t, 65, 100);
     input_off(t, 65);
-    ok &= t->step[1].note[0] == 65u && step_nudge(&t->step[1]) == -4;
+    ok &= step_note(&t->step[1], 0) == 65u && step_nudge(&t->step[1]) == -4;
     t->seq_pos = P16 / 16u + 40u;                    /* just past 1/16: rounds to it */
     t->seq_idx = 4;
     input_on(t, 66, 100);
     input_off(t, 66);
-    ok &= t->step[4].note[0] == 66u && step_nudge(&t->step[4]) == 1;
+    ok &= step_note(&t->step[4], 0) == 66u && step_nudge(&t->step[4]) == 1;
     t->seq_idx = 4;
     t->seq_pos = P16 / 8u;                           /* a second note into step 5 (a chord): the first's time stays */
     input_on(t, 69, 100);
@@ -283,7 +283,7 @@ static int nudge(void)
     arp_step(t, CTL, CTL);
     input_off(t, 60);
     seq_stop();
-    bad += check("  the ARP's notes recorded with their time too", t->step[0].note[0] == 60u && step_nudge(&t->step[0]) == 8 - 1);
+    bad += check("  the ARP's notes recorded with their time too", step_note(&t->step[0], 0) == 60u && step_nudge(&t->step[0]) == 8 - 1);
 
     /* playback: QUANTIZE ON plays every step on its start (as before); OFF plays the nudges */
     t = seq1(1);
@@ -492,7 +492,7 @@ static int nudge(void)
         ui.cursor = 3;
         turn(EN_K2, 2);
         bad += check("STEP: NOTE knob (K2) still changes pitch, not time",
-                     t->step[3].note[0] == 62u && t->step[3].time == ST_NOTE && t->step[4].time == ST_REST);
+                     step_note(&t->step[3], 0) == 62u && t->step[3].time == ST_NOTE && t->step[4].time == ST_REST);
         /* piano roll: PRESETS moves that note (and its TIEs); the cursor stays on it. A rest: the cursor. */
         t->step[3] = (step_t){{60}, 1, ST_NOTE, 0, 96};
         t->step[4] = (step_t){{0}, 0, ST_TIE, 0, 0};
@@ -502,21 +502,21 @@ static int nudge(void)
         ui.cursor = 4;                                  /* on a TIE of the note at step 4 */
         frame();
         turn(EN_PRESET, 1);
-        ok = t->step[4].note[0] == 60u && t->step[4].time == ST_NOTE && t->step[5].time == ST_TIE &&
+        ok = step_note(&t->step[4], 0) == 60u && t->step[4].time == ST_NOTE && t->step[5].time == ST_TIE &&
              t->step[6].time == ST_TIE && t->step[3].time == ST_REST && !t->step[3].n && ui.cursor == 5u &&
-             motion_find(t, 4, P_ATK) >= 0 && motion_find(t, 3, P_ATK) < 0 && t->step[8].note[0] == 72u;
+             motion_find(t, 4, P_ATK) >= 0 && motion_find(t, 3, P_ATK) < 0 && step_note(&t->step[8], 0) == 72u;
         turn(EN_PRESET, 1);                             /* 5,6,7: still clear of the note at 9 */
-        ok &= t->step[5].note[0] == 60u && t->step[7].time == ST_TIE && ui.cursor == 6u;
+        ok &= step_note(&t->step[5], 0) == 60u && t->step[7].time == ST_TIE && ui.cursor == 6u;
         ui.msg_t = 0;
         turn(EN_PRESET, 1);                             /* 6,7,8 would land on the other note */
-        ok &= msg_is("NOTE AHEAD") && t->step[5].note[0] == 60u && t->step[8].note[0] == 72u && ui.cursor == 6u;
+        ok &= msg_is("NOTE AHEAD") && step_note(&t->step[5], 0) == 60u && step_note(&t->step[8], 0) == 72u && ui.cursor == 6u;
         ui.cursor = 0;                                  /* a rest: PRESETS walks, and does not pull the note */
         frame();
         turn(EN_PRESET, 1);
-        ok &= ui.cursor == 1u && t->step[5].note[0] == 60u && t->step[0].time == ST_REST;
+        ok &= ui.cursor == 1u && step_note(&t->step[5], 0) == 60u && t->step[0].time == ST_REST;
         bad += check("STEP (the roll): PRESETS moves the note and its TIEs, cursor with it; a rest walks", ok);
         hold(B_SAVE);
-        ok = t->step[3].note[0] == 60u && t->step[3].time == ST_NOTE && t->step[4].time == ST_TIE &&
+        ok = step_note(&t->step[3], 0) == 60u && t->step[3].time == ST_NOTE && t->step[4].time == ST_TIE &&
              t->step[5].time == ST_TIE && motion_find(t, 3, P_ATK) >= 0;
         bad += check("  SAVE held undoes the moves (one gesture)", ok);
     }
@@ -564,7 +564,7 @@ static int formats(void)
     motion_set_lock(&trk[2], 9, P_E0 + 3, 7);
     project_capture(&a);
     memset(a.motion.event + a.motion.count, 0, (MOTION_MAX - a.motion.count) * sizeof a.motion.event[0]);
-    ok = motion.count == MOTION_FILE_MAX && proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E46u &&
+    ok = motion.count == MOTION_FILE_MAX && proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == PROJ_MAGIC &&
          ((uint32_t *)st.raw)[1] == 3840u && st.raw[66] == P_COUNT && proj_import(&b, &st, sizeof st) && !memcmp(&a, &b, sizeof a);
     ok &= step_nudge(&b.t[0].step[0]) == -8 && step_nudge(&b.t[0].step[1]) == 7 && step_nudge(&b.t[0].step[2]) == -1 &&
           step_ratchet(&b.t[0].step[3]) == 4u && step_nudge(&b.t[0].step[3]) == 1 && step_chance(&b.t[0].step[3]) == 33u;
@@ -577,17 +577,25 @@ static int formats(void)
     }
     bad += check("FUN13 round trip: 3840 bytes, nudges, MOTION_FILE_MAX disk records, LFO 2, QUANTIZE", ok);
     /* Old np 103/104 (pre-insert-chain) migration: inschain_test + params_by_count / ins_migrate. */
-    {   /* the song's sections (1.2): a slot per track, "-" silent, 5 bytes a row, 84 in all, right after the steps */
+    {   /* the song's sections (1.2; FUN16 wire): a slot per track, "-" silent, 2 bytes a row, 36 in all after the steps */
         project_t c = a, d;
         uint32_t at = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u);   /* +1/track: P_IORD high byte */
+        uint32_t w0, w15;
         c.chain.count = CHAIN_ROWS;
         for (i = 0; i < CHAIN_ROWS; i++)
             c.chain.row[i] = (chain_row_t){{(uint8_t)(i % 5u), (uint8_t)((i + 1u) % 5u), (uint8_t)((i + 2u) % 5u),
                                             (uint8_t)((i * 3u) % 5u)}, (uint8_t)(1u + i)};
         c.sum = proj_sum(&c);
-        ok = proj_pack(&st, &c) && proj_import(&d, &st, sizeof st) && !memcmp(&c, &d, sizeof c) && st.raw[at] == CHAIN_ROWS &&
-             st.raw[at + 4u] == 0 && st.raw[at + 5u] == 1 && st.raw[at + 6u] == 2 && st.raw[at + 7u] == 0 && st.raw[at + 8u] == 1 &&
-             st.raw[at + 4u + 5u * 15u + 4u] == 16;
+        ok = proj_pack(&st, &c);
+        ok = ok && proj_import(&d, &st, sizeof st);
+        printf(" im=%d", ok);
+        ok = ok && !memcmp(&c, &d, sizeof c);
+        printf(" mc=%d hdr=%d ccount=%u dcount=%u\n", ok, st.raw[at] == CHAIN_ROWS, c.chain.count, d.chain.count);
+        ok = ok && st.raw[at] == CHAIN_ROWS && !st.raw[at + 1u] && !st.raw[at + 2u] && !st.raw[at + 3u];
+        w0 = (uint32_t)st.raw[at + 4u] | (uint32_t)st.raw[at + 5u] << 8;
+        w15 = (uint32_t)st.raw[at + 4u + 2u * 15u] | (uint32_t)st.raw[at + 5u + 2u * 15u] << 8;
+        ok &= (w0 & 7u) == 0 && (w0 >> 3 & 7u) == 1 && (w0 >> 6 & 7u) == 2 && (w0 >> 9 & 7u) == 0 && (w0 >> 12) == 0 &&
+              (w15 >> 12) == 15 && (w15 & 7u) == (15u * 3u) % 5u && (w15 >> 3 & 7u) == 16u % 5u;
         c.chain.row[3].slot[2] = 5;                   /* past "-": refused (pack and load) */
         c.sum = proj_sum(&c);
         ok &= !proj_pack(&st, &c);

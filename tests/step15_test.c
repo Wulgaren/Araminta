@@ -87,7 +87,8 @@ static int len_edit(void)
     track_t *t;
 
     t = roll(1);
-    t->step[1] = (step_t){{60, 64}, 2, ST_NOTE, SF_ACCENT, 90};   /* a chord on step 2 */
+    t->step[1] = (step_t){{60, 64}, 2, ST_NOTE, 0, 90};   /* a chord on step 2 */
+    step_set_fl(&t->step[1], SF_ACCENT);
     put(t, 2, 0, ST_REST);
     t->step[3] = (step_t){{0}, 0, ST_NOTE, 0, 0, 0, 0, 40};        /* empty, a CHANCE of 40 % */
     put(t, 5, 67, ST_NOTE);
@@ -152,7 +153,7 @@ static int len_edit(void)
          motion_find(t, 2, P_ATK) < 0 && motion_find(t, 3, P_DEC) < 0 && ui.cursor == 3u;
     bad += check("LEN 0: KNOB 3 left clears the note, its TIEs and their locks; the cursor moves on", ok);
     hold(B_SAVE);                                     /* the clear (cursor stays; the note and TIEs come back) */
-    ok = t->step[2].note[0] == 60u && t->step[2].time == ST_NOTE && t->step[3].time == ST_TIE &&
+    ok = step_note(&t->step[2], 0) == 60u && t->step[2].time == ST_NOTE && t->step[3].time == ST_TIE &&
          t->step[4].time == ST_TIE && motion_find(t, 2, P_ATK) >= 0 && motion_find(t, 3, P_DEC) >= 0 &&
          ui.cursor == 3u;
     bad += check("  SAVE held: the note, its TIEs and their locks back", ok);
@@ -225,7 +226,7 @@ static int vel(void)
     t->step[0].vel = 50;
     n = play(t, 8, &off, v, 8);
     ok &= n == 1u && v[0] == 50u;
-    t->step[0].flags = SF_ACCENT;
+    step_set_fl(&t->step[0], SF_ACCENT);
     n = play(t, 8, &off, v, 8);
     ok &= n == 1u && v[0] == 127u;
     bad += check("VEL plays: a step's 0 at 96, 50 at 50, an ACC step at 127", ok);
@@ -237,7 +238,7 @@ static int vel(void)
     t = roll(0);
     for (n = 0; n < 16u; n += 4u)
         t->step[n] = (step_t){{(uint8_t)(48 + n)}, 1, ST_NOTE, 0, 100};   /* recorded from the panel's keys: 100 */
-    t->step[8].flags = SF_ACCENT;
+    step_set_fl(&t->step[8], SF_ACCENT);
     t->step[20] = (step_t){{70}, 1, ST_NOTE, 0, 30};                     /* past LEN */
     memcpy(ref, t->step, sizeof ref);
     go_auto_top(); frame();

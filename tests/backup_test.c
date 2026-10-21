@@ -292,7 +292,7 @@ int main(void)
                      old_pack(v8, &proj_scratch, OLD_FUN8, 91u) == sizeof v8 &&
                      put_all(3, v8, sizeof v8, st_crc32(v8, sizeof v8)) == 0 && ((uint32_t *)proj_slot[1].raw)[0] == PROJ_MAGIC &&
                      proj_import(&proj_scratch, &proj_slot[1], sizeof st) && proj_scratch.t[2].p[P_E0] == 2 &&
-                     proj_scratch.t[2].p[P_LN3] == 127 && proj_scratch.t[1].step[3].note[0] == 64u);
+                     proj_scratch.t[2].p[P_LN3] == 127 && step_note(&proj_scratch.t[1].step[3], 0) == 64u);
         project_capture(&proj_scratch);
         for (k = 0; k < 64u; k++)
             proj_scratch.motion.event[k] = (motion_event_t){(uint8_t)(1u << 6 | k), P_REV, (int8_t)k};
@@ -320,7 +320,7 @@ int main(void)
     bad += check("a FUN6 project restores as FUN10, bounded, its E0 at P_E0",
                  put_all(5, &v6, sizeof v6, st_crc32(&v6, sizeof v6)) == 0 && ((uint32_t *)proj_slot[3].raw)[0] == PROJ_MAGIC &&
                  proj_import(&proj_scratch, &proj_slot[3], sizeof st) && proj_scratch.t[0].step[0].n == 4u &&
-                 proj_scratch.t[0].step[0].note[0] == 127u && proj_scratch.t[0].p[P_E0] ==
+                 step_note(&proj_scratch.t[0].step[0], 0) == 127u && proj_scratch.t[0].p[P_E0] ==
                  clamp(3, param_desc_of(trk[0].engine, P_E0)->min, param_desc_of(trk[0].engine, P_E0)->max));
     {   /* 1.0.3: the FM6 patch bank (id 8) is retired; an older archive's bank moves into its user presets (ids 6, 7
          * restored first), the user presets' patches are id 9 */
@@ -398,7 +398,7 @@ int main(void)
     proj_pack(&st, &proj_scratch);
     host_tracks_init();
     bad += check("the runtime object restores the tracks",
-                 put_all(0, &st, sizeof st, st_crc32(&st, sizeof st)) == 0 && trk[2].step[5].note[0] == 67u &&
+                 put_all(0, &st, sizeof st, st_crc32(&st, sizeof st)) == 0 && step_note(&trk[2].step[5], 0) == 67u &&
                  trk[2].p[P_LEVEL] == 77);
 
     /* user preset banks: unknown record versions are kept as bytes */
