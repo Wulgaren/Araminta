@@ -254,7 +254,7 @@ static void as_edit(uint32_t i)                          /* a change a project h
     step_t *s = &t->step[i % 16u];
     s->time = ST_NOTE;
     s->n = 1;
-    s->note[0] = (uint8_t)(20u + (s->note[0] + 1u + n++ % 50u) % 100u);
+    step_set_note(s, 0, 20u + (step_note(s, 0) + 1u + n++ % 50u) % 100u);
     s->vel = 100;
 }
 static int autosave_test(void)
@@ -547,7 +547,7 @@ int main(void)
     trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
     project_save(0);
     old = proj_slot[0];
-    trk[0].step[0].note[0] = 72;
+    step_set_note(&trk[0].step[0], 0, 72);
     fail_after = 1;
     project_save(0);
     fail_after = -1;
@@ -557,7 +557,7 @@ int main(void)
     project_save(0);
     bad += check("successful project save publishes new RAM", !strcmp(ui.msg, "SAVED") &&
                   proj_import(&proj_scratch, &proj_slot[0], sizeof proj_slot[0]) &&
-                  proj_scratch.t[0].step[0].note[0] == 72u && proj_ok(&proj_scratch));
+                  step_note(&proj_scratch.t[0].step[0], 0) == 72u && proj_ok(&proj_scratch));
     before = erases;
     transport_req = 1;
     project_save(1);
@@ -590,7 +590,7 @@ int main(void)
         transport_req = 0;
         bad += check("project rename: flash has the new name, the music as it was", project_rename(0, "DUB") == 0 &&
                       !strcmp(ui.msg, "RENAMED") && (memset(proj_slot[0].raw, 0, 8), proj_fetch(0), project_name(0, n)) &&
-                      !strcmp(n, "DUB") && proj_scratch.t[0].step[0].note[0] == st0.note[0]);
+                      !strcmp(n, "DUB") && step_note(&proj_scratch.t[0].step[0], 0) == step_note(&st0, 0));
     }
     {   /* FUN7 itself refuses a step outside its fields: a damaged slot is empty, the tracks stay */
         step_t keep = trk[0].step[0];
@@ -624,8 +624,8 @@ int main(void)
         memset(proj_slot[3].raw, 0, 4);
         project_load(3);
         bad += check("FUN5 load bounds steps and masks lane accents", trk[0].step[0].n == 4u &&
-                      trk[0].step[0].time == ST_REST && trk[0].step[0].note[0] == 127u &&
-                      !trk[0].step[0].note[1] && trk[0].step[0].acc == 5u && project_used(3));
+                      trk[0].step[0].time == ST_REST && step_note(&trk[0].step[0], 0) == 127u &&
+                      !step_note(&trk[0].step[0], 1) && trk[0].step[0].acc == 5u && project_used(3));
         bad += check("FUN5 load clamps a parameter into its range", trk[0].p[P_LEVEL] == TP[P_LEVEL].max);
         for (i = 0; i < P_COUNT; i++) {
             uint32_t e;
