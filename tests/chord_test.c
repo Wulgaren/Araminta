@@ -242,18 +242,18 @@ static int arp_rec(void)
     t->seq_idx = 0; t->seq_pos = 0;
     key_down(K_D4);
     bad += check("live recording: the chord into one step (D F A)", t->step[0].n == 3u && t->step[0].time == ST_NOTE &&
-                 t->step[0].note[0] == 62 && t->step[0].note[1] == 65 && t->step[0].note[2] == 69);
+                 step_note(&t->step[0], 0) == 62 && step_note(&t->step[0], 1) == 65 && step_note(&t->step[0], 2) == 69);
     key_up(K_D4);
     t->p[P_CHRD] = CH_MAJ7; t->p[P_VOIC] = VC_BASS;
     t->seq_idx = 4;
     key_down(K_C4);
-    bad += check("  a 4-note voicing: 4 notes in the step (the most a step holds)", t->step[4].n == 4u && t->step[4].note[0] == 48);
+    bad += check("  a 4-note voicing: 4 notes in the step (the most a step holds)", t->step[4].n == 4u && step_note(&t->step[4], 0) == 48);
     key_up(K_C4);
     song.rec = 0; song.playing = 0;
     t->p[P_VOICE] = V_MONO; t->p[P_CHRD] = CH_DIA3; t->p[P_VOIC] = VC_CLOSE;
     song.rec = 1; song.playing = 1; t->seq_idx = 8;
     key_down(K_E4);
-    bad += check("  MONO records its root alone", t->step[8].n == 1u && t->step[8].note[0] == 64);
+    bad += check("  MONO records its root alone", t->step[8].n == 1u && step_note(&t->step[8], 0) == 64);
     key_up(K_E4);
     song.rec = 0; song.playing = 0;
     return bad;

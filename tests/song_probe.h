@@ -24,7 +24,7 @@ static uint32_t song_probe(uint32_t *blocks)
             track_defaults_steps(t);
             motion_clear(t);
             for (i = 0; i < NSTEP; i += 1u + (k + s) % 3u) {
-                t->step[i].note[0] = (uint8_t)(36u + 12u * s + 5u * k + i % 7u);
+                step_set_note(&t->step[i], 0, (uint8_t)(36u + 12u * s + 5u * k + i % 7u));
                 t->step[i].n = 1;
                 t->step[i].time = ST_NOTE;
                 t->step[i].vel = (uint8_t)(70u + i);

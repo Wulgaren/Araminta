@@ -158,9 +158,9 @@ static void put_step(track_t *t, uint32_t i, uint32_t n, const uint8_t *notes, u
     uint32_t k;
     s->n = (uint8_t)n;
     for (k = 0; k < 4u; k++)
-        s->note[k] = k < n ? notes[k] : 0;
+        step_set_note(s, k, k < n ? notes[k] : 0);
     s->time = (uint8_t)time;
-    s->flags = (uint8_t)flags;
+    step_set_fl(s, flags);
     s->vel = n ? 100 : 0;
 }
 
@@ -306,15 +306,15 @@ static int tracks_demo(const char *dir, const char *name, uint32_t solo)
     {
         const step_t *s4 = &td->step[4], *l1 = &t3->step[1], *p14 = &t2->step[14];
         /* (DRUM: the clap goes into the grid, its lane's hit, seq.c; a sampled kit took it as a 4th note) */
-        int clap = drum_track(td) ? s4->n == 3u && ((s4->hit >> DV_CLAP) & 1u) : s4->n == 4u && s4->note[3] == 39u;
+        int clap = drum_track(td) ? s4->n == 3u && ((s4->hit >> DV_CLAP) & 1u) : s4->n == 4u && step_note(s4, 3) == 39u;
         int ok_clap = clap && clap_hits == 3u;
-        int ok_lead = l1->n == 1u && l1->note[0] == 84u && l1->time == ST_NOTE;
-        int ok_keys = p14->n == 2u && p14->time == ST_NOTE && p14->note[0] == 60u && p14->note[1] == 64u;
+        int ok_lead = l1->n == 1u && step_note(l1, 0) == 84u && l1->time == ST_NOTE;
+        int ok_keys = p14->n == 2u && p14->time == ST_NOTE && step_note(p14, 0) == 60u && step_note(p14, 1) == 64u;
         printf("tracks: recording: drums step 4 = %u notes (kick snare hat) + clap 39: %s, hits when step 4 played right "
                "after: %u (want 3: the clap is not triggered twice) %s\n", s4->n, clap ? "yes" : "no", clap_hits,
                ok_clap ? "ok" : "FAIL");
         printf("tracks: recording: MIDI ch 3 -> lead step 1 = %u (want 84) %s; keys -> pad step 14 = %u notes %u %u %s\n",
-               l1->note[0], ok_lead ? "ok" : "FAIL", p14->n, p14->note[0], p14->note[1], ok_keys ? "ok" : "FAIL");
+               step_note(l1, 0), ok_lead ? "ok" : "FAIL", p14->n, step_note(p14, 0), step_note(p14, 1), ok_keys ? "ok" : "FAIL");
         printf("tracks: voices sounding at most %u (budget %u) %s; given up to another part %u; %u samples near full "
                "scale\n", bmax, NVOICE, bmax <= NVOICE ? "ok" : "FAIL", voice_kills - kills0, clips);
         fail = !ok_clap + !ok_lead + !ok_keys + (bmax > NVOICE) + (clips > 0);
@@ -566,7 +566,7 @@ static void rec_run_to(track_t *t, uint32_t idx, uint32_t q)
 static int rec_step_is(const track_t *t, uint32_t i, uint32_t time, uint32_t n, uint32_t note)
 {
     const step_t *s = &t->step[i];
-    return s->time == time && s->n == n && (!n || s->note[0] == note);
+    return s->time == time && s->n == n && (!n || step_note(s, 0) == note);
 }
 static int rec_test(void)
 {
@@ -712,7 +712,7 @@ static int trs_test(void)
     trs_bytes((const uint8_t[]){0xF8}, 1);
     trs_bytes((const uint8_t[]){0x92, 72, 100}, 3);
     trs_bytes((const uint8_t[]){0x92, 72, 0}, 3);
-    ok_rec = trk[2].step[0].n == 1u && trk[2].step[0].note[0] == 72u && trk[2].step[0].time == ST_NOTE && trk[1].step[0].n == 0u;
+    ok_rec = trk[2].step[0].n == 1u && step_note(&trk[2].step[0], 0) == 72u && trk[2].step[0].time == ST_NOTE && trk[1].step[0].n == 0u;
     printf("tracks: TRS MIDI IN: ch 1..4 -> parts %s, ch 10 and ch 5 ignored on CH1-4, the selected track on SEL %s %s; note-offs "
            "(running status, vel 0) %s\n", ok_parts ? "ok" : "FAIL", ok_ch10 ? "ok" : "FAIL", ok_sel ? "ok" : "FAIL",
            ok_off ? "ok" : "FAIL");

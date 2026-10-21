@@ -246,16 +246,16 @@ static int nudge(void)
     t->seq_pos = P16 * 3u / 16u;                     /* 3/16 into step 1 */
     input_on(t, 64, 100);
     input_off(t, 64);
-    ok = t->step[0].n == 1u && t->step[0].note[0] == 64u && step_nudge(&t->step[0]) == 3;
+    ok = t->step[0].n == 1u && step_note(&t->step[0], 0) == 64u && step_nudge(&t->step[0]) == 3;
     t->seq_pos = P16 - P16 / 4u;                     /* 1/4 before step 2 */
     input_on(t, 65, 100);
     input_off(t, 65);
-    ok &= t->step[1].note[0] == 65u && step_nudge(&t->step[1]) == -4;
+    ok &= step_note(&t->step[1], 0) == 65u && step_nudge(&t->step[1]) == -4;
     t->seq_pos = P16 / 16u + 40u;                    /* just past 1/16: rounds to it */
     t->seq_idx = 4;
     input_on(t, 66, 100);
     input_off(t, 66);
-    ok &= t->step[4].note[0] == 66u && step_nudge(&t->step[4]) == 1;
+    ok &= step_note(&t->step[4], 0) == 66u && step_nudge(&t->step[4]) == 1;
     t->seq_idx = 4;
     t->seq_pos = P16 / 8u;                           /* a second note into step 5 (a chord): the first's time stays */
     input_on(t, 69, 100);
@@ -283,7 +283,7 @@ static int nudge(void)
     arp_step(t, CTL, CTL);
     input_off(t, 60);
     seq_stop();
-    bad += check("  the ARP's notes recorded with their time too", t->step[0].note[0] == 60u && step_nudge(&t->step[0]) == 8 - 1);
+    bad += check("  the ARP's notes recorded with their time too", step_note(&t->step[0], 0) == 60u && step_nudge(&t->step[0]) == 8 - 1);
 
     /* playback: QUANTIZE ON plays every step on its start (as before); OFF plays the nudges */
     t = seq1(1);
@@ -492,7 +492,7 @@ static int nudge(void)
         ui.cursor = 3;
         turn(EN_K2, 2);
         bad += check("STEP: NOTE knob (K2) still changes pitch, not time",
-                     t->step[3].note[0] == 62u && t->step[3].time == ST_NOTE && t->step[4].time == ST_REST);
+                     step_note(&t->step[3], 0) == 62u && t->step[3].time == ST_NOTE && t->step[4].time == ST_REST);
         /* piano roll: PRESETS moves that note (and its TIEs); the cursor stays on it. A rest: the cursor. */
         t->step[3] = (step_t){{60}, 1, ST_NOTE, 0, 96};
         t->step[4] = (step_t){{0}, 0, ST_TIE, 0, 0};
@@ -502,21 +502,21 @@ static int nudge(void)
         ui.cursor = 4;                                  /* on a TIE of the note at step 4 */
         frame();
         turn(EN_PRESET, 1);
-        ok = t->step[4].note[0] == 60u && t->step[4].time == ST_NOTE && t->step[5].time == ST_TIE &&
+        ok = step_note(&t->step[4], 0) == 60u && t->step[4].time == ST_NOTE && t->step[5].time == ST_TIE &&
              t->step[6].time == ST_TIE && t->step[3].time == ST_REST && !t->step[3].n && ui.cursor == 5u &&
-             motion_find(t, 4, P_ATK) >= 0 && motion_find(t, 3, P_ATK) < 0 && t->step[8].note[0] == 72u;
+             motion_find(t, 4, P_ATK) >= 0 && motion_find(t, 3, P_ATK) < 0 && step_note(&t->step[8], 0) == 72u;
         turn(EN_PRESET, 1);                             /* 5,6,7: still clear of the note at 9 */
-        ok &= t->step[5].note[0] == 60u && t->step[7].time == ST_TIE && ui.cursor == 6u;
+        ok &= step_note(&t->step[5], 0) == 60u && t->step[7].time == ST_TIE && ui.cursor == 6u;
         ui.msg_t = 0;
         turn(EN_PRESET, 1);                             /* 6,7,8 would land on the other note */
-        ok &= msg_is("NOTE AHEAD") && t->step[5].note[0] == 60u && t->step[8].note[0] == 72u && ui.cursor == 6u;
+        ok &= msg_is("NOTE AHEAD") && step_note(&t->step[5], 0) == 60u && step_note(&t->step[8], 0) == 72u && ui.cursor == 6u;
         ui.cursor = 0;                                  /* a rest: PRESETS walks, and does not pull the note */
         frame();
         turn(EN_PRESET, 1);
-        ok &= ui.cursor == 1u && t->step[5].note[0] == 60u && t->step[0].time == ST_REST;
+        ok &= ui.cursor == 1u && step_note(&t->step[5], 0) == 60u && t->step[0].time == ST_REST;
         bad += check("STEP (the roll): PRESETS moves the note and its TIEs, cursor with it; a rest walks", ok);
         hold(B_SAVE);
-        ok = t->step[3].note[0] == 60u && t->step[3].time == ST_NOTE && t->step[4].time == ST_TIE &&
+        ok = step_note(&t->step[3], 0) == 60u && t->step[3].time == ST_NOTE && t->step[4].time == ST_TIE &&
              t->step[5].time == ST_TIE && motion_find(t, 3, P_ATK) >= 0;
         bad += check("  SAVE held undoes the moves (one gesture)", ok);
     }
