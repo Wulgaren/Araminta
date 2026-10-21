@@ -621,7 +621,9 @@ static void step_clear(step_t *st)
 {
     st->n = 0;
     st->time = ST_REST;
-    st->flags = 0;
+    step_set_fl(st, 0);
+    step_set_ratchet(st, 1u);
+    step_set_nudge(st, 0);
     st->vel = 0;
     st->hit = st->acc = 0;
     st->probability = 0;
@@ -695,12 +697,12 @@ static void grid_own(step_t *s, uint32_t l)
     uint32_t k, j = 0;
     step_to_grid(s);
     for (k = 0; k < s->n; k++)
-        if (drum_lane(s->note[k]) == l)
+        if (drum_lane(step_note(s, k)) == l)
             s->hit |= (uint8_t)(1u << l);
         else
-            s->note[j++] = s->note[k];
+            step_set_note(s, j++, step_note(s, k));
     for (k = j; k < 4u; k++)
-        s->note[k] = 0;
+        step_set_note(s, k, 0);
     s->n = (uint8_t)j;
 }
 
@@ -740,9 +742,9 @@ static void grid_acc(track_t *t, uint32_t i, uint32_t l, uint32_t on)
     if (!(step_lanes(s) & b))
         return;
     grid_own(s, l % NLANE);
-    if (s->flags & SF_ACCENT) {                  /* a step accent: each hit's own from now on */
+    if (step_fl(s) & SF_ACCENT) {                /* a step accent: each hit's own from now on */
         s->acc |= s->hit;
-        s->flags &= (uint8_t)~SF_ACCENT;
+        step_set_fl(s, step_fl(s) & ~SF_ACCENT);
     }
     s->acc = (uint8_t)(on ? s->acc | b : s->acc & ~b);
 }
@@ -1243,10 +1245,12 @@ static void load_pat16(track_t *t, const uint8_t *note, const uint8_t *flags)
     for (i = 0; i < NSTEP; i++) {
         step_t *s = &t->step[i];
         uint8_t n = i < 16u ? note[i] : 0, fl = i < 16u ? flags[i] : 0;
-        s->note[0] = n;
+        step_set_note(s, 0, n);
         s->n = n ? 1 : 0;
         s->time = (fl & 4u) ? ST_TIE : n ? ST_NOTE : ST_REST;
-        s->flags = n ? (fl & (SF_ACCENT | SF_SLIDE | SF_RATCH)) : 0;
+        step_set_fl(s, n ? (fl & (SF_ACCENT | SF_SLIDE)) : 0u);
+        step_set_ratchet(s, n ? ((fl & SF_RATCH) >> SF_RATCH_SH) + 1u : 1u);
+        step_set_nudge(s, 0);
         s->vel = n ? 96 : 0;
         s->hit = s->acc = 0;
         s->probability = 0;
