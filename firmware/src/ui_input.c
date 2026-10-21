@@ -258,7 +258,7 @@ static uint32_t step_leds(void)
     for (k = 0; k < 27u; k++) {
         note = kb_map(t, k);
         for (i = 0; i < st->n && i < 4u; i++)
-            if (st->note[i] == note && !((used >> i) & 1u)) {
+            if (step_note(st, i) == note && !((used >> i) & 1u)) {
                 used |= 1u << i;
                 m |= 1u << k;
             }
@@ -1010,7 +1010,7 @@ static void sd_turn(uint32_t slot, int32_t steps)
     motion_undo_done(t);
     if (k == EVK_NUDGE && t->p[P_SQNT])
         ui_message("QUANTIZE IS ON");                   /* (kept: it plays once QUANTIZE is OFF) */
-    else if (k == EVK_VEL && (t->step[ui.cursor].flags & SF_ACCENT))
+    else if (k == EVK_VEL && (step_fl(&t->step[ui.cursor]) & SF_ACCENT))
         ui_message("ACC PLAYS 127");                    /* (kept: it plays once the ACC goes) */
 }
 /* DETAIL's EDIT: the steps' four back to 100 % / x1 / 0 / 96 (their notes stay); one undo */
@@ -1083,15 +1083,15 @@ static void step_edit(uint32_t slot, int32_t steps)
         break;
     case 1:                                               /* NOTE: transpose the step */
         if (!st->n) {
-            st->note[0] = last_note;
+            step_set_note(st, 0, last_note);
             st->n = 1;
             st->time = ST_NOTE;
             break;
         }
         for (i = 0; i < st->n; i++)
-            st->note[i] = (uint8_t)clamp(st->note[i] + steps, 1, 127);
+            step_set_note(st, i, (uint32_t)clamp((int32_t)step_note(st, i) + steps, 1, 127));
         st->time = ST_NOTE;
-        last_note = st->note[0];
+        last_note = (uint8_t)step_note(st, 0);
         break;
     case 2:                                               /* TIME; a note's LEN (1.5: note_len_turn). 0 clears it */
         if (step_on(st)) {
@@ -1102,9 +1102,9 @@ static void step_edit(uint32_t slot, int32_t steps)
         st->time = (uint8_t)clamp((int32_t)st->time + (steps > 0 ? 1 : -1), ST_NOTE, ST_REST);
         break;
     default: {                                            /* FLAG: - / ACC / SLD / A+S */
-        uint32_t f = (st->flags & SF_ACCENT ? 1u : 0u) | (st->flags & SF_SLIDE ? 2u : 0u);
+        uint32_t f = step_fl(st) & (SF_ACCENT | SF_SLIDE);
         f = (uint32_t)clamp((int32_t)f + (steps > 0 ? 1 : -1), 0, 3);
-        st->flags = (uint8_t)((st->flags & ~(SF_ACCENT | SF_SLIDE)) | (f & 1u ? SF_ACCENT : 0u) | (f & 2u ? SF_SLIDE : 0u));
+        step_set_fl(st, f);
         break;
     }
     }
@@ -1473,14 +1473,14 @@ static void step_toggle(const track_t *t, step_t *st, const uint8_t *ch, uint32_
         st->n = 0;
         st->time = ST_NOTE;
     }
-    for (j = 0; j < st->n && st->note[j] != ch[0]; j++)
+    for (j = 0; j < st->n && step_note(st, j) != ch[0]; j++)
         ;
     if (j < st->n) {                                   /* there: its notes out */
         for (i = 0; i < n; i++)
             for (j = 0; j < st->n; j++)
-                if (st->note[j] == ch[i]) {
+                if (step_note(st, j) == ch[i]) {
                     for (k = j; k + 1u < st->n; k++)
-                        st->note[k] = st->note[k + 1u];
+                        step_set_note(st, k, step_note(st, k + 1u));
                     st->n--;
                     break;
                 }
@@ -1489,15 +1489,15 @@ static void step_toggle(const track_t *t, step_t *st, const uint8_t *ch, uint32_
         return;
     }
     if (t->p[P_VOICE] && !ENGINES[t->engine]->oneshot) {   /* MONO / LEG / UNI: one note */
-        st->note[0] = ch[0];
+        step_set_note(st, 0, ch[0]);
         st->n = 1;
         return;
     }
     for (i = 0; i < n && st->n < 4u; i++) {
-        for (j = 0; j < st->n && st->note[j] != ch[i]; j++)
+        for (j = 0; j < st->n && step_note(st, j) != ch[i]; j++)
             ;
         if (j == st->n)
-            st->note[st->n++] = ch[i];
+            step_set_note(st, st->n++, ch[i]);
     }
 }
 
@@ -1534,14 +1534,14 @@ static void seq_entry(uint32_t pressed)
         if (add)
             step_toggle(t, st, ch, n);
         else if (t->p[P_VOICE] && !ENGINES[t->engine]->oneshot) {   /* (drums: hits stack as a chord) */
-            st->note[0] = ch[0];
+            step_set_note(st, 0, ch[0]);
             st->n = 1;
         } else {
             for (i = 0; i < n && st->n < 4u; i++) {
-                for (j = 0; j < st->n && st->note[j] != ch[i]; j++)
+                for (j = 0; j < st->n && step_note(st, j) != ch[i]; j++)
                     ;
                 if (j == st->n)
-                    st->note[st->n++] = ch[i];
+                    step_set_note(st, st->n++, ch[i]);
             }
         }
         last_note = (uint8_t)note;
