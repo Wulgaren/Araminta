@@ -34,7 +34,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
   and releasing a tap while the hold continues records a return to the held pitch.
 - **JIANT MIDI punch-ins.** On FX under Punch-in (FX taps: EFFECTS → SLICER → PUNCH-IN). Two fixed PUNCH-IN pages, 1/2 and 2/2 (SELECT walks the section; no reassignment): 1/2 holds REPEAT 1/8 1/16 1/32, 1/2, LPF, HPF, OCT±, DEC±, stutters, ATK+, ARP, RANDOM; 2/2 holds REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW. Holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK. Reverb adds SHIMR / CLOUD.
 - **Melodee.** Silent tracks still run LFO, bend, the engine block and fades, so modulation keeps moving when a track is muted or resting.
-- **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project (FUN15 / `FUNF`; same 3840-byte size as FUN10; disk motion max 72). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
+- **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project (FUN16 / `FUNG`; same 3840-byte size as FUN10; disk motion max 88). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
 - **SLICE retired.** 
 - Upload a drum kit as a USR sample: in the web editor, Drum kit grid tags the slot (`FSMP` header); SAMPLE on that set uses the drum grid on SEQ, zones mapped by hand.
 - **VOICE** is one page: VCE, GLD, UNI DTN, SPRD. GLD is free milliseconds (no GLMOD on the page). PAN / PLAY live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
@@ -45,7 +45,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
 - **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.
 - **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN.
-- **MAP (was QNT).** SCL knob: OFF / ALL / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); ALL is KBD plus sequence follows the scale; SEQ is chromatic keys plus sequence follows. Chromatic (CHR) scale removed; use MAP OFF. SCALE LOCK stash lands in FUN12+; current saves are FUN15 (`FUNF`).
+- **MAP (was QNT).** SCL knob: OFF / ALL / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); ALL is KBD plus sequence follows the scale; SEQ is chromatic keys plus sequence follows. Chromatic (CHR) scale removed; use MAP OFF. SCALE LOCK stash lands in FUN12+; current saves are FUN16 (`FUNG`).
 - **Following playhead** in the SEQ. Start selecting a step to pause the following, returns after 3 seconds of inactivity.
 - **SEQ GENERATION.** On DRUM-X, the second SEQ section generates editable kick, snare and closed-hat steps from Mutable Instruments Grids. SELECT switches between LEN / KICK / SNARE / HAT and MAP / MAP X / MAP Y / CHAOS. MAP selects one of 25 templates; X/Y blend between them and show CUSTOM. Turning MAP, MAP X or MAP Y briefly shows the full-screen map, then returns to the drum grid; CHAOS keeps the grid visible. Density edits change only their lane; map, chaos and length edits regenerate all three. Other lanes stay as written, SAVE held undoes the gesture, and each track's controls save with the project. Tips follow MENU > HELP.
 
@@ -159,13 +159,14 @@ What loads:
 
 What changes when you save (or when quiet autosave writes after idle):
 
-- **New project format is FUN15 (`FUNF`).** Same 3840-byte size as FUN10, different magic: DRUM-X kit, SCALE LOCK,
-  SEND bus knobs, SLICER list slots, exact FX lock packing. Intermediate FUN11–FUN14 load; only FUN15 is written.
-  **Felucca 1.5 / 1.5.1 (and FUN11-only builds) refuse FUN15:** that slot shows EMPTY there until you save over it
-  (flash data stays until then). A backup that holds FUN15 is refused on 1.5. Upgrade is one-way for anything you
-  re-save on Araminta.
-- **Motion on disk max is 72** (FUN10: 110; RAM still 128). Extra locks stay in RAM until truncated on pack; the UI
-  can warn when you cross the save limit.
+- **New project format is FUN16 (`FUNG`).** Same 3840-byte size as FUN10, different magic: the song chain packs
+  two bytes a section instead of five, which pays for 88 motion records (FUN15 and older: 72), on top of the DRUM-X
+  kit, SCALE LOCK, SEND bus knobs, SLICER list slots and exact FX lock packing. Intermediate FUN11–FUN15 load; only
+  FUN16 is written. **Any firmware before this build refuses FUN16:** that slot shows EMPTY there until you save over
+  it (flash data stays until then). A backup that holds FUN16 is refused there too. Upgrade is one-way for anything
+  you re-save on this build.
+- **Motion on disk max is 88** (FUN10: 110; FUN15: 72; RAM 192). Extra locks stay in RAM until truncated on pack;
+  the UI can warn when you cross the save limit.
 - **P_COUNT is 127** (1.5: 111). Editors that read `INFO` keep working; a 1.5-only editor will not know the new ids.
 
 Day-to-day differences after the flash (not data loss):
@@ -176,7 +177,7 @@ Day-to-day differences after the flash (not data loss):
 - Full backup still omits the FM6 voice bank: keep the `.syx` if you use B1–B32.
 
 Rollback: installer's **Return to official V15**, or M-VAVE's updater. That is stock FM-1, not Felucca 1.5.
-It will not reopen FUN15 projects. Back up in the web editor **before** the first save or quiet autosave on Araminta
+It will not reopen FUN16 projects. Back up in the web editor **before** the first save or quiet autosave on Araminta
 if you still need a Felucca 1.5-readable copy.
 
 ## Controls

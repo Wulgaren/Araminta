@@ -175,22 +175,25 @@ static int motion_locks(void)
     /* 1.2 (INFO 41 01 00 01): 128 records; ops 1..7 reply as before (max 64, at most 64 records), op 8 all of them */
     {
         uint32_t i, ok = 1;
-        for (i = 0; i < MOTION_MAX - 1u; i++)            /* 127 on track 2: two ids a step */
-            ok &= !motion_set_event(&trk[1], i % NSTEP, i < NSTEP ? P_REV : P_DLY, (int16_t)(i % 100u));
+        for (i = 0; i < MOTION_MAX - 1u; i++)            /* 191 on track 2: three ids a step */
+            ok &= !motion_set_event(&trk[1], i % NSTEP, i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_LEVEL,
+                                    (int16_t)(i % 100u));
         a[1] = 5; a[2] = 63; a[3] = P_PAN; a[4] = (uint8_t)((-3 + 8192) & 127); a[5] = (uint8_t)((-3 + 8192) >> 7);
-        n = request(ED_MOTION, a, 6);                   /* the 128th: a lock of PAN -3 */
+        n = request(ED_MOTION, a, 6);                   /* the 192nd: a lock of PAN -3 */
         ok &= host_wire[6] == 0 && motion.count == MOTION_MAX && host_wire[8] == 64 && host_wire[9] == 64 &&
               n == 5u + 5u + 64u * 4u + 64u + 1u;
-        bad += check("MOTION 1.2: 128 records on one track; op 5's reply as before: max 64, its first 64 listed", ok);
+        bad += check("MOTION 1.2: 192 records on one track; op 5's reply as before: max 64, its first 64 listed", ok);
         a[1] = 3; a[2] = 0; a[3] = P_CHOR; a[4] = 0; a[5] = 64;
         n = request(ED_MOTION, a, 6);
-        bad += check("  the 129th: rc 2 (full)", host_wire[6] == 2 && motion.count == MOTION_MAX);
+        bad += check("  the 193rd: rc 2 (full)", host_wire[6] == 2 && motion.count == MOTION_MAX);
         a[1] = 8; n = request(ED_MOTION, a, 2);
-        ok = n == 5u + 7u + 128u * 4u + 128u + 1u && host_wire[8] == 0 && host_wire[9] == 1 && host_wire[10] == 0 &&
-             host_wire[11] == 1 && host_wire[12 + 127u * 4u] == 63 && host_wire[13 + 127u * 4u] == P_PAN &&
-             ed_rv(&host_wire[14 + 127u * 4u]) == -3 && host_wire[12 + 128u * 4u + 127u] == 1 &&
-             host_wire[12 + 128u * 4u] == 0 && n <= sizeof ed_out;
-        bad += check("  op 8: count and max as two 7-bit bytes (128), all 128 records, then their kinds", ok);
+        ok = n == 5u + 7u + (uint32_t)MOTION_MAX * 4u + MOTION_MAX + 1u && host_wire[8] == 64 && host_wire[9] == 1 &&
+             host_wire[10] == 64 && host_wire[11] == 1 &&
+             host_wire[12 + (MOTION_MAX - 1u) * 4u] == 63 && host_wire[13 + (MOTION_MAX - 1u) * 4u] == P_PAN &&
+             ed_rv(&host_wire[14 + (MOTION_MAX - 1u) * 4u]) == -3 &&
+             host_wire[12 + MOTION_MAX * 4u + MOTION_MAX - 1u] == 1 && host_wire[12 + MOTION_MAX * 4u] == 0 &&
+             n <= sizeof ed_out;
+        bad += check("  op 8: count and max as two 7-bit bytes (192), all 192 records, then their kinds", ok);
         a[1] = 8; a[2] = 0;
         bad += check("  op 8 with a further byte: no reply", !request(ED_MOTION, a, 3));
         motion_clear(&trk[1]);
@@ -218,7 +221,7 @@ static int preferences(void)
         host_wire[n - 26] == 0x4E && host_wire[n - 25] == 1 && host_wire[n - 24] == 25 &&   /* MENU settings: 25 items (1.5) */
         host_wire[n - 23] == 0x52 && host_wire[n - 22] == 1 && host_wire[n - 21] == 4 &&   /* RATCH */
         host_wire[n - 20] == 0x4C && host_wire[n - 19] == 1 && host_wire[n - 18] == 1 &&   /* 1.1 parameter locks */
-        host_wire[n - 17] == 0x41 && host_wire[n - 16] == 1 && host_wire[n - 15] == 0 && host_wire[n - 14] == 1 &&   /* 1.2: 128 */
+        host_wire[n - 17] == 0x41 && host_wire[n - 16] == 1 && host_wire[n - 15] == 64 && host_wire[n - 14] == 1 &&   /* 1.2: 128 */
         host_wire[n - 13] == 0x54 && host_wire[n - 12] == 1 && host_wire[n - 11] == NUDGE_DIV &&   /* 1.2: NUDGE */
         host_wire[n - 10] == 0x57 && host_wire[n - 9] == 1 && host_wire[n - 8] == NTRK &&   /* 1.2: SONG lanes */
         host_wire[n - 7] == 0x56 && host_wire[n - 6] == 1 && host_wire[n - 5] == 32 &&   /* 1.4.1: FM6 voice bank */

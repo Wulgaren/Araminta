@@ -48,6 +48,34 @@ static int16_t test_scl_to_v12(int16_t sc)
     if (sc > 14) return 15;
     return (int16_t)(sc + 1);
 }
+/* a store packed as FUN16, rewritten to the FUN15 layout (5-byte chain rows, 72 motion records 48 bytes later),
+ * for the tests that check what an older reader sees */
+static void store_fun15_layout(project_store_t *st, uint32_t magic)
+{
+    uint32_t at = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u), i, count = st->raw[at];
+    uint8_t chain[CHAIN_WIRE15_SIZE], mot[MOTION_FILE_SIZE_V15];
+    memset(chain, 0, sizeof chain);
+    for (i = 0; i < count && i < CHAIN_ROWS; i++) {
+        uint32_t w = (uint32_t)st->raw[at + 4u + i * 2u] | (uint32_t)st->raw[at + 5u + i * 2u] << 8;
+        chain[4u + i * 5u] = (uint8_t)(w & 7u);
+        chain[4u + i * 5u + 1u] = (uint8_t)((w >> 3) & 7u);
+        chain[4u + i * 5u + 2u] = (uint8_t)((w >> 6) & 7u);
+        chain[4u + i * 5u + 3u] = (uint8_t)((w >> 9) & 7u);
+        chain[4u + i * 5u + 4u] = (uint8_t)(((w >> 12) & 15u) + 1u);
+    }
+    chain[0] = st->raw[at];
+    chain[1] = chain[2] = chain[3] = 0;
+    memcpy(mot, st->raw + at + CHAIN_WIRE16_SIZE, MOTION_FILE_SIZE_V15);
+    if (mot[0] > MOTION_FILE_MAX_V15)
+        mot[0] = MOTION_FILE_MAX_V15;                   /* FUN16 holds 88, FUN15 72 */
+    memcpy(st->raw + at, chain, sizeof chain);
+    memcpy(st->raw + at + CHAIN_WIRE15_SIZE, mot, sizeof mot);
+    memcpy(st->raw, &magic, 4);
+    {   /* (the hash last, over everything above) */
+        uint32_t sum = proj_hash(st->raw, PROJ_STORE_SIZE - 4u);
+        memcpy(st->raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+    }
+}
 
 static void fill_v2_track(proj_trk_v2_t *d, uint32_t t)
 {
@@ -207,10 +235,7 @@ static int fx_motion_wire(void)
     q.motion.event[0] = (motion_event_t){17, P_REV | MOTION_LOCK, 109};
     q.motion.count = 1; q.motion.on = 1;
     ok = proj_pack(&st, &q);
-    uint32_t old_magic = 0x46554E45u;
-    memcpy(st.raw, &old_magic, 4);
-    uint32_t sum = proj_hash(st.raw, sizeof st - 4u);
-    memcpy(st.raw + sizeof st - 4u, &sum, 4);
+    store_fun15_layout(&st, 0x46554E45u);                /* what a FUN14 reader sees */
     bad += check("FUN14 projects retain their three-byte locks and global IDs", ok && proj_import(&loaded, &st, sizeof st) &&
         loaded.motion.count == 1 && loaded.motion.event[0].param == (P_REV | MOTION_LOCK) &&
         loaded.motion.event[0].value == 109 && loaded.g[G_DMIX] == 19 && loaded.g[G_CRSIZE] == 22);
@@ -246,7 +271,7 @@ static int generation_legacy_defaults(void)
     for (uint32_t t = 0; t < NTRK; t++)
         memcpy(saved.fm6[t], FM6_FACTORY[t], FM6_PACKED);
     ok = proj_pack(&wire, &saved);
-    uint32_t motion_off = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + sizeof(chain_config_t);
+    uint32_t motion_off = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE;
     wire.raw[motion_off + 2u] = 0;
     uint32_t sum = proj_hash(wire.raw, sizeof wire - 4u);
     memcpy(wire.raw + sizeof wire - 4u, &sum, 4);
@@ -570,7 +595,7 @@ int main(void)
                      PROJ_NAME_OFF == 3824u && PROJ_FM6_OFF == 3312u && PROJ_DX_OFF == 3216u &&
                      PROJ_DX_OFF + PROJ_DX_SIZE == PROJ_FM6_OFF &&
                      PROJ_SCL_OFF + PROJ_SCL_SIZE + 2u == PROJ_CRV_OFF &&
-                     68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + sizeof(chain_config_t) + MOTION_FILE_SIZE ==
+                     68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE + MOTION_FILE_SIZE ==
                      PROJ_SCL_OFF);
         memset(&a, 0, sizeof a);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
@@ -620,7 +645,7 @@ int main(void)
         }
         memcpy(a.name, "FM SONG", 7);
         a.sum = proj_sum(&a);
-        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E46u && proj_import(&c, &st, sizeof st);
+        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == PROJ_MAGIC && proj_import(&c, &st, sizeof st);
         for (k = 0; k < NTRK; k++)
             ok &= !memcmp(c.fm6[k], FM6_FACTORY[k * 2u], FM6_PACKED) && c.t[k].engine == ENGI_FM6 &&
                   !memcmp(st.raw + PROJ_FM6_OFF + k * FM6_PACKED, FM6_FACTORY[k * 2u], FM6_PACKED);
@@ -645,7 +670,7 @@ int main(void)
                 f.sum = proj_sum(&f);
                 ok = proj_pack(&st, &f) && proj_import(&g, &st, sizeof st) && !memcmp(&f.motion, &g.motion, sizeof f.motion);
                 bad += check("FUN10 round trip: locks on a lane level (P_LN2) and an engine value (P_E5) kept", ok &&
-                             st.raw[68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + sizeof(chain_config_t) + 4u + 6u + 1u] ==
+                             st.raw[68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE + 4u + 6u + 1u] ==
                              (P_LN2 | MOTION_LOCK) && g.motion.event[3].param == (P_E5 | MOTION_LOCK));
             }
             e.motion.count = 3;   /* a FUN8 of a 1.1 development build (91 parameters) could hold a lock: its E5 then */
@@ -907,7 +932,7 @@ int main(void)
             a.fx_bus[i] = (uint8_t)(10u + i);
         memcpy(a.name, "DX KIT", 6);
         a.sum = proj_sum(&a);
-        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E46u &&
+        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == PROJ_MAGIC &&
              !memcmp(st.raw + PROJ_DX_OFF, a.dx, sizeof a.dx) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx] == (uint8_t)(a.dx_mute & DXG_ALL) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx + 1u] == (uint8_t)(a.dx_mute >> 8) &&
@@ -918,7 +943,7 @@ int main(void)
              !memcmp(c.fx_bus, a.fx_bus, FX_BUS_N) && !memcmp(c.name, "DX KIT", 6);
         bad += check("FUN14: DRUM-X kit/mute round trip; X-MOD not on disk; SEND bus knobs round trip", ok);
         funa = st;
-        ((uint32_t *)funa.raw)[0] = 0x46554E41u;       /* FUNA / FUN10: same 3840 layout, no kit block */
+        store_fun15_layout(&funa, 0x46554E41u);       /* FUNA / FUN10: the FUN15 chain and motion, no kit block */
         memset(funa.raw + PROJ_DX_OFF, 0, PROJ_DX_SIZE);
         sum = proj_hash(funa.raw, PROJ_STORE_SIZE - 4u);
         memcpy(funa.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
