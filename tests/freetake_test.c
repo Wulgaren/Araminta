@@ -76,11 +76,11 @@ static void ft_rec_close(int32_t *out, uint32_t rb, double beat, uint32_t blk)
 
 static void expect_note(uint32_t i, uint8_t note, int slide)
 {
-    assert(trk[0].step[i].time == ST_NOTE && trk[0].step[i].note[0] == note);
+    assert(trk[0].step[i].time == ST_NOTE && step_note(&trk[0].step[i], 0) == note);
     if (slide)
-        assert(trk[0].step[i].flags & SF_SLIDE);
+        assert(step_fl(&trk[0].step[i]) & SF_SLIDE);
     else
-        assert(!(trk[0].step[i].flags & SF_SLIDE));
+        assert(!(step_fl(&trk[0].step[i]) & SF_SLIDE));
 }
 
 static void expect_ties(uint32_t from, uint32_t to, int last_slides)
@@ -89,7 +89,7 @@ static void expect_ties(uint32_t from, uint32_t to, int last_slides)
     for (j = from; j < to; j++)
         assert(trk[0].step[j].time == ST_TIE);
     if (last_slides)
-        assert(trk[0].step[to - 1u].flags & SF_SLIDE);
+        assert(step_fl(&trk[0].step[to - 1u]) & SF_SLIDE);
 }
 
 int main(void)
@@ -165,7 +165,7 @@ int main(void)
             const step_t *st = &trk[0].step[j];
             if (j % 4u == 0) {
                 static const uint8_t KN[4] = {60, 62, 64, 65};
-                assert(st->time == ST_NOTE && st->n == 1 && st->note[0] == KN[(j / 4u) & 3u]);
+                assert(st->time == ST_NOTE && st->n == 1 && step_note(st, 0) == KN[(j / 4u) & 3u]);
             } else if (j == 5u) {
                 assert(st->time == ST_TIE);
             } else {
@@ -296,7 +296,7 @@ int main(void)
         mix_block(out, CTL);
         assert(!ft_on && song.playing);
         for (j = 0; j < 16u; j++)
-            assert(!(trk[0].step[j].flags & SF_SLIDE));
+            assert(!(step_fl(&trk[0].step[j]) & SF_SLIDE));
         transport_req = 2;
         mix_block(out, CTL);
 
@@ -315,7 +315,7 @@ int main(void)
         fm1_in.buttons = 0;
         mix_block(out, CTL);
         assert(!ft_on && song.playing && trk[0].step[0].n >= 2);
-        assert(!(trk[0].step[0].flags & SF_SLIDE));
+        assert(!(step_fl(&trk[0].step[0]) & SF_SLIDE));
         transport_req = 2;
         mix_block(out, CTL);
 

@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Band repaint, dirty column ranges and the strip cache: idea from M-VAVE fm1_open app/screen.c
+ * (paint_mark, paint_left / paint_right, paint_flush), GPL-3.0 WITH FM1 SDK linking exception. */
 /* Small-canvas renderer (no full framebuffer). Draw text/lines into
  * an off-screen strip, then expand CV_STRIP rows at a time to RGB565 and DMA them.
  * The strip stores 4-bit palette indices (two pixels per byte, ~14.5 KiB for 240 x 124: about 40 KiB
@@ -73,12 +75,36 @@ typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
 #define CV_MAX (240u * 124u)      /* the graph strip is 240 x 124 */
 #define CV_NIDX 16u               /* nibble indices; 15 = sentinel (not a theme colour) */
 #define CV_SENT 15u
-#define CV_STRIP 16u              /* expanded rows per lcd_blit (few KiB scratch) */
+#define CV_STRIP 16u              /* expanded rows held in cv_strip */
+#define CV_UNIT 8u                /* rows per lcd_blit: two units fit cv_strip, so one expands while the other is on
+                                   * the wire (fm1_open screen.c: overlap the expand with the DMA) */
+#define CV_GROUP 30u              /* px per dirty-range group: 8 groups across 240 */
+#define CV_NGROUP 8u
+#define CV_CACHE_N 48u            /* strip cache entries: a page's own strips are about 48 */
 static uint8_t cv_px[(CV_MAX + 1u) / 2u] __attribute__((section(".pool")));   /* packed indices */
 static uint16_t cv_tok[CV_NIDX]; /* logical RGB565 for slots 0..14 */
 static uint16_t cv_lut[CV_NIDX]; /* panel-swapped RGB565 */
 static uint16_t cv_row[240];     /* splash / one-row expand */
 static uint16_t cv_strip[240u * CV_STRIP] __attribute__((section(".pool")));
+/* the strip cache (B1): per 8-row band of a blit, the hash of each CV_GROUP-wide column group of its canvas
+ * pixels. A band whose groups all match the previous frame's is not expanded and not sent, and a band that did
+ * change is sent from its first to its last changed group (fm1_open paint_left / paint_right). */
+typedef struct {
+    uint32_t h[CV_NGROUP];
+    uint32_t gen;                /* ux.gen when stored (palette / ramps) */
+    uint16_t x, y;               /* the blit's screen rectangle */
+    uint8_t w, n, ng, used;
+} cv_ent_t;
+static cv_ent_t cv_ent[CV_CACHE_N] __attribute__((section(".pool")));
+static uint8_t cv_ent_next __attribute__((section(".pool")));
+static uint8_t cv_half __attribute__((section(".pool")));   /* which half of cv_strip the next lcd_blit takes */
+/* display cost counters since boot (console.c, cleared in main.c): bytes handed to the panel, bands the cache
+ * skipped, and (main.c) ui_draw's duration in microseconds */
+static struct {
+    uint32_t bytes, skips, frames, us_sum, us_max;
+} ui_stat __attribute__((section(".noinit")));
+static void cv_cache_drop(void); /* (lcd.c: a direct panel write or a timeout makes the panel's content unknown) */
+static void cv_cache_drop_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h);
 static uint32_t cv_w, cv_h;
 static uint16_t cv_bg;           /* what cv_begin cleared the canvas to (logical) */
 static uint8_t cv_bg_i;          /* its index */
@@ -242,15 +268,76 @@ static void cv_lut_build(void)
 static uint16_t cv_peek(uint32_t i) { return cv_tok[cv_nget(i) & 15u]; }
 
 /* ------------------------------------------------------------ canvas --- */
-static void cv_expand_rows(uint32_t row0, uint32_t n, uint16_t *dst)
+/* rows row0 .. row0 + n - 1, columns x0 .. x0 + nx - 1, packed into dst (nx per row) */
+static void cv_expand_range(uint32_t row0, uint32_t n, uint32_t x0, uint32_t nx, uint16_t *dst)
 {
     uint32_t y, x;
     for (y = 0; y < n; y++) {
-        uint32_t base = (row0 + y) * cv_w;
-        uint16_t *d = dst + y * cv_w;
-        for (x = 0; x < cv_w; x++)
+        uint32_t base = (row0 + y) * cv_w + x0;
+        uint16_t *d = dst + y * nx;
+        for (x = 0; x < nx; x++)
             d[x] = cv_lut[cv_nget(base + x)];
     }
+}
+
+static void cv_cache_drop(void)
+{
+    uint32_t i;
+    for (i = 0; i < CV_CACHE_N; i++)
+        cv_ent[i].used = 0;
+    cv_ent_next = 0;
+}
+
+/* forget the bands a direct panel write covers: what they hold is no longer what the canvas holds */
+static void cv_cache_drop_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+{
+    uint32_t i;
+    for (i = 0; i < CV_CACHE_N; i++) {
+        cv_ent_t *e = &cv_ent[i];
+        if (e->used && x < (uint32_t)e->x + e->w && (uint32_t)e->x < x + w &&
+            y < (uint32_t)e->y + e->n && (uint32_t)e->y < y + h)
+            e->used = 0;
+    }
+}
+
+/* FNV-1a over one column group of a band (integer only) */
+static uint32_t cv_hash(uint32_t row0, uint32_t n, uint32_t gx, uint32_t nx)
+{
+    uint32_t gy, g, h = 2166136261u ^ (gx * 2654435761u) ^ nx;
+    for (gy = 0; gy < n; gy++) {
+        uint32_t base = (row0 + gy) * cv_w + gx;
+        for (g = 0; g < nx; g++)
+            h = (h ^ cv_nget(base + g)) * 16777619u;
+    }
+    return h;
+}
+
+static cv_ent_t *cv_ent_find(uint32_t x, uint32_t y, uint32_t n, uint32_t ng)
+{
+    uint32_t i;
+    for (i = 0; i < CV_CACHE_N; i++) {
+        cv_ent_t *e = &cv_ent[i];
+        if (e->used && e->gen == ux.gen && e->x == x && e->y == y && e->w == cv_w && e->n == n && e->ng == ng)
+            return e;
+    }
+    return 0;
+}
+
+static cv_ent_t *cv_ent_take(uint32_t x, uint32_t y, uint32_t n)
+{
+    uint32_t i;
+    cv_ent_t *e = 0;
+    cv_cache_drop_rect(x, y, cv_w, n);
+    for (i = 0; i < CV_CACHE_N; i++)
+        if (!cv_ent[i].used) {
+            e = &cv_ent[i];
+            break;
+        }
+    if (!e) {                                        /* full: the next entry round robin */
+        e = &cv_ent[cv_ent_next];
+        cv_ent_next = (uint8_t)((cv_ent_next + 1u) % CV_CACHE_N);
+    }
+    return e;
 }
 
 static void cv_begin(uint32_t w, uint32_t h, uint16_t bg)
@@ -275,12 +362,54 @@ static void cv_blit_rows(uint32_t x, uint32_t y, uint32_t r0)
 {
     uint32_t row = r0;
     while (row < cv_h) {
-        uint32_t n = cv_h - row;
-        if (n > CV_STRIP)
-            n = CV_STRIP;
-        lcd_sync();                 /* before rewriting cv_strip */
-        cv_expand_rows(row, n, cv_strip);
-        lcd_blit(x, y + row, cv_w, n, cv_strip);
+        uint32_t n = cv_h - row, ng = (cv_w + CV_GROUP - 1u) / CV_GROUP, g, g0 = 0, g1;
+        uint32_t h[CV_NGROUP], changed = 0;
+        cv_ent_t *e;
+        if (n > CV_UNIT)
+            n = CV_UNIT;
+        if (ng > CV_NGROUP)
+            ng = CV_NGROUP;
+        g1 = ng - 1u;
+        for (g = 0; g < ng; g++) {                   /* the band's groups, from the canvas */
+            uint32_t gx = g * CV_GROUP, nx = cv_w - gx < CV_GROUP ? cv_w - gx : CV_GROUP;
+            h[g] = cv_hash(row, n, gx, nx);
+        }
+        e = cv_ent_find(x, y + row, n, ng);
+        if (e) {
+            for (g = 0; g < ng; g++)
+                if (e->h[g] != h[g]) {
+                    if (!changed)
+                        g0 = g;
+                    g1 = g;
+                    changed++;
+                }
+            if (!changed) {                          /* the panel already shows this band: no expand, no DMA */
+                ui_stat.skips++;
+                row += n;
+                continue;
+            }
+        }
+        {   /* the band, from its first to its last changed group */
+            uint32_t gx0 = g0 * CV_GROUP, gx1 = (g1 + 1u) * CV_GROUP;
+            uint16_t *d = cv_strip + (uint32_t)cv_half * (240u * CV_UNIT);
+            if (gx1 > cv_w)
+                gx1 = cv_w;
+            cv_expand_range(row, n, gx0, gx1 - gx0, d);   /* the other half may still be on the wire */
+            lcd_blit(x + gx0, y + row, gx1 - gx0, n, d);
+            cv_half ^= 1u;
+            ui_stat.bytes += (gx1 - gx0) * n * 2u;
+        }
+        if (!e)
+            e = cv_ent_take(x, y + row, n);
+        e->used = 1;
+        e->gen = ux.gen;
+        e->x = (uint16_t)x;
+        e->y = (uint16_t)(y + row);
+        e->w = (uint8_t)cv_w;
+        e->n = (uint8_t)n;
+        e->ng = (uint8_t)ng;
+        for (g = 0; g < ng; g++)
+            e->h[g] = h[g];
         row += n;
     }
 }
@@ -931,6 +1060,7 @@ static void draw_text_line(uint32_t x, uint32_t y, uint32_t w, const aafont_t *f
                            uint16_t c, uint16_t bg, int align)
 {
     int32_t tw = text_w(f, s), tx = 0;
+    cv_cache_drop();                /* a one-shot screen (boot, crash, UBOOT, update): the page's cache is stale */
     cv_begin(w, f->h, bg);
     if (align == 1) {
         tx = ink_in(f, s, (int32_t)w);

@@ -826,7 +826,7 @@ static void draw_foot(void)
             if (si >= (uint32_t)t->p[P_SLEN])
                 continue;
             if (step_on(st))                          /* a note: a bar (accented: the accent) */
-                cv_rrect(sx, 1, 9, 11, 2, (st->flags & SF_ACCENT) ? T_ACCENT : T_THEME, T_BG);
+                cv_rrect(sx, 1, 9, 11, 2, (step_fl(st) & SF_ACCENT) ? T_ACCENT : T_THEME, T_BG);
             else                                      /* empty: a stub (a tie: brighter) */
                 cv_rrect(sx, 9, 9, 3, 1, st->time == ST_TIE ? T_MID : T_RAISE, T_BG);
             if (song.seq_mode && si == ui.cursor)
@@ -1128,9 +1128,9 @@ static void draw_columns(void)
                 on &= ev_nudge_plays(TSEL, st);
             } else {
                 fmt_int(val, v);
-                u = st->flags & SF_ACCENT ? "ACC" : "";
+                u = step_fl(st) & SF_ACCENT ? "ACC" : "";
                 r = v * 1000 / 127;
-                on &= !(st->flags & SF_ACCENT);
+                on &= !(step_fl(st) & SF_ACCENT);
             }
             draw_column(c, SD_LABEL[c], val, u, on ? VAL(c) : T_DIM, r, ICON_AUTO);
         }
@@ -1177,7 +1177,7 @@ static void draw_columns(void)
         static const char *const TIME_N[3] = {"NOTE", "TIE", "REST"};
         const step_t *st = &seq_steps(TSEL)[ui.cursor];
         char u[8];
-        uint32_t cnt = st->n, first = st->note[0], l;
+        uint32_t cnt = st->n, first = step_note(st, 0), l;
         for (l = NLANE; l-- > 0;)                         /* (lane hits count as their notes) */
             if ((st->hit >> l) & 1u) {
                 cnt++;
@@ -1209,7 +1209,7 @@ static void draw_columns(void)
             } else {
                 draw_column(2, "TIME", TIME_N[st->time % 3u], "", VAL(2u), -1, ICON_AUTO);
             }
-            draw_column(3, "FLAG", FLAG_N[(st->flags & SF_ACCENT ? 1u : 0u) | (st->flags & SF_SLIDE ? 2u : 0u)], "",
+            draw_column(3, "FLAG", FLAG_N[(step_fl(st) & SF_ACCENT ? 1u : 0u) | (step_fl(st) & SF_SLIDE ? 2u : 0u)], "",
                         VAL(3u), -1, ICON_AUTO);
         }
         return;
@@ -1559,6 +1559,8 @@ static void ui_draw(void)
 }
 static void ui_draw_page(uint32_t counting)
 {
+    if (ui.force)
+        cv_cache_drop();                            /* a full redraw: do not trust the panel's bands */
     if (ui.uboot) {
         draw_uboot();
         draw_head();

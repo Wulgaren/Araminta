@@ -112,7 +112,7 @@ static void key_events_test(void)
     assert(t->arp_phys == 1 && t->nheld == 1 && t->held[0] == 63);
     assert(t->step[0].n == 0);             /* ARP on: the arp's notes are recorded, not the keys */
     arp_tick(t, 1);
-    assert(t->step[0].n == 1 && t->step[0].note[0] == 63);
+    assert(t->step[0].n == 1 && step_note(&t->step[0], 0) == 63);
     assert(mo_w >= 1 && ((midi_out_q[mo_w - 1] >> 16) & 127u) == 63);
     t->p[P_SCALE] = 8;
     t->p[P_ROOT] = 6;
@@ -176,12 +176,12 @@ static void seq_quant_test(void)
     track_t *t = &trk[0];
     uint32_t period, i;
     static const step_t STEPS[] = {
-        {.note = {61, 64}, .n = 2, .time = ST_NOTE},  /* C#4 E4: C major -> C4 E4 */
-        {.note = {66}, .n = 1, .time = ST_NOTE},      /* F#4 -> F4 */
-        {.note = {61}, .n = 1, .time = ST_NOTE},      /* held through two TIEs */
+        {.nb = {61, 64}, .n = 2, .time = ST_NOTE},  /* C#4 E4: C major -> C4 E4 */
+        {.nb = {66}, .n = 1, .time = ST_NOTE},      /* F#4 -> F4 */
+        {.nb = {61}, .n = 1, .time = ST_NOTE},      /* held through two TIEs */
         {.time = ST_TIE},
         {.time = ST_TIE},
-        {.note = {61, 60}, .n = 2, .time = ST_NOTE},  /* both snap to C4: one note */
+        {.nb = {61, 60}, .n = 2, .time = ST_NOTE},  /* both snap to C4: one note */
         {.time = ST_REST},
     };
     memset(trk, 0, sizeof trk);
@@ -222,7 +222,7 @@ static void seq_quant_test(void)
     events_block(CTL);
     assert(t->seq_n == 2 && t->seq_notes[0] == 60 && t->seq_notes[1] == 64 && gated_note(t, 60) &&
            gated_note(t, 64) && !gated_note(t, 61) && gated(t) == 2);
-    assert(t->step[0].note[0] == 61 && t->step[0].note[1] == 64);   /* stored as written */
+    assert(step_note(&t->step[0], 0) == 61 && step_note(&t->step[0], 1) == 64);   /* stored as written */
     t->p[P_SCALE] = 2;                             /* C minor while C4 E4 ring: E4 would be Eb4 now */
     events_block(period);                          /* the gate ends them, step 2 plays F#4 -> F4 */
     assert(!gated_note(t, 60) && !gated_note(t, 64) && !gated_note(t, 63));
@@ -250,7 +250,7 @@ static void seq_quant_test(void)
         assert(!memcmp(&t->step[i], &STEPS[i], sizeof STEPS[i]));
 
     /* a scale change on every block for a while, slides and TIEs included: nothing left held */
-    t->step[1].flags = SF_SLIDE;
+    step_set_fl(&t->step[1], SF_SLIDE);
     seq_start();
     for (i = 0; i < 4000u; i++) {
         t->p[P_SCALE] = (int16_t)(i * 7u % 15u);
@@ -260,14 +260,14 @@ static void seq_quant_test(void)
     }
     seq_stop();
     assert(gated(t) == 0 && t->seq_n == 0);
-    t->step[1].flags = 0;
+    step_set_fl(&t->step[1], 0);
 
     /* drum kits and the DRUM engine never snap: their notes are GM drums */
     host_preset(t, ENGI_DRUM, 0);
     t->engine = t->eng_req = ENGI_DRUM;
     t->p[P_SCALE] = 0;
     t->p[P_ROOT] = 0;
-    t->step[0] = (step_t){.note = {37, 39}, .n = 2, .hit = 1u << 0, .time = ST_NOTE};
+    t->step[0] = (step_t){.nb = {37, 39}, .n = 2, .hit = 1u << 0, .time = ST_NOTE};
     seq_start();
     events_block(CTL);
     assert(t->seq_n == 3 && t->seq_notes[0] == 37 && t->seq_notes[1] == 39 && t->seq_notes[2] == DRUM_LANE_NOTE[0]);
@@ -282,8 +282,8 @@ static void seq_trn_test(void)
     track_t *t = &trk[0];
     uint32_t i;
     static const step_t STEPS[] = {
-        {.note = {60, 64}, .n = 2, .time = ST_NOTE},  /* C4 E4 */
-        {.note = {61}, .n = 1, .time = ST_NOTE},      /* C#4 */
+        {.nb = {60, 64}, .n = 2, .time = ST_NOTE},  /* C4 E4 */
+        {.nb = {61}, .n = 1, .time = ST_NOTE},      /* C#4 */
     };
     memset(trk, 0, sizeof trk);
     memset(&song, 0, sizeof song);
@@ -304,7 +304,7 @@ static void seq_trn_test(void)
     events_block(CTL);
     assert(t->seq_n == 2 && t->seq_notes[0] == 62 && t->seq_notes[1] == 66 &&
            gated_note(t, 62) && gated_note(t, 66) && !gated_note(t, 60));
-    assert(t->step[0].note[0] == 60 && t->step[0].note[1] == 64);   /* stored unchanged */
+    assert(step_note(&t->step[0], 0) == 60 && step_note(&t->step[0], 1) == 64);   /* stored unchanged */
     t->p[P_TRANS] = 0;
     seq_stop();
     assert(gated(t) == 0);
@@ -317,7 +317,7 @@ static void seq_trn_test(void)
            gated_note(t, 62) && gated_note(t, 65));
     events_block(div_samples((uint32_t)t->p[P_SDIV]));
     assert(t->seq_idx == 1 && t->seq_n == 1 && t->seq_notes[0] == 62 && gated_note(t, 62));
-    assert(t->step[1].note[0] == 61);
+    assert(step_note(&t->step[1], 0) == 61);
     seq_stop();
     for (i = 0; i < NELEM(STEPS); i++)
         assert(!memcmp(&t->step[i], &STEPS[i], sizeof STEPS[i]));
@@ -326,7 +326,7 @@ static void seq_trn_test(void)
     t->engine = t->eng_req = ENGI_DRUM;
     t->p[P_TRANS] = 5;
     t->p[P_QUANT] = QN_SNAP;
-    t->step[0] = (step_t){.note = {37, 39}, .n = 2, .time = ST_NOTE};
+    t->step[0] = (step_t){.nb = {37, 39}, .n = 2, .time = ST_NOTE};
     t->p[P_SLEN] = 1;
     seq_start();
     events_block(CTL);

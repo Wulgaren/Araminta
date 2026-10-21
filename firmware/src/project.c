@@ -114,13 +114,19 @@
  * Lock byte: bits 0..3 lock, bits 4..6 legacy G_SLOWN owner (0..4), bit 7 = bus+slcr layout mark.
  * Per-track SLICER SEND mask (bits 0..3 of G_SLOWN) is in the DX pad byte with mark 0x10.
  * FUN13 ("FUND") still loads: its pad mark at +17 means bus knobs without SLCR slots (fx_sl_pos defaults to 8).
- * Format 15 ("FUNF", written now) retains FUN14's extent and 72 three-byte motion records. Motion-only
+ * Format 15 ("FUNF", read only since FUN16) retains FUN14's extent and 72 three-byte motion records. Motion-only
  * FX target ids reuse excluded matrix-assignment ids. TIME's low byte is the value; codes 54..59 carry
  * high bytes 1..6, so exact milliseconds need one record. Old motion layouts decode separately.
  *
+ * Format 16 ("FUNG", written now; FUN16 in the docs) = FUN15 with the song's chain packed: a section is 2 bytes
+ * (4 slots x 3 bits, repeats - 1 x 4 bits) after the 4-byte header, 36 bytes instead of 84, which pays for 88
+ * motion records (4 + 88 x 3 = 268) instead of 72. Everything from PROJ_SCL_OFF on stays where it was. FUN15
+ * and older load; firmware that only knows FUN15 refuses a FUN16 (magic): its slot shows EMPTY until saved over.
+ *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
-#define PROJ_MAGIC 0x46554E46u                 /* "FUNF" (FUN15): exact FX locks in unchanged 3-byte records */
+#define PROJ_MAGIC 0x474E5546u                 /* "FUNG" (FUN16): packed song chain (2 bytes a row), 88 motion records */
+#define PROJ_MAGIC_V15 0x46554E46u             /* "FUNF" (FUN15): read only; 72 motion records, 5-byte chain rows */
 #define PROJ_MAGIC_V14 0x46554E45u             /* "FUNE" (FUN14): read only; SLCR list slots */
 #define PROJ_MAGIC_V13 0x46554E44u             /* "FUND" (FUN13): read only; bus knobs, no SLCR slots */
 #define PROJ_MAGIC_V12 0x46554E43u             /* "FUNC" (FUN12): read only; SCALE LOCK/stash, CHR at SCL 0 */
@@ -217,8 +223,10 @@ _Static_assert(PROJ_CRV_OFF + 2u <= PROJ_DX_OFF, "CHAIN reverb bytes before DX k
 _Static_assert(sizeof(dx_lane_t[8]) == 88u && PROJ_DX_OFF == 3216u, "FUN11 kit place before FM6");
 _Static_assert(MOTION_FILE_SIZE_V11 + PROJ_DX_SIZE == MOTION_FILE_SIZE_V10, "kit takes FUN10's motion spare");
 _Static_assert(PROJ_SCL_OFF + PROJ_SCL_SIZE + 2u == PROJ_CRV_OFF, "FUN12 SCALE LOCK before CRV");
-_Static_assert(68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + sizeof(chain_config_t) + MOTION_FILE_SIZE ==
-               PROJ_SCL_OFF, "FUN12 motion ends at SCALE LOCK");
+_Static_assert(68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE + MOTION_FILE_SIZE ==
+               PROJ_SCL_OFF, "FUN16 motion ends at SCALE LOCK");
+_Static_assert(68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE15_SIZE + MOTION_FILE_SIZE_V15 ==
+               PROJ_SCL_OFF, "FUN15 lied in the same 3840 bytes");
 typedef struct {                               /* a track of format 4, read only */
     int16_t p[PROJ_NP_V4];
     uint8_t engine, preset;
@@ -313,7 +321,7 @@ static void proj_g_from_wire(int16_t *g, const int16_t *w)
 static void proj_trk_from(proj_trk_t *d, const int16_t *p, uint32_t np, uint8_t engine, uint8_t preset, const step8_t *step)
 {
     int16_t def[P_E0];
-    uint32_t k;
+    uint32_t k, j;
     for (k = 0; k < P_E0; k++)
         def[k] = TP[k].def;
     params_by_count(d->p, p, np, def);
@@ -325,10 +333,11 @@ static void proj_trk_from(proj_trk_t *d, const int16_t *p, uint32_t np, uint8_t 
     d->scl_stash[0] = d->scl_stash[1] = d->scl_stash[2] = 0;
     for (k = 0; k < NSTEP; k++) {
         step_t *s = &d->step[k];
-        memcpy(s->note, step[k].note, 4);
+        for (j = 0; j < 4u; j++)
+            step_set_note(s, j, step[k].note[j]);
         s->n = step[k].n;
         s->time = step[k].time;
-        s->flags = step[k].flags & 3u;          /* accent, slide: x1 (no RATCH then) */
+        step_set_fl(s, step[k].flags & 3u);     /* accent, slide: x1 (no RATCH then) */
         s->vel = step[k].vel;
         s->hit = s->acc = 0;
     }
@@ -625,8 +634,8 @@ static int proj_import_any(project_t *q, const void *b, int n)
 {
     if (n == PROJ_STORE_SIZE) {
         uint32_t m = ((const uint32_t *)b)[0];
-        if (m == PROJ_MAGIC || m == PROJ_MAGIC_V14 || m == PROJ_MAGIC_V13 || m == PROJ_MAGIC_V12 || m == PROJ_MAGIC_V11 ||
-            m == PROJ_MAGIC_V10)
+        if (m == PROJ_MAGIC || m == PROJ_MAGIC_V15 || m == PROJ_MAGIC_V14 || m == PROJ_MAGIC_V13 || m == PROJ_MAGIC_V12 ||
+            m == PROJ_MAGIC_V11 || m == PROJ_MAGIC_V10)
             return proj_unpack(q, b, PROJ_STORE_SIZE);
     }
     if (n == PROJ_STORE_SIZE && ((const uint32_t *)b)[1] >= 8u && ((const uint32_t *)b)[1] < PROJ_STORE_SIZE)
@@ -687,8 +696,17 @@ static int proj_import_old(project_t *q, const void *b, int n)
                 q->t[i].scl_lock = SCL_LOCK_SCALE;
                 q->t[i].scl_stash_ok = 0;
                 for (k = 0; k < NSTEP; k++) {
-                    memcpy(&q->t[i].step[k], &v->t[i].step[k], sizeof(step10_t));
-                    q->t[i].step[k].flags &= 3u;       /* (x1: no RATCH then) */
+                    const step10_t *o = &v->t[i].step[k];
+                    step_t *s = &q->t[i].step[k];
+                    uint32_t j;
+                    for (j = 0; j < 4u; j++)
+                        step_set_note(s, j, o->note[j] & 127u);   /* (an old import masks, proj_steps did) */
+                    s->n = o->n > 4u ? 4u : o->n;
+                    s->time = o->time > ST_REST ? (uint8_t)ST_REST : o->time;
+                    step_set_fl(s, o->flags & 3u);      /* accent, slide: x1 (no RATCH then) */
+                    s->vel = o->vel > 127u ? 127u : o->vel;
+                    s->hit = o->hit;
+                    s->acc = o->acc;
                 }
             }
             if (bytes == sizeof *v6) q->chain = c6; else chain_defaults(&q->chain);
@@ -751,19 +769,37 @@ static int proj_pack(project_store_t *out, const project_t *q)
             const step_t *s = &q->t[t].step[i];
             uint32_t r = step_ratchet(s) - 1u;          /* RATCH: bit 7 of the velocity and chance bytes (see the top) */
             uint32_t nd = (uint32_t)step_nudge(s) & 15u;   /* NUDGE (FUN10): bit j in bit 7 of note j */
-            if (s->n > 4u || s->time > ST_REST || (s->flags & ~(3u | SF_RATCH | SF_NUDGE)) || s->probability > 101u)
+            if (s->n > 4u || s->time > ST_REST || s->probability > 101u)
                 return 0;
             for (uint32_t j = 0; j < 4u; j++)           /* what proj_unpack checks, so a saved project always loads: */
-                b[pos++] = (uint8_t)((s->note[j] > 127u ? 127u : s->note[j]) | (nd >> j & 1u) << 7);   /* notes and
+                b[pos++] = (uint8_t)((step_note(s, j) > 127u ? 127u : step_note(s, j)) | (nd >> j & 1u) << 7);   /* notes and
                                                          * velocity 0..127, accents */
-            b[pos++] = (uint8_t)(s->n | s->time << 3 | (s->flags & 3u) << 5);   /* only on hits */
+            b[pos++] = (uint8_t)(s->n | s->time << 3 | step_fl(s) << 5);   /* only on hits */
             b[pos++] = (uint8_t)((s->vel > 127u ? 127u : s->vel) | (r & 1u) << 7); b[pos++] = s->hit;
             b[pos++] = s->acc & s->hit;
             b[pos++] = (uint8_t)(s->probability | (r >> 1) << 7);
         }
     }
-    if (pos + sizeof q->chain + MOTION_FILE_SIZE > PROJ_SCL_OFF) return 0;
-    memcpy(b + pos, &q->chain, sizeof q->chain); pos += sizeof q->chain;
+    if (pos + CHAIN_WIRE16_SIZE + MOTION_FILE_SIZE > PROJ_SCL_OFF) return 0;
+    if (q->chain.count > CHAIN_ROWS) return 0;
+    for (i = 0; i < q->chain.count; i++) {              /* (an invalid section never reaches the wire; rows past
+                                                         * count are not part of the song and go out as zero) */
+        if (q->chain.row[i].repeat < 1u || q->chain.row[i].repeat > 16u) return 0;
+        for (t = 0; t < NTRK; t++)
+            if (q->chain.row[i].slot[t] > CHAIN_SILENT) return 0;
+    }
+    {   /* FUN16 chain: a row is 2 bytes (4 slots x 3 bits, repeat - 1 x 4 bits); 4 header bytes as before */
+        b[pos++] = q->chain.count;
+        b[pos++] = 0; b[pos++] = 0; b[pos++] = 0;
+        for (i = 0; i < CHAIN_ROWS; i++) {
+            uint32_t rp = q->chain.row[i].repeat, w;
+            w = (rp ? rp - 1u : 0u) << 12;               /* (rows past count: chain_defaults' repeat 1) */
+            for (t = 0; t < NTRK; t++)
+                w |= (uint32_t)q->chain.row[i].slot[t] << (3u * t);
+            b[pos++] = (uint8_t)w;
+            b[pos++] = (uint8_t)(w >> 8);
+        }
+    }
     b[pos] = q->motion.count > MOTION_FILE_MAX ? MOTION_FILE_MAX : q->motion.count;
     b[pos + 1u] = q->motion.on;
     b[pos + 2u] = PROJ_GENERATION_MARK;
@@ -877,17 +913,22 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
 {
     uint32_t pos = 68u, t, i, magic, size, sum, np = b[66], v7 = st == PROJ_STORE_V7, v10 = st == PROJ_STORE_SIZE;
     uint32_t name_off = st - 4u - PROJ_NAME_LEN, end = v7 ? name_off : name_off - NTRK * FM6_PACKED;
-    uint32_t v11 = 0, v12 = 0, v13 = 0, v14, data_end = end;
-    /* np>111: insert chain; P_IORD is 2 bytes. FUN12: MOTION_FILE_SIZE + SCALE LOCK; FUN11: MOTION_FILE_SIZE_V11 + kit;
-     * FUN10: MOTION_FILE_SIZE_V10; np<=111 (1.5): full 128-record block (no insert chain yet) */
-    uint32_t mot, chn = v10 ? sizeof q->chain : sizeof(chain_v9_t);
+    uint32_t v11 = 0, v12 = 0, v13 = 0, v14, v15 = 0, v16 = 0, data_end = end;
+    /* np>111: insert chain; FUN16: packed chain + MOTION_FILE_SIZE; FUN12..FUN15: 5-byte chain rows +
+     * MOTION_FILE_SIZE_V15 + SCALE LOCK; FUN11: MOTION_FILE_SIZE_V11 + kit; FUN10: MOTION_FILE_SIZE_V10;
+     * np<=111 (1.5): full 128-record block (no insert chain yet) */
+    uint32_t mot, chn = v10 ? CHAIN_WIRE15_SIZE : sizeof(chain_v9_t);
     uint32_t iord2 = np > 111u ? 1u : 0u;               /* +1 byte per track for P_IORD high */
     uint32_t mot_max;
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + st - 4u, 4);
-    v14 = magic == PROJ_MAGIC || magic == PROJ_MAGIC_V14;
+    v16 = magic == PROJ_MAGIC;
+    v15 = magic == PROJ_MAGIC_V15;
+    v14 = v16 || v15 || magic == PROJ_MAGIC_V14;
+    if (v16 && v10)
+        chn = CHAIN_WIRE16_SIZE;
     if (v10) {
         if (v14)
-            v11 = v12 = v13 = 1u;                    /* FUN14/15: bus knobs + SLCR slots */
+            v11 = v12 = v13 = 1u;                    /* FUN14/15/16: bus knobs + SLCR slots */
         else if (magic == PROJ_MAGIC_V13)
             v11 = v12 = v13 = 1u;                    /* FUN13: bus knobs, no SLCR slots */
         else if (magic == PROJ_MAGIC_V12)
@@ -899,15 +940,15 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     } else if (magic != (v7 ? PROJ_MAGIC_V7 : st == PROJ_STORE_V8 ? PROJ_MAGIC_V8 : PROJ_MAGIC_V9))
         return 0;
     if (v12) {
-        mot = np > 111u ? MOTION_FILE_SIZE : 4u + 3u * MOTION_MAX;
+        mot = np > 111u ? (v16 ? MOTION_FILE_SIZE : MOTION_FILE_SIZE_V15) : MOTION_FILE_SIZE_128;
         data_end = PROJ_DX_OFF;
-        mot_max = MOTION_FILE_MAX;
+        mot_max = v16 ? MOTION_FILE_MAX : MOTION_FILE_MAX_V15;
     } else if (v11) {
-        mot = np > 111u ? MOTION_FILE_SIZE_V11 : 4u + 3u * MOTION_MAX;
+        mot = np > 111u ? MOTION_FILE_SIZE_V11 : MOTION_FILE_SIZE_128;
         data_end = PROJ_DX_OFF;
         mot_max = MOTION_FILE_MAX_V11;
     } else if (v10) {
-        mot = np > 111u ? MOTION_FILE_SIZE_V10 : 4u + 3u * MOTION_MAX;
+        mot = np > 111u ? MOTION_FILE_SIZE_V10 : MOTION_FILE_SIZE_128;
         mot_max = MOTION_FILE_MAX_V10;
     } else {
         mot = PROJ_MOTION_V9;
@@ -977,10 +1018,10 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
             for (uint32_t j = 0; j < 4u; j++) {         /* (FUN10: bit 7 of note j is bit j of the nudge) */
                 if (b[pos] > 127u && !v10) return 0;
                 nd |= (uint32_t)(b[pos] >> 7) << j;
-                s->note[j] = b[pos++] & 127u;
+                step_set_note(s, j, b[pos++] & 127u);
             }
             meta = b[pos++];
-            s->n = meta & 7u; s->time = (meta >> 3) & 3u; s->flags = (meta >> 5) & 3u;
+            s->n = meta & 7u; s->time = (meta >> 3) & 3u; step_set_fl(s, (meta >> 5) & 3u);
             s->vel = b[pos] & 127u; meta |= (b[pos++] & 128u) << 1;      /* (RATCH bit 0 at bit 8 of meta) */
             s->hit = b[pos++]; s->acc = b[pos++];
             s->probability = b[pos] & 127u; meta |= (b[pos++] & 128u) << 2;   /* (bit 1 at bit 9) */
@@ -990,7 +1031,16 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
             step_set_nudge(s, (int32_t)(nd ^ 8u) - 8);
         }
     }
-    if (v10)                                            /* (FUN10/11: sections, a slot per track; before: rows) */
+    if (v16) {                                          /* FUN16: 4 header bytes, then 16 rows of 2 */
+        q->chain.count = b[pos];
+        if (q->chain.count > CHAIN_ROWS || b[pos + 1u] || b[pos + 2u] || b[pos + 3u]) return 0;
+        for (i = 0; i < CHAIN_ROWS; i++) {              /* (rows past count round trip too: repeat 1) */
+            uint32_t w = (uint32_t)b[pos + 4u + i * 2u] | (uint32_t)b[pos + 5u + i * 2u] << 8;
+            q->chain.row[i].repeat = (uint8_t)((w >> 12) + 1u);
+            for (t = 0; t < NTRK; t++)
+                q->chain.row[i].slot[t] = (uint8_t)((w >> (3u * t)) & 7u);
+        }
+    } else if (v10)                                     /* (FUN10..FUN15: sections, a slot per track; before: rows) */
         memcpy(&q->chain, b + pos, sizeof q->chain);
     else {
         chain_v9_t c9;
@@ -998,7 +1048,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         if (!chain_from_v9(&q->chain, &c9)) return 0;
     }
     pos += chn;
-    if (magic == PROJ_MAGIC && b[pos + 2u] == PROJ_GENERATION_MARK) {
+    if ((v15 || v16) && b[pos + 2u] == PROJ_GENERATION_MARK) {
         for (t = 0; t < NTRK; t++) {
             generation_t *g = &q->t[t].generation;
             uint8_t *controls = (uint8_t *)g;
@@ -1013,19 +1063,19 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     if (v10) {
         memset(&q->motion, 0, sizeof q->motion);
         q->motion.count = b[pos]; q->motion.on = b[pos + 1u];
-        if (q->motion.count > (np > 111u ? mot_max : MOTION_MAX))
+        if (q->motion.count > (np > 111u ? mot_max : MOTION_FILE_MAX_128))
             return 0;
         for (i = 0; i < q->motion.count; i++) {
             const uint8_t *wire = b + pos + 4u + 3u * i;
             motion_event_t *e = &q->motion.event[i];
             uint32_t id = wire[1] & 127u;
             e->place = wire[0]; e->param = wire[1];
-            if (magic == PROJ_MAGIC && (id == MFX_TIME || (id > MFX_DAMP && id <= MFX_DAMP + 6u))) {
+            if ((v15 || v16) && (id == MFX_TIME || (id > MFX_DAMP && id <= MFX_DAMP + 6u))) {
                 uint32_t hi = id == MFX_TIME ? 0u : id - MFX_DAMP;
                 e->param = (uint8_t)(MFX_TIME | (wire[1] & MOTION_LOCK));
                 e->value = (int16_t)(hi << 8 | wire[2]);
             } else {
-                if (magic != PROJ_MAGIC && MFX_PARAM(id)) return 0;
+                if (!(v15 || v16) && MFX_PARAM(id)) return 0;
                 e->value = (int8_t)wire[2];
             }
         }
@@ -1159,7 +1209,7 @@ static void proj_steps(step_t *s)            /* a loaded sequence stays inside i
     for (i = 0; i < NSTEP; i++) {
         if (s[i].n > 4u) s[i].n = 4;
         if (s[i].time > ST_REST) s[i].time = ST_REST;
-        for (j = 0; j < 4u; j++) s[i].note[j] &= 127u;
+        for (j = 0; j < 4u; j++) step_set_note(&s[i], j, step_note(&s[i], j) & 127u);
         s[i].acc &= s[i].hit;
     }
 }
@@ -1172,7 +1222,6 @@ static void proj_bound(project_t *q)
         proj_steps(q->t[t].step);
         for (i = 0; i < NSTEP; i++) {
             step_t *s = &q->t[t].step[i];
-            s->flags &= 3u | SF_RATCH | SF_NUDGE;
             s->vel &= 127u;
             if (s->probability > 101u) s->probability = 0;
         }
@@ -1305,7 +1354,7 @@ static uint32_t proj_density(const proj_trk_t *t, uint8_t *n)
             if (s->time == ST_TIE)
                 w += 1u;
             else if (s->time == ST_NOTE && (s->n || s->hit) && step_chance(s))
-                w += (s->flags & SF_ACCENT) || s->acc ? 3u : 2u;
+                w += (step_fl(s) & SF_ACCENT) || s->acc ? 3u : 2u;
         }
         w = (w + (i1 - i0) - 1u) / (i1 - i0);
         d |= (w < 3u ? w : 3u) << (2u * c);

@@ -7,7 +7,9 @@ the main loop) keeps -Os. The JieLi clang 4 has no '#pragma clang attribute' and
 attribute is an error on variables, so build.py compiles felucca.c to LLVM IR without the
 optimizer, this script adds 'minsize' to those definitions, and the IR is then compiled at -Os
 (without the edit, that round trip is byte-identical to compiling felucca.c directly).
-  size_fns.py IN.ll OUT.ll"""
+  size_fns.py IN.ll OUT.ll
+Built for size (the idea: M-VAVE fm1_open's sdk/Build.ps1 builds its control files at -Oz, GPL-3.0 WITH
+FM1 SDK linking exception; there -flto too, as it is many translation units, which Araminta is not)."""
 import re
 import sys
 from pathlib import Path
@@ -22,7 +24,11 @@ SIZE_FILES = ["ui.c", "favorites.c", "menu_items.c", "icons.c", "ui_graph.c", "u
               "editor.c", "editor_preferences.c", "editor_backup.c", "editor_menu.c", "console.c",
               "usb.c", "midi_uart.c", "midi_control.c", "midi_clock.c", "seq.c", "song_chain.c", "chord.c", "motion.c",
               "panel.c", "lcd.c", "gfx.c", "ota.c", "ota_hw.c", "up_fm6.c", "params.c", "editor_fm6.c",
-              "ui_layer.c", "ui_name.c", "ui_events.c", "main.c", "libc.c", "storage_hw.c", "engines.c", "fm4_convert.c"]
+              "ui_layer.c", "ui_name.c", "ui_events.c", "main.c", "libc.c", "storage_hw.c", "engines.c", "fm4_convert.c",
+              # the remaining UI / editor pages and their stores: main loop only (reached from ui_draw, ui_input,
+              # the menu or the console), never from the audio ISR, the core-1 job or the key / LED scan
+              "ui_dx.c", "ui_fm6op.c", "ui_help.c", "ui_tech.c", "ui_tools.c", "category.c",
+              "editor_learn.c", "midi_learn.c", "fm6_vbank.c", "generation.c"]
 ISR_ROOTS = ("fm1_alnk0_irq", "fm1_timer5_irq")      # hal/fm1_isr.S: the audio ISR, the key / LED scan (+ USB poll)
 DEF = re.compile(r"^(?:static|void|int|uint\w*|int\w*|const)\b[^;=(]*?\b([A-Za-z_]\w*)\s*\(", re.M)
 IR_DEF = re.compile(r"^(define [^\n]*?@\"?([\w.]+)\"?\([^\n]*\)(?: unnamed_addr| local_unnamed_addr)?)( #\d+[^\n]*\{)$",

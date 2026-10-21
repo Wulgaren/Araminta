@@ -352,19 +352,29 @@ typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c 
 enum { ST_NOTE, ST_TIE, ST_REST };
 #define SF_ACCENT 1u
 #define SF_SLIDE 2u
-#define SF_RATCH_SH 3u                   /* RATCH: the hits of a NOTE step - 1 (0..3: x1..x4, seq.c seq_ratchet); */
-#define SF_RATCH (3u << SF_RATCH_SH)     /* bits 3..4, so a user preset's pattern (flag 4 = tie) carries it too */
+#define SF_RATCH_SH 3u                   /* RATCH, where a pattern record or the wire flags word carries it: the hits
+                                          * of a NOTE step - 1 (0..3: x1..x4). The step itself keeps the two bits in
+                                          * bit 7 of its velocity and probability bytes */
+#define SF_RATCH (3u << SF_RATCH_SH)     /* bits 3..4 of a user preset's pattern flag (4 = tie comes before it) */
 #define NLANE 8                  /* drum lanes of a step (the DRUM engine's: eng_drum.c DRUM_LANE_NOTE) */
-typedef struct {                 /* acid-style step: up to 4 notes (POLY), time, accent, slide; drum hits */
-    uint8_t note[4];
-    uint8_t n;                   /* notes in use, 0 = empty */
-    uint8_t time;                /* ST_NOTE / ST_TIE / ST_REST */
-    uint8_t flags;               /* SF_ACCENT | SF_SLIDE | SF_RATCH */
-    uint8_t vel;
+typedef struct {                 /* acid-style step: up to 4 notes (POLY), time, accent, slide; drum hits.
+                                  * RAM is the FUN15 wire step (project.c proj_pack), 9 bytes, bit for bit:
+                                  *   nb[j] = note j | nudge bit j << 7
+                                  *   meta  = n | time << 3 | (SF_ACCENT | SF_SLIDE) << 5
+                                  *   vel   = vel | ratchet bit 0 << 7
+                                  *   hit, acc = acc & hit
+                                  *   prob  = probability | ratchet bit 1 << 7
+                                  * Accessors below: never index nb or read the ratchet bits directly. */
+    uint8_t nb[4];
+    uint8_t n : 3;               /* notes in use, 0 = empty */
+    uint8_t time : 2;            /* ST_NOTE / ST_TIE / ST_REST */
+    uint8_t flags : 2;           /* SF_ACCENT | SF_SLIDE */
+    uint8_t vel : 7;             /* 0..127; bit 7 of the byte is ratchet bit 0 */
     uint8_t hit;                 /* bit l: lane l hits (its GM note, on any engine): the DRUM grid */
     uint8_t acc;                 /* bit l: that hit is accented (velocity 127) */
-    uint8_t probability;         /* 0 = legacy 100%; 1..100 = percent, 101 = silent */
+    uint8_t probability : 7;     /* 0 = legacy 100%; 1..100 = percent, 101 = silent; bit 7 is ratchet bit 1 */
 } step_t;
+_Static_assert(sizeof(step_t) == 9, "step_t is the 9-byte FUN15 wire step");
 typedef struct {                 /* a step as formats 1..4 (projects to FUN4) stored it: no hits */
     uint8_t note[4];
     uint8_t n, time, flags, vel;
@@ -374,34 +384,59 @@ typedef struct {                 /* a step as formats 1..4 (projects to FUN4) st
 static uint32_t step_chance(const step_t *s) { return !s->probability ? 100u : s->probability <= 100u ? s->probability : 0u; }
 static void step_set_chance(step_t *s, uint32_t chance) { s->probability = (uint8_t)(chance >= 100u ? 0u : chance ? chance : 101u); }
 /* RATCH: a NOTE step plays its notes and hits this many times (1..4), in equal parts of the step; every older
- * pattern holds 0 there, x1 */
-static uint32_t step_ratchet(const step_t *s) { return ((s->flags & SF_RATCH) >> SF_RATCH_SH) + 1u; }
+ * pattern holds 0 there, x1. The two bits share the top bit of vel and of probability. */
+static uint32_t step_ratchet(const step_t *s)
+{
+    const uint8_t *b = (const uint8_t *)s;
+    return ((b[5] >> 7) | (b[8] >> 6 & 2u)) + 1u;
+}
 static void step_set_ratchet(step_t *s, uint32_t hits)
 {
-    s->flags = (uint8_t)((s->flags & ~SF_RATCH) | ((hits < 1u ? 0u : hits > 4u ? 3u : hits - 1u) << SF_RATCH_SH));
+    uint8_t *b = (uint8_t *)s;
+    uint32_t r = hits < 1u ? 0u : hits > 4u ? 3u : hits - 1u;
+    b[5] = (uint8_t)((b[5] & 0x7Fu) | ((r & 1u) << 7));
+    b[8] = (uint8_t)((b[8] & 0x7Fu) | ((r >> 1) << 7));
 }
 /* NUDGE (1.2, #162, D98): a step's timing, in 1/NUDGE_DIV of the track's DIV, -8..+7 (half a step early .. 7/16 late);
  * live recording keeps it, SEQ > AUTOMATION's NUDGE rows and DETAIL's NUDGE set it, the track's QUANTIZE
  * OFF (P_SQNT, AUTOMATION's QUANTIZE row) plays it (seq.c seq_tick). On the drum grid, steps held + PRESETS moves
  * those steps in time; on the piano roll, PRESETS moves the note under the cursor (its ties with it).
- * Four bits of the flags no other field uses: 4 (bit 3 of the nudge, its sign) and 32 64 128 (bits 0..2). 0 = on the
- * step: every older pattern. A user preset's pattern keeps none (upreset.c up_pat_norm) */
+ * One bit in bit 7 of each note byte (note j has bit j). 0 = on the step: every older pattern. A user preset's
+ * pattern keeps none (upreset.c up_pat_norm) */
 #define NUDGE_DIV 16
-#define SF_NUDGE (4u | 0xE0u)
 static int32_t step_nudge(const step_t *s)
 {
-    uint32_t u = (uint32_t)(s->flags >> 5) | (uint32_t)(s->flags & 4u) << 1;
+    const uint8_t *b = (const uint8_t *)s;
+    uint32_t u = (uint32_t)(b[0] >> 7) | (uint32_t)(b[1] >> 6 & 2u) | (uint32_t)(b[2] >> 5 & 4u) | (uint32_t)(b[3] >> 4 & 8u);
     return (int32_t)(u ^ 8u) - 8;
 }
 static void step_set_nudge(step_t *s, int32_t v)
 {
     uint32_t u = (uint32_t)(v < -8 ? -8 : v > 7 ? 7 : v) & 15u;
-    s->flags = (uint8_t)((s->flags & ~SF_NUDGE) | (u & 7u) << 5 | (u >> 1 & 4u));
+    uint8_t *b = (uint8_t *)s;
+    uint32_t j;
+    for (j = 0; j < 4u; j++)
+        b[j] = (uint8_t)((b[j] & 0x7Fu) | ((u >> j & 1u) << 7));
 }
-#define MOTION_MAX 128u          /* RAM / old FUN10 (np<=111): 128 records. New saves (np==P_COUNT): see MOTION_FILE_MAX */
+/* Step accessors: the 7-bit note and the accent / slide bits, so UI and format code never indexes the bytes.
+ * The setters are read-modify-writes of a byte the other fields (n, time, or a nudge bit) share, while the audio
+ * ISR records into the same steps (seq.c rec_note / rec_hold): a main-loop edit and an ISR recording of one step
+ * at the same instant can lose one of the two field updates. The 11-byte step split those fields over different
+ * bytes, so this is the one new race the compact layout brings; the next block re-reads the step either way. */
+static uint32_t step_note(const step_t *s, uint32_t j) { return s->nb[j] & 0x7Fu; }
+static void step_set_note(step_t *s, uint32_t j, uint32_t v)
+{
+    s->nb[j] = (uint8_t)((s->nb[j] & 0x80u) | (v > 127u ? 127u : v));   /* keep a nudge bit, clamp the note */
+}
+static uint32_t step_fl(const step_t *s) { return s->flags; }
+static void step_set_fl(step_t *s, uint32_t fl) { s->flags = (uint8_t)(fl & (SF_ACCENT | SF_SLIDE)); }
+#define MOTION_MAX 192u          /* RAM records: more than a FUN16 project saves, so a long session keeps them until the
+                                  * save (which clips at MOTION_FILE_MAX and warns) */
+#define MOTION_FILE_MAX_128 128u /* the pre-release FUN10..FUN12 block with np<=111: 128 records of 3 bytes */
 #define MOTION_FILE_MAX_V10 110u /* FUN10 disk: 4+110*3=334; +2 B/track for P_IORD left 2 B before FM6 */
 #define MOTION_FILE_MAX_V11 78u  /* FUN11 disk: 4+78*3=238; frees 96 B for the DRUM-X kit (project.c PROJ_DX_*) */
-#define MOTION_FILE_MAX 72u      /* FUN12 disk: 4+72*3=220; 16 B for SCALE LOCK + stash before CRV */
+#define MOTION_FILE_MAX_V15 72u  /* FUN12..FUN15 disk: 4+72*3=220; 18 B for SCALE LOCK + pad before CRV */
+#define MOTION_FILE_MAX 88u      /* FUN16 disk: the song chain repacks 84 -> 36 B, freeing 48 B for 16 more records */
 /* Four tracks x64 steps fit one byte. Track values are -64..127; FX TIME retains exact milliseconds in RAM.
  * param: the P_* or MFX_* id (<128), bit 7 (MOTION_LOCK, 1.1) a parameter lock: the value
  * sounds on that step only and goes back after it (motion.c motion_step); without it an automation event, the
@@ -414,14 +449,18 @@ enum { MFX_TIME = P_M1SRC, MFX_FB, MFX_COLOR, MFX_SIZE, MFX_DAMP };
 typedef struct { uint8_t place, param; int16_t value; } motion_event_t;
 typedef struct { uint8_t place, param, value; } motion_file_event_t;
 typedef struct { uint8_t count, on, rsv[2]; motion_event_t event[MOTION_MAX]; } motion_store_t;
-_Static_assert(sizeof(motion_store_t) == 516u, "motion RAM layout (128 records, exact FX values)");
+_Static_assert(sizeof(motion_store_t) == 772u, "motion RAM layout (192 records, exact FX values)");
 _Static_assert(sizeof(motion_file_event_t) == 3u, "motion disk record preserves capacity");
+#define MOTION_FILE_SIZE_128 (4u + MOTION_FILE_MAX_128 * sizeof(motion_file_event_t))
 #define MOTION_FILE_SIZE_V10 (4u + MOTION_FILE_MAX_V10 * sizeof(motion_file_event_t))
 #define MOTION_FILE_SIZE_V11 (4u + MOTION_FILE_MAX_V11 * sizeof(motion_file_event_t))
+#define MOTION_FILE_SIZE_V15 (4u + MOTION_FILE_MAX_V15 * sizeof(motion_file_event_t))
 #define MOTION_FILE_SIZE (4u + MOTION_FILE_MAX * sizeof(motion_file_event_t))
+_Static_assert(MOTION_FILE_SIZE_128 == 388u, "pre-release FUN10..FUN12 motion disk layout");
 _Static_assert(MOTION_FILE_SIZE_V10 == 334u, "FUN10 motion disk layout");
 _Static_assert(MOTION_FILE_SIZE_V11 == 238u, "FUN11 motion disk layout (kit before FM6)");
-_Static_assert(MOTION_FILE_SIZE == 220u, "FUN12 motion disk layout (SCALE LOCK before CRV)");
+_Static_assert(MOTION_FILE_SIZE_V15 == 220u, "FUN12..FUN15 motion disk layout (SCALE LOCK before CRV)");
+_Static_assert(MOTION_FILE_SIZE == 268u, "FUN16 motion disk layout (88 records, packed chain)");
 enum { SCL_LOCK_OFF = 0, SCL_LOCK_SCALE = 1 };   /* track_t.scl_lock / CHORD KNOB 3 (params.c PG_SLOCK) */
 #define CHAIN_ROWS 16u
 /* A song section (1.2, FUN10): the PROJECT slot each track plays (0..3, A..D; CHAIN_SILENT "-": that track plays
@@ -438,7 +477,11 @@ typedef struct {
     uint8_t count, rsv[3];
     chain_row_v9_t row[CHAIN_ROWS];
 } chain_v9_t;
-_Static_assert(sizeof(chain_config_t) == 84u && sizeof(chain_v9_t) == 36u, "song chain layouts (FUN10 / FUN6..FUN9)");
+#define CHAIN_WIRE15_SIZE 84u            /* FUN10..FUN15: 4 + 16 x (4 slot bytes + repeat) */
+#define CHAIN_WIRE16_SIZE 36u            /* FUN16: 4 + 16 x (4 x 3 bits + (repeat-1) x 4 bits), a row 2 bytes */
+_Static_assert(sizeof(chain_config_t) == CHAIN_WIRE15_SIZE, "song chain RAM / FUN10..FUN15 wire");
+_Static_assert(CHAIN_WIRE16_SIZE + (MOTION_FILE_SIZE - MOTION_FILE_SIZE_V15) == CHAIN_WIRE15_SIZE,
+               "FUN16: the packed chain pays for the 16 more motion records");
 
 /* GENERATION's per-track controls; LEN uses the existing sequencer P_SLEN. */
 typedef struct {

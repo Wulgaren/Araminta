@@ -59,7 +59,7 @@ static int motion_capacity(void)
     for (uint32_t i = 0; i < MOTION_FILE_MAX; i++)
         bad += motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : P_DLY, (int16_t)(i % 60u));
     bad += check("disk-full count does not raise save-limit flag", !motion_save_lim && motion.count == MOTION_FILE_MAX);
-    bad += check("73rd event raises save-limit flag once",
+    bad += check("the event past the disk max raises the save-limit flag once",
                  !motion_set_event(&trk[0], MOTION_FILE_MAX % NSTEP, P_PAN, 10) &&
                  motion.count == MOTION_FILE_MAX + 1u && motion_save_lim);
     motion_save_lim = 0;
@@ -74,8 +74,9 @@ static int motion_capacity(void)
                      proj_import(&q, &st, sizeof st) && q.motion.count == MOTION_FILE_MAX);
     }
     ui_power_on();
-    for (uint32_t i = 0; i < MOTION_MAX; i++)          /* (128 since 1.2: two ids on each of the 64 steps) */
-        bad += motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : P_DLY, (int16_t)(i % NSTEP));
+    for (uint32_t i = 0; i < MOTION_MAX; i++)          /* (192: three ids on each of the 64 steps) */
+        bad += motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_PAN,
+                                (int16_t)(i % NSTEP));
     motion_store_t saved = motion;
     bad += check("full event pool refuses append without overwriting earlier events", motion_set_event(&trk[1], 0, P_REV, 90) == 2 &&
         !memcmp(&motion, &saved, sizeof saved));
@@ -127,7 +128,13 @@ static int compact_project(void)
         for (uint32_t j = 0; j < 61u; j++) old.t[k].p[j] = before.t[k].p[j];
         for (uint32_t j = 0; j < 8u; j++) old.t[k].p[61u + j] = before.t[k].p[P_E0 + j];
         old.t[k].engine = before.t[k].engine; old.t[k].preset = before.t[k].preset;
-        for (uint32_t j = 0; j < NSTEP; j++) memcpy(&old.t[k].step[j], &before.t[k].step[j], sizeof(step10_t));
+        for (uint32_t j = 0; j < NSTEP; j++) {
+            const step_t *d = &before.t[k].step[j];
+            step10_t *o = &old.t[k].step[j];
+            for (uint32_t q = 0; q < 4u; q++) o->note[q] = (uint8_t)step_note(d, q);
+            o->n = d->n; o->time = d->time; o->flags = (uint8_t)step_fl(d);
+            o->vel = d->vel; o->hit = d->hit; o->acc = d->acc;
+        }
     }
     old.chain.count = before.chain.count;              /* (the rows of FUN6: one slot each) */
     for (uint32_t r = 0; r < CHAIN_ROWS; r++) {
@@ -157,8 +164,8 @@ static void pack_fun7_89(project_store_t *out, const project_t *q, const motion_
         b[pos++] = q->t[t].engine; b[pos++] = q->t[t].preset;
         for (i = 0; i < NSTEP; i++) {
             const step_t *s = &q->t[t].step[i];
-            memcpy(b + pos, s->note, 4); pos += 4;
-            b[pos++] = (uint8_t)(s->n | s->time << 3 | s->flags << 5);
+            for (uint32_t j = 0; j < 4u; j++) b[pos++] = (uint8_t)(step_note(s, j) & 127u);
+            b[pos++] = (uint8_t)(s->n | s->time << 3 | step_fl(s) << 5);
             b[pos++] = s->vel; b[pos++] = s->hit; b[pos++] = s->acc; b[pos++] = s->probability;
         }
     }
@@ -224,20 +231,20 @@ static int loads_and_song(void)
     motion_set_lock(t, 1, P_E0, motion_base_value(t, P_E0));
     apply_preset_to(t, 1);
     bad += check("1.1.5: a sound load of the same engine keeps the motion (both kinds, the engine's own E1 too), the pattern",
-                 motion_count(t) == 2u && motion_lock_get(t, 1, P_E0, &v) && motion_enabled(t) && t->step[0].note[0] == 60);
+                 motion_count(t) == 2u && motion_lock_get(t, 1, P_E0, &v) && motion_enabled(t) && step_note(&t->step[0], 0) == 60);
     undo_swap();                                   /* (back to the sound before it: REV 21) */
     set_engine_of(t, e1);
     bad += check("  another engine: the motion on the common parameters (REV) stays, the engine's own (E1) goes, PLAY ON",
-                 motion_count(t) == 1u && !motion_lock_get(t, 1, P_E0, &v) && motion_enabled(t) && t->step[0].note[0] == 60);
+                 motion_count(t) == 1u && !motion_lock_get(t, 1, P_E0, &v) && motion_enabled(t) && step_note(&t->step[0], 0) == 60);
     undo_swap(); bad += check("sound undo restores the original motion pool and base", motion_count(t) == 2u && t->p[P_REV] == 21 &&
                               t->eng_req == e0);
     undo_swap(); bad += check("sound redo restores the loaded motion state", motion_count(t) == 1u && t->eng_req == e1);
     undo_swap(); project_save(0);
-    t->p[P_REV] = 43; t->step[0].note[0] = 72; chain_config.count = 1; chain_config.row[0] = chain_row_of(0, 1);
+    t->p[P_REV] = 43; step_set_note(&t->step[0], 0, 72); chain_config.count = 1; chain_config.row[0] = chain_row_of(0, 1);
     bad += check("song preparation imports saved motion alongside steps", chain_prepare() == 0 && chain.source[0].motion.count == 2u);
     seq_start(); seq_tick(t, CTL);
-    bad += check("song plays saved automation with current instruments", chain.running && t->p[P_REV] == 100 && t->step[0].note[0] == 72);
-    seq_stop(); bad += check("song stop restores current base and editable pattern", t->p[P_REV] == 43 && t->step[0].note[0] == 72);
+    bad += check("song plays saved automation with current instruments", chain.running && t->p[P_REV] == 100 && step_note(&t->step[0], 0) == 72);
+    seq_stop(); bad += check("song stop restores current base and editable pattern", t->p[P_REV] == 43 && step_note(&t->step[0], 0) == 72);
     return bad;
 }
 static int repeat_mode(void)
@@ -455,7 +462,7 @@ static int arp_new_modes(void)
     t->arp_pos = 0xFFFFFFF;
     arp_tick(t, CTL);
     for (i = 0, k = 0; i < NSTEP; i++)
-        k += t->step[i].n == 3u && t->step[i].note[0] == 60 && t->step[i].note[1] == 64 && t->step[i].note[2] == 67;
+        k += t->step[i].n == 3u && step_note(&t->step[i], 0) == 60 && step_note(&t->step[i], 1) == 64 && step_note(&t->step[i], 2) == 67;
     seq_stop();
     song.rec = 0;
     bad += check("ARP CHORD recorded: C E G into one step", k == 1u);
@@ -971,11 +978,11 @@ static int auto_list(void)
     turn(EN_K4, 1);
     bad += check("  a song playing: STOP TO EDIT", motion.event[0].value == v && str_eq(ui.msg, "STOP TO EDIT"));
     chain.running = 0;
-    for (i = 0; motion.count < MOTION_MAX; i++)          /* the 128 used (track 2) */
-        motion_set_event(&trk[1], i % NSTEP, i < NSTEP ? P_REV : P_DLY, 10);
+    for (i = 0; motion.count < MOTION_MAX; i++)          /* the 192 used (track 2) */
+        motion_set_event(&trk[1], i % NSTEP, i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_PAN, 10);
     turn(EN_K1, 5);
     press(B_OCTUP);
-    bad += check("  the 128 used: OCT+ adds nothing, AUTOMATION FULL", motion_count(t) == 1u &&
+    bad += check("  the 192 used: OCT+ adds nothing, AUTOMATION FULL", motion_count(t) == 1u &&
         str_eq(ui.msg, "AUTOMATION FULL") && !act_ready());
     motion_clear(&trk[1]);
     for (i = 0; i < P_COUNT; i++)                        /* names: an id each, none of DIGITAL's, lanes on DRUM only */
@@ -1190,13 +1197,14 @@ static int fx_lock_banks_and_capacity(void)
     seq_stop(); motion_clear(t);
     bad += check("stopping restores CHAIN reverb bases", song.g[G_CRSIZE] == 46 && song.g[G_CRDAMP] == 57);
     for (uint32_t i = 0; i < MOTION_MAX; i++)
-        bad += motion_set_lock(t, i % NSTEP, i < NSTEP ? MFX_TIME : MFX_FB, i < NSTEP ? 1550 : 110);
-    bad += check("FX locks retain all 128 RAM entries and overwrite at capacity", motion.count == 128 &&
-        motion_set_lock(t, 0, MFX_COLOR, 25) == 2 && !motion_set_lock(t, 0, MFX_TIME, 65));
+        bad += motion_set_lock(t, i % NSTEP, i < NSTEP ? MFX_TIME : i < 2u * NSTEP ? MFX_FB : MFX_COLOR,
+                               i < NSTEP ? 1550 : i < 2u * NSTEP ? 110 : 25);
+    bad += check("FX locks retain all 192 RAM entries and overwrite at capacity", motion.count == MOTION_MAX &&
+        motion_set_lock(t, 0, MFX_SIZE, 33) == 2 && !motion_set_lock(t, 0, MFX_TIME, 65));
     project_t q, loaded; project_store_t st;
     project_capture(&q);
-    bad += check("FX locks retain 72 saved entries with exact TIME values", proj_pack(&st, &q) && sizeof st == 3840 &&
-        proj_import(&loaded, &st, sizeof st) && loaded.motion.count == 72 && loaded.motion.event[0].value == 65 &&
+    bad += check("FX locks retain 88 saved entries with exact TIME values", proj_pack(&st, &q) && sizeof st == 3840 &&
+        proj_import(&loaded, &st, sizeof st) && loaded.motion.count == MOTION_FILE_MAX && loaded.motion.event[0].value == 65 &&
         loaded.motion.event[63].value == 1550 && loaded.motion.event[71].value == 110);
     return bad;
 }

@@ -48,6 +48,34 @@ static int16_t test_scl_to_v12(int16_t sc)
     if (sc > 14) return 15;
     return (int16_t)(sc + 1);
 }
+/* a store packed as FUN16, rewritten to the FUN15 layout (5-byte chain rows, 72 motion records 48 bytes later),
+ * for the tests that check what an older reader sees */
+static void store_fun15_layout(project_store_t *st, uint32_t magic)
+{
+    uint32_t at = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u), i, count = st->raw[at];
+    uint8_t chain[CHAIN_WIRE15_SIZE], mot[MOTION_FILE_SIZE_V15];
+    memset(chain, 0, sizeof chain);
+    for (i = 0; i < count && i < CHAIN_ROWS; i++) {
+        uint32_t w = (uint32_t)st->raw[at + 4u + i * 2u] | (uint32_t)st->raw[at + 5u + i * 2u] << 8;
+        chain[4u + i * 5u] = (uint8_t)(w & 7u);
+        chain[4u + i * 5u + 1u] = (uint8_t)((w >> 3) & 7u);
+        chain[4u + i * 5u + 2u] = (uint8_t)((w >> 6) & 7u);
+        chain[4u + i * 5u + 3u] = (uint8_t)((w >> 9) & 7u);
+        chain[4u + i * 5u + 4u] = (uint8_t)(((w >> 12) & 15u) + 1u);
+    }
+    chain[0] = st->raw[at];
+    chain[1] = chain[2] = chain[3] = 0;
+    memcpy(mot, st->raw + at + CHAIN_WIRE16_SIZE, MOTION_FILE_SIZE_V15);
+    if (mot[0] > MOTION_FILE_MAX_V15)
+        mot[0] = MOTION_FILE_MAX_V15;                   /* FUN16 holds 88, FUN15 72 */
+    memcpy(st->raw + at, chain, sizeof chain);
+    memcpy(st->raw + at + CHAIN_WIRE15_SIZE, mot, sizeof mot);
+    memcpy(st->raw, &magic, 4);
+    {   /* (the hash last, over everything above) */
+        uint32_t sum = proj_hash(st->raw, PROJ_STORE_SIZE - 4u);
+        memcpy(st->raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+    }
+}
 
 static void fill_v2_track(proj_trk_v2_t *d, uint32_t t)
 {
@@ -69,25 +97,34 @@ static void fill_v2_track(proj_trk_v2_t *d, uint32_t t)
 /* today's steps n are the old steps o (8 bytes each), with no hits */
 static int steps_same(const step_t *n, const step8_t *o)
 {
-    uint32_t k;
-    for (k = 0; k < NSTEP; k++)
-        if (memcmp(n[k].note, o[k].note, 4) || n[k].n != o[k].n || n[k].time != o[k].time ||
-            n[k].flags != o[k].flags || n[k].vel != o[k].vel || n[k].hit || n[k].acc)
+    uint32_t k, j;
+    for (k = 0; k < NSTEP; k++) {
+        for (j = 0; j < 4u; j++)
+            if (step_note(&n[k], j) != o[k].note[j])
+                return 0;
+        if (n[k].n != o[k].n || n[k].time != o[k].time || step_fl(&n[k]) != o[k].flags ||
+            step_ratchet(&n[k]) != 1u || step_nudge(&n[k]) != 0 ||
+            n[k].vel != o[k].vel || n[k].hit || n[k].acc)
             return 0;
+    }
     return 1;
 }
 
 /* .. as a DRUM track of before the grid gets them (proj_grid: its lanes' notes as hits) */
 static int steps_grid_same(const step_t *n, const step8_t *o)
 {
-    uint32_t k;
+    uint32_t k, j;
     for (k = 0; k < NSTEP; k++) {
         step_t s;
         memset(&s, 0, sizeof s);
-        memcpy(s.note, o[k].note, 4);
-        s.n = o[k].n; s.time = o[k].time; s.flags = o[k].flags; s.vel = o[k].vel;
+        for (j = 0; j < 4u; j++) step_set_note(&s, j, o[k].note[j]);
+        s.n = o[k].n; s.time = o[k].time; step_set_fl(&s, o[k].flags); s.vel = o[k].vel;
         step_to_grid(&s);
-        if (memcmp(n[k].note, s.note, 4) || n[k].n != s.n || n[k].time != s.time || n[k].flags != s.flags ||
+        for (j = 0; j < 4u; j++)
+            if (step_note(&n[k], j) != step_note(&s, j))
+                return 0;
+        if (n[k].n != s.n || n[k].time != s.time || step_fl(&n[k]) != step_fl(&s) ||
+            step_ratchet(&n[k]) != step_ratchet(&s) || step_nudge(&n[k]) != step_nudge(&s) ||
             n[k].vel != s.vel || n[k].hit != s.hit || n[k].acc != s.acc)
             return 0;
     }
@@ -112,10 +149,11 @@ static void to_v4(project_v4_t *v, const project_t *q)
         v->t[t].engine = q->t[t].engine;
         v->t[t].preset = q->t[t].preset;
         for (k = 0; k < NSTEP; k++) {
-            memcpy(v->t[t].step[k].note, q->t[t].step[k].note, 4);
+            for (uint32_t j = 0; j < 4u; j++)
+                v->t[t].step[k].note[j] = (uint8_t)step_note(&q->t[t].step[k], j);
             v->t[t].step[k].n = q->t[t].step[k].n;
             v->t[t].step[k].time = q->t[t].step[k].time;
-            v->t[t].step[k].flags = q->t[t].step[k].flags;
+            v->t[t].step[k].flags = (uint8_t)step_fl(&q->t[t].step[k]);
             v->t[t].step[k].vel = q->t[t].step[k].vel;
         }
     }
@@ -197,10 +235,7 @@ static int fx_motion_wire(void)
     q.motion.event[0] = (motion_event_t){17, P_REV | MOTION_LOCK, 109};
     q.motion.count = 1; q.motion.on = 1;
     ok = proj_pack(&st, &q);
-    uint32_t old_magic = 0x46554E45u;
-    memcpy(st.raw, &old_magic, 4);
-    uint32_t sum = proj_hash(st.raw, sizeof st - 4u);
-    memcpy(st.raw + sizeof st - 4u, &sum, 4);
+    store_fun15_layout(&st, 0x46554E45u);                /* what a FUN14 reader sees */
     bad += check("FUN14 projects retain their three-byte locks and global IDs", ok && proj_import(&loaded, &st, sizeof st) &&
         loaded.motion.count == 1 && loaded.motion.event[0].param == (P_REV | MOTION_LOCK) &&
         loaded.motion.event[0].value == 109 && loaded.g[G_DMIX] == 19 && loaded.g[G_CRSIZE] == 22);
@@ -236,7 +271,7 @@ static int generation_legacy_defaults(void)
     for (uint32_t t = 0; t < NTRK; t++)
         memcpy(saved.fm6[t], FM6_FACTORY[t], FM6_PACKED);
     ok = proj_pack(&wire, &saved);
-    uint32_t motion_off = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + sizeof(chain_config_t);
+    uint32_t motion_off = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE;
     wire.raw[motion_off + 2u] = 0;
     uint32_t sum = proj_hash(wire.raw, sizeof wire - 4u);
     memcpy(wire.raw + sizeof wire - 4u, &sum, 4);
@@ -248,6 +283,37 @@ static int generation_legacy_defaults(void)
               !memcmp(loaded.fm6[t], saved.fm6[t], FM6_PACKED);
     }
     return check("Projects saved before GENERATION receive defaults with FM6 patches preserved", ok);
+}
+
+/* every step feature on one step (a chord, accent + slide, x4 ratchet, nudge -5, the whole grid, a silent
+ * chance): one FUN15 record, there and back, byte for byte */
+static int step_wire_freeze(void)
+{
+    static const uint8_t NOTE[4] = {60, 64, 67, 71};
+    project_t saved, loaded;
+    project_store_t a, b, c;
+    const step_t *s;
+    int ok;
+    memset(&saved, 0, sizeof saved);
+    saved.magic = PROJ_MAGIC; saved.size = sizeof saved; saved.parts = NPART; saved.phys = PROJ_PHYS;
+    chain_defaults(&saved.chain); memcpy(saved.dx, DX_KIT_DEF, sizeof saved.dx);
+    for (uint32_t j = 0; j < 4u; j++) step_set_note(&saved.t[0].step[0], j, NOTE[j]);
+    saved.t[0].step[0].n = 4; saved.t[0].step[0].time = ST_NOTE;
+    step_set_fl(&saved.t[0].step[0], SF_ACCENT | SF_SLIDE);
+    step_set_ratchet(&saved.t[0].step[0], 4);
+    step_set_nudge(&saved.t[0].step[0], -5);
+    saved.t[0].step[0].vel = 127;
+    saved.t[0].step[0].hit = saved.t[0].step[0].acc = 0xFF;
+    saved.t[0].step[0].probability = 101;
+    saved.sum = proj_sum(&saved);
+    ok = proj_pack(&a, &saved) && proj_pack(&b, &saved) && !memcmp(a.raw, b.raw, sizeof a.raw) &&
+         proj_import(&loaded, &a, sizeof a) && proj_pack(&c, &loaded) && !memcmp(a.raw, c.raw, sizeof a.raw);
+    s = &loaded.t[0].step[0];
+    for (uint32_t j = 0; j < 4u; j++) ok &= step_note(s, j) == NOTE[j];
+    ok &= s->n == 4u && s->time == ST_NOTE && step_fl(s) == (SF_ACCENT | SF_SLIDE) &&
+          step_ratchet(s) == 4u && step_nudge(s) == -5 && s->vel == 127u &&
+          s->hit == 0xFFu && s->acc == 0xFFu && s->probability == 101u;
+    return check("FUN15: a step's chord, flags, ratchet, nudge, chance and grid round trip byte for byte", ok);
 }
 
 int main(void)
@@ -370,7 +436,13 @@ int main(void)
             for (uint32_t j = 0; j < 61u; j++) old.t[k].p[j] = j == (uint32_t)P_SCALE ? test_scl_to_v12(q.t[k].p[j]) : q.t[k].p[j];
             for (uint32_t j = 0; j < 8u; j++) old.t[k].p[61u + j] = q.t[k].p[P_E0 + j];
             old.t[k].engine = q.t[k].engine; old.t[k].preset = q.t[k].preset;
-            for (uint32_t j = 0; j < NSTEP; j++) memcpy(&old.t[k].step[j], &q.t[k].step[j], sizeof(step10_t));
+            for (uint32_t j = 0; j < NSTEP; j++) {
+                const step_t *s = &q.t[k].step[j];
+                step10_t *d = &old.t[k].step[j];
+                for (uint32_t b = 0; b < 4u; b++) d->note[b] = (uint8_t)step_note(s, b);
+                d->n = s->n; d->time = s->time; d->flags = (uint8_t)step_fl(s);
+                d->vel = s->vel; d->hit = s->hit; d->acc = s->acc;
+            }
         }
         old.magic = PROJ_MAGIC_V5;
         old.size = sizeof old;
@@ -416,12 +488,12 @@ int main(void)
         v4.sum = proj_hash(&v4, sizeof v4 - 4u);
         memcpy(&buf, &v4, sizeof v4);
         ok = proj_import(&q2, &buf, (int)sizeof v4) && q2.t[1].engine == ENGI_DRUM;
-        ok &= s[0].n == 0 && s[0].hit == 1u << DV_KICK && s[0].acc == 1u << DV_KICK && !(s[0].flags & SF_ACCENT) &&
+        ok &= s[0].n == 0 && s[0].hit == 1u << DV_KICK && s[0].acc == 1u << DV_KICK && !(step_fl(&s[0]) & SF_ACCENT) &&
               s[0].vel == 96 && s[0].time == ST_NOTE;
         ok &= s[1].n == 0 && s[1].hit == ((1u << DV_HATC) | (1u << DV_SNARE)) && !s[1].acc && s[1].vel == 100;
-        ok &= s[2].n == 1 && s[2].note[0] == 41 && s[2].hit == 1u << DV_KICK && (s[2].flags & SF_ACCENT) &&
+        ok &= s[2].n == 1 && step_note(&s[2], 0) == 41 && s[2].hit == 1u << DV_KICK && (step_fl(&s[2]) & SF_ACCENT) &&
               step_lanes(&s[2]) == ((1u << DV_KICK) | (1u << DV_TOM)) && step_accents(&s[2]) == step_lanes(&s[2]);
-        ok &= s[3].n == 1 && s[3].note[0] == 49 && !s[3].hit && step_lanes(&s[3]) == 1u << DV_BELL;
+        ok &= s[3].n == 1 && step_note(&s[3], 0) == 49 && !s[3].hit && step_lanes(&s[3]) == 1u << DV_BELL;
         ok &= s[4].time == ST_TIE && !s[4].hit && s[5].time == ST_REST && s[5].n == 2 && !s[5].hit;
         ok &= steps_same(q2.t[0].step, v4.t[0].step);   /* (not DRUM: as it was) */
         bad += check("FUN4 -> FUN6: a DRUM track's lane notes -> hits (accents too), a low tom / crash kept", ok);
@@ -523,7 +595,7 @@ int main(void)
                      PROJ_NAME_OFF == 3824u && PROJ_FM6_OFF == 3312u && PROJ_DX_OFF == 3216u &&
                      PROJ_DX_OFF + PROJ_DX_SIZE == PROJ_FM6_OFF &&
                      PROJ_SCL_OFF + PROJ_SCL_SIZE + 2u == PROJ_CRV_OFF &&
-                     68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + sizeof(chain_config_t) + MOTION_FILE_SIZE ==
+                     68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE + MOTION_FILE_SIZE ==
                      PROJ_SCL_OFF);
         memset(&a, 0, sizeof a);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
@@ -573,7 +645,7 @@ int main(void)
         }
         memcpy(a.name, "FM SONG", 7);
         a.sum = proj_sum(&a);
-        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E46u && proj_import(&c, &st, sizeof st);
+        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == PROJ_MAGIC && proj_import(&c, &st, sizeof st);
         for (k = 0; k < NTRK; k++)
             ok &= !memcmp(c.fm6[k], FM6_FACTORY[k * 2u], FM6_PACKED) && c.t[k].engine == ENGI_FM6 &&
                   !memcmp(st.raw + PROJ_FM6_OFF + k * FM6_PACKED, FM6_FACTORY[k * 2u], FM6_PACKED);
@@ -598,7 +670,7 @@ int main(void)
                 f.sum = proj_sum(&f);
                 ok = proj_pack(&st, &f) && proj_import(&g, &st, sizeof st) && !memcmp(&f.motion, &g.motion, sizeof f.motion);
                 bad += check("FUN10 round trip: locks on a lane level (P_LN2) and an engine value (P_E5) kept", ok &&
-                             st.raw[68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + sizeof(chain_config_t) + 4u + 6u + 1u] ==
+                             st.raw[68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE + 4u + 6u + 1u] ==
                              (P_LN2 | MOTION_LOCK) && g.motion.event[3].param == (P_E5 | MOTION_LOCK));
             }
             e.motion.count = 3;   /* a FUN8 of a 1.1 development build (91 parameters) could hold a lock: its E5 then */
@@ -654,12 +726,13 @@ int main(void)
         a.sum = proj_sum(&a);
         bad += check("FUN8: a patch byte above 127 cannot be packed", !proj_pack(&st, &a));
         memcpy(a.fm6[1], FM6_INIT, FM6_PACKED);
-        a.t[0].step[3].n = 1; a.t[0].step[3].note[0] = 200; a.t[0].step[3].note[2] = 128;
+        a.t[0].step[3].n = 1;
+        step_set_note(&a.t[0].step[3], 0, 200); step_set_note(&a.t[0].step[3], 2, 128);
         a.t[0].step[3].vel = 255; a.t[0].step[3].hit = 0x05; a.t[0].step[3].acc = 0xF7;
         a.sum = proj_sum(&a);
         ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
         bad += check("FUN8: a step out of range packs inside it (note, velocity 127; accents on hits): it loads",
-                     ok && c.t[0].step[3].note[0] == 127u && c.t[0].step[3].note[2] == 127u && c.t[0].step[3].vel == 127u &&
+                     ok && step_note(&c.t[0].step[3], 0) == 127u && step_note(&c.t[0].step[3], 2) == 127u && c.t[0].step[3].vel == 127u &&
                      c.t[0].step[3].hit == 0x05u && c.t[0].step[3].acc == 0x05u);
     }
 
@@ -859,7 +932,7 @@ int main(void)
             a.fx_bus[i] = (uint8_t)(10u + i);
         memcpy(a.name, "DX KIT", 6);
         a.sum = proj_sum(&a);
-        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E46u &&
+        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == PROJ_MAGIC &&
              !memcmp(st.raw + PROJ_DX_OFF, a.dx, sizeof a.dx) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx] == (uint8_t)(a.dx_mute & DXG_ALL) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx + 1u] == (uint8_t)(a.dx_mute >> 8) &&
@@ -870,7 +943,7 @@ int main(void)
              !memcmp(c.fx_bus, a.fx_bus, FX_BUS_N) && !memcmp(c.name, "DX KIT", 6);
         bad += check("FUN14: DRUM-X kit/mute round trip; X-MOD not on disk; SEND bus knobs round trip", ok);
         funa = st;
-        ((uint32_t *)funa.raw)[0] = 0x46554E41u;       /* FUNA / FUN10: same 3840 layout, no kit block */
+        store_fun15_layout(&funa, 0x46554E41u);       /* FUNA / FUN10: the FUN15 chain and motion, no kit block */
         memset(funa.raw + PROJ_DX_OFF, 0, PROJ_DX_SIZE);
         sum = proj_hash(funa.raw, PROJ_STORE_SIZE - 4u);
         memcpy(funa.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
@@ -988,6 +1061,7 @@ int main(void)
     }
     bad += generation_wire();
     bad += generation_legacy_defaults();
+    bad += step_wire_freeze();
     printf("%s\n", bad ? "PROJECT FORMAT TEST FAILED" : "project format test passed");
     return bad != 0;
 }

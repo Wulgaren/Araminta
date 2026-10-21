@@ -119,7 +119,7 @@ static int32_t ev_sadd(uint32_t k) { return k == EVK_CHANCE ? 50 : k == EVK_RATC
 static int ev_vel_row(const step_t *s) { return s->time == ST_NOTE && (s->n || s->hit); }
 static int ev_vel_plays(const step_t *s)
 {
-    return ev_vel_row(s) && (s->n || (s->hit & ~s->acc)) && !(s->flags & SF_ACCENT);
+    return ev_vel_row(s) && (s->n || (s->hit & ~s->acc)) && !(step_fl(s) & SF_ACCENT);
 }
 /* a NUDGE that plays: the track's QUANTIZE OFF, a note step, not ratcheted (seq.c seq_tick) */
 static int ev_nudge_plays(const track_t *t, const step_t *s)

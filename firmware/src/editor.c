@@ -20,7 +20,7 @@ enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, 
        ED_UI_STATE, ED_UI_SET, ED_UI_PALETTES, ED_FAV_GET, ED_FAV_SET,
        ED_MOTION = 64, ED_BACKUP_LIST, ED_BACKUP_GET, ED_BACKUP_PUT };                              /* v6: song chain */
 
-static uint8_t ed_out[664] __attribute__((section(".pool")));   /* (MOTION op 8: 128 records and their kinds, 653 bytes) */
+static uint8_t ed_out[984] __attribute__((section(".pool")));   /* (MOTION op 8: 192 records and their kinds, 973 bytes) */
 static uint32_t ed_n;
 
 static void ed_begin(uint32_t cmd)
@@ -148,8 +148,10 @@ static struct {
 static int16_t *ed_val(uint32_t i) { return i < P_COUNT ? &TSEL->p[i] : &song.g[i - P_COUNT]; }
 static uint32_t ed_step_sig(const step_t *s)
 {
-    return ((uint32_t)s->note[0] | (uint32_t)s->note[1] << 7 | (uint32_t)s->note[2] << 14 | (uint32_t)s->note[3] << 21) ^
-           ((uint32_t)s->n << 28) ^ ((uint32_t)s->time * 0x9E3779B1u) ^ ((uint32_t)s->flags * 0x85EBCA6Bu) ^
+    return ((uint32_t)step_note(s, 0) | (uint32_t)step_note(s, 1) << 7 | (uint32_t)step_note(s, 2) << 14 |
+            (uint32_t)step_note(s, 3) << 21) ^
+           ((uint32_t)s->n << 28) ^ ((uint32_t)s->time * 0x9E3779B1u) ^ (step_fl(s) * 0x85EBCA6Bu) ^
+           (step_ratchet(s) * 0x27D4EB2Fu) ^ ((uint32_t)(step_nudge(s) + 8) * 0x165667B1u) ^
            ((uint32_t)s->vel * 0xC2B2AE35u) ^ ((uint32_t)(s->hit | s->acc << 8) * 0x27D4EB2Fu) ^ ((uint32_t)s->probability * 0x165667B1u);
 }
 static void ed_shadow(void)                              /* the editor is in sync */
@@ -299,9 +301,9 @@ static void ed_step_put(step_t *st, const uint8_t *a, uint32_t na)
     uint32_t i;
     st->n = (uint8_t)(a[0] > 4u ? 4u : a[0]);
     for (i = 0; i < 4u; i++)
-        st->note[i] = a[1 + i] & 0x7Fu;
+        step_set_note(st, i, a[1 + i] & 0x7Fu);
     st->time = (uint8_t)(a[5] > ST_REST ? ST_REST : a[5]);
-    st->flags = (uint8_t)((a[6] & (SF_ACCENT | SF_SLIDE)) | (st->flags & (SF_RATCH | SF_NUDGE)));
+    step_set_fl(st, a[6] & (SF_ACCENT | SF_SLIDE));
     st->vel = a[7] & 0x7Fu;
     if (na >= 11u) {
         st->hit = (uint8_t)((a[8] & 0x7Fu) | (a[10] & 1u) << 7);
@@ -317,9 +319,9 @@ static void ed_step_reply(const step_t *st)              /* the same 14 bytes */
     uint32_t i;
     ed_b(st->n);
     for (i = 0; i < 4u; i++)
-        ed_b(st->note[i]);
+        ed_b(step_note(st, i));
     ed_b(st->time);
-    ed_b(st->flags & (SF_ACCENT | SF_SLIDE));
+    ed_b(step_fl(st));
     ed_b(st->vel);
     ed_b(st->hit & 0x7Fu);
     ed_b(st->acc & 0x7Fu);
@@ -475,7 +477,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x4E); ed_b(1); ed_b(ED_MENU_N);   /* MENU settings: cmds 72, 73; the items MENU_DESC offers */
         ed_b(0x52); ed_b(1); ed_b(4);   /* RATCH: a step's ratchet (1..4 hits) after its chance */
         ed_b(0x4C); ed_b(1); ed_b(1);   /* 1.1 parameter locks: MOTION ops 5..7, the kinds after the records */
-        ed_b(0x41); ed_b(1); ed_b(MOTION_MAX); ed_b(MOTION_MAX >> 7);   /* 1.2: 128 motion records, MOTION op 8 */
+        ed_b(0x41); ed_b(1); ed_b(MOTION_MAX); ed_b(MOTION_MAX >> 7);   /* (1.2) the motion pool, 192 */
         ed_b(0x54); ed_b(1); ed_b(NUDGE_DIV);   /* 1.2: a step's nudge (1/16 step) after its ratchet; LFO 2, QNTZ */
         ed_b(0x57); ed_b(1); ed_b(NTRK);   /* 1.2: song sections with a slot per track (SONG ops 4..7) */
         ed_b(0x56); ed_b(1); ed_b(FM6_NBANK);   /* 1.4.1: FM6's voice bank (cmds 74..77; SLOT 9..40 = B1..B32) */
