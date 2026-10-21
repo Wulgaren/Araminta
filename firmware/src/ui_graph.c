@@ -100,7 +100,7 @@ static const uint8_t KEY_BLACK[12] = {0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0};
 static int32_t pr_note(const step_t *st, uint32_t j)   /* the step's note j (0..3), then its lane hits (-1: none) */
 {
     if (j < 4u)
-        return j < st->n ? st->note[j] : -1;
+        return j < st->n ? step_note(st, j) : -1;
     return (st->hit >> (j - 4u)) & 1u ? DRUM_LANE_NOTE[j - 4u] : -1;
 }
 static uint32_t pr_src(const track_t *t, uint32_t si, uint32_t len)   /* the step whose notes sound at si (NSTEP: none) */
@@ -148,7 +148,7 @@ static void pr_follow(const track_t *t)
         tgt = !snap && !proll.moving && lo >= cur && hi <= cur + PR_ROWS - 1 ? cur : (lo + hi + 1) / 2 - PR_ROWS / 2;
     else {                                            /* too wide: the cursor's (lowest) note in the middle */
         const step_t *st = &seq_steps(t)[ui.cursor];
-        tgt = (st->n ? st->note[0] : (lo + hi) / 2) - PR_ROWS / 2;
+        tgt = (st->n ? step_note(st, 0) : (lo + hi) / 2) - PR_ROWS / 2;
     }
     tgt = clamp(tgt, 0, 128 - PR_ROWS);
     d = tgt - cur;
@@ -252,12 +252,12 @@ static void graph_roll(const track_t *t, uint16_t c)
         st = &seq_steps(t)[s];
         col = s == ui.cursor || si == ui.cursor ? T_ACCENT : c;
         if (s == si)
-            pr_bars(st, x + 2, 9, col, (st->flags & SF_ACCENT) != 0u, &y, step_ratchet(st));
+            pr_bars(st, x + 2, 9, col, (step_fl(st) & SF_ACCENT) != 0u, &y, step_ratchet(st));
         else                                          /* a TIE: the bars on through the gap before */
-            pr_bars(st, x - 1, 12, col, (st->flags & SF_ACCENT) != 0u, &y, 1u);
-        if ((st->flags & SF_SLIDE) && step_ratchet(st) == 1u &&   /* (a ratcheted step never slides out) */
+            pr_bars(st, x - 1, 12, col, (step_fl(st) & SF_ACCENT) != 0u, &y, 1u);
+        if ((step_fl(st) & SF_SLIDE) && step_ratchet(st) == 1u &&   /* (a ratcheted step never slides out) */
             ns->time == ST_NOTE && ns->n && y >= PR_Y0 && y < ybot) {
-            int32_t ny = clamp(pr_row_y(ns->note[0]), PR_Y0, ybot - PR_RH);
+            int32_t ny = clamp(pr_row_y(step_note(ns, 0)), PR_Y0, ybot - PR_RH);
             cv_line(x + 10, y + 2, x + 14, ny + 2, T_TEXT);   /* the slide into the next note */
         }
     }
@@ -359,7 +359,7 @@ static void graph_detail(const track_t *t, uint16_t c)
                     cv_rect(x + 5, y + h / 2 - 1, 3, 3, col);
                 else
                     cv_rect(x + 5 + v * 5 / 8, y + 3, 3, h - 6, col);
-            } else if (st->flags & SF_ACCENT) {       /* VEL: an ACC step plays 127 */
+            } else if (step_fl(st) & SF_ACCENT) {     /* VEL: an ACC step plays 127 */
                 cv_rect(x + 2, y, 9, h, sd_takes(st, k) ? T_TEXT : T_DIM);
             } else {
                 bh = v * h / 127;
@@ -548,10 +548,11 @@ static uint32_t steps_hash(const track_t *t)
     uint32_t h = 2166136261u, i;
     for (i = 0; i < NSTEP; i++) {
         const step_t *st = &seq_steps(t)[i];
-        h = (h ^ (st->note[0] + st->n * 128u + st->time * 1024u + st->flags * 4096u + st->note[1] * 65536u)) *
+        h = (h ^ (step_note(st, 0) + st->n * 128u + st->time * 1024u + step_fl(st) * 4096u + step_note(st, 1) * 65536u)) *
             16777619u;
-        h = (h ^ (st->hit | (uint32_t)st->acc << 8 | (uint32_t)st->note[2] << 16 | (uint32_t)st->note[3] << 24)) * 16777619u;
-        h = (h ^ (st->vel | (uint32_t)st->probability << 8)) * 16777619u;   /* (1.5.1: DETAIL, the marks) */
+        h = (h ^ (st->hit | (uint32_t)st->acc << 8 | step_note(st, 2) << 16 | step_note(st, 3) << 24)) * 16777619u;
+        h = (h ^ (st->vel | (uint32_t)st->probability << 8 | step_ratchet(st) << 16 |
+                 (uint32_t)(step_nudge(st) + 8) << 20)) * 16777619u;   /* (1.5.1: DETAIL, the marks) */
     }
     return h;
 }
@@ -1879,7 +1880,7 @@ static void home_track_row(uint32_t c)
             cv_rect(x0, TR_SB - 7, bx + 2 - x0, 7, i == ph ? cpl : cn);
             cv_rrect(bx, TR_SB - 7, TR_BW, 7, 2, i == ph ? cpl : cn, under);
         } else if (st->time == ST_NOTE && st->n) {   /* notes: a bar, accented taller */
-            int acc = (st->flags & SF_ACCENT) != 0u;
+            int acc = (step_fl(st) & SF_ACCENT) != 0u;
             cv_rrect(bx, TR_SB - (acc ? 10 : 7), TR_BW, acc ? 10 : 7, 2, i == ph ? cpl : acc ? ca : cn, under);
             carry = 1;
             continue;
