@@ -398,6 +398,17 @@ static void step_set_nudge(step_t *s, int32_t v)
     uint32_t u = (uint32_t)(v < -8 ? -8 : v > 7 ? 7 : v) & 15u;
     s->flags = (uint8_t)((s->flags & ~SF_NUDGE) | (u & 7u) << 5 | (u >> 1 & 4u));
 }
+/* Step accessors (the 9-byte layout, second commit): note j keeps its nudge bit in bit 7 of the same byte and
+ * accent / slide share the meta byte with n and time, so UI and format code never indexes the bytes. While the
+ * layout is still 11 bytes these are plain field accesses, and step_set_fl keeps the ratchet / nudge bits the
+ * old flags byte also carries (they leave it with the layout). */
+static uint32_t step_note(const step_t *s, uint32_t j) { return s->note[j]; }
+static void step_set_note(step_t *s, uint32_t j, uint32_t v) { s->note[j] = (uint8_t)v; }
+static uint32_t step_fl(const step_t *s) { return s->flags & (SF_ACCENT | SF_SLIDE); }
+static void step_set_fl(step_t *s, uint32_t fl)
+{
+    s->flags = (uint8_t)((s->flags & (SF_RATCH | SF_NUDGE)) | (fl & (SF_ACCENT | SF_SLIDE)));
+}
 #define MOTION_MAX 128u          /* RAM / old FUN10 (np<=111): 128 records. New saves (np==P_COUNT): see MOTION_FILE_MAX */
 #define MOTION_FILE_MAX_V10 110u /* FUN10 disk: 4+110*3=334; +2 B/track for P_IORD left 2 B before FM6 */
 #define MOTION_FILE_MAX_V11 78u  /* FUN11 disk: 4+78*3=238; frees 96 B for the DRUM-X kit (project.c PROJ_DX_*) */
