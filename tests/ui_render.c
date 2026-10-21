@@ -667,8 +667,8 @@ static void state(void)                          /* a playing song with steps on
     clk_pos = 0; clk_step = 8; cin_total = cin_left = 0;   /* the bar's 3rd beat: the header's metronome at rest */
     for (i = 0; i < NTRK; i++) trk[i].seq_idx = 5;
     my_steps(&trk[1]);
-    trk[0].step[2].flags |= SF_ACCENT;
-    trk[0].step[6].flags |= SF_SLIDE;
+    step_set_fl(&trk[0].step[2], step_fl(&trk[0].step[2]) | SF_ACCENT);
+    step_set_fl(&trk[0].step[6], step_fl(&trk[0].step[6]) | SF_SLIDE);
 #if 0
     if (usr_nz[0]) {                              /* (slices_usr filled USR1: empty again) */
         memset(host_slots, 0, sizeof host_slots);
@@ -716,8 +716,8 @@ static void song_steps(uint32_t k)
             s->vel = 100;
             if (!on) { s->time = ST_REST; continue; }
             if (j == 3u) s->hit = (uint8_t)(i % 4u == 0u ? 1u : 8u);
-            else s->note[0] = (uint8_t)(48 + (i * 7u + k) % 12u), s->n = 1;
-            if ((j == 0u && i % 4u == 0u) || (j == 3u && i % 8u == 0u)) s->flags |= SF_ACCENT;
+            else step_set_note(s, 0, 48u + (i * 7u + k) % 12u), s->n = 1;
+            if ((j == 0u && i % 4u == 0u) || (j == 3u && i % 8u == 0u)) step_set_fl(s, step_fl(s) | SF_ACCENT);
         }
 }
 /* SONG's sources: project slot k saved with track 1's LEN steps of DIV (N_DIV's order), the patterns song_steps(k) */
@@ -806,8 +806,8 @@ static void step_put(step_t *st, uint32_t time, uint32_t flags, uint32_t n, cons
 {
     uint32_t j;
     memset(st, 0, sizeof *st);
-    st->time = (uint8_t)time; st->flags = (uint8_t)flags; st->n = (uint8_t)n; st->vel = 100;
-    for (j = 0; j < n; j++) st->note[j] = notes[j];
+    st->time = (uint8_t)time; step_set_fl(st, flags); st->n = (uint8_t)n; st->vel = 100;
+    for (j = 0; j < n; j++) step_set_note(st, j, notes[j]);
 }
 static void roll_scene(int s)
 {
@@ -853,7 +853,7 @@ static void roll_scene(int s)
             if (LINE_T[i] == 0u) step_put(&t->step[i], ST_NOTE, f, 1, &n);
             else step_put(&t->step[i], LINE_T[i] == 1u ? ST_TIE : ST_REST, 0, 0, &n);
         }
-        t->step[2].flags |= SF_SLIDE;                  /* (slides into a note, from before a tie) */
+        step_set_fl(&t->step[2], step_fl(&t->step[2]) | SF_SLIDE);   /* (slides into a note, from before a tie) */
         ui.cursor = 9;
         break;
     case S_ROLL_LEN32:
@@ -1083,7 +1083,7 @@ static void setup(int s)
      * section: "2 -" */
     case S_HEAD_SLOT: song.playing = 0; project_save(0); project_load(0); song.rec = 1u << ((song.sel + 2u) % NTRK); go_home(); ui.msg_t = 0; break;
     case S_HEAD_SLOT_EDITED:
-        song.playing = 0; project_save(0); project_load(0); TSEL->step[3].note[0] = 70; TSEL->step[3].n = 1;
+        song.playing = 0; project_save(0); project_load(0); step_set_note(&TSEL->step[3], 0, 70); TSEL->step[3].n = 1;
         song.rec = 1u << song.sel; go_home(); ui.msg_t = 0; break;
     case S_HEAD_SLOT_SONG:
         song.playing = 0; project_save(0);

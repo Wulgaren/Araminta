@@ -142,7 +142,7 @@ static int knobs(void)
     kt(EN_K3, 3);
     kt(EN_K4, -16);
     ok &= step_chance(&t->step[2]) == 90u && step_nudge(&t->step[2]) == 3 && t->step[2].vel == 80u &&
-          t->step[2].n == 1u && t->step[2].note[0] == 64u && t->step[2].time == ST_NOTE && step_ratchet(&t->step[2]) == 1u;
+          t->step[2].n == 1u && step_note(&t->step[2], 0) == 64u && t->step[2].time == ST_NOTE && step_ratchet(&t->step[2]) == 1u;
     bad += check("  PRESETS walks the cursor; on step 3 CHANCE 90 %, NUDGE +3, VEL 80 (96 - 16), the note kept", ok);
     ok = listed(EVC(EVK_RATCH, 0)) && listed(EVC(EVK_CHANCE, 0)) && listed(EVC(EVK_CHANCE, 2)) &&
          listed(EVC(EVK_NUDGE, 2)) && !listed(EVC(EVK_RATCH, 2)) && !motion_count(t);
@@ -186,7 +186,7 @@ static int knobs(void)
     kt(EN_K3, 2);
     ok = msg_is("QUANTIZE IS ON") && step_nudge(&trk[0].step[2]) == 2;
     t = &trk[0];
-    t->step[2].flags |= SF_ACCENT;
+    step_set_fl(&t->step[2], step_fl(&t->step[2]) | SF_ACCENT);
     ui.msg_t = 0;
     kt(EN_K4, -2);
     ok &= msg_is("ACC PLAYS 127") && t->step[2].vel == 94u;
