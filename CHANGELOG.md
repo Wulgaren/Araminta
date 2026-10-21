@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.8
+
+Projects move to FUN16 with 88 motion records, the sequencer's steps take nine bytes each in RAM, and the panel receives only the bands that changed. Install from the [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB). Try it first in the [browser](https://wulgaren.github.io/Araminta/webapp/try/).
+
+New project format: FUN16 (`FUNG`), the same 3,840-byte object as FUN15. FUN15 and older load; only FUN16 is written. Splash and ABOUT show `v2.8`.
+
+### Projects
+
+- **FUN16 (`FUNG`).** A song section packs into 2 bytes after the 4-byte header (4 slots x 3 bits, repeat - 1 x 4 bits): 36 bytes instead of 84, which pays for 16 more motion records in the same 3,840-byte object — 88 on disk instead of 72. The RAM motion pool grows 128 -> 192, more than a project saves, so a session keeps its locks until the save clips them and shows the save-limit warning. FUN15 and older still load; the writer only emits FUN16. Firmware that only knows FUN15 refuses a FUN16 slot (EMPTY until saved over), so keep a backup before the first save; the upgrade is one-way for anything re-saved.
+- Editor: INFO answers `41 01 40 01` (192 records) and MOTION op 8 lists up to 192, in a 984-byte reply. The web backup knows `FUNG`.
+
+### Memory
+
+- The in-RAM step is the 9-byte FUN15 wire step, bit for bit: note j with its nudge bit in bit 7, n | time << 3 | accent/slide << 5, vel | ratchet bit 0 << 7, hit, acc & hit, probability | ratchet bit 1 << 7. No format bump and no migration: `proj_pack` / `proj_unpack` write and read the same bytes as before; accessors hide the packing and keep the ratchet / nudge top bits. RAM 69,336 -> 66,648 B (-2,688), pool 354,472 -> 353,704 B (-768), image +1,184 B.
+- FUN16 spends 1,280 B of that RAM back on the 192-record motion pool: RAM 67,928 B (5,800 free), pool 354,920 B (13,720 free).
+
+### Performance
+
+- The strip cache hashes each 30 px column group of every 8-row band: a band the panel already shows is neither expanded nor sent, and a changed band goes out from its first to its last dirty group. `cv_strip` splits into two 8-row halves, so the next half expands while the previous one is on the wire. Fills, power, wake, one-shot screens and a counted LCD timeout drop the bands they touch; `ui.force` drops everything. The console shows `ui_draw_us_max` / `ui_draw_us_avg`, `lcd_bytes` and `lcd_skips`.
+- The rest of the UI and editor pages build at LLVM `minsize` (clang 4 has no `-Oz`), flash only: image 461,424 -> 459,392 B (-2,032), RAM and pool unchanged, `.ram_text` and `.c1_text` unchanged. `BUILDING.md` describes the XIP layout and the `minsize` / `-Os` split; `FELUCCA_SIZE=0` builds everything at `-Os` for comparison.
+
 ## 2.7
 
 An overload that runs past the deadline sheds two voices at once, and the editor's project slots line up one per row. Install from the [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB). Try it first in the [browser](https://wulgaren.github.io/Araminta/webapp/try/).
