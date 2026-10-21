@@ -135,12 +135,12 @@ static uint32_t step_lanes(const step_t *s)
     if (s->time != ST_NOTE)
         return 0;
     for (i = 0; i < s->n && i < 4u; i++)
-        m |= 1u << drum_lane(s->note[i]);
+        m |= 1u << drum_lane(step_note(s, i));
     return m | s->hit;
 }
 
 /* .. and which of them are accented */
-static uint32_t step_accents(const step_t *s) { return s->flags & SF_ACCENT ? step_lanes(s) : s->acc & step_lanes(s); }
+static uint32_t step_accents(const step_t *s) { return step_fl(s) & SF_ACCENT ? step_lanes(s) : s->acc & step_lanes(s); }
 
 /* a step's notes that are a lane's note become that lane's hits (the same note, the same velocity: nothing
  * sounds different). Other notes (a low tom 41, a crash 49) stay notes, shown on their lane. A step accent
@@ -152,18 +152,18 @@ static void step_to_grid(step_t *s)
     if (s->time != ST_NOTE)
         return;
     for (i = 0; i < s->n && i < 4u; i++) {
-        uint32_t l = drum_lane(s->note[i]);
-        if (s->note[i] == DRUM_LANE_NOTE[l])
+        uint32_t n = step_note(s, i), l = drum_lane(n);
+        if (n == DRUM_LANE_NOTE[l])
             s->hit |= (uint8_t)(1u << l);
         else
-            s->note[k++] = s->note[i];
+            step_set_note(s, k++, n);
     }
     for (i = k; i < 4u; i++)
-        s->note[i] = 0;
+        step_set_note(s, i, 0);
     s->n = (uint8_t)k;
-    if (!k && (s->flags & SF_ACCENT)) {
+    if (!k && (step_fl(s) & SF_ACCENT)) {
         s->acc |= s->hit;
-        s->flags &= (uint8_t)~SF_ACCENT;
+        step_set_fl(s, step_fl(s) & ~SF_ACCENT);
     }
 }
 
