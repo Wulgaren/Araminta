@@ -4483,7 +4483,9 @@ project_not_empty();                 track_defaults_steps(t); go_page(GR_ROLL); 
                 r = t->step[3];
                 fm1_in.notes = 0; keyboard_block();
                 song.rec = 0; song.playing = 0;
-                ok &= r.n == e.n && !memcmp(r.note, e.note, e.n);
+                ok &= r.n == e.n;
+                for (uint32_t q = 0; q < r.n; q++)
+                    ok &= step_note(&r, q) == step_note(&e, q);
             }
         bad += check("STEP entry with CHRD: POLY the chord, MONO its root, as live recording writes", ok);
     }
@@ -4821,9 +4823,9 @@ static int test_play_leds(void)
     uint32_t i;
     ui_power_on();
     song.sel = 0;
-    t->step[0] = (step_t){.note = {60, 64}, .n = 2, .time = ST_NOTE};
-    t->step[1] = (step_t){.note = {100}, .n = 1, .time = ST_NOTE};
-    trk[1].step[0] = (step_t){.note = {67}, .n = 1, .time = ST_NOTE};
+    t->step[0] = (step_t){.nb = {60, 64}, .n = 2, .time = ST_NOTE};
+    t->step[1] = (step_t){.nb = {100}, .n = 1, .time = ST_NOTE};
+    trk[1].step[0] = (step_t){.nb = {67}, .n = 1, .time = ST_NOTE};
     bad += check("stopped, nothing held: no key lit", key_leds(0) == 0u && play_leds() == 0u);
     seq_start();
     events_block(CTL);
@@ -4890,10 +4892,10 @@ static int test_cursor_step_leds(void)
     ui_power_on();
     song.sel = 0;
     t = TSEL;
-    t->step[0] = (step_t){.note = {60, 64}, .n = 2, .time = ST_NOTE};
-    t->step[1] = (step_t){.note = {100}, .n = 1, .time = ST_NOTE};
-    t->step[2] = (step_t){.note = {62}, .n = 1, .time = ST_REST};
-    t->step[3] = (step_t){.note = {67}, .n = 1, .time = ST_TIE};
+    t->step[0] = (step_t){.nb = {60, 64}, .n = 2, .time = ST_NOTE};
+    t->step[1] = (step_t){.nb = {100}, .n = 1, .time = ST_NOTE};
+    t->step[2] = (step_t){.nb = {62}, .n = 1, .time = ST_REST};
+    t->step[3] = (step_t){.nb = {67}, .n = 1, .time = ST_TIE};
     bad += check("#89 HOME, stopped: no step's keys lit", key_leds(0) == 0u);
     go_page(GR_ROLL);
     frame();
@@ -5016,7 +5018,7 @@ static int test_midi_leds(void)
     usb_note(0, 60, 100);
     ok = key_leds(0) == (1u << 0 | 1u << 7);
     fm1_in.notes = 0;
-    trk[0].step[0] = (step_t){.note = {64}, .n = 1, .time = ST_NOTE};
+    trk[0].step[0] = (step_t){.nb = {64}, .n = 1, .time = ST_NOTE};
     seq_start();
     events_block(CTL);
     ok &= key_leds(0) == (1u << 7 | 1u << 11);
@@ -5219,7 +5221,7 @@ static int test_step_leds(void)
                     TSEL->p[P_SLEN] = 16;
                     TSEL->step[2] = (step_t){.hit = 1u << DV_KICK, .time = ST_NOTE};   /* one hit, on step 3 */
                 } else {
-                    TSEL->step[0] = (step_t){.note = {60}, .n = 1, .time = ST_NOTE};   /* C4 on step 1 */
+                    TSEL->step[0] = (step_t){.nb = {60}, .n = 1, .time = ST_NOTE};   /* C4 on step 1 */
                 }
                 settings_leds = (uint8_t)m;
                 go_seq_step();
@@ -5840,7 +5842,7 @@ static int test_seq_quant(void)
     t->p[P_SCALE] = 0;
     t->p[P_ROOT] = 0;
     ok = kb_map(t, 8) == 61u && kb_map(t, 7) == 60u;   /* SEQ keys as OFF: C#4 stays C#4 */
-    t->step[0] = (step_t){.note = {61, 66}, .n = 2, .time = ST_NOTE};
+    t->step[0] = (step_t){.nb = {61, 66}, .n = 2, .time = ST_NOTE};
     seq_start();
     events_block(CTL);
     ok &= t->seq_n == 2u && t->seq_notes[0] == 60u && t->seq_notes[1] == 65u && step_note(&t->step[0], 0) == 61u &&
