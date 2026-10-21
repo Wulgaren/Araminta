@@ -692,11 +692,11 @@ static int proj_import_old(project_t *q, const void *b, int n)
                     step_t *s = &q->t[i].step[k];
                     uint32_t j;
                     for (j = 0; j < 4u; j++)
-                        step_set_note(s, j, o->note[j]);
-                    s->n = o->n;
-                    s->time = o->time;
+                        step_set_note(s, j, o->note[j] & 127u);   /* (an old import masks, proj_steps did) */
+                    s->n = o->n > 4u ? 4u : o->n;
+                    s->time = o->time > ST_REST ? (uint8_t)ST_REST : o->time;
                     step_set_fl(s, o->flags & 3u);      /* accent, slide: x1 (no RATCH then) */
-                    s->vel = o->vel;
+                    s->vel = o->vel > 127u ? 127u : o->vel;
                     s->hit = o->hit;
                     s->acc = o->acc;
                 }
@@ -1182,7 +1182,6 @@ static void proj_bound(project_t *q)
         proj_steps(q->t[t].step);
         for (i = 0; i < NSTEP; i++) {
             step_t *s = &q->t[t].step[i];
-            step_set_fl(s, step_fl(s));
             s->vel &= 127u;
             if (s->probability > 101u) s->probability = 0;
         }

@@ -5,3 +5,4 @@ __pycache__/
 .venv
 tests/out/
 docs/ARAMINTA_TASKS.md
+core

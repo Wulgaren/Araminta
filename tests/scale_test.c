@@ -176,12 +176,12 @@ static void seq_quant_test(void)
     track_t *t = &trk[0];
     uint32_t period, i;
     static const step_t STEPS[] = {
-        {.note = {61, 64}, .n = 2, .time = ST_NOTE},  /* C#4 E4: C major -> C4 E4 */
-        {.note = {66}, .n = 1, .time = ST_NOTE},      /* F#4 -> F4 */
-        {.note = {61}, .n = 1, .time = ST_NOTE},      /* held through two TIEs */
+        {.nb = {61, 64}, .n = 2, .time = ST_NOTE},  /* C#4 E4: C major -> C4 E4 */
+        {.nb = {66}, .n = 1, .time = ST_NOTE},      /* F#4 -> F4 */
+        {.nb = {61}, .n = 1, .time = ST_NOTE},      /* held through two TIEs */
         {.time = ST_TIE},
         {.time = ST_TIE},
-        {.note = {61, 60}, .n = 2, .time = ST_NOTE},  /* both snap to C4: one note */
+        {.nb = {61, 60}, .n = 2, .time = ST_NOTE},  /* both snap to C4: one note */
         {.time = ST_REST},
     };
     memset(trk, 0, sizeof trk);
@@ -267,7 +267,7 @@ static void seq_quant_test(void)
     t->engine = t->eng_req = ENGI_DRUM;
     t->p[P_SCALE] = 0;
     t->p[P_ROOT] = 0;
-    t->step[0] = (step_t){.note = {37, 39}, .n = 2, .hit = 1u << 0, .time = ST_NOTE};
+    t->step[0] = (step_t){.nb = {37, 39}, .n = 2, .hit = 1u << 0, .time = ST_NOTE};
     seq_start();
     events_block(CTL);
     assert(t->seq_n == 3 && t->seq_notes[0] == 37 && t->seq_notes[1] == 39 && t->seq_notes[2] == DRUM_LANE_NOTE[0]);
@@ -282,8 +282,8 @@ static void seq_trn_test(void)
     track_t *t = &trk[0];
     uint32_t i;
     static const step_t STEPS[] = {
-        {.note = {60, 64}, .n = 2, .time = ST_NOTE},  /* C4 E4 */
-        {.note = {61}, .n = 1, .time = ST_NOTE},      /* C#4 */
+        {.nb = {60, 64}, .n = 2, .time = ST_NOTE},  /* C4 E4 */
+        {.nb = {61}, .n = 1, .time = ST_NOTE},      /* C#4 */
     };
     memset(trk, 0, sizeof trk);
     memset(&song, 0, sizeof song);
@@ -326,7 +326,7 @@ static void seq_trn_test(void)
     t->engine = t->eng_req = ENGI_DRUM;
     t->p[P_TRANS] = 5;
     t->p[P_QUANT] = QN_SNAP;
-    t->step[0] = (step_t){.note = {37, 39}, .n = 2, .time = ST_NOTE};
+    t->step[0] = (step_t){.nb = {37, 39}, .n = 2, .time = ST_NOTE};
     t->p[P_SLEN] = 1;
     seq_start();
     events_block(CTL);
