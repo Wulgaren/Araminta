@@ -186,7 +186,7 @@ int main(int argc, char **argv)
         cv_text(8, 40, &AF_M, "PHAS", T_THEME);
         cv_blit(0, 0);
         lcd_sync();
-        want = (124u + CV_STRIP - 1u) / CV_STRIP;
+        want = (124u + CV_UNIT - 1u) / CV_UNIT;
         assert(lcd_nblit == want);
         assert(lcd_nblit < 124u);
     }

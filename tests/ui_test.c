@@ -131,10 +131,12 @@ static void lcd_power(uint32_t s) { host_pw_log(s); }
 static void lcd_wake_now(void) { host_pw_log(3u); }
 /* (the HOME oscilloscope's buffer, scope_buf: fx.c, with hostsim.c) */
 static uint32_t host_blit_rows;                    /* rows blitted (what a frame draws) */
+static uint32_t host_blit_bytes;                   /* bytes the panel took (the strip cache) */
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
 {
     uint32_t i, j;
     host_blit_rows += h;
+    host_blit_bytes += w * h * 2u;
     for (j = 0; j < h && y + j < 240u; j++)
         for (i = 0; i < w && x + i < 240u; i++) host_put((y + j) * 240u + x + i, p[j * w + i]);
 }
@@ -8373,22 +8375,20 @@ static int test_no_flash(void)
     return bad;
 }
 
-/* Live graphs (HOME scope, PATTERN steps, FX tech, …): redraw every UI frame. graph_sig must change and the
- * panel must push (H_GRAPH rows) on each of two consecutive frames, not every other. */
+/* Live graphs (HOME scope, PATTERN steps, FX tech, …): redraw every UI frame. graph_sig must change on each of two
+ * consecutive frames, not every other; the strip cache then sends only the bands that changed. */
 static int live_panel_each_frame(void)
 {
-    uint32_t i, sig, rows;
+    uint32_t i, sig;
     int ok = 1;
     ui.force = 1;
     draw_graph();
     ui.force = 0;
     for (i = 0; i < 2u; i++) {
         sig = ui.graph_sig;
-        rows = host_blit_rows;
         ui.frame++;
         draw_graph();
         ok &= ui.graph_sig != sig;
-        ok &= host_blit_rows - rows >= H_GRAPH;
     }
     return ok;
 }
@@ -8398,11 +8398,62 @@ static int test_live_graph_rate(void)
     ui_power_on();
     go_home();
     ok = live_panel_each_frame();
-    bad += check("HOME scope: graph_sig and panel blit every consecutive frame", ok);
+    bad += check("HOME scope: graph_sig moves every consecutive frame", ok);
     ui_power_on();
     go_title("PATTERN");
     ok = cur_page()->graph == GR_STEPS && live_panel_each_frame();
-    bad += check("PATTERN (live steps): graph_sig and panel blit every consecutive frame", ok);
+    bad += check("PATTERN (live steps): graph_sig moves every consecutive frame", ok);
+    return bad;
+}
+
+/* the strip cache (gfx.c cv_blit_rows): a band the panel already shows is not expanded and not sent, a band that
+ * changed goes out from its first to its last dirty 30 px group, and a palette change sends every band again */
+static int test_strip_cache(void)
+{
+    int bad = 0, ok;
+    uint32_t base;
+    ui_power_on();
+    palette_set(0);
+    /* an identical frame: no expand, no DMA */
+    cv_cache_drop();
+    cv_begin(240, 124, T_BG);
+    cv_rect(0, 0, 240, 124, T_THEME);
+    cv_blit(0, 0);
+    base = host_blit_bytes;
+    cv_blit(0, 0);
+    ok = host_blit_bytes == base;
+    bad += check("strip cache: a second identical frame sends no pixels", ok);
+    /* one 30 px group dirty: only that group goes out */
+    cv_cache_drop();
+    cv_begin(240, 124, T_BG);
+    cv_rect(0, 0, 240, 124, T_THEME);
+    cv_blit(0, 0);
+    cv_begin(240, 124, T_BG);
+    cv_rect(0, 0, 240, 124, T_THEME);
+    cv_rect(30, 0, 30, 124, T_TEXT);
+    base = host_blit_bytes;
+    cv_blit(0, 0);
+    ok = host_blit_bytes - base == 30u * 124u * 2u;
+    bad += check("strip cache: one dirty 30 px group sends that group only", ok);
+    /* one 8-row band dirty: only that band goes out */
+    cv_cache_drop();
+    cv_begin(240, 124, T_BG);
+    cv_rect(0, 0, 240, 124, T_THEME);
+    cv_blit(0, 0);
+    cv_begin(240, 124, T_BG);
+    cv_rect(0, 0, 240, 124, T_THEME);
+    cv_rect(0, 0, 240, CV_UNIT, T_TEXT);
+    base = host_blit_bytes;
+    cv_blit(0, 0);
+    ok = host_blit_bytes - base == 240u * CV_UNIT * 2u;
+    bad += check("strip cache: one dirty 8-row band sends that band only", ok);
+    /* palette: the RGB565 values change, so every band goes out again (the canvas is the same) */
+    palette_set(1);
+    base = host_blit_bytes;
+    cv_blit(0, 0);
+    ok = host_blit_bytes - base == 240u * 124u * 2u;
+    bad += check("strip cache: a palette change sends every band again", ok);
+    palette_set(settings.palette);
     return bad;
 }
 
@@ -9140,6 +9191,7 @@ int main(void)
     bad += test_help();
     bad += test_no_flash();
     bad += test_live_graph_rate();
+    bad += test_strip_cache();
 #if FELUCCA_FM4
     bad += test_fm_charts();                        /* (DIGITAL's charts: built with FELUCCA_FM4=1 only) */
 #else

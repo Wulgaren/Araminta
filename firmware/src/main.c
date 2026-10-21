@@ -137,6 +137,7 @@ static void fm1_main(void)
     }
     felucca_dbg.boots++;
     felucca_dbg.max_us = 0;
+    ui_stat.bytes = ui_stat.skips = ui_stat.frames = ui_stat.us_sum = ui_stat.us_max = 0;
     felucca_dbg.in_audio = 0;                       /* .noinit: a reset inside the audio ISR left it set, and
                                                        TIMER5 would treat every tick as nested (no USB poll) */
     felucca_dbg.prev_stage = felucca_dbg.stage;     /* a WDT reset leaves the last breadcrumb here */
@@ -282,7 +283,15 @@ static void fm1_main(void)
             ota_poll();                             /* the editor, the UI and the autosave keep running */
         else
 #endif
-        ui_draw();
+        {
+            uint32_t t0 = fm1_micros(), dt;
+            ui_draw();
+            dt = fm1_micros() - t0;
+            ui_stat.frames++;
+            ui_stat.us_sum += dt;
+            if (dt > ui_stat.us_max)
+                ui_stat.us_max = dt;
+        }
         felucca_dbg.stage = 9;
         while (fm1_ms - m < 15u) {                               /* ~60 UI frames/s at most */
             ui_input();
