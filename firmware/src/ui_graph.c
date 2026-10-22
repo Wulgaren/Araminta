@@ -2301,20 +2301,23 @@ static void draw_generation_map(void)
     }
 }
 
-/* WAVETABLE's EDIT panel: the current output, two cycles. The tables and POS shape A, FDBK / B>A /
- * RATIO act on A, and LEVEL brings B into the mix, so every knob changes this trace. */
-static void graph_wt(const track_t *t)
+/* WAVETABLE's EDIT panel: the oscillator's wave, two cycles. OSC A draws A after FM, feedback and the
+ * B>A/RATIO path; OSC B draws B's own wave (its shape is B-WAV / B-POS; LEVEL is the mix amount, shown on
+ * the card). RATIO on the OSC B page is the exception: it changes A's FM, not B's wave, so while it is the
+ * hot knob the page shows A. */
+static void graph_wt(const track_t *t, uint32_t osc)
 {
     static int32_t a[WT_PREVIEW_N], b[WT_PREVIEW_N] __attribute__((section(".pool")));
-    int32_t h = (int32_t)cv_h, mid = h / 2, amp = h / 2 - (h >= 90 ? 6 : 3), lvl, i;
+    int32_t h = (int32_t)cv_h, mid = h / 2, amp = h / 2 - (h >= 90 ? 6 : 3), i;
     int32_t px = 0, py = 0;
-    lvl = clamp(t->p[P_E6], 0, 127) * 258;
+    uint32_t hot = ui.hot_t ? cur_page()->id[ui.hot_col & 3u] : 0u;
+    int show_a = osc == 0u || (osc == 1u && hot == P_E7);
     wt_preview(t, a, b, WT_PREVIEW_N);
     cv_rect(PANEL_X0, mid, PANEL_W, 1, T_RAISE);
     for (i = 0; i < (int32_t)WT_PREVIEW_N; i++) {
         int32_t x = PANEL_X0 + i * (PANEL_W - 1) / ((int32_t)WT_PREVIEW_N - 1);
-        int32_t v = clamp(a[i] + ((b[i] * lvl) >> 15), -32768, 32767);
-        int32_t y = mid - soft_knee(v, 24000) * amp / 32768;
+        int32_t v = show_a ? a[i] : b[i];
+        int32_t y = mid - soft_knee(clamp(v, -32768, 32767), 24000) * amp / 32768;
         if (i)
             cv_line_t(px, py, x, y, T_ACCENT, 2);
         px = x;
@@ -2447,7 +2450,7 @@ static void draw_graph(void)
         default:
             if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WT) {
                 cv_oy = 0;
-                graph_wt(t);
+                graph_wt(t, pg->id[0] == P_E4 ? 1u : 0u);
             }
             else if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL) graph_wheel(t, c);
             else if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE && sample_wave.ready) graph_sample(c);

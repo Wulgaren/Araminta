@@ -503,6 +503,20 @@ static void preview_math(void)
     wt_preview(&trk[0], a, b, WT_PREVIEW_N);
     snprintf(what, sizeof what, "preview: POS changes A (mean diff %.0f)", pv_diff(base, a));
     check(what, pv_diff(base, a) > 40.0);
+    /* OSC B's page draws b: B-WAV and B-POS change it */
+    trk[0].p[P_E4] = 0;
+    trk[0].p[P_E5] = 0;
+    wt_preview(&trk[0], a, b, WT_PREVIEW_N);
+    for (i = 0; i < WT_PREVIEW_N; i++) base[i] = b[i];
+    trk[0].p[P_E5] = 64;
+    wt_preview(&trk[0], a, b, WT_PREVIEW_N);
+    snprintf(what, sizeof what, "preview: B POS changes B (mean diff %.0f)", pv_diff(base, b));
+    check(what, pv_diff(base, b) > 40.0);
+    for (i = 0; i < WT_PREVIEW_N; i++) base[i] = b[i];
+    trk[0].p[P_E4] = 1;
+    wt_preview(&trk[0], a, b, WT_PREVIEW_N);
+    snprintf(what, sizeof what, "preview: B WAVE changes B (mean diff %.0f)", pv_diff(base, b));
+    check(what, pv_diff(base, b) > 40.0);
 }
 
 /* ---------------------------------------------------------------- cost --- */
