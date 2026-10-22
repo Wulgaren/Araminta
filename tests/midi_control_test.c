@@ -428,7 +428,7 @@ static int cc_map_test(void)
     bad += check("not armed: the CC is the new value, no event", trk[0].p[P_E4] == 77 && motion.count == 1u);
     return bad;
 }
-/* 1.5 (Discussion #170): MIDI LEARN. GLO + D4 on, a knob picks, a CC is learned; the map in favorites.factory[14] */
+/* 1.5 (Discussion #170): MIDI LEARN. GLO + D4 on, a knob picks, a CC is learned; the map in favorites.factory[13] */
 static int ml_entry(uint32_t cc, uint32_t k, uint32_t id) { return ml_cc_of(k, id) == cc + 1u; }
 static int learn_test(void)
 {
@@ -582,7 +582,7 @@ static int learn_test(void)
     for (i = 0; i < P_COUNT; i++)
         ok &= ml_id(ml_code(i)) == i && (i < P_E0 ? ml_code(i) == i + 1u && ml_code(i) < ML_E0 : ml_code(i) == ML_E0 + i - P_E0);
     ok &= ml_id(0) == P_COUNT && ml_id(ML_E0 + 8u) == P_COUNT;   /* 0 none; past last engine slot (no gap before ML_E0) */
-    memset(favorites.factory[14], 0, 32);
+    memset(favorites.factory[13], 0, 32);
     ok &= ml_learn(30, 1, P_IDMIX) == 1u && ml_learn(31, 2, P_ESYNC) == 1u && ml_learn(33, 3, P_E0 + 3u) == 1u;
     ok &= ml_get(0) == (30u | 1u << 7 | (P_IDMIX + 1u) << 9) && ml_get(1) == (31u | 2u << 7 | (P_ESYNC + 1u) << 9) &&
           ml_get(2) == (33u | 3u << 7 | (ML_E0 + 3u) << 9);
@@ -591,7 +591,7 @@ static int learn_test(void)
     queued(0xB0, 33, 127, 1);
     ok &= trk[1].p[P_IDMIX] == 0 && trk[2].p[P_ESYNC] == 1 && trk[3].p[P_E0 + 3u] == param_desc_of(eng_idx(trk[3].eng_req), P_E0 + 3u)->max;
     bad += check("MIDI LEARN codes with P_E0 119: common ids + 1 (DIST MIX, ESYNC), engine ML_E0 + k; all ids round trip", ok);
-    memset(favorites.factory[14], 0, 32);
+    memset(favorites.factory[13], 0, 32);
     return bad;
 }
 /* 1.5.1 (#179): MIDI Program Change. The audio side only notes it (ui.mpc); the main loop loads it, as PRESETS

@@ -28,13 +28,14 @@
 #endif
 /* Engine table is append-only. Index 13 SLICE stays reserved (eng_retire.c): never selectable; old stores
  * load as DRUM. SAMPLE (4), GRAIN (8), NOISE (11) are live again. */
-#define NENGINES 14u
+#define NENGINES 15u
 #define ENGI_DIGITAL 1u          /* reserved without FELUCCA_FM4: never selectable (eng_ok), its sounds load as FM6 */
 #define ENGI_SAMPLE 4u
 #define ENGI_GRAIN 8u
 #define ENGI_NOISE 11u
 #define ENGI_SLICE 13u           /* reserved: SLICE retired (eng_retire.c) */
-#define NENG_SHOWN (12u + FELUCCA_FM4)   /* pickable: ANALOG FM6 [DIGITAL] PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM */
+#define ENGI_WT 14u              /* WAVETABLE (eng_wt.c) */
+#define NENG_SHOWN (13u + FELUCCA_FM4)   /* pickable: ANALOG FM6 [DIGITAL] PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM WAVETABLE */
 #define UP_SLOTS 32u             /* user presets (upreset.c) */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
