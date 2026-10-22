@@ -30,6 +30,7 @@ static const uint32_t WT_RATIO_Q16[WT_RATIO_N] = {
     16384, 32768, 49152, 65536, 98304, 131072, 163840, 196608, 262144, 327680, 393216, 524288, 786432, 1048576
 };
 #define WT_DC_K 23u                  /* 5 Hz one-pole DC blocker on A (Q15: 1 - exp(-2*pi*5/44100)) */
+#define WT_PREVIEW_N 160u            /* EDIT graph: two cycles of A across this many points */
 
 /* one table per part and oscillator, resolved once a block (engines.c eng_mem is not used: the tables are
  * XIP and the view is a few bytes) */
@@ -183,7 +184,47 @@ static void wt_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vm
     v->s[2] = dc;
 }
 
-/* name, {A-WAV, A-POS, FDBK, B>A, B-WAV, B-POS, B-LVL, RATIO}, {A D S R}, fenv, mono */
+/* EDIT's graph, UI only: A's output (FM, feedback, ratio) and B's raw wave at a fixed two-cycle display
+ * pitch. Reads p[] and the XIP tables, touches no voice or wt_view state. */
+static void wt_preview(const track_t *t, int32_t *a, int32_t *b, uint32_t n)
+{
+    wt_view_t va, vb;
+    uint32_t inc, incb, r, la, lb, a0, a1, b0, b1, phA = 0, phB = 0, i;
+    int32_t afr, bfr, fbq, fmq, fm, prev = 0, lp = 0, dc = 0;
+    if (!n)
+        return;
+    wt_resolve(t->p[P_E0], &va);
+    wt_resolve(t->p[P_E4], &vb);
+    r = (uint32_t)clamp(t->p[P_E7], 0, (int32_t)WT_RATIO_N - 1);
+    inc = (uint32_t)(((uint64_t)2u << 32) / n);        /* two cycles across the graph */
+    incb = (uint32_t)(((uint64_t)inc * WT_RATIO_Q16[r]) >> 16);
+    if (incb > 0x80000000u)
+        incb = 0x80000000u;
+    la = va.data ? wt_mip_level(va.base_log2, inc) : 0;
+    lb = vb.data ? wt_mip_level(vb.base_log2, incb) : 0;
+    wt_frames(&va, clamp(t->p[P_E1], 0, 127), &a0, &a1, &afr);
+    wt_frames(&vb, clamp(t->p[P_E5], 0, 127), &b0, &b1, &bfr);
+    fbq = clamp(t->p[P_E2], 0, 127) * 310;
+    fm = clamp(t->p[P_E3], 0, 127);
+    fmq = fm * 516;
+    for (i = 0; i < n; i++) {
+        int32_t bs = vb.data ? wt_read(&vb, phB, lb, b0, b1, bfr) : osc_sine(phB);
+        uint32_t off = ((uint32_t)clamp(bs, -32767, 32767) * (uint32_t)fmq) << 1;
+        uint32_t fboff = ((uint32_t)prev * (uint32_t)fbq) << 1;
+        int32_t as = va.data ? wt_read(&va, phA + off + fboff, la, a0, a1, afr) : osc_sine(phA + off + fboff);
+        dc += ((as - dc) * (int32_t)WT_DC_K) >> 15;
+        as -= dc;
+        lp += ((as - lp) * 24884) >> 15;
+        prev = clamp(lp, -32767, 32767);
+        a[i] = as;
+        b[i] = bs;
+        phA += inc;
+        phB += incb;
+    }
+}
+
+/* name, {WAVE, POS, FDBK, B>A, WAVE, POS, B-LVL, RATIO}, {A D S R}, fenv, mono
+ * (the cards say WAVE / POS; the MOD and AUTOMATION lists add the oscillator: params.c param_list_name) */
 static const preset_t WT_PRESETS[] = {
     {"WT BASS",  {0, 24, 28, 18, 0,  0, 45, 1}, {0, 60, 70, 25},   25, 1, FX(0, 0, 10, 10),  PAT(2)},
     {"FM LEAD",  {0, 48,  8, 62, 0,  0,  0, 3}, {2, 70, 95, 35},   15, 1, FX(0, 0, 35, 20),  PAT(4)},
@@ -199,12 +240,12 @@ static const engine_t ENG_WT = {
     .name = "WAVETABLE",
     .page_title = {"OSC A", "OSC B"},
     .edit = {
-        {"A-WAV", F_ENUM, 0, 4, 0, N_WT_WAV, 0},
-        {"A-POS", F_PCT, 0, 127, 0, 0, 0},
+        {"WAVE", F_ENUM, 0, 4, 0, N_WT_WAV, 0},
+        {"POS", F_PCT, 0, 127, 0, 0, 0},
         {"FDBK", F_PCT, 0, 127, 0, 0, 0},
         {"B>A", F_PCT, 0, 127, 0, 0, 0},
-        {"B-WAV", F_ENUM, 0, 4, 0, N_WT_WAV, 0},
-        {"B-POS", F_PCT, 0, 127, 0, 0, 0},
+        {"WAVE", F_ENUM, 0, 4, 0, N_WT_WAV, 0},
+        {"POS", F_PCT, 0, 127, 0, 0, 0},
         {"B-LVL", F_PCT, 0, 127, 0, 0, 0},
         {"RATIO", F_ENUM, 0, (int16_t)(WT_RATIO_N - 1u), 3, N_WT_RATIO, 0},
     },
