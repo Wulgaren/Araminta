@@ -169,6 +169,8 @@ static int smp_set_missing(uint32_t si)
 {
     if (si < SMP_NSETS)
         return !SMP_ZONES[SMP_SETS[si].z0].n;
+    if (si == SMP_CR78_INDEX)
+        return !SMP_ZONES[SMP_CR78_SET.z0].n;
     return !usr_nz[(si - SMP_NSETS) % SMP_USER_SLOTS];
 }
 
