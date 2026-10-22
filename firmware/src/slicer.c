@@ -128,8 +128,9 @@ static uint32_t sl_step_len(const track_t *pt, uint32_t base, uint32_t idx, int 
 static void sl_enter(const track_t *t, sl_t *s, int send)
 {
     uint32_t mode = (uint32_t)t->p[P_SLCR];
+    uint32_t bpm = song.g[G_BPM] >= 40 ? (uint32_t)song.g[G_BPM] : 120u;   /* (BPM 0 for a moment, #282: no divide by 0) */
     s->idx = (uint8_t)((s->idx + 1u) & 15u);
-    s->base = (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM] / SL_DEN[(uint32_t)t->p[P_SLRATE] % 6u];
+    s->base = (uint32_t)FS * 60u / bpm / SL_DEN[(uint32_t)t->p[P_SLRATE] % 6u];
     s->len = sl_step_len(t, s->base, s->idx, send);
     s->pos = 0;
     s->bit = (uint8_t)((sl_pattern(t) >> s->idx) & 1u);
