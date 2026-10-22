@@ -36,7 +36,7 @@ const FW_ROOT = process.env.FELUCCA_ROOT || join(HERE, "..");
 const html = readFileSync(join(HERE, "editor.html"), "utf8");
 const proto = html.slice(html.indexOf("/*PROTO-BEGIN*/"), html.indexOf("/*PROTO-END*/"));
 const E = vm.runInNewContext(proto + `
-;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
+;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP, crc32, WT, wtBuild, wtTableCycles, wtMedleyCycles, wtWav, wavFrameSize,
    UP, bank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, FM6, enumShown, F,
    FM4, fromDigital, fromPerc, DRUM_KIT_E,
@@ -309,6 +309,20 @@ async function editorMock() {
   const si2 = E.parse[E.CMD.SMP_INFO](await rq(E.req.smpInfo()));
   ok(rc === 0 && si2.slots[0].zones === 1 && si2.slots[0].drum && si2.slots[0].name === "KIT78",
     "editor: SMP_INFO bit 6 reports drum kit grid");
+  /* a wavetable upload shares SMP BEGIN/WRITE/END and the slot: FWT1 header, PCM, CRC, header last */
+  const wtb = E.wtBuild(E.wtTableCycles(wtWavBytes(2048, 4, (i, f) => Math.sin(2 * Math.PI * (i % 2048) / 2048 * (1 + f % 2))), 16), "WTT");
+  let rcw = E.parse[E.CMD.SMP_BEGIN](await rq(E.req.smpBegin(2), { timeout: 1000, retries: 0 })).rc;
+  for (let off = 0; off < wtb.data.length && !rcw; off += 256) {
+    rcw = E.parse[E.CMD.SMP_WRITE](await rq(E.req.smpWrite(2, E.SMP.DATA_OFF + off, wtb.data.subarray(off, off + 256)), { timeout: 1000 })).rc;
+  }
+  rcw = rcw || E.parse[E.CMD.SMP_END](await rq(E.req.smpEnd(2, wtb.hdr), { timeout: 2000, retries: 0 })).rc;
+  const si3 = E.parse[E.CMD.SMP_INFO](await rq(E.req.smpInfo()));
+  ok(rcw === 0 && si3.slots[2].wt && si3.slots[2].zones === 0 && si3.slots[2].name === "WTT" && si3.slots[2].kib === 16,
+    "editor: wavetable upload (FWT1, bit 5, name, KiB)");
+  const wr = E.parse[E.CMD.SMP_WRITE](await rq(E.req.smpWrite(2, E.SMP.DATA_OFF, Uint8Array.of(1)), { timeout: 1000 }));
+  ok(wr.rc === 4, "editor: a published wavetable refuses writes until SMP_BEGIN");
+  const fsmp = E.parse[E.CMD.SMP_END](await rq(E.req.smpEnd(2, hdr), { timeout: 2000, retries: 0 }));
+  ok(fsmp.rc === 2, "editor: a sample header cannot overwrite a wavetable without SMP_BEGIN");
   /* a device that never answers */
   const dead = new E.Link(() => {}, { timeout: 30 });
   const err = await dead.request(E.req.info(), { retries: 1 }).then(() => null, (e) => e.message);
@@ -1606,6 +1620,56 @@ function wav(sr, ch, bits, float, frames, f) {
   return Buffer.concat([Buffer.from("RIFF"), Buffer.from(Uint32Array.of(body.length).buffer), body]);
 }
 
+function wtWavBytes(fs, frames, f) {
+  const n = fs * frames, data = Buffer.alloc(n * 4);
+  for (let i = 0; i < n; i++) data.writeFloatLE(f(i, Math.floor(i / fs)), i * 4);
+  const fmt = Buffer.alloc(16);
+  fmt.writeUInt16LE(3, 0); fmt.writeUInt16LE(1, 2); fmt.writeUInt32LE(44100, 4);
+  fmt.writeUInt32LE(44100 * 4, 8); fmt.writeUInt16LE(4, 12); fmt.writeUInt16LE(32, 14);
+  const clm = Buffer.from(`<!>${fs} 01000000 wavetable (test)\0`, "latin1");
+  const chunk = (id, b) => Buffer.concat([Buffer.from(id, "latin1"), Buffer.from(Uint32Array.of(b.length).buffer), b,
+    Buffer.alloc(b.length & 1)]);
+  const body = Buffer.concat([Buffer.from("WAVE"), chunk("fmt ", fmt), chunk("clm ", clm), chunk("data", data)]);
+  return Buffer.concat([Buffer.from("RIFF"), Buffer.from(Uint32Array.of(body.length).buffer), body]);
+}
+
+/* wavetable conversion: the FWT1 layout, medley, .wav export, and the JS/Python ports agree */
+function wavetableMatch() {
+  const dir = mkdtempSync(join(tmpdir(), "felucca-wt-"));
+  const buf = wtWavBytes(2048, 32, (i, f) => {
+    const x = 2 * Math.PI * (i % 2048) / 2048;
+    return 0.8 * Math.sin(x * (1 + f % 3)) + 0.3 * Math.sin(x * 3);
+  });
+  const cycles = E.wtTableCycles(buf, 16);
+  const js = E.wtBuild(cycles, "WT TEST");
+  const dv = new DataView(js.hdr.buffer, js.hdr.byteOffset, js.hdr.byteLength);
+  ok(cycles.length === 16 && dv.getUint32(0, true) === E.WT.MAGIC && dv.getUint16(4, true) === 1 &&
+     dv.getUint16(6, true) === 16 && js.hdr[8] === 10 && js.hdr[9] === 3 && js.data.length === 65280 &&
+     dv.getUint32(20, true) === js.data.length && dv.getUint32(24, true) === E.crc32(js.data),
+    "wavetables: FWT1 header (16 frames, 1024 base, mips, CRC)");
+  let peak = 0, dc = 0;
+  const jv0 = new DataView(js.data.buffer, js.data.byteOffset);
+  for (let i = 0; i < js.data.length / 2; i++) peak = Math.max(peak, Math.abs(jv0.getInt16(i * 2, true)));
+  for (let i = 0; i < 1024; i++) dc += jv0.getInt16(i * 2, true);
+  ok(peak === E.WT.PEAK && Math.abs(dc / 1024) < 100, `wavetables: peak ${peak}, frame 0 DC ${(dc / 1024).toFixed(1)}`);
+  const med = E.wtBuild(E.wtMedleyCycles([buf, buf], 0, 16), "MEDLEY");
+  ok(med.frames === 2 && med.data.length === 8160 && med.name === "MEDLEY", "wavetables: medley = one cycle per file");
+  const out = E.wtWav(cycles);
+  ok(E.wavFrameSize(out) === 2048 && out.length === 12 + 24 + 46 + 8 + 16 * 2048 * 4,
+    "wavetables: .wav export is 16 frames x 2048, clm 2048");
+  if (existsSync(join(TOOLS, "wavetableio.py"))) {
+    writeFileSync(join(dir, "in.wav"), buf);
+    execFileSync("python3", [join(TOOLS, "wavetableio.py"), "--name", "WT TEST", "--out", join(dir, "py"), join(dir, "in.wav")]);
+    const pyHdr = readFileSync(join(dir, "py.hdr")), pyData = readFileSync(join(dir, "py.bin"));
+    let maxd = 0, sameHdr = pyHdr.length === 480 && eq(pyHdr.subarray(0, 32), js.hdr.subarray(0, 32));
+    const jv = new DataView(js.data.buffer, js.data.byteOffset), pv = new DataView(pyData.buffer, pyData.byteOffset);
+    for (let i = 0; i < Math.min(js.data.length, pyData.length) / 2; i++)
+      maxd = Math.max(maxd, Math.abs(jv.getInt16(i * 2, true) - pv.getInt16(i * 2, true)));
+    ok(sameHdr && js.data.length === pyData.length && maxd <= 2,
+      `wavetables: editor == wavetableio.py (${js.data.length} B, max sample diff ${maxd})`);
+  } else console.log("wavetables: editor == wavetableio.py (no FELUCCA_TOOLS)        skip");
+}
+
 function samplesMatch() {
   const dir = mkdtempSync(join(tmpdir(), "felucca-web-"));
   const files = [
@@ -1776,6 +1840,7 @@ await editorFm4();
 editorTabs();
 editorIcons();
 samplesMatch();
+wavetableMatch();
 await packages();
 await updater();
 console.log(failed ? `WEB TESTS FAILED (${failed})` : "web tests passed");
