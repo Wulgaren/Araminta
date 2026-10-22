@@ -72,7 +72,8 @@ static int drum_track(const track_t *t)
     if (ENGINES[e] != &ENG_SAMPLE)
         return 0;
     set = (uint32_t)t->p[P_E0];
-    return set >= SMP_NSETS && set < SMP_NALL && smp_user_drum(set - SMP_NSETS);
+    return set == SMP_CR78_INDEX ||
+           (set >= SMP_NSETS && set < SMP_CR78_INDEX && smp_user_drum(set - SMP_NSETS));
 }
 
 /* the 27 keys from F: black or white, and the key's place among the keys of its colour (white 0..15, black

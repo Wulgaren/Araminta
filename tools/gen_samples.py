@@ -13,7 +13,8 @@ Libraries:
              PIANO, FLUTE, SAX (set 1, once TRANH, and set 4, once PERC, are aliases of PIANO).
              PIANO is the 5-zone piano of 1.0 .. 1.1.5 (1.2 .. 1.4.1 built a reduced 2-zone
              one at 11,025 Hz; 1.5 went back to the full one, the same bytes as 1.1.5)
-  CR78       omitted from the ROM bank (Araminta: upload as USR). USR1..3 are indices 5..7.
+  CR78       a public-domain factory kit after USR1..3 (index 8, so the user-slot indices do not
+             move); 8 exact GM lane zones, and SEQ shows the drum grid for it.
 SAMPLE's factory presets cover every named set (aliases skipped when browsing); set 4
 (SMP_PERC_SLOT) still loads as DRUM when selected as a preset.
 A retired set keeps its index as an alias: the original's name and zones (no data), and a
@@ -56,15 +57,22 @@ TR = 22050                                   # stored sample rate
 # Built-in sets (piano, flute, sax); user slots USR1-3 follow (indices 5..7). TRANH was
 # removed (66 KB of flash); its index 1 stays, an alias of PIANO ("alias": the set named). PERC
 # (the GM kit) was removed (66 KB); its index 4 stays, an alias of PIANO too (PERC_SLOT; its
-# sounds load as the DRUM engine). CR78 ROM kit omitted (Araminta: upload as USR).
+# sounds load as the DRUM engine). CR78 is a public-domain factory kit at SET 8 (after USR1..3).
 CC0_SETS = [("PIANO", "oneshot"), ("PIANO", "alias"), ("FLUTE", "sus"), ("SAX", "sus"),
             ("PIANO", "alias")]
+# A factory kit after USR1..3: SET index SMP_NSETS + 3. Only these eight PD one-shots are used; their
+# roots are the fixed SEQ drum lanes, not the C4.. names in the files (which are a keyboard mapping).
+CR78_FILES = [("00_Kick_C4.wav", 36), ("01_Snare_C#4.wav", 38), ("07_BongoHi_G4.wav", 39),
+              ("03_HihatClosed_D#4.wav", 42), ("04_Cymbal_E4.wav", 46), ("05_Conga_F4.wav", 45),
+              ("02_Rim_D4.wav", 37), ("10_Cowbell_A#4.wav", 56)]
+EXTRA_SETS = [("CR78", "kit")]
 PERC_SLOT = 4                                # core.h SMP_SET_PERC: retired PERC alias
 
 
 NOTE = {"C": 0, "C#": 1, "D": 2, "D#": 3, "E": 4, "F": 5, "F#": 6, "G": 7, "G#": 8, "A": 9, "A#": 10, "B": 11}
 
-ENV = {"wave":(5, 80, 100, 50), "oneshot": (0, 127, 127, 70), "sus": (12, 80, 120, 60)}
+ENV = {"wave":(5, 80, 100, 50), "oneshot": (0, 127, 127, 70), "sus": (12, 80, 120, 60),
+       "kit": (0, 127, 127, 70)}
 
 # PIANO's notes cut to 0.75 s (saves flash), faded out over the last SET_FADE s.
 SET_KEEP = {"PIANO": 0.75}
@@ -123,6 +131,10 @@ def kit_root(name, index):
 def cc0_entries(setname, kind):
     """-> [(file name, int16 samples at TR, loop or None, root)]"""
     files = sorted((CC0 / setname).glob("*.wav"))
+    fixed = None
+    if setname == "CR78":                        # the factory kit: eight lane one-shots only
+        fixed = dict(CR78_FILES)
+        files = [CC0 / setname / name for name, _ in CR78_FILES]
     out = []
     if kind != "kit":
         conv = octave_conv(files)
@@ -131,13 +143,13 @@ def cc0_entries(setname, kind):
         x = x[max(0, onset(x) - 16):]
         nn = name_note(p.name)
         if kind == "kit":
-            root = kit_root(p.name, k)
+            root = fixed[p.name] if fixed else kit_root(p.name, k)
         elif nn:
             root = (nn[0] + conv) * 12 + nn[1]
         else:
             root = hz_to_midi(detect_hz(x, sr))
         x = resample(x, sr, TR)
-        keep = SET_KEEP.get(setname) or {"oneshot": 1.0, "sus": 0.95}[kind]
+        keep = SET_KEEP.get(setname) or {"oneshot": 1.0, "sus": 0.95, "kit": 1.0}[kind]
         x = x[:int(keep * TR)]
         n = len(x)
         if kind == "sus":                            # crossfaded sustain loop in the steady part
@@ -165,6 +177,7 @@ class Builder:
     def __init__(self):
         self.zones, self.sets, self.blob, self.kinds = [], [], bytearray(), {}
         self.alias = {}                         # set index -> the set index it aliases
+        self.extras = []                        # factory sets after USR1..3 (index sets+3)
 
     def add(self, s, loop_start):
         """ADPCM-encode s into the blob (each sample starts on an even offset) -> (offset, state at loop_start)
@@ -209,6 +222,28 @@ class Builder:
                                 key=int(round(root)) if kind == "kit" else None))
         self.add_set(name, kind, entries)
 
+    def extra_cc0_set(self, name, kind):
+        """a factory set after the user slots: its zones, but no entry in SMP_SETS (so USR indices stay)"""
+        entries = []
+        for k, (_, s, loop, root) in enumerate(cc0_entries(name, kind)):
+            ls, le = loop if loop else (len(s), len(s))
+            off, st = self.add(s, ls)
+            entries.append(dict(off=off, n=len(s), ls=ls, le=le, looped=bool(loop), sr=TR,
+                                root16=int(round(root * 16)), pred=st[0], idx=st[1],
+                                key=int(round(root)) if kind == "kit" else None))
+        if not entries:
+            return
+        if kind == "kit":
+            for e in entries:
+                e["lo"] = e["hi"] = e["key"]
+        else:
+            entries.sort(key=lambda e: e["root16"])
+            for e, (lo, hi) in zip(entries, key_split([e["root16"] // 16 for e in entries])):
+                e["lo"], e["hi"] = lo, hi
+        self.extras.append((name, len(self.zones), len(entries)))
+        self.zones += entries
+        self.kinds[name] = kind
+
     def header(self):
         zones, sets, blob = self.zones, self.sets, self.blob
         L = ["/* generated by tools/gen_samples.py: IMA ADPCM sample sets */", "#pragma once",
@@ -235,9 +270,11 @@ class Builder:
         L.append("};")
         L.append(f"#define SMP_NSETS {max(1, len(sets))}")
         named = sets or [("NONE", 0, 0)]
+        for name, z0, nz in self.extras:
+            L.append(f'static const smp_set_t SMP_CR78_SET = {{"{name}", {z0}, {nz}}};')
         # Factory presets: every named set. Aliases (TRANH, PERC) are skipped when browsing; selecting
-        # preset PERC_SLOT still loads as DRUM (ui.c). CR78 and later sit after that slot.
-        npre = len(named)
+        # preset PERC_SLOT still loads as DRUM (ui.c). The factory kit sits after USR1..3.
+        npre = len(named) + len(self.extras)
         L.append(f"#define SMP_NPRESETS {npre}")
         if len(named) > PERC_SLOT:
             L.append(f"#define SMP_PERC_SLOT {PERC_SLOT}   /* once PERC (the GM kit): an alias, its sounds load as DRUM */")
@@ -248,6 +285,10 @@ class Builder:
             a, d, s_, r = ENV[k]
             si = self.alias.get(i, i)                   # an alias: the original's preset (hidden by its name)
             L.append(f'    {{"{name}", {{{si}, 0, 0, 1, 127, 0, 0, 0}}, {{{a}, {d}, {s_}, {r}}}, 0, 0}},')
+        for name, _, _ in self.extras:
+            k = self.kinds.get(name, "oneshot")
+            a, d, s_, r = ENV[k]
+            L.append(f'    {{"{name}", {{{len(named) + 3}, 0, 0, 1, 127, 0, 0, 0}}, {{{a}, {d}, {s_}, {r}}}, 0, 0}},')
         L.append("};")
         orig = [self.alias.get(i, i) for i in range(len(named))]
         L.append("/* SET i plays SMP_SET_ORIG[i]: != i for a retired set kept as an alias (its preset i too) */")
@@ -296,6 +337,8 @@ def main(out):
                 b.alias_set(name)
             else:
                 b.cc0_set(name, kind)
+        for name, kind in EXTRA_SETS:
+            b.extra_cc0_set(name, kind)
     text = b.header()
     Path(out).write_text(text)
     CACHE.parent.mkdir(parents=True, exist_ok=True)
