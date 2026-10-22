@@ -56,6 +56,37 @@ typedef struct {
     uint32_t data_len, crc, rsv2[2];
     smp_zone_t zone[16];
 } smp_user_hdr_t;                                   /* 32 + 16 x 28 = 480 B, data at +512 */
+/* A slot may hold a wavetable instead (WAVETABLE USR1..USR3, eng_wt.c): a 32-byte FWT1 header and int16
+ * PCM frames at +512, frame-major, each frame the base (2^base_log2 samples) then its mip levels down to
+ * 2^mip_last_log2. sizes/validity are derived from the header, so the editor and the engine share them. */
+#define SMP_WT_MAGIC 0x31545746u                    /* "FWT1" */
+#define SMP_WT_VERSION 1u
+#define SMP_WT_FRAMES 16u                           /* the uploaders' default; the format takes any that fit */
+#define SMP_WT_BASE_LOG2 10u                        /* 1024 samples a frame */
+#define SMP_WT_MIP_LAST_LOG2 3u                     /* down to 8 samples */
+#define SMP_USR_WT 0x20u                            /* SMP_INFO's zone byte bit 5: a wavetable, not a sample */
+typedef struct {
+    uint32_t magic;
+    uint16_t version, frames;
+    uint8_t base_log2, mip_last_log2, rsv[2];
+    char name[8];
+    uint32_t data_len, crc, rsv2;
+} smp_wt_hdr_t;                                     /* 32 B, data at +512 */
+_Static_assert(sizeof(smp_wt_hdr_t) == 32u, "user wavetable header layout");
+static uint32_t smp_wt_stride(const smp_wt_hdr_t *h)
+{
+    return (1u << (h->base_log2 + 1u)) - (1u << h->mip_last_log2);
+}
+static int smp_wt_ok(const smp_wt_hdr_t *h)
+{
+    uint32_t stride;
+    if (h->magic != SMP_WT_MAGIC || h->version != SMP_WT_VERSION || !h->frames || h->frames > 64u ||
+        h->base_log2 < 4u || h->base_log2 > 12u || h->mip_last_log2 >= h->base_log2)
+        return 0;
+    stride = smp_wt_stride(h);
+    return h->data_len == (uint32_t)h->frames * stride * 2u &&
+           h->data_len <= SMP_USER_SIZE - SMP_USER_DATA;
+}
 static smp_zone_t usr_zone[SMP_USER_SLOTS][16];     /* RAM copy, off rebased onto SMP_DATA */
 static uint8_t usr_nz[SMP_USER_SLOTS];
 static uint8_t usr_drum[SMP_USER_SLOTS];             /* FSMP hdr.rsv bit 0: SEQ shows the drum grid for SAMPLE */
@@ -67,6 +98,11 @@ static int smp_user_drum(uint32_t k) { return k < SMP_USER_SLOTS && usr_drum[k];
 #define SMP_USER_XIP(k) fm1_xip_ptr(SMP_USER_BASE + (k) * SMP_USER_SIZE)
 #endif
 static const uint8_t *smp_user_xip(uint32_t k) { return SMP_USER_XIP(k); }
+/* a slot the editor must BEGIN before writing: a published sample or wavetable (its header/data are live) */
+static int smp_slot_used(uint32_t k)
+{
+    return usr_nz[k] || smp_wt_ok((const smp_wt_hdr_t *)smp_user_xip(k));
+}
 #if FELUCCA_SLICE
 static void slc_user_scan(uint32_t k, int valid);   /* eng_slice.c: SLICE's slice table of the slot */
 #else

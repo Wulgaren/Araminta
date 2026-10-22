@@ -12,7 +12,8 @@
  * modulates A, up to one cycle); OSC B = B-WAV, B-POS, B-LVL (0 = B only modulates A, never heard),
  * RATIO (B's frequency against A's). FLT moves A-POS, SHP moves B>A. There is no engine filter.
  *
- * Pass 1 has no user wavetable slot format: USR1..USR3 play the sine fallback (wt_slot_view). */
+ * USR1..USR3 are user slots in the same 80 KiB flash slots as samples (eng_sample.c smp_wt_hdr_t, FWT1):
+ * 16 frames of 1024 samples (+ mips) by default; an empty or sample slot plays the sine fallback. */
 
 #include "felucca_wt.h"          /* tools/gen_wavetables.py: WT_NFACTORY, WT_TABLES[] (core.h: ENGI_WT) */
 
@@ -37,9 +38,9 @@ static const uint32_t WT_RATIO_Q16[WT_RATIO_N] = {
 static wt_view_t wt_view[NPART][2];
 
 /* the mip level for an increment: size halves while half of it still holds a harmonic above Nyquist */
-static uint32_t wt_mip_level(uint32_t base_log2, uint32_t inc)
+static uint32_t wt_mip_level(uint32_t base_log2, uint32_t mip_last_log2, uint32_t inc)
 {
-    uint32_t size = 1u << base_log2, l = 0, maxl = base_log2 > WT_MIP_LAST_LOG2 ? base_log2 - WT_MIP_LAST_LOG2 : 0;
+    uint32_t size = 1u << base_log2, l = 0, maxl = base_log2 > mip_last_log2 ? base_log2 - mip_last_log2 : 0;
     uint32_t hmax;
     if (!inc) return 0;
     hmax = 0x80000000u / inc;                  /* highest harmonic under Nyquist */
@@ -47,16 +48,21 @@ static uint32_t wt_mip_level(uint32_t base_log2, uint32_t inc)
     return l;
 }
 
-/* TODO(pass 2): user wavetable slots USR1..USR3. There is no slot format or storage yet, so every user slot
- * resolves to no data and its oscillator plays the sine fallback. Pass 2 fills *v from the slot and returns 1. */
+/* a user slot: the FWT1 header and its PCM frames in the shared 80 KiB slot (eng_sample.c). A slot holding
+ * a sample, or no valid table, resolves to no data: the oscillator plays the sine fallback. */
 static int wt_slot_view(uint32_t k, wt_view_t *v)
 {
-    (void)k;
-    v->data = 0;
-    v->frames = 0;
-    v->base_log2 = 0;
-    v->mip_last_log2 = 0;
-    return 0;
+    const smp_wt_hdr_t *h;
+    if (k >= SMP_USER_SLOTS)
+        return 0;
+    h = (const smp_wt_hdr_t *)smp_user_xip(k);
+    if (!smp_wt_ok(h))
+        return 0;
+    v->data = (const int16_t *)((const uint8_t *)h + SMP_USER_DATA);
+    v->frames = h->frames;
+    v->base_log2 = h->base_log2;
+    v->mip_last_log2 = h->mip_last_log2;
+    return 1;
 }
 
 /* a stored WAV index -> its view: a factory table, else a user slot (null in pass 1) */
@@ -146,8 +152,8 @@ static void wt_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vm
     incb = (uint32_t)(((uint64_t)inc * WT_RATIO_Q16[r]) >> 16);
     if (incb > 0x80000000u)
         incb = 0x80000000u;
-    la = va->data ? wt_mip_level(va->base_log2, inc) : 0;
-    lb = vb->data ? wt_mip_level(vb->base_log2, incb) : 0;
+    la = va->data ? wt_mip_level(va->base_log2, va->mip_last_log2, inc) : 0;
+    lb = vb->data ? wt_mip_level(vb->base_log2, vb->mip_last_log2, incb) : 0;
     wt_frames(va, clamp(p[P_E1] + (m->cutoff >> 8), 0, 127), &a0, &a1, &afr);
     wt_frames(vb, clamp(p[P_E5], 0, 127), &b0, &b1, &bfr);
     fbq = clamp(p[P_E2], 0, 127) * 310;                /* phase feedback: up to 0.60 cycle (Q16) */
@@ -200,8 +206,8 @@ static void wt_preview(const track_t *t, int32_t *a, int32_t *b, uint32_t n)
     incb = (uint32_t)(((uint64_t)inc * WT_RATIO_Q16[r]) >> 16);
     if (incb > 0x80000000u)
         incb = 0x80000000u;
-    la = va.data ? wt_mip_level(va.base_log2, inc) : 0;
-    lb = vb.data ? wt_mip_level(vb.base_log2, incb) : 0;
+    la = va.data ? wt_mip_level(va.base_log2, va.mip_last_log2, inc) : 0;
+    lb = vb.data ? wt_mip_level(vb.base_log2, vb.mip_last_log2, incb) : 0;
     wt_frames(&va, clamp(t->p[P_E1], 0, 127), &a0, &a1, &afr);
     wt_frames(&vb, clamp(t->p[P_E5], 0, 127), &b0, &b1, &bfr);
     fbq = clamp(t->p[P_E2], 0, 127) * 310;

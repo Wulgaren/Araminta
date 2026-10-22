@@ -448,6 +448,118 @@ static int samples(void)
     return bad;
 }
 
+/* a wavetable upload shares the sample protocol and slot: FWT1 header, PCM data, CRC, header last */
+static int wavetable_slot(void)
+{
+    enum { WD = 8160 };                                 /* 2 frames x 1024 (+ mips) */
+    uint8_t a[640], hdr[480], data[WD];
+    smp_wt_hdr_t w;
+    uint32_t i, n, off, len;
+    int bad = 0, ok;
+    reset();
+    memset(host_samples, 0, sizeof host_samples);
+    for (i = 0; i < 3u; i++)
+        smp_user_scan(i);
+    memset(&w, 0, sizeof w);
+    w.magic = SMP_WT_MAGIC; w.version = SMP_WT_VERSION; w.frames = 2u;
+    w.base_log2 = SMP_WT_BASE_LOG2; w.mip_last_log2 = SMP_WT_MIP_LAST_LOG2;
+    memcpy(w.name, "WTEST", 5);
+    w.data_len = w.frames * smp_wt_stride(&w) * 2u;
+    for (i = 0; i < w.data_len; i++) data[i] = (uint8_t)(i * 13u + 7u);
+    w.crc = st_crc32(data, w.data_len);
+    a[0] = 1u;
+    bad += check("wavetable: BEGIN erases the slot", request(ED_SMP_BEGIN, a, 1) == 8u && !host_wire[6]);
+    for (off = 0; off < w.data_len; off += 256u) {
+        len = w.data_len - off > 256u ? 256u : w.data_len - off;
+        a[0] = 1u;                                                     /* slot 1: USR2 */
+        a[1] = (uint8_t)((off + 512u) & 127u);
+        a[2] = (uint8_t)(((off + 512u) >> 7) & 127u);
+        a[3] = (uint8_t)(((off + 512u) >> 14) & 127u);
+        n = pack7(data + off, len, a + 4) + 4u;
+        if (request(ED_SMP_WRITE, a, n) != 11u) break;
+        if (host_wire[9]) break;
+    }
+    bad += check("wavetable: PCM writes pass", off >= w.data_len);
+    memset(hdr, 0, sizeof hdr);
+    memcpy(hdr, &w, sizeof w);
+    a[0] = 1u;
+    n = pack7(hdr, sizeof hdr, a + 1) + 1u;
+    bad += check("wavetable: END validates the data CRC and publishes FWT1",
+                 request(ED_SMP_END, a, n) == 8u && !host_wire[6] &&
+                 smp_wt_ok((const smp_wt_hdr_t *)host_samples[1]) && !usr_nz[1]);
+    /* SMP_INFO: slot 1 is a wavetable (bit 5), named WTEST, 8 KiB; its low bits are not a zone count */
+    request(ED_SMP_INFO, 0, 0);
+    ok = host_wire[5] == 3u;
+    i = 7;
+    for (int k = 0; k < 3; k++) {
+        uint8_t z = host_wire[i++];
+        char nm[9] = {0};
+        int j;
+        for (j = 0; j < 8 && host_wire[i]; j++) nm[j] = (char)host_wire[i++];
+        i++;                                                           /* the terminating 0 */
+        if (k == 1u)
+            ok &= z == SMP_USR_WT && !strcmp(nm, "WTEST") && host_wire[i] == 8u;
+        else
+            ok &= z == 0u && host_wire[i] == 0u;
+        i++;
+    }
+    bad += check("wavetable: SMP_INFO reports bit 5, the name, 8 KiB (not sample zones)", ok);
+    bad += check("wavetable: repeated identical END does not rewrite",
+                 request(ED_SMP_END, a, n) == 8u && !host_wire[6]);
+    hdr[12] = 'X';
+    n = pack7(hdr, sizeof hdr, a + 1) + 1u;
+    bad += check("wavetable: a published table needs BEGIN before a different header",
+                 request(ED_SMP_END, a, n) == 8u && host_wire[6] == 2u && usr_nz[1] == 0);
+    {   /* a write to a published wavetable is refused like a published sample */
+        uint8_t one[8];
+        one[0] = 1u; one[1] = 0u; one[2] = 4u; one[3] = 0u;
+        n = pack7((const uint8_t *)"Z", 1, one + 4) + 4u;
+        bad += check("wavetable: SMP_WRITE refuses a published slot (rc 4)",
+                     request(ED_SMP_WRITE, one, n) == 11u && host_wire[9] == 4u);
+    }
+    {   /* an FSMP header cannot replace a wavetable without BEGIN */
+        smp_user_hdr_t h;
+        memset(&h, 0, sizeof h);
+        h.magic = SMP_USER_MAGIC; h.version = 1; h.nz = 1;
+        memset(hdr, 0, sizeof hdr);
+        memcpy(hdr, &h, sizeof h);
+        a[0] = 1u;
+        n = pack7(hdr, sizeof hdr, a + 1) + 1u;
+        bad += check("wavetable: a sample header cannot overwrite it without BEGIN",
+                     request(ED_SMP_END, a, n) == 8u && host_wire[6] == 2u);
+    }
+    {   /* the geometry the format allows: 40 x 512 also fits one slot */
+        smp_wt_hdr_t t;
+        memset(&t, 0, sizeof t);
+        t.magic = SMP_WT_MAGIC; t.version = SMP_WT_VERSION; t.frames = 40u;
+        t.base_log2 = 9u; t.mip_last_log2 = 3u;
+        t.data_len = t.frames * smp_wt_stride(&t) * 2u;
+        bad += check("wavetable: a 40 x 512 header fits (81,280 B); a bad length or frame count does not",
+                     smp_wt_ok(&t) && (t.data_len++, !smp_wt_ok(&t)) && (t.data_len--, t.frames = 65, !smp_wt_ok(&t)));
+    }
+    {   /* wrong CRC: BEGIN + data, then END refuses and nothing is published */
+        w.data_len = 2u * smp_wt_stride(&w) * 2u;
+        a[0] = 1u;
+        request(ED_SMP_BEGIN, a, 1);
+        for (off = 0; off < w.data_len; off += 256u) {
+            len = w.data_len - off > 256u ? 256u : w.data_len - off;
+            a[0] = 1u; a[1] = (uint8_t)((off + 512u) & 127u);
+            a[2] = (uint8_t)(((off + 512u) >> 7) & 127u); a[3] = (uint8_t)(((off + 512u) >> 14) & 127u);
+            n = pack7(data + off, len, a + 4) + 4u;
+            request(ED_SMP_WRITE, a, n);
+        }
+        memset(hdr, 0, sizeof hdr);
+        memcpy(hdr, &w, sizeof w);
+        hdr[24] ^= 1u;                                                 /* crc */
+        a[0] = 1u;
+        n = pack7(hdr, sizeof hdr, a + 1) + 1u;
+        bad += check("wavetable: a bad data CRC leaves the slot empty",
+                     request(ED_SMP_END, a, n) == 8u && host_wire[6] == 3u &&
+                     !smp_wt_ok((const smp_wt_hdr_t *)host_samples[1]));
+    }
+    return bad;
+}
+
 static int song_protocol(void)
 {
     uint8_t a[] = {1, 1, 0, 2};
@@ -1202,7 +1314,7 @@ static int learn_protocol(void)
 #ifndef EDITOR_TEST_NO_MAIN                              /* (robust_test.c, fuzz_*.c: this file is their base) */
 int main(void)
 {
-    int bad = preferences() + motion_locks() + matrix_edits_preserve_fx_locks() + framing() + uart_recovery() + steps() + samples() + song_protocol() + malformed_saves() +
+    int bad = preferences() + motion_locks() + matrix_edits_preserve_fx_locks() + framing() + uart_recovery() + steps() + samples() + wavetable_slot() + song_protocol() + malformed_saves() +
               fm6_patches() + user_preset_roundtrip() + live_sync() + usb_burst() + menu_protocol() + drum_kit_retired() +
               learn_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
