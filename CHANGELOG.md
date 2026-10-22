@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### LFO
+
+- **S&H SMOOTH.** LFO > LFO 2's fourth knob (`SMTH`, 0..100 %) rounds the WAVE S&H steps into a smooth,
+  sine-like random curve. It shows only while WAVE is S&H; 0 is the hard steps, bit for bit. The matrix's
+  S&H / SLEW sources are unchanged. It uses the long-inert PRIO parameter's id, so projects stay FUN16.
+
 ## 3.1
 
 A public-domain CR-78 drum kit joins SAMPLE, and the web editor's Samples tab becomes one card per USR

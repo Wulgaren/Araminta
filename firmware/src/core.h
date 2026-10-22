@@ -67,7 +67,8 @@ enum {                          /* per-track parameters */
     P_DIST, P_CHOR, P_DLY, P_REV,              /* P_DIST: DIST drive. P_CHOR: EFFECTS DLY/REV/SLCR list slots
                                                 * (fx.c; was bus CHO send). P_DLY/P_REV: send or chain mix */
     P_VOICE, P_GLIDE, P_PAN, P_MUTE,
-    P_GLMODE, P_PRIO, P_ALLOC, P_DETUNE,
+    P_GLMODE, P_LSMOOTH, P_ALLOC, P_DETUNE,    /* P_LSMOOTH was P_PRIO, stored but never read or shown: the
+                                                * LFO WAVE S&H's smoothing (voice.c track_lfo_end) */
     P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH,      /* SLICER (slicer.c): MODE PAT RATE; P_SLDEPTH is MIX */
     P_M1SRC, P_M1DST, P_M1AMT,                 /* modulation matrix (mod.c): 4 slots of SRC, DST, AMT; */
     P_M2SRC, P_M2DST, P_M2AMT,                 /* new common parameters go just before P_E0 (user presets */
@@ -505,6 +506,7 @@ typedef struct track {
     int32_t lfo_fade;            /* Q15 ramp after note-on */
     uint32_t lfo_rnd;
     int16_t lfo_prev;            /* the S&H value of the cycle before (mod.c SLEW glides from it to lfo_rnd's) */
+    int16_t lfo_sm;              /* WAVE S&H with SMOOTH on: the smoothed value (voice.c track_lfo_end) */
     /* keyboard / arp input: held notes in press order */
     uint8_t held[16];
     uint8_t nheld;
