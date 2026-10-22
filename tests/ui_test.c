@@ -2403,7 +2403,7 @@ static void chain_screens(const char *dir)
     chain_prepare(); events_block(32);
     screen_save(dir, "song-playing");
     seq_stop();
-    /* WAVETABLE's EDIT graph: one current-output trace, on both oscillator pages */
+    /* WAVETABLE's EDIT graph: A's output on page 1, B's wave on page 2 (A while RATIO is hot) */
     ui_power_on();
     set_engine_of(TSEL, (uint32_t)ENGI_WT);
     go_title("EDIT 1");
