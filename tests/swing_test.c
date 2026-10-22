@@ -148,7 +148,22 @@ static int test_slicer(void)
     return bad;
 }
 
-/* -------------------------------------------------------- 4. display --- */
+/* ---------------------------------------------------------- 4. tempo --- */
+/* BPM can read 0 for a moment while the song / a project loads its globals (#282): the tempo maths must
+ * not divide by it. Below 40 (GP[G_BPM].min) it reads as 120, the default. */
+static int test_bpm_zero(void)
+{
+    uint32_t quarter = (uint32_t)FS * 60u / 120u;
+    volatile int zero = 0;                            /* opaque: -O2 must not fold the divide by 0 away */
+    int ok;
+    song.g[G_CLOCK] = 0;                              /* the internal clock, not a measured external tempo */
+    song.g[G_BPM] = (int16_t)zero;
+    ok = beat_samples() == quarter && div_samples(0) == quarter;
+    song.g[G_BPM] = 120;
+    return check("BPM 0 (a moment while globals load) reads as 120: no divide by zero (#282)", ok);
+}
+
+/* -------------------------------------------------------- 5. display --- */
 static const char *shown(const param_desc_t *d, int32_t v)
 {
     static char val[12];
@@ -172,7 +187,7 @@ static int test_display(void)
 
 int main(void)
 {
-    int bad = test_sum() + test_seq() + test_slicer() + test_display();
+    int bad = test_sum() + test_seq() + test_slicer() + test_bpm_zero() + test_display();
     printf("swing: %s\n", bad ? "FAILED" : "all ok");
     return bad ? 1 : 0;
 }
