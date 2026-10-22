@@ -493,6 +493,22 @@ EXPORT void web_test_heavy(void)
     ui.force = 1;
 }
 
+/* the CR78 factory kit on track 1 as a SEQ drum grid: the kick lane on step 0 (for emu_test) */
+EXPORT void web_test_cr78(void)
+{
+    track_t *t = &trk[0];
+    host_preset(t, ENGI_SAMPLE, 5);
+    t->p[P_VOICE] = V_POLY;
+    t->p[P_SLEN] = 16;
+    t->p[P_SDIV] = 2;
+    t->step[0].hit = 1;                         /* lane 0: kick, note 36 */
+    t->step[0].time = ST_NOTE;
+    t->step[0].vel = 100;
+    t->step[0].n = 0;
+    seq_start();
+    ui.force = 1;
+}
+
 EXPORT uint32_t web_test_user_preset(uint32_t i) { return (uint32_t)up_used(i); }
 
 EXPORT uint16_t *web_screen(void) { return web_fb; }
