@@ -79,6 +79,10 @@ static void ev_name(const track_t *t, uint32_t id, char *b)
         str_cpy(b, NAME[id - MFX_TIME], 12);
         return;
     }
+    if (id >= P_E0 && id <= P_E7) {                  /* the engine's own labels; WAVETABLE names its oscillator */
+        str_cpy(b, param_list_name(t, id, 1), 12);
+        return;
+    }
     const char *pre = id == P_ED_FX ? "DIST " : id >= P_ATK && id <= P_ED_SHP ? "ENV " :
                       id >= P_LRATE && id <= P_LD_AMP ? "LFO " : id >= P_SLPAT && id <= P_SLDEPTH ? "SL " : "";
     if (ev_sid(id)) {
@@ -555,6 +559,10 @@ static void pk_auto_name(const track_t *t, uint32_t id, char *b)
         str_cpy(b, id == EV_CHANCE ? "CHANCE" : id == EV_RATCH ? "RATCH" : id == EV_VEL ? "VELOCITY" : "NUDGE", 16);
         return;
     }
+    if (id >= P_E0 && id <= P_E7) {
+        str_cpy(b, param_list_name(t, id, 1), 16);
+        return;
+    }
     if (id == P_LEVEL)
         str_cpy(b, "LEVEL", 16);
     else if (id == P_GLIDE)
@@ -710,7 +718,7 @@ static void pk_mdst_name(const track_t *t, uint32_t d, char *b)
         "MIX", "CHORD", "VOICING"};
     d = (uint32_t)clamp((int32_t)d, 0, MD_N - 1);
     if (MD_ENGINE(d)) {
-        const char *l = track_desc(t, P_E0 + d - MD_E1)->label;
+        const char *l = param_list_name(t, P_E0 + d - MD_E1, 1);
         if (l && l[0] && l[0] != '-') {
             str_cpy(b, l, 16);
             return;

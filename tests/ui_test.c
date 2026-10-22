@@ -1683,6 +1683,17 @@ static int test_categories(void)
     bad += check("NAME: PROJECT's KNOB 3 types a random name (adjective + noun, at most 12), another one each detent",
                  ok && !k && !str_eq(s1, nm.s) && nm.len <= 12u && strchr(nm.s, ' '));
     name_close();
+    {   /* the WAVETABLE names in the lists: the cards are short, the lists name the oscillator */
+        char wtn[16];
+        set_engine_of(TSEL, (uint32_t)ENGI_WT);
+        pk_mdst_name(TSEL, MD_E1 + 1u, wtn);
+        ok = str_eq(wtn, "POSITION A");
+        pk_mdst_name(TSEL, MD_E1 + 6u, wtn);
+        ok &= str_eq(wtn, "B LEVEL");
+        ev_name(TSEL, P_E4, wtn);
+        ok &= str_eq(wtn, "WAVE B");
+        bad += check("WAVETABLE names: MOD picker POSITION A / B LEVEL, AUTOMATION WAVE B", ok);
+    }
     memset(up_bank, 0, sizeof up_bank);
     memset(&favorites, 0, sizeof favorites);
     return bad;
@@ -2366,7 +2377,7 @@ static void screen_save(const char *dir, const char *name)
     snprintf(path, sizeof path, "%s/%s.ppm", dir, name);
     f = fopen(path, "wb");
     if (!f) return;
-    ui.msg_t = 0; ui.hot_t = 0; ui.force = 1;
+    ui.msg_t = 0; ui.force = 1;
     ui_draw();
     fprintf(f, "P6\n240 240\n255\n");
     for (i = 0; i < 240u * 240u; i++) {
@@ -2392,6 +2403,22 @@ static void chain_screens(const char *dir)
     chain_prepare(); events_block(32);
     screen_save(dir, "song-playing");
     seq_stop();
+    /* WAVETABLE's EDIT graph: A's output on page 1, B's wave on page 2 (A while RATIO is hot) */
+    ui_power_on();
+    set_engine_of(TSEL, (uint32_t)ENGI_WT);
+    go_title("EDIT 1");
+    ui.force = 1;
+    frame();
+    screen_save(dir, "wt-edit-a");
+    go_title("EDIT 2");
+    ui.force = 1;
+    frame();
+    screen_save(dir, "wt-edit-b");
+    ui.hot_t = 40;
+    ui.hot_col = 3;
+    ui.force = 1;
+    frame();
+    screen_save(dir, "wt-edit-b-ratio");
 }
 
 static int test_chain(void)
@@ -4716,7 +4743,7 @@ static int test_fm4_retired(void)
         if (e < NENGINES)
             seen |= 1u << e;
     }
-    bad += check("PRESETS: the list holds every engine's presets but DIGITAL's", seen == all && NENG_SHOWN == 12u + FELUCCA_FM4);
+    bad += check("PRESETS: the list holds every engine's presets but DIGITAL's", seen == all && NENG_SHOWN == 13u + FELUCCA_FM4);
     go_page(GR_BROWSE);
     set_engine_of(TSEL, 0);
     for (i = 0, seen = 0; i < NENG_SHOWN; i++) {
@@ -4725,10 +4752,10 @@ static int test_fm4_retired(void)
     }
     bad += check("PRESETS KNOB 2: the engines in order, DIGITAL skipped, back to the first",
                  seen == all && TSEL->eng_req == 0u && eng_step(0, 1) == ENGI_FM6 && eng_step(ENGI_FM6, 1) == 2u &&
-                 eng_step(ENGI_FM6, -1) == 0u && eng_step(0, -1) == ENGI_DRUM);
+                 eng_step(ENGI_FM6, -1) == 0u && eng_step(0, -1) == ENGI_WT && eng_step(ENGI_WT, 1) == 0u);
     {   /* the display order (engines.c ENGINE_ORDER): every engine one can pick once; the PRESETS list follows it */
         static const char *const ORDER[] = {"ANALOG", "FM6", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN",
-                                            "PHYS", "NOISE", "DRUM"};
+                                            "PHYS", "NOISE", "DRUM", "WAVETABLE"};
         uint32_t last = 0xFFu, r = 0, n = 0;
         ok = NENG_SHOWN == NELEM(ORDER);
         for (i = 0; ok && i < NENG_SHOWN; i++)
@@ -9101,6 +9128,34 @@ static int test_fx_sections(void)
     return bad;
 }
 
+static int test_wt_graph(void)
+{
+    int bad = 0;
+    uint32_t i, p1 = NPAGES, p2 = NPAGES;
+    uint32_t s0, s1, s2, sh;
+    ui_power_on();
+    set_engine_of(TSEL, (uint32_t)ENGI_WT);
+    for (i = 0; i < NPAGES; i++) {
+        if (str_eq(PAGES[i].title, "EDIT 1")) p1 = i;
+        if (str_eq(PAGES[i].title, "EDIT 2")) p2 = i;
+    }
+    if (p1 < NPAGES) { ui.home = 0; ui.page = (uint8_t)p1; page_entered(); frame(); }
+    s0 = graph_signature();
+    TSEL->p[P_E1] = 64u;
+    if (p1 < NPAGES) { ui.force = 1; frame(); }
+    s1 = graph_signature();
+    if (p2 < NPAGES) { ui.home = 0; ui.page = (uint8_t)p2; page_entered(); frame(); }
+    TSEL->p[P_E7] = 5u;
+    if (p2 < NPAGES) { ui.force = 1; frame(); }
+    s2 = graph_signature();
+    ui.hot_t = 40; ui.hot_col = 3;                     /* RATIO, EDIT 2's KNOB 4: the graph highlights A */
+    if (p2 < NPAGES) { ui.force = 1; frame(); }
+    sh = graph_signature();
+    bad += check("WAVETABLE graph: EDIT 1/2 draw and redraw on POS / RATIO / the hot knob",
+                 p1 < NPAGES && p2 < NPAGES && s0 != s1 && s1 != s2 && s2 != sh);
+    return bad;
+}
+
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -9200,6 +9255,7 @@ int main(void)
     bad += test_no_flash();
     bad += test_live_graph_rate();
     bad += test_strip_cache();
+    bad += test_wt_graph();
 #if FELUCCA_FM4
     bad += test_fm_charts();                        /* (DIGITAL's charts: built with FELUCCA_FM4=1 only) */
 #else

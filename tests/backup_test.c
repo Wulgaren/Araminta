@@ -181,6 +181,26 @@ int main(void)
     bad += check("LIST captures the runtime: 13 objects (id 8 empty, id 9 the FM6 patches), runtime 3840 B (FUN10)",
                  list(0, &len, &crc) == 0 && rep[2] == 13u && len == sizeof(project_store_t) && len == 3840u &&
                  crc == st_crc32(ED_BK_RAW, len));
+    {   /* a wavetable slot (id 34, USR3) is backed up as its 512-byte header + PCM data */
+        smp_wt_hdr_t *w = (smp_wt_hdr_t *)host_samples[2];
+        int ok;
+        memset(host_samples, 0, sizeof host_samples);
+        memset(w, 0, sizeof *w);
+        w->magic = SMP_WT_MAGIC; w->version = SMP_WT_VERSION; w->frames = 2u;
+        w->base_log2 = SMP_WT_BASE_LOG2; w->mip_last_log2 = SMP_WT_MIP_LAST_LOG2;
+        memcpy(w->name, "BACK", 4);
+        w->data_len = w->frames * smp_wt_stride(w) * 2u;
+        memset((uint8_t *)w + SMP_USER_DATA, 0x5A, w->data_len);
+        w->crc = st_crc32((const uint8_t *)w + SMP_USER_DATA, w->data_len);
+        len = crc = 0;
+        list(34u, &len, &crc);
+        ok = len == SMP_USER_DATA + w->data_len && crc == st_crc32(host_samples[2], len);
+        w->magic = 0;
+        len = crc = 0;
+        list(34u, &len, &crc);
+        ok &= len == 0 && crc == 0;
+        bad += check("LIST includes a wavetable slot as raw header+data with its CRC", ok);
+    }
     bad += check("an empty project slot lists as length 0", list(2, &len, &crc) == 0 && len == 0);
     bad += check("GET of the runtime copy", get(0, 0, 64) == 0);
     project_save(0);

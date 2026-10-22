@@ -99,24 +99,47 @@ static int ed_smp_erase(uint32_t k, uint32_t all)  /* header sector, or the whol
 static int ed_flash_stop(void);
 static int ed_smp_end(uint32_t k, const uint8_t *a, uint32_t na)
 {
-    const smp_user_hdr_t *h = (const smp_user_hdr_t *)ed_smp_buf;
+    const uint8_t *cur = smp_user_xip(k);
+    const smp_wt_hdr_t *w = (const smp_wt_hdr_t *)ed_smp_buf;
     if (ed_unpack7(a, na, ed_smp_buf, sizeof(smp_user_hdr_t)) != sizeof(smp_user_hdr_t))
         return 1;
-    if (h->magic != SMP_USER_MAGIC || h->version != 1 || !h->nz || h->nz > 16u ||
-        h->data_len > SMP_USER_SIZE - SMP_USER_DATA)
-        return 2;
-    if (usr_nz[k])                                     /* published zones may still be read by live voices */
-        return memcmp(h, smp_user_xip(k), sizeof *h) ? 2 : 0;
-    if (ed_flash_stop())                               /* (only a header that will be written stops the transport) */
-        return 1;
-    ed_smp_inval(k);
-    if (st_crc32(smp_user_xip(k) + SMP_USER_DATA, h->data_len) != h->crc)
-        return 3;
-    if (fl_write(ed_smp_slot(k), ed_smp_buf, sizeof(smp_user_hdr_t)))
-        return 4;
-    ed_smp_inval(k);
-    smp_user_scan(k);
-    return usr_nz[k] ? 0 : 5;
+    if (w->magic == SMP_WT_MAGIC) {                    /* a wavetable in the same slot (WAVETABLE USR1..3) */
+        if (!smp_wt_ok(w))
+            return 2;
+        if (smp_wt_ok((const smp_wt_hdr_t *)cur))      /* a published table keeps its header until BEGIN */
+            return memcmp(w, cur, sizeof *w) ? 2 : 0;
+        if (usr_nz[k])
+            return 2;                                  /* a sample is published: BEGIN first */
+        if (ed_flash_stop())
+            return 1;
+        ed_smp_inval(k);
+        if (st_crc32(cur + SMP_USER_DATA, w->data_len) != w->crc)
+            return 3;
+        if (fl_write(ed_smp_slot(k), ed_smp_buf, sizeof(smp_user_hdr_t)))
+            return 4;
+        ed_smp_inval(k);
+        smp_user_scan(k);                              /* (clears any stale sample zones in this slot) */
+        return smp_wt_ok((const smp_wt_hdr_t *)smp_user_xip(k)) ? 0 : 5;
+    } else {
+        const smp_user_hdr_t *h = (const smp_user_hdr_t *)ed_smp_buf;
+        if (h->magic != SMP_USER_MAGIC || h->version != 1 || !h->nz || h->nz > 16u ||
+            h->data_len > SMP_USER_SIZE - SMP_USER_DATA)
+            return 2;
+        if (usr_nz[k])                                 /* published zones may still be read by live voices */
+            return memcmp(h, cur, sizeof *h) ? 2 : 0;
+        if (smp_wt_ok((const smp_wt_hdr_t *)cur))
+            return 2;                                  /* a wavetable is published: BEGIN first */
+        if (ed_flash_stop())                           /* (only a header that will be written stops the transport) */
+            return 1;
+        ed_smp_inval(k);
+        if (st_crc32(cur + SMP_USER_DATA, h->data_len) != h->crc)
+            return 3;
+        if (fl_write(ed_smp_slot(k), ed_smp_buf, sizeof(smp_user_hdr_t)))
+            return 4;
+        ed_smp_inval(k);
+        smp_user_scan(k);
+        return usr_nz[k] ? 0 : 5;
+    }
 }
 
 /* the engine byte of DUMP / RELOAD / TRACK */
@@ -608,7 +631,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         len = ed_unpack7(a + 4, na - 4u, ed_smp_buf, 256u);
         if (off < SMP_USER_DATA || (off & 0xFFu) || !len || off + len > SMP_USER_SIZE)
             rc = 1;
-        else if (usr_nz[a[0]])
+        else if (smp_slot_used(a[0]))
             rc = 4;                                        /* slot in use: SMP_BEGIN first (voices read it) */
         else if (ed_flash_stop())
             rc = 1;
@@ -638,13 +661,23 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(SMP_USER_SIZE / 1024u);
         for (i = 0; i < SMP_USER_SLOTS; i++) {
             const smp_user_hdr_t *h = (const smp_user_hdr_t *)smp_user_xip(i);
+            const smp_wt_hdr_t *w = (const smp_wt_hdr_t *)h;
             char nm[9] = {0};
-            uint32_t j;
-            ed_b(usr_nz[i] | (usr_drum[i] ? 0x40u : 0u));   /* bit 6: drum kit grid (FSMP rsv; 7-bit SysEx) */
-            for (j = 0; usr_nz[i] && j < 8u; j++)
-                nm[j] = h->name[j] >= 32 && h->name[j] < 127 ? h->name[j] : 0;
+            uint32_t j, n = 0, len = 0;
+            if (smp_wt_ok(w)) {                             /* bit 5: a wavetable (low bits 0, not a sample) */
+                n = SMP_USR_WT;
+                len = w->data_len;
+                for (j = 0; j < 8u; j++)
+                    nm[j] = w->name[j] >= 32 && w->name[j] < 127 ? w->name[j] : 0;
+            } else if (usr_nz[i]) {
+                n = usr_nz[i] | (usr_drum[i] ? 0x40u : 0u); /* bit 6: drum kit grid (FSMP rsv; 7-bit SysEx) */
+                len = h->data_len;
+                for (j = 0; j < 8u; j++)
+                    nm[j] = h->name[j] >= 32 && h->name[j] < 127 ? h->name[j] : 0;
+            }
+            ed_b(n);
             ed_str(nm, 8);
-            ed_b(usr_nz[i] ? (h->data_len + 1023u) / 1024u : 0u);
+            ed_b(len ? (len + 1023u) / 1024u : 0u);
         }
         break;
     case ED_UP_LIST: {                                     /* start, count -> start, count, total, per slot: used, engine, name;

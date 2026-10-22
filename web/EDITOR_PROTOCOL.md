@@ -90,7 +90,7 @@ watches (v2, `WATCH`), the device also sends push frames (cmds 23, 24, 26) at an
 | string | ASCII bytes, ended by a 0 byte |
 | scope | 0 = parameter of the selected track (`P_*`, 0..P_COUNT−1); 1 = global parameter (`G_*`, 0..G_COUNT−1) |
 | track | 0..3: tracks 1..4 (synth parts) |
-| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 SAMPLE, 5 VOICE, 6 TRIO, 7 WHEEL, 8 GRAIN, 9 PHYS, 10 DRUM, 11 NOISE, 12 FM6, 13 reserved (SLICE retired). NENGINES is 14. The device and the editor list pickable engines in another order (ANALOG FM6 PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM: `ENGINE_ORDER`); the numbers stay |
+| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 SAMPLE, 5 VOICE, 6 TRIO, 7 WHEEL, 8 GRAIN, 9 PHYS, 10 DRUM, 11 NOISE, 12 FM6, 13 reserved (SLICE retired), 14 WAVETABLE. NENGINES is 15. The device and the editor list pickable engines in another order (ANALOG FM6 PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM WAVETABLE: `ENGINE_ORDER`); the numbers stay |
 
 The engine parameters are `P_E0..P_E7`: P_COUNT−8 .. P_COUNT−1 (103..110 since 1.5; 96..103 in 1.2 .. 1.4; 91..98 in
 1.1), and `INFO` gives `P_E0`.
@@ -126,6 +126,14 @@ them "-", `NAMES` lists no presets, and no track keeps them. A project or user p
 loads as ANALOG (SAMPLE / GRAIN / NOISE; SAMPLE SET 4 PERC still becomes DRUM's kit) or DRUM (SLICE), with EDIT
 motion dropped (`firmware/src/eng_retire.c`, `project.c` `proj_retire`). `UP_PUT` still takes the old engine byte;
 every load converts. The editor remaps the same way (`fromRetire`).
+
+**WAVETABLE (engine 14, pages OSC A / OSC B)** is two wavetable oscillators. Its eight engine
+parameters are `E1` WAVE (OSC A table; enum BASIC, SPECTRAL, USR1, USR2, USR3; default BASIC), `E2` POS (OSC A frame;
+0..127, default 0), `E3` FDBK (0..127, 0), `E4` B>A (0..127, 0), `E5` WAVE (OSC B table; the same enum,
+default BASIC), `E6` POS (OSC B frame; 0..127, 0), `E7` LEVEL (OSC B level in the mix; 0..127, 0) and `E8` RATIO (enum 0.25, 0.5, 0.75, 1, 1.5, 2, 2.5,
+3, 4, 5, 6, 8, 12, 16; default 1). BASIC and SPECTRAL are factory tables (16 frames × 512 samples);
+USR1..USR3 are user slots that share the sample slots: each holds one complete table, by default 16 frames
+× 1024 samples with a mip chain (the uploader may use any layout that fits, see "User wavetable slot").
 
 The four FM operator envelopes (the DIGITAL engine's OP1..OP4 ENV and OP LEVEL pages, `eng_digital.c`) are
 twenty track parameters at ids 61..80, five per operator: operator k (1..4) has `ATK`, `DEC`, `SUS`, `REL`,
@@ -200,9 +208,9 @@ at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device 
 | 10 NAMES | engine | engine, count, count preset-name strings, then the two edit-page titles |
 | 11 SMP_BEGIN | slot 0..2 | slot, rc (0 ok). Erases the slot's header sector: the slot is empty from now on |
 | 12 SMP_WRITE | slot, offset (3 × 7 bit, LSB first), pack7 data (≤ 256 bytes) | slot, offset, rc: 0 ok, 1 arguments, 2 erase, 3 write, 4 slot in use (send SMP_BEGIN first). Offset ≥ 512 and a multiple of 256; writes go in increasing order (a write at a 4 KiB boundary erases that sector) |
-| 13 SMP_END | slot, pack7 header (480 bytes) | slot, rc: 0 ok, 1 size, 2 header, 3 data CRC, 4 flash, 5 zones |
+| 13 SMP_END | slot, pack7 header (480 bytes) | slot, rc: 0 ok, 1 size, 2 header, 3 data CRC, 4 flash, 5 zones (FSMP); the header is FSMP (a sample) or FWT1 (a wavetable) |
 | 14 SMP_ERASE | slot | slot, rc (erases the whole slot, ~1 s) |
-| 15 SMP_INFO | — | slots, slot KiB, then per slot: zone byte (low bits = zone count 0 = empty, max 16; bit 6 = drum kit grid from FSMP `hdr.rsv`; 7-bit SysEx), name string, data KiB |
+| 15 SMP_INFO | — | slots, slot KiB, then per slot: type byte (low bits = zone count 0 = empty, max 16; bit 5 = a wavetable, then the low bits are 0; bit 6 = drum kit grid from FSMP `hdr.rsv`; 7-bit SysEx), name string, data KiB |
 | 16 UP_LIST | start, count (1..16) | start, count, total slots, then per slot: used (0/1), engine, name string ("" if unused); 1.2: then one category byte per slot listed (below; 0 if unused) |
 | 17 UP_GET | slot | slot, used, engine, name, P_COUNT × v14, 16 × (note, flags), then (v5) kind (0 a note pattern, 1 a drum grid) and for kind 1 16 × hi; 1.2: then the category |
 | 18 UP_PUT | slot, engine, name, P_COUNT × v14, 16 × (note, flags) [, kind 0 or 1, 16 × hi (v5) [, category (1.2)]] | slot, rc (0 ok, 1 args, 2 flash). Writes flash: allow 1 s |
@@ -259,6 +267,29 @@ All little endian.
 The slot's last 4 KiB sector (offset 0x13000) holds SLICE's slices set by hand on the device (`src/slice_store.c`:
 magic `"SLM1"`, the sample's length and data CRC, the slice starts) when the data leaves it free (at most 77,312
 bytes). An upload writes over it like any other data; a record that is not the slot's sample's is ignored.
+
+**User wavetable slot** (the same 3 slots; WAVETABLE engine WAVE = USR1..USR3; reference uploader
+`tools/fm1_wavetable_upload.py`, converter `wavetableio.py`; the editor's port is checked against it by
+`web/test_web.mjs`). A slot holds one table: a 32-byte header at 0 and int16 PCM at 512, little endian.
+One Serum `.wav` already contains all frames (2048 samples each, named by its `clm` chunk); the uploader
+keeps 16 of them, resamples each cycle to 1024 and adds the mip chain. A folder can instead contribute one
+cycle per file (a medley, up to 16).
+
+| Offset | Field |
+| --- | --- |
+| 0 | magic `"FWT1"` (u32 0x31545746), u16 version 1, u16 frame count 1..64 |
+| 8 | u8 base_log2 (4..12; 10 = 1024-sample base), u8 mip_last_log2 (< base; 3 = down to 8 samples), 2 bytes 0 |
+| 12 | name, 8 ASCII bytes (0-padded) |
+| 20 | u32 data length, u32 CRC-32 (zlib) of the data, 4 bytes 0 |
+
+The data is frame-major: each frame is the base level (`2^base_log2` samples), then its mip levels down to
+`2^mip_last_log2`, exactly the layout `eng_wt.c wt_read` reads. The data length must equal
+`frames × ((2^(base_log2+1)) − 2^mip_last_log2) × 2` and fit 0x13E00 bytes. The default 16 × 1024 table is
+65,280 bytes; 40 × 512 (81,280 bytes) also fits. The device computes the band-limited levels at conversion
+time; uploads are PCM, not ADPCM. SMP_BEGIN / WRITE / END / ERASE are the same; END validates the header and
+the data CRC and writes the header last. A published wavetable blocks WRITE (rc 4) and a different header
+(rc 2) until SMP_BEGIN, exactly like a published sample; SMP_INFO reports bit 5. Backup ids 32..34 carry
+either a FSMP or an FWT1 slot (512-byte header + data) and are restored with the same SMP commands.
 
 `fmt` values (`firmware/src/core.h`):
 

@@ -36,7 +36,7 @@ const FW_ROOT = process.env.FELUCCA_ROOT || join(HERE, "..");
 const html = readFileSync(join(HERE, "editor.html"), "utf8");
 const proto = html.slice(html.indexOf("/*PROTO-BEGIN*/"), html.indexOf("/*PROTO-END*/"));
 const E = vm.runInNewContext(proto + `
-;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
+;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP, crc32, WT, wtBuild, wtTableCycles, wtMedleyCycles, wtWav, wavFrameSize,
    UP, bank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, FM6, enumShown, F,
    FM4, fromDigital, fromPerc, DRUM_KIT_E,
@@ -54,7 +54,7 @@ async function editorMock() {
   inp.onmidimessage = (e) => link.receive(e.data);
   const rq = async (r, o) => link.request(r, o);
   const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
-  ok(info.nengines === 14 && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "-"
+  ok(info.nengines === 15 && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "-" && info.engines[14] === "WAVETABLE"
  && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "GRAIN" && info.engines[9] === "PHYS" && info.engines[10] === "DRUM" && info.engines[11] === "NOISE" && info.pcount === 127 && info.pe0 === 119 && info.engines[4] === "SAMPLE",
     "editor: INFO");
   let descs = 0;
@@ -160,17 +160,17 @@ async function editorMock() {
   await rq(E.req.upErase(31));
   prefs = await E.readDevicePreferences(rq, info, names, prefs);
   ok(!prefs.favorites[info.nengines][31] && !E.devicePresetRows(info, names, prefs).some((r) => r.user), "editor: erased slot disappears and loses star");
-  {   /* the lists in the device's order (engines.c ENGINE_ORDER): FM6 second, DRUM last, "-" never; the numbers stay */
+  {   /* the lists in the device's order (engines.c ENGINE_ORDER): FM6 second, WAVETABLE last, "-" never; the numbers stay */
     const shown = E.engineOrder(info.engines).map((i) => info.engines[i]);
-    ok(shown.join() === "ANALOG,FM6,PHASE,LOFI,SAMPLE,VOICE,TRIO,WHEEL,GRAIN,PHYS,NOISE,DRUM" &&
-       E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines).at(-1) === 10,
-       "editor: engines listed FM6 second, DRUM last (indices kept)");
+    ok(shown.join() === "ANALOG,FM6,PHASE,LOFI,SAMPLE,VOICE,TRIO,WHEEL,GRAIN,PHYS,NOISE,DRUM,WAVETABLE" &&
+       E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines).at(-1) === 14,
+       "editor: engines listed FM6 second, DRUM second to last, WAVETABLE last (indices kept)");
     ok(E.engineOrder(["ANALOG", "X", "-", "DRUM", "FM6"]).join() === "0,4,3,1", "editor: an unknown engine follows the known ones");
     m.state.favorites[10][0] = m.state.favorites[12][0] = true;
     await rq(E.req.uiSet(3, 0));
     prefs = await E.readDevicePreferences(rq, info, names, prefs);
     const rows = E.devicePresetRows(info, names, prefs).filter((r) => !r.user), eng = [...new Set(rows.map((r) => r.engine))];
-    ok(eng[0] === 0 && eng[1] === 12 && eng[eng.length - 1] === 10, "editor: device presets in the device's engine order");
+    ok(eng[0] === 0 && eng[1] === 12 && eng[eng.length - 1] === 14, "editor: device presets in the device's engine order");
   }
   const none = await E.readDevicePreferences(() => { throw new Error("unexpected request"); }, { uiCaps: 0 }, []);
   ok(none === null, "editor: old firmware receives no unsupported preference requests");
@@ -309,6 +309,20 @@ async function editorMock() {
   const si2 = E.parse[E.CMD.SMP_INFO](await rq(E.req.smpInfo()));
   ok(rc === 0 && si2.slots[0].zones === 1 && si2.slots[0].drum && si2.slots[0].name === "KIT78",
     "editor: SMP_INFO bit 6 reports drum kit grid");
+  /* a wavetable upload shares SMP BEGIN/WRITE/END and the slot: FWT1 header, PCM, CRC, header last */
+  const wtb = E.wtBuild(E.wtTableCycles(wtWavBytes(2048, 4, (i, f) => Math.sin(2 * Math.PI * (i % 2048) / 2048 * (1 + f % 2))), 16), "WTT");
+  let rcw = E.parse[E.CMD.SMP_BEGIN](await rq(E.req.smpBegin(2), { timeout: 1000, retries: 0 })).rc;
+  for (let off = 0; off < wtb.data.length && !rcw; off += 256) {
+    rcw = E.parse[E.CMD.SMP_WRITE](await rq(E.req.smpWrite(2, E.SMP.DATA_OFF + off, wtb.data.subarray(off, off + 256)), { timeout: 1000 })).rc;
+  }
+  rcw = rcw || E.parse[E.CMD.SMP_END](await rq(E.req.smpEnd(2, wtb.hdr), { timeout: 2000, retries: 0 })).rc;
+  const si3 = E.parse[E.CMD.SMP_INFO](await rq(E.req.smpInfo()));
+  ok(rcw === 0 && si3.slots[2].wt && si3.slots[2].zones === 0 && si3.slots[2].name === "WTT" && si3.slots[2].kib === 16,
+    "editor: wavetable upload (FWT1, bit 5, name, KiB)");
+  const wr = E.parse[E.CMD.SMP_WRITE](await rq(E.req.smpWrite(2, E.SMP.DATA_OFF, Uint8Array.of(1)), { timeout: 1000 }));
+  ok(wr.rc === 4, "editor: a published wavetable refuses writes until SMP_BEGIN");
+  const fsmp = E.parse[E.CMD.SMP_END](await rq(E.req.smpEnd(2, hdr), { timeout: 2000, retries: 0 }));
+  ok(fsmp.rc === 2, "editor: a sample header cannot overwrite a wavetable without SMP_BEGIN");
   /* a device that never answers */
   const dead = new E.Link(() => {}, { timeout: 30 });
   const err = await dead.request(E.req.info(), { retries: 1 }).then(() => null, (e) => e.message);
@@ -715,7 +729,7 @@ async function editorLibrarian() {
   ok(file.format === "felucca-library" && file.version === 1 && file.pCount === 127 && file.paramLabels.length === 127 && file.paramLabels[81] === "CHRD" && file.paramLabels[82] === "VOIC" &&
     file.paramLabels[83] === "KICK" && file.paramLabels[90] === "BELL" && file.paramLabels.slice(91, 96).join() === "SYNC,TRIG,POL,QNTZ,SPRD" &&
     file.paramLabels[96] === "ORDER" && file.paramLabels[117] === "TYPE#2" && file.paramLabels[118] === "ESYNC" &&
-    file.engines.length === 14,
+    file.engines.length === 15,
     "library file: versioned, with P_COUNT, labels and engines");
   const back = E.readLibraryFile(file, ctx);
   ok(back.patches.length === 2 && !back.skipped && eq(back.patches[0].p, cap.p) && eq(back.patches[1].p, bass.p)
@@ -728,7 +742,7 @@ async function editorLibrarian() {
   const p0 = fut.patches[0].p;
   ok(fut.patches.length === 2 && p0.length === 128 && p0[5] === null && p0[6] === cap.p[5] && p0[127] === cap.p[126]
     && fut.patches[0].engine === 1 && fut.patches[1].engine === 0, "library file: other ids / engine order mapped by label and name");
-  const lost = E.readLibraryFile({ ...file, patches: [{ ...file.patches[0], engineName: "WAVETABLE" }] }, ctx);
+  const lost = E.readLibraryFile({ ...file, patches: [{ ...file.patches[0], engineName: "NOSUCH" }] }, ctx);
   ok(lost.patches.length === 0 && lost.skipped === 1, "library file: a patch for an unknown engine is skipped");
   const bankFile = E.libraryFile("bank", [{ ...g, engineName: "ANALOG", slot: 10 }], ctx);
   ok(bankFile.kind === "bank" && bankFile.patches[0].slot === 10 && E.readLibraryFile(bankFile, ctx).patches[0].slot === 10, "library file: bank export keeps slot numbers");
@@ -1606,6 +1620,56 @@ function wav(sr, ch, bits, float, frames, f) {
   return Buffer.concat([Buffer.from("RIFF"), Buffer.from(Uint32Array.of(body.length).buffer), body]);
 }
 
+function wtWavBytes(fs, frames, f) {
+  const n = fs * frames, data = Buffer.alloc(n * 4);
+  for (let i = 0; i < n; i++) data.writeFloatLE(f(i, Math.floor(i / fs)), i * 4);
+  const fmt = Buffer.alloc(16);
+  fmt.writeUInt16LE(3, 0); fmt.writeUInt16LE(1, 2); fmt.writeUInt32LE(44100, 4);
+  fmt.writeUInt32LE(44100 * 4, 8); fmt.writeUInt16LE(4, 12); fmt.writeUInt16LE(32, 14);
+  const clm = Buffer.from(`<!>${fs} 01000000 wavetable (test)\0`, "latin1");
+  const chunk = (id, b) => Buffer.concat([Buffer.from(id, "latin1"), Buffer.from(Uint32Array.of(b.length).buffer), b,
+    Buffer.alloc(b.length & 1)]);
+  const body = Buffer.concat([Buffer.from("WAVE"), chunk("fmt ", fmt), chunk("clm ", clm), chunk("data", data)]);
+  return Buffer.concat([Buffer.from("RIFF"), Buffer.from(Uint32Array.of(body.length).buffer), body]);
+}
+
+/* wavetable conversion: the FWT1 layout, medley, .wav export, and the JS/Python ports agree */
+function wavetableMatch() {
+  const dir = mkdtempSync(join(tmpdir(), "felucca-wt-"));
+  const buf = wtWavBytes(2048, 32, (i, f) => {
+    const x = 2 * Math.PI * (i % 2048) / 2048;
+    return 0.8 * Math.sin(x * (1 + f % 3)) + 0.3 * Math.sin(x * 3);
+  });
+  const cycles = E.wtTableCycles(buf, 16);
+  const js = E.wtBuild(cycles, "WT TEST");
+  const dv = new DataView(js.hdr.buffer, js.hdr.byteOffset, js.hdr.byteLength);
+  ok(cycles.length === 16 && dv.getUint32(0, true) === E.WT.MAGIC && dv.getUint16(4, true) === 1 &&
+     dv.getUint16(6, true) === 16 && js.hdr[8] === 10 && js.hdr[9] === 3 && js.data.length === 65280 &&
+     dv.getUint32(20, true) === js.data.length && dv.getUint32(24, true) === E.crc32(js.data),
+    "wavetables: FWT1 header (16 frames, 1024 base, mips, CRC)");
+  let peak = 0, dc = 0;
+  const jv0 = new DataView(js.data.buffer, js.data.byteOffset);
+  for (let i = 0; i < js.data.length / 2; i++) peak = Math.max(peak, Math.abs(jv0.getInt16(i * 2, true)));
+  for (let i = 0; i < 1024; i++) dc += jv0.getInt16(i * 2, true);
+  ok(peak === E.WT.PEAK && Math.abs(dc / 1024) < 100, `wavetables: peak ${peak}, frame 0 DC ${(dc / 1024).toFixed(1)}`);
+  const med = E.wtBuild(E.wtMedleyCycles([buf, buf], 0, 16), "MEDLEY");
+  ok(med.frames === 2 && med.data.length === 8160 && med.name === "MEDLEY", "wavetables: medley = one cycle per file");
+  const out = E.wtWav(cycles);
+  ok(E.wavFrameSize(out) === 2048 && out.length === 12 + 24 + 46 + 8 + 16 * 2048 * 4,
+    "wavetables: .wav export is 16 frames x 2048, clm 2048");
+  if (existsSync(join(TOOLS, "wavetableio.py"))) {
+    writeFileSync(join(dir, "in.wav"), buf);
+    execFileSync("python3", [join(TOOLS, "wavetableio.py"), "--name", "WT TEST", "--out", join(dir, "py"), join(dir, "in.wav")]);
+    const pyHdr = readFileSync(join(dir, "py.hdr")), pyData = readFileSync(join(dir, "py.bin"));
+    let maxd = 0, sameHdr = pyHdr.length === 480 && eq(pyHdr.subarray(0, 32), js.hdr.subarray(0, 32));
+    const jv = new DataView(js.data.buffer, js.data.byteOffset), pv = new DataView(pyData.buffer, pyData.byteOffset);
+    for (let i = 0; i < Math.min(js.data.length, pyData.length) / 2; i++)
+      maxd = Math.max(maxd, Math.abs(jv.getInt16(i * 2, true) - pv.getInt16(i * 2, true)));
+    ok(sameHdr && js.data.length === pyData.length && maxd <= 2,
+      `wavetables: editor == wavetableio.py (${js.data.length} B, max sample diff ${maxd})`);
+  } else console.log("wavetables: editor == wavetableio.py (no FELUCCA_TOOLS)        skip");
+}
+
 function samplesMatch() {
   const dir = mkdtempSync(join(tmpdir(), "felucca-web-"));
   const files = [
@@ -1776,6 +1840,7 @@ await editorFm4();
 editorTabs();
 editorIcons();
 samplesMatch();
+wavetableMatch();
 await packages();
 await updater();
 console.log(failed ? `WEB TESTS FAILED (${failed})` : "web tests passed");

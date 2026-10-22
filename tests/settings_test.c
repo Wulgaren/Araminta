@@ -8,6 +8,7 @@
 #define UP_SLOTS 32u
 #define ENGI_SAMPLE 4u                           /* (core.h: SAMPLE, DRUM, the retired PERC set) */
 #define ENGI_DRUM 10u
+#define ENGI_SLICE 13u                           /* (core.h: retired SLICE; its favourites row is MIDI LEARN's) */
 #define SMP_SET_PERC 4u
 static uint8_t fx_lowcut;
 static void fm1_led_key(unsigned k, int on) { (void)k; (void)on; }
@@ -192,19 +193,20 @@ int main(void)
         for (i = 14; i < 24u; i++) assert(favorites.factory[15][i] == (uint8_t)(i * 37u + 5u));
         p = original; assert(settings_import(&p, sizeof p) == 1);
     }
-    {   /* 1.5 MIDI LEARN's map (midi_control.c, favorites.factory[14], no engine's): 0 = nothing learned in every older
-         * record; kept as saved, byte for byte (an entry of a later firmware too), the rows around it untouched; an
-         * export / import round trip and importing twice change nothing */
+    {   /* 1.5 MIDI LEARN's map (midi_control.c, favorites.factory[13]; 14 is WAVETABLE's row): 0 = nothing learned in
+         * every older record; kept as saved, byte for byte (an entry of a later firmware too), the rows around it
+         * untouched; an export / import round trip and importing twice change nothing */
         persist_t q;
         uint32_t i;
         p = original; p.magic = 0x50455233u;
         assert(settings_import(&p, sizeof p - sizeof p.favorites) == 2);
-        for (i = 0; i < 32u; i++) assert(favorites.factory[14][i] == 0u);
+        for (i = 0; i < 32u; i++) assert(favorites.factory[13][i] == 0u && favorites.factory[14][i] == 0u);
         p = original;
-        for (i = 0; i < 32u; i++) p.favorites.factory[14][i] = (uint8_t)(i * 29u + 3u);
+        for (i = 0; i < 32u; i++) p.favorites.factory[13][i] = (uint8_t)(i * 29u + 3u);   /* MIDI LEARN */
+        for (i = 0; i < 32u; i++) p.favorites.factory[14][i] = (uint8_t)(i * 11u + 5u);   /* WAVETABLE */
         assert(settings_import(&p, sizeof p) == 1);
-        for (i = 0; i < 32u; i++) assert(favorites.factory[14][i] == (uint8_t)(i * 29u + 3u));
-        assert(!memcmp(favorites.factory[13], original.favorites.factory[13], 32));
+        for (i = 0; i < 32u; i++) assert(favorites.factory[13][i] == (uint8_t)(i * 29u + 3u));
+        for (i = 0; i < 32u; i++) assert(favorites.factory[14][i] == (uint8_t)(i * 11u + 5u));
         {   /* [15]: STYLE/ANIM/IDLE normalized on every import; the rest of the row untouched */
             uint8_t exp[32];
             memcpy(exp, original.favorites.factory[15], 32);
@@ -213,11 +215,34 @@ int main(void)
         }
         memset(&q, 0, sizeof q); settings_export(&q); assert(!memcmp(&q.favorites, &p.favorites, sizeof q.favorites));
         assert(settings_import(&q, sizeof q) == 1 && settings_import(&q, sizeof q) == 1);
-        for (i = 0; i < 32u; i++) assert(favorites.factory[14][i] == (uint8_t)(i * 29u + 3u));
+        for (i = 0; i < 32u; i++) assert(favorites.factory[13][i] == (uint8_t)(i * 29u + 3u));
+        for (i = 0; i < 32u; i++) assert(favorites.factory[14][i] == (uint8_t)(i * 11u + 5u));
+        p = original; assert(settings_import(&p, sizeof p) == 1);
+    }
+    {   /* PER4 -> PER5: row 14 was MIDI LEARN's map, row 13 the retired SLICE's favourites. Import moves the map
+         * to row 13 (over SLICE's favourites: unused, SLICE is never selectable) and zeroes row 14 for WAVETABLE;
+         * the rest of the record, [15] included, is kept. A current PER5 record keeps both rows as saved. */
+        persist_t q;
+        uint32_t i;
+        p = original; p.magic = PERSIST_MAGIC_V4;
+        for (i = 0; i < 32u; i++) {
+            p.favorites.factory[13][i] = (uint8_t)(i * 7u + 1u);    /* old SLICE favourites: dropped */
+            p.favorites.factory[14][i] = (uint8_t)(i * 29u + 3u);   /* MIDI LEARN's map: moved to 13 */
+        }
+        p.favorites.factory[15][13] = 0x5Au;                        /* MENU / UI byte: kept */
+        assert(settings_import(&p, sizeof p) == 2);
+        for (i = 0; i < 32u; i++) assert(favorites.factory[13][i] == (uint8_t)(i * 29u + 3u));
+        for (i = 0; i < 32u; i++) assert(favorites.factory[14][i] == 0u);
+        assert(favorites.factory[15][13] == 0x5Au && favorites.factory[8][0] == 1u);
+        memset(&q, 0, sizeof q); settings_export(&q);
+        assert(q.magic == PERSIST_MAGIC && settings_import(&q, sizeof q) == 1);
+        for (i = 0; i < 32u; i++) assert(favorites.factory[13][i] == (uint8_t)(i * 29u + 3u));
+        for (i = 0; i < 32u; i++) assert(favorites.factory[14][i] == 0u);
+        assert(favorites.factory[15][13] == 0x5Au);
         p = original; assert(settings_import(&p, sizeof p) == 1);
     }
 #endif
     assert(settings_import(&p, 3) == 0 && settings_import(&p, -1) == 0);
     assert(settings_import(&p, sizeof p - 1) == 0);
-    puts("Settings: PER1/PER2/PER3 migration, palette ids, calibration, HOLD, LEDS, CLICK / COUNT-IN, the FX key map, MIDI LEARN's map and independent feature preservation passed.");
+    puts("Settings: PER1/PER2/PER3/PER4 migration, palette ids, calibration, HOLD, LEDS, CLICK / COUNT-IN, the FX key map, MIDI LEARN's map and independent feature preservation passed.");
 }

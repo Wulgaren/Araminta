@@ -1150,7 +1150,8 @@ static uint32_t graph_signature(void)
     h ^= (uint32_t)pg->graph * 131u + TSEL->eng_req + song.sel * 7777u + ui.page * 1291u;
     if (strip_kind() == SK_TITLE)                    /* MENU > LARGE: the page's title (its engine, its number) */
         return h ^ 0x5A17u;
-    if (pg->graph == GR_NONE || pg->graph == GR_ARP || pg->graph == GR_STEPS || pg->graph == GR_INS)
+    if ((pg->graph == GR_NONE && !(pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WT)) ||
+        pg->graph == GR_ARP || pg->graph == GR_STEPS || pg->graph == GR_INS)
         h ^= ui.frame;                               /* scope / FX tech (live playhead, chorus taps, energy) */
     for (i = 0; i < P_COUNT; i++)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
@@ -1202,6 +1203,7 @@ static uint32_t graph_signature(void)
         h = (h ^ ev_sig()) * 16777619u;
     if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE) h ^= sample_wave.pos * 13u + sample_wave.key;
     if (pg->scope == SC_ENGINE && (ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL || t->eng_req % NENGINES == ENGI_FM6 ||
+                                   ENGINES[t->eng_req % NENGINES] == &ENG_WT ||
                                    (FELUCCA_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL)))
         h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
     if ((pg->scope == SC_ENGINE || fop_page(pg->graph)) && t->eng_req % NENGINES == ENGI_FM6)   /* the patch (PAT's algorithm,
@@ -1239,7 +1241,8 @@ static const char *eng_abbr(const char *name)
                                        {"PHASE", "PHAS"}, {"LOFI", "LOFI"},
                                        {"SAMPLE", "SMPL"}, {"VOICE", "VOCL"}, {"TRIO", "TRIO"}, {"WHEEL", "WHEL"},
                                        {"GRAIN", "GRAN"}, {"PHYS", "PHYS"}, {"DRUM", "DRUM"},
-                                       {"NOISE", "NOIS"}, {"FM6", "FM6"}, {"SLICE", "SLCE"}};
+                                       {"NOISE", "NOIS"}, {"FM6", "FM6"}, {"SLICE", "SLCE"},
+                                       {"WAVETABLE", "WTBL"}};
     uint32_t i;
     for (i = 0; i < sizeof A / sizeof A[0]; i++)
         if (str_eq(name, A[i][0]))
@@ -2298,6 +2301,34 @@ static void draw_generation_map(void)
     }
 }
 
+/* WAVETABLE's EDIT panel: the oscillator's wave, two cycles. OSC A draws A after FM, feedback and the
+ * B>A/RATIO path; OSC B draws B's own wave (its shape is B-WAV / B-POS; LEVEL is the mix amount, shown on
+ * the card). RATIO on the OSC B page is the exception: it changes A's FM, not B's wave, so while it is the
+ * hot knob the page shows A. */
+static void graph_wt(const track_t *t, uint32_t osc)
+{
+    static int32_t a[WT_PREVIEW_N], b[WT_PREVIEW_N] __attribute__((section(".pool")));
+    int32_t h = (int32_t)cv_h, mid = h / 2, amp = h / 2 - (h >= 90 ? 6 : 3), i;
+    int32_t px = 0, py = 0;
+    uint32_t hot = ui.hot_t ? cur_page()->id[ui.hot_col & 3u] : 0u;
+    int show_a = osc == 0u || (osc == 1u && hot == P_E7);
+    wt_preview(t, a, b, WT_PREVIEW_N);
+    cv_rect(PANEL_X0, mid, PANEL_W, 1, T_RAISE);
+    for (i = 0; i < (int32_t)WT_PREVIEW_N; i++) {
+        int32_t x = PANEL_X0 + i * (PANEL_W - 1) / ((int32_t)WT_PREVIEW_N - 1);
+        int32_t v = show_a ? a[i] : b[i];
+        int32_t y = mid - soft_knee(clamp(v, -32768, 32767), 24000) * amp / 32768;
+        if (i)
+            cv_line_t(px, py, x, y, T_ACCENT, 2);
+        px = x;
+        py = y;
+    }
+    if (osc == 1u && show_a) {                        /* RATIO swapped the page's trace to A */
+        cv_rect(PANEL_X0 - 2, 1, 44, 14, T_SURF);
+        cv_text_on(PANEL_X0, 2, &AF_S, "OSC A", T_MID, T_SURF);
+    }
+}
+
 static void draw_graph(void)
 {
     const page_t *pg = cur_page();
@@ -2421,7 +2452,11 @@ static void draw_graph(void)
             if (fop_ok()) graph_fm6env(t, c);
             break;
         default:
-            if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL) graph_wheel(t, c);
+            if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WT) {
+                cv_oy = 0;
+                graph_wt(t, pg->id[0] == P_E4 ? 1u : 0u);
+            }
+            else if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL) graph_wheel(t, c);
             else if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE && sample_wave.ready) graph_sample(c);
             else if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_FM6) graph_fm6(t, c, 6u);   /* EDIT 1 and 2 */
             else if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_DRUM) {

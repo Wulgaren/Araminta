@@ -53,7 +53,10 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
     if (id >= 32u && id < 32u + SMP_USER_SLOTS) {
         uint32_t k = id - 32u;
         const smp_user_hdr_t *h = (const smp_user_hdr_t *)smp_user_xip(k);
-        if (usr_nz[k] && h->magic == SMP_USER_MAGIC && h->data_len <= SMP_USER_SIZE - SMP_USER_DATA)
+        const smp_wt_hdr_t *w = (const smp_wt_hdr_t *)h;
+        if (smp_wt_ok(w))
+            *len = SMP_USER_DATA + w->data_len;
+        else if (usr_nz[k] && h->magic == SMP_USER_MAGIC && h->data_len <= SMP_USER_SIZE - SMP_USER_DATA)
             *len = SMP_USER_DATA + h->data_len;
         return smp_user_xip(k);
     }
@@ -107,7 +110,8 @@ static uint32_t ed_bk_commit(void)
         obj = OBJ_PROJECT0 + ed_bk_id - 2u;
     } else if (ed_bk_id == 1u) {
         const persist_t *p = (const persist_t *)raw;
-        if (ed_bk_len != sizeof *p || p->magic != PERSIST_MAGIC || !palette_stored_ok(p->palette) ||
+        if (ed_bk_len != sizeof *p || (p->magic != PERSIST_MAGIC && p->magic != PERSIST_MAGIC_V4) ||
+            !palette_stored_ok(p->palette) ||
             p->lowcut > 2u || !leds_stored_ok(p->zoom) || !hold_stored_ok(p->bold) || p->favorites.filter > 1u || !ed_bk_panel_valid(&p->panel)) return 2;
         obj = OBJ_SETTINGS;
     } else if (ed_bk_id == 6u || ed_bk_id == 7u) {
