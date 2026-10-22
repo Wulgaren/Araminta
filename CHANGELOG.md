@@ -1,10 +1,20 @@
 # Changelog
 
-## Unreleased
+## 3.1
 
-- **CR78 factory kit.** SAMPLE gains a public-domain CR-78 set at **SET 8**, after USR1..USR3 so their indices stay 5..7. Eight one-shots map to the SEQ drum lanes (36, 38, 39, 42, 46, 45, 37, 56) and show the drum grid.
-- **Samples tab.** One card per USR slot with Sample / Drumkit / Wavetable; Drumkit maps roots to exact lane notes, Wavetable takes a table file or a folder medley, and the editor-only name field is gone. The FM-1 still shows USR1..3.
-- **WAVETABLE.** The OSC B knob is LEVEL (B LEVEL in MOD/AUTOMATION); the EDIT graph draws B's wave on OSC B and A, labelled OSC A, while RATIO is hot.
+A public-domain CR-78 drum kit joins SAMPLE, and the web editor's Samples tab becomes one card per USR
+slot. Same project and settings format as 3.0; splash and ABOUT show `v3.1`.
+
+### SAMPLE
+
+- **CR78 factory kit.** SAMPLE gains a public-domain CR-78 set at **SET 8**, after USR1..USR3 so their
+  indices stay 5..7. Eight one-shots map to the SEQ drum lanes (36, 38, 39, 42, 46, 45, 37, 56) and
+  show the drum grid; preset 5 selects it. Source: Oramics "Sampled" CR-78 (Boxed Ear), public domain.
+- **Samples tab.** One card per USR slot with **Sample / Drumkit / Wavetable**; Drumkit maps roots to
+  exact lane notes, Wavetable takes a table file or a folder medley, and the editor-only name field is
+  gone. The FM-1 still shows USR1..3.
+- **Fix.** CR78 lanes no longer fall back to the missing-sample sine: the kick, snare and hats play
+  their real one-shots.
 
 ## 3.0
 

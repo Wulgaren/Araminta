@@ -51,15 +51,13 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
-### Since 3.0
+### New in 3.1
 
 - **CR78 factory kit.** SAMPLE gains a public-domain CR-78 kit at **SET 8** (after USR1..USR3, whose indices stay
   5..7). Its eight one-shots use the SEQ drum lanes `36 38 39 42 46 45 37 56`; the drum grid appears on that set.
 - **Samples tab.** One card per USR slot with **Sample / Drumkit / Wavetable**, choose files, upload and erase.
   Drumkit maps each root to its lane note; Wavetable offers a table file or a folder medley. The name input is
   gone (names were editor/backup-only; the FM-1 shows USR1..3).
-- **WAVETABLE.** OSC B's knob is **LEVEL** (MOD / AUTOMATION call it **B LEVEL**); the graph now draws B's own wave
-  on the OSC B page and A, labelled **OSC A**, while RATIO is hot there.
 
 ## Features
 
