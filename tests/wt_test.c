@@ -3,14 +3,14 @@
 /* WAVETABLE engine test (src/eng_wt.c) on the Mac, through hostsim.c as regress.c.
  *   build/host/wt_test [DEMODIR]          (run_tests.sh: build/wt_demo)
  * 1. the engine: index 14 (ENGI_WT), WAVETABLE, pages OSC A / OSC B, 8 parameters, 8 presets, the knob row
- *    (A-POS, FDBK, B>A, B-LVL).
+ *    (POS, FDBK, B>A, LEVEL).
  * 2. the tables (build/gen/felucca_wt.h): two factory tables, 16 frames each, a 512-sample base (1016 a frame),
  *    every stored sample in range, every frame's base level non-zero; the mip helper (wt_mip_level) for a
  *    9-bit base: 0 at no or a very low increment, non-decreasing, 6 at a high one, clamped.
  * 3. presets: each of the 8 at C2 and C4 sounds; no DC (the mix's |mean| after its master DC blockers settle,
  *    below 1 % of VOICE_FS), no clipping (a voice below 2 x VOICE_FS, the mix below full scale).
  * 4. a note from silence renders bit-identically twice (every preset: the phases reset at note-on).
- * 5. controls: A-POS 0 / 64 / 127, FDBK 0 / 32 / 64 / 127 (127 without clipping or DC), B>A 0 / 64, B-LVL 0 / 100
+ * 5. controls: A-POS 0 / 64 / 127, FDBK 0 / 32 / 64 / 127 (127 without clipping or DC), B>A 0 / 64, LEVEL 0 / 100
  *    (RMS) and RATIO 0.25 / 2.0 all change the sound; empty USR1..USR3 play the same sine fallback.
  * 5b. user slots: a 16 x 1024 FWT1 table in USR1 sounds on A and on B and differs from the fallback; a corrupt
  *    header falls back to the same sine; USR2 (empty) is the fallback.
@@ -165,14 +165,16 @@ static void engine(void)
              e->name, e->page_title[0], e->page_title[1]);
     check(what, eng_wt() == 14u && eng_wt() == ENGI_WT && ENGINES[eng_wt()] == &ENG_WT && !strcmp(e->name, "WAVETABLE") &&
           !strcmp(e->page_title[0], "OSC A") && !strcmp(e->page_title[1], "OSC B"));
-    snprintf(what, sizeof what, "engine: 8 EDIT parameters, %u presets, knob POS FDBK B>A B-LVL", (uint32_t)e->npresets);
+    snprintf(what, sizeof what, "engine: 8 EDIT parameters, %u presets, knob POS FDBK B>A LEVEL", (uint32_t)e->npresets);
     check(what, labels && e->npresets == 8u && e->knob[0] == P_E1 && e->knob[1] == P_E2 && e->knob[2] == P_E3 &&
           e->knob[3] == P_E6);
-    check("names: cards WAVE / POS, MOD card WAVE A / POS B",
+    check("names: cards WAVE / POS / LEVEL, MOD card WAVE A / B LEVEL",
           !strcmp(e->edit[0].label, "WAVE") && !strcmp(e->edit[1].label, "POS") &&
           !strcmp(e->edit[4].label, "WAVE") && !strcmp(e->edit[5].label, "POS") &&
+          !strcmp(e->edit[6].label, "LEVEL") &&
           !strcmp(mod_dst_name(&trk[0], MD_E1), "WAVE A") && !strcmp(mod_dst_name(&trk[0], MD_E1 + 1), "POS A") &&
-          !strcmp(mod_dst_name(&trk[0], MD_E1 + 4), "WAVE B") && !strcmp(mod_dst_name(&trk[0], MD_E1 + 5), "POS B"));
+          !strcmp(mod_dst_name(&trk[0], MD_E1 + 4), "WAVE B") && !strcmp(mod_dst_name(&trk[0], MD_E1 + 5), "POS B") &&
+          !strcmp(mod_dst_name(&trk[0], MD_E1 + 6), "B LEVEL"));
 }
 
 /* ---------------------------------------------------------- tables --- */
@@ -326,7 +328,7 @@ static void controls(void)
     snprintf(what, sizeof what, "B>A 0 vs 64 change the sound: mean |diff| %.0f (threshold %.0f)", diff_mean(a, b, NNOTE),
              WT_DIFF);
     check(what, diff_mean(a, b, NNOTE) > WT_DIFF);
-    /* B-LVL: B in the mix */
+    /* LEVEL: B in the mix */
     e[3] = 0;
     e[6] = 0;
     mix_note(e, 48, 100, a, NNOTE);
@@ -334,7 +336,7 @@ static void controls(void)
     mix_note(e, 48, 100, b, NNOTE);
     r0 = rms(a, NNOTE);
     r1 = rms(b, NNOTE);
-    snprintf(what, sizeof what, "B-LVL 0 vs 100 raises the RMS: %.0f -> %.0f (x%.2f)", r0, r1, r1 / (r0 + 1e-9));
+    snprintf(what, sizeof what, "LEVEL 0 vs 100 raises the RMS: %.0f -> %.0f (x%.2f)", r0, r1, r1 / (r0 + 1e-9));
     check(what, r1 > r0 * 1.02 && r1 > r0 + WT_DIFF);
     /* RATIO: 0.25 vs 2.0 */
     e[6] = 60;

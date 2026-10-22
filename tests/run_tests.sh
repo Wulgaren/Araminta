@@ -155,7 +155,7 @@
 #                   layouts, the 6-voice cap, the cost per voice; demos in build/fm6_demo/.
 # WAVETABLE (tests/wt_test.c): the engine (src/eng_wt.c): the two factory tables (16 frames, 512-sample base) and the
 #                   mip levels, every preset at C2 / C4, no DC / clipping, a note from silence the same twice, A-POS /
-#                   FDBK / B>A / B-LVL / RATIO, USR1..USR3's sine fallback, the cost per voice; demos in build/wt_demo/.
+#                   FDBK / B>A / LEVEL / RATIO, USR1..USR3's sine fallback, the cost per voice; demos in build/wt_demo/.
 # ROBUST (tests/robust_test.c): damaged or crafted stored data and editor requests: a SLICE scan bounded by the slot,
 #                   a slot that fails its check leaves no zone, engine numbers past the last refused, a retained older
 #                   RAM project bounded, user preset patterns inside their fields, malformed requests never stop PLAY.

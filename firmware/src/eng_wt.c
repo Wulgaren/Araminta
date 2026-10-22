@@ -9,7 +9,7 @@
  * Tables live in XIP and are read in place.
  *
  * EDIT: OSC A = A-WAV (table), A-POS (frame), FDBK (phase feedback, up to 0.60 cycle), B>A (B phase-
- * modulates A, up to one cycle); OSC B = B-WAV, B-POS, B-LVL (0 = B only modulates A, never heard),
+ * modulates A, up to one cycle); OSC B = WAVE, POS, LEVEL (0 = B only modulates A, never heard),
  * RATIO (B's frequency against A's). FLT moves A-POS, SHP moves B>A. There is no engine filter.
  *
  * USR1..USR3 are user slots in the same 80 KiB flash slots as samples (eng_sample.c smp_wt_hdr_t, FWT1):
@@ -229,7 +229,7 @@ static void wt_preview(const track_t *t, int32_t *a, int32_t *b, uint32_t n)
     }
 }
 
-/* name, {WAVE, POS, FDBK, B>A, WAVE, POS, B-LVL, RATIO}, {A D S R}, fenv, mono
+/* name, {WAVE, POS, FDBK, B>A, WAVE, POS, LEVEL, RATIO}, {A D S R}, fenv, mono
  * (the cards say WAVE / POS; the MOD and AUTOMATION lists add the oscillator: params.c param_list_name) */
 static const preset_t WT_PRESETS[] = {
     {"WT BASS",  {0, 24, 28, 18, 0,  0, 45, 1}, {0, 60, 70, 25},   25, 1, FX(0, 0, 10, 10),  PAT(2)},
@@ -252,7 +252,7 @@ static const engine_t ENG_WT = {
         {"B>A", F_PCT, 0, 127, 0, 0, 0},
         {"WAVE", F_ENUM, 0, 4, 0, N_WT_WAV, 0},
         {"POS", F_PCT, 0, 127, 0, 0, 0},
-        {"B-LVL", F_PCT, 0, 127, 0, 0, 0},
+        {"LEVEL", F_PCT, 0, 127, 0, 0, 0},
         {"RATIO", F_ENUM, 0, (int16_t)(WT_RATIO_N - 1u), 3, N_WT_RATIO, 0},
     },
     .presets = WT_PRESETS,

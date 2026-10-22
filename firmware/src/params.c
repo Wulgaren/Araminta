@@ -253,17 +253,17 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 }
 
 /* The name of an engine parameter in a list (MOD DST, AUTOMATION, a step lock): the EDIT cards are short
- * (WAVE, POS) because the page title says OSC A / OSC B, but the lists have no page context, so WAVETABLE's
- * two oscillators are named here. full = 0 keeps the MOD card's narrow column (<= 6 chars), 1 gives the
+ * (WAVE, POS, LEVEL) because the page title says OSC A / OSC B, but the lists have no page context, so
+ * WAVETABLE's two oscillators are named here. full = 0 keeps the MOD card's narrow column, 1 gives the
  * longer word for the picker and the automation rows. Other engines' labels go through unchanged. */
 static const char *param_list_name(const track_t *t, uint32_t id, int full)
 {
-    static const char *const SHORT[] = {"WAVE A", "POS A", "WAVE B", "POS B"};
-    static const char *const FULL[] = {"WAVE A", "POSITION A", "WAVE B", "POSITION B"};
+    static const char *const SHORT[] = {"WAVE A", "POS A", "WAVE B", "POS B", "B LEVEL"};
+    static const char *const FULL[] = {"WAVE A", "POSITION A", "WAVE B", "POSITION B", "B LEVEL"};
     if (id >= P_E0 && id <= P_E7 && ENGINES[eng_idx(t->eng_req)] == &ENG_WT) {
         uint32_t k = id - P_E0;
-        if (k == 0u || k == 1u || k == 4u || k == 5u) {
-            uint32_t s = k == 0u ? 0u : k == 1u ? 1u : k == 4u ? 2u : 3u;
+        if (k == 0u || k == 1u || k == 4u || k == 5u || k == 6u) {
+            uint32_t s = k == 0u ? 0u : k == 1u ? 1u : k == 4u ? 2u : k == 5u ? 3u : 4u;
             return full ? FULL[s] : SHORT[s];
         }
     }
