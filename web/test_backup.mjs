@@ -53,6 +53,21 @@ ok(file.objects.length === BACKUP_IDS.length && file.objects[0].size === 3388 &&
 ok(readBackup(JSON.stringify(file)).objects[2].bytes.every((v, i) => v === objs[2][1][i]), "backup: capture -> file -> bytes round trip");
 ok(await athrows(() => captureBackup(device(objs.map(([i, v]) => [i, v.slice()]), { changeOnGet: 2 }).request, "TEST")), "backup: a device that changes during capture fails the capture");
 
+{
+  /* a wavetable slot (FWT1) in a backup: 512-byte header + PCM, its own CRC over the data */
+  const data = rnd(8160, 34), wt = new Uint8Array(512 + data.length), wv = new DataView(wt.buffer);
+  wt.set(data, 512);
+  wv.setUint32(0, 0x31545746, true); wv.setUint16(4, 1, true); wv.setUint16(6, 2, true); wt[8] = 10; wt[9] = 3;
+  wv.setUint32(20, data.length, true); wv.setUint32(24, bkCrc(data), true);
+  const wf = await captureBackup(device([...objs, [34, wt]]).request, "TEST");
+  const wo = wf.objects.find((o) => o.id === 34);
+  ok(wo && wo.size === wt.length && !!readBackup(JSON.stringify(wf)).objects.find((o) => o.id === 34),
+    "backup: a wavetable slot (FWT1) is captured and validated");
+  const badWt = JSON.parse(JSON.stringify(wf)), bo = badWt.objects.find((o) => o.id === 34);
+  const bb = Uint8Array.from(wt); bb[700] ^= 1;
+  bo.data = Buffer.from(bb).toString("base64"); bo.crc = bkCrc(bb);
+  ok(throws(() => readBackup(badWt)), "backup: a wavetable whose data CRC is wrong is refused");
+}
 const bad = JSON.parse(JSON.stringify(file)); bad.objects[2].crc ^= 1;
 ok(throws(() => readBackup(bad)), "backup: a damaged file is refused");
 const noRun = JSON.parse(JSON.stringify(file)); noRun.objects[0] = { ...noRun.objects[0], size: 0, crc: 0, data: "" };
