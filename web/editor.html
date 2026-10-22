@@ -538,8 +538,9 @@ const parse = {
     const r = new Reader(a);
     const o = { nslots: r.b(), slotKiB: r.b(), slots: [] };
     for (let i = 0; i < o.nslots; i++) {
-      const zb = r.b();                              /* zones 0..16; bit 6: drum kit grid (FSMP hdr.rsv; 7-bit SysEx) */
-      o.slots.push({ zones: zb & 0x3f, drum: !!(zb & 0x40), name: r.s(), kib: r.b() });
+      const zb = r.b();                              /* zones 0..16; bit 5: wavetable; bit 6: drum grid */
+      const wt = !!(zb & 0x20);
+      o.slots.push({ zones: wt ? 0 : (zb & 0x3f), drum: !!(zb & 0x40), wt, name: r.s(), kib: r.b() });
     }
     return o;
   },
@@ -1036,6 +1037,197 @@ function buildSlot(name, zonesIn, opts = {}) {
     hdr[b + 24] = z.idx; hdr[b + 25] = z.lo; hdr[b + 26] = z.hi; hdr[b + 27] = 0;
   });
   return { hdr, data, zones };
+}
+
+/* ---------------------------------------------------------- wavetables --- */
+/* A Serum wavetable is one WAV: all frames concatenated (usually 2048 samples each), with a `clm`
+   chunk naming the frame size. One USR slot holds one table: 16 frames x 1024 samples + mips, an
+   FWT1 header and int16 PCM (eng_sample.c smp_wt_hdr_t, eng_wt.c wt_read). This is the JS port of
+   tools/wavetableio.py; one file -> up to 16 of its frames, or a medley of one cycle per file. */
+const WT = { MAGIC: 0x31545746, HDR_LEN: 32, BASE_LOG2: 10, MIP_LAST_LOG2: 3, MAX_DATA: SMP.MAX_DATA, PEAK: 29490 };
+
+function wavFrameSize(buf) {
+  const d = new Uint8Array(buf), v = new DataView(d.buffer, d.byteOffset, d.byteLength);
+  const id = (i) => String.fromCharCode(d[i], d[i + 1], d[i + 2], d[i + 3]);
+  if (d.length < 12 || id(0) !== "RIFF" || id(8) !== "WAVE") return 0;
+  let i = 12;
+  while (i + 8 <= d.length) {
+    const cid = id(i), n = v.getUint32(i + 4, true);
+    if (cid === "clm ") {
+      const txt = Array.from(d.subarray(i + 8, i + 8 + n), (c) => String.fromCharCode(c)).join("");
+      const m = /<!>\s*(\d+)/.exec(txt);
+      if (m && parseInt(m[1], 10) > 0) return parseInt(m[1], 10);
+    }
+    i += 8 + n + (n & 1);
+  }
+  return 0;
+}
+
+function wtFft(re, im, inverse) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = 2 * Math.PI / len * (inverse ? 1 : -1);
+    const wr = Math.cos(ang), wi = Math.sin(ang), half = len >> 1;
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < half; k++) {
+        const ar = re[i + k], ai = im[i + k];
+        const br = re[i + k + half] * cr - im[i + k + half] * ci;
+        const bi = re[i + k + half] * ci + im[i + k + half] * cr;
+        re[i + k] = ar + br; im[i + k] = ai + bi;
+        re[i + k + half] = ar - br; im[i + k + half] = ai - bi;
+        const nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr;
+      }
+    }
+  }
+  if (inverse) for (let i = 0; i < n; i++) { re[i] /= n; im[i] /= n; }
+}
+
+function wtFftResample(x, nOut) {
+  const nIn = x.length;
+  if (nIn === nOut) return Float64Array.from(x);
+  const re = Float64Array.from(x), im = new Float64Array(nIn);
+  wtFft(re, im, false);
+  const or = new Float64Array(nOut), oi = new Float64Array(nOut), scale = nOut / nIn;
+  const keep = Math.min(nIn, nOut) >> 1;
+  or[0] = re[0] * scale; oi[0] = im[0] * scale;
+  for (let k = 1; k < keep; k++) {
+    or[k] = re[k] * scale; oi[k] = im[k] * scale;
+    or[nOut - k] = re[nIn - k] * scale; oi[nOut - k] = im[nIn - k] * scale;
+  }
+  if (nIn < nOut) {
+    const k = nIn >> 1;
+    or[k] = re[k] * scale; oi[k] = im[k] * scale;
+    or[nOut - k] = re[k] * scale; oi[nOut - k] = -im[k] * scale;
+  } else if (nIn === nOut) {
+    or[keep] = re[keep] * scale; oi[keep] = 0;
+  }
+  wtFft(or, oi, true);
+  return or;
+}
+
+function wtCycle(x) {                              /* -> 1024 samples */
+  const n = x.length, base = 1 << WT.BASE_LOG2;
+  if (!n) return new Float64Array(base);
+  if (n === base) return Float64Array.from(x);
+  if ((n & (n - 1)) === 0) return wtFftResample(x, base);
+  let out = resample(Array.from(x), n, base);
+  if (out.length < base) out = out.concat(new Array(base - out.length).fill(0));
+  return Float64Array.from(out.slice(0, base));
+}
+
+function wtPick(count, total) {
+  if (count >= total) return Array.from({ length: total }, (_, i) => i);
+  if (count <= 1) return [0];
+  return Array.from({ length: count }, (_, i) => Math.round(i * (total - 1) / (count - 1)));
+}
+
+/* one table file -> cycles (up to pick frames); a frame is one cycle, 2048 samples in Serum files */
+function wtTableCycles(buf, pick = 16) {
+  const w = parseWav(buf);
+  const fs = wavFrameSize(buf) || (w.x.length >= 2048 && w.x.length % 2048 === 0 ? 2048 : w.x.length);
+  const count = Math.max(1, Math.floor(w.x.length / fs));
+  return wtPick(pick, count).map((j) => Array.from(w.x.subarray(j * fs, (j + 1) * fs)));
+}
+
+/* one cycle (frame `frame`) from each file -> one medley table (up to 16 files) */
+function wtMedleyCycles(bufs, frame = 0, pick = 16) {
+  let list = bufs;
+  if (pick && list.length > pick) list = wtPick(pick, list.length).map((i) => list[i]);
+  return list.slice(0, 16).map((buf) => {
+    const w = parseWav(buf);
+    const fs = wavFrameSize(buf) || (w.x.length >= 2048 && w.x.length % 2048 === 0 ? 2048 : w.x.length);
+    const count = Math.max(1, Math.floor(w.x.length / fs));
+    const j = Math.min(Math.max(0, frame | 0), count - 1);
+    return Array.from(w.x.subarray(j * fs, (j + 1) * fs));
+  });
+}
+
+function wtBuild(cycles, name = "USER") {
+  const base = 1 << WT.BASE_LOG2, levels = WT.BASE_LOG2 - WT.MIP_LAST_LOG2 + 1;
+  const norm = cycles.slice(0, 16).map((c) => {
+    const x = wtCycle(c), m = x.reduce((a, v) => a + v, 0) / x.length;
+    return x.map((v) => v - m);
+  });
+  if (!norm.length) throw new Error("no frames");
+  let peak = 0;
+  for (const x of norm) for (const v of x) peak = Math.max(peak, Math.abs(v));
+  if (!(peak > 0)) throw new Error("silent wavetable");
+  const gain = WT.PEAK / peak, stride = (base << 1) - (1 << WT.MIP_LAST_LOG2);
+  const data = new Uint8Array(norm.length * stride * 2), dv = new DataView(data.buffer);
+  let o = 0;
+  for (const x of norm) {
+    const re = Float64Array.from(x), im = new Float64Array(base);
+    wtFft(re, im, false);
+    let y = x;
+    for (let l = 0; l < levels; l++) {
+      const size = base >> l;
+      if (l) {
+        const or = new Float64Array(base), oi = new Float64Array(base);
+        for (let k = 1; k < size / 2; k++) {
+          or[k] = re[k]; oi[k] = im[k];
+          or[base - k] = re[base - k]; oi[base - k] = im[base - k];
+        }
+        wtFft(or, oi, true);
+        y = new Float64Array(size);
+        for (let i = 0; i < size; i++) y[i] = or[i * (base / size)];
+      }
+      for (const v of y) {
+        dv.setInt16(o, Math.max(-32767, Math.min(32767, pyRound(v * gain))), true);
+        o += 2;
+      }
+    }
+  }
+  if (data.length !== norm.length * stride * 2 || data.length > WT.MAX_DATA)
+    throw new Error("wavetable does not fit a slot");
+  const hdr = new Uint8Array(480), hv = new DataView(hdr.buffer);
+  const nm = String(name).toUpperCase().replace(/[^\x20-\x7E]/g, "").slice(0, 8) || "USER";
+  hv.setUint32(0, WT.MAGIC, true); hv.setUint16(4, 1, true); hv.setUint16(6, norm.length, true);
+  hdr[8] = WT.BASE_LOG2; hdr[9] = WT.MIP_LAST_LOG2;
+  for (let i = 0; i < nm.length; i++) hdr[12 + i] = nm.charCodeAt(i);
+  hv.setUint32(20, data.length, true); hv.setUint32(24, crc32(data), true);
+  return { hdr, data, frames: norm.length, name: nm };
+}
+
+/* the condensed table as a Serum-style float32 .wav (2048 a frame, clm 2048), for reuse elsewhere */
+function wtWav(cycles) {
+  const frames = cycles.map((c) => {
+    const x = wtCycle(c), m = x.reduce((a, v) => a + v, 0) / x.length;
+    return wtFftResample(Float64Array.from(x, (v) => v - m), 2048);
+  });
+  let peak = 0;
+  for (const f of frames) for (const v of f) peak = Math.max(peak, Math.abs(v));
+  if (peak > 0) for (const f of frames) for (let i = 0; i < f.length; i++) f[i] = f[i] / peak * 0.9;
+  const raw = new Uint8Array(frames.length * 2048 * 4), dv = new DataView(raw.buffer);
+  let o = 0;
+  for (const f of frames) for (const v of f) { dv.setFloat32(o, v, true); o += 4; }
+  const fmt = new Uint8Array(16), fv = new DataView(fmt.buffer);
+  fv.setUint16(0, 3, true); fv.setUint16(2, 1, true); fv.setUint32(4, 44100, true);
+  fv.setUint32(8, 44100 * 4, true); fv.setUint16(12, 4, true); fv.setUint16(14, 32, true);
+  const cs = "<!>2048 01000000 wavetable (araminta)\0";
+  const clm = new Uint8Array(cs.length);
+  for (let i = 0; i < cs.length; i++) clm[i] = cs.charCodeAt(i);
+  const chunk = (id, b) => {
+    const out = new Uint8Array(8 + b.length + (b.length & 1));
+    const v = new DataView(out.buffer);
+    for (let i = 0; i < 4; i++) out[i] = id.charCodeAt(i);
+    v.setUint32(4, b.length, true); out.set(b, 8);
+    return out;
+  };
+  const body = [chunk("fmt ", fmt), chunk("clm ", clm), chunk("data", raw)];
+  const n = body.reduce((a, b) => a + b.length, 0) + 4;
+  const out = new Uint8Array(8 + n), ov = new DataView(out.buffer);
+  out.set([82, 73, 70, 70], 0); ov.setUint32(4, n, true);
+  out.set([87, 65, 86, 69], 8);
+  let p = 12;
+  for (const b of body) { out.set(b, p); p += b.length; }
+  return out;
 }
 
 /* -------------------------------------------------------------- librarian --- */
@@ -1739,7 +1931,7 @@ function makeMockDevice(opt = {}) {
     E("MIDI", ["USB", "TRS"], 0), D("REL", F.PCT, 0, 100, 30), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], 0), D("CPU", F.INT, 0, 0, 0),
     D("SLOT", F.INT, 1, 4, 1), E("NAME", NDASH, 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
     E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL",
-      "GRAIN", "PHYS", "DRUM", "NOISE", "FM6", "-"], 0), D("CLIP", F.PCT, 0, 100, 0),
+      "GRAIN", "PHYS", "DRUM", "NOISE", "FM6", "-", "WAVETABLE"], 0), D("CLIP", F.PCT, 0, 100, 0),
     E("CLRSQ", NGO, 0), E("INIT", NGO, 0),
     E("TYPE", ["ROOM", "SPRING", "HALL", "SHIMR", "CLOUD"], 2), /* G_RTYPE (id 24): HALL default; JIANT SHIMR/CLOUD */
     D("PNCH", F.PCT, 0, 100, 0), D("DUCK", F.PCT, 0, 100, 0),   /* G_PUNCH / G_DUCK (was G_DRLVL / G_DRREV) */
@@ -1826,6 +2018,23 @@ function makeMockDevice(opt = {}) {
         P("PAD", [0, 0, 0, 0, 0, 0, 30, 4], [0, 0, 127, 0], 0, 5), P("MARIMBA", [0, 0, 0, 0, 0, 0, 0, 5], [0, 0, 127, 0], 0, 3),
         P("ORGAN", [0, 0, 0, 0, 0, 0, 0, 6], [0, 0, 127, 0], 0, 6), P("PLUCK", [0, 0, 0, 0, 0, 0, 0, 7], [0, 0, 127, 0], 0, 13)] },
     { name: "-", titles: ["-", "-"], edit: [RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE], presets: [] },
+    { name: "WAVETABLE", titles: ["OSC A", "OSC B"], edit: [
+        E("WAVE", ["BASIC", "SPECTRAL", "USR1", "USR2", "USR3"], 0),
+        D("POS", F.PCT, 0, 127, 0),
+        D("FDBK", F.PCT, 0, 127, 0),
+        D("B>A", F.PCT, 0, 127, 0),
+        E("WAVE", ["BASIC", "SPECTRAL", "USR1", "USR2", "USR3"], 0),
+        D("POS", F.PCT, 0, 127, 0),
+        D("LEVEL", F.PCT, 0, 127, 0),
+        E("RATIO", ["0.25", "0.5", "0.75", "1", "1.5", "2", "2.5", "3", "4", "5", "6", "8", "12", "16"], 3)],
+      presets: [P("WT BASS", [0, 24, 28, 18, 0, 0, 45, 1], [0, 60, 70, 25], 1, 2),
+        P("FM LEAD", [0, 48, 8, 62, 0, 0, 0, 3], [2, 70, 95, 35], 1, 4),
+        P("GLASS FM", [1, 30, 0, 55, 1, 90, 0, 7], [0, 95, 0, 90], 0, 7),
+        P("WT PAD", [1, 52, 10, 14, 1, 78, 50, 4], [75, 90, 110, 95], 0, 5),
+        P("GROWL", [0, 32, 55, 34, 0, 0, 25, 3], [0, 55, 60, 30], 1, 2),
+        P("DIGITAL", [1, 18, 50, 40, 1, 64, 20, 9], [0, 65, 70, 40], 0, 11),
+        P("PLUCK", [1, 62, 0, 0, 1, 62, 0, 3], [0, 88, 0, 65], 0, 3),
+        P("SWEEP", [1, 40, 18, 22, 1, 40, 30, 5], [40, 80, 90, 80], 0, 5)] },
   ];
   const FM6_E = ENG.findIndex((e) => e.name === "FM6"), FM6_OWN = FM6.FACTORY_PK.length, DRUM_E = ENG.findIndex((e) => e.name === "DRUM");
   /* factory PATTERNS[] (engines.c; the device loads them from SAVE > PHRASES, presets only suggest one): absolute
@@ -1874,7 +2083,7 @@ function makeMockDevice(opt = {}) {
     tracks: [0, 1, 2, 3].map(newTrack), sel: 0, rec: 0,
     g: GP.map((d) => d.def),
     slots: [null, null, null, null], songRows: [], chainPlaying: false, chainRow: 0, chainRemaining: 0,
-    smp: [0, 1, 2].map(() => ({ flash: new Uint8Array(SMP.SLOT_SIZE).fill(0xFF), zones: 0, drum: false, name: "", len: 0, next: SMP.DATA_OFF })),
+    smp: [0, 1, 2].map(() => ({ flash: new Uint8Array(SMP.SLOT_SIZE).fill(0xFF), zones: 0, wt: false, drum: false, name: "", len: 0, next: SMP.DATA_OFF })),
     bank: new Array(opt.slots || 32).fill(null),     /* user presets: {engine, name, p, pattern, grid, fm6 (FM6: its patch)} */
     uiCaps: opt.legacy || opt.v3 || opt.v5 ? 0 : opt.uiCaps ?? 9,
     palette: 0, font: 0, monitor: 0, filter: 0, bankSig: 0,
@@ -2306,7 +2515,7 @@ function makeMockDevice(opt = {}) {
         if (a.length < 1 || a[0] >= 3) return null;
         const u = st.smp[a[0]];
         if (cmd === CMD.SMP_ERASE) u.flash.fill(0xFF); else u.flash.fill(0xFF, 0, 4096);
-        u.zones = 0; u.drum = false; u.name = ""; u.len = 0; u.next = SMP.DATA_OFF;
+        u.zones = 0; u.wt = false; u.drum = false; u.name = ""; u.len = 0; u.next = SMP.DATA_OFF;
         b(a[0]); b(0);
         break;
       }
@@ -2315,6 +2524,7 @@ function makeMockDevice(opt = {}) {
         const u = st.smp[a[0]], off = a[1] | (a[2] << 7) | (a[3] << 14), dat = fsmpUnpack7(a.slice(4));
         let rc = 0;
         if (off < SMP.DATA_OFF || (off & 0xFF) || !dat.length || off + dat.length > SMP.SLOT_SIZE || dat.length > 256) rc = 1;
+        else if (u.zones || u.wt) rc = 4;             /* live slot: SMP_BEGIN first (firmware smp_slot_used) */
         else {
           if (!(off & 0xFFF)) u.flash.fill(0xFF, off, off + 4096);
           u.flash.set(dat, off);
@@ -2327,27 +2537,42 @@ function makeMockDevice(opt = {}) {
         if (a.length < 2 || a[0] >= 3) return null;
         const u = st.smp[a[0]], hd = fsmpUnpack7(a.slice(1)), dv = new DataView(hd.buffer);
         let rc = 0;
-        if (hd.length < SMP.HDR_LEN || dv.getUint32(0, true) !== 0x504D5346 || dv.getUint16(4, true) !== 1) rc = 2;
-        else if (!hd[6] || hd[6] > 16) rc = 5;
-        else {
-          const len = dv.getUint32(16, true);
-          if (len > SMP.MAX_DATA) rc = 1;
-          else if (crc32(u.flash.subarray(SMP.DATA_OFF, SMP.DATA_OFF + len)) !== dv.getUint32(20, true)) rc = 3;
+        if (hd.length < 480) rc = 2;
+        else if (dv.getUint32(0, true) === WT.MAGIC) {   /* FWT1: a wavetable (eng_sample.c smp_wt_ok) */
+          const frames = dv.getUint16(6, true), base = hd[8], mip = hd[9], len = dv.getUint32(20, true);
+          const stride = base < 32 && mip < base ? (2 ** (base + 1)) - (2 ** mip) : -1;
+          if (!frames || frames > 64 || base < 4 || base > 12 || mip >= base) rc = 2;
+          else if (len !== frames * stride * 2 || len > WT.MAX_DATA) rc = 2;
+          else if (u.zones) rc = 2;                    /* a sample is published: BEGIN first */
+          else if (crc32(u.flash.subarray(SMP.DATA_OFF, SMP.DATA_OFF + len)) !== dv.getUint32(24, true)) rc = 3;
           else {
             u.flash.set(hd, 0);
-            u.zones = hd[6]; u.drum = !!(hd[7] & 1); u.len = len;
-            u.name = String.fromCharCode(...hd.slice(8, 16)).replace(/\0.*$/, "");
+            u.wt = true; u.zones = 0; u.drum = false; u.len = len;
+            u.name = String.fromCharCode(...hd.slice(12, 20)).replace(/\0.*$/, "");
           }
-        }
+        } else if (dv.getUint32(0, true) === 0x504D5346 && dv.getUint16(4, true) === 1) {
+          if (u.wt) rc = 2;                            /* a wavetable is published: BEGIN first */
+          else if (!hd[6] || hd[6] > 16) rc = 5;
+          else {
+            const len = dv.getUint32(16, true);
+            if (len > SMP.MAX_DATA) rc = 1;
+            else if (crc32(u.flash.subarray(SMP.DATA_OFF, SMP.DATA_OFF + len)) !== dv.getUint32(20, true)) rc = 3;
+            else {
+              u.flash.set(hd, 0);
+              u.wt = false; u.zones = hd[6]; u.drum = !!(hd[7] & 1); u.len = len;
+              u.name = String.fromCharCode(...hd.slice(8, 16)).replace(/\0.*$/, "");
+            }
+          }
+        } else rc = 2;
         b(a[0]); b(rc);
         break;
       }
       case CMD.SMP_INFO:
         b(3); b(SMP.SLOT_SIZE / 1024);
         st.smp.forEach((u) => {
-          b(u.zones ? (u.zones | (u.drum ? 0x40 : 0)) : 0);
-          s(u.zones ? u.name : "");
-          b(u.zones ? Math.ceil(u.len / 1024) : 0);
+          b(u.wt ? 0x20 : (u.zones ? (u.zones | (u.drum ? 0x40 : 0)) : 0));
+          s(u.wt || u.zones ? u.name : "");
+          b(u.wt || u.zones ? Math.ceil(u.len / 1024) : 0);
         });
         break;
       default:
@@ -2511,7 +2736,7 @@ function enumShown(d) {
 /* the order the device shows its engines in (src/engines.c ENGINE_ORDER): the lists here follow it, the protocol keeps
    the engine numbers. engineOrder(names): the indices of names in that order, "-" (a reserved number) left out; a name
    the list does not know (another firmware) follows in index order */
-const ENGINE_ORDER = ["ANALOG", "FM6", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS", "NOISE", "DRUM"];
+const ENGINE_ORDER = ["ANALOG", "FM6", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS", "NOISE", "DRUM", "WAVETABLE"];
 function engineOrder(names) {
   const rank = (n) => { const k = ENGINE_ORDER.indexOf(n); return k < 0 ? ENGINE_ORDER.length : k; };
   return (names || []).map((n, i) => i).filter((i) => names[i] !== "-")
@@ -2657,6 +2882,10 @@ const TEXT = {
     preview: "試聴", autoTrim: "自動トリム", trim: "切り取り",
     smpTooBig: "大きすぎます", smpDecodeFail: "読み込めません: ", smpUploading: "書き込み中 USR", smpDone: "書き込みました USR",
     smpFail: "サンプルの書き込みに失敗しました: ", smpErased: "消去しました USR",
+    wtTitle: "ウェーブテーブル (USR1–3)", wtHelp: "Serum の .wav 1 つが 1 テーブル。1 スロットに 16 フレーム × 1024。フォルダは最大 16 ファイルから 1 周期ずつ（多い場合は均等に選択。ファイル… で指定）。",
+    wtChoose: "テーブルファイル…", wtFolder: "フォルダ（メドレー）…", wtFiles: "メドレー用ファイル…", wtOneTable: "→ 1 テーブル", wtUpload: "テーブルを転送",
+    wtClear: "クリア", wtSaveWav: ".wav を保存", wtFrames: "フレーム", wtInSlot: "テーブル", wtFolderReady: "{n} ファイル → メドレー",
+    wtTable: "テーブル", wtMedleyTo: "メドレー →",
     confirmErase: "USR{n} を消去しますか？", confirmUpload: "USR{n} に書き込みますか？ 今の内容は消えます。",
     layout: "（ファームウェアのパラメーター数が想定と違うため、簡易表示にしています）",
     ctlHelp: "スライダーはクリックしてからホイールか矢印キーで微調整（Shift で 10 ずつ）、ダブルクリックで初期値。",
@@ -2763,6 +2992,10 @@ const TEXT = {
     preview: "Play", autoTrim: "Auto trim", trim: "Trim",
     smpTooBig: "too large", smpDecodeFail: "Cannot read: ", smpUploading: "Uploading USR", smpDone: "Uploaded USR",
     smpFail: "Sample upload failed: ", smpErased: "Erased USR",
+    wtTitle: "Wavetables (USR1–3)", wtHelp: "One Serum .wav is one table; a slot holds 16 frames × 1024. Folder: one cycle from up to 16 files (evenly picked if more; Files… to choose).",
+    wtChoose: "Table file…", wtFolder: "Folder medley…", wtFiles: "Medley files…", wtOneTable: "→ one table", wtUpload: "Upload table",
+    wtClear: "Clear", wtSaveWav: "Save .wav", wtFrames: "frames", wtInSlot: "table", wtFolderReady: "{n} files → one medley",
+    wtTable: "Table", wtMedleyTo: "Medley →",
     confirmErase: "Erase USR{n}?", confirmUpload: "Write to USR{n}? Its current contents will be replaced.",
     layout: "(The firmware has a different parameter count; showing a plain list.)",
     ctlHelp: "Sliders: click, then fine-tune with the wheel or arrow keys (Shift: steps of 10); double-click resets.",
@@ -3723,6 +3956,8 @@ $("clearseq").addEventListener("click", async () => {
 
 /* ---------------------------------------------------------- samples --- */
 const smpDraft = [0, 1, 2].map(() => ({ name: "", files: [], drumGrid: false }));
+const wtDraft = [0, 1, 2].map(() => ({ built: null, cycles: null, name: "" }));
+let wtFolder = [], wtMedleyFiles = [];
 let smpBusy = false;
 const SMP_RC = { 1: "size", 2: "header", 3: "data CRC", 4: "flash", 5: "zones" };
 const kib = (n) => (n / 1024).toFixed(1);
@@ -4054,12 +4289,37 @@ function renderSamples() {
   const box = $("smpslots");                        /* the tab says when there are no slots (renderPanels) */
   if (!dev || !dev.smp) { box.replaceChildren(); return; }
   const max = SMP.MAX_DATA;
-  box.replaceChildren(...dev.smp.slots.map((u, k) => {
+  const folderIn = el("input", { type: "file", multiple: true, hidden: true });
+  folderIn.setAttribute("webkitdirectory", "");
+  folderIn.addEventListener("change", () => {
+    wtFolder = [...folderIn.files].filter((f) => /\.wav$/i.test(f.name)).sort((a, b) => a.name.localeCompare(b.name));
+    wtMedleyFiles = [];
+    folderIn.value = "";
+    renderSamples();
+  });
+  const filesIn = el("input", { type: "file", multiple: true, accept: ".wav,audio/wav", hidden: true });
+  filesIn.addEventListener("change", () => {
+    wtMedleyFiles = [...filesIn.files].filter((f) => /\.wav$/i.test(f.name));
+    wtFolder = [];
+    filesIn.value = "";
+    renderSamples();
+  });
+  const libN = wtFolder.length || wtMedleyFiles.length;
+  const bar = el("div", { class: "smp" }, el("div", { class: "head" },
+    el("b", { text: t("wtTitle") }),
+    el("span", { text: libN ? t("wtFolderReady").replace("{n}", libN) : t("wtHelp") }),
+    el("button", { ic: "symbol_folder_open", disabled: smpBusy || recActive(), onclick: () => folderIn.click() }, t("wtFolder")), folderIn,
+    el("button", { ic: "symbol_folder_open", disabled: smpBusy || recActive(), onclick: () => filesIn.click() }, t("wtFiles")), filesIn,
+    ...(libN ? [el("span", { text: t("wtMedleyTo") }),
+      ...[0, 1, 2].map((k) => el("button", { disabled: smpBusy || recActive(), onclick: () => wtMedleyUpload(k) }, `USR${k + 1}`))] : [])));
+  const cards = dev.smp.slots.map((u, k) => {
     const d = smpDraft[k];
     if (u.zones && !d.files.length) d.drumGrid = !!u.drum;   /* slot on device: draft follows until files are staged */
-    const status = u.zones
-      ? `${u.name || "—"}, ${u.zones} ${t("zones")}, ${u.kib} KiB` + (u.drum ? `, ${t("smpDrumOn")}` : "")
-      : t("empty");
+    const status = u.wt
+      ? `${t("wtInSlot")}: ${u.name || "—"}, ${u.kib} KiB`
+      : u.zones
+        ? `${u.name || "—"}, ${u.zones} ${t("zones")}, ${u.kib} KiB` + (u.drum ? `, ${t("smpDrumOn")}` : "")
+        : t("empty");
     const bar = el("progress", { max: dev.smp.slotKiB, value: u.kib, title: `${u.kib} / ${dev.smp.slotKiB} KiB` });
     const file = el("input", { type: "file", accept: ".wav,audio/wav,audio/x-wav,audio/*", multiple: true, hidden: true });
     file.addEventListener("change", () => { addFiles(k, [...file.files]); file.value = ""; });
@@ -4077,16 +4337,29 @@ function renderSamples() {
     const size = el("span", { class: tooBig ? "bad" : "dim",
       text: d.files.length ? `${kib(bytes)} / ${kib(max)} KiB` + (tooBig ? " " + t("smpTooBig") : "") : "" });
     const prog = el("progress", { max: 1, value: 0, hidden: true });
+    const wd = wtDraft[k];
+    const wfile = el("input", { type: "file", accept: ".wav,audio/wav", hidden: true });
+    wfile.addEventListener("change", () => { const f = wfile.files[0]; wfile.value = ""; if (f) wtPickSlotFile(k, f); });
+    const winfo = wd.built
+      ? `${wd.name || "—"}, ${wd.built.frames} ${t("wtFrames")}, ${kib(wd.built.data.length)} KiB`
+      : u.wt ? `${u.name || "—"}, ${u.kib} KiB` : "";
+    const wrow = el("div", { class: "head" },
+      el("span", { text: t("wtTable") }), el("span", { text: winfo }),
+      el("button", { ic: "symbol_upload", disabled: smpBusy || recActive(), onclick: () => wfile.click() }, t("wtChoose")), wfile,
+      wd.built ? el("button", { ic: "symbol_upload", disabled: smpBusy || recActive(), onclick: () => wtUpload(k) }, t("wtUpload")) : "",
+      wd.built ? el("button", { text: t("wtSaveWav"), disabled: smpBusy || recActive(), onclick: () => wtDownload(k) }) : "",
+      wd.built ? el("button", { text: t("wtClear"), disabled: smpBusy || recActive(),
+        onclick: () => { wtDraft[k] = { built: null, cycles: null, name: "" }; renderSamples(); } }) : "");
     const blk = el("div", { class: "smp", "data-k": k },
       el("div", { class: "head" }, el("b", { text: `USR${k + 1}` }), el("span", { text: status }), bar,
-        el("button", { ic: "symbol_trash", disabled: smpBusy || !u.zones, onclick: () => smpErase(k) }, t("erase"))),
+        el("button", { ic: "symbol_trash", disabled: smpBusy || (!u.zones && !u.wt), onclick: () => smpErase(k) }, t("erase"))),
       el("div", { class: "head" }, el("span", { text: t("smpName") }), name,
         el("label", {}, drum, " ", el("span", { text: t("smpDrumGrid") })),
         el("button", { ic: "symbol_folder_open", disabled: smpBusy || recActive(), onclick: () => file.click() }, t("chooseFiles")), file,
         el("button", { ic: "symbol_upload", disabled: smpBusy || recActive() || !d.files.length || tooBig || !d.name, onclick: () => smpUpload(k, prog) }, t("upload")),
         d.files.length ? el("button", { text: t("clearList"), disabled: smpBusy || recActive(), onclick: () => { d.files = []; renderSamples(); } }) : "",
         size, prog),
-      recRow(k));
+      wrow, recRow(k));
     if (d.files.length) {
       const keys = splitKeys(d.files);
       const tb = el("table", {}, el("tr", {}, el("th", { text: t("file") }), el("th", { text: t("root") }),
@@ -4123,7 +4396,8 @@ function renderSamples() {
       if (!smpBusy && !recActive() && e.dataTransfer.files.length) addFiles(k, [...e.dataTransfer.files]);   /* (the recording sized itself to the slot) */
     });
     return blk;
-  }));
+  });
+  box.replaceChildren(bar, ...cards);
 }
 
 async function smpInfo(d = dev) { d.smp = parse[CMD.SMP_INFO](await sessionRequest(d, req.smpInfo())); }
@@ -4185,6 +4459,90 @@ async function smpErase(k) {
     try { if (session === dev) await smpInfo(session); } catch (e) { /* ignore */ }
     smpBusy = false;
     releaseBusy();
+    renderSamples();
+  }
+}
+
+/* ------------------------------------------------------- wavetable UI --- */
+function wtSlotName() {
+  const f = (wtFolder.length ? wtFolder : wtMedleyFiles)[0];
+  const rel = f && (f.webkitRelativePath || f.name);
+  if (!rel) return "MEDLEY";
+  const dir = rel.includes("/") ? rel.split("/")[0] : "MEDLEY";
+  return dir.replace(/\.[^.]*$/, "");
+}
+
+async function wtPickSlotFile(k, file) {
+  try {
+    const cycles = wtTableCycles(await file.arrayBuffer(), 16);
+    const name = file.name.replace(/\.[^.]*$/, "");
+    wtDraft[k] = { cycles, name, built: wtBuild(cycles, name) };
+  } catch (e) {
+    wtDraft[k] = { built: null, cycles: null, name: "" };
+    sayK("smpFail", e.message);
+  }
+  renderSamples();
+}
+
+async function wtMedleyUpload(k) {
+  const files = wtFolder.length ? wtFolder : wtMedleyFiles;
+  if (!files.length || smpBusy || recActive()) return;
+  try {
+    const ids = wtPick(16, files.length);                  /* a big folder: 16 evenly spaced, not 567 reads */
+    const bufs = await Promise.all(ids.map((i) => files[i].arrayBuffer()));
+    const built = wtBuild(wtMedleyCycles(bufs, 0, 16), wtSlotName());
+    await wtSend(k, built, wtSlotName());
+  } catch (e) {
+    sayK("smpFail", e.message);
+  }
+}
+
+function wtDownload(k) {
+  const d = wtDraft[k];
+  if (!d || !d.cycles) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([wtWav(d.cycles)], { type: "audio/wav" }));
+  a.download = (d.name || "WAVETABLE").replace(/[^\x20-\x7E]/g, "_") + ".wav";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+async function wtUpload(k) {
+  const d = wtDraft[k];
+  if (d && d.built) await wtSend(k, d.built, d.name);
+}
+
+async function wtSend(k, built, label) {
+  if (!dev || !confirm(t("confirmUpload").replace("{n}", k + 1))) return;
+  const session = dev, releaseBusy = beginBusy();
+  smpBusy = true;
+  renderSamples();
+  const prog = $("smpslots").querySelector(`[data-k="${k}"] progress[max="1"]`);
+  if (prog) prog.hidden = false;
+  let ok = false;
+  try {
+    const t0 = performance.now();
+    let r = parse[CMD.SMP_BEGIN](await rq(req.smpBegin(k), { timeout: 1000, retries: 0 }));
+    if (r.rc) throw new Error("begin rc " + r.rc);
+    for (let off = 0; off < built.data.length; off += 256) {
+      const a = SMP.DATA_OFF + off;
+      const w = parse[CMD.SMP_WRITE](await rq(req.smpWrite(k, a, built.data.subarray(off, off + 256)), { timeout: 1000, retries: 1 }));
+      if (w.rc) throw new Error(`write at 0x${a.toString(16)} rc ${w.rc}`);
+      if (prog) prog.value = Math.min(1, (off + 256) / built.data.length);
+      if ((off & 2047) === 0 || off + 256 >= built.data.length)
+        sayK("smpUploading", `${k + 1}  ${kib(Math.min(built.data.length, off + 256))} / ${kib(built.data.length)} KiB`);
+    }
+    r = parse[CMD.SMP_END](await rq(req.smpEnd(k, built.hdr), { timeout: 2000, retries: 0 }));
+    if (r.rc) throw new Error(`end rc ${r.rc} (${SMP_RC[r.rc] || "?"})`);
+    ok = true;
+    sayK("smpDone", `${k + 1}${label ? " " + label : ""}  ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+  } catch (e) {
+    if (e.message !== "closed") sayK("smpFail", e.message);
+  } finally {
+    try { if (session === dev) await smpInfo(session); } catch (e) { /* shown by the next action */ }
+    smpBusy = false;
+    releaseBusy();
+    if (ok) wtDraft[k] = { built: null, cycles: null, name: "" };
     renderSamples();
   }
 }

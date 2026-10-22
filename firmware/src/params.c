@@ -88,7 +88,7 @@ static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN",
                                      "PRAT", "PDEP", "PFBK", "PMIX", "FRAT", "FDEP", "LMIX", "HRAT", "HDEP",
                                      "DTIME", "DFBK", "DCOL", "RSIZE", "RDAMP"};
 static const char *const N_ENGNAME[] = {"ANALOG", FELUCCA_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS",
-                                             "DRUM", "NOISE", "FM6", "-",
+                                             "DRUM", "NOISE", "FM6", "-", "WAVETABLE",
 };
 
 #define PD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
@@ -250,6 +250,24 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
     if (t->p[P_ESYNC] && (id == P_ATK || id == P_DEC || id == P_REL))   /* ENV SYNC: note values (1.5, #175) */
         return &ESYNC_DESC[id == P_ATK ? 0 : id == P_DEC ? 1 : 2];
     return &TP[id];
+}
+
+/* The name of an engine parameter in a list (MOD DST, AUTOMATION, a step lock): the EDIT cards are short
+ * (WAVE, POS, LEVEL) because the page title says OSC A / OSC B, but the lists have no page context, so
+ * WAVETABLE's two oscillators are named here. full = 0 keeps the MOD card's narrow column, 1 gives the
+ * longer word for the picker and the automation rows. Other engines' labels go through unchanged. */
+static const char *param_list_name(const track_t *t, uint32_t id, int full)
+{
+    static const char *const SHORT[] = {"WAVE A", "POS A", "WAVE B", "POS B", "B LEVEL"};
+    static const char *const FULL[] = {"WAVE A", "POSITION A", "WAVE B", "POSITION B", "B LEVEL"};
+    if (id >= P_E0 && id <= P_E7 && ENGINES[eng_idx(t->eng_req)] == &ENG_WT) {
+        uint32_t k = id - P_E0;
+        if (k == 0u || k == 1u || k == 4u || k == 5u || k == 6u) {
+            uint32_t s = k == 0u ? 0u : k == 1u ? 1u : k == 4u ? 2u : k == 5u ? 3u : 4u;
+            return full ? FULL[s] : SHORT[s];
+        }
+    }
+    return track_desc(t, id)->label;
 }
 
 /* the descriptor of parameter id for engine e without the engine's desc hook (the device display

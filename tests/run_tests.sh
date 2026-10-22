@@ -153,6 +153,9 @@
 #                   operator envelopes (stages, rates, the voice ending), bit-stable notes, a click-free retrigger, no DC /
 #                   clipping over the factory patches, the macros' directions, PTCH, pack / unpack and the SysEx
 #                   layouts, the 6-voice cap, the cost per voice; demos in build/fm6_demo/.
+# WAVETABLE (tests/wt_test.c): the engine (src/eng_wt.c): the two factory tables (16 frames, 512-sample base) and the
+#                   mip levels, every preset at C2 / C4, no DC / clipping, a note from silence the same twice, A-POS /
+#                   FDBK / B>A / LEVEL / RATIO, USR1..USR3's sine fallback, the cost per voice; demos in build/wt_demo/.
 # ROBUST (tests/robust_test.c): damaged or crafted stored data and editor requests: a SLICE scan bounded by the slot,
 #                   a slot that fails its check leaves no zone, engine numbers past the last refused, a retained older
 #                   RAM project bounded, user preset patterns inside their fields, malformed requests never stop PLAY.
@@ -703,6 +706,12 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "FM6: algorithms, envelopes, retrigger, DC, clipping, macros, patch formats, voices, cost, demos" "$OUT/fm6_test" build/fm6_demo
     }
     unit u_fm6
+    u_wt_test() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/wt_test" tests/wt_test.c -lm
+        mkdir -p build/wt_demo
+        run "WAVETABLE: table/mips, FDBK, B>A, presets, DC, clipping, retrigger, cost, demos" "$OUT/wt_test" build/wt_demo
+    }
+    unit u_wt_test
     note "== skip SLICE (engine retired)"
     u_sample() {
         # SAMPLE's PIANO (1.5: as 1.1.5); CR78 ROM omitted; 1.2's PIANO HD in a user slot

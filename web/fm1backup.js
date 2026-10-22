@@ -78,15 +78,24 @@ export function readBackup(file) {
     const bytes = Uint8Array.from(atob(o.data), (c) => c.charCodeAt(0));
     if (bytes.length !== o.size || bkCrc(bytes) !== o.crc) throw new Error("Backup checksum mismatch");
     if (o.id >= 32 && o.size) {
-      if (o.size < 512) throw new Error("Short sample backup");
-      const view = new DataView(bytes.buffer), length = view.getUint32(16, true), count = bytes[6];
-      if (view.getUint32(0, true) !== 0x504d5346 || view.getUint16(4, true) !== 1 || !count || count > 16 ||
-          length !== o.size - 512 || bkCrc(bytes.subarray(512)) !== view.getUint32(20, true)) throw new Error("Invalid sample backup");
-      for (let z = 0; z < count; z++) {
-        const off = 32 + z * 28, start = view.getUint32(off,true), n = view.getUint32(off+4,true),
-          ls = view.getUint32(off+8,true), le = view.getUint32(off+12,true), rate = view.getUint32(off+16,true);
-        if (!n || start > length || Math.ceil(n/2) > length - start || n > 163840 || ls > le || le >= n ||
-            !rate || rate > 262144 || bytes[off+24] > 88 || bytes[off+25] > bytes[off+26]) throw new Error("Invalid sample zone");
+      if (o.size < 512) throw new Error("Short slot backup");
+      const view = new DataView(bytes.buffer);
+      const magic = view.getUint32(0, true);
+      if (magic === 0x31545746) {                    /* FWT1: a wavetable (eng_sample.c smp_wt_ok) */
+        const frames = view.getUint16(6, true), base = bytes[8], mip = bytes[9], length = view.getUint32(20, true);
+        const stride = base >= 4 && base <= 12 && mip < base ? (2 ** (base + 1)) - (2 ** mip) : -1;
+        if (!frames || frames > 64 || stride < 0 || length !== frames * stride * 2 || length !== o.size - 512 ||
+            bkCrc(bytes.subarray(512)) !== view.getUint32(24, true)) throw new Error("Invalid wavetable backup");
+      } else {
+        const length = view.getUint32(16, true), count = bytes[6];
+        if (magic !== 0x504d5346 || view.getUint16(4, true) !== 1 || !count || count > 16 ||
+            length !== o.size - 512 || bkCrc(bytes.subarray(512)) !== view.getUint32(20, true)) throw new Error("Invalid sample backup");
+        for (let z = 0; z < count; z++) {
+          const off = 32 + z * 28, start = view.getUint32(off,true), n = view.getUint32(off+4,true),
+            ls = view.getUint32(off+8,true), le = view.getUint32(off+12,true), rate = view.getUint32(off+16,true);
+          if (!n || start > length || Math.ceil(n/2) > length - start || n > 163840 || ls > le || le >= n ||
+              !rate || rate > 262144 || bytes[off+24] > 88 || bytes[off+25] > bytes[off+26]) throw new Error("Invalid sample zone");
+        }
       }
     }
     return { ...o, bytes };

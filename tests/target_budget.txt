@@ -12,6 +12,9 @@ wheel_block 86
 phys_render 61
 drum_render 83
 fm6_render 768
+wt_render 135
+wt_read 0
+wt_mip_level 4
 px_modal_block 111
 px_modal_run 192
 px_memb_block 106
@@ -20,8 +23,8 @@ px_string_run 264
 px_symp_run 252
 dx_run 375
 slicer_track 0
-fm1_alnk0_irq 12855
-fm1_timer5_irq 33039
+fm1_alnk0_irq 13940
+fm1_timer5_irq 33533
 click_render 30
 mod_begin 250
 mod_voice 30
