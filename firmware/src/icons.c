@@ -270,6 +270,7 @@ static uint32_t engine_icon(const char *name)
         {"DRUM", ICON_DRUM},
         {"NOISE", ICON_NOISE},
         {"FM6", ICON_MOD},                    /* (symbol_modular: six operators patched; a glyph of its own wanted) */
+        {"WAVETABLE", ICON_WAVE},
     };
     uint32_t i;
     for (i = 0; i < sizeof M / sizeof M[0]; i++)

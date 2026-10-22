@@ -1152,7 +1152,7 @@ static int learn_protocol(void)
     int bad = 0, ok;
     uint32_t n, i;
     reset();
-    memset(favorites.factory[14], 0, 32);
+    memset(favorites.factory[13], 0, 32);
     n = request(ED_LEARN_GET, 0, 0);
     ok = n == 6u + 1u + 4u * ML_N && host_wire[4] == ED_LEARN_GET && host_wire[5] == ML_N;
     for (i = 0; i < ML_N; i++)
@@ -1191,7 +1191,7 @@ static int learn_protocol(void)
         ok = learn_entry(0, 0, 0, 0, 0) && learn_entry(1, 1, 20, 1, P_PAN) && ml_count() == ML_N - 1u;
         ok &= request(ED_LEARN_SET, odd, 1) && host_wire[5] == 1u;
         request(ED_LEARN_SET, all, 1);
-        ok &= host_wire[5] != 1u && host_wire[5] != 5u && !ml_count() && !favorites.factory[14][0] && !memcmp(favorites.factory[14], favorites.factory[14] + 1, 31);
+        ok &= host_wire[5] != 1u && host_wire[5] != 5u && !ml_count() && !favorites.factory[13][0] && !memcmp(favorites.factory[13], favorites.factory[13] + 1, 31);
         ok &= request(ED_LEARN_GET, odd, 1) == 0u;          /* (GET takes no arguments) */
         bad += check("LEARN_SET op 1 clears one CC, op 2 all; unknown ops rc 1; GET with arguments: no reply", ok);
     }
