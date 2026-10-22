@@ -404,13 +404,14 @@ static __attribute__((noinline)) void mod_midi(track_t *t, uint32_t st, uint32_t
     }
 }
 
-/* the name of destination value v for track t (UI, <= 5 characters): E1..E8 by the engine's labels (of the
- * engine the UI shows), "E5" for a parameter the engine does not use */
+/* the name of destination value v for track t (UI, <= 6 characters): E1..E8 by the engine's labels (of the
+ * engine the UI shows; WAVETABLE's cards say WAVE / POS, its list names WAVE A / POSITION A), "E5" for a
+ * parameter the engine does not use */
 static const char *mod_dst_name(const track_t *t, int32_t v)
 {
     v = clamp(v, 0, MD_N - 1);
     if (MD_ENGINE(v)) {
-        const char *l = track_desc(t, P_E0 + (uint32_t)(v - MD_E1))->label;
+        const char *l = param_list_name(t, P_E0 + (uint32_t)(v - MD_E1), 0);
         if (l && l[0] && l[0] != '-')
             return l;
     }

@@ -153,15 +153,22 @@ static void engine(void)
     const engine_t *e = &ENG_WT;
     uint32_t i, labels = 1;
     char what[160];
+    host_tracks_init();
+    trk[0].eng_req = (uint8_t)ENGI_WT;
     for (i = 0; i < 8u; i++)
         labels &= e->edit[i].label && e->edit[i].label[0];
     snprintf(what, sizeof what, "engine: index %u (ENGI_WT %u), \"%s\", pages \"%s\" / \"%s\"", eng_wt(), (uint32_t)ENGI_WT,
              e->name, e->page_title[0], e->page_title[1]);
     check(what, eng_wt() == 14u && eng_wt() == ENGI_WT && ENGINES[eng_wt()] == &ENG_WT && !strcmp(e->name, "WAVETABLE") &&
           !strcmp(e->page_title[0], "OSC A") && !strcmp(e->page_title[1], "OSC B"));
-    snprintf(what, sizeof what, "engine: 8 EDIT parameters, %u presets, knob A-POS FDBK B>A B-LVL", (uint32_t)e->npresets);
+    snprintf(what, sizeof what, "engine: 8 EDIT parameters, %u presets, knob POS FDBK B>A B-LVL", (uint32_t)e->npresets);
     check(what, labels && e->npresets == 8u && e->knob[0] == P_E1 && e->knob[1] == P_E2 && e->knob[2] == P_E3 &&
           e->knob[3] == P_E6);
+    check("names: cards WAVE / POS, MOD card WAVE A / POS B",
+          !strcmp(e->edit[0].label, "WAVE") && !strcmp(e->edit[1].label, "POS") &&
+          !strcmp(e->edit[4].label, "WAVE") && !strcmp(e->edit[5].label, "POS") &&
+          !strcmp(mod_dst_name(&trk[0], MD_E1), "WAVE A") && !strcmp(mod_dst_name(&trk[0], MD_E1 + 1), "POS A") &&
+          !strcmp(mod_dst_name(&trk[0], MD_E1 + 4), "WAVE B") && !strcmp(mod_dst_name(&trk[0], MD_E1 + 5), "POS B"));
 }
 
 /* ---------------------------------------------------------- tables --- */
@@ -368,6 +375,60 @@ static void controls(void)
     }
 }
 
+/* the EDIT graph's preview: A's processed wave and B's raw wave; FM, feedback and ratio must change A */
+static double pv_diff(const int32_t *a, const int32_t *b)
+{
+    double s = 0;
+    uint32_t i;
+    for (i = 0; i < WT_PREVIEW_N; i++)
+        s += fabs((double)(a[i] - b[i]));
+    return s / WT_PREVIEW_N;
+}
+
+static void preview_math(void)
+{
+    int32_t a[WT_PREVIEW_N], b[WT_PREVIEW_N], base[WT_PREVIEW_N];
+    uint32_t i, peak = 0;
+    char what[160];
+    host_tracks_init();
+    trk[0].eng_req = (uint8_t)ENGI_WT;
+    trk[0].p[P_E0] = 0;
+    trk[0].p[P_E1] = 0;
+    trk[0].p[P_E2] = 0;
+    trk[0].p[P_E3] = 0;
+    trk[0].p[P_E4] = 0;
+    trk[0].p[P_E5] = 0;
+    trk[0].p[P_E6] = 0;
+    trk[0].p[P_E7] = 3;                                /* x1 */
+    wt_preview(&trk[0], a, b, WT_PREVIEW_N);
+    for (i = 0; i < WT_PREVIEW_N; i++) {
+        peak = (uint32_t)(fabs((double)a[i]) > peak ? fabs((double)a[i]) : peak);
+        peak = (uint32_t)(fabs((double)b[i]) > peak ? fabs((double)b[i]) : peak);
+        base[i] = a[i];
+    }
+    snprintf(what, sizeof what, "preview: A and B sound at x1 (peak %u)", peak);
+    check(what, peak > 100u);
+    trk[0].p[P_E3] = 64;
+    wt_preview(&trk[0], a, b, WT_PREVIEW_N);
+    snprintf(what, sizeof what, "preview: B>A changes A (mean diff %.0f)", pv_diff(base, a));
+    check(what, pv_diff(base, a) > 40.0);
+    for (i = 0; i < WT_PREVIEW_N; i++) base[i] = a[i];
+    trk[0].p[P_E7] = 7;                                /* x3 */
+    wt_preview(&trk[0], a, b, WT_PREVIEW_N);
+    snprintf(what, sizeof what, "preview: RATIO changes the FM result in A (mean diff %.0f)", pv_diff(base, a));
+    check(what, pv_diff(base, a) > 40.0);
+    for (i = 0; i < WT_PREVIEW_N; i++) base[i] = a[i];
+    trk[0].p[P_E2] = 80;
+    wt_preview(&trk[0], a, b, WT_PREVIEW_N);
+    snprintf(what, sizeof what, "preview: FDBK changes A (mean diff %.0f)", pv_diff(base, a));
+    check(what, pv_diff(base, a) > 40.0);
+    for (i = 0; i < WT_PREVIEW_N; i++) base[i] = a[i];
+    trk[0].p[P_E1] = 64;
+    wt_preview(&trk[0], a, b, WT_PREVIEW_N);
+    snprintf(what, sizeof what, "preview: POS changes A (mean diff %.0f)", pv_diff(base, a));
+    check(what, pv_diff(base, a) > 40.0);
+}
+
 /* ---------------------------------------------------------------- cost --- */
 static uint64_t instr_now(void)
 {
@@ -483,6 +544,7 @@ int main(int argc, char **argv)
     presets();
     determinism();
     controls();
+    preview_math();
     if (!getenv("NOCOST"))
         cost();
     if (argc > 1)
