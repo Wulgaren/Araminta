@@ -130,7 +130,7 @@ every load converts. The editor remaps the same way (`fromRetire`).
 **WAVETABLE (engine 14, pages OSC A / OSC B)** is two wavetable oscillators. Its eight engine
 parameters are `E1` WAVE (OSC A table; enum BASIC, SPECTRAL, USR1, USR2, USR3; default BASIC), `E2` POS (OSC A frame;
 0..127, default 0), `E3` FDBK (0..127, 0), `E4` B>A (0..127, 0), `E5` WAVE (OSC B table; the same enum,
-default BASIC), `E6` POS (OSC B frame; 0..127, 0), `E7` B-LVL (0..127, 0) and `E8` RATIO (enum 0.25, 0.5, 0.75, 1, 1.5, 2, 2.5,
+default BASIC), `E6` POS (OSC B frame; 0..127, 0), `E7` LEVEL (OSC B level in the mix; 0..127, 0) and `E8` RATIO (enum 0.25, 0.5, 0.75, 1, 1.5, 2, 2.5,
 3, 4, 5, 6, 8, 12, 16; default 1). BASIC and SPECTRAL are factory tables (16 frames × 512 samples);
 USR1..USR3 are user slots that share the sample slots: each holds one complete table, by default 16 frames
 × 1024 samples with a mip chain (the uploader may use any layout that fits, see "User wavetable slot").

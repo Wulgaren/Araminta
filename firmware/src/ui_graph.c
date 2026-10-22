@@ -2301,108 +2301,25 @@ static void draw_generation_map(void)
     }
 }
 
-/* WAVETABLE's EDIT panel: a filmstrip of every frame of both tables, the focused oscillator's current
- * frame large, and A's processed output (FM, feedback, ratio) with B faint. When RATIO on the OSC B page
- * is the hot knob, A is the focus: ratio changes A's FM, not B's own wave. */
-static void wt_film(const track_t *t, uint32_t osc, int32_t y0, int32_t h, int focus)
-{
-    wt_view_t v;
-    uint32_t frames, f, cur, pos, i;
-    int32_t cw;
-    char b[16];
-    const int32_t x0 = 24, w = 206;
-    wt_resolve(t->p[osc ? P_E4 : P_E0], &v);
-    frames = v.data ? v.frames : 1u;
-    pos = (uint32_t)clamp(t->p[osc ? P_E5 : P_E1], 0, 127);
-    cur = frames > 1u ? pos * (frames - 1u) / 127u : 0u;
-    cw = w / (int32_t)frames;
-    for (f = 0; f < frames; f++) {
-        int32_t cx = x0 + (int32_t)f * cw;
-        uint16_t col = f == cur ? (focus ? T_ACCENT : T_MID) : (focus ? T_MID : T_DIM);
-        int32_t px = 0, py = 0;
-        for (i = 0; i < 9u; i++) {                   /* 9 points, 3 px cell gaps: 16 separate frames */
-            uint32_t ph = (uint32_t)(((uint64_t)i << 32) / 9u);
-            int32_t sm = v.data ? wt_read(&v, ph, 0, f, f, 0) : osc_sine(ph);
-            int32_t x = cx + 2 + (int32_t)i * (cw - 4) / 8;
-            int32_t y = y0 + h / 2 - sm * (h / 2 - 2) / 32768;
-            if (i)
-                cv_line(px, py, x, y, col);
-            px = x;
-            py = y;
-        }
-        if (f == cur)                                /* the POS cell's mark, under the strip */
-            cv_rect(cx + 1, y0 + h - 1, cw - 2, 2, T_ACCENT);
-        cv_line(cx, y0, cx, y0 + 2, T_RAISE);        /* frame boundaries: the strip reads as 16 cells */
-    }
-    str_cpy(b, osc ? "B" : "A", sizeof b);
-    cv_text_on(10, y0 + (h - 12) / 2, &AF_S, b, focus ? T_ACCENT : T_MID, T_SURF);
-}
-
-/* the focused oscillator's current frame, large: the raw table wave against the processed output below */
-static void wt_frame(const track_t *t, uint32_t osc, int32_t y0, int32_t h)
-{
-    wt_view_t v;
-    uint32_t frames, cur, pos, i;
-    int32_t px = 0, py = 0;
-    char b[16];
-    wt_resolve(t->p[osc ? P_E4 : P_E0], &v);
-    frames = v.data ? v.frames : 1u;
-    pos = (uint32_t)clamp(t->p[osc ? P_E5 : P_E1], 0, 127);
-    cur = frames > 1u ? pos * (frames - 1u) / 127u : 0u;
-    for (i = 0; i < 220u; i++) {
-        uint32_t ph = (uint32_t)(((uint64_t)i << 32) / 220u);
-        int32_t sm = v.data ? wt_read(&v, ph, 0, cur, cur, 0) : osc_sine(ph);
-        int32_t x = 60 + (int32_t)i * 169 / 219;
-        int32_t y = y0 + h / 2 - sm * (h / 2 - 1) / 32768;
-        if (i)
-            cv_line(px, py, x, y, T_THEME);
-        px = x;
-        py = y;
-    }
-    str_cpy(b, osc ? "B " : "A ", sizeof b);
-    fmt_int(b + 2, (int32_t)(cur + 1u));
-    str_cpy(b + str_len(b), "/", sizeof b - str_len(b));
-    fmt_int(b + str_len(b), (int32_t)frames);
-    cv_text_on(10, y0 + (h - 12) / 2, &AF_S, b, T_THEME, T_SURF);
-}
-
-static void wt_preview_draw(const track_t *t, int af)
+/* WAVETABLE's EDIT panel: the current output, two cycles. The tables and POS shape A, FDBK / B>A /
+ * RATIO act on A, and LEVEL brings B into the mix, so every knob changes this trace. */
+static void graph_wt(const track_t *t)
 {
     static int32_t a[WT_PREVIEW_N], b[WT_PREVIEW_N] __attribute__((section(".pool")));
-    int32_t h = (int32_t)cv_h, y0 = h >= 90 ? h - 46 : 4, y1 = h - 6;
-    int32_t mid = (y0 + y1) / 2, amp = (y1 - y0) / 2 - 2, i;
-    int32_t px = 0, pya = 0, pyb = 0;
+    int32_t h = (int32_t)cv_h, mid = h / 2, amp = h / 2 - (h >= 90 ? 6 : 3), lvl, i;
+    int32_t px = 0, py = 0;
+    lvl = clamp(t->p[P_E6], 0, 127) * 258;
     wt_preview(t, a, b, WT_PREVIEW_N);
-    if (y0 >= 12)                                    /* (the MENU > LARGE strip has no room above it) */
-        cv_text_on(10, y0 - 9, &AF_S, "OUT", T_MID, T_SURF);
     cv_rect(PANEL_X0, mid, PANEL_W, 1, T_RAISE);
     for (i = 0; i < (int32_t)WT_PREVIEW_N; i++) {
         int32_t x = PANEL_X0 + i * (PANEL_W - 1) / ((int32_t)WT_PREVIEW_N - 1);
-        int32_t ya = mid - a[i] * amp / 32768;
-        int32_t yb = mid - b[i] * amp / 32768;
-        if (i) {
-            cv_line_t(px, pya, x, ya, af ? T_ACCENT : T_MID, 2);
-            cv_line_t(px, pyb, x, yb, af ? T_MID : T_ACCENT, 1);
-        }
+        int32_t v = clamp(a[i] + ((b[i] * lvl) >> 15), -32768, 32767);
+        int32_t y = mid - soft_knee(v, 24000) * amp / 32768;
+        if (i)
+            cv_line_t(px, py, x, y, T_ACCENT, 2);
         px = x;
-        pya = ya;
-        pyb = yb;
+        py = y;
     }
-}
-
-static void graph_wt(const track_t *t, uint32_t osc)
-{
-    int32_t h = (int32_t)cv_h;
-    uint32_t hot = ui.hot_t ? cur_page()->id[ui.hot_col & 3u] : 0u;
-    int af = osc == 0u || (osc == 1u && hot == P_E7);   /* RATIO on OSC B: A is the one it changes */
-    if (h < 90) {                                       /* MENU > LARGE's strip */
-        wt_preview_draw(t, af);
-        return;
-    }
-    wt_film(t, 0, 4, 14, af);
-    wt_film(t, 1, 22, 14, !af);
-    wt_frame(t, af ? 0u : 1u, 44, 22);
-    wt_preview_draw(t, af);
 }
 
 static void draw_graph(void)
@@ -2530,7 +2447,7 @@ static void draw_graph(void)
         default:
             if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WT) {
                 cv_oy = 0;
-                graph_wt(t, pg->id[0] == P_E4 ? 1u : 0u);
+                graph_wt(t);
             }
             else if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL) graph_wheel(t, c);
             else if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE && sample_wave.ready) graph_sample(c);
