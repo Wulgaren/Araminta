@@ -1683,6 +1683,15 @@ static int test_categories(void)
     bad += check("NAME: PROJECT's KNOB 3 types a random name (adjective + noun, at most 12), another one each detent",
                  ok && !k && !str_eq(s1, nm.s) && nm.len <= 12u && strchr(nm.s, ' '));
     name_close();
+    {   /* the WAVETABLE names in the lists: the cards are short, the lists name the oscillator */
+        char wtn[16];
+        set_engine_of(TSEL, (uint32_t)ENGI_WT);
+        pk_mdst_name(TSEL, MD_E1 + 1u, wtn);
+        ok = str_eq(wtn, "POSITION A");
+        ev_name(TSEL, P_E4, wtn);
+        ok &= str_eq(wtn, "WAVE B");
+        bad += check("WAVETABLE names: MOD picker POSITION A, AUTOMATION WAVE B", ok);
+    }
     memset(up_bank, 0, sizeof up_bank);
     memset(&favorites, 0, sizeof favorites);
     return bad;
@@ -2366,7 +2375,7 @@ static void screen_save(const char *dir, const char *name)
     snprintf(path, sizeof path, "%s/%s.ppm", dir, name);
     f = fopen(path, "wb");
     if (!f) return;
-    ui.msg_t = 0; ui.hot_t = 0; ui.force = 1;
+    ui.msg_t = 0; ui.force = 1;
     ui_draw();
     fprintf(f, "P6\n240 240\n255\n");
     for (i = 0; i < 240u * 240u; i++) {
@@ -2392,6 +2401,22 @@ static void chain_screens(const char *dir)
     chain_prepare(); events_block(32);
     screen_save(dir, "song-playing");
     seq_stop();
+    /* WAVETABLE's EDIT graph: A and B frame strips, the current frame, the output trace, RATIO hot on B */
+    ui_power_on();
+    set_engine_of(TSEL, (uint32_t)ENGI_WT);
+    go_title("EDIT 1");
+    ui.force = 1;
+    frame();
+    screen_save(dir, "wt-edit-a");
+    go_title("EDIT 2");
+    ui.force = 1;
+    frame();
+    screen_save(dir, "wt-edit-b");
+    ui.hot_t = 40;
+    ui.hot_col = 3;
+    ui.force = 1;
+    frame();
+    screen_save(dir, "wt-edit-b-ratio");
 }
 
 static int test_chain(void)
@@ -9101,6 +9126,34 @@ static int test_fx_sections(void)
     return bad;
 }
 
+static int test_wt_graph(void)
+{
+    int bad = 0;
+    uint32_t i, p1 = NPAGES, p2 = NPAGES;
+    uint32_t s0, s1, s2, sh;
+    ui_power_on();
+    set_engine_of(TSEL, (uint32_t)ENGI_WT);
+    for (i = 0; i < NPAGES; i++) {
+        if (str_eq(PAGES[i].title, "EDIT 1")) p1 = i;
+        if (str_eq(PAGES[i].title, "EDIT 2")) p2 = i;
+    }
+    if (p1 < NPAGES) { ui.home = 0; ui.page = (uint8_t)p1; page_entered(); frame(); }
+    s0 = graph_signature();
+    TSEL->p[P_E1] = 64u;
+    if (p1 < NPAGES) { ui.force = 1; frame(); }
+    s1 = graph_signature();
+    if (p2 < NPAGES) { ui.home = 0; ui.page = (uint8_t)p2; page_entered(); frame(); }
+    TSEL->p[P_E7] = 5u;
+    if (p2 < NPAGES) { ui.force = 1; frame(); }
+    s2 = graph_signature();
+    ui.hot_t = 40; ui.hot_col = 3;                     /* RATIO, EDIT 2's KNOB 4: the graph highlights A */
+    if (p2 < NPAGES) { ui.force = 1; frame(); }
+    sh = graph_signature();
+    bad += check("WAVETABLE graph: EDIT 1/2 draw, POS / RATIO redraw, RATIO highlights A",
+                 p1 < NPAGES && p2 < NPAGES && s0 != s1 && s1 != s2 && s2 != sh);
+    return bad;
+}
+
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -9200,6 +9253,7 @@ int main(void)
     bad += test_no_flash();
     bad += test_live_graph_rate();
     bad += test_strip_cache();
+    bad += test_wt_graph();
 #if FELUCCA_FM4
     bad += test_fm_charts();                        /* (DIGITAL's charts: built with FELUCCA_FM4=1 only) */
 #else
