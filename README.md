@@ -53,7 +53,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
 ## Features
 
-- **Twelve engines** (below), each with its own factory presets; every factory sound has a category (BASS, LEAD,
+- **Thirteen engines** (below), each with its own factory presets; every factory sound has a category (BASS, LEAD,
   PAD, PLUCK, KEYS, DRUM, FX, OTHER) to browse by
 - **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM / DRUM-X engine);
   8 voices shared between them. ALGORITHM selects the track on every page
@@ -283,8 +283,8 @@ In the order the device lists them:
   voice of the bank the web editor sent (B1-B32)
 - **PHASE**: phase distortion (ported from CrispyZebra)
 - **LOFI**: chiptune; pulse, triangle, saw, noise and a 4-bit wave RAM, stepped envelope, sweep, arpeggio
-- **SAMPLE**: multisampled instruments (PIANO, FLUTE, SAX) and 3 user sample slots; a USR slot can be tagged
-  **drum kit grid** in the web editor so SEQ uses the drum grid (zones mapped by hand)
+- **SAMPLE**: multisampled instruments (PIANO, FLUTE, SAX) and 3 user sample slots (shared with WAVETABLE); a USR
+  slot can be tagged **drum kit grid** in the web editor so SEQ uses the drum grid (zones mapped by hand)
 - **VOICE**: formant oscillator, sung vowels
 - **TRIO**: 3 oscillators with ring modulation and sync, multimode filter
 - **WHEEL**: tonewheel-style organ; drawbar registrations, percussion, key click, drive, rotary speaker
@@ -293,8 +293,12 @@ In the order the device lists them:
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
 - **DRUM**: DRUM-X, an 8-lane morphable kit on the General MIDI key map (JIANT port). EDIT sections
   **Sound** (MRPH / TUNE / TONE / DECY), **Kit** (SOUND: lane A/B plus pitch env; SOUND 2: DCAY / NOIS / COLR / MODE)
-  and **Lanes**. Kit and mute persist in FUN15 projects (FUN10 opens with the factory kit). Old Felucca KIT values
+  and **Lanes**. Kit and mute persist in FUN16 projects (FUN10 opens with the factory kit). Old Felucca KIT values
   still play as DRUM-X. SLICE is retired; old stores load as DRUM
+- **WAVETABLE**: two wavetable oscillators, A and B, each morphing through 16 frames of a mip-mapped table; B
+  phase-modulates A (B>A) and can also be heard through B-LVL at an exact RATIO, and A takes phase feedback
+  (FDBK). BASIC and SPECTRAL are factory tables, plus USR1..USR3: each holds one complete wavetable in a
+  sample slot, loaded from a Serum `.wav` or a folder of single cycles in the web editor
 
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
 as FM6 sounds converted from them. The SAMPLE engine's PERC kit was removed in 1.0.2: sounds and
