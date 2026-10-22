@@ -506,7 +506,6 @@ typedef struct track {
     int32_t lfo_fade;            /* Q15 ramp after note-on */
     uint32_t lfo_rnd;
     int16_t lfo_prev;            /* the S&H value of the cycle before (mod.c SLEW glides from it to lfo_rnd's) */
-    int16_t lfo_sm;              /* WAVE S&H with SMOOTH on: the smoothed value (voice.c track_lfo_end) */
     /* keyboard / arp input: held notes in press order */
     uint8_t held[16];
     uint8_t nheld;
@@ -570,7 +569,9 @@ typedef struct track {
     uint8_t scl_stash_ok;        /* 1: scl_stash holds values from before a lock overwrite */
     uint8_t fx_sl_pos;           /* EFFECTS INS_SLCR list slot 0..8; RAM until FUN14 (default 8) */
     generation_t generation;
-    uint8_t rsv_sz[3];           /* sizeof(track_t) a multiple of 16 */
+    int16_t lfo_sm;              /* WAVE S&H with SMOOTH on (voice.c track_lfo_end); in rsv_sz's pad, so the
+                                  * fields above keep their offsets (the ISR's code layout depends on them) */
+    uint8_t rsv_sz[1];           /* sizeof(track_t) a multiple of 16 */
     int16_t armp, aholdp;        /* P_AMODE / P_AHOLD as last seen by the ISR */
     int16_t ahold_sv;            /* HOLD before DRONE forced it on (restored on leave) */
     /* engine switch (voice.c engine_block): the old engine's voices fade out, then it switches */
