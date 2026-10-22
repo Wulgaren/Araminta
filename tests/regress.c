@@ -163,6 +163,22 @@ static void phrase(track_t *t, uint32_t base)
     finish();
 }
 
+/* a one-shot drum kit: its 8 lanes, one after another (the preset phrase's C4 is outside a kit's zones) */
+static void phrase_kit(track_t *t)
+{
+    static const uint8_t K[8] = {36, 38, 39, 42, 46, 45, 37, 56};
+    uint32_t i;
+    for (i = 0; i < 8u; i++) {
+        input_on(t, K[i], 100);
+        run_to(at(0.08 + 0.10 * i));
+        input_off(t, K[i]);
+        run_to(at(0.10 + 0.10 * i));
+    }
+    rel_at = fpos;
+    dc_end = fpos + FS / 2u;
+    finish();
+}
+
 /* ------------------------------------------------------------- jobs --- */
 enum { J_PRESET, J_MODE, J_SENDS, J_DRUMS, J_SONG, J_CPU, J_CHECK, J_SLICER };
 typedef struct {
@@ -179,7 +195,10 @@ static void job_preset(const job_t *j)
     track_t *t = &trk[0];
     host_tracks_init();
     host_preset(t, j->e, j->pi);
-    phrase(t, 60);
+    if (j->e == ENGI_SAMPLE && j->pi == ENGINES[ENGI_SAMPLE]->npresets - 1u)
+        phrase_kit(t);
+    else
+        phrase(t, 60);
 }
 
 static void job_mode(const job_t *j)            /* arg: the voice mode, ARP off, glide on for MONO / LEGATO */
