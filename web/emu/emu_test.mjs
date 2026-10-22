@@ -76,11 +76,13 @@ a.ex.web_midi(0x80, 64, 0);
 a.render(300);
 check(`a MIDI note in (USB-MIDI's queue) sounds (peak ${a.peak.toFixed(3)})`, a.peak > 0.01);
 // ---- CR78 factory kit: the SEQ kick lane must play its sample (not the missing-sample sine)
-const cr = await device(null);
-cr.render(1000);
-cr.ex.web_test_cr78();
-cr.render(1000);
-check(`CR78 factory kit: SEQ kick lane sounds (peak ${cr.peak.toFixed(3)})`, cr.peak > 0.01);
+for (const mode of [0, 1]) {
+  const cr = await device(null);
+  cr.render(1000);
+  cr.ex.web_test_cr78(mode);
+  cr.render(1000);
+  check(`CR78 factory kit: SEQ kick lane sounds (${mode ? "preset" : "SET"}, peak ${cr.peak.toFixed(3)})`, cr.peak > 0.01);
+}
 
 const draws = a.ex.web_screen_draws();
 a.turn(EN.K1, 3);
