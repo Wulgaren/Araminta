@@ -159,10 +159,12 @@ def table_frames(path, pick=None):
 
 
 def medley_frames(paths, pos=0, pick=None):
-    """one cycle (frame `pos`) from each file -> up to 16 cycles, for one table"""
+    """one cycle (frame `pos`) from each file -> up to 16 cycles, for one table; a larger set is
+    sampled evenly, like the editor's folder bar"""
     paths = list(paths)
-    if pick and pick < len(paths):
-        paths = [paths[i] for i in _pick(pick, len(paths))]
+    if len(paths) > WT_FRAMES or (pick and pick < len(paths)):
+        n = pick or WT_FRAMES
+        paths = [paths[i] for i in _pick(min(n, len(paths)), len(paths))]
     out = []
     for p in paths[:WT_FRAMES]:
         _rate, mono, fs, count = read_table(p)
