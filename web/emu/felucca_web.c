@@ -493,11 +493,16 @@ EXPORT void web_test_heavy(void)
     ui.force = 1;
 }
 
-/* the CR78 factory kit on track 1 as a SEQ drum grid: the kick lane on step 0 (for emu_test) */
-EXPORT void web_test_cr78(void)
+/* the CR78 factory kit on track 1 as a SEQ drum grid: the kick lane on step 0 (for emu_test).
+ * mode 0: SET = CR78 (the knob), 1: the CR78 preset through apply_preset_to (the preset list) */
+EXPORT void web_test_cr78(uint32_t mode)
 {
     track_t *t = &trk[0];
-    host_preset(t, ENGI_SAMPLE, 5);
+    set_engine_of(t, ENGI_SAMPLE);
+    if (mode)
+        apply_preset_to(t, 5);
+    else
+        t->p[P_E0] = SMP_CR78_INDEX;
     t->p[P_VOICE] = V_POLY;
     t->p[P_SLEN] = 16;
     t->p[P_SDIV] = 2;
