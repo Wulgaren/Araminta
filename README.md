@@ -36,7 +36,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **Melodee.** Silent tracks still run LFO, bend, the engine block and fades, so modulation keeps moving when a track is muted or resting.
 - **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project (FUN16 / `FUNG`; same 3840-byte size as FUN10; disk motion max 88). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
 - **SLICE retired.** 
-- Upload a drum kit as a USR sample: in the web editor, Drum kit grid tags the slot (`FSMP` header); SAMPLE on that set uses the drum grid on SEQ, zones mapped by hand.
+- Samples tab: one card per USR slot, each set to **Sample**, **Drumkit** or **Wavetable**. Drumkit maps every root to its own lane note and tags the slot (`FSMP` header), so SEQ uses the drum grid; Wavetable takes one Serum file or a folder medley. The name field is gone: names were editor-only, the FM-1 shows USR1..3.
 - **VOICE** is one page: VCE, GLD, UNI DTN, SPRD. GLD is free milliseconds (no GLMOD on the page). PAN / PLAY live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
 - **EFFECTS.** One list for the insert chain: CHOOSE a stage, ORDER moves it, USE AS is CHAIN or SEND, MIX is dry/wet (or send amount). Delay and reverb sit in that list (bus chorus is gone). Dual reverb tanks keep SEND and CHAIN settings while REV is chained.
 - Reverb modes from JIANT - SHIMR and CLOUD.
@@ -50,6 +50,16 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **SEQ GENERATION.** On DRUM-X, the second SEQ section generates editable kick, snare and closed-hat steps from Mutable Instruments Grids. SELECT switches between LEN / KICK / SNARE / HAT and MAP / MAP X / MAP Y / CHAOS. MAP selects one of 25 templates; X/Y blend between them and show CUSTOM. Turning MAP, MAP X or MAP Y briefly shows the full-screen map, then returns to the drum grid; CHAOS keeps the grid visible. Density edits change only their lane; map, chaos and length edits regenerate all three. Other lanes stay as written, SAVE held undoes the gesture, and each track's controls save with the project. Tips follow MENU > HELP.
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
+
+### Since 3.0
+
+- **CR78 factory kit.** SAMPLE gains a public-domain CR-78 kit at **SET 8** (after USR1..USR3, whose indices stay
+  5..7). Its eight one-shots use the SEQ drum lanes `36 38 39 42 46 45 37 56`; the drum grid appears on that set.
+- **Samples tab.** One card per USR slot with **Sample / Drumkit / Wavetable**, choose files, upload and erase.
+  Drumkit maps each root to its lane note; Wavetable offers a table file or a folder medley. The name input is
+  gone (names were editor/backup-only; the FM-1 shows USR1..3).
+- **WAVETABLE.** OSC B's knob is **LEVEL** (MOD / AUTOMATION call it **B LEVEL**); the graph now draws B's own wave
+  on the OSC B page and A, labelled **OSC A**, while RATIO is hot there.
 
 ## Features
 
@@ -137,7 +147,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   controller to any knob's parameter of any track, on the device; **Program Change** loads a track's sound by its
   number in PRESETS
 - **Web:** editor for every parameter (with a 6-operator FM patch editor that also sends a whole 32-voice bank),
-  step grid, mixer, preset library, sample upload and recording with trim, the MENU settings; full backup and restore
+  step grid, mixer, preset library, sample/drumkit/wavetable slots with recording and trim, the MENU settings;
+  full backup and restore
   (everything but the FM6 voice bank: keep its .syx file);
   return to the official firmware; Araminta itself running in the browser
 
@@ -283,8 +294,9 @@ In the order the device lists them:
   voice of the bank the web editor sent (B1-B32)
 - **PHASE**: phase distortion (ported from CrispyZebra)
 - **LOFI**: chiptune; pulse, triangle, saw, noise and a 4-bit wave RAM, stepped envelope, sweep, arpeggio
-- **SAMPLE**: multisampled instruments (PIANO, FLUTE, SAX) and 3 user sample slots (shared with WAVETABLE); a USR
-  slot can be tagged **drum kit grid** in the web editor so SEQ uses the drum grid (zones mapped by hand)
+- **SAMPLE**: multisampled instruments (PIANO, FLUTE, SAX) and 3 user sample slots (shared with WAVETABLE); **CR78**
+  is a public-domain factory kit at SET 8 with the SEQ drum grid. A USR slot can be a **Drumkit** in the web editor
+  (each root mapped to its lane note) or a **Sample**
 - **VOICE**: formant oscillator, sung vowels
 - **TRIO**: 3 oscillators with ring modulation and sync, multimode filter
 - **WHEEL**: tonewheel-style organ; drawbar registrations, percussion, key click, drive, rotary speaker
@@ -296,9 +308,10 @@ In the order the device lists them:
   and **Lanes**. Kit and mute persist in FUN16 projects (FUN10 opens with the factory kit). Old Felucca KIT values
   still play as DRUM-X. SLICE is retired; old stores load as DRUM
 - **WAVETABLE**: two wavetable oscillators, A and B, each morphing through 16 frames of a mip-mapped table; B
-  phase-modulates A (B>A) and can also be heard through B-LVL at an exact RATIO, and A takes phase feedback
-  (FDBK). BASIC and SPECTRAL are factory tables, plus USR1..USR3: each holds one complete wavetable in a
-  sample slot, loaded from a Serum `.wav` or a folder of single cycles in the web editor
+  phase-modulates A (B>A) and can also be heard through LEVEL at an exact RATIO, and A takes phase feedback
+  (FDBK). BASIC and SPECTRAL are factory tables; USR1..USR3 each hold one complete 16 x 1024 table, loaded from
+  a Serum `.wav` or a folder medley in the web editor. The EDIT graph draws A on OSC A and B's own wave on OSC B,
+  and switches to a labelled OSC A while RATIO is the hot knob
 
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
 as FM6 sounds converted from them. The SAMPLE engine's PERC kit was removed in 1.0.2: sounds and
@@ -346,7 +359,7 @@ sevenths, or a fixed shape) and VOIC the voicing.
 | --- | --- |
 | `firmware/` | firmware sources: `src/` app, `hal/` hardware layer, `loader/` update loader |
 | `tools/` | build script, generators, package maker, installer and sample uploader |
-| `assets/` | UI font, icon names, CC0 instrument samples |
+| `assets/` | UI font, icon names, CC0 instrument samples and the public-domain CR-78 kit |
 | `web/` | the web installer, editor and browser emulator (`web/emu/`) |
 | `tests/` | tests that run on the build machine |
 | `LICENSES/` | licence texts of the bundled fonts, icons, ported DSP and SDK files |
@@ -389,7 +402,7 @@ Upstream context: [On AI-Assisted Development and Responsibility](https://github
   (the UI text, as in Felucca 0.9); [Inter Tight](https://github.com/rsms/inter-tight) by The Inter Project Authors,
   [SIL OFL 1.1](LICENSES/OFL-InterTight.txt) (keycap labels and diagrams);
   the browser emulator's labels: [DotGothic16](https://github.com/fontworks-fonts/DotGothic16) by The DotGothic16 Project Authors, [SIL OFL 1.1](LICENSES/OFL-DotGothic16.txt)
-- Samples: [Versilian Studios](https://versilian-studios.com/) [VSCO-2 Community Edition](https://github.com/sgossner/VSCO-2-CE) and [VCSL](https://github.com/sgossner/VCSL), CC0 1.0: the SAMPLE sets and PIANO HD ([attribution](assets/samples-cc0/ATTRIBUTION.txt))
+- Samples: [Versilian Studios](https://versilian-studios.com/) [VSCO-2 Community Edition](https://github.com/sgossner/VSCO-2-CE) and [VCSL](https://github.com/sgossner/VCSL), CC0 1.0: the SAMPLE sets and PIANO HD; the CR-78 kit from [Oramics "Sampled"](https://oramics.github.io/sampled/DM/CR-78/) (Boxed Ear), public domain ([attribution](assets/samples-cc0/ATTRIBUTION.txt))
 - VOICE engine: after [klattsch](https://github.com/tgies/klattsch) by Tony Gies (MIT); formant data from Klatt (1980) and Hillenbrand et al. (1995)
 - PHYS engine: models ported from [DaisySP](https://github.com/electro-smith/DaisySP) by Electrosmith and Emilie Gillet ([MIT](LICENSES/MIT-DaisySP.txt)) and from Emilie Gillet's [eurorack](https://github.com/pichenettes/eurorack) code ([MIT](LICENSES/MIT-Rings.txt))
 - FM6 engine: msfa from [Dexed](https://github.com/asb2m10/dexed) by Google Inc. and Pascal Gauthier ([Apache-2.0](LICENSES/Apache-2.0-msfa.txt))
