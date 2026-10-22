@@ -2323,6 +2323,10 @@ static void graph_wt(const track_t *t, uint32_t osc)
         px = x;
         py = y;
     }
+    if (osc == 1u && show_a) {                        /* RATIO swapped the page's trace to A */
+        cv_rect(PANEL_X0 - 2, 1, 44, 14, T_SURF);
+        cv_text_on(PANEL_X0, 2, &AF_S, "OSC A", T_MID, T_SURF);
+    }
 }
 
 static void draw_graph(void)
