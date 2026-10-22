@@ -227,6 +227,7 @@ int main(int argc, char **argv)
     /* 1b: CR78, a factory kit after USR1..3 (SET 8): 8 exact GM-lane zones, the SEQ drum grid */
     {
         static const uint8_t LANE[8] = {36, 38, 39, 42, 46, 45, 37, 56};
+        uint32_t zlane[8];
         const smp_set_t *set = &SMP_CR78_SET;
         uint32_t zok = set->nz == 8u && SMP_ALL_NAMES[8] == set->name, i;
         check("CR78: SET 8 after USR1..3, 8 zones, 6 SAMPLE presets; the 5 factory sets do not move",
@@ -241,7 +242,18 @@ int main(int argc, char **argv)
             render(ENGI_SAMPLE, SMP_CR78_INDEX, LANE[i], 0, &zone);
             snprintf(m, sizeof m, "CR78: lane note %u plays its zone (RMS %.0f)", LANE[i], rms(0, FS / 2u));
             check(m, zone == (int32_t)set->z0 + (int32_t)i && rms(0, FS / 2u) > 100.0);
+            {
+                uint32_t k, zc = 0;
+                for (k = 1; k < FS / 5u; k++)
+                    zc += (buf[k - 1u] < 0) != (buf[k] < 0);
+                zlane[i] = zc;
+            }
+            snprintf(path, sizeof path, "cr78_%02u", LANE[i]);
+            wav_out(dir, path);
         }
+        snprintf(m, sizeof m, "CR78: kick/snare/hat are their samples, not the missing-sample sine "
+                 "(zero crossings %u / %u / %u)", zlane[0], zlane[1], zlane[3]);
+        check(m, zlane[0] < 100u && zlane[1] > 100u && zlane[3] > 100u && !smp_set_missing(SMP_CR78_INDEX));
         check("SAMPLE blob is the 5 factory sets + the 8 CR78 zones", sizeof SMP_DATA == 117804u);
     }
 
