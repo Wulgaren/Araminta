@@ -714,12 +714,12 @@ if [ -f build/gen/felucca_tables.h ]; then
     unit u_wt_test
     note "== skip SLICE (engine retired)"
     u_sample() {
-        # SAMPLE's PIANO (1.5: as 1.1.5); CR78 ROM omitted; 1.2's PIANO HD in a user slot
+        # SAMPLE's PIANO (1.5: as 1.1.5); CR78 factory kit at SET 8; 1.2's PIANO HD in a user slot
         if grep -q '^    {"PIANO", 0, 5},' build/gen/felucca_samples.h; then
             mkdir -p build/sample_demo build/piano_hd
             python3 tools/gen_samples.py --user-slot PIANO "PIANO HD" build/piano_hd/PIANO_HD >/dev/null
             $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/sample_test" tests/sample_test.c -lm
-            run "SAMPLE: PIANO (5 zones as 1.1.5: splits, pitch, length, GRAIN), a PIANO HD slot (no CR78 ROM)" "$OUT/sample_test" \
+            run "SAMPLE: PIANO (5 zones as 1.1.5: splits, pitch, length, GRAIN), CR78 (SET 8, lanes), a PIANO HD slot" "$OUT/sample_test" \
                 build/piano_hd/PIANO_HD build/sample_demo
         else
             echo "== skip SAMPLE's PIANO (no CC0 library: assets/samples-cc0, tools/fetch_cc0.py)"

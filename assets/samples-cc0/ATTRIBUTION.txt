@@ -18,8 +18,12 @@ SAX/00_BrettTenor_NV_Main_A#1_vl2_rr1.wav  <-  sgossner/VCSL: Aerophones/Reed Ae
 SAX/01_BrettTenor_NV_Main_A#2_vl2_rr1.wav  <-  sgossner/VCSL: Aerophones/Reed Aerophones/Tenor Saxophone/Non-Vibrato/BrettTenor_NV_Main_A#2_vl2_rr1.wav
 SAX/02_BrettTenor_NV_Main_A#3_vl2_rr1.wav  <-  sgossner/VCSL: Aerophones/Reed Aerophones/Tenor Saxophone/Non-Vibrato/BrettTenor_NV_Main_A#3_vl2_rr1.wav
 
-CR78/ (Araminta SAMPLE kit set 5)
-Source: local pack ~/Downloads/C78 WAV (CR-78 style one-shots), vendored 2026-10-10.
-Licence: not CC0; included for the Araminta fork at the project owner's request. Redistribute
-only if you have rights to those files. Built into firmware by tools/gen_samples.py (kind "kit").
-Files renamed to 00_Kick_C4.wav .. 15_Metallic_D#5.wav (note in the name = MIDI root, C4 = 60).
+CR78/ (SAMPLE factory kit, SET 8)
+Source: Oramics "Sampled" CR-78 set (Boxed Ear), Public Domain
+  https://oramics.github.io/sampled/DM/CR-78/
+  http://www.boxedear.com/free.html
+Eight one-shots, byte-identical (SHA-256) to the Ableton C78 kit the project owner has;
+renamed with the pack's keyboard notes (C4 = 60). The firmware maps their eight roots to the
+fixed SEQ drum lanes (36, 38, 39, 42, 46, 45, 37, 56) in tools/gen_samples.py (CR78_FILES):
+  00_Kick_C4.wav, 01_Snare_C#4.wav, 02_Rim_D4.wav, 03_HihatClosed_D#4.wav,
+  04_Cymbal_E4.wav, 05_Conga_F4.wav, 07_BongoHi_G4.wav, 10_Cowbell_A#4.wav

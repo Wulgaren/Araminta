@@ -362,7 +362,7 @@ static void grain_note_on(track_t *t, voice_t *v)
 {
     gr_part_t *P = gr_of(t);
     uint32_t vi = (uint32_t)(v - t->v) % NVOICE, i;
-    v->s[0] = gr_find((uint32_t)t->p[P_E0] % SMP_NALL, v->note);
+    v->s[0] = gr_find((uint32_t)t->p[P_E0] % SMP_NSRC, v->note);
     v->s[1] = 0;                                    /* the first grain at once */
     v->ph[0] = 0;                                   /* (the sine's phase: no data) */
     if (!v->env) {                                  /* a fresh voice: no grains left from before */
@@ -378,7 +378,7 @@ static void grain_note_on(track_t *t, voice_t *v)
 static void grain_block(track_t *t)
 {
     gr_part_t *P = gr_of(t);
-    uint32_t src = (uint32_t)t->p[P_E0] % SMP_NALL, st = gr_stamp(src), i;
+    uint32_t src = (uint32_t)t->p[P_E0] % SMP_NSRC, st = gr_stamp(src), i;
     if (!gr_rng[gr_part(t)])
         gr_rng[gr_part(t)] = 0x2545F491;
     if (P->src != src + 1u || P->stamp != st) {
@@ -406,7 +406,7 @@ static void grain_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
         smp_sine(out, n, m, p[P_E4] * 16, lp, &v->ph[0], &v->s[2]);
         return;
     }
-    if (zl < 0 || zl >= P->nz || P->src != (uint32_t)p[P_E0] % SMP_NALL + 1u) {
+    if (zl < 0 || zl >= P->nz || P->src != (uint32_t)p[P_E0] % SMP_NSRC + 1u) {
         if (zl < 0)
             v->active = 0;                          /* a user slot key with no zone: silent */
         return;
@@ -450,7 +450,7 @@ static const engine_t ENG_GRAIN = {
     .name = "GRAIN",
     .page_title = {"GRAN", "SPRY"},
     .edit = {
-        {"SRC", F_ENUM, 0, SMP_NALL - 1, 0, SMP_ALL_NAMES, 0},
+        {"SRC", F_ENUM, 0, SMP_NSRC - 1, 0, SMP_SRC_NAMES, 0},
         {"POS", F_PCT, 0, 127, 32, 0, 0},
         {"SIZE", F_PCT, 0, 127, 80, 0, 0},
         {"DENS", F_PCT, 0, 127, 80, 0, 0},
