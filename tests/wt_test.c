@@ -11,11 +11,15 @@
  *    below 1 % of VOICE_FS), no clipping (a voice below 2 x VOICE_FS, the mix below full scale).
  * 4. a note from silence renders bit-identically twice (every preset: the phases reset at note-on).
  * 5. controls: A-POS 0 / 64 / 127, FDBK 0 / 32 / 64 / 127 (127 without clipping or DC), B>A 0 / 64, B-LVL 0 / 100
- *    (RMS) and RATIO 0.25 / 2.0 all change the sound; USR1..USR3 (no user slot format in pass 1) play the sine
- *    fallback, the same one, non-silent.
+ *    (RMS) and RATIO 0.25 / 2.0 all change the sound; empty USR1..USR3 play the same sine fallback.
+ * 5b. user slots: a 16 x 1024 FWT1 table in USR1 sounds on A and on B and differs from the fallback; a corrupt
+ *    header falls back to the same sine; USR2 (empty) is the fallback.
  * 6. cost: host instructions per sample and voice (8 notes held, the idle mix taken off) for every preset;
  *    fails above WT_COST_MAX.
  * 7. demos into DEMODIR: every preset playing its suggested pattern. */
+#include <stdint.h>
+static uint8_t host_wt_slots[3][0x14000] __attribute__((aligned(4)));   /* USR1..3, as the flash at 0xA0000 */
+#define SMP_USER_XIP(k) (host_wt_slots[k])
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -200,16 +204,16 @@ static void mips(void)
     uint32_t i, l, prev = 0, mono = 1, maxl = 0;
     char what[160];
     for (i = 0; i < NELEM(INC); i++) {
-        l = wt_mip_level(9, INC[i]);
+        l = wt_mip_level(9, 3, INC[i]);
         mono &= l >= prev;
         prev = l;
         maxl = l > maxl ? l : maxl;
     }
     snprintf(what, sizeof what, "mips: inc 0 -> %u, inc 1 -> %u, inc 2^29 -> %u, inc 0xFFFFFFFF -> %u (max %u), monotonic %s",
-             wt_mip_level(9, 0), wt_mip_level(9, 1), wt_mip_level(9, 1u << 29), wt_mip_level(9, 0xFFFFFFFFu), maxl,
+             wt_mip_level(9, 3, 0), wt_mip_level(9, 3, 1), wt_mip_level(9, 3, 1u << 29), wt_mip_level(9, 3, 0xFFFFFFFFu), maxl,
              mono ? "yes" : "no");
-    check(what, wt_mip_level(9, 0) == 0u && wt_mip_level(9, 1) == 0u && wt_mip_level(9, 4096) == 0u &&
-          wt_mip_level(9, 1u << 29) == 6u && wt_mip_level(9, 0xFFFFFFFFu) == 6u && maxl == 6u && mono);
+    check(what, wt_mip_level(9, 3, 0) == 0u && wt_mip_level(9, 3, 1) == 0u && wt_mip_level(9, 3, 4096) == 0u &&
+          wt_mip_level(9, 3, 1u << 29) == 6u && wt_mip_level(9, 3, 0xFFFFFFFFu) == 6u && maxl == 6u && mono);
 }
 
 /* --------------------------------------------------------- presets --- */
@@ -342,7 +346,7 @@ static void controls(void)
     snprintf(what, sizeof what, "RATIO 0.25 vs 2.0 change the sound: mean |diff| %.0f (threshold %.0f)",
              diff_mean(a, b, NNOTE), WT_DIFF);
     check(what, diff_mean(a, b, NNOTE) > WT_DIFF);
-    /* USR1..USR3: no user slot format in pass 1 -> the sine fallback */
+    /* USR1..USR3 empty -> the sine fallback, the same one */
     {
         static const int16_t WAV[3] = {2, 3, 4};
         int sound = 1;
@@ -369,10 +373,80 @@ static void controls(void)
                 sound = 0;
         }
         sound &= rms(a, NNOTE) > 0.005 * VOICE_FS;
-        snprintf(what, sizeof what, "USR1..USR3 (A-WAV 2..4) play the sine fallback, non-silent, the same one (RMS %.0f)",
+        snprintf(what, sizeof what, "empty USR1..USR3 (A-WAV 2..4) play the sine fallback, non-silent, the same one (RMS %.0f)",
                  rms(a, NNOTE));
         check(what, sound);
     }
+}
+
+/* ------------------------------------------------------- user slots --- */
+/* a 16-frame 1024-sample table with a mip chain, as the editor uploads it: frame-major, the base level then
+ * levels of half the size (eng_wt.c wt_read's stride), FWT1 header at the slot start */
+static void user_slot_fill(uint32_t k, uint32_t frames)
+{
+    uint8_t *slot = host_wt_slots[k];
+    smp_wt_hdr_t *h = (smp_wt_hdr_t *)slot;
+    int16_t *d = (int16_t *)(slot + SMP_USER_DATA);
+    const uint32_t base = 1u << SMP_WT_BASE_LOG2, stride = (base << 1) - (1u << SMP_WT_MIP_LAST_LOG2);
+    uint32_t f, l, i;
+    memset(slot, 0, 0x14000);
+    for (f = 0; f < frames; f++)
+        for (l = 0; l <= SMP_WT_BASE_LOG2 - SMP_WT_MIP_LAST_LOG2; l++) {
+            uint32_t size = base >> l;
+            uint32_t off = l ? (base << 1) - (base >> (l - 1u)) : 0u;
+            int16_t *lv = d + f * stride + off;
+            for (i = 0; i < size; i++) {
+                double x = 2.0 * M_PI * i / size;
+                lv[i] = (int16_t)((12000.0 + 500.0 * (f % 7u)) * sin(x * (1.0 + f % 3u)) +
+                                  (4000.0 + 200.0 * (f % 5u)) * sin(x * 3.0));
+            }
+        }
+    h->magic = SMP_WT_MAGIC;
+    h->version = SMP_WT_VERSION;
+    h->frames = (uint16_t)frames;
+    h->base_log2 = SMP_WT_BASE_LOG2;
+    h->mip_last_log2 = SMP_WT_MIP_LAST_LOG2;
+    h->name[0] = 'T'; h->name[1] = 'E'; h->name[2] = 'S'; h->name[3] = 'T';
+    h->data_len = frames * stride * 2u;
+}
+
+static void user_slots(void)
+{
+    static double a[NRENDER], b[NRENDER], c[NRENDER];
+    int16_t e[8] = {2, 64, 0, 0, 0, 0, 0, 3};          /* A-WAV USR1, A-POS 64, FDBK/B>A 0, B BASIC */
+    char what[200];
+    wt_view_t v;
+    uint32_t i;
+    int same;
+    memset(host_wt_slots, 0, sizeof host_wt_slots);
+    user_slot_fill(0, 16u);
+    check("user slot: FWT1 16 x 1024 header validates; USR2 (empty) does not",
+          wt_slot_view(0, &v) && v.frames == 16u && v.base_log2 == 10u && v.mip_last_log2 == 3u &&
+          !wt_slot_view(1, &v));
+    mix_note(e, 48, 100, a, NNOTE);
+    check("user slot: USR1 on A sounds, non-silent", rms(a, NNOTE) > 0.005 * VOICE_FS);
+    e[0] = 3;                                          /* USR2: empty -> sine fallback */
+    mix_note(e, 48, 100, b, NNOTE);
+    snprintf(what, sizeof what, "user slot: USR1 differs from an empty slot's sine fallback (mean |diff| %.0f)",
+             diff_mean(a, b, NNOTE));
+    check(what, diff_mean(a, b, NNOTE) > WT_DIFF);
+    host_wt_slots[0][0] ^= 0xFFu;                       /* corrupt the magic */
+    e[0] = 2;
+    mix_note(e, 48, 100, c, NNOTE);
+    same = 1;
+    for (i = 0; i < NNOTE; i++)
+        same &= c[i] == b[i];
+    check("user slot: a corrupt header falls back to the same sine", same);
+    host_wt_slots[0][0] ^= 0xFFu;
+    e[0] = 0;                                           /* B: USR1 in the mix against an empty USR2 */
+    e[4] = 2;
+    e[6] = 100;
+    mix_note(e, 48, 100, a, NNOTE);
+    e[4] = 3;
+    mix_note(e, 48, 100, b, NNOTE);
+    snprintf(what, sizeof what, "user slot: USR1 on B differs from the fallback (mean |diff| %.0f)",
+             diff_mean(a, b, NNOTE));
+    check(what, diff_mean(a, b, NNOTE) > WT_DIFF);
 }
 
 /* the EDIT graph's preview: A's processed wave and B's raw wave; FM, feedback and ratio must change A */
@@ -544,6 +618,7 @@ int main(int argc, char **argv)
     presets();
     determinism();
     controls();
+    user_slots();
     preview_math();
     if (!getenv("NOCOST"))
         cost();

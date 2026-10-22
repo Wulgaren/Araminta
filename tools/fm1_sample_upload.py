@@ -38,7 +38,13 @@ def slot_info(r):
         for k in range(n):
             nz = r[i]
             j = r.index(0, i + 1)
-            out.append(f"USR{k + 1}: {'empty' if not nz else f'{nz} zones, {printable(r[i + 1:j])}, {r[j + 1]} KiB'}")
+            name = printable(r[i + 1:j])
+            if not nz:
+                out.append(f"USR{k + 1}: empty")
+            elif nz & 0x20:
+                out.append(f"USR{k + 1}: wavetable, {name}, {r[j + 1]} KiB")
+            else:
+                out.append(f"USR{k + 1}: {nz & 0x3F} zones{', drum' if nz & 0x40 else ''}, {name}, {r[j + 1]} KiB")
             i = j + 2
         return out
     except (IndexError, ValueError):
