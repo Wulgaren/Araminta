@@ -1688,9 +1688,11 @@ static int test_categories(void)
         set_engine_of(TSEL, (uint32_t)ENGI_WT);
         pk_mdst_name(TSEL, MD_E1 + 1u, wtn);
         ok = str_eq(wtn, "POSITION A");
+        pk_mdst_name(TSEL, MD_E1 + 6u, wtn);
+        ok &= str_eq(wtn, "B LEVEL");
         ev_name(TSEL, P_E4, wtn);
         ok &= str_eq(wtn, "WAVE B");
-        bad += check("WAVETABLE names: MOD picker POSITION A, AUTOMATION WAVE B", ok);
+        bad += check("WAVETABLE names: MOD picker POSITION A / B LEVEL, AUTOMATION WAVE B", ok);
     }
     memset(up_bank, 0, sizeof up_bank);
     memset(&favorites, 0, sizeof favorites);
@@ -2401,7 +2403,7 @@ static void chain_screens(const char *dir)
     chain_prepare(); events_block(32);
     screen_save(dir, "song-playing");
     seq_stop();
-    /* WAVETABLE's EDIT graph: A and B frame strips, the current frame, the output trace, RATIO hot on B */
+    /* WAVETABLE's EDIT graph: one current-output trace, on both oscillator pages */
     ui_power_on();
     set_engine_of(TSEL, (uint32_t)ENGI_WT);
     go_title("EDIT 1");
@@ -9149,7 +9151,7 @@ static int test_wt_graph(void)
     ui.hot_t = 40; ui.hot_col = 3;                     /* RATIO, EDIT 2's KNOB 4: the graph highlights A */
     if (p2 < NPAGES) { ui.force = 1; frame(); }
     sh = graph_signature();
-    bad += check("WAVETABLE graph: EDIT 1/2 draw, POS / RATIO redraw, RATIO highlights A",
+    bad += check("WAVETABLE graph: EDIT 1/2 draw and redraw on POS / RATIO / the hot knob",
                  p1 < NPAGES && p2 < NPAGES && s0 != s1 && s1 != s2 && s2 != sh);
     return bad;
 }
