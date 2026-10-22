@@ -1,5 +1,32 @@
 # Changelog
 
+## 3.0
+
+A fifteenth engine, WAVETABLE, brings two morphing wavetable oscillators and FM from B to every track, and the three user slots now hold complete wavetables made from a Serum `.wav` or a folder of single cycles. Install from the [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB). Try it first in the [browser](https://wulgaren.github.io/Araminta/webapp/try/).
+
+Same project format as 2.8 (FUN16 / `FUNG`). Settings move to PER5; older settings load and migrate. Splash and ABOUT show `v3.0`.
+
+### WAVETABLE
+
+- **Two oscillators, one table each.** A and B read a 16-frame table with a mip chain, frame-major, in XIP; A-POS / B-POS morph through the frames and the mip level is chosen per block and voice, so a high note reads a short, band-limited level. BASIC and SPECTRAL are factory tables (16 x 512 samples down to 8, 65,024 B for both) and eight presets ship with the engine: WT BASS, FM LEAD, GLASS FM, WT PAD, GROWL, DIGITAL, PLUCK, SWEEP.
+- **FM and feedback.** FDBK feeds A back into its own phase (up to 0.60 cycle) and B>A phase-modulates A (up to one cycle); B-LVL at 0 leaves B as a modulator only, and RATIO tunes B against A at 0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 12 or 16. FLT moves A-POS and SHP moves B>A; there is no engine filter.
+- **Pages.** EDIT has OSC A (WAVE, POS, FDBK, B>A) and OSC B (WAVE, POS, LEVEL, RATIO); MOD DST, AUTOMATION and step locks name the two oscillators WAVE A / POSITION A / WAVE B / POSITION B. The EDIT graph draws A after feedback and FM on OSC A, B's own wave on OSC B, and A (labelled OSC A) while RATIO is the hot knob there, since RATIO changes A's FM and not B's wave.
+- Editor: engine 14 in the list (NENGINES 15), the eight parameters, both pages and the protocol are in `web/EDITOR_PROTOCOL.md`; `engines.c` lists it after DRUM.
+
+### User wavetables
+
+- **One table per slot.** USR1..USR3 share the SAMPLE engine's three user slots. A slot holds an `FWT1` header at 0 and int16 PCM at +512, frame-major with a mip chain: 16 frames x 1024 samples by default (65,280 B), and any layout that fits 81,408 B is accepted (40 x 512 is 81,280 B). An empty, sample or invalid slot keeps the sine fallback.
+- **Protocol.** SMP_BEGIN / WRITE / END / ERASE / INFO handle either header type; END validates the header and the data CRC-32, SMP_INFO bit 5 marks a wavetable, and backup ids 32..34 carry a sample or a wavetable. The published-slot rules are the sample's: WRITE waits for SMP_BEGIN (rc 4) and a different header is refused (rc 2). Uploads are PCM, not ADPCM.
+- **Conversion and upload.** `tools/wavetableio.py` reads a Serum `.wav` (the `clm` frame size, every frame), keeps 16 frames, resamples each cycle to 1024 with an FFT and builds the mip chain; it also makes a medley from one cycle per file (a larger folder is sampled evenly) and exports a Serum-style `.wav`. `tools/fm1_wavetable_upload.py` loads, medleys, erases and builds over the sample commands. The web editor has the same converter, byte-identical to Python (`web/test_web.mjs`), with a per-slot table picker, a folder/medley bar, and upload, erase and `.wav` export.
+
+### Settings
+
+- PER5 (`PER5`, 0x50455235): MIDI LEARN's 16 CCs move from `favorites.factory[14]` to `[13]`, the retired SLICE row, and row 14 becomes WAVETABLE's favourites. A PER4 import moves the map and clears row 14; PER1..PER3 still import, and the editor backup accepts PER4.
+
+### Fixes
+
+- BPM can read 0 for a moment while globals load. `beat_samples()` (the FX delay's tempo maths) and the SLICER's `sl_enter()` now read it as 120, the default, instead of dividing by zero (#282).
+
 ## 2.8
 
 Projects move to FUN16 with 88 motion records, the sequencer's steps take nine bytes each in RAM, and the panel receives only the bands that changed. Install from the [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB). Try it first in the [browser](https://wulgaren.github.io/Araminta/webapp/try/).
