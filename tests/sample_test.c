@@ -6,7 +6,8 @@
  * 1. PIANO (SET 0; 1 and 4 its aliases) is the 5-zone one-shot set of 1.0 .. 1.1.5 (22,050 Hz, roots 36 .. 84, 0.75 s;
  *    1.2 .. 1.4.1 had a reduced 2-zone one): SAMPLE plays the right zone, at the note's pitch (YIN on the render)
  *    over the keyboard, for 0.75 s at a root; GRAIN's SRC 0 plays it. Renders into DEMO_DIR.
- * 1b. CR78 is not in the ROM bank (upload as USR); USR1..3 are 5..7.
+ * 1b. CR78, a public-domain factory kit after USR1..3 (SET 8, eight exact GM-lane zones, the SEQ drum
+ *    grid); USR1..3 stay 5..7.
  * 2. PIANO HD (PIANO_HD.hdr / .bin: gen_samples.py --user-slot PIANO "PIANO HD", the file 1.2 offered for the old
  *    piano): a user who installed it keeps it; in USR1 it is valid and renders bit for bit as SET 0 at every key.
  * (Bit identity with 1.1.5.1 itself: tests/golden.txt's SAMPLE / GRAIN PIANO renders are 1.1.5.1's hashes.) */
@@ -190,11 +191,11 @@ int main(int argc, char **argv)
         const smp_set_t *s = &SMP_SETS[0];
         const smp_zone_t *z = &SMP_ZONES[s->z0];
         uint32_t bytes = 0, ok = s->nz == 5u;
-        check("PIANO: SET 0, aliases 1 and 4; FLUTE 2, SAX 3; USR1..3 5..7; 5 presets (no CR78 ROM)",
+        check("PIANO: SET 0, aliases 1 and 4; FLUTE 2, SAX 3; USR1..3 5..7; CR78 8",
               SMP_NSETS == 5u && str_eq(SMP_SETS[0].name, "PIANO") && SMP_SETS[1].z0 == s->z0 && SMP_SETS[4].z0 == s->z0 &&
               SMP_SETS[1].nz == s->nz && SMP_SETS[4].nz == s->nz && str_eq(SMP_SETS[2].name, "FLUTE") &&
-              str_eq(SMP_SETS[3].name, "SAX") &&
-              str_eq(SMP_ALL_NAMES[5], "USR1") && ENG_SAMPLE.edit[0].max == 7 && ENG_SAMPLE.npresets == 5u);
+              str_eq(SMP_SETS[3].name, "SAX") && str_eq(SMP_ALL_NAMES[5], "USR1") &&
+              str_eq(SMP_ALL_NAMES[8], "CR78") && ENG_SAMPLE.edit[0].max == 8 && ENG_SAMPLE.npresets == 6u);
         for (i = 0; ok && i < 5u; i++) {
             bytes += (z[i].n + 1u) / 2u;
             ok &= z[i].rate == 32768u && z[i].root16 == ROOT[i] * 16u && z[i].lo == LO[i] && z[i].hi == HI[i] &&
@@ -223,10 +224,26 @@ int main(int argc, char **argv)
               zone == 2 && rms(FS / 2u, FS) > 100.0);
     }
 
-    /* 1b: CR78 omitted from ROM (Araminta: upload as USR) */
-    check("CR78 ROM set omitted (USR1 at index 5)", str_eq(SMP_ALL_NAMES[5], "USR1") && SMP_NSETS == 5u);
-    check("SAMPLE blob is sets only (no retired SLICE BREAK)",
-          sizeof SMP_DATA == 104194u);
+    /* 1b: CR78, a factory kit after USR1..3 (SET 8): 8 exact GM-lane zones, the SEQ drum grid */
+    {
+        static const uint8_t LANE[8] = {36, 38, 39, 42, 46, 45, 37, 56};
+        const smp_set_t *set = &SMP_CR78_SET;
+        uint32_t zok = set->nz == 8u && SMP_ALL_NAMES[8] == set->name, i;
+        check("CR78: SET 8 after USR1..3, 8 zones, 6 SAMPLE presets; the 5 factory sets do not move",
+              zok && str_eq(set->name, "CR78") && SMP_NSETS == 5u && ENG_SAMPLE.npresets == 6u);
+        for (i = 0; i < 8u; i++) {
+            const smp_zone_t *z = &SMP_ZONES[set->z0 + i];
+            zok &= z->lo == LANE[i] && z->hi == LANE[i] && z->root16 == LANE[i] * 16 && z->rate == 32768u && !z->looped;
+        }
+        snprintf(m, sizeof m, "CR78: eight exact lane zones (%u B ADPCM)", (uint32_t)sizeof SMP_DATA);
+        check(m, zok);
+        for (i = 0; i < 8u; i++) {
+            render(ENGI_SAMPLE, SMP_CR78_INDEX, LANE[i], 0, &zone);
+            snprintf(m, sizeof m, "CR78: lane note %u plays its zone (RMS %.0f)", LANE[i], rms(0, FS / 2u));
+            check(m, zone == (int32_t)set->z0 + (int32_t)i && rms(0, FS / 2u) > 100.0);
+        }
+        check("SAMPLE blob is the 5 factory sets + the 8 CR78 zones", sizeof SMP_DATA == 117804u);
+    }
 
     /* 2: PIANO HD (1.2's file of the old piano), from a user slot: as SET 0, bit for bit */
     snprintf(path, sizeof path, "%s.hdr", argv[1]);

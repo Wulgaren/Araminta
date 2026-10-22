@@ -268,6 +268,13 @@ The slot's last 4 KiB sector (offset 0x13000) holds SLICE's slices set by hand o
 magic `"SLM1"`, the sample's length and data CRC, the slice starts) when the data leaves it free (at most 77,312
 bytes). An upload writes over it like any other data; a record that is not the slot's sample's is ignored.
 
+**Factory CR78 kit (SAMPLE).** SET 8 is a factory set, not a user slot: the public-domain CR-78
+one-shots at 22,050 Hz, one zone per SEQ drum lane (`36, 38, 39, 42, 46, 45, 37, 56`). SAMPLE
+shows the drum grid for it, like a USR slot tagged `hdr.rsv` bit 0. USR1..USR3 keep 5..7, and
+the normal factory presets stay 0..4; preset 5 selects CR78. The web editor's Samples tab has one
+card per USR slot with a **Sample / Drumkit / Wavetable** selector; a Wavetable card offers a
+single table file or a folder medley, and the name field is gone (names are editor/backup-only).
+
 **User wavetable slot** (the same 3 slots; WAVETABLE engine WAVE = USR1..USR3; reference uploader
 `tools/fm1_wavetable_upload.py`, converter `wavetableio.py`; the editor's port is checked against it by
 `web/test_web.mjs`). A slot holds one table: a 32-byte header at 0 and int16 PCM at 512, little endian.

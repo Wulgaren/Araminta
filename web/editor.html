@@ -1013,12 +1013,16 @@ function buildSlot(name, zonesIn, opts = {}) {
   if (len > SMP.MAX_DATA) throw new Error(`too long: ${len} B (max ${SMP.MAX_DATA} B)`);
   if (!zones.length || zones.length > SMP.MAX_ZONES) throw new Error("1..16 files per slot");
   zones.sort((a, b) => a.root - b.root);
-  zones.forEach((z, j) => {
-    if (z.lo == null) {
-      z.lo = j === 0 ? 0 : Math.floor((zones[j - 1].root + z.root) / 2) + 1;
-      z.hi = j === zones.length - 1 ? 127 : Math.floor((z.root + zones[j + 1].root) / 2);
-    }
-  });
+  if (opts.exactKeys) {                             /* Drumkit: the SEQ grid's lanes hit exact notes */
+    zones.forEach((z) => { z.lo = z.hi = z.root; });
+  } else {
+    zones.forEach((z, j) => {
+      if (z.lo == null) {
+        z.lo = j === 0 ? 0 : Math.floor((zones[j - 1].root + z.root) / 2) + 1;
+        z.hi = j === zones.length - 1 ? 127 : Math.floor((z.root + zones[j + 1].root) / 2);
+      }
+    });
+  }
   const hdr = new Uint8Array(SMP.HDR_LEN), v = new DataView(hdr.buffer);
   v.setUint32(0, 0x504D5346, true);
   v.setUint16(4, 1, true);
@@ -1967,11 +1971,12 @@ function makeMockDevice(opt = {}) {
       presets: [P("PULSE LD", [0, 0, 32, 0, 0, 20, 0, 127], [0, 60, 90, 30], 1, 4), P("WAVE BASS", [1, 1, 0, 0, 0, 0, 0, 90], [0, 50, 70, 20], 1, 2),
         P("ARP 8BIT", [2, 0, 96, 0, 0, 0, 2, 110], [0, 60, 80, 40], 0, 13), P("WAVE LEAD", [0, 4, 92, 0, 0, 18, 0, 110], [0, 70, 90, 30], 1, 3),
         P("STEP LEAD", [4, 0, 40, 34, 0, 16, 0, 127], [0, 64, 127, 55], 1, 4)] },
-    { name: "SAMPLE", titles: ["SET", "TONE"], edit: [E("SET", ["PIANO", "PIANO", "FLUTE", "SAX", "PIANO", "USR1", "USR2", "USR3"], 0), D("TUNE", F.SEMI, -24, 24, 0), D("BITS", F.INT, 0, 127, 0),
+    { name: "SAMPLE", titles: ["SET", "TONE"], edit: [E("SET", ["PIANO", "PIANO", "FLUTE", "SAX", "PIANO", "USR1", "USR2", "USR3", "CR78"], 0), D("TUNE", F.SEMI, -24, 24, 0), D("BITS", F.INT, 0, 127, 0),
         E("LOOP", NONOFF, 1), D("CUT", F.INT, 0, 127, 127), NONE, D("DRV", F.PCT, 0, 127, 0), NONE],
       presets: [P("PIANO", [0, 0, 0, 1, 127, 0, 0, 0], [0, 127, 127, 70]), P("PIANO", [0, 0, 0, 1, 127, 0, 0, 0], [0, 127, 127, 70]),
         P("FLUTE", [2, 0, 0, 1, 127, 0, 0, 0], [12, 80, 120, 60]), P("SAX", [3, 0, 0, 1, 127, 0, 0, 0], [12, 80, 120, 60]),
-        P("PIANO", [0, 0, 0, 1, 127, 0, 0, 0], [0, 127, 127, 70])] },
+        P("PIANO", [0, 0, 0, 1, 127, 0, 0, 0], [0, 127, 127, 70]),
+        P("CR78", [8, 0, 0, 1, 127, 0, 0, 0], [0, 127, 127, 70])] },
     { name: "VOICE", titles: ["VOWL", "TONE"], edit: [D("VOWL", F.INT, 0, 127, 0), D("VOWL2", F.INT, 0, 127, 64), D("TALK", F.TIME, 0, 127, 0),
         D("SHIFT", F.SEMI, -12, 12, 0), D("BUZZ", F.PCT, 0, 127, 64), D("BRTH", F.PCT, 0, 127, 10), D("Q", F.PCT, 0, 127, 64), D("RAND", F.PCT, 0, 127, 0)],
       presets: [P("CHOIR AAH", [0, 0, 0, 0, 40, 22, 60, 0], [85, 90, 115, 95], 0, 5), P("VOX LEAD", [32, 0, 0, 2, 90, 8, 72, 0], [6, 70, 105, 55], 1, 4),
@@ -2874,7 +2879,9 @@ const TEXT = {
     savedSlot: "保存しました: スロット ", loadedSlot: "読み込みました: スロット ", emptySlot: "空のスロットです: ",
     confirmSave: "スロット {n} に上書き保存しますか？", confirmLoad: "スロット {n} を読み込みますか？ 4 トラックすべての音色とシーケンスが置き換わります（元に戻せません）。",
     confirmClear: "シーケンスを全部消しますか？", confirmInit: "音色を初期化しますか？ シーケンスはそのままです（本体の SAVE 長押しで元に戻せます）。",
-    samples: "サンプル", smpHelp: "ファイルを選択、または入力から録音。波形の両端でトリム、ホイールで拡大。1枠に16音、合計約7秒。",
+    samples: "サンプル", smpHelp: "USR1〜3 は サンプル / ドラムキット / ウェーブテーブル のどれか 1 つ。ドラムキットは各ルートをレーン音に割当。ウェーブテーブルは 1 ファイルか、フォルダ（最大 16）のメドレー。",
+    smpType: "種類", smpSample: "サンプル", smpDrumkit: "ドラムキット", smpWavetable: "ウェーブテーブル",
+    smpTableFile: "テーブルファイル…", smpTableFolder: "フォルダ（メドレー）…",
     zones: "ゾーン", smpName: "名前", chooseFiles: "ファイルを選ぶ", upload: "書き込む", erase: "消去", clearList: "リストを消す",
     smpDrumGrid: "ドラムキットグリッド", smpDrumOn: "ドラムグリッド",
     file: "ファイル", root: "ルート", keys: "鍵盤", length: "長さ", remove: "外す",
@@ -2984,7 +2991,9 @@ const TEXT = {
     savedSlot: "Saved to slot ", loadedSlot: "Loaded slot ", emptySlot: "Empty slot: ",
     confirmSave: "Overwrite slot {n}?", confirmLoad: "Load slot {n}? The sounds and sequences of all four tracks are replaced (no undo).",
     confirmClear: "Clear the whole sequence?", confirmInit: "Reset the sound to the engine defaults? The sequence stays (hold SAVE on the device to undo).",
-    samples: "Samples", smpHelp: "Choose files or record an input. Drag waveform ends to trim; wheel to zoom. Up to 16 sounds and about 7 s per slot.",
+    samples: "Samples", smpHelp: "Each USR slot holds one sample, drumkit, or wavetable. Drumkits map each root to its lane note; wavetables take one file or a folder medley (up to 16 files).",
+    smpType: "Type", smpSample: "Sample", smpDrumkit: "Drumkit", smpWavetable: "Wavetable",
+    smpTableFile: "Table file…", smpTableFolder: "Folder medley…",
     zones: "zones", smpName: "Name", chooseFiles: "Choose files", upload: "Upload", erase: "Erase", clearList: "Clear list",
     smpDrumGrid: "Drum kit grid", smpDrumOn: "drum grid",
     file: "File", root: "Root", keys: "Keys", length: "Length", remove: "Remove",
@@ -3955,12 +3964,13 @@ $("clearseq").addEventListener("click", async () => {
 });
 
 /* ---------------------------------------------------------- samples --- */
-const smpDraft = [0, 1, 2].map(() => ({ name: "", files: [], drumGrid: false }));
+const smpDraft = [0, 1, 2].map(() => ({ type: "", files: [], drumGrid: false, name: "" }));
 const wtDraft = [0, 1, 2].map(() => ({ built: null, cycles: null, name: "" }));
-let wtFolder = [], wtMedleyFiles = [];
 let smpBusy = false;
 const SMP_RC = { 1: "size", 2: "header", 3: "data CRC", 4: "flash", 5: "zones" };
 const kib = (n) => (n / 1024).toFixed(1);
+/* the stored 8-byte FSMP/FWT1 name is editor/backup-only: the FM-1 shows USR1..3 */
+const autoName = (name) => String(name).toUpperCase().replace(/[^\x20-\x7E]/g, "").slice(0, 8) || "USR";
 
 /* auto key split, as in buildSlot (for the preview) */
 function splitKeys(files) {
@@ -4289,115 +4299,112 @@ function renderSamples() {
   const box = $("smpslots");                        /* the tab says when there are no slots (renderPanels) */
   if (!dev || !dev.smp) { box.replaceChildren(); return; }
   const max = SMP.MAX_DATA;
-  const folderIn = el("input", { type: "file", multiple: true, hidden: true });
-  folderIn.setAttribute("webkitdirectory", "");
-  folderIn.addEventListener("change", () => {
-    wtFolder = [...folderIn.files].filter((f) => /\.wav$/i.test(f.name)).sort((a, b) => a.name.localeCompare(b.name));
-    wtMedleyFiles = [];
-    folderIn.value = "";
-    renderSamples();
-  });
-  const filesIn = el("input", { type: "file", multiple: true, accept: ".wav,audio/wav", hidden: true });
-  filesIn.addEventListener("change", () => {
-    wtMedleyFiles = [...filesIn.files].filter((f) => /\.wav$/i.test(f.name));
-    wtFolder = [];
-    filesIn.value = "";
-    renderSamples();
-  });
-  const libN = wtFolder.length || wtMedleyFiles.length;
-  const bar = el("div", { class: "smp" }, el("div", { class: "head" },
-    el("b", { text: t("wtTitle") }),
-    el("span", { text: libN ? t("wtFolderReady").replace("{n}", libN) : t("wtHelp") }),
-    el("button", { ic: "symbol_folder_open", disabled: smpBusy || recActive(), onclick: () => folderIn.click() }, t("wtFolder")), folderIn,
-    el("button", { ic: "symbol_folder_open", disabled: smpBusy || recActive(), onclick: () => filesIn.click() }, t("wtFiles")), filesIn,
-    ...(libN ? [el("span", { text: t("wtMedleyTo") }),
-      ...[0, 1, 2].map((k) => el("button", { disabled: smpBusy || recActive(), onclick: () => wtMedleyUpload(k) }, `USR${k + 1}`))] : [])));
   const cards = dev.smp.slots.map((u, k) => {
     const d = smpDraft[k];
-    if (u.zones && !d.files.length) d.drumGrid = !!u.drum;   /* slot on device: draft follows until files are staged */
+    if (!d.type) d.type = u.wt ? "table" : (u.zones && u.drum ? "drum" : "sample");
+    d.drumGrid = d.type === "drum";
     const status = u.wt
-      ? `${t("wtInSlot")}: ${u.name || "—"}, ${u.kib} KiB`
+      ? `${t("smpWavetable")}, ${u.kib} KiB`
       : u.zones
-        ? `${u.name || "—"}, ${u.zones} ${t("zones")}, ${u.kib} KiB` + (u.drum ? `, ${t("smpDrumOn")}` : "")
+        ? `${u.drum ? t("smpDrumkit") : t("smpSample")}, ${u.zones} ${t("zones")}, ${u.kib} KiB`
         : t("empty");
     const bar = el("progress", { max: dev.smp.slotKiB, value: u.kib, title: `${u.kib} / ${dev.smp.slotKiB} KiB` });
-    const file = el("input", { type: "file", accept: ".wav,audio/wav,audio/x-wav,audio/*", multiple: true, hidden: true });
-    file.addEventListener("change", () => { addFiles(k, [...file.files]); file.value = ""; });
-    const name = el("input", { type: "text", class: "name", maxlength: 8, value: d.name, spellcheck: "false", placeholder: "NAME" });
-    name.addEventListener("input", () => {
-      const v = name.value.toUpperCase().replace(/[^\x20-\x7E]/g, "").slice(0, 8);
-      if (v !== name.value) name.value = v;
-      d.name = v;
+    const type = el("select", { class: "type", title: t("smpType"), disabled: smpBusy || recActive() },
+      el("option", { value: "sample", text: t("smpSample") }),
+      el("option", { value: "drum", text: t("smpDrumkit") }),
+      el("option", { value: "table", text: t("smpWavetable") }));
+    type.value = d.type;
+    type.addEventListener("change", () => {
+      d.type = type.value;
+      d.drumGrid = d.type === "drum";
+      if (d.type === "table") d.files = [];
+      else wtDraft[k] = { built: null, cycles: null, name: "" };
+      renderSamples();
     });
-    const drum = el("input", { type: "checkbox" });
-    drum.checked = !!d.drumGrid;
-    drum.disabled = smpBusy || recActive();
-    drum.addEventListener("change", () => { d.drumGrid = drum.checked; });
-    const bytes = draftBytes(d), tooBig = bytes > max;
-    const size = el("span", { class: tooBig ? "bad" : "dim",
-      text: d.files.length ? `${kib(bytes)} / ${kib(max)} KiB` + (tooBig ? " " + t("smpTooBig") : "") : "" });
     const prog = el("progress", { max: 1, value: 0, hidden: true });
-    const wd = wtDraft[k];
-    const wfile = el("input", { type: "file", accept: ".wav,audio/wav", hidden: true });
-    wfile.addEventListener("change", () => { const f = wfile.files[0]; wfile.value = ""; if (f) wtPickSlotFile(k, f); });
-    const winfo = wd.built
-      ? `${wd.name || "—"}, ${wd.built.frames} ${t("wtFrames")}, ${kib(wd.built.data.length)} KiB`
-      : u.wt ? `${u.name || "—"}, ${u.kib} KiB` : "";
-    const wrow = el("div", { class: "head" },
-      el("span", { text: t("wtTable") }), el("span", { text: winfo }),
-      el("button", { ic: "symbol_upload", disabled: smpBusy || recActive(), onclick: () => wfile.click() }, t("wtChoose")), wfile,
-      wd.built ? el("button", { ic: "symbol_upload", disabled: smpBusy || recActive(), onclick: () => wtUpload(k) }, t("wtUpload")) : "",
-      wd.built ? el("button", { text: t("wtSaveWav"), disabled: smpBusy || recActive(), onclick: () => wtDownload(k) }) : "",
-      wd.built ? el("button", { text: t("wtClear"), disabled: smpBusy || recActive(),
-        onclick: () => { wtDraft[k] = { built: null, cycles: null, name: "" }; renderSamples(); } }) : "");
-    const blk = el("div", { class: "smp", "data-k": k },
-      el("div", { class: "head" }, el("b", { text: `USR${k + 1}` }), el("span", { text: status }), bar,
-        el("button", { ic: "symbol_trash", disabled: smpBusy || (!u.zones && !u.wt), onclick: () => smpErase(k) }, t("erase"))),
-      el("div", { class: "head" }, el("span", { text: t("smpName") }), name,
-        el("label", {}, drum, " ", el("span", { text: t("smpDrumGrid") })),
-        el("button", { ic: "symbol_folder_open", disabled: smpBusy || recActive(), onclick: () => file.click() }, t("chooseFiles")), file,
-        el("button", { ic: "symbol_upload", disabled: smpBusy || recActive() || !d.files.length || tooBig || !d.name, onclick: () => smpUpload(k, prog) }, t("upload")),
-        d.files.length ? el("button", { text: t("clearList"), disabled: smpBusy || recActive(), onclick: () => { d.files = []; renderSamples(); } }) : "",
-        size, prog),
-      wrow, recRow(k));
-    if (d.files.length) {
-      const keys = splitKeys(d.files);
-      const tb = el("table", {}, el("tr", {}, el("th", { text: t("file") }), el("th", { text: t("root") }),
-        el("th", { text: t("keys") }), el("th", { text: t("length") }), el("th")));
-      d.files.forEach((f, i) => {
-        const root = el("input", { type: "text", class: "root", value: noteName(f.root), spellcheck: "false" });
-        root.addEventListener("change", () => {
-          const n = parseNote(root.value.trim());
-          if (n == null) { root.classList.add("bad"); return; }
-          f.root = n;
-          renderSamples();
-        });
-        tb.append(el("tr", {}, el("td", { text: f.fname }), el("td", {}, root),
-          el("td", { text: `${noteName(keys[i][0])}–${noteName(keys[i][1])}` }),
-          el("td", { text: `${(f.s.length / SMP.RATE).toFixed(2)} s` }),
-          el("td", {}, el("button", { text: t("remove"), disabled: smpBusy || recActive(), onclick: () => { d.files.splice(i, 1); renderSamples(); } }))));
-        if (f.raw)                                  /* the waveform: drag its ends to trim */
-          tb.append(el("tr", { class: "trimrow" }, el("td", { colspan: 4 }, trimCanvas(f)),
-            el("td", {},
-              el("button", { text: t("preview"), onclick: () => preview(f) }),
-              el("button", { text: t("autoTrim"), disabled: smpBusy || recActive(), onclick: () => {
-                [f.a, f.b] = autoTrim(f.raw);
-                f.s = takeSample(f.raw, f.a, f.b);
-                renderSamples();
-              } }))));
+    const head = el("div", { class: "head" },
+      el("b", { text: `USR${k + 1}` }), type, el("span", { text: status }), bar,
+      el("button", { ic: "symbol_trash", disabled: smpBusy || (!u.zones && !u.wt), onclick: () => smpErase(k) }, t("erase")));
+    let body;
+    if (d.type === "table") {
+      const wd = wtDraft[k];
+      const wfile = el("input", { type: "file", accept: ".wav,audio/wav", hidden: true });
+      wfile.addEventListener("change", () => { const f = wfile.files[0]; wfile.value = ""; if (f) wtPickSlotFile(k, f); });
+      const wfolder = el("input", { type: "file", multiple: true, hidden: true });
+      wfolder.setAttribute("webkitdirectory", "");
+      wfolder.addEventListener("change", () => {
+        const files = [...wfolder.files].filter((f) => /\.wav$/i.test(f.name)).sort((a, b) => a.name.localeCompare(b.name));
+        wfolder.value = "";
+        if (files.length) wtPickSlotFolder(k, files);
       });
-      blk.append(tb);
+      const info = wd.built ? `${wd.name}, ${wd.built.frames} ${t("wtFrames")}, ${kib(wd.built.data.length)} KiB` : "";
+      body = el("div", { class: "head" },
+        el("button", { ic: "symbol_folder_open", disabled: smpBusy || recActive(), onclick: () => wfile.click() }, t("smpTableFile")), wfile,
+        el("button", { ic: "symbol_folder_open", disabled: smpBusy || recActive(), onclick: () => wfolder.click() }, t("smpTableFolder")), wfolder,
+        el("span", { text: info }),
+        wd.built ? el("button", { ic: "symbol_upload", disabled: smpBusy || recActive(), onclick: () => wtUpload(k) }, t("wtUpload")) : "",
+        wd.built ? el("button", { text: t("wtSaveWav"), disabled: smpBusy || recActive(), onclick: () => wtDownload(k) }) : "",
+        wd.built ? el("button", { text: t("clearList"), disabled: smpBusy || recActive(),
+          onclick: () => { wtDraft[k] = { built: null, cycles: null, name: "" }; renderSamples(); } }) : "",
+        prog);
+    } else {
+      const file = el("input", { type: "file", accept: ".wav,audio/wav,audio/x-wav,audio/*", multiple: true, hidden: true });
+      file.addEventListener("change", () => { addFiles(k, [...file.files]); file.value = ""; });
+      const bytes = draftBytes(d), tooBig = bytes > max;
+      const size = el("span", { class: tooBig ? "bad" : "dim",
+        text: d.files.length ? `${kib(bytes)} / ${kib(max)} KiB` + (tooBig ? " " + t("smpTooBig") : "") : "" });
+      body = el("div", { class: "head" },
+        el("button", { ic: "symbol_folder_open", disabled: smpBusy || recActive(), onclick: () => file.click() }, t("chooseFiles")), file,
+        el("button", { ic: "symbol_upload", disabled: smpBusy || recActive() || !d.files.length || tooBig, onclick: () => smpUpload(k, prog) }, t("upload")),
+        d.files.length ? el("button", { text: t("clearList"), disabled: smpBusy || recActive(), onclick: () => { d.files = []; d.name = ""; renderSamples(); } }) : "",
+        size, prog);
+    }
+    const blk = el("div", { class: "smp", "data-k": k }, head, body);
+    if (d.type !== "table") {
+      blk.append(recRow(k));
+      if (d.files.length) {
+        const keys = d.type === "drum" ? d.files.map((f) => [f.root, f.root]) : splitKeys(d.files);
+        const tb = el("table", {}, el("tr", {}, el("th", { text: t("file") }), el("th", { text: t("root") }),
+          el("th", { text: t("keys") }), el("th", { text: t("length") }), el("th")));
+        d.files.forEach((f, i) => {
+          const root = el("input", { type: "text", class: "root", value: noteName(f.root), spellcheck: "false" });
+          root.addEventListener("change", () => {
+            const n = parseNote(root.value.trim());
+            if (n == null) { root.classList.add("bad"); return; }
+            f.root = n;
+            renderSamples();
+          });
+          tb.append(el("tr", {}, el("td", { text: f.fname }), el("td", {}, root),
+            el("td", { text: `${noteName(keys[i][0])}–${noteName(keys[i][1])}` }),
+            el("td", { text: `${(f.s.length / SMP.RATE).toFixed(2)} s` }),
+            el("td", {}, el("button", { text: t("remove"), disabled: smpBusy || recActive(), onclick: () => { d.files.splice(i, 1); renderSamples(); } }))));
+          if (f.raw)                                  /* the waveform: drag its ends to trim */
+            tb.append(el("tr", { class: "trimrow" }, el("td", { colspan: 4 }, trimCanvas(f)),
+              el("td", {},
+                el("button", { text: t("preview"), onclick: () => preview(f) }),
+                el("button", { text: t("autoTrim"), disabled: smpBusy || recActive(), onclick: () => {
+                  [f.a, f.b] = autoTrim(f.raw);
+                  f.s = takeSample(f.raw, f.a, f.b);
+                  renderSamples();
+                } }))));
+        });
+        blk.append(tb);
+      }
     }
     blk.addEventListener("dragover", (e) => { e.preventDefault(); blk.classList.add("over"); });
     blk.addEventListener("dragleave", () => blk.classList.remove("over"));
     blk.addEventListener("drop", (e) => {
       e.preventDefault();
       blk.classList.remove("over");
-      if (!smpBusy && !recActive() && e.dataTransfer.files.length) addFiles(k, [...e.dataTransfer.files]);   /* (the recording sized itself to the slot) */
+      const files = [...e.dataTransfer.files];
+      if (smpBusy || recActive() || !files.length) return;
+      if (d.type === "table") {
+        if (/\.wav$/i.test(files[0].name)) wtPickSlotFile(k, files[0]);
+      } else addFiles(k, files);                     /* (the recording sized itself to the slot) */
     });
     return blk;
   });
-  box.replaceChildren(bar, ...cards);
+  box.replaceChildren(...cards);
 }
 
 async function smpInfo(d = dev) { d.smp = parse[CMD.SMP_INFO](await sessionRequest(d, req.smpInfo())); }
@@ -4405,8 +4412,10 @@ async function smpInfo(d = dev) { d.smp = parse[CMD.SMP_INFO](await sessionReque
 async function smpUpload(k, prog) {
   const d = smpDraft[k];
   let built;
-  try { built = buildSlot(d.name, d.files.map((f) => ({ s: f.s, root: f.root })), { drumGrid: !!d.drumGrid }); }
-  catch (e) { sayK("smpFail", e.message); return; }
+  try {
+    built = buildSlot(d.name || `USR${k + 1}`, d.files.map((f) => ({ s: f.s, root: f.root })),
+                       { drumGrid: d.type === "drum", exactKeys: d.type === "drum" });
+  } catch (e) { sayK("smpFail", e.message); return; }
   if (!confirm(t("confirmUpload").replace("{n}", k + 1))) return;
   const { hdr, data } = built;
   const session = dev;
@@ -4433,6 +4442,7 @@ async function smpUpload(k, prog) {
     r = parse[CMD.SMP_END](await rq(req.smpEnd(k, hdr), { timeout: 2000, retries: 0 }));
     if (r.rc) throw new Error(`end rc ${r.rc} (${SMP_RC[r.rc] || "?"})`);
     sayK("smpDone", `${k + 1}  ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+    d.files = []; d.name = ""; d.type = "";
   } catch (e) {
     if (e.message !== "closed") sayK("smpFail", e.message);
   } finally {
@@ -4452,6 +4462,8 @@ async function smpErase(k) {
   try {
     const r = parse[CMD.SMP_ERASE](await rq(req.smpErase(k), { timeout: 2500, retries: 0 }));
     if (r.rc) throw new Error("erase rc " + r.rc);
+    smpDraft[k] = { type: "", files: [], drumGrid: false, name: "" };
+    wtDraft[k] = { built: null, cycles: null, name: "" };
     sayK("smpErased", String(k + 1));
   } catch (e) {
     if (e.message !== "closed") sayK("smpFail", e.message);
@@ -4464,18 +4476,10 @@ async function smpErase(k) {
 }
 
 /* ------------------------------------------------------- wavetable UI --- */
-function wtSlotName() {
-  const f = (wtFolder.length ? wtFolder : wtMedleyFiles)[0];
-  const rel = f && (f.webkitRelativePath || f.name);
-  if (!rel) return "MEDLEY";
-  const dir = rel.includes("/") ? rel.split("/")[0] : "MEDLEY";
-  return dir.replace(/\.[^.]*$/, "");
-}
-
 async function wtPickSlotFile(k, file) {
   try {
     const cycles = wtTableCycles(await file.arrayBuffer(), 16);
-    const name = file.name.replace(/\.[^.]*$/, "");
+    const name = autoName(file.name.replace(/\.[^.]*$/, ""));
     wtDraft[k] = { cycles, name, built: wtBuild(cycles, name) };
   } catch (e) {
     wtDraft[k] = { built: null, cycles: null, name: "" };
@@ -4484,17 +4488,20 @@ async function wtPickSlotFile(k, file) {
   renderSamples();
 }
 
-async function wtMedleyUpload(k) {
-  const files = wtFolder.length ? wtFolder : wtMedleyFiles;
-  if (!files.length || smpBusy || recActive()) return;
+async function wtPickSlotFolder(k, files) {
   try {
     const ids = wtPick(16, files.length);                  /* a big folder: 16 evenly spaced, not 567 reads */
     const bufs = await Promise.all(ids.map((i) => files[i].arrayBuffer()));
-    const built = wtBuild(wtMedleyCycles(bufs, 0, 16), wtSlotName());
-    await wtSend(k, built, wtSlotName());
+    const first = files[0];
+    const rel = first.webkitRelativePath || first.name;
+    const name = autoName(rel.includes("/") ? rel.split("/")[0] : rel.replace(/\.[^.]*$/, ""));
+    const cycles = wtMedleyCycles(bufs, 0, 16);
+    wtDraft[k] = { cycles, name, built: wtBuild(cycles, name) };
   } catch (e) {
+    wtDraft[k] = { built: null, cycles: null, name: "" };
     sayK("smpFail", e.message);
   }
+  renderSamples();
 }
 
 function wtDownload(k) {
@@ -4542,7 +4549,10 @@ async function wtSend(k, built, label) {
     try { if (session === dev) await smpInfo(session); } catch (e) { /* shown by the next action */ }
     smpBusy = false;
     releaseBusy();
-    if (ok) wtDraft[k] = { built: null, cycles: null, name: "" };
+    if (ok) {
+      wtDraft[k] = { built: null, cycles: null, name: "" };
+      smpDraft[k].type = "";
+    }
     renderSamples();
   }
 }

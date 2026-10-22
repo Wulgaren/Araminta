@@ -47,7 +47,9 @@ static uint32_t pow2_q16(int32_t d16)
 #define SMP_USER_SIZE 0x14000u
 #define SMP_USER_DATA 512u
 #define SMP_USER_MAGIC 0x504D5346u                  /* "FSMP" */
-#define SMP_NALL (SMP_NSETS + SMP_USER_SLOTS)
+#define SMP_CR78_INDEX (SMP_NSETS + SMP_USER_SLOTS)   /* a factory kit after USR1..3: SET values 5..7 stay */
+#define SMP_NSRC (SMP_NSETS + SMP_USER_SLOTS)         /* GRAIN's sources: factory sets and USR1..3, no CR78 */
+#define SMP_NALL (SMP_CR78_INDEX + 1)
 typedef struct {
     uint32_t magic;
     uint16_t version;
@@ -91,7 +93,8 @@ static smp_zone_t usr_zone[SMP_USER_SLOTS][16];     /* RAM copy, off rebased ont
 static uint8_t usr_nz[SMP_USER_SLOTS];
 static uint8_t usr_drum[SMP_USER_SLOTS];             /* FSMP hdr.rsv bit 0: SEQ shows the drum grid for SAMPLE */
 #define SMP_USR_DRUM 1u                             /* hdr.rsv: drum kit grid (zones mapped by hand on upload) */
-static const char *const SMP_ALL_NAMES[SMP_NALL] = {SMP_SET_NAMES_INIT, "USR1", "USR2", "USR3"};
+static const char *const SMP_ALL_NAMES[SMP_NALL] = {SMP_SET_NAMES_INIT, "USR1", "USR2", "USR3", "CR78"};
+static const char *const SMP_SRC_NAMES[SMP_NSRC] = {SMP_SET_NAMES_INIT, "USR1", "USR2", "USR3"};
 static int smp_user_drum(uint32_t k) { return k < SMP_USER_SLOTS && usr_drum[k]; }
 
 #ifndef SMP_USER_XIP                                /* host tests: a RAM image of the slots */
@@ -203,8 +206,8 @@ static inline int32_t sample_next(const smp_zone_t *z, voice_t *v, int loop)
 static void sample_note_on(track_t *t, voice_t *v)
 {
     uint32_t si = (uint32_t)t->p[P_E0] % SMP_NALL, i, zi = 0xFFFFu, width = 128u;
-    if (si < SMP_NSETS) {                           /* a built-in set: its zones split the keyboard */
-        const smp_set_t *set = &SMP_SETS[si];
+    if (si < SMP_NSETS || si == SMP_CR78_INDEX) {   /* a built-in set (or the CR78 factory kit) */
+        const smp_set_t *set = si == SMP_CR78_INDEX ? &SMP_CR78_SET : &SMP_SETS[si];
         for (i = 0; i < set->nz; i++)
             if (v->note >= SMP_ZONES[set->z0 + i].lo && v->note <= SMP_ZONES[set->z0 + i].hi) {
                 zi = set->z0 + i;
