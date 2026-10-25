@@ -9070,7 +9070,9 @@ static int test_fx_sections(void)
     ok = song.g[G_DTIME] == 1 && !dtime_free();          /* 1/8, RATE */
     turn(EN_K1, -1);                                     /* 1/8D, still a division (triplets and dotted stay) */
     ok &= song.g[G_DTIME] == 10 && !dtime_free();
-    turn(EN_K4, 1);                                      /* TIME: free ms, the view's first knob */
+    turn(EN_K4, 1);                                      /* right: still RATE */
+    ok &= !dtime_free() && song.g[G_DTIME] == 10;
+    turn(EN_K4, -1);                                     /* left: TIME, free ms, the view's first knob */
     {
         uint32_t ms = dtime_ms();
         ok &= dtime_free() && ms >= 1u && ms <= DTIME_MS_MAX;
@@ -9101,10 +9103,10 @@ static int test_fx_sections(void)
             }
             ok &= dtime_ms() >= ms0 + 100u;
         }
-        turn(EN_K4, -1);                                 /* RATE again: the division we left */
+        turn(EN_K4, 1);                                  /* right: RATE again, the division we left */
         ok &= !dtime_free() && song.g[G_DTIME] == 10;
     }
-    bad += check("DLY: K4 RATE/TIME reloads K1; divisions keep dotted; free ms steps by 1", ok);
+    bad += check("DLY: K4 left TIME / right RATE reloads K1; divisions keep dotted; free ms steps by 1", ok);
 
     ui_power_on();
     go_title("CRUSH");

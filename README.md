@@ -40,7 +40,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **VOICE** is one page: VCE, GLD, UNI DTN, SPRD. GLD is free milliseconds (no GLMOD on the page). PAN / PLAY live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
 - **EFFECTS.** One list for the insert chain: CHOOSE a stage, ORDER moves it, USE AS is CHAIN or SEND, MIX is dry/wet (or send amount). Delay and reverb sit in that list (bus chorus is gone). Dual reverb tanks keep SEND and CHAIN settings while REV is chained.
 - Reverb modes from JIANT - SHIMR and CLOUD.
-- Delay has divisions or smooth ms.
+- Delay has divisions or smooth ms; K4 turned left is TIME, turned right RATE.
 - Assign FX values in LFO MOD or SEQ param locks.
 - **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
 - **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.
