@@ -290,7 +290,7 @@ static uint32_t scale_leds(uint32_t *root)
     for (k = 0; k < 27u; k++) {
         if (e->keys && e->keys(t, k) >= 0)
             continue;
-        if (t->p[P_QUANT] == QN_KBD || t->p[P_QUANT] == QN_ALL) {
+        if (qn_mode(t) == QN_KBD || qn_mode(t) == QN_ALL) {
             if (key_black(k))
                 continue;                               /* layout is white keys; blacks only duplicate */
             if ((note = kb_map(t, k)) > 127u)
@@ -1279,8 +1279,10 @@ static void edit_param(uint32_t slot, int32_t steps)
     if (arp_drone_frozen(TSEL, vp))
         return;
     v = param_turn(d, *vp, accel(EN_K1 + slot, steps, d->fmt == F_ENUM ? 0 : d->max - d->min));
-    if (pg->id[slot] == PG_SLOCK) {
-        scale_lock_set(TSEL, (int16_t)v);
+    if (pg->id[slot] == PG_STRUM || pg->id[slot] == PG_STROKE) {
+        uint32_t rate = pg->id[slot] == PG_STRUM ? (uint32_t)v : sweep_rate(TSEL);
+        uint32_t stroke = pg->id[slot] == PG_STROKE ? (uint32_t)v : sweep_stroke(TSEL);
+        TSEL->p[P_ALLOC] = sweep_pack(rate, stroke);
         ui.force = 1;
         return;
     }

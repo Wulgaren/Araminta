@@ -74,6 +74,10 @@ static int ev_id_ok(const track_t *t, uint32_t id)
  * would say two things (ENV ATK, ENV FLT: ENV DEST's, LFO FLT: LFO DEST's; SLICER RATE / PAT / MIX: #222) */
 static void ev_name(const track_t *t, uint32_t id, char *b)
 {
+    if (id == MSEQ_PITCH) {
+        str_cpy(b, "PITCH", 12);
+        return;
+    }
     if (MFX_PARAM(id)) {
         static const char *const NAME[] = {"DLY TIME", "DLY FDBK", "DLY COLOR", "REV SIZE", "REV DAMP"};
         str_cpy(b, NAME[id - MFX_TIME], 12);
@@ -555,6 +559,10 @@ static void pk_add_item(uint32_t id, const char *tag, const char *name)
 /* short name for an automation / motion param (family is the row tag; b holds 16) */
 static void pk_auto_name(const track_t *t, uint32_t id, char *b)
 {
+    if (id == MSEQ_PITCH) {
+        str_cpy(b, "PITCH", 16);
+        return;
+    }
     if (ev_sid(id)) {
         str_cpy(b, id == EV_CHANCE ? "CHANCE" : id == EV_RATCH ? "RATCH" : id == EV_VEL ? "VELOCITY" : "NUDGE", 16);
         return;

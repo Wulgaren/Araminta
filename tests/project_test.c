@@ -952,19 +952,19 @@ int main(void)
              !memcmp(c.name, "DX KIT", 6);
         bad += check("FUN10 (FUNA): loads with the factory DRUM-X kit (custom kit not on disk)", ok);
     }
-    {   /* FUN14: SCALE LOCK + SLCR slots on disk; stash RAM-only; SEND bus in reclaimed bytes. */
+    {   /* FUN14: MAP = CURR + SLCR slots on disk; stash RAM-only; SEND bus in reclaimed bytes. */
         project_t a, c;
         static project_store_t st;
         uint32_t i;
         memset(&a, 0, sizeof a);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);
-        a.t[0].scl_lock = SCL_LOCK_SCALE;
-        a.t[1].scl_lock = SCL_LOCK_OFF;
+        a.t[0].p[P_QUANT] = QN_CURR;
+        a.t[1].p[P_QUANT] = QN_ALL;                        /* plain ALL: no lock bit */
         a.t[1].scl_stash_ok = 1;
         a.t[1].scl_stash[0] = 5; a.t[1].scl_stash[1] = 2; a.t[1].scl_stash[2] = 1;
-        a.t[2].scl_lock = SCL_LOCK_SCALE;
-        a.t[3].scl_lock = SCL_LOCK_SCALE;
+        a.t[2].p[P_QUANT] = QN_CURR;
+        a.t[3].p[P_QUANT] = QN_CURR;
         a.t[0].fx_sl_pos = 3; a.t[1].fx_sl_pos = 5; a.t[2].fx_sl_pos = 7; a.t[3].fx_sl_pos = 8;
         a.g[G_SLOWN] = 2;                                 /* legacy: track 1 CHAIN → mask 0xD */
         for (i = 0; i < FX_BUS_N; i++)
@@ -977,13 +977,13 @@ int main(void)
              st.raw[PROJ_SLPOS_OFF] == (uint8_t)(3u | (5u << 4)) &&
              st.raw[PROJ_SLPOS_OFF + 1u] == (uint8_t)(7u | (8u << 4)) &&
              proj_import(&c, &st, sizeof st) &&
-             c.t[0].scl_lock == SCL_LOCK_SCALE && c.t[1].scl_lock == SCL_LOCK_OFF &&
-             c.t[2].scl_lock == SCL_LOCK_SCALE && c.t[3].scl_lock == SCL_LOCK_SCALE &&
+             c.t[0].p[P_QUANT] == QN_CURR && c.t[1].p[P_QUANT] == QN_ALL &&
+             c.t[2].p[P_QUANT] == QN_CURR && c.t[3].p[P_QUANT] == QN_CURR &&
              !c.t[1].scl_stash_ok && !c.t[1].scl_stash[0] && !c.t[1].scl_stash[1] &&
              !c.t[1].scl_stash[2] && !memcmp(c.fx_bus, a.fx_bus, FX_BUS_N) &&
              c.t[0].fx_sl_pos == 3 && c.t[1].fx_sl_pos == 5 && c.t[2].fx_sl_pos == 7 &&
              c.t[3].fx_sl_pos == 8 && c.g[G_SLOWN] == 0xD;
-        bad += check("FUN14: SCALE LOCK + SLCR slots; stash not on disk; SEND bus knobs round trip", ok);
+        bad += check("FUN14: MAP CURR + SLCR slots; stash not on disk; SEND bus knobs round trip", ok);
     }
     {   /* Felucca 1.5 FUNA (np 111): INSERT + FTYPE/ESYNC through proj_import end-to-end */
         project_t c;
