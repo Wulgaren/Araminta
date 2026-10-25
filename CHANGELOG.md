@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 3.2
+
+The stock V15 supply rails before core 1, a per-step PITCH lock, beat-synced chord STRUM / STROKE, x2 TEMPO
+and GLITCH punch-ins, and the DELAY page's TIME / RATE direction swapped. Same project format as 3.1
+(FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
 
 ### Boot
 
