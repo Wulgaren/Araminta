@@ -379,9 +379,10 @@ static void ui_leds(void)
         led_put(nl, panel.btn[B_FX], 1);                /* FX LATCH: lit while an effect or a macro is on */
     if (ui.layer)                                       /* the layer's button breathes while its map is up */
         led_put(nb, panel.btn[layer_btn()], 1);
-    led_put(nl, panel.btn[B_REC],
-            ft_on || (song.rec != 0u && (song.playing || ((fm1_ms / 125u) & 1u))));   /* free take / armed: lit;
-                                                         * armed and stopped: blinks */
+    led_put(nl, panel.btn[B_REC],                        /* the selected track, as the tap acts on it (a track armed
+                                                         * behind another shows in the header's REC icon and the MIXER's
+                                                         * column); free take / armed: lit; armed and stopped: blinks */
+            ft_on || (((song.rec >> song.sel) & 1u) && (song.playing || ((fm1_ms / 125u) & 1u))));
     k = oct_leds();
     led_put(nl, panel.btn[B_OCTDN], (int)(k & 1u));
     led_put(nl, panel.btn[B_OCTUP], (int)((k >> 1) & 1u));
