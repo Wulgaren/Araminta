@@ -552,7 +552,7 @@ static const page_t PAGES[] = {
     {"MOD", FAM_LFO, SC_TRACK, GR_MOD, LFO_SEC_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* its own section: LFO button cycles here */
     /* FX: Effects → Punch-in. SLICER is an EFFECTS page (open from the list / SELECT).
      * SELECT order follows the EFFECTS list (fx_list), not this table order. Each stage's mix
-     * lives on EFFECTS (K4). K3 is USE AS: CHAIN or SEND. DELAY knob 4 is RATE / TIME. */
+     * lives on EFFECTS (K4). K3 is USE AS: CHAIN or SEND. DELAY knob 4: left TIME, right RATE. */
     {"EFFECTS", FAM_FX, SC_TRACK, GR_IORD, FX_SEC_INS, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},
     {"DELAY", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_DTIME, G_DFDBK, G_DCOLOR, 0xFF}},
