@@ -24,9 +24,9 @@ enough to plan the follow-up linker PR, not to size the stacks from alone.
 | CPU1 supervisor | `0x01C09240`-`0x01C09340` | 256 B | `firmware/hal/fm1_cpu1.S:29-32` | none (no interrupts on core 1) |
 
 - POOL region: `0x01C1A000` + `0x5A000` = ends at `0x01C74000` (`firmware/app.ld:19`), directly under
-  `_guard0`. POOL *content* ends at `0x01C70CE8`: 355,560 B used of 368,640, **13,080 B spare**
-  (VERIFIED, `./build.sh`: `pool 355560 B of 368640`).
-- RAM `.data+.bss`: 68,632 B of 73,728, 5,096 B headroom (VERIFIED, same build line). The CPU1 stacks
+  `_guard0`. POOL *content* ends at `0x01C70CE0`: 355,552 B used of 368,640, **13,088 B spare**
+  (VERIFIED, `./build.sh`: `pool 355552 B of 368640`).
+- RAM `.data+.bss`: 69,360 B of 73,728, 4,368 B headroom (VERIFIED, same build line). The CPU1 stacks
   live in `.bss` (`_c1_ustack`, `_c1_sstack`, `_c1_sstack_top` from `objdump -t`), so freeing CPU1
   stack bytes grows RAM headroom, not POOL, unless the RAM/POOL boundary in `app.ld` moves.
 - EMU stack limit is one window over both CPU0 stacks (`fm1_guard.h:38,67-77`); CPU1 sets its own over
