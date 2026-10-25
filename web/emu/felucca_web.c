@@ -226,6 +226,12 @@ static fm1_crash_t fm1_crash;                     /* (none: main.c boot_leds run
 static struct { uint8_t p3_rst, wdt_con; uint32_t rst_src; } fm1_boot;
 uint32_t _data_start[1], _data_end[1], _data_load[1], _bss_start[1], _bss_end[1];
 uint32_t _pool_start[1], _pool_end[1], _rt_start[1], _rt_end[1], _rt_load[1];
+/* main.c's CPU0 stack marks: the browser has no device stacks (fm1_cstart is never called here).
+ * The buffers keep the paint harmless and the readers at 0 if that changes. */
+static uint32_t web_ustack[256], web_sstack[64];
+static char *_ustack_lo = (char *)web_ustack, *_ustack_top = (char *)(web_ustack + 256);
+static char *_sstack_lo = (char *)web_sstack, *_sstack_top = (char *)(web_sstack + 64);
+static uint32_t fm1_sp(void) { return (uint32_t)(uintptr_t)_ustack_top; }
 static uint32_t web_master_adc = 700;   /* MASTER, 0..1023 as the ADC reads it */
 enum { FM1_ADC_BATT = 3, FM1_ADC_MASTER = 4 };
 static int32_t fm1_adc_read(uint32_t ch) { return ch == FM1_ADC_MASTER ? (int32_t)web_master_adc : 620; }

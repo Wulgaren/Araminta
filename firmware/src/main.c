@@ -303,6 +303,41 @@ static void fm1_main(void)
     }
 }
 
+/* ---------- CPU0 stack high-water marks (docs/RAM_STACK_AUDIT_3.2.md) ----------
+ * Painted once in fm1_cstart, interrupts off. The user stack from _ustack_lo up to just below
+ * the boot frame (256 B short of sp, so a spill slot the compiler keeps under sp is never
+ * written over); the whole supervisor stack, which nothing has used before the first interrupt.
+ * A word still at the mark is one nothing wrote since; scanning up from the bottom finds the
+ * deepest use. A live word that happens to equal the mark reads as unused (the same caveat as
+ * fm1_cpu1_stack_used, hal/fm1_cpu1.h). `used` is measured from the stack top, so it includes
+ * the boot frame and the reader's own frame: conservative, never optimistic. */
+#define FM1_STACK_MARK 0x53304D4Bu                    /* "S0MK" */
+static uint8_t fm1_stacks_marked;
+
+static void fm1_stack_paint(void)
+{
+    uint32_t a, end = (fm1_sp() - 256u) & ~3u;
+    for (a = (uint32_t)(uintptr_t)_ustack_lo; a < end; a += 4u)
+        *(uint32_t *)(uintptr_t)a = FM1_STACK_MARK;
+    for (a = (uint32_t)(uintptr_t)_sstack_lo; a < (uint32_t)(uintptr_t)_sstack_top; a += 4u)
+        *(uint32_t *)(uintptr_t)a = FM1_STACK_MARK;
+    fm1_stacks_marked = 1;
+}
+
+static uint32_t fm1_stack_used(const char *lo, const char *top)
+{
+    const uint32_t *w = (const uint32_t *)(const void *)lo;
+    uint32_t i, n = (uint32_t)(top - lo) / 4u;
+    if (!fm1_stacks_marked)                           /* not painted (no boot yet): none, not the whole stack */
+        return 0;
+    for (i = 0; i < n && w[i] == FM1_STACK_MARK; i++)
+        ;
+    return (n - i) * 4u;
+}
+
+uint32_t fm1_stack_used_user(void) { return fm1_stack_used(_ustack_lo, _ustack_top); }    /* main loop */
+uint32_t fm1_stack_used_super(void) { return fm1_stack_used(_sstack_lo, _sstack_top); }    /* IRQ / exception */
+
 void fm1_cstart(void)
 {
     uint32_t *s, *d, p3, src, wdt;
@@ -339,6 +374,7 @@ void fm1_cstart(void)
         *d = *s;                                /* flash driver code that must run from RAM */
     for (s = _c1_load, d = _c1_start; d < _c1_end; s++, d++)
         *d = *s;                                /* the second core's waiting loop (hal/fm1_cpu1.h) */
+    fm1_stack_paint();                          /* high-water marks: before any IRQ, before the guard (first write) */
     fm1_mailbox_clear();
     if (!fm1_power_start())                   /* stock V15 supplies: CPU1, the audio and the flash read at V15 levels */
         fm1_c1_dead = 1;                      /* .. a failed setup keeps one core (fm1_main) */
