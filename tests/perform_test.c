@@ -78,6 +78,7 @@ static void perf_reset(void)
     memset((void *)perf_k, 0, sizeof perf_k);
     sl_lent = 0;
     memset(sl, 0, sizeof sl);
+    memset(sl_buf, 0, sizeof sl_buf);                  /* GLITCH reads what the ring held before it */
 }
 /* the stage alone on the test signal: samples [t0, t1); ev: press (+e + 1) / let go (-(e + 1)) at block bt */
 typedef struct { uint32_t t; int e; } ev_t;
@@ -943,7 +944,7 @@ static int test_map(void)
                  PF_DEF[6] == PF_OCTD && PF_DEF[7] == PF_OCTU && PF_DEF[14] == PF_RND && PF_DEF[15] == PF_N &&
                  PF2_DEF[0] == PF_REV && PF2_DEF[1] == PF_TAPE && PF2_DEF[2] == PF_FRZ && PF2_DEF[3] == PF_OUP &&
                  PF2_DEF[4] == PF_ODN && PF2_DEF[5] == PF_FLG && PF2_DEF[6] == PF_PHS && PF2_DEF[7] == PF_RTHR &&
-                 PF2_DEF[8] == PF_ETHR && PF2_DEF[9] == PF_N && PF2_DEF[14] == PF_N && PF2_DEF[15] == PF_N);
+                 PF2_DEF[8] == PF_ETHR && PF2_DEF[9] == PF_X2 && PF2_DEF[10] == PF_GLT && PF2_DEF[15] == PF_N);
     {   /* the keys: the shown page's fixed map (G5 none, LATCH off); a page flip (ui.c page_entered) follows */
         uint32_t fx = 1u << 3, white = 0, ck = 0;
         song_setup();
@@ -1864,6 +1865,102 @@ static int test_pfx_restore(void)
     return bad;
 }
 
+/* ---------------------------------------------------- x2 TEMPO (3.2) --- */
+static uint32_t seq_steps_run(track_t *t, uint32_t samples)
+{
+    uint32_t k, n = 0, prev = t->seq_idx;
+    for (k = 0; k < samples; k += CTL) {
+        seq_tick(t, CTL);
+        if (t->seq_idx != prev) {
+            n++;
+            prev = t->seq_idx;
+        }
+    }
+    return n;
+}
+static void seq_fresh(track_t *t)
+{
+    host_tracks_init();
+    song.g[G_BPM] = 120;
+    song.playing = 1;
+    song.rec = 0;
+    t->p[P_SDIV] = 2;
+    t->p[P_SLEN] = 16;
+    t->seq_idx = 0;
+    t->seq_pos = 0;
+    t->seq_n = 0;
+    t->seq_hold = 0;
+    t->pfx = 0;
+    t->pfx_rs = 0;
+}
+static int test_x2(void)
+{
+    int bad = 0;
+    track_t *t = &trk[0];
+    int32_t o[2 * CTL];
+    uint32_t normal, doubled;
+
+    seq_fresh(t);
+    normal = seq_steps_run(t, 88200u);                 /* one bar of 1/16 at 120 BPM */
+    seq_fresh(t);
+    perf_reset();
+    pfx_lph = 0;
+    clk_pos = CLK_START;
+    perf_press(PF_X2, 1);
+    pfx_block(CTL, PF_BIT(PF_X2));                     /* (pfx_block alone: events_block would consume pfx_rs) */
+    bad += check("x2: the MIDI bit and its origin while held", (t->pfx & PFX_X2) && t->pfx_idx0 == 0 && t->pfx_pos0 == 0);
+    doubled = seq_steps_run(t, 88200u);
+    bad += check("x2: one bar plays twice the steps", doubled >= 2u * normal - 2u && doubled <= 2u * normal + 2u);
+    perf_press(PF_X2, 0);
+    pfx_block(CTL, 0);
+    bad += check("x2: let go arms the resync", !(t->pfx & PFX_X2) && t->pfx_rs);
+    seq_tick(t, CTL);
+    bad += check("x2: the next tick resyncs once", !t->pfx_rs);
+    pfx_lane_put(0, 11);
+    bad += check("x2: lane nibble 11", pfx_lane_at(0) == 11u);
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    return bad;
+}
+
+/* --------------------------------------------------------- GLITCH (3.2) --- */
+static int test_glitch(void)
+{
+    int bad = 0;
+    ev_t e = {0, PF_GLT + 1};
+    static int32_t a[NT], b[NT];
+    uint32_t seen = 0, t;
+
+    test_signal(220.0, 0.5, 330.0, 0.5);
+    clk_pos = CLK_START;
+    run(120, 1, &e, 1, 4u * 44100u);
+    bad += check("GLITCH: a held key plays the master through the slice buffer", busy_seen && !same(0, NT));
+    memcpy(a, out_l, sizeof a);
+    memcpy(b, out_r, sizeof b);
+    clk_pos = CLK_START;
+    run(120, 1, &e, 1, 4u * 44100u);
+    bad += check("GLITCH: the same slice actions every pass (deterministic)",
+                 !memcmp(a, out_l, sizeof a) && !memcmp(b, out_r, sizeof b));
+
+    host_tracks_init();
+    perf_reset();
+    song.g[G_BPM] = 70;                                /* below ~82 BPM: only GATE / CRUSH / live */
+    song.playing = 1;
+    clk_pos = CLK_START;
+    perf_start();
+    perf_press(PF_GLT, 1);
+    for (t = 0; t < NT; t += CTL) {
+        memcpy(out_l + t, in_l + t, CTL * 4);
+        memcpy(out_r + t, in_r + t, CTL * 4);
+        if (perf_begin(CTL)) {
+            perf_block(out_l + t, out_r + t, CTL);
+            seen |= 1u << pf.gl.a;
+        }
+    }
+    bad += check("GLITCH: below 82 BPM only GATE / CRUSH / live",
+                 !(seen & ((1u << GA_RPT) | (1u << GA_REV) | (1u << GA_UP) | (1u << GA_DN) | (1u << GA_SKIP))));
+    return bad;
+}
+
 int main(int argc, char **argv)
 {
     int bad = 0;
@@ -1880,6 +1977,8 @@ int main(int argc, char **argv)
     bad += test_throw();
     bad += test_dly_move();
     bad += test_pfx_restore();
+    bad += test_x2();
+    bad += test_glitch();
     bad += test_cost();
     if (argc > 1)
         demos(argv[1]);

@@ -1449,11 +1449,17 @@ static void seq_tick(track_t *t, uint32_t n)
         if (song.playing)
             pfx_resync(t, div_samples((uint32_t)t->p[P_SDIV]), (uint32_t)t->p[P_SLEN]);
     }
-    if ((t->pfx & PFX_HALF) && song.playing) {        /* 1/2 TEMPO held: half the samples (odd one carried) */
-        uint32_t h = n + t->pfx_half;
-        t->pfx_el += n;
-        t->pfx_half = (uint8_t)(h & 1u);
-        n = h >> 1;
+    if ((t->pfx & (PFX_HALF | PFX_X2)) && song.playing) {   /* 1/2 / x2 TEMPO: the transport's samples, scaled */
+        uint32_t real = n;
+        t->pfx_el += real;
+        if ((t->pfx & PFX_HALF) && !(t->pfx & PFX_X2)) {    /* half speed (the odd sample carried) */
+            uint32_t h = real + t->pfx_half;
+            t->pfx_half = (uint8_t)(h & 1u);
+            n = h >> 1;
+        } else if ((t->pfx & PFX_X2) && !(t->pfx & PFX_HALF)) {
+            n = real * 2u;                                  /* double speed */
+        } else
+            t->pfx_half = 0;                                /* both: they cancel */
     }
     if (t->seq_n && !t->seq_hold) {
         if (t->seq_off <= n)

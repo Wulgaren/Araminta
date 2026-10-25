@@ -32,7 +32,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **Sloop free take.** Project empty, track armed, transport stopped: the first note starts a free take. No pattern required first.
   Hold a note and press others while it is still down: those steps get slide flags (acid legato) when the take closes,
   and releasing a tap while the hold continues records a return to the held pitch.
-- **JIANT MIDI punch-ins.** On FX under Punch-in (FX taps: EFFECTS → SLICER → PUNCH-IN). Two fixed PUNCH-IN pages, 1/2 and 2/2 (SELECT walks the section; no reassignment): 1/2 holds REPEAT 1/8 1/16 1/32, 1/2, LPF, HPF, OCT±, DEC±, stutters, ATK+, ARP, RANDOM; 2/2 holds REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW. Holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK. Reverb adds SHIMR / CLOUD.
+- **JIANT MIDI punch-ins.** On FX under Punch-in (FX taps: EFFECTS → SLICER → PUNCH-IN). Two fixed PUNCH-IN pages, 1/2 and 2/2 (SELECT walks the section; no reassignment): 1/2 holds REPEAT 1/8 1/16 1/32, 1/2, LPF, HPF, OCT±, DEC±, stutters, ATK+, ARP, RANDOM; 2/2 holds REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW, **x2 TEMPO** (A4) and **GLITCH** (B4). Holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK. Reverb adds SHIMR / CLOUD.
 - **Melodee.** Silent tracks still run LFO, bend, the engine block and fades, so modulation keeps moving when a track is muted or resting.
 - **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project (FUN16 / `FUNG`; same 3840-byte size as FUN10; disk motion max 88). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
 - **SLICE retired.** 
@@ -115,7 +115,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **FX layer:** hold FX for repeat, reverse, filter sweeps, tape stop, freeze, a harmonizer
   (OCT UP / OCT DN with shimmer), **FLANGER** and **PHASER** (in time with the tempo), **REV THROW** and **ECHO THROW**
   (every track's reverb or delay send full while held), JIANT punch-ins on their own FX section, and mutes on the black keys;
-  any white key can hold any effect (hold the key in the layer and turn PRESETS); MENU > FX LATCH makes them toggle,
+  the two PUNCH-IN pages have fixed keys (SELECT walks the section); MENU > FX LATCH makes them toggle,
   so nothing has to stay held
 - **MOMENTARY:** hold LFO and turn a knob on HOME or a sound / FX page; let go of LFO and the value jumps back
   (OCT+ while holding keeps it)
