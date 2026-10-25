@@ -93,6 +93,34 @@ Build options (environment, `0` or `1`; defaults in `firmware/src/felucca.c`, `c
 `FELUCCA_USB_LAYOUT` (`0` to `3`, default `0`) picks other USB descriptor layouts for testing; see
 `firmware/src/usb.c`.
 
+## The stock supply setup
+
+`firmware/hal/fm1_power.h` applies the supply portion of stock V15's constant-folded
+`power_init` / `__hw_power_init` before the guards, CPU1 and the audio start, with interrupts off and
+CPU1 held. It uses the bounded P33 driver in `firmware/hal/fm1_sys.h`; no SDK power manager, sleep
+timers or RTOS services are linked in, and the PLL is not changed.
+
+The reference is the unmodified `FM-1_015` package with SHA-256
+`db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644049f99dc40e7edb8a`. Its decoded boot config contains
+`SYS_CLK=360000000`, `HSB_DIV=1`, `LSB_DIV=2` and no `DVDD`, `DCDC14` or `VDDIO`. Its SPL's default
+branches at `0x01C03E7C..0x01C03EAC` select SYSVDD 11 / VDC14 3. The application task `app_core`
+(entry `0x02004CF2`) then executes the supply sequence at `0x02004F90..0x0200509A`:
+
+- Enable LDO13, wait, enable DCDC13, wait, disable LDO13, wait. Each wait is stock's 1,000-iteration
+  `nop` / increment / branch loop, **not** 1,000 us.
+- Write P33 analog registers 1, 5, 6, 7, 8 with `20`, `40`, `0C`, `A5`, `96` (hex), then set register 9
+  bit 4.
+- Select VDDIOM 4 (3.2 V), VDC14 7 (1.60 V), VDDIOW 3 (3.2 V). Retain the stock reads of registers
+  6, 5, 5 in that order.
+- Set register 0 bit 7 (`RC_250k_EN`), clear register 0x16 [5:0], set register 2 bit 6 (`VDDOK_DIS`),
+  clear register 0x17 bit 5, then set SYSVDD 15 (1.38 V) **last**.
+- Read registers 0, 5, 6 and 9 back. Any P33 timeout or a wrong read-back stops the sequence and keeps
+  one core; MENU > ABOUT shows `RAILS 7/15 (3/11)` (VC14/SYSVDD after, and what the boot loader left)
+  or `RAILS FAIL 1 CORE`.
+
+`tests/power_test.c` replays the resolved bus transactions, every transfer timeout and the read-back
+faults on the build machine.
+
 ## Code size
 
 The app runs from XIP flash: `.text` and `.rodata` stay in flash (the XIP region in `firmware/app.ld`),
