@@ -37,6 +37,17 @@ Firmware + web in one change: run the host side from steps 2–3 **and** the web
 
 Full suite on request, or before a commit/PR the user asks for, still wins over this rule when they ask for it.
 
+### Before the final push
+
+Run the full gate **once, with sanitizers on**:
+
+```
+SANITIZE=1 tests/run_tests.sh
+```
+
+`SANITIZE=1` is the gate. Do not also run the unsanitized suite for the same change, and do not push
+until it prints `ALL HOST TESTS PASSED`.
+
 ## Rough map (source → host binary)
 
 | Touch | Binary under `build/host/` |
