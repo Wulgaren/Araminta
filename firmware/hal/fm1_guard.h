@@ -35,7 +35,7 @@
 #define FM1_EMU_USP_H (*(volatile uint32_t *)0x1EEF0E0u)
 #define FM1_EMU_USP_L (*(volatile uint32_t *)0x1EEF0E4u)
 
-extern char _guard0[], _ustack_lo[], _guard1[], _sstack_lo[], _sstack_top[], _etext[];
+extern char _guard0[], _ustack_lo[], _ustack_top[], _guard1[], _sstack_lo[], _sstack_top[], _etext[];
 #if FM1_CPU1_USED
 extern uint32_t _rt_start[], _rt_end[], _c1_end[];
 #define FM1_RAMCODE_END _c1_end                  /* .ram_text, then .c1_text (the second core's loop, app.ld) */
