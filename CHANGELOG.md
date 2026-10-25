@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### FX
+
+- **DELAY K4: left TIME, right RATE.** Turning knob 4 left selects free milliseconds, turning it right
+  the note divisions; the mode column shows `<TIME` or `RATE>`. The division last used is still the one
+  TIME returns to. This swaps the 3.0–3.1 direction, so it is a change of muscle memory, not of stored
+  data (`G_DTIME` is unchanged and old projects load the same).
+
 ### LFO
 
 - **S&H SMOOTH.** LFO > LFO 2's fourth knob (`SMTH`, 0..100 %) rounds the WAVE S&H steps into a smooth,
