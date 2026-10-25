@@ -179,6 +179,69 @@ static int lfo(void)
     return bad;
 }
 
+/* ----------------------------------------------------------- S&H SMOOTH --- */
+static int smooth(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    int16_t *vp = 0;
+    const param_desc_t *d;
+    int32_t first;
+    uint32_t i;
+
+    ui_power_on();
+    t = &trk[0];
+    bad += check("S&H SMOOTH: LFO 2's KNOB 4 is SMTH, 0..127, default 0",
+                 PAGES[3].id[3] == P_LSMOOTH && TP[P_LSMOOTH].fmt == F_PCT && TP[P_LSMOOTH].min == 0 &&
+                 TP[P_LSMOOTH].max == 127 && TP[P_LSMOOTH].def == 0 && str_eq(TP[P_LSMOOTH].label, "SMTH"));
+    t->p[P_LWAVE] = 0;
+    d = page_desc(&PAGES[3], 3, &vp);
+    bad += check("S&H SMOOTH: blank unless WAVE is S&H", !d && !vp);
+    t->p[P_LWAVE] = 4;
+    d = page_desc(&PAGES[3], 3, &vp);
+    bad += check("  WAVE S&H: shown, the track's own value", d && vp == &t->p[P_LSMOOTH] && str_eq(d->label, "SMTH"));
+
+    go_page(GR_LFO);
+    ui.page++;
+    page_entered();
+    t->p[P_LWAVE] = 0;
+    t->p[P_LSMOOTH] = 0;
+    turn(EN_K4, 20);
+    ok = t->p[P_LSMOOTH] == 0;
+    t->p[P_LWAVE] = 4;
+    turn(EN_K4, 20);
+    bad += check("  KNOB 4 turns SMTH only with S&H", ok && t->p[P_LSMOOTH] > 0);
+
+    t = &trk[1];
+    t->p[P_LWAVE] = 4;
+    t->p[P_LSYNC] = 0;
+    t->p[P_LRATE] = 1;
+    t->p[P_LPOL] = 0;
+    t->lfo_ph = 0x10000000u;
+    t->lfo_rnd = 0;
+    t->p[P_LSMOOTH] = 0;
+    track_lfo_tick(t);                               /* prime: the raw value and the state at -32768 */
+    t->lfo_rnd = 0xFFFF0000u;
+    track_lfo_tick(t);
+    bad += check("  SMTH 0: the step in one block", t->lfo_val == 32767);
+    t = &trk[2];
+    t->p[P_LWAVE] = 4;
+    t->p[P_LSYNC] = 0;
+    t->p[P_LRATE] = 1;
+    t->p[P_LPOL] = 0;
+    t->p[P_LSMOOTH] = 120;
+    t->lfo_ph = 0x10000000u;
+    t->lfo_rnd = 0xFFFF0000u;
+    t->lfo_val = -32768;
+    track_lfo_tick(t);
+    first = t->lfo_val;
+    for (i = 0; i < 1000u; i++)
+        track_lfo_tick(t);
+    bad += check("  SMTH > 0: partway in a block, closer after more (a one-pole)",
+                 first > -32768 && first < 32767 && t->lfo_val > first && t->lfo_val <= 32767);
+    return bad;
+}
+
 /* ---------------------------------------------------------------- NUDGE --- */
 static uint32_t P16;                                 /* the 1/16 step at 120 BPM */
 /* track 1 alone: 16 steps of 1/16, GATE 64, no swing, POLY; QUANTIZE as given */
@@ -734,6 +797,7 @@ int main(void)
 {
     int bad = 0;
     bad += lfo();
+    bad += smooth();
     bad += nudge();
     bad += motion128();
     bad += formats();

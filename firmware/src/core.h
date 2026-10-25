@@ -67,7 +67,8 @@ enum {                          /* per-track parameters */
     P_DIST, P_CHOR, P_DLY, P_REV,              /* P_DIST: DIST drive. P_CHOR: EFFECTS DLY/REV/SLCR list slots
                                                 * (fx.c; was bus CHO send). P_DLY/P_REV: send or chain mix */
     P_VOICE, P_GLIDE, P_PAN, P_MUTE,
-    P_GLMODE, P_PRIO, P_ALLOC, P_DETUNE,
+    P_GLMODE, P_LSMOOTH, P_ALLOC, P_DETUNE,    /* P_LSMOOTH was P_PRIO, stored but never read or shown: the
+                                                * LFO WAVE S&H's smoothing (voice.c track_lfo_end) */
     P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH,      /* SLICER (slicer.c): MODE PAT RATE; P_SLDEPTH is MIX */
     P_M1SRC, P_M1DST, P_M1AMT,                 /* modulation matrix (mod.c): 4 slots of SRC, DST, AMT; */
     P_M2SRC, P_M2DST, P_M2AMT,                 /* new common parameters go just before P_E0 (user presets */
@@ -568,7 +569,9 @@ typedef struct track {
     uint8_t scl_stash_ok;        /* 1: scl_stash holds values from before a lock overwrite */
     uint8_t fx_sl_pos;           /* EFFECTS INS_SLCR list slot 0..8; RAM until FUN14 (default 8) */
     generation_t generation;
-    uint8_t rsv_sz[3];           /* sizeof(track_t) a multiple of 16 */
+    int16_t lfo_sm;              /* WAVE S&H with SMOOTH on (voice.c track_lfo_end); in rsv_sz's pad, so the
+                                  * fields above keep their offsets (the ISR's code layout depends on them) */
+    uint8_t rsv_sz[1];           /* sizeof(track_t) a multiple of 16 */
     int16_t armp, aholdp;        /* P_AMODE / P_AHOLD as last seen by the ISR */
     int16_t ahold_sv;            /* HOLD before DRONE forced it on (restored on leave) */
     /* engine switch (voice.c engine_block): the old engine's voices fade out, then it switches */
