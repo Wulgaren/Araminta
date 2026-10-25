@@ -75,6 +75,15 @@ static void track_lfo_end(track_t *t)
         t->lfo_rnd = lfo_rand(t);
     }
     t->lfo_val = lfo_wave(t, t->lfo_ph);
+    /* S&H SMOOTH (LFO 2 KNOB 4): a one-pole toward each step, its coefficient the envelope table's. It runs as a
+     * copy (32768, exact) when not S&H or SMTH is 0, so 0 is the step, bit for bit; the state follows the wave
+     * while off, so turning it on starts from where it is. | 1 keeps the table's slowest coefficient from freezing */
+    {
+        int32_t s = t->p[P_LWAVE] == 4 ? t->p[P_LSMOOTH] : 0;
+        int32_t c = s ? ((int32_t)(ENV_EXP[s & 127] >> 1) | 1) : 32768;
+        t->lfo_sm = (int16_t)(t->lfo_sm + (((t->lfo_val - t->lfo_sm) * c) >> 15));
+        t->lfo_val = t->lfo_sm;
+    }
     if (t->p[P_LPOL])                                   /* UNI: 0..+1 (the depths reach as far, one way only) */
         t->lfo_val = (t->lfo_val + 32768) >> 1;
     if (t->lfo_fade < 32767) {

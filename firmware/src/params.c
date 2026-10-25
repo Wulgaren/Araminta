@@ -51,7 +51,6 @@ static const char *const N_CHRD[] = {"OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7"
 static const char *const N_VOIC[] = {"CLOSE", "OPEN", "INV1", "INV2", "+OCT"};   /* VC_CLOSE .. VC_BASS */
 static const char *const N_VOICE[] = {"POLY", "MONO", "LEG", "UNI"};   /* V_POLY .. V_UNISON */
 static const char *const N_GLMODE[] = {"RATE", "TIME"};
-static const char *const N_PRIO[] = {"LAST", "LOW", "HIGH"};   /* stored; voice always LAST */
 static const char *const N_ALLOC[] = {"ROT", "REUSE"};         /* stored; voice always ROT (REUSE if GLD) */
 static const char *const N_ORDER[] = {"NOTE", "PLAY"};
 static const char *const N_CLOCK[] = {"INT", "USB", "TRS"};
@@ -135,7 +134,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_VOICE] = PE("VCE", N_VOICE, 0),
     [P_GLIDE] = PD("GLD", F_TIME, 0, 127, 0),
     [P_GLMODE] = PE("GLMOD", N_GLMODE, 0),
-    [P_PRIO] = PE("PRIO", N_PRIO, 0),
+    [P_LSMOOTH] = PD("SMTH", F_PCT, 0, 127, 0),     /* WAVE S&H's smoothing (P_PRIO's inert id: no format change) */
     [P_ALLOC] = PE("ALLOC", N_ALLOC, 0),
     [P_DETUNE] = PD("UNI DTN", F_INT, 0, 127, 40),   /* UNISON voice spread only (voice.c mono_play) */
     [P_PAN] = PD("PAN", F_BIPCT, -64, 63, 0),
@@ -547,7 +546,8 @@ static const page_t PAGES[] = {
     {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, 0, {P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ESYNC}},   /* knob cards + scope (P_ED_FX unused);
                                                                              * 1.5: ESYNC, ENV's times as note values */
     {"LFO", FAM_LFO, SC_TRACK, GR_LFO, LFO_SEC_LFO, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},
-    {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, LFO_SEC_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},   /* 1.2: SYNC TRIG POL */
+    {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, LFO_SEC_LFO, {P_LSYNC, P_LTRIG, P_LPOL, P_LSMOOTH}},   /* 1.2: SYNC
+                                                                             * TRIG POL; S&H: K4 SMOOTH */
     {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, LFO_SEC_LFO, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
     {"MOD", FAM_LFO, SC_TRACK, GR_MOD, LFO_SEC_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* its own section: LFO button cycles here */
     /* FX: Effects → Punch-in. SLICER is an EFFECTS page (open from the list / SELECT).
@@ -687,6 +687,11 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     if (id == PG_SLOCK) {
         *valp = &TSEL->scl_lock;
         return &SLOCK_DESC;
+    }
+    /* LFO 2 KNOB 4: SMOOTH, only while WAVE is S&H (blank otherwise; the value stays stored) */
+    if (id == P_LSMOOTH && TSEL->p[P_LWAVE] != 4) {
+        *valp = 0;
+        return 0;
     }
     if (pg->scope == SC_STEP || pg->scope == SC_TRK) {
         *valp = 0;

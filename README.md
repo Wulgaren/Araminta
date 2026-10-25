@@ -51,7 +51,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
-### Since 3.0
+### New in 3.1
 
 - **CR78 factory kit.** SAMPLE gains a public-domain CR-78 kit at **SET 8** (after USR1..USR3, whose indices stay
   5..7). Its eight one-shots use the SEQ drum lanes `36 38 39 42 46 45 37 56`; the drum grid appears on that set.
@@ -102,7 +102,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   DNUP, UP+8, CONV, DIVG, PINKY, THUMB, WALK and CHORD; a beat LED; 15 scales with MAP (OFF/ALL/KBD/SEQ), glide,
   MONO / LEGATO / UNISON
 - **LFO:** RATE or **SYNC** to a note value (4 bars to 1/32, following the tempo or an external clock), **TRIG** NOTE
-  or FREE, **POL** bipolar or unipolar (LFO > LFO 2)
+  or FREE, **POL** bipolar or unipolar (LFO > LFO 2), and **SMTH** on LFO 2 (only when WAVE is S&H): rounds the
+  sample-and-hold steps into a smooth, sine-like random curve
 - **Modulation matrix:** 4 slots per track, MIDI controllers as sources, **S&H** and **SLEW** (a random value per
   LFO cycle, held or gliding), and **DEPTH** as a destination, so the matrix can modulate the LFO itself
 - **SPREAD** (EDIT > VOICE, SPRD): the voices of a POLY or UNISON track alternate left and right of its PAN
