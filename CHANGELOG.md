@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### FX
+
+- **x2 TEMPO (PUNCH-IN 2/2, A4).** The counterpart of 1/2 TEMPO: while held, every target track's sequencer
+  runs at double speed; let go and it lands where it would have been. HALF + x2 cancel. Recorded in the
+  punch-in lane as nibble 11 (older firmware ignores it). GLITCH is audio-only and never recorded.
+- **GLITCH (PUNCH-IN 2/2, B4).** The master is cut on the transport's 1/16s. A deterministic hash of each
+  slice's place in a 2-bar cycle decides: play live, repeat the last L, reverse the last 1/16, an octave up or
+  down, gate, SKIP, or CRUSH; every slice is windowed. Knobs are fixed (DENS 50 / PITCH 0 / SIZE 0 / VARI 1).
+  It borrows the SLICER's buffer, like REPEAT / REVERSE / TAPE / FREEZE; below ~82 BPM only gates, crushes and
+  live slices play. Ported from JIANT 0.9.9-snd2 / 0.9.18.
+
 ### LFO
 
 - **S&H SMOOTH.** LFO > LFO 2's fourth knob (`SMTH`, 0..100 %) rounds the WAVE S&H steps into a smooth,
