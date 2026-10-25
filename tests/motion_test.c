@@ -701,6 +701,45 @@ static int lock_edit(void)
     bad += check("delete an event deletes a lock too (either kind)", !motion_count(&trk[1]));
     return bad;
 }
+/* PITCH lock (3.2, MSEQ_PITCH): scale degrees when the sequence quantises, semitones when it does not */
+static int lock_pitch(void)
+{
+    int bad = 0, ok;
+    track_t *t = lock_track(0);
+    project_t before, after;
+    project_store_t a;
+    uint32_t n;
+    t->p[P_QUANT] = QN_SEQ;                              /* ALL's quantising */
+    t->p[P_SCALE] = 0;
+    t->p[P_ROOT] = 0;
+    motion_set_lock(t, 2, MSEQ_PITCH, 2);
+    motion_set_lock(t, 4, MSEQ_PITCH, 7);
+    motion_set_lock(t, 6, MSEQ_PITCH, -2);
+    ok = motion.count == 3u && motion.event[0].param == (MSEQ_PITCH | MOTION_LOCK);
+    seq_start();
+    seq_tick(t, CTL);
+    ok &= t->seq_notes[0] == 60u && !t->plk_pit;
+    bad += check("PITCH lock: a lock-only id, stored in the shared records", ok);
+    for (n = 0; n < 100000u && t->seq_idx != 2u; n++) lock_next(t);
+    bad += check("  MAP SEQ C major: +2 degrees on C4 plays E4", t->plk_pit == 2 && t->seq_notes[0] == 64u);
+    for (n = 0; n < 100000u && t->seq_idx != 4u; n++) lock_next(t);
+    bad += check("  +7 degrees plays C5", t->plk_pit == 7 && t->seq_notes[0] == 72u);
+    for (n = 0; n < 100000u && t->seq_idx != 6u; n++) lock_next(t);
+    bad += check("  -2 degrees plays A3", t->plk_pit == -2 && t->seq_notes[0] == 57u);
+    seq_stop();
+    t->p[P_QUANT] = QN_OFF;                              /* MAP OFF: semitones */
+    motion_set_lock(t, 2, MSEQ_PITCH, 3);
+    seq_start();
+    for (n = 0; n < 100000u && t->seq_idx != 2u; n++) lock_next(t);
+    bad += check("  MAP OFF: +3 is three semitones (D#4)", t->seq_notes[0] == 63u);
+    seq_stop();
+    project_capture(&before);
+    ok = proj_pack(&a, &before) && proj_import(&after, &a, sizeof a) &&
+         after.motion.event[0].param == (MSEQ_PITCH | MOTION_LOCK) && after.motion.event[0].value == 3;
+    bad += check("  the lock survives the project round trip (FUN16, id 127)", ok);
+    return bad;
+}
+
 static int lock_project(void)
 {
     int bad = 0;
@@ -855,6 +894,23 @@ static int lock_ui(void)
     lk_down(kn); turn(EN_K3, 1); lk_up(kn);
     bad += check("  a song playing: STOP TO EDIT, no lock", !motion_lock_count(t) && msg_is("STOP TO EDIT"));
     song.playing = 0; chain.running = 0; song.rec = 0;
+    {   /* SCL KNOB 4 on a held step: the PITCH lock (MSEQ_PITCH), not a refused TRN lock */
+        ui_power_on();
+        t = &trk[0];
+        track_defaults_steps(t);
+        go_title("SCL");
+        go_seq_step();
+        frame();
+        for (kn = 0; kn < 27u && kb_map(t, kn) > 127u; kn++)
+            ;
+        song.rec = 1;
+        lk_down(kn);
+        turn(EN_K4, 2);
+        lk_up(kn);
+        bad += check("SCL K4 on a held step: a PITCH lock (+2), not a refused TRN lock",
+                     motion_lock_get(t, 0, MSEQ_PITCH, &v) && v == 2 && motion_lock_count(t) == 1u);
+        song.rec = 0;
+    }
     return bad;
 }
 /* 1.1.5: lock edits by hand are one undo (SAVE held), redo too */
@@ -1214,7 +1270,7 @@ int main(void)
     bad += arp_play_sync();
     bad += arp_new_modes();
     bad += arp_drone_mode();
-    bad += lock_playback() + lock_edit() + lock_project() + lock_ui() + lock_undo() + auto_list();
+    bad += lock_playback() + lock_edit() + lock_pitch() + lock_project() + lock_ui() + lock_undo() + auto_list();
     bad += fx_lock_time();
     bad += fx_lock_banks_and_capacity();
     printf("%s\n", bad ? "MOTION TEST FAILED" : "motion/chance/compact storage tests passed"); return bad != 0;

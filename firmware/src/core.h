@@ -67,7 +67,7 @@ enum {                          /* per-track parameters */
     P_DIST, P_CHOR, P_DLY, P_REV,              /* P_DIST: DIST drive. P_CHOR: EFFECTS DLY/REV/SLCR list slots
                                                 * (fx.c; was bus CHO send). P_DLY/P_REV: send or chain mix */
     P_VOICE, P_GLIDE, P_PAN, P_MUTE,
-    P_GLMODE, P_LSMOOTH, P_ALLOC, P_DETUNE,    /* P_LSMOOTH was P_PRIO, stored but never read or shown: the
+    P_GLMODE, P_LSMOOTH, P_ALLOC, P_DETUNE,    /* P_ALLOC: STRUM/SWEEP (packed; chord.c), was inert. P_LSMOOTH was P_PRIO: the
                                                 * LFO WAVE S&H's smoothing (voice.c track_lfo_end) */
     P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH,      /* SLICER (slicer.c): MODE PAT RATE; P_SLDEPTH is MIX */
     P_M1SRC, P_M1DST, P_M1AMT,                 /* modulation matrix (mod.c): 4 slots of SRC, DST, AMT; */
@@ -447,6 +447,7 @@ static void step_set_fl(step_t *s, uint32_t fl) { s->flags = (uint8_t)(fl & (SF_
 /* Motion-only targets reuse ids excluded from track automation. They never index p[]. */
 enum { MFX_TIME = P_M1SRC, MFX_FB, MFX_COLOR, MFX_SIZE, MFX_DAMP };
 #define MFX_PARAM(id) ((id) >= MFX_TIME && (id) <= MFX_DAMP)
+#define MSEQ_PITCH 127u                  /* lock-only (3.2): a step's pitch offset; never indexes p[] */
 #define MOTION_ID(e) ((uint32_t)(e)->param & 0x7Fu)
 typedef struct { uint8_t place, param; int16_t value; } motion_event_t;
 typedef struct { uint8_t place, param, value; } motion_file_event_t;
@@ -463,7 +464,7 @@ _Static_assert(MOTION_FILE_SIZE_V10 == 334u, "FUN10 motion disk layout");
 _Static_assert(MOTION_FILE_SIZE_V11 == 238u, "FUN11 motion disk layout (kit before FM6)");
 _Static_assert(MOTION_FILE_SIZE_V15 == 220u, "FUN12..FUN15 motion disk layout (SCALE LOCK before CRV)");
 _Static_assert(MOTION_FILE_SIZE == 268u, "FUN16 motion disk layout (88 records, packed chain)");
-enum { SCL_LOCK_OFF = 0, SCL_LOCK_SCALE = 1 };   /* track_t.scl_lock / CHORD KNOB 3 (params.c PG_SLOCK) */
+enum { QN_OFF, QN_ALL, QN_KBD, QN_SEQ, QN_CURR };   /* P_QUANT (MAP); CURR: linked ROOT/SCL + ALL's quantising */
 #define CHAIN_ROWS 16u
 /* A song section (1.2, FUN10): the PROJECT slot each track plays (0..3, A..D; CHAIN_SILENT "-": that track plays
  * nothing there) and its repeats (1..16). Up to 1.1 a row was {slot, repeat}, all four tracks on that slot
@@ -563,9 +564,8 @@ typedef struct track {
     uint8_t pfx_sn[4], pfx_snn;  /* notes a repeat holds now */
     uint8_t pfx_si;              /* ARP: the next of them */
     uint32_t pfx_sc;             /* samples since the last repeat */
-    /* SCALE LOCK (CHORD KNOB 3): not a P_* (P_COUNT is at the 127 ceiling). Default SCALE. */
-    int16_t scl_lock;            /* SCL_LOCK_OFF / SCL_LOCK_SCALE */
-    int16_t scl_stash[3];        /* ROOT / SCL / MAP restored on OFF (project.c FUN12+) */
+    /* MAP = CURR's stash: ROOT / SCL restored when the track leaves CURR (project.c FUN12+) */
+    int16_t scl_stash[3];        /* ROOT / SCL (the third slot stays for older files) */
     uint8_t scl_stash_ok;        /* 1: scl_stash holds values from before a lock overwrite */
     uint8_t fx_sl_pos;           /* EFFECTS INS_SLCR list slot 0..8; RAM until FUN14 (default 8) */
     generation_t generation;
@@ -589,8 +589,25 @@ typedef struct track {
     uint32_t esync_k[3];         /* ATK's step, DEC's and REL's coefficient (Q16; voice.c esync_coef / env_tick) */
     uint8_t spread_on;           /* SPREAD while this part renders (voice.c / fx.c mix_part) */
     uint8_t lfo_wrap;            /* the LFO's phase wrapped this block (track_lfo_adv) */
+    int16_t plk_pit;             /* the step's PITCH lock (MSEQ_PITCH), 0 none (seq.c) */
     uint8_t rsv_c1[2];           /* sizeof(track_t) a multiple of 16 */
 } track_t;
+#define P_STRUM P_ALLOC              /* CHORD KNOB 3 (chord.c): the sweep's rate, packed with its stroke */
+/* P_ALLOC's sweep: 0 = OFF; else 1 + (rate - 1) * 3 + stroke (rate 1..7, stroke 0 DN / 1 UP / 2 ALT) */
+static inline uint32_t sweep_rate(const track_t *t)
+{
+    uint32_t v = (uint32_t)t->p[P_ALLOC] & 127u;
+    return v ? (v - 1u) / 3u + 1u : 0u;
+}
+static inline uint32_t sweep_stroke(const track_t *t)
+{
+    uint32_t v = (uint32_t)t->p[P_ALLOC] & 127u;
+    return v ? (v - 1u) % 3u : 0u;
+}
+static inline int16_t sweep_pack(uint32_t rate, uint32_t stroke)
+{
+    return (int16_t)(rate ? 1u + (rate - 1u) * 3u + (stroke % 3u) : 0u);
+}
 enum { PFX_RND = 1, PFX_HALF = 2, PFX_REP = 4, PFX_DEC = 8, PFX_ATK = 16 };   /* (track_t.pfx) */
 /* the audio ISR indexes trk[] with a multiply by a small immediate and a shift while the size is a multiple of 16; 1.5's
  * new track parameters (the INSERT, the filter TYPE, ENV SYNC) and state would make it no multiple (the constant

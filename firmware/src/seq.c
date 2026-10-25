@@ -117,6 +117,21 @@ static int32_t scale_snap(const track_t *t, int32_t n)
     return n;
 }
 
+/* n walked `deg` scale degrees (positive up), MAP ALL / CURR / SEQ's step PITCH lock */
+static int32_t scale_walk(const track_t *t, int32_t n, int32_t deg)
+{
+    uint32_t mask = scale_mask(t), k = (uint32_t)(deg > 0 ? deg : -deg);
+    int32_t d = deg > 0 ? 1 : -1;
+    while (k && n >= 0 && n <= 127) {
+        n += d;
+        if (n < 0 || n > 127)
+            break;
+        if ((mask >> (uint32_t)((n - t->p[P_ROOT] + 120) % 12)) & 1u)
+            k--;
+    }
+    return clamp(n, 0, 127);
+}
+
 /* nearest in-scale pitch to n (tie: lower). MAP KBD's black keys */
 static int32_t scale_nearest(const track_t *t, int32_t n)
 {
@@ -127,7 +142,11 @@ static int32_t scale_nearest(const track_t *t, int32_t n)
     return n - down <= up - n ? down : up;
 }
 
-enum { QN_OFF, QN_ALL, QN_KBD, QN_SEQ };          /* P_QUANT (MAP) */
+/* (QN_*: core.h) MAP = CURR quantises exactly like ALL */
+static inline uint32_t qn_mode(const track_t *t)
+{
+    return t->p[P_QUANT] == QN_CURR ? QN_ALL : (uint32_t)t->p[P_QUANT];
+}
 #define QN_WHITE QN_KBD                          /* (older tests / comments) */
 #define QN_SNAP QN_KBD                           /* old SNAP tests: closest remaining is KBD layout */
 
@@ -144,7 +163,7 @@ static uint32_t kb_pitch(const track_t *t, uint32_t k, int32_t oct)
 {
     static const int8_t DEGREE[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
     int32_t n = 53 + (int32_t)k;
-    if (t->p[P_QUANT] == QN_KBD || t->p[P_QUANT] == QN_ALL) {  /* KBD / ALL: white walk; black -> nearest */
+    if (qn_mode(t) == QN_KBD || qn_mode(t) == QN_ALL) {  /* KBD / ALL / CURR: white walk; black -> nearest */
         uint32_t mask = scale_mask(t), i;
         int32_t count = 0, degree = DEGREE[n % 12], wo;
         if (degree < 0)                                 /* black: chromatic pitch, closest in-scale (dup OK) */
@@ -1035,15 +1054,20 @@ static void key_on(uint32_t k, track_t *t)
     uint32_t n = chord_build(t, kb_note[k], kb_chord[k]), i, mc = trk_midi_ch(trk_index(t));
     kb_chn[k] = 0;
     in_key = (uint8_t)(k + 1u);                     /* (the arp keeps the key: arp_add) */
-    for (i = 0; i < n; i++) {
-        uint32_t x = kb_chord[k][i];
-        if (midi_local_held(t, x))
-            continue;
-        input_on(t, x, 100);
-        midi_out_event(0x09u | (0x90u | mc) << 8 | x << 16 | 100u << 24);
+    if (chord_strum_begin(t, kb_chord[k], n, &kb_strum[k], 100)) {
+        key_chord_tone(k, t);
+        kb_strum_pending |= 1u << k;
+    } else {
+        for (i = 0; i < n; i++) {
+            uint32_t x = kb_chord[k][i];
+            if (midi_local_held(t, x))
+                continue;
+            input_on(t, x, 100);
+            midi_out_event(0x09u | (0x90u | mc) << 8 | x << 16 | 100u << 24);
+        }
+        kb_chn[k] = (uint8_t)n;
     }
     in_key = 0;
-    kb_chn[k] = (uint8_t)n;
     last_note = kb_note[k];                         /* (step entry, the SAMPLE zone: the key's note) */
 }
 
@@ -1051,6 +1075,8 @@ static void key_on(uint32_t k, track_t *t)
 static void key_off(uint32_t k, track_t *t)
 {
     uint32_t n = kb_chn[k], i, mc = trk_midi_ch(trk_index(t));
+    kb_strum_pending &= ~(1u << k);                  /* unplayed strings never sound */
+    kb_strum[k].total = 0;
     kb_chn[k] = 0;
     for (i = 0; i < n; i++) {
         uint32_t x = kb_chord[k][i];
@@ -1224,7 +1250,7 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
      * same kit skip as QNT SEQ. seq_notes keeps the notes that sound: their note-offs match */
     const engine_t *e = ENGINES[eng_idx(t->eng_req)];
     uint32_t kit = e->keys && e->keys(t, 0) >= 0;
-    uint32_t qseq = (t->p[P_QUANT] == QN_SEQ || t->p[P_QUANT] == QN_ALL) && !kit;
+    uint32_t qseq = (qn_mode(t) == QN_SEQ || qn_mode(t) == QN_ALL) && !kit;
     if (!(skip & SEQ_REP)) {
         t->rat_left = 0;
         if ((skip & SEQ_MISS) ||
@@ -1256,6 +1282,9 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
             x += t->p[P_TRANS];
         if (qseq)
             x = scale_snap(t, x);                   /* two notes snapping together play once */
+        if (t->plk_pit) {                           /* the step's PITCH lock: degrees when quantised */
+            x = qseq ? scale_walk(t, x, t->plk_pit) : x + t->plk_pit;
+        }
         n = (uint32_t)clamp(x, 0, 127);
         if (qseq) {
             for (j = 0; j < m && nn[j] != n; j++)
@@ -1576,6 +1605,7 @@ static void events_block(uint32_t n)
 {
     uint32_t i, pr, seq_n = n;
     uint32_t clock_mode = (uint32_t)song.g[G_CLOCK];
+    chord_strum_tick(n);                                /* STRUM: the strings due in this block */
     if (midi_clock.mode != clock_mode) {
         seq_stop();
         memset(&midi_clock, 0, sizeof midi_clock);
