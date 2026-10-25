@@ -333,6 +333,12 @@ u_cpu1() {
 }
 unit u_cpu1
 
+u_power() {
+    $CC -O1 -w -o "$OUT/power_test" tests/power_test.c
+    run "power: stock V15 trace, cold/warm starts, every transfer timeout and rail read-back faults" "$OUT/power_test"
+}
+unit u_power
+
 u_midi_uart() {
     $CC -o "$OUT/midi_uart_test" tests/midi_uart_test.c
     run "TRS MIDI parser" "$OUT/midi_uart_test"
