@@ -128,9 +128,20 @@ static int32_t menu_document(int32_t y, int draw)
         cv_text(6, y + 152, &AF_S, "hugelton.github.io", T_MID);
         cv_text(6, y + 170, &AF_S, "/Felucca", T_MID);
         cv_text(6, y + 188, &AF_S, "hugelton.com", T_MID);
+#ifdef FELUCCA_POWER
+        {   /* the rails at V15 levels (before): a line of its own, below the QR */
+            char rb[24];
+            fm1_power_about(rb, sizeof rb);
+            cv_text(6, y + 206, &AF_S, rb, T_MID);
+        }
+#endif
         draw_about_qr(158, y + 122);                   /* screen 146..220: quiet zone above the footer */
     }
+#ifdef FELUCCA_POWER
+    y = menu_text("CREDITS", y + 224, T_THEME, draw) + 8;
+#else
     y = menu_text("CREDITS", y + 216, T_THEME, draw) + 8;
+#endif
     for (i = 0; i < NELEM(MENU_CREDITS); i++) {
         const menu_credit_t *c = &MENU_CREDITS[i];
         const char *text = c->text;
