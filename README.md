@@ -46,7 +46,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
 - **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.
 - **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN.
-- **MAP (was QNT).** SCL knob: OFF / ALL / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); ALL is KBD plus sequence follows the scale; SEQ is chromatic keys plus sequence follows. Chromatic (CHR) scale removed; use MAP OFF. SCALE LOCK stash lands in FUN12+; current saves are FUN16 (`FUNG`).
+- **MAP (was QNT).** SCL knob: OFF / ALL / **CURR** / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); ALL is KBD plus sequence follows the scale; CURR is ALL's quantising plus ROOT / SCALE shared by every CURR track (the CHORD page's old SCALE LOCK, now a MAP value); SEQ is chromatic keys plus sequence follows. Chromatic (CHR) scale removed; use MAP OFF. CURR saves as ALL + the lock bit, so v3.1 opens it as SCALE LOCK + ALL; a v3.1 project locked with MAP OFF / KBD / SEQ loads unlinked. Current saves are FUN16 (`FUNG`).
 - **Following playhead** in the SEQ. Start selecting a step to pause the following, returns after 3 seconds of inactivity.
 - **SEQ GENERATION.** On DRUM-X, the second SEQ section generates editable kick, snare and closed-hat steps from Mutable Instruments Grids. SELECT switches between LEN / KICK / SNARE / HAT and MAP / MAP X / MAP Y / CHAOS. MAP selects one of 25 templates; X/Y blend between them and show CUSTOM. Turning MAP, MAP X or MAP Y briefly shows the full-screen map, then returns to the drum grid; CHAOS keeps the grid visible. Density edits change only their lane; map, chaos and length edits regenerate all three. Other lanes stay as written, SAVE held undoes the gesture, and each track's controls save with the project. Tips follow MENU > HELP.
 
@@ -86,7 +86,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   that parameter for that step only; EDIT with the step held clears its locks. **SEQ > AUTOMATION** is one list of
   everything that happens on the track's steps: PLAY / CLEAR, QUANTIZE, each step's CHANCE, RATCH, NUDGE and VEL, its
   locks and automation events; change their step, parameter or value, turn a lock into automation or back, add or
-  delete one. 128 records shared by the four tracks. SAVE held undoes every edit
+  delete one. 192 records shared by the four tracks (88 saved in a project). SAVE held undoes every edit. A step can
+  also hold a **PITCH** lock (SCL K4): scale degrees when the sequence is quantised, semitones when it is not
 - **SEQ TOOLS:** hold SEQ on any page for tools on the keys: CLEAR, REVERSE, SHIFT < / >, **RANDOM** (a new beat,
   or new notes in the scale on the same rhythm) and **COOK** (changes the pattern a little each press); on a DRUM
   track also BEAT, **MUTE** (F4 toggles the selected lane) and each lane's CLEAR, REVERSE, FILL and RANDOM;
@@ -98,9 +99,10 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   track that rests there, with its repeats; drawn as a timeline with a lane per track. GLO also holds MASTER and CLOCK
   (HOME is only Home ↔ Mixer). **MIXER** KNOB 4 is PLAY: ON, OFF or SOLO
 - **Chord keys:** one finger plays an in-key chord (triads or sevenths of the scale, or fixed chord
-  shapes), with voicings; on the keys, MIDI in, recording and the arpeggiator
+  shapes), with voicings and a beat-synced **STRUM** (DN / UP / ALT); on the keys, MIDI in, recording and the
+  arpeggiator
 - **Arpeggiator** with UP, DN, UPDN, RND, ORD (the notes in the order you pressed them), REPEAT and, for chords,
-  DNUP, UP+8, CONV, DIVG, PINKY, THUMB, WALK and CHORD; a beat LED; 15 scales with MAP (OFF/ALL/KBD/SEQ), glide,
+  DNUP, UP+8, CONV, DIVG, PINKY, THUMB, WALK and CHORD; a beat LED; 15 scales with MAP (OFF/ALL/CURR/KBD/SEQ), glide,
   MONO / LEGATO / UNISON
 - **LFO:** RATE or **SYNC** to a note value (4 bars to 1/32, following the tempo or an external clock), **TRIG** NOTE
   or FREE, **POL** bipolar or unipolar (LFO > LFO 2), and **SMTH** on LFO 2 (only when WAVE is S&H): rounds the
@@ -353,7 +355,9 @@ than seven notes continue across the white keys without repeating notes; their r
 fall on every C key. Chromatic play is MAP OFF. Drum kits and incoming MIDI keep their own note mapping.
 
 Press **SCL** again for the **CHORD** page: CHRD picks the chord keys (OFF, the scale's triads or
-sevenths, or a fixed shape) and VOIC the voicing.
+sevenths, or a fixed shape), VOIC the voicing, STRUM the sweep (OFF, 1/8 to 1/128, 16T, 32T) and STROKE its
+direction (DN, UP, ALT). Hold a step and turn SCL K4 (TRN) for a per-step **PITCH** lock: scale degrees when the
+sequence is quantised, semitones when it is not.
 
 ## Layout
 

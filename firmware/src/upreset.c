@@ -447,8 +447,12 @@ static int up_store_cat(uint32_t k, const char *name, uint32_t cat)
     r.engine = TSEL->eng_req;
     r.np = P_COUNT;
     up_set_name(&r, k, name);
-    for (i = 0; i < P_COUNT; i++)
-        up_set_value(&r, i, motion_base_value(TSEL, i));
+    for (i = 0; i < P_COUNT; i++) {
+        int16_t v = motion_base_value(TSEL, i);
+        if (i == P_QUANT && v == QN_CURR)
+            v = QN_ALL;                                 /* a preset carries no link bit: CURR saves as ALL */
+        up_set_value(&r, i, v);
+    }
     up_pat_from(&r, TSEL->step);
     up_set_cat(&r, cat ? cat : track_cat(TSEL));
     if (drum_track(TSEL)) {                             /* a DRUM track that strikes a lane: its grid */
@@ -503,6 +507,8 @@ static int up_load(uint32_t k)
         return 1;
     r = up_rec(k);
     up_values(r, v);
+    if (v[P_QUANT] == QN_CURR)
+        v[P_QUANT] = QN_ALL;                            /* no link bit in a preset: CURR loads as ALL */
     load_begin(t, UNDO_SOUND);                          /* (ui.c: the copy for SAVE held = undo) */
     panic_req |= (uint8_t)(1u << song.sel);
 #if !FELUCCA_FM4

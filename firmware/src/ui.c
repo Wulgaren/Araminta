@@ -540,6 +540,8 @@ static int lock_page_ok(uint32_t i)
         return 1;
     if (i < NPAGES && PAGES[i].graph == GR_IORD)
         return 1;                                     /* KNOB 4 locks the chosen stage's mix */
+    if (i < NPAGES && PAGES[i].graph == GR_SCALE)
+        return 1;                                     /* SCL KNOB 4 locks a step's PITCH (MSEQ_PITCH) */
     if (i >= NPAGES || (PAGES[i].scope != SC_TRACK && PAGES[i].scope != SC_ENGINE) || PAGES[i].graph == GR_MOD)
         return 0;
     for (k = 0; k < 4u; k++)
@@ -561,7 +563,11 @@ static uint32_t lock_id(uint32_t k)
     else
         id = ui.plk_src && lock_page_ok(ui.plk_src - 1u) ? PAGES[ui.plk_src - 1u].id[k & 3u]
                                                           : ENGINES[TSEL->eng_req % NENGINES]->knob[k & 3u];
-    return id < P_COUNT && motion_param(id) && fx_target_available(TSEL, id) ? id : 0xFFu;
+    if (id == P_TRANS && ui.plk_src && lock_page_ok(ui.plk_src - 1u) &&
+        PAGES[ui.plk_src - 1u].graph == GR_SCALE)
+        id = MSEQ_PITCH;                         /* SCL KNOB 4 on a held step: the PITCH lock */
+    return (id == MSEQ_PITCH || (id < P_COUNT && motion_param(id))) &&
+           fx_target_available(TSEL, id) ? id : 0xFFu;
 }
 
 static void ev_enter(void);
@@ -1534,8 +1540,7 @@ static void track_defaults(track_t *t)
     uint32_t i;
     for (i = 0; i < P_E0; i++)
         t->p[i] = TP[i].def;
-    t->scl_lock = SCL_LOCK_SCALE;
-    t->scl_stash_ok = 0;
+    t->scl_stash_ok = 0;                          /* MAP defaults OFF: no link, no stash */
     t->fx_sl_pos = 8;                            /* EFFECTS: SLICER last until moved */
     t->generation = GENERATION_DEFAULT;
     track_defaults_steps(t);

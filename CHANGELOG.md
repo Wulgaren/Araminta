@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Boot
+
+- **Stock V15 supply rails.** Before the guards, core 1 and the audio start, the FM-1 is set to the
+  stock V15 rails (VDC14 1.60 V, SYSVDD 1.38 V, VDDIO 3.2 V) with the stock write order, then read
+  back. A timeout or a wrong value stops the sequence and keeps one core. MENU > ABOUT shows
+  `RAILS 7/15 (3/11)` (after, and what the boot loader left) or `RAILS FAIL 1 CORE`. Ported from
+  Melodee (`hal/fm1_power.h`); the P33 driver stays Araminta's. `tests/power_test.c` replays the V15
+  transaction trace, every timeout and the read-back faults.
+
 ### FX
 
 - **DELAY K4: left TIME, right RATE.** Turning knob 4 left selects free milliseconds, turning it right
@@ -17,14 +26,32 @@
   It borrows the SLICER's buffer, like REPEAT / REVERSE / TAPE / FREEZE; below ~82 BPM only gates, crushes and
   live slices play. Ported from JIANT 0.9.9-snd2 / 0.9.18.
 
-### Boot
+### SCL
 
-- **Stock V15 supply rails.** Before the guards, core 1 and the audio start, the FM-1 is set to the
-  stock V15 rails (VDC14 1.60 V, SYSVDD 1.38 V, VDDIO 3.2 V) with the stock write order, then read
-  back. A timeout or a wrong value stops the sequence and keeps one core. MENU > ABOUT shows
-  `RAILS 7/15 (3/11)` (after, and what the boot loader left) or `RAILS FAIL 1 CORE`. Ported from
-  Melodee (`hal/fm1_power.h`); the P33 driver stays Araminta's. `tests/power_test.c` replays the V15
-  transaction trace, every timeout and the read-back faults.
+- **SCALE LOCK is now MAP = CURR.** The CHORD page's third knob is gone; MAP on SCL page 1 is
+  **OFF / ALL / CURR / KBD / SEQ** (CURR is stored as 4, shown third). CURR quantises keys and steps exactly
+  like ALL and shares ROOT / SCALE across every CURR track: entering pushes them, ROOT / SCALE edits follow,
+  leaving restores the track's stash. MAP itself is each track's own, which the old link could not do.
+- **Compatibility.** CURR saves as MAP = ALL plus the lock bit, so v3.1 opens a v3.2 project as SCALE LOCK +
+  ALL, which sounds the same. A v3.1 project locked with MAP OFF / KBD / SEQ loads with that MAP and unlinked
+  (the notes are unchanged; only future linking is lost). New tracks default to MAP OFF and are unlinked.
+  Fun16 is unchanged.
+
+### Chord
+
+- **STRUM and STROKE (SCL > CHORD K3 / K4).** A chord key or a MIDI-in chord sweeps from its lowest to its highest
+  note over the chosen division (OFF, 1/8, 1/16, 1/32, 1/64, 1/128, 16T, 32T); DN / UP / ALT set the direction, ALT
+  flips per chord and track. Rate and direction freeze at the press, the timing follows a tempo change, and a
+  release cancels the strings that have not played. Off with ARP on, MONO / LEGATO (their chord is the root), and a
+  one-note chord. The knobs share the inert ALLOC parameter (packed), so FUN16 and old projects are unchanged;
+  the editor shows the packed list as SWEEP.
+
+### Locks
+
+- **Per-step PITCH lock (SCL K4 on a held step).** A new lock-only motion id, 127: scale degrees when MAP is
+  ALL / CURR / SEQ, semitones when it is OFF / KBD, range -24..+24. It counts toward the 88 on-disk records and the
+  save-limit warning. FUN16 is unchanged. **Downgrade:** firmware before 3.2 refuses a project whose motion holds
+  id 127 (EMPTY SLOT), so save a backup before opening a v3.2 project with pitch locks on an older build.
 
 ### LFO
 

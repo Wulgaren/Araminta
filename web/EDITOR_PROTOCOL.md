@@ -591,7 +591,12 @@ when the track's engine is not the saved one).
   device rolls once each time a step comes round, for all of it: its notes, its drum hits and a TIE. A failed
   roll plays nothing and releases what rang before. Chance is saved in projects (FUN7) and in song rows; a
   user preset does not store it. Changing it on the device pushes `STEP_CHANGED`.
-- **Motion** is knob moves recorded per step: 64 events shared by the four tracks. An event is (track, step
+- **Motion** is knob moves recorded per step: 192 records in RAM, 88 saved in a project, shared by the four
+  tracks. The device's MAP has five values (OFF, ALL, KBD, SEQ, CURR; CURR is stored 4 and shown third);
+  CURR shares ROOT/SCALE across the tracks that use it. PITCH (id 127) is lock-only, -24..24: scale degrees
+  when the sequence is quantised, semitones when not; older firmware refuses a project that holds it.
+  STRUM/STROKE use the inert P_ALLOC (id 43) as one packed SWEEP value (0 OFF, then 1 + (rate-1)*3 + stroke,
+  rate 1..7 = 1/8 .. 32T, stroke 0 DN / 1 UP / 2 ALT). An event is (track, step
   0..63, parameter id, value). While a track plays its motion, the step sets the value at the step and it
   holds until another step changes it; the loop restarts from the sound's own value, and stopping puts the
   sound's own values back. Parameters that can be recorded (`motion_param`): ids 0..16 (LEVEL, ENV, LFO),
@@ -601,7 +606,7 @@ when the track's engine is not the saved one).
   - `MOTION` with the track alone is the query. `on` 0 keeps the data and stops playing it; 1 plays it. Clear
     drops the track's events and turns it off; on the device it is undone by SAVE held.
   - Set: `value` must be inside the parameter's range for that track's engine (and −64..127); a
-    new event when the 64 are used gets rc 2 ("MOTION FULL" on the device), an event that already exists is
+    new event when the records are used gets rc 2 ("MOTION FULL" on the device), an event that already exists is
     updated. A set turns the track's motion on. A delete of an event that does not exist succeeds.
   - rc: 0 ok, 1 invalid (step ≥ 64, an id that cannot be recorded, a value outside its range), 2 full, 3 a song is playing.
     A track ≥ NTRK, `on` above 1 or any other length gets no reply.
@@ -684,7 +689,7 @@ ratchet byte (read every step as 1).
 
 INFO advertises `4C 01 1` after the ratchet tag (`52 01 4`). Firmware without it has no locks.
 
-- A **lock** is a motion record (the same 64 shared by the four tracks, one per track, step and id, of either kind)
+- A **lock** is a motion record (the same 192 RAM / 88 saved records shared by the four tracks, one per track, step and id, of either kind)
   whose value sounds on its step only. When the step plays (its chance passed; a step that does not play applies
   none of its locks) the value is set at the step's start, before its notes, and lasts the whole step (its ratchet
   parts too); the next step puts back what sounds without it: the latest automation event of that id at a step up

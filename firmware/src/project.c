@@ -160,8 +160,7 @@ typedef struct {                               /* one track */
     int16_t p[P_COUNT];
     uint8_t engine, preset;
     step_t step[NSTEP];
-    int16_t scl_lock;                          /* SCL_LOCK_*: FUN12 wire; older loads -> SCALE */
-    int16_t scl_stash[3];
+    int16_t scl_stash[3];                      /* FUN12+: MAP = CURR's ROOT/SCL stash */
     uint8_t scl_stash_ok;
     uint8_t fx_sl_pos;                         /* EFFECTS SLICER list slot 0..8; FUN14 wire */
     generation_t generation;
@@ -328,7 +327,6 @@ static void proj_trk_from(proj_trk_t *d, const int16_t *p, uint32_t np, uint8_t 
     ins_migrate(d->p, np);
     d->engine = engine;                         /* (indices 0..7 of formats 1 and 2 as they were) */
     d->preset = preset;
-    d->scl_lock = SCL_LOCK_SCALE;
     d->scl_stash_ok = 0;
     d->scl_stash[0] = d->scl_stash[1] = d->scl_stash[2] = 0;
     for (k = 0; k < NSTEP; k++) {
@@ -693,7 +691,6 @@ static int proj_import_old(project_t *q, const void *b, int n)
                 params_by_count(q->t[i].p, v->t[i].p, 69u, def);
                 ins_migrate(q->t[i].p, 69u);
                 q->t[i].engine = v->t[i].engine; q->t[i].preset = v->t[i].preset;
-                q->t[i].scl_lock = SCL_LOCK_SCALE;
                 q->t[i].scl_stash_ok = 0;
                 for (k = 0; k < NSTEP; k++) {
                     const step10_t *o = &v->t[i].step[k];
@@ -758,7 +755,10 @@ static int proj_pack(project_store_t *out, const project_t *q)
             if (i == P_IORD) {                          /* order in bits 0..9; send flags in 10..15 */
                 k = (uint32_t)wire_iord_put(b + pos, b + pos + 1u, (uint16_t)q->t[t].p[i]);
             } else {
-                k = (uint32_t)wire_val_put(b + pos, q->t[t].p[i]);
+                int16_t pv = q->t[t].p[i];
+                if (i == P_QUANT && pv == QN_CURR)
+                    pv = QN_ALL;                    /* CURR is written as ALL + the lock bit: v3.1-readable */
+                k = (uint32_t)wire_val_put(b + pos, pv);
             }
             if (!k)
                 return 0;
@@ -818,7 +818,7 @@ static int proj_pack(project_store_t *out, const project_t *q)
         uint16_t slpos = 0;
         for (t = 0; t < NTRK; t++) {
             uint8_t sp = q->t[t].fx_sl_pos < FX_LIST_N ? q->t[t].fx_sl_pos : 8u;
-            if (q->t[t].scl_lock)
+            if (q->t[t].p[P_QUANT] == QN_CURR)
                 locks |= (uint8_t)(1u << t);
             slpos |= (uint16_t)((sp & 15u) << (t * 4u));
         }
@@ -879,6 +879,7 @@ static int proj_motion_ids(motion_store_t *m, uint32_t np)
     uint32_t i;
     for (i = 0; i < m->count && i < MOTION_MAX; i++) {
         uint32_t id = MOTION_ID(&m->event[i]);
+        if (id == MSEQ_PITCH) continue;               /* 3.2: not a p[] id; both formats of this build know it */
         if (id >= np) return 0;
         if (np < P_COUNT && id >= np - 8u)
             m->event[i].param = (uint8_t)((m->event[i].param & MOTION_LOCK) | (id + P_COUNT - np));
@@ -1095,7 +1096,8 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         int bus_layout = fun14 || (v13 && magic == PROJ_MAGIC_V13 && b[PROJ_SCL_MARK_OFF] == 1u);
         for (t = 0; t < NTRK; t++) {
             if (v12 && bus_layout) {
-                q->t[t].scl_lock = (b[PROJ_SCL_OFF] & (1u << t)) ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
+                if ((b[PROJ_SCL_OFF] & (1u << t)) && q->t[t].p[P_QUANT] == QN_ALL)
+                    q->t[t].p[P_QUANT] = QN_CURR;   /* locked + ALL is v3.2's CURR; other MAPs stay unlinked */
                 q->t[t].scl_stash_ok = 0;
                 q->t[t].scl_stash[0] = q->t[t].scl_stash[1] = q->t[t].scl_stash[2] = 0;
                 if (fun14) {
@@ -1106,7 +1108,8 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
                 }
             } else if (v12) {
                 const uint8_t *s = b + PROJ_SCL_OFF + t * 4u;
-                q->t[t].scl_lock = (s[0] & 1u) ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
+                if ((s[0] & 1u) && q->t[t].p[P_QUANT] == QN_ALL)
+                    q->t[t].p[P_QUANT] = QN_CURR;
                 q->t[t].scl_stash_ok = (s[0] & 0x80u) ? 1u : 0u;
                 q->t[t].scl_stash[0] = (int16_t)(s[1] <= 11u ? s[1] : 0u);
                 q->t[t].scl_stash[1] = (int16_t)(s[2] <= (v13 ? 14u : 15u) ? s[2] : 0u);
@@ -1115,8 +1118,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
                     q->t[t].scl_stash[1] = scl_from_v12(q->t[t].scl_stash[1]);
                 q->t[t].fx_sl_pos = 8u;
             } else {
-                q->t[t].scl_lock = SCL_LOCK_SCALE;
-                q->t[t].scl_stash_ok = 0;
+                q->t[t].scl_stash_ok = 0;           /* pre-FUN12: no lock bit; MAP stays as stored */
                 q->t[t].scl_stash[0] = q->t[t].scl_stash[1] = q->t[t].scl_stash[2] = 0;
                 q->t[t].fx_sl_pos = 8u;
             }
@@ -1269,7 +1271,6 @@ static void project_capture(project_t *p)
         p->t[i].engine = trk[i].eng_req;
         p->t[i].preset = trk[i].preset;
         memcpy(p->t[i].step, trk[i].step, sizeof trk[i].step);
-        p->t[i].scl_lock = trk[i].scl_lock ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
         p->t[i].scl_stash_ok = trk[i].scl_stash_ok ? 1u : 0u;
         p->t[i].scl_stash[0] = trk[i].scl_stash[0];
         p->t[i].scl_stash[1] = trk[i].scl_stash[1];
@@ -1461,7 +1462,6 @@ static int project_restore_runtime(const project_t *input)
         t->preset = (uint8_t)(ENGINES[e]->npresets ? (s->preset >= PROJ_DEF_KEEP ? 0u : s->preset) % ENGINES[e]->npresets : 0u);
         memcpy(t->step, s->step, sizeof t->step);
         proj_steps(t->step);
-        t->scl_lock = s->scl_lock ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
         t->scl_stash_ok = s->scl_stash_ok ? 1u : 0u;
         t->scl_stash[0] = s->scl_stash[0];
         t->scl_stash[1] = s->scl_stash[1];
