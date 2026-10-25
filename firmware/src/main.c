@@ -151,10 +151,11 @@ static void fm1_main(void)
     felucca_init();
     master_boot();
     kb_boot_hold = 1;                         /* #137: no notes from the keys before the UI (seq.c keyboard_block) */
-    if (!bootguard.failed) {
+    if (!bootguard.failed && !fm1_c1_dead) {
         /* the second core (hal/fm1_cpu1.h; fx.c mix_block hands it parts), at power-on, before the audio and the
          * timers (started later it never reaches its entry). It starts in the chip's ROM: the PC limits open
-         * meanwhile. No answer in 20 ms: dead hardware, one core for this session */
+         * meanwhile. No answer in 20 ms: dead hardware, one core for this session. A failed supply setup also
+         * keeps one core: the second one at the boot loader's rails is the configuration that misreads. */
         fm1_guard_pc_open();
         if (fm1_cpu1_start() != 0)
             fm1_c1_dead = 1;
@@ -339,6 +340,8 @@ void fm1_cstart(void)
     for (s = _c1_load, d = _c1_start; d < _c1_end; s++, d++)
         *d = *s;                                /* the second core's waiting loop (hal/fm1_cpu1.h) */
     fm1_mailbox_clear();
+    if (!fm1_power_start())                   /* stock V15 supplies: CPU1, the audio and the flash read at V15 levels */
+        fm1_c1_dead = 1;                      /* .. a failed setup keeps one core (fm1_main) */
     fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS | FM1_GUARD_PC);
     fm1_boot.p3_rst = (uint8_t)p3;
     fm1_boot.rst_src = src;

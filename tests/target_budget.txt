@@ -23,8 +23,8 @@ px_string_run 264
 px_symp_run 252
 dx_run 375
 slicer_track 0
-fm1_alnk0_irq 13940
-fm1_timer5_irq 33533
+fm1_alnk0_irq 33465
+fm1_timer5_irq 33437
 click_render 30
 mod_begin 250
 mod_voice 30

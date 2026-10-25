@@ -9,6 +9,15 @@
   TIME returns to. This swaps the 3.0–3.1 direction, so it is a change of muscle memory, not of stored
   data (`G_DTIME` is unchanged and old projects load the same).
 
+### Boot
+
+- **Stock V15 supply rails.** Before the guards, core 1 and the audio start, the FM-1 is set to the
+  stock V15 rails (VDC14 1.60 V, SYSVDD 1.38 V, VDDIO 3.2 V) with the stock write order, then read
+  back. A timeout or a wrong value stops the sequence and keeps one core. MENU > ABOUT shows
+  `RAILS 7/15 (3/11)` (after, and what the boot loader left) or `RAILS FAIL 1 CORE`. Ported from
+  Melodee (`hal/fm1_power.h`); the P33 driver stays Araminta's. `tests/power_test.c` replays the V15
+  transaction trace, every timeout and the read-back faults.
+
 ### LFO
 
 - **S&H SMOOTH.** LFO > LFO 2's fourth knob (`SMTH`, 0..100 %) rounds the WAVE S&H steps into a smooth,
