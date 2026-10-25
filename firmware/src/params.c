@@ -43,11 +43,18 @@ static uint32_t esync_idx(int32_t v) { return (uint32_t)(v & 127) * ESYNC_N >> 7
 /* seq.c kb_map (MAP on SCL). Values kept: 0 OFF, 1 ALL (was SNAP label), 2 KBD (was WHITE), 3 SEQ.
  * KBD: white keys walk the scale; black keys play the closest in-scale note (duplicate OK). ALL: same keys as
  * KBD, and sequenced notes snap as they play. SEQ: live keys as OFF; sequenced notes snap (steps kept). */
-static const char *const N_QUANT[] = {"OFF", "ALL", "KBD", "SEQ"};
+/* stored append-only: OFF 0, ALL 1, KBD 2, SEQ 3, CURR 4 (shown third, see QUANT_ORDER) */
+static const char *const N_QUANT[] = {"OFF", "ALL", "KBD", "SEQ", "CURR"};
 /* CHORD KNOB 3: link ROOT / SCL / MAP across tracks that have SCALE (not a P_*: P_COUNT ceiling) */
-static const char *const N_SLOCK[] = {"OFF", "SCALE"};
+
 /* chord keys (chord.c): OFF, the diatonic triad / seventh of the track's ROOT and SCALE on the key, fixed shapes */
 static const char *const N_CHRD[] = {"OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW"};
+static const char *const N_STRUM[] = {"OFF", "1/8", "1/16", "1/32", "1/64", "1/128", "16T", "32T"};
+static const char *const N_STROKE[] = {"DN", "UP", "ALT"};
+/* P_ALLOC on the editor: both knobs in one list (the device has STRUM and STROKE apart) */
+static const char *const N_SWEEP[] = {"OFF", "1/8 DN", "1/8 UP", "1/8 ALT", "1/16 DN", "1/16 UP", "1/16 ALT",
+    "1/32 DN", "1/32 UP", "1/32 ALT", "1/64 DN", "1/64 UP", "1/64 ALT", "1/128 DN", "1/128 UP", "1/128 ALT",
+    "16T DN", "16T UP", "16T ALT", "32T DN", "32T UP", "32T ALT"};
 static const char *const N_VOIC[] = {"CLOSE", "OPEN", "INV1", "INV2", "+OCT"};   /* VC_CLOSE .. VC_BASS */
 static const char *const N_VOICE[] = {"POLY", "MONO", "LEG", "UNI"};   /* V_POLY .. V_UNISON */
 static const char *const N_GLMODE[] = {"RATE", "TIME"};
@@ -121,7 +128,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_AORDER] = PE("ORD", N_ORDER, 0),
     [P_ROOT] = PD("ROOT", F_NOTE, 0, 11, 0),
     [P_SCALE] = PE("SCL", N_SCALE, 0),
-    [P_QUANT] = PE("MAP", N_QUANT, 0),
+    [P_QUANT] = PE("MAP", N_QUANT, 0),                 /* max: TP[P_QUANT].max, set after N_QUANT */
     [P_TRANS] = PD("TRN", F_SEMI, -24, 24, 0),
     [P_SLEN] = PD("LEN", F_STEPS, 1, NSTEP, 16),
     [P_SDIV] = PE("DIV", N_DIV, 2),
@@ -135,7 +142,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_GLIDE] = PD("GLD", F_TIME, 0, 127, 0),
     [P_GLMODE] = PE("GLMOD", N_GLMODE, 0),
     [P_LSMOOTH] = PD("SMTH", F_PCT, 0, 127, 0),     /* WAVE S&H's smoothing (P_PRIO's inert id: no format change) */
-    [P_ALLOC] = PE("ALLOC", N_ALLOC, 0),
+    [P_ALLOC] = PE("SWEEP", N_SWEEP, 0),             /* CHORD K3 / K4 on the device: STRUM and STROKE */
     [P_DETUNE] = PD("UNI DTN", F_INT, 0, 127, 40),   /* UNISON voice spread only (voice.c mono_play) */
     [P_PAN] = PD("PAN", F_BIPCT, -64, 63, 0),
     [P_MUTE] = PE("PLAY", N_PLAY, 0),
@@ -366,10 +373,11 @@ static const uint8_t SLDIV_ORDER[6] = {0, 3, 1, 4, 2, 5};              /* 1/8 8T
 /* Delay TIME: names 0..12 stay (loads). Knob omits 1/1 2BAR 4BAR (7..9); they never fit DLY_LEN. */
 static const uint8_t DTIME_ORDER[10] = {6, 12, 0, 10, 1, 11, 4, 2, 5, 3}; /* 1/2 1/4D 1/4 1/8D 1/8 1/16D 8T 1/16 16T 1/32 */
 static const uint8_t PLAY_ORDER[3] = {1, 0, 2};                    /* OFF, ON, SOLO (stored PLAY_OFF, PLAY_ON, PLAY_SOLO) */
+static const uint8_t QUANT_ORDER[5] = {0, 1, 4, 2, 3};             /* OFF ALL CURR KBD SEQ (stored 0 1 2 3 4) */
 static const uint8_t *enum_order(const param_desc_t *d)
 {
     return d->names == N_DIV ? DIV_ORDER : d->names == N_SLDIV ? SLDIV_ORDER : d->names == N_DTIME ? DTIME_ORDER
-         : d->names == N_PLAY ? PLAY_ORDER : 0;
+         : d->names == N_PLAY ? PLAY_ORDER : d->names == N_QUANT ? QUANT_ORDER : 0;
 }
 static int32_t enum_order_n(const param_desc_t *d)   /* shown steps; DTIME shorter than max (legacy 7..9) */
 {
@@ -537,9 +545,10 @@ enum { FX_SEC_INS = 0, FX_SEC_PUNCH = 1, FX_NSEC = 2,
 typedef struct {
     const char *title;
     uint8_t fam, scope, graph, sec;
-    uint8_t id[4];               /* param ids; 0xFF = empty slot; PG_SLOCK = SCALE LOCK (track_t.scl_lock) */
+    uint8_t id[4];               /* param ids; 0xFF = empty slot */
 } page_t;
-#define PG_SLOCK 0xFEu           /* CHORD KNOB 3: not in p[] (params.c scale_lock_*) */
+#define PG_STRUM 0xFCu           /* CHORD KNOB 3: the sweep's rate (P_ALLOC's low half) */
+#define PG_STROKE 0xFDu          /* CHORD KNOB 4: DN / UP / ALT (P_ALLOC's high half) */
 
 static const page_t PAGES[] = {
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, 0, {P_ATK, P_DEC, P_SUS, P_REL}},
@@ -565,7 +574,7 @@ static const page_t PAGES[] = {
     {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, FX_SEC_INS, {P_SLCR, P_SLPAT, P_SLRATE, 0xFF}},
     {"PUNCH-IN", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, 0, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
-    {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, 0, {P_CHRD, P_VOIC, PG_SLOCK, 0xFF}},
+    {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, 0, {P_CHRD, P_VOIC, PG_STRUM, PG_STROKE}},
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, EDIT_SEC_SND, {P_E0, P_E1, P_E2, P_E3}},
     {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, EDIT_SEC_SND, {P_E4, P_E5, P_E6, P_E7}},
     /* ANALOG: page 2 FILTER (TYPE CUT RES KTR), page 3 FILTER DRIVE (DRV); EDIT 2 hidden (ui.c) */
@@ -614,16 +623,13 @@ static const page_t PAGES[] = {
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */
 
-static const param_desc_t SLOCK_DESC = PE("LOCK", N_SLOCK, SCL_LOCK_SCALE);
-
-/* SCALE LOCK: ROOT / SCL / MAP shared by every track with scl_lock == SCALE */
+/* MAP = CURR: ROOT / SCL shared by every track whose MAP is CURR (MAP stays each track's own) */
 static void scale_lock_stash(track_t *t)
 {
     if (t->scl_stash_ok)
         return;
     t->scl_stash[0] = t->p[P_ROOT];
     t->scl_stash[1] = t->p[P_SCALE];
-    t->scl_stash[2] = t->p[P_QUANT];
     t->scl_stash_ok = 1;
 }
 static void scale_lock_restore(track_t *t)
@@ -632,50 +638,46 @@ static void scale_lock_restore(track_t *t)
         return;
     t->p[P_ROOT] = t->scl_stash[0];
     t->p[P_SCALE] = t->scl_stash[1];
-    t->p[P_QUANT] = t->scl_stash[2];
     t->scl_stash_ok = 0;
 }
 static void scale_lock_copy(track_t *dst, const track_t *src)
 {
     dst->p[P_ROOT] = src->p[P_ROOT];
     dst->p[P_SCALE] = src->p[P_SCALE];
-    dst->p[P_QUANT] = src->p[P_QUANT];
 }
 static void scale_lock_push(track_t *src)
 {
     uint32_t k;
-    if (src->scl_lock != SCL_LOCK_SCALE)
+    if (src->p[P_QUANT] != QN_CURR)
         return;
     for (k = 0; k < NTRK; k++) {
         track_t *t = &trk[k];
-        if (t == src || t->scl_lock != SCL_LOCK_SCALE)
+        if (t == src || t->p[P_QUANT] != QN_CURR)
             continue;
         scale_lock_copy(t, src);
     }
 }
-static void scale_lock_set(track_t *t, int16_t v)
-{
-    uint32_t k;
-    v = v ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
-    if (v == t->scl_lock)
-        return;
-    t->scl_lock = v;
-    if (v == SCL_LOCK_SCALE) {
-        for (k = 0; k < NTRK; k++) {
-            track_t *u = &trk[k];
-            if (u == t || u->scl_lock != SCL_LOCK_SCALE)
-                continue;
-            scale_lock_stash(u);
-            scale_lock_copy(u, t);
-        }
-    } else
-        scale_lock_restore(t);
-}
 static void scale_lock_after(track_t *t, uint32_t id)
 {
-    if (id == P_ROOT || id == P_SCALE || id == P_QUANT)
+    if (id == P_QUANT) {                              /* entering CURR pushes, leaving restores */
+        if (t->p[P_QUANT] == QN_CURR) {
+            uint32_t k;
+            for (k = 0; k < NTRK; k++) {
+                track_t *u = &trk[k];
+                if (u == t || u->p[P_QUANT] != QN_CURR)
+                    continue;
+                scale_lock_stash(u);
+                scale_lock_copy(u, t);
+            }
+        } else
+            scale_lock_restore(t);
+    } else if (id == P_ROOT || id == P_SCALE)
         scale_lock_push(t);
 }
+
+static const param_desc_t STRUM_DESC = PE("STRUM", N_STRUM, 0);
+static const param_desc_t STROKE_DESC = PE("STROKE", N_STROKE, 0);
+static int16_t sweep_tmp;                /* (read at once: the draw and the knob handler use one slot at a time) */
 
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
@@ -684,9 +686,15 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         *valp = 0;
         return 0;
     }
-    if (id == PG_SLOCK) {
-        *valp = &TSEL->scl_lock;
-        return &SLOCK_DESC;
+    if (id == PG_STRUM) {
+        sweep_tmp = (int16_t)sweep_rate(TSEL);
+        *valp = &sweep_tmp;
+        return &STRUM_DESC;
+    }
+    if (id == PG_STROKE) {
+        sweep_tmp = (int16_t)sweep_stroke(TSEL);
+        *valp = &sweep_tmp;
+        return &STROKE_DESC;
     }
     /* LFO 2 KNOB 4: SMOOTH, only while WAVE is S&H (blank otherwise; the value stays stored) */
     if (id == P_LSMOOTH && TSEL->p[P_LWAVE] != 4) {
