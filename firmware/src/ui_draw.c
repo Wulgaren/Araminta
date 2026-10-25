@@ -1253,7 +1253,7 @@ static void draw_columns(void)
             param_format(d, *vp, val, &unit);
             draw_column(c, d->label, val, unit, VAL(c), RATIO(d, *vp), param_icon(d, *vp));
         }
-        draw_column(3, "MODE", dtime_free() ? "TIME" : "RATE", "", VAL(3u), -1, ICON_AUTO);
+        draw_column(3, "MODE", dtime_free() ? "<TIME" : "RATE>", "", VAL(3u), -1, ICON_AUTO);
         return;
     }
     for (c = 0; c < 4u; c++) {

@@ -1296,15 +1296,16 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
 }
 
-/* DLY: K4 RATE (divisions, triplets and dotted) or TIME (free milliseconds). Switching reloads K1.
- * The division last used is remembered so TIME and back lands on the same note value. */
+/* DLY: K4 turned left is TIME (free milliseconds), turned right RATE (divisions, triplets and dotted).
+ * Switching reloads K1. The division last used is remembered, so TIME and back lands on the same
+ * note value. */
 static uint8_t dly_div = 1;
 static void dly_knob(uint32_t slot, int32_t steps)
 {
     if (!steps)
         return;
     if (slot == 3u) {
-        int to_ms = steps > 0;
+        int to_ms = steps < 0;
         if (to_ms == dtime_free())
             return;
         if (to_ms) {
