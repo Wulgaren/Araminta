@@ -196,6 +196,11 @@ static void con_uac(void)                              /* USB audio input: strea
 }
 #endif
 
+/* CPU0's two stacks (main.c: painted at boot; fm1_cpu1.h's reader is the model). One line for both:
+ * bytes ever used, user (main loop) / supervisor (IRQ and exception). Reading it counts too. */
+uint32_t fm1_stack_used_user(void);
+uint32_t fm1_stack_used_super(void);
+
 static void con_status(void)
 {
     const engine_t *e = ENGINES[TSEL->eng_req % NENGINES];
