@@ -32,6 +32,9 @@
 
 static uint32_t fm1_p33_timeouts;
 
+/* the core's stack pointer (CPU0: the user stack; main.c paints the stacks from it at boot) */
+static inline uint32_t fm1_sp(void) { uint32_t v; __asm__ volatile("%0 = sp" : "=r"(v)); return v; }
+
 /* ------------------------------------------------------- second core --- */
 /* FM1_CPU1_USED (src/felucca.c: FELUCCA_CPU2, built in by default since 1.6.1; fm1_cpu1.h): the second core may be running. Every
  * reset below holds it first: its waiting loop sits in RAM that the ROM, the SPL and the update loader use at boot, and
