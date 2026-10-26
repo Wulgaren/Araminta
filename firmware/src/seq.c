@@ -1264,10 +1264,10 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
         int32_t x = (int32_t)step_note(s, i);
         uint32_t n;
         if (!kit)                                   /* #218: TRN then (SEQ) onto the scale; pattern untouched */
-            x += t->p[P_TRANS];
+            x += t->plk_fit == 1u ? t->plk_pit : t->p[P_TRANS];
         if (qseq)
             x = scale_snap(t, x);                   /* two notes snapping together play once */
-        if (t->plk_pit)                             /* the step's PITCH lock: chromatic semitones after the snap */
+        if (t->plk_fit == 2u)                       /* a hand-edited PITCH: chromatic, after the snap */
             x += t->plk_pit;
         n = (uint32_t)clamp(x, 0, 127);
         if (qseq) {

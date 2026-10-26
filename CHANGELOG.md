@@ -64,8 +64,9 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
   **Downgrade:** firmware before 3.2 refuses a project whose motion holds id 127 (EMPTY SLOT), so save a backup
   before opening a v3.2 project with pitch locks on an older build.
 - **Recording TRN writes that lock.** With REC armed on the selected track, turning SCL TRN stores the
-  scale-fitted semitone result as the current step's PITCH lock (C4 +1 in C major stays C4), never a P_TRANS
-  automation event, and puts the track's global TRN back. With REC off, TRN is the ordinary global transpose.
+  scale-fitted semitone result as the current step's PITCH record (C4 +1 in C major stays C4), never a P_TRANS
+  automation event; the global TRN keeps its value. Editing that PITCH row makes it a chromatic lock (C4 +1 then
+  plays C#4). With REC off, TRN is the ordinary global transpose.
   A manual edit of the lock is chromatic and may be off-scale.
 
 ### Editor
