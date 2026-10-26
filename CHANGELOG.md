@@ -18,7 +18,7 @@ and GLITCH punch-ins, and the DELAY page's TIME / RATE direction swapped. Same p
 ### FX
 
 - **DELAY K4: left TIME, right RATE.** Turning knob 4 left selects free milliseconds, turning it right
-  the note divisions; the mode column shows `<TIME` or `RATE>`. The division last used is still the one
+  the note divisions; the mode column shows `TIME` or `RATE`. The division last used is still the one
   TIME returns to. This swaps the 3.0–3.1 direction, so it is a change of muscle memory, not of stored
   data (`G_DTIME` is unchanged and old projects load the same).
 - **x2 TEMPO (PUNCH-IN 2/2, A4).** The counterpart of 1/2 TEMPO: while held, every target track's sequencer
@@ -44,7 +44,7 @@ and GLITCH punch-ins, and the DELAY page's TIME / RATE direction swapped. Same p
 ### Chord
 
 - **STRUM and STROKE (SCL > CHORD K3 / K4).** A chord key or a MIDI-in chord sweeps from its lowest to its highest
-  note over the chosen division (OFF, 1/8, 1/16, 1/32, 1/64, 1/128, 16T, 32T); DN / UP / ALT set the direction, ALT
+  note over the chosen division (OFF, 1/8, 1/16, 1/32, 1/64, 1/128, 16T, 32T); DOWN / UP / ALT set the direction, ALT
   flips per chord and track. Rate and direction freeze at the press, the timing follows a tempo change, and a
   release cancels the strings that have not played. Off with ARP on, MONO / LEGATO (their chord is the root), and a
   one-note chord. The knobs share the inert ALLOC parameter (packed), so FUN16 and old projects are unchanged;

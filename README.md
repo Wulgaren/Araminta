@@ -32,7 +32,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **Sloop free take.** Project empty, track armed, transport stopped: the first note starts a free take. No pattern required first.
   Hold a note and press others while it is still down: those steps get slide flags (acid legato) when the take closes,
   and releasing a tap while the hold continues records a return to the held pitch.
-- **JIANT MIDI punch-ins.** On FX under Punch-in (FX taps: EFFECTS → SLICER → PUNCH-IN). Two fixed PUNCH-IN pages, 1/2 and 2/2 (SELECT walks the section; no reassignment): 1/2 holds REPEAT 1/8 1/16 1/32, 1/2, LPF, HPF, OCT±, DEC±, stutters, ATK+, ARP, RANDOM; 2/2 holds REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW, **x2 TEMPO** (A4) and **GLITCH** (B4). Holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK. Reverb adds SHIMR / CLOUD.
+- **JIANT MIDI punch-ins.** On FX under Punch-in (FX taps: EFFECTS → SLICER → PUNCH-IN). Two fixed PUNCH-IN pages, 1/2 and 2/2 (SELECT walks the section; no reassignment): 1/2 holds REPEAT 1/8 1/16 1/32, **HALF** (1/2 tempo), LPF, HPF, OCT±, DEC±, stutters, ATK+, ARP, RANDOM; 2/2 holds REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW, **x2 TEMPO** (A4) and **GLITCH** (B4). Holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK. Reverb adds SHIMR / CLOUD.
 - **Melodee.** Silent tracks still run LFO, bend, the engine block and fades, so modulation keeps moving when a track is muted or resting.
 - **Stock V15 supplies.** Before core 1 and the audio start, the FM-1 is set to the stock V15 rails (VDC14 1.60 V, SYSVDD 1.38 V, VDDIO 3.2 V) and read back. A failed setup keeps one core. MENU > ABOUT shows `RAILS 7/15 (3/11)` or `RAILS FAIL 1 CORE`.
 - **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project (FUN16 / `FUNG`; same 3840-byte size as FUN10; disk motion max 88). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
@@ -99,7 +99,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   track that rests there, with its repeats; drawn as a timeline with a lane per track. GLO also holds MASTER and CLOCK
   (HOME is only Home ↔ Mixer). **MIXER** KNOB 4 is PLAY: ON, OFF or SOLO
 - **Chord keys:** one finger plays an in-key chord (triads or sevenths of the scale, or fixed chord
-  shapes), with voicings and a beat-synced **STRUM** (DN / UP / ALT); on the keys, MIDI in, recording and the
+  shapes), with voicings and a beat-synced **STRUM** (DOWN / UP / ALT); on the keys, MIDI in, recording and the
   arpeggiator
 - **Arpeggiator** with UP, DN, UPDN, RND, ORD (the notes in the order you pressed them), REPEAT and, for chords,
   DNUP, UP+8, CONV, DIVG, PINKY, THUMB, WALK and CHORD; a beat LED; 15 scales with MAP (OFF/ALL/CURR/KBD/SEQ), glide,
@@ -356,8 +356,10 @@ fall on every C key. Chromatic play is MAP OFF. Drum kits and incoming MIDI keep
 
 Press **SCL** again for the **CHORD** page: CHRD picks the chord keys (OFF, the scale's triads or
 sevenths, or a fixed shape), VOIC the voicing, STRUM the sweep (OFF, 1/8 to 1/128, 16T, 32T) and STROKE its
-direction (DN, UP, ALT). Hold a step and turn SCL K4 (TRN) for a per-step **PITCH** lock: scale degrees when the
-sequence is quantised, semitones when it is not.
+direction (DOWN, UP, ALT). Hold a step on **SEQ > STEP** (piano roll; with SCL as the last sound page) and turn
+K4 (TRN) for a per-step **PITCH** lock: scale degrees when the sequence is quantised, semitones when it is not. It
+appears as a **PITCH** row in **SEQ > AUTOMATION**; turning TRN on SCL without a step held is the ordinary track
+transpose and is not recorded as automation.
 
 ## Layout
 

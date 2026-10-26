@@ -50,11 +50,11 @@ static const char *const N_QUANT[] = {"OFF", "ALL", "KBD", "SEQ", "CURR"};
 /* chord keys (chord.c): OFF, the diatonic triad / seventh of the track's ROOT and SCALE on the key, fixed shapes */
 static const char *const N_CHRD[] = {"OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW"};
 static const char *const N_STRUM[] = {"OFF", "1/8", "1/16", "1/32", "1/64", "1/128", "16T", "32T"};
-static const char *const N_STROKE[] = {"DN", "UP", "ALT"};
+static const char *const N_STROKE[] = {"DOWN", "UP", "ALT"};
 /* P_ALLOC on the editor: both knobs in one list (the device has STRUM and STROKE apart) */
-static const char *const N_SWEEP[] = {"OFF", "1/8 DN", "1/8 UP", "1/8 ALT", "1/16 DN", "1/16 UP", "1/16 ALT",
-    "1/32 DN", "1/32 UP", "1/32 ALT", "1/64 DN", "1/64 UP", "1/64 ALT", "1/128 DN", "1/128 UP", "1/128 ALT",
-    "16T DN", "16T UP", "16T ALT", "32T DN", "32T UP", "32T ALT"};
+static const char *const N_SWEEP[] = {"OFF", "1/8 DOWN", "1/8 UP", "1/8 ALT", "1/16 DOWN", "1/16 UP", "1/16 ALT",
+    "1/32 DOWN", "1/32 UP", "1/32 ALT", "1/64 DOWN", "1/64 UP", "1/64 ALT", "1/128 DOWN", "1/128 UP", "1/128 ALT",
+    "16T DOWN", "16T UP", "16T ALT", "32T DOWN", "32T UP", "32T ALT"};
 static const char *const N_VOIC[] = {"CLOSE", "OPEN", "INV1", "INV2", "+OCT"};   /* VC_CLOSE .. VC_BASS */
 static const char *const N_VOICE[] = {"POLY", "MONO", "LEG", "UNI"};   /* V_POLY .. V_UNISON */
 static const char *const N_GLMODE[] = {"RATE", "TIME"};
@@ -548,7 +548,7 @@ typedef struct {
     uint8_t id[4];               /* param ids; 0xFF = empty slot */
 } page_t;
 #define PG_STRUM 0xFCu           /* CHORD KNOB 3: the sweep's rate (P_ALLOC's low half) */
-#define PG_STROKE 0xFDu          /* CHORD KNOB 4: DN / UP / ALT (P_ALLOC's high half) */
+#define PG_STROKE 0xFDu          /* CHORD KNOB 4: DOWN / UP / ALT (P_ALLOC's high half) */
 
 static const page_t PAGES[] = {
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, 0, {P_ATK, P_DEC, P_SUS, P_REL}},

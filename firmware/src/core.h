@@ -594,7 +594,7 @@ typedef struct track {
 } track_t;
 enum { PFX_RND = 1, PFX_HALF = 2, PFX_REP = 4, PFX_DEC = 8, PFX_ATK = 16, PFX_X2 = 32 };   /* (track_t.pfx) */
 #define P_STRUM P_ALLOC              /* CHORD KNOB 3 (chord.c): the sweep's rate, packed with its stroke */
-/* P_ALLOC's sweep: 0 = OFF; else 1 + (rate - 1) * 3 + stroke (rate 1..7, stroke 0 DN / 1 UP / 2 ALT) */
+/* P_ALLOC's sweep: 0 = OFF; else 1 + (rate - 1) * 3 + stroke (rate 1..7, stroke 0 DOWN / 1 UP / 2 ALT) */
 static inline uint32_t sweep_rate(const track_t *t)
 {
     uint32_t v = (uint32_t)t->p[P_ALLOC] & 127u;

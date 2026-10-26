@@ -372,7 +372,7 @@ static void tools_key(uint32_t p)
 
 /* the FX layer's cells' names (NONE: PF_N) */
 static const char *const PF_CELL[PF_NFX] = {"1/8", "1/16", "1/32", "REV", "LPF", "HPF", "STOP", "FRZ", "PITCH+", "PITCH-",
-    "FLNG", "PHSR", "VERB", "ECHO", "OCT-", "OCT+", "1/2", "DEC-", "DEC+", "ST8", "ST16", "ATK+", "ARP", "RND", "x2", "GLT"};
+    "FLNG", "PHSR", "VERB", "ECHO", "OCT-", "OCT+", "HALF", "DEC-", "DEC+", "ST8", "ST16", "ATK+", "ARP", "RND", "x2", "GLT"};
 static const char W_NOTE[16] = {'F', 'G', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'A', 'B', 'C', 'D', 'E', 'F', 'G'};
 /* (fx_map_sync retired with the reassignment: the key maps are the pages' fixed PF_DEF / PF2_DEF) */
 
