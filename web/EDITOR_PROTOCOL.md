@@ -596,7 +596,7 @@ when the track's engine is not the saved one).
   CURR shares ROOT/SCALE across the tracks that use it. PITCH (id 127) is lock-only, -24..24: scale degrees
   when the sequence is quantised, semitones when not; older firmware refuses a project that holds it.
   STRUM/STROKE use the inert P_ALLOC (id 43) as one packed SWEEP value (0 OFF, then 1 + (rate-1)*3 + stroke,
-  rate 1..7 = 1/8 .. 32T, stroke 0 DN / 1 UP / 2 ALT). An event is (track, step
+  rate 1..7 = 1/8 .. 32T, stroke 0 DOWN / 1 UP / 2 ALT). An event is (track, step
   0..63, parameter id, value). While a track plays its motion, the step sets the value at the step and it
   holds until another step changes it; the loop restarts from the sound's own value, and stopping puts the
   sound's own values back. Parameters that can be recorded (`motion_param`): ids 0..16 (LEVEL, ENV, LFO),

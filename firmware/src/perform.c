@@ -6,7 +6,8 @@
  * it is let go (ui_input.c opens the layer and shows the map). The 16 white keys (F3 .. G5) hold the effect the map
  * gives them. Two PUNCH-IN pages in the FX section, each a fixed map — no reassignment: the defaults
  * (PF_DEF, JIANT; PF2_DEF the audio effects they did not fit):
- *   PUNCH-IN 1/2: REPEAT 1/8 1/16 1/32, 1/2, LPF, HPF, OCT-, OCT+, DEC±, stutter 1/8 1/16, ATK+, ARP, RANDOM; G5 none
+ *   PUNCH-IN 1/2: REPEAT 1/8 1/16 1/32, HALF (1/2 tempo), LPF, HPF, OCT-, OCT+, DEC±, stutter 1/8 1/16, ATK+, ARP,
+ *   RANDOM; G5 none
  *   PUNCH-IN 2/2: REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW (G4), x2 (A4),
  *   GLITCH (B4); C5.. G5 none (G5 CLR with FX LATCH)
  *   both: with FX LATCH, G5 is CLR (latched effects and FILTER/CRUSH/THROW/DEPTH off); black keys 1..4 mute

@@ -63,7 +63,7 @@ static int ev_id_ok(const track_t *t, uint32_t id)
     const param_desc_t *d;
     if (ev_sid(id))
         return 1;
-    if (id >= P_COUNT || !motion_param(id) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL))
+    if ((id >= P_COUNT && id != MSEQ_PITCH) || !motion_param(id) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL))
         return 0;
     if (id >= P_LN0 && id <= P_LN7)
         return drum_track(t);
@@ -163,7 +163,7 @@ static int ev_id_free(const track_t *t, uint32_t step, uint32_t id)
 static int32_t ev_id_pos(uint32_t id)
 {
     return id == EV_CHANCE ? 0 : id == EV_RATCH ? 1 : id == EV_NUDGE ? 2 : id == EV_VEL ? 3
-           : id < P_COUNT ? (int32_t)id + 4 : -1;
+           : id == MSEQ_PITCH ? (int32_t)P_COUNT + 4 : id < P_COUNT ? (int32_t)id + 4 : -1;
 }
 static uint32_t ev_id_at(int32_t v)
 {
@@ -704,6 +704,12 @@ static uint32_t pk_build_auto(const track_t *t, uint32_t id, uint32_t step, uint
         if (i == id)
             *sel = pk_n;
         pk_add_item(i, pk_auto_group(i), nm);
+    }
+    if (step >= NSTEP || id == MSEQ_PITCH) {             /* PITCH: lock-only (id 127), not in p[] */
+        pk_auto_name(t, MSEQ_PITCH, nm);
+        if (id == MSEQ_PITCH)
+            *sel = pk_n;
+        pk_add_item(MSEQ_PITCH, "SEQ", nm);
     }
     for (i = 0; i < NELEM(FX_DST); i++) {
         uint32_t x = FX_DST[i].pid;

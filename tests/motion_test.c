@@ -909,6 +909,20 @@ static int lock_ui(void)
         lk_up(kn);
         bad += check("SCL K4 on a held step: a PITCH lock (+2), not a refused TRN lock",
                      motion_lock_get(t, 0, MSEQ_PITCH, &v) && v == 2 && motion_lock_count(t) == 1u);
+        {   /* AUTOMATION lists it, and + ADD can create one */
+            uint32_t sel = 0, j, found = 0;
+            pk_build_auto(t, MSEQ_PITCH, 0, &sel);
+            for (j = 0; j < pk_n; j++)
+                if (pk_rows[j].id == MSEQ_PITCH && str_eq(pk_rows[j].name, "PITCH"))
+                    found = 1;
+            ok = found;
+            found = 0;
+            pk_build_auto(t, 0, NSTEP, &sel);
+            for (j = 0; j < pk_n; j++)
+                if (pk_rows[j].id == MSEQ_PITCH && str_eq(pk_rows[j].name, "PITCH"))
+                    found = 1;
+            bad += check("AUTOMATION lists the PITCH lock, and + ADD offers it", ok && found);
+        }
         song.rec = 0;
     }
     return bad;
