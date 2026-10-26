@@ -11,10 +11,11 @@
  * A step that held something and is empty after loses its locks (as clearing a note); REVERSE and SHIFT move the
  * steps' automation and locks with them. RANDOM and COOK draw from libc.c rng(): no seed is kept, each press
  * differs. A sequence of ties reversed keeps its note first: N T T -> N T T at the mirrored place.
- * NOTE TOOLS (the second page): OCT- OCT+ HALF *2 HUMAN DUP on the written steps, one undo per action. */
+ * The same page also edits the written notes: OCT- OCT+ (E4/F4 on a melodic track), HALF *2 HUMAN DUP
+ * (D5..G5), one undo per action. */
 enum { TL_CLEAR, TL_REV, TL_LEFT, TL_RIGHT, TL_RANDOM, TL_COOK, TL_BEAT, TL_MUTE, TL_LCLR, TL_LREV, TL_LFILL, TL_LRND,
        TL_N };
-/* the second SEQ TOOLS page (NOTE TOOLS): stored-note edits, one undo like the first page */
+/* the stored-note edits on the SEQ TOOLS page: one undo each, like COOK / RANDOM */
 enum { TL2_OCTD, TL2_OCTU, TL2_HALF, TL2_X2, TL2_HUMAN, TL2_DUP, TL2_N };
 
 /* the track as the layer opened (OCT-): in the pool (RAM's .bss is tight), taken by layer_opened. sqnt: HUMAN
@@ -335,7 +336,7 @@ static void tl_cook_notes(track_t *t, uint32_t len, uint32_t g)
     }
 }
 
-/* ------------------------------------------------------- NOTE TOOLS --- */
+/* ------------------------------------------------------ NOTE EDITS --- */
 /* HUMAN: fresh random velocity / nudge every press, per step (a chord shares both). The step format has one vel
  * and one nudge per step; ties and rests are skipped. QUANTIZE is switched off because NUDGE only plays then. */
 #define TL2_HUMAN_VEL 16
@@ -345,6 +346,16 @@ static int tl2_cell(const track_t *t, uint32_t p)
     if (p >= TL2_N)
         return 0;
     return p != TL2_OCTD && p != TL2_OCTU ? 1 : !drum_track(t);
+}
+/* where the edit sits on SEQ TOOLS: E4 / F4 are BEAT / MUTE on a DRUM track and the octave keys elsewhere;
+ * D5..G5 are always HALF *2 HUMAN DUP (the whole page fits the 16 white keys) */
+static int tl2_at(const track_t *t, uint32_t p)
+{
+    if (p == 6u && !drum_track(t))
+        return TL2_OCTD;
+    if (p == 7u && !drum_track(t))
+        return TL2_OCTU;
+    return p >= 12u ? (int)TL2_HALF + (int)(p - 12u) : -1;
 }
 static uint32_t tl2_note_steps(const track_t *t, uint32_t len)
 {
@@ -496,7 +507,7 @@ static void tl2_human(track_t *t, uint32_t len)
     }
     t->p[P_SQNT] = 0;                                  /* (NUDGE plays only with QUANTIZE OFF) */
 }
-/* a NOTE TOOLS action: its message; 0 = nothing done (said why) */
+/* a NOTE EDITS action: its message; 0 = nothing done (said why) */
 static const char *tl2_do(track_t *t, uint32_t p)
 {
     uint32_t len = tl_len(t), i, k, n = 0;

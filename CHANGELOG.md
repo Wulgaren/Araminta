@@ -49,12 +49,13 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
 
 ### SEQ
 
-- **NOTE TOOLS (the second SEQ TOOLS page, SELECT).** Stored-note edits, one undo each like COOK/RANDOM:
-  **OCT− / OCT+** transpose the written notes ±12 (ties, rests and the notes past LEN stay); **HALF** stretches
-  the pattern over twice the steps (LEN ×2, ties keep holding); **\*2** squeezes each pair into one (LEN ÷2, the
-  first playing step wins); **HUMAN** writes fresh velocity ±16 and nudge ±2 into every note step and switches
-  QUANTIZE off so the nudge plays; **DUP** copies steps 1..LEN after themselves (LEN ×2, up to 64; locks and
-  automation copy). OCT− on the page puts back every edit of the visit, including QUANTIZE.
+- **NOTE EDITS on SEQ TOOLS.** Stored-note edits, one undo each like COOK/RANDOM:
+  **OCT− / OCT+** on E4 / F4 (BEAT / MUTE on a DRUM track) transpose the written notes ±12 (ties, rests and the
+  notes past LEN stay); **HALF** on D5 stretches the pattern over twice the steps (LEN ×2, ties keep holding);
+  **\*2** on E5 squeezes each pair into one (LEN ÷2, the first playing step wins); **HUMAN** on F5 writes fresh
+  velocity ±16 and nudge ±2 into every note step and switches QUANTIZE off so the nudge plays; **DUP** on G5 copies
+  steps 1..LEN after themselves (LEN ×2, up to 64; locks and automation copy). OCT− on the page puts back every edit
+  of the visit, including QUANTIZE.
 
 ### Chord
 

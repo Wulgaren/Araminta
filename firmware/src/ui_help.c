@@ -55,7 +55,6 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"ARP 2", "[K3]LATCH[K4]ORDER[ARP]ARP"},
     {"PATTERN", "[K1]LEN[K2]DIV[SEQ]TOOLS"},
     {"SEQ TOOLS", "[KEYS]TOOLS[K1]LEN[K2]DIV"},
-    {"NOTE TOOLS", "[KEYS]EDITS[SAVE]UNDO"},
     {"STEP", "[KEYS]WRITE[K1]STEP[SELECT]PATTERN"},
     {"DETAIL", "[PRESETS]STEP[K1]CHANCE[K2]RATCH"},
     {"GENERATION", "[K1]LEN[K2]KICK[SELECT]MAP"},
