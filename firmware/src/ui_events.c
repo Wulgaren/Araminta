@@ -844,7 +844,7 @@ static void pk_apply(void)
         uint32_t c = ev_cur(ev_rw, 0), k = c >> 8, step, from;
         if (k == EVK_ADD) {
             ui.ev_id = (uint8_t)id;
-        } else if (k == EVK_REC && id < P_COUNT) {
+        } else if (k == EVK_REC && (id < P_COUNT || id == MSEQ_PITCH)) {   /* PITCH is lock-only, not in p[] */
             step = motion.event[c & 0xFFu].place & 63u;
             from = MOTION_ID(&motion.event[c & 0xFFu]);
             if (id != from && ev_id_free(t, step, id)) {

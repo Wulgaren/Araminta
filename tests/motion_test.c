@@ -818,6 +818,23 @@ static int record_trn(void)
             if (pk_rows[j].id == MSEQ_PITCH && str_eq(pk_rows[j].name, "PITCH"))
                 hit = 1;
         bad += check("  K3 PARAM still offers PITCH after the row was changed to another parameter", hit);
+        {   /* selecting PITCH in that list actually changes the record (it is id 127, not in p[]) */
+            uint32_t r, nr, prow = 0;
+            uint16_t rw[EV_ROWS];
+            nr = ev_list(rw);
+            for (r = 0; r < nr; r++)
+                if ((rw[r] >> 8) == EVK_REC && motion.event[rw[r] & 0xFFu].place == 0 &&
+                    MOTION_ID(&motion.event[rw[r] & 0xFFu]) == P_REV)
+                    ui.ev_row = (uint16_t)r;
+            pk_open(PK_AUTO);
+            for (r = 0; r < pk_n; r++)
+                if (pk_rows[r].id == MSEQ_PITCH)
+                    prow = r;
+            pk_cur = (uint8_t)prow;
+            pk_apply();
+            bad += check("  K3 PARAM: selecting PITCH changes the record to PITCH",
+                         motion_find(t, 0, MSEQ_PITCH) >= 0 && motion_find(t, 0, P_REV) < 0);
+        }
     }
     return bad;
 }
