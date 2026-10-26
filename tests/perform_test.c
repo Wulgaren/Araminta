@@ -6,7 +6,8 @@
  *    (the live signal back, bit for bit, after the 2.9 ms ramp); the others start at once.
  * 2. stereo: REPEAT, REVERSE, TAPE STOP and FREEZE keep left and right apart (a silent right channel stays
  *    silent; each side follows its own input).
- * 3. a REPEAT too long for the loop (1/8 and REVERSE below 81 BPM) does nothing at all.
+ * 3. a REPEAT too long for the loop (1/8 and REVERSE below 81 BPM, 1/12 below 54) does nothing at all;
+ *    1/12 is a third of a beat (the 8T rate).
  * 4. the SLICER: its recordings are not used meanwhile and are dropped afterwards.
  * 5. the keys: a layer key plays nothing and sends no MIDI; a key held before FX stays a note; the white
  *    keys past the first 12 (D5 .. G5, none in the default map) are the layer's too but do nothing.
@@ -29,8 +30,9 @@
  *    after 120's bar at 90); no click in or out, the live signal back bit for bit; stacked with REPEAT + LPF, let go:
  *    those as alone, bit for bit; L and R apart; KNOB 4 at 0 %: live; the cost.
  * 11. the key map (perform.c PF_DEF / PF2_DEF, seq.c perf_key): two fixed pages, the punch page shown picks theirs:
- *    the pages' contents; the keys of a page, a page flip while nothing held; FX LATCH on with a key held (letting go
- *    clears its bit, the latched ones stay sticky); the pages' maps on the keys, G5 CLR only with LATCH.
+ *    the pages' contents (REPEAT 1/8 1/12 1/16 1/32 first, /2 *2 GLITCH on 2/2); the keys of a page, a page flip
+ *    while nothing held; FX LATCH on with a key held (letting go clears its bit, the latched ones stay sticky);
+ *    the pages' maps on the keys, G5 CLR only with LATCH.
  * 12. 1.5.1: the delay's TIME 1/8D 1/16D 1/4D (their lengths at 60 61 90 120 BPM and on the external clock, 1/4D clamped
  *    to the line at 60 BPM and below, the list append-only and longest first on the knob, ARP RATE / SEQ DIV unchanged, an
  *    echo at 1/8D where it belongs, free ms: the FM-1's one-pole roll (1.4391e-4 a sample to the target, tau 157 ms): a
@@ -287,6 +289,16 @@ static int test_too_long(void)
         perf_press(PF_R8, 0);
         bad += check("  a REPEAT 1/8 held while the tempo drops below its fit: it ends, no click",
                      pf.mode == BM_NONE && !sl_lent && mx < 4 * 190);
+    }
+    {   /* 3.2: REPEAT 1/12, a third of a beat (the 8T rate) */
+        song.g[G_BPM] = 120;
+        bad += check("REPEAT 1/12: a third of a beat (7350 samples at 120 BPM, the 8T rate)",
+                     perf_len(PF_R12) == beat_samples() / 3u && perf_len(PF_R12) == 7350u &&
+                     (perf_avail() & PF_BIT(PF_R12)));
+        bad += check("  1/12 is a buffer REPEAT (not MIDI); the loop holds it from 54 BPM",
+                     (PF_BUF & PF_BIT(PF_R12)) && (PF_REPEAT & PF_BIT(PF_R12)) && !(PF_MIDI & PF_BIT(PF_R12)) &&
+                     (song.g[G_BPM] = 54, perf_avail() & PF_BIT(PF_R12)) &&
+                     (song.g[G_BPM] = 53, !(perf_avail() & PF_BIT(PF_R12))));
     }
     return bad;
 }
@@ -940,12 +952,15 @@ static int test_map(void)
     int bad = 0, ok = 1;
     uint32_t p, k;
     char what[160];
-    bad += check("map: the pages are fixed (PUNCH 1: REPEAT, 1/2, LPF/HPF/OCT, DEC, stutter, ATK ARP RANDOM; PUNCH-IN 2/2: the audio effects)",
-                 PF_DEF[0] == PF_R8 && PF_DEF[3] == PF_HALF && PF_DEF[4] == PF_LPF && PF_DEF[5] == PF_HPF &&
-                 PF_DEF[6] == PF_OCTD && PF_DEF[7] == PF_OCTU && PF_DEF[14] == PF_RND && PF_DEF[15] == PF_N &&
+    bad += check("map: the pages are fixed (PUNCH-IN 1/2: REPEAT 1/8 1/12 1/16 1/32, LPF/HPF/OCT, DEC, stutter, ATK ARP RANDOM; 2/2: the audio effects, /2 *2 GLITCH)",
+                 PF_DEF[0] == PF_R8 && PF_DEF[1] == PF_R12 && PF_DEF[2] == PF_R16 && PF_DEF[3] == PF_R32 &&
+                 PF_DEF[4] == PF_LPF && PF_DEF[5] == PF_HPF && PF_DEF[6] == PF_OCTD && PF_DEF[7] == PF_OCTU &&
+                 PF_DEF[8] == PF_DSHT && PF_DEF[9] == PF_DLNG && PF_DEF[10] == PF_S8 && PF_DEF[11] == PF_S16 &&
+                 PF_DEF[12] == PF_ATK && PF_DEF[13] == PF_ARP && PF_DEF[14] == PF_RND && PF_DEF[15] == PF_N &&
                  PF2_DEF[0] == PF_REV && PF2_DEF[1] == PF_TAPE && PF2_DEF[2] == PF_FRZ && PF2_DEF[3] == PF_OUP &&
                  PF2_DEF[4] == PF_ODN && PF2_DEF[5] == PF_FLG && PF2_DEF[6] == PF_PHS && PF2_DEF[7] == PF_RTHR &&
-                 PF2_DEF[8] == PF_ETHR && PF2_DEF[9] == PF_X2 && PF2_DEF[10] == PF_GLT && PF2_DEF[15] == PF_N);
+                 PF2_DEF[8] == PF_ETHR && PF2_DEF[9] == PF_HALF && PF2_DEF[10] == PF_X2 && PF2_DEF[11] == PF_GLT &&
+                 PF2_DEF[12] == PF_N && PF2_DEF[15] == PF_N);
     {   /* the keys: the shown page's fixed map (G5 none, LATCH off); a page flip (ui.c page_entered) follows */
         uint32_t fx = 1u << 3, white = 0, ck = 0;
         song_setup();
@@ -1007,7 +1022,7 @@ static int test_map(void)
         fm1_in.buttons = 0;
         kb_mask = perf_mask = 0;
     }
-    snprintf(what, sizeof what, "map: the default map on the keys: F3..B3 REPEAT/1/2, C4..F4 LPF/HPF/OCT, G4..F5 the rest; G5 CLR only with LATCH");
+    snprintf(what, sizeof what, "map: the default map on the keys: F3..B3 REPEAT 1/8 1/12 1/16 1/32, C4..F4 LPF/HPF/OCT, G4..F5 the rest; G5 CLR only with LATCH");
     {
         ok = 1;
         for (k = 0; k < 27u; k++)
@@ -1015,7 +1030,8 @@ static int test_map(void)
                 p = key_place(k);
                 ok &= perf_key(k) == (p < PF_KEYS ? PF_DEF[p] : PF_N);   /* LATCH off: G5 is PF_N */
             }
-        ok &= perf_key(6) == PF_HALF && perf_key(7) == PF_LPF && perf_key(9) == PF_HPF && perf_key(11) == PF_OCTD &&
+        ok &= perf_key(0) == PF_R8 && perf_key(2) == PF_R12 && perf_key(4) == PF_R16 && perf_key(6) == PF_R32 &&
+              perf_key(7) == PF_LPF && perf_key(9) == PF_HPF && perf_key(11) == PF_OCTD &&
               perf_key(12) == PF_OCTU && perf_key(21) == PF_ATK && perf_key(23) == PF_ARP && perf_key(24) == PF_RND;
         perf_latch_on = 1;
         for (k = 0; k < 27u; k++)
@@ -1028,6 +1044,7 @@ static int test_map(void)
                 p = key_place(k);
                 ok &= perf_key(k) == (p < PF_KEYS ? PF2_DEF[p] : PF_N);
             }
+        ok &= perf_key(16) == PF_HALF && perf_key(18) == PF_X2 && perf_key(19) == PF_GLT;   /* A4 /2, B4 *2, C5 GLITCH */
         perf_page(0);                                   /* (page 1's map back) */
     }
     bad += check(what, ok);
