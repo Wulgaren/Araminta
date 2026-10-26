@@ -809,6 +809,16 @@ static int record_trn(void)
         if (pk_rows[i].id == MSEQ_PITCH && str_eq(pk_rows[i].name, "PITCH") && str_eq(pk_rows[i].tag, "SEQ"))
             found = 1;
     bad += check("  PITCH locks still appear in AUTOMATION", found && motion_lock_get(t, 4, MSEQ_PITCH, &v) && v == -2);
+    {   /* K3 PARAM on a row changed away from PITCH still offers PITCH when the step has no PITCH record */
+        uint32_t j, hit = 0;
+        motion_clear_locks(t, 0);
+        motion_set_lock(t, 0, P_REV, 50);
+        pk_build_auto(t, P_REV, 0, &sel);
+        for (j = 0; j < pk_n; j++)
+            if (pk_rows[j].id == MSEQ_PITCH && str_eq(pk_rows[j].name, "PITCH"))
+                hit = 1;
+        bad += check("  K3 PARAM still offers PITCH after the row was changed to another parameter", hit);
+    }
     return bad;
 }
 
