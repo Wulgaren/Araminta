@@ -58,8 +58,9 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
 
 ### Locks
 
-- **Per-step PITCH lock (SCL K4 on a held step).** A new lock-only motion id, 127: a chromatic semitone offset
-  (-24..+24) applied after the scale snap, one value for the whole step (a chord uses its first/lowest note when
+- **Per-step PITCH lock (SCL K4 on a held step).** A new lock-only motion id, 127: an absolute chromatic
+  transpose (-24..+24) that replaces the track's TRN on that step, one value for the whole step (a chord uses its
+  first/lowest note when
   TRN records it). It counts toward the 88 on-disk records and the save-limit warning. FUN16 is unchanged.
   **Downgrade:** firmware before 3.2 refuses a project whose motion holds id 127 (EMPTY SLOT), so save a backup
   before opening a v3.2 project with pitch locks on an older build.

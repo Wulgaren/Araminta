@@ -589,8 +589,8 @@ typedef struct track {
     uint32_t esync_k[3];         /* ATK's step, DEC's and REL's coefficient (Q16; voice.c esync_coef / env_tick) */
     uint8_t spread_on;           /* SPREAD while this part renders (voice.c / fx.c mix_part) */
     uint8_t lfo_wrap;            /* the LFO's phase wrapped this block (track_lfo_adv) */
-    int16_t plk_pit;             /* the step's PITCH value (MSEQ_PITCH), semitones (seq.c) */
-    uint8_t plk_fit;             /* 0 none, 1 fitted TRN (before the scale snap), 2 manual (after it) */
+    int16_t plk_pit;             /* the step's PITCH value (MSEQ_PITCH), semitones, absolute over TRN (seq.c) */
+    uint8_t plk_fit;             /* 1: this step has a PITCH lock (0: none), so a value of 0 still overrides TRN */
     uint8_t rsv_c1[1];           /* sizeof(track_t) a multiple of 16 */
 } track_t;
 enum { PFX_RND = 1, PFX_HALF = 2, PFX_REP = 4, PFX_DEC = 8, PFX_ATK = 16, PFX_X2 = 32 };   /* (track_t.pfx) */

@@ -87,7 +87,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   everything that happens on the track's steps: PLAY / CLEAR, QUANTIZE, each step's CHANCE, RATCH, NUDGE and VEL, its
   locks and automation events; change their step, parameter or value, turn a lock into automation or back, add or
   delete one. 192 records shared by the four tracks (88 saved in a project). SAVE held undoes every edit. A step can
-  also hold a **PITCH** lock (SCL K4): a chromatic semitone offset (-24..+24) applied after the scale snap.
+  also hold a **PITCH** lock (SCL K4): an absolute per-step transpose (-24..+24), chromatic and not snapped; the
+  step uses it instead of the track's TRN.
   With REC armed, turning **TRN** writes that step's PITCH record from the scale-fitted result (C4 +1 in C major
   records 0 ST), while the global TRN keeps its value. Editing that PITCH row turns it into a chromatic lock, so
   a later +1 ST there plays C#4; it is still lock-only and never becomes ordinary automation.
@@ -360,7 +361,8 @@ fall on every C key. Chromatic play is MAP OFF. Drum kits and incoming MIDI keep
 Press **SCL** again for the **CHORD** page: CHRD picks the chord keys (OFF, the scale's triads or
 sevenths, or a fixed shape), VOIC the voicing, STRUM the sweep (OFF, 1/8 to 1/128, 16T, 32T) and STROKE its
 direction (DOWN, UP, ALT). Hold a step on **SEQ > STEP** (piano roll; with SCL as the last sound page) and turn
-K4 (TRN) for a per-step **PITCH** lock: a chromatic semitone offset (-24..+24) applied after the scale snap, one
+K4 (TRN) for a per-step **PITCH** lock: an absolute chromatic transpose (-24..+24) that replaces the track's TRN on
+that step (not snapped), one
 value for the whole step (a chord uses its first/lowest note when TRN is recorded). It appears as a **PITCH** row
 in **SEQ > AUTOMATION**. Turning TRN on SCL without a step held is the ordinary track transpose; with REC armed it
 records the fitted PITCH and leaves the global transpose value alone (the step uses the fitted value).
