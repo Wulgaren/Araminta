@@ -96,10 +96,11 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   or new notes in the scale on the same rhythm) and **COOK** (changes the pattern a little each press); on a DRUM
   track also BEAT, **MUTE** (F4 toggles the selected lane) and each lane's CLEAR, REVERSE, FILL and RANDOM;
   KNOB 1-4 are LEN, DIV, SWING and GATE. Each tool is one undo (SAVE held); OCT- puts the track back as the layer found it
-- **NOTE TOOLS:** SELECT from SEQ TOOLS to edit the stored notes: **OCT- / OCT+** transpose ±12, **HALF** stretches
-  the pattern over twice the steps and **\*2** squeezes pairs into one (LEN changes with them), **HUMAN** writes fresh
-  velocity ±16 and nudge ±2 into every note step (and switches QUANTIZE off so the nudge plays), and **DUP** copies
-  the pattern after itself (`A -> A A`, LEN doubles, max 64). One undo each (SAVE held); OCT- puts back the whole visit
+- **NOTE EDITS on SEQ TOOLS:** **OCT- / OCT+** on E4 / F4 (BEAT / MUTE on a DRUM track) transpose the stored notes
+  ±12; **HALF** on D5 stretches the pattern over twice the steps and **\*2** on E5 squeezes pairs into one (LEN changes
+  with them); **HUMAN** on F5 writes fresh velocity ±16 and nudge ±2 into every note step (and switches QUANTIZE off
+  so the nudge plays); **DUP** on G5 copies the pattern after itself (`A -> A A`, LEN doubles, max 64). One undo each
+  (SAVE held); OCT- puts back the whole visit
 - **Metronome and count-in:** CLICK (OFF, while recording, or always) with three levels, and a count-in
   of 1 or 2 bars before recording from stop; the click goes to the headphones and speaker only, never to
   USB audio or into a pattern
@@ -219,7 +220,7 @@ The pages by button:
 | Button | Taps go round (sections; SELECT walks pages inside one) | Held |
 |---|---|---|
 | HOME | Home ↔ Mixer | the menu |
-| SEQ | Step group (SELECT: PATTERN / STEP / DETAIL), AUTOMATION, SEQ TOOLS (SELECT: NOTE TOOLS) | SEQ TOOLS, on every page |
+| SEQ | Step group (SELECT: PATTERN / STEP / DETAIL), AUTOMATION, SEQ TOOLS | SEQ TOOLS, on every page |
 | GLO | MASTER, CLOCK, SONG | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
 | SAVE | Presets (SELECT: PRESETS / USER / PHRASES), Project (SELECT: PROJECT / TOOLS) | UNDO |
 | LFO | LFO (SELECT: LFO / LFO 2 / LFO DEST), then MOD | MOMENTARY (with a knob) |

@@ -135,7 +135,6 @@ static struct {
     uint8_t bank;                /* SEQ: 16-step bank (follows the cursor) */
     uint8_t cursor;              /* SEQ: step being edited (STEP page KNOB 1 moves it) */
     uint8_t seq_follow_t;        /* SEQ follow pause: frames until cursor snaps to seq_idx again (0 = follow) */
-    uint8_t seq_tool2;           /* SEQ: the second tools page (NOTE TOOLS: stored-note edits), not SEQ TOOLS */
     uint8_t entry_open;          /* SEQ: keys held since the first press of this entry */
     uint8_t lane;                /* SEQ > STEP on a DRUM track (the grid): the lane the keys and KNOB 3 / 4 edit */
     uint8_t plk_src;             /* parameter locks (ui_input.c lock_*): the sound page whose KNOB 1..4 a step held
@@ -607,12 +606,6 @@ static void page_entered(void)
         while (i > 0 && !(PAGES[i - 1].fam == FAM_FX && PAGES[i - 1].sec == FX_SEC_PUNCH))
             i--;                                        /* (the last PUNCH-IN page in the table: the 2/2) */
         perf_page(!ui.home && pg->fam == FAM_FX && pg->sec == FX_SEC_PUNCH && pg == &PAGES[i - 1]);
-    }
-    {   /* the SEQ tools page shown: the section's last page is NOTE TOOLS */
-        uint32_t i = NPAGES;
-        while (i > 0 && !(PAGES[i - 1].fam == FAM_SEQ && PAGES[i - 1].sec == SEQ_SEC_TOOL))
-            i--;
-        ui.seq_tool2 = (uint8_t)(!ui.home && pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_TOOL && pg == &PAGES[i - 1]);
     }
     ui.entry_open = 0;
     ui.hot_t = 0;                                /* clear the previous page's emphasis */
@@ -1225,7 +1218,7 @@ static void undo_swap(void)
             t->p[i] = undo.p[i];
             undo.p[i] = v;
         }
-        {   /* NOTE TOOLS > HUMAN switches QUANTIZE off so its nudges play: undo puts it back */
+        {   /* NOTE EDITS > HUMAN switches QUANTIZE off so its nudges play: undo puts it back */
             int16_t v = t->p[P_SQNT];
             t->p[P_SQNT] = undo.p[P_SQNT];
             undo.p[P_SQNT] = v;
