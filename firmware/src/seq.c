@@ -117,21 +117,6 @@ static int32_t scale_snap(const track_t *t, int32_t n)
     return n;
 }
 
-/* n walked `deg` scale degrees (positive up), MAP ALL / CURR / SEQ's step PITCH lock */
-static int32_t scale_walk(const track_t *t, int32_t n, int32_t deg)
-{
-    uint32_t mask = scale_mask(t), k = (uint32_t)(deg > 0 ? deg : -deg);
-    int32_t d = deg > 0 ? 1 : -1;
-    while (k && n >= 0 && n <= 127) {
-        n += d;
-        if (n < 0 || n > 127)
-            break;
-        if ((mask >> (uint32_t)((n - t->p[P_ROOT] + 120) % 12)) & 1u)
-            k--;
-    }
-    return clamp(n, 0, 127);
-}
-
 /* nearest in-scale pitch to n (tie: lower). MAP KBD's black keys */
 static int32_t scale_nearest(const track_t *t, int32_t n)
 {
@@ -1282,9 +1267,8 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
             x += t->p[P_TRANS];
         if (qseq)
             x = scale_snap(t, x);                   /* two notes snapping together play once */
-        if (t->plk_pit) {                           /* the step's PITCH lock: degrees when quantised */
-            x = qseq ? scale_walk(t, x, t->plk_pit) : x + t->plk_pit;
-        }
+        if (t->plk_pit)                             /* the step's PITCH lock: chromatic semitones after the snap */
+            x += t->plk_pit;
         n = (uint32_t)clamp(x, 0, 127);
         if (qseq) {
             for (j = 0; j < m && nn[j] != n; j++)

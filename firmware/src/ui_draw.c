@@ -1154,15 +1154,13 @@ static void draw_columns(void)
             on = motion_lock_get(TSEL, st, id, &v);
             if (!on)
                 v = motion_target_base_value(TSEL, id);      /* not locked: the sound's own, DIM */
-            if (id == MSEQ_PITCH) {                          /* +2 DEG when the sequence quantises, +3 ST when not */
-                uint32_t q = qn_mode(TSEL);
+            if (id == MSEQ_PITCH) {                          /* +2 ST: a chromatic semitone offset */
                 if (v >= 0) {
                     val[0] = '+';
                     fmt_int(val + 1, v);
                 } else
                     fmt_int(val, v);
-                unit = q == QN_ALL || q == QN_SEQ ? "DEG" : "ST";
-                draw_column(c, "PITCH", val, unit, on ? VAL(c) : T_DIM, -1, ICON_AUTO);
+                draw_column(c, "PITCH", val, "ST", on ? VAL(c) : T_DIM, -1, ICON_AUTO);
                 continue;
             }
             param_format(d, v, val, &unit);
