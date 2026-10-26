@@ -97,15 +97,16 @@ static void run(uint32_t bpm, int playing, const ev_t *ev, uint32_t nev, uint32_
     perf_start();
     busy_seen = 0;
     for (t = 0; t < t1; t += CTL) {
+        uint32_t n = t1 - t < CTL ? t1 - t : CTL;    /* (the last block can be short: no write past the arrays) */
         while (k < nev && ev[k].t <= t) {
             perf_press((uint32_t)(ev[k].e > 0 ? ev[k].e - 1 : -ev[k].e - 1), ev[k].e > 0);
             k++;
         }
-        memcpy(out_l + t, in_l + t, CTL * 4);
-        memcpy(out_r + t, in_r + t, CTL * 4);
-        if (perf_begin(CTL)) {
+        memcpy(out_l + t, in_l + t, n * 4);
+        memcpy(out_r + t, in_r + t, n * 4);
+        if (perf_begin(n)) {
             busy_seen = 1;
-            perf_block(out_l + t, out_r + t, CTL);
+            perf_block(out_l + t, out_r + t, n);
         }
     }
 }
@@ -1050,8 +1051,9 @@ static void dly_run(const int32_t *in, int32_t *wet_out, uint32_t frames)
     static int32_t z[CTL], w[CTL];
     uint32_t t, i;
     for (t = 0; t < frames; t += CTL) {
-        fx_buses(in + t, z, w, CTL);
-        for (i = 0; i < CTL; i++)
+        uint32_t n = frames - t < CTL ? frames - t : CTL;   /* (the last block can be short) */
+        fx_buses(in + t, z, w, n);
+        for (i = 0; i < n; i++)
             wet_out[t + i] = w[i];
     }
 }
@@ -1949,10 +1951,11 @@ static int test_glitch(void)
     perf_start();
     perf_press(PF_GLT, 1);
     for (t = 0; t < NT; t += CTL) {
-        memcpy(out_l + t, in_l + t, CTL * 4);
-        memcpy(out_r + t, in_r + t, CTL * 4);
-        if (perf_begin(CTL)) {
-            perf_block(out_l + t, out_r + t, CTL);
+        uint32_t n = NT - t < CTL ? NT - t : CTL;    /* (the last block can be short) */
+        memcpy(out_l + t, in_l + t, n * 4);
+        memcpy(out_r + t, in_r + t, n * 4);
+        if (perf_begin(n)) {
+            perf_block(out_l + t, out_r + t, n);
             seen |= 1u << pf.gl.a;
         }
     }
