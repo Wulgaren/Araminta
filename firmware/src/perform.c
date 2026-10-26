@@ -6,10 +6,10 @@
  * it is let go (ui_input.c opens the layer and shows the map). The 16 white keys (F3 .. G5) hold the effect the map
  * gives them. Two PUNCH-IN pages in the FX section, each a fixed map — no reassignment: the defaults
  * (PF_DEF, JIANT; PF2_DEF the audio effects they did not fit):
- *   PUNCH-IN 1/2: REPEAT 1/8 1/16 1/32, HALF (1/2 tempo), LPF, HPF, OCT-, OCT+, DEC±, stutter 1/8 1/16, ATK+, ARP,
+ *   PUNCH-IN 1/2: REPEAT 1/8 1/12 1/16 1/32, LPF, HPF, OCT-, OCT+, DEC±, stutter 1/8 1/16, ATK+, ARP,
  *   RANDOM; G5 none
- *   PUNCH-IN 2/2: REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW (G4), x2 (A4),
- *   GLITCH (B4); C5.. G5 none (G5 CLR with FX LATCH)
+ *   PUNCH-IN 2/2: REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW (G4),
+ *   /2 (A4), *2 (B4), GLITCH (C5); D5.. G5 none (G5 CLR with FX LATCH)
  *   both: with FX LATCH, G5 is CLR (latched effects and FILTER/CRUSH/THROW/DEPTH off); black keys 1..4 mute
  *   tracks 1..4; A#4 steps the MIDI effects' tracks (ALL / SYN / DRM).
  * REV THROW / ECHO THROW (1.5.1): while held every track's reverb / delay send is full (as REV / DLY 127; perf_throw),
@@ -53,13 +53,14 @@ enum { PF_R8, PF_R16, PF_R32, PF_REV, PF_LPF, PF_HPF, PF_TAPE, PF_FRZ, PF_OUP, P
        PF_RTHR, PF_ETHR,                      /* 1.5.1: REV THROW, ECHO THROW */
        PF_OCTD, PF_OCTU, PF_HALF, PF_DSHT, PF_DLNG, PF_S8, PF_S16, PF_ATK, PF_ARP, PF_RND,   /* MIDI: pfx.c */
        PF_X2, PF_GLT,                        /* 3.2: x2 TEMPO (MIDI), GLITCH (audio buffer) */
+       PF_R12,                               /* 3.2: REPEAT 1/12 (append-only: PF_M1 stays 27) */
        PF_M1, PF_N = PF_M1 + NTRK, PF_TGT = PF_N + 1,   /* A#4: MIDI effects' tracks (pfx_tgt) */
        PF_CLR = PF_N + 2 };                              /* G5 with FX LATCH: all latched effects + macros off */
 _Static_assert(PF_N <= 32u, "PF mask: widen perf_held / perf_latched / pf.act to 64 bits");
 #define PF_NFX PF_M1                          /* the effects a white key can hold */
 #define PF_KEYS 16u                           /* the white keys F3 .. G5 */
 #define PF_BIT(e) (1u << (e))
-#define PF_REPEAT 0x7u                                         /* the three REPEAT rates */
+#define PF_REPEAT (0x7u | PF_BIT(PF_R12))                      /* the four REPEAT rates */
 #define PF_Q (PF_REPEAT | PF_BIT(PF_REV))                      /* start on the 1/16 */
 #define PF_HARM (PF_BIT(PF_OUP) | PF_BIT(PF_ODN))
 #define PF_BUF (PF_REPEAT | PF_BIT(PF_REV) | PF_BIT(PF_TAPE) | PF_BIT(PF_FRZ) | PF_HARM | PF_BIT(PF_GLT))
@@ -91,12 +92,12 @@ enum { BM_NONE, BM_LOOP, BM_TAPE, BM_FRZ, BM_HARM, BM_GLT };
 #define THR_SLOPE 64                          /* REV / ECHO THROW: the sends' glide a sample, Q15 (11.6 ms end to end) */
 #define THR_FB 22938                          /* ECHO THROW: the delay's feedback while held at least this, Q15 (0.7) */
 
-/* the white keys' effects by default (JIANT: REPEAT, 1/2, then LPF/HPF/OCT together; G5 CLR with LATCH);
- * the 2/2 page the audio effects the first one's keys do not hold (perform.c head) */
-static const uint8_t PF_DEF[PF_KEYS] = {PF_R8, PF_R16, PF_R32, PF_HALF, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_DSHT,
+/* the white keys' effects by default (JIANT: REPEAT, then LPF/HPF/OCT together; /2 beside *2 on 2/2; G5 CLR with
+ * LATCH); the 2/2 page the audio effects the first one's keys do not hold (perform.c head) */
+static const uint8_t PF_DEF[PF_KEYS] = {PF_R8, PF_R12, PF_R16, PF_R32, PF_LPF, PF_HPF, PF_OCTD, PF_OCTU, PF_DSHT,
                                         PF_DLNG, PF_S8, PF_S16, PF_ATK, PF_ARP, PF_RND, PF_N};
 static const uint8_t PF2_DEF[PF_KEYS] = {PF_REV, PF_TAPE, PF_FRZ, PF_OUP, PF_ODN, PF_FLG, PF_PHS, PF_RTHR, PF_ETHR,
-                                         PF_X2, PF_GLT, PF_N, PF_N, PF_N, PF_N, PF_N};
+                                         PF_HALF, PF_X2, PF_GLT, PF_N, PF_N, PF_N, PF_N};
 static volatile uint8_t perf_page2;   /* main: the punch page shown (ui.c page_entered): 0 = 1/2, 1 = 2/2 — the map
                                        * the FX layer's white keys hold (seq.c perf_key, ui_layer.c layer_fx) */
 #define perf_map_now() (perf_page2 ? PF2_DEF : PF_DEF)
@@ -192,16 +193,22 @@ static struct {
 
 static int16_t fl_buf[FL_LEN][2];      /* FLANGER's line: L R, at half the level (headroom) */
 
-/* the loop length of a REPEAT / REVERSE (1/8) at the tempo, 44.1 kHz samples; 0 = not one */
+/* the loop length of a REPEAT / REVERSE at the tempo, 44.1 kHz samples; 0 = not one.
+ * 1/12 is a third of a beat (the 8T rate), so it does not fit PF_DEN's power-of-two table */
 static const uint8_t PF_DEN[PF_REV + 1] = {2, 4, 8, 2};
-static uint32_t perf_len(uint32_t e) { return e <= PF_REV ? beat_samples() / PF_DEN[e] : 0u; }
+static int perf_loop(uint32_t e) { return e <= PF_REV || e == PF_R12; }
+static uint32_t perf_den(uint32_t e) { return e == PF_R12 ? 3u : PF_DEN[e]; }
+static uint32_t perf_len(uint32_t e) { return perf_loop(e) ? beat_samples() / perf_den(e) : 0u; }
 /* the effects that can run at the tempo: a REPEAT / REVERSE longer than the loop cannot */
 static uint32_t perf_avail(void)
 {
-    uint32_t e, m = ~0u, b = beat_samples();
-    for (e = PF_R8; e <= PF_REV; e++)
-        if (b > PB_MAX * PF_DEN[e])
+    uint32_t a = PF_Q, e, m = ~0u, b = beat_samples();
+    while (a) {
+        e = (uint32_t)__builtin_ctz(a);
+        a &= a - 1u;
+        if (b > PB_MAX * perf_den(e))
             m &= ~PF_BIT(e);
+    }
     return m;
 }
 
@@ -319,7 +326,7 @@ static void perf_buf_select(uint32_t e)
 {
     if (e == pf.src && pf.next == PF_N)
         return;
-    if (e != PF_N && pf.mode == BM_LOOP && pf.state && e <= PF_REV && pf.src != PF_N &&
+    if (e != PF_N && pf.mode == BM_LOOP && pf.state && perf_loop(e) && pf.src != PF_N &&
         perf_len(e) <= 2u * pf.wr) {
         pf.xrp = pf.rp;
         pf.xlen = pf.len;

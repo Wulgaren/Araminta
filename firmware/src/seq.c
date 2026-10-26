@@ -1014,7 +1014,7 @@ static void input_off(track_t *t, uint32_t note)
     }
 }
 
-/* the effect of key k in the FX layer (PF_N none): white keys F3 .. F5 the page's fixed map (perform.c
+/* the effect of key k in the FX layer (PF_N none): white keys F3 .. G5 the page's fixed map (perform.c
  * perf_map_now: the punch page's (1/2 or 2/2, ui.c page_entered)); with FX LATCH, G5 is CLR (turns latched effects and macros
  * off); black keys 1..4 the track mutes, A#4 the MIDI effects' tracks (pfx_tgt) */
 static uint32_t perf_key(uint32_t k)
