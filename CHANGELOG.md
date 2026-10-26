@@ -47,6 +47,15 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
   (the notes are unchanged; only future linking is lost). New tracks default to MAP OFF and are unlinked.
   Fun16 is unchanged.
 
+### SEQ
+
+- **NOTE TOOLS (the second SEQ TOOLS page, SELECT).** Stored-note edits, one undo each like COOK/RANDOM:
+  **OCT− / OCT+** transpose the written notes ±12 (ties, rests and the notes past LEN stay); **HALF** stretches
+  the pattern over twice the steps (LEN ×2, ties keep holding); **\*2** squeezes each pair into one (LEN ÷2, the
+  first playing step wins); **HUMAN** writes fresh velocity ±16 and nudge ±2 into every note step and switches
+  QUANTIZE off so the nudge plays; **DUP** copies steps 1..LEN after themselves (LEN ×2, up to 64; locks and
+  automation copy). OCT− on the page puts back every edit of the visit, including QUANTIZE.
+
 ### Chord
 
 - **STRUM and STROKE (SCL > CHORD K3 / K4).** A chord key or a MIDI-in chord sweeps from its lowest to its highest
