@@ -13,7 +13,7 @@ static int16_t motion_base[NTRK][P_COUNT];
 static uint32_t motion_active[NTRK][(P_COUNT + 31u) / 32u];
 static uint32_t motion_locked[NTRK][(P_COUNT + 31u) / 32u];   /* the ids a lock holds now (put back at the next step) */
 static uint8_t motion_base_valid, motion_full, motion_save_lim;
-static const param_desc_t PITCH_DESC = PD("PITCH", F_SEMI, -24, 24, 0);
+static const param_desc_t PITCH_DESC = PD("PITCH", F_SEMI, -24, 24, 0);   /* 3.2: chromatic semitones */
 static const param_desc_t *motion_target_desc(const track_t *t, uint32_t id)
 {
     if (id == MSEQ_PITCH)
@@ -319,9 +319,10 @@ static uint32_t motion_clear_locks(track_t *t, uint32_t step)
 static int motion_capture(track_t *t, uint32_t id, int16_t value)
 {
     uint32_t k = trk_index(t), idx, len, period, f;
+    int trn = id == P_TRANS;                         /* REC: TRN becomes the step's PITCH lock (3.2) */
     /* MFX_* reuse matrix ids (P_M1SRC..). FX locks/automation use motion_set_*;
      * track matrix edits must not rewrite those shared bases or events. */
-    if (MFX_PARAM(id) || !motion_param(id) || id == MSEQ_PITCH) return 0;   /* PITCH is lock-only */
+    if (MFX_PARAM(id) || (!motion_param(id) && !trn) || id == MSEQ_PITCH) return 0;   /* PITCH is lock-only */
     if (!rec_on(t) || t != TSEL) {
         /* A live edit becomes a new base, even when an earlier motion value is
          * currently sounding. Subsequent recorded events can still override it. */
@@ -337,8 +338,22 @@ static int motion_capture(track_t *t, uint32_t id, int16_t value)
     if (t->seq_pos < 0x7FFFFFFFu && t->seq_pos > step_samples(t, period, idx) / 2u) idx = (idx + 1u) % len;
     /* Mark the immediate knob value transient too, so a stop before its next
      * quantized step still restores the original patch. */
-    if ((motion_base_valid >> k) & 1u) motion_active[k][id / 32u] |= 1u << (id % 32u);
+    if (!trn && ((motion_base_valid >> k) & 1u)) motion_active[k][id / 32u] |= 1u << (id % 32u);
     motion_unguard(f);
+    if (trn) {                                       /* no P_TRANS automation: a semitone PITCH lock instead */
+        int16_t base = ((motion_base_valid >> k) & 1u) ? motion_base[k][P_TRANS] : 0;
+        const step_t *s = &seq_steps(t)[idx];
+        const engine_t *e = ENGINES[eng_idx(t->eng_req)];
+        uint32_t kit = e->keys && e->keys(t, 0) >= 0;
+        int32_t off = value - base;
+        if ((qn_mode(t) == QN_SEQ || qn_mode(t) == QN_ALL) && !kit && s->n) {
+            /* the fitted semitone delta: what TRN would have added on the scale at this step's first note */
+            int32_t n0 = (int32_t)step_note(s, 0);
+            off = (scale_snap(t, n0 + value) - n0) - (scale_snap(t, n0 + base) - n0);
+        }
+        t->p[P_TRANS] = base;                        /* the sound's own TRN stays; the lock carries the recording */
+        return motion_set_lock(t, idx, MSEQ_PITCH, (int16_t)clamp(off, -24, 24));
+    }
     return motion_set_event(t, idx, id, value);
 }
 /* step `step` starts: the locks of the step before go back to what sounds without them: the latest automation event

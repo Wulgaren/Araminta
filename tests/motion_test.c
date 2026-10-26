@@ -701,7 +701,7 @@ static int lock_edit(void)
     bad += check("delete an event deletes a lock too (either kind)", !motion_count(&trk[1]));
     return bad;
 }
-/* PITCH lock (3.2, MSEQ_PITCH): scale degrees when the sequence quantises, semitones when it does not */
+/* PITCH lock (3.2, MSEQ_PITCH): a chromatic semitone offset after the scale snap */
 static int lock_pitch(void)
 {
     int bad = 0, ok;
@@ -721,13 +721,13 @@ static int lock_pitch(void)
     ok &= t->seq_notes[0] == 60u && !t->plk_pit;
     bad += check("PITCH lock: a lock-only id, stored in the shared records", ok);
     for (n = 0; n < 100000u && t->seq_idx != 2u; n++) lock_next(t);
-    bad += check("  MAP SEQ C major: +2 degrees on C4 plays E4", t->plk_pit == 2 && t->seq_notes[0] == 64u);
+    bad += check("  +2 semitones on C4 plays D4", t->plk_pit == 2 && t->seq_notes[0] == 62u);
     for (n = 0; n < 100000u && t->seq_idx != 4u; n++) lock_next(t);
-    bad += check("  +7 degrees plays C5", t->plk_pit == 7 && t->seq_notes[0] == 72u);
+    bad += check("  +7 semitones plays G4", t->plk_pit == 7 && t->seq_notes[0] == 67u);
     for (n = 0; n < 100000u && t->seq_idx != 6u; n++) lock_next(t);
-    bad += check("  -2 degrees plays A3", t->plk_pit == -2 && t->seq_notes[0] == 57u);
+    bad += check("  -2 semitones plays A#3", t->plk_pit == -2 && t->seq_notes[0] == 58u);
     seq_stop();
-    t->p[P_QUANT] = QN_OFF;                              /* MAP OFF: semitones */
+    t->p[P_QUANT] = QN_OFF;                              /* MAP OFF: the same chromatic offset */
     motion_set_lock(t, 2, MSEQ_PITCH, 3);
     seq_start();
     for (n = 0; n < 100000u && t->seq_idx != 2u; n++) lock_next(t);
@@ -737,6 +737,57 @@ static int lock_pitch(void)
     ok = proj_pack(&a, &before) && proj_import(&after, &a, sizeof a) &&
          after.motion.event[0].param == (MSEQ_PITCH | MOTION_LOCK) && after.motion.event[0].value == 3;
     bad += check("  the lock survives the project round trip (FUN16, id 127)", ok);
+    return bad;
+}
+
+/* 3.2: TRN recorded with REC is stored as the step's fitted semitone PITCH lock, never as P_TRANS automation */
+static int record_trn(void)
+{
+    int bad = 0, ok;
+    track_t *t = lock_track(0);
+    project_t before, after;
+    project_store_t disk;
+    uint32_t i, sel, found;
+    int16_t v;
+    t->p[P_QUANT] = QN_SEQ; t->p[P_SCALE] = 0; t->p[P_ROOT] = 0; t->p[P_TRANS] = 0;
+    bad += check("SCL TRN is not ordinary automation: PITCH (127) is its only record",
+                 !motion_param(P_TRANS) && !ev_id_ok(t, P_TRANS));
+    song.sel = 0; song.rec = 1;
+    seq_start(); seq_tick(t, CTL);                   /* step 0: C4; the motion base is captured */
+    t->p[P_TRANS] = 1;
+    ok = !motion_capture(t, P_TRANS, 1) && motion.count == 1u &&
+         motion.event[0].param == (MSEQ_PITCH | MOTION_LOCK) && motion.event[0].value == 0 &&
+         motion.event[0].place == 0u && t->p[P_TRANS] == 0;
+    bad += check("  REC +1 TRN on C4 in C major stores the fitted 0 ST (C4, not C#4) and restores TRN", ok);
+    song.rec = 0; seq_stop();
+    seq_start(); seq_tick(t, CTL);
+    bad += check("  playback at that step is what was heard (C4)", t->plk_pit == 0 && t->seq_notes[0] == 60u);
+    seq_stop();
+    motion_set_lock(t, 2, MSEQ_PITCH, 1);
+    seq_start(); seq_tick(t, CTL);
+    for (i = 0; i < 100000u && t->seq_idx != 2u; i++)
+        lock_next(t);
+    bad += check("  a manual PITCH +1 plays C#4 (chromatic, after the scale snap)",
+                 t->plk_pit == 1 && t->seq_notes[0] == 61u);
+    seq_stop();
+    ok = motion.count == 2u;
+    for (i = 0; i < motion.count; i++)
+        ok &= MOTION_ID(&motion.event[i]) != P_TRANS;
+    bad += check("  no P_TRANS automation event exists", ok);
+    motion_set_lock(t, 4, MSEQ_PITCH, -2);
+    ok = motion.count == 3u && !motion_capture(t, MSEQ_PITCH, 7) && motion.count == 3u;
+    bad += check("  PITCH (127) stays lock-only: REC captures nothing for it", ok);
+    project_capture(&before);
+    ok = proj_pack(&disk, &before) && proj_import(&after, &disk, sizeof disk) && after.motion.count == 3u &&
+         after.motion.event[1].param == (MSEQ_PITCH | MOTION_LOCK) && after.motion.event[1].value == 1 &&
+         after.motion.event[2].value == -2;
+    bad += check("  the PITCH locks (including the recorded TRN) survive a FUN16 project", ok);
+    sel = found = 0;
+    pk_build_auto(t, MSEQ_PITCH, NSTEP, &sel);
+    for (i = 0; i < pk_n; i++)
+        if (pk_rows[i].id == MSEQ_PITCH && str_eq(pk_rows[i].name, "PITCH") && str_eq(pk_rows[i].tag, "SEQ"))
+            found = 1;
+    bad += check("  PITCH locks still appear in AUTOMATION", found && motion_lock_get(t, 4, MSEQ_PITCH, &v) && v == -2);
     return bad;
 }
 
@@ -1284,7 +1335,7 @@ int main(void)
     bad += arp_play_sync();
     bad += arp_new_modes();
     bad += arp_drone_mode();
-    bad += lock_playback() + lock_edit() + lock_pitch() + lock_project() + lock_ui() + lock_undo() + auto_list();
+    bad += lock_playback() + lock_edit() + lock_pitch() + record_trn() + lock_project() + lock_ui() + lock_undo() + auto_list();
     bad += fx_lock_time();
     bad += fx_lock_banks_and_capacity();
     printf("%s\n", bad ? "MOTION TEST FAILED" : "motion/chance/compact storage tests passed"); return bad != 0;
