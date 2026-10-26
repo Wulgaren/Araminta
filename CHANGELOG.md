@@ -2,9 +2,9 @@
 
 ## 3.2
 
-The stock V15 supply rails before core 1, a per-step PITCH lock, beat-synced chord STRUM / STROKE, x2 TEMPO
-and GLITCH punch-ins, and the DELAY page's TIME / RATE direction swapped. Same project format as 3.1
-(FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
+The stock V15 supply rails before core 1, a per-step PITCH lock, beat-synced chord STRUM / STROKE, the new
+REPEAT 1/12, /2 and *2 TEMPO and GLITCH punch-ins, and the DELAY page's TIME / RATE direction swapped. Same
+project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
 
 ### Boot
 
@@ -21,14 +21,20 @@ and GLITCH punch-ins, and the DELAY page's TIME / RATE direction swapped. Same p
   the note divisions; the mode column shows `TIME` or `RATE`. The division last used is still the one
   TIME returns to. This swaps the 3.0–3.1 direction, so it is a change of muscle memory, not of stored
   data (`G_DTIME` is unchanged and old projects load the same).
-- **x2 TEMPO (PUNCH-IN 2/2, A4).** The counterpart of 1/2 TEMPO: while held, every target track's sequencer
-  runs at double speed; let go and it lands where it would have been. HALF + x2 cancel. Recorded in the
-  punch-in lane as nibble 11 (older firmware ignores it). GLITCH is audio-only and never recorded.
-- **GLITCH (PUNCH-IN 2/2, B4).** The master is cut on the transport's 1/16s. A deterministic hash of each
+- **REPEAT 1/12 (PUNCH-IN 1/2, G3).** A third of a beat (the 8T rate), on the same 1/16 start as the other
+  REPEATs. It is a buffer effect like 1/8: below ~54 BPM the loop is too short and the cell dims.
+- **/2 and *2 TEMPO (PUNCH-IN 2/2, A4 and B4).** /2 is the former 1/2 TEMPO, now beside its double. While held,
+  every target track's sequencer runs at half / double speed; let go and it lands where it would have been.
+  /2 + *2 cancel. Recorded in the punch-in lane as nibble 11 (older firmware ignores it); /2 is nibble 3.
+- **GLITCH (PUNCH-IN 2/2, C5).** The master is cut on the transport's 1/16s. A deterministic hash of each
   slice's place in a 2-bar cycle decides: play live, repeat the last L, reverse the last 1/16, an octave up or
   down, gate, SKIP, or CRUSH; every slice is windowed. Knobs are fixed (DENS 50 / PITCH 0 / SIZE 0 / VARI 1).
   It borrows the SLICER's buffer, like REPEAT / REVERSE / TAPE / FREEZE; below ~82 BPM only gates, crushes and
-  live slices play. Ported from JIANT 0.9.9-snd2 / 0.9.18.
+  live slices play. Ported from JIANT 0.9.9-snd2 / 0.9.18. GLITCH is audio-only and never recorded.
+- **The punch-in maps reordered.** PUNCH-IN 1/2: REPEAT 1/8 / 1/12 / 1/16 / 1/32, LPF, HPF, OCT-, OCT+, DEC-,
+  DEC+, ST8, ST16, ATK+, ARP, RND, none. PUNCH-IN 2/2: REVERSE, TAPE, FREEZE, PITCH+, PITCH-, FLANGER, PHASER,
+  REV THROW, ECHO THROW, /2, *2, GLITCH, then none; G5 is still CLR with FX LATCH. The FX map's cells show
+  `GLITCH`, `/2` and `*2`.
 
 ### SCL
 

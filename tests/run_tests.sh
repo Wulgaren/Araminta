@@ -83,10 +83,10 @@
 #                   on the knob, attack / decay / release times at 60 / 120 / 173 BPM and on the external clock), the cost;
 #                   demos in build/sound15_demo/ (analog_bp, analog_hp, env_sync).
 # PERFORM (tests/perform_test.c): the FX hold layer (src/perform.c): 1/16 starts, stereo buffer effects, the
-#                   too-long REPEAT, the SLICER interplay, silent layer keys, idle bit-identical, cost; build/perform_demo/;
+#                   too-long REPEAT (1/8, 1/12, REVERSE), the SLICER interplay, silent layer keys, idle bit-identical, cost; build/perform_demo/;
 #                   OCT UP / DN (the harmonizer): pitch, stereo, clicks, the shimmer bounded, cost; FLANGER / PHASER (1.2): no DC,
 #                   bounded, the sweep in time with the tempo, clean release, stacked with REPEAT / LPF / HPF, cost; the key
-#                   map (any effect or none on any key, a key remapped while held, FX LATCH); build/fx_demo/; 1.5.1: the
+#                   map (the two fixed PUNCH-IN pages, a page flip, FX LATCH); build/fx_demo/; 1.5.1: the
 #                   delay's dotted TIME (lengths, the 1/4D clamp, the knob order, free ms: the FM-1-style
 #                   one-pole roll, a fast turn riding at its own speed), REV / ECHO THROW (the sends as at 127,
 #                   the glide, ECHO's capped feedback bounded, the tails ringing out, on PUNCH-IN 2/2); build/throw_demo/.

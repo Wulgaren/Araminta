@@ -3307,7 +3307,7 @@ static int test_layer(void)
     press(B_FX); press(B_FX); frame();                 /* Effects → Punch-in */
     ok = ui.lock == LAYER_FX && ui.layer == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
     key_down(white(2)); frame();
-    ok &= !gates() && mo_w == mo && (perf_held & PF_BIT(PF_R32));
+    ok &= !gates() && mo_w == mo && (perf_held & PF_BIT(PF_R16));
     key_up(white(2)); frame();
     bad += check("Punch-in sticky: a key's effect, silent, no MIDI", ok && !perf_held);
     key_down(white(3)); frame();
