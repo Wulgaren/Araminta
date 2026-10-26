@@ -340,7 +340,7 @@ static int motion_capture(track_t *t, uint32_t id, int16_t value)
      * quantized step still restores the original patch. */
     if (!trn && ((motion_base_valid >> k) & 1u)) motion_active[k][id / 32u] |= 1u << (id % 32u);
     motion_unguard(f);
-    if (trn) {                                       /* no P_TRANS automation: a fitted PITCH record instead */
+    if (trn) {                                       /* no P_TRANS automation: the step's PITCH lock instead */
         const step_t *s = &seq_steps(t)[idx];
         const engine_t *e = ENGINES[eng_idx(t->eng_req)];
         uint32_t kit = e->keys && e->keys(t, 0) >= 0;
@@ -350,7 +350,7 @@ static int motion_capture(track_t *t, uint32_t id, int16_t value)
             int32_t n0 = (int32_t)step_note(s, 0);
             off = scale_snap(t, n0 + value) - n0;
         }
-        return motion_set_event(t, idx, MSEQ_PITCH, (int16_t)clamp(off, -24, 24));
+        return motion_set_lock(t, idx, MSEQ_PITCH, (int16_t)clamp(off, -24, 24));
     }
     return motion_set_event(t, idx, id, value);
 }
@@ -398,9 +398,9 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t step, con
         const motion_event_t *e = &m->event[i];
         uint32_t id = MOTION_ID(e);
         if (e->place != (k << 6 | step) || ((e->param & MOTION_LOCK) && !play) || !fx_target_available(t, id)) continue;
-        if (id == MSEQ_PITCH) {                      /* never indexes p[]; kind = fitted TRN or manual chromatic */
+        if (id == MSEQ_PITCH) {                      /* never indexes p[]: an absolute per-step transpose */
             t->plk_pit = (int16_t)clamp(e->value, -24, 24);
-            t->plk_fit = (e->param & MOTION_LOCK) ? 2u : 1u;
+            t->plk_fit = 1u;
             if (e->param & MOTION_LOCK)
                 motion_locked[k][id / 32u] |= 1u << (id % 32u);
             continue;
@@ -486,8 +486,6 @@ static int motion_move(track_t *t, uint32_t i, uint32_t step, uint32_t id, int16
         motion_restore(t);                              /* (a value alone: what sounds stays) */
     motion.event[i].place = (uint8_t)(trk_index(t) << 6 | step);
     motion.event[i].param = (uint8_t)((motion.event[i].param & MOTION_LOCK) | id);
-    if (id == MSEQ_PITCH)
-        motion.event[i].param = (uint8_t)(MSEQ_PITCH | MOTION_LOCK);   /* a hand edit is chromatic, not fitted */
     motion.event[i].value = (int16_t)param_fit(d, v);
     motion_unguard(f);
     return 0;

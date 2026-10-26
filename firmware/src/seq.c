@@ -1263,12 +1263,14 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     for (i = 0; i < s->n && i < 4u; i++) {
         int32_t x = (int32_t)step_note(s, i);
         uint32_t n;
-        if (!kit)                                   /* #218: TRN then (SEQ) onto the scale; pattern untouched */
-            x += t->plk_fit == 1u ? t->plk_pit : t->p[P_TRANS];
-        if (qseq)
-            x = scale_snap(t, x);                   /* two notes snapping together play once */
-        if (t->plk_fit == 2u)                       /* a hand-edited PITCH: chromatic, after the snap */
+        if (t->plk_fit)                             /* the step's PITCH: absolute, chromatic, replaces TRN here */
             x += t->plk_pit;
+        else {
+            if (!kit)                               /* #218: TRN then (SEQ) onto the scale; pattern untouched */
+                x += t->p[P_TRANS];
+            if (qseq)
+                x = scale_snap(t, x);               /* two notes snapping together play once */
+        }
         n = (uint32_t)clamp(x, 0, 127);
         if (qseq) {
             for (j = 0; j < m && nn[j] != n; j++)
