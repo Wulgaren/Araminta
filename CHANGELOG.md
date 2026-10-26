@@ -53,8 +53,9 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
   note over the chosen division (OFF, 1/8, 1/16, 1/32, 1/64, 1/128, 16T, 32T); DOWN / UP / ALT set the direction, ALT
   flips per chord and track. Rate and direction freeze at the press, the timing follows a tempo change, and a
   release cancels the strings that have not played. Off with ARP on, MONO / LEGATO (their chord is the root), and a
-  one-note chord. The knobs share the inert ALLOC parameter (packed), so FUN16 and old projects are unchanged;
-  the editor shows the packed list as SWEEP.
+  one-note chord. The knobs share the inert ALLOC parameter (packed); legacy ROT/REUSE values 0/1 remain OFF,
+  and new sweeps use values 2..22. FUN16 is unchanged. The editor shows the packed list as SWEEP.
+  Strum settings saved with earlier unreleased 3.2 builds need resetting after this encoding correction.
 
 ### Locks
 

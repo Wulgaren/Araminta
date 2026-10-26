@@ -372,6 +372,74 @@ static int strum(void)
     return bad;
 }
 
+static int legacy_alloc(void)
+{
+    int bad = 0;
+    track_t *t = &trk[0];
+    project_t saved, loaded;
+    project_store_t disk;
+    reset();
+    t->p[P_CHRD] = CH_DIA3;
+    t->p[P_ALLOC] = 1;                            /* released ALLOC = REUSE */
+    project_capture(&saved);
+    if (!proj_pack(&disk, &saved) || !proj_import(&loaded, &disk, sizeof disk) || project_restore_runtime(&loaded))
+        return check("legacy ALLOC project loads", 0);
+    key_down(K_D4);
+    bad += check("legacy ALLOC REUSE project plays the whole chord immediately",
+                 gate_note(t, 62) && gate_note(t, 65) && gate_note(t, 69) && !kb_strum_pending);
+    key_up(K_D4);
+    up_store(0, "LEGACY");
+    t->p[P_ALLOC] = 0;
+    up_load(0);
+    key_down(K_D4);
+    bad += check("legacy ALLOC REUSE preset plays the whole chord immediately",
+                 gate_note(t, 62) && gate_note(t, 65) && gate_note(t, 69) && !kb_strum_pending);
+    key_up(K_D4);
+    return bad;
+}
+
+static int strum_track_panic(void)
+{
+    int bad = 0;
+    track_t *t = &trk[0];
+    reset();
+    t->p[P_CHRD] = CH_DIA3;
+    t->p[P_ALLOC] = sweep_pack(2, 0);
+    key_down(K_D4);
+    midi_silence_track(1);
+    chord_strum_tick(beat_samples());
+    bad += check("STRUM completes when another track is silenced",
+                 gate_note(t, 62) && gate_note(t, 65) && gate_note(t, 69));
+    key_up(K_D4);
+    key_down(K_D4);
+    midi_silence_track(0);
+    chord_strum_tick(beat_samples());
+    bad += check("  silencing its own track cancels the remaining strings", !ngated(t));
+    key_up(K_D4);
+    return bad;
+}
+
+static int strum_overflow(void)
+{
+    int bad = 0;
+    track_t *t = &trk[0];
+    reset();
+    t->p[P_CHRD] = CH_DIA3;
+    t->p[P_ALLOC] = sweep_pack(1, 0);
+    midi(0x90, 62, 100);
+    midi_in_overflow = 1;
+    events_block(CTL);
+    bad += check("STRUM MIDI overflow cancels the sweep and releases its notes",
+                 !midi_strum_pending && !ngated(t));
+    events_block(CTL);
+    midi(0x90, 62, 100);
+    chord_strum_tick(beat_samples());
+    bad += check("  another chord plays completely after overflow recovery",
+                 gate_note(t, 62) && gate_note(t, 65) && gate_note(t, 69));
+    midi(0x80, 62, 0);
+    return bad;
+}
+
 static int kits(void)
 {
     int bad = 0;
@@ -399,7 +467,8 @@ static int kits(void)
 
 int main(void)
 {
-    int bad = theory() + shapes_voicings() + keys() + arp_rec() + midi_in() + strum() + kits();
+    int bad = theory() + shapes_voicings() + keys() + arp_rec() + midi_in() + strum() +
+              legacy_alloc() + strum_track_panic() + strum_overflow() + kits();
     printf("%s\n", bad ? "CHORD TEST FAILED" : "chord keys test passed");
     return bad != 0;
 }

@@ -598,7 +598,7 @@ when the track's engine is not the saved one).
   that holds it. Recording SCL TRN while armed writes that PITCH record (the scale-fitted absolute offset, its
   first/lowest note as the reference) as an automation-kind record; the global TRN keeps its value and no
   P_TRANS event is created. Editing that PITCH row turns it into a lock, so the edit is chromatic (off-scale).
-  STRUM/STROKE use the inert P_ALLOC (id 43) as one packed SWEEP value (0 OFF, then 1 + (rate-1)*3 + stroke,
+  STRUM/STROKE use P_ALLOC (id 43) as one packed SWEEP value (0/1 OFF for legacy ROT/REUSE, then 2 + (rate-1)*3 + stroke,
   rate 1..7 = 1/8 .. 32T, stroke 0 DOWN / 1 UP / 2 ALT). An event is (track, step
   0..63, parameter id, value). While a track plays its motion, the step sets the value at the step and it
   holds until another step changes it; the loop restarts from the sound's own value, and stopping puts the

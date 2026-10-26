@@ -93,7 +93,7 @@ static int motion_valid(const motion_store_t *m)
         uint32_t id = MOTION_ID(e);
         if (!motion_param(id)) return 0;
         if (id == MSEQ_PITCH) {
-            if (e->value < -24 || e->value > 24) return 0;
+            if (!(e->param & MOTION_LOCK) || e->value < -24 || e->value > 24) return 0;
         } else if (id == MFX_TIME) {
             if (e->value < DTIME_FREE + 1 || e->value > DTIME_FREE + (int32_t)DTIME_MS_MAX) return 0;
         } else if (MFX_PARAM(id)) {
@@ -265,6 +265,7 @@ static int motion_put(track_t *t, uint32_t step, uint32_t id, int16_t value, uin
     uint32_t k = trk_index(t), i, f;
     const param_desc_t *d;
     if (k >= NTRK || step >= NSTEP || !motion_param(id) || !fx_target_available(t, id)) return 1;
+    if (id == MSEQ_PITCH && !(kind & MOTION_LOCK)) return 1;
     d = motion_target_desc(t, id);
     if (value < d->min || value > d->max || (id != MFX_TIME && (value < -64 || value > 127))) return 1;
     value = (int16_t)param_fit(d, value);                    /* (a retired KIT: the kit it plays) */
@@ -401,8 +402,6 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t step, con
         if (id == MSEQ_PITCH) {                      /* never indexes p[]: an absolute per-step transpose */
             t->plk_pit = (int16_t)clamp(e->value, -24, 24);
             t->plk_fit = 1u;
-            if (e->param & MOTION_LOCK)
-                motion_locked[k][id / 32u] |= 1u << (id % 32u);
             continue;
         }
         const param_desc_t *d = motion_target_desc(t, id);
@@ -466,7 +465,7 @@ static uint32_t motion_rows(uint32_t k, uint8_t *idx)
     }
     return n;
 }
-/* record i of track t moves to step / id with value v (its kind kept): 0 ok, 1 invalid or another record is there.
+/* record i of track t moves to step / id with value v (its kind kept, PITCH always a lock): 0 ok, 1 invalid or another record is there.
  * What it set sounds until the next step (motion_restore puts back the sound's values, as a delete does) */
 static int motion_move(track_t *t, uint32_t i, uint32_t step, uint32_t id, int16_t v)
 {
@@ -485,7 +484,7 @@ static int motion_move(track_t *t, uint32_t i, uint32_t step, uint32_t id, int16
     if (motion.event[i].place != (trk_index(t) << 6 | step) || MOTION_ID(&motion.event[i]) != id)
         motion_restore(t);                              /* (a value alone: what sounds stays) */
     motion.event[i].place = (uint8_t)(trk_index(t) << 6 | step);
-    motion.event[i].param = (uint8_t)((motion.event[i].param & MOTION_LOCK) | id);
+    motion.event[i].param = (uint8_t)((id == MSEQ_PITCH ? MOTION_LOCK : motion.event[i].param & MOTION_LOCK) | id);
     motion.event[i].value = (int16_t)param_fit(d, v);
     motion_unguard(f);
     return 0;

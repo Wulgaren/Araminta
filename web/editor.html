@@ -1975,7 +1975,7 @@ function makeMockDevice(opt = {}) {
     D("LEN", F.STEPS, 1, 64, 16), E("DIV", NDIV, 2), D("SWG", F.PCT, 0, 100, 0), D("GATE", F.PCT, 1, 127, 64),
     D("DRIVE", F.PCT, 0, 127, 64), D("FXPOS", F.INT, 0, 127, 126), D("DLY", F.PCT, 0, 127, 0), D("REV", F.PCT, 0, 127, 0),
     E("VCE", ["POLY", "MONO", "LEG", "UNI"], 0), D("GLD", F.TIME, 0, 127, 0), D("PAN", F.BIPCT, -64, 63, 0), E("PLAY", ["ON", "OFF", "SOLO"], 0),
-    E("GLMOD", ["RATE", "TIME"], 0), D("SMTH", F.PCT, 0, 127, 0), E("SWEEP", ["OFF", "1/8 DOWN", "1/8 UP", "1/8 ALT", "1/16 DOWN", "1/16 UP", "1/16 ALT", "1/32 DOWN", "1/32 UP", "1/32 ALT", "1/64 DOWN", "1/64 UP", "1/64 ALT", "1/128 DOWN", "1/128 UP", "1/128 ALT", "16T DOWN", "16T UP", "16T ALT", "32T DOWN", "32T UP", "32T ALT"], 0), D("UNI DTN", F.INT, 0, 127, 40),
+    E("GLMOD", ["RATE", "TIME"], 0), D("SMTH", F.PCT, 0, 127, 0), E("SWEEP", ["OFF", "OFF", "1/8 DOWN", "1/8 UP", "1/8 ALT", "1/16 DOWN", "1/16 UP", "1/16 ALT", "1/32 DOWN", "1/32 UP", "1/32 ALT", "1/64 DOWN", "1/64 UP", "1/64 ALT", "1/128 DOWN", "1/128 UP", "1/128 ALT", "16T DOWN", "16T UP", "16T ALT", "32T DOWN", "32T UP", "32T ALT"], 0), D("UNI DTN", F.INT, 0, 127, 40),
     E("SLCR", ["OFF", "GATE", "STUT"], 0), D("PAT", F.INT, 1, 16, 1), E("RATE", ["1/8", "1/16", "1/32", "8T", "16T", "32T"], 1), D("MIX", F.PCT, 0, 127, 127),
     ...[1, 2, 3, 4].flatMap((k) => [E("SRC" + k, MSRC, 0), E("DST" + k, MDST, 0), D("AMT" + k, F.BIPCT, -64, 63, 0)]),   /* the matrix */
   ];

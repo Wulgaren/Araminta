@@ -594,21 +594,21 @@ typedef struct track {
     uint8_t rsv_c1[1];           /* sizeof(track_t) a multiple of 16 */
 } track_t;
 enum { PFX_RND = 1, PFX_HALF = 2, PFX_REP = 4, PFX_DEC = 8, PFX_ATK = 16, PFX_X2 = 32 };   /* (track_t.pfx) */
-#define P_STRUM P_ALLOC              /* CHORD KNOB 3 (chord.c): the sweep's rate, packed with its stroke */
-/* P_ALLOC's sweep: 0 = OFF; else 1 + (rate - 1) * 3 + stroke (rate 1..7, stroke 0 DOWN / 1 UP / 2 ALT) */
+/* P_ALLOC's sweep: legacy ROT/REUSE (0/1) are OFF; else 2 + (rate - 1) * 3 + stroke.
+ * Rate 1..7, stroke 0 DOWN / 1 UP / 2 ALT. */
 static inline uint32_t sweep_rate(const track_t *t)
 {
     uint32_t v = (uint32_t)t->p[P_ALLOC] & 127u;
-    return v ? (v - 1u) / 3u + 1u : 0u;
+    return v > 1u ? (v - 2u) / 3u + 1u : 0u;
 }
 static inline uint32_t sweep_stroke(const track_t *t)
 {
     uint32_t v = (uint32_t)t->p[P_ALLOC] & 127u;
-    return v ? (v - 1u) % 3u : 0u;
+    return v > 1u ? (v - 2u) % 3u : 0u;
 }
 static inline int16_t sweep_pack(uint32_t rate, uint32_t stroke)
 {
-    return (int16_t)(rate ? 1u + (rate - 1u) * 3u + (stroke % 3u) : 0u);
+    return (int16_t)(rate ? 2u + (rate - 1u) * 3u + (stroke % 3u) : 0u);
 }
 /* the audio ISR indexes trk[] with a multiply by a small immediate and a shift while the size is a multiple of 16; 1.5's
  * new track parameters (the INSERT, the filter TYPE, ENV SYNC) and state would make it no multiple (the constant
