@@ -700,14 +700,22 @@ static void rec_release(track_t *t, uint32_t note)
 
 /* FREE TAKE (from SLOOP): empty project, REC armed while stopped, no count-in. Play with no tempo;
  * REC on the next downbeat closes the loop (1 / 2 / 4 bars, tempo nearest the current BPM; within 3 %
- * the tempo is kept), notes quantised to 1/16 with lengths; a note started while an earlier one is still
- * held sets SF_SLIDE on the previous NOTE step and TIEs the gap (acid legato); when that tap ends while
- * a key is still held, a return to the last held pitch is recorded (mono fall-back); PLAY drops the take. */
+ * the tempo is kept), notes quantised to 1/16 with lengths; a strummed chord keeps its sweep at the
+ * take's tempo (the strings re-spaced by the STRUM rate they were played with, not the tempo before the
+ * take); a note started while an earlier one is still held sets SF_SLIDE on the previous NOTE step and
+ * TIEs the gap (acid legato; a strum's strings do not slide); when that tap ends while a key is still
+ * held, a return to the last held pitch is recorded (mono fall-back); PLAY drops the take. */
 #define FT_MAX 192u
 #define FT_BLOCKS (24u * FS / CTL)            /* 24 s: 4 bars at 40 BPM, the longest loop */
 #define FT_OPEN 0xFFFFu                       /* the key is still down */
 typedef struct { uint16_t t, d; uint8_t note, vel; } ft_ev_t;
 static ft_ev_t ft_ev[FT_MAX];
+/* a note that was one string of a strum: rate (1..7, chord.c STRUM_DEN), index in the sweep, total.
+ * The take re-spaces them on its own tempo (ft_close) and keeps them out of the legato rules. */
+#define FT_STRUM 0x80u
+#define FT_STRUM_PACK(rate, idx, total) \
+    ((uint8_t)(FT_STRUM | ((rate) << 4) | (((idx) & 3u) << 2) | (((total) - 1u) & 3u)))
+static uint8_t ft_sg[FT_MAX];
 static uint32_t ft_n;
 static volatile uint8_t ft_on;                /* a free take runs */
 static uint8_t ft_trk;
@@ -781,6 +789,8 @@ static void ft_note_on(uint32_t note, uint32_t vel)
         ft_ev[ft_n].d = FT_OPEN;
         ft_ev[ft_n].note = (uint8_t)note;
         ft_ev[ft_n].vel = (uint8_t)vel;
+        ft_sg[ft_n] = chord_strum_now.on
+            ? FT_STRUM_PACK(chord_strum_now.rate, chord_strum_now.index, chord_strum_now.total) : 0u;
         ft_n++;
     }
 }
@@ -801,8 +811,17 @@ static uint32_t ft_end(const ft_ev_t *e, uint32_t T)
 {
     return e->d == FT_OPEN || (uint32_t)e->t + e->d > T ? T : (uint32_t)e->t + e->d;
 }
+/* how far into its strum a string started, in blocks, at `beat` samples (as chord.c spaces the sweep) */
+static uint32_t ft_strum_off(uint8_t sg, uint32_t beat)
+{
+    uint32_t rate = (sg >> 4) & 7u, idx = (sg >> 2) & 3u, total = (sg & 3u) + 1u;
+    if (!(sg & FT_STRUM) || total < 2u || idx >= total || rate >= NELEM(STRUM_DEN))
+        return 0u;
+    return (beat / STRUM_DEN[rate]) * idx / (total - 1u) / CTL;
+}
 /* length ties from each note; then for notes started while another is held: SF_SLIDE on the previous
- * NOTE and on the TIE before the destination (seq_hold drops on a plain TIE→NOTE). */
+ * NOTE and on the TIE before the destination (seq_hold drops on a plain TIE→NOTE). A strum's strings
+ * are a chord, not a legato tap: they neither slide nor hold a slide from another note. */
 static void ft_legato(track_t *t, uint32_t n, uint32_t len, uint32_t T)
 {
     uint32_t i, k;
@@ -820,7 +839,11 @@ static void ft_legato(track_t *t, uint32_t n, uint32_t len, uint32_t T)
     }
     for (i = 1; i < n; i++) {
         uint32_t idx = ft_q(ft_ev[i].t, len, T), j, held = 0;
+        if (ft_sg[i] & FT_STRUM)
+            continue;
         for (j = 0; j < i; j++) {
+            if (ft_sg[j] & FT_STRUM)
+                continue;
             if (ft_ev[j].t < ft_ev[i].t && ft_end(&ft_ev[j], T) > ft_ev[i].t) {
                 held = 1;
                 break;
@@ -846,14 +869,14 @@ static void ft_returns(uint32_t len, uint32_t T)
     uint32_t base = ft_n, i;
     for (i = 0; i < base && ft_n < FT_MAX; i++) {
         uint32_t end, j, last = ~0u, held_end = 0, tap_idx, ret_idx, ret_t;
-        if (ft_ev[i].d == FT_OPEN)
+        if (ft_ev[i].d == FT_OPEN || (ft_sg[i] & FT_STRUM))
             continue;
         end = (uint32_t)ft_ev[i].t + ft_ev[i].d;
         if (end >= T)
             continue;
         for (j = 0; j < base; j++) {
             uint32_t je;
-            if (j == i)
+            if (j == i || (ft_sg[j] & FT_STRUM))
                 continue;
             je = ft_end(&ft_ev[j], T);
             if (ft_ev[j].t < end && je > end && (last == ~0u || ft_ev[j].t >= ft_ev[last].t)) {
@@ -877,6 +900,7 @@ static void ft_returns(uint32_t len, uint32_t T)
         ft_ev[ft_n].d = (uint16_t)(held_end - ret_t);
         ft_ev[ft_n].note = ft_ev[last].note;
         ft_ev[ft_n].vel = ft_ev[last].vel;
+        ft_sg[ft_n] = 0;
         ft_n++;
     }
 }
@@ -893,6 +917,27 @@ static void ft_close(void)
         return;
     }
     len = 16u * bars;
+    {   /* a strummed chord: put its strings back on the sweep it was set to, at the take's tempo (the
+         * sweep during the take used the tempo before it, so a slower take made a 1/8 strum come out
+         * shorter). Keep each string's release where it was played. */
+        uint32_t ob = beat_samples();
+        uint32_t nb = song.g[G_CLOCK] && midi_beat_samples ? ob : (uint32_t)FS * 60u / bpm;
+        for (i = 0; i < ft_n; i++) {
+            uint8_t sg = ft_sg[i];
+            uint32_t off, at;
+            if (!(sg & FT_STRUM))
+                continue;
+            off = ft_strum_off(sg, ob);
+            at = (ft_ev[i].t > off ? (uint32_t)ft_ev[i].t - off : 0u) + ft_strum_off(sg, nb);
+            if (at >= T)
+                at = T ? T - 1u : 0u;
+            if (ft_ev[i].d != FT_OPEN) {
+                uint32_t end = (uint32_t)ft_ev[i].t + ft_ev[i].d;
+                ft_ev[i].d = end > at ? (uint16_t)(end - at) : 0u;
+            }
+            ft_ev[i].t = (uint16_t)at;
+        }
+    }
     ft_steps_clear(t);
     for (i = 0; i < NTRK; i++) {
         trk[i].p[P_SLEN] = (int16_t)len;

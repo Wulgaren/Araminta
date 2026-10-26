@@ -26,6 +26,9 @@ static uint8_t kb_chord[27][CHORD_MAX], kb_chn[27];   /* the notes key k started
 typedef struct { uint32_t pos, beat; uint8_t total, rate, vel; } chord_strum_t;
 static chord_strum_t kb_strum[27];
 typedef struct { uint8_t id, ch, src, n, note[CHORD_MAX]; chord_strum_t strum; } mchord_t;   /* id: track + 1, 0 = free */
+/* the strum a note-on belongs to (the free take records it: seq.c ft_note_on): rate 1..7, index
+ * 0-based, total 2..CHORD_MAX. on = 0 for a chord played at once. */
+static struct { uint8_t on, rate, index, total; } chord_strum_now;
 static mchord_t mchord[MCHORD_N];
 static uint32_t kb_strum_pending, midi_strum_pending;   /* bit per key / MIDI chord still sweeping */
 static uint8_t chord_alternate[NTRK];                  /* STROKE ALT: the next chord's direction, per track */
@@ -227,6 +230,16 @@ static uint32_t chord_strum_due(chord_strum_t *s, uint32_t started, uint32_t ela
         return s->pos < target ? target - s->pos : 0u;
     }
 }
+/* a strummed tone into the note input, tagged so the free take can put it back on the take's tempo */
+static void chord_strum_input(track_t *t, uint32_t note, uint32_t vel, const chord_strum_t *s, uint32_t i)
+{
+    chord_strum_now.on = 1;
+    chord_strum_now.rate = s->rate;
+    chord_strum_now.index = (uint8_t)i;
+    chord_strum_now.total = s->total;
+    input_on(t, note, vel);
+    chord_strum_now.on = 0;
+}
 static void key_chord_tone(uint32_t k, track_t *t)
 {
     uint32_t i = kb_chn[k], note, mc = trk_midi_ch(trk_index(t));
@@ -238,7 +251,7 @@ static void key_chord_tone(uint32_t k, track_t *t)
         return;
     }
     kb_chn[k] = (uint8_t)(i + 1u);
-    input_on(t, note, 100);
+    chord_strum_input(t, note, 100, &kb_strum[k], i);
     midi_out_event(0x09u | (0x90u | mc) << 8 | note << 16 | 100u << 24);
 }
 static void midi_chord_tone(mchord_t *m)
@@ -249,7 +262,7 @@ static void midi_chord_tone(mchord_t *m)
         return;
     note = m->note[i];
     if (!midi_note_held(t, note) && !midi_local_held(t, note))   /* (self excluded: n still i) */
-        input_on(t, note, m->strum.vel);
+        chord_strum_input(t, note, m->strum.vel, &m->strum, i);
     m->n = (uint8_t)(i + 1u);
 }
 /* one block: fire the strings whose onset is due */
