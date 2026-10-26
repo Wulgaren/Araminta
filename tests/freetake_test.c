@@ -2,7 +2,8 @@
 /* Free take (SLOOP port): empty project, REC armed while stopped, first note starts a take with no
  * tempo; REC closes the loop (length sets tempo), PLAY / STOP drops it; a note started while an
  * earlier one is still held sets SF_SLIDE on the previous NOTE step; releasing that tap while the
- * hold continues records a return to the held pitch. */
+ * hold continues records a return to the held pitch. A strummed chord keeps its STRUM division
+ * at the take's tempo and its strings do not slide. */
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -337,7 +338,43 @@ int main(void)
         mix_block(out, CTL);
     }
 
+    /* 1/8 STRUM: played 4 bars at 80 BPM while the project was at 120. The take closes at 80, and the
+     * strings keep the 1/8 sweep (steps 0 1 2 at 1/16) instead of the shorter 120 BPM sweep, with no
+     * SF_SLIDE (a strum is a chord, not a legato tap). */
+    {
+        double beat80 = 60.0 / 80.0;
+        uint32_t close_at = (uint32_t)(16.0 * beat80 * FS / CTL + 0.5);
+        host_tracks_init();
+        song.g[G_CLOCK] = 0;
+        song.sel = 0;
+        cin_bars = 0;
+        ft_drop_mask = 0;
+        ft_bars = 0;
+        ft_arm(out, rb);
+        trk[0].p[P_CHRD] = CH_MAJ;
+        trk[0].p[P_VOIC] = VC_CLOSE;
+        trk[0].p[P_ALLOC] = sweep_pack(1, 0);          /* STRUM 1/8, DOWN */
+        fm1_in.notes = 1u << k0;
+        mix_block(out, CTL);
+        assert(ft_on);
+        for (j = 1; j < close_at; j++)
+            mix_block(out, CTL);
+        fm1_in.buttons = rb;
+        mix_block(out, CTL);
+        fm1_in.buttons = 0;
+        fm1_in.notes = 0;
+        mix_block(out, CTL);
+        assert(!ft_on && song.playing && ft_bars == 4 && song.g[G_BPM] == 80);
+        assert(trk[0].p[P_SLEN] == 64 && trk[0].p[P_SDIV] == 2);
+        expect_note(0, 60, 0);
+        expect_note(1, 64, 0);
+        expect_note(2, 67, 0);
+        assert(trk[0].step[3].time == ST_TIE);
+        transport_req = 2;
+        mix_block(out, CTL);
+    }
+
     puts("free take: empty project sets loop and tempo, REC closes, PLAY/STOP drops, 24 s auto-close, "
-         "held-note slides and returns PASS");
+         "held-note slides and returns, a strummed chord keeps the sweep at the take's tempo PASS");
     return 0;
 }
