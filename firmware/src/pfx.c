@@ -2,9 +2,9 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* PFX (JIANT, FELUCCA-TONIC-SPEC.md fase 7): the punch-in MIDI effects of the FX layer. They act on the notes and
  * the sound of the tracks while their key is held (or latched: FX LATCH), never on what is stored: let go, all is
- * as it was. The MIDI keys (perform.c PF_DEF; 1/2 is the 4th white key so the filters and the octaves sit together):
- *   B3 1/2 TEMPO       the track's sequencer at half speed; let go, it is back where it would have been
- *   A4 x2 TEMPO (3.2)  the same at double speed; HALF + x2 cancel
+ * as it was. The MIDI keys (perform.c PF_DEF / PF2_DEF; PUNCH-IN 1/2 unless noted):
+ *   A4 /2 TEMPO (2/2)  the track's sequencer at half speed; let go, it is back where it would have been
+ *   B4 *2 TEMPO (3.2, 2/2)  the same at double speed; /2 + *2 cancel
  *   E4 OCT-, F4 OCT+   every voice an octave down / up (both: none), at once, notes held too
  *   G4 DEC-, A4 DEC+   short / long decays: a synth's DEC and REL, DRUM's DECY (DEC- wins); (JIANT 0.4) DEC- also
  *                      takes a synth's sustain to 0: the whole instrument plucks
