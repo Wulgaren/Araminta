@@ -434,10 +434,19 @@ class Reader {
 }
 
 /* the INFO reply's tagged trailer (EDITOR_PROTOCOL.md "INFO"): (16, 0x55, 1, caps) for the preferences, then
-   optional (0x4d, 1, 64, chance, ...) for motion and (0x42, 1, caps) for the complete backups. fm1ota.js's
-   INFO_TAG is the same table for the installer, which cannot import this block (web/test_web.mjs evaluates it on
-   its own); web/test_info_tags.mjs checks the two agree. */
-const INFO_TAG = { SONG: 16, UI: 0x55, MOTION: 0x4d, FM6: 0x46, SYNC: 0x53, FM6V2: 0x50, RATCH: 0x52, BACKUP: 0x42, MENU: 0x4E };
+   optional blocks: (0x4d, 1, legacy max, chance) motion, (0x42, 1, caps) complete backups, (0x46, 1, factory,
+   bank) FM6, (0x53, 1, caps) sync, (0x50, 1, caps) FM6 v2, (0x4e, 1, count) MENU, (0x52, 1, hits) ratchet,
+   (0x4c, 1, 1) parameter locks, (0x41, 1, max lo, max hi) the real motion pool, and the later blocks. The
+   trailer carries no lengths, so INFO_LEN steps over each known block (unknown tag: stop). fm1ota.js's INFO_TAG
+   is the same table for the installer, which cannot import this block (web/test_web.mjs evaluates it on its own);
+   web/test_info_tags.mjs checks the two agree. */
+const INFO_TAG = { SONG: 16, UI: 0x55, MOTION: 0x4d, MOTION_POOL: 0x41, MOTION_LOCKS: 0x4c, FM6: 0x46,
+  SYNC: 0x53, FM6V2: 0x50, RATCH: 0x52, BACKUP: 0x42, MENU: 0x4E, NUDGE: 0x54, SONG_LANES: 0x57,
+  FM6_BANK: 0x56, MIDI_LEARN: 0x43 };
+const INFO_LEN = { [INFO_TAG.UI]: 1, [INFO_TAG.MOTION]: 2, [INFO_TAG.MOTION_POOL]: 2, [INFO_TAG.MOTION_LOCKS]: 1,
+  [INFO_TAG.BACKUP]: 1, [INFO_TAG.FM6]: 2, [INFO_TAG.SYNC]: 1, [INFO_TAG.FM6V2]: 1, [INFO_TAG.RATCH]: 1,
+  [INFO_TAG.MENU]: 1, [INFO_TAG.NUDGE]: 1, [INFO_TAG.SONG_LANES]: 1, [INFO_TAG.FM6_BANK]: 1, [INFO_TAG.MIDI_LEARN]: 1 };
+const MOTION_MAX_SANE = 1024;                     /* reject 0 / absurd; the device's pool is 192 (FUN16) */
 const parse = {
   [CMD.INFO](a) {
     const r = new Reader(a);
@@ -448,24 +457,39 @@ const parse = {
     o.uiCaps = 0;
     const trailer = a.slice(r.i);
     if (trailer[0] === INFO_TAG.SONG) o.chainRows = 16;   /* existing v6 SONG capability */
-    if (trailer.length >= 4 && trailer[0] === INFO_TAG.SONG && trailer[1] === INFO_TAG.UI && trailer[2] === 1)
-      o.uiCaps = trailer[3] & 15;                 /* tagged preferences; never interpret old PR bytes as SONG */
-    o.motionMax = 0; o.chance = false; o.backupCaps = 0;
-    if (o.uiCaps && trailer[4] === INFO_TAG.MOTION && trailer[5] === 1 && trailer[6] === 64) {
-      o.motionMax = 64; o.chance = trailer[7] === 1;
-      if (trailer[8] === INFO_TAG.BACKUP && trailer[9] === 1) o.backupCaps = trailer[10] & 3;
-    }
+    o.motionMax = 0; o.motionFull = false; o.motionKinds = false; o.chance = false; o.backupCaps = 0;
     o.fm6 = null;                                 /* FM6 patches (cmds 68..71): the factory and bank slot counts */
     o.syncCaps = 0;                               /* live sync: bit 0 WATCH while on keeps pending pushes, bit 1 no RELOAD */
     o.ratchet = 0;                                /* a step's ratchet (STEP_SET's byte after the chance), 0 = none */
-    for (const p of [8, 11]) if (o.motionMax && trailer[p] === INFO_TAG.FM6 && trailer[p + 1] === 1) {   /* for the editor's */
-      o.fm6 = { factory: trailer[p + 2], bank: trailer[p + 3], caps: 0 };                         /* PRESET / G_ENGSEL */
-      if (trailer[p + 4] === INFO_TAG.SYNC && trailer[p + 5] === 1) o.syncCaps = trailer[p + 6] & 3;
-      /* FM6 v2 (1.0.3): bit 0 no bank (SLOT F1..F8, 8 = OWN), bit 1 the user presets carry their patch (target 3) */
-      if (trailer[p + 7] === INFO_TAG.FM6V2 && trailer[p + 8] === 1) o.fm6.caps = trailer[p + 9] & 3;
-      let r = trailer[p + 7] === INFO_TAG.FM6V2 ? p + 10 : p + 7;                                   /* RATCH after FM6 v2 */
-      if (trailer[r] === INFO_TAG.MENU && trailer[r + 1] === 1) r += 3;                            /* and the MENU settings (1.0.4) */
-      if (o.syncCaps && trailer[r] === INFO_TAG.RATCH && trailer[r + 1] === 1) o.ratchet = trailer[r + 2];   /* RATCH: max hits */
+    if (trailer.length >= 4 && trailer[0] === INFO_TAG.SONG && trailer[1] === INFO_TAG.UI && trailer[2] === 1) {
+      o.uiCaps = trailer[3] & 15;                 /* tagged preferences; never interpret old PR bytes as SONG */
+      for (let i = 4; i + 2 <= trailer.length;) {  /* blocks after the 4-byte preferences header */
+        const tag = trailer[i], ver = trailer[i + 1], len = INFO_LEN[tag];
+        if (ver !== 1 || len === undefined || i + 2 + len > trailer.length) break;
+        const p = i + 2;
+        switch (tag) {
+          case INFO_TAG.MOTION:                   /* what it said before 1.2: 64 (0x41 below has the real pool) */
+            if (trailer[p] > 0 && trailer[p] <= MOTION_MAX_SANE) o.motionMax = trailer[p];
+            o.chance = trailer[p + 1] === 1;
+            break;
+          case INFO_TAG.MOTION_LOCKS: o.motionKinds = !!trailer[p]; break;
+          case INFO_TAG.MOTION_POOL: {
+            const max = trailer[p] | trailer[p + 1] << 7;
+            if (max > 0 && max <= MOTION_MAX_SANE) { o.motionMax = max; o.motionFull = true; }
+            break;
+          }
+          case INFO_TAG.BACKUP: o.backupCaps = trailer[p] & 3; break;
+          case INFO_TAG.FM6:                      /* for the editor's PRESET / G_ENGSEL */
+            o.fm6 = { factory: trailer[p], bank: trailer[p + 1], caps: 0 };
+            break;
+          case INFO_TAG.SYNC: o.syncCaps = trailer[p] & 3; break;
+          /* FM6 v2 (1.0.3): bit 0 no bank (SLOT F1..F8, 8 = OWN), bit 1 the user presets carry their patch (target 3) */
+          case INFO_TAG.FM6V2: if (o.fm6) o.fm6.caps = trailer[p] & 3; break;
+          case INFO_TAG.RATCH: o.ratchet = trailer[p]; break;   /* RATCH: max hits */
+          default: break;                         /* MENU / NUDGE / lanes / bank / learn: other readers */
+        }
+        i += 2 + len;
+      }
     }
     return o;
   },
@@ -515,10 +539,31 @@ const parse = {
     for (let i = 0; i < o.count; i++) o.rows.push({ slot: r.b(), repeat: r.b() });
     return o;
   },
+  /* leg (max 64/128) or the 1.2 full reply (op 8: count and max two 7-bit bytes, then one kind byte per record).
+     A lock's id has bit 7 clear on the wire (editor.c MOTION_ID); if a firmware does pack it there, normalise it. */
   [CMD.MOTION](a) {
-    const r = new Reader(a), o = { track: r.b(), rc: r.b(), on: !!r.b(), count: r.b(), max: r.b(), events: [] };
-    if (o.count > o.max || o.max !== 64 || a.length !== 5 + o.count * 4) throw new Error("Invalid motion reply");
-    for (let i = 0; i < o.count; i++) o.events.push({ step: r.b(), param: r.b(), value: r.v() });
+    if (a.length >= 7) {
+      const count = a[3] | a[4] << 7, max = a[5] | a[6] << 7;
+      if (max > 0 && max <= MOTION_MAX_SANE && count <= max && a.length === 7 + count * 5) {
+        const r = new Reader(a), o = { track: r.b(), rc: r.b(), on: !!r.b(), count: r.b() | r.b() << 7,
+          max: r.b() | r.b() << 7, full: true, events: [] };
+        for (let i = 0; i < o.count; i++) {
+          const step = r.b(), raw = r.b();
+          o.events.push({ step, param: raw & 0x7F, value: r.v(), lock: !!(raw & 0x80) });
+        }
+        for (const e of o.events) e.lock = !!r.b() || e.lock;
+        return o;
+      }
+    }
+    const r = new Reader(a), o = { track: r.b(), rc: r.b(), on: !!r.b(), count: r.b(), max: r.b(), full: false, events: [] };
+    const plain = 5 + o.count * 4, kinds = plain + o.count;   /* 1.1 ops 5..7 append one kind byte per record */
+    if (!o.max || o.max > MOTION_MAX_SANE || o.count > o.max || (a.length !== plain && a.length !== kinds))
+      throw new Error("Invalid motion reply");
+    for (let i = 0; i < o.count; i++) {
+      const step = r.b(), raw = r.b();
+      o.events.push({ step, param: raw & 0x7F, value: r.v(), lock: !!(raw & 0x80) });
+    }
+    if (a.length === kinds) for (const e of o.events) e.lock = !!r.b() || e.lock;
     return o;
   },
   [CMD.NAMES](a) {
@@ -604,6 +649,8 @@ const parse = {
   },
   [CMD.FM6_ERASE](a) { return { index: a[0], rc: a[1] }; },
 };
+/* MOTION op 8 (every record, with the kinds): the same decoder, kept as a name for the old editor's tests */
+const parseMotionAll = (a) => parse[CMD.MOTION](a);
 
 /* a name the device accepts: printable ASCII, 1..12 characters */
 function upName(s) { return String(s ?? "").replace(/[^\x20-\x7E]/g, "").trim().slice(0, UP.NAME_MAX) || "PATCH"; }
@@ -635,9 +682,13 @@ const req = {
     return [CMD.SONG, op === 1 ? [op, rows.length, ...rows.flatMap((r) => [r.slot, r.repeat])] : [op]];
   },
   motion: (track, op = 0, arg = {}) => {
-    if (!Number.isInteger(track) || track < 0 || track > 3 || ![0, 1, 2, 3, 4].includes(op)) throw new Error("Invalid motion request");
-    return [CMD.MOTION, [track, ...(op === 0 ? [] : op === 1 ? [op, arg.on ? 1 : 0] : op === 2 ? [op] :
-      [op, arg.step & 63, arg.param & 127, ...(op === 3 ? v14enc(arg.value) : [])])]];
+    if (!Number.isInteger(track) || track < 0 || track > 3 || ![0, 1, 2, 3, 4, 5, 6, 7, 8].includes(op))
+      throw new Error("Invalid motion request");
+    const body = op === 0 ? [] : op === 1 ? [op, arg.on ? 1 : 0] : op === 2 ? [op]
+      : op === 6 ? [op, (arg.step ?? 127) & 127]
+      : op === 7 || op === 8 ? [op]
+      : [op, arg.step & 63, arg.param & 127, ...(op === 3 || op === 5 ? v14enc(arg.value) : [])];
+    return [CMD.MOTION, [track, ...body]];
   },
   names: (e) => [CMD.NAMES, [e & 0x7F]],
   smpBegin: (s) => [CMD.SMP_BEGIN, [s & 0x7F]],
@@ -2076,6 +2127,7 @@ function makeMockDevice(opt = {}) {
     D("RATE", F.LFOHZ, 0, 127, 64), D("DEPTH", F.PCT, 0, 127, 96), D("MIX", F.PCT, 0, 127, 0),
     E("TYPE", ["LP", "BP", "HP", "COMB"], 0), E("ESYNC", ["OFF", "ON"], 0));   /* ANALOG TYPE (117), ENV SYNC (118) */
   const P_COUNT = 127, G_COUNT = 31, NSTEP = 64, P_E0 = 119, G_ENGSEL = 20, P_SLCR = 45;
+  const MOTION_MAX = 192;                         /* core.h: FUN16's RAM pool */
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const enumOrig = (d, v) => d.fmt === F.ENUM && d.names ? aliasOf(d.names, v - d.min) + d.min : v;   /* params.c enum_orig */
   /* four tracks (firmware v3), four synth parts (1.0); engine / preset / p / step below are the selected track's */
@@ -2336,17 +2388,35 @@ function makeMockDevice(opt = {}) {
         const track = st.tracks[a[0]], m = track && track.motion;
         if (!m) return null;
         let rc = 0;
+        const full = a[1] === 8, cap = full ? MOTION_MAX : 64;
         if (a.length > 1 && st.chainPlaying) rc = 3;
         else if (a[1] === 1) m.on = !!a[2];
         else if (a[1] === 2) m.events = [];
-        else if (a[1] === 3 || a[1] === 4) {
+        else if (a[1] === 3 || a[1] === 4 || a[1] === 5) {
           const at = m.events.findIndex(e => e.step === a[2] && e.param === a[3]);
           if (a[1] === 4) { if (at >= 0) m.events.splice(at, 1); }
-          else if (at < 0 && st.tracks.reduce((n,t) => n + t.motion.events.length, 0) >= 64) rc = 2;
-          else { const e = {step:a[2],param:a[3],value:v14dec(a[4],a[5])}; if (at >= 0) m.events[at] = e; else m.events.push(e); }
+          else if (a[1] === 3 && (a[3] === 127 || (a[3] >= 91 && a[3] <= 93))) rc = 1;   /* PITCH lock-only; LFO 2 not recordable */
+          else if (at < 0 && st.tracks.reduce((n,t) => n + t.motion.events.length, 0) >= MOTION_MAX) rc = 2;
+          else {
+            const e = {step:a[2], param:a[3], value:v14dec(a[4],a[5]), lock:a[1] === 5};
+            if (at >= 0) m.events[at] = e; else m.events.push(e);
+          }
+        } else if (a[1] === 6) {
+          const step = a[2];
+          if (step == null) rc = 1;
+          else m.events = m.events.filter(e => !(e.lock && (step === 127 || e.step === step)));
         }
-        [a[0],rc,+m.on,m.events.length,64].forEach(b);
-        m.events.forEach(e => {b(e.step);b(e.param);v(e.value);});
+        const evs = m.events.slice(0, cap);
+        if (full) {
+          b(a[0]); b(rc); b(+m.on); b(evs.length & 0x7F); b(evs.length >> 7);
+          b(MOTION_MAX & 0x7F); b(MOTION_MAX >> 7);
+          evs.forEach(e => {b(e.step);b(e.param);v(e.value);});
+          evs.forEach(e => b(e.lock ? 1 : 0));
+        } else {
+          [a[0],rc,+m.on,evs.length,64].forEach(b);
+          evs.forEach(e => {b(e.step);b(e.param);v(e.value);});
+          if (a.length > 1 && a[1] >= 5) evs.forEach(e => b(e.lock ? 1 : 0));
+        }
         break;
       }
       case CMD.INFO:
@@ -2356,7 +2426,7 @@ function makeMockDevice(opt = {}) {
         if (!opt.legacy && !opt.v3 && !opt.v5) {
           b(16);
           if (st.uiCaps) { b(0x55); b(1); b(st.uiCaps); b(0x4d); b(1); b(64); b(1); if (!opt.noFm6) { b(0x46); b(1); b(FM6.FACTORY_PK.length); b(0); }
-            if (syncCaps()) { b(0x53); b(1); b(syncCaps()); if (!opt.noFm6) { b(0x50); b(1); b(3); } if (ratchetOn()) { b(0x52); b(1); b(4); } } }   /* (FM6 v2: no bank, preset patches) */
+            if (syncCaps()) { b(0x53); b(1); b(syncCaps()); if (!opt.noFm6) { b(0x50); b(1); b(3); } if (ratchetOn()) { b(0x52); b(1); b(4); b(0x4c); b(1); b(1); b(0x41); b(1); b(MOTION_MAX & 0x7F); b(MOTION_MAX >> 7); } } }   /* (FM6 v2: no bank, preset patches; 4c locks, 41 pool) */
         }
         break;
       case CMD.GET: case CMD.SET: {
@@ -3762,7 +3832,9 @@ async function readMotion(d = dev) {
   assertSession(d);
   if (!d.info.motionMax) { $("motion-panel").hidden = true; return; }
   const selected = d.sel ?? 0;
-  const m = parse[CMD.MOTION](await sessionRequest(d, req.motion(selected)));
+  /* 1.2+: op 8 lists every record and its kind; 1.1: op 7 (the same list, first 64) with the kinds; older: op 0 */
+  const m = parse[CMD.MOTION](await sessionRequest(d, req.motion(selected,
+    d.info.motionFull ? 8 : d.info.motionKinds ? 7 : 0)));
   if (m.rc || m.track !== selected) throw new Error("Invalid motion state");
   d.motion = m; renderMotion();
 }
@@ -3784,13 +3856,18 @@ function renderMotion() {
       const value = el("input", {type:"number",min:desc?.min ?? -8192,max:desc?.max ?? 8191,value:e.value - (time ? 64 : 0),"aria-label":`${e.step + 1} ${label}`});
       value.addEventListener("change", () => op(async () => {
         assertSession(d);
-        const r = parse[CMD.MOTION](await sessionRequest(d, req.motion(m.track, 3, {...e,value:+value.value + (time ? 64 : 0)})));
-        if (r.rc) throw new Error("Automation edit refused"); d.motion = r; renderMotion();
+        /* keep a lock a lock: op 5; PITCH (127) is always lock-only */
+        const edit = req.motion(m.track, e.lock || e.param === 127 ? 5 : 3,
+          {...e,value:+value.value + (time ? 64 : 0)});
+        const r = parse[CMD.MOTION](await sessionRequest(d, edit));
+        if (r.rc) throw new Error("Automation edit refused");
+        await readMotion(d);
       }));
       return el("tr", {}, el("td", {text:e.step + 1}), el("td", {text:label}), el("td", {}, value),
         el("td", {}, el("button", {text:t("remove"),onclick:() => op(async () => {
           const r = parse[CMD.MOTION](await sessionRequest(d, req.motion(m.track, 4, e)));
-          if (r.rc) throw new Error("Automation edit refused"); d.motion = r; renderMotion();
+          if (r.rc) throw new Error("Automation edit refused");
+          await readMotion(d);
         })})));
     }));
 }
@@ -3798,13 +3875,15 @@ $("motion-on").addEventListener("change", () => op(async () => {
   const d = dev, track = d?.sel ?? 0;
   if (!d?.info?.motionMax) return;
   const r = parse[CMD.MOTION](await sessionRequest(d, req.motion(track, 1, {on:$("motion-on").checked})));
-  if (r.rc) throw new Error("Automation edit refused"); d.motion = r; renderMotion();
+  if (r.rc) throw new Error("Automation edit refused");
+  await readMotion(d);
 }));
 $("motion-clear").addEventListener("click", () => op(async () => {
   const d = dev;
   if (!d?.info?.motionMax || !confirm(t("motionConfirm"))) return;
   const r = parse[CMD.MOTION](await sessionRequest(d, req.motion(d.sel ?? 0, 2)));
-  if (r.rc) throw new Error("Automation edit refused"); d.motion = r; renderMotion();
+  if (r.rc) throw new Error("Automation edit refused");
+  await readMotion(d);
 }));
 setInterval(async () => {
   const d = dev;
@@ -3958,7 +4037,11 @@ $("clearseq").addEventListener("click", async () => {
       if (i % 8 === 0) sayK("applying", `${i}/${dev.info.nstep}`);
       dev.steps[i] = parse[CMD.STEP_SET](await rq(req.stepSet(i, { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0, ...(dev.info.chance ? {chance:100} : {}), ...(dev.info.ratchet ? {ratchet:1} : {}) })));
     }
-    if (dev.info.motionMax) { dev.motion = parse[CMD.MOTION](await rq(req.motion(dev.sel ?? 0, 2))); renderMotion(); }
+    if (dev.info.motionMax) {
+      const r = parse[CMD.MOTION](await rq(req.motion(dev.sel ?? 0, 2)));
+      if (r.rc) throw new Error("Automation edit refused");
+      await readMotion(dev);
+    }
     $("steptables").dataset.len = "";
     renderSteps();
     sayK("ready");

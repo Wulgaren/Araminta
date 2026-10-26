@@ -447,7 +447,7 @@ static void step_set_fl(step_t *s, uint32_t fl) { s->flags = (uint8_t)(fl & (SF_
 /* Motion-only targets reuse ids excluded from track automation. They never index p[]. */
 enum { MFX_TIME = P_M1SRC, MFX_FB, MFX_COLOR, MFX_SIZE, MFX_DAMP };
 #define MFX_PARAM(id) ((id) >= MFX_TIME && (id) <= MFX_DAMP)
-#define MSEQ_PITCH 127u                  /* lock-only (3.2): a step's pitch offset; never indexes p[] */
+#define MSEQ_PITCH 127u                  /* lock-only (3.2): a step's chromatic semitone offset; never indexes p[] */
 #define MOTION_ID(e) ((uint32_t)(e)->param & 0x7Fu)
 typedef struct { uint8_t place, param; int16_t value; } motion_event_t;
 typedef struct { uint8_t place, param, value; } motion_file_event_t;
@@ -589,7 +589,7 @@ typedef struct track {
     uint32_t esync_k[3];         /* ATK's step, DEC's and REL's coefficient (Q16; voice.c esync_coef / env_tick) */
     uint8_t spread_on;           /* SPREAD while this part renders (voice.c / fx.c mix_part) */
     uint8_t lfo_wrap;            /* the LFO's phase wrapped this block (track_lfo_adv) */
-    int16_t plk_pit;             /* the step's PITCH lock (MSEQ_PITCH), 0 none (seq.c) */
+    int16_t plk_pit;             /* the step's PITCH lock (MSEQ_PITCH), semitones, 0 none (seq.c) */
     uint8_t rsv_c1[2];           /* sizeof(track_t) a multiple of 16 */
 } track_t;
 enum { PFX_RND = 1, PFX_HALF = 2, PFX_REP = 4, PFX_DEC = 8, PFX_ATK = 16, PFX_X2 = 32 };   /* (track_t.pfx) */

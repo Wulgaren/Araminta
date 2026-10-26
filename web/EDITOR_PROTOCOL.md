@@ -593,15 +593,19 @@ when the track's engine is not the saved one).
   user preset does not store it. Changing it on the device pushes `STEP_CHANGED`.
 - **Motion** is knob moves recorded per step: 192 records in RAM, 88 saved in a project, shared by the four
   tracks. The device's MAP has five values (OFF, ALL, KBD, SEQ, CURR; CURR is stored 4 and shown third);
-  CURR shares ROOT/SCALE across the tracks that use it. PITCH (id 127) is lock-only, -24..24: scale degrees
-  when the sequence is quantised, semitones when not; older firmware refuses a project that holds it.
+  CURR shares ROOT/SCALE across the tracks that use it. PITCH (id 127) is lock-only, -24..24 chromatic
+  semitones applied after the scale snap (one value for the whole step); older firmware refuses a project
+  that holds it. Recording SCL TRN while armed writes that PITCH lock (the scale-fitted delta, its first/
+  lowest note as the reference) and puts the global TRN back; it never creates a P_TRANS event.
   STRUM/STROKE use the inert P_ALLOC (id 43) as one packed SWEEP value (0 OFF, then 1 + (rate-1)*3 + stroke,
   rate 1..7 = 1/8 .. 32T, stroke 0 DOWN / 1 UP / 2 ALT). An event is (track, step
   0..63, parameter id, value). While a track plays its motion, the step sets the value at the step and it
   holds until another step changes it; the loop restarts from the sound's own value, and stopping puts the
   sound's own values back. Parameters that can be recorded (`motion_param`): ids 0..16 (LEVEL, ENV, LFO),
   33..36 (DIST, CHO, DLY, REV), 38 (GLIDE), 39 (PAN), 44 (DETUNE), 61..80 (the FM operator parameters) and
-  83..90 (the DRUM lane levels), 91..98 (the engine parameters; not the chord keys 81, 82). The device records them while the track is armed, playing and selected, from its knobs
+  83..90 (the DRUM lane levels), 91..98 (the engine parameters; not the chord keys 81, 82). PITCH (127) is
+  lock-only: automation capture ignores it, and `MOTION` op 5 writes it. The device records the others while the
+  track is armed, playing and selected, from its knobs
   and from `SET` / `TRACK_PARAM` alike.
   - `MOTION` with the track alone is the query. `on` 0 keeps the data and stops playing it; 1 plays it. Clear
     drops the track's events and turns it off; on the device it is undone by SAVE held.

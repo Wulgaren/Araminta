@@ -52,10 +52,22 @@ and GLITCH punch-ins, and the DELAY page's TIME / RATE direction swapped. Same p
 
 ### Locks
 
-- **Per-step PITCH lock (SCL K4 on a held step).** A new lock-only motion id, 127: scale degrees when MAP is
-  ALL / CURR / SEQ, semitones when it is OFF / KBD, range -24..+24. It counts toward the 88 on-disk records and the
-  save-limit warning. FUN16 is unchanged. **Downgrade:** firmware before 3.2 refuses a project whose motion holds
-  id 127 (EMPTY SLOT), so save a backup before opening a v3.2 project with pitch locks on an older build.
+- **Per-step PITCH lock (SCL K4 on a held step).** A new lock-only motion id, 127: a chromatic semitone offset
+  (-24..+24) applied after the scale snap, one value for the whole step (a chord uses its first/lowest note when
+  TRN records it). It counts toward the 88 on-disk records and the save-limit warning. FUN16 is unchanged.
+  **Downgrade:** firmware before 3.2 refuses a project whose motion holds id 127 (EMPTY SLOT), so save a backup
+  before opening a v3.2 project with pitch locks on an older build.
+- **Recording TRN writes that lock.** With REC armed on the selected track, turning SCL TRN stores the
+  scale-fitted semitone result as the current step's PITCH lock (C4 +1 in C major stays C4), never a P_TRANS
+  automation event, and puts the track's global TRN back. With REC off, TRN is the ordinary global transpose.
+  A manual edit of the lock is chromatic and may be off-scale.
+
+### Editor
+
+- **Motion capacity is the device's, not 64.** The web editor reads the real motion pool from INFO `41 01` (192
+  since FUN16, 128 in 1.2) instead of rejecting anything but 64, uses `MOTION` op 8 for every record and its lock
+  kind, and still works with 64-record firmware. A PITCH lock (id 127) now edits and deletes as a lock instead of
+  being sent back as automation.
 
 ### Memory
 
