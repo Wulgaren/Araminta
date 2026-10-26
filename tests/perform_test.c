@@ -1949,6 +1949,20 @@ static int test_glitch(void)
     static int32_t a[NT], b[NT];
     uint32_t seen = 0, t;
 
+    perf_reset();
+    for (t = 0; t < PB_FRAMES; t++)
+        pb_put(t, t < PB_FRAMES / 2u ? 100 : 200, t < PB_FRAMES / 2u ? 300 : 400);
+    pf.wr = 5000;
+    pf.P = 5512;
+    pf.gl.a = GA_RPT;
+    pf.gl.g0 = 10000;
+    pf.gl.l = 1000;
+    perf_glt_seg();
+    pf.gl.u = SL_RAMP;
+    perf_glt(0, 0);
+    bad += check("GLITCH repeats the recent stereo samples in the ring's second half",
+                 pf.gl_yl == 400 && pf.gl_yr == 800);
+
     test_signal(220.0, 0.5, 330.0, 0.5);
     clk_pos = CLK_START;
     run(120, 1, &e, 1, 4u * 44100u);

@@ -301,7 +301,9 @@ static int mchord_held(uint32_t id, uint32_t note)
 static void mchord_forget(uint32_t track)               /* panic: the track's MIDI chords are gone */
 {
     uint32_t i;
-    kb_strum_pending = 0;                               /* (panic: the keys' sweeps too) */
+    for (i = 0; i < 27u; i++)
+        if (kb_trk[i] == track)
+            kb_strum_pending &= ~(1u << i);
     for (i = 0; i < MCHORD_N; i++)
         if (mchord[i].id == track + 1u) {
             mchord[i].id = 0;

@@ -45,20 +45,17 @@ static uint32_t esync_idx(int32_t v) { return (uint32_t)(v & 127) * ESYNC_N >> 7
  * KBD, and sequenced notes snap as they play. SEQ: live keys as OFF; sequenced notes snap (steps kept). */
 /* stored append-only: OFF 0, ALL 1, KBD 2, SEQ 3, CURR 4 (shown third, see QUANT_ORDER) */
 static const char *const N_QUANT[] = {"OFF", "ALL", "KBD", "SEQ", "CURR"};
-/* CHORD KNOB 3: link ROOT / SCL / MAP across tracks that have SCALE (not a P_*: P_COUNT ceiling) */
-
 /* chord keys (chord.c): OFF, the diatonic triad / seventh of the track's ROOT and SCALE on the key, fixed shapes */
 static const char *const N_CHRD[] = {"OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW"};
 static const char *const N_STRUM[] = {"OFF", "1/8", "1/16", "1/32", "1/64", "1/128", "16T", "32T"};
 static const char *const N_STROKE[] = {"DOWN", "UP", "ALT"};
 /* P_ALLOC on the editor: both knobs in one list (the device has STRUM and STROKE apart) */
-static const char *const N_SWEEP[] = {"OFF", "1/8 DOWN", "1/8 UP", "1/8 ALT", "1/16 DOWN", "1/16 UP", "1/16 ALT",
+static const char *const N_SWEEP[] = {"OFF", "OFF", "1/8 DOWN", "1/8 UP", "1/8 ALT", "1/16 DOWN", "1/16 UP", "1/16 ALT",
     "1/32 DOWN", "1/32 UP", "1/32 ALT", "1/64 DOWN", "1/64 UP", "1/64 ALT", "1/128 DOWN", "1/128 UP", "1/128 ALT",
     "16T DOWN", "16T UP", "16T ALT", "32T DOWN", "32T UP", "32T ALT"};
 static const char *const N_VOIC[] = {"CLOSE", "OPEN", "INV1", "INV2", "+OCT"};   /* VC_CLOSE .. VC_BASS */
 static const char *const N_VOICE[] = {"POLY", "MONO", "LEG", "UNI"};   /* V_POLY .. V_UNISON */
 static const char *const N_GLMODE[] = {"RATE", "TIME"};
-static const char *const N_ALLOC[] = {"ROT", "REUSE"};         /* stored; voice always ROT (REUSE if GLD) */
 static const char *const N_ORDER[] = {"NOTE", "PLAY"};
 static const char *const N_CLOCK[] = {"INT", "USB", "TRS"};
 static const char *const N_MIDI_INPUT[] = {"USB", "TRS"};
@@ -293,6 +290,8 @@ static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
  * clamp). It shows the original's name; knobs step over it and the editor's SET lands on the original. */
 static int32_t enum_orig(const param_desc_t *d, int32_t v)
 {
+    if (d->names == N_SWEEP && v == 1)
+        return 0;                                  /* legacy ALLOC = REUSE is an OFF alias */
     return (d->names == SMP_ALL_NAMES || d->names == SMP_SRC_NAMES) && v >= 0 && v < (int32_t)SMP_NSETS
                ? (int32_t)SMP_SET_ORIG[v] : v;
 }
@@ -551,8 +550,8 @@ typedef struct {
     uint8_t fam, scope, graph, sec;
     uint8_t id[4];               /* param ids; 0xFF = empty slot */
 } page_t;
-#define PG_STRUM 0xFCu           /* CHORD KNOB 3: the sweep's rate (P_ALLOC's low half) */
-#define PG_STROKE 0xFDu          /* CHORD KNOB 4: DOWN / UP / ALT (P_ALLOC's high half) */
+#define PG_STRUM 0xFCu           /* CHORD KNOB 3: the packed P_ALLOC sweep's rate */
+#define PG_STROKE 0xFDu          /* CHORD KNOB 4: the packed P_ALLOC sweep's DOWN / UP / ALT */
 
 static const page_t PAGES[] = {
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, 0, {P_ATK, P_DEC, P_SUS, P_REL}},

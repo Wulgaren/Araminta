@@ -498,7 +498,7 @@ static void ev_oct(void)
     }
     if (k == EVK_REC) {
         const motion_event_t e = motion.event[c & 0xFFu];
-        uint32_t lock = !(e.param & MOTION_LOCK);
+        uint32_t lock = MOTION_ID(&e) == MSEQ_PITCH || !(e.param & MOTION_LOCK);
         motion_undo_take(t, 0);
         (void)motion_put(t, e.place & 63u, MOTION_ID(&e), e.value, lock ? MOTION_LOCK : 0u);
         motion_undo_done(t);

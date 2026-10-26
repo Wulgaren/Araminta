@@ -74,7 +74,7 @@ _Static_assert(PF_N <= 32u, "PF mask: widen perf_held / perf_latched / pf.act to
 #define PB_GRAIN 2048u                        /* .. its two overlapping grains, samples (46 ms) */
 #define GL_SPAN 7680u                         /* GLITCH: the longest slice it reads back (the loop holds two and a margin) */
 enum { GA_PASS, GA_RPT, GA_REV, GA_UP, GA_DN, GA_GATE, GA_SKIP, GA_CRU };
-enum { GX_DENS = 50, GX_PITCH = 0, GX_SIZE = 0, GX_VARI = 1 };   /* GLITCH's knobs, fixed (no knob page) */
+enum { GX_DENS = 50 };                        /* GLITCH's fixed density (no knob page) */
 static const uint8_t GA_OF[16] = {GA_RPT, GA_RPT, GA_RPT, GA_RPT, GA_RPT, GA_RPT, GA_REV, GA_REV, GA_UP, GA_DN,
                                   GA_GATE, GA_GATE, GA_SKIP, GA_SKIP, GA_CRU, GA_CRU};
 #define HB_MASK 4095u                         /* OCT UP / DN: the delay's frames (of the loop's 8192) */
@@ -570,22 +570,12 @@ static uint32_t pf_hash(uint32_t h)
     h = (h ^ (h >> 15)) * 0x2C1B3C6Du;
     return h ^ (h >> 13);
 }
-/* 2^(st / 12), Q16 */
-static uint32_t semi_q16(int32_t st)
-{
-    static const uint16_t R[12] = {32768, 34716, 36781, 38968, 41285, 43740, 46341, 49097, 52016, 55109, 58386, 61858};
-    int32_t o = (st + 48) / 12 - 4, k = (st + 48) % 12;
-    uint32_t r = (uint32_t)R[k] << 1;
-    return o >= 0 ? r << o : r >> -o;
-}
 /* a segment's start: where it reads (Q16) and how fast (SKIP: a place in the 1/16, two segments at each) */
 static __attribute__((noinline)) void perf_glt_seg(void)
 {
     uint32_t a = pf.gl.a, L = pf.gl.l, g0 = pf.gl.g0, s = g0 - L;
     pf.gl.rate = 65536;
-    if (a == GA_RPT) {
-        pf.gl.rate = (int32_t)semi_q16(clamp((int32_t)(pf.gl.k < 24u ? pf.gl.k : 24u) * GX_PITCH, -24, 24));
-    } else if (a == GA_REV) {
+    if (a == GA_REV) {
         s = g0 - 1u;
         pf.gl.rate = -65536;
     } else if (a == GA_UP) {
@@ -596,19 +586,19 @@ static __attribute__((noinline)) void perf_glt_seg(void)
     } else if (a == GA_SKIP) {
         s = g0 - pf.gl.sp + pf_hash(pf.glgs * 64u + (pf.gl.k >> 1)) % (pf.gl.sp - L + 1u);
     }
-    pf.gl.src = (s & (PB_FRAMES - 1u)) << 16;       /* (Q16 into the ring: no overflow on a long hold) */
+    pf.gl.src = (s & (PB_MAX - 1u)) << 16;          /* Q16 samples; each stored frame holds two samples */
 }
 /* the next 1/16's slice */
 static __attribute__((noinline)) void perf_glt_step(void)
 {
-    uint32_t h = pf_hash((pf.glgs & 31u) + 0x51u + ((uint32_t)(GX_VARI - 1) << 5)), s16 = pf.P ? pf.P : 1u,
-             sp = s16 < GL_SPAN ? s16 : GL_SPAN, d = GX_DENS, z = GX_SIZE, j = (h >> 12) % 3u, a, L;
-    a = ((h >> 24) * 100u >> 8) < (pf.glgs & 3u ? d : d * d / 100u) ? GA_OF[(h >> 8) & 15u] : GA_PASS;
+    uint32_t h = pf_hash((pf.glgs & 31u) + 0x51u), s16 = pf.P ? pf.P : 1u,
+             sp = s16 < GL_SPAN ? s16 : GL_SPAN, j = (h >> 12) % 3u, a, L;
+    a = ((h >> 24) * 100u >> 8) < (pf.glgs & 3u ? GX_DENS : GX_DENS * GX_DENS / 100u) ? GA_OF[(h >> 8) & 15u] : GA_PASS;
     pf.gl.g0 = 2u * pf.wr + pf.odd;                 /* the loop's sample now */
     if ((s16 + sp > PB_MAX - 512u || pf.gl.g0 < sp) && a != GA_GATE && a != GA_CRU)
         a = GA_PASS;                                /* too slow (what it would read is gone) or not recorded yet */
-    L = a == GA_RPT ? sp >> (z + j) : a == GA_GATE ? (s16 / 2u) >> (z / 2u + j % 2u)
-      : a == GA_SKIP ? sp >> (3u + z / 2u + j % 2u) : a == GA_UP ? sp / 2u : a == GA_CRU ? s16 : sp;
+    L = a == GA_RPT ? sp >> j : a == GA_GATE ? (s16 / 2u) >> (j % 2u)
+      : a == GA_SKIP ? sp >> (3u + j % 2u) : a == GA_UP ? sp / 2u : a == GA_CRU ? s16 : sp;
     pf.gl.a = (uint8_t)a;
     pf.gl.l = L < 2u * SL_RAMP ? 2u * SL_RAMP : L;
     pf.gl.sp = sp;

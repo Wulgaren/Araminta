@@ -740,6 +740,28 @@ static int lock_pitch(void)
     return bad;
 }
 
+static int pitch_lock_only(void)
+{
+    int bad = 0;
+    track_t *t = lock_track(0);
+    motion_store_t invalid;
+    int16_t value;
+    bad += check("PITCH cannot be written as automation", motion_set_event(t, 2, MSEQ_PITCH, 7) == 1 && !motion.count);
+    motion_clear(t);
+    motion_set_event(t, 2, P_REV, 50);
+    bad += check("changing an automation row to PITCH makes it a lock",
+                 !motion_move(t, 0, 2, MSEQ_PITCH, 7) && motion_lock_get(t, 2, MSEQ_PITCH, &value) && value == 7);
+    invalid = motion;
+    invalid.event[0].param = MSEQ_PITCH;
+    bad += check("stored PITCH automation is rejected", !motion_valid(&invalid));
+    motion_clear(t);
+    motion_set_lock(t, 2, MSEQ_PITCH, 7);
+    ev_follow(EVC(EVK_REC, 0));
+    ev_oct();
+    bad += check("OCT+ keeps PITCH as a lock", motion_lock_get(t, 2, MSEQ_PITCH, &value) && value == 7);
+    return bad;
+}
+
 /* 3.2: TRN recorded with REC is stored as the step's fitted semitone PITCH lock, never as P_TRANS automation */
 static int record_trn(void)
 {
@@ -1383,7 +1405,7 @@ int main(void)
     bad += arp_play_sync();
     bad += arp_new_modes();
     bad += arp_drone_mode();
-    bad += lock_playback() + lock_edit() + lock_pitch() + record_trn() + lock_project() + lock_ui() + lock_undo() + auto_list();
+    bad += lock_playback() + lock_edit() + lock_pitch() + pitch_lock_only() + record_trn() + lock_project() + lock_ui() + lock_undo() + auto_list();
     bad += fx_lock_time();
     bad += fx_lock_banks_and_capacity();
     printf("%s\n", bad ? "MOTION TEST FAILED" : "motion/chance/compact storage tests passed"); return bad != 0;
