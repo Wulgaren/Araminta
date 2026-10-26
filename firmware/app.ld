@@ -16,7 +16,7 @@ MEMORY
     XIP    (rx)  : ORIGIN = 0x02000120, LENGTH = 0x8DFBC
     RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x6000
     RAM    (rwx) : ORIGIN = 0x01C08000, LENGTH = 72K
-    POOL   (rw)  : ORIGIN = 0x01C1A000, LENGTH = 0x5A000
+    POOL   (rw)  : ORIGIN = 0x01C1A000, LENGTH = 0x5D600
     NOINIT (rw)  : ORIGIN = 0x01C7C000, LENGTH = 0x3D50
 }
 SECTIONS
@@ -31,7 +31,10 @@ SECTIONS
     .bss (NOLOAD) : { _bss_start = .; *(.bss*) *(.sbss*) *(COMMON) . = ALIGN(4); _bss_end = .; } > RAM
     .pool (NOLOAD) : { _pool_start = .; *(.pool*) . = ALIGN(4); _pool_end = .; } > POOL
     .noinit (NOLOAD) : { *(.noinit*) } > NOINIT
-    _guard0 = 0x01C74000; _ustack_lo = 0x01C74100; _ustack_top = 0x01C7A000;
-    _guard1 = 0x01C7A000; _sstack_lo = 0x01C7A100; _sstack_top = 0x01C7C000;
+    /* 3.2: CPU0 user 12,288 B / supervisor 6,144 B (Melodee 1.5's audited sizes; static worst path
+     * 5,652 / 1,868 B, docs/RAM_STACK_AUDIT_3.2.md). The 13,824 B freed are POOL. */
+    _guard0 = 0x01C77600; _ustack_lo = 0x01C77700; _ustack_top = 0x01C7A700;
+    _guard1 = 0x01C7A700; _sstack_lo = 0x01C7A800; _sstack_top = 0x01C7C000;
+    ASSERT(_guard0 == _pool_start + LENGTH(POOL), "POOL must end at the first stack guard")
     /DISCARD/ : { *(.comment) *(.note*) }
 }
