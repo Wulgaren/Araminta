@@ -49,6 +49,11 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
 
 ### SEQ
 
+- **Free take: a strummed chord keeps its sweep.** The strings are re-spaced to the STRUM division (1/8,
+  1/16, ...) at the take's closing tempo instead of the tempo the project had before the take. A chord
+  strummed at 1/8 while playing a slower loop therefore still sounds as 1/8, and its strings no longer
+  receive the legato SF_SLIDE or the mono return (a strum is a chord, not a tap). `tests/freetake_test.c`
+  covers a 1/8 strum played at 80 BPM with the project at 120.
 - **NOTE EDITS on SEQ TOOLS.** Stored-note edits, one undo each like COOK/RANDOM:
   **OCT− / OCT+** on E4 / F4 (BEAT / MUTE on a DRUM track) transpose the written notes ±12 (ties, rests and the
   notes past LEN stay); **HALF** on D5 stretches the pattern over twice the steps (LEN ×2, ties keep holding);
