@@ -313,7 +313,10 @@ static void fm1_main(void)
 #define FM1_STACK_MARK 0x53304D4Bu                    /* "S0MK" */
 static uint8_t fm1_stacks_marked;
 
-static void fm1_stack_paint(void)
+/* noinline: boot only. Inlined into fm1_cstart, JieLi clang 4.0.1 shifts the audio ISR's code and
+ * tests/target_budget.py fails (measured: fm1_alnk0_irq 14,016 -> 33,465 with the same IR); one call
+ * per boot costs nothing. */
+static __attribute__((noinline)) void fm1_stack_paint(void)
 {
     uint32_t a, end = (fm1_sp() - 256u) & ~3u;
     for (a = (uint32_t)(uintptr_t)_ustack_lo; a < end; a += 4u)
