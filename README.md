@@ -31,7 +31,8 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 
 - **Sloop free take.** Project empty, track armed, transport stopped: the first note starts a free take. No pattern required first.
   Hold a note and press others while it is still down: those steps get slide flags (acid legato) when the take closes,
-  and releasing a tap while the hold continues records a return to the held pitch.
+  and releasing a tap while the hold continues records a return to the held pitch. A strummed chord keeps its STRUM
+  sweep at the take's tempo and is recorded as a chord, without the legato slide.
 - **JIANT MIDI punch-ins.** On FX under Punch-in (FX taps: EFFECTS → SLICER → PUNCH-IN). Two fixed PUNCH-IN pages, 1/2 and 2/2 (SELECT walks the section; no reassignment): 1/2 holds REPEAT 1/8 **1/12** 1/16 1/32, LPF, HPF, OCT±, DEC±, stutters, ATK+, ARP, RANDOM; 2/2 holds REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW, **/2** (A4), **\*2** (B4) and **GLITCH** (C5). Holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK. Reverb adds SHIMR / CLOUD.
 - **Melodee.** Silent tracks still run LFO, bend, the engine block and fades, so modulation keeps moving when a track is muted or resting.
 - **Stock V15 supplies.** Before core 1 and the audio start, the FM-1 is set to the stock V15 rails (VDC14 1.60 V, SYSVDD 1.38 V, VDDIO 3.2 V) and read back. A failed setup keeps one core. MENU > ABOUT shows `RAILS 7/15 (3/11)` or `RAILS FAIL 1 CORE`.
