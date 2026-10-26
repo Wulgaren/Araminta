@@ -763,6 +763,11 @@ static int record_trn(void)
     seq_start(); seq_tick(t, CTL);
     bad += check("  playback at that step is what was heard (C4)", t->plk_fit == 1u && t->plk_pit == 0 &&
                  t->seq_notes[0] == 60u);
+    {   /* opening AUTOMATION with a fitted PITCH record (AUTO kind) must render, not loop */
+        go_auto_top();
+        frame();
+        bad += check("  AUTOMATION opens on a fitted PITCH record", 1);
+    }
     seq_stop();
     motion_set_lock(t, 2, MSEQ_PITCH, 1);
     seq_start(); seq_tick(t, CTL);

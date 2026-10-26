@@ -13,7 +13,6 @@ static int16_t motion_base[NTRK][P_COUNT];
 static uint32_t motion_active[NTRK][(P_COUNT + 31u) / 32u];
 static uint32_t motion_locked[NTRK][(P_COUNT + 31u) / 32u];   /* the ids a lock holds now (put back at the next step) */
 static uint8_t motion_base_valid, motion_full, motion_save_lim;
-static const param_desc_t PITCH_DESC = PD("PITCH", F_SEMI, -24, 24, 0);   /* 3.2: chromatic semitones */
 static const param_desc_t *motion_target_desc(const track_t *t, uint32_t id)
 {
     if (id == MSEQ_PITCH)
