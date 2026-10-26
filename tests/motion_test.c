@@ -756,19 +756,20 @@ static int record_trn(void)
     seq_start(); seq_tick(t, CTL);                   /* step 0: C4; the motion base is captured */
     t->p[P_TRANS] = 1;
     ok = !motion_capture(t, P_TRANS, 1) && motion.count == 1u &&
-         motion.event[0].param == (MSEQ_PITCH | MOTION_LOCK) && motion.event[0].value == 0 &&
-         motion.event[0].place == 0u && t->p[P_TRANS] == 0;
-    bad += check("  REC +1 TRN on C4 in C major stores the fitted 0 ST (C4, not C#4) and restores TRN", ok);
+         motion.event[0].param == MSEQ_PITCH && motion.event[0].value == 0 &&
+         motion.event[0].place == 0u && t->p[P_TRANS] == 1;   /* the knob keeps moving: no reset */
+    bad += check("  REC +1 TRN on C4 in C major stores the fitted 0 ST (C4, not C#4); TRN keeps its value", ok);
     song.rec = 0; seq_stop();
     seq_start(); seq_tick(t, CTL);
-    bad += check("  playback at that step is what was heard (C4)", t->plk_pit == 0 && t->seq_notes[0] == 60u);
+    bad += check("  playback at that step is what was heard (C4)", t->plk_fit == 1u && t->plk_pit == 0 &&
+                 t->seq_notes[0] == 60u);
     seq_stop();
     motion_set_lock(t, 2, MSEQ_PITCH, 1);
     seq_start(); seq_tick(t, CTL);
     for (i = 0; i < 100000u && t->seq_idx != 2u; i++)
         lock_next(t);
     bad += check("  a manual PITCH +1 plays C#4 (chromatic, after the scale snap)",
-                 t->plk_pit == 1 && t->seq_notes[0] == 61u);
+                 t->plk_fit == 2u && t->plk_pit == 1 && t->seq_notes[0] == 61u);
     seq_stop();
     ok = motion.count == 2u;
     for (i = 0; i < motion.count; i++)
@@ -779,9 +780,9 @@ static int record_trn(void)
     bad += check("  PITCH (127) stays lock-only: REC captures nothing for it", ok);
     project_capture(&before);
     ok = proj_pack(&disk, &before) && proj_import(&after, &disk, sizeof disk) && after.motion.count == 3u &&
-         after.motion.event[1].param == (MSEQ_PITCH | MOTION_LOCK) && after.motion.event[1].value == 1 &&
-         after.motion.event[2].value == -2;
-    bad += check("  the PITCH locks (including the recorded TRN) survive a FUN16 project", ok);
+         after.motion.event[0].param == MSEQ_PITCH && after.motion.event[1].param == (MSEQ_PITCH | MOTION_LOCK) &&
+         after.motion.event[1].value == 1 && after.motion.event[2].value == -2;
+    bad += check("  the fitted TRN record and the PITCH locks survive a FUN16 project", ok);
     sel = found = 0;
     pk_build_auto(t, MSEQ_PITCH, NSTEP, &sel);
     for (i = 0; i < pk_n; i++)

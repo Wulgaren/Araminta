@@ -595,8 +595,9 @@ when the track's engine is not the saved one).
   tracks. The device's MAP has five values (OFF, ALL, KBD, SEQ, CURR; CURR is stored 4 and shown third);
   CURR shares ROOT/SCALE across the tracks that use it. PITCH (id 127) is lock-only, -24..24 chromatic
   semitones applied after the scale snap (one value for the whole step); older firmware refuses a project
-  that holds it. Recording SCL TRN while armed writes that PITCH lock (the scale-fitted delta, its first/
-  lowest note as the reference) and puts the global TRN back; it never creates a P_TRANS event.
+  that holds it. Recording SCL TRN while armed writes that PITCH record (the scale-fitted absolute offset, its
+  first/lowest note as the reference) as an automation-kind record; the global TRN keeps its value and no
+  P_TRANS event is created. Editing that PITCH row turns it into a lock, so the edit is chromatic (off-scale).
   STRUM/STROKE use the inert P_ALLOC (id 43) as one packed SWEEP value (0 OFF, then 1 + (rate-1)*3 + stroke,
   rate 1..7 = 1/8 .. 32T, stroke 0 DOWN / 1 UP / 2 ALT). An event is (track, step
   0..63, parameter id, value). While a track plays its motion, the step sets the value at the step and it

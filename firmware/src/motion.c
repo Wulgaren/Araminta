@@ -192,6 +192,7 @@ static void motion_restore(track_t *t)
     memset(motion_active[k], 0, sizeof motion_active[k]);
     memset(motion_locked[k], 0, sizeof motion_locked[k]);
     t->plk_pit = 0;
+    t->plk_fit = 0;
     motion_unguard(f);
 }
 static void motion_rebase(track_t *t)
@@ -340,19 +341,17 @@ static int motion_capture(track_t *t, uint32_t id, int16_t value)
      * quantized step still restores the original patch. */
     if (!trn && ((motion_base_valid >> k) & 1u)) motion_active[k][id / 32u] |= 1u << (id % 32u);
     motion_unguard(f);
-    if (trn) {                                       /* no P_TRANS automation: a semitone PITCH lock instead */
-        int16_t base = ((motion_base_valid >> k) & 1u) ? motion_base[k][P_TRANS] : 0;
+    if (trn) {                                       /* no P_TRANS automation: a fitted PITCH record instead */
         const step_t *s = &seq_steps(t)[idx];
         const engine_t *e = ENGINES[eng_idx(t->eng_req)];
         uint32_t kit = e->keys && e->keys(t, 0) >= 0;
-        int32_t off = value - base;
+        int32_t off = value;                         /* MAP OFF / KBD: the exact semitones */
         if ((qn_mode(t) == QN_SEQ || qn_mode(t) == QN_ALL) && !kit && s->n) {
-            /* the fitted semitone delta: what TRN would have added on the scale at this step's first note */
+            /* the absolute fitted offset for this step's first note: C4 +1 in C major -> 0 ST (C4) */
             int32_t n0 = (int32_t)step_note(s, 0);
-            off = (scale_snap(t, n0 + value) - n0) - (scale_snap(t, n0 + base) - n0);
+            off = scale_snap(t, n0 + value) - n0;
         }
-        t->p[P_TRANS] = base;                        /* the sound's own TRN stays; the lock carries the recording */
-        return motion_set_lock(t, idx, MSEQ_PITCH, (int16_t)clamp(off, -24, 24));
+        return motion_set_event(t, idx, MSEQ_PITCH, (int16_t)clamp(off, -24, 24));
     }
     return motion_set_event(t, idx, id, value);
 }
@@ -394,13 +393,15 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t step, con
         any |= motion_locked[k][w];
     if (!step) motion_restore(t);
     else if (any) motion_unlock(t, step, m);
-    t->plk_pit = 0;                                  /* the step's own PITCH lock, if any */
+    t->plk_pit = 0;                                  /* the step's own PITCH record, if any */
+    t->plk_fit = 0;
     for (i = 0; i < m->count; i++) {
         const motion_event_t *e = &m->event[i];
         uint32_t id = MOTION_ID(e);
         if (e->place != (k << 6 | step) || ((e->param & MOTION_LOCK) && !play) || !fx_target_available(t, id)) continue;
-        if (id == MSEQ_PITCH) {                      /* lock-only: never indexes p[] */
+        if (id == MSEQ_PITCH) {                      /* never indexes p[]; kind = fitted TRN or manual chromatic */
             t->plk_pit = (int16_t)clamp(e->value, -24, 24);
+            t->plk_fit = (e->param & MOTION_LOCK) ? 2u : 1u;
             if (e->param & MOTION_LOCK)
                 motion_locked[k][id / 32u] |= 1u << (id % 32u);
             continue;
@@ -486,6 +487,8 @@ static int motion_move(track_t *t, uint32_t i, uint32_t step, uint32_t id, int16
         motion_restore(t);                              /* (a value alone: what sounds stays) */
     motion.event[i].place = (uint8_t)(trk_index(t) << 6 | step);
     motion.event[i].param = (uint8_t)((motion.event[i].param & MOTION_LOCK) | id);
+    if (id == MSEQ_PITCH)
+        motion.event[i].param = (uint8_t)(MSEQ_PITCH | MOTION_LOCK);   /* a hand edit is chromatic, not fitted */
     motion.event[i].value = (int16_t)param_fit(d, v);
     motion_unguard(f);
     return 0;
