@@ -217,6 +217,11 @@ static void con_status(void)
     con_kv("lcd_skips", (int32_t)ui_stat.skips);
     con_kv("voices_shed", (int32_t)shed_count);
     con_kv("voices_given_up", (int32_t)voice_kills);
+    con_puts("c0_stack_used user/super ");
+    con_dec((int32_t)fm1_stack_used_user());
+    con_putc('/');
+    con_dec((int32_t)fm1_stack_used_super());
+    con_puts("\r\n");
     con_kv("track", (int32_t)song.sel + 1);
     con_kv("batt_raw", song.batt_raw);
     con_puts("engine ");
