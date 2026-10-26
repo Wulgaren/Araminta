@@ -705,7 +705,9 @@ static uint32_t pk_build_auto(const track_t *t, uint32_t id, uint32_t step, uint
             *sel = pk_n;
         pk_add_item(i, pk_auto_group(i), nm);
     }
-    if (step >= NSTEP || id == MSEQ_PITCH) {             /* PITCH: lock-only (id 127), not in p[] */
+    if (step >= NSTEP || id == MSEQ_PITCH || ev_id_free(t, step, MSEQ_PITCH)) {
+        /* PITCH: lock-only (id 127), not in p[]. Keep it in the K3 list even when another parameter is
+         * showing, so a row changed away from PITCH can be changed back. */
         pk_auto_name(t, MSEQ_PITCH, nm);
         if (id == MSEQ_PITCH)
             *sel = pk_n;
