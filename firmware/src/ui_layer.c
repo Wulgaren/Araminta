@@ -21,6 +21,7 @@
  *   SEQ  SET   SEQ > SEQ TOOLS (the last SEQ section; the first tap is PATTERN): the white keys from F3 the sequence
  *              tools (ui_tools.c: CLEAR, REVERSE, SHIFT < >, RANDOM, COOK; on a DRUM track BEAT, MUTE and the lane's
  *              CLEAR REVERSE FILL RANDOM), black keys 1..8 the lane (DRUM); KNOB 1..4 LEN DIV SWING GATE (PATTERN's).
+ *              SELECT walks to NOTE TOOLS: OCT- / OCT+, HALF, *2, HUMAN, DUP on the written steps (ui_tools.c TL2_*).
  *              Each action one undo (SAVE held), OCT- the track as the layer opened (tl_open)
  * REC taps arm / disarm (ui_input.c); CLICK / COUNT-IN / LEVEL live in MENU > AUDIO; CLEAR sequence on SAVE > CLEAR
  * and SEQ TOOLS.
@@ -219,6 +220,7 @@ static void layer_opened(uint32_t l)
     if (l == LAYER_SEQ) {                               /* the track as it is now (OCT-) */
         memcpy(tl_open.step, TSEL->step, sizeof tl_open.step);
         motion_snapshot_track(TSEL, &tl_open.mo);
+        tl_open.sqnt = TSEL->p[P_SQNT];                  /* (HUMAN switches QUANTIZE off) */
     }
     for (k = 0; k < 4u; k++)
         if (l == LAYER_SEQ) {
@@ -345,24 +347,36 @@ static void tools_key(uint32_t p)
 {
     const char *m;
     char n[4];
-    if (!tl_cell(TSEL, p))
-        return;
-    if (p == TL_MUTE) {
-        lane_mute_toggle(TSEL, ui.lane);
-        return;
-    }
-    if (chain_busy()) {
-        ui_message("STOP TO EDIT");
-        return;
-    }
-    if (!(m = tl_do(TSEL, p, ui.lane)))
-        return;
-    if (p == TL_COOK && lys.cook < 99u) {               /* "COOKED 3": the third since the layer opened */
-        lys.cook++;
-        fmt_int(n, lys.cook);
-        ui_say("COOKED ", n);
-    } else {
+    if (ui.seq_tool2) {                                 /* NOTE TOOLS: stored-note edits */
+        if (!tl2_cell(TSEL, p))
+            return;
+        if (chain_busy()) {
+            ui_message("STOP TO EDIT");
+            return;
+        }
+        if (!(m = tl2_do(TSEL, p)))
+            return;
         ui_message(m);
+    } else {
+        if (!tl_cell(TSEL, p))
+            return;
+        if (p == TL_MUTE) {
+            lane_mute_toggle(TSEL, ui.lane);
+            return;
+        }
+        if (chain_busy()) {
+            ui_message("STOP TO EDIT");
+            return;
+        }
+        if (!(m = tl_do(TSEL, p, ui.lane)))
+            return;
+        if (p == TL_COOK && lys.cook < 99u) {           /* "COOKED 3": the third since the layer opened */
+            lys.cook++;
+            fmt_int(n, lys.cook);
+            ui_say("COOKED ", n);
+        } else {
+            ui_message(m);
+        }
     }
     if (!lys.loaded)                                    /* (the first one: how to take it back) */
         str_cpy(ui.msg2, "[SAVE] HOLD TO UNDO", sizeof ui.msg2);
@@ -509,7 +523,7 @@ static void layer_key(uint32_t l, uint32_t k)
     } else if (l == LAYER_SEQ) {
         if (!key_black(k))
             tools_key(p);
-        else if (p < NLANE && drum_track(TSEL))
+        else if (!ui.seq_tool2 && p < NLANE && drum_track(TSEL))
             ui.lane = (uint8_t)p;                       /* (black keys 1..8: the lane, as on the grid) */
     } else if (l == LAYER_CLR) {
         if (!key_black(k))
@@ -649,6 +663,7 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
                 }
                 for (k = 0; k < 4u; k++)
                     t->p[P_SLEN + k] = lys.v[k];
+                t->p[P_SQNT] = tl_open.sqnt;            /* (HUMAN switches QUANTIZE off) */
                 lys.loaded = 0;
                 lys.cook = 0;
                 ui_message("SEQUENCE PUT BACK");
@@ -705,7 +720,9 @@ static uint32_t layer_leds(uint32_t *br)
         } else if (l == LAYER_SEQ) {                    /* the tools breathe (not while a song plays); DRUM: the lane */
             int drum = drum_track(TSEL);                /* lit, the other lanes breathe; F4 lit while that lane is muted */
             uint32_t mu = drum ? (drum_mute[trk_index(TSEL) % NPART] >> (ui.lane % NLANE)) & 1u : 0u;
-            if (!b && p == TL_MUTE) {
+            if (ui.seq_tool2) {                         /* NOTE TOOLS: one-shot edits, no held state */
+                can = !b && tl2_cell(TSEL, p) && !chain_busy();
+            } else if (!b && p == TL_MUTE) {
                 on = drum && mu;
                 can = drum && !mu;
             } else {
@@ -1025,11 +1042,28 @@ static const uint8_t TL_ICON[TL_N] = {ICON_CLEAR, ICON_X_REVERSE, ICON_X_LEFT, I
     ICON_DRUM, ICON_MUTE, ICON_CLEAR, ICON_X_REVERSE, ICON_STEPS, ICON_PROB};
 static const char *const TL_NAME[TL_N] = {"CLEAR", "REVERSE", "SHIFT", "SHIFT", "RANDOM", "COOK", "BEAT", "MUTE",
     "CLR", "REV", "FILL", "RND"};
+static const uint8_t TL2_ICON[TL2_N] = {ICON_OCTAVE, ICON_OCTAVE, ICON_TIME, ICON_DIVISION, ICON_PROB, ICON_STEPS};
+static const char *const TL2_NAME[TL2_N] = {"OCT-", "OCT+", "HALF", "*2", "HUMAN", "DUP"};
+static void layer_seq2(void)
+{
+    uint32_t p;
+    char n[3] = {0, 0, 0};
+    for (p = 0; p < TL2_N; p++) {
+        uint32_t st = !tl2_cell(TSEL, p) || chain_busy() ? LS_DIM : LS_OFF;
+        n[0] = W_NOTE[p];
+        lcell(LC_X(p % 4u), 4 + 32 * (int32_t)(p / 4u), 28, n, TL2_ICON[p], 0, TL2_NAME[p], st, 0);
+    }
+}
 static void layer_seq(void)
 {
-    uint32_t p, drum = (uint32_t)drum_track(TSEL);
-    uint32_t mute = drum ? drum_mute[trk_index(TSEL) % NPART] : 0u;
+    uint32_t p, drum, mute;
     char n[3] = {0, 0, 0}, nm[8];
+    if (ui.seq_tool2) {
+        layer_seq2();
+        return;
+    }
+    drum = (uint32_t)drum_track(TSEL);
+    mute = drum ? drum_mute[trk_index(TSEL) % NPART] : 0u;
     for (p = 0; p < TL_N; p++) {
         uint32_t st = chain_busy() && p != TL_MUTE ? LS_DIM : LS_OFF;
         if (!tl_cell(TSEL, p))
@@ -1128,7 +1162,7 @@ static void draw_layer(void)
         sig += (uint32_t)TSEL->p[P_SCALE] * 31u;
     else if (l == LAYER_SEQ)
         sig += (uint32_t)drum_track(TSEL) * 31u + ui.lane * 5u + (uint32_t)chain_busy() * 3u + (uint32_t)TSEL->p[P_E0] * 131u + song.sel * 977u +
-               drum_mute[trk_index(TSEL) % NPART] * 2654435761u;
+               drum_mute[trk_index(TSEL) % NPART] * 2654435761u + ui.seq_tool2 * 17u;
     else if (l == LAYER_CLR)
         sig += song.sel * 31u + (uint32_t)chain_busy() * 5u + chain_config.count * 7u + ui.song_row * 11u +
                (uint32_t)(!seq_is_empty(TSEL)) * 13u + motion_count(TSEL) * 17u;

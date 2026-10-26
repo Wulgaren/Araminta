@@ -1878,6 +1878,8 @@ static void ui_input(void)
         panel_enc(EN_ALGO);
         if (layer_open() == LAYER_FX && (s = panel_enc(EN_SELECT)) != 0 && !glo)
             select_page_step(s > 0 ? 1 : -1);           /* FX sticky: the punch map's PUNCH-IN pages */
+        else if (layer_open() == LAYER_SEQ && (s = panel_enc(EN_SELECT)) != 0 && !glo)
+            select_page_step(s > 0 ? 1 : -1);           /* SEQ sticky: SEQ TOOLS / NOTE TOOLS */
         else
             panel_enc(EN_SELECT);                       /* (or OCT+ + SELECT: tempo; the other sticky maps keep it) */
     } else {

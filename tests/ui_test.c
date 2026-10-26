@@ -6222,6 +6222,98 @@ static int test_seq_tools(void)
     bad += check("  C4 RANDOM (melodic): rhythm kept, notes in scale (40 seeds)", ok);
     bad += check("  D4 COOK x12: each press changes it, \"COOKED 12\"", okc);
 
+    /* NOTE TOOLS: the second SEQ TOOLS page. SELECT walks it; stored-note edits, one undo like COOK. */
+    ui_power_on();
+    tl_melody();
+    go_title("SEQ TOOLS"); frame();
+    turn(EN_SELECT, 1); frame();
+    ok = str_eq(cur_page()->title, "NOTE TOOLS") && ui.lock == LAYER_SEQ && ui.seq_tool2;
+    turn(EN_SELECT, -1); frame();
+    ok &= str_eq(cur_page()->title, "SEQ TOOLS") && ui.lock == LAYER_SEQ && !ui.seq_tool2;
+    bad += check("NOTE TOOLS: SELECT walks SEQ TOOLS -> NOTE TOOLS -> SEQ TOOLS", ok);
+
+    /* OCT+ / OCT-: stored notes an octave up / down; ties, rests and the note past LEN stay */
+    ui_power_on();
+    tl_melody();
+    go_title("NOTE TOOLS"); frame();
+    tl_key(1);                                          /* G3: OCT+ */
+    ok = msg_is("OCT UP") && step_note(&TSEL->step[0], 0) == 72 && TSEL->step[1].time == ST_TIE &&
+         step_note(&TSEL->step[3], 0) == 76 && step_note(&TSEL->step[5], 0) == 79 &&
+         step_note(&TSEL->step[20], 0) == 72 && tl_lock_at(3);
+    hold(B_SAVE);
+    ok &= !memcmp(TSEL->step, ref, sizeof ref);
+    bad += check("  OCT+ transposes stored notes +12, past LEN / TIE untouched; SAVE held undoes", ok);
+    tl_key(0);                                          /* F3: OCT- */
+    ok = msg_is("OCT DOWN") && step_note(&TSEL->step[0], 0) == 48 && step_note(&TSEL->step[3], 0) == 52 &&
+         step_note(&TSEL->step[5], 0) == 55 && step_note(&TSEL->step[20], 0) == 72;
+    hold(B_SAVE);
+    ok &= !memcmp(TSEL->step, ref, sizeof ref);
+    bad += check("  OCT- transposes stored notes -12; SAVE held undoes", ok);
+
+    /* DUP: A -> A A, LEN x2, steps / locks / automation copied; D4 is the last tool on the page */
+    go_title("NOTE TOOLS"); frame();
+    tl_key(5);                                          /* D4: DUP */
+    ok = msg_is("DUPLICATED") && TSEL->p[P_SLEN] == 16 && step_note(&TSEL->step[8], 0) == 60 &&
+         TSEL->step[9].time == ST_TIE && step_note(&TSEL->step[11], 0) == 64 && step_note(&TSEL->step[13], 0) == 67 &&
+         step_note(&TSEL->step[20], 0) == 72 && tl_lock_at(3) && tl_lock_at(11);
+    hold(B_SAVE);
+    ok &= TSEL->p[P_SLEN] == 8 && !memcmp(TSEL->step, ref, sizeof ref) && tl_lock_at(3) && !tl_lock_at(11);
+    bad += check("  DUP copies steps 1..LEN after themselves; LEN 8 -> 16; locks copy; SAVE held undoes", ok);
+
+    /* HALF: each step twice as long, LEN x2; TIEs follow their note, short notes stay short */
+    go_title("NOTE TOOLS"); frame();
+    tl_key(2);                                          /* A3: HALF */
+    ok = msg_is("HALF TIME") && TSEL->p[P_SLEN] == 16 && TSEL->step[0].time == ST_NOTE &&
+         step_note(&TSEL->step[0], 0) == 60 && TSEL->step[1].time == ST_TIE && TSEL->step[2].time == ST_TIE &&
+         TSEL->step[3].time == ST_TIE && step_note(&TSEL->step[6], 0) == 64 &&
+         step_note(&TSEL->step[10], 0) == 67 && step_note(&TSEL->step[20], 0) == 72 && tl_lock_at(6);
+    hold(B_SAVE);
+    ok &= TSEL->p[P_SLEN] == 8 && !memcmp(TSEL->step, ref, sizeof ref);
+    bad += check("  HALF stretches steps x2 (LEN 8 -> 16), ties hold; SAVE held undoes", ok);
+
+    /* *2: each pair becomes one, LEN /2; the first playing step wins, a held note becomes a tie */
+    go_title("NOTE TOOLS"); frame();
+    tl_key(3);                                          /* B3: *2 */
+    ok = msg_is("DOUBLE TIME") && TSEL->p[P_SLEN] == 4 && step_note(&TSEL->step[0], 0) == 60 &&
+         step_note(&TSEL->step[1], 0) == 64 && step_note(&TSEL->step[2], 0) == 67 && TSEL->step[3].time == ST_REST &&
+         step_note(&TSEL->step[20], 0) == 72 && tl_lock_at(1) && !tl_lock_at(3);
+    hold(B_SAVE);
+    ok &= TSEL->p[P_SLEN] == 8 && !memcmp(TSEL->step, ref, sizeof ref) && tl_lock_at(3);
+    bad += check("  *2 squeezes pairs (LEN 8 -> 4), first note wins; SAVE held undoes", ok);
+
+    /* HUMAN: per step, fresh velocity / nudge each press; QUANTIZE off so the nudge plays */
+    go_title("NOTE TOOLS"); frame();
+    TSEL->p[P_SQNT] = 1;
+    rng_state = 0x2468ACEu;
+    tl_key(4);                                          /* C4: HUMAN */
+    ok = msg_is("HUMANIZED QNTZ OFF") && TSEL->p[P_SQNT] == 0 && TSEL->step[1].time == ST_TIE &&
+         TSEL->step[2].time == ST_REST;
+    for (i = 0; i < 8u; i++) {
+        int32_t v, n;
+        if (TSEL->step[i].time != ST_NOTE || (!TSEL->step[i].n && !TSEL->step[i].hit))
+            continue;
+        v = TSEL->step[i].vel ? TSEL->step[i].vel : 96;
+        n = step_nudge(&TSEL->step[i]);
+        ok &= v >= 96 - 16 && v <= 96 + 16 && n >= -2 && n <= 2;
+    }
+    hold(B_SAVE);
+    ok &= TSEL->p[P_SQNT] == 1 && !memcmp(TSEL->step, ref, sizeof ref);
+    bad += check("  HUMAN writes velocity / nudge per step, QUANTIZE off; SAVE held undoes both", ok);
+
+    /* OCT- on the page restores the whole visit: steps, LEN and QUANTIZE */
+    ui_power_on();
+    tl_melody();
+    memcpy(ref, TSEL->step, sizeof ref);
+    TSEL->p[P_SQNT] = 1;
+    go_title("NOTE TOOLS"); frame();
+    tl_key(1);
+    tl_key(5);
+    tl_key(4);
+    press(B_OCTDN);
+    ok = TSEL->p[P_SLEN] == 8 && TSEL->p[P_SQNT] == 1 && !memcmp(TSEL->step, ref, sizeof ref) &&
+         tl_lock_at(3) && !tl_lock_at(11);
+    bad += check("  OCT- on NOTE TOOLS puts back every edit of the visit, QUANTIZE too", ok);
+
     ui_power_on();
     tl_drum();
     go_title("SEQ TOOLS"); frame();

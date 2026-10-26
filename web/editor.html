@@ -2803,6 +2803,9 @@ function enumShown(d) {
   if (d.label === "MAP" && d.names && d.names.length === 5) return [0, 1, 4, 2, 3].map((k) => d.min + k);
   const vals = [];
   for (let v = d.min; v <= d.max; v++) vals.push(v);
+  /* SWEEP: value 1 is the legacy ALLOC = REUSE alias of OFF; the device's knob skips it (params.c enum_orig) */
+  if (d.label === "SWEEP" && d.names && d.names[0] === "OFF" && d.names[1] === "OFF")
+    return vals.filter((v) => v !== d.min + 1);
   /* ARP MODE: REPEAT (6) kept for loads; the knob skips it (params.c enum_skip) */
   if (d.label === "MODE" && d.names && d.names[6] === "REPEAT")
     return vals.filter((v) => v !== d.min + 6);
