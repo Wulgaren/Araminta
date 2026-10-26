@@ -57,6 +57,14 @@ and GLITCH punch-ins, and the DELAY page's TIME / RATE direction swapped. Same p
   save-limit warning. FUN16 is unchanged. **Downgrade:** firmware before 3.2 refuses a project whose motion holds
   id 127 (EMPTY SLOT), so save a backup before opening a v3.2 project with pitch locks on an older build.
 
+### Memory
+
+- **Smaller CPU0 stacks, 13,824 B more sample pool.** The main-loop stack is 12,288 B (was 24,320) and the
+  interrupt stack 6,144 B (was 7,936), the sizes Melodee 1.5 audited on the same SDK. Araminta's static
+  worst call paths are 5,652 B and 1,868 B (2.2x / 3.3x margin); CPU1 stays at 4,096 B. MENU > ABOUT is
+  unchanged; the console's `status` now prints `c0_stack_used user/super` so a device run can confirm the
+  high-water marks. `docs/RAM_STACK_AUDIT_3.2.md` has the evidence and the workload checklist.
+
 ### LFO
 
 - **S&H SMOOTH.** LFO > LFO 2's fourth knob (`SMTH`, 0..100 %) rounds the WAVE S&H steps into a smooth,

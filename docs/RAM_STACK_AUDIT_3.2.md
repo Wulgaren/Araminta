@@ -1,10 +1,9 @@
 # RAM and stack audit (v3.2)
 
 Task 7 of the v3.2 plan: find the real CPU0/CPU1 stack use and check Melodee 1.5's RAM wins against
-Araminta. This branch adds instrumentation only: no stack was moved, resized or repainted after boot.
-
-No FM-1 was attached while this was written. Every measured number is PENDING; the report is good
-enough to plan the follow-up linker PR, not to size the stacks from alone.
+Araminta. v3.2 applies Melodee 1.5's audited **CPU0** sizes (12,288 / 6,144 B) on top of the static
+call-path audit below; CPU1 stays at 4,096 B, as Melodee left it. No measured high-water exists yet:
+the instrumentation is in this branch so the post-release device run can confirm the margins.
 
 **Number labels**
 
@@ -18,14 +17,14 @@ enough to plan the follow-up linker PR, not to size the stacks from alone.
 
 | Stack | Range | Size | Source | Guard |
 |-------|-------|------|--------|-------|
-| CPU0 user (main loop) | `0x01C74100`-`0x01C7A000` | 24,320 B | `firmware/app.ld:34` | 256 B below (`_guard0` `0x01C74000`) |
-| CPU0 supervisor (IRQ/exception) | `0x01C7A100`-`0x01C7C000` | 7,936 B | `firmware/app.ld:35` | 256 B below (`_guard1` `0x01C7A000`) |
+| CPU0 user (main loop) | `0x01C77700`-`0x01C7A700` | 12,288 B | `firmware/app.ld:34` | 256 B below (`_guard0` `0x01C77600`) |
+| CPU0 supervisor (IRQ/exception) | `0x01C7A800`-`0x01C7C000` | 6,144 B | `firmware/app.ld:35` | 256 B below (`_guard1` `0x01C7A700`) |
 | CPU1 user (render jobs) | `0x01C08240`-`0x01C09240` | 4,096 B | `firmware/hal/fm1_cpu1.S:26-27` | 256 B at the bottom of its window (`fm1_cpu1.h:85`) |
 | CPU1 supervisor | `0x01C09240`-`0x01C09340` | 256 B | `firmware/hal/fm1_cpu1.S:29-32` | none (no interrupts on core 1) |
 
-- POOL region: `0x01C1A000` + `0x5A000` = ends at `0x01C74000` (`firmware/app.ld:19`), directly under
-  `_guard0`. POOL *content* ends at `0x01C70CE0`: 355,552 B used of 368,640, **13,088 B spare**
-  (VERIFIED, `./build.sh`: `pool 355552 B of 368640`).
+- POOL region: `0x01C1A000` + `0x5D600` = ends at `0x01C77600` (`firmware/app.ld:19`), directly under
+  `_guard0`; the linker asserts that equality. POOL *content* ends at `0x01C70CE0`: 355,552 B used of
+  382,464, **26,912 B spare** (VERIFIED, `./build.sh`: `pool 355552 B of 382464`).
 - RAM `.data+.bss`: 69,360 B of 73,728, 4,368 B headroom (VERIFIED, same build line). The CPU1 stacks
   live in `.bss` (`_c1_ustack`, `_c1_sstack`, `_c1_sstack_top` from `objdump -t`), so freeing CPU1
   stack bytes grows RAM headroom, not POOL, unless the RAM/POOL boundary in `app.ld` moves.
@@ -36,12 +35,14 @@ enough to plan the follow-up linker PR, not to size the stacks from alone.
 
 ## Instrumentation in this branch
 
-- `firmware/src/main.c:313-338`: `FM1_STACK_MARK` (`"S0MK"`), `fm1_stack_paint`, and the readers
+- `firmware/src/main.c:313-341`: `FM1_STACK_MARK` (`"S0MK"`), `fm1_stack_paint`, and the readers
   `fm1_stack_used_user()` / `fm1_stack_used_super()`.
-- `fm1_cstart` (`main.c:376`) paints after the section copies and before `fm1_guard_enable`, with
+- `fm1_cstart` (`main.c:379`) paints after the section copies and before `fm1_guard_enable`, with
   interrupts off. The user stack is painted from `_ustack_lo` up to `(sp - 256) & ~3` (the boot frame
   and any spill slot under `sp` are left alone); the whole supervisor stack is painted, since nothing
-  has used it before the first interrupt.
+  has used it before the first interrupt. The paint is `noinline`: inlined into `fm1_cstart`, JieLi
+  clang 4.0.1 compiles the untouched audio ISR differently and the target-cost check fails
+  (`fm1_alnk0_irq` 14,016 -> 33,465 with identical IR, `tests/target_budget.py`).
 - A word still at the mark was never written since boot. `used` = stack top minus the lowest word that
   is no longer the mark. It therefore counts the boot frame and the reader's own frame: conservative,
   never optimistic. As with `fm1_cpu1_stack_used`, a live word equal to the mark reads as unused.
@@ -150,8 +151,8 @@ possible in theory.
 
 | Stack | Reserved | Static worst | Measured min free | Proposed | Freed |
 |-------|----------|--------------|-------------------|----------|-------|
-| CPU0 user | 24,320 | 5,652 | PENDING | 12,288 | 12,032 |
-| CPU0 supervisor | 7,936 | 1,868 | PENDING | 6,144 | 1,792 |
+| CPU0 user | 24,320 → **12,288** | 5,652 | PENDING (post-release) | 12,288 (applied) | 12,032 |
+| CPU0 supervisor | 7,936 → **6,144** | 1,868 | PENDING (post-release) | 6,144 (applied) | 1,792 |
 | CPU1 user | 4,096 | 1,608 | PENDING | 4,096 (3,072 if measured supports it) | 0 (1,024) |
 | CPU1 supervisor | 256 | 140 | PENDING | 256 | 0 |
 
@@ -169,21 +170,21 @@ RAM/POOL boundary also moves 1 KB.
 | Shared stereo FX filter coefficients | -1,200 B | The SVF coefficients are already shared L/R: one `pf.lk[3]` / `pf.hk[3]` pair feeds both channels (`perform.c:160,374-375,802-813`). Insert FX store state per track/stage, not coefficients (`fx.c:1205-1209`); `ins_lines` is delay history (`fx.c:1222`), not a coefficient copy. Master clip gain is scalar (`fx.c:1771`); reverb/delay are mono sends with scalar size/damp (`fx.c:682-1021`). 0 B per instance, 0 B total. | N/A: nothing to de-duplicate |
 | Quarter-wave FM6 log table | -2,560 B | Every FM6 table is `const` and lands in XIP `.text`: `objdump -t` shows `FM6_EXP2` 0x1004 B, `SINE` 0x802 B, `FM6_ALG`, `FM6_DETUNE`, `FM6_FINE`, and the rest all in `.text` at 0x02xxxxxx. RAM `.data` is 536 B of variables and `.c1_text` is 160 B of code; no FM6 table is copied. RAM cost: 0 B. | N/A |
 | Halved PUNCH history | -32 KiB while armed | PUNCH is a per-hit gain ramp with no history (`eng_drum.c:76-90,291`). The buffer effects already borrow the slicer's `sl_buf` (`perform.c:36,64,472`), one stereo loop over the four 8 KB track recordings (`slicer.c:52`: 4 x 4,096 x 2 B = 32,768 B). Halving would cut the loop from 371 ms to 185 ms and the per-track recording from 186 ms to 93 ms, under the plan's low-BPM limit. | N/A (already shared); do not halve |
-| Compressed resident code | — | Code runs from XIP: `.text` 541,032 B at 0x02000120; only `.ram_text` 2,924 B (flash driver) and `.c1_text` 160 B (core 1 idle loop) are copied to RAM (VERIFIED, `objdump -h` and `./build.sh`). | N/A |
+| Compressed resident code | — | Code runs from XIP: `.text` 541,208 B at 0x02000120; only `.ram_text` 2,924 B (flash driver) and `.c1_text` 160 B (core 1 idle loop) are copied to RAM (VERIFIED, `objdump -h` and `./build.sh`). | N/A |
 
 ## Recommendation
 
-1. **Do not resize any stack in this PR.** It is instrumentation plus this report. The static margins
-   are comfortable, but no hardware reading exists yet and the plan's own rule says not to shrink when
-   static and measured differ by more than 2x.
-2. Run the workload checklist on the unit, then fill the PENDING columns. The expected numbers are
-   CPU0 user <= 8 KB, CPU0 supervisor <= 2.5 KB, CPU1 user <= 2 KB. If they land there, the follow-up
-   PR is: CPU0 user 12,288 B, supervisor 6,144 B, CPU1 user 3,072 B, which returns 14,848 B in total
-   (13,824 B to POOL, 1,024 B to RAM headroom, or to POOL if the RAM boundary moves).
-3. If a reading reaches the static worst but with a smaller margin (for example CPU0 user > 8 KB because
-   a deeper editor/menu path was missed), keep 24,320 B and report the path instead of shrinking.
+1. **Applied in v3.2:** CPU0 user 12,288 B and supervisor 6,144 B, the sizes Melodee 1.5 audited and
+   shipped on the same SDK. Araminta's static worst paths are 5,652 B and 1,868 B: 2.2x and 3.3x
+   margin. The 13,824 B freed go to POOL; `_sstack_top` stays at `0x01C7C000`, so NOINIT does not move.
+   CPU1 stays at 4,096 B (static 1,608 B, Melodee also kept 4,096).
+2. Run the workload checklist on the unit after release and fill the PENDING columns; this is a
+   confirmation, not a gate. Expected: CPU0 user <= 8 KB, supervisor <= 2.5 KB, CPU1 <= 2 KB.
+3. If a reading exceeds the new size, or reaches the static worst with less than 25 % margin, revert
+   that stack to the old size in a follow-up and report the path. The instrumentation already prints
+   `c0_stack_used user/super` in `status`.
 4. Melodee's other three wins do not apply: the coefficient copies and the FM6 table are not in RAM in
-   Araminta, and the slicer buffer is already shared. The only remaining lever is the stack sizes above,
+   Araminta, and the slicer buffer is already shared. The stack sizes above are the only remaining lever,
    plus the existing pool headroom.
 
 ## PENDING
