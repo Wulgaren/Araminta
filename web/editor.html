@@ -1507,7 +1507,7 @@ async function capturePatch(rq, info, name) {
   const dump = parse[CMD.DUMP](await rq(req.dump()), info);
   const steps = [];
   for (let i = 0; i < UP.PAT && i < info.nstep; i++) steps.push(parse[CMD.STEP_GET](await rq(req.stepGet(i))));
-  const drum = info.engines[dump.engine] === "DRUM";   /* (a DRUM track that strikes a lane: its grid) */
+  const drum = info.engines[dump.engine] === "DRUM-X";   /* (a DRUM track that strikes a lane: its grid) */
   let fm6 = null;                                      /* an FM6 track: its own patch (the selected track's) */
   if (info.fm6 && info.engines[dump.engine] === "FM6") {
     const sel = info.ntrk ? parse[CMD.TRACK](await rq(req.track())).sel : 0;
@@ -1917,7 +1917,7 @@ function fromDigital(pt, engines, pe0) {
 const reservedFm4 = (engines, e) => e === 1 && (engines || [])[1] === "-";   /* a device's slot of a DIGITAL sound */
 /* SAMPLE SET 4 was PERC, the GM drum kit (retired after 1.0.2; src/core.h drum_from_perc): a sound of it is the DRUM
    engine with its default kit (eng_drum.c DRUM_PRESETS[0], the same GM key map); the rest of its values stay. engines:
-   the names ("SAMPLE", "DRUM"; none: the firmware's indices 4, 10), pe0: P_E0 in its p. -> the DRUM patch, or null when
+   the names ("SAMPLE", "DRUM-X"; none: the firmware's indices 4, 10), pe0: P_E0 in its p. -> the DRUM patch, or null when
    pt is no such sound or there is no DRUM. The device converts its own (projects, user presets) the same way */
 const PERC_SET = 4, DRUM_KIT_E = [64, 64, 70, 64, 64, 0, 0, 0];   /* DRUM-X {MRPH,TUNE,TONE,DECY,NOIS,FM,FOLD,DRV} */
 
@@ -1926,7 +1926,7 @@ function fromRetire(pt, engines, pe0) {
   const e = pt.engine, name = pt.engineName || (engines || [])[e];
   const retired = (e === 13 || name === "SLICE") && ((engines || [])[e] === "-" || name === "SLICE");
   if (!retired) return null;
-  const to = (engines || []).indexOf("DRUM");
+  const to = (engines || []).indexOf("DRUM-X");
   if (to < 0) return null;
   const p = pt.p.slice();
   const kit = DRUM_KIT_E;
@@ -1936,7 +1936,7 @@ function fromRetire(pt, engines, pe0) {
 function fromPerc(pt, engines, pe0) {
   const names = engines && engines.length ? engines : null;
   const name = pt.engineName || (names || [])[pt.engine];
-  const p = pt.p || pt.params, drum = names ? names.indexOf("DRUM") : 10;
+  const p = pt.p || pt.params, drum = names ? names.indexOf("DRUM-X") : 10;
   /* SAMPLE name (index 4): PERC set still becomes DRUM */
   const sample = name === "SAMPLE" || pt.engine === 4;
   if (!sample || !Array.isArray(p) || drum < 0) return null;
@@ -1944,13 +1944,13 @@ function fromPerc(pt, engines, pe0) {
   if (p[e0] !== PERC_SET) return null;
   const q = p.slice();
   DRUM_KIT_E.forEach((v, i) => { q[e0 + i] = v; });
-  return { ...pt, engine: drum, engineName: "DRUM", p: q, params: undefined };
+  return { ...pt, engine: drum, engineName: "DRUM-X", p: q, params: undefined };
 }
 /* an engine's name to show: the reserved engine 1 holds DIGITAL sounds that play as FM6 */
 const engineLabel = (engines, e) => {
   const n = (engines || [])[e];
   if (e === 1 && n === "-") return "FM6";
-  if (n === "-" && e === 13) return "DRUM";
+  if (n === "-" && e === 13) return "DRUM-X";
   return n ?? String(e);
 };
 
@@ -1986,7 +1986,7 @@ function makeMockDevice(opt = {}) {
     E("MIDI", ["USB", "TRS"], 0), D("REL", F.PCT, 0, 100, 30), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], 0), D("CPU", F.INT, 0, 0, 0),
     D("SLOT", F.INT, 1, 4, 1), E("NAME", NDASH, 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
     E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL",
-      "GRAIN", "PHYS", "DRUM", "NOISE", "FM6", "-", "WAVETABLE"], 0), D("CLIP", F.PCT, 0, 100, 0),
+      "GRAIN", "PHYS", "DRUM-X", "NOISE", "FM6", "-", "WAVETABLE", "DRUMS"], 0), D("CLIP", F.PCT, 0, 100, 0),
     E("CLRSQ", NGO, 0), E("INIT", NGO, 0),
     E("TYPE", ["ROOM", "SPRING", "HALL", "SHIMR", "CLOUD"], 2), /* G_RTYPE (id 24): HALL default; JIANT SHIMR/CLOUD */
     D("PNCH", F.PCT, 0, 100, 0), D("DUCK", F.PCT, 0, 100, 0),   /* G_PUNCH / G_DUCK (was G_DRLVL / G_DRREV) */
@@ -2057,7 +2057,7 @@ function makeMockDevice(opt = {}) {
         P("KALIMBA", [0, 34, 16, 56, 100, 90, 0, 48], [0, 100, 127, 60], 0, 7), P("HAND DRUM", [2, 112, 76, 56, 44, 100, 14, 24], [0, 100, 127, 64], 0, 6),
         P("TOMS", [2, 0, 52, 40, 30, 100, 40, 30], [0, 100, 127, 70], 0, 2), P("DRONE STRING", [3, 127, 80, 88, 64, 100, 92, 0], [0, 100, 127, 90], 0, 3),
         P("HARP", [3, 8, 62, 74, 60, 90, 0, 0], [0, 100, 127, 80], 0, 3)] },
-    { name: "DRUM", titles: ["KIT", "HIT"], edit: [D("MRPH", F.PCT, 0, 127, 64), D("TUNE", F.PCT, 0, 127, 64),
+    { name: "DRUM-X", titles: ["KIT", "HIT"], edit: [D("MRPH", F.PCT, 0, 127, 64), D("TUNE", F.PCT, 0, 127, 64),
         D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("NOIS", F.PCT, 0, 127, 64), D("FM", F.PCT, 0, 127, 0),
         D("FOLD", F.PCT, 0, 127, 0), D("DRV", F.PCT, 0, 127, 0)],
       presets: [P("DRUM-X", [64, 64, 70, 64, 64, 0, 0, 0], [0, 100, 127, 100], 0, 12)] },
@@ -2091,8 +2091,17 @@ function makeMockDevice(opt = {}) {
         P("DIGITAL", [1, 18, 50, 40, 1, 64, 20, 9], [0, 65, 70, 40], 0, 11),
         P("PLUCK", [1, 62, 0, 0, 1, 62, 0, 3], [0, 88, 0, 65], 0, 3),
         P("SWEEP", [1, 40, 18, 22, 1, 40, 30, 5], [40, 80, 90, 80], 0, 5)] },
+    { name: "DRUMS", titles: ["KIT", "HIT"], edit: [
+        E("KIT", ["STD", "80", "10", "66", "55", "77", "DEEP", "TIGHT", "PERC"], 0),
+        D("TUNE", F.PCT, 0, 127, 64), D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64),
+        D("SNAP", F.PCT, 0, 127, 64), D("ACC", F.PCT, 0, 127, 100), E("KICK", ["PUNCH", "ROUND"], 0),
+        D("DRV", F.PCT, 0, 127, 0)],
+      presets: [P("DRUM KIT", [0, 64, 70, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12),
+        P("DEEP KIT", [6, 64, 64, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12),
+        P("TIGHT KIT", [7, 64, 64, 56, 64, 100, 0, 16], [0, 100, 127, 100], 0, 12),
+        P("PERC KIT", [8, 64, 64, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12)] },
   ];
-  const FM6_E = ENG.findIndex((e) => e.name === "FM6"), FM6_OWN = FM6.FACTORY_PK.length, DRUM_E = ENG.findIndex((e) => e.name === "DRUM");
+  const FM6_E = ENG.findIndex((e) => e.name === "FM6"), FM6_OWN = FM6.FACTORY_PK.length, DRUM_E = ENG.findIndex((e) => e.name === "DRUM-X");
   /* factory PATTERNS[] (engines.c; the device loads them from SAVE > PHRASES, presets only suggest one): absolute
      notes, 0 rest; flags 1 accent, 2 slide, 4 tie (holds the previous note) */
   const T_ = 4;
@@ -2155,7 +2164,7 @@ function makeMockDevice(opt = {}) {
   const desc = (scope, id) => (scope === 0 && id < P_COUNT ? (id >= P_E0 ? ENG[st.engine].edit[id - P_E0] : TP[id])
     : scope === 1 && id < G_COUNT ? GP[id] : null);
   const EMPTY = { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0, chance: 100, ratchet: 1 };
-  const isDrum = () => ENG[st.engine].name === "DRUM";
+  const isDrum = () => ENG[st.engine].name === "DRUM-X";
   const clearSteps = () => st.step.forEach((s) => Object.assign(s, EMPTY, { notes: [0, 0, 0, 0] }));
   function toGrid(s) {                            /* eng_drum.c step_to_grid: a lane's own note becomes its hit */
     if (s.time !== 0) return;
@@ -2816,7 +2825,7 @@ function enumShown(d) {
 /* the order the device shows its engines in (src/engines.c ENGINE_ORDER): the lists here follow it, the protocol keeps
    the engine numbers. engineOrder(names): the indices of names in that order, "-" (a reserved number) left out; a name
    the list does not know (another firmware) follows in index order */
-const ENGINE_ORDER = ["ANALOG", "FM6", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS", "NOISE", "DRUM", "WAVETABLE"];
+const ENGINE_ORDER = ["ANALOG", "FM6", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS", "NOISE", "DRUM-X", "DRUMS", "WAVETABLE"];
 function engineOrder(names) {
   const rank = (n) => { const k = ENGINE_ORDER.indexOf(n); return k < 0 ? ENGINE_ORDER.length : k; };
   return (names || []).map((n, i) => i).filter((i) => names[i] !== "-")
@@ -3250,7 +3259,7 @@ const LAYOUT = (pe0) => [
   { t: "LFO", pages: [["LFO", 0, [9, 10, 11, 12]], ["LFO DEST", 0, [13, 14, 15, 16]]] },
   ...(pe0 >= 61 ? [{ t: "MOD", mod: 49 }] : []),   /* the matrix: P_M1SRC 49 .. P_M4AMT 60, one row per slot */
   { t: "EDIT", engine: true, pages: [["EDIT 1", 0, [pe0, pe0 + 1, pe0 + 2, pe0 + 3]], ["EDIT 2", 0, [pe0 + 4, pe0 + 5, pe0 + 6, pe0 + 7]],
-    ...(pe0 >= 91 && engName() === "DRUM" ? [["LANES", 0, P_LANES.slice(0, 4)], ["LANES 2", 0, P_LANES.slice(4)]] : [])] },   /* lane levels 83..90 */
+    ...(pe0 >= 91 && engName() === "DRUM-X" ? [["LANES", 0, P_LANES.slice(0, 4)], ["LANES 2", 0, P_LANES.slice(4)]] : [])] },   /* lane levels 83..90 */
   ...(pe0 >= 81 && engName() === "DIGITAL" ? [{ t: "OP ENV", pages: [   /* P_FM1_ATK 61: ATK DEC SUS REL LVL per operator (a
                                                     FELUCCA_FM4=1 firmware only: DIGITAL retired, its engine is "-") */
     ...[0, 1, 2, 3].map((k) => [`OP${k + 1}`, 0, [61 + 5 * k, 62 + 5 * k, 63 + 5 * k, 64 + 5 * k]]),

@@ -4762,7 +4762,7 @@ static int test_fm4_retired(void)
         if (e < NENGINES)
             seen |= 1u << e;
     }
-    bad += check("PRESETS: the list holds every engine's presets but DIGITAL's", seen == all && NENG_SHOWN == 13u + FELUCCA_FM4);
+    bad += check("PRESETS: the list holds every engine's presets but DIGITAL's", seen == all && NENG_SHOWN == 14u + FELUCCA_FM4);
     go_page(GR_BROWSE);
     set_engine_of(TSEL, 0);
     for (i = 0, seen = 0; i < NENG_SHOWN; i++) {
@@ -4774,7 +4774,7 @@ static int test_fm4_retired(void)
                  eng_step(ENGI_FM6, -1) == 0u && eng_step(0, -1) == ENGI_WT && eng_step(ENGI_WT, 1) == 0u);
     {   /* the display order (engines.c ENGINE_ORDER): every engine one can pick once; the PRESETS list follows it */
         static const char *const ORDER[] = {"ANALOG", "FM6", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN",
-                                            "PHYS", "NOISE", "DRUM", "WAVETABLE"};
+                                            "PHYS", "NOISE", "DRUM-X", "DRUMS", "WAVETABLE"};
         uint32_t last = 0xFFu, r = 0, n = 0;
         ok = NENG_SHOWN == NELEM(ORDER);
         for (i = 0; ok && i < NENG_SHOWN; i++)

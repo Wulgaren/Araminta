@@ -39,15 +39,15 @@ the end of the step replies, and an optional last byte of a step write (see "Rat
 **Parameter locks (1.1, INFO `4C 01 01`):** a motion record can be a lock: its value sounds on its step only and
 goes back after it. `MOTION` (64) gets ops 5..7 (set a lock, clear a step's locks, the query with the kinds); the
 query and ops 1..4 reply byte for byte as before (see "Parameter locks" below). A lock takes no new bytes in a
-project (bit 7 of a motion record's id); 1.1 projects are FUN9 for the DRUM lane levels below.
+project (bit 7 of a motion record's id); 1.1 projects are FUN9 for the DRUM-X lane levels below.
 
 **Chord keys (91 parameters, 1.0):** two track parameters, `CHRD` (81) and `VOIC` (82), went in before the
 engine parameters, which moved from 81..88 to 83..90: P_COUNT 91, P_E0 83. No command changed; an editor that
 takes P_COUNT and P_E0 from `INFO` keeps working (see "The chord keys" below).
 
-**DRUM lane levels (99 parameters, 1.1):** eight track parameters, `KICK` .. `BELL` (83..90, the DRUM engine's lane
+**DRUM-X lane levels (99 parameters, 1.1):** eight track parameters, `KICK` .. `BELL` (83..90, the DRUM-X engine's lane
 levels), went in before the engine parameters, which moved from 83..90 to 91..98: P_COUNT 99, P_E0 91. No command
-changed; projects are FUN9 (3648 bytes, see "Projects (FUN9)"). See "The DRUM lane levels" below.
+changed; projects are FUN9 (3648 bytes, see "Projects (FUN9)"). See "The DRUM-X lane levels" below.
 
 **1.2 (FUN10: 104 parameters, 128 motion records, NUDGE, song sections; INFO `41 01 00 01`, `54 01 16` and `57 01 4`):** four track parameters,
 `SYNC` `TRIG` `POL` (91..93, LFO 2) and `QNTZ` (94, QUANTIZE), then `SPRD` (95, SPREAD, before FUN10's release),
@@ -90,7 +90,7 @@ watches (v2, `WATCH`), the device also sends push frames (cmds 23, 24, 26) at an
 | string | ASCII bytes, ended by a 0 byte |
 | scope | 0 = parameter of the selected track (`P_*`, 0..P_COUNT−1); 1 = global parameter (`G_*`, 0..G_COUNT−1) |
 | track | 0..3: tracks 1..4 (synth parts) |
-| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 SAMPLE, 5 VOICE, 6 TRIO, 7 WHEEL, 8 GRAIN, 9 PHYS, 10 DRUM, 11 NOISE, 12 FM6, 13 reserved (SLICE retired), 14 WAVETABLE. NENGINES is 15. The device and the editor list pickable engines in another order (ANALOG FM6 PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM WAVETABLE: `ENGINE_ORDER`); the numbers stay |
+| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 SAMPLE, 5 VOICE, 6 TRIO, 7 WHEEL, 8 GRAIN, 9 PHYS, 10 DRUM-X, 11 NOISE, 12 FM6, 13 reserved (SLICE retired), 14 WAVETABLE, 15 DRUMS (Felucca's drum engine). NENGINES is 16. The device and the editor list pickable engines in another order (ANALOG FM6 PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM-X DRUMS WAVETABLE: `ENGINE_ORDER`); the numbers stay |
 
 The engine parameters are `P_E0..P_E7`: P_COUNT−8 .. P_COUNT−1 (103..110 since 1.5; 96..103 in 1.2 .. 1.4; 91..98 in
 1.1), and `INFO` gives `P_E0`.
@@ -123,9 +123,14 @@ files the same way (it equals the firmware's, `test_web.mjs`).
 
 **SAMPLE (4), GRAIN (8), NOISE (11) and SLICE (13) were removed.** Their numbers stay reserved: `INFO` names
 them "-", `NAMES` lists no presets, and no track keeps them. A project or user preset with one of those engines
-loads as ANALOG (SAMPLE / GRAIN / NOISE; SAMPLE SET 4 PERC still becomes DRUM's kit) or DRUM (SLICE), with EDIT
+loads as ANALOG (SAMPLE / GRAIN / NOISE; SAMPLE SET 4 PERC still becomes DRUM-X's kit) or DRUM-X (SLICE), with EDIT
 motion dropped (`firmware/src/eng_retire.c`, `project.c` `proj_retire`). `UP_PUT` still takes the old engine byte;
 every load converts. The editor remaps the same way (`fromRetire`).
+
+**DRUMS (engine 15, pages KIT / HIT)** is the ported Felucca drum engine: STD, 80, 10, 66, 55, 77, DEEP,
+TIGHT and PERC, with KIT / TUNE / TONE / DECY / SNAP / ACC / KICK / DRV. Its own eight parameters
+and factory presets; the SEQ drum grid and lane mutes are shared with DRUM-X. Engine 15 has no favorites
+row (the 16 rows are full), so favorite stars are not stored for it; user presets of it are still kept.
 
 **WAVETABLE (engine 14, pages OSC A / OSC B)** is two wavetable oscillators. Its eight engine
 parameters are `E1` WAVE (OSC A table; enum BASIC, SPECTRAL, USR1, USR2, USR3; default BASIC), `E2` POS (OSC A frame;
@@ -161,14 +166,14 @@ The chord keys (SCL > CHORD on the device, `firmware/src/chord.c`) are two track
 | 82 | VOIC | enum: 0 CLOSE, 1 OPEN (1-5-3), 2 INV1, 3 INV2, 4 +OCT (the root an octave down; a seventh drops its fifth) |
 
 With CHRD on, a key, a MIDI note of that track and so the arp's held notes play the chord (at most 4 notes),
-and live recording writes it into one step; MONO / LEGATO / UNISON play its root; a kit (DRUM, SLICE)
+and live recording writes it into one step; MONO / LEGATO / UNISON play its root; a kit (DRUM-X, DRUMS, SLICE)
 ignores it. Both defaults are 0: nothing changes until CHRD is set. They are the track's, like ARP and SCL: a
 sound load (a factory preset, `UP_LOAD`, an audition) keeps them, and motion never records them.
 
-The DRUM lane levels (EDIT > LANES / LANES 2 on the device, `firmware/src/eng_drum.c`) are eight track parameters at
+The DRUM-X lane levels (EDIT > LANES / LANES 2 on the device, `firmware/src/eng_drum.c`) are eight track parameters at
 ids 83..90, one per lane: 83 KICK, 84 SNARE, 85 CLAP, 86 HATCL, 87 HATOP, 88 TOM, 89 RIM, 90 BELL. Percent (`F_PCT`),
-0..127, default 127 = 100 % (the kit as designed), square law (64: about −12 dB). Only the DRUM engine reads them; the
-editor shows them on a DRUM track only (the device's pages). They are the sound's (not the track's): a factory preset
+0..127, default 127 = 100 % (the kit as designed), square law (64: about −12 dB). Only the DRUM-X engine reads them; the
+editor shows them on a DRUM-X track only (the device's pages). They are the sound's (not the track's): a factory preset
 sets them back to 127, user presets and projects store them (older ones load at 127), motion records them.
 
 Other enums that grew: `P_SDIV` (DIV, id 30) has 10 names (1/4, 1/8, 1/16, 1/32, 8T, 16T, 1/2, 1/1, 2BAR,
@@ -328,13 +333,13 @@ numbered 0..31 (the device shows U01..U32).
 - `UP_PUT`: rc 1 for a slot ≥ 32, an engine ≥ NENGINES, a name that is empty, longer than 12 or has
   bytes outside 32..126, or an incomplete or oversized frame. Values are clamped to their ranges for that
   engine. A note with flag 4 is stored as a tie (note 0); flags on a rest are dropped.
-- **DRUM** (engine 10) was PHYS's MODEL 4 (DRUM) before 1.0. A record of PHYS with E1 (MODEL) = 4,
-  stored then or sent by `UP_PUT` from an older editor, is the DRUM engine: the device rewrites it (engine
+- **DRUM-X** (engine 10) was PHYS's MODEL 4 (DRUM) before 1.0. A record of PHYS with E1 (MODEL) = 4,
+  stored then or sent by `UP_PUT` from an older editor, is the DRUM-X engine: the device rewrites it (engine
   10; E1..E8 {MODEL, TUNE, TONE, DECY, SNAP, ACC, KICK 0..127, PERC 0..127} become {KIT = PERC / 32, TUNE,
   TONE, DECY, SNAP, ACC, KICK 0 PUNCH / 1 ROUND (old ≥ 64), DRV 0}), and `UP_GET` / `UP_LIST` give it so.
   Projects do the same. PHYS's MODEL is 0..3 (MODAL STRNG MEMB SYMP) now.
 - **SAMPLE SET 4** was PERC, the General MIDI drum kit, until 1.0.2. A record of SAMPLE (engine 4) with E1 (SET)
-  = 4, stored then or sent by `UP_PUT`, is the DRUM engine with its default kit: the device rewrites it (engine 10,
+  = 4, stored then or sent by `UP_PUT`, is the DRUM-X engine with its default kit: the device rewrites it (engine 10,
   E1..E8 = DRUM KIT's {0, 64, 70, 64, 64, 100, 0, 0}, the other values and the pattern as they were). Projects
   and `PRESET` 4 / 4 do the same (a project's track keeps its steps). SET 4 itself stays (`DESC` names it "PIANO":
   an alias, as SET 1; a `SET` of 4 lands on 0), SET 5 is CR78, and USR1..USR3 are 6..8; GRAIN's SRC 4 plays PIANO.
@@ -377,13 +382,13 @@ the twelve matrix parameters (ids 49..60): P_COUNT 69, P_E0 61. An editor takes 
 records stored with 53 load with the SLICER off and every matrix slot off, with 57 with every slot off. The
 twenty FM operator parameters (ids 61..80) went in before P_E0 after that: P_COUNT 89, P_E0 81. Records stored with 69 load with
 those at their defaults, which change nothing. Then the chord keys (ids 81, 82): P_COUNT 91, P_E0 83; records
-stored with 89 (or 69) load with CHRD OFF and VOIC CLOSE, their engine values at 83..90. Then the DRUM lane levels
+stored with 89 (or 69) load with CHRD OFF and VOIC CLOSE, their engine values at 83..90. Then the DRUM-X lane levels
 (ids 83..90): P_COUNT 99, P_E0 91; records stored with 91 (1.0.x) or fewer load with every lane at 127 (100 %), their
 engine values at 91..98.
 
 ## v5: the drum grid
 
-A DRUM track (engine 10) is edited on the device as a grid of 8 lanes × the steps (SEQ > STEP). The
+A DRUM-X track (engine 10) is edited on the device as a grid of 8 lanes × the steps (SEQ > STEP). The
 grid lives in the steps themselves, so every engine has it:
 
 - **Hits.** Each step has a lane mask `hit` and an accent mask `acc` (bit l = lane l, `acc` only on
@@ -398,11 +403,11 @@ grid lives in the steps themselves, so every engine has it:
 - **Notes on lanes.** A step's notes keep playing as before; the device shows each note on the lane
   it strikes (GM 35..81, the others folded into their octave of 36..47: a low tom 41 on TOM, a crash 49 on
   BELL). When the device edits a lane of a step, notes on that lane become the lane's hit. Patterns
-  loaded on the device into a DRUM track (SAVE > PHRASES, e.g. 12 BEAT), and DRUM tracks of projects saved
+  loaded on the device into a DRUM-X track (SAVE > PHRASES, e.g. 12 BEAT), and DRUM-X tracks of projects saved
   before the grid, get their lanes' own notes as hits (the same notes and velocities play).
 - **Sound loads never convert steps** (as before): switching a track to or from DRUM keeps its notes
   and hits.
-- **User presets.** A user preset stored from a DRUM track whose first 16 steps strike a lane holds a
+- **User presets.** A user preset stored from a DRUM-X track whose first 16 steps strike a lane holds a
   16-step grid instead of a note pattern (record version 3; version 5 with byte values). `UP_GET` gives its low 7 bits in the 16
   (note, flags) pairs (hits, accents), then kind 1 and 16 bytes of bit 7s (bit 0 hits, bit 1 accents);
   a note pattern ends with kind 0. `UP_PUT` with kind 1 and the 16 bytes stores a grid (accents only on
@@ -447,7 +452,7 @@ grid lives in the steps themselves, so every engine has it:
   `G_ENGSEL`, `UP_LOAD` and `UP_STORE` work on it; its level is its `P_LEVEL`. The commands are byte for
   byte as before; only the meaning changed. Firmware before 1.0 had a GM drum track there: engine byte
   NENGINES, no presets (`UP_LOAD` / `UP_STORE` rc 1), its level the global `G_DRLVL`. Drums are now the
-  DRUM engine on any part: the first C key is the kick (C2 = 36), notes are GM numbers.
+  DRUM-X engine on any part: the first C key is the kick (C2 = 36), notes are GM numbers.
 - The globals `G_DRCH`, `G_DRLVL`, `G_DRREV` (ids 24..26: the old drum track's MIDI channel, level and
   reverb send) keep their ids, and `G_COUNT` stays 27. `G_DRLVL` and `G_DRREV` are inert: `DESC` gives
   label "-", range 0..0, and no page shows them. Id 24 (`G_DRCH`, never read since 1.0) is `G_RTYPE`
@@ -464,7 +469,7 @@ grid lives in the steps themselves, so every engine has it:
   others. Presets and user presets change a part's sound but keep its `P_LEVEL`, `P_PAN`, `P_MUTE`.
 - Projects (`PROJECT`) save and load all four tracks, the selection, the song chain and the motion (FUN7;
   FUN5 added the drum grid, FUN6 the chain). Formats 6..1 are converted; a format 1 project loads into track 1. A project saved before
-  1.0 loads its drum track as track 4 with DRUM's kit (SAMPLE PERC until 1.0.2), its steps kept.
+  1.0 loads its drum track as track 4 with DRUM-X's kit (SAMPLE PERC until 1.0.2), its steps kept.
 - Older firmware (no NTRK in `INFO`): one instrument; skip the track UI.
 
 ## v4: any track's parameters
@@ -604,7 +609,7 @@ when the track's engine is not the saved one).
   holds until another step changes it; the loop restarts from the sound's own value, and stopping puts the
   sound's own values back. Parameters that can be recorded (`motion_param`): ids 0..16 (LEVEL, ENV, LFO),
   33..36 (DIST, CHO, DLY, REV), 38 (GLIDE), 39 (PAN), 44 (DETUNE), 61..80 (the FM operator parameters) and
-  83..90 (the DRUM lane levels), 91..98 (the engine parameters; not the chord keys 81, 82). PITCH (127) is
+  83..90 (the DRUM-X lane levels), 91..98 (the engine parameters; not the chord keys 81, 82). PITCH (127) is
   lock-only: automation capture ignores it, and `MOTION` op 5 writes it. The device records the others while the
   track is armed, playing and selected, from its knobs
   and from `SET` / `TRACK_PARAM` alike.
@@ -622,7 +627,7 @@ when the track's engine is not the saved one).
   - A pattern load and a pattern clear on the device drop the track's motion; the device's UNDO brings it back.
     `MOTION` clear does the same through the same undo copy. A sound load (a preset, `PRESET`, `G_ENGSEL`, `UP_LOAD`,
     INIT SOUND) keeps it since 1.1.5 when the engine stays the same; when the engine changes the records on the
-    engine's own ids (E1..E8 `P_E0..P_E7`, DIGITAL's 61..80, the DRUM lane levels) go and the rest (both kinds)
+    engine's own ids (E1..E8 `P_E0..P_E7`, DIGITAL's 61..80, the DRUM-X lane levels) go and the rest (both kinds)
     stays, PLAY as it was (until 1.1 a sound load dropped the whole motion). Poll `MOTION` after a load.
   - The device's own lock edits (a step held + a knob, SEQ > AUTOMATION (1.1.5's AUTO LIST)) go through its UNDO; `MOTION` ops
     3..7 do not (the protocol is unchanged in 1.1.5).

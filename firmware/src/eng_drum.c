@@ -48,7 +48,7 @@ static uint8_t dx_mot[4];
 static int32_t dx_mot_v;
 static uint32_t dx_mot_rng = 0x9E3779B9u;
 
-ENG_MEM_FITS("DRUM", sizeof(drum_lane_t) * DV_NLANE);
+ENG_MEM_FITS("DRUM-X", sizeof(drum_lane_t) * DV_NLANE);
 /* 1.4.1: each part's lanes muted (bit l: lane l). SEQ TOOLS F4 mutes the selected lane; the EDIT layer's black keys
  * 1..8 do the same (ui_layer.c EQA_DRUM). Performance state: not saved, not recorded, no undo; a sound or project
  * load clears it */
@@ -332,7 +332,7 @@ static const preset_t DRUM_PRESETS[] = {
 };
 
 static const engine_t ENG_DRUM = {
-    .name = "DRUM",
+    .name = "DRUM-X",
     .page_title = {"KIT", "HIT"},
     .edit = {
         {"MRPH", F_PCT, 0, 127, 64, 0, 0},

@@ -1240,7 +1240,7 @@ static const char *eng_abbr(const char *name)
 #endif
                                        {"PHASE", "PHAS"}, {"LOFI", "LOFI"},
                                        {"SAMPLE", "SMPL"}, {"VOICE", "VOCL"}, {"TRIO", "TRIO"}, {"WHEEL", "WHEL"},
-                                       {"GRAIN", "GRAN"}, {"PHYS", "PHYS"}, {"DRUM", "DRUM"},
+                                       {"GRAIN", "GRAN"}, {"PHYS", "PHYS"}, {"DRUM-X", "DRMX"}, {"DRUMS", "DRMS"},
                                        {"NOISE", "NOIS"}, {"FM6", "FM6"}, {"SLICE", "SLCE"},
                                        {"WAVETABLE", "WTBL"}};
     uint32_t i;

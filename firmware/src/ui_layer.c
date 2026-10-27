@@ -423,6 +423,7 @@ static const eqa_t EQA_DRUM[NLANE] = {EQA_LANE(0), EQA_LANE(1), EQA_LANE(2), EQA
     EQA_LANE(6), EQA_LANE(7)};
 static const eqa_set_t EQA[] = {
     {ENGI_DRUM, NLANE, EQA_DRUM},
+    {ENGI_DRUMS, NLANE, EQA_DRUM},
 };
 typedef char eqa_fits[NLANE <= 11 ? 1 : -1];       /* (11 black keys) */
 

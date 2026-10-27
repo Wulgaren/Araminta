@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **DRUMS: Felucca's drum engine is back.** A separate engine (15) beside DRUM-X, with the original
+  synthesized 8-lane kits: STD, 80, 10, 66, 55, 77, DEEP, TIGHT and PERC. Parameters
+  KIT / TUNE / TONE / DECY / SNAP / ACC / KICK / DRV, the GM key map, lane mutes and the SEQ drum grid.
+  DRUM-X stays engine 10; old projects and presets still play DRUM-X. Flash +14,384 B (566,108 B image,
+  15,456 B free), RAM +208 B, POOL unchanged. Favorites for engine 15 are skipped (the 16-row table is full).
+  Editor protocol engine 15, web editor table and tests updated.
+
 ## 3.2
 
 The stock V15 supply rails before core 1, a per-step PITCH lock, beat-synced chord STRUM / STROKE, the new
