@@ -6296,6 +6296,30 @@ static int test_seq_tools(void)
     ok &= TSEL->p[P_SLEN] == 8 && !memcmp(TSEL->step, ref, sizeof ref) && tl_lock_at(3);
     bad += check("  *2 squeezes pairs (LEN 8 -> 4), first note wins; SAVE held undoes", ok);
 
+    /* Colliding locks follow the retained note, regardless of record insertion order. */
+    ui_power_on();
+    tl_melody();
+    tl_note(&TSEL->step[1], 62);
+    motion_set_lock(TSEL, 1, P_REV, 90);
+    motion_set_lock(TSEL, 0, P_REV, 30);
+    motion_set_lock(TSEL, 2, P_REV, 70);             /* step 3 is empty: step 4's E wins */
+    go_title("SEQ TOOLS"); frame();
+    tl_key(9);
+    {
+        int16_t v;
+        project_store_t packed;
+        project_t project;
+        project_capture(&project);
+        ok = motion_lock_get(TSEL, 0, P_REV, &v) && v == 30 &&
+             motion_lock_get(TSEL, 1, P_REV, &v) && v == 50 &&
+             proj_pack(&packed, &project);
+    }
+    bad += check("  *2 keeps the retained note's locks and the project remains saveable", ok);
+    hold(B_SAVE);
+    ui_power_on();
+    tl_melody();
+    go_title("SEQ TOOLS"); frame();
+
     /* HUMAN: per step, fresh velocity / nudge each press; QUANTIZE off so the nudge plays */
     go_title("SEQ TOOLS"); frame();
     TSEL->p[P_SQNT] = 1;
