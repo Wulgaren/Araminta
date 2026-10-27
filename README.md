@@ -83,7 +83,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
 - **Fourteen engines** (below), each with its own factory presets; every factory sound has a category (BASS, LEAD,
   PAD, PLUCK, KEYS, DRUM, FX, OTHER) to browse by
-- **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM-X engine);
+- **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM-X or DRUMS engine);
   8 voices shared between them. ALGORITHM selects the track on every page
 - **Sequencer:** 64 steps per track with chords, ties, accent, slide, per-step chance, velocity and ratchets
   (a step played 2, 3 or 4 times in its length); **SEQ** sections are the step group (SELECT: PATTERN / STEP /
