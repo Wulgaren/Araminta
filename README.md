@@ -97,11 +97,12 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   or new notes in the scale on the same rhythm) and **COOK** (changes the pattern a little each press); on a DRUM
   track also BEAT, **MUTE** (F4 toggles the selected lane) and each lane's CLEAR, REVERSE, FILL and RANDOM;
   KNOB 1-4 are LEN, DIV, SWING and GATE. Each tool is one undo (SAVE held); OCT- puts the track back as the layer found it
-- **NOTE EDITS on SEQ TOOLS:** **OCT- / OCT+** on E4 / F4 (BEAT / MUTE on a DRUM track) transpose the stored notes
-  ±12; **HALF** on D5 stretches the pattern over twice the steps and **\*2** on E5 squeezes pairs into one (LEN changes
-  with them); **HUMAN** on F5 writes fresh velocity ±16 and nudge ±2 into every note step (and switches QUANTIZE off
-  so the nudge plays); **DUP** on G5 copies the pattern after itself (`A -> A A`, LEN doubles, max 64). One undo each
-  (SAVE held); OCT- puts back the whole visit
+- **NOTE EDITS on SEQ TOOLS:** on a melodic track the six edits follow the sequence tools with no gap: **OCT- /
+  OCT+** on E4 / F4 transpose the stored notes ±12; **HALF** on G4 stretches the pattern over twice the steps;
+  **\*2** on A4 squeezes pairs into one (LEN changes with them); **HUMAN** on B4 writes fresh velocity ±16 and
+  nudge ±2 into every note step (and switches QUANTIZE off so the nudge plays); **DUP** on C5 copies the pattern
+  after itself (`A -> A A`, LEN doubles, max 64). On a DRUM track BEAT / MUTE and the lane tools keep E4..C5, so
+  HALF / \*2 / HUMAN / DUP are D5..G5. One undo each (SAVE held); OCT- puts back the whole visit
 - **Metronome and count-in:** CLICK (OFF, while recording, or always) with three levels, and a count-in
   of 1 or 2 bars before recording from stop; the click goes to the headphones and speaker only, never to
   USB audio or into a pattern

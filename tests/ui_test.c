@@ -6241,9 +6241,9 @@ static int test_seq_tools(void)
     ok &= !memcmp(TSEL->step, ref, sizeof ref);
     bad += check("  OCT- transposes stored notes -12; SAVE held undoes", ok);
 
-    /* DUP: A -> A A, LEN x2, steps / locks / automation copied; G5 is the last tool on the page */
+    /* DUP: A -> A A, LEN x2, steps / locks / automation copied; C5 is the last edit on a melodic track */
     go_title("SEQ TOOLS"); frame();
-    tl_key(15);                                         /* G5: DUP */
+    tl_key(11);                                         /* C5: DUP */
     ok = msg_is("DUPLICATED") && TSEL->p[P_SLEN] == 16 && step_note(&TSEL->step[8], 0) == 60 &&
          TSEL->step[9].time == ST_TIE && step_note(&TSEL->step[11], 0) == 64 && step_note(&TSEL->step[13], 0) == 67 &&
          step_note(&TSEL->step[20], 0) == 72 && tl_lock_at(3) && tl_lock_at(11);
@@ -6253,7 +6253,7 @@ static int test_seq_tools(void)
 
     /* HALF: each step twice as long, LEN x2; TIEs follow their note, short notes stay short */
     go_title("SEQ TOOLS"); frame();
-    tl_key(12);                                         /* D5: HALF */
+    tl_key(8);                                          /* G4: HALF */
     ok = msg_is("HALF TIME") && TSEL->p[P_SLEN] == 16 && TSEL->step[0].time == ST_NOTE &&
          step_note(&TSEL->step[0], 0) == 60 && TSEL->step[1].time == ST_TIE && TSEL->step[2].time == ST_TIE &&
          TSEL->step[3].time == ST_TIE && step_note(&TSEL->step[6], 0) == 64 &&
@@ -6264,7 +6264,7 @@ static int test_seq_tools(void)
 
     /* *2: each pair becomes one, LEN /2; the first playing step wins, a held note becomes a tie */
     go_title("SEQ TOOLS"); frame();
-    tl_key(13);                                         /* E5: *2 */
+    tl_key(9);                                          /* A4: *2 */
     ok = msg_is("DOUBLE TIME") && TSEL->p[P_SLEN] == 4 && step_note(&TSEL->step[0], 0) == 60 &&
          step_note(&TSEL->step[1], 0) == 64 && step_note(&TSEL->step[2], 0) == 67 && TSEL->step[3].time == ST_REST &&
          step_note(&TSEL->step[20], 0) == 72 && tl_lock_at(1) && !tl_lock_at(3);
@@ -6276,7 +6276,7 @@ static int test_seq_tools(void)
     go_title("SEQ TOOLS"); frame();
     TSEL->p[P_SQNT] = 1;
     rng_state = 0x2468ACEu;
-    tl_key(14);                                         /* F5: HUMAN */
+    tl_key(10);                                         /* B4: HUMAN */
     ok = msg_is("HUMANIZED QNTZ OFF") && TSEL->p[P_SQNT] == 0 && TSEL->step[1].time == ST_TIE &&
          TSEL->step[2].time == ST_REST;
     for (i = 0; i < 8u; i++) {
@@ -6298,8 +6298,8 @@ static int test_seq_tools(void)
     TSEL->p[P_SQNT] = 1;
     go_title("SEQ TOOLS"); frame();
     tl_key(7);
-    tl_key(15);
-    tl_key(14);
+    tl_key(11);
+    tl_key(10);
     press(B_OCTDN);
     ok = TSEL->p[P_SLEN] == 8 && TSEL->p[P_SQNT] == 1 && !memcmp(TSEL->step, ref, sizeof ref) &&
          tl_lock_at(3) && !tl_lock_at(11);

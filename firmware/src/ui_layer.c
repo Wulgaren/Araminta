@@ -21,7 +21,7 @@
  *   SEQ  SET   SEQ > SEQ TOOLS (the last SEQ section; the first tap is PATTERN): the white keys from F3 the sequence
  *              tools (ui_tools.c: CLEAR, REVERSE, SHIFT < >, RANDOM, COOK; on a DRUM track BEAT, MUTE and the lane's
  *              CLEAR REVERSE FILL RANDOM), black keys 1..8 the lane (DRUM); KNOB 1..4 LEN DIV SWING GATE (PATTERN's).
- *              E4 / F4 are OCT- / OCT+ on a synth (BEAT / MUTE on a kit); D5..G5 HALF, *2, HUMAN, DUP.
+ *              E4..C5 are the note edits on a synth (BEAT / MUTE / lane tools on a kit); D5..G5 HALF, *2, HUMAN, DUP on a kit.
  *              Each action one undo (SAVE held), OCT- the track as the layer opened (tl_open)
  * REC taps arm / disarm (ui_input.c); CLICK / COUNT-IN / LEVEL live in MENU > AUDIO; CLEAR sequence on SAVE > CLEAR
  * and SEQ TOOLS.
@@ -1037,8 +1037,8 @@ static void layer_clr(void)
 
 /* SEQ TOOLS: the white keys' tools, 4 a row from F3 (the whole sequence; RANDOM COOK BEAT MUTE; the lane's), on a
  * DRUM track the lanes of black keys 1..8 under them (the selected one filled, a muted lane as a muted track). A
- * melodic track: the sequence's tools plus the octave edits on E4 / F4 (BEAT / MUTE on DRUM). D5..G5 are the other
- * NOTE edits on every track. On DRUM the four rows are 20 px so the lane row still fits at y 100. */
+ * melodic track: the sequence's tools, then the six note edits E4..C5 with no gap. On DRUM E4..C5 are BEAT / MUTE
+ * and the lane tools, so the four note edits are D5..G5; the rows are 20 px there so the lane row still fits. */
 static const uint8_t TL_ICON[TL_N] = {ICON_CLEAR, ICON_X_REVERSE, ICON_X_LEFT, ICON_X_RIGHT, ICON_PROB, ICON_W_SH,
     ICON_DRUM, ICON_MUTE, ICON_CLEAR, ICON_X_REVERSE, ICON_STEPS, ICON_PROB};
 static const char *const TL_NAME[TL_N] = {"CLEAR", "REVERSE", "SHIFT", "SHIFT", "RANDOM", "COOK", "BEAT", "MUTE",
@@ -1047,14 +1047,14 @@ static const char *const TL_NAME_S[TL_N] = {"CLEAR", "REVRS", "SHIFT", "SHIFT", 
     "CLR", "REV", "FIL", "RND"};                       /* (20 px rows on DRUM: the cell has no room for the long names) */
 static const uint8_t TL2_ICON[TL2_N] = {ICON_OCTAVE, ICON_OCTAVE, ICON_TIME, ICON_DIVISION, ICON_PROB, ICON_STEPS};
 static const char *const TL2_NAME[TL2_N] = {"OCT-", "OCT+", "HALF", "*2", "HUMAN", "DUP"};
-static void layer_seq_edit(uint32_t p, int32_t h, uint32_t row)
+static void layer_seq_edit(uint32_t p, int32_t h)
 {
     char n[3] = {0, 0, 0};
     int a = tl2_at(TSEL, p);
     if (a < 0)
         return;
     n[0] = W_NOTE[p];
-    lcell(LC_X(p % 4u), 4 + (h + 4) * (int32_t)row, h, n, TL2_ICON[a], 0, TL2_NAME[a],
+    lcell(LC_X(p % 4u), 4 + (h + 4) * (int32_t)(p / 4u), h, n, TL2_ICON[a], 0, TL2_NAME[a],
           chain_busy() ? LS_DIM : LS_OFF, 0);
 }
 static void layer_seq(void)
@@ -1081,12 +1081,13 @@ static void layer_seq(void)
             st = LS_MUTE;                               /* the selected lane is muted: the key's fill */
         lcell(LC_X(p % 4u), 4 + (h + 4) * (int32_t)(p / 4u), h, n, TL_ICON[p], 0, nm, st, 0);
     }
-    if (!drum) {                                        /* E4 / F4: BEAT / MUTE on a kit, the octave edits here */
-        layer_seq_edit(6u, h, 1u);
-        layer_seq_edit(7u, h, 1u);
+    if (drum) {                                         /* D5..G5: HALF *2 HUMAN DUP */
+        for (p = 12u; p < 16u; p++)
+            layer_seq_edit(p, h);
+    } else {                                            /* E4..C5: OCT- OCT+ HALF *2 HUMAN DUP, no gap */
+        for (p = 6u; p < 12u; p++)
+            layer_seq_edit(p, h);
     }
-    for (p = 12u; p < 16u; p++)                         /* D5..G5 on every track; row 3 on a kit, 2 on a synth */
-        layer_seq_edit(p, h, drum ? 3u : 2u);
     for (p = 0; drum && p < NLANE; p++) {               /* the lanes (black keys 1..8): 8 cells of 25 px, 4 px apart.
                                                          * a muted lane: a muted track's fill; the selected one framed */
         int sel = p == ui.lane % NLANE, mu = (mute >> p) & 1u;
