@@ -37,7 +37,8 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **JIANT MIDI punch-ins.** On FX under Punch-in (FX taps: EFFECTS → SLICER → PUNCH-IN). Two fixed PUNCH-IN pages, 1/2 and 2/2 (SELECT walks the section; no reassignment): 1/2 holds REPEAT 1/8 **1/12** 1/16 1/32, LPF, HPF, OCT±, DEC±, stutters, ATK+, ARP, RANDOM; 2/2 holds REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW, **/2** (A4), **\*2** (B4) and **GLITCH** (C5). Holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK. Reverb adds SHIMR / CLOUD.
 - **Melodee.** Silent tracks still run LFO, bend, the engine block and fades, so modulation keeps moving when a track is muted or resting.
 - **Stock V15 supplies.** Before core 1 and the audio start, the FM-1 is set to the stock V15 rails (VDC14 1.60 V, SYSVDD 1.38 V, VDDIO 3.2 V) and read back. A failed setup keeps one core. MENU > ABOUT shows `RAILS 7/15 (3/11)` or `RAILS FAIL 1 CORE`.
-- **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project (FUN16 / `FUNG`; same 3840-byte size as FUN10; disk motion max 88). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
+- **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM-X). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project (FUN16 / `FUNG`; same 3840-byte size as FUN10; disk motion max 88). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
+- **DRUMS.** Felucca's original synthesized drum engine, ported as a separate engine (15) beside DRUM-X. Nine kits: STD, 80, 10, 66, 55, 77, DEEP, TIGHT and PERC. Its own KIT / TUNE / TONE / DECY / SNAP / ACC / KICK / DRV. These are the exact 1.6.1 kits. DRUM-X stays on engine 10.
 - **SLICE retired.** 
 - Samples tab: one card per USR slot, each set to **Sample**, **Drumkit** or **Wavetable**. Drumkit maps every root to its own lane note and tags the slot (`FSMP` header), so SEQ uses the drum grid; Wavetable takes one Serum file or a folder medley. The name field is gone: names were editor-only, the FM-1 shows USR1..3.
 - **VOICE** is one page: VCE, GLD, UNI DTN, SPRD. GLD is free milliseconds (no GLMOD on the page). PAN / PLAY live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
@@ -66,9 +67,9 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
 ## Features
 
-- **Thirteen engines** (below), each with its own factory presets; every factory sound has a category (BASS, LEAD,
+- **Fourteen engines** (below), each with its own factory presets; every factory sound has a category (BASS, LEAD,
   PAD, PLUCK, KEYS, DRUM, FX, OTHER) to browse by
-- **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM / DRUM-X engine);
+- **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM-X engine);
   8 voices shared between them. ALGORITHM selects the track on every page
 - **Sequencer:** 64 steps per track with chords, ties, accent, slide, per-step chance, velocity and ratchets
   (a step played 2, 3 or 4 times in its length); **SEQ** sections are the step group (SELECT: PATTERN / STEP /
@@ -97,14 +98,14 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   P_TRANS automation event is recorded. Editing that PITCH row changes its semitone value and it stays a lock, so +1 ST
   plays C#4 (off-scale is allowed); it is lock-only and never becomes ordinary automation.
 - **SEQ TOOLS:** hold SEQ on any page for tools on the keys: CLEAR, REVERSE, SHIFT < / >, **RANDOM** (a new beat,
-  or new notes in the scale on the same rhythm) and **COOK** (changes the pattern a little each press); on a DRUM
+  or new notes in the scale on the same rhythm) and **COOK** (changes the pattern a little each press); on a DRUM-X
   track also BEAT, **MUTE** (F4 toggles the selected lane) and each lane's CLEAR, REVERSE, FILL and RANDOM;
   KNOB 1-4 are LEN, DIV, SWING and GATE. Each tool is one undo (SAVE held); OCT- puts the track back as the layer found it
 - **NOTE EDITS on SEQ TOOLS:** on a melodic track the six edits follow the sequence tools with no gap: **OCT- /
   OCT+** on E4 / F4 transpose the stored notes ±12; **HALF** on G4 stretches the pattern over twice the steps;
   **\*2** on A4 squeezes pairs into one (LEN changes with them); **HUMAN** on B4 writes fresh velocity ±16 and
   nudge ±2 into every note step (and switches QUANTIZE off so the nudge plays); **DUP** on C5 copies the pattern
-  after itself (`A -> A A`, LEN doubles, max 64). On a DRUM track BEAT / MUTE and the lane tools keep E4..C5, so
+  after itself (`A -> A A`, LEN doubles, max 64). On a DRUM-X track BEAT / MUTE and the lane tools keep E4..C5, so
   HALF / \*2 / HUMAN / DUP are D5..G5. One undo each (SAVE held); OCT- puts back the whole visit
 - **Metronome and count-in:** CLICK (OFF, while recording, or always) with three levels, and a count-in
   of 1 or 2 bars before recording from stop; the click goes to the headphones and speaker only, never to
@@ -184,7 +185,7 @@ What loads:
   and MIX). DIST TONE comes back as an offset on the drive-linked cutoff. TYPE OFF stays dry.
 - **ANALOG filter TYPE and ENV SYNC.** Kept at their values.
 - **User presets and MENU settings.** Load; new chain / kit fields take defaults where the old store had none.
-- **DRUM.** Plays as DRUM-X. A FUN10 has no kit bytes: the factory kit. An old KIT enum value still maps into MRPH.
+- **DRUM-X.** A FUN10 has no kit bytes: the factory kit. An old KIT enum value still maps into MRPH.
 
 What changes when you save (or when quiet autosave writes after idle):
 
@@ -229,7 +230,7 @@ The pages by button:
 | GLO | MASTER, CLOCK, SONG | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
 | SAVE | Presets (SELECT: PRESETS / USER / PHRASES), Project (SELECT: PROJECT / TOOLS) | UNDO |
 | LFO | LFO (SELECT: LFO / LFO 2 / LFO DEST), then MOD | MOMENTARY (with a knob) |
-| EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG FILTER / FILTER DRIVE), Kit, Lanes, Voice (hidden on DRUM) | the EDIT layer (the engines; on DRUM the black keys mute lanes) |
+| EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG FILTER / FILTER DRIVE), Kit, Lanes, Voice (hidden on DRUM-X) | the EDIT layer (the engines; on DRUM-X the black keys mute lanes) |
 | FX | EFFECTS (SELECT: list + stage pages), SLICER, PUNCH | the FX layer |
 | SCL, ENV, ARP | their pages | SCL: its layer |
 | REC | arms the track | — |
@@ -269,7 +270,7 @@ KNOB ACCEL is always on for wide values.
 - **BPM LOCK:** ON, SELECT no longer changes the tempo; hold GLO and turn SELECT, tap F4 in the GLO
   layer or use HOME > CLOCK instead
 - **SCALE LEDS:** OFF or ON: the keys show the selected track's scale all the time (the root a little
-  brighter); not on DRUM or SLICE tracks
+  brighter); not on DRUM-X or SLICE tracks
 - **STEP PREVIEW:** OFF (default) or ON: on SEQ > STEP with the transport stopped, moving the cursor plays the step
   it lands on once (its notes or hits, through the track's sound)
 - **CHORD ENTRY:** HOLD (default) or ADD: how step recording writes. HOLD: the keys held together become the step,
@@ -321,10 +322,13 @@ In the order the device lists them:
 - **GRAIN**: granular textures from the built-in samples or a user slot
 - **PHYS**: physical models: modal resonators, strings, struck membranes, sympathetic strings
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
-- **DRUM**: DRUM-X, an 8-lane morphable kit on the General MIDI key map (JIANT port). EDIT sections
+- **DRUM-X**: an 8-lane morphable kit on the General MIDI key map (JIANT port). EDIT sections
   **Sound** (MRPH / TUNE / TONE / DECY), **Kit** (SOUND: lane A/B plus pitch env; SOUND 2: DCAY / NOIS / COLR / MODE)
   and **Lanes**. Kit and mute persist in FUN16 projects (FUN10 opens with the factory kit). Old Felucca KIT values
-  still play as DRUM-X. SLICE is retired; old stores load as DRUM
+  still play as DRUM-X. SLICE is retired; old stores load as DRUM-X
+- **DRUMS**: the ported Felucca drum engine (engine 15): KIT STD / 80 / 10 / 66 / 55 / 77 / DEEP / TIGHT / PERC,
+  TUNE, TONE, DECY, SNAP, ACC, KICK, DRV. Existing projects and presets stay on DRUM-X; DRUMS is for new sounds
+  or for a project that selects it. It runs the 1.6.1 code unchanged in its own engine state.
 - **WAVETABLE**: two wavetable oscillators, A and B, each morphing through 16 frames of a mip-mapped table; B
   phase-modulates A (B>A) and can also be heard through LEVEL at an exact RATIO, and A takes phase feedback
   (FDBK). BASIC and SPECTRAL are factory tables; USR1..USR3 each hold one complete 16 x 1024 table, loaded from
@@ -333,13 +337,13 @@ In the order the device lists them:
 
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
 as FM6 sounds converted from them. The SAMPLE engine's PERC kit was removed in 1.0.2: sounds and
-projects that used it load as the DRUM engine's kit, on the same key map. FM6's patch bank (the B
+projects that used it load as the DRUM-X engine's kit, on the same key map. FM6's patch bank (the B
 slots) was removed in 1.0.3: user presets keep their own FM6 patch, and presets that used a B slot get
 that patch on the first start of 1.0.3. 1.4.1 brings B slots back as a voice bank sent from the web editor
 (B1-B32): a voice picked from it becomes the track's own patch, so nothing saved depends on the bank. SLICE once had
 BREAK and (from 1.0.4) PIANO; both left the ROM with the engine. Since 1.0.4 a missing sample (an empty user slot, or a set missing
 from the build) plays a plain sine at the note's pitch on SAMPLE and GRAIN, and the screen says
-NO SAMPLE once. DRUM's KIT variants HAND, CYM and H+CYM were retired in 1.0.5: sounds and projects that
+NO SAMPLE once. DRUM-X's KIT variants HAND, CYM and H+CYM were retired in 1.0.5: sounds and projects that
 used them play the 66, 10 and 77 kits. SAMPLE's PIANO was a lo-fi piano in 1.4 and 1.4.1 (the full one installed into a user slot from the web editor as
 PIANO HD); 1.5 brings the full piano back.
 
@@ -421,7 +425,7 @@ Upstream context: [On AI-Assisted Development and Responsibility](https://github
 - **Fork:** [Wulgaren/Araminta](https://github.com/Wulgaren/Araminta) by [Wulgaren](https://github.com/Wulgaren)
 - **[Hügelton Instruments](https://hugelton.com)** (Leo Kuroshita, [@kurogedelic](https://github.com/kurogedelic)):
   Felucca, the base this fork builds on; the PHASE engine's waveforms (a C port of the oscillator of
-  [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the DRUM voices and kits; the Hügelton Sample
+  [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the DRUM-X and DRUMS voices and kits; the Hügelton Sample
   Pack (the drum samples, GPL-3.0-only, not CC0); the [Fukiai](https://github.com/hugelton/Fukiai) icon
   font ([MIT](LICENSES/MIT-Fukiai.txt))
 - Fonts: [Terminus](https://terminus-font.sourceforge.net/) by Dimitar Toshkov Zhekov, [SIL OFL 1.1](LICENSES/OFL-Terminus.txt)

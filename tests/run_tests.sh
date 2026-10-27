@@ -141,6 +141,8 @@
 #                   Felucca's targets, the controls' directions, no clipping, DC, retriggers, the hat choke, the
 #                   kick on a small speaker; the DRUM engine (src/eng_drum.c): its key map, the 8 lanes together,
 #                   one hit per lane, the choke between lanes; the cost per voice; demos in build/drum_demo/.
+# DRUMS (tests/drums_test.c): the ported Felucca engine (src/eng_drums.c, src/drums_voice.c): every lane, KIT
+#                   select, hat choke, 8 lanes together.
 # NOISE (tests/noise_test.c): the engine (src/eng_noise.c): COLR's slope (white, pink, brown), the filter and the
 #                   register clock following the key, META periodic at the key, no DC, no clipping at the
 #                   corners, a note from silence the same twice, the cost per voice; demos in build/noise_demo/.
@@ -708,6 +710,11 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "DRUM: voice targets, controls, no clipping, retrigger, hat choke, the kick on a small speaker, keys, 8 lanes, cost, demos" "$OUT/drum_test" build/drum_demo
     }
     unit u_drum
+    u_drums() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/drums_test" tests/drums_test.c -lm
+        run "DRUMS: every lane, KIT select, hat choke, 8 lanes together (the ported Felucca engine)" "$OUT/drums_test"
+    }
+    unit u_drums
     u_noise() {
         $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/noise_test" tests/noise_test.c -lm
         mkdir -p build/noise_demo

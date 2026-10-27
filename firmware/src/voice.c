@@ -203,6 +203,10 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
         voice_t *v = drum_reuse(t, note);
         if (v)
             return voice_reuse(t, v);
+    } else if (t->engine == ENGI_DRUMS) {
+        voice_t *v = fdrum_reuse(t, note);
+        if (v)
+            return voice_reuse(t, v);
     }
     for (i = 0; i < np; i++) {
         if (t->v[i].active && t->v[i].note == note)
@@ -639,7 +643,7 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
     uint32_t ti = (uint32_t)(t - trk);
     uint32_t nr = 0, fade = t->xf_on && t->xf, live = 0;
     int16_t pe_new[8];
-    if (ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM) {
+    if (ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM || ENGINES[eng_idx(t->eng_req)] == &ENG_DRUMS) {
         midi_bend_q8[ti] = midi_bend_target[ti] = 0;
     } else {
         int32_t d = midi_bend_target[ti] - midi_bend_q8[ti];
