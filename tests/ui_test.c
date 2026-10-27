@@ -8709,31 +8709,36 @@ static int test_edit_quick_actions(void)
 }
 
 
-/* A generation gesture owns one lane; undo restores its steps and its density. */
+/* A generation gesture owns one lane; undo restores its steps and its density.
+ * The same on every drum kit: DRUM-X, DRUMS and CR78. */
 static int test_generation_density_undo(void)
 {
     step_t before[NSTEP];
+    static const uint32_t ENG[3] = {ENGI_DRUM, ENGI_DRUMS, ENGI_SAMPLE};
     int ok = 1;
-    uint32_t i;
-    ui_power_on();
-    set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;
-    TSEL->p[P_SLEN] = 16;
-    grid_hit(TSEL, 0, DV_KICK, 1);
-    grid_hit(TSEL, 4, DV_SNARE, 1);
-    grid_hit(TSEL, 2, DV_HATC, 1);
-    grid_hit(TSEL, 7, DV_TOM, 1);
-    memcpy(before, TSEL->step, sizeof before);
-    press(B_SEQ); press(B_SEQ);
-    turn(EN_K2, -100);
-    for (i = 0; i < 16; i++) {
-        ok &= !(step_lanes(&TSEL->step[i]) & (1u << DV_KICK));
-        ok &= (step_lanes(&TSEL->step[i]) & ~(1u << DV_KICK)) ==
-              (step_lanes(&before[i]) & ~(1u << DV_KICK));
+    uint32_t e, i;
+    for (e = 0; e < 3u; e++) {
+        ui_power_on();
+        set_engine_of(TSEL, ENG[e]); TSEL->engine = TSEL->eng_req;
+        if (ENG[e] == ENGI_SAMPLE) TSEL->p[P_E0] = SMP_CR78_INDEX;
+        TSEL->p[P_SLEN] = 16;
+        grid_hit(TSEL, 0, DV_KICK, 1);
+        grid_hit(TSEL, 4, DV_SNARE, 1);
+        grid_hit(TSEL, 2, DV_HATC, 1);
+        grid_hit(TSEL, 7, DV_TOM, 1);
+        memcpy(before, TSEL->step, sizeof before);
+        press(B_SEQ); press(B_SEQ);
+        turn(EN_K2, -100);
+        for (i = 0; i < 16; i++) {
+            ok &= !(step_lanes(&TSEL->step[i]) & (1u << DV_KICK));
+            ok &= (step_lanes(&TSEL->step[i]) & ~(1u << DV_KICK)) ==
+                  (step_lanes(&before[i]) & ~(1u << DV_KICK));
+        }
+        ok &= TSEL->generation.density[0] == 0 && TSEL->p[P_SLEN] == 16;
+        hold(B_SAVE);
+        ok &= !memcmp(before, TSEL->step, sizeof before) && TSEL->generation.density[0] == 50;
     }
-    ok &= TSEL->generation.density[0] == 0 && TSEL->p[P_SLEN] == 16;
-    hold(B_SAVE);
-    ok &= !memcmp(before, TSEL->step, sizeof before) && TSEL->generation.density[0] == 50;
-    return check("GENERATION kick density clears only kicks; SAVE undo restores beat and density", ok);
+    return check("GENERATION on DRUM-X, DRUMS and CR78: kick density clears only kicks; SAVE undo restores beat and density", ok);
 }
 
 static int test_generation_navigation(void)
@@ -8748,7 +8753,22 @@ static int test_generation_navigation(void)
     ok &= str_eq(cur_page()->title, "GENERATION 2") && !ui.lock;
     press(B_SEQ);
     ok &= str_eq(cur_page()->title, "AUTOMATION");
-    return check("DRUM SEQ: GENERATION is second section, SELECT opens its map page", ok);
+
+    ui_power_on();                                  /* DRUMS: the second drum engine */
+    set_engine_of(TSEL, ENGI_DRUMS); TSEL->engine = TSEL->eng_req;
+    press(B_SEQ);
+    press(B_SEQ);
+    ok &= str_eq(cur_page()->title, "GENERATION") && !ui.lock;
+    turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "GENERATION 2") && !ui.lock;
+
+    ui_power_on();                                  /* CR78: SAMPLE's factory drum kit */
+    set_engine_of(TSEL, ENGI_SAMPLE); TSEL->engine = TSEL->eng_req;
+    TSEL->p[P_E0] = SMP_CR78_INDEX;
+    press(B_SEQ);
+    press(B_SEQ);
+    ok &= str_eq(cur_page()->title, "GENERATION") && !ui.lock;
+    return check("DRUM-X, DRUMS and CR78 SEQ: GENERATION is second section, SELECT opens its map page", ok);
 }
 
 static int test_generation_map_display(void)

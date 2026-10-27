@@ -66,6 +66,9 @@ direction swapped, the MS-20-inspired punch filter, and TAPE as the tenth EFFECT
   old projects and presets still play DRUM-X. Flash +14,384 B, RAM +208 B, POOL unchanged. Favorites for
   engine 15 are skipped because the 16-row table is full. Editor protocol engine 15 and the web editor table
   are updated.
+- **GENERATION on every drum kit.** The SEQ GENERATION section is no longer DRUM-X-only: DRUMS, the CR78
+  SAMPLE set and a USR slot tagged Drumkit show it too. It writes the same KICK / SNARE / HAT lanes and
+  keeps the same MAP / density / CHAOS controls and SAVE undo.
 
 ### Projects
 
