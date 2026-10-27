@@ -131,6 +131,61 @@ static int matrix_edits_preserve_fx_locks(void)
     }
     return bad;
 }
+/* Editor ORDER and FXPOS edits must reach the running chain without moving TAPE. */
+static int editor_fx_order(void)
+{
+    int bad = 0;
+    const uint32_t commands[] = {ED_SET, ED_TRACK_PARAM};
+    const uint8_t initial[FX_LIST_N] = {INS_DIST, INS_TAPE, INS_CRUSH, INS_FILTER,
+        INS_PHASR, INS_FLANG, INS_CHOR, INS_DLY, INS_REV, INS_SLCR};
+    const uint8_t ordered[FX_LIST_N] = {INS_DIST, INS_TAPE, INS_FILTER, INS_CRUSH,
+        INS_PHASR, INS_FLANG, INS_CHOR, INS_DLY, INS_REV, INS_SLCR};
+    const uint8_t positioned[FX_LIST_N] = {INS_DLY, INS_TAPE, INS_DIST, INS_FILTER,
+        INS_CRUSH, INS_PHASR, INS_FLANG, INS_CHOR, INS_REV, INS_SLCR};
+    for (uint32_t c = 0; c < 2; c++) {
+        uint8_t got[FX_LIST_N];
+        static project_t saved;
+        uint8_t args[] = {0, P_IORD, 0, 64};             /* ORDER 0 */
+        reset();
+        fx_list_set(&trk[0], initial);
+        ins_send_set(&trk[0], INS_FLANG, 1);
+        fx_list_get(&trk[0], got);                       /* initialize before the editor writes */
+        request(commands[c], args, sizeof args);
+        project_capture(&saved);
+        bad += check("saving immediately after ORDER stores the edited chain",
+            !memcmp(saved.t[0].fx_order, ordered, sizeof got));
+        fx_list_get(&trk[0], got);
+        bad += check(c ? "TRACK_PARAM ORDER reaches chain and preserves TAPE/send" :
+                         "SET ORDER reaches chain and preserves TAPE/send",
+            !memcmp(got, ordered, sizeof got) && ins_is_send(&trk[0], INS_FLANG));
+        args[1] = P_CHOR; args[2] = 120;                /* FXPOS: DLY 0, REV 7 */
+        request(commands[c], args, sizeof args);
+        fx_list_get(&trk[0], got);
+        bad += check(c ? "TRACK_PARAM FXPOS reaches chain and preserves TAPE" :
+                         "SET FXPOS reaches chain and preserves TAPE",
+            !memcmp(got, positioned, sizeof got));
+        apply_preset_to(&trk[0], 0);
+        fx_list_get(&trk[0], got);
+        bad += check("preset restores legacy chain order and preserves TAPE slot",
+            !memcmp(got, initial, sizeof got));
+    }
+    {
+        static project_t saved;
+        uint8_t got[FX_LIST_N];
+        reset();
+        project_capture(&saved);
+        memcpy(saved.t[0].fx_order, initial, sizeof initial);
+        saved.t[0].p[P_IORD] = 0;                      /* older saves can have stale legacy fields */
+        saved.t[0].p[P_CHOR] = 64;
+        saved.t[0].fx_sl_pos = 8;
+        saved.sum = proj_sum(&saved);
+        int restored = !project_restore_runtime(&saved);
+        fx_list_get(&trk[0], got);
+        bad += check("loading keeps the saved ten-stage chain despite stale legacy fields",
+            restored && !memcmp(got, initial, sizeof got));
+    }
+    return bad;
+}
 static uint32_t pack7(const uint8_t *p, uint32_t n, uint8_t *a)
 {
     uint32_t o = 0, i;
@@ -1389,7 +1444,7 @@ static int learn_protocol(void)
 int main(void)
 {
     int bad = preferences() + motion_locks() + dump_order() + slown_descriptor() + pitch_locks() +
-              matrix_edits_preserve_fx_locks() + framing() + uart_recovery() + steps() + samples() + wavetable_slot() + song_protocol() + malformed_saves() +
+              matrix_edits_preserve_fx_locks() + editor_fx_order() + framing() + uart_recovery() + steps() + samples() + wavetable_slot() + song_protocol() + malformed_saves() +
               fm6_patches() + user_preset_roundtrip() + live_sync() + usb_burst() + menu_protocol() + drum_kit_retired() +
               learn_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");

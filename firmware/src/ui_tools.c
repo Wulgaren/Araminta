@@ -363,7 +363,7 @@ static uint32_t tl2_note_steps(const track_t *t, uint32_t len)
             n++;
     return n;
 }
-/* move / stretch / squeeze the track's automation and locks (the same records as the steps) */
+/* Move / stretch / squeeze automation and locks. Collisions keep the retained note's value. */
 static void tl2_motion_map(track_t *t, uint32_t olen, uint32_t num, uint32_t den, uint32_t nlen)
 {
     uint32_t i, n = 0, k = trk_index(t), f = motion_guard();
@@ -378,6 +378,22 @@ static void tl2_motion_map(track_t *t, uint32_t olen, uint32_t num, uint32_t den
                 if (s >= nlen)
                     continue;                           /* (cut with its step) */
                 e.place = (uint8_t)((e.place & 0xC0u) | s);
+                if (num < den) {
+                    uint32_t j, first = s * den, pick = first;
+                    const step_t *a = &undo.step[first];
+                    const step_t *b = &undo.step[first + 1u];
+                    if (!(a->time == ST_NOTE && (a->n || a->hit)) &&
+                        b->time == ST_NOTE && (b->n || b->hit))
+                        pick++;
+                    for (j = 0; j < n; j++)
+                        if (motion.event[j].place == e.place && MOTION_ID(&motion.event[j]) == MOTION_ID(&e))
+                            break;
+                    if (j < n) {
+                        if ((motion.event[i].place & 63u) == pick)
+                            motion.event[j] = e;
+                        continue;
+                    }
+                }
             }
         }
         motion.event[n++] = e;

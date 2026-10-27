@@ -1352,9 +1352,7 @@ static void project_capture(project_t *p)
         p->t[i].scl_stash[1] = trk[i].scl_stash[1];
         p->t[i].scl_stash[2] = trk[i].scl_stash[2];
         p->t[i].fx_sl_pos = trk[i].fx_sl_pos < FX_LIST_N ? trk[i].fx_sl_pos : 8u;
-        if (!proj_order_ok(fx_order_tbl[i]))
-            fx_order_default((uint16_t)trk[i].p[P_IORD], trk[i].p[P_CHOR], trk[i].fx_sl_pos, fx_order_tbl[i]);
-        memcpy(p->t[i].fx_order, fx_order_tbl[i], FX_LIST_N);
+        fx_list_get(&trk[i], p->t[i].fx_order);
         p->t[i].generation = trk[i].generation;
         fm6_pack(fm6_patch[i], p->fm6[i]);
     }
@@ -1549,6 +1547,7 @@ static int project_restore_runtime(const project_t *input)
         memcpy(fx_order_tbl[k], s->fx_order, FX_LIST_N);
         if (!proj_order_ok(fx_order_tbl[k]))
             fx_order_default((uint16_t)t->p[P_IORD], t->p[P_CHOR], t->fx_sl_pos, fx_order_tbl[k]);
+        fx_order_accept(t);
         t->generation = s->generation;
         {   /* the project's own FM6 patch, never reloaded from SLOT: F n if it is that factory patch, else OWN */
             uint8_t v[FP_SIZE + 1u];

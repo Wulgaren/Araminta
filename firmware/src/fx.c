@@ -490,7 +490,7 @@ void fx_order_default(uint16_t iord, int16_t fchor, uint8_t slpos, uint8_t ord[F
         for (j = idx; j + 1u < INS_N - i; j++)
             av[j] = av[j + 1u];
     }
-    sp = slpos < FX_LIST_N ? slpos : 8u;
+    sp = slpos < FX_LIST_N - 1u ? slpos : 8u;
     if (fchor < FX_POS_MARK) {
         d8 = 6; r8 = 7; sp = 8;
     } else {
@@ -515,19 +515,40 @@ void fx_order_default(uint16_t iord, int16_t fchor, uint8_t slpos, uint8_t ord[F
         ord[i] = ins[j++];
     }
 }
+static struct { uint16_t iord; int16_t chor; uint8_t slpos; } fx_order_legacy[NTRK];
+/* Accept a restored ten-stage order without rewriting its saved legacy parameters. */
+static void fx_order_accept(const track_t *t)
+{
+    uint32_t tr = (uint32_t)(t - trk);
+    fx_order_legacy[tr].iord = (uint16_t)iord_perm_of(iord_bits(t));
+    fx_order_legacy[tr].chor = t->p[P_CHOR];
+    fx_order_legacy[tr].slpos = t->fx_sl_pos;
+}
+/* Reconcile legacy parameter edits while keeping TAPE at its ten-stage list position. */
 static void fx_list_get(const track_t *t, uint8_t ord[FX_LIST_N])
 {
-    uint8_t *o = fx_order_tbl[t - trk];           /* (the order is a runtime cache the UI fills) */
-    uint32_t i;
-    if (!fx_order_ok(o))
-        fx_order_default((uint16_t)t->p[P_IORD], t->p[P_CHOR], t->fx_sl_pos, o);
+    uint32_t tr = (uint32_t)(t - trk), i, tp = FX_LIST_N - 1u;
+    uint16_t iord = (uint16_t)iord_perm_of(iord_bits(t));
+    uint8_t *o = fx_order_tbl[tr];
+    int valid = fx_order_ok(o);
+    if (!valid || fx_order_legacy[tr].iord != iord || fx_order_legacy[tr].chor != t->p[P_CHOR] ||
+        fx_order_legacy[tr].slpos != t->fx_sl_pos) {
+        if (valid)
+            for (i = 0; i < FX_LIST_N; i++)
+                if (o[i] == INS_TAPE) tp = i;
+        fx_order_default(iord, t->p[P_CHOR], t->fx_sl_pos, o);
+        for (i = FX_LIST_N - 1u; i > tp; i--)
+            o[i] = o[i - 1u];
+        o[tp] = INS_TAPE;
+        fx_order_accept(t);
+    }
     for (i = 0; i < FX_LIST_N; i++)
         ord[i] = o[i];
 }
 static void fx_list_set(track_t *t, const uint8_t ord[FX_LIST_N])
 {
     uint8_t ins[INS_N], *o = fx_order_tbl[t - trk];
-    uint32_t i, j = 0, dp = 6, rp = 7, sp = 8;
+    uint32_t i, j = 0, pos = 0, dp = 6, rp = 7, sp = 8;
     if (!fx_order_ok(ord)) {
         fx_order_default((uint16_t)t->p[P_IORD], t->p[P_CHOR], t->fx_sl_pos, o);
         return;
@@ -535,21 +556,19 @@ static void fx_list_set(track_t *t, const uint8_t ord[FX_LIST_N])
     for (i = 0; i < FX_LIST_N; i++) {
         uint8_t st = ord[i];
         o[i] = st;
+        if (st == INS_TAPE)
+            continue;
         if (st == INS_DLY)
-            dp = i;
+            dp = pos;
         else if (st == INS_REV)
-            rp = i;
+            rp = pos;
         else if (st == INS_SLCR)
-            sp = i;
-        else if (j < INS_N)
+            sp = pos;
+        else
             ins[j++] = st;
+        pos++;
     }
-    if (j != INS_N) {
-        fx_order_default((uint16_t)t->p[P_IORD], t->p[P_CHOR], t->fx_sl_pos, o);
-        return;
-    }
-    fx_pos_set(t, dp, rp, sp);                    /* legacy IDs (0..8); the order above is the source */
-    t->fx_sl_pos = (uint8_t)(sp < 9u ? sp : 8u);
+    fx_pos_set(t, dp, rp, sp);                    /* nine-stage legacy projection excludes TAPE */
     ins_order_set(t, ins);
 }
 /* swap list slots h and h+dir; 1 if swapped, 0 if out of range (ORDER keeps the highlight) */
