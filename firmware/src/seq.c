@@ -1548,6 +1548,11 @@ static void seq_tick(track_t *t, uint32_t n)
     if (!song.playing)
         return;
     period = div_samples((uint32_t)t->p[P_SDIV]);
+    {   /* TAPE CHAIN on this owner: the track's tape runs slower, the others keep the song's */
+        uint32_t ts = tape_seq_speed_q16(t);
+        if (ts != 65536u)
+            period = (uint32_t)(((uint64_t)period * ts) >> 16);
+    }
     len = (uint32_t)t->p[P_SLEN];
     len = len ? len : 1u;
     t->seq_pos += n;

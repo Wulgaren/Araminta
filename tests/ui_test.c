@@ -169,6 +169,7 @@ static void ui_power_on(void)
 {
     uint32_t i;
     memset(trk, 0, sizeof trk);
+    memset(fx_order_tbl, 0, sizeof fx_order_tbl);
     memset(&song, 0, sizeof song);
     memset(&chain, 0, sizeof chain);
     chain_defaults(&chain_config);
@@ -2810,8 +2811,7 @@ static int test_page_cycles(void)
         for (i = 0; i < NPAGES; i++) {
             ok &= !str_eq(PAGES[i].title, "GLOBAL") && !str_eq(PAGES[i].title, "SYSTEM");
             for (k = 0; k < 4u && PAGES[i].scope == SC_GLOBAL; k++)
-                ok &= PAGES[i].id[k] != G_TUNE && PAGES[i].id[k] != G_ROUTE && PAGES[i].id[k] != G_MIDI &&
-                      PAGES[i].id[k] != G_INFO;   /* G_DREL (was G_SYNC) lives on MASTER */
+                ok &= PAGES[i].id[k] != G_TUNE && PAGES[i].id[k] != G_ROUTE;   /* G_DREL (was G_SYNC) lives on MASTER */
             if (str_eq(PAGES[i].title, "CLOCK"))
                 clock = i + 1u;
         }
@@ -9096,23 +9096,27 @@ static int test_fx_sections(void)
     go_title("EFFECTS");
     {
         uint8_t ord[FX_LIST_N];
-        uint32_t i, has_chor = 0, has_dly = 0, has_rev = 0, has_slcr = 0, sl_slot = 0xFFu;
+        uint32_t i, has_chor = 0, has_dly = 0, has_rev = 0, has_slcr = 0, has_tape = 0, sl_slot = 0xFFu, tp_slot = 0xFFu;
         fx_list_get(TSEL, ord);
         for (i = 0; i < FX_LIST_N; i++) {
             has_chor |= ord[i] == INS_CHOR;
             has_dly |= ord[i] == INS_DLY;
             has_rev |= ord[i] == INS_REV;
             has_slcr |= ord[i] == INS_SLCR;
+            has_tape |= ord[i] == INS_TAPE;
             if (ord[i] == INS_SLCR)
                 sl_slot = i;
+            if (ord[i] == INS_TAPE)
+                tp_slot = i;
         }
-        ok = FX_LIST_N == 9u && has_chor && has_dly && has_rev && has_slcr &&
+        ok = FX_LIST_N == 10u && has_chor && has_dly && has_rev && has_slcr && has_tape &&
              str_eq(N_ISTAGE[INS_DIST], "DISTORT") && str_eq(N_ISTAGE[INS_PHASR], "PHASER") &&
              str_eq(N_ISTAGE[INS_FLANG], "FLANGER") && str_eq(N_ISTAGE[INS_CHOR], "CHORUS") &&
              str_eq(N_ISTAGE[INS_DLY], "DELAY") && str_eq(N_ISTAGE[INS_REV], "REVERB") &&
-             str_eq(N_ISTAGE[INS_SLCR], "SLICER") &&
+             str_eq(N_ISTAGE[INS_SLCR], "SLICER") && str_eq(N_ISTAGE[INS_TAPE], "TAPE") &&
              str_eq(fx_list_mode(TSEL, INS_DLY), "SEND") &&
              str_eq(fx_list_mode(TSEL, INS_SLCR), "SEND") &&
+             str_eq(fx_list_mode(TSEL, INS_TAPE), "SEND") &&
              text_w(&AF_S, "FLANGER") == text_w(&AF_S, "DISTORT") &&
              text_w(&AF_S, N_ISTAGE[INS_DIST]) <= text_w(&AF_S, "FLANGER") &&
              text_w(&AF_S, N_ISTAGE[INS_PHASR]) <= text_w(&AF_S, "FLANGER") &&
@@ -9122,6 +9126,10 @@ static int test_fx_sections(void)
              text_w(&AF_S, N_ISTAGE[INS_SLCR]) <= text_w(&AF_S, "FLANGER");
         ui.ior_sel = 0;
         ok &= cur_page()->graph == GR_IORD;
+        for (i = 0; i < NPAGES; i++)
+            if (str_eq(PAGES[i].title, "TAPE"))
+                ok &= PAGES[i].id[0] == G_TSPEED && PAGES[i].id[1] == G_TWOW &&
+                      PAGES[i].id[2] == G_TDROP && PAGES[i].id[3] == 0xFFu;   /* MIX stays on EFFECTS */
         /* SLICER: K3 toggles this track SEND/CHAIN; other tracks keep their own mode (no USED) */
         if (sl_slot < FX_LIST_N) {
             int16_t mix0;
@@ -9147,8 +9155,38 @@ static int test_fx_sections(void)
         } else {
             ok = 0;
         }
+        /* TAPE: K3 goes CHAIN (this track) -> SEND -> MASTER and clamps at both ends; others USED */
+        if (tp_slot < FX_LIST_N) {
+            ui.ior_sel = (uint8_t)tp_slot;
+            turn(EN_K3, 1);                             /* SEND -> MASTER */
+            ok &= song.g[G_TAPEMODE] == TAPE_MASTER && str_eq(fx_list_mode(TSEL, INS_TAPE), "MASTER");
+            {   /* MASTER's K4 is the one global amount (G_TMIX); the track's P_TAPEMIX stays put */
+                int16_t gm = song.g[G_TMIX], pm = TSEL->p[P_TAPEMIX];
+                turn(EN_K4, 8);
+                ok &= song.g[G_TMIX] != gm && TSEL->p[P_TAPEMIX] == pm;
+            }
+            turn(EN_K3, 1);                             /* MASTER: right stays MASTER (no wrap) */
+            ok &= song.g[G_TAPEMODE] == TAPE_MASTER;
+            turn(EN_K3, -1);                            /* MASTER -> SEND */
+            ok &= song.g[G_TAPEMODE] == TAPE_SEND;
+            turn(EN_K3, -1);                            /* SEND -> CHAIN (track 0) */
+            ok &= song.g[G_TAPEMODE] == TAPE_CH1 && str_eq(fx_list_mode(TSEL, INS_TAPE), "CHAIN");
+            turn(EN_K3, -1);                            /* CHAIN: left stays CHAIN */
+            ok &= song.g[G_TAPEMODE] == TAPE_CH1;
+            turn(EN_K3, 1);                             /* CHAIN -> SEND */
+            ok &= song.g[G_TAPEMODE] == TAPE_SEND;
+            song.sel = 1;
+            ui.ior_sel = (uint8_t)tp_slot;
+            turn(EN_K3, -1);                            /* SEND -> CHAIN (track 1) */
+            ok &= song.g[G_TAPEMODE] == TAPE_CH2;
+            song.sel = 0;
+            ok &= str_eq(fx_list_mode(TSEL, INS_TAPE), "USED");
+            song.g[G_TAPEMODE] = TAPE_SEND;
+        } else {
+            ok = 0;
+        }
     }
-    bad += check("EFFECTS list: 9 rows with SLCR; per-track SEND/CHAIN; MIX is P_SLDEPTH", ok);
+    bad += check("EFFECTS list: 10 rows with SLCR/TAPE; K3 routes TAPE SEND/CHAIN/MASTER", ok);
 
     /* SELECT walks stage pages in EFFECTS list order (not static PAGES[]). */
     ui_power_on();

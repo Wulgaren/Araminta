@@ -1212,7 +1212,7 @@ static int test_throw(void)
            * the bend is how fast the knob turns, not how far it moves. */
         uint32_t settle, fast, slow;
         host_tracks_init();
-        song.g[G_DMIX] = 127;
+        song.g[G_TSPEED] = 100;
         song.g[G_DFDBK] = 0;
         fast = knob_turn(455, 25, FS / 2u, &settle);  /* a quick turn: 430 ms in half a second */
         ok = settle >= 7u * FS / 5u && settle < 9u * FS / 5u &&
@@ -1264,7 +1264,7 @@ static int test_throw(void)
         song.g[G_BPM] = 120;
         song.g[G_DTIME] = 10;
         song.g[G_DFDBK] = 0;
-        song.g[G_DMIX] = 127;
+        song.g[G_TSPEED] = 100;
         memset(in, 0, sizeof in);
         for (t = 0; t < 64u; t++)
             in[t] = 20000;
@@ -1285,7 +1285,7 @@ static int test_throw(void)
         song.g[G_DTIME] = 2;
         song.g[G_DFDBK] = 0;
         song.g[G_DCOLOR] = 127;
-        song.g[G_DMIX] = 127;
+        song.g[G_TSPEED] = 100;
         memset(in, 0, sizeof in);
         for (t = 0; t < 1000u; t++)
             in[t] = 20000;
