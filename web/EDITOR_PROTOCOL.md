@@ -1,5 +1,8 @@
 # Felucca editor protocol (SysEx over USB-MIDI)
 
+This document is cumulative: sections are labelled by the version that introduced them, so an older section may
+describe an earlier design. `docs/PARAM_CONTRACT.md` is the current parameter / ID contract.
+
 The firmware side is `firmware/src/editor.c`. Commands 1-15, track selection, dumps, step reads
 and parameter writes (27, 29, 30, 31) were checked on hardware. `tests/editor_test.c` also exercises the real C
 handler, malformed transfers and stop timeouts against simulated flash. User-preset
@@ -593,11 +596,14 @@ when the track's engine is not the saved one).
   user preset does not store it. Changing it on the device pushes `STEP_CHANGED`.
 - **Motion** is knob moves recorded per step: 192 records in RAM, 88 saved in a project, shared by the four
   tracks. The device's MAP has five values (OFF, ALL, KBD, SEQ, CURR; CURR is stored 4 and shown third);
-  CURR shares ROOT/SCALE across the tracks that use it. PITCH (id 127) is lock-only, -24..24 chromatic
-  semitones applied after the scale snap (one value for the whole step); older firmware refuses a project
-  that holds it. Recording SCL TRN while armed writes that PITCH record (the scale-fitted absolute offset, its
-  first/lowest note as the reference) as an automation-kind record; the global TRN keeps its value and no
-  P_TRANS event is created. Editing that PITCH row turns it into a lock, so the edit is chromatic (off-scale).
+  CURR shares ROOT/SCALE across the tracks that use it. PITCH (id 127) is lock-only: a per-step absolute
+  transpose (-24..24 semitones) that replaces TRN on that step and is not scale-snapped at playback (one value
+  for the whole step; recording uses the first stored note as the reference). Older firmware refuses a project
+  that holds it. Recording SCL TRN while armed and playing writes that PITCH lock from the scale-fitted result;
+  no P_TRANS event is created (the TRN knob itself still moves; other steps without a lock follow it). The record
+  is always a lock: editing it changes its semitone value and it stays a lock, so +1 ST plays C#4, off-scale if
+  needed. `MOTION` op 3 refuses id 127
+  (rc 1); op 5 writes the lock, op 4 deletes it, op 6 clears it, and op 8 lists it with kind 1.
   STRUM/STROKE use P_ALLOC (id 43) as one packed SWEEP value (0/1 OFF for legacy ROT/REUSE, then 2 + (rate-1)*3 + stroke,
   rate 1..7 = 1/8 .. 32T, stroke 0 DOWN / 1 UP / 2 ALT). An event is (track, step
   0..63, parameter id, value). While a track plays its motion, the step sets the value at the step and it
@@ -605,9 +611,8 @@ when the track's engine is not the saved one).
   sound's own values back. Parameters that can be recorded (`motion_param`): ids 0..16 (LEVEL, ENV, LFO),
   33..36 (DIST, CHO, DLY, REV), 38 (GLIDE), 39 (PAN), 44 (DETUNE), 61..80 (the FM operator parameters) and
   83..90 (the DRUM lane levels), 91..98 (the engine parameters; not the chord keys 81, 82). PITCH (127) is
-  lock-only: automation capture ignores it, and `MOTION` op 5 writes it. The device records the others while the
-  track is armed, playing and selected, from its knobs
-  and from `SET` / `TRACK_PARAM` alike.
+  lock-only: automation capture ignores it, and `MOTION` op 5 writes it (op 3 refuses it). The device records the
+  others while the track is armed, playing and selected, from its knobs and from `SET` / `TRACK_PARAM` alike.
   - `MOTION` with the track alone is the query. `on` 0 keeps the data and stops playing it; 1 plays it. Clear
     drops the track's events and turns it off; on the device it is undone by SAVE held.
   - Set: `value` must be inside the parameter's range for that track's engine (and −64..127); a
@@ -703,8 +708,9 @@ INFO advertises `4C 01 1` after the ratchet tag (`52 01 4`). Firmware without it
   record (`motion_param`, see above); AUTOMATION's PLAY OFF bypasses locks too, its CLEAR clears them.
 - `MOTION` 5 sets a lock (track, 5, step, id, v14): as op 3, the value inside the parameter's range for the track's
   engine, rc 2 when the 64 are used. A lock and an automation event on the same step and id are one record: op 3
-  over a lock makes it an automation event, op 5 over an automation event makes it a lock. Op 4 deletes either
-  kind. Op 6 (track, 6, step) removes that step's locks (step 127: every step's), its automation events stay.
+  over a lock makes it an automation event, op 5 over an automation event makes it a lock. (PITCH, 3.2, is the
+  exception: it is always a lock, so op 3 refuses it.) Op 4 deletes either kind. Op 6 (track, 6, step) removes
+  that step's locks (step 127: every step's), its automation events stay.
   Op 7 (track, 7) is the query. Ops 5..7 reply as the query and then one kind byte per record, in the same order
   (0 automation, 1 lock); the query and ops 1..4 reply as before 1.1, where a lock reads as an automation event.
 - In projects (FUN9; the motion block is laid out as in FUN7 / FUN8) a lock is a motion record with bit 7 of its id

@@ -63,7 +63,7 @@ static int ev_id_ok(const track_t *t, uint32_t id)
     const param_desc_t *d;
     if (ev_sid(id))
         return 1;
-    if ((id >= P_COUNT && id != MSEQ_PITCH) || !motion_param(id) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL))
+    if (!param_id_known(id) || !motion_param(id) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL))
         return 0;
     if (id >= P_LN0 && id <= P_LN7)
         return drum_track(t);
@@ -163,19 +163,21 @@ static int ev_id_free(const track_t *t, uint32_t step, uint32_t id)
 static int32_t ev_id_pos(uint32_t id)
 {
     return id == EV_CHANCE ? 0 : id == EV_RATCH ? 1 : id == EV_NUDGE ? 2 : id == EV_VEL ? 3
-           : id == MSEQ_PITCH ? (int32_t)P_COUNT + 4 : id < P_COUNT ? (int32_t)id + 4 : -1;
+           : param_lock_only(id) ? (int32_t)P_COUNT + 4 : param_real(id) ? (int32_t)id + 4 : -1;
 }
 static uint32_t ev_id_at(int32_t v)
 {
-    return v == 0 ? EV_CHANCE : v == 1 ? EV_RATCH : v == 2 ? EV_NUDGE : v == 3 ? EV_VEL : (uint32_t)(v - 4);
+    return v == 0 ? EV_CHANCE : v == 1 ? EV_RATCH : v == 2 ? EV_NUDGE : v == 3 ? EV_VEL
+           : v == (int32_t)P_COUNT + 4 ? MSEQ_PITCH : (uint32_t)(v - 4);
 }
-/* the next one after id in direction dir (+1 / -1) that is free on track t's step; id itself when there is none */
+/* the next one after id in direction dir (+1 / -1) that is free on track t's step; id itself when there is none.
+ * The walk is the four step rows, the real ids by id, then PITCH, the one after the last of them. */
 static uint32_t ev_id_step(const track_t *t, uint32_t step, uint32_t id, int32_t dir)
 {
     int32_t i = ev_id_pos(id);
     for (;;) {
         i += dir;
-        if (i < 0 || i >= (int32_t)P_COUNT + 4)
+        if (i < 0 || i > (int32_t)P_COUNT + 4)
             return id;
         if (ev_id_ok(t, ev_id_at(i)) && ev_id_free(t, step, ev_id_at(i)))
             return ev_id_at(i);
@@ -705,7 +707,7 @@ static uint32_t pk_build_auto(const track_t *t, uint32_t id, uint32_t step, uint
             *sel = pk_n;
         pk_add_item(i, pk_auto_group(i), nm);
     }
-    if (step >= NSTEP || id == MSEQ_PITCH || ev_id_free(t, step, MSEQ_PITCH)) {
+    if (step >= NSTEP || param_lock_only(id) || ev_id_free(t, step, MSEQ_PITCH)) {
         /* PITCH: lock-only (id 127), not in p[]. Keep it in the K3 list even when another parameter is
          * showing, so a row changed away from PITCH can be changed back. */
         pk_auto_name(t, MSEQ_PITCH, nm);
@@ -844,7 +846,7 @@ static void pk_apply(void)
         uint32_t c = ev_cur(ev_rw, 0), k = c >> 8, step, from;
         if (k == EVK_ADD) {
             ui.ev_id = (uint8_t)id;
-        } else if (k == EVK_REC && (id < P_COUNT || id == MSEQ_PITCH)) {   /* PITCH is lock-only, not in p[] */
+        } else if (k == EVK_REC && param_id_known(id)) {   /* PITCH is lock-only, not in p[] */
             step = motion.event[c & 0xFFu].place & 63u;
             from = MOTION_ID(&motion.event[c & 0xFFu]);
             if (id != from && ev_id_free(t, step, id)) {

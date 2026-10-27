@@ -446,7 +446,14 @@ const INFO_TAG = { SONG: 16, UI: 0x55, MOTION: 0x4d, MOTION_POOL: 0x41, MOTION_L
 const INFO_LEN = { [INFO_TAG.UI]: 1, [INFO_TAG.MOTION]: 2, [INFO_TAG.MOTION_POOL]: 2, [INFO_TAG.MOTION_LOCKS]: 1,
   [INFO_TAG.BACKUP]: 1, [INFO_TAG.FM6]: 2, [INFO_TAG.SYNC]: 1, [INFO_TAG.FM6V2]: 1, [INFO_TAG.RATCH]: 1,
   [INFO_TAG.MENU]: 1, [INFO_TAG.NUDGE]: 1, [INFO_TAG.SONG_LANES]: 1, [INFO_TAG.FM6_BANK]: 1, [INFO_TAG.MIDI_LEARN]: 1 };
-const MOTION_MAX_SANE = 1024;                     /* reject 0 / absurd; the device's pool is 192 (FUN16) */
+const MOTION_MAX_SANE = 1024;                     /* reject 0 / absurd; MOTION_MAX is the device's pool (FUN16) */
+/* core.h: the motion store and the ids that are not p[] parameters (EDITOR_PROTOCOL.md "MOTION") */
+const MOTION_MAX = 192;                          /* RAM records (core.h MOTION_MAX); a project saves MOTION_FILE_MAX */
+const MOTION_FILE_MAX = 88;                      /* core.h MOTION_FILE_MAX (FUN16) */
+const MSEQ_PITCH = 127;                          /* a step's chromatic offset: lock-only, never indexes p[] */
+const MFX_TIME = 49, MFX_DAMP = 53;              /* MFX_TIME..MFX_DAMP: the DLY / REV bus targets (P_M1SRC..P_M2DST) */
+const MOTION_LOCK = 0x80;                        /* bit 7 of a record's id byte: a parameter lock */
+const MOTION_PROTO = { MOTION_MAX, MOTION_FILE_MAX, MSEQ_PITCH, MFX_TIME, MFX_DAMP, MOTION_LOCK };
 const parse = {
   [CMD.INFO](a) {
     const r = new Reader(a);
@@ -549,7 +556,7 @@ const parse = {
           max: r.b() | r.b() << 7, full: true, events: [] };
         for (let i = 0; i < o.count; i++) {
           const step = r.b(), raw = r.b();
-          o.events.push({ step, param: raw & 0x7F, value: r.v(), lock: !!(raw & 0x80) });
+          o.events.push({ step, param: raw & 0x7F, value: r.v(), lock: !!(raw & MOTION_LOCK) });
         }
         for (const e of o.events) e.lock = !!r.b() || e.lock;
         return o;
@@ -561,7 +568,7 @@ const parse = {
       throw new Error("Invalid motion reply");
     for (let i = 0; i < o.count; i++) {
       const step = r.b(), raw = r.b();
-      o.events.push({ step, param: raw & 0x7F, value: r.v(), lock: !!(raw & 0x80) });
+      o.events.push({ step, param: raw & 0x7F, value: r.v(), lock: !!(raw & MOTION_LOCK) });
     }
     if (a.length === kinds) for (const e of o.events) e.lock = !!r.b() || e.lock;
     return o;
@@ -2127,7 +2134,6 @@ function makeMockDevice(opt = {}) {
     D("RATE", F.LFOHZ, 0, 127, 64), D("DEPTH", F.PCT, 0, 127, 96), D("MIX", F.PCT, 0, 127, 0),
     E("TYPE", ["LP", "BP", "HP", "COMB"], 0), E("ESYNC", ["OFF", "ON"], 0));   /* ANALOG TYPE (117), ENV SYNC (118) */
   const P_COUNT = 127, G_COUNT = 31, NSTEP = 64, P_E0 = 119, G_ENGSEL = 20, P_SLCR = 45;
-  const MOTION_MAX = 192;                         /* core.h: FUN16's RAM pool */
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const enumOrig = (d, v) => d.fmt === F.ENUM && d.names ? aliasOf(d.names, v - d.min) + d.min : v;   /* params.c enum_orig */
   /* four tracks (firmware v3), four synth parts (1.0); engine / preset / p / step below are the selected track's */
@@ -2147,6 +2153,7 @@ function makeMockDevice(opt = {}) {
     palettes: ["GREY", "GREEN", "AMBER", "ICE", "VIOLET", "ROSE", "PAPER", "HI-CON", "NIGHT"],
     favorites: Array.from({ length: ENG.length + 1 }, () => []),
     watch: false, v4: false, lastReq: 0,
+    protocol: MOTION_PROTO,                       /* test_web.mjs: == core.h (desc.json) */
   };
   for (const k of ["engine", "preset", "p", "step"]) {
     Object.defineProperty(st, k, { enumerable: false, get: () => st.tracks[st.sel][k], set: (v) => { st.tracks[st.sel][k] = v; } });
@@ -2395,7 +2402,7 @@ function makeMockDevice(opt = {}) {
         else if (a[1] === 3 || a[1] === 4 || a[1] === 5) {
           const at = m.events.findIndex(e => e.step === a[2] && e.param === a[3]);
           if (a[1] === 4) { if (at >= 0) m.events.splice(at, 1); }
-          else if (a[1] === 3 && (a[3] === 127 || (a[3] >= 91 && a[3] <= 93))) rc = 1;   /* PITCH lock-only; LFO 2 not recordable */
+          else if (a[1] === 3 && (a[3] === MSEQ_PITCH || (a[3] >= 91 && a[3] <= 93))) rc = 1;   /* PITCH lock-only; LFO 2 not recordable */
           else if (at < 0 && st.tracks.reduce((n,t) => n + t.motion.events.length, 0) >= MOTION_MAX) rc = 2;
           else {
             const e = {step:a[2], param:a[3], value:v14dec(a[4],a[5]), lock:a[1] === 5};
@@ -3852,15 +3859,15 @@ function renderMotion() {
   if (rows.contains(document.activeElement)) return;
   rows.replaceChildren(el("tr", {}, ...["motionStep", "motionParam", "motionValue"].map(k => el("th", {text:t(k)})), el("th")),
     ...m.events.map(e => {
-      const fx = e.param >= 49 && e.param <= 53, time = e.param === 49, pitch = e.param === 127;
-      const desc = pitch ? {label: "PITCH", min: -24, max: 24} : fx ? {label: ["DLY TIME", "DLY FDBK", "DLY COLOR", "REV SIZE", "REV DAMP"][e.param - 49],
-        min: time ? 1 : 0, max: time ? 1486 : e.param === 50 ? 120 : 127} : d.pdesc[e.param];
+      const fx = e.param >= MFX_TIME && e.param <= MFX_DAMP, time = e.param === MFX_TIME, pitch = e.param === MSEQ_PITCH;
+      const desc = pitch ? {label: "PITCH", min: -24, max: 24} : fx ? {label: ["DLY TIME", "DLY FDBK", "DLY COLOR", "REV SIZE", "REV DAMP"][e.param - MFX_TIME],
+        min: time ? 1 : 0, max: time ? 1486 : e.param === MFX_TIME + 1 ? 120 : 127} : d.pdesc[e.param];
       const label = desc?.label || `P${e.param}`;
       const value = el("input", {type:"number",min:desc?.min ?? -8192,max:desc?.max ?? 8191,value:e.value - (time ? 64 : 0),"aria-label":`${e.step + 1} ${label}`});
       value.addEventListener("change", () => op(async () => {
         assertSession(d);
-        /* keep a lock a lock: op 5; PITCH (127) is always lock-only */
-        const edit = req.motion(m.track, e.lock || e.param === 127 ? 5 : 3,
+        /* keep a lock a lock: op 5; PITCH is always lock-only */
+        const edit = req.motion(m.track, e.lock || e.param === MSEQ_PITCH ? 5 : 3,
           {...e,value:+value.value + (time ? 64 : 0)});
         const r = parse[CMD.MOTION](await sessionRequest(d, edit));
         if (r.rc) throw new Error("Automation edit refused");

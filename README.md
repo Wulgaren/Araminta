@@ -47,7 +47,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - Assign FX values in LFO MOD or SEQ param locks.
 - **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
 - **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.
-- **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN. With REC armed, a TRN turn writes the current step's PITCH record (scale-fitted) instead; the global TRN keeps its value.
+- **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN. With REC armed while playing, a TRN turn also writes the current step's PITCH lock (scale-fitted); the knob still moves (other steps without a lock follow it), and no P_TRANS automation event is recorded.
 - **MAP (was QNT).** SCL knob: OFF / ALL / **CURR** / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); ALL is KBD plus sequence follows the scale; CURR is ALL's quantising plus ROOT / SCALE shared by every CURR track (the CHORD page's old SCALE LOCK, now a MAP value); SEQ is chromatic keys plus sequence follows. Chromatic (CHR) scale removed; use MAP OFF. CURR saves as ALL + the lock bit, so v3.1 opens it as SCALE LOCK + ALL; a v3.1 project locked with MAP OFF / KBD / SEQ loads unlinked. Current saves are FUN16 (`FUNG`).
 - **Following playhead** in the SEQ. Start selecting a step to pause the following, returns after 3 seconds of inactivity.
 - **SEQ GENERATION.** On DRUM-X, the second SEQ section generates editable kick, snare and closed-hat steps from Mutable Instruments Grids. SELECT switches between LEN / KICK / SNARE / HAT and MAP / MAP X / MAP Y / CHAOS. MAP selects one of 25 templates; X/Y blend between them and show CUSTOM. Turning MAP, MAP X or MAP Y briefly shows the full-screen map, then returns to the drum grid; CHAOS keeps the grid visible. Density edits change only their lane; map, chaos and length edits regenerate all three. Other lanes stay as written, SAVE held undoes the gesture, and each track's controls save with the project. Tips follow MENU > HELP.
@@ -91,9 +91,10 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   delete one. 192 records shared by the four tracks (88 saved in a project). SAVE held undoes every edit. A step can
   also hold a **PITCH** lock (SCL K4): an absolute per-step transpose (-24..+24), chromatic and not snapped; the
   step uses it instead of the track's TRN.
-  With REC armed, turning **TRN** writes that step's PITCH record from the scale-fitted result (C4 +1 in C major
-  records 0 ST), while the global TRN keeps its value. Editing that PITCH row turns it into a chromatic lock, so
-  a later +1 ST there plays C#4; it is still lock-only and never becomes ordinary automation.
+  With REC armed while playing, turning **TRN** writes that step's PITCH lock from the scale-fitted result (C4 +1
+  in C major records 0 ST); the TRN knob still moves (other steps without a lock follow it), and no P_TRANS
+  automation event is recorded. Editing that PITCH row changes its semitone value and it stays a lock, so +1 ST
+  plays C#4 (off-scale is allowed); it is lock-only and never becomes ordinary automation.
 - **SEQ TOOLS:** hold SEQ on any page for tools on the keys: CLEAR, REVERSE, SHIFT < / >, **RANDOM** (a new beat,
   or new notes in the scale on the same rhythm) and **COOK** (changes the pattern a little each press); on a DRUM
   track also BEAT, **MUTE** (F4 toggles the selected lane) and each lane's CLEAR, REVERSE, FILL and RANDOM;
@@ -357,7 +358,7 @@ On the **SCL** page, **MAP** chooses how the keys (and optionally the sequence) 
 - **ALL** — same keys as KBD, and sequenced notes map onto the current ROOT / SCALE as they play (steps unchanged; kits never remapped).
 - **SEQ** — live keys as OFF; sequenced notes map onto the scale as they play (same as ALL for the sequence).
 
-**TRN** transposes the resulting notes (and sequence playback; steps stay as stored); the octave buttons shift them by full octaves. With REC armed, turning it records the step's **PITCH** (the scale-fitted semitone result) instead of a global change; the knob still moves.
+**TRN** transposes the resulting notes (and sequence playback; steps stay as stored); the octave buttons shift them by full octaves. With REC armed while playing, turning it also records the step's **PITCH** lock (the scale-fitted semitone result); the knob still moves, and no P_TRANS automation event is recorded.
 
 Available scales: major (MAJ), natural minor (MIN), Dorian (DOR), Mixolydian (MIX),
 major pentatonic (PEN), minor pentatonic (MPEN), harmonic minor (HARM), Phrygian (PHRY),
@@ -370,10 +371,10 @@ Press **SCL** again for the **CHORD** page: CHRD picks the chord keys (OFF, the 
 sevenths, or a fixed shape), VOIC the voicing, STRUM the sweep (OFF, 1/8 to 1/128, 16T, 32T) and STROKE its
 direction (DOWN, UP, ALT). Hold a step on **SEQ > STEP** (piano roll; with SCL as the last sound page) and turn
 K4 (TRN) for a per-step **PITCH** lock: an absolute chromatic transpose (-24..+24) that replaces the track's TRN on
-that step (not snapped), one
-value for the whole step (a chord uses its first/lowest note when TRN is recorded). It appears as a **PITCH** row
-in **SEQ > AUTOMATION**. Turning TRN on SCL without a step held is the ordinary track transpose; with REC armed it
-records the fitted PITCH and leaves the global transpose value alone (the step uses the fitted value).
+that step (not snapped), one value for the whole step (a chord uses its first stored note, lowest for a keyed chord,
+when TRN is recorded). It appears as a **PITCH** row in **SEQ > AUTOMATION**. Turning TRN on SCL without a step held
+is the ordinary track transpose; with REC armed while playing it writes the fitted PITCH lock, the knob still moves
+the track's TRN, and the step uses the fitted value. No P_TRANS automation event is created.
 
 ## Layout
 
@@ -382,6 +383,7 @@ records the fitted PITCH and leaves the global transpose value alone (the step u
 | `firmware/` | firmware sources: `src/` app, `hal/` hardware layer, `loader/` update loader |
 | `tools/` | build script, generators, package maker, installer and sample uploader |
 | `assets/` | UI font, icon names, CC0 instrument samples and the public-domain CR-78 kit |
+| `docs/` | design notes, audits and the parameter / ID contract (`PARAM_CONTRACT.md`) |
 | `web/` | the web installer, editor and browser emulator (`web/emu/`) |
 | `tests/` | tests that run on the build machine |
 | `LICENSES/` | licence texts of the bundled fonts, icons, ported DSP and SDK files |
