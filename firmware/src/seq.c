@@ -700,7 +700,8 @@ static void rec_release(track_t *t, uint32_t note)
 
 /* FREE TAKE (from SLOOP): empty project, REC armed while stopped, no count-in. Play with no tempo;
  * REC on the next downbeat closes the loop (1 / 2 / 4 bars, tempo nearest the current BPM; within 3 %
- * the tempo is kept), notes quantised to 1/16 with lengths; a strummed chord keeps its sweep at the
+ * the tempo is kept), notes quantised to 1/16 with lengths (1/32 for a 1-2 bar take that recorded a
+ * 1/16 or finer strum, so its sweep has the steps to land on); a strummed chord keeps its sweep at the
  * take's tempo (the strings re-spaced by the STRUM rate they were played with, not the tempo before the
  * take); a note started while an earlier one is still held sets SF_SLIDE on the previous NOTE step and
  * TIEs the gap (acid legato; a strum's strings do not slide); when that tap ends while a key is still
@@ -716,6 +717,7 @@ static ft_ev_t ft_ev[FT_MAX];
 #define FT_STRUM_PACK(rate, idx, total) \
     ((uint8_t)(FT_STRUM | ((rate) << 4) | (((idx) & 3u) << 2) | (((total) - 1u) & 3u)))
 static uint8_t ft_sg[FT_MAX];
+static uint8_t ft_strum_fine;                 /* a 1/16 or finer strum: a 1-2 bar take uses 1/32 */
 static uint32_t ft_n;
 static volatile uint8_t ft_on;                /* a free take runs */
 static uint8_t ft_trk;
@@ -780,6 +782,7 @@ static void ft_start(track_t *t)
     ft_trk = (uint8_t)trk_index(t);
     ft_t = 0;
     ft_n = 0;
+    ft_strum_fine = 0;
     song.rec = 0;
 }
 static void ft_note_on(uint32_t note, uint32_t vel)
@@ -791,6 +794,8 @@ static void ft_note_on(uint32_t note, uint32_t vel)
         ft_ev[ft_n].vel = (uint8_t)vel;
         ft_sg[ft_n] = chord_strum_now.on
             ? FT_STRUM_PACK(chord_strum_now.rate, chord_strum_now.index, chord_strum_now.total) : 0u;
+        if ((ft_sg[ft_n] & FT_STRUM) && chord_strum_now.rate >= 2u)
+            ft_strum_fine = 1;                     /* 1/16 or finer: one 1/16 step is too coarse */
         ft_n++;
     }
 }
@@ -907,7 +912,7 @@ static void ft_returns(uint32_t len, uint32_t T)
 static void ft_close(void)
 {
     track_t *t = &trk[ft_trk % NTRK];
-    uint32_t T = ft_t, bars, bpm = 0, len, i;
+    uint32_t T = ft_t, bars, bpm = 0, len, div, i;
     ft_on = 0;
     ft_close_ms = fm1_ms;
     ft_closed = 1;
@@ -917,6 +922,11 @@ static void ft_close(void)
         return;
     }
     len = 16u * bars;
+    div = 2;                                          /* 1/16 */
+    if (bars <= 2u && ft_strum_fine) {               /* a 1/16 strum needs two steps: 1/32 fits 1-2 bars */
+        len = 32u * bars;                            /* (4 bars would need 128 steps: stay at 1/16) */
+        div = 3;                                     /* 1/32 */
+    }
     {   /* a strummed chord: put its strings back on the sweep it was set to, at the take's tempo (the
          * sweep during the take used the tempo before it, so a slower take made a 1/8 strum come out
          * shorter). Keep each string's release where it was played. */
@@ -941,7 +951,7 @@ static void ft_close(void)
     ft_steps_clear(t);
     for (i = 0; i < NTRK; i++) {
         trk[i].p[P_SLEN] = (int16_t)len;
-        trk[i].p[P_SDIV] = 2;                         /* 1/16 */
+        trk[i].p[P_SDIV] = (int16_t)div;
     }
     if (!drum_track(t))
         ft_returns(len, T);
