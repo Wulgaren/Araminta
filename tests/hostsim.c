@@ -864,6 +864,18 @@ int main(int argc, char **argv)
         host_preset(&inst, (uint32_t)eng, (uint32_t)preset);
     if (getenv("SENDS"))                                 /* SENDS=chorus,delay,reverb */
         sscanf(getenv("SENDS"), "%hd,%hd,%hd", &inst.p[P_CHOR], &inst.p[P_DLY], &inst.p[P_REV]);
+    if (getenv("TAPE")) {                               /* TAPE=speed,mode,mix: EFFECTS TAPE (mode 0 SEND, 1 CH1,
+                                                         * 5 MASTER; mix is P_TAPEMIX, or G_TMIX in MASTER) */
+        int sp, mo, mx;
+        if (sscanf(getenv("TAPE"), "%d,%d,%d", &sp, &mo, &mx) == 3) {
+            song.g[G_TSPEED] = (int16_t)sp;
+            song.g[G_TAPEMODE] = (int16_t)mo;
+            if (mo == TAPE_MASTER)
+                song.g[G_TMIX] = (int16_t)mx;
+            else
+                inst.p[P_TAPEMIX] = (int16_t)mx;
+        }
+    }
     if (getenv("OCT"))                                   /* OCT=o: keyboard octave shift (key 7 = C4 + 12 o) */
         song.octave = (int8_t)atoi(getenv("OCT"));
     if (getenv("PSET")) {                               /* PSET=id:value,... (track parameter ids, P_E0 = 61) */

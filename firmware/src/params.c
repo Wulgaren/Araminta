@@ -55,7 +55,6 @@ static const char *const N_SWEEP[] = {"OFF", "OFF", "1/8 DOWN", "1/8 UP", "1/8 A
     "16T DOWN", "16T UP", "16T ALT", "32T DOWN", "32T UP", "32T ALT"};
 static const char *const N_VOIC[] = {"CLOSE", "OPEN", "INV1", "INV2", "+OCT"};   /* VC_CLOSE .. VC_BASS */
 static const char *const N_VOICE[] = {"POLY", "MONO", "LEG", "UNI"};   /* V_POLY .. V_UNISON */
-static const char *const N_GLMODE[] = {"RATE", "TIME"};
 static const char *const N_ORDER[] = {"NOTE", "PLAY"};
 static const char *const N_CLOCK[] = {"INT", "USB", "TRS"};
 static const char *const N_MIDI_INPUT[] = {"USB", "TRS"};
@@ -76,7 +75,10 @@ static const char *const N_IRATE[] = {"689", "919", "1.1k", "1.4k", "1.8k", "2.2
                                       "7.4k", "8.8k", "11k", "15k", "22k", "44k", 0};
 /* EFFECTS page: stage names in chain order (fx.c). K1 chooses, K2 moves.
  * Same strings as the stage page titles (PAGES[] below); name column sized to FLANGER/DISTORT. */
-static const char *const N_ISTAGE[] = {"DISTORT", "FILTER", "CRUSH", "PHASER", "FLANGER", "CHORUS", "DELAY", "REVERB", "SLICER"};
+static const char *const N_ISTAGE[] = {"DISTORT", "FILTER", "CRUSH", "PHASER", "FLANGER", "CHORUS", "DELAY", "REVERB",
+                                       "SLICER", "TAPE"};
+/* EFFECTS TAPE G_TAPEMODE: the one machine's route (fx.c fx_list_mode) */
+static const char *const N_TAPEMODE[] = {"SEND", "CH1", "CH2", "CH3", "CH4", "MASTER"};
 /* modulation matrix (mod.c): sources, destinations (E1..E8 = P_E0..P_E7: shown with the engine's labels).
  * Append-only (stored values keep their meaning): S&H SLEW and DEPTH (#132) came after EXPR and E8 */
 static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR", "S&H", "SLEW"};
@@ -137,7 +139,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_REV] = PD("REV", F_PCT, 0, 127, 0),
     [P_VOICE] = PE("VCE", N_VOICE, 0),
     [P_GLIDE] = PD("GLD", F_TIME, 0, 127, 0),
-    [P_GLMODE] = PE("GLMOD", N_GLMODE, 0),
+    [P_TAPEMIX] = PD("MIX", F_PCT, 0, 127, 0),      /* EFFECTS TAPE per-track MIX (id was GLMOD) */
     [P_LSMOOTH] = PD("SMTH", F_PCT, 0, 127, 0),     /* WAVE S&H's smoothing (P_PRIO's inert id: no format change) */
     [P_ALLOC] = PE("SWEEP", N_SWEEP, 0),             /* CHORD K3 / K4 on the device: STRUM and STROKE */
     [P_DETUNE] = PD("UNI DTN", F_INT, 0, 127, 40),   /* UNISON voice spread only (voice.c mono_play) */
@@ -206,26 +208,25 @@ static const param_desc_t GP[G_COUNT] = {
     [G_DTIME] = PE("TIME", N_DTIME, 1),   /* 0..12 divisions. Free ms is DTIME_FREE+ms in the same word (fx.c) */
     [G_DFDBK] = PD("FDBK", F_PCT, 0, 120, 60),
     [G_DCOLOR] = PD("COLR", F_PCT, 0, 127, 70),
-    [G_DMIX] = PD("-", F_INT, 0, 127, 90), /* retired return gain: keep its wire id and stored value */
+    [G_TSPEED] = PD("SPEED", F_PCT, 50, 200, 100), /* EFFECTS TAPE speed % (was G_DMIX, retired return gain) */
     [G_RSIZE] = PD("SIZE", F_PCT, 0, 127, 90),
     [G_RDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
     [G_CRATE] = PD("DLYOWN", F_INT, 0, 4, 0),     /* 0 SEND; 1..4 track with delay CHAIN (was bus CRT) */
     [G_CDEPTH] = PD("REVOWN", F_INT, 0, 4, 0),    /* 0 SEND; 1..4 track with reverb CHAIN (was bus CDP) */
-    /* G_MIDI, G_INFO: the old SYSTEM page's (gone in 1.2), on no page. G_DREL was G_SYNC (placeholder). */
-    [G_MIDI] = PE("MIDI", N_MIDI_INPUT, 0),
+    [G_TWOW] = PD("WOW", F_PCT, 0, 127, 0),      /* TAPE wow/flutter depth (was G_MIDI, the old SYSTEM page) */
     [G_DREL] = PD("REL", F_PCT, 0, 100, 30),     /* DUCK's release: 40 .. 600 ms (fx.c duck_block) */
     /* MIDI IN's routing, edited on MENU > MIDI > MIDI IN (1.2: menu_items.c MI_MIDIIN; up to 1.1.5 GLO > SYSTEM ROUT),
      * stored with the project as before. (was "--": stored 0 = CH1-4, as MIDI IN always was) */
     [G_ROUTE] = PE("ROUT", N_ROUTE, 0),
-    [G_INFO] = PD("CPU", F_INT, 0, 0, 0),
+    [G_TDROP] = PE("DROP", N_ONOFF, 0),          /* TAPE dropouts (was G_INFO, CPU) */
     [G_SLOT] = PD("SLOT", F_INT, 1, 4, 1),
     [G_NAME] = PE("NAME", N_DASH, 0),
     [G_LOAD] = PE("LOAD", N_GO, 0),
     [G_SAVE] = PE("SAVE", N_GO, 0),
     [G_ENGSEL] = PE("ENG", N_ENGNAME, 0),
     [G_CLIP] = PD("CLIP", F_PCT, 0, 100, 0),     /* master clipper: drive x1 .. x4 into the soft clip */
-    [G_CLRSEQ] = PE("CLRSQ", N_GO, 0),
-    [G_INITSND] = PE("INIT", N_GO, 0),
+    [G_TMIX] = PD("MIX", F_PCT, 0, 127, 0),      /* TAPE MASTER dry/wet (was G_CLRSEQ, an unused GO) */
+    [G_TAPEMODE] = PE("TAPE", N_TAPEMODE, 0),    /* 0 SEND, 1..4 CHAIN owner, 5 MASTER (was G_INITSND) */
     /* the reverb's model on the REVERB page: the id of the old GM drum channel (G_DRCH, inert since 1.0) */
     [G_RTYPE] = PE("TYPE", N_RTYPE, 2),         /* SEND tank; HALL at power-on since 1.2 */
     /* (JIANT) drum bus and kick ducking; ids were G_DRLVL / G_DRREV (GM drum part). proj_drums_to_part clears them. */
@@ -564,7 +565,7 @@ static const page_t PAGES[] = {
     {"MOD", FAM_LFO, SC_TRACK, GR_MOD, LFO_SEC_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* its own section: LFO button cycles here */
     /* FX: Effects → Punch-in. SLICER is an EFFECTS page (open from the list / SELECT).
      * SELECT order follows the EFFECTS list (fx_list), not this table order. Each stage's mix
-     * lives on EFFECTS (K4). K3 is USE AS: CHAIN or SEND. DELAY knob 4: left TIME, right RATE. */
+     * lives on EFFECTS (K4). K3 is USE AS: CHAIN, SEND or MASTER (TAPE). DELAY knob 4: left TIME, right RATE. */
     {"EFFECTS", FAM_FX, SC_TRACK, GR_IORD, FX_SEC_INS, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},
     {"DELAY", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_DTIME, G_DFDBK, G_DCOLOR, 0xFF}},
@@ -575,6 +576,7 @@ static const page_t PAGES[] = {
     {"FLANGER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_ILRATE, P_ILDEP, 0xFF, 0xFF}},
     {"CHORUS", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IHRATE, P_IHDEP, 0xFF, 0xFF}},
     {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, FX_SEC_INS, {P_SLCR, P_SLPAT, P_SLRATE, 0xFF}},
+    {"TAPE", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_TSPEED, G_TWOW, G_TDROP, G_TMIX}},
     {"PUNCH-IN", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, 0, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
     {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, 0, {P_CHRD, P_VOIC, PG_STRUM, PG_STROKE}},

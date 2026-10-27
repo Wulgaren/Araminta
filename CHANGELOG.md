@@ -1,5 +1,34 @@
 # Changelog
 
+## 3.3
+
+The EFFECTS list gains **TAPE**, its tenth row: one rotating-head varispeed that runs in a track's chain, on
+the send bus, or on the whole mix (MASTER). Same 3840-byte project object as 3.2; the new magic is FUN17
+(`FUNH`). Splash and ABOUT show `v3.3`.
+
+### FX
+
+- **TAPE.** SPEED (50..200 %, one head: pitch and tempo together), WOW (slow + flutter) and DROPOUT (random
+  short tape dropouts). USE AS on EFFECTS is CHAIN / SEND / MASTER: CHAIN puts the one machine in the owner
+  track's list, SEND sums the tracks' TAPE amounts into its bus, MASTER runs it on the whole stereo mix. MIX is
+  each track's amount in CHAIN/SEND and one global amount in MASTER (the TAPE page's K4). The TAPE page opens
+  from EFFECTS like DELAY / REVERB (SPEED WOW DROP MIX).
+- **The head.** A two-head crossfaded delay line at 44.1 kHz; SPEED slews like a motor (about 0.75 s for the
+  full range). Its rest delay is 256 samples (5.8 ms). SEND and MASTER delay the dry by the same amount, so
+  their wet lines up and a static comb cannot form; CHAIN runs in the owner track and keeps its own small head
+  delay. At 100 % with MIX 0 the list is bit-identical (the golden renders are unchanged).
+- **Storage.** The dead global ids `G_DMIX`, `G_MIDI`, `G_INFO`, `G_CLRSEQ`, `G_INITSND` are TAPE SPEED, WOW,
+  DROP, MASTER MIX and the route; `P_GLMODE` (never read) is the per-track TAPE MIX. No parameter or project
+  byte moved. The 8 KB + 2 KB head and compensation lines live in the POOL; RAM headroom stays above 4 KB.
+
+### Projects
+
+- **FUN17 (`FUNH`).** Same layout and 3840-byte size as FUN16. Each track's ten-slot EFFECTS order rides in the
+  unused high bits of its FM6 patch bytes (after the six generation controls). FUN16 and older load with the
+  order rebuilt from `P_IORD` / `P_CHOR` / the SLCR slot and TAPE off; only FUN17 is written. Firmware that
+  only knows FUN16 refuses a FUN17 (magic): its slot shows EMPTY until saved over, so keep a backup before the
+  first save. The editor reads the order through `PROJECT` / `TRACK_DUMP` as before; no command changed.
+
 ## 3.2
 
 The stock V15 supply rails before core 1, a per-step PITCH lock, beat-synced chord STRUM / STROKE, the new
