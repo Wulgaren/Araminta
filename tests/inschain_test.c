@@ -133,6 +133,26 @@ static uint32_t zero_cross_blocks(uint32_t blocks)
     }
     return n;
 }
+/* the biggest sample-to-sample step: a head-wrap click shows up here even when the ZC rate is right */
+static uint32_t max_delta_blocks(uint32_t blocks)
+{
+    uint32_t d = 0, b, i;
+    int32_t prev = 0;
+    int any = 0;
+    for (b = 0; b < blocks; b++) {
+        mix_block(out_buf, CTL);
+        for (i = 0; i < CTL; i++) {
+            int32_t v = out_buf[2u * i], a = v - prev;
+            if (a < 0)
+                a = -a;
+            if (any && (uint32_t)a > d)
+                d = (uint32_t)a;
+            prev = v;
+            any = 1;
+        }
+    }
+    return d;
+}
 static void tape_note(void)
 {
     host_preset(&trk[0], 0, 5);                       /* ANALOG SINE KEY */
@@ -143,11 +163,12 @@ static void tape_note(void)
 static void test_tape(void)
 {
     uint64_t dry, bypass, master, chain, send;
-    uint32_t zc_dry, zc_master, zc_chain;
+    uint32_t zc_dry, zc_master, zc_chain, md_dry, md_master, md_chain;
     fresh();
     tape_note();
     dry = hash_out(64);
     zc_dry = zero_cross_blocks(64);
+    md_dry = max_delta_blocks(64);
 
     fresh();                                          /* SEND, MIX 0: the head is out of the path */
     song.g[G_TAPEMODE] = TAPE_SEND;
@@ -163,8 +184,9 @@ static void test_tape(void)
     tape_note();
     master = hash_out(64);
     zc_master = zero_cross_blocks(64);
-    ck("TAPE MASTER 50 %: the render changes and the pitch drops (ZC lower)",
-       master != dry && zc_master * 4u < zc_dry * 3u);
+    md_master = max_delta_blocks(64);
+    ck("TAPE MASTER 50 %: the render changes, the pitch drops, no head-wrap clicks",
+       master != dry && zc_master * 4u < zc_dry * 3u && md_master < md_dry * 2u + 128u);
 
     fresh();
     song.g[G_TAPEMODE] = TAPE_CH1;
@@ -173,8 +195,9 @@ static void test_tape(void)
     tape_note();
     chain = hash_out(64);
     zc_chain = zero_cross_blocks(64);
-    ck("TAPE CHAIN 50 % on track 1: the render changes and the pitch drops",
-       chain != dry && zc_chain * 4u < zc_dry * 3u);
+    md_chain = max_delta_blocks(64);
+    ck("TAPE CHAIN 50 % on track 1: the render changes, the pitch drops, no clicks",
+       chain != dry && zc_chain * 4u < zc_dry * 3u && md_chain < md_dry * 2u + 128u);
 
     fresh();
     song.g[G_TAPEMODE] = TAPE_SEND;

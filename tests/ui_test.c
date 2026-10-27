@@ -9102,6 +9102,10 @@ static int test_fx_sections(void)
              text_w(&AF_S, N_ISTAGE[INS_SLCR]) <= text_w(&AF_S, "FLANGER");
         ui.ior_sel = 0;
         ok &= cur_page()->graph == GR_IORD;
+        for (i = 0; i < NPAGES; i++)
+            if (str_eq(PAGES[i].title, "TAPE"))
+                ok &= PAGES[i].id[0] == G_TSPEED && PAGES[i].id[1] == G_TWOW &&
+                      PAGES[i].id[2] == G_TDROP && PAGES[i].id[3] == 0xFFu;   /* MIX stays on EFFECTS */
         /* SLICER: K3 toggles this track SEND/CHAIN; other tracks keep their own mode (no USED) */
         if (sl_slot < FX_LIST_N) {
             int16_t mix0;
@@ -9134,6 +9138,11 @@ static int test_fx_sections(void)
             ok &= song.g[G_TAPEMODE] == TAPE_CH1 && str_eq(fx_list_mode(TSEL, INS_TAPE), "CHAIN");
             turn(EN_K3, 1);
             ok &= song.g[G_TAPEMODE] == TAPE_MASTER && str_eq(fx_list_mode(TSEL, INS_TAPE), "MASTER");
+            {   /* MASTER's K4 is the one global amount (G_TMIX); the track's P_TAPEMIX stays put */
+                int16_t gm = song.g[G_TMIX], pm = TSEL->p[P_TAPEMIX];
+                turn(EN_K4, 8);
+                ok &= song.g[G_TMIX] != gm && TSEL->p[P_TAPEMIX] == pm;
+            }
             turn(EN_K3, 1);
             ok &= song.g[G_TAPEMODE] == TAPE_SEND && str_eq(fx_list_mode(TSEL, INS_TAPE), "SEND");
             song.sel = 1;

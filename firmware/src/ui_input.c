@@ -1381,13 +1381,16 @@ static void ior_knob(uint32_t k, int32_t s)
                 bus_own_set(which, tr);
         } else if (send != ins_is_send(TSEL, st))
             ins_send_set(TSEL, st, send);
-    } else if ((mode = fx_list_mode(TSEL, st))[0] != 'U' && !str_eq(mode, "MASTER")) {
+    } else if ((mode = fx_list_mode(TSEL, st))[0] != 'U') {
+        int global = ior_mix_global();
         uint32_t id = ior_pct_id();
-        const param_desc_t *d = track_desc(TSEL, id);
-        int16_t *vp = &TSEL->p[id];
+        const param_desc_t *d = global ? &GP[G_TMIX] : track_desc(TSEL, id);
+        int16_t *vp = global ? &song.g[G_TMIX] : &TSEL->p[id];
         *vp = (int16_t)param_turn(d, *vp, accel(EN_K4, s, d->max - d->min));
-        motion_capture(TSEL, id, *vp);
-        ml_knob(TSEL, id);
+        if (!global) {
+            motion_capture(TSEL, id, *vp);
+            ml_knob(TSEL, id);
+        }
     }
     ui.force = 1;
 }
