@@ -640,12 +640,15 @@ static void hk_ink(uint16_t ink, uint16_t bg)
 }
 static void write_ppm(const char *dir, const char *pal, const char *name)
 {
+    static int off;
     char path[512];
     uint32_t i;
     FILE *f;
+    if (off)
+        return;                                        /* no ppm/ dir: the PNGs are the output */
     snprintf(path, sizeof path, "%s/ppm/%s_%s.ppm", dir, pal, name);
     f = fopen(path, "wb");
-    if (!f) { fprintf(stderr, "cannot write %s\n", path); return; }
+    if (!f) { off = 1; return; }
     fprintf(f, "P6\n240 240\n255\n");
     for (i = 0; i < 240u * 240u; i++) {
         uint16_t c = swap16(host_screen[i]);
@@ -1659,6 +1662,8 @@ static void sweep_motion(void)
     lint();
     memset(&motion, 0, sizeof motion);
 }
+/* Short ranges get every value. Wide ones get the ends, quarters, middle and default: the old
+ * 300-value cap made the 25..400 % SPEED column alone add thousands of draws. */
 static void sweep_columns(void)
 {
     uint32_t e, i, c, esync_pass = 0;
@@ -1680,17 +1685,31 @@ static void sweep_columns(void)
                 int16_t *vp;
                 const param_desc_t *d = PAGES[i].scope == SC_GLOBAL || PAGES[i].scope == SC_TRACK || PAGES[i].scope == SC_ENGINE
                                         ? page_desc(cur_page(), c, &vp) : 0;
-                int32_t v, v0;
+                int32_t v, v0, sv[32];
+                uint32_t nv = 0, vi;
                 if (!d || !d->label || d->label[0] == '-' || PAGES[i].graph == GR_MOD) continue;
                 v0 = *vp;
-                for (v = d->min; v <= d->max; v++) {
-                    *vp = (int16_t)v;
+                if (d->max - d->min <= 24) {
+                    for (v = d->min; v <= d->max; v++)
+                        sv[nv++] = v;
+                } else {                                  /* wide ranges: the ends, quarters, mid and default */
+                    sv[nv++] = d->min;
+                    sv[nv++] = d->min + 1;
+                    sv[nv++] = d->min + (d->max - d->min) / 4;
+                    sv[nv++] = d->min + (d->max - d->min) / 2;
+                    sv[nv++] = d->max - (d->max - d->min) / 4;
+                    sv[nv++] = d->max - 1;
+                    sv[nv++] = d->max;
+                    if (d->def >= d->min && d->def <= d->max)
+                        sv[nv++] = d->def;
+                }
+                for (vi = 0; vi < nv; vi++) {
+                    *vp = (int16_t)sv[vi];
                     nscr = npend = 0;
                     ui.force = 1;
                     draw_columns();
                     lint();
                     nsweep++;
-                    if (v - d->min > 300) v = d->max - 1;      /* wide ranges: the ends */
                 }
                 *vp = (int16_t)v0;
             }

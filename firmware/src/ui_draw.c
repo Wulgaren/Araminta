@@ -1225,15 +1225,17 @@ static void draw_columns(void)
     }
     if (cur_page()->graph == GR_IORD) {                 /* CHOOSE, ORDER, USE AS (CHAIN/SEND/MASTER/USED), MIX */
         uint8_t ord[FX_LIST_N];
-        int global = ior_mix_global();
+        int global;
         uint32_t id = ior_pct_id(), slot = ui.ior_sel < FX_LIST_N ? ui.ior_sel : 0u, st;
-        const param_desc_t *d = global ? &GP[G_TMIX] : track_desc(TSEL, id);
+        const param_desc_t *d;
         const char *mode;
         int16_t mixv;
         char pos[8], tot[8];
         int used;
         fx_list_get(TSEL, ord);
         st = ord[slot];
+        global = st == INS_TAPE;
+        d = global ? &GP[G_TMIX] : track_desc(TSEL, id);
         mode = fx_list_mode(TSEL, st);
         used = mode[0] == 'U';
         mixv = global ? song.g[G_TMIX] : TSEL->p[id];
@@ -1244,7 +1246,7 @@ static void draw_columns(void)
                     (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_AUTO);
         draw_column(1, "ORDER", pos, tot, VAL(1u), (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_ORDER);
         draw_column(2, "USE AS", mode, "", used ? T_DIM : VAL(2u),
-                    mode[0] == 'S' ? 1000 : mode[0] == 'C' ? 0 : str_eq(mode, "MASTER") ? 500 : -1, ICON_NONE);
+                    mode[0] == 'C' ? 0 : mode[0] == 'S' ? 500 : str_eq(mode, "MASTER") ? 1000 : -1, ICON_NONE);
         param_format(d, mixv, val, &unit);
         if (!global)
             card_mot_of(&TSEL->p[id]);

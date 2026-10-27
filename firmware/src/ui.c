@@ -532,15 +532,7 @@ static uint32_t ior_pct_id(void)
         return P_TAPEMIX;
     return MIX[st < INS_N ? st : 0u];
 }
-/* EFFECTS K4 in MASTER: TAPE's amount is the one global MIX (G_TMIX), not the per-track P_TAPEMIX. */
-static int ior_mix_global(void)
-{
-    uint8_t ord[FX_LIST_N];
-    uint32_t st;
-    fx_list_get(TSEL, ord);
-    st = ord[ui.ior_sel < FX_LIST_N ? ui.ior_sel : 0u];
-    return st == INS_TAPE && str_eq(fx_list_mode(TSEL, st), "MASTER");
-}
+
 /* parameter locks: a page whose KNOB 1..4 can lock (a track's sound: one of its parameters can be motion; not MOD's
  * slots), the parameter KNOB k locks (ui.plk_src's page, HOME's four), 0xFF = none */
 static int lock_page_ok(uint32_t i)
@@ -569,9 +561,11 @@ static uint32_t lock_id(uint32_t k)
                                  : (k == 1u || k == 2u ? MFX_SIZE + k - 1u : 0xFFu);
         return id != 0xFFu && fx_target_available(TSEL, id) ? id : 0xFFu;
     }
-    if (ui.plk_src && lock_page_ok(ui.plk_src - 1u) && PAGES[ui.plk_src - 1u].graph == GR_IORD)
-        id = k == 3u && !ior_mix_global() ? ior_pct_id() : 0xFFu;
-    else
+    if (ui.plk_src && lock_page_ok(ui.plk_src - 1u) && PAGES[ui.plk_src - 1u].graph == GR_IORD) {
+        id = k == 3u ? ior_pct_id() : 0xFFu;
+        if (id == P_TAPEMIX)                          /* TAPE's one global amount does not lock */
+            return 0xFFu;
+    } else
         id = ui.plk_src && lock_page_ok(ui.plk_src - 1u) ? PAGES[ui.plk_src - 1u].id[k & 3u]
                                                           : ENGINES[TSEL->eng_req % NENGINES]->knob[k & 3u];
     if (id == P_TRANS && ui.plk_src && lock_page_ok(ui.plk_src - 1u) &&

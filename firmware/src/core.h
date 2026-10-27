@@ -67,7 +67,7 @@ enum {                          /* per-track parameters */
     P_DIST, P_CHOR, P_DLY, P_REV,              /* P_DIST: DIST drive. P_CHOR: EFFECTS DLY/REV/SLCR list slots
                                                 * (fx.c; was bus CHO send). P_DLY/P_REV: send or chain mix */
     P_VOICE, P_GLIDE, P_PAN, P_MUTE,
-    P_TAPEMIX, P_LSMOOTH, P_ALLOC, P_DETUNE,   /* P_TAPEMIX: EFFECTS TAPE per-track MIX (was GLMOD, never read).
+    P_TAPEMIX, P_LSMOOTH, P_ALLOC, P_DETUNE,   /* P_TAPEMIX: the old GLMOD id, unused (TAPE MIX is G_TMIX).
                                                 * P_ALLOC: STRUM/SWEEP (packed; chord.c), was inert. P_LSMOOTH was P_PRIO: the
                                                 * LFO WAVE S&H's smoothing (voice.c track_lfo_end) */
     P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH,      /* SLICER (slicer.c): MODE PAT RATE; P_SLDEPTH is MIX */
@@ -323,6 +323,9 @@ typedef struct {
 struct track;
 /* fx.c: the pre-FUN17 list order from P_IORD / P_CHOR / fx_sl_pos (project.c uses it on older loads) */
 void fx_order_default(uint16_t iord, int16_t fchor, uint8_t slpos, uint8_t ord[FX_LIST_N]);
+/* fx.c: TAPE's source-clock varispeed (MASTER / the CHAIN owner); SEND returns 0 / 1x */
+int32_t tape_pitch16_for(const struct track *t);
+uint32_t tape_seq_speed_q16(const struct track *t);
 typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c files) */
     const char *name;            /* "ANALOG" (PRESETS, the editor) */
     const char *page_title[2];   /* EDIT 1 and EDIT 2 */
