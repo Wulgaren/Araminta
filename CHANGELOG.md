@@ -54,13 +54,14 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
   strummed at 1/8 while playing a slower loop therefore still sounds as 1/8, and its strings no longer
   receive the legato SF_SLIDE or the mono return (a strum is a chord, not a tap). `tests/freetake_test.c`
   covers a 1/8 strum played at 80 BPM with the project at 120.
-- **NOTE EDITS on SEQ TOOLS.** Stored-note edits, one undo each like COOK/RANDOM:
-  **OCT− / OCT+** on E4 / F4 (BEAT / MUTE on a DRUM track) transpose the written notes ±12 (ties, rests and the
-  notes past LEN stay); **HALF** on D5 stretches the pattern over twice the steps (LEN ×2, ties keep holding);
-  **\*2** on E5 squeezes each pair into one (LEN ÷2, the first playing step wins); **HUMAN** on F5 writes fresh
-  velocity ±16 and nudge ±2 into every note step and switches QUANTIZE off so the nudge plays; **DUP** on G5 copies
-  steps 1..LEN after themselves (LEN ×2, up to 64; locks and automation copy). OCT− on the page puts back every edit
-  of the visit, including QUANTIZE.
+- **NOTE EDITS on SEQ TOOLS.** Stored-note edits, one undo each like COOK/RANDOM. On a melodic track the six edits
+  follow the sequence tools with no gap: **OCT− / OCT+** on E4 / F4 transpose the written notes ±12 (ties, rests and
+  the notes past LEN stay); **HALF** on G4 stretches the pattern over twice the steps (LEN ×2, ties keep holding);
+  **\*2** on A4 squeezes each pair into one (LEN ÷2, the first playing step wins); **HUMAN** on B4 writes fresh
+  velocity ±16 and nudge ±2 into every note step and switches QUANTIZE off so the nudge plays; **DUP** on C5 copies
+  steps 1..LEN after themselves (LEN ×2, up to 64; locks and automation copy). On a DRUM track BEAT / MUTE and the
+  lane tools keep E4..C5, so HALF / \*2 / HUMAN / DUP are D5..G5. OCT− on the page puts back every edit of the visit,
+  including QUANTIZE.
 
 ### Chord
 
