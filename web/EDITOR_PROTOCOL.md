@@ -1,5 +1,8 @@
 # Felucca editor protocol (SysEx over USB-MIDI)
 
+This document is cumulative: sections are labelled by the version that introduced them, so an older section may
+describe an earlier design. `docs/PARAM_CONTRACT.md` is the current parameter / ID contract.
+
 The firmware side is `firmware/src/editor.c`. Commands 1-15, track selection, dumps, step reads
 and parameter writes (27, 29, 30, 31) were checked on hardware. `tests/editor_test.c` also exercises the real C
 handler, malformed transfers and stop timeouts against simulated flash. User-preset
@@ -199,7 +202,7 @@ at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device 
 | 1 INFO | — | version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, then NENGINES engine-name strings, then (v3) NTRK (4), then (v6) CHAIN_ROWS (16), then the tagged blocks `55 01 uiCaps`, `4D 01 64 01`, `42 01 3`, `46 01 nfactory nbank`, `53 01 3`, (1.0.3) `50 01 3` and (1.0.4) `4E 01 count` (MENU settings; 12, 1.1: 15, 1.2: 17, 1.1.5: 18, 1.2: 23, 1.3: 24, 1.5: 25) and (1.0.5) `52 01 4` (ratchet) and (1.1) `4C 01 1` (parameter locks) and (1.2) `41 01 40 01` (192 motion records in this build; two 7-bit bytes, LSB first: `00 01` was 128 before; `4D 01 64 01` keeps saying 64) and `54 01 16` (a step's nudge, 1/16 of a step) and `57 01 4` (song sections: a slot per track, SONG ops 4..7) and (1.4.1) `56 01 32` (FM6's voice bank: cmds 74..77, SLOT 9..40) and (1.5) `43 01 16` (MIDI LEARN's map: cmds 78, 79) (below); older firmware ends earlier |
 | 2 GET | scope, id | scope, id, v14 |
 | 3 SET | scope, id, v14 | scope, id, v14 (the value after clamping). Setting global `G_ENGSEL` (id from DESC label "ENG") changes the engine: its defaults, then its first preset (as on the device) |
-| 4 DUMP | — | engine, preset, then P_COUNT × v14 (the selected track), then G_COUNT × v14 (globals) |
+| 4 DUMP | — | engine, preset, then P_COUNT × v14 (the selected track), then G_COUNT × v14 (globals). `P_IORD` is its 0..719 insert order; the SEND flags stay on the device, as in `GET` / `TRACK_DUMP` / `CHANGED` |
 | 5 DESC | scope, id | scope, id, fmt, min v14, max v14, def v14, label string, unit string, then for an enum (fmt 8) one name string per value (at most 24; firmware before the matrix: at most 16) |
 | 6 STEP_GET | index 0..NSTEP−1 | index, n (0..4 notes), note0..note3, time (0 NOTE, 1 TIE, 2 REST), flags (1 accent, 2 slide), vel, then (v5) hits (3 bytes, below), then (v7) chance 0..100, then (`52 01`) ratchet 1..4, then (`54 01`, 1.2) nudge + 8 (0..15: −8..+7 sixteenths of the step) |
 | 7 STEP_SET | index, n, note0..3, time, flags, vel [, hits (3 bytes, v5) [, chance 0..100 (v7) [, ratchet 1..4 [, nudge + 8, 0..15 (1.2)]]]] | same as STEP_GET (after the write). Without the hits the step keeps its own; without the chance, the ratchet or the nudge it keeps its own. The chance can only follow the hits, the ratchet the chance, the nudge the ratchet; a nudge byte above 15: no reply, nothing written |
@@ -593,11 +596,15 @@ when the track's engine is not the saved one).
   user preset does not store it. Changing it on the device pushes `STEP_CHANGED`.
 - **Motion** is knob moves recorded per step: 192 records in RAM, 88 saved in a project, shared by the four
   tracks. The device's MAP has five values (OFF, ALL, KBD, SEQ, CURR; CURR is stored 4 and shown third);
-  CURR shares ROOT/SCALE across the tracks that use it. PITCH (id 127) is lock-only, -24..24 chromatic
-  semitones applied after the scale snap (one value for the whole step); older firmware refuses a project
-  that holds it. Recording SCL TRN while armed writes that PITCH record (the scale-fitted absolute offset, its
-  first/lowest note as the reference) as an automation-kind record; the global TRN keeps its value and no
-  P_TRANS event is created. Editing that PITCH row turns it into a lock, so the edit is chromatic (off-scale).
+  CURR shares ROOT/SCALE across the tracks that use it. PITCH (id 127) is lock-only: a per-step absolute
+  transpose (-24..24 semitones) that replaces TRN on that step and is not scale-snapped at playback (one value
+  for the whole step; recording uses the first stored note as the reference). Older firmware refuses a project
+  that holds it. Recording SCL TRN while armed and playing writes that PITCH lock from the scale-fitted result;
+  no P_TRANS event is created (the TRN knob itself still moves; other steps without a lock follow it). The record
+  is always a lock: editing it changes its semitone value and it stays a lock, so +1 ST plays C#4, off-scale if
+  needed. Kits (DRUM or an engine that maps keys) ignore PITCH: op 5 refuses id 127 on them (rc 1), and a
+  stored kit lock is inert. `MOTION` op 3 refuses id 127 (rc 1); op 5 writes the lock, op 4 deletes it, op 6
+  clears it, and op 8 lists it with kind 1.
   STRUM/STROKE use P_ALLOC (id 43) as one packed SWEEP value (0/1 OFF for legacy ROT/REUSE, then 2 + (rate-1)*3 + stroke,
   rate 1..7 = 1/8 .. 32T, stroke 0 DOWN / 1 UP / 2 ALT). An event is (track, step
   0..63, parameter id, value). While a track plays its motion, the step sets the value at the step and it
@@ -605,9 +612,8 @@ when the track's engine is not the saved one).
   sound's own values back. Parameters that can be recorded (`motion_param`): ids 0..16 (LEVEL, ENV, LFO),
   33..36 (DIST, CHO, DLY, REV), 38 (GLIDE), 39 (PAN), 44 (DETUNE), 61..80 (the FM operator parameters) and
   83..90 (the DRUM lane levels), 91..98 (the engine parameters; not the chord keys 81, 82). PITCH (127) is
-  lock-only: automation capture ignores it, and `MOTION` op 5 writes it. The device records the others while the
-  track is armed, playing and selected, from its knobs
-  and from `SET` / `TRACK_PARAM` alike.
+  lock-only: automation capture ignores it, and `MOTION` op 5 writes it (op 3 refuses it). The device records the
+  others while the track is armed, playing and selected, from its knobs and from `SET` / `TRACK_PARAM` alike.
   - `MOTION` with the track alone is the query. `on` 0 keeps the data and stops playing it; 1 plays it. Clear
     drops the track's events and turns it off; on the device it is undone by SAVE held.
   - Set: `value` must be inside the parameter's range for that track's engine (and −64..127); a
@@ -703,8 +709,9 @@ INFO advertises `4C 01 1` after the ratchet tag (`52 01 4`). Firmware without it
   record (`motion_param`, see above); AUTOMATION's PLAY OFF bypasses locks too, its CLEAR clears them.
 - `MOTION` 5 sets a lock (track, 5, step, id, v14): as op 3, the value inside the parameter's range for the track's
   engine, rc 2 when the 64 are used. A lock and an automation event on the same step and id are one record: op 3
-  over a lock makes it an automation event, op 5 over an automation event makes it a lock. Op 4 deletes either
-  kind. Op 6 (track, 6, step) removes that step's locks (step 127: every step's), its automation events stay.
+  over a lock makes it an automation event, op 5 over an automation event makes it a lock. (PITCH, 3.2, is the
+  exception: it is always a lock, so op 3 refuses it.) Op 4 deletes either kind. Op 6 (track, 6, step) removes
+  that step's locks (step 127: every step's), its automation events stay.
   Op 7 (track, 7) is the query. Ops 5..7 reply as the query and then one kind byte per record, in the same order
   (0 automation, 1 lock); the query and ops 1..4 reply as before 1.1, where a lock reads as an automation event.
 - In projects (FUN9; the motion block is laid out as in FUN7 / FUN8) a lock is a motion record with bit 7 of its id

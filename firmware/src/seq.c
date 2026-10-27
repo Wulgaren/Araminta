@@ -76,6 +76,13 @@ static int drum_track(const track_t *t)
            (set >= SMP_NSETS && set < SMP_CR78_INDEX && smp_user_drum(set - SMP_NSETS));
 }
 
+/* DRUM and every other engine with its own key map: PITCH and TRN do not reach its notes (kit tracks) */
+static int kit_track(const track_t *t)
+{
+    const engine_t *e = ENGINES[eng_idx(t->eng_req)];
+    return e->keys && e->keys(t, 0) >= 0;
+}
+
 /* the 27 keys from F: black or white, and the key's place among the keys of its colour (white 0..15, black
  * 0..10). The DRUM grid: white keys are steps, black keys 1..8 lanes, 9 ACC, 10 / 11 the page */
 static int key_black(uint32_t k) { return (int)((0x54Au >> ((k + 5u) % 12u)) & 1u); }
@@ -1287,9 +1294,9 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     uint32_t m = 0, sk = 0;
     /* MAP ALL / SEQ: the step's notes (not the lane hits) snap to the scale as they play; never on a drum kit, the slices
      * or another engine that maps the keys itself. #218: TRN is a playback offset only (stored pitches stay);
-     * same kit skip as QNT SEQ. seq_notes keeps the notes that sound: their note-offs match */
-    const engine_t *e = ENGINES[eng_idx(t->eng_req)];
-    uint32_t kit = e->keys && e->keys(t, 0) >= 0;
+     * same kit skip as QNT SEQ: a kit's notes keep their stored pitch (no PITCH, no TRN). seq_notes keeps the notes
+     * that sound: their note-offs match */
+    uint32_t kit = (uint32_t)kit_track(t);
     uint32_t qseq = (qn_mode(t) == QN_SEQ || qn_mode(t) == QN_ALL) && !kit;
     if (!(skip & SEQ_REP)) {
         t->rat_left = 0;
@@ -1318,13 +1325,14 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     for (i = 0; i < s->n && i < 4u; i++) {
         int32_t x = (int32_t)step_note(s, i);
         uint32_t n;
-        if (t->plk_fit)                             /* the step's PITCH: absolute, chromatic, replaces TRN here */
-            x += t->plk_pit;
-        else {
-            if (!kit)                               /* #218: TRN then (SEQ) onto the scale; pattern untouched */
-                x += t->p[P_TRANS];
-            if (qseq)
-                x = scale_snap(t, x);               /* two notes snapping together play once */
+        if (!kit) {                                 /* a kit ignores PITCH and TRN: its notes stay as stored */
+            if (t->plk_fit)                         /* the step's PITCH: absolute, chromatic, replaces TRN here */
+                x += t->plk_pit;
+            else {
+                x += t->p[P_TRANS];                 /* #218: TRN then (SEQ) onto the scale; pattern untouched */
+                if (qseq)
+                    x = scale_snap(t, x);           /* two notes snapping together play once */
+            }
         }
         n = (uint32_t)clamp(x, 0, 127);
         if (qseq) {

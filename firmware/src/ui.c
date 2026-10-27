@@ -566,7 +566,9 @@ static uint32_t lock_id(uint32_t k)
     if (id == P_TRANS && ui.plk_src && lock_page_ok(ui.plk_src - 1u) &&
         PAGES[ui.plk_src - 1u].graph == GR_SCALE)
         id = MSEQ_PITCH;                         /* SCL KNOB 4 on a held step: the PITCH lock */
-    return (id == MSEQ_PITCH || (id < P_COUNT && motion_param(id))) &&
+    if (id == MSEQ_PITCH && kit_track(TSEL))
+        return 0xFFu;                            /* PITCH is inert on a kit track: the knob creates no lock */
+    return param_id_known(id) && motion_param(id) &&
            fx_target_available(TSEL, id) ? id : 0xFFu;
 }
 
