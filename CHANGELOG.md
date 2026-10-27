@@ -52,8 +52,10 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
 - **Free take: a strummed chord keeps its sweep.** The strings are re-spaced to the STRUM division (1/8,
   1/16, ...) at the take's closing tempo instead of the tempo the project had before the take. A chord
   strummed at 1/8 while playing a slower loop therefore still sounds as 1/8, and its strings no longer
-  receive the legato SF_SLIDE or the mono return (a strum is a chord, not a tap). `tests/freetake_test.c`
-  covers a 1/8 strum played at 80 BPM with the project at 120.
+  receive the legato SF_SLIDE or the mono return (a strum is a chord, not a tap). A **1/16 strum** needs
+  two steps, so a 1- or 2-bar take that recorded one closes at **1/32** (LEN 32 / 64) instead of 1/16;
+  a 4-bar take has only 64 steps and stays 1/16. `tests/freetake_test.c` covers a 1/8 strum played at
+  80 BPM with the project at 120, and a 1/16 strum on 1- and 2-bar takes.
 - **NOTE EDITS on SEQ TOOLS.** Stored-note edits, one undo each like COOK/RANDOM. On a melodic track the six edits
   follow the sequence tools with no gap: **OCT− / OCT+** on E4 / F4 transpose the written notes ±12 (ties, rests and
   the notes past LEN stay); **HALF** on G4 stretches the pattern over twice the steps (LEN ×2, ties keep holding);

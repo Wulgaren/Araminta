@@ -122,7 +122,7 @@
 #                   no tempo; REC closes 1/2/4 bars and sets BPM; PLAY button / STOP drops; transport PLAY closes; 24 s auto-close;
 #                   a note started while an earlier one is still held sets SF_SLIDE; releasing it while held
 #                   records a return to the held pitch; a strummed chord keeps its STRUM sweep at the take's
-#                   tempo and does not slide.
+#                   tempo and does not slide; a 1/16 strum on a 1-2 bar take closes at 1/32.
 # USB audio (tests/uac_test.c): the UAC1 descriptors as a host parses them (with and without CDC; 44100 and
 #                   48000 Hz), the ring and packetiser: 44.1 frames per packet, every frame in order (bit for bit),
 #                   underrun / overrun, restart; SET_CUR; the 44.1 -> 48 kHz resampler (every frame against a
