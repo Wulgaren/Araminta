@@ -4245,6 +4245,30 @@ static int test_step_rec(void)
     ok &= t->step[6].hit != 0u && !t->step[4].hit && ui.cursor == 4u;
     bad += check("#133 the DRUM grid unchanged: white keys toggle steps armed or not, REC from stop starts PLAY", ok);
     song.rec = 0;
+    /* PITCH is inert on a kit: SCL K4 on a held grid step creates no lock */
+    ui_power_on();
+    song.sel = 0;
+    t = TSEL;
+    set_engine_of(t, ENGI_DRUM);
+    t->engine = t->eng_req;
+    track_defaults_steps(t);
+    go_title("SCL");
+    go_seq_step();                                                    /* (plk_src stays SCL) */
+    frame();
+    {
+        uint32_t k4 = key_at(0, 4);
+        int16_t v;
+        ok = lock_id(3) == 0xFFu;
+        fm1_in.notes |= 1u << k4;
+        host_notes |= 1u << k4;
+        frame();
+        ok &= lock_held() == (1u << 4);
+        turn(EN_K4, 2);
+        fm1_in.notes &= ~(1u << k4);
+        frame();
+        bad += check("SCL K4 on a held DRUM step: no PITCH lock on a kit track",
+                     ok && !motion_lock_get(t, 4, MSEQ_PITCH, &v) && !motion_lock_count(t));
+    }
     return bad;
 }
 

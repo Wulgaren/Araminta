@@ -861,6 +861,180 @@ static int record_trn(void)
     return bad;
 }
 
+/* ----------------------------------------------- PITCH and kit tracks --- */
+/* the transport on to step idx (from wherever it is now, around the loop) */
+static void pitch_to(track_t *t, uint32_t idx)
+{
+    uint32_t n;
+    for (n = 0; n < 100000u && t->seq_idx != idx; n++)
+        lock_next(t);
+}
+/* REC TRN +1 on a C4 step in C major: the stored PITCH (raw OFF/KBD, fitted SEQ/ALL/CURR); at playback it
+ * replaces the TRN there and stays chromatic (no re-snap) */
+static int pitch_capture_mode(uint32_t qn)
+{
+    track_t *t = lock_track(0);
+    int16_t want = (qn == QN_OFF || qn == QN_KBD) ? 1 : 0;
+    int ok;
+    t->p[P_QUANT] = (int16_t)qn;
+    t->p[P_SCALE] = 0;
+    t->p[P_ROOT] = 0;
+    t->p[P_TRANS] = 0;
+    song.sel = 0;
+    song.rec = 1;
+    seq_start(); seq_tick(t, CTL);                   /* step 0: C4 */
+    t->p[P_TRANS] = 1;
+    ok = !motion_capture(t, P_TRANS, 1) && motion.count == 1u && motion.event[0].place == 0u &&
+         motion.event[0].param == (MSEQ_PITCH | MOTION_LOCK) && motion.event[0].value == want;
+    song.rec = 0;
+    seq_stop();
+    t->p[P_TRANS] = 7;                               /* the lock replaces the TRN on its step */
+    t->p[P_QUANT] = QN_SEQ;                          /* and plays chromatically: no re-snap */
+    seq_start(); seq_tick(t, CTL);
+    ok &= t->plk_fit == 1u && t->plk_pit == want && t->seq_notes[0] == (uint32_t)(60 + want);
+    seq_stop();
+    return ok;
+}
+static int pitch_matrix(void)
+{
+    static const uint32_t QN[5] = {QN_OFF, QN_SEQ, QN_ALL, QN_KBD, QN_CURR};
+    static const char *const NAME[5] = {"MAP OFF", "SEQ", "ALL", "KBD", "CURR"};
+    int bad = 0;
+    uint32_t i;
+    char what[96];
+    track_t *t;
+    for (i = 0; i < 5u; i++) {
+        snprintf(what, sizeof what, "PITCH: %s REC TRN +1 on C4 stores %s and plays it", NAME[i],
+                 i == 0u || i == 3u ? "raw +1" : "the fitted 0");
+        bad += check(what, pitch_capture_mode(QN[i]));
+    }
+    t = lock_track(0);                               /* a chord: the first note fits the offset */
+    t->p[P_QUANT] = QN_SEQ;
+    t->p[P_SCALE] = 0;
+    t->p[P_ROOT] = 0;
+    t->p[P_TRANS] = 0;
+    t->step[0] = (step_t){{60, 64, 67}, 3, ST_NOTE, 0, 100};
+    song.sel = 0;
+    song.rec = 1;
+    seq_start(); seq_tick(t, CTL);
+    t->p[P_TRANS] = 2;
+    bad += check("PITCH: a chord captures against its first note (+2 -> D4 in C major)",
+                 !motion_capture(t, P_TRANS, 2) && motion.count == 1u && motion.event[0].value == 2);
+    song.rec = 0;
+    seq_stop();
+    t->p[P_TRANS] = 0;
+    seq_start(); seq_tick(t, CTL);
+    bad += check("  then the one lock transposes all three notes (D4 F#4 A4, not re-snapped)",
+                 t->plk_fit == 1u && t->plk_pit == 2 && t->seq_n == 3u &&
+                 t->seq_notes[0] == 62u && t->seq_notes[1] == 66u && t->seq_notes[2] == 69u);
+    seq_stop();
+    return bad;
+}
+/* PITCH applies only to a step that plays, on every part of it, and never past it */
+static int pitch_gate(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    uint32_t v0;
+    t = lock_track(0);
+    motion_set_lock(t, 2, MSEQ_PITCH, 2);
+    step_set_chance(&t->step[2], 0);
+    seq_start(); seq_tick(t, CTL);
+    pitch_to(t, 2);
+    bad += check("PITCH: CHANCE 0 %: the step plays nothing, so no PITCH",
+                 t->seq_idx == 2u && !t->plk_fit && !t->seq_n);
+    seq_stop();
+    step_set_chance(&t->step[2], 100);
+    seq_start(); seq_tick(t, CTL);
+    pitch_to(t, 2);
+    bad += check("  CHANCE 100 %: PITCH +2 on its step", t->seq_idx == 2u && t->plk_fit == 1u && t->seq_notes[0] == 62u);
+    seq_stop();
+    t = lock_track(0);
+    motion_set_lock(t, 2, MSEQ_PITCH, 2);
+    step_set_ratchet(&t->step[2], 3);
+    seq_start(); seq_tick(t, CTL);
+    pitch_to(t, 2);
+    v0 = vage;
+    for (ok = t->seq_idx == 2u; t->seq_idx == 2u;) {
+        if (t->seq_n)
+            ok &= t->plk_fit == 1u && t->seq_notes[0] == 62u;
+        seq_tick(t, CTL);
+    }
+    bad += check("  RATCH x3: PITCH on every part, none at the next step", ok && vage - v0 >= 3u && !t->plk_fit);
+    seq_stop();
+    t = lock_track(100);
+    motion_set_lock(t, 2, MSEQ_PITCH, 2);
+    seq_start(); seq_tick(t, CTL);
+    pitch_to(t, 2);
+    bad += check("  SWING 100: PITCH +2 on its step", t->seq_idx == 2u && t->plk_fit == 1u && t->seq_notes[0] == 62u);
+    seq_stop();
+    t = lock_track(0);
+    t->p[P_TRANS] = 5;
+    motion_set_lock(t, 2, MSEQ_PITCH, 2);
+    seq_start(); seq_tick(t, CTL);
+    ok = !t->plk_fit && t->seq_notes[0] == 65u;
+    pitch_to(t, 2);
+    ok &= t->plk_fit == 1u && t->seq_notes[0] == 62u;
+    pitch_to(t, 3);
+    ok &= !t->plk_fit && t->seq_notes[0] == 65u;
+    bad += check("PITCH: its step only; TRN sounds on the others (PITCH replaces it there)", ok);
+    seq_stop();
+    ok = !t->plk_fit;
+    seq_start(); seq_tick(t, CTL);
+    ok &= !t->plk_fit && t->seq_notes[0] == 65u;
+    pitch_to(t, 2);
+    ok &= t->plk_fit == 1u && t->seq_notes[0] == 62u;
+    pitch_to(t, 0);                                  /* around the loop */
+    ok &= !t->plk_fit && t->seq_notes[0] == 65u;
+    bad += check("  STOP and the loop's restart: no PITCH left over", ok);
+    seq_stop();
+    return bad;
+}
+/* a kit (DRUM, any engine with its own key map) ignores PITCH: no new records, stored ones inert */
+static int pitch_kit(void)
+{
+    int bad = 0, ok;
+    track_t *t = lock_track(0);
+    set_engine_of(t, ENGI_DRUM);
+    t->engine = t->eng_req;
+    bad += check("PITCH: DRUM is a kit track (its own key map)", kit_track(t));
+    ok = motion_set_lock(t, 2, MSEQ_PITCH, 5) == 1 && !motion.count && !motion.on;
+    bad += check("  motion_set_lock refuses PITCH on a kit: nothing written", ok);
+    song.sel = 0;
+    song.rec = 1;
+    seq_start(); seq_tick(t, CTL);
+    t->p[P_TRANS] = 1;
+    ok = !motion_capture(t, P_TRANS, 1) && !motion.count && t->p[P_TRANS] == 1;
+    bad += check("  REC TRN on a kit stores no PITCH lock (the knob keeps its value)", ok);
+    song.rec = 0;
+    seq_stop();
+    motion_clear(t);
+    motion_set_lock(t, 1, P_REV, 50);
+    ok = motion.count == 1u && motion_move(t, 0, 1, MSEQ_PITCH, 5) == 1 &&
+         motion_find(t, 1, MSEQ_PITCH) < 0 && motion_find(t, 1, P_REV) >= 0;
+    bad += check("  a record cannot move onto PITCH on a kit", ok);
+    /* a stored record (a project from before this rule) loads, stays stored and does nothing */
+    motion_clear(t);
+    motion.count = 1;
+    motion.on = 1;
+    motion.event[0] = (motion_event_t){(uint8_t)2, (uint8_t)(MSEQ_PITCH | MOTION_LOCK), 5};
+    t->step[2] = (step_t){{60}, 1, ST_NOTE, 0, 100};
+    t->p[P_TRANS] = 7;
+    seq_start(); seq_tick(t, CTL);
+    pitch_to(t, 2);
+    bad += check("  a stored PITCH record on a kit: inert (no plk_fit, no PITCH, no TRN)",
+                 !t->plk_fit && t->seq_n == 1u && t->seq_notes[0] == 60u && motion.count == 1u);
+    seq_stop();
+    t->step[2].n = 0;
+    t->step[2].hit = 1u << DV_KICK;
+    seq_start(); seq_tick(t, CTL);
+    pitch_to(t, 2);
+    bad += check("  a hit-only step on a kit is inert too", !t->plk_fit && t->seq_n == 1u &&
+                 t->seq_notes[0] == DRUM_LANE_NOTE[DV_KICK]);
+    seq_stop();
+    return bad;
+}
+
 static int lock_project(void)
 {
     int bad = 0;
@@ -1405,7 +1579,7 @@ int main(void)
     bad += arp_play_sync();
     bad += arp_new_modes();
     bad += arp_drone_mode();
-    bad += lock_playback() + lock_edit() + lock_pitch() + pitch_lock_only() + record_trn() + lock_project() + lock_ui() + lock_undo() + auto_list();
+    bad += lock_playback() + lock_edit() + lock_pitch() + pitch_lock_only() + record_trn() + pitch_matrix() + pitch_gate() + pitch_kit() + lock_project() + lock_ui() + lock_undo() + auto_list();
     bad += fx_lock_time();
     bad += fx_lock_banks_and_capacity();
     printf("%s\n", bad ? "MOTION TEST FAILED" : "motion/chance/compact storage tests passed"); return bad != 0;

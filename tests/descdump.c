@@ -68,8 +68,8 @@ int main(void)
 {
     uint32_t e, i, k;
     int32_t v[16];
-    printf("{\"P_COUNT\":%d,\"G_COUNT\":%d,\"NSTEP\":%d,\"P_E0\":%d,\"G_ENGSEL\":%d,\"P_SLCR\":%d,\"NTRK\":%d,\n",
-           P_COUNT, G_COUNT, NSTEP, P_E0, G_ENGSEL, P_SLCR, NTRK);
+    printf("{\"P_COUNT\":%d,\"G_COUNT\":%d,\"NSTEP\":%d,\"P_E0\":%d,\"G_ENGSEL\":%d,\"P_SLCR\":%d,\"P_IORD\":%d,\"NTRK\":%d,\n",
+           P_COUNT, G_COUNT, NSTEP, P_E0, G_ENGSEL, P_SLCR, P_IORD, NTRK);
     printf("\"MOTION_MAX\":%u,\"MOTION_FILE_MAX\":%u,\"MSEQ_PITCH\":%u,\"MFX_TIME\":%d,\"MFX_DAMP\":%d,\"MOTION_LOCK\":%u,\n",
            (unsigned)MOTION_MAX, (unsigned)MOTION_FILE_MAX, (unsigned)MSEQ_PITCH, (int)MFX_TIME, (int)MFX_DAMP,
            (unsigned)MOTION_LOCK);

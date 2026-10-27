@@ -454,6 +454,7 @@ const MSEQ_PITCH = 127;                          /* a step's chromatic offset: l
 const MFX_TIME = 49, MFX_DAMP = 53;              /* MFX_TIME..MFX_DAMP: the DLY / REV bus targets (P_M1SRC..P_M2DST) */
 const MOTION_LOCK = 0x80;                        /* bit 7 of a record's id byte: a parameter lock */
 const MOTION_PROTO = { MOTION_MAX, MOTION_FILE_MAX, MSEQ_PITCH, MFX_TIME, MFX_DAMP, MOTION_LOCK };
+const P_IORD = 96;                               /* core.h P_IORD: insert chain order in bits 0..9, SEND flags in 10..15 */
 const parse = {
   [CMD.INFO](a) {
     const r = new Reader(a);
@@ -1999,7 +2000,7 @@ function makeMockDevice(opt = {}) {
     D("PNCH", F.PCT, 0, 100, 0), D("DUCK", F.PCT, 0, 100, 0),   /* G_PUNCH / G_DUCK (was G_DRLVL / G_DRREV) */
     E("TYPE", ["ROOM", "SPRING", "HALL", "SHIMR", "CLOUD"], 2), /* G_CRTYPE..: CHAIN tank (params.c) */
     D("SIZE", F.PCT, 0, 127, 90), D("DAMP", F.PCT, 0, 127, 60),
-    D("SLOWN", F.INT, 0, 4, 0), /* G_SLOWN: 0 SEND; 1..4 track with slicer CHAIN */
+    D("SLOWN", F.INT, 0, 15, 0), /* G_SLOWN: 0 and 5..15 are the mask (0 = all SEND); 1..4 are legacy owner values */
   ];
   const NONE = D("-", F.INT, 0, 0, 0);
   const RETIRE = D("-", F.INT, -64, 127, 0);   /* eng_retire.c RETIRE_EDIT: wide range until remap */
@@ -2450,7 +2451,13 @@ function makeMockDevice(opt = {}) {
         break;
       }
       case CMD.DUMP:
-        b(st.engine); b(st.preset); st.p.forEach(v); st.g.forEach(v);
+        b(st.engine); b(st.preset);
+        /* P_IORD: the order only (core.h iord_perm_of); the SEND flags stay on the device */
+        st.p.forEach((x, i) => {
+          const order = x & 1023;
+          v(i === P_IORD ? (order > 719 ? 0 : order) : x);
+        });
+        st.g.forEach(v);
         break;
       case CMD.TRACK:
         if (a.length >= 1 && a[0] < NTRK) st.sel = a[0];
@@ -2753,7 +2760,7 @@ function makeMockDevice(opt = {}) {
   ];
   return {
     state: st, sim,
-    tables: { TP, GP, ENG, PATTERNS, P_COUNT, G_COUNT, NSTEP, P_E0, G_ENGSEL, P_SLCR, NTRK,
+    tables: { TP, GP, ENG, PATTERNS, P_COUNT, G_COUNT, NSTEP, P_E0, G_ENGSEL, P_SLCR, P_IORD, NTRK,
       FM6: { bank: 0, own: FM6_OWN, init: FM6.INIT_PK, factory: FM6.FACTORY_PK } },   /* test_web.mjs: == the firmware */
     stop: () => timers.forEach(clearInterval),
     access: { sysexEnabled: true, inputs: new Map([[input.id, input]]), outputs: new Map([[output.id, output]]), onstatechange: null },

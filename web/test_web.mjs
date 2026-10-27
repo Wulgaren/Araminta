@@ -39,7 +39,7 @@ const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP, crc32, WT, wtBuild, wtTableCycles, wtMedleyCycles, wtWav, wavFrameSize,
    UP, bank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, FM6, enumShown, F,
-   MOTION_PROTO,
+   MOTION_PROTO, P_IORD,
    FM4, fromDigital, fromPerc, DRUM_KIT_E,
    MENU: typeof MENU === "undefined" ? null : MENU, MENU_TABS: typeof MENU_TABS === "undefined" ? null : MENU_TABS,
    readDeviceMenu: typeof readDeviceMenu === "undefined" ? null : readDeviceMenu,
@@ -266,6 +266,14 @@ async function editorMock() {
   ok(map.label === "MAP" && map.names.join() === "OFF,ALL,KBD,SEQ,CURR", "editor: MAP names exposed");
   const dump = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info);
   ok(dump.p.length === info.pcount && dump.g.length === info.gcount, "editor: DUMP");
+  {
+    /* P_IORD carries the insert chain order and, above bit 9, the SEND flags: DUMP gives the order only */
+    const saved = m.state.p[E.P_IORD];
+    m.state.p[E.P_IORD] = 24 | (1 << 10);
+    const od = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info);
+    m.state.p[E.P_IORD] = saved;
+    ok(od.p[E.P_IORD] === 24, "editor: DUMP gives P_IORD's order only (SEND flags stay on the device)");
+  }
   const set = E.parse[E.CMD.SET](await rq(E.req.set(0, 3, 500)));
   ok(set.value === 127, "editor: SET clamps to the range");
   {
@@ -393,16 +401,24 @@ async function editorSamplePresets() {
     ok(!rc && legacy.count === 64 && legacy.max === 64 && !legacy.full && all.count === 70 && all.max === mproto.MOTION_MAX && all.full &&
        all.events[69].value === 69 && all.events[69].param === 35 && !all.events[0].lock && lfo.rc === 1,
        `editor: MOTION FUN16: 70 records on a track; the query as before (64 listed, max 64), op 8 all 70 (max ${mproto.MOTION_MAX}); LFO 2 not recordable`);
-    /* PITCH (MSEQ_PITCH) is lock-only: op 3 refuses it, op 5 locks it, op 4 deletes it */
+    /* PITCH (MSEQ_PITCH) is lock-only: op 3 refuses it, op 5 locks it, op 7 lists its kind, op 6 clears it, op 4 deletes it.
+       (Start clean: the 70 records above fill op 7's first-64 reply, and PITCH would not be listed.) */
+    await rq(E.req.motion(1, 2));
     const pitchAuto = E.parse[C.MOTION](await rq(E.req.motion(1, 3, { step: 5, param: mproto.MSEQ_PITCH, value: 3 })));
     const pitchLock = E.parse[C.MOTION](await rq(E.req.motion(1, 5, { step: 5, param: mproto.MSEQ_PITCH, value: 3 })));
     const locked = E.parseMotionAll(await rq(E.req.motion(1, 8)));
     const pitch = locked.events.find((e) => e.step === 5 && e.param === mproto.MSEQ_PITCH);
+    const pitchList = E.parse[C.MOTION](await rq(E.req.motion(1, 7)));
+    const pitchKind = pitchList.events.find((e) => e.step === 5 && e.param === mproto.MSEQ_PITCH);
     await rq(E.req.motion(1, 4, { step: 5, param: mproto.MSEQ_PITCH }));
     const gone = E.parseMotionAll(await rq(E.req.motion(1, 8)));
-    ok(pitchAuto.rc === 1 && !pitchLock.rc && pitch && pitch.lock && pitch.value === 3 &&
-       !gone.events.some((e) => e.step === 5 && e.param === mproto.MSEQ_PITCH),
-       `editor: PITCH (id ${mproto.MSEQ_PITCH}) refuses automation (op 3), takes a lock (op 5) and deletes (op 4)`);
+    await rq(E.req.motion(1, 5, { step: 6, param: mproto.MSEQ_PITCH, value: -24 }));
+    await rq(E.req.motion(1, 6, { step: 6 }));
+    const cleared = E.parse[C.MOTION](await rq(E.req.motion(1, 7)));
+    ok(pitchAuto.rc === 1 && !pitchLock.rc && pitch && pitch.lock && pitch.value === 3 && pitchKind?.lock &&
+       !gone.events.some((e) => e.step === 5 && e.param === mproto.MSEQ_PITCH) &&
+       !cleared.events.some((e) => e.step === 6 && e.param === mproto.MSEQ_PITCH),
+       `editor: PITCH (id ${mproto.MSEQ_PITCH}) refuses automation (op 3), takes a lock (op 5), lists its kind (op 7), clears (op 6) and deletes (op 4)`);
     /* an FX motion id (MFX_TIME) shares its number with matrix parameter SRC1: it is a motion target, not p[49] */
     const p49 = E.parse[C.GET](await rq(E.req.get(0, mproto.MFX_TIME))).value;
     const fxAuto = E.parse[C.MOTION](await rq(E.req.motion(1, 3, { step: 6, param: mproto.MFX_TIME, value: 700 })));
@@ -457,6 +473,9 @@ function mockTables() {
   const diffs = [];
   const cmp = (what, a, b) => { if (JSON.stringify(a) !== JSON.stringify(b)) diffs.push(`${what}: mock ${JSON.stringify(a)} != firmware ${JSON.stringify(b)}`); };
   for (const k of ["P_COUNT", "G_COUNT", "NSTEP", "P_E0", "G_ENGSEL", "P_SLCR", "NTRK"]) cmp(k, T[k], fw[k]);
+  cmp("P_IORD", E.P_IORD, fw.P_IORD);
+  const slown = T.GP.find((d) => d.label === "SLOWN");
+  ok(slown && slown.min === 0 && slown.max === 15, "editor: SLOWN 0..15 (0 = all SEND; 1..4 legacy owner)");
   cmp("TP length", T.TP.length, fw.TP.length);
   fw.TP.forEach((d, i) => cmp(`TP[${i}]`, T.TP[i] && norm(T.TP[i]), d));
   cmp("GP length", T.GP.length, fw.GP.length);

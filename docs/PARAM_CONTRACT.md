@@ -49,13 +49,15 @@ Representation:
 - At playback `track_t.plk_pit` holds the value and `plk_fit` is the presence bit. Both reset at every
   step and in `motion_restore()`; `plk_fit` is what makes a stored `0` override TRN.
 
-Playback (`seq.c`, `seq_step()`): if `plk_fit`, every stored note of the step gets `+ plk_pit`, with **no**
-TRN and **no** scale snap. Otherwise, on a non-kit track, `P_TRANS` is added and (for MAP SEQ / ALL / CURR)
-the result is snapped. Drum hits are not in this note loop (see the Kit row).
+Playback (`seq.c`, `seq_step()`): on a kit (an engine whose `keys` maps the keys, e.g. DRUM), PITCH is
+ignored: stored notes and lane hits play as stored, and TRN is ignored too. Otherwise, if `plk_fit`, every
+stored note of the step gets `+ plk_pit`, with **no** TRN and **no** scale snap; without a lock, `P_TRANS`
+is added and (for MAP SEQ / ALL / CURR) the result is snapped. Drum hits are not in this note loop (see the
+Kit row).
 
-Capture (`motion.c`, `motion_capture()`): only when REC is armed **and playing** on the selected track and
-no song chain is running (`rec_on()`), and only for `P_TRANS`. It uses the playing step, or the next one
-once past that step's midpoint. The value written is a lock, never an automation event:
+Capture (`motion.c`, `motion_capture()`): only when REC is armed **and playing** on the selected track,
+no song chain is running (`rec_on()`), the track is not a kit, and only for `P_TRANS`. It uses the playing
+step, or the next one once past that step's midpoint. The value written is a lock, never an automation event:
 
 1. start with `off = value` (the TRN value);
 2. for MAP SEQ / ALL / CURR on a non-kit step with at least one note, `off = scale_snap(first note + value)
@@ -71,15 +73,15 @@ once past that step's midpoint. The value written is a lock, never an automation
 | MAP CURR, REC + TRN | Same capture fit as ALL (`qn_mode()` maps CURR to ALL), plus CURR's shared ROOT / SCALE. Playback still skips snap because a PITCH lock is present. | `seq.c qn_mode()`; `params.c scale_lock_after()`; `motion.c motion_capture()` |
 | MAP ALL / KBD | ALL fits like SEQ; KBD does not fit (only SEQ / ALL / CURR are in the capture condition). | `motion.c motion_capture()` |
 | Value 0 | A real lock, not "no lock": stored with value 0, `plk_fit = 1`, it overrides TRN (and suppresses a SEQ / ALL / CURR snap) so the step plays as stored. Do not delete or skip it because the value is zero. | `core.h track_t.plk_fit`; `motion.c motion_step()`; `seq.c seq_step()` |
-| REC on | Requires armed + playing + selected track + no chain. Writes the lock at the nearest step; no `P_TRANS` motion event is created. The TRN knob itself has already moved `p[P_TRANS]` before `motion_capture()` is called, so other steps without a lock follow the new TRN. | `motion.c motion_capture()`; `ui_input.c` page knob; `editor.c ED_SET` |
+| REC on | Requires armed + playing + selected track + no chain + not a kit. Writes the lock at the nearest step; no `P_TRANS` motion event is created. The TRN knob itself has already moved `p[P_TRANS]` before `motion_capture()` is called, so other steps without a lock follow the new TRN. | `motion.c motion_capture()`; `ui_input.c` page knob; `editor.c ED_SET` |
 | REC off / stopped / chain / other track | No PITCH capture. TRN is an ordinary `P_TRANS` edit. An existing PITCH lock on that step still overrides TRN. | `motion.c motion_capture()`; `seq.c rec_on()` |
-| Manual edit (AUTOMATION value, `MOTION` op 5, K3 / + ADD) | Changes the semitone value and leaves the record a lock. It is not fitted, may be off-scale, and `0` is allowed. `motion_move()` forces `MOTION_LOCK` for PITCH; OCT+ cannot turn it into automation ("NOW A LOCK"). | `motion.c motion_move()` / `motion_put()`; `ui_events.c ev_oct()` |
+| Manual edit (AUTOMATION value, `MOTION` op 5, K3 / + ADD) | Changes the semitone value and leaves the record a lock. It is not fitted, may be off-scale, and `0` is allowed. `motion_move()` forces `MOTION_LOCK` for PITCH; OCT+ cannot turn it into automation ("NOW A LOCK"). On a kit it is refused (no record). | `motion.c motion_move()` / `motion_put()`; `ui_events.c ev_oct()` |
 | Chord | One lock per step, applied to every stored note. Capture fits against the first stored note; chord keys store their tones ascending, so that is the lowest tone for a keyed chord. Notes entered one by one keep their stored order. | `motion.c motion_capture()`; `chord.c chord_make()`; `seq.c seq_step()` |
-| Kit (DRUM or an engine that maps keys) | Capture does not scale-fit (kit check) and stores the raw TRN value. Playback adds the value to stored **note** events; DRUM lane hits are emitted as fixed `DRUM_LANE_NOTE` values and are not transposed. A hit-only step can therefore hold a PITCH lock that is inaudible; see Open questions. | `motion.c motion_capture()` 347-354; `seq.c seq_step()` 1318-1328 vs 1341-1347 |
+| Kit (DRUM or an engine that maps keys) | PITCH is ignored. Capture and `MOTION` op 5 / SCL K4 refuse to create a PITCH lock on a kit; a stored kit PITCH lock is inert. Note events and lane hits play as stored, and TRN is ignored too. | `motion.c motion_capture()` / `motion_put()`; `seq.c seq_step()` |
 | Project roundtrip | The record is written with id 127 and bit 7, counts toward the 88 saved records, survives load, and validates as a lock in -24..24. Older firmware rejects the project because 127 is not one of its p[] ids. | `project.c proj_pack()` / `proj_unpack()`; `motion.c motion_valid()` |
 | Editor `MOTION` op 3 (set event) | Refused for 127: `motion_set_event()` -> `motion_put(kind 0)` returns 1 (rc 1). PITCH cannot be stored as automation. | `editor.c` MOTION op 3; `motion.c motion_put()` |
 | Editor `MOTION` op 4 (delete) | Deletes the PITCH lock like any other record (rc 0 when arguments are valid), whether it was created by capture or op 5. | `editor.c` MOTION op 4; `motion.c motion_delete_event()` |
-| Editor `MOTION` op 5 (set lock) | Writes or changes the PITCH lock (rc 0 when the step and value are valid). This is the only write op for 127. | `editor.c` MOTION op 5; `motion.c motion_set_lock()` |
+| Editor `MOTION` op 5 (set lock) | Writes or changes the PITCH lock on a non-kit track (rc 0 when the step and value are valid). This is the only write op for 127; a kit returns rc 1. | `editor.c` MOTION op 5; `motion.c motion_set_lock()` |
 | Editor `MOTION` op 8 (list every record) | Lists the PITCH lock with id 127 and its kind byte 1. `MOTION` op 7 replies the same kind byte after the query; ops 1..4 keep their older reply shape. | `editor.c ed_motion_reply()`; `web/EDITOR_PROTOCOL.md` MOTION |
 
 `MOTION` op 6 (`clear the step's locks`, step 127 = every step) also removes PITCH locks; automation
@@ -168,9 +170,9 @@ events stay. AUTOMATION's DELETE (`EDIT`) removes the row's record; PLAY OFF byp
   flag per stage (0 = in the chain, 1 = parallel SEND). Default 24 = DIST, CRUSH, FILTER, PHASR, FLANG,
   CHOR.
 - `iord_perm_of()` / `iord_set_perm()` read and write only the order; `ins_is_send()` / `ins_send_set()`
-  own the flags. `GET` / `SET`, `TRACK_DUMP` and `CHANGED` expose the order only (`iord_perm_of`), so flags
-  stay on the device; `DUMP` currently returns the raw `p[P_IORD]` value, flags included (see Open
-  questions). `MOTION` excludes `P_IORD` because 0..719 is outside the track-value range.
+  own the flags. `GET` / `SET`, `TRACK_DUMP`, `CHANGED` and `DUMP` expose the order only
+  (`iord_perm_of`), so flags stay on the device. `MOTION` excludes `P_IORD` because 0..719 is outside the
+  track-value range.
 - Projects store two bytes (low order byte, then flags) when `np > 111`; user presets use the same two-byte
   pack in `upreset.c` (the editor's `UP_PUT` accepts an order 0..719, no flags).
 - Files: `core.h` (`IORD_DEF`), `fx.c` (`IORD_PERM`, `IORD_SEND`, `ins_order_get/set`, `ior_pct_id`),
@@ -187,8 +189,9 @@ events stay. AUTOMATION's DELETE (`EDIT`) removes the row's record; PLAY OFF byp
   FX init and when the UI toggles a track's USE AS. `sl_trk_send()`, `sl_trk_chain()` and `sl_trk_used()`
   accept both forms so a project that was just loaded also behaves.
 - `project.c` saves the mask in the DX pad with the `0x10` marker (and keeps a readable legacy owner in
-  the SCL lock bits when exactly one track owns CHAIN); on load, the marked mask wins. `GP[G_SLOWN]` still
-  describes the legacy 0..4 owner and is not a page control.
+  the SCL lock bits when exactly one track owns CHAIN); on load, the marked mask wins. `GP[G_SLOWN]`
+  describes the 0..15 mask (`0` and `5..15`; `1..4` are accepted legacy owner values) and is not a page
+  control.
 - Files: `core.h` (`sl_own_sanitize`, `sl_trk_*`), `fx.c` (`bus_own`, `bus_own_sanitize`), `project.c`,
   `ui_input.c` (the toggle), `slicer.c`, `params.c` (legacy descriptor).
 
@@ -298,29 +301,22 @@ run `tests/run_tests.sh` and its binaries directly. `build/host/motion_test`,
 `build/host/ui_test` are the focused binaries it builds. The `param` target fails with a clear message if
 `tests/param_contract_test.c` has not landed yet.
 
-## 6. Resolved note and open questions
+## 6. Resolved notes
 
-The acceptance table above is what the code does today. Item 1 is no longer a contradiction: the docs now
-describe the live-TRN behaviour. Items 2 and 3 are product / edge questions about whether that current
-behaviour should change, not competing descriptions of it. Item 4 is a protocol inconsistency found while
-checking this contract.
+The acceptance table above is what the code does today. The four items this contract used to leave open are
+now resolved; no product question from this contract remains.
 
 1. **Resolved: TRN stays live during PITCH capture.** The PITCH branch does not restore `P_TRANS`
-   (`motion.c motion_capture()` 344-354), and the callers write `p[P_TRANS]` before calling it
-   (`ui_input.c` 1289-1295; `editor.c ED_SET` 523-525). The step gets the fitted lock, while every other
-   step without a lock follows the moved TRN. `tests/motion_test.c` asserts the same "no reset" behaviour.
-   README, CHANGELOG and `EDITOR_PROTOCOL.md` now say the knob still moves. If the intended behaviour was
-   instead to restore `P_TRANS`, `motion_capture()` and `tests/motion_test.c` must change together.
-2. **Open product question: PITCH on a kit.** Today, capture stores a lock even on a hit-only step
-   (`motion.c` 347-354), but playback applies it only to stored note events (`seq.c` 1318-1328); DRUM lane
-   hits are fixed GM notes and never transposed (`seq.c` 1341-1347). Note events on a kit are transposed by
-   the lock even though TRN is ignored for kits. That asymmetry is the documented current behaviour; the
-   question is whether a kit should instead reject or ignore PITCH locks.
-3. **Open edge question: `GP[G_SLOWN]` still advertises the legacy 0..4 owner** while RAM and projects can
-   hold a 0..15 mask. No page edits it, so the descriptor is currently documentation rather than a live
-   control; if an editor ever exposes it, `SET` must not clamp a mask to 4.
-4. **Open protocol inconsistency: `DUMP` returns raw `P_IORD`.** `GET` / `SET`, `TRACK_DUMP` and `CHANGED`
-   apply `iord_perm_of()` and send 0..719; `DUMP` (`editor.c ED_DUMP`) sends `p[P_IORD]` unchanged, so after
-   a track uses a parallel SEND the value can exceed 719. The web editor's `DUMP` parser stores it as-is.
-   Masking `DUMP` like the other replies, or documenting the raw value in `EDITOR_PROTOCOL.md`, would remove
-   the ambiguity.
+   (`motion.c motion_capture()`), and the callers write `p[P_TRANS]` before calling it
+   (`ui_input.c` page knob; `editor.c ED_SET`). The step gets the fitted lock, while every other step without
+   a lock follows the moved TRN. `tests/motion_test.c` asserts the same "no reset" behaviour. README,
+   CHANGELOG and `EDITOR_PROTOCOL.md` say the knob still moves. If the intended behaviour was instead to
+   restore `P_TRANS`, `motion_capture()` and `tests/motion_test.c` must change together.
+2. **Resolved: kits ignore PITCH.** Capture and `MOTION` op 5 / SCL K4 refuse a PITCH lock on a kit; a stored
+   kit lock is inert. Note events and lane hits play as stored; TRN is ignored too. Existing projects still
+   load. The kit test is the sequencer's `e->keys` opt-out; SAMPLE drum-grid slots that are not key-mapped are
+   not included.
+3. **Resolved: `GP[G_SLOWN]` is 0..15.** The descriptor now matches the mask; `0` and `5..15` are mask values,
+   `1..4` are accepted legacy owner values and are sanitized on load/toggle. No page edits it today.
+4. **Resolved: `DUMP` exposes the `P_IORD` order.** `GET` / `SET`, `TRACK_DUMP`, `CHANGED` and `DUMP` all
+   send 0..719; SEND flags stay on the device. The web editor mock follows.
