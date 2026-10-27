@@ -4,6 +4,7 @@
 # Host tests of the Felucca sources (no hardware). Run from the repo root after ./build.sh:
 #   tests/run_tests.sh
 # TEST_JOBS=n: how many test units run at once (default: the CPUs, at most 10; TEST_JOBS=1 = one at a time).
+# TEST_TIMEOUT=n: kill and fail a unit whose command runs longer than n seconds (default 600).
 #
 # Regression suite (tests/regress.c, tests/target_budget.py; details at the top of regress.c):
 #   golden renders  every engine x preset, the GM map on DRUM, voice modes, FX sends, a 4-track mix: one hash
@@ -188,7 +189,18 @@ OUT=build/host
 mkdir -p "$OUT"
 CC="${CC:-cc} -O1 -Wall -Wno-unused-function"
 fail=0
-run() { echo "== $1"; shift; "$@" || fail=1; }
+# TEST_TIMEOUT=<seconds>: a unit's command is killed after this and fails the suite (default 600).
+run() {
+    echo "== $1"; shift
+    "$@" &
+    _p=$!
+    ( sleep "${TEST_TIMEOUT:-600}"; kill -9 "$_p" 2>/dev/null ) &
+    _w=$!
+    wait "$_p"; _rc=$?
+    kill "$_w" 2>/dev/null || :
+    wait "$_w" 2>/dev/null || :
+    [ "$_rc" = 0 ] || fail=1
+}
 
 # The suite runs as units: one unit = a shell function that compiles its binary and runs it
 # (the compile + run pairs below). Up to $TEST_JOBS units run at once (TEST_JOBS=1: one at a

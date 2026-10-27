@@ -37,23 +37,37 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **JIANT MIDI punch-ins.** On FX under Punch-in (FX taps: EFFECTS → SLICER → PUNCH-IN). Two fixed PUNCH-IN pages, 1/2 and 2/2 (SELECT walks the section; no reassignment): 1/2 holds REPEAT 1/8 **1/12** 1/16 1/32, LPF, HPF, OCT±, DEC±, stutters, ATK+, ARP, RANDOM; 2/2 holds REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW, **/2** (A4), **\*2** (B4) and **GLITCH** (C5). Holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK. Reverb adds SHIMR / CLOUD.
 - **Melodee.** Silent tracks still run LFO, bend, the engine block and fades, so modulation keeps moving when a track is muted or resting.
 - **Stock V15 supplies.** Before core 1 and the audio start, the FM-1 is set to the stock V15 rails (VDC14 1.60 V, SYSVDD 1.38 V, VDDIO 3.2 V) and read back. A failed setup keeps one core. MENU > ABOUT shows `RAILS 7/15 (3/11)` or `RAILS FAIL 1 CORE`.
-- **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM-X). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project (FUN16 / `FUNG`; same 3840-byte size as FUN10; disk motion max 88). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
+- **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM-X). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project (FUN17 / `FUNH`; same 3840-byte size as FUN10; disk motion max 88). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
 - **DRUMS.** Felucca's original synthesized drum engine, ported as a separate engine (15) beside DRUM-X. Nine kits: STD, 80, 10, 66, 55, 77, DEEP, TIGHT and PERC. Its own KIT / TUNE / TONE / DECY / SNAP / ACC / KICK / DRV. These are the exact 1.6.1 kits. DRUM-X stays on engine 10.
 - **SLICE retired.** 
 - Samples tab: one card per USR slot, each set to **Sample**, **Drumkit** or **Wavetable**. Drumkit maps every root to its own lane note and tags the slot (`FSMP` header), so SEQ uses the drum grid; Wavetable takes one Serum file or a folder medley. The name field is gone: names were editor-only, the FM-1 shows USR1..3.
 - **VOICE** is one page: VCE, GLD, UNI DTN, SPRD. GLD is free milliseconds (no GLMOD on the page). PAN / PLAY live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
-- **EFFECTS.** One list for the insert chain: CHOOSE a stage, ORDER moves it, USE AS is CHAIN or SEND, MIX is dry/wet (or send amount). Delay and reverb sit in that list (bus chorus is gone). Dual reverb tanks keep SEND and CHAIN settings while REV is chained.
+- **EFFECTS.** One list for the six inserts and the shared buses: CHOOSE a stage, ORDER moves it, USE AS is CHAIN, SEND or MASTER, MIX is dry/wet (or send amount). Delay, reverb and slicer sit in that list (bus chorus is gone); **TAPE** is the tenth row: SPEED, WOW and DROPOUT, CHAIN and MASTER slow the source (transport and voice pitch), SEND adds a pitched copy; one global MIX is the depth in CHAIN/MASTER and the send amount in SEND. Dual reverb tanks keep SEND and CHAIN settings while REV is chained.
 - Reverb modes from JIANT - SHIMR and CLOUD.
 - Delay has divisions or smooth ms; K4 turned left is TIME, turned right RATE.
 - Assign FX values in LFO MOD or SEQ param locks.
 - **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
 - **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.
 - **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN and PITCH. With REC armed while playing on a synth track, a TRN turn also writes the current step's PITCH lock (scale-fitted); the knob still moves (other steps without a lock follow it), and no P_TRANS automation event is recorded.
-- **MAP (was QNT).** SCL knob: OFF / ALL / **CURR** / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); ALL is KBD plus sequence follows the scale; CURR is ALL's quantising plus ROOT / SCALE shared by every CURR track (the CHORD page's old SCALE LOCK, now a MAP value); SEQ is chromatic keys plus sequence follows. Chromatic (CHR) scale removed; use MAP OFF. CURR saves as ALL + the lock bit, so v3.1 opens it as SCALE LOCK + ALL; a v3.1 project locked with MAP OFF / KBD / SEQ loads unlinked. Current saves are FUN16 (`FUNG`).
+- **MAP (was QNT).** SCL knob: OFF / ALL / **CURR** / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); ALL is KBD plus sequence follows the scale; CURR is ALL's quantising plus ROOT / SCALE shared by every CURR track (the CHORD page's old SCALE LOCK, now a MAP value); SEQ is chromatic keys plus sequence follows. Chromatic (CHR) scale removed; use MAP OFF. CURR saves as ALL + the lock bit, so v3.1 opens it as SCALE LOCK + ALL; a v3.1 project locked with MAP OFF / KBD / SEQ loads unlinked. Current saves are FUN17 (`FUNH`).
 - **Following playhead** in the SEQ. Start selecting a step to pause the following, returns after 3 seconds of inactivity.
 - **SEQ GENERATION.** On DRUM-X, the second SEQ section generates editable kick, snare and closed-hat steps from Mutable Instruments Grids. SELECT switches between LEN / KICK / SNARE / HAT and MAP / MAP X / MAP Y / CHAOS. MAP selects one of 25 templates; X/Y blend between them and show CUSTOM. Turning MAP, MAP X or MAP Y briefly shows the full-screen map, then returns to the drum grid; CHAOS keeps the grid visible. Density edits change only their lane; map, chaos and length edits regenerate all three. Other lanes stay as written, SAVE held undoes the gesture, and each track's controls save with the project. Tips follow MENU > HELP.
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
+
+### New in 3.2
+
+- **TAPE.** The EFFECTS list gains a tenth row: SPEED, WOW and DROPOUT, with CHAIN / SEND / MASTER routing. CHAIN
+  and MASTER slow the source clock, so notes and beat stretch together; SEND adds a pitched copy and leaves the
+  dry at tempo. One global MIX is the depth in CHAIN / MASTER and the send amount in SEND.
+- **DRUMS.** Felucca's synthesized drum engine returns as engine 15, with the STD, 80, 10, 66, 55, 77, DEEP,
+  TIGHT and PERC kits. DRUM-X stays engine 10; existing sounds and projects keep playing it.
+- **Punch filter.** The punch-in LPF / HPF and KNOB 1 FILTER share an MS-20-inspired 2-pole voice; insert FILTER
+  COMB gets a soft knee, and the DELAY page's FDBK bars follow the real loop gain.
+- **PITCH lock.** A held step on SCL K4 stores an absolute chromatic PITCH lock; with REC armed, a TRN turn
+  records the scale-fitted value. Kit engines ignore PITCH (and TRN).
+- **FUN17 (`FUNH`).** New saves carry the ten-slot EFFECTS order in the FM6 patch bytes. FUN16 and older still
+  load with TAPE off and the order rebuilt; older firmware refuses a FUN17 slot (EMPTY until saved over).
 
 ### New in 3.1
 
@@ -189,11 +203,13 @@ What loads:
 
 What changes when you save (or when quiet autosave writes after idle):
 
-- **New project format is FUN16 (`FUNG`).** Same 3840-byte size as FUN10, different magic: the song chain packs
-  two bytes a section instead of five, which pays for 88 motion records (FUN15 and older: 72), on top of the DRUM-X
-  kit, SCALE LOCK, SEND bus knobs, SLICER list slots and exact FX lock packing. Intermediate FUN11–FUN15 load; only
-  FUN16 is written. **Any firmware before this build refuses FUN16:** that slot shows EMPTY there until you save over
-  it (flash data stays until then). A backup that holds FUN16 is refused there too. Upgrade is one-way for anything
+- **New project format is FUN17 (`FUNH`).** Same 3840-byte size and layout as FUN16; the ten-slot EFFECTS order
+  (six inserts + DLY + REV + SLCR + TAPE) rides in the FM6 patch bytes' unused high bits, after the generation
+  controls. The song chain still packs two bytes a section, for 88 motion records (FUN15 and older: 72), on top of
+  the DRUM-X kit, SCALE LOCK, SEND bus knobs, SLICER list slots and exact FX lock packing. FUN16 and older load:
+  the order is rebuilt from the old P_IORD / P_CHOR / SLCR slot and the TAPE fields take their defaults. Only FUN17
+  is written. **Any firmware before this build refuses FUN17:** that slot shows EMPTY there until you save over it
+  (flash data stays until then). A backup that holds FUN17 is refused there too. Upgrade is one-way for anything
   you re-save on this build.
 - **Motion on disk max is 88** (FUN10: 110; FUN15: 72; RAM 192). Extra locks stay in RAM until truncated on pack;
   the UI can warn when you cross the save limit.
@@ -207,7 +223,7 @@ Day-to-day differences after the flash (not data loss):
 - Full backup still omits the FM6 voice bank: keep the `.syx` if you use B1–B32.
 
 Rollback: installer's **Return to official V15**, or M-VAVE's updater. That is stock FM-1, not Felucca 1.5.
-It will not reopen FUN16 projects. Back up in the web editor **before** the first save or quiet autosave on Araminta
+It will not reopen FUN17 projects. Back up in the web editor **before** the first save or quiet autosave on Araminta
 if you still need a Felucca 1.5-readable copy.
 
 ## Controls
@@ -324,7 +340,7 @@ In the order the device lists them:
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
 - **DRUM-X**: an 8-lane morphable kit on the General MIDI key map (JIANT port). EDIT sections
   **Sound** (MRPH / TUNE / TONE / DECY), **Kit** (SOUND: lane A/B plus pitch env; SOUND 2: DCAY / NOIS / COLR / MODE)
-  and **Lanes**. Kit and mute persist in FUN16 projects (FUN10 opens with the factory kit). Old Felucca KIT values
+  and **Lanes**. Kit and mute persist in FUN17 projects (FUN10 opens with the factory kit). Old Felucca KIT values
   still play as DRUM-X. SLICE is retired; old stores load as DRUM-X
 - **DRUMS**: the ported Felucca drum engine (engine 15): KIT STD / 80 / 10 / 66 / 55 / 77 / DEEP / TIGHT / PERC,
   TUNE, TONE, DECY, SNAP, ACC, KICK, DRV. Existing projects and presets stay on DRUM-X; DRUMS is for new sounds

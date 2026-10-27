@@ -183,7 +183,9 @@ Other enums that grew: `P_SDIV` (DIV, id 30) has 10 names (1/4, 1/8, 1/16, 1/32,
 4BAR; the first six keep their numbers), `P_AMODE` (id 17) 16 (OFF, UP, DN, UPDN, RND, ORD, REPEAT, and since 1.2 DNUP, UP+8, CONV, DIVG, PINKY, THUMB, WALK,
 CHORD, then DRONE: values 7..15, appended; REPEAT id 6 is kept for loads but the device MODE knob skips it;
 an editor that knows only 7 names shows the value by `DESC`'s name) and the
-global `G_CLOCK` (id 2, label "CLK") 3 (INT, USB, TRS). `G_MIDI` (id 12) is an enum of USB / TRS that nothing reads.
+global `G_CLOCK` (id 2, label "CLK") 3 (INT, USB, TRS). `G_MIDI` (id 12) is TAPE WOW in 3.2 (it was an enum of
+USB / TRS that nothing read); `G_TSPEED` (7), `G_TDROP` (15), `G_TMIX` (22) and `G_TAPEMODE` (23) are the other
+TAPE fields (see "Projects").
 Since 1.5.1 the delay's `G_DTIME` (global id 4, label "TIME") has 13 names: P_SDIV's ten at the same values, then
 1/8D, 1/16D, 1/4D (values 10..12, dotted: 3/4, 3/8, 3/2 of a quarter); `DESC` sends all 13, max 12. P_SDIV, P_ARATE
 and the LFO's SYNC keep their lists. The device's knob steps TIME by length, longest first (4BAR 2BAR 1/1 1/2 1/4D
@@ -523,9 +525,10 @@ grid lives in the steps themselves, so every engine has it:
   the other globals. The editor shows it under GLOBAL > MIDI. 1.2: the GLO > GLOBAL and GLO > SYSTEM pages are
   gone; BPM, SWG and CLK (ids 0..2) are HOME > CLOCK's, TUNE (id 3) and ROUT (id 14) are edited in the MENU (AUDIO >
   TUNE, MIDI > MIDI IN; also MENU settings 22 and 21, below). Their ids, ranges, names and storage (the project) are
-  unchanged. `G_MIDI`, `G_SYNC`, `G_INFO` (12, 13, 15) are on no page any more (MIDI's value was never read: the
-  SYSTEM page's card showed the USB state; SYNC a placeholder; CPU a reading): the device's MENU > SYSTEM > INFO shows
-  the USB state and the CPU load; `DESC` of them is unchanged.
+  unchanged. `G_DMIX`, `G_MIDI`, `G_INFO`, `G_CLRSEQ` and `G_INITSND` (7, 12, 15, 22, 23) are TAPE SPEED, WOW,
+  DROP, the one MIX (shared by every route and track) and the route in 3.2 (they were inert or on no page before):
+  0 SEND, 1..4 the CHAIN owner track, 5 MASTER. `P_TAPEMIX` is the old GLMOD id (0..127); TAPE does not read it.
+  `G_SYNC` is still `G_DREL`.
 - **Sound loads and undo.** A load that changes a track's sound (`PRESET`, `SET` of `G_ENGSEL`, `UP_LOAD`,
   and the same on the device) changes the sound only: the engine and the parameters of the sound. It
   never changes the steps, nor the track's own parameters: `P_LEVEL`, `P_PAN`, `P_MUTE` (0, 39, 40), the
@@ -669,11 +672,14 @@ when the track's engine is not the saved one).
   older as before. Firmware before 1.2 refuses a FUN10 (its size and magic), so an editor must not send one there
   (`BACKUP_PUT` begin answers rc 1 for its size). Backups, `PROJECT` and the editor's project files carry the 3840 bytes.
   **Read only since FUN11:** a FUN10 loads with the factory DRUM-X kit (no kit bytes on disk).
-- **Projects (FUN16, this build).** Same 3840-byte object and magic `47 4E 55 46` ("FUNG", FUN16 in these notes): the
-  song chain packs each section into 2 bytes (4 slots x 3 bits, repeats − 1 x 4 bits) after the 4-byte header, 36 bytes
-  in all instead of 84, which pays for 88 motion records (4 + 88 × 3 = 268) instead of 72. Everything after the motion
-  block stays where FUN15 put it. FUN15 (`46 55 4E 46`) and older load; only FUN16 is written. Firmware that only knows
-  FUN15 refuses a FUN16 (magic): its slot shows EMPTY until saved over, so keep a backup before the first save.
+- **Projects (FUN17, this build).** Same 3840-byte object and layout as FUN16, magic `48 4E 55 46` ("FUNH", FUN17 in
+  these notes): the song chain still packs each section into 2 bytes (4 slots x 3 bits, repeats − 1 x 4 bits) after the
+  4-byte header, 36 bytes in all instead of 84, which pays for 88 motion records (4 + 88 × 3 = 268) instead of 72.
+  Each track's ten-slot EFFECTS order (six inserts + DLY + REV + SLCR + TAPE) is in the unused high bits of its FM6
+  patch bytes, after the six generation controls; original readers mask those bits, so the patch itself is unchanged.
+  FUN16 (`47 4E 55 46`) and older load: the order is rebuilt from `P_IORD` / `P_CHOR` / the SLCR slot and the TAPE
+  fields take their defaults. Only FUN17 is written. Firmware that only knows FUN16 refuses a FUN17 (magic): its slot
+  shows EMPTY until saved over, so keep a backup before the first save.
 - **Projects (FUN11, Araminta).** Same 3840-byte object as FUN10, magic `46 55 4E 42` ("FUNB", FUN11 in these notes): the DRUM-X kit (`dx_lane_t[8]`, 88 bytes), mute lo/hi, a marker byte, and X-MOD `dx_mot[4]` (96 bytes total) at offset 3216 just before the FM6 patches — as JIANT's FUNA kit placement. Disk motion shrinks to 78 records (4 + 78 × 3 = 238) so the kit fits; RAM still holds 128. Firmware that only knows FUN10 refuses a FUN11 (magic): its slot shows EMPTY until saved over. Backups, `PROJECT` and the editor's project files still carry 3840 bytes (begin accepts the size as for FUN10; the magic distinguishes the layout).
 - **MIDI clock** has no SysEx. `G_CLOCK` selects the source: 0 INT, 1 USB, 2 TRS. With 1 or 2 the sequencer
   steps on that port's Clock pulses (the other port's are ignored), Start (0xFA) restarts from step 0,

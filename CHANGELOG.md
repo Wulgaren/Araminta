@@ -1,19 +1,11 @@
 # Changelog
 
-## Unreleased
-
-- **DRUMS: Felucca's drum engine is back.** A separate engine (15) beside DRUM-X, with the original
-  synthesized 8-lane kits: STD, 80, 10, 66, 55, 77, DEEP, TIGHT and PERC. Parameters
-  KIT / TUNE / TONE / DECY / SNAP / ACC / KICK / DRV, the GM key map, lane mutes and the SEQ drum grid.
-  DRUM-X stays engine 10; old projects and presets still play DRUM-X. Flash +14,384 B (566,108 B image,
-  15,456 B free), RAM +208 B, POOL unchanged. Favorites for engine 15 are skipped (the 16-row table is full).
-  Editor protocol engine 15, web editor table and tests updated.
-
 ## 3.2
 
-The stock V15 supply rails before core 1, a per-step PITCH lock, beat-synced chord STRUM / STROKE, the new
-REPEAT 1/12, /2 and *2 TEMPO and GLITCH punch-ins, and the DELAY page's TIME / RATE direction swapped. Same
-project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
+The stock V15 supply rails before core 1, Felucca's DRUMS engine, a per-step PITCH lock, beat-synced chord
+STRUM / STROKE, the new REPEAT 1/12, /2 and *2 TEMPO and GLITCH punch-ins, the DELAY page's TIME / RATE
+direction swapped, the MS-20-inspired punch filter, and TAPE as the tenth EFFECTS bus. New saves are FUN17
+(`FUNH`); FUN16 and older load with TAPE off and the EFFECTS order rebuilt. Splash and ABOUT show `v3.2`.
 
 ### Boot
 
@@ -44,6 +36,44 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
   DEC+, ST8, ST16, ATK+, ARP, RND, none. PUNCH-IN 2/2: REVERSE, TAPE, FREEZE, PITCH+, PITCH-, FLANGER, PHASER,
   REV THROW, ECHO THROW, /2, *2, GLITCH, then none; G5 is still CLR with FX LATCH. The FX map's cells show
   `GLITCH`, `/2` and `*2`.
+- **MS-20-inspired punch and FILTER COMB knee.** The punch-in LPF / HPF and KNOB 1 FILTER share a 2-pole
+  voice with 1.5x input drive, Q ~1.86, the ANALOG engine's soft knee and a 0.6 output gain; the one-bar
+  sweeps and KNOB 1 left / centre / right behaviour are unchanged. Insert FILTER COMB gets a soft knee at
+  half scale, threshold 32000 after the voices are summed, so a chord is not compressed hard. The DELAY
+  page's FDBK bars now follow the real loop gain (`FDBK * 230 / 32768`) instead of clamping above 100.
+- **TAPE, the tenth EFFECTS bus.** SPEED (25..400 %), WOW (slow + flutter) and DROPOUT (short pitch
+  fluctuations, not level dips). USE AS is CHAIN / SEND / MASTER: MASTER and CHAIN slow the **source** (the
+  transport and every voice's pitch); SEND keeps the dry at tempo and adds the head's pitched copy. MIX is
+  one global amount, the same on every track and kept when switching route; in MASTER / CHAIN it is the depth
+  (0 normal, 127 the full SPEED change), in SEND the send amount. The TAPE page opens from EFFECTS like DELAY /
+  REVERB (SPEED WOW DROP); MIX stays on the EFFECTS list.
+- **TAPE's clock and head.** SPEED scales `beat_samples()` for MASTER and the owner track's sequencer for
+  CHAIN, plus a pitch offset in 1/16 semitones (a 376-entry log table, 192 * log2(pct / 100)) through the
+  voice pitch. Notes and the beat stretch together; envelopes and the reverb decay stay in real time, the
+  delay divisions and the click follow the transport, and CHAIN leaves the other tracks alone. The SEND head
+  is a two-head crossfaded delay line at 44.1 kHz; its rest delay and the SEND dry compensation are 512
+  samples (11.6 ms). The wrapping head has weight zero at the wrap, so the old click is gone. At 100 % with
+  MIX 0 the list is bit-identical and the golden renders are unchanged.
+- **TAPE storage.** The dead global ids `G_DMIX`, `G_MIDI`, `G_INFO`, `G_CLRSEQ`, `G_INITSND` are TAPE SPEED,
+  WOW, DROP, the one MIX and the route; `P_TAPEMIX` (the old GLMOD id) is unused. The 8 KB + 4 KB head and
+  compensation lines live in the POOL.
+
+### Drums
+
+- **DRUMS: Felucca's drum engine is back.** A separate engine (15) beside DRUM-X, with the original
+  synthesized 8-lane kits: STD, 80, 10, 66, 55, 77, DEEP, TIGHT and PERC. Parameters KIT / TUNE / TONE /
+  DECY / SNAP / ACC / KICK / DRV, the GM key map, lane mutes and the SEQ drum grid. DRUM-X stays engine 10;
+  old projects and presets still play DRUM-X. Flash +14,384 B, RAM +208 B, POOL unchanged. Favorites for
+  engine 15 are skipped because the 16-row table is full. Editor protocol engine 15 and the web editor table
+  are updated.
+
+### Projects
+
+- **FUN17 (`FUNH`).** Same layout and 3840-byte size as FUN16. Each track's ten-slot EFFECTS order rides in
+  the unused high bits of its FM6 patch bytes (after the six generation controls). FUN16 and older load with
+  the order rebuilt from `P_IORD` / `P_CHOR` / the SLCR slot and TAPE off; only FUN17 is written. Firmware that
+  only knows FUN16 refuses a FUN17 (magic): its slot shows EMPTY until saved over, so keep a backup before the
+  first save. The editor reads the order through `PROJECT` / `TRACK_DUMP` as before; no command changed.
 
 ### SCL
 
@@ -54,7 +84,7 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
 - **Compatibility.** CURR saves as MAP = ALL plus the lock bit, so v3.1 opens a v3.2 project as SCALE LOCK +
   ALL, which sounds the same. A v3.1 project locked with MAP OFF / KBD / SEQ loads with that MAP and unlinked
   (the notes are unchanged; only future linking is lost). New tracks default to MAP OFF and are unlinked.
-  Fun16 is unchanged.
+  The stored layout is unchanged.
 
 ### SEQ
 
@@ -81,7 +111,7 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
   flips per chord and track. Rate and direction freeze at the press, the timing follows a tempo change, and a
   release cancels the strings that have not played. Off with ARP on, MONO / LEGATO (their chord is the root), and a
   one-note chord. The knobs share the inert ALLOC parameter (packed); legacy ROT/REUSE values 0/1 remain OFF,
-  and new sweeps use values 2..22. FUN16 is unchanged. The editor shows the packed list as SWEEP.
+  and new sweeps use values 2..22. The stored layout is unchanged. The editor shows the packed list as SWEEP.
   Strum settings saved with earlier unreleased 3.2 builds need resetting after this encoding correction.
 
 ### Locks
@@ -89,7 +119,7 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
 - **Per-step PITCH lock (SCL K4 on a held step).** A new lock-only motion id, 127: an absolute chromatic
   transpose (-24..+24) that replaces the track's TRN on that step, one value for the whole step (a chord uses its
   first stored note, lowest for a keyed chord, when TRN records it). It counts toward the 88 on-disk records and
-  the save-limit warning. FUN16 is unchanged.
+  the save-limit warning.
   **Downgrade:** firmware before 3.2 refuses a project whose motion holds id 127 (EMPTY SLOT), so save a backup
   before opening a v3.2 project with pitch locks on an older build.
 - **Recording TRN writes that lock.** With REC armed on the selected track while playing, turning SCL TRN stores
@@ -123,7 +153,7 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
 
 - **S&H SMOOTH.** LFO > LFO 2's fourth knob (`SMTH`, 0..100 %) rounds the WAVE S&H steps into a smooth,
   sine-like random curve. It shows only while WAVE is S&H; 0 is the hard steps, bit for bit. The matrix's
-  S&H / SLEW sources are unchanged. It uses the long-inert PRIO parameter's id, so projects stay FUN16.
+  S&H / SLEW sources are unchanged. It uses the long-inert PRIO parameter's id, so the stored layout is unchanged.
 
 ## 3.1
 
