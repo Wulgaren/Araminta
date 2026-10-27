@@ -449,6 +449,13 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "motion, whole-step chance, FUN7 migration, song restore, ARP repeat and the 1.2 ARP modes" "$OUT/motion_test"
     }
     unit u_motion
+    # The ids outside a track's p[]: PITCH (lock-only), MFX_* (FX motion targets),
+    # EV_* (AUTOMATION rows), PG_* (CHORD cards), P_ALLOC's sweep and MOTION_ID.
+    u_param_contract() {
+        $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/param_contract_test" tests/param_contract_test.c -lm
+        run "parameter contract: PITCH, MFX, EV, PG, P_ALLOC, MOTION_ID" "$OUT/param_contract_test"
+    }
+    unit u_param_contract
     u_ratchet() {
         $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/ratchet_test" tests/ratchet_test.c -lm
         run "RATCH: x1..x4 in a step (notes, chords, drum hits), gates, chance, swing, projects, user presets, AUTOMATION RATCH rows" "$OUT/ratchet_test"

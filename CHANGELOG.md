@@ -79,15 +79,15 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
 
 - **Per-step PITCH lock (SCL K4 on a held step).** A new lock-only motion id, 127: an absolute chromatic
   transpose (-24..+24) that replaces the track's TRN on that step, one value for the whole step (a chord uses its
-  first/lowest note when
-  TRN records it). It counts toward the 88 on-disk records and the save-limit warning. FUN16 is unchanged.
+  first stored note, lowest for a keyed chord, when TRN records it). It counts toward the 88 on-disk records and
+  the save-limit warning. FUN16 is unchanged.
   **Downgrade:** firmware before 3.2 refuses a project whose motion holds id 127 (EMPTY SLOT), so save a backup
   before opening a v3.2 project with pitch locks on an older build.
-- **Recording TRN writes that lock.** With REC armed on the selected track, turning SCL TRN stores the
-  scale-fitted semitone result as the current step's PITCH record (C4 +1 in C major stays C4), never a P_TRANS
-  automation event; the global TRN keeps its value. Editing that PITCH row makes it a chromatic lock (C4 +1 then
-  plays C#4). With REC off, TRN is the ordinary global transpose.
-  A manual edit of the lock is chromatic and may be off-scale.
+- **Recording TRN writes that lock.** With REC armed on the selected track while playing, turning SCL TRN stores
+  the scale-fitted semitone result as the current step's PITCH lock (C4 +1 in C major stays C4), never a P_TRANS
+  automation event; the TRN knob still moves (other steps without a lock follow it), and this step uses the
+  fitted value. Editing that PITCH row changes its semitone value and it stays a lock (C4 +1 then plays C#4;
+  off-scale is allowed). With REC off, TRN is the ordinary global transpose.
 
 ### Editor
 

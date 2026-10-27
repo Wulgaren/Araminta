@@ -49,7 +49,7 @@ static int motion_param(uint32_t id)
 {
     /* Sound only: transport, routing, voice allocation and discrete engine
      * changes never become automation. FX sends and continuous mix are safe. */
-    return id == MSEQ_PITCH || MFX_PARAM(id) || (id < P_COUNT && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
+    return param_lock_only(id) || MFX_PARAM(id) || (param_real(id) && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
         (id >= P_DIST && id <= P_REV) || id == P_GLIDE || id == P_PAN ||
         id == P_DETUNE || (id >= P_SLPAT && id <= P_SLDEPTH) ||   /* #222: SLICER pattern / rate / depth (not MODE) */
         id == P_CHRD || id == P_VOIC ||                           /* chord type / voicing */
@@ -92,7 +92,7 @@ static int motion_valid(const motion_store_t *m)
         const motion_event_t *e = &m->event[i];
         uint32_t id = MOTION_ID(e);
         if (!motion_param(id)) return 0;
-        if (id == MSEQ_PITCH) {
+        if (param_lock_only(id)) {
             if (!(e->param & MOTION_LOCK) || e->value < -24 || e->value > 24) return 0;
         } else if (id == MFX_TIME) {
             if (e->value < DTIME_FREE + 1 || e->value > DTIME_FREE + (int32_t)DTIME_MS_MAX) return 0;
@@ -148,7 +148,7 @@ static uint32_t motion_mask(uint32_t k, uint32_t m[(P_COUNT + 31u) / 32u])
     if (k >= NTRK || !((motion.on >> k) & 1u)) return 0;
     for (i = 0; i < motion.count; i++) {
         const motion_event_t *e = &motion.event[i];
-        if ((e->place >> 6) != k || (MOTION_ID(e) >= P_COUNT && MOTION_ID(e) != MSEQ_PITCH)) continue;
+        if ((e->place >> 6) != k || !param_id_known(MOTION_ID(e))) continue;
         m[MOTION_ID(e) / 32u] |= 1u << (MOTION_ID(e) % 32u);
         any = 1;
     }
@@ -265,7 +265,7 @@ static int motion_put(track_t *t, uint32_t step, uint32_t id, int16_t value, uin
     uint32_t k = trk_index(t), i, f;
     const param_desc_t *d;
     if (k >= NTRK || step >= NSTEP || !motion_param(id) || !fx_target_available(t, id)) return 1;
-    if (id == MSEQ_PITCH && !(kind & MOTION_LOCK)) return 1;
+    if (param_lock_only(id) && !(kind & MOTION_LOCK)) return 1;
     d = motion_target_desc(t, id);
     if (value < d->min || value > d->max || (id != MFX_TIME && (value < -64 || value > 127))) return 1;
     value = (int16_t)param_fit(d, value);                    /* (a retired KIT: the kit it plays) */
@@ -399,7 +399,7 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t step, con
         const motion_event_t *e = &m->event[i];
         uint32_t id = MOTION_ID(e);
         if (e->place != (k << 6 | step) || ((e->param & MOTION_LOCK) && !play) || !fx_target_available(t, id)) continue;
-        if (id == MSEQ_PITCH) {                      /* never indexes p[]: an absolute per-step transpose */
+        if (param_lock_only(id)) {                   /* never indexes p[]: an absolute per-step transpose */
             t->plk_pit = (int16_t)clamp(e->value, -24, 24);
             t->plk_fit = 1u;
             continue;
@@ -484,7 +484,7 @@ static int motion_move(track_t *t, uint32_t i, uint32_t step, uint32_t id, int16
     if (motion.event[i].place != (trk_index(t) << 6 | step) || MOTION_ID(&motion.event[i]) != id)
         motion_restore(t);                              /* (a value alone: what sounds stays) */
     motion.event[i].place = (uint8_t)(trk_index(t) << 6 | step);
-    motion.event[i].param = (uint8_t)((id == MSEQ_PITCH ? MOTION_LOCK : motion.event[i].param & MOTION_LOCK) | id);
+    motion.event[i].param = (uint8_t)((param_lock_only(id) ? MOTION_LOCK : motion.event[i].param & MOTION_LOCK) | id);
     motion.event[i].value = (int16_t)param_fit(d, v);
     motion_unguard(f);
     return 0;
