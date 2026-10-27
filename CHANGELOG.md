@@ -11,15 +11,17 @@ the send bus, or on the whole mix (MASTER). Same 3840-byte project object as 3.2
 - **TAPE.** SPEED (50..200 %, one head: pitch and tempo together), WOW (slow + flutter) and DROPOUT (random
   short tape dropouts). USE AS on EFFECTS is CHAIN / SEND / MASTER: CHAIN puts the one machine in the owner
   track's list, SEND sums the tracks' TAPE amounts into its bus, MASTER runs it on the whole stereo mix. MIX is
-  each track's amount in CHAIN/SEND and one global amount in MASTER (the TAPE page's K4). The TAPE page opens
-  from EFFECTS like DELAY / REVERB (SPEED WOW DROP MIX).
-- **The head.** A two-head crossfaded delay line at 44.1 kHz; SPEED slews like a motor (about 0.75 s for the
-  full range). Its rest delay is 256 samples (5.8 ms). SEND and MASTER delay the dry by the same amount, so
-  their wet lines up and a static comb cannot form; CHAIN runs in the owner track and keeps its own small head
-  delay. At 100 % with MIX 0 the list is bit-identical (the golden renders are unchanged).
+  each track's amount in CHAIN/SEND and one global amount in MASTER (the EFFECTS row's K4). The TAPE page opens
+  from EFFECTS like DELAY / REVERB (SPEED WOW DROP); MIX stays on the EFFECTS list.
+- **The head.** A two-head crossfaded delay line at 44.1 kHz; SPEED slews like a motor (about 0.6 s for the
+  full range). Its rest delay and the dry path's compensation are 512 samples (11.6 ms). The head that wraps
+  has weight zero at the wrap (the other holds the sound, then the new one fades in over 2.9 ms): the old
+  full-window cosine put weight one on the wrapping head and clicked there. SEND and MASTER delay the dry by
+  the same amount, so their wet lines up and a static comb cannot form; CHAIN runs in the owner track and keeps
+  its own head delay. At 100 % with MIX 0 the list is bit-identical (the golden renders are unchanged).
 - **Storage.** The dead global ids `G_DMIX`, `G_MIDI`, `G_INFO`, `G_CLRSEQ`, `G_INITSND` are TAPE SPEED, WOW,
   DROP, MASTER MIX and the route; `P_GLMODE` (never read) is the per-track TAPE MIX. No parameter or project
-  byte moved. The 8 KB + 2 KB head and compensation lines live in the POOL; RAM headroom stays above 4 KB.
+  byte moved. The 8 KB + 4 KB head and compensation lines live in the POOL; RAM headroom stays above 4 KB.
 
 ### Projects
 

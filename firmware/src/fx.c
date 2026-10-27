@@ -122,19 +122,22 @@ _Static_assert(CL_LEN >= SH_LEN, "CLOUD line holds SHIMR");
 
 /* TAPE (EFFECTS bus, FUN17): one rotating-head varispeed shared by the three routes. The head reads
  * behind the write head; ph is the head's delay in Q16 samples. Two heads half a window apart crossfade,
- * so a slow or fast head has no jump where it wraps. TP_D is the head's rest delay and the compensation
- * delay; TP_W/4 is the swing. WOW adds a slow and a fast offset to the head (pitch wobble), DROP gates
- * the wet now and then. CHAIN runs it in the owner track's list, SEND on the send bus, MASTER on the
- * whole mix. At SPEED 100 it is a single head at TP_D (aligned by the compensation), not a comb. */
+ * so a slow or fast head has no jump where it wraps. TP_D is the head's base delay; it rests at
+ * TP_COMP = TP_D + TP_W/4, which is also the dry path's compensation. WOW adds a slow and a fast
+ * offset to the head (pitch wobble), DROP gates the wet now and then. CHAIN runs it in the owner
+ * track's list, SEND on the send bus, MASTER on the whole mix. At SPEED 100 it is a single head at
+ * TP_COMP, not a comb. */
 #define TP_N 2048u
 #define TP_W 1024u
-#define TP_D 256u                              /* rest delay, and the dry path's compensation */
+#define TP_D 256u                              /* the head's base delay */
+#define TP_COMP (TP_D + TP_W / 4u)             /* 512: its rest, and the dry path's compensation */
+#define TP_FADE 128u                           /* head-wrap crossfade, samples (2.9 ms) */
 #define TP_MASK (TP_N - 1u)
 #define TP_SLEW 512                            /* Q16 speed a block (about 0.6 s for the whole range) */
 _Static_assert((TP_N & (TP_N - 1u)) == 0u && (TP_W & (TP_W - 1u)) == 0u &&
-               (TP_D & (TP_D - 1u)) == 0u && TP_D + TP_W + TP_D < TP_N, "TAPE lines");
+               (TP_COMP & (TP_COMP - 1u)) == 0u && TP_D + TP_W + TP_D < TP_N, "TAPE lines");
 static int16_t tp_buf[2][TP_N] __attribute__((section(".pool")));
-static int32_t tp_comp[2][TP_D] __attribute__((section(".pool")));
+static int32_t tp_comp[2][TP_COMP] __attribute__((section(".pool")));
 static struct {
     uint32_t w, ph, cw, wow_ph, fl_ph, rng, drop_wait, drop_len, drop_n;
     int32_t speed_q16;
@@ -147,6 +150,7 @@ static void tape_clear(void)
     memset(tp_comp, 0, sizeof tp_comp);
     memset(&tp, 0, sizeof tp);
     tp.speed_q16 = 65536;
+    tp.ph = (TP_W / 4u) << 16;                        /* rest head at TP_COMP (speed 100 is a clean pass) */
     tp.rng = 0x9E3779B9u;
 }
 static void tape_begin(uint32_t mode)
@@ -175,8 +179,8 @@ static __attribute__((noinline)) void tape_run(const int32_t *il, const int32_t 
     uint32_t i, winc = LFO_INC[44] / CTL, finc = LFO_INC[91] / CTL;   /* 0.5 Hz wow, 6 Hz flutter */
     int32_t wowd = (int32_t)song.g[G_TWOW] * (int32_t)TP_D / 127;
     for (i = 0; i < n; i++) {
-        int32_t l = il[i], r = ir[i], dg = 32768, g, d0, d1, a, b, yl, yr;
-        uint32_t fr = (tp.ph >> 8) & 255u;
+        int32_t l = il[i], r = ir[i], dg = 32768, wa, wb, d0, d1, a, b, yl, yr;
+        uint32_t fr = (tp.ph >> 8) & 255u, phh = tp.ph >> 16;
         int32_t wow = 0;
         tp_buf[0][tp.w] = (int16_t)clamp(l, -32768, 32767);
         tp_buf[1][tp.w] = (int16_t)clamp(r, -32768, 32767);
@@ -185,15 +189,30 @@ static __attribute__((noinline)) void tape_run(const int32_t *il, const int32_t 
             tp.wow_ph += winc;
             tp.fl_ph += finc;
         }
-        d0 = (int32_t)TP_D + (int32_t)(tp.ph >> 16) + wow;
-        d1 = (int32_t)TP_D + (int32_t)(((tp.ph >> 16) + TP_W / 2u) & (TP_W - 1u)) + wow;
-        g = (32768 - osc_sine(tp.ph * 64u + 0x40000000u)) >> 1;   /* 0 at ph 0, 1 at ph W/2 */
+        d0 = (int32_t)TP_D + (int32_t)phh + wow;
+        d1 = (int32_t)TP_D + (int32_t)((phh + TP_W / 2u) & (TP_W - 1u)) + wow;
+        /* The head that wraps has weight 0 at the wrap; the other holds the sound, then the new one
+         * fades in over TP_FADE. A cosine over the whole window would put weight 1 on the wrapping
+         * head at ph W/2 and click there (the old moving-tap bug). */
+        if (phh < TP_FADE) {
+            wa = (int32_t)phh;
+            wb = (int32_t)TP_FADE - wa;
+        } else if (phh < TP_W / 2u) {
+            wa = (int32_t)TP_FADE;
+            wb = 0;
+        } else if (phh < TP_W / 2u + TP_FADE) {
+            wa = (int32_t)(TP_W / 2u + TP_FADE - phh);
+            wb = (int32_t)TP_FADE - wa;
+        } else {
+            wa = 0;
+            wb = (int32_t)TP_FADE;
+        }
         a = tp_tap(tp_buf[0], d0, fr);
         b = tp_tap(tp_buf[0], d1, fr);
-        yl = (a * (32768 - g) + b * g) >> 15;
+        yl = (a * wa + b * wb) / (int32_t)TP_FADE;
         a = tp_tap(tp_buf[1], d0, fr);
         b = tp_tap(tp_buf[1], d1, fr);
-        yr = (a * (32768 - g) + b * g) >> 15;
+        yr = (a * wa + b * wb) / (int32_t)TP_FADE;
         if (song.g[G_TDROP]) {
             if (tp.drop_n) {
                 uint32_t age = tp.drop_len - tp.drop_n, e = age < tp.drop_n ? age : tp.drop_n;
@@ -231,7 +250,7 @@ static void tape_comp_delay(int32_t *l, int32_t *r, uint32_t n)
         tp_comp[1][tp.cw] = r[i];
         l[i] = dl;
         r[i] = dr;
-        tp.cw = (tp.cw + 1u) & (TP_D - 1u);
+        tp.cw = (tp.cw + 1u) & (TP_COMP - 1u);
     }
 }
 
@@ -498,7 +517,7 @@ static int32_t ins_mix_of(const track_t *t, uint32_t st)
     if (st == INS_SLCR)
         return t->p[P_SLDEPTH];
     if (st == INS_TAPE)
-        return t->p[P_TAPEMIX];                       /* MASTER's global amount is the TAPE page's K4 */
+        return t->p[P_TAPEMIX];                       /* MASTER's global amount is the EFFECTS row's K4 */
     return st < INS_N ? t->p[MIX[st]] : 0;
 }
 /* mode string for EFFECTS: SEND, CHAIN, or USED (delay owned elsewhere; slicer never USED after sanitize).
@@ -2347,7 +2366,7 @@ static __attribute__((noinline)) uint32_t mix_split(void)
 }
 
 /* after the buses: fold their wet in, then the TAPE's SEND/MASTER pass. The dry path of the two
- * compensated modes takes TP_D, the head's rest delay, so the wet lines up; CHAIN is already in the
+ * compensated modes takes TP_COMP, the head's rest delay, so the wet lines up; CHAIN is already in the
  * owner track's list (fx.c track_insert) and keeps its own small head delay. */
 static __attribute__((noinline)) void tape_post(uint32_t n)
 {
