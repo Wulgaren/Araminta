@@ -15,14 +15,14 @@ static int favorite_has(uint32_t engine, uint32_t preset)
 {
     if (engine == NENGINES)
         return preset < UP_SLOTS && ((favorites.user >> preset) & 1u);
-    if (engine == ENGI_SLICE)                    /* retired SLICE: its row is MIDI LEARN's */
+    if (engine == ENGI_SLICE || engine == ENGI_DRUMS)   /* SLICE's row is MIDI LEARN's; DRUMS has no row */
         return 0;
     return engine < NENGINES && engine < 16u && preset < 256u &&
         ((favorites.factory[engine][preset / 8u] >> (preset % 8u)) & 1u);
 }
 static int favorite_set(uint32_t engine, uint32_t preset, int on)
 {
-    if (engine == ENGI_SLICE)                    /* retired SLICE: never a favourite, row 13 is MIDI LEARN's */
+    if (engine == ENGI_SLICE || engine == ENGI_DRUMS)   /* SLICE's row is MIDI LEARN's; DRUMS has no row */
         return 0;
     if (engine > NENGINES || (engine == NENGINES ? preset >= UP_SLOTS : engine >= 16u || preset >= 256u))
         return 0;

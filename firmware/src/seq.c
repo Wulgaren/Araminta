@@ -67,7 +67,7 @@ static uint32_t trk_midi_ch(uint32_t i) { return (midi_base() > 0 ? (uint32_t)mi
 static int drum_track(const track_t *t)
 {
     uint32_t e = eng_idx(t->eng_req), set;
-    if (ENGINES[e] == &ENG_DRUM)
+    if (ENGINES[e] == &ENG_DRUM || ENGINES[e] == &ENG_DRUMS)
         return 1;
     if (ENGINES[e] != &ENG_SAMPLE)
         return 0;
