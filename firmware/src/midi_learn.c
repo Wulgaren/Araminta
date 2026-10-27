@@ -11,7 +11,7 @@
 /* The rows: 0..12 engines 0..12, 13 MIDI LEARN (engine 13 SLICE is retired, eng_retire.c: never selectable, its
  * favourites unused), 14 WAVETABLE (ENGI_WT), 15 MENU / UI settings bytes. settings_persist.c PER5 moved the map
  * here from row 14, where it was before WAVETABLE. */
-typedef char ml_row_free[(ENGI_SLICE == 13u && NENGINES <= 15u) ? 1 : -1];
+typedef char ml_row_free[(ENGI_SLICE == 13u && ENGI_DRUMS == 15u) ? 1 : -1];
 static uint8_t *const ml_tab = favorites.factory[13];
 static volatile uint8_t *const ml_io = ui.ml.io;         /* (midi_control.c ml_arm, ml_heard) */
 

@@ -69,6 +69,7 @@ until it prints `ALL HOST TESTS PASSED`.
 | Touch | Binary under `build/host/` |
 | --- | --- |
 | `firmware/src/ui*.c`, help, menus | `ui_test` (also `ui_render` for draw/layout) |
+| DRUMS engine (`eng_drums.c`, `drums_voice.c`) | `drums_test` (also `regress` for presets/CPU) |
 | ANALOG filter / ENV SYNC / sound 1.5 | `sound15_test` |
 | insert chain / FX order | `inschain_test` |
 | motion / ARP / song | `motion_test` |
