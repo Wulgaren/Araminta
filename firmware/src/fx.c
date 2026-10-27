@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Effects: per-track insert chain (6 reorderable stages) plus shared delay/reverb
- * (SEND for all, or CHAIN on one track). Mono buses, stereo dry mix.
+/* Effects: per-track insert chain (6 reorderable stages) plus the shared DELAY / REVERB / SLICER / TAPE
+ * buses (SEND for all, CHAIN on one track; TAPE also MASTER on the whole mix). Mono buses, stereo dry mix.
  * Reverb: two tanks in .pool. CHAIN owner runs tank 0 as an insert; other tracks
  * (and all tracks when no CHAIN) SEND into tank 1 when chained, else tank 0.
  * TYPE/SIZE/DAMP are shared globals; each tank keeps its own running model state. */
@@ -119,6 +119,121 @@ _Static_assert(sizeof ((rev_tank_t *)0)->comb / 2u >= SP_LEN &&
 _Static_assert(467 + 509 + 547 + 593 + 631 + 673 + 709 + 743 + HL_NL <= sizeof ((rev_tank_t *)0)->comb / 2u &&
                131 + 307 <= sizeof ((rev_tank_t *)0)->u.ap / 2u, "HALL in ROOM's buffers");
 _Static_assert(CL_LEN >= SH_LEN, "CLOUD line holds SHIMR");
+
+/* TAPE (EFFECTS bus, FUN17): one rotating-head varispeed shared by the three routes. The head reads
+ * behind the write head; ph is the head's delay in Q16 samples. Two heads half a window apart crossfade,
+ * so a slow or fast head has no jump where it wraps. TP_D is the head's rest delay and the compensation
+ * delay; TP_W/4 is the swing. WOW adds a slow and a fast offset to the head (pitch wobble), DROP gates
+ * the wet now and then. CHAIN runs it in the owner track's list, SEND on the send bus, MASTER on the
+ * whole mix. At SPEED 100 it is a single head at TP_D (aligned by the compensation), not a comb. */
+#define TP_N 2048u
+#define TP_W 1024u
+#define TP_D 256u                              /* rest delay, and the dry path's compensation */
+#define TP_MASK (TP_N - 1u)
+#define TP_SLEW 512                            /* Q16 speed a block (about 0.6 s for the whole range) */
+_Static_assert((TP_N & (TP_N - 1u)) == 0u && (TP_W & (TP_W - 1u)) == 0u &&
+               (TP_D & (TP_D - 1u)) == 0u && TP_D + TP_W + TP_D < TP_N, "TAPE lines");
+static int16_t tp_buf[2][TP_N] __attribute__((section(".pool")));
+static int32_t tp_comp[2][TP_D] __attribute__((section(".pool")));
+static struct {
+    uint32_t w, ph, cw, wow_ph, fl_ph, rng, drop_wait, drop_len, drop_n;
+    int32_t speed_q16;
+    uint8_t mode;
+} tp __attribute__((section(".pool")));
+static int32_t tape_send_in[CTL] __attribute__((section(".pool")));   /* TAPE SEND's mono sum */
+static void tape_clear(void)
+{
+    memset(tp_buf, 0, sizeof tp_buf);
+    memset(tp_comp, 0, sizeof tp_comp);
+    memset(&tp, 0, sizeof tp);
+    tp.speed_q16 = 65536;
+    tp.rng = 0x9E3779B9u;
+}
+static void tape_begin(uint32_t mode)
+{
+    if (tp.mode != (uint8_t)mode) {
+        tape_clear();
+        tp.mode = (uint8_t)mode;
+    }
+}
+static void tape_pre(void)
+{
+    int32_t target = clamp(song.g[G_TSPEED], 50, 200) * 65536 / 100;
+    if (!tp.speed_q16)                                /* hosts that never ran fx_boot */
+        tp.speed_q16 = 65536;
+    tp.speed_q16 += clamp(target - tp.speed_q16, -TP_SLEW, TP_SLEW);
+}
+static inline int32_t tp_tap(const int16_t *b, int32_t d, uint32_t fr)
+{
+    int32_t i = ((int32_t)tp.w - d) & (int32_t)TP_MASK;
+    int32_t j = (i - 1) & (int32_t)TP_MASK;
+    return b[i] + (((b[j] - b[i]) * (int32_t)fr) >> 8);
+}
+/* one block of the head. in and out may be the same array (the CHAIN stage). */
+static __attribute__((noinline)) void tape_run(const int32_t *il, const int32_t *ir, int32_t *ol, int32_t *orr, uint32_t n)
+{
+    uint32_t i, winc = LFO_INC[44] / CTL, finc = LFO_INC[91] / CTL;   /* 0.5 Hz wow, 6 Hz flutter */
+    int32_t wowd = (int32_t)song.g[G_TWOW] * (int32_t)TP_D / 127;
+    for (i = 0; i < n; i++) {
+        int32_t l = il[i], r = ir[i], dg = 32768, g, d0, d1, a, b, yl, yr;
+        uint32_t fr = (tp.ph >> 8) & 255u;
+        int32_t wow = 0;
+        tp_buf[0][tp.w] = (int16_t)clamp(l, -32768, 32767);
+        tp_buf[1][tp.w] = (int16_t)clamp(r, -32768, 32767);
+        if (wowd) {
+            wow = ((osc_sine(tp.wow_ph) + (osc_sine(tp.fl_ph) >> 2)) * wowd) >> 15;
+            tp.wow_ph += winc;
+            tp.fl_ph += finc;
+        }
+        d0 = (int32_t)TP_D + (int32_t)(tp.ph >> 16) + wow;
+        d1 = (int32_t)TP_D + (int32_t)(((tp.ph >> 16) + TP_W / 2u) & (TP_W - 1u)) + wow;
+        g = (32768 - osc_sine(tp.ph * 64u + 0x40000000u)) >> 1;   /* 0 at ph 0, 1 at ph W/2 */
+        a = tp_tap(tp_buf[0], d0, fr);
+        b = tp_tap(tp_buf[0], d1, fr);
+        yl = (a * (32768 - g) + b * g) >> 15;
+        a = tp_tap(tp_buf[1], d0, fr);
+        b = tp_tap(tp_buf[1], d1, fr);
+        yr = (a * (32768 - g) + b * g) >> 15;
+        if (song.g[G_TDROP]) {
+            if (tp.drop_n) {
+                uint32_t age = tp.drop_len - tp.drop_n, e = age < tp.drop_n ? age : tp.drop_n;
+                if (e > 64u)
+                    e = 64u;
+                dg = 32768 - (int32_t)(e * 512u);
+                tp.drop_n--;
+            } else if (tp.drop_wait) {
+                tp.drop_wait--;
+            } else {
+                tp.rng = tp.rng * 1664525u + 1013904223u;
+                tp.drop_wait = 22050u + (tp.rng % 132300u);
+                if ((tp.rng & 7u) == 0u) {
+                    tp.rng = tp.rng * 1664525u + 1013904223u;
+                    tp.drop_len = 220u + (tp.rng % 880u);
+                    tp.drop_n = tp.drop_len;
+                }
+            }
+        } else {
+            tp.drop_n = tp.drop_wait = 0;
+        }
+        ol[i] = (yl * dg) >> 15;
+        orr[i] = (yr * dg) >> 15;
+        tp.w = (tp.w + 1u) & TP_MASK;
+        tp.ph = (tp.ph + (65536u - (uint32_t)tp.speed_q16)) & ((TP_W << 16) - 1u);
+    }
+}
+/* the dry path's fixed delay, so SEND/MASTER line up with the head's rest delay */
+static void tape_comp_delay(int32_t *l, int32_t *r, uint32_t n)
+{
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        int32_t dl = tp_comp[0][tp.cw], dr = tp_comp[1][tp.cw];
+        tp_comp[0][tp.cw] = l[i];
+        tp_comp[1][tp.cw] = r[i];
+        l[i] = dl;
+        r[i] = dr;
+        tp.cw = (tp.cw + 1u) & (TP_D - 1u);
+    }
+}
 
 /* P_IORD: low 10 bits are the chain order (factorial 0..719). Bits 10..15 are one flag per
  * stage (INS_DIST .. INS_CHOR): 0 the stage is in the chain, 1 it is a parallel send.
@@ -248,26 +363,6 @@ static void bus_own_sanitize(void)
  * next 3 = REV). SLCR's absolute slot is track.fx_sl_pos (0..8; default 8; FUN14 project wire).
  * Older CHO send values (0..63) load as DLY at 6, REV at 7, SLCR at 8. */
 #define FX_POS_MARK 64
-static void fx_pos_get(const track_t *t, uint32_t *dp, uint32_t *rp, uint32_t *sp)
-{
-    int32_t v = t->p[P_CHOR];
-    uint32_t d8, r8, s;
-    s = t->fx_sl_pos < FX_LIST_N ? t->fx_sl_pos : 8u;
-    if (v < FX_POS_MARK) {
-        d8 = 6;
-        r8 = 7;
-        s = 8;
-    } else {
-        v -= FX_POS_MARK;
-        d8 = (uint32_t)v & 7u;
-        r8 = ((uint32_t)v >> 3) & 7u;
-        if (r8 == d8)
-            r8 = d8 + 1u < 8u ? d8 + 1u : 0u;
-    }
-    *sp = s;
-    *dp = d8 < s ? d8 : d8 + 1u;                     /* absolute slots: skip SLCR's */
-    *rp = r8 < s ? r8 : r8 + 1u;
-}
 static void fx_pos_set(track_t *t, uint32_t dp, uint32_t rp, uint32_t sp)
 {
     uint32_t d8, r8;
@@ -292,45 +387,93 @@ static void fx_pos_set(track_t *t, uint32_t dp, uint32_t rp, uint32_t sp)
     t->p[P_CHOR] = (int16_t)(FX_POS_MARK + (int32_t)d8 + (int32_t)(r8 << 3));
     t->fx_sl_pos = (uint8_t)sp;
 }
-/* EFFECTS list: 6 inserts (P_IORD) with DLY/REV/SLCR slotted via P_CHOR. */
-static void fx_list_get(const track_t *t, uint8_t ord[FX_LIST_N])
+/* EFFECTS list: one per-track order of the ten stages (six inserts + DLY REV SLCR TAPE). FUN17 saves
+ * it; older projects rebuild it from P_IORD / P_CHOR / fx_sl_pos (fx_order_default). */
+static int fx_order_ok(const uint8_t ord[FX_LIST_N])
 {
-    uint8_t ins[INS_N], used[FX_LIST_N];
-    uint32_t i, j = 0, dp, rp, sp;
-    ins_order_get(t, ins);
-    fx_pos_get(t, &dp, &rp, &sp);
+    uint32_t i, seen = 0;
+    for (i = 0; i < FX_LIST_N; i++) {
+        if (ord[i] >= FX_LIST_N || (seen & (1u << ord[i])))
+            return 0;
+        seen |= 1u << ord[i];
+    }
+    return 1;
+}
+void fx_order_default(uint16_t iord, int16_t fchor, uint8_t slpos, uint8_t ord[FX_LIST_N])
+{
+    uint8_t ins[INS_N], used[FX_LIST_N], av[INS_N] = {0, 1, 2, 3, 4, 5};
+    uint32_t i, j, n = iord & 1023u, d8, r8, sp, dp, rp;
+    if (n > 719u)
+        n = 0;
+    for (i = 0; i < INS_N; i++) {                      /* P_IORD: the six-insert Lehmer order */
+        uint32_t f = ins_fact(INS_N - 1u - i), idx = n / f;
+        n %= f;
+        if (idx >= INS_N - i)
+            idx = INS_N - 1u - i;
+        ins[i] = av[idx];
+        for (j = idx; j + 1u < INS_N - i; j++)
+            av[j] = av[j + 1u];
+    }
+    sp = slpos < FX_LIST_N ? slpos : 8u;
+    if (fchor < FX_POS_MARK) {
+        d8 = 6; r8 = 7; sp = 8;
+    } else {
+        int32_t v = fchor - FX_POS_MARK;
+        d8 = (uint32_t)v & 7u;
+        r8 = ((uint32_t)v >> 3) & 7u;
+        if (r8 == d8)
+            r8 = d8 + 1u < 8u ? d8 + 1u : 0u;
+    }
+    dp = d8 < sp ? d8 : d8 + 1u;
+    rp = r8 < sp ? r8 : r8 + 1u;
     for (i = 0; i < FX_LIST_N; i++)
         used[i] = 0;
-    ord[dp] = INS_DLY;
-    used[dp] = 1;
-    ord[rp] = INS_REV;
-    used[rp] = 1;
-    ord[sp] = INS_SLCR;
-    used[sp] = 1;
+    ord[dp] = INS_DLY; used[dp] = 1;
+    ord[rp] = INS_REV; used[rp] = 1;
+    ord[sp] = INS_SLCR; used[sp] = 1;
+    ord[FX_LIST_N - 1u] = INS_TAPE; used[FX_LIST_N - 1u] = 1;
+    j = 0;
     for (i = 0; i < FX_LIST_N; i++) {
         if (used[i])
             continue;
         ord[i] = ins[j++];
     }
 }
+static void fx_list_get(const track_t *t, uint8_t ord[FX_LIST_N])
+{
+    uint8_t *o = fx_order_tbl[t - trk];           /* (the order is a runtime cache the UI fills) */
+    uint32_t i;
+    if (!fx_order_ok(o))
+        fx_order_default((uint16_t)t->p[P_IORD], t->p[P_CHOR], t->fx_sl_pos, o);
+    for (i = 0; i < FX_LIST_N; i++)
+        ord[i] = o[i];
+}
 static void fx_list_set(track_t *t, const uint8_t ord[FX_LIST_N])
 {
-    uint8_t ins[INS_N];
+    uint8_t ins[INS_N], *o = fx_order_tbl[t - trk];
     uint32_t i, j = 0, dp = 6, rp = 7, sp = 8;
+    if (!fx_order_ok(ord)) {
+        fx_order_default((uint16_t)t->p[P_IORD], t->p[P_CHOR], t->fx_sl_pos, o);
+        return;
+    }
     for (i = 0; i < FX_LIST_N; i++) {
-        if (ord[i] == INS_DLY)
+        uint8_t st = ord[i];
+        o[i] = st;
+        if (st == INS_DLY)
             dp = i;
-        else if (ord[i] == INS_REV)
+        else if (st == INS_REV)
             rp = i;
-        else if (ord[i] == INS_SLCR)
+        else if (st == INS_SLCR)
             sp = i;
         else if (j < INS_N)
-            ins[j++] = ord[i];
+            ins[j++] = st;
     }
-    if (j != INS_N)
-        for (j = 0; j < INS_N; j++)
-            ins[j] = (uint8_t)j;
-    fx_pos_set(t, dp, rp, sp);
+    if (j != INS_N) {
+        fx_order_default((uint16_t)t->p[P_IORD], t->p[P_CHOR], t->fx_sl_pos, o);
+        return;
+    }
+    fx_pos_set(t, dp, rp, sp);                    /* legacy IDs (0..8); the order above is the source */
+    t->fx_sl_pos = (uint8_t)(sp < 9u ? sp : 8u);
     ins_order_set(t, ins);
 }
 /* swap list slots h and h+dir; 1 if swapped, 0 if out of range (ORDER keeps the highlight) */
@@ -354,6 +497,8 @@ static int32_t ins_mix_of(const track_t *t, uint32_t st)
         return t->p[P_REV];
     if (st == INS_SLCR)
         return t->p[P_SLDEPTH];
+    if (st == INS_TAPE)
+        return t->p[P_TAPEMIX];                       /* MASTER's global amount is the TAPE page's K4 */
     return st < INS_N ? t->p[MIX[st]] : 0;
 }
 /* mode string for EFFECTS: SEND, CHAIN, or USED (delay owned elsewhere; slicer never USED after sanitize).
@@ -363,6 +508,14 @@ static const char *fx_list_mode(const track_t *t, uint32_t st)
     int32_t own, tr = (int32_t)(t - trk);
     if (st < INS_N)
         return ins_is_send(t, st) ? "SEND" : "CHAIN";
+    if (st == INS_TAPE) {
+        int32_t m = song.g[G_TAPEMODE];
+        if (m == TAPE_SEND)
+            return "SEND";
+        if (m == TAPE_MASTER)
+            return "MASTER";
+        return TAPE_OWNER_OF(m) == (int32_t)(t - trk) ? "CHAIN" : "USED";
+    }
     if (st == INS_SLCR) {
         if (sl_trk_used(t))
             return "USED";
@@ -381,6 +534,9 @@ static int ins_any(const track_t *t)
     for (s = 0; s < INS_N; s++)
         if (ins_mix_of(t, s))
             return 1;
+    /* TAPE in CHAIN is the one owner's in-line stage; SEND/MASTER run on their buses. */
+    if (song.g[G_TAPEMODE] == TAPE_CH1 + (int16_t)(t - trk) && t->p[P_TAPEMIX])
+        return 1;
     return 0;
 }
 
@@ -1278,6 +1434,8 @@ static void fx_boot(void)
     memset(ins_st, 0, sizeof ins_st);
     memset(ins_lines, 0, sizeof ins_lines);
     memset(ins_bus_ran, 0, sizeof ins_bus_ran);
+    memset(fx_order_tbl, 0, sizeof fx_order_tbl);
+    tape_clear();
     fx_bus_init();
     for (i = 0; i < NTRK; i++)
         trk[i].ins_run = 0;
@@ -1696,6 +1854,23 @@ static __attribute__((noinline)) void fx_bus_stage(track_t *t, uint32_t st, int3
     if (bus_knobs_on[pi])
         bus_g_put(t, g0, g1, mfx_keep, 1);
 }
+/* TAPE in the owner track's list: one head over the mono part, mixed by P_TAPEMIX. Kept out of
+ * track_insert's loop (target_budget). */
+static __attribute__((noinline)) void tape_chain(track_t *t, int32_t *b, uint32_t n,
+                                                 int32_t *dry, int32_t *wet)
+{
+    int32_t amt = t->p[P_TAPEMIX];
+    uint32_t i;
+    if (song.g[G_TAPEMODE] != TAPE_CH1 + (int16_t)(t - trk) || amt <= 0)
+        return;
+    for (i = 0; i < n; i++)
+        dry[i] = b[i];
+    tape_run(dry, dry, wet, wet, n);
+    for (i = 0; i < n; i++)
+        b[i] = pf_mix(b[i], wet[i], ins_mixq(amt));
+    t->ins_run = 1;
+}
+
 /* Chain stages run in list order. Insert SEND stages are left out of the series and added after.
  * Shared DLY/REV/SLCR run here only when this track owns them as CHAIN. */
 static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint32_t n)
@@ -1725,6 +1900,10 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
                 else
                     slicer_track(t, b, n);
             }
+            continue;
+        }
+        if (st == INS_TAPE) {                         /* CHAIN: the owner track's in-line tape */
+            tape_chain(t, b, n, ins_dry, ins_wet);
             continue;
         }
         if (!(raw & (uint16_t)(1u << (10u + st))))
@@ -1824,8 +2003,11 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     int32_t glm = (gla + glb) >> 1, grm = (gra + grb) >> 1, gld = (gla - glb) >> 1, grd = (gra - grb) >> 1;
     int32_t dl = bus_own(0) < 0 ? t->p[P_DLY] * 258 : 0;
     int32_t r = bus_own(1) == (int32_t)(t - trk) ? 0 : t->p[P_REV] * 258, pk = t->peak;
-    int32_t xmax = dl > r ? dl : r, lq = lvl << 8, dlv = 0;
-    xmax = 0x7FFFFFFF / (xmax | 1);
+    int32_t tp = song.g[G_TAPEMODE] == TAPE_SEND ? t->p[P_TAPEMIX] * 258 : 0;
+    int32_t xm = dl > r ? dl : r, xmax, lq = lvl << 8, dlv = 0;
+    if (tp > xm)
+        xm = tp;
+    xmax = 0x7FFFFFFF / (xm | 1);
     if ((duck_g0 < 32767 || duck_g1 < 32767) && ENGINES[t->engine] != &ENG_DRUM)
         lq = duck_ramp(lvl, &dlv);
     for (i = 0; i < n; i++)
@@ -1847,6 +2029,8 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
             SM(d)[i] += mulq15(xs, dl);
         if (r)
             SM(rv)[i] += mulq15(xs, r);
+        if (tp)
+            tape_send_in[i] += mulq15(xs, tp);
         SM(l)[i] += ((x * glm) >> 12) + ((y * gld) >> 12);
         SM(r)[i] += ((x * grm) >> 12) + ((y * grd) >> 12);
     }
@@ -1919,6 +2103,9 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
             mc->dlyown != song.g[G_DLYOWN] || mc->revown != song.g[G_REVOWN])
             mix_cache_update(t, mc);
         int32_t lvl = mc->lvl, gl = mc->gl, gr = mc->gr, d = mc->d, r = mc->r, xmax = mc->xmax, pk = t->peak;
+        int32_t tp = song.g[G_TAPEMODE] == TAPE_SEND ? t->p[P_TAPEMIX] * 258 : 0;
+        if (tp && 0x7FFFFFFF / tp < xmax)
+            xmax = 0x7FFFFFFF / tp;
         if (ins_any(t) | t->ins_run || chain)
             track_insert(t, b, n);
         if (sl_send)
@@ -1937,6 +2124,8 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
                 SM(d)[i] += mulq15(xs, d);
             if (r)
                 SM(rv)[i] += mulq15(xs, r);
+            if (tp)
+                tape_send_in[i] += mulq15(xs, tp);
             SM(l)[i] += (x * gl) >> 12;
             SM(r)[i] += (x * gr) >> 12;
         }
@@ -2150,7 +2339,41 @@ static __attribute__((noinline)) uint32_t mix_split(void)
             best = m;
         }
     }
+    if (song.g[G_TAPEMODE] == TAPE_SEND)              /* its one mono sum is core 0's (tape_send_in) */
+        for (i = 0; i < NPART; i++)
+            if (trk[i].p[P_TAPEMIX] > 0)
+                best &= ~(1u << i);
     return best;
+}
+
+/* after the buses: fold their wet in, then the TAPE's SEND/MASTER pass. The dry path of the two
+ * compensated modes takes TP_D, the head's rest delay, so the wet lines up; CHAIN is already in the
+ * owner track's list (fx.c track_insert) and keeps its own small head delay. */
+static __attribute__((noinline)) void tape_post(uint32_t n)
+{
+    uint32_t i;
+    int32_t m = song.g[G_TAPEMODE];
+    for (i = 0; i < n; i++) {
+        mix_l[i] += wet[i];
+        mix_r[i] += wet[i];
+        wet[i] = 0;
+    }
+    if (m == TAPE_SEND) {
+        tape_run(tape_send_in, tape_send_in, ins_dry_buf[0], ins_wet_buf[0], n);
+        tape_comp_delay(mix_l, mix_r, n);
+        for (i = 0; i < n; i++) {
+            mix_l[i] += ins_dry_buf[0][i];
+            mix_r[i] += ins_wet_buf[0][i];
+        }
+    } else if (m == TAPE_MASTER) {
+        int32_t a = clamp(song.g[G_TMIX], 0, 127);
+        tape_run(mix_l, mix_r, ins_dry_buf[1], ins_wet_buf[1], n);
+        tape_comp_delay(mix_l, mix_r, n);
+        for (i = 0; i < n; i++) {
+            mix_l[i] = (mix_l[i] * (127 - a) + ins_dry_buf[1][i] * a) / 127;
+            mix_r[i] = (mix_r[i] * (127 - a) + ins_wet_buf[1][i] * a) / 127;
+        }
+    }
 }
 
 static void mix_block(int32_t *out, uint32_t n)
@@ -2159,8 +2382,12 @@ static void mix_block(int32_t *out, uint32_t n)
     int perf;
     mod_bus_n = 0;
     int32_t mg = master_gain();                          /* (USB LEVEL FIXED: MASTER after usb_fixed_dac) */
-    for (i = 0; i < n; i++)
+    for (i = 0; i < n; i++) {
         send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
+        tape_send_in[i] = 0;
+    }
+    tape_begin((uint32_t)song.g[G_TAPEMODE]);
+    tape_pre();
     slicer_block();                                     /* shared SEND bus: one clock advance this block */
     ins_bus_block();                                    /* shared insert SEND DSP */
     pfx_block(n, (perf_kill ? 0u : (perf_held | perf_latched) & PF_MIDI));
@@ -2245,6 +2472,15 @@ static void mix_block(int32_t *out, uint32_t n)
     fx_buses(send_d, send_r, wet, n);
     if (rev_tank[0].hl.side || rev_tank[1].hl.side)
         rev_side_mix(mix_l, mix_r, n);                  /* HALL: stereo (either tank) */
+    if (song.g[G_TAPEMODE] == TAPE_MASTER) {
+        tape_post(n);
+    } else if (song.g[G_TAPEMODE] == TAPE_SEND) {
+        int any = 0;
+        for (i = 0; i < n && !any; i++)
+            any = tape_send_in[i] != 0;
+        if (any)
+            tape_post(n);                              /* no TAPE send: the old dry/wet path, untouched */
+    }
     if (clip_g)
         clip_block(n);
     if (scope_mix)

@@ -1223,23 +1223,25 @@ static void draw_columns(void)
         }
         return;
     }
-    if (cur_page()->graph == GR_IORD) {                 /* CHOOSE, ORDER, USE AS (CHAIN/SEND/USED), MIX */
+    if (cur_page()->graph == GR_IORD) {                 /* CHOOSE, ORDER, USE AS (CHAIN/SEND/MASTER/USED), MIX */
         uint8_t ord[FX_LIST_N];
         uint32_t id = ior_pct_id(), slot = ui.ior_sel < FX_LIST_N ? ui.ior_sel : 0u, st;
         const param_desc_t *d = track_desc(TSEL, id);
         const char *mode;
-        char pos[8];
+        char pos[8], tot[8];
         int used;
         fx_list_get(TSEL, ord);
         st = ord[slot];
         mode = fx_list_mode(TSEL, st);
-        used = mode[0] == 'U';
+        used = mode[0] == 'U' || str_eq(mode, "MASTER");
         fmt_int(pos, (int32_t)slot + 1);
+        str_cpy(tot, "/", sizeof tot);
+        fmt_int(tot + 1, (int32_t)FX_LIST_N);
         draw_column(0, "CHOOSE", N_ISTAGE[st], "", VAL(0u),
                     (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_AUTO);
-        draw_column(1, "ORDER", pos, "/9", VAL(1u), (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_ORDER);
-        draw_column(2, "USE AS", mode, "", used ? T_DIM : VAL(2u),
-                    mode[0] == 'S' ? 1000 : mode[0] == 'C' ? 0 : -1, ICON_NONE);
+        draw_column(1, "ORDER", pos, tot, VAL(1u), (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_ORDER);
+        draw_column(2, "USE AS", mode, "", used && mode[0] == 'U' ? T_DIM : VAL(2u),
+                    mode[0] == 'S' ? 1000 : mode[0] == 'C' ? 0 : str_eq(mode, "MASTER") ? 500 : -1, ICON_NONE);
         param_format(d, TSEL->p[id], val, &unit);
         card_mot_of(&TSEL->p[id]);
         draw_column(3, "MIX", val, unit, used ? T_DIM : VAL(3u), RATIO(d, TSEL->p[id]), param_icon(d, TSEL->p[id]));

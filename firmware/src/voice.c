@@ -253,8 +253,8 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
     return voice_reuse(t, &t->v[best == np ? 0 : best]);
 }
 
-/* glide: free ms (F_TIME on GLD). Always TIME-duration (same time for any interval). P_GLMODE stays in the
- * store (append-only) but is not shown and is not read here. */
+/* glide: free ms (F_TIME on GLD). Always TIME-duration (same time for any interval). The old GLMOD id
+ * (P_TAPEMIX now) stays in the store but is not read here. */
 static void glide_set(track_t *t, voice_t *v, int glide)
 {
     if (!glide || !v->pitch_cur) {

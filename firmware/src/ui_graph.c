@@ -452,12 +452,12 @@ static void graph_insert(const track_t *t, uint16_t c)
         py = y;
     }
 }
-/* EFFECTS: name | gray mix fader | SEND / CHAIN / USED. Nine rows (6 inserts + DLY + REV + SLCR).
+/* EFFECTS: name | gray mix fader | SEND / CHAIN / MASTER / USED. Ten rows (6 inserts + DLY + REV + SLCR + TAPE).
  * Fader spans the row between the name column and the mode label (full width of that gap).
  * Name column sized to the longest N_ISTAGE label (FLANGER); shorter names left-align. */
 static void ior_row(int32_t y, const char *name, const char *mode, int32_t amt, uint16_t col)
 {
-    int32_t nx = PANEL_X0 + 4, gap = 4, mw = text_w(&AF_S, "CHAIN");
+    int32_t nx = PANEL_X0 + 4, gap = 4, mw = text_w(&AF_S, "MASTER");
     int32_t bx = nx + text_w(&AF_S, "FLANGER") + gap;
     int32_t bw = (PANEL_X0 + PANEL_W - 4 - mw - gap) - bx;
     int32_t fw;
@@ -481,7 +481,8 @@ static void graph_iord(const track_t *t, uint16_t c)
         uint32_t st = ord[i];
         const char *mode = fx_list_mode(t, st);
         uint16_t col = i == ui.ior_sel ? c : mode[0] == 'U' ? T_DIM : T_MID;
-        ior_row(2 + (int32_t)i * 10, N_ISTAGE[st], mode, ins_mix_of(t, st), col);
+        int32_t amt = st == INS_TAPE && str_eq(mode, "MASTER") ? song.g[G_TMIX] : ins_mix_of(t, st);
+        ior_row(2 + (int32_t)i * 10, N_ISTAGE[st], mode, amt, col);
     }
 }
 /* SLICER page: the pattern's 16 steps, a 'x' step a full bar; a '.' step: GATE a bar as high as it stays
@@ -1187,10 +1188,16 @@ static uint32_t graph_signature(void)
         if (pt->p[P_SLCR] && ss)
             h ^= (ss->idx + 1u) * 2654435761u;
     }
-    if (pg->graph == GR_IORD)                        /* EFFECTS: slot, order (P_IORD + DLY/REV slots), mixes */
+    if (pg->graph == GR_IORD) {                      /* EFFECTS: slot, order, mixes, the TAPE route */
+        uint32_t k;
         h ^= (ui.ior_sel + 1u) * 40503u + ((uint32_t)iord_bits(t) + 1u) * 7919u +
              ((uint32_t)t->p[P_CHOR] + 1u) * 2246822519u +
-             ((uint32_t)t->p[P_DLY] + (uint32_t)t->p[P_REV] * 131u + 1u) * 16777619u;
+             ((uint32_t)t->p[P_DLY] + (uint32_t)t->p[P_REV] * 131u + 1u) * 16777619u +
+             ((uint32_t)song.g[G_TAPEMODE] + 1u) * 2654435761u +
+             ((uint32_t)t->p[P_TAPEMIX] + (uint32_t)song.g[G_TMIX] * 131u + 1u) * 374761393u;
+        for (k = 0; k < FX_LIST_N; k++)
+            h = h * 33u + fx_order_tbl[t - trk][k];
+    }
     if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
         for (i = 0; i < 4u; i++)
             h ^= (uint32_t)graph_project_used(i) << (20u + i);

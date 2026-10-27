@@ -1335,12 +1335,13 @@ static void dly_knob(uint32_t slot, int32_t steps)
     }
     ui.force = 1;
 }
-/* EFFECTS: K1 chooses the stage, K2 moves it, K3 is USE AS (CHAIN / SEND / USED), K4 is MIX */
+/* EFFECTS: K1 chooses the stage, K2 moves it, K3 is USE AS (CHAIN / SEND / MASTER / USED), K4 is MIX */
 static void ior_knob(uint32_t k, int32_t s)
 {
     int32_t n = s > 0 ? s : -s, dir = s > 0 ? 1 : -1;
     uint8_t ord[FX_LIST_N];
     uint32_t st;
+    const char *mode;
     if (n > 12)
         n = 12;
     fx_list_get(TSEL, ord);
@@ -1355,7 +1356,13 @@ static void ior_knob(uint32_t k, int32_t s)
         }
     } else if (k == 2u) {
         int send = s > 0;                              /* K3: left CHAIN, right SEND (as drawn), no wrap */
-        if (st == INS_SLCR) {
+        if (st == INS_TAPE) {                          /* TAPE: SEND -> CHAIN (this track) -> MASTER -> SEND */
+            int32_t m = song.g[G_TAPEMODE], cur;
+            int32_t tr = (int32_t)(TSEL - trk);
+            cur = m == TAPE_MASTER ? 2 : TAPE_OWNER_OF(m) == tr ? 1 : 0;
+            cur = (cur + (send ? 1 : 2)) % 3;
+            song.g[G_TAPEMODE] = (int16_t)(cur == 0 ? TAPE_SEND : cur == 1 ? TAPE_CH1 + tr : TAPE_MASTER);
+        } else if (st == INS_SLCR) {
             int32_t tr = (int32_t)(TSEL - trk);
             uint32_t bit = 1u << (uint32_t)tr;
             sl_own_sanitize();
@@ -1374,7 +1381,7 @@ static void ior_knob(uint32_t k, int32_t s)
                 bus_own_set(which, tr);
         } else if (send != ins_is_send(TSEL, st))
             ins_send_set(TSEL, st, send);
-    } else if (fx_list_mode(TSEL, st)[0] != 'U') {
+    } else if ((mode = fx_list_mode(TSEL, st))[0] != 'U' && !str_eq(mode, "MASTER")) {
         uint32_t id = ior_pct_id();
         const param_desc_t *d = track_desc(TSEL, id);
         int16_t *vp = &TSEL->p[id];
