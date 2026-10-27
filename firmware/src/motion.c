@@ -266,6 +266,7 @@ static int motion_put(track_t *t, uint32_t step, uint32_t id, int16_t value, uin
     const param_desc_t *d;
     if (k >= NTRK || step >= NSTEP || !motion_param(id) || !fx_target_available(t, id)) return 1;
     if (param_lock_only(id) && !(kind & MOTION_LOCK)) return 1;
+    if (param_lock_only(id) && kit_track(t)) return 1;   /* PITCH is inert on a kit track: no record */
     d = motion_target_desc(t, id);
     if (value < d->min || value > d->max || (id != MFX_TIME && (value < -64 || value > 127))) return 1;
     value = (int16_t)param_fit(d, value);                    /* (a retired KIT: the kit it plays) */
@@ -343,10 +344,10 @@ static int motion_capture(track_t *t, uint32_t id, int16_t value)
     motion_unguard(f);
     if (trn) {                                       /* no P_TRANS automation: the step's PITCH lock instead */
         const step_t *s = &seq_steps(t)[idx];
-        const engine_t *e = ENGINES[eng_idx(t->eng_req)];
-        uint32_t kit = e->keys && e->keys(t, 0) >= 0;
         int32_t off = value;                         /* MAP OFF / KBD: the exact semitones */
-        if ((qn_mode(t) == QN_SEQ || qn_mode(t) == QN_ALL) && !kit && s->n) {
+        if (kit_track(t))
+            return 0;                                /* PITCH is inert on a kit track: no lock */
+        if ((qn_mode(t) == QN_SEQ || qn_mode(t) == QN_ALL) && s->n) {
             /* the absolute fitted offset for this step's first note: C4 +1 in C major -> 0 ST (C4) */
             int32_t n0 = (int32_t)step_note(s, 0);
             off = scale_snap(t, n0 + value) - n0;
@@ -400,8 +401,10 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t step, con
         uint32_t id = MOTION_ID(e);
         if (e->place != (k << 6 | step) || ((e->param & MOTION_LOCK) && !play) || !fx_target_available(t, id)) continue;
         if (param_lock_only(id)) {                   /* never indexes p[]: an absolute per-step transpose */
-            t->plk_pit = (int16_t)clamp(e->value, -24, 24);
-            t->plk_fit = 1u;
+            if (!kit_track(t)) {                     /* a kit ignores PITCH; the record stays stored */
+                t->plk_pit = (int16_t)clamp(e->value, -24, 24);
+                t->plk_fit = 1u;
+            }
             continue;
         }
         const param_desc_t *d = motion_target_desc(t, id);
@@ -474,6 +477,7 @@ static int motion_move(track_t *t, uint32_t i, uint32_t step, uint32_t id, int16
     uint32_t f;
     if (i >= motion.count || (motion.event[i].place >> 6) != trk_index(t) || step >= NSTEP || !motion_param(id) || !fx_target_available(t, id))
         return 1;
+    if (param_lock_only(id) && kit_track(t)) return 1;   /* PITCH is inert on a kit track: no record */
     at = motion_find(t, step, id);
     if (at >= 0 && (uint32_t)at != i)
         return 1;

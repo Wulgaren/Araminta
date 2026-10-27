@@ -88,6 +88,9 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
   automation event; the TRN knob still moves (other steps without a lock follow it), and this step uses the
   fitted value. Editing that PITCH row changes its semitone value and it stays a lock (C4 +1 then plays C#4;
   off-scale is allowed). With REC off, TRN is the ordinary global transpose.
+- **Kits ignore PITCH.** On a DRUM or other key-mapped engine, SCL K4 and `MOTION` op 5 refuse to create a PITCH
+  lock (rc 1), and a stored kit PITCH lock is inert: note events and lane hits play as stored, as TRN already
+  does. Existing projects still load; the lock can be deleted.
 
 ### Editor
 
@@ -95,6 +98,9 @@ project format as 3.1 (FUN16 / `FUNG`). Splash and ABOUT show `v3.2`.
   since FUN16, 128 in 1.2) instead of rejecting anything but 64, uses `MOTION` op 8 for every record and its lock
   kind, and still works with 64-record firmware. A PITCH lock (id 127) now edits and deletes as a lock instead of
   being sent back as automation.
+- **`DUMP` and `SLOWN` agree with the rest of the protocol.** `DUMP` sends `P_IORD` as its 0..719 insert order,
+  like `GET` / `SET`, `TRACK_DUMP` and `CHANGED`; the SEND flags stay on the device. `G_SLOWN`'s descriptor is
+  0..15 (legacy 1..4 still accepted), so an editor cannot clamp a mask to 4.
 
 ### Memory
 

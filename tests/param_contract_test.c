@@ -99,6 +99,54 @@ static int pitch_contract(void)
     return bad;
 }
 
+/* PITCH is ignored on kit tracks: the same key map that skips TRN. No new records, capture or move; stored
+ * records still load (motion_valid is store-level) and the UI knob maps to no lock. */
+static int pitch_kit_contract(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    int16_t v;
+    motion_store_t m = {0};
+
+    ui_power_on();
+    song.sel = 0;
+    t = &trk[0];
+    set_engine_of(t, ENGI_DRUM);
+    bad += check("PITCH: DRUM is a kit track (the engine's own key map)", kit_track(t));
+    ok = motion_set_lock(t, 2, MSEQ_PITCH, 5) == 1 && !motion.count && !motion.on &&
+         !motion_lock_get(t, 2, MSEQ_PITCH, &v);
+    bad += check("  motion_set_lock refuses PITCH on a kit and writes nothing", ok);
+    song.rec = 1;
+    seq_start(); seq_tick(t, CTL);
+    t->p[P_TRANS] = 4;
+    ok = !motion_capture(t, P_TRANS, 4) && !motion.count && t->p[P_TRANS] == 4;
+    bad += check("  motion_capture of TRN on a kit writes no PITCH lock", ok);
+    song.rec = 0;
+    seq_stop();
+    motion_clear(t);
+    motion_set_lock(t, 1, P_REV, 50);
+    ok = motion.count == 1u && motion_move(t, 0, 1, MSEQ_PITCH, 5) == 1 &&
+         motion_find(t, 1, MSEQ_PITCH) < 0 && motion_find(t, 1, P_REV) >= 0;
+    bad += check("  motion_move cannot move a record onto PITCH on a kit", ok);
+    m.count = 1;
+    m.on = 1;
+    m.event[0] = (motion_event_t){2, (uint8_t)(MSEQ_PITCH | MOTION_LOCK), 5};
+    bad += check("  a stored PITCH lock on a kit still validates (loading)", motion_valid(&m));
+    ui_power_on();
+    song.sel = 0;
+    set_engine_of(TSEL, ENGI_DRUM);
+    go_title("SCL");
+    go_seq_step();
+    frame();
+    bad += check("SCL K4 on a kit track maps to no lock (0xFF)", lock_id(3) == 0xFFu);
+    ui_power_on();
+    go_title("SCL");
+    go_seq_step();
+    frame();
+    bad += check("  the same knob on a synth track maps to PITCH", lock_id(3) == MSEQ_PITCH);
+    return bad;
+}
+
 static int mfx_contract(void)
 {
     int bad = 0, ok;
@@ -239,7 +287,7 @@ int main(void)
 {
     int bad;
     ui_power_on();
-    bad = id_classification() + pitch_contract() + mfx_contract() + ev_contract() + pg_contract() +
+    bad = id_classification() + pitch_contract() + pitch_kit_contract() + mfx_contract() + ev_contract() + pg_contract() +
           sweep_contract() + motion_id_contract();
     printf("%s\n", bad ? "PARAM CONTRACT TEST FAILED" : "PITCH / special-id parameter contract tests passed");
     return bad;

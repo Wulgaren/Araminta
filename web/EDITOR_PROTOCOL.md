@@ -202,7 +202,7 @@ at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device 
 | 1 INFO | — | version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, then NENGINES engine-name strings, then (v3) NTRK (4), then (v6) CHAIN_ROWS (16), then the tagged blocks `55 01 uiCaps`, `4D 01 64 01`, `42 01 3`, `46 01 nfactory nbank`, `53 01 3`, (1.0.3) `50 01 3` and (1.0.4) `4E 01 count` (MENU settings; 12, 1.1: 15, 1.2: 17, 1.1.5: 18, 1.2: 23, 1.3: 24, 1.5: 25) and (1.0.5) `52 01 4` (ratchet) and (1.1) `4C 01 1` (parameter locks) and (1.2) `41 01 40 01` (192 motion records in this build; two 7-bit bytes, LSB first: `00 01` was 128 before; `4D 01 64 01` keeps saying 64) and `54 01 16` (a step's nudge, 1/16 of a step) and `57 01 4` (song sections: a slot per track, SONG ops 4..7) and (1.4.1) `56 01 32` (FM6's voice bank: cmds 74..77, SLOT 9..40) and (1.5) `43 01 16` (MIDI LEARN's map: cmds 78, 79) (below); older firmware ends earlier |
 | 2 GET | scope, id | scope, id, v14 |
 | 3 SET | scope, id, v14 | scope, id, v14 (the value after clamping). Setting global `G_ENGSEL` (id from DESC label "ENG") changes the engine: its defaults, then its first preset (as on the device) |
-| 4 DUMP | — | engine, preset, then P_COUNT × v14 (the selected track), then G_COUNT × v14 (globals) |
+| 4 DUMP | — | engine, preset, then P_COUNT × v14 (the selected track), then G_COUNT × v14 (globals). `P_IORD` is its 0..719 insert order; the SEND flags stay on the device, as in `GET` / `TRACK_DUMP` / `CHANGED` |
 | 5 DESC | scope, id | scope, id, fmt, min v14, max v14, def v14, label string, unit string, then for an enum (fmt 8) one name string per value (at most 24; firmware before the matrix: at most 16) |
 | 6 STEP_GET | index 0..NSTEP−1 | index, n (0..4 notes), note0..note3, time (0 NOTE, 1 TIE, 2 REST), flags (1 accent, 2 slide), vel, then (v5) hits (3 bytes, below), then (v7) chance 0..100, then (`52 01`) ratchet 1..4, then (`54 01`, 1.2) nudge + 8 (0..15: −8..+7 sixteenths of the step) |
 | 7 STEP_SET | index, n, note0..3, time, flags, vel [, hits (3 bytes, v5) [, chance 0..100 (v7) [, ratchet 1..4 [, nudge + 8, 0..15 (1.2)]]]] | same as STEP_GET (after the write). Without the hits the step keeps its own; without the chance, the ratchet or the nudge it keeps its own. The chance can only follow the hits, the ratchet the chance, the nudge the ratchet; a nudge byte above 15: no reply, nothing written |
@@ -602,8 +602,9 @@ when the track's engine is not the saved one).
   that holds it. Recording SCL TRN while armed and playing writes that PITCH lock from the scale-fitted result;
   no P_TRANS event is created (the TRN knob itself still moves; other steps without a lock follow it). The record
   is always a lock: editing it changes its semitone value and it stays a lock, so +1 ST plays C#4, off-scale if
-  needed. `MOTION` op 3 refuses id 127
-  (rc 1); op 5 writes the lock, op 4 deletes it, op 6 clears it, and op 8 lists it with kind 1.
+  needed. Kits (DRUM or an engine that maps keys) ignore PITCH: op 5 refuses id 127 on them (rc 1), and a
+  stored kit lock is inert. `MOTION` op 3 refuses id 127 (rc 1); op 5 writes the lock, op 4 deletes it, op 6
+  clears it, and op 8 lists it with kind 1.
   STRUM/STROKE use P_ALLOC (id 43) as one packed SWEEP value (0/1 OFF for legacy ROT/REUSE, then 2 + (rate-1)*3 + stroke,
   rate 1..7 = 1/8 .. 32T, stroke 0 DOWN / 1 UP / 2 ALT). An event is (track, step
   0..63, parameter id, value). While a track plays its motion, the step sets the value at the step and it
