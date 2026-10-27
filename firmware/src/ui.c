@@ -396,14 +396,14 @@ static uint32_t layer_btn(void);
 /* FM operator pages belong to DIGITAL; they never appear on other instruments (without FELUCCA_FM4: never).
  * LANES / LANES 2 and SOUND* (GR_DXSND) a DRUM track's; FILTER / FILTER DRIVE an ANALOG track's
  * (EDIT 2 is the other engines' second sound page; ANALOG uses FILTER + FILTER DRIVE instead); OPERATOR,
- * OP ENV an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM (PAN/MUTE on MIXER). */
+ * OP ENV an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM / DRUMS (PAN/MUTE on MIXER). */
 static int page_visible(uint32_t i)
 {
     int analog = ENGINES[TSEL->eng_req % NENGINES] == &ENG_ANALOG;
     int drum = TSEL->eng_req % NENGINES == ENGI_DRUM;
     int drums = TSEL->eng_req % NENGINES == ENGI_DRUMS;
     if (PAGES[i].graph == GR_GENERATION)
-        return drum;
+        return drum_track(TSEL);                      /* every drum kit: DRUM-X, DRUMS, CR78, USR drum kit */
     if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / SOUND 2 */
         return drum;
     if (PAGES[i].fam == FAM_EDIT && PAGES[i].sec == EDIT_SEC_VOX && (drum || drums))   /* Voice hidden on DRUM / DRUMS */

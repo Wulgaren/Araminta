@@ -613,7 +613,7 @@ static const page_t PAGES[] = {
     {"CLEAR", FAM_SAVE, SC_GLOBAL, GR_CLEAR, SAVE_SEC_CLEAR, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, 0, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, 0, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
-    /* SEQ: Step group → Generation (DRUM-X only) → Automation → Tools. SELECT walks each section. */
+    /* SEQ: Step group → Generation (drum kits) → Automation → Tools. SELECT walks each section. */
     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
     {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_STEP, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
     {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
