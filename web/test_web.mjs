@@ -39,6 +39,7 @@ const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP, crc32, WT, wtBuild, wtTableCycles, wtMedleyCycles, wtWav, wavFrameSize,
    UP, bank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, FM6, enumShown, F,
+   MOTION_PROTO, P_IORD,
    FM4, fromDigital, fromPerc, DRUM_KIT_E,
    MENU: typeof MENU === "undefined" ? null : MENU, MENU_TABS: typeof MENU_TABS === "undefined" ? null : MENU_TABS,
    readDeviceMenu: typeof readDeviceMenu === "undefined" ? null : readDeviceMenu,
@@ -49,14 +50,15 @@ const E = vm.runInNewContext(proto + `
 
 async function editorMock() {
   const m = E.makeMockDevice();
+  const mproto = m.state.protocol, T = m.tables;
   const inp = [...m.access.inputs.values()][0], out = [...m.access.outputs.values()][0];
   const link = new E.Link((d) => out.send(d), { timeout: 300 });
   inp.onmidimessage = (e) => link.receive(e.data);
   const rq = async (r, o) => link.request(r, o);
   const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
   ok(info.nengines === 15 && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "-" && info.engines[14] === "WAVETABLE"
- && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "GRAIN" && info.engines[9] === "PHYS" && info.engines[10] === "DRUM" && info.engines[11] === "NOISE" && info.pcount === 127 && info.pe0 === 119 && info.engines[4] === "SAMPLE"
- && info.motionMax === 192 && info.motionFull,
+ && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "GRAIN" && info.engines[9] === "PHYS" && info.engines[10] === "DRUM" && info.engines[11] === "NOISE" && info.pcount === T.P_COUNT && info.pe0 === T.P_E0 && info.engines[4] === "SAMPLE"
+ && info.motionMax === mproto.MOTION_MAX && info.motionFull,
     "editor: INFO");
   let descs = 0;
   for (let i = 0; i < info.pcount; i++) if (E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))).label) descs++;
@@ -264,6 +266,14 @@ async function editorMock() {
   ok(map.label === "MAP" && map.names.join() === "OFF,ALL,KBD,SEQ,CURR", "editor: MAP names exposed");
   const dump = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info);
   ok(dump.p.length === info.pcount && dump.g.length === info.gcount, "editor: DUMP");
+  {
+    /* P_IORD carries the insert chain order and, above bit 9, the SEND flags: DUMP gives the order only */
+    const saved = m.state.p[E.P_IORD];
+    m.state.p[E.P_IORD] = 24 | (1 << 10);
+    const od = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info);
+    m.state.p[E.P_IORD] = saved;
+    ok(od.p[E.P_IORD] === 24, "editor: DUMP gives P_IORD's order only (SEND flags stay on the device)");
+  }
   const set = E.parse[E.CMD.SET](await rq(E.req.set(0, 3, 500)));
   ok(set.value === 127, "editor: SET clamps to the range");
   {
@@ -335,6 +345,7 @@ async function editorMock() {
 async function editorSamplePresets() {
   const C = E.CMD;
   const { m, rq, done } = attachMock();
+  const mproto = m.state.protocol;                 /* FUN16: MOTION_MAX, the PITCH / FX ids (core.h via desc.json) */
   const info = E.parse[C.INFO](await rq(E.req.info()));
   const names = E.parse[C.NAMES](await rq(E.req.names(4)));
   await rq(E.req.preset(4, 0));
@@ -380,23 +391,48 @@ async function editorSamplePresets() {
     && eq(loaded.p.slice(0, info.pe0), sound.slice(0, info.pe0)) && eq(loaded.p.slice(info.pe0), E.DRUM_KIT_E)
     && JSON.stringify(m.state.step) === steps,
     "SAMPLE: old PERC project loads as DRUM's kit, the rest of the sound and the steps kept");
-  if (E.parseMotionAll) {   /* FUN16: 192 motion records; MOTION op 8 lists all, the other ops as before (max 64) */
+  if (E.parseMotionAll) {   /* FUN16: MOTION_MAX motion records; MOTION op 8 lists all, the other ops as before (max 64) */
     let rc = 0;
     for (let i = 0; i < 70; i++)
       rc |= E.parse[C.MOTION](await rq(E.req.motion(1, 3, { step: i % 64, param: i < 64 ? 36 : 35, value: i }))).rc;
     const legacy = E.parse[C.MOTION](await rq(E.req.motion(1)));
     const all = E.parseMotionAll(await rq(E.req.motion(1, 8)));
     const lfo = E.parse[C.MOTION](await rq(E.req.motion(1, 3, { step: 0, param: 91, value: 1 })));
-    ok(!rc && legacy.count === 64 && legacy.max === 64 && !legacy.full && all.count === 70 && all.max === 192 && all.full &&
+    ok(!rc && legacy.count === 64 && legacy.max === 64 && !legacy.full && all.count === 70 && all.max === mproto.MOTION_MAX && all.full &&
        all.events[69].value === 69 && all.events[69].param === 35 && !all.events[0].lock && lfo.rc === 1,
-       "editor: MOTION FUN16: 70 records on a track; the query as before (64 listed, max 64), op 8 all 70 (max 192); LFO 2 not recordable");
-    rc = E.parse[C.MOTION](await rq(E.req.motion(1, 5, { step: 5, param: 127, value: 3 }))).rc;
+       `editor: MOTION FUN16: 70 records on a track; the query as before (64 listed, max 64), op 8 all 70 (max ${mproto.MOTION_MAX}); LFO 2 not recordable`);
+    /* PITCH (MSEQ_PITCH) is lock-only: op 3 refuses it, op 5 locks it, op 7 lists its kind, op 6 clears it, op 4 deletes it.
+       (Start clean: the 70 records above fill op 7's first-64 reply, and PITCH would not be listed.) */
+    await rq(E.req.motion(1, 2));
+    const pitchAuto = E.parse[C.MOTION](await rq(E.req.motion(1, 3, { step: 5, param: mproto.MSEQ_PITCH, value: 3 })));
+    const pitchLock = E.parse[C.MOTION](await rq(E.req.motion(1, 5, { step: 5, param: mproto.MSEQ_PITCH, value: 3 })));
     const locked = E.parseMotionAll(await rq(E.req.motion(1, 8)));
-    const pitch = locked.events.find((e) => e.step === 5 && e.param === 127);
-    await rq(E.req.motion(1, 4, { step: 5, param: 127 }));
+    const pitch = locked.events.find((e) => e.step === 5 && e.param === mproto.MSEQ_PITCH);
+    const pitchList = E.parse[C.MOTION](await rq(E.req.motion(1, 7)));
+    const pitchKind = pitchList.events.find((e) => e.step === 5 && e.param === mproto.MSEQ_PITCH);
+    await rq(E.req.motion(1, 4, { step: 5, param: mproto.MSEQ_PITCH }));
     const gone = E.parseMotionAll(await rq(E.req.motion(1, 8)));
-    ok(!rc && pitch && pitch.lock && pitch.value === 3 && !gone.events.some((e) => e.step === 5 && e.param === 127),
-       "editor: a PITCH lock (id 127) comes back with its kind and edits/deletes without an automation conversion");
+    await rq(E.req.motion(1, 5, { step: 6, param: mproto.MSEQ_PITCH, value: -24 }));
+    await rq(E.req.motion(1, 6, { step: 6 }));
+    const cleared = E.parse[C.MOTION](await rq(E.req.motion(1, 7)));
+    ok(pitchAuto.rc === 1 && !pitchLock.rc && pitch && pitch.lock && pitch.value === 3 && pitchKind?.lock &&
+       !gone.events.some((e) => e.step === 5 && e.param === mproto.MSEQ_PITCH) &&
+       !cleared.events.some((e) => e.step === 6 && e.param === mproto.MSEQ_PITCH),
+       `editor: PITCH (id ${mproto.MSEQ_PITCH}) refuses automation (op 3), takes a lock (op 5), lists its kind (op 7), clears (op 6) and deletes (op 4)`);
+    /* an FX motion id (MFX_TIME) shares its number with matrix parameter SRC1: it is a motion target, not p[49] */
+    const p49 = E.parse[C.GET](await rq(E.req.get(0, mproto.MFX_TIME))).value;
+    const fxAuto = E.parse[C.MOTION](await rq(E.req.motion(1, 3, { step: 6, param: mproto.MFX_TIME, value: 700 })));
+    const fxLock = E.parse[C.MOTION](await rq(E.req.motion(1, 5, { step: 7, param: mproto.MFX_TIME, value: 900 })));
+    const fxAll = E.parseMotionAll(await rq(E.req.motion(1, 8)));
+    const fx = fxAll.events.find((e) => e.step === 7 && e.param === mproto.MFX_TIME);
+    const fxAutoEvent = fxAll.events.find((e) => e.step === 6 && e.param === mproto.MFX_TIME);
+    const matrix = E.parse[C.DESC](await rq(E.req.desc(0, mproto.MFX_TIME)));
+    const p49After = E.parse[C.GET](await rq(E.req.get(0, mproto.MFX_TIME))).value;
+    await rq(E.req.motion(1, 4, { step: 7, param: mproto.MFX_TIME }));
+    const fxGone = E.parseMotionAll(await rq(E.req.motion(1, 8)));
+    ok(!fxAuto.rc && !fxLock.rc && fx && fx.lock && fx.value === 900 && fxAutoEvent && !fxAutoEvent.lock && fxAutoEvent.value === 700 &&
+       matrix.label === "SRC1" && p49 === p49After && !fxGone.events.some((e) => e.step === 7 && e.param === mproto.MFX_TIME),
+       `editor: FX motion id ${mproto.MFX_TIME} (MFX_TIME) locks over op 5/8, automates over op 3, and is not matrix parameter ${mproto.MFX_TIME} (SRC1)`);
     await rq(E.req.motion(1, 2));
   }
   done();
@@ -420,10 +456,26 @@ function mockTables() {
   const fw = JSON.parse(readFileSync(dj, "utf8"));
   const m = E.makeMockDevice({ auto: false }), T = m.tables;
   m.stop();
+  /* the motion protocol constants (core.h) and the virtual ids they describe (fw.SPECIAL) */
+  const mproto = m.state.protocol || {};
+  const mbad = [];
+  for (const k of ["MOTION_MAX", "MOTION_FILE_MAX", "MSEQ_PITCH", "MFX_TIME", "MFX_DAMP", "MOTION_LOCK"])
+    if (mproto[k] !== fw[k]) mbad.push(`${k}: editor ${mproto[k]} != firmware ${fw[k]}`);
+  const special = Object.fromEntries((fw.SPECIAL || []).map((x) => [x.name, x]));
+  if (special.PITCH?.id !== fw.MSEQ_PITCH || special.PITCH?.scope !== "lock") mbad.push("SPECIAL: PITCH is not the lock-only id");
+  for (let id = fw.MFX_TIME; id <= fw.MFX_DAMP; id++) {
+    const e = (fw.SPECIAL || []).find((x) => x.id === id);
+    if (!e || e.kind !== "fx" || e.scope !== "motion") mbad.push(`SPECIAL: ${id} is not an FX motion target`);
+  }
+  mbad.slice(0, 10).forEach((d) => console.log("  " + d));
+  ok(!mbad.length, `editor: motion protocol constants == firmware (MOTION_MAX ${fw.MOTION_MAX}, FILE_MAX ${fw.MOTION_FILE_MAX}, PITCH ${fw.MSEQ_PITCH}, FX ${fw.MFX_TIME}..${fw.MFX_DAMP}, LOCK ${fw.MOTION_LOCK})`);
   const norm = (d) => ({ label: d.label, fmt: d.fmt, min: d.min, max: d.max, def: d.def, names: d.names || null, unit: d.unit || "" });
   const diffs = [];
   const cmp = (what, a, b) => { if (JSON.stringify(a) !== JSON.stringify(b)) diffs.push(`${what}: mock ${JSON.stringify(a)} != firmware ${JSON.stringify(b)}`); };
   for (const k of ["P_COUNT", "G_COUNT", "NSTEP", "P_E0", "G_ENGSEL", "P_SLCR", "NTRK"]) cmp(k, T[k], fw[k]);
+  cmp("P_IORD", E.P_IORD, fw.P_IORD);
+  const slown = T.GP.find((d) => d.label === "SLOWN");
+  ok(slown && slown.min === 0 && slown.max === 15, "editor: SLOWN 0..15 (0 = all SEND; 1..4 legacy owner)");
   cmp("TP length", T.TP.length, fw.TP.length);
   fw.TP.forEach((d, i) => cmp(`TP[${i}]`, T.TP[i] && norm(T.TP[i]), d));
   cmp("GP length", T.GP.length, fw.GP.length);
@@ -1462,18 +1514,20 @@ async function editorSong() {
 async function editorMotionRows() {
   const start = html.indexOf("function renderMotion()");
   const render = html.slice(start, html.indexOf('\n$("motion-on")', start));
+  const M = E.MOTION_PROTO;
   const nodes = new Map(), inputs = [], labels = [], requests = [];
   const pdesc = Array.from({length: 127}, () => ({label: "PARAM", min: 0, max: 127}));
-  pdesc[49] = {label: "SRC1", min: 0, max: 10};
-  pdesc[50] = {label: "DST1", min: 0, max: 48};
-  pdesc[51] = {label: "AMT1", min: -64, max: 63};
-  pdesc[52] = {label: "SRC2", min: 0, max: 10};
-  pdesc[53] = {label: "DST2", min: 0, max: 48};
+  pdesc[M.MFX_TIME] = {label: "SRC1", min: 0, max: 10};
+  pdesc[M.MFX_TIME + 1] = {label: "DST1", min: 0, max: 48};
+  pdesc[M.MFX_TIME + 2] = {label: "AMT1", min: -64, max: 63};
+  pdesc[M.MFX_TIME + 3] = {label: "SRC2", min: 0, max: 10};
+  pdesc[M.MFX_TIME + 4] = {label: "DST2", min: 0, max: 48};
   const motion = {track: 0, count: 5, max: 128, on: true, events:
-    [{step: 0, param: 49, value: 1550}, {step: 1, param: 50, value: 110}, {step: 2, param: 51, value: 100},
-     {step: 3, param: 52, value: 90}, {step: 4, param: 53, value: 80}]};
+    [{step: 0, param: M.MFX_TIME, value: 1550}, {step: 1, param: M.MFX_TIME + 1, value: 110}, {step: 2, param: M.MFX_TIME + 2, value: 100},
+     {step: 3, param: M.MFX_TIME + 3, value: 90}, {step: 4, param: M.MFX_TIME + 4, value: 80}]};
   const d = {pdesc, info: {motionMax: 128}, motion};
   const R = vm.runInNewContext(`${render}; renderMotion;`, {
+    ...M,
     dev: d, document: {activeElement: null},
     $: id => { if (!nodes.has(id)) nodes.set(id, {contains: () => false, replaceChildren: () => {}}); return nodes.get(id); },
     el: (tag, attrs = {}, ...children) => {
@@ -1493,26 +1547,26 @@ async function editorMotionRows() {
      inputs[0].min === 1 && inputs[0].max === 1486 && inputs[1].max === 120 && inputs[2].min === 0 && inputs[2].max === 127,
      "editor: FX motion rows use their own labels, ranges and exact TIME milliseconds");
   inputs[0].value = 1; await inputs[0].change();
-  ok(requests[0].value.param === 49 && requests[0].value.value === 65 && pdesc[49].label === "SRC1" && pdesc[49].max === 10,
+  ok(requests[0].value.param === M.MFX_TIME && requests[0].value.value === 65 && pdesc[M.MFX_TIME].label === "SRC1" && pdesc[M.MFX_TIME].max === 10,
      "editor: TIME edits encode milliseconds while ordinary matrix descriptors stay intact");
 }
 
 /* MOTION reads: the device's pool is 192 since FUN16, 128 in 1.2, 64 before; neither the reply parser nor a
    lock's kind may assume 64. */
 function editorMotionLimits() {
-  const M = E.CMD.MOTION;
-  const full = E.parse[M]([0, 0, 1, 1, 0, 192 & 0x7F, 192 >> 7, 5, 127, 3, 0, 1]);
-  ok(full.full && full.max === 192 && full.count === 1 && full.events[0].param === 127 && full.events[0].lock,
-     "editor: a 192-record reply parses; id 127 keeps its lock kind");
-  const packed = E.parse[M]([0, 0, 1, 1, 64, 5, 127 | 0x80, 3, 0]);
-  ok(packed.events[0].param === 127 && packed.events[0].lock,
+  const cmd = E.CMD.MOTION, P = E.MOTION_PROTO;
+  const full = E.parse[cmd]([0, 0, 1, 1, 0, P.MOTION_MAX & 0x7F, P.MOTION_MAX >> 7, 5, P.MSEQ_PITCH, 3, 0, 1]);
+  ok(full.full && full.max === P.MOTION_MAX && full.count === 1 && full.events[0].param === P.MSEQ_PITCH && full.events[0].lock,
+     `editor: a ${P.MOTION_MAX}-record reply parses; PITCH (id ${P.MSEQ_PITCH}) keeps its lock kind`);
+  const packed = E.parse[cmd]([0, 0, 1, 1, 64, 5, P.MSEQ_PITCH | P.MOTION_LOCK, 3, 0]);
+  ok(packed.events[0].param === P.MSEQ_PITCH && packed.events[0].lock,
      "editor: a firmware that packs MOTION_LOCK into the id is normalised");
-  const legacy = E.parse[M]([0, 0, 1, 1, 64, 5, 127, 3, 0]);
-  ok(!legacy.full && legacy.max === 64 && legacy.events[0].param === 127 && !legacy.events[0].lock,
+  const legacy = E.parse[cmd]([0, 0, 1, 1, 64, 5, P.MSEQ_PITCH, 3, 0]);
+  ok(!legacy.full && legacy.max === 64 && legacy.events[0].param === P.MSEQ_PITCH && !legacy.events[0].lock,
      "editor: older 64-record firmware still parses (no kind bytes)");
   const throws = (f) => { try { f(); return false; } catch { return true; } };
-  ok(throws(() => E.parse[M]([0, 0, 1, 1, 0])) && throws(() => E.parse[M]([0, 0, 1, 1, 64, 0])) &&
-     throws(() => E.parse[M]([0, 0, 1, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0])),
+  ok(throws(() => E.parse[cmd]([0, 0, 1, 1, 0])) && throws(() => E.parse[cmd]([0, 0, 1, 1, 64, 0])) &&
+     throws(() => E.parse[cmd]([0, 0, 1, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0])),
      "editor: an empty max, a short count-64 reply and count > max are refused");
 }
 

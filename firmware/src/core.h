@@ -448,6 +448,18 @@ static void step_set_fl(step_t *s, uint32_t fl) { s->flags = (uint8_t)(fl & (SF_
 enum { MFX_TIME = P_M1SRC, MFX_FB, MFX_COLOR, MFX_SIZE, MFX_DAMP };
 #define MFX_PARAM(id) ((id) >= MFX_TIME && (id) <= MFX_DAMP)
 #define MSEQ_PITCH 127u                  /* lock-only (3.2): a step's chromatic semitone offset; never indexes p[] */
+/* The id spaces around a track's p[] (which holds P_COUNT real parameters):
+ *   MSEQ_PITCH (127)      the step's chromatic PITCH: motion only, always stored with MOTION_LOCK
+ *   MFX_TIME..MFX_DAMP    aliases of P_M1SRC..: the shared delay / reverb controls as motion and UI targets; that
+ *                         meaning is reached through fx_target_ptr (song.g or a bus), not as t->p[] slots
+ *   EV_VEL..EV_RATCH      AUTOMATION's VEL / NUDGE / CHANCE / RATCH rows (ui_events.c, 0xFB..0xFE)
+ *   PG_STRUM / PG_STROKE  CHORD's sweep rate / stroke cards (params.c, 0xFC..0xFD). Those bytes are also EV_NUDGE /
+ *                         EV_CHANCE: a number is only read through the table of its own space.
+ * param_id_known: the id spaces a motion record or AUTOMATION row may name, a real P_* id or the lock-only
+ * PITCH. motion_param() still decides which real ones may be stored. The EV / PG numbers are UI rows. */
+static inline int param_real(uint32_t id) { return id < P_COUNT; }
+static inline int param_lock_only(uint32_t id) { return id == MSEQ_PITCH; }
+static inline int param_id_known(uint32_t id) { return param_real(id) || param_lock_only(id); }
 #define MOTION_ID(e) ((uint32_t)(e)->param & 0x7Fu)
 typedef struct { uint8_t place, param; int16_t value; } motion_event_t;
 typedef struct { uint8_t place, param, value; } motion_file_event_t;

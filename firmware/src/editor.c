@@ -538,8 +538,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             ed_w.v[i] = *ed_val(i);
         ed_b(ed_eng(TSEL));
         ed_b(TSEL->preset);
-        for (i = 0; i < P_COUNT; i++)
-            ed_v(motion_base_value(TSEL, i));
+        for (i = 0; i < P_COUNT; i++) {
+            int16_t v = motion_base_value(TSEL, i);
+            ed_v(i == P_IORD ? (int16_t)iord_perm_of((uint16_t)v) : v);   /* order only; send flags stay on the device */
+        }
         for (i = 0; i < G_COUNT; i++)
             ed_v(song.g[i]);
         break;
