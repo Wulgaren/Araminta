@@ -870,10 +870,7 @@ int main(int argc, char **argv)
         if (sscanf(getenv("TAPE"), "%d,%d,%d", &sp, &mo, &mx) == 3) {
             song.g[G_TSPEED] = (int16_t)sp;
             song.g[G_TAPEMODE] = (int16_t)mo;
-            if (mo == TAPE_MASTER)
-                song.g[G_TMIX] = (int16_t)mx;
-            else
-                inst.p[P_TAPEMIX] = (int16_t)mx;
+            song.g[G_TMIX] = (int16_t)mx;
         }
     }
     if (getenv("OCT"))                                   /* OCT=o: keyboard octave shift (key 7 = C4 + 12 o) */

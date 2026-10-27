@@ -1356,12 +1356,15 @@ static void ior_knob(uint32_t k, int32_t s)
         }
     } else if (k == 2u) {
         int send = s > 0;                              /* K3: left CHAIN, right SEND (as drawn), no wrap */
-        if (st == INS_TAPE) {                          /* TAPE: SEND -> CHAIN (this track) -> MASTER -> SEND */
+        if (st == INS_TAPE) {                          /* TAPE: CHAIN (this track) -> SEND -> MASTER; ends clamp */
             int32_t m = song.g[G_TAPEMODE], cur;
             int32_t tr = (int32_t)(TSEL - trk);
-            cur = m == TAPE_MASTER ? 2 : TAPE_OWNER_OF(m) == tr ? 1 : 0;
-            cur = (cur + (send ? 1 : 2)) % 3;
-            song.g[G_TAPEMODE] = (int16_t)(cur == 0 ? TAPE_SEND : cur == 1 ? TAPE_CH1 + tr : TAPE_MASTER);
+            cur = m == TAPE_MASTER ? 2 : TAPE_OWNER_OF(m) == tr ? 0 : 1;
+            if (send && cur < 2)
+                cur++;
+            else if (!send && cur > 0)
+                cur--;
+            song.g[G_TAPEMODE] = (int16_t)(cur == 0 ? TAPE_CH1 + tr : cur == 1 ? TAPE_SEND : TAPE_MASTER);
         } else if (st == INS_SLCR) {
             int32_t tr = (int32_t)(TSEL - trk);
             uint32_t bit = 1u << (uint32_t)tr;
@@ -1382,7 +1385,7 @@ static void ior_knob(uint32_t k, int32_t s)
         } else if (send != ins_is_send(TSEL, st))
             ins_send_set(TSEL, st, send);
     } else if ((mode = fx_list_mode(TSEL, st))[0] != 'U') {
-        int global = ior_mix_global();
+        int global = st == INS_TAPE;
         uint32_t id = ior_pct_id();
         const param_desc_t *d = global ? &GP[G_TMIX] : track_desc(TSEL, id);
         int16_t *vp = global ? &song.g[G_TMIX] : &TSEL->p[id];

@@ -191,7 +191,7 @@ static void test_tape(void)
     fresh();
     song.g[G_TAPEMODE] = TAPE_CH1;
     song.g[G_TSPEED] = 50;
-    trk[0].p[P_TAPEMIX] = 127;
+    song.g[G_TMIX] = 127;
     tape_note();
     chain = hash_out(64);
     zc_chain = zero_cross_blocks(64);
@@ -202,10 +202,30 @@ static void test_tape(void)
     fresh();
     song.g[G_TAPEMODE] = TAPE_SEND;
     song.g[G_TSPEED] = 50;
-    trk[0].p[P_TAPEMIX] = 127;
+    song.g[G_TMIX] = 127;
     tape_note();
     send = hash_out(64);
     ck("TAPE SEND 50 %: the wet copy changes the render", send != dry);
+
+    {   /* DROPOUT: 10..40 ms dips, 0.25..1 s apart: a long render must hear them */
+        uint64_t off, on;
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_MASTER;
+        song.g[G_TSPEED] = 100;
+        song.g[G_TMIX] = 127;
+        tape_note();
+        render_blocks(64);
+        off = hash_out(2048);
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_MASTER;
+        song.g[G_TSPEED] = 100;
+        song.g[G_TMIX] = 127;
+        song.g[G_TDROP] = 1;
+        tape_note();
+        render_blocks(64);
+        on = hash_out(2048);
+        ck("TAPE DROPOUT on: the long render carries the tape's dips", on != off);
+    }
 
     fresh();
     ck("TAPE mode labels: SEND / CHAIN / MASTER / USED",

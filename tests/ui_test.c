@@ -9131,23 +9131,29 @@ static int test_fx_sections(void)
         } else {
             ok = 0;
         }
-        /* TAPE: K3 cycles SEND -> CHAIN (this track) -> MASTER; others USED while a track owns CHAIN */
+        /* TAPE: K3 goes CHAIN (this track) -> SEND -> MASTER and clamps at both ends; others USED */
         if (tp_slot < FX_LIST_N) {
             ui.ior_sel = (uint8_t)tp_slot;
-            turn(EN_K3, 1);
-            ok &= song.g[G_TAPEMODE] == TAPE_CH1 && str_eq(fx_list_mode(TSEL, INS_TAPE), "CHAIN");
-            turn(EN_K3, 1);
+            turn(EN_K3, 1);                             /* SEND -> MASTER */
             ok &= song.g[G_TAPEMODE] == TAPE_MASTER && str_eq(fx_list_mode(TSEL, INS_TAPE), "MASTER");
             {   /* MASTER's K4 is the one global amount (G_TMIX); the track's P_TAPEMIX stays put */
                 int16_t gm = song.g[G_TMIX], pm = TSEL->p[P_TAPEMIX];
                 turn(EN_K4, 8);
                 ok &= song.g[G_TMIX] != gm && TSEL->p[P_TAPEMIX] == pm;
             }
-            turn(EN_K3, 1);
-            ok &= song.g[G_TAPEMODE] == TAPE_SEND && str_eq(fx_list_mode(TSEL, INS_TAPE), "SEND");
+            turn(EN_K3, 1);                             /* MASTER: right stays MASTER (no wrap) */
+            ok &= song.g[G_TAPEMODE] == TAPE_MASTER;
+            turn(EN_K3, -1);                            /* MASTER -> SEND */
+            ok &= song.g[G_TAPEMODE] == TAPE_SEND;
+            turn(EN_K3, -1);                            /* SEND -> CHAIN (track 0) */
+            ok &= song.g[G_TAPEMODE] == TAPE_CH1 && str_eq(fx_list_mode(TSEL, INS_TAPE), "CHAIN");
+            turn(EN_K3, -1);                            /* CHAIN: left stays CHAIN */
+            ok &= song.g[G_TAPEMODE] == TAPE_CH1;
+            turn(EN_K3, 1);                             /* CHAIN -> SEND */
+            ok &= song.g[G_TAPEMODE] == TAPE_SEND;
             song.sel = 1;
             ui.ior_sel = (uint8_t)tp_slot;
-            turn(EN_K3, 1);
+            turn(EN_K3, -1);                            /* SEND -> CHAIN (track 1) */
             ok &= song.g[G_TAPEMODE] == TAPE_CH2;
             song.sel = 0;
             ok &= str_eq(fx_list_mode(TSEL, INS_TAPE), "USED");

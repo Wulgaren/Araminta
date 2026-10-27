@@ -133,23 +133,49 @@ _Static_assert(CL_LEN >= SH_LEN, "CLOUD line holds SHIMR");
 #define TP_COMP (TP_D + TP_W / 4u)             /* 512: its rest, and the dry path's compensation */
 #define TP_FADE 128u                           /* head-wrap crossfade, samples (2.9 ms) */
 #define TP_MASK (TP_N - 1u)
-#define TP_SLEW 512                            /* Q16 speed a block (about 0.6 s for the whole range) */
+#define TP_SLEW 512                            /* Q16 speed a block (about 1.4 s for 25..400 %) */
 _Static_assert((TP_N & (TP_N - 1u)) == 0u && (TP_W & (TP_W - 1u)) == 0u &&
                (TP_COMP & (TP_COMP - 1u)) == 0u && TP_D + TP_W + TP_D < TP_N, "TAPE lines");
 static int16_t tp_buf[2][TP_N] __attribute__((section(".pool")));
 static int32_t tp_comp[2][TP_COMP] __attribute__((section(".pool")));
+/* SPEED percent 25..400 -> pitch in 1/16 semitones (192 * log2(percent / 100)). */
+static const int16_t TAPE_PITCH16[376] = {
+    -384, -373, -363, -353, -343, -333, -324, -316, -307, -299, -291, -283, -275, -268, -261, -254,
+    -247, -240, -234, -227, -221, -215, -209, -203, -198, -192, -187, -181, -176, -171, -166, -161,
+    -156, -151, -146, -141, -137, -132, -128, -124, -119, -115, -111, -107, -103, -99, -95, -91,
+    -87, -83, -80, -76, -72, -69, -65, -62, -58, -55, -52, -48, -45, -42, -39, -35,
+    -32, -29, -26, -23, -20, -17, -14, -11, -8, -6, -3, 0, 3, 5, 8, 11,
+    14, 16, 19, 21, 24, 26, 29, 31, 34, 36, 39, 41, 43, 46, 48, 51,
+    53, 55, 57, 60, 62, 64, 66, 68, 71, 73, 75, 77, 79, 81, 83, 85,
+    87, 89, 91, 93, 95, 97, 99, 101, 103, 105, 107, 109, 110, 112, 114, 116,
+    118, 120, 121, 123, 125, 127, 128, 130, 132, 134, 135, 137, 139, 140, 142, 144,
+    145, 147, 149, 150, 152, 153, 155, 157, 158, 160, 161, 163, 164, 166, 167, 169,
+    170, 172, 173, 175, 176, 178, 179, 181, 182, 184, 185, 186, 188, 189, 191, 192,
+    193, 195, 196, 197, 199, 200, 202, 203, 204, 206, 207, 208, 209, 211, 212, 213,
+    215, 216, 217, 218, 220, 221, 222, 223, 225, 226, 227, 228, 230, 231, 232, 233,
+    234, 235, 237, 238, 239, 240, 241, 243, 244, 245, 246, 247, 248, 249, 250, 252,
+    253, 254, 255, 256, 257, 258, 259, 260, 261, 263, 264, 265, 266, 267, 268, 269,
+    270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 280, 281, 282, 283, 284, 285,
+    286, 287, 288, 289, 290, 291, 292, 293, 294, 295, 296, 297, 298, 299, 300, 301,
+    302, 302, 303, 304, 305, 306, 307, 308, 309, 310, 311, 312, 313, 313, 314, 315,
+    316, 317, 318, 319, 320, 320, 321, 322, 323, 324, 325, 326, 326, 327, 328, 329,
+    330, 331, 332, 332, 333, 334, 335, 336, 337, 337, 338, 339, 340, 341, 341, 342,
+    343, 344, 345, 345, 346, 347, 348, 349, 349, 350, 351, 352, 352, 353, 354, 355,
+    356, 356, 357, 358, 359, 359, 360, 361, 362, 362, 363, 364, 365, 365, 366, 367,
+    368, 368, 369, 370, 371, 371, 372, 373, 373, 374, 375, 376, 376, 377, 378, 378,
+    379, 380, 381, 381, 382, 383, 383, 384,
+};
 static struct {
-    uint32_t w, ph, cw, wow_ph, fl_ph, rng, drop_wait, drop_len, drop_n;
-    int32_t speed_q16;
+    uint32_t w, ph, cw, wow_ph, fl_ph, rng, drop_wait, drop_len, drop_n, drop_step, eff_recip;
+    int32_t speed_q16, eff_q16, speed_pitch16, drop_amt;
     uint8_t mode;
 } tp __attribute__((section(".pool")));
-static int32_t tape_send_in[CTL] __attribute__((section(".pool")));   /* TAPE SEND's mono sum */
 static void tape_clear(void)
 {
     memset(tp_buf, 0, sizeof tp_buf);
     memset(tp_comp, 0, sizeof tp_comp);
     memset(&tp, 0, sizeof tp);
-    tp.speed_q16 = 65536;
+    tp.speed_q16 = tp.eff_q16 = 65536;
     tp.ph = (TP_W / 4u) << 16;                        /* rest head at TP_COMP (speed 100 is a clean pass) */
     tp.rng = 0x9E3779B9u;
 }
@@ -162,10 +188,37 @@ static void tape_begin(uint32_t mode)
 }
 static void tape_pre(void)
 {
-    int32_t target = clamp(song.g[G_TSPEED], 50, 200) * 65536 / 100;
+    int32_t depth = clamp(song.g[G_TMIX], 0, 127);
+    int32_t target = clamp(song.g[G_TSPEED], 25, 400);
+    int32_t eff_pct = 100 + (target - 100) * depth / 127;
+    int32_t eff, pct;
+    eff_pct = clamp(eff_pct, 25, 400);
+    eff = eff_pct * 65536 / 100;
     if (!tp.speed_q16)                                /* hosts that never ran fx_boot */
-        tp.speed_q16 = 65536;
-    tp.speed_q16 += clamp(target - tp.speed_q16, -TP_SLEW, TP_SLEW);
+        tp.speed_q16 = tp.eff_q16 = 65536;
+    tp.eff_q16 += clamp(eff - tp.eff_q16, -TP_SLEW, TP_SLEW);
+    tp.eff_recip = (1u << 31) / (uint32_t)(tp.eff_q16 >> 1);   /* 2^32 / eff, a 32-bit divide */
+    target = song.g[G_TAPEMODE] == TAPE_SEND ? target : 100;   /* the head is the send's pitch only */
+    tp.speed_q16 += clamp(target * 65536 / 100 - tp.speed_q16, -TP_SLEW, TP_SLEW);
+    pct = clamp((tp.eff_q16 * 100 + 32768) / 65536, 25, 400);
+    tp.speed_pitch16 = TAPE_PITCH16[pct - 25];
+}
+/* Source-clock varispeed: MASTER (all parts) or the CHAIN owner. SEND leaves the parts alone. */
+int32_t tape_pitch16_for(const struct track *t)
+{
+    int32_t m = song.g[G_TAPEMODE];
+    if (!song.g[G_TMIX] || song.g[G_TSPEED] == 100)
+        return 0;
+    if (m == TAPE_MASTER || TAPE_OWNER_OF(m) == (int32_t)(t - trk))
+        return tp.speed_pitch16;
+    return 0;
+}
+uint32_t tape_seq_speed_q16(const struct track *t)
+{
+    int32_t m = song.g[G_TAPEMODE];
+    if (song.g[G_TMIX] && m != TAPE_MASTER && TAPE_OWNER_OF(m) == (int32_t)(t - trk))
+        return tp.eff_recip;
+    return 65536u;
 }
 static inline int32_t tp_tap(const int16_t *b, int32_t d, uint32_t fr)
 {
@@ -179,7 +232,7 @@ static __attribute__((noinline)) void tape_run(const int32_t *il, const int32_t 
     uint32_t i, winc = LFO_INC[44] / CTL, finc = LFO_INC[91] / CTL;   /* 0.5 Hz wow, 6 Hz flutter */
     int32_t wowd = (int32_t)song.g[G_TWOW] * (int32_t)TP_D / 127;
     for (i = 0; i < n; i++) {
-        int32_t l = il[i], r = ir[i], dg = 32768, wa, wb, d0, d1, a, b, yl, yr;
+        int32_t l = il[i], r = ir[i], bend = 0, wa, wb, d0, d1, a, b, yl, yr;
         uint32_t fr = (tp.ph >> 8) & 255u, phh = tp.ph >> 16;
         int32_t wow = 0;
         tp_buf[0][tp.w] = (int16_t)clamp(l, -32768, 32767);
@@ -214,30 +267,34 @@ static __attribute__((noinline)) void tape_run(const int32_t *il, const int32_t 
         b = tp_tap(tp_buf[1], d1, fr);
         yr = (a * wa + b * wb) / (int32_t)TP_FADE;
         if (song.g[G_TDROP]) {
-            if (tp.drop_n) {
-                uint32_t age = tp.drop_len - tp.drop_n, e = age < tp.drop_n ? age : tp.drop_n;
-                if (e > 64u)
-                    e = 64u;
-                dg = 32768 - (int32_t)(e * 512u);
+            if (tp.drop_n) {                               /* short pitch fluctuation, not a level dip */
+                uint32_t age = tp.drop_len - tp.drop_n;
+                uint32_t ph = age * tp.drop_step;
+                bend = (tp.drop_amt * osc_sine(ph)) >> 15;
                 tp.drop_n--;
             } else if (tp.drop_wait) {
                 tp.drop_wait--;
             } else {
                 tp.rng = tp.rng * 1664525u + 1013904223u;
-                tp.drop_wait = 22050u + (tp.rng % 132300u);
-                if ((tp.rng & 7u) == 0u) {
+                tp.drop_wait = 22050u + (tp.rng % 44100u);     /* 0.5 .. 1.5 s */
+                if ((tp.rng & 3u) != 0u) {                     /* 3 in 4 waits */
                     tp.rng = tp.rng * 1664525u + 1013904223u;
-                    tp.drop_len = 220u + (tp.rng % 880u);
+                    tp.drop_len = 1323u + (tp.rng % 2205u);    /* 30 .. 80 ms */
+                    tp.drop_step = 0x80000000u / tp.drop_len;
+                    tp.rng = tp.rng * 1664525u + 1013904223u;
+                    tp.drop_amt = 4096 + (int32_t)(tp.rng % 8193u);   /* 1/16 .. 3/16 x speed */
+                    if (tp.rng & 1u)
+                        tp.drop_amt = -tp.drop_amt;
                     tp.drop_n = tp.drop_len;
                 }
             }
         } else {
             tp.drop_n = tp.drop_wait = 0;
         }
-        ol[i] = (yl * dg) >> 15;
-        orr[i] = (yr * dg) >> 15;
+        ol[i] = yl;
+        orr[i] = yr;
         tp.w = (tp.w + 1u) & TP_MASK;
-        tp.ph = (tp.ph + (65536u - (uint32_t)tp.speed_q16)) & ((TP_W << 16) - 1u);
+        tp.ph = (tp.ph + (65536u - (uint32_t)tp.speed_q16) + (uint32_t)bend) & ((TP_W << 16) - 1u);
     }
 }
 /* the dry path's fixed delay, so SEND/MASTER line up with the head's rest delay */
@@ -517,7 +574,7 @@ static int32_t ins_mix_of(const track_t *t, uint32_t st)
     if (st == INS_SLCR)
         return t->p[P_SLDEPTH];
     if (st == INS_TAPE)
-        return t->p[P_TAPEMIX];                       /* MASTER's global amount is the EFFECTS row's K4 */
+        return song.g[G_TMIX];                        /* one global amount, all routes and tracks */
     return st < INS_N ? t->p[MIX[st]] : 0;
 }
 /* mode string for EFFECTS: SEND, CHAIN, or USED (delay owned elsewhere; slicer never USED after sanitize).
@@ -553,8 +610,9 @@ static int ins_any(const track_t *t)
     for (s = 0; s < INS_N; s++)
         if (ins_mix_of(t, s))
             return 1;
-    /* TAPE in CHAIN is the one owner's in-line stage; SEND/MASTER run on their buses. */
-    if (song.g[G_TAPEMODE] == TAPE_CH1 + (int16_t)(t - trk) && t->p[P_TAPEMIX])
+    /* TAPE in CHAIN: its SPEED is source-clock; this list stage is only the WOW/DROP head. */
+    if (song.g[G_TAPEMODE] == TAPE_CH1 + (int16_t)(t - trk) && song.g[G_TMIX] &&
+        (song.g[G_TWOW] || song.g[G_TDROP]))
         return 1;
     return 0;
 }
@@ -669,7 +727,10 @@ static uint32_t midi_beat_samples;                    /* zero until an external 
 static uint32_t beat_samples(void)
 {
     uint32_t bpm = song.g[G_BPM] >= 40 ? (uint32_t)song.g[G_BPM] : 120u;   /* (BPM 0 for a moment, #282: no divide by 0) */
-    return song.g[G_CLOCK] && midi_beat_samples ? midi_beat_samples : (uint32_t)FS * 60u / bpm;
+    uint32_t b = song.g[G_CLOCK] && midi_beat_samples ? midi_beat_samples : (uint32_t)FS * 60u / bpm;
+    if (song.g[G_TAPEMODE] == TAPE_MASTER && song.g[G_TMIX] && tp.eff_recip)
+        b = (uint32_t)(((uint64_t)b * tp.eff_recip) >> 16);
+    return b;
 }
 static uint32_t div_samples(uint32_t div)
 {
@@ -1873,20 +1934,20 @@ static __attribute__((noinline)) void fx_bus_stage(track_t *t, uint32_t st, int3
     if (bus_knobs_on[pi])
         bus_g_put(t, g0, g1, mfx_keep, 1);
 }
-/* TAPE in the owner track's list: one head over the mono part, mixed by P_TAPEMIX. Kept out of
- * track_insert's loop (target_budget). */
+/* TAPE in the owner track's list: SPEED is source-clock (voice + seq); this head runs at 100 %
+ * for WOW / DROP over the already-slowed part. Kept out of track_insert's loop (target_budget). */
 static __attribute__((noinline)) void tape_chain(track_t *t, int32_t *b, uint32_t n,
                                                  int32_t *dry, int32_t *wet)
 {
-    int32_t amt = t->p[P_TAPEMIX];
     uint32_t i;
-    if (song.g[G_TAPEMODE] != TAPE_CH1 + (int16_t)(t - trk) || amt <= 0)
+    if (song.g[G_TAPEMODE] != TAPE_CH1 + (int16_t)(t - trk) || !song.g[G_TMIX] ||
+        (!song.g[G_TWOW] && !song.g[G_TDROP]))
         return;
     for (i = 0; i < n; i++)
         dry[i] = b[i];
     tape_run(dry, dry, wet, wet, n);
     for (i = 0; i < n; i++)
-        b[i] = pf_mix(b[i], wet[i], ins_mixq(amt));
+        b[i] = wet[i];
     t->ins_run = 1;
 }
 
@@ -2022,11 +2083,7 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     int32_t glm = (gla + glb) >> 1, grm = (gra + grb) >> 1, gld = (gla - glb) >> 1, grd = (gra - grb) >> 1;
     int32_t dl = bus_own(0) < 0 ? t->p[P_DLY] * 258 : 0;
     int32_t r = bus_own(1) == (int32_t)(t - trk) ? 0 : t->p[P_REV] * 258, pk = t->peak;
-    int32_t tp = song.g[G_TAPEMODE] == TAPE_SEND ? t->p[P_TAPEMIX] * 258 : 0;
-    int32_t xm = dl > r ? dl : r, xmax, lq = lvl << 8, dlv = 0;
-    if (tp > xm)
-        xm = tp;
-    xmax = 0x7FFFFFFF / (xm | 1);
+    int32_t xmax = 0x7FFFFFFF / ((dl > r ? dl : r) | 1), lq = lvl << 8, dlv = 0;
     if ((duck_g0 < 32767 || duck_g1 < 32767) && ENGINES[t->engine] != &ENG_DRUM)
         lq = duck_ramp(lvl, &dlv);
     for (i = 0; i < n; i++)
@@ -2048,8 +2105,6 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
             SM(d)[i] += mulq15(xs, dl);
         if (r)
             SM(rv)[i] += mulq15(xs, r);
-        if (tp)
-            tape_send_in[i] += mulq15(xs, tp);
         SM(l)[i] += ((x * glm) >> 12) + ((y * gld) >> 12);
         SM(r)[i] += ((x * grm) >> 12) + ((y * grd) >> 12);
     }
@@ -2122,9 +2177,6 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
             mc->dlyown != song.g[G_DLYOWN] || mc->revown != song.g[G_REVOWN])
             mix_cache_update(t, mc);
         int32_t lvl = mc->lvl, gl = mc->gl, gr = mc->gr, d = mc->d, r = mc->r, xmax = mc->xmax, pk = t->peak;
-        int32_t tp = song.g[G_TAPEMODE] == TAPE_SEND ? t->p[P_TAPEMIX] * 258 : 0;
-        if (tp && 0x7FFFFFFF / tp < xmax)
-            xmax = 0x7FFFFFFF / tp;
         if (ins_any(t) | t->ins_run || chain)
             track_insert(t, b, n);
         if (sl_send)
@@ -2143,8 +2195,6 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
                 SM(d)[i] += mulq15(xs, d);
             if (r)
                 SM(rv)[i] += mulq15(xs, r);
-            if (tp)
-                tape_send_in[i] += mulq15(xs, tp);
             SM(l)[i] += (x * gl) >> 12;
             SM(r)[i] += (x * gr) >> 12;
         }
@@ -2358,39 +2408,38 @@ static __attribute__((noinline)) uint32_t mix_split(void)
             best = m;
         }
     }
-    if (song.g[G_TAPEMODE] == TAPE_SEND)              /* its one mono sum is core 0's (tape_send_in) */
-        for (i = 0; i < NPART; i++)
-            if (trk[i].p[P_TAPEMIX] > 0)
-                best &= ~(1u << i);
     return best;
 }
 
-/* after the buses: fold their wet in, then the TAPE's SEND/MASTER pass. The dry path of the two
- * compensated modes takes TP_COMP, the head's rest delay, so the wet lines up; CHAIN is already in the
- * owner track's list (fx.c track_insert) and keeps its own small head delay. */
+/* after the buses: the TAPE's SEND (a whole-mix pitch send) or MASTER's WOW/DROP head. MASTER's
+ * SPEED is source-clock (voice pitch + beat_samples), so its head runs at 100 % and only colours the
+ * already-slowed mix. SEND keeps the dry at tempo and adds the head's wet by the one global amount. */
 static __attribute__((noinline)) void tape_post(uint32_t n)
 {
     uint32_t i;
-    int32_t m = song.g[G_TAPEMODE];
-    for (i = 0; i < n; i++) {
-        mix_l[i] += wet[i];
-        mix_r[i] += wet[i];
-        wet[i] = 0;
-    }
+    int32_t m = song.g[G_TAPEMODE], a = clamp(song.g[G_TMIX], 0, 127);
     if (m == TAPE_SEND) {
-        tape_run(tape_send_in, tape_send_in, ins_dry_buf[0], ins_wet_buf[0], n);
+        tape_run(mix_l, mix_r, ins_dry_buf[0], ins_wet_buf[0], n);
+        for (i = 0; i < n; i++) {
+            mix_l[i] += wet[i];
+            mix_r[i] += wet[i];
+            wet[i] = 0;
+        }
         tape_comp_delay(mix_l, mix_r, n);
         for (i = 0; i < n; i++) {
-            mix_l[i] += ins_dry_buf[0][i];
-            mix_r[i] += ins_wet_buf[0][i];
+            mix_l[i] += (ins_dry_buf[0][i] * a) / 127;
+            mix_r[i] += (ins_wet_buf[0][i] * a) / 127;
         }
     } else if (m == TAPE_MASTER) {
-        int32_t a = clamp(song.g[G_TMIX], 0, 127);
-        tape_run(mix_l, mix_r, ins_dry_buf[1], ins_wet_buf[1], n);
-        tape_comp_delay(mix_l, mix_r, n);
         for (i = 0; i < n; i++) {
-            mix_l[i] = (mix_l[i] * (127 - a) + ins_dry_buf[1][i] * a) / 127;
-            mix_r[i] = (mix_r[i] * (127 - a) + ins_wet_buf[1][i] * a) / 127;
+            mix_l[i] += wet[i];
+            mix_r[i] += wet[i];
+            wet[i] = 0;
+        }
+        tape_run(mix_l, mix_r, ins_dry_buf[1], ins_wet_buf[1], n);
+        for (i = 0; i < n; i++) {
+            mix_l[i] = ins_dry_buf[1][i];
+            mix_r[i] = ins_wet_buf[1][i];
         }
     }
 }
@@ -2401,10 +2450,8 @@ static void mix_block(int32_t *out, uint32_t n)
     int perf;
     mod_bus_n = 0;
     int32_t mg = master_gain();                          /* (USB LEVEL FIXED: MASTER after usb_fixed_dac) */
-    for (i = 0; i < n; i++) {
+    for (i = 0; i < n; i++)
         send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
-        tape_send_in[i] = 0;
-    }
     tape_begin((uint32_t)song.g[G_TAPEMODE]);
     tape_pre();
     slicer_block();                                     /* shared SEND bus: one clock advance this block */
@@ -2491,15 +2538,11 @@ static void mix_block(int32_t *out, uint32_t n)
     fx_buses(send_d, send_r, wet, n);
     if (rev_tank[0].hl.side || rev_tank[1].hl.side)
         rev_side_mix(mix_l, mix_r, n);                  /* HALL: stereo (either tank) */
-    if (song.g[G_TAPEMODE] == TAPE_MASTER) {
-        tape_post(n);
-    } else if (song.g[G_TAPEMODE] == TAPE_SEND) {
-        int any = 0;
-        for (i = 0; i < n && !any; i++)
-            any = tape_send_in[i] != 0;
-        if (any)
-            tape_post(n);                              /* no TAPE send: the old dry/wet path, untouched */
-    }
+    if (song.g[G_TAPEMODE] == TAPE_SEND && song.g[G_TMIX] > 0)
+        tape_post(n);                                  /* SEND at 0: the old dry/wet path, untouched */
+    else if (song.g[G_TAPEMODE] == TAPE_MASTER && song.g[G_TMIX] &&
+             (song.g[G_TWOW] || song.g[G_TDROP]))
+        tape_post(n);                                  /* WOW/DROP on the already slowed mix */
     if (clip_g)
         clip_block(n);
     if (scope_mix)

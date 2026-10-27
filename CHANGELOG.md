@@ -8,20 +8,25 @@ the send bus, or on the whole mix (MASTER). Same 3840-byte project object as 3.2
 
 ### FX
 
-- **TAPE.** SPEED (50..200 %, one head: pitch and tempo together), WOW (slow + flutter) and DROPOUT (random
-  short tape dropouts). USE AS on EFFECTS is CHAIN / SEND / MASTER: CHAIN puts the one machine in the owner
-  track's list, SEND sums the tracks' TAPE amounts into its bus, MASTER runs it on the whole stereo mix. MIX is
-  each track's amount in CHAIN/SEND and one global amount in MASTER (the EFFECTS row's K4). The TAPE page opens
-  from EFFECTS like DELAY / REVERB (SPEED WOW DROP); MIX stays on the EFFECTS list.
-- **The head.** A two-head crossfaded delay line at 44.1 kHz; SPEED slews like a motor (about 0.6 s for the
-  full range). Its rest delay and the dry path's compensation are 512 samples (11.6 ms). The head that wraps
-  has weight zero at the wrap (the other holds the sound, then the new one fades in over 2.9 ms): the old
-  full-window cosine put weight one on the wrapping head and clicked there. SEND and MASTER delay the dry by
-  the same amount, so their wet lines up and a static comb cannot form; CHAIN runs in the owner track and keeps
-  its own head delay. At 100 % with MIX 0 the list is bit-identical (the golden renders are unchanged).
+- **TAPE.** SPEED (25..400 %), WOW (slow + flutter) and DROPOUT (short pitch fluctuations, not level dips).
+  USE AS on EFFECTS is CHAIN / SEND / MASTER: MASTER and CHAIN slow the **source** (the transport and every
+  voice's pitch); SEND keeps the dry at tempo and adds the head's pitched copy. MIX is ONE global amount — the
+  same on every track and kept when switching CHAIN / SEND / MASTER (the EFFECTS row's K4). In MASTER/CHAIN it
+  is the TAPE depth (0 = normal, 127 = the full SPEED change); in SEND it is the send amount. The TAPE page
+  opens from EFFECTS like DELAY / REVERB (SPEED WOW DROP); MIX stays on the EFFECTS list.
+- **The source clock.** SPEED scales `beat_samples()` for MASTER and the owner track's sequencer for CHAIN,
+  plus a pitch offset in 1/16 semitones (a 376-entry log table, 192 * log2(pct / 100)) through the voice pitch.
+  This is a real slow: the notes and the beat stretch together, not just a pitch shift. Envelopes and the
+  reverb's decay stay in real time; the delay divisions and the click follow the transport. CHAIN leaves the
+  other tracks alone.
+- **The SEND head.** A two-head crossfaded delay line at 44.1 kHz for SEND's pitched wet, and at 100 % for
+  MASTER/CHAIN's WOW/DROP. Its rest delay and the SEND dry path's compensation are 512 samples (11.6 ms). The
+  head that wraps has weight zero at the wrap (the other holds the sound, then the new one fades in over
+  2.9 ms); the old full-window cosine put weight one on the wrapping head and clicked there. At 100 % with MIX 0
+  the list is bit-identical (the golden renders are unchanged).
 - **Storage.** The dead global ids `G_DMIX`, `G_MIDI`, `G_INFO`, `G_CLRSEQ`, `G_INITSND` are TAPE SPEED, WOW,
-  DROP, MASTER MIX and the route; `P_GLMODE` (never read) is the per-track TAPE MIX. No parameter or project
-  byte moved. The 8 KB + 4 KB head and compensation lines live in the POOL; RAM headroom stays above 4 KB.
+  DROP, the one MIX and the route; `P_TAPEMIX` (the old GLMOD id) is unused. No parameter or project byte
+  moved. The 8 KB + 4 KB head and compensation lines live in the POOL; RAM headroom stays above 4 KB.
 
 ### Projects
 

@@ -481,7 +481,7 @@ static void graph_iord(const track_t *t, uint16_t c)
         uint32_t st = ord[i];
         const char *mode = fx_list_mode(t, st);
         uint16_t col = i == ui.ior_sel ? c : mode[0] == 'U' ? T_DIM : T_MID;
-        int32_t amt = st == INS_TAPE && str_eq(mode, "MASTER") ? song.g[G_TMIX] : ins_mix_of(t, st);
+        int32_t amt = ins_mix_of(t, st);
         ior_row(2 + (int32_t)i * 10, N_ISTAGE[st], mode, amt, col);
     }
 }

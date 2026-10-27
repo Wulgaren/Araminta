@@ -518,8 +518,9 @@ grid lives in the steps themselves, so every engine has it:
   gone; BPM, SWG and CLK (ids 0..2) are HOME > CLOCK's, TUNE (id 3) and ROUT (id 14) are edited in the MENU (AUDIO >
   TUNE, MIDI > MIDI IN; also MENU settings 22 and 21, below). Their ids, ranges, names and storage (the project) are
   unchanged. `G_DMIX`, `G_MIDI`, `G_INFO`, `G_CLRSEQ` and `G_INITSND` (7, 12, 15, 22, 23) are TAPE SPEED, WOW,
-  DROP, MASTER MIX and the route in 3.3 (they were inert or on no page before): 0 SEND, 1..4 the CHAIN owner track,
-  5 MASTER. `P_TAPEMIX` is the old GLMOD id (0..127; it was never read). `G_SYNC` is still `G_DREL`.
+  DROP, the one MIX (shared by every route and track) and the route in 3.3 (they were inert or on no page before):
+  0 SEND, 1..4 the CHAIN owner track, 5 MASTER. `P_TAPEMIX` is the old GLMOD id (0..127); TAPE does not read it.
+  `G_SYNC` is still `G_DREL`.
 - **Sound loads and undo.** A load that changes a track's sound (`PRESET`, `SET` of `G_ENGSEL`, `UP_LOAD`,
   and the same on the device) changes the sound only: the engine and the parameters of the sound. It
   never changes the steps, nor the track's own parameters: `P_LEVEL`, `P_PAN`, `P_MUTE` (0, 39, 40), the
