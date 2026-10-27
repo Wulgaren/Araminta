@@ -1376,8 +1376,11 @@ static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, const track_t 
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
         if (!s->w && !tw) { b[i] = x; continue; }
         if (ft == IFT_COMB) {
-            /* CUT = delay across the line (0 longest); RES = feedback; out = x + g * delayed */
+            /* CUT = delay across the line (0 longest); RES = feedback; out = x + g * delayed.
+             * The analog COMB's soft knee (half scale), but 32000 not 16000: this runs after the
+             * voices are summed, so 16000 would compress a chord hard instead of just its peaks. */
             y = comb_process(s->comb, IC_LEN, &s->wp, x, clen, res);
+            y = soft_knee(y >> 1, 32000) << 1;
         } else {
             int32_t v3 = (x >> 1) - s->ic2;
             int32_t v1 = (flt.a1 * s->ic1 + flt.a2 * v3) >> 13;
