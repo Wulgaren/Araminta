@@ -1032,7 +1032,20 @@ static int fx_target_send(const track_t *t, uint32_t id)
  * onto the loaded time. */
 #define DLY_K_NUM 151u                                 /* the pole per sample: 151 / 2^20 = 1.4400e-4 */
 static uint32_t dly_q8;
-static uint8_t dly_free;
+static uint8_t dly_free;                               /* the tap has snapped (first block / mode / division) */
+static uint8_t dly_rate;                               /* the read tap's mode: 0 the division, 1 free ms */
+static int16_t dly_rate_div;                           /* the G_DTIME the RATE tap last snapped to */
+/* A tempo / tape speed change must not bend the echo's feedback: hold the RATE tap until the target
+ * settles, then fade out, move it and fade back in. A splice on the block edge was the crackle; a
+ * pitch-bent tap in the loop was the phasy grain. */
+#define DLY_SETTLE 4u                                  /* blocks the target must hold (about 3 ms) */
+#define DLY_FADE 256u                                  /* the fade out and in, samples (5.8 ms each) */
+#define DLY_GAIN_STEP (32768 / (int32_t)DLY_FADE)
+static int32_t dly_gain = 32768;                       /* Q15, the fade's gain */
+static uint8_t dly_fade_dir;                           /* 0 idle, 1 out to the snap, 2 back in */
+static uint32_t dly_snap_tgt;                          /* the target the fade-out lands on */
+static uint32_t dly_tgt_last;                          /* the last RATE target, for the settle count */
+static uint8_t dly_hold;                               /* blocks the RATE target has held */
 
 /* Active tank's globals: tank 0 uses CHAIN params while someone owns CHAIN; else SEND. Tank 1 is always SEND. */
 static int rev_use_chain_g(void) { return R == &rev_tank[0] && bus_own(1) >= 0; }
@@ -1478,18 +1491,38 @@ static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet
 {
     uint32_t i, dl = delay_samples();
     int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
-    int free_ms = dtime_free();
-    uint32_t tgt = 0;
-    if (!free_ms) {
-        dly_q8 = 0;
-        dly_free = 0;
-    } else {
-        tgt = dtime_q8();
-        if (!dly_free) {
-            dly_q8 = tgt;
-            dly_free = 1;                          /* the first block after RATE: snap onto the time */
+    int free_ms = dtime_free(), mode = free_ms ? 1 : 0;
+    uint32_t tgt = free_ms ? dtime_q8() : (dl << 8);
+    int snap = !dly_free || mode != dly_rate || (!free_ms && song.g[G_DTIME] != dly_rate_div);
+    /* Snap on the first block, a mode change or a division change. A tempo / tape speed change holds the
+     * tap until the target settles, then fades out, moves and fades back in: the echo keeps its pitch,
+     * so the feedback loop does not turn into a cluster of detuned copies. */
+    if (snap) {
+        dly_q8 = tgt;
+        dly_free = 1;
+        dly_gain = 32768;
+        dly_fade_dir = 0;
+        dly_hold = 0;
+        dly_tgt_last = tgt;
+    } else if (!free_ms) {
+        if (tgt != dly_tgt_last) {
+            dly_tgt_last = tgt;
+            dly_hold = 0;
+            if (dly_fade_dir == 1)
+                dly_snap_tgt = tgt;                     /* fade out onto the latest target */
+        } else if (dly_hold < DLY_SETTLE) {
+            dly_hold++;
         }
+        if (!dly_fade_dir && dly_hold >= DLY_SETTLE && dly_q8 != tgt) {
+            dly_snap_tgt = tgt;
+            dly_fade_dir = 1;
+        }
+    } else {
+        dly_gain = 32768;                               /* free-ms: the one-pole glide, no fade */
+        dly_fade_dir = 0;
     }
+    dly_rate = (uint8_t)mode;
+    dly_rate_div = song.g[G_DTIME];
     if (pf.ew1 && fb < THR_FB)
         fb += mulq16(THR_FB - fb, (uint32_t)pf.ew1 << 1);
     for (i = 0; i < n; i++) {
@@ -1497,12 +1530,12 @@ static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet
         if (free_ms) {
             int32_t err = (int32_t)tgt - (int32_t)dly_q8;
             int32_t st = (((err < 0 ? -err : err) >> 4) * (int32_t)DLY_K_NUM) >> 16;   /* the pole: * 1.44e-4 */
+            uint32_t ri;
+            int32_t fr, c0, c1;
             if (err < 0)
                 st = -st;
             if (!st && err)
                 st = err > 0 ? 1 : -1;                 /* the last 27 samples creep: an exact landing */
-            uint32_t ri;
-            int32_t fr, c0, c1;
             dly_q8 = (uint32_t)((int32_t)dly_q8 + st);
             ri = dly_q8 >> 8;
             fr = (int32_t)(dly_q8 & 255u);
@@ -1510,7 +1543,28 @@ static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet
             c1 = dly_buf[(fx.dly_w - ri - 1u) & (DLY_LEN - 1u)];
             x = c0 + (((c1 - c0) * fr) >> 8);
         } else {
-            x = dly_buf[(fx.dly_w - dl) & (DLY_LEN - 1u)];
+            uint32_t ri;
+            int32_t fr, c0, c1;
+            if (dly_fade_dir == 1u) {
+                dly_gain -= DLY_GAIN_STEP;
+                if (dly_gain <= 0) {
+                    dly_gain = 0;
+                    dly_q8 = dly_snap_tgt;
+                    dly_fade_dir = 2;
+                }
+            } else if (dly_fade_dir == 2u) {
+                dly_gain += DLY_GAIN_STEP;
+                if (dly_gain >= 32768) {
+                    dly_gain = 32768;
+                    dly_fade_dir = 0;
+                }
+            }
+            ri = dly_q8 >> 8;
+            fr = (int32_t)(dly_q8 & 255u);
+            c0 = dly_buf[(fx.dly_w - ri) & (DLY_LEN - 1u)];
+            c1 = dly_buf[(fx.dly_w - ri - 1u) & (DLY_LEN - 1u)];
+            x = c0 + (((c1 - c0) * fr) >> 8);
+            x = (x * dly_gain) >> 15;
         }
         fx.dly_lp += mulq15(x - fx.dly_lp, col);
         dly_buf[fx.dly_w & (DLY_LEN - 1u)] =
