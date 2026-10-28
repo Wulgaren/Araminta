@@ -96,12 +96,13 @@ static void tape_ring(int32_t cx, int32_t cy, int32_t r, uint16_t c)
 static void tape_reel(int32_t cx, int32_t cy, int32_t r, uint32_t ang, int compact)
 {
     int32_t k, hub = r * 22 / 100, r0 = hub + 2, r1 = r * 84 / 100;
+    uint32_t turn = ang << 16;                       /* ang is a 16-bit turn, sine_i a 32-bit phase */
     tape_ring(cx, cy, r, T_TEXT);
     if (!compact)
         tape_ring(cx, cy, r - 1, T_TEXT);
     tape_ring(cx, cy, r * 44 / 100, T_MID);          /* the spool's inner ring */
     for (k = 0; k < 3; k++) {                        /* three spokes: the turn reads at a glance */
-        uint32_t a = ang + (uint32_t)k * 0x55555555u;
+        uint32_t a = turn + (uint32_t)k * 0x55555555u;
         int32_t sa = sine_i(a), ca = sine_i(a + 0x40000000u);
         cv_line(cx + ((ca * r0) >> 15), cy - ((sa * r0) >> 15),
                 cx + ((ca * r1) >> 15), cy - ((sa * r1) >> 15), T_TEXT);
@@ -137,7 +138,7 @@ static void graph_tape(void)
     }
     ang = (int32_t)ph;
     if (wow)                                          /* WOW rocks the reel angle too */
-        ang += (sine_i(wob) * wow / 127) * 4000 / 32768;
+        ang += (sine_i(wob << 16) * wow / 127) * 4000 / 32768;
     if (drop) {                                       /* DROPOUT: a short sag in the ribbon, now and then */
         uint32_t rnd = ((ui.frame / 10u) * 2654435761u) >> 16;
         if ((rnd & 255u) < (uint32_t)drop)
@@ -150,7 +151,7 @@ static void graph_tape(void)
     for (x = gx0; x <= gx1; x++) {                    /* the ribbon: WOW waves it, DROPOUT sags it */
         int32_t y = base;
         if (amp)
-            y += (sine_i((uint32_t)x * 0x04400000u + wob * 3u) * amp) >> 15;
+            y += (sine_i((uint32_t)x * 0x04400000u + ((wob * 3u) << 16)) * amp) >> 15;
         if (bend >= 0) {
             int32_t d = x - bend;
             if (d < 0)

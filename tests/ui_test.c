@@ -8682,6 +8682,13 @@ static int test_live_graph_rate(void)
     go_title("TAPE");
     ok = cur_page()->id[0] == G_TSPEED && live_panel_each_frame();
     bad += check("TAPE transport (stopped): the reels idle, graph_sig moves every frame", ok);
+    {   /* the pixels move too: the spokes advance with the UI frame */
+        static uint16_t a[240 * 240];
+        frame();
+        memcpy(a, host_screen, sizeof a);
+        frame();
+        bad += check("TAPE transport: the reels move between frames", memcmp(a, host_screen, sizeof a) != 0);
+    }
     return bad;
 }
 
