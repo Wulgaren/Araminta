@@ -69,9 +69,9 @@ static void graph_lfo(const track_t *t, uint16_t c)
     }
 }
 
-/* TAPE page, after the OP-1's tape transport: two large reels, a ribbon and guides, a centre head. The
- * reels turn at the SPEED rate (slowly while stopped, faster on playback); WOW rocks them and the ribbon,
- * DROPOUT sags the ribbon. Theme tokens only: the line art T_TEXT / T_MID, the moving parts THEME / ACCENT. */
+/* TAPE page, after the OP-1's tape transport: two large reels, a ribbon and its guides. The reels turn at
+ * the SPEED rate (slowly while stopped, faster on playback); WOW rocks them and the ribbon, DROPOUT sags
+ * the ribbon. Theme tokens only: the line art T_TEXT / T_MID, the moving parts THEME / ACCENT. */
 static void tape_ring(int32_t cx, int32_t cy, int32_t r, uint16_t c)
 {
     int32_t x = r, y = 0, err = 1 - r;
@@ -125,9 +125,10 @@ static void graph_tape(void)
 {
     static uint32_t ph, wob, fr = 0xFFFFFFFFu;
     int compact = cv_h != H_GRAPH;
-    int32_t r = compact ? 18 : 36, cy = compact ? 24 : 50;
+    int32_t r = compact ? 18 : 36, oy = compact ? 2 : -6;
+    int32_t cy = (compact ? 24 : 50) + oy;
     int32_t lcx = compact ? 82 : 68, rcx = compact ? 158 : 172;
-    int32_t base = compact ? 48 : 98, gx0 = compact ? 104 : 96, gx1 = compact ? 136 : 144;
+    int32_t base = (compact ? 48 : 98) + oy, gx0 = compact ? 104 : 96, gx1 = compact ? 136 : 144;
     int32_t speed = clamp(song.g[G_TSPEED], 25, 400), wow = clamp(song.g[G_TWOW], 0, 127);
     int32_t drop = song.g[G_TDROP] ? 80 : 0, amp = (wow * 3 + 63) / 127;
     int32_t x, bend = -1, ang;
@@ -163,13 +164,6 @@ static void graph_tape(void)
     }
     tape_guide(gx0, base, compact ? 3 : 4);
     tape_guide(gx1, base, compact ? 3 : 4);
-    {   /* the head, and its capstan */
-        int32_t hw = compact ? 9 : 13, hh = compact ? 8 : 11, tail = compact ? 7 : 9;
-        cv_frame(120 - hw / 2, base - hh / 2, hw, hh, T_TEXT);
-        cv_rect(120 - 1, base - 2, 3, 5, T_THEME);
-        cv_rect(120, base + hh / 2, 1, tail, T_MID);
-        cv_rect(119, base + hh / 2 + tail, 3, 1, T_MID);
-    }
 }
 
 /* step bar x of step i of a 16-step row: 4 groups, as the footer (9 px bars, 13 px apart, 4 px between groups),
