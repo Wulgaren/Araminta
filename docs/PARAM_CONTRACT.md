@@ -1,7 +1,7 @@
 # Parameter, ID and lock contract
 
 > **Read this first.** This is the current source of truth for Araminta's parameter IDs, special IDs,
-> aliases and PITCH locks. It describes the code that ships with 3.2 (FUN16). `web/EDITOR_PROTOCOL.md` and
+> aliases and PITCH locks. It describes the code that ships with 3.2 (FUN19). `web/EDITOR_PROTOCOL.md` and
 > `CHANGELOG.md` are cumulative: their sections are labelled by the version that introduced them, and an
 > older section can describe an earlier design. When either disagrees with this file, the code wins and this
 > file is the one to update.
@@ -14,7 +14,7 @@ indexed only by real P_* ids; every other space is either a separate storage are
 | Space | Members and values | Indexes `p[]`? | Persisted where | Carried by the wire? | Shown in the UI |
 | --- | --- | --- | --- | --- | --- |
 | Real per-track parameters | `P_*`, ids 0..126; `P_COUNT` is 127; `P_E0..P_E7` are the last eight, 119..126 | yes, `t->p[id]` | projects (`np = P_COUNT`, by-count migration) and user presets | yes: `SET` / `GET` / `TRACK_PARAM` id 0..126, `DESC` / `DUMP` | sound pages, EDIT 1/2, AUTOMATION when `motion_param()` allows it |
-| Global parameters | `G_*`, ids 0..30; `G_COUNT` is 31 | no, `song.g[id]` | project `g[]`; some are device settings | yes: `SET` / `GET` with parameter index 1 | GLO / MENU pages |
+| Global parameters | `G_*`, ids 0..31; `G_COUNT` is 32 | no, `song.g[id]` | project `g[]`; some are device settings | yes: `SET` / `GET` with parameter index 1 | GLO / MENU pages |
 | Lock-only PITCH | `MSEQ_PITCH` 127 (`== P_COUNT`) | **never** | project motion block only, id 127 with bit 7 set; not in user presets | `MOTION` ops; project motion record | AUTOMATION `PITCH` row; SCL K4 |
 | Motion-only FX targets | `MFX_TIME..MFX_DAMP`, ids 49..53; numerically `P_M1SRC..P_M2DST`; `MFX_TSPEED` / `MFX_TWOW` are ids 41 / 42 (`P_TAPEMIX` / `P_LSMOOTH`) | **never as a target**: `fx_target_ptr()` reaches `song.g` or a bus | project motion records; long DLY TIME takes ids 54..59 on disk; TAPE SPEED packs 25..400 into one byte | `MOTION` ops; project motion record | AUTOMATION FX rows; EFFECTS / DEST lists |
 | UI-only step rows | `EV_VEL` 251, `EV_NUDGE` 252, `EV_CHANCE` 253, `EV_RATCH` 254; 0xFF = none | no | the step's own `chance` / `ratchet` / `nudge` / `vel` fields | **never** | AUTOMATION rows |
@@ -124,6 +124,20 @@ events stay. AUTOMATION's DELETE (`EDIT`) removes the row's record; PLAY OFF byp
 - UI: `fx_list_mode()` shows the owner's stage as MASTER; K3 sets / clears it; other tracks cannot take over.
   Files: `fx.c` (`fx_master_run`, `fx_list_mode`, `ior_knob`), `project.c` (`proj_pack` / `proj_unpack`),
   `tests/ui_test.c`, `tests/inschain_test.c`, `tests/project_test.c`.
+
+### FUN19 TAPE TEMPO
+
+- `G_TTEMPO` (global id 31, label `TEMPO`, OFF / ON, default **ON**) is the TAPE page's K4. It changes how SPEED
+  reaches the sound; it is not a motion target or a per-track parameter.
+- ON: the source clock varispeeds, as before. MASTER slows every voice and `beat_samples()`; CHAIN slows the
+  owner's voice and sequencer; SEND is already the head-only route.
+- OFF: SPEED moves only the rotating head's pitch. Voices, `beat_samples()` and sequencer division stay at the
+  song tempo. CHAIN and MASTER mix the head in by `G_TMIX` (a wet amount, like SEND) instead of replacing the
+  dry; the dry path keeps time through the head's `TP_COMP` when the head runs. At SPEED 100 with no WOW / DROP
+  the head is bypassed, so the route is the dry path.
+- Persistence: FUN19 writes it in header byte 67 bit 7 (bit 0 still marks the CHAIN tank bytes). FUN18 and older
+  load it ON. `project.c` (`proj_pack` / `proj_unpack`), `core.h`, `params.c`, `fx.c`, `tests/inschain_test.c`,
+  `tests/project_test.c`, `web/editor.html`.
 
 ### EV_*: AUTOMATION's own step rows
 

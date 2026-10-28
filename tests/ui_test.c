@@ -9244,7 +9244,7 @@ static int test_fx_sections(void)
         for (i = 0; i < NPAGES; i++)
             if (str_eq(PAGES[i].title, "TAPE"))
                 ok &= PAGES[i].id[0] == G_TSPEED && PAGES[i].id[1] == G_TWOW &&
-                      PAGES[i].id[2] == G_TDROP && PAGES[i].id[3] == 0xFFu;   /* MIX stays on EFFECTS */
+                      PAGES[i].id[2] == G_TDROP && PAGES[i].id[3] == G_TTEMPO;   /* MIX stays on EFFECTS */
         /* SLICER: K3 toggles this track SEND/CHAIN; other tracks keep their own mode (no USED) */
         if (sl_slot < FX_LIST_N) {
             int16_t mix0;
