@@ -433,10 +433,13 @@ static void test_math(void)
     check("insert knobs restored after the block",
           t->p[P_ED_FX] == 0 && t->p[P_IDMIX] == 40 && t->p[P_IFCUT] == 64 && t->p[P_IFMIX] == 40 &&
           t->p[P_ICBITS] == 64 && t->p[P_ICMIX] == 40 && t->p[P_ILMIX] == 40 && t->p[P_IHDEP] == 64);
-    check("DST names: TONE / DMIX / HDEP; CHO is CHOR MIX; DLY/REV amounts stay",
+    check("DST names: TONE / DMIX / HDEP; CHO is CHOR MIX; DLY/REV amounts stay; TAPE SPEED/WOW",
           str_eq(mod_dst_name(t, MD_TONE), "TONE") && str_eq(mod_dst_name(t, MD_DMIX), "DMIX") &&
           str_eq(mod_dst_name(t, MD_HDEP), "HDEP") && mod_param(MD_CHO) == P_IHMIX &&
-          mod_param(MD_DLY) == P_DLY && mod_param(MD_REV) == P_REV && MD_TONE == 26 && MD_N == 49);
+          mod_param(MD_DLY) == P_DLY && mod_param(MD_REV) == P_REV && MD_TONE == 26 &&
+          mod_param(MD_TSPEED) == MFX_TSPEED && mod_param(MD_TWOW) == MFX_TWOW &&
+          str_eq(mod_dst_name(t, MD_TSPEED), "TSPEED") && str_eq(mod_dst_name(t, MD_TWOW), "TWOW") &&
+          MD_TSPEED == 49 && MD_TWOW == 50 && MD_N == 51);
 
     /* DIST on SEND lives in fx_bus_trk; LFO must move the bus, not track p[] */
     fresh(0, 0);
