@@ -237,7 +237,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_CRDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
     [G_SLOWN] = PD("SLOWN", F_INT, 0, 15, 0),   /* 0 and 5..15 are the current mask (0 = all SEND); 1..4 remain
                                                  * accepted legacy owner values */
-    [G_TTEMPO] = PE("TEMPO", N_ONOFF, 1),       /* TAPE: ON = SPEED slows the source clock, OFF = pitch only */
+    [G_TTEMPO] = PE("TEMPO", N_ONOFF, 1),       /* TAPE: ON = transport keeps time, OFF = SPEED slows the source clock */
 };
 
 static const param_desc_t INS_BITS = {"BITS", F_INT, 0, 127, 64, N_IBITS, 0};

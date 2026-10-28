@@ -133,7 +133,7 @@
  * order hold its MASTER ordering track plus one; zero retains the legacy first-owner ordering.
  * Format 19 ("FUNJ", written now; FUN19 in the docs) = FUN18 with the TAPE's TEMPO switch in header byte 67 bit 7
  * (bit 0 still marks the CHAIN tank bytes). Older firmware refuses a FUN19 (magic); FUN18 and older load with
- * TEMPO ON, which is how they behaved.
+ * TEMPO ON. The stored bit keeps its value across this meaning swap, and ON now means the transport keeps time.
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */

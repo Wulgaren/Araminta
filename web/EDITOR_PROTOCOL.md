@@ -185,7 +185,7 @@ CHORD, then DRONE: values 7..15, appended; REPEAT id 6 is kept for loads but the
 an editor that knows only 7 names shows the value by `DESC`'s name) and the
 global `G_CLOCK` (id 2, label "CLK") 3 (INT, USB, TRS). `G_MIDI` (id 12) is TAPE WOW in 3.2 (it was an enum of
 USB / TRS that nothing read); `G_TSPEED` (7), `G_TDROP` (15), `G_TMIX` (22), `G_TAPEMODE` (23) and `G_TTEMPO` (31,
-OFF / ON, default ON) are the other TAPE fields (see "Projects").
+OFF / ON, default ON; ON keeps time, OFF varispeeds the source) are the other TAPE fields (see "Projects").
 Since 1.5.1 the delay's `G_DTIME` (global id 4, label "TIME") has 13 names: P_SDIV's ten at the same values, then
 1/8D, 1/16D, 1/4D (values 10..12, dotted: 3/4, 3/8, 3/2 of a quarter); `DESC` sends all 13, max 12. P_SDIV, P_ARATE
 and the LFO's SYNC keep their lists. The device's knob steps TIME by length, longest first (4BAR 2BAR 1/1 1/2 1/4D
@@ -679,7 +679,8 @@ when the track's engine is not the saved one).
   patch bytes, after the six generation controls; original readers mask those bits, so the patch itself is unchanged.
   FUN18 adds each stage's MASTER owner as a 3-bit field: stages 0..7 in the chain header's spare bytes 1..3, stages
   8..9 in the motion header's spare byte 3. FUN19 adds TAPE TEMPO (`G_TTEMPO`) in header byte 67 bit 7; bit 0 of
-  that byte still marks the CHAIN tank bytes. FUN18 and older load with TEMPO ON. FUN17 and older have no MASTER
+  that byte still marks the CHAIN tank bytes. FUN18 and older load with TEMPO ON (keep time); older FUN19 saves keep
+  their bit, so their ON now means keep-time too. FUN17 and older have no MASTER
   owners; FUN16 and older rebuild the order from `P_IORD` / `P_CHOR` / the SLCR slot and use other TAPE defaults. Only
   FUN19 is written. Firmware that only knows FUN16/17/18 refuses a FUN19 (magic): its slot shows EMPTY until saved
   over, so keep a backup before the first save.

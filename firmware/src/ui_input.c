@@ -90,6 +90,8 @@ static int mom_turn(uint32_t k, int32_t s)
     if (!d || !vp || d->max == d->min ||
         !((vp >= t->p && vp < t->p + P_COUNT) || (g <= G_CDEPTH && g != G_CLOCK) || g == G_RTYPE))
         return 0;                                      /* (only the values a sound and the FX are: no CLK, no actions) */
+    if (vp == &song.g[G_TTEMPO] && song.g[G_TAPEMODE] == TAPE_SEND)
+        return 1;                                      /* SEND keeps time: TEMPO is fixed ON */
     if (arp_drone_frozen(TSEL, vp))
         return 0;
     for (i = 0; i < mom.n && mom.vp[i] != vp; i++)
@@ -1274,6 +1276,8 @@ static void edit_param(uint32_t slot, int32_t steps)
     d = page_desc(pg, slot, &vp);
     if (!d || !vp || d->max == d->min)
         return;
+    if (vp == &song.g[G_TTEMPO] && song.g[G_TAPEMODE] == TAPE_SEND)
+        return;                                        /* SEND keeps time: TEMPO is fixed ON */
     if (pg->graph != GR_MOD)
         pk_close();
     if (arp_drone_frozen(TSEL, vp))
@@ -2204,7 +2208,8 @@ static void ui_input(void)
     }
     for (k = 0; k < 4u && !kq; k++) {
         const page_t *pg = cur_page();
-        int16_t *hv;
+        int16_t *hv = 0;
+        int dim = page_desc(pg, k, &hv) && hv == &song.g[G_TTEMPO] && song.g[G_TAPEMODE] == TAPE_SEND;
         uint64_t held;
         if ((s = panel_enc(EN_K1 + k)) == 0)
             continue;
@@ -2216,15 +2221,15 @@ static void ui_input(void)
             ui.hot_t = 40;
             continue;
         }
-        if (mom_down() && mom_turn(k, s)) {             /* MOMENTARY: LFO held (no automation, no undo) */
+        if (!dim && mom_down() && mom_turn(k, s)) {     /* MOMENTARY: LFO held (no automation, no undo) */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;
             continue;
         }
-        if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
+        if (!dim && (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
             ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
             || pg->graph == GR_SONG || pg->graph == GR_IORD || pg->graph == GR_DXSND || pg->graph == GR_GENERATION ||
-            (dly_page(pg) && k == 3u) || fop_page(pg->graph)) {   /* (not an empty column; DLY K4 is RATE / TIME) */
+            (dly_page(pg) && k == 3u) || fop_page(pg->graph))) {   /* (not an empty column; DLY K4 is RATE / TIME) */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;
         }
