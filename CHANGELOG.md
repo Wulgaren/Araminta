@@ -30,7 +30,7 @@ FUN16 and older load with TAPE off and the EFFECTS order rebuilt. Splash and ABO
   (a wet amount, like SEND) and at SPEED 100 with no WOW / DROPOUT the head is bypassed. OFF is the source-clock
   varispeed: CHAIN / MASTER move the transport and voices with SPEED. SEND always keeps time, so its TEMPO card is
   dimmed and fixed ON. Saves in FUN19; FUN18 and older load ON, and older FUN19 saves keep their bit (ON now means
-  keep-time). The TAPE page draws a cassette whose reels spin with SPEED, wobble with WOW and drop out with DROPOUT.
+  keep-time).
 - **TAPE SPEED / WOW in LFO MOD and step locks.** Both are MOD destinations (`TSPEED` / `TWOW` after the
   existing DLY / REV targets) and lock targets from the TAPE page (KNOB 1 / 2 on a held SEQ step). As with
   other shared sends, CHAIN allows only the owner track and MASTER allows every track; SEND is claimed by the
