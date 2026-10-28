@@ -8157,6 +8157,11 @@ static int test_fm6_ops(void)
     TSEL->p[P_SLDEPTH] = 0;                     /* the SLICER's MIX too: the SEND bus gates every track's
                                                  * render on its free-running clock, so a round-trip below
                                                  * would compare two different slicer phases */
+    memset(dly_buf, 0, sizeof dly_buf);         /* the delay tail of an earlier test is not this sound: the
+                                                 * RATE tap holds, then fades after a tempo change, so it
+                                                 * must be cleared for s0 and s1 to compare the same tap */
+    dly_q8 = 0;
+    dly_free = 0;
     TSEL->p[P_LD_PIT] = TSEL->p[P_LD_FLT] = TSEL->p[P_LD_SHP] = TSEL->p[P_LD_AMP] = 0;
     TSEL->p[P_M1SRC] = TSEL->p[P_M2SRC] = TSEL->p[P_M3SRC] = TSEL->p[P_M4SRC] = 0;
     for (f = 0; f < 7u; f++) TSEL->p[P_E0 + f] = 0;

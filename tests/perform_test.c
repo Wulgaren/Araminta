@@ -36,7 +36,8 @@
  * 12. 1.5.1: the delay's TIME 1/8D 1/16D 1/4D (their lengths at 60 61 90 120 BPM and on the external clock, 1/4D clamped
  *    to the line at 60 BPM and below, the list append-only and longest first on the knob, ARP RATE / SEQ DIV unchanged, an
  *    echo at 1/8D where it belongs, free ms: the FM-1's one-pole roll (1.4391e-4 a sample to the target, tau 157 ms): a
- *    fast turn rides at the turn's own speed, an instant jump sweeps its chirp and lands, up and down alike); REV THROW / ECHO THROW: every track's reverb / delay send as at 127 while held, the
+ *    fast turn rides at the turn's own speed, an instant jump sweeps its chirp and lands, up and down alike), a
+ *    tempo / tape speed change fades the RATE tap to its new time (no splice, no pitch bend); REV THROW / ECHO THROW: every track's reverb / delay send as at 127 while held, the
  *    other bus untouched, the glide (11.6 ms, bounded steps) in and out, ECHO THROW's feedback 0 -> 0.7 and one above
  *    left alone, bounded on full-scale squares and dying away, the reverb tail ringing out after the release, idle
  *    again after it, on PUNCH-IN 2/2 (the map's 8th / 9th key), the tracks' values never touched.
@@ -1542,6 +1543,66 @@ static int test_dly_move(void)
     return bad;
 }
 
+/* The RATE delay's read tap follows the transport: MASTER / TEMPO OFF scales beat_samples with the tape
+ * speed, so the target moves every block. It must fade to the new tap: a jump on the block edge is a hard
+ * splice in the echo (the crackle), and a gliding tap pitch-bends the feedback into a phasy grain. */
+static int test_dly_rate(void)
+{
+    static int32_t in[4u * FS], out[4u * FS];
+    char what[200];
+    uint32_t t, k, base = 2u * FS, seg = 192u * CTL, max2 = 0, ref2 = 0, held;
+    double w = 2.0 * 3.141592653589793 * 100.0 / (double)FS;
+    int bad = 0, ok, hold_ok = 1;
+
+    for (t = 0; t < 4u * FS; t++)
+        in[t] = (int32_t)(18000.0 * sin(w * (double)t));
+    host_tracks_init();
+    song.g[G_CLOCK] = 0;
+    song.g[G_BPM] = 120;
+    song.g[G_TAPEMODE] = TAPE_MASTER;
+    song.g[G_TMIX] = 127;
+    song.g[G_TTEMPO] = 0;
+    song.g[G_DTIME] = 1;                               /* 1/8 at 120: 11025 samples */
+    song.g[G_DFDBK] = 0;
+    song.g[G_DCOLOR] = 0;
+    dly_clear();
+    tp.eff_recip = 65536u;
+    dly_run(in, out, base);                            /* fill the line at 100 % */
+    held = dly_q8;
+    for (k = 0; k < 64u; k++) {                        /* 100 -> 50 % in the tape slew's 64 blocks */
+        tp.eff_recip = 65536u + 65536u * k / 63u;
+        dly_run(in + base + k * CTL, out + base + k * CTL, CTL);
+        if (k && dly_q8 != held)                       /* the moving target must not drag the tap: that
+                                                        * is the Doppler that grains the feedback */
+            hold_ok = 0;
+    }
+    tp.eff_recip = 131072u;
+    dly_run(in + base + 64u * CTL, out + base + 64u * CTL, seg - 64u * CTL);
+    for (t = base + 2u; t < base + seg; t++) {
+        int32_t d = out[t] - 2 * out[t - 1] + out[t - 2];
+        if (d < 0)
+            d = -d;
+        if ((uint32_t)d > max2)
+            max2 = (uint32_t)d;
+    }
+    dly_clear();                                       /* the same input with the rate held at 50 % */
+    tp.eff_recip = 131072u;
+    dly_run(in, out, base + seg);
+    for (t = base + 2u; t < base + seg; t++) {
+        int32_t d = out[t] - 2 * out[t - 1] + out[t - 2];
+        if (d < 0)
+            d = -d;
+        if ((uint32_t)d > ref2)
+            ref2 = (uint32_t)d;
+    }
+    ok = hold_ok && dly_q8 == ((uint32_t)delay_samples() << 8);   /* held, then faded onto the new time */
+    snprintf(what, sizeof what,
+             "RATE delay: a 100 -> 50 %% tape speed change fades the read tap; worst 2nd step %u (held 50 %%: %u)",
+             max2, ref2);
+    bad += check(what, max2 < 2000u && ref2 < 500u && ok);
+    return bad;
+}
+
 /* -------------------------------------------------------------- 8. cost --- */
 static uint64_t instr_now(void)
 {
@@ -2015,6 +2076,7 @@ int main(int argc, char **argv)
     bad += test_map();
     bad += test_throw();
     bad += test_dly_move();
+    bad += test_dly_rate();
     bad += test_pfx_restore();
     bad += test_x2();
     bad += test_glitch();
