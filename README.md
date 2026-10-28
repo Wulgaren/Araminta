@@ -60,8 +60,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **TAPE.** The EFFECTS list gains a tenth row: SPEED, WOW, DROPOUT and TEMPO, with CHAIN / SEND / MASTER routing.
   TEMPO ON (the default) keeps the transport, voices and sequencer in time, so SPEED is a pitch-only control and
   CHAIN / MASTER mix the head in by MIX like SEND. TEMPO OFF makes CHAIN and MASTER slow the source clock, so notes
-  and beat stretch together. SEND always adds a pitched copy and shows TEMPO fixed ON. The TAPE page draws a cassette
-  whose reels spin with SPEED while the transport plays, wobble with WOW and drop out with DROPOUT.
+  and beat stretch together. SEND always adds a pitched copy and shows TEMPO fixed ON.
 - **DRUMS.** Felucca's synthesized drum engine returns as engine 15, with the STD, 80, 10, 66, 55, 77, DEEP,
   TIGHT and PERC kits. DRUM-X stays engine 10; existing sounds and projects keep playing it.
 - **Punch filter.** The punch-in LPF / HPF and KNOB 1 FILTER share an MS-20-inspired 2-pole voice; insert FILTER

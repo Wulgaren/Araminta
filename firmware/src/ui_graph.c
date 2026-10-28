@@ -69,87 +69,6 @@ static void graph_lfo(const track_t *t, uint16_t c)
     }
 }
 
-/* TAPE page: a little cassette in the panel (or in MENU > LARGE's strip). The two reels turn while the
- * transport plays, faster / slower with SPEED; WOW bends the reel angle and the ribbon, DROPOUT breaks the
- * ribbon now and then. Theme tokens only, and no PREF_ANIM_OFF: the page asks for this one animation. */
-static void tape_ring(int32_t cx, int32_t cy, int32_t r, uint16_t c)
-{
-    int32_t k;
-    for (k = 0; k < 128; k++) {                       /* 128 points round the rim */
-        uint32_t a = (uint32_t)k << 25;
-        cv_rect(cx + ((sine_i(a + 0x40000000u) * r) >> 15), cy - ((sine_i(a) * r) >> 15), 1, 1, c);
-    }
-}
-static void tape_reel(int32_t cx, int32_t cy, int32_t r, uint32_t ang)
-{
-    int32_t k, hs = r > 8 ? 7 : 5;
-    tape_ring(cx, cy, r, T_RAISE);
-    tape_ring(cx, cy, r - 1, T_RAISE);
-    for (k = 0; k < 3; k++) {                         /* three spokes: the turn reads at a glance */
-        uint32_t a = ang + (uint32_t)k * 0x55555555u;
-        cv_line(cx, cy, cx + ((sine_i(a + 0x40000000u) * (r - 3)) >> 15),
-                cy - ((sine_i(a) * (r - 3)) >> 15), T_MID);
-    }
-    cv_rrect(cx - hs / 2, cy - hs / 2, hs, hs, hs / 2, T_THEME, T_BG);
-}
-static void graph_tape(void)
-{
-    static uint32_t ph, wob, fr = 0xFFFFFFFFu;
-    int32_t h = cv_h == H_GRAPH ? 92 : 52;            /* the shell: the panel, or the LARGE strip */
-    int32_t w = h * 2, x0 = (240 - w) / 2, y0 = ((int32_t)cv_h - (int32_t)cv_oy - h) / 2;
-    int32_t r = h / 7, cy = y0 + h * 43 / 100;
-    int32_t lcx = x0 + w * 28 / 100, rcx = x0 + w * 72 / 100;
-    int32_t wx = x0 + h / 8, wy = y0 + h / 8, ww = w - h / 4, wh = h * 55 / 100;
-    int32_t base = y0 + h - h / 9;                    /* the ribbon's run under the reels */
-    int32_t gx0 = x0 + h / 3, gx1 = x0 + w - h / 3;
-    int32_t speed = clamp(song.g[G_TSPEED], 25, 400), wow = clamp(song.g[G_TWOW], 0, 127);
-    int32_t drop = song.g[G_TDROP] ? 80 : 0, x, gap = -1, amp = (wow * 3 + 63) / 127;
-    uint32_t ang = ph;
-    if (fr != ui.frame) {                             /* once a UI frame: the reels only turn on playback */
-        fr = ui.frame;
-        if (song.playing) {
-            ph += (uint32_t)(1092 * speed / 100);
-            wob += 2600u;
-        }
-    }
-    if (wow)                                          /* WOW rocks the reel angle too */
-        ang += (uint32_t)((sine_i(wob) * wow / 127) * 4000 / 32768);
-    if (drop) {                                       /* DROPOUT: a short break in the ribbon, now and then */
-        uint32_t rnd = ((ui.frame / 10u) * 2654435761u) >> 16;
-        if ((rnd & 255u) < (uint32_t)drop)
-            gap = gx0 + 8 + (int32_t)((rnd >> 8) % (uint32_t)(gx1 - gx0 - 20));
-    }
-    cv_rrect(x0, y0, w, h, 6, T_RAISE, T_SURF);       /* the shell */
-    cv_rect(x0 + 5, y0 + 5, 2, 2, T_MID);             /* screws */
-    cv_rect(x0 + w - 7, y0 + 5, 2, 2, T_MID);
-    cv_rect(x0 + 5, y0 + h - 7, 2, 2, T_MID);
-    cv_rect(x0 + w - 7, y0 + h - 7, 2, 2, T_MID);
-    cv_rrect(wx, wy, ww, wh, 4, T_BG, T_RAISE);       /* the label window */
-    if (h > 60) {                                     /* compact strip: no room for the captions */
-        cv_text_on(wx + 4, wy + 2, &AF_S, "SIDE A", T_DIM, T_BG);
-        cv_text_in(wx, cy - 8, ww, &AF_S, "ARAMINTA", T_DIM, T_BG);   /* between the reels */
-    }
-    tape_reel(lcx, cy, r, ang);
-    tape_reel(rcx, cy, r, ang);
-    cv_line_t(lcx, cy + r, gx0, base, T_MID, 2);      /* reel to the left guide */
-    cv_line_t(gx1, base, rcx, cy + r, T_MID, 2);      /* right guide to the reel */
-    cv_rrect(gx0 - 2, base - 2, 5, 5, 2, T_MID, T_RAISE);   /* the guides */
-    cv_rrect(gx1 - 2, base - 2, 5, 5, 2, T_MID, T_RAISE);
-    for (x = gx0; x <= gx1; x++) {                    /* the ribbon: WOW bends it, DROPOUT cuts it */
-        int32_t y = base;
-        if (amp)
-            y += (sine_i((uint32_t)x * 0x04400000u + wob * 3u) * amp) >> 15;
-        if (gap >= 0 && x >= gap && x < gap + 10) {
-            if ((x - gap) & 2)
-                cv_rect(x, y, 1, 1, T_DIM);           /* a broken, dashed ribbon */
-        } else {
-            cv_rect(x, y, 1, 2, T_MID);
-        }
-    }
-    cv_rrect(120 - 5, base - 4, 11, 8, 2, T_THEME, T_BG);   /* the head, on the ribbon */
-    cv_rect(120 - 1, base - 1, 2, 2, T_ACCENT);       /* its capstan */
-}
-
 /* step bar x of step i of a 16-step row: 4 groups, as the footer (9 px bars, 13 px apart, 4 px between groups),
  * the row centred: x 12 .. 228 */
 static int32_t bar_x(uint32_t i) { return 12 + (int32_t)(i % 16u) * 13 + (int32_t)(i % 16u / 4u) * 4; }
@@ -1170,7 +1089,7 @@ static int32_t song_follow(const song_lay_t *L)
 
 /* MENU > LARGE's strip under the tall cards (ui.c LK_TALL): HOME's scope, ENV's ADSR, LFO's wave,
  * MIXER's tracks drawn small; on the other pages the page's title and number (their charts need the whole panel) */
-enum { SK_NONE, SK_SCOPE, SK_ADSR, SK_LFO, SK_TRK, SK_TAPE, SK_TITLE };
+enum { SK_NONE, SK_SCOPE, SK_ADSR, SK_LFO, SK_TRK, SK_TITLE };
 static uint32_t strip_kind(void)
 {
     uint32_t g;
@@ -1178,8 +1097,6 @@ static uint32_t strip_kind(void)
         return SK_NONE;
     if (ui.home)
         return SK_SCOPE;
-    if (cur_page()->scope == SC_GLOBAL && cur_page()->id[0] == G_TSPEED)
-        return SK_TAPE;
     g = cur_page()->graph;
     return g == GR_ADSR ? SK_ADSR : g == GR_LFO ? SK_LFO : g == GR_TRK ? SK_TRK : SK_TITLE;
 }
@@ -1232,10 +1149,6 @@ static uint32_t graph_signature(void)
     if (ui.home)
         return h ^ ui.frame;                         /* scope: every UI frame */
     h ^= (uint32_t)pg->graph * 131u + TSEL->eng_req + song.sel * 7777u + ui.page * 1291u;
-    if (strip_kind() == SK_TAPE)                     /* MENU > LARGE: the cassette strip */
-        return h ^ ((uint32_t)song.g[G_TSPEED] * 7919u + (uint32_t)song.g[G_TWOW] * 104729u +
-                    (uint32_t)song.g[G_TDROP] * 1299709u + (uint32_t)song.g[G_TAPEMODE] * 40503u +
-                    (song.playing ? ui.frame : 0u));
     if (strip_kind() == SK_TITLE)                    /* MENU > LARGE: the page's title (its engine, its number) */
         return h ^ 0x5A17u;
     if ((pg->graph == GR_NONE && !(pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WT)) ||
@@ -2451,7 +2364,6 @@ static void draw_graph(void)
         cv_oy = k == SK_ADSR || k == SK_LFO ? 3 : 0;
         graph_ht = LG_H_GRAPH - 6;
         if (k == SK_SCOPE) graph_scope(c);
-        else if (k == SK_TAPE) graph_tape();
         else if (k == SK_ADSR) graph_adsr(t, c);
         else if (k == SK_LFO) graph_lfo(t, c);
         else graph_title();
@@ -2562,8 +2474,6 @@ static void draw_graph(void)
             else if ((pg->scope == SC_ENGINE || pg->id[0] == P_FM1_LEVEL) && t->eng_req % NENGINES == ENGI_DIGITAL)
                 graph_fm(t, c);                      /* (OP LEVEL too: the levels on the chart) */
 #endif
-            else if (pg->scope == SC_GLOBAL && pg->id[0] == G_TSPEED)
-                graph_tape();                            /* the cassette (cv_oy stays 11) */
             else {
                 cv_oy = 0;
                 if (!graph_tech(t, pg))
