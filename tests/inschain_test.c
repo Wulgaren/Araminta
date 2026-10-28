@@ -207,6 +207,36 @@ static void test_tape(void)
     send = hash_out(64);
     ck("TAPE SEND 50 %: the wet copy changes the render", send != dry);
 
+    {   /* TEMPO OFF: SPEED is the head's pitch only; the clock and the voices keep time. */
+        uint32_t base = (uint32_t)FS * 60u /
+                        (song.g[G_BPM] >= 40 ? (uint32_t)song.g[G_BPM] : 120u);
+        uint64_t off_master, off_chain;
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_MASTER;
+        song.g[G_TSPEED] = 50; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 0;
+        tape_note();
+        off_master = hash_out(64);
+        ck("TAPE TEMPO OFF MASTER 50 %: the pitch head changes the render, the beat stays",
+           off_master != dry && beat_samples() == base && tape_pitch16_for(&trk[0]) == 0 &&
+           tp.speed_q16 == 32768 && tp.speed_pitch16 < 0);
+
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_CH1;
+        song.g[G_TSPEED] = 50; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 0;
+        tape_note();
+        off_chain = hash_out(64);
+        ck("TAPE TEMPO OFF CHAIN 50 %: the owner's pitch moves, its sequencer stays 1x",
+           off_chain != dry && tape_seq_speed_q16(&trk[0]) == 65536 &&
+           tape_pitch16_for(&trk[0]) == 0);
+
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_MASTER;
+        song.g[G_TSPEED] = 50; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 1;
+        tape_note();
+        ck("TAPE TEMPO ON MASTER 50 %: the source clock slows (the beat lengthens)",
+           beat_samples() > base && tape_pitch16_for(&trk[0]) < 0);
+    }
+
     {   /* DROPOUT: 10..40 ms dips, 0.25..1 s apart: a long render must hear them */
         uint64_t off, on;
         fresh();
@@ -815,7 +845,7 @@ int main(void)
             ck("CHAIN reverb params diverge from SEND (ROOM/40 vs HALL/90 changes render)",
                h_chain != h_send);
             ck("GP has CHAIN TYPE/SIZE/DAMP",
-               G_COUNT == 31u && GP[G_CRTYPE].names == GP[G_RTYPE].names && GP[G_CRSIZE].max == 127);
+               G_COUNT == 32u && GP[G_CRTYPE].names == GP[G_RTYPE].names && GP[G_CRSIZE].max == 127);
         }
         bus_own_set(1, -1);
         bus_own_set(0, -1);

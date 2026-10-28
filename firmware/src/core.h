@@ -151,6 +151,8 @@ enum {                          /* global parameters */
                                    * (project.c); older projects copy SEND on load. */
     G_SLOWN,                      /* EFFECTS SLICER: bits 0..3 = per-track SEND (1) / CHAIN (0).
                                    * Legacy 0 = all SEND, 1..4 = one CHAIN owner (others USED); sanitized to a mask. */
+    G_TTEMPO,                     /* TAPE tempo: ON slows the source clock with SPEED (as before);
+                                   * OFF is the head's pitch only, the transport and voices keep time. */
     G_COUNT
 };
 #define G_SYNC G_DREL                   /* (old names: formats' importers and their tests) */
@@ -654,10 +656,10 @@ typedef struct {
     uint8_t rec;                 /* live recording armed: bit per track */
     uint8_t sel;                 /* selected track 0..NTRK-1: keys, pages, editor */
     int8_t octave;
+    int16_t batt_raw;            /* smoothed ADC ch3 (battery divider), 0 = not read yet; 12 bits */
     uint32_t tick;               /* sub-blocks since play */
     uint32_t cpu_q8;             /* audio ISR load, 1/256 */
     uint32_t master_q12;
-    int32_t batt_raw;            /* smoothed ADC ch3 (battery divider), 0 = not read yet */
 } song_t;
 
 static track_t trk[NTRK];        /* the instrument: four parts */
