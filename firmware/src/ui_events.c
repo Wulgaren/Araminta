@@ -593,6 +593,10 @@ static void pk_auto_name(const track_t *t, uint32_t id, char *b)
         str_cpy(b, "RATE", 16);
     else if (id == P_SLDEPTH)
         str_cpy(b, "MIX", 16);
+    else if (id == MFX_TSPEED)
+        str_cpy(b, "SPEED", 16);
+    else if (id == MFX_TWOW)
+        str_cpy(b, "WOW", 16);
     else if (id == P_CHRD)
         str_cpy(b, "CHORD", 16);
     else if (id == P_VOIC)
@@ -636,6 +640,8 @@ static const fx_dst_t FX_DST[] = {
     {P_SLPAT, MD_SLPAT, INS_SLCR, 0, "SLICER", "PATTERN"},
     {P_SLRATE, MD_SLRATE, INS_SLCR, 0, "SLICER", "RATE"},
     {P_SLDEPTH, MD_SLDEPTH, INS_SLCR, 1, "SLICER", "MIX"},
+    {MFX_TSPEED, MD_TSPEED, INS_TAPE, 0, "TAPE", "SPEED"},
+    {MFX_TWOW, MD_TWOW, INS_TAPE, 0, "TAPE", "WOW"},
 };
 /* Reverb SEND and CHAIN have separate banks. Delay and legacy SLICER USED tracks stay unavailable. */
 static int fx_dst_visible(const track_t *t, uint32_t st, int is_mix)
@@ -643,6 +649,14 @@ static int fx_dst_visible(const track_t *t, uint32_t st, int is_mix)
     int32_t tr = (int32_t)(t - trk), own;
     if (st < INS_N || st == INS_REV)
         return 1;
+    if (st == INS_TAPE) {                             /* SPEED / WOW: CHAIN owner, MASTER all, SEND first claim */
+        int32_t m = song.g[G_TAPEMODE];
+        if (m == TAPE_MASTER)
+            return 1;
+        if (TAPE_OWNER_OF(m) >= 0)
+            return TAPE_OWNER_OF(m) == tr;
+        return 1;
+    }
     if (st == INS_SLCR)
         return !sl_trk_used(t);
     own = bus_own(st == INS_REV ? 1u : 0u);
@@ -654,7 +668,7 @@ static int fx_dst_visible(const track_t *t, uint32_t st, int is_mix)
 static int pk_auto_fx(uint32_t id)
 {
     /* Every FX_DST pid falls in these ranges (insert knobs before P_FTYPE; SLICER PAT..MIX). */
-    return MFX_PARAM(id) || id == P_ED_FX || id == P_DIST || id == P_DLY || id == P_REV ||
+    return MFX_ALL(id) || id == P_ED_FX || id == P_DIST || id == P_DLY || id == P_REV ||
            (id >= P_SLPAT && id <= P_SLDEPTH) || (id >= P_IDMODE && id < P_FTYPE);
 }
 static const char *pk_auto_group(uint32_t id)

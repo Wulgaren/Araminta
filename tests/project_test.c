@@ -329,7 +329,7 @@ static int step_wire_freeze(void)
 static int tape_wire(void)
 {
     static project_t a, c;
-    static project_store_t st;
+    static project_store_t st, st16;
     static const uint8_t ORD[FX_LIST_N] = {INS_TAPE, INS_FILTER, INS_DIST, INS_SLCR, INS_CHOR,
                                            INS_REV, INS_CRUSH, INS_DLY, INS_FLANG, INS_PHASR};
     uint32_t i, t;
@@ -348,17 +348,26 @@ static int tape_wire(void)
         memcpy(a.t[t].fx_order, ORD, FX_LIST_N);
     }
     a.t[0].p[P_TAPEMIX] = 77;
+    a.fx_master[INS_DIST] = 1;                        /* track 1 owns DIST, track 2 DLY, track 4 SLCR */
+    a.fx_master[INS_DLY] = 2;
+    a.fx_master[INS_SLCR] = 4;
+    a.fx_master[INS_TAPE] = 3;                        /* TAPE is MASTER, track 3 */
     ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
     for (i = 0; i < FX_LIST_N; i++)
         ok &= c.t[0].fx_order[i] == ORD[i];
     ok &= c.g[G_TSPEED] == 88 && c.g[G_TWOW] == 44 && c.g[G_TDROP] == 1 && c.g[G_TMIX] == 55 &&
-          c.g[G_TAPEMODE] == TAPE_MASTER && c.t[0].p[P_TAPEMIX] == 77;
-    {   /* the same bytes as a FUN16: the order is not there, the globals are the old inert ids */
+          c.g[G_TAPEMODE] == TAPE_MASTER && c.t[0].p[P_TAPEMIX] == 77 &&
+          c.fx_master[INS_DIST] == 1 && c.fx_master[INS_DLY] == 2 && c.fx_master[INS_SLCR] == 4 &&
+          c.fx_master[INS_TAPE] == 3 && c.fx_master[INS_REV] == 0;
+    {   /* the same bytes as a FUN16: the order is not there, the globals are the old inert ids,
+         * and no MASTER owner (FUN16/17 wrote zeros in those spare bytes) */
         uint32_t sum;
-        ((uint32_t *)st.raw)[0] = PROJ_MAGIC_V16;
-        sum = proj_hash(st.raw, PROJ_STORE_SIZE - 4u);
-        memcpy(st.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
-        ok &= proj_import(&c, &st, sizeof st);
+        memset(a.fx_master, 0, sizeof a.fx_master);
+        ok &= proj_pack(&st16, &a);
+        ((uint32_t *)st16.raw)[0] = PROJ_MAGIC_V16;
+        sum = proj_hash(st16.raw, PROJ_STORE_SIZE - 4u);
+        memcpy(st16.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+        ok &= proj_import(&c, &st16, sizeof st16);
         {   /* factory order: DIST, CRUSH, FILTER, PHASR, FLANG, CHOR, DLY, REV, SLCR, TAPE */
             static const uint8_t DEF[FX_LIST_N] = {INS_DIST, INS_CRUSH, INS_FILTER, INS_PHASR, INS_FLANG,
                                                    INS_CHOR, INS_DLY, INS_REV, INS_SLCR, INS_TAPE};
@@ -367,8 +376,10 @@ static int tape_wire(void)
         }
         ok &= c.g[G_TSPEED] == GP[G_TSPEED].def && c.g[G_TWOW] == 0 && c.g[G_TDROP] == 0 &&
               c.g[G_TMIX] == 0 && c.g[G_TAPEMODE] == TAPE_SEND && c.t[0].p[P_TAPEMIX] == 0;
+        for (i = 0; i < FX_LIST_N; i++)
+            ok &= c.fx_master[i] == 0;
     }
-    return check("FUN17: the 10-stage EFFECTS order and TAPE globals round trip; FUN16 gets defaults", ok);
+    return check("FUN18: the 10-stage order, TAPE globals and MASTER owners round trip; FUN16 gets defaults", ok);
 }
 
 int main(void)

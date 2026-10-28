@@ -170,6 +170,10 @@ static struct {
     int32_t speed_q16, eff_q16, speed_pitch16, drop_amt;
     uint8_t mode;
 } tp __attribute__((section(".pool")));
+/* Effective SPEED / WOW for the next block: the knob, a step lock or the matrix's folded per-part values
+ * (fx_buses, after the parts). A block of latency keeps the global tape out of the parts' race. */
+static int16_t tape_speed_eff = 100, tape_wow_eff;
+static uint8_t fx_master_gen;                        /* mix_cache invalidation when MASTER routing moves */
 static void tape_clear(void)
 {
     memset(tp_buf, 0, sizeof tp_buf);
@@ -178,6 +182,8 @@ static void tape_clear(void)
     tp.speed_q16 = tp.eff_q16 = 65536;
     tp.ph = (TP_W / 4u) << 16;                        /* rest head at TP_COMP (speed 100 is a clean pass) */
     tp.rng = 0x9E3779B9u;
+    tape_speed_eff = song.g[G_TSPEED];
+    tape_wow_eff = song.g[G_TWOW];
 }
 static void tape_begin(uint32_t mode)
 {
@@ -189,7 +195,7 @@ static void tape_begin(uint32_t mode)
 static void tape_pre(void)
 {
     int32_t depth = clamp(song.g[G_TMIX], 0, 127);
-    int32_t target = clamp(song.g[G_TSPEED], 25, 400);
+    int32_t target = clamp(tape_speed_eff, 25, 400);
     int32_t eff_pct = 100 + (target - 100) * depth / 127;
     int32_t eff, pct;
     eff_pct = clamp(eff_pct, 25, 400);
@@ -207,7 +213,7 @@ static void tape_pre(void)
 int32_t tape_pitch16_for(const struct track *t)
 {
     int32_t m = song.g[G_TAPEMODE];
-    if (!song.g[G_TMIX] || song.g[G_TSPEED] == 100)
+    if (!song.g[G_TMIX] || tape_speed_eff == 100)
         return 0;
     if (m == TAPE_MASTER || TAPE_OWNER_OF(m) == (int32_t)(t - trk))
         return tp.speed_pitch16;
@@ -230,7 +236,7 @@ static inline int32_t tp_tap(const int16_t *b, int32_t d, uint32_t fr)
 static __attribute__((noinline)) void tape_run(const int32_t *il, const int32_t *ir, int32_t *ol, int32_t *orr, uint32_t n)
 {
     uint32_t i, winc = LFO_INC[44] / CTL, finc = LFO_INC[91] / CTL;   /* 0.5 Hz wow, 6 Hz flutter */
-    int32_t wowd = (int32_t)song.g[G_TWOW] * (int32_t)TP_D / 127;
+    int32_t wowd = (int32_t)tape_wow_eff * (int32_t)TP_D / 127;
     for (i = 0; i < n; i++) {
         int32_t l = il[i], r = ir[i], bend = 0, wa, wb, d0, d1, a, b, yl, yr;
         uint32_t fr = (tp.ph >> 8) & 255u, phh = tp.ph >> 16;
@@ -399,8 +405,13 @@ static void ins_order_move(track_t *t, uint32_t h, int32_t dir)
 /* G_DLYOWN: 0 = SEND for every track; 1..4 = that track has CHAIN (others USED).
  * G_REVOWN: 0 = SEND for every track; 1..4 = that track has CHAIN (others still SEND into tank 1).
  * G_SLOWN:  per-track SEND/CHAIN mask (core.h sl_trk_*); bus_own(2) is legacy-only. */
+static int fx_master_on(uint32_t st);
+static void ins_master_reset(uint32_t st);
+static void fx_master_reset_stage(uint32_t st);
 static int32_t bus_own(uint32_t which)   /* 0 delay, 1 reverb, 2 slicer(legacy); -1 SEND, else track index */
 {
+    if (fx_master_on(which == 0u ? INS_DLY : which == 1u ? INS_REV : INS_SLCR))
+        return -1;
     int32_t v = song.g[which == 2u ? G_SLOWN : which ? G_REVOWN : G_DLYOWN];
     if (which == 2u) {                               /* after sanitize: mask, not an owner index */
         if (v >= 1 && v <= (int32_t)NTRK)
@@ -564,6 +575,45 @@ static int fx_list_move(track_t *t, uint32_t h, int32_t dir)
     fx_list_set(t, ord);
     return 1;
 }
+/* MASTER ownership (core.h fx_master_tr): one track per stage; that track's order runs the master chain. */
+static int fx_master_on(uint32_t st) { return st < FX_LIST_N && fx_master_tr[st] != 0u; }
+static void fx_master_set(uint32_t st, uint32_t tr)
+{
+    if (st >= FX_LIST_N || tr >= NTRK)
+        return;
+    fx_master_tr[st] = (uint8_t)(tr + 1u);
+    fx_master_order_tr = (uint8_t)tr;
+    fx_master_gen++;
+    fx_master_reset_stage(st);
+}
+static void fx_master_clear(uint32_t st)
+{
+    if (st >= FX_LIST_N)
+        return;
+    fx_master_tr[st] = 0;
+    fx_master_gen++;
+    fx_master_reset_stage(st);
+}
+static void fx_master_sanitize(void)
+{
+    uint32_t st, tr;
+    for (st = 0; st < FX_LIST_N; st++)
+        if (fx_master_tr[st] > NTRK)
+            fx_master_tr[st] = 0;
+    if (fx_master_tr[INS_TAPE] && song.g[G_TAPEMODE] != TAPE_MASTER)
+        fx_master_tr[INS_TAPE] = 0;
+    if (song.g[G_TAPEMODE] == TAPE_MASTER && !fx_master_tr[INS_TAPE])
+        fx_master_tr[INS_TAPE] = (uint8_t)((song.sel < NTRK ? song.sel : 0u) + 1u);
+    fx_master_order_tr = 0;
+    for (tr = 0; tr < NTRK; tr++)
+        for (st = 0; st < FX_LIST_N; st++)
+            if (fx_master_tr[st] == tr + 1u) {
+                fx_master_order_tr = (uint8_t)tr;
+                fx_master_gen++;
+                return;
+            }
+    fx_master_gen++;
+}
 static int32_t ins_mix_of(const track_t *t, uint32_t st)
 {
     static const uint8_t MIX[INS_N] = {P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX, P_IHMIX};
@@ -582,6 +632,13 @@ static int32_t ins_mix_of(const track_t *t, uint32_t st)
 static const char *fx_list_mode(const track_t *t, uint32_t st)
 {
     int32_t own, tr = (int32_t)(t - trk);
+    if (fx_master_on(st)) {
+        int owner = fx_master_owned(st, (uint32_t)tr);
+        if (st >= INS_N)
+            return owner ? "MASTER" : "USED";       /* shared buses are exclusive while MASTER is on */
+        if (owner)
+            return "MASTER";                        /* inserts also keep their per-track route */
+    }
     if (st < INS_N)
         return ins_is_send(t, st) ? "SEND" : "CHAIN";
     if (st == INS_TAPE) {
@@ -589,7 +646,7 @@ static const char *fx_list_mode(const track_t *t, uint32_t st)
         if (m == TAPE_SEND)
             return "SEND";
         if (m == TAPE_MASTER)
-            return "MASTER";
+            return !fx_master_on(INS_TAPE) || fx_master_owned(INS_TAPE, (uint32_t)tr) ? "MASTER" : "USED";
         return TAPE_OWNER_OF(m) == (int32_t)(t - trk) ? "CHAIN" : "USED";
     }
     if (st == INS_SLCR) {
@@ -612,7 +669,7 @@ static int ins_any(const track_t *t)
             return 1;
     /* TAPE in CHAIN: its SPEED is source-clock; this list stage is only the WOW/DROP head. */
     if (song.g[G_TAPEMODE] == TAPE_CH1 + (int16_t)(t - trk) && song.g[G_TMIX] &&
-        (song.g[G_TWOW] || song.g[G_TDROP]))
+        (tape_wow_eff || song.g[G_TDROP]))
         return 1;
     return 0;
 }
@@ -799,6 +856,7 @@ static uint32_t delay_samples(void)
 /* The stage owning a shared SEND setting; MIX always stays on its track. */
 static uint32_t fx_target_stage(uint32_t id)
 {
+    if (id == MFX_TSPEED || id == MFX_TWOW) return INS_TAPE;
     if (id == P_DIST || id == P_ED_FX || id == P_IDMODE) return INS_DIST;
     if (id >= P_IFTYPE && id <= P_IFRES) return INS_FILTER;
     if (id >= P_ICBITS && id <= P_ICLPF) return INS_CRUSH;
@@ -812,6 +870,10 @@ static uint32_t fx_target_stage(uint32_t id)
 static int16_t *fx_target_ptr(const track_t *t, uint32_t id)
 {
     uint32_t st;
+    if (id == MFX_TSPEED)
+        return &song.g[G_TSPEED];
+    if (id == MFX_TWOW)
+        return &song.g[G_TWOW];
     if (MFX_PARAM(id)) {
         static const uint8_t G[] = {G_DTIME, G_DFDBK, G_DCOLOR, G_RSIZE, G_RDAMP};
         uint32_t g = G[id - MFX_TIME];
@@ -831,6 +893,10 @@ static int16_t *fx_target_ptr(const track_t *t, uint32_t id)
 static int16_t *mod_target_ptr(const track_t *t, uint32_t id)
 {
     uint32_t st;
+    if (id == MFX_TSPEED)
+        return &bus_knobs[C1_PI(t)].g[5];
+    if (id == MFX_TWOW)
+        return &bus_knobs[C1_PI(t)].g[6];
     if (MFX_PARAM(id))
         return &bus_knobs[C1_PI(t)].g[id - MFX_TIME];
     if ((id == P_SLPAT || id == P_SLRATE) && sl_trk_send(t))
@@ -855,6 +921,8 @@ static void bus_knobs_g(const track_t *t)
     uint32_t i;
     for (i = 0; i < 5u; i++)
         b->g[i] = *fx_target_ptr(t, MFX_TIME + i);
+    b->g[5] = *fx_target_ptr(t, MFX_TSPEED);
+    b->g[6] = *fx_target_ptr(t, MFX_TWOW);
 }
 /* RATE's selected division is the starting point for continuous TIME modulation and locks. */
 static int16_t fx_time_value(int16_t raw)
@@ -872,6 +940,10 @@ static const param_desc_t *fx_target_desc(const track_t *t, uint32_t id)
                                     DTIME_FREE + 250, 0, "ms"};
     if (id == MFX_TIME)
         return &TIME;
+    if (id == MFX_TSPEED)
+        return &GP[G_TSPEED];
+    if (id == MFX_TWOW)
+        return &GP[G_TWOW];
     if (MFX_PARAM(id)) {
         static const uint8_t G[] = {G_DTIME, G_DFDBK, G_DCOLOR, G_RSIZE, G_RDAMP};
         return &GP[G[id - MFX_TIME]];
@@ -881,6 +953,8 @@ static const param_desc_t *fx_target_desc(const track_t *t, uint32_t id)
 /* These settings are consumed by the SEND DSP after all track renders. */
 static int fx_target_send(const track_t *t, uint32_t id)
 {
+    if (id == MFX_TSPEED || id == MFX_TWOW)
+        return 0;
     if (id >= MFX_TIME && id <= MFX_COLOR)
         return bus_own(0) < 0;
     if (id == MFX_SIZE || id == MFX_DAMP)
@@ -1395,20 +1469,28 @@ static void fx_buses(const int32_t *dly_in, const int32_t *rev_in, int32_t *wet,
 {
     uint32_t i;
     int32_t rt;
-    int dly_send = bus_own(0) < 0, rev_chain = bus_own(1) >= 0;
+    int dly_master = fx_master_on(INS_DLY), rev_master = fx_master_on(INS_REV);
+    int dly_send = !dly_master && bus_own(0) < 0, rev_chain = !rev_master && bus_own(1) >= 0;
     mod_bus_begin();
-    if (dly_send)
+    tape_speed_eff = song.g[G_TSPEED];               /* the matrix's folded TAPE values (or the knobs/locks) */
+    tape_wow_eff = song.g[G_TWOW];
+    if (dly_master) {
+        for (i = 0; i < n; i++)
+            wet[i] = 0;
+    } else if (dly_send)
         dly_process(dly_in, wet, n, 32768);
     else
         for (i = 0; i < n; i++)
             wet[i] = 0;                           /* CHAIN: owner advances the line in track_insert */
-    R = rev_chain ? &rev_tank[1] : &rev_tank[0];
-    rt = rev_rtype();
-    R->hl.side = 0;                               /* (both tanks cleared at mix_block's start) */
-    if (rt != R->rtype)
-        rev_switch(rev_in, wet, n, rt);
-    else
-        rev_run((uint32_t)rt, rev_in, wet, n);
+    if (!rev_master) {
+        R = rev_chain ? &rev_tank[1] : &rev_tank[0];
+        rt = rev_rtype();
+        R->hl.side = 0;                           /* (both tanks cleared at mix_block's start) */
+        if (rt != R->rtype)
+            rev_switch(rev_in, wet, n, rt);
+        else
+            rev_run((uint32_t)rt, rev_in, wet, n);
+    }
     mod_bus_end();
 }
 
@@ -1423,6 +1505,7 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
             l[i] += rev_tank[t].hl.sd[i];
             r[i] -= rev_tank[t].hl.sd[i];
         }
+        rev_tank[t].hl.side = 0;                         /* added once */
     }
 }
 
@@ -1456,6 +1539,38 @@ static int32_t ins_send_in[C1_NP][CTL];                              /* .. its i
 static int16_t ins_win[C1_NP][2][CTL];                               /* each part's window of the line it writes */
 static int32_t ins_rb[CTL];                                          /* ins_bus_join's run (its output stands) */
 static int16_t ins_lines[NTRK][2][IL_LEN] __attribute__((section(".pool")));
+/* MASTER inserts: the whole stereo mix, one private state and line pair per channel. The owner track's
+ * parameters set the sound. Kept in the pool, like the per-track states. */
+static ins_st_t ins_master_st[2][INS_N] __attribute__((section(".pool")));
+static int16_t ins_master_lines[2][2][IL_LEN] __attribute__((section(".pool")));
+static void ins_master_reset(uint32_t st)
+{
+    if (st >= INS_N)
+        return;
+    memset(&ins_master_st[0][st], 0, sizeof ins_master_st[0][st]);
+    memset(&ins_master_st[1][st], 0, sizeof ins_master_st[1][st]);
+    memset(ins_master_lines[0], 0, sizeof ins_master_lines[0]);
+    memset(ins_master_lines[1], 0, sizeof ins_master_lines[1]);
+}
+/* route in or out of MASTER: its private state starts from silence (the shared buses' state is exclusive) */
+static void fx_master_reset_stage(uint32_t st)
+{
+    if (st < INS_N) {
+        ins_master_reset(st);
+    } else if (st == INS_DLY) {
+        memset(dly_buf, 0, sizeof dly_buf);
+        memset(&fx, 0, sizeof fx);
+        dly_q8 = 0;
+        dly_free = 0;
+    } else if (st == INS_REV) {
+        R = &rev_tank[0];
+        rev_clear();
+        R->rtype = (uint8_t)rev_rtype();
+        R->hl.side = 0;
+    } else if (st == INS_SLCR) {
+        slicer_master_reset();
+    }
+}
 /* SEND bus knobs live in fx_bus_trk.p (core.h); packed into reclaimed project bytes. MIX stays per-track. */
 static uint32_t ins_bus_tr(uint32_t st)
 {
@@ -1513,8 +1628,12 @@ static void fx_boot(void)
     dly_free = 0;
     memset(ins_st, 0, sizeof ins_st);
     memset(ins_lines, 0, sizeof ins_lines);
+    memset(ins_master_st, 0, sizeof ins_master_st);
+    memset(ins_master_lines, 0, sizeof ins_master_lines);
+    slicer_master_reset();
     memset(ins_bus_ran, 0, sizeof ins_bus_ran);
     memset(fx_order_tbl, 0, sizeof fx_order_tbl);
+    fx_master_sanitize();
     tape_clear();
     fx_bus_init();
     for (i = 0; i < NTRK; i++)
@@ -1944,7 +2063,7 @@ static __attribute__((noinline)) void tape_chain(track_t *t, int32_t *b, uint32_
 {
     uint32_t i;
     if (song.g[G_TAPEMODE] != TAPE_CH1 + (int16_t)(t - trk) || !song.g[G_TMIX] ||
-        (!song.g[G_TWOW] && !song.g[G_TDROP]))
+        (!tape_wow_eff && !song.g[G_TDROP]))
         return;
     for (i = 0; i < n; i++)
         dry[i] = b[i];
@@ -2084,8 +2203,8 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     int32_t gla = 4096 - (pa > 0 ? pa * 64 : 0), gra = 4096 + (pa < 0 ? pa * 64 : 0);
     int32_t glb = 4096 - (pb > 0 ? pb * 64 : 0), grb = 4096 + (pb < 0 ? pb * 64 : 0);
     int32_t glm = (gla + glb) >> 1, grm = (gra + grb) >> 1, gld = (gla - glb) >> 1, grd = (gra - grb) >> 1;
-    int32_t dl = bus_own(0) < 0 ? t->p[P_DLY] * 258 : 0;
-    int32_t r = bus_own(1) == (int32_t)(t - trk) ? 0 : t->p[P_REV] * 258, pk = t->peak;
+    int32_t dl = !fx_master_on(INS_DLY) && bus_own(0) < 0 ? t->p[P_DLY] * 258 : 0;
+    int32_t r = fx_master_on(INS_REV) || bus_own(1) == (int32_t)(t - trk) ? 0 : t->p[P_REV] * 258, pk = t->peak;
     int32_t xmax = 0x7FFFFFFF / ((dl > r ? dl : r) | 1), lq = lvl << 8, dlv = 0;
     if ((duck_g0 < 32767 || duck_g1 < 32767) && ENGINES[t->engine] != &ENG_DRUM)
         lq = duck_ramp(lvl, &dlv);
@@ -2118,7 +2237,7 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
  * modulation invalidate the same cache as direct edits and preset loads. */
 typedef struct {
     int16_t level, pan, dly, rev, dlyown, revown;
-    uint8_t valid;
+    uint8_t valid, gen;
     int32_t lvl, gl, gr, d, r, xmax;
 } mix_cache_t;
 static mix_cache_t mix_cache[NTRK];
@@ -2131,12 +2250,13 @@ static __attribute__((noinline)) void mix_cache_update(const track_t *t, mix_cac
     mc->dlyown = song.g[G_DLYOWN];
     mc->revown = song.g[G_REVOWN];
     mc->valid = 1;
+    mc->gen = fx_master_gen;
     mc->lvl = LEVEL_Q12[mc->level & 127];
     mc->gl = 4096 - (mc->pan > 0 ? mc->pan * 64 : 0);
     mc->gr = 4096 + (mc->pan < 0 ? mc->pan * 64 : 0);
-    mc->d = bus_own(0) < 0 ? mc->dly * 258 : 0;
+    mc->d = (fx_master_on(INS_DLY) || bus_own(0) >= 0) ? 0 : mc->dly * 258;
     /* REV CHAIN owner mixes in insert; everyone else still SENDS (tank 1 when chained). */
-    mc->r = bus_own(1) == (int32_t)(t - trk) ? 0 : mc->rev * 258;
+    mc->r = (fx_master_on(INS_REV) || bus_own(1) == (int32_t)(t - trk)) ? 0 : mc->rev * 258;
     mc->xmax = 0x7FFFFFFF / ((mc->d > mc->r ? mc->d : mc->r) | 1);
 }
 
@@ -2177,7 +2297,8 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
         mix_cache_t *mc = &mix_cache[ti];
         if (!mc->valid || mc->level != t->p[P_LEVEL] || mc->pan != t->p[P_PAN] ||
             mc->dly != t->p[P_DLY] || mc->rev != t->p[P_REV] ||
-            mc->dlyown != song.g[G_DLYOWN] || mc->revown != song.g[G_REVOWN])
+            mc->dlyown != song.g[G_DLYOWN] || mc->revown != song.g[G_REVOWN] ||
+            mc->gen != fx_master_gen)
             mix_cache_update(t, mc);
         int32_t lvl = mc->lvl, gl = mc->gl, gr = mc->gr, d = mc->d, r = mc->r, xmax = mc->xmax, pk = t->peak;
         if (ins_any(t) | t->ins_run || chain)
@@ -2447,6 +2568,118 @@ static __attribute__((noinline)) void tape_post(uint32_t n)
     }
 }
 
+/* MASTER stages (EFFECTS USE AS = MASTER) -------------------------------------------------------
+ * The owner track's EFFECTS order sets the chain's order. Inserts keep their per-track CHAIN / SEND and
+ * add a private stereo instance here; DLY / REV / SLCR / TAPE are exclusive (their one bus state), so the
+ * per-track routes are suppressed while they are MASTER. Mono shared buses blend as the mono difference:
+ * the dry's stereo image stays, the wet replaces its centre. The two scratch lines are a part's, free once
+ * the parts have rendered (TAPE MASTER's head uses the second pair, SEND's the first before this runs). */
+#define master_mono (ins_dry_buf[0])
+#define master_wet (ins_wet_buf[0])
+static int master_any(void)
+{
+    uint32_t st;
+    for (st = 0; st < FX_LIST_N; st++)
+        if (fx_master_on(st))
+            return 1;
+    return 0;
+}
+static __attribute__((noinline)) void master_insert_run(track_t *owner, uint32_t st, uint32_t n)
+{
+    const track_t *src = (ins_is_send(owner, st)) ? &fx_bus_trk : owner;
+    int32_t tw = ins_mixq(ins_mix_of(owner, st));
+    if (!tw && !ins_master_st[0][st].w && !ins_master_st[1][st].w)
+        return;
+    ins_run_st(&ins_master_st[0][st], src, mix_l, n, tw, st, ins_master_lines[0], 0);
+    ins_run_st(&ins_master_st[1][st], src, mix_r, n, tw, st, ins_master_lines[1], 1);
+}
+static __attribute__((noinline)) void master_dly_run(track_t *owner, uint32_t n)
+{
+    uint32_t i;
+    int32_t amt = clamp(owner->p[P_DLY], 0, 127), g;
+    for (i = 0; i < n; i++)
+        master_mono[i] = (mix_l[i] + mix_r[i]) >> 1;
+    dly_process(master_mono, master_wet, n, 32768);
+    if (!amt)
+        return;
+    g = ins_mixq(amt);
+    for (i = 0; i < n; i++) {
+        int32_t d = ((master_wet[i] - master_mono[i]) * g) >> 15;
+        mix_l[i] += d;
+        mix_r[i] += d;
+    }
+}
+static __attribute__((noinline)) void master_rev_run(track_t *owner, uint32_t n)
+{
+    uint32_t i;
+    int32_t amt = clamp(owner->p[P_REV], 0, 127), g, rt;
+    for (i = 0; i < n; i++)
+        master_mono[i] = (mix_l[i] + mix_r[i]) >> 1;
+    R = &rev_tank[0];
+    rt = rev_rtype();
+    R->hl.side = 0;
+    for (i = 0; i < n; i++)
+        master_wet[i] = 0;
+    if (rt != R->rtype)
+        rev_switch(master_mono, master_wet, n, rt);
+    else
+        rev_run((uint32_t)rt, master_mono, master_wet, n);
+    if (!amt) {
+        R->hl.side = 0;
+        return;
+    }
+    g = ins_mixq(amt);
+    for (i = 0; i < n; i++) {
+        int32_t d = ((master_wet[i] - master_mono[i]) * g) >> 15;
+        mix_l[i] += d;
+        mix_r[i] += d;
+    }
+    if (R->hl.side) {                                /* HALL's stereo difference, scaled by REV MIX */
+        for (i = 0; i < n; i++) {
+            int32_t d = mulq15(R->hl.sd[i], g);
+            mix_l[i] += d;
+            mix_r[i] -= d;
+        }
+        R->hl.side = 0;                              /* rev_side_mix must not add it again */
+    }
+}
+static __attribute__((noinline)) void master_slcr_run(track_t *owner, uint32_t n)
+{
+    slicer_master_run(owner, mix_l, mix_r, n);
+}
+static __attribute__((noinline)) void fx_master_run(uint32_t n)
+{
+    uint8_t ord[FX_LIST_N];
+    uint32_t i, st;
+    track_t *owner;
+    int tape_post_now = song.g[G_TAPEMODE] == TAPE_MASTER && !fx_master_on(INS_TAPE);
+    if (!master_any() && !tape_post_now)
+        return;
+    fx_list_get(&trk[fx_master_order_tr < NTRK ? fx_master_order_tr : 0u], ord);
+    mod_bus_begin();                                 /* DLY / REV controls the parts' matrix moves */
+    for (i = 0; i < FX_LIST_N; i++) {
+        st = ord[i];
+        if (st == INS_TAPE) {
+            if (song.g[G_TAPEMODE] == TAPE_MASTER && song.g[G_TMIX] &&
+                (tape_wow_eff || song.g[G_TDROP]))
+                tape_post(n);                        /* WOW / DROP at TAPE's place in the list */
+            continue;
+        }
+        if (!fx_master_on(st))
+            continue;
+        owner = &trk[fx_master_tr[st] - 1u];
+        if (st < INS_N)
+            master_insert_run(owner, st, n);
+        else if (st == INS_DLY)
+            master_dly_run(owner, n);
+        else if (st == INS_REV)
+            master_rev_run(owner, n);
+        else if (st == INS_SLCR)
+            master_slcr_run(owner, n);
+    }
+    mod_bus_end();
+}
+
 static void mix_block(int32_t *out, uint32_t n)
 {
     uint32_t i;
@@ -2539,13 +2772,18 @@ static void mix_block(int32_t *out, uint32_t n)
     if (perf)
         perf_pre(mix_l, mix_r, send_d, send_r, n);
     fx_buses(send_d, send_r, wet, n);
+    for (i = 0; i < n; i++) {                           /* the bus returns join the mix before MASTER */
+        mix_l[i] += wet[i];
+        mix_r[i] += wet[i];
+        wet[i] = 0;
+    }
     if (rev_tank[0].hl.side || rev_tank[1].hl.side)
         rev_side_mix(mix_l, mix_r, n);                  /* HALL: stereo (either tank) */
     if (song.g[G_TAPEMODE] == TAPE_SEND && song.g[G_TMIX] > 0)
         tape_post(n);                                  /* SEND at 0: the old dry/wet path, untouched */
-    else if (song.g[G_TAPEMODE] == TAPE_MASTER && song.g[G_TMIX] &&
-             (song.g[G_TWOW] || song.g[G_TDROP]))
-        tape_post(n);                                  /* WOW/DROP on the already slowed mix */
+    fx_master_run(n);                                  /* MASTER stages, in the owner's EFFECTS order */
+    if (rev_tank[0].hl.side || rev_tank[1].hl.side)
+        rev_side_mix(mix_l, mix_r, n);                  /* HALL from a MASTER reverb */
     if (clip_g)
         clip_block(n);
     if (scope_mix)

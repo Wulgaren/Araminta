@@ -1355,35 +1355,68 @@ static void ior_knob(uint32_t k, int32_t s)
             ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + dir, 0, (int32_t)FX_LIST_N - 1);
         }
     } else if (k == 2u) {
-        int send = s > 0;                              /* K3: left CHAIN, right SEND (as drawn), no wrap */
-        if (st == INS_TAPE) {                          /* TAPE: CHAIN (this track) -> SEND -> MASTER; ends clamp */
-            int32_t m = song.g[G_TAPEMODE], cur;
-            int32_t tr = (int32_t)(TSEL - trk);
-            cur = m == TAPE_MASTER ? 2 : TAPE_OWNER_OF(m) == tr ? 0 : 1;
-            if (send && cur < 2)
-                cur++;
-            else if (!send && cur > 0)
-                cur--;
-            song.g[G_TAPEMODE] = (int16_t)(cur == 0 ? TAPE_CH1 + tr : cur == 1 ? TAPE_SEND : TAPE_MASTER);
+        int send = s > 0;                              /* K3: left CHAIN, right SEND / MASTER (no wrap) */
+        int32_t tr = (int32_t)(TSEL - trk);
+        if (st == INS_TAPE) {                          /* TAPE: CHAIN (this track) -> SEND -> MASTER */
+            int32_t m = song.g[G_TAPEMODE];
+            motion_fx_route(TSEL, INS_TAPE, 0);        /* SPEED / WOW locks of the old route back */
+            if (m == TAPE_MASTER) {
+                if (!fx_master_on(INS_TAPE)) {
+                    if (!send)
+                        song.g[G_TAPEMODE] = TAPE_SEND;
+                } else if (fx_master_owned(INS_TAPE, (uint32_t)tr) && !send) {
+                    fx_master_clear(INS_TAPE);
+                    song.g[G_TAPEMODE] = TAPE_SEND;
+                }
+            } else if (m == TAPE_SEND) {
+                if (send) {
+                    fx_master_set(INS_TAPE, (uint32_t)tr);
+                    song.g[G_TAPEMODE] = TAPE_MASTER;
+                } else {
+                    song.g[G_TAPEMODE] = (int16_t)(TAPE_CH1 + tr);
+                }
+            } else if (send && TAPE_OWNER_OF(m) == tr) {
+                fx_master_clear(INS_TAPE);
+                song.g[G_TAPEMODE] = TAPE_SEND;
+            } else if (send) {
+                fx_master_set(INS_TAPE, (uint32_t)tr);
+                song.g[G_TAPEMODE] = TAPE_MASTER;
+            }
+            motion_fx_route(TSEL, INS_TAPE, 1);
+        } else if (fx_master_on(st) && st >= INS_N) {  /* shared buses: MASTER is exclusive */
+            if (fx_master_owned(st, (uint32_t)tr) && !send)
+                fx_master_clear(st);
         } else if (st == INS_SLCR) {
-            int32_t tr = (int32_t)(TSEL - trk);
             uint32_t bit = 1u << (uint32_t)tr;
             sl_own_sanitize();
-            if (sl_trk_send(TSEL) != send) {
+            if (send && sl_trk_send(TSEL))
+                fx_master_set(st, (uint32_t)tr);
+            else if (sl_trk_send(TSEL) != send) {
                 motion_fx_route(TSEL, INS_SLCR, 0);
                 song.g[G_SLOWN] = (int16_t)((uint32_t)song.g[G_SLOWN] ^ bit);  /* this track SEND <-> CHAIN */
                 motion_fx_route(TSEL, INS_SLCR, 1);
             }
         } else if (st == INS_DLY || st == INS_REV) {
             uint32_t which = st == INS_REV ? 1u : 0u;
-            int32_t own = bus_own(which), tr = (int32_t)(TSEL - trk);
+            int32_t own = bus_own(which);
             if (send) {
                 if (own == tr)
                     bus_own_set(which, -1);           /* right: release this track's CHAIN, SEND for all */
+                else if (own < 0)
+                    fx_master_set(st, (uint32_t)tr); /* SEND -> MASTER */
             } else if (own < 0)                       /* left: claim CHAIN only when no other track owns it */
                 bus_own_set(which, tr);
-        } else if (send != ins_is_send(TSEL, st))
+        } else if (fx_master_on(st) && !fx_master_owned(st, (uint32_t)tr)) {
+            if (send != ins_is_send(TSEL, st))        /* another track's MASTER: CHAIN / SEND still works */
+                ins_send_set(TSEL, st, send);
+        } else if (fx_master_owned(st, (uint32_t)tr)) {
+            if (!send)
+                fx_master_clear(st);
+        } else if (send != ins_is_send(TSEL, st)) {
             ins_send_set(TSEL, st, send);
+        } else if (send) {
+            fx_master_set(st, (uint32_t)tr);          /* right from SEND: this track's MASTER insert */
+        }
     } else if ((mode = fx_list_mode(TSEL, st))[0] != 'U') {
         int global = st == INS_TAPE;
         uint32_t id = ior_pct_id();

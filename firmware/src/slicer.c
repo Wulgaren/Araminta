@@ -307,6 +307,22 @@ static __attribute__((noinline)) void slicer_track_sd(const track_t *t, int32_t 
  * noinline: its three call sites (fx.c) stay out of the audio ISR's mix code, as its _sd twin's */
 static __attribute__((noinline)) void slicer_track(const track_t *t, int32_t *b, uint32_t n) { slicer_track_sd(t, b, 0, n); }
 
+/* MASTER: the whole stereo mix through the owner's mode / pattern / rate / mix. The shared bus is exclusive,
+ * so no track's own slicer runs and sl_buf[0] / [1] are free for the left / right recordings. */
+static sl_t sl_m[2] __attribute__((section(".pool")));
+static void slicer_master_reset(void)
+{
+    memset(sl_m, 0, sizeof sl_m);
+    memset(sl_buf[0], 0, sizeof sl_buf[0]);
+    memset(sl_buf[1], 0, sizeof sl_buf[1]);
+    sl_m[0].idx = sl_m[1].idx = 15;
+}
+static __attribute__((noinline)) void slicer_master_run(const track_t *owner, int32_t *l, int32_t *r, uint32_t n)
+{
+    sl_run(owner, owner, &sl_m[0], sl_buf[0], l, 0, n);
+    sl_run(owner, owner, &sl_m[1], sl_buf[1], r, 0, n);
+}
+
 /* a silent part must still be rendered: a repeat is playing or fading (fx.c mix_part) */
 static int slicer_busy(const track_t *t)
 {
