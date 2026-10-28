@@ -151,8 +151,8 @@ enum {                          /* global parameters */
                                    * (project.c); older projects copy SEND on load. */
     G_SLOWN,                      /* EFFECTS SLICER: bits 0..3 = per-track SEND (1) / CHAIN (0).
                                    * Legacy 0 = all SEND, 1..4 = one CHAIN owner (others USED); sanitized to a mask. */
-    G_TTEMPO,                     /* TAPE tempo: ON slows the source clock with SPEED (as before);
-                                   * OFF is the head's pitch only, the transport and voices keep time. */
+    G_TTEMPO,                     /* TAPE tempo: ON keeps the transport and voices at the song tempo and
+                                   * leaves SPEED as the head's pitch; OFF slows the source clock with SPEED. */
     G_COUNT
 };
 #define G_SYNC G_DREL                   /* (old names: formats' importers and their tests) */

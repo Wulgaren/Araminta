@@ -181,6 +181,7 @@ static void test_tape(void)
     song.g[G_TAPEMODE] = TAPE_MASTER;
     song.g[G_TSPEED] = 50;
     song.g[G_TMIX] = 127;
+    song.g[G_TTEMPO] = 0;                             /* source-clock varispeed */
     tape_note();
     master = hash_out(64);
     zc_master = zero_cross_blocks(64);
@@ -192,6 +193,7 @@ static void test_tape(void)
     song.g[G_TAPEMODE] = TAPE_CH1;
     song.g[G_TSPEED] = 50;
     song.g[G_TMIX] = 127;
+    song.g[G_TTEMPO] = 0;                             /* source-clock varispeed */
     tape_note();
     chain = hash_out(64);
     zc_chain = zero_cross_blocks(64);
@@ -207,33 +209,33 @@ static void test_tape(void)
     send = hash_out(64);
     ck("TAPE SEND 50 %: the wet copy changes the render", send != dry);
 
-    {   /* TEMPO OFF: SPEED is the head's pitch only; the clock and the voices keep time. */
+    {   /* TEMPO ON: SPEED is the head's pitch only; the clock and the voices keep time. */
         uint32_t base = (uint32_t)FS * 60u /
                         (song.g[G_BPM] >= 40 ? (uint32_t)song.g[G_BPM] : 120u);
-        uint64_t off_master, off_chain;
-        fresh();
-        song.g[G_TAPEMODE] = TAPE_MASTER;
-        song.g[G_TSPEED] = 50; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 0;
-        tape_note();
-        off_master = hash_out(64);
-        ck("TAPE TEMPO OFF MASTER 50 %: the pitch head changes the render, the beat stays",
-           off_master != dry && beat_samples() == base && tape_pitch16_for(&trk[0]) == 0 &&
-           tp.speed_q16 == 32768 && tp.speed_pitch16 < 0);
-
-        fresh();
-        song.g[G_TAPEMODE] = TAPE_CH1;
-        song.g[G_TSPEED] = 50; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 0;
-        tape_note();
-        off_chain = hash_out(64);
-        ck("TAPE TEMPO OFF CHAIN 50 %: the owner's pitch moves, its sequencer stays 1x",
-           off_chain != dry && tape_seq_speed_q16(&trk[0]) == 65536 &&
-           tape_pitch16_for(&trk[0]) == 0);
-
+        uint64_t on_master, on_chain;
         fresh();
         song.g[G_TAPEMODE] = TAPE_MASTER;
         song.g[G_TSPEED] = 50; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 1;
         tape_note();
-        ck("TAPE TEMPO ON MASTER 50 %: the source clock slows (the beat lengthens)",
+        on_master = hash_out(64);
+        ck("TAPE TEMPO ON MASTER 50 %: the pitch head changes the render, the beat stays",
+           on_master != dry && beat_samples() == base && tape_pitch16_for(&trk[0]) == 0 &&
+           tp.speed_q16 == 32768 && tp.speed_pitch16 < 0);
+
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_CH1;
+        song.g[G_TSPEED] = 50; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 1;
+        tape_note();
+        on_chain = hash_out(64);
+        ck("TAPE TEMPO ON CHAIN 50 %: the owner's pitch moves, its sequencer stays 1x",
+           on_chain != dry && tape_seq_speed_q16(&trk[0]) == 65536 &&
+           tape_pitch16_for(&trk[0]) == 0);
+
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_MASTER;
+        song.g[G_TSPEED] = 50; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 0;
+        tape_note();
+        ck("TAPE TEMPO OFF MASTER 50 %: the source clock slows (the beat lengthens)",
            beat_samples() > base && tape_pitch16_for(&trk[0]) < 0);
     }
 
@@ -423,14 +425,14 @@ static void test_master_slicer_restart(void)
     fx_master_clear(INS_SLCR);
 }
 
-/* Re-engaging TEMPO OFF after a silent bypass must not replay the previous sound. */
+/* Re-engaging TEMPO ON after a silent bypass must not replay the previous sound. */
 static void test_tape_bypass_history(void)
 {
     for (uint32_t chain = 0; chain < 2u; chain++) {
         int ok = 1;
         fresh();
         song.g[G_TAPEMODE] = chain ? TAPE_CH1 : TAPE_MASTER;
-        song.g[G_TTEMPO] = 0;
+        song.g[G_TTEMPO] = 1;
         song.g[G_TMIX] = 127;
         for (uint32_t phase = 0; phase < 3u; phase++) {
             song.g[G_TSPEED] = phase == 1u ? 100 : 99;

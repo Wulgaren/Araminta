@@ -377,7 +377,7 @@ static int tape_wire(void)
           c.g[G_TAPEMODE] == TAPE_MASTER && c.g[G_TTEMPO] == 0 && c.t[0].p[P_TAPEMIX] == 77 &&
           c.fx_master[INS_DIST] == 1 && c.fx_master[INS_DLY] == 2 && c.fx_master[INS_SLCR] == 4 &&
           c.fx_master[INS_TAPE] == 3 && c.fx_master[INS_REV] == 0;
-    {   /* the same bytes stamped FUN18 (before TEMPO): it loads ON, as it behaved */
+    {   /* the same bytes stamped FUN18 (before TEMPO): it loads ON, the current default */
         uint32_t sum;
         ((uint32_t *)st.raw)[0] = PROJ_MAGIC_V18;
         sum = proj_hash(st.raw, PROJ_STORE_SIZE - 4u);

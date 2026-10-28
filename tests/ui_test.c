@@ -9297,6 +9297,14 @@ static int test_fx_sections(void)
             song.sel = 0;
             ok &= str_eq(fx_list_mode(TSEL, INS_TAPE), "USED");
             song.g[G_TAPEMODE] = TAPE_SEND;
+            {   /* SEND keeps time: TEMPO is fixed ON, so K4 cannot turn it */
+                go_title("TAPE");
+                song.g[G_TTEMPO] = 0;
+                turn(EN_K4, 8);
+                ok &= song.g[G_TTEMPO] == 0;
+                song.g[G_TTEMPO] = 1;
+                go_title("EFFECTS");
+            }
         } else {
             ok = 0;
         }

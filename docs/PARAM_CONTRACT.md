@@ -129,15 +129,17 @@ events stay. AUTOMATION's DELETE (`EDIT`) removes the row's record; PLAY OFF byp
 
 - `G_TTEMPO` (global id 31, label `TEMPO`, OFF / ON, default **ON**) is the TAPE page's K4. It changes how SPEED
   reaches the sound; it is not a motion target or a per-track parameter.
-- ON: the source clock varispeeds, as before. MASTER slows every voice and `beat_samples()`; CHAIN slows the
-  owner's voice and sequencer; SEND is already the head-only route.
-- OFF: SPEED moves only the rotating head's pitch. Voices, `beat_samples()` and sequencer division stay at the
-  song tempo. CHAIN and MASTER mix the head in by `G_TMIX` (a wet amount, like SEND) instead of replacing the
-  dry; the dry path keeps time through the head's `TP_COMP` when the head runs. At SPEED 100 with no WOW / DROP
-  the head is bypassed, so the route is the dry path.
+- ON: the transport, voices and sequencer keep time. SPEED moves only the rotating head's pitch. CHAIN and MASTER mix
+  the head in by `G_TMIX` (a wet amount, like SEND) instead of replacing the dry; the dry path keeps time through
+  the head's `TP_COMP` when the head runs. At SPEED 100 with no WOW / DROP the head is bypassed, so the route is the
+  dry path.
+- OFF: the source clock varispeeds. MASTER slows every voice and `beat_samples()`; CHAIN slows the owner's voice and
+  sequencer; SEND is already the head-only route.
+- SEND always keeps time, so its TEMPO card is drawn dimmed as ON and K4 cannot change the stored value there.
 - Persistence: FUN19 writes it in header byte 67 bit 7 (bit 0 still marks the CHAIN tank bytes). FUN18 and older
-  load it ON. `project.c` (`proj_pack` / `proj_unpack`), `core.h`, `params.c`, `fx.c`, `tests/inschain_test.c`,
-  `tests/project_test.c`, `web/editor.html`.
+  load it ON. Projects saved before the meaning swap keep the bit, so their ON now means keep-time.
+  `project.c` (`proj_pack` / `proj_unpack`), `core.h`, `params.c`, `fx.c`, `ui_draw.c`, `ui_input.c`,
+  `tests/inschain_test.c`, `tests/project_test.c`, `tests/ui_test.c`, `web/editor.html`.
 
 ### EV_*: AUTOMATION's own step rows
 

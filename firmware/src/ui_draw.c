@@ -1285,6 +1285,10 @@ static void draw_columns(void)
             draw_act_column(c, d->label, T_THEME, ICON_AUTO);
             continue;
         }
+        if (vp == &song.g[G_TTEMPO] && song.g[G_TAPEMODE] == TAPE_SEND) {   /* SEND keeps time: TEMPO fixed ON */
+            draw_column(c, d->label, "ON", "", T_DIM, -1, param_icon(d, *vp));
+            continue;
+        }
         param_format(d, *vp, val, &unit);
         card_mot_of(vp);                                /* (a global: never) */
         if (vp == &TSEL->p[P_LRATE] && TSEL->p[P_LSYNC]) {   /* LFO 2 SYNC on: RATE does nothing, DIM (1.2) */
