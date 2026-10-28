@@ -40,6 +40,10 @@ FUN16 and older load with TAPE off and the EFFECTS order rebuilt. Splash and ABO
   the note divisions; the mode column shows `TIME` or `RATE`. The division last used is still the one
   TIME returns to. This swaps the 3.0–3.1 direction, so it is a change of muscle memory, not of stored
   data (`G_DTIME` is unchanged and old projects load the same).
+- **RATE tap through a tempo change.** With TAPE MASTER or TEMPO OFF the RATE tap's target follows the
+  tape speed every block. The tap now holds while the target moves, then fades out, moves and fades back
+  in (~12 ms), so the feedback loop keeps its pitch instead of splicing (crackle) or gliding (detuned
+  grain). Division changes still snap; free-ms TIME still glides.
 - **REPEAT 1/12 (PUNCH-IN 1/2, G3).** A third of a beat (the 8T rate), on the same 1/16 start as the other
   REPEATs. It is a buffer effect like 1/8: below ~54 BPM the loop is too short and the cell dims.
 - **/2 and *2 TEMPO (PUNCH-IN 2/2, A4 and B4).** /2 is the former 1/2 TEMPO, now beside its double. While held,
