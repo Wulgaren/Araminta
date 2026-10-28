@@ -422,6 +422,24 @@ static int autosave_test(void)
     return bad;
 }
 
+/* A MASTER-only route edit must trigger a flash autosave and survive a cold boot. */
+static int autosave_master_test(void)
+{
+    int ok;
+    reset();
+    as_power_on();
+    memset(fx_master_tr, 0, sizeof fx_master_tr);
+    ins_send_set(&trk[0], INS_DIST, 1);
+    autosave_boot(1);
+    fx_master_set(INS_DIST, 0);
+    as_run(11000u);
+    ok = as.writes == 1u;
+    as_power_on();
+    memset(fx_master_tr, 0, sizeof fx_master_tr);
+    ok &= autosave_boot(1) == 1 && fx_master_owned(INS_DIST, 0);
+    return check("autosave: SEND to MASTER alone is saved and restored", ok);
+}
+
 int main(void)
 {
     int bad = 0, ok;
@@ -701,6 +719,7 @@ int main(void)
                   irq_races == 3u && song.playing && !transport_req && persist_pending && erases == before);
     bad += mig_test();
     bad += autosave_test();
+    bad += autosave_master_test();
     printf("%s\n", bad ? "PERSISTENCE TEST FAILED" : "persistence test passed");
     return bad != 0;
 }

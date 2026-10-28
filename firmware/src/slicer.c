@@ -65,6 +65,7 @@ typedef struct {
     uint8_t rec_on;              /* recording this step */
 } sl_t;
 static sl_t sl[NTRK];
+static sl_t sl_m[2] __attribute__((section(".pool")));
 static sl_t sl_bus;              /* shared SEND clock; recordings and envelopes stay in sl[] */
 static sl_t sl_bus_blk;          /* sl_bus at the start of the current mix block */
 static uint8_t sl_bus_applied;   /* 1 after the first SEND track committed the bus clock this block */
@@ -108,6 +109,8 @@ static void slicer_start(void)   /* seq_start: the next block starts step 0 of e
     sl_bus.pos = sl_bus.len = 0;
     sl_bus_applied = 0;
     sl_bus_driver = 0xFF;        /* no block picked a driver yet: the next caller claims it (host tests) */
+    memset(sl_m, 0, sizeof sl_m);
+    sl_m[0].idx = sl_m[1].idx = 15;
 }
 
 static uint32_t sl_pattern(const track_t *t) { return SL_PAT[(uint32_t)(t->p[P_SLPAT] - 1) % SL_NPAT]; }
@@ -309,7 +312,6 @@ static __attribute__((noinline)) void slicer_track(const track_t *t, int32_t *b,
 
 /* MASTER: the whole stereo mix through the owner's mode / pattern / rate / mix. The shared bus is exclusive,
  * so no track's own slicer runs and sl_buf[0] / [1] are free for the left / right recordings. */
-static sl_t sl_m[2] __attribute__((section(".pool")));
 static void slicer_master_reset(void)
 {
     memset(sl_m, 0, sizeof sl_m);

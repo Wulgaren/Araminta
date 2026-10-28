@@ -1568,6 +1568,15 @@ async function editorMotionRows() {
   inputs[0].value = 1; await inputs[0].change();
   ok(requests[0].value.param === M.MFX_TIME && requests[0].value.value === 65 && pdesc[M.MFX_TIME].label === "SRC1" && pdesc[M.MFX_TIME].max === 10,
      "editor: TIME edits encode milliseconds while ordinary matrix descriptors stay intact");
+  motion.events = [{step: 0, param: M.MFX_TSPEED, value: 200, lock: true}, {step: 1, param: M.MFX_TWOW, value: 90}];
+  inputs.length = 0; labels.length = 0;
+  R();
+  ok(labels.join() === "TAPE SPEED,TAPE WOW" && inputs[0].min === 25 && inputs[0].max === 400 && inputs[0].value === 200 &&
+    inputs[1].min === 0 && inputs[1].max === 127 && inputs[1].value === 90,
+    "editor: TAPE motion rows use SPEED and WOW labels and global ranges");
+  inputs[0].value = 400; await inputs[0].change();
+  ok(requests[1].op === 5 && requests[1].value.param === M.MFX_TSPEED && requests[1].value.value === 400,
+    "editor: editing a TAPE SPEED lock keeps its kind and exact 400 percent value");
 }
 
 /* MOTION reads: the device's pool is 192 since FUN16, 128 in 1.2, 64 before; neither the reply parser nor a
