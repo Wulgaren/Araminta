@@ -32,7 +32,7 @@ mod_end 32
 perf_begin 28
 perf_mute 0
 perf_pre 30
-perf_block 800
+perf_block 891
 perf_master 30
 perf_flanger 368
 perf_phaser 448
