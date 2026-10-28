@@ -5,8 +5,8 @@
 The stock V15 supply rails before core 1, Felucca's DRUMS engine, a per-step PITCH lock, beat-synced chord
 STRUM / STROKE, the new REPEAT 1/12, /2 and *2 TEMPO and GLITCH punch-ins, the DELAY page's TIME / RATE
 direction swapped, the MS-20-inspired punch filter, TAPE as the tenth EFFECTS bus, and MASTER on every EFFECTS
-row. New saves are FUN18 (`FUNI`); FUN17 and older load with no MASTER owners, TAPE off and the EFFECTS order
-rebuilt. Splash and ABOUT show `v3.2`.
+row. New saves are FUN19 (`FUNJ`); FUN18 and older load with TEMPO ON, no MASTER owners, TAPE off and the
+EFFECTS order rebuilt. Splash and ABOUT show `v3.2`.
 
 ### Boot
 
@@ -24,7 +24,12 @@ rebuilt. Splash and ABOUT show `v3.2`.
   that selected it; that track shows MASTER and the others show USED on the shared buses. Inserts keep their
   per-track CHAIN / SEND beside a private MASTER instance (2x state, in the POOL); the shared buses are
   exclusive, since a second delay line / third reverb tank would not fit. MASTER inserts use the owner track's
-  parameters and MIX; shared masters use the owner track's DLY / REV / SLCR MIX. The routing saves in FUN18.
+  parameters and MIX; shared masters use the owner track's DLY / REV / SLCR MIX. The routing saves in FUN19.
+- **TAPE TEMPO (K4).** The TAPE page's fourth knob is TEMPO, OFF / ON, default ON. ON is the earlier source-clock
+  varispeed: CHAIN / MASTER move the transport and voices with SPEED. OFF leaves the transport, voices and
+  sequencer in time and makes SPEED the rotating head's pitch only; CHAIN and MASTER then mix the head in by MIX
+  (a wet amount, like SEND) and at SPEED 100 with no WOW / DROPOUT the head is bypassed. Saves in FUN19; FUN18
+  and older load ON.
 - **TAPE SPEED / WOW in LFO MOD and step locks.** Both are MOD destinations (`TSPEED` / `TWOW` after the
   existing DLY / REV targets) and lock targets from the TAPE page (KNOB 1 / 2 on a held SEQ step). As with
   other shared sends, CHAIN allows only the owner track and MASTER allows every track; SEND is claimed by the
@@ -83,12 +88,13 @@ rebuilt. Splash and ABOUT show `v3.2`.
 
 ### Projects
 
-- **FUN18 (`FUNI`).** Same layout and 3840-byte size as FUN16/17. Each track's ten-slot EFFECTS order rides in
+- **FUN19 (`FUNJ`).** Same layout and 3840-byte size as FUN16/17/18. Each track's ten-slot EFFECTS order rides in
   the unused high bits of its FM6 patch bytes (after the six generation controls); each stage's MASTER owner
-  (3 bits) goes in the chain header's spare bytes 1..3 and the motion header's spare byte 3. FUN17 and older
-  load with no MASTER owners, the order rebuilt from `P_IORD` / `P_CHOR` / the SLCR slot and TAPE off; only FUN18
-  is written. Firmware that only knows FUN16/17 refuses a FUN18 (magic): its slot shows EMPTY until saved over,
-  so keep a backup before the first save. The editor reads the order through `PROJECT` / `TRACK_DUMP` as before; no command changed.
+  (3 bits) goes in the chain header's spare bytes 1..3 and the motion header's spare byte 3; TAPE TEMPO is header
+  byte 67 bit 7. FUN18 and older load with TEMPO ON, no MASTER owners, the order rebuilt from `P_IORD` / `P_CHOR`
+  / the SLCR slot and TAPE off; only FUN19 is written. Firmware that only knows FUN16/17/18 refuses a FUN19
+  (magic): its slot shows EMPTY until saved over, so keep a backup before the first save. The editor reads the
+  order through `PROJECT` / `TRACK_DUMP` as before; no command changed.
 
 ### SCL
 

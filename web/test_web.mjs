@@ -282,16 +282,16 @@ async function editorMock() {
     const rd = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 14)));
     const r1 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 5)));
     const r0 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 0)));
-    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 31,
+    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 32,
       "editor: MIDI IN routing (ROUT CH1-4 / SEL / CH5-8 / CH9-12 / CH13-16, global id 14)");
   }
   {
-    /* FX > REVERB TYPE (G_RTYPE 24): ROOM / SPRING / HALL / SHIMR / CLOUD; CHAIN tank + G_SLOWN (G_COUNT 31) */
+    /* FX > REVERB TYPE (G_RTYPE 24): ROOM / SPRING / HALL / SHIMR / CLOUD; CHAIN tank + G_SLOWN + TAPE TEMPO (G_COUNT 32) */
     const rd = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 24)));
     const r1 = E.parse[E.CMD.SET](await rq(E.req.set(1, 24, 10)));
     const r0 = E.parse[E.CMD.SET](await rq(E.req.set(1, 24, 0)));
     ok(rd.label === "TYPE" && rd.def === 2 && eq(rd.names, ["ROOM", "SPRING", "HALL", "SHIMR", "CLOUD"]) &&
-       r1.value === 4 && r0.value === 0 && info.gcount === 31,
+       r1.value === 4 && r0.value === 0 && info.gcount === 32,
       "editor: REVERB TYPE (ROOM / SPRING / HALL / SHIMR / CLOUD, global id 24)");
   }
   const st = E.parse[E.CMD.STEP_SET](await rq(E.req.stepSet(5, { n: 2, notes: [60, 64], time: 0, flags: 1, vel: 100 })));
@@ -476,6 +476,8 @@ function mockTables() {
   cmp("P_IORD", E.P_IORD, fw.P_IORD);
   const slown = T.GP.find((d) => d.label === "SLOWN");
   ok(slown && slown.min === 0 && slown.max === 15, "editor: SLOWN 0..15 (0 = all SEND; 1..4 legacy owner)");
+  const tempo = T.GP.find((d) => d.label === "TEMPO");
+  ok(tempo && tempo.def === 1 && eq(tempo.names, ["OFF", "ON"]), "editor: TAPE TEMPO OFF/ON (default ON)");
   cmp("TP length", T.TP.length, fw.TP.length);
   fw.TP.forEach((d, i) => cmp(`TP[${i}]`, T.TP[i] && norm(T.TP[i]), d));
   cmp("GP length", T.GP.length, fw.GP.length);
