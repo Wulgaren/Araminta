@@ -4317,6 +4317,25 @@ static int test_tape_locks(void)
               motion_lock_get(t, 4, MFX_TWOW, &v) && v > 0;
         bad += check("TAPE page: held SEQ step locks SPEED (K1) and WOW (K2); K3 / K4 are not locks", ok);
     }
+    ui_power_on();
+    t = TSEL;
+    t->p[P_LWAVE] = 4;                                  /* S&H makes SMOOTH available on LFO 2 */
+    go_title("LFO 2");
+    ok = !lock_page_ok(ui.page);
+    go_seq_step();
+    frame();
+    {
+        uint32_t k4 = key_at(0, 4);
+        int16_t v;
+        fm1_in.notes |= 1u << k4;
+        host_notes |= 1u << k4;
+        frame();
+        turn(EN_K4, 5);
+        fm1_in.notes &= ~(1u << k4);
+        frame();
+        bad += check("LFO 2 SMOOTH on a held SEQ step cannot create a TAPE WOW lock",
+            ok && !motion_lock_get(t, 4, MFX_TWOW, &v));
+    }
     return bad;
 }
 

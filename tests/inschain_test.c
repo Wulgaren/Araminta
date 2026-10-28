@@ -297,6 +297,102 @@ static void test_master_insert(void)
     song.g[G_TSPEED] = 100;
 }
 
+/* A pulse at a block boundary must reach both MASTER delay lines on later blocks. */
+static void test_master_swept_tail(void)
+{
+    uint32_t st, b, i;
+    for (st = INS_FLANG; st <= INS_CHOR; st++) {
+        int64_t left = 0, right = 0;
+        fresh();
+        ins_send_set(&trk[0], st, 0);
+        trk[0].p[st == INS_FLANG ? P_ILMIX : P_IHMIX] = 127;
+        trk[0].p[st == INS_FLANG ? P_ILDEP : P_IHDEP] = 0;
+        fx_master_set(st, 0);
+        memset(mix_l, 0, sizeof mix_l);
+        memset(mix_r, 0, sizeof mix_r);
+        mix_l[CTL - 1u] = 16000;
+        mix_r[CTL - 1u] = -12000;
+        fx_master_run(CTL);
+        for (b = 0; b < 8u; b++) {
+            memset(mix_l, 0, sizeof mix_l);
+            memset(mix_r, 0, sizeof mix_r);
+            fx_master_run(CTL);
+            for (i = 0; i < CTL; i++) {
+                left += mix_l[i] < 0 ? -mix_l[i] : mix_l[i];
+                right += mix_r[i] < 0 ? -mix_r[i] : mix_r[i];
+            }
+        }
+        ck(st == INS_FLANG ? "MASTER FLANG: a boundary pulse rings in both channels" :
+                                 "MASTER CHOR: a boundary pulse rings in both channels",
+           left > 0 && right > 0);
+        fx_master_clear(st);
+    }
+}
+
+/* A fresh fully wet delay/reverb has no return yet, even for a loud summed mix. */
+static void test_master_bus_headroom(void)
+{
+    uint32_t st, sign;
+    for (st = INS_DLY; st <= INS_REV; st++) {
+        int ok = 1;
+        for (sign = 0; sign < 2u; sign++) {
+            fresh();
+            trk[0].p[st == INS_DLY ? P_DLY : P_REV] = 127;
+            fx_master_set(st, 0);
+            mix_l[0] = mix_r[0] = sign ? -100000 : 100000;
+            fx_master_run(1);
+            ok &= mix_l[0] == 0 && mix_r[0] == 0;
+            fx_master_clear(st);
+        }
+        ck(st == INS_DLY ? "MASTER DELAY: full wet removes a loud dry mix without overflow" :
+                              "MASTER REVERB: full wet removes a loud dry mix without overflow", ok);
+    }
+}
+
+/* Transport restart reopens step zero of the MASTER gate on both channels. */
+static void test_master_slicer_restart(void)
+{
+    uint32_t b, i;
+    int32_t open_l, open_r, closed_l, closed_r;
+    fresh();
+    song.g[G_BPM] = 300;
+    song.g[G_SWING] = 0;
+    trk[0].p[P_SSWING] = 0;
+    trk[0].p[P_SLCR] = SL_GATE;
+    trk[0].p[P_SLPAT] = 1;
+    trk[0].p[P_SLRATE] = 2;
+    trk[0].p[P_SLDEPTH] = 127;
+    fx_master_set(INS_SLCR, 0);
+    seq_start();
+    for (b = 0; b < 1536u / CTL; b++) {
+        for (i = 0; i < CTL; i++) {
+            mix_l[i] = 20000;
+            mix_r[i] = -16000;
+        }
+        fx_master_run(CTL);
+        if (b == 256u / CTL - 1u) {
+            open_l = mix_l[CTL - 1u];
+            open_r = mix_r[CTL - 1u];
+        }
+    }
+    closed_l = mix_l[CTL - 1u];
+    closed_r = mix_r[CTL - 1u];
+    seq_stop();
+    seq_start();
+    for (b = 0; b < 256u / CTL; b++) {
+        for (i = 0; i < CTL; i++) {
+            mix_l[i] = 20000;
+            mix_r[i] = -16000;
+        }
+        fx_master_run(CTL);
+    }
+    ck("MASTER SLICER: restarting transport reopens step zero in both channels",
+       open_l > 10000 && open_r < -8000 && closed_l < 100 && closed_r > -100 &&
+       mix_l[CTL - 1u] == open_l && mix_r[CTL - 1u] == open_r);
+    seq_stop();
+    fx_master_clear(INS_SLCR);
+}
+
 static int pick_has(uint32_t id, const char *name)
 {
     uint32_t i;
@@ -534,6 +630,9 @@ int main(void)
     test_tape();
     test_master_insert();
     test_master_shared();
+    test_master_swept_tail();
+    test_master_bus_headroom();
+    test_master_slicer_restart();
     ck("param layout: insert chain before FTYPE/ESYNC/E0",
        P_SPRD + 1 == P_IORD && P_IHMIX + 1 == P_FTYPE && P_ESYNC + 1 == P_E0 && P_COUNT == 127u && P_E0 == 119u);
 

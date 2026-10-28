@@ -104,7 +104,8 @@ events stay. AUTOMATION's DELETE (`EDIT`) removes the row's record; PLAY OFF byp
   first track to claim one keeps it (the shared-knob rule). The value sounds from the next audio block.
 - On disk, a DLY TIME value above 255 uses ids 54..59 for its high byte (`MFX_DAMP + (value >> 8)`); 54..59
   are not real motion targets in that record. TAPE SPEED's 25..400 is packed into its value byte, exact at
-  25 / 100 / 400 (`proj_tspeed_put` / `proj_tspeed_get`). `project.c proj_pack()` / `proj_unpack()` must agree.
+  25 / 100 / 400 (`proj_tspeed_put` / `proj_tspeed_get`). Rounded encoding and decoding keep the first
+  quantized value stable through repeated saves. `project.c proj_pack()` / `proj_unpack()` must agree.
 - Files: `core.h`, `fx.c` (`fx_target_ptr`, `fx_target_desc`, `fx_target_stage`), `motion.c`
   (`motion_param`, `motion_valid`, `motion_capture_base`, `motion_restore`, `motion_fx_route`),
   `ui_events.c` (`FX_DST`, `ev_name`, `pk_build_auto`), `ui.c lock_id()`, `project.c`, `editor.c`,
@@ -117,7 +118,9 @@ events stay. AUTOMATION's DELETE (`EDIT`) removes the row's record; PLAY OFF byp
   `core.h fx_master_tr[]`; project: `project_t.fx_master[]`.
 - Inserts (`INS_DIST..INS_CHOR`) keep their per-track CHAIN / SEND and add a private stereo MASTER instance.
   DLY / REV / SLCR / TAPE are exclusive while MASTER: their per-track routes are suppressed and the list shows
-  USED. The owner track's EFFECTS order (`fx_master_order_tr`) runs the master chain.
+  USED. The last track to assign a MASTER stage supplies the EFFECTS order (`fx_master_order_tr`). Its index
+  plus one is stored in three FM6 high bits after track 0's EFFECTS order (`project_t.fx_master_order`). Zero
+  identifies older saves and uses their first owner track. Autosave tracks both ownership and this order source.
 - UI: `fx_list_mode()` shows the owner's stage as MASTER; K3 sets / clears it; other tracks cannot take over.
   Files: `fx.c` (`fx_master_run`, `fx_list_mode`, `ior_knob`), `project.c` (`proj_pack` / `proj_unpack`),
   `tests/ui_test.c`, `tests/inschain_test.c`, `tests/project_test.c`.

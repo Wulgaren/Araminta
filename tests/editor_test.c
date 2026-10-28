@@ -184,6 +184,20 @@ static int editor_fx_order(void)
         bad += check("loading keeps the saved ten-stage chain despite stale legacy fields",
             restored && !memcmp(got, initial, sizeof got));
     }
+    {
+        static project_t saved, loaded;
+        static project_store_t wire;
+        reset();
+        fx_list_set(&trk[0], initial);
+        fx_list_set(&trk[1], positioned);
+        fx_master_set(INS_DIST, 0);
+        fx_master_set(INS_DLY, 1);
+        project_capture(&saved);
+        int restored = proj_pack(&wire, &saved) && proj_import(&loaded, &wire, sizeof wire) &&
+            !project_restore_runtime(&loaded);
+        bad += check("saving and loading preserves the selected MASTER ordering track",
+            restored && fx_master_order_tr == 1);
+    }
     return bad;
 }
 static uint32_t pack7(const uint8_t *p, uint32_t n, uint8_t *a)

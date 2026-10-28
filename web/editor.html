@@ -452,8 +452,9 @@ const MOTION_MAX = 192;                          /* RAM records (core.h MOTION_M
 const MOTION_FILE_MAX = 88;                      /* core.h MOTION_FILE_MAX (FUN16) */
 const MSEQ_PITCH = 127;                          /* a step's chromatic offset: lock-only, never indexes p[] */
 const MFX_TIME = 49, MFX_DAMP = 53;              /* MFX_TIME..MFX_DAMP: the DLY / REV bus targets (P_M1SRC..P_M2DST) */
+const MFX_TSPEED = 41, MFX_TWOW = 42;             /* motion-only TAPE targets reuse P_TAPEMIX / P_LSMOOTH */
 const MOTION_LOCK = 0x80;                        /* bit 7 of a record's id byte: a parameter lock */
-const MOTION_PROTO = { MOTION_MAX, MOTION_FILE_MAX, MSEQ_PITCH, MFX_TIME, MFX_DAMP, MOTION_LOCK };
+const MOTION_PROTO = { MOTION_MAX, MOTION_FILE_MAX, MSEQ_PITCH, MFX_TIME, MFX_DAMP, MFX_TSPEED, MFX_TWOW, MOTION_LOCK };
 const P_IORD = 96;                               /* core.h P_IORD: insert chain order in bits 0..9, SEND flags in 10..15 */
 const parse = {
   [CMD.INFO](a) {
@@ -3879,7 +3880,9 @@ function renderMotion() {
   rows.replaceChildren(el("tr", {}, ...["motionStep", "motionParam", "motionValue"].map(k => el("th", {text:t(k)})), el("th")),
     ...m.events.map(e => {
       const fx = e.param >= MFX_TIME && e.param <= MFX_DAMP, time = e.param === MFX_TIME, pitch = e.param === MSEQ_PITCH;
-      const desc = pitch ? {label: "PITCH", min: -24, max: 24} : fx ? {label: ["DLY TIME", "DLY FDBK", "DLY COLOR", "REV SIZE", "REV DAMP"][e.param - MFX_TIME],
+      const desc = e.param === MFX_TSPEED ? {label: "TAPE SPEED", min: 25, max: 400}
+        : e.param === MFX_TWOW ? {label: "TAPE WOW", min: 0, max: 127}
+        : pitch ? {label: "PITCH", min: -24, max: 24} : fx ? {label: ["DLY TIME", "DLY FDBK", "DLY COLOR", "REV SIZE", "REV DAMP"][e.param - MFX_TIME],
         min: time ? 1 : 0, max: time ? 1486 : e.param === MFX_TIME + 1 ? 120 : 127} : d.pdesc[e.param];
       const label = desc?.label || `P${e.param}`;
       const value = el("input", {type:"number",min:desc?.min ?? -8192,max:desc?.max ?? 8191,value:e.value - (time ? 64 : 0),"aria-label":`${e.step + 1} ${label}`});

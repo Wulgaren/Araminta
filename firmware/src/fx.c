@@ -2606,12 +2606,17 @@ static int master_any(void)
 }
 static __attribute__((noinline)) void master_insert_run(track_t *owner, uint32_t st, uint32_t n)
 {
+    uint32_t ch;
     const track_t *src = (ins_is_send(owner, st)) ? &fx_bus_trk : owner;
     int32_t tw = ins_mixq(ins_mix_of(owner, st));
     if (!tw && !ins_master_st[0][st].w && !ins_master_st[1][st].w)
         return;
-    ins_run_st(&ins_master_st[0][st], src, mix_l, n, tw, st, ins_master_lines[0], 0);
-    ins_run_st(&ins_master_st[1][st], src, mix_r, n, tw, st, ins_master_lines[1], 1);
+    for (ch = 0; ch < 2u; ch++) {
+        ins_st_t *run = &ins_master_st[ch][st];
+        uint32_t wbase = ins_run_st(run, src, ch ? mix_r : mix_l, n, tw, st, ins_master_lines[ch], ch);
+        if (st == INS_FLANG || st == INS_CHOR)
+            ins_win_put(ins_master_lines[ch][run->line_i & 1u], ins_win[ch][run->line_i & 1u], wbase, n);
+    }
 }
 static __attribute__((noinline)) void master_dly_run(track_t *owner, uint32_t n)
 {
@@ -2624,7 +2629,7 @@ static __attribute__((noinline)) void master_dly_run(track_t *owner, uint32_t n)
         return;
     g = ins_mixq(amt);
     for (i = 0; i < n; i++) {
-        int32_t d = ((master_wet[i] - master_mono[i]) * g) >> 15;
+        int32_t d = mulq16(master_wet[i] - master_mono[i], (uint32_t)g << 1);
         mix_l[i] += d;
         mix_r[i] += d;
     }
@@ -2650,7 +2655,7 @@ static __attribute__((noinline)) void master_rev_run(track_t *owner, uint32_t n)
     }
     g = ins_mixq(amt);
     for (i = 0; i < n; i++) {
-        int32_t d = ((master_wet[i] - master_mono[i]) * g) >> 15;
+        int32_t d = mulq16(master_wet[i] - master_mono[i], (uint32_t)g << 1);
         mix_l[i] += d;
         mix_r[i] += d;
     }

@@ -549,7 +549,7 @@ static int lock_page_ok(uint32_t i)
     if (i >= NPAGES || (PAGES[i].scope != SC_TRACK && PAGES[i].scope != SC_ENGINE) || PAGES[i].graph == GR_MOD)
         return 0;
     for (k = 0; k < 4u; k++)
-        if (PAGES[i].id[k] != 0xFFu && motion_param(PAGES[i].id[k]))
+        if (PAGES[i].id[k] != 0xFFu && !MFX_ALL(PAGES[i].id[k]) && motion_param(PAGES[i].id[k]))
             return 1;
     return 0;
 }
@@ -575,7 +575,7 @@ static uint32_t lock_id(uint32_t k)
         id = MSEQ_PITCH;                         /* SCL KNOB 4 on a held step: the PITCH lock */
     if (id == MSEQ_PITCH && kit_track(TSEL))
         return 0xFFu;                            /* PITCH is inert on a kit track: the knob creates no lock */
-    return param_id_known(id) && motion_param(id) &&
+    return param_id_known(id) && !MFX_ALL(id) && motion_param(id) &&
            fx_target_available(TSEL, id) ? id : 0xFFu;
 }
 

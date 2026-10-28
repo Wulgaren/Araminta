@@ -249,6 +249,23 @@ static int fx_motion_wire(void)
     bad += check("FUN14 projects retain their three-byte locks and global IDs", ok && proj_import(&loaded, &st, sizeof st) &&
         loaded.motion.count == 1 && loaded.motion.event[0].param == (P_REV | MOTION_LOCK) &&
         loaded.motion.event[0].value == 109 && loaded.g[G_CRSIZE] == 22);
+    {
+        static const int16_t speed[] = {25, 50, 100, 128, 195, 200, 399, 400};
+        ok = 1;
+        for (uint32_t k = 0; k < NELEM(speed); k++) {
+            int16_t first;
+            q.motion.event[0] = (motion_event_t){17, MFX_TSPEED | MOTION_LOCK, speed[k]};
+            ok &= proj_pack(&st, &q) && proj_import(&loaded, &st, sizeof st);
+            first = loaded.motion.event[0].value;
+            ok &= abs(first - speed[k]) <= (speed[k] / 50 ? speed[k] / 50 : 1);
+            for (uint32_t cycle = 0; cycle < 8u; cycle++) {
+                q.motion = loaded.motion;
+                ok &= proj_pack(&st, &q) && proj_import(&loaded, &st, sizeof st) &&
+                      loaded.motion.event[0].value == first;
+            }
+        }
+        bad += check("TAPE SPEED locks quantize once and stay stable across save/load cycles", ok);
+    }
     return bad;
 }
 static int generation_wire(void)
