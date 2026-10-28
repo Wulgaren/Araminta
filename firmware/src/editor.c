@@ -160,12 +160,12 @@ static struct {
     uint8_t on, eng, preset, sel;
     uint8_t v4;                                          /* WATCH bit 1: TRACK_CHANGED pushes too */
     uint32_t pos, last_ms, run_ms, resets;
-    int16_t v[ED_NV];                                    /* TSEL->p[], then song.g[] */
-    uint16_t t[ED_NV];                                   /* ms (low 16 bits) of the last push */
     uint32_t st[NSTEP];                                  /* step signatures */
     int16_t tv[ED_NT];                                   /* v4: trk[k].p[ED_TIDS[j]] at k * 3 + j */
     uint16_t tt[ED_NT];
     uint32_t tpos;
+    int16_t v[ED_NV];                                    /* TSEL->p[], then song.g[] */
+    uint16_t t[ED_NV];                                   /* ms (low 16 bits) of the last push */
 } ed_w;
 
 static int16_t *ed_val(uint32_t i) { return i < P_COUNT ? &TSEL->p[i] : &song.g[i - P_COUNT]; }
