@@ -764,11 +764,40 @@ static void test_fx_controls(void)
     }
 }
 
+static void test_all_shared_controls(void)
+{
+    static const uint8_t DEST[] = {MD_DTIME, MD_DFB, MD_DCOLOR, MD_RSIZE, MD_RDAMP, MD_TSPEED, MD_TWOW};
+    static const uint8_t GLOBAL[] = {G_DTIME, G_DFDBK, G_DCOLOR, G_RSIZE, G_RDAMP, G_TSPEED, G_TWOW};
+    static const int16_t BASE[] = {564, 40, 30, 20, 10, 100, 0};
+    static const int16_t TOP[] = {1550, 120, 127, 127, 127, 400, 125};
+    uint32_t i, k;
+    host_tracks_init();
+    song.g[G_TAPEMODE] = TAPE_MASTER;
+    for (i = 0; i < NELEM(DEST); i++) {
+        track_t *t = &trk[i / NMSLOT];
+        song.g[GLOBAL[i]] = BASE[i];
+        t->mw = 127;
+        slot(t, i % NMSLOT, MS_MODW, DEST[i], 63);
+    }
+    for (k = 0; k < 2; k++) {
+        bus_knobs_g(&trk[k]);
+        mod_begin(&trk[k]);
+        mod_end(&trk[k]);
+    }
+    mod_bus_begin();
+    for (i = 0; i < NELEM(DEST); i++)
+        check("all seven shared controls reach the bus in the same block", song.g[GLOBAL[i]] == TOP[i]);
+    mod_bus_end();
+    for (i = 0; i < NELEM(DEST); i++)
+        check("all seven shared controls restore their stored values", song.g[GLOBAL[i]] == BASE[i]);
+}
+
 int main(int argc, char **argv)
 {
     test_off();
     test_math();
     test_fx_controls();
+    test_all_shared_controls();
     test_midi();
     test_cost();
     if (argc > 1)

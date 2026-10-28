@@ -671,6 +671,20 @@ async function editorFm4() {
     const one = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: 4, engineName: "SAMPLE", p: perc }, ctx).patches[0];
     ok(isKit(rp[0]) && rp[1].engine === 4 && isKit(one),
       "library file: SAMPLE PERC->DRUM, other SAMPLE stays");
+    const oldDrum = { ...fileP, patches: [{ name: "OLD BEAT", engine: 10, engineName: "DRUM", params: base, grid: [[0x81, 0x80]], tags: [] }] };
+    const importedDrum = E.readLibraryFile(oldDrum, ctx);
+    const singleDrum = E.readLibraryFile({ format: "felucca-patch", engine: 10, engineName: "DRUM", p: base }, ctx).patches[0];
+    ok(importedDrum.skipped === 0 && importedDrum.patches[0]?.engineName === "DRUM-X" &&
+      importedDrum.patches[0]?.grid[0][0] === 0x81 && importedDrum.patches[0]?.grid[0][1] === 0x80 &&
+      eq(importedDrum.patches[0].p, base) && singleDrum?.engineName === "DRUM-X" && eq(singleDrum.p, base),
+      "library file: legacy DRUM imports as DRUM-X with its sound and grid");
+    const savedDrum = { id: "drum", name: "OLD BEAT", engine: 10, engineName: "DRUM", p: base.slice(), grid: [[0x81, 0x80]], tags: ["beat"] };
+    L.set([savedDrum], { keys, engines: info.engines });
+    await L.libAdopt(dv);
+    ok(savedDrum.engine === 10 && savedDrum.engineName === "DRUM-X" && eq(savedDrum.p, base) &&
+      savedDrum.grid[0][0] === 0x81 && savedDrum.grid[0][1] === 0x80 && savedDrum.tags.join() === "beat" &&
+      L.written().length === 1 && L.written()[0] === savedDrum,
+      "library: adoption persists a legacy DRUM sound as DRUM-X even with an unchanged layout");
   }
   /* put to the device: its DIGITAL values as engine 1 (the device converts them on load); read back as FM6 */
   let rc = await E.bank.put(rq, 9, { ...r91, engine: 1, p: r91.fm4 });
@@ -901,6 +915,11 @@ async function editorGrid() {
   await rq(E.req.upStore(15, "STORED"));
   const g2 = await E.bank.get(rq, info, 15);
   ok(g2.grid && g2.grid[0][0] === 0x81 && g2.grid[0][1] === 0x80, "grid: UP_STORE of a DRUM track stores its grid");
+  await rq(E.req.preset(15, 0));
+  await rq(E.req.stepSet(0, { n: 0, notes: [0, 0, 0, 0], time: 0, flags: 0, vel: 0, hit: 0x81, acc: 0x80 }));
+  const drums = (await E.capturePatch(rq, info, "DRUMS BEAT")).patch;
+  ok(drums.engineName === "DRUMS" && drums.grid && !drums.pattern && drums.grid[0][0] === 0x81 && drums.grid[0][1] === 0x80,
+    "grid: capture of a DRUMS track keeps its hits and accents");
   const p3 = await E.bank.get(rq, info, 2);
   ok(p3.pattern && p3.grid === null, "grid: a note pattern stays a pattern (kind 0)");
   done();
@@ -1551,6 +1570,15 @@ async function editorMotionRows() {
   inputs[0].value = 1; await inputs[0].change();
   ok(requests[0].value.param === M.MFX_TIME && requests[0].value.value === 65 && pdesc[M.MFX_TIME].label === "SRC1" && pdesc[M.MFX_TIME].max === 10,
      "editor: TIME edits encode milliseconds while ordinary matrix descriptors stay intact");
+  motion.events = [{step: 0, param: M.MFX_TSPEED, value: 200, lock: true}, {step: 1, param: M.MFX_TWOW, value: 90}];
+  inputs.length = 0; labels.length = 0;
+  R();
+  ok(labels.join() === "TAPE SPEED,TAPE WOW" && inputs[0].min === 25 && inputs[0].max === 400 && inputs[0].value === 200 &&
+    inputs[1].min === 0 && inputs[1].max === 127 && inputs[1].value === 90,
+    "editor: TAPE motion rows use SPEED and WOW labels and global ranges");
+  inputs[0].value = 400; await inputs[0].change();
+  ok(requests[1].op === 5 && requests[1].value.param === M.MFX_TSPEED && requests[1].value.value === 400,
+    "editor: editing a TAPE SPEED lock keeps its kind and exact 400 percent value");
 }
 
 /* MOTION reads: the device's pool is 192 since FUN16, 128 in 1.2, 64 before; neither the reply parser nor a
