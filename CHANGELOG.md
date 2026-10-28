@@ -5,8 +5,8 @@
 The stock V15 supply rails before core 1, Felucca's DRUMS engine, a per-step PITCH lock, beat-synced chord
 STRUM / STROKE, the new REPEAT 1/12, /2 and *2 TEMPO and GLITCH punch-ins, the DELAY page's TIME / RATE
 direction swapped, the MS-20-inspired punch filter, TAPE as the tenth EFFECTS bus, and MASTER on every EFFECTS
-row. New saves are FUN19 (`FUNJ`); FUN18 and older load with TEMPO ON, no MASTER owners, TAPE off and the
-EFFECTS order rebuilt. Splash and ABOUT show `v3.2`.
+row. New saves are FUN19 (`FUNJ`); FUN18 and older load with TEMPO ON. FUN17 and older have no MASTER owners;
+FUN16 and older load with TAPE off and the EFFECTS order rebuilt. Splash and ABOUT show `v3.2`.
 
 ### Boot
 
@@ -91,8 +91,9 @@ EFFECTS order rebuilt. Splash and ABOUT show `v3.2`.
 - **FUN19 (`FUNJ`).** Same layout and 3840-byte size as FUN16/17/18. Each track's ten-slot EFFECTS order rides in
   the unused high bits of its FM6 patch bytes (after the six generation controls); each stage's MASTER owner
   (3 bits) goes in the chain header's spare bytes 1..3 and the motion header's spare byte 3; TAPE TEMPO is header
-  byte 67 bit 7. FUN18 and older load with TEMPO ON, no MASTER owners, the order rebuilt from `P_IORD` / `P_CHOR`
-  / the SLCR slot and TAPE off; only FUN19 is written. Firmware that only knows FUN16/17/18 refuses a FUN19
+  byte 67 bit 7. FUN18 and older load with TEMPO ON; FUN17 and older have no MASTER owners; FUN16 and older
+  rebuild the order from `P_IORD` / `P_CHOR` / the SLCR slot and load with TAPE off. Only FUN19 is written.
+  Firmware that only knows FUN16/17/18 refuses a FUN19
   (magic): its slot shows EMPTY until saved over, so keep a backup before the first save. The editor reads the
   order through `PROJECT` / `TRACK_DUMP` as before; no command changed.
 

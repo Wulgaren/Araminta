@@ -168,19 +168,25 @@ static const int16_t TAPE_PITCH16[376] = {
 static struct {
     uint32_t w, ph, cw, wow_ph, fl_ph, rng, drop_wait, drop_len, drop_n, drop_step, eff_recip;
     int32_t speed_q16, eff_q16, speed_pitch16, drop_amt;
-    uint8_t mode, tempo;
+    uint8_t mode, tempo, head_on;
 } tp __attribute__((section(".pool")));
 /* Effective SPEED / WOW for the next block: the knob, a step lock or the matrix's folded per-part values
  * (fx_buses, after the parts). A block of latency keeps the global tape out of the parts' race. */
 static int16_t tape_speed_eff = 100, tape_wow_eff;
 static uint8_t fx_master_gen;                        /* mix_cache invalidation when MASTER routing moves */
-static void tape_clear(void)
+/* Route changes and head bypass discard buffered audio without changing source-clock slew. */
+static void tape_head_clear(void)
 {
     memset(tp_buf, 0, sizeof tp_buf);
     memset(tp_comp, 0, sizeof tp_comp);
+    tp.w = tp.cw = 0;
+    tp.ph = (TP_W / 4u) << 16;                        /* rest head at TP_COMP */
+}
+static void tape_clear(void)
+{
     memset(&tp, 0, sizeof tp);
+    tape_head_clear();
     tp.speed_q16 = tp.eff_q16 = 65536;
-    tp.ph = (TP_W / 4u) << 16;                        /* rest head at TP_COMP (speed 100 is a clean pass) */
     tp.rng = 0x9E3779B9u;
     tp.tempo = (uint8_t)(song.g[G_TTEMPO] != 0);
     tape_speed_eff = song.g[G_TSPEED];
@@ -233,6 +239,12 @@ static void tape_pre(void)
     tp.speed_q16 += clamp(target * 65536 / 100 - tp.speed_q16, -TP_SLEW, TP_SLEW);
     pct = clamp((tp.eff_q16 * 100 + 32768) / 65536, 25, 400);
     tp.speed_pitch16 = TAPE_PITCH16[pct - 25];
+    {
+        int head = song.g[G_TAPEMODE] == TAPE_SEND || tape_head_on();
+        if (tp.head_on && !head)
+            tape_head_clear();
+        tp.head_on = (uint8_t)head;
+    }
 }
 /* Source-clock varispeed: MASTER (all parts) or the CHAIN owner. SEND leaves the parts alone. */
 int32_t tape_pitch16_for(const struct track *t)
@@ -526,7 +538,7 @@ void fx_order_default(uint16_t iord, int16_t fchor, uint8_t slpos, uint8_t ord[F
         for (j = idx; j + 1u < INS_N - i; j++)
             av[j] = av[j + 1u];
     }
-    sp = slpos < FX_LIST_N ? slpos : 8u;
+    sp = slpos < FX_LIST_N - 1u ? slpos : 8u;
     if (fchor < FX_POS_MARK) {
         d8 = 6; r8 = 7; sp = 8;
     } else {
@@ -551,19 +563,41 @@ void fx_order_default(uint16_t iord, int16_t fchor, uint8_t slpos, uint8_t ord[F
         ord[i] = ins[j++];
     }
 }
+static struct { uint16_t iord; int16_t chor; uint8_t slpos; } fx_order_legacy[NTRK]
+    __attribute__((section(".pool")));
+/* Accept a restored ten-stage order without rewriting its saved legacy parameters. */
+static void fx_order_accept(const track_t *t)
+{
+    uint32_t tr = (uint32_t)(t - trk);
+    fx_order_legacy[tr].iord = (uint16_t)iord_perm_of(iord_bits(t));
+    fx_order_legacy[tr].chor = t->p[P_CHOR];
+    fx_order_legacy[tr].slpos = t->fx_sl_pos;
+}
+/* Reconcile legacy parameter edits while keeping TAPE at its ten-stage list position. */
 static void fx_list_get(const track_t *t, uint8_t ord[FX_LIST_N])
 {
-    uint8_t *o = fx_order_tbl[t - trk];           /* (the order is a runtime cache the UI fills) */
-    uint32_t i;
-    if (!fx_order_ok(o))
-        fx_order_default((uint16_t)t->p[P_IORD], t->p[P_CHOR], t->fx_sl_pos, o);
+    uint32_t tr = (uint32_t)(t - trk), i, tp = FX_LIST_N - 1u;
+    uint16_t iord = (uint16_t)iord_perm_of(iord_bits(t));
+    uint8_t *o = fx_order_tbl[tr];
+    int valid = fx_order_ok(o);
+    if (!valid || fx_order_legacy[tr].iord != iord || fx_order_legacy[tr].chor != t->p[P_CHOR] ||
+        fx_order_legacy[tr].slpos != t->fx_sl_pos) {
+        if (valid)
+            for (i = 0; i < FX_LIST_N; i++)
+                if (o[i] == INS_TAPE) tp = i;
+        fx_order_default(iord, t->p[P_CHOR], t->fx_sl_pos, o);
+        for (i = FX_LIST_N - 1u; i > tp; i--)
+            o[i] = o[i - 1u];
+        o[tp] = INS_TAPE;
+        fx_order_accept(t);
+    }
     for (i = 0; i < FX_LIST_N; i++)
         ord[i] = o[i];
 }
 static void fx_list_set(track_t *t, const uint8_t ord[FX_LIST_N])
 {
     uint8_t ins[INS_N], *o = fx_order_tbl[t - trk];
-    uint32_t i, j = 0, dp = 6, rp = 7, sp = 8;
+    uint32_t i, j = 0, pos = 0, dp = 6, rp = 7, sp = 8;
     if (!fx_order_ok(ord)) {
         fx_order_default((uint16_t)t->p[P_IORD], t->p[P_CHOR], t->fx_sl_pos, o);
         return;
@@ -571,21 +605,19 @@ static void fx_list_set(track_t *t, const uint8_t ord[FX_LIST_N])
     for (i = 0; i < FX_LIST_N; i++) {
         uint8_t st = ord[i];
         o[i] = st;
+        if (st == INS_TAPE)
+            continue;
         if (st == INS_DLY)
-            dp = i;
+            dp = pos;
         else if (st == INS_REV)
-            rp = i;
+            rp = pos;
         else if (st == INS_SLCR)
-            sp = i;
-        else if (j < INS_N)
+            sp = pos;
+        else
             ins[j++] = st;
+        pos++;
     }
-    if (j != INS_N) {
-        fx_order_default((uint16_t)t->p[P_IORD], t->p[P_CHOR], t->fx_sl_pos, o);
-        return;
-    }
-    fx_pos_set(t, dp, rp, sp);                    /* legacy IDs (0..8); the order above is the source */
-    t->fx_sl_pos = (uint8_t)(sp < 9u ? sp : 8u);
+    fx_pos_set(t, dp, rp, sp);                    /* nine-stage legacy projection excludes TAPE */
     ins_order_set(t, ins);
 }
 /* swap list slots h and h+dir; 1 if swapped, 0 if out of range (ORDER keeps the highlight) */
@@ -2629,12 +2661,17 @@ static int master_any(void)
 }
 static __attribute__((noinline)) void master_insert_run(track_t *owner, uint32_t st, uint32_t n)
 {
+    uint32_t ch;
     const track_t *src = (ins_is_send(owner, st)) ? &fx_bus_trk : owner;
     int32_t tw = ins_mixq(ins_mix_of(owner, st));
     if (!tw && !ins_master_st[0][st].w && !ins_master_st[1][st].w)
         return;
-    ins_run_st(&ins_master_st[0][st], src, mix_l, n, tw, st, ins_master_lines[0], 0);
-    ins_run_st(&ins_master_st[1][st], src, mix_r, n, tw, st, ins_master_lines[1], 1);
+    for (ch = 0; ch < 2u; ch++) {
+        ins_st_t *run = &ins_master_st[ch][st];
+        uint32_t wbase = ins_run_st(run, src, ch ? mix_r : mix_l, n, tw, st, ins_master_lines[ch], ch);
+        if (st == INS_FLANG || st == INS_CHOR)
+            ins_win_put(ins_master_lines[ch][run->line_i & 1u], ins_win[ch][run->line_i & 1u], wbase, n);
+    }
 }
 static __attribute__((noinline)) void master_dly_run(track_t *owner, uint32_t n)
 {
@@ -2647,7 +2684,7 @@ static __attribute__((noinline)) void master_dly_run(track_t *owner, uint32_t n)
         return;
     g = ins_mixq(amt);
     for (i = 0; i < n; i++) {
-        int32_t d = ((master_wet[i] - master_mono[i]) * g) >> 15;
+        int32_t d = mulq16(master_wet[i] - master_mono[i], (uint32_t)g << 1);
         mix_l[i] += d;
         mix_r[i] += d;
     }
@@ -2673,7 +2710,7 @@ static __attribute__((noinline)) void master_rev_run(track_t *owner, uint32_t n)
     }
     g = ins_mixq(amt);
     for (i = 0; i < n; i++) {
-        int32_t d = ((master_wet[i] - master_mono[i]) * g) >> 15;
+        int32_t d = mulq16(master_wet[i] - master_mono[i], (uint32_t)g << 1);
         mix_l[i] += d;
         mix_r[i] += d;
     }

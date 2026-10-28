@@ -213,8 +213,9 @@ What changes when you save (or when quiet autosave writes after idle):
   MASTER owner (3 bits) in the chain header's spare bytes 1..3 and the motion header's spare byte 3, and TAPE
   TEMPO in header byte 67 bit 7. The song chain still packs two bytes a section, for 88 motion records (FUN15 and
   older: 72), on top of the DRUM-X kit, SCALE LOCK, SEND bus knobs, SLICER list slots and exact FX lock packing.
-  FUN18 and older load: TEMPO ON, no MASTER owners, the order rebuilt from the old P_IORD / P_CHOR / SLCR slot and
-  the other TAPE fields at their defaults. Only FUN19 is written. **Any firmware before this build refuses FUN19:**
+  FUN18 and older load with TEMPO ON. FUN17 and older have no MASTER owners; FUN16 and older rebuild the order
+  from P_IORD / P_CHOR / the SLCR slot and use the other TAPE defaults. Only FUN19 is written.
+  **Any firmware before this build refuses FUN19:**
   that slot shows EMPTY there until you save over it (flash data stays until then). A backup that holds FUN19 is
   refused there too. Upgrade is one-way for anything you re-save on this build.
 - **Motion on disk max is 88** (FUN10: 110; FUN15: 72; RAM 192). Extra locks stay in RAM until truncated on pack;

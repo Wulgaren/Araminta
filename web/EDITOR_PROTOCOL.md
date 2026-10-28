@@ -672,15 +672,15 @@ when the track's engine is not the saved one).
   older as before. Firmware before 1.2 refuses a FUN10 (its size and magic), so an editor must not send one there
   (`BACKUP_PUT` begin answers rc 1 for its size). Backups, `PROJECT` and the editor's project files carry the 3840 bytes.
   **Read only since FUN11:** a FUN10 loads with the factory DRUM-X kit (no kit bytes on disk).
-- **Projects (FUN19, this build).** Same 3840-byte object and layout as FUN16/17/18, magic `4A 4E 55 46` ("FUNJ", FUN19
+- **Projects (FUN19, this build).** Same 3840-byte object and layout as FUN16/17/18, magic `46 55 4E 4A` ("FUNJ", FUN19
   in these notes): the song chain still packs each section into 2 bytes (4 slots x 3 bits, repeats − 1 x 4 bits) after the
   4-byte header, 36 bytes in all instead of 84, which pays for 88 motion records (4 + 88 × 3 = 268) instead of 72.
   Each track's ten-slot EFFECTS order (six inserts + DLY + REV + SLCR + TAPE) is in the unused high bits of its FM6
   patch bytes, after the six generation controls; original readers mask those bits, so the patch itself is unchanged.
   FUN18 adds each stage's MASTER owner as a 3-bit field: stages 0..7 in the chain header's spare bytes 1..3, stages
   8..9 in the motion header's spare byte 3. FUN19 adds TAPE TEMPO (`G_TTEMPO`) in header byte 67 bit 7; bit 0 of
-  that byte still marks the CHAIN tank bytes. FUN18 (`49 4E 55 46`) and older load with TEMPO ON, no MASTER owners;
-  the order is rebuilt from `P_IORD` / `P_CHOR` / the SLCR slot and the other TAPE fields take their defaults. Only
+  that byte still marks the CHAIN tank bytes. FUN18 and older load with TEMPO ON. FUN17 and older have no MASTER
+  owners; FUN16 and older rebuild the order from `P_IORD` / `P_CHOR` / the SLCR slot and use other TAPE defaults. Only
   FUN19 is written. Firmware that only knows FUN16/17/18 refuses a FUN19 (magic): its slot shows EMPTY until saved
   over, so keep a backup before the first save.
 - **Projects (FUN11, Araminta).** Same 3840-byte object as FUN10, magic `46 55 4E 42` ("FUNB", FUN11 in these notes): the DRUM-X kit (`dx_lane_t[8]`, 88 bytes), mute lo/hi, a marker byte, and X-MOD `dx_mot[4]` (96 bytes total) at offset 3216 just before the FM6 patches — as JIANT's FUNA kit placement. Disk motion shrinks to 78 records (4 + 78 × 3 = 238) so the kit fits; RAM still holds 128. Firmware that only knows FUN10 refuses a FUN11 (magic): its slot shows EMPTY until saved over. Backups, `PROJECT` and the editor's project files still carry 3840 bytes (begin accepts the size as for FUN10; the magic distinguishes the layout).

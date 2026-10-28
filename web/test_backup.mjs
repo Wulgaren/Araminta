@@ -154,6 +154,20 @@ ok(await athrows(() => restoreBackup(failing.request, file)) && failing.log.incl
     await restoreProject(restored.request, currentFile, 1);
     ok(restored.objs.get(3).every((v, i) => v === fun15[i]), "project: FUN15 export/import retains every lock byte");
   }
+  for (const magicByte of [0x48, 0x49, 0x4a]) {
+    const bytes = fun10(52, "TAPE TEMPO");
+    bytes.set([0x46, 0x55, 0x4e, magicByte]);
+    let captured;
+    try { captured = await captureProject(device([[2, bytes]]).request, 0, "TEST"); }
+    catch { captured = null; }
+    ok(captured !== null, `project: FUN${magicByte - 0x41 + 10} exports from the device`);
+    if (captured !== null) {
+      const restored = device([]);
+      await restoreProject(restored.request, captured, 1);
+      ok(restored.objs.get(3).every((v, i) => v === bytes[i]),
+        `project: FUN${magicByte - 0x41 + 10} export/import preserves all project bytes`);
+    }
+  }
 }
 
 console.log(fails ? `BACKUP WEB TESTS FAILED (${fails})` : "backup web tests passed");

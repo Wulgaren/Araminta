@@ -4317,6 +4317,25 @@ static int test_tape_locks(void)
               motion_lock_get(t, 4, MFX_TWOW, &v) && v > 0;
         bad += check("TAPE page: held SEQ step locks SPEED (K1) and WOW (K2); K3 / K4 are not locks", ok);
     }
+    ui_power_on();
+    t = TSEL;
+    t->p[P_LWAVE] = 4;                                  /* S&H makes SMOOTH available on LFO 2 */
+    go_title("LFO 2");
+    ok = !lock_page_ok(ui.page);
+    go_seq_step();
+    frame();
+    {
+        uint32_t k4 = key_at(0, 4);
+        int16_t v;
+        fm1_in.notes |= 1u << k4;
+        host_notes |= 1u << k4;
+        frame();
+        turn(EN_K4, 5);
+        fm1_in.notes &= ~(1u << k4);
+        frame();
+        bad += check("LFO 2 SMOOTH on a held SEQ step cannot create a TAPE WOW lock",
+            ok && !motion_lock_get(t, 4, MFX_TWOW, &v));
+    }
     return bad;
 }
 
@@ -6343,6 +6362,30 @@ static int test_seq_tools(void)
     hold(B_SAVE);
     ok &= TSEL->p[P_SLEN] == 8 && !memcmp(TSEL->step, ref, sizeof ref) && tl_lock_at(3);
     bad += check("  *2 squeezes pairs (LEN 8 -> 4), first note wins; SAVE held undoes", ok);
+
+    /* Colliding locks follow the retained note, regardless of record insertion order. */
+    ui_power_on();
+    tl_melody();
+    tl_note(&TSEL->step[1], 62);
+    motion_set_lock(TSEL, 1, P_REV, 90);
+    motion_set_lock(TSEL, 0, P_REV, 30);
+    motion_set_lock(TSEL, 2, P_REV, 70);             /* step 3 is empty: step 4's E wins */
+    go_title("SEQ TOOLS"); frame();
+    tl_key(9);
+    {
+        int16_t v;
+        project_store_t packed;
+        project_t project;
+        project_capture(&project);
+        ok = motion_lock_get(TSEL, 0, P_REV, &v) && v == 30 &&
+             motion_lock_get(TSEL, 1, P_REV, &v) && v == 50 &&
+             proj_pack(&packed, &project);
+    }
+    bad += check("  *2 keeps the retained note's locks and the project remains saveable", ok);
+    hold(B_SAVE);
+    ui_power_on();
+    tl_melody();
+    go_title("SEQ TOOLS"); frame();
 
     /* HUMAN: per step, fresh velocity / nudge each press; QUANTIZE off so the nudge plays */
     go_title("SEQ TOOLS"); frame();

@@ -129,7 +129,8 @@
  * and take the TAPE fields' defaults. Firmware that only knows FUN16 refuses a FUN17 (magic), as before.
  * Format 18 ("FUNI", read only since FUN19; FUN18 in the docs) = FUN17 with the MASTER owner of each EFFECTS stage in the
  * chain header's spare bytes 1..3 and the motion header's spare byte 3 (ten 3-bit owners). Older firmware refuses
- * a FUN18 (magic); FUN17 and older load with no MASTER owners.
+ * a FUN18 (magic); FUN17 and older load with no MASTER owners. Three spare FM6 high bits after the EFFECTS
+ * order hold its MASTER ordering track plus one; zero retains the legacy first-owner ordering.
  * Format 19 ("FUNJ", written now; FUN19 in the docs) = FUN18 with the TAPE's TEMPO switch in header byte 67 bit 7
  * (bit 0 still marks the CHAIN tank bytes). Older firmware refuses a FUN19 (magic); FUN18 and older load with
  * TEMPO ON, which is how they behaved.
@@ -176,12 +177,12 @@
 static uint8_t proj_tspeed_put(int32_t v)
 {
     v = clamp(v, 25, 400);
-    return (uint8_t)(v <= 100 ? (v - 25) * 64 / 75 : 64 + (v - 100) * 63 / 300);
+    return (uint8_t)(v <= 100 ? ((v - 25) * 64 + 37) / 75 : 64 + ((v - 100) * 63 + 150) / 300);
 }
 static int16_t proj_tspeed_get(uint32_t raw)
 {
     raw &= 127u;
-    return (int16_t)(raw <= 64u ? 25 + raw * 75 / 64 : 100 + (raw - 64u) * 300 / 63);
+    return (int16_t)(raw <= 64u ? 25 + (raw * 75 + 32) / 64 : 100 + ((raw - 64u) * 300 + 31) / 63);
 }
 typedef struct {                               /* one track */
     int16_t p[P_COUNT];
@@ -210,6 +211,7 @@ typedef struct {
     uint8_t dx_mot[4];                         /* X-MOD RATE DPTH SHPE RAND (eng_drum.c); RAM-only since bus layout */
     uint8_t fx_bus[FX_BUS_N];                  /* SEND insert+slicer knobs (wire in reclaimed SCL/X-MOD bytes) */
     uint8_t fx_master[FX_LIST_N];              /* MASTER owner per EFFECTS stage; FUN18 wire */
+    uint8_t fx_master_order;                   /* ordering track + 1; zero: legacy first owner */
     char name[PROJ_NAME_LEN];                  /* the project's name: upper-case ASCII 32..126, 0-padded; "" = none */
     uint32_t sum;
 } project_t;
@@ -255,7 +257,8 @@ _Static_assert(68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE
                PROJ_SCL_OFF, "FUN16/17 motion ends at SCALE LOCK");
 /* FUN17: each track's ten-slot EFFECTS order in the FM6 patch bytes' unused high bits (after generation's 48). */
 #define PROJ_FXORDER_OFF 48u                    /* after generation's 6 x 8 high bits */
-_Static_assert(PROJ_FXORDER_OFF + FX_LIST_N * 4u <= FM6_PACKED, "FUN17 EFFECTS order in the FM6 high bits");
+#define PROJ_MASTER_ORDER_OFF (PROJ_FXORDER_OFF + FX_LIST_N * 4u)
+_Static_assert(PROJ_MASTER_ORDER_OFF + 3u <= FM6_PACKED, "EFFECTS and MASTER order in the FM6 high bits");
 static int proj_order_ok(const uint8_t ord[FX_LIST_N])
 {
     uint32_t i, seen = 0;
@@ -955,6 +958,10 @@ static int proj_pack(project_store_t *out, const project_t *q)
             fx_order_default((uint16_t)q->t[t].p[P_IORD], q->t[t].p[P_CHOR], q->t[t].fx_sl_pos, ord);
         proj_fx_order_pack(b, t, ord);
     }
+    if (q->fx_master_order > NTRK)
+        return 0;
+    for (i = 0; i < 3u; i++)
+        b[PROJ_FM6_OFF + PROJ_MASTER_ORDER_OFF + i] |= (uint8_t)(((q->fx_master_order >> i) & 1u) << 7);
     {   /* the name (0-padded; stops at the first 0) */
         char n[PROJ_NAME_LEN + 1u];
         memcpy(b + PROJ_NAME_OFF, n, proj_name_get(n, (const uint8_t *)q->name));
@@ -1263,6 +1270,12 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
             q->t[t].p[P_TAPEMIX] = 0;                /* the id was GLMOD: never read */
         }
     }
+    if (v18) {
+        for (i = 0; i < 3u; i++)
+            q->fx_master_order |= (uint8_t)(((b[PROJ_FM6_OFF + PROJ_MASTER_ORDER_OFF + i] >> 7) & 1u) << i);
+        if (q->fx_master_order > NTRK)
+            return 0;
+    }
     if (v11) {                                          /* DRUM-X kit (a broken one: not a project) */
         int bus_layout = (v14 && (b[PROJ_SCL_OFF] & 0x80u)) ||
                          (magic == PROJ_MAGIC_V13 && b[PROJ_SCL_MARK_OFF] == 1u);
@@ -1402,9 +1415,7 @@ static void project_capture(project_t *p)
         p->t[i].scl_stash[1] = trk[i].scl_stash[1];
         p->t[i].scl_stash[2] = trk[i].scl_stash[2];
         p->t[i].fx_sl_pos = trk[i].fx_sl_pos < FX_LIST_N ? trk[i].fx_sl_pos : 8u;
-        if (!proj_order_ok(fx_order_tbl[i]))
-            fx_order_default((uint16_t)trk[i].p[P_IORD], trk[i].p[P_CHOR], trk[i].fx_sl_pos, fx_order_tbl[i]);
-        memcpy(p->t[i].fx_order, fx_order_tbl[i], FX_LIST_N);
+        fx_list_get(&trk[i], p->t[i].fx_order);
         p->t[i].generation = trk[i].generation;
         fm6_pack(fm6_patch[i], p->fm6[i]);
     }
@@ -1413,6 +1424,11 @@ static void project_capture(project_t *p)
         p->fx_master[INS_TAPE] = 0;
     else if (!p->fx_master[INS_TAPE])
         p->fx_master[INS_TAPE] = (uint8_t)((song.sel < NTRK ? song.sel : 0u) + 1u);
+    for (i = 0; i < FX_LIST_N; i++)
+        if (p->fx_master[i]) {
+            p->fx_master_order = (uint8_t)(fx_master_order_tr + 1u);
+            break;
+        }
     p->motion = motion;
     memcpy(p->dx, dx_kit, sizeof p->dx);
     p->dx_mute = dx_mute;
@@ -1604,6 +1620,7 @@ static int project_restore_runtime(const project_t *input)
         memcpy(fx_order_tbl[k], s->fx_order, FX_LIST_N);
         if (!proj_order_ok(fx_order_tbl[k]))
             fx_order_default((uint16_t)t->p[P_IORD], t->p[P_CHOR], t->fx_sl_pos, fx_order_tbl[k]);
+        fx_order_accept(t);
         t->generation = s->generation;
         {   /* the project's own FM6 patch, never reloaded from SLOT: F n if it is that factory patch, else OWN */
             uint8_t v[FP_SIZE + 1u];
@@ -1615,6 +1632,8 @@ static int project_restore_runtime(const project_t *input)
     song.sel = (uint8_t)(p->sel < NTRK ? p->sel : 0u);
     memcpy(fx_master_tr, p->fx_master, FX_LIST_N);
     fx_master_sanitize();
+    if (p->fx_master_order && p->fx_master_order <= NTRK)
+        fx_master_order_tr = (uint8_t)(p->fx_master_order - 1u);
     for (i = 0; i < FX_LIST_N; i++)
         if (fx_master_tr[i])
             fx_master_reset_stage(i);
@@ -1841,6 +1860,8 @@ static uint32_t autosave_sig(void)
             int16_t v = motion_fx_base(&song.g[i]);
             h = as_mix(h, &v, sizeof v);
         }
+    h = as_mix(h, fx_master_tr, sizeof fx_master_tr);
+    h = as_mix(h, &fx_master_order_tr, sizeof fx_master_order_tr);
     h = as_mix(h, &motion, sizeof motion);
     h = as_mix(h, &chain_config, sizeof chain_config);
     return as_mix(h, proj_name, sizeof proj_name);
