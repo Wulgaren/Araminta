@@ -460,6 +460,11 @@ static void step_set_fl(step_t *s, uint32_t fl) { s->flags = (uint8_t)(fl & (SF_
 /* Motion-only targets reuse ids excluded from track automation. They never index p[]. */
 enum { MFX_TIME = P_M1SRC, MFX_FB, MFX_COLOR, MFX_SIZE, MFX_DAMP };
 #define MFX_PARAM(id) ((id) >= MFX_TIME && (id) <= MFX_DAMP)
+/* TAPE SPEED / WOW are global settings; motion reaches them through two real ids excluded from automation
+ * (P_TAPEMIX is otherwise unused, P_LSMOOTH is the LFO S&H smoothing). Their motion meaning is fx_target_ptr's. */
+enum { MFX_TSPEED = P_TAPEMIX, MFX_TWOW = P_LSMOOTH };
+#define MFX_TAPE(id) ((id) == MFX_TSPEED || (id) == MFX_TWOW)
+#define MFX_ALL(id) (MFX_PARAM(id) || MFX_TAPE(id))
 #define MSEQ_PITCH 127u                  /* lock-only (3.2): a step's chromatic semitone offset; never indexes p[] */
 /* The id spaces around a track's p[] (which holds P_COUNT real parameters):
  *   MSEQ_PITCH (127)      the step's chromatic PITCH: motion only, always stored with MOTION_LOCK
@@ -657,6 +662,15 @@ typedef struct {
 
 static track_t trk[NTRK];        /* the instrument: four parts */
 static uint8_t fx_order_tbl[NTRK][FX_LIST_N];   /* EFFECTS list order (FUN17 wire in the FM6 high bits) */
+/* MASTER in the EFFECTS list: one track owns each stage (index+1, 0 = none; TAPE included). Inserts run
+ * beside their per-track CHAIN / SEND; the shared buses are exclusive. The owner's list order is the
+ * master chain's order (fx_master_order_tr). Persisted in FUN18. */
+static uint8_t fx_master_tr[FX_LIST_N];
+static uint8_t fx_master_order_tr;
+static inline int fx_master_owned(uint32_t st, uint32_t tr)
+{
+    return st < FX_LIST_N && fx_master_tr[st] == (uint8_t)(tr + 1u);
+}
 static song_t song;
 #define TSEL (&trk[song.sel])    /* the selected track */
 static track_t fx_bus_trk;       /* SEND insert/slicer knobs in .p[]; other fields unused */
@@ -670,7 +684,7 @@ static track_t fx_bus_trk;       /* SEND insert/slicer knobs in .p[]; other fiel
  * and read its p[] (a cast of the copy). */
 typedef struct {
     int16_t p[P_COUNT];
-    int16_t g[5];              /* MFX_TIME..MFX_DAMP: the DLY / REV bus settings of song.g */
+    int16_t g[7];              /* MFX_TIME..MFX_DAMP, then TAPE SPEED / WOW */
 } bus_knobs_t;
 static bus_knobs_t bus_knobs[C1_NP];
 static uint8_t bus_knobs_on[C1_NP];         /* 1: this part's copy is its render's view (mod_begin) */
@@ -699,6 +713,8 @@ static int sl_trk_send(const track_t *t)
 {
     int32_t v = song.g[G_SLOWN];
     uint32_t tr = (uint32_t)(t - trk);
+    if (fx_master_tr[INS_SLCR])
+        return 0;
     if (v >= 0 && v <= (int32_t)NTRK)
         return v == 0;                                   /* legacy: only all-SEND; else CHAIN/USED */
     return (v & (int32_t)(1u << tr)) != 0;
@@ -707,6 +723,8 @@ static int sl_trk_chain(const track_t *t)
 {
     int32_t v = song.g[G_SLOWN];
     uint32_t tr = (uint32_t)(t - trk);
+    if (fx_master_tr[INS_SLCR])
+        return 0;
     if (v >= 0 && v <= (int32_t)NTRK)
         return v == (int32_t)(tr + 1u);
     return !(v & (int32_t)(1u << tr));
@@ -714,6 +732,8 @@ static int sl_trk_chain(const track_t *t)
 static int sl_trk_used(const track_t *t)
 {
     int32_t v = song.g[G_SLOWN];
+    if (fx_master_tr[INS_SLCR])
+        return 1;
     if (v >= 1 && v <= (int32_t)NTRK)
         return v != (int32_t)((t - trk) + 1u);            /* legacy exclusive owner */
     return 0;                                            /* mask form: never USED */

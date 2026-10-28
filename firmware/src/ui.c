@@ -540,7 +540,7 @@ static int lock_page_ok(uint32_t i)
 {
     uint32_t k;
     if (i < NPAGES && PAGES[i].scope == SC_GLOBAL &&
-        (PAGES[i].id[0] == G_DTIME || PAGES[i].id[0] == G_RTYPE))
+        (PAGES[i].id[0] == G_DTIME || PAGES[i].id[0] == G_RTYPE || PAGES[i].id[0] == G_TSPEED))
         return 1;
     if (i < NPAGES && PAGES[i].graph == GR_IORD)
         return 1;                                     /* KNOB 4 locks the chosen stage's mix */
@@ -559,6 +559,7 @@ static uint32_t lock_id(uint32_t k)
     if (ui.plk_src && lock_page_ok(ui.plk_src - 1u) && PAGES[ui.plk_src - 1u].scope == SC_GLOBAL) {
         const page_t *pg = &PAGES[ui.plk_src - 1u];
         id = pg->id[0] == G_DTIME ? (k < 3u ? MFX_TIME + k : 0xFFu)
+                                 : pg->id[0] == G_TSPEED ? (k == 0u ? MFX_TSPEED : k == 1u ? MFX_TWOW : 0xFFu)
                                  : (k == 1u || k == 2u ? MFX_SIZE + k - 1u : 0xFFu);
         return id != 0xFFu && fx_target_available(TSEL, id) ? id : 0xFFu;
     }

@@ -234,6 +234,68 @@ static void test_tape(void)
        str_eq(fx_list_mode(&trk[1], INS_TAPE), "USED") &&
        (song.g[G_TAPEMODE] = TAPE_MASTER, str_eq(fx_list_mode(&trk[0], INS_TAPE), "MASTER")));
 }
+/* A MASTER insert runs on the whole mix (here one track held): it is not bypassed and does not need the
+ * owner's per-track chain. Its MIX 0 is the dry path. */
+/* A shared bus in MASTER takes the whole mix: its per-track route is suppressed and the owner's MIX
+ * sets the amount. */
+static void test_master_shared(void)
+{
+    uint64_t dry;
+    fresh();
+    tape_note();
+    dry = hash_out(24);
+    fresh();
+    tape_note();
+    trk[0].p[P_DLY] = 127;
+    fx_master_set(INS_DLY, 0);
+    ck("MASTER DELAY: the whole mix carries the repeats", hash_out(24) != dry);
+    fx_master_clear(INS_DLY);
+    fresh();
+    tape_note();
+    trk[0].p[P_REV] = 127;
+    fx_master_set(INS_REV, 0);
+    ck("MASTER REVERB: the whole mix carries the tail", hash_out(24) != dry);
+    fx_master_clear(INS_REV);
+    fresh();
+    tape_note();
+    trk[0].p[P_SLCR] = SL_GATE;
+    trk[0].p[P_SLPAT] = 1;
+    trk[0].p[P_SLDEPTH] = 127;
+    fx_master_set(INS_SLCR, 0);
+    ck("MASTER SLICER: the whole mix is gated", hash_out(24) != dry);
+    fx_master_clear(INS_SLCR);
+    song.g[G_DLYOWN] = song.g[G_REVOWN] = 0;
+    song.g[G_SLOWN] = 0;
+}
+
+static void test_master_insert(void)
+{
+    uint64_t dry, master;
+    fresh();
+    tape_note();
+    dry = hash_out(24);
+    fresh();
+    tape_note();
+    trk[0].p[P_DIST] = 100;
+    trk[0].p[P_IDMODE] = IDM_HARD;
+    trk[0].p[P_IDMIX] = 127;
+    fx_master_set(INS_DIST, 0);
+    master = hash_out(24);
+    ck("MASTER insert DIST 127: the whole mix changes", master != dry);
+    fx_master_clear(INS_DIST);
+    fresh();
+    tape_note();
+    trk[0].p[P_DIST] = 100;
+    trk[0].p[P_IDMODE] = IDM_HARD;
+    trk[0].p[P_IDMIX] = 0;
+    fx_master_set(INS_DIST, 0);
+    ck("MASTER insert DIST MIX 0: bit-identical to dry", hash_out(24) == dry);
+    fx_master_clear(INS_DIST);
+    song.g[G_TAPEMODE] = TAPE_SEND;
+    song.g[G_TMIX] = 0;
+    song.g[G_TDROP] = song.g[G_TWOW] = 0;
+    song.g[G_TSPEED] = 100;
+}
 
 static int pick_has(uint32_t id, const char *name)
 {
@@ -470,6 +532,8 @@ int main(void)
     printf("inschain_test: P_COUNT %u P_E0 %u INS_N %u\n", (unsigned)P_COUNT, (unsigned)P_E0, (unsigned)INS_N);
     test_shared_chorus();
     test_tape();
+    test_master_insert();
+    test_master_shared();
     ck("param layout: insert chain before FTYPE/ESYNC/E0",
        P_SPRD + 1 == P_IORD && P_IHMIX + 1 == P_FTYPE && P_ESYNC + 1 == P_E0 && P_COUNT == 127u && P_E0 == 119u);
 

@@ -123,15 +123,19 @@
  * 88 motion records (4 + 88 x 3 = 268) instead of 72. Everything from PROJ_SCL_OFF on stays where it was. FUN15
  * and older load; firmware that only knows FUN15 refuses a FUN16 (magic): its slot shows EMPTY until saved over.
  *
- * Format 17 ("FUNH", written now; FUN17 in the docs) = FUN16 with each track's ten-slot EFFECTS order (six inserts
+ * Format 17 ("FUNH", read only since FUN18; FUN17 in the docs) = FUN16 with each track's ten-slot EFFECTS order (six inserts
  * + DLY + REV + SLCR + TAPE) in the unused high bits of its FM6 patch bytes, after the six generation controls.
  * The object and every offset are unchanged; FUN16 and older rebuild the order from P_IORD / P_CHOR / fx_sl_pos
  * and take the TAPE fields' defaults. Firmware that only knows FUN16 refuses a FUN17 (magic), as before.
+ * Format 18 ("FUNI", written now; FUN18 in the docs) = FUN17 with the MASTER owner of each EFFECTS stage in the
+ * chain header's spare bytes 1..3 and the motion header's spare byte 3 (ten 3-bit owners). Older firmware refuses
+ * a FUN18 (magic); FUN17 and older load with no MASTER owners.
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
-#define PROJ_MAGIC 0x484E5546u                 /* "FUNH" (FUN17): FUN16 + the EFFECTS order (10 stages) in the FM6
-                                                * high bits; read only by this build */
+#define PROJ_MAGIC 0x494E5546u                 /* "FUNI" (FUN18): FUN17 + MASTER owners */
+#define PROJ_MAGIC_V17 0x484E5546u             /* "FUNH" (FUN17): FUN16 + the EFFECTS order (10 stages) in the
+                                                * FM6 high bits */
 #define PROJ_MAGIC_V16 0x474E5546u             /* "FUNG" (FUN16): packed song chain (2 bytes a row), 88 motion records */
 #define PROJ_MAGIC_V15 0x46554E46u             /* "FUNF" (FUN15): read only; 72 motion records, 5-byte chain rows */
 #define PROJ_MAGIC_V14 0x46554E45u             /* "FUNE" (FUN14): read only; SLCR list slots */
@@ -163,6 +167,18 @@
 #define PROJ_PHYS 2u                           /* project_t.phys: PHYS without DUST and DRUM (see the top) */
 #define PROJ_NAME_LEN 12u                      /* the name: FUN7 bytes PROJ_NAME_OFF.. (the reserved tail's end) */
 #define PROJ_GENERATION_MARK 0x47u             /* motion-header spare byte 2 marks FM6 high-bit controls */
+/* A project's motion record is three bytes: SPEED 25..400 would not fit its signed value, so FUN18 stores
+ * it in one byte, exact at 25 / 100 / 400 (the useful centre) and within ~2 % elsewhere. */
+static uint8_t proj_tspeed_put(int32_t v)
+{
+    v = clamp(v, 25, 400);
+    return (uint8_t)(v <= 100 ? (v - 25) * 64 / 75 : 64 + (v - 100) * 63 / 300);
+}
+static int16_t proj_tspeed_get(uint32_t raw)
+{
+    raw &= 127u;
+    return (int16_t)(raw <= 64u ? 25 + raw * 75 / 64 : 100 + (raw - 64u) * 300 / 63);
+}
 typedef struct {                               /* one track */
     int16_t p[P_COUNT];
     uint8_t engine, preset;
@@ -189,6 +205,7 @@ typedef struct {
     uint16_t dx_mute;                          /* group + lane mutes (eng_drum.c dx_mute) */
     uint8_t dx_mot[4];                         /* X-MOD RATE DPTH SHPE RAND (eng_drum.c); RAM-only since bus layout */
     uint8_t fx_bus[FX_BUS_N];                  /* SEND insert+slicer knobs (wire in reclaimed SCL/X-MOD bytes) */
+    uint8_t fx_master[FX_LIST_N];              /* MASTER owner per EFFECTS stage; FUN18 wire */
     char name[PROJ_NAME_LEN];                  /* the project's name: upper-case ASCII 32..126, 0-padded; "" = none */
     uint32_t sum;
 } project_t;
@@ -682,8 +699,9 @@ static int proj_import_any(project_t *q, const void *b, int n)
 {
     if (n == PROJ_STORE_SIZE) {
         uint32_t m = ((const uint32_t *)b)[0];
-        if (m == PROJ_MAGIC || m == PROJ_MAGIC_V16 || m == PROJ_MAGIC_V15 || m == PROJ_MAGIC_V14 ||
-            m == PROJ_MAGIC_V13 || m == PROJ_MAGIC_V12 || m == PROJ_MAGIC_V11 || m == PROJ_MAGIC_V10)
+        if (m == PROJ_MAGIC || m == PROJ_MAGIC_V17 || m == PROJ_MAGIC_V16 || m == PROJ_MAGIC_V15 ||
+            m == PROJ_MAGIC_V14 || m == PROJ_MAGIC_V13 || m == PROJ_MAGIC_V12 || m == PROJ_MAGIC_V11 ||
+            m == PROJ_MAGIC_V10)
             return proj_unpack(q, b, PROJ_STORE_SIZE);
     }
     if (n == PROJ_STORE_SIZE && ((const uint32_t *)b)[1] >= 8u && ((const uint32_t *)b)[1] < PROJ_STORE_SIZE)
@@ -842,9 +860,15 @@ static int proj_pack(project_store_t *out, const project_t *q)
         for (t = 0; t < NTRK; t++)
             if (q->chain.row[i].slot[t] > CHAIN_SILENT) return 0;
     }
-    {   /* FUN16 chain: a row is 2 bytes (4 slots x 3 bits, repeat - 1 x 4 bits); 4 header bytes as before */
+    {   /* FUN18 chain: a row is 2 bytes (4 slots x 3 bits, repeat - 1 x 4 bits); header byte 0 count,
+         * bytes 1..3 the first eight MASTER owners (FUN16/17 wrote zeros there). */
+        uint32_t mb = 0;
         b[pos++] = q->chain.count;
-        b[pos++] = 0; b[pos++] = 0; b[pos++] = 0;
+        for (t = 0; t < 8u; t++)
+            mb |= (uint32_t)(q->fx_master[t] & 7u) << (3u * t);
+        b[pos++] = (uint8_t)mb;
+        b[pos++] = (uint8_t)(mb >> 8);
+        b[pos++] = (uint8_t)(mb >> 16);
         for (i = 0; i < CHAIN_ROWS; i++) {
             uint32_t rp = q->chain.row[i].repeat, w;
             w = (rp ? rp - 1u : 0u) << 12;               /* (rows past count: chain_defaults' repeat 1) */
@@ -857,6 +881,7 @@ static int proj_pack(project_store_t *out, const project_t *q)
     b[pos] = q->motion.count > MOTION_FILE_MAX ? MOTION_FILE_MAX : q->motion.count;
     b[pos + 1u] = q->motion.on;
     b[pos + 2u] = PROJ_GENERATION_MARK;
+    b[pos + 3u] = (uint8_t)((q->fx_master[8] & 7u) | ((q->fx_master[9] & 7u) << 3));
     for (i = 0; i < b[pos]; i++) {
         const motion_event_t *e = &q->motion.event[i];
         uint32_t id = MOTION_ID(e);
@@ -865,7 +890,10 @@ static int proj_pack(project_store_t *out, const project_t *q)
         if (id == MFX_TIME && e->value >= 256)
             id = MFX_DAMP + ((uint16_t)e->value >> 8); /* 54..59 carry TIME's high byte; no extra record */
         wire[1] = (uint8_t)(id | (e->param & MOTION_LOCK));
-        wire[2] = (uint8_t)e->value;
+        if (id == MFX_TSPEED)                       /* 25..400 in one byte: exact at 25 / 100 / 400 */
+            wire[2] = proj_tspeed_put(e->value);
+        else
+            wire[2] = (uint8_t)e->value;
     }
     {   /* SCALE LOCK + G_SLOWN + SEND bus + SLCR slots; stash / dx_mot stay RAM-only */
         uint8_t locks = 0;
@@ -974,7 +1002,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
 {
     uint32_t pos = 68u, t, i, magic, size, sum, np = b[66], v7 = st == PROJ_STORE_V7, v10 = st == PROJ_STORE_SIZE;
     uint32_t name_off = st - 4u - PROJ_NAME_LEN, end = v7 ? name_off : name_off - NTRK * FM6_PACKED;
-    uint32_t v11 = 0, v12 = 0, v13 = 0, v14, v15 = 0, v16 = 0, v17 = 0, data_end = end;
+    uint32_t v11 = 0, v12 = 0, v13 = 0, v14, v15 = 0, v16 = 0, v17 = 0, v18 = 0, data_end = end;
     /* np>111: insert chain; FUN16: packed chain + MOTION_FILE_SIZE; FUN12..FUN15: 5-byte chain rows +
      * MOTION_FILE_SIZE_V15 + SCALE LOCK; FUN11: MOTION_FILE_SIZE_V11 + kit; FUN10: MOTION_FILE_SIZE_V10;
      * np<=111 (1.5): full 128-record block (no insert chain yet) */
@@ -982,7 +1010,8 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     uint32_t iord2 = np > 111u ? 1u : 0u;               /* +1 byte per track for P_IORD high */
     uint32_t mot_max;
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + st - 4u, 4);
-    v17 = magic == PROJ_MAGIC;
+    v18 = magic == PROJ_MAGIC;
+    v17 = magic == PROJ_MAGIC_V17 || v18;
     v16 = magic == PROJ_MAGIC_V16;
     v15 = magic == PROJ_MAGIC_V15;
     v14 = v16 || v17 || v15 || magic == PROJ_MAGIC_V14;
@@ -1100,9 +1129,16 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
             step_set_nudge(s, (int32_t)(nd ^ 8u) - 8);
         }
     }
-    if (v16 || v17) {                                   /* FUN16/17: 4 header bytes, then 16 rows of 2 */
+    if (v16 || v17) {                                   /* FUN16/17/18: 4 header bytes, then 16 rows of 2 */
         q->chain.count = b[pos];
-        if (q->chain.count > CHAIN_ROWS || b[pos + 1u] || b[pos + 2u] || b[pos + 3u]) return 0;
+        if (q->chain.count > CHAIN_ROWS || (b[pos + 1u] && !v18) || (b[pos + 2u] && !v18) ||
+            (b[pos + 3u] && !v18)) return 0;
+        if (v18) {
+            uint32_t mb = (uint32_t)b[pos + 1u] | (uint32_t)b[pos + 2u] << 8 | (uint32_t)b[pos + 3u] << 16;
+            for (t = 0; t < 8u; t++)
+                q->fx_master[t] = (uint8_t)((mb >> (3u * t)) & 7u);
+        } else
+            memset(q->fx_master, 0, sizeof q->fx_master);
         for (i = 0; i < CHAIN_ROWS; i++) {              /* (rows past count round trip too: repeat 1) */
             uint32_t w = (uint32_t)b[pos + 4u + i * 2u] | (uint32_t)b[pos + 5u + i * 2u] << 8;
             q->chain.row[i].repeat = (uint8_t)((w >> 12) + 1u);
@@ -1132,6 +1168,11 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     if (v10) {
         memset(&q->motion, 0, sizeof q->motion);
         q->motion.count = b[pos]; q->motion.on = b[pos + 1u];
+        if (v18) {
+            uint32_t mb = b[pos + 3u];
+            q->fx_master[8] = (uint8_t)(mb & 7u);
+            q->fx_master[9] = (uint8_t)((mb >> 3) & 7u);
+        }
         if (q->motion.count > (np > 111u ? mot_max : MOTION_FILE_MAX_128))
             return 0;
         for (i = 0; i < q->motion.count; i++) {
@@ -1144,8 +1185,9 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
                 e->param = (uint8_t)(MFX_TIME | (wire[1] & MOTION_LOCK));
                 e->value = (int16_t)(hi << 8 | wire[2]);
             } else {
-                if (!(v15 || v16 || v17) && MFX_PARAM(id)) return 0;
-                e->value = (int8_t)wire[2];
+                if (!(v15 || v16 || v17) && MFX_ALL(id)) return 0;
+                e->value = id == MFX_TSPEED ? proj_tspeed_get(wire[2])
+                                            : (int8_t)wire[2];
             }
         }
     } else if (!proj_motion_v9(&q->motion, b + pos))
@@ -1356,6 +1398,11 @@ static void project_capture(project_t *p)
         p->t[i].generation = trk[i].generation;
         fm6_pack(fm6_patch[i], p->fm6[i]);
     }
+    memcpy(p->fx_master, fx_master_tr, FX_LIST_N);
+    if (song.g[G_TAPEMODE] != TAPE_MASTER)
+        p->fx_master[INS_TAPE] = 0;
+    else if (!p->fx_master[INS_TAPE])
+        p->fx_master[INS_TAPE] = (uint8_t)((song.sel < NTRK ? song.sel : 0u) + 1u);
     p->motion = motion;
     memcpy(p->dx, dx_kit, sizeof p->dx);
     p->dx_mute = dx_mute;
@@ -1557,6 +1604,11 @@ static int project_restore_runtime(const project_t *input)
         }
     }
     song.sel = (uint8_t)(p->sel < NTRK ? p->sel : 0u);
+    memcpy(fx_master_tr, p->fx_master, FX_LIST_N);
+    fx_master_sanitize();
+    for (i = 0; i < FX_LIST_N; i++)
+        if (fx_master_tr[i])
+            fx_master_reset_stage(i);
     fm1_irq_on();
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = PROJ_NO_SLOT;                            /* (project_load: its slot) */

@@ -1973,7 +1973,7 @@ function makeMockDevice(opt = {}) {
   const MDST = ["OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY MIX", "REV MIX", "RATE", "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH", "PAT", "SRATE", "SDEP", "CHRD", "VOIC",
     "TONE", "DMIX", "FCUT", "FRES", "FMIX", "BITS", "CRAT", "CLPF", "CMIX",
     "PRAT", "PDEP", "PFBK", "PMIX", "FRAT", "FDEP", "LMIX", "HRAT", "HDEP",
-    "DTIME", "DFBK", "DCOL", "RSIZE", "RDAMP"];   /* insert + MIX; FX TIME/FB/COLOR/SIZE/DAMP */
+    "DTIME", "DFBK", "DCOL", "RSIZE", "RDAMP", "TSPEED", "TWOW"];   /* insert + MIX; FX TIME/FB/COLOR/SIZE/DAMP; TAPE SPEED/WOW */
   const TP = [
     D("LVL", F.DB, 0, 127, 104),
     D("ATK", F.TIME, 0, 127, 10), D("DEC", F.TIME, 0, 127, 70), D("SUS", F.PCT, 0, 127, 90), D("REL", F.TIME, 0, 127, 60),
