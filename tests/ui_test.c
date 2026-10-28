@@ -8677,6 +8677,26 @@ static int test_live_graph_rate(void)
     go_title("PATTERN");
     ok = cur_page()->graph == GR_STEPS && live_panel_each_frame();
     bad += check("PATTERN (live steps): graph_sig moves every consecutive frame", ok);
+    ui_power_on();
+    song.playing = 1;
+    go_title("TAPE");
+    ok = cur_page()->id[0] == G_TSPEED && live_panel_each_frame();
+    bad += check("TAPE transport (playing): graph_sig moves every consecutive frame", ok);
+    {   /* stopped: the reels hold still, a SPEED turn redraws them */
+        uint32_t sig;
+        song.playing = 0;
+        ui.force = 1;
+        draw_graph();
+        ui.force = 0;
+        sig = ui.graph_sig;
+        ui.frame++;
+        draw_graph();
+        ok = ui.graph_sig == sig;
+        song.g[G_TSPEED]++;
+        draw_graph();
+        ok &= ui.graph_sig != sig;
+        bad += check("TAPE transport (stopped): still, a SPEED turn redraws", ok);
+    }
     return bad;
 }
 

@@ -1301,6 +1301,10 @@ static uint32_t graph_signature(void)
                     (song.playing ? ui.frame : 0u));
     if (strip_kind() == SK_TITLE)                    /* MENU > LARGE: the page's title (its engine, its number) */
         return h ^ 0x5A17u;
+    if (pg->graph == GR_NONE && pg->scope == SC_GLOBAL && pg->id[0] == G_TSPEED)
+        return h ^ ((uint32_t)song.g[G_TSPEED] * 7919u + (uint32_t)song.g[G_TWOW] * 104729u +
+                    (uint32_t)song.g[G_TDROP] * 1299709u + (uint32_t)song.g[G_TAPEMODE] * 40503u +
+                    (song.playing ? ui.frame : 0u));    /* the transport is still when stopped */
     if ((pg->graph == GR_NONE && !(pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WT)) ||
         pg->graph == GR_ARP || pg->graph == GR_STEPS || pg->graph == GR_INS)
         h ^= ui.frame;                               /* scope / FX tech (live playhead, chorus taps, energy) */
