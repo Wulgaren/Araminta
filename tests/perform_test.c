@@ -1588,14 +1588,19 @@ static double cost_run(int on)
     transport_req = 2;
     return i0 ? (double)(instr_now() - i0) / (2.0 * FS) : 0;
 }
-/* each beat twice, the smaller: the host's retired-instruction counter reads a few percent high
- * now and then when the machine is busy (the suite runs ten tests at once: one run measured the
- * shimmer +147 against the +129 bound, the very next the same binary +116, while the other beats
- * stayed byte-exact). The true count is the smaller read; a real regression raises both. */
+/* each beat four times, the smallest: the host's retired-instruction counter reads a few percent
+ * high now and then when the machine is busy (the suite runs ten tests at once: one run measured
+ * the shimmer +147 against the +129 bound, the very next the same binary +116, while the other
+ * beats stayed byte-exact). The true count is the smallest read; a real regression raises every
+ * read. Two reads were not enough: the PHASER's true +142 sits only five below its +147 bound, so
+ * one noisy read out of two still tipped it over under load. */
 static double cost_min(int on)
 {
-    double a = cost_run(on), b = cost_run(on);
-    return a < b ? a : b;
+    double a = cost_run(on), b = cost_run(on), c = cost_run(on), d = cost_run(on);
+    double m = a < b ? a : b;
+    if (c < m) m = c;
+    if (d < m) m = d;
+    return m;
 }
 static int test_cost(void)
 {
