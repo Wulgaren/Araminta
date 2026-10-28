@@ -4,6 +4,7 @@
 # Host tests of the Felucca sources (no hardware). Run from the repo root after ./build.sh:
 #   tests/run_tests.sh
 # TEST_JOBS=n: how many test units run at once (default: the CPUs, at most 10; TEST_JOBS=1 = one at a time).
+# TEST_TIMEOUT=n: kill and fail a unit whose command runs longer than n seconds (default 600).
 #
 # Regression suite (tests/regress.c, tests/target_budget.py; details at the top of regress.c):
 #   golden renders  every engine x preset, the GM map on DRUM, voice modes, FX sends, a 4-track mix: one hash
@@ -83,10 +84,10 @@
 #                   on the knob, attack / decay / release times at 60 / 120 / 173 BPM and on the external clock), the cost;
 #                   demos in build/sound15_demo/ (analog_bp, analog_hp, env_sync).
 # PERFORM (tests/perform_test.c): the FX hold layer (src/perform.c): 1/16 starts, stereo buffer effects, the
-#                   too-long REPEAT, the SLICER interplay, silent layer keys, idle bit-identical, cost; build/perform_demo/;
+#                   too-long REPEAT (1/8, 1/12, REVERSE), the SLICER interplay, silent layer keys, idle bit-identical, cost; build/perform_demo/;
 #                   OCT UP / DN (the harmonizer): pitch, stereo, clicks, the shimmer bounded, cost; FLANGER / PHASER (1.2): no DC,
 #                   bounded, the sweep in time with the tempo, clean release, stacked with REPEAT / LPF / HPF, cost; the key
-#                   map (any effect or none on any key, a key remapped while held, FX LATCH); build/fx_demo/; 1.5.1: the
+#                   map (the two fixed PUNCH-IN pages, a page flip, FX LATCH); build/fx_demo/; 1.5.1: the
 #                   delay's dotted TIME (lengths, the 1/4D clamp, the knob order, free ms: the FM-1-style
 #                   one-pole roll, a fast turn riding at its own speed), REV / ECHO THROW (the sends as at 127,
 #                   the glide, ECHO's capped feedback bounded, the tails ringing out, on PUNCH-IN 2/2); build/throw_demo/.
@@ -121,7 +122,8 @@
 # FREE TAKE (tests/freetake_test.c, P2-A / SLOOP): empty project, REC armed while stopped, first note starts a take with
 #                   no tempo; REC closes 1/2/4 bars and sets BPM; PLAY button / STOP drops; transport PLAY closes; 24 s auto-close;
 #                   a note started while an earlier one is still held sets SF_SLIDE; releasing it while held
-#                   records a return to the held pitch.
+#                   records a return to the held pitch; a strummed chord keeps its STRUM sweep at the take's
+#                   tempo and does not slide; a 1/16 strum on a 1-2 bar take closes at 1/32.
 # USB audio (tests/uac_test.c): the UAC1 descriptors as a host parses them (with and without CDC; 44100 and
 #                   48000 Hz), the ring and packetiser: 44.1 frames per packet, every frame in order (bit for bit),
 #                   underrun / overrun, restart; SET_CUR; the 44.1 -> 48 kHz resampler (every frame against a
@@ -140,6 +142,8 @@
 #                   Felucca's targets, the controls' directions, no clipping, DC, retriggers, the hat choke, the
 #                   kick on a small speaker; the DRUM engine (src/eng_drum.c): its key map, the 8 lanes together,
 #                   one hit per lane, the choke between lanes; the cost per voice; demos in build/drum_demo/.
+# DRUMS (tests/drums_test.c): the ported Felucca engine (src/eng_drums.c, src/drums_voice.c): every lane, KIT
+#                   select, hat choke, 8 lanes together.
 # NOISE (tests/noise_test.c): the engine (src/eng_noise.c): COLR's slope (white, pink, brown), the filter and the
 #                   register clock following the key, META periodic at the key, no DC, no clipping at the
 #                   corners, a note from silence the same twice, the cost per voice; demos in build/noise_demo/.
@@ -185,7 +189,18 @@ OUT=build/host
 mkdir -p "$OUT"
 CC="${CC:-cc} -O1 -Wall -Wno-unused-function"
 fail=0
-run() { echo "== $1"; shift; "$@" || fail=1; }
+# TEST_TIMEOUT=<seconds>: a unit's command is killed after this and fails the suite (default 600).
+run() {
+    echo "== $1"; shift
+    "$@" &
+    _p=$!
+    ( sleep "${TEST_TIMEOUT:-600}"; kill -9 "$_p" 2>/dev/null ) &
+    _w=$!
+    wait "$_p"; _rc=$?
+    kill "$_w" 2>/dev/null || :
+    wait "$_w" 2>/dev/null || :
+    [ "$_rc" = 0 ] || fail=1
+}
 
 # The suite runs as units: one unit = a shell function that compiles its binary and runs it
 # (the compile + run pairs below). Up to $TEST_JOBS units run at once (TEST_JOBS=1: one at a
@@ -333,6 +348,12 @@ u_cpu1() {
 }
 unit u_cpu1
 
+u_power() {
+    $CC -O1 -w -o "$OUT/power_test" tests/power_test.c
+    run "power: stock V15 trace, cold/warm starts, every transfer timeout and rail read-back faults" "$OUT/power_test"
+}
+unit u_power
+
 u_midi_uart() {
     $CC -o "$OUT/midi_uart_test" tests/midi_uart_test.c
     run "TRS MIDI parser" "$OUT/midi_uart_test"
@@ -442,6 +463,13 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "motion, whole-step chance, FUN7 migration, song restore, ARP repeat and the 1.2 ARP modes" "$OUT/motion_test"
     }
     unit u_motion
+    # The ids outside a track's p[]: PITCH (lock-only), MFX_* (FX motion targets),
+    # EV_* (AUTOMATION rows), PG_* (CHORD cards), P_ALLOC's sweep and MOTION_ID.
+    u_param_contract() {
+        $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/param_contract_test" tests/param_contract_test.c -lm
+        run "parameter contract: PITCH, MFX, EV, PG, P_ALLOC, MOTION_ID" "$OUT/param_contract_test"
+    }
+    unit u_param_contract
     u_ratchet() {
         $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/ratchet_test" tests/ratchet_test.c -lm
         run "RATCH: x1..x4 in a step (notes, chords, drum hits), gates, chance, swing, projects, user presets, AUTOMATION RATCH rows" "$OUT/ratchet_test"
@@ -694,6 +722,11 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "DRUM: voice targets, controls, no clipping, retrigger, hat choke, the kick on a small speaker, keys, 8 lanes, cost, demos" "$OUT/drum_test" build/drum_demo
     }
     unit u_drum
+    u_drums() {
+        $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/drums_test" tests/drums_test.c -lm
+        run "DRUMS: every lane, KIT select, hat choke, 8 lanes together (the ported Felucca engine)" "$OUT/drums_test"
+    }
+    unit u_drums
     u_noise() {
         $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/noise_test" tests/noise_test.c -lm
         mkdir -p build/noise_demo

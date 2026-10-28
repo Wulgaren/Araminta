@@ -433,10 +433,13 @@ static void test_math(void)
     check("insert knobs restored after the block",
           t->p[P_ED_FX] == 0 && t->p[P_IDMIX] == 40 && t->p[P_IFCUT] == 64 && t->p[P_IFMIX] == 40 &&
           t->p[P_ICBITS] == 64 && t->p[P_ICMIX] == 40 && t->p[P_ILMIX] == 40 && t->p[P_IHDEP] == 64);
-    check("DST names: TONE / DMIX / HDEP; CHO is CHOR MIX; DLY/REV amounts stay",
+    check("DST names: TONE / DMIX / HDEP; CHO is CHOR MIX; DLY/REV amounts stay; TAPE SPEED/WOW",
           str_eq(mod_dst_name(t, MD_TONE), "TONE") && str_eq(mod_dst_name(t, MD_DMIX), "DMIX") &&
           str_eq(mod_dst_name(t, MD_HDEP), "HDEP") && mod_param(MD_CHO) == P_IHMIX &&
-          mod_param(MD_DLY) == P_DLY && mod_param(MD_REV) == P_REV && MD_TONE == 26 && MD_N == 49);
+          mod_param(MD_DLY) == P_DLY && mod_param(MD_REV) == P_REV && MD_TONE == 26 &&
+          mod_param(MD_TSPEED) == MFX_TSPEED && mod_param(MD_TWOW) == MFX_TWOW &&
+          str_eq(mod_dst_name(t, MD_TSPEED), "TSPEED") && str_eq(mod_dst_name(t, MD_TWOW), "TWOW") &&
+          MD_TSPEED == 49 && MD_TWOW == 50 && MD_N == 51);
 
     /* DIST on SEND lives in fx_bus_trk; LFO must move the bus, not track p[] */
     fresh(0, 0);
@@ -761,11 +764,40 @@ static void test_fx_controls(void)
     }
 }
 
+static void test_all_shared_controls(void)
+{
+    static const uint8_t DEST[] = {MD_DTIME, MD_DFB, MD_DCOLOR, MD_RSIZE, MD_RDAMP, MD_TSPEED, MD_TWOW};
+    static const uint8_t GLOBAL[] = {G_DTIME, G_DFDBK, G_DCOLOR, G_RSIZE, G_RDAMP, G_TSPEED, G_TWOW};
+    static const int16_t BASE[] = {564, 40, 30, 20, 10, 100, 0};
+    static const int16_t TOP[] = {1550, 120, 127, 127, 127, 400, 125};
+    uint32_t i, k;
+    host_tracks_init();
+    song.g[G_TAPEMODE] = TAPE_MASTER;
+    for (i = 0; i < NELEM(DEST); i++) {
+        track_t *t = &trk[i / NMSLOT];
+        song.g[GLOBAL[i]] = BASE[i];
+        t->mw = 127;
+        slot(t, i % NMSLOT, MS_MODW, DEST[i], 63);
+    }
+    for (k = 0; k < 2; k++) {
+        bus_knobs_g(&trk[k]);
+        mod_begin(&trk[k]);
+        mod_end(&trk[k]);
+    }
+    mod_bus_begin();
+    for (i = 0; i < NELEM(DEST); i++)
+        check("all seven shared controls reach the bus in the same block", song.g[GLOBAL[i]] == TOP[i]);
+    mod_bus_end();
+    for (i = 0; i < NELEM(DEST); i++)
+        check("all seven shared controls restore their stored values", song.g[GLOBAL[i]] == BASE[i]);
+}
+
 int main(int argc, char **argv)
 {
     test_off();
     test_math();
     test_fx_controls();
+    test_all_shared_controls();
     test_midi();
     test_cost();
     if (argc > 1)

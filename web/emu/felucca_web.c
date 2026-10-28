@@ -166,6 +166,17 @@ static void lcd_init(void) {}
 #include "../../firmware/src/icons.c"
 #include "../../firmware/src/ui_graph.c"
 #include "../../firmware/src/ui_draw.c"
+/* the stock V15 supply setup (hal/fm1_power.h): a simulated P33 register file, so boot and ABOUT work here */
+#define FM1_POWER_HOST_TEST 1
+static uint32_t fm1_p33_timeouts;
+static uint8_t web_p33[256];
+static uint8_t fm1_p33_read(uint32_t a) { return web_p33[a & 0xFFu]; }
+static void fm1_p33_write(uint32_t a, uint8_t v) { web_p33[a & 0xFFu] = v; }
+static void fm1_p33_or(uint32_t a, uint8_t v) { web_p33[a & 0xFFu] |= v; }
+static void fm1_p33_and(uint32_t a, uint8_t v) { web_p33[a & 0xFFu] &= v; }
+static void fm1_power_settle(void) {}
+#define FELUCCA_POWER 1
+#include "../../firmware/hal/fm1_power.h"
 #include "../../firmware/src/ui_menu.c"
 #include "../../firmware/src/ui_input.c"
 #include "../../firmware/src/ui_layer.c"
@@ -215,6 +226,12 @@ static fm1_crash_t fm1_crash;                     /* (none: main.c boot_leds run
 static struct { uint8_t p3_rst, wdt_con; uint32_t rst_src; } fm1_boot;
 uint32_t _data_start[1], _data_end[1], _data_load[1], _bss_start[1], _bss_end[1];
 uint32_t _pool_start[1], _pool_end[1], _rt_start[1], _rt_end[1], _rt_load[1];
+/* main.c's CPU0 stack marks: the browser has no device stacks (fm1_cstart is never called here).
+ * The buffers keep the paint harmless and the readers at 0 if that changes. */
+static uint32_t web_ustack[256], web_sstack[64];
+static char *_ustack_lo = (char *)web_ustack, *_ustack_top = (char *)(web_ustack + 256);
+static char *_sstack_lo = (char *)web_sstack, *_sstack_top = (char *)(web_sstack + 64);
+static uint32_t fm1_sp(void) { return (uint32_t)(uintptr_t)_ustack_top; }
 static uint32_t web_master_adc = 700;   /* MASTER, 0..1023 as the ADC reads it */
 enum { FM1_ADC_BATT = 3, FM1_ADC_MASTER = 4 };
 static int32_t fm1_adc_read(uint32_t ch) { return ch == FM1_ADC_MASTER ? (int32_t)web_master_adc : 620; }
@@ -251,6 +268,7 @@ static void cdc_task(void) {}
 #define usb_retry(ms) ((void)(ms))
 #define usb_detach() ((void)0)
 #include "../../firmware/src/master.c"
+#include "../../firmware/src/power.c"
 #include "../../firmware/src/main.c"
 #undef usb_poll
 #undef usb_start
@@ -263,6 +281,9 @@ static uint32_t web_booted, web_boot_ms, web_last_frame;
 /* main.c fm1_main's boot, up to the main loop (no USB, no UART, no panel setup) */
 static void web_power_on(void)
 {
+    web_p33[FM1_PWR_VDC14] = 3;           /* the boot loader's levels, as the FM-1 finds them */
+    web_p33[FM1_PWR_SYSVDD] = 11;
+    (void)fm1_power_start();              /* hal/fm1_power.h: the stock V15 supply setup */
     persist_boot();
     settings_init();
     usb_serial_apply();

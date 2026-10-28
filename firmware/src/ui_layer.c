@@ -21,6 +21,7 @@
  *   SEQ  SET   SEQ > SEQ TOOLS (the last SEQ section; the first tap is PATTERN): the white keys from F3 the sequence
  *              tools (ui_tools.c: CLEAR, REVERSE, SHIFT < >, RANDOM, COOK; on a DRUM track BEAT, MUTE and the lane's
  *              CLEAR REVERSE FILL RANDOM), black keys 1..8 the lane (DRUM); KNOB 1..4 LEN DIV SWING GATE (PATTERN's).
+ *              E4..C5 are the note edits on a synth (BEAT / MUTE / lane tools on a kit); D5..G5 HALF, *2, HUMAN, DUP on a kit.
  *              Each action one undo (SAVE held), OCT- the track as the layer opened (tl_open)
  * REC taps arm / disarm (ui_input.c); CLICK / COUNT-IN / LEVEL live in MENU > AUDIO; CLEAR sequence on SAVE > CLEAR
  * and SEQ TOOLS.
@@ -219,6 +220,7 @@ static void layer_opened(uint32_t l)
     if (l == LAYER_SEQ) {                               /* the track as it is now (OCT-) */
         memcpy(tl_open.step, TSEL->step, sizeof tl_open.step);
         motion_snapshot_track(TSEL, &tl_open.mo);
+        tl_open.sqnt = TSEL->p[P_SQNT];                  /* (HUMAN switches QUANTIZE off) */
     }
     for (k = 0; k < 4u; k++)
         if (l == LAYER_SEQ) {
@@ -345,24 +347,35 @@ static void tools_key(uint32_t p)
 {
     const char *m;
     char n[4];
-    if (!tl_cell(TSEL, p))
-        return;
-    if (p == TL_MUTE) {
-        lane_mute_toggle(TSEL, ui.lane);
-        return;
-    }
-    if (chain_busy()) {
-        ui_message("STOP TO EDIT");
-        return;
-    }
-    if (!(m = tl_do(TSEL, p, ui.lane)))
-        return;
-    if (p == TL_COOK && lys.cook < 99u) {               /* "COOKED 3": the third since the layer opened */
-        lys.cook++;
-        fmt_int(n, lys.cook);
-        ui_say("COOKED ", n);
-    } else {
+    int a = tl2_at(TSEL, p);
+    if (a >= 0) {                                       /* stored-note edits */
+        if (chain_busy()) {
+            ui_message("STOP TO EDIT");
+            return;
+        }
+        if (!(m = tl2_do(TSEL, (uint32_t)a)))
+            return;
         ui_message(m);
+    } else {
+        if (!tl_cell(TSEL, p))
+            return;
+        if (p == TL_MUTE) {
+            lane_mute_toggle(TSEL, ui.lane);
+            return;
+        }
+        if (chain_busy()) {
+            ui_message("STOP TO EDIT");
+            return;
+        }
+        if (!(m = tl_do(TSEL, p, ui.lane)))
+            return;
+        if (p == TL_COOK && lys.cook < 99u) {           /* "COOKED 3": the third since the layer opened */
+            lys.cook++;
+            fmt_int(n, lys.cook);
+            ui_say("COOKED ", n);
+        } else {
+            ui_message(m);
+        }
     }
     if (!lys.loaded)                                    /* (the first one: how to take it back) */
         str_cpy(ui.msg2, "[SAVE] HOLD TO UNDO", sizeof ui.msg2);
@@ -372,7 +385,8 @@ static void tools_key(uint32_t p)
 
 /* the FX layer's cells' names (NONE: PF_N) */
 static const char *const PF_CELL[PF_NFX] = {"1/8", "1/16", "1/32", "REV", "LPF", "HPF", "STOP", "FRZ", "PITCH+", "PITCH-",
-    "FLNG", "PHSR", "VERB", "ECHO", "OCT-", "OCT+", "1/2", "DEC-", "DEC+", "ST8", "ST16", "ATK+", "ARP", "RND"};
+    "FLNG", "PHSR", "VERB", "ECHO", "OCT-", "OCT+", "/2", "DEC-", "DEC+", "ST8", "ST16", "ATK+", "ARP", "RND", "*2", "GLITCH",
+    "1/12"};
 static const char W_NOTE[16] = {'F', 'G', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'A', 'B', 'C', 'D', 'E', 'F', 'G'};
 /* (fx_map_sync retired with the reassignment: the key maps are the pages' fixed PF_DEF / PF2_DEF) */
 
@@ -409,6 +423,7 @@ static const eqa_t EQA_DRUM[NLANE] = {EQA_LANE(0), EQA_LANE(1), EQA_LANE(2), EQA
     EQA_LANE(6), EQA_LANE(7)};
 static const eqa_set_t EQA[] = {
     {ENGI_DRUM, NLANE, EQA_DRUM},
+    {ENGI_DRUMS, NLANE, EQA_DRUM},
 };
 typedef char eqa_fits[NLANE <= 11 ? 1 : -1];       /* (11 black keys) */
 
@@ -648,6 +663,7 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
                 }
                 for (k = 0; k < 4u; k++)
                     t->p[P_SLEN + k] = lys.v[k];
+                t->p[P_SQNT] = tl_open.sqnt;            /* (HUMAN switches QUANTIZE off) */
                 lys.loaded = 0;
                 lys.cook = 0;
                 ui_message("SEQUENCE PUT BACK");
@@ -704,7 +720,10 @@ static uint32_t layer_leds(uint32_t *br)
         } else if (l == LAYER_SEQ) {                    /* the tools breathe (not while a song plays); DRUM: the lane */
             int drum = drum_track(TSEL);                /* lit, the other lanes breathe; F4 lit while that lane is muted */
             uint32_t mu = drum ? (drum_mute[trk_index(TSEL) % NPART] >> (ui.lane % NLANE)) & 1u : 0u;
-            if (!b && p == TL_MUTE) {
+            int a = !b ? tl2_at(TSEL, p) : -1;
+            if (a >= 0) {
+                can = !chain_busy();
+            } else if (!b && p == TL_MUTE) {
                 on = drum && mu;
                 can = drum && !mu;
             } else {
@@ -1019,22 +1038,40 @@ static void layer_clr(void)
 
 /* SEQ TOOLS: the white keys' tools, 4 a row from F3 (the whole sequence; RANDOM COOK BEAT MUTE; the lane's), on a
  * DRUM track the lanes of black keys 1..8 under them (the selected one filled, a muted lane as a muted track). A
- * melodic track: the two rows of the sequence's tools only */
+ * melodic track: the sequence's tools, then the six note edits E4..C5 with no gap. On DRUM E4..C5 are BEAT / MUTE
+ * and the lane tools, so the four note edits are D5..G5; the rows are 20 px there so the lane row still fits. */
 static const uint8_t TL_ICON[TL_N] = {ICON_CLEAR, ICON_X_REVERSE, ICON_X_LEFT, ICON_X_RIGHT, ICON_PROB, ICON_W_SH,
     ICON_DRUM, ICON_MUTE, ICON_CLEAR, ICON_X_REVERSE, ICON_STEPS, ICON_PROB};
 static const char *const TL_NAME[TL_N] = {"CLEAR", "REVERSE", "SHIFT", "SHIFT", "RANDOM", "COOK", "BEAT", "MUTE",
     "CLR", "REV", "FILL", "RND"};
+static const char *const TL_NAME_S[TL_N] = {"CLEAR", "REVRS", "SHIFT", "SHIFT", "RANDOM", "COOK", "BEAT", "MUTE",
+    "CLR", "REV", "FIL", "RND"};                       /* (20 px rows on DRUM: the cell has no room for the long names) */
+static const uint8_t TL2_ICON[TL2_N] = {ICON_OCTAVE, ICON_OCTAVE, ICON_TIME, ICON_DIVISION, ICON_PROB, ICON_STEPS};
+static const char *const TL2_NAME[TL2_N] = {"OCT-", "OCT+", "HALF", "*2", "HUMAN", "DUP"};
+static void layer_seq_edit(uint32_t p, int32_t h)
+{
+    char n[3] = {0, 0, 0};
+    int a = tl2_at(TSEL, p);
+    if (a < 0)
+        return;
+    n[0] = W_NOTE[p];
+    lcell(LC_X(p % 4u), 4 + (h + 4) * (int32_t)(p / 4u), h, n, TL2_ICON[a], 0, TL2_NAME[a],
+          chain_busy() ? LS_DIM : LS_OFF, 0);
+}
 static void layer_seq(void)
 {
-    uint32_t p, drum = (uint32_t)drum_track(TSEL);
-    uint32_t mute = drum ? drum_mute[trk_index(TSEL) % NPART] : 0u;
+    uint32_t p, drum, mute;
+    int32_t h;
     char n[3] = {0, 0, 0}, nm[8];
+    drum = (uint32_t)drum_track(TSEL);
+    h = drum ? 20 : 28;
+    mute = drum ? drum_mute[trk_index(TSEL) % NPART] : 0u;
     for (p = 0; p < TL_N; p++) {
         uint32_t st = chain_busy() && p != TL_MUTE ? LS_DIM : LS_OFF;
         if (!tl_cell(TSEL, p))
             continue;
         n[0] = W_NOTE[p];
-        str_cpy(nm, TL_NAME[p], sizeof nm);
+        str_cpy(nm, h > 24 ? TL_NAME[p] : TL_NAME_S[p], sizeof nm);
         if (p >= TL_LCLR || p == TL_MUTE) {             /* the lane's: "CLR BD", "M BD" (MUTE shortened: Terminus) */
             if (p == TL_MUTE)
                 str_cpy(nm, "M", sizeof nm);
@@ -1043,7 +1080,14 @@ static void layer_seq(void)
         }
         if (p == TL_MUTE && ((mute >> (ui.lane % NLANE)) & 1u))
             st = LS_MUTE;                               /* the selected lane is muted: the key's fill */
-        lcell(LC_X(p % 4u), 4 + 32 * (int32_t)(p / 4u), 28, n, TL_ICON[p], 0, nm, st, 0);
+        lcell(LC_X(p % 4u), 4 + (h + 4) * (int32_t)(p / 4u), h, n, TL_ICON[p], 0, nm, st, 0);
+    }
+    if (drum) {                                         /* D5..G5: HALF *2 HUMAN DUP */
+        for (p = 12u; p < 16u; p++)
+            layer_seq_edit(p, h);
+    } else {                                            /* E4..C5: OCT- OCT+ HALF *2 HUMAN DUP, no gap */
+        for (p = 6u; p < 12u; p++)
+            layer_seq_edit(p, h);
     }
     for (p = 0; drum && p < NLANE; p++) {               /* the lanes (black keys 1..8): 8 cells of 25 px, 4 px apart.
                                                          * a muted lane: a muted track's fill; the selected one framed */

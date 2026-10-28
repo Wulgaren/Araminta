@@ -25,6 +25,7 @@ static void reset(void)
 {
     ui_power_on();
     memset(kb_chn, 0, sizeof kb_chn); memset(mchord, 0, sizeof mchord); memset(chord_last, 0, sizeof chord_last);
+    memset(kb_strum, 0, sizeof kb_strum); kb_strum_pending = midi_strum_pending = 0;
     fm1_in.notes = kb_prev = 0; mo_w = mo_r = 0; usb.config = 1;
     trk[0].p[P_VOICE] = V_POLY; trk[0].p[P_SCALE] = 0; trk[0].p[P_ROOT] = 0;   /* C major, POLY */
     events_block(CTL);
@@ -293,6 +294,152 @@ static int midi_in(void)
     return bad;
 }
 
+static int strum(void)
+{
+    int bad = 0, ok;
+    track_t *t = &trk[0];
+    reset();
+    song.g[G_BPM] = 120;
+    t->p[P_CHRD] = CH_DIA3;
+    t->p[P_ALLOC] = sweep_pack(2, 0);                 /* 1/16, DOWN */
+    key_down(K_D4);
+    bad += check("STRUM 1/16 DN: the first string now (D), F and A pending",
+                 gate_note(t, 62) && !gate_note(t, 65) && !gate_note(t, 69) && kb_chn[K_D4] == 1u);
+    chord_strum_tick(2755u);                          /* 1/16 = 5512 samples at 120 BPM */
+    bad += check("  not before 1/32 beat", kb_chn[K_D4] == 1u);
+    chord_strum_tick(1u);
+    bad += check("  F at 1/32 beat", kb_chn[K_D4] == 2u && gate_note(t, 65));
+    chord_strum_tick(2756u);
+    bad += check("  A at 1/16 beat", kb_chn[K_D4] == 3u && gate_note(t, 69) && !kb_strum_pending);
+    key_up(K_D4);
+    bad += check("  release ends them", !ngated(t));
+
+    reset();                                          /* UP: top first */
+    song.g[G_BPM] = 120;
+    t->p[P_CHRD] = CH_DIA3;
+    t->p[P_ALLOC] = sweep_pack(2, 1);
+    key_down(K_D4);
+    bad += check("STRUM UP: the top first (A)", gate_note(t, 69) && !gate_note(t, 62) && !gate_note(t, 65));
+    key_up(K_D4);
+
+    reset();                                          /* ALT flips per track per chord */
+    song.g[G_BPM] = 120;
+    t->p[P_CHRD] = CH_DIA3;
+    t->p[P_ALLOC] = sweep_pack(2, 2);
+    key_down(K_D4);
+    ok = gate_note(t, 62) && !gate_note(t, 69);       /* first DOWN */
+    key_up(K_D4);
+    key_down(K_D4);
+    ok &= gate_note(t, 69) && !gate_note(t, 62);      /* then UP */
+    key_up(K_D4);
+    bad += check("STRUM ALT: DOWN, then UP", ok);
+
+    reset();                                          /* releasing early: unplayed strings never sound */
+    song.g[G_BPM] = 120;
+    t->p[P_CHRD] = CH_DIA3;
+    t->p[P_ALLOC] = sweep_pack(2, 0);
+    key_down(K_D4);
+    key_up(K_D4);
+    bad += check("STRUM: a release cancels the unplayed strings", !ngated(t) && !kb_strum_pending);
+
+    reset();                                          /* OFF / ARP: the whole chord at once */
+    song.g[G_BPM] = 120;
+    t->p[P_CHRD] = CH_DIA3;
+    t->p[P_ALLOC] = 0;
+    key_down(K_D4);
+    ok = gate_note(t, 62) && gate_note(t, 65) && gate_note(t, 69) && !kb_strum_pending;
+    key_up(K_D4);
+    t->p[P_ALLOC] = sweep_pack(2, 0); t->p[P_AMODE] = 1;
+    key_down(K_D4);
+    ok &= t->nheld == 3u && !kb_strum_pending;
+    key_up(K_D4);
+    t->p[P_AMODE] = 0;
+    bad += check("STRUM OFF / ARP on: the chord sounds at once", ok);
+
+    reset();                                          /* MIDI-in chords sweep too */
+    song.g[G_BPM] = 120;
+    t->p[P_CHRD] = CH_DIA3;
+    t->p[P_ALLOC] = sweep_pack(2, 0);
+    midi(0x90, 62, 100);
+    ok = gate_note(t, 62) && !gate_note(t, 65);
+    chord_strum_tick(2756u);
+    ok &= gate_note(t, 65);
+    chord_strum_tick(2756u);
+    ok &= gate_note(t, 69);
+    midi(0x80, 62, 0);
+    ok &= !ngated(t) && !midi_strum_pending;
+    bad += check("STRUM MIDI IN: the same sweep, release ends it", ok);
+    return bad;
+}
+
+static int legacy_alloc(void)
+{
+    int bad = 0;
+    track_t *t = &trk[0];
+    project_t saved, loaded;
+    project_store_t disk;
+    reset();
+    t->p[P_CHRD] = CH_DIA3;
+    t->p[P_ALLOC] = 1;                            /* released ALLOC = REUSE */
+    project_capture(&saved);
+    if (!proj_pack(&disk, &saved) || !proj_import(&loaded, &disk, sizeof disk) || project_restore_runtime(&loaded))
+        return check("legacy ALLOC project loads", 0);
+    key_down(K_D4);
+    bad += check("legacy ALLOC REUSE project plays the whole chord immediately",
+                 gate_note(t, 62) && gate_note(t, 65) && gate_note(t, 69) && !kb_strum_pending);
+    key_up(K_D4);
+    up_store(0, "LEGACY");
+    t->p[P_ALLOC] = 0;
+    up_load(0);
+    key_down(K_D4);
+    bad += check("legacy ALLOC REUSE preset plays the whole chord immediately",
+                 gate_note(t, 62) && gate_note(t, 65) && gate_note(t, 69) && !kb_strum_pending);
+    key_up(K_D4);
+    return bad;
+}
+
+static int strum_track_panic(void)
+{
+    int bad = 0;
+    track_t *t = &trk[0];
+    reset();
+    t->p[P_CHRD] = CH_DIA3;
+    t->p[P_ALLOC] = sweep_pack(2, 0);
+    key_down(K_D4);
+    midi_silence_track(1);
+    chord_strum_tick(beat_samples());
+    bad += check("STRUM completes when another track is silenced",
+                 gate_note(t, 62) && gate_note(t, 65) && gate_note(t, 69));
+    key_up(K_D4);
+    key_down(K_D4);
+    midi_silence_track(0);
+    chord_strum_tick(beat_samples());
+    bad += check("  silencing its own track cancels the remaining strings", !ngated(t));
+    key_up(K_D4);
+    return bad;
+}
+
+static int strum_overflow(void)
+{
+    int bad = 0;
+    track_t *t = &trk[0];
+    reset();
+    t->p[P_CHRD] = CH_DIA3;
+    t->p[P_ALLOC] = sweep_pack(1, 0);
+    midi(0x90, 62, 100);
+    midi_in_overflow = 1;
+    events_block(CTL);
+    bad += check("STRUM MIDI overflow cancels the sweep and releases its notes",
+                 !midi_strum_pending && !ngated(t));
+    events_block(CTL);
+    midi(0x90, 62, 100);
+    chord_strum_tick(beat_samples());
+    bad += check("  another chord plays completely after overflow recovery",
+                 gate_note(t, 62) && gate_note(t, 65) && gate_note(t, 69));
+    midi(0x80, 62, 0);
+    return bad;
+}
+
 static int kits(void)
 {
     int bad = 0;
@@ -320,7 +467,8 @@ static int kits(void)
 
 int main(void)
 {
-    int bad = theory() + shapes_voicings() + keys() + arp_rec() + midi_in() + kits();
+    int bad = theory() + shapes_voicings() + keys() + arp_rec() + midi_in() + strum() +
+              legacy_alloc() + strum_track_panic() + strum_overflow() + kits();
     printf("%s\n", bad ? "CHORD TEST FAILED" : "chord keys test passed");
     return bad != 0;
 }

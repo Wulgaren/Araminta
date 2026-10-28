@@ -63,7 +63,7 @@ static int ev_id_ok(const track_t *t, uint32_t id)
     const param_desc_t *d;
     if (ev_sid(id))
         return 1;
-    if (id >= P_COUNT || !motion_param(id) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL))
+    if (!param_id_known(id) || !motion_param(id) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL))
         return 0;
     if (id >= P_LN0 && id <= P_LN7)
         return drum_track(t);
@@ -74,6 +74,10 @@ static int ev_id_ok(const track_t *t, uint32_t id)
  * would say two things (ENV ATK, ENV FLT: ENV DEST's, LFO FLT: LFO DEST's; SLICER RATE / PAT / MIX: #222) */
 static void ev_name(const track_t *t, uint32_t id, char *b)
 {
+    if (id == MSEQ_PITCH) {
+        str_cpy(b, "PITCH", 12);
+        return;
+    }
     if (MFX_PARAM(id)) {
         static const char *const NAME[] = {"DLY TIME", "DLY FDBK", "DLY COLOR", "REV SIZE", "REV DAMP"};
         str_cpy(b, NAME[id - MFX_TIME], 12);
@@ -159,19 +163,21 @@ static int ev_id_free(const track_t *t, uint32_t step, uint32_t id)
 static int32_t ev_id_pos(uint32_t id)
 {
     return id == EV_CHANCE ? 0 : id == EV_RATCH ? 1 : id == EV_NUDGE ? 2 : id == EV_VEL ? 3
-           : id < P_COUNT ? (int32_t)id + 4 : -1;
+           : param_lock_only(id) ? (int32_t)P_COUNT + 4 : param_real(id) ? (int32_t)id + 4 : -1;
 }
 static uint32_t ev_id_at(int32_t v)
 {
-    return v == 0 ? EV_CHANCE : v == 1 ? EV_RATCH : v == 2 ? EV_NUDGE : v == 3 ? EV_VEL : (uint32_t)(v - 4);
+    return v == 0 ? EV_CHANCE : v == 1 ? EV_RATCH : v == 2 ? EV_NUDGE : v == 3 ? EV_VEL
+           : v == (int32_t)P_COUNT + 4 ? MSEQ_PITCH : (uint32_t)(v - 4);
 }
-/* the next one after id in direction dir (+1 / -1) that is free on track t's step; id itself when there is none */
+/* the next one after id in direction dir (+1 / -1) that is free on track t's step; id itself when there is none.
+ * The walk is the four step rows, the real ids by id, then PITCH, the one after the last of them. */
 static uint32_t ev_id_step(const track_t *t, uint32_t step, uint32_t id, int32_t dir)
 {
     int32_t i = ev_id_pos(id);
     for (;;) {
         i += dir;
-        if (i < 0 || i >= (int32_t)P_COUNT + 4)
+        if (i < 0 || i > (int32_t)P_COUNT + 4)
             return id;
         if (ev_id_ok(t, ev_id_at(i)) && ev_id_free(t, step, ev_id_at(i)))
             return ev_id_at(i);
@@ -494,7 +500,7 @@ static void ev_oct(void)
     }
     if (k == EVK_REC) {
         const motion_event_t e = motion.event[c & 0xFFu];
-        uint32_t lock = !(e.param & MOTION_LOCK);
+        uint32_t lock = MOTION_ID(&e) == MSEQ_PITCH || !(e.param & MOTION_LOCK);
         motion_undo_take(t, 0);
         (void)motion_put(t, e.place & 63u, MOTION_ID(&e), e.value, lock ? MOTION_LOCK : 0u);
         motion_undo_done(t);
@@ -555,6 +561,10 @@ static void pk_add_item(uint32_t id, const char *tag, const char *name)
 /* short name for an automation / motion param (family is the row tag; b holds 16) */
 static void pk_auto_name(const track_t *t, uint32_t id, char *b)
 {
+    if (id == MSEQ_PITCH) {
+        str_cpy(b, "PITCH", 16);
+        return;
+    }
     if (ev_sid(id)) {
         str_cpy(b, id == EV_CHANCE ? "CHANCE" : id == EV_RATCH ? "RATCH" : id == EV_VEL ? "VELOCITY" : "NUDGE", 16);
         return;
@@ -583,6 +593,10 @@ static void pk_auto_name(const track_t *t, uint32_t id, char *b)
         str_cpy(b, "RATE", 16);
     else if (id == P_SLDEPTH)
         str_cpy(b, "MIX", 16);
+    else if (id == MFX_TSPEED)
+        str_cpy(b, "SPEED", 16);
+    else if (id == MFX_TWOW)
+        str_cpy(b, "WOW", 16);
     else if (id == P_CHRD)
         str_cpy(b, "CHORD", 16);
     else if (id == P_VOIC)
@@ -626,6 +640,8 @@ static const fx_dst_t FX_DST[] = {
     {P_SLPAT, MD_SLPAT, INS_SLCR, 0, "SLICER", "PATTERN"},
     {P_SLRATE, MD_SLRATE, INS_SLCR, 0, "SLICER", "RATE"},
     {P_SLDEPTH, MD_SLDEPTH, INS_SLCR, 1, "SLICER", "MIX"},
+    {MFX_TSPEED, MD_TSPEED, INS_TAPE, 0, "TAPE", "SPEED"},
+    {MFX_TWOW, MD_TWOW, INS_TAPE, 0, "TAPE", "WOW"},
 };
 /* Reverb SEND and CHAIN have separate banks. Delay and legacy SLICER USED tracks stay unavailable. */
 static int fx_dst_visible(const track_t *t, uint32_t st, int is_mix)
@@ -633,6 +649,14 @@ static int fx_dst_visible(const track_t *t, uint32_t st, int is_mix)
     int32_t tr = (int32_t)(t - trk), own;
     if (st < INS_N || st == INS_REV)
         return 1;
+    if (st == INS_TAPE) {                             /* SPEED / WOW: CHAIN owner, MASTER all, SEND first claim */
+        int32_t m = song.g[G_TAPEMODE];
+        if (m == TAPE_MASTER)
+            return 1;
+        if (TAPE_OWNER_OF(m) >= 0)
+            return TAPE_OWNER_OF(m) == tr;
+        return 1;
+    }
     if (st == INS_SLCR)
         return !sl_trk_used(t);
     own = bus_own(st == INS_REV ? 1u : 0u);
@@ -644,7 +668,7 @@ static int fx_dst_visible(const track_t *t, uint32_t st, int is_mix)
 static int pk_auto_fx(uint32_t id)
 {
     /* Every FX_DST pid falls in these ranges (insert knobs before P_FTYPE; SLICER PAT..MIX). */
-    return MFX_PARAM(id) || id == P_ED_FX || id == P_DIST || id == P_DLY || id == P_REV ||
+    return MFX_ALL(id) || id == P_ED_FX || id == P_DIST || id == P_DLY || id == P_REV ||
            (id >= P_SLPAT && id <= P_SLDEPTH) || (id >= P_IDMODE && id < P_FTYPE);
 }
 static const char *pk_auto_group(uint32_t id)
@@ -696,6 +720,14 @@ static uint32_t pk_build_auto(const track_t *t, uint32_t id, uint32_t step, uint
         if (i == id)
             *sel = pk_n;
         pk_add_item(i, pk_auto_group(i), nm);
+    }
+    if (step >= NSTEP || param_lock_only(id) || ev_id_free(t, step, MSEQ_PITCH)) {
+        /* PITCH: lock-only (id 127), not in p[]. Keep it in the K3 list even when another parameter is
+         * showing, so a row changed away from PITCH can be changed back. */
+        pk_auto_name(t, MSEQ_PITCH, nm);
+        if (id == MSEQ_PITCH)
+            *sel = pk_n;
+        pk_add_item(MSEQ_PITCH, "SEQ", nm);
     }
     for (i = 0; i < NELEM(FX_DST); i++) {
         uint32_t x = FX_DST[i].pid;
@@ -828,7 +860,7 @@ static void pk_apply(void)
         uint32_t c = ev_cur(ev_rw, 0), k = c >> 8, step, from;
         if (k == EVK_ADD) {
             ui.ev_id = (uint8_t)id;
-        } else if (k == EVK_REC && id < P_COUNT) {
+        } else if (k == EVK_REC && param_id_known(id)) {   /* PITCH is lock-only, not in p[] */
             step = motion.event[c & 0xFFu].place & 63u;
             from = MOTION_ID(&motion.event[c & 0xFFu]);
             if (id != from && ev_id_free(t, step, id)) {

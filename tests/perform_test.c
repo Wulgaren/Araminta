@@ -6,7 +6,8 @@
  *    (the live signal back, bit for bit, after the 2.9 ms ramp); the others start at once.
  * 2. stereo: REPEAT, REVERSE, TAPE STOP and FREEZE keep left and right apart (a silent right channel stays
  *    silent; each side follows its own input).
- * 3. a REPEAT too long for the loop (1/8 and REVERSE below 81 BPM) does nothing at all.
+ * 3. a REPEAT too long for the loop (1/8 and REVERSE below 81 BPM, 1/12 below 54) does nothing at all;
+ *    1/12 is a third of a beat (the 8T rate).
  * 4. the SLICER: its recordings are not used meanwhile and are dropped afterwards.
  * 5. the keys: a layer key plays nothing and sends no MIDI; a key held before FX stays a note; the white
  *    keys past the first 12 (D5 .. G5, none in the default map) are the layer's too but do nothing.
@@ -29,12 +30,14 @@
  *    after 120's bar at 90); no click in or out, the live signal back bit for bit; stacked with REPEAT + LPF, let go:
  *    those as alone, bit for bit; L and R apart; KNOB 4 at 0 %: live; the cost.
  * 11. the key map (perform.c PF_DEF / PF2_DEF, seq.c perf_key): two fixed pages, the punch page shown picks theirs:
- *    the pages' contents; the keys of a page, a page flip while nothing held; FX LATCH on with a key held (letting go
- *    clears its bit, the latched ones stay sticky); the pages' maps on the keys, G5 CLR only with LATCH.
+ *    the pages' contents (REPEAT 1/8 1/12 1/16 1/32 first, /2 *2 GLITCH on 2/2); the keys of a page, a page flip
+ *    while nothing held; FX LATCH on with a key held (letting go clears its bit, the latched ones stay sticky);
+ *    the pages' maps on the keys, G5 CLR only with LATCH.
  * 12. 1.5.1: the delay's TIME 1/8D 1/16D 1/4D (their lengths at 60 61 90 120 BPM and on the external clock, 1/4D clamped
  *    to the line at 60 BPM and below, the list append-only and longest first on the knob, ARP RATE / SEQ DIV unchanged, an
  *    echo at 1/8D where it belongs, free ms: the FM-1's one-pole roll (1.4391e-4 a sample to the target, tau 157 ms): a
- *    fast turn rides at the turn's own speed, an instant jump sweeps its chirp and lands, up and down alike); REV THROW / ECHO THROW: every track's reverb / delay send as at 127 while held, the
+ *    fast turn rides at the turn's own speed, an instant jump sweeps its chirp and lands, up and down alike), a
+ *    tempo / tape speed change fades the RATE tap to its new time (no splice, no pitch bend); REV THROW / ECHO THROW: every track's reverb / delay send as at 127 while held, the
  *    other bus untouched, the glide (11.6 ms, bounded steps) in and out, ECHO THROW's feedback 0 -> 0.7 and one above
  *    left alone, bounded on full-scale squares and dying away, the reverb tail ringing out after the release, idle
  *    again after it, on PUNCH-IN 2/2 (the map's 8th / 9th key), the tracks' values never touched.
@@ -78,6 +81,7 @@ static void perf_reset(void)
     memset((void *)perf_k, 0, sizeof perf_k);
     sl_lent = 0;
     memset(sl, 0, sizeof sl);
+    memset(sl_buf, 0, sizeof sl_buf);                  /* GLITCH reads what the ring held before it */
 }
 /* the stage alone on the test signal: samples [t0, t1); ev: press (+e + 1) / let go (-(e + 1)) at block bt */
 typedef struct { uint32_t t; int e; } ev_t;
@@ -96,15 +100,16 @@ static void run(uint32_t bpm, int playing, const ev_t *ev, uint32_t nev, uint32_
     perf_start();
     busy_seen = 0;
     for (t = 0; t < t1; t += CTL) {
+        uint32_t n = t1 - t < CTL ? t1 - t : CTL;    /* (the last block can be short: no write past the arrays) */
         while (k < nev && ev[k].t <= t) {
             perf_press((uint32_t)(ev[k].e > 0 ? ev[k].e - 1 : -ev[k].e - 1), ev[k].e > 0);
             k++;
         }
-        memcpy(out_l + t, in_l + t, CTL * 4);
-        memcpy(out_r + t, in_r + t, CTL * 4);
-        if (perf_begin(CTL)) {
+        memcpy(out_l + t, in_l + t, n * 4);
+        memcpy(out_r + t, in_r + t, n * 4);
+        if (perf_begin(n)) {
             busy_seen = 1;
-            perf_block(out_l + t, out_r + t, CTL);
+            perf_block(out_l + t, out_r + t, n);
         }
     }
 }
@@ -285,6 +290,16 @@ static int test_too_long(void)
         perf_press(PF_R8, 0);
         bad += check("  a REPEAT 1/8 held while the tempo drops below its fit: it ends, no click",
                      pf.mode == BM_NONE && !sl_lent && mx < 4 * 190);
+    }
+    {   /* 3.2: REPEAT 1/12, a third of a beat (the 8T rate) */
+        song.g[G_BPM] = 120;
+        bad += check("REPEAT 1/12: a third of a beat (7350 samples at 120 BPM, the 8T rate)",
+                     perf_len(PF_R12) == beat_samples() / 3u && perf_len(PF_R12) == 7350u &&
+                     (perf_avail() & PF_BIT(PF_R12)));
+        bad += check("  1/12 is a buffer REPEAT (not MIDI); the loop holds it from 54 BPM",
+                     (PF_BUF & PF_BIT(PF_R12)) && (PF_REPEAT & PF_BIT(PF_R12)) && !(PF_MIDI & PF_BIT(PF_R12)) &&
+                     (song.g[G_BPM] = 54, perf_avail() & PF_BIT(PF_R12)) &&
+                     (song.g[G_BPM] = 53, !(perf_avail() & PF_BIT(PF_R12))));
     }
     return bad;
 }
@@ -938,12 +953,15 @@ static int test_map(void)
     int bad = 0, ok = 1;
     uint32_t p, k;
     char what[160];
-    bad += check("map: the pages are fixed (PUNCH 1: REPEAT, 1/2, LPF/HPF/OCT, DEC, stutter, ATK ARP RANDOM; PUNCH-IN 2/2: the audio effects)",
-                 PF_DEF[0] == PF_R8 && PF_DEF[3] == PF_HALF && PF_DEF[4] == PF_LPF && PF_DEF[5] == PF_HPF &&
-                 PF_DEF[6] == PF_OCTD && PF_DEF[7] == PF_OCTU && PF_DEF[14] == PF_RND && PF_DEF[15] == PF_N &&
+    bad += check("map: the pages are fixed (PUNCH-IN 1/2: REPEAT 1/8 1/12 1/16 1/32, LPF/HPF/OCT, DEC, stutter, ATK ARP RANDOM; 2/2: the audio effects, /2 *2 GLITCH)",
+                 PF_DEF[0] == PF_R8 && PF_DEF[1] == PF_R12 && PF_DEF[2] == PF_R16 && PF_DEF[3] == PF_R32 &&
+                 PF_DEF[4] == PF_LPF && PF_DEF[5] == PF_HPF && PF_DEF[6] == PF_OCTD && PF_DEF[7] == PF_OCTU &&
+                 PF_DEF[8] == PF_DSHT && PF_DEF[9] == PF_DLNG && PF_DEF[10] == PF_S8 && PF_DEF[11] == PF_S16 &&
+                 PF_DEF[12] == PF_ATK && PF_DEF[13] == PF_ARP && PF_DEF[14] == PF_RND && PF_DEF[15] == PF_N &&
                  PF2_DEF[0] == PF_REV && PF2_DEF[1] == PF_TAPE && PF2_DEF[2] == PF_FRZ && PF2_DEF[3] == PF_OUP &&
                  PF2_DEF[4] == PF_ODN && PF2_DEF[5] == PF_FLG && PF2_DEF[6] == PF_PHS && PF2_DEF[7] == PF_RTHR &&
-                 PF2_DEF[8] == PF_ETHR && PF2_DEF[9] == PF_N && PF2_DEF[14] == PF_N && PF2_DEF[15] == PF_N);
+                 PF2_DEF[8] == PF_ETHR && PF2_DEF[9] == PF_HALF && PF2_DEF[10] == PF_X2 && PF2_DEF[11] == PF_GLT &&
+                 PF2_DEF[12] == PF_N && PF2_DEF[15] == PF_N);
     {   /* the keys: the shown page's fixed map (G5 none, LATCH off); a page flip (ui.c page_entered) follows */
         uint32_t fx = 1u << 3, white = 0, ck = 0;
         song_setup();
@@ -1005,7 +1023,7 @@ static int test_map(void)
         fm1_in.buttons = 0;
         kb_mask = perf_mask = 0;
     }
-    snprintf(what, sizeof what, "map: the default map on the keys: F3..B3 REPEAT/1/2, C4..F4 LPF/HPF/OCT, G4..F5 the rest; G5 CLR only with LATCH");
+    snprintf(what, sizeof what, "map: the default map on the keys: F3..B3 REPEAT 1/8 1/12 1/16 1/32, C4..F4 LPF/HPF/OCT, G4..F5 the rest; G5 CLR only with LATCH");
     {
         ok = 1;
         for (k = 0; k < 27u; k++)
@@ -1013,7 +1031,8 @@ static int test_map(void)
                 p = key_place(k);
                 ok &= perf_key(k) == (p < PF_KEYS ? PF_DEF[p] : PF_N);   /* LATCH off: G5 is PF_N */
             }
-        ok &= perf_key(6) == PF_HALF && perf_key(7) == PF_LPF && perf_key(9) == PF_HPF && perf_key(11) == PF_OCTD &&
+        ok &= perf_key(0) == PF_R8 && perf_key(2) == PF_R12 && perf_key(4) == PF_R16 && perf_key(6) == PF_R32 &&
+              perf_key(7) == PF_LPF && perf_key(9) == PF_HPF && perf_key(11) == PF_OCTD &&
               perf_key(12) == PF_OCTU && perf_key(21) == PF_ATK && perf_key(23) == PF_ARP && perf_key(24) == PF_RND;
         perf_latch_on = 1;
         for (k = 0; k < 27u; k++)
@@ -1026,6 +1045,7 @@ static int test_map(void)
                 p = key_place(k);
                 ok &= perf_key(k) == (p < PF_KEYS ? PF2_DEF[p] : PF_N);
             }
+        ok &= perf_key(16) == PF_HALF && perf_key(18) == PF_X2 && perf_key(19) == PF_GLT;   /* A4 /2, B4 *2, C5 GLITCH */
         perf_page(0);                                   /* (page 1's map back) */
     }
     bad += check(what, ok);
@@ -1049,8 +1069,9 @@ static void dly_run(const int32_t *in, int32_t *wet_out, uint32_t frames)
     static int32_t z[CTL], w[CTL];
     uint32_t t, i;
     for (t = 0; t < frames; t += CTL) {
-        fx_buses(in + t, z, w, CTL);
-        for (i = 0; i < CTL; i++)
+        uint32_t n = frames - t < CTL ? frames - t : CTL;   /* (the last block can be short) */
+        fx_buses(in + t, z, w, n);
+        for (i = 0; i < n; i++)
             wet_out[t + i] = w[i];
     }
 }
@@ -1192,7 +1213,7 @@ static int test_throw(void)
            * the bend is how fast the knob turns, not how far it moves. */
         uint32_t settle, fast, slow;
         host_tracks_init();
-        song.g[G_DMIX] = 127;
+        song.g[G_TSPEED] = 100;
         song.g[G_DFDBK] = 0;
         fast = knob_turn(455, 25, FS / 2u, &settle);  /* a quick turn: 430 ms in half a second */
         ok = settle >= 7u * FS / 5u && settle < 9u * FS / 5u &&
@@ -1244,7 +1265,7 @@ static int test_throw(void)
         song.g[G_BPM] = 120;
         song.g[G_DTIME] = 10;
         song.g[G_DFDBK] = 0;
-        song.g[G_DMIX] = 127;
+        song.g[G_TSPEED] = 100;
         memset(in, 0, sizeof in);
         for (t = 0; t < 64u; t++)
             in[t] = 20000;
@@ -1265,7 +1286,7 @@ static int test_throw(void)
         song.g[G_DTIME] = 2;
         song.g[G_DFDBK] = 0;
         song.g[G_DCOLOR] = 127;
-        song.g[G_DMIX] = 127;
+        song.g[G_TSPEED] = 100;
         memset(in, 0, sizeof in);
         for (t = 0; t < 1000u; t++)
             in[t] = 20000;
@@ -1522,6 +1543,66 @@ static int test_dly_move(void)
     return bad;
 }
 
+/* The RATE delay's read tap follows the transport: MASTER / TEMPO OFF scales beat_samples with the tape
+ * speed, so the target moves every block. It must fade to the new tap: a jump on the block edge is a hard
+ * splice in the echo (the crackle), and a gliding tap pitch-bends the feedback into a phasy grain. */
+static int test_dly_rate(void)
+{
+    static int32_t in[4u * FS], out[4u * FS];
+    char what[200];
+    uint32_t t, k, base = 2u * FS, seg = 192u * CTL, max2 = 0, ref2 = 0, held;
+    double w = 2.0 * 3.141592653589793 * 100.0 / (double)FS;
+    int bad = 0, ok, hold_ok = 1;
+
+    for (t = 0; t < 4u * FS; t++)
+        in[t] = (int32_t)(18000.0 * sin(w * (double)t));
+    host_tracks_init();
+    song.g[G_CLOCK] = 0;
+    song.g[G_BPM] = 120;
+    song.g[G_TAPEMODE] = TAPE_MASTER;
+    song.g[G_TMIX] = 127;
+    song.g[G_TTEMPO] = 0;
+    song.g[G_DTIME] = 1;                               /* 1/8 at 120: 11025 samples */
+    song.g[G_DFDBK] = 0;
+    song.g[G_DCOLOR] = 0;
+    dly_clear();
+    tp.eff_recip = 65536u;
+    dly_run(in, out, base);                            /* fill the line at 100 % */
+    held = dly_q8;
+    for (k = 0; k < 64u; k++) {                        /* 100 -> 50 % in the tape slew's 64 blocks */
+        tp.eff_recip = 65536u + 65536u * k / 63u;
+        dly_run(in + base + k * CTL, out + base + k * CTL, CTL);
+        if (k && dly_q8 != held)                       /* the moving target must not drag the tap: that
+                                                        * is the Doppler that grains the feedback */
+            hold_ok = 0;
+    }
+    tp.eff_recip = 131072u;
+    dly_run(in + base + 64u * CTL, out + base + 64u * CTL, seg - 64u * CTL);
+    for (t = base + 2u; t < base + seg; t++) {
+        int32_t d = out[t] - 2 * out[t - 1] + out[t - 2];
+        if (d < 0)
+            d = -d;
+        if ((uint32_t)d > max2)
+            max2 = (uint32_t)d;
+    }
+    dly_clear();                                       /* the same input with the rate held at 50 % */
+    tp.eff_recip = 131072u;
+    dly_run(in, out, base + seg);
+    for (t = base + 2u; t < base + seg; t++) {
+        int32_t d = out[t] - 2 * out[t - 1] + out[t - 2];
+        if (d < 0)
+            d = -d;
+        if ((uint32_t)d > ref2)
+            ref2 = (uint32_t)d;
+    }
+    ok = hold_ok && dly_q8 == ((uint32_t)delay_samples() << 8);   /* held, then faded onto the new time */
+    snprintf(what, sizeof what,
+             "RATE delay: a 100 -> 50 %% tape speed change fades the read tap; worst 2nd step %u (held 50 %%: %u)",
+             max2, ref2);
+    bad += check(what, max2 < 2000u && ref2 < 500u && ok);
+    return bad;
+}
+
 /* -------------------------------------------------------------- 8. cost --- */
 static uint64_t instr_now(void)
 {
@@ -1568,14 +1649,19 @@ static double cost_run(int on)
     transport_req = 2;
     return i0 ? (double)(instr_now() - i0) / (2.0 * FS) : 0;
 }
-/* each beat twice, the smaller: the host's retired-instruction counter reads a few percent high
- * now and then when the machine is busy (the suite runs ten tests at once: one run measured the
- * shimmer +147 against the +129 bound, the very next the same binary +116, while the other beats
- * stayed byte-exact). The true count is the smaller read; a real regression raises both. */
+/* each beat four times, the smallest: the host's retired-instruction counter reads a few percent
+ * high now and then when the machine is busy (the suite runs ten tests at once: one run measured
+ * the shimmer +147 against the +129 bound, the very next the same binary +116, while the other
+ * beats stayed byte-exact). The true count is the smallest read; a real regression raises every
+ * read. Two reads were not enough: the PHASER's true +142 sits only five below its +147 bound, so
+ * one noisy read out of two still tipped it over under load. */
 static double cost_min(int on)
 {
-    double a = cost_run(on), b = cost_run(on);
-    return a < b ? a : b;
+    double a = cost_run(on), b = cost_run(on), c = cost_run(on), d = cost_run(on);
+    double m = a < b ? a : b;
+    if (c < m) m = c;
+    if (d < m) m = d;
+    return m;
 }
 static int test_cost(void)
 {
@@ -1864,6 +1950,117 @@ static int test_pfx_restore(void)
     return bad;
 }
 
+/* ---------------------------------------------------- x2 TEMPO (3.2) --- */
+static uint32_t seq_steps_run(track_t *t, uint32_t samples)
+{
+    uint32_t k, n = 0, prev = t->seq_idx;
+    for (k = 0; k < samples; k += CTL) {
+        seq_tick(t, CTL);
+        if (t->seq_idx != prev) {
+            n++;
+            prev = t->seq_idx;
+        }
+    }
+    return n;
+}
+static void seq_fresh(track_t *t)
+{
+    host_tracks_init();
+    song.g[G_BPM] = 120;
+    song.playing = 1;
+    song.rec = 0;
+    t->p[P_SDIV] = 2;
+    t->p[P_SLEN] = 16;
+    t->seq_idx = 0;
+    t->seq_pos = 0;
+    t->seq_n = 0;
+    t->seq_hold = 0;
+    t->pfx = 0;
+    t->pfx_rs = 0;
+}
+static int test_x2(void)
+{
+    int bad = 0;
+    track_t *t = &trk[0];
+    int32_t o[2 * CTL];
+    uint32_t normal, doubled;
+
+    seq_fresh(t);
+    normal = seq_steps_run(t, 88200u);                 /* one bar of 1/16 at 120 BPM */
+    seq_fresh(t);
+    perf_reset();
+    pfx_lph = 0;
+    clk_pos = CLK_START;
+    perf_press(PF_X2, 1);
+    pfx_block(CTL, PF_BIT(PF_X2));                     /* (pfx_block alone: events_block would consume pfx_rs) */
+    bad += check("x2: the MIDI bit and its origin while held", (t->pfx & PFX_X2) && t->pfx_idx0 == 0 && t->pfx_pos0 == 0);
+    doubled = seq_steps_run(t, 88200u);
+    bad += check("x2: one bar plays twice the steps", doubled >= 2u * normal - 2u && doubled <= 2u * normal + 2u);
+    perf_press(PF_X2, 0);
+    pfx_block(CTL, 0);
+    bad += check("x2: let go arms the resync", !(t->pfx & PFX_X2) && t->pfx_rs);
+    seq_tick(t, CTL);
+    bad += check("x2: the next tick resyncs once", !t->pfx_rs);
+    pfx_lane_put(0, 11);
+    bad += check("x2: lane nibble 11", pfx_lane_at(0) == 11u);
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    return bad;
+}
+
+/* --------------------------------------------------------- GLITCH (3.2) --- */
+static int test_glitch(void)
+{
+    int bad = 0;
+    ev_t e = {0, PF_GLT + 1};
+    static int32_t a[NT], b[NT];
+    uint32_t seen = 0, t;
+
+    perf_reset();
+    for (t = 0; t < PB_FRAMES; t++)
+        pb_put(t, t < PB_FRAMES / 2u ? 100 : 200, t < PB_FRAMES / 2u ? 300 : 400);
+    pf.wr = 5000;
+    pf.P = 5512;
+    pf.gl.a = GA_RPT;
+    pf.gl.g0 = 10000;
+    pf.gl.l = 1000;
+    perf_glt_seg();
+    pf.gl.u = SL_RAMP;
+    perf_glt(0, 0);
+    bad += check("GLITCH repeats the recent stereo samples in the ring's second half",
+                 pf.gl_yl == 400 && pf.gl_yr == 800);
+
+    test_signal(220.0, 0.5, 330.0, 0.5);
+    clk_pos = CLK_START;
+    run(120, 1, &e, 1, 4u * 44100u);
+    bad += check("GLITCH: a held key plays the master through the slice buffer", busy_seen && !same(0, NT));
+    memcpy(a, out_l, sizeof a);
+    memcpy(b, out_r, sizeof b);
+    clk_pos = CLK_START;
+    run(120, 1, &e, 1, 4u * 44100u);
+    bad += check("GLITCH: the same slice actions every pass (deterministic)",
+                 !memcmp(a, out_l, sizeof a) && !memcmp(b, out_r, sizeof b));
+
+    host_tracks_init();
+    perf_reset();
+    song.g[G_BPM] = 70;                                /* below ~82 BPM: only GATE / CRUSH / live */
+    song.playing = 1;
+    clk_pos = CLK_START;
+    perf_start();
+    perf_press(PF_GLT, 1);
+    for (t = 0; t < NT; t += CTL) {
+        uint32_t n = NT - t < CTL ? NT - t : CTL;    /* (the last block can be short) */
+        memcpy(out_l + t, in_l + t, n * 4);
+        memcpy(out_r + t, in_r + t, n * 4);
+        if (perf_begin(n)) {
+            perf_block(out_l + t, out_r + t, n);
+            seen |= 1u << pf.gl.a;
+        }
+    }
+    bad += check("GLITCH: below 82 BPM only GATE / CRUSH / live",
+                 !(seen & ((1u << GA_RPT) | (1u << GA_REV) | (1u << GA_UP) | (1u << GA_DN) | (1u << GA_SKIP))));
+    return bad;
+}
+
 int main(int argc, char **argv)
 {
     int bad = 0;
@@ -1879,7 +2076,10 @@ int main(int argc, char **argv)
     bad += test_map();
     bad += test_throw();
     bad += test_dly_move();
+    bad += test_dly_rate();
     bad += test_pfx_restore();
+    bad += test_x2();
+    bad += test_glitch();
     bad += test_cost();
     if (argc > 1)
         demos(argv[1]);

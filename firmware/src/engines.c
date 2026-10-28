@@ -28,6 +28,7 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
 #include "eng_grain.c"
 #include "eng_phys.c"           /* PHYS: DaisySP physical models (phys_dsp.c, MIT) */
 #include "eng_drum.c"           /* DRUM: the 8-lane DRUM-X kit (drumx_voice.c) */
+#include "eng_drums.c"          /* DRUMS: the ported Felucca drum engine (drums_voice.c) */
 #include "eng_noise.c"
 #include "eng_wt.c"             /* WAVETABLE: two wavetable oscillators (XIP tables) */
 #include "eng_fm6.c"            /* FM6: 6-operator FM, msfa ported (fm6_core.c, Apache-2.0) */
@@ -58,6 +59,7 @@ static const engine_t *const ENGINES[NENGINES] = {
     &ENG_FM6,                    /* 12 (ENGI_FM6) */
     &ENG_SLICE_GONE,             /* 13: reserved (SLICE retired) */
     &ENG_WT,                     /* 14 (ENGI_WT) */
+    &ENG_DRUMS,                  /* 15 (ENGI_DRUMS): Felucca's drum engine */
 };
 
 /* a track's engine number as an index (the audio paths: a compare, cheaper than % NENGINES; a bad number: 0) */
@@ -121,6 +123,7 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     2, 3, 4, 5, 6, 7, 8, 9,      /* PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS */
     11,                          /* NOISE */
     10,                          /* DRUM */
+    15,                          /* DRUMS */
     14,                          /* WAVETABLE */
 };
 _Static_assert(NELEM(ENGINE_ORDER) == NENG_SHOWN, "ENGINE_ORDER / NENG_SHOWN");

@@ -701,6 +701,340 @@ static int lock_edit(void)
     bad += check("delete an event deletes a lock too (either kind)", !motion_count(&trk[1]));
     return bad;
 }
+/* PITCH lock (3.2, MSEQ_PITCH): a chromatic semitone offset after the scale snap */
+static int lock_pitch(void)
+{
+    int bad = 0, ok;
+    track_t *t = lock_track(0);
+    project_t before, after;
+    project_store_t a;
+    uint32_t n;
+    t->p[P_QUANT] = QN_SEQ;                              /* ALL's quantising */
+    t->p[P_SCALE] = 0;
+    t->p[P_ROOT] = 0;
+    motion_set_lock(t, 2, MSEQ_PITCH, 2);
+    motion_set_lock(t, 4, MSEQ_PITCH, 7);
+    motion_set_lock(t, 6, MSEQ_PITCH, -2);
+    ok = motion.count == 3u && motion.event[0].param == (MSEQ_PITCH | MOTION_LOCK);
+    seq_start();
+    seq_tick(t, CTL);
+    ok &= t->seq_notes[0] == 60u && !t->plk_pit;
+    bad += check("PITCH lock: a lock-only id, stored in the shared records", ok);
+    for (n = 0; n < 100000u && t->seq_idx != 2u; n++) lock_next(t);
+    bad += check("  +2 semitones on C4 plays D4", t->plk_pit == 2 && t->seq_notes[0] == 62u);
+    for (n = 0; n < 100000u && t->seq_idx != 4u; n++) lock_next(t);
+    bad += check("  +7 semitones plays G4", t->plk_pit == 7 && t->seq_notes[0] == 67u);
+    for (n = 0; n < 100000u && t->seq_idx != 6u; n++) lock_next(t);
+    bad += check("  -2 semitones plays A#3", t->plk_pit == -2 && t->seq_notes[0] == 58u);
+    seq_stop();
+    t->p[P_QUANT] = QN_OFF;                              /* MAP OFF: the same chromatic offset */
+    motion_set_lock(t, 2, MSEQ_PITCH, 3);
+    seq_start();
+    for (n = 0; n < 100000u && t->seq_idx != 2u; n++) lock_next(t);
+    bad += check("  MAP OFF: +3 is three semitones (D#4)", t->seq_notes[0] == 63u);
+    seq_stop();
+    project_capture(&before);
+    ok = proj_pack(&a, &before) && proj_import(&after, &a, sizeof a) &&
+         after.motion.event[0].param == (MSEQ_PITCH | MOTION_LOCK) && after.motion.event[0].value == 3;
+    bad += check("  the lock survives the project round trip (FUN16, id 127)", ok);
+    return bad;
+}
+
+static int pitch_lock_only(void)
+{
+    int bad = 0;
+    track_t *t = lock_track(0);
+    motion_store_t invalid;
+    int16_t value;
+    bad += check("PITCH cannot be written as automation", motion_set_event(t, 2, MSEQ_PITCH, 7) == 1 && !motion.count);
+    motion_clear(t);
+    motion_set_event(t, 2, P_REV, 50);
+    bad += check("changing an automation row to PITCH makes it a lock",
+                 !motion_move(t, 0, 2, MSEQ_PITCH, 7) && motion_lock_get(t, 2, MSEQ_PITCH, &value) && value == 7);
+    invalid = motion;
+    invalid.event[0].param = MSEQ_PITCH;
+    bad += check("stored PITCH automation is rejected", !motion_valid(&invalid));
+    motion_clear(t);
+    motion_set_lock(t, 2, MSEQ_PITCH, 7);
+    ev_follow(EVC(EVK_REC, 0));
+    ev_oct();
+    bad += check("OCT+ keeps PITCH as a lock", motion_lock_get(t, 2, MSEQ_PITCH, &value) && value == 7);
+    return bad;
+}
+
+/* 3.2: TRN recorded with REC is stored as the step's fitted semitone PITCH lock, never as P_TRANS automation */
+static int record_trn(void)
+{
+    int bad = 0, ok;
+    track_t *t = lock_track(0);
+    project_t before, after;
+    project_store_t disk;
+    uint32_t i, sel, found;
+    int16_t v;
+    t->p[P_QUANT] = QN_SEQ; t->p[P_SCALE] = 0; t->p[P_ROOT] = 0; t->p[P_TRANS] = 0;
+    bad += check("SCL TRN is not ordinary automation: PITCH (127) is its only record",
+                 !motion_param(P_TRANS) && !ev_id_ok(t, P_TRANS));
+    song.sel = 0; song.rec = 1;
+    seq_start(); seq_tick(t, CTL);                   /* step 0: C4; the motion base is captured */
+    t->p[P_TRANS] = 1;
+    ok = !motion_capture(t, P_TRANS, 1) && motion.count == 1u &&
+         motion.event[0].param == (MSEQ_PITCH | MOTION_LOCK) && motion.event[0].value == 0 &&
+         motion.event[0].place == 0u && t->p[P_TRANS] == 1;   /* the knob keeps moving: no reset */
+    bad += check("  REC +1 TRN on C4 in C major stores the fitted 0 ST (C4, not C#4); TRN keeps its value", ok);
+    song.rec = 0; seq_stop();
+    seq_start(); seq_tick(t, CTL);
+    bad += check("  playback at that step is what was heard (C4)", t->plk_fit == 1u && t->plk_pit == 0 &&
+                 t->seq_notes[0] == 60u);
+    {   /* opening AUTOMATION with a fitted PITCH record (AUTO kind) must render, not loop */
+        uint16_t rw[EV_ROWS];
+        uint32_t r, nr, row = 0;
+        go_auto_top();
+        frame();
+        nr = ev_list(rw);
+        for (r = 0; r < nr; r++)
+            if ((rw[r] >> 8) == EVK_REC && MOTION_ID(&motion.event[rw[r] & 0xFFu]) == MSEQ_PITCH)
+                row = r;
+        ui.ev_row = (uint16_t)row;
+        frame();
+        turn(EN_K4, 1);
+        {
+            uint32_t n2, c2 = ev_cur(ev_rw, &n2);
+            bad += check("  AUTOMATION opens on a fitted PITCH record, and it stays selected after an edit",
+                         row && motion.count == 1u && motion_find(t, 0, MSEQ_PITCH) >= 0 &&
+                         (motion.event[0].param & MOTION_LOCK) && (c2 >> 8) == EVK_REC &&
+                         MOTION_ID(&motion.event[c2 & 0xFFu]) == MSEQ_PITCH);
+        }
+    }
+    seq_stop();
+    motion_set_lock(t, 2, MSEQ_PITCH, 1);
+    seq_start(); seq_tick(t, CTL);
+    for (i = 0; i < 100000u && t->seq_idx != 2u; i++)
+        lock_next(t);
+    bad += check("  a manual PITCH +1 plays C#4 (chromatic, after the scale snap)",
+                 t->plk_fit == 1u && t->plk_pit == 1 && t->seq_notes[0] == 61u);
+    seq_stop();
+    ok = motion.count == 2u;
+    for (i = 0; i < motion.count; i++)
+        ok &= MOTION_ID(&motion.event[i]) != P_TRANS;
+    bad += check("  no P_TRANS automation event exists", ok);
+    motion_set_lock(t, 4, MSEQ_PITCH, -2);
+    ok = motion.count == 3u && !motion_capture(t, MSEQ_PITCH, 7) && motion.count == 3u;
+    bad += check("  PITCH (127) stays lock-only: REC captures nothing for it", ok);
+    project_capture(&before);
+    ok = proj_pack(&disk, &before) && proj_import(&after, &disk, sizeof disk) && after.motion.count == 3u &&
+         after.motion.event[0].param == (MSEQ_PITCH | MOTION_LOCK) && after.motion.event[1].param == (MSEQ_PITCH | MOTION_LOCK) &&
+         after.motion.event[1].value == 1 && after.motion.event[2].value == -2;
+    bad += check("  the fitted TRN record and the PITCH locks survive a FUN16 project", ok);
+    sel = found = 0;
+    pk_build_auto(t, MSEQ_PITCH, NSTEP, &sel);
+    for (i = 0; i < pk_n; i++)
+        if (pk_rows[i].id == MSEQ_PITCH && str_eq(pk_rows[i].name, "PITCH") && str_eq(pk_rows[i].tag, "SEQ"))
+            found = 1;
+    bad += check("  PITCH locks still appear in AUTOMATION", found && motion_lock_get(t, 4, MSEQ_PITCH, &v) && v == -2);
+    {   /* K3 PARAM on a row changed away from PITCH still offers PITCH when the step has no PITCH record */
+        uint32_t j, hit = 0;
+        motion_clear_locks(t, 0);
+        motion_set_lock(t, 0, P_REV, 50);
+        pk_build_auto(t, P_REV, 0, &sel);
+        for (j = 0; j < pk_n; j++)
+            if (pk_rows[j].id == MSEQ_PITCH && str_eq(pk_rows[j].name, "PITCH"))
+                hit = 1;
+        bad += check("  K3 PARAM still offers PITCH after the row was changed to another parameter", hit);
+        {   /* selecting PITCH in that list actually changes the record (it is id 127, not in p[]) */
+            uint32_t r, nr, prow = 0;
+            uint16_t rw[EV_ROWS];
+            nr = ev_list(rw);
+            for (r = 0; r < nr; r++)
+                if ((rw[r] >> 8) == EVK_REC && motion.event[rw[r] & 0xFFu].place == 0 &&
+                    MOTION_ID(&motion.event[rw[r] & 0xFFu]) == P_REV)
+                    ui.ev_row = (uint16_t)r;
+            pk_open(PK_AUTO);
+            for (r = 0; r < pk_n; r++)
+                if (pk_rows[r].id == MSEQ_PITCH)
+                    prow = r;
+            pk_cur = (uint8_t)prow;
+            pk_apply();
+            bad += check("  K3 PARAM: selecting PITCH changes the record to PITCH",
+                         motion_find(t, 0, MSEQ_PITCH) >= 0 && motion_find(t, 0, P_REV) < 0);
+        }
+    }
+    return bad;
+}
+
+/* ----------------------------------------------- PITCH and kit tracks --- */
+/* the transport on to step idx (from wherever it is now, around the loop) */
+static void pitch_to(track_t *t, uint32_t idx)
+{
+    uint32_t n;
+    for (n = 0; n < 100000u && t->seq_idx != idx; n++)
+        lock_next(t);
+}
+/* REC TRN +1 on a C4 step in C major: the stored PITCH (raw OFF/KBD, fitted SEQ/ALL/CURR); at playback it
+ * replaces the TRN there and stays chromatic (no re-snap) */
+static int pitch_capture_mode(uint32_t qn)
+{
+    track_t *t = lock_track(0);
+    int16_t want = (qn == QN_OFF || qn == QN_KBD) ? 1 : 0;
+    int ok;
+    t->p[P_QUANT] = (int16_t)qn;
+    t->p[P_SCALE] = 0;
+    t->p[P_ROOT] = 0;
+    t->p[P_TRANS] = 0;
+    song.sel = 0;
+    song.rec = 1;
+    seq_start(); seq_tick(t, CTL);                   /* step 0: C4 */
+    t->p[P_TRANS] = 1;
+    ok = !motion_capture(t, P_TRANS, 1) && motion.count == 1u && motion.event[0].place == 0u &&
+         motion.event[0].param == (MSEQ_PITCH | MOTION_LOCK) && motion.event[0].value == want;
+    song.rec = 0;
+    seq_stop();
+    t->p[P_TRANS] = 7;                               /* the lock replaces the TRN on its step */
+    t->p[P_QUANT] = QN_SEQ;                          /* and plays chromatically: no re-snap */
+    seq_start(); seq_tick(t, CTL);
+    ok &= t->plk_fit == 1u && t->plk_pit == want && t->seq_notes[0] == (uint32_t)(60 + want);
+    seq_stop();
+    return ok;
+}
+static int pitch_matrix(void)
+{
+    static const uint32_t QN[5] = {QN_OFF, QN_SEQ, QN_ALL, QN_KBD, QN_CURR};
+    static const char *const NAME[5] = {"MAP OFF", "SEQ", "ALL", "KBD", "CURR"};
+    int bad = 0;
+    uint32_t i;
+    char what[96];
+    track_t *t;
+    for (i = 0; i < 5u; i++) {
+        snprintf(what, sizeof what, "PITCH: %s REC TRN +1 on C4 stores %s and plays it", NAME[i],
+                 i == 0u || i == 3u ? "raw +1" : "the fitted 0");
+        bad += check(what, pitch_capture_mode(QN[i]));
+    }
+    t = lock_track(0);                               /* a chord: the first note fits the offset */
+    t->p[P_QUANT] = QN_SEQ;
+    t->p[P_SCALE] = 0;
+    t->p[P_ROOT] = 0;
+    t->p[P_TRANS] = 0;
+    t->step[0] = (step_t){{60, 64, 67}, 3, ST_NOTE, 0, 100};
+    song.sel = 0;
+    song.rec = 1;
+    seq_start(); seq_tick(t, CTL);
+    t->p[P_TRANS] = 2;
+    bad += check("PITCH: a chord captures against its first note (+2 -> D4 in C major)",
+                 !motion_capture(t, P_TRANS, 2) && motion.count == 1u && motion.event[0].value == 2);
+    song.rec = 0;
+    seq_stop();
+    t->p[P_TRANS] = 0;
+    seq_start(); seq_tick(t, CTL);
+    bad += check("  then the one lock transposes all three notes (D4 F#4 A4, not re-snapped)",
+                 t->plk_fit == 1u && t->plk_pit == 2 && t->seq_n == 3u &&
+                 t->seq_notes[0] == 62u && t->seq_notes[1] == 66u && t->seq_notes[2] == 69u);
+    seq_stop();
+    return bad;
+}
+/* PITCH applies only to a step that plays, on every part of it, and never past it */
+static int pitch_gate(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    uint32_t v0;
+    t = lock_track(0);
+    motion_set_lock(t, 2, MSEQ_PITCH, 2);
+    step_set_chance(&t->step[2], 0);
+    seq_start(); seq_tick(t, CTL);
+    pitch_to(t, 2);
+    bad += check("PITCH: CHANCE 0 %: the step plays nothing, so no PITCH",
+                 t->seq_idx == 2u && !t->plk_fit && !t->seq_n);
+    seq_stop();
+    step_set_chance(&t->step[2], 100);
+    seq_start(); seq_tick(t, CTL);
+    pitch_to(t, 2);
+    bad += check("  CHANCE 100 %: PITCH +2 on its step", t->seq_idx == 2u && t->plk_fit == 1u && t->seq_notes[0] == 62u);
+    seq_stop();
+    t = lock_track(0);
+    motion_set_lock(t, 2, MSEQ_PITCH, 2);
+    step_set_ratchet(&t->step[2], 3);
+    seq_start(); seq_tick(t, CTL);
+    pitch_to(t, 2);
+    v0 = vage;
+    for (ok = t->seq_idx == 2u; t->seq_idx == 2u;) {
+        if (t->seq_n)
+            ok &= t->plk_fit == 1u && t->seq_notes[0] == 62u;
+        seq_tick(t, CTL);
+    }
+    bad += check("  RATCH x3: PITCH on every part, none at the next step", ok && vage - v0 >= 3u && !t->plk_fit);
+    seq_stop();
+    t = lock_track(100);
+    motion_set_lock(t, 2, MSEQ_PITCH, 2);
+    seq_start(); seq_tick(t, CTL);
+    pitch_to(t, 2);
+    bad += check("  SWING 100: PITCH +2 on its step", t->seq_idx == 2u && t->plk_fit == 1u && t->seq_notes[0] == 62u);
+    seq_stop();
+    t = lock_track(0);
+    t->p[P_TRANS] = 5;
+    motion_set_lock(t, 2, MSEQ_PITCH, 2);
+    seq_start(); seq_tick(t, CTL);
+    ok = !t->plk_fit && t->seq_notes[0] == 65u;
+    pitch_to(t, 2);
+    ok &= t->plk_fit == 1u && t->seq_notes[0] == 62u;
+    pitch_to(t, 3);
+    ok &= !t->plk_fit && t->seq_notes[0] == 65u;
+    bad += check("PITCH: its step only; TRN sounds on the others (PITCH replaces it there)", ok);
+    seq_stop();
+    ok = !t->plk_fit;
+    seq_start(); seq_tick(t, CTL);
+    ok &= !t->plk_fit && t->seq_notes[0] == 65u;
+    pitch_to(t, 2);
+    ok &= t->plk_fit == 1u && t->seq_notes[0] == 62u;
+    pitch_to(t, 0);                                  /* around the loop */
+    ok &= !t->plk_fit && t->seq_notes[0] == 65u;
+    bad += check("  STOP and the loop's restart: no PITCH left over", ok);
+    seq_stop();
+    return bad;
+}
+/* a kit (DRUM, any engine with its own key map) ignores PITCH: no new records, stored ones inert */
+static int pitch_kit(void)
+{
+    int bad = 0, ok;
+    track_t *t = lock_track(0);
+    set_engine_of(t, ENGI_DRUM);
+    t->engine = t->eng_req;
+    bad += check("PITCH: DRUM is a kit track (its own key map)", kit_track(t));
+    ok = motion_set_lock(t, 2, MSEQ_PITCH, 5) == 1 && !motion.count && !motion.on;
+    bad += check("  motion_set_lock refuses PITCH on a kit: nothing written", ok);
+    song.sel = 0;
+    song.rec = 1;
+    seq_start(); seq_tick(t, CTL);
+    t->p[P_TRANS] = 1;
+    ok = !motion_capture(t, P_TRANS, 1) && !motion.count && t->p[P_TRANS] == 1;
+    bad += check("  REC TRN on a kit stores no PITCH lock (the knob keeps its value)", ok);
+    song.rec = 0;
+    seq_stop();
+    motion_clear(t);
+    motion_set_lock(t, 1, P_REV, 50);
+    ok = motion.count == 1u && motion_move(t, 0, 1, MSEQ_PITCH, 5) == 1 &&
+         motion_find(t, 1, MSEQ_PITCH) < 0 && motion_find(t, 1, P_REV) >= 0;
+    bad += check("  a record cannot move onto PITCH on a kit", ok);
+    /* a stored record (a project from before this rule) loads, stays stored and does nothing */
+    motion_clear(t);
+    motion.count = 1;
+    motion.on = 1;
+    motion.event[0] = (motion_event_t){(uint8_t)2, (uint8_t)(MSEQ_PITCH | MOTION_LOCK), 5};
+    t->step[2] = (step_t){{60}, 1, ST_NOTE, 0, 100};
+    t->p[P_TRANS] = 7;
+    seq_start(); seq_tick(t, CTL);
+    pitch_to(t, 2);
+    bad += check("  a stored PITCH record on a kit: inert (no plk_fit, no PITCH, no TRN)",
+                 !t->plk_fit && t->seq_n == 1u && t->seq_notes[0] == 60u && motion.count == 1u);
+    seq_stop();
+    t->step[2].n = 0;
+    t->step[2].hit = 1u << DV_KICK;
+    seq_start(); seq_tick(t, CTL);
+    pitch_to(t, 2);
+    bad += check("  a hit-only step on a kit is inert too", !t->plk_fit && t->seq_n == 1u &&
+                 t->seq_notes[0] == DRUM_LANE_NOTE[DV_KICK]);
+    seq_stop();
+    return bad;
+}
+
 static int lock_project(void)
 {
     int bad = 0;
@@ -855,6 +1189,37 @@ static int lock_ui(void)
     lk_down(kn); turn(EN_K3, 1); lk_up(kn);
     bad += check("  a song playing: STOP TO EDIT, no lock", !motion_lock_count(t) && msg_is("STOP TO EDIT"));
     song.playing = 0; chain.running = 0; song.rec = 0;
+    {   /* SCL KNOB 4 on a held step: the PITCH lock (MSEQ_PITCH), not a refused TRN lock */
+        ui_power_on();
+        t = &trk[0];
+        track_defaults_steps(t);
+        go_title("SCL");
+        go_seq_step();
+        frame();
+        for (kn = 0; kn < 27u && kb_map(t, kn) > 127u; kn++)
+            ;
+        song.rec = 1;
+        lk_down(kn);
+        turn(EN_K4, 2);
+        lk_up(kn);
+        bad += check("SCL K4 on a held step: a PITCH lock (+2), not a refused TRN lock",
+                     motion_lock_get(t, 0, MSEQ_PITCH, &v) && v == 2 && motion_lock_count(t) == 1u);
+        {   /* AUTOMATION lists it, and + ADD can create one */
+            uint32_t sel = 0, j, found = 0;
+            pk_build_auto(t, MSEQ_PITCH, 0, &sel);
+            for (j = 0; j < pk_n; j++)
+                if (pk_rows[j].id == MSEQ_PITCH && str_eq(pk_rows[j].name, "PITCH"))
+                    found = 1;
+            ok = found;
+            found = 0;
+            pk_build_auto(t, 0, NSTEP, &sel);
+            for (j = 0; j < pk_n; j++)
+                if (pk_rows[j].id == MSEQ_PITCH && str_eq(pk_rows[j].name, "PITCH"))
+                    found = 1;
+            bad += check("AUTOMATION lists the PITCH lock, and + ADD offers it", ok && found);
+        }
+        song.rec = 0;
+    }
     return bad;
 }
 /* 1.1.5: lock edits by hand are one undo (SAVE held), redo too */
@@ -1214,7 +1579,7 @@ int main(void)
     bad += arp_play_sync();
     bad += arp_new_modes();
     bad += arp_drone_mode();
-    bad += lock_playback() + lock_edit() + lock_project() + lock_ui() + lock_undo() + auto_list();
+    bad += lock_playback() + lock_edit() + lock_pitch() + pitch_lock_only() + record_trn() + pitch_matrix() + pitch_gate() + pitch_kit() + lock_project() + lock_ui() + lock_undo() + auto_list();
     bad += fx_lock_time();
     bad += fx_lock_banks_and_capacity();
     printf("%s\n", bad ? "MOTION TEST FAILED" : "motion/chance/compact storage tests passed"); return bad != 0;

@@ -396,19 +396,20 @@ static uint32_t layer_btn(void);
 /* FM operator pages belong to DIGITAL; they never appear on other instruments (without FELUCCA_FM4: never).
  * LANES / LANES 2 and SOUND* (GR_DXSND) a DRUM track's; FILTER / FILTER DRIVE an ANALOG track's
  * (EDIT 2 is the other engines' second sound page; ANALOG uses FILTER + FILTER DRIVE instead); OPERATOR,
- * OP ENV an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM (PAN/MUTE on MIXER). */
+ * OP ENV an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM / DRUMS (PAN/MUTE on MIXER). */
 static int page_visible(uint32_t i)
 {
     int analog = ENGINES[TSEL->eng_req % NENGINES] == &ENG_ANALOG;
     int drum = TSEL->eng_req % NENGINES == ENGI_DRUM;
+    int drums = TSEL->eng_req % NENGINES == ENGI_DRUMS;
     if (PAGES[i].graph == GR_GENERATION)
-        return drum;
+        return drum_track(TSEL);                      /* every drum kit: DRUM-X, DRUMS, CR78, USR drum kit */
     if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / SOUND 2 */
         return drum;
-    if (PAGES[i].fam == FAM_EDIT && PAGES[i].sec == EDIT_SEC_VOX && drum)   /* Voice hidden on DRUM */
+    if (PAGES[i].fam == FAM_EDIT && PAGES[i].sec == EDIT_SEC_VOX && (drum || drums))   /* Voice hidden on DRUM / DRUMS */
         return 0;
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
-        return drum;
+        return drum || drums;
     if (PAGES[i].scope == SC_ENGINE && PAGES[i].id[0] == P_E4)   /* EDIT 2: not ANALOG (FILTER is page 2) */
         return !analog;
     if (PAGES[i].id[0] == P_FTYPE)                    /* FILTER (1.5, #104): ANALOG's */
@@ -528,22 +529,27 @@ static uint32_t ior_pct_id(void)
         return P_REV;
     if (st == INS_SLCR)
         return P_SLDEPTH;
+    if (st == INS_TAPE)
+        return P_TAPEMIX;
     return MIX[st < INS_N ? st : 0u];
 }
+
 /* parameter locks: a page whose KNOB 1..4 can lock (a track's sound: one of its parameters can be motion; not MOD's
  * slots), the parameter KNOB k locks (ui.plk_src's page, HOME's four), 0xFF = none */
 static int lock_page_ok(uint32_t i)
 {
     uint32_t k;
     if (i < NPAGES && PAGES[i].scope == SC_GLOBAL &&
-        (PAGES[i].id[0] == G_DTIME || PAGES[i].id[0] == G_RTYPE))
+        (PAGES[i].id[0] == G_DTIME || PAGES[i].id[0] == G_RTYPE || PAGES[i].id[0] == G_TSPEED))
         return 1;
     if (i < NPAGES && PAGES[i].graph == GR_IORD)
         return 1;                                     /* KNOB 4 locks the chosen stage's mix */
+    if (i < NPAGES && PAGES[i].graph == GR_SCALE)
+        return 1;                                     /* SCL KNOB 4 locks a step's PITCH (MSEQ_PITCH) */
     if (i >= NPAGES || (PAGES[i].scope != SC_TRACK && PAGES[i].scope != SC_ENGINE) || PAGES[i].graph == GR_MOD)
         return 0;
     for (k = 0; k < 4u; k++)
-        if (PAGES[i].id[k] != 0xFFu && motion_param(PAGES[i].id[k]))
+        if (PAGES[i].id[k] != 0xFFu && !MFX_ALL(PAGES[i].id[k]) && motion_param(PAGES[i].id[k]))
             return 1;
     return 0;
 }
@@ -553,15 +559,24 @@ static uint32_t lock_id(uint32_t k)
     if (ui.plk_src && lock_page_ok(ui.plk_src - 1u) && PAGES[ui.plk_src - 1u].scope == SC_GLOBAL) {
         const page_t *pg = &PAGES[ui.plk_src - 1u];
         id = pg->id[0] == G_DTIME ? (k < 3u ? MFX_TIME + k : 0xFFu)
+                                 : pg->id[0] == G_TSPEED ? (k == 0u ? MFX_TSPEED : k == 1u ? MFX_TWOW : 0xFFu)
                                  : (k == 1u || k == 2u ? MFX_SIZE + k - 1u : 0xFFu);
         return id != 0xFFu && fx_target_available(TSEL, id) ? id : 0xFFu;
     }
-    if (ui.plk_src && lock_page_ok(ui.plk_src - 1u) && PAGES[ui.plk_src - 1u].graph == GR_IORD)
+    if (ui.plk_src && lock_page_ok(ui.plk_src - 1u) && PAGES[ui.plk_src - 1u].graph == GR_IORD) {
         id = k == 3u ? ior_pct_id() : 0xFFu;
-    else
+        if (id == P_TAPEMIX)                          /* TAPE's one global amount does not lock */
+            return 0xFFu;
+    } else
         id = ui.plk_src && lock_page_ok(ui.plk_src - 1u) ? PAGES[ui.plk_src - 1u].id[k & 3u]
                                                           : ENGINES[TSEL->eng_req % NENGINES]->knob[k & 3u];
-    return id < P_COUNT && motion_param(id) && fx_target_available(TSEL, id) ? id : 0xFFu;
+    if (id == P_TRANS && ui.plk_src && lock_page_ok(ui.plk_src - 1u) &&
+        PAGES[ui.plk_src - 1u].graph == GR_SCALE)
+        id = MSEQ_PITCH;                         /* SCL KNOB 4 on a held step: the PITCH lock */
+    if (id == MSEQ_PITCH && kit_track(TSEL))
+        return 0xFFu;                            /* PITCH is inert on a kit track: the knob creates no lock */
+    return param_id_known(id) && !MFX_ALL(id) && motion_param(id) &&
+           fx_target_available(TSEL, id) ? id : 0xFFu;
 }
 
 static void ev_enter(void);
@@ -1212,6 +1227,11 @@ static void undo_swap(void)
             t->p[i] = undo.p[i];
             undo.p[i] = v;
         }
+        {   /* NOTE EDITS > HUMAN switches QUANTIZE off so its nudges play: undo puts it back */
+            int16_t v = t->p[P_SQNT];
+            t->p[P_SQNT] = undo.p[P_SQNT];
+            undo.p[P_SQNT] = v;
+        }
         for (i = 0; i < NSTEP; i++) {
             step_t s = t->step[i];
             t->step[i] = undo.step[i];
@@ -1534,8 +1554,7 @@ static void track_defaults(track_t *t)
     uint32_t i;
     for (i = 0; i < P_E0; i++)
         t->p[i] = TP[i].def;
-    t->scl_lock = SCL_LOCK_SCALE;
-    t->scl_stash_ok = 0;
+    t->scl_stash_ok = 0;                          /* MAP defaults OFF: no link, no stash */
     t->fx_sl_pos = 8;                            /* EFFECTS: SLICER last until moved */
     t->generation = GENERATION_DEFAULT;
     track_defaults_steps(t);

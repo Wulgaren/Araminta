@@ -169,6 +169,9 @@ static void ui_power_on(void)
 {
     uint32_t i;
     memset(trk, 0, sizeof trk);
+    memset(fx_order_tbl, 0, sizeof fx_order_tbl);
+    memset(fx_master_tr, 0, sizeof fx_master_tr);
+    fx_master_order_tr = 0;
     memset(&song, 0, sizeof song);
     memset(&chain, 0, sizeof chain);
     chain_defaults(&chain_config);
@@ -2810,8 +2813,7 @@ static int test_page_cycles(void)
         for (i = 0; i < NPAGES; i++) {
             ok &= !str_eq(PAGES[i].title, "GLOBAL") && !str_eq(PAGES[i].title, "SYSTEM");
             for (k = 0; k < 4u && PAGES[i].scope == SC_GLOBAL; k++)
-                ok &= PAGES[i].id[k] != G_TUNE && PAGES[i].id[k] != G_ROUTE && PAGES[i].id[k] != G_MIDI &&
-                      PAGES[i].id[k] != G_INFO;   /* G_DREL (was G_SYNC) lives on MASTER */
+                ok &= PAGES[i].id[k] != G_TUNE && PAGES[i].id[k] != G_ROUTE;   /* G_DREL (was G_SYNC) lives on MASTER */
             if (str_eq(PAGES[i].title, "CLOCK"))
                 clock = i + 1u;
         }
@@ -3307,7 +3309,7 @@ static int test_layer(void)
     press(B_FX); press(B_FX); frame();                 /* Effects → Punch-in */
     ok = ui.lock == LAYER_FX && ui.layer == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
     key_down(white(2)); frame();
-    ok &= !gates() && mo_w == mo && (perf_held & PF_BIT(PF_R32));
+    ok &= !gates() && mo_w == mo && (perf_held & PF_BIT(PF_R16));
     key_up(white(2)); frame();
     bad += check("Punch-in sticky: a key's effect, silent, no MIDI", ok && !perf_held);
     key_down(white(3)); frame();
@@ -4018,8 +4020,12 @@ static int test_chord_page(void)
     ok &= TSEL->p[P_CHRD] != 0;
     turn(EN_K2, 1);
     ok &= TSEL->p[P_VOIC] != 0;
-    ok &= TSEL->scl_lock == SCL_LOCK_SCALE;
-    bad += check("SCL: SELECT opens CHORD; KNOB 1 CHRD, KNOB 2 VOIC; LOCK SCALE by default", ok);
+    ok &= cur_page()->id[2] == PG_STRUM && cur_page()->id[3] == PG_STROKE;   /* SCALE LOCK is gone */
+    turn(EN_K3, 1);
+    ok &= sweep_rate(TSEL) != 0;
+    turn(EN_K4, 1);
+    ok &= sweep_stroke(TSEL) != 0;
+    bad += check("SCL: SELECT opens CHORD; KNOB 1 CHRD, KNOB 2 VOIC, K3 STRUM, K4 STROKE", ok);
     press(B_SCL); frames(100);
     ok = str_eq(cur_page()->title, "CHORD");           /* button does not advance */
     bad += check("SCL button while in SCL family does not advance pages", ok);
@@ -4032,53 +4038,61 @@ static int test_chord_page(void)
     return bad;
 }
 
-/* CHORD KNOB 3 LOCK: OFF / SCALE. SCALE (default) copies ROOT / SCL / MAP to every other SCALE track; OFF restores
- * that track's stash. */
+/* MAP = CURR: ROOT / SCL shared by every CURR track. Entering pushes to the group, ROOT/SCL edits follow, leaving
+ * restores that track's stash. MAP itself is not shared (that is what freeing CHORD K3 bought). */
 static int test_scale_lock(void)
 {
     int bad = 0, ok;
-    ui_power_on();
-    ok = trk[0].scl_lock == SCL_LOCK_SCALE && trk[1].scl_lock == SCL_LOCK_SCALE &&
-         trk[2].scl_lock == SCL_LOCK_SCALE && trk[3].scl_lock == SCL_LOCK_SCALE;
-    bad += check("SCALE LOCK: every track SCALE at power-on", ok);
+    uint32_t i;
 
-    trk[0].scl_lock = SCL_LOCK_OFF;
-    trk[1].scl_lock = SCL_LOCK_SCALE;
-    trk[1].p[P_ROOT] = 5;
-    trk[1].p[P_SCALE] = 2;
-    trk[1].p[P_QUANT] = 1;
-    trk[2].scl_lock = SCL_LOCK_OFF;
-    trk[2].p[P_ROOT] = 7;
+    ui_power_on();
+    ok = 1;
+    for (i = 0; i < NTRK; i++)
+        ok &= trk[i].p[P_QUANT] == QN_OFF && !trk[i].scl_stash_ok;
+    bad += check("MAP CURR: every track OFF and unlinked at power-on", ok);
+
     trk[0].p[P_ROOT] = 0;
     trk[0].p[P_SCALE] = 0;
-    trk[0].p[P_QUANT] = 0;
-    song.sel = 0;
-    press(B_SCL); frames(100);
-    turn(EN_SELECT, 1); frames(100);
-    turn(EN_K3, 1);                                    /* OFF -> SCALE on track 1 */
-    ok = trk[0].scl_lock == SCL_LOCK_SCALE &&
-         trk[1].p[P_ROOT] == 0 && trk[1].p[P_SCALE] == 0 && trk[1].p[P_QUANT] == 0 &&
-         trk[1].scl_stash_ok && trk[1].scl_stash[0] == 5 && trk[1].scl_stash[1] == 2 &&
-         trk[1].scl_stash[2] == 1 &&
-         trk[2].p[P_ROOT] == 7 && trk[2].scl_lock == SCL_LOCK_OFF;
-    bad += check("LOCK->SCALE: other SCALE tracks stash then take selected ROOT/SCL/MAP; OFF tracks stay", ok);
+    trk[0].p[P_QUANT] = QN_CURR;
+    scale_lock_after(&trk[0], P_QUANT);
+    trk[1].p[P_ROOT] = 7;
+    trk[1].p[P_SCALE] = 2;
+    trk[1].p[P_QUANT] = QN_CURR;
+    scale_lock_after(&trk[1], P_QUANT);                /* entering pushes to track 0, which stashes */
+    trk[2].p[P_ROOT] = 9;
+    trk[2].p[P_QUANT] = QN_KBD;
+    ok = trk[0].p[P_ROOT] == 7 && trk[0].p[P_SCALE] == 2 &&
+         trk[0].scl_stash_ok && trk[0].scl_stash[0] == 0 && trk[0].scl_stash[1] == 0;
+    bad += check("CURR: entering pushes ROOT/SCL to the other CURR tracks (their stash kept)", ok);
 
-    song.sel = 1;
-    turn(EN_K3, -1);                                   /* SCALE -> OFF on track 2: restore stash */
-    ok = trk[1].scl_lock == SCL_LOCK_OFF &&
-         trk[1].p[P_ROOT] == 5 && trk[1].p[P_SCALE] == 2 && trk[1].p[P_QUANT] == 1 &&
-         !trk[1].scl_stash_ok;
-    bad += check("LOCK->OFF: that track's stash restores", ok);
+    trk[1].p[P_ROOT] = 3;
+    scale_lock_after(&trk[1], P_ROOT);
+    ok = trk[0].p[P_ROOT] == 3 && trk[2].p[P_ROOT] == 9;
+    bad += check("CURR: a ROOT edit follows every CURR track, not a KBD one", ok);
+
+    trk[0].p[P_QUANT] = QN_KBD;                        /* leaving restores that track's stash */
+    scale_lock_after(&trk[0], P_QUANT);
+    ok = trk[0].p[P_ROOT] == 0 && trk[0].p[P_SCALE] == 0 && !trk[0].scl_stash_ok &&
+         trk[1].p[P_ROOT] == 3;
+    bad += check("CURR->KBD: the track's stash restores; the group stays", ok);
 
     ui_power_on();
-    trk[3].scl_lock = SCL_LOCK_OFF;
     trk[3].p[P_ROOT] = 9;
     song.sel = 0;
-    press(B_SCL); frames(100);
-    turn(EN_K1, 1);                                    /* ROOT++ on SCL page (all but T4 SCALE) */
-    ok = trk[0].p[P_ROOT] == 1 && trk[1].p[P_ROOT] == 1 && trk[2].p[P_ROOT] == 1 &&
-         trk[3].p[P_ROOT] == 9;
-    bad += check("ROOT edit with LOCK=SCALE: writes every SCALE track; OFF track untouched", ok);
+    open_family(FAM_SCL);
+    frame();
+    turn(EN_K3, 1);                                    /* OFF -> ALL */
+    turn(EN_K3, 1);                                    /* ALL -> CURR */
+    ok = trk[0].p[P_QUANT] == QN_CURR && trk[0].p[P_ROOT] == 0;
+    song.sel = 1;
+    turn(EN_K3, 1);
+    turn(EN_K3, 1);
+    ok &= trk[1].p[P_QUANT] == QN_CURR;
+    song.sel = 0;
+    trk[0].p[P_ROOT] = 5;
+    scale_lock_after(&trk[0], P_ROOT);
+    ok &= trk[1].p[P_ROOT] == 5 && trk[3].p[P_ROOT] == 9;
+    bad += check("CURR from the SCL knob: two tracks link, a third stays out", ok);
     return bad;
 }
 
@@ -4233,6 +4247,95 @@ static int test_step_rec(void)
     ok &= t->step[6].hit != 0u && !t->step[4].hit && ui.cursor == 4u;
     bad += check("#133 the DRUM grid unchanged: white keys toggle steps armed or not, REC from stop starts PLAY", ok);
     song.rec = 0;
+    /* PITCH is inert on a kit: SCL K4 on a held grid step creates no lock */
+    ui_power_on();
+    song.sel = 0;
+    t = TSEL;
+    set_engine_of(t, ENGI_DRUM);
+    t->engine = t->eng_req;
+    track_defaults_steps(t);
+    go_title("SCL");
+    go_seq_step();                                                    /* (plk_src stays SCL) */
+    frame();
+    {
+        uint32_t k4 = key_at(0, 4);
+        int16_t v;
+        ok = lock_id(3) == 0xFFu;
+        fm1_in.notes |= 1u << k4;
+        host_notes |= 1u << k4;
+        frame();
+        ok &= lock_held() == (1u << 4);
+        turn(EN_K4, 2);
+        fm1_in.notes &= ~(1u << k4);
+        frame();
+        bad += check("SCL K4 on a held DRUM step: no PITCH lock on a kit track",
+                     ok && !motion_lock_get(t, 4, MSEQ_PITCH, &v) && !motion_lock_count(t));
+    }
+    return bad;
+}
+
+static int test_tape_locks(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+
+    /* TAPE SPEED / WOW: KNOB 1 / 2 on a held SEQ step are locks (TAPE page is a global page). */
+    ui_power_on();
+    song.sel = 0;
+    t = TSEL;
+    set_engine_of(t, ENGI_DRUM);
+    t->engine = t->eng_req;
+    track_defaults_steps(t);
+    go_title("TAPE");
+    ok = cur_page()->title && str_eq(cur_page()->title, "TAPE") && lock_page_ok(ui.page);
+    {
+        uint32_t i, found = 0, sel = 0;
+        pk_build_mdst(t, MD_OFF, &sel);
+        for (i = 0; i < pk_n; i++) {
+            if (pk_rows[i].id == MD_TSPEED && str_eq(pk_rows[i].name, "SPEED"))
+                found |= 1u;
+            if (pk_rows[i].id == MD_TWOW && str_eq(pk_rows[i].name, "WOW"))
+                found |= 2u;
+        }
+        ok &= found == 3u;
+    }
+    go_seq_step();
+    frame();
+    {
+        uint32_t k4 = key_at(0, 4);
+        int16_t v;
+        ok &= lock_id(0) == MFX_TSPEED && lock_id(1) == MFX_TWOW && lock_id(2) == 0xFFu;
+        fm1_in.notes |= 1u << k4;
+        host_notes |= 1u << k4;
+        frame();
+        ok &= lock_held() == (1u << 4);
+        turn(EN_K1, -20);                                  /* SPEED below 100 */
+        turn(EN_K2, 5);                                    /* WOW up */
+        fm1_in.notes &= ~(1u << k4);
+        frame();
+        ok &= motion_lock_get(t, 4, MFX_TSPEED, &v) && v < song.g[G_TSPEED] &&
+              motion_lock_get(t, 4, MFX_TWOW, &v) && v > 0;
+        bad += check("TAPE page: held SEQ step locks SPEED (K1) and WOW (K2); K3 / K4 are not locks", ok);
+    }
+    ui_power_on();
+    t = TSEL;
+    t->p[P_LWAVE] = 4;                                  /* S&H makes SMOOTH available on LFO 2 */
+    go_title("LFO 2");
+    ok = !lock_page_ok(ui.page);
+    go_seq_step();
+    frame();
+    {
+        uint32_t k4 = key_at(0, 4);
+        int16_t v;
+        fm1_in.notes |= 1u << k4;
+        host_notes |= 1u << k4;
+        frame();
+        turn(EN_K4, 5);
+        fm1_in.notes &= ~(1u << k4);
+        frame();
+        bad += check("LFO 2 SMOOTH on a held SEQ step cannot create a TAPE WOW lock",
+            ok && !motion_lock_get(t, 4, MFX_TWOW, &v));
+    }
     return bad;
 }
 
@@ -4750,7 +4853,7 @@ static int test_fm4_retired(void)
         if (e < NENGINES)
             seen |= 1u << e;
     }
-    bad += check("PRESETS: the list holds every engine's presets but DIGITAL's", seen == all && NENG_SHOWN == 13u + FELUCCA_FM4);
+    bad += check("PRESETS: the list holds every engine's presets but DIGITAL's", seen == all && NENG_SHOWN == 14u + FELUCCA_FM4);
     go_page(GR_BROWSE);
     set_engine_of(TSEL, 0);
     for (i = 0, seen = 0; i < NENG_SHOWN; i++) {
@@ -4762,7 +4865,7 @@ static int test_fm4_retired(void)
                  eng_step(ENGI_FM6, -1) == 0u && eng_step(0, -1) == ENGI_WT && eng_step(ENGI_WT, 1) == 0u);
     {   /* the display order (engines.c ENGINE_ORDER): every engine one can pick once; the PRESETS list follows it */
         static const char *const ORDER[] = {"ANALOG", "FM6", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN",
-                                            "PHYS", "NOISE", "DRUM", "WAVETABLE"};
+                                            "PHYS", "NOISE", "DRUM-X", "DRUMS", "WAVETABLE"};
         uint32_t last = 0xFFu, r = 0, n = 0;
         ok = NENG_SHOWN == NELEM(ORDER);
         for (i = 0; ok && i < NENG_SHOWN; i++)
@@ -5869,13 +5972,26 @@ static int test_seq_quant(void)
     open_family(FAM_SCL);
     frame();
     ok = cur_page()->id[2] == P_QUANT && t->p[P_QUANT] == 0;
-    turn(EN_K3, 10);
+    {   /* the knob's shown order (storage stays append-only: CURR is 4) */
+        static const int16_t shown[5] = {QN_OFF, QN_ALL, QN_CURR, QN_KBD, QN_SEQ};
+        uint32_t i;
+        for (i = 0; i < 5u; i++) {
+            ok &= t->p[P_QUANT] == shown[i];
+            turn(EN_K3, 1);
+        }
+        ok &= t->p[P_QUANT] == QN_SEQ;                 /* clamped at the end */
+        turn(EN_K3, 10);
+        ok &= t->p[P_QUANT] == QN_SEQ;
+    }
     param_format(&TP[P_QUANT], t->p[P_QUANT], val, &unit);
-    bad += check("SCL KNOB 3 MAP: OFF ALL KBD SEQ, SEQ last (default OFF)", ok && t->p[P_QUANT] == 3 &&
+    bad += check("SCL KNOB 3 MAP: OFF ALL CURR KBD SEQ, clamps at both ends (default OFF)", ok &&
                  str_eq(val, "SEQ"));
     t->p[P_SCALE] = 0;
     t->p[P_ROOT] = 0;
-    ok = kb_map(t, 8) == 61u && kb_map(t, 7) == 60u;   /* SEQ keys as OFF: C#4 stays C#4 */
+    t->p[P_QUANT] = QN_CURR;                           /* CURR quantises the sequence exactly like ALL */
+    ok = kb_map(t, 8) == 60u && kb_map(t, 7) == 60u;   /* CURR = ALL: white walk, black -> nearest */
+    t->p[P_QUANT] = QN_SEQ;
+    ok &= kb_map(t, 8) == 61u && kb_map(t, 7) == 60u;  /* SEQ keys as OFF: C#4 stays C#4 */
     t->step[0] = (step_t){.nb = {61, 66}, .n = 2, .time = ST_NOTE};
     seq_start();
     events_block(CTL);
@@ -6197,6 +6313,113 @@ static int test_seq_tools(void)
     bad += check("  C4 RANDOM (melodic): rhythm kept, notes in scale (40 seeds)", ok);
     bad += check("  D4 COOK x12: each press changes it, \"COOKED 12\"", okc);
 
+    /* NOTE EDITS on SEQ TOOLS page 1: stored-note edits, one undo like COOK. */
+    /* OCT+ / OCT-: stored notes an octave up / down; ties, rests and the note past LEN stay */
+    ui_power_on();
+    tl_melody();
+    go_title("SEQ TOOLS"); frame();
+    tl_key(7);                                          /* F4: OCT+ */
+    ok = msg_is("OCT UP") && step_note(&TSEL->step[0], 0) == 72 && TSEL->step[1].time == ST_TIE &&
+         step_note(&TSEL->step[3], 0) == 76 && step_note(&TSEL->step[5], 0) == 79 &&
+         step_note(&TSEL->step[20], 0) == 72 && tl_lock_at(3);
+    hold(B_SAVE);
+    ok &= !memcmp(TSEL->step, ref, sizeof ref);
+    bad += check("  OCT+ transposes stored notes +12, past LEN / TIE untouched; SAVE held undoes", ok);
+    tl_key(6);                                          /* E4: OCT- */
+    ok = msg_is("OCT DOWN") && step_note(&TSEL->step[0], 0) == 48 && step_note(&TSEL->step[3], 0) == 52 &&
+         step_note(&TSEL->step[5], 0) == 55 && step_note(&TSEL->step[20], 0) == 72;
+    hold(B_SAVE);
+    ok &= !memcmp(TSEL->step, ref, sizeof ref);
+    bad += check("  OCT- transposes stored notes -12; SAVE held undoes", ok);
+
+    /* DUP: A -> A A, LEN x2, steps / locks / automation copied; C5 is the last edit on a melodic track */
+    go_title("SEQ TOOLS"); frame();
+    tl_key(11);                                         /* C5: DUP */
+    ok = msg_is("DUPLICATED") && TSEL->p[P_SLEN] == 16 && step_note(&TSEL->step[8], 0) == 60 &&
+         TSEL->step[9].time == ST_TIE && step_note(&TSEL->step[11], 0) == 64 && step_note(&TSEL->step[13], 0) == 67 &&
+         step_note(&TSEL->step[20], 0) == 72 && tl_lock_at(3) && tl_lock_at(11);
+    hold(B_SAVE);
+    ok &= TSEL->p[P_SLEN] == 8 && !memcmp(TSEL->step, ref, sizeof ref) && tl_lock_at(3) && !tl_lock_at(11);
+    bad += check("  DUP copies steps 1..LEN after themselves; LEN 8 -> 16; locks copy; SAVE held undoes", ok);
+
+    /* HALF: each step twice as long, LEN x2; TIEs follow their note, short notes stay short */
+    go_title("SEQ TOOLS"); frame();
+    tl_key(8);                                          /* G4: HALF */
+    ok = msg_is("HALF TIME") && TSEL->p[P_SLEN] == 16 && TSEL->step[0].time == ST_NOTE &&
+         step_note(&TSEL->step[0], 0) == 60 && TSEL->step[1].time == ST_TIE && TSEL->step[2].time == ST_TIE &&
+         TSEL->step[3].time == ST_TIE && step_note(&TSEL->step[6], 0) == 64 &&
+         step_note(&TSEL->step[10], 0) == 67 && step_note(&TSEL->step[20], 0) == 72 && tl_lock_at(6);
+    hold(B_SAVE);
+    ok &= TSEL->p[P_SLEN] == 8 && !memcmp(TSEL->step, ref, sizeof ref);
+    bad += check("  HALF stretches steps x2 (LEN 8 -> 16), ties hold; SAVE held undoes", ok);
+
+    /* *2: each pair becomes one, LEN /2; the first playing step wins, a held note becomes a tie */
+    go_title("SEQ TOOLS"); frame();
+    tl_key(9);                                          /* A4: *2 */
+    ok = msg_is("DOUBLE TIME") && TSEL->p[P_SLEN] == 4 && step_note(&TSEL->step[0], 0) == 60 &&
+         step_note(&TSEL->step[1], 0) == 64 && step_note(&TSEL->step[2], 0) == 67 && TSEL->step[3].time == ST_REST &&
+         step_note(&TSEL->step[20], 0) == 72 && tl_lock_at(1) && !tl_lock_at(3);
+    hold(B_SAVE);
+    ok &= TSEL->p[P_SLEN] == 8 && !memcmp(TSEL->step, ref, sizeof ref) && tl_lock_at(3);
+    bad += check("  *2 squeezes pairs (LEN 8 -> 4), first note wins; SAVE held undoes", ok);
+
+    /* Colliding locks follow the retained note, regardless of record insertion order. */
+    ui_power_on();
+    tl_melody();
+    tl_note(&TSEL->step[1], 62);
+    motion_set_lock(TSEL, 1, P_REV, 90);
+    motion_set_lock(TSEL, 0, P_REV, 30);
+    motion_set_lock(TSEL, 2, P_REV, 70);             /* step 3 is empty: step 4's E wins */
+    go_title("SEQ TOOLS"); frame();
+    tl_key(9);
+    {
+        int16_t v;
+        project_store_t packed;
+        project_t project;
+        project_capture(&project);
+        ok = motion_lock_get(TSEL, 0, P_REV, &v) && v == 30 &&
+             motion_lock_get(TSEL, 1, P_REV, &v) && v == 50 &&
+             proj_pack(&packed, &project);
+    }
+    bad += check("  *2 keeps the retained note's locks and the project remains saveable", ok);
+    hold(B_SAVE);
+    ui_power_on();
+    tl_melody();
+    go_title("SEQ TOOLS"); frame();
+
+    /* HUMAN: per step, fresh velocity / nudge each press; QUANTIZE off so the nudge plays */
+    go_title("SEQ TOOLS"); frame();
+    TSEL->p[P_SQNT] = 1;
+    rng_state = 0x2468ACEu;
+    tl_key(10);                                         /* B4: HUMAN */
+    ok = msg_is("HUMANIZED QNTZ OFF") && TSEL->p[P_SQNT] == 0 && TSEL->step[1].time == ST_TIE &&
+         TSEL->step[2].time == ST_REST;
+    for (i = 0; i < 8u; i++) {
+        int32_t v, n;
+        if (TSEL->step[i].time != ST_NOTE || (!TSEL->step[i].n && !TSEL->step[i].hit))
+            continue;
+        v = TSEL->step[i].vel ? TSEL->step[i].vel : 96;
+        n = step_nudge(&TSEL->step[i]);
+        ok &= v >= 96 - 16 && v <= 96 + 16 && n >= -2 && n <= 2;
+    }
+    hold(B_SAVE);
+    ok &= TSEL->p[P_SQNT] == 1 && !memcmp(TSEL->step, ref, sizeof ref);
+    bad += check("  HUMAN writes velocity / nudge per step, QUANTIZE off; SAVE held undoes both", ok);
+
+    /* OCT- on the page restores the whole visit: steps, LEN and QUANTIZE */
+    ui_power_on();
+    tl_melody();
+    memcpy(ref, TSEL->step, sizeof ref);
+    TSEL->p[P_SQNT] = 1;
+    go_title("SEQ TOOLS"); frame();
+    tl_key(7);
+    tl_key(11);
+    tl_key(10);
+    press(B_OCTDN);
+    ok = TSEL->p[P_SLEN] == 8 && TSEL->p[P_SQNT] == 1 && !memcmp(TSEL->step, ref, sizeof ref) &&
+         tl_lock_at(3) && !tl_lock_at(11);
+    bad += check("  OCT- on SEQ TOOLS puts back every edit of the visit, QUANTIZE too", ok);
+
     ui_power_on();
     tl_drum();
     go_title("SEQ TOOLS"); frame();
@@ -6222,6 +6445,15 @@ static int test_seq_tools(void)
         ok &= (drum_mute[song.sel % NPART] & 1u) && msg_is("KICK MUTED") && !memcmp(TSEL->step, kept, sizeof kept);
         chain.running = 0;
         bad += check("  F4 MUTE toggles the selected lane (each drum on its own); a song playing still mutes", ok);
+    }
+    {
+        step_t kept[NSTEP];
+        memcpy(kept, TSEL->step, sizeof kept);
+        tl_key(12);                                     /* D5: HALF also fits on a DRUM track's page */
+        ok = msg_is("HALF TIME") && TSEL->p[P_SLEN] == 32;
+        hold(B_SAVE);
+        ok &= TSEL->p[P_SLEN] == 16 && !memcmp(TSEL->step, kept, sizeof kept);
+        bad += check("  D5 HALF on a DRUM track: the note edits share page 1; SAVE held undoes", ok);
     }
 
     ui_power_on();
@@ -7925,6 +8157,11 @@ static int test_fm6_ops(void)
     TSEL->p[P_SLDEPTH] = 0;                     /* the SLICER's MIX too: the SEND bus gates every track's
                                                  * render on its free-running clock, so a round-trip below
                                                  * would compare two different slicer phases */
+    memset(dly_buf, 0, sizeof dly_buf);         /* the delay tail of an earlier test is not this sound: the
+                                                 * RATE tap holds, then fades after a tempo change, so it
+                                                 * must be cleared for s0 and s1 to compare the same tap */
+    dly_q8 = 0;
+    dly_free = 0;
     TSEL->p[P_LD_PIT] = TSEL->p[P_LD_FLT] = TSEL->p[P_LD_SHP] = TSEL->p[P_LD_AMP] = 0;
     TSEL->p[P_M1SRC] = TSEL->p[P_M2SRC] = TSEL->p[P_M3SRC] = TSEL->p[P_M4SRC] = 0;
     for (f = 0; f < 7u; f++) TSEL->p[P_E0 + f] = 0;
@@ -8445,6 +8682,18 @@ static int test_live_graph_rate(void)
     go_title("PATTERN");
     ok = cur_page()->graph == GR_STEPS && live_panel_each_frame();
     bad += check("PATTERN (live steps): graph_sig moves every consecutive frame", ok);
+    ui_power_on();
+    song.playing = 0;
+    go_title("TAPE");
+    ok = cur_page()->id[0] == G_TSPEED && live_panel_each_frame();
+    bad += check("TAPE transport (stopped): the reels idle, graph_sig moves every frame", ok);
+    {   /* the pixels move too: the spokes advance with the UI frame */
+        static uint16_t a[240 * 240];
+        frame();
+        memcpy(a, host_screen, sizeof a);
+        frame();
+        bad += check("TAPE transport: the reels move between frames", memcmp(a, host_screen, sizeof a) != 0);
+    }
     return bad;
 }
 
@@ -8568,31 +8817,36 @@ static int test_edit_quick_actions(void)
 }
 
 
-/* A generation gesture owns one lane; undo restores its steps and its density. */
+/* A generation gesture owns one lane; undo restores its steps and its density.
+ * The same on every drum kit: DRUM-X, DRUMS and CR78. */
 static int test_generation_density_undo(void)
 {
     step_t before[NSTEP];
+    static const uint32_t ENG[3] = {ENGI_DRUM, ENGI_DRUMS, ENGI_SAMPLE};
     int ok = 1;
-    uint32_t i;
-    ui_power_on();
-    set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;
-    TSEL->p[P_SLEN] = 16;
-    grid_hit(TSEL, 0, DV_KICK, 1);
-    grid_hit(TSEL, 4, DV_SNARE, 1);
-    grid_hit(TSEL, 2, DV_HATC, 1);
-    grid_hit(TSEL, 7, DV_TOM, 1);
-    memcpy(before, TSEL->step, sizeof before);
-    press(B_SEQ); press(B_SEQ);
-    turn(EN_K2, -100);
-    for (i = 0; i < 16; i++) {
-        ok &= !(step_lanes(&TSEL->step[i]) & (1u << DV_KICK));
-        ok &= (step_lanes(&TSEL->step[i]) & ~(1u << DV_KICK)) ==
-              (step_lanes(&before[i]) & ~(1u << DV_KICK));
+    uint32_t e, i;
+    for (e = 0; e < 3u; e++) {
+        ui_power_on();
+        set_engine_of(TSEL, ENG[e]); TSEL->engine = TSEL->eng_req;
+        if (ENG[e] == ENGI_SAMPLE) TSEL->p[P_E0] = SMP_CR78_INDEX;
+        TSEL->p[P_SLEN] = 16;
+        grid_hit(TSEL, 0, DV_KICK, 1);
+        grid_hit(TSEL, 4, DV_SNARE, 1);
+        grid_hit(TSEL, 2, DV_HATC, 1);
+        grid_hit(TSEL, 7, DV_TOM, 1);
+        memcpy(before, TSEL->step, sizeof before);
+        press(B_SEQ); press(B_SEQ);
+        turn(EN_K2, -100);
+        for (i = 0; i < 16; i++) {
+            ok &= !(step_lanes(&TSEL->step[i]) & (1u << DV_KICK));
+            ok &= (step_lanes(&TSEL->step[i]) & ~(1u << DV_KICK)) ==
+                  (step_lanes(&before[i]) & ~(1u << DV_KICK));
+        }
+        ok &= TSEL->generation.density[0] == 0 && TSEL->p[P_SLEN] == 16;
+        hold(B_SAVE);
+        ok &= !memcmp(before, TSEL->step, sizeof before) && TSEL->generation.density[0] == 50;
     }
-    ok &= TSEL->generation.density[0] == 0 && TSEL->p[P_SLEN] == 16;
-    hold(B_SAVE);
-    ok &= !memcmp(before, TSEL->step, sizeof before) && TSEL->generation.density[0] == 50;
-    return check("GENERATION kick density clears only kicks; SAVE undo restores beat and density", ok);
+    return check("GENERATION on DRUM-X, DRUMS and CR78: kick density clears only kicks; SAVE undo restores beat and density", ok);
 }
 
 static int test_generation_navigation(void)
@@ -8607,7 +8861,22 @@ static int test_generation_navigation(void)
     ok &= str_eq(cur_page()->title, "GENERATION 2") && !ui.lock;
     press(B_SEQ);
     ok &= str_eq(cur_page()->title, "AUTOMATION");
-    return check("DRUM SEQ: GENERATION is second section, SELECT opens its map page", ok);
+
+    ui_power_on();                                  /* DRUMS: the second drum engine */
+    set_engine_of(TSEL, ENGI_DRUMS); TSEL->engine = TSEL->eng_req;
+    press(B_SEQ);
+    press(B_SEQ);
+    ok &= str_eq(cur_page()->title, "GENERATION") && !ui.lock;
+    turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "GENERATION 2") && !ui.lock;
+
+    ui_power_on();                                  /* CR78: SAMPLE's factory drum kit */
+    set_engine_of(TSEL, ENGI_SAMPLE); TSEL->engine = TSEL->eng_req;
+    TSEL->p[P_E0] = SMP_CR78_INDEX;
+    press(B_SEQ);
+    press(B_SEQ);
+    ok &= str_eq(cur_page()->title, "GENERATION") && !ui.lock;
+    return check("DRUM-X, DRUMS and CR78 SEQ: GENERATION is second section, SELECT opens its map page", ok);
 }
 
 static int test_generation_map_display(void)
@@ -8899,8 +9168,12 @@ static int test_fx_sections(void)
         ui.ior_sel = (uint8_t)dly_slot;
         turn(EN_K3, 1);                                 /* right: release -> SEND for all */
         ok &= song.g[G_DLYOWN] == 0 && fx_list_mode(&trk[1], INS_DLY)[0] == 'S';
-        turn(EN_K3, 1);                                 /* already SEND: stays (no wrap back to CHAIN) */
-        ok &= song.g[G_DLYOWN] == 0 && fx_list_mode(&trk[1], INS_DLY)[0] == 'S';
+        turn(EN_K3, 1);                                 /* SEND -> MASTER (this track) */
+        ok &= fx_master_owned(INS_DLY, 0) && str_eq(fx_list_mode(TSEL, INS_DLY), "MASTER") &&
+              str_eq(fx_list_mode(&trk[1], INS_DLY), "USED");
+        turn(EN_K3, -1);                                /* MASTER -> SEND again */
+        ok &= song.g[G_DLYOWN] == 0 && !fx_master_on(INS_DLY) &&
+              fx_list_mode(&trk[1], INS_DLY)[0] == 'S';
         song.g[G_REVOWN] = 0;
         fx_list_get(TSEL, ord);
         for (i = 0; i < FX_LIST_N; i++)
@@ -8955,23 +9228,27 @@ static int test_fx_sections(void)
     go_title("EFFECTS");
     {
         uint8_t ord[FX_LIST_N];
-        uint32_t i, has_chor = 0, has_dly = 0, has_rev = 0, has_slcr = 0, sl_slot = 0xFFu;
+        uint32_t i, has_chor = 0, has_dly = 0, has_rev = 0, has_slcr = 0, has_tape = 0, sl_slot = 0xFFu, tp_slot = 0xFFu;
         fx_list_get(TSEL, ord);
         for (i = 0; i < FX_LIST_N; i++) {
             has_chor |= ord[i] == INS_CHOR;
             has_dly |= ord[i] == INS_DLY;
             has_rev |= ord[i] == INS_REV;
             has_slcr |= ord[i] == INS_SLCR;
+            has_tape |= ord[i] == INS_TAPE;
             if (ord[i] == INS_SLCR)
                 sl_slot = i;
+            if (ord[i] == INS_TAPE)
+                tp_slot = i;
         }
-        ok = FX_LIST_N == 9u && has_chor && has_dly && has_rev && has_slcr &&
+        ok = FX_LIST_N == 10u && has_chor && has_dly && has_rev && has_slcr && has_tape &&
              str_eq(N_ISTAGE[INS_DIST], "DISTORT") && str_eq(N_ISTAGE[INS_PHASR], "PHASER") &&
              str_eq(N_ISTAGE[INS_FLANG], "FLANGER") && str_eq(N_ISTAGE[INS_CHOR], "CHORUS") &&
              str_eq(N_ISTAGE[INS_DLY], "DELAY") && str_eq(N_ISTAGE[INS_REV], "REVERB") &&
-             str_eq(N_ISTAGE[INS_SLCR], "SLICER") &&
+             str_eq(N_ISTAGE[INS_SLCR], "SLICER") && str_eq(N_ISTAGE[INS_TAPE], "TAPE") &&
              str_eq(fx_list_mode(TSEL, INS_DLY), "SEND") &&
              str_eq(fx_list_mode(TSEL, INS_SLCR), "SEND") &&
+             str_eq(fx_list_mode(TSEL, INS_TAPE), "SEND") &&
              text_w(&AF_S, "FLANGER") == text_w(&AF_S, "DISTORT") &&
              text_w(&AF_S, N_ISTAGE[INS_DIST]) <= text_w(&AF_S, "FLANGER") &&
              text_w(&AF_S, N_ISTAGE[INS_PHASR]) <= text_w(&AF_S, "FLANGER") &&
@@ -8981,6 +9258,10 @@ static int test_fx_sections(void)
              text_w(&AF_S, N_ISTAGE[INS_SLCR]) <= text_w(&AF_S, "FLANGER");
         ui.ior_sel = 0;
         ok &= cur_page()->graph == GR_IORD;
+        for (i = 0; i < NPAGES; i++)
+            if (str_eq(PAGES[i].title, "TAPE"))
+                ok &= PAGES[i].id[0] == G_TSPEED && PAGES[i].id[1] == G_TWOW &&
+                      PAGES[i].id[2] == G_TDROP && PAGES[i].id[3] == G_TTEMPO;   /* MIX stays on EFFECTS */
         /* SLICER: K3 toggles this track SEND/CHAIN; other tracks keep their own mode (no USED) */
         if (sl_slot < FX_LIST_N) {
             int16_t mix0;
@@ -9006,8 +9287,93 @@ static int test_fx_sections(void)
         } else {
             ok = 0;
         }
+        /* TAPE: K3 goes CHAIN (this track) -> SEND -> MASTER and clamps at both ends; others USED */
+        if (tp_slot < FX_LIST_N) {
+            ui.ior_sel = (uint8_t)tp_slot;
+            turn(EN_K3, 1);                             /* SEND -> MASTER */
+            ok &= song.g[G_TAPEMODE] == TAPE_MASTER && str_eq(fx_list_mode(TSEL, INS_TAPE), "MASTER");
+            {   /* MASTER's K4 is the one global amount (G_TMIX); the track's P_TAPEMIX stays put */
+                int16_t gm = song.g[G_TMIX], pm = TSEL->p[P_TAPEMIX];
+                turn(EN_K4, 8);
+                ok &= song.g[G_TMIX] != gm && TSEL->p[P_TAPEMIX] == pm;
+            }
+            turn(EN_K3, 1);                             /* MASTER: right stays MASTER (no wrap) */
+            ok &= song.g[G_TAPEMODE] == TAPE_MASTER;
+            turn(EN_K3, -1);                            /* MASTER -> SEND */
+            ok &= song.g[G_TAPEMODE] == TAPE_SEND;
+            turn(EN_K3, -1);                            /* SEND -> CHAIN (track 0) */
+            ok &= song.g[G_TAPEMODE] == TAPE_CH1 && str_eq(fx_list_mode(TSEL, INS_TAPE), "CHAIN");
+            turn(EN_K3, -1);                            /* CHAIN: left stays CHAIN */
+            ok &= song.g[G_TAPEMODE] == TAPE_CH1;
+            turn(EN_K3, 1);                             /* CHAIN -> SEND */
+            ok &= song.g[G_TAPEMODE] == TAPE_SEND;
+            song.sel = 1;
+            ui.ior_sel = (uint8_t)tp_slot;
+            turn(EN_K3, -1);                            /* SEND -> CHAIN (track 1) */
+            ok &= song.g[G_TAPEMODE] == TAPE_CH2;
+            song.sel = 0;
+            ok &= str_eq(fx_list_mode(TSEL, INS_TAPE), "USED");
+            song.g[G_TAPEMODE] = TAPE_SEND;
+            {   /* SEND keeps time: TEMPO is fixed ON, so K4 cannot turn it */
+                go_title("TAPE");
+                song.g[G_TTEMPO] = 0;
+                turn(EN_K4, 8);
+                ok &= song.g[G_TTEMPO] == 0;
+                song.g[G_TTEMPO] = 1;
+                go_title("EFFECTS");
+            }
+        } else {
+            ok = 0;
+        }
+        /* MASTER on an insert: owner track MASTER, others keep CHAIN / SEND; only the owner clears it */
+        {
+            uint8_t o[FX_LIST_N];
+            uint32_t i, dist = 0xFFu;
+            fx_list_get(TSEL, o);
+            for (i = 0; i < FX_LIST_N; i++)
+                if (o[i] == INS_DIST) { dist = i; break; }
+            song.sel = 0;
+            ui.ior_sel = (uint8_t)dist;
+            turn(EN_K3, 1);                             /* CHAIN -> SEND */
+            turn(EN_K3, 1);                             /* SEND -> MASTER */
+            ok &= fx_master_owned(INS_DIST, 0) && str_eq(fx_list_mode(TSEL, INS_DIST), "MASTER");
+            song.sel = 1;
+            ins_send_set(TSEL, INS_DIST, 1);            /* this track stays SEND beside the master */
+            ok &= !fx_master_owned(INS_DIST, 1) && str_eq(fx_list_mode(TSEL, INS_DIST), "SEND");
+            ui.ior_sel = (uint8_t)dist;
+            turn(EN_K3, 1);                             /* another track cannot take MASTER */
+            ok &= !fx_master_owned(INS_DIST, 1) && fx_master_owned(INS_DIST, 0);
+            turn(EN_K3, -1);                            /* but its own CHAIN / SEND still moves */
+            ok &= str_eq(fx_list_mode(TSEL, INS_DIST), "CHAIN");
+            song.sel = 0;
+            ui.ior_sel = (uint8_t)dist;
+            turn(EN_K3, -1);                            /* owner: MASTER -> its per-track route */
+            ok &= !fx_master_on(INS_DIST);
+        }
+        /* MASTER on a shared bus: owner MASTER, others USED, only the owner clears it */
+        {
+            song.sel = 0;
+            ui.ior_sel = (uint8_t)0;
+            fx_list_get(TSEL, ord);
+            for (i = 0; i < FX_LIST_N; i++)
+                if (ord[i] == INS_DLY) { ui.ior_sel = (uint8_t)i; break; }
+            song.g[G_DLYOWN] = 0;
+            turn(EN_K3, 1);                             /* SEND -> MASTER */
+            ok &= fx_master_owned(INS_DLY, 0) && str_eq(fx_list_mode(TSEL, INS_DLY), "MASTER");
+            song.sel = 1;
+            ok &= str_eq(fx_list_mode(&trk[1], INS_DLY), "USED");
+            turn(EN_K3, -1);                            /* not the owner: nothing */
+            ok &= fx_master_owned(INS_DLY, 0);
+            song.sel = 0;
+            ui.ior_sel = (uint8_t)0;
+            fx_list_get(TSEL, ord);
+            for (i = 0; i < FX_LIST_N; i++)
+                if (ord[i] == INS_DLY) { ui.ior_sel = (uint8_t)i; break; }
+            turn(EN_K3, -1);
+            ok &= !fx_master_on(INS_DLY) && str_eq(fx_list_mode(TSEL, INS_DLY), "SEND");
+        }
     }
-    bad += check("EFFECTS list: 9 rows with SLCR; per-track SEND/CHAIN; MIX is P_SLDEPTH", ok);
+    bad += check("EFFECTS list: 10 rows with SLCR/TAPE; K3 routes TAPE SEND/CHAIN/MASTER", ok);
 
     /* SELECT walks stage pages in EFFECTS list order (not static PAGES[]). */
     ui_power_on();
@@ -9070,7 +9436,9 @@ static int test_fx_sections(void)
     ok = song.g[G_DTIME] == 1 && !dtime_free();          /* 1/8, RATE */
     turn(EN_K1, -1);                                     /* 1/8D, still a division (triplets and dotted stay) */
     ok &= song.g[G_DTIME] == 10 && !dtime_free();
-    turn(EN_K4, 1);                                      /* TIME: free ms, the view's first knob */
+    turn(EN_K4, 1);                                      /* right: still RATE */
+    ok &= !dtime_free() && song.g[G_DTIME] == 10;
+    turn(EN_K4, -1);                                     /* left: TIME, free ms, the view's first knob */
     {
         uint32_t ms = dtime_ms();
         ok &= dtime_free() && ms >= 1u && ms <= DTIME_MS_MAX;
@@ -9101,10 +9469,10 @@ static int test_fx_sections(void)
             }
             ok &= dtime_ms() >= ms0 + 100u;
         }
-        turn(EN_K4, -1);                                 /* RATE again: the division we left */
+        turn(EN_K4, 1);                                  /* right: RATE again, the division we left */
         ok &= !dtime_free() && song.g[G_DTIME] == 10;
     }
-    bad += check("DLY: K4 RATE/TIME reloads K1; divisions keep dotted; free ms steps by 1", ok);
+    bad += check("DLY: K4 left TIME / right RATE reloads K1; divisions keep dotted; free ms steps by 1", ok);
 
     ui_power_on();
     go_title("CRUSH");
@@ -9263,6 +9631,7 @@ int main(void)
     bad += test_live_graph_rate();
     bad += test_strip_cache();
     bad += test_wt_graph();
+    bad += test_tape_locks();
 #if FELUCCA_FM4
     bad += test_fm_charts();                        /* (DIGITAL's charts: built with FELUCCA_FM4=1 only) */
 #else

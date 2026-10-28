@@ -166,7 +166,8 @@ export async function restoreBackup(request, file, onProgress = () => {}) {
 /* One PROJECT slot (backup ids 2..5) as its own file. Uses LIST/GET/PUT only; other slots stay. */
 const PROJECT_MAGIC = {
   3388: [0x46554e37], 3584: [0x46554e38], 3648: [0x46554e39],
-  3840: [0x46554e41, 0x46554e42, 0x46554e43, 0x46554e44, 0x46554e45, 0x46554e46, 0x474e5546],
+  3840: [0x46554e41, 0x46554e42, 0x46554e43, 0x46554e44, 0x46554e45, 0x46554e46,
+    0x474e5546, 0x484e5546, 0x494e5546, 0x4a4e5546],
 };
 const projId = (slot) => {
   if (!Number.isInteger(slot) || slot < 0 || slot > 3) throw new Error("Project slot must be 0..3");

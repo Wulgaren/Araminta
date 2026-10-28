@@ -69,6 +69,103 @@ static void graph_lfo(const track_t *t, uint16_t c)
     }
 }
 
+/* TAPE page, after the OP-1's tape transport: two large reels, a ribbon and its guides. The reels turn at
+ * the SPEED rate (slowly while stopped, faster on playback); WOW rocks them and the ribbon, DROPOUT sags
+ * the ribbon. Theme tokens only: the line art T_TEXT / T_MID, the moving parts THEME / ACCENT. */
+static void tape_ring(int32_t cx, int32_t cy, int32_t r, uint16_t c)
+{
+    int32_t x = r, y = 0, err = 1 - r;
+    while (x >= y) {                                  /* midpoint circle: no gaps at a large radius */
+        cv_rect(cx + x, cy + y, 1, 1, c);
+        cv_rect(cx + y, cy + x, 1, 1, c);
+        cv_rect(cx - y, cy + x, 1, 1, c);
+        cv_rect(cx - x, cy + y, 1, 1, c);
+        cv_rect(cx - x, cy - y, 1, 1, c);
+        cv_rect(cx - y, cy - x, 1, 1, c);
+        cv_rect(cx + y, cy - x, 1, 1, c);
+        cv_rect(cx + x, cy - y, 1, 1, c);
+        y++;
+        if (err < 0) {
+            err += 2 * y + 1;
+        } else {
+            x--;
+            err += 2 * (y - x) + 1;
+        }
+    }
+}
+static void tape_reel(int32_t cx, int32_t cy, int32_t r, uint32_t ang, int compact)
+{
+    int32_t k, hub = r * 22 / 100, r0 = hub + 2, r1 = r * 84 / 100;
+    uint32_t turn = ang << 16;                       /* ang is a 16-bit turn, sine_i a 32-bit phase */
+    tape_ring(cx, cy, r, T_TEXT);
+    if (!compact)
+        tape_ring(cx, cy, r - 1, T_TEXT);
+    tape_ring(cx, cy, r * 44 / 100, T_MID);          /* the spool's inner ring */
+    for (k = 0; k < 3; k++) {                        /* three spokes: the turn reads at a glance */
+        uint32_t a = turn + (uint32_t)k * 0x55555555u;
+        int32_t sa = sine_i(a), ca = sine_i(a + 0x40000000u);
+        cv_line(cx + ((ca * r0) >> 15), cy - ((sa * r0) >> 15),
+                cx + ((ca * r1) >> 15), cy - ((sa * r1) >> 15), T_TEXT);
+    }
+    if (compact) {
+        cv_rect(cx - 2, cy - 2, 5, 5, T_TEXT);
+        cv_rect(cx - 1, cy - 1, 3, 3, T_SURF);
+        cv_rect(cx, cy, 1, 1, T_THEME);
+    } else {
+        tape_ring(cx, cy, hub, T_TEXT);
+        cv_rect(cx - 1, cy - 1, 2, 2, T_THEME);
+    }
+}
+static void tape_guide(int32_t x, int32_t y, int32_t r)
+{
+    tape_ring(x, y, r, T_MID);
+    cv_rect(x - 1, y - 1, 2, 2, T_TEXT);
+}
+static void graph_tape(void)
+{
+    static uint32_t ph, wob, fr = 0xFFFFFFFFu;
+    int compact = cv_h != H_GRAPH;
+    int32_t r = compact ? 18 : 36, oy = compact ? 2 : -6;
+    int32_t cy = (compact ? 24 : 50) + oy;
+    int32_t lcx = compact ? 82 : 68, rcx = compact ? 158 : 172;
+    int32_t base = (compact ? 48 : 98) + oy, gx0 = compact ? 104 : 96, gx1 = compact ? 136 : 144;
+    int32_t speed = clamp(song.g[G_TSPEED], 25, 400), wow = clamp(song.g[G_TWOW], 0, 127);
+    int32_t drop = song.g[G_TDROP] ? 80 : 0, amp = (wow * 3 + 63) / 127;
+    int32_t x, bend = -1, ang;
+    if (fr != ui.frame) {                             /* once a UI frame */
+        fr = ui.frame;
+        ph += (uint32_t)((song.playing ? 2184 : 700) * speed / 100);   /* idle: a slow turn */
+        wob += song.playing ? 2600u : 900u;
+    }
+    ang = (int32_t)ph;
+    if (wow)                                          /* WOW rocks the reel angle too */
+        ang += (sine_i(wob << 16) * wow / 127) * 4000 / 32768;
+    if (drop) {                                       /* DROPOUT: a short sag in the ribbon, now and then */
+        uint32_t rnd = ((ui.frame / 10u) * 2654435761u) >> 16;
+        if ((rnd & 255u) < (uint32_t)drop)
+            bend = gx0 + 12 + (int32_t)((rnd >> 8) % (uint32_t)(gx1 - gx0 - 24));
+    }
+    tape_reel(lcx, cy, r, (uint32_t)ang, compact);
+    tape_reel(rcx, cy, r, (uint32_t)ang, compact);
+    cv_line_t(lcx, cy + r, gx0, base, T_MID, 2);      /* reel to the left guide */
+    cv_line_t(gx1, base, rcx, cy + r, T_MID, 2);      /* right guide to the reel */
+    for (x = gx0; x <= gx1; x++) {                    /* the ribbon: WOW waves it, DROPOUT sags it */
+        int32_t y = base;
+        if (amp)
+            y += (sine_i((uint32_t)x * 0x04400000u + ((wob * 3u) << 16)) * amp) >> 15;
+        if (bend >= 0) {
+            int32_t d = x - bend;
+            if (d < 0)
+                d = -d;
+            if (d < 16)
+                y += (16 - d) * (compact ? 3 : 5) / 16;
+        }
+        cv_rect(x, y, 1, 2, T_MID);
+    }
+    tape_guide(gx0, base, compact ? 3 : 4);
+    tape_guide(gx1, base, compact ? 3 : 4);
+}
+
 /* step bar x of step i of a 16-step row: 4 groups, as the footer (9 px bars, 13 px apart, 4 px between groups),
  * the row centred: x 12 .. 228 */
 static int32_t bar_x(uint32_t i) { return 12 + (int32_t)(i % 16u) * 13 + (int32_t)(i % 16u / 4u) * 4; }
@@ -452,12 +549,12 @@ static void graph_insert(const track_t *t, uint16_t c)
         py = y;
     }
 }
-/* EFFECTS: name | gray mix fader | SEND / CHAIN / USED. Nine rows (6 inserts + DLY + REV + SLCR).
+/* EFFECTS: name | gray mix fader | SEND / CHAIN / MASTER / USED. Ten rows (6 inserts + DLY + REV + SLCR + TAPE).
  * Fader spans the row between the name column and the mode label (full width of that gap).
  * Name column sized to the longest N_ISTAGE label (FLANGER); shorter names left-align. */
 static void ior_row(int32_t y, const char *name, const char *mode, int32_t amt, uint16_t col)
 {
-    int32_t nx = PANEL_X0 + 4, gap = 4, mw = text_w(&AF_S, "CHAIN");
+    int32_t nx = PANEL_X0 + 4, gap = 4, mw = text_w(&AF_S, "MASTER");
     int32_t bx = nx + text_w(&AF_S, "FLANGER") + gap;
     int32_t bw = (PANEL_X0 + PANEL_W - 4 - mw - gap) - bx;
     int32_t fw;
@@ -481,7 +578,8 @@ static void graph_iord(const track_t *t, uint16_t c)
         uint32_t st = ord[i];
         const char *mode = fx_list_mode(t, st);
         uint16_t col = i == ui.ior_sel ? c : mode[0] == 'U' ? T_DIM : T_MID;
-        ior_row(2 + (int32_t)i * 10, N_ISTAGE[st], mode, ins_mix_of(t, st), col);
+        int32_t amt = ins_mix_of(t, st);
+        ior_row(2 + (int32_t)i * 10, N_ISTAGE[st], mode, amt, col);
     }
 }
 /* SLICER page: the pattern's 16 steps, a 'x' step a full bar; a '.' step: GATE a bar as high as it stays
@@ -1088,7 +1186,7 @@ static int32_t song_follow(const song_lay_t *L)
 
 /* MENU > LARGE's strip under the tall cards (ui.c LK_TALL): HOME's scope, ENV's ADSR, LFO's wave,
  * MIXER's tracks drawn small; on the other pages the page's title and number (their charts need the whole panel) */
-enum { SK_NONE, SK_SCOPE, SK_ADSR, SK_LFO, SK_TRK, SK_TITLE };
+enum { SK_NONE, SK_SCOPE, SK_ADSR, SK_LFO, SK_TRK, SK_TAPE, SK_TITLE };
 static uint32_t strip_kind(void)
 {
     uint32_t g;
@@ -1096,6 +1194,8 @@ static uint32_t strip_kind(void)
         return SK_NONE;
     if (ui.home)
         return SK_SCOPE;
+    if (cur_page()->scope == SC_GLOBAL && cur_page()->id[0] == G_TSPEED)
+        return SK_TAPE;
     g = cur_page()->graph;
     return g == GR_ADSR ? SK_ADSR : g == GR_LFO ? SK_LFO : g == GR_TRK ? SK_TRK : SK_TITLE;
 }
@@ -1148,6 +1248,9 @@ static uint32_t graph_signature(void)
     if (ui.home)
         return h ^ ui.frame;                         /* scope: every UI frame */
     h ^= (uint32_t)pg->graph * 131u + TSEL->eng_req + song.sel * 7777u + ui.page * 1291u;
+    if (strip_kind() == SK_TAPE)                     /* MENU > LARGE: the tape transport strip */
+        return h ^ ((uint32_t)song.g[G_TSPEED] * 7919u + (uint32_t)song.g[G_TWOW] * 104729u +
+                    (uint32_t)song.g[G_TDROP] * 1299709u + (uint32_t)song.g[G_TAPEMODE] * 40503u + ui.frame);
     if (strip_kind() == SK_TITLE)                    /* MENU > LARGE: the page's title (its engine, its number) */
         return h ^ 0x5A17u;
     if ((pg->graph == GR_NONE && !(pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WT)) ||
@@ -1187,10 +1290,16 @@ static uint32_t graph_signature(void)
         if (pt->p[P_SLCR] && ss)
             h ^= (ss->idx + 1u) * 2654435761u;
     }
-    if (pg->graph == GR_IORD)                        /* EFFECTS: slot, order (P_IORD + DLY/REV slots), mixes */
+    if (pg->graph == GR_IORD) {                      /* EFFECTS: slot, order, mixes, the TAPE route */
+        uint32_t k;
         h ^= (ui.ior_sel + 1u) * 40503u + ((uint32_t)iord_bits(t) + 1u) * 7919u +
              ((uint32_t)t->p[P_CHOR] + 1u) * 2246822519u +
-             ((uint32_t)t->p[P_DLY] + (uint32_t)t->p[P_REV] * 131u + 1u) * 16777619u;
+             ((uint32_t)t->p[P_DLY] + (uint32_t)t->p[P_REV] * 131u + 1u) * 16777619u +
+             ((uint32_t)song.g[G_TAPEMODE] + 1u) * 2654435761u +
+             ((uint32_t)t->p[P_TAPEMIX] + (uint32_t)song.g[G_TMIX] * 131u + 1u) * 374761393u;
+        for (k = 0; k < FX_LIST_N; k++)
+            h = h * 33u + fx_order_tbl[t - trk][k];
+    }
     if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
         for (i = 0; i < 4u; i++)
             h ^= (uint32_t)graph_project_used(i) << (20u + i);
@@ -1240,7 +1349,7 @@ static const char *eng_abbr(const char *name)
 #endif
                                        {"PHASE", "PHAS"}, {"LOFI", "LOFI"},
                                        {"SAMPLE", "SMPL"}, {"VOICE", "VOCL"}, {"TRIO", "TRIO"}, {"WHEEL", "WHEL"},
-                                       {"GRAIN", "GRAN"}, {"PHYS", "PHYS"}, {"DRUM", "DRUM"},
+                                       {"GRAIN", "GRAN"}, {"PHYS", "PHYS"}, {"DRUM-X", "DRMX"}, {"DRUMS", "DRMS"},
                                        {"NOISE", "NOIS"}, {"FM6", "FM6"}, {"SLICE", "SLCE"},
                                        {"WAVETABLE", "WTBL"}};
     uint32_t i;
@@ -1610,7 +1719,7 @@ static void mixer_status(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, u
 static struct {
     uint32_t col[NTRK];
     uint8_t meter[NTRK];
-} ts;
+} ts __attribute__((section(".pool")));                /* main loop only: off the audio .bss budget */
 
 static int32_t meter_px(int32_t a)                   /* |sample| (Q15) -> px: 60 dB over the slot */
 {
@@ -2357,6 +2466,7 @@ static void draw_graph(void)
         cv_oy = k == SK_ADSR || k == SK_LFO ? 3 : 0;
         graph_ht = LG_H_GRAPH - 6;
         if (k == SK_SCOPE) graph_scope(c);
+        else if (k == SK_TAPE) graph_tape();
         else if (k == SK_ADSR) graph_adsr(t, c);
         else if (k == SK_LFO) graph_lfo(t, c);
         else graph_title();
@@ -2467,6 +2577,8 @@ static void draw_graph(void)
             else if ((pg->scope == SC_ENGINE || pg->id[0] == P_FM1_LEVEL) && t->eng_req % NENGINES == ENGI_DIGITAL)
                 graph_fm(t, c);                      /* (OP LEVEL too: the levels on the chart) */
 #endif
+            else if (pg->scope == SC_GLOBAL && pg->id[0] == G_TSPEED)
+                graph_tape();                            /* the transport (cv_oy stays 11) */
             else {
                 cv_oy = 0;
                 if (!graph_tech(t, pg))

@@ -23,8 +23,21 @@ static const int8_t CHORD_SHAPE[CH_POW - CH_MAJ + 1][CHORD_MAX] = {
 };
 
 static uint8_t kb_chord[27][CHORD_MAX], kb_chn[27];   /* the notes key k started (kb_chn 0: none) */
-typedef struct { uint8_t id, ch, src, n, note[CHORD_MAX]; } mchord_t;   /* id: track + 1, 0 = free */
+typedef struct { uint32_t pos, beat; uint8_t total, rate, vel; } chord_strum_t;
+static chord_strum_t kb_strum[27];
+typedef struct { uint8_t id, ch, src, n, note[CHORD_MAX]; chord_strum_t strum; } mchord_t;   /* id: track + 1, 0 = free */
+/* the strum a note-on belongs to (the free take records it: seq.c ft_note_on): rate 1..7, index
+ * 0-based, total 2..CHORD_MAX. on = 0 for a chord played at once. */
+static struct { uint8_t on, rate, index, total; } chord_strum_now;
 static mchord_t mchord[MCHORD_N];
+static uint32_t kb_strum_pending, midi_strum_pending;   /* bit per key / MIDI chord still sweeping */
+static uint8_t chord_alternate[NTRK];                  /* STROKE ALT: the next chord's direction, per track */
+
+/* seq.c, below: the note input and MIDI OUT */
+static void input_on(track_t *t, uint32_t note, uint32_t vel);
+static int midi_note_held(const track_t *t, uint32_t note);
+static int midi_local_held(const track_t *t, uint32_t note);
+static void midi_out_event(uint32_t e);
 /* the last chord played per track (the CHORD page shows it): its root, notes, and the shape's tones above the
  * root (bit i = i semitones, 0..11) */
 static struct { uint8_t root, n, note[CHORD_MAX]; uint16_t mask; } chord_last[NTRK];
@@ -178,6 +191,104 @@ static void chord_name(char *b, uint32_t root, uint32_t mask)
     str_cpy(b + str_len(b), x, 12 - str_len(b));
 }
 
+/* ------------------------------------------------------------- STRUM --- */
+/* A division is the whole first-to-last sweep: onset k = (beat / DEN[rate]) * k / (n - 1), kept as a beat
+ * fraction, so a tempo change mid-sweep keeps the proportions. Rate and direction freeze at the press. */
+static const uint8_t STRUM_DEN[] = {1, 2, 4, 8, 16, 32, 6, 12};   /* OFF, 1/8 .. 1/128, 16T, 32T */
+/* 1 = started (sound the first tone, then tick the rest), 0 = play the chord at once */
+static int chord_strum_begin(track_t *t, uint8_t *notes, uint32_t n, chord_strum_t *s, uint32_t vel)
+{
+    uint32_t rate = sweep_rate(t), stroke = sweep_stroke(t), i;
+    memset(s, 0, sizeof *s);
+    if (!rate || rate >= NELEM(STRUM_DEN) || n < 2u || t->p[P_AMODE])
+        return 0;
+    if (stroke == 2u)
+        stroke = (uint32_t)(chord_alternate[trk_index(t)]++ & 1u);
+    if (stroke == 1u)                                  /* UP: the same sweep, top to bottom */
+        for (i = 0; i < n / 2u; i++) {
+            uint8_t x = notes[i];
+            notes[i] = notes[n - 1u - i];
+            notes[n - 1u - i] = x;
+        }
+    s->total = (uint8_t)n;
+    s->rate = (uint8_t)rate;
+    s->vel = (uint8_t)vel;
+    s->beat = beat_samples() ? beat_samples() : 1u;
+    return 1;
+}
+/* samples still due before `started` more tones (0: fire one), after `elapsed` samples */
+static uint32_t chord_strum_due(chord_strum_t *s, uint32_t started, uint32_t elapsed)
+{
+    uint32_t beat = beat_samples() ? beat_samples() : 1u;
+    if (s->beat != beat) {                             /* tempo moved: keep the beat fraction */
+        s->pos = (uint32_t)(((uint64_t)s->pos * beat + s->beat / 2u) / s->beat);
+        s->beat = beat;
+    }
+    s->pos += elapsed;
+    {
+        uint32_t target = (beat / STRUM_DEN[s->rate]) * started / (s->total - 1u);
+        return s->pos < target ? target - s->pos : 0u;
+    }
+}
+/* a strummed tone into the note input, tagged so the free take can put it back on the take's tempo */
+static void chord_strum_input(track_t *t, uint32_t note, uint32_t vel, const chord_strum_t *s, uint32_t i)
+{
+    chord_strum_now.on = 1;
+    chord_strum_now.rate = s->rate;
+    chord_strum_now.index = (uint8_t)i;
+    chord_strum_now.total = s->total;
+    input_on(t, note, vel);
+    chord_strum_now.on = 0;
+}
+static void key_chord_tone(uint32_t k, track_t *t)
+{
+    uint32_t i = kb_chn[k], note, mc = trk_midi_ch(trk_index(t));
+    if (i >= CHORD_MAX)
+        return;
+    note = kb_chord[k][i];
+    if (midi_local_held(t, note)) {                    /* (checked before counting it as started) */
+        kb_chn[k] = (uint8_t)(i + 1u);
+        return;
+    }
+    kb_chn[k] = (uint8_t)(i + 1u);
+    chord_strum_input(t, note, 100, &kb_strum[k], i);
+    midi_out_event(0x09u | (0x90u | mc) << 8 | note << 16 | 100u << 24);
+}
+static void midi_chord_tone(mchord_t *m)
+{
+    track_t *t = &trk[m->id - 1u];
+    uint32_t i = m->n, note;
+    if (i >= CHORD_MAX)
+        return;
+    note = m->note[i];
+    if (!midi_note_held(t, note) && !midi_local_held(t, note))   /* (self excluded: n still i) */
+        chord_strum_input(t, note, m->strum.vel, &m->strum, i);
+    m->n = (uint8_t)(i + 1u);
+}
+/* one block: fire the strings whose onset is due */
+static void chord_strum_tick(uint32_t n)
+{
+    uint32_t k;
+    for (k = 0; k < 27u && kb_strum_pending; k++)
+        if (kb_strum_pending & (1u << k)) {
+            chord_strum_t *s = &kb_strum[k];
+            chord_strum_due(s, kb_chn[k], n);
+            while (kb_chn[k] < s->total && !chord_strum_due(s, kb_chn[k], 0))
+                key_chord_tone(k, &trk[kb_trk[k]]);
+            if (kb_chn[k] >= s->total)
+                kb_strum_pending &= ~(1u << k);
+        }
+    for (k = 0; k < MCHORD_N && midi_strum_pending; k++)
+        if (midi_strum_pending & (1u << k)) {
+            mchord_t *m = &mchord[k];
+            chord_strum_due(&m->strum, m->n, n);
+            while (m->n < m->strum.total && !chord_strum_due(&m->strum, m->n, 0))
+                midi_chord_tone(m);
+            if (m->n >= m->strum.total)
+                midi_strum_pending &= ~(1u << k);
+        }
+}
+
 /* the MIDI note (ch, src) of track id - 1 that plays a chord, 0 = none */
 static mchord_t *mchord_of(uint32_t ch, uint32_t src, uint32_t id)
 {
@@ -203,7 +314,12 @@ static int mchord_held(uint32_t id, uint32_t note)
 static void mchord_forget(uint32_t track)               /* panic: the track's MIDI chords are gone */
 {
     uint32_t i;
+    for (i = 0; i < 27u; i++)
+        if (kb_trk[i] == track)
+            kb_strum_pending &= ~(1u << i);
     for (i = 0; i < MCHORD_N; i++)
-        if (mchord[i].id == track + 1u)
+        if (mchord[i].id == track + 1u) {
             mchord[i].id = 0;
+            midi_strum_pending &= ~(1u << i);
+        }
 }

@@ -131,6 +131,75 @@ static int matrix_edits_preserve_fx_locks(void)
     }
     return bad;
 }
+/* Editor ORDER and FXPOS edits must reach the running chain without moving TAPE. */
+static int editor_fx_order(void)
+{
+    int bad = 0;
+    const uint32_t commands[] = {ED_SET, ED_TRACK_PARAM};
+    const uint8_t initial[FX_LIST_N] = {INS_DIST, INS_TAPE, INS_CRUSH, INS_FILTER,
+        INS_PHASR, INS_FLANG, INS_CHOR, INS_DLY, INS_REV, INS_SLCR};
+    const uint8_t ordered[FX_LIST_N] = {INS_DIST, INS_TAPE, INS_FILTER, INS_CRUSH,
+        INS_PHASR, INS_FLANG, INS_CHOR, INS_DLY, INS_REV, INS_SLCR};
+    const uint8_t positioned[FX_LIST_N] = {INS_DLY, INS_TAPE, INS_DIST, INS_FILTER,
+        INS_CRUSH, INS_PHASR, INS_FLANG, INS_CHOR, INS_REV, INS_SLCR};
+    for (uint32_t c = 0; c < 2; c++) {
+        uint8_t got[FX_LIST_N];
+        static project_t saved;
+        uint8_t args[] = {0, P_IORD, 0, 64};             /* ORDER 0 */
+        reset();
+        fx_list_set(&trk[0], initial);
+        ins_send_set(&trk[0], INS_FLANG, 1);
+        fx_list_get(&trk[0], got);                       /* initialize before the editor writes */
+        request(commands[c], args, sizeof args);
+        project_capture(&saved);
+        bad += check("saving immediately after ORDER stores the edited chain",
+            !memcmp(saved.t[0].fx_order, ordered, sizeof got));
+        fx_list_get(&trk[0], got);
+        bad += check(c ? "TRACK_PARAM ORDER reaches chain and preserves TAPE/send" :
+                         "SET ORDER reaches chain and preserves TAPE/send",
+            !memcmp(got, ordered, sizeof got) && ins_is_send(&trk[0], INS_FLANG));
+        args[1] = P_CHOR; args[2] = 120;                /* FXPOS: DLY 0, REV 7 */
+        request(commands[c], args, sizeof args);
+        fx_list_get(&trk[0], got);
+        bad += check(c ? "TRACK_PARAM FXPOS reaches chain and preserves TAPE" :
+                         "SET FXPOS reaches chain and preserves TAPE",
+            !memcmp(got, positioned, sizeof got));
+        apply_preset_to(&trk[0], 0);
+        fx_list_get(&trk[0], got);
+        bad += check("preset restores legacy chain order and preserves TAPE slot",
+            !memcmp(got, initial, sizeof got));
+    }
+    {
+        static project_t saved;
+        uint8_t got[FX_LIST_N];
+        reset();
+        project_capture(&saved);
+        memcpy(saved.t[0].fx_order, initial, sizeof initial);
+        saved.t[0].p[P_IORD] = 0;                      /* older saves can have stale legacy fields */
+        saved.t[0].p[P_CHOR] = 64;
+        saved.t[0].fx_sl_pos = 8;
+        saved.sum = proj_sum(&saved);
+        int restored = !project_restore_runtime(&saved);
+        fx_list_get(&trk[0], got);
+        bad += check("loading keeps the saved ten-stage chain despite stale legacy fields",
+            restored && !memcmp(got, initial, sizeof got));
+    }
+    {
+        static project_t saved, loaded;
+        static project_store_t wire;
+        reset();
+        fx_list_set(&trk[0], initial);
+        fx_list_set(&trk[1], positioned);
+        fx_master_set(INS_DIST, 0);
+        fx_master_set(INS_DLY, 1);
+        project_capture(&saved);
+        int restored = proj_pack(&wire, &saved) && proj_import(&loaded, &wire, sizeof wire) &&
+            !project_restore_runtime(&loaded);
+        bad += check("saving and loading preserves the selected MASTER ordering track",
+            restored && fx_master_order_tr == 1);
+    }
+    return bad;
+}
 static uint32_t pack7(const uint8_t *p, uint32_t n, uint8_t *a)
 {
     uint32_t o = 0, i;
@@ -198,6 +267,80 @@ static int motion_locks(void)
         bad += check("  op 8 with a further byte: no reply", !request(ED_MOTION, a, 3));
         motion_clear(&trk[1]);
     }
+    return bad;
+}
+
+/* DUMP: P_IORD carries the chain order in bits 0..9 and the SEND flags above: the wire gives the order only,
+ * as TRACK_DUMP / GET / SET / CHANGED do (core.h iord_perm_of) */
+static int dump_order(void)
+{
+    int bad = 0;
+    int16_t saved;
+    reset();
+    saved = TSEL->p[P_IORD];
+    TSEL->p[P_IORD] = (int16_t)(24 | (1 << 10));      /* DIST as SEND, chain order 24 */
+    uint32_t n = request(ED_DUMP, 0, 0);
+    bad += check("DUMP: P_IORD gives the 0..719 order, the SEND bits stay on the device",
+        n == 5u + 2u + 2u * (uint32_t)(P_COUNT + G_COUNT) + 1u && host_wire[4] == ED_DUMP &&
+        ed_rv(&host_wire[7u + 2u * P_IORD]) == 24 && (TSEL->p[P_IORD] & (1 << 10)) != 0);
+    TSEL->p[P_IORD] = saved;
+    return bad;
+}
+
+/* G_SLOWN: 0 and 5..15 are the mask (0 = all SEND); 1..4 remain accepted legacy owner values */
+static int slown_descriptor(void)
+{
+    int bad = 0, ok;
+    uint8_t a[4] = {1, G_SLOWN, 0, 0};
+    reset();
+    (void)request(ED_DESC, a, 2);
+    ok = host_wire[4] == ED_DESC && host_wire[5] == 1 && host_wire[6] == G_SLOWN && host_wire[7] == F_INT &&
+         !strncmp((const char *)&host_wire[14], "SLOWN", 6) &&
+         ed_rv(&host_wire[8]) == 0 && ed_rv(&host_wire[10]) == 15 && ed_rv(&host_wire[12]) == 0;
+    a[2] = (uint8_t)((15 + 8192) & 127); a[3] = (uint8_t)((15 + 8192) >> 7);
+    (void)request(ED_SET, a, 4);
+    ok &= ed_rv(&host_wire[7]) == 15 && song.g[G_SLOWN] == 15;
+    (void)request(ED_GET, a, 2);
+    ok &= ed_rv(&host_wire[7]) == 15;
+    a[2] = (uint8_t)((3 + 8192) & 127); a[3] = (uint8_t)((3 + 8192) >> 7);
+    (void)request(ED_SET, a, 4);
+    ok &= ed_rv(&host_wire[7]) == 3 && song.g[G_SLOWN] == 3;
+    (void)request(ED_GET, a, 2);
+    ok &= ed_rv(&host_wire[7]) == 3;
+    bad += check("G_SLOWN: DESC max 15; SET/GET 15; SET/GET 3 keeps the legacy owner value", ok);
+    song.g[G_SLOWN] = GP[G_SLOWN].def;
+    return bad;
+}
+
+/* PITCH (MSEQ_PITCH) is lock-only: a normal track (ANALOG here) takes -24..24 over MOTION op 5, op 6 clears it,
+ * op 7 lists it with kind 1; it does not depend on the kit change (DRUM tracks ignore PITCH) */
+static int pitch_locks(void)
+{
+    int bad = 0, ok = 1;
+    static const int32_t values[] = {24, -24, 25, -25};
+    uint8_t a[6] = {1, 5, 3, MSEQ_PITCH, 0, 0};
+    uint32_t n;
+    reset();
+    motion_clear(&trk[1]);
+    for (uint32_t i = 0; i < 4u; i++) {
+        uint32_t u = (uint32_t)(values[i] + 8192);
+        a[4] = (uint8_t)(u & 127u); a[5] = (uint8_t)(u >> 7);
+        n = request(ED_MOTION, a, 6);
+        ok &= n > 6u && host_wire[4] == ED_MOTION && host_wire[5] == 1 && host_wire[6] == (i < 2u ? 0u : 1u);
+    }
+    bad += check("PITCH (MSEQ_PITCH) locks -24..24: 24 and -24 accepted, 25 and -25 rc 1", ok);
+    a[1] = 6; a[2] = 3;
+    (void)request(ED_MOTION, a, 3);
+    bad += check("MOTION op 6 clears a PITCH lock", host_wire[6] == 0 && !motion_lock_count(&trk[1]));
+    a[1] = 5; a[2] = 4;
+    a[4] = (uint8_t)((24 + 8192) & 127); a[5] = (uint8_t)((24 + 8192) >> 7);
+    (void)request(ED_MOTION, a, 6);
+    a[1] = 7;
+    n = request(ED_MOTION, a, 2);
+    bad += check("MOTION op 7 lists a PITCH lock with kind 1",
+        n == 5u + 5u + 4u + 1u + 1u && host_wire[5] == 1 && host_wire[6] == 0 && host_wire[8] == 1 &&
+        host_wire[10] == 4 && host_wire[11] == MSEQ_PITCH && ed_rv(&host_wire[12]) == 24 && host_wire[14] == 1);
+    motion_clear(&trk[1]);
     return bad;
 }
 
@@ -1314,7 +1457,8 @@ static int learn_protocol(void)
 #ifndef EDITOR_TEST_NO_MAIN                              /* (robust_test.c, fuzz_*.c: this file is their base) */
 int main(void)
 {
-    int bad = preferences() + motion_locks() + matrix_edits_preserve_fx_locks() + framing() + uart_recovery() + steps() + samples() + wavetable_slot() + song_protocol() + malformed_saves() +
+    int bad = preferences() + motion_locks() + dump_order() + slown_descriptor() + pitch_locks() +
+              matrix_edits_preserve_fx_locks() + editor_fx_order() + framing() + uart_recovery() + steps() + samples() + wavetable_slot() + song_protocol() + malformed_saves() +
               fm6_patches() + user_preset_roundtrip() + live_sync() + usb_burst() + menu_protocol() + drum_kit_retired() +
               learn_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");

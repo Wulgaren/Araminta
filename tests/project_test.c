@@ -162,6 +162,14 @@ static void to_v4(project_v4_t *v, const project_t *q)
 
 /* track t of the converted project has the old values where they belong; drum: track 4 was the drum part,
  * lvl / rev: its level and reverb send (the old globals) */
+static int fm6_wire_same(const uint8_t *w, const uint8_t *p)
+{
+    uint32_t i;
+    for (i = 0; i < FM6_PACKED; i++)
+        if ((w[i] & 0x7Fu) != p[i])
+            return 0;
+    return 1;
+}
 static int track_ok(const proj_trk_t *n, const proj_trk_v2_t *o, uint32_t t, int drum, int16_t lvl, int16_t rev)
 {
     uint32_t k;
@@ -169,6 +177,7 @@ static int track_ok(const proj_trk_t *n, const proj_trk_v2_t *o, uint32_t t, int
                    : n->engine == o->engine && n->preset == o->preset && steps_same(n->step, o->step));
     for (k = 0; k <= P_DETUNE; k++)
         ok &= n->p[k] == (drum && k == P_LEVEL ? lvl : drum && k == P_REV ? rev
+                         : k == P_TAPEMIX ? 0               /* the old GLMOD id: EFFECTS TAPE MIX now */
                          : k == P_CHOR ? TP[P_CHOR].def   /* bus CHO send retired: FXPOS default */
                          : k == P_SCALE ? test_scl_from_v12(oldv(t, k))
                          : oldv(t, k));
@@ -204,9 +213,10 @@ static int track_v3_ok(const proj_trk_t *n, const proj_trk_v3_t *o, uint32_t t)
     uint32_t k;
     int ok = n->engine == o->engine && n->preset == o->preset && steps_same(n->step, o->step);
     for (k = 0; k <= P_SLDEPTH; k++)
-        ok &= n->p[k] == (k == P_CHOR ? TP[P_CHOR].def
+        ok &= n->p[k] == (k == P_TAPEMIX ? 0
+                         : k == P_CHOR ? TP[P_CHOR].def
                          : k == P_SCALE ? test_scl_from_v12(oldv3(t, k))
-                         : oldv3(t, k));  /* CHO send -> FXPOS */
+                         : oldv3(t, k));  /* CHO send -> FXPOS; GLMOD -> TAPE MIX 0 */
     for (k = P_M1SRC; k <= P_M4AMT; k++)
         ok &= n->p[k] == TP[k].def && TP[k].def == 0;
     for (k = 0; k < 8u; k++)
@@ -221,14 +231,14 @@ static int fx_motion_wire(void)
     memset(&q, 0, sizeof q);
     q.magic = PROJ_MAGIC; q.size = sizeof q; q.parts = NPART; q.phys = PROJ_PHYS;
     chain_defaults(&q.chain); memcpy(q.dx, DX_KIT_DEF, sizeof q.dx);
-    q.g[G_DMIX] = 19; q.g[G_DTIME] = 65; q.g[G_RSIZE] = 21;
+    q.g[G_DTIME] = 65; q.g[G_RSIZE] = 21;
     q.g[G_CRSIZE] = 22; q.g[G_CRDAMP] = 23;
     q.motion.count = 1; q.motion.on = 15;
     for (uint32_t ms = 1; ms <= 1486; ms++) {
         q.motion.event[0] = (motion_event_t){(uint8_t)(ms & 255u), (uint8_t)(MFX_TIME | (ms & 1u ? MOTION_LOCK : 0u)), (int16_t)(64 + ms)};
         ok &= proj_pack(&st, &q) && proj_import(&loaded, &st, sizeof st) &&
             loaded.motion.event[0].place == (ms & 255u) && loaded.motion.event[0].param == q.motion.event[0].param &&
-            loaded.motion.event[0].value == 64 + (int32_t)ms && loaded.g[G_DMIX] == 19 && loaded.g[G_DTIME] == 65 &&
+            loaded.motion.event[0].value == 64 + (int32_t)ms && loaded.g[G_DTIME] == 65 &&
             loaded.g[G_RSIZE] == 21 && loaded.g[G_CRSIZE] == 22 && loaded.g[G_CRDAMP] == 23;
     }
     bad += check("FUN15 stores every exact TIME value without shifting globals", ok);
@@ -238,7 +248,24 @@ static int fx_motion_wire(void)
     store_fun15_layout(&st, 0x46554E45u);                /* what a FUN14 reader sees */
     bad += check("FUN14 projects retain their three-byte locks and global IDs", ok && proj_import(&loaded, &st, sizeof st) &&
         loaded.motion.count == 1 && loaded.motion.event[0].param == (P_REV | MOTION_LOCK) &&
-        loaded.motion.event[0].value == 109 && loaded.g[G_DMIX] == 19 && loaded.g[G_CRSIZE] == 22);
+        loaded.motion.event[0].value == 109 && loaded.g[G_CRSIZE] == 22);
+    {
+        static const int16_t speed[] = {25, 50, 100, 128, 195, 200, 399, 400};
+        ok = 1;
+        for (uint32_t k = 0; k < NELEM(speed); k++) {
+            int16_t first;
+            q.motion.event[0] = (motion_event_t){17, MFX_TSPEED | MOTION_LOCK, speed[k]};
+            ok &= proj_pack(&st, &q) && proj_import(&loaded, &st, sizeof st);
+            first = loaded.motion.event[0].value;
+            ok &= abs(first - speed[k]) <= (speed[k] / 50 ? speed[k] / 50 : 1);
+            for (uint32_t cycle = 0; cycle < 8u; cycle++) {
+                q.motion = loaded.motion;
+                ok &= proj_pack(&st, &q) && proj_import(&loaded, &st, sizeof st) &&
+                      loaded.motion.event[0].value == first;
+            }
+        }
+        bad += check("TAPE SPEED locks quantize once and stay stable across save/load cycles", ok);
+    }
     return bad;
 }
 static int generation_wire(void)
@@ -316,6 +343,71 @@ static int step_wire_freeze(void)
     return check("FUN15: a step's chord, flags, ratchet, nudge, chance and grid round trip byte for byte", ok);
 }
 
+static int tape_wire(void)
+{
+    static project_t a, c;
+    static project_store_t st, st16;
+    static const uint8_t ORD[FX_LIST_N] = {INS_TAPE, INS_FILTER, INS_DIST, INS_SLCR, INS_CHOR,
+                                           INS_REV, INS_CRUSH, INS_DLY, INS_FLANG, INS_PHASR};
+    uint32_t i, t;
+    int ok;
+    memset(&a, 0, sizeof a);
+    a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
+    chain_defaults(&a.chain); memcpy(a.dx, DX_KIT_DEF, sizeof a.dx);
+    for (i = 0; i < G_COUNT; i++)
+        a.g[i] = GP[i].def;
+    a.g[G_TSPEED] = 88; a.g[G_TWOW] = 44; a.g[G_TDROP] = 1; a.g[G_TMIX] = 55; a.g[G_TAPEMODE] = TAPE_MASTER;
+    a.g[G_TTEMPO] = 0;
+    for (t = 0; t < NTRK; t++) {
+        a.t[t].engine = 0;
+        a.t[t].p[P_IORD] = (int16_t)IORD_DEF;
+        a.t[t].p[P_CHOR] = (int16_t)FX_POS_DEF;
+        a.t[t].fx_sl_pos = 8u;
+        memcpy(a.t[t].fx_order, ORD, FX_LIST_N);
+    }
+    a.t[0].p[P_TAPEMIX] = 77;
+    a.fx_master[INS_DIST] = 1;                        /* track 1 owns DIST, track 2 DLY, track 4 SLCR */
+    a.fx_master[INS_DLY] = 2;
+    a.fx_master[INS_SLCR] = 4;
+    a.fx_master[INS_TAPE] = 3;                        /* TAPE is MASTER, track 3 */
+    ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
+    for (i = 0; i < FX_LIST_N; i++)
+        ok &= c.t[0].fx_order[i] == ORD[i];
+    ok &= c.g[G_TSPEED] == 88 && c.g[G_TWOW] == 44 && c.g[G_TDROP] == 1 && c.g[G_TMIX] == 55 &&
+          c.g[G_TAPEMODE] == TAPE_MASTER && c.g[G_TTEMPO] == 0 && c.t[0].p[P_TAPEMIX] == 77 &&
+          c.fx_master[INS_DIST] == 1 && c.fx_master[INS_DLY] == 2 && c.fx_master[INS_SLCR] == 4 &&
+          c.fx_master[INS_TAPE] == 3 && c.fx_master[INS_REV] == 0;
+    {   /* the same bytes stamped FUN18 (before TEMPO): it loads ON, the current default */
+        uint32_t sum;
+        ((uint32_t *)st.raw)[0] = PROJ_MAGIC_V18;
+        sum = proj_hash(st.raw, PROJ_STORE_SIZE - 4u);
+        memcpy(st.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+        ok &= proj_import(&c, &st, sizeof st) && c.g[G_TTEMPO] == 1 && c.g[G_TSPEED] == 88;
+    }
+    {   /* the same bytes as a FUN16: the order is not there, the globals are the old inert ids,
+         * and no MASTER owner (FUN16/17 wrote zeros in those spare bytes) */
+        uint32_t sum;
+        memset(a.fx_master, 0, sizeof a.fx_master);
+        ok &= proj_pack(&st16, &a);
+        ((uint32_t *)st16.raw)[0] = PROJ_MAGIC_V16;
+        sum = proj_hash(st16.raw, PROJ_STORE_SIZE - 4u);
+        memcpy(st16.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+        ok &= proj_import(&c, &st16, sizeof st16);
+        {   /* factory order: DIST, CRUSH, FILTER, PHASR, FLANG, CHOR, DLY, REV, SLCR, TAPE */
+            static const uint8_t DEF[FX_LIST_N] = {INS_DIST, INS_CRUSH, INS_FILTER, INS_PHASR, INS_FLANG,
+                                                   INS_CHOR, INS_DLY, INS_REV, INS_SLCR, INS_TAPE};
+            for (i = 0; i < FX_LIST_N; i++)
+                ok &= c.t[0].fx_order[i] == DEF[i];
+        }
+        ok &= c.g[G_TSPEED] == GP[G_TSPEED].def && c.g[G_TWOW] == 0 && c.g[G_TDROP] == 0 &&
+              c.g[G_TMIX] == 0 && c.g[G_TAPEMODE] == TAPE_SEND && c.g[G_TTEMPO] == 1 &&
+              c.t[0].p[P_TAPEMIX] == 0;
+        for (i = 0; i < FX_LIST_N; i++)
+            ok &= c.fx_master[i] == 0;
+    }
+    return check("FUN19: the 10-stage order, TAPE globals/TEMPO and MASTER owners round trip; FUN18/16 get defaults", ok);
+}
+
 int main(void)
 {
     static project_v4_t v4;
@@ -331,7 +423,7 @@ int main(void)
         project_v1_t v1;
     } buf;
     uint32_t i, t;
-    int bad = fx_motion_wire(), ok;
+    int bad = fx_motion_wire() + tape_wire(), ok;
 
     bad += check("layout: SLICER after DETUNE, then the matrix just before P_E0",
                  P_SLCR == P_DETUNE + 1 && P_SLDEPTH + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD && P_VOIC + 1 == P_LN0 &&
@@ -357,7 +449,9 @@ int main(void)
     bad += check("FUN2 -> FUN6: converted, valid format 5 slot", ok && proj_ok(&q) && q.magic == PROJ_MAGIC);
     ok = q.sel == 2;
     for (i = 0; i < PROJ_NG_WIRE; i++)
-        ok &= q.g[i] == (i == G_RTYPE || i == G_DRLVL || i == G_DRREV ? 0 : (int16_t)(500 + i));
+        ok &= q.g[i] == (i == G_RTYPE || i == G_DRLVL || i == G_DRREV ? 0
+                         : i == G_TSPEED || i == G_TWOW || i == G_TDROP || i == G_TMIX || i == G_TAPEMODE ? GP[i].def
+                         : (int16_t)(500 + i));
     ok &= q.g[G_CRTYPE] == q.g[G_RTYPE] && q.g[G_CRSIZE] == q.g[G_RSIZE] && q.g[G_CRDAMP] == q.g[G_RDAMP];
     bad += check("FUN2 -> FUN6: globals (id 24, the old drum channel: ROOM) and selected track", ok);
     ok = 1;
@@ -369,7 +463,7 @@ int main(void)
                  q.t[0].engine == 7 && q.t[1].engine == 0 && q.t[2].engine == 6 &&
                  str_eq(ENGINES[7]->name, "WHEEL") && str_eq(ENGINES[6]->name, "TRIO") && NENGINES > 8);
     bad += check("FUN2 -> FUN6: the drum track -> part 4, DRUM (its kit on load), steps kept (lanes as hits)",
-                 q.parts == NPART && q.t[3].engine == ENGI_DRUM && str_eq(ENGINES[ENGI_DRUM]->name, "DRUM") &&
+                 q.parts == NPART && q.t[3].engine == ENGI_DRUM && str_eq(ENGINES[ENGI_DRUM]->name, "DRUM-X") &&
                  TRK_DEF[3][0] == ENGI_DRUM && q.t[3].preset == PROJ_DEF_KEEP &&
                  steps_grid_same(q.t[3].step, v2.t[3].step));
 
@@ -389,7 +483,9 @@ int main(void)
     ok = proj_import(&q, &buf, (int)sizeof v3) && proj_ok(&q) && q.magic == PROJ_MAGIC && q.sel == 3 &&
          q.parts == NPART;
     for (i = 0; i < PROJ_NG_WIRE; i++)
-        ok &= q.g[i] == (i == G_RTYPE ? 0 : (int16_t)(600 + i));
+        ok &= q.g[i] == (i == G_RTYPE ? 0
+                         : i == G_TSPEED || i == G_TWOW || i == G_TDROP || i == G_TMIX || i == G_TAPEMODE ? GP[i].def
+                         : (int16_t)(600 + i));
     ok &= q.g[G_CRTYPE] == q.g[G_RTYPE] && q.g[G_CRSIZE] == q.g[G_RSIZE] && q.g[G_CRDAMP] == q.g[G_RDAMP];
     for (t = 0; t < NTRK; t++)
         ok &= track_v3_ok(&q.t[t], &v3.t[t], t);
@@ -557,7 +653,7 @@ int main(void)
         to_v4(&v4, &q);
         memcpy(&buf, &v4, sizeof v4);
         ok = proj_import(&q2, &buf, (int)sizeof v4) && proj_ok(&q2) && q2.phys == PROJ_PHYS &&
-             q2.t[0].engine == ENGI_DRUM && q2.t[0].preset == 0 && str_eq(ENGINES[ENGI_DRUM]->name, "DRUM") &&
+             q2.t[0].engine == ENGI_DRUM && q2.t[0].preset == 0 && str_eq(ENGINES[ENGI_DRUM]->name, "DRUM-X") &&
              q2.t[0].p[P_E0] == 2 && q2.t[0].p[P_E6] == 1 && q2.t[0].p[P_E7] == 0;
         for (i = 1; i < 6u; i++)
             ok &= q2.t[0].p[P_E0 + i] == E0[i];         /* TUNE TONE DECY SNAP ACC in place */
@@ -648,7 +744,7 @@ int main(void)
         ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == PROJ_MAGIC && proj_import(&c, &st, sizeof st);
         for (k = 0; k < NTRK; k++)
             ok &= !memcmp(c.fm6[k], FM6_FACTORY[k * 2u], FM6_PACKED) && c.t[k].engine == ENGI_FM6 &&
-                  !memcmp(st.raw + PROJ_FM6_OFF + k * FM6_PACKED, FM6_FACTORY[k * 2u], FM6_PACKED);
+                  fm6_wire_same(st.raw + PROJ_FM6_OFF + k * FM6_PACKED, FM6_FACTORY[k * 2u]);
         bad += check("FUN14: the four FM6 patches round trip (bytes at PROJ_FM6_OFF)", ok && !memcmp(c.name, "FM SONG", 7));
         st.raw[PROJ_FM6_OFF + 5] ^= 1u;
         bad += check("FUN14: a patch byte changed: the hash refuses it", !proj_import(&c, &st, sizeof st));
@@ -952,19 +1048,19 @@ int main(void)
              !memcmp(c.name, "DX KIT", 6);
         bad += check("FUN10 (FUNA): loads with the factory DRUM-X kit (custom kit not on disk)", ok);
     }
-    {   /* FUN14: SCALE LOCK + SLCR slots on disk; stash RAM-only; SEND bus in reclaimed bytes. */
+    {   /* FUN14: MAP = CURR + SLCR slots on disk; stash RAM-only; SEND bus in reclaimed bytes. */
         project_t a, c;
         static project_store_t st;
         uint32_t i;
         memset(&a, 0, sizeof a);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);
-        a.t[0].scl_lock = SCL_LOCK_SCALE;
-        a.t[1].scl_lock = SCL_LOCK_OFF;
+        a.t[0].p[P_QUANT] = QN_CURR;
+        a.t[1].p[P_QUANT] = QN_ALL;                        /* plain ALL: no lock bit */
         a.t[1].scl_stash_ok = 1;
         a.t[1].scl_stash[0] = 5; a.t[1].scl_stash[1] = 2; a.t[1].scl_stash[2] = 1;
-        a.t[2].scl_lock = SCL_LOCK_SCALE;
-        a.t[3].scl_lock = SCL_LOCK_SCALE;
+        a.t[2].p[P_QUANT] = QN_CURR;
+        a.t[3].p[P_QUANT] = QN_CURR;
         a.t[0].fx_sl_pos = 3; a.t[1].fx_sl_pos = 5; a.t[2].fx_sl_pos = 7; a.t[3].fx_sl_pos = 8;
         a.g[G_SLOWN] = 2;                                 /* legacy: track 1 CHAIN → mask 0xD */
         for (i = 0; i < FX_BUS_N; i++)
@@ -977,13 +1073,13 @@ int main(void)
              st.raw[PROJ_SLPOS_OFF] == (uint8_t)(3u | (5u << 4)) &&
              st.raw[PROJ_SLPOS_OFF + 1u] == (uint8_t)(7u | (8u << 4)) &&
              proj_import(&c, &st, sizeof st) &&
-             c.t[0].scl_lock == SCL_LOCK_SCALE && c.t[1].scl_lock == SCL_LOCK_OFF &&
-             c.t[2].scl_lock == SCL_LOCK_SCALE && c.t[3].scl_lock == SCL_LOCK_SCALE &&
+             c.t[0].p[P_QUANT] == QN_CURR && c.t[1].p[P_QUANT] == QN_ALL &&
+             c.t[2].p[P_QUANT] == QN_CURR && c.t[3].p[P_QUANT] == QN_CURR &&
              !c.t[1].scl_stash_ok && !c.t[1].scl_stash[0] && !c.t[1].scl_stash[1] &&
              !c.t[1].scl_stash[2] && !memcmp(c.fx_bus, a.fx_bus, FX_BUS_N) &&
              c.t[0].fx_sl_pos == 3 && c.t[1].fx_sl_pos == 5 && c.t[2].fx_sl_pos == 7 &&
              c.t[3].fx_sl_pos == 8 && c.g[G_SLOWN] == 0xD;
-        bad += check("FUN14: SCALE LOCK + SLCR slots; stash not on disk; SEND bus knobs round trip", ok);
+        bad += check("FUN14: MAP CURR + SLCR slots; stash not on disk; SEND bus knobs round trip", ok);
     }
     {   /* Felucca 1.5 FUNA (np 111): INSERT + FTYPE/ESYNC through proj_import end-to-end */
         project_t c;

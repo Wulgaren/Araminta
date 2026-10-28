@@ -88,6 +88,7 @@ static void midi_release(uint32_t ch, uint32_t note)
         uint32_t n = 1, i;
         nn[0] = (uint8_t)note;
         if (m) {                                  /* a chord: exactly the notes it started */
+            midi_strum_pending &= ~(1u << (uint32_t)(m - mchord));   /* strings not yet played */
             n = m->n;
             for (i = 0; i < n; i++)
                 nn[i] = m->note[i];
@@ -112,7 +113,19 @@ static void midi_play(track_t *t, uint32_t ch, uint32_t note, uint32_t vel)
         n = 1;
         nn[0] = (uint8_t)note;
     }
-    for (i = 0; i < n; i++)
+    if ((n > 1u || nn[0] != note) && chord_strum_begin(t, nn, n, &mchord[f].strum, vel)) {
+        mchord_t *m = &mchord[f];                  /* STRUM: the first string now, the rest tick */
+        m->ch = (uint8_t)ch;
+        m->src = (uint8_t)note;
+        m->id = (uint8_t)(trk_index(t) + 1u);
+        m->n = 0;
+        for (i = 0; i < n; i++)
+            m->note[i] = nn[i];
+        midi_chord_tone(m);
+        midi_strum_pending |= 1u << f;
+        return;
+    }
+    for (i = 0; i < n; i++)                        /* (before the table says they are held) */
         if (!midi_note_held(t, nn[i]) && !midi_local_held(t, nn[i]))
             input_on(t, nn[i], vel);
     if (n > 1u || nn[0] != note) {
@@ -221,6 +234,7 @@ static const uint8_t MIDI_CC_ENG[NENGINES] = {
     0x56, 0x00, 0x30, 0x80, 0x50, 0x07, 0x67, 0x00,   /* ANALOG CUT RES, -, PHASE DCW, LOFI TONE, SAMPLE CUT, VOICE Q,
                                                        * TRIO CUT RES, WHEEL - */
     0x80, 0x30, 0x30, 0x34, 0x30,                     /* GRAIN TONE, PHYS BRIT, DRUM TONE, NOISE FREQ RES, FM6 MLVL */
+    [ENGI_DRUMS] = 0x30,                              /* DRUMS TONE */
 };
 /* a CC sets parameter id of track t as a knob would: 0..127 over its range */
 static void midi_cc_set(track_t *t, uint32_t id, uint32_t value)
