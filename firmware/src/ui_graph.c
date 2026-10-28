@@ -69,10 +69,9 @@ static void graph_lfo(const track_t *t, uint16_t c)
     }
 }
 
-/* TAPE page, after the OP-1's tape transport: two large reels, a ribbon and guides, a centre head, a
- * position readout and a timeline. The reels turn while the transport plays, at the SPEED rate; WOW rocks
- * them and the ribbon, DROPOUT breaks the ribbon. Theme tokens only: the line art T_TEXT / T_MID, the
- * moving parts THEME / ACCENT. */
+/* TAPE page, after the OP-1's tape transport: two large reels, a ribbon and guides, a centre head. The
+ * reels turn at the SPEED rate (slowly while stopped, faster on playback); WOW rocks them and the ribbon,
+ * DROPOUT sags the ribbon. Theme tokens only: the line art T_TEXT / T_MID, the moving parts THEME / ACCENT. */
 static void tape_ring(int32_t cx, int32_t cy, int32_t r, uint16_t c)
 {
     int32_t x = r, y = 0, err = 1 - r;
@@ -121,95 +120,54 @@ static void tape_guide(int32_t x, int32_t y, int32_t r)
     tape_ring(x, y, r, T_MID);
     cv_rect(x - 1, y - 1, 2, 2, T_TEXT);
 }
-static void tape_time(char *t, uint32_t idx)
-{
-    uint32_t bar = idx / 16u + 1u, beat = (idx % 16u) / 4u + 1u, step = idx % 4u + 1u;
-    t[0] = (char)('0' + (bar / 10u) % 10u); t[1] = (char)('0' + bar % 10u); t[2] = ':';
-    t[3] = (char)('0' + (beat / 10u) % 10u); t[4] = (char)('0' + beat % 10u); t[5] = ':';
-    t[6] = (char)('0' + (step / 10u) % 10u); t[7] = (char)('0' + step % 10u); t[8] = 0;
-}
 static void graph_tape(void)
 {
     static uint32_t ph, wob, fr = 0xFFFFFFFFu;
     int compact = cv_h != H_GRAPH;
-    int32_t r = compact ? 16 : 34, cy = compact ? 24 : 54;
-    int32_t lcx = compact ? 84 : 66, rcx = compact ? 156 : 174;
-    int32_t base = compact ? 45 : 95, tl = compact ? 54 : 104;
-    int32_t gx0 = compact ? 104 : 94, gx1 = compact ? 136 : 146;
+    int32_t r = compact ? 18 : 36, cy = compact ? 24 : 50;
+    int32_t lcx = compact ? 82 : 68, rcx = compact ? 158 : 172;
+    int32_t base = compact ? 48 : 98, gx0 = compact ? 104 : 96, gx1 = compact ? 136 : 144;
     int32_t speed = clamp(song.g[G_TSPEED], 25, 400), wow = clamp(song.g[G_TWOW], 0, 127);
     int32_t drop = song.g[G_TDROP] ? 80 : 0, amp = (wow * 3 + 63) / 127;
-    int32_t len = TSEL->p[P_SLEN], idx = (int32_t)(TSEL->seq_idx % (uint32_t)(len > 0 ? len : 1));
-    int32_t x, gap = -1, ang;
-    if (fr != ui.frame) {                             /* once a UI frame: only playback turns the reels */
+    int32_t x, bend = -1, ang;
+    if (fr != ui.frame) {                             /* once a UI frame */
         fr = ui.frame;
-        if (song.playing) {
-            ph += (uint32_t)(1092 * speed / 100);
-            wob += 2600u;
-        }
+        ph += (uint32_t)((song.playing ? 2184 : 700) * speed / 100);   /* idle: a slow turn */
+        wob += song.playing ? 2600u : 900u;
     }
     ang = (int32_t)ph;
     if (wow)                                          /* WOW rocks the reel angle too */
         ang += (sine_i(wob) * wow / 127) * 4000 / 32768;
-    if (drop) {                                       /* DROPOUT: a short break in the ribbon, now and then */
+    if (drop) {                                       /* DROPOUT: a short sag in the ribbon, now and then */
         uint32_t rnd = ((ui.frame / 10u) * 2654435761u) >> 16;
         if ((rnd & 255u) < (uint32_t)drop)
-            gap = gx0 + 8 + (int32_t)((rnd >> 8) % (uint32_t)(gx1 - gx0 - 20));
-    }
-    if (!compact) {
-        char t[10];
-        int32_t i;
-        tape_time(t, song.playing ? (uint32_t)idx : 0u);
-        cv_text_in(0, 1, 240, &AF_M, t, T_TEXT, T_SURF);   /* bar : beat : step */
-        for (i = 0; i < 16; i++)                        /* the beat's little dashes */
-            cv_rect(90 + i * 4, 13, 1, 3, song.playing && i == idx % 16 ? T_ACCENT : T_DIM);
-        cv_frame(8, 2, 19, 17, T_TEXT);                 /* the selected track */
-        {   char n[2] = {(char)('1' + (song.sel < NTRK ? song.sel : 0)), 0};
-            cv_text_in(8, 2 + CAP_IN(M, 17), 19, &AF_M, n, T_TEXT, T_SURF);
-        }
-        {   /* the SPEED meter down the right edge */
-            int32_t my0 = 22, my1 = 90, y;
-            cv_rect(232, my0, 1, my1 - my0, T_RAISE);
-            for (y = my0; y <= my1; y += 8)
-                cv_rect(229, y, 3, 1, T_DIM);
-            y = my1 - (speed - 25) * (my1 - my0) / 375;
-            cv_rrect(230, y - 2, 5, 5, 2, T_THEME, T_SURF);
-            cv_rect(231, my0 - 2, 1, 2, T_TEXT);
-        }
+            bend = gx0 + 12 + (int32_t)((rnd >> 8) % (uint32_t)(gx1 - gx0 - 24));
     }
     tape_reel(lcx, cy, r, (uint32_t)ang, compact);
     tape_reel(rcx, cy, r, (uint32_t)ang, compact);
     cv_line_t(lcx, cy + r, gx0, base, T_MID, 2);      /* reel to the left guide */
     cv_line_t(gx1, base, rcx, cy + r, T_MID, 2);      /* right guide to the reel */
-    for (x = gx0; x <= gx1; x++) {                    /* the ribbon: WOW bends it, DROPOUT cuts it */
+    for (x = gx0; x <= gx1; x++) {                    /* the ribbon: WOW waves it, DROPOUT sags it */
         int32_t y = base;
         if (amp)
             y += (sine_i((uint32_t)x * 0x04400000u + wob * 3u) * amp) >> 15;
-        if (gap >= 0 && x >= gap && x < gap + 10) {
-            if ((x - gap) & 2)
-                cv_rect(x, y - 1, 1, 1, T_DIM);       /* a broken, dashed ribbon */
-        } else {
-            cv_rect(x, y - 1, 1, 1, T_MID);
-            cv_rect(x, y + 1, 1, 1, T_MID);
+        if (bend >= 0) {
+            int32_t d = x - bend;
+            if (d < 0)
+                d = -d;
+            if (d < 16)
+                y += (16 - d) * (compact ? 3 : 5) / 16;
         }
+        cv_rect(x, y, 1, 2, T_MID);
     }
     tape_guide(gx0, base, compact ? 3 : 4);
     tape_guide(gx1, base, compact ? 3 : 4);
-    {   /* the head, and its capstan down to the timeline */
-        int32_t hw = compact ? 9 : 13, hh = compact ? 8 : 11;
+    {   /* the head, and its capstan */
+        int32_t hw = compact ? 9 : 13, hh = compact ? 8 : 11, tail = compact ? 7 : 9;
         cv_frame(120 - hw / 2, base - hh / 2, hw, hh, T_TEXT);
         cv_rect(120 - 1, base - 2, 3, 5, T_THEME);
-        cv_rect(120, base + hh / 2, 1, tl - base - hh / 2, T_MID);
-    }
-    {   /* the timeline: a tick a step, the playhead on it */
-        int32_t i, x0 = compact ? 30 : 26, x1 = compact ? 210 : 214;
-        cv_rect(x0, tl, x1 - x0, 1, T_RAISE);
-        for (i = 0; i < 16; i++) {
-            int32_t x = x0 + i * (x1 - x0) / 15, h = i % 4 ? 2 : 4;
-            cv_rect(x, tl - h, 1, h, i % 4 ? T_DIM : T_MID);
-        }
-        x = x0 + (idx % 16) * (x1 - x0) / 15;
-        cv_rrect(x - 1, tl - 2, 3, 3, 1, T_ACCENT, T_SURF);
-        cv_rect(x, tl - 7, 1, 5, T_ACCENT);
+        cv_rect(120, base + hh / 2, 1, tail, T_MID);
+        cv_rect(119, base + hh / 2 + tail, 3, 1, T_MID);
     }
 }
 
@@ -1297,14 +1255,9 @@ static uint32_t graph_signature(void)
     h ^= (uint32_t)pg->graph * 131u + TSEL->eng_req + song.sel * 7777u + ui.page * 1291u;
     if (strip_kind() == SK_TAPE)                     /* MENU > LARGE: the tape transport strip */
         return h ^ ((uint32_t)song.g[G_TSPEED] * 7919u + (uint32_t)song.g[G_TWOW] * 104729u +
-                    (uint32_t)song.g[G_TDROP] * 1299709u + (uint32_t)song.g[G_TAPEMODE] * 40503u +
-                    (song.playing ? ui.frame : 0u));
+                    (uint32_t)song.g[G_TDROP] * 1299709u + (uint32_t)song.g[G_TAPEMODE] * 40503u + ui.frame);
     if (strip_kind() == SK_TITLE)                    /* MENU > LARGE: the page's title (its engine, its number) */
         return h ^ 0x5A17u;
-    if (pg->graph == GR_NONE && pg->scope == SC_GLOBAL && pg->id[0] == G_TSPEED)
-        return h ^ ((uint32_t)song.g[G_TSPEED] * 7919u + (uint32_t)song.g[G_TWOW] * 104729u +
-                    (uint32_t)song.g[G_TDROP] * 1299709u + (uint32_t)song.g[G_TAPEMODE] * 40503u +
-                    (song.playing ? ui.frame : 0u));    /* the transport is still when stopped */
     if ((pg->graph == GR_NONE && !(pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WT)) ||
         pg->graph == GR_ARP || pg->graph == GR_STEPS || pg->graph == GR_INS)
         h ^= ui.frame;                               /* scope / FX tech (live playhead, chorus taps, energy) */
