@@ -170,6 +170,8 @@ static void ui_power_on(void)
     uint32_t i;
     memset(trk, 0, sizeof trk);
     memset(fx_order_tbl, 0, sizeof fx_order_tbl);
+    memset(fx_master_tr, 0, sizeof fx_master_tr);
+    fx_master_order_tr = 0;
     memset(&song, 0, sizeof song);
     memset(&chain, 0, sizeof chain);
     chain_defaults(&chain_config);
@@ -4268,6 +4270,52 @@ static int test_step_rec(void)
         frame();
         bad += check("SCL K4 on a held DRUM step: no PITCH lock on a kit track",
                      ok && !motion_lock_get(t, 4, MSEQ_PITCH, &v) && !motion_lock_count(t));
+    }
+    return bad;
+}
+
+static int test_tape_locks(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+
+    /* TAPE SPEED / WOW: KNOB 1 / 2 on a held SEQ step are locks (TAPE page is a global page). */
+    ui_power_on();
+    song.sel = 0;
+    t = TSEL;
+    set_engine_of(t, ENGI_DRUM);
+    t->engine = t->eng_req;
+    track_defaults_steps(t);
+    go_title("TAPE");
+    ok = cur_page()->title && str_eq(cur_page()->title, "TAPE") && lock_page_ok(ui.page);
+    {
+        uint32_t i, found = 0, sel = 0;
+        pk_build_mdst(t, MD_OFF, &sel);
+        for (i = 0; i < pk_n; i++) {
+            if (pk_rows[i].id == MD_TSPEED && str_eq(pk_rows[i].name, "SPEED"))
+                found |= 1u;
+            if (pk_rows[i].id == MD_TWOW && str_eq(pk_rows[i].name, "WOW"))
+                found |= 2u;
+        }
+        ok &= found == 3u;
+    }
+    go_seq_step();
+    frame();
+    {
+        uint32_t k4 = key_at(0, 4);
+        int16_t v;
+        ok &= lock_id(0) == MFX_TSPEED && lock_id(1) == MFX_TWOW && lock_id(2) == 0xFFu;
+        fm1_in.notes |= 1u << k4;
+        host_notes |= 1u << k4;
+        frame();
+        ok &= lock_held() == (1u << 4);
+        turn(EN_K1, -20);                                  /* SPEED below 100 */
+        turn(EN_K2, 5);                                    /* WOW up */
+        fm1_in.notes &= ~(1u << k4);
+        frame();
+        ok &= motion_lock_get(t, 4, MFX_TSPEED, &v) && v < song.g[G_TSPEED] &&
+              motion_lock_get(t, 4, MFX_TWOW, &v) && v > 0;
+        bad += check("TAPE page: held SEQ step locks SPEED (K1) and WOW (K2); K3 / K4 are not locks", ok);
     }
     return bad;
 }
@@ -9060,8 +9108,12 @@ static int test_fx_sections(void)
         ui.ior_sel = (uint8_t)dly_slot;
         turn(EN_K3, 1);                                 /* right: release -> SEND for all */
         ok &= song.g[G_DLYOWN] == 0 && fx_list_mode(&trk[1], INS_DLY)[0] == 'S';
-        turn(EN_K3, 1);                                 /* already SEND: stays (no wrap back to CHAIN) */
-        ok &= song.g[G_DLYOWN] == 0 && fx_list_mode(&trk[1], INS_DLY)[0] == 'S';
+        turn(EN_K3, 1);                                 /* SEND -> MASTER (this track) */
+        ok &= fx_master_owned(INS_DLY, 0) && str_eq(fx_list_mode(TSEL, INS_DLY), "MASTER") &&
+              str_eq(fx_list_mode(&trk[1], INS_DLY), "USED");
+        turn(EN_K3, -1);                                /* MASTER -> SEND again */
+        ok &= song.g[G_DLYOWN] == 0 && !fx_master_on(INS_DLY) &&
+              fx_list_mode(&trk[1], INS_DLY)[0] == 'S';
         song.g[G_REVOWN] = 0;
         fx_list_get(TSEL, ord);
         for (i = 0; i < FX_LIST_N; i++)
@@ -9204,6 +9256,53 @@ static int test_fx_sections(void)
             song.g[G_TAPEMODE] = TAPE_SEND;
         } else {
             ok = 0;
+        }
+        /* MASTER on an insert: owner track MASTER, others keep CHAIN / SEND; only the owner clears it */
+        {
+            uint8_t o[FX_LIST_N];
+            uint32_t i, dist = 0xFFu;
+            fx_list_get(TSEL, o);
+            for (i = 0; i < FX_LIST_N; i++)
+                if (o[i] == INS_DIST) { dist = i; break; }
+            song.sel = 0;
+            ui.ior_sel = (uint8_t)dist;
+            turn(EN_K3, 1);                             /* CHAIN -> SEND */
+            turn(EN_K3, 1);                             /* SEND -> MASTER */
+            ok &= fx_master_owned(INS_DIST, 0) && str_eq(fx_list_mode(TSEL, INS_DIST), "MASTER");
+            song.sel = 1;
+            ins_send_set(TSEL, INS_DIST, 1);            /* this track stays SEND beside the master */
+            ok &= !fx_master_owned(INS_DIST, 1) && str_eq(fx_list_mode(TSEL, INS_DIST), "SEND");
+            ui.ior_sel = (uint8_t)dist;
+            turn(EN_K3, 1);                             /* another track cannot take MASTER */
+            ok &= !fx_master_owned(INS_DIST, 1) && fx_master_owned(INS_DIST, 0);
+            turn(EN_K3, -1);                            /* but its own CHAIN / SEND still moves */
+            ok &= str_eq(fx_list_mode(TSEL, INS_DIST), "CHAIN");
+            song.sel = 0;
+            ui.ior_sel = (uint8_t)dist;
+            turn(EN_K3, -1);                            /* owner: MASTER -> its per-track route */
+            ok &= !fx_master_on(INS_DIST);
+        }
+        /* MASTER on a shared bus: owner MASTER, others USED, only the owner clears it */
+        {
+            song.sel = 0;
+            ui.ior_sel = (uint8_t)0;
+            fx_list_get(TSEL, ord);
+            for (i = 0; i < FX_LIST_N; i++)
+                if (ord[i] == INS_DLY) { ui.ior_sel = (uint8_t)i; break; }
+            song.g[G_DLYOWN] = 0;
+            turn(EN_K3, 1);                             /* SEND -> MASTER */
+            ok &= fx_master_owned(INS_DLY, 0) && str_eq(fx_list_mode(TSEL, INS_DLY), "MASTER");
+            song.sel = 1;
+            ok &= str_eq(fx_list_mode(&trk[1], INS_DLY), "USED");
+            turn(EN_K3, -1);                            /* not the owner: nothing */
+            ok &= fx_master_owned(INS_DLY, 0);
+            song.sel = 0;
+            ui.ior_sel = (uint8_t)0;
+            fx_list_get(TSEL, ord);
+            for (i = 0; i < FX_LIST_N; i++)
+                if (ord[i] == INS_DLY) { ui.ior_sel = (uint8_t)i; break; }
+            turn(EN_K3, -1);
+            ok &= !fx_master_on(INS_DLY) && str_eq(fx_list_mode(TSEL, INS_DLY), "SEND");
         }
     }
     bad += check("EFFECTS list: 10 rows with SLCR/TAPE; K3 routes TAPE SEND/CHAIN/MASTER", ok);
@@ -9464,6 +9563,7 @@ int main(void)
     bad += test_live_graph_rate();
     bad += test_strip_cache();
     bad += test_wt_graph();
+    bad += test_tape_locks();
 #if FELUCCA_FM4
     bad += test_fm_charts();                        /* (DIGITAL's charts: built with FELUCCA_FM4=1 only) */
 #else

@@ -283,12 +283,55 @@ static int motion_id_contract(void)
     return bad;
 }
 
+static int tape_contract(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    project_t before, after;
+    project_store_t st;
+    uint32_t i, seen = 0;
+
+    ui_power_on();
+    t = &trk[0];
+    song.g[G_TAPEMODE] = TAPE_MASTER;                 /* any track may lock SPEED / WOW */
+    ok = motion_param(MFX_TSPEED) && motion_param(MFX_TWOW) &&
+         motion_target_desc(t, MFX_TSPEED)->min == 25 && motion_target_desc(t, MFX_TSPEED)->max == 400 &&
+         motion_target_desc(t, MFX_TWOW)->min == 0 && motion_target_desc(t, MFX_TWOW)->max == 127 &&
+         fx_target_ptr(t, MFX_TSPEED) == &song.g[G_TSPEED] &&
+         fx_target_ptr(t, MFX_TWOW) == &song.g[G_TWOW];
+    ok &= !motion_set_lock(t, 0, MFX_TSPEED, 100) && !motion_set_lock(t, 1, MFX_TWOW, 42) &&
+          !motion_set_lock(t, 2, MFX_TSPEED, 400) && !motion_set_lock(t, 3, MFX_TSPEED, 25);
+    bad += check("TAPE SPEED / WOW are motion targets with their global descriptors and ranges", ok);
+    project_capture(&before);
+    ok = proj_pack(&st, &before) && proj_import(&after, &st, sizeof st) && after.motion.count == 4u;
+    for (i = 0; ok && i < after.motion.count; i++) {
+        const motion_event_t *e = &after.motion.event[i];
+        uint32_t id = MOTION_ID(e);
+        if (id == MFX_TWOW && e->place == 1u) {
+            ok &= e->value == 42 && (e->param & MOTION_LOCK);
+            seen |= 1u;
+        } else if (id == MFX_TSPEED && e->place == 0u) {
+            ok &= e->value == 100 && (e->param & MOTION_LOCK);
+            seen |= 2u;
+        } else if (id == MFX_TSPEED && e->place == 2u) {
+            ok &= e->value == 400;
+            seen |= 4u;
+        } else if (id == MFX_TSPEED && e->place == 3u) {
+            ok &= e->value == 25;
+            seen |= 8u;
+        } else
+            ok = 0;
+    }
+    bad += check("TAPE SPEED / WOW locks round-trip through a project (100 / 400 / 25 exact)", ok && seen == 15u);
+    return bad;
+}
+
 int main(void)
 {
     int bad;
     ui_power_on();
-    bad = id_classification() + pitch_contract() + pitch_kit_contract() + mfx_contract() + ev_contract() + pg_contract() +
-          sweep_contract() + motion_id_contract();
+    bad = id_classification() + pitch_contract() + pitch_kit_contract() + mfx_contract() + tape_contract() +
+          ev_contract() + pg_contract() + sweep_contract() + motion_id_contract();
     printf("%s\n", bad ? "PARAM CONTRACT TEST FAILED" : "PITCH / special-id parameter contract tests passed");
     return bad;
 }

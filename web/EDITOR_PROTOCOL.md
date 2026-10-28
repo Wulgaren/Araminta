@@ -106,7 +106,7 @@ P_COUNT 69): slot k (1..4) is `SRCk`, `DSTk`, `AMTk` at ids 49 + 3 (k − 1) .. 
 | id | label | values |
 | --- | --- | --- |
 | 49, 52, 55, 58 | SRC1..SRC4 | enum: 0 OFF, 1 LFO, 2 ENV, 3 VEL, 4 KEY, 5 RAND, 6 MODW (CC1), 7 AT (channel aftertouch), 8 EXPR (CC11), 9 S&H (a random value held for one cycle of the track LFO), 10 SLEW (S&H gliding from the cycle before's value) |
-| 50, 53, 56, 59 | DST1..DST4 | enum (49 names): 0 OFF, 1 PITCH, 2 CUT, 3 SHP, 4 AMP (per voice); 5 PAN, 6 DIST (insert drive), 7 CHO (insert CHOR mix), 8 DLY MIX, 9 REV MIX, 10 RATE (LFO rate), 11 VIB (LFO pitch depth), 12..19 E1..E8 = `P_E0..P_E7`, 20 DEPTH (LFO depth), 21..23 PAT/SRATE/SDEP (SLICER), 24..25 CHRD/VOIC, 26..43 insert continuous + MIX (no MODE/TYPE enums): TONE, DMIX, FCUT, FRES, FMIX, BITS, CRAT, CLPF, CMIX, PRAT, PDEP, PFBK, PMIX, FRAT, FDEP, LMIX, HRAT, HDEP; 44..48 DTIME, DFBK, DCOL, RSIZE, RDAMP (per block). `DESC` lists all 49 (cap 64) |
+| 50, 53, 56, 59 | DST1..DST4 | enum (51 names): 0 OFF, 1 PITCH, 2 CUT, 3 SHP, 4 AMP (per voice); 5 PAN, 6 DIST (insert drive), 7 CHO (insert CHOR mix), 8 DLY MIX, 9 REV MIX, 10 RATE (LFO rate), 11 VIB (LFO pitch depth), 12..19 E1..E8 = `P_E0..P_E7`, 20 DEPTH (LFO depth), 21..23 PAT/SRATE/SDEP (SLICER), 24..25 CHRD/VOIC, 26..43 insert continuous + MIX (no MODE/TYPE enums): TONE, DMIX, FCUT, FRES, FMIX, BITS, CRAT, CLPF, CMIX, PRAT, PDEP, PFBK, PMIX, FRAT, FDEP, LMIX, HRAT, HDEP; 44..48 DTIME, DFBK, DCOL, RSIZE, RDAMP (per block); 49..50 TSPEED, TWOW (TAPE SPEED / WOW). `DESC` lists all 51 (cap 64) |
 | 51, 54, 57, 60 | AMT1..AMT4 | −64..63 (fmt BIPCT) |
 
 `DESC` names E1..E8 as such; the device shows the engine's label of that parameter instead (`DESC` of
@@ -672,14 +672,16 @@ when the track's engine is not the saved one).
   older as before. Firmware before 1.2 refuses a FUN10 (its size and magic), so an editor must not send one there
   (`BACKUP_PUT` begin answers rc 1 for its size). Backups, `PROJECT` and the editor's project files carry the 3840 bytes.
   **Read only since FUN11:** a FUN10 loads with the factory DRUM-X kit (no kit bytes on disk).
-- **Projects (FUN17, this build).** Same 3840-byte object and layout as FUN16, magic `48 4E 55 46` ("FUNH", FUN17 in
-  these notes): the song chain still packs each section into 2 bytes (4 slots x 3 bits, repeats − 1 x 4 bits) after the
+- **Projects (FUN18, this build).** Same 3840-byte object and layout as FUN16/17, magic `49 4E 55 46` ("FUNI", FUN18
+  in these notes): the song chain still packs each section into 2 bytes (4 slots x 3 bits, repeats − 1 x 4 bits) after the
   4-byte header, 36 bytes in all instead of 84, which pays for 88 motion records (4 + 88 × 3 = 268) instead of 72.
   Each track's ten-slot EFFECTS order (six inserts + DLY + REV + SLCR + TAPE) is in the unused high bits of its FM6
   patch bytes, after the six generation controls; original readers mask those bits, so the patch itself is unchanged.
-  FUN16 (`47 4E 55 46`) and older load: the order is rebuilt from `P_IORD` / `P_CHOR` / the SLCR slot and the TAPE
-  fields take their defaults. Only FUN17 is written. Firmware that only knows FUN16 refuses a FUN17 (magic): its slot
-  shows EMPTY until saved over, so keep a backup before the first save.
+  FUN18 adds each stage's MASTER owner as a 3-bit field: stages 0..7 in the chain header's spare bytes 1..3, stages
+  8..9 in the motion header's spare byte 3. FUN17 (`48 4E 55 46`) and older load with no MASTER owners; the order is
+  rebuilt from `P_IORD` / `P_CHOR` / the SLCR slot and the TAPE fields take their defaults. Only FUN18 is written.
+  Firmware that only knows FUN16/17 refuses a FUN18 (magic): its slot shows EMPTY until saved over, so keep a backup
+  before the first save.
 - **Projects (FUN11, Araminta).** Same 3840-byte object as FUN10, magic `46 55 4E 42` ("FUNB", FUN11 in these notes): the DRUM-X kit (`dx_lane_t[8]`, 88 bytes), mute lo/hi, a marker byte, and X-MOD `dx_mot[4]` (96 bytes total) at offset 3216 just before the FM6 patches — as JIANT's FUNA kit placement. Disk motion shrinks to 78 records (4 + 78 × 3 = 238) so the kit fits; RAM still holds 128. Firmware that only knows FUN10 refuses a FUN11 (magic): its slot shows EMPTY until saved over. Backups, `PROJECT` and the editor's project files still carry 3840 bytes (begin accepts the size as for FUN10; the magic distinguishes the layout).
 - **MIDI clock** has no SysEx. `G_CLOCK` selects the source: 0 INT, 1 USB, 2 TRS. With 1 or 2 the sequencer
   steps on that port's Clock pulses (the other port's are ignored), Start (0xFA) restarts from step 0,
