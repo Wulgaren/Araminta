@@ -16,7 +16,7 @@ indexed only by real P_* ids; every other space is either a separate storage are
 | Real per-track parameters | `P_*`, ids 0..126; `P_COUNT` is 127; `P_E0..P_E7` are the last eight, 119..126 | yes, `t->p[id]` | projects (`np = P_COUNT`, by-count migration) and user presets | yes: `SET` / `GET` / `TRACK_PARAM` id 0..126, `DESC` / `DUMP` | sound pages, EDIT 1/2, AUTOMATION when `motion_param()` allows it |
 | Global parameters | `G_*`, ids 0..30; `G_COUNT` is 31 | no, `song.g[id]` | project `g[]`; some are device settings | yes: `SET` / `GET` with parameter index 1 | GLO / MENU pages |
 | Lock-only PITCH | `MSEQ_PITCH` 127 (`== P_COUNT`) | **never** | project motion block only, id 127 with bit 7 set; not in user presets | `MOTION` ops; project motion record | AUTOMATION `PITCH` row; SCL K4 |
-| Motion-only FX targets | `MFX_TIME..MFX_DAMP`, ids 49..53; numerically `P_M1SRC..P_M2DST` | **never as a target**: `fx_target_ptr()` reaches `song.g` or a bus | project motion records; long DLY TIME takes ids 54..59 on disk | `MOTION` ops; project motion record | AUTOMATION FX rows; EFFECTS / DEST lists |
+| Motion-only FX targets | `MFX_TIME..MFX_DAMP`, ids 49..53; numerically `P_M1SRC..P_M2DST`; `MFX_TSPEED` / `MFX_TWOW` are ids 41 / 42 (`P_TAPEMIX` / `P_LSMOOTH`) | **never as a target**: `fx_target_ptr()` reaches `song.g` or a bus | project motion records; long DLY TIME takes ids 54..59 on disk; TAPE SPEED packs 25..400 into one byte | `MOTION` ops; project motion record | AUTOMATION FX rows; EFFECTS / DEST lists |
 | UI-only step rows | `EV_VEL` 251, `EV_NUDGE` 252, `EV_CHANCE` 253, `EV_RATCH` 254; 0xFF = none | no | the step's own `chance` / `ratchet` / `nudge` / `vel` fields | **never** | AUTOMATION rows |
 | Page-only CHORD cards | `PG_STRUM` 252, `PG_STROKE` 253 | no | none; the edit packs `P_ALLOC` | **never** | CHORD K3 / K4 |
 
@@ -94,14 +94,33 @@ events stay. AUTOMATION's DELETE (`EDIT`) removes the row's record; PLAY OFF byp
 - `MFX_TIME..MFX_DAMP` are `P_M1SRC..P_M2DST` numerically (49..53): DLY TIME / FDBK / COLOR and REV SIZE /
   DAMP. Their **motion** meaning is reached through `fx_target_ptr()` (usually `song.g`, or the CHAIN
   tank when this track owns the reverb chain), never through `p[]`.
-- They are normal motion targets: automation or locks, values TIME 65..1550, FDBK 0..120, others 0..127.
-  `MOTION` / AUTOMATION use them; `SET` / `GET` on 49 edit the matrix's `SRC1`, a different parameter.
+- `MFX_TSPEED` / `MFX_TWOW` are `P_TAPEMIX` / `P_LSMOOTH` numerically (41 / 42): TAPE SPEED and WOW. They
+  reach `song.g[G_TSPEED]` / `[G_TWOW]` through `fx_target_ptr()`. `P_TAPEMIX` is otherwise unused;
+  `P_LSMOOTH` keeps its LFO S&H smoothing meaning as a real parameter, but automation never used it.
+- They are normal motion targets: automation or locks, values TIME 65..1550, FDBK 0..120, others 0..127,
+  TAPE SPEED 25..400. `MOTION` / AUTOMATION use them; `SET` / `GET` on 49 edit the matrix's `SRC1`, a
+  different parameter.
+- TAPE ownership: in CHAIN only the owner track may use SPEED / WOW; in MASTER every track may; in SEND the
+  first track to claim one keeps it (the shared-knob rule). The value sounds from the next audio block.
 - On disk, a DLY TIME value above 255 uses ids 54..59 for its high byte (`MFX_DAMP + (value >> 8)`); 54..59
-  are not real motion targets in that record. `project.c proj_pack()` / `proj_unpack()` must agree.
+  are not real motion targets in that record. TAPE SPEED's 25..400 is packed into its value byte, exact at
+  25 / 100 / 400 (`proj_tspeed_put` / `proj_tspeed_get`). `project.c proj_pack()` / `proj_unpack()` must agree.
 - Files: `core.h`, `fx.c` (`fx_target_ptr`, `fx_target_desc`, `fx_target_stage`), `motion.c`
   (`motion_param`, `motion_valid`, `motion_capture_base`, `motion_restore`, `motion_fx_route`),
   `ui_events.c` (`FX_DST`, `ev_name`, `pk_build_auto`), `ui.c lock_id()`, `project.c`, `editor.c`,
   `web/editor.html`, `tests/param_contract_test.c`.
+
+### FUN18 MASTER owners
+
+- Each of the ten EFFECTS stages has one MASTER owner track (0 = none), packed as a 3-bit field in the chain
+  header's spare bytes 1..3 (stages 0..7) and the motion header's spare byte 3 (stages 8..9). Runtime:
+  `core.h fx_master_tr[]`; project: `project_t.fx_master[]`.
+- Inserts (`INS_DIST..INS_CHOR`) keep their per-track CHAIN / SEND and add a private stereo MASTER instance.
+  DLY / REV / SLCR / TAPE are exclusive while MASTER: their per-track routes are suppressed and the list shows
+  USED. The owner track's EFFECTS order (`fx_master_order_tr`) runs the master chain.
+- UI: `fx_list_mode()` shows the owner's stage as MASTER; K3 sets / clears it; other tracks cannot take over.
+  Files: `fx.c` (`fx_master_run`, `fx_list_mode`, `ior_knob`), `project.c` (`proj_pack` / `proj_unpack`),
+  `tests/ui_test.c`, `tests/inschain_test.c`, `tests/project_test.c`.
 
 ### EV_*: AUTOMATION's own step rows
 

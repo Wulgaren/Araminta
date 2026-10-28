@@ -154,8 +154,9 @@ static void test_matrix(void)
     check("SRC / DST keep stored IDs, rename send MIX labels and append continuous FX controls",
           ok && MS_SH == 9 && MS_SLEW == 10 && MS_N == 11 && MD_DEPTH == 20 &&
           MD_SLPAT == 21 && MD_SLRATE == 22 && MD_SLDEPTH == 23 &&
-          MD_CHRD == 24 && MD_VOIC == 25 && MD_TONE == 26 && MD_DMIX == 27 && MD_HDEP == 43 && MD_N == 49 &&
+          MD_CHRD == 24 && MD_VOIC == 25 && MD_TONE == 26 && MD_DMIX == 27 && MD_HDEP == 43 && MD_N == 51 &&
           MD_DTIME == 44 && MD_DFB == 45 && MD_DCOLOR == 46 && MD_RSIZE == 47 && MD_RDAMP == 48 &&
+          MD_TSPEED == 49 && MD_TWOW == 50 &&
           str_eq(N_MSRC[MS_SH], "S&H") && str_eq(N_MSRC[MS_SLEW], "SLEW") && str_eq(N_MDST[MD_DEPTH], "DEPTH") &&
           str_eq(N_MDST[MD_SLPAT], "PAT") && str_eq(N_MDST[MD_SLRATE], "SRATE") && str_eq(N_MDST[MD_SLDEPTH], "SDEP") &&
           str_eq(N_MDST[MD_CHRD], "CHRD") && str_eq(N_MDST[MD_VOIC], "VOIC") &&

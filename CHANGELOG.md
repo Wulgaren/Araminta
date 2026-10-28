@@ -4,8 +4,9 @@
 
 The stock V15 supply rails before core 1, Felucca's DRUMS engine, a per-step PITCH lock, beat-synced chord
 STRUM / STROKE, the new REPEAT 1/12, /2 and *2 TEMPO and GLITCH punch-ins, the DELAY page's TIME / RATE
-direction swapped, the MS-20-inspired punch filter, and TAPE as the tenth EFFECTS bus. New saves are FUN17
-(`FUNH`); FUN16 and older load with TAPE off and the EFFECTS order rebuilt. Splash and ABOUT show `v3.2`.
+direction swapped, the MS-20-inspired punch filter, TAPE as the tenth EFFECTS bus, and MASTER on every EFFECTS
+row. New saves are FUN18 (`FUNI`); FUN17 and older load with no MASTER owners, TAPE off and the EFFECTS order
+rebuilt. Splash and ABOUT show `v3.2`.
 
 ### Boot
 
@@ -18,6 +19,16 @@ direction swapped, the MS-20-inspired punch filter, and TAPE as the tenth EFFECT
 
 ### FX
 
+- **MASTER on every EFFECTS row.** USE AS now goes CHAIN / SEND / MASTER for the six inserts and the common
+  DLY / REV / SLCR / TAPE buses. A master stage runs on the whole stereo mix, in the EFFECTS order of the track
+  that selected it; that track shows MASTER and the others show USED on the shared buses. Inserts keep their
+  per-track CHAIN / SEND beside a private MASTER instance (2x state, in the POOL); the shared buses are
+  exclusive, since a second delay line / third reverb tank would not fit. MASTER inserts use the owner track's
+  parameters and MIX; shared masters use the owner track's DLY / REV / SLCR MIX. The routing saves in FUN18.
+- **TAPE SPEED / WOW in LFO MOD and step locks.** Both are MOD destinations (`TSPEED` / `TWOW` after the
+  existing DLY / REV targets) and lock targets from the TAPE page (KNOB 1 / 2 on a held SEQ step). As with
+  other shared sends, CHAIN allows only the owner track and MASTER allows every track; SEND is claimed by the
+  first track that uses it. The matrix's per-part values and step locks take effect on the next audio block.
 - **DELAY K4: left TIME, right RATE.** Turning knob 4 left selects free milliseconds, turning it right
   the note divisions; the mode column shows `TIME` or `RATE`. The division last used is still the one
   TIME returns to. This swaps the 3.0–3.1 direction, so it is a change of muscle memory, not of stored
@@ -72,11 +83,12 @@ direction swapped, the MS-20-inspired punch filter, and TAPE as the tenth EFFECT
 
 ### Projects
 
-- **FUN17 (`FUNH`).** Same layout and 3840-byte size as FUN16. Each track's ten-slot EFFECTS order rides in
-  the unused high bits of its FM6 patch bytes (after the six generation controls). FUN16 and older load with
-  the order rebuilt from `P_IORD` / `P_CHOR` / the SLCR slot and TAPE off; only FUN17 is written. Firmware that
-  only knows FUN16 refuses a FUN17 (magic): its slot shows EMPTY until saved over, so keep a backup before the
-  first save. The editor reads the order through `PROJECT` / `TRACK_DUMP` as before; no command changed.
+- **FUN18 (`FUNI`).** Same layout and 3840-byte size as FUN16/17. Each track's ten-slot EFFECTS order rides in
+  the unused high bits of its FM6 patch bytes (after the six generation controls); each stage's MASTER owner
+  (3 bits) goes in the chain header's spare bytes 1..3 and the motion header's spare byte 3. FUN17 and older
+  load with no MASTER owners, the order rebuilt from `P_IORD` / `P_CHOR` / the SLCR slot and TAPE off; only FUN18
+  is written. Firmware that only knows FUN16/17 refuses a FUN18 (magic): its slot shows EMPTY until saved over,
+  so keep a backup before the first save. The editor reads the order through `PROJECT` / `TRACK_DUMP` as before; no command changed.
 
 ### SCL
 
