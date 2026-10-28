@@ -27,15 +27,16 @@
                                   * stubs compile without eng_slice.c */
 #endif
 /* Engine table is append-only. Index 13 SLICE stays reserved (eng_retire.c): never selectable; old stores
- * load as DRUM. SAMPLE (4), GRAIN (8), NOISE (11) are live again. */
-#define NENGINES 15u
+ * load as DRUM. SAMPLE (4), GRAIN (8), NOISE (11) are live again. 15: the ported Felucca drum engine (DRUMS). */
+#define NENGINES 16u
 #define ENGI_DIGITAL 1u          /* reserved without FELUCCA_FM4: never selectable (eng_ok), its sounds load as FM6 */
 #define ENGI_SAMPLE 4u
 #define ENGI_GRAIN 8u
 #define ENGI_NOISE 11u
 #define ENGI_SLICE 13u           /* reserved: SLICE retired (eng_retire.c) */
 #define ENGI_WT 14u              /* WAVETABLE (eng_wt.c) */
-#define NENG_SHOWN (13u + FELUCCA_FM4)   /* pickable: ANALOG FM6 [DIGITAL] PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM WAVETABLE */
+#define ENGI_DRUMS 15u           /* DRUMS: the ported Felucca drum engine (eng_drums.c) */
+#define NENG_SHOWN (14u + FELUCCA_FM4)   /* pickable: ANALOG FM6 [DIGITAL] PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM DRUMS WAVETABLE */
 #define UP_SLOTS 32u             /* user presets (upreset.c) */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -67,7 +68,8 @@ enum {                          /* per-track parameters */
     P_DIST, P_CHOR, P_DLY, P_REV,              /* P_DIST: DIST drive. P_CHOR: EFFECTS DLY/REV/SLCR list slots
                                                 * (fx.c; was bus CHO send). P_DLY/P_REV: send or chain mix */
     P_VOICE, P_GLIDE, P_PAN, P_MUTE,
-    P_GLMODE, P_LSMOOTH, P_ALLOC, P_DETUNE,    /* P_LSMOOTH was P_PRIO, stored but never read or shown: the
+    P_TAPEMIX, P_LSMOOTH, P_ALLOC, P_DETUNE,   /* P_TAPEMIX: the old GLMOD id, unused (TAPE MIX is G_TMIX).
+                                                * P_ALLOC: STRUM/SWEEP (packed; chord.c), was inert. P_LSMOOTH was P_PRIO: the
                                                 * LFO WAVE S&H's smoothing (voice.c track_lfo_end) */
     P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH,      /* SLICER (slicer.c): MODE PAT RATE; P_SLDEPTH is MIX */
     P_M1SRC, P_M1DST, P_M1AMT,                 /* modulation matrix (mod.c): 4 slots of SRC, DST, AMT; */
@@ -103,7 +105,8 @@ enum { PLAY_ON = 0, PLAY_OFF = 1, PLAY_SOLO = 2 };
 /* 1.5 INSERT ids (np 111): migrated to the chain in project.c / upreset.c ins_migrate */
 enum { P_ITYPE_LEG = 96, P_IA_LEG = 97, P_IB_LEG = 98, P_IC_LEG = 99, P_IMIX_LEG = 100 };
 enum { INS_N = 6, INS_DIST = 0, INS_FILTER = 1, INS_CRUSH = 2, INS_PHASR = 3, INS_FLANG = 4, INS_CHOR = 5,
-       INS_DLY = 6, INS_REV = 7, INS_SLCR = 8, FX_LIST_N = 9 }; /* DLY/REV/SLCR: shared buses; list with inserts */
+       INS_DLY = 6, INS_REV = 7, INS_SLCR = 8, INS_TAPE = 9, FX_LIST_N = 10 }; /* DLY/REV/SLCR/TAPE: shared buses;
+                                                                                * list with the six inserts */
 /* Default P_IORD permutation (Lehmer): DIST, CRUSH, FILTER, PHASR, FLANG, CHOR. Stage ids stay
  * FILTER=1 / CRUSH=2 so send flags and saved orders keep their meaning; only the factory order moved. */
 #define IORD_DEF 24u
@@ -125,16 +128,18 @@ enum { IFT_LP, IFT_HP, IFT_BP, IFT_COMB, IFT_N };
 
 enum {                          /* global parameters */
     G_BPM, G_SWING, G_CLOCK, G_TUNE,
-    G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX, /* G_DMIX is reserved and inert for old projects. */
+    G_DTIME, G_DFDBK, G_DCOLOR, G_TSPEED, /* TAPE SPEED % (was G_DMIX, retired return gain). */
     G_RSIZE, G_RDAMP, G_CRATE, G_CDEPTH,       /* G_CRATE/G_CDEPTH: was bus chorus; now DLY/REV chain owner
                                                 * (0 = SEND for all, 1..4 = track). Old CRT/CDP values > 4 load as 0. */
-    G_MIDI, G_DREL, G_ROUTE, G_INFO,   /* G_DREL (JIANT): DUCK's release; was G_SYNC, a placeholder.
+    G_TWOW, G_DREL, G_ROUTE, G_TDROP,  /* TAPE WOW (was G_MIDI, on no page) and DROP (was G_INFO, CPU).
+                                        * G_DREL (JIANT): DUCK's release; was G_SYNC, a placeholder.
                                         * G_ROUTE: MIDI IN, 0 CH1-4 (channels 1..4 -> parts 1..4, 5..16 ignored), 1 SEL;
                                         * 1.2: 2..4 CH5-8 CH9-12 CH13-16 (seq.c midi_base) */
     G_SLOT, G_NAME, G_LOAD, G_SAVE,
     G_ENGSEL, G_CLIP,           /* no page for ENGSEL: the editor switches the engine with a SET of G_ENGSEL.
                                  * G_CLIP (JIANT): master soft-clip amount on FX > MASTER */
-    G_CLRSEQ, G_INITSND,
+    G_TMIX, G_TAPEMODE,          /* TAPE MASTER mix (was G_CLRSEQ, an unused GO) and its CHAIN/SEND/MASTER mode
+                                  * (was G_INITSND). 0 SEND, 1..4 CHAIN owner, TAPE_MASTER: on the whole mix. */
     G_RTYPE,                    /* REVERB TYPE (SEND tank): 0 ROOM, 1 SPRING, 2 HALL (1.2 power-on), 3 SHIMR,
                                  * 4 CLOUD (JIANT) (fx.c). Was G_DRCH, the GM drum part's MIDI channel (inert since
                                  * 1.0, never read); projects of formats before FUN7 load it as ROOM
@@ -146,6 +151,8 @@ enum {                          /* global parameters */
                                    * (project.c); older projects copy SEND on load. */
     G_SLOWN,                      /* EFFECTS SLICER: bits 0..3 = per-track SEND (1) / CHAIN (0).
                                    * Legacy 0 = all SEND, 1..4 = one CHAIN owner (others USED); sanitized to a mask. */
+    G_TTEMPO,                     /* TAPE tempo: ON keeps the transport and voices at the song tempo and
+                                   * leaves SPEED as the head's pitch; OFF slows the source clock with SPEED. */
     G_COUNT
 };
 #define G_SYNC G_DREL                   /* (old names: formats' importers and their tests) */
@@ -154,6 +161,9 @@ enum {                          /* global parameters */
 #define G_DRREV G_DUCK
 #define G_DLYOWN G_CRATE                /* EFFECTS: who has delay as CHAIN (0 = SEND) */
 #define G_REVOWN G_CDEPTH               /* EFFECTS: who has reverb as CHAIN (0 = SEND) */
+/* EFFECTS TAPE (G_TAPEMODE): 0 SEND for all, 1..4 one track CHAIN (the others SEND), TAPE_MASTER the whole mix. */
+enum { TAPE_SEND = 0, TAPE_CH1, TAPE_CH2, TAPE_CH3, TAPE_CH4, TAPE_MASTER };
+#define TAPE_OWNER_OF(m) ((m) >= TAPE_CH1 && (m) <= TAPE_CH4 ? (int32_t)(m) - 1 : -1)
 
 /* stored parameters of an older layout -> today's P_* order. A store keeps np = the P_COUNT it was
  * written with; common parameters are only ever added just before P_E0, so the first np - 8 are
@@ -314,6 +324,11 @@ typedef struct {
 #define PAT(n) .pat = (n)
 
 struct track;
+/* fx.c: the pre-FUN17 list order from P_IORD / P_CHOR / fx_sl_pos (project.c uses it on older loads) */
+void fx_order_default(uint16_t iord, int16_t fchor, uint8_t slpos, uint8_t ord[FX_LIST_N]);
+/* fx.c: TAPE's source-clock varispeed (MASTER / the CHAIN owner); SEND returns 0 / 1x */
+int32_t tape_pitch16_for(const struct track *t);
+uint32_t tape_seq_speed_q16(const struct track *t);
 typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c files) */
     const char *name;            /* "ANALOG" (PRESETS, the editor) */
     const char *page_title[2];   /* EDIT 1 and EDIT 2 */
@@ -447,6 +462,24 @@ static void step_set_fl(step_t *s, uint32_t fl) { s->flags = (uint8_t)(fl & (SF_
 /* Motion-only targets reuse ids excluded from track automation. They never index p[]. */
 enum { MFX_TIME = P_M1SRC, MFX_FB, MFX_COLOR, MFX_SIZE, MFX_DAMP };
 #define MFX_PARAM(id) ((id) >= MFX_TIME && (id) <= MFX_DAMP)
+/* TAPE SPEED / WOW are global settings; motion reaches them through two real ids excluded from automation
+ * (P_TAPEMIX is otherwise unused, P_LSMOOTH is the LFO S&H smoothing). Their motion meaning is fx_target_ptr's. */
+enum { MFX_TSPEED = P_TAPEMIX, MFX_TWOW = P_LSMOOTH };
+#define MFX_TAPE(id) ((id) == MFX_TSPEED || (id) == MFX_TWOW)
+#define MFX_ALL(id) (MFX_PARAM(id) || MFX_TAPE(id))
+#define MSEQ_PITCH 127u                  /* lock-only (3.2): a step's chromatic semitone offset; never indexes p[] */
+/* The id spaces around a track's p[] (which holds P_COUNT real parameters):
+ *   MSEQ_PITCH (127)      the step's chromatic PITCH: motion only, always stored with MOTION_LOCK
+ *   MFX_TIME..MFX_DAMP    aliases of P_M1SRC..: the shared delay / reverb controls as motion and UI targets; that
+ *                         meaning is reached through fx_target_ptr (song.g or a bus), not as t->p[] slots
+ *   EV_VEL..EV_RATCH      AUTOMATION's VEL / NUDGE / CHANCE / RATCH rows (ui_events.c, 0xFB..0xFE)
+ *   PG_STRUM / PG_STROKE  CHORD's sweep rate / stroke cards (params.c, 0xFC..0xFD). Those bytes are also EV_NUDGE /
+ *                         EV_CHANCE: a number is only read through the table of its own space.
+ * param_id_known: the id spaces a motion record or AUTOMATION row may name, a real P_* id or the lock-only
+ * PITCH. motion_param() still decides which real ones may be stored. The EV / PG numbers are UI rows. */
+static inline int param_real(uint32_t id) { return id < P_COUNT; }
+static inline int param_lock_only(uint32_t id) { return id == MSEQ_PITCH; }
+static inline int param_id_known(uint32_t id) { return param_real(id) || param_lock_only(id); }
 #define MOTION_ID(e) ((uint32_t)(e)->param & 0x7Fu)
 typedef struct { uint8_t place, param; int16_t value; } motion_event_t;
 typedef struct { uint8_t place, param, value; } motion_file_event_t;
@@ -463,7 +496,7 @@ _Static_assert(MOTION_FILE_SIZE_V10 == 334u, "FUN10 motion disk layout");
 _Static_assert(MOTION_FILE_SIZE_V11 == 238u, "FUN11 motion disk layout (kit before FM6)");
 _Static_assert(MOTION_FILE_SIZE_V15 == 220u, "FUN12..FUN15 motion disk layout (SCALE LOCK before CRV)");
 _Static_assert(MOTION_FILE_SIZE == 268u, "FUN16 motion disk layout (88 records, packed chain)");
-enum { SCL_LOCK_OFF = 0, SCL_LOCK_SCALE = 1 };   /* track_t.scl_lock / CHORD KNOB 3 (params.c PG_SLOCK) */
+enum { QN_OFF, QN_ALL, QN_KBD, QN_SEQ, QN_CURR };   /* P_QUANT (MAP); CURR: linked ROOT/SCL + ALL's quantising */
 #define CHAIN_ROWS 16u
 /* A song section (1.2, FUN10): the PROJECT slot each track plays (0..3, A..D; CHAIN_SILENT "-": that track plays
  * nothing there) and its repeats (1..16). Up to 1.1 a row was {slot, repeat}, all four tracks on that slot
@@ -563,11 +596,11 @@ typedef struct track {
     uint8_t pfx_sn[4], pfx_snn;  /* notes a repeat holds now */
     uint8_t pfx_si;              /* ARP: the next of them */
     uint32_t pfx_sc;             /* samples since the last repeat */
-    /* SCALE LOCK (CHORD KNOB 3): not a P_* (P_COUNT is at the 127 ceiling). Default SCALE. */
-    int16_t scl_lock;            /* SCL_LOCK_OFF / SCL_LOCK_SCALE */
-    int16_t scl_stash[3];        /* ROOT / SCL / MAP restored on OFF (project.c FUN12+) */
+    /* MAP = CURR's stash: ROOT / SCL restored when the track leaves CURR (project.c FUN12+) */
+    int16_t scl_stash[3];        /* ROOT / SCL (the third slot stays for older files) */
     uint8_t scl_stash_ok;        /* 1: scl_stash holds values from before a lock overwrite */
     uint8_t fx_sl_pos;           /* EFFECTS INS_SLCR list slot 0..8; RAM until FUN14 (default 8) */
+
     generation_t generation;
     int16_t lfo_sm;              /* WAVE S&H with SMOOTH on (voice.c track_lfo_end); in rsv_sz's pad, so the
                                   * fields above keep their offsets (the ISR's code layout depends on them) */
@@ -589,9 +622,27 @@ typedef struct track {
     uint32_t esync_k[3];         /* ATK's step, DEC's and REL's coefficient (Q16; voice.c esync_coef / env_tick) */
     uint8_t spread_on;           /* SPREAD while this part renders (voice.c / fx.c mix_part) */
     uint8_t lfo_wrap;            /* the LFO's phase wrapped this block (track_lfo_adv) */
-    uint8_t rsv_c1[2];           /* sizeof(track_t) a multiple of 16 */
+    int16_t plk_pit;             /* the step's PITCH value (MSEQ_PITCH), semitones, absolute over TRN (seq.c) */
+    uint8_t plk_fit;             /* 1: this step has a PITCH lock (0: none), so a value of 0 still overrides TRN */
+    uint8_t rsv_c1[1];           /* sizeof(track_t) a multiple of 16 */
 } track_t;
-enum { PFX_RND = 1, PFX_HALF = 2, PFX_REP = 4, PFX_DEC = 8, PFX_ATK = 16 };   /* (track_t.pfx) */
+enum { PFX_RND = 1, PFX_HALF = 2, PFX_REP = 4, PFX_DEC = 8, PFX_ATK = 16, PFX_X2 = 32 };   /* (track_t.pfx) */
+/* P_ALLOC's sweep: legacy ROT/REUSE (0/1) are OFF; else 2 + (rate - 1) * 3 + stroke.
+ * Rate 1..7, stroke 0 DOWN / 1 UP / 2 ALT. */
+static inline uint32_t sweep_rate(const track_t *t)
+{
+    uint32_t v = (uint32_t)t->p[P_ALLOC] & 127u;
+    return v > 1u ? (v - 2u) / 3u + 1u : 0u;
+}
+static inline uint32_t sweep_stroke(const track_t *t)
+{
+    uint32_t v = (uint32_t)t->p[P_ALLOC] & 127u;
+    return v > 1u ? (v - 2u) % 3u : 0u;
+}
+static inline int16_t sweep_pack(uint32_t rate, uint32_t stroke)
+{
+    return (int16_t)(rate ? 2u + (rate - 1u) * 3u + (stroke % 3u) : 0u);
+}
 /* the audio ISR indexes trk[] with a multiply by a small immediate and a shift while the size is a multiple of 16; 1.5's
  * new track parameters (the INSERT, the filter TYPE, ENV SYNC) and state would make it no multiple (the constant
  * loaded first: +3 % on the ISR's static cost, target_budget.py): one pad, rsv_sz, keeps it */
@@ -605,13 +656,23 @@ typedef struct {
     uint8_t rec;                 /* live recording armed: bit per track */
     uint8_t sel;                 /* selected track 0..NTRK-1: keys, pages, editor */
     int8_t octave;
+    int16_t batt_raw;            /* smoothed ADC ch3 (battery divider), 0 = not read yet; 12 bits */
     uint32_t tick;               /* sub-blocks since play */
     uint32_t cpu_q8;             /* audio ISR load, 1/256 */
     uint32_t master_q12;
-    int32_t batt_raw;            /* smoothed ADC ch3 (battery divider), 0 = not read yet */
 } song_t;
 
 static track_t trk[NTRK];        /* the instrument: four parts */
+static uint8_t fx_order_tbl[NTRK][FX_LIST_N];   /* EFFECTS list order (FUN17 wire in the FM6 high bits) */
+/* MASTER in the EFFECTS list: one track owns each stage (index+1, 0 = none; TAPE included). Inserts run
+ * beside their per-track CHAIN / SEND; the shared buses are exclusive. The owner's list order is the
+ * master chain's order (fx_master_order_tr). Persisted in FUN18. */
+static uint8_t fx_master_tr[FX_LIST_N];
+static uint8_t fx_master_order_tr;
+static inline int fx_master_owned(uint32_t st, uint32_t tr)
+{
+    return st < FX_LIST_N && fx_master_tr[st] == (uint8_t)(tr + 1u);
+}
 static song_t song;
 #define TSEL (&trk[song.sel])    /* the selected track */
 static track_t fx_bus_trk;       /* SEND insert/slicer knobs in .p[]; other fields unused */
@@ -625,7 +686,7 @@ static track_t fx_bus_trk;       /* SEND insert/slicer knobs in .p[]; other fiel
  * and read its p[] (a cast of the copy). */
 typedef struct {
     int16_t p[P_COUNT];
-    int16_t g[5];              /* MFX_TIME..MFX_DAMP: the DLY / REV bus settings of song.g */
+    int16_t g[7];              /* MFX_TIME..MFX_DAMP, then TAPE SPEED / WOW */
 } bus_knobs_t;
 static bus_knobs_t bus_knobs[C1_NP];
 static uint8_t bus_knobs_on[C1_NP];         /* 1: this part's copy is its render's view (mod_begin) */
@@ -654,6 +715,8 @@ static int sl_trk_send(const track_t *t)
 {
     int32_t v = song.g[G_SLOWN];
     uint32_t tr = (uint32_t)(t - trk);
+    if (fx_master_tr[INS_SLCR])
+        return 0;
     if (v >= 0 && v <= (int32_t)NTRK)
         return v == 0;                                   /* legacy: only all-SEND; else CHAIN/USED */
     return (v & (int32_t)(1u << tr)) != 0;
@@ -662,6 +725,8 @@ static int sl_trk_chain(const track_t *t)
 {
     int32_t v = song.g[G_SLOWN];
     uint32_t tr = (uint32_t)(t - trk);
+    if (fx_master_tr[INS_SLCR])
+        return 0;
     if (v >= 0 && v <= (int32_t)NTRK)
         return v == (int32_t)(tr + 1u);
     return !(v & (int32_t)(1u << tr));
@@ -669,6 +734,8 @@ static int sl_trk_chain(const track_t *t)
 static int sl_trk_used(const track_t *t)
 {
     int32_t v = song.g[G_SLOWN];
+    if (fx_master_tr[INS_SLCR])
+        return 1;
     if (v >= 1 && v <= (int32_t)NTRK)
         return v != (int32_t)((t - trk) + 1u);            /* legacy exclusive owner */
     return 0;                                            /* mask form: never USED */

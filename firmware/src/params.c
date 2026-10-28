@@ -43,15 +43,18 @@ static uint32_t esync_idx(int32_t v) { return (uint32_t)(v & 127) * ESYNC_N >> 7
 /* seq.c kb_map (MAP on SCL). Values kept: 0 OFF, 1 ALL (was SNAP label), 2 KBD (was WHITE), 3 SEQ.
  * KBD: white keys walk the scale; black keys play the closest in-scale note (duplicate OK). ALL: same keys as
  * KBD, and sequenced notes snap as they play. SEQ: live keys as OFF; sequenced notes snap (steps kept). */
-static const char *const N_QUANT[] = {"OFF", "ALL", "KBD", "SEQ"};
-/* CHORD KNOB 3: link ROOT / SCL / MAP across tracks that have SCALE (not a P_*: P_COUNT ceiling) */
-static const char *const N_SLOCK[] = {"OFF", "SCALE"};
+/* stored append-only: OFF 0, ALL 1, KBD 2, SEQ 3, CURR 4 (shown third, see QUANT_ORDER) */
+static const char *const N_QUANT[] = {"OFF", "ALL", "KBD", "SEQ", "CURR"};
 /* chord keys (chord.c): OFF, the diatonic triad / seventh of the track's ROOT and SCALE on the key, fixed shapes */
 static const char *const N_CHRD[] = {"OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW"};
+static const char *const N_STRUM[] = {"OFF", "1/8", "1/16", "1/32", "1/64", "1/128", "16T", "32T"};
+static const char *const N_STROKE[] = {"DOWN", "UP", "ALT"};
+/* P_ALLOC on the editor: both knobs in one list (the device has STRUM and STROKE apart) */
+static const char *const N_SWEEP[] = {"OFF", "OFF", "1/8 DOWN", "1/8 UP", "1/8 ALT", "1/16 DOWN", "1/16 UP", "1/16 ALT",
+    "1/32 DOWN", "1/32 UP", "1/32 ALT", "1/64 DOWN", "1/64 UP", "1/64 ALT", "1/128 DOWN", "1/128 UP", "1/128 ALT",
+    "16T DOWN", "16T UP", "16T ALT", "32T DOWN", "32T UP", "32T ALT"};
 static const char *const N_VOIC[] = {"CLOSE", "OPEN", "INV1", "INV2", "+OCT"};   /* VC_CLOSE .. VC_BASS */
 static const char *const N_VOICE[] = {"POLY", "MONO", "LEG", "UNI"};   /* V_POLY .. V_UNISON */
-static const char *const N_GLMODE[] = {"RATE", "TIME"};
-static const char *const N_ALLOC[] = {"ROT", "REUSE"};         /* stored; voice always ROT (REUSE if GLD) */
 static const char *const N_ORDER[] = {"NOTE", "PLAY"};
 static const char *const N_CLOCK[] = {"INT", "USB", "TRS"};
 static const char *const N_MIDI_INPUT[] = {"USB", "TRS"};
@@ -72,7 +75,10 @@ static const char *const N_IRATE[] = {"689", "919", "1.1k", "1.4k", "1.8k", "2.2
                                       "7.4k", "8.8k", "11k", "15k", "22k", "44k", 0};
 /* EFFECTS page: stage names in chain order (fx.c). K1 chooses, K2 moves.
  * Same strings as the stage page titles (PAGES[] below); name column sized to FLANGER/DISTORT. */
-static const char *const N_ISTAGE[] = {"DISTORT", "FILTER", "CRUSH", "PHASER", "FLANGER", "CHORUS", "DELAY", "REVERB", "SLICER"};
+static const char *const N_ISTAGE[] = {"DISTORT", "FILTER", "CRUSH", "PHASER", "FLANGER", "CHORUS", "DELAY", "REVERB",
+                                       "SLICER", "TAPE"};
+/* EFFECTS TAPE G_TAPEMODE: the one machine's route (fx.c fx_list_mode) */
+static const char *const N_TAPEMODE[] = {"SEND", "CH1", "CH2", "CH3", "CH4", "MASTER"};
 /* modulation matrix (mod.c): sources, destinations (E1..E8 = P_E0..P_E7: shown with the engine's labels).
  * Append-only (stored values keep their meaning): S&H SLEW and DEPTH (#132) came after EXPR and E8 */
 static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR", "S&H", "SLEW"};
@@ -85,9 +91,9 @@ static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN",
                                      "PAT", "SRATE", "SDEP", "CHRD", "VOIC",
                                      "TONE", "DMIX", "FCUT", "FRES", "FMIX", "BITS", "CRAT", "CLPF", "CMIX",
                                      "PRAT", "PDEP", "PFBK", "PMIX", "FRAT", "FDEP", "LMIX", "HRAT", "HDEP",
-                                     "DTIME", "DFBK", "DCOL", "RSIZE", "RDAMP"};
+                                     "DTIME", "DFBK", "DCOL", "RSIZE", "RDAMP", "TSPEED", "TWOW"};
 static const char *const N_ENGNAME[] = {"ANALOG", FELUCCA_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS",
-                                             "DRUM", "NOISE", "FM6", "-", "WAVETABLE",
+                                             "DRUM-X", "NOISE", "FM6", "-", "WAVETABLE", "DRUMS",
 };
 
 #define PD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
@@ -121,7 +127,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_AORDER] = PE("ORD", N_ORDER, 0),
     [P_ROOT] = PD("ROOT", F_NOTE, 0, 11, 0),
     [P_SCALE] = PE("SCL", N_SCALE, 0),
-    [P_QUANT] = PE("MAP", N_QUANT, 0),
+    [P_QUANT] = PE("MAP", N_QUANT, 0),                 /* max: TP[P_QUANT].max, set after N_QUANT */
     [P_TRANS] = PD("TRN", F_SEMI, -24, 24, 0),
     [P_SLEN] = PD("LEN", F_STEPS, 1, NSTEP, 16),
     [P_SDIV] = PE("DIV", N_DIV, 2),
@@ -133,9 +139,9 @@ static const param_desc_t TP[P_COUNT] = {
     [P_REV] = PD("REV", F_PCT, 0, 127, 0),
     [P_VOICE] = PE("VCE", N_VOICE, 0),
     [P_GLIDE] = PD("GLD", F_TIME, 0, 127, 0),
-    [P_GLMODE] = PE("GLMOD", N_GLMODE, 0),
+    [P_TAPEMIX] = PD("-", F_INT, 0, 127, 0),        /* the old GLMOD id: TAPE MIX is the global G_TMIX */
     [P_LSMOOTH] = PD("SMTH", F_PCT, 0, 127, 0),     /* WAVE S&H's smoothing (P_PRIO's inert id: no format change) */
-    [P_ALLOC] = PE("ALLOC", N_ALLOC, 0),
+    [P_ALLOC] = PE("SWEEP", N_SWEEP, 0),             /* CHORD K3 / K4 on the device: STRUM and STROKE */
     [P_DETUNE] = PD("UNI DTN", F_INT, 0, 127, 40),   /* UNISON voice spread only (voice.c mono_play) */
     [P_PAN] = PD("PAN", F_BIPCT, -64, 63, 0),
     [P_MUTE] = PE("PLAY", N_PLAY, 0),
@@ -202,26 +208,25 @@ static const param_desc_t GP[G_COUNT] = {
     [G_DTIME] = PE("TIME", N_DTIME, 1),   /* 0..12 divisions. Free ms is DTIME_FREE+ms in the same word (fx.c) */
     [G_DFDBK] = PD("FDBK", F_PCT, 0, 120, 60),
     [G_DCOLOR] = PD("COLR", F_PCT, 0, 127, 70),
-    [G_DMIX] = PD("-", F_INT, 0, 127, 90), /* retired return gain: keep its wire id and stored value */
+    [G_TSPEED] = PD("SPEED", F_PCT, 25, 400, 100), /* EFFECTS TAPE speed % (was G_DMIX, retired return gain) */
     [G_RSIZE] = PD("SIZE", F_PCT, 0, 127, 90),
     [G_RDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
     [G_CRATE] = PD("DLYOWN", F_INT, 0, 4, 0),     /* 0 SEND; 1..4 track with delay CHAIN (was bus CRT) */
     [G_CDEPTH] = PD("REVOWN", F_INT, 0, 4, 0),    /* 0 SEND; 1..4 track with reverb CHAIN (was bus CDP) */
-    /* G_MIDI, G_INFO: the old SYSTEM page's (gone in 1.2), on no page. G_DREL was G_SYNC (placeholder). */
-    [G_MIDI] = PE("MIDI", N_MIDI_INPUT, 0),
+    [G_TWOW] = PD("WOW", F_PCT, 0, 127, 0),      /* TAPE wow/flutter depth (was G_MIDI, the old SYSTEM page) */
     [G_DREL] = PD("REL", F_PCT, 0, 100, 30),     /* DUCK's release: 40 .. 600 ms (fx.c duck_block) */
     /* MIDI IN's routing, edited on MENU > MIDI > MIDI IN (1.2: menu_items.c MI_MIDIIN; up to 1.1.5 GLO > SYSTEM ROUT),
      * stored with the project as before. (was "--": stored 0 = CH1-4, as MIDI IN always was) */
     [G_ROUTE] = PE("ROUT", N_ROUTE, 0),
-    [G_INFO] = PD("CPU", F_INT, 0, 0, 0),
+    [G_TDROP] = PE("DROP", N_ONOFF, 0),          /* TAPE dropouts (was G_INFO, CPU) */
     [G_SLOT] = PD("SLOT", F_INT, 1, 4, 1),
     [G_NAME] = PE("NAME", N_DASH, 0),
     [G_LOAD] = PE("LOAD", N_GO, 0),
     [G_SAVE] = PE("SAVE", N_GO, 0),
     [G_ENGSEL] = PE("ENG", N_ENGNAME, 0),
     [G_CLIP] = PD("CLIP", F_PCT, 0, 100, 0),     /* master clipper: drive x1 .. x4 into the soft clip */
-    [G_CLRSEQ] = PE("CLRSQ", N_GO, 0),
-    [G_INITSND] = PE("INIT", N_GO, 0),
+    [G_TMIX] = PD("MIX", F_PCT, 0, 127, 0),      /* TAPE MASTER dry/wet (was G_CLRSEQ, an unused GO) */
+    [G_TAPEMODE] = PE("TAPE", N_TAPEMODE, 0),    /* 0 SEND, 1..4 CHAIN owner, 5 MASTER (was G_INITSND) */
     /* the reverb's model on the REVERB page: the id of the old GM drum channel (G_DRCH, inert since 1.0) */
     [G_RTYPE] = PE("TYPE", N_RTYPE, 2),         /* SEND tank; HALL at power-on since 1.2 */
     /* (JIANT) drum bus and kick ducking; ids were G_DRLVL / G_DRREV (GM drum part). proj_drums_to_part clears them. */
@@ -230,13 +235,19 @@ static const param_desc_t GP[G_COUNT] = {
     [G_CRTYPE] = PE("TYPE", N_RTYPE, 2),        /* CHAIN tank: same models, separate values */
     [G_CRSIZE] = PD("SIZE", F_PCT, 0, 127, 90),
     [G_CRDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
-    [G_SLOWN] = PD("SLOWN", F_INT, 0, 4, 0),    /* 0 SEND; 1..4 track with slicer CHAIN */
+    [G_SLOWN] = PD("SLOWN", F_INT, 0, 15, 0),   /* 0 and 5..15 are the current mask (0 = all SEND); 1..4 remain
+                                                 * accepted legacy owner values */
+    [G_TTEMPO] = PE("TEMPO", N_ONOFF, 1),       /* TAPE: ON = transport keeps time, OFF = SPEED slows the source clock */
 };
 
 static const param_desc_t INS_BITS = {"BITS", F_INT, 0, 127, 64, N_IBITS, 0};
 static const param_desc_t INS_RATE = {"RATE", F_INT, 0, 127, 96, N_IRATE, "Hz"};
+static const param_desc_t PITCH_DESC = PD("PITCH", F_SEMI, -24, 24, 0);   /* 3.2: the step's semitones */
+
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
+    if (id == MSEQ_PITCH)                             /* not in p[]: the AUTOMATION list / graph still draws it */
+        return &PITCH_DESC;
     if (id >= P_E0 && id <= P_E7) {                   /* the engine asked for (t->engine follows after a fade) */
         const engine_t *e = ENGINES[eng_idx(t->eng_req)];
         const param_desc_t *d = e->desc ? e->desc(t, id - P_E0) : 0;   /* a mode-dependent label / names */
@@ -282,6 +293,8 @@ static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
  * clamp). It shows the original's name; knobs step over it and the editor's SET lands on the original. */
 static int32_t enum_orig(const param_desc_t *d, int32_t v)
 {
+    if (d->names == N_SWEEP && v == 1)
+        return 0;                                  /* legacy ALLOC = REUSE is an OFF alias */
     return (d->names == SMP_ALL_NAMES || d->names == SMP_SRC_NAMES) && v >= 0 && v < (int32_t)SMP_NSETS
                ? (int32_t)SMP_SET_ORIG[v] : v;
 }
@@ -366,10 +379,11 @@ static const uint8_t SLDIV_ORDER[6] = {0, 3, 1, 4, 2, 5};              /* 1/8 8T
 /* Delay TIME: names 0..12 stay (loads). Knob omits 1/1 2BAR 4BAR (7..9); they never fit DLY_LEN. */
 static const uint8_t DTIME_ORDER[10] = {6, 12, 0, 10, 1, 11, 4, 2, 5, 3}; /* 1/2 1/4D 1/4 1/8D 1/8 1/16D 8T 1/16 16T 1/32 */
 static const uint8_t PLAY_ORDER[3] = {1, 0, 2};                    /* OFF, ON, SOLO (stored PLAY_OFF, PLAY_ON, PLAY_SOLO) */
+static const uint8_t QUANT_ORDER[5] = {0, 1, 4, 2, 3};             /* OFF ALL CURR KBD SEQ (stored 0 1 2 3 4) */
 static const uint8_t *enum_order(const param_desc_t *d)
 {
     return d->names == N_DIV ? DIV_ORDER : d->names == N_SLDIV ? SLDIV_ORDER : d->names == N_DTIME ? DTIME_ORDER
-         : d->names == N_PLAY ? PLAY_ORDER : 0;
+         : d->names == N_PLAY ? PLAY_ORDER : d->names == N_QUANT ? QUANT_ORDER : 0;
 }
 static int32_t enum_order_n(const param_desc_t *d)   /* shown steps; DTIME shorter than max (legacy 7..9) */
 {
@@ -537,9 +551,10 @@ enum { FX_SEC_INS = 0, FX_SEC_PUNCH = 1, FX_NSEC = 2,
 typedef struct {
     const char *title;
     uint8_t fam, scope, graph, sec;
-    uint8_t id[4];               /* param ids; 0xFF = empty slot; PG_SLOCK = SCALE LOCK (track_t.scl_lock) */
+    uint8_t id[4];               /* param ids; 0xFF = empty slot */
 } page_t;
-#define PG_SLOCK 0xFEu           /* CHORD KNOB 3: not in p[] (params.c scale_lock_*) */
+#define PG_STRUM 0xFCu           /* CHORD KNOB 3: the packed P_ALLOC sweep's rate */
+#define PG_STROKE 0xFDu          /* CHORD KNOB 4: the packed P_ALLOC sweep's DOWN / UP / ALT */
 
 static const page_t PAGES[] = {
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, 0, {P_ATK, P_DEC, P_SUS, P_REL}},
@@ -552,7 +567,7 @@ static const page_t PAGES[] = {
     {"MOD", FAM_LFO, SC_TRACK, GR_MOD, LFO_SEC_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* its own section: LFO button cycles here */
     /* FX: Effects → Punch-in. SLICER is an EFFECTS page (open from the list / SELECT).
      * SELECT order follows the EFFECTS list (fx_list), not this table order. Each stage's mix
-     * lives on EFFECTS (K4). K3 is USE AS: CHAIN or SEND. DELAY knob 4 is RATE / TIME. */
+     * lives on EFFECTS (K4). K3 is USE AS: CHAIN, SEND or MASTER (TAPE). DELAY knob 4: left TIME, right RATE. */
     {"EFFECTS", FAM_FX, SC_TRACK, GR_IORD, FX_SEC_INS, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},
     {"DELAY", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_DTIME, G_DFDBK, G_DCOLOR, 0xFF}},
@@ -563,9 +578,10 @@ static const page_t PAGES[] = {
     {"FLANGER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_ILRATE, P_ILDEP, 0xFF, 0xFF}},
     {"CHORUS", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IHRATE, P_IHDEP, 0xFF, 0xFF}},
     {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, FX_SEC_INS, {P_SLCR, P_SLPAT, P_SLRATE, 0xFF}},
+    {"TAPE", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_TSPEED, G_TWOW, G_TDROP, G_TTEMPO}},
     {"PUNCH-IN", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, 0, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
-    {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, 0, {P_CHRD, P_VOIC, PG_SLOCK, 0xFF}},
+    {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, 0, {P_CHRD, P_VOIC, PG_STRUM, PG_STROKE}},
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, EDIT_SEC_SND, {P_E0, P_E1, P_E2, P_E3}},
     {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, EDIT_SEC_SND, {P_E4, P_E5, P_E6, P_E7}},
     /* ANALOG: page 2 FILTER (TYPE CUT RES KTR), page 3 FILTER DRIVE (DRV); EDIT 2 hidden (ui.c) */
@@ -598,7 +614,7 @@ static const page_t PAGES[] = {
     {"CLEAR", FAM_SAVE, SC_GLOBAL, GR_CLEAR, SAVE_SEC_CLEAR, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, 0, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, 0, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
-    /* SEQ: Step group → Generation (DRUM-X only) → Automation → Tools. SELECT walks each section. */
+    /* SEQ: Step group → Generation (drum kits) → Automation → Tools. SELECT walks each section. */
     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
     {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_STEP, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
     {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
@@ -614,16 +630,13 @@ static const page_t PAGES[] = {
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */
 
-static const param_desc_t SLOCK_DESC = PE("LOCK", N_SLOCK, SCL_LOCK_SCALE);
-
-/* SCALE LOCK: ROOT / SCL / MAP shared by every track with scl_lock == SCALE */
+/* MAP = CURR: ROOT / SCL shared by every track whose MAP is CURR (MAP stays each track's own) */
 static void scale_lock_stash(track_t *t)
 {
     if (t->scl_stash_ok)
         return;
     t->scl_stash[0] = t->p[P_ROOT];
     t->scl_stash[1] = t->p[P_SCALE];
-    t->scl_stash[2] = t->p[P_QUANT];
     t->scl_stash_ok = 1;
 }
 static void scale_lock_restore(track_t *t)
@@ -632,50 +645,46 @@ static void scale_lock_restore(track_t *t)
         return;
     t->p[P_ROOT] = t->scl_stash[0];
     t->p[P_SCALE] = t->scl_stash[1];
-    t->p[P_QUANT] = t->scl_stash[2];
     t->scl_stash_ok = 0;
 }
 static void scale_lock_copy(track_t *dst, const track_t *src)
 {
     dst->p[P_ROOT] = src->p[P_ROOT];
     dst->p[P_SCALE] = src->p[P_SCALE];
-    dst->p[P_QUANT] = src->p[P_QUANT];
 }
 static void scale_lock_push(track_t *src)
 {
     uint32_t k;
-    if (src->scl_lock != SCL_LOCK_SCALE)
+    if (src->p[P_QUANT] != QN_CURR)
         return;
     for (k = 0; k < NTRK; k++) {
         track_t *t = &trk[k];
-        if (t == src || t->scl_lock != SCL_LOCK_SCALE)
+        if (t == src || t->p[P_QUANT] != QN_CURR)
             continue;
         scale_lock_copy(t, src);
     }
 }
-static void scale_lock_set(track_t *t, int16_t v)
-{
-    uint32_t k;
-    v = v ? SCL_LOCK_SCALE : SCL_LOCK_OFF;
-    if (v == t->scl_lock)
-        return;
-    t->scl_lock = v;
-    if (v == SCL_LOCK_SCALE) {
-        for (k = 0; k < NTRK; k++) {
-            track_t *u = &trk[k];
-            if (u == t || u->scl_lock != SCL_LOCK_SCALE)
-                continue;
-            scale_lock_stash(u);
-            scale_lock_copy(u, t);
-        }
-    } else
-        scale_lock_restore(t);
-}
 static void scale_lock_after(track_t *t, uint32_t id)
 {
-    if (id == P_ROOT || id == P_SCALE || id == P_QUANT)
+    if (id == P_QUANT) {                              /* entering CURR pushes, leaving restores */
+        if (t->p[P_QUANT] == QN_CURR) {
+            uint32_t k;
+            for (k = 0; k < NTRK; k++) {
+                track_t *u = &trk[k];
+                if (u == t || u->p[P_QUANT] != QN_CURR)
+                    continue;
+                scale_lock_stash(u);
+                scale_lock_copy(u, t);
+            }
+        } else
+            scale_lock_restore(t);
+    } else if (id == P_ROOT || id == P_SCALE)
         scale_lock_push(t);
 }
+
+static const param_desc_t STRUM_DESC = PE("STRUM", N_STRUM, 0);
+static const param_desc_t STROKE_DESC = PE("STROKE", N_STROKE, 0);
+static int16_t sweep_tmp;                /* (read at once: the draw and the knob handler use one slot at a time) */
 
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
@@ -684,9 +693,15 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         *valp = 0;
         return 0;
     }
-    if (id == PG_SLOCK) {
-        *valp = &TSEL->scl_lock;
-        return &SLOCK_DESC;
+    if (id == PG_STRUM) {
+        sweep_tmp = (int16_t)sweep_rate(TSEL);
+        *valp = &sweep_tmp;
+        return &STRUM_DESC;
+    }
+    if (id == PG_STROKE) {
+        sweep_tmp = (int16_t)sweep_stroke(TSEL);
+        *valp = &sweep_tmp;
+        return &STROKE_DESC;
     }
     /* LFO 2 KNOB 4: SMOOTH, only while WAVE is S&H (blank otherwise; the value stays stored) */
     if (id == P_LSMOOTH && TSEL->p[P_LWAVE] != 4) {

@@ -1,12 +1,187 @@
 # Changelog
 
-## Unreleased
+## 3.2
+
+The stock V15 supply rails before core 1, Felucca's DRUMS engine, a per-step PITCH lock, beat-synced chord
+STRUM / STROKE, the new REPEAT 1/12, /2 and *2 TEMPO and GLITCH punch-ins, the DELAY page's TIME / RATE
+direction swapped, the MS-20-inspired punch filter, TAPE as the tenth EFFECTS bus, and MASTER on every EFFECTS
+row. New saves are FUN19 (`FUNJ`); FUN18 and older load with TEMPO ON. FUN17 and older have no MASTER owners;
+FUN16 and older load with TAPE off and the EFFECTS order rebuilt. Splash and ABOUT show `v3.2`.
+
+### Boot
+
+- **Stock V15 supply rails.** Before the guards, core 1 and the audio start, the FM-1 is set to the
+  stock V15 rails (VDC14 1.60 V, SYSVDD 1.38 V, VDDIO 3.2 V) with the stock write order, then read
+  back. A timeout or a wrong value stops the sequence and keeps one core. MENU > ABOUT shows
+  `RAILS 7/15 (3/11)` (after, and what the boot loader left) or `RAILS FAIL 1 CORE`. Ported from
+  Melodee (`hal/fm1_power.h`); the P33 driver stays Araminta's. `tests/power_test.c` replays the V15
+  transaction trace, every timeout and the read-back faults.
+
+### FX
+
+- **MASTER on every EFFECTS row.** USE AS now goes CHAIN / SEND / MASTER for the six inserts and the common
+  DLY / REV / SLCR / TAPE buses. A master stage runs on the whole stereo mix, in the EFFECTS order of the track
+  that selected it; that track shows MASTER and the others show USED on the shared buses. Inserts keep their
+  per-track CHAIN / SEND beside a private MASTER instance (2x state, in the POOL); the shared buses are
+  exclusive, since a second delay line / third reverb tank would not fit. MASTER inserts use the owner track's
+  parameters and MIX; shared masters use the owner track's DLY / REV / SLCR MIX. The routing saves in FUN19.
+- **TAPE TEMPO (K4).** The TAPE page's fourth knob is TEMPO, OFF / ON, default ON. ON keeps the transport, voices
+  and sequencer in time and makes SPEED the rotating head's pitch only; CHAIN and MASTER then mix the head in by MIX
+  (a wet amount, like SEND) and at SPEED 100 with no WOW / DROPOUT the head is bypassed. OFF is the source-clock
+  varispeed: CHAIN / MASTER move the transport and voices with SPEED. SEND always keeps time, so its TEMPO card is
+  dimmed and fixed ON. Saves in FUN19; FUN18 and older load ON, and older FUN19 saves keep their bit (ON now means
+  keep-time). The TAPE page draws an OP-1-style transport: two large reels with a ribbon and guides; SPEED turns
+  the reels, WOW rocks them and the ribbon, DROPOUT sags it.
+- **TAPE SPEED / WOW in LFO MOD and step locks.** Both are MOD destinations (`TSPEED` / `TWOW` after the
+  existing DLY / REV targets) and lock targets from the TAPE page (KNOB 1 / 2 on a held SEQ step). As with
+  other shared sends, CHAIN allows only the owner track and MASTER allows every track; SEND is claimed by the
+  first track that uses it. The matrix's per-part values and step locks take effect on the next audio block.
+- **DELAY K4: left TIME, right RATE.** Turning knob 4 left selects free milliseconds, turning it right
+  the note divisions; the mode column shows `TIME` or `RATE`. The division last used is still the one
+  TIME returns to. This swaps the 3.0–3.1 direction, so it is a change of muscle memory, not of stored
+  data (`G_DTIME` is unchanged and old projects load the same).
+- **RATE tap through a tempo change.** With TAPE MASTER or TEMPO OFF the RATE tap's target follows the
+  tape speed every block. The tap now holds while the target moves, then fades out, moves and fades back
+  in (~12 ms), so the feedback loop keeps its pitch instead of splicing (crackle) or gliding (detuned
+  grain). Division changes still snap; free-ms TIME still glides.
+- **REPEAT 1/12 (PUNCH-IN 1/2, G3).** A third of a beat (the 8T rate), on the same 1/16 start as the other
+  REPEATs. It is a buffer effect like 1/8: below ~54 BPM the loop is too short and the cell dims.
+- **/2 and *2 TEMPO (PUNCH-IN 2/2, A4 and B4).** /2 is the former 1/2 TEMPO, now beside its double. While held,
+  every target track's sequencer runs at half / double speed; let go and it lands where it would have been.
+  /2 + *2 cancel. Recorded in the punch-in lane as nibble 11 (older firmware ignores it); /2 is nibble 3.
+- **GLITCH (PUNCH-IN 2/2, C5).** The master is cut on the transport's 1/16s. A deterministic hash of each
+  slice's place in a 2-bar cycle decides: play live, repeat the last L, reverse the last 1/16, an octave up or
+  down, gate, SKIP, or CRUSH; every slice is windowed. Knobs are fixed (DENS 50 / PITCH 0 / SIZE 0 / VARI 1).
+  It borrows the SLICER's buffer, like REPEAT / REVERSE / TAPE / FREEZE; below ~82 BPM only gates, crushes and
+  live slices play. Ported from JIANT 0.9.9-snd2 / 0.9.18. GLITCH is audio-only and never recorded.
+- **The punch-in maps reordered.** PUNCH-IN 1/2: REPEAT 1/8 / 1/12 / 1/16 / 1/32, LPF, HPF, OCT-, OCT+, DEC-,
+  DEC+, ST8, ST16, ATK+, ARP, RND, none. PUNCH-IN 2/2: REVERSE, TAPE, FREEZE, PITCH+, PITCH-, FLANGER, PHASER,
+  REV THROW, ECHO THROW, /2, *2, GLITCH, then none; G5 is still CLR with FX LATCH. The FX map's cells show
+  `GLITCH`, `/2` and `*2`.
+- **MS-20-inspired punch and FILTER COMB knee.** The punch-in LPF / HPF and KNOB 1 FILTER share a 2-pole
+  voice with 1.5x input drive, Q ~1.86, the ANALOG engine's soft knee and a 0.6 output gain; the one-bar
+  sweeps and KNOB 1 left / centre / right behaviour are unchanged. Insert FILTER COMB gets a soft knee at
+  half scale, threshold 32000 after the voices are summed, so a chord is not compressed hard. The DELAY
+  page's FDBK bars now follow the real loop gain (`FDBK * 230 / 32768`) instead of clamping above 100.
+- **TAPE, the tenth EFFECTS bus.** SPEED (25..400 %), WOW (slow + flutter) and DROPOUT (short pitch
+  fluctuations, not level dips). USE AS is CHAIN / SEND / MASTER: MASTER and CHAIN slow the **source** (the
+  transport and every voice's pitch); SEND keeps the dry at tempo and adds the head's pitched copy. MIX is
+  one global amount, the same on every track and kept when switching route; in MASTER / CHAIN it is the depth
+  (0 normal, 127 the full SPEED change), in SEND the send amount. The TAPE page opens from EFFECTS like DELAY /
+  REVERB (SPEED WOW DROP); MIX stays on the EFFECTS list.
+- **TAPE's clock and head.** SPEED scales `beat_samples()` for MASTER and the owner track's sequencer for
+  CHAIN, plus a pitch offset in 1/16 semitones (a 376-entry log table, 192 * log2(pct / 100)) through the
+  voice pitch. Notes and the beat stretch together; envelopes and the reverb decay stay in real time, the
+  delay divisions and the click follow the transport, and CHAIN leaves the other tracks alone. The SEND head
+  is a two-head crossfaded delay line at 44.1 kHz; its rest delay and the SEND dry compensation are 512
+  samples (11.6 ms). The wrapping head has weight zero at the wrap, so the old click is gone. At 100 % with
+  MIX 0 the list is bit-identical and the golden renders are unchanged.
+- **TAPE storage.** The dead global ids `G_DMIX`, `G_MIDI`, `G_INFO`, `G_CLRSEQ`, `G_INITSND` are TAPE SPEED,
+  WOW, DROP, the one MIX and the route; `P_TAPEMIX` (the old GLMOD id) is unused. The 8 KB + 4 KB head and
+  compensation lines live in the POOL.
+
+### Drums
+
+- **DRUMS: Felucca's drum engine is back.** A separate engine (15) beside DRUM-X, with the original
+  synthesized 8-lane kits: STD, 80, 10, 66, 55, 77, DEEP, TIGHT and PERC. Parameters KIT / TUNE / TONE /
+  DECY / SNAP / ACC / KICK / DRV, the GM key map, lane mutes and the SEQ drum grid. DRUM-X stays engine 10;
+  old projects and presets still play DRUM-X. Flash +14,384 B, RAM +208 B, POOL unchanged. Favorites for
+  engine 15 are skipped because the 16-row table is full. Editor protocol engine 15 and the web editor table
+  are updated.
+- **GENERATION on every drum kit.** The SEQ GENERATION section is no longer DRUM-X-only: DRUMS, the CR78
+  SAMPLE set and a USR slot tagged Drumkit show it too. It writes the same KICK / SNARE / HAT lanes and
+  keeps the same MAP / density / CHAOS controls and SAVE undo.
+
+### Projects
+
+- **FUN19 (`FUNJ`).** Same layout and 3840-byte size as FUN16/17/18. Each track's ten-slot EFFECTS order rides in
+  the unused high bits of its FM6 patch bytes (after the six generation controls); each stage's MASTER owner
+  (3 bits) goes in the chain header's spare bytes 1..3 and the motion header's spare byte 3; TAPE TEMPO is header
+  byte 67 bit 7. FUN18 and older load with TEMPO ON; FUN17 and older have no MASTER owners; FUN16 and older
+  rebuild the order from `P_IORD` / `P_CHOR` / the SLCR slot and load with TAPE off. Only FUN19 is written.
+  Firmware that only knows FUN16/17/18 refuses a FUN19
+  (magic): its slot shows EMPTY until saved over, so keep a backup before the first save. The editor reads the
+  order through `PROJECT` / `TRACK_DUMP` as before; no command changed.
+
+### SCL
+
+- **SCALE LOCK is now MAP = CURR.** The CHORD page's third knob is gone; MAP on SCL page 1 is
+  **OFF / ALL / CURR / KBD / SEQ** (CURR is stored as 4, shown third). CURR quantises keys and steps exactly
+  like ALL and shares ROOT / SCALE across every CURR track: entering pushes them, ROOT / SCALE edits follow,
+  leaving restores the track's stash. MAP itself is each track's own, which the old link could not do.
+- **Compatibility.** CURR saves as MAP = ALL plus the lock bit, so v3.1 opens a v3.2 project as SCALE LOCK +
+  ALL, which sounds the same. A v3.1 project locked with MAP OFF / KBD / SEQ loads with that MAP and unlinked
+  (the notes are unchanged; only future linking is lost). New tracks default to MAP OFF and are unlinked.
+  The stored layout is unchanged.
+
+### SEQ
+
+- **Free take: a strummed chord keeps its sweep.** The strings are re-spaced to the STRUM division (1/8,
+  1/16, ...) at the take's closing tempo instead of the tempo the project had before the take. A chord
+  strummed at 1/8 while playing a slower loop therefore still sounds as 1/8, and its strings no longer
+  receive the legato SF_SLIDE or the mono return (a strum is a chord, not a tap). A **1/16 strum** needs
+  two steps, so a 1- or 2-bar take that recorded one closes at **1/32** (LEN 32 / 64) instead of 1/16;
+  a 4-bar take has only 64 steps and stays 1/16. `tests/freetake_test.c` covers a 1/8 strum played at
+  80 BPM with the project at 120, and a 1/16 strum on 1- and 2-bar takes.
+- **NOTE EDITS on SEQ TOOLS.** Stored-note edits, one undo each like COOK/RANDOM. On a melodic track the six edits
+  follow the sequence tools with no gap: **OCT− / OCT+** on E4 / F4 transpose the written notes ±12 (ties, rests and
+  the notes past LEN stay); **HALF** on G4 stretches the pattern over twice the steps (LEN ×2, ties keep holding);
+  **\*2** on A4 squeezes each pair into one (LEN ÷2, the first playing step wins); **HUMAN** on B4 writes fresh
+  velocity ±16 and nudge ±2 into every note step and switches QUANTIZE off so the nudge plays; **DUP** on C5 copies
+  steps 1..LEN after themselves (LEN ×2, up to 64; locks and automation copy). On a DRUM track BEAT / MUTE and the
+  lane tools keep E4..C5, so HALF / \*2 / HUMAN / DUP are D5..G5. OCT− on the page puts back every edit of the visit,
+  including QUANTIZE.
+
+### Chord
+
+- **STRUM and STROKE (SCL > CHORD K3 / K4).** A chord key or a MIDI-in chord sweeps from its lowest to its highest
+  note over the chosen division (OFF, 1/8, 1/16, 1/32, 1/64, 1/128, 16T, 32T); DOWN / UP / ALT set the direction, ALT
+  flips per chord and track. Rate and direction freeze at the press, the timing follows a tempo change, and a
+  release cancels the strings that have not played. Off with ARP on, MONO / LEGATO (their chord is the root), and a
+  one-note chord. The knobs share the inert ALLOC parameter (packed); legacy ROT/REUSE values 0/1 remain OFF,
+  and new sweeps use values 2..22. The stored layout is unchanged. The editor shows the packed list as SWEEP.
+  Strum settings saved with earlier unreleased 3.2 builds need resetting after this encoding correction.
+
+### Locks
+
+- **Per-step PITCH lock (SCL K4 on a held step).** A new lock-only motion id, 127: an absolute chromatic
+  transpose (-24..+24) that replaces the track's TRN on that step, one value for the whole step (a chord uses its
+  first stored note, lowest for a keyed chord, when TRN records it). It counts toward the 88 on-disk records and
+  the save-limit warning.
+  **Downgrade:** firmware before 3.2 refuses a project whose motion holds id 127 (EMPTY SLOT), so save a backup
+  before opening a v3.2 project with pitch locks on an older build.
+- **Recording TRN writes that lock.** With REC armed on the selected track while playing, turning SCL TRN stores
+  the scale-fitted semitone result as the current step's PITCH lock (C4 +1 in C major stays C4), never a P_TRANS
+  automation event; the TRN knob still moves (other steps without a lock follow it), and this step uses the
+  fitted value. Editing that PITCH row changes its semitone value and it stays a lock (C4 +1 then plays C#4;
+  off-scale is allowed). With REC off, TRN is the ordinary global transpose.
+- **Kits ignore PITCH.** On a DRUM or other key-mapped engine, SCL K4 and `MOTION` op 5 refuse to create a PITCH
+  lock (rc 1), and a stored kit PITCH lock is inert: note events and lane hits play as stored, as TRN already
+  does. Existing projects still load; the lock can be deleted.
+
+### Editor
+
+- **Motion capacity is the device's, not 64.** The web editor reads the real motion pool from INFO `41 01` (192
+  since FUN16, 128 in 1.2) instead of rejecting anything but 64, uses `MOTION` op 8 for every record and its lock
+  kind, and still works with 64-record firmware. A PITCH lock (id 127) now edits and deletes as a lock instead of
+  being sent back as automation.
+- **`DUMP` and `SLOWN` agree with the rest of the protocol.** `DUMP` sends `P_IORD` as its 0..719 insert order,
+  like `GET` / `SET`, `TRACK_DUMP` and `CHANGED`; the SEND flags stay on the device. `G_SLOWN`'s descriptor is
+  0..15 (legacy 1..4 still accepted), so an editor cannot clamp a mask to 4.
+
+### Memory
+
+- **Smaller CPU0 stacks, 13,824 B more sample pool.** The main-loop stack is 12,288 B (was 24,320) and the
+  interrupt stack 6,144 B (was 7,936), the sizes Melodee 1.5 audited on the same SDK. Araminta's static
+  worst call paths are 5,652 B and 1,868 B (2.2x / 3.3x margin); CPU1 stays at 4,096 B. MENU > ABOUT is
+  unchanged; the console's `status` now prints `c0_stack_used user/super` so a device run can confirm the
+  high-water marks. `docs/RAM_STACK_AUDIT_3.2.md` has the evidence and the workload checklist.
 
 ### LFO
 
 - **S&H SMOOTH.** LFO > LFO 2's fourth knob (`SMTH`, 0..100 %) rounds the WAVE S&H steps into a smooth,
   sine-like random curve. It shows only while WAVE is S&H; 0 is the hard steps, bit for bit. The matrix's
-  S&H / SLEW sources are unchanged. It uses the long-inert PRIO parameter's id, so projects stay FUN16.
+  S&H / SLEW sources are unchanged. It uses the long-inert PRIO parameter's id, so the stored layout is unchanged.
 
 ## 3.1
 
@@ -21,6 +196,8 @@ slot. Same project and settings format as 3.0; splash and ABOUT show `v3.1`.
 - **Samples tab.** One card per USR slot with **Sample / Drumkit / Wavetable**; Drumkit maps roots to
   exact lane notes, Wavetable takes a table file or a folder medley, and the editor-only name field is
   gone. The FM-1 still shows USR1..3.
+- **WAVETABLE.** OSC B's knob is **LEVEL** (B LEVEL in MOD / AUTOMATION); the EDIT graph draws B's own
+  wave on OSC B and A, labelled OSC A, while RATIO is hot there.
 - **Fix.** CR78 lanes no longer fall back to the missing-sample sine: the kick, snare and hats play
   their real one-shots.
 

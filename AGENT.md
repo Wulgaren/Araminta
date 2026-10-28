@@ -9,20 +9,36 @@ Project rules for coding agents. Global workflow still lives in `~/AGENT.md`.
 ### Iterate
 
 1. After `./build.sh` once (needs `build/gen/`).
-2. Compile and run only the host binary that covers the change. Match the `$CC` line in `tests/run_tests.sh` for that test.
-3. Done when that binary exits 0 on the behaviour you touched.
+2. Run only the target that covers the change: `tests/run_one.sh <target>`.
+3. Done when that target exits 0 on the behaviour you touched.
 
-Example (UI stubs):
+`tests/run_one.sh` is the edit loop, not the final gate. It compiles and runs
+one binary (or the web pair) with the same flags as `tests/run_tests.sh`:
 
 ```
-mkdir -p build/host
-cc -w -Ibuild/gen -Ifirmware/src -o build/host/ui_test tests/ui_test.c -lm
-./build/host/ui_test
+tests/run_one.sh list            # target list
+tests/run_one.sh motion          # motion / ARP / song
+tests/run_one.sh ui ui_render    # UI stubs plus draw / layout lint
+tests/run_one.sh editor          # writes build/host/menu.json
+tests/run_one.sh project
+tests/run_one.sh param           # tests/param_contract_test.c
+tests/run_one.sh web             # desc.json + menu.json, then node web/test_web.mjs
 ```
 
-Web-only edits: `node web/test_web.mjs` (and `web/test_backup.mjs` if backup paths moved).
+Targets: `motion`, `ui`, `ui_render`, `editor`, `project`, `param`, `web`,
+`all` (execs `tests/run_tests.sh`), and `list`.
 
-If you must invoke the script while iterating, use `SANITIZE=0 tests/run_tests.sh` so ASan/fuzz are skipped. Emulator tests already skip when `emcc` is missing.
+If a test has no target, compile and run it by hand, matching the `$CC` line in
+`tests/run_tests.sh` for that test.
+
+Web-only edits: `tests/run_one.sh web` (or `node web/test_web.mjs`; add
+`web/test_backup.mjs` if backup paths moved).
+
+If you must invoke the full script while iterating, use `SANITIZE=0 tests/run_tests.sh` so ASan/fuzz are skipped. Emulator tests already skip when `emcc` is missing.
+
+The final gate is unchanged: `SANITIZE=1 tests/run_tests.sh` before the final
+push, and the full gate instead of the targeted targets when 3+ binaries are
+touched (see Handoff below).
 
 ### Handoff
 
@@ -37,14 +53,27 @@ Firmware + web in one change: run the host side from steps 2–3 **and** the web
 
 Full suite on request, or before a commit/PR the user asks for, still wins over this rule when they ask for it.
 
+### Before the final push
+
+Run the full gate **once, with sanitizers on**:
+
+```
+SANITIZE=1 tests/run_tests.sh
+```
+
+`SANITIZE=1` is the gate. Do not also run the unsanitized suite for the same change, and do not push
+until it prints `ALL HOST TESTS PASSED`.
+
 ## Rough map (source → host binary)
 
 | Touch | Binary under `build/host/` |
 | --- | --- |
 | `firmware/src/ui*.c`, help, menus | `ui_test` (also `ui_render` for draw/layout) |
+| DRUMS engine (`eng_drums.c`, `drums_voice.c`) | `drums_test` (also `regress` for presets/CPU) |
 | ANALOG filter / ENV SYNC / sound 1.5 | `sound15_test` |
 | insert chain / FX order | `inschain_test` |
 | motion / ARP / song | `motion_test` |
+| locks / special ids / PITCH / FX motion | `param_contract_test` |
 | projects / FUN migration | `project_test` |
 | editor protocol / MENU | `editor_test` |
 | golden / CPU / voice budgets | `regress` |

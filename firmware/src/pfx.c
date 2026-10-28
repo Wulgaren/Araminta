@@ -2,8 +2,9 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* PFX (JIANT, FELUCCA-TONIC-SPEC.md fase 7): the punch-in MIDI effects of the FX layer. They act on the notes and
  * the sound of the tracks while their key is held (or latched: FX LATCH), never on what is stored: let go, all is
- * as it was. The MIDI keys (perform.c PF_DEF; 1/2 is the 4th white key so the filters and the octaves sit together):
- *   B3 1/2 TEMPO       the track's sequencer at half speed; let go, it is back where it would have been
+ * as it was. The MIDI keys (perform.c PF_DEF / PF2_DEF; PUNCH-IN 1/2 unless noted):
+ *   A4 /2 TEMPO (2/2)  the track's sequencer at half speed; let go, it is back where it would have been
+ *   B4 *2 TEMPO (3.2, 2/2)  the same at double speed; /2 + *2 cancel
  *   E4 OCT-, F4 OCT+   every voice an octave down / up (both: none), at once, notes held too
  *   G4 DEC-, A4 DEC+   short / long decays: a synth's DEC and REL, DRUM's DECY (DEC- wins); (JIANT 0.4) DEC- also
  *                      takes a synth's sustain to 0: the whole instrument plucks
@@ -20,7 +21,8 @@
  * Of the repeats (STUTTER, ARP) the fastest held plays. A#4 (black key 8) steps the tracks they act on: ALL,
  * SYN (the synths), DRM (DRUM tracks) (pfx_tgt; the layer's header says it).
  * The punch-in lane (the automation): a section's 64 steps of 1/16 (4 bars, from the transport's start or the
- * section's), one effect a step (pfx_lane: a nibble, 0 none, 1..10 OCT- .. RANDOM) and the tracks it acts on (pfx_ltgt).
+ * section's), one effect a step (pfx_lane: a nibble, 0 none, 1..11 OCT- .. x2; GLITCH is audio-only and never in
+ * the lane) and the tracks it acts on (pfx_ltgt).
  * Recording (REC armed, playing, not a song): the steps that pass while a MIDI effect is held get it (the lowest held),
  * with the tracks A#4 picked. Played back with the held ones. (G5 CLR is latched-FX all-off when FX LATCH is on.)
  * Saved with the section (project.c FUNA: the 33 spare bytes at PROJ_PFX_OFF), staged by the song (song_chain.c).
@@ -159,7 +161,7 @@ static __attribute__((noinline)) void pfx_block(uint32_t n, uint32_t held)
             if (pfx_rh && st == pfx_rst && !half && st != pfx_rs0)
                 pfx_lane_put(st, pfx_rold);             /* let go in a step's first half: that step as it was */
             pfx_rh = 0;
-            if ((k = pfx_lane_at(st)) != 0u && k <= 10u)
+            if ((k = pfx_lane_at(st)) != 0u && k <= 11u)
                 lane = PF_BIT(PF_OCTD + k - 1u);
         }
     }
@@ -174,14 +176,15 @@ static __attribute__((noinline)) void pfx_block(uint32_t n, uint32_t held)
         rep = on & (PF_BIT(PF_S16) | PF_BIT(PF_S8) | PF_BIT(PF_ARP));
         per = (rep & (PF_BIT(PF_S16) | PF_BIT(PF_ARP))) ? b / 4u : b / 2u;   /* (JIANT 0.4: 1/8, 1/16; ARP 1/16) */
         t->pfx_pit = (int16_t)(((on >> PF_OCTU) & 1u) * 192 - ((on >> PF_OCTD) & 1u) * 192);
-        f = ((on >> PF_RND) & 1u ? PFX_RND : 0u) | ((on >> PF_HALF) & 1u ? PFX_HALF : 0u) | (rep ? PFX_REP : 0u) |
+        f = ((on >> PF_RND) & 1u ? PFX_RND : 0u) | ((on >> PF_HALF) & 1u ? PFX_HALF : 0u) |
+            ((on >> PF_X2) & 1u ? PFX_X2 : 0u) | (rep ? PFX_REP : 0u) |
             (on & (PF_BIT(PF_DSHT) | PF_BIT(PF_DLNG)) ? PFX_DEC : 0u) | ((on >> PF_ATK) & 1u ? PFX_ATK : 0u);
-        if ((f & PFX_HALF) && !(old & PFX_HALF) && song.playing) {   /* 1/2 TEMPO: where it was */
-            t->pfx_idx0 = t->seq_idx;
+        if ((f & (PFX_HALF | PFX_X2)) && !(old & (PFX_HALF | PFX_X2)) && song.playing) {
+            t->pfx_idx0 = t->seq_idx;                   /* 1/2 or x2 TEMPO: where it was */
             t->pfx_pos0 = t->seq_pos;
             t->pfx_el = 0;
             t->pfx_half = 0;
-        } else if (!(f & PFX_HALF) && (old & PFX_HALF)) {
+        } else if (!(f & (PFX_HALF | PFX_X2)) && (old & (PFX_HALF | PFX_X2))) {
             t->pfx_rs = 1;                              /* (seq.c seq_tick: back to the real place) */
         }
         if (rep && !(old & PFX_REP)) {

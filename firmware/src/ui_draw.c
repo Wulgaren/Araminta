@@ -1154,6 +1154,15 @@ static void draw_columns(void)
             on = motion_lock_get(TSEL, st, id, &v);
             if (!on)
                 v = motion_target_base_value(TSEL, id);      /* not locked: the sound's own, DIM */
+            if (id == MSEQ_PITCH) {                          /* +2 ST: a chromatic semitone offset */
+                if (v >= 0) {
+                    val[0] = '+';
+                    fmt_int(val + 1, v);
+                } else
+                    fmt_int(val, v);
+                draw_column(c, "PITCH", val, "ST", on ? VAL(c) : T_DIM, -1, ICON_AUTO);
+                continue;
+            }
             param_format(d, v, val, &unit);
             if (id == MFX_TIME) fmt_int(val, v - DTIME_FREE);
             draw_column(c, d->label, val, unit, on ? VAL(c) : T_DIM, RATIO(d, enum_rank(d, v)), param_icon(d, v));
@@ -1214,26 +1223,35 @@ static void draw_columns(void)
         }
         return;
     }
-    if (cur_page()->graph == GR_IORD) {                 /* CHOOSE, ORDER, USE AS (CHAIN/SEND/USED), MIX */
+    if (cur_page()->graph == GR_IORD) {                 /* CHOOSE, ORDER, USE AS (CHAIN/SEND/MASTER/USED), MIX */
         uint8_t ord[FX_LIST_N];
+        int global;
         uint32_t id = ior_pct_id(), slot = ui.ior_sel < FX_LIST_N ? ui.ior_sel : 0u, st;
-        const param_desc_t *d = track_desc(TSEL, id);
+        const param_desc_t *d;
         const char *mode;
-        char pos[8];
+        int16_t mixv;
+        char pos[8], tot[8];
         int used;
         fx_list_get(TSEL, ord);
         st = ord[slot];
+        global = st == INS_TAPE;
+        d = global ? &GP[G_TMIX] : track_desc(TSEL, id);
         mode = fx_list_mode(TSEL, st);
         used = mode[0] == 'U';
+        mixv = global ? song.g[G_TMIX] : TSEL->p[id];
         fmt_int(pos, (int32_t)slot + 1);
+        str_cpy(tot, "/", sizeof tot);
+        fmt_int(tot + 1, (int32_t)FX_LIST_N);
         draw_column(0, "CHOOSE", N_ISTAGE[st], "", VAL(0u),
                     (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_AUTO);
-        draw_column(1, "ORDER", pos, "/9", VAL(1u), (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_ORDER);
+        draw_column(1, "ORDER", pos, tot, VAL(1u), (int32_t)slot * 1000 / (int32_t)(FX_LIST_N - 1u), ICON_ORDER);
         draw_column(2, "USE AS", mode, "", used ? T_DIM : VAL(2u),
-                    mode[0] == 'S' ? 1000 : mode[0] == 'C' ? 0 : -1, ICON_NONE);
-        param_format(d, TSEL->p[id], val, &unit);
-        card_mot_of(&TSEL->p[id]);
-        draw_column(3, "MIX", val, unit, used ? T_DIM : VAL(3u), RATIO(d, TSEL->p[id]), param_icon(d, TSEL->p[id]));
+                    mode[0] == 'C' ? 0 : mode[0] == 'S' ? 500 : str_eq(mode, "MASTER") ? 1000 : -1, ICON_NONE);
+        param_format(d, mixv, val, &unit);
+        if (!global)
+            card_mot_of(&TSEL->p[id]);
+        draw_column(3, "MIX", val, unit, used ? T_DIM : VAL(3u), RATIO(d, mixv),
+                    global ? ICON_NONE : param_icon(d, mixv));
         return;
     }
     if (dly_page(cur_page())) {                         /* K1 division or free ms; K4 RATE / TIME reloads K1 */
@@ -1265,6 +1283,10 @@ static void draw_columns(void)
         }
         if ((act_cols() >> c) & 1u) {
             draw_act_column(c, d->label, T_THEME, ICON_AUTO);
+            continue;
+        }
+        if (vp == &song.g[G_TTEMPO] && song.g[G_TAPEMODE] == TAPE_SEND) {   /* SEND keeps time: TEMPO fixed ON */
+            draw_column(c, d->label, "ON", "", T_DIM, -1, param_icon(d, *vp));
             continue;
         }
         param_format(d, *vp, val, &unit);

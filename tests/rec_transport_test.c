@@ -106,6 +106,16 @@ static int test_disarm_pause(uint32_t rate, uint32_t other)
         tap(B_REC); tap(B_REC);
         bad += check("REC on another track toggles that track; the original stays armed",
                      song.sel == 1u && song.rec == 1u && song.playing);
+        dark = 1;
+        for (i = 0; i < 20u; i++) { render(24); dark &= !rec_lit(); }
+        bad += check("REC armed on another track: the LED follows the selected track (dark)",
+                     song.rec == 1u && dark);
+        tap(B_PLAY); render(FS / CTL / 10u);
+        dark = 1;
+        for (i = 0; i < 20u; i++) { render(24); dark &= !rec_lit(); }
+        bad += check("..nor blinks for it while the selected track is stopped",
+                     !song.playing && song.rec == 1u && dark);
+        tap(B_PLAY); render(FS / CTL);
         turn(EN_ALGO, -1);
     }
     for (i = 0; i < 20u; i++) { render(24); steady &= rec_lit(); }

@@ -203,6 +203,10 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
         voice_t *v = drum_reuse(t, note);
         if (v)
             return voice_reuse(t, v);
+    } else if (t->engine == ENGI_DRUMS) {
+        voice_t *v = fdrum_reuse(t, note);
+        if (v)
+            return voice_reuse(t, v);
     }
     for (i = 0; i < np; i++) {
         if (t->v[i].active && t->v[i].note == note)
@@ -253,8 +257,8 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
     return voice_reuse(t, &t->v[best == np ? 0 : best]);
 }
 
-/* glide: free ms (F_TIME on GLD). Always TIME-duration (same time for any interval). P_GLMODE stays in the
- * store (append-only) but is not shown and is not read here. */
+/* glide: free ms (F_TIME on GLD). Always TIME-duration (same time for any interval). The old GLMOD id
+ * (P_TAPEMIX now) stays in the store but is not read here. */
 static void glide_set(track_t *t, voice_t *v, int glide)
 {
     if (!glide || !v->pitch_cur) {
@@ -639,7 +643,7 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
     uint32_t ti = (uint32_t)(t - trk);
     uint32_t nr = 0, fade = t->xf_on && t->xf, live = 0;
     int16_t pe_new[8];
-    if (ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM) {
+    if (ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM || ENGINES[eng_idx(t->eng_req)] == &ENG_DRUMS) {
         midi_bend_q8[ti] = midi_bend_target[ti] = 0;
     } else {
         int32_t d = midi_bend_target[ti] - midi_bend_q8[ti];
@@ -714,7 +718,8 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
         }
         if (!env && !m.amp0 && v->stage == 2 && !e->sampled)
             continue;                                   /* held at a silent sustain (SUS 0): nothing to render */
-        pitch = v->pitch_cur + t->pfx_pit + tune + bend16 + ((lfo * p[P_LD_PIT] * 3) >> 15) + ((m.envq15 * p[P_ED_PIT] * 3) >> 15);
+        pitch = v->pitch_cur + t->pfx_pit + tune + tape_pitch16_for(t) + bend16 +
+                ((lfo * p[P_LD_PIT] * 3) >> 15) + ((m.envq15 * p[P_ED_PIT] * 3) >> 15);
         m.pitch16 = clamp(pitch, 0, 2047);
         m.inc = pitch_inc(m.pitch16);
         m.fine = v->fine + tune_fine + bend_fine;

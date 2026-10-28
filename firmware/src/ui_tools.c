@@ -10,12 +10,17 @@
  * COOKs SAVE held takes back the last one only; the layer's OCT- puts back the track as the layer opened (tl_open).
  * A step that held something and is empty after loses its locks (as clearing a note); REVERSE and SHIFT move the
  * steps' automation and locks with them. RANDOM and COOK draw from libc.c rng(): no seed is kept, each press
- * differs. A sequence of ties reversed keeps its note first: N T T -> N T T at the mirrored place */
+ * differs. A sequence of ties reversed keeps its note first: N T T -> N T T at the mirrored place.
+ * The same page also edits the written notes: on a melodic track OCT- OCT+ HALF *2 HUMAN DUP sit on E4..C5
+ * (no gap); on a DRUM track they are D5..G5. One undo per action. */
 enum { TL_CLEAR, TL_REV, TL_LEFT, TL_RIGHT, TL_RANDOM, TL_COOK, TL_BEAT, TL_MUTE, TL_LCLR, TL_LREV, TL_LFILL, TL_LRND,
        TL_N };
+/* the stored-note edits on the SEQ TOOLS page: one undo each, like COOK / RANDOM */
+enum { TL2_OCTD, TL2_OCTU, TL2_HALF, TL2_X2, TL2_HUMAN, TL2_DUP, TL2_N };
 
-/* the track as the layer opened (OCT-): in the pool (RAM's .bss is tight), taken by layer_opened */
-static struct { step_t step[NSTEP]; motion_store_t mo; } tl_open __attribute__((section(".pool")));
+/* the track as the layer opened (OCT-): in the pool (RAM's .bss is tight), taken by layer_opened. sqnt: HUMAN
+ * switches QUANTIZE off so its nudges play; OCT- puts that back with the steps. */
+static struct { step_t step[NSTEP]; motion_store_t mo; int16_t sqnt; } tl_open __attribute__((section(".pool")));
 
 static uint32_t tl_len(const track_t *t) { return (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP); }
 static uint32_t tl_rnd(uint32_t n) { return n ? rng() % n : 0u; }
@@ -329,6 +334,245 @@ static void tl_cook_notes(track_t *t, uint32_t len, uint32_t g)
                 step_set_note(s, k, (uint32_t)(o ? (int32_t)step_note(s, k) + o : tl_neigh(t, (int32_t)step_note(s, k), d)));
         }
     }
+}
+
+/* ------------------------------------------------------ NOTE EDITS --- */
+/* HUMAN: fresh random velocity / nudge every press, per step (a chord shares both). The step format has one vel
+ * and one nudge per step; ties and rests are skipped. QUANTIZE is switched off because NUDGE only plays then. */
+#define TL2_HUMAN_VEL 16
+#define TL2_HUMAN_NUDGE 2
+static int tl2_cell(const track_t *t, uint32_t p)
+{
+    if (p >= TL2_N)
+        return 0;
+    return p != TL2_OCTD && p != TL2_OCTU ? 1 : !drum_track(t);
+}
+/* where the edits sit on SEQ TOOLS, with no gap: on a melodic track they follow the six sequence tools
+ * (E4..C5); on a DRUM track E4..C5 are BEAT / MUTE and the lane tools, so HALF..DUP are D5..G5 */
+static int tl2_at(const track_t *t, uint32_t p)
+{
+    if (!drum_track(t))
+        return p >= 6u && p < 12u ? (int)TL2_OCTD + (int)(p - 6u) : -1;
+    return p >= 12u ? (int)TL2_HALF + (int)(p - 12u) : -1;
+}
+static uint32_t tl2_note_steps(const track_t *t, uint32_t len)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < len; i++)
+        if (t->step[i].time == ST_NOTE && (t->step[i].n || t->step[i].hit))
+            n++;
+    return n;
+}
+/* Move / stretch / squeeze automation and locks. Collisions keep the retained note's value. */
+static void tl2_motion_map(track_t *t, uint32_t olen, uint32_t num, uint32_t den, uint32_t nlen)
+{
+    uint32_t i, n = 0, k = trk_index(t), f = motion_guard();
+    for (i = 0; i < motion.count; i++) {
+        motion_event_t e = motion.event[i];
+        uint32_t s = e.place & 63u;
+        if ((e.place >> 6) == k) {
+            if (s >= olen && s < nlen)
+                continue;                               /* (its step was cleared / overwritten) */
+            if (s < olen) {
+                s = s * num / den;
+                if (s >= nlen)
+                    continue;                           /* (cut with its step) */
+                e.place = (uint8_t)((e.place & 0xC0u) | s);
+                if (num < den) {
+                    uint32_t j, first = s * den, pick = first;
+                    const step_t *a = &undo.step[first];
+                    const step_t *b = &undo.step[first + 1u];
+                    if (!(a->time == ST_NOTE && (a->n || a->hit)) &&
+                        b->time == ST_NOTE && (b->n || b->hit))
+                        pick++;
+                    for (j = 0; j < n; j++)
+                        if (motion.event[j].place == e.place && MOTION_ID(&motion.event[j]) == MOTION_ID(&e))
+                            break;
+                    if (j < n) {
+                        if ((motion.event[i].place & 63u) == pick)
+                            motion.event[j] = e;
+                        continue;
+                    }
+                }
+            }
+        }
+        motion.event[n++] = e;
+    }
+    memset(motion.event + n, 0, (MOTION_MAX - n) * sizeof motion.event[0]);
+    motion.count = (uint8_t)n;
+    RING_PUBLISH();
+    motion_unguard(f);
+}
+/* DUP: remove what the new copies cover, then copy steps 1..LEN's records onto each copy */
+static void tl2_motion_repeat(track_t *t, uint32_t len, uint32_t nlen)
+{
+    uint32_t i, j, n = 0, k = trk_index(t), f = motion_guard();
+    for (i = 0; i < motion.count; i++) {
+        motion_event_t e = motion.event[i];
+        uint32_t s = e.place & 63u;
+        if ((e.place >> 6) == k && s >= len && s < nlen)
+            continue;
+        motion.event[n++] = e;
+    }
+    motion.count = (uint8_t)n;
+    for (i = 0; i < n; i++) {
+        motion_event_t e = motion.event[i];
+        uint32_t s = e.place & 63u;
+        if ((e.place >> 6) != k || s >= len)
+            continue;
+        for (j = s + len; j < nlen && motion.count < MOTION_MAX; j += len) {
+            motion_event_t c = e;
+            c.place = (uint8_t)((c.place & 0xC0u) | j);
+            motion.event[motion.count++] = c;
+        }
+    }
+    memset(motion.event + motion.count, 0, (MOTION_MAX - motion.count) * sizeof motion.event[0]);
+    RING_PUBLISH();
+    motion_unguard(f);
+}
+/* OCT- / OCT+: the stored notes (ties and rests have none); drums keep their lanes */
+static void tl2_oct(track_t *t, uint32_t len, int32_t d)
+{
+    uint32_t i, k;
+    for (i = 0; i < len; i++) {
+        step_t *s = &t->step[i];
+        if (s->time != ST_NOTE)
+            continue;
+        for (k = 0; k < s->n && k < 4u; k++)
+            step_set_note(s, k, (uint32_t)clamp((int32_t)step_note(s, k) + d, 1, 127));
+    }
+}
+/* HALF: each step twice as long in time (LEN x2); a note's ties keep holding, a short note stays short.
+ * x2: each pair of steps becomes one (the first playing step wins; LEN /2); a held note becomes a tie. */
+static uint32_t tl2_stretch(track_t *t, uint32_t len)
+{
+    uint32_t nlen = len * 2u > NSTEP ? NSTEP : len * 2u, i, j;
+    if (nlen <= len)
+        return 0;
+    for (j = 0; j < nlen; j++)
+        step_clear(&t->step[j]);
+    for (i = 0; i < len && i * 2u < NSTEP; i++) {
+        const step_t *s = &undo.step[i];
+        int hold = s->time == ST_TIE ||
+                   (s->time == ST_NOTE && s->n && i + 1u < len && undo.step[i + 1u].time == ST_TIE);
+        t->step[i * 2u] = *s;
+        if (hold) {
+            t->step[i * 2u + 1u].time = ST_TIE;
+            t->step[i * 2u + 1u].vel = s->vel;
+        }
+    }
+    tl2_motion_map(t, len, 2u, 1u, nlen);
+    t->p[P_SLEN] = (int16_t)nlen;
+    return nlen;
+}
+static uint32_t tl2_squeeze(track_t *t, uint32_t len)
+{
+    uint32_t nlen = (len + 1u) / 2u, i, j;
+    if (nlen >= len)
+        return 0;
+    for (j = 0; j < len; j++)
+        step_clear(&t->step[j]);
+    for (j = 0; j < nlen; j++) {
+        uint32_t pick = NSTEP, tie = 0;
+        for (i = j * 2u; i < j * 2u + 2u && i < len; i++) {
+            if (undo.step[i].time == ST_NOTE && (undo.step[i].n || undo.step[i].hit)) {
+                pick = i;
+                break;
+            }
+            tie |= undo.step[i].time == ST_TIE;
+        }
+        if (pick < NSTEP) {
+            t->step[j] = undo.step[pick];
+        } else if (tie && j) {
+            t->step[j].time = ST_TIE;
+            t->step[j].vel = undo.step[j * 2u].vel;
+        }
+    }
+    tl2_motion_map(t, len, 1u, 2u, nlen);
+    t->p[P_SLEN] = (int16_t)nlen;
+    return nlen;
+}
+/* DUP: A -> A A; steps, locks and automation copied, LEN x2 (what fits up to 64) */
+static uint32_t tl2_repeat(track_t *t, uint32_t len)
+{
+    uint32_t nlen = len * 2u > NSTEP ? NSTEP : len * 2u, j;
+    if (nlen <= len)
+        return 0;
+    for (j = len; j < nlen; j++)
+        t->step[j] = t->step[j - len];
+    tl2_motion_repeat(t, len, nlen);
+    t->p[P_SLEN] = (int16_t)nlen;
+    return nlen;
+}
+static void tl2_human(track_t *t, uint32_t len)
+{
+    uint32_t i;
+    for (i = 0; i < len; i++) {
+        step_t *s = &t->step[i];
+        int32_t v, n;
+        if (s->time != ST_NOTE || (!s->n && !s->hit))
+            continue;
+        v = s->vel ? (int32_t)s->vel : 96;
+        v += (int32_t)tl_rnd(2u * TL2_HUMAN_VEL + 1u) - TL2_HUMAN_VEL;
+        v = clamp(v, 1, 127);
+        s->vel = (uint8_t)(v == 96 ? 0 : v);
+        n = step_nudge(s) + (int32_t)tl_rnd(2u * TL2_HUMAN_NUDGE + 1u) - TL2_HUMAN_NUDGE;
+        step_set_nudge(s, n);
+    }
+    t->p[P_SQNT] = 0;                                  /* (NUDGE plays only with QUANTIZE OFF) */
+}
+/* a NOTE EDITS action: its message; 0 = nothing done (said why) */
+static const char *tl2_do(track_t *t, uint32_t p)
+{
+    uint32_t len = tl_len(t), i, k, n = 0;
+    const char *msg = 0;
+    if (!tl2_cell(t, p))
+        return 0;
+    if (p == TL2_OCTD || p == TL2_OCTU) {
+        int32_t d = p == TL2_OCTD ? -12 : 12;
+        for (i = 0; i < len; i++)
+            for (k = 0; k < t->step[i].n && k < 4u; k++)
+                if (t->step[i].time == ST_NOTE &&
+                    clamp((int32_t)step_note(&t->step[i], k) + d, 1, 127) != (int32_t)step_note(&t->step[i], k))
+                    n++;
+        if (!n) {
+            ui_message("NOTHING TO TRANSPOSE");
+            return 0;
+        }
+        tl_undo_take(t);
+        tl2_oct(t, len, d);
+        return d < 0 ? "OCT DOWN" : "OCT UP";
+    }
+    if (!tl2_note_steps(t, len)) {
+        ui_message("NOTHING TO EDIT");
+        return 0;
+    }
+    if (p == TL2_HUMAN) {
+        int qntz = t->p[P_SQNT] != 0;
+        tl_undo_take(t);
+        tl2_human(t, len);
+        return qntz ? "HUMANIZED QNTZ OFF" : "HUMANIZED";
+    }
+    if (p == TL2_DUP && len == NSTEP) {
+        ui_message("PATTERN FULL");
+        return 0;
+    }
+    if (p == TL2_HALF && len == NSTEP) {
+        ui_message("PATTERN FULL");
+        return 0;
+    }
+    if (p == TL2_X2 && len < 2u) {
+        ui_message("NOTHING TO EDIT");
+        return 0;
+    }
+    tl_undo_take(t);
+    switch (p) {
+    case TL2_HALF: msg = tl2_stretch(t, len) ? "HALF TIME" : 0; break;
+    case TL2_X2: msg = tl2_squeeze(t, len) ? "DOUBLE TIME" : 0; break;
+    case TL2_DUP: msg = tl2_repeat(t, len) ? "DUPLICATED" : 0; break;
+    default: break;
+    }
+    return msg;
 }
 
 /* ------------------------------------------------------------ actions --- */

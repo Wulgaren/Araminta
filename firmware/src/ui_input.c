@@ -90,6 +90,8 @@ static int mom_turn(uint32_t k, int32_t s)
     if (!d || !vp || d->max == d->min ||
         !((vp >= t->p && vp < t->p + P_COUNT) || (g <= G_CDEPTH && g != G_CLOCK) || g == G_RTYPE))
         return 0;                                      /* (only the values a sound and the FX are: no CLK, no actions) */
+    if (vp == &song.g[G_TTEMPO] && song.g[G_TAPEMODE] == TAPE_SEND)
+        return 1;                                      /* SEND keeps time: TEMPO is fixed ON */
     if (arp_drone_frozen(TSEL, vp))
         return 0;
     for (i = 0; i < mom.n && mom.vp[i] != vp; i++)
@@ -290,7 +292,7 @@ static uint32_t scale_leds(uint32_t *root)
     for (k = 0; k < 27u; k++) {
         if (e->keys && e->keys(t, k) >= 0)
             continue;
-        if (t->p[P_QUANT] == QN_KBD || t->p[P_QUANT] == QN_ALL) {
+        if (qn_mode(t) == QN_KBD || qn_mode(t) == QN_ALL) {
             if (key_black(k))
                 continue;                               /* layout is white keys; blacks only duplicate */
             if ((note = kb_map(t, k)) > 127u)
@@ -379,9 +381,10 @@ static void ui_leds(void)
         led_put(nl, panel.btn[B_FX], 1);                /* FX LATCH: lit while an effect or a macro is on */
     if (ui.layer)                                       /* the layer's button breathes while its map is up */
         led_put(nb, panel.btn[layer_btn()], 1);
-    led_put(nl, panel.btn[B_REC],
-            ft_on || (song.rec != 0u && (song.playing || ((fm1_ms / 125u) & 1u))));   /* free take / armed: lit;
-                                                         * armed and stopped: blinks */
+    led_put(nl, panel.btn[B_REC],                        /* the selected track, as the tap acts on it (a track armed
+                                                         * behind another shows in the header's REC icon and the MIXER's
+                                                         * column); free take / armed: lit; armed and stopped: blinks */
+            ft_on || (((song.rec >> song.sel) & 1u) && (song.playing || ((fm1_ms / 125u) & 1u))));
     k = oct_leds();
     led_put(nl, panel.btn[B_OCTDN], (int)(k & 1u));
     led_put(nl, panel.btn[B_OCTUP], (int)((k >> 1) & 1u));
@@ -1273,13 +1276,17 @@ static void edit_param(uint32_t slot, int32_t steps)
     d = page_desc(pg, slot, &vp);
     if (!d || !vp || d->max == d->min)
         return;
+    if (vp == &song.g[G_TTEMPO] && song.g[G_TAPEMODE] == TAPE_SEND)
+        return;                                        /* SEND keeps time: TEMPO is fixed ON */
     if (pg->graph != GR_MOD)
         pk_close();
     if (arp_drone_frozen(TSEL, vp))
         return;
     v = param_turn(d, *vp, accel(EN_K1 + slot, steps, d->fmt == F_ENUM ? 0 : d->max - d->min));
-    if (pg->id[slot] == PG_SLOCK) {
-        scale_lock_set(TSEL, (int16_t)v);
+    if (pg->id[slot] == PG_STRUM || pg->id[slot] == PG_STROKE) {
+        uint32_t rate = pg->id[slot] == PG_STRUM ? (uint32_t)v : sweep_rate(TSEL);
+        uint32_t stroke = pg->id[slot] == PG_STROKE ? (uint32_t)v : sweep_stroke(TSEL);
+        TSEL->p[P_ALLOC] = sweep_pack(rate, stroke);
         ui.force = 1;
         return;
     }
@@ -1295,15 +1302,16 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
 }
 
-/* DLY: K4 RATE (divisions, triplets and dotted) or TIME (free milliseconds). Switching reloads K1.
- * The division last used is remembered so TIME and back lands on the same note value. */
+/* DLY: K4 turned left is TIME (free milliseconds), turned right RATE (divisions, triplets and dotted).
+ * Switching reloads K1. The division last used is remembered, so TIME and back lands on the same
+ * note value. */
 static uint8_t dly_div = 1;
 static void dly_knob(uint32_t slot, int32_t steps)
 {
     if (!steps)
         return;
     if (slot == 3u) {
-        int to_ms = steps > 0;
+        int to_ms = steps < 0;
         if (to_ms == dtime_free())
             return;
         if (to_ms) {
@@ -1331,12 +1339,13 @@ static void dly_knob(uint32_t slot, int32_t steps)
     }
     ui.force = 1;
 }
-/* EFFECTS: K1 chooses the stage, K2 moves it, K3 is USE AS (CHAIN / SEND / USED), K4 is MIX */
+/* EFFECTS: K1 chooses the stage, K2 moves it, K3 is USE AS (CHAIN / SEND / MASTER / USED), K4 is MIX */
 static void ior_knob(uint32_t k, int32_t s)
 {
     int32_t n = s > 0 ? s : -s, dir = s > 0 ? 1 : -1;
     uint8_t ord[FX_LIST_N];
     uint32_t st;
+    const char *mode;
     if (n > 12)
         n = 12;
     fx_list_get(TSEL, ord);
@@ -1350,33 +1359,78 @@ static void ior_knob(uint32_t k, int32_t s)
             ui.ior_sel = (uint8_t)clamp((int32_t)ui.ior_sel + dir, 0, (int32_t)FX_LIST_N - 1);
         }
     } else if (k == 2u) {
-        int send = s > 0;                              /* K3: left CHAIN, right SEND (as drawn), no wrap */
-        if (st == INS_SLCR) {
-            int32_t tr = (int32_t)(TSEL - trk);
+        int send = s > 0;                              /* K3: left CHAIN, right SEND / MASTER (no wrap) */
+        int32_t tr = (int32_t)(TSEL - trk);
+        if (st == INS_TAPE) {                          /* TAPE: CHAIN (this track) -> SEND -> MASTER */
+            int32_t m = song.g[G_TAPEMODE];
+            motion_fx_route(TSEL, INS_TAPE, 0);        /* SPEED / WOW locks of the old route back */
+            if (m == TAPE_MASTER) {
+                if (!fx_master_on(INS_TAPE)) {
+                    if (!send)
+                        song.g[G_TAPEMODE] = TAPE_SEND;
+                } else if (fx_master_owned(INS_TAPE, (uint32_t)tr) && !send) {
+                    fx_master_clear(INS_TAPE);
+                    song.g[G_TAPEMODE] = TAPE_SEND;
+                }
+            } else if (m == TAPE_SEND) {
+                if (send) {
+                    fx_master_set(INS_TAPE, (uint32_t)tr);
+                    song.g[G_TAPEMODE] = TAPE_MASTER;
+                } else {
+                    song.g[G_TAPEMODE] = (int16_t)(TAPE_CH1 + tr);
+                }
+            } else if (send && TAPE_OWNER_OF(m) == tr) {
+                fx_master_clear(INS_TAPE);
+                song.g[G_TAPEMODE] = TAPE_SEND;
+            } else if (send) {
+                fx_master_set(INS_TAPE, (uint32_t)tr);
+                song.g[G_TAPEMODE] = TAPE_MASTER;
+            }
+            motion_fx_route(TSEL, INS_TAPE, 1);
+        } else if (fx_master_on(st) && st >= INS_N) {  /* shared buses: MASTER is exclusive */
+            if (fx_master_owned(st, (uint32_t)tr) && !send)
+                fx_master_clear(st);
+        } else if (st == INS_SLCR) {
             uint32_t bit = 1u << (uint32_t)tr;
             sl_own_sanitize();
-            if (sl_trk_send(TSEL) != send) {
+            if (send && sl_trk_send(TSEL))
+                fx_master_set(st, (uint32_t)tr);
+            else if (sl_trk_send(TSEL) != send) {
                 motion_fx_route(TSEL, INS_SLCR, 0);
                 song.g[G_SLOWN] = (int16_t)((uint32_t)song.g[G_SLOWN] ^ bit);  /* this track SEND <-> CHAIN */
                 motion_fx_route(TSEL, INS_SLCR, 1);
             }
         } else if (st == INS_DLY || st == INS_REV) {
             uint32_t which = st == INS_REV ? 1u : 0u;
-            int32_t own = bus_own(which), tr = (int32_t)(TSEL - trk);
+            int32_t own = bus_own(which);
             if (send) {
                 if (own == tr)
                     bus_own_set(which, -1);           /* right: release this track's CHAIN, SEND for all */
+                else if (own < 0)
+                    fx_master_set(st, (uint32_t)tr); /* SEND -> MASTER */
             } else if (own < 0)                       /* left: claim CHAIN only when no other track owns it */
                 bus_own_set(which, tr);
-        } else if (send != ins_is_send(TSEL, st))
+        } else if (fx_master_on(st) && !fx_master_owned(st, (uint32_t)tr)) {
+            if (send != ins_is_send(TSEL, st))        /* another track's MASTER: CHAIN / SEND still works */
+                ins_send_set(TSEL, st, send);
+        } else if (fx_master_owned(st, (uint32_t)tr)) {
+            if (!send)
+                fx_master_clear(st);
+        } else if (send != ins_is_send(TSEL, st)) {
             ins_send_set(TSEL, st, send);
-    } else if (fx_list_mode(TSEL, st)[0] != 'U') {
+        } else if (send) {
+            fx_master_set(st, (uint32_t)tr);          /* right from SEND: this track's MASTER insert */
+        }
+    } else if ((mode = fx_list_mode(TSEL, st))[0] != 'U') {
+        int global = st == INS_TAPE;
         uint32_t id = ior_pct_id();
-        const param_desc_t *d = track_desc(TSEL, id);
-        int16_t *vp = &TSEL->p[id];
+        const param_desc_t *d = global ? &GP[G_TMIX] : track_desc(TSEL, id);
+        int16_t *vp = global ? &song.g[G_TMIX] : &TSEL->p[id];
         *vp = (int16_t)param_turn(d, *vp, accel(EN_K4, s, d->max - d->min));
-        motion_capture(TSEL, id, *vp);
-        ml_knob(TSEL, id);
+        if (!global) {
+            motion_capture(TSEL, id, *vp);
+            ml_knob(TSEL, id);
+        }
     }
     ui.force = 1;
 }
@@ -2154,7 +2208,8 @@ static void ui_input(void)
     }
     for (k = 0; k < 4u && !kq; k++) {
         const page_t *pg = cur_page();
-        int16_t *hv;
+        int16_t *hv = 0;
+        int dim = page_desc(pg, k, &hv) && hv == &song.g[G_TTEMPO] && song.g[G_TAPEMODE] == TAPE_SEND;
         uint64_t held;
         if ((s = panel_enc(EN_K1 + k)) == 0)
             continue;
@@ -2166,15 +2221,15 @@ static void ui_input(void)
             ui.hot_t = 40;
             continue;
         }
-        if (mom_down() && mom_turn(k, s)) {             /* MOMENTARY: LFO held (no automation, no undo) */
+        if (!dim && mom_down() && mom_turn(k, s)) {     /* MOMENTARY: LFO held (no automation, no undo) */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;
             continue;
         }
-        if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
+        if (!dim && (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
             ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
             || pg->graph == GR_SONG || pg->graph == GR_IORD || pg->graph == GR_DXSND || pg->graph == GR_GENERATION ||
-            (dly_page(pg) && k == 3u) || fop_page(pg->graph)) {   /* (not an empty column; DLY K4 is RATE / TIME) */
+            (dly_page(pg) && k == 3u) || fop_page(pg->graph))) {   /* (not an empty column; DLY K4 is RATE / TIME) */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;
         }

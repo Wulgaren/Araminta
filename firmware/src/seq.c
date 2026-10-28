@@ -67,13 +67,20 @@ static uint32_t trk_midi_ch(uint32_t i) { return (midi_base() > 0 ? (uint32_t)mi
 static int drum_track(const track_t *t)
 {
     uint32_t e = eng_idx(t->eng_req), set;
-    if (ENGINES[e] == &ENG_DRUM)
+    if (ENGINES[e] == &ENG_DRUM || ENGINES[e] == &ENG_DRUMS)
         return 1;
     if (ENGINES[e] != &ENG_SAMPLE)
         return 0;
     set = (uint32_t)t->p[P_E0];
     return set == SMP_CR78_INDEX ||
            (set >= SMP_NSETS && set < SMP_CR78_INDEX && smp_user_drum(set - SMP_NSETS));
+}
+
+/* DRUM and every other engine with its own key map: PITCH and TRN do not reach its notes (kit tracks) */
+static int kit_track(const track_t *t)
+{
+    const engine_t *e = ENGINES[eng_idx(t->eng_req)];
+    return e->keys && e->keys(t, 0) >= 0;
 }
 
 /* the 27 keys from F: black or white, and the key's place among the keys of its colour (white 0..15, black
@@ -127,7 +134,11 @@ static int32_t scale_nearest(const track_t *t, int32_t n)
     return n - down <= up - n ? down : up;
 }
 
-enum { QN_OFF, QN_ALL, QN_KBD, QN_SEQ };          /* P_QUANT (MAP) */
+/* (QN_*: core.h) MAP = CURR quantises exactly like ALL */
+static inline uint32_t qn_mode(const track_t *t)
+{
+    return t->p[P_QUANT] == QN_CURR ? QN_ALL : (uint32_t)t->p[P_QUANT];
+}
 #define QN_WHITE QN_KBD                          /* (older tests / comments) */
 #define QN_SNAP QN_KBD                           /* old SNAP tests: closest remaining is KBD layout */
 
@@ -144,7 +155,7 @@ static uint32_t kb_pitch(const track_t *t, uint32_t k, int32_t oct)
 {
     static const int8_t DEGREE[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
     int32_t n = 53 + (int32_t)k;
-    if (t->p[P_QUANT] == QN_KBD || t->p[P_QUANT] == QN_ALL) {  /* KBD / ALL: white walk; black -> nearest */
+    if (qn_mode(t) == QN_KBD || qn_mode(t) == QN_ALL) {  /* KBD / ALL / CURR: white walk; black -> nearest */
         uint32_t mask = scale_mask(t), i;
         int32_t count = 0, degree = DEGREE[n % 12], wo;
         if (degree < 0)                                 /* black: chromatic pitch, closest in-scale (dup OK) */
@@ -696,14 +707,24 @@ static void rec_release(track_t *t, uint32_t note)
 
 /* FREE TAKE (from SLOOP): empty project, REC armed while stopped, no count-in. Play with no tempo;
  * REC on the next downbeat closes the loop (1 / 2 / 4 bars, tempo nearest the current BPM; within 3 %
- * the tempo is kept), notes quantised to 1/16 with lengths; a note started while an earlier one is still
- * held sets SF_SLIDE on the previous NOTE step and TIEs the gap (acid legato); when that tap ends while
- * a key is still held, a return to the last held pitch is recorded (mono fall-back); PLAY drops the take. */
+ * the tempo is kept), notes quantised to 1/16 with lengths (1/32 for a 1-2 bar take that recorded a
+ * 1/16 or finer strum, so its sweep has the steps to land on); a strummed chord keeps its sweep at the
+ * take's tempo (the strings re-spaced by the STRUM rate they were played with, not the tempo before the
+ * take); a note started while an earlier one is still held sets SF_SLIDE on the previous NOTE step and
+ * TIEs the gap (acid legato; a strum's strings do not slide); when that tap ends while a key is still
+ * held, a return to the last held pitch is recorded (mono fall-back); PLAY drops the take. */
 #define FT_MAX 192u
 #define FT_BLOCKS (24u * FS / CTL)            /* 24 s: 4 bars at 40 BPM, the longest loop */
 #define FT_OPEN 0xFFFFu                       /* the key is still down */
 typedef struct { uint16_t t, d; uint8_t note, vel; } ft_ev_t;
 static ft_ev_t ft_ev[FT_MAX];
+/* a note that was one string of a strum: rate (1..7, chord.c STRUM_DEN), index in the sweep, total.
+ * The take re-spaces them on its own tempo (ft_close) and keeps them out of the legato rules. */
+#define FT_STRUM 0x80u
+#define FT_STRUM_PACK(rate, idx, total) \
+    ((uint8_t)(FT_STRUM | ((rate) << 4) | (((idx) & 3u) << 2) | (((total) - 1u) & 3u)))
+static uint8_t ft_sg[FT_MAX];
+static uint8_t ft_strum_fine;                 /* a 1/16 or finer strum: a 1-2 bar take uses 1/32 */
 static uint32_t ft_n;
 static volatile uint8_t ft_on;                /* a free take runs */
 static uint8_t ft_trk;
@@ -768,6 +789,7 @@ static void ft_start(track_t *t)
     ft_trk = (uint8_t)trk_index(t);
     ft_t = 0;
     ft_n = 0;
+    ft_strum_fine = 0;
     song.rec = 0;
 }
 static void ft_note_on(uint32_t note, uint32_t vel)
@@ -777,6 +799,10 @@ static void ft_note_on(uint32_t note, uint32_t vel)
         ft_ev[ft_n].d = FT_OPEN;
         ft_ev[ft_n].note = (uint8_t)note;
         ft_ev[ft_n].vel = (uint8_t)vel;
+        ft_sg[ft_n] = chord_strum_now.on
+            ? FT_STRUM_PACK(chord_strum_now.rate, chord_strum_now.index, chord_strum_now.total) : 0u;
+        if ((ft_sg[ft_n] & FT_STRUM) && chord_strum_now.rate >= 2u)
+            ft_strum_fine = 1;                     /* 1/16 or finer: one 1/16 step is too coarse */
         ft_n++;
     }
 }
@@ -797,8 +823,17 @@ static uint32_t ft_end(const ft_ev_t *e, uint32_t T)
 {
     return e->d == FT_OPEN || (uint32_t)e->t + e->d > T ? T : (uint32_t)e->t + e->d;
 }
+/* how far into its strum a string started, in blocks, at `beat` samples (as chord.c spaces the sweep) */
+static uint32_t ft_strum_off(uint8_t sg, uint32_t beat)
+{
+    uint32_t rate = (sg >> 4) & 7u, idx = (sg >> 2) & 3u, total = (sg & 3u) + 1u;
+    if (!(sg & FT_STRUM) || total < 2u || idx >= total || rate >= NELEM(STRUM_DEN))
+        return 0u;
+    return (beat / STRUM_DEN[rate]) * idx / (total - 1u) / CTL;
+}
 /* length ties from each note; then for notes started while another is held: SF_SLIDE on the previous
- * NOTE and on the TIE before the destination (seq_hold drops on a plain TIE→NOTE). */
+ * NOTE and on the TIE before the destination (seq_hold drops on a plain TIE→NOTE). A strum's strings
+ * are a chord, not a legato tap: they neither slide nor hold a slide from another note. */
 static void ft_legato(track_t *t, uint32_t n, uint32_t len, uint32_t T)
 {
     uint32_t i, k;
@@ -816,7 +851,11 @@ static void ft_legato(track_t *t, uint32_t n, uint32_t len, uint32_t T)
     }
     for (i = 1; i < n; i++) {
         uint32_t idx = ft_q(ft_ev[i].t, len, T), j, held = 0;
+        if (ft_sg[i] & FT_STRUM)
+            continue;
         for (j = 0; j < i; j++) {
+            if (ft_sg[j] & FT_STRUM)
+                continue;
             if (ft_ev[j].t < ft_ev[i].t && ft_end(&ft_ev[j], T) > ft_ev[i].t) {
                 held = 1;
                 break;
@@ -842,14 +881,14 @@ static void ft_returns(uint32_t len, uint32_t T)
     uint32_t base = ft_n, i;
     for (i = 0; i < base && ft_n < FT_MAX; i++) {
         uint32_t end, j, last = ~0u, held_end = 0, tap_idx, ret_idx, ret_t;
-        if (ft_ev[i].d == FT_OPEN)
+        if (ft_ev[i].d == FT_OPEN || (ft_sg[i] & FT_STRUM))
             continue;
         end = (uint32_t)ft_ev[i].t + ft_ev[i].d;
         if (end >= T)
             continue;
         for (j = 0; j < base; j++) {
             uint32_t je;
-            if (j == i)
+            if (j == i || (ft_sg[j] & FT_STRUM))
                 continue;
             je = ft_end(&ft_ev[j], T);
             if (ft_ev[j].t < end && je > end && (last == ~0u || ft_ev[j].t >= ft_ev[last].t)) {
@@ -873,13 +912,14 @@ static void ft_returns(uint32_t len, uint32_t T)
         ft_ev[ft_n].d = (uint16_t)(held_end - ret_t);
         ft_ev[ft_n].note = ft_ev[last].note;
         ft_ev[ft_n].vel = ft_ev[last].vel;
+        ft_sg[ft_n] = 0;
         ft_n++;
     }
 }
 static void ft_close(void)
 {
     track_t *t = &trk[ft_trk % NTRK];
-    uint32_t T = ft_t, bars, bpm = 0, len, i;
+    uint32_t T = ft_t, bars, bpm = 0, len, div, i;
     ft_on = 0;
     ft_close_ms = fm1_ms;
     ft_closed = 1;
@@ -889,10 +929,36 @@ static void ft_close(void)
         return;
     }
     len = 16u * bars;
+    div = 2;                                          /* 1/16 */
+    if (bars <= 2u && ft_strum_fine) {               /* a 1/16 strum needs two steps: 1/32 fits 1-2 bars */
+        len = 32u * bars;                            /* (4 bars would need 128 steps: stay at 1/16) */
+        div = 3;                                     /* 1/32 */
+    }
+    {   /* a strummed chord: put its strings back on the sweep it was set to, at the take's tempo (the
+         * sweep during the take used the tempo before it, so a slower take made a 1/8 strum come out
+         * shorter). Keep each string's release where it was played. */
+        uint32_t ob = beat_samples();
+        uint32_t nb = song.g[G_CLOCK] && midi_beat_samples ? ob : (uint32_t)FS * 60u / bpm;
+        for (i = 0; i < ft_n; i++) {
+            uint8_t sg = ft_sg[i];
+            uint32_t off, at;
+            if (!(sg & FT_STRUM))
+                continue;
+            off = ft_strum_off(sg, ob);
+            at = (ft_ev[i].t > off ? (uint32_t)ft_ev[i].t - off : 0u) + ft_strum_off(sg, nb);
+            if (at >= T)
+                at = T ? T - 1u : 0u;
+            if (ft_ev[i].d != FT_OPEN) {
+                uint32_t end = (uint32_t)ft_ev[i].t + ft_ev[i].d;
+                ft_ev[i].d = end > at ? (uint16_t)(end - at) : 0u;
+            }
+            ft_ev[i].t = (uint16_t)at;
+        }
+    }
     ft_steps_clear(t);
     for (i = 0; i < NTRK; i++) {
         trk[i].p[P_SLEN] = (int16_t)len;
-        trk[i].p[P_SDIV] = 2;                         /* 1/16 */
+        trk[i].p[P_SDIV] = (int16_t)div;
     }
     if (!drum_track(t))
         ft_returns(len, T);
@@ -995,7 +1061,7 @@ static void input_off(track_t *t, uint32_t note)
     }
 }
 
-/* the effect of key k in the FX layer (PF_N none): white keys F3 .. F5 the page's fixed map (perform.c
+/* the effect of key k in the FX layer (PF_N none): white keys F3 .. G5 the page's fixed map (perform.c
  * perf_map_now: the punch page's (1/2 or 2/2, ui.c page_entered)); with FX LATCH, G5 is CLR (turns latched effects and macros
  * off); black keys 1..4 the track mutes, A#4 the MIDI effects' tracks (pfx_tgt) */
 static uint32_t perf_key(uint32_t k)
@@ -1035,15 +1101,20 @@ static void key_on(uint32_t k, track_t *t)
     uint32_t n = chord_build(t, kb_note[k], kb_chord[k]), i, mc = trk_midi_ch(trk_index(t));
     kb_chn[k] = 0;
     in_key = (uint8_t)(k + 1u);                     /* (the arp keeps the key: arp_add) */
-    for (i = 0; i < n; i++) {
-        uint32_t x = kb_chord[k][i];
-        if (midi_local_held(t, x))
-            continue;
-        input_on(t, x, 100);
-        midi_out_event(0x09u | (0x90u | mc) << 8 | x << 16 | 100u << 24);
+    if (chord_strum_begin(t, kb_chord[k], n, &kb_strum[k], 100)) {
+        key_chord_tone(k, t);
+        kb_strum_pending |= 1u << k;
+    } else {
+        for (i = 0; i < n; i++) {
+            uint32_t x = kb_chord[k][i];
+            if (midi_local_held(t, x))
+                continue;
+            input_on(t, x, 100);
+            midi_out_event(0x09u | (0x90u | mc) << 8 | x << 16 | 100u << 24);
+        }
+        kb_chn[k] = (uint8_t)n;
     }
     in_key = 0;
-    kb_chn[k] = (uint8_t)n;
     last_note = kb_note[k];                         /* (step entry, the SAMPLE zone: the key's note) */
 }
 
@@ -1051,6 +1122,8 @@ static void key_on(uint32_t k, track_t *t)
 static void key_off(uint32_t k, track_t *t)
 {
     uint32_t n = kb_chn[k], i, mc = trk_midi_ch(trk_index(t));
+    kb_strum_pending &= ~(1u << k);                  /* unplayed strings never sound */
+    kb_strum[k].total = 0;
     kb_chn[k] = 0;
     for (i = 0; i < n; i++) {
         uint32_t x = kb_chord[k][i];
@@ -1221,10 +1294,10 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     uint32_t m = 0, sk = 0;
     /* MAP ALL / SEQ: the step's notes (not the lane hits) snap to the scale as they play; never on a drum kit, the slices
      * or another engine that maps the keys itself. #218: TRN is a playback offset only (stored pitches stay);
-     * same kit skip as QNT SEQ. seq_notes keeps the notes that sound: their note-offs match */
-    const engine_t *e = ENGINES[eng_idx(t->eng_req)];
-    uint32_t kit = e->keys && e->keys(t, 0) >= 0;
-    uint32_t qseq = (t->p[P_QUANT] == QN_SEQ || t->p[P_QUANT] == QN_ALL) && !kit;
+     * same kit skip as QNT SEQ: a kit's notes keep their stored pitch (no PITCH, no TRN). seq_notes keeps the notes
+     * that sound: their note-offs match */
+    uint32_t kit = (uint32_t)kit_track(t);
+    uint32_t qseq = (qn_mode(t) == QN_SEQ || qn_mode(t) == QN_ALL) && !kit;
     if (!(skip & SEQ_REP)) {
         t->rat_left = 0;
         if ((skip & SEQ_MISS) ||
@@ -1252,10 +1325,15 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     for (i = 0; i < s->n && i < 4u; i++) {
         int32_t x = (int32_t)step_note(s, i);
         uint32_t n;
-        if (!kit)                                   /* #218: TRN then (SEQ) onto the scale; pattern untouched */
-            x += t->p[P_TRANS];
-        if (qseq)
-            x = scale_snap(t, x);                   /* two notes snapping together play once */
+        if (!kit) {                                 /* a kit ignores PITCH and TRN: its notes stay as stored */
+            if (t->plk_fit)                         /* the step's PITCH: absolute, chromatic, replaces TRN here */
+                x += t->plk_pit;
+            else {
+                x += t->p[P_TRANS];                 /* #218: TRN then (SEQ) onto the scale; pattern untouched */
+                if (qseq)
+                    x = scale_snap(t, x);           /* two notes snapping together play once */
+            }
+        }
         n = (uint32_t)clamp(x, 0, 127);
         if (qseq) {
             for (j = 0; j < m && nn[j] != n; j++)
@@ -1449,11 +1527,17 @@ static void seq_tick(track_t *t, uint32_t n)
         if (song.playing)
             pfx_resync(t, div_samples((uint32_t)t->p[P_SDIV]), (uint32_t)t->p[P_SLEN]);
     }
-    if ((t->pfx & PFX_HALF) && song.playing) {        /* 1/2 TEMPO held: half the samples (odd one carried) */
-        uint32_t h = n + t->pfx_half;
-        t->pfx_el += n;
-        t->pfx_half = (uint8_t)(h & 1u);
-        n = h >> 1;
+    if ((t->pfx & (PFX_HALF | PFX_X2)) && song.playing) {   /* 1/2 / x2 TEMPO: the transport's samples, scaled */
+        uint32_t real = n;
+        t->pfx_el += real;
+        if ((t->pfx & PFX_HALF) && !(t->pfx & PFX_X2)) {    /* half speed (the odd sample carried) */
+            uint32_t h = real + t->pfx_half;
+            t->pfx_half = (uint8_t)(h & 1u);
+            n = h >> 1;
+        } else if ((t->pfx & PFX_X2) && !(t->pfx & PFX_HALF)) {
+            n = real * 2u;                                  /* double speed */
+        } else
+            t->pfx_half = 0;                                /* both: they cancel */
     }
     if (t->seq_n && !t->seq_hold) {
         if (t->seq_off <= n)
@@ -1464,6 +1548,11 @@ static void seq_tick(track_t *t, uint32_t n)
     if (!song.playing)
         return;
     period = div_samples((uint32_t)t->p[P_SDIV]);
+    {   /* TAPE CHAIN on this owner: the track's tape runs slower, the others keep the song's */
+        uint32_t ts = tape_seq_speed_q16(t);
+        if (ts != 65536u)
+            period = (uint32_t)(((uint64_t)period * ts) >> 16);
+    }
     len = (uint32_t)t->p[P_SLEN];
     len = len ? len : 1u;
     t->seq_pos += n;
@@ -1576,6 +1665,7 @@ static void events_block(uint32_t n)
 {
     uint32_t i, pr, seq_n = n;
     uint32_t clock_mode = (uint32_t)song.g[G_CLOCK];
+    chord_strum_tick(n);                                /* STRUM: the strings due in this block */
     if (midi_clock.mode != clock_mode) {
         seq_stop();
         memset(&midi_clock, 0, sizeof midi_clock);
@@ -1624,6 +1714,7 @@ static void events_block(uint32_t n)
         memset(midi_sel_on, 0, sizeof midi_sel_on);
         memset(midi_ch, 0, sizeof midi_ch);
         memset(midi_owners, 0, sizeof midi_owners);
+        midi_strum_pending = 0;
         memset(mchord, 0, sizeof mchord);
         midi_hint = 0;
         for (i = 0; i < NTRK; i++) {

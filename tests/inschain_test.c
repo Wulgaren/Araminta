@@ -86,6 +86,7 @@ static void fresh(void)
     memset(rev_tank, 0, sizeof rev_tank);
     R = &rev_tank[0];
     memset(&fx, 0, sizeof fx);
+    tape_clear();
     memset(&pf, 0, sizeof pf);
     memset(ins_st, 0, sizeof ins_st);
     memset(ins_lines, 0, sizeof ins_lines);
@@ -102,6 +103,7 @@ static void fresh(void)
     rng_state = 0x1234567u;
     song.playing = 0;
     memset(trk, 0, sizeof trk);
+    memset(fx_order_tbl, 0, sizeof fx_order_tbl);
     MOD_W_CLEAR();
     memset(sl, 0, sizeof sl);
     memset(&motion, 0, sizeof motion);
@@ -111,6 +113,347 @@ static void fresh(void)
     host_preset(&trk[2], 0, 0);
     host_preset(&trk[3], 0, 0);
     song.sel = 0;
+}
+
+/* TAPE (FUN17): a held SINE KEY, one head. MASTER/CHAIN drop the zero-crossing rate at SPEED 50;
+ * SEND adds a wet copy; SPEED 100 with MIX 0 stays bit-identical. */
+static uint32_t zero_cross_blocks(uint32_t blocks)
+{
+    uint32_t n = 0, b, i;
+    int prev = 0, any = 0;
+    for (b = 0; b < blocks; b++) {
+        mix_block(out_buf, CTL);
+        for (i = 0; i < CTL; i++) {
+            int v = out_buf[2u * i];
+            if (any && (v < 0) != (prev < 0))
+                n++;
+            prev = v;
+            any = 1;
+        }
+    }
+    return n;
+}
+/* the biggest sample-to-sample step: a head-wrap click shows up here even when the ZC rate is right */
+static uint32_t max_delta_blocks(uint32_t blocks)
+{
+    uint32_t d = 0, b, i;
+    int32_t prev = 0;
+    int any = 0;
+    for (b = 0; b < blocks; b++) {
+        mix_block(out_buf, CTL);
+        for (i = 0; i < CTL; i++) {
+            int32_t v = out_buf[2u * i], a = v - prev;
+            if (a < 0)
+                a = -a;
+            if (any && (uint32_t)a > d)
+                d = (uint32_t)a;
+            prev = v;
+            any = 1;
+        }
+    }
+    return d;
+}
+static void tape_note(void)
+{
+    host_preset(&trk[0], 0, 5);                       /* ANALOG SINE KEY */
+    trk[0].p[P_SUS] = 110;
+    trk_note_on(&trk[0], 60, 100);
+    render_blocks(128);                               /* the speed slew settles */
+}
+static void test_tape(void)
+{
+    uint64_t dry, bypass, master, chain, send;
+    uint32_t zc_dry, zc_master, zc_chain, md_dry, md_master, md_chain;
+    fresh();
+    tape_note();
+    dry = hash_out(64);
+    zc_dry = zero_cross_blocks(64);
+    md_dry = max_delta_blocks(64);
+
+    fresh();                                          /* SEND, MIX 0: the head is out of the path */
+    song.g[G_TAPEMODE] = TAPE_SEND;
+    song.g[G_TSPEED] = 100;
+    tape_note();
+    bypass = hash_out(64);
+    ck("TAPE SEND MIX 0 at 100 %: bit-identical to dry", dry == bypass);
+
+    fresh();
+    song.g[G_TAPEMODE] = TAPE_MASTER;
+    song.g[G_TSPEED] = 50;
+    song.g[G_TMIX] = 127;
+    song.g[G_TTEMPO] = 0;                             /* source-clock varispeed */
+    tape_note();
+    master = hash_out(64);
+    zc_master = zero_cross_blocks(64);
+    md_master = max_delta_blocks(64);
+    ck("TAPE MASTER 50 %: the render changes, the pitch drops, no head-wrap clicks",
+       master != dry && zc_master * 4u < zc_dry * 3u && md_master < md_dry * 2u + 128u);
+
+    fresh();
+    song.g[G_TAPEMODE] = TAPE_CH1;
+    song.g[G_TSPEED] = 50;
+    song.g[G_TMIX] = 127;
+    song.g[G_TTEMPO] = 0;                             /* source-clock varispeed */
+    tape_note();
+    chain = hash_out(64);
+    zc_chain = zero_cross_blocks(64);
+    md_chain = max_delta_blocks(64);
+    ck("TAPE CHAIN 50 % on track 1: the render changes, the pitch drops, no clicks",
+       chain != dry && zc_chain * 4u < zc_dry * 3u && md_chain < md_dry * 2u + 128u);
+
+    fresh();
+    song.g[G_TAPEMODE] = TAPE_SEND;
+    song.g[G_TSPEED] = 50;
+    song.g[G_TMIX] = 127;
+    tape_note();
+    send = hash_out(64);
+    ck("TAPE SEND 50 %: the wet copy changes the render", send != dry);
+
+    {   /* TEMPO ON: SPEED is the head's pitch only; the clock and the voices keep time. */
+        uint32_t base = (uint32_t)FS * 60u /
+                        (song.g[G_BPM] >= 40 ? (uint32_t)song.g[G_BPM] : 120u);
+        uint64_t on_master, on_chain;
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_MASTER;
+        song.g[G_TSPEED] = 50; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 1;
+        tape_note();
+        on_master = hash_out(64);
+        ck("TAPE TEMPO ON MASTER 50 %: the pitch head changes the render, the beat stays",
+           on_master != dry && beat_samples() == base && tape_pitch16_for(&trk[0]) == 0 &&
+           tp.speed_q16 == 32768 && tp.speed_pitch16 < 0);
+
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_CH1;
+        song.g[G_TSPEED] = 50; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 1;
+        tape_note();
+        on_chain = hash_out(64);
+        ck("TAPE TEMPO ON CHAIN 50 %: the owner's pitch moves, its sequencer stays 1x",
+           on_chain != dry && tape_seq_speed_q16(&trk[0]) == 65536 &&
+           tape_pitch16_for(&trk[0]) == 0);
+
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_MASTER;
+        song.g[G_TSPEED] = 50; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 0;
+        tape_note();
+        ck("TAPE TEMPO OFF MASTER 50 %: the source clock slows (the beat lengthens)",
+           beat_samples() > base && tape_pitch16_for(&trk[0]) < 0);
+    }
+
+    {   /* DROPOUT: 10..40 ms dips, 0.25..1 s apart: a long render must hear them */
+        uint64_t off, on;
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_MASTER;
+        song.g[G_TSPEED] = 100;
+        song.g[G_TMIX] = 127;
+        tape_note();
+        render_blocks(64);
+        off = hash_out(2048);
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_MASTER;
+        song.g[G_TSPEED] = 100;
+        song.g[G_TMIX] = 127;
+        song.g[G_TDROP] = 1;
+        tape_note();
+        render_blocks(64);
+        on = hash_out(2048);
+        ck("TAPE DROPOUT on: the long render carries the tape's dips", on != off);
+    }
+
+    fresh();
+    ck("TAPE mode labels: SEND / CHAIN / MASTER / USED",
+       str_eq(fx_list_mode(&trk[0], INS_TAPE), "SEND") &&
+       (song.g[G_TAPEMODE] = TAPE_CH1, str_eq(fx_list_mode(&trk[0], INS_TAPE), "CHAIN")) &&
+       str_eq(fx_list_mode(&trk[1], INS_TAPE), "USED") &&
+       (song.g[G_TAPEMODE] = TAPE_MASTER, str_eq(fx_list_mode(&trk[0], INS_TAPE), "MASTER")));
+}
+/* A MASTER insert runs on the whole mix (here one track held): it is not bypassed and does not need the
+ * owner's per-track chain. Its MIX 0 is the dry path. */
+/* A shared bus in MASTER takes the whole mix: its per-track route is suppressed and the owner's MIX
+ * sets the amount. */
+static void test_master_shared(void)
+{
+    uint64_t dry;
+    fresh();
+    tape_note();
+    dry = hash_out(24);
+    fresh();
+    tape_note();
+    trk[0].p[P_DLY] = 127;
+    fx_master_set(INS_DLY, 0);
+    ck("MASTER DELAY: the whole mix carries the repeats", hash_out(24) != dry);
+    fx_master_clear(INS_DLY);
+    fresh();
+    tape_note();
+    trk[0].p[P_REV] = 127;
+    fx_master_set(INS_REV, 0);
+    ck("MASTER REVERB: the whole mix carries the tail", hash_out(24) != dry);
+    fx_master_clear(INS_REV);
+    fresh();
+    tape_note();
+    trk[0].p[P_SLCR] = SL_GATE;
+    trk[0].p[P_SLPAT] = 1;
+    trk[0].p[P_SLDEPTH] = 127;
+    fx_master_set(INS_SLCR, 0);
+    ck("MASTER SLICER: the whole mix is gated", hash_out(24) != dry);
+    fx_master_clear(INS_SLCR);
+    song.g[G_DLYOWN] = song.g[G_REVOWN] = 0;
+    song.g[G_SLOWN] = 0;
+}
+
+static void test_master_insert(void)
+{
+    uint64_t dry, master;
+    fresh();
+    tape_note();
+    dry = hash_out(24);
+    fresh();
+    tape_note();
+    trk[0].p[P_DIST] = 100;
+    trk[0].p[P_IDMODE] = IDM_HARD;
+    trk[0].p[P_IDMIX] = 127;
+    fx_master_set(INS_DIST, 0);
+    master = hash_out(24);
+    ck("MASTER insert DIST 127: the whole mix changes", master != dry);
+    fx_master_clear(INS_DIST);
+    fresh();
+    tape_note();
+    trk[0].p[P_DIST] = 100;
+    trk[0].p[P_IDMODE] = IDM_HARD;
+    trk[0].p[P_IDMIX] = 0;
+    fx_master_set(INS_DIST, 0);
+    ck("MASTER insert DIST MIX 0: bit-identical to dry", hash_out(24) == dry);
+    fx_master_clear(INS_DIST);
+    song.g[G_TAPEMODE] = TAPE_SEND;
+    song.g[G_TMIX] = 0;
+    song.g[G_TDROP] = song.g[G_TWOW] = 0;
+    song.g[G_TSPEED] = 100;
+}
+
+/* A pulse at a block boundary must reach both MASTER delay lines on later blocks. */
+static void test_master_swept_tail(void)
+{
+    uint32_t st, b, i;
+    for (st = INS_FLANG; st <= INS_CHOR; st++) {
+        int64_t left = 0, right = 0;
+        fresh();
+        ins_send_set(&trk[0], st, 0);
+        trk[0].p[st == INS_FLANG ? P_ILMIX : P_IHMIX] = 127;
+        trk[0].p[st == INS_FLANG ? P_ILDEP : P_IHDEP] = 0;
+        fx_master_set(st, 0);
+        memset(mix_l, 0, sizeof mix_l);
+        memset(mix_r, 0, sizeof mix_r);
+        mix_l[CTL - 1u] = 16000;
+        mix_r[CTL - 1u] = -12000;
+        fx_master_run(CTL);
+        for (b = 0; b < 8u; b++) {
+            memset(mix_l, 0, sizeof mix_l);
+            memset(mix_r, 0, sizeof mix_r);
+            fx_master_run(CTL);
+            for (i = 0; i < CTL; i++) {
+                left += mix_l[i] < 0 ? -mix_l[i] : mix_l[i];
+                right += mix_r[i] < 0 ? -mix_r[i] : mix_r[i];
+            }
+        }
+        ck(st == INS_FLANG ? "MASTER FLANG: a boundary pulse rings in both channels" :
+                                 "MASTER CHOR: a boundary pulse rings in both channels",
+           left > 0 && right > 0);
+        fx_master_clear(st);
+    }
+}
+
+/* A fresh fully wet delay/reverb has no return yet, even for a loud summed mix. */
+static void test_master_bus_headroom(void)
+{
+    uint32_t st, sign;
+    for (st = INS_DLY; st <= INS_REV; st++) {
+        int ok = 1;
+        for (sign = 0; sign < 2u; sign++) {
+            fresh();
+            trk[0].p[st == INS_DLY ? P_DLY : P_REV] = 127;
+            fx_master_set(st, 0);
+            mix_l[0] = mix_r[0] = sign ? -100000 : 100000;
+            fx_master_run(1);
+            ok &= mix_l[0] == 0 && mix_r[0] == 0;
+            fx_master_clear(st);
+        }
+        ck(st == INS_DLY ? "MASTER DELAY: full wet removes a loud dry mix without overflow" :
+                              "MASTER REVERB: full wet removes a loud dry mix without overflow", ok);
+    }
+}
+
+/* Transport restart reopens step zero of the MASTER gate on both channels. */
+static void test_master_slicer_restart(void)
+{
+    uint32_t b, i;
+    int32_t open_l, open_r, closed_l, closed_r;
+    fresh();
+    song.g[G_BPM] = 300;
+    song.g[G_SWING] = 0;
+    trk[0].p[P_SSWING] = 0;
+    trk[0].p[P_SLCR] = SL_GATE;
+    trk[0].p[P_SLPAT] = 1;
+    trk[0].p[P_SLRATE] = 2;
+    trk[0].p[P_SLDEPTH] = 127;
+    fx_master_set(INS_SLCR, 0);
+    seq_start();
+    for (b = 0; b < 1536u / CTL; b++) {
+        for (i = 0; i < CTL; i++) {
+            mix_l[i] = 20000;
+            mix_r[i] = -16000;
+        }
+        fx_master_run(CTL);
+        if (b == 256u / CTL - 1u) {
+            open_l = mix_l[CTL - 1u];
+            open_r = mix_r[CTL - 1u];
+        }
+    }
+    closed_l = mix_l[CTL - 1u];
+    closed_r = mix_r[CTL - 1u];
+    seq_stop();
+    seq_start();
+    for (b = 0; b < 256u / CTL; b++) {
+        for (i = 0; i < CTL; i++) {
+            mix_l[i] = 20000;
+            mix_r[i] = -16000;
+        }
+        fx_master_run(CTL);
+    }
+    ck("MASTER SLICER: restarting transport reopens step zero in both channels",
+       open_l > 10000 && open_r < -8000 && closed_l < 100 && closed_r > -100 &&
+       mix_l[CTL - 1u] == open_l && mix_r[CTL - 1u] == open_r);
+    seq_stop();
+    fx_master_clear(INS_SLCR);
+}
+
+/* Re-engaging TEMPO ON after a silent bypass must not replay the previous sound. */
+static void test_tape_bypass_history(void)
+{
+    for (uint32_t chain = 0; chain < 2u; chain++) {
+        int ok = 1;
+        fresh();
+        song.g[G_TAPEMODE] = chain ? TAPE_CH1 : TAPE_MASTER;
+        song.g[G_TTEMPO] = 1;
+        song.g[G_TMIX] = 127;
+        for (uint32_t phase = 0; phase < 3u; phase++) {
+            song.g[G_TSPEED] = phase == 1u ? 100 : 99;
+            for (uint32_t b = 0; b < (phase == 2u ? 32u : 300u); b++) {
+                tape_begin((uint32_t)song.g[G_TAPEMODE]);
+                tape_speed_eff = song.g[G_TSPEED];
+                tape_pre();
+                for (uint32_t i = 0; i < CTL; i++)
+                    mix_l[i] = mix_r[i] = phase == 0u ? 16000 : 0;
+                if (chain)
+                    track_insert(&trk[0], mix_l, CTL);
+                else
+                    fx_master_run(CTL);
+                if (phase == 2u)
+                    for (uint32_t i = 0; i < CTL; i++)
+                        ok &= mix_l[i] == 0 && (chain || mix_r[i] == 0);
+            }
+        }
+        ck(chain ? "TAPE CHAIN: silent bypass discards previous head and dry audio" :
+                   "TAPE MASTER: silent bypass discards previous head and dry audio", ok);
+    }
 }
 
 static int pick_has(uint32_t id, const char *name)
@@ -236,7 +579,7 @@ static void test_retired_delay_mix(void)
         fresh();
         song.g[G_DTIME] = DTIME_FREE + 100;
         song.g[G_DFDBK] = 0;
-        song.g[G_DMIX] = legacy ? 127 : 0;
+        song.g[G_TSPEED] = legacy ? 127 : 100;
         for (block = 0; block < FS / CTL / 5u; block++) {
             int32_t d[CTL] = {0}, r[CTL] = {0}, w[CTL];
             if (!block) d[0] = 24000;
@@ -347,6 +690,13 @@ int main(void)
 
     printf("inschain_test: P_COUNT %u P_E0 %u INS_N %u\n", (unsigned)P_COUNT, (unsigned)P_E0, (unsigned)INS_N);
     test_shared_chorus();
+    test_tape();
+    test_master_insert();
+    test_master_shared();
+    test_master_swept_tail();
+    test_master_bus_headroom();
+    test_master_slicer_restart();
+    test_tape_bypass_history();
     ck("param layout: insert chain before FTYPE/ESYNC/E0",
        P_SPRD + 1 == P_IORD && P_IHMIX + 1 == P_FTYPE && P_ESYNC + 1 == P_E0 && P_COUNT == 127u && P_E0 == 119u);
 
@@ -548,7 +898,7 @@ int main(void)
         song.g[G_DLYOWN] = 0;
         song.g[G_DTIME] = 1;
         song.g[G_DFDBK] = 80;
-        song.g[G_DMIX] = 127;
+        song.g[G_TSPEED] = 100;
         t->p[P_DLY] = 100;
         t->p[P_REV] = 0;
         trk[1].p[P_DLY] = 100;
@@ -561,7 +911,7 @@ int main(void)
         song.g[G_DLYOWN] = 1;                           /* track 0 owns delay as CHAIN */
         song.g[G_DTIME] = 1;
         song.g[G_DFDBK] = 80;
-        song.g[G_DMIX] = 127;
+        song.g[G_TSPEED] = 100;
         t->p[P_DLY] = 100;
         t->p[P_REV] = 0;
         trk_note_on(t, 60, 100);
@@ -573,7 +923,7 @@ int main(void)
         song.g[G_DLYOWN] = 2;                           /* track 1 owns; track 0 is USED */
         song.g[G_DTIME] = 1;
         song.g[G_DFDBK] = 80;
-        song.g[G_DMIX] = 127;
+        song.g[G_TSPEED] = 100;
         t->p[P_DLY] = 100;
         t->p[P_REV] = 0;
         trk_note_on(t, 60, 100);
@@ -584,7 +934,7 @@ int main(void)
         song.g[G_DLYOWN] = 2;
         song.g[G_DTIME] = 1;
         song.g[G_DFDBK] = 80;
-        song.g[G_DMIX] = 127;
+        song.g[G_TSPEED] = 100;
         t->p[P_DLY] = 0;                                /* USED: send amount ignored anyway */
         t->p[P_REV] = 0;
         trk_note_on(t, 60, 100);
@@ -628,7 +978,7 @@ int main(void)
             ck("CHAIN reverb params diverge from SEND (ROOM/40 vs HALL/90 changes render)",
                h_chain != h_send);
             ck("GP has CHAIN TYPE/SIZE/DAMP",
-               G_COUNT == 31u && GP[G_CRTYPE].names == GP[G_RTYPE].names && GP[G_CRSIZE].max == 127);
+               G_COUNT == 32u && GP[G_CRTYPE].names == GP[G_RTYPE].names && GP[G_CRSIZE].max == 127);
         }
         bus_own_set(1, -1);
         bus_own_set(0, -1);
@@ -676,9 +1026,9 @@ int main(void)
         {
             uint8_t list[FX_LIST_N], defo[INS_N];
             fx_list_get(&trk[0], list);
-            ck("EFFECTS list is 9: inserts + DLY + REV + SLCR",
-               FX_LIST_N == 9u && list[6] == INS_DLY && list[7] == INS_REV && list[8] == INS_SLCR &&
-               str_eq(N_ISTAGE[INS_SLCR], "SLICER"));
+            ck("EFFECTS list is 10: inserts + DLY + REV + SLCR + TAPE",
+               FX_LIST_N == 10u && list[6] == INS_DLY && list[7] == INS_REV && list[8] == INS_SLCR &&
+               list[9] == INS_TAPE && str_eq(N_ISTAGE[INS_SLCR], "SLICER") && str_eq(N_ISTAGE[INS_TAPE], "TAPE"));
             fresh();
             t = &trk[0];
             ck("factory P_IORD is IORD_DEF (DIST→CRUSH→FILTER→…)",
@@ -688,10 +1038,11 @@ int main(void)
                defo[0] == INS_DIST && defo[1] == INS_CRUSH && defo[2] == INS_FILTER &&
                defo[3] == INS_PHASR && defo[4] == INS_FLANG && defo[5] == INS_CHOR);
             fx_list_get(t, list);
-            ck("factory EFFECTS list: DIST…CHOR, DLY, REV, SLCR; SLCR default SEND",
+            ck("factory EFFECTS list: DIST…CHOR, DLY, REV, SLCR, TAPE; SLCR default SEND",
                list[0] == INS_DIST && list[1] == INS_CRUSH && list[2] == INS_FILTER &&
                list[5] == INS_CHOR && list[6] == INS_DLY && list[7] == INS_REV && list[8] == INS_SLCR &&
-               str_eq(fx_list_mode(t, INS_SLCR), "SEND") && ins_mix_of(t, INS_SLCR) == t->p[P_SLDEPTH]);
+               list[9] == INS_TAPE && str_eq(fx_list_mode(t, INS_SLCR), "SEND") &&
+               str_eq(fx_list_mode(t, INS_TAPE), "SEND") && ins_mix_of(t, INS_SLCR) == t->p[P_SLDEPTH]);
             {
                 uint8_t before[FX_LIST_N], after[FX_LIST_N];
                 uint32_t sl = 8;
@@ -991,11 +1342,11 @@ int main(void)
         /* DLY send: wait past the first echo (50 ms free time) so the amount is audible */
         fresh(); t = &trk[0]; clear_stages(t);
         song.g[G_DLYOWN] = 0; song.g[G_DTIME] = (int16_t)(DTIME_FREE + 50);
-        song.g[G_DFDBK] = 90; song.g[G_DMIX] = 127;
+        song.g[G_DFDBK] = 90; song.g[G_TSPEED] = 100;
         t->p[P_DLY] = 40; h0 = note_hash(delay_samples() / CTL + 16u, 64);
         fresh(); t = &trk[0]; clear_stages(t);
         song.g[G_DLYOWN] = 0; song.g[G_DTIME] = (int16_t)(DTIME_FREE + 50);
-        song.g[G_DFDBK] = 90; song.g[G_DMIX] = 127;
+        song.g[G_DFDBK] = 90; song.g[G_TSPEED] = 100;
         t->p[P_DLY] = 120; h1 = note_hash(delay_samples() / CTL + 16u, 64);
         ck("DLY send amount moves the render (after the first echo)", h0 != h1);
 
@@ -1008,7 +1359,7 @@ int main(void)
             t->p[P_ATK] = 0; t->p[P_DEC] = 0; t->p[P_SUS] = 127; t->p[P_REL] = 0;
             song.g[G_DLYOWN] = 0;
             song.g[G_DTIME] = (int16_t)(DTIME_FREE + 80);
-            song.g[G_DFDBK] = 100; song.g[G_DMIX] = 127; song.g[G_DCOLOR] = 127;
+            song.g[G_DFDBK] = 100; song.g[G_TSPEED] = 100; song.g[G_DCOLOR] = 127;
             t->p[P_DLY] = 127;
             echo_b = delay_samples() / CTL + 8u;
             trk_note_on(t, 60, 110);
@@ -1020,7 +1371,7 @@ int main(void)
             t->p[P_ATK] = 0; t->p[P_DEC] = 0; t->p[P_SUS] = 127; t->p[P_REL] = 0;
             song.g[G_DLYOWN] = 1;                        /* track 0 owns delay as CHAIN */
             song.g[G_DTIME] = (int16_t)(DTIME_FREE + 80);
-            song.g[G_DFDBK] = 100; song.g[G_DMIX] = 127; song.g[G_DCOLOR] = 127;
+            song.g[G_DFDBK] = 100; song.g[G_TSPEED] = 100; song.g[G_DCOLOR] = 127;
             t->p[P_DLY] = 127;
             trk_note_on(t, 60, 110);
             render_blocks(2);

@@ -640,12 +640,15 @@ static void hk_ink(uint16_t ink, uint16_t bg)
 }
 static void write_ppm(const char *dir, const char *pal, const char *name)
 {
+    static int off;
     char path[512];
     uint32_t i;
     FILE *f;
+    if (off)
+        return;                                        /* no ppm/ dir: the PNGs are the output */
     snprintf(path, sizeof path, "%s/ppm/%s_%s.ppm", dir, pal, name);
     f = fopen(path, "wb");
-    if (!f) { fprintf(stderr, "cannot write %s\n", path); return; }
+    if (!f) { off = 1; return; }
     fprintf(f, "P6\n240 240\n255\n");
     for (i = 0; i < 240u * 240u; i++) {
         uint16_t c = swap16(host_screen[i]);
@@ -768,7 +771,7 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_LEARN_WAIT, S_LEARN_PICK, S_LEARN_SET, S_LEARN_LONG, S_GLO_LEARN, S_MENU_LCLEAR, S_MENU_LCLEAR_NONE,
        S_DLY_DOT, S_DLY_DOT16, S_FX_THROW,
        S_DETAIL, S_DETAIL_PLAYING, S_DETAIL_REST, S_DETAIL_DRUM, S_ROLL_MARKS, S_DRUM_MARKS, S_HELP_DETAIL,
-       S_DX_SOUND, S_DX_SOUND2, S_DX_EDIT1, S_DX_EDIT2, S_GENERATION, S_GENERATION_2, S_GENERATION_MAP, S_COUNT };
+       S_DX_SOUND, S_DX_SOUND2, S_DX_EDIT1, S_DX_EDIT2, S_GENERATION, S_GENERATION_2, S_GENERATION_MAP, S_TAPE, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -796,7 +799,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "learn_wait", "learn_pick", "learn_set", "learn_long", "layer_glo_learn", "menu_learn_clear", "menu_learn_clear_none",
     "dly_dotted", "dly_dotted_16", "perform_throw",
     "detail", "detail_playing", "detail_rest", "detail_drum", "roll_marks", "drum_marks", "help_detail",
-    "dx_sound", "dx_sound2", "dx_edit1", "dx_edit2", "generation", "generation_2", "generation_map"};
+    "dx_sound", "dx_sound2", "dx_edit1", "dx_edit2", "generation", "generation_2", "generation_map", "tape"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1121,6 +1124,12 @@ static void setup(int s)
                TSEL->p[P_IHMIX] = 40;
         TSEL->p[P_IDMIX] = 64; TSEL->p[P_IFMIX] = 100; ins_send_set(TSEL, 0, 1); ui.ior_sel = 2; break;
     case S_SLICER: TSEL->p[P_SLCR] = 1; go_title("SLICER"); break;
+    case S_TAPE:                                     /* the OP-1-style tape transport: playing, step 6; SEND's
+                                                      * TEMPO card is the fixed, dimmed ON */
+        song.g[G_TSPEED] = 55; song.g[G_TWOW] = 40; song.g[G_TDROP] = 1;
+        song.g[G_TAPEMODE] = TAPE_SEND; song.g[G_TMIX] = 90; song.g[G_TTEMPO] = 0;
+        TSEL->seq_idx = 5; song.playing = 1;
+        go_title("TAPE"); break;
     case S_DLY: go_title("DELAY"); break;
     case S_SCL: TSEL->p[P_SCALE] = 2; go_title("SCL"); break;
     case S_CHORD:                                    /* A minor DIA7, the last chord on B: Bm7b5 */
@@ -1659,6 +1668,8 @@ static void sweep_motion(void)
     lint();
     memset(&motion, 0, sizeof motion);
 }
+/* Short ranges get every value. Wide ones get the ends, quarters, middle and default: the old
+ * 300-value cap made the 25..400 % SPEED column alone add thousands of draws. */
 static void sweep_columns(void)
 {
     uint32_t e, i, c, esync_pass = 0;
@@ -1680,17 +1691,31 @@ static void sweep_columns(void)
                 int16_t *vp;
                 const param_desc_t *d = PAGES[i].scope == SC_GLOBAL || PAGES[i].scope == SC_TRACK || PAGES[i].scope == SC_ENGINE
                                         ? page_desc(cur_page(), c, &vp) : 0;
-                int32_t v, v0;
+                int32_t v, v0, sv[32];
+                uint32_t nv = 0, vi;
                 if (!d || !d->label || d->label[0] == '-' || PAGES[i].graph == GR_MOD) continue;
                 v0 = *vp;
-                for (v = d->min; v <= d->max; v++) {
-                    *vp = (int16_t)v;
+                if (d->max - d->min <= 24) {
+                    for (v = d->min; v <= d->max; v++)
+                        sv[nv++] = v;
+                } else {                                  /* wide ranges: the ends, quarters, mid and default */
+                    sv[nv++] = d->min;
+                    sv[nv++] = d->min + 1;
+                    sv[nv++] = d->min + (d->max - d->min) / 4;
+                    sv[nv++] = d->min + (d->max - d->min) / 2;
+                    sv[nv++] = d->max - (d->max - d->min) / 4;
+                    sv[nv++] = d->max - 1;
+                    sv[nv++] = d->max;
+                    if (d->def >= d->min && d->def <= d->max)
+                        sv[nv++] = d->def;
+                }
+                for (vi = 0; vi < nv; vi++) {
+                    *vp = (int16_t)sv[vi];
                     nscr = npend = 0;
                     ui.force = 1;
                     draw_columns();
                     lint();
                     nsweep++;
-                    if (v - d->min > 300) v = d->max - 1;      /* wide ranges: the ends */
                 }
                 *vp = (int16_t)v0;
             }

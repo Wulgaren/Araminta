@@ -58,7 +58,7 @@ enum { MD_OFF, MD_PITCH, MD_CUT, MD_SHP, MD_AMP, MD_PAN, MD_DIST, MD_CHO, MD_DLY
        MD_DEPTH = MD_E1 + 8, MD_SLPAT, MD_SLRATE, MD_SLDEPTH, MD_CHRD, MD_VOIC,
        MD_TONE, MD_DMIX, MD_FCUT, MD_FRES, MD_FMIX, MD_BITS, MD_CRAT, MD_CLPF, MD_CMIX,
        MD_PRAT, MD_PDEP, MD_PFBK, MD_PMIX, MD_FRAT, MD_FDEP, MD_LMIX, MD_HRAT, MD_HDEP,
-       MD_DTIME, MD_DFB, MD_DCOLOR, MD_RSIZE, MD_RDAMP, MD_N }; /* (append-only) */
+       MD_DTIME, MD_DFB, MD_DCOLOR, MD_RSIZE, MD_RDAMP, MD_TSPEED, MD_TWOW, MD_N }; /* (append-only) */
 _Static_assert(NELEM(N_MSRC) == MS_N && NELEM(N_MDST) == MD_N, "N_MSRC / N_MDST == MS_* / MD_*");
 _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 == P_FM1_ATK, "matrix slots: 3 ids each");
 #define NMSLOT 4u
@@ -69,6 +69,7 @@ _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 
 #define MD_CHORD(d) ((d) >= MD_CHRD && (d) <= MD_VOIC)
 #define MD_INS(d) ((d) >= MD_TONE && (d) <= MD_HDEP)             /* insert continuous + MIX (CHOR MIX = CHO) */
 #define MD_FX(d) ((d) >= MD_DTIME && (d) <= MD_RDAMP)
+#define MD_TAPE(d) ((d) == MD_TSPEED || (d) == MD_TWOW)
 static int16_t *fx_target_ptr(const track_t *t, uint32_t id);
 static int16_t *mod_target_ptr(const track_t *t, uint32_t id);   /* a part's copy of the shared knobs (fx.c) */
 static void bus_knobs_fill(const track_t *t);                    /* .. filled from the real ones (fx.c) */
@@ -98,6 +99,8 @@ static uint32_t mod_param(uint32_t d)
         return INS[d - MD_TONE];
     if (MD_FX(d))
         return MFX_TIME + d - MD_DTIME;
+    if (MD_TAPE(d))
+        return d == MD_TSPEED ? MFX_TSPEED : MFX_TWOW;
     return ID[d];
 }
 
@@ -111,7 +114,7 @@ typedef struct {                 /* a part's, while mix_part renders it (one per
     uint8_t vsrc[NMSLOT], vdst[NMSLOT];
     int8_t vamt[NMSLOT];
     uint8_t kid[NMSLOT];         /* per-block: the parameter, its stored value */
-    uint8_t kshared[NMSLOT];     /* 1: FX/insert/slicer bus path (desc + availability) */
+    uint8_t kshared[NMSLOT];     /* bit 0: shared path; bit 1: stage its value for the bus DSP */
     int16_t keep[NMSLOT];
 } modw_t;
 static modw_t mod_w[C1_NP];
@@ -122,7 +125,7 @@ static modw_t mod_w[C1_NP];
  * Each part stages its own holds (its render may run on the other core: fx.c mix_block); mod_bus_begin folds
  * them in part order into mod_bus, where a later part overwrites the value of the same setting, as when the
  * parts rendered one after another. */
-static struct { int16_t *ptr, value, keep; } mod_bus[5];
+static struct { int16_t *ptr, value, keep; } mod_bus[7] __attribute__((section(".pool")));
 static struct { int16_t *ptr, value; } mod_bus_w[C1_NP][NMSLOT];
 static uint8_t mod_bus_wn[C1_NP];
 static uint32_t mod_bus_n;
@@ -241,6 +244,8 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     modw_t *mw = &MOD(t);
     const int16_t *p = t->p;
     int32_t lfo, off[NMSLOT];
+    int16_t *target[NMSLOT];
+    const param_desc_t *desc[NMSLOT];
     uint32_t k, j;
     mw->on = 0;
     bus_knobs_on[C1_PI(t)] = 0;                     /* without a slot the render reads the real knobs */
@@ -280,7 +285,7 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
         }
         {                                               /* per block: AMT 64 = the whole range */
             uint32_t id = mod_param(d);
-            int shared = MD_FX(d) || MD_INS(d) || MD_SLICER(d);
+            int shared = MD_FX(d) || MD_INS(d) || MD_SLICER(d) || MD_TAPE(d);
             const param_desc_t *pd;
             int16_t *dst;
             if (d == MD_DIST) {                         /* SEND: bus; CHAIN: track p[] */
@@ -303,8 +308,11 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
                 ;
             if (j == mw->nk) {
                 mw->kid[j] = (uint8_t)id;
-                mw->kshared[j] = (uint8_t)shared;
+                mw->kshared[j] = (uint8_t)(shared |
+                    (((MFX_PARAM(id) && fx_target_send(t, id)) || MFX_TAPE(id)) << 1));
                 mw->keep[j] = *dst;
+                target[j] = dst;
+                desc[j] = pd;
                 off[j] = 0;
                 mw->nk++;
             }
@@ -313,19 +321,9 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     }
     for (j = 0; j < mw->nk; j++) {
         uint32_t id = mw->kid[j];
-        const param_desc_t *pd;
-        int16_t *dst;
-        int32_t base;
-        if (mw->kshared[j]) {
-            pd = fx_target_desc(t, id);
-            dst = mod_target_ptr(t, id);
-            base = id == MFX_TIME && mw->keep[j] < pd->min ? fx_time_value(mw->keep[j]) : mw->keep[j];
-        } else {
-            pd = id >= P_E0 ? &ENGINES[t->engine]->edit[id - P_E0] : &TP[id];
-            dst = &t->p[id];
-            base = mw->keep[j];
-        }
-        *dst = (int16_t)clamp(base + off[j], pd->min, pd->max);
+        const param_desc_t *pd = desc[j];
+        int32_t base = id == MFX_TIME && mw->keep[j] < pd->min ? fx_time_value(mw->keep[j]) : mw->keep[j];
+        *target[j] = (int16_t)clamp(base + off[j], pd->min, pd->max);
     }
     return 1;
 }
@@ -341,7 +339,7 @@ static __attribute__((noinline)) void mod_end(track_t *t)
     for (j = 0; j < mw->nk; j++) {
         uint32_t id = mw->kid[j];
         int16_t *ptr = mw->kshared[j] ? mod_target_ptr(t, id) : &t->p[id];
-        if (MFX_PARAM(id) && fx_target_send(t, id)) {
+        if (mw->kshared[j] & 2u) {
             mod_bus_w[pi][mod_bus_wn[pi]].ptr = fx_target_ptr(t, id);   /* the real knob: the fold's key */
             mod_bus_w[pi][mod_bus_wn[pi]].value = *ptr;
             mod_bus_wn[pi]++;
