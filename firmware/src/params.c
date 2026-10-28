@@ -237,6 +237,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_CRDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
     [G_SLOWN] = PD("SLOWN", F_INT, 0, 15, 0),   /* 0 and 5..15 are the current mask (0 = all SEND); 1..4 remain
                                                  * accepted legacy owner values */
+    [G_TTEMPO] = PE("TEMPO", N_ONOFF, 1),       /* TAPE: ON = SPEED slows the source clock, OFF = pitch only */
 };
 
 static const param_desc_t INS_BITS = {"BITS", F_INT, 0, 127, 64, N_IBITS, 0};
@@ -577,7 +578,7 @@ static const page_t PAGES[] = {
     {"FLANGER", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_ILRATE, P_ILDEP, 0xFF, 0xFF}},
     {"CHORUS", FAM_FX, SC_TRACK, GR_INS, FX_SEC_INS, {P_IHRATE, P_IHDEP, 0xFF, 0xFF}},
     {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, FX_SEC_INS, {P_SLCR, P_SLPAT, P_SLRATE, 0xFF}},
-    {"TAPE", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_TSPEED, G_TWOW, G_TDROP, 0xFF}},
+    {"TAPE", FAM_FX, SC_GLOBAL, GR_NONE, FX_SEC_INS, {G_TSPEED, G_TWOW, G_TDROP, G_TTEMPO}},
     {"PUNCH-IN", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, 0, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
     {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, 0, {P_CHRD, P_VOIC, PG_STRUM, PG_STROKE}},
