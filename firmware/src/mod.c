@@ -58,7 +58,7 @@ enum { MD_OFF, MD_PITCH, MD_CUT, MD_SHP, MD_AMP, MD_PAN, MD_DIST, MD_CHO, MD_DLY
        MD_DEPTH = MD_E1 + 8, MD_SLPAT, MD_SLRATE, MD_SLDEPTH, MD_CHRD, MD_VOIC,
        MD_TONE, MD_DMIX, MD_FCUT, MD_FRES, MD_FMIX, MD_BITS, MD_CRAT, MD_CLPF, MD_CMIX,
        MD_PRAT, MD_PDEP, MD_PFBK, MD_PMIX, MD_FRAT, MD_FDEP, MD_LMIX, MD_HRAT, MD_HDEP,
-       MD_DTIME, MD_DFB, MD_DCOLOR, MD_RSIZE, MD_RDAMP, MD_N }; /* (append-only) */
+       MD_DTIME, MD_DFB, MD_DCOLOR, MD_RSIZE, MD_RDAMP, MD_TSPEED, MD_TWOW, MD_N }; /* (append-only) */
 _Static_assert(NELEM(N_MSRC) == MS_N && NELEM(N_MDST) == MD_N, "N_MSRC / N_MDST == MS_* / MD_*");
 _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 == P_FM1_ATK, "matrix slots: 3 ids each");
 #define NMSLOT 4u
@@ -69,6 +69,7 @@ _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 
 #define MD_CHORD(d) ((d) >= MD_CHRD && (d) <= MD_VOIC)
 #define MD_INS(d) ((d) >= MD_TONE && (d) <= MD_HDEP)             /* insert continuous + MIX (CHOR MIX = CHO) */
 #define MD_FX(d) ((d) >= MD_DTIME && (d) <= MD_RDAMP)
+#define MD_TAPE(d) ((d) == MD_TSPEED || (d) == MD_TWOW)
 static int16_t *fx_target_ptr(const track_t *t, uint32_t id);
 static int16_t *mod_target_ptr(const track_t *t, uint32_t id);   /* a part's copy of the shared knobs (fx.c) */
 static void bus_knobs_fill(const track_t *t);                    /* .. filled from the real ones (fx.c) */
@@ -98,6 +99,8 @@ static uint32_t mod_param(uint32_t d)
         return INS[d - MD_TONE];
     if (MD_FX(d))
         return MFX_TIME + d - MD_DTIME;
+    if (MD_TAPE(d))
+        return d == MD_TSPEED ? MFX_TSPEED : MFX_TWOW;
     return ID[d];
 }
 
@@ -280,7 +283,7 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
         }
         {                                               /* per block: AMT 64 = the whole range */
             uint32_t id = mod_param(d);
-            int shared = MD_FX(d) || MD_INS(d) || MD_SLICER(d);
+            int shared = MD_FX(d) || MD_INS(d) || MD_SLICER(d) || MD_TAPE(d);
             const param_desc_t *pd;
             int16_t *dst;
             if (d == MD_DIST) {                         /* SEND: bus; CHAIN: track p[] */
@@ -341,7 +344,7 @@ static __attribute__((noinline)) void mod_end(track_t *t)
     for (j = 0; j < mw->nk; j++) {
         uint32_t id = mw->kid[j];
         int16_t *ptr = mw->kshared[j] ? mod_target_ptr(t, id) : &t->p[id];
-        if (MFX_PARAM(id) && fx_target_send(t, id)) {
+        if ((MFX_PARAM(id) && fx_target_send(t, id)) || MFX_TAPE(id)) {
             mod_bus_w[pi][mod_bus_wn[pi]].ptr = fx_target_ptr(t, id);   /* the real knob: the fold's key */
             mod_bus_w[pi][mod_bus_wn[pi]].value = *ptr;
             mod_bus_wn[pi]++;

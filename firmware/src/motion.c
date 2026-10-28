@@ -17,13 +17,15 @@ static const param_desc_t *motion_target_desc(const track_t *t, uint32_t id)
 {
     if (id == MSEQ_PITCH)
         return &PITCH_DESC;
-    return MFX_PARAM(id) ? fx_target_desc(t, id) : param_desc_of(eng_idx(t->eng_req), id);
+    return MFX_ALL(id) ? fx_target_desc(t, id) : param_desc_of(eng_idx(t->eng_req), id);
 }
 static void motion_capture_base(track_t *t)
 {
     uint32_t k = trk_index(t);
     memcpy(motion_base[k], t->p, sizeof t->p);
     for (uint32_t id = MFX_TIME; id <= MFX_DAMP; id++) motion_base[k][id] = *fx_target_ptr(t, id);
+    motion_base[k][MFX_TSPEED] = *fx_target_ptr(t, MFX_TSPEED);
+    motion_base[k][MFX_TWOW] = *fx_target_ptr(t, MFX_TWOW);
     for (uint32_t i = 0; i < FX_BUS_N; i++)
         motion_base[k][FX_BUS_PID[i]] = *fx_target_ptr(t, FX_BUS_PID[i]);
 }
@@ -49,7 +51,7 @@ static int motion_param(uint32_t id)
 {
     /* Sound only: transport, routing, voice allocation and discrete engine
      * changes never become automation. FX sends and continuous mix are safe. */
-    return param_lock_only(id) || MFX_PARAM(id) || (param_real(id) && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
+    return param_lock_only(id) || MFX_ALL(id) || (param_real(id) && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
         (id >= P_DIST && id <= P_REV) || id == P_GLIDE || id == P_PAN ||
         id == P_DETUNE || (id >= P_SLPAT && id <= P_SLDEPTH) ||   /* #222: SLICER pattern / rate / depth (not MODE) */
         id == P_CHRD || id == P_VOIC ||                           /* chord type / voicing */
@@ -66,7 +68,14 @@ static int fx_target_available(const track_t *t, uint32_t id)
     int16_t *ptr;
     if (id == MSEQ_PITCH)
         return 1;
-    if (!MFX_PARAM(id) && fx_target_stage(id) == FX_LIST_N)
+    if (MFX_TAPE(id)) {                              /* SPEED / WOW: CHAIN owner, MASTER all, SEND first claim */
+        int32_t m = song.g[G_TAPEMODE];
+        if (m == TAPE_MASTER)
+            return 1;
+        if (TAPE_OWNER_OF(m) >= 0)
+            return TAPE_OWNER_OF(m) == (int32_t)(t - trk);
+    }
+    if (!MFX_ALL(id) && fx_target_stage(id) == FX_LIST_N)
         return 1;
     ptr = fx_target_ptr(t, id);
     for (k = 0; k < NTRK; k++) {
@@ -96,6 +105,10 @@ static int motion_valid(const motion_store_t *m)
             if (!(e->param & MOTION_LOCK) || e->value < -24 || e->value > 24) return 0;
         } else if (id == MFX_TIME) {
             if (e->value < DTIME_FREE + 1 || e->value > DTIME_FREE + (int32_t)DTIME_MS_MAX) return 0;
+        } else if (id == MFX_TSPEED) {
+            if (e->value < 25 || e->value > 400) return 0;
+        } else if (id == MFX_TWOW) {
+            if (e->value < 0 || e->value > 127) return 0;
         } else if (MFX_PARAM(id)) {
             if (e->value < 0 || e->value > (id == MFX_FB ? 120 : 127)) return 0;
         } else if (e->value < -64 || e->value > 127) return 0;
@@ -158,7 +171,7 @@ static uint32_t motion_mask(uint32_t k, uint32_t m[(P_COUNT + 31u) / 32u])
 static int16_t motion_base_value(const track_t *t, uint32_t id)
 {
     uint32_t k = trk_index(t);
-    if (MFX_PARAM(id) || fx_target_ptr(t, id) != &t->p[id]) return t->p[id];
+    if (MFX_ALL(id) || fx_target_ptr(t, id) != &t->p[id]) return t->p[id];
     return (motion_active[k][id / 32u] >> (id % 32u)) & 1u ? motion_base[k][id] : t->p[id];
 }
 /* The base of a lock destination, which may live outside the track's sound parameters. */
@@ -186,7 +199,7 @@ static void motion_restore(track_t *t)
     for (id = 0; id < P_COUNT; id++)
         if (((motion_active[k][id / 32u] >> (id % 32u)) & 1u) && fx_target_available(t, id)) {
             *fx_target_ptr(t, id) = motion_base[k][id];
-            if (!MFX_PARAM(id)) scale_lock_after(t, id);
+            if (!MFX_ALL(id)) scale_lock_after(t, id);
         }
     memset(motion_active[k], 0, sizeof motion_active[k]);
     memset(motion_locked[k], 0, sizeof motion_locked[k]);
@@ -268,7 +281,7 @@ static int motion_put(track_t *t, uint32_t step, uint32_t id, int16_t value, uin
     if (param_lock_only(id) && !(kind & MOTION_LOCK)) return 1;
     if (param_lock_only(id) && kit_track(t)) return 1;   /* PITCH is inert on a kit track: no record */
     d = motion_target_desc(t, id);
-    if (value < d->min || value > d->max || (id != MFX_TIME && (value < -64 || value > 127))) return 1;
+    if (value < d->min || value > d->max || (!MFX_ALL(id) && (value < -64 || value > 127))) return 1;
     value = (int16_t)param_fit(d, value);                    /* (a retired KIT: the kit it plays) */
     f = motion_guard();
     for (i = 0; i < motion.count; i++)
@@ -324,7 +337,7 @@ static int motion_capture(track_t *t, uint32_t id, int16_t value)
     int trn = id == P_TRANS;                         /* REC: TRN becomes the step's PITCH lock (3.2) */
     /* MFX_* reuse matrix ids (P_M1SRC..). FX locks/automation use motion_set_*;
      * track matrix edits must not rewrite those shared bases or events. */
-    if (MFX_PARAM(id) || (!motion_param(id) && !trn) || id == MSEQ_PITCH) return 0;   /* PITCH is lock-only */
+    if (MFX_ALL(id) || (!motion_param(id) && !trn) || id == MSEQ_PITCH) return 0;   /* PITCH is lock-only */
     if (!rec_on(t) || t != TSEL) {
         /* A live edit becomes a new base, even when an earlier motion value is
          * currently sounding. Subsequent recorded events can still override it. */
@@ -377,7 +390,7 @@ static __attribute__((noinline)) void motion_unlock(track_t *t, uint32_t step, c
             v = (int16_t)param_fit(motion_target_desc(t, id), e->value);
         }
         *fx_target_ptr(t, id) = v;
-        if (!MFX_PARAM(id)) scale_lock_after(t, id);
+        if (!MFX_ALL(id)) scale_lock_after(t, id);
     }
     memset(motion_locked[k], 0, sizeof motion_locked[k]);
 }
@@ -412,7 +425,7 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t step, con
         motion_active[k][id / 32u] |= 1u << (id % 32u);
         if (e->param & MOTION_LOCK)
             motion_locked[k][id / 32u] |= 1u << (id % 32u);
-        if (!MFX_PARAM(id)) scale_lock_after(t, id);
+        if (!MFX_ALL(id)) scale_lock_after(t, id);
     }
 }
 static void motion_snapshot_track(track_t *t, motion_store_t *out)
@@ -482,7 +495,7 @@ static int motion_move(track_t *t, uint32_t i, uint32_t step, uint32_t id, int16
     if (at >= 0 && (uint32_t)at != i)
         return 1;
     d = motion_target_desc(t, id);
-    if (v < d->min || v > d->max || (id != MFX_TIME && (v < -64 || v > 127)))
+    if (v < d->min || v > d->max || (!MFX_ALL(id) && (v < -64 || v > 127)))
         return 1;
     f = motion_guard();
     if (motion.event[i].place != (trk_index(t) << 6 | step) || MOTION_ID(&motion.event[i]) != id)
