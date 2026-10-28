@@ -4,7 +4,7 @@
 
 The stock V15 supply rails before core 1, Felucca's DRUMS engine, a per-step PITCH lock, beat-synced chord
 STRUM / STROKE, the new REPEAT 1/12, /2 and *2 TEMPO and GLITCH punch-ins, the DELAY page's TIME / RATE
-direction swapped, the MS-20-inspired punch filter, TAPE as the tenth EFFECTS bus, and MASTER on every EFFECTS
+direction swapped, TAPE as the tenth EFFECTS bus, and MASTER on every EFFECTS
 row. New saves are FUN19 (`FUNJ`); FUN18 and older load with TEMPO ON. FUN17 and older have no MASTER owners;
 FUN16 and older load with TAPE off and the EFFECTS order rebuilt. Splash and ABOUT show `v3.2`.
 
@@ -58,11 +58,9 @@ FUN16 and older load with TAPE off and the EFFECTS order rebuilt. Splash and ABO
   DEC+, ST8, ST16, ATK+, ARP, RND, none. PUNCH-IN 2/2: REVERSE, TAPE, FREEZE, PITCH+, PITCH-, FLANGER, PHASER,
   REV THROW, ECHO THROW, /2, *2, GLITCH, then none; G5 is still CLR with FX LATCH. The FX map's cells show
   `GLITCH`, `/2` and `*2`.
-- **MS-20-inspired punch and FILTER COMB knee.** The punch-in LPF / HPF and KNOB 1 FILTER share a 2-pole
-  voice with 1.5x input drive, Q ~1.86, the ANALOG engine's soft knee and a 0.6 output gain; the one-bar
-  sweeps and KNOB 1 left / centre / right behaviour are unchanged. Insert FILTER COMB gets a soft knee at
-  half scale, threshold 32000 after the voices are summed, so a chord is not compressed hard. The DELAY
-  page's FDBK bars now follow the real loop gain (`FDBK * 230 / 32768`) instead of clamping above 100.
+- **FILTER COMB knee and DELAY FDBK bars.** Insert FILTER COMB gets a soft knee at half scale, threshold
+  32000 after the voices are summed, so a chord is not compressed hard. The DELAY page's FDBK bars now
+  follow the real loop gain (`FDBK * 230 / 32768`) instead of clamping above 100.
 - **TAPE, the tenth EFFECTS bus.** SPEED (25..400 %), WOW (slow + flutter) and DROPOUT (short pitch
   fluctuations, not level dips). USE AS is CHAIN / SEND / MASTER: MASTER and CHAIN slow the **source** (the
   transport and every voice's pitch); SEND keeps the dry at tempo and adds the head's pitched copy. MIX is

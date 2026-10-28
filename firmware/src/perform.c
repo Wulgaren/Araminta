@@ -12,8 +12,6 @@
  *   /2 (A4), *2 (B4), GLITCH (C5); D5.. G5 none (G5 CLR with FX LATCH)
  *   both: with FX LATCH, G5 is CLR (latched effects and FILTER/CRUSH/THROW/DEPTH off); black keys 1..4 mute
  *   tracks 1..4; A#4 steps the MIDI effects' tracks (ALL / SYN / DRM).
- * LPF / HPF and KNOB 1's FILTER share one MS-20-inspired 2-pole voice (1.5x drive, Q ~1.86, soft knee):
- * the key sweeps it over a bar (LPF down, HPF up), KNOB 1 sets it statically (left LPF, right HPF).
  * REV THROW / ECHO THROW (1.5.1): while held every track's reverb / delay send is full (as REV / DLY 127; perf_throw),
  * ECHO THROW also lifts the delay's feedback to 0.7 if it is lower (fx.c fx_buses); both glide in and out over 11.6 ms
  * (THR_SLOPE). Let go, the sends are the tracks' own again and what the buses hold rings out. The buses are the song's
@@ -41,7 +39,7 @@
  * The buffer: the SLICER's recordings (sl_buf, 32 KB) borrowed as one stereo loop of 8192 frames at 22.05 kHz
  * (371 ms). While borrowed, STUT tracks play live; their recordings are dropped afterwards. A REPEAT 1/8 or
  * REVERSE longer than the loop at the tempo (below 81 BPM) does nothing (the map shows it dimmed).
- * KNOB 1..4 with FX: the macros FILTER (the MS-20-inspired LPF / HPF), CRUSH, THROW (the dry mix into the delay and reverb
+ * KNOB 1..4 with FX: the macros FILTER (the LPF / HPF), CRUSH, THROW (the dry mix into the delay and reverb
  * sends), DEPTH (the buffer effects' level, FLANGER's and PHASER's; OCT UP / DN: the shimmer).
  * MENU > FX LATCH ON (#40, a hand that cannot hold FX, a key and a knob together): a key pressed with FX turns its
  * effect on, the next press turns it off (perf_latched; letting the key or FX go does nothing), the macros keep
@@ -136,26 +134,21 @@ static volatile uint32_t perf_latched;   /* ISR: the effects latched (FX LATCH; 
 static volatile uint32_t perf_act;    /* ISR: .. running (a 1/16 one from its start on) */
 static uint32_t perf_ord[PF_N], perf_seq;   /* press order: the last pressed buffer effect plays */
 
-/* the ZDF state-variable filter at cutoff index i (30 Hz * 2^(i / 7), 0..63: up to 15.4 kHz), k = 0.539
- * (the MS-20-inspired punch filter's Q ~1.86): a1 a2 a3 in Q14 (tools: g = tan(pi fc / fs),
- * a1 = 1 / (1 + g (g + k)), a2 = g a1, a3 = g a2) */
+/* the ZDF state-variable filter at cutoff index i (30 Hz * 2^(i / 7), 0..63: up to 15.4 kHz), k = 1:
+ * a1 a2 a3 in Q14 (tools: g = tan(pi fc / fs), a1 = 1 / (1 + g (g + k)), a2 = g a1, a3 = g a2) */
 static const int16_t PF_SVF[64][3] = {
-    {16365, 35, 0}, {16363, 39, 0}, {16361, 43, 0}, {16359, 47, 0},
-    {16356, 52, 0}, {16353, 57, 0}, {16350, 63, 0}, {16346, 70, 0},
-    {16342, 77, 0}, {16338, 85, 0}, {16333, 94, 1}, {16327, 104, 1},
-    {16322, 114, 1}, {16315, 126, 1}, {16308, 139, 1}, {16300, 154, 1},
-    {16291, 170, 2}, {16281, 187, 2}, {16270, 207, 3}, {16258, 228, 3},
-    {16245, 252, 4}, {16230, 278, 5}, {16213, 306, 6}, {16195, 338, 7},
-    {16175, 372, 9}, {16152, 410, 10}, {16127, 453, 13}, {16100, 499, 15},
-    {16069, 550, 19}, {16035, 606, 23}, {15997, 667, 28}, {15954, 735, 34},
-    {15907, 809, 41}, {15854, 890, 50}, {15795, 980, 61}, {15730, 1077, 74},
-    {15656, 1184, 90}, {15574, 1301, 109}, {15482, 1429, 132}, {15379, 1568, 160},
-    {15264, 1720, 194}, {15134, 1884, 235}, {14989, 2063, 284}, {14825, 2256, 343},
-    {14642, 2464, 415}, {14435, 2688, 500}, {14203, 2927, 603}, {13943, 3182, 726},
-    {13650, 3453, 873}, {13321, 3738, 1049}, {12952, 4035, 1257}, {12539, 4344, 1505},
-    {12077, 4659, 1797}, {11560, 4976, 2142}, {10986, 5291, 2548}, {10347, 5593, 3023},
-    {9642, 5873, 3578}, {8865, 6118, 4222}, {8016, 6311, 4968}, {7093, 6429, 5827},
-    {6099, 6446, 6812}, {5044, 6325, 7932}, {3943, 6022, 9196}, {2827, 5476, 10606},
+    {16349, 35, 0}, {16345, 39, 0}, {16341, 43, 0}, {16337, 47, 0}, {16332, 52, 0}, {16327, 57, 0}, {16321, 63, 0},
+    {16314, 70, 0}, {16307, 77, 0}, {16299, 85, 0}, {16290, 94, 1}, {16280, 103, 1}, {16269, 114, 1},
+    {16257, 126, 1}, {16244, 139, 1}, {16229, 153, 1}, {16213, 169, 2}, {16196, 186, 2}, {16176, 205, 3},
+    {16154, 227, 3}, {16130, 250, 4}, {16104, 275, 5}, {16075, 303, 6}, {16043, 334, 7}, {16007, 368, 8},
+    {15968, 406, 10}, {15925, 447, 13}, {15877, 492, 15}, {15824, 541, 19}, {15766, 596, 22}, {15702, 655, 27},
+    {15631, 720, 33}, {15553, 791, 40}, {15467, 869, 49}, {15372, 953, 59}, {15267, 1046, 72}, {15151, 1146, 87},
+    {15024, 1255, 105}, {14883, 1374, 127}, {14729, 1502, 153}, {14559, 1640, 185}, {14372, 1790, 223},
+    {14166, 1950, 268}, {13940, 2121, 323}, {13692, 2304, 388}, {13420, 2499, 465}, {13122, 2704, 557},
+    {12797, 2921, 667}, {12441, 3147, 796}, {12053, 3382, 949}, {11631, 3624, 1129}, {11173, 3870, 1341},
+    {10677, 4119, 1589}, {10140, 4365, 1879}, {9562, 4605, 2218}, {8940, 4832, 2612}, {8274, 5040, 3070},
+    {7563, 5219, 3602}, {6807, 5359, 4219}, {6006, 5444, 4934}, {5163, 5456, 5766}, {4282, 5369, 6733},
+    {3372, 5149, 7863}, {2449, 4745, 9190},
 };
 
 static struct {
@@ -390,8 +383,7 @@ static __attribute__((noinline)) int perf_begin(uint32_t n)
         pf.act |= q;
     }
     perf_act = pf.act;
-    /* the filters: LPF from open down over a bar while its key is held, KNOB 1 left; HPF up, KNOB 1 right;
-     * the MS-20-inspired voice (1.5x drive, Q ~1.86, soft knee) in perf_block */
+    /* the filters: LPF from open down over a bar while its key is held, KNOB 1 left; HPF up, KNOB 1 right */
     m = perf_k[0];
     {
         uint32_t bar = 16u * pf.P, t;
@@ -808,23 +800,13 @@ static inline void perf_buf(int32_t *pl, int32_t *pr)
     }
 }
 
-/* one channel of a state-variable filter (PF_SVF's k); x is Q15 (the punch filter feeds half scale) */
+/* one channel of a state-variable filter (k = 1): x in Q15 >> 2 */
 static inline int32_t pf_svf(int32_t x, int32_t *z, const int16_t *c, int hp)
 {
     int32_t v3 = x - z[1], v1 = (c[0] * z[0] + c[1] * v3) >> 14, v2 = z[1] + ((c[1] * z[0] + c[2] * v3) >> 14);
     z[0] = 2 * v1 - z[0];
     z[1] = 2 * v2 - z[1];
     return hp ? x - v1 - v2 : v2;
-}
-
-/* the punch-in filter's MS-20-inspired voice: 1.5x input drive, PF_SVF's Q ~1.86, the analog
- * engine's soft knee, then 0.6 (level-matched to the clean filter). x and the result: half scale. */
-static inline int32_t pf_ms20(int32_t x, int32_t *z, const int16_t *c, int hp)
-{
-    x = softclip(x + (x >> 1));
-    x = pf_svf(x, z, c, hp);
-    x = soft_knee(x, 16000);
-    return x * 3 / 5;
 }
 
 static __attribute__((noinline)) void perf_switch(uint32_t a) { perf_buf_select(perf_pick(a)); }
@@ -959,8 +941,8 @@ static __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint3
         if (lt != pf.la)                  /* settled: the clamp adds nothing */
             pf.la += clamp(lt - pf.la, -SL_SLOPE, SL_SLOPE);
         if (pf.la) {
-            int32_t fl = pf_ms20(clamp(l >> 1, -32767, 32767), &pf.lz[0], pf.lk, 0) << 1;
-            int32_t fr = pf_ms20(clamp(r >> 1, -32767, 32767), &pf.lz[2], pf.lk, 0) << 1;
+            int32_t fl = pf_svf(clamp(l >> 2, -32767, 32767), &pf.lz[0], pf.lk, 0) << 2;
+            int32_t fr = pf_svf(clamp(r >> 2, -32767, 32767), &pf.lz[2], pf.lk, 0) << 2;
             l = pf_mix(l, fl, pf.la);
             r = pf_mix(r, fr, pf.la);
         } else if (pf.lz[0] | pf.lz[1] | pf.lz[2] | pf.lz[3]) {
@@ -969,8 +951,8 @@ static __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint3
         if (ht != pf.ha)
             pf.ha += clamp(ht - pf.ha, -SL_SLOPE, SL_SLOPE);
         if (pf.ha) {
-            int32_t fl = pf_ms20(clamp(l >> 1, -32767, 32767), &pf.hz[0], pf.hk, 1) << 1;
-            int32_t fr = pf_ms20(clamp(r >> 1, -32767, 32767), &pf.hz[2], pf.hk, 1) << 1;
+            int32_t fl = pf_svf(clamp(l >> 2, -32767, 32767), &pf.hz[0], pf.hk, 1) << 2;
+            int32_t fr = pf_svf(clamp(r >> 2, -32767, 32767), &pf.hz[2], pf.hk, 1) << 2;
             l = pf_mix(l, fl, pf.ha);
             r = pf_mix(r, fr, pf.ha);
         } else if (pf.hz[0] | pf.hz[1] | pf.hz[2] | pf.hz[3]) {

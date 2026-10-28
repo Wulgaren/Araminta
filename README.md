@@ -65,8 +65,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   them and the ribbon, DROPOUT sags the ribbon.
 - **DRUMS.** Felucca's synthesized drum engine returns as engine 15, with the STD, 80, 10, 66, 55, 77, DEEP,
   TIGHT and PERC kits. DRUM-X stays engine 10; existing sounds and projects keep playing it.
-- **Punch filter.** The punch-in LPF / HPF and KNOB 1 FILTER share an MS-20-inspired 2-pole voice; insert FILTER
-  COMB gets a soft knee, and the DELAY page's FDBK bars follow the real loop gain.
+- **Filter and delay readout.** Insert FILTER COMB gets a soft knee, and the DELAY page's FDBK bars follow
+  the real loop gain.
 - **PITCH lock.** A held step on SCL K4 stores an absolute chromatic PITCH lock; with REC armed, a TRN turn
   records the scale-fitted value. Kit engines ignore PITCH (and TRN).
 - **FUN18 (`FUNI`).** Saves carry the ten-slot EFFECTS order in the FM6 patch bytes and each stage's MASTER
