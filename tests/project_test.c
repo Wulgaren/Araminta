@@ -357,6 +357,7 @@ static int tape_wire(void)
     for (i = 0; i < G_COUNT; i++)
         a.g[i] = GP[i].def;
     a.g[G_TSPEED] = 88; a.g[G_TWOW] = 44; a.g[G_TDROP] = 1; a.g[G_TMIX] = 55; a.g[G_TAPEMODE] = TAPE_MASTER;
+    a.g[G_TTEMPO] = 0;
     for (t = 0; t < NTRK; t++) {
         a.t[t].engine = 0;
         a.t[t].p[P_IORD] = (int16_t)IORD_DEF;
@@ -373,9 +374,16 @@ static int tape_wire(void)
     for (i = 0; i < FX_LIST_N; i++)
         ok &= c.t[0].fx_order[i] == ORD[i];
     ok &= c.g[G_TSPEED] == 88 && c.g[G_TWOW] == 44 && c.g[G_TDROP] == 1 && c.g[G_TMIX] == 55 &&
-          c.g[G_TAPEMODE] == TAPE_MASTER && c.t[0].p[P_TAPEMIX] == 77 &&
+          c.g[G_TAPEMODE] == TAPE_MASTER && c.g[G_TTEMPO] == 0 && c.t[0].p[P_TAPEMIX] == 77 &&
           c.fx_master[INS_DIST] == 1 && c.fx_master[INS_DLY] == 2 && c.fx_master[INS_SLCR] == 4 &&
           c.fx_master[INS_TAPE] == 3 && c.fx_master[INS_REV] == 0;
+    {   /* the same bytes stamped FUN18 (before TEMPO): it loads ON, as it behaved */
+        uint32_t sum;
+        ((uint32_t *)st.raw)[0] = PROJ_MAGIC_V18;
+        sum = proj_hash(st.raw, PROJ_STORE_SIZE - 4u);
+        memcpy(st.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+        ok &= proj_import(&c, &st, sizeof st) && c.g[G_TTEMPO] == 1 && c.g[G_TSPEED] == 88;
+    }
     {   /* the same bytes as a FUN16: the order is not there, the globals are the old inert ids,
          * and no MASTER owner (FUN16/17 wrote zeros in those spare bytes) */
         uint32_t sum;
@@ -392,11 +400,12 @@ static int tape_wire(void)
                 ok &= c.t[0].fx_order[i] == DEF[i];
         }
         ok &= c.g[G_TSPEED] == GP[G_TSPEED].def && c.g[G_TWOW] == 0 && c.g[G_TDROP] == 0 &&
-              c.g[G_TMIX] == 0 && c.g[G_TAPEMODE] == TAPE_SEND && c.t[0].p[P_TAPEMIX] == 0;
+              c.g[G_TMIX] == 0 && c.g[G_TAPEMODE] == TAPE_SEND && c.g[G_TTEMPO] == 1 &&
+              c.t[0].p[P_TAPEMIX] == 0;
         for (i = 0; i < FX_LIST_N; i++)
             ok &= c.fx_master[i] == 0;
     }
-    return check("FUN18: the 10-stage order, TAPE globals and MASTER owners round trip; FUN16 gets defaults", ok);
+    return check("FUN19: the 10-stage order, TAPE globals/TEMPO and MASTER owners round trip; FUN18/16 get defaults", ok);
 }
 
 int main(void)

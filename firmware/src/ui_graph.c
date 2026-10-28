@@ -1617,7 +1617,7 @@ static void mixer_status(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, u
 static struct {
     uint32_t col[NTRK];
     uint8_t meter[NTRK];
-} ts;
+} ts __attribute__((section(".pool")));                /* main loop only: off the audio .bss budget */
 
 static int32_t meter_px(int32_t a)                   /* |sample| (Q15) -> px: 60 dB over the slot */
 {

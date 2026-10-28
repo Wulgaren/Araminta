@@ -168,22 +168,45 @@ static const int16_t TAPE_PITCH16[376] = {
 static struct {
     uint32_t w, ph, cw, wow_ph, fl_ph, rng, drop_wait, drop_len, drop_n, drop_step, eff_recip;
     int32_t speed_q16, eff_q16, speed_pitch16, drop_amt;
-    uint8_t mode;
+    uint8_t mode, tempo, head_on;
 } tp __attribute__((section(".pool")));
 /* Effective SPEED / WOW for the next block: the knob, a step lock or the matrix's folded per-part values
  * (fx_buses, after the parts). A block of latency keeps the global tape out of the parts' race. */
 static int16_t tape_speed_eff = 100, tape_wow_eff;
 static uint8_t fx_master_gen;                        /* mix_cache invalidation when MASTER routing moves */
-static void tape_clear(void)
+/* Route changes and head bypass discard buffered audio without changing source-clock slew. */
+static void tape_head_clear(void)
 {
     memset(tp_buf, 0, sizeof tp_buf);
     memset(tp_comp, 0, sizeof tp_comp);
+    tp.w = tp.cw = 0;
+    tp.ph = (TP_W / 4u) << 16;                        /* rest head at TP_COMP */
+}
+static void tape_clear(void)
+{
     memset(&tp, 0, sizeof tp);
+    tape_head_clear();
     tp.speed_q16 = tp.eff_q16 = 65536;
-    tp.ph = (TP_W / 4u) << 16;                        /* rest head at TP_COMP (speed 100 is a clean pass) */
     tp.rng = 0x9E3779B9u;
+    tp.tempo = (uint8_t)(song.g[G_TTEMPO] != 0);
     tape_speed_eff = song.g[G_TSPEED];
     tape_wow_eff = song.g[G_TWOW];
+}
+/* TAPE TEMPO ON (the default, as before): MASTER / CHAIN move the source clock. OFF: the head carries the
+ * pitch only and the transport and voices keep time, as SEND already does. */
+static int tape_tempo_on(void)
+{
+    return song.g[G_TTEMPO] != 0;
+}
+/* Whether the head has work in its block: WOW / DROPOUT always, and with TEMPO OFF its SPEED pitch. While
+ * the head slew settles it keeps running, so 100 % lands back on the bit-identical dry path. */
+static int tape_head_on(void)
+{
+    if (!song.g[G_TMIX])
+        return 0;
+    if (tape_wow_eff || song.g[G_TDROP])
+        return 1;
+    return !tape_tempo_on() && tp.speed_q16 != 65536;
 }
 static void tape_begin(uint32_t mode)
 {
@@ -198,22 +221,36 @@ static void tape_pre(void)
     int32_t target = clamp(tape_speed_eff, 25, 400);
     int32_t eff_pct = 100 + (target - 100) * depth / 127;
     int32_t eff, pct;
+    int tempo = tape_tempo_on();
+    if (tp.tempo != (uint8_t)tempo) {                 /* the head restarts at its rest, so only the route
+                                                       * that owns the speed moves on the switch */
+        tp.tempo = (uint8_t)tempo;
+        if (song.g[G_TAPEMODE] != TAPE_SEND)
+            tp.speed_q16 = 65536;
+    }
     eff_pct = clamp(eff_pct, 25, 400);
     eff = eff_pct * 65536 / 100;
     if (!tp.speed_q16)                                /* hosts that never ran fx_boot */
         tp.speed_q16 = tp.eff_q16 = 65536;
     tp.eff_q16 += clamp(eff - tp.eff_q16, -TP_SLEW, TP_SLEW);
     tp.eff_recip = (1u << 31) / (uint32_t)(tp.eff_q16 >> 1);   /* 2^32 / eff, a 32-bit divide */
-    target = song.g[G_TAPEMODE] == TAPE_SEND ? target : 100;   /* the head is the send's pitch only */
+    /* the head is the send's pitch; with TEMPO OFF it is MASTER / CHAIN's pitch too (the dry keeps time) */
+    target = song.g[G_TAPEMODE] == TAPE_SEND || !tempo ? target : 100;
     tp.speed_q16 += clamp(target * 65536 / 100 - tp.speed_q16, -TP_SLEW, TP_SLEW);
     pct = clamp((tp.eff_q16 * 100 + 32768) / 65536, 25, 400);
     tp.speed_pitch16 = TAPE_PITCH16[pct - 25];
+    {
+        int head = song.g[G_TAPEMODE] == TAPE_SEND || tape_head_on();
+        if (tp.head_on && !head)
+            tape_head_clear();
+        tp.head_on = (uint8_t)head;
+    }
 }
 /* Source-clock varispeed: MASTER (all parts) or the CHAIN owner. SEND leaves the parts alone. */
 int32_t tape_pitch16_for(const struct track *t)
 {
     int32_t m = song.g[G_TAPEMODE];
-    if (!song.g[G_TMIX] || tape_speed_eff == 100)
+    if (!song.g[G_TMIX] || tape_speed_eff == 100 || !tape_tempo_on())
         return 0;
     if (m == TAPE_MASTER || TAPE_OWNER_OF(m) == (int32_t)(t - trk))
         return tp.speed_pitch16;
@@ -222,7 +259,7 @@ int32_t tape_pitch16_for(const struct track *t)
 uint32_t tape_seq_speed_q16(const struct track *t)
 {
     int32_t m = song.g[G_TAPEMODE];
-    if (song.g[G_TMIX] && m != TAPE_MASTER && TAPE_OWNER_OF(m) == (int32_t)(t - trk))
+    if (song.g[G_TMIX] && tape_tempo_on() && m != TAPE_MASTER && TAPE_OWNER_OF(m) == (int32_t)(t - trk))
         return tp.eff_recip;
     return 65536u;
 }
@@ -687,9 +724,9 @@ static int ins_any(const track_t *t)
     for (s = 0; s < INS_N; s++)
         if (ins_mix_of(t, s))
             return 1;
-    /* TAPE in CHAIN: its SPEED is source-clock; this list stage is only the WOW/DROP head. */
-    if (song.g[G_TAPEMODE] == TAPE_CH1 + (int16_t)(t - trk) && song.g[G_TMIX] &&
-        (tape_wow_eff || song.g[G_TDROP]))
+    /* TAPE in CHAIN: with TEMPO ON its SPEED is source-clock, so this list stage is only the WOW/DROP
+     * head; with TEMPO OFF it is the pitch head too (the dry keeps time). */
+    if (song.g[G_TAPEMODE] == TAPE_CH1 + (int16_t)(t - trk) && tape_head_on())
         return 1;
     return 0;
 }
@@ -805,7 +842,7 @@ static uint32_t beat_samples(void)
 {
     uint32_t bpm = song.g[G_BPM] >= 40 ? (uint32_t)song.g[G_BPM] : 120u;   /* (BPM 0 for a moment, #282: no divide by 0) */
     uint32_t b = song.g[G_CLOCK] && midi_beat_samples ? midi_beat_samples : (uint32_t)FS * 60u / bpm;
-    if (song.g[G_TAPEMODE] == TAPE_MASTER && song.g[G_TMIX] && tp.eff_recip)
+    if (song.g[G_TAPEMODE] == TAPE_MASTER && song.g[G_TMIX] && tape_tempo_on() && tp.eff_recip)
         b = (uint32_t)(((uint64_t)b * tp.eff_recip) >> 16);
     return b;
 }
@@ -2076,20 +2113,35 @@ static __attribute__((noinline)) void fx_bus_stage(track_t *t, uint32_t st, int3
     if (bus_knobs_on[pi])
         bus_g_put(t, g0, g1, mfx_keep, 1);
 }
-/* TAPE in the owner track's list: SPEED is source-clock (voice + seq); this head runs at 100 %
- * for WOW / DROP over the already-slowed part. Kept out of track_insert's loop (target_budget). */
+/* TAPE in the owner track's list. TEMPO ON: SPEED is source-clock (voice + seq) and this head runs at
+ * 100 % for WOW / DROP over the already-slowed part. TEMPO OFF: the head carries SPEED's pitch while the
+ * dry keeps time, so the stage mixes the head in by MIX like SEND does. Kept out of track_insert's loop
+ * (target_budget). */
 static __attribute__((noinline)) void tape_chain(track_t *t, int32_t *b, uint32_t n,
                                                  int32_t *dry, int32_t *wet)
 {
     uint32_t i;
-    if (song.g[G_TAPEMODE] != TAPE_CH1 + (int16_t)(t - trk) || !song.g[G_TMIX] ||
-        (!tape_wow_eff && !song.g[G_TDROP]))
+    if (song.g[G_TAPEMODE] != TAPE_CH1 + (int16_t)(t - trk) || !tape_head_on())
         return;
-    for (i = 0; i < n; i++)
-        dry[i] = b[i];
-    tape_run(dry, dry, wet, wet, n);
-    for (i = 0; i < n; i++)
-        b[i] = wet[i];
+    if (tape_tempo_on()) {
+        for (i = 0; i < n; i++)
+            dry[i] = b[i];
+        tape_run(dry, dry, wet, wet, n);
+        for (i = 0; i < n; i++)
+            b[i] = wet[i];
+    } else {
+        int32_t a = clamp(song.g[G_TMIX], 0, 127);
+        for (i = 0; i < n; i++) {                     /* the dry path's TP_COMP, mono (tp_comp[1] is unused
+                                                       * in this mode; tape_clear resets it on a route change) */
+            int32_t d = tp_comp[0][tp.cw];
+            tp_comp[0][tp.cw] = b[i];
+            dry[i] = d;
+            tp.cw = (tp.cw + 1u) & (TP_COMP - 1u);
+        }
+        tape_run(b, b, wet, wet, n);
+        for (i = 0; i < n; i++)
+            b[i] = dry[i] + (wet[i] * a) / 127;
+    }
     t->ins_run = 1;
 }
 
@@ -2555,9 +2607,9 @@ static __attribute__((noinline)) uint32_t mix_split(void)
     return best;
 }
 
-/* after the buses: the TAPE's SEND (a whole-mix pitch send) or MASTER's WOW/DROP head. MASTER's
- * SPEED is source-clock (voice pitch + beat_samples), so its head runs at 100 % and only colours the
- * already-slowed mix. SEND keeps the dry at tempo and adds the head's wet by the one global amount. */
+/* after the buses: the TAPE's SEND (a whole-mix pitch send) or MASTER's head. TEMPO ON: MASTER's SPEED
+ * is source-clock (voice pitch + beat_samples), so its head runs at 100 % and only colours the already-
+ * slowed mix. TEMPO OFF: SEND and MASTER both keep the dry at tempo and add the head's pitch by MIX. */
 static __attribute__((noinline)) void tape_post(uint32_t n)
 {
     uint32_t i;
@@ -2574,16 +2626,19 @@ static __attribute__((noinline)) void tape_post(uint32_t n)
             mix_l[i] += (ins_dry_buf[0][i] * a) / 127;
             mix_r[i] += (ins_wet_buf[0][i] * a) / 127;
         }
-    } else if (m == TAPE_MASTER) {
-        for (i = 0; i < n; i++) {
-            mix_l[i] += wet[i];
-            mix_r[i] += wet[i];
-            wet[i] = 0;
-        }
+    } else if (m == TAPE_MASTER && tape_head_on()) {
         tape_run(mix_l, mix_r, ins_dry_buf[1], ins_wet_buf[1], n);
-        for (i = 0; i < n; i++) {
-            mix_l[i] = ins_dry_buf[1][i];
-            mix_r[i] = ins_wet_buf[1][i];
+        if (tape_tempo_on()) {
+            for (i = 0; i < n; i++) {
+                mix_l[i] = ins_dry_buf[1][i];
+                mix_r[i] = ins_wet_buf[1][i];
+            }
+        } else {
+            tape_comp_delay(mix_l, mix_r, n);
+            for (i = 0; i < n; i++) {
+                mix_l[i] += (ins_dry_buf[1][i] * a) / 127;
+                mix_r[i] += (ins_wet_buf[1][i] * a) / 127;
+            }
         }
     }
 }
@@ -2685,9 +2740,8 @@ static __attribute__((noinline)) void fx_master_run(uint32_t n)
     for (i = 0; i < FX_LIST_N; i++) {
         st = ord[i];
         if (st == INS_TAPE) {
-            if (song.g[G_TAPEMODE] == TAPE_MASTER && song.g[G_TMIX] &&
-                (tape_wow_eff || song.g[G_TDROP]))
-                tape_post(n);                        /* WOW / DROP at TAPE's place in the list */
+            if (song.g[G_TAPEMODE] == TAPE_MASTER && tape_head_on())
+                tape_post(n);                        /* WOW / DROP (and OFF's SPEED pitch) at TAPE's place */
             continue;
         }
         if (!fx_master_on(st))

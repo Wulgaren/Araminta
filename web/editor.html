@@ -2005,6 +2005,7 @@ function makeMockDevice(opt = {}) {
     E("TYPE", ["ROOM", "SPRING", "HALL", "SHIMR", "CLOUD"], 2), /* G_CRTYPE..: CHAIN tank (params.c) */
     D("SIZE", F.PCT, 0, 127, 90), D("DAMP", F.PCT, 0, 127, 60),
     D("SLOWN", F.INT, 0, 15, 0), /* G_SLOWN: 0 and 5..15 are the mask (0 = all SEND); 1..4 are legacy owner values */
+    E("TEMPO", NONOFF, 1), /* G_TTEMPO: ON = SPEED slows the source clock; OFF = pitch only */
   ];
   const NONE = D("-", F.INT, 0, 0, 0);
   const RETIRE = D("-", F.INT, -64, 127, 0);   /* eng_retire.c RETIRE_EDIT: wide range until remap */
@@ -2147,7 +2148,7 @@ function makeMockDevice(opt = {}) {
     D("RATE", F.LFOHZ, 0, 127, 64), D("DEPTH", F.PCT, 0, 127, 96), D("MIX", F.PCT, 0, 127, 0),
     D("RATE", F.LFOHZ, 0, 127, 64), D("DEPTH", F.PCT, 0, 127, 96), D("MIX", F.PCT, 0, 127, 0),
     E("TYPE", ["LP", "BP", "HP", "COMB"], 0), E("ESYNC", ["OFF", "ON"], 0));   /* ANALOG TYPE (117), ENV SYNC (118) */
-  const P_COUNT = 127, G_COUNT = 31, NSTEP = 64, P_E0 = 119, G_ENGSEL = 20, P_SLCR = 45;
+  const P_COUNT = 127, G_COUNT = 32, NSTEP = 64, P_E0 = 119, G_ENGSEL = 20, P_SLCR = 45;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const enumOrig = (d, v) => d.fmt === F.ENUM && d.names ? aliasOf(d.names, v - d.min) + d.min : v;   /* params.c enum_orig */
   /* four tracks (firmware v3), four synth parts (1.0); engine / preset / p / step below are the selected track's */
@@ -3284,7 +3285,7 @@ const LAYOUT = (pe0) => [
     ["OP LVL", 0, [65, 70, 75, 80]]] }] : []),
   { t: "VOICE", pages: [["LEVEL", 0, [0]], ["VOICE", 0, [37, 38, 44, 95]]] },   /* VCE GLD UNI DTN SPRD (GLMOD/PAN/PLAY off the page) */
 
-  { t: "FX", pages: [["FX", 0, [33, 34, 35, 36]], ["SLICER", 0, [45, 46, 47, 48]], ["DELAY", 1, [4, 5, 6]], ["REVERB", 1, [24, 8, 9]], ["CHORUS", 1, [10, 11]], ["TAPE", 1, [7, 12, 15]]] },   /* G_RTYPE 24: ROOM..CLOUD */
+  { t: "FX", pages: [["FX", 0, [33, 34, 35, 36]], ["SLICER", 0, [45, 46, 47, 48]], ["DELAY", 1, [4, 5, 6]], ["REVERB", 1, [24, 8, 9]], ["CHORUS", 1, [10, 11]], ["TAPE", 1, [7, 12, 15, 31]]] },   /* G_RTYPE 24: ROOM..CLOUD */
   { t: "SCL", pages: [["SCL", 0, [25, 26, 27, 28]], ...(pe0 >= 83 ? [["CHORD", 0, P_CHORD]] : [])] },   /* CHRD VOIC 81, 82 */
   { t: "ARP", pages: [["ARP", 0, [17, 18, 19, 20]], ["ARP 2", 0, [21, 22, 23, 24]]] },
   { t: "SEQ PATTERN", tab: "seqgroups", pages: [["PATTERN", 0, [29, 30, 31, 32]]] },

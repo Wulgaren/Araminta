@@ -207,6 +207,36 @@ static void test_tape(void)
     send = hash_out(64);
     ck("TAPE SEND 50 %: the wet copy changes the render", send != dry);
 
+    {   /* TEMPO OFF: SPEED is the head's pitch only; the clock and the voices keep time. */
+        uint32_t base = (uint32_t)FS * 60u /
+                        (song.g[G_BPM] >= 40 ? (uint32_t)song.g[G_BPM] : 120u);
+        uint64_t off_master, off_chain;
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_MASTER;
+        song.g[G_TSPEED] = 50; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 0;
+        tape_note();
+        off_master = hash_out(64);
+        ck("TAPE TEMPO OFF MASTER 50 %: the pitch head changes the render, the beat stays",
+           off_master != dry && beat_samples() == base && tape_pitch16_for(&trk[0]) == 0 &&
+           tp.speed_q16 == 32768 && tp.speed_pitch16 < 0);
+
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_CH1;
+        song.g[G_TSPEED] = 50; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 0;
+        tape_note();
+        off_chain = hash_out(64);
+        ck("TAPE TEMPO OFF CHAIN 50 %: the owner's pitch moves, its sequencer stays 1x",
+           off_chain != dry && tape_seq_speed_q16(&trk[0]) == 65536 &&
+           tape_pitch16_for(&trk[0]) == 0);
+
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_MASTER;
+        song.g[G_TSPEED] = 50; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 1;
+        tape_note();
+        ck("TAPE TEMPO ON MASTER 50 %: the source clock slows (the beat lengthens)",
+           beat_samples() > base && tape_pitch16_for(&trk[0]) < 0);
+    }
+
     {   /* DROPOUT: 10..40 ms dips, 0.25..1 s apart: a long render must hear them */
         uint64_t off, on;
         fresh();
@@ -391,6 +421,37 @@ static void test_master_slicer_restart(void)
        mix_l[CTL - 1u] == open_l && mix_r[CTL - 1u] == open_r);
     seq_stop();
     fx_master_clear(INS_SLCR);
+}
+
+/* Re-engaging TEMPO OFF after a silent bypass must not replay the previous sound. */
+static void test_tape_bypass_history(void)
+{
+    for (uint32_t chain = 0; chain < 2u; chain++) {
+        int ok = 1;
+        fresh();
+        song.g[G_TAPEMODE] = chain ? TAPE_CH1 : TAPE_MASTER;
+        song.g[G_TTEMPO] = 0;
+        song.g[G_TMIX] = 127;
+        for (uint32_t phase = 0; phase < 3u; phase++) {
+            song.g[G_TSPEED] = phase == 1u ? 100 : 99;
+            for (uint32_t b = 0; b < (phase == 2u ? 32u : 300u); b++) {
+                tape_begin((uint32_t)song.g[G_TAPEMODE]);
+                tape_speed_eff = song.g[G_TSPEED];
+                tape_pre();
+                for (uint32_t i = 0; i < CTL; i++)
+                    mix_l[i] = mix_r[i] = phase == 0u ? 16000 : 0;
+                if (chain)
+                    track_insert(&trk[0], mix_l, CTL);
+                else
+                    fx_master_run(CTL);
+                if (phase == 2u)
+                    for (uint32_t i = 0; i < CTL; i++)
+                        ok &= mix_l[i] == 0 && (chain || mix_r[i] == 0);
+            }
+        }
+        ck(chain ? "TAPE CHAIN: silent bypass discards previous head and dry audio" :
+                   "TAPE MASTER: silent bypass discards previous head and dry audio", ok);
+    }
 }
 
 static int pick_has(uint32_t id, const char *name)
@@ -633,6 +694,7 @@ int main(void)
     test_master_swept_tail();
     test_master_bus_headroom();
     test_master_slicer_restart();
+    test_tape_bypass_history();
     ck("param layout: insert chain before FTYPE/ESYNC/E0",
        P_SPRD + 1 == P_IORD && P_IHMIX + 1 == P_FTYPE && P_ESYNC + 1 == P_E0 && P_COUNT == 127u && P_E0 == 119u);
 
@@ -914,7 +976,7 @@ int main(void)
             ck("CHAIN reverb params diverge from SEND (ROOM/40 vs HALL/90 changes render)",
                h_chain != h_send);
             ck("GP has CHAIN TYPE/SIZE/DAMP",
-               G_COUNT == 31u && GP[G_CRTYPE].names == GP[G_RTYPE].names && GP[G_CRSIZE].max == 127);
+               G_COUNT == 32u && GP[G_CRTYPE].names == GP[G_RTYPE].names && GP[G_CRSIZE].max == 127);
         }
         bus_own_set(1, -1);
         bus_own_set(0, -1);

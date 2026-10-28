@@ -127,14 +127,18 @@
  * + DLY + REV + SLCR + TAPE) in the unused high bits of its FM6 patch bytes, after the six generation controls.
  * The object and every offset are unchanged; FUN16 and older rebuild the order from P_IORD / P_CHOR / fx_sl_pos
  * and take the TAPE fields' defaults. Firmware that only knows FUN16 refuses a FUN17 (magic), as before.
- * Format 18 ("FUNI", written now; FUN18 in the docs) = FUN17 with the MASTER owner of each EFFECTS stage in the
+ * Format 18 ("FUNI", read only since FUN19; FUN18 in the docs) = FUN17 with the MASTER owner of each EFFECTS stage in the
  * chain header's spare bytes 1..3 and the motion header's spare byte 3 (ten 3-bit owners). Older firmware refuses
  * a FUN18 (magic); FUN17 and older load with no MASTER owners. Three spare FM6 high bits after the EFFECTS
  * order hold its MASTER ordering track plus one; zero retains the legacy first-owner ordering.
+ * Format 19 ("FUNJ", written now; FUN19 in the docs) = FUN18 with the TAPE's TEMPO switch in header byte 67 bit 7
+ * (bit 0 still marks the CHAIN tank bytes). Older firmware refuses a FUN19 (magic); FUN18 and older load with
+ * TEMPO ON, which is how they behaved.
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
-#define PROJ_MAGIC 0x494E5546u                 /* "FUNI" (FUN18): FUN17 + MASTER owners */
+#define PROJ_MAGIC 0x4A4E5546u                 /* "FUNJ" (FUN19): FUN18 + TAPE TEMPO */
+#define PROJ_MAGIC_V18 0x494E5546u             /* "FUNI" (FUN18): FUN17 + MASTER owners */
 #define PROJ_MAGIC_V17 0x484E5546u             /* "FUNH" (FUN17): FUN16 + the EFFECTS order (10 stages) in the
                                                 * FM6 high bits */
 #define PROJ_MAGIC_V16 0x474E5546u             /* "FUNG" (FUN16): packed song chain (2 bytes a row), 88 motion records */
@@ -243,7 +247,7 @@ _Static_assert(sizeof(project_v5_t) == 3352u && sizeof(project_v6_t) == 3388u, "
 #define PROJ_SL_SEND_OFF (PROJ_DX_OFF + PROJ_DX_SIZE - 1u) /* SLICER SEND mask | 0x10 mark */
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(PROJ_NG_WIRE == 27u && G_COUNT >= PROJ_NG_WIRE, "FUN7 wire globals keep IDs 0..26");
-_Static_assert(G_COUNT == 31u, "CHAIN reverb + G_SLOWN appended");
+_Static_assert(G_COUNT == 32u, "CHAIN reverb + G_SLOWN + TAPE TEMPO appended");
 _Static_assert(sizeof(project_store_t) == 3840u && PROJ_STORE_V7 == sizeof(project_v6_t), "FUN11 / FUN7 sizes");
 _Static_assert(PROJ_CRV_OFF + 2u <= PROJ_DX_OFF, "CHAIN reverb bytes before DX kit");
 _Static_assert(sizeof(dx_lane_t[8]) == 88u && PROJ_DX_OFF == 3216u, "FUN11 kit place before FM6");
@@ -702,7 +706,8 @@ static int proj_import_any(project_t *q, const void *b, int n)
 {
     if (n == PROJ_STORE_SIZE) {
         uint32_t m = ((const uint32_t *)b)[0];
-        if (m == PROJ_MAGIC || m == PROJ_MAGIC_V17 || m == PROJ_MAGIC_V16 || m == PROJ_MAGIC_V15 ||
+        if (m == PROJ_MAGIC || m == PROJ_MAGIC_V18 || m == PROJ_MAGIC_V17 || m == PROJ_MAGIC_V16 ||
+            m == PROJ_MAGIC_V15 ||
             m == PROJ_MAGIC_V14 || m == PROJ_MAGIC_V13 || m == PROJ_MAGIC_V12 || m == PROJ_MAGIC_V11 ||
             m == PROJ_MAGIC_V10)
             return proj_unpack(q, b, PROJ_STORE_SIZE);
@@ -821,7 +826,7 @@ static int proj_pack(project_store_t *out, const project_t *q)
     memcpy(b + 8, q->g, PROJ_NG_WIRE * sizeof(int16_t));
     b[62] = q->sel; b[63] = q->parts; b[64] = q->phys; b[66] = P_COUNT;
     b[65] = (uint8_t)clamp(q->g[G_CRTYPE], 0, 4);       /* CHAIN tank TYPE/SIZE/DAMP (spare; not in wire g[]) */
-    b[67] = 1;
+    b[67] = (uint8_t)(1u | (clamp(q->g[G_TTEMPO], 0, 1) << 7));   /* bit 0: CHAIN tanks; bit 7: TAPE TEMPO */
     b[PROJ_CRV_OFF] = (uint8_t)clamp(q->g[G_CRSIZE], 0, 127);
     b[PROJ_CRV_OFF + 1u] = (uint8_t)clamp(q->g[G_CRDAMP], 0, 127);
     for (t = 0; t < NTRK; t++) {
@@ -1009,7 +1014,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
 {
     uint32_t pos = 68u, t, i, magic, size, sum, np = b[66], v7 = st == PROJ_STORE_V7, v10 = st == PROJ_STORE_SIZE;
     uint32_t name_off = st - 4u - PROJ_NAME_LEN, end = v7 ? name_off : name_off - NTRK * FM6_PACKED;
-    uint32_t v11 = 0, v12 = 0, v13 = 0, v14, v15 = 0, v16 = 0, v17 = 0, v18 = 0, data_end = end;
+    uint32_t v11 = 0, v12 = 0, v13 = 0, v14, v15 = 0, v16 = 0, v17 = 0, v18 = 0, v19 = 0, data_end = end;
     /* np>111: insert chain; FUN16: packed chain + MOTION_FILE_SIZE; FUN12..FUN15: 5-byte chain rows +
      * MOTION_FILE_SIZE_V15 + SCALE LOCK; FUN11: MOTION_FILE_SIZE_V11 + kit; FUN10: MOTION_FILE_SIZE_V10;
      * np<=111 (1.5): full 128-record block (no insert chain yet) */
@@ -1017,7 +1022,8 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     uint32_t iord2 = np > 111u ? 1u : 0u;               /* +1 byte per track for P_IORD high */
     uint32_t mot_max;
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + st - 4u, 4);
-    v18 = magic == PROJ_MAGIC;
+    v19 = magic == PROJ_MAGIC;
+    v18 = magic == PROJ_MAGIC_V18 || v19;
     v17 = magic == PROJ_MAGIC_V17 || v18;
     v16 = magic == PROJ_MAGIC_V16;
     v15 = magic == PROJ_MAGIC_V15;
@@ -1086,7 +1092,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     }
     if (v7 && (q->g[G_RTYPE] < 0 || q->g[G_RTYPE] > 1))   /* a FUN7 may still hold the old drum channel there */
         proj_rtype_room(q->g);
-    if (v11 && b[67] == 1) {                              /* CHAIN tank params in FUN11 spare */
+    if (v11 && (b[67] & 1u)) {                            /* CHAIN tank params in FUN11 spare */
         q->g[G_CRTYPE] = b[65] <= 4u ? (int16_t)b[65] : 0;
         q->g[G_CRSIZE] = (int16_t)b[PROJ_CRV_OFF];
         q->g[G_CRDAMP] = (int16_t)b[PROJ_CRV_OFF + 1u];
@@ -1095,6 +1101,8 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         q->g[G_CRSIZE] = q->g[G_RSIZE];
         q->g[G_CRDAMP] = q->g[G_RDAMP];
     }
+    if (v19)                                              /* FUN19: TEMPO bit; older formats keep the ON default */
+        q->g[G_TTEMPO] = (b[67] & 0x80u) ? 1 : 0;
     for (t = 0; t < NTRK; t++) {
         int16_t values[P_COUNT], def[P_COUNT];
         q->t[t].generation = GENERATION_DEFAULT;
