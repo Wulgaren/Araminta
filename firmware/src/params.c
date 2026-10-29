@@ -46,7 +46,7 @@ static uint32_t esync_idx(int32_t v) { return (uint32_t)(v & 127) * ESYNC_N >> 7
 /* stored append-only: OFF 0, ALL 1, KBD 2, SEQ 3, CURR 4 (shown third, see QUANT_ORDER) */
 static const char *const N_QUANT[] = {"OFF", "ALL", "KBD", "SEQ", "CURR"};
 /* chord keys (chord.c): OFF, the diatonic triad / seventh of the track's ROOT and SCALE on the key, fixed shapes */
-static const char *const N_CHRD[] = {"OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW", "AUTO2"};
+static const char *const N_CHRD[] = {"OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW", "AUTO", "AUTO2"};
 static const char *const N_STRUM[] = {"OFF", "1/8", "1/16", "1/32", "1/64", "1/128", "16T", "32T"};
 static const char *const N_STROKE[] = {"DOWN", "UP", "ALT"};
 /* P_ALLOC on the editor: both knobs in one list (the device has STRUM and STROKE apart) */

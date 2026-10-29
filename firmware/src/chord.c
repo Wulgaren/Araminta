@@ -14,7 +14,7 @@
  * key, mchord for a MIDI note) and its release ends exactly those, so CHRD / VOIC changed while it is held
  * leave nothing hanging. A note several sources hold sounds once and ends with the last of them. */
 /* Append modes: these values are stored in songs, presets and editor files. */
-enum { CH_OFF, CH_DIA3, CH_DIA7, CH_MAJ, CH_MIN, CH_DOM7, CH_MAJ7, CH_MIN7, CH_SUS4, CH_POW, CH_MELODY };
+enum { CH_OFF, CH_DIA3, CH_DIA7, CH_MAJ, CH_MIN, CH_DOM7, CH_MAJ7, CH_MIN7, CH_SUS4, CH_POW, CH_AUTO, CH_MELODY };
 enum { VC_CLOSE, VC_OPEN, VC_INV1, VC_INV2, VC_BASS };
 #define CHORD_MAX 4u
 #define MCHORD_N 24u                     /* MIDI notes held as chords at once (more: their root alone) */
@@ -50,6 +50,7 @@ static int chord_kit(const track_t *t)
     return e->oneshot || (e->keys && e->keys(t, 0) >= 0);
 }
 
+#include "chord_auto.c"
 #include "chord_melody.c"
 
 /* the tones of the chord (semitones above *root, ascending, iv[0] = 0) -> their number; DIA may move *root
@@ -95,6 +96,8 @@ static uint32_t chord_make(const track_t *t, uint32_t root, uint8_t *out, int32_
         out[0] = (uint8_t)root;
         return 1;
     }
+    if (mode == CH_AUTO)
+        return chord_auto_make(t, root, out, rp, maskp);
     if (mode == CH_MELODY)
         return chord_melody_make(t, root, out, rp, maskp);
     n = chord_tones(t, mode, &r, iv);
@@ -158,6 +161,8 @@ static uint32_t chord_build(track_t *t, uint32_t root, uint8_t *out)
     int32_t r;
     uint16_t mask;
     uint32_t m = chord_make(t, root, out, &r, &mask), i, k = trk_index(t);
+    if (t->p[P_CHRD] == CH_AUTO && !chord_kit(t) && trk_vmode(t) == V_POLY)
+        chord_auto_remember(t, r, mask, out, m);
     if (m > 1u || t->p[P_CHRD] == CH_MELODY) {
         chord_last[k].root = (uint8_t)clamp(r, 0, 127);
         chord_last[k].mask = mask;
@@ -324,6 +329,7 @@ static int mchord_held(uint32_t id, uint32_t note)
 
 static void mchord_forget(uint32_t track)               /* panic: the track's MIDI chords are gone */
 {
+    chord_auto_forget(track);
     uint32_t i;
     for (i = 0; i < 27u; i++)
         if (kb_trk[i] == track)

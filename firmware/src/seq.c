@@ -505,6 +505,7 @@ static __attribute__((noinline)) void arp_fire(track_t *t, uint32_t period)
         if (rec_on(t))
             rec_note(t, t->arp_note, 100);           /* recording: what the arp plays */
         trk_note_on(t, t->arp_note, 100);
+        chord_auto_observe(t, t->arp_note);
     }
 }
 
@@ -1019,6 +1020,8 @@ static __attribute__((noinline)) void cin_keep(track_t *t, uint32_t note, uint32
 
 static void input_on(track_t *t, uint32_t note, uint32_t vel)
 {
+    if (vel)
+        chord_auto_observe(t, note);
     last_note = (uint8_t)note;
     arm_start(t);
     if (ft_on && t == &trk[ft_trk % NTRK])
@@ -1252,6 +1255,8 @@ static void seq_release(track_t *t)
 static void seq_stop(void)
 {
     uint32_t i;
+    for (i = 0; i < NTRK; i++)
+        chord_auto_forget(i);
     song.playing = 0;
     cin_left = 0;                                  /* (a count-in: cancelled, nothing recorded) */
     cin_flush = 0;
@@ -1357,8 +1362,10 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     if (!slide_in)
         seq_release(t);
     for (i = 0; i < m; i++)
-        if (!((sk >> i) & 1u))
+        if (!((sk >> i) & 1u)) {
             trk_note_on(t, nn[i], vv[i]);
+            chord_auto_observe(t, nn[i]);
+        }
     if (slide_in)                                   /* release what is not held over */
         for (i = 0; i < t->seq_n; i++) {
             for (j = 0; j < m && nn[j] != t->seq_notes[i]; j++)
@@ -1663,6 +1670,7 @@ static int32_t click_beat_now(void)
 /* everything that happens between two rendered blocks */
 static void events_block(uint32_t n)
 {
+    chord_auto_tick(n);
     uint32_t i, pr, seq_n = n;
     uint32_t clock_mode = (uint32_t)song.g[G_CLOCK];
     chord_strum_tick(n);                                /* STRUM: the strings due in this block */
