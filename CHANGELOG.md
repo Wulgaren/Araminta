@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Storage
+
+- **LEDs dark during a flash erase.** The erase stops the LED scan for ~17 ms, which left one column lit;
+  the rows are switched off first (#236). Ported from Felucca 1.6.
+
 ### Audio
 
 - **Safer audio maths (#265).** Left shifts of negative audio values (undefined in C) are multiplies,
