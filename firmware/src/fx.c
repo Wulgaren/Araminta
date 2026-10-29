@@ -101,7 +101,7 @@ typedef struct {
     uint32_t cl_w, cl_rng;               /* CLOUD */
     int32_t cl_next, cl_lp, cl_half;
     uint16_t sp_w;                       /* SPRING */
-    int32_t sp_lp, sp_hp, sp_he, sp_size;
+    int32_t sp_lp, sp_hp, sp_he, sp_size;            /* sp_he is also CLOUD's DC-blocker state */
     uint32_t sp_ph;
 } rev_tank_t;
 static rev_tank_t rev_tank[2] __attribute__((section(".pool")));
@@ -1309,8 +1309,8 @@ static __attribute__((noinline)) void rev_hall(const int32_t *rev_in, int32_t *o
 
 /* SHIMR (G_RTYPE 3, JIANT): ROOM with its output an octave up fed back into it (two crossfaded grains reading
  * its own line twice as fast). SIZE / DAMP as ROOM; shimmer amount is fixed (no MOD global here). */
-/* CLOUD (G_RTYPE 4, JIANT): granular wash into ROOM. SIZE decay (127 freezes the line); DAMP darkens.
- * Grain density / pitch chance / width are fixed (no RATE / MOD / WIDE globals here). */
+/* CLOUD (G_RTYPE 4, JIANT): granular wash into ROOM. SIZE decay; 127 is FREEZE (the tail recirculates with no new
+ * input). DAMP darkens. Grain density / pitch chance / width are fixed (no RATE / MOD / WIDE globals here). */
 static __attribute__((noinline)) void rev_shimmer(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
     int32_t in[CTL], t[CTL];
@@ -1343,15 +1343,17 @@ static __attribute__((noinline)) void rev_cloud(const int32_t *rev_in, int32_t *
     int32_t dk = 32767 - rev_pg_damp() * 220;
     int32_t sz = rev_pg_size(), fb = sz * 24, fg = sz * 110, g[CTL], t[CTL];
     for (i = 0; i < n; i++) {
-        int32_t l = 0, r = 0, m;
-        if (!freeze) {                                   /* the line: the input and the tail, two samples into one */
-            int32_t x = (rev_in[i] >> 1) + mulq15(shim_fb[i], fb) + mulq15(R->cl_lp, fg);
-            if (R->cl_w & 1u)
-                cloud_buf[(R->cl_w >> 1) & (CL_LEN - 1u)] = (int16_t)clamp((R->cl_half + x) >> 1, -32768, 32767);
-            else
-                R->cl_half = x;
-            R->cl_w++;
-        }
+        int32_t l = 0, r = 0, m, x;
+        if (freeze)                                      /* FREEZE: the drone the loop makes on purpose */
+            x = mulq15(shim_fb[i], fb) + mulq15(R->cl_lp, fg);
+        else                                             /* the line: the input and the tail, two samples into one */
+            x = (rev_in[i] >> 1) + sh_tz(shim_fb[i] * fb, 15) + sh_tz(R->cl_lp * fg, 15);
+        if (R->cl_w & 1u)
+            cloud_buf[(R->cl_w >> 1) & (CL_LEN - 1u)] =
+                (int16_t)clamp(freeze ? (R->cl_half + x) >> 1 : sh_tz(R->cl_half + x, 1), -32768, 32767);
+        else
+            R->cl_half = x;
+        R->cl_w++;
         if (--R->cl_next <= 0) {                         /* a grain is born, in the first one free */
             R->cl_next = CL_GAP / 2 + (int32_t)(cl_rand() % (uint32_t)CL_GAP);
             for (k = 0; k < CL_N && cl_g[k].len; k++) {}
@@ -1370,23 +1372,31 @@ static __attribute__((noinline)) void rev_cloud(const int32_t *rev_in, int32_t *
             {
                 uint32_t p = cl_g[k].pos >> 16, f = (cl_g[k].pos >> 8) & 255u, a = cl_g[k].age, L = cl_g[k].len;
                 int32_t x0 = cloud_buf[p & (CL_LEN - 1u)], x1 = cloud_buf[(p + 1u) & (CL_LEN - 1u)];
-                int32_t x = x0 + (((x1 - x0) * (int32_t)f) >> 8), w = (int32_t)((a < L - a ? a : L - a) * 2u * 256u / L);
-                x = (x * w) >> 8;
-                l += (x * cl_g[k].pl) >> 7;
-                r += (x * cl_g[k].pr) >> 7;
+                int32_t x = x0 + sh_tz((x1 - x0) * (int32_t)f, 8), w = (int32_t)((a < L - a ? a : L - a) * 2u * 256u / L);
+                x = sh_tz(x * w, 8);
+                l += sh_tz(x * cl_g[k].pl, 7);
+                r += sh_tz(x * cl_g[k].pr, 7);
                 cl_g[k].pos += cl_g[k].inc;
                 if (++cl_g[k].age >= cl_g[k].len) cl_g[k].len = 0;
             }
         }
         m = (l + r) >> 1;
-        R->cl_lp = m + mulq15(R->cl_lp - m, 32767 - dk);
+        R->cl_lp = m + sh_tz((R->cl_lp - m) * (32767 - dk), 15);
         g[i] = R->cl_lp * 2;
         t[i] = 0;
     }
     rev_room(g, t, n);
     for (i = 0; i < n; i++) {
-        out[i] += t[i] + (t[i] >> 1) + (g[i] >> 2);
-        shim_fb[i] = t[i];
+        int32_t de = t[i] - R->sp_he, ds = sh_tz(de, 10);
+        R->sp_he += ds ? ds : (de > 0) - (de < 0);       /* (a dead band would hold a tiny offset) */
+        int32_t th = t[i] - R->sp_he;
+        if (freeze) {                                    /* FREEZE: the raw tail, kept alive by the loop */
+            out[i] += t[i] + (t[i] >> 1) + (g[i] >> 2);
+            shim_fb[i] = t[i];
+        } else {
+            out[i] += th + (th >> 1) + (g[i] >> 2);
+            shim_fb[i] = th;
+        }
     }
 }
 
