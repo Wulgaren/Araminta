@@ -27,8 +27,8 @@
  *    of the averaged spectrum: the metallic tone) and flutter (echoes at a fixed period) against ROOM, SPRING
  *    and COMB8 (8 combs + 4 allpasses, of which ROOM is the first half: a host-only reference, over twice ROOM's
  *    memory); model changes ROOM / SPRING / HALL both ways.
- * SHIMR / CLOUD (JIANT): decay rises with SIZE; CLOUD SIZE 127 freezes (line write stops); corners bounded;
- *    model changes through both.
+ * SHIMR / CLOUD (JIANT): decay rises with SIZE; CLOUD SIZE 127 is FREEZE (the tail sustains, no new input);
+ *    corners bounded; model changes through both.
  * Demos (WAV) into DEMODIR: a drum pattern and a pluck through SPRING, the drums through ROOM to compare; into
  * DEMODIR2 the listening set: drums, pluck, piano, dry and through ROOM, SPRING, HALL and COMB8 at SIZE 40,
  * 90, 127. */
@@ -994,12 +994,43 @@ static void jiant_run(int rtype, const int32_t *x, uint32_t len, uint32_t n)
             rev_cloud(in, ir + t, CTL);
     }
 }
+/* 4 s of noise at `size`, then 16 s of silence: SIZE 127 switched in at 4 s when freeze is set. The last
+ * second's RMS and peak tell a decaying tail from a held one. */
+static void cloud_after(int32_t size, int freeze, double *rms, int32_t *peak)
+{
+    static int32_t in[CTL], out[CTL];
+    double e = 0;
+    uint32_t t, i, n = 0;
+    int32_t pk = 0;
+    jiant_reset(4, size, 60);
+    for (t = 0; t < 20u * FS; t += CTL) {
+        if (freeze && t >= 4u * FS && song.g[G_RSIZE] != 127)
+            song.g[G_RSIZE] = 127;
+        for (i = 0; i < CTL; i++) {
+            in[i] = t < 4u * FS ? noise(20000) : 0;
+            out[i] = 0;
+        }
+        rev_cloud(in, out, CTL);
+        if (t < 19u * FS)
+            continue;
+        for (i = 0; i < CTL; i++) {
+            int32_t v = out[i] < 0 ? -out[i] : out[i];
+            e += (double)out[i] * out[i];
+            n++;
+            if (v > pk)
+                pk = v;
+        }
+    }
+    *rms = sqrt(e / n);
+    *peak = pk;
+}
+
 static void test_jiant(void)
 {
     static int32_t imp[1] = {200000}, burst[2u * FS];
     double r90, e0, e1;
     char what[200];
-    uint32_t k, i, w0, w1;
+    uint32_t k, i;
     host_tracks_init();
     jiant_reset(3, 90, 60);
     jiant_run(3, imp, 1, IRN);
@@ -1036,27 +1067,26 @@ static void test_jiant(void)
         e1 += (double)ir[i] * ir[i];
     snprintf(what, sizeof what, "CLOUD (SIZE 90): RT60 %.2f s, first second energy %.0f, second %.0f", r90, e0, e1);
     check(what, r90 >= 0.3 && r90 <= 20.0 && e0 > 1e6 && e1 > 0);
-    {   /* SIZE 127: the line stops being written (freeze). Warm at 90, then freeze. */
-        static int32_t a[CTL], o0[CTL];
-        uint32_t t;
-        jiant_reset(4, 90, 60);
-        for (t = 0; t < FS / CTL; t++) {
-            for (i = 0; i < CTL; i++) {
-                a[i] = noise(20000);
-                o0[i] = 0;
-            }
-            rev_cloud(a, o0, CTL);
+    {   /* The tail must reach exact silence at every SIZE. The old loop's room -> cloud return held a
+         * sub-audio mode (1..5 Hz) that sounded for ever at SIZE 30..126; only its rounding bias seeded it,
+         * so an impulse of any level ended in the same drone. */
+        static const int32_t SZ[7] = {0, 30, 60, 90, 94, 110, 126};
+        for (k = 0; k < 7u; k++) {
+            double rms;
+            int32_t pk;
+            cloud_after(SZ[k], 0, &rms, &pk);
+            snprintf(what, sizeof what, "CLOUD SIZE %d after 4 s of noise + 16 s: last-second RMS %.2f, peak %d (silent)",
+                     SZ[k], rms, pk);
+            check(what, rms <= 1.0 && pk <= 2);
         }
-        song.g[G_RSIZE] = 127;
-        w0 = R->cl_w;
-        for (i = 0; i < CTL; i++) {
-            a[i] = 30000;
-            o0[i] = 0;
-        }
-        rev_cloud(a, o0, CTL);
-        w1 = R->cl_w;
-        snprintf(what, sizeof what, "CLOUD SIZE 127 freezes the line: cl_w stayed %u (was %u)", w1, w0);
-        check(what, w1 == w0 && w0 > 0);
+    }
+    {   /* SIZE 127 is FREEZE: the tail keeps recirculating with no new input, bounded, and stays alive */
+        double rms;
+        int32_t pk;
+        cloud_after(110, 1, &rms, &pk);
+        snprintf(what, sizeof what, "CLOUD SIZE 127 FREEZE after 16 s: last-second RMS %.0f, peak %d (held)",
+                 rms, pk);
+        check(what, rms > 1000.0 && pk < 4 * 32768);
     }
     for (k = 0; k < 2u; k++) {                           /* corners: bounded on loud noise */
         int32_t pk = 0, ty = k ? 4 : 3;
