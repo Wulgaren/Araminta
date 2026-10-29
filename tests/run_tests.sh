@@ -213,7 +213,7 @@ build_with() {
         esac
     done
     $b_cc -c $b_compile -o "$b_out.o" "$b_src" || return 1
-    $b_cc $b_compile $b_link -o "$b_out" "$b_out.o"
+    $b_cc $b_compile -o "$b_out" "$b_out.o" $b_link
 }
 build() { build_with "$CC" "$@"; }
 fail=0
