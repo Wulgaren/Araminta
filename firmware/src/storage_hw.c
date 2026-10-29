@@ -33,6 +33,7 @@ static int st_erase(uint32_t off)
         return -8;
     f = irq_save();
     audio_silence();
+    fm1__led_lines(0);                          /* (#236) the erase stops the LED scan for ~17 ms; dark rows, not one lit column */
     rc = FL_FAR(fl_erase4k_ram)(off, &took);
     irq_restore(f);
     return rc;

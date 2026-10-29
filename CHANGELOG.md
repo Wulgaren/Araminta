@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+### Storage
+
+- **LEDs dark during a flash erase.** The erase stops the LED scan for ~17 ms, which left one column lit;
+  the rows are switched off first (#236). Ported from Felucca 1.6.
+
+### Audio
+
+- **Safer audio maths (#265).** Left shifts of negative audio values (undefined in C) are multiplies,
+  wrapping multiplies run in unsigned, and signed phase additions wrap in unsigned; the output is bit
+  for bit the same (golden hashes unchanged, binary identical). From Felucca (`f9a98fc`, Mario Faúndez
+  Vidal) and Felucca-Engines (`e88bc70`, `7511c0a`). New strict-UBSan tests for the DC blocker, low-cut,
+  FM6 phase and PHYS.
+
+### SCL
+
+- **MAP ALL is the shared scale.** ALL now sets MAP, ROOT and SCALE on every track while it is on, quantises
+  every track's keys and sequence, and puts each track's own MAP / ROOT / SCALE back when you leave ALL. CURR is the per-track
+  mode: it quantises the current track's keys and sequence and shares nothing. KBD and SEQ keep their meanings.
+  Old projects keep their behaviour: an old ALL loads as CURR, and an old CURR / SCALE LOCK loads as ALL.
+
+### Chord
+
+- **AUTO chord keys.** CHRD gains AUTO, before MELO. The key picks a 3- or 4-note chord in the selected
+  scale. It follows the other tracks' recent notes (their last two unharmonized onsets, arp-held keys and
+  sequenced notes) and moves smoothly from the previous chord. A two-beat pause, STOP, or a scale / root /
+  map / voicing change starts a fresh phrase. AUTO keeps 20 bytes of history per track, packed so the pool
+  gate stays green. Ported from Melodee (`f4fdbc7`, Kerem Kilic, GPL-3.0-only).
+- **A strummed chord records as one chord.** With REC armed, the strings of one strum now go into
+  the first string's step instead of one string per step, so the pattern plays the chord back.
+- **MELO chord keys.** CHRD gains MELO, after POW, the former AUTO2 name. The key you press is the melody and always the top note;
+  the chord below it uses only notes of the selected scale, and VOIC moves the lower voices only. A DOWN
+  strum sounds the melody first. MONO / LEGATO / UNISON play the melody alone; kits still ignore CHRD.
+  No project format change: older firmware clamps MELO to POW. Ported from Melodee (`f4fdbc7`, Kerem Kilic,
+  GPL-3.0-only).
+
 ## 3.2
 
 The stock V15 supply rails before core 1, Felucca's DRUMS engine, a per-step PITCH lock, beat-synced chord

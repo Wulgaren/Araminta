@@ -159,7 +159,7 @@ static void smp_sine(int32_t *out, uint32_t n, const vmod_t *m, int32_t d16, int
     int32_t s = *y;
     for (i = 0; i < n; i++, p += inc) {
         s += mulq15((sine_i(p) >> 1) - s, lp);
-        out[i] += voice_amp(s, m, i) << 1;
+        out[i] += voice_amp(s, m, i) * 2;
     }
     *ph = p;
     *y = s;
@@ -276,11 +276,11 @@ static void sample_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
         }
         s = v->s[2] + (((v->s[3] - v->s[2]) * (int32_t)(frac >> 1)) >> 15);
         if (sh)                                       /* BITS: 0 = clean, up to 12 bits removed */
-            s = (s >> sh) << sh;
+            s = shl(s >> sh, sh);
         if (drv)
             s = softclip(s + (((s >> 2) * (drv * 150)) >> 11));   /* = s * drv * 600 / 32768, no overflow */
         v->s[7] += mulq15(s - v->s[7], lp);           /* gentle tone control (CUT) */
-        out[i] += voice_amp(v->s[7], m, i) << 1;
+        out[i] += voice_amp(v->s[7], m, i) * 2;
         if (v->s[6])
             break;
     }

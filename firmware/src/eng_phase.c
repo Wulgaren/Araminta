@@ -161,7 +161,7 @@ static void phase_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
             ph2 += inc >> 1;
             s += mulq15(osc_sine(ph2), sub);
         }
-        out[i] += voice_amp(s, m, i) << 1;
+        out[i] += voice_amp(s, m, i) * 2;
     }
     v->ph[0] = ph0;
     v->ph[1] = ph1;

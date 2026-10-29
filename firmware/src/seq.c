@@ -134,7 +134,7 @@ static int32_t scale_nearest(const track_t *t, int32_t n)
     return n - down <= up - n ? down : up;
 }
 
-/* (QN_*: core.h) MAP = CURR quantises exactly like ALL */
+/* (QN_*: core.h) MAP = ALL (stored QN_CURR) quantises exactly like CURR (stored QN_ALL) */
 static inline uint32_t qn_mode(const track_t *t)
 {
     return t->p[P_QUANT] == QN_CURR ? QN_ALL : (uint32_t)t->p[P_QUANT];
@@ -155,7 +155,7 @@ static uint32_t kb_pitch(const track_t *t, uint32_t k, int32_t oct)
 {
     static const int8_t DEGREE[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
     int32_t n = 53 + (int32_t)k;
-    if (qn_mode(t) == QN_KBD || qn_mode(t) == QN_ALL) {  /* KBD / ALL / CURR: white walk; black -> nearest */
+    if (qn_mode(t) == QN_KBD || qn_mode(t) == QN_ALL) {  /* KBD / CURR / ALL: white walk; black -> nearest */
         uint32_t mask = scale_mask(t), i;
         int32_t count = 0, degree = DEGREE[n % 12], wo;
         if (degree < 0)                                 /* black: chromatic pitch, closest in-scale (dup OK) */
@@ -505,6 +505,7 @@ static __attribute__((noinline)) void arp_fire(track_t *t, uint32_t period)
         if (rec_on(t))
             rec_note(t, t->arp_note, 100);           /* recording: what the arp plays */
         trk_note_on(t, t->arp_note, 100);
+        chord_auto_observe(t, t->arp_note);
     }
 }
 
@@ -627,12 +628,29 @@ static uint32_t step_add(const track_t *t, step_t *s, uint32_t note, uint32_t ve
  * of the last one puts that step back (rec_release), so a short note stays one step.
  * A note recorded into another step ends the hold before (the step model ties the
  * notes of one step only). */
+/* A strum's later strings quantise to the first string's step, not to the next ones: the take
+ * was one chord, and the step model sounds a step's notes together. */
+static void rec_strum_pos(uint32_t *idxp, uint32_t *posp, uint32_t len, uint32_t period)
+{
+    if (!chord_strum_now.on || !chord_strum_now.index || chord_strum_now.total < 2u ||
+        chord_strum_now.rate >= NELEM(STRUM_DEN) || !period || !len)
+        return;
+    uint32_t beat = beat_samples() ? beat_samples() : 1u;
+    uint32_t span = beat / STRUM_DEN[chord_strum_now.rate];
+    uint32_t back = (uint32_t)((uint64_t)span * chord_strum_now.index / (chord_strum_now.total - 1u));
+    int32_t abs = (int32_t)(*idxp * period + *posp) - (int32_t)back;
+    if (abs < 0) abs += (int32_t)(len * period);
+    *idxp = (uint32_t)(abs / (int32_t)period) % len;
+    *posp = (uint32_t)(abs % (int32_t)period);
+}
 static void rec_note(track_t *t, uint32_t note, uint32_t vel)
 {
     uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u, idx = t->seq_idx % len, k;
-    uint32_t period = div_samples((uint32_t)t->p[P_SDIV]), cur = step_samples(t, period, t->seq_idx);
-    uint32_t next = t->seq_pos > cur / 2u, sounds;
-    int32_t off = rec_nudge(t->seq_pos >= cur ? 0 : next ? -(int32_t)(cur - t->seq_pos) : (int32_t)t->seq_pos, period);
+    uint32_t period = div_samples((uint32_t)t->p[P_SDIV]), pos = t->seq_pos, cur, next, sounds;
+    rec_strum_pos(&idx, &pos, len, period);
+    cur = step_samples(t, period, idx);
+    next = pos > cur / 2u;
+    int32_t off = rec_nudge(pos >= cur ? 0 : next ? -(int32_t)(cur - pos) : (int32_t)pos, period);
     step_t *s;
     if (next)
         idx = (idx + 1u) % len;
@@ -1019,6 +1037,8 @@ static __attribute__((noinline)) void cin_keep(track_t *t, uint32_t note, uint32
 
 static void input_on(track_t *t, uint32_t note, uint32_t vel)
 {
+    if (vel)
+        chord_auto_observe(t, note);
     last_note = (uint8_t)note;
     arm_start(t);
     if (ft_on && t == &trk[ft_trk % NTRK])
@@ -1252,6 +1272,8 @@ static void seq_release(track_t *t)
 static void seq_stop(void)
 {
     uint32_t i;
+    for (i = 0; i < NTRK; i++)
+        chord_auto_forget(i);
     song.playing = 0;
     cin_left = 0;                                  /* (a count-in: cancelled, nothing recorded) */
     cin_flush = 0;
@@ -1357,8 +1379,10 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     if (!slide_in)
         seq_release(t);
     for (i = 0; i < m; i++)
-        if (!((sk >> i) & 1u))
+        if (!((sk >> i) & 1u)) {
             trk_note_on(t, nn[i], vv[i]);
+            chord_auto_observe(t, nn[i]);
+        }
     if (slide_in)                                   /* release what is not held over */
         for (i = 0; i < t->seq_n; i++) {
             for (j = 0; j < m && nn[j] != t->seq_notes[i]; j++)
@@ -1663,6 +1687,7 @@ static int32_t click_beat_now(void)
 /* everything that happens between two rendered blocks */
 static void events_block(uint32_t n)
 {
+    chord_auto_tick(n);
     uint32_t i, pr, seq_n = n;
     uint32_t clock_mode = (uint32_t)song.g[G_CLOCK];
     chord_strum_tick(n);                                /* STRUM: the strings due in this block */

@@ -6,6 +6,10 @@
 #define VOICE_FS 24000           /* per-voice level: one voice peaks near -6 dBFS before the master */
 
 static inline int32_t mulq15(int32_t a, int32_t b) { return (a * b) >> 15; }
+/* A signed left shift of a negative value is undefined in C. This shift, and a multiply that may wrap,
+ * run in uint32_t and convert back to int32_t modulo 2^32 (GCC, Clang): the bits two's complement gave. */
+static inline int32_t mul_wrap(int32_t a, int32_t b) { return (int32_t)((uint32_t)a * (uint32_t)b); }
+static inline int32_t shl(int32_t x, uint32_t n) { return (int32_t)((uint32_t)x << n); }
 /* a * k / 65536 without 64-bit: a up to 2^31, k Q16 */
 static inline int32_t mulq16(int32_t a, uint32_t k)
 {

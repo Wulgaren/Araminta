@@ -1983,7 +1983,7 @@ function makeMockDevice(opt = {}) {
     D("PIT", F.BIPCT, -64, 63, 0), D("FLT", F.BIPCT, -64, 63, 0), D("SHP", F.BIPCT, -64, 63, 0), D("AMP", F.PCT, 0, 127, 0),
     E("MODE", ["OFF", "UP", "DN", "UPDN", "RND", "ORD", "REPEAT", "DNUP", "UP+8", "CONV", "DIVG", "PINKY", "THUMB", "WALK", "CHORD", "DRONE"], 0), E("RATE", NDIV, 2), D("OCT", F.INT, 1, 4, 1), D("GATE", F.PCT, 1, 127, 64),
     D("SWG", F.PCT, 0, 100, 0), D("PROB", F.PCT, 0, 127, 127), E("HOLD", NONOFF, 0), E("ORD", ["NOTE", "PLAY"], 0),
-    D("ROOT", F.NOTE, 0, 11, 0), E("SCL", ["MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM", "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"], 0), E("MAP", ["OFF", "ALL", "KBD", "SEQ", "CURR"], 0), D("TRN", F.SEMI, -24, 24, 0),
+    D("ROOT", F.NOTE, 0, 11, 0), E("SCL", ["MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM", "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"], 0), E("MAP", ["OFF", "CURR", "KBD", "SEQ", "ALL"], 0), D("TRN", F.SEMI, -24, 24, 0),
     D("LEN", F.STEPS, 1, 64, 16), E("DIV", NDIV, 2), D("SWG", F.PCT, 0, 100, 0), D("GATE", F.PCT, 1, 127, 64),
     D("DRIVE", F.PCT, 0, 127, 64), D("FXPOS", F.INT, 0, 127, 126), D("DLY", F.PCT, 0, 127, 0), D("REV", F.PCT, 0, 127, 0),
     E("VCE", ["POLY", "MONO", "LEG", "UNI"], 0), D("GLD", F.TIME, 0, 127, 0), D("PAN", F.BIPCT, -64, 63, 0), E("PLAY", ["ON", "OFF", "SOLO"], 0),
@@ -2134,7 +2134,7 @@ function makeMockDevice(opt = {}) {
     [[48, 51, 55, 60, 63, 67, 72, 75, 48, 51, 55, 60, 63, 67, 72, 75], [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]],   /* 13 ARP */
   ];
   for (let op = 0; op < 4; op++) TP.push(D("ATK", F.TIME, 0, 127, 0), D("DEC", F.TIME, 0, 127, 0), D("SUS", F.PCT, 0, 127, 127), D("REL", F.TIME, 0, 127, 0), D("LVL", F.PCT, 0, 127, 127));
-  TP.push(E("CHRD", ["OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW"], 0),   /* the chord keys 81, 82 */
+  TP.push(E("CHRD", ["OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW", "AUTO", "MELO"], 0),   /* the chord keys 81, 82 */
     E("VOIC", ["CLOSE", "OPEN", "INV1", "INV2", "+OCT"], 0));
   for (const l of ["KICK", "SNARE", "CLAP", "HATCL", "HATOP", "TOM", "RIM", "BELL"]) TP.push(D(l, F.PCT, 0, 127, 127));   /* 83..90: DRUM lane levels */
   TP.push(E("SYNC", ["OFF", "4BAR", "2BAR", "1/1", "1/2", "1/4", "1/8", "8T", "1/16", "16T", "1/32"], 0),   /* 1.2: LFO 2 (91..93) */
@@ -2827,8 +2827,8 @@ function enumShown(d) {
   /* PLAY (mixer): stored ON/OFF/SOLO; knob order OFF, ON, SOLO (params.c PLAY_ORDER). */
   if (d.label === "PLAY" && d.names && d.names[0] === "ON")
     return [1, 0, 2].map((k) => d.min + k);
-  /* MAP: stored OFF ALL KBD SEQ CURR; shown OFF ALL CURR KBD SEQ (params.c QUANT_ORDER) */
-  if (d.label === "MAP" && d.names && d.names.length === 5) return [0, 1, 4, 2, 3].map((k) => d.min + k);
+  /* MAP: stored OFF CURR KBD SEQ ALL; shown OFF ALL CURR KBD SEQ (params.c QUANT_ORDER) */
+  if (d.label === "MAP" && d.names && d.names.length === 5) return [0, 4, 1, 2, 3].map((k) => d.min + k);
   const vals = [];
   for (let v = d.min; v <= d.max; v++) vals.push(v);
   /* SWEEP: value 1 is the legacy ALLOC = REUSE alias of OFF; the device's knob skips it (params.c enum_orig) */
