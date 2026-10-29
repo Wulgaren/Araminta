@@ -263,10 +263,16 @@ static void tech_rev(void)
     ty = (uint32_t)ty <= 4u ? ty : 0;
     len = 40 + size * (w - 50) / 127;
     tk_axes(x0, TK_Y0, x0 + w, base);
-    if (ty == 4) {                                      /* CLOUD: drifting grain swarm */
+    if (ty == 4) {                                      /* CLOUD: drifting grain swarm; 127 holds it */
         int32_t cy = (TK_Y0 + base) / 2, nd = 24 + size / 3;
         int32_t spread = 40 + size * (w - 40) / 127, live = tk_energy() > 2 && !(ui_prefs & PREF_ANIM_OFF);
         uint32_t fr = live ? ui.frame : 0u;
+        if (size >= 127) {                               /* FREEZE: the held tail, not a denser swarm */
+            cv_text_in(x0, cy - AF_S.asc / 2, w, &AF_S, "FREEZE", T_ACCENT, T_SURF);
+            cv_rect(x0 + 4, TK_Y0 + 4, w - 8, 1, T_ACCENT);
+            cv_rect(x0 + 4, base - 5, w - 8, 1, T_ACCENT);
+            return;
+        }
         for (i = 0; i < nd; i++) {
             uint32_t hsh = (uint32_t)(i + 1) * 2654435761u, sp = 1u + (hsh >> 28);
             int32_t dx = (int32_t)(((hsh >> 8) + fr * sp) % (uint32_t)(spread > 1 ? spread : 1));
@@ -277,8 +283,6 @@ static void tech_rev(void)
             if (gy > TK_Y0 + 1 && gy < base - 2)
                 cv_rect(gx, gy, 2, 2, c);
         }
-        if (size >= 127)
-            cv_rect(x0 + 4, TK_Y0 + 4, w - 8, 1, T_ACCENT);
         return;
     }
     cv_rect(x0, base - h, 3, h, T_TEXT);
