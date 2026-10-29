@@ -496,6 +496,48 @@ static void arp_follow_test(void)
     puts("scales: the arp's latched / held keys follow TRN, ROOT, SCALE and MAP (#191); octave, MIDI IN, kits as before");
 }
 
+/* MAP ALL: one track sets MAP, ROOT and SCALE on every track, and every track's sequence then snaps
+ * to that shared scale. Leaving ALL restores each track's own MAP / ROOT / SCALE. */
+static void map_all_test(void)
+{
+    uint32_t k;
+    static const int16_t map0[NTRK] = {QN_OFF, QN_KBD, QN_SEQ, QN_ALL};   /* stored values before ALL */
+    memset(trk, 0, sizeof trk);
+    memset(&song, 0, sizeof song);
+    host_tracks_init();
+    song.g[G_BPM] = 120;
+    for (k = 0; k < NTRK; k++) {
+        host_preset(&trk[k], 0, 0);
+        trk[k].engine = trk[k].eng_req = 0;
+        trk[k].p[P_VOICE] = V_POLY;
+        trk[k].p[P_ROOT] = (int16_t)(k == 0 ? 0 : k + 2);
+        trk[k].p[P_SCALE] = (int16_t)(k == 0 ? 0 : (k + 1) % 3);
+        trk[k].p[P_QUANT] = map0[k];
+        trk[k].p[P_TRANS] = 0;
+        trk[k].p[P_SLEN] = 1;
+        trk[k].p[P_SDIV] = 2;
+        trk[k].step[0] = (step_t){.nb = {61, 66}, .n = 2, .time = ST_NOTE};   /* C#4, F#4: out of C major */
+    }
+    trk[0].p[P_QUANT] = QN_CURR;                       /* stored 4, shown ALL */
+    scale_lock_after(&trk[0], P_QUANT);
+    for (k = 0; k < NTRK; k++)
+        assert(trk[k].p[P_QUANT] == QN_CURR && trk[k].p[P_ROOT] == 0 && trk[k].p[P_SCALE] == 0);
+    for (k = 0; k < NTRK; k++) {                       /* every track's sequence now snaps to the shared scale */
+        seq_start();
+        events_block(CTL);
+        assert(trk[k].seq_n == 2 && trk[k].seq_notes[0] == 60 && trk[k].seq_notes[1] == 65);
+        seq_stop();
+    }
+    trk[0].p[P_QUANT] = QN_OFF;
+    scale_lock_after(&trk[0], P_QUANT);
+    for (k = 0; k < NTRK; k++) {
+        assert(trk[k].p[P_QUANT] == map0[k]);
+        assert(trk[k].p[P_ROOT] == (int16_t)(k == 0 ? 0 : k + 2));
+        assert(trk[k].p[P_SCALE] == (int16_t)(k == 0 ? 0 : (k + 1) % 3));
+    }
+    puts("scales: MAP ALL sets every track and every track's sequence snaps to the shared scale; leaving restores all");
+}
+
 int main(void)
 {
     host_tracks_init();
@@ -504,5 +546,6 @@ int main(void)
     seq_quant_test();
     seq_trn_test();
     arp_follow_test();
+    map_all_test();
     return 0;
 }

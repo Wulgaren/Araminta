@@ -165,7 +165,7 @@ The chord keys (SCL > CHORD on the device, `firmware/src/chord.c`) are two track
 
 | id | label | values |
 | --- | --- | --- |
-| 81 | CHRD | enum: 0 OFF, 1 DIA3, 2 DIA7 (the triad / seventh of the track's ROOT and SCALE on the key: every tone in key), 3 MAJ, 4 MIN, 5 DOM7, 6 MAJ7, 7 MIN7, 8 SUS4, 9 POW (fixed shapes) |
+| 81 | CHRD | enum: 0 OFF, 1 DIA3, 2 DIA7 (the triad / seventh of the track's ROOT and SCALE on the key: every tone in key), 3 MAJ, 4 MIN, 5 DOM7, 6 MAJ7, 7 MIN7, 8 SUS4, 9 POW (fixed shapes), 10 AUTO (the key picks the chord, following the other tracks' recent notes), 11 MELO (the key is the melody, always the top note) |
 | 82 | VOIC | enum: 0 CLOSE, 1 OPEN (1-5-3), 2 INV1, 3 INV2, 4 +OCT (the root an octave down; a seventh drops its fifth) |
 
 With CHRD on, a key, a MIDI note of that track and so the arp's held notes play the chord (at most 4 notes),
@@ -603,8 +603,8 @@ when the track's engine is not the saved one).
   roll plays nothing and releases what rang before. Chance is saved in projects (FUN7) and in song rows; a
   user preset does not store it. Changing it on the device pushes `STEP_CHANGED`.
 - **Motion** is knob moves recorded per step: 192 records in RAM, 88 saved in a project, shared by the four
-  tracks. The device's MAP has five values (OFF, ALL, KBD, SEQ, CURR; CURR is stored 4 and shown third);
-  CURR shares ROOT/SCALE across the tracks that use it. PITCH (id 127) is lock-only: a per-step absolute
+  tracks. The device's MAP has five values (OFF, CURR, KBD, SEQ, ALL; ALL is stored 4 and shown second);
+  ALL shares ROOT/SCALE across every track while it is on, and CURR quantises only the current track. PITCH (id 127) is lock-only: a per-step absolute
   transpose (-24..24 semitones) that replaces TRN on that step and is not scale-snapped at playback (one value
   for the whole step; recording uses the first stored note as the reference). Older firmware refuses a project
   that holds it. Recording SCL TRN while armed and playing writes that PITCH lock from the scale-fitted result;

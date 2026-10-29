@@ -780,7 +780,7 @@ static int chk_sample_end(char *msg, uint32_t n)
                 src = f >= 131072u ? 0 : SAMPLE[a] + (int32_t)((-(int64_t)SAMPLE[a] * ((f - 65536u) >> 1)) >> 15);
                 want = SAMPLE[a] + mulq15(src - SAMPLE[a], lp);
                 sample_render(t, v, out, CTL, &m);
-                bad += out[0] != (voice_amp(want, &m, 0) << 1) || v->ph[1] >= 65536u || !v->s[6];
+                bad += out[0] != (voice_amp(want, &m, 0) * 2) || v->ph[1] >= 65536u || !v->s[6];
                 cases++;
             }
     usr_zone[0][0] = saved;

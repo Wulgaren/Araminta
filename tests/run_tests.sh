@@ -359,6 +359,14 @@ u_storage() {
 }
 unit u_storage
 
+u_signed_audio() {
+    $CC -Ibuild/gen -Ifirmware/src -o "$OUT/signed_audio_scaling_test" tests/signed_audio_scaling_test.c -lm
+    run "DSP signed arithmetic: fixed DC/lowcut/FM6 vectors and phase wrap" "$OUT/signed_audio_scaling_test"
+    $CC -Ibuild/gen -Ifirmware/src -o "$OUT/phys_signed_test" tests/phys_signed_test.c -lm
+    run "PHYS: signed output and frozen baseline render" "$OUT/phys_signed_test"
+}
+unit u_signed_audio
+
 u_upreset() {
     build "$OUT/upreset_test" tests/upreset_test.c
     run "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM and SAMPLE PERC -> DRUM, grid records, DIGITAL kept)" "$OUT/upreset_test"
@@ -461,6 +469,16 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "chord keys: diatonic and fixed chords, voicings, MONO root, releases, recording, ARP, MIDI IN, kits" "$OUT/chord_test"
     }
     unit u_chord
+    u_chord_melody() {
+        $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/chord_melody_test" tests/chord_melody_test.c -lm
+        run "MELO chords: melody on top, scales, voicings, strum, MONO, kits, projects, render" "$OUT/chord_melody_test"
+    }
+    unit u_chord_melody
+    u_chord_auto() {
+        $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/chord_auto_test" tests/chord_auto_test.c -lm
+        run "AUTO chords: scale, voice leading, other tracks, ARP, STOP, MONO, kits, projects, render" "$OUT/chord_auto_test"
+    }
+    unit u_chord_auto
     u_speaker() {
         build "$OUT/speaker_test" tests/speaker_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
         run "SPEAKER EQ: FLAT / LOWCUT / BASS+ responses, BASS+ harmonics of the bass, the sub cut, no offset after, headroom on a full-scale kick (#180)" "$OUT/speaker_test"
@@ -806,6 +824,19 @@ else
     A="$OUT/asan"
     SCC="$CCACHE_BIN $CC_BIN $SAN -Ibuild/gen -Ifirmware/src"
     export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}"
+    # These regressions use strict ASan/UBSan, without the broad DSP exclusions.
+    STRICT_CC="${CC%% *} -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -w -Ibuild/gen -Ifirmware/src"
+    u_asan_signed_audio() {
+        $STRICT_CC -o "$A/signed_audio_scaling_test_strict" tests/signed_audio_scaling_test.c -lm
+        run "Strict ASan/UBSan (no exclusions): signed_audio_scaling_test" "$A/signed_audio_scaling_test_strict"
+        $STRICT_CC -o "$A/phys_signed_test_strict" tests/phys_signed_test.c -lm
+        run "Strict ASan/UBSan (no exclusions): phys_signed_test" "$A/phys_signed_test_strict"
+        $STRICT_CC -o "$A/chord_melody_test_strict" tests/chord_melody_test.c -lm
+        run "Strict ASan/UBSan (no exclusions): chord_melody_test" "$A/chord_melody_test_strict"
+        $STRICT_CC -o "$A/chord_auto_test_strict" tests/chord_auto_test.c -lm
+        run "Strict ASan/UBSan (no exclusions): chord_auto_test" "$A/chord_auto_test_strict"
+    }
+    unit u_asan_signed_audio
     u_asan_ldr() {
         build_with "$SCC" "$A/ldr_test" tests/ldr_test.c
         run "ASan/UBSan: update loader (other app -> this build)" "$A/ldr_test" "$OUT/old.fwsc" build/felucca.fwsc

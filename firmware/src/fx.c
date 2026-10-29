@@ -765,8 +765,8 @@ static int32_t lc_l1, lc_l2, lc_r1, lc_r2, dc_l, dc_r, dce_l, dce_r;
  * to +-31 at the output after silence.) */
 static inline int32_t dc_block(int32_t x, int32_t *dc, int32_t *err)
 {
-    int32_t e = (x << 6) - *dc + *err, d = e >> 12;
-    *err = e - (d << 12);
+    int32_t e = x * 64 - *dc + *err, d = e >> 12;
+    *err = e - d * 4096;
     *dc += d;
     return x - ((*dc + 32) >> 6);
 }
@@ -775,7 +775,7 @@ static int32_t lce[4];
 static inline int32_t lowcut1(int32_t x, int32_t *lc, int32_t *err, uint32_t sh)   /* x minus its one-pole low-pass */
 {
     int32_t e = x - *lc + *err, d = e >> sh;
-    *err = e - (d << sh);
+    *err = e - d * (int32_t)(1u << sh);
     *lc += d;
     return x - *lc;
 }
@@ -1570,7 +1570,7 @@ static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet
         dly_buf[fx.dly_w & (DLY_LEN - 1u)] =
             (int16_t)clamp((in[i] >> 1) + mulq15(fx.dly_lp, fb), -32768, 32767);
         fx.dly_w++;
-        out[i] = mulq15(x << 1, wet_q15);
+        out[i] = mulq15(x * 2, wet_q15);
     }
 }
 /* process delay + reverb buses; sends in, wet stereo-equal out.
@@ -1949,8 +1949,8 @@ static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, const track_t *
                 }
                 win[i] = (int16_t)clamp((x >> 2) + softclip(mulq15(v, fbk)), -32767, 32767);
                 s->wp = (uint16_t)((s->wp + 1u) & (IL_LEN - 1u));
-                v <<= 1;
-                s->dc += ((v << 8) - s->dc) >> 9;
+                v *= 2;
+                s->dc += ((v * 256) - s->dc) >> 9;
                 b[i] = pf_mix(x, (x >> 1) + v - (s->dc >> 8), s->w);
             }
         }
