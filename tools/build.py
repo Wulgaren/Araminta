@@ -14,14 +14,17 @@ JIELI_TOOLCHAIN points at the JieLi toolchain, native on Windows or Linux x86-64
 on macOS (or with JIELI_DOCKER=1) each tool runs in a linux/amd64 container.
 """
 import argparse
+import atexit
 import hashlib
 import os
 import platform
 import re
 import shutil
+import signal
 import struct
 import subprocess
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -59,11 +62,16 @@ PRODUCT = "FM-1_900"                # package identity; release builds are FM-1_
 VERSION = None                      # FELUCCA_VERSION for release builds (default: firmware/src/felucca.c)
 
 
+def compiler_rel():
+    """the clang inside the toolchain: pi32/bin on Windows, pi32v2/bin elsewhere"""
+    if platform.system() == "Windows" and not use_docker():
+        return WINDOWS_TOOLS["pi32v2/bin/clang"]
+    return "pi32v2/bin/clang"
+
+
 def toolchain():
     tc = os.environ.get("JIELI_TOOLCHAIN")
-    compiler = "pi32v2/bin/clang"
-    if platform.system() == "Windows" and not use_docker():
-        compiler = WINDOWS_TOOLS[compiler]
+    compiler = compiler_rel()
     if not tc or not (Path(tc) / compiler).is_file():
         raise SystemExit(f"JIELI_TOOLCHAIN must point at the JieLi toolchain directory containing {compiler} "
                          "(see BUILDING.md)")
@@ -77,19 +85,55 @@ def use_docker():
     return os.environ.get("JIELI_DOCKER", "0" if native else "1") == "1"
 
 
+class ToolContainer:
+    """one container for every toolchain call: `docker run` costs ~0.18 s, `docker exec` ~0.07 s"""
+    def __init__(self):
+        self.name = f"felucca-build-{os.getpid()}"
+        self.lock = threading.Lock()
+        self.running = False
+
+    def start(self):
+        if self.running:
+            return
+        with self.lock:
+            if self.running:
+                return
+            subprocess.run(["docker", "rm", "-f", self.name], capture_output=True)   # stale from a killed build
+            r = subprocess.run(["docker", "run", "-d", "--rm", "--name", self.name, "--platform", "linux/amd64",
+                                "-v", f"{SRC}:/work", "-v", f"{toolchain()}:/opt/jieli:ro", "-w", "/work",
+                                DOCKER_IMAGE, "sleep", "infinity"], capture_output=True, text=True)
+            if r.returncode:
+                sys.stderr.write(r.stdout + r.stderr)
+                raise SystemExit("build: could not start the toolchain container")
+            self.running = True
+            atexit.register(self.stop)
+
+    def run(self, tool, args):
+        self.start()
+        return subprocess.run(["docker", "exec", self.name, f"/opt/jieli/{tool}", *args],
+                              capture_output=True, text=True)
+
+    def stop(self):
+        with self.lock:
+            if self.running:
+                subprocess.run(["docker", "rm", "-f", self.name], capture_output=True)
+                self.running = False
+
+
+CONTAINER = ToolContainer()
+
+
 def tc(tool, *args):
     """run a toolchain binary (pi32v2/bin/..., common/bin/...) with cwd SRC; paths relative to SRC"""
     rel = [str(Path(a).resolve().relative_to(SRC)) if isinstance(a, Path) else a for a in args]
     if tool == "cc":                # the toolchain's cc wrapper needs python3; call clang directly
         tool, rel = "pi32v2/bin/clang", ["-target", "pi32v2", *rel]
     if use_docker():
-        cmd = ["docker", "run", "--rm", "--platform", "linux/amd64", "-v", f"{SRC}:/work",
-               "-v", f"{toolchain()}:/opt/jieli:ro", "-w", "/work", DOCKER_IMAGE, f"/opt/jieli/{tool}", *rel]
+        r = CONTAINER.run(tool, rel)
     else:
         if platform.system() == "Windows":
             tool = WINDOWS_TOOLS[tool]
-        cmd = [str(toolchain() / tool), *rel]
-    r = subprocess.run(cmd, cwd=SRC, capture_output=True, text=True)
+        r = subprocess.run([str(toolchain() / tool), *rel], cwd=SRC, capture_output=True, text=True)
     if r.returncode:
         sys.stderr.write(r.stdout + r.stderr)
         raise SystemExit(f"build: {tool} failed")
@@ -203,6 +247,27 @@ def ld_regions():
     return regs
 
 
+def cc_binary():
+    return toolchain() / compiler_rel()
+
+
+def app_cache_key(flags, size):
+    """everything felucca.o is made from: sources, headers, generated headers, flags, compiler (build/gen must
+    exist, so this runs after generate())"""
+    h = hashlib.sha256()
+    for d in (FW / "src", FW / "hal", GEN):
+        for p in sorted(d.rglob("*")):
+            if p.is_file():
+                h.update(str(p.relative_to(SRC)).encode() + b"\0" + p.read_bytes() + b"\0")
+    compiler = cc_binary()
+    st = compiler.stat()
+    h.update(f"{compiler}:{st.st_size}:{st.st_mtime_ns}\0".encode())
+    h.update((SRC / "tools" / "size_fns.py").read_bytes() + b"\0")
+    h.update(f"{DOCKER_IMAGE if use_docker() else 'native'}\0size={size}\0".encode())
+    h.update("\0".join(flags).encode())
+    return h.hexdigest()
+
+
 def build_app():
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
     for flag in ("FELUCCA_FLASH", "FELUCCA_OTA", "FELUCCA_OTA_DRYRUN", "FELUCCA_OTA_RAMONLY", "FELUCCA_CDC",
@@ -218,21 +283,31 @@ def build_app():
     if VERSION:
         flags.append(f'-DFELUCCA_VERSION="{VERSION}"')
     # felucca.c goes to LLVM IR without the optimizer, the main-loop functions (UI, stores, editor) are
-    # marked minsize (tools/size_fns.py), then the IR is compiled at -Os. FELUCCA_SIZE=0: -Os everywhere
+    # marked minsize (tools/size_fns.py), then the IR is compiled at -Os. FELUCCA_SIZE=0: -Os everywhere.
+    # That compile is most of the build, so felucca.o is kept while its inputs (sources, generated headers,
+    # flags, compiler) do not change. FELUCCA_NO_CACHE=1: always recompile.
     size = os.environ.get("FELUCCA_SIZE") != "0"
     cmain = (("cc", *flags, "-S", "-emit-llvm", "-Xclang", "-disable-llvm-optzns", "-c",
               FW / "src" / "felucca.c", "-o", OUT / "felucca.ll") if size else
              ("cc", *flags, "-c", FW / "src" / "felucca.c", "-o", OUT / "felucca.o"))
-    tc_all(("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
+    asm = [("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
            ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
            ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),
-           ("cc", "-c", FW / "hal" / "fm1_cpu1.S", "-o", OUT / "fm1_cpu1.o"),
-           cmain)
-    if size:
-        subprocess.run([sys.executable, SRC / "tools" / "size_fns.py", OUT / "felucca.ll", OUT / "felucca_size.ll"],
-                       check=True)
-        tc("cc", *[f for f in flags if not f.startswith(("-I", "-D", "-W"))], "-c",
-           OUT / "felucca_size.ll", "-o", OUT / "felucca.o")
+           ("cc", "-c", FW / "hal" / "fm1_cpu1.S", "-o", OUT / "fm1_cpu1.o")]
+    obj, key_file = OUT / "felucca.o", OUT / "felucca.o.key"
+    key = app_cache_key(flags, size)
+    cached = (not os.environ.get("FELUCCA_NO_CACHE")
+              and obj.is_file() and key_file.is_file() and key_file.read_text().strip() == key)
+    tc_all(*(asm if cached else [*asm, cmain]))
+    if cached:
+        print("  ok    felucca.o unchanged: not recompiled")
+    else:
+        if size:
+            subprocess.run([sys.executable, SRC / "tools" / "size_fns.py", OUT / "felucca.ll", OUT / "felucca_size.ll"],
+                           check=True)
+            tc("cc", *[f for f in flags if not f.startswith(("-I", "-D", "-W"))], "-c",
+               OUT / "felucca_size.ll", "-o", OUT / "felucca.o")
+        key_file.write_text(key + "\n")
     elf = OUT / "felucca.elf"
     tc("pi32v2/bin/ld", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o", OUT / "fm1_isr.o",
        OUT / "fm1_cpu1.o", OUT / "felucca.o", "-o", elf)
@@ -393,11 +468,12 @@ def main():
         if hashlib.sha256(fm1pkg_make.sdk_file(rel)).hexdigest() != sha:
             print(f"warning: SDK {rel} differs from AC79NN_SDK_V1.2.1; the package will not match the reference")
     OUT.mkdir(parents=True, exist_ok=True)
-    with ThreadPoolExecutor(2) as ex:
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))     # atexit removes the toolchain container
+    with ThreadPoolExecutor(3) as ex:
         gen, ldr = ex.submit(generate), ex.submit(build_loader)
-        gen.result()
+        gen.result()                # the app needs build/gen; the loader does not
+        img, syms, dis, rt = ex.submit(build_app).result()
         ota = ldr.result()
-    img, syms, dis, rt = build_app()
     errors, notes = check(img, syms, dis, rt)
     hal_err = mmio_check()
     errors += hal_err
