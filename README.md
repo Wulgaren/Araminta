@@ -399,9 +399,9 @@ fall on every C key. Chromatic play is MAP OFF. Drum kits and incoming MIDI keep
 
 Press **SCL** again for the **CHORD** page: CHRD picks the chord keys (OFF, the scale's triads or
 sevenths, a fixed shape, AUTO: the key picks an in-scale chord that follows the other tracks' recent
-notes, or AUTO2: the played key is the melody, always the top note, and the chord below stays in the
+notes, or MELO: the played key is the melody, always the top note, and the chord below stays in the
 scale), VOIC the voicing, STRUM the sweep (OFF, 1/8 to 1/128, 16T, 32T) and STROKE its direction (DOWN,
-UP, ALT). AUTO2 leaves the melody fixed in every voicing; a DOWN strum sounds it first. Hold a step on **SEQ > STEP** (piano roll; with SCL as the last sound page) and turn
+UP, ALT). MELO leaves the melody fixed in every voicing; a DOWN strum sounds it first. Hold a step on **SEQ > STEP** (piano roll; with SCL as the last sound page) and turn
 K4 (TRN) for a per-step **PITCH** lock: an absolute chromatic transpose (-24..+24) that replaces the track's TRN on
 that step (not snapped), one value for the whole step (a chord uses its first stored note, lowest for a keyed chord,
 when TRN is recorded). Kits ignore PITCH: on a DRUM track SCL K4 creates no lock and `MOTION` op 5 refuses one. It
@@ -451,7 +451,7 @@ Upstream context: [On AI-Assisted Development and Responsibility](https://github
 
 - **Fork:** [Wulgaren/Araminta](https://github.com/Wulgaren/Araminta) by [Wulgaren](https://github.com/Wulgaren)
 - Felucca 1.6: the LED rows switch off before a flash erase (#236, kurogedelic, GPL-3.0)
-- AUTO / AUTO2 chord harmony: [Melodee](https://github.com/keremimo/melodee) `f4fdbc7` by Kerem Kilic / Ellic Studio (GPL-3.0-only)
+- AUTO / MELO chord harmony: [Melodee](https://github.com/keremimo/melodee) `f4fdbc7` by Kerem Kilic / Ellic Studio (GPL-3.0-only)
 - Signed audio arithmetic (#265): Felucca `f9a98fc` by Mario Faúndez Vidal (GPL-3.0-only); ANALOG, LOFI,
   NOISE, TRIO and WHEEL fixes from [Felucca-Engines](https://github.com/hugelton/Felucca-Engines) by Mario
   Faúndez Vidal and kurogedelic (MIT)

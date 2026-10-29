@@ -17,15 +17,17 @@
 
 ### Chord
 
-- **AUTO chord keys.** CHRD gains AUTO, before AUTO2. The key picks a 3- or 4-note chord in the selected
+- **AUTO chord keys.** CHRD gains AUTO, before MELO. The key picks a 3- or 4-note chord in the selected
   scale. It follows the other tracks' recent notes (their last two unharmonized onsets, arp-held keys and
   sequenced notes) and moves smoothly from the previous chord. A two-beat pause, STOP, or a scale / root /
   map / voicing change starts a fresh phrase. AUTO keeps 20 bytes of history per track, packed so the pool
   gate stays green. Ported from Melodee (`f4fdbc7`, Kerem Kilic, GPL-3.0-only).
-- **AUTO2 chord keys.** CHRD gains AUTO2, after POW. The key you press is the melody and always the top note;
+- **A strummed chord records as one chord.** With REC armed, the strings of one strum now go into
+  the first string's step instead of one string per step, so the pattern plays the chord back.
+- **MELO chord keys.** CHRD gains MELO, after POW, the former AUTO2 name. The key you press is the melody and always the top note;
   the chord below it uses only notes of the selected scale, and VOIC moves the lower voices only. A DOWN
   strum sounds the melody first. MONO / LEGATO / UNISON play the melody alone; kits still ignore CHRD.
-  No project format change: older firmware clamps AUTO2 to POW. Ported from Melodee (`f4fdbc7`, Kerem Kilic,
+  No project format change: older firmware clamps MELO to POW. Ported from Melodee (`f4fdbc7`, Kerem Kilic,
   GPL-3.0-only).
 
 ## 3.2

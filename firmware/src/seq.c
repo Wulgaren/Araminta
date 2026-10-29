@@ -628,12 +628,29 @@ static uint32_t step_add(const track_t *t, step_t *s, uint32_t note, uint32_t ve
  * of the last one puts that step back (rec_release), so a short note stays one step.
  * A note recorded into another step ends the hold before (the step model ties the
  * notes of one step only). */
+/* A strum's later strings quantise to the first string's step, not to the next ones: the take
+ * was one chord, and the step model sounds a step's notes together. */
+static void rec_strum_pos(uint32_t *idxp, uint32_t *posp, uint32_t len, uint32_t period)
+{
+    if (!chord_strum_now.on || !chord_strum_now.index || chord_strum_now.total < 2u ||
+        chord_strum_now.rate >= NELEM(STRUM_DEN) || !period || !len)
+        return;
+    uint32_t beat = beat_samples() ? beat_samples() : 1u;
+    uint32_t span = beat / STRUM_DEN[chord_strum_now.rate];
+    uint32_t back = (uint32_t)((uint64_t)span * chord_strum_now.index / (chord_strum_now.total - 1u));
+    int32_t abs = (int32_t)(*idxp * period + *posp) - (int32_t)back;
+    if (abs < 0) abs += (int32_t)(len * period);
+    *idxp = (uint32_t)(abs / (int32_t)period) % len;
+    *posp = (uint32_t)(abs % (int32_t)period);
+}
 static void rec_note(track_t *t, uint32_t note, uint32_t vel)
 {
     uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u, idx = t->seq_idx % len, k;
-    uint32_t period = div_samples((uint32_t)t->p[P_SDIV]), cur = step_samples(t, period, t->seq_idx);
-    uint32_t next = t->seq_pos > cur / 2u, sounds;
-    int32_t off = rec_nudge(t->seq_pos >= cur ? 0 : next ? -(int32_t)(cur - t->seq_pos) : (int32_t)t->seq_pos, period);
+    uint32_t period = div_samples((uint32_t)t->p[P_SDIV]), pos = t->seq_pos, cur, next, sounds;
+    rec_strum_pos(&idx, &pos, len, period);
+    cur = step_samples(t, period, idx);
+    next = pos > cur / 2u;
+    int32_t off = rec_nudge(pos >= cur ? 0 : next ? -(int32_t)(cur - pos) : (int32_t)pos, period);
     step_t *s;
     if (next)
         idx = (idx + 1u) % len;

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Adapted for Araminta from Melodee f4fdbc7. */
-/* AUTO2 chord keys (CHRD = AUTO2): the played key is the melody, always the top note. The chord stays
+/* MELO chord keys (CHRD = MELO): the played key is the melody, always the top note. The chord stays
  * in the track's scale, every voicing keeps the melody fixed, DOWN strums lead with it, and MONO,
  * kits, STOP and the accompaniment cannot change a held chord. */
 #define UI_TEST_NO_MAIN 1
@@ -10,7 +10,7 @@
 static uint32_t failures;
 static void expect(const char *name, int ok)
 {
-    printf("AUTO2: %-72s %s\n", name, ok ? "PASS" : "FAIL");
+    printf("MELO: %-72s %s\n", name, ok ? "PASS" : "FAIL");
     failures += !ok;
 }
 static void reset(void)
@@ -113,7 +113,7 @@ static void exhaustive(void)
                     cases++;
                 }
             }
-    printf("AUTO2: %u exhaustive cases across %u scales, every root, voicing and MIDI input\n",
+    printf("MELO: %u exhaustive cases across %u scales, every root, voicing and MIDI input\n",
            cases, (unsigned)NELEM(SCALE_MASK));
     expect("exhaustive scales, roots, voicings and inputs", 1);
 }
@@ -172,9 +172,9 @@ static void strum_and_holds(void)
     static project_t saved, loaded;
     static project_store_t wire;
     project_capture(&saved);
-    expect("CHRD AUTO2 packs and loads", proj_pack(&wire, &saved) && proj_import(&loaded, &wire, sizeof wire) &&
+    expect("CHRD MELO packs and loads", proj_pack(&wire, &saved) && proj_import(&loaded, &wire, sizeof wire) &&
            loaded.t[0].p[P_CHRD] == CH_MELODY);
-    expect("CHRD above AUTO2 clamps to AUTO2",
+    expect("CHRD above MELO clamps to MELO",
            param_fit(param_desc_of(0, P_CHRD), CH_MELODY + 1) == CH_MELODY);
 }
 static void render_hash(void)
@@ -191,17 +191,17 @@ static void render_hash(void)
         track_render(&trk[0], buf, CTL);
         for (uint32_t i = 0; i < CTL; i++) hash = (hash ^ (uint32_t)buf[i]) * UINT64_C(1099511628211);
     }
-    printf("AUTO2 render: hash %016llx\n", (unsigned long long)hash);
-    expect("AUTO2 G chord render is stable", hash == UINT64_C(0xb574dc3fb9aafabb));
+    printf("MELO render: hash %016llx\n", (unsigned long long)hash);
+    expect("MELO G chord render is stable", hash == UINT64_C(0xb574dc3fb9aafabb));
 }
 int main(void)
 {
-    _Static_assert(CH_AUTO == 10 && CH_MELODY == 11, "AUTO is 10, AUTO2 is 11");
+    _Static_assert(CH_AUTO == 10 && CH_MELODY == 11, "AUTO is 10, MELO is 11");
     examples();
     exhaustive();
     transposition();
     strum_and_holds();
     render_hash();
-    puts(failures ? "AUTO2 CHORD TEST FAILED" : "AUTO2 chord tests passed");
+    puts(failures ? "MELO CHORD TEST FAILED" : "MELO chord tests passed");
     return failures != 0;
 }

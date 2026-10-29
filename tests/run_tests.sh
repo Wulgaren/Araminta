@@ -471,7 +471,7 @@ if [ -f build/gen/felucca_tables.h ]; then
     unit u_chord
     u_chord_melody() {
         $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/chord_melody_test" tests/chord_melody_test.c -lm
-        run "AUTO2 chords: melody on top, scales, voicings, strum, MONO, kits, projects, render" "$OUT/chord_melody_test"
+        run "MELO chords: melody on top, scales, voicings, strum, MONO, kits, projects, render" "$OUT/chord_melody_test"
     }
     unit u_chord_melody
     u_chord_auto() {
