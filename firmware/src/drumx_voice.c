@@ -206,7 +206,7 @@ static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, 
             v2 = ic2 + ((c.a2 * ic1 + c.a3 * v3) >> 13);                                                           \
             ic1 = clamp(2 * v1 - ic1, -150000, 150000);                                                            \
             ic2 = clamp(2 * v2 - ic2, -150000, 150000);                                                            \
-            y[i] += mulq15(clamp((OUT) << 1, -32767, 32767), gn >> 8);                                            \
+            y[i] += mulq15(clamp((OUT) * 2, -32767, 32767), gn >> 8);                                             \
         }
         if (flt == DXF_LP)
             DX_NOISE(v2)
