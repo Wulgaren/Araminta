@@ -3,8 +3,9 @@
 ## 3.4
 
 The LFO pages' waveform comes alive: it draws from the running LFO and scrolls at RATE (or SYNC), and S&H's
-SMTH is drawn as a smooth glide from hard steps at 0% to a rounded random wave at 100%. No project format
-change: saves stay FUN19 (`FUNJ`). Splash and ABOUT show `v3.4`.
+SMTH is drawn as a smooth glide from hard steps at 0% to a rounded random wave at 100%. CLOUD's reverb tail
+now ends in silence instead of leaving a sub-audio drone, and SIZE 127 is an explicit FREEZE that holds the
+tail. No project format change: saves stay FUN19 (`FUNJ`). Splash and ABOUT show `v3.4`.
 
 ### LFO
 
@@ -13,6 +14,16 @@ change: saves stay FUN19 (`FUNJ`). Splash and ABOUT show `v3.4`.
 - **SMTH is drawn.** S&H's SMTH (LFO 2's KNOB 4) blends the graph from hard steps at 0% to a smooth,
   spline-like random wave at 100%, with rounded turns. The graph keeps the last three step values (a few bytes)
   so the older cycle in its two-cycle view, and a wrap, stay continuous.
+
+### FX
+
+- **CLOUD's tail ends.** The room → granular return was floored and had no DC block; ROOM's comb gain at
+  1–5 Hz and the grain bank's overlap gain pushed that loop to unity, so an impulse of any level grew into the
+  same ~15k RMS offset that played for ever after the music stopped. The loop now rounds towards zero and
+  high-passes the room return, and the tail reaches exact silence at every SIZE below 127.
+- **CLOUD FREEZE at SIZE 127.** The top SIZE holds the tail instead of treating it as a heavier decay: the
+  line recirculates with no new input. The SIZE value reads `FRZ` (the PUNCH-IN abbreviation) and the graph
+  shows `FREEZE` over the last normal grain pattern.
 
 ## 3.3
 
