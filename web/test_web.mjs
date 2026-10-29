@@ -1912,22 +1912,25 @@ class FakeFM1 {
 
 async function updater() {
   const image = Uint8Array.from({ length: 0x2000 }, (_, i) => (i * 7) & 0xFF);
+  /* the page waits out real device boots; the mock boots on a 300 ms timer, so only poll for it */
+  const FAST = { boot: 0, reboot: 0, poll: 10, chunk: 0 };
+  const upd = (access) => new Updater(access, null, FAST);
   const dev = new FakeFM1(image);
   const steps = [];
-  const got = await new Updater(dev.access).install(image, "FM-1_900", (k) => steps.push(k));
+  const got = await upd(dev.access).install(image, "FM-1_900", (k) => steps.push(k));
   ok(got === "FM-1_900" && dev.bad === 0 && steps.includes("write") && steps.at(-1) === "done",
     `fm1ota.js: install: running firmware -> loader -> FM-1 (${dev.served} reads)`);
 
   const dev2 = new FakeFM1(image, { unplugAfter: 3 });
   dev2.boot("ota-FM-1_900", "FM-1 Update");
   const t0 = Date.now();
-  const done = await new Updater(dev2.access).resume(image);
+  const done = await upd(dev2.access).resume(image);
   ok(done === false && Date.now() - t0 < 6000, "fm1ota.js: unplugged during the write -> stops at once");
 
   const dev3 = new FakeFM1(image, { unplugAfter: 2 });
-  const e = await new Updater(dev3.access).install(image, "FM-1_900").then(() => null, (x) => x);
+  const e = await upd(dev3.access).install(image, "FM-1_900").then(() => null, (x) => x);
   ok(e && e.code === "lost", "fm1ota.js: unplugged in step 1 -> error code 'lost'");
-  const e2 = await new Updater({ inputs: new Map(), outputs: new Map() }).install(image, "FM-1_900").then(() => null, (x) => x);
+  const e2 = await upd({ inputs: new Map(), outputs: new Map() }).install(image, "FM-1_900").then(() => null, (x) => x);
   ok(e2 && e2.code === "notfound", "fm1ota.js: no device -> error code 'notfound'");
 }
 

@@ -14,6 +14,9 @@ const MAXDATA = 512;
    USB-MIDI port has drained: tools/fm1_install.py paces the same way. 10 ms keeps every device happy while a
    whole update takes minutes anyway; the write step's 180 s idle timeout is the budget, not this. */
 const CHUNK_DELAY_MS = 10;
+/* The page waits for a real device to boot between the steps and polls for it; the tests pass milliseconds
+   through Updater's `timing` instead of waiting out every boot (the protocol logic is what they check). */
+const TIMING = { boot: 2000, reboot: 3000, poll: 1000, chunk: CHUNK_DELAY_MS };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const IS_OTA = (id) => /^ota-/i.test(id.model);
 
@@ -123,9 +126,10 @@ async function handshake(link, tries = 3) {
 }
 
 export class Updater {
-  constructor(access, log) {
+  constructor(access, log, timing) {
     this.access = access;
     this.log = log || (() => {});
+    this.timing = { ...TIMING, ...timing };
   }
 
   // every in/out pair with the same port name that answers the handshake
@@ -150,7 +154,7 @@ export class Updater {
     while (Date.now() < end) {
       const dev = await this.find(filter);
       if (dev) return dev;
-      await sleep(1000);
+      await sleep(this.timing.poll);
     }
     return null;
   }
@@ -160,7 +164,7 @@ export class Updater {
   async serve(link, image, finishAddr, idleMs, onProgress) {
     let served = 0, last = Date.now();
     for (;;) {
-      const pkt = await link.read(1000);
+      const pkt = await link.read(this.timing.poll);
       if (!pkt) {
         if (link.lost) return { served, finished: false, lost: true };
         if (Date.now() - last > idleMs) return { served, finished: false };
@@ -175,7 +179,7 @@ export class Updater {
         continue;
       }
       if (r.len > MAXDATA || r.addr + r.len > image.length) throw fail("badreq", `bad request ${r.addr.toString(16)}+${r.len}`);
-      await sleep(CHUNK_DELAY_MS);
+      await sleep(this.timing.chunk);
       if (!link.send(response(r.addr, Array.from(image.subarray(r.addr, r.addr + r.len)), r.fl))) {
         return { served, finished: false, lost: true };
       }
@@ -193,18 +197,18 @@ export class Updater {
     if (dev.id.model !== model) { dev.link.close(); throw fail("model", `the device is ${dev.id.text}, the package is for ${product}`); }
     step("start", dev.id.text);
     dev.link.send(UPGRADE);
-    await sleep(2000);
+    await sleep(this.timing.boot);
     const s1 = await this.serve(dev.link, image, 0xE0000000, 8000, (n) => step("verify", n));
     dev.link.close();
     if (!s1.finished) throw fail(s1.lost ? "lost" : "stopped", `the device ${s1.lost ? "was disconnected" : "stopped"} after ${s1.served} requests: nothing was written`);
     step("loader");
-    await sleep(3000);
+    await sleep(this.timing.reboot);
     const ota = await this.waitFor((id) => id.model === "ota-" + model, 30000);
     if (!ota) throw fail("noloader", "the update loader did not appear. Replug the USB cable and press Install again: the device stays in update mode until it is finished.");
     const s2 = await this.write(ota, image, step);
     if (!s2.finished) throw fail(s2.lost ? "lost" : "stopped", `the loader ${s2.lost ? "was disconnected" : "stopped"} after ${s2.served} requests. Replug and press Install again to resume.`);
     step("reboot");
-    await sleep(3000);
+    await sleep(this.timing.reboot);
     const back = await this.waitFor((id) => !IS_OTA(id), 40000);
     if (!back) throw fail("noreturn", "the device did not come back: power-cycle it");
     back.link.close();
@@ -216,7 +220,7 @@ export class Updater {
   // step 2 with the loader found by find()/waitFor()
   async write(ota, image, step) {
     ota.link.send(UPGRADE);
-    await sleep(2000);
+    await sleep(this.timing.boot);
     const s2 = await this.serve(ota.link, image, 0xF0000000, 180000, (n) => step("write", n));
     ota.link.close();
     return s2;
@@ -232,7 +236,7 @@ export class Updater {
     if (!result.finished) return false;
     if (product) {
       step("reboot");
-      await sleep(3000);
+      await sleep(this.timing.reboot);
       const back = await this.waitFor((id) => id.model === model, 40000);
       if (!back) throw fail("noreturn", "The FM-1 did not return after resuming the write.");
       back.link.close();
