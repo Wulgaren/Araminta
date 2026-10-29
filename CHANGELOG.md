@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Storage
+
+- **LEDs dark during a flash erase.** The erase stops the LED scan for ~17 ms, which left one column lit;
+  the rows are switched off first (#236). Ported from Felucca 1.6.
+
 ## 3.2
 
 The stock V15 supply rails before core 1, Felucca's DRUMS engine, a per-step PITCH lock, beat-synced chord
