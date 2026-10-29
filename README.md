@@ -55,6 +55,12 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
+### New in 3.4
+
+- **Live LFO graphs.** The LFO page's wave draws from the running LFO and scrolls at RATE (LFO 2: at SYNC's
+  note value); SIN / TRI / SAW / SQR show two cycles and S&H scrolls its steps. SMTH (LFO 2's KNOB 4) is
+  drawn as a smooth glide: hard steps at 0%, a rounded random wave at 100%. No project format change.
+
 ### New in 3.3
 
 - **AUTO chord keys.** CHRD gains AUTO: the key picks an in-scale chord that follows the other tracks' recent
