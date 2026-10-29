@@ -512,7 +512,11 @@ static void graph_chord(const track_t *t, uint16_t c)
     }
     if (trk_vmode(t) != V_POLY)
         cap = "ROOT ONLY";                              /* MONO / LEGATO / UNISON */
-    chord_name(b, (uint32_t)r, mask);
+    if (t->p[P_CHRD] == CH_MELODY) {
+        cap = "MELODY";
+        chord_melody_name(b, (uint32_t)r, mask);
+    } else
+        chord_name(b, (uint32_t)r, mask);
     cv_text_on(14, 8, &AF_M, b, T_TEXT, T_SURF);
     GFX_HOOK_ALIGN(0, 0, 0, 8 + AF_M.asc, AL_B, "chord caption on the name's baseline");
     cv_text_r(226, 8 + AF_M.asc - AF_S.asc, &AF_S, cap, T_MID, T_SURF);   /* on the name's baseline */
@@ -526,7 +530,7 @@ static void graph_chord(const track_t *t, uint16_t c)
         for (j = 0; j < n; j++)
             on |= nn[j] == note;
         cv_rrect(x, BLACK[note % 12u] ? 36 : 62, (int32_t)w - 2, 48, w > 6u ? 3 : 2,
-                 !on ? T_RAISE : note % 12u == (uint32_t)r % 12u ? T_ACCENT : c, T_SURF);
+                 !on ? T_RAISE : (t->p[P_CHRD] == CH_MELODY ? note == nn[n - 1u] : note % 12u == (uint32_t)r % 12u) ? T_ACCENT : c, T_SURF);
     }
 }
 /* insert stage page: dry/wet mix as a blend line (MIX 0 = dry diagonal). The mix knob lives on EFFECTS;

@@ -10,6 +10,14 @@
   Vidal) and Felucca-Engines (`e88bc70`, `7511c0a`). New strict-UBSan tests for the DC blocker, low-cut,
   FM6 phase and PHYS.
 
+### Chord
+
+- **AUTO2 chord keys.** CHRD gains AUTO2, after POW. The key you press is the melody and always the top note;
+  the chord below it uses only notes of the selected scale, and VOIC moves the lower voices only. A DOWN
+  strum sounds the melody first. MONO / LEGATO / UNISON play the melody alone; kits still ignore CHRD.
+  No project format change: older firmware clamps AUTO2 to POW. Ported from Melodee (`f4fdbc7`, Kerem Kilic,
+  GPL-3.0-only).
+
 ## 3.2
 
 The stock V15 supply rails before core 1, Felucca's DRUMS engine, a per-step PITCH lock, beat-synced chord

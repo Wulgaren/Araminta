@@ -443,6 +443,11 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "chord keys: diatonic and fixed chords, voicings, MONO root, releases, recording, ARP, MIDI IN, kits" "$OUT/chord_test"
     }
     unit u_chord
+    u_chord_melody() {
+        $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/chord_melody_test" tests/chord_melody_test.c -lm
+        run "AUTO2 chords: melody on top, scales, voicings, strum, MONO, kits, projects, render" "$OUT/chord_melody_test"
+    }
+    unit u_chord_melody
     u_speaker() {
         $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/speaker_test" tests/speaker_test.c -lm
         run "SPEAKER EQ: FLAT / LOWCUT / BASS+ responses, BASS+ harmonics of the bass, the sub cut, no offset after, headroom on a full-scale kick (#180)" "$OUT/speaker_test"
@@ -796,6 +801,8 @@ else
         run "Strict ASan/UBSan (no exclusions): signed_audio_scaling_test" "$A/signed_audio_scaling_test_strict"
         $STRICT_CC -o "$A/phys_signed_test_strict" tests/phys_signed_test.c -lm
         run "Strict ASan/UBSan (no exclusions): phys_signed_test" "$A/phys_signed_test_strict"
+        $STRICT_CC -o "$A/chord_melody_test_strict" tests/chord_melody_test.c -lm
+        run "Strict ASan/UBSan (no exclusions): chord_melody_test" "$A/chord_melody_test_strict"
     }
     unit u_asan_signed_audio
     u_asan_ldr() {
