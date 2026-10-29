@@ -450,6 +450,7 @@ Upstream context: [On AI-Assisted Development and Responsibility](https://github
 ## Credits
 
 - **Fork:** [Wulgaren/Araminta](https://github.com/Wulgaren/Araminta) by [Wulgaren](https://github.com/Wulgaren)
+- Felucca 1.6: the LED rows switch off before a flash erase (#236, kurogedelic, GPL-3.0)
 - AUTO / AUTO2 chord harmony: [Melodee](https://github.com/keremimo/melodee) `f4fdbc7` by Kerem Kilic / Ellic Studio (GPL-3.0-only)
 - Signed audio arithmetic (#265): Felucca `f9a98fc` by Mario Faúndez Vidal (GPL-3.0-only); ANALOG, LOFI,
   NOISE, TRIO and WHEEL fixes from [Felucca-Engines](https://github.com/hugelton/Felucca-Engines) by Mario
