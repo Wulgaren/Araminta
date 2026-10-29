@@ -69,6 +69,12 @@ On Linux x86-64 the toolchain runs natively and Docker is not needed.
 `JIELI_TOOLCHAIN` and `AC79_SDK` override the default locations
 (`~/.jieli/toolchain`, `~/fw-AC79_AIoT_SDK` on macOS / Linux; Windows defaults above).
 
+The expensive step is the `-Os` compile of the app's LLVM IR. `build.sh` keeps `build/felucca.o` while the
+sources, generated headers, flags and compiler are unchanged, so a rebuild without source changes takes a
+couple of seconds; `FELUCCA_NO_CACHE=1` always recompiles. On Apple silicon, enable Rosetta for linux/amd64
+containers (Docker Desktop's setting, or `colima start --vz-rosetta`): with QEMU that compile is about five
+times slower.
+
 `./build.sh --release 1.0` makes a release build: the package identity becomes `FM-1_910`
 and the version string `v1.0`; the package is `build/felucca-1.0.fwsc`, and
 `build/release-1.0/` holds what a release ships: the package, the app
@@ -159,6 +165,8 @@ tests/run_tests.sh
 ```
 
 Full host gate (several minutes). Argv after the script name is ignored; it always runs the whole suite. Agents: iterate and hand off per [AGENT.md](AGENT.md) (focused host binaries / web tests; full script when 3+ host binaries are in scope). `SANITIZE=0` skips the ASan/UBSan and fuzz passes; the browser emulator already skips when `emcc` is missing.
+
+With `ccache` on `PATH` (e.g. `brew install ccache`) the suite compiles through it (`USE_CCACHE=0` turns that off), so a rerun whose sources are unchanged reuses the ~80 test binaries. The browser emulator build likewise skips what is unchanged, with separate keys for the wasm and the page files (`build/emu/.wasm-key`, `build/emu/.page-key`).
 
 Runs the host tests and, with Node.js, the web page tests (and, with Emscripten too, the browser emulator's). Run it after `./build.sh`
 (it uses `build/` and needs `AC79_SDK` set as for the build). The suites cover flash storage,
