@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Adapted for Araminta from Melodee f4fdbc7. */
-/* AUTO2 harmony: the mapped key is the melody, always on top. Chord selection is a pure function of
+/* MELO harmony: the mapped key is the melody, always on top. Chord selection is a pure function of
  * scale, root and melody pitch class; accompaniment tracks, earlier presses and UI previews cannot
  * change it. Included by chord.c after chord_kit. Fixed searches, no allocation or history. */
 typedef struct { uint8_t pitch[3], cost; const char *name; } chord_melody_shape_t;

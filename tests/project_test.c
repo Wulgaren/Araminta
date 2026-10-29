@@ -279,7 +279,7 @@ static int chord_mode_wire(void)
     int ok = proj_pack(&wire, &saved) && proj_import(&loaded, &wire, sizeof wire) &&
              loaded.t[0].p[P_CHRD] == CH_MELODY;
     ok &= param_fit(param_desc_of(0, P_CHRD), CH_MELODY + 1) == CH_MELODY;
-    return check("CHRD AUTO2 round trips; a value above it clamps to AUTO2", ok);
+    return check("CHRD MELO round trips; a value above it clamps to MELO", ok);
 }
 
 static int generation_wire(void)

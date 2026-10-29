@@ -221,7 +221,7 @@ static int chord_strum_begin(track_t *t, uint8_t *notes, uint32_t n, chord_strum
             notes[n - 1u - i] = x;
         }
     if (!stroke && t->p[P_CHRD] == CH_MELODY) {
-        /* AUTO2: the melody sounds on the press; DOWN orders the accompaniment below it. */
+        /* MELO: the melody sounds on the press; DOWN orders the accompaniment below it. */
         uint8_t melody = notes[n - 1u];
         for (i = n - 1u; i; i--) notes[i] = notes[i - 1u];
         notes[0] = melody;
