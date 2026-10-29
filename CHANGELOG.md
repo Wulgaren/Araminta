@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 3.3
+
+Safer audio maths, the LEDs dark during a flash erase, MAP ALL sharing one scale across every track, and
+the AUTO / MELO chord keys, with a strummed chord recorded as one step. No project format change: saves stay
+FUN19 (`FUNJ`); an old ALL loads as CURR and an old CURR / SCALE LOCK loads as ALL. Splash and ABOUT show
+`v3.3`.
 
 ### Storage
 

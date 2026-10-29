@@ -1,7 +1,7 @@
 # Parameter, ID and lock contract
 
 > **Read this first.** This is the current source of truth for Araminta's parameter IDs, special IDs,
-> aliases and PITCH locks. It describes the code that ships with 3.2 (FUN19). `web/EDITOR_PROTOCOL.md` and
+> aliases and PITCH locks. It describes the code that ships with 3.3 (FUN19). `web/EDITOR_PROTOCOL.md` and
 > `CHANGELOG.md` are cumulative: their sections are labelled by the version that introduced them, and an
 > older section can describe an earlier design. When either disagrees with this file, the code wins and this
 > file is the one to update.

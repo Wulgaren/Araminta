@@ -55,6 +55,23 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
+### New in 3.3
+
+- **AUTO chord keys.** CHRD gains AUTO: the key picks an in-scale chord that follows the other tracks' recent
+  notes (their last two unharmonized onsets, arp-held keys and sequenced notes) and moves smoothly from the
+  previous chord. A two-beat pause, STOP, or a scale / root / map / voicing change starts a fresh phrase.
+  Ported from Melodee.
+- **MELO chord keys.** CHRD gains MELO (the former AUTO2 name): the played key is the melody and always the top
+  note; the chord below it uses only notes of the selected scale, and VOIC moves the lower voices only.
+- **A strummed chord records as one chord.** With REC armed, the strings of one strum go into the first
+  string's step, so the pattern plays the chord back.
+- **MAP ALL is the shared scale.** ALL adopts the current ROOT / SCALE on every track while it is on, and
+  leaving ALL restores each track's own MAP / ROOT / SCALE; CURR is the per-track mode. Old projects keep their
+  behaviour.
+- **Safer audio maths (#265).** Undefined signed shifts and wraps in the audio path are unsigned multiplies and
+  wraps; the output is bit for bit the same. The LED rows also switch off before a flash erase (#236), so no
+  column stays lit.
+
 ### New in 3.2
 
 - **TAPE.** The EFFECTS list gains a tenth row: SPEED, WOW, DROPOUT and TEMPO, with CHAIN / SEND / MASTER routing.
