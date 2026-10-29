@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.4
+
+The LFO pages' waveform comes alive: it draws from the running LFO and scrolls at RATE (or SYNC), and S&H's
+SMTH is drawn as a smooth glide from hard steps at 0% to a rounded random wave at 100%. No project format
+change: saves stay FUN19 (`FUNJ`). Splash and ABOUT show `v3.4`.
+
+### LFO
+
+- **Live LFO graphs.** The LFO page's wave draws from the part's live phase and scrolls left at RATE (LFO 2: at
+  SYNC's note value) instead of sitting at PHS. SIN / TRI / SAW / SQR show two cycles; S&H scrolls its steps.
+- **SMTH is drawn.** S&H's SMTH (LFO 2's KNOB 4) blends the graph from hard steps at 0% to a smooth,
+  spline-like random wave at 100%, with rounded turns. The graph keeps the last three step values (a few bytes)
+  so the older cycle in its two-cycle view, and a wrap, stay continuous.
+
 ## 3.3
 
 Safer audio maths, the LEDs dark during a flash erase, MAP ALL sharing one scale across every track, and
