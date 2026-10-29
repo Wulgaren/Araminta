@@ -1348,9 +1348,10 @@ static __attribute__((noinline)) void rev_cloud(const int32_t *rev_in, int32_t *
             x = mulq15(shim_fb[i], fb) + mulq15(R->cl_lp, fg);
         else                                             /* the line: the input and the tail, two samples into one */
             x = (rev_in[i] >> 1) + sh_tz(shim_fb[i] * fb, 15) + sh_tz(R->cl_lp * fg, 15);
+        if (!freeze && x > -64 && x < 64)
+            x = 0;                                       /* flush the line's last few LSB: exact silence */
         if (R->cl_w & 1u)
-            cloud_buf[(R->cl_w >> 1) & (CL_LEN - 1u)] =
-                (int16_t)clamp(freeze ? (R->cl_half + x) >> 1 : sh_tz(R->cl_half + x, 1), -32768, 32767);
+            cloud_buf[(R->cl_w >> 1) & (CL_LEN - 1u)] = (int16_t)clamp((R->cl_half + x) >> 1, -32768, 32767);
         else
             R->cl_half = x;
         R->cl_w++;
@@ -1372,16 +1373,16 @@ static __attribute__((noinline)) void rev_cloud(const int32_t *rev_in, int32_t *
             {
                 uint32_t p = cl_g[k].pos >> 16, f = (cl_g[k].pos >> 8) & 255u, a = cl_g[k].age, L = cl_g[k].len;
                 int32_t x0 = cloud_buf[p & (CL_LEN - 1u)], x1 = cloud_buf[(p + 1u) & (CL_LEN - 1u)];
-                int32_t x = x0 + sh_tz((x1 - x0) * (int32_t)f, 8), w = (int32_t)((a < L - a ? a : L - a) * 2u * 256u / L);
-                x = sh_tz(x * w, 8);
-                l += sh_tz(x * cl_g[k].pl, 7);
-                r += sh_tz(x * cl_g[k].pr, 7);
+                int32_t x = x0 + (((x1 - x0) * (int32_t)f) >> 8), w = (int32_t)((a < L - a ? a : L - a) * 2u * 256u / L);
+                x = (x * w) >> 8;
+                l += (x * cl_g[k].pl) >> 7;
+                r += (x * cl_g[k].pr) >> 7;
                 cl_g[k].pos += cl_g[k].inc;
                 if (++cl_g[k].age >= cl_g[k].len) cl_g[k].len = 0;
             }
         }
         m = (l + r) >> 1;
-        R->cl_lp = m + sh_tz((R->cl_lp - m) * (32767 - dk), 15);
+        R->cl_lp = m + mulq15(R->cl_lp - m, 32767 - dk);
         g[i] = R->cl_lp * 2;
         t[i] = 0;
     }
