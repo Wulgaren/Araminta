@@ -1570,7 +1570,7 @@ static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet
         dly_buf[fx.dly_w & (DLY_LEN - 1u)] =
             (int16_t)clamp((in[i] >> 1) + mulq15(fx.dly_lp, fb), -32768, 32767);
         fx.dly_w++;
-        out[i] = mulq15(x << 1, wet_q15);
+        out[i] = mulq15(x * 2, wet_q15);
     }
 }
 /* process delay + reverb buses; sends in, wet stereo-equal out.
@@ -1949,8 +1949,8 @@ static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, const track_t *
                 }
                 win[i] = (int16_t)clamp((x >> 2) + softclip(mulq15(v, fbk)), -32767, 32767);
                 s->wp = (uint16_t)((s->wp + 1u) & (IL_LEN - 1u));
-                v <<= 1;
-                s->dc += ((v << 8) - s->dc) >> 9;
+                v *= 2;
+                s->dc += ((v * 256) - s->dc) >> 9;
                 b[i] = pf_mix(x, (x >> 1) + v - (s->dc >> 8), s->w);
             }
         }

@@ -315,7 +315,7 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
             s = (softclip((s * g) >> 12) * mk) >> 15;
         if (pb0 != 4096 || pb1 != 4096)
             s = (s * (pb0 + (((pb1 - pb0) * (int32_t)i) >> CTL_LOG2))) >> 12;
-        out[i] += voice_amp(soft_knee(s + (s >> 2), 24000), m, i) << 1;
+        out[i] += voice_amp(soft_knee(s + (s >> 2), 24000), m, i) * 2;
     }
 }
 
