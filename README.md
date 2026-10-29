@@ -448,6 +448,9 @@ Upstream context: [On AI-Assisted Development and Responsibility](https://github
 ## Credits
 
 - **Fork:** [Wulgaren/Araminta](https://github.com/Wulgaren/Araminta) by [Wulgaren](https://github.com/Wulgaren)
+- Signed audio arithmetic (#265): Felucca `f9a98fc` by Mario Faúndez Vidal (GPL-3.0-only); ANALOG, LOFI,
+  NOISE, TRIO and WHEEL fixes from [Felucca-Engines](https://github.com/hugelton/Felucca-Engines) by Mario
+  Faúndez Vidal and kurogedelic (MIT)
 - **[Hügelton Instruments](https://hugelton.com)** (Leo Kuroshita, [@kurogedelic](https://github.com/kurogedelic)):
   Felucca, the base this fork builds on; the PHASE engine's waveforms (a C port of the oscillator of
   [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the DRUM-X and DRUMS voices and kits; the Hügelton Sample

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Audio
+
+- **Safer audio maths (#265).** Left shifts of negative audio values (undefined in C) are multiplies,
+  wrapping multiplies run in unsigned, and signed phase additions wrap in unsigned; the output is bit
+  for bit the same (golden hashes unchanged, binary identical). From Felucca (`f9a98fc`, Mario Faúndez
+  Vidal) and Felucca-Engines (`e88bc70`, `7511c0a`). New strict-UBSan tests for the DC blocker, low-cut,
+  FM6 phase and PHYS.
+
 ## 3.2
 
 The stock V15 supply rails before core 1, Felucca's DRUMS engine, a per-step PITCH lock, beat-synced chord
