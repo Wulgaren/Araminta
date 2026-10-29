@@ -8699,6 +8699,49 @@ static int test_live_graph_rate(void)
         frame();
         bad += check("TAPE transport: the reels move between frames", memcmp(a, host_screen, sizeof a) != 0);
     }
+    ui_power_on();
+    go_title("LFO");
+    ok = cur_page()->graph == GR_LFO && live_panel_each_frame();
+    bad += check("LFO wave: graph_sig moves every consecutive frame", ok);
+    {   /* the wave scrolls on the part's live phase (voice.c keeps it running): a quarter cycle on, other pixels */
+        static uint16_t a[240 * 240];
+        TSEL->lfo_ph = 0;
+        frame();
+        memcpy(a, host_screen, sizeof a);
+        TSEL->lfo_ph = 0x40000000u;
+        frame();
+        bad += check("LFO wave: the curve scrolls with the live phase", memcmp(a, host_screen, sizeof a) != 0);
+        TSEL->p[P_LWAVE] = 4;                       /* S&H: the boundary between the last two steps sweeps too */
+        TSEL->lfo_rnd = 0x60000000u;
+        TSEL->lfo_prev = 0;
+        TSEL->lfo_ph = 0;
+        frame();
+        memcpy(a, host_screen, sizeof a);
+        TSEL->lfo_ph = 0x40000000u;
+        frame();
+        bad += check("LFO wave: S&H's step boundary scrolls with the live phase", memcmp(a, host_screen, sizeof a) != 0);
+        TSEL->p[P_LSMOOTH] = 0;                     /* SMTH rounds the step: a jump with it at 0 */
+        TSEL->p[P_LRATE] = 64;
+        TSEL->lfo_prev = -32768;
+        TSEL->lfo_rnd = 0xFFFF0000u;
+        TSEL->lfo_ph = 0;
+        TSEL->p[P_LWAVE] = 0;                       /* leaves S&H: its next draw fills a fresh curve */
+        frame();
+        TSEL->p[P_LWAVE] = 4;
+        frame();
+        TSEL->lfo_ph = 0x40000000u;                 /* a quarter cycle on: the step sits mid-panel */
+        frame();
+        memcpy(a, host_screen, sizeof a);
+        TSEL->lfo_ph = 0;                           /* the same run again, SMTH on */
+        TSEL->p[P_LWAVE] = 0;
+        frame();
+        TSEL->p[P_LWAVE] = 4;
+        TSEL->p[P_LSMOOTH] = 127;
+        frame();
+        TSEL->lfo_ph = 0x40000000u;
+        frame();
+        bad += check("LFO wave: SMTH rounds S&H's step on the graph", memcmp(a, host_screen, sizeof a) != 0);
+    }
     return bad;
 }
 

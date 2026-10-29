@@ -52,16 +52,57 @@ static void graph_adsr(const track_t *t, uint16_t c)
 #undef EGY
 }
 
+/* S&H on the page, as the reference LFO shape: two cycles (the other waves' scale) of a step that glides to its
+ * value over the first SMTH/127 of the cycle (a smoothstep, so the turn is rounded), then holds. A step value only
+ * lives a cycle, so the two before it are kept here, shifted at a wrap (lastq falling); the three make the window's
+ * tail too, and the curve runs into the next cycle at the same value and slope. */
+static struct { uint32_t lastq; int16_t v1, v2, v3; uint8_t init, trk; } lfo_hist;
+static int32_t lfo_sh_shape(int32_t va, int32_t vb, uint32_t t, uint32_t f)
+{
+    uint32_t u, s;
+    if (!f || t >= f)
+        return vb;
+    u = (uint32_t)(((uint64_t)t << 15) / f);         /* t / f, Q15 */
+    s = (u * u >> 15) * (3u * 32768u - 2u * u) >> 15; /* 3t^2 - 2t^3, Q15 */
+    return va + (int32_t)(((int64_t)(vb - va) * (int32_t)s) >> 15);
+}
+/* LFO: the part keeps its LFO running (voice.c track_lfo_adv / track_lfo_end), so the page draws its cycles from
+ * the live phase: the wave scrolls left at RATE (LFO 2: at SYNC's note value), as the scope's trace moves. */
 static void graph_lfo(const track_t *t, uint16_t c)
 {
     int32_t x, cy = graph_ht / 2, a = 38 * graph_ht / 100, py = cy, uni = t->p[P_LPOL] != 0;
-    uint32_t ph = (uint32_t)t->p[P_LPHASE] << 25;
+    uint32_t ph = t->lfo_ph, d = 0xFFFFFFFFu / (PANEL_W / 2u), q = ph / d;   /* q: the phase in px */
     int32_t z = uni ? cy + a : cy;                   /* the zero line: POL UNI (LFO 2) draws 0..+1 over it */
     cv_rect(PANEL_X0, z, PANEL_W, 1, T_RAISE);
+    if (t->p[P_LWAVE] == 4) {                        /* S&H: two cycles, the steps and SMTH's glide */
+        uint32_t f = (uint32_t)t->p[P_LSMOOTH] * (0xFFFFFFFFu / 127u), ti = (uint32_t)(t - trk);
+        int32_t xc = PANEL_W - (int32_t)q, xp = xc - PANEL_W / 2, xo = xp - PANEL_W / 2;
+        int32_t v0 = (int32_t)(t->lfo_rnd >> 16) - 32768;
+        if (!lfo_hist.init || lfo_hist.trk != (uint8_t)ti) {
+            lfo_hist.v1 = lfo_hist.v2 = lfo_hist.v3 = (int16_t)t->lfo_prev;
+            lfo_hist.trk = (uint8_t)ti;
+            lfo_hist.init = 1;
+        } else if (q < lfo_hist.lastq) {             /* a wrap: every step moves one cycle back */
+            lfo_hist.v3 = lfo_hist.v2;
+            lfo_hist.v2 = lfo_hist.v1;
+        }
+        lfo_hist.v1 = (int16_t)t->lfo_prev;
+        lfo_hist.lastq = q;
+        for (x = 0; x < PANEL_W; x++) {
+            uint32_t ts = (uint32_t)(x - (x >= xc ? xc : x >= xp ? xp : xo)) * d;
+            int32_t w = x >= xc ? lfo_sh_shape(t->lfo_prev, v0, ts, f)
+                      : x >= xp ? lfo_sh_shape(lfo_hist.v2, t->lfo_prev, ts, f)
+                      : lfo_sh_shape(lfo_hist.v3, lfo_hist.v2, ts, f), y;
+            y = uni ? z - (w + 32768) * a / 32768 : cy - w * a / 32768;
+            if (x)
+                cv_line_t(PANEL_X0 + x - 1, py, PANEL_X0 + x, y, c, 2);
+            py = y;
+        }
+        return;
+    }
+    lfo_hist.init = 0;                               /* leaving S&H: its history starts afresh on return */
     for (x = 0; x < PANEL_W; x++) {                  /* two cycles (lfo_wave only reads the track) */
-        int32_t w = lfo_wave((track_t *)t, ph + (uint32_t)x * (0xFFFFFFFFu / (PANEL_W / 2u))), y;
-        if (t->p[P_LWAVE] == 4)
-            w = (int32_t)((x / 20 * 2654435761u) >> 16) - 32768;
+        int32_t w = lfo_wave((track_t *)t, ph + (uint32_t)x * d), y;
         y = uni ? z - (w + 32768) * a / 32768 : cy - w * a / 32768;
         if (x)
             cv_line_t(PANEL_X0 + x - 1, py, PANEL_X0 + x, y, c, 2);
@@ -1259,9 +1300,10 @@ static uint32_t graph_signature(void)
                     (uint32_t)song.g[G_TDROP] * 1299709u + (uint32_t)song.g[G_TAPEMODE] * 40503u + ui.frame);
     if (strip_kind() == SK_TITLE)                    /* MENU > LARGE: the page's title (its engine, its number) */
         return h ^ 0x5A17u;
-    if ((pg->graph == GR_NONE && !(pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WT)) ||
+    if (pg->graph == GR_LFO ||                       /* the wave scrolls with the part's live phase */
+        (pg->graph == GR_NONE && !(pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WT)) ||
         pg->graph == GR_ARP || pg->graph == GR_STEPS || pg->graph == GR_INS)
-        h ^= ui.frame;                               /* scope / FX tech (live playhead, chorus taps, energy) */
+        h ^= ui.frame;                               /* live: the LFO's phase, the scope's trace, FX tech */
     for (i = 0; i < P_COUNT; i++)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
     h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u +
