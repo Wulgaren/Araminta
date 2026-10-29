@@ -196,7 +196,7 @@ static void render_hash(void)
 }
 int main(void)
 {
-    _Static_assert(CH_MELODY == 10, "AUTO2 is the next CHRD value");
+    _Static_assert(CH_AUTO == 10 && CH_MELODY == 11, "AUTO is 10, AUTO2 is 11");
     examples();
     exhaustive();
     transposition();

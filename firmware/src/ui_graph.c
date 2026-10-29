@@ -515,7 +515,9 @@ static void graph_chord(const track_t *t, uint16_t c)
     if (t->p[P_CHRD] == CH_MELODY) {
         cap = "MELODY";
         chord_melody_name(b, (uint32_t)r, mask);
-    } else
+    } else if (t->p[P_CHRD] == CH_AUTO)
+        chord_auto_name(b, (uint32_t)r, mask);
+    else
         chord_name(b, (uint32_t)r, mask);
     cv_text_on(14, 8, &AF_M, b, T_TEXT, T_SURF);
     GFX_HOOK_ALIGN(0, 0, 0, 8 + AF_M.asc, AL_B, "chord caption on the name's baseline");

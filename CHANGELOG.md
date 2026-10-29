@@ -12,6 +12,11 @@
 
 ### Chord
 
+- **AUTO chord keys.** CHRD gains AUTO, before AUTO2. The key picks a 3- or 4-note chord in the selected
+  scale. It follows the other tracks' recent notes (their last two unharmonized onsets, arp-held keys and
+  sequenced notes) and moves smoothly from the previous chord. A two-beat pause, STOP, or a scale / root /
+  map / voicing change starts a fresh phrase. AUTO keeps 20 bytes of history per track, packed so the pool
+  gate stays green. Ported from Melodee (`f4fdbc7`, Kerem Kilic, GPL-3.0-only).
 - **AUTO2 chord keys.** CHRD gains AUTO2, after POW. The key you press is the melody and always the top note;
   the chord below it uses only notes of the selected scale, and VOIC moves the lower voices only. A DOWN
   strum sounds the melody first. MONO / LEGATO / UNISON play the melody alone; kits still ignore CHRD.
