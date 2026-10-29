@@ -279,7 +279,7 @@ static void tech_rev(void)
                 cv_rect(gx, gy, 2, 2, c);
         }
         if (size >= 127)
-            cv_text_in(x0, TK_Y0 + 6, w, &AF_S, "FREEZE", T_ACCENT, T_SURF);
+            cv_text(x0 + w / 2 - 18, TK_Y0 + 6, &AF_S, "FREEZE", T_ACCENT);
         return;
     }
     cv_rect(x0, base - h, 3, h, T_TEXT);

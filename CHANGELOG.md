@@ -22,8 +22,7 @@ tail. No project format change: saves stay FUN19 (`FUNJ`). Splash and ABOUT show
   same ~15k RMS offset that played for ever after the music stopped. The loop now rounds towards zero and
   high-passes the room return, and the tail reaches exact silence at every SIZE below 127.
 - **CLOUD FREEZE at SIZE 127.** The top SIZE holds the tail instead of treating it as a heavier decay: the
-  line recirculates with no new input. The SIZE value reads `FRZ` (the PUNCH-IN abbreviation) and the graph
-  shows `FREEZE` over the last normal grain pattern.
+  line recirculates with no new input. The graph shows `FREEZE` over the last normal grain pattern.
 
 ## 3.3
 
