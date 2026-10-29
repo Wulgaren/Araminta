@@ -496,7 +496,9 @@ _Static_assert(MOTION_FILE_SIZE_V10 == 334u, "FUN10 motion disk layout");
 _Static_assert(MOTION_FILE_SIZE_V11 == 238u, "FUN11 motion disk layout (kit before FM6)");
 _Static_assert(MOTION_FILE_SIZE_V15 == 220u, "FUN12..FUN15 motion disk layout (SCALE LOCK before CRV)");
 _Static_assert(MOTION_FILE_SIZE == 268u, "FUN16 motion disk layout (88 records, packed chain)");
-enum { QN_OFF, QN_ALL, QN_KBD, QN_SEQ, QN_CURR };   /* P_QUANT (MAP); CURR: linked ROOT/SCL + ALL's quantising */
+/* P_QUANT (MAP). Stored values stay append-only; the UI shows 1 as CURR (per track) and 4 as ALL
+ * (every track follows ROOT/SCL while it is on). QN_CURR is the shared mode here. */
+enum { QN_OFF, QN_ALL, QN_KBD, QN_SEQ, QN_CURR };
 #define CHAIN_ROWS 16u
 /* A song section (1.2, FUN10): the PROJECT slot each track plays (0..3, A..D; CHAIN_SILENT "-": that track plays
  * nothing there) and its repeats (1..16). Up to 1.1 a row was {slot, repeat}, all four tracks on that slot
@@ -596,7 +598,7 @@ typedef struct track {
     uint8_t pfx_sn[4], pfx_snn;  /* notes a repeat holds now */
     uint8_t pfx_si;              /* ARP: the next of them */
     uint32_t pfx_sc;             /* samples since the last repeat */
-    /* MAP = CURR's stash: ROOT / SCL restored when the track leaves CURR (project.c FUN12+) */
+    /* MAP = ALL's stash: ROOT / SCL restored when ALL ends (project.c FUN12+) */
     int16_t scl_stash[3];        /* ROOT / SCL (the third slot stays for older files) */
     uint8_t scl_stash_ok;        /* 1: scl_stash holds values from before a lock overwrite */
     uint8_t fx_sl_pos;           /* EFFECTS INS_SLCR list slot 0..8; RAM until FUN14 (default 8) */

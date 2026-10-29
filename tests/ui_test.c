@@ -4038,8 +4038,8 @@ static int test_chord_page(void)
     return bad;
 }
 
-/* MAP = CURR: ROOT / SCL shared by every CURR track. Entering pushes to the group, ROOT/SCL edits follow, leaving
- * restores that track's stash. MAP itself is not shared (that is what freeing CHORD K3 bought). */
+/* MAP = ALL (stored QN_CURR): every track follows the current ROOT / SCL while ALL is on, and keeps
+ * its own values in scl_stash. Leaving ALL restores all of them. CURR (stored QN_ALL) shares nothing. */
 static int test_scale_lock(void)
 {
     int bad = 0, ok;
@@ -4049,50 +4049,55 @@ static int test_scale_lock(void)
     ok = 1;
     for (i = 0; i < NTRK; i++)
         ok &= trk[i].p[P_QUANT] == QN_OFF && !trk[i].scl_stash_ok;
-    bad += check("MAP CURR: every track OFF and unlinked at power-on", ok);
+    bad += check("MAP ALL: every track OFF and unlinked at power-on", ok);
 
-    trk[0].p[P_ROOT] = 0;
-    trk[0].p[P_SCALE] = 0;
-    trk[0].p[P_QUANT] = QN_CURR;
+    trk[0].p[P_ROOT] = 0; trk[0].p[P_SCALE] = 0;
+    trk[1].p[P_ROOT] = 7; trk[1].p[P_SCALE] = 2;
+    trk[2].p[P_ROOT] = 9; trk[2].p[P_SCALE] = 1; trk[2].p[P_QUANT] = QN_KBD;
+    trk[3].p[P_ROOT] = 5; trk[3].p[P_SCALE] = 3; trk[3].p[P_QUANT] = QN_SEQ;
+    trk[0].p[P_QUANT] = QN_CURR;                       /* stored 4, shown ALL */
     scale_lock_after(&trk[0], P_QUANT);
-    trk[1].p[P_ROOT] = 7;
-    trk[1].p[P_SCALE] = 2;
-    trk[1].p[P_QUANT] = QN_CURR;
-    scale_lock_after(&trk[1], P_QUANT);                /* entering pushes to track 0, which stashes */
-    trk[2].p[P_ROOT] = 9;
-    trk[2].p[P_QUANT] = QN_KBD;
-    ok = trk[0].p[P_ROOT] == 7 && trk[0].p[P_SCALE] == 2 &&
-         trk[0].scl_stash_ok && trk[0].scl_stash[0] == 0 && trk[0].scl_stash[1] == 0;
-    bad += check("CURR: entering pushes ROOT/SCL to the other CURR tracks (their stash kept)", ok);
+    ok = 1;
+    for (i = 0; i < NTRK; i++)
+        ok &= trk[i].p[P_ROOT] == 0 && trk[i].p[P_SCALE] == 0;
+    ok &= trk[0].scl_stash_ok && trk[1].scl_stash_ok && trk[1].scl_stash[0] == 7 &&
+          trk[2].scl_stash[0] == 9 && trk[3].scl_stash[0] == 5;
+    bad += check("ALL: entering sets ROOT/SCL on every track and stashes their own", ok);
 
-    trk[1].p[P_ROOT] = 3;
-    scale_lock_after(&trk[1], P_ROOT);
-    ok = trk[0].p[P_ROOT] == 3 && trk[2].p[P_ROOT] == 9;
-    bad += check("CURR: a ROOT edit follows every CURR track, not a KBD one", ok);
+    trk[0].p[P_ROOT] = 3;
+    scale_lock_after(&trk[0], P_ROOT);
+    ok = 1;
+    for (i = 0; i < NTRK; i++)
+        ok &= trk[i].p[P_ROOT] == 3;
+    bad += check("ALL: a ROOT edit follows every track", ok);
 
-    trk[0].p[P_QUANT] = QN_KBD;                        /* leaving restores that track's stash */
+    trk[2].p[P_ROOT] = 4;                              /* a KBD track's edit still leads the shared scale */
+    scale_lock_after(&trk[2], P_ROOT);
+    ok = 1;
+    for (i = 0; i < NTRK; i++)
+        ok &= trk[i].p[P_ROOT] == 4;
+    bad += check("ALL: an edit on any track follows every track", ok);
+
+    trk[0].p[P_QUANT] = QN_KBD;
     scale_lock_after(&trk[0], P_QUANT);
-    ok = trk[0].p[P_ROOT] == 0 && trk[0].p[P_SCALE] == 0 && !trk[0].scl_stash_ok &&
-         trk[1].p[P_ROOT] == 3;
-    bad += check("CURR->KBD: the track's stash restores; the group stays", ok);
+    ok = trk[0].p[P_ROOT] == 0 && trk[0].p[P_SCALE] == 0 &&
+         trk[1].p[P_ROOT] == 7 && trk[1].p[P_SCALE] == 2 &&
+         trk[2].p[P_ROOT] == 9 && trk[2].p[P_SCALE] == 1 &&
+         trk[3].p[P_ROOT] == 5 && trk[3].p[P_SCALE] == 3;
+    for (i = 0; i < NTRK; i++)
+        ok &= !trk[i].scl_stash_ok;
+    bad += check("ALL -> KBD: every track gets its own ROOT/SCL back", ok);
 
     ui_power_on();
-    trk[3].p[P_ROOT] = 9;
+    trk[1].p[P_ROOT] = 7;
     song.sel = 0;
     open_family(FAM_SCL);
     frame();
     turn(EN_K3, 1);                                    /* OFF -> ALL */
-    turn(EN_K3, 1);                                    /* ALL -> CURR */
-    ok = trk[0].p[P_QUANT] == QN_CURR && trk[0].p[P_ROOT] == 0;
-    song.sel = 1;
-    turn(EN_K3, 1);
-    turn(EN_K3, 1);
-    ok &= trk[1].p[P_QUANT] == QN_CURR;
-    song.sel = 0;
-    trk[0].p[P_ROOT] = 5;
-    scale_lock_after(&trk[0], P_ROOT);
-    ok &= trk[1].p[P_ROOT] == 5 && trk[3].p[P_ROOT] == 9;
-    bad += check("CURR from the SCL knob: two tracks link, a third stays out", ok);
+    ok = trk[0].p[P_QUANT] == QN_CURR && trk[1].p[P_ROOT] == 0;
+    turn(EN_K3, 1);                                    /* ALL -> CURR: restore */
+    ok &= trk[1].p[P_ROOT] == 7;
+    bad += check("ALL from the SCL knob: one step links every track; the next restores", ok);
     return bad;
 }
 
@@ -5972,8 +5977,8 @@ static int test_seq_quant(void)
     open_family(FAM_SCL);
     frame();
     ok = cur_page()->id[2] == P_QUANT && t->p[P_QUANT] == 0;
-    {   /* the knob's shown order (storage stays append-only: CURR is 4) */
-        static const int16_t shown[5] = {QN_OFF, QN_ALL, QN_CURR, QN_KBD, QN_SEQ};
+    {   /* the knob's shown order (storage stays append-only: ALL is 4) */
+        static const int16_t shown[5] = {QN_OFF, QN_CURR, QN_ALL, QN_KBD, QN_SEQ};
         uint32_t i;
         for (i = 0; i < 5u; i++) {
             ok &= t->p[P_QUANT] == shown[i];
@@ -5988,7 +5993,7 @@ static int test_seq_quant(void)
                  str_eq(val, "SEQ"));
     t->p[P_SCALE] = 0;
     t->p[P_ROOT] = 0;
-    t->p[P_QUANT] = QN_CURR;                           /* CURR quantises the sequence exactly like ALL */
+    t->p[P_QUANT] = QN_CURR;                           /* ALL (stored QN_CURR) quantises the sequence like CURR */
     ok = kb_map(t, 8) == 60u && kb_map(t, 7) == 60u;   /* CURR = ALL: white walk, black -> nearest */
     t->p[P_QUANT] = QN_SEQ;
     ok &= kb_map(t, 8) == 61u && kb_map(t, 7) == 60u;  /* SEQ keys as OFF: C#4 stays C#4 */

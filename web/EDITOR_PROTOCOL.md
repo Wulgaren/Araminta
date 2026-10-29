@@ -603,8 +603,8 @@ when the track's engine is not the saved one).
   roll plays nothing and releases what rang before. Chance is saved in projects (FUN7) and in song rows; a
   user preset does not store it. Changing it on the device pushes `STEP_CHANGED`.
 - **Motion** is knob moves recorded per step: 192 records in RAM, 88 saved in a project, shared by the four
-  tracks. The device's MAP has five values (OFF, ALL, KBD, SEQ, CURR; CURR is stored 4 and shown third);
-  CURR shares ROOT/SCALE across the tracks that use it. PITCH (id 127) is lock-only: a per-step absolute
+  tracks. The device's MAP has five values (OFF, CURR, KBD, SEQ, ALL; ALL is stored 4 and shown second);
+  ALL shares ROOT/SCALE across every track while it is on, and CURR quantises only the current track. PITCH (id 127) is lock-only: a per-step absolute
   transpose (-24..24 semitones) that replaces TRN on that step and is not scale-snapped at playback (one value
   for the whole step; recording uses the first stored note as the reference). Older firmware refuses a project
   that holds it. Recording SCL TRN while armed and playing writes that PITCH lock from the scale-fitted result;

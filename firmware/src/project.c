@@ -188,7 +188,7 @@ typedef struct {                               /* one track */
     int16_t p[P_COUNT];
     uint8_t engine, preset;
     step_t step[NSTEP];
-    int16_t scl_stash[3];                      /* FUN12+: MAP = CURR's ROOT/SCL stash */
+    int16_t scl_stash[3];                      /* FUN12+: MAP = ALL's ROOT/SCL stash */
     uint8_t scl_stash_ok;
     uint8_t fx_sl_pos;                         /* EFFECTS SLICER list slot 0..8; FUN14 wire */
     uint8_t fx_order[FX_LIST_N];               /* EFFECTS list order; FUN17 wire in the FM6 high bits */
