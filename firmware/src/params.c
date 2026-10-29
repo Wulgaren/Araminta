@@ -422,6 +422,13 @@ static int32_t param_turn(const param_desc_t *d, int32_t v, int32_t steps)
 
 static uint8_t fmt_named;        /* the last param_format was a name (F_ENUM, even "4"): ui_draw.c's digits do not roll it */
 
+/* CLOUD's SIZE at the top is FREEZE, not 100 % (fx.c rev_cloud: a held tail) */
+static int cloud_frz(const param_desc_t *d, int32_t v)
+{
+    return v >= 127 && ((d == &GP[G_RSIZE] && song.g[G_RTYPE] == 4) ||
+                        (d == &GP[G_CRSIZE] && song.g[G_CRTYPE] == 4));
+}
+
 /* value string (<= 5 chars) and unit for a parameter value */
 static void param_format(const param_desc_t *d, int32_t v, char *val, const char **unit)
 {
@@ -429,6 +436,11 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
     fmt_named = d->fmt == F_ENUM;
     switch (d->fmt) {
     case F_PCT:                                     /* a 0..100 range (SWG) is its value, others a share of 127 */
+        if (cloud_frz(d, v)) {
+            str_cpy(val, "FRZ", 6);
+            fmt_named = 1;                          /* (not a rolling digit) */
+            break;
+        }
         fmt_int(val, d->max == 100 ? v : (v * 100 + 63) / 127);
         *unit = "%";
         break;
