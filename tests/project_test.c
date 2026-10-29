@@ -268,6 +268,20 @@ static int fx_motion_wire(void)
     }
     return bad;
 }
+static int chord_mode_wire(void)
+{
+    project_t saved, loaded;
+    project_store_t wire;
+    memset(&saved, 0, sizeof saved);
+    saved.magic = PROJ_MAGIC; saved.size = sizeof saved; saved.parts = NPART; saved.phys = PROJ_PHYS;
+    chain_defaults(&saved.chain); memcpy(saved.dx, DX_KIT_DEF, sizeof saved.dx);
+    saved.t[0].p[P_CHRD] = CH_MELODY;
+    int ok = proj_pack(&wire, &saved) && proj_import(&loaded, &wire, sizeof wire) &&
+             loaded.t[0].p[P_CHRD] == CH_MELODY;
+    ok &= param_fit(param_desc_of(0, P_CHRD), CH_MELODY + 1) == CH_MELODY;
+    return check("CHRD AUTO2 round trips; a value above it clamps to AUTO2", ok);
+}
+
 static int generation_wire(void)
 {
     project_t saved, loaded;
@@ -1155,6 +1169,7 @@ int main(void)
                      ok && c.t[0].p[P_ICMIX] == 0 && c.t[0].p[P_IPMIX] == 0 &&
                      c.t[0].p[P_ILMIX] == 0 && c.t[0].p[P_IHMIX] == 0 && c.t[0].p[P_ESYNC] == 1);
     }
+    bad += chord_mode_wire();
     bad += generation_wire();
     bad += generation_legacy_defaults();
     bad += step_wire_freeze();
