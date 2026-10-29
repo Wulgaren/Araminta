@@ -89,6 +89,11 @@ static void chord_auto_forget(uint32_t k)
 }
 static void chord_auto_tick(uint32_t samples)
 {
+    /* The idle song has no AUTO track: four cheap reads and out, not the full history pass. */
+    uint32_t any = chord_auto_enabled;
+    for (uint32_t k = 0; k < NTRK && !any; k++)
+        any = trk[k].p[P_CHRD] == CH_AUTO;
+    if (!any) return;
     chord_auto_clock += samples;
     uint32_t enabled = 0, previous = chord_auto_enabled;
     for (uint32_t k = 0; k < NTRK; k++)
