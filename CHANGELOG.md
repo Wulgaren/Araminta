@@ -17,8 +17,8 @@
 
 ### SCL
 
-- **MAP ALL is the shared scale.** ALL now sets ROOT / SCALE on every track while it is on, quantises every
-  track's keys and sequence, and puts each track's own values back when you leave ALL. CURR is the per-track
+- **MAP ALL is the shared scale.** ALL now sets MAP, ROOT and SCALE on every track while it is on, quantises
+  every track's keys and sequence, and puts each track's own MAP / ROOT / SCALE back when you leave ALL. CURR is the per-track
   mode: it quantises the current track's keys and sequence and shares nothing. KBD and SEQ keep their meanings.
   Old projects keep their behaviour: an old ALL loads as CURR, and an old CURR / SCALE LOCK loads as ALL.
 

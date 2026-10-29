@@ -386,7 +386,7 @@ On the **SCL** page, **MAP** chooses how the keys (and optionally the sequence) 
 - **OFF** — normal chromatic piano. Sequence plays as stored.
 - **KBD** — white keys walk the scale (C4 = **ROOT**; consecutive white keys = consecutive scale notes). Black keys play the closest in-scale note (often the same as a neighbour). Sequence plays as stored.
 - **CURR** — same keys as KBD, and sequenced notes map onto the current ROOT / SCALE as they play (steps unchanged; kits never remapped). Each track keeps its own scale.
-- **ALL** — CURR's quantising, and every track adopts the current ROOT / SCALE while ALL is on. Leaving ALL restores each track's own values.
+- **ALL** — CURR's quantising, and every track adopts the current ROOT / SCALE and shows MAP ALL while ALL is on. Leaving ALL restores each track's own MAP, ROOT and SCALE.
 - **SEQ** — live keys as OFF; sequenced notes map onto the scale as they play (same as CURR for the sequence).
 
 **TRN** transposes the resulting notes (and sequence playback; steps stay as stored); the octave buttons shift them by full octaves. Kits ignore TRN and PITCH. With REC armed while playing on a synth track, turning it also records the step's **PITCH** lock (the scale-fitted semitone result); the knob still moves, and no P_TRANS automation event is recorded.

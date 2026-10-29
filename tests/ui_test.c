@@ -4059,10 +4059,10 @@ static int test_scale_lock(void)
     scale_lock_after(&trk[0], P_QUANT);
     ok = 1;
     for (i = 0; i < NTRK; i++)
-        ok &= trk[i].p[P_ROOT] == 0 && trk[i].p[P_SCALE] == 0;
+        ok &= trk[i].p[P_ROOT] == 0 && trk[i].p[P_SCALE] == 0 && trk[i].p[P_QUANT] == QN_CURR;
     ok &= trk[0].scl_stash_ok && trk[1].scl_stash_ok && trk[1].scl_stash[0] == 7 &&
-          trk[2].scl_stash[0] == 9 && trk[3].scl_stash[0] == 5;
-    bad += check("ALL: entering sets ROOT/SCL on every track and stashes their own", ok);
+          trk[2].scl_stash[0] == 9 && trk[3].scl_stash[0] == 5 && trk[2].scl_stash[2] == QN_KBD;
+    bad += check("ALL: entering sets MAP, ROOT/SCL on every track and stashes their own", ok);
 
     trk[0].p[P_ROOT] = 3;
     scale_lock_after(&trk[0], P_ROOT);
@@ -4080,13 +4080,13 @@ static int test_scale_lock(void)
 
     trk[0].p[P_QUANT] = QN_KBD;
     scale_lock_after(&trk[0], P_QUANT);
-    ok = trk[0].p[P_ROOT] == 0 && trk[0].p[P_SCALE] == 0 &&
-         trk[1].p[P_ROOT] == 7 && trk[1].p[P_SCALE] == 2 &&
-         trk[2].p[P_ROOT] == 9 && trk[2].p[P_SCALE] == 1 &&
-         trk[3].p[P_ROOT] == 5 && trk[3].p[P_SCALE] == 3;
+    ok = trk[0].p[P_ROOT] == 0 && trk[0].p[P_SCALE] == 0 && trk[0].p[P_QUANT] == QN_KBD &&
+         trk[1].p[P_ROOT] == 7 && trk[1].p[P_SCALE] == 2 && trk[1].p[P_QUANT] == QN_OFF &&
+         trk[2].p[P_ROOT] == 9 && trk[2].p[P_SCALE] == 1 && trk[2].p[P_QUANT] == QN_KBD &&
+         trk[3].p[P_ROOT] == 5 && trk[3].p[P_SCALE] == 3 && trk[3].p[P_QUANT] == QN_SEQ;
     for (i = 0; i < NTRK; i++)
         ok &= !trk[i].scl_stash_ok;
-    bad += check("ALL -> KBD: every track gets its own ROOT/SCL back", ok);
+    bad += check("ALL -> KBD: every track gets its own MAP and ROOT/SCL back", ok);
 
     ui_power_on();
     trk[1].p[P_ROOT] = 7;
@@ -4094,9 +4094,9 @@ static int test_scale_lock(void)
     open_family(FAM_SCL);
     frame();
     turn(EN_K3, 1);                                    /* OFF -> ALL */
-    ok = trk[0].p[P_QUANT] == QN_CURR && trk[1].p[P_ROOT] == 0;
+    ok = trk[0].p[P_QUANT] == QN_CURR && trk[1].p[P_QUANT] == QN_CURR && trk[1].p[P_ROOT] == 0;
     turn(EN_K3, 1);                                    /* ALL -> CURR: restore */
-    ok &= trk[1].p[P_ROOT] == 7;
+    ok &= trk[0].p[P_QUANT] == QN_ALL && trk[1].p[P_QUANT] == QN_OFF && trk[1].p[P_ROOT] == 7;
     bad += check("ALL from the SCL knob: one step links every track; the next restores", ok);
     return bad;
 }
