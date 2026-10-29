@@ -637,6 +637,7 @@ static void scale_lock_stash(track_t *t)
         return;
     t->scl_stash[0] = t->p[P_ROOT];
     t->scl_stash[1] = t->p[P_SCALE];
+    t->scl_stash[2] = t->p[P_QUANT];
     t->scl_stash_ok = 1;
 }
 static void scale_lock_restore(track_t *t)
@@ -645,6 +646,7 @@ static void scale_lock_restore(track_t *t)
         return;
     t->p[P_ROOT] = t->scl_stash[0];
     t->p[P_SCALE] = t->scl_stash[1];
+    t->p[P_QUANT] = t->scl_stash[2];
     t->scl_stash_ok = 0;
 }
 static void scale_lock_copy(track_t *dst, const track_t *src)
@@ -679,25 +681,24 @@ static void scale_lock_after(track_t *t, uint32_t id)
         if (t->p[P_QUANT] == QN_CURR) {
             uint32_t k;
             scale_lock_stash(t);
+            t->scl_stash[2] = QN_ALL;                  /* if another track ends ALL, this one falls back to CURR */
             for (k = 0; k < NTRK; k++) {
                 track_t *u = &trk[k];
                 if (u == t)
                     continue;
                 scale_lock_stash(u);
+                u->p[P_QUANT] = QN_CURR;               /* the whole track shows ALL while the mode is on */
                 scale_lock_copy(u, t);
             }
         } else {
             uint32_t k;
-            scale_lock_restore(t);
-            if (scale_all_on()) {
-                for (k = 0; k < NTRK; k++)
-                    if (trk[k].p[P_QUANT] == QN_CURR) {
-                        scale_lock_push(&trk[k]);
-                        break;
-                    }
-            } else {
-                for (k = 0; k < NTRK; k++)
+            for (k = 0; k < NTRK; k++)
+                if (&trk[k] != t)
                     scale_lock_restore(&trk[k]);
+            if (t->scl_stash_ok) {                     /* the track that leaves keeps the MAP just chosen */
+                t->p[P_ROOT] = t->scl_stash[0];
+                t->p[P_SCALE] = t->scl_stash[1];
+                t->scl_stash_ok = 0;
             }
         }
     } else if (id == P_ROOT || id == P_SCALE)
