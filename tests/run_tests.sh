@@ -839,6 +839,9 @@ else
     }
     unit u_asan_fuzz_smp
     TSAN_CC="$CCACHE_BIN $CC_BIN -O1 -g -w -Ibuild/gen -Ifirmware/src -fsanitize=thread -pthread"
+    # atexit_sleep_ms=0: no 1 s pause per exiting process (the run forks a render per scene and mask); the
+    # canary below proves a race is still reported with these options.
+    TSAN_OPTS="halt_on_error=1,atexit_sleep_ms=0"
     u_asan_tsan_cc() {
         if build_with "$TSAN_CC" "$OUT/dualcore_tsan" tests/dualcore_test.c -lm 2>/dev/null; then
             : > "$LOGS/tsan.ok"
@@ -852,8 +855,8 @@ else
         [ -f "$LOGS/tsan.ok" ] || return 0
         build_with "$TSAN_CC" "$OUT/tsan_canary" tests/tsan_canary.c
         echo "== ThreadSanitizer canary: the runtime must report the race it is handed (else the runs below prove nothing)"
-        "$OUT/tsan_canary" parent > "$LOGS/canary_parent.txt" 2>&1 || :
-        "$OUT/tsan_canary" fork > "$LOGS/canary_fork.txt" 2>&1 || :
+        env TSAN_OPTIONS="$TSAN_OPTS" "$OUT/tsan_canary" parent > "$LOGS/canary_parent.txt" 2>&1 || :
+        env TSAN_OPTIONS="$TSAN_OPTS" "$OUT/tsan_canary" fork > "$LOGS/canary_fork.txt" 2>&1 || :
         canary=1
         for mode in parent fork; do
             if grep -q "ThreadSanitizer: data race" "$LOGS/canary_$mode.txt"; then
@@ -869,13 +872,13 @@ else
     u_asan_tsan1() {
         [ -f "$LOGS/tsan.ok" ] || return 0
         run "second core under ThreadSanitizer: 4 parts of every preset, mixes and the chain / send FX" \
-            env TSAN_OPTIONS=halt_on_error=1 "$OUT/dualcore_tsan"
+            env TSAN_OPTIONS="$TSAN_OPTS" "$OUT/dualcore_tsan"
     }
     unit_after "$TSAN_BUILD" u_asan_tsan1
     u_asan_tsan2() {
         [ -f "$LOGS/tsan.ok" ] || return 0
         run "second core under ThreadSanitizer: the same with every job cut after its first part" \
-            env C1_STALL=1 TSAN_OPTIONS=halt_on_error=1 "$OUT/dualcore_tsan"
+            env C1_STALL=1 TSAN_OPTIONS="$TSAN_OPTS" "$OUT/dualcore_tsan"
     }
     unit_after "$TSAN_BUILD" u_asan_tsan2
 fi

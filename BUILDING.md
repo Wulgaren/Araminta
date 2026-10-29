@@ -160,7 +160,7 @@ tests/run_tests.sh
 
 Full host gate (several minutes). Argv after the script name is ignored; it always runs the whole suite. Agents: iterate and hand off per [AGENT.md](AGENT.md) (focused host binaries / web tests; full script when 3+ host binaries are in scope). `SANITIZE=0` skips the ASan/UBSan and fuzz passes; the browser emulator already skips when `emcc` is missing.
 
-With `ccache` on `PATH` (e.g. `brew install ccache`) the suite compiles through it (`USE_CCACHE=0` turns that off), so a rerun whose sources are unchanged reuses the ~80 test binaries. The browser emulator build likewise skips when its inputs are unchanged (`build/emu/.key`).
+With `ccache` on `PATH` (e.g. `brew install ccache`) the suite compiles through it (`USE_CCACHE=0` turns that off), so a rerun whose sources are unchanged reuses the ~80 test binaries. The browser emulator build likewise skips what is unchanged, with separate keys for the wasm and the page files (`build/emu/.wasm-key`, `build/emu/.page-key`).
 
 Runs the host tests and, with Node.js, the web page tests (and, with Emscripten too, the browser emulator's). Run it after `./build.sh`
 (it uses `build/` and needs `AC79_SDK` set as for the build). The suites cover flash storage,
