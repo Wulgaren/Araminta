@@ -263,7 +263,7 @@ async function editorMock() {
   const scaleSet = E.parse[E.CMD.SET](await rq(E.req.set(0, scale.id, 14)));
   ok(scaleSet.value === 14, "editor: new scale selection is not clamped to the old range");
   const map = E.parse[E.CMD.DESC](await rq(E.req.desc(0, 27)));
-  ok(map.label === "MAP" && map.names.join() === "OFF,ALL,KBD,SEQ,CURR", "editor: MAP names exposed");
+  ok(map.label === "MAP" && map.names.join() === "OFF,CURR,KBD,SEQ,ALL", "editor: MAP names exposed");
   const dump = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info);
   ok(dump.p.length === info.pcount && dump.g.length === info.gcount, "editor: DUMP");
   {

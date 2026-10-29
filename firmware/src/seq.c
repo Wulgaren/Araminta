@@ -134,7 +134,7 @@ static int32_t scale_nearest(const track_t *t, int32_t n)
     return n - down <= up - n ? down : up;
 }
 
-/* (QN_*: core.h) MAP = CURR quantises exactly like ALL */
+/* (QN_*: core.h) MAP = ALL (stored QN_CURR) quantises exactly like CURR (stored QN_ALL) */
 static inline uint32_t qn_mode(const track_t *t)
 {
     return t->p[P_QUANT] == QN_CURR ? QN_ALL : (uint32_t)t->p[P_QUANT];
@@ -155,7 +155,7 @@ static uint32_t kb_pitch(const track_t *t, uint32_t k, int32_t oct)
 {
     static const int8_t DEGREE[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
     int32_t n = 53 + (int32_t)k;
-    if (qn_mode(t) == QN_KBD || qn_mode(t) == QN_ALL) {  /* KBD / ALL / CURR: white walk; black -> nearest */
+    if (qn_mode(t) == QN_KBD || qn_mode(t) == QN_ALL) {  /* KBD / CURR / ALL: white walk; black -> nearest */
         uint32_t mask = scale_mask(t), i;
         int32_t count = 0, degree = DEGREE[n % 12], wo;
         if (degree < 0)                                 /* black: chromatic pitch, closest in-scale (dup OK) */

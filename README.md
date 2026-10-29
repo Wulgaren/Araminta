@@ -49,7 +49,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
 - **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.
 - **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN and PITCH. With REC armed while playing on a synth track, a TRN turn also writes the current step's PITCH lock (scale-fitted); the knob still moves (other steps without a lock follow it), and no P_TRANS automation event is recorded.
-- **MAP (was QNT).** SCL knob: OFF / ALL / **CURR** / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); ALL is KBD plus sequence follows the scale; CURR is ALL's quantising plus ROOT / SCALE shared by every CURR track (the CHORD page's old SCALE LOCK, now a MAP value); SEQ is chromatic keys plus sequence follows. Chromatic (CHR) scale removed; use MAP OFF. CURR saves as ALL + the lock bit, so v3.1 opens it as SCALE LOCK + ALL; a v3.1 project locked with MAP OFF / KBD / SEQ loads unlinked. Current saves are FUN19 (`FUNJ`; FUN18 `FUNI` loads).
+- **MAP (was QNT).** SCL knob: OFF / **ALL** / CURR / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); CURR is KBD plus sequence follows the scale on the current track; ALL is CURR's quantising plus ROOT / SCALE shared by every track while ALL is on (the CHORD page's old SCALE LOCK, now a MAP value); SEQ is chromatic keys plus sequence follows. Leaving ALL puts each track's own ROOT / SCALE back. Chromatic (CHR) scale removed; use MAP OFF. ALL saves as CURR + the lock bit, so v3.1 opens it as SCALE LOCK + ALL; a v3.1 project locked with MAP OFF / KBD / SEQ loads unlinked. Current saves are FUN19 (`FUNJ`; FUN18 `FUNI` loads).
 - **Following playhead** in the SEQ. Start selecting a step to pause the following, returns after 3 seconds of inactivity.
 - **SEQ GENERATION.** On a drum kit (DRUM-X, DRUMS, CR78 or a USR Drumkit), the second SEQ section generates editable kick, snare and closed-hat steps from Mutable Instruments Grids. SELECT switches between LEN / KICK / SNARE / HAT and MAP / MAP X / MAP Y / CHAOS. MAP selects one of 25 templates; X/Y blend between them and show CUSTOM. Turning MAP, MAP X or MAP Y briefly shows the full-screen map, then returns to the drum grid; CHAOS keeps the grid visible. Density edits change only their lane; map, chaos and length edits regenerate all three. Other lanes stay as written, SAVE held undoes the gesture, and each track's controls save with the project. Tips follow MENU > HELP.
 
@@ -385,8 +385,9 @@ On the **SCL** page, **MAP** chooses how the keys (and optionally the sequence) 
 
 - **OFF** — normal chromatic piano. Sequence plays as stored.
 - **KBD** — white keys walk the scale (C4 = **ROOT**; consecutive white keys = consecutive scale notes). Black keys play the closest in-scale note (often the same as a neighbour). Sequence plays as stored.
-- **ALL** — same keys as KBD, and sequenced notes map onto the current ROOT / SCALE as they play (steps unchanged; kits never remapped).
-- **SEQ** — live keys as OFF; sequenced notes map onto the scale as they play (same as ALL for the sequence).
+- **CURR** — same keys as KBD, and sequenced notes map onto the current ROOT / SCALE as they play (steps unchanged; kits never remapped). Each track keeps its own scale.
+- **ALL** — CURR's quantising, and every track adopts the current ROOT / SCALE while ALL is on. Leaving ALL restores each track's own values.
+- **SEQ** — live keys as OFF; sequenced notes map onto the scale as they play (same as CURR for the sequence).
 
 **TRN** transposes the resulting notes (and sequence playback; steps stay as stored); the octave buttons shift them by full octaves. Kits ignore TRN and PITCH. With REC armed while playing on a synth track, turning it also records the step's **PITCH** lock (the scale-fitted semitone result); the knob still moves, and no P_TRANS automation event is recorded.
 

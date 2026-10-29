@@ -40,11 +40,10 @@ static const param_desc_t ESYNC_DESC[3] = {   /* ATK DEC REL with ENV SYNC on: t
     {"REL", F_INT, 0, 127, 60, ESYNC_NAMES, 0},
 };
 static uint32_t esync_idx(int32_t v) { return (uint32_t)(v & 127) * ESYNC_N >> 7; }   /* (param_format's split) */
-/* seq.c kb_map (MAP on SCL). Values kept: 0 OFF, 1 ALL (was SNAP label), 2 KBD (was WHITE), 3 SEQ.
- * KBD: white keys walk the scale; black keys play the closest in-scale note (duplicate OK). ALL: same keys as
- * KBD, and sequenced notes snap as they play. SEQ: live keys as OFF; sequenced notes snap (steps kept). */
-/* stored append-only: OFF 0, ALL 1, KBD 2, SEQ 3, CURR 4 (shown third, see QUANT_ORDER) */
-static const char *const N_QUANT[] = {"OFF", "ALL", "KBD", "SEQ", "CURR"};
+/* seq.c kb_map (MAP on SCL). Stored values stay append-only: 0 OFF, 1 (shown CURR), 2 KBD, 3 SEQ,
+ * 4 (shown ALL). The labels follow how the mode behaves: ALL shares ROOT/SCALE with every track and
+ * quantises every track's keys and sequence; CURR quantises the track you are on and shares nothing. */
+static const char *const N_QUANT[] = {"OFF", "CURR", "KBD", "SEQ", "ALL"};
 /* chord keys (chord.c): OFF, the diatonic triad / seventh of the track's ROOT and SCALE on the key, fixed shapes */
 static const char *const N_CHRD[] = {"OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW", "AUTO", "MELO"};
 static const char *const N_STRUM[] = {"OFF", "1/8", "1/16", "1/32", "1/64", "1/128", "16T", "32T"};
@@ -379,7 +378,7 @@ static const uint8_t SLDIV_ORDER[6] = {0, 3, 1, 4, 2, 5};              /* 1/8 8T
 /* Delay TIME: names 0..12 stay (loads). Knob omits 1/1 2BAR 4BAR (7..9); they never fit DLY_LEN. */
 static const uint8_t DTIME_ORDER[10] = {6, 12, 0, 10, 1, 11, 4, 2, 5, 3}; /* 1/2 1/4D 1/4 1/8D 1/8 1/16D 8T 1/16 16T 1/32 */
 static const uint8_t PLAY_ORDER[3] = {1, 0, 2};                    /* OFF, ON, SOLO (stored PLAY_OFF, PLAY_ON, PLAY_SOLO) */
-static const uint8_t QUANT_ORDER[5] = {0, 1, 4, 2, 3};             /* OFF ALL CURR KBD SEQ (stored 0 1 2 3 4) */
+static const uint8_t QUANT_ORDER[5] = {0, 4, 1, 2, 3};             /* OFF ALL CURR KBD SEQ (stored 0 1 2 3 4) */
 static const uint8_t *enum_order(const param_desc_t *d)
 {
     return d->names == N_DIV ? DIV_ORDER : d->names == N_SLDIV ? SLDIV_ORDER : d->names == N_DTIME ? DTIME_ORDER
@@ -630,7 +629,8 @@ static const page_t PAGES[] = {
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */
 
-/* MAP = CURR: ROOT / SCL shared by every track whose MAP is CURR (MAP stays each track's own) */
+/* MAP = ALL (stored QN_CURR): ROOT / SCL shared by every track while ALL is on. CURR (stored QN_ALL)
+ * quantises the track you are on and shares nothing. */
 static void scale_lock_stash(track_t *t)
 {
     if (t->scl_stash_ok)
@@ -652,32 +652,54 @@ static void scale_lock_copy(track_t *dst, const track_t *src)
     dst->p[P_ROOT] = src->p[P_ROOT];
     dst->p[P_SCALE] = src->p[P_SCALE];
 }
-static void scale_lock_push(track_t *src)
+static int scale_all_on(void)
 {
     uint32_t k;
-    if (src->p[P_QUANT] != QN_CURR)
+    for (k = 0; k < NTRK; k++)
+        if (trk[k].p[P_QUANT] == QN_CURR)          /* stored 4, shown ALL */
+            return 1;
+    return 0;
+}
+static void scale_lock_push(track_t *src)              /* every track follows ROOT / SCL while ALL is on */
+{
+    uint32_t k;
+    if (!scale_all_on())
         return;
     for (k = 0; k < NTRK; k++) {
         track_t *t = &trk[k];
-        if (t == src || t->p[P_QUANT] != QN_CURR)
+        if (t == src)
             continue;
+        scale_lock_stash(t);
         scale_lock_copy(t, src);
     }
 }
 static void scale_lock_after(track_t *t, uint32_t id)
 {
-    if (id == P_QUANT) {                              /* entering CURR pushes, leaving restores */
+    if (id == P_QUANT) {                              /* entering ALL pushes, leaving restores */
         if (t->p[P_QUANT] == QN_CURR) {
             uint32_t k;
+            scale_lock_stash(t);
             for (k = 0; k < NTRK; k++) {
                 track_t *u = &trk[k];
-                if (u == t || u->p[P_QUANT] != QN_CURR)
+                if (u == t)
                     continue;
                 scale_lock_stash(u);
                 scale_lock_copy(u, t);
             }
-        } else
+        } else {
+            uint32_t k;
             scale_lock_restore(t);
+            if (scale_all_on()) {
+                for (k = 0; k < NTRK; k++)
+                    if (trk[k].p[P_QUANT] == QN_CURR) {
+                        scale_lock_push(&trk[k]);
+                        break;
+                    }
+            } else {
+                for (k = 0; k < NTRK; k++)
+                    scale_lock_restore(&trk[k]);
+            }
+        }
     } else if (id == P_ROOT || id == P_SCALE)
         scale_lock_push(t);
 }
