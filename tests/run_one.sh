@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 #
-# Fast, targeted host test runner for the edit loop. Run after ./build.sh once:
+# Fast, targeted host test runner for the edit loop. Run after ./build.sh once.
+# Builds without -O1 unless a target needs it: the single-TU tests are ~10x slower to
+# compile optimised, and the final gate (run_tests.sh) still builds them at -O1/-O2.
 #   tests/run_one.sh <target> [target ...]
 # This is not the final gate: the final gate is SANITIZE=1 tests/run_tests.sh.
 set -e
@@ -37,8 +39,9 @@ compile() { # compile <target> <output> <source> [flags...]
     c_out=$2
     c_src=$3
     shift 3
-    echo "== $c_target: $CC $* -o $c_out $c_src"
-    $CC "$@" -o "$c_out" "$c_src"
+    echo "== $c_target: $CC -o $c_out $c_src $*"
+    # source first, then the flags: GNU ld resolves -lm only after the object (as in run_tests.sh)
+    $CC -o "$c_out" "$c_src" "$@"
 }
 
 run_bin() { # run_bin <target> <command> [args...]
@@ -50,7 +53,7 @@ run_bin() { # run_bin <target> <command> [args...]
 
 do_motion() {
     compile motion "$OUT/motion_test" tests/motion_test.c \
-        -O1 -w -Ibuild/gen -Ifirmware/src -lm || return 1
+        -w -Ibuild/gen -Ifirmware/src -lm || return 1
     run_bin motion "$OUT/motion_test"
 }
 
@@ -62,6 +65,8 @@ do_ui() {
 
 do_ui_render() {
     FV=$(sed -n 's/^#define FELUCCA_VERSION "\([^"]*\)".*/\1/p' firmware/src/felucca.c)
+    # -O1 is paid back many times over: the 220 screens x 9 palettes and the draw-cost loops run
+    # ~3x faster, so build + run is ~10 s here against ~20 s at -O0.
     compile ui_render "$OUT/ui_render" tests/ui_render.c \
         -O1 -w "-DFELUCCA_VERSION=\"$FV\"" -Ibuild/gen -Ifirmware/src -Itests -lm || return 1
     mkdir -p build/ui_new/ppm build/ui_slot || return 1

@@ -13,7 +13,8 @@ Project rules for coding agents. Global workflow still lives in `~/AGENT.md`.
 3. Done when that target exits 0 on the behaviour you touched.
 
 `tests/run_one.sh` is the edit loop, not the final gate. It compiles and runs
-one binary (or the web pair) with the same flags as `tests/run_tests.sh`:
+one binary (or the web pair) from the same sources as `tests/run_tests.sh`, at
+`-O0` where that is faster (`ui_render` keeps `-O1`):
 
 ```
 tests/run_one.sh list            # target list
