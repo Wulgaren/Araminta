@@ -436,22 +436,25 @@ static void ui_leds(void)
 
 /* ---------------------------------------------------------- input --- */
 /* Predictable hardware response (#23): each decoded detent is one value step; a fast turn keeps its full signed
- * detent count. Fast turns of a wide value (range > 32, not a list of names; the FX and GLO layers' knobs too, #126;
- * OCT+ + SELECT tempo too) multiply by 2..4, by up to 8 over a range above 64 (#52: always on; KNOB ACCEL menu row
- * retired). Free-ms delay (range above 512) accelerates from the second fast detent, using this read alone,
- * with x8 gain up to x128. Slow turns stay one millisecond a detent. SELECT's page walk is never accelerated.
+ * detent count. Fast turns of a wide value (range > 16, not a list of names; the FX and GLO layers' knobs too, #126;
+ * OCT+ + SELECT tempo too) multiply by 2..16: x2 over 17..32, x4 to 64, x8 to 100, x16 above (#52: always on; KNOB
+ * ACCEL menu row retired; JIANT's curve). Free-ms delay (range above 512) accelerates from the second fast detent,
+ * using this read alone, with x8 gain up to x128 on its own DTIME_ACC_RATE, so the tighter curve does not speed it up.
+ * Slow turns stay one millisecond a detent. SELECT's page walk is never accelerated.
  * The main loop reads the knobs many times a frame (main.c), so a read holds one detent as a rule: the speed is the
- * time per detent, ACC_RATE / ms -> 25 ms x2, 16 ms x3, 12 ms x4, 10 ms x5 .. 6 ms or less x8 (a flick: 12 detents in
- * 120 ms move a -100..100 FX macro ~50). Other ranges use the longer of this read's and the previous read's time,
- * while the turn goes on (both under ACC_GAP ms) in one direction: a slow turn, the first two detents of a turn, a
- * single quick detent (a bounce) and a reversal are one step per detent, and the sign is always the detents'.
- * ui.enc_t[role]: bits 0..23 the ms of its last read, bit 24 its direction (+1), 25..31 its ms per detent (127 slow) */
-#define ACC_GAP 40u
-#define ACC_RATE 50u
+ * time per detent, ACC_RATE / ms -> 40 ms x2, 26 ms x3, 20 ms x4, 16 ms x5, 10 ms x8, 6 ms x13 .. 5 ms or less x16
+ * (a flick: 12 detents in 120 ms move a -100..100 FX macro ~75). Other ranges use the longer of this read's and the
+ * previous read's time, while the turn goes on (both under ACC_GAP ms) in one direction: a slow turn, the first two
+ * detents of a turn, a single quick detent (a bounce) and a reversal are one step per detent, and the sign is always
+ * the detents'. ui.enc_t[role]: bits 0..23 the ms of its last read, bit 24 its direction (+1), 25..31 its ms per
+ * detent (127 slow) */
+#define ACC_GAP 60u
+#define ACC_RATE 80u
+#define DTIME_ACC_RATE 50u
 static int32_t accel(uint32_t role, int32_t s, int32_t range)
 {
     uint32_t now = fm1_ms & 0xFFFFFFu, st = ui.enc_t[role], up = s > 0, pi = st >> 25, a, i, m = 1;
-    if (range <= 32 || !s)
+    if (range <= 16 || !s)
         return s;
     a = (uint32_t)(s < 0 ? -s : s);
     i = ((now - st) & 0xFFFFFFu) / a;                   /* ms per detent of this read */
@@ -459,12 +462,21 @@ static int32_t accel(uint32_t role, int32_t s, int32_t range)
         i = 127u;                                       /* a new turn, or reversed */
     else if (range > 512 || pi < ACC_GAP) {
         uint32_t interval = range > 512 ? i : i > pi ? i : pi;
-        m = ACC_RATE / (interval ? interval : 1u);
+        m = (range > 512 ? DTIME_ACC_RATE : ACC_RATE) / (interval ? interval : 1u);
         if (m < 1u)
             m = 1u;
         if (range > 512 && m > 1u)                       /* free-ms: keep slow at x1; spin: usual m x8 */
             m *= 8u;
-        a = range > 512 ? 128u : range > 64 ? 8u : 4u;    /* (the cap) */
+        if (range > 512)
+            a = 128u;
+        else if (range > 100)
+            a = 16u;
+        else if (range > 64)
+            a = 8u;
+        else if (range > 32)
+            a = 4u;
+        else
+            a = 2u;                                     /* (the cap) */
         if (m > a)
             m = a;
     }
