@@ -112,20 +112,29 @@ static __attribute__((noinline)) void analog_render_x(track_t *t, voice_t *v, in
     int32_t nz = noise * 200, drv = p[P_E6];
     uint32_t ph0 = v->ph[0], ph1 = v->ph[1], inc1 = m->inc, inc2 = 0;
     uint32_t sph[AS_N], sinc[AS_N];
-    int32_t sg = 0, norm = 32767;
+    int32_t cg[AS_N], norm = 32767;
     int32_t ic1 = v->s[0], ic2 = v->s[1], nst = v->s[2];
     int32_t jl = v->s[3];                             /* SYNC: 1 + the step of a restart a sample ago (16 bits), 0 none */
     if (super) {                                      /* the centre and three pairs, one voice, one filter */
         sph[0] = v->ph[0]; sph[1] = v->ph[1]; sph[2] = v->ph[2];
         sph[3] = (uint32_t)v->s[3]; sph[4] = (uint32_t)v->s[4];
         sph[5] = (uint32_t)v->s[5]; sph[6] = (uint32_t)v->s[7];
+        /* the pairs are not mirror images, and the outer ones sit lower: a little analog unevenness */
+        static const int8_t CT[6] = {-6, 7, -17, 19, -43, 46};      /* cents at SPRD 127 */
+        static const uint8_t LV[6] = {100, 96, 90, 86, 78, 74};     /* copy level, % of SWARM */
+        int32_t d = (det * det / 127 + det) / 2;                    /* ease-in: gentle low, wide at the top */
+        int32_t sg = mix * 258 / 6, sum = 32767;
         sinc[0] = inc1;
         for (k = 1; k < AS_N; k++) {
-            int32_t ct = (k <= 2u ? 7 : k <= 4u ? 18 : 45) * det / 127;   /* pairs at SPRD 127 */
-            sinc[k] = cents_inc(m->pitch16, (k & 1u) ? -ct : ct, m->fine);
+            int32_t ct = CT[k - 1u] * d / 127;
+            sinc[k] = cents_inc(m->pitch16, ct, m->fine);
         }
-        sg = mix * 258 / 6;                           /* per copy, Q15 */
-        norm = (32767 * 32767) / (32767 + 6 * sg);    /* keeps the peak where one saw's was */
+        cg[0] = 32767;
+        for (k = 1; k < AS_N; k++) {
+            cg[k] = sg * LV[k - 1u] / 100;
+            sum += cg[k];
+        }
+        norm = (32767 * 32767) / sum;                 /* keeps the peak where one saw's was */
     } else if (sub) {                                 /* an octave below OSC 1, DTN as OSC 2 always had it */
         inc2 = (det ? cents_inc(m->pitch16, det, 0) : inc1) >> 1;
     } else {                                          /* DTN and the shape above OSC 1, 3/16 semitone a step */
@@ -140,9 +149,9 @@ static __attribute__((noinline)) void analog_render_x(track_t *t, voice_t *v, in
     for (i = 0; i < n; i++) {
         int32_t s;
         if (super) {
-            s = osc_saw(sph[0], sinc[0]);
+            s = mulq15(osc_saw(sph[0], sinc[0]), cg[0]);
             for (k = 1; k < AS_N; k++)
-                s += mulq15(osc_saw(sph[k], sinc[k]), sg);
+                s += mulq15(osc_saw(sph[k], sinc[k]), cg[k]);
             s = (s * norm) >> 15;
             for (k = 0; k < AS_N; k++)
                 sph[k] += sinc[k];
@@ -299,7 +308,7 @@ static const preset_t ANALOG_PRESETS[] = {
     {"BRASS", {0, 10, 64, 0, 45, 20, 10, 64}, {35, 70, 90, 45}, 40, 0, FX(0, 20, 20, 40), PAT(6)},
     {"WIND", {0, 0, 0, 90, 30, 90, 0, 0}, {60, 90, 60, 80}, 50, 0, FX(0, 30, 30, 70), PAT(5)},
     {"STRINGS", {0, 25, 64, 0, 70, 10, 0, 32}, {70, 90, 115, 90}, 5, 0, FX(0, 60, 20, 70), PAT(5)},
-    {"SUPER SAW", {7, 80, 100, 0, 100, 20, 0, 64}, {6, 80, 110, 55}, 0, 0, FX(0, 20, 25, 35), PAT(6)},
+    {"SUPER SAW", {7, 96, 112, 0, 100, 20, 0, 64}, {6, 80, 110, 55}, 0, 0, FX(0, 20, 25, 35), PAT(6)},
 };
 
 static const engine_t ENG_ANALOG = {
