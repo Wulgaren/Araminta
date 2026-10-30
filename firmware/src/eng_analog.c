@@ -263,7 +263,7 @@ static const preset_t ANALOG_PRESETS[] = {
 
 static const engine_t ENG_ANALOG = {
     .name = "ANALOG",
-    .page_title = {"OSC 1", "OSC 2"}, /* EDIT 2 hidden on ANALOG; OSC 2 / FILTER are its other sound pages */
+    .page_title = {"OSC", "FILTER"}, /* EDIT 2 hidden on ANALOG; OSC 2 / FILTER are its other sound pages */
     .edit = {
         {"WAVE", F_ENUM, 0, 6, 0, N_ANALOG_WAVE, 0},
         {"DTN", F_INT, 0, 127, 10, 0, "ct"},

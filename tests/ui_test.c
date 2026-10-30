@@ -3074,7 +3074,7 @@ static int test_product_ux(void)
         uint32_t saw_flt = 0, saw_drv = 0, saw_e2 = 0;
         set_engine_of(TSEL, 0);
         go_title("EDIT 1");
-        ok = str_eq(ENGINES[TSEL->eng_req % NENGINES]->page_title[0], "OSC 1");
+        ok = str_eq(ENGINES[TSEL->eng_req % NENGINES]->page_title[0], "OSC");
         for (i = 0; i < NPAGES; i++) {
             if (PAGES[i].fam != FAM_EDIT || PAGES[i].sec != EDIT_SEC_SND || !page_visible(i))
                 continue;
@@ -3683,8 +3683,15 @@ static int test_edit_cycle(void)
     press(B_EDIT); frame();
     ok = cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "EDIT 1");
     turn(EN_SELECT, 1); frame();
-    ok &= cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "OSC 2");
+    ok &= cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "OSC");
     ok &= cur_page()->id[0] == P_E7 && cur_page()->id[1] == P_MORPH && cur_page()->id[2] == P_DRIFT;
+    {
+        int16_t *vp;
+        const param_desc_t *d0 = page_desc(cur_page(), 0, &vp), *d1 = page_desc(cur_page(), 1, &vp),
+                            *d2 = page_desc(cur_page(), 2, &vp);
+        ok &= d0 && str_eq(d0->label, "INT") && d1 && str_eq(d1->label, "MORPH") &&
+              d2 && str_eq(d2->label, "DRIFT");
+    }
     turn(EN_SELECT, 1); frame();
     ok &= cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "FILTER");
     turn(EN_SELECT, 1); frame();
@@ -3698,7 +3705,7 @@ static int test_edit_cycle(void)
     ok &= str_eq(cur_page()->title, "VOICE");                            /* Voice section: one page only */
     press(B_EDIT); frame();
     ok &= cur_page()->sec == EDIT_SEC_SND;
-    bad += check("EDIT cycle: ANALOG Sound is OSC 1→OSC 2→FILTER; Voice is one page (VCE GLD UNI DTN SPRD)", ok);
+    bad += check("EDIT cycle: ANALOG Sound is OSC→OSC→FILTER (1/3 2/3 3/3); Voice is one page (VCE GLD UNI DTN SPRD)", ok);
 
     /* UNI DTN / SPRD blank when the voice mode does not use them (page_desc; values stay) */
     {
