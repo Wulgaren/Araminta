@@ -433,23 +433,27 @@ static int osc2_migration(void)
     q.magic = PROJ_MAGIC; q.size = sizeof q; q.parts = NPART; q.phys = PROJ_PHYS;
     chain_defaults(&q.chain); memcpy(q.dx, DX_KIT_DEF, sizeof q.dx);
     q.t[1].engine = ENGI_ANALOG;
-    q.t[1].p[P_E7] = 12; q.t[1].p[P_MORPH] = 30; q.t[1].p[P_DRIFT] = 40;
-    q.motion.count = 3; q.motion.on = 1;
+    q.t[1].p[P_E0] = 3; q.t[1].p[P_E7] = 12; q.t[1].p[P_MORPH] = 30; q.t[1].p[P_DRIFT] = 40;
+    q.t[1].p[P_WAVE2] = 1;
+    q.motion.count = 4; q.motion.on = 1;
     q.motion.event[0] = (motion_event_t){(uint8_t)(1u << 6), P_E7, 12};
     q.motion.event[1] = (motion_event_t){(uint8_t)(1u << 6), P_MORPH, 30};
     q.motion.event[2] = (motion_event_t){(uint8_t)(1u << 6), P_DRIFT, 40};
+    q.motion.event[3] = (motion_event_t){(uint8_t)(1u << 6), P_WAVE2, 1};
     ok = proj_pack(&st, &q) && (st.raw[67] & 2u) && proj_import(&loaded, &st, sizeof st);
-    bad += check("OSC 2: a new record keeps INT / MORPH / DRIFT and their motion",
+    bad += check("OSC A/B: a new record keeps INT / MORPH / DRIFT / WAVE2 and their motion",
                  ok && loaded.t[1].p[P_E7] == 12 && loaded.t[1].p[P_MORPH] == 30 &&
-                 loaded.t[1].p[P_DRIFT] == 40 && loaded.motion.count == 3);
+                 loaded.t[1].p[P_DRIFT] == 40 && loaded.t[1].p[P_WAVE2] == 1 &&
+                 loaded.motion.count == 4);
     ok = proj_pack(&st, &q);
     st.raw[67] &= (uint8_t)~2u;                          /* what firmware before 3.5 wrote */
     sum = proj_hash(st.raw, PROJ_STORE_SIZE - 4u);
     memcpy(st.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
     ok = ok && proj_import(&loaded, &st, sizeof st);
-    bad += check("OSC 2: an older record loads the three 0 and drops their motion",
+    bad += check("OSC A/B: an older record loads them 0, WAVE2 on OSC A's wave, and drops their motion",
                  ok && loaded.t[1].p[P_E7] == 0 && loaded.t[1].p[P_MORPH] == 0 &&
-                 loaded.t[1].p[P_DRIFT] == 0 && loaded.motion.count == 0);
+                 loaded.t[1].p[P_DRIFT] == 0 && loaded.t[1].p[P_WAVE2] == 3 &&
+                 loaded.motion.count == 0);
     return bad;
 }
 
@@ -573,6 +577,7 @@ int main(void)
             q.t[t].p[P_E7] = 0;
         q.t[t].p[P_MORPH] = an ? 0 : TP[P_MORPH].def;
         q.t[t].p[P_DRIFT] = an ? 0 : TP[P_DRIFT].def;
+        q.t[t].p[P_WAVE2] = an ? q.t[t].p[P_E0] : TP[P_WAVE2].def;
     }
     q.sum = proj_sum(&q);
 
@@ -620,6 +625,7 @@ int main(void)
             q.t[t].p[P_E7] = 0;
         q.t[t].p[P_MORPH] = an ? 0 : TP[P_MORPH].def;
         q.t[t].p[P_DRIFT] = an ? 0 : TP[P_DRIFT].def;
+        q.t[t].p[P_WAVE2] = an ? q.t[t].p[P_E0] : TP[P_WAVE2].def;
     }
     to_v4(&v4, &q);
     bad += check("FUN4 image is 2680 bytes (as stored)", sizeof v4 == 2680u);

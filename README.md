@@ -348,10 +348,10 @@ KNOB ACCEL is always on for wide values.
 
 In the order the device lists them:
 
-- **ANALOG**: virtual analog; two oscillators (INT: OSC 2 an interval from OSC 1, -24..+24 semitones; WAVE SYNC:
-  the second hard-synced to the first; SUB: a square an octave down), noise, drive, MORPH / DRIFT (EDIT > OSC 2), a
-  resonant filter: low-pass, band-pass, high-pass or comb (EDIT > FILTER, page 3; COMB: CUT sets the delay / tooth
-  spacing, RES the feedback)
+- **ANALOG**: virtual analog; two oscillators, each with its own WAVE (EDIT > OSC A / OSC B), INT (OSC B an
+  interval from OSC A, -24..+24 semitones), DTN and MIX; WAVE SYNC makes OSC B a saw hard-synced to OSC A, SUB a
+  square an octave down. Noise, drive, MORPH / DRIFT (OSC A), a resonant filter: low-pass, band-pass, high-pass or
+  comb (EDIT > FILTER, page 3; COMB: CUT sets the delay / tooth spacing, RES the feedback)
 - **FM6**: classic 6-operator FM (Dexed-based): 32 algorithms, a full patch per track, edited in the
   web editor (which imports .syx files) or on the device: EDIT > OPERATOR (FREQ is one list: ratio then fixed Hz,
   fine, level; no OPERATOR 2 page) and OP ENV (each stage's rate and level, drawn as the envelope), one operator

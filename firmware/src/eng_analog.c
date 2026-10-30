@@ -5,8 +5,10 @@
  * high-pass / feedback COMB (CUT = delay, RES = feedback; dsp.c comb_process).
  * INT (P_E7, -24..24 semitones): OSC 2 this far from OSC 1, on every WAVE (was KTR; the filter's
  * keytracking is fixed at its old default, half).
- * MORPH (P_MORPH, 0..127): the plain WAVEs (SAW SQR TRI SIN) slide toward the next one, PWM narrows
- * toward ~4 %; the WAVE still picks the shape the knob starts from. SYNC / SUB ignore it.
+ * WAVE (P_E0) is OSC A's; WAVE2 (P_WAVE2, 0..4 SAW SQR TRI SIN PWM) OSC B's. SYNC / SUB define OSC B's
+ * shape themselves and ignore WAVE2.
+ * MORPH (P_MORPH, 0..127): each plain WAVE (SAW SQR TRI SIN) slides toward its own next one, PWM narrows
+ * toward ~4 %; the WAVE still picks the shape the knob starts from.
  * DRIFT (P_DRIFT, voice.c): each voice's slow pitch and filter wander.
  * WAVE SYNC and SUB (#104, appended: WAVE 0..4 play as they always did) are two more oscillator pairs (analog_osc_x):
  *   SYNC  OSC 2 a saw hard-synced to OSC 1 (a saw): it restarts with OSC 1's every cycle, band-limited at the restart
@@ -22,7 +24,7 @@ static const param_desc_t ANALOG_SYNC = {"SYNC", F_INT, 0, 127, 10, 0, 0};   /* 
 static const param_desc_t ANALOG_SUB = {"SUB", F_PCT, 0, 127, 64, 0, 0};      /* MIX's */
 
 /* WAVE 0..3 (SAW SQR TRI SIN) at a phase: the plain shapes MORPH blends */
-static inline int32_t ana_shape(uint32_t w, uint32_t ph, uint32_t inc)
+static __attribute__((noinline)) int32_t ana_shape(uint32_t w, uint32_t ph, uint32_t inc)
 {
     switch (w & 3u) {
     case 1: return osc_pulse(ph, inc, 0x80000000u);
@@ -231,6 +233,79 @@ static __attribute__((noinline)) void analog_osc(track_t *t, voice_t *v, int32_t
     v->s[1] = ic2;
     v->s[2] = nst;
 }
+
+/* OSC A / OSC B with different waves (a rare sound): the same loop as analog_osc, its two shapes
+ * selected apart. noinline and reached only when WAVE2 differs from WAVE, so the common path stays small */
+static __attribute__((noinline)) void analog_osc_b(track_t *t, voice_t *v, int32_t *out, uint32_t n,
+                                                   const vmod_t *m, uint32_t ft)
+{
+    const int16_t *p = t->p;
+    uint32_t wave = (uint32_t)p[P_E0], wave2 = (uint32_t)p[P_WAVE2], i;
+    int32_t det = p[P_E1], mix = p[P_E2], noise = p[P_E3];
+    int32_t cut = (p[P_E4] << 8) + m->cutoff + ((v->pitch16 - 60 * 16) << 2);   /* keytracking: half, fixed */
+    tsvf_t flt;
+    int32_t drive = 32768 + p[P_E6] * 512;                       /* 1x .. 3x */
+    uint32_t inc1 = m->inc;
+    uint32_t inc2 = det || p[P_E7] ? cents_inc(m->pitch16 + p[P_E7] * 16, det, 0) : inc1;   /* INT semitones, DTN cents */
+    uint32_t pw = 0x80000000u + ((uint32_t)clamp(m->shape - (64 << 8) + (int32_t)t->mo_cur * 2, -16384, 65000) << 15);
+    int32_t mpos = (int32_t)(wave << 8), mpos2 = (int32_t)(wave2 << 8);   /* MORPH: each from its own WAVE */
+    if (t->mo_cur) {
+        mpos += (int32_t)((uint32_t)t->mo_cur * 256u / 127u);
+        mpos2 += (int32_t)((uint32_t)t->mo_cur * 256u / 127u);
+    }
+    int32_t pwm1 = wave == 4u, pwm2 = wave2 == 4u;
+    int32_t m2 = mix * 258, m1 = 32767 - m2;                    /* osc mix Q15 */
+    int32_t nz = noise * 200, drv = p[P_E6];
+    uint32_t ph0 = v->ph[0], ph1 = v->ph[1];                  /* state in locals: out[] may alias v->s[] */
+    int32_t ic1 = v->s[0], ic2 = v->s[1], nst = v->s[2];
+    int32_t fk = ft ? ANALOG_K(p[P_E5]) : 0;
+    tsvf_coef(&flt, cut, p[P_E5]);
+    uint32_t clen = ft == IFT_COMB ? comb_delay_len(clamp(cut >> 8, 0, 127), AC_LEN) : 0u;   /* block-constant */
+    for (i = 0; i < n; i++) {
+        int32_t a, b, s;
+        if (pwm1)
+            a = osc_pulse(ph0, inc1, pw);
+        else if (!t->mo_cur)
+            a = ana_shape(wave, ph0, inc1);
+        else
+            a = ana_morph(mpos, ph0, inc1);
+        if (pwm2)
+            b = osc_pulse(ph1, inc2, pw);
+        else if (!t->mo_cur)
+            b = ana_shape(wave2, ph1, inc2);
+        else
+            b = ana_morph(mpos2, ph1, inc2);
+        ph0 += inc1;
+        ph1 += inc2;
+        s = mulq15(a, m1) + mulq15(b, m2);
+        if (nz)
+            s += mulq15((int32_t)(noise32(&nst) >> 17) - 16384, nz);
+        if (drv)
+            s = softclip(((s >> 2) * (drive >> 2)) >> 11);   /* pre-shifts: drive is up to 3x, no overflow */
+        {   /* filter, linear up to half scale, then a soft knee (only resonance peaks saturate); soft_knee()
+             * written out for SVF: the host compiler makes this loop 1 % slower with the call */
+            int32_t y;
+            if (ft == IFT_COMB)
+                y = analog_comb(t, v, s >> 1, (int32_t)clen, p[P_E5], &ic1);
+            else if (ft)
+                y = analog_tap(&flt, fk, s >> 1, &ic1, &ic2, ft);
+            else
+                y = tsvf_lp(&flt, s >> 1, &ic1, &ic2);
+            int32_t a = y < 0 ? -y : y;
+            if (a > 16000) {
+                a = 16000 + (softclip((a - 16000) * 2) >> 1);
+                y = y < 0 ? -a : a;
+            }
+            s = y * 2;                          /* soft knee bounds y; multiplication permits negatives */
+        }
+        out[i] += voice_amp(s, m, i) * 2;
+    }
+    v->ph[0] = ph0;
+    v->ph[1] = ph1;
+    v->s[0] = ic1;
+    v->s[1] = ic2;
+    v->s[2] = nst;
+}
 static __attribute__((noinline)) void analog_render_f(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
     analog_osc(t, v, out, n, m, (uint32_t)t->p[P_FTYPE]);
@@ -240,6 +315,8 @@ static void analog_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
 {
     if (t->p[P_E0] >= AW_SYNC)
         analog_render_x(t, v, out, n, m);
+    else if (t->eng_req % NENGINES == ENGI_ANALOG && t->p[P_WAVE2] != t->p[P_E0])
+        analog_osc_b(t, v, out, n, m, (uint32_t)t->p[P_FTYPE]);
     else if (t->p[P_FTYPE])
         analog_render_f(t, v, out, n, m);
     else
@@ -263,7 +340,7 @@ static const preset_t ANALOG_PRESETS[] = {
 
 static const engine_t ENG_ANALOG = {
     .name = "ANALOG",
-    .page_title = {"OSC", "FILTER"}, /* EDIT 2 hidden on ANALOG; OSC 2 / FILTER are its other sound pages */
+    .page_title = {"OSC A", "OSC B"}, /* the editor names; the device uses the OSC A / OSC B / FILTER pages */
     .edit = {
         {"WAVE", F_ENUM, 0, 6, 0, N_ANALOG_WAVE, 0},
         {"DTN", F_INT, 0, 127, 10, 0, "ct"},

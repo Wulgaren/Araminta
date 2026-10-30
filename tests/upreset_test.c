@@ -290,7 +290,8 @@ int main(void)
                                     : r.engine == ENGI_ANALOG && (i == P_MORPH || i == P_DRIFT) ? 0   /* 3.5 */
                                     : (int16_t)(2000 + i)); /* CHO send -> FXPOS */
     for (i = P_SLCR; i < P_IORD; i++)
-        ok &= v[i] == (r.engine == ENGI_ANALOG && (i == P_MORPH || i == P_DRIFT) ? 0 : def[i]);
+        ok &= v[i] == (r.engine == ENGI_ANALOG && (i == P_MORPH || i == P_DRIFT) ? 0
+                       : r.engine == ENGI_ANALOG && i == P_WAVE2 ? v[P_E0] : def[i]);
     ok &= v[P_IORD] == (int16_t)IORD_DEF && v[P_IDMODE] == IDM_SOFT && v[P_IFTYPE] == IFT_LP &&
           !v[P_FTYPE] && !v[P_ESYNC];
     for (i = 0; i < 8u; i++)
@@ -376,7 +377,7 @@ int main(void)
         bad += check("1.5 preset: CRUSH INSERT migrates into the chain",
                      v[P_ICBITS] == 40 && v[P_ICRATE] == 50 && v[P_ICLPF] == 60 && v[P_ICMIX] == 110 &&
                      v[P_DIST] == 70 && v[P_IDMIX] == 127 && v[P_FTYPE] == 2 && v[P_ESYNC] == 1 &&
-                     v[P_E0] == 20 && v[P_E7] == 0);
+                     v[P_E0] == 20 && v[P_E7] == 0 && v[P_WAVE2] == 20);
         o.packed[96] = (uint8_t)(0 + 64);              /* TYPE OFF */
         up_params(&o, v, def);
         bad += check("1.5 preset: INSERT TYPE OFF stays dry",
