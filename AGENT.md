@@ -14,7 +14,8 @@ Project rules for coding agents. Global workflow still lives in `~/AGENT.md`.
 
 `tests/run_one.sh` is the edit loop, not the final gate. It compiles and runs
 one binary (or the web pair) from the same sources as `tests/run_tests.sh`, at
-`-O0` where that is faster (`ui_render` keeps `-O1`):
+`-O0` where that is faster (`ui` and `ui_render` keep `-O1`, the compute-bound
+engine targets `-O2`):
 
 ```
 tests/run_one.sh list            # target list
@@ -23,11 +24,14 @@ tests/run_one.sh ui ui_render    # UI stubs plus draw / layout lint
 tests/run_one.sh editor          # writes build/host/menu.json
 tests/run_one.sh project
 tests/run_one.sh param           # tests/param_contract_test.c
+tests/run_one.sh drums sound15 inschain   # DRUMS / ANALOG filter / insert chain
+tests/run_one.sh regress         # golden renders, health, voices, CPU budget
 tests/run_one.sh web             # desc.json + menu.json, then node web/test_web.mjs
 ```
 
-Targets: `motion`, `ui`, `ui_render`, `editor`, `project`, `param`, `web`,
-`all` (execs `tests/run_tests.sh`), and `list`.
+Targets: `motion`, `ui`, `ui_render`, `editor`, `project`, `param`, `drums`,
+`sound15`, `inschain`, `regress`, `web`, `all` (execs `tests/run_tests.sh`),
+and `list`.
 
 If a test has no target, compile and run it by hand, matching the `$CC` line in
 `tests/run_tests.sh` for that test.
