@@ -285,7 +285,11 @@ touch every representation below; missing one is how a stored value silently cha
 1. **`core.h`**: append the P_* to the enum before `P_E0` (the last eight ids are always `P_E0..P_E7`, and
    `params_by_count()` depends on that); update `P_COUNT`; keep the `_Static_assert`s. A lock-only id goes
    outside `P_COUNT` next to `MSEQ_PITCH`; a UI-only id goes next to `EV_*` / `PG_*` and must not be added
-   to `p[]`. Add it to `param_*` helpers only if motion may store it.
+   to `p[]`. Add it to `param_*` helpers only if motion may store it. `P_COUNT` is full (127): a value that
+   needs no new id may alias an unused engine slot with a `param_desc_of` label for its engine (ANALOG's
+   MORPH / DRIFT / WAVE2: `P_FM3_ATK` / `P_FM3_SUS` / `P_FM2_ATK` in `core.h`, with WAVE2 0 = SAME);
+   changing a stored slot's meaning needs a marker
+   (project header byte 67 bit 1, user preset category byte bit 7).
 2. **`params.c`**: `TP[]` descriptor (label, format, min / max / default, enum names, unit), the engine
    edit table if it is an E parameter, the page table and `page_desc()` if it is editable, `param_fit()` /
    `enum_orig()` aliases, and the `DESC` / `DUMP` output. A page-only card needs a `PG_*` value and a

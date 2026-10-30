@@ -1284,11 +1284,9 @@ static void draw_columns(void)
         }
         param_format(d, *vp, val, &unit);
         card_mot_of(vp);                                /* (a global: never) */
-        if (vp == &TSEL->p[P_LRATE] && TSEL->p[P_LSYNC]) {   /* LFO 2 SYNC on: RATE does nothing, DIM (1.2) */
-            draw_column(c, d->label, val, unit, T_DIM, RATIO(d, *vp), param_icon(d, *vp));
-            continue;
-        }
-        if (arp_drone_frozen(TSEL, vp)) {
+        if ((vp == &TSEL->p[P_WAVE2] && TSEL->p[P_E0] >= AW_SYNC) ||   /* SYNC / SUB / SUPER define OSC B */
+            (vp == &TSEL->p[P_LRATE] && TSEL->p[P_LSYNC]) ||           /* LFO 2 SYNC: RATE does nothing */
+            arp_drone_frozen(TSEL, vp)) {                              /* a frozen ARP drone */
             draw_column(c, d->label, val, unit, T_DIM, RATIO(d, *vp), param_icon(d, *vp));
             continue;
         }

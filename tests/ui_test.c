@@ -1696,7 +1696,9 @@ static int test_categories(void)
     turn(EN_K3, 1);
     press(B_OCTUP);
     bad += check("  KNOB 3 steps the category (no wrap below BASS); OCT+ writes it with the name",
-                 ok && !name_on() && up_used(4) && up_cat(4) == CAT_LEAD && up_rec(4)->packed[UP_CAT_AT] == CAT_LEAD);
+                 ok && !name_on() && up_used(4) && up_cat(4) == CAT_LEAD &&
+                 (up_rec(4)->packed[UP_CAT_AT] & 0x7Fu) == CAT_LEAD &&
+                 (up_rec(4)->packed[UP_CAT_AT] & UP_OSC2));
     list_set(1u + CAT_LEAD);
     up_load(4);
     pos = preset_pos(&total);
@@ -3068,20 +3070,22 @@ static int test_product_ux(void)
     ok = 1;
     for (i = 0; i < 8u; i++) { open_family(FAM_EDIT); ok &= page_visible(ui.page) && !(cur_page()->id[0] >= P_FM1_ATK && cur_page()->id[0] <= P_FM4_LEVEL); }
     bad += check("operator envelope pages are hidden on non-DIGITAL instruments", ok);
-    {   /* ANALOG: OSC → FILTER → FILTER DRIVE (no EDIT 2 / FLT duplicate) */
-        uint32_t saw_flt = 0, saw_drv = 0, saw_e2 = 0;
+    {   /* ANALOG: OSC A → OSC B → FILTER (its own pages, no EDIT 1 / 2) */
+        uint32_t saw_flt = 0, saw_a = 0, saw_b = 0, saw_e1 = 0, saw_e2 = 0;
         set_engine_of(TSEL, 0);
-        go_title("EDIT 1");
-        ok = str_eq(ENGINES[TSEL->eng_req % NENGINES]->page_title[0], "OSC");
+        go_title("OSC A");
+        ok = str_eq(ENGINES[TSEL->eng_req % NENGINES]->page_title[0], "OSC A");
         for (i = 0; i < NPAGES; i++) {
             if (PAGES[i].fam != FAM_EDIT || PAGES[i].sec != EDIT_SEC_SND || !page_visible(i))
                 continue;
+            if (PAGES[i].scope == SC_ENGINE && PAGES[i].id[0] == P_E0) saw_e1 = 1;
             if (PAGES[i].scope == SC_ENGINE && PAGES[i].id[0] == P_E4) saw_e2 = 1;
             if (PAGES[i].id[0] == P_FTYPE) saw_flt = 1;
-            if (str_eq(PAGES[i].title, "FILTER DRIVE")) saw_drv = 1;
+            if (PAGES[i].id[0] == P_E0 && PAGES[i].id[1] == P_MORPH) saw_a = 1;
+            if (PAGES[i].id[0] == P_WAVE2 && PAGES[i].id[1] == P_E7) saw_b = 1;
         }
-        bad += check("ANALOG EDIT sound: FILTER + FILTER DRIVE, no EDIT 2",
-                     ok && saw_flt && saw_drv && !saw_e2);
+        bad += check("ANALOG EDIT sound: OSC A + OSC B + FILTER, no EDIT 1 / 2",
+                     ok && saw_flt && saw_a && saw_b && !saw_e1 && !saw_e2);
         set_engine_of(TSEL, 6);                    /* TRIO */
         ok = 1;
         saw_e2 = 0;
@@ -3679,11 +3683,24 @@ static int test_edit_cycle(void)
     ui_power_on();
     set_engine_of(TSEL, 0); /* ANALOG */
     press(B_EDIT); frame();
-    ok = cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "EDIT 1");
+    ok = cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "OSC A");
+    ok &= cur_page()->id[0] == P_E0 && cur_page()->id[1] == P_MORPH && cur_page()->id[3] == P_E3;
+    turn(EN_SELECT, 1); frame();
+    ok &= cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "OSC B");
+    ok &= cur_page()->id[0] == P_WAVE2 && cur_page()->id[1] == P_E7 && cur_page()->id[2] == P_E1 &&
+          cur_page()->id[3] == P_E2;
+    {
+        int16_t *vp;
+        const param_desc_t *d0 = page_desc(cur_page(), 0, &vp), *d1 = page_desc(cur_page(), 1, &vp),
+                            *d2 = page_desc(cur_page(), 2, &vp), *d3 = page_desc(cur_page(), 3, &vp);
+        ok &= d0 && str_eq(d0->label, "WAVE") && d1 && str_eq(d1->label, "INT") &&
+              d2 && str_eq(d2->label, "DTN") && d3 && str_eq(d3->label, "MIX");
+        TSEL->p[P_E0] = 5;                          /* SYNC: OSC B's own shape; WAVE stays, drawn DIM */
+        ok &= page_desc(cur_page(), 0, &vp) && vp == &TSEL->p[P_WAVE2];
+        TSEL->p[P_E0] = 0;
+    }
     turn(EN_SELECT, 1); frame();
     ok &= cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "FILTER");
-    turn(EN_SELECT, 1); frame();
-    ok &= cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "FILTER DRIVE");
     turn(EN_SELECT, 1); frame();
     ok &= cur_page()->sec == EDIT_SEC_SND;              /* next sound page (not EDIT 2) */
     ok &= !str_eq(cur_page()->title, "EDIT 2");
@@ -3695,7 +3712,7 @@ static int test_edit_cycle(void)
     ok &= str_eq(cur_page()->title, "VOICE");                            /* Voice section: one page only */
     press(B_EDIT); frame();
     ok &= cur_page()->sec == EDIT_SEC_SND;
-    bad += check("EDIT cycle: ANALOG Sound is OSC→FILTER→FILTER DRIVE; Voice is one page (VCE GLD UNI DTN SPRD)", ok);
+    bad += check("EDIT cycle: ANALOG Sound is OSC A→OSC B→FILTER (1/3 2/3 3/3); Voice is one page (VCE GLD UNI DTN SPRD)", ok);
 
     /* UNI DTN / SPRD blank when the voice mode does not use them (page_desc; values stay) */
     {
@@ -3822,7 +3839,7 @@ static int test_quick_layers(void)
         btn_up(LB[i]); frame();
         ok &= !flash && !ui.home && !ui.layer && !ui.lock;
         ok &= LB[i] == B_GLO ? str_eq(cur_page()->title, "MASTER") :
-              LB[i] == B_SCL ? cur_page()->fam == FAM_SCL : str_eq(cur_page()->title, "EDIT 1");
+              LB[i] == B_SCL ? cur_page()->fam == FAM_SCL : str_eq(cur_page()->title, "OSC A");
     }
     bad += check("GLO SCL EDIT: tap opens the page; hold never opens a quick map", ok);
 
