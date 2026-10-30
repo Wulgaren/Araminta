@@ -225,7 +225,11 @@ run() {
     echo "== $1"; shift
     "$@" &
     _p=$!
-    ( sleep "${TEST_TIMEOUT:-600}"; kill -9 "$_p" 2>/dev/null ) &
+    # the watchdog kills its own sleep when the unit ends, else every unit leaks a sleeping process
+    ( trap 'kill "$_s" 2>/dev/null || :; exit 0' TERM INT HUP
+      sleep "${TEST_TIMEOUT:-600}" & _s=$!
+      wait "$_s"
+      kill -9 "$_p" 2>/dev/null || : ) &
     _w=$!
     wait "$_p"; _rc=$?
     kill "$_w" 2>/dev/null || :
@@ -270,6 +274,26 @@ flush() {
         cat "$LOGS/$f.log"
     done
 }
+
+# kill_tree <pid>: a unit's subshell, the test binary it waits for and that binary's timeout watchdog.
+kill_tree() {
+    for c in $(ps -A -o pid= -o ppid= | awk -v p="$1" '$2 == p {print $1}'); do
+        kill_tree "$c"
+    done
+    kill "$1" 2>/dev/null || :
+}
+
+# interrupted: INT / TERM / HUP takes the running units down too. The suite's children are in its
+# process group, so a Ctrl-C reaches them, but kill <script pid>, a closed terminal or a harness
+# timeout stops only the script: the units (each one compiles and runs a test) would keep running.
+interrupted() {
+    trap - EXIT INT TERM HUP
+    for j in $jobs; do kill_tree "${j%%:*}"; done
+    wait 2>/dev/null || :
+    printf '\n== interrupted: the running units were stopped\n'
+    exit 130
+}
+trap interrupted INT TERM HUP
 
 # note <text>: a line that used to echo straight to the transcript (the skip lines)
 note() {
