@@ -79,7 +79,7 @@ static up_rec_t *up_rec(uint32_t k) { return &up_bank[k / UP_PER_BANK].r[k % UP_
  * values fit a byte (up_to_v4; not a version 1 PHYS sound, whose MODEL 2 means DUST)
  * 3.5: bit 7 of that byte marks ANALOG's OSC A / OSC B semantics (E8 is INT; the FM slots are MORPH / DRIFT /
  * OSC B's WAVE; core.h). Older firmware ignores it. A record without it loads an ANALOG sound with the first
- * three at 0, OSC B's WAVE on OSC A's, and drops its E8 / OP automation (up_params); 1.5's records are those. */
+ * three at 0, OSC B's WAVE SAME, and drops its E8 / OP automation (up_params); 1.5's records are those. */
 #define UP_CAT_AT (UP_PMAX * 2u - 1u)
 #define UP_OSC2 0x80u                            /* bit 7 of the category byte: 3.5's INT / MORPH / DRIFT */
 #include "category.c"
@@ -216,7 +216,7 @@ static void up_params(const up_rec_t *r, int16_t *out, const int16_t *def)
         out[P_E7] = 0;
         out[P_MORPH] = 0;
         out[P_DRIFT] = 0;
-        out[P_WAVE2] = out[P_E0];                    /* OSC B on OSC A's wave */
+        out[P_WAVE2] = 0;                            /* SAME: OSC B follows OSC A */
     }
 }
 

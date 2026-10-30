@@ -944,7 +944,7 @@ static int user_preset_roundtrip(void)
         up_set_value(r, P_DRIFT, 90);
         up_values(r, v);
         bad += check("an older ANALOG preset loads INT / MORPH / DRIFT 0, WAVE2 on OSC A's wave",
-                     v[P_E7] == 0 && v[P_MORPH] == 0 && v[P_DRIFT] == 0 && v[P_WAVE2] == v[P_E0]);
+                     v[P_E7] == 0 && v[P_MORPH] == 0 && v[P_DRIFT] == 0 && v[P_WAVE2] == 0);
         up_mark_osc2(r);
         up_set_value(r, P_E7, -12);
         up_set_value(r, P_MORPH, 30);

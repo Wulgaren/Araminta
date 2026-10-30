@@ -5,8 +5,8 @@
  * high-pass / feedback COMB (CUT = delay, RES = feedback; dsp.c comb_process).
  * INT (P_E7, -24..24 semitones): OSC 2 this far from OSC 1, on every WAVE (was KTR; the filter's
  * keytracking is fixed at its old default, half).
- * WAVE (P_E0) is OSC A's; WAVE2 (P_WAVE2, 0..4 SAW SQR TRI SIN PWM) OSC B's. SYNC / SUB define OSC B's
- * shape themselves and ignore WAVE2.
+ * WAVE (P_E0) is OSC A's; WAVE2 (P_WAVE2, SAME then SAW SQR TRI SIN PWM) OSC B's. SAME follows OSC A.
+ * SYNC / SUB define OSC B's shape themselves and ignore WAVE2.
  * MORPH (P_MORPH, 0..127): each plain WAVE (SAW SQR TRI SIN) slides toward its own next one, PWM narrows
  * toward ~4 %; the WAVE still picks the shape the knob starts from.
  * DRIFT (P_DRIFT, voice.c): each voice's slow pitch and filter wander.
@@ -19,6 +19,8 @@
  *   SUB   OSC 1 a saw, OSC 2 a square an octave below it (detuned by DTN in cents and moved by INT): MIX (shown SUB)
  *         is the sub oscillator's level */
 static const char *const N_ANALOG_WAVE[] = {"SAW", "SQR", "TRI", "SIN", "PWM", "SYNC", "SUB"};
+/* OSC B's WAVE: SAME (0) follows OSC A's; the rest pick one of the plain/PWM shapes */
+static const char *const N_ANALOG_WAVE2[] = {"SAME", "SAW", "SQR", "TRI", "SIN", "PWM"};
 enum { AW_SYNC = 5, AW_SUB = 6 };
 static const param_desc_t ANALOG_SYNC = {"SYNC", F_INT, 0, 127, 10, 0, 0};   /* DTN's range and default */
 static const param_desc_t ANALOG_SUB = {"SUB", F_PCT, 0, 127, 64, 0, 0};      /* MIX's */
@@ -234,13 +236,20 @@ static __attribute__((noinline)) void analog_osc(track_t *t, voice_t *v, int32_t
     v->s[2] = nst;
 }
 
+/* OSC B's effective wave: SAME (0) follows OSC A; 1..5 pick SAW SQR TRI SIN PWM */
+static inline uint32_t analog_wave_b(const track_t *t)
+{
+    uint32_t w = (uint32_t)t->p[P_WAVE2];
+    return w ? w - 1u : (uint32_t)t->p[P_E0];
+}
+
 /* OSC A / OSC B with different waves (a rare sound): the same loop as analog_osc, its two shapes
  * selected apart. noinline and reached only when WAVE2 differs from WAVE, so the common path stays small */
 static __attribute__((noinline)) void analog_osc_b(track_t *t, voice_t *v, int32_t *out, uint32_t n,
                                                    const vmod_t *m, uint32_t ft)
 {
     const int16_t *p = t->p;
-    uint32_t wave = (uint32_t)p[P_E0], wave2 = (uint32_t)p[P_WAVE2], i;
+    uint32_t wave = (uint32_t)p[P_E0], wave2 = analog_wave_b(t), i;
     int32_t det = p[P_E1], mix = p[P_E2], noise = p[P_E3];
     int32_t cut = (p[P_E4] << 8) + m->cutoff + ((v->pitch16 - 60 * 16) << 2);   /* keytracking: half, fixed */
     tsvf_t flt;
@@ -315,7 +324,7 @@ static void analog_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
 {
     if (t->p[P_E0] >= AW_SYNC)
         analog_render_x(t, v, out, n, m);
-    else if (t->eng_req % NENGINES == ENGI_ANALOG && t->p[P_WAVE2] != t->p[P_E0])
+    else if (t->eng_req % NENGINES == ENGI_ANALOG && analog_wave_b(t) != (uint32_t)t->p[P_E0])
         analog_osc_b(t, v, out, n, m, (uint32_t)t->p[P_FTYPE]);
     else if (t->p[P_FTYPE])
         analog_render_f(t, v, out, n, m);

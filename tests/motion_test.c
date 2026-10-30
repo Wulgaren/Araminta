@@ -194,7 +194,7 @@ static int fun7_89(void)
             before.t[k].p[P_E7] = 0;
             before.t[k].p[P_MORPH] = 0;
             before.t[k].p[P_DRIFT] = 0;
-            before.t[k].p[P_WAVE2] = before.t[k].p[P_E0];
+            before.t[k].p[P_WAVE2] = 0;      /* SAME */
         }
     memset(&m, 0, sizeof m);                                       /* as the 89-parameter firmware numbered them */
     m.count = 3; m.on = 1;

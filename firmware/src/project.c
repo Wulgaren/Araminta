@@ -138,7 +138,7 @@
  * 3.5 (ANALOG's OSC A / OSC B): P_E7 is INT now (OSC B's interval, -24..24), where it was KTR, and the FM
  * slots keep MORPH / DRIFT / WAVE2 (core.h P_MORPH / P_DRIFT / P_WAVE2), not the OP envelopes, on an ANALOG
  * track. Header byte 67 bit 1 (free before: 1.5 wrote 0 there) says a project is read that way; a FUN19
- * without it loads its ANALOG tracks with INT / MORPH / DRIFT 0, WAVE2 on P_E0's wave, and drops their
+ * without it loads its ANALOG tracks with INT / MORPH / DRIFT 0, WAVE2 SAME, and drops their
  * E8 / OP events. The magic and size are FUN19's; older firmware ignores the bit.
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
@@ -411,7 +411,7 @@ static void proj_trk_from(proj_trk_t *d, const int16_t *p, uint32_t np, uint8_t 
         d->p[P_E7] = 0;
         d->p[P_MORPH] = 0;
         d->p[P_DRIFT] = 0;
-        d->p[P_WAVE2] = d->p[P_E0];            /* OSC B on OSC A's wave: the sound as it was */
+        d->p[P_WAVE2] = 0;                     /* SAME: OSC B follows OSC A, as it was */
     }
     d->scl_stash_ok = 0;
     d->scl_stash[0] = d->scl_stash[1] = d->scl_stash[2] = 0;
@@ -1158,7 +1158,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
             q->t[t].p[P_E7] = 0;
             q->t[t].p[P_MORPH] = 0;
             q->t[t].p[P_DRIFT] = 0;
-            q->t[t].p[P_WAVE2] = q->t[t].p[P_E0];
+            q->t[t].p[P_WAVE2] = 0;                    /* SAME */
         }
         if (!v13)
             q->t[t].p[P_SCALE] = scl_from_v12(q->t[t].p[P_SCALE]);

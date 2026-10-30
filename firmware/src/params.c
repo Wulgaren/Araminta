@@ -201,7 +201,7 @@ static const param_desc_t TP[P_COUNT] = {
 /* ANALOG's OSC pages: the labels of the FM slots they keep MORPH / DRIFT / OSC B's WAVE in (core.h) */
 static const param_desc_t ANALOG_MORPH = {"MORPH", F_PCT, 0, 127, 0, 0, 0};
 static const param_desc_t ANALOG_DRIFT = {"DRIFT", F_PCT, 0, 127, 0, 0, 0};
-static const param_desc_t ANALOG_WAVE2 = {"WAVE", F_ENUM, 0, 4, 0, N_ANALOG_WAVE, 0};
+static const param_desc_t ANALOG_WAVE2 = {"WAVE", F_ENUM, 0, 5, 0, N_ANALOG_WAVE2, 0};
 
 static const param_desc_t GP[G_COUNT] = {
     [G_BPM] = PD("BPM", F_BPM, 40, 240, 120),

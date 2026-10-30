@@ -109,7 +109,7 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
     if (e == ENGI_ANALOG) {                       /* OSC A/B: the FM slots are MORPH / DRIFT / WAVE2 at a preset */
         t->p[P_MORPH] = 0;
         t->p[P_DRIFT] = 0;
-        t->p[P_WAVE2] = t->p[P_E0];
+        t->p[P_WAVE2] = 0;                        /* SAME: OSC B follows OSC A */
     }
     fm6_track_loaded(t);                          /* FM6: the preset's patch (ui.c apply_preset_to) */
 }

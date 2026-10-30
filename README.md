@@ -348,8 +348,8 @@ KNOB ACCEL is always on for wide values.
 
 In the order the device lists them:
 
-- **ANALOG**: virtual analog; two oscillators, each with its own WAVE (EDIT > OSC A / OSC B), INT (OSC B an
-  interval from OSC A, -24..+24 semitones), DTN and MIX; WAVE SYNC makes OSC B a saw hard-synced to OSC A, SUB a
+- **ANALOG**: virtual analog; two oscillators (EDIT > OSC A / OSC B), each with its own WAVE (OSC B's defaults to
+  SAME, following OSC A), INT (OSC B an interval from OSC A, -24..+24 semitones), DTN and MIX; WAVE SYNC makes OSC B a saw hard-synced to OSC A, SUB a
   square an octave down. Noise, drive, MORPH / DRIFT (OSC A), a resonant filter: low-pass, band-pass, high-pass or
   comb (EDIT > FILTER, page 3; COMB: CUT sets the delay / tooth spacing, RES the feedback)
 - **FM6**: classic 6-operator FM (Dexed-based): 32 algorithms, a full patch per track, edited in the
