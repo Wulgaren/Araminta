@@ -321,6 +321,7 @@ static void go_title(const char *title);          /* forward: go_seq_step */
 static void key_down(uint32_t k);
 static void key_up(uint32_t k);
 static uint32_t white(uint32_t w);
+static uint32_t black(uint32_t b);
 static void go_seq_step(void) { go_title("STEP"); } /* SEQ opens STEP; grid / roll / step rec */
 static void project_not_empty(void)  /* free-take steals step keys when every track is empty */
 {
@@ -1137,14 +1138,14 @@ static int test_clear_selected_all(void)
     chain_config.row[0] = chain_row_of(0, 1);
     uint32_t selected_before = track_sig(t), other_before = track_sig(&trk[0]);
     go_title("CLEAR"); frame();
-    key_down(white(3)); frame(); key_up(white(3)); frame();   /* B3 ALL for selected track */
+    key_down(black(0)); frame(); key_up(black(0)); frame();   /* F#3 ALL for selected track */
     confirm_text(a, b);
-    bad += check("CLEAR B3 ALL asks once for the selected track", ui.confirm && str_eq(a, "CLEAR T2 ALL?"));
+    bad += check("CLEAR F#3 ALL asks once for the selected track", ui.confirm && str_eq(a, "CLEAR T2 ALL?"));
     press(B_OCTDN);
     bad += check("cancel selected ALL preserves sound, pattern, automation and song", !ui.confirm &&
                  track_sig(t) == selected_before && track_sig(&trk[0]) == other_before && chain_config.count == 1);
     frame();
-    key_down(white(3)); frame(); key_up(white(3)); frame();
+    key_down(black(0)); frame(); key_up(black(0)); frame();
     press(B_OCTUP);
     bad += check("selected ALL initializes sound and clears pattern and automation only for T2", !ui.confirm &&
                  seq_is_empty(t) && !motion_count(t) && t->p[P_E0] == base_sound &&
@@ -1188,21 +1189,77 @@ static int test_clear_every_track_all(void)
     chain_config.count = 1;
     chain_config.row[0] = chain_row_of(0, 1);
     go_title("CLEAR"); frame();
-    key_down(white(7)); frame(); key_up(white(7)); frame();   /* F4 ALL for every track */
+    key_down(black(1)); frame(); key_up(black(1)); frame();   /* G#3 ALL4 for every track */
     confirm_text(a, b);
-    bad += check("CLEAR F4 ALL asks once for every track", ui.confirm && str_eq(a, "CLEAR ALL TRACKS?"));
+    bad += check("CLEAR G#3 ALL4 asks once for every track", ui.confirm && str_eq(a, "CLEAR ALL TRACKS?"));
     press(B_OCTDN);
     for (i = 0; i < NTRK; i++)
         ok &= track_sig(&trk[i]) == before[i];
     bad += check("cancel every-track ALL preserves sound, patterns, automation and song", ok && !ui.confirm &&
                  song.sel == 2 && chain_config.count == 1);
     frame();
-    key_down(white(7)); frame(); key_up(white(7)); frame();
+    key_down(black(1)); frame(); key_up(black(1)); frame();
     press(B_OCTUP);
     for (ok = 1, i = 0; i < NTRK; i++)
         ok &= seq_is_empty(&trk[i]) && !motion_count(&trk[i]) && trk[i].p[P_E0] == base_sound[i];
     bad += check("every-track ALL initializes all sounds and clears all patterns and automation, keeps song", ok &&
                  !ui.confirm && song.sel == 2 && chain_config.count == 1);
+    return bad;
+}
+
+/* SAVE > CLEAR's FX cells (FX on B3, FX ALL on F4): inserts, order, sends and slicer; the ALL keys include it */
+static int test_clear_fx(void)
+{
+    int bad = 0, ok;
+    char a[24], b[24];
+    track_t *t = &trk[1];
+    int16_t atk;
+    ui_power_on();
+    song.sel = 1;
+    atk = t->p[P_ATK];
+    my_steps(t);
+    t->p[P_DIST] = 1; t->p[P_IORD] = 0; t->p[P_CHOR] = 0;
+    t->p[P_DLY] = 99; t->p[P_REV] = 99; t->p[P_SLCR] = 1; t->p[P_SLDEPTH] = 1; t->p[P_ED_FX] = 1;
+    t->fx_sl_pos = 0;
+    memset(fx_order_tbl[1], 0xAA, FX_LIST_N);
+    trk[0].p[P_REV] = 77;
+    song.g[G_DTIME] = 0;
+    go_title("CLEAR"); frame();
+    key_down(white(3)); frame(); key_up(white(3)); frame();   /* B3 FX */
+    confirm_text(a, b);
+    bad += check("CLEAR B3 FX asks for the selected track", ui.confirm == CF_CLEAR_FX && str_eq(a, "CLEAR T2 FX?"));
+    press(B_OCTDN);
+    bad += check("cancel keeps the track FX", t->p[P_DIST] == 1 && t->p[P_REV] == 99 && t->fx_sl_pos == 0);
+    frame();
+    key_down(white(3)); frame(); key_up(white(3)); frame();
+    press(B_OCTUP);
+    ok = msg_is("FX CLEARED") && t->p[P_DIST] == TP[P_DIST].def && t->p[P_IORD] == IORD_DEF &&
+         t->p[P_CHOR] == FX_POS_DEF && t->p[P_DLY] == 0 && t->p[P_REV] == 0 && t->p[P_SLCR] == 0 &&
+         t->p[P_SLDEPTH] == TP[P_SLDEPTH].def && t->p[P_ED_FX] == TP[P_ED_FX].def && t->fx_sl_pos == 8 &&
+         !fx_order_tbl[1][0] && t->p[P_ATK] == atk && !seq_is_empty(t) && trk[0].p[P_REV] == 77 && song.g[G_DTIME] == 0;
+    bad += check("FX clears the selected track's inserts, order, sends and slicer; sound, steps, others and global FX stay", ok);
+
+    fx_master_set(INS_DLY, 1);
+    fx_bus_trk.p[P_IDMIX] = 99;
+    song.g[G_RSIZE] = 0;
+    memset(fx_order_tbl[0], 0xAA, FX_LIST_N);
+    frame();
+    key_down(white(7)); frame(); key_up(white(7)); frame();   /* F4 FX ALL */
+    confirm_text(a, b);
+    bad += check("CLEAR F4 FXS asks once for every track", ui.confirm == CF_CLEAR_ALL_FX && str_eq(a, "CLEAR ALL FX?"));
+    press(B_OCTUP);
+    ok = msg_is("ALL FX CLEARED") && !fx_master_on(INS_DLY) && fx_bus_trk.p[P_IDMIX] == TP[P_IDMIX].def &&
+         song.g[G_RSIZE] == GP[G_RSIZE].def && !fx_order_tbl[0][0] && !fx_order_tbl[1][0] &&
+         trk[0].p[P_REV] == 0 && t->p[P_REV] == 0;
+    bad += check("FX ALL clears every track, MASTER, the SEND knobs and the global FX", ok);
+
+    trk[0].p[P_REV] = 88;
+    fx_master_set(INS_DLY, 1);
+    frame();
+    key_down(black(1)); frame(); key_up(black(1)); frame();    /* G#3 ALL4: all tracks */
+    press(B_OCTUP);
+    bad += check("the all-tracks ALL also clears FX, MASTER, SEND knobs and global FX",
+                 trk[0].p[P_REV] == 0 && !fx_master_on(INS_DLY) && fx_bus_trk.p[P_IDMIX] == TP[P_IDMIX].def);
     return bad;
 }
 
@@ -1780,7 +1837,7 @@ static int test_menu_tabs(void)
     }
     ok &= MP_Y + MP_PAD + (int32_t)MTAB_ROWS * 19 - 1 + MP_PAD <= MK_Y - 6;   /* (room for MTAB_ROWS: 18 px rows 1 px apart) */
     for (i = 0; i < MI_COUNT; i++)                      /* STYLE / ANIM / ACCEL: MTAB_COUNT (hidden); every other row a real tab */
-        ok &= (i == MI_STYLE || i == MI_ANIM || i == MI_ACCEL) ? MI_TAB[i] == MTAB_COUNT : MI_TAB[i] < MTAB_COUNT;
+        ok &= (i == MI_STYLE || i == MI_ANIM || i == MI_ACCEL || i == MI_HELP) ? MI_TAB[i] == MTAB_COUNT : MI_TAB[i] < MTAB_COUNT;
     {   /* the tab bar: MT_GAP between every two tabs at every place of the slide, inside MT_X0..MT_X1 (S and LARGE) */
         int32_t a[MTAB_COUNT], x[MTAB_COUNT], w[MTAB_COUNT], p;
         for (n = 0; n < 2u; n++)
@@ -1793,11 +1850,11 @@ static int test_menu_tabs(void)
             }
     }
     ui_prefs = 0;
-    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (6 6 6 2 6 rows), 1..8 each in a run, fit the page; tab gaps "
-                 "constant (S, LARGE); STYLE/ANIM/KNOB ACCEL hidden",
+    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (6 6 6 2 5 rows), 1..8 each in a run, fit the page; tab gaps "
+                 "constant (S, LARGE); STYLE/ANIM/KNOB ACCEL/HELP hidden",
                  ok && MTAB_COUNT == 5u && str_eq(MTAB_NAME[0], "DISPLAY") && str_eq(MTAB_NAME[MTAB_MIDI], "MIDI") &&
                  mtab_rows(MTAB_DISPLAY) == 6u && MI_TAB[MI_HOME] == MTAB_DISPLAY && mtab_rows(MTAB_CONTROL) == 6u && mtab_rows(MTAB_AUDIO) == 6u &&
-                 mtab_rows(MTAB_MIDI) == 2u && MI_TAB[MI_LCLEAR] == MTAB_MIDI && mtab_rows(MTAB_SYSTEM) == 6u && MI_TAB[MI_TUNE] == MTAB_AUDIO &&   /* (1.5: LEARN CLEAR, HELP) */
+                 mtab_rows(MTAB_MIDI) == 2u && MI_TAB[MI_LCLEAR] == MTAB_MIDI && mtab_rows(MTAB_SYSTEM) == 5u && MI_TAB[MI_TUNE] == MTAB_AUDIO &&   /* (1.5: HELP retired) */
                  MI_TAB[MI_MIDIIN] == MTAB_MIDI && MI_TAB[MI_INFO] == MTAB_SYSTEM && MI_INFO >= MI_VALUES &&
                  MI_TAB[MI_STYLE] == MTAB_COUNT && MI_TAB[MI_ANIM] == MTAB_COUNT && MI_TAB[MI_ACCEL] == MTAB_COUNT);
 
@@ -8324,74 +8381,6 @@ static int test_fx_map_columns(void)
     return bad;
 }
 
-/* 1.5 (Discussion #156): HELP. MENU > SYSTEM > HELP (OFF by default, bit 3 of ui_prefs2 alone); every page a button
- * reaches (DIGITAL's retired OP pages aside), HOME, HOME LEVELS, the DRUM grid and every layer has a hint of 2..3 key
- * hints that fits its footer row with every word (cv_key_row drops none); ON: a page entered shows its hint ~2 s, then
- * the footer as before; OFF: none */
-static int help_fits(const char *s)
-{
-    khint_t kh[3];
-    char b[48];
-    uint32_t n = help_parse(s, kh, b, sizeof b), i;
-    int32_t w = 6 * ((int32_t)n - 1);
-    int ok = n >= 2u && n <= 3u;
-    for (i = 0; i < n; i++) {
-        ok &= kh[i].key < KC_COUNT && kh[i].act[0] != 0;
-        w += kh_w(kh[i].key, kh[i].act);
-    }
-    if (!ok || w > 224) printf("  help: \"%s\" %u hints, %d px of 224\n", s, n, w);
-    return ok && w <= 224;
-}
-static int test_help(void)
-{
-    int bad = 0, ok;
-    uint8_t before[32];
-    uint32_t i, l;
-    ui_power_on();
-    memcpy(before, favorites.factory[15], 32);
-    ok = !help_on() && menu_get(MI_HELP) == 0u && str_eq(MI_NAME[MI_HELP], "HELP") && MI_TAB[MI_HELP] == MTAB_SYSTEM &&
-         MI_HELP < MI_VALUES && str_eq(menu_vname(MI_HELP, 1), "ON");
-    menu_put(MI_HELP, 1);
-    ok &= help_on() && menu_get(MI_HELP) == 1u && favorites.factory[15][24] == (uint8_t)(before[24] | 8u);
-    for (i = 0; i < 32u; i++)
-        ok &= i == 24u || favorites.factory[15][i] == before[i];
-    bad += check("1.5 MENU > SYSTEM > HELP: OFF by default, ON a bit of its own (ui_prefs2 bit 3)", ok);
-
-    ok = 1;
-    for (i = 0; i < NPAGES; i++) {                     /* every page but DIGITAL's OP1..4 ENV / OP LEVEL (FM4 only) */
-        uint8_t h = ui.home, pg = ui.page;
-        if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] >= P_FM1_ATK && PAGES[i].id[0] <= P_FM4_LEVEL)
-            continue;
-        ui.home = 0; ui.page = (uint8_t)i;
-        if (!help_page()) { printf("  help: no hint for %s\n", PAGES[i].title); ok = 0; }
-        else ok &= help_fits(help_page());
-        ui.home = h; ui.page = pg;
-    }
-    ok &= help_fits(H_HOME) && help_fits(H_LEVELS) && help_fits(H_GRID);
-    for (l = LAYER_FX; l < LAYER_N; l++)
-        ok &= help_fits(HELP_LAYER[l]);
-    bad += check("1.5 HELP: a hint for every page, HOME, LEVELS, the grid and every layer; each fits its row, no word dropped", ok);
-
-    ui_power_on();
-    menu_put(MI_HELP, 1);
-    press(B_ENV);
-    ok = ui.help_t > 0u && str_eq(help_page(), "[K1-4]A D S R[ENV]ENV DEST");
-    frames(2200);
-    ok &= ui.help_t == 0u;
-    press(B_SAVE);
-    ok &= ui.help_t > 0u && cur_page()->graph == GR_BROWSE && str_eq(help_page(), "[K2]ENGINE[K3]FAV[K4]LIST");
-    press(B_HOME);
-    ok &= ui.home && ui.help_t > 0u && str_eq(help_page(), H_HOME);
-    menu_put(MI_HOME, HV_LEVELS);
-    ok &= str_eq(help_page(), H_LEVELS);
-    menu_put(MI_HOME, HV_SCOPE);
-    menu_put(MI_HELP, 0);
-    press(B_ENV);
-    ok &= ui.help_t == 0u;
-    bad += check("1.5 HELP ON: a page entered (a button, HOME) shows its hint ~2 s, then not; OFF: never", ok);
-    return bad;
-}
-
 static int test_home_tracks(void)
 {
     int bad = 0, ok;
@@ -9609,6 +9598,7 @@ int main(void)
     bad += test_clear_selected_all();
     bad += test_clear_column_keys();
     bad += test_clear_every_track_all();
+    bad += test_clear_fx();
     bad += test_tracks();
     bad += test_grid();
     bad += test_screen();
@@ -9678,7 +9668,6 @@ int main(void)
     bad += test_fm6_ops();
     bad += test_home_tracks();
     bad += test_fx_map_columns();
-    bad += test_help();
     bad += test_no_flash();
     bad += test_live_graph_rate();
     bad += test_strip_cache();

@@ -13,7 +13,6 @@ static void draw_menu(void);
 static int name_on(void);                              /* NAME (ui_name.c) */
 static uint64_t lock_held(void);                       /* parameter locks: the steps held on STEP (ui_input.c) */
 static void name_draw(void);
-#include "ui_help.c"                                   /* 1.5: HELP's hints (draw_foot, ui_layer.c draw_layer) */
 
 /* --------------------------------------------------------- drawing --- */
 #define COL_W CARD_W                                  /* a card: 57 x 44 at x 3 + 59 c, y 28 */
@@ -745,7 +744,7 @@ static void draw_foot(void)
     uint32_t sig;
     const page_t *pg = cur_page();
     const engine_t *e = ENGINES[TSEL->eng_req % NENGINES];
-    const char *ename = e->name, *help;
+    const char *ename = e->name;
     int32_t x;
     sound_name(t, pn);
     if (ui.home)
@@ -770,10 +769,6 @@ static void draw_foot(void)
     }
     if (grid_on())
         sig += 0x51EDu + (uint32_t)black_held(GK_ACC) * 977u;
-    help = ui.help_t && !ui.ml.on ? help_page() : 0;   /* 1.5, HELP ON: the page's hint for ~2 s after it was entered
-                                                       * (not while MIDI LEARN shows its line) */
-    if (help)
-        sig = str_hash(sig + 0x4E1Bu, help);
     if (ui.ml.on && !act_cols()) {                        /* MIDI LEARN (midi_learn.c): what is picked, its CC */
         ml_line(ln);
         sig += str_hash(0x1EA2u, ln);
@@ -782,9 +777,7 @@ static void draw_foot(void)
         return;
     ui.foot_sig = sig;
     cv_begin(240, H_FOOT, T_BG);
-    if (help) {                                       /* row 1: the hint in place of the steps or the OCT+ / OCT- hint */
-        help_row(help, 2);
-    } else if (act_cols()) {                          /* row 1: the OCT+ / OCT- hint in place of the steps */
+    if (act_cols()) {                                 /* row 1: the OCT+ / OCT- hint in place of the steps */
         char ha[16], hb[16];
         khint_t kh[3];
         uint32_t rn = foot_rename();
@@ -1464,6 +1457,12 @@ static void confirm_text(char *a, char *b)
     case CF_CLEAR_EVERY_TRACK_ALL:
         str_cpy(a, "CLEAR ALL TRACKS?", 24);
         break;
+    case CF_CLEAR_FX:
+        str_cpy(a, "CLEAR T1 FX?", 24); a[7] = (char)('1' + k % NTRK);
+        break;
+    case CF_CLEAR_ALL_FX:
+        str_cpy(a, "CLEAR ALL FX?", 24);
+        break;
     case CF_CLEAR_MOTION:
         str_cpy(a, "CLEAR T1 AUTOMATION?", 24); a[7] = (char)('1' + k % NTRK);
         break;
@@ -1657,8 +1656,6 @@ static void ui_draw_page(uint32_t counting)
         ui.bpm_t--;
     if (ui.hot_t)
         ui.hot_t--;
-    if (ui.help_t)
-        ui.help_t--;
     felucca_dbg.stage = 6;
     draw_foot();
     ui.force = 0;
