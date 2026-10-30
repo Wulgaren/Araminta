@@ -101,10 +101,11 @@ enum {                          /* per-track parameters */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
-/* ANALOG's OSC 2 page: MORPH and DRIFT keep their values in FM6's OP3 ATK / SUS slots, unused on an ANALOG
- * track (as JIANT did): P_COUNT is full (127), and param_desc_of names them for ANALOG. */
+/* ANALOG's OSC pages: MORPH, DRIFT and OSC B's WAVE keep their values in FM6's OP3 ATK / SUS and OP2 ATK
+ * slots, unused on an ANALOG track (as JIANT did): P_COUNT is full (127), and param_desc_of names them. */
 #define P_MORPH P_FM3_ATK
 #define P_DRIFT P_FM3_SUS
+#define P_WAVE2 P_FM2_ATK
 /* P_MUTE (params.c N_PLAY). Append-only: stored 0 plays (PLAY ON), 1 is silent (PLAY OFF). */
 enum { PLAY_ON = 0, PLAY_OFF = 1, PLAY_SOLO = 2 };
 /* 1.5 INSERT ids (np 111): migrated to the chain in project.c / upreset.c ins_migrate */

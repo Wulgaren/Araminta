@@ -184,9 +184,10 @@ static stats_t analog_note(uint32_t w, uint32_t ft, int32_t cut, int32_t res, in
     return stats(FS / 10u);
 }
 
-/* one ANALOG OSC 2 note: WAVE w, MIX, INT (P_E7), MORPH, DRIFT; the filter open, no noise or drive. Fills ren_l
- * like analog_note and resets the hash, so each call's hash is its own */
-static stats_t analog_osc2_note(uint32_t w, int32_t mix, int32_t intv, int32_t morph, int32_t drift, uint32_t note)
+/* one ANALOG OSC A/B note: WAVE w, WAVE2 w2, MIX, INT (P_E7), MORPH, DRIFT; the filter open, no noise or
+ * drive. Fills ren_l like analog_note and resets the hash, so each call's hash is its own */
+static stats_t analog_osc2_note2(uint32_t w, uint32_t w2, int32_t mix, int32_t intv, int32_t morph, int32_t drift,
+                                 uint32_t note)
 {
     track_t *t = &trk[0];
     uint32_t i, k;
@@ -195,6 +196,7 @@ static stats_t analog_osc2_note(uint32_t w, int32_t mix, int32_t intv, int32_t m
     t->p[P_VOICE] = V_POLY;
     t->p[P_FTYPE] = 0;
     t->p[P_E0] = (int16_t)w;
+    t->p[P_WAVE2] = (int16_t)w2;
     t->p[P_E1] = 0;
     t->p[P_E2] = (int16_t)mix;
     t->p[P_E3] = 0;
@@ -218,6 +220,11 @@ static stats_t analog_osc2_note(uint32_t w, int32_t mix, int32_t intv, int32_t m
     trk_note_off(t, note);
     blocks(FS / 2u / CTL);
     return stats(FS / 10u);
+}
+
+static stats_t analog_osc2_note(uint32_t w, int32_t mix, int32_t intv, int32_t morph, int32_t drift, uint32_t note)
+{
+    return analog_osc2_note2(w, w, mix, intv, morph, drift, note);
 }
 
 /* Hz of ren_l's upward zero crossings (a clean sine / square: the last 0.4 s) */
@@ -256,6 +263,21 @@ static void test_osc2(void)
     check("DRIFT 0: the same render twice (bit for bit)", hash == hd0);
     d1 = analog_osc2_note(0, 0, 0, 0, 127, 60); hd1 = hash;
     check("DRIFT 127: the voice moves (another render) and stays bounded", hd1 != hd0 && d1.peak < 32767);
+    {
+        stats_t bs = analog_osc2_note2(0, 3, 127, 0, 0, 0, 60);   /* OSC A saw, OSC B sine, B alone */
+        stats_t ss = analog_osc2_note2(3, 3, 127, 0, 0, 0, 60);
+        check("WAVE2: OSC B plays its own wave (A saw / B sine == A sine / B sine at MIX 127)",
+              fabs(bs.rms - ss.rms) < 2 && fabs(bs.peak - ss.peak) < 2);
+    }
+    (void)analog_osc2_note2(0, 1, 0, 0, 0, 0, 60); h0 = hash;     /* A alone */
+    (void)analog_osc2_note2(0, 3, 0, 0, 0, 0, 60);
+    check("WAVE2: OSC B's wave does not touch OSC A (MIX 0)", hash == h0);
+    (void)analog_osc2_note2(5, 0, 64, 0, 0, 0, 60); h0 = hash;    /* SYNC */
+    (void)analog_osc2_note2(5, 1, 64, 0, 0, 0, 60);
+    check("WAVE2: SYNC defines OSC B (the stored wave does nothing)", hash == h0);
+    (void)analog_osc2_note2(6, 0, 64, 0, 0, 0, 60); h0 = hash;    /* SUB */
+    (void)analog_osc2_note2(6, 1, 64, 0, 0, 0, 60);
+    check("WAVE2: SUB defines OSC B (the stored wave does nothing)", hash == h0);
 }
 
 static void type_bp(track_t *t) { t->p[P_FTYPE] = 1; }
@@ -276,17 +298,23 @@ static void test_filter(void)
           str_eq(d->names[0], "LP") && str_eq(d->names[1], "BP") && str_eq(d->names[2], "HP") &&
           str_eq(d->names[3], "COMB") && !motion_param(P_FTYPE));
     {
-        uint32_t i, flt = 0, osc2 = 0;
+        uint32_t i, flt = 0, osca = 0, oscb = 0;
         for (i = 0; i < NPAGES; i++) {
             if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] == P_FTYPE)
                 flt = i + 1u;
-            if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] == P_E7 && PAGES[i].id[1] == P_MORPH)
-                osc2 = i + 1u;
+            if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] == P_E0 && PAGES[i].id[1] == P_MORPH)
+                osca = i + 1u;
+            if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] == P_WAVE2 && PAGES[i].id[1] == P_E7)
+                oscb = i + 1u;
         }
-        check("EDIT > OSC 2: INT MORPH DRIFT, before FILTER",
-              osc2 && osc2 + 1u == flt && PAGES[osc2 - 1u].id[0] == P_E7 &&
-              PAGES[osc2 - 1u].id[1] == P_MORPH && PAGES[osc2 - 1u].id[2] == P_DRIFT &&
-              PAGES[osc2 - 1u].id[3] == 0xFFu);
+        check("EDIT > OSC A: WAVE MORPH DRIFT NOISE, page 1",
+              osca && osca + 1u == oscb && PAGES[osca - 1u].id[0] == P_E0 &&
+              PAGES[osca - 1u].id[1] == P_MORPH && PAGES[osca - 1u].id[2] == P_DRIFT &&
+              PAGES[osca - 1u].id[3] == P_E3);
+        check("EDIT > OSC B: WAVE INT DTN MIX, page 2",
+              oscb && oscb + 1u == flt && PAGES[oscb - 1u].id[0] == P_WAVE2 &&
+              PAGES[oscb - 1u].id[1] == P_E7 && PAGES[oscb - 1u].id[2] == P_E1 &&
+              PAGES[oscb - 1u].id[3] == P_E2);
         check("EDIT > FILTER: TYPE CUT RES DRV (ANALOG's, page 3)",
               flt && PAGES[flt - 1u].id[0] == P_FTYPE && PAGES[flt - 1u].id[1] == P_E4 &&
               PAGES[flt - 1u].id[2] == P_E5 && PAGES[flt - 1u].id[3] == P_E6);

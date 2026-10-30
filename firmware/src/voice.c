@@ -647,6 +647,7 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
     uint32_t nr = 0, fade = t->xf_on && t->xf, live = 0;
     int16_t pe_new[8];
     int32_t damt;
+    int analog;
     if (ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM || ENGINES[eng_idx(t->eng_req)] == &ENG_DRUMS) {
         midi_bend_q8[ti] = midi_bend_target[ti] = 0;
     } else {
@@ -679,11 +680,12 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
         drift_clk++;                                    /* one tick a block, whatever the parts */
     if (!live)
         goto track_render_done;
+    analog = e == &ENG_ANALOG && eng_idx(t->eng_req) == ENGI_ANALOG;   /* not the tail of a switch away */
     {   /* MORPH slewed, at most 3 of the knob's steps a block: the wave slides, it does not step */
-        int32_t g = e == &ENG_ANALOG ? clamp(p[P_MORPH], 0, 127) : 0, c = t->mo_cur;
+        int32_t g = analog ? clamp(p[P_MORPH], 0, 127) : 0, c = t->mo_cur;
         t->mo_cur = (uint8_t)(c + clamp(g - c, -3, 3));
     }
-    damt = e == &ENG_ANALOG ? clamp(p[P_DRIFT], 0, 127) : 0;   /* DRIFT (0 = still) */
+    damt = analog ? clamp(p[P_DRIFT], 0, 127) : 0;     /* DRIFT (0 = still) */
     if (!tune_cache.valid || tune_cache.cents != song.g[G_TUNE])
         tune_cache_update();
     tune = tune_cache.pitch;

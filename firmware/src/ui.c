@@ -393,8 +393,8 @@ static uint32_t layer_leds(uint32_t *br);
 static uint32_t layer_btn(void);
 
 /* FM operator pages belong to DIGITAL; they never appear on other instruments (without FELUCCA_FM4: never).
- * LANES / LANES 2 and SOUND* (GR_DXSND) a DRUM track's; OSC 2 / FILTER an ANALOG track's
- * (EDIT 2 is the other engines' second sound page; ANALOG uses OSC 2 + FILTER instead); OPERATOR,
+ * LANES / LANES 2 and SOUND* (GR_DXSND) a DRUM track's; OSC A / OSC B / FILTER an ANALOG track's
+ * (EDIT 1 / 2 are the other engines' sound pages; ANALOG uses its own three instead); OPERATOR,
  * OP ENV an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM / DRUMS (PAN/MUTE on MIXER). */
 static int page_visible(uint32_t i)
 {
@@ -409,11 +409,13 @@ static int page_visible(uint32_t i)
         return 0;
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return drum || drums;
-    if (PAGES[i].scope == SC_ENGINE && PAGES[i].id[0] == P_E4)   /* EDIT 2: not ANALOG (OSC 2 is page 2) */
+    if (PAGES[i].scope == SC_ENGINE && (PAGES[i].id[0] == P_E0 || PAGES[i].id[0] == P_E4))   /* EDIT 1 / 2 */
         return !analog;
     if (PAGES[i].id[0] == P_FTYPE)                    /* FILTER (1.5, #104): ANALOG's */
         return analog;
-    if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] == P_E7 && PAGES[i].id[1] == P_MORPH)  /* OSC 2 */
+    if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] == P_E0 && PAGES[i].id[1] == P_MORPH)  /* OSC A */
+        return analog;
+    if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] == P_WAVE2 && PAGES[i].id[1] == P_E7)  /* OSC B */
         return analog;
     if (PAGES[i].graph == GR_FMOP || PAGES[i].graph == GR_FMENV)
         return TSEL->eng_req % NENGINES == ENGI_FM6;
@@ -1466,6 +1468,8 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     }
     for (i = 0; i < 8u; i++)
         t->p[P_E0 + i] = (int16_t)e->presets[pi].e[i];
+    if (t->eng_req % NENGINES == ENGI_ANALOG)         /* OSC B starts on OSC A's wave: the preset as it was */
+        t->p[P_WAVE2] = t->p[P_E0];
     t->p[P_ATK] = e->presets[pi].env[0];
     t->p[P_DEC] = e->presets[pi].env[1];
     t->p[P_SUS] = e->presets[pi].env[2];

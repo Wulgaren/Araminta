@@ -70,12 +70,14 @@ insert effect with a dry / wet mix, Discussions #78 #177), then `TYPE` (101, ANA
 P_COUNT and P_E0 from `INFO` keeps working. Projects stay FUN10 (3840 bytes, 111 at byte 66; 16 bytes to spare). See
 "1.5: the INSERT" and "1.5: filter TYPE, ENV SYNC" below.
 
-**3.5 (ANALOG's OSC 2; P_COUNT and P_E0 unchanged):** the engine parameter E8 (`P_E7`) is `INT`, OSC 2's interval from
-OSC 1 (-24..24 semitones, `F_SEMI`), where it was `KTR` (the filter's keytracking is fixed at its old default). EDIT > OSC 2
-is `INT` / `MORPH` / `DRIFT`; EDIT > FILTER is page 3 (`TYPE CUT RES DRV`) and FILTER DRIVE is gone. `MORPH` and `DRIFT`
-are common parameters stored in FM6's OP3 ATK / SUS slots (ids 71 / 73); `DESC` names them MORPH / DRIFT on an ANALOG
-track. A project's header byte 67 bit 1 and a user preset's category byte (143) bit 7 say the new meaning; without them
-an ANALOG track loads `INT` / `MORPH` / `DRIFT` 0 and its E8 / OP3 automation is dropped. Older firmware ignores both bits.
+**3.5 (ANALOG's OSC A / OSC B; P_COUNT and P_E0 unchanged):** the engine parameter E8 (`P_E7`) is `INT`, OSC B's
+interval from OSC A (-24..24 semitones, `F_SEMI`), where it was `KTR` (the filter's keytracking is fixed at its old
+default). EDIT > OSC A is `WAVE` / `MORPH` / `DRIFT` / `NOISE`; OSC B is `WAVE` / `INT` / `DTN` / `MIX`; FILTER is
+page 3 (`TYPE CUT RES DRV`) and FILTER DRIVE is gone. `MORPH`, `DRIFT` and OSC B's `WAVE` are common parameters stored
+in FM6's OP3 ATK / SUS and OP2 ATK slots (ids 71 / 73 / 66); `DESC` names them on an ANALOG track. A project's header
+byte 67 bit 1 and a user preset's category byte (143) bit 7 say the new meaning; without them an ANALOG track loads
+`INT` / `MORPH` / `DRIFT` 0, OSC B's `WAVE` on OSC A's, and its E8 / OP automation is dropped. Older firmware ignores
+both bits.
 
 ## Framing
 
@@ -838,7 +840,7 @@ No new command or INFO tag: P_COUNT 111 and P_E0 103 (from `INFO`, with the INSE
 
 | id | label | values |
 | --- | --- | --- |
-| 101 | `TYPE` | enum LP BP HP, default LP. ANALOG's filter (Discussion #104): the state-variable filter's low-pass (as before, bit for bit), band-pass or high-pass output, CUT / RES and every cutoff routing as they are. Other engines ignore it. On the device: EDIT > FILTER (TYPE CUT RES DRV), page 3 after OSC 1 and OSC 2; ANALOG has no EDIT 2 |
+| 101 | `TYPE` | enum LP BP HP, default LP. ANALOG's filter (Discussion #104): the state-variable filter's low-pass (as before, bit for bit), band-pass or high-pass output, CUT / RES and every cutoff routing as they are. Other engines ignore it. On the device: EDIT > FILTER (TYPE CUT RES DRV), page 3 after OSC A and OSC B; ANALOG has no EDIT 1 / 2 |
 | 102 | `ESYNC` | enum OFF ON, default OFF. ENV SYNC (Discussion #175): ON, the amp envelope's ATK DEC REL (ids 1, 2, 4) are note values of the tempo (BPM, or the external clock's measured tempo) instead of 1 ms .. 10 s. On the device: ENV DEST's KNOB 4 |
 
 Both are the sound's (a factory preset or TOOLS INIT sets LP / OFF; user presets and library files store them). Neither can

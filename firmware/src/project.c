@@ -135,11 +135,11 @@
  * (bit 0 still marks the CHAIN tank bytes). Older firmware refuses a FUN19 (magic); FUN18 and older load with
  * TEMPO ON. The stored bit keeps its value across this meaning swap, and ON now means the transport keeps time.
  *
- * 3.5 (ANALOG's OSC 2): P_E7 is INT now (OSC 2's interval, -24..24), where it was KTR, and the FM3 ATK /
- * SUS slots keep MORPH / DRIFT (core.h P_MORPH / P_DRIFT), not the OP3 envelope, on an ANALOG track. Header
- * byte 67 bit 1 (free before: 1.5 wrote 0 there) says a project is read that way; a FUN19 without it loads
- * its ANALOG tracks with INT / MORPH / DRIFT 0 (the keytracking fixed at its old default, half) and drops
- * their E8 / OP3 events. The magic and size are FUN19's; older firmware ignores the bit.
+ * 3.5 (ANALOG's OSC A / OSC B): P_E7 is INT now (OSC B's interval, -24..24), where it was KTR, and the FM
+ * slots keep MORPH / DRIFT / WAVE2 (core.h P_MORPH / P_DRIFT / P_WAVE2), not the OP envelopes, on an ANALOG
+ * track. Header byte 67 bit 1 (free before: 1.5 wrote 0 there) says a project is read that way; a FUN19
+ * without it loads its ANALOG tracks with INT / MORPH / DRIFT 0, WAVE2 on P_E0's wave, and drops their
+ * E8 / OP events. The magic and size are FUN19's; older firmware ignores the bit.
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
@@ -407,10 +407,11 @@ static void proj_trk_from(proj_trk_t *d, const int16_t *p, uint32_t np, uint8_t 
     ins_migrate(d->p, np);
     d->engine = engine;                         /* (indices 0..7 of formats 1 and 2 as they were) */
     d->preset = preset;
-    if (engine == ENGI_ANALOG) {                /* KTR -> INT, and the FM3 slots were not MORPH / DRIFT */
+    if (engine == ENGI_ANALOG) {                /* KTR -> INT, and the FM slots were not MORPH / DRIFT / WAVE2 */
         d->p[P_E7] = 0;
         d->p[P_MORPH] = 0;
         d->p[P_DRIFT] = 0;
+        d->p[P_WAVE2] = d->p[P_E0];            /* OSC B on OSC A's wave: the sound as it was */
     }
     d->scl_stash_ok = 0;
     d->scl_stash[0] = d->scl_stash[1] = d->scl_stash[2] = 0;
@@ -998,15 +999,17 @@ static int proj_motion_ids(motion_store_t *m, uint32_t np)
     }
     return 1;
 }
-/* 3.5: an ANALOG track's E8 (P_E7) was KTR (0..127) and is INT (-24..24), and its FM3 ATK / SUS slots were
- * OP ENV, not MORPH / DRIFT: an older record's events there would change the sound, so they go (with their locks) */
+/* 3.5: an ANALOG track's E8 (P_E7) was KTR (0..127) and is INT (-24..24), and its FM slots were
+ * OP ENV, not MORPH / DRIFT / WAVE2: an older record's events there would change the sound, so they go
+ * (with their locks) */
 static void proj_ktr_motion(motion_store_t *m, const proj_trk_t *t)
 {
     uint32_t i, n = 0;
     for (i = 0; i < m->count && i < MOTION_MAX; i++) {
         motion_event_t *e = &m->event[i];
         uint32_t tr = e->place >> 6, id = MOTION_ID(e);
-        if (tr < NTRK && t[tr].engine == ENGI_ANALOG && (id == P_E7 || id == P_MORPH || id == P_DRIFT))
+        if (tr < NTRK && t[tr].engine == ENGI_ANALOG &&
+            (id == P_E7 || id == P_MORPH || id == P_DRIFT || id == P_WAVE2))
             continue;
         m->event[n++] = *e;
     }
@@ -1151,10 +1154,11 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         for (i = 0; i < P_COUNT; i++) def[i] = param_desc_of(q->t[t].engine, i)->def;
         params_by_count(q->t[t].p, values, np, def);
         ins_migrate(q->t[t].p, np);
-        if (!osc2 && q->t[t].engine == ENGI_ANALOG) {   /* KTR -> INT; the FM3 slots were OP ENV */
+        if (!osc2 && q->t[t].engine == ENGI_ANALOG) {   /* KTR -> INT; the FM slots were OP ENV */
             q->t[t].p[P_E7] = 0;
             q->t[t].p[P_MORPH] = 0;
             q->t[t].p[P_DRIFT] = 0;
+            q->t[t].p[P_WAVE2] = q->t[t].p[P_E0];
         }
         if (!v13)
             q->t[t].p[P_SCALE] = scl_from_v12(q->t[t].p[P_SCALE]);

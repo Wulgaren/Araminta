@@ -4,12 +4,13 @@
 
 ### ANALOG
 
-- **OSC 2 page.** EDIT > OSC 2: INT (the second oscillator's interval from OSC 1, -24..+24 semitones), MORPH
-  (the wave slides toward the next plain one; PWM narrows) and DRIFT (each voice's slow pitch / filter wander).
-  EDIT > FILTER is page 3 now, its KNOB 4 DRIVE; the KTR knob is gone (keytracking fixed at its old default).
+- **OSC A / OSC B pages.** OSC A: WAVE, MORPH (the wave slides toward the next plain one; PWM narrows), DRIFT
+  (each voice's slow pitch / filter wander), NOISE. OSC B: its own WAVE, INT (interval from OSC A, -24..+24
+  semitones), DTN, MIX; WAVE is greyed in SYNC / SUB, which define OSC B themselves. EDIT > FILTER is page 3 now,
+  its KNOB 4 DRIVE; the KTR knob is gone (keytracking fixed at its old default).
 - **Compatibility.** E8 is INT now. Older projects and user presets load it as 0, with MORPH / DRIFT 0, and drop
-  their E8 / OP3 automation; project header byte 67 bit 1 and the user preset category byte's bit 7 mark the new
-  meaning, so no format version changed.
+  their E8 / OP automation, with OSC B's wave on OSC A's; project header byte 67 bit 1 and the user preset
+  category byte's bit 7 mark the new meaning, so no format version changed.
 
 ## 3.4
 
