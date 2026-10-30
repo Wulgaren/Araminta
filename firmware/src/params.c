@@ -250,6 +250,8 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
     if (id == MSEQ_PITCH)                             /* not in p[]: the AUTOMATION list / graph still draws it */
         return &PITCH_DESC;
+    if (eng_idx(t->eng_req) == ENGI_ANALOG && (id == P_MORPH || id == P_DRIFT))
+        return id == P_MORPH ? &ANALOG_MORPH : &ANALOG_DRIFT;   /* OSC 2's two FM3 slots */
     if (id >= P_E0 && id <= P_E7) {                   /* the engine asked for (t->engine follows after a fade) */
         const engine_t *e = ENGINES[eng_idx(t->eng_req)];
         const param_desc_t *d = e->desc ? e->desc(t, id - P_E0) : 0;   /* a mode-dependent label / names */
@@ -594,7 +596,7 @@ static const page_t PAGES[] = {
     {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, EDIT_SEC_SND, {P_E4, P_E5, P_E6, P_E7}},
     /* ANALOG: page 1 OSC 1 (WAVE DTN MIX NOIS), page 2 OSC 2 (INT MORPH DRIFT), page 3 FILTER
      * (TYPE CUT RES DRV); EDIT 2 hidden (ui.c) */
-    {"OSC 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_E7, P_MORPH, P_DRIFT, 0xFF}},
+    {"OSC", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_E7, P_MORPH, P_DRIFT, 0xFF}},
     {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_FTYPE, P_E4, P_E5, P_E6}},
     /* DRUM-X kit (ui_dx.c): SOUND / SOUND 2 (SOUND 3 / X-MOD retired; FUN11 still stores dx_mot) */
     {"SOUND", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
