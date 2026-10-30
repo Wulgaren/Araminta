@@ -224,7 +224,7 @@ static stats_t analog_osc2_note2(uint32_t w, uint32_t w2, int32_t mix, int32_t i
 
 static stats_t analog_osc2_note(uint32_t w, int32_t mix, int32_t intv, int32_t morph, int32_t drift, uint32_t note)
 {
-    return analog_osc2_note2(w, w, mix, intv, morph, drift, note);
+    return analog_osc2_note2(w, 0, mix, intv, morph, drift, note);   /* WAVE2 SAME: follows OSC A */
 }
 
 /* Hz of ren_l's upward zero crossings (a clean sine / square: the last 0.4 s) */
@@ -264,19 +264,27 @@ static void test_osc2(void)
     d1 = analog_osc2_note(0, 0, 0, 0, 127, 60); hd1 = hash;
     check("DRIFT 127: the voice moves (another render) and stays bounded", hd1 != hd0 && d1.peak < 32767);
     {
-        stats_t bs = analog_osc2_note2(0, 3, 127, 0, 0, 0, 60);   /* OSC A saw, OSC B sine, B alone */
-        stats_t ss = analog_osc2_note2(3, 3, 127, 0, 0, 0, 60);
+        stats_t sa = analog_osc2_note2(3, 0, 127, 0, 0, 0, 60);   /* WAVE2 SAME, OSC A sine */
+        stats_t si = analog_osc2_note2(3, 4, 127, 0, 0, 0, 60);   /* WAVE2 SIN */
+        check("WAVE2 SAME: OSC B follows OSC A", fabs(sa.rms - si.rms) < 2 && fabs(sa.peak - si.peak) < 2);
+        (void)analog_osc2_note2(0, 0, 127, 0, 0, 0, 60); h0 = hash;
+        (void)analog_osc2_note2(3, 0, 127, 0, 0, 0, 60);
+        check("WAVE2 SAME: changing OSC A changes OSC B with it", hash != h0);
+    }
+    {
+        stats_t bs = analog_osc2_note2(0, 4, 127, 0, 0, 0, 60);   /* OSC A saw, OSC B sine, B alone */
+        stats_t ss = analog_osc2_note2(3, 4, 127, 0, 0, 0, 60);
         check("WAVE2: OSC B plays its own wave (A saw / B sine == A sine / B sine at MIX 127)",
               fabs(bs.rms - ss.rms) < 2 && fabs(bs.peak - ss.peak) < 2);
     }
-    (void)analog_osc2_note2(0, 1, 0, 0, 0, 0, 60); h0 = hash;     /* A alone */
-    (void)analog_osc2_note2(0, 3, 0, 0, 0, 0, 60);
+    (void)analog_osc2_note2(0, 2, 0, 0, 0, 0, 60); h0 = hash;     /* A alone */
+    (void)analog_osc2_note2(0, 4, 0, 0, 0, 0, 60);
     check("WAVE2: OSC B's wave does not touch OSC A (MIX 0)", hash == h0);
-    (void)analog_osc2_note2(5, 0, 64, 0, 0, 0, 60); h0 = hash;    /* SYNC */
-    (void)analog_osc2_note2(5, 1, 64, 0, 0, 0, 60);
+    (void)analog_osc2_note2(5, 1, 64, 0, 0, 0, 60); h0 = hash;    /* SYNC */
+    (void)analog_osc2_note2(5, 2, 64, 0, 0, 0, 60);
     check("WAVE2: SYNC defines OSC B (the stored wave does nothing)", hash == h0);
-    (void)analog_osc2_note2(6, 0, 64, 0, 0, 0, 60); h0 = hash;    /* SUB */
-    (void)analog_osc2_note2(6, 1, 64, 0, 0, 0, 60);
+    (void)analog_osc2_note2(6, 1, 64, 0, 0, 0, 60); h0 = hash;    /* SUB */
+    (void)analog_osc2_note2(6, 2, 64, 0, 0, 0, 60);
     check("WAVE2: SUB defines OSC B (the stored wave does nothing)", hash == h0);
 }
 

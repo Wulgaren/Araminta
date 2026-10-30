@@ -1468,8 +1468,8 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     }
     for (i = 0; i < 8u; i++)
         t->p[P_E0 + i] = (int16_t)e->presets[pi].e[i];
-    if (t->eng_req % NENGINES == ENGI_ANALOG)         /* OSC B starts on OSC A's wave: the preset as it was */
-        t->p[P_WAVE2] = t->p[P_E0];
+    if (t->eng_req % NENGINES == ENGI_ANALOG)         /* OSC B SAME: follows OSC A, as the preset was */
+        t->p[P_WAVE2] = 0;
     t->p[P_ATK] = e->presets[pi].env[0];
     t->p[P_DEC] = e->presets[pi].env[1];
     t->p[P_SUS] = e->presets[pi].env[2];

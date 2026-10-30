@@ -72,7 +72,8 @@ P_COUNT and P_E0 from `INFO` keeps working. Projects stay FUN10 (3840 bytes, 111
 
 **3.5 (ANALOG's OSC A / OSC B; P_COUNT and P_E0 unchanged):** the engine parameter E8 (`P_E7`) is `INT`, OSC B's
 interval from OSC A (-24..24 semitones, `F_SEMI`), where it was `KTR` (the filter's keytracking is fixed at its old
-default). EDIT > OSC A is `WAVE` / `MORPH` / `DRIFT` / `NOISE`; OSC B is `WAVE` / `INT` / `DTN` / `MIX`; FILTER is
+default). EDIT > OSC A is `WAVE` / `MORPH` / `DRIFT` / `NOISE`; OSC B is `WAVE` (SAME = 0 follows OSC A; 1..5 = SAW SQR TRI SIN
+PWM) / `INT` / `DTN` / `MIX`; FILTER is
 page 3 (`TYPE CUT RES DRV`) and FILTER DRIVE is gone. `MORPH`, `DRIFT` and OSC B's `WAVE` are common parameters stored
 in FM6's OP3 ATK / SUS and OP2 ATK slots (ids 71 / 73 / 66); `DESC` names them on an ANALOG track. A project's header
 byte 67 bit 1 and a user preset's category byte (143) bit 7 say the new meaning; without them an ANALOG track loads

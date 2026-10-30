@@ -102,7 +102,8 @@ enum {                          /* per-track parameters */
     P_COUNT
 };
 /* ANALOG's OSC pages: MORPH, DRIFT and OSC B's WAVE keep their values in FM6's OP3 ATK / SUS and OP2 ATK
- * slots, unused on an ANALOG track (as JIANT did): P_COUNT is full (127), and param_desc_of names them. */
+ * slots, unused on an ANALOG track (as JIANT did): P_COUNT is full (127), and param_desc_of names them.
+ * P_WAVE2 is OSC B's WAVE, 0 = SAME (follows OSC A), 1..5 = SAW .. PWM. */
 #define P_MORPH P_FM3_ATK
 #define P_DRIFT P_FM3_SUS
 #define P_WAVE2 P_FM2_ATK
