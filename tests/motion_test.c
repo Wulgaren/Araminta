@@ -189,6 +189,13 @@ static int fun7_89(void)
     t->p[P_FM1_ATK] = 33; t->p[P_REV] = 20;
     t->step[2] = (step_t){{60, 64, 67}, 3, ST_NOTE, 0, 100};
     project_capture(&before);
+    for (k = 0; k < NTRK; k++)
+        if (before.t[k].engine == ENGI_ANALOG) {         /* 3.5: E8 / FM3 are INT / MORPH / DRIFT, 0 before */
+            before.t[k].p[P_E7] = 0;
+            before.t[k].p[P_MORPH] = 0;
+            before.t[k].p[P_DRIFT] = 0;
+            before.t[k].p[P_WAVE2] = 0;      /* SAME */
+        }
     memset(&m, 0, sizeof m);                                       /* as the 89-parameter firmware numbered them */
     m.count = 3; m.on = 1;
     m.event[0] = (motion_event_t){3, P_REV, 90};

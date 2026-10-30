@@ -186,7 +186,7 @@ static int track_ok(const proj_trk_t *n, const proj_trk_v2_t *o, uint32_t t, int
     for (k = P_M1SRC; k <= P_M4AMT; k++)
         ok &= n->p[k] == 0;                     /* every matrix slot OFF */
     for (k = 0; k < 8u; k++)
-        ok &= n->p[P_E0 + k] == oldv(t, 45u + k);
+        ok &= n->p[P_E0 + k] == (k == 7u && o->engine == ENGI_ANALOG ? 0 : oldv(t, 45u + k));
     return ok;
 }
 
@@ -220,7 +220,7 @@ static int track_v3_ok(const proj_trk_t *n, const proj_trk_v3_t *o, uint32_t t)
     for (k = P_M1SRC; k <= P_M4AMT; k++)
         ok &= n->p[k] == TP[k].def && TP[k].def == 0;
     for (k = 0; k < 8u; k++)
-        ok &= n->p[P_E0 + k] == oldv3(t, 49u + k);
+        ok &= n->p[P_E0 + k] == (k == 7u && o->engine == ENGI_ANALOG ? 0 : oldv3(t, 49u + k));
     return ok;
 }
 
@@ -422,6 +422,45 @@ static int tape_wire(void)
     return check("FUN19: the 10-stage order, TAPE globals/TEMPO and MASTER owners round trip; FUN18/16 get defaults", ok);
 }
 
+/* 3.5: ANALOG's E8 is INT (was KTR) and the FM3 slots are MORPH / DRIFT; header byte 67 bit 1 marks a record
+ * that means it. Without the bit, ANALOG loads the three as 0 and drops their motion. */
+static int osc2_migration(void)
+{
+    project_t q, loaded; project_store_t st;
+    uint32_t sum = 0;
+    int bad = 0, ok;
+    memset(&q, 0, sizeof q);
+    q.magic = PROJ_MAGIC; q.size = sizeof q; q.parts = NPART; q.phys = PROJ_PHYS;
+    chain_defaults(&q.chain); memcpy(q.dx, DX_KIT_DEF, sizeof q.dx);
+    q.t[1].engine = ENGI_ANALOG;
+    q.t[1].p[P_E0] = 3; q.t[1].p[P_E7] = 12; q.t[1].p[P_MORPH] = 30; q.t[1].p[P_DRIFT] = 40;
+    q.t[1].p[P_WAVE2] = 0;                             /* SAME */
+    q.motion.count = 4; q.motion.on = 1;
+    q.motion.event[0] = (motion_event_t){(uint8_t)(1u << 6), P_E7, 12};
+    q.motion.event[1] = (motion_event_t){(uint8_t)(1u << 6), P_MORPH, 30};
+    q.motion.event[2] = (motion_event_t){(uint8_t)(1u << 6), P_DRIFT, 40};
+    q.motion.event[3] = (motion_event_t){(uint8_t)(1u << 6), P_WAVE2, 1};
+    ok = proj_pack(&st, &q) && (st.raw[67] & 2u) && proj_import(&loaded, &st, sizeof st);
+    bad += check("OSC A/B: a new record keeps INT / MORPH / DRIFT / WAVE2 and their motion",
+                 ok && loaded.t[1].p[P_E7] == 12 && loaded.t[1].p[P_MORPH] == 30 &&
+                 loaded.t[1].p[P_DRIFT] == 40 && loaded.t[1].p[P_WAVE2] == 0 &&
+                 loaded.motion.count == 4);
+    q.t[1].p[P_WAVE2] = 2;                             /* an explicit SQR */
+    ok = proj_pack(&st, &q) && proj_import(&loaded, &st, sizeof st);
+    bad += check("OSC B: an explicit WAVE survives a round trip", ok && loaded.t[1].p[P_WAVE2] == 2);
+    q.t[1].p[P_WAVE2] = 4;                             /* stale FM2 ATK from a track that was FM6 */
+    ok = proj_pack(&st, &q);
+    st.raw[67] &= (uint8_t)~2u;                          /* what firmware before 3.5 wrote */
+    sum = proj_hash(st.raw, PROJ_STORE_SIZE - 4u);
+    memcpy(st.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+    ok = ok && proj_import(&loaded, &st, sizeof st);
+    bad += check("OSC A/B: an older record loads them 0, WAVE2 SAME, and drops their motion",
+                 ok && loaded.t[1].p[P_E7] == 0 && loaded.t[1].p[P_MORPH] == 0 &&
+                 loaded.t[1].p[P_DRIFT] == 0 && loaded.t[1].p[P_WAVE2] == 0 &&
+                 loaded.motion.count == 0);
+    return bad;
+}
+
 int main(void)
 {
     static project_v4_t v4;
@@ -437,7 +476,7 @@ int main(void)
         project_v1_t v1;
     } buf;
     uint32_t i, t;
-    int bad = fx_motion_wire() + tape_wire(), ok;
+    int bad = fx_motion_wire() + tape_wire() + osc2_migration(), ok;
 
     bad += check("layout: SLICER after DETUNE, then the matrix just before P_E0",
                  P_SLCR == P_DETUNE + 1 && P_SLDEPTH + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD && P_VOIC + 1 == P_LN0 &&
@@ -536,6 +575,14 @@ int main(void)
                  q2.t[2].p[P_M2AMT] == -17 && q2.t[0].step[0].n == 2u && q2.t[0].step[0].hit == 1u << DV_SNARE);
     q.t[0].engine = 3;
     q.t[0].step[0] = q.t[0].step[1];
+    for (t = 0; t < NTRK; t++) {                      /* an older format has no OSC 2: the engine's defaults */
+        int an = q.t[t].engine == ENGI_ANALOG;
+        if (an)
+            q.t[t].p[P_E7] = 0;
+        q.t[t].p[P_MORPH] = an ? 0 : TP[P_MORPH].def;
+        q.t[t].p[P_DRIFT] = an ? 0 : TP[P_DRIFT].def;
+        q.t[t].p[P_WAVE2] = an ? 0 : TP[P_WAVE2].def;
+    }
     q.sum = proj_sum(&q);
 
     {
@@ -576,6 +623,14 @@ int main(void)
     }
 
     /* format 4 (1.0 development builds): 8-byte steps; a DRUM track's lane notes become its grid */
+    for (t = 0; t < NTRK; t++) {
+        int an = q.t[t].engine == ENGI_ANALOG;
+        if (an)
+            q.t[t].p[P_E7] = 0;
+        q.t[t].p[P_MORPH] = an ? 0 : TP[P_MORPH].def;
+        q.t[t].p[P_DRIFT] = an ? 0 : TP[P_DRIFT].def;
+        q.t[t].p[P_WAVE2] = an ? 0 : TP[P_WAVE2].def;
+    }
     to_v4(&v4, &q);
     bad += check("FUN4 image is 2680 bytes (as stored)", sizeof v4 == 2680u);
     memcpy(&buf, &v4, sizeof v4);
@@ -1145,9 +1200,10 @@ int main(void)
                      ok && c.t[0].p[P_ICBITS] == 40 && c.t[0].p[P_ICRATE] == 50 &&
                      c.t[0].p[P_ICLPF] == 60 && c.t[0].p[P_ICMIX] == 110 &&
                      c.t[0].p[P_DIST] == 70 && c.t[0].p[P_IDMIX] == 127);
-        bad += check("FUNA np111: FTYPE/ESYNC and engine values kept",
+        bad += check("FUNA np111: FTYPE/ESYNC and engine values kept (KTR -> INT 0)",
                      ok && c.t[0].p[P_FTYPE] == 1 && c.t[0].p[P_ESYNC] == 1 &&
-                     c.t[0].p[P_E0] == 20 && c.t[0].p[P_E7] == 27 && c.t[0].p[P_LEVEL] == 100);
+                     c.t[0].p[P_E0] == 20 && c.t[0].p[P_E7] == 0 && c.t[0].p[P_MORPH] == 0 &&
+                     c.t[0].p[P_DRIFT] == 0 && c.t[0].p[P_LEVEL] == 100);
         bad += check("FUNA np111: factory DRUM-X kit, CHAIN reverb = SEND, name kept",
                      ok && !memcmp(c.dx, DX_KIT_DEF, sizeof c.dx) && !c.dx_mute &&
                      c.g[G_CRTYPE] == c.g[G_RTYPE] && c.g[G_CRSIZE] == c.g[G_RSIZE] &&

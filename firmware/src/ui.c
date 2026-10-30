@@ -393,8 +393,8 @@ static uint32_t layer_leds(uint32_t *br);
 static uint32_t layer_btn(void);
 
 /* FM operator pages belong to DIGITAL; they never appear on other instruments (without FELUCCA_FM4: never).
- * LANES / LANES 2 and SOUND* (GR_DXSND) a DRUM track's; FILTER / FILTER DRIVE an ANALOG track's
- * (EDIT 2 is the other engines' second sound page; ANALOG uses FILTER + FILTER DRIVE instead); OPERATOR,
+ * LANES / LANES 2 and SOUND* (GR_DXSND) a DRUM track's; OSC A / OSC B / FILTER an ANALOG track's
+ * (EDIT 1 / 2 are the other engines' sound pages; ANALOG uses its own three instead); OPERATOR,
  * OP ENV an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM / DRUMS (PAN/MUTE on MIXER). */
 static int page_visible(uint32_t i)
 {
@@ -409,12 +409,13 @@ static int page_visible(uint32_t i)
         return 0;
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return drum || drums;
-    if (PAGES[i].scope == SC_ENGINE && PAGES[i].id[0] == P_E4)   /* EDIT 2: not ANALOG (FILTER is page 2) */
+    if (PAGES[i].scope == SC_ENGINE && (PAGES[i].id[0] == P_E0 || PAGES[i].id[0] == P_E4))   /* EDIT 1 / 2 */
         return !analog;
     if (PAGES[i].id[0] == P_FTYPE)                    /* FILTER (1.5, #104): ANALOG's */
         return analog;
-    if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] == P_E6 && PAGES[i].id[1] == 0xFFu)  /* FILTER DRIVE */
-        return analog;
+    if (PAGES[i].fam == FAM_EDIT && ((PAGES[i].id[0] == P_E0 && PAGES[i].id[1] == P_MORPH) ||
+                                     (PAGES[i].id[0] == P_WAVE2 && PAGES[i].id[1] == P_E7)))
+        return analog;                                /* OSC A / OSC B */
     if (PAGES[i].graph == GR_FMOP || PAGES[i].graph == GR_FMENV)
         return TSEL->eng_req % NENGINES == ENGI_FM6;
     /* DELAY / SLICER: hide when this track is USED (another track owns CHAIN). EFFECTS list
@@ -1460,6 +1461,10 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     for (i = 0; i < P_E0; i++)                        /* the rest of the sound to its defaults: a preset */
         if (!param_kept(i))                           /* sounds the same after any edit */
             t->p[i] = TP[i].def;
+    if (t->eng_req % NENGINES == ENGI_ANALOG) {       /* OSC 2: the FM3 slots are MORPH / DRIFT, 0 at preset */
+        t->p[P_MORPH] = 0;
+        t->p[P_DRIFT] = 0;
+    }
     for (i = 0; i < 8u; i++)
         t->p[P_E0 + i] = (int16_t)e->presets[pi].e[i];
     t->p[P_ATK] = e->presets[pi].env[0];

@@ -286,13 +286,15 @@ int main(void)
          P_VOIC + 1 == P_LN0 && P_LN7 + 1 == P_LSYNC && P_SQNT + 1 == P_SPRD && P_SPRD + 1 == P_IORD &&
          P_IHMIX + 1 == P_FTYPE && P_ESYNC + 1 == P_E0 && P_E0 == 119 && P_COUNT == 127;
     for (i = 0; i < 45u; i++)
-        ok &= v[i] == (i == P_CHOR ? (int16_t)(64 + 6 + (7 << 3)) : (int16_t)(2000 + i)); /* CHO send -> FXPOS */
+        ok &= v[i] == (i == P_CHOR ? (int16_t)(64 + 6 + (7 << 3))
+                                    : r.engine == ENGI_ANALOG && (i == P_MORPH || i == P_DRIFT) ? 0   /* 3.5 */
+                                    : (int16_t)(2000 + i)); /* CHO send -> FXPOS */
     for (i = P_SLCR; i < P_IORD; i++)
-        ok &= v[i] == def[i];
+        ok &= v[i] == (r.engine == ENGI_ANALOG && (i == P_MORPH || i == P_DRIFT || i == P_WAVE2) ? 0 : def[i]);
     ok &= v[P_IORD] == (int16_t)IORD_DEF && v[P_IDMODE] == IDM_SOFT && v[P_IFTYPE] == IFT_LP &&
           !v[P_FTYPE] && !v[P_ESYNC];
     for (i = 0; i < 8u; i++)
-        ok &= v[P_E0 + i] == (int16_t)(2000 + 45 + i);
+        ok &= v[P_E0 + i] == (i == 7u && r.engine == ENGI_ANALOG ? 0 : (int16_t)(2000 + 45 + i));
     bad += check("old record (np 53): SLICER and matrix defaults, insert chain migrated, E0..E7 kept", ok);
     /* a record saved before the modulation matrix (P_COUNT 57, P_E0 49): the twelve matrix parameters (just
      * before P_E0) take their defaults (every slot OFF), the SLICER and everything else keep their ids */
@@ -302,11 +304,13 @@ int main(void)
     up_params(&r, v, def);
     ok = 1;
     for (i = 0; i < 49u; i++)
-        ok &= v[i] == (i == P_CHOR ? (int16_t)(64 + 6 + (7 << 3)) : (int16_t)(3000 + i));
+        ok &= v[i] == (i == P_CHOR ? (int16_t)(64 + 6 + (7 << 3))
+                                    : r.engine == ENGI_ANALOG && (i == P_MORPH || i == P_DRIFT) ? 0
+                                    : (int16_t)(3000 + i));
     for (i = P_M1SRC; i <= P_M4AMT; i++)
         ok &= v[i] == def[i];
     for (i = 0; i < 8u; i++)
-        ok &= v[P_E0 + i] == (int16_t)(3000 + 49 + i);
+        ok &= v[P_E0 + i] == (i == 7u && r.engine == ENGI_ANALOG ? 0 : (int16_t)(3000 + 49 + i));
     bad += check("old record (np 57): SLICER kept, matrix defaults, E0..E7 kept", ok);
     /* records of versions 4 (packed bytes) and 5 (a drum grid) saved before the DRUM lane levels (1.0.x: P_COUNT 91,
      * P_E0 83), before the chord keys (89, P_E0 81) and before the FM operator ENVs (69, P_E0 61): their engine
@@ -372,7 +376,7 @@ int main(void)
         bad += check("1.5 preset: CRUSH INSERT migrates into the chain",
                      v[P_ICBITS] == 40 && v[P_ICRATE] == 50 && v[P_ICLPF] == 60 && v[P_ICMIX] == 110 &&
                      v[P_DIST] == 70 && v[P_IDMIX] == 127 && v[P_FTYPE] == 2 && v[P_ESYNC] == 1 &&
-                     v[P_E0] == 20 && v[P_E7] == 27);
+                     v[P_E0] == 20 && v[P_E7] == 0 && v[P_WAVE2] == 0);
         o.packed[96] = (uint8_t)(0 + 64);              /* TYPE OFF */
         up_params(&o, v, def);
         bad += check("1.5 preset: INSERT TYPE OFF stays dry",
@@ -405,7 +409,8 @@ int main(void)
         a[n - 1u] = CAT_N;
         ok &= up_parse(a, n, &got, &slot) == 1;
         n = put_frame(a, 17, ENGI_DRUM, "KIT", 0);
-        ok &= !up_parse(a, n, &got, &slot) && up_cat_of(&got) == CAT_DRUM && !got.packed[UP_CAT_AT];
+        ok &= !up_parse(a, n, &got, &slot) && up_cat_of(&got) == CAT_DRUM &&
+              !(got.packed[UP_CAT_AT] & 0x7Fu) && (got.packed[UP_CAT_AT] & UP_OSC2);
         bad += check("category: UP_PUT's last byte, none = the engine's", ok);
         memset(&up_bank[1], 0, sizeof up_bank[1]);
         up_bank[1].magic = UP_BANK_MAGIC; up_bank[1].rsize = sizeof(up_rec_t); up_bank[1].nslot = UP_PER_BANK;

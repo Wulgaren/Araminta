@@ -1,17 +1,17 @@
 # FELUCCA golden renders (tests/regress.c): name, FNV-1a 64 of the output samples.
 # Rewritten by GOLDEN_UPDATE=1 tests/run_tests.sh -- only for an intended change of the sound.
 preset/ANALOG/00_SAW_LEAD ac6a038fad0a57bc
-preset/ANALOG/01_SOFT_PAD 81d02a09b911ddb0
+preset/ANALOG/01_SOFT_PAD 7fe020eb86b509a4
 preset/ANALOG/02_SQR_BASS 7575ec40b9d72658
-preset/ANALOG/03_PWM_STR 53869964c98376ac
+preset/ANALOG/03_PWM_STR 6c80e5220e5f45e8
 preset/ANALOG/04_ACID 515ec49e6e60e1b4
-preset/ANALOG/05_SINE_KEY ed4d25a170a74994
+preset/ANALOG/05_SINE_KEY fcc730557433f8d8
 preset/ANALOG/06_RAVE 38cbd6ad9f221234
-preset/ANALOG/07_SUB_BASS 494b91d900b36aec
+preset/ANALOG/07_SUB_BASS fed6c442eecd7c70
 preset/ANALOG/08_PLUCK ad4875a61a3d2ac8
 preset/ANALOG/09_BRASS 2df3bfbf78fd1c20
-preset/ANALOG/10_WIND 9d378c707bdbf55c
-preset/ANALOG/11_STRINGS b292480ca1ef7bc4
+preset/ANALOG/10_WIND df72393f840b5914
+preset/ANALOG/11_STRINGS dd2f3a8a72318df4
 preset/ANALOG/12_SUPER_SAW e844f006ccad8c9c
 preset/PHASE/00_BRASS 874712eaf514021c
 preset/PHASE/01_ORGAN fc419cff12466cb0
@@ -91,12 +91,12 @@ mode/VOICE/POLY 7455a5cf03320068
 mode/VOICE/MONO 09d73f4a3d6333f4
 mode/VOICE/LEGATO f3dcbb62fb282fa0
 mode/VOICE/UNISON 2bf08e0936d195dc
-sends/ANALOG/dry 48d6d38da94549d4
-sends/ANALOG/chorus 48d6d38da94549d4
-sends/ANALOG/delay d4778674e3c74918
-sends/ANALOG/reverb 217d0dceb6ded8e8
-sends/ANALOG/all 8f9733efbab5f2fc
-sends/ANALOG/dist 4d70625d9b876788
+sends/ANALOG/dry 5ea654b77d0c4318
+sends/ANALOG/chorus 5ea654b77d0c4318
+sends/ANALOG/delay 473800dd228b1e34
+sends/ANALOG/reverb 38389d5d7db71244
+sends/ANALOG/all c811eef27a8fc958
+sends/ANALOG/dist 1b3f796a234ea67c
 song/4track_mix 08558c1a8c515b54
 slicer/gate/ANALOG_ACID 5ccd53e1190d2180
 slicer/song_gate_stut 4258901e17c74104
