@@ -759,7 +759,9 @@ in 1/16 of a step) after the locks tag (`4C 01 1`). Firmware without them: 64 re
   track's voices alternate left and right of PAN by SPRD / 2 (127: hard left / right); MONO and LEGATO ignore it. It is
   the sound's (a factory preset sets 0, user presets store it) and can be recorded as motion. The engine parameters are
   96..103. ANALOG's `WAVE` (E0) gained 5 SYNC (OSC 2 hard-synced to OSC 1, DTN its interval, the SHP routings sweep it)
-  and 6 SUB (OSC 2 a square an octave below, MIX its level); `DESC` keeps DTN / MIX's labels (the device relabels them).
+  and 6 SUB (OSC 2 a square an octave below, MIX its level); 7 SUPER (one saw plus six detuned copies in the same voice,
+  DTN the spread, MIX the copies' level); `DESC` keeps DTN / MIX's labels (the device relabels them: SYNC, SUB,
+  SPRD, SWARM). The factory presets gained 12 SUPER SAW (WAVE 7), appended: the indices before it are as they were.
 - **Nudge:** the byte after the ratchet in `STEP_GET` / `STEP_SET` / `TRACK_STEP` (a change on the device pushes
   `STEP_CHANGED`), nudge + 8 (0..15:
   −8 = half a step early .. +7 = 7/16 late, 8 = on the step). A write without it keeps the step's. The device records it
