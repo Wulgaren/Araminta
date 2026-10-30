@@ -80,7 +80,7 @@ static int ed_menu_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         {
             /* STYLE / ANIM: retired, still DISPLAY; KNOB ACCEL: retired, still CONTROL */
             uint8_t tab = MI_TAB[row] < MTAB_COUNT ? MI_TAB[row]
-                        : row == MI_ACCEL ? MTAB_CONTROL : MTAB_DISPLAY;
+                        : row == MI_ACCEL ? MTAB_CONTROL : row == MI_HELP ? MTAB_SYSTEM : MTAB_DISPLAY;
             ed_b(tab);                                 /* (after the names: an older editor stops before it) */
             ed_str(MTAB_NAME[tab], 12);
         }

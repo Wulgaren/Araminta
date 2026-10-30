@@ -117,8 +117,7 @@ static int page_cycle(void)
         page_title(ti);
         ok = str_eq(ti, "DETAIL 3/3");
     }
-    ok &= help_page() && str_eq(help_page(), "[PRESETS]STEP[K1]CHANCE[K2]RATCH");
-    bad += check("  its footer title DETAIL 3/3 (not the scale), its HELP hint", ok);
+    bad += check("  its footer title DETAIL 3/3 (not the scale)", ok);
     return bad;
 }
 

@@ -321,6 +321,7 @@ static void go_title(const char *title);          /* forward: go_seq_step */
 static void key_down(uint32_t k);
 static void key_up(uint32_t k);
 static uint32_t white(uint32_t w);
+static uint32_t black(uint32_t b);
 static void go_seq_step(void) { go_title("STEP"); } /* SEQ opens STEP; grid / roll / step rec */
 static void project_not_empty(void)  /* free-take steals step keys when every track is empty */
 {
@@ -1137,14 +1138,14 @@ static int test_clear_selected_all(void)
     chain_config.row[0] = chain_row_of(0, 1);
     uint32_t selected_before = track_sig(t), other_before = track_sig(&trk[0]);
     go_title("CLEAR"); frame();
-    key_down(white(3)); frame(); key_up(white(3)); frame();   /* B3 ALL for selected track */
+    key_down(black(0)); frame(); key_up(black(0)); frame();   /* F#3 ALL for selected track */
     confirm_text(a, b);
-    bad += check("CLEAR B3 ALL asks once for the selected track", ui.confirm && str_eq(a, "CLEAR T2 ALL?"));
+    bad += check("CLEAR F#3 ALL asks once for the selected track", ui.confirm && str_eq(a, "CLEAR T2 ALL?"));
     press(B_OCTDN);
     bad += check("cancel selected ALL preserves sound, pattern, automation and song", !ui.confirm &&
                  track_sig(t) == selected_before && track_sig(&trk[0]) == other_before && chain_config.count == 1);
     frame();
-    key_down(white(3)); frame(); key_up(white(3)); frame();
+    key_down(black(0)); frame(); key_up(black(0)); frame();
     press(B_OCTUP);
     bad += check("selected ALL initializes sound and clears pattern and automation only for T2", !ui.confirm &&
                  seq_is_empty(t) && !motion_count(t) && t->p[P_E0] == base_sound &&
@@ -1188,21 +1189,77 @@ static int test_clear_every_track_all(void)
     chain_config.count = 1;
     chain_config.row[0] = chain_row_of(0, 1);
     go_title("CLEAR"); frame();
-    key_down(white(7)); frame(); key_up(white(7)); frame();   /* F4 ALL for every track */
+    key_down(black(1)); frame(); key_up(black(1)); frame();   /* G#3 ALL4 for every track */
     confirm_text(a, b);
-    bad += check("CLEAR F4 ALL asks once for every track", ui.confirm && str_eq(a, "CLEAR ALL TRACKS?"));
+    bad += check("CLEAR G#3 ALL4 asks once for every track", ui.confirm && str_eq(a, "CLEAR ALL TRACKS?"));
     press(B_OCTDN);
     for (i = 0; i < NTRK; i++)
         ok &= track_sig(&trk[i]) == before[i];
     bad += check("cancel every-track ALL preserves sound, patterns, automation and song", ok && !ui.confirm &&
                  song.sel == 2 && chain_config.count == 1);
     frame();
-    key_down(white(7)); frame(); key_up(white(7)); frame();
+    key_down(black(1)); frame(); key_up(black(1)); frame();
     press(B_OCTUP);
     for (ok = 1, i = 0; i < NTRK; i++)
         ok &= seq_is_empty(&trk[i]) && !motion_count(&trk[i]) && trk[i].p[P_E0] == base_sound[i];
     bad += check("every-track ALL initializes all sounds and clears all patterns and automation, keeps song", ok &&
                  !ui.confirm && song.sel == 2 && chain_config.count == 1);
+    return bad;
+}
+
+/* SAVE > CLEAR's FX cells (FX on B3, FX ALL on F4): inserts, order, sends and slicer; the ALL keys include it */
+static int test_clear_fx(void)
+{
+    int bad = 0, ok;
+    char a[24], b[24];
+    track_t *t = &trk[1];
+    int16_t atk;
+    ui_power_on();
+    song.sel = 1;
+    atk = t->p[P_ATK];
+    my_steps(t);
+    t->p[P_DIST] = 1; t->p[P_IORD] = 0; t->p[P_CHOR] = 0;
+    t->p[P_DLY] = 99; t->p[P_REV] = 99; t->p[P_SLCR] = 1; t->p[P_SLDEPTH] = 1; t->p[P_ED_FX] = 1;
+    t->fx_sl_pos = 0;
+    memset(fx_order_tbl[1], 0xAA, FX_LIST_N);
+    trk[0].p[P_REV] = 77;
+    song.g[G_DTIME] = 0;
+    go_title("CLEAR"); frame();
+    key_down(white(3)); frame(); key_up(white(3)); frame();   /* B3 FX */
+    confirm_text(a, b);
+    bad += check("CLEAR B3 FX asks for the selected track", ui.confirm == CF_CLEAR_FX && str_eq(a, "CLEAR T2 FX?"));
+    press(B_OCTDN);
+    bad += check("cancel keeps the track FX", t->p[P_DIST] == 1 && t->p[P_REV] == 99 && t->fx_sl_pos == 0);
+    frame();
+    key_down(white(3)); frame(); key_up(white(3)); frame();
+    press(B_OCTUP);
+    ok = msg_is("FX CLEARED") && t->p[P_DIST] == TP[P_DIST].def && t->p[P_IORD] == IORD_DEF &&
+         t->p[P_CHOR] == FX_POS_DEF && t->p[P_DLY] == 0 && t->p[P_REV] == 0 && t->p[P_SLCR] == 0 &&
+         t->p[P_SLDEPTH] == TP[P_SLDEPTH].def && t->p[P_ED_FX] == TP[P_ED_FX].def && t->fx_sl_pos == 8 &&
+         !fx_order_tbl[1][0] && t->p[P_ATK] == atk && !seq_is_empty(t) && trk[0].p[P_REV] == 77 && song.g[G_DTIME] == 0;
+    bad += check("FX clears the selected track's inserts, order, sends and slicer; sound, steps, others and global FX stay", ok);
+
+    fx_master_set(INS_DLY, 1);
+    fx_bus_trk.p[P_IDMIX] = 99;
+    song.g[G_RSIZE] = 0;
+    memset(fx_order_tbl[0], 0xAA, FX_LIST_N);
+    frame();
+    key_down(white(7)); frame(); key_up(white(7)); frame();   /* F4 FX ALL */
+    confirm_text(a, b);
+    bad += check("CLEAR F4 FXS asks once for every track", ui.confirm == CF_CLEAR_ALL_FX && str_eq(a, "CLEAR ALL FX?"));
+    press(B_OCTUP);
+    ok = msg_is("ALL FX CLEARED") && !fx_master_on(INS_DLY) && fx_bus_trk.p[P_IDMIX] == TP[P_IDMIX].def &&
+         song.g[G_RSIZE] == GP[G_RSIZE].def && !fx_order_tbl[0][0] && !fx_order_tbl[1][0] &&
+         trk[0].p[P_REV] == 0 && t->p[P_REV] == 0;
+    bad += check("FX ALL clears every track, MASTER, the SEND knobs and the global FX", ok);
+
+    trk[0].p[P_REV] = 88;
+    fx_master_set(INS_DLY, 1);
+    frame();
+    key_down(black(1)); frame(); key_up(black(1)); frame();    /* G#3 ALL4: all tracks */
+    press(B_OCTUP);
+    bad += check("the all-tracks ALL also clears FX, MASTER, SEND knobs and global FX",
+                 trk[0].p[P_REV] == 0 && !fx_master_on(INS_DLY) && fx_bus_trk.p[P_IDMIX] == TP[P_IDMIX].def);
     return bad;
 }
 
@@ -1782,7 +1839,7 @@ static int test_menu_tabs(void)
     }
     ok &= MP_Y + MP_PAD + (int32_t)MTAB_ROWS * 19 - 1 + MP_PAD <= MK_Y - 6;   /* (room for MTAB_ROWS: 18 px rows 1 px apart) */
     for (i = 0; i < MI_COUNT; i++)                      /* STYLE / ANIM / ACCEL: MTAB_COUNT (hidden); every other row a real tab */
-        ok &= (i == MI_STYLE || i == MI_ANIM || i == MI_ACCEL) ? MI_TAB[i] == MTAB_COUNT : MI_TAB[i] < MTAB_COUNT;
+        ok &= (i == MI_STYLE || i == MI_ANIM || i == MI_ACCEL || i == MI_HELP) ? MI_TAB[i] == MTAB_COUNT : MI_TAB[i] < MTAB_COUNT;
     {   /* the tab bar: MT_GAP between every two tabs at every place of the slide, inside MT_X0..MT_X1 (S and LARGE) */
         int32_t a[MTAB_COUNT], x[MTAB_COUNT], w[MTAB_COUNT], p;
         for (n = 0; n < 2u; n++)
@@ -1795,11 +1852,11 @@ static int test_menu_tabs(void)
             }
     }
     ui_prefs = 0;
-    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (6 6 6 2 6 rows), 1..8 each in a run, fit the page; tab gaps "
-                 "constant (S, LARGE); STYLE/ANIM/KNOB ACCEL hidden",
+    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (6 6 6 2 5 rows), 1..8 each in a run, fit the page; tab gaps "
+                 "constant (S, LARGE); STYLE/ANIM/KNOB ACCEL/HELP hidden",
                  ok && MTAB_COUNT == 5u && str_eq(MTAB_NAME[0], "DISPLAY") && str_eq(MTAB_NAME[MTAB_MIDI], "MIDI") &&
                  mtab_rows(MTAB_DISPLAY) == 6u && MI_TAB[MI_HOME] == MTAB_DISPLAY && mtab_rows(MTAB_CONTROL) == 6u && mtab_rows(MTAB_AUDIO) == 6u &&
-                 mtab_rows(MTAB_MIDI) == 2u && MI_TAB[MI_LCLEAR] == MTAB_MIDI && mtab_rows(MTAB_SYSTEM) == 6u && MI_TAB[MI_TUNE] == MTAB_AUDIO &&   /* (1.5: LEARN CLEAR, HELP) */
+                 mtab_rows(MTAB_MIDI) == 2u && MI_TAB[MI_LCLEAR] == MTAB_MIDI && mtab_rows(MTAB_SYSTEM) == 5u && MI_TAB[MI_TUNE] == MTAB_AUDIO &&   /* (1.5: HELP retired) */
                  MI_TAB[MI_MIDIIN] == MTAB_MIDI && MI_TAB[MI_INFO] == MTAB_SYSTEM && MI_INFO >= MI_VALUES &&
                  MI_TAB[MI_STYLE] == MTAB_COUNT && MI_TAB[MI_ANIM] == MTAB_COUNT && MI_TAB[MI_ACCEL] == MTAB_COUNT);
 
@@ -6718,8 +6775,9 @@ static int test_div_order(void)
 }
 
 /* #52 knob acceleration (always on; KNOB ACCEL menu row retired): a sustained fast turn of a wide value goes
- * x2..x4 (x8 over a range above 64, #126); a slow turn, the start of a turn, a lone quick detent and a reversal are
- * one step per detent; the sign is always the detents'. SELECT's page walk never uses accel; OCT+ tempo does. */
+ * x2..x16 by range (x2 over 17..32, x4 to 64, x8 to 100, x16 above, #126); a slow turn, the start of a turn, a lone
+ * quick detent and a reversal are one step per detent; the sign is always the detents'. SELECT's page walk never uses
+ * accel; OCT+ tempo does. */
 static uint32_t acc_ms(uint32_t role, const uint16_t *gaps, uint32_t n, int32_t dir, int32_t range, int32_t *out)
 {
     uint32_t k, sum = 0;
@@ -6740,40 +6798,41 @@ static int test_knob_accel(void)
                           BOUNCE[8] = {500, 2, 300, 1, 300, 3, 300, 2};
     ui_power_on();
     ok = menu_get(MI_ACCEL) == 1u && MI_TAB[MI_ACCEL] == MTAB_COUNT && str_eq(MI_NAME[MI_ACCEL], "KNOB ACCEL");
-    ok &= acc_ms(EN_K1, SLOW, 8, 1, 127, o) == 8u && acc_ms(EN_K2, MID, 8, -1, 127, o) == 8u && o[7] == -1;
+    ok &= acc_ms(EN_K1, SLOW, 8, 1, 127, o) == 8u && acc_ms(EN_K2, MID, 8, -1, 127, o) == 14u && o[7] == -2;
     ok &= acc_ms(EN_K3, BOUNCE, 8, 1, 127, o) == 8u;
-    bad += check("#52 KNOB ACCEL always on (retired); slow (>= 26 ms a detent) and lone quick detents: 1 step each", ok);
+    bad += check("#52 KNOB ACCEL always on (retired); slow (>= 41 ms a detent) and lone quick detents: 1 step each", ok);
     fm1_ms += 1000;
     acc_ms(EN_K1, F20, 8, 1, 64, o);
-    ok = o[0] == 1 && o[1] == 1 && o[2] == 2 && o[7] == 2;          /* 20 ms a detent: x2 from the third */
+    ok = o[0] == 1 && o[1] == 1 && o[2] == 4 && o[7] == 4;          /* 20 ms a detent: x4 from the third */
     acc_ms(EN_K1, F10, 8, 1, 64, o);                               /* (a pause of 500 ms first: a new turn) */
-    ok &= o[0] == 1 && o[1] == 1 && o[2] == 4 && o[7] == 4;         /* 10 ms: x4 (the cap of a range <= 64) */
-    fm1_ms += 15; ok &= accel(EN_K1, 1, 64) == 3;                  /* 15 ms: x3 */
+    ok &= o[0] == 1 && o[1] == 1 && o[2] == 4 && o[7] == 4;         /* 10 ms: x8 capped at x4 (range <= 64) */
+    fm1_ms += 15; ok &= accel(EN_K1, 1, 64) == 4;                  /* 15 ms: x5 capped at x4 */
     fm1_ms += 10; ok &= accel(EN_K1, -1, 64) == -1;                /* reversed: one step, the right sign */
     fm1_ms += 10; ok &= accel(EN_K1, -1, 64) == -1;                /* (the turn starts again) */
     fm1_ms += 10; ok &= accel(EN_K1, -1, 64) == -4;
     fm1_ms += 30; ok &= accel(EN_K1, -3, 64) == -12;               /* 3 detents in one read (10 ms each): x4 */
-    bad += check("#52 KNOB ACCEL: 20 ms a detent x2, 15 ms x3, 10 ms x4 from a turn's third detent; reversal x1", ok);
-    {   /* #126 a range above 64: 10 ms x5, 8 ms x6, 6 ms and less x8; a flick of 12 detents in ~120 ms, faster in
-         * the middle, moves a -100..100 value ~50 (was 38); 12 even ones 52 */
+    bad += check("#52 KNOB ACCEL: 20 ms a detent x4, 15 ms x5 (x4 cap), 10 ms x8 (x4 cap) from a turn's third detent; reversal x1", ok);
+    {   /* #126 JIANT's curve: 20 ms x4, 16 ms x5, 10 ms x8, 6 ms x13, 5 ms and less x16; a flick of 12 detents in
+         * ~120 ms, faster in the middle, moves a -100..100 value ~75 (JIANT's ladder); 12 even ones at 10 ms 82 */
         static const uint16_t FLICK[12] = {500, 16, 12, 10, 8, 7, 7, 8, 10, 12, 16, 20}, F6[8] = {500, 6, 6, 5, 4, 6, 6, 6};
         uint32_t f;
         fm1_ms += 1000;
         f = acc_ms(EN_K2, FLICK, 12, 1, 200, o);
-        ok = f == 47u && o[0] == 1 && o[1] == 1;
+        ok = f == 75u && o[0] == 1 && o[1] == 1;
         fm1_ms += 1000;
-        ok &= acc_ms(EN_K2, F10, 8, -1, 200, o) == 2u + 6u * 5u && o[7] == -5;
+        ok &= acc_ms(EN_K2, F10, 8, -1, 200, o) == 2u + 6u * 8u && o[7] == -8;
         fm1_ms += 1000;
-        ok &= acc_ms(EN_K2, F6, 8, 1, 127, o) == 2u + 6u * 8u;
+        ok &= acc_ms(EN_K2, F6, 8, 1, 127, o) == 2u + 5u * 13u + 16u;   /* (the 4 ms detent x16) */
         fm1_ms += 1000;
         ok &= acc_ms(EN_K2, F6, 8, 1, 64, o) == 2u + 6u * 4u;      /* (a range <= 64: x4 at most) */
         fm1_ms += 1000;
         ok &= acc_ms(EN_K2, F6, 8, 1, 0, o) == 8u;                  /* (a list) */
         printf("  #126 a flick of 12 detents over %u ms on -100..100: %u steps\n", 126u, (unsigned)f);
-        bad += check("#126 KNOB ACCEL over a range above 64: 10 ms x5 .. 6 ms x8; a 12-detent flick ~120 ms: 47", ok);
+        bad += check("#126 KNOB ACCEL over a range above 100: 10 ms x8 .. 5 ms x16; a 12-detent flick ~120 ms: 75", ok);
     }
-    {   /* free-ms TIME (~1486): slow still x1; x8 of the usual from the turn's second fast detent, so a small fast
-          * turn registers; a hard flick covers hundreds of ms (6 ms x64, 4 ms x96, 3 ms and less: the x128 cap) */
+    {   /* free-ms TIME (~1486): slow still x1; its own 50 ms rate and x8 boost from the turn's second fast detent, so
+          * the JIANT curve does not speed it up; a hard flick covers hundreds of ms (6 ms x64, 4 ms x96, 3 ms and
+          * less: the x128 cap) */
         static const uint16_t F6[8] = {500, 6, 6, 6, 6, 6, 6, 6}, F4[8] = {500, 4, 4, 4, 4, 4, 4, 4},
                                F3[8] = {500, 3, 3, 3, 3, 3, 3, 3};
         fm1_ms += 1000;
@@ -6791,29 +6850,31 @@ static int test_knob_accel(void)
         bad += check("KNOB ACCEL free-ms range: slow x1, 20 ms x16, 10 ms x40, 6 ms x64, 4 ms x96, 3 ms x128", ok);
     }
     fm1_ms += 1000; acc_ms(EN_K4, F10, 8, 1, 32, o);
-    ok = o[7] == 1;                                                /* a narrow range (<= 32): never */
+    ok = o[7] == 2;                                                /* 17..32: x2 */
+    fm1_ms += 1000; acc_ms(EN_K4, F10, 8, 1, 16, o);
+    ok &= o[7] == 1;                                               /* a narrow range (<= 16): never */
     fm1_ms += 1000; acc_ms(EN_K4, F10, 8, 1, 0, o);
     ok &= o[7] == 1;                                               /* a list of names (range 0 at the callers) */
     for (k = 0; k < 20000u && ok; k++) {                           /* random turns: the sign is the detents', at */
-        int32_t s, r, gap;                                         /* most x8, a slow detent exactly one step */
+        int32_t s, r, gap;                                         /* most x16, a slow detent exactly one step */
         seed = seed * 1103515245u + 12345u;
         s = (int32_t)((seed >> 16) % 7u) - 3;
         gap = (int32_t)((seed >> 8) % 90u);
         fm1_ms += (uint32_t)gap;
         r = accel(EN_K1 + (seed & 3u), s, 127);
-        ok &= s ? (r > 0) == (s > 0) && r * s <= 8 * s * s && r * s >= s * s : r == 0;
-        if (gap >= 40 * (s < 0 ? -s : s) && r != s) ok = 0;
+        ok &= s ? (r > 0) == (s > 0) && r * s <= 16 * s * s && r * s >= s * s : r == 0;
+        if (gap >= 60 * (s < 0 ? -s : s) && r != s) ok = 0;
     }
-    bad += check("#52 KNOB ACCEL: never on narrow values or lists; 20000 random reads keep the sign, x1..x8, slow = x1", ok);
-    {   /* the real knob: LEVEL on MIXER, a detent a frame (16 ms): 1 + 1 + 3 x 6 = 20 for 8 detents */
+    bad += check("#52 KNOB ACCEL: never on ranges <= 16 or lists; 20000 random reads keep the sign, x1..x16, slow = x1", ok);
+    {   /* the real knob: LEVEL on MIXER, a detent a frame (16 ms): 1 + 1 + 5 x 6 = 32 for 8 detents */
         int16_t v0;
         ui_power_on();
         go_title("MIXER");
         TSEL->p[P_LEVEL] = 40; v0 = TSEL->p[P_LEVEL];
         fm1_ms += 1000;
         for (k = 0; k < 8u; k++) turn(EN_K1, 1);
-        ok = TSEL->p[P_LEVEL] - v0 == 20;
-        bad += check("#52 KNOB ACCEL on MIXER LEVEL: a fast turn of 8 detents moves 20", ok);
+        ok = TSEL->p[P_LEVEL] - v0 == 32;
+        bad += check("#52 KNOB ACCEL on MIXER LEVEL: a fast turn of 8 detents moves 32", ok);
     }
     {   /* #126 Punch-in sticky FX map KNOB 1 (FILTER -100..100): flick of 12 detents; slow: 12;
          * 6 right then 6 left: 0. (GLO hold map removed: MIXER LEVEL covers accel on a track level above.) */
@@ -6832,7 +6893,7 @@ static int test_knob_accel(void)
         }
         printf("  #126 FX FILTER, 12 detents: 10 ms %d, 60 ms %d, 6 right 6 left %d\n", (int)got[0],
                (int)got[1], (int)got[2]);
-        ok = got[0] >= 35 && got[0] <= 60 && got[1] == 12 && got[2] == 0;
+        ok = got[0] == 82 && got[1] == 12 && got[2] == 0;
         ui_power_on();
         go_title("MIXER"); frames(64);
         trk[song.sel].p[P_LEVEL] = 0;
@@ -6842,7 +6903,7 @@ static int test_knob_accel(void)
             frame();
         }
         ok &= trk[song.sel].p[P_LEVEL] > 12 + 12;
-        bad += check("#126 KNOB ACCEL on the FX layer (FILTER: a 12-detent flick >= 35, slow 12) and LEVEL", ok);
+        bad += check("#126 KNOB ACCEL on the FX layer (FILTER: a 12-detent flick 82, slow 12) and LEVEL", ok);
     }
     {   /* OCT+ + SELECT tempo accelerates; SELECT page walk does not (one page per detent) */
         int16_t b0;
@@ -8323,74 +8384,6 @@ static int test_fx_map_columns(void)
     return bad;
 }
 
-/* 1.5 (Discussion #156): HELP. MENU > SYSTEM > HELP (OFF by default, bit 3 of ui_prefs2 alone); every page a button
- * reaches (DIGITAL's retired OP pages aside), HOME, HOME LEVELS, the DRUM grid and every layer has a hint of 2..3 key
- * hints that fits its footer row with every word (cv_key_row drops none); ON: a page entered shows its hint ~2 s, then
- * the footer as before; OFF: none */
-static int help_fits(const char *s)
-{
-    khint_t kh[3];
-    char b[48];
-    uint32_t n = help_parse(s, kh, b, sizeof b), i;
-    int32_t w = 6 * ((int32_t)n - 1);
-    int ok = n >= 2u && n <= 3u;
-    for (i = 0; i < n; i++) {
-        ok &= kh[i].key < KC_COUNT && kh[i].act[0] != 0;
-        w += kh_w(kh[i].key, kh[i].act);
-    }
-    if (!ok || w > 224) printf("  help: \"%s\" %u hints, %d px of 224\n", s, n, w);
-    return ok && w <= 224;
-}
-static int test_help(void)
-{
-    int bad = 0, ok;
-    uint8_t before[32];
-    uint32_t i, l;
-    ui_power_on();
-    memcpy(before, favorites.factory[15], 32);
-    ok = !help_on() && menu_get(MI_HELP) == 0u && str_eq(MI_NAME[MI_HELP], "HELP") && MI_TAB[MI_HELP] == MTAB_SYSTEM &&
-         MI_HELP < MI_VALUES && str_eq(menu_vname(MI_HELP, 1), "ON");
-    menu_put(MI_HELP, 1);
-    ok &= help_on() && menu_get(MI_HELP) == 1u && favorites.factory[15][24] == (uint8_t)(before[24] | 8u);
-    for (i = 0; i < 32u; i++)
-        ok &= i == 24u || favorites.factory[15][i] == before[i];
-    bad += check("1.5 MENU > SYSTEM > HELP: OFF by default, ON a bit of its own (ui_prefs2 bit 3)", ok);
-
-    ok = 1;
-    for (i = 0; i < NPAGES; i++) {                     /* every page but DIGITAL's OP1..4 ENV / OP LEVEL (FM4 only) */
-        uint8_t h = ui.home, pg = ui.page;
-        if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] >= P_FM1_ATK && PAGES[i].id[0] <= P_FM4_LEVEL)
-            continue;
-        ui.home = 0; ui.page = (uint8_t)i;
-        if (!help_page()) { printf("  help: no hint for %s\n", PAGES[i].title); ok = 0; }
-        else ok &= help_fits(help_page());
-        ui.home = h; ui.page = pg;
-    }
-    ok &= help_fits(H_HOME) && help_fits(H_LEVELS) && help_fits(H_GRID);
-    for (l = LAYER_FX; l < LAYER_N; l++)
-        ok &= help_fits(HELP_LAYER[l]);
-    bad += check("1.5 HELP: a hint for every page, HOME, LEVELS, the grid and every layer; each fits its row, no word dropped", ok);
-
-    ui_power_on();
-    menu_put(MI_HELP, 1);
-    press(B_ENV);
-    ok = ui.help_t > 0u && str_eq(help_page(), "[K1-4]A D S R[ENV]ENV DEST");
-    frames(2200);
-    ok &= ui.help_t == 0u;
-    press(B_SAVE);
-    ok &= ui.help_t > 0u && cur_page()->graph == GR_BROWSE && str_eq(help_page(), "[K2]ENGINE[K3]FAV[K4]LIST");
-    press(B_HOME);
-    ok &= ui.home && ui.help_t > 0u && str_eq(help_page(), H_HOME);
-    menu_put(MI_HOME, HV_LEVELS);
-    ok &= str_eq(help_page(), H_LEVELS);
-    menu_put(MI_HOME, HV_SCOPE);
-    menu_put(MI_HELP, 0);
-    press(B_ENV);
-    ok &= ui.help_t == 0u;
-    bad += check("1.5 HELP ON: a page entered (a button, HOME) shows its hint ~2 s, then not; OFF: never", ok);
-    return bad;
-}
-
 static int test_home_tracks(void)
 {
     int bad = 0, ok;
@@ -9608,6 +9601,7 @@ int main(void)
     bad += test_clear_selected_all();
     bad += test_clear_column_keys();
     bad += test_clear_every_track_all();
+    bad += test_clear_fx();
     bad += test_tracks();
     bad += test_grid();
     bad += test_screen();
@@ -9677,7 +9671,6 @@ int main(void)
     bad += test_fm6_ops();
     bad += test_home_tracks();
     bad += test_fx_map_columns();
-    bad += test_help();
     bad += test_no_flash();
     bad += test_live_graph_rate();
     bad += test_strip_cache();
