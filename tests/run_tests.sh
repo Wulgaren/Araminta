@@ -196,6 +196,9 @@ CCACHE_BIN=
 if [ "${USE_CCACHE:-1}" != 0 ] && command -v ccache >/dev/null 2>&1; then
     CC="ccache $CC"
     CCACHE_BIN=ccache
+    # NOHASHDIR: with -g (the sanitizer / TSAN lines below) ccache hashes the CWD, so a worktree could
+    # never reuse another's objects. One cache for all worktrees; a report may name another's path.
+    export CCACHE_NOHASHDIR=1
 fi
 # build <output> <source> [flags...]: compile to an object, then link. ccache caches only -c compiles, so
 # every test binary goes through both steps; -lm stays a link flag.
