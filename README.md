@@ -51,7 +51,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN and PITCH. With REC armed while playing on a synth track, a TRN turn also writes the current step's PITCH lock (scale-fitted); the knob still moves (other steps without a lock follow it), and no P_TRANS automation event is recorded.
 - **MAP (was QNT).** SCL knob: OFF / **ALL** / CURR / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); CURR is KBD plus sequence follows the scale on the current track; ALL is CURR's quantising plus ROOT / SCALE shared by every track while ALL is on (the CHORD page's old SCALE LOCK, now a MAP value); SEQ is chromatic keys plus sequence follows. Leaving ALL puts each track's own ROOT / SCALE back. Chromatic (CHR) scale removed; use MAP OFF. ALL saves as CURR + the lock bit, so v3.1 opens it as SCALE LOCK + ALL; a v3.1 project locked with MAP OFF / KBD / SEQ loads unlinked. Current saves are FUN19 (`FUNJ`; FUN18 `FUNI` loads).
 - **Following playhead** in the SEQ. Start selecting a step to pause the following, returns after 3 seconds of inactivity.
-- **SEQ GENERATION.** On a drum kit (DRUM-X, DRUMS, CR78 or a USR Drumkit), the second SEQ section generates editable kick, snare and closed-hat steps from Mutable Instruments Grids. SELECT switches between LEN / KICK / SNARE / HAT and MAP / MAP X / MAP Y / CHAOS. MAP selects one of 25 templates; X/Y blend between them and show CUSTOM. Turning MAP, MAP X or MAP Y briefly shows the full-screen map, then returns to the drum grid; CHAOS keeps the grid visible. Density edits change only their lane; map, chaos and length edits regenerate all three. Other lanes stay as written, SAVE held undoes the gesture, and each track's controls save with the project. Tips follow MENU > HELP.
+- **SEQ GENERATION.** On a drum kit (DRUM-X, DRUMS, CR78 or a USR Drumkit), the second SEQ section generates editable kick, snare and closed-hat steps from Mutable Instruments Grids. SELECT switches between LEN / KICK / SNARE / HAT and MAP / MAP X / MAP Y / CHAOS. MAP selects one of 25 templates; X/Y blend between them and show CUSTOM. Turning MAP, MAP X or MAP Y briefly shows the full-screen map, then returns to the drum grid; CHAOS keeps the grid visible. Density edits change only their lane; map, chaos and length edits regenerate all three. Other lanes stay as written, SAVE held undoes the gesture, and each track's controls save with the project.
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
@@ -193,8 +193,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   high contrast and NIGHT; type sized by role; MENU > LARGE for tall knob cards; the menu in five tabs. The header
   shows the track and the **project slot of its pattern** ("1 A", "1 A*" once edited), play state and tempo. HOME
   shows the oscilloscope or, with MENU > HOME TRACKS, **the four tracks** with their steps (LEVELS: track levels on
-  the knobs); MENU > SCREEN OFF can darken the panel when left alone; MENU > HELP shows a short hint when a page
-  or layer opens
+  the knobs); MENU > SCREEN OFF can darken the panel when left alone
 - **LEDs:** idle buttons and keys glow dim so the panel can be found in the dark (MENU > LEDS: OFF,
   DIM LO, DIM HI or INV, the official firmware's look); PLAY turns green while playing; the keys show
   the notes the sequencer and MIDI IN play, and on SEQ > STEP (stopped) the notes of the step under the cursor;
@@ -288,7 +287,7 @@ The pages by button:
 Hold **HOME** for the menu, in five tabs: **DISPLAY** (COLOR, LARGE, LEDS, SCREEN OFF, SCOPE, HOME),
 **CONTROL** (HOLD, FX LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW, CHORD ENTRY), **AUDIO** (SPEAKER EQ,
 USB LEVEL, CLICK, CLICK LEVEL, COUNT-IN, TUNE), **MIDI** (MIDI IN, LEARN CLEAR) and **SYSTEM** (USB SERIAL,
-RESTORE LAST, HELP, HARDWARE CALIBRATION, INFO, ABOUT).
+RESTORE LAST, HARDWARE CALIBRATION, INFO, ABOUT).
 SELECT moves between the tabs and ALGORITHM through the rows of one (PRESETS is idle there; ALGORITHM also scrolls
 ABOUT); any of KNOB 1-4, or OCT+ / OCT−, changes the value (OCT+ opens HARDWARE CALIBRATION, INFO and ABOUT); press
 HOME to close the menu. Every new
@@ -343,8 +342,6 @@ KNOB ACCEL is always on for wide values.
   RESTORED), kept in an autosave apart from the four projects; it is written when the music changed, the
   transport is stopped and nothing has been touched for 10 s, at most once a minute. OFF starts with the
   power-on sounds
-- **HELP:** OFF (default) or ON: a short hint in the footer for about 2 s when a page opens, and under a quick
-  layer's map while it shows
 - **HARDWARE CALIBRATION**, **INFO** (the version, the USB link and the CPU load) and **ABOUT**
 
 ## Engines

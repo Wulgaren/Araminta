@@ -484,6 +484,17 @@ static uint32_t eqa_sig(void)
     return h;
 }
 
+/* SAVE > CLEAR: white keys in columns under the cards (TRACK | ALL TRACKS | SONG | ALL). Key opens confirm. */
+enum {
+    CL_PAT = 0, CL_SND, CL_MOT, CL_FX,                   /* F3 G3 A3 B3 */
+    CL_ALLPAT = 4, CL_ALLSND, CL_ALLMOT, CL_FXALL,        /* C4 D4 E4 F4 */
+    CL_SEC = 8, CL_SONG,                                  /* G4 A4 */
+    CL_ALL_BLACK = 16, CL_ALL4_BLACK                      /* F#3 G#3 */
+};
+static const char *const CL_CELL[16] = {
+    "PAT", "SND", "MOT", "FX", "PATS", "SNDS", "MOTS", "FXS", "SEC", "SONG", "", "", "", "", "", ""
+};
+static const char *const CL_BLACK_CELL[2] = {"ALL", "ALL4"};
 static void clear_key(uint32_t p);                       /* SAVE > CLEAR sticky map */
 static uint32_t clear_kind(uint32_t p);
 static int clear_ready(uint32_t kind);
@@ -526,8 +537,12 @@ static void layer_key(uint32_t l, uint32_t k)
         else if (p < NLANE && drum_track(TSEL))
             ui.lane = (uint8_t)p;                       /* (black keys 1..8: the lane, as on the grid) */
     } else if (l == LAYER_CLR) {
-        if (!key_black(k))
+        if (key_black(k)) {
+            if (p < 2u)
+                clear_key(CL_ALL_BLACK + p);
+        } else {
             clear_key(p);
+        }
     }
 }
 /* GLO open: white keys F3..B3 solo that track while held (perform.c perf_solo). LEDs read lys.solo by key. */
@@ -733,6 +748,8 @@ static uint32_t layer_leds(uint32_t *br)
         } else if (l == LAYER_CLR && !b) {              /* white keys with an action breathe when ready */
             uint32_t kind = clear_kind(p);
             can = kind != CF_NONE && clear_ready(kind);
+        } else if (l == LAYER_CLR && b && p < 2u) {       /* black keys 1..2: ALL / ALL4 */
+            can = clear_ready(clear_kind(CL_ALL_BLACK + p));
         }
         m |= on << k;
         n |= (can & !on) << k;
@@ -957,28 +974,21 @@ static void layer_edit(void)                            /* the engines from F3, 
         engine_sound_row(104);
 }
 
-/* SAVE > CLEAR: white keys in columns under the cards (TRACK | ALL | SONG). Key opens confirm. */
-enum {
-    CL_PAT = 0, CL_SND, CL_MOT, CL_TRACKALL,             /* F3 G3 A3 B3 */
-    CL_ALLPAT = 4, CL_ALLSND, CL_ALLMOT, CL_ALL,          /* C4 D4 E4 F4 */
-    CL_SEC = 8, CL_SONG                                 /* G4 A4 */
-};
-static const char *const CL_CELL[16] = {
-    "PAT", "SND", "MOT", "ALL", "PATS", "SNDS", "MOTS", "ALL", "SEC", "SONG", "", "", "", "", "", ""
-};
 static uint32_t clear_kind(uint32_t p)
 {
     switch (p) {
     case CL_PAT: return CF_CLEAR_SEQ;
     case CL_SND: return CF_INIT_SOUND;
     case CL_MOT: return CF_CLEAR_MOTION;
-    case CL_TRACKALL: return CF_CLEAR_TRACK_ALL;
     case CL_ALLPAT: return CF_CLEAR_ALL_SEQ;
     case CL_ALLSND: return CF_INIT_ALL_SOUND;
     case CL_ALLMOT: return CF_CLEAR_ALL_MOTION;
-    case CL_ALL: return CF_CLEAR_EVERY_TRACK_ALL;
     case CL_SEC: return CF_DEL_ROW;
     case CL_SONG: return CF_CLEAR_SONG;
+    case CL_FX: return CF_CLEAR_FX;
+    case CL_FXALL: return CF_CLEAR_ALL_FX;
+    case CL_ALL_BLACK: return CF_CLEAR_TRACK_ALL;
+    case CL_ALL4_BLACK: return CF_CLEAR_EVERY_TRACK_ALL;
     default: return CF_NONE;
     }
 }
@@ -998,7 +1008,9 @@ static int clear_ready(uint32_t kind)
                 return 1;
         return 0;
     case CF_INIT_ALL_SOUND:
-    case CF_CLEAR_EVERY_TRACK_ALL: return 1;
+    case CF_CLEAR_EVERY_TRACK_ALL:
+    case CF_CLEAR_FX:
+    case CF_CLEAR_ALL_FX: return 1;
     case CF_CLEAR_ALL_MOTION:
         for (i = 0; i < NTRK; i++)
             if (motion_count(&trk[i]))
@@ -1033,6 +1045,12 @@ static void layer_clr(void)
         n[0] = W_NOTE[p];
         lcell(LC_X(p / 4u), 4 + (LF_H + 4) * (int32_t)(p % 4u), LF_H, n, 0, 0, CL_CELL[p],
               st | ((p / 4u) & 1u ? LS_ALT : 0u), 0);
+    }
+    for (p = 0; p < 2u; p++) {
+        kind = clear_kind(CL_ALL_BLACK + p);
+        st = chain_busy() || !clear_ready(kind) ? LS_DIM : LS_OFF;
+        bnote(n, p);
+        lcell(LC_X(p), LM_Y, LM_H, n, 0, 0, CL_BLACK_CELL[p], st, 0);
     }
 }
 
@@ -1203,8 +1221,7 @@ static void draw_layer(void)
         } else {
             cv_begin(240, H_FOOT, T_BG);
             const khint_t *ft = l == LAYER_GLO && ui.lock == LAYER_GLO ? GLO_LOCK_FOOT : LAYERS[l].foot;
-            int h = help_on() && help_row(HELP_LAYER[l], 21);   /* 1.5, HELP ON: a second row, what this one does not say */
-            cv_key_row(8, 232, h ? 2 : 9, ft, ft[2].act ? 3u : 2u, 7u, T_BG);
+            cv_key_row(8, 232, 9, ft, ft[2].act ? 3u : 2u, 7u, T_BG);
             cv_blit(0, Y_FOOT);
             ui.foot_sig = 0;
         }
