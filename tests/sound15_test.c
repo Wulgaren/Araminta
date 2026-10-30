@@ -152,8 +152,9 @@ static stats_t stats(uint32_t from)
     return s;
 }
 /* one ANALOG note (dry, POLY, the amp envelope open, no filter modulation): WAVE w, filter TYPE ft at CUT cut, RES res,
- * DRV drv; MIX 0 (OSC 1 alone) unless the wave pairs them (SYNC, SUB: half) */
-static stats_t analog_note(uint32_t w, uint32_t ft, int32_t cut, int32_t res, int32_t drv, uint32_t note)
+ * DRV drv, DTN dtn, MIX mix */
+static stats_t analog_note_d(uint32_t w, uint32_t ft, int32_t cut, int32_t res, int32_t drv, uint32_t note,
+                             int32_t dtn, int32_t mix)
 {
     track_t *t = &trk[0];
     uint32_t i, k;
@@ -162,8 +163,8 @@ static stats_t analog_note(uint32_t w, uint32_t ft, int32_t cut, int32_t res, in
     t->p[P_VOICE] = V_POLY;
     t->p[P_FTYPE] = (int16_t)ft;
     t->p[P_E0] = (int16_t)w;
-    t->p[P_E1] = 0;
-    t->p[P_E2] = (int16_t)(w >= 5u ? 64 : 0);
+    t->p[P_E1] = (int16_t)dtn;
+    t->p[P_E2] = (int16_t)mix;
     t->p[P_E3] = 0;
     t->p[P_E4] = (int16_t)cut;
     t->p[P_E5] = (int16_t)res;
@@ -182,6 +183,20 @@ static stats_t analog_note(uint32_t w, uint32_t ft, int32_t cut, int32_t res, in
     trk_note_off(t, note);
     blocks(FS / 2u / CTL);
     return stats(FS / 10u);
+}
+static stats_t analog_note(uint32_t w, uint32_t ft, int32_t cut, int32_t res, int32_t drv, uint32_t note)
+{
+    return analog_note_d(w, ft, cut, res, drv, note, 0, w >= 5u ? 64 : 0);
+}
+static uint64_t sig_hash(void)                        /* ren_l's last note, for "sounds other than" */
+{
+    uint64_t h = 0xCBF29CE484222325ull;
+    uint32_t i;
+    for (i = 0; i < NREND * CTL; i++) {
+        h ^= (uint32_t)ren_l[i];
+        h *= 0x100000001B3ull;
+    }
+    return h;
 }
 
 static void type_bp(track_t *t) { t->p[P_FTYPE] = 1; }
@@ -411,6 +426,109 @@ static int times_ok(const char *name, const char *where)
     return ok;
 }
 
+/* SUPER: one voice holds the centre saw and three detuned pairs; MIX 0 leaves the centre alone */
+static void test_super(void)
+{
+    const param_desc_t *d = &ENGINES[0]->edit[0];
+    stats_t saw, c0, s0, s1, hi;
+    uint64_t h0, h1;
+    check("SUPER: WAVE gains an eighth name, 0..7", d->fmt == F_ENUM && d->min == 0 && d->max == 7 &&
+          str_eq(d->names[7], "SUPER"));
+    saw = analog_note_d(0, 0, 110, 0, 0, 60, 0, 0);
+    c0 = analog_note_d(7, 0, 110, 0, 0, 60, 100, 0);           /* WIDTH / MIX 0: centre only */
+    s0 = analog_note_d(7, 0, 110, 0, 0, 60, 0, 64);
+    h0 = sig_hash();
+    s1 = analog_note_d(7, 0, 110, 0, 0, 60, 100, 64);
+    h1 = sig_hash();
+    hi = analog_note_d(7, 0, 120, 100, 0, 108, 127, 127);      /* the corners: high note, all detune */
+    check("SUPER MIX 0: one saw, the same level as SAW", fabs(c0.rms - saw.rms) < saw.rms * 0.05);
+    check("SUPER: DTN 0 and DTN 100 sound other than each other", h0 != h1);
+    check("SUPER: DTN 0 / 100 both sound, bounded", s0.rms > 200 && s1.rms > 200 && s0.peak < 32767 && s1.peak < 32767);
+    check("SUPER: bounded at the corners (note 108, DTN / MIX 127)", hi.rms > 200 && hi.peak < 32767);
+    (void)h0;
+    (void)h1;
+}
+
+/* a voice that last played SYNC / SUB (they keep their restart in s[3]), released or still sounding (a retrigger keeps
+ * the filter and phases: not SUPER's), then plays SUPER: its seven phases are seeded apart all the same (in phase the
+ * copies comb); the voice's own mark says so, not s[3] */
+static void test_super_seed(void)
+{
+    track_t *t = &trk[0];
+    uint32_t w, held, k, j, ok = 1, n = 0;
+    for (w = 5; w <= 6u; w++)
+        for (held = 0; held < 2u; held++) {
+            const voice_t *nv = 0;
+            fresh(0, 0);
+            dry(t);
+            t->p[P_VOICE] = V_POLY;
+            t->p[P_FTYPE] = 0;
+            t->p[P_E0] = (int16_t)w;
+            t->p[P_E1] = 40;
+            t->p[P_E2] = 64;
+            t->p[P_ATK] = 0;
+            t->p[P_SUS] = 127;
+            trk_note_on(t, 60, 100);
+            blocks(FS / 10u / CTL);
+            if (!held) {
+                trk_note_off(t, 60);
+                blocks(FS / CTL);
+            }
+            t->p[P_E0] = 7;
+            trk_note_on(t, 60, 100);
+            for (k = 0; k < NVOICE; k++)
+                if (t->v[k].gate && t->v[k].note == 60 && (!nv || t->v[k].age > nv->age))
+                    nv = &t->v[k];
+            if (nv) {
+                uint32_t ph[7];
+                n++;
+                ph[0] = nv->ph[0]; ph[1] = nv->ph[1]; ph[2] = nv->ph[2];
+                ph[3] = (uint32_t)nv->s[3]; ph[4] = (uint32_t)nv->s[4]; ph[5] = (uint32_t)nv->s[5];
+                ph[6] = (uint32_t)nv->s[7];
+                for (j = 0; j < 49u; j++)
+                    if (j / 7u < j % 7u && ph[j / 7u] == ph[j % 7u])
+                        ok = 0;
+            }
+        }
+    check("SUPER after SYNC / SUB (released or sounding): the seven phases are seeded apart", n == 4u && ok);
+}
+
+/* a sounding SUPER voice keeps all seven phases through a retrigger: note_on must not seed again (s[6]'s mark),
+ * and voice.c's keep mask (0x03) never rewrites the four phases in s[3..7] */
+static void test_super_retrigger(void)
+{
+    track_t *t = &trk[0];
+    uint32_t mode, ok = 1;
+    for (mode = 0; mode < 3u; mode++) {              /* POLY (same note), MONO (new note), LEGATO (new note) */
+        uint32_t ph[7], age;
+        voice_t *v;
+        fresh(0, 0);
+        dry(t);
+        t->p[P_VOICE] = mode == 0 ? V_POLY : mode == 1 ? V_MONO : V_LEGATO;
+        t->p[P_E0] = 7;
+        t->p[P_E1] = 100;
+        t->p[P_E2] = 64;
+        t->p[P_ATK] = 0;
+        t->p[P_SUS] = 127;
+        trk_note_on(t, 60, 100);
+        blocks(FS / 10u / CTL);
+        v = &t->v[0];                                /* one note: POLY's first free voice, or MONO's voice 0 */
+        ph[0] = v->ph[0]; ph[1] = v->ph[1]; ph[2] = v->ph[2];
+        ph[3] = (uint32_t)v->s[3]; ph[4] = (uint32_t)v->s[4];
+        ph[5] = (uint32_t)v->s[5]; ph[6] = (uint32_t)v->s[7];
+        age = v->age;
+        ok &= v->s[6] == AS_SEEDED;
+        trk_note_on(t, mode == 0 ? 60u : 64u, 90);   /* POLY: the same note retriggered; MONO / LEGATO: a new one */
+        if (mode != 2u)                              /* POLY / MONO retrigger the voice; LEGATO does not */
+            ok &= v->age != age;
+        ok &= v->s[6] == AS_SEEDED;
+        ok &= v->ph[0] == ph[0] && v->ph[1] == ph[1] && v->ph[2] == ph[2] &&
+              (uint32_t)v->s[3] == ph[3] && (uint32_t)v->s[4] == ph[4] &&
+              (uint32_t)v->s[5] == ph[5] && (uint32_t)v->s[7] == ph[6];
+    }
+    check("SUPER: a retrigger (POLY, MONO) / legato keeps all seven phases and the mark", ok);
+}
+
 static void test_esync(void)
 {
     const param_desc_t *d = &TP[P_ESYNC];
@@ -539,7 +657,7 @@ static double cost(uint32_t wave, uint32_t ft, uint32_t es)   /* ANALOG SOFT PAD
 }
 static void test_cost(void)
 {
-    double lp, bp, hp, slp, shp, e0, e1;
+    double lp, bp, hp, slp, shp, sp, e0, e1;
     if (!instr_now()) {
         printf("sound15: cost: no instruction counter on this host (proc_pid_rusage), skipped\n");
         return;
@@ -549,10 +667,12 @@ static void test_cost(void)
     hp = cost(0, 2, 0);
     slp = cost(5, 0, 0);
     shp = cost(5, 2, 0);
+    sp = cost(7, 0, 0);
     printf("sound15: cost: ANALOG 8 voices SAW LP %.0f, BP %.0f (%+.1f %%), HP %.0f (%+.1f %%); SYNC LP %.0f, HP %.0f "
-           "(%+.1f %%) instructions / sample\n", lp, bp, (bp - lp) * 100 / lp, hp, (hp - lp) * 100 / lp, slp, shp,
-           (shp - slp) * 100 / slp);
+           "(%+.1f %%); SUPER LP %.0f (%+.0f %%) instructions / sample\n", lp, bp, (bp - lp) * 100 / lp, hp,
+           (hp - lp) * 100 / lp, slp, shp, (shp - slp) * 100 / slp, sp, (sp - lp) * 100 / lp);
     check("cost: BP / HP within 10 % of LP", bp < lp * 1.10 && hp < lp * 1.10 && shp < slp * 1.10);
+    check("cost: SUPER 8 voices within 4x SAW", sp < lp * 4.0);
     e0 = cost(0, 0, 0);
     e1 = cost(0, 0, 1);
     printf("sound15: cost: ENV SYNC on an 8-voice part %.0f -> %.0f (%+.2f %%)\n", e0, e1, (e1 - e0) * 100 / e0);
@@ -669,6 +789,9 @@ static int demos(const char *dir)
 int main(int argc, char **argv)
 {
     test_filter();
+    test_super();
+    test_super_seed();
+    test_super_retrigger();
     test_esync();
     test_cost();
     if (argc > 1)

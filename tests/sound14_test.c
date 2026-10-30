@@ -7,7 +7,8 @@
  *    glides from the cycle before's value to this one's, stays inside S&H's range; DEPTH scales the LFO (its LFO DEST
  *    routings and the matrix's LFO source) as AMP does a voice, several slots multiply, none = untouched (bit for bit);
  *    RATE (the LFO's rate) with them: the modulator modulated; values past the lists do nothing.
- * 2. ANALOG WAVE SYNC / SUB (eng_analog.c): WAVE 0..4 untouched (the golden renders: regress.c), the labels (SYNC, SUB),
+ * 2. ANALOG WAVE SYNC / SUB / SUPER (eng_analog.c): WAVE 0..4 untouched (the golden renders: regress.c), the labels
+ *    (SYNC, SUB, SPRD, SWARM),
  *    no DC, bounded, not silent; SUB an octave below (period twice the note's), SYNC periodic at the note whatever DTN,
  *    its sweep (DTN, SHP) brightens it, no restart click (largest sample step against the plain saw's).
  * 3. SPREAD (fx.c mix_spread): SPRD 0 / MONO / LEGATO bit for bit the plain mix, a POLY note hard left / the next hard
@@ -412,9 +413,10 @@ static void test_analog(void)
     uint32_t from = FS / 10u, lag;
     char msg[160];
 
-    check("ANALOG WAVE: SAW .. PWM where they were, SYNC 5 SUB 6 appended, default SAW",
-          e->edit[0].max == 6 && e->edit[0].def == 0 && str_eq(e->edit[0].names[4], "PWM") &&
-          str_eq(e->edit[0].names[5], "SYNC") && str_eq(e->edit[0].names[6], "SUB"));
+    check("ANALOG WAVE: SAW .. PWM where they were, SYNC 5 SUB 6 SUPER 7 appended, default SAW",
+          e->edit[0].max == 7 && e->edit[0].def == 0 && str_eq(e->edit[0].names[4], "PWM") &&
+          str_eq(e->edit[0].names[5], "SYNC") && str_eq(e->edit[0].names[6], "SUB") &&
+          str_eq(e->edit[0].names[7], "SUPER"));
     fresh(0, 0);
     t->p[P_E0] = 5;
     check("labels: SYNC shows DTN as SYNC, SUB MIX as SUB; the others as before",
@@ -423,6 +425,10 @@ static void test_analog(void)
     t->p[P_E0] = 6;
     t->eng_req = 0;
     check("  .. SUB", str_eq(track_desc(t, P_E2)->label, "SUB") && str_eq(track_desc(t, P_E1)->label, "DTN"));
+    t->p[P_E0] = 7;
+    t->eng_req = 0;
+    check("  .. SUPER: SPRD SWARM", str_eq(track_desc(t, P_E1)->label, "SPRD") &&
+          str_eq(track_desc(t, P_E2)->label, "SWARM"));
     t->p[P_E0] = 0;
     check("  .. SAW: DTN MIX", str_eq(track_desc(t, P_E1)->label, "DTN") && str_eq(track_desc(t, P_E2)->label, "MIX"));
 

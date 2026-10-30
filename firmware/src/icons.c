@@ -244,6 +244,8 @@ static uint32_t mod_dst_icon(const track_t *t, int32_t d)
         id = mod_param((uint32_t)d);
         return param_icon(fx_target_desc(t, id), *fx_target_ptr(t, id));
     }
+    if (MD_TAPE(d))                                   /* TAPE SPEED / WOW: no engine parameter behind them */
+        return d == MD_TSPEED ? ICON_RATE : ICON_WAVE;
     if (MD_SLICER(d) || MD_CHORD(d) || MD_INS(d)) {
         id = mod_param((uint32_t)d);
         return param_icon(&TP[id], t->p[id]);
