@@ -184,6 +184,80 @@ static stats_t analog_note(uint32_t w, uint32_t ft, int32_t cut, int32_t res, in
     return stats(FS / 10u);
 }
 
+/* one ANALOG OSC 2 note: WAVE w, MIX, INT (P_E7), MORPH, DRIFT; the filter open, no noise or drive. Fills ren_l
+ * like analog_note and resets the hash, so each call's hash is its own */
+static stats_t analog_osc2_note(uint32_t w, int32_t mix, int32_t intv, int32_t morph, int32_t drift, uint32_t note)
+{
+    track_t *t = &trk[0];
+    uint32_t i, k;
+    fresh(0, 0);
+    dry(t);
+    t->p[P_VOICE] = V_POLY;
+    t->p[P_FTYPE] = 0;
+    t->p[P_E0] = (int16_t)w;
+    t->p[P_E1] = 0;
+    t->p[P_E2] = (int16_t)mix;
+    t->p[P_E3] = 0;
+    t->p[P_E4] = 127;
+    t->p[P_E5] = 0;
+    t->p[P_E6] = 0;
+    t->p[P_E7] = (int16_t)intv;
+    t->p[P_MORPH] = (int16_t)morph;
+    t->p[P_DRIFT] = (int16_t)drift;
+    t->p[P_ED_FLT] = 0;
+    t->p[P_LD_FLT] = 0;
+    t->p[P_ATK] = 0;
+    t->p[P_SUS] = 127;
+    hash = 0;
+    trk_note_on(t, note, 100);
+    for (k = 0; k < NREND; k++) {
+        blocks(1);
+        for (i = 0; i < CTL; i++)
+            ren_l[k * CTL + i] = out_buf[2u * i];
+    }
+    trk_note_off(t, note);
+    blocks(FS / 2u / CTL);
+    return stats(FS / 10u);
+}
+
+/* Hz of ren_l's upward zero crossings (a clean sine / square: the last 0.4 s) */
+static double zc_hz(void)
+{
+    uint32_t i, n = 0, from = FS / 10u, end = NREND * CTL;
+    int32_t prev = ren_l[from];
+    for (i = from + 1u; i < end; i++) {
+        if (prev <= 0 && ren_l[i] > 0)
+            n++;
+        prev = ren_l[i];
+    }
+    return (double)n * (double)FS / (double)(end - from);
+}
+
+static void test_osc2(void)
+{
+    stats_t a, a2, b, c, m0, m64, m127, d0, d1;
+    uint64_t h0, h64, h127, hd0, hd1;
+    double f0, f1, f2;
+    a = analog_osc2_note(3, 127, 0, 0, 0, 60);   f0 = zc_hz();  h0 = hash;
+    a2 = analog_osc2_note(3, 127, 0, 0, 0, 60);
+    check("INT 0: the same render twice (bit for bit)", a.rms == a2.rms && hash == h0);
+    b = analog_osc2_note(3, 127, 12, 0, 0, 60);  f1 = zc_hz();
+    c = analog_osc2_note(3, 127, -12, 0, 0, 60); f2 = zc_hz();
+    check("INT +12: OSC 2 an octave up", f0 > 200 && fabs(f1 / f0 - 2.0) < 0.03);
+    check("INT -12: OSC 2 an octave down", f0 > 200 && fabs(f2 / f0 - 0.5) < 0.03);
+    m0 = analog_osc2_note(0, 0, 0, 0, 0, 60);   h0 = hash;
+    m64 = analog_osc2_note(0, 0, 0, 64, 0, 60); h64 = hash;
+    m127 = analog_osc2_note(0, 0, 0, 127, 0, 60); h127 = hash;
+    check("MORPH: 0, 64, 127 are three different waves", h0 != h64 && h0 != h127 && h64 != h127);
+    check("MORPH 127 from SAW is the square (a flatter crest factor than the saw)",
+          m0.rms > 200 && m127.peak * m0.rms < m0.peak * m127.rms * 0.75 && m127.peak < 32767);
+    d0 = analog_osc2_note(0, 0, 0, 0, 0, 60);   hd0 = hash;
+    (void)analog_osc2_note(0, 0, 0, 0, 0, 60);
+    check("DRIFT 0: the same render twice (bit for bit)", hash == hd0);
+    d1 = analog_osc2_note(0, 0, 0, 0, 127, 60); hd1 = hash;
+    check("DRIFT 127: the voice moves (another render) and stays bounded", hd1 != hd0 && d1.peak < 32767);
+}
+
 static void type_bp(track_t *t) { t->p[P_FTYPE] = 1; }
 static void type_hp(track_t *t) { t->p[P_FTYPE] = 2; }
 static void type_comb(track_t *t) { t->p[P_FTYPE] = 3; }
@@ -202,18 +276,20 @@ static void test_filter(void)
           str_eq(d->names[0], "LP") && str_eq(d->names[1], "BP") && str_eq(d->names[2], "HP") &&
           str_eq(d->names[3], "COMB") && !motion_param(P_FTYPE));
     {
-        uint32_t i, flt = 0, drv = 0;
+        uint32_t i, flt = 0, osc2 = 0;
         for (i = 0; i < NPAGES; i++) {
             if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] == P_FTYPE)
                 flt = i + 1u;
-            if (str_eq(PAGES[i].title, "FILTER DRIVE"))
-                drv = i + 1u;
+            if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] == P_E7 && PAGES[i].id[1] == P_MORPH)
+                osc2 = i + 1u;
         }
-        check("EDIT > FILTER: TYPE CUT RES KTR (ANALOG's)",
+        check("EDIT > OSC 2: INT MORPH DRIFT, before FILTER",
+              osc2 && osc2 + 1u == flt && PAGES[osc2 - 1u].id[0] == P_E7 &&
+              PAGES[osc2 - 1u].id[1] == P_MORPH && PAGES[osc2 - 1u].id[2] == P_DRIFT &&
+              PAGES[osc2 - 1u].id[3] == 0xFFu);
+        check("EDIT > FILTER: TYPE CUT RES DRV (ANALOG's, page 3)",
               flt && PAGES[flt - 1u].id[0] == P_FTYPE && PAGES[flt - 1u].id[1] == P_E4 &&
-              PAGES[flt - 1u].id[2] == P_E5 && PAGES[flt - 1u].id[3] == P_E7);
-        check("EDIT > FILTER DRIVE: DRV alone, after FILTER",
-              drv && drv == flt + 1u && PAGES[drv - 1u].id[0] == P_E6 && PAGES[drv - 1u].id[1] == 0xFFu);
+              PAGES[flt - 1u].id[2] == P_E5 && PAGES[flt - 1u].id[3] == P_E6);
     }
     /* every engine but ANALOG ignores TYPE; ANALOG's LP is the golden renders' (regress.c) */
     for (e = 1; e < NENGINES; e++) {
@@ -248,7 +324,7 @@ static void test_filter(void)
             cut = n;
     for (ft = 0; ft < 3u; ft++)
         for (n = 0; n < 5u; n++)
-            r[ft][n] = analog_note(3, ft, (int32_t)cut, 0, 0, NOTE[n]);
+            r[ft][n] = analog_note(3, ft, (int32_t)cut - ((int32_t)NOTE[n] - 60) * 3 / 12, 0, 0, NOTE[n]);
     for (ft = 0; ft < 3u; ft++) {
         snprintf(msg, sizeof msg, "  %s (CUT %u = %u Hz): rms at 65 262 1047 4186 8372 Hz %.0f %.0f %.0f %.0f %.0f",
                  ft == 0 ? "LP" : ft == 1 ? "BP" : "HP", cut, CUTOFF_HZ[cut], r[ft][0].rms, r[ft][1].rms, r[ft][2].rms,
@@ -669,6 +745,7 @@ static int demos(const char *dir)
 int main(int argc, char **argv)
 {
     test_filter();
+    test_osc2();
     test_esync();
     test_cost();
     if (argc > 1)

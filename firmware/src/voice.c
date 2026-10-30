@@ -621,8 +621,11 @@ static __attribute__((noinline)) void spread_sum(track_t *t, int32_t *out)
 /* render one block of a part into out; returns the voices rendered.
  * clear_idle 0: leave out untouched when no voice is live (mixer may omit the
  * zero fill). Melodee: silent tracks still run LFO, bend, engine block and fades. */
-/* Channel bend is live performance state, outside projects/presets. Q8 semitones. */
-static int32_t midi_bend_q8[NTRK], midi_bend_target[NTRK];
+/* Channel bend is live performance state, outside projects/presets. Q8 semitones (±6397 with a 25-semitone range). */
+static int32_t midi_bend_q8[NTRK];
+static int16_t midi_bend_target[NTRK];
+/* DRIFT: each voice its own slow value noise (mod.c drift_noise), on the mix's blocks */
+static uint32_t drift_clk;
 static struct { int16_t cents; uint8_t valid; int32_t pitch, fine; } tune_cache;
 static __attribute__((noinline)) void tune_cache_update(void)
 {
@@ -643,6 +646,7 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
     uint32_t ti = (uint32_t)(t - trk);
     uint32_t nr = 0, fade = t->xf_on && t->xf, live = 0;
     int16_t pe_new[8];
+    int32_t damt;
     if (ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM || ENGINES[eng_idx(t->eng_req)] == &ENG_DRUMS) {
         midi_bend_q8[ti] = midi_bend_target[ti] = 0;
     } else {
@@ -671,8 +675,15 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
     esync_coef(t);                                      /* this block's envelope steps for env_tick (ENV SYNC) */
     if (e->block)                                       /* the engine's per-part work (WHEEL: bars, rotor) */
         e->block(t);
+    if (ti == 0u)
+        drift_clk++;                                    /* one tick a block, whatever the parts */
     if (!live)
         goto track_render_done;
+    {   /* MORPH slewed, at most 3 of the knob's steps a block: the wave slides, it does not step */
+        int32_t g = e == &ENG_ANALOG ? clamp(p[P_MORPH], 0, 127) : 0, c = t->mo_cur;
+        t->mo_cur = (uint8_t)(c + clamp(g - c, -3, 3));
+    }
+    damt = e == &ENG_ANALOG ? clamp(p[P_DRIFT], 0, 127) : 0;   /* DRIFT (0 = still) */
     if (!tune_cache.valid || tune_cache.cents != song.g[G_TUNE])
         tune_cache_update();
     tune = tune_cache.pitch;
@@ -722,15 +733,20 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
                 ((lfo * p[P_LD_PIT] * 3) >> 15) + ((m.envq15 * p[P_ED_PIT] * 3) >> 15);
         m.pitch16 = clamp(pitch, 0, 2047);
         m.inc = pitch_inc(m.pitch16);
-        m.fine = v->fine + tune_fine + bend_fine;
-        if (v->fine + tune_fine + bend_fine)             /* residual below 1/16 semitone */
-            m.inc += (uint32_t)((int32_t)(m.inc >> 12) * (v->fine + tune_fine + bend_fine));
-        m.cutoff = ((lfo * p[P_LD_FLT]) >> 7) + ((m.envq15 * p[P_ED_FLT]) >> 7);
+        int32_t dfine = 0, dcut = 0;
+        if (damt) {                                     /* DRIFT: up to ~27 ct, and the filter a little */
+            dfine = (drift_noise(ti * 8u + i * 1013u, drift_clk + i * 397u, 10u) * damt) >> 16;   /* (~0.74 s) */
+            dcut = (drift_noise(ti * 8u + i * 1013u + 0x5bd1u, drift_clk + i * 211u, 11u) * damt) >> 12;   /* (~1.5 s) */
+        }
+        m.fine = v->fine + tune_fine + bend_fine + dfine;
+        if (m.fine)                                      /* residual below 1/16 semitone */
+            m.inc += (uint32_t)((int32_t)(m.inc >> 12) * m.fine);
+        m.cutoff = ((lfo * p[P_LD_FLT]) >> 7) + ((m.envq15 * p[P_ED_FLT]) >> 7) + dcut;
         if (v->vel > 110)                               /* accent opens the filter with the env */
             m.cutoff += (m.envq15 * 24) >> 7;
         m.shape = (64 << 8) + ((lfo * p[P_LD_SHP]) >> 7) + ((m.envq15 * p[P_ED_SHP]) >> 7);
         if (MOD(t).on)                                  /* the modulation matrix (mod.c) */
-            mod_voice(t, v, &m, v->fine + tune_fine + bend_fine);
+            mod_voice(t, v, &m, m.fine);
         e->render(t, v, t->spread_on > v->side ? spread_buf[C1_PI(t)] : out, n, &m);   /* (SPREAD: the left ones) */
         nr++;
     }
