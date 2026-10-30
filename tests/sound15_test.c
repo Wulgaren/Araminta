@@ -397,6 +397,16 @@ static void test_filter(void)
                  r[1][2].rms);
         check(msg, q.rms > r[1][2].rms * 1.3 && q.peak < 32000);
     }
+    {   /* LP reaches the 303's range: RES 127 is far past the shared tsvf_coef's Q 7 */
+        stats_t lo = analog_note(3, 0, (int32_t)cut, 0, 0, 84);
+        stats_t hi = analog_note(3, 0, (int32_t)cut, 127, 0, 84);
+        stats_t c = analog_note(0, 0, 20, 127, 127, 36);
+        snprintf(msg, sizeof msg, "LP: RES 127 raises the cutoff's peak (%.0f vs %.0f), bounded (%.0f)", hi.rms, lo.rms,
+                 c.peak);
+        /* the knee bounds the steady state; the damping is what moved past tsvf_coef's Q 7 */
+        check(msg, hi.rms > lo.rms * 1.2 && hi.peak < 32767 && c.rms > 200 && c.peak < 32767);
+        check("RES 127: ANALOG's damping is Q 20+, past tsvf_coef's Q 7", 4096 / ANALOG_K(127) > 20);
+    }
     /* the corners: every WAVE (SYNC, SUB too), RES and DRV at 127, low / high notes and cutoffs: bounded, no DC */
     {
         static const uint8_t CN[3] = {24, 60, 108}, CC[3] = {0, 70, 127};
