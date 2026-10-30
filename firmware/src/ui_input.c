@@ -2018,6 +2018,20 @@ static void ui_input(void)
                 }
             } else if (kind == CF_CLEAR_SONG) {
                 if (!chain_busy()) { chain_defaults(&chain_config); ui.song_row = 0; ui_message("SONG CLEARED"); }
+            } else if (kind == CF_CLEAR_FX) {
+                if (!chain_busy()) {
+                    clear_fx_track(&trk[ui.confirm_trk % NTRK]);
+                    undo.trk = 0;
+                    sync_reload = 1;
+                    ui_message("FX CLEARED");
+                }
+            } else if (kind == CF_CLEAR_ALL_FX) {
+                if (!chain_busy()) {
+                    clear_fx_all();
+                    undo.trk = 0;
+                    sync_reload = 1;
+                    ui_message("ALL FX CLEARED");
+                }
             } else if (kind == CF_INIT_SOUND || kind == CF_CLEAR_TRACK_ALL) { /* DRUM: the factory DRUM-X kit too */
                 if (!chain_busy()) {
                     track_t *t = &trk[ui.confirm_trk % NTRK];
@@ -2033,6 +2047,7 @@ static void ui_input(void)
                     song.sel = (uint8_t)was;
                     if (kind == CF_CLEAR_TRACK_ALL) {
                         track_defaults_steps(t);
+                        clear_fx_track(t);
                         t->nheld = 0;
                         t->arp_phys = 0;
                         load_end(t);
@@ -2068,8 +2083,11 @@ static void ui_input(void)
                         }
                     }
                     song.sel = (uint8_t)was;
-                    if (kind == CF_CLEAR_EVERY_TRACK_ALL)
+                    if (kind == CF_CLEAR_EVERY_TRACK_ALL) {
+                        clear_fx_all();
                         undo.trk = 0;
+                        sync_reload = 1;
+                    }
                     ui_message(kind == CF_CLEAR_EVERY_TRACK_ALL ? "ALL TRACKS CLEARED" : "ALL SOUNDS INIT");
                 }
             } else if (kind == CF_CLEAR_ALL_MOTION) {

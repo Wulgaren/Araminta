@@ -1146,7 +1146,7 @@ before MIDI IN the first 21, 1.2 the first 23, 1.3 / 1.4 the first 24):
 | 21 | 21 | MIDI IN | 0 | 0 CH1-4, 1 SEL, 2 CH5-8, 3 CH9-12, 4 CH13-16 (1.2: the project's `G_ROUTE`, global 14) | CH1-4 | 3 MIDI |
 | 22 | 22 | TUNE | 1 | -50..50, unit "ct" (1.2: the project's `G_TUNE`, global 3, cents) | 0 | 2 AUDIO |
 | 23 | 23 | HOME | 0 | 0 SCOPE, 1 TRACKS (1.3), 2 LEVELS (1.5; before: max 1) | SCOPE | 0 DISPLAY |
-| 24 | 24 | HELP | 0 | 0 OFF, 1 ON (1.5) | OFF | 4 SYSTEM |
+| 24 | 24 | HELP | 0 | 0 OFF, 1 ON (1.5; retired, no effect) | OFF | 4 SYSTEM |
 
 The device's AUDIO tab shows SPEAKER EQ, USB LEVEL, CLICK, CLICK LEVEL, COUNT-IN and (1.2) TUNE (index 9, 10, 12, 13,
 14, 22).
@@ -1207,10 +1207,8 @@ and the HOME button do what they do on SCOPE. Kept in the settings record (its o
 not know reads as SCOPE there). Applied at once. 1.5 (#134): LEVELS (2), the rows of TRACKS with KNOB 1..4 the LEVEL
 of T1..T4 (the GLO layer's knobs) in place of the selected track's engine's four; firmware before 1.5 reads it as SCOPE.
 
-HELP (id 24, 1.5, Discussion #156; SYSTEM now shows USB SERIAL, RESTORE LAST and HELP, index 11, 15, 24, then
-CALIBRATION, INFO and ABOUT): ON shows a short hint (key caps and a few words) in the footer for about 2 s when a page
-opens, and a second footer row under a quick layer's map. OFF (the default) shows none. A bit of the settings record
-(MENU's 1.2 flags byte, bit 3; older firmware keeps it and ignores it). Applied at once.
+HELP (id 24, 1.5, Discussion #156) is retired: the device no longer shows hints, and SYSTEM no longer lists the row.
+The id and its OFF / ON bit stay so an older editor's ids do not move; setting it does nothing.
 
 **USB SERIAL (id 11).** The menu applies it when it closes; a MENU_SET applies it about 200 ms after its reply
 (`usb_serial_apply`), so the reply leaves first (if the device shows the MENU at that moment: when it closes).

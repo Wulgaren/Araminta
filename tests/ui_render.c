@@ -765,12 +765,12 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_COUNTIN, S_COUNTIN2, S_MENU_AUDIO, S_HEAD_PLAY_REC, S_HEAD_REC_OTHER, S_HEAD_BPM_TURN, S_HEAD_BPM_LOCK,
        S_HEAD_BPM_LOCKED, S_HEAD_GLO_TURN, S_HEAD_DOWNBEAT, S_HEAD_BEAT_2,
        S_SONG_LANES, S_SONG_LANES_PLAYING, S_SONG_LANES_SILENT, S_SONG_PICTURES, S_HEAD_SLOT, S_HEAD_SLOT_EDITED, S_HEAD_SLOT_SONG,
-       S_MENU_TUNE, S_MENU_INFO, S_HOME_TRACKS, S_HOME_TRACKS_STOPPED, S_HOME_TRACKS_HOT, S_MENU_HOME, S_HOME_LEVELS, S_HELP_HOME, S_HELP_USER, S_HELP_GRID, S_HELP_LFO, S_HELP_GLO, S_HELP_SEQ, S_MENU_HELP,
+       S_MENU_TUNE, S_MENU_INFO, S_HOME_TRACKS, S_HOME_TRACKS_STOPPED, S_HOME_TRACKS_HOT, S_MENU_HOME, S_HOME_LEVELS,
        S_INSERT_CRUSH, S_INSERT_FOLD, S_INSERT_PHASER, S_INSERT_OFF, S_INSERT_MIX,
        S_ENV_SYNC, S_ENV_DEST_SYNC, S_FILTER,
        S_LEARN_WAIT, S_LEARN_PICK, S_LEARN_SET, S_LEARN_LONG, S_GLO_LEARN, S_MENU_LCLEAR, S_MENU_LCLEAR_NONE,
        S_DLY_DOT, S_DLY_DOT16, S_FX_THROW,
-       S_DETAIL, S_DETAIL_PLAYING, S_DETAIL_REST, S_DETAIL_DRUM, S_ROLL_MARKS, S_DRUM_MARKS, S_HELP_DETAIL,
+       S_DETAIL, S_DETAIL_PLAYING, S_DETAIL_REST, S_DETAIL_DRUM, S_ROLL_MARKS, S_DRUM_MARKS,
        S_DX_SOUND, S_DX_SOUND2, S_DX_EDIT1, S_DX_EDIT2, S_GENERATION, S_GENERATION_2, S_GENERATION_MAP, S_TAPE, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
@@ -793,12 +793,12 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "countin", "countin_2bars", "menu_audio", "head_play_rec", "head_rec_other", "head_bpm_turn", "head_bpm_lock",
     "head_bpm_locked", "head_glo_turn", "head_downbeat", "head_beat_2",
     "song_lanes", "song_lanes_playing", "song_lanes_silent", "song_pictures", "head_slot", "head_slot_edited", "head_slot_song",
-    "menu_tune", "menu_info", "home_tracks", "home_tracks_stopped", "home_tracks_hot", "menu_home", "home_levels", "help_home", "help_user", "help_grid", "help_lfo", "layer_glo_help", "layer_seq_help", "menu_help",
+    "menu_tune", "menu_info", "home_tracks", "home_tracks_stopped", "home_tracks_hot", "menu_home", "home_levels",
     "insert_crush", "insert_fold", "insert_phaser", "insert_off", "insert_mix",
     "env_sync", "env_dest_sync", "filter",
     "learn_wait", "learn_pick", "learn_set", "learn_long", "layer_glo_learn", "menu_learn_clear", "menu_learn_clear_none",
     "dly_dotted", "dly_dotted_16", "perform_throw",
-    "detail", "detail_playing", "detail_rest", "detail_drum", "roll_marks", "drum_marks", "help_detail",
+    "detail", "detail_playing", "detail_rest", "detail_drum", "roll_marks", "drum_marks",
     "dx_sound", "dx_sound2", "dx_edit1", "dx_edit2", "generation", "generation_2", "generation_map", "tape"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
@@ -1157,15 +1157,6 @@ static void setup(int s)
     case S_HOME_TRACKS_HOT: tracks_scene(1); ui.hot_col = 1; ui.hot_t = 30; break;
     case S_MENU_HOME: ui.menu = 1; ui.menu_sel = MI_HOME; ui_home_view = HV_TRACKS; break;
     /* 1.5 (#134): HOME LEVELS: the rows of TRACKS, the cards T1..T4 LEVEL (T3 muted: DIM), K2 just turned */
-    /* 1.5 (Discussion #156): MENU > HELP ON: a page just entered with its hint in the footer (HOME, USER: in place of the
-     * OCT+ / OCT- hint, the DRUM grid, LFO); a layer's map with its second footer row (GLO, SEQ TOOLS); the MENU row */
-    case S_HELP_HOME: ui_prefs2 |= PREF_HELP >> 16; go_home(); break;
-    case S_HELP_USER: song.playing = 0; ui_prefs2 |= PREF_HELP >> 16; go_page(GR_USER); break;
-    case S_HELP_GRID: drum(0); ui_prefs2 |= PREF_HELP >> 16; go_page(GR_ROLL); break;
-    case S_HELP_LFO: ui_prefs2 |= PREF_HELP >> 16; go_title("LFO"); break;
-    case S_HELP_GLO: ui_prefs2 |= PREF_HELP >> 16; go_home(); ui.help_t = 0; ui.layer = LAYER_GLO; break;
-    case S_HELP_SEQ: ui_prefs2 |= PREF_HELP >> 16; go_page(GR_ROLL); ui.help_t = 0; ui.layer = LAYER_SEQ; break;
-    case S_MENU_HELP: ui_prefs2 |= PREF_HELP >> 16; ui.menu = 1; ui.menu_sel = MI_HELP; break;
     case S_HOME_LEVELS: tracks_scene(1); ui_home_view = HV_LEVELS; trk[1].p[P_LEVEL] = 90; ui.hot_col = 1; ui.hot_t = 30; break;
     /* P1-C insert-chain pages: CRUSH, DIST (fold mode), PHASR, dry DIST, FLANG */
     case S_INSERT_CRUSH: set_ins_ui_crush(64, 96, 80, 127); go_title("CRUSH"); break;
@@ -1463,8 +1454,7 @@ static void setup(int s)
         }
         break;
     /* 1.5.1 SEQ > DETAIL (#199): its lanes on ACID (the cursor on step 7, KNOB 2 RATCH just turned), playing (step 10),
-     * the cursor on a REST (the cards DIM); on the DRUM beat; STEP's roll and the grid with the steps marked (a lock too);
-     * HELP's hint on DETAIL */
+     * the cursor on a REST (the cards DIM); on the DRUM beat; STEP's roll and the grid with the steps marked (a lock too) */
     case S_DETAIL: case S_DETAIL_PLAYING: case S_DETAIL_REST: case S_ROLL_MARKS:
         roll_scene(s == S_DETAIL_PLAYING ? S_ROLL_PLAYING : S_ROLL_ACID);
         detail_values(TSEL, 0);
@@ -1485,9 +1475,6 @@ static void setup(int s)
             break;
         }
         go_title_page("DETAIL"); ui.cursor = 6; ui.hot_col = 0; ui.hot_t = 30;
-        break;
-    case S_HELP_DETAIL:
-        roll_scene(S_ROLL_ACID); ui_prefs2 |= PREF_HELP >> 16; go_title_page("DETAIL");
         break;
     /* DRUM-X Kit: SOUND / SOUND 2 (lane colony + morph bar; SOUND 3 / X-MOD retired) */
     case S_DX_SOUND: case S_DX_SOUND2:
@@ -1976,7 +1963,7 @@ static void align_sweeps(void)
         }
         ui.layer = 0; ui.hot_t = 0; ui_prefs = 0;
         cur_name = st ? "sweep LINE: dialogs" : "sweep FLAT: dialogs";
-        for (i = CF_CLEAR_SEQ; i <= CF_ERASE_USER; i++)
+        for (i = CF_CLEAR_SEQ; i <= CF_CLEAR_ALL_FX; i++)
             for (k = 0; k < 4u; k++) {
                 ui.confirm = (uint8_t)i; ui.confirm_trk = (uint8_t)k;
                 draw_confirm();
@@ -2027,18 +2014,6 @@ static void align_sweeps(void)
                 draw_menu();
             }
         ui.menu = 0; ui_prefs = 0; ui_rec_prefs = 0; settings_hold = 0; settings.lowcut = 0; settings_leds = 0;
-        cur_name = st ? "sweep LINE: HELP hints" : "sweep FLAT: HELP hints";   /* (1.5: every page's, HOME's, every layer's) */
-        ui_prefs2 |= PREF_HELP >> 16;
-        for (i = 0; i <= NPAGES + HV_COUNT; i++) {
-            ui.home = i >= NPAGES; ui.page = (uint8_t)(i < NPAGES ? i : 0u);
-            ui_home_view = (uint8_t)(i > NPAGES ? i - NPAGES - 1u : 0u);
-            ui.help_t = HELP_FRAMES; ui.force = 1;
-            draw_foot();
-        }
-        for (k = LAYER_FX; k < LAYER_N; k++) {
-            ui.layer = (uint8_t)k; ui.force = 1; draw_layer(); ui.force = 0;
-        }
-        ui.layer = 0; ui.home = 1; ui.help_t = 0; ui_home_view = 0; ui_prefs2 &= (uint8_t)~(PREF_HELP >> 16);
         cur_name = st ? "sweep LINE: count-in" : "sweep FLAT: count-in";
         for (i = 1; i <= 2u; i++)                       /* 1 and 2 bars, every beat */
             for (k = 4u * i; k >= 1u; k--) {

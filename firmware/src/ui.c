@@ -65,13 +65,13 @@ static uint32_t up_gen;                      /* bumped on every user bank change
 /* 1.2: three more two-valued MENU settings, bits of another byte no engine uses, saved with the settings; 0 in older
  * settings = today's behaviour (append-only, as ui_prefs): bit 0 DISPLAY > SCOPE MIX (Discussion #165, fx.c scope_mix),
  * bit 1 CONTROL > STEP PREVIEW ON (Discussion #169, ui_input.c step_preview), bit 2 CONTROL > CHORD ENTRY ADD (#155,
- * ui_input.c seq_entry). 1.5: bit 3 SYSTEM > HELP ON (Discussion #156, ui_help.c). Bits 4-7 free */
+ * ui_input.c seq_entry). 1.5: bit 3 retired (HELP; kept for the editor's id). Bits 4-7 free */
 #define ui_prefs2 (favorites.factory[15][24])
 #define PREF_X 0xFF0000u                       /* (menu_items.c MENU_FLAGS: a bit of ui_prefs2, << 16) */
 #define PREF_SCOPE_MIX (0x01u << 16)
 #define PREF_PREVIEW (0x02u << 16)
 #define PREF_CHORD_ADD (0x04u << 16)
-#define PREF_HELP (0x08u << 16)
+#define PREF_HELP (0x08u << 16)               /* retired: HELP's bit, kept for the editor's id 24 */
 /* 1.3 (Discussions #112, #134): MENU > DISPLAY > HOME, what the HOME page shows under its four cards: 0 SCOPE (the
  * oscilloscope, as before), 1 TRACKS (the four tracks as rows: ui_graph.c draw_home_tracks), 2 LEVELS (1.5, #134: the
  * rows of TRACKS, and KNOB 1..4 the LEVEL of T1..T4 in place of the engine's four: home_param). A byte of its own no
@@ -151,7 +151,6 @@ static struct {
     uint32_t menu_sig, home_t0;  /* HOME press time (btn_hold) */
     uint8_t force;               /* full redraw pending */
     uint8_t msg_t;               /* transient message frames */
-    uint8_t help_t;              /* 1.5, MENU > HELP ON: frames the page's hint stays in the footer (ui_help.c) */
     uint8_t bpm_t;               /* frames the BPM stays highlighted after a SELECT turn */
     uint8_t act;                 /* action pages: the column whose action OCT+ does, + 1; 0 = none (act_col) */
     uint32_t rec_t0;             /* REC press time: a tap arms (btn_hold, no hold: held, REC opens its layer) */
@@ -203,7 +202,7 @@ static struct {
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER, CF_LOAD_PAT,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER,
        CF_CLEAR_ALL_SEQ, CF_INIT_ALL_SOUND, CF_CLEAR_ALL_MOTION, CF_SAVE_PROJ,
-       CF_CLEAR_TRACK_ALL, CF_CLEAR_EVERY_TRACK_ALL };
+       CF_CLEAR_TRACK_ALL, CF_CLEAR_EVERY_TRACK_ALL, CF_CLEAR_FX, CF_CLEAR_ALL_FX };
                                    /* ui.confirm: CLEAR map; SAVE over a used slot; a pattern over the user's steps;
                                     * USER ERASE; CF_SAVE_PROJ: motion over MOTION_FILE_MAX (extras won't save) */
 
@@ -580,11 +579,6 @@ static uint32_t lock_id(uint32_t k)
 }
 
 static void ev_enter(void);
-/* 1.5 (Discussion #156): MENU > HELP ON: a page entered (here, go_home) shows its hint in the footer for ~2 s
- * (ui_help.c, ui_draw.c draw_foot) */
-#define HELP_FRAMES 120u                       /* (~2 s at the UI's ~60 frames a second) */
-static int help_on(void) { return (ui_prefs2 & (PREF_HELP >> 16)) != 0u; }
-static void help_start(void) { ui.help_t = (uint8_t)(help_on() ? HELP_FRAMES : 0u); }
 static void layer_opened(uint32_t l);            /* ui_layer.c: sticky section maps call it */
 static void section_apply(void)
 {
@@ -619,7 +613,6 @@ static void page_entered(void)
     ui.entry_open = 0;
     ui.hot_t = 0;                                /* clear the previous page's emphasis */
     ui.act = pg->graph == GR_USER ? 4u : 0u;     /* the save screen is ready for OCT+ */
-    help_start();
     ui.force = 1;
     section_apply();
 }
@@ -851,7 +844,6 @@ static void go_home(void)
     ui.hot_t = 0;
     song.seq_mode = 0;
     ui.force = 1;
-    help_start();
     section_apply();                             /* leave sticky maps */
 }
 
@@ -1558,6 +1550,39 @@ static void track_defaults(track_t *t)
     t->fx_sl_pos = 8;                            /* EFFECTS: SLICER last until moved */
     t->generation = GENERATION_DEFAULT;
     track_defaults_steps(t);
+}
+
+/* SAVE > CLEAR > FX: a track's inserts, order, sends and slicer to their defaults (sound and steps stay) */
+static void clear_fx_track(track_t *t)
+{
+    uint32_t i;
+    for (i = P_DIST; i <= P_REV; i++)
+        t->p[i] = TP[i].def;
+    for (i = P_SLCR; i <= P_SLDEPTH; i++)
+        t->p[i] = TP[i].def;
+    for (i = P_IORD; i <= P_IHMIX; i++)
+        t->p[i] = TP[i].def;
+    t->p[P_ED_FX] = TP[P_ED_FX].def;                /* DIST TONE, an edit parameter on the DISTORT page */
+    t->fx_sl_pos = 8;
+    memset(fx_order_tbl[t - trk], 0, FX_LIST_N);
+}
+/* SAVE > CLEAR > FX ALL: every track's FX, MASTER, the shared SEND knobs and the global FX settings */
+static void clear_fx_all(void)
+{
+    uint32_t i, k;
+    for (i = G_DTIME; i <= G_DREL; i++)
+        song.g[i] = GP[i].def;
+    song.g[G_TDROP] = GP[G_TDROP].def;
+    for (i = G_CLIP; i <= G_TTEMPO; i++)
+        song.g[i] = GP[i].def;
+    for (k = 0; k < NTRK; k++)
+        clear_fx_track(&trk[k]);
+    memset(fx_master_tr, 0, sizeof fx_master_tr);
+    fx_master_order_tr = 0;
+    fx_master_sanitize();
+    for (i = 0; i < FX_LIST_N; i++)
+        fx_master_reset_stage(i);
+    fx_bus_init();
 }
 
 /* RAM as a clean boot (RESTORE LAST off): default globals, sounds, empty (or factory) steps, song chain.
