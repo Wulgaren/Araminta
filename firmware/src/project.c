@@ -135,6 +135,12 @@
  * (bit 0 still marks the CHAIN tank bytes). Older firmware refuses a FUN19 (magic); FUN18 and older load with
  * TEMPO ON. The stored bit keeps its value across this meaning swap, and ON now means the transport keeps time.
  *
+ * 3.5 (ANALOG's OSC 2): P_E7 is INT now (OSC 2's interval, -24..24), where it was KTR, and the FM3 ATK /
+ * SUS slots keep MORPH / DRIFT (core.h P_MORPH / P_DRIFT), not the OP3 envelope, on an ANALOG track. Header
+ * byte 67 bit 1 (free before: 1.5 wrote 0 there) says a project is read that way; a FUN19 without it loads
+ * its ANALOG tracks with INT / MORPH / DRIFT 0 (the keytracking fixed at its old default, half) and drops
+ * their E8 / OP3 events. The magic and size are FUN19's; older firmware ignores the bit.
+ *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
 #define PROJ_MAGIC 0x4A4E5546u                 /* "FUNJ" (FUN19): FUN18 + TAPE TEMPO */
@@ -401,6 +407,11 @@ static void proj_trk_from(proj_trk_t *d, const int16_t *p, uint32_t np, uint8_t 
     ins_migrate(d->p, np);
     d->engine = engine;                         /* (indices 0..7 of formats 1 and 2 as they were) */
     d->preset = preset;
+    if (engine == ENGI_ANALOG) {                /* KTR -> INT, and the FM3 slots were not MORPH / DRIFT */
+        d->p[P_E7] = 0;
+        d->p[P_MORPH] = 0;
+        d->p[P_DRIFT] = 0;
+    }
     d->scl_stash_ok = 0;
     d->scl_stash[0] = d->scl_stash[1] = d->scl_stash[2] = 0;
     for (k = 0; k < NSTEP; k++) {
@@ -826,7 +837,8 @@ static int proj_pack(project_store_t *out, const project_t *q)
     memcpy(b + 8, q->g, PROJ_NG_WIRE * sizeof(int16_t));
     b[62] = q->sel; b[63] = q->parts; b[64] = q->phys; b[66] = P_COUNT;
     b[65] = (uint8_t)clamp(q->g[G_CRTYPE], 0, 4);       /* CHAIN tank TYPE/SIZE/DAMP (spare; not in wire g[]) */
-    b[67] = (uint8_t)(1u | (clamp(q->g[G_TTEMPO], 0, 1) << 7));   /* bit 0: CHAIN tanks; bit 7: TAPE TEMPO */
+    b[67] = (uint8_t)(1u | (clamp(q->g[G_TTEMPO], 0, 1) << 7) | 2u);   /* bit 0: CHAIN tanks; bit 1: OSC 2
+                                                            * (INT / MORPH / DRIFT); bit 7: TAPE TEMPO */
     b[PROJ_CRV_OFF] = (uint8_t)clamp(q->g[G_CRSIZE], 0, 127);
     b[PROJ_CRV_OFF + 1u] = (uint8_t)clamp(q->g[G_CRDAMP], 0, 127);
     for (t = 0; t < NTRK; t++) {
@@ -986,6 +998,20 @@ static int proj_motion_ids(motion_store_t *m, uint32_t np)
     }
     return 1;
 }
+/* 3.5: an ANALOG track's E8 (P_E7) was KTR (0..127) and is INT (-24..24), and its FM3 ATK / SUS slots were
+ * OP ENV, not MORPH / DRIFT: an older record's events there would change the sound, so they go (with their locks) */
+static void proj_ktr_motion(motion_store_t *m, const proj_trk_t *t)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < m->count && i < MOTION_MAX; i++) {
+        motion_event_t *e = &m->event[i];
+        uint32_t tr = e->place >> 6, id = MOTION_ID(e);
+        if (tr < NTRK && t[tr].engine == ENGI_ANALOG && (id == P_E7 || id == P_MORPH || id == P_DRIFT))
+            continue;
+        m->event[n++] = *e;
+    }
+    m->count = (uint8_t)n;
+}
 /* the motion block of a FUN7 / FUN8 / FUN9 (PROJ_MOTION_V9 bytes at b: count, on, 2 reserved, 64 x (place, id, i16
  * value LE)) -> m: its records as they are (values -64..127, as motion_valid wanted then), the rest 0. 0: not one */
 static int proj_motion_v9(motion_store_t *m, const uint8_t *b)
@@ -1020,9 +1046,10 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
      * np<=111 (1.5): full 128-record block (no insert chain yet) */
     uint32_t mot, chn = v10 ? CHAIN_WIRE15_SIZE : sizeof(chain_v9_t);
     uint32_t iord2 = np > 111u ? 1u : 0u;               /* +1 byte per track for P_IORD high */
-    uint32_t mot_max;
+    uint32_t mot_max, osc2;
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + st - 4u, 4);
     v19 = magic == PROJ_MAGIC;
+    osc2 = v19 && (b[67] & 2u) != 0;                    /* OSC 2's INT / MORPH / DRIFT (see the top) */
     v18 = magic == PROJ_MAGIC_V18 || v19;
     v17 = magic == PROJ_MAGIC_V17 || v18;
     v16 = magic == PROJ_MAGIC_V16;
@@ -1124,6 +1151,11 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         for (i = 0; i < P_COUNT; i++) def[i] = param_desc_of(q->t[t].engine, i)->def;
         params_by_count(q->t[t].p, values, np, def);
         ins_migrate(q->t[t].p, np);
+        if (!osc2 && q->t[t].engine == ENGI_ANALOG) {   /* KTR -> INT; the FM3 slots were OP ENV */
+            q->t[t].p[P_E7] = 0;
+            q->t[t].p[P_MORPH] = 0;
+            q->t[t].p[P_DRIFT] = 0;
+        }
         if (!v13)
             q->t[t].p[P_SCALE] = scl_from_v12(q->t[t].p[P_SCALE]);
         for (i = 0; i < NSTEP; i++) {
@@ -1207,7 +1239,10 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         }
     } else if (!proj_motion_v9(&q->motion, b + pos))
         return 0;
-    if (!proj_motion_ids(&q->motion, np) || !chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
+    if (!proj_motion_ids(&q->motion, np)) return 0;
+    if (!osc2)
+        proj_ktr_motion(&q->motion, q->t);
+    if (!chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
     /* Old CHO send locks (P_CHOR 0..63) -> CHORUS MIX. FXPOS values (64+) stay. */
     if (!v14) {
         for (i = 0; i < q->motion.count && i < MOTION_MAX; i++) {

@@ -935,6 +935,24 @@ static int user_preset_roundtrip(void)
     bad += check("UP_GET returns the values and the pattern UP_PUT sent", ok);
     bad += check("  .. then kind 0 and (1.2) the category: none sent, ANALOG's (OTHER)",
                  host_wire[p] == 0u && host_wire[p + 1u] == CAT_OTHER && host_wire[p + 2u] == 0xF7);
+    {   /* 3.5: an older record's E8 was KTR and its FM3 slots the OP3 envelope */
+        up_rec_t *r = up_rec(3);
+        int16_t v[P_COUNT];
+        r->packed[UP_CAT_AT] &= 0x7Fu;                 /* no OSC 2 marker */
+        up_set_value(r, P_E7, 64);
+        up_set_value(r, P_MORPH, 10);
+        up_set_value(r, P_DRIFT, 90);
+        up_values(r, v);
+        bad += check("an older ANALOG preset loads INT / MORPH / DRIFT 0",
+                     v[P_E7] == 0 && v[P_MORPH] == 0 && v[P_DRIFT] == 0);
+        up_mark_osc2(r);
+        up_set_value(r, P_E7, -12);
+        up_set_value(r, P_MORPH, 30);
+        up_set_value(r, P_DRIFT, 40);
+        up_values(r, v);
+        bad += check("a marked ANALOG preset keeps INT / MORPH / DRIFT",
+                     v[P_E7] == -12 && v[P_MORPH] == 30 && v[P_DRIFT] == 40);
+    }
     {   /* 1.2 (Discussion #90): UP_PUT's category after the kind's 16 bytes; UP_LIST lists the categories after the slots */
         uint32_t k0 = k;
         a[k++] = 0;

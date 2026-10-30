@@ -3,20 +3,46 @@
 /* ANALOG: two band-limited oscillators (saw / square / tri / sine / PWM),
  * noise, drive and a trapezoidal state-variable filter: low-pass, or (1.5, TYPE) band-pass /
  * high-pass / feedback COMB (CUT = delay, RES = feedback; dsp.c comb_process).
+ * INT (P_E7, -24..24 semitones): OSC 2 this far from OSC 1, on every WAVE (was KTR; the filter's
+ * keytracking is fixed at its old default, half).
+ * MORPH (P_MORPH, 0..127): the plain WAVEs (SAW SQR TRI SIN) slide toward the next one, PWM narrows
+ * toward ~4 %; the WAVE still picks the shape the knob starts from. SYNC / SUB ignore it.
+ * DRIFT (P_DRIFT, voice.c): each voice's slow pitch and filter wander.
  * WAVE SYNC and SUB (#104, appended: WAVE 0..4 play as they always did) are two more oscillator pairs (analog_osc_x):
  *   SYNC  OSC 2 a saw hard-synced to OSC 1 (a saw): it restarts with OSC 1's every cycle, band-limited at the restart
  *         (polyBLEP scaled by the step the restart makes). DTN (shown SYNC) sets OSC 2 above OSC 1, 3/16 semitone a
- *         step (127: +23.8 semitones), and the SHP routings sweep it (ENV DEST / LFO DEST SHP, the matrix's SHP: 3/16
- *         semitone a step of shape, as PWM takes them for its width): the sync sweep. MIX between the two as for
- *         every pair (OSC 2 alone at 127)
- *   SUB   OSC 1 a saw, OSC 2 a square an octave below it (detuned by DTN in cents as before): MIX (shown SUB) is the
- *         sub oscillator's level */
+ *         step (127: +23.8 semitones), INT adds semitones, and the SHP routings sweep DTN (ENV DEST / LFO DEST SHP,
+ *         the matrix's SHP: 3/16 semitone a step of shape, as PWM takes them for its width): the sync sweep. MIX
+ *         between the two as for every pair (OSC 2 alone at 127)
+ *   SUB   OSC 1 a saw, OSC 2 a square an octave below it (detuned by DTN in cents and moved by INT): MIX (shown SUB)
+ *         is the sub oscillator's level */
 static const char *const N_ANALOG_WAVE[] = {"SAW", "SQR", "TRI", "SIN", "PWM", "SYNC", "SUB"};
 enum { AW_SYNC = 5, AW_SUB = 6 };
 static const param_desc_t ANALOG_SYNC = {"SYNC", F_INT, 0, 127, 10, 0, 0};   /* DTN's range and default */
 static const param_desc_t ANALOG_SUB = {"SUB", F_PCT, 0, 127, 64, 0, 0};      /* MIX's */
 
-/* the filter's TYPE (P_FTYPE, EDIT > FILTER; FILTER DRIVE is DRV): 0 LP, 1 BP, 2 HP, 3 COMB. */
+/* WAVE 0..3 (SAW SQR TRI SIN) at a phase: the plain shapes MORPH blends */
+static inline int32_t ana_shape(uint32_t w, uint32_t ph, uint32_t inc)
+{
+    switch (w & 3u) {
+    case 1: return osc_pulse(ph, inc, 0x80000000u);
+    case 2: return osc_tri(ph);
+    case 3: return osc_sine(ph);
+    default: return osc_saw(ph, inc);
+    }
+}
+
+/* MORPH at pos (Q8: WAVE i is i << 8, the knob's end is the next WAVE, SIN wrapping to SAW). noinline: the
+ * normal path keeps its switch, and this code stays out of it (the ISR's size and CPU budgets) */
+static __attribute__((noinline)) int32_t ana_morph(int32_t pos, uint32_t ph, uint32_t inc)
+{
+    int32_t a = ana_shape((uint32_t)pos >> 8, ph, inc), f = pos & 255;
+    if (!f)
+        return a;
+    return a + (((ana_shape(((uint32_t)pos >> 8) + 1u, ph, inc) - a) * f) >> 8);
+}
+
+/* the filter's TYPE (P_FTYPE, EDIT > FILTER, page 3; its KNOB 4 is DRIVE): 0 LP, 1 BP, 2 HP, 3 COMB. */
 static inline int32_t analog_tap(const tsvf_t *c, int32_t k, int32_t in, int32_t *ic1, int32_t *ic2, uint32_t ft)
 {
     int32_t v3 = in - *ic2;
@@ -72,7 +98,8 @@ static __attribute__((noinline)) void analog_render_x(track_t *t, voice_t *v, in
     const int16_t *p = t->p;
     uint32_t sub = p[P_E0] == AW_SUB, i;
     int32_t det = p[P_E1], mix = p[P_E2], noise = p[P_E3];
-    int32_t cut = (p[P_E4] << 8) + m->cutoff + (p[P_E7] * (v->pitch16 - 60 * 16) >> 4);
+    int32_t intv = p[P_E7] * 16;                       /* INT semitones (1/16 semitone units) */
+    int32_t cut = (p[P_E4] << 8) + m->cutoff + ((v->pitch16 - 60 * 16) << 2);   /* keytracking: half, fixed */
     tsvf_t flt;
     int32_t drive = 32768 + p[P_E6] * 512;
     int32_t m2 = mix * 258, m1 = 32767 - m2;
@@ -80,10 +107,10 @@ static __attribute__((noinline)) void analog_render_x(track_t *t, voice_t *v, in
     uint32_t ph0 = v->ph[0], ph1 = v->ph[1], inc1 = m->inc, inc2;
     int32_t ic1 = v->s[0], ic2 = v->s[1], nst = v->s[2];
     int32_t jl = v->s[3];                             /* SYNC: 1 + the step of a restart a sample ago (16 bits), 0 none */
-    if (sub) {                                        /* an octave below OSC 1, DTN as OSC 2 always had it */
-        inc2 = (det ? cents_inc(m->pitch16, det, 0) : inc1) >> 1;
-    } else {                                          /* DTN and the shape above OSC 1, 3/16 semitone a step */
-        inc2 = pitch_inc(clamp(m->pitch16 + det * 3 + (((m->shape - (64 << 8)) * 3) >> 8), 0, 2047));
+    if (sub) {                                        /* an octave below OSC 1, INT and DTN on top */
+        inc2 = ((det || intv) ? cents_inc(m->pitch16 + intv, det, 0) : inc1) >> 1;
+    } else {                                          /* INT, DTN and the shape above OSC 1, 3/16 semitone a step */
+        inc2 = pitch_inc(clamp(m->pitch16 + intv + det * 3 + (((m->shape - (64 << 8)) * 3) >> 8), 0, 2047));
         if (m->fine)
             inc2 += (uint32_t)((int32_t)(inc2 >> 12) * m->fine);
     }
@@ -132,20 +159,24 @@ static __attribute__((noinline)) void analog_render_x(track_t *t, voice_t *v, in
     v->s[3] = jl;
 }
 
-/* WAVE 0..4 through the filter TYPE ft: analog_render's loop with ft 0 (a constant: LP, the code as it always was),
- * analog_render_f's with BP / HP (its own copy: the LP loop gains nothing) */
-static inline __attribute__((always_inline)) void analog_osc(track_t *t, voice_t *v, int32_t *out, uint32_t n,
-                                                             const vmod_t *m, uint32_t ft)
+/* WAVE 0..4 through the filter TYPE ft: analog_render's loop with ft 0 (LP, the code as it always was),
+ * analog_render_f's with BP / HP. One copy (noinline): always_inline duplicated it, and MORPH doubled that */
+static __attribute__((noinline)) void analog_osc(track_t *t, voice_t *v, int32_t *out, uint32_t n,
+                                                 const vmod_t *m, uint32_t ft)
 {
     const int16_t *p = t->p;
     uint32_t wave = (uint32_t)p[P_E0], i;
     int32_t det = p[P_E1], mix = p[P_E2], noise = p[P_E3];
-    int32_t cut = (p[P_E4] << 8) + m->cutoff + (p[P_E7] * (v->pitch16 - 60 * 16) >> 4);
+    int32_t cut = (p[P_E4] << 8) + m->cutoff + ((v->pitch16 - 60 * 16) << 2);   /* keytracking: half, fixed */
     tsvf_t flt;
     int32_t drive = 32768 + p[P_E6] * 512;                       /* 1x .. 3x */
     uint32_t inc1 = m->inc;
-    uint32_t inc2 = det ? cents_inc(m->pitch16, det, 0) : inc1;      /* DTN in cents */
-    uint32_t pw = 0x80000000u + ((uint32_t)(m->shape - (64 << 8)) << 15);
+    uint32_t inc2 = det || p[P_E7] ? cents_inc(m->pitch16 + p[P_E7] * 16, det, 0) : inc1;   /* INT semitones, DTN cents */
+    uint32_t pw = 0x80000000u + ((uint32_t)clamp(m->shape - (64 << 8) + (int32_t)t->mo_cur * 2, -16384, 65000) << 15);
+    int32_t mpos = (int32_t)(wave << 8);                          /* MORPH position: the WAVE, on to the next */
+    if (t->mo_cur)
+        mpos += (int32_t)((uint32_t)t->mo_cur * 256u / 127u);
+    int32_t pwm = wave == 4u;
     int32_t m2 = mix * 258, m1 = 32767 - m2;                    /* osc mix Q15 */
     int32_t nz = noise * 200, drv = p[P_E6];
     uint32_t ph0 = v->ph[0], ph1 = v->ph[1];                  /* state in locals: out[] may alias v->s[] */
@@ -155,27 +186,19 @@ static inline __attribute__((always_inline)) void analog_osc(track_t *t, voice_t
     uint32_t clen = ft == IFT_COMB ? comb_delay_len(clamp(cut >> 8, 0, 127), AC_LEN) : 0u;   /* block-constant */
     for (i = 0; i < n; i++) {
         int32_t a, b, s;
-        switch (wave) {
-        case 1:
-            a = osc_pulse(ph0, inc1, 0x80000000u);
-            b = osc_pulse(ph1, inc2, 0x80000000u);
-            break;
-        case 2:
-            a = osc_tri(ph0);
-            b = osc_tri(ph1);
-            break;
-        case 3:
-            a = osc_sine(ph0);
-            b = osc_sine(ph1);
-            break;
-        case 4:
+        if (pwm) {
             a = osc_pulse(ph0, inc1, pw);
             b = osc_pulse(ph1, inc2, pw);
-            break;
-        default:
-            a = osc_saw(ph0, inc1);
-            b = osc_saw(ph1, inc2);
-            break;
+        } else if (!t->mo_cur) {                     /* no MORPH: the WAVE's own shape, as it always was */
+            switch (wave) {
+            case 1: a = osc_pulse(ph0, inc1, 0x80000000u); b = osc_pulse(ph1, inc2, 0x80000000u); break;
+            case 2: a = osc_tri(ph0); b = osc_tri(ph1); break;
+            case 3: a = osc_sine(ph0); b = osc_sine(ph1); break;
+            default: a = osc_saw(ph0, inc1); b = osc_saw(ph1, inc2); break;
+            }
+        } else {
+            a = ana_morph(mpos, ph0, inc1);
+            b = ana_morph(mpos, ph1, inc2);
         }
         ph0 += inc1;
         ph1 += inc2;
@@ -224,23 +247,23 @@ static void analog_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
 }
 
 static const preset_t ANALOG_PRESETS[] = {
-    {"SAW LEAD", {0, 12, 64, 0, 90, 30, 10, 64}, {4, 70, 100, 50}, 20, 1, FX(0, 10, 45, 30), PAT(4)},
-    {"SOFT PAD", {0, 20, 64, 4, 60, 10, 0, 32}, {80, 90, 110, 95}, 10, 0, FX(0, 60, 20, 70), PAT(5)},
-    {"SQR BASS", {1, 0, 0, 0, 50, 70, 40, 64}, {0, 60, 40, 30}, 30, 1, FX(5, 0, 10, 10), PAT(2)},
-    {"PWM STR", {4, 8, 40, 0, 75, 20, 0, 48}, {60, 80, 110, 85}, 8, 0, FX(0, 50, 20, 60), PAT(5)},
-    {"ACID", {0, 0, 0, 0, 50, 100, 25, 64}, {0, 55, 20, 30}, 48, 1, FX(20, 0, 45, 15), PAT(1)},
+    {"SAW LEAD", {0, 12, 64, 0, 90, 30, 10, 0}, {4, 70, 100, 50}, 20, 1, FX(0, 10, 45, 30), PAT(4)},
+    {"SOFT PAD", {0, 20, 64, 4, 60, 10, 0, 0}, {80, 90, 110, 95}, 10, 0, FX(0, 60, 20, 70), PAT(5)},
+    {"SQR BASS", {1, 0, 0, 0, 50, 70, 40, 0}, {0, 60, 40, 30}, 30, 1, FX(5, 0, 10, 10), PAT(2)},
+    {"PWM STR", {4, 8, 40, 0, 75, 20, 0, 0}, {60, 80, 110, 85}, 8, 0, FX(0, 50, 20, 60), PAT(5)},
+    {"ACID", {0, 0, 0, 0, 50, 100, 25, 0}, {0, 55, 20, 30}, 48, 1, FX(20, 0, 45, 15), PAT(1)},
     {"SINE KEY", {3, 6, 50, 0, 127, 0, 0, 0}, {2, 80, 30, 70}, 0, 0, FX(0, 30, 25, 40), PAT(6)},
-    {"RAVE", {4, 30, 64, 0, 85, 20, 30, 64}, {20, 80, 110, 60}, 10, 1, FX(30, 40, 30, 30), PAT(13)},
+    {"RAVE", {4, 30, 64, 0, 85, 20, 30, 0}, {20, 80, 110, 60}, 10, 1, FX(30, 40, 30, 30), PAT(13)},
     {"SUB BASS", {3, 0, 0, 0, 40, 0, 20, 0}, {0, 60, 100, 20}, 0, 1, FX(0, 0, 0, 10), PAT(8)},
-    {"PLUCK", {0, 8, 50, 0, 30, 40, 0, 64}, {0, 88, 0, 60}, 55, 0, FX(0, 20, 50, 30), PAT(3)},
-    {"BRASS", {0, 10, 64, 0, 45, 20, 10, 64}, {35, 70, 90, 45}, 40, 0, FX(0, 20, 20, 40), PAT(6)},
+    {"PLUCK", {0, 8, 50, 0, 30, 40, 0, 0}, {0, 88, 0, 60}, 55, 0, FX(0, 20, 50, 30), PAT(3)},
+    {"BRASS", {0, 10, 64, 0, 45, 20, 10, 0}, {35, 70, 90, 45}, 40, 0, FX(0, 20, 20, 40), PAT(6)},
     {"WIND", {0, 0, 0, 90, 30, 90, 0, 0}, {60, 90, 60, 80}, 50, 0, FX(0, 30, 30, 70), PAT(5)},
-    {"STRINGS", {0, 25, 64, 0, 70, 10, 0, 32}, {70, 90, 115, 90}, 5, 0, FX(0, 60, 20, 70), PAT(5)},
+    {"STRINGS", {0, 25, 64, 0, 70, 10, 0, 0}, {70, 90, 115, 90}, 5, 0, FX(0, 60, 20, 70), PAT(5)},
 };
 
 static const engine_t ENG_ANALOG = {
     .name = "ANALOG",
-    .page_title = {"OSC", "FILTER"}, /* EDIT 2 hidden on ANALOG; FILTER / FILTER DRIVE are the sound pages */
+    .page_title = {"OSC 1", "OSC 2"}, /* EDIT 2 hidden on ANALOG; OSC 2 / FILTER are its other sound pages */
     .edit = {
         {"WAVE", F_ENUM, 0, 6, 0, N_ANALOG_WAVE, 0},
         {"DTN", F_INT, 0, 127, 10, 0, "ct"},
@@ -249,7 +272,7 @@ static const engine_t ENG_ANALOG = {
         {"CUT", F_CUTOFF, 0, 127, 90, 0, 0},
         {"RES", F_PCT, 0, 127, 30, 0, 0},
         {"DRV", F_PCT, 0, 127, 0, 0, 0},
-        {"KTR", F_PCT, 0, 127, 64, 0, 0},
+        {"INT", F_SEMI, -24, 24, 0, 0, 0},   /* OSC 2 interval from OSC 1 (was KTR) */
     },
     .presets = ANALOG_PRESETS,
     .npresets = NELEM(ANALOG_PRESETS),

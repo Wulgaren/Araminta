@@ -79,6 +79,21 @@ static int fx_target_available(const track_t *t, uint32_t id);
 static int16_t fx_time_value(int16_t raw);
 static void motion_fx_route(track_t *t, uint32_t st, int capture);
 
+/* a smooth value noise, -32768..32767: a new random point every 2^lg steps of clk, eased between (smoothstep);
+ * seed picks the stream. No state. DRIFT's per voice (voice.c) */
+static int32_t drift_noise(uint32_t seed, uint32_t clk, uint32_t lg)
+{
+    uint32_t k = clk >> lg, f = ((clk & ((1u << lg) - 1u)) << 8) >> lg, a = (seed + k) * 2654435761u,
+             b = (seed + k + 1u) * 2654435761u;
+    int32_t ya, yb;
+    a ^= a >> 15; a *= 2246822519u; a ^= a >> 13;
+    b ^= b >> 15; b *= 2246822519u; b ^= b >> 13;
+    ya = (int32_t)(a >> 16) - 32768;
+    yb = (int32_t)(b >> 16) - 32768;
+    f = f * f * (768u - 2u * f) >> 16;                  /* smoothstep, 0..256 */
+    return ya + (((yb - ya) * (int32_t)f) >> 8);
+}
+
 /* the track parameter of a per-block destination */
 static uint32_t mod_param(uint32_t d)
 {

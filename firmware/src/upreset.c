@@ -76,14 +76,24 @@ static up_rec_t *up_rec(uint32_t k) { return &up_bank[k / UP_PER_BANK].r[k % UP_
  * neither), so every record of before holds 0 there (CAT_NONE: listed by its engine, cat_of_engine) and firmware
  * before keeps the byte (a bank is written whole) without reading it: no format change, no version bump. A record of
  * versions 1..3 (a 16-bit value in every pair) has none; giving it one (a rename) rewrites it as version 4 / 5 when its
- * values fit a byte (up_to_v4; not a version 1 PHYS sound, whose MODEL 2 means DUST) */
+ * values fit a byte (up_to_v4; not a version 1 PHYS sound, whose MODEL 2 means DUST)
+ * 3.5: bit 7 of that byte marks ANALOG's OSC 2 semantics (E8 is INT, the FM3 ATK / SUS slots are MORPH / DRIFT;
+ * core.h). Older firmware ignores it. A record without it loads an ANALOG sound with the three at 0 and drops its
+ * E8 / OP3 automation (up_params); 1.5's records are those, and the FM3 slots held the OP3 envelope. */
 #define UP_CAT_AT (UP_PMAX * 2u - 1u)
+#define UP_OSC2 0x80u                            /* bit 7 of the category byte: 3.5's INT / MORPH / DRIFT */
 #include "category.c"
 static uint32_t up_cat_of(const up_rec_t *r)
 {
-    uint32_t c = r->ver >= 4u && r->np <= UP_CAT_AT ? r->packed[UP_CAT_AT] : 0u;
+    uint32_t c = r->ver >= 4u && r->np <= UP_CAT_AT ? (r->packed[UP_CAT_AT] & 0x7Fu) : 0u;
     return c && c < CAT_N ? c : cat_of_engine(r->engine);
 }
+/* 1: the record's ANALOG OSC 2 semantics (INT / MORPH / DRIFT); older firmware wrote bit 7 0 */
+static int up_osc2(const up_rec_t *r)
+{
+    return r->ver >= 4u && (r->packed[UP_CAT_AT] & UP_OSC2) != 0;
+}
+static void up_mark_osc2(up_rec_t *r) { if (r->ver >= 4u) r->packed[UP_CAT_AT] |= UP_OSC2; }
 static int up_to_v4(up_rec_t *r)                 /* 1 = r is version 4 / 5 (now) */
 {
     int16_t v[UP_PMAX];
@@ -102,10 +112,13 @@ static int up_to_v4(up_rec_t *r)                 /* 1 = r is version 4 / 5 (now)
         r->packed[i] = (uint8_t)(uint32_t)(v[i] + 64);
     return 1;
 }
-static void up_set_cat(up_rec_t *r, uint32_t c)  /* c CAT_BASS..CAT_OTHER; a record that cannot hold one keeps none */
+static void up_set_cat(up_rec_t *r, uint32_t c)  /* c CAT_BASS..CAT_OTHER; 0 keeps the record's */
 {
-    if (c && c < CAT_N && up_to_v4(r))
-        r->packed[UP_CAT_AT] = (uint8_t)c;
+    if (up_to_v4(r)) {
+        uint8_t old = r->packed[UP_CAT_AT];
+        uint32_t keep = c && c < CAT_N ? c : (old & 0x7Fu);
+        r->packed[UP_CAT_AT] = (uint8_t)((old & UP_OSC2) | keep);
+    }
 }
 
 static int up_valid(const up_rec_t *r)
@@ -199,6 +212,11 @@ static void up_params(const up_rec_t *r, int16_t *out, const int16_t *def)
     for (uint32_t i = 0; i < r->np && i < NELEM(values); i++) values[i] = up_value(r, i);
     params_by_count(out, values, r->np, def);
     ins_migrate(out, r->np);
+    if (!up_osc2(r) && r->engine == ENGI_ANALOG) {   /* KTR -> INT; the FM3 slots were OP ENV */
+        out[P_E7] = 0;
+        out[P_MORPH] = 0;
+        out[P_DRIFT] = 0;
+    }
 }
 
 static int up_name_ok(const uint8_t *s, uint32_t n)   /* 1..12 printable ASCII */
@@ -296,6 +314,7 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
         }
         if (na == end + 18u)
             up_set_cat(r, a[end + 17u]);
+        up_mark_osc2(r);                             /* the editor sends today's values */
         *target = *r;
         return 0;
     }
@@ -307,6 +326,7 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
     if (na == end + 18u)
         up_set_cat(r, a[end + 17u]);
     up_migrate(r);                               /* (an editor of before the DRUM engine) */
+    up_mark_osc2(r);                             /* the editor sends today's values */
     *target = *r;
     return 0;
 }
@@ -467,6 +487,7 @@ static int up_store_cat(uint32_t k, const char *name, uint32_t cat)
             }
         }
     }
+    up_mark_osc2(&r);                                   /* a new sound: INT / MORPH / DRIFT as stored */
     {
         int rc = up_put(k, &r);                         /* the record first, then its FM6 patch (up_fm6.c) */
         if ((rc == 0 || rc == 3) && r.engine == ENGI_FM6) {

@@ -198,6 +198,9 @@ static const param_desc_t TP[P_COUNT] = {
     [P_FTYPE] = PE("TYPE", N_FTYPE, 0),           /* ANALOG filter: LP / BP / HP / COMB */
     [P_ESYNC] = PE("ESYNC", N_ONOFF, 0),          /* 1.5 (#175): OFF = ATK DEC REL in ms, as before (voice.c esync) */
 };
+/* ANALOG's OSC 2 page: the labels of the two FM3 slots it keeps MORPH / DRIFT in (core.h) */
+static const param_desc_t ANALOG_MORPH = {"MORPH", F_PCT, 0, 127, 0, 0, 0};
+static const param_desc_t ANALOG_DRIFT = {"DRIFT", F_PCT, 0, 127, 0, 0, 0};
 
 static const param_desc_t GP[G_COUNT] = {
     [G_BPM] = PD("BPM", F_BPM, 40, 240, 120),
@@ -283,6 +286,12 @@ static const char *param_list_name(const track_t *t, uint32_t id, int full)
  * only; range and default are the same): what the editor protocol, user presets and projects use */
 static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
 {
+    if (e == ENGI_ANALOG) {                           /* OSC 2: the FM3 slots shown as their own knobs */
+        if (id == P_MORPH)
+            return &ANALOG_MORPH;
+        if (id == P_DRIFT)
+            return &ANALOG_DRIFT;
+    }
     return id >= P_E0 ? &ENGINES[e]->edit[id - P_E0] : &TP[id];
 }
 
@@ -583,9 +592,10 @@ static const page_t PAGES[] = {
     {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, 0, {P_CHRD, P_VOIC, PG_STRUM, PG_STROKE}},
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, EDIT_SEC_SND, {P_E0, P_E1, P_E2, P_E3}},
     {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, EDIT_SEC_SND, {P_E4, P_E5, P_E6, P_E7}},
-    /* ANALOG: page 2 FILTER (TYPE CUT RES KTR), page 3 FILTER DRIVE (DRV); EDIT 2 hidden (ui.c) */
-    {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_FTYPE, P_E4, P_E5, P_E7}},
-    {"FILTER DRIVE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_E6, 0xFF, 0xFF, 0xFF}},
+    /* ANALOG: page 1 OSC 1 (WAVE DTN MIX NOIS), page 2 OSC 2 (INT MORPH DRIFT), page 3 FILTER
+     * (TYPE CUT RES DRV); EDIT 2 hidden (ui.c) */
+    {"OSC 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_E7, P_MORPH, P_DRIFT, 0xFF}},
+    {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_FTYPE, P_E4, P_E5, P_E6}},
     /* DRUM-X kit (ui_dx.c): SOUND / SOUND 2 (SOUND 3 / X-MOD retired; FUN11 still stores dx_mot) */
     {"SOUND", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"SOUND 2", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},

@@ -40,7 +40,7 @@ static void midi_expression(track_t *t, const midi_channel_t *c)
     int32_t range = ((int32_t)c->semis * 100 + c->cents) * 256 / 100;
     if (drum_track(t))
         return;
-    midi_bend_target[trk_index(t)] = (int32_t)c->bend * range / (c->bend < 0 ? 8192 : 8191);
+    midi_bend_target[trk_index(t)] = (int16_t)((int32_t)c->bend * range / (c->bend < 0 ? 8192 : 8191));
 }
 
 static void midi_expression_channel(uint32_t ch)

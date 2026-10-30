@@ -29,6 +29,7 @@
 /* Engine table is append-only. Index 13 SLICE stays reserved (eng_retire.c): never selectable; old stores
  * load as DRUM. SAMPLE (4), GRAIN (8), NOISE (11) are live again. 15: the ported Felucca drum engine (DRUMS). */
 #define NENGINES 16u
+#define ENGI_ANALOG 0u
 #define ENGI_DIGITAL 1u          /* reserved without FELUCCA_FM4: never selectable (eng_ok), its sounds load as FM6 */
 #define ENGI_SAMPLE 4u
 #define ENGI_GRAIN 8u
@@ -100,6 +101,10 @@ enum {                          /* per-track parameters */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
+/* ANALOG's OSC 2 page: MORPH and DRIFT keep their values in FM6's OP3 ATK / SUS slots, unused on an ANALOG
+ * track (as JIANT did): P_COUNT is full (127), and param_desc_of names them for ANALOG. */
+#define P_MORPH P_FM3_ATK
+#define P_DRIFT P_FM3_SUS
 /* P_MUTE (params.c N_PLAY). Append-only: stored 0 plays (PLAY ON), 1 is silent (PLAY OFF). */
 enum { PLAY_ON = 0, PLAY_OFF = 1, PLAY_SOLO = 2 };
 /* 1.5 INSERT ids (np 111): migrated to the chain in project.c / upreset.c ins_migrate */
@@ -604,9 +609,9 @@ typedef struct track {
     uint8_t fx_sl_pos;           /* EFFECTS INS_SLCR list slot 0..8; RAM until FUN14 (default 8) */
 
     generation_t generation;
-    int16_t lfo_sm;              /* WAVE S&H with SMOOTH on (voice.c track_lfo_end); in rsv_sz's pad, so the
-                                  * fields above keep their offsets (the ISR's code layout depends on them) */
-    uint8_t rsv_sz[1];           /* sizeof(track_t) a multiple of 16 */
+    int16_t lfo_sm;              /* WAVE S&H with SMOOTH on (voice.c track_lfo_end) */
+    uint8_t mo_cur;              /* ANALOG MORPH as this block plays it (0..127, slewed from P_MORPH); this byte
+                                  * and rsv_c1 below are the pads that keep track_t a multiple of 16 */
     int16_t armp, aholdp;        /* P_AMODE / P_AHOLD as last seen by the ISR */
     int16_t ahold_sv;            /* HOLD before DRONE forced it on (restored on leave) */
     /* engine switch (voice.c engine_block): the old engine's voices fade out, then it switches */

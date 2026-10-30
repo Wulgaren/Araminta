@@ -278,7 +278,7 @@ The pages by button:
 | GLO | MASTER, CLOCK, SONG | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
 | SAVE | Presets (SELECT: PRESETS / USER / PHRASES), Project (SELECT: PROJECT / TOOLS) | UNDO |
 | LFO | LFO (SELECT: LFO / LFO 2 / LFO DEST), then MOD | MOMENTARY (with a knob) |
-| EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG FILTER / FILTER DRIVE), Kit, Lanes, Voice (hidden on DRUM-X) | the EDIT layer (the engines; on DRUM-X the black keys mute lanes) |
+| EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG OSC 2 / FILTER), Kit, Lanes, Voice (hidden on DRUM-X) | the EDIT layer (the engines; on DRUM-X the black keys mute lanes) |
 | FX | EFFECTS (SELECT: list + stage pages), SLICER, PUNCH | the FX layer |
 | SCL, ENV, ARP | their pages | SCL: its layer |
 | REC | arms the track | — |
@@ -351,9 +351,10 @@ KNOB ACCEL is always on for wide values.
 
 In the order the device lists them:
 
-- **ANALOG**: virtual analog; two oscillators (WAVE SYNC: the second hard-synced to the first; SUB: a square an
-  octave down), noise, drive, a resonant filter: low-pass, band-pass, high-pass or comb (EDIT > FILTER; COMB:
-  CUT sets the delay / tooth spacing, RES the feedback)
+- **ANALOG**: virtual analog; two oscillators (INT: OSC 2 an interval from OSC 1, -24..+24 semitones; WAVE SYNC:
+  the second hard-synced to the first; SUB: a square an octave down), noise, drive, MORPH / DRIFT (EDIT > OSC 2), a
+  resonant filter: low-pass, band-pass, high-pass or comb (EDIT > FILTER, page 3; COMB: CUT sets the delay / tooth
+  spacing, RES the feedback)
 - **FM6**: classic 6-operator FM (Dexed-based): 32 algorithms, a full patch per track, edited in the
   web editor (which imports .syx files) or on the device: EDIT > OPERATOR (FREQ is one list: ratio then fixed Hz,
   fine, level; no OPERATOR 2 page) and OP ENV (each stage's rate and level, drawn as the envelope), one operator

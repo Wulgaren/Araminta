@@ -774,18 +774,18 @@ static int formats(void)
         r.np = 99;                                    /* as 1.1 stored it: the engine's 8 after its 91 */
         for (i = 0; i < 8u; i++) up_set_value(&r, 91u + i, (int16_t)(10 + i));
         up_params(&r, v, def);
-        ok &= v[P_LSYNC] == 0 && v[P_LPOL] == 0 && v[P_SQNT] == 1 && v[P_E0] == 10 && v[P_E7] == 17 && v[P_LN7] == t->p[P_LN7];
+        ok &= v[P_LSYNC] == 0 && v[P_LPOL] == 0 && v[P_SQNT] == 1 && v[P_E0] == 10 && v[P_E7] == 0 && v[P_LN7] == t->p[P_LN7];
         r.np = 103;                                   /* a 1.2 build before SPREAD: its 95, then the engine's 8 */
         for (i = 0; i < 95u; i++) up_set_value(&r, i, t->p[i]);
         for (i = 0; i < 8u; i++) up_set_value(&r, 95u + i, (int16_t)(20 + i));
         up_params(&r, v, def);
-        ok &= v[P_LSYNC] == 4 && v[P_LPOL] == 1 && v[P_SPRD] == 0 && v[P_E0] == 20 && v[P_E7] == 27;
+        ok &= v[P_LSYNC] == 4 && v[P_LPOL] == 1 && v[P_SPRD] == 0 && v[P_E0] == 20 && v[P_E7] == 0;
         r.np = 104;                                   /* 1.2 .. 1.4: its 96, then the engine's 8 */
         t->p[P_SPRD] = 33;
         for (i = 0; i < 96u; i++) up_set_value(&r, i, t->p[i]);
         for (i = 0; i < 8u; i++) up_set_value(&r, 96u + i, (int16_t)(30 + i));
         up_params(&r, v, def);
-        ok &= v[P_SPRD] == 33 && v[P_FTYPE] == 0 && v[P_ESYNC] == 0 && v[P_E0] == 30 && v[P_E7] == 37;
+        ok &= v[P_SPRD] == 33 && v[P_FTYPE] == 0 && v[P_ESYNC] == 0 && v[P_E0] == 30 && v[P_E7] == 0;
         t->p[P_SPRD] = 0;
         bad += check("user presets: 106 kept; 99 (1.1): LFO 2 / QUANTIZE defaults; 103: SPREAD 0; 104: TYPE LP, ENV SYNC OFF",
                      ok);
