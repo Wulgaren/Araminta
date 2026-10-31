@@ -55,8 +55,9 @@ static void graph_adsr(const track_t *t, uint16_t c)
 /* S&H on the page, as the reference LFO shape: two cycles (the other waves' scale) of a step that glides to its
  * value over the first SMTH/127 of the cycle (a smoothstep, so the turn is rounded), then holds. A step value only
  * lives a cycle, so the two before it are kept here, shifted at a wrap (lastq falling); the three make the window's
- * tail too, and the curve runs into the next cycle at the same value and slope. */
-static struct { uint32_t lastq; int16_t v1, v2, v3; uint8_t init, trk; } lfo_hist;
+ * tail too, and the curve runs into the next cycle at the same value and slope. frame: the last UI frame this graph
+ * drew: after a gap (the page was elsewhere, LFO 2 S&H still selected) the three are stale and start afresh. */
+static struct { uint32_t lastq, frame; int16_t v1, v2, v3; uint8_t init, trk; } lfo_hist;
 static int32_t lfo_sh_shape(int32_t va, int32_t vb, uint32_t t, uint32_t f)
 {
     uint32_t u, s;
@@ -78,7 +79,7 @@ static void graph_lfo(const track_t *t, uint16_t c)
         uint32_t f = (uint32_t)t->p[P_LSMOOTH] * (0xFFFFFFFFu / 127u), ti = (uint32_t)(t - trk);
         int32_t xc = PANEL_W - (int32_t)q, xp = xc - PANEL_W / 2, xo = xp - PANEL_W / 2;
         int32_t v0 = (int32_t)(t->lfo_rnd >> 16) - 32768;
-        if (!lfo_hist.init || lfo_hist.trk != (uint8_t)ti) {
+        if (!lfo_hist.init || lfo_hist.trk != (uint8_t)ti || ui.frame != lfo_hist.frame + 1u) {
             lfo_hist.v1 = lfo_hist.v2 = lfo_hist.v3 = (int16_t)t->lfo_prev;
             lfo_hist.trk = (uint8_t)ti;
             lfo_hist.init = 1;
@@ -88,6 +89,7 @@ static void graph_lfo(const track_t *t, uint16_t c)
         }
         lfo_hist.v1 = (int16_t)t->lfo_prev;
         lfo_hist.lastq = q;
+        lfo_hist.frame = ui.frame;
         for (x = 0; x < PANEL_W; x++) {
             uint32_t ts = (uint32_t)(x - (x >= xc ? xc : x >= xp ? xp : xo)) * d;
             int32_t w = x >= xc ? lfo_sh_shape(t->lfo_prev, v0, ts, f)
@@ -524,6 +526,16 @@ static void graph_scale(const track_t *t, uint16_t c)
  * root's ACCENT, the others RAISE. OFF or a kit: what to do instead */
 static void panel_note(const char *a, const char *b, const char *c);
 static void panel_alert(uint32_t id, const char *a);
+/* the CHORD page's caption: MELODY only in POLY, where every note sounds; MONO / LEGATO / UNISON play the root
+ * only, whatever CHRD asks for. last: the chord shown is chord_last's, not one built on ROOT */
+static const char *chord_cap(const track_t *t, int last)
+{
+    if (trk_vmode(t) != V_POLY)
+        return "ROOT ONLY";
+    if (t->p[P_CHRD] == CH_MELODY)
+        return "MELODY";
+    return last ? "LAST" : "ON ROOT";
+}
 static void graph_chord(const track_t *t, uint16_t c)
 {
     static const uint8_t BLACK[12] = {0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0};
@@ -532,7 +544,7 @@ static void graph_chord(const track_t *t, uint16_t c)
     int32_t r;
     uint16_t mask;
     char b[12];
-    const char *cap = "LAST";
+    const char *cap;
     if (!t->p[P_CHRD]) {
         panel_note("CHORD KEYS OFF", "[K1] DIA3: IN-KEY CHORDS", 0);   /* (the title says what they are) */
         return;
@@ -549,12 +561,9 @@ static void graph_chord(const track_t *t, uint16_t c)
             nn[i] = chord_last[k].note[i];
     } else {
         n = chord_make(t, (uint32_t)(60 + t->p[P_ROOT]), nn, &r, &mask);
-        cap = "ON ROOT";
     }
-    if (trk_vmode(t) != V_POLY)
-        cap = "ROOT ONLY";                              /* MONO / LEGATO / UNISON */
+    cap = chord_cap(t, chord_last[k].n != 0);
     if (t->p[P_CHRD] == CH_MELODY) {
-        cap = "MELODY";
         chord_melody_name(b, (uint32_t)r, mask);
     } else if (t->p[P_CHRD] == CH_AUTO)
         chord_auto_name(b, (uint32_t)r, mask);
