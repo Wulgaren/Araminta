@@ -740,12 +740,12 @@ static void rec_release(track_t *t, uint32_t note)
 typedef struct { uint16_t t, d; uint8_t note, vel; } ft_ev_t;
 static ft_ev_t ft_ev[FT_MAX];
 /* a note that was one string of a strum: rate (1..7, chord.c STRUM_DEN), index in the sweep, total.
- * The take re-spaces them on its own tempo (ft_close) and keeps them out of the legato rules. */
+ * The take puts the whole chord in the first string's step (ft_close), as live recording does, and
+ * keeps the strings out of the legato rules. */
 #define FT_STRUM 0x80u
 #define FT_STRUM_PACK(rate, idx, total) \
     ((uint8_t)(FT_STRUM | ((rate) << 4) | (((idx) & 3u) << 2) | (((total) - 1u) & 3u)))
 static uint8_t ft_sg[FT_MAX];
-static uint8_t ft_strum_fine;                 /* a 1/16 or finer strum: a 1-2 bar take uses 1/32 */
 static uint32_t ft_n;
 static volatile uint8_t ft_on;                /* a free take runs */
 static uint8_t ft_trk;
@@ -810,7 +810,6 @@ static void ft_start(track_t *t)
     ft_trk = (uint8_t)trk_index(t);
     ft_t = 0;
     ft_n = 0;
-    ft_strum_fine = 0;
     song.rec = 0;
 }
 static void ft_note_on(uint32_t note, uint32_t vel)
@@ -822,8 +821,6 @@ static void ft_note_on(uint32_t note, uint32_t vel)
         ft_ev[ft_n].vel = (uint8_t)vel;
         ft_sg[ft_n] = chord_strum_now.on
             ? FT_STRUM_PACK(chord_strum_now.rate, chord_strum_now.index, chord_strum_now.total) : 0u;
-        if ((ft_sg[ft_n] & FT_STRUM) && chord_strum_now.rate >= 2u)
-            ft_strum_fine = 1;                     /* 1/16 or finer: one 1/16 step is too coarse */
         ft_n++;
     }
 }
@@ -951,22 +948,17 @@ static void ft_close(void)
     }
     len = 16u * bars;
     div = 2;                                          /* 1/16 */
-    if (bars <= 2u && ft_strum_fine) {               /* a 1/16 strum needs two steps: 1/32 fits 1-2 bars */
-        len = 32u * bars;                            /* (4 bars would need 128 steps: stay at 1/16) */
-        div = 3;                                     /* 1/32 */
-    }
-    {   /* a strummed chord: put its strings back on the sweep it was set to, at the take's tempo (the
-         * sweep during the take used the tempo before it, so a slower take made a 1/8 strum come out
-         * shorter). Keep each string's release where it was played. */
+    {   /* a strummed chord: the whole chord goes into the first string's step, as live recording does.
+         * The step model sounds a step's notes together, so the strings' own spread is not kept; each
+         * string's release stays where it was played. */
         uint32_t ob = beat_samples();
-        uint32_t nb = song.g[G_CLOCK] && midi_beat_samples ? ob : (uint32_t)FS * 60u / bpm;
         for (i = 0; i < ft_n; i++) {
             uint8_t sg = ft_sg[i];
             uint32_t off, at;
             if (!(sg & FT_STRUM))
                 continue;
             off = ft_strum_off(sg, ob);
-            at = (ft_ev[i].t > off ? (uint32_t)ft_ev[i].t - off : 0u) + ft_strum_off(sg, nb);
+            at = ft_ev[i].t > off ? (uint32_t)ft_ev[i].t - off : 0u;   /* the first string's onset */
             if (at >= T)
                 at = T ? T - 1u : 0u;
             if (ft_ev[i].d != FT_OPEN) {
