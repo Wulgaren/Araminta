@@ -136,7 +136,7 @@ static __attribute__((noinline)) void analog_render_x(track_t *t, voice_t *v, in
     uint32_t sub = p[P_E0] == AW_SUB, super = p[P_E0] == AW_SUPER, i, k;
     int32_t det = p[P_E1], mix = p[P_E2], noise = p[P_E3];
     int32_t intv = p[P_E7] * 16;                       /* INT semitones (1/16 semitone units) */
-    int32_t cut = (p[P_E4] << 8) + m->cutoff + ((v->pitch16 - 60 * 16) << 2);   /* keytracking: half, fixed */
+    int32_t cut = (p[P_E4] << 8) + m->cutoff + shl(v->pitch16 - 960, 2);   /* keytracking: half, fixed */
     tsvf_t flt;
     int32_t drive = 32768 + p[P_E6] * 512;
     int32_t m2 = mix * 258, m1 = 32767 - m2;
@@ -243,7 +243,7 @@ static __attribute__((noinline)) void analog_osc(track_t *t, voice_t *v, int32_t
     const int16_t *p = t->p;
     uint32_t wave = (uint32_t)p[P_E0], i;
     int32_t det = p[P_E1], mix = p[P_E2], noise = p[P_E3];
-    int32_t cut = (p[P_E4] << 8) + m->cutoff + ((v->pitch16 - 60 * 16) << 2);   /* keytracking: half, fixed */
+    int32_t cut = (p[P_E4] << 8) + m->cutoff + shl(v->pitch16 - 960, 2);   /* keytracking: half, fixed */
     tsvf_t flt;
     int32_t drive = 32768 + p[P_E6] * 512;                       /* 1x .. 3x */
     uint32_t inc1 = m->inc;
@@ -323,7 +323,7 @@ static __attribute__((noinline)) void analog_osc_b(track_t *t, voice_t *v, int32
     const int16_t *p = t->p;
     uint32_t wave = (uint32_t)p[P_E0], wave2 = analog_wave_b(t), i;
     int32_t det = p[P_E1], mix = p[P_E2], noise = p[P_E3];
-    int32_t cut = (p[P_E4] << 8) + m->cutoff + ((v->pitch16 - 60 * 16) << 2);   /* keytracking: half, fixed */
+    int32_t cut = (p[P_E4] << 8) + m->cutoff + shl(v->pitch16 - 960, 2);   /* keytracking: half, fixed */
     tsvf_t flt;
     int32_t drive = 32768 + p[P_E6] * 512;                       /* 1x .. 3x */
     uint32_t inc1 = m->inc;
@@ -332,7 +332,7 @@ static __attribute__((noinline)) void analog_osc_b(track_t *t, voice_t *v, int32
     int32_t mpos = (int32_t)(wave << 8), mpos2 = (int32_t)(wave2 << 8);   /* MORPH: each from its own WAVE */
     if (t->mo_cur) {
         mpos += (int32_t)((uint32_t)t->mo_cur * 256u / 127u);
-        mpos2 = mpos + (((int32_t)wave2 - (int32_t)wave) << 8);
+        mpos2 = mpos + shl((int32_t)wave2 - (int32_t)wave, 8);
     }
     int32_t pwm1 = wave == 4u, pwm2 = wave2 == 4u;
     int32_t m2 = mix * 258, m1 = 32767 - m2;                    /* osc mix Q15 */
