@@ -55,6 +55,18 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
+### New in 3.5
+
+- **ANALOG OSC A / OSC B.** EDIT > OSC A (WAVE MORPH DRIFT NOISE), OSC B (WAVE INT DTN MIX) and FILTER
+  (TYPE CUT RES DRV). OSC B's own wave runs through LP, BP, HP and COMB, and MORPH widens PWM from 50 % to
+  54 %; SYNC / SUB / SUPER define OSC B themselves.
+- **Free take + STRUM.** A strummed chord records into the first string's step, as step recording does, so the
+  take plays the chord together. ENV DEST's fourth card is `SYNC` (with the tempo icon) and TAPE's WOW control
+  is `FLUTR`.
+- **CLEAR / HELP / FX.** SAVE > CLEAR clears FX (B3) or every track's FX plus MASTER (F4); the ALL keys moved to
+  F#3 / G#3 and HELP is retired. CLOUD's SIZE 127 is a true FREEZE that holds the tail instead of droning.
+  No project format change: saves stay FUN19 (`FUNJ`).
+
 ### New in 3.4
 
 - **Live LFO graphs.** The LFO page's wave draws from the running LFO and scrolls at RATE (LFO 2: at SYNC's

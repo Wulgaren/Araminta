@@ -1,13 +1,19 @@
 # Changelog
 
-## Unreleased
+## 3.5
+
+ANALOG gets OSC A / OSC B pages: OSC B's own wave on every filter TYPE, PWM and its MORPH, DRIFT, and the
+filter TYPE on page 3. A strummed chord records into one step in free take too; ENV DEST's fourth card reads
+SYNC and TAPE's WOW reads FLUTR; SAVE > CLEAR clears FX and HELP is retired. CLOUD's SIZE 127 is a true
+freeze that holds the tail instead of droning. No project format change: saves stay FUN19 (`FUNJ`). Splash
+and ABOUT show `v3.5`.
 
 ### ANALOG
 
 - **OSC A / OSC B pages.** OSC A: WAVE, MORPH (the wave slides toward the next plain one; PWM widens toward
   54 %), DRIFT (each voice's slow pitch / filter wander), NOISE. OSC B: its own WAVE (SAME by default, following
-  OSC A), INT (interval from OSC A, -24..+24 semitones), DTN, MIX; WAVE is greyed in SYNC / SUB / SUPER, which
-  define OSC B themselves. EDIT > FILTER is page 3 now,
+  OSC A), INT (interval from OSC A, -24..+24 semitones), DTN, MIX; it works through LP, BP, HP and COMB, and is
+  greyed only in SYNC / SUB / SUPER, which define OSC B themselves. EDIT > FILTER is page 3 now,
   its KNOB 4 DRIVE; the KTR knob is gone (keytracking fixed at its old default).
 - **Compatibility.** E8 is INT now. Older projects and user presets load it as 0, with MORPH / DRIFT 0, and drop
   their E8 / OP automation, with OSC B's wave on OSC A's; project header byte 67 bit 1 and the user preset
