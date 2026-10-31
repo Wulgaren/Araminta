@@ -7,8 +7,8 @@
  * keytracking is fixed at its old default, half).
  * WAVE (P_E0) is OSC A's; WAVE2 (P_WAVE2, SAME then SAW SQR TRI SIN PWM) OSC B's. SAME follows OSC A.
  * SYNC / SUB define OSC B's shape themselves and ignore WAVE2.
- * MORPH (P_MORPH, 0..127): each plain WAVE (SAW SQR TRI SIN) slides toward its own next one, PWM narrows
- * toward ~4 %; the WAVE still picks the shape the knob starts from.
+ * MORPH (P_MORPH, 0..127): each plain WAVE (SAW SQR TRI SIN) slides toward its own next one, PWM widens
+ * toward ~54 %; the WAVE still picks the shape the knob starts from.
  * DRIFT (P_DRIFT, voice.c): each voice's slow pitch and filter wander.
  * WAVE SYNC and SUB (#104, appended: WAVE 0..4 play as they always did) are two more oscillator pairs (analog_osc_x):
  *   SYNC  OSC 2 a saw hard-synced to OSC 1 (a saw): it restarts with OSC 1's every cycle, band-limited at the restart
@@ -248,7 +248,7 @@ static __attribute__((noinline)) void analog_osc(track_t *t, voice_t *v, int32_t
     int32_t drive = 32768 + p[P_E6] * 512;                       /* 1x .. 3x */
     uint32_t inc1 = m->inc;
     uint32_t inc2 = det || p[P_E7] ? cents_inc(m->pitch16 + p[P_E7] * 16, det, 0) : inc1;   /* INT semitones, DTN cents */
-    uint32_t pw = 0x80000000u + ((uint32_t)clamp(m->shape - (64 << 8) + (int32_t)t->mo_cur * 2, -16384, 65000) << 15);
+    uint32_t pw = 0x80000000u + ((uint32_t)clamp(m->shape - (64 << 8) + (int32_t)t->mo_cur * 41, -16384, 65000) << 15);
     int32_t mpos = (int32_t)(wave << 8);                          /* MORPH position: the WAVE, on to the next */
     if (t->mo_cur)
         mpos += (int32_t)((uint32_t)t->mo_cur * 256u / 127u);
@@ -328,7 +328,7 @@ static __attribute__((noinline)) void analog_osc_b(track_t *t, voice_t *v, int32
     int32_t drive = 32768 + p[P_E6] * 512;                       /* 1x .. 3x */
     uint32_t inc1 = m->inc;
     uint32_t inc2 = det || p[P_E7] ? cents_inc(m->pitch16 + p[P_E7] * 16, det, 0) : inc1;   /* INT semitones, DTN cents */
-    uint32_t pw = 0x80000000u + ((uint32_t)clamp(m->shape - (64 << 8) + (int32_t)t->mo_cur * 2, -16384, 65000) << 15);
+    uint32_t pw = 0x80000000u + ((uint32_t)clamp(m->shape - (64 << 8) + (int32_t)t->mo_cur * 41, -16384, 65000) << 15);
     int32_t mpos = (int32_t)(wave << 8), mpos2 = (int32_t)(wave2 << 8);   /* MORPH: each from its own WAVE */
     if (t->mo_cur) {
         mpos += (int32_t)((uint32_t)t->mo_cur * 256u / 127u);

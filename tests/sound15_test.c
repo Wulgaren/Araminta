@@ -318,6 +318,20 @@ static void test_osc2(void)
         check("WAVE2 5: OSC B plays PWM, not SIN, at about 50 % duty",
               hp != hash && fabs((double)pos / n - 0.5) < 0.1 && pwm.rms > 200);
     }
+    {   /* MORPH on PWM widens the pulse from 50 % toward ~54 % at 127 */
+        double d0, d1;
+        uint32_t i, n = 0, p0 = 0, p1 = 0;
+        (void)analog_osc2_note2(4, 5, 127, 0, 0, 0, 60);
+        for (i = FS / 10u; i < NREND * CTL; i++, n++)
+            p0 += ren_l[i] > 0;
+        (void)analog_osc2_note2(4, 5, 127, 0, 127, 0, 60);
+        for (i = FS / 10u; i < NREND * CTL; i++)
+            p1 += ren_l[i] > 0;
+        d0 = (double)p0 / n;
+        d1 = (double)p1 / n;
+        check("MORPH on PWM: 0..127 widens the duty by about 4 points (50 % -> 54 %)",
+              fabs(d0 - 0.5) < 0.02 && d1 - d0 > 0.03 && d1 - d0 < 0.05);
+    }
 }
 
 static void type_bp(track_t *t) { t->p[P_FTYPE] = 1; }
