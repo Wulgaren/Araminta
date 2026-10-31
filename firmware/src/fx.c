@@ -1309,8 +1309,10 @@ static __attribute__((noinline)) void rev_hall(const int32_t *rev_in, int32_t *o
 
 /* SHIMR (G_RTYPE 3, JIANT): ROOM with its output an octave up fed back into it (two crossfaded grains reading
  * its own line twice as fast). SIZE / DAMP as ROOM; shimmer amount is fixed (no MOD global here). */
-/* CLOUD (G_RTYPE 4, JIANT): granular wash into ROOM. SIZE decay; 127 is FREEZE (the tail recirculates with no new
- * input). DAMP darkens. Grain density / pitch chance / width are fixed (no RATE / MOD / WIDE globals here). */
+/* CLOUD (G_RTYPE 4, JIANT): granular wash into ROOM. SIZE decay; 127 is FREEZE (the line stops taking input and
+ * its buffer is held; the last swarm keeps reading it with its windows fixed, so no new grains and no drone: a
+ * frozen read position would hold one sample, i.e. DC, so the read keeps moving through the held line).
+ * DAMP darkens. Grain density / pitch chance / width are fixed (no RATE / MOD / WIDE globals here). */
 static __attribute__((noinline)) void rev_shimmer(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
     int32_t in[CTL], t[CTL];
@@ -1336,10 +1338,8 @@ static __attribute__((noinline)) void rev_shimmer(const int32_t *rev_in, int32_t
 }
 
 static uint32_t cl_rand(void) { R->cl_rng = R->cl_rng * 1664525u + 1013904223u; return R->cl_rng >> 8; }
-/* CLOUD's line feedback and low-pass products pass int32's range: scale by 2^15 in 64 bits, with the same
- * rounding as before. The floored loop (FREEZE) floors, as mulq15 does; the line rounds towards zero (sh_tz). */
-static inline int32_t mulq15_wide(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 15); }
-static inline int32_t mulq15_wide_tz(int32_t a, int32_t b)
+/* CLOUD's line feedback and low-pass products pass int32's range: scale by 2^15 in 64 bits, towards zero. */
+static inline int32_t mulq15_wide(int32_t a, int32_t b)
 {
     int64_t p = (int64_t)a * b;
     return (int32_t)((p + ((p >> 63) & 32767)) >> 15);
@@ -1351,29 +1351,28 @@ static __attribute__((noinline)) void rev_cloud(const int32_t *rev_in, int32_t *
     int32_t dk = 32767 - rev_pg_damp() * 220;
     int32_t sz = rev_pg_size(), fb = sz * 24, fg = sz * 110, g[CTL], t[CTL];
     for (i = 0; i < n; i++) {
-        int32_t l = 0, r = 0, m, x;
-        if (freeze)                                      /* FREEZE: the drone the loop makes on purpose */
-            x = mulq15(shim_fb[i], fb) + mulq15_wide(R->cl_lp, fg);
-        else                                             /* the line: the input and the tail, two samples into one */
-            x = (rev_in[i] >> 1) + sh_tz(shim_fb[i] * fb, 15) + mulq15_wide_tz(R->cl_lp, fg);
-        if (!freeze && x > -64 && x < 64)
-            x = 0;                                       /* flush the line's last few LSB: exact silence */
-        if (R->cl_w & 1u)
-            cloud_buf[(R->cl_w >> 1) & (CL_LEN - 1u)] = (int16_t)clamp((R->cl_half + x) >> 1, -32768, 32767);
-        else
-            R->cl_half = x;
-        R->cl_w++;
-        if (--R->cl_next <= 0) {                         /* a grain is born, in the first one free */
-            R->cl_next = CL_GAP / 2 + (int32_t)(cl_rand() % (uint32_t)CL_GAP);
-            for (k = 0; k < CL_N && cl_g[k].len; k++) {}
-            if (k < CL_N) {
-                uint32_t pk = cl_rand() % 100u < (uint32_t)CL_MOD * 3u / 4u ? 1u + cl_rand() % 3u : 0u;
-                cl_g[k].len = (uint16_t)(2000u + cl_rand() % 4200u);
-                cl_g[k].pos = ((R->cl_w >> 1) - 200u - cl_rand() % (CL_LEN - 6000u)) << 16;
-                cl_g[k].inc = (PITCH[pk] >> 1) + (cl_rand() % 129u) - 64u;
-                cl_g[k].age = 0;
-                cl_g[k].pl = 128;                        /* centre (no WIDE) */
-                cl_g[k].pr = 128;
+        int32_t l = 0, r = 0, m;
+        if (!freeze) {                    /* the line: the input and the tail, two samples into one */
+            int32_t x = (rev_in[i] >> 1) + sh_tz(shim_fb[i] * fb, 15) + mulq15_wide(R->cl_lp, fg);
+            if (x > -64 && x < 64)
+                x = 0;                    /* flush the line's last few LSB: exact silence */
+            if (R->cl_w & 1u)
+                cloud_buf[(R->cl_w >> 1) & (CL_LEN - 1u)] = (int16_t)clamp((R->cl_half + x) >> 1, -32768, 32767);
+            else
+                R->cl_half = x;
+            R->cl_w++;
+            if (--R->cl_next <= 0) {     /* a grain is born, in the first one free */
+                R->cl_next = CL_GAP / 2 + (int32_t)(cl_rand() % (uint32_t)CL_GAP);
+                for (k = 0; k < CL_N && cl_g[k].len; k++) {}
+                if (k < CL_N) {
+                    uint32_t pk = cl_rand() % 100u < (uint32_t)CL_MOD * 3u / 4u ? 1u + cl_rand() % 3u : 0u;
+                    cl_g[k].len = (uint16_t)(2000u + cl_rand() % 4200u);
+                    cl_g[k].pos = ((R->cl_w >> 1) - 200u - cl_rand() % (CL_LEN - 6000u)) << 16;
+                    cl_g[k].inc = (PITCH[pk] >> 1) + (cl_rand() % 129u) - 64u;
+                    cl_g[k].age = 0;
+                    cl_g[k].pl = 128;    /* centre (no WIDE) */
+                    cl_g[k].pr = 128;
+                }
             }
         }
         for (k = 0; k < CL_N; k++) {
@@ -1385,8 +1384,9 @@ static __attribute__((noinline)) void rev_cloud(const int32_t *rev_in, int32_t *
                 x = (x * w) >> 8;
                 l += (x * cl_g[k].pl) >> 7;
                 r += (x * cl_g[k].pr) >> 7;
-                cl_g[k].pos += cl_g[k].inc;
-                if (++cl_g[k].age >= cl_g[k].len) cl_g[k].len = 0;
+                cl_g[k].pos += cl_g[k].inc;      /* (FREEZE: the read keeps looping through the held line) */
+                if (!freeze && ++cl_g[k].age >= cl_g[k].len)
+                    cl_g[k].len = 0;
             }
         }
         m = (l + r) >> 1;
@@ -1398,14 +1398,9 @@ static __attribute__((noinline)) void rev_cloud(const int32_t *rev_in, int32_t *
     for (i = 0; i < n; i++) {
         int32_t de = t[i] - R->sp_he, ds = sh_tz(de, 10);
         R->sp_he += ds ? ds : (de > 0) - (de < 0);       /* (a dead band would hold a tiny offset) */
-        int32_t th = t[i] - R->sp_he;
-        if (freeze) {                                    /* FREEZE: the raw tail, kept alive by the loop */
-            out[i] += t[i] + (t[i] >> 1) + (g[i] >> 2);
-            shim_fb[i] = t[i];
-        } else {
-            out[i] += th + (th >> 1) + (g[i] >> 2);
-            shim_fb[i] = th;
-        }
+        int32_t th = t[i] - R->sp_he;                    /* the room return, high-passed: no DC in the loop */
+        out[i] += th + (th >> 1) + (g[i] >> 2);
+        shim_fb[i] = th;                                 /* the line's tail, DC-blocked (FREEZE too) */
     }
 }
 
