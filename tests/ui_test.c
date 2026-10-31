@@ -3691,13 +3691,27 @@ static int test_edit_cycle(void)
           cur_page()->id[3] == P_E2;
     {
         int16_t *vp;
+        int ok2 = 1;
         const param_desc_t *d0 = page_desc(cur_page(), 0, &vp), *d1 = page_desc(cur_page(), 1, &vp),
                             *d2 = page_desc(cur_page(), 2, &vp), *d3 = page_desc(cur_page(), 3, &vp);
         ok &= d0 && str_eq(d0->label, "WAVE") && d1 && str_eq(d1->label, "INT") &&
               d2 && str_eq(d2->label, "DTN") && d3 && str_eq(d3->label, "MIX");
-        TSEL->p[P_E0] = 5;                          /* SYNC: OSC B's own shape; WAVE stays, drawn DIM */
+        TSEL->p[P_E0] = AW_SYNC;                    /* SYNC: OSC B's own shape; WAVE stays, drawn DIM */
         ok &= page_desc(cur_page(), 0, &vp) && vp == &TSEL->p[P_WAVE2];
+        ok2 &= card_inactive(TSEL, vp);             /* WAVE2 is ignored on SYNC */
+        ok2 &= card_inactive(TSEL, &TSEL->p[P_MORPH]);
         TSEL->p[P_E0] = 0;
+        ok2 &= !card_inactive(TSEL, vp);            /* SAW on LP: OSC B's own WAVE is live */
+        ok2 &= !card_inactive(TSEL, &TSEL->p[P_MORPH]);
+        TSEL->p[P_FTYPE] = IFT_BP;                  /* BP / HP / COMB keep OSC A's WAVE for both */
+        ok2 &= card_inactive(TSEL, vp);
+        TSEL->p[P_FTYPE] = IFT_LP;
+        TSEL->p[P_E0] = AW_SYNC;                    /* (on FM6 the same slots are OP2 / OP3 ATK: never dimmed) */
+        TSEL->eng_req = ENGI_FM6;
+        ok2 &= !card_inactive(TSEL, &TSEL->p[P_WAVE2]) && !card_inactive(TSEL, &TSEL->p[P_MORPH]);
+        TSEL->eng_req = ENGI_ANALOG;
+        TSEL->p[P_E0] = 0;
+        bad += check("ANALOG OSC B: WAVE DIM under SYNC / SUB / SUPER and BP / HP / COMB; OSC A MORPH DIM under SYNC", ok2);
     }
     turn(EN_SELECT, 1); frame();
     ok &= cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "FILTER");
@@ -4100,6 +4114,19 @@ static int test_chord_page(void)
     turn(EN_K4, 1);
     ok &= sweep_stroke(TSEL) != 0;
     bad += check("SCL: SELECT opens CHORD; KNOB 1 CHRD, KNOB 2 VOIC, K3 STRUM, K4 STROKE", ok);
+    {   /* the caption: MELODY only in POLY; MONO / LEGATO / UNISON play the root alone */
+        int ok2 = 1;
+        uint32_t v;
+        TSEL->p[P_CHRD] = CH_MELODY;
+        for (v = V_POLY; v <= (uint32_t)V_UNISON; v++) {
+            TSEL->p[P_VOICE] = (int16_t)v;
+            ok2 &= str_eq(chord_cap(TSEL, 0), v == V_POLY ? "MELODY" : "ROOT ONLY");
+        }
+        TSEL->p[P_VOICE] = V_POLY;
+        TSEL->p[P_CHRD] = CH_DIA3;
+        ok2 &= str_eq(chord_cap(TSEL, 0), "ON ROOT") && str_eq(chord_cap(TSEL, 1), "LAST");
+        bad += check("CHORD caption: MELODY only in POLY; MONO / LEGATO / UNISON say ROOT ONLY", ok2);
+    }
     press(B_SCL); frames(100);
     ok = str_eq(cur_page()->title, "CHORD");           /* button does not advance */
     bad += check("SCL button while in SCL family does not advance pages", ok);
@@ -8751,6 +8778,21 @@ static int test_live_graph_rate(void)
         TSEL->lfo_ph = 0x40000000u;
         frame();
         bad += check("LFO wave: SMTH rounds S&H's step on the graph", memcmp(a, host_screen, sizeof a) != 0);
+    }
+    {   /* the S&H history does not survive a visit elsewhere: returning draws the steps afresh */
+        int ok2;
+        ui_power_on();
+        go_title("LFO");
+        TSEL->p[P_LWAVE] = 4;
+        TSEL->lfo_prev = 1000;
+        frame();
+        go_title("SCL");
+        frame(); frame(); frame();
+        lfo_hist.v1 = lfo_hist.v2 = lfo_hist.v3 = 12345;   /* (what an older visit left) */
+        go_title("LFO");
+        frame();
+        ok2 = lfo_hist.v1 == 1000 && lfo_hist.v2 == 1000 && lfo_hist.v3 == 1000;
+        bad += check("LFO wave: S&H's history starts afresh after a page visit", ok2);
     }
     return bad;
 }
