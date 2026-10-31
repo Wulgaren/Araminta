@@ -707,15 +707,15 @@ static void test_esync(void)
     const char *u;
     int32_t v, k, ok;
 
-    check("ESYNC: a track parameter OFF / ON, default OFF (as before), not recordable (a setting)",
-          d->fmt == F_ENUM && d->min == 0 && d->max == 1 && d->def == 0 && str_eq(d->label, "ESYNC") &&
+    check("SYNC: a track parameter OFF / ON, default OFF (as before), not recordable (a setting)",
+          d->fmt == F_ENUM && d->min == 0 && d->max == 1 && d->def == 0 && str_eq(d->label, "SYNC") &&
           !motion_param(P_ESYNC));
     {
         uint32_t i, pg = 0;
         for (i = 0; i < NPAGES; i++)
             if (str_eq(PAGES[i].title, "ENV DEST"))
                 pg = i + 1u;
-        check("ENV DEST: FLT PIT SHP and ESYNC (KNOB 4, the free one)", pg && PAGES[pg - 1u].id[3] == P_ESYNC &&
+        check("ENV DEST: FLT PIT SHP and SYNC (KNOB 4, the free one)", pg && PAGES[pg - 1u].id[3] == P_ESYNC &&
               PAGES[pg - 1u].id[0] == P_ED_FLT);
     }
     check("ESYNC OFF: the tables, whatever esync_k holds (a phrase bit for bit)",

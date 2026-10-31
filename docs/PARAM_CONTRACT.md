@@ -94,13 +94,13 @@ events stay. AUTOMATION's DELETE (`EDIT`) removes the row's record; PLAY OFF byp
 - `MFX_TIME..MFX_DAMP` are `P_M1SRC..P_M2DST` numerically (49..53): DLY TIME / FDBK / COLOR and REV SIZE /
   DAMP. Their **motion** meaning is reached through `fx_target_ptr()` (usually `song.g`, or the CHAIN
   tank when this track owns the reverb chain), never through `p[]`.
-- `MFX_TSPEED` / `MFX_TWOW` are `P_TAPEMIX` / `P_LSMOOTH` numerically (41 / 42): TAPE SPEED and WOW. They
+- `MFX_TSPEED` / `MFX_TWOW` are `P_TAPEMIX` / `P_LSMOOTH` numerically (41 / 42): TAPE SPEED and FLUTR. They
   reach `song.g[G_TSPEED]` / `[G_TWOW]` through `fx_target_ptr()`. `P_TAPEMIX` is otherwise unused;
   `P_LSMOOTH` keeps its LFO S&H smoothing meaning as a real parameter, but automation never used it.
 - They are normal motion targets: automation or locks, values TIME 65..1550, FDBK 0..120, others 0..127,
   TAPE SPEED 25..400. `MOTION` / AUTOMATION use them; `SET` / `GET` on 49 edit the matrix's `SRC1`, a
   different parameter.
-- TAPE ownership: in CHAIN only the owner track may use SPEED / WOW; in MASTER every track may; in SEND the
+- TAPE ownership: in CHAIN only the owner track may use SPEED / FLUTR; in MASTER every track may; in SEND the
   first track to claim one keeps it (the shared-knob rule). The value sounds from the next audio block.
 - On disk, a DLY TIME value above 255 uses ids 54..59 for its high byte (`MFX_DAMP + (value >> 8)`); 54..59
   are not real motion targets in that record. TAPE SPEED's 25..400 is packed into its value byte, exact at
@@ -131,7 +131,7 @@ events stay. AUTOMATION's DELETE (`EDIT`) removes the row's record; PLAY OFF byp
   reaches the sound; it is not a motion target or a per-track parameter.
 - ON: the transport, voices and sequencer keep time. SPEED moves only the rotating head's pitch. CHAIN and MASTER mix
   the head in by `G_TMIX` (a wet amount, like SEND) instead of replacing the dry; the dry path keeps time through
-  the head's `TP_COMP` when the head runs. At SPEED 100 with no WOW / DROP the head is bypassed, so the route is the
+  the head's `TP_COMP` when the head runs. At SPEED 100 with no FLUTR / DROP the head is bypassed, so the route is the
   dry path.
 - OFF: the source clock varispeeds. MASTER slows every voice and `beat_samples()`; CHAIN slows the owner's voice and
   sequencer; SEND is already the head-only route.

@@ -89,7 +89,7 @@ async function editorMock() {
       && md[1].names[25] === "VOIC" && md[1].names[26] === "TONE" && md[1].names[27] === "DMIX" && md[1].names[43] === "HDEP"
       && md[1].names[44] === "DTIME" && md[1].names[48] === "RDAMP" && md[1].names[49] === "TSPEED" && md[1].names[50] === "TWOW"
       && md[2].min === -64 && md[2].max === 63 && md.every((d) => d.def === 0),
-      "editor: matrix parameters 49..60 over DESC (51 DST names: insert+MIX+FX TIME/FB/SIZE+TAPE SPEED/WOW; S&H SLEW)");
+      "editor: matrix parameters 49..60 over DESC (51 DST names: insert+MIX+FX TIME/FB/SIZE+TAPE SPEED/FLUTR; S&H SLEW)");
     await rq(E.req.set(0, 52, 1));
     await rq(E.req.set(0, 53, 12));
     await rq(E.req.set(0, 54, -30));
@@ -876,7 +876,7 @@ async function editorLibrarian() {
       "library file: 91-parameter files (1.0.x: patch, labelled, unlabelled) map the engine's 8 to 119..126, the lane levels unset");
   }
   {   /* files from 1.2 .. 1.4 (104 parameters, P_E0 96, before 1.5's INSERT, filter TYPE and ENV SYNC): the engine's 8 land
-         on 119..126, SPREAD and the rest in place, the INSERT, TYPE, ESYNC unset (a sound load sets them to OFF, LP, OFF) */
+         on 119..126, SPREAD and the rest in place, the INSERT, TYPE, SYNC unset (a sound load sets them to OFF, LP, OFF) */
     const p104 = [...cap.p.slice(0, 96), ...cap.p.slice(119, 127)];
     const keys104 = [...keys.slice(0, 96), ...keys.slice(119)];
     const sp = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: cap.engine, engineName: info.engines[cap.engine], p: p104 }, ctx).patches[0].p;
@@ -884,7 +884,7 @@ async function editorLibrarian() {
     const nk = E.readLibraryFile({ ...file, paramLabels: undefined, patches: [{ ...file.patches[0], params: p104 }] }, ctx).patches[0].p;
     const good = (q) => q.length === 127 && eq(q.slice(0, 96), cap.p.slice(0, 96)) && q.slice(96, 119).every((v) => v === null) && eq(q.slice(119), cap.p.slice(119));
     ok(keys104[96] === "E0" && good(sp) && good(lp) && good(nk),
-      "library file: 104-parameter files (1.2 .. 1.4: patch, labelled, unlabelled) map the engine's 8 to 119..126, the INSERT, TYPE, ESYNC unset");
+      "library file: 104-parameter files (1.2 .. 1.4: patch, labelled, unlabelled) map the engine's 8 to 119..126, the INSERT, TYPE, SYNC unset");
   }
   const old = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: 0, preset: 4, engineName: "ANALOG", presetName: "ACID", p: d2.p, steps: E.stepsFromPattern(cap.pattern) }, ctx);
   ok(old.patches.length === 1 && eq(old.patches[0].p, d2.p) && js(old.patches[0].pattern) === js(cap.pattern), "library file: reads the old \"Save to file\" format");
@@ -1593,9 +1593,9 @@ async function editorMotionRows() {
   motion.events = [{step: 0, param: M.MFX_TSPEED, value: 200, lock: true}, {step: 1, param: M.MFX_TWOW, value: 90}];
   inputs.length = 0; labels.length = 0;
   R();
-  ok(labels.join() === "TAPE SPEED,TAPE WOW" && inputs[0].min === 25 && inputs[0].max === 400 && inputs[0].value === 200 &&
+  ok(labels.join() === "TAPE SPEED,TAPE FLUTR" && inputs[0].min === 25 && inputs[0].max === 400 && inputs[0].value === 200 &&
     inputs[1].min === 0 && inputs[1].max === 127 && inputs[1].value === 90,
-    "editor: TAPE motion rows use SPEED and WOW labels and global ranges");
+    "editor: TAPE motion rows use SPEED and FLUTR labels and global ranges");
   inputs[0].value = 400; await inputs[0].change();
   ok(requests[1].op === 5 && requests[1].value.param === M.MFX_TSPEED && requests[1].value.value === 400,
     "editor: editing a TAPE SPEED lock keeps its kind and exact 400 percent value");

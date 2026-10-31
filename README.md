@@ -42,10 +42,10 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **SLICE retired.** 
 - Samples tab: one card per USR slot, each set to **Sample**, **Drumkit** or **Wavetable**. Drumkit maps every root to its own lane note and tags the slot (`FSMP` header), so SEQ uses the drum grid; Wavetable takes one Serum file or a folder medley. The name field is gone: names were editor-only, the FM-1 shows USR1..3.
 - **VOICE** is one page: VCE, GLD, UNI DTN, SPRD. GLD is free milliseconds (no GLMOD on the page). PAN / PLAY live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
-- **EFFECTS.** One list for the six inserts and the shared buses: CHOOSE a stage, ORDER moves it, USE AS is CHAIN, SEND or MASTER, MIX is dry/wet (or send amount). Delay, reverb and slicer sit in that list (bus chorus is gone); **TAPE** is the tenth row: SPEED, WOW, DROPOUT and TEMPO. With TEMPO ON (the default) the transport and voices keep time and SPEED is the head's pitch only, with MIX as the wet amount on every route; OFF makes CHAIN and MASTER slow the source (transport and voice pitch). SEND always adds a pitched copy and fixes TEMPO ON (K4 is dimmed there). One global MIX is the depth in CHAIN/MASTER and the send amount in SEND. MASTER runs on the whole mix in the EFFECTS order of the track that selected it; the common buses show USED on the other tracks. Inserts keep their per-track CHAIN / SEND beside a MASTER copy. Dual reverb tanks keep SEND and CHAIN settings while REV is chained.
+- **EFFECTS.** One list for the six inserts and the shared buses: CHOOSE a stage, ORDER moves it, USE AS is CHAIN, SEND or MASTER, MIX is dry/wet (or send amount). Delay, reverb and slicer sit in that list (bus chorus is gone); **TAPE** is the tenth row: SPEED, FLUTR, DROPOUT and TEMPO. With TEMPO ON (the default) the transport and voices keep time and SPEED is the head's pitch only, with MIX as the wet amount on every route; OFF makes CHAIN and MASTER slow the source (transport and voice pitch). SEND always adds a pitched copy and fixes TEMPO ON (K4 is dimmed there). One global MIX is the depth in CHAIN/MASTER and the send amount in SEND. MASTER runs on the whole mix in the EFFECTS order of the track that selected it; the common buses show USED on the other tracks. Inserts keep their per-track CHAIN / SEND beside a MASTER copy. Dual reverb tanks keep SEND and CHAIN settings while REV is chained.
 - Reverb modes from JIANT - SHIMR and CLOUD.
 - Delay has divisions or smooth ms; K4 turned left is TIME, turned right RATE.
-- Assign FX values in LFO MOD or SEQ param locks. TAPE SPEED / WOW are shared destinations: in CHAIN only the owner track can move them, in MASTER any track, in SEND the first track to use one reserves it.
+- Assign FX values in LFO MOD or SEQ param locks. TAPE SPEED / FLUTR are shared destinations: in CHAIN only the owner track can move them, in MASTER any track, in SEND the first track to use one reserves it.
 - **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
 - **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.
 - **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN and PITCH. With REC armed while playing on a synth track, a TRN turn also writes the current step's PITCH lock (scale-fitted); the knob still moves (other steps without a lock follow it), and no P_TRANS automation event is recorded.
@@ -80,11 +80,11 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
 ### New in 3.2
 
-- **TAPE.** The EFFECTS list gains a tenth row: SPEED, WOW, DROPOUT and TEMPO, with CHAIN / SEND / MASTER routing.
+- **TAPE.** The EFFECTS list gains a tenth row: SPEED, FLUTR, DROPOUT and TEMPO, with CHAIN / SEND / MASTER routing.
   TEMPO ON (the default) keeps the transport, voices and sequencer in time, so SPEED is a pitch-only control and
   CHAIN / MASTER mix the head in by MIX like SEND. TEMPO OFF makes CHAIN and MASTER slow the source clock, so notes
   and beat stretch together. SEND always adds a pitched copy and shows TEMPO fixed ON. The TAPE page draws an
-  OP-1-style transport: two large reels with a ribbon and guides. The reels turn at the SPEED rate; WOW rocks
+  OP-1-style transport: two large reels with a ribbon and guides. The reels turn at the SPEED rate; FLUTR rocks
   them and the ribbon, DROPOUT sags the ribbon.
 - **DRUMS.** Felucca's synthesized drum engine returns as engine 15, with the STD, 80, 10, 66, 55, 77, DEEP,
   TIGHT and PERC kits. DRUM-X stays engine 10; existing sounds and projects keep playing it.
