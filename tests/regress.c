@@ -1268,9 +1268,11 @@ int main(int argc, char **argv)
         continue;                                   /* (a thread as core 1: its handing over costs the host, not the
                                                      * firmware; the plain build checks the budget) */
 #endif
-        if (!want)
-            printf("regress: CPU %s: %.0f instructions / sample, no baseline (BUDGET_UPDATE=1 adds it)\n", j->name, ipc);
-        else if (ipc > b * (1 + CPU_TOL) && ipc > b + CPU_SLACK) {
+        if (!want) {
+            printf("regress: CPU NO BASELINE  %s: %.0f instructions / sample, no entry in %s (renamed preset? "
+                   "BUDGET_UPDATE=1 adds it)\n", j->name, ipc, cpath);
+            c_fail++;
+        } else if (ipc > b * (1 + CPU_TOL) && ipc > b + CPU_SLACK) {
             printf("regress: CPU OVER BUDGET  %s: %.0f instructions / sample%s, baseline %.0f (+%.0f %%, limit +%.0f %%)\n",
                    j->name, ipc, own ? " over the idle mix" : "", b, (ipc / b - 1) * 100, CPU_TOL * 100);
             c_fail++;

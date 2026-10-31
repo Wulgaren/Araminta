@@ -84,7 +84,16 @@ int main(void)
            (unsigned)MSEQ_PITCH, (int)MFX_TIME, (int)MFX_FB, (int)MFX_COLOR, (int)MFX_SIZE, (int)MFX_DAMP);
     printf("\"TP\":");
     js_descs(TP, P_E0);                                  /* P_E0.. are the engine's */
-    printf(",\n\"GP\":");
+    printf(",\n\"ANALOG_ALIAS\":[");                     /* ANALOG's OSC pages: the FM slots it renames (params.c) */
+    {
+        const uint32_t ids[3] = {P_MORPH, P_DRIFT, P_WAVE2};
+        for (k = 0; k < 3u; k++) {
+            printf("%s[%u,", k ? "," : "", ids[k]);
+            js_desc(param_desc_of(ENGI_ANALOG, ids[k]));
+            putchar(']');
+        }
+    }
+    printf("],\n\"GP\":");
     js_descs(GP, G_COUNT);
     printf(",\n\"ENG\":[");
     for (e = 0; e < NENGINES; e++) {
