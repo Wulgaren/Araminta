@@ -19,7 +19,7 @@ import re
 import sys
 
 FUNCS = ["analog_render",                             # ANALOG's dispatcher: the loops are in the six below
-         "analog_render_x", "analog_osc", "analog_osc_b", "analog_render_f", "ana_shape", "ana_morph",
+         "analog_render_x", "analog_osc", "analog_osc_b", "ana_shape", "ana_morph",
          "digital_render", "digital_render_legacy", "digital_render_custom", "phase_render", "lofi_render", "formant_render",
          "trio_render", "trio_pass", "wheel_render", "wheel_block",
          "phys_render", "drum_render", "fm6_render", "wt_render", "wt_read", "wt_mip_level",

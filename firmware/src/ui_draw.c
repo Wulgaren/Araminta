@@ -870,13 +870,13 @@ static void engine_columns(void)
     draw_column(2, "FAV", preset_favorite() ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
     draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
 }
-/* A card the current sound never reaches: drawn DIM, its value kept. WAVE2 is OSC B's own shape only on the
- * LP path (analog_render / analog_osc_b); SYNC / SUB / SUPER (analog_render_x) and BP / HP / COMB keep OSC A's
- * WAVE for both oscillators. MORPH is read by analog_osc / analog_osc_b only: analog_render_x does not morph. */
+/* A card the current sound never reaches: drawn DIM, its value kept. WAVE2 is OSC B's own shape on every
+ * filter TYPE (analog_render -> analog_osc_b); only SYNC / SUB / SUPER (analog_render_x) define OSC B
+ * themselves and ignore it. MORPH is read by analog_osc / analog_osc_b only: analog_render_x does not morph. */
 static int card_inactive(const track_t *t, const int16_t *vp)
 {
     int analog = eng_idx(t->eng_req) == ENGI_ANALOG;   /* (else P_WAVE2 / P_MORPH are FM6's OP2 / OP3 ATK) */
-    return (analog && vp == &t->p[P_WAVE2] && (t->p[P_E0] >= AW_SYNC || t->p[P_FTYPE] != IFT_LP)) ||
+    return (analog && vp == &t->p[P_WAVE2] && t->p[P_E0] >= AW_SYNC) ||
            (analog && vp == &t->p[P_MORPH] && t->p[P_E0] >= AW_SYNC) ||
            (vp == &t->p[P_LRATE] && t->p[P_LSYNC]) ||           /* LFO 2 SYNC: RATE does nothing */
            arp_drone_frozen(t, vp);                             /* a frozen ARP drone */
