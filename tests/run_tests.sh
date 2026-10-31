@@ -942,7 +942,7 @@ else
 fi
 
 u_target_budget() {
-    run "regression: target cost of the render loops (pi32v2 disassembly)" python3 tests/target_budget.py \
+    run "regression: target cost of the render loops (pi32v2 disassembly)" python3 tests/target_budget.py --require \
         build/felucca.dis tests/target_budget.txt
 }
 unit u_target_budget
