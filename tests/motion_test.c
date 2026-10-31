@@ -116,9 +116,11 @@ static int compact_project(void)
         !memcmp(&before, &after, sizeof before));
     corrupt = packed; corrupt.raw[112] ^= 1u;
     bad += check("FUN7 torn or corrupted payload is refused", !proj_import(&after, &corrupt, sizeof corrupt));
-    corrupt = packed; corrupt.raw[68] = 255; uint32_t sum = proj_hash(corrupt.raw, sizeof corrupt - 4u);
+    corrupt = packed; corrupt.raw[68u + P_IORD] = 255; corrupt.raw[68u + P_IORD + 1u] = 255;
+    uint32_t sum = proj_hash(corrupt.raw, sizeof corrupt - 4u);
     memcpy(corrupt.raw + sizeof corrupt - 4u, &sum, 4);
-    bad += check("compact parameter range is validated even with a correct hash", !proj_import(&after, &corrupt, sizeof corrupt));
+    bad += check("compact parameter range is validated even with a correct hash (order > 719)",
+                 !proj_import(&after, &corrupt, sizeof corrupt));
     corrupt = packed; uint32_t probability_byte = 68u + P_COUNT + 1u + 2u + 8u; corrupt.raw[probability_byte] = 127;
     sum = proj_hash(corrupt.raw, sizeof corrupt - 4u); memcpy(corrupt.raw + sizeof corrupt - 4u, &sum, 4);
     bad += check("invalid probability is refused even with a correct hash", !proj_import(&after, &corrupt, sizeof corrupt));

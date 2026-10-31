@@ -64,10 +64,10 @@ static inline int32_t analog_tap(const tsvf_t *c, int32_t k, int32_t in, int32_t
         return v1;                                    /* BP */
     return in - ((k * v1) >> 12) - v2;                /* HP (COMB uses analog_comb below) */
 }
-/* RES's damping, Q12. Up to 90 it is tsvf_coef's map, so every existing sound keeps its filter; above 90
- * the top of the knob runs on to 0.044 (Q ~23) at 127. The shared map stops at ~0.15 (Q 7), short of a
- * 303 at full resonance. ANALOG uses this map for its LP and BP / HP. */
-#define ANALOG_K(res) ((res) <= 90 ? 8192 - (res) * 7600 / 127 : 2807 - ((res) - 90) * 71)
+/* RES's damping, Q12. 0..127 is tsvf_coef's map exactly, so every stored RES sounds as it did before 150%:
+ * at 127 the damping is 592 (Q 6.9). 128..191 run on to 180 (Q ~23) at 191, the 150% top. ANALOG uses this
+ * map for its LP and BP / HP. (COMB keeps RES at 0..127: its feedback has no 150% range.) */
+#define ANALOG_K(res) ((res) <= 127 ? 8192 - (res) * 7600 / 127 : 592 - ((res) - 127) * 412 / 64)
 #define AC_LEN 128u                                   /* COMB delay (~2.9 ms) */
 _Static_assert((AC_LEN & (AC_LEN - 1u)) == 0u, "ANALOG COMB line is a power of two (dsp.c comb_process)");
 static int16_t ana_comb[NPART][NVOICE][AC_LEN] __attribute__((section(".pool")));
@@ -218,7 +218,7 @@ static __attribute__((noinline)) void analog_render_x(track_t *t, voice_t *v, in
         if (drv)
             s = softclip(((s >> 2) * (drive >> 2)) >> 11);
         if (ft == IFT_COMB)
-            s = soft_knee(analog_comb(t, v, s >> 1, (int32_t)clen, p[P_E5], &ic1), 16000) * 2;
+            s = soft_knee(analog_comb(t, v, s >> 1, (int32_t)clen, clamp(p[P_E5], 0, 127), &ic1), 16000) * 2;
         else
             s = soft_knee(analog_tap(&flt, fk, s >> 1, &ic1, &ic2, ft), 16000) * 2;
         out[i] += voice_amp(s, m, i) * 2;
@@ -290,7 +290,7 @@ static __attribute__((noinline)) void analog_osc(track_t *t, voice_t *v, int32_t
              * written out for SVF: the host compiler makes this loop 1 % slower with the call */
             int32_t y;
             if (ft == IFT_COMB)
-                y = analog_comb(t, v, s >> 1, (int32_t)clen, p[P_E5], &ic1);
+                y = analog_comb(t, v, s >> 1, (int32_t)clen, clamp(p[P_E5], 0, 127), &ic1);
             else if (ft)
                 y = analog_tap(&flt, fk, s >> 1, &ic1, &ic2, ft);
             else
@@ -423,7 +423,7 @@ static const engine_t ENG_ANALOG = {
         {"MIX", F_PCT, 0, 127, 64, 0, 0},
         {"NOIS", F_PCT, 0, 127, 0, 0, 0},
         {"CUT", F_CUTOFF, 0, 127, 90, 0, 0},
-        {"RES", F_PCT, 0, 127, 30, 0, 0},
+        {"RES", F_PCT, 0, 191, 30, 0, 0},   /* 0..127 = the old 0..100 %, 128..191 = 101..150 % */
         {"DRV", F_PCT, 0, 127, 0, 0, 0},
         {"INT", F_SEMI, -24, 24, 0, 0, 0},   /* OSC 2 interval from OSC 1 (was KTR) */
     },

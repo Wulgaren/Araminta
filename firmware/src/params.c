@@ -327,14 +327,15 @@ static int32_t param_fit(const param_desc_t *d, int32_t v)
 }
 
 /* --------------------------------------------- the stored parameter wire form ---
- * One parameter as a project (project.c) stores it: a biased byte (value + 64, so -64..127),
+ * One parameter as a project (project.c) stores it: a biased byte (value + 64, so -64..191; 191 is
+ * ANALOG's RES at 150 %),
  * and two bytes LE for P_IORD, whose low 10 bits are the chain order and whose high 6 are the
  * per-stage send flags (core.h). Both the pack and the unpack of every format go through
  * these, so the form and its limits exist once; a value or an order past them is refused,
  * never clamped (a project that holds one is not written and not loaded). */
 #define WIRE_BIAS 64
 #define WIRE_MIN (-64)
-#define WIRE_MAX 127
+#define WIRE_MAX 191
 #define WIRE_IORD_MAX 719u
 /* -> 1 byte written (b), 0 = the value is outside the biased range */
 static int wire_val_put(uint8_t *b, int16_t v)
