@@ -64,10 +64,7 @@ static inline int32_t analog_tap(const tsvf_t *c, int32_t k, int32_t in, int32_t
         return v1;                                    /* BP */
     return in - ((k * v1) >> 12) - v2;                /* HP (COMB uses analog_comb below) */
 }
-/* RES's damping, Q12. Up to 90 it is tsvf_coef's map, so every existing sound keeps its filter; above 90
- * the top of the knob runs on to 0.044 (Q ~23) at 127. The shared map stops at ~0.15 (Q 7), short of a
- * 303 at full resonance. ANALOG uses this map for its LP and BP / HP. */
-#define ANALOG_K(res) ((res) <= 90 ? 8192 - (res) * 7600 / 127 : 2807 - ((res) - 90) * 71)
+#define ANALOG_K(res) (8192 - (res) * 7600 / 127)     /* tsvf_coef's damping, Q12 */
 #define AC_LEN 128u                                   /* COMB delay (~2.9 ms) */
 _Static_assert((AC_LEN & (AC_LEN - 1u)) == 0u, "ANALOG COMB line is a power of two (dsp.c comb_process)");
 static int16_t ana_comb[NPART][NVOICE][AC_LEN] __attribute__((section(".pool")));
@@ -178,7 +175,7 @@ static __attribute__((noinline)) void analog_render_x(track_t *t, voice_t *v, in
     }
     uint32_t ft = (uint32_t)p[P_FTYPE];
     int32_t fk = ANALOG_K(p[P_E5]);
-    tsvf_coef_k(&flt, cut, ANALOG_K(p[P_E5]));
+    tsvf_coef(&flt, cut, p[P_E5]);
     uint32_t clen = ft == IFT_COMB ? comb_delay_len(clamp(cut >> 8, 0, 127), AC_LEN) : 0u;   /* block-constant */
     for (i = 0; i < n; i++) {
         int32_t s;
@@ -261,7 +258,7 @@ static __attribute__((noinline)) void analog_osc(track_t *t, voice_t *v, int32_t
     uint32_t ph0 = v->ph[0], ph1 = v->ph[1];                  /* state in locals: out[] may alias v->s[] */
     int32_t ic1 = v->s[0], ic2 = v->s[1], nst = v->s[2];
     int32_t fk = ft ? ANALOG_K(p[P_E5]) : 0;
-    tsvf_coef_k(&flt, cut, ANALOG_K(p[P_E5]));
+    tsvf_coef(&flt, cut, p[P_E5]);
     uint32_t clen = ft == IFT_COMB ? comb_delay_len(clamp(cut >> 8, 0, 127), AC_LEN) : 0u;   /* block-constant */
     for (i = 0; i < n; i++) {
         int32_t a, b, s;
@@ -342,7 +339,7 @@ static __attribute__((noinline)) void analog_osc_b(track_t *t, voice_t *v, int32
     int32_t nz = noise * 200, drv = p[P_E6];
     uint32_t ph0 = v->ph[0], ph1 = v->ph[1];                  /* state in locals: out[] may alias v->s[] */
     int32_t ic1 = v->s[0], ic2 = v->s[1], nst = v->s[2];
-    tsvf_coef_k(&flt, cut, ANALOG_K(p[P_E5]));
+    tsvf_coef(&flt, cut, p[P_E5]);
     for (i = 0; i < n; i++) {
         int32_t a, b, s;
         if (pwm1)
