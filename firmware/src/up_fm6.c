@@ -207,6 +207,10 @@ static void upf_track_load(track_t *t, uint32_t k)
         memcpy(pk, s >= 0 && s < (int32_t)FM6_NFACTORY ? FM6_FACTORY[s] : FM6_INIT, FM6_PACKED);
     }
     fm6_unpack(pk, v);
+    if (!up_vib(k) && t->p[P_E5]) {                     /* a pre-VIB record: P_E5 was VMOD */
+        fm6_old_vmod(v, t->p);
+        t->p[P_E5] = 0;
+    }
     fm6_set_patch(tr, v);
     fm6_adopt(tr);
 }

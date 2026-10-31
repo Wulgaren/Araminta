@@ -2,13 +2,13 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* DIGITAL (engine 1, four-operator FM): retired, and its sounds converted to FM6.
  *
- * "The DIGITAL engine has been replaced by FM6 (Dexed-based)" (1.0). Its DSP stays in the tree (eng_digital.c)
- * and builds with FELUCCA_FM4=1 (core.h; off by default), so it can come back. Engine index 1
- * stays reserved: the stores name engines by index and the table is append-only. Without FELUCCA_FM4 engine 1 is
- * ENG_FM4_GONE below: no presets, never offered (PRESETS, the EDIT layer, the editor's lists skip it: engines.c
- * eng_ok), and a DIGITAL sound that arrives anyway -- a project (FUN1..FUN8), a user preset, the editor's PRESET /
- * SET G_ENGSEL / UP_PUT, a full backup, a stored DIGITAL preset number (TRK_DEF of old projects, favourites) --
- * becomes an FM6 sound with a patch of its own, made by fm4_convert from its DIGITAL values:
+ * "The DIGITAL engine has been replaced by FM6 (Dexed-based)" (1.0). Its DSP was removed in 3.6; this file
+ * keeps its tables and the conversion, so its sounds still load. Engine index 1 stays reserved: the stores
+ * name engines by index and the table is append-only. Engine 1 is ENG_FM4_GONE below: no presets, never
+ * offered (PRESETS, the EDIT layer, the editor's lists skip it: engines.c eng_ok), and a DIGITAL sound that
+ * arrives anyway -- a project (FUN1..FUN8), a user preset, the editor's PRESET / SET G_ENGSEL / UP_PUT, a full
+ * backup, a stored DIGITAL preset number (TRK_DEF of old projects, favourites) -- becomes an FM6 sound with a
+ * patch of its own, made by fm4_convert from its DIGITAL values:
  *
  *   DIGITAL                        FM6 patch (155-byte voice; operator numbers 1..6 as the six-operator charts)
  *   ALG 1  4>3>2>1                 ALG 1   6>5>4>3        op 4 -> 6, 3 -> 5, 2 -> 4, 1 -> 3   (2>1 silent)
@@ -50,18 +50,15 @@
  *                                  (DIGITAL adds (velocity - 96) / 4 to the index)
  *   the rest                       pitch EG flat (50), LFO off (depths 0), transpose 0 (24), osc key sync, name
  *                                  the DIGITAL preset's when the values are one, else "4OP ALG n"
- *   EDIT values after              FM6's macros neutral (ALG PAT, FB MLVL MRAT MEG VMOD DTUN 0), PTCH the factory
+ *   EDIT values after              FM6's macros neutral (ALG PAT, FB MLVL MRAT MEG VIB DTUN 0), PTCH the factory
  *                                  patch of the nearest DIGITAL preset (E.PIANO -> TINE EP, BELL, BASS -> FM BASS,
  *                                  BRASS, ORGAN, PAD, MARIMBA, FUNK KEY -> PLUCK): what reloads when the sound is
  *                                  saved as a user preset again (a user preset keeps PTCH, not the patch); the
  *                                  OP ENV values their defaults (inert since; ids 61..80 stay, no id moves)
  * Not carried: the accent's index boost (velocity > 110), LFO / matrix amounts keep their values (FM6 reads FLT
- * as MLVL, SHP as the feedback). fm4_test.c renders DIGITAL (FELUCCA_FM4=1) against the conversion. */
+ * as MLVL, SHP as the feedback). The DSP is gone; fm4_div0_test.c covers the conversion. */
 
 /* ------------------------------------------------- DIGITAL's tables --- */
-static const char *const N_FMALG[] = {"1", "2", "3", "4", "5", "6", "7", "8"};
-static const char *const N_RATIO[] = {".5", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "14", "16"};
-
 /* the factory presets (the stores' preset numbers of engine 1 index this table) */
 static const preset_t DIGITAL_PRESETS[] = {
     /* ALG R2 R3 R4 INDEX MODDEC FDBK - */
@@ -85,8 +82,7 @@ static const uint8_t FM4_TO_FM6[FM4_NPRESETS] = {0, 1, 2, 3, 6, 4, 5, 7};
         {l4, F_PCT, 0, 127, 60, 0, 0}, {l5, f1, 0, 127, 60, 0, 0}, {l6, F_PCT, 0, 127, 0, 0, 0},               \
         {"-", F_INT, 0, 0, 0, 0, 0}}
 
-#if !FELUCCA_FM4
-/* engine 1 without the DSP: never selectable, no presets, silent (a track never keeps it: fm4_convert) */
+/* engine 1 without its DSP: never selectable, no presets, silent (a track never keeps it: fm4_convert) */
 static void fm4_gone_note_on(struct track *t, voice_t *v) { (void)t; (void)v; }
 static void fm4_gone_render(struct track *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
@@ -100,7 +96,6 @@ static const engine_t ENG_FM4_GONE = {
     .render = fm4_gone_render,
     .knob = {P_E4, P_E5, P_E6, P_REL},
 };
-#endif
 
 /* ------------------------------------------------------- conversion --- */
 #define FM4_MUTE (-100000)       /* the microsteps of silence */

@@ -23,16 +23,16 @@ static const engine_t ENG_SLICE_GONE = {
     .knob = {P_LEVEL, P_ATK, P_DEC, P_REL},
 };
 
-/* 1 = e is SLICE (DIGITAL stays FELUCCA_FM4-gated in eng_ok) */
+/* 1 = e is SLICE (DIGITAL is reserved too, handled by eng_ok) */
 static int eng_retired(uint32_t e)
 {
     return e == ENGI_SLICE;
 }
 
-/* the engine a retired (or DIGITAL-without-FM4) index plays as when listed / ranked */
+/* the engine a retired index plays as when listed / ranked */
 static uint32_t eng_play_as(uint32_t e)
 {
-    if (e == ENGI_DIGITAL && !FELUCCA_FM4)
+    if (e == ENGI_DIGITAL)
         return ENGI_FM6;
     if (e == ENGI_SLICE)
         return ENGI_DRUM;

@@ -268,9 +268,9 @@ events stay. AUTOMATION's DELETE (`EDIT`) removes the row's record; PLAY OFF byp
 
 ### Reserved engine indices and SAMPLE SET 4
 
-- The engine table is append-only; `NENGINES` is 15. Index 1 is `ENGI_DIGITAL`: with `FELUCCA_FM4=0` it is
-  reserved and never selectable, and stored DIGITAL sounds load as FM6; with `FELUCCA_FM4=1` it is a live
-  engine. Index 13 is `ENGI_SLICE`: always retired, never selectable, stored SLICE sounds load as DRUM
+- The engine table is append-only; `NENGINES` is 15. Index 1 is `ENGI_DIGITAL`: retired, never selectable,
+  and stored DIGITAL sounds load as FM6 (the DSP was removed in 3.6; `fm4_convert.c` keeps the conversion).
+  Index 13 is `ENGI_SLICE`: always retired, never selectable, stored SLICE sounds load as DRUM
   with the default kit. `NENG_SHOWN` and `ENGINE_ORDER` hide both reserved indices as appropriate.
 - `SAMPLE` is engine index 4; do not confuse it with the SAMPLE **set** index 4. Set 4 was `PERC` (the GM
   kit), retired after 1.0.2: a stored SAMPLE sound with set 4 loads as the DRUM engine with the default

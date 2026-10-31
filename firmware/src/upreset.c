@@ -79,9 +79,12 @@ static up_rec_t *up_rec(uint32_t k) { return &up_bank[k / UP_PER_BANK].r[k % UP_
  * values fit a byte (up_to_v4; not a version 1 PHYS sound, whose MODEL 2 means DUST)
  * 3.5: bit 7 of that byte marks ANALOG's OSC A / OSC B semantics (E8 is INT; the FM slots are MORPH / DRIFT /
  * OSC B's WAVE; core.h). Older firmware ignores it. A record without it loads an ANALOG sound with the first
- * three at 0, OSC B's WAVE SAME, and drops its E8 / OP automation (up_params); 1.5's records are those. */
+ * three at 0, OSC B's WAVE SAME, and drops its E8 / OP automation (up_params); 1.5's records are those.
+ * 3.6: packed[UP_VIB_AT] bit 0 marks P_E5 as VIB (else VMOD; up_fm6.c fm6_old_vmod on load). */
 #define UP_CAT_AT (UP_PMAX * 2u - 1u)
 #define UP_OSC2 0x80u                            /* bit 7 of the category byte: 3.5's INT / MORPH / DRIFT */
+#define UP_VIB_AT 142u                           /* (never a value byte: np <= P_COUNT < 128) */
+#define UP_VIB 0x01u                             /* UP_VIB_AT bit 0: P_E5 is VIB, not the old VMOD */
 #include "category.c"
 static uint32_t up_cat_of(const up_rec_t *r)
 {
@@ -94,6 +97,7 @@ static int up_osc2(const up_rec_t *r)
     return r->ver >= 4u && (r->packed[UP_CAT_AT] & UP_OSC2) != 0;
 }
 static void up_mark_osc2(up_rec_t *r) { if (r->ver >= 4u) r->packed[UP_CAT_AT] |= UP_OSC2; }
+static void up_mark_vib(up_rec_t *r) { if (r->ver >= 4u) r->packed[UP_VIB_AT] |= UP_VIB; }
 static int up_to_v4(up_rec_t *r)                 /* 1 = r is version 4 / 5 (now) */
 {
     int16_t v[UP_PMAX];
@@ -135,6 +139,8 @@ static int up_valid(const up_rec_t *r)
 }
 
 static int up_used(uint32_t k) { return k < UP_SLOTS && up_valid(up_rec(k)); }
+/* slot k: a record with VIB (new) rather than the old VMOD (fm6_old_vmod on load) */
+static int up_vib(uint32_t k) { return up_used(k) && up_rec(k)->ver >= 4u && (up_rec(k)->packed[UP_VIB_AT] & UP_VIB); }
 
 static int up_grid(const up_rec_t *r) { return r->ver == 3u || r->ver == UP_VER_GRID; }
 /* Insert-chain records (np > 111): P_IORD is two bytes (low at packed[P_IORD], high at packed[np]).
@@ -316,6 +322,7 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
         if (na == end + 18u)
             up_set_cat(r, a[end + 17u]);
         up_mark_osc2(r);                             /* the editor sends today's values */
+        up_mark_vib(r);
         *target = *r;
         return 0;
     }
@@ -328,6 +335,7 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
         up_set_cat(r, a[end + 17u]);
     up_migrate(r);                               /* (an editor of before the DRUM engine) */
     up_mark_osc2(r);                             /* the editor sends today's values */
+    up_mark_vib(r);
     *target = *r;
     return 0;
 }
@@ -489,6 +497,7 @@ static int up_store_cat(uint32_t k, const char *name, uint32_t cat)
         }
     }
     up_mark_osc2(&r);                                   /* a new sound: INT / MORPH / DRIFT as stored */
+    up_mark_vib(&r);                                    /* P_E5 is VIB */
     {
         int rc = up_put(k, &r);                         /* the record first, then its FM6 patch (up_fm6.c) */
         if ((rc == 0 || rc == 3) && r.engine == ENGI_FM6) {
@@ -533,14 +542,12 @@ static int up_load(uint32_t k)
         v[P_QUANT] = QN_ALL;                            /* no link bit in a preset: CURR loads as ALL */
     load_begin(t, UNDO_SOUND);                          /* (ui.c: the copy for SAVE held = undo) */
     panic_req |= (uint8_t)(1u << song.sel);
-#if !FELUCCA_FM4
     if (r->engine == ENGI_DIGITAL) {                    /* a DIGITAL sound (kept as it was stored): FM6 */
         int16_t p[P_COUNT];
         for (i = 0; i < P_COUNT; i++)
             p[i] = param_kept(i) ? t->p[i] : v[i];
         fm4_apply(t, p);
     } else
-#endif
     if (eng_retired(r->engine)) {                       /* SLICE: DRUM */
         int16_t p[P_COUNT];
         uint32_t to;
@@ -617,7 +624,7 @@ static void up_pat_load(track_t *t, uint32_t k)
     t->p[P_SLEN] = (int16_t)clamp(v[P_SLEN], 1, 16);   /* (the pattern has 16 steps) */
 }
 
-/* the engine a used slot's sound plays on (a DIGITAL record: FM6, without FELUCCA_FM4) */
+/* the engine a used slot's sound plays on (a DIGITAL record: FM6) */
 static uint32_t up_engine(uint32_t k) { return eng_play_as(up_rec(k)->engine); }
 
 static uint32_t up_count(void)                 /* used slots */

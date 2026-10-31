@@ -461,6 +461,58 @@ static int osc2_migration(void)
     return bad;
 }
 
+/* 3.6: P_E5 changed from VMOD to VIB. An old project (header bit 2 clear) moves VMOD into the patch's
+ * modulator velocity sensitivity and drops E5 automation; a new one keeps VIB. */
+static int vib_wire(void)
+{
+    static project_store_t st;
+    project_t a, c;
+    uint8_t v[FP_SIZE + 1u], out[FP_SIZE + 1u];
+    int16_t def[P_COUNT];
+    uint32_t i, k, sum, ok;
+    int bad = 0;
+    memset(&a, 0, sizeof a);
+    a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
+    chain_defaults(&a.chain);
+    for (k = 0; k < P_COUNT; k++)
+        def[k] = param_desc_of(ENGI_FM6, k)->def;
+    for (k = 0; k < NTRK; k++) {
+        a.t[k].engine = ENGI_FM6;
+        memcpy(a.t[k].p, def, sizeof def);
+        memcpy(a.fm6[k], FM6_INIT, FM6_PACKED);
+    }
+    fm6_unpack(FM6_INIT, v);
+    v[FP_ALG] = 0;                                    /* two carriers (bits 3, 5), four modulators */
+    v[0 * FP_OP + FP_KVS] = 6;                        /* clamped to 7 */
+    fm6_pack(v, a.fm6[0]);
+    a.t[0].p[P_E5] = 5;                               /* the old VMOD */
+    a.motion.count = 2;
+    a.motion.event[0] = (motion_event_t){4u, P_E5, 3};      /* track 1: VMOD automation goes */
+    a.motion.event[1] = (motion_event_t){4u, P_E4, 9};      /* track 1: MRAT stays */
+    a.sum = proj_sum(&a);
+    ok = proj_pack(&st, &a);
+    st.raw[67] &= (uint8_t)~4u;                       /* what firmware before 3.6 wrote */
+    sum = proj_hash(st.raw, PROJ_STORE_SIZE - 4u);
+    memcpy(st.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+    ok = ok && proj_import(&c, &st, sizeof st);
+    fm6_unpack(c.fm6[0], out);
+    bad += check("VIB: an old project's VMOD moves into the modulators' velocity sensitivity",
+                 ok && c.t[0].p[P_E5] == 0 && out[0 * FP_OP + FP_KVS] == 7 && out[1 * FP_OP + FP_KVS] == 5 &&
+                 out[2 * FP_OP + FP_KVS] == 5 && out[4 * FP_OP + FP_KVS] == 5 &&
+                 out[3 * FP_OP + FP_KVS] == 0 && out[5 * FP_OP + FP_KVS] == 0);
+    bad += check("VIB: its E5 automation goes, the other event stays",
+                 c.motion.count == 1u && c.motion.event[0].param == P_E4 && c.motion.event[0].value == 9);
+    a.fm6_vib = 1;
+    a.t[0].p[P_E5] = 40;                              /* new semantics: VIB, kept as it is */
+    a.motion.count = 0;
+    a.sum = proj_sum(&a);
+    ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
+    fm6_unpack(c.fm6[0], out);
+    bad += check("VIB: a new project keeps VIB and the patch",
+                 ok && c.t[0].p[P_E5] == 40 && out[0 * FP_OP + FP_KVS] == 6 && out[1 * FP_OP + FP_KVS] == 0);
+    return bad;
+}
+
 int main(void)
 {
     static project_v4_t v4;
@@ -901,7 +953,6 @@ int main(void)
                      c.t[0].step[3].hit == 0x05u && c.t[0].step[3].acc == 0x05u);
     }
 
-#if !FELUCCA_FM4
     {   /* DIGITAL tracks (engine 1, retired: src/fm4_convert.c) in FUN8 / FUN7 / FUN4 / FUN1 projects load as FM6 with
          * the converted patch as the track's own; their motion on the EDIT or OP ENV values goes, the rest stays */
         project_t a, c, d;
@@ -985,7 +1036,6 @@ int main(void)
         bad += check("FUN1 with DIGITAL: track 1 FM6 (BELL), track 2 the power-on sound (FM6 now)", ok);
 #undef FM4_OK
     }
-#endif
     {   /* SAMPLE tracks of SET 4 (PERC, the GM kit, retired after 1.0.2) in FUN8 / FUN4 projects load as DRUM with its
          * default kit: the E values the kit's, the rest of the sound, the steps and the preset byte's meaning kept; their
          * motion on the EDIT values goes, the rest stays; another SAMPLE set stays SAMPLE. Idempotent */
@@ -1226,6 +1276,7 @@ int main(void)
                      c.t[0].p[P_ILMIX] == 0 && c.t[0].p[P_IHMIX] == 0 && c.t[0].p[P_ESYNC] == 1);
     }
     bad += chord_mode_wire();
+    bad += vib_wire();
     bad += generation_wire();
     bad += generation_legacy_defaults();
     bad += step_wire_freeze();

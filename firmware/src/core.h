@@ -18,10 +18,6 @@
 #define C1_PI(t) ((uint32_t)((t) - trk) % C1_NP)
 #define NSTEP 64
 #define HALF_FRAMES 128          /* I2S half buffer: 2.9 ms at 44.1 kHz (a key waits 0..1 half, then plays 1 half later) */
-#ifndef FELUCCA_FM4
-#define FELUCCA_FM4 0            /* the DIGITAL engine (eng_digital.c, four-operator FM): kept in the tree, not built
-                                  * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
-#endif
 #ifndef FELUCCA_SLICE
 #define FELUCCA_SLICE 0          /* SLICE engine retired (eng_retire.c ENG_SLICE_GONE); keep 0 so sample/grain
                                   * stubs compile without eng_slice.c */
@@ -30,14 +26,14 @@
  * load as DRUM. SAMPLE (4), GRAIN (8), NOISE (11) are live again. 15: the ported Felucca drum engine (DRUMS). */
 #define NENGINES 16u
 #define ENGI_ANALOG 0u
-#define ENGI_DIGITAL 1u          /* reserved without FELUCCA_FM4: never selectable (eng_ok), its sounds load as FM6 */
+#define ENGI_DIGITAL 1u          /* reserved: DIGITAL retired, its sounds load as FM6 (fm4_convert.c) */
 #define ENGI_SAMPLE 4u
 #define ENGI_GRAIN 8u
 #define ENGI_NOISE 11u
 #define ENGI_SLICE 13u           /* reserved: SLICE retired (eng_retire.c) */
 #define ENGI_WT 14u              /* WAVETABLE (eng_wt.c) */
 #define ENGI_DRUMS 15u           /* DRUMS: the ported Felucca drum engine (eng_drums.c) */
-#define NENG_SHOWN (14u + FELUCCA_FM4)   /* pickable: ANALOG FM6 [DIGITAL] PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM DRUMS WAVETABLE */
+#define NENG_SHOWN 14u           /* pickable: ANALOG FM6 PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM DRUMS WAVETABLE */
 #define UP_SLOTS 32u             /* user presets (upreset.c) */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 

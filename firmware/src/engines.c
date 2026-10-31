@@ -33,19 +33,12 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
 #include "eng_wt.c"             /* WAVETABLE: two wavetable oscillators (XIP tables) */
 #include "eng_fm6.c"            /* FM6: 6-operator FM, msfa ported (fm6_core.c, Apache-2.0) */
 #include "fm4_convert.c"        /* DIGITAL's tables, and its sounds -> FM6 */
-#if FELUCCA_FM4
-#include "eng_digital.c"        /* DIGITAL: four-operator FM (retired; FELUCCA_FM4=1 builds it) */
-#endif
 #include "eng_retire.c"         /* SLICE reserved stub */
 
 /* the editor protocol, user presets and projects store these indices: append, never reorder */
 static const engine_t *const ENGINES[NENGINES] = {
     &ENG_ANALOG,                 /* 0 */
-#if FELUCCA_FM4
-    &ENG_DIGITAL,                /* 1 (ENGI_DIGITAL) */
-#else
     &ENG_FM4_GONE,               /* 1: reserved (DIGITAL, retired: its sounds convert to FM6, fm4_convert.c) */
-#endif
     &ENG_PHASE,                  /* 2 */
     &ENG_LOFI,                   /* 3 */
     &ENG_SAMPLE,                 /* 4 */
@@ -112,14 +105,11 @@ static const char *snd_missing(const track_t *t, uint32_t *code)
 }
 
 /* the order the engines are shown in (PRESETS browsing and its ENG knob, the EDIT layer's keys, the editor's list):
- * engine indices, never DIGITAL's reserved 1 (with FELUCCA_FM4 it follows FM6), never retired SLICE.
+ * engine indices, never DIGITAL's reserved 1, never retired SLICE.
  * The indices stay as they are (the stores and the protocol hold them); only this table orders them */
 static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     0,                           /* ANALOG */
     12,                          /* FM6 */
-#if FELUCCA_FM4
-    1,                           /* DIGITAL */
-#endif
     2, 3, 4, 5, 6, 7, 8, 9,      /* PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS */
     11,                          /* NOISE */
     10,                          /* DRUM */
@@ -128,10 +118,10 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 };
 _Static_assert(NELEM(ENGINE_ORDER) == NENG_SHOWN, "ENGINE_ORDER / NENG_SHOWN");
 
-/* the engines one can pick (not DIGITAL without FELUCCA_FM4, not retired SLICE) */
+/* the engines one can pick (not DIGITAL's reserved 1, not retired SLICE) */
 static int eng_ok(uint32_t e)
 {
-    return e < NENGINES && (FELUCCA_FM4 || e != ENGI_DIGITAL) && !eng_retired(e);
+    return e < NENGINES && e != ENGI_DIGITAL && !eng_retired(e);
 }
 static uint32_t eng_vis(uint32_t n) { return ENGINE_ORDER[n % NENG_SHOWN]; }
 static uint32_t eng_rank(uint32_t e)

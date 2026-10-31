@@ -204,7 +204,12 @@ static int fun7_89(void)
     pack_fun7_89(&old, &before, &m);
     ok = proj_import(&after, &old, sizeof old);
     for (k = 0; ok && k < NTRK; k++) {
-        for (i = 0; i < 8u; i++) ok &= after.t[k].p[P_E0 + i] == before.t[k].p[P_E0 + i];
+        for (i = 0; i < 8u; i++) {
+            int16_t want = before.t[k].p[P_E0 + i];
+            if (i == 5u && ENGINES[after.t[k].engine] == &ENG_FM6)
+                want = 0;                              /* 3.6: old VMOD moved into the patch */
+            ok &= after.t[k].p[P_E0 + i] == want;
+        }
         for (i = 0; i < 81u; i++)
             ok &= after.t[k].p[i] == (i == P_CHOR ? (int16_t)(64 + 6 + (7 << 3)) : before.t[k].p[i]);
         ok &= after.t[k].p[P_CHRD] == 0 && after.t[k].p[P_VOIC] == 0;
