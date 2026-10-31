@@ -3700,18 +3700,27 @@ static int test_edit_cycle(void)
         ok &= page_desc(cur_page(), 0, &vp) && vp == &TSEL->p[P_WAVE2];
         ok2 &= card_inactive(TSEL, vp);             /* WAVE2 is ignored on SYNC */
         ok2 &= card_inactive(TSEL, &TSEL->p[P_MORPH]);
+        TSEL->p[P_E0] = AW_SUB;
+        ok2 &= card_inactive(TSEL, vp);             /* .. and on SUB / SUPER */
+        TSEL->p[P_E0] = AW_SUPER;
+        ok2 &= card_inactive(TSEL, vp);
         TSEL->p[P_E0] = 0;
         ok2 &= !card_inactive(TSEL, vp);            /* SAW on LP: OSC B's own WAVE is live */
         ok2 &= !card_inactive(TSEL, &TSEL->p[P_MORPH]);
-        TSEL->p[P_FTYPE] = IFT_BP;                  /* BP / HP / COMB keep OSC A's WAVE for both */
-        ok2 &= card_inactive(TSEL, vp);
+        TSEL->p[P_FTYPE] = IFT_BP;                  /* BP / HP / COMB: OSC B's own WAVE is live too */
+        ok2 &= !card_inactive(TSEL, vp);
+        TSEL->p[P_FTYPE] = IFT_HP;
+        ok2 &= !card_inactive(TSEL, vp);
+        TSEL->p[P_FTYPE] = IFT_COMB;
+        ok2 &= !card_inactive(TSEL, vp);
         TSEL->p[P_FTYPE] = IFT_LP;
         TSEL->p[P_E0] = AW_SYNC;                    /* (on FM6 the same slots are OP2 / OP3 ATK: never dimmed) */
         TSEL->eng_req = ENGI_FM6;
         ok2 &= !card_inactive(TSEL, &TSEL->p[P_WAVE2]) && !card_inactive(TSEL, &TSEL->p[P_MORPH]);
         TSEL->eng_req = ENGI_ANALOG;
         TSEL->p[P_E0] = 0;
-        bad += check("ANALOG OSC B: WAVE DIM under SYNC / SUB / SUPER and BP / HP / COMB; OSC A MORPH DIM under SYNC", ok2);
+        bad += check("ANALOG OSC B: WAVE DIM under SYNC / SUB / SUPER only (live on BP / HP / COMB); "
+                     "OSC A MORPH DIM under SYNC", ok2);
     }
     turn(EN_SELECT, 1); frame();
     ok &= cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "FILTER");
