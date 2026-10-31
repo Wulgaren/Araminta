@@ -199,24 +199,25 @@ static uint64_t sig_hash(void)                        /* ren_l's last note, for 
     return h;
 }
 
-/* one ANALOG OSC A/B note: WAVE w, WAVE2 w2, MIX, INT (P_E7), MORPH, DRIFT; the filter open, no noise or
- * drive. Fills ren_l like analog_note and resets the hash, so each call's hash is its own */
-static stats_t analog_osc2_note2(uint32_t w, uint32_t w2, int32_t mix, int32_t intv, int32_t morph, int32_t drift,
-                                 uint32_t note)
+/* one ANALOG OSC A/B note through the filter TYPE ft: WAVE w, WAVE2 w2, MIX, INT (P_E7), MORPH, DRIFT,
+ * CUT and RES; no noise or drive. Fills ren_l like analog_note and resets the hash, so each call's hash is
+ * its own */
+static stats_t analog_osc2_note3(uint32_t w, uint32_t w2, int32_t mix, int32_t intv, int32_t morph, int32_t drift,
+                                 uint32_t note, uint32_t ft, int32_t cut, int32_t res)
 {
     track_t *t = &trk[0];
     uint32_t i, k;
     fresh(0, 0);
     dry(t);
     t->p[P_VOICE] = V_POLY;
-    t->p[P_FTYPE] = 0;
+    t->p[P_FTYPE] = (int16_t)ft;
     t->p[P_E0] = (int16_t)w;
     t->p[P_WAVE2] = (int16_t)w2;
     t->p[P_E1] = 0;
     t->p[P_E2] = (int16_t)mix;
     t->p[P_E3] = 0;
-    t->p[P_E4] = 127;
-    t->p[P_E5] = 0;
+    t->p[P_E4] = (int16_t)cut;
+    t->p[P_E5] = (int16_t)res;
     t->p[P_E6] = 0;
     t->p[P_E7] = (int16_t)intv;
     t->p[P_MORPH] = (int16_t)morph;
@@ -225,6 +226,8 @@ static stats_t analog_osc2_note2(uint32_t w, uint32_t w2, int32_t mix, int32_t i
     t->p[P_LD_FLT] = 0;
     t->p[P_ATK] = 0;
     t->p[P_SUS] = 127;
+    if (ft == IFT_COMB)
+        memset(ana_comb, 0, sizeof ana_comb);   /* the shared delay line: each COMB render starts clean */
     hash = 0;
     trk_note_on(t, note, 100);
     for (k = 0; k < NREND; k++) {
@@ -235,6 +238,12 @@ static stats_t analog_osc2_note2(uint32_t w, uint32_t w2, int32_t mix, int32_t i
     trk_note_off(t, note);
     blocks(FS / 2u / CTL);
     return stats(FS / 10u);
+}
+
+static stats_t analog_osc2_note2(uint32_t w, uint32_t w2, int32_t mix, int32_t intv, int32_t morph, int32_t drift,
+                                 uint32_t note)
+{
+    return analog_osc2_note3(w, w2, mix, intv, morph, drift, note, 0, 127, 0);   /* LP, the filter open */
 }
 
 static stats_t analog_osc2_note(uint32_t w, int32_t mix, int32_t intv, int32_t morph, int32_t drift, uint32_t note)
@@ -260,6 +269,7 @@ static void test_osc2(void)
     stats_t a, a2, b, c, m0, m64, m127, d0, d1;
     uint64_t h0, h64, h127, hd0, hd1;
     double f0, f1, f2;
+    char msg[160];
     a = analog_osc2_note(3, 127, 0, 0, 0, 60);   f0 = zc_hz();  h0 = hash;
     a2 = analog_osc2_note(3, 127, 0, 0, 0, 60);
     check("INT 0: the same render twice (bit for bit)", a.rms == a2.rms && hash == h0);
@@ -295,6 +305,23 @@ static void test_osc2(void)
     (void)analog_osc2_note2(0, 2, 0, 0, 0, 0, 60); h0 = hash;     /* A alone */
     (void)analog_osc2_note2(0, 4, 0, 0, 0, 0, 60);
     check("WAVE2: OSC B's wave does not touch OSC A (MIX 0)", hash == h0);
+    {   /* OSC B's own WAVE through the other filter TYPEs: at MIX 127 OSC A's wave must not matter */
+        static const uint32_t FT[3] = {1, 2, 3};                 /* BP, HP, COMB */
+        static const char *const FN[3] = {"BP", "HP", "COMB"};
+        uint32_t ft;
+        (void)analog_osc2_note3(3, 4, 127, 0, 0, 0, 60, 0, 70, 96);   /* the same OSC B sine on LP, for the hash */
+        h0 = hash;
+        for (ft = 0; ft < 3u; ft++) {
+            stats_t bs = analog_osc2_note3(0, 4, 127, 0, 0, 0, 60, FT[ft], 70, 0);   /* A saw, B sine */
+            stats_t ss = analog_osc2_note3(3, 4, 127, 0, 0, 0, 60, FT[ft], 70, 0);   /* A sine, B sine */
+            snprintf(msg, sizeof msg,
+                     "WAVE2 %s: OSC B plays its own wave (A saw / B sine == A sine / B sine at MIX 127)", FN[ft]);
+            check(msg, bs.rms > 100 && fabs(bs.rms - ss.rms) < 2 && fabs(bs.peak - ss.peak) < 2);
+        }
+        (void)analog_osc2_note3(3, 4, 127, 0, 0, 0, 60, 1, 70, 96);   /* BP */
+        check("WAVE2: the same OSC B wave sounds different through BP than LP (the filter really applies)",
+              hash != h0);
+    }
     (void)analog_osc2_note2(5, 1, 64, 0, 0, 0, 60); h0 = hash;    /* SYNC */
     (void)analog_osc2_note2(5, 2, 64, 0, 0, 0, 60);
     check("WAVE2: SYNC defines OSC B (the stored wave does nothing)", hash == h0);
