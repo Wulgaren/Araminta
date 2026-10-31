@@ -196,7 +196,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_IHDEP] = PD("DEPTH", F_PCT, 0, 127, 96),
     [P_IHMIX] = PD("MIX", F_PCT, 0, 127, 0),
     [P_FTYPE] = PE("TYPE", N_FTYPE, 0),           /* ANALOG filter: LP / BP / HP / COMB */
-    [P_ESYNC] = PE("ESYNC", N_ONOFF, 0),          /* 1.5 (#175): OFF = ATK DEC REL in ms, as before (voice.c esync) */
+    [P_ESYNC] = PE("SYNC", N_ONOFF, 0),           /* 1.5 (#175): OFF = ATK DEC REL in ms, as before (voice.c esync) */
 };
 /* ANALOG's OSC pages: the labels of the FM slots they keep MORPH / DRIFT / OSC B's WAVE in (core.h) */
 static const param_desc_t ANALOG_MORPH = {"MORPH", F_PCT, 0, 127, 0, 0, 0};
@@ -216,7 +216,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_RDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
     [G_CRATE] = PD("DLYOWN", F_INT, 0, 4, 0),     /* 0 SEND; 1..4 track with delay CHAIN (was bus CRT) */
     [G_CDEPTH] = PD("REVOWN", F_INT, 0, 4, 0),    /* 0 SEND; 1..4 track with reverb CHAIN (was bus CDP) */
-    [G_TWOW] = PD("WOW", F_PCT, 0, 127, 0),      /* TAPE wow/flutter depth (was G_MIDI, the old SYSTEM page) */
+    [G_TWOW] = PD("FLUTR", F_PCT, 0, 127, 0),    /* TAPE wow/flutter depth (was G_MIDI, the old SYSTEM page) */
     [G_DREL] = PD("REL", F_PCT, 0, 100, 30),     /* DUCK's release: 40 .. 600 ms (fx.c duck_block) */
     /* MIDI IN's routing, edited on MENU > MIDI > MIDI IN (1.2: menu_items.c MI_MIDIIN; up to 1.1.5 GLO > SYSTEM ROUT),
      * stored with the project as before. (was "--": stored 0 = CH1-4, as MIDI IN always was) */
@@ -278,6 +278,8 @@ static const char *param_list_name(const track_t *t, uint32_t id, int full)
 {
     static const char *const SHORT[] = {"WAVE A", "POS A", "WAVE B", "POS B", "B LEVEL"};
     static const char *const FULL[] = {"WAVE A", "POSITION A", "WAVE B", "POSITION B", "B LEVEL"};
+    if (id == P_ESYNC)                        /* the card reads SYNC; LFO 2's SYNC is the other one in a list */
+        return full ? "ENV SYNC" : "ENV";
     if (id >= P_E0 && id <= P_E7 && ENGINES[eng_idx(t->eng_req)] == &ENG_WT) {
         uint32_t k = id - P_E0;
         if (k == 0u || k == 1u || k == 4u || k == 5u || k == 6u) {

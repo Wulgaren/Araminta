@@ -293,7 +293,7 @@ static int tape_contract(void)
 
     ui_power_on();
     t = &trk[0];
-    song.g[G_TAPEMODE] = TAPE_MASTER;                 /* any track may lock SPEED / WOW */
+    song.g[G_TAPEMODE] = TAPE_MASTER;                 /* any track may lock SPEED / FLUTR */
     ok = motion_param(MFX_TSPEED) && motion_param(MFX_TWOW) &&
          motion_target_desc(t, MFX_TSPEED)->min == 25 && motion_target_desc(t, MFX_TSPEED)->max == 400 &&
          motion_target_desc(t, MFX_TWOW)->min == 0 && motion_target_desc(t, MFX_TWOW)->max == 127 &&
@@ -301,7 +301,7 @@ static int tape_contract(void)
          fx_target_ptr(t, MFX_TWOW) == &song.g[G_TWOW];
     ok &= !motion_set_lock(t, 0, MFX_TSPEED, 100) && !motion_set_lock(t, 1, MFX_TWOW, 42) &&
           !motion_set_lock(t, 2, MFX_TSPEED, 400) && !motion_set_lock(t, 3, MFX_TSPEED, 25);
-    bad += check("TAPE SPEED / WOW are motion targets with their global descriptors and ranges", ok);
+    bad += check("TAPE SPEED / FLUTR are motion targets with their global descriptors and ranges", ok);
     project_capture(&before);
     ok = proj_pack(&st, &before) && proj_import(&after, &st, sizeof st) && after.motion.count == 4u;
     for (i = 0; ok && i < after.motion.count; i++) {
@@ -322,7 +322,7 @@ static int tape_contract(void)
         } else
             ok = 0;
     }
-    bad += check("TAPE SPEED / WOW locks round-trip through a project (100 / 400 / 25 exact)", ok && seen == 15u);
+    bad += check("TAPE SPEED / FLUTR locks round-trip through a project (100 / 400 / 25 exact)", ok && seen == 15u);
     return bad;
 }
 

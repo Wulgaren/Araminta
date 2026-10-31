@@ -433,7 +433,7 @@ static void test_math(void)
     check("insert knobs restored after the block",
           t->p[P_ED_FX] == 0 && t->p[P_IDMIX] == 40 && t->p[P_IFCUT] == 64 && t->p[P_IFMIX] == 40 &&
           t->p[P_ICBITS] == 64 && t->p[P_ICMIX] == 40 && t->p[P_ILMIX] == 40 && t->p[P_IHDEP] == 64);
-    check("DST names: TONE / DMIX / HDEP; CHO is CHOR MIX; DLY/REV amounts stay; TAPE SPEED/WOW",
+    check("DST names: TONE / DMIX / HDEP; CHO is CHOR MIX; DLY/REV amounts stay; TAPE SPEED/FLUTR",
           str_eq(mod_dst_name(t, MD_TONE), "TONE") && str_eq(mod_dst_name(t, MD_DMIX), "DMIX") &&
           str_eq(mod_dst_name(t, MD_HDEP), "HDEP") && mod_param(MD_CHO) == P_IHMIX &&
           mod_param(MD_DLY) == P_DLY && mod_param(MD_REV) == P_REV && MD_TONE == 26 &&

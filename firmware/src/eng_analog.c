@@ -235,13 +235,28 @@ static __attribute__((noinline)) void analog_render_x(track_t *t, voice_t *v, in
     v->s[2] = nst;
 }
 
+/* OSC B's effective wave: SAME (0) follows OSC A; 1..5 pick SAW SQR TRI SIN PWM */
+static inline __attribute__((always_inline)) uint32_t analog_wave_b(const track_t *t)
+{
+    uint32_t w = (uint32_t)t->p[P_WAVE2];
+    return w ? w - 1u : (uint32_t)t->p[P_E0];
+}
+
 /* WAVE 0..4 through the filter TYPE ft: analog_render's loop; ft 0 (LP) is the path it always took,
- * BP / HP / COMB the one #104 added. One copy (noinline): always_inline duplicated it, and MORPH doubled that */
+ * BP / HP / COMB the one #104 added. WAVE2 (OSC B) picks its own shape when it is not SAME: that split, the
+ * rare sound, takes ana_morph per oscillator (its MORPH 0 case is ana_shape); the common path (both waves
+ * equal) keeps its switch and pays only the split test.
+ * noinline, one copy: always_inline duplicated it, MORPH doubled that, and one loop keeps the filter tail
+ * written once (the split used to be a second function that had to duplicate the tail to fit the XIP slot) */
 static __attribute__((noinline)) void analog_osc(track_t *t, voice_t *v, int32_t *out, uint32_t n,
                                                  const vmod_t *m, uint32_t ft)
 {
     const int16_t *p = t->p;
     uint32_t wave = (uint32_t)p[P_E0], i;
+    /* OSC B's own WAVE, but only while ANALOG is the requested engine: on an engine switch's fade-out the
+     * slot holds the new engine's parameter (as the split dispatch did) */
+    uint32_t wave2 = t->eng_req % NENGINES == ENGI_ANALOG ? analog_wave_b(t) : wave;
+    int32_t split = wave2 != wave;
     int32_t det = p[P_E1], mix = p[P_E2], noise = p[P_E3];
     int32_t cut = (p[P_E4] << 8) + m->cutoff + shl(v->pitch16 - 960, 2);   /* keytracking: half, fixed */
     tsvf_t flt;
@@ -252,7 +267,8 @@ static __attribute__((noinline)) void analog_osc(track_t *t, voice_t *v, int32_t
     int32_t mpos = (int32_t)(wave << 8);                          /* MORPH position: the WAVE, on to the next */
     if (t->mo_cur)
         mpos += (int32_t)((uint32_t)t->mo_cur * 256u / 127u);
-    int32_t pwm = wave == 4u;
+    int32_t mpos2 = mpos + (((int32_t)wave2 - (int32_t)wave) << 8);   /* its own WAVE, same MORPH offset */
+    int32_t pwm = wave == 4u, pwm2 = wave2 == 4u;
     int32_t m2 = mix * 258, m1 = 32767 - m2;                    /* osc mix Q15 */
     int32_t nz = noise * 200, drv = p[P_E6];
     uint32_t ph0 = v->ph[0], ph1 = v->ph[1];                  /* state in locals: out[] may alias v->s[] */
@@ -262,7 +278,10 @@ static __attribute__((noinline)) void analog_osc(track_t *t, voice_t *v, int32_t
     uint32_t clen = ft == IFT_COMB ? comb_delay_len(clamp(cut >> 8, 0, 127), AC_LEN) : 0u;   /* block-constant */
     for (i = 0; i < n; i++) {
         int32_t a, b, s;
-        if (pwm) {
+        if (split) {                                 /* rare: each oscillator its own shape */
+            a = pwm ? osc_pulse(ph0, inc1, pw) : ana_morph(mpos, ph0, inc1);
+            b = pwm2 ? osc_pulse(ph1, inc2, pw) : ana_morph(mpos2, ph1, inc2);
+        } else if (pwm) {
             a = osc_pulse(ph0, inc1, pw);
             b = osc_pulse(ph1, inc2, pw);
         } else if (!t->mo_cur) {                     /* no MORPH: the WAVE's own shape, as it always was */
@@ -308,88 +327,10 @@ static __attribute__((noinline)) void analog_osc(track_t *t, voice_t *v, int32_t
     v->s[2] = nst;
 }
 
-/* OSC B's effective wave: SAME (0) follows OSC A; 1..5 pick SAW SQR TRI SIN PWM */
-static inline __attribute__((always_inline)) uint32_t analog_wave_b(const track_t *t)
-{
-    uint32_t w = (uint32_t)t->p[P_WAVE2];
-    return w ? w - 1u : (uint32_t)t->p[P_E0];
-}
-
-/* OSC A / OSC B with different waves (a rare sound) through the filter TYPE ft: the same loop as analog_osc,
- * its two shapes selected apart. noinline and reached only when WAVE2 differs from WAVE, so the common path
- * stays small. minsize: this path carries the filter TYPE too, and the XIP slot is at its limit; a little
- * speed here buys the flash the common paths need (it calls ana_shape / analog_tap / analog_comb instead of
- * inlining them) */
-static __attribute__((noinline, minsize)) void analog_osc_b(track_t *t, voice_t *v, int32_t *out, uint32_t n,
-                                                            const vmod_t *m, uint32_t ft)
-{
-    const int16_t *p = t->p;
-    uint32_t wave = (uint32_t)p[P_E0], wave2 = (uint32_t)p[P_WAVE2] - 1u, i;   /* differs: not SAME */
-    int32_t det = p[P_E1], mix = p[P_E2], noise = p[P_E3];
-    int32_t cut = (p[P_E4] << 8) + m->cutoff + shl(v->pitch16 - 960, 2);   /* keytracking: half, fixed */
-    tsvf_t flt;
-    int32_t drive = 32768 + p[P_E6] * 512;                       /* 1x .. 3x */
-    uint32_t inc1 = m->inc;
-    uint32_t inc2 = det || p[P_E7] ? cents_inc(m->pitch16 + p[P_E7] * 16, det, 0) : inc1;   /* INT semitones, DTN cents */
-    uint32_t pw = 0x80000000u + ((uint32_t)clamp(m->shape - (64 << 8) + (int32_t)t->mo_cur * 41, -16384, 65000) << 15);
-    int32_t mpos = (int32_t)(wave << 8), mpos2 = (int32_t)(wave2 << 8);   /* MORPH: each from its own WAVE */
-    if (t->mo_cur) {
-        mpos += (int32_t)((uint32_t)t->mo_cur * 256u / 127u);
-        mpos2 = mpos + shl((int32_t)wave2 - (int32_t)wave, 8);
-    }
-    int32_t pwm1 = wave == 4u, pwm2 = wave2 == 4u;
-    int32_t m2 = mix * 258, m1 = 32767 - m2;                    /* osc mix Q15 */
-    int32_t nz = noise * 200, drv = p[P_E6];
-    uint32_t ph0 = v->ph[0], ph1 = v->ph[1];                  /* state in locals: out[] may alias v->s[] */
-    int32_t ic1 = v->s[0], ic2 = v->s[1], nst = v->s[2];
-    int32_t fk = ft ? ANALOG_K(p[P_E5]) : 0;
-    tsvf_coef(&flt, cut, p[P_E5]);
-    uint32_t clen = ft == IFT_COMB ? comb_delay_len(clamp(cut >> 8, 0, 127), AC_LEN) : 0u;   /* block-constant */
-    for (i = 0; i < n; i++) {
-        int32_t a, b, s;
-        if (pwm1)
-            a = osc_pulse(ph0, inc1, pw);
-        else if (!t->mo_cur)
-            a = ana_shape(wave, ph0, inc1);
-        else
-            a = ana_morph(mpos, ph0, inc1);
-        if (pwm2)
-            b = osc_pulse(ph1, inc2, pw);
-        else if (!t->mo_cur)
-            b = ana_shape(wave2, ph1, inc2);
-        else
-            b = ana_morph(mpos2, ph1, inc2);
-        ph0 += inc1;
-        ph1 += inc2;
-        s = mulq15(a, m1) + mulq15(b, m2);
-        if (nz)
-            s += mulq15((int32_t)(noise32(&nst) >> 17) - 16384, nz);
-        if (drv)
-            s = softclip(((s >> 2) * (drive >> 2)) >> 11);
-        {   /* filter, linear up to half scale, then a soft knee (as analog_osc's; analog_tap's ft 0 is LP) */
-            int32_t y = ft == IFT_COMB ? analog_comb(t, v, s >> 1, (int32_t)clen, p[P_E5], &ic1)
-                                       : analog_tap(&flt, fk, s >> 1, &ic1, &ic2, ft);
-            int32_t a = y < 0 ? -y : y;
-            if (a > 16000) {
-                a = 16000 + (softclip((a - 16000) * 2) >> 1);
-                y = y < 0 ? -a : a;
-            }
-            s = y * 2;
-        }
-        out[i] += voice_amp(s, m, i) * 2;
-    }
-    v->ph[0] = ph0;
-    v->ph[1] = ph1;
-    v->s[0] = ic1;
-    v->s[1] = ic2;
-    v->s[2] = nst;
-}
 static void analog_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
     if (t->p[P_E0] >= AW_SYNC)
         analog_render_x(t, v, out, n, m);
-    else if (t->eng_req % NENGINES == ENGI_ANALOG && analog_wave_b(t) != (uint32_t)t->p[P_E0])
-        analog_osc_b(t, v, out, n, m, (uint32_t)t->p[P_FTYPE]);
     else
         analog_osc(t, v, out, n, m, (uint32_t)t->p[P_FTYPE]);
 }
