@@ -2,8 +2,8 @@
 /* Free take (SLOOP port): empty project, REC armed while stopped, first note starts a take with no
  * tempo; REC closes the loop (length sets tempo), PLAY / STOP drops it; a note started while an
  * earlier one is still held sets SF_SLIDE on the previous NOTE step; releasing that tap while the
- * hold continues records a return to the held pitch. A strummed chord keeps its STRUM division
- * at the take's tempo and its strings do not slide. */
+ * hold continues records a return to the held pitch. A strummed chord records into the first
+ * string's step, so the take plays the chord together and the strings do not slide. */
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -338,8 +338,8 @@ int main(void)
         mix_block(out, CTL);
     }
 
-    /* 1/16 STRUM on a 1- or 2-bar take: one 1/16 step is too coarse for three strings, so the take
-     * closes at 1/32 (LEN 32 / 64) and the C E G strings land on steps 0 1 2. */
+    /* 1/16 STRUM on a 1- or 2-bar take: the whole C E G chord lands in step 0 (the take stays at
+     * 1/16), so playback sounds the chord together. */
     {
         uint32_t fb, close_at;
         for (fb = 1; fb <= 2u; fb++) {
@@ -365,19 +365,18 @@ int main(void)
             fm1_in.notes = 0;
             mix_block(out, CTL);
             assert(!ft_on && song.playing && ft_bars == fb && song.g[G_BPM] == 120);
-            assert(trk[0].p[P_SLEN] == (int16_t)(32u * fb) && trk[0].p[P_SDIV] == 3);
-            expect_note(0, 60, 0);
-            expect_note(1, 64, 0);
-            expect_note(2, 67, 0);
-            assert(trk[0].step[3].time == ST_TIE);
+            assert(trk[0].p[P_SLEN] == (int16_t)(16u * fb) && trk[0].p[P_SDIV] == 2);
+            assert(trk[0].step[0].n == 3u && step_note(&trk[0].step[0], 0) == 60 &&
+                   step_note(&trk[0].step[0], 1) == 64 && step_note(&trk[0].step[0], 2) == 67);
+            assert(!(step_fl(&trk[0].step[0]) & SF_SLIDE));
+            assert(trk[0].step[1].time == ST_TIE);
             transport_req = 2;
             mix_block(out, CTL);
         }
     }
 
-    /* 1/8 STRUM: played 4 bars at 80 BPM while the project was at 120. The take closes at 80, and the
-     * strings keep the 1/8 sweep (steps 0 1 2 at 1/16) instead of the shorter 120 BPM sweep, with no
-     * SF_SLIDE (a strum is a chord, not a legato tap). */
+    /* 1/8 STRUM: played 4 bars at 80 BPM while the project was at 120. The take closes at 80 and the
+     * whole C E G chord lands in step 0, with no SF_SLIDE (a strum is a chord, not a legato tap). */
     {
         double beat80 = 60.0 / 80.0;
         uint32_t close_at = (uint32_t)(16.0 * beat80 * FS / CTL + 0.5);
@@ -403,16 +402,15 @@ int main(void)
         mix_block(out, CTL);
         assert(!ft_on && song.playing && ft_bars == 4 && song.g[G_BPM] == 80);
         assert(trk[0].p[P_SLEN] == 64 && trk[0].p[P_SDIV] == 2);
-        expect_note(0, 60, 0);
-        expect_note(1, 64, 0);
-        expect_note(2, 67, 0);
-        assert(trk[0].step[3].time == ST_TIE);
+        assert(trk[0].step[0].n == 3u && step_note(&trk[0].step[0], 0) == 60 &&
+               step_note(&trk[0].step[0], 1) == 64 && step_note(&trk[0].step[0], 2) == 67);
+        assert(!(step_fl(&trk[0].step[0]) & SF_SLIDE));
+        assert(trk[0].step[1].time == ST_TIE);
         transport_req = 2;
         mix_block(out, CTL);
     }
 
     puts("free take: empty project sets loop and tempo, REC closes, PLAY/STOP drops, 24 s auto-close, "
-         "held-note slides and returns, a strummed chord keeps the sweep at the take's tempo, a 1/16 "
-         "strum gets the 1/32 grid on a 1-2 bar take PASS");
+         "held-note slides and returns, a strummed chord records into the first string's step PASS");
     return 0;
 }
