@@ -14,7 +14,7 @@
  *   MLVL  the output level of every operator that is not a carrier (-36 .. +36 dB): the brightness
  *   MRAT  added to the coarse ratio of the modulators (ratio mode only)
  *   MEG   the modulators' envelope times: + slower (rates down to 40 steps), - faster
- *   VMOD  added to the modulators' velocity sensitivity (0..7)
+ *   VIB   the patch LFO's pitch depth: + wider
  *   DTUN  spreads the carriers apart in pitch (up to about +-36 cents between the outer ones)
  *   SLOT  F1..F8 load a factory patch; OWN (8) is the track's own patch: what a project, a user preset or the
  *         editor put there. A load shows F n when the patch is that factory one unchanged, else OWN (fm6_adopt).
@@ -134,6 +134,21 @@ static void fm6_unpack(const uint8_t *b, uint8_t *v)
     for (i = 0; i < 10u; i++)
         v[FP_NAME + i] = b[118 + i] & 0x7Fu;
     fm6_sanitize(v);
+}
+
+/* a pre-VIB project or user preset put its VMOD value in p[P_E5]. VMOD added to the modulators'
+ * velocity sensitivity, so move that value into the patch's non-carrier operators; the caller clears
+ * P_E5. The effective algorithm is the ALG macro when it names one, as fm6_sync used it. */
+static void fm6_old_vmod(uint8_t *v, const int16_t *p)
+{
+    uint32_t alg = p[P_E0] >= 1 && p[P_E0] <= 32 ? (uint32_t)p[P_E0] - 1u : v[FP_ALG] & 31u;
+    uint32_t car = fm6_carriers(alg), k;
+    int32_t d = clamp(p[P_E5], -7, 7);
+    for (k = 0; k < 6u; k++)
+        if (!((car >> k) & 1u)) {
+            uint8_t *op = v + k * FP_OP;
+            op[FP_KVS] = (uint8_t)clamp((int32_t)op[FP_KVS] + d, 0, 7);
+        }
 }
 
 /* 155-byte voice -> 128-byte packed record (7-bit bytes: it travels in SysEx as it is) */
@@ -303,6 +318,15 @@ static void fm6_sync(const track_t *t)
         car = fm6_carriers(alg);
         meg = clamp(e[4], -64, 63) * 40 / 64;               /* MEG: rate steps (+ slower) */
         step = clamp(e[6], 0, 127) * (12 * 13981) / 127;    /* DTUN: up to 12 cents a step (1 cent = 13981) */
+        {
+            int32_t vib = (clamp(e[5], 0, 63) + 3) / 4;     /* VIB: the patch LFO's pitch depth */
+            if (vib) {
+                int32_t d = clamp((int32_t)p[FP_LPMD] + vib, 0, 99);
+                p[FP_LPMD] = (uint8_t)d;
+                if (d && !(p[FP_LPMS] & 7u))
+                    p[FP_LPMS] = 7;                         /* a depth needs sensitivity */
+            }
+        }
         for (k = 0; k < 6u; k++) {
             uint8_t *op = p + (5u - k) * FP_OP;              /* OP1 first: carriers in their order */
             uint32_t ki = 5u - k;
@@ -316,7 +340,6 @@ static void fm6_sync(const track_t *t)
                 op[FP_FC] = (uint8_t)clamp(op[FP_FC] + e[3], 0, 31);
             for (j = 0; j < 4u; j++)
                 op[FP_R1 + j] = (uint8_t)clamp(op[FP_R1 + j] - meg, 0, 99);
-            op[FP_KVS] = (uint8_t)clamp(op[FP_KVS] + e[5], 0, 7);
         }
         fm6_lfo_reset(&fm6_lfo[tr], p);
     }
@@ -408,7 +431,7 @@ static const char *const N_FM6_PATCH[] = {"F1", "F2", "F3", "F4", "F5", "F6", "F
                                           "B24", "B25", "B26", "B27", "B28", "B29", "B30", "B31", "B32", 0};
 _Static_assert(NELEM(N_FM6_PATCH) == FM6_OWN + FM6_NBANK + 2u, "a SLOT name per value");
 
-/* {ALG, FB, MLVL, MRAT, MEG, VMOD, DTUN, SLOT}: the factory patch F1..F8 as it is, DTUN on the pad */
+/* {ALG, FB, MLVL, MRAT, MEG, VIB, DTUN, SLOT}: the factory patch F1..F8 as it is, DTUN on the pad */
 static const preset_t FM6_PRESETS[] = {
     {"TINE EP", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 45, 25, 35), PAT(6)},
     {"BELL", {0, 0, 0, 0, 0, 0, 0, 1}, {0, 0, 127, 0}, 0, 0, FX(0, 10, 30, 70), PAT(7)},
@@ -429,7 +452,7 @@ static const engine_t ENG_FM6 = {
         {"MLVL", F_BIPCT, -64, 63, 0, 0, 0},
         {"MRAT", F_INT, -16, 16, 0, 0, 0},
         {"MEG", F_BIPCT, -64, 63, 0, 0, 0},
-        {"VMOD", F_INT, -7, 7, 0, 0, 0},
+        {"VIB", F_INT, 0, 63, 0, 0, 0},
         {"DTUN", F_PCT, 0, 127, 0, 0, 0},
         {"SLOT", F_INT, 0, FM6_OWN + FM6_NBANK, 0, N_FM6_PATCH, 0},
     },

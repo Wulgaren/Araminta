@@ -531,6 +531,37 @@ static int keep_test(void)
         ok &= patch_is(3, FM6_INIT) && trk[3].p[P_E7] == FM6_OWN;
         bad += check("a user preset with a stored SLOT 13: its patch (OWN); with none, the init voice as before", ok);
     }
+    {   /* a user preset of before 3.6: E5 was VMOD, moved into the patch on load; a new one keeps VIB */
+        up_rec_t *r;
+        uint8_t v[FP_SIZE + 1u], pk0[FM6_PACKED], out[FP_SIZE + 1u];
+        song.sel = 2;
+        fm6_unpack(FM6_INIT, v);
+        v[FP_ALG] = 0;
+        for (uint32_t k = 0; k < 6u; k++)
+            v[k * FP_OP + FP_KVS] = 0;
+        fm6_pack(v, pk0);
+        fm6_set_patch(2, v);
+        trk[2].p[P_E5] = 0;
+        trk[2].p[P_E7] = FM6_OWN;
+        ok = up_store(7, "OLD VMOD") == 0;
+        r = up_rec(7);
+        up_set_value(r, P_E5, 5);
+        r->packed[UP_VIB_AT] &= (uint8_t)~UP_VIB;         /* what firmware before 3.6 wrote */
+        ok &= up_put(7, r) == 0;
+        upf_set(7, pk0);                                  /* its patch, tagged with that record */
+        up_load(7);
+        memcpy(out, fm6_patch[2], FP_SIZE + 1u);
+        ok &= trk[2].p[P_E5] == 0 && out[0 * FP_OP + FP_KVS] == 5 && out[1 * FP_OP + FP_KVS] == 5 &&
+              out[2 * FP_OP + FP_KVS] == 5 && out[4 * FP_OP + FP_KVS] == 5 &&
+              out[3 * FP_OP + FP_KVS] == 0 && out[5 * FP_OP + FP_KVS] == 0;
+        bad += check("a user preset's old VMOD moves into the modulators' velocity sensitivity", ok);
+        fm6_set_patch(2, v);                             /* a fresh sound, not the migrated one */
+        trk[2].p[P_E5] = 40;
+        ok = up_store(8, "NEW VIB") == 0;
+        trk[2].p[P_E5] = 0;
+        up_load(8);
+        bad += check("a new user preset keeps VIB", ok && trk[2].p[P_E5] == 40 && patch_is(2, pk0));
+    }
     {   /* motion records holding SLOT 9..40 (recorded on 1.0.2's B slots): they play OWN, never a bank voice */
         uint8_t x[FM6_PACKED];
         track_t *t = &trk[0];

@@ -141,6 +141,10 @@
  * without it loads its ANALOG tracks with INT / MORPH / DRIFT 0, WAVE2 SAME, and drops their
  * E8 / OP events. The magic and size are FUN19's; older firmware ignores the bit.
  *
+ * 3.6 (FM6's VIB): P_E5 is VIB, not VMOD. Header byte 67 bit 2 says a project is read that way; without it,
+ * proj_fm6m moves each FM6 track's E5 into the patch's modulator velocity sensitivity and drops its E5
+ * events. The magic and size stay FUN19's; older firmware ignores the bit.
+ *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
 #define PROJ_MAGIC 0x4A4E5546u                 /* "FUNJ" (FUN19): FUN18 + TAPE TEMPO */
@@ -208,6 +212,7 @@ typedef struct {
     uint8_t phys;                              /* PROJ_PHYS: PHYS MODEL values as today; 1: MODEL 4 was DRUM;
                                                 * 0 (a reserved byte before 1.0): MODEL 2 was DUST */
     uint8_t rsv;
+    uint8_t fm6_vib;                           /* header bit 2: P_E5 is VIB (else pre-VIB VMOD, proj_fm6m) */
     proj_trk_t t[NTRK];
     chain_config_t chain;
     motion_store_t motion;
@@ -479,13 +484,12 @@ static void proj_phys(project_t *q)
     q->sum = proj_sum(q);
 }
 
-/* DIGITAL tracks (engine 1; without FELUCCA_FM4) -> FM6 with the converted patch as the track's own (fm4_convert.c,
+/* DIGITAL tracks (engine 1) -> FM6 with the converted patch as the track's own (fm4_convert.c,
  * whatever format the project is: the conversion runs on every load, the stored record keeps what it holds until it
  * is saved again). Their motion events on the EDIT values or the OP ENV values go: DIGITAL's meanings do not carry
  * over to FM6's macros. Idempotent */
 static void proj_fm4(project_t *q)
 {
-#if !FELUCCA_FM4
     uint32_t k, i, n, hit = 0;
     for (k = 0; k < NTRK; k++) {
         proj_trk_t *d = &q->t[k];
@@ -514,9 +518,43 @@ static void proj_fm4(project_t *q)
         memset(&q->motion.event[i], 0, sizeof q->motion.event[i]);
     q->motion.count = (uint8_t)n;
     q->sum = proj_sum(q);
-#else
-    (void)q;
-#endif
+}
+
+/* FM6 tracks of a project from before VIB (header bit 2 clear): P_E5 was VMOD. Move it into the
+ * patch's modulator operators (fm6_old_vmod) and clear P_E5; the track's VMOD automation has no
+ * patch target, so drop its E5 events. Idempotent: a VIB project returns at once. */
+static void proj_fm6m(project_t *q)
+{
+    uint32_t k, i, n, hit = 0;
+    if (q->fm6_vib)
+        return;
+    for (k = 0; k < NTRK; k++) {
+        if (q->t[k].engine != ENGI_FM6)
+            continue;
+        hit |= 1u << k;
+        if (q->t[k].p[P_E5]) {
+            uint8_t v[FP_SIZE + 1u];
+            fm6_unpack(q->fm6[k], v);
+            fm6_old_vmod(v, q->t[k].p);
+            fm6_pack(v, q->fm6[k]);
+            q->t[k].p[P_E5] = 0;
+        }
+    }
+    q->fm6_vib = 1;
+    if (!hit) {
+        q->sum = proj_sum(q);
+        return;
+    }
+    for (i = n = 0; i < q->motion.count && i < MOTION_MAX; i++) {
+        const motion_event_t *e = &q->motion.event[i];
+        if (((hit >> (e->place >> 6)) & 1u) && MOTION_ID(e) == P_E5)
+            continue;
+        q->motion.event[n++] = *e;
+    }
+    for (i = n; i < q->motion.count && i < MOTION_MAX; i++)
+        memset(&q->motion.event[i], 0, sizeof q->motion.event[i]);
+    q->motion.count = (uint8_t)n;
+    q->sum = proj_sum(q);
 }
 
 /* SAMPLE tracks of the retired PERC set (SET 4) -> DRUM with its default kit (see the top; core.h drum_from_perc,
@@ -709,6 +747,7 @@ static int proj_import(project_t *q, const void *b, int n)
     if (!proj_import_any(q, b, n) || !proj_engines_ok(q))
         return 0;
     proj_fm4(q);
+    proj_fm6m(q);
     proj_perc(q);
     proj_retire(q);
     return 1;
@@ -837,8 +876,8 @@ static int proj_pack(project_store_t *out, const project_t *q)
     memcpy(b + 8, q->g, PROJ_NG_WIRE * sizeof(int16_t));
     b[62] = q->sel; b[63] = q->parts; b[64] = q->phys; b[66] = P_COUNT;
     b[65] = (uint8_t)clamp(q->g[G_CRTYPE], 0, 4);       /* CHAIN tank TYPE/SIZE/DAMP (spare; not in wire g[]) */
-    b[67] = (uint8_t)(1u | (clamp(q->g[G_TTEMPO], 0, 1) << 7) | 2u);   /* bit 0: CHAIN tanks; bit 1: OSC 2
-                                                            * (INT / MORPH / DRIFT); bit 7: TAPE TEMPO */
+    b[67] = (uint8_t)(1u | (clamp(q->g[G_TTEMPO], 0, 1) << 7) | 2u | 4u);   /* bit 0: CHAIN tanks; bit 1: OSC 2
+                                                            * (INT / MORPH / DRIFT); bit 2: VIB; bit 7: TAPE TEMPO */
     b[PROJ_CRV_OFF] = (uint8_t)clamp(q->g[G_CRSIZE], 0, 127);
     b[PROJ_CRV_OFF + 1u] = (uint8_t)clamp(q->g[G_CRDAMP], 0, 127);
     for (t = 0; t < NTRK; t++) {
@@ -1091,6 +1130,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         np < 8u || np > P_COUNT || 68u + NTRK * (np + iord2 + 2u + NSTEP * 9u) + chn + mot > data_end)
         return 0;
     memset(q, 0, sizeof *q); q->magic = PROJ_MAGIC; q->size = sizeof *q;
+    q->fm6_vib = (uint8_t)(v19 && (b[67] & 4u) != 0);
     memcpy(q->g, b + 8, PROJ_NG_WIRE * sizeof(int16_t));
     for (i = PROJ_NG_WIRE; i < G_COUNT; i++)
         q->g[i] = GP[i].def;
@@ -1442,6 +1482,7 @@ static void project_capture(project_t *p)
     p->sel = song.sel;
     p->parts = NPART;
     p->phys = PROJ_PHYS;
+    p->fm6_vib = 1;
     p->chain = chain_config;
     for (i = 0; i < NTRK; i++) {
         for (uint32_t j = 0; j < P_COUNT; j++) p->t[i].p[j] = motion_base_value(&trk[i], j);
@@ -1621,6 +1662,7 @@ static int project_restore_runtime(const project_t *input)
     proj_drums_to_part(p);                              /* a RAM slot of firmware before 1.0 */
     proj_phys(p);                                       /* .. before PHYS lost DUST and DRUM */
     proj_fm4(p);                                        /* .. that had DIGITAL tracks */
+    proj_fm6m(p);                                       /* .. or a pre-VIB VMOD value */
     proj_perc(p);                                       /* .. or SAMPLE PERC tracks */
     proj_retire(p);                                     /* .. or SAMPLE / GRAIN / NOISE / SLICE */
     transport_req = 2;

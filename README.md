@@ -396,7 +396,7 @@ In the order the device lists them:
   and switches to a labelled OSC A while RATIO is the hot knob
 
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
-as FM6 sounds converted from them. The SAMPLE engine's PERC kit was removed in 1.0.2: sounds and
+as FM6 sounds converted from them. Its DSP was removed in 3.6; the conversion stays. The SAMPLE engine's PERC kit was removed in 1.0.2: sounds and
 projects that used it load as the DRUM-X engine's kit, on the same key map. FM6's patch bank (the B
 slots) was removed in 1.0.3: user presets keep their own FM6 patch, and presets that used a B slot get
 that patch on the first start of 1.0.3. 1.4.1 brings B slots back as a voice bank sent from the web editor

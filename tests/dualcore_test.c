@@ -199,7 +199,7 @@ int main(void)
     static const char *const MASKS[] = {"rot", "auto", "5", "10", "3", "12", "1"};
     uint32_t n = 0, e, i, k, g, fail = 0;
     for (e = 0; e < NENGINES; e++) {                    /* every preset: four parts at once */
-        if (!eng_ok(e))                                 /* (a retired number: DIGITAL without FELUCCA_FM4) */
+        if (!eng_ok(e))                                 /* (a retired number: DIGITAL) */
             continue;
         for (g = 0; g * NPART < ENGINES[e]->npresets; g++) {
             snprintf(names[n], sizeof names[n], "4 x %s %u..%u", ENGINES[e]->name, g * NPART, g * NPART + NPART - 1u);

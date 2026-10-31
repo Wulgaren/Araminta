@@ -20,7 +20,7 @@ import sys
 
 FUNCS = ["analog_render",                             # ANALOG's dispatcher: the loops are in the four below
          "analog_render_x", "analog_osc", "ana_shape", "ana_morph",
-         "digital_render", "digital_render_legacy", "digital_render_custom", "phase_render", "lofi_render", "formant_render",
+         "phase_render", "lofi_render", "formant_render",
          "trio_render", "trio_pass", "wheel_render", "wheel_block",
          "phys_render", "drum_render", "fm6_render", "wt_render", "wt_read", "wt_mip_level",
          "px_modal_block", "px_modal_run", "px_memb_block",
@@ -36,10 +36,9 @@ FUNCS = ["analog_render",                             # ANALOG's dispatcher: the
          "perf_throw",                                      # .. REV / ECHO THROW (1.5.1): per part, while held or gliding
          "rev_room", "rev_spring", "rev_hall", "rev_shimmer", "rev_cloud", "rev_side_mix",  # reverb bus (fx.c)
          "track_insert", "ins_run_dist", "ins_run_swept"]   # insert chain (fx.c): DIST / swept stages while MIX > 0
-# built only with FELUCCA_FM4=1 (DIGITAL, src/eng_digital.c; not in the default build, so not in BUDGET): absent,
-# they are skipped; present, checked against these (their budget lines until the engine was retired in 1.0)
-OPTIONAL = {"digital_render": 12, "digital_render_legacy": 333, "digital_render_custom": 558,
-            "uac_tap48": 504}           # (absent from a FELUCCA_UAC_48K=0 or FELUCCA_UAC=0 build)
+# The DIGITAL engine was removed in 3.6; its conversion (fm4_convert.c) stays. Any old budget lines for its
+# render loops are gone.
+OPTIONAL = {"uac_tap48": 504}   # (absent from a FELUCCA_UAC_48K=0 or FELUCCA_UAC=0 build)
 TOL = 0.10                      # exact (no noise): small edits pass, a grown render loop does not
 DIV_W = 8                       # a divide weighs 1 + 8 instructions
 NEST = 4                        # an instruction in a loop inside a loop weighs 4, two deep 16, ...

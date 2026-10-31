@@ -14,7 +14,7 @@
  * one undo (SAVE held: the sound before it, the patch and SLOT with it; ui.c edit_undo_take). The patch is saved with
  * projects and user presets as before (no new format, no new parameter ids: nothing here is automatable or lockable).
  * The values shown are the patch's own: EDIT 1 / 2's macros still apply on top of it as before (MLVL moves the
- * modulators' LEVEL, MRAT their RATIO, MEG their RATEs, VMOD their VEL, DTUN the carriers' pitch, FB the feedback, ALG
+ * modulators' LEVEL, MRAT their RATIO, MEG their RATEs, VIB the patch LFO's pitch depth, DTUN the carriers' pitch, FB the feedback, ALG
  * another algorithm: the chart and which operators are carriers follow ALG). Included by ui_graph.c (after icons.c: the
  * cards' icons); the cards: ui_draw.c, the knobs: ui_input.c edit_param. */
 static int32_t accel(uint32_t role, int32_t s, int32_t range);   /* (ui_input.c) */

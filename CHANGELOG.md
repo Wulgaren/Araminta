@@ -1,5 +1,26 @@
 # Changelog
 
+## 3.6
+
+FM6's E5 macro is VIB now, the patch LFO's pitch depth, instead of VMOD. Old projects and user presets move
+their VMOD value into the modulator operators' velocity sensitivity, so their sound and velocity response stay
+the same; their E5 automation is dropped. The DIGITAL engine's DSP is gone, its conversion stays. No project
+format change: saves stay FUN19 (`FUNJ`); header bit 2 marks the VIB meaning.
+
+### FM6
+
+- **VIB.** EDIT 2 KNOB 2 changes the patch LFO's pitch depth, not the track LFO. It is also an LFO / matrix
+  destination and a lockable parameter under EDIT.
+- **Old VMOD.** A project or user preset from before 3.6 has VMOD in E5. On load, the value is added to the
+  modulator operators' velocity sensitivity in the stored FM6 patch and E5 is cleared. VMOD automation has no
+  patch target, so those E5 events go.
+
+### DIGITAL
+
+- **Engine removed.** `eng_digital.c`, the `FELUCCA_FM4` build flag and its UI / test variants are gone. Engine
+  index 1 stays reserved; `fm4_convert.c`, the project / user-preset conversion and `fm4_div0_test.c` remain, so
+  old DIGITAL sounds still load as FM6.
+
 ## 3.5
 
 ANALOG gets OSC A / OSC B pages: OSC B's own wave on every filter TYPE, PWM and its MORPH, DRIFT, and the

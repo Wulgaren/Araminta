@@ -392,7 +392,7 @@ static int layer_locked(void);
 static uint32_t layer_leds(uint32_t *br);
 static uint32_t layer_btn(void);
 
-/* FM operator pages belong to DIGITAL; they never appear on other instruments (without FELUCCA_FM4: never).
+/* OP ENV / OP LEVEL pages are gone with DIGITAL; OPERATOR and OP ENV are FM6's (ui_fm6op.c).
  * LANES / LANES 2 and SOUND* (GR_DXSND) a DRUM track's; OSC A / OSC B / FILTER an ANALOG track's
  * (EDIT 1 / 2 are the other engines' sound pages; ANALOG uses its own three instead); OPERATOR,
  * OP ENV an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM / DRUMS (PAN/MUTE on MIXER). */
@@ -425,7 +425,7 @@ static int page_visible(uint32_t i)
     if (PAGES[i].fam == FAM_FX && PAGES[i].graph == GR_SLCR && sl_trk_used(TSEL))
         return 0;
     return !(PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] >= P_FM1_ATK &&
-             PAGES[i].id[0] <= P_FM4_LEVEL) || (FELUCCA_FM4 && TSEL->eng_req % NENGINES == ENGI_DIGITAL);
+             PAGES[i].id[0] <= P_FM4_LEVEL);
 }
 
 static uint32_t fam_nsec(uint32_t fam)
@@ -1384,7 +1384,6 @@ static uint32_t preset_rank(const engine_t *e, uint32_t k)
 }
 #define preset_shown(e) (ENGINES[e]->npresets - (ENGINES[e]->presets == SMP_PRESET_TABLE ? SMP_NALIAS : 0u))
 
-#if !FELUCCA_FM4
 /* DIGITAL (engine 1, retired): t's sound = p, values as DIGITAL has them, converted to FM6 with a patch of its own
  * (fm4_convert.c). Every path that brings a DIGITAL sound into a track ends here: a track never keeps engine 1 */
 static void fm4_apply(track_t *t, int16_t *p)
@@ -1424,7 +1423,6 @@ static void fm4_load_preset(track_t *t, uint32_t k)
     fm4_apply(t, p);
     load_end(t);
 }
-#endif
 
 static void set_engine_of(track_t *t, uint32_t ei);
 /* preset pi of the engine the track asked for: the sound only (not the steps, not param_kept) */
@@ -1432,12 +1430,10 @@ static void apply_preset_to(track_t *t, uint32_t pi)
 {
     const engine_t *e = ENGINES[t->eng_req % NENGINES];
     uint32_t i;
-#if !FELUCCA_FM4
     if (t->eng_req % NENGINES == ENGI_DIGITAL) {
         fm4_load_preset(t, pi);
         return;
     }
-#endif
     /* SAMPLE preset 4 was PERC (GM kit): load as DRUM (core.h drum_from_perc), not PIANO */
     if (t->eng_req % NENGINES == ENGI_SAMPLE && pi % (e->npresets ? e->npresets : 1u) == SMP_SET_PERC) {
         set_engine_of(t, ENGI_DRUM);
@@ -1489,12 +1485,10 @@ static void set_engine_of(track_t *t, uint32_t ei)
 {
     const engine_t *e = ENGINES[ei % NENGINES];
     uint32_t i;
-#if !FELUCCA_FM4
     if (ei % NENGINES == ENGI_DIGITAL) {             /* DIGITAL (retired): its first preset, as FM6 */
         fm4_load_preset(t, 0);
         return;
     }
-#endif
     if (eng_retired(ei % NENGINES)) {               /* SLICE (retired): DRUM */
         set_engine_of(t, eng_play_as(ei % NENGINES));
         return;

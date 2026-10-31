@@ -116,7 +116,6 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
 static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
 {
     uint32_t n = ENGINES[e]->npresets;
-#if !FELUCCA_FM4
     if (e == ENGI_DIGITAL) {                      /* DIGITAL preset pi (retired): converted, as ui.c fm4_load_preset */
         uint8_t v[FP_SIZE + 1u];
         uint32_t tr = (uint32_t)(t - trk) % NTRK;
@@ -127,7 +126,6 @@ static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
         fm6_slot[tr] = (uint8_t)t->p[P_E7];
         return;
     }
-#endif
     if (!n) {
         t->eng_req = (uint8_t)e;
         t->preset = 0;
@@ -141,7 +139,7 @@ static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
 static void host_preset(track_t *t, uint32_t e, uint32_t pi)
 {
     host_preset_req(t, e, pi);
-    t->engine = t->eng_req;                       /* (DIGITAL without FELUCCA_FM4: FM6) */
+    t->engine = t->eng_req;                       /* (DIGITAL: converted to FM6) */
     eng_mem_claim(t);                             /* (voice.c engine_block would at the next block) */
 }
 
@@ -463,7 +461,7 @@ static int steal_test(const char *dir)
 /* a preset change across engines while notes sound (the PRESETS knob, the editor's PRESET) must not click:
  * part 1 as a plain sine pad (ANALOG SINE KEY, filter open, slow release, no sends: smooth, so the largest
  * sample step is set by the pitches), (a) a chord held and released, the switch to DIGITAL (its E.PIANO; without
- * FELUCCA_FM4 converted: FM6) in its release
+ * converted to FM6) in its release
  * tail; (b) twice a chord held, the switch to PHASE / LOFI while it is held (the preset change releases
  * it); (c) a switch to SAMPLE with a note in its second block: that note must sound on the new engine. As ui.c
  * set_engine_of + apply_preset_to: eng_req, the new engine's values and panic_req at once (the main loop
@@ -808,9 +806,9 @@ static int tracks_test(const char *dir)
         if (eng_ok(e))
             printf(" %s %s %.1f%s", ENGINES[e]->name, ENGINES[e]->presets[heavy[e]].name, best_e[e],
                    e + 1u < NENGINES ? "," : "\n");
-    {   /* FM (DIGITAL with FELUCCA_FM4, else FM6), PHASE, VOICE (their heaviest presets) and drums on part 4 at once:
+    {   /* FM6, PHASE, VOICE (their heaviest presets) and drums on part 4 at once:
          * 3 + 3 + 2 notes and the hits in the budget of 8 */
-        const uint8_t fm = FELUCCA_FM4 ? ENGI_DIGITAL : ENGI_FM6;
+        const uint8_t fm = ENGI_FM6;
         uint8_t parts[NPART][3] = {{fm, (uint8_t)heavy[fm], 3}, {2, (uint8_t)heavy[2], 3}, {5, (uint8_t)heavy[5], 2},
                                    {ENGI_DRUM, 0, DRUM_HITS}};
         uint8_t full[NPART][3] = {{fm, (uint8_t)heavy[fm], 8}, {2, (uint8_t)heavy[2], 8}, {5, (uint8_t)heavy[5], 4},

@@ -11,7 +11,7 @@
  *    sounds keeps going without a jump.
  * 4. no DC, no clipping: every factory patch, notes C1..C7 at velocity 127 and 30: no voice beyond 2 x
  *    VOICE_FS, |mean| < 1 % of VOICE_FS.
- * 5. macros: MLVL, MRAT, FB raise the spectral centroid; MEG + keeps it up longer; VMOD + makes velocity count
+ * 5. macros: MLVL, MRAT, FB raise the spectral centroid; MEG + keeps it up longer; VIB + moves the pitch;
  *    more; DTUN spreads the carriers (beats); ALG puts another algorithm in; PTCH loads its patch (main loop).
  * 6. formats: pack(unpack(x)) == x for the factory patches (the Python generator and the C packer agree), any
  *    128 bytes unpack into range, a 32-voice SysEx bank and a single-voice SysEx made here parse back
@@ -398,12 +398,42 @@ static void macros(void)
         printf("fm6: MEG 0 / +50: centroid at 0.5 s %.0f / %.0f Hz\n", l0, l1);
         check("MEG: + the modulators decay slower (brighter later)", l1 > l0 * 1.1);
     }
-    {   /* VMOD: velocity changes the brightness more */
-        double s0 = centroid_of(base, E0, 127, FS / 10) / centroid_of(base, E0, 40, FS / 10);
-        memcpy(e, E0, sizeof e); e[5] = 5;
-        c1 = centroid_of(base, e, 127, FS / 10) / centroid_of(base, e, 40, FS / 10);
-        printf("fm6: VMOD 0 / +5: centroid ratio vel 127 / 40 %.2f / %.2f\n", s0, c1);
-        check("VMOD: + velocity moves the brightness more", c1 > s0 * 1.05);
+    {   /* VIB: the patch LFO's pitch depth moves a held note */
+        static const int RP[4] = {99, 99, 99, 99}, LP[4] = {99, 99, 99, 0}, Z[4] = {99, 99, 99, 99}, LZ[4] = {0, 0, 0, 0};
+        uint8_t v[FP_SIZE + 1u];
+        int16_t ev[8];
+        static const int16_t V[3] = {0, 1, 40};
+        int32_t swing[3];
+        uint32_t pass, k;
+        init_patch(v);
+        op_set(v, 1, RP, LP, 99, 1);
+        for (k = 2; k <= 6u; k++)
+            op_set(v, k, Z, LZ, 0, 1);
+        v[FP_ALG] = 31;
+        v[FP_LFS] = 80; v[FP_LFD] = 0; v[FP_LFW] = 4; v[FP_LPMD] = 0; v[FP_LPMS] = 0;
+        for (pass = 0; pass < 3u; pass++) {
+            int32_t lo = 0x7FFFFFFF, hi = 0;
+            fm6_note_t *n;
+            memcpy(ev, E0, sizeof ev);
+            ev[5] = V[pass];
+            setup(v, ev);
+            trk_note_on(&trk[0], 60, 100);
+            n = fm6_note_of(&trk[0], &trk[0].v[0]);
+            for (k = 0; k < 64u; k++) {
+                static int32_t b[CTL];
+                int32_t f;
+                track_render(&trk[0], b, CTL);
+                if (k < 4u)
+                    continue;
+                f = n->op[5].freq;
+                lo = f < lo ? f : lo;
+                hi = f > hi ? f : hi;
+            }
+            swing[pass] = hi - lo;
+        }
+        printf("fm6: VIB 0 / 1 / 40: pitch swing %d / %d / %d\n", swing[0], swing[1], swing[2]);
+        check("VIB: 0 leaves the patch's LFO alone; 1 and 40 move the operators' pitch",
+              swing[0] == 0 && swing[1] > 100 && swing[2] > swing[1]);
     }
     {   /* FB on the organ's feedback operator (alg 32: OP6) */
         static const int R[4] = {99, 99, 99, 99}, L[4] = {99, 99, 99, 0}, LZ[4] = {0, 0, 0, 0};
