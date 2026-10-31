@@ -713,6 +713,25 @@ function attachMock(opt, linkOpt = {}) {
 }
 const emptyStep = { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0 };
 
+/* ANALOG's OSC pages: MORPH / DRIFT and OSC B's WAVE replace the FM slots they keep their values in
+   (params.c param_desc_of). The DESC replies are compared with the device's, so a range or a name table
+   that drifts (WAVE2 is 0..4: SAME then SAW SQR TRI SIN; PWM is past the end) fails here. */
+async function analogOscPages() {
+  const fw = existsSync(DESC) ? (JSON.parse(readFileSync(DESC, "utf8")).ANALOG_ALIAS || []) : null;
+  if (!fw) { console.log("editor: ANALOG OSC pages == the firmware (no build/host/desc.json)        skip"); return; }
+  const { rq, done } = attachMock({});
+  const got = {};
+  for (const [id] of fw) got[id] = E.parse[E.CMD.DESC](await rq(E.req.desc(0, id)));
+  done();
+  const norm = (d) => ({ label: d.label, fmt: d.fmt, min: d.min, max: d.max, def: d.def,
+    names: d.names && d.names.length ? d.names : null, unit: d.unit });
+  const bad = fw.filter(([id, d]) => !got[id] || JSON.stringify(norm(got[id])) !== JSON.stringify(norm(d)));
+  bad.slice(0, 3).forEach(([id, d]) => console.log(`  ANALOG ${id}: mock ${js(got[id] && norm(got[id]))} != firmware ${js(norm(d))}`));
+  const w2 = fw.find(([id]) => id === 66);
+  ok(fw.length === 3 && !bad.length && !!w2 && w2[1].max === 4 && w2[1].names.join() === "SAME,SAW,SQR,TRI,SIN",
+     "editor: ANALOG OSC pages == the firmware (MORPH, DRIFT, WAVE2 0..4 SAME..SIN)");
+}
+
 async function editorLibrarian() {
   const { m, rq, done } = attachMock({});
   const C = E.CMD;
@@ -1937,6 +1956,7 @@ async function updater() {
 await editorMock();
 await editorSamplePresets();
 mockTables();
+await analogOscPages();
 await editorLibrarian();
 await editorGrid();
 await editorRatchet();

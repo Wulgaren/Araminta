@@ -2150,6 +2150,7 @@ function makeMockDevice(opt = {}) {
     D("RATE", F.LFOHZ, 0, 127, 64), D("DEPTH", F.PCT, 0, 127, 96), D("MIX", F.PCT, 0, 127, 0),
     E("TYPE", ["LP", "BP", "HP", "COMB"], 0), E("ESYNC", ["OFF", "ON"], 0));   /* ANALOG TYPE (117), ENV SYNC (118) */
   const P_COUNT = 127, G_COUNT = 32, NSTEP = 64, P_E0 = 119, G_ENGSEL = 20, P_SLCR = 45;
+  const P_MORPH = 71, P_DRIFT = 73, P_WAVE2 = 66;   /* core.h: ANALOG's OSC pages keep their values in FM slots */
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const enumOrig = (d, v) => d.fmt === F.ENUM && d.names ? aliasOf(d.names, v - d.min) + d.min : v;   /* params.c enum_orig */
   /* four tracks (firmware v3), four synth parts (1.0); engine / preset / p / step below are the selected track's */
@@ -2177,7 +2178,16 @@ function makeMockDevice(opt = {}) {
   const watchMs = opt.watchMs || 3000;
   const desc = (scope, id) => {
     if (scope === 0 && id < P_COUNT) {
-      if (id < P_E0) return TP[id];
+      if (id < P_E0) {
+        /* ANALOG's OSC pages: MORPH / DRIFT and OSC B's WAVE sit in FM slots unused on an ANALOG track,
+           shown as their own knobs (params.c param_desc_of). WAVE2 keeps its 0..4 range, SAME then SAW..PWM */
+        if (st.engine === 0) {
+          if (id === P_MORPH) return D("MORPH", F.PCT, 0, 127, 0);
+          if (id === P_DRIFT) return D("DRIFT", F.PCT, 0, 127, 0);
+          if (id === P_WAVE2) return D("WAVE", F.ENUM, 0, 4, 0, ["SAME", "SAW", "SQR", "TRI", "SIN", "PWM"]);
+        }
+        return TP[id];
+      }
       const d = ENG[st.engine].edit[id - P_E0];
       /* ANALOG's WAVE relabels DTN / MIX (eng_analog.c analog_desc): SYNC, SUB, SPRD, SWARM */
       if (st.engine === 0 && d && (id === P_E0 + 1 || id === P_E0 + 2)) {

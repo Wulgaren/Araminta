@@ -9,12 +9,18 @@ level of nesting (an inner loop runs several times per sample) and 1 + 8 for a d
 so it is exact run to run, and it catches a render loop that grew (more work per sample, a new divide,
 something not inlined any more). Compared with tests/target_budget.txt at +10 %. The host
 CPU check (regress.c) is the primary one; this one sees the target compiler's code.
-  tests/target_budget.py [DIS [BUDGET]]      BUDGET_UPDATE=1 rewrites BUDGET"""
+Over budget, a FUNCS name missing from DIS, a budget line with no function, and a budgeted function
+with no loop instructions left are all failures: the gate cannot lose a function to a refactor silently.
+  tests/target_budget.py [--require] [DIS [BUDGET]]
+    BUDGET_UPDATE=1 rewrites BUDGET. --require fails when DIS is missing (the host gate); without it a
+    missing DIS skips, for a manual run before ./build.sh."""
 import os
 import re
 import sys
 
-FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_render_custom", "phase_render", "lofi_render", "formant_render",
+FUNCS = ["analog_render",                             # ANALOG's dispatcher: the loops are in the six below
+         "analog_render_x", "analog_osc", "analog_osc_b", "analog_render_f", "ana_shape", "ana_morph",
+         "digital_render", "digital_render_legacy", "digital_render_custom", "phase_render", "lofi_render", "formant_render",
          "trio_render", "trio_pass", "wheel_render", "wheel_block",
          "phys_render", "drum_render", "fm6_render", "wt_render", "wt_read", "wt_mip_level",
          "px_modal_block", "px_modal_run", "px_memb_block",
@@ -39,8 +45,10 @@ DIV_W = 8                       # a divide weighs 1 + 8 instructions
 NEST = 4                        # an instruction in a loop inside a loop weighs 4, two deep 16, ...
 MAXD = 4
 
-dis = sys.argv[1] if len(sys.argv) > 1 else "build/felucca.dis"
-budget = sys.argv[2] if len(sys.argv) > 2 else "tests/target_budget.txt"
+ARGS = [a for a in sys.argv[1:] if a != "--require"]
+REQUIRE = "--require" in sys.argv[1:]
+dis = ARGS[0] if len(ARGS) > 0 else "build/felucca.dis"
+budget = ARGS[1] if len(ARGS) > 1 else "tests/target_budget.txt"
 LABEL = re.compile(r"^([A-Za-z_][A-Za-z_0-9.]*):$")
 INSN = re.compile(r"^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*(.*)$")
 TARGET = re.compile(r"goto -?\d+ <[^>]*: ([0-9a-f]+) >")
@@ -92,8 +100,9 @@ def cost(insns):
 
 def main():
     if not os.path.exists(dis):
-        print(f"target: skip ({dis} missing: run ./build.sh)")
-        return 0
+        print(f"target: {'FAIL' if REQUIRE else 'skip'} ({dis} missing: run ./build.sh)")
+        return 1 if REQUIRE else 0
+    update = bool(os.environ.get("BUDGET_UPDATE"))
     fns = functions(dis)
     res = {n: cost(fns[n]) for n in FUNCS if fns.get(n)}
     missing = [n for n in FUNCS if n not in res and n not in OPTIONAL]
@@ -103,7 +112,7 @@ def main():
             p = line.split()
             if len(p) >= 2 and not line.startswith("#"):
                 base[p[0]] = int(p[1])
-    if os.environ.get("BUDGET_UPDATE"):
+    if update:
         with open(budget, "w") as f:
             f.write("# FELUCCA target cost budget (tests/target_budget.py): instructions in the loops of each\n"
                     f"# function in build/felucca.dis, x{NEST} per nesting level, divides x{1 + DIV_W}. The check allows "
@@ -116,12 +125,22 @@ def main():
     for n in missing:
         print(f"target: FAIL {n} not found in {dis} (renamed? inlined? update FUNCS)")
         fail += 1
+    if not update:
+        for n in base:
+            if n not in res and n not in OPTIONAL:      # a budget line nothing measures any more
+                print(f"target: FAIL {n} has a budget in {budget} but no function in {dis} "
+                      f"(renamed? remove the line or update FUNCS)")
+                fail += 1
     for n, r in res.items():
         b = base.get(n, OPTIONAL.get(n))
         state = "no budget (BUDGET_UPDATE=1 adds it)" if b is None else "ok"
-        if b is not None and not os.environ.get("BUDGET_UPDATE"):
-            if r["cost"] > b * (1 + TOL):
-                state = f"OVER BUDGET (+{(r['cost'] / b - 1) * 100:.0f} %, limit +{TOL * 100:.0f} %)"
+        if b is not None and not update:
+            if b > 0 and not r["loop"]:                 # a function that had loops has none: coverage is gone
+                state = "FAIL: no loop instructions (moved into a callee? update FUNCS / budget)"
+                fail += 1
+            elif r["cost"] > b * (1 + TOL):
+                state = ("OVER BUDGET (0: no loops expected here)" if b == 0 else
+                         f"OVER BUDGET (+{(r['cost'] / b - 1) * 100:.0f} %, limit +{TOL * 100:.0f} %)")
                 fail += 1
             elif r["cost"] < b * (1 - TOL):
                 state = f"note: {(r['cost'] / b - 1) * 100:.0f} % (BUDGET_UPDATE=1 to keep it)"
