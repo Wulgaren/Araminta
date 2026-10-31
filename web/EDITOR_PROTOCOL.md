@@ -79,6 +79,9 @@ in FM6's OP3 ATK / SUS and OP2 ATK slots (ids 71 / 73 / 66); `DESC` names them o
 byte 67 bit 1 and a user preset's category byte (143) bit 7 say the new meaning; without them an ANALOG track loads
 `INT` / `MORPH` / `DRIFT` 0, OSC B's `WAVE` on OSC A's, and its E8 / OP automation is dropped. Older firmware ignores
 both bits.
+ANALOG's RES (`P_E5`, `F_PCT`) is 0..191: 0..127 is the old 0..100 %, 128..191 is 101..150 %. `DESC` reports
+max 191 and `SET` / `GET` carry it as v14; projects and user presets store the full range. MIDI CC 71 keeps
+mapping 0..127 to RES 0..127 (the old meaning), not to the 150 % the device knob reaches.
 
 ## Framing
 

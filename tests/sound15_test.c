@@ -397,15 +397,31 @@ static void test_filter(void)
                  r[1][2].rms);
         check(msg, q.rms > r[1][2].rms * 1.3 && q.peak < 32000);
     }
-    {   /* LP reaches the 303's range: RES 127 is far past the shared tsvf_coef's Q 7 */
+    {   /* RES: 0..127 is tsvf_coef's old map (100 % = the old sound); 128..191 is the 150 % range */
+        const param_desc_t *rd = param_desc_of(ENGI_ANALOG, P_E5);
         stats_t lo = analog_note(3, 0, (int32_t)cut, 0, 0, 84);
-        stats_t hi = analog_note(3, 0, (int32_t)cut, 127, 0, 84);
-        stats_t c = analog_note(0, 0, 20, 127, 127, 36);
-        snprintf(msg, sizeof msg, "LP: RES 127 raises the cutoff's peak (%.0f vs %.0f), bounded (%.0f)", hi.rms, lo.rms,
-                 c.peak);
-        /* the knee bounds the steady state; the damping is what moved past tsvf_coef's Q 7 */
-        check(msg, hi.rms > lo.rms * 1.2 && hi.peak < 32767 && c.rms > 200 && c.peak < 32767);
-        check("RES 127: ANALOG's damping is Q 20+, past tsvf_coef's Q 7", 4096 / ANALOG_K(127) > 20);
+        stats_t old = analog_note(3, 0, (int32_t)cut, 127, 0, 84);
+        uint64_t h127 = sig_hash();
+        stats_t hi = analog_note(3, 0, (int32_t)cut, 191, 0, 84);
+        uint64_t h191 = sig_hash();
+        stats_t c = analog_note(0, 0, 20, 191, 127, 36);
+        snprintf(msg, sizeof msg, "LP: RES 0 / 127 / 191 rms %.0f / %.0f / %.0f, bounded (%.0f), Q %.1f at 150 %%",
+                 lo.rms, old.rms, hi.rms, c.peak, 4096.0 / ANALOG_K(191));
+        check(msg, hi.peak < 32767 && c.rms > 200 && c.peak < 32767);
+        check("RES: 0..191, default 30 (0..150 %, 0..127 = the old 0..100 %)", rd->fmt == F_PCT && rd->min == 0 &&
+              rd->max == 191 && rd->def == 30);
+        check("RES 127: the old map exactly (damping 592), 191 still Q 20+",
+              ANALOG_K(127) == 8192 - (127 * 7600 / 127) && 4096 / ANALOG_K(191) > 20);
+        check("RES 127: the pre-150 % render (same hash)", h127 == 0xaf7e8ff721018b93ull);
+        check("RES 127 / 191: the 150 % range sounds different", h191 != h127);
+        {
+            char vb[8];
+            const char *u;
+            param_format(rd, 128, vb, &u);
+            check("RES display: 128 = 101 %, 191 = 150 %", str_eq(vb, "101") && str_eq(u, "%"));
+            param_format(rd, 191, vb, &u);
+            check("RES display: the 150 % top", str_eq(vb, "150") && str_eq(u, "%"));
+        }
     }
     /* the corners: every WAVE (SYNC, SUB too), RES and DRV at 127, low / high notes and cutoffs: bounded, no DC */
     {
