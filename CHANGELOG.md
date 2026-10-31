@@ -18,6 +18,13 @@
 - **Free take + STRUM.** A strummed chord records into the first string's step, as step recording does, so
   the take plays the chord together instead of one string per step. A fine strum no longer forces a 1/32 grid.
 
+### FX
+
+- **CLOUD FREEZE holds the tail instead of droning.** At SIZE 127 the line stops taking input and its buffer
+  is held; the last grain swarm keeps reading it with fixed windows, so no new grains are born and the texture
+  no longer mutates. The room return is DC-blocked on the freeze path too, so the hold stays centred instead
+  of settling into the old sub-audio drone. The last second stays level-stable at high DAMP as well.
+
 ### UI
 
 - **SAVE > CLEAR clears FX.** B3 clears the selected track's inserts, order, sends and slicer; F4 clears
