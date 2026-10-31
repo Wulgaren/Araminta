@@ -263,11 +263,14 @@ static uint32_t chord_auto_make(const track_t *t, uint32_t input, uint8_t *out, 
 static void chord_auto_remember(const track_t *t, int32_t root, uint16_t mask, const uint8_t *notes, uint32_t n)
 {
     chord_auto_t *h = &chord_auto[trk_index(t)];
-    h->root = (uint8_t)root; h->mask = mask; h->n = (uint8_t)n;
+    /* Published last: chord_make runs in the audio ISR and in the main loop, and h->n is
+     * the valid flag a reader tests first. Every other field is filled before it. */
+    h->root = (uint8_t)root; h->mask = mask;
     for (uint32_t i = 0; i < n; i++) h->note[i] = notes[i];
     chord_auto_config_set(h, t);
     h->melody = (uint16_t)chord_auto_melody(t, chord_auto_rotate(scale_mask(t), t->p[P_ROOT]));
     h->at = (uint16_t)chord_auto_tick_s(chord_auto_clock);
+    h->n = (uint8_t)n;
 }
 
 static void chord_auto_name(char *b, uint32_t root, uint32_t mask)

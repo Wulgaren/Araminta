@@ -638,10 +638,12 @@ static void rec_strum_pos(uint32_t *idxp, uint32_t *posp, uint32_t len, uint32_t
     uint32_t beat = beat_samples() ? beat_samples() : 1u;
     uint32_t span = beat / STRUM_DEN[chord_strum_now.rate];
     uint32_t back = (uint32_t)((uint64_t)span * chord_strum_now.index / (chord_strum_now.total - 1u));
-    int32_t abs = (int32_t)(*idxp * period + *posp) - (int32_t)back;
-    if (abs < 0) abs += (int32_t)(len * period);
-    *idxp = (uint32_t)(abs / (int32_t)period) % len;
-    *posp = (uint32_t)(abs % (int32_t)period);
+    /* back can be longer than a short pattern (a fast division, a slow strum): wrap the
+     * difference positively over one pass, then split it into the step and its offset. */
+    uint64_t pass = (uint64_t)len * period, at = (uint64_t)*idxp * period + *posp;
+    at = (at + pass - back % pass) % pass;
+    *idxp = (uint32_t)(at / period);
+    *posp = (uint32_t)(at % period);
 }
 static void rec_note(track_t *t, uint32_t note, uint32_t vel)
 {
