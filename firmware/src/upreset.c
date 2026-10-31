@@ -127,8 +127,10 @@ static int up_valid(const up_rec_t *r)
           /* v4 / v5: UP_CAT_AT (143) is the last index a packed record may name: the category byte
            * lives there, and a 2-byte P_IORD's high byte lives at packed[np] (up_iord2, below) */
           r->np >= 8u && r->np <= (r->ver >= 4u ? UP_CAT_AT : UP_PMAX) && r->name[0])) return 0;
-    /* v4 / v5 packed values are value + 64 over -64..191, so every byte is valid (ANALOG RES reaches
-     * 191 = 150 %); P_IORD's high byte lives at packed[np] when np > 111 (up_iord2, below), outside np */
+    if (r->ver >= 4u)
+        for (uint32_t i = 0; i < r->np; i++)
+            /* P_IORD's low byte only: high byte lives at packed[np] when np > 111 (insert chain) */
+            if (!(i == P_IORD && r->np > 111u) && r->packed[i] > 191u) return 0;
     return 1;
 }
 

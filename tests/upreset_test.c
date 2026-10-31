@@ -443,24 +443,6 @@ int main(void)
         n = put_frame(a, 6, ENGI_SLICE, "Old slice", 0);
         bad += check("UP_PUT SLICE: kept as stored", up_parse(a, n, &r, &slot) == 0 && r.engine == ENGI_SLICE);
     }
-    {   /* ANALOG RES 191 (150 %) packs as 255 and survives a bank write / read */
-        uint8_t a[640];
-        up_rec_t rr;
-        n = put_frame(a, 0, ENGI_ANALOG, "RES 150", 0);
-        ok = up_parse(a, n, &rr, &slot) == 0;
-        up_set_value(&rr, P_E5, 191);
-        memset(&up_bank[0], 0, sizeof up_bank[0]);
-        up_bank[0].magic = UP_BANK_MAGIC;
-        up_bank[0].rsize = sizeof(up_rec_t);
-        up_bank[0].nslot = UP_PER_BANK;
-        *up_rec(0) = rr;
-        bad += check("RES 191 (150 %) saves", ok && st_save(OBJ_UPRESET0, &up_bank[0], sizeof up_bank[0]) == 0);
-        memset(up_bank, 0, sizeof up_bank);
-        len = st_load(OBJ_UPRESET0, &up_bank[0], sizeof up_bank[0]);
-        up_bank_check(0, len);
-        bad += check("ANALOG RES 191 (150 %) round trips through a user preset",
-                     up_used(0) && up_value(up_rec(0), P_E5) == 191);
-    }
     printf("%s\n", bad ? "USER PRESET TEST FAILED" : "user preset test passed");
     return bad != 0;
 }

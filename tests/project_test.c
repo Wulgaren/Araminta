@@ -282,22 +282,6 @@ static int chord_mode_wire(void)
     return check("CHRD MELO round trips; a value above it clamps to MELO", ok);
 }
 
-static int res_range_wire(void)
-{
-    project_t saved, loaded;
-    project_store_t wire;
-    int ok = 1;
-    memset(&saved, 0, sizeof saved);
-    saved.magic = PROJ_MAGIC; saved.size = sizeof saved; saved.parts = NPART; saved.phys = PROJ_PHYS;
-    chain_defaults(&saved.chain); memcpy(saved.dx, DX_KIT_DEF, sizeof saved.dx);
-    saved.t[0].engine = ENGI_ANALOG;
-    saved.t[0].p[P_E5] = 127;
-    ok &= proj_pack(&wire, &saved) && proj_import(&loaded, &wire, sizeof wire) && loaded.t[0].p[P_E5] == 127;
-    saved.t[0].p[P_E5] = 191;
-    ok &= proj_pack(&wire, &saved) && proj_import(&loaded, &wire, sizeof wire) && loaded.t[0].p[P_E5] == 191;
-    return check("ANALOG RES 127 / 191 round trip through a project", ok);
-}
-
 static int generation_wire(void)
 {
     project_t saved, loaded;
@@ -492,7 +476,7 @@ int main(void)
         project_v1_t v1;
     } buf;
     uint32_t i, t;
-    int bad = fx_motion_wire() + tape_wire() + osc2_migration() + res_range_wire(), ok;
+    int bad = fx_motion_wire() + tape_wire() + osc2_migration(), ok;
 
     bad += check("layout: SLICER after DETUNE, then the matrix just before P_E0",
                  P_SLCR == P_DETUNE + 1 && P_SLDEPTH + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD && P_VOIC + 1 == P_LN0 &&

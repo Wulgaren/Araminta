@@ -20,11 +20,6 @@ indexed only by real P_* ids; every other space is either a separate storage are
 | UI-only step rows | `EV_VEL` 251, `EV_NUDGE` 252, `EV_CHANCE` 253, `EV_RATCH` 254; 0xFF = none | no | the step's own `chance` / `ratchet` / `nudge` / `vel` fields | **never** | AUTOMATION rows |
 | Page-only CHORD cards | `PG_STRUM` 252, `PG_STROKE` 253 | no | none; the edit packs `P_ALLOC` | **never** | CHORD K3 / K4 |
 
-Real per-track values are -64..191 on the wire (a biased byte, value + 64). ANALOG's RES (`P_E5`) is the one
-parameter past 127: 0..127 is its old 0..100 %, 128..191 is 101..150 %. Projects and user presets round-trip
-191; motion records and locks stay -64..127 (the on-disk motion value is a signed byte), and MIDI CC maps
-0..127 to RES 0..127, its old meaning.
-
 Rules that fall out:
 
 - `param_real(id)` is `id < P_COUNT`; `param_lock_only(id)` is `id == MSEQ_PITCH`; `param_id_known(id)` is

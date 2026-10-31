@@ -4,7 +4,7 @@ preset/ANALOG/00_SAW_LEAD ac6a038fad0a57bc
 preset/ANALOG/01_SOFT_PAD 7fe020eb86b509a4
 preset/ANALOG/02_SQR_BASS 7575ec40b9d72658
 preset/ANALOG/03_PWM_STR 6c80e5220e5f45e8
-preset/ANALOG/04_ACID 515ec49e6e60e1b4
+preset/ANALOG/04_ACID 161961e7e40a9770
 preset/ANALOG/05_SINE_KEY fcc730557433f8d8
 preset/ANALOG/06_RAVE 38cbd6ad9f221234
 preset/ANALOG/07_SUB_BASS fed6c442eecd7c70
@@ -97,6 +97,6 @@ sends/ANALOG/delay 473800dd228b1e34
 sends/ANALOG/reverb 38389d5d7db71244
 sends/ANALOG/all c811eef27a8fc958
 sends/ANALOG/dist 1b3f796a234ea67c
-song/4track_mix 08558c1a8c515b54
-slicer/gate/ANALOG_ACID 5ccd53e1190d2180
-slicer/song_gate_stut 4258901e17c74104
+song/4track_mix b16c93f50717c650
+slicer/gate/ANALOG_ACID 34a0e2db59445728
+slicer/song_gate_stut d484f7c835a9fb30
