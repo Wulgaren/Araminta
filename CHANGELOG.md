@@ -18,6 +18,11 @@
 - **Free take + STRUM.** A strummed chord records into the first string's step, as step recording does, so
   the take plays the chord together instead of one string per step. A fine strum no longer forces a 1/32 grid.
 
+### Labels
+
+- **ENV SYNC and TAPE.** ENV DEST's fourth card is `SYNC` (was `ESYNC`) and draws LFO 2's tempo icon; TAPE's
+  `WOW` card is `FLUTR`. Library files keep the `ESYNC` key, so files written before 3.5 still load.
+
 ### UI
 
 - **SAVE > CLEAR clears FX.** B3 clears the selected track's inserts, order, sends and slicer; F4 clears

@@ -596,7 +596,7 @@ static void pk_auto_name(const track_t *t, uint32_t id, char *b)
     else if (id == MFX_TSPEED)
         str_cpy(b, "SPEED", 16);
     else if (id == MFX_TWOW)
-        str_cpy(b, "WOW", 16);
+        str_cpy(b, "FLUTR", 16);
     else if (id == P_CHRD)
         str_cpy(b, "CHORD", 16);
     else if (id == P_VOIC)
@@ -641,7 +641,7 @@ static const fx_dst_t FX_DST[] = {
     {P_SLRATE, MD_SLRATE, INS_SLCR, 0, "SLICER", "RATE"},
     {P_SLDEPTH, MD_SLDEPTH, INS_SLCR, 1, "SLICER", "MIX"},
     {MFX_TSPEED, MD_TSPEED, INS_TAPE, 0, "TAPE", "SPEED"},
-    {MFX_TWOW, MD_TWOW, INS_TAPE, 0, "TAPE", "WOW"},
+    {MFX_TWOW, MD_TWOW, INS_TAPE, 0, "TAPE", "FLUTR"},
 };
 /* Reverb SEND and CHAIN have separate banks. Delay and legacy SLICER USED tracks stay unavailable. */
 static int fx_dst_visible(const track_t *t, uint32_t st, int is_mix)
