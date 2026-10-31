@@ -25,6 +25,11 @@
   no longer mutates. The room return is DC-blocked on the freeze path too, so the hold stays centred instead
   of settling into the old sub-audio drone. The last second stays level-stable at high DAMP as well.
 
+### Labels
+
+- **ENV SYNC and TAPE.** ENV DEST's fourth card is `SYNC` (was `ESYNC`) and draws LFO 2's tempo icon; TAPE's
+  `WOW` card is `FLUTR`. Library files keep the `ESYNC` key, so files written before 3.5 still load.
+
 ### UI
 
 - **SAVE > CLEAR clears FX.** B3 clears the selected track's inserts, order, sends and slicer; F4 clears

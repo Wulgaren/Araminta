@@ -4394,7 +4394,7 @@ static int test_tape_locks(void)
     int bad = 0, ok;
     track_t *t;
 
-    /* TAPE SPEED / WOW: KNOB 1 / 2 on a held SEQ step are locks (TAPE page is a global page). */
+    /* TAPE SPEED / FLUTR: KNOB 1 / 2 on a held SEQ step are locks (TAPE page is a global page). */
     ui_power_on();
     song.sel = 0;
     t = TSEL;
@@ -4409,7 +4409,7 @@ static int test_tape_locks(void)
         for (i = 0; i < pk_n; i++) {
             if (pk_rows[i].id == MD_TSPEED && str_eq(pk_rows[i].name, "SPEED"))
                 found |= 1u;
-            if (pk_rows[i].id == MD_TWOW && str_eq(pk_rows[i].name, "WOW"))
+            if (pk_rows[i].id == MD_TWOW && str_eq(pk_rows[i].name, "FLUTR"))
                 found |= 2u;
         }
         ok &= found == 3u;
@@ -4425,12 +4425,12 @@ static int test_tape_locks(void)
         frame();
         ok &= lock_held() == (1u << 4);
         turn(EN_K1, -20);                                  /* SPEED below 100 */
-        turn(EN_K2, 5);                                    /* WOW up */
+        turn(EN_K2, 5);                                    /* FLUTR up */
         fm1_in.notes &= ~(1u << k4);
         frame();
         ok &= motion_lock_get(t, 4, MFX_TSPEED, &v) && v < song.g[G_TSPEED] &&
               motion_lock_get(t, 4, MFX_TWOW, &v) && v > 0;
-        bad += check("TAPE page: held SEQ step locks SPEED (K1) and WOW (K2); K3 / K4 are not locks", ok);
+        bad += check("TAPE page: held SEQ step locks SPEED (K1) and FLUTR (K2); K3 / K4 are not locks", ok);
     }
     ui_power_on();
     t = TSEL;
@@ -4448,7 +4448,7 @@ static int test_tape_locks(void)
         turn(EN_K4, 5);
         fm1_in.notes &= ~(1u << k4);
         frame();
-        bad += check("LFO 2 SMOOTH on a held SEQ step cannot create a TAPE WOW lock",
+        bad += check("LFO 2 SMOOTH on a held SEQ step cannot create a TAPE FLUTR lock",
             ok && !motion_lock_get(t, 4, MFX_TWOW, &v));
     }
     return bad;

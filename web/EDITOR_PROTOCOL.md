@@ -846,6 +846,9 @@ No new command or INFO tag: P_COUNT 111 and P_E0 103 (from `INFO`, with the INSE
 | 101 | `TYPE` | enum LP BP HP, default LP. ANALOG's filter (Discussion #104): the state-variable filter's low-pass (as before, bit for bit), band-pass or high-pass output, CUT / RES and every cutoff routing as they are. Other engines ignore it. On the device: EDIT > FILTER (TYPE CUT RES DRV), page 3 after OSC A and OSC B; ANALOG has no EDIT 1 / 2 |
 | 102 | `ESYNC` | enum OFF ON, default OFF. ENV SYNC (Discussion #175): ON, the amp envelope's ATK DEC REL (ids 1, 2, 4) are note values of the tempo (BPM, or the external clock's measured tempo) instead of 1 ms .. 10 s. On the device: ENV DEST's KNOB 4 |
 
+3.5: id 102's DESC label is `SYNC` (the card and the editor). LFO 2's own `SYNC` keeps its key, and library
+files keep the `ESYNC` key, so a file written by 1.5..3.4 still loads.
+
 Both are the sound's (a factory preset or TOOLS INIT sets LP / OFF; user presets and library files store them). Neither can
 be recorded as motion (`MOTION` 3 / 5 answer rc 1) and no MIDI CC sets them.
 

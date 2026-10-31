@@ -871,8 +871,8 @@ static void engine_columns(void)
     draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
 }
 /* A card the current sound never reaches: drawn DIM, its value kept. WAVE2 is OSC B's own shape on every
- * filter TYPE (analog_render -> analog_osc_b); only SYNC / SUB / SUPER (analog_render_x) define OSC B
- * themselves and ignore it. MORPH is read by analog_osc / analog_osc_b only: analog_render_x does not morph. */
+ * filter TYPE (analog_render -> analog_osc); only SYNC / SUB / SUPER (analog_render_x) define OSC B
+ * themselves and ignore it. MORPH is read by analog_osc only: analog_render_x does not morph. */
 static int card_inactive(const track_t *t, const int16_t *vp)
 {
     int analog = eng_idx(t->eng_req) == ENGI_ANALOG;   /* (else P_WAVE2 / P_MORPH are FM6's OP2 / OP3 ATK) */
