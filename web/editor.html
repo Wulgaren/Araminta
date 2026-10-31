@@ -1331,6 +1331,11 @@ function paramKeys(pdesc, pe0, pcount) {
     seen[l] = (seen[l] || 0) + 1;
     out.push(seen[l] > 1 ? `${l}#${seen[l]}` : l);
   }
+  /* ENV SYNC's DESC label is SYNC (3.5), but LFO 2 already owns SYNC and library files written before
+     3.5 key it ESYNC. Keep that key so old files load and new files stay readable by older firmware. */
+  for (let i = 0; i < out.length; i++)
+    if (out[i] === "SYNC#2")
+      out[i] = "ESYNC";
   return out;
 }
 const sameKeys = (a, b) => !!a && !!b && a.length === b.length && a.every((k, i) => k === b[i]);
@@ -1995,7 +2000,7 @@ function makeMockDevice(opt = {}) {
     D("BPM", F.BPM, 40, 240, 120), D("SWG", F.PCT, 0, 100, 0), E("CLK", ["INT", "USB", "TRS"], 0), D("TUNE", F.INT, -50, 50, 0),
     E("TIME", [...NDIV, "1/8D", "1/16D", "1/4D"], 1), D("FDBK", F.PCT, 0, 120, 60), D("COLR", F.PCT, 0, 127, 70), D("SPEED", F.PCT, 25, 400, 100), /* G_TSPEED (was G_DMIX) */
     D("SIZE", F.PCT, 0, 127, 90), D("DAMP", F.PCT, 0, 127, 60), D("DLYOWN", F.INT, 0, 4, 0), D("REVOWN", F.INT, 0, 4, 0),
-    D("WOW", F.PCT, 0, 127, 0), D("REL", F.PCT, 0, 100, 30), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], 0), E("DROP", NONOFF, 0),
+    D("FLUTR", F.PCT, 0, 127, 0), D("REL", F.PCT, 0, 100, 30), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], 0), E("DROP", NONOFF, 0),
     D("SLOT", F.INT, 1, 4, 1), E("NAME", NDASH, 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
     E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL",
       "GRAIN", "PHYS", "DRUM-X", "NOISE", "FM6", "-", "WAVETABLE", "DRUMS"], 0), D("CLIP", F.PCT, 0, 100, 0),
@@ -2148,7 +2153,7 @@ function makeMockDevice(opt = {}) {
     D("RATE", F.LFOHZ, 0, 127, 64), D("DEPTH", F.PCT, 0, 127, 96), D("FDBK", F.PCT, 0, 127, 96), D("MIX", F.PCT, 0, 127, 0),
     D("RATE", F.LFOHZ, 0, 127, 64), D("DEPTH", F.PCT, 0, 127, 96), D("MIX", F.PCT, 0, 127, 0),
     D("RATE", F.LFOHZ, 0, 127, 64), D("DEPTH", F.PCT, 0, 127, 96), D("MIX", F.PCT, 0, 127, 0),
-    E("TYPE", ["LP", "BP", "HP", "COMB"], 0), E("ESYNC", ["OFF", "ON"], 0));   /* ANALOG TYPE (117), ENV SYNC (118) */
+    E("TYPE", ["LP", "BP", "HP", "COMB"], 0), E("SYNC", ["OFF", "ON"], 0));    /* ANALOG TYPE (117), ENV SYNC (118) */
   const P_COUNT = 127, G_COUNT = 32, NSTEP = 64, P_E0 = 119, G_ENGSEL = 20, P_SLCR = 45;
   const P_MORPH = 71, P_DRIFT = 73, P_WAVE2 = 66;   /* core.h: ANALOG's OSC pages keep their values in FM slots */
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -3908,7 +3913,7 @@ function renderMotion() {
     ...m.events.map(e => {
       const fx = e.param >= MFX_TIME && e.param <= MFX_DAMP, time = e.param === MFX_TIME, pitch = e.param === MSEQ_PITCH;
       const desc = e.param === MFX_TSPEED ? {label: "TAPE SPEED", min: 25, max: 400}
-        : e.param === MFX_TWOW ? {label: "TAPE WOW", min: 0, max: 127}
+        : e.param === MFX_TWOW ? {label: "TAPE FLUTR", min: 0, max: 127}
         : pitch ? {label: "PITCH", min: -24, max: 24} : fx ? {label: ["DLY TIME", "DLY FDBK", "DLY COLOR", "REV SIZE", "REV DAMP"][e.param - MFX_TIME],
         min: time ? 1 : 0, max: time ? 1486 : e.param === MFX_TIME + 1 ? 120 : 127} : d.pdesc[e.param];
       const label = desc?.label || `P${e.param}`;
