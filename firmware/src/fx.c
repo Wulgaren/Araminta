@@ -1336,6 +1336,14 @@ static __attribute__((noinline)) void rev_shimmer(const int32_t *rev_in, int32_t
 }
 
 static uint32_t cl_rand(void) { R->cl_rng = R->cl_rng * 1664525u + 1013904223u; return R->cl_rng >> 8; }
+/* CLOUD's line feedback and low-pass products pass int32's range: scale by 2^15 in 64 bits, with the same
+ * rounding as before. The floored loop (FREEZE) floors, as mulq15 does; the line rounds towards zero (sh_tz). */
+static inline int32_t mulq15_wide(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 15); }
+static inline int32_t mulq15_wide_tz(int32_t a, int32_t b)
+{
+    int64_t p = (int64_t)a * b;
+    return (int32_t)((p + ((p >> 63) & 32767)) >> 15);
+}
 static __attribute__((noinline)) void rev_cloud(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
     static const uint32_t PITCH[4] = {65536u, 131072u, 32768u, 98184u};   /* x1, octave up, down, fifth up (Q16) */
@@ -1345,9 +1353,9 @@ static __attribute__((noinline)) void rev_cloud(const int32_t *rev_in, int32_t *
     for (i = 0; i < n; i++) {
         int32_t l = 0, r = 0, m, x;
         if (freeze)                                      /* FREEZE: the drone the loop makes on purpose */
-            x = mulq15(shim_fb[i], fb) + mulq15(R->cl_lp, fg);
+            x = mulq15(shim_fb[i], fb) + mulq15_wide(R->cl_lp, fg);
         else                                             /* the line: the input and the tail, two samples into one */
-            x = (rev_in[i] >> 1) + sh_tz(shim_fb[i] * fb, 15) + sh_tz(R->cl_lp * fg, 15);
+            x = (rev_in[i] >> 1) + sh_tz(shim_fb[i] * fb, 15) + mulq15_wide_tz(R->cl_lp, fg);
         if (!freeze && x > -64 && x < 64)
             x = 0;                                       /* flush the line's last few LSB: exact silence */
         if (R->cl_w & 1u)
@@ -1382,7 +1390,7 @@ static __attribute__((noinline)) void rev_cloud(const int32_t *rev_in, int32_t *
             }
         }
         m = (l + r) >> 1;
-        R->cl_lp = m + mulq15(R->cl_lp - m, 32767 - dk);
+        R->cl_lp = m + mulq15_wide(R->cl_lp - m, 32767 - dk);
         g[i] = R->cl_lp * 2;
         t[i] = 0;
     }
