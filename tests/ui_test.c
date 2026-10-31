@@ -6814,7 +6814,7 @@ static int test_knob_accel(void)
     ok = menu_get(MI_ACCEL) == 1u && MI_TAB[MI_ACCEL] == MTAB_COUNT && str_eq(MI_NAME[MI_ACCEL], "KNOB ACCEL");
     ok &= acc_ms(EN_K1, SLOW, 8, 1, 127, o) == 8u && acc_ms(EN_K2, MID, 8, -1, 127, o) == 14u && o[7] == -2;
     ok &= acc_ms(EN_K3, BOUNCE, 8, 1, 127, o) == 8u;
-    bad += check("#52 KNOB ACCEL always on (retired); slow (>= 41 ms a detent) and lone quick detents: 1 step each", ok);
+    bad += check("#52 KNOB ACCEL always on (retired); slow (>= 60 ms a detent) and a quick turn's first detents: 1 step each", ok);
     fm1_ms += 1000;
     acc_ms(EN_K1, F20, 8, 1, 64, o);
     ok = o[0] == 1 && o[1] == 1 && o[2] == 4 && o[7] == 4;          /* 20 ms a detent: x4 from the third */
