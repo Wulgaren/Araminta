@@ -272,6 +272,30 @@ static int arp_rec(void)
     return bad;
 }
 
+/* A fast step division with a slow strum can put the sweep further back than one pass of a
+ * short pattern (here 1/8 over two 1/32 steps): the position must wrap positively, not go
+ * negative, or a later string records into the wrong step with a huge sample offset. */
+static int strum_short_pattern(void)
+{
+    int bad = 0;
+    track_t *t = &trk[0];
+    uint32_t i;
+    reset();
+    for (i = 0; i < NSTEP; i++) t->step[i] = (step_t){{0}, 0, ST_REST, 0, 0};
+    t->p[P_CHRD] = CH_DIA7; t->p[P_ALLOC] = sweep_pack(1, 0);   /* 1/8 DOWN: 11025 samples at 120 BPM */
+    t->p[P_SLEN] = 2; t->p[P_SDIV] = 3;                        /* 1/32: one pass is 5512 samples */
+    song.g[G_BPM] = 120;
+    song.rec = 1; song.playing = 1; t->seq_idx = 0; t->seq_pos = 0;
+    key_down(K_D4);
+    for (i = 0; i < 600u; i++) events_block(CTL);
+    key_up(K_D4);
+    bad += check("a 1/8 strum on a 2-step 1/32 pattern: the chord stays in the first string's step",
+                 t->step[0].n == 4u && step_note(&t->step[0], 0) == 62 && step_note(&t->step[0], 1) == 65 &&
+                 step_note(&t->step[0], 2) == 69 && step_note(&t->step[0], 3) == 72 && !t->step[1].n);
+    song.rec = 0; song.playing = 0;
+    return bad;
+}
+
 static int midi_in(void)
 {
     int bad = 0;
@@ -479,7 +503,7 @@ static int kits(void)
 
 int main(void)
 {
-    int bad = theory() + shapes_voicings() + keys() + arp_rec() + midi_in() + strum() +
+    int bad = theory() + shapes_voicings() + keys() + arp_rec() + strum_short_pattern() + midi_in() + strum() +
               legacy_alloc() + strum_track_panic() + strum_overflow() + kits();
     printf("%s\n", bad ? "CHORD TEST FAILED" : "chord keys test passed");
     return bad != 0;
