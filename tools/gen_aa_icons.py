@@ -72,7 +72,7 @@ EXTRA = {
     #  x_undo x_redo x_palette x_back x_down x_up x_hugelton x_fx x_timer; add one back with its first use)
     "x_play": "control_play_f", "x_stop": "control_stop_f", "x_rec": "control_rec_f", "x_rec_o": "control_rec_o",
     # (1.0.2: the tracks' circled numerals are no longer baked: icons.c trk_icon draws a digit on a cushion)
-    "x_usb": "port_usb_c", "x_star": "symbol_star", "x_cog": "symbol_cog", "x_lock": "symbol_lock_close_f",
+    "x_star": "symbol_star", "x_cog": "symbol_cog", "x_lock": "symbol_lock_close_f",
     "x_folder": "symbol_folder", "x_warn": "symbol_error", "x_speaker": "control_speaker_2", "x_info": "symbol_info_f",
     "x_left": "symbol_carret_left", "x_right": "symbol_carret_right",
     # page and state icons (Fukiai 0.8.0): MIXER / PHRASES / SONG pages, motion, calibration, the battery
@@ -82,12 +82,8 @@ EXTRA = {
     "x_doctor": "symbol_doctor", "x_bat0": "system_battery_0", "x_bat1": "system_battery_1",
     "x_bat3": "system_battery_3", "x_bat4": "system_battery_4", "x_bat_chg": "system_battery_charging",
     # the FX hold layer (ui_draw.c draw_layer, Fukiai 0.8.3) and the HOLD menu row
-    "x_knob": "ui_knob", "x_hpf": "function_filter_hpf",
-    "x_repeat": "control_arrow_loop", "x_reverse": "control_reverse_f", "x_tstop": "symbol_stop",
-    "x_freeze": "symbol_freeze",
-    # OCT UP / OCT DN (the harmonizer): stand-ins until Fukiai has a pitch-shift glyph;
-    # the first of each tuple the font has
-    "x_oct_up": ("symbol_pitch_up", "control_arrow_up"), "x_oct_dn": ("symbol_pitch_down", "control_arrow_down"),
+    "x_knob": "ui_knob",
+    "x_repeat": "control_arrow_loop", "x_reverse": "control_reverse_f",
     # a missing sample (the header message, the SLICES page): SAMPLE NOT FOUND
     "x_nofile": "symbol_document_disabled",
     # the MENU's tabs (ui_menu.c, 1.0.5): DISPLAY (CONTROL x_knob, AUDIO x_speaker, 1.2 MIDI midi, SYSTEM x_cog)
@@ -105,19 +101,19 @@ EXTRA = {
 FIT_TO = {"system_battery_0": "system_battery_4"}
 
 # new icons that are also needed at 12 px (list rows, menu values)
-SMALL_EXTRA = ["x_star", "x_lock", "x_cog", "x_usb", "x_warn", "x_folder", "x_left", "x_right",
+SMALL_EXTRA = ["x_star", "x_lock", "x_cog", "x_warn", "x_folder", "x_left", "x_right",
                "x_mixer", "x_pattern", "x_song", "x_motion", "x_motion_rec", "x_motion_del",
-               "x_hpf", "x_repeat", "x_reverse", "x_tstop", "x_freeze"]
+               "x_repeat", "x_reverse"]
 # legacy names no screen draws (1.1): kept in the enum (assets/icons.json's order), not rasterised (no cell)
 NOT_DRAWN = ["tape"]
 
 # the 24 px set: the header battery (Fukiai's battery is a wide, short glyph: at 16 px its body was 12 x 6)
 # (up to 1.1.5 also the FX map's effect cells; 1.2's map names the 16 keys' effects instead, ui_layer.c layer_fx)
-HUGE_DEFAULT = ["x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg", "x_usb"]   # (+ the USB-C plug: as flat)
+HUGE_DEFAULT = ["x_bat0", "x_bat1", "x_bat3", "x_bat4", "x_bat_chg"]
 
 # the 16 px set: header, footer, dialogs and menu rows (everything else only exists at 12 px)
 # (1.0.5: the MENU rows lost their icons, the tabs carry them)
-BIG_DEFAULT = ["x_play", "x_stop", "x_rec", "x_rec_o", "x_usb", "x_star",
+BIG_DEFAULT = ["x_play", "x_stop", "x_rec", "x_rec_o", "x_star",
                "x_cog", "x_warn", "x_speaker", "x_info", "x_eye", "midi",
                "wave", "algorithm", "phase", "bits", "sample", "mouth", "trio", "drawbar", "slice", "grain",
                "phys", "drum", "noise", "mod", "tempo",
