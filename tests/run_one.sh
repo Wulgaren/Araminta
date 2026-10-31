@@ -29,6 +29,7 @@ Targets for the edit loop (not the final gate):
   sound15     ANALOG filter TYPE and ENV SYNC                tests/sound15_test.c
   inschain    insert chain order, MIX 0 bypass, migration    tests/inschain_test.c
   regress     golden renders, health, voices, CPU budget     tests/regress.c
+  target_budget  render-loop instructions in the pi32v2 dis    tests/target_budget.py
   web         desc.json + menu.json, then node web/test_web.mjs
   all         exec the full gate: tests/run_tests.sh
   list        this list
@@ -127,6 +128,14 @@ do_regress() {
     run_bin regress "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
 }
 
+do_target_budget() {
+    if [ ! -f build/felucca.dis ]; then
+        echo "== target_budget: skip (build/felucca.dis missing; run ./build.sh once)" >&2
+        return 77
+    fi
+    run_bin target_budget python3 tests/target_budget.py build/felucca.dis tests/target_budget.txt
+}
+
 do_web() {
     if ! command -v node >/dev/null 2>&1; then
         echo "== web: skip (node not found; this is not a test failure)" >&2
@@ -152,6 +161,7 @@ run_target() {
         sound15) do_sound15 ;;
         inschain) do_inschain ;;
         regress) do_regress ;;
+        target_budget) do_target_budget ;;
         web) do_web ;;
     esac
 }
@@ -164,7 +174,7 @@ fi
 need_tables=0
 for t in "$@"; do
     case $t in
-        motion|ui|ui_render|editor|project|param|drums|sound15|inschain|regress|web) need_tables=1 ;;
+        motion|ui|ui_render|editor|project|param|drums|sound15|inschain|regress|target_budget|web) need_tables=1 ;;
         all|list) ;;
         *)
             usage >&2

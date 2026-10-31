@@ -313,7 +313,7 @@ abort() {
         if [ "$log" -lt "$1" ]; then
             wait "$pid" 2>/dev/null || :
         else
-            kill "$pid" 2>/dev/null || :
+            kill_tree "$pid"
         fi
     done
     jobs=
@@ -387,9 +387,9 @@ u_storage() {
 unit u_storage
 
 u_signed_audio() {
-    $CC -Ibuild/gen -Ifirmware/src -o "$OUT/signed_audio_scaling_test" tests/signed_audio_scaling_test.c -lm
+    build "$OUT/signed_audio_scaling_test" tests/signed_audio_scaling_test.c -Ibuild/gen -Ifirmware/src -lm
     run "DSP signed arithmetic: fixed DC/lowcut/FM6 vectors and phase wrap" "$OUT/signed_audio_scaling_test"
-    $CC -Ibuild/gen -Ifirmware/src -o "$OUT/phys_signed_test" tests/phys_signed_test.c -lm
+    build "$OUT/phys_signed_test" tests/phys_signed_test.c -Ibuild/gen -Ifirmware/src -lm
     run "PHYS: signed output and frozen baseline render" "$OUT/phys_signed_test"
 }
 unit u_signed_audio
@@ -497,12 +497,12 @@ if [ -f build/gen/felucca_tables.h ]; then
     }
     unit u_chord
     u_chord_melody() {
-        $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/chord_melody_test" tests/chord_melody_test.c -lm
+        build "$OUT/chord_melody_test" tests/chord_melody_test.c -w -Ibuild/gen -Ifirmware/src -lm
         run "MELO chords: melody on top, scales, voicings, strum, MONO, kits, projects, render" "$OUT/chord_melody_test"
     }
     unit u_chord_melody
     u_chord_auto() {
-        $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/chord_auto_test" tests/chord_auto_test.c -lm
+        build "$OUT/chord_auto_test" tests/chord_auto_test.c -w -Ibuild/gen -Ifirmware/src -lm
         run "AUTO chords: scale, voice leading, other tracks, ARP, STOP, MONO, kits, projects, render" "$OUT/chord_auto_test"
     }
     unit u_chord_auto

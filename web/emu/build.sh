@@ -36,7 +36,7 @@ EOF
 }
 
 WASM_KEY=$(hash_inputs "$(emcc --version | head -1)|${EMU_OPT:--O2}|${EMU_CFLAGS:-}|$VERSION" \
-    firmware/src firmware/hal build/gen web/emu/felucca_web.c)
+    firmware/src firmware/hal build/gen web/emu/felucca_web.c web/emu/build.sh)
 PAGE_KEY=$(hash_inputs "$VERSION|${EMU_PREVIEW:-1}" \
     web/emu/index.html web/emu/store.js web/emu/worklet.js web/emu/fonts)
 
@@ -44,7 +44,8 @@ WASM_OK=0
 [ -f build/emu/.wasm-key ] && [ "$(cat build/emu/.wasm-key)" = "$WASM_KEY" ] && [ -f build/emu/felucca.wasm ] && WASM_OK=1
 PAGE_OK=0
 if [ -f build/emu/.page-key ] && [ "$(cat build/emu/.page-key)" = "$PAGE_KEY" ] &&
-   [ -f build/emu/index.html ] && [ -f build/emu/worklet.js ] && [ -f build/emu/fonts/DotGothic16-subset.woff ]; then
+   [ -f build/emu/index.html ] && [ -f build/emu/worklet.js ] && [ -f build/emu/fonts/DotGothic16-subset.woff ] &&
+   [ -f build/emu/fonts/OFL.txt ]; then
     PAGE_OK=1
 fi
 if [ "$WASM_OK" = 1 ] && [ "$PAGE_OK" = 1 ]; then
