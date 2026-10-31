@@ -2180,11 +2180,12 @@ function makeMockDevice(opt = {}) {
     if (scope === 0 && id < P_COUNT) {
       if (id < P_E0) {
         /* ANALOG's OSC pages: MORPH / DRIFT and OSC B's WAVE sit in FM slots unused on an ANALOG track,
-           shown as their own knobs (params.c param_desc_of). WAVE2 keeps its 0..4 range, SAME then SAW..PWM */
+           shown as their own knobs (params.c param_desc_of). WAVE2 is 0..5: SAME, then OSC B's own wave
+           through PWM (SYNC / SUB pick their shape instead) */
         if (st.engine === 0) {
           if (id === P_MORPH) return D("MORPH", F.PCT, 0, 127, 0);
           if (id === P_DRIFT) return D("DRIFT", F.PCT, 0, 127, 0);
-          if (id === P_WAVE2) return D("WAVE", F.ENUM, 0, 4, 0, ["SAME", "SAW", "SQR", "TRI", "SIN", "PWM"]);
+          if (id === P_WAVE2) return D("WAVE", F.ENUM, 0, 5, 0, ["SAME", "SAW", "SQR", "TRI", "SIN", "PWM"]);
         }
         return TP[id];
       }
