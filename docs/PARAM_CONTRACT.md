@@ -1,7 +1,7 @@
 # Parameter, ID and lock contract
 
 > **Read this first.** This is the current source of truth for Araminta's parameter IDs, special IDs,
-> aliases and PITCH locks. It describes the code that ships with 3.4 (FUN19). `web/EDITOR_PROTOCOL.md` and
+> aliases and PITCH locks. It describes the code that ships with 3.5 (FUN19). `web/EDITOR_PROTOCOL.md` and
 > `CHANGELOG.md` are cumulative: their sections are labelled by the version that introduced them, and an
 > older section can describe an earlier design. When either disagrees with this file, the code wins and this
 > file is the one to update.
@@ -188,18 +188,22 @@ events stay. AUTOMATION's DELETE (`EDIT`) removes the row's record; PLAY OFF byp
 - Files: `fx.c` (`FX_POS_MARK`, `fx_pos_get`, `fx_pos_set`, `fx_list_get`), `core.h` (`FX_POS_DEF`),
   `params.c`, `project.c` (the old CHO-send migration), `ui_graph.c`, `ui_input.c`.
 
-### P_QUANT: MAP, and CURR's shared ROOT / SCALE
+### P_QUANT: MAP, and ALL's shared ROOT / SCALE
 
-- `P_QUANT` (27) is MAP: 0 OFF, 1 ALL, 2 KBD, 3 SEQ, 4 CURR; the UI shows 0, 1, 4, 2, 3
-  (`QUANT_ORDER`). CURR quantises like ALL (`qn_mode()` maps it) and links ROOT / SCALE across tracks
-  whose MAP is CURR.
-- `track_t.scl_stash[3]` / `scl_stash_ok` hold the root and scale from before a CURR lock overwrote them.
-  `scale_lock_stash()`, `scale_lock_copy()`, `scale_lock_push()`, `scale_lock_restore()` and
-  `scale_lock_after()` implement entering, following edits, and leaving CURR.
-- Projects save CURR as ALL plus the per-track lock bit; the current loader turns that back into CURR.
-  Older firmware reads it as ALL plus SCALE LOCK. User presets save CURR as ALL (no link bit).
+- `P_QUANT` (27) is MAP. Stored values are append-only: 0 OFF, 1 (`QN_ALL`, displayed CURR), 2 KBD, 3 SEQ,
+  4 (`QN_CURR`, displayed ALL); the UI shows `QUANT_ORDER = {0, 4, 1, 2, 3}` (OFF ALL CURR KBD SEQ). ALL
+  quantises like CURR (`qn_mode()` maps stored 4 to stored 1) and shares ROOT / SCALE across every track
+  while it is on.
+- `track_t.scl_stash[3]` / `scl_stash_ok` hold ROOT, SCALE and MAP (`scl_stash[2]`) from before ALL
+  overwrote them. `scale_lock_stash()` saves them, `scale_lock_copy()` copies ROOT / SCALE,
+  `scale_lock_push()` does that on every other track for a ROOT / SCALE edit, and `scale_lock_after()`
+  runs after a P_QUANT / P_ROOT / P_SCALE edit: entering ALL stashes every track and sets it to ALL (its
+  stash MAP becomes CURR); leaving ALL restores every other track from its stash and the track that
+  leaves keeps the MAP just chosen. `scale_lock_restore()` puts all three values back.
+- Projects save ALL as CURR plus the per-track lock bit; the loader turns a lock bit on CURR back into ALL.
+  Older firmware reads it as CURR plus SCALE LOCK. User presets save ALL as CURR (no link bit).
 - Files: `core.h`, `seq.c` (`qn_mode`, scale snap), `params.c` (`N_QUANT`, `QUANT_ORDER`, the scale-lock
-  functions), `project.c` (lock bits / load), `upreset.c` (CURR -> ALL), `editor.c` (`scale_lock_after()`
+  functions), `project.c` (lock bits / load), `upreset.c` (ALL -> CURR), `editor.c` (`scale_lock_after()`
   on `SET`).
 
 ### P_IORD: packed insert order and send flags

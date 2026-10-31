@@ -277,7 +277,7 @@ The pages by button:
 | GLO | MASTER, CLOCK, SONG | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
 | SAVE | Presets (SELECT: PRESETS / USER / PHRASES), Project (SELECT: PROJECT / TOOLS) | UNDO |
 | LFO | LFO (SELECT: LFO / LFO 2 / LFO DEST), then MOD | MOMENTARY (with a knob) |
-| EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG OSC 2 / FILTER), Kit, Lanes, Voice (hidden on DRUM-X) | the EDIT layer (the engines; on DRUM-X the black keys mute lanes) |
+| EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG OSC A / OSC B / FILTER), Kit, Lanes, Voice (hidden on DRUM-X) | the EDIT layer (the engines; on DRUM-X the black keys mute lanes) |
 | FX | EFFECTS (SELECT: list + stage pages), SLICER, PUNCH | the FX layer |
 | SCL, ENV, ARP | their pages | SCL: its layer |
 | REC | arms the track | — |
