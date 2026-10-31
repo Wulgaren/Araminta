@@ -212,7 +212,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_DFDBK] = PD("FDBK", F_PCT, 0, 120, 60),
     [G_DCOLOR] = PD("COLR", F_PCT, 0, 127, 70),
     [G_TSPEED] = PD("SPEED", F_PCT, 25, 400, 100), /* EFFECTS TAPE speed % (was G_DMIX, retired return gain) */
-    [G_RSIZE] = PD("SIZE", F_PCT, 0, 127, 90),   /* 127: CLOUD FREEZE (the tail recirculates) */
+    [G_RSIZE] = PD("SIZE", F_PCT, 0, 127, 90),   /* 127: CLOUD FREEZE (the tail is held, no new grains) */
     [G_RDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
     [G_CRATE] = PD("DLYOWN", F_INT, 0, 4, 0),     /* 0 SEND; 1..4 track with delay CHAIN (was bus CRT) */
     [G_CDEPTH] = PD("REVOWN", F_INT, 0, 4, 0),    /* 0 SEND; 1..4 track with reverb CHAIN (was bus CDP) */
@@ -236,7 +236,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_PUNCH] = PD("PNCH", F_PCT, 0, 100, 0),   /* DRUM fattened: attack + body (eng_drum.c) */
     [G_DUCK] = PD("DUCK", F_PCT, 0, 100, 0),    /* the kick ducks the other parts: up to -30 dB */
     [G_CRTYPE] = PE("TYPE", N_RTYPE, 2),        /* CHAIN tank: same models, separate values */
-    [G_CRSIZE] = PD("SIZE", F_PCT, 0, 127, 90),  /* 127: CLOUD FREEZE (the tail recirculates) */
+    [G_CRSIZE] = PD("SIZE", F_PCT, 0, 127, 90),  /* 127: CLOUD FREEZE (the tail is held, no new grains) */
     [G_CRDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
     [G_SLOWN] = PD("SLOWN", F_INT, 0, 15, 0),   /* 0 and 5..15 are the current mask (0 = all SEND); 1..4 remain
                                                  * accepted legacy owner values */
