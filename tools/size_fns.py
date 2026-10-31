@@ -27,7 +27,7 @@ SIZE_FILES = ["ui.c", "favorites.c", "menu_items.c", "icons.c", "ui_graph.c", "u
               "ui_layer.c", "ui_name.c", "ui_events.c", "main.c", "libc.c", "storage_hw.c", "engines.c", "fm4_convert.c",
               # the remaining UI / editor pages and their stores: main loop only (reached from ui_draw, ui_input,
               # the menu or the console), never from the audio ISR, the core-1 job or the key / LED scan
-              "ui_dx.c", "ui_fm6op.c", "ui_help.c", "ui_tech.c", "ui_tools.c", "category.c",
+              "ui_dx.c", "ui_fm6op.c", "ui_tech.c", "ui_tools.c", "category.c",
               "editor_learn.c", "midi_learn.c", "fm6_vbank.c", "generation.c"]
 ISR_ROOTS = ("fm1_alnk0_irq", "fm1_timer5_irq")      # hal/fm1_isr.S: the audio ISR, the key / LED scan (+ USB poll)
 DEF = re.compile(r"^(?:static|void|int|uint\w*|int\w*|const)\b[^;=(]*?\b([A-Za-z_]\w*)\s*\(", re.M)

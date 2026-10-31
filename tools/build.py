@@ -296,7 +296,7 @@ def build_app():
            ("cc", "-c", FW / "hal" / "fm1_cpu1.S", "-o", OUT / "fm1_cpu1.o")]
     obj, key_file = OUT / "felucca.o", OUT / "felucca.o.key"
     key = app_cache_key(flags, size)
-    cached = (not os.environ.get("FELUCCA_NO_CACHE")
+    cached = (os.environ.get("FELUCCA_NO_CACHE") != "1"
               and obj.is_file() and key_file.is_file() and key_file.read_text().strip() == key)
     tc_all(*(asm if cached else [*asm, cmain]))
     if cached:
