@@ -4,13 +4,19 @@
 
 ### ANALOG
 
-- **OSC A / OSC B pages.** OSC A: WAVE, MORPH (the wave slides toward the next plain one; PWM narrows), DRIFT
-  (each voice's slow pitch / filter wander), NOISE. OSC B: its own WAVE (SAME by default, following OSC A), INT
-  (interval from OSC A, -24..+24 semitones), DTN, MIX; WAVE is greyed in SYNC / SUB, which define OSC B themselves. EDIT > FILTER is page 3 now,
+- **OSC A / OSC B pages.** OSC A: WAVE, MORPH (the wave slides toward the next plain one; PWM widens toward
+  54 %), DRIFT (each voice's slow pitch / filter wander), NOISE. OSC B: its own WAVE (SAME by default, following
+  OSC A), INT (interval from OSC A, -24..+24 semitones), DTN, MIX; WAVE is greyed in SYNC / SUB / SUPER, which
+  define OSC B themselves. EDIT > FILTER is page 3 now,
   its KNOB 4 DRIVE; the KTR knob is gone (keytracking fixed at its old default).
 - **Compatibility.** E8 is INT now. Older projects and user presets load it as 0, with MORPH / DRIFT 0, and drop
   their E8 / OP automation, with OSC B's wave on OSC A's; project header byte 67 bit 1 and the user preset
   category byte's bit 7 mark the new meaning, so no format version changed.
+
+### Recording
+
+- **Free take + STRUM.** A strummed chord records into the first string's step, as step recording does, so
+  the take plays the chord together instead of one string per step. A fine strum no longer forces a 1/32 grid.
 
 ### UI
 
