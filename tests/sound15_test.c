@@ -301,6 +301,23 @@ static void test_osc2(void)
     (void)analog_osc2_note2(6, 1, 64, 0, 0, 0, 60); h0 = hash;    /* SUB */
     (void)analog_osc2_note2(6, 2, 64, 0, 0, 0, 60);
     check("WAVE2: SUB defines OSC B (the stored wave does nothing)", hash == h0);
+    {
+        /* OSC B's WAVE 5 (PWM) must survive the descriptor's range (projects, presets, the knob) */
+        const param_desc_t *d = param_desc_of(ENGI_ANALOG, P_WAVE2);
+        int32_t w2 = param_fit(d, 5);
+        stats_t pwm;
+        uint64_t hp;
+        uint32_t i, pos = 0, n = 0;
+        pwm = analog_osc2_note2(3, (uint32_t)w2, 127, 0, 0, 0, 60);   /* A sine, B alone */
+        hp = hash;
+        for (i = FS / 10u; i < NREND * CTL; i++, n++)
+            pos += ren_l[i] > 0;
+        (void)analog_osc2_note2(3, 4, 127, 0, 0, 0, 60);              /* SIN, for the hash */
+        check("WAVE2 5: the descriptor takes PWM (max 5, param_fit keeps it)",
+              d->max == 5 && w2 == 5 && str_eq(d->names[5], "PWM"));
+        check("WAVE2 5: OSC B plays PWM, not SIN, at about 50 % duty",
+              hp != hash && fabs((double)pos / n - 0.5) < 0.1 && pwm.rms > 200);
+    }
 }
 
 static void type_bp(track_t *t) { t->p[P_FTYPE] = 1; }
