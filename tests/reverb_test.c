@@ -994,20 +994,20 @@ static void jiant_run(int rtype, const int32_t *x, uint32_t len, uint32_t n)
             rev_cloud(in, ir + t, CTL);
     }
 }
-/* 4 s of noise at `size`, then 16 s of silence: SIZE 127 switched in at 4 s when freeze is set. The last
- * second's RMS and peak tell a decaying tail from a held one. */
-static void cloud_after(int32_t size, int freeze, double *rms, int32_t *peak)
+/* 4 s of noise at `size` / `damp` / `amp`, then 16 s of silence: SIZE 127 switched in at 4 s when freeze is
+ * set. The last second's RMS and peak tell a decaying tail from a held one. */
+static void cloud_after(int32_t size, int32_t damp, int32_t amp, int freeze, double *rms, int32_t *peak)
 {
     static int32_t in[CTL], out[CTL];
     double e = 0;
     uint32_t t, i, n = 0;
     int32_t pk = 0;
-    jiant_reset(4, size, 60);
+    jiant_reset(4, size, damp);
     for (t = 0; t < 20u * FS; t += CTL) {
         if (freeze && t >= 4u * FS && song.g[G_RSIZE] != 127)
             song.g[G_RSIZE] = 127;
         for (i = 0; i < CTL; i++) {
-            in[i] = t < 4u * FS ? noise(20000) : 0;
+            in[i] = t < 4u * FS ? noise(amp) : 0;
             out[i] = 0;
         }
         rev_cloud(in, out, CTL);
@@ -1074,7 +1074,7 @@ static void test_jiant(void)
         for (k = 0; k < 7u; k++) {
             double rms;
             int32_t pk;
-            cloud_after(SZ[k], 0, &rms, &pk);
+            cloud_after(SZ[k], 60, 20000, 0, &rms, &pk);
             snprintf(what, sizeof what, "CLOUD SIZE %d after 4 s of noise + 16 s: last-second RMS %.2f, peak %d (silent)",
                      SZ[k], rms, pk);
             check(what, rms <= 1.0 && pk <= 2);
@@ -1083,7 +1083,7 @@ static void test_jiant(void)
     {   /* SIZE 127 is FREEZE: the tail keeps recirculating with no new input, bounded, and stays alive */
         double rms;
         int32_t pk;
-        cloud_after(110, 1, &rms, &pk);
+        cloud_after(110, 60, 20000, 1, &rms, &pk);
         snprintf(what, sizeof what, "CLOUD SIZE 127 FREEZE after 16 s: last-second RMS %.0f, peak %d (held)",
                  rms, pk);
         check(what, rms > 1000.0 && pk < 4 * 32768);
@@ -1101,6 +1101,17 @@ static void test_jiant(void)
         snprintf(what, sizeof what, "%s at SIZE 120: 2 s noise peak %d (bounded)",
                  ty == 3 ? "SHIMR" : "CLOUD", pk);
         check(what, pk > 1000 && pk <= 16 * 32768);
+    }
+    {   /* SIZE 126 DAMP 127 on full-scale noise: the grain sum lifts the line's low-pass until its step's
+         * product, (cl_lp - m) * (DAMP's coefficient), passes int32. It must scale in 64 bits and still
+         * leave exact silence. */
+        double rms;
+        int32_t pk;
+        cloud_after(126, 127, 1 << 18, 0, &rms, &pk);
+        snprintf(what, sizeof what,
+                 "CLOUD SIZE 126 DAMP 127 after 4 s of full-scale noise + 16 s: last-second RMS %.2f, peak %d (silent)",
+                 rms, pk);
+        check(what, rms <= 4.0 && pk <= 4);
     }
     host_tracks_init();
     rev_clear();
