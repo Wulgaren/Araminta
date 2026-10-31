@@ -12,6 +12,15 @@
   their E8 / OP automation, with OSC B's wave on OSC A's; project header byte 67 bit 1 and the user preset
   category byte's bit 7 mark the new meaning, so no format version changed.
 
+### UI
+
+- **SAVE > CLEAR clears FX.** B3 clears the selected track's inserts, order, sends and slicer; F4 clears
+  every track's plus MASTER, the SEND knobs and the global FX. The ALL / ALL4 actions clear FX too and
+  move to the black keys F#3 / G#3; the white cells there are FX / FXS now.
+- **MENU > SYSTEM > HELP is gone.** The hint row under the keys and its HELP setting are retired; the
+  editor's id 24 stays reserved. SYSTEM keeps USB SERIAL, RESTORE LAST, HARDWARE CALIBRATION, INFO and
+  ABOUT.
+
 ## 3.4
 
 The LFO pages' waveform comes alive: it draws from the running LFO and scrolls at RATE (or SYNC), and S&H's
