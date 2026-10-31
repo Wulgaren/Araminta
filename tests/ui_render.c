@@ -1119,7 +1119,7 @@ static void setup(int s)
         go_title("ENV"); ui.hot_col = 0; ui.hot_t = 30; break;
     case S_ENV_DEST_SYNC: TSEL->p[P_ESYNC] = 1; go_title("ENV DEST"); break;
     case S_FILTER: TSEL->p[P_FTYPE] = 1; go_title("FILTER"); break;   /* 1.5: ANALOG's TYPE CUT RES KTR */
-    /* the cards an ANALOG sound does not reach, drawn DIM: OSC A's MORPH on SUPER; OSC B's WAVE on HP */
+    /* an inactive card (OSC A's MORPH on SUPER, drawn DIM); OSC B's WAVE on HP, now live: an active WAVE card */
     case S_ANALOG_OSC_A_SUPER: TSEL->p[P_E0] = AW_SUPER; TSEL->p[P_E1] = 30; TSEL->p[P_E3] = 20;
                                go_title("OSC A"); break;
     case S_ANALOG_OSC_B_HP: TSEL->p[P_WAVE2] = 2; TSEL->p[P_FTYPE] = IFT_HP; TSEL->p[P_E4] = 90; TSEL->p[P_E2] = 40;

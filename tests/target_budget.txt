@@ -4,8 +4,7 @@
 analog_render 0
 analog_render_x 809
 analog_osc 680
-analog_osc_b 353
-analog_render_f 0
+analog_osc_b 117
 ana_shape 0
 ana_morph 0
 phase_render 77
