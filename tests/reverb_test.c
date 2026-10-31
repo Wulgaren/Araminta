@@ -27,8 +27,8 @@
  *    of the averaged spectrum: the metallic tone) and flutter (echoes at a fixed period) against ROOM, SPRING
  *    and COMB8 (8 combs + 4 allpasses, of which ROOM is the first half: a host-only reference, over twice ROOM's
  *    memory); model changes ROOM / SPRING / HALL both ways.
- * SHIMR / CLOUD (JIANT): decay rises with SIZE; CLOUD SIZE 127 is FREEZE (the tail sustains, no new input);
- *    corners bounded; model changes through both.
+ * SHIMR / CLOUD (JIANT): decay rises with SIZE; CLOUD SIZE 127 is FREEZE (the line and its last grains are
+ *    held cleanly: no new input or grains, no drone); corners bounded; model changes through both.
  * Demos (WAV) into DEMODIR: a drum pattern and a pluck through SPRING, the drums through ROOM to compare; into
  * DEMODIR2 the listening set: drums, pluck, piano, dry and through ROOM, SPRING, HALL and COMB8 at SIZE 40,
  * 90, 127. */
@@ -995,12 +995,14 @@ static void jiant_run(int rtype, const int32_t *x, uint32_t len, uint32_t n)
     }
 }
 /* 4 s of noise at `size` / `damp` / `amp`, then 16 s of silence: SIZE 127 switched in at 4 s when freeze is
- * set. The last second's RMS and peak tell a decaying tail from a held one. */
-static void cloud_after(int32_t size, int32_t damp, int32_t amp, int freeze, double *rms, int32_t *peak)
+ * set. The last second's RMS, mean and peak tell a decaying tail from a held one; `mid` is the RMS a second
+ * into the silence (10 s) so a hold that drifts into a drone shows up. */
+static void cloud_after(int32_t size, int32_t damp, int32_t amp, int freeze,
+                        double *rms, double *mean, int32_t *peak, double *mid)
 {
     static int32_t in[CTL], out[CTL];
-    double e = 0;
-    uint32_t t, i, n = 0;
+    double e = 0, s = 0, em = 0;
+    uint32_t t, i, n = 0, nm = 0;
     int32_t pk = 0;
     jiant_reset(4, size, damp);
     for (t = 0; t < 20u * FS; t += CTL) {
@@ -1011,18 +1013,26 @@ static void cloud_after(int32_t size, int32_t damp, int32_t amp, int freeze, dou
             out[i] = 0;
         }
         rev_cloud(in, out, CTL);
-        if (t < 19u * FS)
+        if ((t < 10u * FS || t >= 11u * FS) && t < 19u * FS)
             continue;
         for (i = 0; i < CTL; i++) {
             int32_t v = out[i] < 0 ? -out[i] : out[i];
-            e += (double)out[i] * out[i];
-            n++;
-            if (v > pk)
-                pk = v;
+            if (t >= 19u * FS) {
+                e += (double)out[i] * out[i];
+                s += out[i];
+                n++;
+                if (v > pk)
+                    pk = v;
+            } else {
+                em += (double)out[i] * out[i];
+                nm++;
+            }
         }
     }
     *rms = sqrt(e / n);
+    *mean = s / n;
     *peak = pk;
+    *mid = sqrt(em / nm);
 }
 
 static void test_jiant(void)
@@ -1072,21 +1082,34 @@ static void test_jiant(void)
          * so an impulse of any level ended in the same drone. */
         static const int32_t SZ[7] = {0, 30, 60, 90, 94, 110, 126};
         for (k = 0; k < 7u; k++) {
-            double rms;
+            double rms, mean, mid;
             int32_t pk;
-            cloud_after(SZ[k], 60, 20000, 0, &rms, &pk);
+            cloud_after(SZ[k], 60, 20000, 0, &rms, &mean, &pk, &mid);
             snprintf(what, sizeof what, "CLOUD SIZE %d after 4 s of noise + 16 s: last-second RMS %.2f, peak %d (silent)",
                      SZ[k], rms, pk);
             check(what, rms <= 1.0 && pk <= 2);
         }
     }
-    {   /* SIZE 127 is FREEZE: the tail keeps recirculating with no new input, bounded, and stays alive */
-        double rms;
+    {   /* SIZE 127 is FREEZE: no new input, no new grains. The held line and its last swarm keep sounding,
+         * bounded and level-stable (no drift into the old sub-audio drone), with no DC offset. */
+        double rms, mean, mid, drift;
         int32_t pk;
-        cloud_after(110, 60, 20000, 1, &rms, &pk);
-        snprintf(what, sizeof what, "CLOUD SIZE 127 FREEZE after 16 s: last-second RMS %.0f, peak %d (held)",
-                 rms, pk);
-        check(what, rms > 1000.0 && pk < 4 * 32768);
+        cloud_after(110, 60, 20000, 1, &rms, &mean, &pk, &mid);
+        drift = mid > 0.0 ? fabs(rms - mid) / mid : 1.0;
+        snprintf(what, sizeof what,
+                 "CLOUD SIZE 127 FREEZE after 16 s: last-second RMS %.0f (10 s: %.0f, drift %.0f %% of it), mean %.0f, peak %d (held)",
+                 rms, mid, drift * 100.0, mean, pk);
+        check(what, rms > 1000.0 && pk < 4 * 32768 && fabs(mean) < 500.0 && drift < 0.25);
+    }
+    {   /* the same at DAMP 127: the old loop droned loudest here. The hold stays bounded and centred. */
+        double rms, mean, mid, drift;
+        int32_t pk;
+        cloud_after(110, 127, 20000, 1, &rms, &mean, &pk, &mid);
+        drift = mid > 0.0 ? fabs(rms - mid) / mid : 1.0;
+        snprintf(what, sizeof what,
+                 "CLOUD SIZE 127 DAMP 127 FREEZE after 16 s: last-second RMS %.0f (10 s: %.0f, drift %.0f %% of it), mean %.0f, peak %d (held)",
+                 rms, mid, drift * 100.0, mean, pk);
+        check(what, rms > 500.0 && pk < 4 * 32768 && fabs(mean) < 500.0 && drift < 0.25);
     }
     for (k = 0; k < 2u; k++) {                           /* corners: bounded on loud noise */
         int32_t pk = 0, ty = k ? 4 : 3;
@@ -1105,9 +1128,9 @@ static void test_jiant(void)
     {   /* SIZE 126 DAMP 127 on full-scale noise: the grain sum lifts the line's low-pass until its step's
          * product, (cl_lp - m) * (DAMP's coefficient), passes int32. It must scale in 64 bits and still
          * leave exact silence. */
-        double rms;
+        double rms, mean, mid;
         int32_t pk;
-        cloud_after(126, 127, 1 << 18, 0, &rms, &pk);
+        cloud_after(126, 127, 1 << 18, 0, &rms, &mean, &pk, &mid);
         snprintf(what, sizeof what,
                  "CLOUD SIZE 126 DAMP 127 after 4 s of full-scale noise + 16 s: last-second RMS %.2f, peak %d (silent)",
                  rms, pk);
