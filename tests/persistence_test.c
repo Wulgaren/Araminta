@@ -650,8 +650,8 @@ int main(void)
             if (i == P_IORD)                        /* 0..719: FUN10 / user presets store 2 bytes (upreset.c) */
                 continue;
             for (e = 0; e < NENGINES; e++)
-                if (param_desc_of(e, i)->min < -64 || param_desc_of(e, i)->max > 191) {
-                    printf("param %u engine %u: range %d..%d does not fit the wire's biased byte\n", i, e,
+                if (param_desc_of(e, i)->min < -64 || param_desc_of(e, i)->max > 127) {
+                    printf("param %u engine %u: range %d..%d does not fit FUN7's byte\n", i, e,
                            param_desc_of(e, i)->min, param_desc_of(e, i)->max);
                     bad++;
                 }

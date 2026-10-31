@@ -11,9 +11,6 @@
 - **Compatibility.** E8 is INT now. Older projects and user presets load it as 0, with MORPH / DRIFT 0, and drop
   their E8 / OP automation, with OSC B's wave on OSC A's; project header byte 67 bit 1 and the user preset
   category byte's bit 7 mark the new meaning, so no format version changed.
-- **RES to 150 %.** ANALOG's RES is 0..191 now: 0..100 % (0..127) is exactly the old sound, and 101..150 %
-  (128..191) runs the damping on to Q ~23. COMB keeps its old 0..127 feedback; MIDI CC keeps hitting 0..127.
-  Projects and user presets store the full range; motion records still hold -64..127.
 
 ## 3.4
 

@@ -236,14 +236,11 @@ static const uint8_t MIDI_CC_ENG[NENGINES] = {
     0x80, 0x30, 0x30, 0x34, 0x30,                     /* GRAIN TONE, PHYS BRIT, DRUM TONE, NOISE FREQ RES, FM6 MLVL */
     [ENGI_DRUMS] = 0x30,                              /* DRUMS TONE */
 };
-/* a CC sets parameter id of track t as a knob would: 0..127 over its range. ANALOG's RES keeps its old
- * meaning: CC 0..127 reaches 0..127 (100 %), not the 150 % the device knob has. */
+/* a CC sets parameter id of track t as a knob would: 0..127 over its range */
 static void midi_cc_set(track_t *t, uint32_t id, uint32_t value)
 {
-    uint32_t eng = eng_idx(t->eng_req);
-    const param_desc_t *d = param_desc_of(eng, id);
-    int32_t top = eng == ENGI_ANALOG && id == P_E5 ? 127 : d->max;
-    int32_t v = d->min + ((int32_t)value * (top - d->min) + 63) / 127;
+    const param_desc_t *d = param_desc_of(eng_idx(t->eng_req), id);
+    int32_t v = d->min + ((int32_t)value * (d->max - d->min) + 63) / 127;
     if (d->max <= d->min || t->p[id] == v)
         return;
     t->p[id] = (int16_t)v;

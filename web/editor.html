@@ -2013,7 +2013,7 @@ function makeMockDevice(opt = {}) {
   const P = (name, e, env = [10, 70, 90, 60], mono = 0, pat = 0) => ({ name, e, env, mono, pat });
   const ENG = [
     { name: "ANALOG", titles: ["OSC A", "OSC B"], edit: [E("WAVE", ["SAW", "SQR", "TRI", "SIN", "PWM", "SYNC", "SUB", "SUPER"], 0), D("DTN", F.INT, 0, 127, 10, null, "ct"), D("MIX", F.PCT, 0, 127, 64),
-        D("NOIS", F.PCT, 0, 127, 0), D("CUT", F.CUTOFF, 0, 127, 90), D("RES", F.PCT, 0, 191, 30), D("DRV", F.PCT, 0, 127, 0), D("INT", F.SEMI, -24, 24, 0)],
+        D("NOIS", F.PCT, 0, 127, 0), D("CUT", F.CUTOFF, 0, 127, 90), D("RES", F.PCT, 0, 127, 30), D("DRV", F.PCT, 0, 127, 0), D("INT", F.SEMI, -24, 24, 0)],
       presets: [P("SAW LEAD", [0, 12, 64, 0, 90, 30, 10, 0], [4, 70, 100, 50], 1, 4), P("SOFT PAD", [0, 20, 64, 4, 60, 10, 0, 0], [80, 90, 110, 95], 0, 5),
         P("SQR BASS", [1, 0, 0, 0, 50, 70, 40, 0], [0, 60, 40, 30], 1, 2), P("PWM STR", [4, 8, 40, 0, 75, 20, 0, 0], [60, 80, 110, 85], 0, 5),
         P("ACID", [0, 0, 0, 0, 50, 100, 25, 0], [0, 55, 20, 30], 1, 1), P("SINE KEY", [3, 6, 50, 0, 127, 0, 0, 0], [2, 80, 30, 70], 0, 6),
