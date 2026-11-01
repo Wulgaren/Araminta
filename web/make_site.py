@@ -7,7 +7,7 @@
   firmware/felucca-VER.fwsc   the package (+ LICENSE, LICENSING.md, LICENSES/: the package holds
                               JieLi SDK files under Apache-2.0, see LICENSING.md)
   webapp/installer/index.html index_pkg.html, self-contained (fm1pkg.js, fm1ota.js, metadata inlined)
-  webapp/editor/index.html    editor.html (+ fukiai.ttf, FUKIAI-LICENSE.txt)
+  webapp/editor/index.html    editor.html (+ fukiai.ttf, FUKIAI-LICENSE.txt, fm1backup.js, projconv.js)
   src/                        not touched
 
   web/make_site.py build/felucca-X.Y.fwsc X.Y OUT_DIR
@@ -48,6 +48,7 @@ def main(pkg, version, out):
     html = (HERE / "index_pkg.html").read_text(encoding="utf-8")
     lib = strip_module((HERE / "fm1pkg.js").read_text(encoding="utf-8")) + "\n" + \
         strip_module((HERE / "fm1ota.js").read_text(encoding="utf-8")) + "\n" + \
+        strip_module((HERE / "projconv.js").read_text(encoding="utf-8")) + "\n" + \
         strip_module((HERE / "fm1backup.js").read_text(encoding="utf-8"))
     name = f"felucca-{re.sub(r'[^A-Za-z0-9.-]', '-', version)}.fwsc"
     meta = json.dumps({"version": version, "product": product, "pkg": "../../firmware/" + name})
@@ -75,9 +76,13 @@ def main(pkg, version, out):
     for doc in ("LICENSE", "LICENSING.md"):
         shutil.copy(HERE.parent / doc, fw / doc)
     shutil.copy(HERE / "editor.html", ed / "index.html")
-    for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
+    for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js", "projconv.js"):
         if (HERE / f).exists():
             shutil.copy(HERE / f, ed / f)
+    for src in (HERE / "editor.html", HERE / "fm1backup.js", HERE / "projconv.js"):
+        for m in re.findall(r'(?:from\s+|import\s*\()\s*"(\./[^"]+\.js)"', src.read_text(encoding="utf-8")):
+            if not (ed / m[2:]).exists():
+                raise SystemExit(f"site: {src.name} imports {m} but it is not copied to webapp/editor/")
     (out / "index.html").write_text(
         '<!doctype html><meta charset="utf-8"><title>Felucca</title>'
         '<meta http-equiv="refresh" content="0; url=webapp/installer/">'
