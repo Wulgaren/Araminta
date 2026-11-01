@@ -6,7 +6,7 @@
  *              gate; chords and the DRUM grid's hits repeat whole; x1 slides and ties out as before, x2..x4 never;
  *              the chance is rolled once per pass for all its parts; swing; STOP and an edit to fewer end them.
  *   PROJECTS   FUN8 round trip of x1..x4 (bit 7 of the velocity and chance bytes), an x1 project packs those bytes
- *              as before, FUN7 / FUN6 images load x1.
+ *              as before, FUN7 images load x1.
  *   PRESETS    a user preset's note pattern keeps it (flags 8 | 16, UP_PUT too); a drum grid record has no room: x1.
  *   UI         SEQ > AUTOMATION RATCH rows, KNOB 4 (x1..x4, clamped, the row's step; dimmed on a REST, a TIE, an empty
  *              step); the piano roll and the DRUM grid draw a ratcheted step in its parts, the roll no slide line
@@ -201,20 +201,6 @@ static int projects(void)
             for (i = 0; i < NSTEP; i++)
                 ok &= step_ratchet(&fun7.t[k].step[i]) == 1u;
         bad += check("  FUN7 of before: every step x1", ok && step_fl(&fun7.t[0].step[1]) == SF_ACCENT);
-    }
-    {   /* FUN6 (10-byte steps): only accent and slide come over, x1 */
-        project_v6_t v6;
-        memset(&v6, 0, sizeof v6);
-        v6.magic = PROJ_MAGIC_V6; v6.size = sizeof v6; v6.parts = NPART; v6.phys = PROJ_PHYS;
-        memcpy(v6.g, before.g, sizeof v6.g);
-        memset(&v6.chain, 0, sizeof v6.chain);
-        for (k = 0; k < NTRK; k++) {
-            for (i = 0; i < 69u; i++) v6.t[k].p[i] = TP[i < 61u ? i : i - 61u + P_E0].def;
-            v6.t[k].step[0] = (step10_t){{60}, 1, ST_NOTE, 0xFBu, 100, 0, 0};   /* (stray high bits) */
-        }
-        v6.sum = proj_hash(&v6, sizeof v6 - 4u);
-        bad += check("  FUN6: x1, accent and slide kept", proj_import(&after, &v6, sizeof v6) &&
-                     step_ratchet(&after.t[0].step[0]) == 1u && step_fl(&after.t[0].step[0]) == (SF_ACCENT | SF_SLIDE));
     }
     ui_power_on();                                   /* a real save and load */
     step_set_ratchet(&trk[1].step[7], 3);

@@ -1,21 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Host test of the project formats (firmware/src/project.c, -DPROJ_HOST part): a format 4 ("FUN4", 8-byte
- * steps: before the drum grid), a format 3 ("FUN3", 57 parameters per track: before the modulation matrix), a
- * format 2 ("FUN2", 53: before the SLICER) and a format 1 ("FUN1") project, built byte for byte as the
- * firmware stored them, convert to format 6 ("FUN6"): every old value at its parameter, the parameters
- * added since at their defaults (SLICER OFF,
- * every matrix slot OFF), steps, globals, selection, the engine bytes (0..7 kept: the engines added since
- * were appended); damaged ones are refused. Track 4 of a project written before 1.0 (formats 2 and 3,
- * `parts` 0) was the GM drum part: it becomes a DRUM part 4 (PROJ_DEF_KEEP: project_load gives it DRUM's kit;
- * SAMPLE PERC until 1.0.2), its steps (its lanes' notes as hits) and parameters kept, the drum level / reverb send (G_DRLVL /
- * G_DRREV) as its LEVEL / REV; global id 24 (the drum part's MIDI channel then, REVERB TYPE now) loads as ROOM
- * from every format before FUN7. A FUN4 written while the drums were PHYS's MODEL DRUM (`phys` 1) loads such
- * a track as the DRUM engine with the same sound (its E values moved), other PHYS tracks as they were; one
- * of before 1.0 (`phys` 0) its DUST as MODAL bowed. The steps of a DRUM track of before FUN5 (DRUM, or
- * PHYS DRUM become DRUM) get their lanes' notes as hits, the other notes (a low tom, a crash) kept, the
- * step accent as the hits' accents; other tracks' steps stay as they were (no hits). A SAMPLE track of the retired
- * PERC set (SET 4) loads as DRUM with its default kit, in any format (proj_perc).
+/* Host test of the project formats (firmware/src/project.c, -DPROJ_HOST part): FUN7..FUN19 as the firmware
+ * stored them, imported at today's parameters (the parameters added since at their defaults), steps,
+ * globals, names, FM6 patches and the chain; a tensor of damaged / wrong-size records refused. Formats
+ * FUN1..FUN6 (Felucca 0.x .. 1.0 development) are no longer read: such a magic imports as empty (0).
  * Run by tests/run_tests.sh (needs build/gen from one firmware build). */
 #define main hostsim_main
 #include "hostsim.c"
@@ -30,24 +18,6 @@ static int check(const char *what, int ok)
     return ok ? 0 : 1;
 }
 
-/* the value parameter k (old id) of track t had in the old project */
-static int16_t oldv(uint32_t t, uint32_t k) { return (int16_t)(t * 100u + k * 3u + 1u); }
-
-static const uint8_t OLD_ENG[NTRK] = {7, 0, 6, 0};   /* WHEEL, ANALOG, TRIO; the drum track: 0 (no engine) */
-
-/* FUN13 dropped CHR: old wire SCL 0 was CHR -> MAJ; 1..15 -> 0..14. Tests writing pre-FUN13 images use scl_to_v12. */
-static int16_t test_scl_from_v12(int16_t sc)
-{
-    if (sc <= 0) return 0;
-    if (sc > 15) return 0;
-    return (int16_t)(sc - 1);
-}
-static int16_t test_scl_to_v12(int16_t sc)
-{
-    if (sc <= 0) return 0;                              /* MAJ stored as old CHR slot; loads back as MAJ */
-    if (sc > 14) return 15;
-    return (int16_t)(sc + 1);
-}
 /* a store packed as FUN16, rewritten to the FUN15 layout (5-byte chain rows, 72 motion records 48 bytes later),
  * for the tests that check what an older reader sees */
 static void store_fun15_layout(project_store_t *st, uint32_t magic)
@@ -77,89 +47,6 @@ static void store_fun15_layout(project_store_t *st, uint32_t magic)
     }
 }
 
-static void fill_v2_track(proj_trk_v2_t *d, uint32_t t)
-{
-    uint32_t k;
-    for (k = 0; k < PROJ_NP_V2; k++)
-        d->p[k] = oldv(t, k);
-    d->engine = OLD_ENG[t];
-    d->preset = (uint8_t)(t + 5u);
-    for (k = 0; k < NSTEP; k++) {
-        step8_t *s = &d->step[k];
-        s->note[0] = (uint8_t)(36u + (k + t) % 40u);
-        s->n = (uint8_t)(k % 3u);
-        s->time = (uint8_t)(k % 3u);
-        s->flags = (uint8_t)(k & 3u);
-        s->vel = (uint8_t)(64u + t);
-    }
-}
-
-/* today's steps n are the old steps o (8 bytes each), with no hits */
-static int steps_same(const step_t *n, const step8_t *o)
-{
-    uint32_t k, j;
-    for (k = 0; k < NSTEP; k++) {
-        for (j = 0; j < 4u; j++)
-            if (step_note(&n[k], j) != o[k].note[j])
-                return 0;
-        if (n[k].n != o[k].n || n[k].time != o[k].time || step_fl(&n[k]) != o[k].flags ||
-            step_ratchet(&n[k]) != 1u || step_nudge(&n[k]) != 0 ||
-            n[k].vel != o[k].vel || n[k].hit || n[k].acc)
-            return 0;
-    }
-    return 1;
-}
-
-/* .. as a DRUM track of before the grid gets them (proj_grid: its lanes' notes as hits) */
-static int steps_grid_same(const step_t *n, const step8_t *o)
-{
-    uint32_t k, j;
-    for (k = 0; k < NSTEP; k++) {
-        step_t s;
-        memset(&s, 0, sizeof s);
-        for (j = 0; j < 4u; j++) step_set_note(&s, j, o[k].note[j]);
-        s.n = o[k].n; s.time = o[k].time; step_set_fl(&s, o[k].flags); s.vel = o[k].vel;
-        step_to_grid(&s);
-        for (j = 0; j < 4u; j++)
-            if (step_note(&n[k], j) != step_note(&s, j))
-                return 0;
-        if (n[k].n != s.n || n[k].time != s.time || step_fl(&n[k]) != step_fl(&s) ||
-            step_ratchet(&n[k]) != step_ratchet(&s) || step_nudge(&n[k]) != step_nudge(&s) ||
-            n[k].vel != s.vel || n[k].hit != s.hit || n[k].acc != s.acc)
-            return 0;
-    }
-    return 1;
-}
-
-/* today's project q as format 4 stored it (8-byte steps; the hits dropped) */
-static void to_v4(project_v4_t *v, const project_t *q)
-{
-    uint32_t t, k;
-    memset(v, 0, sizeof *v);
-    v->magic = PROJ_MAGIC_V4;
-    v->size = sizeof *v;
-    memcpy(v->g, q->g, sizeof v->g);
-    v->sel = q->sel;
-    v->parts = q->parts;
-    v->phys = q->phys;
-    for (t = 0; t < NTRK; t++) {
-        for (k = 0; k < 61u; k++)
-            v->t[t].p[k] = k == (uint32_t)P_SCALE ? test_scl_to_v12(q->t[t].p[k]) : q->t[t].p[k];
-        for (k = 0; k < 8u; k++) v->t[t].p[61u + k] = q->t[t].p[P_E0 + k];
-        v->t[t].engine = q->t[t].engine;
-        v->t[t].preset = q->t[t].preset;
-        for (k = 0; k < NSTEP; k++) {
-            for (uint32_t j = 0; j < 4u; j++)
-                v->t[t].step[k].note[j] = (uint8_t)step_note(&q->t[t].step[k], j);
-            v->t[t].step[k].n = q->t[t].step[k].n;
-            v->t[t].step[k].time = q->t[t].step[k].time;
-            v->t[t].step[k].flags = (uint8_t)step_fl(&q->t[t].step[k]);
-            v->t[t].step[k].vel = q->t[t].step[k].vel;
-        }
-    }
-    v->sum = proj_hash(v, sizeof *v - 4u);
-}
-
 /* track t of the converted project has the old values where they belong; drum: track 4 was the drum part,
  * lvl / rev: its level and reverb send (the old globals) */
 static int fm6_wire_same(const uint8_t *w, const uint8_t *p)
@@ -169,59 +56,6 @@ static int fm6_wire_same(const uint8_t *w, const uint8_t *p)
         if ((w[i] & 0x7Fu) != p[i])
             return 0;
     return 1;
-}
-static int track_ok(const proj_trk_t *n, const proj_trk_v2_t *o, uint32_t t, int drum, int16_t lvl, int16_t rev)
-{
-    uint32_t k;
-    int ok = (drum ? n->engine == ENGI_DRUM && n->preset == PROJ_DEF_KEEP && steps_grid_same(n->step, o->step)
-                   : n->engine == o->engine && n->preset == o->preset && steps_same(n->step, o->step));
-    for (k = 0; k <= P_DETUNE; k++)
-        ok &= n->p[k] == (drum && k == P_LEVEL ? lvl : drum && k == P_REV ? rev
-                         : k == P_TAPEMIX ? 0               /* the old GLMOD id: EFFECTS TAPE MIX now */
-                         : k == P_CHOR ? TP[P_CHOR].def   /* bus CHO send retired: FXPOS default */
-                         : k == P_SCALE ? test_scl_from_v12(oldv(t, k))
-                         : oldv(t, k));
-    ok &= n->p[P_SLCR] == 0 && n->p[P_SLPAT] == TP[P_SLPAT].def && n->p[P_SLRATE] == TP[P_SLRATE].def &&
-          n->p[P_SLDEPTH] == TP[P_SLDEPTH].def;
-    for (k = P_M1SRC; k <= P_M4AMT; k++)
-        ok &= n->p[k] == 0;                     /* every matrix slot OFF */
-    for (k = 0; k < 8u; k++)
-        ok &= n->p[P_E0 + k] == (k == 7u && o->engine == ENGI_ANALOG ? 0 : oldv(t, 45u + k));
-    return ok;
-}
-
-/* a format 3 track (57 parameters: the SLICER at 45..48, P_E0 49) */
-static int16_t oldv3(uint32_t t, uint32_t k) { return (int16_t)(t * 200u + k * 5u + 3u); }
-static void fill_v3_track(proj_trk_v3_t *d, uint32_t t)
-{
-    uint32_t k;
-    for (k = 0; k < PROJ_NP_V3; k++)
-        d->p[k] = oldv3(t, k);
-    d->engine = (uint8_t)(t * 3u);
-    d->preset = (uint8_t)(t + 1u);
-    for (k = 0; k < NSTEP; k++) {
-        step8_t *s = &d->step[k];
-        s->note[0] = (uint8_t)(40u + (k * 7u + t) % 40u);
-        s->n = (uint8_t)((k + t) % 3u);
-        s->time = (uint8_t)(k % 3u);
-        s->flags = (uint8_t)((k + 1u) & 3u);
-        s->vel = (uint8_t)(70u + t);
-    }
-}
-static int track_v3_ok(const proj_trk_t *n, const proj_trk_v3_t *o, uint32_t t)
-{
-    uint32_t k;
-    int ok = n->engine == o->engine && n->preset == o->preset && steps_same(n->step, o->step);
-    for (k = 0; k <= P_SLDEPTH; k++)
-        ok &= n->p[k] == (k == P_TAPEMIX ? 0
-                         : k == P_CHOR ? TP[P_CHOR].def
-                         : k == P_SCALE ? test_scl_from_v12(oldv3(t, k))
-                         : oldv3(t, k));  /* CHO send -> FXPOS; GLMOD -> TAPE MIX 0 */
-    for (k = P_M1SRC; k <= P_M4AMT; k++)
-        ok &= n->p[k] == TP[k].def && TP[k].def == 0;
-    for (k = 0; k < 8u; k++)
-        ok &= n->p[P_E0 + k] == (k == 7u && o->engine == ENGI_ANALOG ? 0 : oldv3(t, 49u + k));
-    return ok;
 }
 
 static int fx_motion_wire(void)
@@ -469,7 +303,7 @@ static int vib_wire(void)
     project_t a, c;
     uint8_t v[FP_SIZE + 1u], out[FP_SIZE + 1u];
     int16_t def[P_COUNT];
-    uint32_t i, k, sum, ok;
+    uint32_t k, sum, ok;
     int bad = 0;
     memset(&a, 0, sizeof a);
     a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
@@ -515,18 +349,7 @@ static int vib_wire(void)
 
 int main(void)
 {
-    static project_v4_t v4;
-    static project_v3_t v3;
-    static project_v2_t v2;
-    static project_v1_t v1;
-    static project_t q, q2;
-    static union {
-        project_t v5;
-        project_v4_t v4;
-        project_v3_t v3;
-        project_v2_t v2;
-        project_v1_t v1;
-    } buf;
+    static project_t q, q2, buf;
     uint32_t i, t;
     int bad = fx_motion_wire() + tape_wire() + osc2_migration(), ok;
 
@@ -534,86 +357,20 @@ int main(void)
                  P_SLCR == P_DETUNE + 1 && P_SLDEPTH + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD && P_VOIC + 1 == P_LN0 &&
                  P_LN7 + 1 == P_LSYNC && P_LSYNC + 3 == P_SQNT && P_SQNT + 1 == P_SPRD && P_SPRD + 1 == P_IORD &&
                  P_IHMIX + 1 == P_FTYPE && P_FTYPE + 1 == P_ESYNC && P_ESYNC + 1 == P_E0 && P_E0 == 119 &&
-                 P_COUNT == 127u && PROJ_NP_V3 == PROJ_NP_V2 + 4u);
+                 P_COUNT == 127u);
     bad += check("FUN10 fits one flash object, the retained cache in NOINIT", sizeof(project_store_t) <= 4096u - 256u &&
                  sizeof(project_store_t) == 3840u && 0xC8u + 4u * sizeof(project_store_t) <= 0x3D50u);
 
-    /* format 2, as written before the SLICER */
-    memset(&v2, 0, sizeof v2);
-    v2.magic = PROJ_MAGIC_V2;
-    v2.size = sizeof v2;
-    for (i = 0; i < PROJ_NG_V2; i++)
-        v2.g[i] = (int16_t)(500 + i);
-    v2.sel = 2;
-    for (t = 0; t < NTRK; t++)
-        fill_v2_track(&v2.t[t], t);
-    v2.sum = proj_hash(&v2, sizeof v2 - 4u);
-    bad += check("FUN2 image is 2552 bytes (as stored)", sizeof v2 == 2552u);
-    memcpy(&buf, &v2, sizeof v2);
-    ok = proj_import(&q, &buf, (int)sizeof v2);
-    bad += check("FUN2 -> FUN6: converted, valid format 5 slot", ok && proj_ok(&q) && q.magic == PROJ_MAGIC);
-    ok = q.sel == 2;
-    for (i = 0; i < PROJ_NG_WIRE; i++)
-        ok &= q.g[i] == (i == G_RTYPE || i == G_DRLVL || i == G_DRREV ? 0
-                         : i == G_TSPEED || i == G_TWOW || i == G_TDROP || i == G_TMIX || i == G_TAPEMODE ? GP[i].def
-                         : (int16_t)(500 + i));
-    ok &= q.g[G_CRTYPE] == q.g[G_RTYPE] && q.g[G_CRSIZE] == q.g[G_RSIZE] && q.g[G_CRDAMP] == q.g[G_RDAMP];
-    bad += check("FUN2 -> FUN6: globals (id 24, the old drum channel: ROOM) and selected track", ok);
-    ok = 1;
-    for (t = 0; t < NTRK; t++)
-        ok &= track_ok(&q.t[t], &v2.t[t], t, t == 3u, 127, 127);   /* (G_DRLVL / G_DRREV 525 / 526: 127) */
-    bad += check("FUN2 -> FUN6: every parameter mapped, SLICER and matrix OFF (4 tracks)", ok);
-
-    bad += check("FUN2 -> FUN6: engine bytes kept (WHEEL 7, ANALOG 0, TRIO 6)",
-                 q.t[0].engine == 7 && q.t[1].engine == 0 && q.t[2].engine == 6 &&
-                 str_eq(ENGINES[7]->name, "WHEEL") && str_eq(ENGINES[6]->name, "TRIO") && NENGINES > 8);
-    bad += check("FUN2 -> FUN6: the drum track -> part 4, DRUM (its kit on load), steps kept (lanes as hits)",
-                 q.parts == NPART && q.t[3].engine == ENGI_DRUM && str_eq(ENGINES[ENGI_DRUM]->name, "DRUM-X") &&
-                 TRK_DEF[3][0] == ENGI_DRUM && q.t[3].preset == PROJ_DEF_KEEP &&
-                 steps_grid_same(q.t[3].step, v2.t[3].step));
-
-    /* format 3 (1.0, four parts), as written before the modulation matrix */
-    memset(&v3, 0, sizeof v3);
-    v3.magic = PROJ_MAGIC_V3;
-    v3.size = sizeof v3;
-    for (i = 0; i < PROJ_NG_WIRE; i++)
-        v3.g[i] = (int16_t)(600 + i);
-    v3.sel = 3;
-    v3.parts = NPART;
-    for (t = 0; t < NTRK; t++)
-        fill_v3_track(&v3.t[t], t);
-    v3.sum = proj_hash(&v3, sizeof v3 - 4u);
-    bad += check("FUN3 image is 2584 bytes (as stored)", sizeof v3 == 2584u);
-    memcpy(&buf, &v3, sizeof v3);
-    ok = proj_import(&q, &buf, (int)sizeof v3) && proj_ok(&q) && q.magic == PROJ_MAGIC && q.sel == 3 &&
-         q.parts == NPART;
-    for (i = 0; i < PROJ_NG_WIRE; i++)
-        ok &= q.g[i] == (i == G_RTYPE ? 0
-                         : i == G_TSPEED || i == G_TWOW || i == G_TDROP || i == G_TMIX || i == G_TAPEMODE ? GP[i].def
-                         : (int16_t)(600 + i));
-    ok &= q.g[G_CRTYPE] == q.g[G_RTYPE] && q.g[G_CRSIZE] == q.g[G_RSIZE] && q.g[G_CRDAMP] == q.g[G_RDAMP];
-    for (t = 0; t < NTRK; t++)
-        ok &= track_v3_ok(&q.t[t], &v3.t[t], t);
-    bad += check("FUN3 -> FUN6: every parameter kept, the matrix OFF, steps, globals (24: ROOM)", ok);
-
-    /* a FUN3 written before 1.0 (parts 0: track 4 the drum part, engine byte 0) */
-    v3.parts = 0;
-    v3.t[3] = v3.t[0];
-    v3.t[3].engine = 0;
-    v3.t[3].preset = 0;
-    v3.g[G_DRLVL] = 90;
-    v3.g[G_DRREV] = 20;
-    v3.sum = proj_hash(&v3, sizeof v3 - 4u);
-    memcpy(&buf, &v3, sizeof v3);
-    ok = proj_import(&q2, &buf, (int)sizeof v3) && proj_ok(&q2) && q2.parts == NPART && q2.t[3].engine == ENGI_DRUM &&
-         q2.t[3].preset == PROJ_DEF_KEEP && q2.t[3].p[P_LEVEL] == 90 && q2.t[3].p[P_REV] == 20 &&
-         q2.t[3].p[P_PAN] == oldv3(0, P_PAN) && q2.t[3].p[P_SLEN] == oldv3(0, P_SLEN) &&
-         q2.t[3].p[P_SLCR] == oldv3(0, P_SLCR) && q2.t[3].p[P_M1SRC] == 0 &&
-         steps_grid_same(q2.t[3].step, v3.t[0].step) && !memcmp(&q2.t[0], &q.t[0], sizeof q.t[0]);
-    bad += check("FUN3 before 1.0: the drum track -> part 4 (LEVEL / REV from G_DRLVL / G_DRREV)", ok);
-
-    /* a FUN6 round trip: stored as is (a matrix slot set; WHEEL engine 7; a DRUM track with
-     * notes on its lanes stays so: only an older format is converted) */
+    /* today's format: a matrix slot set, WHEEL engine 7, a DRUM track with notes and hits: stored as is */
+    memset(&q, 0, sizeof q);
+    q.magic = PROJ_MAGIC; q.size = sizeof q; q.sel = 1; q.parts = NPART; q.phys = PROJ_PHYS; q.fm6_vib = 1;
+    chain_defaults(&q.chain); memcpy(q.dx, DX_KIT_DEF, sizeof q.dx);
+    for (t = 0; t < NTRK; t++) {
+        q.t[t].engine = trk_def_engine(t);
+        q.t[t].preset = PROJ_DEF_SOUND;
+        for (i = 0; i < P_COUNT; i++) q.t[t].p[i] = TP[i].def;
+        memcpy(q.fm6[t], FM6_INIT, FM6_PACKED);
+    }
     q.t[1].engine = 7;
     q.t[2].p[P_M2SRC] = 6;
     q.t[2].p[P_M2DST] = 11;
@@ -622,186 +379,29 @@ int main(void)
     q.t[0].step[0] = (step_t){{36, 42, 0, 0}, 2, ST_NOTE, 0, 96, 1u << DV_SNARE, 1u << DV_SNARE};
     q.sum = proj_sum(&q);
     memcpy(&buf, &q, sizeof q);
-    bad += check("FUN6 -> FUN6: as stored (a matrix slot, engine 7, a DRUM step with notes and hits)",
+    bad += check("today's format: as stored (a matrix slot, engine 7, a DRUM step with notes and hits)",
                  proj_import(&q2, &buf, (int)sizeof q) && !memcmp(&q, &q2, sizeof q) && q2.t[1].engine == 7 &&
                  q2.t[2].p[P_M2AMT] == -17 && q2.t[0].step[0].n == 2u && q2.t[0].step[0].hit == 1u << DV_SNARE);
-    q.t[0].engine = 3;
-    q.t[0].step[0] = q.t[0].step[1];
-    for (t = 0; t < NTRK; t++) {                      /* an older format has no OSC 2: the engine's defaults */
-        int an = q.t[t].engine == ENGI_ANALOG;
-        if (an)
-            q.t[t].p[P_E7] = 0;
-        q.t[t].p[P_MORPH] = an ? 0 : TP[P_MORPH].def;
-        q.t[t].p[P_DRIFT] = an ? 0 : TP[P_DRIFT].def;
-        q.t[t].p[P_WAVE2] = an ? 0 : TP[P_WAVE2].def;
-    }
+    q.chain.count = 2;
+    q.chain.row[0] = chain_row_of(0, 4);
+    q.chain.row[1] = chain_row_of(3, 16);
+    q.sum = proj_sum(&q);
+    bad += check("chain round trip", proj_import(&q2, &q, sizeof q) &&
+        !memcmp(&q.chain, &q2.chain, sizeof q.chain));
+    q.chain.row[0].repeat = 0;
+    q.sum = proj_sum(&q);
+    bad += check("an invalid chain row is refused even with a correct checksum", !proj_import(&q2, &q, sizeof q));
+    chain_defaults(&q.chain);
     q.sum = proj_sum(&q);
 
-    {
-        project_v5_t old;
-        memset(&old, 0, sizeof old);
-        memcpy(old.g, q.g, sizeof old.g); old.sel = q.sel; old.parts = q.parts; old.phys = q.phys;
-        for (uint32_t k = 0; k < NTRK; k++) {
-            for (uint32_t j = 0; j < 61u; j++) old.t[k].p[j] = j == (uint32_t)P_SCALE ? test_scl_to_v12(q.t[k].p[j]) : q.t[k].p[j];
-            for (uint32_t j = 0; j < 8u; j++) old.t[k].p[61u + j] = q.t[k].p[P_E0 + j];
-            old.t[k].engine = q.t[k].engine; old.t[k].preset = q.t[k].preset;
-            for (uint32_t j = 0; j < NSTEP; j++) {
-                const step_t *s = &q.t[k].step[j];
-                step10_t *d = &old.t[k].step[j];
-                for (uint32_t b = 0; b < 4u; b++) d->note[b] = (uint8_t)step_note(s, b);
-                d->n = s->n; d->time = s->time; d->flags = (uint8_t)step_fl(s);
-                d->vel = s->vel; d->hit = s->hit; d->acc = s->acc;
-            }
-        }
-        old.magic = PROJ_MAGIC_V5;
-        old.size = sizeof old;
-        old.sum = proj_hash(&old, sizeof old - 4u);
-        bad += check("FUN5 -> FUN6: sounds, grid and reserved lane bytes kept, no chain",
-            proj_import(&q2, &old, sizeof old) && !memcmp(q2.t, q.t, sizeof q.t) &&
-            !q2.chain.count && chain_valid(&q2.chain));
-        old.sum ^= 1u;
-        bad += check("FUN5: damaged checksum refused", !proj_import(&q2, &old, sizeof old));
-        q.chain.count = 2;
-        q.chain.row[0] = chain_row_of(0, 4);
-        q.chain.row[1] = chain_row_of(3, 16);
-        q.sum = proj_sum(&q);
-        bad += check("FUN6: chain round trip", proj_import(&q2, &q, sizeof q) &&
-            !memcmp(&q.chain, &q2.chain, sizeof q.chain));
-        q.chain.row[0].repeat = 0;
-        q.sum = proj_sum(&q);
-        bad += check("FUN6: invalid row refused even with a correct checksum", !proj_import(&q2, &q, sizeof q));
-        chain_defaults(&q.chain);
-        q.sum = proj_sum(&q);
-    }
-
-    /* format 4 (1.0 development builds): 8-byte steps; a DRUM track's lane notes become its grid */
-    for (t = 0; t < NTRK; t++) {
-        int an = q.t[t].engine == ENGI_ANALOG;
-        if (an)
-            q.t[t].p[P_E7] = 0;
-        q.t[t].p[P_MORPH] = an ? 0 : TP[P_MORPH].def;
-        q.t[t].p[P_DRIFT] = an ? 0 : TP[P_DRIFT].def;
-        q.t[t].p[P_WAVE2] = an ? 0 : TP[P_WAVE2].def;
-    }
-    to_v4(&v4, &q);
-    bad += check("FUN4 image is 2680 bytes (as stored)", sizeof v4 == 2680u);
-    memcpy(&buf, &v4, sizeof v4);
-    ok = proj_import(&q2, &buf, (int)sizeof v4) && proj_ok(&q2) && q2.magic == PROJ_MAGIC && q2.sel == q.sel &&
-         !memcmp(q2.g, q.g, sizeof q.g);
-    for (t = 0; t < NTRK; t++)
-        ok &= !memcmp(q2.t[t].p, q.t[t].p, sizeof q.t[t].p) && q2.t[t].engine == q.t[t].engine &&
-              steps_same(q2.t[t].step, v4.t[t].step);
-    bad += check("FUN4 -> FUN6: parameters, engines, globals; steps as they were, no hits", ok);
-    {   /* track 2 a DRUM track: BEAT-like steps, a chord, a low tom 41, a crash 49, a step accent, a TIE */
-        static const step8_t D[6] = {
-            {{36, 0, 0, 0}, 1, ST_NOTE, SF_ACCENT, 96}, {{42, 38, 0, 0}, 2, ST_NOTE, 0, 100},
-            {{41, 36, 0, 0}, 2, ST_NOTE, SF_ACCENT, 96}, {{49, 0, 0, 0}, 1, ST_NOTE, 0, 96},
-            {{0, 0, 0, 0}, 0, ST_TIE, 0, 0}, {{38, 46, 0, 0}, 2, ST_REST, 0, 96},
-        };
-        const step_t *s = q2.t[1].step;
-        v4.t[1].engine = ENGI_DRUM;
-        for (i = 0; i < 6u; i++)
-            v4.t[1].step[i] = D[i];
-        v4.sum = proj_hash(&v4, sizeof v4 - 4u);
-        memcpy(&buf, &v4, sizeof v4);
-        ok = proj_import(&q2, &buf, (int)sizeof v4) && q2.t[1].engine == ENGI_DRUM;
-        ok &= s[0].n == 0 && s[0].hit == 1u << DV_KICK && s[0].acc == 1u << DV_KICK && !(step_fl(&s[0]) & SF_ACCENT) &&
-              s[0].vel == 96 && s[0].time == ST_NOTE;
-        ok &= s[1].n == 0 && s[1].hit == ((1u << DV_HATC) | (1u << DV_SNARE)) && !s[1].acc && s[1].vel == 100;
-        ok &= s[2].n == 1 && step_note(&s[2], 0) == 41 && s[2].hit == 1u << DV_KICK && (step_fl(&s[2]) & SF_ACCENT) &&
-              step_lanes(&s[2]) == ((1u << DV_KICK) | (1u << DV_TOM)) && step_accents(&s[2]) == step_lanes(&s[2]);
-        ok &= s[3].n == 1 && step_note(&s[3], 0) == 49 && !s[3].hit && step_lanes(&s[3]) == 1u << DV_BELL;
-        ok &= s[4].time == ST_TIE && !s[4].hit && s[5].time == ST_REST && s[5].n == 2 && !s[5].hit;
-        ok &= steps_same(q2.t[0].step, v4.t[0].step);   /* (not DRUM: as it was) */
-        bad += check("FUN4 -> FUN6: a DRUM track's lane notes -> hits (accents too), a low tom / crash kept", ok);
-    }
-    v3.t[0].p[7]++;
-    memcpy(&buf, &v3, sizeof v3);
-    bad += check("FUN3 with a bad checksum: refused", !proj_import(&q2, &buf, (int)sizeof v3));
-    memcpy(&buf, &q, sizeof q);
-    buf.v5.magic = PROJ_MAGIC_V3;
-    bad += check("FUN6 size with a FUN3 magic: refused", !proj_import(&q2, &buf, (int)sizeof q));
-
-    /* damaged / wrong size */
-    v2.t[1].p[3]++;
-    memcpy(&buf, &v2, sizeof v2);
-    bad += check("FUN2 with a bad checksum: refused", !proj_import(&q2, &buf, (int)sizeof v2));
-    v2.t[1].p[3]--;
-    memcpy(&buf, &v2, sizeof v2);
-    bad += check("FUN2 with a wrong length: refused", !proj_import(&q2, &buf, (int)sizeof v2 - 2));
-    memcpy(&buf, &q, sizeof q);
-    buf.v5.magic = PROJ_MAGIC_V2;
-    bad += check("FUN6 size with a FUN2 magic: refused", !proj_import(&q2, &buf, (int)sizeof q));
-
-    /* format 1: one instrument -> track 1, the others their defaults */
-    memset(&v1, 0, sizeof v1);
-    v1.magic = PROJ_MAGIC_V1;
-    v1.size = sizeof v1;
-    for (i = 0; i < PROJ_NG_V2; i++)
-        v1.g[i] = (int16_t)(700 + i);
-    fill_v2_track(&v1.t, 0);
-    v1.sum = proj_hash(&v1, sizeof v1 - 4u);
-    memcpy(&buf, &v1, sizeof v1);
-    ok = proj_import(&q, &buf, (int)sizeof v1) && proj_ok(&q) && track_ok(&q.t[0], &v1.t, 0, 0, 0, 0) && q.g[5] == 705 &&
-         q.parts == NPART;
-    for (t = 1; t < NTRK; t++)
-        ok &= q.t[t].preset == PROJ_DEF_SOUND && q.t[t].engine == trk_def_engine(t) && q.t[t].p[P_SLCR] == 0 && q.t[t].p[P_LEVEL] == TP[P_LEVEL].def &&
-              q.t[t].p[P_E0] == ENGINES[trk_def_engine(t)]->edit[0].def && q.t[t].step[0].time == ST_REST;
-    bad += check("FUN1 -> FUN6: track 1 mapped, tracks 2..4 defaults", ok);
-
-    /* PHYS MODEL DRUM (a FUN4 with phys 1) -> the DRUM engine; the old DRUM KIT preset becomes DRUM's */
-    {
-        static const int16_t OLD_KIT[8] = {4, 64, 70, 64, 64, 100, 0, 0};   /* PHYS DRUM KIT before 1.0 */
-        static const int16_t E0[8] = {4, 70, 80, 60, 50, 110, 100, 70}, E1[8] = {2, 10, 20, 30, 40, 50, 60, 70};
-        for (t = 0; t < NTRK; t++)
-            q.t[t].p[P_DIST] = 0;                     /* FUN4 bypass predates the separate DIST MIX. */
-        q.t[0].engine = ENGI_PHYS;                      /* MODEL DRUM, PERC 70 (CYM), KICK 100 (ROUND) */
-        q.t[0].preset = 9;
-        q.t[1].engine = ENGI_PHYS;                      /* MEMB (2: DUST only before phys 1) */
-        q.t[2].engine = ENGI_PHYS;
-        q.t[3].engine = ENGI_PHYS;
-        for (i = 0; i < 8u; i++) {
-            q.t[0].p[P_E0 + i] = E0[i];
-            q.t[1].p[P_E0 + i] = E1[i];
-            q.t[2].p[P_E0 + i] = OLD_KIT[i];
-            q.t[3].p[P_E0 + i] = (int16_t)(i ? 30 : PM_SYMP);
-        }
-        q.phys = 1;
-        for (i = 1; i < NSTEP; i++)                     /* (the other steps rests) */
-            q.t[0].step[i] = (step_t){{50, 0, 0, 0}, 1, ST_REST, 0, 0, 0, 0};
-        q.t[0].step[0] = (step_t){{36, 42, 0, 0}, 2, ST_NOTE, 0, 96, 0, 0};
-        q.sum = proj_sum(&q);
-        to_v4(&v4, &q);
-        memcpy(&buf, &v4, sizeof v4);
-        ok = proj_import(&q2, &buf, (int)sizeof v4) && proj_ok(&q2) && q2.phys == PROJ_PHYS &&
-             q2.t[0].engine == ENGI_DRUM && q2.t[0].preset == 0 && str_eq(ENGINES[ENGI_DRUM]->name, "DRUM-X") &&
-             q2.t[0].p[P_E0] == 2 && q2.t[0].p[P_E6] == 1 && q2.t[0].p[P_E7] == 0;
-        for (i = 1; i < 6u; i++)
-            ok &= q2.t[0].p[P_E0 + i] == E0[i];         /* TUNE TONE DECY SNAP ACC in place */
-        ok &= q2.t[1].engine == ENGI_PHYS && !memcmp(q2.t[1].p, q.t[1].p, sizeof q.t[1].p);
-        ok &= q2.t[3].engine == ENGI_PHYS && !memcmp(q2.t[3].p, q.t[3].p, sizeof q.t[3].p);
-        ok &= q2.t[2].engine == ENGI_DRUM;              /* PHYS MODEL DRUM -> DRUM-X (E values via drum_from_phys) */
-        {
-            static const int16_t CONV[8] = {0, 64, 70, 64, 64, 100, 0, 0};   /* OLD_KIT after drum_from_phys */
-            for (i = 0; i < 8u; i++)
-                ok &= q2.t[2].p[P_E0 + i] == CONV[i];
-        }
-        ok &= !memcmp(&q2.t[0].step[1], &q.t[0].step[1], sizeof q.t[0].step - sizeof(step_t)) &&
-              q2.t[0].p[P_LEVEL] == q.t[0].p[P_LEVEL];
-        ok &= q2.t[0].step[0].n == 0 && q2.t[0].step[0].hit == ((1u << DV_KICK) | (1u << DV_HATC));   /* the grid */
-        ok &= !memcmp(q2.t[1].step, q.t[1].step, sizeof q.t[1].step);   /* (PHYS: as they were) */
-        bad += check("FUN4 phys 1: PHYS MODEL DRUM -> DRUM engine (its lane notes as hits), MEMB kept", ok);
-        memcpy(&buf, &q2, sizeof q2);
-        bad += check("FUN6 after it: imported again, as it is", proj_import(&q, &buf, (int)sizeof q2) &&
-                                                                !memcmp(&q, &q2, sizeof q));
-        q.phys = 0;                                     /* before 1.0: MODEL 2 was DUST */
-        q.t[1].engine = ENGI_PHYS;
-        q.sum = proj_sum(&q);
-        to_v4(&v4, &q);
-        memcpy(&buf, &v4, sizeof v4);
-        ok = proj_import(&q2, &buf, (int)sizeof v4) && q2.phys == PROJ_PHYS && q2.t[1].engine == ENGI_PHYS &&
-             q2.t[1].p[P_E0] == PM_MODAL && q2.t[1].p[P_E6] == 64;
-        bad += check("FUN4 phys 0: PHYS DUST -> MODAL bowed", ok);
+    {   /* FUN1..FUN6 are no longer read: such a magic imports as empty (0) */
+        static project_store_t st;
+        uint32_t magic = 0x364E5546u, sum;             /* "FUN6" */
+        ok = proj_pack(&st, &q);
+        memcpy(st.raw, &magic, 4);
+        sum = proj_hash(st.raw, PROJ_STORE_SIZE - 4u);
+        memcpy(st.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+        bad += check("a FUN6 magic is refused (empty)", ok && !proj_import(&q2, &st, sizeof st));
     }
 
     {   /* the FUN7 name: the reserved tail's last 12 bytes, covered by the hash; zero = no name */
@@ -844,7 +444,6 @@ int main(void)
         }
         bad += check("FUN7 name with a byte outside 32..126: the project loads, no name",
                      proj_import(&c, &st2, sizeof st2) && !c.name[0] && c.t[1].p[P_LEVEL] == 99);
-        bad += check("FUN6..FUN1 imports: no name", !q2.name[0] && !q.name[0]);
     }
 
     {   /* FUN8: each track's FM6 patch travels with the project; FUN7 and older get the init patch */
@@ -873,7 +472,7 @@ int main(void)
         {   /* FUN8 as 1.0.x wrote it (3584 bytes, 91 parameters: E0..E7 at 83..90, the patches at 3056): the DRUM
              * lane levels 100 %, E0..E7 and their motion at today's P_E0.., the patches and the name kept */
             static uint8_t v8[3584];
-            uint32_t pos = 68u, pos9 = 68u, j;
+            uint32_t j;
             project_t e = a;
             e.t[3].engine = ENGI_DRUM; e.t[3].p[P_E3] = 30;
             e.motion.count = 2; e.motion.on = 8;
@@ -953,95 +552,11 @@ int main(void)
                      c.t[0].step[3].hit == 0x05u && c.t[0].step[3].acc == 0x05u);
     }
 
-    {   /* DIGITAL tracks (engine 1, retired: src/fm4_convert.c) in FUN8 / FUN7 / FUN4 / FUN1 projects load as FM6 with
-         * the converted patch as the track's own; their motion on the EDIT or OP ENV values goes, the rest stays */
-        project_t a, c, d;
-        static project_store_t st;
-        static uint8_t v7[PROJ_STORE_V7];
-        static project_v4_t w4;
-        static project_v1_t w1;
-        uint8_t v[FP_SIZE + 1u], pk[FM6_PACKED];
-        int16_t p[P_COUNT];
-        uint32_t i, sum;
-        memset(&a, 0, sizeof a);
-        a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
-        chain_defaults(&a.chain);
-        for (t = 0; t < NTRK; t++) {
-            for (i = 0; i < P_COUNT; i++)
-                a.t[t].p[i] = param_desc_of(t == 1u ? ENGI_DIGITAL : 0u, i)->def;
-            a.t[t].engine = t == 1u ? ENGI_DIGITAL : 0u;
-            a.t[t].preset = t == 1u ? 5u : 0u;
-            memcpy(a.fm6[t], FM6_INIT, FM6_PACKED);
-        }
-        fm4_preset_values(a.t[1].p, 5);                 /* DIGITAL PAD, an OP ENV edit on op 2 */
-        a.t[1].p[P_FM2_ATK] = 30;
-        a.t[1].p[P_FM2_LEVEL] = 100;
-        a.t[1].p[P_LEVEL] = 90;
-        memcpy(p, a.t[1].p, sizeof p);
-        fm4_convert(p, v);
-        fm6_pack(v, pk);
-        a.motion.count = 5;
-        a.motion.event[0] = (motion_event_t){1u << 6 | 3u, P_E4, 20};          /* track 2: INDEX */
-        a.motion.event[1] = (motion_event_t){1u << 6 | 4u, P_FM1_LEVEL, 50};   /* track 2: OP LEVEL */
-        a.motion.event[2] = (motion_event_t){1u << 6 | 5u, P_CHOR, 60};        /* track 2: a send: stays */
-        a.motion.event[3] = (motion_event_t){0u << 6 | 3u, P_E4, 70};          /* track 1 (ANALOG): stays */
-        a.motion.event[4] = (motion_event_t){1u << 6 | 9u, P_E7, 0};           /* track 2: E7 */
-        a.sum = proj_sum(&a);
-#define FM4_OK(c) ((c).t[1].engine == ENGI_FM6 && (c).t[1].preset == 4u && !memcmp((c).fm6[1], pk, FM6_PACKED) && \
-                   !memcmp((c).t[1].p, p, sizeof p) && (c).t[0].engine == 0u && !memcmp((c).fm6[0], FM6_INIT, FM6_PACKED))
-        ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
-        bad += check("FUN8 with a DIGITAL track: FM6, the converted patch its own, PTCH / preset FM6 PAD", ok && FM4_OK(c));
-        bad += check("  its motion on INDEX / OP LEVEL / E7 goes; a send's and the other track's stay",
-                     c.motion.count == 2u && c.motion.event[0].param == P_CHOR && c.motion.event[1].place == 3u &&
-                     c.motion.event[1].param == P_E4 && motion_valid(&c.motion) && proj_ok(&c));
-        bad += check("  imported again: as it is (FM6 now)", proj_import(&d, &c, sizeof c) && !memcmp(&d, &c, sizeof d));
-        (void)sum;                                      /* the same as FUN7 (as the FUN8 block above) */
-        {
-            int16_t p7[P_COUNT];
-            memcpy(p7, p, sizeof p7);
-            ins_migrate(p7, 91u);                       /* FUN7 import rebuilds the insert block */
-            bad += check("FUN7 with a DIGITAL track: the same", old_pack(v7, &a, OLD_FUN7, 91u) == sizeof v7 &&
-                         proj_import(&c, v7, sizeof v7) &&
-                         c.t[1].engine == ENGI_FM6 && c.t[1].preset == 4u && !memcmp(c.fm6[1], pk, FM6_PACKED) &&
-                         !memcmp(c.t[1].p, p7, sizeof p7) && c.t[0].engine == 0u &&
-                         !memcmp(c.fm6[0], FM6_INIT, FM6_PACKED) && c.motion.count == 2u);
-        }
-        memset(&a.motion, 0, sizeof a.motion);
-        a.sum = proj_sum(&a);
-        to_v4(&w4, &a);
-        memcpy(&buf, &w4, sizeof w4);
-        memcpy(p, a.t[1].p, sizeof p);                  /* (FUN4 had no OP ENV values: they load as defaults) */
-        for (i = P_FM1_ATK; i <= P_FM4_LEVEL; i++)
-            p[i] = TP[i].def;
-        fm4_convert(p, v);
-        fm6_pack(v, pk);
-        ins_migrate(p, PROJ_NP_V4);                     /* FUN4 np: insert defaults + FXPOS */
-        ok = proj_import(&c, &buf, (int)sizeof w4) && FM4_OK(c);
-        bad += check("FUN4 with a DIGITAL track (no OP ENV then: their defaults): FM6, converted", ok);
-        memset(&w1, 0, sizeof w1);
-        w1.magic = PROJ_MAGIC_V1;
-        w1.size = sizeof w1;
-        for (i = 0; i < PROJ_NG_V2; i++)
-            w1.g[i] = GP[i].def;
-        for (i = 0; i < PROJ_NP_V2 - 8u; i++)
-            w1.t.p[i] = TP[i].def;
-        for (i = 0; i < 8u; i++)
-            w1.t.p[PROJ_NP_V2 - 8u + i] = DIGITAL_PRESETS[1].e[i];   /* BELL */
-        w1.t.engine = ENGI_DIGITAL;
-        w1.t.preset = 1;
-        w1.sum = proj_hash(&w1, sizeof w1 - 4u);
-        memcpy(&buf, &w1, sizeof w1);
-        ok = proj_import(&c, &buf, (int)sizeof w1) && c.t[0].engine == ENGI_FM6 && c.t[0].preset == 1u &&
-             c.t[1].engine == ENGI_FM6 && c.t[1].preset == PROJ_DEF_SOUND;   /* (track 2: the power-on FM6 PAD) */
-        bad += check("FUN1 with DIGITAL: track 1 FM6 (BELL), track 2 the power-on sound (FM6 now)", ok);
-#undef FM4_OK
-    }
-    {   /* SAMPLE tracks of SET 4 (PERC, the GM kit, retired after 1.0.2) in FUN8 / FUN4 projects load as DRUM with its
+    {   /* SAMPLE tracks of SET 4 (PERC, the GM kit, retired after 1.0.2) in FUN8 projects load as DRUM with its
          * default kit: the E values the kit's, the rest of the sound, the steps and the preset byte's meaning kept; their
          * motion on the EDIT values goes, the rest stays; another SAMPLE set stays SAMPLE. Idempotent */
         project_t a, c, d;
         static project_store_t st;
-        static project_v4_t w4;
         static const int16_t KIT[8] = DRUM_KIT_E;
         uint32_t i;
         memset(&a, 0, sizeof a);
@@ -1050,7 +565,6 @@ int main(void)
         for (t = 0; t < NTRK; t++) {
             for (i = 0; i < P_COUNT; i++)
                 a.t[t].p[i] = param_desc_of(ENGI_SAMPLE, i)->def;
-            a.t[t].p[P_DIST] = 0;                     /* This sound is also encoded as FUN4, whose bypass was DRIVE 0. */
             a.t[t].engine = ENGI_SAMPLE;
             memcpy(a.fm6[t], FM6_INIT, FM6_PACKED);
         }
@@ -1078,12 +592,6 @@ int main(void)
                      c.motion.count == 2u && c.motion.event[0].param == P_REV && c.motion.event[1].place == 3u &&
                      motion_valid(&c.motion) && proj_ok(&c));
         bad += check("  imported again: as it is (DRUM now)", proj_import(&d, &c, sizeof c) && !memcmp(&d, &c, sizeof d));
-        memset(&a.motion, 0, sizeof a.motion);
-        a.sum = proj_sum(&a);
-        to_v4(&w4, &a);
-        memcpy(&buf, &w4, sizeof w4);
-        ok = proj_import(&c, &buf, (int)sizeof w4) && PERC_OK(c);
-        bad += check("FUN4 with a SAMPLE PERC track: DRUM's kit, the same", ok);
 #undef PERC_OK
     }
     {   /* GRAIN / NOISE stay; SLICE -> DRUM (eng_retire.c). Idempotent. */

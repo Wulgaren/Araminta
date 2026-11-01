@@ -39,9 +39,8 @@
  * SPREAD (P_SPRD, #148, before 1.2's release) made it P_COUNT 104 the same way: a record of 103 gets SPREAD 0.
  * 1.5: the INSERT (P_ITYPE .. P_IMIX), ANALOG's filter TYPE and ENV SYNC (P_FTYPE, P_ESYNC) made it 111 the same way:
  * a record of 104 gets the INSERT OFF, LP and OFF; 1.2 .. 1.4 read a record of 111 by count (the seven left out).
- * A record of engine 1 (DIGITAL, retired in 1.0) stays as it is (UP_PUT takes it too): its values are DIGITAL's,
- * and every load converts them to an FM6 sound with its own patch (ui.c fm4_apply, fm4_convert.c); lists count it
- * with FM6's (up_engine).
+ * A record of engine 1 (DIGITAL, retired in 1.0, no conversion since 3.6) stays as stored and is refused on load;
+ * lists show it as its silent stub (-).
  * A record of SLICE (retired) stays as stored too: every load remaps to DRUM (eng_retire.c); lists use eng_play_as.
  * SAMPLE / GRAIN / NOISE load as themselves again.
  *
@@ -540,14 +539,10 @@ static int up_load(uint32_t k)
     up_values(r, v);
     if (v[P_QUANT] == QN_CURR)
         v[P_QUANT] = QN_ALL;                            /* no link bit in a preset: CURR loads as ALL */
+    if (r->engine == ENGI_DIGITAL)                      /* DIGITAL (retired): no conversion, refused */
+        return 1;
     load_begin(t, UNDO_SOUND);                          /* (ui.c: the copy for SAVE held = undo) */
     panic_req |= (uint8_t)(1u << song.sel);
-    if (r->engine == ENGI_DIGITAL) {                    /* a DIGITAL sound (kept as it was stored): FM6 */
-        int16_t p[P_COUNT];
-        for (i = 0; i < P_COUNT; i++)
-            p[i] = param_kept(i) ? t->p[i] : v[i];
-        fm4_apply(t, p);
-    } else
     if (eng_retired(r->engine)) {                       /* SLICE: DRUM */
         int16_t p[P_COUNT];
         uint32_t to;
@@ -624,7 +619,7 @@ static void up_pat_load(track_t *t, uint32_t k)
     t->p[P_SLEN] = (int16_t)clamp(v[P_SLEN], 1, 16);   /* (the pattern has 16 steps) */
 }
 
-/* the engine a used slot's sound plays on (a DIGITAL record: FM6) */
+/* the engine a used slot's sound plays on (a retired record: its stub or DRUM) */
 static uint32_t up_engine(uint32_t k) { return eng_play_as(up_rec(k)->engine); }
 
 static uint32_t up_count(void)                 /* used slots */
