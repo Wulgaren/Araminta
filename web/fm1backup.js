@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 // Local, complete musical archives. Requests name whitelisted objects, never flash addresses.
+import { convertProject, needsConversion } from "./projconv.js";
 // 8: the FM6 patch bank of 1.0..1.0.2 (listed empty since 1.0.3: a restore of an older archive's bank moves its patches
 // into the user presets restored before it); 9: the user presets' FM6 patches (1.0.3)
 export const BACKUP_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 32, 33, 34];
@@ -165,7 +166,8 @@ export async function restoreBackup(request, file, onProgress = () => {}) {
 
 /* One PROJECT slot (backup ids 2..5) as its own file. Uses LIST/GET/PUT only; other slots stay. */
 const PROJECT_MAGIC = {
-  3388: [0x46554e37], 3584: [0x46554e38], 3648: [0x46554e39],
+  688: [0x46554e31], 2552: [0x46554e32], 2584: [0x46554e33], 2680: [0x46554e34],
+  3352: [0x46554e35], 3388: [0x46554e36, 0x46554e37], 3584: [0x46554e38], 3648: [0x46554e39],
   3840: [0x46554e41, 0x46554e42, 0x46554e43, 0x46554e44, 0x46554e45, 0x46554e46,
     0x474e5546, 0x484e5546, 0x494e5546, 0x4a4e5546],
 };
@@ -190,21 +192,30 @@ function checkProjectBytes(bytes) {
   if (!want || !want.includes(projMagic(bytes))) throw new Error("Not a Felucca project");
   return bytes;
 }
-export function readProject(file) {
+/* digital: the editor's DIGITAL -> FM6 converter, needed only for a project that still holds such a track.
+   An old format (FUN1..FUN6) or a DIGITAL track is converted here; the bytes returned are the FUN19 wire. */
+export function readProject(file, digital) {
   if (typeof file === "string") file = JSON.parse(file);
-  if (!file || file.format !== "felucca-project" || file.version !== 1 ||
-      !Number.isInteger(file.size) || !(file.size in PROJECT_MAGIC) ||
-      !Number.isInteger(file.crc) || file.crc < 0 || file.crc > 0xffffffff ||
-      typeof file.data !== "string" ||
-      file.data.length !== 4 * Math.ceil(file.size / 3) ||
-      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.data))
-    throw new Error("Not a Felucca project file");
-  const bytes = checkProjectBytes(Uint8Array.from(atob(file.data), (c) => c.charCodeAt(0)));
-  if (bytes.length !== file.size || bkCrc(bytes) !== file.crc) throw new Error("Project checksum mismatch");
+  let bytes;
+  if (file && file.bytes instanceof Uint8Array) {
+    bytes = checkProjectBytes(file.bytes);
+  } else {
+    if (!file || file.format !== "felucca-project" || file.version !== 1 ||
+        !Number.isInteger(file.size) || !(file.size in PROJECT_MAGIC) ||
+        !Number.isInteger(file.crc) || file.crc < 0 || file.crc > 0xffffffff ||
+        typeof file.data !== "string" ||
+        file.data.length !== 4 * Math.ceil(file.size / 3) ||
+        !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.data))
+      throw new Error("Not a Felucca project file");
+    bytes = checkProjectBytes(Uint8Array.from(atob(file.data), (c) => c.charCodeAt(0)));
+    if (bytes.length !== file.size || bkCrc(bytes) !== file.crc) throw new Error("Project checksum mismatch");
+  }
+  const converted = needsConversion(bytes);
+  if (converted) bytes = convertProject(bytes, digital);
   const slot = Number.isInteger(file.slot) && file.slot >= 0 && file.slot <= 3 ? file.slot : 0;
-  return { ...file, slot, bytes, name: projectName(bytes) };
+  return { ...file, slot, size: bytes.length, crc: bkCrc(bytes), bytes, name: projectName(bytes), converted };
 }
-export async function captureProject(request, slot, firmware, onProgress = () => {}) {
+export async function captureProject(request, slot, firmware, onProgress = () => {}, digital) {
   const id = projId(slot);
   const manifest = bkManifest(await request([BACKUP_CMD.LIST, []], { timeout: 3000, retries: 0 }));
   const o = manifest.find((x) => x.id === id);
@@ -226,11 +237,11 @@ export async function captureProject(request, slot, firmware, onProgress = () =>
     format: "felucca-project", version: 1, firmware, created: new Date().toISOString(),
     slot, size: o.size, crc: o.crc, data: bkBase64(bytes),
   };
-  readProject(file);
+  readProject(file, digital);
   return file;
 }
-export async function restoreProject(request, file, slot, onProgress = () => {}) {
-  const project = readProject(file);
+export async function restoreProject(request, file, slot, onProgress = () => {}, digital) {
+  const project = readProject(file, digital);
   const id = projId(slot);
   const ask = async (r, o = {}) => request(r, { timeout: 4000, retries: 0, ...o });
   const put = async (args) => { const a = await ask([BACKUP_CMD.PUT, args]); bkCheck(a[2]); return a; };
