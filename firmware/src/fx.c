@@ -1647,16 +1647,22 @@ typedef struct {
     uint16_t wp;
     uint32_t ph;
     int32_t hp, lp1, lp2, dc, hold, fb, ic1, ic2;
-    int32_t px[PH_ST], py[PH_ST];
-    int16_t comb[IC_LEN];
 } ins_st_t;
+/* FILTER's COMB line and PHASR's all-pass pair: one stage runs each, so one copy per render context
+ * (a track, or a MASTER channel) instead of in every stage slot. */
+typedef struct {
+    int16_t comb[IC_LEN];
+    int32_t px[PH_ST], py[PH_ST];
+} ins_ctx_t;
 static ins_st_t ins_st[NTRK][INS_N] __attribute__((section(".pool")));
+static ins_ctx_t ins_ctx[NTRK + 2] __attribute__((section(".pool")));   /* NTRK + the two MASTER channels */
 /* SEND DSP reuses ins_st[bus_tr][st] / ins_lines[bus_tr] (first SEND track for that stage).
  * Max 4 instances/stage: CHAIN private + SEND shared coexist, never 4+1. Parts render at once on the two
  * cores (mix_block): the shared state runs its one block in the lowest SEND consumer's part (ins_bus_block
  * picks it; its own knobs and input, as the parts rendered one after another), every other consumer runs the
  * copy of the block's start here. ins_bus_join puts the run in place after the join. */
 static ins_st_t ins_bus_blk[INS_N];                                  /* SEND state at mix-block start */
+static ins_ctx_t ins_bus_ctx;                                        /* .. its FILTER / PHASR state */
 static uint8_t ins_bus_driver[INS_N];                                /* the part that runs it (0xFF: no consumer) */
 static uint8_t ins_bus_parallel;                                    /* SEND line windows commit after the join only on two cores */
 static uint8_t ins_bus_ran[C1_NP];                                   /* bit per stage: this part ran the SEND DSP */
@@ -1668,6 +1674,16 @@ static int16_t ins_lines[NTRK][2][IL_LEN] __attribute__((section(".pool")));
  * parameters set the sound. Kept in the pool, like the per-track states. */
 static ins_st_t ins_master_st[2][INS_N] __attribute__((section(".pool")));
 static int16_t ins_master_lines[2][2][IL_LEN] __attribute__((section(".pool")));
+/* copy the context state the stage st runs (FILTER's COMB, PHASR's pair; the rest has none) */
+static void ins_ctx_stage(ins_ctx_t *d, const ins_ctx_t *src, uint32_t st)
+{
+    if (st == INS_FILTER)
+        memcpy(d->comb, src->comb, sizeof d->comb);
+    else if (st == INS_PHASR) {
+        memcpy(d->px, src->px, sizeof d->px);
+        memcpy(d->py, src->py, sizeof d->py);
+    }
+}
 static void ins_master_reset(uint32_t st)
 {
     if (st >= INS_N)
@@ -1676,6 +1692,15 @@ static void ins_master_reset(uint32_t st)
     memset(&ins_master_st[1][st], 0, sizeof ins_master_st[1][st]);
     memset(ins_master_lines[0], 0, sizeof ins_master_lines[0]);
     memset(ins_master_lines[1], 0, sizeof ins_master_lines[1]);
+    if (st == INS_FILTER) {
+        memset(ins_ctx[NTRK].comb, 0, sizeof ins_ctx[0].comb);
+        memset(ins_ctx[NTRK + 1].comb, 0, sizeof ins_ctx[0].comb);
+    } else if (st == INS_PHASR) {
+        memset(ins_ctx[NTRK].px, 0, sizeof ins_ctx[0].px);
+        memset(ins_ctx[NTRK].py, 0, sizeof ins_ctx[0].py);
+        memset(ins_ctx[NTRK + 1].px, 0, sizeof ins_ctx[0].px);
+        memset(ins_ctx[NTRK + 1].py, 0, sizeof ins_ctx[0].py);
+    }
 }
 /* route in or out of MASTER: its private state starts from silence (the shared buses' state is exclusive) */
 static void fx_master_reset_stage(uint32_t st)
@@ -1752,6 +1777,7 @@ static void fx_boot(void)
     dly_q8 = 0;
     dly_free = 0;
     memset(ins_st, 0, sizeof ins_st);
+    memset(ins_ctx, 0, sizeof ins_ctx);
     memset(ins_lines, 0, sizeof ins_lines);
     memset(ins_master_st, 0, sizeof ins_master_st);
     memset(ins_master_lines, 0, sizeof ins_master_lines);
@@ -1845,7 +1871,8 @@ static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, const track_t *t
     }
 }
 
-static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n, int32_t tw)
+static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, int16_t *comb, const track_t *t, int32_t *b,
+                                                    uint32_t n, int32_t tw)
 {
     uint32_t i, ft = (uint32_t)clamp(t->p[P_IFTYPE], 0, IFT_N - 1);
     int32_t cut = t->p[P_IFCUT], res = t->p[P_IFRES], k = 8192 - res * 7600 / 127;
@@ -1861,7 +1888,7 @@ static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, const track_t 
             /* CUT = delay across the line (0 longest); RES = feedback; out = x + g * delayed.
              * The analog COMB's soft knee (half scale), but 32000 not 16000: this runs after the
              * voices are summed, so 16000 would compress a chord hard instead of just its peaks. */
-            y = comb_process(s->comb, IC_LEN, &s->wp, x, clen, res);
+            y = comb_process(comb, IC_LEN, &s->wp, x, clen, res);
             y = soft_knee(y >> 1, 32000) << 1;
         } else {
             int32_t v3 = (x >> 1) - s->ic2;
@@ -1898,8 +1925,9 @@ static __attribute__((noinline)) void ins_run_crush(ins_st_t *s, const track_t *
     }
 }
 
-static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n,
-                                                    int32_t tw, uint32_t kind, int16_t *line, int16_t *win)
+static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, int32_t *px, int32_t *py, const track_t *t,
+                                                    int32_t *b, uint32_t n, int32_t tw, uint32_t kind,
+                                                    int16_t *line, int16_t *win)
 {
     uint32_t i;
     int32_t rate, dep, fbk_p;
@@ -1921,8 +1949,8 @@ static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, const track_t *
                 uint32_t st;
                 s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
                 for (st = 0; st < PH_ST; st++) {
-                    y = clamp(s->px[st] + ((a * (u - s->py[st]) + 8192) >> 14), -65535, 65535);
-                    s->px[st] = u; s->py[st] = y; u = y;
+                    y = clamp(px[st] + ((a * (u - py[st]) + 8192) >> 14), -65535, 65535);
+                    px[st] = u; py[st] = y; u = y;
                 }
                 s->fb = clamp(y, -32767, 32767);
                 y <<= 2;
@@ -1988,6 +2016,12 @@ static __attribute__((noinline)) void ins_rest(track_t *t)
             }
         }
         memset(&ins_st[k][s], 0, sizeof(ins_st_t));
+        if (s == INS_FILTER)
+            memset(ins_ctx[k].comb, 0, sizeof ins_ctx[k].comb);
+        else if (s == INS_PHASR) {
+            memset(ins_ctx[k].px, 0, sizeof ins_ctx[k].px);
+            memset(ins_ctx[k].py, 0, sizeof ins_ctx[k].py);
+        }
     }
     if (clear_lines)
         memset(ins_lines[k], 0, sizeof ins_lines[k]);
@@ -2013,6 +2047,7 @@ static void ins_bus_block(void)                      /* mix_block: new block for
                                                         * first MIX-0 consumer takes its own where it enters) */
             continue;
         ins_bus_blk[st] = ins_st[tr][st];              /* before any consumer: the copies' start */
+        ins_ctx_stage(&ins_bus_ctx, &ins_ctx[tr], st);
     }
 }
 
@@ -2026,20 +2061,27 @@ static __attribute__((noinline)) void ins_win_put(int16_t *line, const int16_t *
 
 /* one stage's DSP on run, cold-started from silence when it faded out completely. Returns where the swept
  * stages wrote their window (run->wp at the run's start). */
-static uint32_t ins_run_st(ins_st_t *run, const track_t *src, int32_t *b, uint32_t n, int32_t tw, uint32_t st,
-                           int16_t (*lines)[IL_LEN], uint32_t pi)
+static uint32_t ins_run_st(ins_st_t *run, ins_ctx_t *ctx, const track_t *src, int32_t *b, uint32_t n,
+                           int32_t tw, uint32_t st, int16_t (*lines)[IL_LEN], uint32_t pi)
 {
     uint32_t wbase;
     if (!run->w && tw) {
         memset(run, 0, sizeof *run);
+        if (st == INS_FILTER)
+            memset(ctx->comb, 0, sizeof ctx->comb);
+        else if (st == INS_PHASR) {
+            memset(ctx->px, 0, sizeof ctx->px);
+            memset(ctx->py, 0, sizeof ctx->py);
+        }
         if (st == INS_FLANG) run->line_i = 0;
         if (st == INS_CHOR) run->line_i = 1;
     }
     wbase = run->wp;
     if (st == INS_DIST) ins_run_dist(run, src, b, n, tw);
-    else if (st == INS_FILTER) ins_run_filter(run, src, b, n, tw);
+    else if (st == INS_FILTER) ins_run_filter(run, ctx->comb, src, b, n, tw);
     else if (st == INS_CRUSH) ins_run_crush(run, src, b, n, tw);
-    else ins_run_swept(run, src, b, n, tw, st, lines[run->line_i & 1u], ins_win[pi][run->line_i & 1u]);
+    else ins_run_swept(run, ctx->px, ctx->py, src, b, n, tw, st, lines[run->line_i & 1u],
+                       ins_win[pi][run->line_i & 1u]);
     return wbase;
 }
 
@@ -2051,15 +2093,18 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
     uint32_t k = (uint32_t)(t - trk) % NTRK, pi = C1_PI(t), wbase, i;
     int send = st < INS_N && ins_is_send(t, st);
     ins_st_t *s, tmp, *run;
+    ins_ctx_t *ctx, ctx_tmp;
     const track_t *src = ins_param_src(t, st);
     int32_t tw = tw_force >= 0 ? tw_force : ins_mixq(ins_mix_of(t, st));
     int16_t (*lines)[IL_LEN];
     if (send) {
         uint32_t bus_tr = ins_bus_tr(st);
         s = &ins_st[bus_tr][st];
+        ctx = &ins_ctx[bus_tr];
         lines = ins_lines[bus_tr];
         if (!ins_bus_parallel && ins_bus_driver[st] == 0xFF) {
             ins_bus_blk[st] = *s;
+            ins_ctx_stage(&ins_bus_ctx, ctx, st);
             ins_bus_driver[st] = (uint8_t)k;
         }
         ins_bus_ran[pi] |= (uint8_t)(1u << st);
@@ -2067,18 +2112,21 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
             run = s;                                   /* the block's one run of the shared state */
         } else {
             tmp = ins_bus_blk[st];                     /* the block's start: every other part runs its copy */
+            ins_ctx_stage(&ctx_tmp, &ins_bus_ctx, st);
+            ctx = &ctx_tmp;
             run = &tmp;
             for (i = 0; i < n; i++)                    /* ins_bus_join redoes the run from this input */
                 ins_send_in[pi][i] = b[i];
         }
     } else {
         s = &ins_st[k][st];
+        ctx = &ins_ctx[k];
         run = s;
         lines = ins_lines[k];
     }
     if (!run->w && !tw)
         return;                                         /* MIX 0 and faded: skip DSP */
-    wbase = ins_run_st(run, src, b, n, tw, st, lines, pi);
+    wbase = ins_run_st(run, ctx, src, b, n, tw, st, lines, pi);
     if ((!send || !ins_bus_parallel) && (st == INS_FLANG || st == INS_CHOR))
         /* one core commits before the next consumer, including deep shared CHORUS */
         ins_win_put(lines[run->line_i & 1u], ins_win[pi][run->line_i & 1u], wbase, n);
@@ -2106,9 +2154,10 @@ static __attribute__((noinline)) void ins_bus_join(uint32_t n)
             continue;                                    /* no consumer this block: the state stands */
         if ((uint8_t)lo != ins_bus_driver[st]) {
             tmp = ins_bus_blk[st];
+            ins_ctx_stage(&ins_ctx[bus_tr], &ins_bus_ctx, st);
             for (k = 0; k < n; k++)                    /* the runs are in place: a fresh copy per stage */
                 ins_rb[k] = ins_send_in[lo][k];
-            (void)ins_run_st(&tmp, bus_knobs_track(&trk[lo]), ins_rb, n, 32768, st,
+            (void)ins_run_st(&tmp, &ins_ctx[bus_tr], bus_knobs_track(&trk[lo]), ins_rb, n, 32768, st,
                              ins_lines[bus_tr], lo);
             ins_st[bus_tr][st] = tmp;
         }
@@ -2748,7 +2797,8 @@ static __attribute__((noinline)) void master_insert_run(track_t *owner, uint32_t
         return;
     for (ch = 0; ch < 2u; ch++) {
         ins_st_t *run = &ins_master_st[ch][st];
-        uint32_t wbase = ins_run_st(run, src, ch ? mix_r : mix_l, n, tw, st, ins_master_lines[ch], ch);
+        uint32_t wbase = ins_run_st(run, &ins_ctx[NTRK + ch], src, ch ? mix_r : mix_l, n, tw, st,
+                                    ins_master_lines[ch], ch);
         if (st == INS_FLANG || st == INS_CHOR)
             ins_win_put(ins_master_lines[ch][run->line_i & 1u], ins_win[ch][run->line_i & 1u], wbase, n);
     }
