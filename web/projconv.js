@@ -13,6 +13,7 @@
 // Without it a project holding a DIGITAL track is refused (explicitly: no silent stub).
 
 const NTRK = 4;
+const NENGINES = 16;
 const NSTEP = 64;
 const P_COUNT = 127;
 const P_E0 = 119;
@@ -33,8 +34,13 @@ const FX_BUS_N = 19;
 const MOTION_FILE_MAX = 88;
 const MOTION_LOCK = 0x80;
 const MFX_TIME = 49;                                            // P_M1SRC
+const MFX_FB = 50;
 const MFX_DAMP = 53;
 const MFX_TSPEED = 41;                                          // P_TAPEMIX
+const MFX_TWOW = 42;                                            // P_LSMOOTH
+const P_REL = 4, P_ED_FLT = 5, P_LD_AMP = 16, P_GLIDE = 38, P_PAN = 39, P_DETUNE = 44,
+  P_SLPAT = 46, P_SLDEPTH = 48, P_CHRD = 81, P_VOIC = 82, P_LN0 = 83, P_LN7 = 90,
+  P_SPRD = 95, P_IDMODE = 97;
 const QN_ALL = 1;
 const QN_CURR = 4;
 const PROJ_DEF_SOUND = 0xff;
@@ -53,7 +59,10 @@ const SIZE = { 1: 688, 2: 2552, 3: 2584, 4: 2680, 5: 3352, 6: 3388, 7: 3388, 8: 
 const PROJ_STORE_V7 = 3388, PROJ_STORE_V8 = 3584, PROJ_STORE_V9 = 3648, PROJ_MOTION_V9 = 260;
 const MOTION_FILE_SIZE_128 = 388, MOTION_FILE_SIZE_V10 = 334, MOTION_FILE_SIZE_V11 = 238,
   MOTION_FILE_SIZE_V15 = 220, MOTION_FILE_SIZE = 268;
-const CHAIN_WIRE15_SIZE = 84, CHAIN_WIRE16_SIZE = 36, CHAIN_ROWS = 16;
+const CHAIN_WIRE15_SIZE = 84, CHAIN_WIRE16_SIZE = 36, CHAIN_ROWS = 16, CHAIN_SILENT = 4;
+const MOTION_MAX = 192, MOTION_FILE_MAX_128 = 128;
+const MSEQ_PITCH = 127;
+const DTIME_FREE = 64, DTIME_MS_MAX = 1486;
 const PROJ_GENERATION_MARK = 0x47;
 const PROJ_MASTER_ORDER_OFF = 48 + 10 * 4;                       // 88
 const P_LEVEL = 0, P_SCALE = 26, P_QUANT = 27, P_DIST = 33, P_CHOR = 34, P_REV = 36,
@@ -437,9 +446,11 @@ function decodeOld(b, f) {
     if (v6) {
       const o = 3346;
       q.chain.count = b[o];
-      for (let r = 0; r < CHAIN_ROWS; r++) {
+      if (q.chain.count > CHAIN_ROWS) throw new Error("Invalid project chain");
+      for (let r = 0; r < q.chain.count; r++) {
         const slot = b[o + 4 + r * 2], rep = b[o + 5 + r * 2];
-        if (r < q.chain.count) q.chain.row[r] = { slot: [slot, slot, slot, slot], repeat: rep };
+        if (slot >= 4 || rep < 1 || rep > 16) throw new Error("Invalid project chain");
+        q.chain.row[r] = { slot: [slot, slot, slot, slot], repeat: rep };
       }
     }
     drumsToPart(q);
@@ -606,17 +617,23 @@ function decodeModern(b, f) {
     for (let i = 0; i < NSTEP; i++) {
       const s = d.steps[i];
       let nd = 0;
-      for (let j = 0; j < 4; j++) { nd |= (b[pos] >> 7) << j; s.note[j] = b[pos++] & 127; }
+      for (let j = 0; j < 4; j++) {
+        if (!v10 && b[pos] > 127) throw new Error("Invalid project note");
+        nd |= (b[pos] >> 7) << j; s.note[j] = b[pos++] & 127;
+      }
       let meta = b[pos++];
       s.n = meta & 7; s.time = (meta >> 3) & 3; s.flags = (meta >> 5) & 3;
       s.vel = b[pos] & 127; meta |= (b[pos++] & 128) << 1;
       s.hit = b[pos++]; s.acc = b[pos++];
+      if (s.acc & ~s.hit) throw new Error("Invalid project step accent");
       s.prob = b[pos] & 127; meta |= (b[pos++] & 128) << 2;
       s.ratchet = (meta >> 8) + 1; s.nudge = (nd ^ 8) - 8;
     }
   }
   if (v16 || v17) {
     q.chain.count = b[pos];
+    if (q.chain.count > CHAIN_ROWS) throw new Error("Invalid project chain");
+    if (!v18 && (b[pos + 1] || b[pos + 2] || b[pos + 3])) throw new Error("Invalid project chain");
     if (v18) {
       const mb = b[pos + 1] | b[pos + 2] << 8 | b[pos + 3] << 16;
       for (let t = 0; t < 8; t++) q.fx_master[t] = (mb >> (3 * t)) & 7;
@@ -635,8 +652,10 @@ function decodeModern(b, f) {
   } else {
     const o = pos;
     q.chain.count = b[o];
-    for (let i = 0; i < CHAIN_ROWS && i < q.chain.count; i++) {
+    if (q.chain.count > CHAIN_ROWS) throw new Error("Invalid project chain");
+    for (let i = 0; i < q.chain.count; i++) {
       const slot = b[o + 4 + i * 2], rep = b[o + 5 + i * 2];
+      if (slot >= 4 || rep < 1 || rep > 16) throw new Error("Invalid project chain");
       q.chain.row[i] = { slot: [slot, slot, slot, slot], repeat: rep };
     }
   }
@@ -651,7 +670,8 @@ function decodeModern(b, f) {
   }
   if (v10) {
     q.motion.count = b[pos]; q.motion.on = b[pos + 1];
-    if (q.motion.count > motMax) throw new Error("Invalid project motion count");
+    if (q.motion.count > (np > 111 ? motMax : MOTION_FILE_MAX_128))
+      throw new Error("Invalid project motion count");
     if (v18) {
       q.fx_master[8] = b[pos + 3] & 7; q.fx_master[9] = (b[pos + 3] >> 3) & 7;
     }
@@ -664,16 +684,20 @@ function decodeModern(b, f) {
         e.param = (MFX_TIME | (b[o + 1] & MOTION_LOCK)) & 0xff;
         e.value = (hi << 8) | b[o + 2];
       } else {
+        if (!(v15 || v16 || v17) && mfxAll(id)) throw new Error("Invalid project motion id");
         e.value = id === MFX_TSPEED ? tspeedGet(b[o + 2]) : ((b[o + 2] << 24) >> 24);
       }
       q.motion.event.push(e);
     }
   } else {
     q.motion.count = b[pos]; q.motion.on = b[pos + 1];
+    if (q.motion.count > motMax) throw new Error("Invalid project motion count");
     q.motion.event = [];
     for (let i = 0; i < q.motion.count; i++) {
-      const o = pos + 4 + i * 4;
-      q.motion.event.push({ place: b[o], param: b[o + 1], value: s16(b, o + 2) });
+      const o = pos + 4 + i * 4, id = b[o + 1] & 127, value = s16(b, o + 2);
+      if (value < -64 || value > 127 || (id >= MFX_TIME && id <= MFX_DAMP))
+        throw new Error("Invalid project motion record");
+      q.motion.event.push({ place: b[o], param: b[o + 1], value });
     }
   }
   motionIds(q.motion, np);
@@ -743,8 +767,75 @@ function decodeModern(b, f) {
   return q;
 }
 
+function mfxAll(id) {
+  return (id >= MFX_TIME && id <= MFX_DAMP) || id === MFX_TSPEED || id === MFX_TWOW;
+}
+/* motion.c motion_param: the ids an automation record or a lock may name */
+function motionParam(id) {
+  if (id === MSEQ_PITCH || mfxAll(id)) return true;
+  return id < P_COUNT && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
+    (id >= P_DIST && id <= P_REV) || id === P_GLIDE || id === P_PAN ||
+    id === P_DETUNE || (id >= P_SLPAT && id <= P_SLDEPTH) ||
+    id === P_CHRD || id === P_VOIC ||
+    (id >= P_FM1_ATK && id <= P_FM4_LEVEL) || (id >= P_LN0 && id <= P_LN7) ||
+    id === P_SPRD || (id >= P_IDMODE && id < P_FTYPE) || id >= P_E0);
+}
+/* song_chain.c chain_valid: the rows the song plays */
+function checkChain(c) {
+  if (c.count > CHAIN_ROWS) throw new Error("Invalid project chain");
+  for (let i = 0; i < c.count; i++) {
+    const r = c.row[i];
+    if (r.repeat < 1 || r.repeat > 16) throw new Error("Invalid project chain repeat");
+    for (let t = 0; t < NTRK; t++)
+      if (r.slot[t] > CHAIN_SILENT) throw new Error("Invalid project chain slot");
+  }
+}
+/* motion.c motion_valid: records, ids, values and one record per step and id */
+function checkMotion(m) {
+  if (m.count > MOTION_MAX || (m.on & ~((1 << NTRK) - 1))) throw new Error("Invalid project motion");
+  const seen = new Set();
+  for (let i = 0; i < m.count; i++) {
+    const e = m.event[i], id = e.param & 127;
+    if (!motionParam(id)) throw new Error("Invalid project motion id");
+    if (id === MSEQ_PITCH) {
+      if (!(e.param & MOTION_LOCK) || e.value < -24 || e.value > 24) throw new Error("Invalid project motion value");
+    } else if (id === MFX_TIME) {
+      if (e.value < DTIME_FREE + 1 || e.value > DTIME_FREE + DTIME_MS_MAX) throw new Error("Invalid project motion value");
+    } else if (id === MFX_TSPEED) {
+      if (e.value < 25 || e.value > 400) throw new Error("Invalid project motion value");
+    } else if (id === MFX_TWOW) {
+      if (e.value < 0 || e.value > 127) throw new Error("Invalid project motion value");
+    } else if (id >= MFX_TIME && id <= MFX_DAMP) {
+      if (e.value < 0 || e.value > (id === MFX_FB ? 120 : 127)) throw new Error("Invalid project motion value");
+    } else if (e.value < -64 || e.value > 127) throw new Error("Invalid project motion value");
+    const key = e.place * 128 + id;
+    if (seen.has(key)) throw new Error("Invalid project motion record");
+    seen.add(key);
+  }
+}
+/* drumx_voice.c dx_kit_ok */
+function checkDx(k) {
+  for (let l = 0; l < 8; l++) {
+    const o = l * 11;
+    if (((k[o] >> 2) & 3) > 2) throw new Error("Invalid project DRUM-X kit");
+    for (let i = 1; i < 11; i++) if (k[o + i] > 127) throw new Error("Invalid project DRUM-X kit");
+  }
+}
+/* project.c proj_pack: the GENERATION controls are percentages */
+function checkGeneration(q) {
+  for (const d of q.t)
+    if (d.generation[0] > 100 || d.generation[1] > 100 || d.generation[2] > 100 || d.generation[5] > 100)
+      throw new Error("Invalid project generation");
+}
+
 function packProject(q) {
   const b = new Uint8Array(PROJ_STORE_SIZE);
+  for (const d of q.t) if (d.engine >= NENGINES) throw new Error("Invalid project engine");
+  checkChain(q.chain);
+  checkMotion(q.motion);
+  checkDx(q.dx);
+  checkGeneration(q);
+  if (q.fx_master_order > NTRK) throw new Error("Invalid project MASTER order");
   const put16 = (o, v) => { b[o] = v & 255; b[o + 1] = (v >> 8) & 255; };
   const put32 = (o, v) => { b[o] = v & 255; b[o + 1] = (v >> 8) & 255; b[o + 2] = (v >> 16) & 255; b[o + 3] = (v >>> 24) & 255; };
   put32(0, MAGIC[19]); put32(4, PROJ_STORE_SIZE);
@@ -786,7 +877,7 @@ function packProject(q) {
   for (let t = 0; t < 8; t++) mb |= (q.fx_master[t] & 7) << (3 * t);
   b[pos++] = mb & 255; b[pos++] = (mb >> 8) & 255; b[pos++] = (mb >> 16) & 255;
   for (let i = 0; i < CHAIN_ROWS; i++) {
-    const r = q.chain.row[i], rp = r.repeat || 1;
+    const r = q.chain.row[i], rp = r.repeat;
     let w = (rp ? rp - 1 : 0) << 12;
     for (let t = 0; t < NTRK; t++) w |= (r.slot[t] & 7) << (3 * t);
     b[pos++] = w & 255; b[pos++] = (w >> 8) & 255;

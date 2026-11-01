@@ -153,6 +153,58 @@ for (const f of [7, 8, 9]) {
 }
 
 {
+  /* Malformed projects are refused, as project.c proj_unpack / proj_pack and the chain / motion validators
+   * refuse them: a value that C rejects must not be clamped into a plausible one. Each case starts from a
+   * fixture the C reader accepted, changes one field and fixes the hash, so only the field is at fault. */
+  const rehash = (b) => {
+    const sum = projectHash(b, b.length - 4);
+    b[b.length - 4] = sum & 255; b[b.length - 3] = (sum >> 8) & 255;
+    b[b.length - 2] = (sum >> 16) & 255; b[b.length - 1] = (sum >>> 24) & 255;
+    return b;
+  };
+  const crafted = (input, fn) => { const b = input.slice(); fn(b); return rehash(b); };
+  const VIBF = JSON.parse(readFileSync(new URL("./testdata/projconv_vib.json", import.meta.url), "utf8"));
+  const refuses = (bytes, why) => {
+    let out, err;
+    try { out = convertProject(bytes, digital); } catch (e) { err = e; }
+    ok(!out && err instanceof Error && /^Invalid project/.test(err.message),
+      `projconv refuses ${why}${err ? `: ${err.message}` : ""}`);
+  };
+
+  const fun1 = b64(FIX.old[1].input);
+  refuses(crafted(fun1, (b) => { b[168] = 200; }), "a FUN1 engine >= NENGINES");
+
+  const fun6 = b64(FIX.old[6].input);
+  refuses(crafted(fun6, (b) => { b[3346] = 17; }), "a FUN6 chain count > 16");
+  refuses(crafted(fun6, (b) => { b[3346] = 1; b[3350] = 4; }), "a FUN6 chain slot >= 4");
+  refuses(crafted(fun6, (b) => { b[3346] = 1; b[3351] = 0; }), "a FUN6 chain repeat 0");
+  refuses(crafted(fun6, (b) => { b[3346] = 1; b[3351] = 17; }), "a FUN6 chain repeat > 16");
+
+  const fun7 = b64(FIX.legacy[7].input);
+  const mot7 = 2780, step7 = 68 + 91 + 2;       // FUN7: np 91, no insert-order byte
+  const chain7 = 2744;                           // FUN7: 4 + 16 x {slot, repeat}
+  refuses(crafted(fun7, (b) => { b[chain7] = 1; b[chain7 + 4] = 9; b[chain7 + 5] = 200; }),
+    "a FUN7 chain row {slot 9, repeat 200}");
+  refuses(crafted(fun7, (b) => { b[mot7] = 65; }), "a FUN7 motion count > 64");
+  refuses(crafted(fun7, (b) => { b[mot7] = 1; b[mot7 + 6] = 200; }), "a FUN7 motion value > 127");
+  refuses(crafted(fun7, (b) => { b[mot7] = 1; b[mot7 + 5] = 49; }), "a FUN7 MFX motion id");
+  refuses(crafted(fun7, (b) => { b[mot7] = 1; b[mot7 + 5] = 100; }), "a FUN7 motion id past np");
+  refuses(crafted(fun7, (b) => { b[step7] = 200; }), "a FUN7 note byte > 127");
+  refuses(crafted(fun7, (b) => { b[step7 + 6] = 0; b[step7 + 7] = 1; }), "a FUN7 accent outside hit");
+
+  const fun10 = b64(VIBF["10"].input);
+  refuses(crafted(fun10, (b) => { b[2981] = 49; }), "a FUN10 MFX motion id");
+
+  const cur = b64(FIX.current);
+  refuses(crafted(cur, (b) => { b[3216] = 12; }), "a DRUM-X kit mode");
+  refuses(crafted(cur, (b) => { b[3217] = 200; }), "a DRUM-X kit value > 127");
+  refuses(crafted(cur, (b) => { b[3400] |= 0x80; b[3402] |= 0x80; }), "a MASTER order past NTRK");
+
+  const fun16 = b64(VIBF["16"].input);
+  refuses(crafted(fun16, (b) => { b[3319] |= 0x80; }), "a GENERATION density > 100");
+}
+
+{
   /* the fm1backup import path converts and reports it */
   const raw = b64(FIX.old[2].input);
   const file = { format: "felucca-project", version: 1, slot: 1, size: raw.length, crc: bkCrc(raw),
