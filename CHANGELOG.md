@@ -14,6 +14,9 @@ format change: saves stay FUN19 (`FUNJ`); header bit 2 marks the VIB meaning.
 - **Old VMOD.** A project or user preset from before 3.6 has VMOD in E5. On load, the value is added to the
   modulator operators' velocity sensitivity in the stored FM6 patch and E5 is cleared. VMOD automation has no
   patch target, so those E5 events go.
+- **MRAT in the matrix.** MRAT (E4) moves the modulators' ratios on a sounding note now; before, it was baked
+  into the operators at note-on, so a MOD slot pointed at it did nothing. No sound change with the macro at
+  rest (the same coarse offsets, applied per block).
 
 ### DIGITAL
 
