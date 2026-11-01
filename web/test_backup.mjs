@@ -2,7 +2,29 @@
 // Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 // fm1backup.js against a simulated device: 7-bit packing, CRC, manifest checks, a full capture,
 // validation before the first write, restore order (live music last) and abort on a failed chunk.
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import { BACKUP_IDS, BACKUP_CMD, bkU32, bkR32, bkPack, bkUnpack, bkCrc, bkManifest, readBackup, captureBackup, restoreBackup, readProject, captureProject, restoreProject, projectName } from "./fm1backup.js";
+
+/* Real project fixtures (tests/project_test.c images, converted by the old C firmware) and the editor's own
+   DIGITAL -> FM6 converter, so the archive's project objects are the formats the device and the page see. */
+const FIX = JSON.parse(readFileSync(new URL("./testdata/projconv.json", import.meta.url), "utf8"));
+const b64 = (s) => Uint8Array.from(Buffer.from(s, "base64"));
+const html = readFileSync(new URL("./editor.html", import.meta.url), "utf8");
+const proto = html.slice(html.indexOf("/*PROTO-BEGIN*/"), html.indexOf("/*PROTO-END*/"));
+const E = vm.runInNewContext(proto + ";({FM4, FM6})", { setTimeout, clearTimeout, setInterval, clearInterval, console });
+const digitalFm4 = (p, pe0) => {
+  const r = E.FM4.convert(p.slice(), pe0);
+  return { p: r.p, fm6: E.FM6.pack(r.voice), preset: r.preset };
+};
+const current = b64(FIX.current);
+const fun19 = (bytes) => bytes[0] === 0x46 && bytes[1] === 0x55 && bytes[2] === 0x4e && bytes[3] === 0x4a;
+const engineAt = (bytes) => 68 + bytes[66] + (bytes[66] > 111 ? 1 : 0);
+const record = (file, id, bytes) => {
+  const o = file.objects.find((x) => x.id === id);
+  o.size = bytes.length; o.crc = bkCrc(bytes); o.data = Buffer.from(bytes).toString("base64");
+  return file;
+};
 
 let fails = 0;
 const ok = (c, what) => { console.log(`${what.padEnd(72)} ${c ? "ok" : "FAIL"}`); if (!c) fails++; };
@@ -46,7 +68,7 @@ function device(objs, opt = {}) {
   };
   return d;
 }
-const objs = [[0, rnd(3388, 2)], [1, rnd(1200, 3)], [2, rnd(3388, 4)], [6, rnd(3080, 5)]];
+const objs = [[0, rnd(3388, 2)], [1, rnd(1200, 3)], [2, current], [6, rnd(3080, 5)]];
 const dev = device(objs);
 const file = await captureBackup(dev.request, "TEST");
 ok(file.objects.length === BACKUP_IDS.length && file.objects[0].size === 3388 && file.objects[3].size === 0, "backup: capture lists every object, empty ones as 0");
@@ -115,6 +137,40 @@ ok([0, 1, 2, 6].every((id) => target.objs.get(id).every((v, i) => v === objs.fin
   await restoreBackup(to103b.request, newFile);
   ok(to103b.objs.get(9).every((v, i) => v === patches[i]), "backup: a 1.0.3 archive restores id 9");
 }
+{   /* a complete archive with FUN1, FUN6 and DIGITAL project objects: capture keeps the bytes, restore converts */
+  const fun1 = b64(FIX.old[1].input), fun6 = b64(FIX.old[6].input), dig = b64(FIX.digital.input);
+  const src = device([[0, rnd(3388, 60)], [1, rnd(1200, 61)], [2, fun1], [3, fun6], [4, dig], [5, current]]);
+  const archive = await captureBackup(src.request, "3.6");
+  const object = (f, id) => f.objects.find((o) => o.id === id);
+  ok(object(archive, 2).size === 688 && object(archive, 2).data === Buffer.from(fun1).toString("base64") &&
+     object(archive, 3).size === 3388 && object(archive, 4).size === 3840 &&
+     object(archive, 4).data === Buffer.from(dig).toString("base64"),
+    "backup: capture keeps FUN1 / FUN6 / DIGITAL project bytes");
+  const ready = readBackup(JSON.stringify(archive), digitalFm4);
+  ok([2, 3, 4, 5].every((id) => object(ready, id).size === 3840 && fun19(object(ready, id).bytes)),
+    "backup: readBackup converts every project object to FUN19");
+  ok(object(ready, 2).bytes.every((v, i) => v === b64(FIX.old[1].expected)[i]) &&
+     object(ready, 3).bytes.every((v, i) => v === b64(FIX.old[6].expected)[i]),
+    "backup: FUN1 / FUN6 convert byte for byte == the C reader");
+  const target = device([]);
+  await restoreBackup(target.request, archive, () => {}, digitalFm4);
+  const got = (id) => target.objs.get(id);
+  ok(got(2).length === 3840 && got(2).every((v, i) => v === b64(FIX.old[1].expected)[i]) &&
+     got(3).every((v, i) => v === b64(FIX.old[6].expected)[i]),
+    "backup: restore writes the converted FUN1 / FUN6, not the old size");
+  ok(got(4).every((v, i) => v === b64(FIX.digital.expected)[i]) && got(4)[engineAt(got(4))] === 12,
+    "backup: restore converts a DIGITAL track to FUN19 / engine 12");
+  ok(object(archive, 2).size === 688 && object(archive, 2).crc === bkCrc(fun1),
+    "backup: the user's original archive object keeps its size and crc");
+
+  const junk = record(JSON.parse(JSON.stringify(archive)), 2, rnd(688, 62));
+  const noPut = device([]);
+  ok(await athrows(() => restoreBackup(noPut.request, junk, () => {}, digitalFm4)) && noPut.log.length === 0,
+    "backup: an invalid project object is refused before any PUT");
+  const noConverter = device([]);
+  ok(await athrows(() => restoreBackup(noConverter.request, archive)) && noConverter.log.length === 0,
+    "backup: a DIGITAL project without the editor's converter is refused before any PUT");
+}
 const failing = device([], { failChunk: 2 });
 ok(await athrows(() => restoreBackup(failing.request, file)) && failing.log.includes("abort 2") && !failing.log.includes(0), "backup: a refused chunk aborts that object and stops before the live music");
 
@@ -168,6 +224,19 @@ ok(await athrows(() => restoreBackup(failing.request, file)) && failing.log.incl
         `project: FUN${magicByte - 0x41 + 10} export/import preserves all project bytes`);
     }
   }
+  /* a slot whose stored project holds a DIGITAL track: export needs the editor's converter */
+  const dig = b64(FIX.digital.input);
+  const digFile = await captureProject(device([[2, dig]]).request, 0, "3.6", () => {}, digitalFm4);
+  ok(digFile.size === 3840 && digFile.data === Buffer.from(dig).toString("base64"),
+    "project: DIGITAL slot export keeps the stored bytes");
+  ok(throws(() => readProject(digFile)), "project: DIGITAL export without the converter is refused");
+  const digRead = readProject(digFile, digitalFm4);
+  ok(digRead.converted && digRead.bytes.length === 3840 && digRead.bytes[engineAt(digRead.bytes)] === 12,
+    "project: DIGITAL export with the converter yields FUN19 / engine 12 (so the file name is readable)");
+  const digDst = device([]);
+  await restoreProject(digDst.request, digFile, 1, () => {}, digitalFm4);
+  ok(digDst.objs.get(3).every((v, i) => v === b64(FIX.digital.expected)[i]),
+    "project: DIGITAL import writes the converted FUN19");
 }
 
 console.log(fails ? `BACKUP WEB TESTS FAILED (${fails})` : "backup web tests passed");
