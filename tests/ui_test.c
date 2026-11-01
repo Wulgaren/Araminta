@@ -4389,9 +4389,9 @@ static int test_tape_locks(void)
         uint32_t i, found = 0, sel = 0;
         pk_build_mdst(t, MD_OFF, &sel);
         for (i = 0; i < pk_n; i++) {
-            if (pk_rows[i].id == MD_TSPEED && str_eq(pk_rows[i].name, "SPEED"))
+            if (pk_rows[i].id == MD_TSPEED && str_eq(pk_label(&pk_rows[i]), "SPEED"))
                 found |= 1u;
-            if (pk_rows[i].id == MD_TWOW && str_eq(pk_rows[i].name, "FLUTR"))
+            if (pk_rows[i].id == MD_TWOW && str_eq(pk_label(&pk_rows[i]), "FLUTR"))
                 found |= 2u;
         }
         ok &= found == 3u;
