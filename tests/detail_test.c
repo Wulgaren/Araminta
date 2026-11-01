@@ -5,10 +5,11 @@
  *   the page   SELECT walks STEP > PATTERN > DETAIL; SEQ cycles sections (Step -> Automation -> …); the cursor is STEP's
  *   knobs      KNOB 1 CHANCE, 2 RATCH, 3 NUDGE, 4 VEL of the cursor step, PRESETS walks the cursor (KNOB 1 does not),
  *              nothing else of the step changes; a REST / an empty step takes none (NO NOTE), a TIE its CHANCE only
- *   AUTOMATION the same fields: a value set here is its row there, back at its default the row is gone; EDIT there
- *              still deletes a row (the field back to its default)
- *   EDIT       the step's four back to 100 % / x1 / 0 / 96, its notes kept
- *   undo       one per knob gesture on one step (walking to the next step starts another), EDIT one
+ *   AUTOMATION the same fields: a value set here is its row there, back at its default the row is gone
+ *   EDIT       opens the EDIT page on DETAIL and AUTOMATION (nothing reset or deleted); on STEP a held step's
+ *              locks still go
+ *   OCT-       AUTOMATION: deletes the selected row (the field back to its default / the record gone)
+ *   undo       one per knob gesture on one step (walking to the next step starts another)
  *   DRUM       the white keys pick the step (no hit toggled), held together several; the key LEDs the steps with hits
  *   chords     one value for the whole chord (RATCH x3 = every note three times)
  *   playback   the sequencer plays them (RATCH parts, CHANCE 0 silent, VEL), a pattern untouched plays as before
@@ -200,9 +201,9 @@ static int knobs(void)
     kt(EN_K2, 1);
     turn(EN_PRESET, 1);
     press(B_EDIT);
-    ok = msg_is("STOP TO EDIT") && !memcmp(t->step, ref, sizeof ref) && ui.cursor == 0u;
+    ok = !memcmp(t->step, ref, sizeof ref) && cur_page()->fam == FAM_EDIT;
     chain.running = 0;
-    bad += check("  while a song plays: STOP TO EDIT, nothing changes", ok);
+    bad += check("  EDIT opens the EDIT page (the step untouched, no reset), while a song plays too", ok);
     return bad;
 }
 
@@ -230,23 +231,24 @@ static int edit_undo(void)
     kt(EN_K4, 10);
     memcpy(ref, t->step, sizeof ref);
     press(B_EDIT);
-    want = ref[0];
-    step_set_chance(&want, 100); step_set_ratchet(&want, 1); step_set_nudge(&want, 0); want.vel = 0;
-    ok = same_but1(t, ref, 0, &want) && msg_is("STEP RESET") && ui.cursor == 0u && t->step[0].n == 1u &&
-         str_eq(cur_page()->title, "DETAIL");
-    press(B_EDIT);
-    ok &= msg_is("NOTHING TO RESET");
-    hold(B_SAVE);
-    ok &= !memcmp(t->step, ref, sizeof ref);
-    bad += check("EDIT: the step's CHANCE RATCH NUDGE VEL back to 100 % x1 0 96 (the note and the cursor stay; again: "
-                 "NOTHING TO RESET); SAVE held brings them back", ok);
-    {   /* AUTOMATION's EDIT deletes a row of them one by one (1.2, unchanged) */
+    ok = !memcmp(t->step, ref, sizeof ref) && cur_page()->fam == FAM_EDIT;
+    go_detail();
+    ok &= !memcmp(t->step, ref, sizeof ref) && str_eq(cur_page()->title, "DETAIL") && ui.cursor == 0u;
+    bad += check("EDIT: opens the EDIT page; the step's CHANCE RATCH NUDGE VEL stay", ok);
+    {   /* AUTOMATION: EDIT opens the EDIT page; OCT- deletes the row's entry alone (SAVE held undoes it) */
         go_auto_top(); frame();
         ok = auto_pick(EVC(EVK_RATCH, 0));
         press(B_EDIT);
+        ok &= listed(EVC(EVK_RATCH, 0)) && step_ratchet(&t->step[0]) == 3u && cur_page()->fam == FAM_EDIT;
+        go_auto_top(); frame();
+        ok &= auto_pick(EVC(EVK_RATCH, 0));
+        press(B_OCTDN);
         ok &= step_ratchet(&t->step[0]) == 1u && !listed(EVC(EVK_RATCH, 0)) && listed(EVC(EVK_CHANCE, 0)) &&
               listed(EVC(EVK_NUDGE, 0)) && msg_is("DELETED");
-        bad += check("AUTOMATION: EDIT on a row deletes that entry alone (RATCH x1; the step's CHANCE and NUDGE stay)", ok);
+        hold(B_SAVE);
+        ok &= listed(EVC(EVK_RATCH, 0)) && step_ratchet(&t->step[0]) == 3u;
+        bad += check("AUTOMATION: EDIT opens the EDIT page; OCT- deletes that entry alone (RATCH x1; the step's "
+                     "CHANCE and NUDGE stay), SAVE held brings it back", ok);
     }
     return bad;
 }

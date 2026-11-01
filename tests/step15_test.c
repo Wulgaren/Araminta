@@ -261,13 +261,19 @@ static int vel(void)
     ok &= t->step[4].vel == 90u;
     bad += check("  KNOB 4 the step's velocity (1..127), KNOB 2 nothing; SAVE held: the turn undone", ok);
     press(B_EDIT);
-    ok = t->step[4].vel == 0u && msg_is("VEL 96") && auto_cur() == EVC(EVK_VEL, 4) && ev_list(rw) == n;
+    ok = t->step[4].vel == 90u && cur_page()->fam == FAM_EDIT;
+    go_auto_add(EV_VEL, 4); frame();                     /* (leaving the page hid the VEL rows: SHOW again) */
+    ok &= str_eq(act_name(4), "SHOW");
+    press(B_OCTUP);
+    ok &= auto_pick(EVC(EVK_VEL, 4));
+    press(B_OCTDN);
+    ok &= t->step[4].vel == 0u && msg_is("VEL 96") && auto_cur() == EVC(EVK_VEL, 4) && ev_list(rw) == n;
     for (n = 0; n < 20u; n++) {
         frames(50);                                      /* > ACC_GAP: one step each (accel always on) */
         turn(EN_K4, -1);
     }
     ok &= t->step[4].vel == 76u;
-    bad += check("  EDIT: back to 96 (stored 0), the row stays", ok);
+    bad += check("  EDIT opens the EDIT page; OCT-: back to 96 (stored 0), the row stays", ok);
     {   /* drawn: DIM where it does not play (the ACC step) */
         ok = auto_pick(EVC(EVK_VEL, 8)) && !ev_vel_plays(&t->step[8]) && ev_vel_plays(&t->step[4]);
         bad += check("  an ACC step's VEL does not play (DIM)", ok);

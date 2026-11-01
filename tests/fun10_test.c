@@ -461,9 +461,11 @@ static int nudge(void)
         ok &= t->p[P_SQNT] == 0;
         turn(EN_K4, 1);
         ok &= t->p[P_SQNT] == 1;
-        press(B_OCTUP); press(B_EDIT);
-        ok &= t->p[P_SQNT] == 1 && msg_is("NOTHING TO DEL") && !act_ready() && str_eq(act_name(4), "--");
-        bad += check("AUTOMATION's QUANTIZE row (the second): KNOB 4 OFF / ON; OCT+ and EDIT nothing", ok);
+        press(B_OCTUP);
+        ok &= t->p[P_SQNT] == 1 && !ui.msg_t && !act_ready() && str_eq(act_name(4), "--");
+        press(B_EDIT);
+        ok &= t->p[P_SQNT] == 1 && cur_page()->fam == FAM_EDIT;
+        bad += check("AUTOMATION's QUANTIZE row (the second): KNOB 4 OFF / ON; OCT+ nothing; EDIT opens the EDIT page", ok);
         memcpy(ref, t->step, sizeof ref);
         go_auto_add(EV_NUDGE, 3); frame();
         n = ev_list(rw);
@@ -488,9 +490,9 @@ static int nudge(void)
         hold(B_SAVE);
         ok &= step_nudge(&t->step[4]) == 3;
         bad += check("  KNOB 2 moves it to the next step; SAVE held undoes the move, held again redoes it", ok);
-        press(B_EDIT);
+        press(B_OCTDN);
         ok = step_nudge(&t->step[4]) == 0 && msg_is("DELETED");
-        bad += check("  EDIT: back to 0 (the row goes)", ok && ev_list(rw) == n);
+        bad += check("  OCT-: back to 0 (the row goes)", ok && ev_list(rw) == n);
         t->p[P_SQNT] = 1;
     }
     {   /* STEP grid: held steps + PRESETS shift them in time (not NUDGE); let go: cursor again */

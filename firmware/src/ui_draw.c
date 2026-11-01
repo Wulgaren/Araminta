@@ -707,18 +707,17 @@ static void foot_hint(char *a, char *b)
     uint32_t c = act_col();
     str_cpy(a, "OCT+ ", 8);
     str_cpy(a + 5, c ? act_name(c - 1u) : "--", 8);
-    str_cpy(b, ui.act && cur_page()->graph != GR_PATS ? "OCT- CANCEL" : "OCT- BACK", 16);
+    if (!ui.home && cur_page()->graph == GR_EVENTS)
+        str_cpy(b, "OCT- DELETE", 16);                  /* AUTOMATION: the row's record goes (ui_events.c) */
+    else
+        str_cpy(b, ui.act && cur_page()->graph != GR_PATS ? "OCT- CANCEL" : "OCT- BACK", 16);
 }
 
-/* SAVE > USER / PROJECT: EDIT renames the selected slot (ui_name.c); SEQ > AUTOMATION: EDIT deletes the row's
- * record (ui_events.c); 0 = not such a page, 1 an empty slot (PLAY, QUANTIZE, + ADD), 2 used */
+/* SAVE > USER / PROJECT: EDIT renames the selected slot (ui_name.c); 0 = not such a page, 1 an empty slot
+ * (PLAY, QUANTIZE, + ADD), 2 used */
 static uint32_t foot_rename(void)
 {
     uint32_t g = ui.home ? GR_NONE : cur_page()->graph;
-    if (g == GR_EVENTS) {
-        uint32_t k = ev_cur(ev_rw, 0) >> 8;
-        return k == EVK_TOP || k == EVK_QNT || k == EVK_ADD ? 1u : 2u;
-    }
     if (g == GR_USER)
         return 1u + (uint32_t)up_used(ui.uslot);
     if (g == GR_SLOTS)
@@ -786,7 +785,7 @@ static void draw_foot(void)
         kh[1] = (khint_t){KC_OCTDN, hb + 5};
         if (rn) {                                     /* USER / PROJECT: "EDIT NAME" between them */
             kh[2] = kh[1];
-            kh[1] = (khint_t){KC_EDIT, cur_page()->graph == GR_EVENTS ? "DELETE" : "NAME"};
+            kh[1] = (khint_t){KC_EDIT, "NAME"};
             cv_key_row(8, 232, 2, kh, 3, (act_ready() ? 1u : 0u) | (rn == 2u ? 2u : 0u) | 4u, T_BG);
         } else {
             cv_key_row(8, 232, 2, kh, 2, act_ready() ? 3u : 2u, T_BG);
@@ -872,12 +871,14 @@ static void engine_columns(void)
 }
 /* A card the current sound never reaches: drawn DIM, its value kept. WAVE2 is OSC B's own shape on every
  * filter TYPE (analog_render -> analog_osc); only SYNC / SUB / SUPER (analog_render_x) define OSC B
- * themselves and ignore it. MORPH is read by analog_osc only: analog_render_x does not morph. */
+ * themselves and ignore it. MORPH is read by analog_osc only: analog_render_x does not morph. INT moves
+ * OSC 2 (SYNC's sweep, SUB's square included); SUPER has no OSC 2 and ignores it. */
 static int card_inactive(const track_t *t, const int16_t *vp)
 {
     int analog = eng_idx(t->eng_req) == ENGI_ANALOG;   /* (else P_WAVE2 / P_MORPH are FM6's OP2 / OP3 ATK) */
     return (analog && vp == &t->p[P_WAVE2] && t->p[P_E0] >= AW_SYNC) ||
            (analog && vp == &t->p[P_MORPH] && t->p[P_E0] >= AW_SYNC) ||
+           (analog && vp == &t->p[P_E7] && t->p[P_E0] == AW_SUPER) ||
            (vp == &t->p[P_LRATE] && t->p[P_LSYNC]) ||           /* LFO 2 SYNC: RATE does nothing */
            arp_drone_frozen(t, vp);                             /* a frozen ARP drone */
 }

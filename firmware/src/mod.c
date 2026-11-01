@@ -24,6 +24,9 @@
  *            the fixed routings can reach, so the engines see no new range
  *     AMP    a gain <= 1: AMT > 0 the source opens it (AMT 64: silent at 0, full at 1), AMT < 0 closes it
  *            (bipolar sources as 0..1, as LFO DEST AMP); several AMP slots multiply
+ *     VEL    the note's velocity, a gain <= 1 as AMP has it, taken once at note-on (the sources as they are then:
+ *            the LFO with DEPTH, the latest voice's ENV, this note's VEL / KEY / RAND); several VEL slots multiply,
+ *            and the VEL source reads the scaled value afterwards
  *   per track, once per block: PAN, DIST CHO DLY REV (the sends), RATE (LFO rate), VIB (LFO DEST PIT, the
  *     vibrato depth), E1..E8 (the engine's parameters P_E0..P_E7, named by the engine): AMT 64 at a full
  *     source = the parameter's whole range; the sum is clamped to its range
@@ -58,7 +61,7 @@ enum { MD_OFF, MD_PITCH, MD_CUT, MD_SHP, MD_AMP, MD_PAN, MD_DIST, MD_CHO, MD_DLY
        MD_DEPTH = MD_E1 + 8, MD_SLPAT, MD_SLRATE, MD_SLDEPTH, MD_CHRD, MD_VOIC,
        MD_TONE, MD_DMIX, MD_FCUT, MD_FRES, MD_FMIX, MD_BITS, MD_CRAT, MD_CLPF, MD_CMIX,
        MD_PRAT, MD_PDEP, MD_PFBK, MD_PMIX, MD_FRAT, MD_FDEP, MD_LMIX, MD_HRAT, MD_HDEP,
-       MD_DTIME, MD_DFB, MD_DCOLOR, MD_RSIZE, MD_RDAMP, MD_TSPEED, MD_TWOW, MD_N }; /* (append-only) */
+       MD_DTIME, MD_DFB, MD_DCOLOR, MD_RSIZE, MD_RDAMP, MD_TSPEED, MD_TWOW, MD_VEL, MD_N }; /* (append-only) */
 _Static_assert(NELEM(N_MSRC) == MS_N && NELEM(N_MDST) == MD_N, "N_MSRC / N_MDST == MS_* / MD_*");
 _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 == P_FM1_ATK, "matrix slots: 3 ids each");
 #define NMSLOT 4u
@@ -251,6 +254,35 @@ static __attribute__((noinline)) int32_t mod_depth(const track_t *t, int32_t lfo
     return g;
 }
 
+/* VEL: the note's velocity through the VEL slots, a Q15 gain (32767 = none), taken once at note-on. The sources
+ * as a per-block destination sees them then: LFO with DEPTH, ENV of the latest voice, this note's VEL / KEY / RAND
+ * (mod_note ran). Its own function: trk_note_on's path stays what it was */
+static __attribute__((noinline)) int32_t mod_vel(const track_t *t)
+{
+    const int16_t *p = t->p;
+    int32_t g = 32767, lfo;
+    uint32_t k;
+    for (k = 0; k < NMSLOT; k++)
+        if (p[P_M1DST + 3u * k] == MD_VEL && p[P_M1SRC + 3u * k] && p[P_M1AMT + 3u * k])
+            break;
+    if (k == NMSLOT)
+        return g;
+    lfo = mulq15(t->lfo_val, t->lfo_fade);
+    {
+        int32_t d = mod_depth(t, lfo);
+        if (d < 32767)
+            lfo = mulq15(lfo, d);
+    }
+    for (; k < NMSLOT; k++) {
+        uint32_t s = (uint32_t)p[P_M1SRC + 3u * k], d = (uint32_t)p[P_M1DST + 3u * k];
+        int32_t a = p[P_M1AMT + 3u * k];
+        if (d != MD_VEL || !s || !a || s >= MS_N)
+            continue;
+        g = mulq15(g, mod_gain(s, mod_tsrc(t, s, lfo), a));
+    }
+    return g;
+}
+
 /* before a part's block (fx.c mix_part): the per-track offsets, the per-block destinations into t->p
  * (or the part's copy of fx_bus_trk / song.g via mod_target_ptr: two cores render parts at once). 0 = no
  * slot active (then nothing changed) */
@@ -284,7 +316,7 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     for (; k < NMSLOT; k++) {
         uint32_t s = (uint32_t)p[P_M1SRC + 3u * k], d = (uint32_t)p[P_M1DST + 3u * k];
         int32_t a = p[P_M1AMT + 3u * k], x;
-        if (!s || !d || !a || s >= MS_N || d >= MD_N || d == MD_DEPTH)
+        if (!s || !d || !a || s >= MS_N || d >= MD_N || d == MD_DEPTH || d == MD_VEL)
             continue;
         if (d <= MD_AMP) {                              /* per voice */
             mw->amp |= d == MD_AMP;

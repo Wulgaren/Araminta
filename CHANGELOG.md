@@ -21,6 +21,23 @@ format change: saves stay FUN19 (`FUNJ`); header bit 2 marks the VIB meaning.
   index 1 stays reserved; `fm4_convert.c`, the project / user-preset conversion and `fm4_div0_test.c` remain, so
   old DIGITAL sounds still load as FM6.
 
+### ANALOG
+
+- **OSC B INT on SUPER.** SUPER has no second oscillator, so INT does nothing there; its card is drawn DIM and
+  keeps its value, as WAVE and MORPH are under SYNC / SUB / SUPER.
+
+### SEQ
+
+- **EDIT no longer resets or deletes.** On DETAIL and AUTOMATION the EDIT button opens the EDIT page, as on the
+  other pages: a step's CHANCE / RATCH / NUDGE / VEL and an automation record stay. OCT- deletes the selected row
+  there (SAVE held undoes it), as does the web editor's `MOTION` delete.
+
+### MOD
+
+- **VEL destination.** A matrix slot can scale a note's velocity at note-on, a gain like AMP: LFO -> VEL thins
+  the notes out at the bottom of the cycle, VEL -> VEL -64 closes a full-velocity note. The sources are taken as
+  they are at note-on, and the VEL source reads the scaled value after. Appended as DST 51.
+
 ## 3.5
 
 ANALOG gets OSC A / OSC B pages: OSC B's own wave on every filter TYPE, PWM and its MORPH, DRIFT, and the

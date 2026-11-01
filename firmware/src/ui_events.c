@@ -30,8 +30,10 @@
  *          parameter of the sound page shown last, to begin with), at the sound's own value; CHANCE 50 %, RATCH x2 or
  *          NUDGE +4/16 on that step, VEL: SHOW / HIDE the VEL rows; on a record: its kind LOCK <-> AUTO (an automation
  *          event holds its value until the next one, a lock sounds on its step only); on PLAY: CLEAR (the dialog)
- *   EDIT   deletes the record, puts a CHANCE / RATCH / NUDGE / VEL back to 100 % / x1 / 0 / 96;  OCT- goes HOME (as
- *          on the other action pages)
+ *   EDIT   opens the EDIT page (nothing is deleted)
+ *   OCT-   deletes the row's record, a CHANCE / RATCH / NUDGE / VEL back to 100 % / x1 / 0 / 96 (the row below
+ *          moves up; SAVE held undoes it); on PLAY, QUANTIZE and + ADD nothing (NOTHING TO DEL). On the other action
+ *          pages OCT- drops the picked action or goes HOME
  * Every edit is one undo (SAVE held: ui.c motion_undo_take, step_undo_take; a knob turned on is one; PLAY and QUANTIZE
  * are settings, as on their pages before). Not while a song plays (STOP TO EDIT). The 128 records are shared by the four
  * tracks: AUTOMATION FULL when they are used */
@@ -514,7 +516,8 @@ static void ev_oct(void)
 static const uint8_t SD_KIND[4] = {EVK_CHANCE, EVK_RATCH, EVK_NUDGE, EVK_VEL};
 static int sd_takes(const step_t *s, uint32_t k) { return step_on(s) || (k == EVK_CHANCE && s->time == ST_TIE); }
 
-/* EDIT: the record goes, a CHANCE / RATCH / NUDGE / VEL back to its default (the row below moves up) */
+/* AUTOMATION's OCT-: the row's record goes, a CHANCE / RATCH / NUDGE / VEL back to its default (the row below
+ * moves up; SAVE held undoes it) */
 static void ev_delete(void)
 {
     track_t *t = TSEL;
@@ -766,7 +769,7 @@ static const char *pk_mdst_group(uint32_t d)
     uint32_t i;
     if (d == MD_OFF)
         return "OFF";
-    if (d <= MD_AMP)
+    if (d <= MD_AMP || d == MD_VEL)
         return "VOICE";
     if (d == MD_PAN)
         return "MIX";
@@ -786,7 +789,7 @@ static const char *pk_mdst_group(uint32_t d)
 static uint32_t pk_build_mdst(const track_t *t, uint32_t d, uint32_t *sel)
 {
     static const uint8_t HEAD[] = {
-        MD_OFF, MD_PITCH, MD_CUT, MD_SHP, MD_AMP, MD_PAN,
+        MD_OFF, MD_PITCH, MD_CUT, MD_SHP, MD_AMP, MD_VEL, MD_PAN,
         MD_RATE, MD_VIB, MD_DEPTH,
         MD_E1, MD_E1 + 1, MD_E1 + 2, MD_E1 + 3, MD_E1 + 4, MD_E1 + 5, MD_E1 + 6, MD_E1 + 7,
         MD_CHRD, MD_VOIC};

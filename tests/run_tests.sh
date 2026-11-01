@@ -61,11 +61,12 @@
 # STEP 1.5 (tests/step15_test.c, #178 #173): SEQ > STEP's KNOB 3 LEN on a note (clean TIEs written after it and taken
 #                   back, stopping at the next note and at LEN, LEN 0 clears the note, chords, undo, TIME elsewhere, the DRUM grid untouched,
 #                   the longer note played), a step's VEL as it plays (96 by default, ACC 127, drum hits) and
-#                   SEQ > AUTOMATION's VEL rows (SHOW / HIDE, KNOB 4, EDIT, undo).
+#                   SEQ > AUTOMATION's VEL rows (SHOW / HIDE, KNOB 4, undo).
 # DETAIL 1.5.1 (tests/detail_test.c, #199): SEQ > DETAIL (STEP -> DETAIL -> AUTOMATION), KNOB 1..4 the cursor step's
 #                   CHANCE RATCH NUDGE VEL walked with PRESETS (NO NOTE on a REST / empty step), the same values as
-#                   AUTOMATION's rows (gone at their default; EDIT there deletes one), EDIT resets, undo per gesture, the
-#                   DRUM grid's keys picking steps (several held), a chord's ratchet, playback, STEP's marks.
+#                   AUTOMATION's rows (gone at their default), EDIT opening the EDIT page (nothing reset or deleted),
+#                   OCT- deleting a row, undo per gesture, the DRUM grid's keys picking steps (several held), a chord's
+#                   ratchet, playback, STEP's marks.
 # MOD (tests/mod_test.c): the modulation matrix: slots that do nothing are bit-identical, every source on each
 #                   kind of destination, clamping, MIDI CC1 / CC11 / aftertouch routing, the cost of 4 active
 #                   slots (at most +5 %), demos in build/mod_demo/.

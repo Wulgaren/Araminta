@@ -85,7 +85,8 @@ step, or the next one once past that step's midpoint. The value written is a loc
 | Editor `MOTION` op 8 (list every record) | Lists the PITCH lock with id 127 and its kind byte 1. `MOTION` op 7 replies the same kind byte after the query; ops 1..4 keep their older reply shape. | `editor.c ed_motion_reply()`; `web/EDITOR_PROTOCOL.md` MOTION |
 
 `MOTION` op 6 (`clear the step's locks`, step 127 = every step) also removes PITCH locks; automation
-events stay. AUTOMATION's DELETE (`EDIT`) removes the row's record; PLAY OFF bypasses its playback.
+events stay. A record is removed with OCT- on the device's AUTOMATION page or from the editor (`MOTION` op 4);
+PLAY OFF bypasses its playback.
 
 ## 3. Other special cases
 
