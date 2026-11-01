@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* SLICE (13): retired like DIGITAL (fm4_convert.c ENG_FM4_GONE). Index stays reserved
- * (stores are append-only). Stub is never selectable (engines.c eng_ok).
+/* SLICE (13): retired like DIGITAL (engine 1). Indexes stay reserved (stores are append-only). Stubs are never
+ * selectable (engines.c eng_ok). DIGITAL has no conversion since 3.6: its sounds do not load (see CHANGELOG).
  * Load policy: SLICE -> DRUM (10), default kit (project.c / upreset / ui).
  * SAMPLE / GRAIN / NOISE are live again; SAMPLE PERC (SET 4) still maps to DRUM via
  * core.h drum_from_perc (unchanged since 1.0.2). */
@@ -16,6 +16,12 @@ static void retire_gone_render(struct track *t, voice_t *v, int32_t *out, uint32
 {
     (void)t; (void)v; (void)out; (void)n; (void)m;
 }
+static const engine_t ENG_FM4_GONE = {                 /* DIGITAL (1): silent, its conversion is gone */
+    .name = "-", .page_title = {"-", "-"},
+    .edit = RETIRE_EDIT("-", "-", "-", "-", "-", "-", "-", "-"),
+    .note_on = retire_gone_note_on, .render = retire_gone_render,
+    .knob = {P_E4, P_E5, P_E6, P_REL},
+};
 static const engine_t ENG_SLICE_GONE = {
     .name = "-", .page_title = {"-", "-"},
     .edit = RETIRE_EDIT("-", "-", "-", "-", "-", "-", "-", "-"),
@@ -29,11 +35,9 @@ static int eng_retired(uint32_t e)
     return e == ENGI_SLICE;
 }
 
-/* the engine a retired index plays as when listed / ranked */
+/* the engine a retired index plays as when listed / ranked (DIGITAL keeps its silent stub) */
 static uint32_t eng_play_as(uint32_t e)
 {
-    if (e == ENGI_DIGITAL)
-        return ENGI_FM6;
     if (e == ENGI_SLICE)
         return ENGI_DRUM;
     return e < NENGINES ? e : 0u;

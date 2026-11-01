@@ -172,8 +172,7 @@ int main(void)
 {
     int bad = 0;
     uint32_t len = 0, crc = 0, before;
-    static project_store_t st;
-    static project_v6_t v6;
+    static project_store_t st, keep;
     persist_t ps;
 
     reset();
@@ -326,22 +325,6 @@ int main(void)
              proj_scratch.t[0].p[P_SQNT] == 1;
         bad += check("a FUN9 project (1.1) restores as FUN10 into slot 3: its 64 records, the lanes, LFO 2 / QUANTIZE defaults", ok);
     }
-    memset(&v6, 0, sizeof v6);                           /* FUN6: 69 parameters, steps out of range */
-    v6.magic = PROJ_MAGIC_V6;
-    v6.size = sizeof v6;
-    for (uint32_t i = 0; i < G_COUNT; i++)
-        v6.g[i] = GP[i].def;
-    for (uint32_t i = 0; i < NTRK; i++)
-        v6.t[i].engine = trk[i].engine;
-    v6.t[0].step[0] = (step10_t){{255, 72}, 9, 7, 0, 96, 0, 0};
-    v6.t[0].p[61] = 3;                                   /* old E0 */
-    memset(&v6.chain, 0, sizeof v6.chain);
-    v6.sum = proj_hash(&v6, sizeof v6 - 4u);
-    bad += check("a FUN6 project restores as FUN10, bounded, its E0 at P_E0",
-                 put_all(5, &v6, sizeof v6, st_crc32(&v6, sizeof v6)) == 0 && ((uint32_t *)proj_slot[3].raw)[0] == PROJ_MAGIC &&
-                 proj_import(&proj_scratch, &proj_slot[3], sizeof st) && proj_scratch.t[0].step[0].n == 4u &&
-                 step_note(&proj_scratch.t[0].step[0], 0) == 127u && proj_scratch.t[0].p[P_E0] ==
-                 clamp(3, param_desc_of(trk[0].engine, P_E0)->min, param_desc_of(trk[0].engine, P_E0)->max));
     {   /* 1.0.3: the FM6 patch bank (id 8) is retired; an older archive's bank moves into its user presets (ids 6, 7
          * restored first), the user presets' patches are id 9 */
         static up_bank_t ub;
@@ -402,9 +385,9 @@ int main(void)
     memcpy(&st, &proj_slot[2], sizeof st);
     erase_error = 1;
     proj_slot[2].raw[100] ^= 1;                          /* (marks the RAM copy, to see it is kept) */
-    memcpy(&v6, &proj_slot[2], sizeof v6);
+    memcpy(&keep, &proj_slot[2], sizeof keep);
     bad += check("a flash error on commit (4) keeps the slot's RAM copy",
-                 put_all(4, &st, sizeof st, st_crc32(&st, sizeof st)) == 4u && !memcmp(&proj_slot[2], &v6, sizeof v6));
+                 put_all(4, &st, sizeof st, st_crc32(&st, sizeof st)) == 4u && !memcmp(&proj_slot[2], &keep, sizeof keep));
     erase_error = 0;
     bad += check("an empty project object clears the slot", put_all(4, 0, 0, st_crc32(0, 0)) == 0 && !project_used(2));
     st.raw[200] ^= 1;                                    /* hash no longer matches */

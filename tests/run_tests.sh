@@ -150,9 +150,6 @@
 # NOISE (tests/noise_test.c): the engine (src/eng_noise.c): COLR's slope (white, pink, brown), the filter and the
 #                   register clock following the key, META periodic at the key, no DC, no clipping at the
 #                   corners, a note from silence the same twice, the cost per voice; demos in build/noise_demo/.
-# DIGITAL -> FM6 (tests/fm4_div0_test.c, UBSan, #61): the retired engine's conversion (src/fm4_convert.c) without
-#                   a divide that can be 0 gives the values the guarded form gave (every INDEX x FLT ENV, random
-#                   sounds); a 0.9 project with DIGITAL ORGAN converts. The engine's DSP and its tests are gone.
 # FM6 (tests/fm6_test.c): the 6-operator FM engine (src/eng_fm6.c, src/fm6_core.c): the 32 algorithms' carriers, the
 #                   operator envelopes (stages, rates, the voice ending), bit-stable notes, a click-free retrigger, no DC /
 #                   clipping over the factory patches, the macros' directions, PTCH, pack / unpack and the SysEx
@@ -396,7 +393,7 @@ unit u_signed_audio
 
 u_upreset() {
     build "$OUT/upreset_test" tests/upreset_test.c
-    run "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM and SAMPLE PERC -> DRUM, grid records, DIGITAL kept)" "$OUT/upreset_test"
+    run "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM and SAMPLE PERC -> DRUM, grid records, DIGITAL records kept / load refused)" "$OUT/upreset_test"
 }
 unit u_upreset
 
@@ -521,7 +518,7 @@ if [ -f build/gen/felucca_tables.h ]; then
     unit u_hostsim
     u_project() {
         build "$OUT/project_test" tests/project_test.c -w -Ibuild/gen -Ifirmware/src -lm
-        run "project formats (FUN1..FUN5 -> FUN6, the grid and song chain; DIGITAL tracks -> FM6, SAMPLE PERC -> DRUM, SLICE -> DRUM)" "$OUT/project_test"
+        run "project formats (FUN7..FUN19, FUN6..FUN1 refused; the chain, SAMPLE PERC -> DRUM, SLICE -> DRUM)" "$OUT/project_test"
     }
     unit u_project
     u_generation() {
@@ -566,12 +563,6 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "USB/TRS clock, bend, sustain, ownership and panic recovery" "$OUT/midi_control_test"
     }
     unit u_midi_control
-    u_fm4_div0() {
-        build "$OUT/fm4_div0_test" tests/fm4_div0_test.c -O2 -w -fsanitize=integer-divide-by-zero -fno-sanitize-recover=all -Ibuild/gen -Ifirmware/src -lm
-        run "DIGITAL -> FM6 without a divide by zero (#61): the same values as before, a 0.9 ORGAN project (UBSan)" \
-            "$OUT/fm4_div0_test"
-    }
-    unit u_fm4_div0
     u_theme() {
         build "$OUT/theme_test" tests/theme_test.c -O1 -w -Ibuild/gen -Ifirmware/src -lm
         run "themes: contrast, text blending and font metrics" "$OUT/theme_test"
@@ -939,7 +930,7 @@ if command -v node >/dev/null 2>&1; then
     # build/host/desc.json and menu.json
     unit_after "$DESC_UNIT $MENU_UNIT" u_web "web pages: editor protocol + samples, package builder, update protocol" web/test_web.mjs
     unit_after "$DESC_UNIT $MENU_UNIT" u_web "web backup: capture, validation before writes, restore order" web/test_backup.mjs
-    for t in test_crc test_info_tags test_installer test_steps_dom test_stock_sha; do
+    for t in test_crc test_info_tags test_installer test_steps_dom test_stock_sha test_projconv; do
         unit_after "$DESC_UNIT $MENU_UNIT" u_web "web: $t" "web/$t.mjs"
     done
 else

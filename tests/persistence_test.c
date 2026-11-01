@@ -446,7 +446,6 @@ int main(void)
     uint32_t before;
     persist_t p;
     project_store_t old, got;
-    project_v5_t v5;
     up_bank_t bank;
     up_rec_t r;
     reset();
@@ -624,27 +623,8 @@ int main(void)
         proj_slot[0] = old;
         st_save(OBJ_PROJECT0, &proj_slot[0], sizeof proj_slot[0]);
     }
-    {   /* an older format (FUN5) with values FUN7 cannot pack still loads, bounded */
+    {   /* every parameter fits the stored byte (FUN7 and later) */
         uint32_t i;
-        memset(&v5, 0, sizeof v5);
-        v5.magic = PROJ_MAGIC_V5;
-        v5.size = sizeof v5;
-        for (i = 0; i < G_COUNT; i++)
-            v5.g[i] = GP[i].def;
-        for (i = 0; i < NTRK; i++) {
-            v5.t[i].engine = trk[i].engine;
-            memcpy(v5.t[i].p, trk[i].p, sizeof v5.t[i].p);
-        }
-        v5.t[0].p[P_LEVEL] = 900;                                  /* out of range */
-        v5.t[0].step[0] = (step10_t){{255, 128, 160, 200}, 255, 255, 0, 96, 255, 5};
-        v5.sum = proj_hash(&v5, sizeof v5 - 4u);
-        st_save(OBJ_PROJECT0 + 3u, &v5, sizeof v5);
-        memset(proj_slot[3].raw, 0, 4);
-        project_load(3);
-        bad += check("FUN5 load bounds steps and masks lane accents", trk[0].step[0].n == 4u &&
-                      trk[0].step[0].time == ST_REST && step_note(&trk[0].step[0], 0) == 127u &&
-                      !step_note(&trk[0].step[0], 1) && trk[0].step[0].acc == 5u && project_used(3));
-        bad += check("FUN5 load clamps a parameter into its range", trk[0].p[P_LEVEL] == TP[P_LEVEL].max);
         for (i = 0; i < P_COUNT; i++) {
             uint32_t e;
             if (i == P_IORD)                        /* 0..719: FUN10 / user presets store 2 bytes (upreset.c) */
@@ -658,9 +638,9 @@ int main(void)
         }
     }
     chain_config.count = 1;
-    chain_config.row[0] = chain_row_of(3, 1);
+    chain_config.row[0] = chain_row_of(0, 1);
     bad += check("SONG sources use the same step bounds", chain_prepare() == 0 &&
-                  !memcmp(&chain.source[3].step[0][0], &trk[0].step[0], sizeof(step_t)));
+                  !memcmp(&chain.source[0].step[0][0], &trk[0].step[0], sizeof(step_t)));
     seq_stop();
     transport_req = 0;
     memset(&r, 0, sizeof r);

@@ -583,36 +583,17 @@ static int test_sound_loads(void)
     trk[3].p[P_SDIV] = 3;
     before = trk[3];
     project_save(1);
-    project_v6_t legacy = {0};
-    project_t decoded;
-    proj_import(&decoded, &proj_slot[1], sizeof proj_slot[1]);
-    legacy.magic = PROJ_MAGIC_V6; legacy.size = sizeof legacy;
-    legacy.parts = 0; legacy.phys = PROJ_PHYS;
-    memcpy(legacy.g, decoded.g, sizeof legacy.g);
-    for (uint32_t ti = 0; ti < NTRK; ti++) {
-        memcpy(legacy.t[ti].p, decoded.t[ti].p, 61u * sizeof(int16_t));
-        memcpy(legacy.t[ti].p + 61, decoded.t[ti].p + P_E0, 8u * sizeof(int16_t));
-        legacy.t[ti].engine = decoded.t[ti].engine; legacy.t[ti].preset = decoded.t[ti].preset;
-        for (uint32_t st = 0; st < NSTEP; st++) {
-            const step_t *d = &decoded.t[ti].step[st];
-            step10_t *o = &legacy.t[ti].step[st];
-            for (uint32_t j = 0; j < 4u; j++) o->note[j] = (uint8_t)step_note(d, j);
-            o->n = d->n; o->time = d->time; o->flags = (uint8_t)step_fl(d);
-            o->vel = d->vel; o->hit = d->hit; o->acc = d->acc;
-        }
+    {   /* FUN1..FUN6 are no longer read: a FUN6 slot is refused, the track keeps its sound */
+        project_store_t *slot = &proj_slot[1];
+        uint32_t magic = 0x364E5546u, sum;             /* "FUN6" */
+        memcpy(slot->raw, &magic, 4);
+        sum = proj_hash(slot->raw, PROJ_STORE_SIZE - 4u);
+        memcpy(slot->raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+        project_load(1);
+        bad += check("a FUN6 slot is refused (EMPTY SLOT), the track unchanged",
+                     msg_is("EMPTY SLOT") && !memcmp(trk[3].step, before.step, sizeof trk[3].step) &&
+                     !memcmp(trk[3].p, before.p, sizeof before.p));
     }
-    legacy.t[3].engine = 0;
-    legacy.g[G_DRLVL] = 71; legacy.g[G_DRREV] = 43;
-    legacy.g[G_RTYPE] = 10;                               /* (id 24 was the GM drum part's MIDI channel: 10) */
-    legacy.sum = proj_hash(&legacy, offsetof(project_v6_t, sum));
-    memcpy(&proj_slot[1], &legacy, sizeof legacy);
-    project_load(1);
-    bad += check("old GM projects (the drum part) load as DRUM's kit, their mix and steps kept",
-                 trk[3].eng_req == ENGI_DRUM && trk[3].preset == 0u && perc_kit(&trk[3]) &&
-                 trk[3].p[P_LEVEL] == 71 && trk[3].p[P_REV] == 43 && trk[3].p[P_SDIV] == 3 &&
-                 !memcmp(trk[3].step, before.step, sizeof trk[3].step));
-    bad += check("  their GM hits play as drums", gm_hits_play(&trk[3]));
-    bad += check("  its old drum channel (10, in id 24) loads as REVERB TYPE ROOM", song.g[G_RTYPE] == 0);
     printf("ui: undo copy %u bytes\n", (unsigned)sizeof undo);
     return bad;
 }
@@ -3077,7 +3058,7 @@ static int test_product_ux(void)
     ui_power_on(); open_family(FAM_EDIT);
     ok = 1;
     for (i = 0; i < 8u; i++) { open_family(FAM_EDIT); ok &= page_visible(ui.page) && !(cur_page()->id[0] >= P_FM1_ATK && cur_page()->id[0] <= P_FM4_LEVEL); }
-    bad += check("operator envelope pages are hidden on non-DIGITAL instruments", ok);
+    bad += check("operator envelope pages are hidden on every engine (they were DIGITAL's)", ok);
     {   /* ANALOG: OSC A → OSC B → FILTER (its own pages, no EDIT 1 / 2) */
         uint32_t saw_flt = 0, saw_a = 0, saw_b = 0, saw_e1 = 0, saw_e2 = 0;
         set_engine_of(TSEL, 0);
@@ -3106,12 +3087,14 @@ static int test_product_ux(void)
         bad += check("other engines still show EDIT 2", ok && saw_e2);
         set_engine_of(TSEL, 0);
     }
-    set_engine_of(TSEL, ENGI_DIGITAL); open_family(FAM_EDIT); ok = TSEL->eng_req == ENGI_FM6;
-    for (i = 0; i < 12u; i++) { ok &= !(cur_page()->id[0] >= P_FM1_ATK && cur_page()->id[0] <= P_FM4_LEVEL); open_family(FAM_EDIT); }
-    for (i = 0; i < NPAGES; i++)
-        if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] >= P_FM1_ATK && PAGES[i].id[0] <= P_FM4_LEVEL)
-            ok &= !page_visible(i);
-    bad += check("DIGITAL retired: engine 1 asked for loads FM6; the OP ENV / OP LEVEL pages never show", ok);
+    {   /* engine 1 (DIGITAL) is a silent stub: asking for it is refused, the track keeps its engine */
+        uint8_t keep = TSEL->eng_req;
+        set_engine_of(TSEL, ENGI_DIGITAL); open_family(FAM_EDIT); ok = TSEL->eng_req == keep;
+        for (i = 0; i < NPAGES; i++)
+            if (PAGES[i].fam == FAM_EDIT && (PAGES[i].graph == GR_FMOP || PAGES[i].graph == GR_FMENV))
+                ok &= !page_visible(i);
+        bad += check("DIGITAL retired: engine 1 is refused; the OPERATOR / OP ENV pages never show", ok);
+    }
     ui_power_on(); go_auto_add(EV_CHANCE, 0); press(B_OCTUP); turn(EN_K4, 15);
     bad += check("CHANCE is per step and starts at backward-compatible 100 percent", step_chance(&TSEL->step[0]) == 65 && step_chance(&TSEL->step[1]) == 100);
     turn(EN_K4, -1000); ok = step_chance(&TSEL->step[0]) == 0;
@@ -4903,15 +4886,13 @@ static int test_fm6_charts(void)
            check("FM6 charts: carriers on the bottom row, modulators a row up, one per cell, at most 4 rows", layout);
 }
 
-/* DIGITAL retired (src/fm4_convert.c): engine 1 is on no track and in no list; its sounds arrive as FM6 with a patch
- * of their own: a user preset of it, its preset numbers (set_engine_of / apply_preset_to), a track that got engine 1
- * any other way (the main loop's net); the favourites of its presets move to FM6's; the power-on pad is FM6 PAD */
+/* DIGITAL retired: engine 1 is a silent stub, on no track and in no list; a user preset of it, its preset
+ * numbers and an engine set for it are refused; the favourites of its presets do not migrate; the power-on
+ * pad is FM6 PAD */
 static int test_fm4_retired(void)
 {
     int bad = 0, ok = 1;
     uint32_t i, k, e, total, seen = 0, all = 0;
-    int16_t p[P_COUNT];
-    uint8_t v[FP_SIZE + 1u];
     for (e = 0; e < NENGINES; e++)
         if (eng_ok(e))
             all |= 1u << e;                            /* pickable only (not DIGITAL / SLICE) */
@@ -4954,12 +4935,10 @@ static int test_fm4_retired(void)
         bad += check("engines shown ANALOG FM6 PHASE ... PHYS DRUM (ENGINE_ORDER); PRESETS lists them so",
                      ok && r == NENG_SHOWN);
     }
-    /* a user preset stored with engine 1: kept as it is, it loads as FM6 with the converted patch */
-    for (i = 0; i < P_COUNT; i++)
-        p[i] = param_desc_of(ENGI_DIGITAL, i)->def;
-    fm4_preset_values(p, 5);                           /* DIGITAL PAD */
-    {
+    {   /* a user preset stored with engine 1: refused on load, the track keeps its sound */
         up_rec_t r;
+        int16_t keep[P_COUNT];
+        uint8_t keep_eng;
         memset(&r, 0, sizeof r);
         r.used = UP_USED;
         r.ver = UP_VER;
@@ -4967,56 +4946,32 @@ static int test_fm4_retired(void)
         r.np = P_COUNT;
         memcpy(r.name, "OLD PAD", 7);
         for (i = 0; i < P_COUNT; i++)
-            up_set_value(&r, i, p[i]);
-        up_put(7, &r);
+            up_set_value(&r, i, TP[i].def);
+        *up_rec(7) = r;
+        set_engine_of(TSEL, 0);
+        memcpy(keep, TSEL->p, sizeof keep);
+        keep_eng = TSEL->eng_req;
+        bad += check("a DIGITAL user preset is refused on load (the track keeps its sound)",
+                     up_load(7) == 1 && TSEL->eng_req == keep_eng && !memcmp(TSEL->p, keep, sizeof keep));
+        memset(up_rec(7), 0, sizeof r);
     }
-    fm4_convert(p, v);
-    up_load(7);
-    bad += check("a DIGITAL user preset loads as FM6: the converted patch its own (SLOT OWN), preset = FM6 PAD",
-                 TSEL->eng_req == ENGI_FM6 && TSEL->preset == 4u && TSEL->p[P_E7] == FM6_OWN && !TSEL->p[P_E0] &&
-                 !memcmp(fm6_patch[song.sel], v, FP_SIZE) && fm6_slot[song.sel] == FM6_OWN && TSEL->user == 8u);
-    frame();
-    bad += check("  .. and the main loop keeps that patch (not a factory one)", !memcmp(fm6_patch[song.sel], v, FP_SIZE));
-    eng_list_pos(&total);
-    bad += check("  the record stays DIGITAL in the bank, listed with FM6's sounds (EDIT KNOB 2)",
-                 up_rec(7)->engine == ENGI_DIGITAL && up_engine(7) == ENGI_FM6 &&
-                 total == ENGINES[ENGI_FM6]->npresets + 1u);
-    up_store(8, "AGAIN");
-    {
-        uint8_t pk[FM6_PACKED], w[FP_SIZE + 1u];
-        bad += check("  saved again: an FM6 user preset with SLOT OWN and the converted patch beside it",
-                     up_rec(8)->engine == ENGI_FM6 && up_value(up_rec(8), P_E7) == FM6_OWN && !upf_get(8, pk) &&
-                     (fm6_unpack(pk, w), !memcmp(w, v, FP_SIZE)));
-        fm6_load_slot(song.sel, 2);                    /* another patch on the track, then the preset again */
-        up_load(8);
-        frame();
-        bad += check("  .. which loads back: the same patch, SLOT OWN", !memcmp(fm6_patch[song.sel], v, FP_SIZE) &&
-                     TSEL->p[P_E7] == FM6_OWN && fm6_slot[song.sel] == FM6_OWN);
+    {   /* engine 1 asked for: refused, the track keeps its engine; the stub is silent and unnamed */
+        uint8_t keep = TSEL->eng_req;
+        set_engine_of(TSEL, ENGI_DIGITAL);
+        bad += check("engine 1 asked for: refused (the track keeps its engine), the stub is silent and unnamed",
+                     TSEL->eng_req == keep && !eng_ok(ENGI_DIGITAL) && str_eq(ENGINES[ENGI_DIGITAL]->name, "-") &&
+                     eng_play_as(ENGI_DIGITAL) == ENGI_DIGITAL);
     }
-    /* preset numbers of engine 1 */
-    set_engine_of(TSEL, ENGI_DIGITAL);
-    bad += check("engine 1 asked for: DIGITAL E.PIANO converted (FM6, PTCH TINE EP, the patch named E.PIANO)",
-                 TSEL->eng_req == ENGI_FM6 && TSEL->preset == 0u && !memcmp(fm6_patch[song.sel] + FP_NAME, "E.PIANO", 7));
-    TSEL->eng_req = ENGI_DIGITAL;                      /* (the ISR's view: no other path does this) */
-    apply_preset_to(TSEL, 1);
-    bad += check("a DIGITAL preset number (apply_preset_to): its sound converted (BELL)",
-                 TSEL->eng_req == ENGI_FM6 && TSEL->preset == 1u && !memcmp(fm6_patch[song.sel] + FP_NAME, "BELL", 4));
-    for (i = 0; i < P_COUNT; i++)
-        trk[2].p[i] = param_desc_of(ENGI_DIGITAL, i)->def;
-    fm4_preset_values(trk[2].p, 2);
-    trk[2].eng_req = ENGI_DIGITAL;
-    frame();
-    bad += check("a track left on engine 1 any other way: the main loop converts it (BASS -> FM BASS)",
-                 trk[2].eng_req == ENGI_FM6 && trk[2].preset == 2u);
-    {   /* favourites of DIGITAL presets (settings PER4) -> the FM6 presets that cover them */
+    {   /* favourites of DIGITAL presets (settings PER4): kept as stored, not migrated to FM6 */
         persist_t pe;
         memset(&pe, 0, sizeof pe);
         pe.magic = PERSIST_MAGIC;
         pe.panel = PANEL_DEFAULT;
         pe.favorites.factory[ENGI_DIGITAL][0] = 1u << 5 | 1u << 7;   /* PAD, FUNK KEY */
         settings_import(&pe, (int)sizeof pe);
-        bad += check("favourites: DIGITAL PAD / FUNK KEY -> FM6 PAD / PLUCK, engine 1's cleared",
-                     favorite_has(ENGI_FM6, 4) && favorite_has(ENGI_FM6, 7) && !favorites.factory[ENGI_DIGITAL][0]);
+        bad += check("favourites: DIGITAL's stay as stored, FM6's unchanged",
+                     favorites.factory[ENGI_DIGITAL][0] == (1u << 5 | 1u << 7) &&
+                     !favorite_has(ENGI_FM6, 4) && !favorite_has(ENGI_FM6, 7));
         memset(&favorites, 0, sizeof favorites);
     }
     return bad;

@@ -32,13 +32,12 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
 #include "eng_noise.c"
 #include "eng_wt.c"             /* WAVETABLE: two wavetable oscillators (XIP tables) */
 #include "eng_fm6.c"            /* FM6: 6-operator FM, msfa ported (fm6_core.c, Apache-2.0) */
-#include "fm4_convert.c"        /* DIGITAL's tables, and its sounds -> FM6 */
 #include "eng_retire.c"         /* SLICE reserved stub */
 
 /* the editor protocol, user presets and projects store these indices: append, never reorder */
 static const engine_t *const ENGINES[NENGINES] = {
     &ENG_ANALOG,                 /* 0 */
-    &ENG_FM4_GONE,               /* 1: reserved (DIGITAL, retired: its sounds convert to FM6, fm4_convert.c) */
+    &ENG_FM4_GONE,               /* 1: reserved (DIGITAL, retired: silent stub, no conversion) */
     &ENG_PHASE,                  /* 2 */
     &ENG_LOFI,                   /* 3 */
     &ENG_SAMPLE,                 /* 4 */

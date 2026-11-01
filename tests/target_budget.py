@@ -36,8 +36,8 @@ FUNCS = ["analog_render",                             # ANALOG's dispatcher: the
          "perf_throw",                                      # .. REV / ECHO THROW (1.5.1): per part, while held or gliding
          "rev_room", "rev_spring", "rev_hall", "rev_shimmer", "rev_cloud", "rev_side_mix",  # reverb bus (fx.c)
          "track_insert", "ins_run_dist", "ins_run_swept"]   # insert chain (fx.c): DIST / swept stages while MIX > 0
-# The DIGITAL engine was removed in 3.6; its conversion (fm4_convert.c) stays. Any old budget lines for its
-# render loops are gone.
+# The DIGITAL engine and its conversion (fm4_convert.c) were removed in 3.6. Any old budget lines for
+# its render loops are gone.
 OPTIONAL = {"uac_tap48": 504}   # (absent from a FELUCCA_UAC_48K=0 or FELUCCA_UAC=0 build)
 TOL = 0.10                      # exact (no noise): small edits pass, a grown render loop does not
 DIV_W = 8                       # a divide weighs 1 + 8 instructions
