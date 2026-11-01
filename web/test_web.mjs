@@ -38,7 +38,7 @@ const html = readFileSync(join(HERE, "editor.html"), "utf8");
 const proto = html.slice(html.indexOf("/*PROTO-BEGIN*/"), html.indexOf("/*PROTO-END*/"));
 const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP, crc32, WT, wtBuild, wtTableCycles, wtMedleyCycles, wtWav, wavFrameSize,
-   UP, bank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
+   UP, bank, bankPutRecord, patchFileTarget, firmwareAtLeast, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, FM6, enumShown, F,
    MOTION_PROTO, P_IORD,
    FM4, fromDigital, fromPerc, DRUM_KIT_E,
@@ -140,6 +140,16 @@ async function editorMock() {
   ok(pending.rc === 4 && pending.on && pending.engine === 0, "editor: queued favorite response is applied while waiting for STOP");
   const names = [];
   for (let e = 0; e < info.nengines; e++) names.push(E.parse[E.CMD.NAMES](await rq(E.req.names(e))).names);
+  {
+    const refuses = (f) => { try { f(); return false; } catch { return true; } };
+    ok(E.firmwareAtLeast("ARAMINTA v3.6", 3, 6) && E.firmwareAtLeast("ARAMINTA v3.10", 3, 6) &&
+       !E.firmwareAtLeast("ARAMINTA v3.5", 3, 6) && !E.firmwareAtLeast("ARAMINTA 0.5 BETA", 3, 6),
+      "editor: firmware version compare (3.6 and later, 3.5 and older)");
+    ok(refuses(() => E.patchFileTarget(1, 0, info, names)) &&
+       refuses(() => E.patchFileTarget(0, names[0].length, info, names)) &&
+       E.patchFileTarget(12, 0, info, names).engine === 12,
+      "patch file: a retired engine and an out-of-range preset are refused; a live engine passes");
+  }
   let prefs = await E.readDevicePreferences(rq, info, names);
   ok(info.uiCaps === 9 && prefs.palettes.length === 9 && prefs.palettes[0] === "GREY" && prefs.palettes.includes("HI-CON") && prefs.palettes[8] === "NIGHT" && !prefs.palettes.includes("MONO"),
      "editor: preference capabilities (palette, favorites) and palette names");
@@ -691,6 +701,22 @@ async function editorFm4() {
   d = E.parse[C.DUMP](await rq(E.req.dump()), info);
   ok(rc === 0 && u.engine === 1 && eq(u.p, pad) && d.engine === d0.engine && eq(d.p, d0.p) && eq(await fm6Of(), fm6before),
     "device slot of a DIGITAL sound (engine 1, its values kept): UP_LOAD is refused, the sound unchanged");
+  /* put from the library: before 3.6 engine 1 (the firmware converts its values on load); on 3.6 the FM6 sound
+     and its own patch, because engine 1 is a silent stub and no longer converts */
+  const full = (x) => Array.from({ length: info.pcount }, (_, i) => x.p[i] ?? 0);
+  const rec35 = E.bankPutRecord(r91, { ...info, version: "ARAMINTA v3.5" }, full);
+  const info36 = { ...info, version: "ARAMINTA v3.6" };
+  const rec36 = E.bankPutRecord(r91, info36, full);
+  ok(rec35.engine === 1 && eq(rec35.p, r91.fm4) && rec36.engine === 12 && eq(rec36.p, r91.p) && eq(rec36.fm6, r91.fm6),
+    "librarian: a converted DIGITAL sound -> engine 1 before 3.6, FM6 + patch on 3.6");
+  let rc36 = await E.bank.put(rq, 10, rec36, info36);
+  const u36 = await E.bank.get(rq, info36, 10);
+  ok(rc36 === 0 && u36.engine === 12 && eq(u36.fm6, r91.fm6),
+    "librarian: on 3.6 the user slot holds FM6 with its packed patch");
+  const rc35 = await E.bank.put(rq, 11, rec35, { ...info, version: "ARAMINTA v3.5" });
+  const u35 = await E.bank.get(rq, info, 11);
+  ok(rc35 === 0 && u35.engine === 1 && eq(u35.p, pad),
+    "librarian: on 3.5 the user slot still holds the DIGITAL values as engine 1");
   done();
 }
 
@@ -1873,8 +1899,8 @@ const UPGRADE = [0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7];
 
 /* an FM-1 on WebMIDI: identity, then "device asks, host answers" reads of the image */
 class FakeFM1 {
-  constructor(image, { unplugAfter = Infinity } = {}) {
-    this.image = image; this.unplugAfter = unplugAfter; this.served = 0; this.bad = 0;
+  constructor(image, { unplugAfter = Infinity, badRequest = false } = {}) {
+    this.image = image; this.unplugAfter = unplugAfter; this.bad = 0; this.badRequest = badRequest; this.served = 0;
     this.access = { inputs: new Map(), outputs: new Map() };
     this.boot("FM-1_015", "FM-1");
   }
@@ -1898,7 +1924,8 @@ class FakeFM1 {
       this.tx([0xF0, ...pack7(body), 0xF7]);
     } else if (eq(d, UPGRADE)) {
       this.queue = this.identity.startsWith("ota-")
-        ? [...Array.from({ length: 6 }, (_, k) => [k * 512, 512]), [0xF0000000, 8]]
+        ? [...Array.from({ length: 6 }, (_, k) => [k * 512, 512]),
+          ...(this.badRequest ? [[this.image.length + 64, 64]] : []), [0xF0000000, 8]]
         : [[0, 64], [0x40, 160], [0x1000, 512], [0xE0000000, 8]];
       this.next();
     } else if (this.waiting) {
@@ -1950,6 +1977,12 @@ async function updater() {
   ok(e && e.code === "lost", "fm1ota.js: unplugged in step 1 -> error code 'lost'");
   const e2 = await upd({ inputs: new Map(), outputs: new Map() }).install(image, "FM-1_900").then(() => null, (x) => x);
   ok(e2 && e2.code === "notfound", "fm1ota.js: no device -> error code 'notfound'");
+
+  const dev4 = new FakeFM1(image, { badRequest: true });
+  dev4.boot("ota-FM-1_900", "FM-1 Update");
+  const e3 = await upd(dev4.access).resume(image).then(() => null, (x) => x);
+  ok(e3 && e3.code === "badreq" && dev4.input.onmidimessage === null,
+    "fm1ota.js: an out-of-range request -> badreq, the link closed");
 }
 
 await editorMock();

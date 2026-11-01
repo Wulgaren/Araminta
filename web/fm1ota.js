@@ -174,7 +174,8 @@ export class Updater {
       if (!r) continue;
       last = Date.now();
       if (r.addr === 0xE0000000 || r.addr === 0xF0000000) {
-        link.send(response(r.addr, [...new TextEncoder().encode("success"), 0]));
+        if (!link.send(response(r.addr, [...new TextEncoder().encode("success"), 0])))
+          return { served, finished: false, lost: true };
         if (r.addr === finishAddr) return { served, finished: true };
         continue;
       }
@@ -196,10 +197,12 @@ export class Updater {
     const [model] = product.split("_");
     if (dev.id.model !== model) { dev.link.close(); throw fail("model", `the device is ${dev.id.text}, the package is for ${product}`); }
     step("start", dev.id.text);
-    dev.link.send(UPGRADE);
-    await sleep(this.timing.boot);
-    const s1 = await this.serve(dev.link, image, 0xE0000000, 8000, (n) => step("verify", n));
-    dev.link.close();
+    let s1;
+    try {
+      if (!dev.link.send(UPGRADE)) throw fail("lost", "the USB connection was lost before the update began");
+      await sleep(this.timing.boot);
+      s1 = await this.serve(dev.link, image, 0xE0000000, 8000, (n) => step("verify", n));
+    } finally { dev.link.close(); }
     if (!s1.finished) throw fail(s1.lost ? "lost" : "stopped", `the device ${s1.lost ? "was disconnected" : "stopped"} after ${s1.served} requests: nothing was written`);
     step("loader");
     await sleep(this.timing.reboot);
@@ -219,10 +222,12 @@ export class Updater {
 
   // step 2 with the loader found by find()/waitFor()
   async write(ota, image, step) {
-    ota.link.send(UPGRADE);
-    await sleep(this.timing.boot);
-    const s2 = await this.serve(ota.link, image, 0xF0000000, 180000, (n) => step("write", n));
-    ota.link.close();
+    let s2;
+    try {
+      if (!ota.link.send(UPGRADE)) throw fail("lost", "the USB connection was lost before the write began");
+      await sleep(this.timing.boot);
+      s2 = await this.serve(ota.link, image, 0xF0000000, 180000, (n) => step("write", n));
+    } finally { ota.link.close(); }
     return s2;
   }
 
