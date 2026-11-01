@@ -3,8 +3,9 @@
 /* ANALOG: two band-limited oscillators (saw / square / tri / sine / PWM),
  * noise, drive and a trapezoidal state-variable filter: low-pass, or (1.5, TYPE) band-pass /
  * high-pass / feedback COMB (CUT = delay, RES = feedback; dsp.c comb_process).
- * INT (P_E7, -24..24 semitones): OSC 2 this far from OSC 1, on every WAVE (was KTR; the filter's
- * keytracking is fixed at its old default, half).
+ * INT (P_E7, -24..24 semitones): OSC 2 this far from OSC 1 (was KTR; the filter's
+ * keytracking is fixed at its old default, half). It moves OSC 2 on SAW..PWM, adds semitones to SYNC's sweep
+ * and moves SUB's square; SUPER has no OSC 2 and ignores it (ui_draw.c draws the card DIM).
  * WAVE (P_E0) is OSC A's; WAVE2 (P_WAVE2, SAME then SAW SQR TRI SIN PWM) OSC B's. SAME follows OSC A.
  * SYNC / SUB define OSC B's shape themselves and ignore WAVE2.
  * MORPH (P_MORPH, 0..127): each plain WAVE (SAW SQR TRI SIN) slides toward its own next one, PWM widens

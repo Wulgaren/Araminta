@@ -1028,27 +1028,6 @@ static void sd_turn(uint32_t slot, int32_t steps)
     else if (k == EVK_VEL && (step_fl(&t->step[ui.cursor]) & SF_ACCENT))
         ui_message("ACC PLAYS 127");                    /* (kept: it plays once the ACC goes) */
 }
-/* DETAIL's EDIT: the steps' four back to 100 % / x1 / 0 / 96 (their notes stay); one undo */
-static void sd_reset(void)
-{
-    track_t *t = TSEL;
-    uint64_t m = sd_steps();
-    uint32_t i, k, n = 0;
-    for (i = 0; i < NSTEP; i++)
-        for (k = 0; k < 4u; k++)
-            n += ((m >> i) & 1u) && ev_sval(&t->step[i], SD_KIND[k]) != ev_sdefv(SD_KIND[k]);
-    if (!n) {
-        ui_message("NOTHING TO RESET");
-        return;
-    }
-    step_undo_take(t, 0);
-    for (i = 0; i < NSTEP; i++)
-        for (k = 0; (m >> i) & 1u && k < 4u; k++)
-            ev_sput(&t->step[i], SD_KIND[k], ev_sdefv(SD_KIND[k]));
-    motion_undo_done(t);
-    ui_message("STEP RESET");
-}
-
 /* KNOB 3 LEN, and PRESETS while a step-rec key is held on the roll: grow / shrink the note at the cursor
  * (ui.c note_set_len). Right writes TIEs, left takes them back, 0 clears (NOTE CLEARED). One undo per turn.
  * Returns 1 when the note was cleared (KNOB 3 then advances the cursor; entry PRESETS leaves it). */
@@ -1749,17 +1728,10 @@ static uint32_t ly_bit(uint32_t l);
 static void layer_lock_input(uint32_t pressed);
 
 /* a page button let go (they act on release; a layer's own button: layer_gesture). 1: it acted (EDIT on STEP with a
- * step held, USER, PROJECT, AUTOMATION) instead of opening a page */
+ * step held, USER, PROJECT) instead of opening a page */
 static int page_tap(uint32_t b)
 {
     uint32_t f;
-    if (b == B_EDIT && detail_on()) {                    /* DETAIL (1.5.1): the step's CHANCE RATCH NUDGE VEL back */
-        if (chain_busy())
-            ui_message("STOP TO EDIT");
-        else
-            sd_reset();
-        return 1;
-    }
     if (b == B_EDIT && song.seq_mode && !ui.home && cur_page()->graph == GR_ROLL) {   /* STEP: a step held, its locks */
         uint64_t held = lock_held();
         if (held) {
@@ -1767,10 +1739,6 @@ static int page_tap(uint32_t b)
             lock_clear(held);
             return 1;                                   /* the note stays (LEN 0 / HIT off clears it) */
         }
-    }
-    if (b == B_EDIT && !ui.home && cur_page()->graph == GR_EVENTS) {   /* AUTOMATION: EDIT deletes the row's record */
-        ev_delete();
-        return 1;
     }
     if (b == B_EDIT && !ui.home && (cur_page()->graph == GR_USER || cur_page()->graph == GR_SLOTS)) {
         name_rename();                                  /* SAVE > USER / PROJECT: EDIT renames the slot */
@@ -2179,8 +2147,10 @@ static void ui_input(void)
             page_tap(panel_btn_of(id));
     if (act_cols() && (oct & 2u)) {                     /* action pages: OCT+ does the picked action, */
         act_do();
-    } else if (act_cols() && (oct & 1u)) {              /* OCT- drops it, or (none picked) goes HOME */
-        if (cur_page()->graph != GR_PATS && ui.act)
+    } else if (act_cols() && (oct & 1u)) {              /* OCT- deletes on AUTOMATION, else drops the */
+        if (cur_page()->graph == GR_EVENTS)             /* picked action, or (none picked) goes HOME */
+            ev_delete();
+        else if (cur_page()->graph != GR_PATS && ui.act)
             ui.act = 0;
         else
             go_home();

@@ -1337,7 +1337,12 @@ static int auto_list(void)
     bad += check("  OCT+ on + ADD LOCK where one is: ALREADY LISTED, that row selected", motion_count(t) == 2u &&
         str_eq(ui.msg, "ALREADY LISTED") && ui.ev_row == 2u);
     press(B_EDIT);
-    bad += check("  EDIT: the row's record goes", motion_count(t) == 1u && !motion_lock_get(t, 2, ui.ev_id, &v) &&
+    bad += check("  EDIT opens the EDIT page (the row's record stays)", motion_count(t) == 2u &&
+        motion_lock_get(t, 2, ui.ev_id, &v) && cur_page()->fam == FAM_EDIT);
+    go_auto_top(); frame();
+    turn(EN_K1, 2);                                      /* row 2: the first record */
+    press(B_OCTDN);
+    bad += check("  OCT-: the row's record goes", motion_count(t) == 1u && !motion_lock_get(t, 2, ui.ev_id, &v) &&
         str_eq(ui.msg, "DELETED"));
     hold(B_SAVE);
     bad += check("  SAVE held: it is back", motion_count(t) == 2u);
@@ -1346,15 +1351,18 @@ static int auto_list(void)
     frames(2000);
     turn(EN_K1, -5);
     turn(EN_K1, 2);                                      /* (the first record: the row after PLAY and QUANTIZE) */
-    v = motion.event[0].value;
-    turn(EN_K4, 2); frames(100); turn(EN_K4, 2); frames(100); turn(EN_K4, 2);  /* > ACC_GAP per detent: no accel */
-    ok = motion.event[0].value == v + 6;
-    hold(B_SAVE);
-    bad += check("  KNOB 4 turned on (three turns): one undo", ok && motion.event[0].value == v);
-    chain.running = 1;
-    turn(EN_K4, 1);
-    bad += check("  a song playing: STOP TO EDIT", motion.event[0].value == v && str_eq(ui.msg, "STOP TO EDIT"));
-    chain.running = 0;
+    {
+        uint16_t c = auto_cur();
+        v = motion.event[c & 0xFFu].value;
+        turn(EN_K4, 2); frames(100); turn(EN_K4, 2); frames(100); turn(EN_K4, 2);  /* > ACC_GAP per detent: no accel */
+        ok = motion.event[c & 0xFFu].value == v + 6;
+        hold(B_SAVE);
+        bad += check("  KNOB 4 turned on (three turns): one undo", ok && motion.event[c & 0xFFu].value == v);
+        chain.running = 1;
+        turn(EN_K4, 1);
+        bad += check("  a song playing: STOP TO EDIT", motion.event[c & 0xFFu].value == v && str_eq(ui.msg, "STOP TO EDIT"));
+        chain.running = 0;
+    }
     for (i = 0; motion.count < MOTION_MAX; i++)          /* the 192 used (track 2) */
         motion_set_event(&trk[1], i % NSTEP, i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_PAN, 10);
     turn(EN_K1, 5);

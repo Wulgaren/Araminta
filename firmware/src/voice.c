@@ -400,6 +400,8 @@ static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
         return;
     }
     mod_note(t, note, vel);                             /* the matrix's VEL / KEY / RAND */
+    vel = (uint32_t)(((int32_t)vel * mod_vel(t) + 16384) >> 15);   /* the matrix's VEL destination */
+    t->m_vel = (uint8_t)vel;                            /* (the VEL source reads what plays) */
     for (i = 0; i < NVOICE; i++)
         any |= t->v[i].gate;
     if (!any) {                                        /* fresh phrase: LFO retrigger (TRIG NOTE) and fade */

@@ -254,6 +254,24 @@ static void test_math(void)
     check("KEY below C4 negative, VEL 1 -> AMP almost closed", m.cutoff == -((12 * 512 * 63) >> 7) && m.amp1 < 600);
     mod_end(t);
 
+    /* the VEL destination: the note's velocity scaled once at note-on (mod_vel) */
+    fresh(0, 0);
+    t->p[P_VOICE] = V_POLY;
+    lfo_at(t, 32767);
+    slot(t, 0, MS_LFO, MD_VEL, 63);
+    trk_note_on(t, 60, 100);
+    check("LFO -> VEL: the top of the LFO leaves the velocity alone (100)", t->v[0].vel == 100u && t->m_vel == 100u);
+    lfo_at(t, -32768);
+    trk_note_on(t, 62, 100);
+    check("LFO -> VEL: its bottom thins the note out (2)", t->v[1].vel == 2u);
+    slot(t, 0, MS_VEL, MD_VEL, -64);
+    trk_note_on(t, 64, 127);
+    check("VEL -> VEL -64: a full velocity closes the note", t->v[2].vel == 0u);
+    slot(t, 0, MS_MODW, MD_VEL, 63);
+    t->mw = 127;
+    trk_note_on(t, 65, 100);
+    check("MODW -> VEL: the wheel up leaves it", t->v[3].vel == 100u);
+
     /* clamping of the per-voice sums */
     fresh(0, 0);
     lfo_at(t, 32767);
@@ -439,7 +457,7 @@ static void test_math(void)
           mod_param(MD_DLY) == P_DLY && mod_param(MD_REV) == P_REV && MD_TONE == 26 &&
           mod_param(MD_TSPEED) == MFX_TSPEED && mod_param(MD_TWOW) == MFX_TWOW &&
           str_eq(mod_dst_name(t, MD_TSPEED), "TSPEED") && str_eq(mod_dst_name(t, MD_TWOW), "TWOW") &&
-          MD_TSPEED == 49 && MD_TWOW == 50 && MD_N == 51);
+          MD_TSPEED == 49 && MD_TWOW == 50 && MD_VEL == 51 && MD_N == 52 && str_eq(mod_dst_name(t, MD_VEL), "VEL"));
 
     /* DIST on SEND lives in fx_bus_trk; LFO must move the bus, not track p[] */
     fresh(0, 0);

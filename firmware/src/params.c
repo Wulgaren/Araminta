@@ -90,7 +90,7 @@ static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN",
                                      "PAT", "SRATE", "SDEP", "CHRD", "VOIC",
                                      "TONE", "DMIX", "FCUT", "FRES", "FMIX", "BITS", "CRAT", "CLPF", "CMIX",
                                      "PRAT", "PDEP", "PFBK", "PMIX", "FRAT", "FDEP", "LMIX", "HRAT", "HDEP",
-                                     "DTIME", "DFBK", "DCOL", "RSIZE", "RDAMP", "TSPEED", "TWOW"};
+                                     "DTIME", "DFBK", "DCOL", "RSIZE", "RDAMP", "TSPEED", "TWOW", "VEL"};
 static const char *const N_ENGNAME[] = {"ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS",
                                              "DRUM-X", "NOISE", "FM6", "-", "WAVETABLE", "DRUMS",
 };

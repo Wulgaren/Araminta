@@ -145,8 +145,9 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   that parameter for that step only; EDIT with the step held clears its locks. **SEQ > AUTOMATION** is one list of
   everything that happens on the track's steps: PLAY / CLEAR, QUANTIZE, each step's CHANCE, RATCH, NUDGE and VEL, its
   locks and automation events; change their step, parameter or value, turn a lock into automation or back, add or
-  delete one. 192 records shared by the four tracks (88 saved in a project). SAVE held undoes every edit. A step can
-  also hold a **PITCH** lock (SCL K4): an absolute per-step transpose (-24..+24), chromatic and not snapped; the
+  delete one (OCT-, or the editor's MOTION delete). 192 records shared by the four tracks (88 saved in a project).
+  SAVE held undoes every edit. A step can also hold a **PITCH** lock (SCL K4): an absolute per-step transpose
+  (-24..+24), chromatic and not snapped; the
   step uses it instead of the track's TRN. Kits ignore PITCH: SCL K4 on a DRUM track creates no lock, and
   `MOTION` op 5 refuses one.
   With REC armed while playing on a synth track, turning **TRN** writes that step's PITCH lock from the scale-fitted
@@ -179,7 +180,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   or FREE, **POL** bipolar or unipolar (LFO > LFO 2), and **SMTH** on LFO 2 (only when WAVE is S&H): rounds the
   sample-and-hold steps into a smooth, sine-like random curve
 - **Modulation matrix:** 4 slots per track, MIDI controllers as sources, **S&H** and **SLEW** (a random value per
-  LFO cycle, held or gliding), and **DEPTH** as a destination, so the matrix can modulate the LFO itself
+  LFO cycle, held or gliding), **DEPTH** as a destination, so the matrix can modulate the LFO itself, and **VEL**
+  (the note's velocity, scaled once at note-on)
 - **SPREAD** (EDIT > VOICE, SPRD): the voices of a POLY or UNISON track alternate left and right of its PAN
 - **ENV SYNC** (ENV > ENV DEST): the envelope's attack, decay and release as note values of the tempo
 - **Effects list** chained or sendable per track (DIST, FILTER, CRUSH, PHASR, FLANG, CHOR, DLY, REV stages):
@@ -361,8 +363,9 @@ KNOB ACCEL is always on for wide values.
 In the order the device lists them:
 
 - **ANALOG**: virtual analog; two oscillators (EDIT > OSC A / OSC B), each with its own WAVE (OSC B's defaults to
-  SAME, following OSC A), INT (OSC B an interval from OSC A, -24..+24 semitones), DTN and MIX; WAVE SYNC makes OSC B a
-  saw hard-synced to OSC A, SUB a square an octave down, SUPER one saw plus six detuned copies in the same voice
+  SAME, following OSC A), INT (OSC B an interval from OSC A, -24..+24 semitones; SUPER has no OSC B and ignores
+  it), DTN and MIX; WAVE SYNC makes OSC B a saw hard-synced to OSC A, SUB a square an octave down, SUPER one saw
+  plus six detuned copies in the same voice
   (SPRD (DTN) the spread, SWARM (MIX) the copies' level). Noise, drive, MORPH / DRIFT (OSC A), a resonant filter:
   low-pass, band-pass, high-pass or comb (EDIT > FILTER, page 3; COMB: CUT sets the delay / tooth spacing, RES the
   feedback)

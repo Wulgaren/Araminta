@@ -2956,12 +2956,19 @@ static int test_page_cycles(void)
     want = ref[6]; step_set_ratchet(&want, 2);
     ok &= steps_but(TSEL, ref, 6, &want);
     hold(B_SAVE);
-    press(B_EDIT);                                      /* EDIT: back to x1 */
+    want = ref[6]; step_set_ratchet(&want, 4);
+    ok = steps_but(TSEL, ref, 6, &want);
+    press(B_EDIT);                                      /* EDIT opens the EDIT page */
+    ok &= steps_but(TSEL, ref, 6, &want) && cur_page()->fam == FAM_EDIT;
+    go_auto_top(); frame();
+    ok &= auto_pick(EVC(EVK_RATCH, 6));
+    press(B_OCTDN);                                     /* OCT-: back to x1 */
     ok &= steps_but(TSEL, ref, 0xFFu, 0) && msg_is("DELETED");
     hold(B_SAVE);
     want = ref[6]; step_set_ratchet(&want, 4);
     ok &= steps_but(TSEL, ref, 6, &want);
-    bad += check("AUTOMATION RATCH: + ADD x2, KNOB 4 to x4, EDIT x1; each one undo (SAVE held), the step's flags only", ok);
+    bad += check("AUTOMATION RATCH: + ADD x2, KNOB 4 to x4; EDIT opens the EDIT page, OCT- x1; each one undo "
+                 "(SAVE held), the step's flags only", ok);
     {   /* the order: PLAY, QUANTIZE, then by step (CHANCE, RATCH, NUDGE, the records), + ADD; a lock on the same step
          * after them */
         go_auto_add(EV_CHANCE, 6); frame(); press(B_OCTUP);
@@ -2977,17 +2984,20 @@ static int test_page_cycles(void)
         bad += check("  the rows: PLAY, QUANTIZE, by step (CHANCE, RATCH, NUDGE, then its locks / events), + ADD; one there: "
                      "ALREADY LISTED", ok);
         auto_pick(EVC(EVK_NUDGE, 6));
-        press(B_EDIT);                                  /* (the NUDGE out again: the rest as before) */
+        press(B_OCTDN);                                 /* (the NUDGE out again: the rest as before) */
         ok = step_nudge(&TSEL->step[6]) == 0;
-        bad += check("  EDIT on the NUDGE row: back to 0", ok);
+        bad += check("  OCT- on the NUDGE row: back to 0", ok);
     }
     memcpy(ref, TSEL->step, sizeof ref);
     chain.running = 1;
+    go_auto_top(); frame();
     auto_pick(EVC(EVK_CHANCE, 6));
-    turn(EN_K4, 5); press(B_EDIT);
+    turn(EN_K4, 5);
     ok = steps_but(TSEL, ref, 0xFFu, 0) && msg_is("STOP TO EDIT");
+    press(B_EDIT);
+    ok &= cur_page()->fam == FAM_EDIT;
     chain.running = 0;
-    bad += check("  while a song plays: STOP TO EDIT, nothing changes", ok);
+    bad += check("  while a song plays: KNOB 4 says STOP TO EDIT; EDIT opens the EDIT page", ok);
     return bad;
 }
 
@@ -3683,27 +3693,33 @@ static int test_edit_cycle(void)
         ok &= page_desc(cur_page(), 0, &vp) && vp == &TSEL->p[P_WAVE2];
         ok2 &= card_inactive(TSEL, vp);             /* WAVE2 is ignored on SYNC */
         ok2 &= card_inactive(TSEL, &TSEL->p[P_MORPH]);
+        ok2 &= !card_inactive(TSEL, &TSEL->p[P_E7]);   /* INT moves the synced saw */
         TSEL->p[P_E0] = AW_SUB;
         ok2 &= card_inactive(TSEL, vp);             /* .. and on SUB / SUPER */
+        ok2 &= !card_inactive(TSEL, &TSEL->p[P_E7]);   /* SUB's square too */
         TSEL->p[P_E0] = AW_SUPER;
         ok2 &= card_inactive(TSEL, vp);
+        ok2 &= card_inactive(TSEL, &TSEL->p[P_E7]);    /* SUPER has no OSC 2: INT does nothing */
         TSEL->p[P_E0] = 0;
         ok2 &= !card_inactive(TSEL, vp);            /* SAW on LP: OSC B's own WAVE is live */
         ok2 &= !card_inactive(TSEL, &TSEL->p[P_MORPH]);
+        ok2 &= !card_inactive(TSEL, &TSEL->p[P_E7]);
         TSEL->p[P_FTYPE] = IFT_BP;                  /* BP / HP / COMB: OSC B's own WAVE is live too */
         ok2 &= !card_inactive(TSEL, vp);
         TSEL->p[P_FTYPE] = IFT_HP;
         ok2 &= !card_inactive(TSEL, vp);
         TSEL->p[P_FTYPE] = IFT_COMB;
         ok2 &= !card_inactive(TSEL, vp);
+        ok2 &= !card_inactive(TSEL, &TSEL->p[P_E7]);
         TSEL->p[P_FTYPE] = IFT_LP;
         TSEL->p[P_E0] = AW_SYNC;                    /* (on FM6 the same slots are OP2 / OP3 ATK: never dimmed) */
         TSEL->eng_req = ENGI_FM6;
-        ok2 &= !card_inactive(TSEL, &TSEL->p[P_WAVE2]) && !card_inactive(TSEL, &TSEL->p[P_MORPH]);
+        ok2 &= !card_inactive(TSEL, &TSEL->p[P_WAVE2]) && !card_inactive(TSEL, &TSEL->p[P_MORPH]) &&
+               !card_inactive(TSEL, &TSEL->p[P_E7]);
         TSEL->eng_req = ENGI_ANALOG;
         TSEL->p[P_E0] = 0;
         bad += check("ANALOG OSC B: WAVE DIM under SYNC / SUB / SUPER only (live on BP / HP / COMB); "
-                     "OSC A MORPH DIM under SYNC", ok2);
+                     "OSC A MORPH DIM under SYNC; INT DIM on SUPER only", ok2);
     }
     turn(EN_SELECT, 1); frame();
     ok &= cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "FILTER");
