@@ -96,6 +96,12 @@ static uint8_t usr_drum[SMP_USER_SLOTS];             /* FSMP hdr.rsv bit 0: SEQ 
 static const char *const SMP_ALL_NAMES[SMP_NALL] = {SMP_SET_NAMES_INIT, "USR1", "USR2", "USR3", "CR78"};
 static const char *const SMP_SRC_NAMES[SMP_NSRC] = {SMP_SET_NAMES_INIT, "USR1", "USR2", "USR3"};
 static int smp_user_drum(uint32_t k) { return k < SMP_USER_SLOTS && usr_drum[k]; }
+/* the SAMPLE part plays a drum kit (CR78's factory kit or a USR drumkit): its kick punches and ducks like any kit */
+static int smp_is_kit(const track_t *t)
+{
+    uint32_t si = (uint32_t)t->p[P_E0] % SMP_NALL, k = si >= SMP_NSETS ? si - SMP_NSETS : 0u;
+    return si == SMP_CR78_INDEX || (si >= SMP_NSETS && smp_user_drum(k));
+}
 
 #ifndef SMP_USER_XIP                                /* host tests: a RAM image of the slots */
 #define SMP_USER_XIP(k) fm1_xip_ptr(SMP_USER_BASE + (k) * SMP_USER_SIZE)
@@ -181,7 +187,7 @@ static inline const smp_zone_t *smp_zone(uint32_t zi)
 }
 
 /* voice: ph[0] position (samples), ph[1] fraction Q16, s[0] predictor, s[1] step
- * index, s[2] previous sample, s[3] current sample, s[4] zone, s[5] step Q16 */
+ * index, s[2] previous sample, s[3] current sample, s[4] zone, s[5] a kit kick's PNCH age (0xFF: not a kick) */
 static inline int32_t sample_next(const smp_zone_t *z, voice_t *v, int loop)
 {
     uint32_t pos = v->ph[0], b = SMP_DATA[z->off + (pos >> 1)];
@@ -234,6 +240,12 @@ static void sample_note_on(track_t *t, voice_t *v)
     v->s[2] = v->s[3] = 0;
     v->s[6] = zi == 0xFFFFu;     /* 1 = sample ended (one-shot); a kit key with no sound stays silent */
     v->s[7] = 0;                 /* lo-pass state */
+    {   /* MASTER > PNCH / DUCK: the kick of a drum kit (CR78, a USR kit) starts its punch and the sidechain */
+        int kick = smp_is_kit(t) && zi != 0xFFFFu && smp_zone(zi)->root16 == 36 * 16;
+        v->s[5] = kick ? 0 : 0xFF;
+        if (kick)
+            duck_hit = 1;
+    }
     if (smp_set_missing(si))
         v->s[6] = 2;             /* 2 = no sample data: the sine (smp_sine; ph[0] its phase) */
 }
@@ -247,6 +259,22 @@ static void sample_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
     uint32_t r = pow2_q16(d16), stepq = (r >> 8) * (z->rate >> 8);   /* Q16 samples per output */
     int32_t bits = p[P_E2], lp = 4000 + ((clamp((p[P_E4] << 8) + m->cutoff, 0, 127 << 8) * 28767) >> 15);
     int32_t drv = p[P_E6], sh = bits / 10;
+    uint32_t age = (uint32_t)v->s[5];
+    int32_t pb0 = 4096, pb1 = 4096;
+    vmod_t ml;
+    if (age < 250u && pnch_eff > 0) {                 /* MASTER > PNCH on a kit's kick (the amp tail here too) */
+        int32_t g0 = punch_gain(age, pnch_eff), g1 = punch_gain(age + 1u, pnch_eff);
+        if (g0 < 32768 || g1 < 32768) {
+            int32_t a0 = (m->amp0 * (g0 < 32768 ? g0 : 32768)) >> 15;
+            ml.amp1 = (m->amp1 * (g1 < 32768 ? g1 : 32768)) >> 15;
+            ml.amp0 = a0;
+            m = &ml;
+        }
+        pb0 = g0 > 32768 ? g0 >> 3 : 4096;            /* Q12 */
+        pb1 = g1 > 32768 ? g1 >> 3 : 4096;
+    }
+    if (age < 250u)
+        v->s[5] = (int32_t)(age + 1u);
     if (v->s[6] == 2) {                               /* no sample data: the sine at the note's pitch + TUNE */
         smp_sine(out, n, m, p[P_E1] * 16, lp, &v->ph[0], &v->s[7]);
         return;
@@ -280,7 +308,14 @@ static void sample_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
         if (drv)
             s = softclip(s + (((s >> 2) * (drv * 150)) >> 11));   /* = s * drv * 600 / 32768, no overflow */
         v->s[7] += mulq15(s - v->s[7], lp);           /* gentle tone control (CUT) */
-        out[i] += voice_amp(v->s[7], m, i) * 2;
+        {
+            int32_t y = v->s[7];
+            if (pb0 != 4096 || pb1 != 4096) {         /* the kick's punch: driven into the knee, the tail on the amp */
+                y = (y * (pb0 + (((pb1 - pb0) * (int32_t)i) >> CTL_LOG2))) >> 12;
+                y = soft_knee(y + (y >> 2), 24000);
+            }
+            out[i] += voice_amp(y, m, i) * 2;
+        }
         if (v->s[6])
             break;
     }

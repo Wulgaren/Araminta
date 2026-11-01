@@ -73,20 +73,13 @@ static int dx_lane_muted(const track_t *t, uint32_t l)
     return dx_lane_muted_g(l) || (p < NPART && ((drum_mute[p] >> (l & 7u)) & 1u));
 }
 
-static int16_t clip_eff, pnch_eff;   /* G_CLIP / G_PUNCH as the master plays them (mod.c macro_master) */
 /* The drum bus (JIANT, MENU-less: FX > MASTER). PUNCH (G_PUNCH 0..100, no detector: each hit's own age), made to
  * fatten (JIANT 0.5; it was Drum Buss's +11 dB / -14 dB, which thinned everything out): the whole hit driven into the
  * voice's knee, its first ~3 ms up to x1.45, its body (~15 .. 115 ms) up to x1.7, back to unity by ~180 ms: the peak
- * held by the knee, the body denser and louder, the tail whole (the master's leveler does not pump on a spike). DUCK (G_DUCK, fx.c): a kick struck on any
- * DRUM track (its group not muted) ducks the other parts; duck_hit tells fx.c's mix_block */
-static volatile uint8_t duck_hit;
+ * held by the knee, the body denser and louder, the tail whole (the master's leveler does not pump on a spike). DUCK
+ * (G_DUCK, fx.c): a kick struck on any kit's track (its group not muted) ducks the other parts; duck_hit (dsp.c, shared
+ * with DRUMS / SAMPLE kits) tells fx.c's mix_block */
 #define DRUM_ATK_BLK 48u                                 /* (JIANT 0.4) ATK+ on a DRUM track: a hit's fade-in, blocks */
-static int32_t punch_gain(uint32_t age, int32_t p)     /* Q15 (32768 = 1, up to x1.7), p 0..100 */
-{
-    int32_t up = 32768 + p * 150, body = 32768 + p * 230;
-    return age < 4u ? up : age < 20u ? up + (body - up) * (int32_t)(age - 4u) / 16
-                       : age < 160u ? body : age < 250u ? body + (32768 - body) * (int32_t)(age - 160u) / 90 : 32768;
-}
 
 /* General MIDI notes 35..81 -> the lane (DV_*) and semitones from its pitch */
 static const int8_t DRUM_GM[47][2] = {

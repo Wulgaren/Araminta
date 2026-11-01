@@ -70,6 +70,9 @@
 # MOD (tests/mod_test.c): the modulation matrix: slots that do nothing are bit-identical, every source on each
 #                   kind of destination, clamping, MIDI CC1 / CC11 / aftertouch routing, a rendered child per
 #                   destination (each must change the sound), the cost of 4 active slots (at most +5 %), demos.
+# MASTER (tests/master_test.c): GLO > MASTER's CLIP / PNCH / DUCK / DREL in a rendered mix (a child each): CLIP
+#                   drives at ordinary levels, PNCH the DRUM-X bus and the kick of CR78 / DRUMS, DUCK the pads on
+#                   any kit's kick, DREL the release.
 # SOUND (tests/sound14_test.c; #132 #104 #148): the matrix's S&H / SLEW sources (a value per LFO cycle, the glide) and
 #                   DEPTH destination (the LFO's gain; none = untouched), ANALOG WAVE SYNC / SUB (pitch, no DC, bounded,
 #                   the band-limited restart), SPREAD (SPRD 0 / MONO / LEGATO bit for bit, a note hard left / right, the
@@ -657,9 +660,14 @@ if [ -f build/gen/felucca_tables.h ]; then
     u_mod() {
         build "$OUT/mod_test" tests/mod_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
         mkdir -p build/mod_demo
-        run "modulation matrix: off = bit-identical, the math, MIDI CC1 / CC11 / aftertouch, cost, demos" "$OUT/mod_test" build/mod_demo
+        run "modulation matrix: off = bit-identical, the math, every destination changes the sound, MIDI CC1 / CC11 / aftertouch, cost, demos" "$OUT/mod_test" build/mod_demo
     }
     unit u_mod
+    u_master() {
+        build "$OUT/master_test" tests/master_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
+        run "MASTER: CLIP / PNCH / DUCK / DREL each reach the mix (a rendered child each)" "$OUT/master_test"
+    }
+    unit u_master
     u_sound14() {
         build "$OUT/sound14_test" tests/sound14_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
         mkdir -p build/sound14_demo
