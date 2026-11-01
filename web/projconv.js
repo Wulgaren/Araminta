@@ -4,7 +4,8 @@
 // Project import conversion, client side. Firmware 3.6 reads FUN7..FUN19 only (the FUN1..FUN6 readers
 // are gone) and no longer converts DIGITAL tracks (engine 1) to FM6. This module turns any stored project
 // (FUN1..FUN19) into the current FUN19 wire format, applying the same field mapping the old C readers did
-// (project.c at 037b07b) and converting DIGITAL tracks with the editor's own FM4 converter.
+// (project.c at 037b07b), converting DIGITAL tracks with the editor's own FM4 converter, and moving a
+// pre-VIB project's FM6 VMOD into the patches (proj_fm6m).
 //
 // convertProject(bytes, digital) -> Uint8Array(3840). digital is the editor's converter:
 //   (p, pe0) -> { p, fm6 (128 packed bytes), preset }
@@ -57,7 +58,7 @@ const PROJ_GENERATION_MARK = 0x47;
 const PROJ_MASTER_ORDER_OFF = 48 + 10 * 4;                       // 88
 const P_LEVEL = 0, P_SCALE = 26, P_QUANT = 27, P_DIST = 33, P_CHOR = 34, P_REV = 36,
   P_TAPEMIX = 41, P_SLCR = 45, P_IORD = 96, P_FTYPE = 117, P_E7 = 126;
-const P_FM1_ATK = 61, P_FM4_LEVEL = 80, P_MORPH = 71, P_DRIFT = 73, P_WAVE2 = 66;
+const P_FM1_ATK = 61, P_FM4_LEVEL = 80, P_MORPH = 71, P_DRIFT = 73, P_WAVE2 = 66, P_E5 = 124;
 const G_TSPEED = 7, G_RSIZE = 8, G_RDAMP = 9, G_CRATE = 10, G_CDEPTH = 11, G_TWOW = 12,
   G_TDROP = 15, G_TMIX = 22, G_TAPEMODE = 23, G_RTYPE = 24, G_PUNCH = 25, G_DUCK = 26,
   G_CRTYPE = 27, G_CRSIZE = 28, G_CRDAMP = 29, G_SLOWN = 30, G_TTEMPO = 31;
@@ -262,6 +263,99 @@ function retireConvert(q) {
     hit.add(k);
   }
   if (hit.size) dropMotionOn(q, hit, (id) => id >= P_E0);
+}
+/* FM6 patch records (eng_fm6.c at 037b07b): the 155-byte voice layout, its per-byte maxima, the packed
+ * 128-byte record of a project, and the carrier bitmask per algorithm (fm6_core.c FM6_CAR). */
+const FP_OP = 21, FP_KVS = 15, FP_ALG = 134, FP_NAME = 145, FP_SIZE = 155;
+const FM6_OP_MAX = [99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 3, 3, 7, 3, 7, 99, 1, 31, 99, 14];
+const FM6_V_MAX = [99, 99, 99, 99, 99, 99, 99, 99, 31, 7, 1, 99, 99, 99, 99, 1, 5, 7, 48];
+const FM6_CAR = [40, 40, 36, 36, 42, 42, 40, 40, 40, 36, 36, 40, 40, 40, 40, 32,
+  32, 32, 38, 52, 54, 46, 54, 62, 62, 52, 52, 41, 58, 57, 62, 63];
+
+function fm6Sanitize(v) {
+  for (let i = 0; i < FP_SIZE; i++) {
+    if (i >= FP_NAME) v[i] = v[i] < 32 || v[i] > 126 ? 32 : v[i];
+    else v[i] = Math.min(v[i], i < 126 ? FM6_OP_MAX[i % 21] : FM6_V_MAX[i - 126]);
+  }
+  return v;
+}
+
+/* the project's 128-byte packed patch -> a 155-byte voice (eng_fm6.c fm6_unpack) */
+function fm6Unpack(b) {
+  const v = new Array(FP_SIZE).fill(0);
+  for (let k = 0; k < 6; k++) {
+    const o = k * 17, d = k * FP_OP;
+    for (let i = 0; i < 11; i++) v[d + i] = b[o + i] & 0x7f;
+    v[d + 11] = b[o + 11] & 3; v[d + 12] = (b[o + 11] >> 2) & 3;
+    v[d + 13] = b[o + 12] & 7; v[d + 20] = (b[o + 12] >> 3) & 15;
+    v[d + 14] = b[o + 13] & 3; v[d + FP_KVS] = (b[o + 13] >> 2) & 7;
+    v[d + 16] = b[o + 14] & 0x7f;
+    v[d + 17] = b[o + 15] & 1; v[d + 18] = (b[o + 15] >> 1) & 31;
+    v[d + 19] = b[o + 16] & 0x7f;
+  }
+  for (let i = 0; i < 9; i++) v[126 + i] = b[102 + i] & 0x7f;
+  v[FP_ALG] &= 31;
+  v[135] = b[111] & 7; v[136] = (b[111] >> 3) & 1;
+  for (let i = 0; i < 4; i++) v[137 + i] = b[112 + i] & 0x7f;
+  v[141] = b[116] & 1; v[142] = (b[116] >> 1) & 7; v[143] = (b[116] >> 4) & 7;
+  v[144] = b[117] & 0x7f;
+  for (let i = 0; i < 10; i++) v[FP_NAME + i] = b[118 + i] & 0x7f;
+  return fm6Sanitize(v);
+}
+
+/* a 155-byte voice -> the project's 128-byte packed record (eng_fm6.c fm6_pack) */
+function fm6Pack(v) {
+  const b = new Array(128).fill(0);
+  for (let k = 0; k < 6; k++) {
+    const o = k * FP_OP, d = k * 17;
+    for (let i = 0; i < 11; i++) b[d + i] = v[o + i] & 0x7f;
+    b[d + 11] = (v[o + 11] & 3) | (v[o + 12] & 3) << 2;
+    b[d + 12] = (v[o + 13] & 7) | (v[o + 20] & 15) << 3;
+    b[d + 13] = (v[o + 14] & 3) | (v[o + FP_KVS] & 7) << 2;
+    b[d + 14] = v[o + 16] & 0x7f;
+    b[d + 15] = (v[o + 17] & 1) | (v[o + 18] & 31) << 1;
+    b[d + 16] = v[o + 19] & 0x7f;
+  }
+  for (let i = 0; i < 9; i++) b[102 + i] = v[126 + i] & 0x7f;
+  b[110] &= 31;
+  b[111] = (v[135] & 7) | (v[136] & 1) << 3;
+  for (let i = 0; i < 4; i++) b[112 + i] = v[137 + i] & 0x7f;
+  b[116] = (v[141] & 1) | (v[142] & 7) << 1 | (v[143] & 7) << 4;
+  b[117] = v[144] & 0x7f;
+  for (let i = 0; i < 10; i++) b[118 + i] = v[FP_NAME + i] & 0x7f;
+  return b;
+}
+
+/* a pre-VIB project or preset put its VMOD value in p[P_E5]: add it to the modulators' velocity
+ * sensitivity (eng_fm6.c fm6_old_vmod); the caller clears P_E5 */
+function fm6OldVmod(v, p) {
+  const alg = p[P_E0] >= 1 && p[P_E0] <= 32 ? p[P_E0] - 1 : v[FP_ALG] & 31;
+  const car = FM6_CAR[alg & 31], d = clamp(p[P_E5], -7, 7);
+  for (let k = 0; k < 6; k++) if (!((car >> k) & 1)) {
+    const o = k * FP_OP;
+    v[o + FP_KVS] = clamp(v[o + FP_KVS] + d, 0, 7);
+  }
+}
+
+/* FM6 tracks of a project from before VIB (3.6, header bit 2 clear): P_E5 was VMOD. Move it into the
+ * patch's modulator operators (fm6OldVmod) and clear P_E5; the track's VMOD automation has no patch
+ * target, so drop its E5 events. Idempotent: a VIB project returns at once (project.c proj_fm6m). */
+function fm6Convert(q) {
+  if (q.fm6_vib) return;
+  const hit = new Set();
+  for (let k = 0; k < NTRK; k++) {
+    const d = q.t[k];
+    if (d.engine !== ENGI_FM6) continue;
+    hit.add(k);
+    if (d.p[P_E5]) {
+      const v = fm6Unpack(q.fm6[k]);
+      fm6OldVmod(v, d.p);
+      q.fm6[k] = fm6Pack(v);
+      d.p[P_E5] = 0;
+    }
+  }
+  q.fm6_vib = 1;
+  if (hit.size) dropMotionOn(q, hit, (id) => id === P_E5);
 }
 function fm4Convert(q, digital) {
   const hit = new Set();
@@ -657,7 +751,7 @@ function packProject(q) {
   for (let i = 0; i < 27; i++) put16(8 + i * 2, q.g[i]);
   b[62] = q.sel; b[63] = q.parts; b[64] = q.phys;
   b[65] = clamp(q.g[G_CRTYPE], 0, 4); b[66] = P_COUNT;
-  b[67] = 1 | (clamp(q.g[G_TTEMPO], 0, 1) << 7) | 2 | 4;
+  b[67] = 1 | (clamp(q.g[G_TTEMPO], 0, 1) << 7) | 2 | (q.fm6_vib ? 4 : 0);
   b[PROJ_CRV_OFF] = clamp(q.g[G_CRSIZE], 0, 127);
   b[PROJ_CRV_OFF + 1] = clamp(q.g[G_CRDAMP], 0, 127);
   let pos = 68;
@@ -764,6 +858,7 @@ export function convertProject(rawBytes, digital) {
   if (!validHash(bytes)) throw new Error("Project checksum mismatch");
   const q = f <= 6 ? decodeOld(bytes, f) : decodeModern(bytes, f);
   fm4Convert(q, digital);
+  fm6Convert(q);
   percConvert(q);
   retireConvert(q);
   return packProject(q);
