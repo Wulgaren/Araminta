@@ -3,10 +3,13 @@
 /* Engine switches on a part, hashed (1.5: the engines' per-part state shares one region, engines.c eng_mem).
  *   build/host/union_test [GOLDEN_FILE]      (run_tests.sh builds and runs it against tests/union_golden.txt)
  *
- * Every pair (and A -> B -> A) of the engines that keep state per part (PHYS, DRUM, FM6), with ANALOG and WHEEL
- * among them. SAMPLE/GRAIN are live again but omitted here until union_golden is regenerated (GOLDEN_UPDATE=1).
- * SLICE stays retired. Part 1 switches while part 3 plays other engines alongside.
- * env: GOLDEN_UPDATE=1 rewrites GOLDEN_FILE (only with a reason: a switch is to sound as it did). */
+ * Every pair (and A -> B -> A) of the engines that keep state per part (ANALOG, WHEEL, PHYS, DRUM, FM6).
+ * SAMPLE/GRAIN are live again but omitted here until union_golden is regenerated
+ * (GOLDEN_UPDATE=1). SLICE stays retired. Part 1 switches while part 3 plays other engines alongside.
+ * 1.5 moved ANALOG's COMB line and WHEEL's state into the region: a switch through either zeroes the other's
+ * state there (the fade and the engine's note-on / init make that inaudible), so their A -> B -> A hashes were
+ * regenerated from 1.4's; every other sequence still matches.
+ * env: GOLDEN_UPDATE=1 rewrites GOLDEN_FILE (only with a reason: a storage change, not a sound one). */
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -131,6 +134,6 @@ int main(int argc, char **argv)
         }
     }
     fclose(f);
-    printf("union_test: %u engine switch sequences, %u differ from 1.4: %s\n", n, bad, bad ? "FAIL" : "ok");
+    printf("union_test: %u engine switch sequences, %u differ from the golden: %s\n", n, bad, bad ? "FAIL" : "ok");
     return bad != 0;
 }

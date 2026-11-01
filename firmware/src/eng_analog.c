@@ -68,7 +68,13 @@ static inline int32_t analog_tap(const tsvf_t *c, int32_t k, int32_t in, int32_t
 #define ANALOG_K(res) (8192 - (res) * 7600 / 127)     /* tsvf_coef's damping, Q12 */
 #define AC_LEN 128u                                   /* COMB delay (~2.9 ms) */
 _Static_assert((AC_LEN & (AC_LEN - 1u)) == 0u, "ANALOG COMB line is a power of two (dsp.c comb_process)");
-static int16_t ana_comb[NPART][NVOICE][AC_LEN] __attribute__((section(".pool")));
+#define ANA_COMB_BYTES (NVOICE * AC_LEN * sizeof(int16_t))
+ENG_MEM_FITS("ANALOG", ANA_COMB_BYTES);                /* the COMB line, per part: engines.c eng_mem */
+/* the part's and voice's COMB delay line (the region is the engine's; a switch zeroes it) */
+static inline int16_t *ana_comb_line(uint32_t pi, uint32_t vi)
+{
+    return (int16_t *)ENG_MEM(pi) + vi * AC_LEN;
+}
 
 /* SUPER: centre + three pairs. Three phases live in v->ph[], four more in the voice's free state slots
  * (s[3] s[4] s[5] s[7]); the filter and the noise state keep s[0..2] */
@@ -81,7 +87,7 @@ static inline int32_t analog_comb(track_t *t, voice_t *v, int32_t in, int32_t le
 {
     uint32_t pi = (uint32_t)(t - trk) % NPART, vi = (uint32_t)(v - t->v) % NVOICE;
     uint16_t w = (uint16_t)(*wp);
-    int32_t y = comb_process(ana_comb[pi][vi], AC_LEN, &w, in, len, res);
+    int32_t y = comb_process(ana_comb_line(pi, vi), AC_LEN, &w, in, len, res);
     *wp = (int32_t)w;
     return y;
 }
@@ -371,5 +377,6 @@ static const engine_t ENG_ANALOG = {
     .render = analog_render,
     .desc = analog_desc,
     .knob = {P_E4, P_E5, P_ATK, P_REL},
+    .mem = ANA_COMB_BYTES,       /* COMB's delay line, per voice (engines.c eng_mem) */
     .keep = 0x03,                /* the filter; SUPER's s[3..7] phases are left alone by note_on on a retrigger */
 };
