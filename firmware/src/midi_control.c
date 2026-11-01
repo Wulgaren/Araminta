@@ -13,11 +13,31 @@ typedef struct {
     uint8_t rpn_msb, rpn_lsb;
 } midi_channel_t;
 static midi_channel_t midi_ch[16];
-/* Low bits: track + 1. High bit: key released, held by its channel's pedal. */
-static uint8_t midi_sel_on[16][128];
-#define midi_notes midi_sel_on
+/* Two notes a byte, 4 bits each: 0 free; 1..4 track + 1; 5..8 the same, key released and held by the channel's pedal. */
+static uint8_t midi_sel_on[16][64];
 static uint16_t midi_owners[NTRK];           /* avoids rescanning all 2048 entries for CC123 */
-#define MIDI_PEDAL_NOTE 0x80u
+#define MIDI_SEL_PEDAL 4u                    /* entries above it (5..8) are pedal-held */
+
+static inline uint32_t sel_get(uint32_t ch, uint32_t note)
+{
+    return (midi_sel_on[ch][note >> 1] >> ((note & 1u) * 4u)) & 15u;
+}
+
+static inline void sel_set(uint32_t ch, uint32_t note, uint32_t v)
+{
+    uint32_t sh = (note & 1u) * 4u;
+    midi_sel_on[ch][note >> 1] = (uint8_t)((midi_sel_on[ch][note >> 1] & ~(15u << sh)) | (v << sh));
+}
+
+static inline uint32_t sel_track(uint32_t v)
+{
+    return v > MIDI_SEL_PEDAL ? v - MIDI_SEL_PEDAL : v;
+}
+
+static inline uint32_t sel_pedal(uint32_t v)
+{
+    return v > MIDI_SEL_PEDAL;
+}
 
 static midi_channel_t *midi_channel(uint32_t ch)
 {
@@ -56,7 +76,7 @@ static int midi_note_held(const track_t *t, uint32_t note)
 {
     uint32_t ch, id = trk_index(t) + 1u;
     for (ch = 0; ch < 16u; ch++)
-        if ((midi_notes[ch][note] & 0x7Fu) == id && !mchord_of(ch, note, id))
+        if (sel_track(sel_get(ch, note)) == id && !mchord_of(ch, note, id))
             return 1;
     return mchord_held(id, note);
 }
@@ -75,8 +95,8 @@ static int midi_local_held(const track_t *t, uint32_t note)
 
 static void midi_release(uint32_t ch, uint32_t note)
 {
-    uint32_t id = midi_notes[ch][note] & 0x7Fu;
-    midi_notes[ch][note] = 0;
+    uint32_t id = sel_track(sel_get(ch, note));
+    sel_set(ch, note, 0);
     if (id) {
         midi_owners[id - 1u]--;
         if (!--midi_ch[ch].owned[id - 1u])
@@ -142,7 +162,7 @@ static void midi_play(track_t *t, uint32_t ch, uint32_t note, uint32_t vel)
 static void midi_note_event(uint32_t ch, uint32_t note, uint32_t vel)
 {
     midi_channel_t *c = midi_channel(ch);
-    uint32_t id = midi_notes[ch][note] & 0x7Fu;
+    uint32_t id = sel_track(sel_get(ch, note));
     if (vel) {
         track_t *t = midi_track(ch);
         /* Repeated notes replace the previous press, including a pedal-held one. */
@@ -153,12 +173,12 @@ static void midi_note_event(uint32_t ch, uint32_t note, uint32_t vel)
             midi_hint = (uint8_t)(trk_index(t) + 1u);
         c->targets |= (uint8_t)(1u << trk_index(t));
         midi_play(t, ch, note, vel);
-        midi_notes[ch][note] = (uint8_t)(trk_index(t) + 1u);
+        sel_set(ch, note, trk_index(t) + 1u);
         midi_owners[trk_index(t)]++;
         c->owned[trk_index(t)]++;
     } else if (id) {
         if (c->pedal && !drum_track(&trk[id - 1u]))
-            midi_notes[ch][note] |= MIDI_PEDAL_NOTE;
+            sel_set(ch, note, id + MIDI_SEL_PEDAL);
         else
             midi_release(ch, note);
     }
@@ -169,7 +189,7 @@ static void midi_pedal_up(uint32_t ch)
     uint32_t note;
     midi_channel(ch)->pedal = 0;
     for (note = 0; note < 128u; note++)
-        if (midi_notes[ch][note] & MIDI_PEDAL_NOTE)
+        if (sel_pedal(sel_get(ch, note)))
             midi_release(ch, note);
 }
 
@@ -182,8 +202,8 @@ static void __attribute__((noinline)) midi_forget_track(uint32_t track)
         if (!(midi_ch[ch].targets & (1u << track)))
             continue;
         for (note = 0; note < 128u; note++)
-            if ((midi_notes[ch][note] & 0x7Fu) == track + 1u)
-                midi_notes[ch][note] = 0;
+            if (sel_track(sel_get(ch, note)) == track + 1u)
+                sel_set(ch, note, 0);
         midi_ch[ch].targets &= (uint8_t)~(1u << track);
         midi_ch[ch].owned[track] = 0;
     }
@@ -330,7 +350,7 @@ static void midi_control(uint32_t ch, uint32_t cc, uint32_t value)
     case 123:                                      /* All Notes Off: normal releases, honours pedal */
         mask = midi_targets(ch);
         for (i = 0; i < 128u; i++)
-            if (midi_notes[ch][i])
+            if (sel_get(ch, i))
                 midi_note_event(ch, i, 0);
         for (i = 0; i < NTRK; i++)
             if ((mask & (1u << i)) && !midi_track_held(i)) {
@@ -386,7 +406,7 @@ static void __attribute__((noinline)) midi_route_block(void)
             continue;
         }
         for (note = 0; note < 128u; note++)
-            if (midi_notes[ch][note])
+            if (sel_get(ch, note))
                 midi_release(ch, note);
         c->pedal = c->wheel = 0;
         c->bend = 0;
