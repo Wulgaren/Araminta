@@ -4,7 +4,7 @@
 // validation before the first write, restore order (live music last) and abort on a failed chunk.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
-import { BACKUP_IDS, BACKUP_CMD, bkU32, bkR32, bkPack, bkUnpack, bkCrc, bkManifest, readBackup, captureBackup, restoreBackup, readProject, captureProject, restoreProject, projectName } from "./fm1backup.js";
+import { BACKUP_IDS, BACKUP_CMD, BACKUP_MODULE_VERSION, bkU32, bkR32, bkPack, bkUnpack, bkCrc, bkManifest, readBackup, captureBackup, restoreBackup, readProject, captureProject, restoreProject, projectName, firmwareMismatch } from "./fm1backup.js";
 
 /* Real project fixtures (tests/project_test.c images, converted by the old C firmware) and the editor's own
    DIGITAL -> FM6 converter, so the archive's project objects are the formats the device and the page see. */
@@ -33,6 +33,12 @@ const athrows = async (f) => { try { await f(); return false; } catch { return t
 
 const rnd = (n, seed) => Uint8Array.from({ length: n }, (_, i) => (i * 131 + seed * 17 + (i >> 3)) & 255);
 ok(bkR32(bkU32(0xdeadbeef)) === 0xdeadbeef && bkCrc(new TextEncoder().encode("123456789")) === 0xcbf43926, "backup: numbers and CRC-32");
+ok(BACKUP_MODULE_VERSION === 3.6 && firmwareMismatch({ firmware: "ARAMINTA v3.6" }, "ARAMINTA v3.6") === null &&
+   firmwareMismatch({ firmware: "ARAMINTA v3.5" }, "ARAMINTA v3.6")?.from === "ARAMINTA v3.5" &&
+   firmwareMismatch({}, "ARAMINTA v3.6") === null,
+   "backup: module version and firmware mismatch check");
+ok(html.includes('import("./fm1backup.js?v=3.6")') && html.includes("m.BACKUP_MODULE_VERSION !== BACKUP_MODULE_VERSION"),
+   "backup: the editor imports a cache-busted module and checks its version");
 const b = rnd(1000, 1);
 ok(bkUnpack(bkPack(b), b.length).every((v, i) => v === b[i]), "backup: 7-bit pack / unpack round trip");
 ok(throws(() => bkUnpack([...bkPack(b.subarray(0, 14)), 0], 14)), "backup: trailing bytes refused");
@@ -103,6 +109,19 @@ await restoreBackup(target.request, file);
 const order = target.log.filter((x) => typeof x === "number");
 ok(order.at(-1) === 0 && order.at(-2) === 1 && order.indexOf(2) < order.indexOf(1), "backup: restore order: projects, banks, samples, settings, live music last");
 ok([0, 1, 2, 6].every((id) => target.objs.get(id).every((v, i) => v === objs.find((o) => o[0] === id)[1][i])), "backup: restored objects equal the source");
+{   /* an archive from another firmware: the restore asks first and writes nothing when declined */
+  const declined = device([]);
+  let asked = null;
+  const result = await restoreBackup(declined.request, file, () => {}, undefined,
+    { firmware: "ARAMINTA v3.5", confirmMismatch: (m) => { asked = m; return false; } });
+  ok(result === null && asked && asked.from === file.firmware && asked.to === "ARAMINTA v3.5" && declined.log.length === 0,
+    "backup: a firmware mismatch asks first; a decline writes nothing");
+  const accepted = device([]);
+  await restoreBackup(accepted.request, file, () => {}, undefined,
+    { firmware: "ARAMINTA v3.6", confirmMismatch: () => true });
+  ok(accepted.log.length > 0 && accepted.objs.get(0).every((v, i) => v === objs[0][1][i]),
+    "backup: .. an accepted mismatch restores");
+}
 {   /* the FM6 patch bank (id 8) and the archives of firmware before it (11 objects, no id 8) */
   ok(BACKUP_IDS.length === 13 && file.objects.some((o) => o.id === 8) && file.objects.some((o) => o.id === 9),
     "backup: 13 objects: id 8 (the retired FM6 bank, empty) and id 9 (the user presets' FM6 patches)");
@@ -189,6 +208,14 @@ ok(await athrows(() => restoreBackup(failing.request, file)) && failing.log.incl
   ok(await athrows(() => captureProject(device([[2, new Uint8Array(0)]]).request, 0, "TEST")), "project: empty slot refused");
   const bad = JSON.parse(JSON.stringify(exported)); bad.crc ^= 1;
   ok(throws(() => readProject(bad)), "project: a damaged file is refused");
+  ok(throws(() => readProject({ ...exported, crc: 1, bytes: b64(exported.data) })),
+    "project: in-memory bytes cannot bypass the transport CRC");
+  const converted = readProject(JSON.parse(JSON.stringify(
+    { ...exported, size: b64(FIX.old[2].input).length, crc: bkCrc(b64(FIX.old[2].input)), data: FIX.old[2].input })), digitalFm4);
+  ok(converted.converted && converted.data === Buffer.from(converted.bytes).toString("base64") &&
+     converted.crc === bkCrc(converted.bytes) && converted.size === converted.bytes.length,
+    "project: conversion rebuilds data / size / crc together");
+  ok(readProject(converted, digitalFm4).converted === false, "project: a converted project reads back as a no-op");
   const target = device([[0, rnd(3840, 40)], [1, rnd(1200, 41)], [2, fun10(42, "OLD A")], [3, b], [4, c]]);
   await restoreProject(target.request, exported, 2);   // import A's song into slot C
   ok(target.objs.get(4).every((v, i) => v === a[i]) && target.objs.get(2).every((v, i) => v === fun10(42, "OLD A")[i])

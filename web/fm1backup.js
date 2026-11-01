@@ -2,6 +2,9 @@
 // Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 // Local, complete musical archives. Requests name whitelisted objects, never flash addresses.
 import { convertProject, needsConversion } from "./projconv.js";
+// editor.html's cache-busted import checks this: a module still in the browser's module map from before a
+// deploy must not bypass the converters below.
+export const BACKUP_MODULE_VERSION = 3.6;
 // 8: the FM6 patch bank of 1.0..1.0.2 (listed empty since 1.0.3: a restore of an older archive's bank moves its patches
 // into the user presets restored before it); 9: the user presets' FM6 patches (1.0.3)
 export const BACKUP_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 32, 33, 34];
@@ -123,14 +126,21 @@ export function readBackup(file, digital) {
   const objects = archive.objects.map((o) => {
     if (!isProjectId(o.id) || !o.size) return o;
     let project;
-    try { project = readProject({ bytes: o.bytes }, digital); }
+    try { project = readProject({ format: "felucca-project", version: 1, slot: o.id - 2,
+      size: o.size, crc: o.crc, data: o.data }, digital); }
     catch (e) { throw new Error(`Project slot ${String.fromCharCode(65 + o.id - 2)}: ${e.message}`); }
+    if (!DEVICE_PROJECT_SIZES.includes(project.size)) throw new Error("Unexpected project size");
     if (!project.converted) return o;
-    if (!DEVICE_PROJECT_SIZES.includes(project.size)) throw new Error("Unexpected converted project size");
     converted = true;
-    return { ...o, size: project.size, crc: project.crc, bytes: project.bytes, data: bkBase64(project.bytes), converted: true };
+    return { ...o, size: project.size, crc: project.crc, bytes: project.bytes, data: project.data, converted: true };
   });
   return converted ? { ...archive, objects } : archive;
+}
+/* The archive's firmware against the device's: null when either version is unknown or they match. */
+export function firmwareMismatch(archive, firmware) {
+  const from = archive && typeof archive.firmware === "string" ? archive.firmware : "";
+  const to = typeof firmware === "string" ? firmware : "";
+  return from && to && from !== to ? { from, to } : null;
 }
 export async function captureBackup(request, firmware, onProgress = () => {}) {
   const manifest = bkManifest(await request([BACKUP_CMD.LIST, []], { timeout: 3000, retries: 0 }));
@@ -151,9 +161,13 @@ export async function captureBackup(request, firmware, onProgress = () => {}) {
   const file = { format: "felucca-backup", version: 1, firmware, created: new Date().toISOString(), objects };
   parseBackup(file); return file;    // (raw bytes: the file keeps what the device held; restore converts)
 }
-export async function restoreBackup(request, file, onProgress = () => {}, digital) {
+/* opts: {firmware, confirmMismatch}. When the archive names another firmware, confirmMismatch({from, to}) is
+   asked before the first request; a decline returns null and writes nothing. */
+export async function restoreBackup(request, file, onProgress = () => {}, digital, opts = {}) {
   // Validate and convert every object before the first destructive request.
   const archive = readBackup(file, digital);
+  const mismatch = firmwareMismatch(archive, opts.firmware);
+  if (mismatch && !(opts.confirmMismatch && opts.confirmMismatch(mismatch))) return null;
   const total = archive.objects.reduce((n, o) => n + o.size, 0); let done = 0;
   const ask = async (r, o = {}) => request(r, { timeout: 4000, retries: 0, ...o });
   const put = async (args) => { const a = await ask([BACKUP_CMD.PUT, args]); bkCheck(a[2]); return a; };
@@ -225,24 +239,21 @@ function checkProjectBytes(bytes) {
    An old format (FUN1..FUN6) or a DIGITAL track is converted here; the bytes returned are the FUN19 wire. */
 export function readProject(file, digital) {
   if (typeof file === "string") file = JSON.parse(file);
-  let bytes;
-  if (file && file.bytes instanceof Uint8Array) {
-    bytes = checkProjectBytes(file.bytes);
-  } else {
-    if (!file || file.format !== "felucca-project" || file.version !== 1 ||
-        !Number.isInteger(file.size) || !(file.size in PROJECT_MAGIC) ||
-        !Number.isInteger(file.crc) || file.crc < 0 || file.crc > 0xffffffff ||
-        typeof file.data !== "string" ||
-        file.data.length !== 4 * Math.ceil(file.size / 3) ||
-        !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.data))
-      throw new Error("Not a Felucca project file");
-    bytes = checkProjectBytes(Uint8Array.from(atob(file.data), (c) => c.charCodeAt(0)));
-    if (bytes.length !== file.size || bkCrc(bytes) !== file.crc) throw new Error("Project checksum mismatch");
-  }
+  /* one entry point, the transport's size / CRC always checked: file.bytes is never trusted on its own */
+  if (!file || file.format !== "felucca-project" || file.version !== 1 ||
+      !Number.isInteger(file.size) || !(file.size in PROJECT_MAGIC) ||
+      !Number.isInteger(file.crc) || file.crc < 0 || file.crc > 0xffffffff ||
+      typeof file.data !== "string" ||
+      file.data.length !== 4 * Math.ceil(file.size / 3) ||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.data))
+    throw new Error("Not a Felucca project file");
+  let bytes = checkProjectBytes(Uint8Array.from(atob(file.data), (c) => c.charCodeAt(0)));
+  if (bytes.length !== file.size || bkCrc(bytes) !== file.crc) throw new Error("Project checksum mismatch");
   const converted = needsConversion(bytes);
   if (converted) bytes = convertProject(bytes, digital);
   const slot = Number.isInteger(file.slot) && file.slot >= 0 && file.slot <= 3 ? file.slot : 0;
-  return { ...file, slot, size: bytes.length, crc: bkCrc(bytes), bytes, name: projectName(bytes), converted };
+  const size = bytes.length, crc = bkCrc(bytes);
+  return { ...file, slot, size, crc, bytes, data: bkBase64(bytes), name: projectName(bytes), converted };
 }
 export async function captureProject(request, slot, firmware, onProgress = () => {}, digital) {
   const id = projId(slot);
