@@ -424,8 +424,7 @@ static int page_visible(uint32_t i)
         return 0;
     if (PAGES[i].fam == FAM_FX && PAGES[i].graph == GR_SLCR && sl_trk_used(TSEL))
         return 0;
-    return !(PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] >= P_FM1_ATK &&
-             PAGES[i].id[0] <= P_FM4_LEVEL);
+    return 1;
 }
 
 static uint32_t fam_nsec(uint32_t fam)
