@@ -87,11 +87,11 @@ const FX_BUS_DEF = [];
 for (const id of [97, 33, 8, 99, 100, 101, 103, 104, 105, 107, 108, 109, 111, 112, 114, 115, 45, 46, 47])
   FX_BUS_DEF.push(TP_DEF[id] < 0 ? 0 : TP_DEF[id] > 127 ? 127 : TP_DEF[id]);
 
-const u16 = (b, o) => b[o] | b[o + 1] << 8;
-const s16 = (b, o) => (u16(b, o) << 16) >> 16;
-const u32 = (b, o) => (b[o] | b[o + 1] << 8 | b[o + 2] << 16 | b[o + 3] << 24) >>> 0;
+const pj_u16 = (b, o) => b[o] | b[o + 1] << 8;
+const s16 = (b, o) => (pj_u16(b, o) << 16) >> 16;
+const pj_u32 = (b, o) => (b[o] | b[o + 1] << 8 | b[o + 2] << 16 | b[o + 3] << 24) >>> 0;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
-const magicOf = (b) => u32(b, 0);
+const magicOf = (b) => pj_u32(b, 0);
 const formatOf = (bytes) => {
   const m = magicOf(bytes);
   for (const [f, v] of Object.entries(MAGIC)) if (v === m && SIZE[f] === bytes.length) return Number(f);
@@ -497,7 +497,7 @@ function decodeModern(b, f) {
     const values = new Array(P_COUNT).fill(0);
     for (let i = 0; i < np; i++) {
       if (iord2 && i === P_IORD) {
-        values[i] = u16(b, pos);
+        values[i] = pj_u16(b, pos);
         if ((values[i] & 1023) > 719) throw new Error("Invalid project order");
         pos += 2;
       } else values[i] = wireValGet(b, pos++);
@@ -528,7 +528,7 @@ function decodeModern(b, f) {
       for (let t = 0; t < 8; t++) q.fx_master[t] = (mb >> (3 * t)) & 7;
     }
     for (let i = 0; i < CHAIN_ROWS; i++) {
-      const w = u16(b, pos + 4 + i * 2);
+      const w = pj_u16(b, pos + 4 + i * 2);
       q.chain.row[i].repeat = ((w >> 12) + 1) & 0xff;
       for (let t = 0; t < NTRK; t++) q.chain.row[i].slot[t] = (w >> (3 * t)) & 7;
     }
@@ -753,7 +753,7 @@ function packProject(q) {
 }
 
 function validHash(b) {
-  return u32(b, b.length - 4) === projectHash(b, b.length - 4);
+  return pj_u32(b, b.length - 4) === projectHash(b, b.length - 4);
 }
 
 // A project of any format -> FUN19 bytes. digital: the editor's DIGITAL -> FM6 converter (see above).
