@@ -34,7 +34,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
   and releasing a tap while the hold continues records a return to the held pitch. A strummed chord keeps its STRUM
   sweep at the take's tempo and is recorded as a chord, without the legato slide. A 1/16 strum on a 1- or 2-bar take
   closes at 1/32 so its strings have two steps to land on; a 4-bar take stays at 1/16.
-- **JIANT MIDI punch-ins.** On FX under Punch-in (FX taps: EFFECTS → SLICER → PUNCH-IN). Two fixed PUNCH-IN pages, 1/2 and 2/2 (SELECT walks the section; no reassignment): 1/2 holds REPEAT 1/8 **1/12** 1/16 1/32, LPF, HPF, OCT±, DEC±, stutters, ATK+, ARP, RANDOM; 2/2 holds REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW, **/2** (A4), **\*2** (B4) and **GLITCH** (C5). Holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK. Reverb adds SHIMR / CLOUD.
+- **JIANT MIDI punch-ins.** On FX under Punch-in (FX taps: EFFECTS → SLICER → PUNCH-IN). Two fixed PUNCH-IN pages, 1/2 and 2/2 (SELECT walks the section; no reassignment): 1/2 holds REPEAT 1/8 **1/12** 1/16 1/32, LPF, HPF, OCT±, DEC±, stutters, ATK+, ARP, RANDOM; 2/2 holds REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW, **/2** (A4), **\*2** (B4) and **GLITCH** (C5). Holding FX alone does not open punch-ins. **GLO > MASTER** has CLIP / PNCH / DUCK / REL: CLIP is a variable-ceiling master clipper, PNCH punches every kit's kick, DUCK is the kick sidechain. Reverb adds SHIMR / CLOUD.
 - **Melodee.** Silent tracks still run LFO, bend, the engine block and fades, so modulation keeps moving when a track is muted or resting.
 - **Stock V15 supplies.** Before core 1 and the audio start, the FM-1 is set to the stock V15 rails (VDC14 1.60 V, SYSVDD 1.38 V, VDDIO 3.2 V) and read back. A failed setup keeps one core. MENU > ABOUT shows `RAILS 7/15 (3/11)` or `RAILS FAIL 1 CORE`.
 - **DRUM-X.** One morphable 8-lane kit instead of Felucca's sampled / VA kit enum (EDIT Sound > Kit > Lanes; Voice stays hidden on DRUM-X). Kit pages are SOUND / SOUND 2 only (no X-MOD / SOUND 3; morph motion via the mod matrix). Kit and mutes save with the project (FUN19 / `FUNJ`; same 3840-byte size as FUN10; disk motion max 88). FUN10 loads the factory kit. Old projects that stored a KIT value still play as DRUM-X.
@@ -47,13 +47,34 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - Delay has divisions or smooth ms; K4 turned left is TIME, turned right RATE.
 - Assign FX values in LFO MOD or SEQ param locks. TAPE SPEED / FLUTR are shared destinations: in CHAIN only the owner track can move them, in MASTER any track, in SEND the first track to use one reserves it.
 - **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
-- **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.
-- **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN and PITCH. With REC armed while playing on a synth track, a TRN turn also writes the current step's PITCH lock (scale-fitted); the knob still moves (other steps without a lock follow it), and no P_TRANS automation event is recorded.
+- **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.- **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN and PITCH. With REC armed while playing on a synth track, a TRN turn also writes the current step's PITCH lock (scale-fitted); the knob still moves (other steps without a lock follow it), and no P_TRANS automation event is recorded.
 - **MAP (was QNT).** SCL knob: OFF / **ALL** / CURR / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); CURR is KBD plus sequence follows the scale on the current track; ALL is CURR's quantising plus ROOT / SCALE shared by every track while ALL is on (the CHORD page's old SCALE LOCK, now a MAP value); SEQ is chromatic keys plus sequence follows. Leaving ALL puts each track's own ROOT / SCALE back. Chromatic (CHR) scale removed; use MAP OFF. ALL saves as CURR + the lock bit, so v3.1 opens it as SCALE LOCK + ALL; a v3.1 project locked with MAP OFF / KBD / SEQ loads unlinked. Current saves are FUN19 (`FUNJ`; FUN18 `FUNI` loads).
 - **Following playhead** in the SEQ. Start selecting a step to pause the following, returns after 3 seconds of inactivity.
 - **SEQ GENERATION.** On a drum kit (DRUM-X, DRUMS, CR78 or a USR Drumkit), the second SEQ section generates editable kick, snare and closed-hat steps from Mutable Instruments Grids. SELECT switches between LEN / KICK / SNARE / HAT and MAP / MAP X / MAP Y / CHAOS. MAP selects one of 25 templates; X/Y blend between them and show CUSTOM. Turning MAP, MAP X or MAP Y briefly shows the full-screen map, then returns to the drum grid; CHAOS keeps the grid visible. Density edits change only their lane; map, chaos and length edits regenerate all three. Other lanes stay as written, SAVE held undoes the gesture, and each track's controls save with the project.
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
+
+### New in 3.6
+
+- **FM6 VIB / MRAT / DIGITAL.** E5 is the patch LFO's **VIB** depth, not VMOD: old projects and presets fold
+  their VMOD value into the modulator operators' velocity sensitivity. **MRAT** now moves the modulators' ratios
+  on a sounding note, so a MOD slot pointed at it works. The retired DIGITAL engine's DSP **and its conversion**
+  are gone: engine 1 is a silent stub, its projects load with that track silent and its user presets are refused.
+  **FUN1..FUN6** projects (0.x .. 1.0 development) are refused too; convert them in the web editor before upload.
+  FUN7..FUN19 load as before.
+- **Boot splash in code.** The rose and its dotted polar grid are drawn from the sine table, same mark; the 2 KB
+  bitmap is gone.
+- **SEQ EDIT / OCT-.** EDIT opens the EDIT page on DETAIL and AUTOMATION (nothing is reset or deleted there);
+  AUTOMATION's **OCT-** deletes the selected row — a lock or automation event, or a step's CHANCE / RATCH /
+  NUDGE / VEL back to its default — and SAVE held undoes it.
+- **ANALOG INT on SUPER.** INT does nothing on SUPER (no OSC B), so its card is drawn dim and keeps its value.
+- **MOD VEL / CHRD / VOIC.** The matrix gains **VEL** (destination 51): a slot scales a note's velocity once at
+  note-on, a gain like AMP. Slots on **CHRD** / **VOIC** now change the chord a key plays (read as the key
+  starts); the whole destination list is covered by a rendered-sound test.
+- **MASTER knobs.** **CLIP** lowers the master clipper's ceiling (32000 → 6000) so an ordinary mix audibly clips,
+  with up to +1.5 dB makeup. **PNCH** now punches the kick of every kit (DRUM-X, DRUMS, CR78, USR drumkits), and
+  **DUCK**'s sidechain triggers from any kit's kick; a kit track is never ducked by its own kick.
+- No project format change: saves stay FUN19 (`FUNJ`).
 
 ### New in 3.5
 
@@ -70,8 +91,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 ### New in 3.4
 
 - **Live LFO graphs.** The LFO page's wave draws from the running LFO and scrolls at RATE (LFO 2: at SYNC's
-  note value); SIN / TRI / SAW / SQR show two cycles and S&H scrolls its steps. SMTH (LFO 2's KNOB 4) is
-  drawn as a smooth glide: hard steps at 0%, a rounded random wave at 100%. No project format change.
+  note value); SIN / TRI / SAW / SQR show two cycles and S&H scrolls its steps. SMTH (LFO 2's KNOB 4) is  drawn as a smooth glide: hard steps at 0%, a rounded random wave at 100%. No project format change.
 
 ### New in 3.3
 
@@ -187,7 +207,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **Effects list** chained or sendable per track (DIST, FILTER, CRUSH, PHASR, FLANG, CHOR, DLY, REV stages):
   CHAIN or SEND with a MIX fader; delay in time with the tempo (divisions or smooth ms, dotted values included);
   reverb as **HALL**, ROOM, SPRING, plus Araminta's **SHIMR** / **CLOUD**; technical graphs on the FX pages;
-  insert knobs and MIX are mod-matrix destinations; master limiter, with CLIP / PNCH / DUCK on the master
+  insert knobs and MIX are mod-matrix destinations; master limiter, with CLIP / PNCH / DUCK / REL on the master page
 - **FX layer:** hold FX for repeat, reverse, filter sweeps, tape stop, freeze, a harmonizer
   (OCT UP / OCT DN with shimmer), **FLANGER** and **PHASER** (in time with the tempo), **REV THROW** and **ECHO THROW**
   (every track's reverb or delay send full while held), JIANT punch-ins on their own FX section, and mutes on the black keys;
@@ -398,8 +418,9 @@ In the order the device lists them:
   a Serum `.wav` or a folder medley in the web editor. The EDIT graph draws A on OSC A and B's own wave on OSC B,
   and switches to a labelled OSC A while RATIO is the hot knob
 
-The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
-as FM6 sounds converted from them. Its DSP was removed in 3.6; the conversion stays. The SAMPLE engine's PERC kit was removed in 1.0.2: sounds and
+The DIGITAL engine of 0.9 was replaced by FM6, and since 3.6 its conversion is gone too: a project keeps such a
+track silent, and a DIGITAL user preset is refused (convert such files in the web editor before uploading). The
+SAMPLE engine's PERC kit was removed in 1.0.2: sounds and
 projects that used it load as the DRUM-X engine's kit, on the same key map. FM6's patch bank (the B
 slots) was removed in 1.0.3: user presets keep their own FM6 patch, and presets that used a B slot get
 that patch on the first start of 1.0.3. 1.4.1 brings B slots back as a voice bank sent from the web editor
