@@ -111,7 +111,8 @@ export class Package {
     enc(h, 0, 32);
     if (crc16(h.subarray(2, 32)) !== u16(h, 0)) throw new Error("flash header CRC mismatch");
     this.chipKey = null; this.appBase = null;
-    for (let off = 32; ; off += 32) {
+    let terminated = false;
+    for (let off = 32; off + 32 <= dec.length; off += 32) {
       enc(dec, off, 32);
       const e = new Entry(dec, off);
       if (e.name === "isd_config.ini") {
@@ -119,8 +120,9 @@ export class Package {
         if (crc16(blob.subarray(0, 32)) === u16(blob, 32)) this.chipKey = chipkeyDecode(blob.subarray(0, 32));
       }
       if (e.flags === 0x81 && e.name === "app_dir_head" && this.appBase === null) this.appBase = e.offset;
-      if (e.index) break;
+      if (e.index) { terminated = true; break; }
     }
+    if (!terminated) throw new Error("flash entry list has no terminator");
     if (this.chipKey === null || this.appBase === null) throw new Error("chip key or app_dir_head not found");
     const b = this.appBase, k = this.chipKey, end = align32(b + 32);
     sfc(dec, b, end - b, b, k);
@@ -143,11 +145,13 @@ export class Package {
     }
     this.head = head;
     this.app = null;
-    for (let off = b + 32; ; off += 32) {
+    terminated = false;
+    for (let off = b + 32; off + 32 <= dec.length; off += 32) {
       const e = new Entry(dec, off);
       if (e.flags === 0x82 && e.name === "app.bin") this.app = e;
-      if (e.index) break;
+      if (e.index) { terminated = true; break; }
     }
+    if (!terminated) throw new Error("app area has no terminating entry");
     if (!this.app) throw new Error("app.bin not found in app area");
     this.appOff = b + this.app.offset;
     this.dec = dec;
