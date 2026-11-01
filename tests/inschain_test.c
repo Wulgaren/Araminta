@@ -460,7 +460,7 @@ static int pick_has(uint32_t id, const char *name)
 {
     uint32_t i;
     for (i = 0; i < pk_n; i++)
-        if (pk_rows[i].id == id && (!name || str_eq(pk_rows[i].name, name))) return 1;
+        if (pk_rows[i].id == id && (!name || str_eq(pk_label(&pk_rows[i]), name))) return 1;
     return 0;
 }
 

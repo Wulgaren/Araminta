@@ -1538,7 +1538,7 @@ static void graph_pick(void)
     for (row = 0; row < 7 && (uint32_t)(first + row) < pk_n; row++) {
         uint32_t k = (uint32_t)(first + row);
         const pk_row_t *r = &pk_rows[k];
-        list_row(LIST_Y(row), k == pk_cur, r->tag, T_MID, r->name, T_TEXT, 232, PK_NX);
+        list_row(LIST_Y(row), k == pk_cur, r->tag, T_MID, pk_label(r), T_TEXT, 232, PK_NX);
     }
 }
 
