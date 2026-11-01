@@ -65,13 +65,13 @@ static uint32_t chord_auto_voic(const chord_auto_t *h) { return (h->cfg[1] >> 3)
 static void chord_auto_config_set(chord_auto_t *h, const track_t *t)
 {
     h->cfg[0] = (uint8_t)((t->p[P_SCALE] & 15) | ((t->p[P_ROOT] & 15) << 4));
-    h->cfg[1] = (uint8_t)((t->p[P_QUANT] & 7) | ((t->p[P_VOIC] & 7) << 3));
+    h->cfg[1] = (uint8_t)((t->p[P_QUANT] & 7) | ((chord_voic(t) & 7) << 3));
 }
 static int chord_auto_config(const track_t *t, const chord_auto_t *h)
 {
     return h->n && trk_vmode(t) == V_POLY && chord_auto_scale(h) == (uint32_t)t->p[P_SCALE] &&
         chord_auto_tonic(h) == (uint32_t)t->p[P_ROOT] && chord_auto_quant(h) == (uint32_t)t->p[P_QUANT] &&
-        chord_auto_voic(h) == (uint32_t)t->p[P_VOIC];
+        chord_auto_voic(h) == chord_voic(t);
 }
 static uint32_t chord_auto_window(void)
 {
@@ -122,7 +122,7 @@ static void chord_auto_tick(uint32_t samples)
 }
 static void chord_auto_observe(const track_t *t, uint32_t note)
 {
-    if (!chord_auto_enabled || t->p[P_CHRD] != CH_OFF || chord_kit(t) || note > 127u) return;
+    if (!chord_auto_enabled || chord_mode(t) != CH_OFF || chord_kit(t) || note > 127u) return;
     uint32_t k = trk_index(t), n = chord_auto_hist[k].next_n >> 1, at = chord_auto_hist[k].next_n & 1u;
     if (!n) at = 0;
     chord_auto_hist[k].notes = (uint8_t)((chord_auto_hist[k].notes & (0xFu << (4u * (1u - at)))) |
@@ -153,25 +153,25 @@ static void chord_auto_voice(const track_t *t, int32_t root, const uint8_t *pitc
                              const chord_auto_t *h, uint8_t *out)
 {
     int32_t best = 0x7FFFFFFF;
-    uint32_t inversions = t->p[P_VOIC] == VC_CLOSE ? n : 1u;
+    uint32_t inversions = chord_voic(t) == VC_CLOSE ? n : 1u;
     for (uint32_t inv = 0; inv < inversions; inv++) {
         int32_t notes[4];
         for (uint32_t i = 0; i < n; i++) {
             uint32_t at = (i + inv) % n;
             notes[i] = root + pitch[at] + (at < inv ? 12 : 0);
         }
-        if (t->p[P_VOIC] == VC_OPEN && n >= 3u) {
+        if (chord_voic(t) == VC_OPEN && n >= 3u) {
             int32_t x = notes[1];
             for (uint32_t i = 1; i + 1u < n; i++) notes[i] = notes[i + 1u];
             notes[n - 1u] = x + 12;
-        } else if (t->p[P_VOIC] == VC_INV1 || t->p[P_VOIC] == VC_INV2) {
-            uint32_t count = t->p[P_VOIC] == VC_INV2 ? 2u : 1u;
+        } else if (chord_voic(t) == VC_INV1 || chord_voic(t) == VC_INV2) {
+            uint32_t count = chord_voic(t) == VC_INV2 ? 2u : 1u;
             for (uint32_t j = 0; j < count; j++) {
                 int32_t x = notes[0] + 12;
                 for (uint32_t i = 0; i + 1u < n; i++) notes[i] = notes[i + 1u];
                 notes[n - 1u] = x;
             }
-        } else if (t->p[P_VOIC] == VC_BASS) {
+        } else if (chord_voic(t) == VC_BASS) {
             /* Keep the selected third/seventh when the four-voice limit drops a fifth. */
             if (n == 4u) { notes[2] = notes[3]; }
             for (uint32_t i = n - 1u; i; i--) notes[i] = notes[i - 1u];
@@ -181,7 +181,7 @@ static void chord_auto_voice(const track_t *t, int32_t root, const uint8_t *pitc
             int32_t low = notes[0] + 12 * oct, high = notes[n - 1u] + 12 * oct;
             if (low < 0 || high > 127) continue;
             int32_t score = chord_auto_abs(oct) * 2 + (int32_t)inv;
-            if (h && t->p[P_VOIC] == VC_CLOSE) {
+            if (h && chord_voic(t) == VC_CLOSE) {
                 for (uint32_t i = 0; i < n; i++) {
                     int32_t distance = 128;
                     for (uint32_t j = 0; j < h->n; j++) {
@@ -253,7 +253,7 @@ static uint32_t chord_auto_make(const track_t *t, uint32_t input, uint8_t *out, 
          * set instead of secretly adding a note or claiming a conventional name. */
         for (uint32_t i = 0; i < n; i++) pitch[i] = degree[2u * i % count];
     }
-    if (n == 3u && t->p[P_VOIC] == VC_BASS) { pitch[3] = pitch[2]; n = 4; }
+    if (n == 3u && chord_voic(t) == VC_BASS) { pitch[3] = pitch[2]; n = 4; }
     for (uint32_t i = 0; i < n; i++) mask |= 1u << pitch[i];
     chord_auto_voice(t, root, pitch, n, h, out);
     *maskp = (uint16_t)mask;

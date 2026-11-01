@@ -77,7 +77,7 @@ static uint32_t chord_melody_make(const track_t *t, uint32_t input, uint8_t *out
             int32_t x = notes[j]; notes[j] = notes[j-1u]; notes[j-1u] = x;
         }
     /* Every voicing keeps the melody fixed. Only the lower voices move. */
-    uint32_t voicing = (uint32_t)t->p[P_VOIC];
+    uint32_t voicing = chord_voic(t);
     if (voicing == VC_OPEN) notes[0] -= 12;
     else if (voicing == VC_BASS || voicing == VC_INV1 || voicing == VC_INV2) {
         uint32_t bass = root;

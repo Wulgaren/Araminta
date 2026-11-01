@@ -844,10 +844,139 @@ static void test_all_shared_controls(void)
         check("all seven shared controls restore their stored values", song.g[GLOBAL[i]] == BASE[i]);
 }
 
+/* ------------------------------------------------ every destination in the sound --- */
+/* A rig where each destination can reach the output: ANALOG PWM (SHP is read), OSC B mixed in (DTN / INT),
+ * the six inserts at MIX 64, DLY / REV sends, the slicer and TAPE in CHAIN on track 1 (TEMPO off), the LFO in
+ * the amp and the pitch, a 1/32 delay (feedback and colour land inside the render), and a DIA3 chord so VOIC
+ * has something to voice. THE test: a slot on any destination must change the rendered hash. */
+static uint32_t dst_preset(const char *n)
+{
+    uint32_t i;
+    for (i = 0; i < ENGINES[ENGI_ANALOG]->npresets; i++)
+        if (!strcmp(ENGINES[ENGI_ANALOG]->presets[i].name, n))
+            return i;
+    return 0;
+}
+
+static void dst_rig(void)
+{
+    track_t *t = &trk[0];
+    uint32_t s, k;
+    memset(dly_buf, 0, sizeof dly_buf);
+    memset(rev_tank, 0, sizeof rev_tank);
+    R = &rev_tank[0];
+    memset(&fx, 0, sizeof fx);
+    lim_env = LIM_T;
+    memset(trk, 0, sizeof trk);
+    MOD_W_CLEAR();
+    host_tracks_init();
+    for (k = 0; k < NPART; k++)
+        host_preset(&trk[k], k ? 0u : ENGI_ANALOG, k ? 0u : dst_preset("SOFT PAD"));
+    song.sel = 0;
+    t->p[P_VOICE] = V_POLY;
+    t->p[P_E0] = 4;                              /* PWM: SHP is audible */
+    t->p[P_E0 + 2] = 64;                         /* OSC B in the mix: DTN / INT are audible */
+    t->p[P_LD_AMP] = 50;                         /* the LFO routed: RATE / VIB / DEPTH are audible */
+    t->p[P_LD_PIT] = 30;
+    t->p[P_LRATE] = 64;
+    for (s = 0; s < INS_N; s++)
+        ins_send_set(t, s, 0);                   /* the six inserts in CHAIN */
+    ins_send_set(t, INS_SLCR, 0);                /* the slicer on this track */
+    t->p[P_ED_FX] = 20;
+    t->p[P_IDMIX] = 64;
+    t->p[P_IFMIX] = 64;
+    t->p[P_ICMIX] = 64;
+    t->p[P_IPMIX] = 64;
+    t->p[P_ILMIX] = 64;
+    t->p[P_IHMIX] = 64;
+    t->p[P_DLY] = 80;
+    t->p[P_REV] = 80;
+    t->p[P_SLCR] = SL_GATE;
+    t->p[P_SLPAT] = 5;
+    t->p[P_SLDEPTH] = 64;
+    song.g[G_SLOWN] = 1;
+    song.g[G_TAPEMODE] = TAPE_CH1;
+    song.g[G_TMIX] = 127;
+    song.g[G_TTEMPO] = 0;
+    song.g[G_TSPEED] = 100;
+    song.g[G_TWOW] = 50;
+    song.g[G_DTIME] = 3;                         /* 1/32 */
+    slicer_start();
+    t->p[P_CHRD] = CH_DIA3;
+    t->p[P_VOIC] = VC_CLOSE;
+}
+
+static uint64_t dst_render(int dst)
+{
+    track_t *t = &trk[0];
+    uint8_t notes[CHORD_MAX];
+    uint32_t b, i, n, k;
+    uint64_t h = 0xCBF29CE484222325ull;
+    dst_rig();
+    if (dst >= 0) {
+        int gain = dst == MD_AMP || dst == MD_VEL;      /* a full source leaves a gain unchanged */
+        t->p[P_M1SRC] = (int16_t)(gain ? MS_KEY : MS_MODW);
+        t->p[P_M1DST] = (int16_t)dst;
+        t->p[P_M1AMT] = (int16_t)(dst == MD_CHRD ? 20 : 63);
+        t->mw = 127;
+    }
+    n = chord_build(t, 60, notes);                      /* CHRD / VOIC are read here (mod.c mod_value) */
+    for (i = 0; i < n; i++)
+        trk_note_on(t, notes[i], 100);
+    for (b = 0; b < 400u; b++) {
+        mix_block(out_buf, CTL);
+        for (k = 0; k < 2u * CTL; k++) {
+            h ^= (uint32_t)out_buf[k];
+            h *= 0x100000001B3ull;
+        }
+    }
+    return h;
+}
+
+static uint64_t dst_child(int dst)
+{
+    int fd[2];
+    uint64_t h = 0;
+    pid_t pid;
+    if (pipe(fd))
+        return 0;
+    fflush(stdout);
+    if (!(pid = fork())) {
+        h = dst_render(dst);
+        if (write(fd[1], &h, sizeof h) != sizeof h)
+            _exit(1);
+        _exit(0);
+    }
+    close(fd[1]);
+    if (read(fd[0], &h, sizeof h) != sizeof h)
+        h = 0;
+    close(fd[0]);
+    waitpid(pid, 0, 0);
+    return h;
+}
+
+static void test_dst_audio(void)
+{
+    uint64_t base = dst_child(-1);
+    char same[192] = "";
+    int d, n = 0;
+    for (d = 1; d < MD_N; d++)
+        if (dst_child(d) == base) {                  /* (a child renders it; the parent stays clean) */
+            if (n++ < 12)
+                snprintf(same + strlen(same), sizeof same - strlen(same), " %s", N_MDST[d]);
+        }
+    if (n)
+        snprintf(same + strlen(same), sizeof same - strlen(same), "%s%u same", n <= 12 ? "" : " ...", n);
+    check("every MOD destination changes the rendered sound (a slot on each, one child each)", base && !n);
+    if (n)
+        printf("mod:   same with the slot on:%s\n", same);
+}
+
 int main(int argc, char **argv)
 {
     test_off();
     test_math();
+    test_dst_audio();
     test_fx_controls();
     test_all_shared_controls();
     test_midi();
