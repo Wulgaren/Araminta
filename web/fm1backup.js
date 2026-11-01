@@ -66,7 +66,12 @@ export function bkManifest(a) {
   });
 }
 const bkBase64 = (bytes) => { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); };
-export function readBackup(file) {
+const isProjectId = (id) => id >= 2 && id <= 5;
+/* the sizes firmware 3.6's archive accepts (editor_backup.c proj_store_len): FUN7..FUN19. Older FUN1..FUN6
+   objects are converted to FUN19 before they are written, so they turn into one of these too. */
+const DEVICE_PROJECT_SIZES = [3840, 3648, 3584, 3388];
+/* Every object checked, no conversion: capture keeps the bytes the device holds; restore converts them. */
+function parseBackup(file) {
   if (typeof file === "string") file = JSON.parse(file);
   const ids = file && Array.isArray(file.objects) ? idsOf(file.objects.length) : null;
   if (!file || file.format !== "felucca-backup" || file.version !== 1 || !ids)
@@ -78,6 +83,11 @@ export function readBackup(file) {
       throw new Error("Invalid backup object");
     const bytes = Uint8Array.from(atob(o.data), (c) => c.charCodeAt(0));
     if (bytes.length !== o.size || bkCrc(bytes) !== o.crc) throw new Error("Backup checksum mismatch");
+    if (isProjectId(o.id) && o.size) {
+      const want = PROJECT_MAGIC[o.size];
+      if (!want || !want.includes(projMagic(bytes))) throw new Error("Not a Felucca project");
+      if (!needsConversion(bytes) && !DEVICE_PROJECT_SIZES.includes(o.size)) throw new Error("Unexpected project size");
+    }
     if (o.id >= 32 && o.size) {
       if (o.size < 512) throw new Error("Short slot backup");
       const view = new DataView(bytes.buffer);
@@ -104,6 +114,24 @@ export function readBackup(file) {
   if (!objects[0].size || !objects[1].size) throw new Error("Backup is missing the current music or settings");
   return { ...file, objects };
 }
+/* An archive ready to restore: every project object (ids 2..5) passes through the editor's converter, so a
+   FUN1..FUN6 image or a DIGITAL track becomes the FUN19 wire the device takes. digital: the editor's
+   DIGITAL -> FM6 converter (fm1backup's readProject). Anything unconvertible is refused here, before a PUT. */
+export function readBackup(file, digital) {
+  const archive = parseBackup(file);
+  let converted = false;
+  const objects = archive.objects.map((o) => {
+    if (!isProjectId(o.id) || !o.size) return o;
+    let project;
+    try { project = readProject({ bytes: o.bytes }, digital); }
+    catch (e) { throw new Error(`Project slot ${String.fromCharCode(65 + o.id - 2)}: ${e.message}`); }
+    if (!project.converted) return o;
+    if (!DEVICE_PROJECT_SIZES.includes(project.size)) throw new Error("Unexpected converted project size");
+    converted = true;
+    return { ...o, size: project.size, crc: project.crc, bytes: project.bytes, data: bkBase64(project.bytes), converted: true };
+  });
+  return converted ? { ...archive, objects } : archive;
+}
 export async function captureBackup(request, firmware, onProgress = () => {}) {
   const manifest = bkManifest(await request([BACKUP_CMD.LIST, []], { timeout: 3000, retries: 0 }));
   const objects = [], total = manifest.reduce((n, o) => n + o.size, 0); let done = 0;
@@ -121,10 +149,11 @@ export async function captureBackup(request, firmware, onProgress = () => {}) {
     objects.push({ ...o, data: bkBase64(bytes) });
   }
   const file = { format: "felucca-backup", version: 1, firmware, created: new Date().toISOString(), objects };
-  readBackup(file); return file;
+  parseBackup(file); return file;    // (raw bytes: the file keeps what the device held; restore converts)
 }
-export async function restoreBackup(request, file, onProgress = () => {}) {
-  const archive = readBackup(file); // Validate every byte before the first destructive request.
+export async function restoreBackup(request, file, onProgress = () => {}, digital) {
+  // Validate and convert every object before the first destructive request.
+  const archive = readBackup(file, digital);
   const total = archive.objects.reduce((n, o) => n + o.size, 0); let done = 0;
   const ask = async (r, o = {}) => request(r, { timeout: 4000, retries: 0, ...o });
   const put = async (args) => { const a = await ask([BACKUP_CMD.PUT, args]); bkCheck(a[2]); return a; };
