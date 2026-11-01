@@ -29,6 +29,7 @@ const HERE = fileURLToPath(new URL(".", import.meta.url));
    FELUCCA_TOOLS the firmware's tools (tools/fm1_sample_upload.py, the sample format's reference)
    FELUCCA_ROOT  the Felucca tree with a ./build.sh build (the package check) */
 const DESC = process.env.FELUCCA_DESC || join(HERE, "../build/host/desc.json");
+const FM4J = process.env.FELUCCA_FM4 || join(HERE, "testdata/fm4.json");
 const TOOLS = process.env.FELUCCA_TOOLS || join(HERE, "../tools");
 const FW_ROOT = process.env.FELUCCA_ROOT || join(HERE, "..");
 
@@ -545,15 +546,15 @@ function mockTables() {
 }
 
 /* ------------------------------------------------------------------ DIGITAL retired --- */
-/* DIGITAL (engine 1, four-operator FM) was replaced by FM6 (src/fm4_convert.c): the editor's conversion == the
-   firmware's (build/host/desc.json "FM4": its presets and 48 sounds), engine 1 is "-" with no presets, G_ENGSEL 1 and
-   PRESET 1 k load the converted sound (FM6, its own patch), library files of DIGITAL sounds (91, 89 and 69 parameters,
-   single-patch files too) import as FM6 with the converted patch, a converted sound put to the device keeps its
-   DIGITAL values in an engine 1 slot (UP_LOAD converts it), the device's DIGITAL slot reads back as FM6 */
+/* DIGITAL (engine 1, four-operator FM) was replaced by FM6. Since 3.6 the firmware has no conversion (engine 1 is
+   a silent stub; G_ENGSEL 1, PRESET 1 k and UP_LOAD of an engine-1 record are refused); the editor still converts
+   DIGITAL sounds found in library files (fixtures: web/testdata/fm4.json, generated from the old firmware), and it
+   converts DIGITAL tracks / FUN1..FUN6 projects on upload (projconv.js). */
 async function editorFm4() {
   const dj = DESC;
-  if (existsSync(dj)) {
-    const all = JSON.parse(readFileSync(dj, "utf8")), fw = all.FM4, fpe0 = all.P_E0;
+  if (existsSync(dj) && existsSync(FM4J)) {
+    const all = JSON.parse(readFileSync(dj, "utf8")), fwj = JSON.parse(readFileSync(FM4J, "utf8"));
+    const fw = fwj.FM4, fpe0 = fwj.P_E0;
     let bad = 0;
     for (const c of fw.cases) {
       const r = E.FM4.convert(c.p, fpe0);
@@ -579,22 +580,16 @@ async function editorFm4() {
   for (let i = 0; i < info.pcount; i++) pdesc.push(E.parse[C.DESC](await rq(E.req.desc(0, i))));
   const keys = E.paramKeys(pdesc, info.pe0, info.pcount);
   const fm6Of = async () => E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0))).packed;
-  /* the DIGITAL values of preset k on top of the track's: what the device converts */
-  const digital = (k, base) => E.FM4.presetValues(base.map((v, i) => (i < info.pe0 && ![0, 39, 40].includes(i) && !(i >= 17 && i <= 32) &&
-    !(i >= 45 && i <= 48) && i !== 81 && i !== 82 ? pdesc[i].def : v)), k, info.pe0);
   let d0 = E.parse[C.DUMP](await rq(E.req.dump()), info);
+  const eng0 = d0.engine, pset0 = d0.preset, p0 = d0.p.slice();
   await rq(E.req.set(1, 20, 1));
   let d = E.parse[C.DUMP](await rq(E.req.dump()), info);
-  const owned = (p) => p.map((v, i) => (i === info.pe0 + 7 ? 8 : v));   /* (1.0.3: the converted patch is the track's own: SLOT OWN) */
-  let want = E.FM4.convert(digital(0, d0.p), info.pe0);
-  ok(d.engine === 12 && d.preset === 0 && eq(d.p, owned(want.p)) && eq(await fm6Of(), E.FM6.pack(want.voice)),
-    "DIGITAL retired: SET G_ENGSEL 1 -> FM6 with E.PIANO converted (its own patch, SLOT OWN, preset TINE EP)");
-  d0 = d;
+  ok(d.engine === eng0 && d.preset === pset0 && eq(d.p, p0),
+    "DIGITAL retired: SET G_ENGSEL 1 is refused (the engine and its sound stay)");
   await rq(E.req.preset(1, 5));
   d = E.parse[C.DUMP](await rq(E.req.dump()), info);
-  want = E.FM4.convert(digital(5, d0.p), info.pe0);
-  ok(d.engine === 12 && d.preset === 4 && eq(d.p, owned(want.p)) && E.FM6.name(E.FM6.unpack(await fm6Of())) === "PAD",
-    "DIGITAL retired: PRESET 1 5 (its PAD) -> FM6, the converted patch named PAD, SLOT OWN, preset FM6 PAD");
+  ok(d.engine === eng0 && d.preset === pset0 && eq(d.p, p0),
+    "DIGITAL retired: PRESET 1 k is refused (the engine and its sound stay)");
   /* library files of DIGITAL sounds: today's 127 parameters (P_E0 119), 91 (P_E0 83: before the DRUM lane levels),
      89 (P_E0 81), 69 (P_E0 61, no OP ENV) */
   const PC = info.pcount, PE = info.pe0;
@@ -687,13 +682,15 @@ async function editorFm4() {
       L.written().length === 1 && L.written()[0] === savedDrum,
       "library: adoption persists a legacy DRUM sound as DRUM-X even with an unchanged layout");
   }
-  /* put to the device: its DIGITAL values as engine 1 (the device converts them on load); read back as FM6 */
+  /* put to the device: its DIGITAL values as engine 1 (kept as stored); loading it is refused */
   let rc = await E.bank.put(rq, 9, { ...r91, engine: 1, p: r91.fm4 });
   const u = await E.bank.get(rq, info, 9);
+  d0 = E.parse[C.DUMP](await rq(E.req.dump()), info);
+  const fm6before = await fm6Of();
   await rq(E.req.upLoad(9));
   d = E.parse[C.DUMP](await rq(E.req.dump()), info);
-  ok(rc === 0 && u.engine === 1 && eq(u.p, pad) && d.engine === 12 && eq(await fm6Of(), r91.fm6),
-    "device slot of a DIGITAL sound (engine 1, its values kept): UP_LOAD plays the converted FM6 patch");
+  ok(rc === 0 && u.engine === 1 && eq(u.p, pad) && d.engine === d0.engine && eq(d.p, d0.p) && eq(await fm6Of(), fm6before),
+    "device slot of a DIGITAL sound (engine 1, its values kept): UP_LOAD is refused, the sound unchanged");
   done();
 }
 

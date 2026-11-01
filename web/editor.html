@@ -1928,6 +1928,11 @@ function fromDigital(pt, engines, pe0) {
   const r = FM4.convert(src, pe0 ?? src.length - 8);
   return { ...pt, engine: fm6, engineName: "FM6", p: r.p, params: undefined, fm6: FM6.pack(r.voice), fm4: src };
 }
+/* the project importer's DIGITAL -> FM6 step: FM4's converted values and 128-byte packed patch */
+const digitalFm4 = (p, pe0) => {
+  const r = FM4.convert(p.slice(), pe0);
+  return { p: r.p, fm6: FM6.pack(r.voice), preset: r.preset };
+};
 const reservedFm4 = (engines, e) => e === 1 && (engines || [])[1] === "-";   /* a device's slot of a DIGITAL sound */
 /* SAMPLE SET 4 was PERC, the GM drum kit (retired after 1.0.2; src/core.h drum_from_perc): a sound of it is the DRUM
    engine with its default kit (eng_drum.c DRUM_PRESETS[0], the same GM key map); the rest of its values stay. engines:
@@ -2025,9 +2030,11 @@ function makeMockDevice(opt = {}) {
         P("PLUCK", [0, 8, 50, 0, 30, 40, 0, 0], [0, 88, 0, 60], 0, 3), P("BRASS", [0, 10, 64, 0, 45, 20, 10, 0], [35, 70, 90, 45], 0, 6),
         P("WIND", [0, 0, 0, 90, 30, 90, 0, 0], [60, 90, 60, 80], 0, 5), P("STRINGS", [0, 25, 64, 0, 70, 10, 0, 0], [70, 90, 115, 90], 0, 5),
         P("SUPER SAW", [7, 96, 112, 0, 100, 20, 0, 0], [6, 80, 110, 55], 0, 6)] },
-    /* 1: reserved (DIGITAL, retired: src/fm4_convert.c ENG_FM4_GONE; its sounds load as FM6, FM4 above) */
-    { name: "-", titles: ["-", "-"], edit: [D("-", F.INT, 0, 7, 0), D("-", F.INT, 0, 14, 1), D("-", F.INT, 0, 14, 1),
-        D("-", F.INT, 0, 14, 1), D("-", F.PCT, 0, 127, 60), D("-", F.INT, 0, 127, 60), D("-", F.PCT, 0, 127, 0), NONE],
+    /* 1: reserved (DIGITAL, retired: eng_retire.c ENG_FM4_GONE, silent stub; no firmware conversion since 3.6,
+     * library files and projects convert in the editor, FM4 / projconv.js) */
+    { name: "-", titles: ["-", "-"], edit: [D("-", F.INT, -64, 127, 0), D("-", F.INT, -64, 127, 0), D("-", F.INT, -64, 127, 0),
+        D("-", F.INT, -64, 127, 0), D("-", F.INT, -64, 127, 0), D("-", F.INT, -64, 127, 0), D("-", F.INT, -64, 127, 0),
+        D("-", F.INT, -64, 127, 0)],
       presets: [] },
     { name: "PHASE", titles: ["PHS", "LINE"], edit: [E("WAVE", ["SAW", "SQR", "PLS", "DSIN", "SPLS", "RSAW", "RTRI", "RTRP"], 0),
         E("WAVE2", ["-", "SAW", "SQR", "PLS", "DSIN", "SPLS", "RSAW", "RTRI", "RTRP"], 0), D("DCW", F.PCT, 0, 127, 60), D("ENV", F.PCT, 0, 127, 64),
@@ -2258,7 +2265,7 @@ function makeMockDevice(opt = {}) {
   }
   function setEngine(ei) {
     ei %= ENG.length;
-    if (ei === 1) { fm4Load(0); return; }   /* DIGITAL (retired): its first preset, as FM6 (ui.c set_engine_of) */
+    if (ei === 1) return;                   /* DIGITAL (retired, no conversion): refused (ui.c set_engine_of) */
     if (ENG[ei].name === "-" && (ei === 4 || ei === 8 || ei === 11 || ei === 13)) {
       const names = ENG.map((x) => x.name);
       const pt = fromRetire({ engine: ei, engineName: ENG[ei].name, p: st.p.slice() }, names, P_E0);
@@ -2267,17 +2274,6 @@ function makeMockDevice(opt = {}) {
     st.engine = ei;
     for (let i = 0; i < 8; i++) st.p[P_E0 + i] = ENG[st.engine].edit[i].def;
     applyPreset(0);
-  }
-  /* the selected track's sound = p, DIGITAL's values, converted (ui.c fm4_apply) */
-  function fm4Apply(p) {
-    const r = FM4.convert(p, P_E0);
-    st.engine = FM6_E; st.preset = r.preset; st.p = r.p;
-    st.tracks[st.sel].fm6 = FM6.pack(r.voice);
-    fm6Adopt(st.tracks[st.sel]);                  /* (the converted patch is the track's own: SLOT OWN) */
-  }
-  function fm4Load(k) {                           /* a DIGITAL preset number (ui.c fm4_load_preset) */
-    const p = st.p.map((x, i) => (i < P_E0 && !trackOwn(i, P_E0) ? TP[i].def : x));
-    fm4Apply(FM4.presetValues(p, k, P_E0));
   }
   const snapshot = (name) => {                   /* (upreset.c up_store: a DRUM track that strikes a lane: its grid; an FM6
                                                      track: its patch, up_fm6.c) */
@@ -2387,9 +2383,9 @@ function makeMockDevice(opt = {}) {
         const u = st.bank[a[0]];
         if (u) {                                    /* the sound only (upreset.c up_load): the steps and the track's own */
           const own = st.p.slice();                 /* parameters (TRACK_OWN: mix, ARP, SCL, LEN.., SLICER) stay */
+          if (u.engine === 1) { b(a[0]); b(1); break; }   /* DIGITAL (retired, no conversion): refused */
           const p = u.p.map((x, i) => (trackOwn(i, P_E0) ? own[i] : x));
-          if (u.engine === 1) fm4Apply(p);          /* a DIGITAL record (kept as it is): FM6 */
-          else if (ENG[u.engine] && ENG[u.engine].name === "-" && (u.engine === 4 || u.engine === 8 || u.engine === 11 || u.engine === 13)) {
+          if (ENG[u.engine] && ENG[u.engine].name === "-" && (u.engine === 4 || u.engine === 8 || u.engine === 11 || u.engine === 13)) {
             const names = ENG.map((x) => x.name);
             const pt = fromRetire({ engine: u.engine, p }, names, P_E0);
             st.engine = pt ? pt.engine : 0; st.preset = 0; st.p = pt ? pt.p : p;
@@ -2487,7 +2483,10 @@ function makeMockDevice(opt = {}) {
         if (!d) return null;
         const arr = a[0] ? st.g : st.p;
         if (cmd === CMD.SET && a.length >= 4) {
-          if (a[0] === 1 && a[1] === G_ENGSEL) setEngine(clamp(v14dec(a[2], a[3]), 0, ENG.length - 1));
+          if (a[0] === 1 && a[1] === G_ENGSEL) {
+            const ei = clamp(v14dec(a[2], a[3]), 0, ENG.length - 1);
+            if (ei !== 1) setEngine(ei);            /* DIGITAL: reserved, refused */
+          }
           else if (d.max > d.min) arr[a[1]] = enumOrig(d, clamp(v14dec(a[2], a[3]), d.min, d.max));
           if (!a[0] && a[1] === P_E0 + 7 && st.engine === FM6_E) fm6Slot(st.tracks[st.sel], arr[a[1]]);   /* PTCH (fm6_poll) */
         }
@@ -2586,7 +2585,7 @@ function makeMockDevice(opt = {}) {
       }
       case CMD.PRESET:
         if (a.length < 2 || a[0] >= ENG.length) return null;
-        if (a[0] === 1) fm4Load(a[1]);              /* a DIGITAL preset: its sound, as FM6 */
+        if (a[0] === 1) { b(st.engine); b(st.preset); break; }   /* DIGITAL (retired, no conversion): refused */
         else if (ENG[a[0]].name === "-" && (a[0] === 4 || a[0] === 8 || a[0] === 11 || a[0] === 13))
           setEngine(a[0]);                          /* SLICE / DIGITAL reserved: eng_play_as on device */
         else {
@@ -2969,7 +2968,7 @@ const TEXT = {
     fm6NoFw: "このファームウェアには 6-OP FM（FM6）がありません。Felucca 1.0 以降に更新すると使えます。",
     motion: "オートメーション", motionOn: "再生", motionClear: "オートメーションを消去", motionConfirm: "選択トラックのオートメーションを消しますか？", chance: "確率 %", ratchet: "ラチェット", motionStep: "ステップ", motionParam: "パラメーター", motionValue: "値",
     backupTitle: "全体バックアップ", backupExport: "バックアップ保存", backupImport: "バックアップ復元", backupHelp: "現在の曲・A〜D・音色バンク・ユーザーサンプル・設定を、このパソコンへ保存。スロットごとの書き出し／読み込みは他のデータを変えません。", backupOld: "全体バックアップには対応版への更新が必要です。", backupConfirm: "全体バックアップを復元しますか？ 現在の曲、保存データとサンプルを置き換えます。USBを抜かないでください。", backupWorking: "バックアップ処理中 ", backupDone: "バックアップを保存しました", backupRestored: "全体バックアップを復元しました",
-    projExport: "書き出し", projImport: "読み込み", projExported: "プロジェクトを保存しました: スロット ", projImported: "プロジェクトを読み込みました: スロット ",
+    projExport: "書き出し", projImport: "読み込み", projExported: "プロジェクトを保存しました: スロット ", projImported: "プロジェクトを読み込みました: スロット ", projConverted: "旧形式・DIGITAL を変換して読み込みました: スロット ",
     projEmpty: "空のスロットは書き出せません: ", projConfirmImport: "スロット {n} にこのプロジェクトを読み込みますか？ そのスロットだけ置き換えます（他のスロット・バンク・サンプルはそのまま）。",
     deviceDisplay: "本体の画面",
     deviceDisplayHelp: "FM-1 の画面に反映し、保存します。再生中の変更は停止後に保存されます。",
@@ -3081,7 +3080,7 @@ const TEXT = {
     fm6NoFw: "This firmware has no 6-OP FM (FM6). Update to Felucca 1.0 or later to use it.",
     motion: "Automation", motionOn: "Play automation", motionClear: "Clear automation", motionConfirm: "Clear this track's automation?", chance: "Chance %", ratchet: "Ratchet", motionStep: "Step", motionParam: "Parameter", motionValue: "Value",
     backupTitle: "Complete backup", backupExport: "Save backup", backupImport: "Restore backup", backupHelp: "Save the current music, A–D, sound banks, user samples and settings to this computer. Per-slot export / import leaves the rest alone.", backupOld: "Complete backups need firmware with archive support.", backupConfirm: "Restore this complete backup? Current music, saved data and samples will be replaced. Keep USB connected.", backupWorking: "Backing up / restoring ", backupDone: "Backup saved", backupRestored: "Complete backup restored",
-    projExport: "Export", projImport: "Import", projExported: "Project saved from slot ", projImported: "Project loaded into slot ",
+    projExport: "Export", projImport: "Import", projExported: "Project saved from slot ", projImported: "Project loaded into slot ", projConverted: "Converted an old / DIGITAL project into slot ",
     projEmpty: "Empty slot cannot be exported: ", projConfirmImport: "Import this project into slot {n}? Only that slot is replaced (other slots, banks and samples stay).",
     deviceDisplay: "Device display",
     deviceDisplayHelp: "Changes apply to the FM-1 screen and save. Changes made while playing save after STOP.",
@@ -3772,7 +3771,7 @@ async function exportProjectSlot(slot) {
   op(async () => {
     const { captureProject, readProject } = await backupModule();
     assertSession(d);
-    const file = await captureProject((r, o) => sessionRequest(d, r, o), slot, d.info.version, backupProgress);
+    const file = await captureProject((r, o) => sessionRequest(d, r, o), slot, d.info.version, backupProgress, digitalFm4);
     assertSession(d);
     d.slotUsed[slot] = true;
     renderSlots();
@@ -3787,13 +3786,14 @@ $("proj-file").addEventListener("change", () => {
   op(async () => {
     if (file.size > 20000) throw new Error("Project file too large");
     const { readProject, restoreProject } = await backupModule();
-    const project = readProject(await file.text()); assertSession(d);
+    /* DIGITAL (engine 1) has no conversion in 3.6, and FUN1..FUN6 have no reader: convert in the page first */
+    const project = readProject(await file.text(), digitalFm4); assertSession(d);
     if (!confirm(t("projConfirmImport").replace("{n}", String.fromCharCode(65 + slot)))) return;
-    await restoreProject((r, o) => sessionRequest(d, r, o), project, slot, backupProgress);
+    await restoreProject((r, o) => sessionRequest(d, r, o), project, slot, backupProgress, digitalFm4);
     assertSession(d);
     d.slotUsed[slot] = true;
     renderSlots();
-    sayK("projImported", String.fromCharCode(65 + slot));
+    sayK(project.converted ? "projConverted" : "projImported", String.fromCharCode(65 + slot));
   });
 });
 async function project(op, slot) {
