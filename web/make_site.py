@@ -19,7 +19,9 @@ the install.
 import json
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -62,6 +64,19 @@ def main(pkg, version, out):
     for old in fw.glob("felucca-*.fwsc"):          # one package: the current one
         old.unlink()
     (inst / "index.html").write_text(html, encoding="utf-8")
+    # the inlined bundle is one script scope: a duplicate top-level name is a parse error (node --check)
+    body = "\n".join(re.findall(r"<script[^>]*>(.*?)</script>", html, re.S))
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+        f.write(body)
+        tmp = f.name
+    try:
+        r = subprocess.run(["node", "--check", tmp], capture_output=True, text=True)
+        if r.returncode:
+            raise SystemExit("site: the installer bundle does not parse: " + (r.stderr.strip().splitlines() or ["?"])[-1])
+    except FileNotFoundError:
+        pass                                        # no node here: the tests run it in the gate
+    finally:
+        Path(tmp).unlink(missing_ok=True)
     shutil.copy(pkg, fw / name)
     lic = HERE.parent / "LICENSES"                  # the package holds JieLi SDK files (Apache-2.0): their
     (fw / "LICENSES").mkdir(exist_ok=True)          # licence travels next to it, with Felucca's own
