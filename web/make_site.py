@@ -14,8 +14,10 @@
 
 The package must be one made by tools/fm1pkg_make.py (Felucca's own loader, no vendor files).
 Its identity (FM-1_9xx) is read from the package; the device must report it after
-the install.
+the install. The installer's /*META*/ also pins the package's SHA-256 (sha256), so the
+page rejects a truncated or altered download before it parses or derives an image.
 """
+import hashlib
 import json
 import re
 import shutil
@@ -53,7 +55,8 @@ def main(pkg, version, out):
         strip_module((HERE / "projconv.js").read_text(encoding="utf-8")) + "\n" + \
         strip_module((HERE / "fm1backup.js").read_text(encoding="utf-8"))
     name = f"felucca-{re.sub(r'[^A-Za-z0-9.-]', '-', version)}.fwsc"
-    meta = json.dumps({"version": version, "product": product, "pkg": "../../firmware/" + name})
+    meta = json.dumps({"version": version, "product": product, "pkg": "../../firmware/" + name,
+                       "sha256": hashlib.sha256(raw).hexdigest()})
     for mark in ("/*LIB*/", "/*META*/"):
         if html.count(mark) != 1:
             raise SystemExit(f"index_pkg.html must contain {mark} once; update make_site.py")
