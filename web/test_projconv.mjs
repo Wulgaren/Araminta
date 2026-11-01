@@ -6,6 +6,8 @@
 //   node web/test_projconv.mjs
 // The fixtures in web/testdata/projconv.json were made with tests/project_test.c's images and
 // /tmp build of the old firmware's proj_import + proj_pack (the DIGITAL one also with fm4_convert.c).
+// projconv_vib.json holds FUN8 / FUN10 / FUN16 / FUN18 images with a DIGITAL track and pre-VIB FM6 tracks
+// (E5 set, VIB bit clear) and their proj_import + proj_pack outputs (proj_fm4 then proj_fm6m).
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -69,6 +71,85 @@ for (const f of [7, 8, 9]) {
   const input = b64(FIX.current);
   ok(!needsConversion(input), "projconv: a current FUN19 project needs no conversion");
   ok(eq(convertProject(input), input), "projconv: FUN19 round trips byte for byte");
+}
+
+{
+  /* a FUN8 / FUN10 / FUN16 / FUN18 project with BOTH a DIGITAL track and pre-VIB FM6 tracks (E5 set,
+   * VIB bit clear): the results are the old C firmware's proj_import + proj_pack (037b07b), which runs
+   * proj_fm4 then proj_fm6m. Track 1 is DIGITAL, 2 and 3 are FM6 (VMOD 5 and -3), 4 is DRUM. */
+  const VIB = JSON.parse(readFileSync(new URL("./testdata/projconv_vib.json", import.meta.url), "utf8"));
+  const CAR = [40, 40, 36, 36, 42, 42, 40, 40, 40, 36, 36, 40, 40, 40, 40, 32,
+    32, 32, 38, 52, 54, 46, 54, 62, 62, 52, 52, 41, 58, 57, 62, 63];
+  const P_E0 = 119, P_E5 = 124, P_COUNT = 127, NSTEP = 64;
+  const tracksOf = (bytes) => {
+    const np = bytes[66], iord2 = np > 111 ? 1 : 0, stride = np + iord2 + 2 + NSTEP * 9;
+    const out = [];
+    for (let t = 0; t < 4; t++) {
+      let pos = 68 + t * stride;
+      const p = new Array(P_COUNT).fill(null);
+      for (let i = 0; i < np; i++) {
+        let v;
+        if (iord2 && i === 96) { v = bytes[pos] | bytes[pos + 1] << 8; pos += 2; }
+        else v = bytes[pos++] - 64;
+        p[np < P_COUNT && i >= np - 8 ? P_E0 + i - (np - 8) : i] = v;
+      }
+      out.push({ p, engine: bytes[pos], preset: bytes[pos + 1], steps: bytes.subarray(pos + 2, pos + 2 + 576) });
+    }
+    return out;
+  };
+  const motionOf = (bytes) => {
+    const n = bytes[2928];
+    return Array.from({ length: n }, (_, i) => [bytes[2932 + i * 3], bytes[2933 + i * 3] & 127, bytes[2934 + i * 3]]);
+  };
+  const patchSameExceptKvs = (inPk, outPk, alg, d) => {
+    const car = CAR[alg & 31];
+    for (let op = 0; op < 6; op++) {
+      const kvsIn = (inPk[op * 17 + 13] >> 2) & 7;
+      const want = (car >> op) & 1 ? kvsIn : Math.max(0, Math.min(7, kvsIn + d));
+      if (((outPk[op * 17 + 13] >> 2) & 7) !== want) return false;
+    }
+    for (let i = 0; i < 128; i++) {
+      const modKvs = [...Array(6).keys()].some((op) => i === op * 17 + 13 && !((car >> op) & 1));
+      if (!modKvs && (outPk[i] & 0x7f) !== (inPk[i] & 0x7f)) return false;
+    }
+    return true;
+  };
+
+  for (const f of [8, 10, 16, 18]) {
+    const input = b64(VIB[f].input), expected = b64(VIB[f].expected);
+    ok(needsConversion(input), `projconv: FUN${f} with DIGITAL needs conversion`);
+    const out = convertProject(input, digital);
+    ok(eq(out, expected), `projconv: FUN${f} with DIGITAL + pre-VIB FM6 -> FUN19 == the C firmware`);
+    ok((out[67] & 4) !== 0, `projconv: FUN${f}: VIB bit set after the migration`);
+    const it = tracksOf(input), ot = tracksOf(out);
+    for (const t of [1, 2]) {
+      let onlyE5 = true;
+      for (let i = 0; i < P_COUNT; i++) {
+        if (i !== P_E5 && it[t].p[i] !== null && it[t].p[i] !== ot[t].p[i]) onlyE5 = false;
+      }
+      ok(onlyE5 && ot[t].p[P_E5] === 0 && it[t].p[P_E5] !== 0,
+        `projconv: FUN${f}: FM6 track ${t + 1} keeps every parameter but E5 (cleared)`);
+    }
+    let drumSame = ot[3].engine === 10;
+    for (let i = 0; i < P_COUNT; i++) {
+      if (it[3].p[i] !== null && it[3].p[i] !== ot[3].p[i]) drumSame = false;
+    }
+    ok(drumSame, `projconv: FUN${f}: the DRUM track is untouched`);
+    const patchIn = input.length === 3584 ? 3056 : 3312, patchOut = 3312;
+    const pk = (b, o, t) => b.subarray(o + t * 128, o + t * 128 + 128);
+    ok(patchSameExceptKvs(pk(input, patchIn, 1), pk(out, patchOut, 1), 0, 5),
+      `projconv: FUN${f}: VMOD 5 moves into the modulators' velocity sensitivity`);
+    ok(patchSameExceptKvs(pk(input, patchIn, 2), pk(out, patchOut, 2), 5, -3),
+      `projconv: FUN${f}: VMOD -3 clamps into the modulators, carriers and the rest unchanged`);
+    ok(eq(pk(input, patchIn, 3), pk(out, patchOut, 3)) ||
+      eq(pk(input, patchIn, 3).map((x) => x & 0x7f), pk(out, patchOut, 3).map((x) => x & 0x7f)),
+      `projconv: FUN${f}: the DRUM track's patch is untouched`);
+    const mv = motionOf(out);
+    ok(mv.length === 2 && mv[0][0] === 68 && mv[0][1] === 123 && mv[0][2] === 9 &&
+      mv[1][0] === 208 && mv[1][1] === 124 && mv[1][2] === 2,
+      `projconv: FUN${f}: E5 motion dropped on FM6 (and DIGITAL) tracks, others kept`);
+    ok(eq(convertProject(out), out), `projconv: FUN${f}: the converted project is a fixed point`);
+  }
 }
 
 {
