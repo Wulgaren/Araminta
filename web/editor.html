@@ -3775,7 +3775,7 @@ async function exportProjectSlot(slot) {
     assertSession(d);
     d.slotUsed[slot] = true;
     renderSlots();
-    const slug = fileSlug(readProject(file).name || String.fromCharCode(65 + slot));
+    const slug = fileSlug(readProject(file, digitalFm4).name || String.fromCharCode(65 + slot));
     download(`araminta-project-${slug}-${today()}.json`, file);
     sayK("projExported", String.fromCharCode(65 + slot));
   });
@@ -3881,9 +3881,10 @@ $("backup-file").addEventListener("change", () => {
   op(async () => {
     if (file.size > 600000) throw new Error("Backup file too large");
     const { readBackup, restoreBackup } = await backupModule();
-    const archive = readBackup(await file.text()); assertSession(d);
+    /* an old FUN1..FUN6 project, or a DIGITAL track, is converted in the page before the first PUT */
+    const archive = readBackup(await file.text(), digitalFm4); assertSession(d);
     if (!confirm(t("backupConfirm"))) return;
-    await restoreBackup((r, o) => sessionRequest(d, r, o), archive, backupProgress);
+    await restoreBackup((r, o) => sessionRequest(d, r, o), archive, backupProgress, digitalFm4);
     await load(d); sayK("backupRestored");
   });
 });
