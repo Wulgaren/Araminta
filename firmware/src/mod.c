@@ -37,6 +37,8 @@
  *     follows the note's envelope. A DEPTH slot whose source is the LFO takes it unscaled
  *   SLPAT / SLRATE / SLDEP (#222, per track): the SLICER's pattern, step rate and depth (P_SLPAT P_SLRATE P_SLDEPTH),
  *     as the other per-block destinations (AMT 64 = the whole range)
+ *   CHRD / VOIC (per track): the chord keys read the matrix value as a key starts (mod_value, called from chord.c):
+ *     the block's per-block write alone would come too late for the chord the key builds
  *   insert continuous (per track): TONE + DMIX (DIST), CRUSH BITS/RATE/LPF/MIX, FILTER CUT/RES/MIX,
  *     PHASR RATE/DEP/FBK/MIX, FLANG RATE/DEP/MIX, CHOR RATE/DEP (CHOR MIX is CHO); no MODE/TYPE enums.
  *     DIST drive and DLY/REV amounts stay DIST/DLY/REV
@@ -281,6 +283,38 @@ static __attribute__((noinline)) int32_t mod_vel(const track_t *t)
         g = mulq15(g, mod_gain(s, mod_tsrc(t, s, lfo), a));
     }
     return g;
+}
+
+/* a destination's value as the matrix has it at this moment, for a consumer outside the render block (the chord
+ * keys: CHRD / VOIC are read when a key starts, before mod_begin writes the block's values). The stored value plus
+ * the slots that point at it, clamped as mod_begin clamps them; the sources as they are now (LFO with DEPTH) */
+static __attribute__((noinline)) int32_t mod_value(const track_t *t, uint32_t id)
+{
+    const int16_t *p = t->p;
+    int32_t v = p[id], lfo;
+    uint32_t k;
+    for (k = 0; k < NMSLOT; k++) {
+        uint32_t d = (uint32_t)p[P_M1DST + 3u * k];
+        if (d && d < MD_N && d != MD_DEPTH && d != MD_VEL && p[P_M1SRC + 3u * k] &&
+            p[P_M1AMT + 3u * k] && mod_param(d) == id)
+            break;
+    }
+    if (k == NMSLOT)
+        return v;
+    lfo = mulq15(t->lfo_val, t->lfo_fade);
+    {
+        int32_t d = mod_depth(t, lfo);
+        if (d < 32767)
+            lfo = mulq15(lfo, d);
+    }
+    for (; k < NMSLOT; k++) {
+        uint32_t s = (uint32_t)p[P_M1SRC + 3u * k], d = (uint32_t)p[P_M1DST + 3u * k];
+        int32_t a = p[P_M1AMT + 3u * k];
+        if (!s || !a || s >= MS_N || !d || d >= MD_N || d == MD_DEPTH || d == MD_VEL || mod_param(d) != id)
+            continue;
+        v += (((mod_tsrc(t, s, lfo) * a) >> 6) * (TP[id].max - TP[id].min)) >> 15;
+    }
+    return clamp(v, TP[id].min, TP[id].max);
 }
 
 /* before a part's block (fx.c mix_part): the per-track offsets, the per-block destinations into t->p

@@ -50,6 +50,11 @@ static int chord_kit(const track_t *t)
     return e->oneshot || (e->keys && e->keys(t, 0) >= 0);
 }
 
+/* CHRD / VOIC as the matrix leaves them when a key starts (mod.c mod_value): a per-block value is never in t->p
+ * while keys are read here, so the matrix's slots are asked directly */
+static uint32_t chord_mode(const track_t *t) { return (uint32_t)mod_value(t, P_CHRD); }
+static uint32_t chord_voic(const track_t *t) { return (uint32_t)mod_value(t, P_VOIC); }
+
 #include "chord_auto.c"
 #include "chord_melody.c"
 
@@ -88,7 +93,7 @@ static uint32_t chord_tones(const track_t *t, uint32_t mode, int32_t *root, int3
 static uint32_t chord_make(const track_t *t, uint32_t root, uint8_t *out, int32_t *rp, uint16_t *maskp)
 {
     int32_t iv[CHORD_MAX + 1u], r = (int32_t)root, x;
-    uint32_t mode = (uint32_t)t->p[P_CHRD], n, i, j, m = 0;
+    uint32_t mode = chord_mode(t), n, i, j, m = 0;
     uint16_t mask = 0;
     *rp = r;
     *maskp = 0;
@@ -109,14 +114,14 @@ static uint32_t chord_make(const track_t *t, uint32_t root, uint8_t *out, int32_
         out[0] = (uint8_t)clamp(r, 0, 127);
         return 1;
     }
-    switch (t->p[P_VOIC]) {
+    switch (chord_voic(t)) {
     case VC_OPEN:                                       /* 1-5-3(-7): the second tone an octave up */
         if (n >= 3u)
             iv[1] += 12;
         break;
     case VC_INV2:
     case VC_INV1:
-        for (j = 0; j < (t->p[P_VOIC] == VC_INV2 ? 2u : 1u); j++) {   /* the lowest tone an octave up */
+        for (j = 0; j < (chord_voic(t) == VC_INV2 ? 2u : 1u); j++) {   /* the lowest tone an octave up */
             x = iv[0] + 12;
             for (i = 1; i < n; i++)
                 iv[i - 1u] = iv[i];
@@ -161,9 +166,9 @@ static uint32_t chord_build(track_t *t, uint32_t root, uint8_t *out)
     int32_t r;
     uint16_t mask;
     uint32_t m = chord_make(t, root, out, &r, &mask), i, k = trk_index(t);
-    if (t->p[P_CHRD] == CH_AUTO && !chord_kit(t) && trk_vmode(t) == V_POLY)
+    if (chord_mode(t) == CH_AUTO && !chord_kit(t) && trk_vmode(t) == V_POLY)
         chord_auto_remember(t, r, mask, out, m);
-    if (m > 1u || t->p[P_CHRD] == CH_MELODY) {
+    if (m > 1u || chord_mode(t) == CH_MELODY) {
         chord_last[k].root = (uint8_t)clamp(r, 0, 127);
         chord_last[k].mask = mask;
         chord_last[k].n = (uint8_t)m;
@@ -220,7 +225,7 @@ static int chord_strum_begin(track_t *t, uint8_t *notes, uint32_t n, chord_strum
             notes[i] = notes[n - 1u - i];
             notes[n - 1u - i] = x;
         }
-    if (!stroke && t->p[P_CHRD] == CH_MELODY) {
+    if (!stroke && chord_mode(t) == CH_MELODY) {
         /* MELO: the melody sounds on the press; DOWN orders the accompaniment below it. */
         uint8_t melody = notes[n - 1u];
         for (i = n - 1u; i; i--) notes[i] = notes[i - 1u];

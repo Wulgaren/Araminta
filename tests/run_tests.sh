@@ -68,8 +68,8 @@
 #                   OCT- deleting a row, undo per gesture, the DRUM grid's keys picking steps (several held), a chord's
 #                   ratchet, playback, STEP's marks.
 # MOD (tests/mod_test.c): the modulation matrix: slots that do nothing are bit-identical, every source on each
-#                   kind of destination, clamping, MIDI CC1 / CC11 / aftertouch routing, the cost of 4 active
-#                   slots (at most +5 %), demos in build/mod_demo/.
+#                   kind of destination, clamping, MIDI CC1 / CC11 / aftertouch routing, a rendered child per
+#                   destination (each must change the sound), the cost of 4 active slots (at most +5 %), demos.
 # SOUND (tests/sound14_test.c; #132 #104 #148): the matrix's S&H / SLEW sources (a value per LFO cycle, the glide) and
 #                   DEPTH destination (the LFO's gain; none = untouched), ANALOG WAVE SYNC / SUB (pitch, no DC, bounded,
 #                   the band-limited restart), SPREAD (SPRD 0 / MONO / LEGATO bit for bit, a note hard left / right, the
