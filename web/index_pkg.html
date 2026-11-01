@@ -89,6 +89,7 @@ const TEXT = {
     noreturn: "FM-1 が戻ってきません。電源を入れ直してください。",
     mismatch: "書き込みは終わりましたが、FM-1 が別のバージョンを報告しています: ",
     badpkg: "インストールするファイルが壊れています。ページを再読み込みしてください。",
+    badsha: "ダウンロードしたファイルの照合が一致しません。ページを再読み込みしてください。",
     template: "このページはテンプレートです。make_site.py でビルドしてください。",
     nosecure: "このページを https:// か localhost で開いてください。公式ファイルの検証には安全な接続が必要です。",
     leave: "書き込み中です。ページを閉じないでください。",
@@ -122,6 +123,7 @@ const TEXT = {
     noreturn: "The FM-1 did not come back. Power-cycle it.",
     mismatch: "Written, but the FM-1 reports another version: ",
     badpkg: "The file to install is damaged. Reload the page.",
+    badsha: "The downloaded file does not match this page. Reload the page.",
     template: "This page is a template. Build it with make_site.py.",
     nosecure: "Open this page over https:// or on localhost. Validating the official firmware needs a secure context.",
     leave: "Writing. Do not close the page.",
@@ -152,7 +154,22 @@ let image = null;
 const meta = /*META*/;
 /* the template's two markers are substituted by make_site.py; opening this file directly would leave them as
    comments and every call below would fail with a TypeError */
-if (!meta || !meta.pkg || !meta.product) { sayK("template"); }
+if (!meta || !meta.pkg || !meta.product || !meta.sha256) { sayK("template"); }
+
+/*VERIFY-BEGIN*/
+/* a validation failure the page reports with its own TEXT key, plus the technical detail for the message */
+const bad = (code, detail) => Object.assign(new Error(detail), { code, detail: detail ? ` (${detail})` : "" });
+/* What the page flashes is checked before the image exists: the digest the site build pins, the whole package
+   (UFW and flash CRCs, entry lists, chip key, app.bin), then the identity the device must report. */
+async function verifyPackage(bytes, meta) {
+  const digest = await sha256hex(bytes);
+  if (digest !== meta.sha256) throw bad("badsha", `SHA-256 ${digest}`);
+  let pkg;
+  try { pkg = new Package(bytes); } catch (e) { throw bad("badpkg", (e && e.message) || String(e)); }
+  if (pkg.product !== meta.product) throw bad("badpkg", `identity ${pkg.product}`);
+  return { pkg, image: logicalImage(bytes) };
+}
+/*VERIFY-END*/
 
 let writing = false, stock = null, stockFileEpoch = 0;
 const lockInstaller = (on) => { writing = on; $("go").disabled = on || !image; $("stock-go").disabled = on || !stock; $("stock-file").disabled = on; $("stock-recovery").disabled = on; };
@@ -160,14 +177,13 @@ window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault
 
 (async () => {
   if (!navigator.requestMIDIAccess) { sayK("nomidi"); return; }
-  if (!meta || !meta.pkg) { sayK("template"); return; }   /* this file is a template: make_site.py fills it in */
+  if (!meta || !meta.pkg || !meta.sha256) { sayK("template"); return; }   /* this file is a template: make_site.py fills it in */
   if (!crypto || !crypto.subtle) { sayK("nosecure"); return; }
   try {
     const r = await fetch(meta.pkg);
     if (!r.ok) throw new Error(`${meta.pkg}: HTTP ${r.status}`);
-    const pkg = new Uint8Array(await r.arrayBuffer());
-    if (productOf(pkg) !== meta.product) { sayK("badpkg"); return; }
-    image = logicalImage(pkg);
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    image = (await verifyPackage(bytes, meta)).image;
     say(`Araminta ${meta.version}`);
     $("go").disabled = false;
   } catch (e) { showError(e, "loadfail"); }
