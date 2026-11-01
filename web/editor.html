@@ -1486,6 +1486,28 @@ function readLibraryFile(obj, ctx) {
 /* device side; rq(r, opt) -> reply args (Link.request), info from INFO */
 const FLASH_OPT = { timeout: 2500, retries: 0 };
 const presetPatches = (info) => !!(info && info.fm6 && info.fm6.caps & 2);   /* user presets carry FM6 patches (1.0.3) */
+/* the firmware's version as two numbers from the INFO string ("ARAMINTA v3.6"): version >= major.minor */
+function firmwareAtLeast(version, major, minor) {
+  const m = /(\d+)\.(\d+)/.exec(String(version || ""));
+  return !!m && (+m[1] > major || (+m[1] === major && +m[2] >= minor));
+}
+/* The user-slot record for a library patch. A converted DIGITAL sound goes to the bank as its DIGITAL values
+   (engine 1, which the firmware converted on load) before 3.6; since 3.6 engine 1 is a silent stub, so the slot
+   takes the FM6 sound it was converted to with its packed patch. full(p): the page's fullParams. */
+function bankPutRecord(p, info, full) {
+  const digital = p.fm4 && info.engines[1] === "-" && p.fm4.length === info.pcount && !firmwareAtLeast(info.version, 3, 6);
+  const pt = digital ? { ...p, engine: 1, p: p.fm4 } : p;
+  return { ...pt, name: upName(p.name), p: full(pt) };
+}
+/* The PRESET a patch file names: the engine must exist and not be retired (DIGITAL, engine 1: the device refuses
+   it), and the preset must be one that engine has. Checked before any SET. */
+function patchFileTarget(engine, preset, info, names) {
+  if (!Number.isInteger(engine) || engine < 0 || engine >= info.nengines) throw new Error("engine " + engine);
+  if (info.engines[engine] === "-") throw new Error("engine " + engine + " is retired");
+  const list = (names || [])[engine] || [];
+  if (!Number.isInteger(preset) || preset < 0 || preset >= list.length) throw new Error("preset " + preset);
+  return { engine, preset };
+}
 const bank = {
   async list(rq) {
     const first = parse[CMD.UP_LIST](await rq(req.upList(0, UP.LIST_MAX)));
@@ -2967,7 +2989,7 @@ const TEXT = {
     fm6NeedDevice: "FM-1 を接続すると 6-OP FM の音色を編集してトラックへ送れます。",
     fm6NoFw: "このファームウェアには 6-OP FM（FM6）がありません。Felucca 1.0 以降に更新すると使えます。",
     motion: "オートメーション", motionOn: "再生", motionClear: "オートメーションを消去", motionConfirm: "選択トラックのオートメーションを消しますか？", chance: "確率 %", ratchet: "ラチェット", motionStep: "ステップ", motionParam: "パラメーター", motionValue: "値",
-    backupTitle: "全体バックアップ", backupExport: "バックアップ保存", backupImport: "バックアップ復元", backupHelp: "現在の曲・A〜D・音色バンク・ユーザーサンプル・設定を、このパソコンへ保存。スロットごとの書き出し／読み込みは他のデータを変えません。", backupOld: "全体バックアップには対応版への更新が必要です。", backupConfirm: "全体バックアップを復元しますか？ 現在の曲、保存データとサンプルを置き換えます。USBを抜かないでください。", backupWorking: "バックアップ処理中 ", backupDone: "バックアップを保存しました", backupRestored: "全体バックアップを復元しました",
+    backupTitle: "全体バックアップ", backupExport: "バックアップ保存", backupImport: "バックアップ復元", backupHelp: "現在の曲・A〜D・音色バンク・ユーザーサンプル・設定を、このパソコンへ保存。スロットごとの書き出し／読み込みは他のデータを変えません。", backupOld: "全体バックアップには対応版への更新が必要です。", backupConfirm: "全体バックアップを復元しますか？ 現在の曲、保存データとサンプルを置き換えます。USBを抜かないでください。", backupVersion: "このバックアップは {from} のものです。接続中の FM-1 は {to} です。形式が違うとプロジェクトや音色が正しく戻らないことがあります。復元しますか？", backupWorking: "バックアップ処理中 ", backupDone: "バックアップを保存しました", backupRestored: "全体バックアップを復元しました",
     projExport: "書き出し", projImport: "読み込み", projExported: "プロジェクトを保存しました: スロット ", projImported: "プロジェクトを読み込みました: スロット ", projConverted: "旧形式・DIGITAL を変換して読み込みました: スロット ",
     projEmpty: "空のスロットは書き出せません: ", projConfirmImport: "スロット {n} にこのプロジェクトを読み込みますか？ そのスロットだけ置き換えます（他のスロット・バンク・サンプルはそのまま）。",
     deviceDisplay: "本体の画面",
@@ -3079,7 +3101,7 @@ const TEXT = {
     fm6NeedDevice: "Connect the FM-1 to edit 6-OP FM voices and send them to a track.",
     fm6NoFw: "This firmware has no 6-OP FM (FM6). Update to Felucca 1.0 or later to use it.",
     motion: "Automation", motionOn: "Play automation", motionClear: "Clear automation", motionConfirm: "Clear this track's automation?", chance: "Chance %", ratchet: "Ratchet", motionStep: "Step", motionParam: "Parameter", motionValue: "Value",
-    backupTitle: "Complete backup", backupExport: "Save backup", backupImport: "Restore backup", backupHelp: "Save the current music, A–D, sound banks, user samples and settings to this computer. Per-slot export / import leaves the rest alone.", backupOld: "Complete backups need firmware with archive support.", backupConfirm: "Restore this complete backup? Current music, saved data and samples will be replaced. Keep USB connected.", backupWorking: "Backing up / restoring ", backupDone: "Backup saved", backupRestored: "Complete backup restored",
+    backupTitle: "Complete backup", backupExport: "Save backup", backupImport: "Restore backup", backupHelp: "Save the current music, A–D, sound banks, user samples and settings to this computer. Per-slot export / import leaves the rest alone.", backupOld: "Complete backups need firmware with archive support.", backupConfirm: "Restore this complete backup? Current music, saved data and samples will be replaced. Keep USB connected.", backupVersion: "This backup is from {from}; the connected FM-1 is {to}. A different format can restore projects or sounds incorrectly. Restore anyway?", backupWorking: "Backing up / restoring ", backupDone: "Backup saved", backupRestored: "Complete backup restored",
     projExport: "Export", projImport: "Import", projExported: "Project saved from slot ", projImported: "Project loaded into slot ", projConverted: "Converted an old / DIGITAL project into slot ",
     projEmpty: "Empty slot cannot be exported: ", projConfirmImport: "Import this project into slot {n}? Only that slot is replaced (other slots, banks and samples stay).",
     deviceDisplay: "Device display",
@@ -3862,7 +3884,15 @@ function renderBackup() {
   $("backup-import").disabled = !(caps & 2);
   $("backup-help").textContent = t(caps & 1 ? "backupHelp" : "backupOld");
 }
-const backupModule = () => import("./fm1backup.js");
+/* cache-busted so a deploy cannot pair this page with an older module still in the browser's module map; the
+   version symbol catches a stale copy that the query did not replace */
+const BACKUP_MODULE_VERSION = 3.6;
+async function backupModule() {
+  const m = await import("./fm1backup.js?v=3.6");
+  if (m.BACKUP_MODULE_VERSION !== BACKUP_MODULE_VERSION)
+    throw new Error(`fm1backup.js ${m.BACKUP_MODULE_VERSION ?? "?"} (need ${BACKUP_MODULE_VERSION}): reload the page`);
+  return m;
+}
 const backupProgress = (done, total) => sayK("backupWorking", `${Math.round(done / Math.max(1, total) * 100)}%`);
 $("backup-export").addEventListener("click", () => op(async () => {
   const d = dev;
@@ -3884,7 +3914,10 @@ $("backup-file").addEventListener("change", () => {
     /* an old FUN1..FUN6 project, or a DIGITAL track, is converted in the page before the first PUT */
     const archive = readBackup(await file.text(), digitalFm4); assertSession(d);
     if (!confirm(t("backupConfirm"))) return;
-    await restoreBackup((r, o) => sessionRequest(d, r, o), archive, backupProgress, digitalFm4);
+    const restored = await restoreBackup((r, o) => sessionRequest(d, r, o), archive, backupProgress, digitalFm4,
+      { firmware: d.info.version, confirmMismatch: (m) =>
+        confirm(t("backupVersion").replace("{from}", m.from).replace("{to}", m.to)) });
+    if (!restored) return;                        /* the archive's firmware did not match: nothing was written */
     await load(d); sayK("backupRestored");
   });
 });
@@ -5126,26 +5159,33 @@ $("file").addEventListener("change", async () => {
   const f = $("file").files[0];
   if (!f || !dev) return;
   const session = dev;
-  let data;
+  let data, pt, target;
+  const ctx = { keys: dev.keys, engines: dev.info.engines, pe0: dev.info.pe0 };
   try {
     data = JSON.parse(await f.text());
     assertSession(session);
-    if (!Number.isInteger(data.engine) || !Number.isInteger(data.preset) || !Array.isArray(data.p)) throw new Error("engine / preset / p");
-    if (data.engine < 0 || data.engine >= dev.info.nengines) throw new Error("engine " + data.engine);
+    /* the same reader as the library import: a DIGITAL patch (the engine retired in 1.0) becomes the FM6 sound
+       the firmware would have converted it to; a retired or unknown engine / preset is refused before any SET */
+    const read = readLibraryFile(data, ctx);
+    if (read.patches.length !== 1) throw new Error("one patch");
+    pt = read.patches[0];
+    target = patchFileTarget(pt.engine, data.preset, dev.info, dev.names);
   } catch (e) { if (e.message !== "closed") sayK("badfile", e.message); return; }
   const releaseBusy = beginBusy();
   try {
     selfLoad(true);
-    await rq(req.preset(data.engine, data.preset));
+    await rq(req.preset(target.engine, target.preset));
     dev.dump = await getDump();
     await rereadEngineDesc();
-    const n = Math.min(data.p.length, dev.info.pcount);
+    const n = Math.min(pt.p.length, dev.info.pcount);
     for (let i = 0; i < n; i++) {
       const d = dev.pdesc[i];
-      if (!visible(d) || !Number.isFinite(data.p[i])) continue;
+      if (!visible(d) || !Number.isFinite(pt.p[i])) continue;
       if (i % 8 === 0) sayK("applying", `${i}/${n}`);
-      await rq(req.set(0, i, data.p[i]));
+      await rq(req.set(0, i, pt.p[i]));
     }
+    if (pt.fm6 && dev.info.fm6)                    /* a converted DIGITAL sound: its own FM6 patch on the track */
+      await rq(req.fm6Put(FM6.TARGET.TRACK, dev.sel ?? 0, pt.fm6));
     if (Array.isArray(data.steps)) {
       const m = Math.min(data.steps.length, dev.info.nstep);
       for (let i = 0; i < m; i++) {
@@ -5460,10 +5500,7 @@ function libPut(id, slot) {
   if (!engineOk(p)) { sayK("badEngine", p.engineName || p.engine); return; }
   if (s.used && !confirm(t("confirmOverwrite").replace("{n}", slotName(slot)).replace("{name}", s.name))) return;
   libOp(async (d, rqf) => {
-    const keep4 = p.fm4 && dev.info.engines[1] === "-" && p.fm4.length === dev.info.pcount;   /* a converted DIGITAL sound:
-                                                     its DIGITAL values as engine 1 (the device converts them on load) */
-    checkRc(await bank.put(rqf, slot, keep4 ? { ...p, engine: 1, name: upName(p.name), p: fullParams({ ...p, p: p.fm4 }) }
-      : { ...p, name: upName(p.name), p: fullParams(p) }, dev.info));
+    checkRc(await bank.put(rqf, slot, bankPutRecord(p, dev.info, fullParams), dev.info));
     await refreshSlot(slot, d);
     sayK("putDone", `${slotName(slot)} ${upName(p.name)}`);
   });
