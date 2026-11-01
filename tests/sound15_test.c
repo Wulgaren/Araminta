@@ -227,7 +227,7 @@ static stats_t analog_osc2_note3(uint32_t w, uint32_t w2, int32_t mix, int32_t i
     t->p[P_ATK] = 0;
     t->p[P_SUS] = 127;
     if (ft == IFT_COMB)
-        memset(ana_comb, 0, sizeof ana_comb);   /* the shared delay line: each COMB render starts clean */
+        memset(ENG_MEM(0), 0, ANA_COMB_BYTES);   /* the shared delay line: each COMB render starts clean */
     hash = 0;
     trk_note_on(t, note, 100);
     for (k = 0; k < NREND; k++) {

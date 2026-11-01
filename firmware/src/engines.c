@@ -5,7 +5,8 @@
 #include "dsp.c"
 
 /* The parts' engine memory (1.5): a part plays one engine at a time, so the engines with large per-part state
- * (engine_t.mem: PHYS's slots, GRAIN's grains and index, DRUM's lanes, FM6's notes) keep it in one region per part
+ * (engine_t.mem: PHYS's slots, ANALOG's COMB lines, WHEEL's bars / rotors / voices, GRAIN's grains and index,
+ * DRUM's lanes, FM6's notes) keep it in one region per part
  * instead of an array each. The region holds the state of the engine that last claimed it (eng_mem_owner); a switch
  * to another such engine zeroes its engine_t.mem bytes. Sized by the largest, PHYS (3 x SYMP's slot).
  * Zero-initialised pool section: main.c fm1_cstart clears it. */

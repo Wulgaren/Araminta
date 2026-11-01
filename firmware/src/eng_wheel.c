@@ -30,8 +30,8 @@
  * Envelope: an organ gate (the presets set A 0, S 127, a short R); the track ADSR still applies.
  * Cost: per sample and partial one table lookup and a multiply-add (a gain ramp only for the
  * partials whose gain moved: percussion, rotary, knobs); the bar levels, the rotor and the
- * percussion run once per block. State: the per-track rotor and bar gains (drw_trk) and the
- * per-voice phases / gains (drw_vc) live here, indexed by part and voice; voice_t is unused. */
+ * percussion run once per block. State: per part in the part's engine memory (engines.c eng_mem), the rotor
+ * and bar gains (drw_trk) and the per-voice phases / gains (drw_vc), indexed by voice; voice_t is unused. */
 #define DRW_NP 9                 /* partials */
 #define DRW_FOLD 584366000u      /* ~6 kHz as a phase increment: partials above fold down an octave */
 #define DRW_XOVER 77915000u      /* ~800 Hz: below the low rotor, above the high rotor */
@@ -113,10 +113,15 @@ typedef struct {                 /* per voice */
     uint8_t gate, init;
 } drw_vc_t;
 
-static drw_trk_t drw_t[NPART];
-static drw_vc_t drw_v[NPART][NVOICE];
+typedef struct {                 /* per part, in the part's engine memory (engines.c eng_mem) */
+    drw_trk_t t;
+    drw_vc_t v[NVOICE];
+} drw_part_t;
+
+ENG_MEM_FITS("WHEEL", sizeof(drw_part_t));
 
 static uint32_t drw_part(const track_t *t) { return (uint32_t)(t - trk) % NPART; }
+static drw_part_t *drw_of(const track_t *t) { return (drw_part_t *)ENG_MEM(drw_part(t)); }
 
 /* the bar level 0..8 of partial k: the registration plus SUB / BODY / TOP */
 static int32_t drw_level(const int16_t *p, uint32_t k)
@@ -129,7 +134,7 @@ static int32_t drw_level(const int16_t *p, uint32_t k)
 /* once per block, before the voices: bar gains, percussion, click, drive, the rotors */
 static void wheel_block(track_t *t)
 {
-    drw_trk_t *T = &drw_t[drw_part(t)];
+    drw_trk_t *T = &drw_of(t)->t;
     const int16_t *p = t->p;
     uint32_t k, perc = (uint32_t)p[P_E4] % 7u, rot = (uint32_t)p[P_E7] % 3u;
     int32_t s = 0, lv[DRW_NP];
@@ -177,7 +182,7 @@ static void wheel_block(track_t *t)
 static void wheel_note_on(track_t *t, voice_t *v)
 {
     uint32_t vi = (uint32_t)(v - t->v) % NVOICE, k, held = 0;
-    drw_vc_t *V = &drw_v[drw_part(t)][vi];
+    drw_vc_t *V = &drw_of(t)->v[vi];
     for (k = 0; k < NVOICE; k++)                        /* single trigger: another key of the part held? */
         if (&t->v[k] != v && t->v[k].active && t->v[k].gate && t->v[k].stage != 4u)
             held = 1;
@@ -195,8 +200,8 @@ static void wheel_note_on(track_t *t, voice_t *v)
 
 static void wheel_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
-    const drw_trk_t *T = &drw_t[drw_part(t)];
-    drw_vc_t *V = &drw_v[drw_part(t)][(uint32_t)(v - t->v) % NVOICE];
+    const drw_trk_t *T = &drw_of(t)->t;
+    drw_vc_t *V = &drw_of(t)->v[(uint32_t)(v - t->v) % NVOICE];
     int32_t acc[CTL], perc1, clk0, clk1;
     uint32_t i, k;
     if (n > CTL)
@@ -293,5 +298,6 @@ static const engine_t ENG_WHEEL = {
     .note_on = wheel_note_on,
     .render = wheel_render,
     .knob = {P_E0, P_E4, P_E6, P_E7},
+    .mem = sizeof(drw_part_t),   /* the bars, rotor, percussion and per-voice phases (engines.c eng_mem) */
     .block = wheel_block,
 };
