@@ -1306,29 +1306,79 @@ static void draw_columns(void)
 }
 
 
-/* The power-on splash (main.c fm1_main, web/emu felucca_web.c): full black screen, the mark (r=sin(b·θ) rose in
- * ui_splash_logo.h), ARAMINTA and the version in AF_M centred, "based on Felucca" in AF_S lower. Fixed black /
- * white: the mark blits raw; the lines use a temporary GREY+black LUT so pads are not theme-tinted. */
-#include "ui_splash_logo.h"
+/* The power-on splash (main.c fm1_main, web/emu felucca_web.c): full black screen, the mark (r=sin(b·θ) rose
+ * with its dotted polar grid, drawn here in integer from the sine table: tools/gen_splash_logo.py is the same
+ * shape for the README), ARAMINTA and the version in AF_M centred, "based on Felucca" in AF_S lower. Fixed black /
+ * white: the mark is drawn 1-bit into the idle strip-cache scratch, the lines use a temporary GREY+black LUT so
+ * pads are not theme-tinted. */
 #define SPL_BLACK RGB(0, 0, 0)
 #define SPL_WHITE ((uint16_t)((31u << 11) | (62u << 5) | 31u))  /* ux_gray(31): GREY's R=B, G=2R */
+#define SPL_S 128                                   /* mark size; 16 bytes a row (1-bit) */
+#define SPL_STRIDE (SPL_S / 8)
+#define SPL_LOGO_W SPL_S
+#define SPL_LOGO_H SPL_S
 #define SPL_PITCH 22                                /* name to version */
 #define SPL_LOGO_Y 8                                /* mark above the name */
 #define SPL_NAME_Y (SPL_LOGO_Y + SPL_LOGO_H + 6)    /* under the mark */
 static const char *const SPLASH_LINES[] = {"ARAMINTA", FELUCCA_VERSION, "based on Felucca"};
+static uint8_t *const spl_bits = (uint8_t *)cv_strip;   /* 2 KB of the strip cache, idle at the splash */
+static void spl_px(int32_t x, int32_t y)
+{
+    if ((uint32_t)x < SPL_S && (uint32_t)y < SPL_S)
+        spl_bits[((uint32_t)y << 4) + ((uint32_t)x >> 3)] |= (uint8_t)(1u << ((uint32_t)x & 7u));
+}
+/* Q8 px from an amplitude (Q8) and a sine (Q15) */
+static int32_t spl_q8(int32_t amp, int32_t s) { return (((amp * s) >> 15) + 128) >> 8; }
+static void spl_rose(void)
+{
+    const uint32_t steps = 9000u, dph = (uint32_t)((5ull << 32) / 9000u), dp5 = 12169074u;
+    const int32_t rr = 13763;                       /* 53.76 px, Q8 */
+    uint32_t ph = 0, p5 = 0, i;
+    for (i = 0; i <= steps; i++) {
+        int32_t r = sine_i(p5), q;
+        ph += dph;
+        p5 += dp5;
+        if (r < 3932 && r > -3932)                  /* hub: |sin(b*th)| < 0.12 */
+            continue;
+        q = (rr * r) >> 15;
+        spl_px(63 + spl_q8(q, sine_i(ph)), 63 - spl_q8(q, sine_i(ph + 0x40000000u)));
+    }
+}
+static void spl_grid(void)
+{
+    static const int32_t rr[3] = {15073, 9948, 4974};              /* 58.88, 38.86, 19.43 px, Q8 */
+    static const uint8_t rn[3] = {168u, 111u, 55u};                /* points round each ring */
+    static const uint32_t dp[3] = {25565281u, 38693399u, 78090314u}; /* 2^32 / rn */
+    uint32_t k, i, t;
+    for (k = 0; k < 3u; k++)
+        for (i = 0; i < rn[k]; i += 2u) {                          /* dotted */
+            uint32_t a = i * dp[k];
+            spl_px(63 + spl_q8(rr[k], sine_i(a)), 63 - spl_q8(rr[k], sine_i(a + 0x40000000u)));
+        }
+    for (k = 0; k < 8u; k++) {
+        uint32_t a = k * 0x20000000u;
+        int32_t s = sine_i(a), c = sine_i(a + 0x40000000u);
+        for (t = 4; t < 58u; t += 3u)
+            spl_px(63 + spl_q8((int32_t)(t << 8), s), 63 - spl_q8((int32_t)(t << 8), c));
+    }
+}
 static void draw_splash_logo(void)
 {
     /* Direct row blits: fixed black/white outside the theme LUT (indexed canvas). */
-    uint32_t x0 = (240u - SPL_LOGO_W) / 2u, y, x;
+    uint32_t x0 = (240u - SPL_S) / 2u, y, x;
     uint16_t white = swap16(SPL_WHITE), black = swap16(SPL_BLACK);
-    for (y = 0; y < SPL_LOGO_H; y++) {
-        const uint8_t *row = SPL_LOGO + y * SPL_LOGO_STRIDE;
+    memset(spl_bits, 0, SPL_S * SPL_STRIDE);
+    spl_grid();
+    spl_rose();
+    for (y = 0; y < SPL_S; y++) {
+        const uint8_t *row = spl_bits + y * SPL_STRIDE;
         lcd_sync();                                 /* cv_row may still be in flight */
-        for (x = 0; x < SPL_LOGO_W; x++)
+        for (x = 0; x < SPL_S; x++)
             cv_row[x] = ((row[x >> 3] >> (x & 7u)) & 1u) ? white : black;
-        lcd_blit(x0, SPL_LOGO_Y + y, SPL_LOGO_W, 1u, cv_row);
+        lcd_blit(x0, SPL_LOGO_Y + y, SPL_S, 1u, cv_row);
     }
     lcd_sync();
+    cv_cache_drop();                                /* (the mask used the strip cache) */
 }
 static void draw_splash(void)
 {
