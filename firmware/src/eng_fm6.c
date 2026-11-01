@@ -12,7 +12,8 @@
  *   ALG   PAT = the patch's algorithm, 1..32 another one
  *   FB    added to the patch's feedback (0..7)
  *   MLVL  the output level of every operator that is not a carrier (-36 .. +36 dB): the brightness
- *   MRAT  added to the coarse ratio of the modulators (ratio mode only)
+ *   MRAT  added to the coarse ratio of the modulators (ratio mode only), live on a sounding note (the
+ *         matrix's per-block value reaches it; the note's base ratios stay as they were at note-on)
  *   MEG   the modulators' envelope times: + slower (rates down to 40 steps), - faster
  *   VIB   the patch LFO's pitch depth: + wider
  *   DTUN  spreads the carriers apart in pitch (up to about +-36 cents between the outer ones)
@@ -336,8 +337,11 @@ static void fm6_sync(const track_t *t)
                 fm6_eff[tr].dt[ki] = SPREAD[n++] * step;
                 continue;
             }
-            if (!op[FP_MODE])
-                op[FP_FC] = (uint8_t)clamp(op[FP_FC] + e[3], 0, 31);
+            if (!op[FP_MODE]) {                              /* MRAT: live, as a pitch offset (the note's base
+                                                              * ratios were fixed at note-on) */
+                uint32_t fc = op[FP_FC] & 31u, to = (uint32_t)clamp((int32_t)fc + e[3], 0, 31);
+                fm6_eff[tr].dt[ki] = FM6_COARSE[to] - FM6_COARSE[fc];
+            }
             for (j = 0; j < 4u; j++)
                 op[FP_R1 + j] = (uint8_t)clamp(op[FP_R1 + j] - meg, 0, 99);
         }

@@ -162,6 +162,34 @@ static void test_off(void)
     check("an active matrix changes the sound, and leaves no modulated value in p[]", h2 && h2 != h0);
 }
 
+/* FM6 with (1) or without the matrix's MRAT slot: the phrase's hash */
+static uint64_t mrat_child(uint32_t on)
+{
+    int fd[2];
+    uint64_t h = 0;
+    pid_t pid;
+    if (pipe(fd))
+        return 0;
+    fflush(stdout);
+    if (!(pid = fork())) {
+        fresh(ENGI_FM6, 0);
+        if (on) {
+            slot(&trk[0], 0, MS_MODW, MD_E1 + 3, 63);    /* E4 = MRAT */
+            trk[0].mw = 127;
+        }
+        h = phrase();
+        if (write(fd[1], &h, sizeof h) != sizeof h)
+            _exit(1);
+        _exit(0);
+    }
+    close(fd[1]);
+    if (read(fd[0], &h, sizeof h) != sizeof h)
+        h = 0;
+    close(fd[0]);
+    waitpid(pid, 0, 0);
+    return h;
+}
+
 /* ------------------------------------------------------------------ 2 --- */
 static void lfo_at(track_t *t, int32_t v)          /* the LFO value the next block's matrix sees */
 {
@@ -271,6 +299,12 @@ static void test_math(void)
     t->mw = 127;
     trk_note_on(t, 65, 100);
     check("MODW -> VEL: the wheel up leaves it", t->v[3].vel == 100u);
+
+    /* an engine macro as a per-block destination: MRAT moves the modulators' ratios on a sounding note */
+    {
+        uint64_t h0 = mrat_child(0), h1 = mrat_child(1);
+        check("MODW -> MRAT: the FM6 sound follows the macro", h0 && h1 && h0 != h1);
+    }
 
     /* clamping of the per-voice sums */
     fresh(0, 0);

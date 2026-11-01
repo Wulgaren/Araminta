@@ -8307,18 +8307,18 @@ static int test_fm6_ops(void)
     memcpy(mine, fm6_patch[tr], FP_SIZE);
     TSEL->p[P_E3] = 2;                               /* MRAT +2 */
     s1 = fm6_sound();
-    ok = fm6_eff[tr].p[4u * FP_OP + FP_FC] == 5u && !memcmp(mine, fm6_patch[tr], FP_SIZE);
+    ok = fm6_eff[tr].dt[4] == FM6_COARSE[5] - FM6_COARSE[3] && !memcmp(mine, fm6_patch[tr], FP_SIZE);
     frames(1600);
     turn(EN_K2, 1);                                  /* an edit under MRAT: the macro still adds to it */
     s1 = fm6_sound();
-    ok &= fm6_eff[tr].p[4u * FP_OP + FP_FC] == 6u && fm6_patch[tr][4u * FP_OP + FP_FC] == 4u;
+    ok &= fm6_eff[tr].dt[4] == FM6_COARSE[6] - FM6_COARSE[4] && fm6_patch[tr][4u * FP_OP + FP_FC] == 4u;
     TSEL->p[P_E3] = 0;
     s0 = fm6_sound();
     TSEL->p[P_E2] = -64;                             /* MLVL -64: the modulators down, darker */
     s1 = fm6_sound();
     ok &= s1.hf < 0.5 * s0.hf && fm6_patch[tr][4u * FP_OP + FP_OL] == 70u;
     TSEL->p[P_E2] = 0;
-    bad += check("FM6 ops: the macros apply on top of the edited patch (MRAT adds to COARSE, MLVL darker); the patch stays", ok);
+    bad += check("FM6 ops: the macros apply on top of the edited patch (MRAT offsets the modulator's pitch, MLVL darker); the patch stays", ok);
 
     /* kept: a project and a user preset hold the edited patch (SLOT OWN) */
     memcpy(mine, fm6_patch[tr], FP_SIZE);
