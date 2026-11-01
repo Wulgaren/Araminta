@@ -88,9 +88,9 @@ static void silent_clocks(void)
         assert(!part_buf[i]);
     host_preset(t, 7, 0);                               /* WHEEL */
     t->p[P_E7] = 2;
-    uint32_t rph = drw_t[0].rph[0];
+    uint32_t rph = drw_of(&trk[0])->t.rph[0];
     track_render_audio(t, b, CTL, 0);
-    assert(drw_t[0].rph[0] != rph);
+    assert(drw_of(&trk[0])->t.rph[0] != rph);
     puts("performance: silent tracks retain LFO/bend/rotor clocks, fades and insert zeros");
 }
 
