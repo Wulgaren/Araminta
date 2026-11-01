@@ -4,8 +4,23 @@
 
 FM6's E5 macro is VIB now, the patch LFO's pitch depth, instead of VMOD. Old projects and user presets move
 their VMOD value into the modulator operators' velocity sensitivity, so their sound and velocity response stay
-the same; their E5 automation is dropped. The DIGITAL engine's DSP is gone, its conversion stays. No project
-format change: saves stay FUN19 (`FUNJ`); header bit 2 marks the VIB meaning.
+the same; their E5 automation is dropped. The DIGITAL engine's DSP and its conversion are gone, and project
+formats FUN1..FUN6 (0.x .. 1.0 development) are no longer read. MRAT moves the modulators' ratios on a sounding
+note, so a matrix slot on it works. ANALOG's INT greys out on SUPER; SEQ's DETAIL / AUTOMATION open the EDIT
+page and AUTOMATION's OCT- deletes a row; the matrix gains VEL and its CHRD / VOIC slots reach the chord keys.
+No project format change: saves stay FUN19 (`FUNJ`); header bit 2 marks the VIB meaning. The boot splash's rose
+is drawn in code now, the same mark without its 2 KB bitmap. Splash and ABOUT show `v3.6`.
+
+### Compatibility
+
+- **DIGITAL sounds no longer convert.** Engine 1 keeps its reserved index as a silent stub; a project or user
+  preset whose sound was DIGITAL does not play (projects load the track silent, a DIGITAL user preset is refused).
+  Convert such files in the web editor before uploading if their sound matters.
+- **FUN1..FUN6 projects are refused.** Projects of Felucca 0.x and the 1.0 development builds (before FUN7) show
+  as EMPTY, as a format this firmware does not know. Re-save them from an older build or the web editor.
+  FUN7..FUN19 are unchanged, and new saves stay FUN19 (`FUNJ`).
+- **The web editor converts on upload.** DIGITAL sounds (library files) and old project files are converted
+  client-side before they are sent: FUN1..FUN6 to FUN19, and DIGITAL tracks to FM6. No firmware code needed.
 
 ### FM6
 
@@ -17,12 +32,33 @@ format change: saves stay FUN19 (`FUNJ`); header bit 2 marks the VIB meaning.
 - **MRAT in the matrix.** MRAT (E4) moves the modulators' ratios on a sounding note now; before, it was baked
   into the operators at note-on, so a MOD slot pointed at it did nothing. No sound change with the macro at
   rest (the same coarse offsets, applied per block).
+- **CHRD / VOIC in the matrix.** The chord keys read the matrix value as a key starts, so a slot on CHRD (chord
+  type) or VOIC (voicing) changes what the key plays; before, the block's value was never read.
+- **Every destination tested.** `mod_test` renders one child per destination with a slot on it, in a rig where
+  each can reach the output, and fails if the sound is unchanged: the bug class behind MRAT. `master_test` does
+  the same for GLO > MASTER's CLIP / PNCH / DUCK / DREL.
+
+### MASTER
+
+- **CLIP.** The knob now lowers the clipper's ceiling (32000 down to 6000) instead of driving a fixed one, so an
+  ordinary mix audibly clips instead of passing almost unchanged; the makeup restores the ceiling's level and adds
+  up to +1.5 dB. CLIP 0 stays bit-identical (bypass).
+- **PNCH on every kit.** The punch curve (x1.46 attack, x1.70 body into the knee, the tail cut) now applies to
+  the kick of DRUMS and SAMPLE kits (CR78, USR drumkits) as well as DRUM-X, which keeps punching every lane. It
+  is still per hit, by the hit's own age.
+- **DUCK on every kit.** A kick from any kit's track (DRUM-X all lanes, DRUMS and SAMPLE kits' kick) triggers the
+  sidechain; a kit track is never ducked by its own kick.
 
 ### DIGITAL
 
-- **Engine removed.** `eng_digital.c`, the `FELUCCA_FM4` build flag and its UI / test variants are gone. Engine
-  index 1 stays reserved; `fm4_convert.c`, the project / user-preset conversion and `fm4_div0_test.c` remain, so
-  old DIGITAL sounds still load as FM6.
+- **Engine and conversion removed.** `eng_digital.c`, the `FELUCCA_FM4` build flag and its UI / test variants are
+  gone, and `fm4_convert.c` follows them: engine index 1 is a silent stub. Old DIGITAL projects load with that
+  track silent; DIGITAL user presets are refused (see Compatibility).
+
+### UI
+
+- **Splash mark in code.** The boot rose and its dotted polar grid are drawn from the sine table now; the 2 KB
+  bitmap, ten never-drawn keycaps and the hidden DIGITAL OP pages are gone.
 
 ### ANALOG
 
