@@ -72,6 +72,19 @@ static inline int32_t softclip(int32_t x)
     return x < 0 ? -y : y;
 }
 
+/* MASTER's knobs (G_CLIP / G_PUNCH / G_DUCK), set once a block in fx.c mix_block: the clipper's coefficients,
+ * the drum punch and the kick sidechain. Here for the engines' hit paths (DRUM-X, DRUMS, SAMPLE kits) */
+static int16_t clip_eff, pnch_eff;
+static volatile uint8_t duck_hit;                    /* a kick struck: fx.c ducks the other parts */
+/* MASTER > PNCH: the punch gain of a hit by its age in blocks (0.73 ms), p 0..100: x1.46 attack, x1.70 body,
+ * unity by 181 ms (JIANT 0.5; shared by every kit) */
+static int32_t punch_gain(uint32_t age, int32_t p)
+{
+    int32_t up = 32768 + p * 150, body = 32768 + p * 230;
+    return age < 4u ? up : age < 20u ? up + (body - up) * (int32_t)(age - 4u) / 16
+                       : age < 160u ? body : age < 250u ? body + (32768 - body) * (int32_t)(age - 160u) / 90 : 32768;
+}
+
 /* xorshift32 */
 static inline uint32_t noise32(int32_t *st)
 {

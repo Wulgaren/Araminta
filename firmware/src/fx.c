@@ -2292,9 +2292,15 @@ static __attribute__((noinline)) void clip_block(uint32_t n)
 static __attribute__((noinline)) void master_begin(void)
 {
     int32_t a = clip_eff;
-    clip_g = a > 0 ? 4096 + a * 12288 / 100 : 0;
-    if (clip_g)
-        clip_mk = (int32_t)((6000u << 15) / (uint32_t)softclip((6000 * clip_g) >> 12));
+    clip_g = 0;
+    if (a > 0) {                                         /* the knee falls 32000 -> 6000 (mix domain); the
+                                                          * drive puts a signal at the knee at 8000 into the tanh,
+                                                          * and the makeup restores the knee's level (+1.5 dB) */
+        int32_t k = 32000 - a * 26000 / 100, sc = softclip(8000);
+        clip_g = 4096 * 32000 / k;
+        clip_mk = (k << 15) / (4 * sc);
+        clip_mk += clip_mk * a * 19 / 10000;
+    }
 }
 /* DUCK: kick (eng_drum.c duck_hit) ducks non-DRUM parts */
 static __attribute__((noinline)) void duck_block(void)
@@ -2324,6 +2330,12 @@ static __attribute__((noinline)) int32_t duck_ramp(int32_t lvl, int32_t *dl)
     *dl = ((((lvl * (duck_g1 >> 3)) >> 12) << 8) - l0) >> CTL_LOG2;
     return l0;
 }
+/* the sidechain ducks the other parts: a kit track (DRUM-X, DRUMS, a SAMPLE kit) is never ducked by its own kick */
+static int duck_own_kit(const track_t *t)
+{
+    const engine_t *e = ENGINES[t->engine];
+    return e == &ENG_DRUM || e == &ENG_DRUMS || (e == &ENG_SAMPLE && smp_is_kit(t));
+}
 
 /* SPREAD (#148): a POLY or UNISON part whose SPRD is above 0. Its voices start left and right of PAN in turn (voice.c
  * voice_start; UNISON's detuned voices alternate), at PAN -/+ SPRD / 2 (SPRD 127: hard left and right), with the pan
@@ -2346,7 +2358,7 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     int32_t dl = !fx_master_on(INS_DLY) && bus_own(0) < 0 ? t->p[P_DLY] * 258 : 0;
     int32_t r = fx_master_on(INS_REV) || bus_own(1) == (int32_t)(t - trk) ? 0 : t->p[P_REV] * 258, pk = t->peak;
     int32_t xmax = 0x7FFFFFFF / ((dl > r ? dl : r) | 1), lq = lvl << 8, dlv = 0;
-    if ((duck_g0 < 32767 || duck_g1 < 32767) && ENGINES[t->engine] != &ENG_DRUM)
+    if ((duck_g0 < 32767 || duck_g1 < 32767) && !duck_own_kit(t))
         lq = duck_ramp(lvl, &dlv);
     for (i = 0; i < n; i++)
         d[i] = (d[i] << 1) - b[i];                      /* left - right */
@@ -2448,7 +2460,7 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
         if ((pf.mute >> (t - trk)) & 1u)
             perf_mute((uint32_t)(t - trk), b, n);       /* perform.c: a black key in the FX layer */
         int32_t lq = lvl << 8, dl = 0;
-        if ((duck_g0 < 32767 || duck_g1 < 32767) && ENGINES[t->engine] != &ENG_DRUM)   /* DUCK: the kick's */
+        if ((duck_g0 < 32767 || duck_g1 < 32767) && !duck_own_kit(t))   /* DUCK: the kick's */
             lq = duck_ramp(lvl, &dl);
         for (i = 0; i < n; i++, lq += dl) {
             int32_t x = ((b[i] >> 2) * (lq >> 8)) >> 10, a = x < 0 ? -x : x;   /* pre-shift: 8 loud voices */

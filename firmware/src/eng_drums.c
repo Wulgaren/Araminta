@@ -53,7 +53,7 @@ typedef struct {
     uint8_t owner;               /* the voice playing the lane: index + 1, 0 = none */
     uint8_t role;                /* the drum struck (DVT_*) */
     int8_t st;                   /* its semitones from the designed pitch (the GM map) */
-    uint8_t pad;
+    uint8_t punch;               /* blocks since the kick lane was struck: MASTER > PNCH */
 } fdrum_lane_t;
 
 ENG_MEM_FITS("DRUMS", sizeof(fdrum_lane_t) * FDV_NLANE);
@@ -171,10 +171,17 @@ static void fdrum_note_on(track_t *t, voice_t *v)
         return;
     role = fdrum_gm(t->p, v->note, &st);
     lane = fdrum_lane(v->note);
+    if (lane == FDV_KICK) {                               /* MASTER > PNCH / DUCK: the kick starts its punch and
+                                                           * triggers the sidechain (fx.c duck_block) */
+        if (!((drum_mute[(uint32_t)(t - trk) % NPART] >> FDV_KICK) & 1u))
+            duck_hit = 1;
+    }
     L = &K[(uint32_t)v->s[0] & (FDV_NLANE - 1u)];
     if (L->owner == i + 1u)                              /* this voice played another lane: it stops there */
         L->owner = 0;
     L = &K[lane];
+    if (lane == FDV_KICK)
+        L->punch = 0;
     if (L->role != role || L->v.type != fdv_run_type(role)) {   /* another drum on this lane: from rest */
         fdv_init(&L->v, role);
         L->key.type = 0xFF;
@@ -217,6 +224,7 @@ static void fdrum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
     fdv_param_t k;
     int32_t y[CTL], mb[CTL], acc = clamp(p[P_E5] * v->vel * 4, 0, 65536), drv = p[P_E7], g = 0, mk = 0;   /* acc Q16 */
     int32_t lv = clamp(p[P_LN0 + ((uint32_t)v->s[0] & (FDV_NLANE - 1u))], 0, 127);
+    int32_t pb0 = 4096, pb1 = 4096;
     uint32_t i, r;
     vmod_t ml;                                           /* (only its amplitude ramp is read: voice_amp) */
     if (!L)
@@ -253,10 +261,29 @@ static void fdrum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
         g = 4096 + drv * 3 * 4096 / 127;
         mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
     }
+    {   /* MASTER > PNCH on the kick: the body driven into the knee, the tail on the amp (DRUM-X's shape) */
+        uint32_t lane = (uint32_t)v->s[0] & (FDV_NLANE - 1u), age = L->punch;
+        int32_t pu = pnch_eff;
+        if (pu > 0 && lane == FDV_KICK) {
+            int32_t g0 = punch_gain(age, pu), g1 = punch_gain(age + 1u, pu);
+            if (g0 < 32768 || g1 < 32768) {               /* (gains < 1: amp stays <= 32767) */
+                int32_t a0 = (m->amp0 * (g0 < 32768 ? g0 : 32768)) >> 15;
+                ml.amp1 = (m->amp1 * (g1 < 32768 ? g1 : 32768)) >> 15;
+                ml.amp0 = a0;
+                m = &ml;
+            }
+            pb0 = g0 > 32768 ? g0 >> 3 : 4096;            /* Q12 */
+            pb1 = g1 > 32768 ? g1 >> 3 : 4096;
+        }
+        if (age < 255u)
+            L->punch = (uint8_t)(age + 1u);
+    }
     for (i = 0; i < n; i++) {                            /* x1.25 and the knee below, in 32 bits */
         int32_t s = y[i];
         if (g)
             s = (softclip((s * g) >> 12) * mk) >> 15;
+        if (pb0 != 4096 || pb1 != 4096)
+            s = (s * (pb0 + (((pb1 - pb0) * (int32_t)i) >> CTL_LOG2))) >> 12;
         out[i] += voice_amp(soft_knee(s + (s >> 2), 24000), m, i) * 2;
     }
 }
