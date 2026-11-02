@@ -122,7 +122,7 @@ static void boot_leds(void)
 static void fm1_main(void)
 {
     uint32_t ms;
-    fm1_audio_amp(0);                         /* PC6 low before anything draws: the amp / line stays muted through the splash */
+    fm1_audio_amp(0);                         /* PC6 (DAC) low before anything draws: silent through the splash */
     persist_boot();
 #if FELUCCA_OTA
     if (flash_ok)
@@ -130,8 +130,6 @@ static void fm1_main(void)
 #endif
     settings_init();
     usb_serial_apply();                                 /* (#67: the saved USB SERIAL before usb_start) */
-    lcd_init();
-    draw_splash();                                      /* ui_draw.c (1.1.5) */
     if (felucca_dbg.magic != DBG_MAGIC) {
         memset(&felucca_dbg, 0, sizeof felucca_dbg);
         felucca_dbg.magic = DBG_MAGIC;
@@ -177,17 +175,18 @@ static void fm1_main(void)
     timer5_start();
     fm1_guard_lock_top();
     fm1_irq_enable_all();
-    fm1_delay_ms(30);                         /* DMA zeros into the codec while the amp is still muted */
-    audio_amp_on();                           /* PC6 on, then the soft-start ramp (audio.c / fx.c) */
+    lcd_init();                                       /* after the audio clock starts: its transient happens on a dark screen */
+    draw_splash();                                    /* ui_draw.c (1.1.5) */
     if ((fm1_in.buttons & 3u) == 3u) {
         panel_setup();                        /* OCT- + OCT+ held at power-on */
         settings_save();
     }
     autosave_boot(boot_clean);                /* (1.2) the last session's music, under the splash */
-    for (ms = 0; ms < 400u; ms += 10u) {      /* the splash; the pot followed (MIDI IN plays under it) */
+    for (ms = 0; ms < 400u; ms += 10u) {      /* the splash; DMA runs zeros with the DAC still off */
         fm1_delay_ms(10);
         master_poll();
     }
+    audio_amp_on();                           /* PC6 on: the DAC starts after the I2S clocks, then the soft-start ramp */
     kb_boot_hold = 0;
     lcd_fill(0, 0, 240, 240, T_BG);
     scrn.idle = fm1_ms;                        /* (MENU > SCREEN OFF: from here) */
