@@ -61,22 +61,89 @@ static uint32_t panel_btn_of(uint32_t matrix_id)        /* label of a matrix but
 static uint8_t panel_moved;                     /* a knob turned since ui.c scr_input last looked (SCREEN OFF) */
 /* KNOB 1..4 also leave as relative CC for a DAW on the host: track 1 = CC 16..19, track 2 = 20..23, ...
  * (4 tracks x 4 knobs, song.sel picks the bank), value 64 + detents (Bin Offset), on the selected track's
- * MIDI channel (the one its keys use). The knob's own job below is unchanged. */
+ * MIDI channel (the one its keys use). PRESETS is pitch bend and SELECT the mod wheel (CC 1), persistent, on
+ * the same channel, while both keep browsing / stepping pages. A fast turn carries the panel's acceleration
+ * (ui_input.c accel) at a DAW parameter's range, 0..127, so it multiplies by up to 16; its own timing, so a
+ * CC turn never disturbs the page knob's. The knobs' own job below is unchanged.
+ *
+ * The wheels are one pair for the selected track's channel: turning the track (ALGORITHM) puts the old
+ * channel's bend back to centre and its mod to 0, so a bent note is never left behind. */
+static uint32_t panel_cc_enc[6];     /* per knob: last read (ms) | direction << 24 | ms per detent << 25 (4,5: wheels) */
+static uint16_t panel_bend = 8192;   /* pitch bend, 14-bit, centre */
+static uint8_t panel_mod;            /* mod wheel, 0..127 */
+static uint32_t panel_wheel_ch = 16u;   /* the channel the wheels are on (16: not chosen yet) */
+static int32_t panel_cc_accel(uint32_t k, int32_t s)
+{
+    uint32_t now = fm1_ms & 0xFFFFFFu, st = panel_cc_enc[k], up = s > 0, pi = st >> 25, i, a, m = 1;
+    a = (uint32_t)(s < 0 ? -s : s);
+    i = ((now - st) & 0xFFFFFFu) / a;
+    if (!st || ((st >> 24) & 1u) != up || i >= ACC_GAP)
+        i = 127u;
+    else if (pi < ACC_GAP) {
+        uint32_t interval = i > pi ? i : pi;
+        m = ACC_RATE / (interval ? interval : 1u);
+        if (m > 16u)
+            m = 16u;                            /* (0..127: the panel's cap for its wide values) */
+        if (m < 1u)
+            m = 1u;
+    }
+    panel_cc_enc[k] = now | up << 24 | (i ? i : 1u) << 25;
+    return s * (int32_t)m;
+}
+/* the wheels follow the selected track's channel: leaving one puts its bend and mod back */
+static void panel_wheels_route(void)
+{
+    uint32_t ch = trk_midi_ch(song.sel);
+    if (ch == panel_wheel_ch)
+        return;
+    if (panel_wheel_ch < 16u) {
+        if (panel_bend != 8192)
+            midi_out_event(0x0Eu | (0xE0u | panel_wheel_ch) << 8 | 64u << 24);   /* LSB 0, MSB 64: centre */
+        if (panel_mod)
+            midi_out_event(0x0Bu | (0xB0u | panel_wheel_ch) << 8 | 1u << 16);    /* mod 0 */
+    }
+    panel_wheel_ch = ch;
+    panel_bend = 8192;
+    panel_mod = 0;
+}
 static void panel_cc(uint32_t role, int32_t s)
 {
-    uint32_t cc;
-    if (role < EN_K1 || role > EN_K4)
-        return;
-    cc = 16u + 4u * song.sel + (role - EN_K1);
-    while (s) {
-        int32_t d = s > 63 ? 63 : s < -63 ? -63 : s;
-        midi_out_event(0x0Bu | (0xB0u | trk_midi_ch(song.sel)) << 8 | cc << 16 | (uint32_t)(64 + d) << 24);
-        s -= d;
+    uint32_t ch = trk_midi_ch(song.sel), cc;
+    if (role >= EN_K1 && role <= EN_K4) {
+        cc = 16u + 4u * song.sel + (role - EN_K1);
+        s = panel_cc_accel(role - EN_K1, s);
+        while (s) {
+            int32_t d = s > 63 ? 63 : s < -63 ? -63 : s;
+            midi_out_event(0x0Bu | (0xB0u | ch) << 8 | cc << 16 | (uint32_t)(64 + d) << 24);
+            s -= d;
+        }
+    } else if (role == EN_PRESET) {             /* pitch bend: 1/64 of the range a detent */
+        int32_t b = (int32_t)panel_bend + panel_cc_accel(4u, s) * 256;
+        if (b < 0)
+            b = 0;
+        if (b > 16383)
+            b = 16383;
+        if (b == panel_bend)
+            return;
+        panel_bend = (uint16_t)b;
+        midi_out_event(0x0Eu | (0xE0u | ch) << 8 | (uint32_t)(b & 127) << 16 | (uint32_t)(b >> 7) << 24);
+    } else if (role == EN_SELECT) {             /* mod wheel: 0..127 */
+        int32_t m = panel_mod + panel_cc_accel(5u, s);
+        if (m < 0)
+            m = 0;
+        if (m > 127)
+            m = 127;
+        if (m == panel_mod)
+            return;
+        panel_mod = (uint8_t)m;
+        midi_out_event(0x0Bu | (0xB0u | ch) << 8 | 1u << 16 | (uint32_t)m << 24);
     }
 }
 static int32_t panel_enc(uint32_t role)
 {
-    int32_t s = fm1_enc_take(panel.enc[role]) * panel.dir[role];
+    int32_t s;
+    panel_wheels_route();
+    s = fm1_enc_take(panel.enc[role]) * panel.dir[role];
     if (s) {
         panel_moved = 1;
         panel_cc(role, s);

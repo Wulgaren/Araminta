@@ -9582,6 +9582,20 @@ static int test_knob_cc(void)
     }
     bad += check("4 x 4 knobs: KNOB 1..4 = CC 16..31 by track, 64 + detent, the track's channel", ok);
     bad += check("  the page still gets the turn (KNOB 1 on ENV moves ATK)", local);
+    /* acceleration: the first fast reads stay one step, then a fast turn multiplies (ACC_RATE / ms per detent);
+     * host_enc directly: turn() carries its own frame, which would make every read a new turn */
+    frames(20);
+    before = mo_w;
+    host_enc[panel.enc[EN_K1]] += 1;
+    frame();
+    ok = mo_w == before + 1u && ((midi_out_q[(mo_w - 1u) % MQ] >> 24) & 0x7Fu) == 65u;
+    host_enc[panel.enc[EN_K1]] += 2;
+    frame();                                        /* the turn's first fast read: one per detent */
+    before = mo_w;
+    host_enc[panel.enc[EN_K1]] += 2;
+    frame();                                        /* 8 ms a detent: x10, so 20 steps in one CC */
+    ok &= mo_w == before + 1u && ((midi_out_q[(mo_w - 1u) % MQ] >> 24) & 0x7Fu) == 64u + 20u;
+    bad += check("  acceleration: a slow turn one step, a fast one x10 (64 + 20)", ok);
     before = mo_w;
     turn(EN_K1, -3);
     frame();
@@ -9592,6 +9606,62 @@ static int test_knob_cc(void)
     turn(EN_K1, 1);
     frame();
     bad += check("  not enumerated (usb.config 0): no MIDI", mo_w == before);
+    return bad;
+}
+
+/* PRESETS is pitch bend and SELECT the mod wheel, beside their local jobs; the track change puts the old
+ * channel's bend back to centre. */
+static int test_wheels(void)
+{
+    int bad = 0, ok = 1;
+    uint32_t before, pkt, ch;
+    ui_power_on();
+    frame();
+    panel_bend = 8192;
+    panel_mod = 0;
+    panel_wheel_ch = 16u;
+    usb.config = 1;
+    ch = trk_midi_ch(song.sel);
+    frames(100);
+    before = mo_w;
+    host_enc[panel.enc[EN_PRESET]] += 1;
+    frame();
+    pkt = midi_out_q[(mo_w - 1u) % MQ];
+    ok &= mo_w == before + 1u && (pkt & 15u) == 0x0Eu && ((pkt >> 8) & 0xFFu) == (0xE0u | ch) &&
+          ((pkt >> 16) & 0x7Fu) == 0u && ((pkt >> 24) & 0x7Fu) == 66u;            /* 8192 + 256 */
+    frames(100);
+    before = mo_w;
+    host_enc[panel.enc[EN_PRESET]] -= 1;
+    frame();
+    pkt = midi_out_q[(mo_w - 1u) % MQ];
+    ok &= mo_w == before + 1u && ((pkt >> 16) & 0x7Fu) == 0u && ((pkt >> 24) & 0x7Fu) == 64u;
+    bad += check("wheels: PRESETS bends (8192 + 256, 14-bit) and comes back to centre", ok);
+
+    ok = 1;
+    frames(100);
+    before = mo_w;
+    host_enc[panel.enc[EN_SELECT]] += 1;
+    frame();
+    pkt = midi_out_q[(mo_w - 1u) % MQ];
+    ok &= mo_w == before + 1u && (pkt & 15u) == 0x0Bu && ((pkt >> 8) & 0xFFu) == (0xB0u | ch) &&
+          ((pkt >> 16) & 0x7Fu) == 1u && ((pkt >> 24) & 0x7Fu) == 1u;
+    frames(100);
+    before = mo_w;
+    host_enc[panel.enc[EN_SELECT]] -= 1;
+    frame();
+    ok &= ((midi_out_q[(mo_w - 1u) % MQ] >> 24) & 0x7Fu) == 0u;
+    bad += check("wheels: SELECT is CC 1, 0 up to 127", ok);
+
+    frames(100);
+    host_enc[panel.enc[EN_PRESET]] += 1;
+    frame();
+    before = mo_w;
+    turn(EN_ALGO, 1);                                                             /* track 2 */
+    pkt = midi_out_q[(mo_w - 1u) % MQ];
+    ok = song.sel == 1u && mo_w == before + 1u && ((pkt >> 8) & 0xFFu) == (0xE0u | ch) &&
+         ((pkt >> 24) & 0x7Fu) == 64u && panel_bend == 8192;
+    bad += check("  the track change centres the old channel's bend", ok);
+    usb.config = 0;
     return bad;
 }
 
@@ -9680,6 +9750,7 @@ int main(void)
     bad += test_cursor_step_leds();
     bad += test_midi_leds();
     bad += test_knob_cc();
+    bad += test_wheels();
     bad += test_seq_quant();
     bad += test_idle_glow();
     bad += test_breath();

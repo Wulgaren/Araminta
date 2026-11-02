@@ -5,9 +5,12 @@
 KNOB 1-4 send a relative MIDI CC on the USB output while a computer is connected, one CC per detent, without
 changing what the knob does on the FM-1. The bank is the selected track: CC 16-19 on track 1, 20-23 on track 2,
 24-27 on track 3 and 28-31 on track 4, value 64 + detents (Bin Offset), on the track's MIDI channel, the same one
-its keys use. ALGORITHM selects the track, so it selects the bank. Nothing is sent before the host enumerates the
-device. The package is assembled from three pinned SDK files in `build/deps/ac79` instead of a full AC79 checkout;
-the firmware image and the package are unchanged by that. Splash and ABOUT show `v3.7`.
+its keys use. ALGORITHM selects the track, so it selects the bank. A fast turn carries the panel's knob
+acceleration (x2..x16), so a flick crosses a DAW parameter as quickly as the FM-1's own. PRESETS is pitch bend
+and SELECT the mod wheel (CC 1) on the same channel, beside their local jobs (browsing sounds, stepping pages);
+a track change puts the old channel's bend back to centre and its mod to 0. Nothing is sent before the host
+enumerates the device. The package is assembled from three pinned SDK files in `build/deps/ac79` instead of a
+full AC79 checkout; the firmware image and the package are unchanged by that. Splash and ABOUT show `v3.7`.
 
 ### Compatibility
 
@@ -19,6 +22,12 @@ is as before. A DAW that records MIDI from the FM-1 (Track enabled) will record 
 
 - **Knobs out.** KNOB 1-4 send CC 16..31 as above. The knob still edits its page, layer or menu value: the CC is
   sent beside the local action, so navigating pages does not change which CC a knob sends.
+- **Acceleration.** The CC follows the panel's curve (ui_input.c accel): ACC_RATE / ms per detent, doubled above
+  17, up to x16, with the first detents of a turn and a reversal at one step. Its timing is separate, so sending
+  CC never changes how the page knob accelerates.
+- **Pitch and mod.** PRESETS sends pitch bend (14-bit, centre 8192, 1/64 of the range a detent) and SELECT sends
+  the mod wheel (CC 1, 0..127). Both persist and both keep their local jobs. A track change sends the old
+  channel's bend back to centre and its mod to 0.
 - **Relative only.** The value is 64 + detents, clamped in 63-step chunks. In Live, map the knob and set the
   mapping to Bin Offset if the automatic detection guesses another relative mode; Live's manual suggests turning
   the knob slowly left while assigning.

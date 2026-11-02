@@ -58,8 +58,10 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
 - **Knobs as MIDI CC.** KNOB 1–4 send a relative CC on the USB MIDI output beside their usual job: track 1 is
   CC 16–19, track 2 20–23, track 3 24–27, track 4 28–31, value 64 + detents (Bin Offset), on the track's MIDI
-  channel. ALGORITHM selects the track, so it selects the bank. Nothing is sent until a computer enumerates the
-  device, and the panel behaves as before (see **Knobs to a DAW** under Controls).
+  channel. ALGORITHM selects the track, so it selects the bank. Fast turns carry the panel's acceleration
+  (x2..x16). **PRESETS** is pitch bend and **SELECT** is the mod wheel (CC 1), persistent, beside their local
+  jobs. Nothing is sent until a computer enumerates the device, and the panel behaves as before (see **Knobs to
+  a DAW** under Controls).
 - No project format change: saves stay FUN19 (`FUNJ`).
 
 ### New in 3.6
@@ -245,8 +247,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   on macOS 13-15, set MENU > USB SERIAL to OFF so the audio input appears)
 - **MIDI:** USB and TRS MIDI in; MENU > MIDI > MIDI IN: CH1-4 (channels 1-4 play tracks 1-4), CH5-8, CH9-12 or
   CH13-16 (another block of four, e.g. for two FM-1s on one cable), or SEL (every channel plays the selected track);
-  the keys send on the track's channel, and **KNOB 1–4 send relative CC 16–31** to a computer (see Controls);
-  pitch bend, sustain, panic; clock from internal, USB or TRS. MIDI CCs set
+  the keys send on the track's channel, **KNOB 1–4 send relative CC 16–31**, and **PRESETS / SELECT send pitch
+  bend and CC 1** to a computer (see Controls); pitch bend, sustain, panic; clock from internal, USB or TRS. MIDI CCs set
   track parameters: 5 GLIDE, 7 LEVEL, 10 PAN, 71 resonance, 72 / 73 / 75 release / attack / decay, 74 brightness,
   91 / 93 / 94 reverb send, chorus mix (insert CHOR), delay send. **MIDI LEARN** (GLO + D4) sets up to 16 more CCs of your
   controller to any knob's parameter of any track, on the device; **Program Change** loads a track's sound by its
@@ -339,7 +341,14 @@ selected track (ALGORITHM selects it):
 
 One CC per detent, value 64 + the steps (Bin Offset: 65 one right, 63 one left), on the track's MIDI channel,
 the same one its keys use. A page change does not change the CC: KNOB 1 is CC 16 on track 1 on every page, and
-the knob still edits the FM-1 at the same time.
+the knob still edits the FM-1 at the same time. A fast turn accelerates the way the panel's knobs do (x2..x16),
+so a flick crosses a parameter quickly instead of one step at a time.
+
+**PRESETS** is pitch bend and **SELECT** is the mod wheel (CC 1) on the same channel, and both keep their local
+jobs: PRESETS still browses sounds, SELECT still steps pages. The bend is 14-bit (centre 8192, 1/64 of the range
+a detent) and persistent, so it stays where you leave it until you turn it back or change track; the mod wheel
+runs 0..127. Turning the track (ALGORITHM) sends the old channel's bend back to centre and its mod to 0, so a
+bent note is never left behind. Neither needs mapping in Live: instruments answer them out of the box.
 
 In Live, enable **Remote** for the FM-1 input (Track is what its keys use), enter MIDI Map Mode and turn the
 knob. Live detects the relative mode; if it picks another one, set that mapping to **Bin Offset**. With Track

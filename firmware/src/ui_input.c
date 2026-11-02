@@ -448,9 +448,6 @@ static void ui_leds(void)
  * detents of a turn, a single quick detent (a bounce) and a reversal are one step per detent, and the sign is always
  * the detents'. ui.enc_t[role]: bits 0..23 the ms of its last read, bit 24 its direction (+1), 25..31 its ms per
  * detent (127 slow) */
-#define ACC_GAP 60u
-#define ACC_RATE 80u
-#define DTIME_ACC_RATE 50u
 static int32_t accel(uint32_t role, int32_t s, int32_t range)
 {
     uint32_t now = fm1_ms & 0xFFFFFFu, st = ui.enc_t[role], up = s > 0, pi = st >> 25, a, i, m = 1;
