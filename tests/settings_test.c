@@ -21,6 +21,9 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 { (void)x; (void)y; (void)w; (void)h; (void)p; }
 #include "../firmware/src/gfx.c"
 static volatile uint32_t ft_btn_mask, ft_drop_mask;   /* seq.c; panel_init writes them (free take) */
+static struct { uint8_t sel; } song;                  /* core.h / seq.c: the selected track (panel_enc's CC bank) */
+static uint32_t trk_midi_ch(uint32_t i) { (void)i; return 0; }
+static void midi_out_event(uint32_t e) { (void)e; }
 #include "../firmware/src/panel.c"
 static void settings_save(void) {}
 #if __has_include("../firmware/src/favorites.c")
