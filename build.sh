@@ -4,7 +4,7 @@
 # Build Felucca on Windows (Git Bash), Linux or macOS (see BUILDING.md).
 #   ./build.sh [--release X.Y]
 #   JIELI_TOOLCHAIN  JieLi toolchain root (platform defaults: BUILDING.md)
-#   AC79_SDK         JieLi AC79 SDK root (platform defaults: BUILDING.md)
+#   AC79_SDK         JieLi AC79 SDK files root (default: build/deps/ac79)
 set -e
 cd "$(dirname "$0")"
 native_windows=0
@@ -22,14 +22,14 @@ if [ "$native_windows" = 1 ]; then
     compiler="$JIELI_TOOLCHAIN/pi32/bin/clang.exe"
 else
     export JIELI_TOOLCHAIN="${JIELI_TOOLCHAIN:-$HOME/.jieli/toolchain}"
-    export AC79_SDK="${AC79_SDK:-$HOME/fw-AC79_AIoT_SDK}"
+    export AC79_SDK="${AC79_SDK:-$PWD/build/deps/ac79}"
     PY="${PYTHON:-python3}"
     compiler="$JIELI_TOOLCHAIN/pi32v2/bin/clang"
 fi
 
 "$PY" -c 'import PIL' 2>/dev/null || { echo "build.sh: $PY has no Pillow (pip3 install Pillow)"; exit 1; }
 [ -x "$compiler" ] || { echo "build.sh: no toolchain in $JIELI_TOOLCHAIN (see BUILDING.md)"; exit 1; }
-[ -f "$AC79_SDK/cpu/wl82/tools/uboot.boot" ] || { echo "build.sh: no JieLi AC79 SDK in $AC79_SDK"; exit 1; }
+[ -f "$AC79_SDK/cpu/wl82/tools/uboot.boot" ] || { echo "build.sh: no JieLi AC79 SDK files in $AC79_SDK (run tools/get_sdk.sh)"; exit 1; }
 if [ "$native_windows" != 1 ] && { [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; }; then
     docker info >/dev/null 2>&1 || { echo "build.sh: Docker is not running"; exit 1; }
 fi

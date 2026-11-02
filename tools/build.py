@@ -452,7 +452,7 @@ def main():
     global PRODUCT, VERSION
     ap = argparse.ArgumentParser()
     ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_9XY, version string vX.Y")
-    ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
+    ap.add_argument("--sdk", type=Path, help="three-file JieLi AC79 SDK mirror (default: $AC79_SDK)")
     a = ap.parse_args()
     name = "felucca.fwsc"
     if a.release:                   # one digit each: the identity has room for two (X.Y.Z and X.Y.Z.W keep X.Y's)

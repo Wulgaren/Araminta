@@ -180,7 +180,7 @@
 # Change baseline entries only for reviewed, intentional differences in sound or cost;
 # retain every unaffected golden / CPU / target entry. VERBOSE=1: every render.
 set -e
-export AC79_SDK="${AC79_SDK:-$HOME/fw-AC79_AIoT_SDK}"
+export AC79_SDK="${AC79_SDK:-$(cd "$(dirname "$0")/.." && pwd)/build/deps/ac79}"
 cd "$(dirname "$0")/.."
 OUT=build/host
 mkdir -p "$OUT"

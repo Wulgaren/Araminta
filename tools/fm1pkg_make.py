@@ -101,7 +101,7 @@ def sdk_file(rel):
     try:
         return path.read_bytes()
     except OSError as e:
-        raise SystemExit(f"fm1pkg_make: {path}: {e.strerror}. Set AC79_SDK to a JieLi AC79 SDK checkout.")
+        raise SystemExit(f"fm1pkg_make: {path}: {e.strerror}. Run tools/get_sdk.sh or set AC79_SDK to the SDK mirror.")
 
 
 def flash_image(app, key):
@@ -204,7 +204,7 @@ def main():
     ap.add_argument("out", type=Path)
     ap.add_argument("--product", default="FM-1_900")
     ap.add_argument("--key", type=lambda s: int(s, 0), default=KEY)
-    ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
+    ap.add_argument("--sdk", type=Path, help="three-file JieLi AC79 SDK mirror (default: $AC79_SDK)")
     a = ap.parse_args()
     global SDK
     SDK = a.sdk
