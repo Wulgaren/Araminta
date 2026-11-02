@@ -19,19 +19,17 @@ Install Python dependencies locally:
 python -m pip install --target build/python Pillow fonttools
 ```
 
-Download the [official Windows toolchain](https://pkgman.jieliapp.com/s/win-toolchain).
-Set `JIELI_TOOLCHAIN` to the directory containing `pi32/bin/clang.exe`, and `AC79_SDK`
-to the SDK checkout:
+Download the [official Windows toolchain](https://pkgman.jieliapp.com/s/win-toolchain), and set
+`JIELI_TOOLCHAIN` to the directory containing `pi32/bin/clang.exe`:
 
 ```powershell
 $env:JIELI_TOOLCHAIN = 'C:/JL'
-$env:AC79_SDK = 'D:/path/to/fw-AC79_AIoT_SDK'
 bash ./build.sh
 ```
 
-For a portable setup, the defaults are `build/deps/jieli-windows/C$/JL` for the
-extracted Windows toolchain and `build/deps/ac79` for the SDK. With those in place,
-run `bash ./build.sh` directly. The script loads Python packages from `build/python`
+For a portable setup, the default is `build/deps/jieli-windows/C$/JL` for the extracted
+Windows toolchain and `build/deps/ac79` for the SDK files, on every platform. With those in
+place, run `bash ./build.sh` directly. The script loads Python packages from `build/python`
 when that directory exists. `JIELI_DOCKER=1` selects the Linux toolchain in Docker.
 
 ## Prerequisites (macOS / Linux)
@@ -47,13 +45,15 @@ when that directory exists. `JIELI_DOCKER=1` selects the Linux toolchain in Dock
   tools/get_toolchain.sh            # installs to ~/.jieli/toolchain
   ```
 
-- The JieLi AC79 SDK (Apache-2.0). The package uses three of its files
-  (`cpu/wl82/tools/uboot.boot`, `cfg_tool.bin`, `cfg/eq_cfg_hw.bin`); they are not part of this tree.
+- The JieLi AC79 SDK files (Apache-2.0). The package uses three of them
+  (`cpu/wl82/tools/uboot.boot`, `cfg_tool.bin`, `cfg/eq_cfg_hw.bin`):
 
   ```
-  git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 \
-      https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK
+  tools/get_sdk.sh                  # fetches them into build/deps/ac79
   ```
+
+  They are not tracked in this repository. The script clones the SDK, keeps only those
+  three files and drops the checkout.
 
 - Node.js (optional, for the web tests).
 - Emscripten (optional, `emcc`: the browser emulator, `web/emu/`).
@@ -67,7 +67,7 @@ On Linux x86-64 the toolchain runs natively and Docker is not needed.
 ```
 
 `JIELI_TOOLCHAIN` and `AC79_SDK` override the default locations
-(`~/.jieli/toolchain`, `~/fw-AC79_AIoT_SDK` on macOS / Linux; Windows defaults above).
+(`~/.jieli/toolchain` and `build/deps/ac79`; Windows toolchain default above).
 
 The expensive step is the `-Os` compile of the app's LLVM IR. `build.sh` keeps `build/felucca.o` while the
 sources, generated headers, flags and compiler are unchanged, so a rebuild without source changes takes a
