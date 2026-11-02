@@ -122,6 +122,7 @@ static void boot_leds(void)
 static void fm1_main(void)
 {
     uint32_t ms;
+    fm1_audio_amp(0);                         /* PC6 low before anything draws: the amp / line stays muted through the splash */
     persist_boot();
 #if FELUCCA_OTA
     if (flash_ok)
