@@ -22,6 +22,9 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 #include "../firmware/src/gfx.c"
 static volatile uint32_t ft_btn_mask, ft_drop_mask;   /* seq.c; panel_init writes them (free take) */
 static struct { uint8_t sel; } song;                  /* core.h / seq.c: the selected track (panel_enc's CC bank) */
+static uint32_t fm1_ms;                               /* core.h: the knob CC's acceleration clock */
+#define ACC_GAP 60u
+#define ACC_RATE 80u
 static uint32_t trk_midi_ch(uint32_t i) { (void)i; return 0; }
 static void midi_out_event(uint32_t e) { (void)e; }
 #include "../firmware/src/panel.c"

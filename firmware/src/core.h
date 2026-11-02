@@ -765,6 +765,11 @@ static inline uint32_t swing_step_len(const track_t *t, uint32_t base, uint32_t 
 /* ----------------------------------------------------------- system --- */
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")   /* slot store before the index update */
 static volatile uint32_t fm1_ms;  /* milliseconds since boot (TIMER4-based, TIMER5 ISR in main.c) */
+/* KNOB ACCEL (ui_input.c accel, panel.c's CC out): the multiplier is ACC_RATE / ms per detent, and a gap of
+ * ACC_GAP ms or more starts a new turn. DTIME_ACC_RATE is the tighter one of the free-ms delay (range > 512). */
+#define ACC_GAP 60u
+#define ACC_RATE 80u
+#define DTIME_ACC_RATE 50u
 /* boot-loop guard (main.c): two boots in a row that die in the first 30 s -> UBOOT */
 #define BOOTGUARD_MAGIC 0x42475244u
 struct { uint32_t magic, failed, pending; } bootguard __attribute__((section(".noinit")));
