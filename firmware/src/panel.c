@@ -59,11 +59,28 @@ static uint32_t panel_btn_of(uint32_t matrix_id)        /* label of a matrix but
 
 /* steps of a role, + = clockwise */
 static uint8_t panel_moved;                     /* a knob turned since ui.c scr_input last looked (SCREEN OFF) */
+/* KNOB 1..4 also leave as relative CC for a DAW on the host: track 1 = CC 16..19, track 2 = 20..23, ...
+ * (4 tracks x 4 knobs, song.sel picks the bank), value 64 + detents (Bin Offset), on the selected track's
+ * MIDI channel (the one its keys use). The knob's own job below is unchanged. */
+static void panel_cc(uint32_t role, int32_t s)
+{
+    uint32_t cc;
+    if (role < EN_K1 || role > EN_K4)
+        return;
+    cc = 16u + 4u * song.sel + (role - EN_K1);
+    while (s) {
+        int32_t d = s > 63 ? 63 : s < -63 ? -63 : s;
+        midi_out_event(0x0Bu | (0xB0u | trk_midi_ch(song.sel)) << 8 | cc << 16 | (uint32_t)(64 + d) << 24);
+        s -= d;
+    }
+}
 static int32_t panel_enc(uint32_t role)
 {
     int32_t s = fm1_enc_take(panel.enc[role]) * panel.dir[role];
-    if (s)
+    if (s) {
         panel_moved = 1;
+        panel_cc(role, s);
+    }
     return s;
 }
 

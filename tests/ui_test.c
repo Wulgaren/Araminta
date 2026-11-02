@@ -9553,6 +9553,48 @@ static int test_wt_graph(void)
     return bad;
 }
 
+/* KNOB 1..4 leave as relative CC for the host, 4 x 4: track 1 CC 16..19, track 2 20..23, 24..27, 28..31,
+ * value 64 + detents, on the selected track's MIDI channel; the page still gets the turn. */
+static int test_knob_cc(void)
+{
+    int bad = 0, ok = 1, local;
+    uint32_t t, k, before, pkt;
+    int16_t atk;
+    ui_power_on();
+    go_title("ENV");
+    frame();
+    usb.config = 1;
+    atk = TSEL->p[P_ATK];
+    turn(EN_K1, 1);
+    frame();
+    local = TSEL->p[P_ATK] != atk;
+    for (t = 0; t < NTRK; t++) {
+        while (song.sel != t) { turn(EN_ALGO, 1); frame(); }
+        for (k = 0; k < 4u; k++) {
+            before = mo_w;
+            turn(EN_K1 + k, 1);
+            frame();
+            pkt = midi_out_q[(mo_w - 1u) % MQ];
+            ok &= mo_w == before + 1u && (pkt & 15u) == 0x0Bu &&
+                  ((pkt >> 8) & 0xFFu) == (0xB0u | trk_midi_ch(t)) &&
+                  ((pkt >> 16) & 0x7Fu) == 16u + 4u * t + k && ((pkt >> 24) & 0x7Fu) == 65u;
+        }
+    }
+    bad += check("4 x 4 knobs: KNOB 1..4 = CC 16..31 by track, 64 + detent, the track's channel", ok);
+    bad += check("  the page still gets the turn (KNOB 1 on ENV moves ATK)", local);
+    before = mo_w;
+    turn(EN_K1, -3);
+    frame();
+    ok = mo_w == before + 1u && ((midi_out_q[(mo_w - 1u) % MQ] >> 24) & 0x7Fu) == 61u;
+    bad += check("  left three detents: one CC, 64 - 3", ok);
+    usb.config = 0;
+    before = mo_w;
+    turn(EN_K1, 1);
+    frame();
+    bad += check("  not enumerated (usb.config 0): no MIDI", mo_w == before);
+    return bad;
+}
+
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -9637,6 +9679,7 @@ int main(void)
     bad += test_play_leds();
     bad += test_cursor_step_leds();
     bad += test_midi_leds();
+    bad += test_knob_cc();
     bad += test_seq_quant();
     bad += test_idle_glow();
     bad += test_breath();
