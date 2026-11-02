@@ -252,7 +252,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   track parameters: 5 GLIDE, 7 LEVEL, 10 PAN, 71 resonance, 72 / 73 / 75 release / attack / decay, 74 brightness,
   91 / 93 / 94 reverb send, chorus mix (insert CHOR), delay send. **MIDI LEARN** (GLO + D4) sets up to 16 more CCs of your
   controller to any knob's parameter of any track, on the device; **Program Change** loads a track's sound by its
-  number in PRESETS
+  number in PRESETS. **Ableton:** the Control Surface script in `ableton/FM-1/` puts the sixteen knobs on the
+  selected device's parameters (see `ableton/README.md`)
 - **Web:** editor for every parameter (with a 6-operator FM patch editor that also sends a whole 32-voice bank),
   step grid, mixer, preset library, sample/drumkit/wavetable slots with recording and trim, the MENU settings;
   full backup and restore
