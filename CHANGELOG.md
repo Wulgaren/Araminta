@@ -1,5 +1,29 @@
 # Changelog
 
+## 3.7
+
+KNOB 1-4 send a relative MIDI CC on the USB output while a computer is connected, one CC per detent, without
+changing what the knob does on the FM-1. The bank is the selected track: CC 16-19 on track 1, 20-23 on track 2,
+24-27 on track 3 and 28-31 on track 4, value 64 + detents (Bin Offset), on the track's MIDI channel, the same one
+its keys use. ALGORITHM selects the track, so it selects the bank. Nothing is sent before the host enumerates the
+device. The package is assembled from three pinned SDK files in `build/deps/ac79` instead of a full AC79 checkout;
+the firmware image and the package are unchanged by that. Splash and ABOUT show `v3.7`.
+
+### Compatibility
+
+No project or settings change: saves stay FUN19 (`FUNJ`), and projects, presets and settings from 3.6 load as they
+are. On the device nothing changes except the extra CCs on the USB MIDI output; with no host attached the output
+is as before. A DAW that records MIDI from the FM-1 (Track enabled) will record those CCs into a clip.
+
+### MIDI
+
+- **Knobs out.** KNOB 1-4 send CC 16..31 as above. The knob still edits its page, layer or menu value: the CC is
+  sent beside the local action, so navigating pages does not change which CC a knob sends.
+- **Relative only.** The value is 64 + detents, clamped in 63-step chunks. In Live, map the knob and set the
+  mapping to Bin Offset if the automatic detection guesses another relative mode; Live's manual suggests turning
+  the knob slowly left while assigning.
+- **No collision.** 16..31 are not used by anything else the firmware sends; notes and clock are untouched.
+
 ## 3.6
 
 FM6's E5 macro is VIB now, the patch LFO's pitch depth, instead of VMOD. Old projects and user presets move

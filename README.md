@@ -54,6 +54,14 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
+### New in 3.7
+
+- **Knobs as MIDI CC.** KNOB 1–4 send a relative CC on the USB MIDI output beside their usual job: track 1 is
+  CC 16–19, track 2 20–23, track 3 24–27, track 4 28–31, value 64 + detents (Bin Offset), on the track's MIDI
+  channel. ALGORITHM selects the track, so it selects the bank. Nothing is sent until a computer enumerates the
+  device, and the panel behaves as before (see **Knobs to a DAW** under Controls).
+- No project format change: saves stay FUN19 (`FUNJ`).
+
 ### New in 3.6
 
 - **FM6 VIB / MRAT / DIGITAL.** E5 is the patch LFO's **VIB** depth, not VMOD: old projects and presets fold
@@ -237,7 +245,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   on macOS 13-15, set MENU > USB SERIAL to OFF so the audio input appears)
 - **MIDI:** USB and TRS MIDI in; MENU > MIDI > MIDI IN: CH1-4 (channels 1-4 play tracks 1-4), CH5-8, CH9-12 or
   CH13-16 (another block of four, e.g. for two FM-1s on one cable), or SEL (every channel plays the selected track);
-  the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS. MIDI CCs set
+  the keys send on the track's channel, and **KNOB 1–4 send relative CC 16–31** to a computer (see Controls);
+  pitch bend, sustain, panic; clock from internal, USB or TRS. MIDI CCs set
   track parameters: 5 GLIDE, 7 LEVEL, 10 PAN, 71 resonance, 72 / 73 / 75 release / attack / decay, 74 brightness,
   91 / 93 / 94 reverb send, chorus mix (insert CHOR), delay send. **MIDI LEARN** (GLO + D4) sets up to 16 more CCs of your
   controller to any knob's parameter of any track, on the device; **Program Change** loads a track's sound by its
@@ -315,6 +324,27 @@ The pages by button:
 | FX | EFFECTS (SELECT: list + stage pages), SLICER, PUNCH | the FX layer |
 | SCL, ENV, ARP | their pages | SCL: its layer |
 | REC | arms the track | — |
+
+### Knobs to a DAW
+
+KNOB 1–4 also leave the FM-1 as a relative MIDI CC on the USB output, for a DAW's own mappings. The bank is the
+selected track (ALGORITHM selects it):
+
+| Selected track | KNOB 1 | KNOB 2 | KNOB 3 | KNOB 4 |
+|---|---|---|---|---|
+| 1 | CC 16 | CC 17 | CC 18 | CC 19 |
+| 2 | CC 20 | CC 21 | CC 22 | CC 23 |
+| 3 | CC 24 | CC 25 | CC 26 | CC 27 |
+| 4 | CC 28 | CC 29 | CC 30 | CC 31 |
+
+One CC per detent, value 64 + the steps (Bin Offset: 65 one right, 63 one left), on the track's MIDI channel,
+the same one its keys use. A page change does not change the CC: KNOB 1 is CC 16 on track 1 on every page, and
+the knob still edits the FM-1 at the same time.
+
+In Live, enable **Remote** for the FM-1 input (Track is what its keys use), enter MIDI Map Mode and turn the
+knob. Live detects the relative mode; if it picks another one, set that mapping to **Bin Offset**. With Track
+also on, the CCs are recorded into a clip while recording, so turn Track off for that input if you only want the
+mappings. Nothing is sent while the FM-1 is not connected to a computer.
 
 ## Menu
 
