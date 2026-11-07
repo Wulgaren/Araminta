@@ -33,6 +33,13 @@ is as before. A DAW that records MIDI from the FM-1 (Track enabled) will record 
   the knob slowly left while assigning.
 - **No collision.** 16..31 are not used by anything else the firmware sends; notes and clock are untouched.
 
+### Flash chip
+
+Newer FM-1s with the UCUN UC25HQ80 flash (`0xB36014`) now enable flash writes: settings, projects, samples and
+updates from the running firmware work as on the Puya P25Q80H (`0x856014`). A unit already running an older
+build on that chip needs one flash with M-Flasher or m-bootloader's MIDI mode; after that the usual installer
+updates it.
+
 ## 3.6
 
 FM6's E5 macro is VIB now, the patch LFO's pitch depth, instead of VMOD. Old projects and user presets move
