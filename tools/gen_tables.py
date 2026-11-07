@@ -57,6 +57,18 @@ def main(path):
     L.append(cgen.c_array("CUTOFF_HZ", "uint16_t", [int(round(f)) for f in fc], 12))
     # trapezoidal (Simper) SVF: g = tan(pi fc / FS), Q12; stable at any cutoff/resonance
     L.append(cgen.c_array("SVF_G", "uint16_t", [int(4096 * math.tan(math.pi * min(f, 0.45 * FS) / FS)) for f in fc], 12))
+    # OTT insert (fx.c ins_run_ott): gain by band envelope, Q12 (4096 = 1x), index e >> 8.
+    # The threshold is 12000 in the 1/4-scale envelope (input ~48000), so quiet detail gets
+    # upward compression: 4:1 below it, up to 16x (+24 dB), and 8:1 above it.
+    ott = []
+    for i in range(257):
+        e = min(i * 256, 65535)
+        if e < 12000:
+            g = min(16.0, (12000.0 / max(e, 1)) ** 0.75)
+        else:
+            g = (12000.0 / e) ** 0.875
+        ott.append(max(410, min(65536, int(round(g * 4096)))))
+    L.append(cgen.c_array("OTT_GAIN_Q12", "int32_t", ott, 12))
     # level: 0 = off, else dB = (v - 112) / 2  (112 = 0 dB, 127 = +7.5 dB)
     db = [None] + [(v - 112) / 2 for v in range(1, 128)]
     L.append(cgen.c_array("LEVEL_Q12", "uint16_t", [0] + [int(round(4096 * 10 ** (d / 20))) for d in db[1:]], 12))

@@ -66,7 +66,7 @@ static const char *const N_GO[] = {"--", "GO"};
 static const char *const N_SLCR[] = {"OFF", "GATE", "STUT"};             /* SL_OFF .. SL_STUT (slicer.c) */
 static const char *const N_SLDIV[] = {"1/8", "1/16", "1/32", "8T", "16T", "32T"};   /* SL_DEN */
 /* insert chain: DIST modes, FILTER types (also N_FTYPE's COMB), CRUSH rate labels */
-static const char *const N_IDMODE[] = {"SOFT", "HARD", "FOLD", "FUZZ"};
+static const char *const N_IDMODE[] = {"SOFT", "HARD", "FOLD", "FUZZ", "OTT"};
 static const char *const N_IFTYPE[] = {"LP", "HP", "BP", "COMB"};
 static const char *const N_IBITS[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
                                       "16", 0};

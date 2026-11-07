@@ -1647,6 +1647,11 @@ typedef struct {
     uint16_t wp;
     uint32_t ph;
     int32_t hp, lp1, lp2, dc, hold, fb, ic1, ic2;
+    /* DIST MODE OTT: two crossovers (low / mid-high), one envelope and DC block per band. The
+     * fields are only touched in the DIST slot; o_on makes entering OTT start from silence. */
+    int32_t o_lo1, o_lo2, o_hi1, o_hi2;
+    int32_t o_env0, o_env1, o_env2, o_dc;
+    uint8_t o_on;
 } ins_st_t;
 /* FILTER's COMB line and PHASR's all-pass pair: one stage runs each, so one copy per render context
  * (a track, or a MASTER channel) instead of in every stage slot. */
@@ -1846,10 +1851,81 @@ static inline uint32_t ins_bits_sh(int32_t a) { return 15u - (uint32_t)(clamp(a,
 static const uint8_t INS_GSH[IDM_N] = {4, 0, 1, 3};       /* g = 4096 + (a * a * 3) >> GSH: 1.7 .. 12.8 x */
 static const uint8_t INS_DK[IDM_N] = {2, 4, 5, 4};        /* cutoff index 96 - (a >> DK) + TONE: SOFT darkest */
 
+/* OTT (DIST MODE 4): three bands, upward compression below the threshold and downward above it.
+ * DRIVE is DEPTH (0 = the crossover sum, 127 = the full curve) and TONE is TIME (the envelope's
+ * attack/release; 0 is the OTT default). The gain curve is OTT_GAIN_Q12, built by tools/gen_tables.py. */
+static inline int32_t ott_env(int32_t *env, int32_t a, uint32_t atk, uint32_t rel)
+{
+    if (a > *env) {
+        int32_t d = (a - *env) >> atk;
+        *env += d ? d : 1;
+        if (*env > a)
+            *env = a;
+    } else if (*env > a)
+        *env -= ((*env - a) >> rel) + 1;
+    return *env;
+}
+static inline int32_t ott_gain(int32_t e, int32_t depth)
+{
+    uint32_t i = (uint32_t)(e >> 8), f = (uint32_t)e & 255u;
+    int32_t g;
+    if (i > 255u)
+        i = 255u;
+    g = OTT_GAIN_Q12[i];
+    g += ((OTT_GAIN_Q12[i + 1u] - g) * (int32_t)f) >> 8;
+    return 4096 + (((g - 4096) * depth) >> 7);
+}
+/* x * g / 4096 for a band (|x| <= 65535) and a Q12 gain up to 16x: split g so no product overflows */
+static inline int32_t ott_apply(int32_t x, int32_t g)
+{
+    return ((x * (g >> 8)) >> 4) + ((x * (g & 255)) >> 12);
+}
+static __attribute__((noinline)) void ins_run_ott(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n, int32_t tw)
+{
+    uint32_t i, tv = (uint32_t)(clamp(t->p[P_ED_FX], -64, 63) + 64);
+    int32_t depth = clamp(t->p[P_DIST], 0, 127);
+    uint32_t atk = 5u + tv * 5u / 127u, rel = 10u + tv * 5u / 127u;
+    tsvf_t lo_f, hi_f;
+    tsvf_coef(&lo_f, 38 << 8, 0);                         /* ~200 Hz */
+    tsvf_coef(&hi_f, 90 << 8, 0);                         /* ~2.5 kHz */
+    for (i = 0; i < n; i++) {
+        int32_t x = b[i], xs, lo, mid, hi, e, g0, g1, g2, y;
+        s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
+        if (!s->w && !tw) { b[i] = x; continue; }
+        xs = clamp(x, -262143, 262143) >> 2;             /* stays inside the SVF's range */
+        lo = clamp(tsvf_lp(&lo_f, xs, &s->o_lo1, &s->o_lo2), -65535, 65535);
+        hi = clamp(tsvf_lp(&hi_f, xs, &s->o_hi1, &s->o_hi2), -65535, 65535);
+        mid = clamp(hi - lo, -65535, 65535);
+        hi = clamp(xs - hi, -65535, 65535);
+        e = lo < 0 ? -lo : lo;
+        g0 = ott_gain(ott_env(&s->o_env0, e, atk, rel), depth);
+        e = mid < 0 ? -mid : mid;
+        g1 = ott_gain(ott_env(&s->o_env1, e, atk, rel), depth);
+        e = hi < 0 ? -hi : hi;
+        g2 = ott_gain(ott_env(&s->o_env2, e, atk, rel), depth);
+        y = ott_apply(lo, g0) + ott_apply(mid, g1) + ott_apply(hi, g2);
+        y = clamp(y << 2, -262143, 262143);
+        s->o_dc += ((y << 8) - s->o_dc) >> 9;
+        y -= s->o_dc >> 8;
+        b[i] = pf_mix(x, y, s->w);
+    }
+}
+
 static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n, int32_t tw)
 {
     uint32_t i, mode = (uint32_t)clamp(t->p[P_IDMODE], 0, IDM_N - 1);
-    int32_t a = t->p[P_DIST], g = 4096 + ((a * a * 3) >> INS_GSH[mode]);
+    int32_t a = t->p[P_DIST], g;
+    if (mode == IDM_OTT) {
+        if (!s->o_on) {                                   /* do not inherit another mode's filter state */
+            s->o_lo1 = s->o_lo2 = s->o_hi1 = s->o_hi2 = 0;
+            s->o_env0 = s->o_env1 = s->o_env2 = s->o_dc = 0;
+            s->o_on = 1;
+        }
+        ins_run_ott(s, t, b, n, tw);
+        return;
+    }
+    s->o_on = 0;
+    g = 4096 + ((a * a * 3) >> INS_GSH[mode]);
     /* cutoff follows drive (96 at 0, darker as drive rises); P_ED_FX (TONE) offsets it, 0 = as before */
     int32_t k = ins_lpk(clamp((96 - (a >> INS_DK[mode])) + t->p[P_ED_FX], 0, 127));
     for (i = 0; i < n; i++) {

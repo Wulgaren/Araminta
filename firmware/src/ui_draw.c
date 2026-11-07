@@ -1279,28 +1279,39 @@ static void draw_columns(void)
         draw_column(3, "MODE", dtime_free() ? "TIME" : "RATE", "", VAL(3u), -1, ICON_AUTO);
         return;
     }
+    int ott = cur_page()->id[0] == P_IDMODE && TSEL->p[P_IDMODE] == IDM_OTT;
     for (c = 0; c < 4u; c++) {
         int16_t *vp;
         const param_desc_t *d = page_desc(cur_page(), c, &vp);
+        const char *label;
         if (!d || !d->label || d->label[0] == '-') {
             draw_column(c, "", "", "", T_THEME, -1, ICON_AUTO);
             continue;
         }
+        label = d->label;
+        if (ott && c == 1u)
+            label = "DEPTH";
+        else if (ott && c == 2u)
+            label = "TIME";
         if ((act_cols() >> c) & 1u) {
-            draw_act_column(c, d->label, T_THEME, ICON_AUTO);
+            draw_act_column(c, label, T_THEME, ICON_AUTO);
             continue;
         }
         if (vp == &song.g[G_TTEMPO] && song.g[G_TAPEMODE] == TAPE_SEND) {   /* SEND keeps time: TEMPO fixed ON */
-            draw_column(c, d->label, "ON", "", T_DIM, -1, param_icon(d, *vp));
+            draw_column(c, label, "ON", "", T_DIM, -1, param_icon(d, *vp));
             continue;
         }
         param_format(d, *vp, val, &unit);
+        if (ott && c == 2u) {                          /* DIST's TONE is OTT TIME: 0 fast .. 127 slow */
+            fmt_int(val, (int32_t)*vp + 64);
+            unit = "";
+        }
         card_mot_of(vp);                                /* (a global: never) */
         if (card_inactive(TSEL, vp)) {
-            draw_column(c, d->label, val, unit, T_DIM, RATIO(d, *vp), param_icon(d, *vp));
+            draw_column(c, label, val, unit, T_DIM, RATIO(d, *vp), param_icon(d, *vp));
             continue;
         }
-        draw_column(c, d->label, val, unit, VAL(c), d->fmt == F_ENUM && d->max < 2 ? -1 : RATIO(d, enum_rank(d, *vp)),
+        draw_column(c, label, val, unit, VAL(c), d->fmt == F_ENUM && d->max < 2 ? -1 : RATIO(d, enum_rank(d, *vp)),
                     param_icon(d, *vp));
     }
 }
