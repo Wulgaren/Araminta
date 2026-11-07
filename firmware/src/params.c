@@ -397,11 +397,14 @@ static const uint8_t SLDIV_ORDER[6] = {0, 3, 1, 4, 2, 5};              /* 1/8 8T
 /* Delay TIME: names 0..12 stay (loads). Knob omits 1/1 2BAR 4BAR (7..9); they never fit DLY_LEN. */
 static const uint8_t DTIME_ORDER[10] = {6, 12, 0, 10, 1, 11, 4, 2, 5, 3}; /* 1/2 1/4D 1/4 1/8D 1/8 1/16D 8T 1/16 16T 1/32 */
 static const uint8_t PLAY_ORDER[3] = {1, 0, 2};                    /* OFF, ON, SOLO (stored PLAY_OFF, PLAY_ON, PLAY_SOLO) */
+static const uint8_t LTRIG_ORDER[2] = {1, 0};                      /* FREE, NOTE: left from NOTE is FREE, as DELAY K4
+                                                                    * left is RATE -> TIME (stored NOTE = 0, FREE = 1) */
 static const uint8_t QUANT_ORDER[5] = {0, 4, 1, 2, 3};             /* OFF ALL CURR KBD SEQ (stored 0 1 2 3 4) */
 static const uint8_t *enum_order(const param_desc_t *d)
 {
     return d->names == N_DIV ? DIV_ORDER : d->names == N_SLDIV ? SLDIV_ORDER : d->names == N_DTIME ? DTIME_ORDER
-         : d->names == N_PLAY ? PLAY_ORDER : d->names == N_QUANT ? QUANT_ORDER : 0;
+         : d->names == N_PLAY ? PLAY_ORDER : d->names == N_QUANT ? QUANT_ORDER
+         : d->names == N_LTRIG ? LTRIG_ORDER : 0;
 }
 static int32_t enum_order_n(const param_desc_t *d)   /* shown steps; DTIME shorter than max (legacy 7..9) */
 {
