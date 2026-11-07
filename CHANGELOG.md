@@ -529,6 +529,7 @@ Same project format as 2.3 (FUN15 / `FUNF`). Splash and ABOUT show `v2.4`.
 ### Effects
 
 - DIST: one curve per MODE. SOFT a rounded curve that never flat-tops, HARD an edge at full scale, FOLD a wavefolder that folds further as it is driven, FUZZ a gated octave wave. Each has its own drive gain, so the MODEs stay distinct at DRIVE 127; all peak alike, so a MODE switch stays even (measured in `docs/audio-effects-comparison.md`). New DIST stages default DRIVE to 50 (MIX still starts at bypass).
+- DIST MODE **OTT**: a three-band (200 Hz / 2.5 kHz) upward/downward compressor in the same insert slot. DRIVE is DEPTH, TONE is TIME (attack/release), and MIX stays the dry/wet fader; DEPTH 0 is the transparent crossover sum. The stored MODE is appended, so projects and presets keep their existing values and older firmware reads OTT as FUZZ.
 - Delay TIME: on the free-ms rates the read head follows the knob (1/256 of the remaining error per sample, capped at 224 Q8), so pitch is how fast you turn, not how far — 455 → 25 ms turned in half a second lands in half a second.
 - FX LATCH turned on while an FX key was held (a settings load) could leave the effect fully active with no key held until a power cycle. A release now always clears its held bit; deliberate latches stay sticky until toggled off or G5 CLR.
 

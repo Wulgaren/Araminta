@@ -100,6 +100,23 @@ static void tech_dist(const track_t *t)
     }
 }
 
+/* OTT (DIST MODE): the static level curve, upward below the threshold and downward above it */
+static void tech_ott(int32_t d)
+{
+    int32_t i, py = 0, x0 = 22, y0 = TK_Y0, s = 100;
+    tk_axes(x0, y0, x0 + s, y0 + s);
+    for (i = 0; i <= s; i++)
+        cv_rect(x0 + i, y0 + s - i, 1, 1, T_DIM);          /* 1:1 reference */
+    for (i = 0; i <= s; i++) {
+        int32_t e = i * 65535 / s, out = (int32_t)(((uint32_t)e * (uint32_t)ott_gain(e, d)) >> 12), y;
+        out = out > 65535 ? 65535 : out;
+        y = y0 + s - out * (s - 1) / 65535;
+        if (i)
+            cv_line_t(x0 + i - 1, py, x0 + i, y, T_THEME, 2);
+        py = y;
+    }
+}
+
 /* FILTER insert: TYPE response across the panel, CUT under the peak, RES the Q */
 static void tech_filter(const track_t *t)
 {
@@ -343,7 +360,13 @@ static int graph_tech(const track_t *t, const page_t *pg)
     }
     if (pg->fam != FAM_FX)
         return 0;
-    if (str_eq(pg->title, "DISTORT")) { tech_dist(t); return 1; }
+    if (str_eq(pg->title, "DISTORT")) {
+        if (clamp(t->p[P_IDMODE], 0, IDM_N - 1) == IDM_OTT)
+            tech_ott(t->p[P_DIST]);
+        else
+            tech_dist(t);
+        return 1;
+    }
     if (str_eq(pg->title, "FILTER")) { tech_filter(t); return 1; }
     if (str_eq(pg->title, "CRUSH")) { tech_crush(t); return 1; }
     if (str_eq(pg->title, "PHASER")) { tech_phasr(t); return 1; }
