@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Firmware save flows against NOR flash: deferred settings, retries, and failed-save rollback. */
+#include <stdint.h>
+static uint8_t nor[0x100000];                    /* the fake NOR; also the user sample slots (eng_sample.c) */
+#define SMP_USER_XIP(k) (nor + SMP_USER_BASE + (k) * SMP_USER_SIZE)   /* host image of the slots persist_boot scans */
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -28,7 +31,7 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 #include "../firmware/src/menu_items.c"
 static void panel_setup(void) {}
 
-static uint8_t nor[0x100000], flash_ok = 1;
+static uint8_t flash_ok = 1;
 static int erase_error, fail_after = -1;
 static uint32_t erases, as_erases;               /* (as_erases: the autosave's two sectors, 0xE5000 / 0xE6000) */
 static int st_read(uint32_t off, void *dst, uint32_t n) { memcpy(dst, nor + off, n); return 0; }
@@ -51,7 +54,8 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
 }
 static uint32_t irq_save(void) { return 0; }
 static void irq_restore(uint32_t f) { (void)f; }
-static uint32_t fl_jedec_ram(void) { return 0; }
+static uint32_t fl_jedec_id = 0x856014u;                   /* persist_boot's JEDEC gate; flash_id_test varies it */
+static uint32_t fl_jedec_ram(void) { return fl_jedec_id; } /* (persist_boot: the expected part by default) */
 static void fl_plain_window_init(void) {}
 #define FL_FAR(fn) (fn)
 #include "../firmware/src/storage.c"
@@ -440,6 +444,7 @@ static int autosave_master_test(void)
     return check("autosave: SEND to MASTER alone is saved and restored", ok);
 }
 
+#ifndef PERSISTENCE_TEST_NO_MAIN
 int main(void)
 {
     int bad = 0, ok;
@@ -703,3 +708,4 @@ int main(void)
     printf("%s\n", bad ? "PERSISTENCE TEST FAILED" : "persistence test passed");
     return bad != 0;
 }
+#endif

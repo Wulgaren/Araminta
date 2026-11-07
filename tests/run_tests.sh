@@ -625,6 +625,11 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "persistence: deferred settings, retry and failed-save rollback" "$OUT/persistence_test"
     }
     unit u_persistence
+    u_flash_id() {
+        build "$OUT/flash_id_test" tests/flash_id_test.c -w -Ibuild/gen -Ifirmware/src -lm
+        run "flash JEDEC gate: accepted parts (Puya, UCUN) enable writes, unknown IDs stay RAM-only" "$OUT/flash_id_test"
+    }
+    unit u_flash_id
     u_backup() {
         build "$OUT/backup_test" tests/backup_test.c -w -Ibuild/gen -Ifirmware/src -lm
         run "full backup: CRC before writes, stale runtime, USB reset / timeout, malformed objects, older projects" "$OUT/backup_test"
@@ -850,7 +855,7 @@ else
         build_with "$SCC" "$A/$1" tests/$1.c -lm
         run "ASan/UBSan: $1" "$A/$1"
     }
-    for t in editor_test project_test backup_test robust_test fun10_test fm6bank_test; do
+    for t in editor_test project_test backup_test flash_id_test robust_test fun10_test fm6bank_test; do
         unit u_asan_t "$t"
     done
     u_asan_fuzz_ed() {
