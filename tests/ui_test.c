@@ -2221,7 +2221,7 @@ static int test_mono_screens(void)
  * value strip, its last frame is the static render; unchanged digits stay; the direction follows the sign; a
  * change mid-roll retargets; a fast turn, another shape, a page / track / palette change and ui.force snap. */
 static uint16_t roll_shot[240 * 240];
-static const page_t ROLL_PG = {"CLOCK", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_CLK, {G_BPM, G_SWING, G_CLOCK, G_TUNE}};
+static const page_t ROLL_PG = {"CLOCK", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_MASTER, {G_BPM, G_SWING, G_CLOCK, G_TUNE}};
 static void roll_settle(void)                     /* CLOCK + TUNE, nothing rolling, no knob hot */
 {
     uint32_t k;
@@ -2798,7 +2798,7 @@ static int test_presets_knob(void)
 }
 
 /* Pages by button. HOME: Home ↔ Mixer; SEQ: step group → Automation → Tools;
- * GLO: Master → Clock → Song; SAVE: Presets → Project → Clear.
+ * GLO: Master (SELECT: Master / Clock) → Song; SAVE: Presets → Project → Clear.
  * AUTOMATION's list edits a step's CHANCE / RATCH (the step's own fields, nothing else), one undo each;
  * re-enter from elsewhere always the family's first page */
 static int steps_but(const track_t *t, const step_t *ref, uint32_t at, const step_t *want)   /* the steps = ref, at: want */
@@ -2851,7 +2851,7 @@ static int test_page_cycles(void)
     }
     for (i = 0; i < NPAGES; i++)
         ok &= !str_eq(PAGES[i].title, "CHANCE") && !str_eq(PAGES[i].title, "AUTO LIST");
-    bad += check("SEQ has PATTERN/STEP/DETAIL/AUTOMATION; GLO has MASTER/SONG/CLOCK; MIXER is HOME's", ok);
+    bad += check("SEQ has PATTERN/STEP/DETAIL/AUTOMATION; GLO has MASTER, CLOCK (its 2/2) and SONG; MIXER is HOME's", ok);
     {   /* GLOBAL and SYSTEM are gone; BPM SWG CLK on GLO > CLOCK, TUNE and ROUT on no page (the MENU's) */
         uint32_t k, clock = 0;
         ok = 1;
@@ -2885,8 +2885,10 @@ static int test_page_cycles(void)
     open_family(FAM_SAVE);
     ok &= str_eq(cur_page()->title, "PRESETS");
     go_home(); open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "MASTER");
-    open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "CLOCK"); /* section cycle */
-    open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "SONG");
+    turn(EN_SELECT, 1); ok &= str_eq(cur_page()->title, "CLOCK");   /* MASTER's 2/2 */
+    turn(EN_SELECT, 1); ok &= str_eq(cur_page()->title, "CLOCK");   /* stop at the section's last page */
+    turn(EN_SELECT, -1); ok &= str_eq(cur_page()->title, "MASTER");
+    open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "SONG");  /* section cycle */
     open_family(FAM_GLO); ok &= str_eq(cur_page()->title, "MASTER"); /* wrap */
     go_title("EFFECTS");
     ui.ior_sel = 2;
@@ -2900,7 +2902,7 @@ static int test_page_cycles(void)
         ok &= cur_page()->graph == GR_TRK && !ui.home;
     }
     bad += check("re-enter family opens its first page (FX Effects, ENV, SAVE PRESETS); GLO cycles "
-                 "Master → Clock → Song; HOME always the MIXER first; EFFECTS list cursor kept", ok);
+                 "Master (SELECT: MASTER / CLOCK) → Song; HOME always the MIXER first; EFFECTS list cursor kept", ok);
 
     /* AUTOMATION: + ADD CHANCE / RATCH, the knobs, EDIT: the step's fields only */
     ui_power_on();
@@ -3033,7 +3035,8 @@ static int test_product_ux(void)
     ui_power_on();
     frames(320);                                       /* (taps further apart than a double tap: #83) */
     press(B_GLO); frames(320); ok = cur_page()->fam == FAM_GLO && str_eq(cur_page()->title, "MASTER");
-    press(B_GLO); frames(320); ok &= str_eq(cur_page()->title, "CLOCK") && cur_page()->fam == FAM_GLO;
+    turn(EN_SELECT, 1); frames(100);
+    ok &= str_eq(cur_page()->title, "CLOCK") && cur_page()->fam == FAM_GLO;   /* MASTER's 2/2 */
     {   /* CLOCK: GLO's LED lit; HOME's not */
         uint8_t pos0[sizeof led_pos];
         ui_leds();
@@ -3053,7 +3056,7 @@ static int test_product_ux(void)
     }
     press(B_GLO); frames(320); ok &= str_eq(cur_page()->title, "SONG") && cur_page()->fam == FAM_GLO;
     press(B_GLO); frames(320); ok &= str_eq(cur_page()->title, "MASTER") && !ui.lock;
-    bad += check("GLO cycles Master → Clock → Song → Master", ok);
+    bad += check("GLO cycles Master (SELECT: MASTER / CLOCK) → Song → Master", ok);
     go_home(); btn_down(B_SEQ); frames(500);
     ok = !ui.layer && ui.home;                          /* hold alone: no map */
     btn_up(B_SEQ); frame();
@@ -9075,15 +9078,15 @@ static int test_no_layer_lock(void)
         if (B[i] == B_FX)
             ok &= ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH; /* Effects → Punch-in */
         else if (B[i] == B_GLO)
-            ok &= ui.lock == 0 || cur_page()->sec == GLO_SEC_CLK; /* Master → Clock, no lock */
+            ok &= ui.lock == 0 && cur_page()->sec == GLO_SEC_SONG; /* Master → Song, no lock */
         else
             ok &= !ui.lock;
     }
     ui_power_on();
     press(B_FX); frames(64); press(B_FX); frame();     /* Effects → Punch-in */
     ok &= ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
-    press(B_GLO); frames(64); press(B_GLO); frames(64); press(B_GLO); frame();
-    ok &= !ui.lock && cur_page()->sec == GLO_SEC_SONG; /* Master → Clock → Song */
+    press(B_GLO); frames(64); press(B_GLO); frame();
+    ok &= !ui.lock && cur_page()->sec == GLO_SEC_SONG; /* Master → Song */
     bad += check("no layer lock: double-tap SCL/EDIT; Punch-in sticky; GLO has no Record map", ok);
     return bad;
 }

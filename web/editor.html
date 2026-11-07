@@ -2880,6 +2880,8 @@ function enumShown(d) {
     return [1, 0, 2].map((k) => d.min + k);
   /* MAP: stored OFF CURR KBD SEQ ALL; shown OFF ALL CURR KBD SEQ (params.c QUANT_ORDER) */
   if (d.label === "MAP" && d.names && d.names.length === 5) return [0, 4, 1, 2, 3].map((k) => d.min + k);
+  /* LFO TRIG: stored NOTE, FREE; knob order FREE, NOTE (params.c LTRIG_ORDER) */
+  if (d.label === "TRIG" && d.names && d.names[0] === "NOTE" && d.names[1] === "FREE") return [1, 0].map((k) => d.min + k);
   const vals = [];
   for (let v = d.min; v <= d.max; v++) vals.push(v);
   /* SWEEP: value 1 is the legacy ALLOC = REUSE alias of OFF; the device's knob skips it (params.c enum_orig) */
