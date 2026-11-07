@@ -198,8 +198,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   of 1 or 2 bars before recording from stop; the click goes to the headphones and speaker only, never to
   USB audio or into a pattern
 - **Songs** (GLO > SONG): up to 16 sections, each naming the project slot (A-D) **every track** plays, or "-" for a
-  track that rests there, with its repeats; drawn as a timeline with a lane per track. GLO also holds MASTER and CLOCK
-  (HOME is only Home ↔ Mixer). **MIXER** KNOB 4 is PLAY: ON, OFF or SOLO
+  track that rests there, with its repeats; drawn as a timeline with a lane per track. GLO also holds MASTER (SELECT:
+  MASTER / CLOCK) and SONG (HOME is only Home ↔ Mixer). **MIXER** KNOB 4 is PLAY: ON, OFF or SOLO
 - **Chord keys:** one finger plays an in-key chord (triads or sevenths of the scale, or fixed chord
   shapes), with voicings and a beat-synced **STRUM** (DOWN / UP / ALT); on the keys, MIDI in, recording and the
   arpeggiator
@@ -218,16 +218,16 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   CHAIN or SEND with a MIX fader; delay in time with the tempo (divisions or smooth ms, dotted values included);
   reverb as **HALL**, ROOM, SPRING, plus Araminta's **SHIMR** / **CLOUD**; technical graphs on the FX pages;
   insert knobs and MIX are mod-matrix destinations; master limiter, with CLIP / PNCH / DUCK / REL on the master page
-- **FX layer:** hold FX for repeat, reverse, filter sweeps, tape stop, freeze, a harmonizer
+- **FX layer:** under PUNCH-IN (tap FX twice) for repeat, reverse, filter sweeps, tape stop, freeze, a harmonizer
   (OCT UP / OCT DN with shimmer), **FLANGER** and **PHASER** (in time with the tempo), **REV THROW** and **ECHO THROW**
   (every track's reverb or delay send full while held), JIANT punch-ins on their own FX section, and mutes on the black keys;
   the two PUNCH-IN pages have fixed keys (SELECT walks the section); MENU > FX LATCH makes them toggle,
   so nothing has to stay held
 - **MOMENTARY:** hold LFO and turn a knob on HOME or a sound / FX page; let go of LFO and the value jumps back
   (OCT+ while holding keeps it)
-- **Quick layers:** hold FX, GLO, SCL, EDIT, REC or SEQ for shortcuts on the keys and knobs, or double-tap it to
-  keep the layer open; one-step undo (SAVE held); REC on every page; OCT+ confirms, OCT- goes back; what can be
-  pressed breathes softly instead of blinking
+- **Quick layers:** hold GLO, SCL, EDIT or SEQ and press OCT− / OCT+ for its key and knob map (PUNCH-IN and
+  SAVE > CLEAR are their own sections); one-step undo (SAVE held); REC on every page; OCT+ confirms, OCT- goes
+  back; what can be pressed breathes softly instead of blinking
 - **Presets:** factory presets, 32 user preset slots and 4 projects, named on the device (an FM6
   sound keeps its own patch in both); user presets get a category, and a project can get a random name; projects
   from every earlier version load. The PRESETS knob changes the sound from every page that is not a list.
@@ -306,9 +306,9 @@ if you still need a Felucca 1.5-readable copy.
 ## Controls
 
 - Tap a page button for its page, again for the next; HOME returns home. Page buttons act when let go
-- Hold FX, GLO, SCL, EDIT, REC or SEQ for its quick layer; hold SAVE to undo, HOME for the menu; hold LFO and turn a
-  knob for a MOMENTARY change
-- Double-tap a layer's button to keep its layer open without holding; tap it again to close
+- Hold GLO, SCL, EDIT or SEQ with OCT− / OCT+ for its quick layer; hold SAVE to undo, HOME for the menu; hold LFO
+  and turn a knob for a MOMENTARY change
+- PUNCH-IN, SEQ TOOLS and SAVE > CLEAR keep their key map while the page is shown; another page or HOME leaves it
 - On SEQ > STEP, hold a step and turn KNOB 1-4 to lock those parameters on that step (PRESETS: move the held steps in time; while step-recording with a key held, PRESETS sets that note's LEN)
 - On MIXER, KNOB 4 is **PLAY**: ON (default), OFF, or SOLO (saved with the track)
 - On action pages and in dialogs, OCT+ does it and OCT− goes back; in the menu, OCT+ / OCT− change the value and HOME closes it
@@ -316,16 +316,16 @@ if you still need a Felucca 1.5-readable copy.
 
 The pages by button:
 
-| Button | Taps go round (sections; SELECT walks pages inside one) | Held |
+| Button | Taps go round (sections; SELECT walks pages inside one) | Held / with OCT± |
 |---|---|---|
 | HOME | Home ↔ Mixer | the menu |
-| SEQ | Step group (SELECT: PATTERN / STEP / DETAIL), AUTOMATION, SEQ TOOLS | SEQ TOOLS, on every page |
-| GLO | MASTER, CLOCK, SONG | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
+| SEQ | Step group (SELECT: PATTERN / STEP / DETAIL), AUTOMATION, SEQ TOOLS | SEQ + OCT±: the tools layer (SEQ TOOLS shows it as a section) |
+| GLO | MASTER (SELECT: MASTER / CLOCK), SONG | GLO + OCT±: the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
 | SAVE | Presets (SELECT: PRESETS / USER / PHRASES), Project (SELECT: PROJECT / TOOLS) | UNDO |
 | LFO | LFO (SELECT: LFO / LFO 2 / LFO DEST), then MOD | MOMENTARY (with a knob) |
-| EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG OSC A / OSC B / FILTER), Kit, Lanes, Voice (hidden on DRUM-X) | the EDIT layer (the engines; on DRUM-X the black keys mute lanes) |
-| FX | EFFECTS (SELECT: list + stage pages), SLICER, PUNCH | the FX layer |
-| SCL, ENV, ARP | their pages | SCL: its layer |
+| EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG OSC A / OSC B / FILTER), Kit, Lanes, Voice (hidden on DRUM-X) | EDIT + OCT±: the EDIT layer (the engines; on DRUM-X the black keys mute lanes) |
+| FX | EFFECTS (SELECT: list + stage pages), SLICER, PUNCH | — (PUNCH-IN is its own section) |
+| SCL, ENV, ARP | their pages | SCL + OCT±: its layer |
 | REC | arms the track | — |
 
 ### Knobs to a DAW
@@ -385,11 +385,11 @@ KNOB ACCEL is always on for wide values.
 - **HOME:** SCOPE (default), TRACKS or LEVELS: under HOME's four cards, the oscilloscope or the four tracks, a row
   each with its sound, its steps playing, MUTE and a meter. With TRACKS only the look changes; with LEVELS KNOB 1-4
   set the LEVEL of T1-T4 (the engine's main parameters are on EDIT)
-- **HOLD:** how long a layer's button is held before its map shows
+- **HOLD:** retired (kept in the menu and the settings; no map waits for it any more)
 - **FX LATCH:** ON, FX + an effect key turns the effect on until pressed again, the knob macros stay
   where you leave them, and FX + OCT− turns everything off
-- **BPM LOCK:** ON, SELECT no longer changes the tempo; hold GLO and turn SELECT, tap F4 in the GLO
-  layer or use HOME > CLOCK instead
+- **BPM LOCK:** ON, SELECT no longer changes the tempo; use OCT+ + SELECT or the CLOCK page
+  (GLO > MASTER, SELECT) instead
 - **SCALE LEDS:** OFF or ON: the keys show the selected track's scale all the time (the root a little
   brighter); not on DRUM-X or SLICE tracks
 - **STEP PREVIEW:** OFF (default) or ON: on SEQ > STEP with the transport stopped, moving the cursor plays the step
