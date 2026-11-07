@@ -326,12 +326,60 @@ static int tape_contract(void)
     return bad;
 }
 
+static int dead_engine_contract(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    uint32_t i, j, sel, page = NPAGES;
+
+    ui_power_on();
+    t = &trk[0];
+    set_engine_of(t, 2);                             /* PHASE: E8 is its empty "-" card */
+    t->engine = t->eng_req;
+    track_defaults_steps(t);
+
+    pk_build_mdst(t, MD_OFF, &sel);
+    ok = 1;
+    for (i = 0; i < pk_n; i++)
+        ok &= pk_rows[i].id != MD_E1 + 7;
+    for (i = 0; i < 7u; i++) {
+        uint32_t found = 0;
+        for (j = 0; j < pk_n; j++)
+            found |= pk_rows[j].id == MD_E1 + i;
+        ok &= found;
+    }
+    bad += check("MOD DST hides a dead engine slot (PHASE E8) and keeps E1..E7", ok);
+
+    pk_build_auto(t, MSEQ_PITCH, NSTEP, &sel);
+    ok = 1;
+    for (i = 0; i < pk_n; i++)
+        ok &= pk_rows[i].id != P_E7;
+    for (i = 0; i < 7u; i++) {
+        uint32_t found = 0;
+        for (j = 0; j < pk_n; j++)
+            found |= pk_rows[j].id == P_E0 + i;
+        ok &= found;
+    }
+    bad += check("AUTOMATION hides a dead engine parameter (PHASE E8) and keeps E1..E7", ok);
+
+    for (i = 0; i < NPAGES; i++)
+        if (PAGES[i].scope == SC_ENGINE && PAGES[i].id[0] == P_E4 && PAGES[i].id[3] == P_E7) {
+            page = i;
+            break;
+        }
+    ui.plk_src = (uint8_t)(page + 1u);
+    bad += check("a held step locks no dead engine parameter (PHASE EDIT 2 KNOB 4)",
+                 page < NPAGES && lock_id(3) == 0xFFu && lock_id(0) == P_E4);
+    ui.plk_src = 0;
+    return bad;
+}
+
 int main(void)
 {
     int bad;
     ui_power_on();
     bad = id_classification() + pitch_contract() + pitch_kit_contract() + mfx_contract() + tape_contract() +
-          ev_contract() + pg_contract() + sweep_contract() + motion_id_contract();
+          ev_contract() + pg_contract() + sweep_contract() + motion_id_contract() + dead_engine_contract();
     printf("%s\n", bad ? "PARAM CONTRACT TEST FAILED" : "PITCH / special-id parameter contract tests passed");
     return bad;
 }
