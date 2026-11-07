@@ -1575,6 +1575,23 @@ async function editorSong() {
   l.close(); old.stop();
 }
 
+/* MOD DST: an engine parameter that is an empty EDIT card ("-", min == max) is not a choice. */
+function editorDstSlots() {
+  const src = html.slice(html.indexOf("function visible(d)"), html.indexOf("function buildGroups()"));
+  const pe0 = 83, pdesc = Array.from({length: 91}, () => ({label: "P", min: 0, max: 127}));
+  pdesc[pe0 + 6] = {label: "SUB", min: 0, max: 127};
+  pdesc[pe0 + 7] = {label: "-", min: 0, max: 0};       /* PHASE E8 */
+  const T = vm.runInNewContext(`${src}; ({visible, modDst, dstSlot})`, {dev: {pdesc, info: {pe0}}});
+  const names = Array(49).fill("");
+  names[12 + 6] = "E7";
+  names[12 + 7] = "E8";
+  const d = {label: "DST1", min: 0, max: 48, fmt: E.F.ENUM, names};
+  ok(T.visible(T.dstSlot(d, 19)) === false && T.dstSlot(d, 19) === pdesc[pe0 + 7] &&
+     T.visible(T.dstSlot(d, 18)) === true && T.dstSlot(d, 18) === pdesc[pe0 + 6] &&
+     T.dstSlot(d, 1) === null && T.modDst(d, "E8") === "E8" && T.modDst(d, "E7") === "SUB",
+     "editor: MOD DST offers no dead engine parameter (PHASE E8), live E7 still named");
+}
+
 /* Render actual motion rows so aliases never borrow matrix parameter labels or limits. */
 async function editorMotionRows() {
   const start = html.indexOf("function renderMotion()");
@@ -1998,6 +2015,7 @@ await editorTracks();
 await editorMixer();
 await editorTrackParam();
 await editorSong();
+editorDstSlots();
 await editorMotionRows();
 editorMotionLimits();
 await editorSessions();

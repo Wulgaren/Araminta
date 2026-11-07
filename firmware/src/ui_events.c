@@ -70,7 +70,7 @@ static int ev_id_ok(const track_t *t, uint32_t id)
     if (id >= P_LN0 && id <= P_LN7)
         return drum_track(t);
     d = motion_target_desc(t, id);
-    return d && d->label && d->label[0] && d->label[0] != '-' && d->max > d->min;
+    return param_live(d);
 }
 /* its name in the list and on the card (b holds 12): the page's word before the card's label where the label alone
  * would say two things (ENV ATK, ENV FLT: ENV DEST's, LFO FLT: LFO DEST's; SLICER RATE / PAT / MIX: #222) */
@@ -820,6 +820,8 @@ static uint32_t pk_build_mdst(const track_t *t, uint32_t d, uint32_t *sel)
     pk_kind = PK_MDST;
     for (i = 0; i < NELEM(HEAD); i++) {
         uint32_t x = HEAD[i];
+        if (MD_ENGINE(x) && !param_live(track_desc(t, P_E0 + x - MD_E1)))
+            continue;                                /* (an engine's empty "-" card) */
         if (x == d)
             *sel = pk_n;
         pk_add_item(x, pk_mdst_group(x));

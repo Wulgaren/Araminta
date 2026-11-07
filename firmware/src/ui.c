@@ -575,7 +575,7 @@ static uint32_t lock_id(uint32_t k)
     if (id == MSEQ_PITCH && kit_track(TSEL))
         return 0xFFu;                            /* PITCH is inert on a kit track: the knob creates no lock */
     return param_id_known(id) && !MFX_ALL(id) && motion_param(id) &&
-           fx_target_available(TSEL, id) ? id : 0xFFu;
+           fx_target_available(TSEL, id) && param_live(motion_target_desc(TSEL, id)) ? id : 0xFFu;
 }
 
 static void ev_enter(void);

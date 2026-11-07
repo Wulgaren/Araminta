@@ -3582,10 +3582,14 @@ function updateBrowser() {
 }
 
 function visible(d) { return d && d.max > d.min && d.label !== "-"; }
+/* the engine descriptor a DST row's E1..E8 value names (null for the row's other values) */
+function dstSlot(d, v) {
+  const n = d && /^DST\d$/.test(d.label) && d.names && /^E([1-8])$/.exec(d.names[v - d.min] || "");
+  return n && dev ? dev.pdesc[dev.info.pe0 + +n[1] - 1] : null;
+}
 /* a matrix destination E1..E8 by the engine's label of that parameter (as the device shows it) */
 function modDst(d, txt) {
-  const m = d && /^DST\d$/.test(d.label) && /^E([1-8])$/.exec(txt);
-  const e = m && dev && dev.pdesc[dev.info.pe0 + +m[1] - 1];
+  const e = d && d.names ? dstSlot(d, d.names.indexOf(txt) + d.min) : null;
   return e && visible(e) ? e.label : txt;
 }
 
@@ -3644,9 +3648,12 @@ function paramRow(s, id) {
     if (wave) input.append(el("button", {}, el("selectedcontent")));
     for (const v of enumShown(d)) {                 /* (note divisions longest first: #48) */
       const [txt] = fmtValue(d, v);
+      const slot = dstSlot(d, v);
+      const dead = slot && !visible(slot);         /* an empty engine card is not offered */
+      if (dead && v !== dev.dump.p[id]) continue;
       const name = d.fmt === F.ENUM && d.names[v - d.min] == null ? String(v) : modDst(d, txt);
       const alias = d.fmt === F.ENUM && aliasOf(d.names, v - d.min) !== v - d.min;   /* shown when set, not offered */
-      input.append(el("option", { value: v, ic: wave && WAVE_IC[name], hidden: alias }, name));
+      input.append(el("option", { value: v, ic: wave && WAVE_IC[name], hidden: alias || dead }, name));
     }
     input.addEventListener("change", () => userSet(s, id, +input.value, true));
   } else {

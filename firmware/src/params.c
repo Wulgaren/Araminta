@@ -247,6 +247,12 @@ static const param_desc_t INS_BITS = {"BITS", F_INT, 0, 127, 64, N_IBITS, 0};
 static const param_desc_t INS_RATE = {"RATE", F_INT, 0, 127, 96, N_IRATE, "Hz"};
 static const param_desc_t PITCH_DESC = PD("PITCH", F_SEMI, -24, 24, 0);   /* 3.2: the step's semitones */
 
+/* a parameter the sound has: a label and a range (an engine's empty card is "-" with min == max) */
+static int param_live(const param_desc_t *d)
+{
+    return d && d->label && d->label[0] && d->label[0] != '-' && d->max > d->min;
+}
+
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
     if (id == MSEQ_PITCH)                             /* not in p[]: the AUTOMATION list / graph still draws it */

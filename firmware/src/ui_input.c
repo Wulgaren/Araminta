@@ -1629,7 +1629,7 @@ static void sound_dice(void)
     for (i = 0; i < 8u; i++) {
         const param_desc_t *d = track_desc(t, P_E0 + i);
         int32_t span = (d->max - d->min) / 4;
-        if (!d->label || d->label[0] == '-' || d->max <= d->min)
+        if (!param_live(d))
             continue;
         if (d->fmt == F_ENUM)
             t->p[P_E0 + i] = (int16_t)(rng() % 3u ? t->p[P_E0 + i]
