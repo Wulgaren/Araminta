@@ -1164,6 +1164,8 @@ static int test_clear_every_track_all(void)
         base_sound[i] = trk[i].p[P_E0];
         my_steps(&trk[i]);
         trk[i].p[P_E0]++;
+        trk[i].p[P_QUANT] = QN_CURR;                 /* ALL: the clear drops it */
+        trk[i].scl_stash_ok = 1;
         motion_set_lock(&trk[i], 0, P_REV, 50);
         before[i] = track_sig(&trk[i]);
     }
@@ -1182,8 +1184,9 @@ static int test_clear_every_track_all(void)
     key_down(black(1)); frame(); key_up(black(1)); frame();
     press(B_OCTUP);
     for (ok = 1, i = 0; i < NTRK; i++)
-        ok &= seq_is_empty(&trk[i]) && !motion_count(&trk[i]) && trk[i].p[P_E0] == base_sound[i];
-    bad += check("every-track ALL initializes all sounds and clears all patterns and automation, keeps song", ok &&
+        ok &= seq_is_empty(&trk[i]) && !motion_count(&trk[i]) && trk[i].p[P_E0] == base_sound[i] &&
+              trk[i].p[P_QUANT] == QN_OFF && !trk[i].scl_stash_ok;
+    bad += check("every-track ALL initializes all sounds and clears all patterns, automation and MAP, keeps song", ok &&
                  !ui.confirm && song.sel == 2 && chain_config.count == 1);
     return bad;
 }
