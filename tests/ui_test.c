@@ -7220,6 +7220,16 @@ static int test_select_pages(void)
     ok &= str_eq(cur_page()->title, "LFO") && cur_page()->sec == LFO_SEC_LFO;
     bad += check("LFO section is LFO / LFO 2 / LFO DEST; LFO button opens the MOD section", ok);
 
+    go_title("LFO 2"); frame();
+    TSEL->p[P_LTRIG] = 0;                               /* NOTE */
+    turn(EN_K2, -1);                                   /* left: FREE, as DELAY K4 left is RATE -> TIME */
+    ok = TSEL->p[P_LTRIG] == 1;
+    turn(EN_K2, 1);
+    ok &= TSEL->p[P_LTRIG] == 0;
+    turn(EN_K2, 1);                                    /* right: NOTE is the end */
+    ok &= TSEL->p[P_LTRIG] == 0;
+    bad += check("LFO 2 TRIG: NOTE to FREE is left (as DELAY RATE to TIME)", ok);
+
     go_title("ENV"); frame();
     page = ui.page;
     b0 = song.g[G_BPM];
