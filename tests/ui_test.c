@@ -1060,6 +1060,10 @@ static int test_actions(void)
                  act_cols() == 0u && !seq_is_empty(t));
     key_down(white(0)); frame(); key_up(white(0)); frame();   /* F3 PAT */
     bad += check("CLEAR PAT key first asks confirmation", ui.confirm == CF_CLEAR_SEQ && !seq_is_empty(t));
+    key_down(white(2));                               /* with the dialog up: the map's keys stay silent */
+    bad += check("CLEAR's confirmation: the keys stay silent, they do not audition",
+                 kb_note[white(2)] == KB_SILENT && !((kb_layer >> white(2)) & 1u));
+    key_up(white(2)); frame();
     press(B_OCTUP);
     bad += check("OCT+ clears the pattern; map stays", seq_is_empty(t) && msg_is("PATTERN CLEARED") &&
                  ui.lock == LAYER_CLR);

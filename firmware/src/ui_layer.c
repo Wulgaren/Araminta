@@ -32,7 +32,8 @@
  * PLAY and REC work in every layer (GLO held + PLAY: RESTART; GLO's lock: PLAY as always, #183); SAVE, HOME, SEQ and
  * the other page buttons are swallowed. In SET layers OCT± do not shift the octave: OCT- (on release, not with OCT+)
  * puts back what the layer changed since it opened. A HOLD key's effect lasts until the key is let go, the map with
- * it. No layer in the menu, a dialog, NAME or the UPDATE MODE countdown. After a tap, until the layer has been opened
+ * it. No layer in the menu, a dialog, NAME or the UPDATE MODE countdown (SAVE > CLEAR's own confirmation stays the
+ * map's: its keys clear, they never audition). After a tap, until the layer has been opened
  * once: "HOLD [GLO] QUICK" (the seen bits are kept with the settings, favorites.c spare byte).
  * The lock (Discussion #83): a double tap (the second press within LY_DTAP_MS of the first tap, both let go before
  * HOLD, nothing else touched) opens the map and keeps it open with no button held (ui.lock): ly_down() counts the lock
