@@ -1910,7 +1910,8 @@ static void ui_input(void)
                 ui.hot_t = 40;
             }
     }
-    song.grid = (uint8_t)keys_mode();                 /* (the menu, a dialog: the keys play again; NAME: silent) */
+    song.grid = (uint8_t)keys_mode();                 /* (the menu, a dialog: the keys play again; NAME and CLEAR's
+                                                       * confirmation: silent) */
     if (home == BT_TAP && ui.menu) {                    /* HOME (pressed, or held) closes the menu, from ABOUT too; */
         menu_close();                                   /* the release of the hold that opened it is no tap */
         home = BT_NONE;                                 /* (menu_close went HOME already) */
