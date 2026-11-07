@@ -2038,6 +2038,8 @@ static void ui_input(void)
                         }
                         if (kind == CF_CLEAR_EVERY_TRACK_ALL) {
                             track_defaults_steps(&trk[i]);
+                            trk[i].p[P_QUANT] = TP[P_QUANT].def;   /* MAP OFF: ALL does not survive the clear */
+                            trk[i].scl_stash_ok = 0;
                             trk[i].nheld = 0;
                             trk[i].arp_phys = 0;
                         }
