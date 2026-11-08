@@ -56,17 +56,18 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
 ### New in 3.8
 
-- **VOICE PITCH.** The empty slot on the VOICE page is a live pitch bend (1 cent a detent, shown in cents);
-  UNISON keeps its four cards and gets PITCH on **VOICE 2** (SELECT). It drives the track's MIDI channel bend,
-  so the MIDI bend range and smoothing apply, and a track change recentres it. Not saved with the sound.
-- **CLOCK** is MASTER's 2/2 page: GLO opens MASTER, SELECT walks to CLOCK, the next GLO tap opens SONG.
-- **LFO TRIG** steps FREE ← NOTE; the layer maps open with the button + OCT±.
+- **VOICE PITCH.** The empty card on the VOICE page is a pitch bend. It reaches 2 semitones each way by default,
+  stays where you leave it, and recentres when you change track. In UNISON, SELECT opens **VOICE 2** for the
+  same card. Not saved with the sound.
+- **CLOCK.** It is now MASTER's second page. GLO opens MASTER, SELECT walks to CLOCK, and the next GLO press
+  opens SONG.
+- **LFO TRIG.** Left of NOTE is FREE. The layer maps open with the button and OCT±.
 - **Boot splash.** The amp is muted and the audio starts while the panel is dark, so the rose no longer pops.
-- **Flash.** Newer FM-1s with the UCUN UC25HQ80 chip save settings, projects and samples and update again.
-- **Ableton.** `ableton/FM-1/` Control Surface script for the sixteen knobs.
-- **UI fixes.** Dead engine cards leave the MOD / AUTOMATION / lock lists; SAVE > CLEAR's keys stay silent
-  while its confirmation is open; CLEAR ALL4 puts MAP back to OFF.
-- No project format change: saves stay FUN19 (`FUNJ`).
+- **Flash.** Newer FM-1s with the UCUN chip save settings, projects and samples and update again.
+- **Ableton.** `ableton/FM-1/` is a Control Surface script for the sixteen knobs.
+- **UI fixes.** Dead engine cards leave the MOD and lock lists. SAVE > CLEAR keeps the keys silent while its
+  confirmation is open. CLEAR ALL4 puts MAP back to OFF.
+- No project format change. Saves stay FUN19 (`FUNJ`).
 
 ### New in 3.7
 
