@@ -71,6 +71,41 @@ static void midi_expression_channel(uint32_t ch)
             midi_expression(&trk[i], midi_channel(ch));
 }
 
+/* The VOICE page's PITCH card (params.c BEND_DESC) drives the selected track's channel bend: the same live
+ * state USB / TRS pitch bend writes, so the RPN 0 range, voice.c's ~6 ms smoothing and "last controller wins"
+ * all apply. The card reads midi_bend_target (not the smoothed value) so quick turns add up, and writes the
+ * 14-bit bend midi_expression turns back into a target. */
+static int32_t midi_bend_card_cents(void)
+{
+    int32_t q8 = midi_bend_target[trk_index(TSEL)];
+    return (q8 * 100 + (q8 >= 0 ? 128 : -128)) / 256;       /* (rounded: a cent is 2.56 Q8 units) */
+}
+static uint8_t bend_card_ch = 0xFFu;          /* the channel the card last bent (0xFF: none) */
+static void midi_bend_card_set(int32_t cents)
+{
+    uint32_t ch = trk_midi_ch(song.sel);
+    midi_channel_t *c = midi_channel(ch);
+    int32_t range = ((int32_t)c->semis * 100 + c->cents) * 256 / 100, q8 = cents * 256 / 100;
+    if (range <= 0)
+        return;
+    c->bend = (int16_t)clamp(q8 * 8192 / range, -8192, 8191);
+    midi_expression_channel(ch);
+    bend_card_ch = (uint8_t)ch;
+}
+/* track_select (ui.c): a track change puts the channel the card last bent back to centre, so no note is left
+ * bent behind it (as panel_wheels_route does for the PRESETS wheel's MIDI-out bend). */
+static void midi_bend_card_track(uint32_t next)
+{
+    if (bend_card_ch < 16u && bend_card_ch != trk_midi_ch(next)) {
+        midi_channel_t *c = midi_channel(bend_card_ch);
+        if (c->bend) {
+            c->bend = 0;
+            midi_expression_channel(bend_card_ch);
+        }
+        bend_card_ch = 0xFFu;
+    }
+}
+
 /* a MIDI note of track t sounds note: one played as itself, or a tone of one played as a chord (chord.c) */
 static int midi_note_held(const track_t *t, uint32_t note)
 {
