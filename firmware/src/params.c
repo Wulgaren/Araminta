@@ -246,6 +246,10 @@ static const param_desc_t GP[G_COUNT] = {
 static const param_desc_t INS_BITS = {"BITS", F_INT, 0, 127, 64, N_IBITS, 0};
 static const param_desc_t INS_RATE = {"RATE", F_INT, 0, 127, 96, N_IRATE, "Hz"};
 static const param_desc_t PITCH_DESC = PD("PITCH", F_SEMI, -24, 24, 0);   /* 3.2: the step's semitones */
+/* VOICE's PITCH card: a live bend, not a parameter. midi_control.c reads and writes it through the selected
+ * track's channel (the same state USB / TRS pitch bend writes), so the RPN 0 range and the smoothing apply. */
+static const param_desc_t BEND_DESC = {"PITCH", F_CENT, -200, 200, 0, 0, 0};
+static int16_t bend_card_tmp;
 
 /* a parameter the sound has: a label and a range (an engine's empty card is "-" with min == max) */
 static int param_live(const param_desc_t *d)
@@ -514,7 +518,8 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
             *unit = "dB";
         }
         break;
-    case F_SEMI:
+    case F_SEMI:                                    /* signed: semitones, or the PITCH card's cents */
+    case F_CENT:
         fmt_int(val, v);
         if (v > 0) {
             char t[8];
@@ -522,7 +527,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
             val[0] = '+';
             str_cpy(val + 1, t, 6);
         }
-        *unit = "st";
+        *unit = d->fmt == F_SEMI ? "st" : "ct";
         break;
     case F_ENUM:
         str_cpy(val, d->names[v < d->min ? d->min : v > d->max ? d->max : v], 6);
@@ -582,6 +587,7 @@ typedef struct {
 } page_t;
 #define PG_STRUM 0xFCu           /* CHORD KNOB 3: the packed P_ALLOC sweep's rate */
 #define PG_STROKE 0xFDu          /* CHORD KNOB 4: the packed P_ALLOC sweep's DOWN / UP / ALT */
+#define PG_BEND 0xFAu            /* VOICE 2's PITCH card: the selected track's channel bend (midi_control.c) */
 
 static const page_t PAGES[] = {
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, 0, {P_ATK, P_DEC, P_SUS, P_REL}},
@@ -623,8 +629,10 @@ static const page_t PAGES[] = {
     {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN4, P_LN5, P_LN6, P_LN7}},
     {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"OP ENV", FAM_EDIT, SC_TRACK, GR_FMENV, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
-    /* VOICE: one page (VCE GLD UNI DTN SPRD). GLMOD / PRIO / ALLOC stay stored, not shown; PAN/PLAY on MIXER */
+    /* VOICE: one page (VCE GLD PITCH SPRD; UNISON instead shows UNI DTN and puts PITCH on VOICE 2). GLMOD / PRIO /
+     * ALLOC stay stored, not shown; PAN/PLAY on MIXER */
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_VOICE, P_GLIDE, P_DETUNE, P_SPRD}},
+    {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {PG_BEND, 0xFF, 0xFF, 0xFF}},   /* UNISON only (ui.c) */
 
     /* GLO: Master (SELECT: MASTER / CLOCK) → Song (CLICK / COUNT-IN / LEVEL: MENU > AUDIO) */
     {"MASTER", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_MASTER, {G_CLIP, G_PUNCH, G_DUCK, G_DREL}},
@@ -733,6 +741,9 @@ static void scale_lock_after(track_t *t, uint32_t id)
 static const param_desc_t STRUM_DESC = PE("STRUM", N_STRUM, 0);
 static const param_desc_t STROKE_DESC = PE("STROKE", N_STROKE, 0);
 static int16_t sweep_tmp;                /* (read at once: the draw and the knob handler use one slot at a time) */
+/* midi_control.c (later in the build): the selected track's channel bend in cents, and how a card moves it */
+static int32_t midi_bend_card_cents(void);
+static void midi_bend_card_set(int32_t cents);
 
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
@@ -774,12 +785,13 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     }
     if (pg->graph == GR_MOD)                          /* SRC DST AMT of the slot shown */
         id += 3u * mod_ui_slot;
-    /* VOICE page: blank knobs the mode does not use (values stay stored). UNI DTN = UNISON only;
-     * SPRD = POLY / UNISON (fx.c mix_spread). MONO / LEG: neither. */
+    /* VOICE page: PITCH where UNI DTN is hidden (POLY / MONO / LEG), and on VOICE 2 (UNISON, ui.c).
+     * UNI DTN = UNISON only; SPRD = POLY / UNISON (fx.c mix_spread). MONO / LEG: SPRD blank too. */
     mode = (uint32_t)TSEL->p[P_VOICE];
-    if (id == P_DETUNE && mode != V_UNISON) {
-        *valp = 0;
-        return 0;
+    if (id == PG_BEND || (id == P_DETUNE && mode != V_UNISON)) {
+        bend_card_tmp = (int16_t)clamp(midi_bend_card_cents(), BEND_DESC.min, BEND_DESC.max);
+        *valp = &bend_card_tmp;
+        return &BEND_DESC;
     }
     if (id == P_SPRD && mode != V_POLY && mode != V_UNISON) {
         *valp = 0;

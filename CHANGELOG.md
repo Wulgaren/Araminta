@@ -33,6 +33,16 @@ is as before. A DAW that records MIDI from the FM-1 (Track enabled) will record 
   the knob slowly left while assigning.
 - **No collision.** 16..31 are not used by anything else the firmware sends; notes and clock are untouched.
 
+### Voice pitch card
+
+- **PITCH on the VOICE page.** After GLD, the slot UNI DTN leaves empty outside UNISON is now the live pitch
+  bend: turn it away from centre and it holds there, like a MIDI keyboard's wheel trimmed and left, 1 cent a
+  detent with the usual knob acceleration. UNISON still needs all four cards, so there PITCH moves to
+  **VOICE 2** (SELECT inside the Voice section, `2/2` in the footer); leaving UNISON puts you back on VOICE.
+- **Same bend as MIDI in.** The card drives the selected track's channel bend, the state USB / TRS pitch bend
+  writes, so the RPN 0 range (default ±2 semitones), the ~6 ms smoothing and Melodee apply, and drums still
+  ignore bend. An external wheel moves the card. The card sends nothing on the USB MIDI output.
+
 ### Flash chip
 
 Newer FM-1s with the UCUN UC25HQ80 flash (`0xB36014`) now enable flash writes: settings, projects, samples and
