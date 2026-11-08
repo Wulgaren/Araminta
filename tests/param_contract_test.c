@@ -235,6 +235,43 @@ static int pg_contract(void)
     return bad;
 }
 
+static int bend_contract(void)
+{
+    int bad = 0, ok;
+    const page_t *vox = 0, *vox2 = 0;
+    const param_desc_t *d;
+    int16_t *vp;
+    uint32_t i;
+
+    ui_power_on();
+    for (i = 0; i < NPAGES; i++)
+        if (str_eq(PAGES[i].title, "VOICE") && PAGES[i].fam == FAM_EDIT) {
+            vox = &PAGES[i];
+            if (i + 1u < NPAGES && PAGES[i + 1u].id[0] == PG_BEND)
+                vox2 = &PAGES[i + 1u];
+        }
+    ok = vox && vox2 && vox->sec == EDIT_SEC_VOX && vox2->sec == EDIT_SEC_VOX &&
+         vox2->fam == FAM_EDIT && PG_BEND == 250u;
+    ok &= !param_id_known(PG_BEND) && !motion_param(PG_BEND) && !param_real(PG_BEND);
+    bad += check("VOICE 2 is the page after VOICE and PG_BEND 250 is UI-only, not a motion / real id", ok);
+    ok = 0;
+    if (vox && vox2) {
+        TSEL->p[P_VOICE] = (int16_t)V_POLY;
+        d = page_desc(vox, 2, &vp);
+        ok = d && vp && str_eq(d->label, "PITCH") && d->fmt == F_CENT && d->min == -200 && d->max == 200 &&
+             !page_visible((uint32_t)(vox2 - PAGES));
+        TSEL->p[P_VOICE] = (int16_t)V_UNISON;
+        ok &= page_visible((uint32_t)(vox2 - PAGES));
+        d = page_desc(vox, 2, &vp);
+        ok &= d && str_eq(d->label, "UNI DTN");
+        d = page_desc(vox2, 0, &vp);
+        ok &= d && vp && str_eq(d->label, "PITCH");
+        TSEL->p[P_VOICE] = (int16_t)V_POLY;
+    }
+    bad += check("PITCH takes UNI DTN's slot outside UNISON; VOICE 2 (PITCH) is hidden until UNISON", ok);
+    return bad;
+}
+
 static int sweep_contract(void)
 {
     int bad = 0, ok;
@@ -379,7 +416,8 @@ int main(void)
     int bad;
     ui_power_on();
     bad = id_classification() + pitch_contract() + pitch_kit_contract() + mfx_contract() + tape_contract() +
-          ev_contract() + pg_contract() + sweep_contract() + motion_id_contract() + dead_engine_contract();
+          ev_contract() + pg_contract() + bend_contract() + sweep_contract() + motion_id_contract() +
+          dead_engine_contract();
     printf("%s\n", bad ? "PARAM CONTRACT TEST FAILED" : "PITCH / special-id parameter contract tests passed");
     return bad;
 }

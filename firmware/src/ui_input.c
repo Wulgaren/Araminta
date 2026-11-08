@@ -1271,6 +1271,11 @@ static void edit_param(uint32_t slot, int32_t steps)
     if (arp_drone_frozen(TSEL, vp))
         return;
     v = param_turn(d, *vp, accel(EN_K1 + slot, steps, d->fmt == F_ENUM ? 0 : d->max - d->min));
+    if (d == &BEND_DESC) {                              /* VOICE's PITCH card: a live bend, not a parameter */
+        midi_bend_card_set(v);
+        ui.force = 1;
+        return;
+    }
     if (pg->id[slot] == PG_STRUM || pg->id[slot] == PG_STROKE) {
         uint32_t rate = pg->id[slot] == PG_STRUM ? (uint32_t)v : sweep_rate(TSEL);
         uint32_t stroke = pg->id[slot] == PG_STROKE ? (uint32_t)v : sweep_stroke(TSEL);

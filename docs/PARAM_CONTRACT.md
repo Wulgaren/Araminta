@@ -19,6 +19,7 @@ indexed only by real P_* ids; every other space is either a separate storage are
 | Motion-only FX targets | `MFX_TIME..MFX_DAMP`, ids 49..53; numerically `P_M1SRC..P_M2DST`; `MFX_TSPEED` / `MFX_TWOW` are ids 41 / 42 (`P_TAPEMIX` / `P_LSMOOTH`) | **never as a target**: `fx_target_ptr()` reaches `song.g` or a bus | project motion records; long DLY TIME takes ids 54..59 on disk; TAPE SPEED packs 25..400 into one byte | `MOTION` ops; project motion record | AUTOMATION FX rows; EFFECTS / DEST lists |
 | UI-only step rows | `EV_VEL` 251, `EV_NUDGE` 252, `EV_CHANCE` 253, `EV_RATCH` 254; 0xFF = none | no | the step's own `chance` / `ratchet` / `nudge` / `vel` fields | **never** | AUTOMATION rows |
 | Page-only CHORD cards | `PG_STRUM` 252, `PG_STROKE` 253 | no | none; the edit packs `P_ALLOC` | **never** | CHORD K3 / K4 |
+| Page-only VOICE card | `PG_BEND` 250 | no | none; it writes the channel's live bend (`midi_ch[].bend`) | **never** | VOICE 2 K1 (UNISON) |
 
 Rules that fall out:
 
@@ -165,6 +166,21 @@ PLAY OFF bypasses its playback.
   own table: never pass a PG id to `ev_*`, `motion_*` or `param_*`, and never pass an EV id to `page_desc()`.
 - Files: `params.c` (`PG_STRUM`, `PG_STROKE`, `PAGES`, `page_desc`), `ui_input.c` (the page knob write),
   `core.h` (sweep helpers), `chord.c`, `tests/param_contract_test.c`.
+
+### PG_BEND: the VOICE page's PITCH card
+
+- `PG_BEND` 250 is the page id of `VOICE 2`, shown only while the selected track is in UNISON (`ui.c`
+  `page_visible`). The `VOICE` page uses it in `P_DETUNE`'s slot when `P_DETUNE` is hidden (POLY / MONO /
+  LEG); in UNISON that slot is `UNI DTN` again and PITCH lives on `VOICE 2`.
+- It is not stored, not `p[]`, not a motion id and never reaches the wire. `page_desc()` synthesizes
+  `BEND_DESC` (label `PITCH`, `F_CENT`, -200..200 cent) and a temporary value; the knob handler writes the
+  selected track's channel bend (`midi_control.c midi_bend_card_set`) and returns before `*vp` and
+  `motion_capture()`.
+- The bend is the same live state USB / TRS pitch bend writes (`midi_ch[].bend`): the RPN 0 range applies
+  (default ±2 semitones), `voice.c` smooths it, and an external wheel moves the card. The card is sticky;
+  `track_select()` recentres the channel it last drove, so no track is left bent.
+- Files: `params.c` (`PG_BEND`, `BEND_DESC`, `PAGES`, `page_desc`), `midi_control.c`, `ui.c` (`page_visible`,
+  `lock_id`, `track_select`), `ui_input.c` (the page knob write), `icons.c`, `tests`.
 
 ### P_ALLOC: the packed STRUM / STROKE sweep
 
