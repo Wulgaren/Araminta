@@ -1,5 +1,57 @@
 # Changelog
 
+## 3.8
+
+The VOICE page gains a **PITCH** card: the slot UNI DTN leaves empty outside UNISON is now a live bend, and
+UNISON keeps all four cards and gets it on a second page (**VOICE 2**). CLOCK moves beside MASTER as GLO's 2/2
+page, LFO TRIG steps the other way, dead engine cards leave the MOD / AUTOMATION / lock lists, and CLEAR ALL4
+puts MAP back to OFF. The boot splash keeps the audio start's transient out of the rose, newer FM-1s with the
+UCUN flash save and update again, and `ableton/FM-1/` adds a Control Surface for the sixteen knobs. Splash and
+ABOUT show `v3.8`.
+
+### Compatibility
+
+No project or settings change: saves stay FUN19 (`FUNJ`), and projects, presets and settings from 3.7 load as
+they are.
+
+### Voice pitch card
+
+- **PITCH on the VOICE page.** After GLD, the slot UNI DTN leaves empty outside UNISON is now the live pitch
+  bend: turn it away from centre and it holds there, like a MIDI keyboard's wheel trimmed and left, 1 cent a
+  detent with the usual knob acceleration. UNISON still needs all four cards, so there PITCH moves to
+  **VOICE 2** (SELECT inside the Voice section, `2/2` in the footer); leaving UNISON puts you back on VOICE.
+- **Same bend as MIDI in.** The card drives the selected track's channel bend, the state USB / TRS pitch bend
+  writes, so the RPN 0 range (default ±2 semitones), the ~6 ms smoothing and Melodee apply, and drums still
+  ignore bend. An external wheel moves the card. The card sends nothing on the USB MIDI output.
+
+### Controls
+
+- **CLOCK is MASTER's 2/2 page.** GLO's first tap opens MASTER, SELECT walks to CLOCK, and the next GLO tap opens
+  SONG (GLO has two sections). The tempo is OCT+ + SELECT or the CLOCK page; the HOLD layer maps are gone, so
+  GLO / SCL / EDIT / SEQ open with the button + OCT±.
+- **LFO TRIG** steps FREE ← NOTE (left of NOTE is FREE), as DELAY's K4 steps RATE ← TIME.
+- **Dead engine cards** are no longer offered as MOD destinations, AUTOMATION rows or held-step locks (PHASE
+  EDIT 2's E8), on the device or in the editor's DST lists.
+- **SAVE > CLEAR** keeps the keys silent while its confirmation is open, on the same path NAME uses.
+- **CLEAR ALL4** puts MAP back to OFF with the rest of the track.
+- **Ableton.** `ableton/FM-1/` is a Control Surface script for Live 12: KNOB 1-4 of each FM-1 track is one page
+  of four parameters on the selected device (a Rack's sixteen macros, or two banks of Configure order), through
+  Live's own parameter banks; ALGORITHM is the page. The pitch and mod wheels stay as they are. Install path,
+  the ROUT CH1-4 requirement and how to go back to hand mapping are in `ableton/README.md`.
+
+### Flash chip
+
+Newer FM-1s with the UCUN UC25HQ80 flash (`0xB36014`) now enable flash writes: settings, projects, samples and
+updates from the running firmware work as on the Puya P25Q80H (`0x856014`). A unit already running an older
+build on that chip needs one flash with M-Flasher or m-bootloader's MIDI mode; after that the usual installer
+updates it.
+
+### Boot
+
+The amp is muted before the splash draws, and the audio (I2S/DAC) starts while the panel is still dark: the
+start transient happens in the boot window and the rose no longer pops. PC6 stays low until after the splash,
+so the DAC is silent while the clocks run.
+
 ## 3.7
 
 KNOB 1-4 send a relative MIDI CC on the USB output while a computer is connected, one CC per detent, without
@@ -32,23 +84,6 @@ is as before. A DAW that records MIDI from the FM-1 (Track enabled) will record 
   mapping to Bin Offset if the automatic detection guesses another relative mode; Live's manual suggests turning
   the knob slowly left while assigning.
 - **No collision.** 16..31 are not used by anything else the firmware sends; notes and clock are untouched.
-
-### Voice pitch card
-
-- **PITCH on the VOICE page.** After GLD, the slot UNI DTN leaves empty outside UNISON is now the live pitch
-  bend: turn it away from centre and it holds there, like a MIDI keyboard's wheel trimmed and left, 1 cent a
-  detent with the usual knob acceleration. UNISON still needs all four cards, so there PITCH moves to
-  **VOICE 2** (SELECT inside the Voice section, `2/2` in the footer); leaving UNISON puts you back on VOICE.
-- **Same bend as MIDI in.** The card drives the selected track's channel bend, the state USB / TRS pitch bend
-  writes, so the RPN 0 range (default ±2 semitones), the ~6 ms smoothing and Melodee apply, and drums still
-  ignore bend. An external wheel moves the card. The card sends nothing on the USB MIDI output.
-
-### Flash chip
-
-Newer FM-1s with the UCUN UC25HQ80 flash (`0xB36014`) now enable flash writes: settings, projects, samples and
-updates from the running firmware work as on the Puya P25Q80H (`0x856014`). A unit already running an older
-build on that chip needs one flash with M-Flasher or m-bootloader's MIDI mode; after that the usual installer
-updates it.
 
 ## 3.6
 
