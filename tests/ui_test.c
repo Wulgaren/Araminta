@@ -183,7 +183,6 @@ static void ui_power_on(void)
     proj_name[0] = 0;
     proj_cur = PROJ_NO_SLOT;
     memset(&favorites, 0, sizeof favorites);
-    ml_off();                                     /* (MIDI LEARN off, nothing learned) */
     memset(&undo, 0, sizeof undo);
     fop_op = fop_stg = 0;                         /* (FM6's operator pages: OP 1, stage 1, as at power-on) */
     memset(pat_last, 0, sizeof pat_last);
@@ -769,8 +768,13 @@ static int test_midi(void)
     song.sel = 2;
     midi_hint = 0;
     midi_event(0x90, 0, 60, 100); midi_event(0x90, 9, 61, 100);
-    bad += check("ROUT CH1-4 (default): channel 1 -> part 1, channel 10 ignored",
-                 song.g[G_ROUTE] == 0 && sel_get(0, 60) == 1u && !sel_get(9, 61) && !gated_notes(&trk[2]));
+    bad += check("ROUT SEL (default): every channel plays the selected track (a keyboard plays what the screen shows)",
+                 song.g[G_ROUTE] == 1 && sel_get(0, 60) == 3u && sel_get(9, 61) == 3u && gated_notes(&trk[2]) && !midi_hint);
+    midi_event(0x80, 0, 60, 0); midi_event(0x80, 9, 61, 0);
+    song.g[G_ROUTE] = 0;
+    midi_event(0x90, 0, 60, 100); midi_event(0x90, 9, 61, 100);
+    bad += check("ROUT CH1-4: channel 1 -> part 1, channel 10 ignored",
+                 sel_get(0, 60) == 1u && !sel_get(9, 61) && !gated_notes(&trk[2]));
     bad += check("a note into another track tells the UI", midi_hint == 1u);
     frame(); bad += check("MIDI IN -> T1 shown", msg_is("MIDI IN -> T1"));
     song.g[G_ROUTE] = 1;
@@ -1838,11 +1842,11 @@ static int test_menu_tabs(void)
             }
     }
     ui_prefs = 0;
-    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (6 6 6 2 5 rows), 1..8 each in a run, fit the page; tab gaps "
+    bad += check("MENU tabs: DISPLAY CONTROL AUDIO MIDI SYSTEM (6 6 6 1 5 rows), 1..8 each in a run, fit the page; tab gaps "
                  "constant (S, LARGE); STYLE/ANIM/KNOB ACCEL/HELP hidden",
                  ok && MTAB_COUNT == 5u && str_eq(MTAB_NAME[0], "DISPLAY") && str_eq(MTAB_NAME[MTAB_MIDI], "MIDI") &&
                  mtab_rows(MTAB_DISPLAY) == 6u && MI_TAB[MI_HOME] == MTAB_DISPLAY && mtab_rows(MTAB_CONTROL) == 6u && mtab_rows(MTAB_AUDIO) == 6u &&
-                 mtab_rows(MTAB_MIDI) == 2u && MI_TAB[MI_LCLEAR] == MTAB_MIDI && mtab_rows(MTAB_SYSTEM) == 5u && MI_TAB[MI_TUNE] == MTAB_AUDIO &&   /* (1.5: HELP retired) */
+                 mtab_rows(MTAB_MIDI) == 1u && mtab_rows(MTAB_SYSTEM) == 5u && MI_TAB[MI_TUNE] == MTAB_AUDIO &&   /* (1.5: HELP retired) */
                  MI_TAB[MI_MIDIIN] == MTAB_MIDI && MI_TAB[MI_INFO] == MTAB_SYSTEM && MI_INFO >= MI_VALUES &&
                  MI_TAB[MI_STYLE] == MTAB_COUNT && MI_TAB[MI_ANIM] == MTAB_COUNT && MI_TAB[MI_ACCEL] == MTAB_COUNT);
 
@@ -1860,8 +1864,7 @@ static int test_menu_tabs(void)
     turn(EN_ALGO, 1); ok &= ui.menu_sel == MI_LATCH;     /* (KNOB ACCEL retired: HOLD -> FX LATCH) */
     turn(EN_SELECT, 1); ok &= ui.menu_sel == MI_LOWCUT && menu_tab() == MTAB_AUDIO;
     turn(EN_SELECT, 1); ok &= ui.menu_sel == MI_MIDIIN && menu_tab() == MTAB_MIDI;   /* (1.2) */
-    turn(EN_ALGO, 1); ok &= ui.menu_sel == MI_LCLEAR;    /* (1.5: LEARN CLEAR, then round) */
-    turn(EN_ALGO, 1); ok &= ui.menu_sel == MI_MIDIIN;
+    turn(EN_ALGO, 1); ok &= ui.menu_sel == MI_MIDIIN;    /* (1.5: LEARN CLEAR removed: MIDI's only row) */
     turn(EN_SELECT, 1); ok &= ui.menu_sel == MI_SERIAL && menu_tab() == MTAB_SYSTEM;
     turn(EN_SELECT, -1); turn(EN_SELECT, -1); ok &= ui.menu_sel == MI_LOWCUT;
     turn(EN_SELECT, -1); ok &= ui.menu_sel == MI_LATCH; /* (back at the row left there) */
@@ -1885,7 +1888,7 @@ static int test_menu_tabs(void)
     ok = 1;
     for (i = 0; i < MI_VALUES; i++) {
         uint32_t n = menu_n(i), v, j, want;
-        if (!menu_valued(i))                           /* (1.5: LEARN CLEAR, an action) */
+        if (!menu_valued(i))                           /* (CALIBRATION, INFO, ABOUT: no value) */
             continue;
         uint8_t seen[128] = {0};                       /* (1.2: TUNE has 101 values) */
         ui.menu_sel = (uint8_t)i;
@@ -2051,9 +2054,10 @@ static int test_menu_project_rows(void)
     turn(EN_K4, -31); ok &= song.g[G_TUNE] == 19;
     bad += check("MENU > AUDIO > TUNE: the project's G_TUNE, -50 .. +50 cents (OCT one, a knob as far as it turned)", ok);
     ui.menu_sel = MI_MIDIIN;
-    ok = menu_tab() == MTAB_MIDI && song.g[G_ROUTE] == 0 && str_eq(menu_vname(MI_MIDIIN, menu_get(MI_MIDIIN)), "CH1-4");
-    press(B_OCTUP); ok &= song.g[G_ROUTE] == 1;
-    turn(EN_K1, 1); turn(EN_K1, 1); ok &= song.g[G_ROUTE] == 3 && str_eq(menu_vname(MI_MIDIIN, menu_get(MI_MIDIIN)), "CH9-12");
+    ok = menu_tab() == MTAB_MIDI && song.g[G_ROUTE] == 1 && str_eq(menu_vname(MI_MIDIIN, menu_get(MI_MIDIIN)), "SEL");
+    press(B_OCTDN); ok &= song.g[G_ROUTE] == 0 && str_eq(menu_vname(MI_MIDIIN, menu_get(MI_MIDIIN)), "CH1-4");
+    turn(EN_K1, 1); turn(EN_K1, 1); ok &= song.g[G_ROUTE] == 2 && str_eq(menu_vname(MI_MIDIIN, menu_get(MI_MIDIIN)), "CH5-8");
+    turn(EN_K1, 1); ok &= song.g[G_ROUTE] == 3 && str_eq(menu_vname(MI_MIDIIN, menu_get(MI_MIDIIN)), "CH9-12");
     bad += check("MENU > MIDI > MIDI IN: the project's G_ROUTE (ROUT), its names", ok);
     menu_close();
     settings_export(&p1);
@@ -5164,6 +5168,7 @@ static int test_midi_leds(void)
     int bad = 0, ok;
     ui_power_on();
     memset(&um, 0, sizeof um);
+    song.g[G_ROUTE] = 0;                               /* (the default is SEL: these cases are the channel map's) */
     song.sel = 0;
     usb_note(0, 60, 100);                              /* channel 1 -> T1 (ROUT CH1-4) */
     bad += check("#81 USB MIDI C4 into the selected track lights key 8 (C4)", sel_get(0, 60) == 1u &&

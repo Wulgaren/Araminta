@@ -219,8 +219,9 @@ static const param_desc_t GP[G_COUNT] = {
     [G_TWOW] = PD("FLUTR", F_PCT, 0, 127, 0),    /* TAPE wow/flutter depth (was G_MIDI, the old SYSTEM page) */
     [G_DREL] = PD("REL", F_PCT, 0, 100, 30),     /* DUCK's release: 40 .. 600 ms (fx.c duck_block) */
     /* MIDI IN's routing, edited on MENU > MIDI > MIDI IN (1.2: menu_items.c MI_MIDIIN; up to 1.1.5 GLO > SYSTEM ROUT),
-     * stored with the project as before. (was "--": stored 0 = CH1-4, as MIDI IN always was) */
-    [G_ROUTE] = PE("ROUT", N_ROUTE, 0),
+     * stored with the project as before. 0 CH1-4, 1 SEL (the default: an external keyboard plays the selected track,
+     * as the keys and CC 71..74 do), 2..4 CH5-8 .. CH13-16 (was "--": stored 0 = CH1-4, as MIDI IN always was) */
+    [G_ROUTE] = PE("ROUT", N_ROUTE, 1),
     [G_TDROP] = PE("DROP", N_ONOFF, 0),          /* TAPE dropouts (was G_INFO, CPU) */
     [G_SLOT] = PD("SLOT", F_INT, 1, 4, 1),
     [G_NAME] = PE("NAME", N_DASH, 0),

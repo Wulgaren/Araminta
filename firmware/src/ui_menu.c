@@ -322,16 +322,6 @@ static void menu_row(uint32_t k, uint32_t row)
         cv_rect(MR_X + 6, y - 1, MR_W - 12, 1, ux.style ? T_RULE : T_LINE);
     GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "menu row name centred up/down");
     cv_text_on(MR_LX, vy, &AF_M, MI_NAME[row], fg, bg);
-    if (row == MI_LCLEAR) {                            /* LEARN CLEAR (1.5): how many CCs are learned, "NONE" */
-        char b[8] = "NONE";
-        if (ml_count()) {
-            fmt_int(b, (int32_t)ml_count());
-            str_cpy(b + str_len(b), " CC", 4);
-        }
-        GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "menu row value centred up/down");
-        cv_text_r(MR_VR, vy, &AF_M, b, val, bg);
-        return;
-    }
     if (row >= MI_VALUES) {                            /* CALIBRATION, ABOUT: OCT+ opens them */
         GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "menu row chevron centred up/down");
         cv_icon_in(MR_VR - 12, y, 0, h, 12, ICON_X_RIGHT, sel ? T_INK : T_MID, bg);
@@ -423,9 +413,8 @@ static uint32_t menu_split(uint32_t n)
 }
 static void draw_menu(void)
 {
-    static const khint_t KEYS[3][3] = {{{KC_SELECT, "TAB"}, {KC_ALGO, "ROW"}, {KC_OCTPM, "VALUE"}},
-                                       {{KC_SELECT, "TAB"}, {KC_ALGO, "ROW"}, {KC_OCTUP, "OPEN"}},
-                                       {{KC_SELECT, "TAB"}, {KC_ALGO, "ROW"}, {KC_OCTUP, "CLEAR"}}};
+    static const khint_t KEYS[2][3] = {{{KC_SELECT, "TAB"}, {KC_ALGO, "ROW"}, {KC_OCTPM, "VALUE"}},
+                                       {{KC_SELECT, "TAB"}, {KC_ALGO, "ROW"}, {KC_OCTUP, "OPEN"}}};
     uint32_t pass, k, first, n, split, sig;
     int32_t pos0 = mt.pos;
     if (ui.menu == 1)
@@ -496,7 +485,7 @@ static void draw_menu(void)
             if (mr_y(k) + mr_h() > top_y && mr_y(k) - 1 < top_y + (int32_t)cv_h)
                 menu_row(k, first + k);
         if (pass)
-            cv_key_row(8, 232, MK_Y, KEYS[ui.menu_sel == MI_LCLEAR ? 2 : !menu_valued(ui.menu_sel)], 3, 7u, T_BG);
+            cv_key_row(8, 232, MK_Y, KEYS[!menu_valued(ui.menu_sel)], 3, 7u, T_BG);
         cv_oy = 0;
         cv_blit(0, (uint32_t)top_y);
     }
@@ -560,10 +549,7 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         if (s)
             menu_put(ui.menu_sel, menu_step(ui.menu_sel, s));
     } else if (up) {
-        if (ui.menu_sel == MI_LCLEAR) {                 /* LEARN CLEAR (1.5): every learned CC; no dialog (the menu has
-                                                         * none: every other row's change is undone the same way) */
-            ui_message(ml_clear_all() ? "LEARN CLEARED" : "NOTHING LEARNED");
-        } else if (ui.menu_sel == MI_PANEL) {
+        if (ui.menu_sel == MI_PANEL) {
             panel_setup();
             scrn.idle = fm1_ms;                         /* (SCREEN OFF: its own loop had the input) */
             ui.force = 1;

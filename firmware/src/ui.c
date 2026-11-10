@@ -189,14 +189,11 @@ static struct {
         uint8_t sig;             /* a card: what its value is of (label, unit, track, engine, palette) */
     } roll[5];
     int16_t roll_bpm;            /* the BPM last drawn */
-    struct {                     /* MIDI LEARN (midi_learn.c; here, not loose globals: the audio ISR's data keeps its
-                                  * layout and its cost, tests/target_budget.py) */
-        uint8_t on;              /* MIDI LEARN is on */
-        uint8_t pick, trk, id;   /* a parameter picked (1): its track and P_* id */
-        volatile uint8_t io[2];  /* midi_control.c ml_arm, ml_heard */
-    } ml;
     volatile uint8_t mpc[NTRK];  /* MIDI Program Change per track, 0x80 | program, 0 none (midi_control.c mpc_io: here
-                                  * for the same reason as ml.io; midi_pc_poll) */
+                                  * so the audio ISR's data keeps its layout and its cost, tests/target_budget.py;
+                                  * midi_pc_poll) */
+    volatile int8_t cc_step[7];  /* CC 71..77's detents since the main loop last read them (midi_control.c cc_step:
+                                  * the page's four knobs, then SELECT / ALGORITHM / PRESETS; cc_knob_poll) */
 } ui;
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER, CF_LOAD_PAT,
@@ -1469,6 +1466,7 @@ static void set_engine(uint32_t ei) { set_engine_of(TSEL, ei); }
  * (F1..F8), then the voice bank's B1..B32 through SLOT as the knob loads them (fm6_poll; the rest of the sound stays),
  * an empty one ignored. A program past the last is ignored, not wrapped: a number is always the same sound */
 static volatile uint8_t *const mpc_io = ui.mpc;
+static volatile int8_t *const cc_step = ui.cc_step;   /* midi_control.c cc_step: CC 71..74's detents */
 static void midi_pc_load(track_t *t, uint32_t n)
 {
     uint32_t e = t->eng_req % NENGINES, k;
@@ -1837,8 +1835,6 @@ static uint32_t dx_page2(const page_t *pg) { return dx_pagen(pg) == 2u; }
 static void dx_knob(const page_t *pg, uint32_t k, int32_t s);
 static void dx_cards(const page_t *pg);
 static uint32_t dx_sig(void);
-#include "midi_learn.c"                           /* MIDI LEARN (1.5): GLO + D4, a knob, a CC */
-
 /* ---------------------------------------------------- action pages --- */
 /* Pages whose purpose is an action (SAVE > USER, PHRASES, PROJECT, EDIT > SLICES, SEQ > AUTOMATION): the knobs pick,
  * OCT+ does it, OCT- cancels the picked action or goes HOME (ui_input.c). There OCT- / OCT+ do not

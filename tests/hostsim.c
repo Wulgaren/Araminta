@@ -211,6 +211,7 @@ static int tracks_demo(const char *dir, const char *name, uint32_t solo)
         return 1;
     }
     host_tracks_init();
+    song.g[G_ROUTE] = 0;                           /* CH1-4: this render records by channel (sel is SEL by default) */
     song.g[G_BPM] = 120;
     host_preset(t1, 0, 4);
     host_preset(t2, TRK_DEF[1][0], TRK_DEF[1][1]);
@@ -683,6 +684,7 @@ static int trs_test(void)
         trk[i].p[P_SUS] = 127;
     }
     song.sel = 1;
+    song.g[G_ROUTE] = 0;                            /* CH1-4: the channel map below (SEL is the default now) */
     trs_bytes((const uint8_t[]){0x90, 60, 100, 65, 0xF8, 100, 0x91, 62, 100, 0x92, 64, 100, 0x93, 48, 100, 0x99, 36, 110,
                                 0x94, 67, 90}, 21);
     ok_parts = trs_held(&trk[0], 60) && trs_held(&trk[0], 65) && trs_held(&trk[1], 62) && trs_held(&trk[2], 64) &&

@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+CC 71 / 72 / 73 / 74 turn the four knobs of the page on screen, on the selected track, and CC 75 / 76 / 77 are SELECT,
+ALGORITHM and PRESETS. Each message is one step, so a pot and an endless encoder both work. MIDI LEARN is gone: GLO + D4, MENU > MIDI > LEARN CLEAR and the editor's 78 / 79
+commands and `43 01 16` block. The 32 settings bytes it used stay reserved, so older projects and settings still load.
+
+### Compatibility
+
+No project or preset change; the settings record keeps its layout and row 13 stays reserved unused. A learned CC map in
+an older setting is ignored. MENU > MIDI > MIDI IN now defaults to SEL for a new project: an external keyboard plays
+the selected track, as the keys do. Projects that hold CH1-4 keep it.
+
+### Screen knobs
+
+CC 71..74 are KNOB 1..4 of whatever page is shown: HOME's cards, a sound page, FX, the global pages. They edit the
+selected track, so browsing sounds, moving a cursor and running an action work as the panel's knobs do. The way comes
+from the message's move, or from its side of 64 when the value repeats; a fast stream speeds up as the panel's knobs do.
+MIDI IN only decides which channels are heard: in CH1-4 a message on channel 5 is ignored, and SEL hears every channel.
+Other mapped CCs (5, 7, 10, 91, 93, 94) still set their parameter absolutely on the track the channel plays. DECAY
+loses its CC 75 to SELECT; the panel's pot still owns MASTER.
+
 ## 3.9
 
 A free take can record the arpeggiator. With the ARP on, the take holds the notes the arp plays, not the keys

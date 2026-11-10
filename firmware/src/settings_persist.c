@@ -1,13 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Shared PER5 layout: each feature updates only its own fields, preserving
  * the other feature's saved preferences when either is built independently.
- * PER1/PER2 are upstream; PER3 added bold; PER4 added favorites; PER5 moved MIDI LEARN's map from
+ * PER1/PER2 are upstream; PER3 added bold; PER4 added favorites; PER5 moved a former MIDI LEARN map from
  * favorites.factory[14] to [13] for WAVETABLE (row 13 was the retired SLICE's favourites, never selectable).
  * palette: UI_PAL_TAG + index; an old id (below 20, earlier firmware) is migrated on import.
  * bold: no longer used (one font weight); kept as it was saved, unless it holds the HOLD setting (panel.c).
  * zoom: no longer used (the large readout); kept as it was saved, unless it holds the LEDS setting (panel.c).
- * favorites.factory rows: 0..12 engines 0..12, 13 MIDI LEARN (midi_learn.c; engine 13 SLICE is retired, its
- * favourites unused), 14 WAVETABLE (ENGI_WT, favorites.c), 15 MENU / UI settings bytes (below).
+ * favorites.factory rows: 0..12 engines 0..12, 13 reserved unused 32 bytes (was MIDI LEARN; do not reclaim;
+ * engine 13 SLICE is retired), 14 WAVETABLE (ENGI_WT, favorites.c), 15 MENU / UI settings bytes (below).
  * favorites.factory[15][28..31]: CLICK / CLICK LEVEL / COUNT-IN (1.1), STYLE, MENU's flags, the layers seen (bytes no
  * engine uses; 0 in older settings = every one's default); [15][27]: SCREEN OFF (1.1.5; 0 = 30 MIN, the default);
  * [15][26]: MENU > DISPLAY > HOME (1.3; 0 = SCOPE, 1 TRACKS, 2 LEVELS (1.5), ui.c ui_home_view);
@@ -25,8 +25,8 @@ typedef struct {
     uint32_t bold;
     persist_fav_t favorites;
 } persist_t;
-#define PERSIST_MAGIC    0x50455235u                 /* "PER5": PER4 with MIDI LEARN's map in favorites.factory[13] */
-#define PERSIST_MAGIC_V4 0x50455234u                 /* "PER4": the map in [14] (WAVETABLE's row today) */
+#define PERSIST_MAGIC    0x50455235u                 /* "PER5": PER4 with row [13] reserved (was MIDI LEARN's map) */
+#define PERSIST_MAGIC_V4 0x50455234u                 /* "PER4": that map lived in [14] (WAVETABLE's row today) */
 #define PERSIST_MAGIC_V3 0x50455233u                 /* "PER3": PER4 without favorites */
 #define PERSIST_MAGIC_V2 0x50455232u                 /* "PER2": .. and without bold */
 #define PERSIST_MAGIC_V1 0x50455231u                 /* "PER1": the panel table alone */
@@ -56,9 +56,9 @@ static int settings_import(persist_t *p, int n)
         p->lowcut = p->zoom = 0;
     }
     if (v <= PERSIST_V2) p->bold = 0;
-    /* PER1..PER3 had no favorites; PER4's row 14 was MIDI LEARN's map and row 13 the retired SLICE's favourites.
-     * PER5: MIDI LEARN is row 13 and 14 is WAVETABLE's, so move the old map over the SLICE row (unused: SLICE is
-     * retired) and clear 14. This runs before the copy into favorites below. */
+    /* PER1..PER3 had no favorites; PER4's row 14 held the former MIDI LEARN map and row 13 the retired SLICE's
+     * favourites. PER5: row 13 is reserved unused (was that map; do not reclaim) and 14 is WAVETABLE's, so move the
+     * old map over the SLICE row and clear 14. This runs before the copy into favorites below. */
     if (v < PERSIST_V4) memset(&p->favorites, 0, sizeof p->favorites);
     else if (v == PERSIST_V4) {
         memcpy(p->favorites.factory[13], p->favorites.factory[14], 32);

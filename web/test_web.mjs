@@ -203,7 +203,7 @@ async function editorMock() {
        items[18].names.join() === "OUT,MIX" && items[18].value === 0 && items[19].names.join() === "OFF,ON" &&
        items[19].value === 0 && items[20].names.join() === "HOLD,ADD" && items[20].value === 0 &&
        items.slice(0, 22).every((d) => d.kind === 0 && d.min === 0 && d.names.length === d.max - d.min + 1) &&
-       items[21].names.join() === "CH1-4,SEL,CH5-8,CH9-12,CH13-16" && items[21].value === 0 &&
+       items[21].names.join() === "CH1-4,SEL,CH5-8,CH9-12,CH13-16" && items[21].value === 1 &&   /* (SEL: the default) */
        items[22].kind === 1 && items[22].min === -50 && items[22].max === 50 && items[22].unit === "ct" && items[22].value === 0 &&
        items[23].kind === 0 && items[23].names.join() === "SCOPE,TRACKS,LEVELS" && items[23].value === 0 &&
        items[24].kind === 0 && items[24].names.join() === "OFF,ON" && items[24].value === 0 &&   // (1.5: HELP)
@@ -289,12 +289,12 @@ async function editorMock() {
   const set = E.parse[E.CMD.SET](await rq(E.req.set(0, 3, 500)));
   ok(set.value === 127, "editor: SET clamps to the range");
   {
-    /* MENU > MIDI > MIDI IN (G_ROUTE 14; up to 1.1.5 GLO > SYSTEM ROUT): CH1-4 (0, the default) / SEL (1) / 1.2: CH5-8 CH9-12 CH13-16 (2..4);
+    /* MENU > MIDI > MIDI IN (G_ROUTE 14; up to 1.1.5 GLO > SYSTEM ROUT): CH1-4 (0) / SEL (1, the default) / 1.2: CH5-8 CH9-12 CH13-16 (2..4);
      * the id and G_COUNT unchanged; 5 clamps to the last */
     const rd = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 14)));
     const r1 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 5)));
     const r0 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 0)));
-    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 32,
+    ok(rd.label === "ROUT" && rd.def === 1 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 32,
       "editor: MIDI IN routing (ROUT CH1-4 / SEL / CH5-8 / CH9-12 / CH13-16, global id 14)");
   }
   {
@@ -1427,41 +1427,10 @@ async function editorFm6Bank() {
   l2.close(); old.stop();
 }
 
-/* 1.5 MIDI LEARN's map (EDITOR_PROTOCOL.md "MIDI LEARN"; the new editor's midiLearn, the simulated device as editor_learn.c) */
-async function editorMidiLearn() {
-  if (!E.midiLearn) { console.log("MIDI LEARN: (editor.html has no learn map)".padEnd(64) + " skip"); return; }
-  const C = E.CMD;
-  const m = E.makeMockDevice({ auto: false });
-  const link = new E.Link((d) => [...m.access.outputs.values()][0].send(d), { timeout: 200 });
-  [...m.access.inputs.values()][0].onmidimessage = (e) => link.receive(e.data);
-  const rq = (x, o) => link.request(x, o);
-  const info = E.parse[C.INFO](await rq(E.req.info()));
-  ok(info.midiLearn === 16 && info.fm6Bank === 32, "MIDI LEARN: INFO 43 01 16 after the FM6 bank tag");
-  let map = await E.midiLearn.list(rq);
-  ok(map.n === 16 && map.entries.length === 16 && map.entries.every((e) => !e.used), "MIDI LEARN: GET: 16 entries, empty");
-  let r = await E.midiLearn.set(rq, 74, 3, info.pe0 + 2);
-  const r2 = await E.midiLearn.set(rq, 20, 0, 0);
-  const r3 = await E.midiLearn.set(rq, 20, 1, 0);           /* CC20 again: replaces */
-  ok(r.rc === 0 && r2.rc === 0 && r3.rc === 0 && r3.entries[0].cc === 74 && r3.entries[0].track === 3 &&
-     r3.entries[0].id === info.pe0 + 2 && r3.entries[1].used && r3.entries[1].cc === 20 && r3.entries[1].track === 1 &&
-     r3.entries.filter((e) => e.used).length === 2, "MIDI LEARN: SET learns; a CC learned again replaces its entry");
-  const bad = [await E.midiLearn.set(rq, 64, 0, 0), await E.midiLearn.set(rq, 21, 4, 0), await E.midiLearn.set(rq, 121, 0, 0)];
-  ok(bad.every((x) => x.rc === 1) && E.midiLearn.never(0) && E.midiLearn.never(64) && !E.midiLearn.never(74),
-    "MIDI LEARN: CC64 / CC121, track 4: rc 1 (never learned)");
-  for (let k = 0; k < 14; k++) r = await E.midiLearn.set(rq, 40 + k, 2, k);
-  const full = await E.midiLearn.set(rq, 90, 2, 30);
-  ok(r.rc === 0 && full.rc === 5 && full.entries.every((e) => e.used), "MIDI LEARN: 16 learned; the 17th: rc 5 (full)");
-  r = await E.midiLearn.clear(rq, 74);
-  const all = await E.midiLearn.clear(rq);
-  ok(r.rc === 0 && !r.entries[0].used && r.entries.filter((e) => e.used).length === 15 && all.rc === 0 &&
-     all.entries.every((e) => !e.used), "MIDI LEARN: clear one CC, clear all");
-  link.close(); m.stop();
-  const old = E.makeMockDevice({ auto: false, noLearn: true });
-  const l2 = new E.Link((d) => [...old.access.outputs.values()][0].send(d), { timeout: 100 });
-  [...old.access.inputs.values()][0].onmidimessage = (ev) => l2.receive(ev.data);
-  const i2 = E.parse[C.INFO](await l2.request(E.req.info()));
-  ok(i2.midiLearn === 0 && i2.fm6Bank === 32, "MIDI LEARN: firmware before 1.5: no 43 tag (the editor shows no map)");
-  l2.close(); old.stop();
+/* MIDI LEARN is gone (its INFO tag 43, cmds 78 / 79 and the editor's map): a device that still answers the tag
+ * is read as any unknown block, and the editor offers no learn map */
+function editorMidiLearn() {
+  ok(!E.midiLearn, "MIDI LEARN: the editor has no learn map (removed with the device's)");
 }
 
 /* the variants real 6-operator voice files have (parseSysex), every one built here byte by byte */
@@ -2021,7 +1990,7 @@ editorMotionLimits();
 await editorSessions();
 await editorFm6();
 await editorFm6Bank();
-await editorMidiLearn();
+editorMidiLearn();
 fm6TabNoBank();
 await editorFm4();
 editorTabs();

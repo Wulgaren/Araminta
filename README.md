@@ -269,13 +269,16 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **USB:** class-compliant MIDI in and out, and a stereo audio input (named "FM-1" on the wire; loader "FM-1 Update") at 44.1 or 48 kHz
   (the computer picks) that records the master output on the computer, no driver needed (at a fixed level with MENU > USB LEVEL FIXED;
   on macOS 13-15, set MENU > USB SERIAL to OFF so the audio input appears)
-- **MIDI:** USB and TRS MIDI in; MENU > MIDI > MIDI IN: CH1-4 (channels 1-4 play tracks 1-4), CH5-8, CH9-12 or
-  CH13-16 (another block of four, e.g. for two FM-1s on one cable), or SEL (every channel plays the selected track);
-  the keys send on the track's channel, **KNOB 1–4 send relative CC 16–31**, and **PRESETS / SELECT send pitch
-  bend and CC 1** to a computer (see Controls); pitch bend, sustain, panic; clock from internal, USB or TRS. MIDI CCs set
-  track parameters: 5 GLIDE, 7 LEVEL, 10 PAN, 71 resonance, 72 / 73 / 75 release / attack / decay, 74 brightness,
-  91 / 93 / 94 reverb send, chorus mix (insert CHOR), delay send. **MIDI LEARN** (GLO + D4) sets up to 16 more CCs of your
-  controller to any knob's parameter of any track, on the device; **Program Change** loads a track's sound by its
+- **MIDI:** USB and TRS MIDI in; MENU > MIDI > MIDI IN: SEL (default: every channel plays the selected track, as the
+  keys do), CH1-4 (channels 1-4 play tracks 1-4), CH5-8, CH9-12 or CH13-16 (another block of four, e.g. for two
+  FM-1s on one cable); the keys send on the track's channel, **KNOB 1–4 send relative CC 16–31**, and
+  **PRESETS / SELECT send pitch bend and CC 1** to a computer (see Controls); pitch bend, sustain, panic; clock
+  from internal, USB or TRS. **CC 71 / 72 / 73 / 74 turn the four knobs of the page on screen**, on the selected
+  track, as the panel's KNOB 1–4 do (values, lists, cursors and actions), and **CC 75 / 76 / 77 are SELECT, ALGORITHM
+  and PRESETS** (pages, track, sound); MASTER stays the panel's pot. Each message is one step, so a pot and an endless
+  encoder both work (a pot's move gives the way, a repeated value reads as its side of 64), and a fast turn speeds up
+  as the panel's knobs do. Other MIDI CCs set track parameters: 5 GLIDE, 7 LEVEL, 10 PAN, 91 / 93 / 94 reverb send,
+  chorus mix (insert CHOR), delay send. **Program Change** loads a track's sound by its
   number in PRESETS. **Ableton:** the Control Surface script in `ableton/FM-1/` puts the sixteen knobs on the
   selected device's parameters (see `ableton/README.md`)
 - **Web:** editor for every parameter (with a 6-operator FM patch editor that also sends a whole 32-voice bank),
@@ -344,7 +347,7 @@ The pages by button:
 |---|---|---|
 | HOME | Home ↔ Mixer | the menu |
 | SEQ | Step group (SELECT: PATTERN / STEP / DETAIL), AUTOMATION, SEQ TOOLS | SEQ + OCT±: the tools layer (SEQ TOOLS shows it as a section) |
-| GLO | MASTER (SELECT: MASTER / CLOCK), SONG | GLO + OCT±: the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
+| GLO | MASTER (SELECT: MASTER / CLOCK), SONG | GLO + OCT±: the GLO layer (mutes, solos, levels, TAP tempo) |
 | SAVE | Presets (SELECT: PRESETS / USER / PHRASES), Project (SELECT: PROJECT / TOOLS) | UNDO |
 | LFO | LFO (SELECT: LFO / LFO 2 / LFO DEST), then MOD | MOMENTARY (with a knob) |
 | EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG OSC A / OSC B / FILTER), Kit, Lanes, Voice (hidden on DRUM-X) | EDIT + OCT±: the EDIT layer (the engines; on DRUM-X the black keys mute lanes) |
@@ -384,7 +387,7 @@ mappings. Nothing is sent while the FM-1 is not connected to a computer.
 
 Hold **HOME** for the menu, in five tabs: **DISPLAY** (COLOR, LARGE, LEDS, SCREEN OFF, SCOPE, HOME),
 **CONTROL** (HOLD, FX LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW, CHORD ENTRY), **AUDIO** (SPEAKER EQ,
-USB LEVEL, CLICK, CLICK LEVEL, COUNT-IN, TUNE), **MIDI** (MIDI IN, LEARN CLEAR) and **SYSTEM** (USB SERIAL,
+USB LEVEL, CLICK, CLICK LEVEL, COUNT-IN, TUNE), **MIDI** (MIDI IN) and **SYSTEM** (USB SERIAL,
 RESTORE LAST, HARDWARE CALIBRATION, INFO, ABOUT).
 SELECT moves between the tabs and ALGORITHM through the rows of one (PRESETS is idle there; ALGORITHM also scrolls
 ABOUT); any of KNOB 1-4, or OCT+ / OCT−, changes the value (OCT+ opens HARDWARE CALIBRATION, INFO and ABOUT); press
@@ -431,8 +434,7 @@ KNOB ACCEL is always on for wide values.
 - **COUNT-IN:** OFF (default), 1 BAR or 2 BARS: with a track armed, PLAY counts in first (clicking even with
   CLICK OFF), and a note played in the last half beat lands on step 1. Not with an external clock
 - **TUNE:** the global tuning, −50 to +50 cents. It is the project's, saved and loaded with it
-- **MIDI IN:** CH1-4 (default), SEL, CH5-8, CH9-12 or CH13-16 (see MIDI above). The project's too
-- **LEARN CLEAR:** how many CCs MIDI LEARN has set (NONE, 1 CC … 16 CC); OCT+ clears them all
+- **MIDI IN:** SEL (default), CH1-4, CH5-8, CH9-12 or CH13-16 (see MIDI above). The project's too
 - **USB SERIAL:** ON or OFF, applied when the menu closes (the FM-1 reconnects). OFF leaves out the
   serial console, a developer tool, so the FM-1 is a plain audio + MIDI device; this lets macOS 13-15
   see its USB audio input. MIDI, the editor and the installer work either way
