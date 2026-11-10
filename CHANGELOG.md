@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.9
+
+A free take can record the arpeggiator. With the ARP on, the take holds the notes the arp plays, not the keys
+held. A latched ARP starts the take on its next note, the take keeps the tempo it played on, and closing it
+stops the arp so the sequence plays alone. The VOICE page puts PITCH last, so POLY, MONO and LEGATO show
+VCE GLD SPRD PITCH and the bend is K4.
+
+Splash and ABOUT show `v3.9`.
+
+### Compatibility
+
+No project, preset or setting change. Saves stay FUN19 (`FUNJ`) and 3.8 files load as they are.
+
+### ARP free take
+
+With the ARP on, REC while stopped on an empty project records the notes the arp plays. A key starts a take,
+and a latched chord starts it on the ARP's next note, so HOLD works. The take keeps the tempo the ARP played
+on and ends at the nearest 1, 2 or 4 bars. Notes after the loop are dropped instead of wrapping onto step 1.
+Closing the take clears the latch and stops the ARP, so playback is only the recorded sequence.
+
+### Voice
+
+PITCH is now the last card on VOICE. POLY, MONO and LEGATO show VCE GLD SPRD PITCH, so the bend is K4. UNISON
+keeps its four cards and PITCH on VOICE 2. The card behaves as in 3.8.
+
 ## 3.8
 
 The VOICE page gains a pitch bend. UNISON gets it too, on a second page. CLOCK moves next to MASTER. Newer FM-1s
