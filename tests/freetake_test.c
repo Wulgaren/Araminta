@@ -410,7 +410,107 @@ int main(void)
         mix_block(out, CTL);
     }
 
+    /* ARP on: the take holds the notes the arp plays, not the keys held */
+    {
+        static const uint8_t ARPN[3] = {60, 64, 67};
+        double beat = 60.0 / 120.0;
+        uint32_t close_at = (uint32_t)(4.0 * beat * FS / CTL + 0.5);
+        host_tracks_init();
+        song.g[G_CLOCK] = 0;
+        song.sel = 0;
+        cin_bars = 0;
+        ft_drop_mask = 0;
+        ft_bars = 0;
+        ft_arm(out, rb);
+        trk[0].p[P_AMODE] = 1;                         /* AM_UP */
+        fm1_in.notes = (1u << k0) | (1u << (k0 + 4)) | (1u << (k0 + 7));
+        mix_block(out, CTL);
+        assert(ft_on);
+        for (j = 1; j < close_at; j++)
+            mix_block(out, CTL);
+        fm1_in.buttons = rb;
+        mix_block(out, CTL);
+        fm1_in.buttons = 0;
+        fm1_in.notes = 0;
+        mix_block(out, CTL);
+        assert(!ft_on && song.playing && ft_bars == 1);
+        for (j = 0; j < 16u; j++)
+            assert(trk[0].step[j].time == ST_NOTE && trk[0].step[j].n == 1 &&
+                   step_note(&trk[0].step[j], 0) == ARPN[j % 3u]);
+
+        /* closed late: the ARP take keeps the tempo its notes were played on */
+        host_tracks_init();
+        song.g[G_CLOCK] = 0;
+        song.sel = 0;
+        cin_bars = 0;
+        ft_drop_mask = 0;
+        ft_bars = 0;
+        ft_arm(out, rb);
+        trk[0].p[P_AMODE] = 1;
+        fm1_in.notes = (1u << k0) | (1u << (k0 + 4)) | (1u << (k0 + 7));
+        mix_block(out, CTL);
+        assert(ft_on);
+        for (j = 1; j < close_at - 2u; j++)
+            mix_block(out, CTL);
+        fm1_in.notes = 0;
+        for (; j < close_at + (uint32_t)(0.4 * FS / CTL); j++)
+            mix_block(out, CTL);
+        fm1_in.buttons = rb;
+        mix_block(out, CTL);
+        fm1_in.buttons = 0;
+        mix_block(out, CTL);
+        assert(!ft_on && song.playing && ft_bars == 1 && song.g[G_BPM] == 120);
+        for (j = 0; j < 16u; j++)
+            assert(trk[0].step[j].time == ST_NOTE && trk[0].step[j].n == 1 &&
+                   step_note(&trk[0].step[j], 0) == ARPN[j % 3u]);
+        transport_req = 2;
+        mix_block(out, CTL);
+    }
+
+    /* ARP latch: its next note starts the take, and closing the take clears the latch */
+    {
+        static const uint8_t ARPN[3] = {60, 64, 67};
+        track_t *t = &trk[0];
+        uint32_t k, idx = 0, close_at = (uint32_t)(4.0 * (60.0 / 120.0) * FS / CTL + 0.5);
+        host_tracks_init();
+        clear_patterns();
+        song.g[G_CLOCK] = 0;
+        song.sel = 0;
+        cin_bars = 0;
+        ft_drop_mask = 0;
+        ft_bars = 0;
+        song.rec = 0;
+        t->p[P_AMODE] = 1;
+        t->p[P_AHOLD] = 1;
+        fm1_in.notes = (1u << k0) | (1u << (k0 + 4)) | (1u << (k0 + 7));
+        mix_block(out, CTL);
+        fm1_in.notes = 0;
+        mix_block(out, CTL);
+        assert(!ft_on && t->nheld == 3u);
+        song.rec = 1;
+        for (j = 0; j < 2000u && !ft_on; j++)
+            mix_block(out, CTL);
+        assert(ft_on);
+        for (j = 0; j < close_at; j++)
+            mix_block(out, CTL);
+        fm1_in.buttons = rb;
+        mix_block(out, CTL);
+        fm1_in.buttons = 0;
+        mix_block(out, CTL);
+        assert(!ft_on && song.playing && !t->nheld && !t->arp_note);
+        assert(song.g[G_BPM] == 120);
+        for (k = 0; k < 3u; k++)
+            if (ARPN[k] == step_note(&t->step[0], 0))
+                idx = k;
+        for (j = 0; j < 16u; j++)
+            assert(t->step[j].time == ST_NOTE && t->step[j].n == 1 &&
+                   step_note(&t->step[j], 0) == ARPN[(idx + j) % 3u]);
+        transport_req = 2;
+        mix_block(out, CTL);
+    }
+
     puts("free take: empty project sets loop and tempo, REC closes, PLAY/STOP drops, 24 s auto-close, "
-         "held-note slides and returns, a strummed chord records into the first string's step PASS");
+         "held-note slides and returns, a strummed chord records into the first string's step, "
+         "an ARP records the notes it plays PASS");
     return 0;
 }
