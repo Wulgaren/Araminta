@@ -242,6 +242,28 @@ static void rec_release(track_t *t, uint32_t note);
 static void seq_start(void);
 static int rec_on(const track_t *t) { return ((song.rec >> trk_index(t)) & 1u) && song.playing && !chain.running; }
 static int pfx_rec_ok(void) { return song.rec && song.playing && !chain.running; }   /* (pfx.c: punch-in lane) */
+static void ft_note_on(uint32_t note, uint32_t vel);
+static void ft_note_off(uint32_t note);
+static int ft_rec_track(const track_t *t);       /* a free take runs on t */
+static void arm_start(track_t *t);
+
+/* an ARP note goes into the take that owns the track: a live REC, or the free take (SLOOP).
+ * Its first note starts the free take, so the take's step 0 is the arp's first step */
+static void arp_take_on(track_t *t, uint32_t note, uint32_t vel)
+{
+    arm_start(t);
+    if (rec_on(t))
+        rec_note(t, note, vel);
+    else if (ft_rec_track(t))
+        ft_note_on(note, vel);
+}
+static void arp_take_off(track_t *t, uint32_t note)
+{
+    if (rec_on(t))
+        rec_release(t, note);
+    else if (ft_rec_track(t))
+        ft_note_off(note);
+}
 
 #include "motion.c"
 
@@ -278,8 +300,8 @@ static __attribute__((noinline)) void arp_chord_off(track_t *t, int rec)   /* th
     uint32_t i;
     for (i = 0; i < 15u; i++)
         if (t->arp_ch[i]) {
-            if (rec)
-                rec_release(t, t->arp_ch[i]);
+            if (rec || ft_rec_track(t))
+                arp_take_off(t, t->arp_ch[i]);
             trk_note_off(t, t->arp_ch[i]);
             t->arp_ch[i] = 0;
         }
@@ -298,8 +320,7 @@ static __attribute__((noinline)) void arp_chord(track_t *t, const uint32_t *list
             t->arp_note = (uint8_t)nt;
         else
             t->arp_ch[i - 1u] = (uint8_t)nt;
-        if (rec_on(t))
-            rec_note(t, nt, 100);
+        arp_take_on(t, nt, 100);
         trk_note_on(t, nt, 100);
     }
 }
@@ -326,8 +347,7 @@ static void arp_off(track_t *t)                  /* the sounding arp note(s) end
     if (arp_ch_any(t))
         arp_chord_off(t, rec_on(t));
     trk_note_off(t, t->arp_note);
-    if (rec_on(t))
-        rec_release(t, t->arp_note);
+    arp_take_off(t, t->arp_note);
     t->arp_note = 0;
 }
 
@@ -475,8 +495,7 @@ static __attribute__((noinline)) void arp_drone_sync(track_t *t)
             t->arp_note = (uint8_t)nt;
         else
             t->arp_ch[i - 1u] = (uint8_t)nt;
-        if (rec_on(t))
-            rec_note(t, nt, 100);
+        arp_take_on(t, nt, 100);
         trk_note_on(t, nt, 100);
     }
 }
@@ -502,8 +521,7 @@ static __attribute__((noinline)) void arp_fire(track_t *t, uint32_t period)
             return;
         }
         t->arp_note = (uint8_t)list[j];
-        if (rec_on(t))
-            rec_note(t, t->arp_note, 100);           /* recording: what the arp plays */
+        arp_take_on(t, t->arp_note, 100);            /* recording: what the arp plays */
         trk_note_on(t, t->arp_note, 100);
         chord_auto_observe(t, t->arp_note);
     }
@@ -749,6 +767,7 @@ static uint8_t ft_sg[FT_MAX];
 static uint32_t ft_n;
 static volatile uint8_t ft_on;                /* a free take runs */
 static uint8_t ft_trk;
+static uint8_t ft_arp;                        /* its track had the ARP on: the take keeps the tempo */
 static volatile uint32_t ft_t;                /* blocks since its first note */
 static volatile uint32_t ft_btn_mask;         /* the REC button (the UI sets it): closes the take */
 static volatile uint32_t ft_drop_mask;        /* the PLAY button: drops it */
@@ -808,6 +827,7 @@ static void ft_start(track_t *t)
 {
     ft_on = 1;
     ft_trk = (uint8_t)trk_index(t);
+    ft_arp = t->p[P_AMODE] != 0;
     ft_t = 0;
     ft_n = 0;
     song.rec = 0;
@@ -833,6 +853,8 @@ static void ft_note_off(uint32_t note)
             return;
         }
 }
+/* the free take runs on t: its notes come from the keys, or from the track's ARP */
+static int ft_rec_track(const track_t *t) { return ft_on && t == &trk[ft_trk % NTRK]; }
 static uint32_t ft_q(uint32_t t, uint32_t len, uint32_t T)
 {
     return (t * len * 2u + T) / (2u * T) % len;
@@ -937,11 +959,25 @@ static void ft_returns(uint32_t len, uint32_t T)
 static void ft_close(void)
 {
     track_t *t = &trk[ft_trk % NTRK];
-    uint32_t T = ft_t, bars, bpm = 0, len, div, i;
+    uint32_t T = ft_t, Tq = ft_t, bars, bpm = 0, len, div, i;
     ft_on = 0;
     ft_close_ms = fm1_ms;
     ft_closed = 1;
     bars = ft_n && T >= FS / CTL / 2u ? ft_fit(T, &bpm) : 0u;
+    if (bars && ft_arp) {                             /* the ARP played on this tempo's grid: keep it */
+        uint32_t n;
+        bpm = (uint32_t)song.g[G_BPM];
+        Tq = (bars * 4u * beat_samples() + CTL / 2u) / CTL;   /* the take's loop, not REC's timing */
+        for (i = 0, n = 0; i < ft_n; i++)             /* (silence after the loop: not in it) */
+            if ((uint32_t)ft_ev[i].t < Tq) {
+                if (n != i) {
+                    ft_ev[n] = ft_ev[i];
+                    ft_sg[n] = ft_sg[i];
+                }
+                n++;
+            }
+        ft_n = n;
+    }
     if (!bars) {
         ft_bars = 0xFF;
         return;
@@ -959,8 +995,8 @@ static void ft_close(void)
                 continue;
             off = ft_strum_off(sg, ob);
             at = ft_ev[i].t > off ? (uint32_t)ft_ev[i].t - off : 0u;   /* the first string's onset */
-            if (at >= T)
-                at = T ? T - 1u : 0u;
+            if (at >= Tq)
+                at = Tq ? Tq - 1u : 0u;
             if (ft_ev[i].d != FT_OPEN) {
                 uint32_t end = (uint32_t)ft_ev[i].t + ft_ev[i].d;
                 ft_ev[i].d = end > at ? (uint16_t)(end - at) : 0u;
@@ -974,11 +1010,17 @@ static void ft_close(void)
         trk[i].p[P_SDIV] = (int16_t)div;
     }
     if (!drum_track(t))
-        ft_returns(len, T);
+        ft_returns(len, Tq);
     for (i = 0; i < ft_n; i++)                         /* (a fresh step: its NUDGE is not kept) */
-        step_add(t, &t->step[ft_q(ft_ev[i].t, len, T)], ft_ev[i].note, ft_ev[i].vel, 0);
+        step_add(t, &t->step[ft_q(ft_ev[i].t, len, Tq)], ft_ev[i].note, ft_ev[i].vel, 0);
     if (!drum_track(t))
-        ft_legato(t, ft_n, len, T);
+        ft_legato(t, ft_n, len, Tq);
+    if (ft_arp) {                                     /* the performance ends: no ARP over the take */
+        t->nheld = 0;
+        t->arp_phys = 0;
+        if (arp_ch_any(t) || t->arp_note)
+            arp_off(t);
+    }
     song.g[G_BPM] = (int16_t)bpm;
     ft_bars = (uint8_t)bars;
     seq_start();
@@ -1035,8 +1077,9 @@ static void input_on(track_t *t, uint32_t note, uint32_t vel)
     if (vel)
         chord_auto_observe(t, note);
     last_note = (uint8_t)note;
-    arm_start(t);
-    if (ft_on && t == &trk[ft_trk % NTRK])
+    if (!t->p[P_AMODE])                           /* (ARP on: its first note starts the take) */
+        arm_start(t);
+    if (ft_rec_track(t) && !t->p[P_AMODE])        /* (ARP on: arp_take_on records its notes) */
         ft_note_on(note, vel);
     if (cin_left)
         cin_keep(t, note, vel);
@@ -1054,7 +1097,7 @@ static void input_off(track_t *t, uint32_t note)
 {
     if (midi_note_held(t, note))
         return;
-    if (ft_on && t == &trk[ft_trk % NTRK])
+    if (ft_rec_track(t) && !t->p[P_AMODE])
         ft_note_off(note);
     if (cin_left) {                                 /* a kept note let go before step 1: recorded, then let go */
         uint32_t i = trk_index(t), k;
