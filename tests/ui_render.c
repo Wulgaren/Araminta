@@ -1180,28 +1180,15 @@ static void setup(int s)
     case S_INSERT_PHASER: set_ins_ui_phasr(70, 110, 90, 127); go_title("PHASER"); break;
     case S_INSERT_OFF: go_title("DISTORT"); break;
     case S_INSERT_MIX: set_ins_ui_flang(40, 127, 90); go_title("FLANGER"); break;
-    /* 1.5 MIDI LEARN (midi_learn.c): on, nothing picked (MIXER); T1 CUT picked, no CC yet (EDIT 2); T1 CUT on CC74 (its
-     * message in the header); the widest line, a 5-letter label waiting; GLO's map with LEARN on (D4) */
-    case S_LEARN_WAIT: go_page(GR_TRK); ml_toggle(); ui.msg_t = 0; break;
-    case S_LEARN_PICK: go_title("EDIT 2"); ml_toggle(); ml_knob(TSEL, P_E4); ui.msg_t = 0; ui.hot_col = 0; ui.hot_t = 30; break;
-    case S_LEARN_SET: go_title("EDIT 2"); ml_toggle(); ml_learn(74, 0, P_E4); ml_knob(TSEL, P_E4); break;
-    case S_LEARN_LONG: {                             /* "T4 WAVE2: SEND A CC" (PHASE's WAVE2: the widest label) */
-        uint32_t k;
-        song.sel = 3; eng(2); go_title("EDIT 2"); ml_toggle();
-        for (k = 0; k < 7u && !str_eq(ENGINES[2]->edit[k].label, "WAVE2"); k++)
-            ;
-        ml_knob(TSEL, P_E0 + k); ui.msg_t = 0;
-        break;
-    }
-    case S_GLO_LEARN: go_title("EDIT 2"); ml_toggle(); ui.layer = LAYER_GLO; ui.msg_t = 0; break;
-    /* MENU > MIDI with LEARN CLEAR picked: 16 CCs learned (the widest count), and none */
-    case S_MENU_LCLEAR: {
-        uint32_t k;
-        for (k = 0; k < ML_N; k++) ml_learn(40u + k, k & 3u, P_ATK + k);
-        ui.menu = 1; ui.menu_sel = MI_LCLEAR;
-        break;
-    }
-    case S_MENU_LCLEAR_NONE: ui.menu = 1; ui.menu_sel = MI_LCLEAR; break;
+    /* MIDI LEARN's screens are gone (1.5's GLO map, EDIT 2's pick, MENU's LEARN CLEAR): the cases keep their
+     * numbers, drawing the same pages without it */
+    case S_LEARN_WAIT: go_page(GR_TRK); ui.msg_t = 0; break;
+    case S_LEARN_PICK: go_title("EDIT 2"); ui.msg_t = 0; ui.hot_col = 0; ui.hot_t = 30; break;
+    case S_LEARN_SET: go_title("EDIT 2"); break;
+    case S_LEARN_LONG: song.sel = 3; eng(2); go_title("EDIT 2"); ui.msg_t = 0; break;
+    case S_GLO_LEARN: go_title("EDIT 2"); ui.layer = LAYER_GLO; ui.msg_t = 0; break;
+    case S_MENU_LCLEAR: ui.menu = 1; ui.menu_sel = MI_MIDIIN; break;
+    case S_MENU_LCLEAR_NONE: ui.menu = 1; ui.menu_sel = MI_MIDIIN; break;
     /* 1.5.1: the DLY page with TIME 1/8D (KNOB 1 turned: its gauge) and 1/16D (the widest name); the FX layer's map
      * with REV THROW (D5, VERB) and ECHO THROW (E5, ECHO) held */
     case S_DLY_DOT: song.g[G_DTIME] = 10; go_title("DELAY"); ui.hot_col = 0; ui.hot_t = 30; break;

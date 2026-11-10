@@ -119,7 +119,6 @@ static uint32_t oct_leds(void)
         return 1u;
     if (ui.menu && !ui.confirm)
         return ui.menu >= 2u ? 1u :                    /* (INFO, ABOUT: OCT- back, lit) */
-               ui.menu_sel == MI_LCLEAR ? (ml_count() ? OCT_BREATH : 0u) :   /* LEARN CLEAR: while CCs are learned */
                ui.menu_sel >= MI_VALUES ? OCT_BREATH :  /* CALIBRATION / INFO / ABOUT: OCT+ opens */
                (menu_step(ui.menu_sel, -1) != menu_get(ui.menu_sel) ? OCT_BREATH_DN : 0u) |   /* a value: each */
                (menu_step(ui.menu_sel, 1) != menu_get(ui.menu_sel) ? OCT_BREATH : 0u);         /* way it can go */
@@ -492,7 +491,6 @@ static void tracks_edit(uint32_t slot, int32_t steps)
     switch (slot) {
     case 3:
         t->p[P_MUTE] = (int16_t)param_turn(&TP[P_MUTE], t->p[P_MUTE], accel(EN_K1 + slot, steps, 0));
-        ml_knob(t, P_MUTE);                             /* (MIDI LEARN: picked) */
         return;
     case 0:
         vp = &t->p[P_LEVEL];
@@ -509,7 +507,6 @@ static void tracks_edit(uint32_t slot, int32_t steps)
     }
     *vp = (int16_t)clamp(*vp + accel(EN_K1 + slot, steps, d->max - d->min), d->min, d->max);
     motion_capture(t, (uint32_t)(vp - t->p), *vp);
-    ml_knob(t, (uint32_t)(vp - t->p));
 }
 
 /* SEQ > STEP's piano roll (not the DRUM grid, whose white keys stay its steps): where step recording writes */
@@ -1290,7 +1287,6 @@ static void edit_param(uint32_t slot, int32_t steps)
             id += 3u * mod_ui_slot;
         /* id from the page: vp may point at fx_bus_trk for SEND knobs */
         motion_capture(TSEL, id, *vp);
-        ml_knob(TSEL, id);                              /* (MIDI LEARN: picked) */
         scale_lock_after(TSEL, id);
     }
 }
@@ -1420,10 +1416,8 @@ static void ior_knob(uint32_t k, int32_t s)
         const param_desc_t *d = global ? &GP[G_TMIX] : track_desc(TSEL, id);
         int16_t *vp = global ? &song.g[G_TMIX] : &TSEL->p[id];
         *vp = (int16_t)param_turn(d, *vp, accel(EN_K4, s, d->max - d->min));
-        if (!global) {
+        if (!global)
             motion_capture(TSEL, id, *vp);
-            ml_knob(TSEL, id);
-        }
     }
     ui.force = 1;
 }
@@ -1713,6 +1707,7 @@ static uint32_t btn_hold(uint32_t *t0, uint32_t label, uint32_t now, int hold_ok
 /* the quick layers: ui_layer.c (included after this file) */
 static void layer_masks(void);
 static uint32_t layer_open(void);                       /* ui_layer.c */
+static void cc_knob_poll(void);                         /* CC 71..74: the screen's four knobs (below) */
 static void layer_arm(uint32_t pressed, uint32_t now);
 static uint32_t layer_held(void);
 static int layer_knobs_quiet(void);
@@ -1784,7 +1779,6 @@ static void ui_notices(void)
 {
     static uint32_t midi_t, midi_last;
     sample_notice();
-    ml_poll();                                          /* (MIDI LEARN: a CC came for the picked parameter) */
     if (motion_full) { motion_full = 0; ui_message("AUTOMATION FULL"); }
     if (motion_save_lim) { motion_save_lim = 0; ui_message("AUTOMATION SAVE LIMIT"); }
     if (midi_hint) {                                    /* MIDI notes into a track that is not selected */
@@ -1799,6 +1793,46 @@ static void ui_notices(void)
     }
 }
 
+/* KNOB 1..4, k = 0..3, s detents: the one path for the panel's knobs (ui_input) and CC 71..74's. A step held on
+ * STEP locks, a held layer (MOMENTARY) has it, HOME edits its cards, IORD its own; else the page's four */
+static void knob_turn(uint32_t k, int32_t s)
+{
+    const page_t *pg = cur_page();
+    int16_t *hv = 0;
+    int dim = page_desc(pg, k, &hv) && hv == &song.g[G_TTEMPO] && song.g[G_TAPEMODE] == TAPE_SEND;
+    uint64_t held;
+    if (mom_down())                                 /* (LFO + a knob, MOMENTARY or not: LFO's release opens no page) */
+        ui.pg_down &= (uint16_t)~(1u << panel.btn[B_LFO]);
+    if ((held = lock_held()) != 0u) {               /* a step held on STEP: KNOB k locks (parameter locks) */
+        lock_turn(k, s, held);
+        ui.hot_col = (uint8_t)k;
+        ui.hot_t = 40;
+        return;
+    }
+    if (!dim && mom_down() && mom_turn(k, s)) {     /* MOMENTARY: LFO held (no automation, no undo) */
+        ui.hot_col = (uint8_t)k;
+        ui.hot_t = 40;
+        return;
+    }
+    if (!dim && (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
+        ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
+        || pg->graph == GR_SONG || pg->graph == GR_IORD || pg->graph == GR_DXSND || pg->graph == GR_GENERATION ||
+        (dly_page(pg) && k == 3u) || fop_page(pg->graph))) {   /* (not an empty column; DLY K4 is RATE / TIME) */
+        ui.hot_col = (uint8_t)k;
+        ui.hot_t = 40;
+    }
+    if (ui.home) {
+        int16_t *vp;
+        const param_desc_t *d = home_param(k, &vp);
+        *vp = (int16_t)param_turn(d, *vp, accel(EN_K1 + k, s, d->fmt == F_ENUM ? 0 : d->max - d->min));
+        motion_capture(home_trk(k), (uint32_t)(vp - home_trk(k)->p), *vp);   /* (LEVELS: that track's, as MIXER) */
+    } else if (pg->graph == GR_IORD) {
+        ior_knob(k, s);
+    } else {
+        edit_param(k, s);
+    }
+}
+
 static void ui_input(void)
 {
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k;
@@ -1807,6 +1841,7 @@ static void ui_input(void)
     uint32_t lay, combo = 0, lytap, lkeys, glo, kq = 0;
     int32_t s, sel = 0, ks[4] = {0, 0, 0, 0};
     midi_pc_poll();                                     /* MIDI Program Change (before fm6_poll: a bank voice) */
+    cc_knob_poll();                                      /* CC 71..74: the screen's four knobs */
     fm6_poll();                                         /* FM6: PTCH turned -> its patch */
     for (k = 0; k < NTRK; k++)                          /* SLICE (retired): DRUM */
         if (eng_retired(trk[k].eng_req)) {
@@ -1844,7 +1879,7 @@ static void ui_input(void)
     layer_lock_input(pressed);                          /* (#83: a button closes a locked layer) */
     layer_arm(pressed, now);
     layer_oct_open(pressed);                            /* (OCT± with a SET layer's button down: it opens now) */
-    oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open() || ui.ml.on);
+    oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open());
     oct = layer_oct(pressed, oct);                      /* (a SET layer's OCT-: put back) */
     layer_masks();                                      /* seq.c: keys pressed with a layer's button are its own */
     lay = layer_held();
@@ -2128,8 +2163,8 @@ static void ui_input(void)
         case B_OCTDN:
         case B_OCTUP: {
             uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
-            if (act_cols() || layer_set_open() || ui.ml.on)   /* action pages: enter / back (below); SET layers: OCT-; */
-                break;                                  /* MIDI LEARN: clear / done (below) */
+            if (act_cols() || layer_set_open())         /* action pages: enter / back (below); SET layers: OCT- */
+                break;
             if ((fm1_in.buttons & both) == both)
                 song.octave = 0;
             else
@@ -2156,8 +2191,6 @@ static void ui_input(void)
             ui.act = 0;
         else
             go_home();
-    } else if (ui.ml.on && oct) {                          /* MIDI LEARN: OCT- clears the picked CC, OCT+ done */
-        ml_oct(oct);
     }
     song.grid = (uint8_t)keys_mode();                 /* (seq.c: the keys are the grid's) */
     lock_keys();                                        /* (a grid key on a hit let go: the hit goes) */
@@ -2182,7 +2215,7 @@ static void ui_input(void)
     kq |= lay;
     if (!lay && (s = panel_enc(EN_PRESET)) != 0) {
         if (((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u) && !ui.menu && !ui.confirm && !act_cols() &&
-            !name_on() && !ui.ml.on) {                  /* OCT+ held + PRESETS: sound dice (JIANT SELECT dice) */
+            !name_on()) {                               /* OCT+ held + PRESETS: sound dice (JIANT SELECT dice) */
             static uint32_t sd_ms;
             if (!sd_ms || fm1_ms - sd_ms > 400u) {
                 if (chain_busy())
@@ -2206,46 +2239,41 @@ static void ui_input(void)
                 select_page_step(s > 0 ? 1 : -1);
         }
     }
-    for (k = 0; k < 4u && !kq; k++) {
-        const page_t *pg = cur_page();
-        int16_t *hv = 0;
-        int dim = page_desc(pg, k, &hv) && hv == &song.g[G_TTEMPO] && song.g[G_TAPEMODE] == TAPE_SEND;
-        uint64_t held;
-        if ((s = panel_enc(EN_K1 + k)) == 0)
+    for (k = 0; k < 4u && !kq; k++)
+        if ((s = panel_enc(EN_K1 + k)) != 0)
+            knob_turn(k, s);
+    ui_notices();
+}
+
+/* CC 71..74 (midi_control.c cc_knob_input): the detents since the last frame, as the four knobs of the page on
+ * screen turn them, the selected track's (HOME's cards too). CC 75 / 76 / 77 are the panel's other three encoders:
+ * SELECT (pages), ALGORITHM (track) and PRESETS (sounds). A layer has them where it is held: there the panel's
+ * knobs are the layer's (FX macros, GLO levels), so a CC stays out of that. MASTER is the pot, not here */
+static void cc_knob_poll(void)
+{
+    uint32_t k;
+    int32_t s;
+    for (k = 0; k < 7u; k++) {
+        if (!ui.cc_step[k])
             continue;
-        if (mom_down())                                 /* (LFO + a knob, MOMENTARY or not: LFO's release opens no page) */
-            ui.pg_down &= (uint16_t)~(1u << panel.btn[B_LFO]);
-        if ((held = lock_held()) != 0u) {               /* a step held on STEP: KNOB k locks (parameter locks) */
-            lock_turn(k, s, held);
-            ui.hot_col = (uint8_t)k;
-            ui.hot_t = 40;
+        fm1_irq_off();
+        s = ui.cc_step[k];
+        ui.cc_step[k] = 0;
+        fm1_irq_on();
+        if (layer_held())
             continue;
-        }
-        if (!dim && mom_down() && mom_turn(k, s)) {     /* MOMENTARY: LFO held (no automation, no undo) */
-            ui.hot_col = (uint8_t)k;
-            ui.hot_t = 40;
-            continue;
-        }
-        if (!dim && (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
-            ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
-            || pg->graph == GR_SONG || pg->graph == GR_IORD || pg->graph == GR_DXSND || pg->graph == GR_GENERATION ||
-            (dly_page(pg) && k == 3u) || fop_page(pg->graph))) {   /* (not an empty column; DLY K4 is RATE / TIME) */
-            ui.hot_col = (uint8_t)k;
-            ui.hot_t = 40;
-        }
-        if (ui.home) {
-            int16_t *vp;
-            const param_desc_t *d = home_param(k, &vp);
-            *vp = (int16_t)param_turn(d, *vp, accel(EN_K1 + k, s, d->fmt == F_ENUM ? 0 : d->max - d->min));
-            motion_capture(home_trk(k), (uint32_t)(vp - home_trk(k)->p), *vp);   /* (LEVELS: that track's, as MIXER) */
-            ml_knob(home_trk(k), (uint32_t)(vp - home_trk(k)->p));
-        } else if (pg->graph == GR_IORD) {
-            ior_knob(k, s);
-        } else {
-            edit_param(k, s);
+        if (k < 4u) {
+            knob_turn(k, s);
+        } else if (k == 4u) {                       /* SELECT: pages inside the current section */
+            int32_t n = s > 0 ? s : -s;
+            while (n--)
+                select_page_step(s > 0 ? 1 : -1);
+        } else if (k == 5u) {                       /* ALGORITHM: the selected track */
+            track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
+        } else {                                    /* PRESETS: the sound, as the knob's list */
+            presets_turn(s);
         }
     }
-    ui_notices();
 }
 
 /* ---------------------------------------------------- panel setup --- */
