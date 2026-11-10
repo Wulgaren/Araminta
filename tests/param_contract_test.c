@@ -257,18 +257,20 @@ static int bend_contract(void)
     ok = 0;
     if (vox && vox2) {
         TSEL->p[P_VOICE] = (int16_t)V_POLY;
-        d = page_desc(vox, 2, &vp);
+        d = page_desc(vox, 3, &vp);
         ok = d && vp && str_eq(d->label, "PITCH") && d->fmt == F_CENT && d->min == -200 && d->max == 200 &&
+             page_desc(vox, 2, &vp) != 0 &&                   /* SPRD before it */
              !page_visible((uint32_t)(vox2 - PAGES));
         TSEL->p[P_VOICE] = (int16_t)V_UNISON;
         ok &= page_visible((uint32_t)(vox2 - PAGES));
-        d = page_desc(vox, 2, &vp);
+        d = page_desc(vox, 3, &vp);
         ok &= d && str_eq(d->label, "UNI DTN");
+        ok &= page_desc(vox, 2, &vp) != 0;                    /* SPRD */
         d = page_desc(vox2, 0, &vp);
         ok &= d && vp && str_eq(d->label, "PITCH");
         TSEL->p[P_VOICE] = (int16_t)V_POLY;
     }
-    bad += check("PITCH takes UNI DTN's slot outside UNISON; VOICE 2 (PITCH) is hidden until UNISON", ok);
+    bad += check("PITCH is the last VOICE card outside UNISON; VOICE 2 (PITCH) is hidden until UNISON", ok);
     return bad;
 }
 

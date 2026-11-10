@@ -171,7 +171,8 @@ PLAY OFF bypasses its playback.
 
 - `PG_BEND` 250 is the page id of `VOICE 2`, shown only while the selected track is in UNISON (`ui.c`
   `page_visible`). The `VOICE` page uses it in `P_DETUNE`'s slot when `P_DETUNE` is hidden (POLY / MONO /
-  LEG); in UNISON that slot is `UNI DTN` again and PITCH lives on `VOICE 2`.
+  LEG), and that slot is the page's last knob (K4); in UNISON it is `UNI DTN` again and PITCH lives on
+  `VOICE 2`.
 - It is not stored, not `p[]`, not a motion id and never reaches the wire. `page_desc()` synthesizes
   `BEND_DESC` (label `PITCH`, `F_CENT`, -200..200 cent) and a temporary value; the knob handler writes the
   selected track's channel bend (`midi_control.c midi_bend_card_set`) and returns before `*vp` and

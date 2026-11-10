@@ -629,9 +629,9 @@ static const page_t PAGES[] = {
     {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN4, P_LN5, P_LN6, P_LN7}},
     {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"OP ENV", FAM_EDIT, SC_TRACK, GR_FMENV, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
-    /* VOICE: one page (VCE GLD PITCH SPRD; UNISON instead shows UNI DTN and puts PITCH on VOICE 2). GLMOD / PRIO /
-     * ALLOC stay stored, not shown; PAN/PLAY on MIXER */
-    {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_VOICE, P_GLIDE, P_DETUNE, P_SPRD}},
+    /* VOICE: one page (VCE GLD SPRD PITCH; UNISON instead shows UNI DTN in PITCH's slot and puts PITCH on VOICE 2).
+     * GLMOD / PRIO / ALLOC stay stored, not shown; PAN/PLAY on MIXER */
+    {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_VOICE, P_GLIDE, P_SPRD, P_DETUNE}},
     {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {PG_BEND, 0xFF, 0xFF, 0xFF}},   /* UNISON only (ui.c) */
 
     /* GLO: Master (SELECT: MASTER / CLOCK) → Song (CLICK / COUNT-IN / LEVEL: MENU > AUDIO) */
@@ -785,7 +785,7 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     }
     if (pg->graph == GR_MOD)                          /* SRC DST AMT of the slot shown */
         id += 3u * mod_ui_slot;
-    /* VOICE page: PITCH where UNI DTN is hidden (POLY / MONO / LEG), and on VOICE 2 (UNISON, ui.c).
+    /* VOICE page: PITCH in the last slot outside UNISON (the one UNI DTN vacates), and on VOICE 2 (UNISON, ui.c).
      * UNI DTN = UNISON only; SPRD = POLY / UNISON (fx.c mix_spread). MONO / LEG: SPRD blank too. */
     mode = (uint32_t)TSEL->p[P_VOICE];
     if (id == PG_BEND || (id == P_DETUNE && mode != V_UNISON)) {
