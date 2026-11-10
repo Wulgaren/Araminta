@@ -54,6 +54,15 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
+### New in 3.9
+
+- **ARP free take.** With the ARP on, a free take records the notes the arp plays, including a latched chord.
+  The take keeps the ARP's tempo, starts on the ARP's first note, and closing it stops the latch so the
+  sequence plays alone.
+- **VOICE.** PITCH is the last card, so POLY, MONO and LEGATO show VCE GLD SPRD PITCH. UNISON keeps its four
+  cards and PITCH on VOICE 2.
+- No project format change. Saves stay FUN19 (`FUNJ`).
+
 ### New in 3.8
 
 - **VOICE PITCH.** The empty card on the VOICE page is a pitch bend. It reaches 2 semitones each way by default,
