@@ -3722,14 +3722,15 @@ static int test_edit_cycle(void)
     press(B_EDIT); frame();
     ok &= cur_page()->sec == EDIT_SEC_VOX && str_eq(cur_page()->title, "VOICE");
     ok &= cur_page()->id[0] == P_VOICE && cur_page()->id[1] == P_GLIDE &&
-          cur_page()->id[2] == P_DETUNE && cur_page()->id[3] == P_SPRD;   /* one page; no GLMOD / PAN / PLAY */
+          cur_page()->id[2] == P_SPRD && cur_page()->id[3] == P_DETUNE;   /* one page; no GLMOD / PAN / PLAY */
     turn(EN_SELECT, 1); frame();
     ok &= str_eq(cur_page()->title, "VOICE");                            /* Voice section: one page only */
     press(B_EDIT); frame();
     ok &= cur_page()->sec == EDIT_SEC_SND;
-    bad += check("EDIT cycle: ANALOG Sound is OSC A→OSC B→FILTER (1/3 2/3 3/3); Voice is one page (VCE GLD PITCH SPRD in POLY)", ok);
+    bad += check("EDIT cycle: ANALOG Sound is OSC A→OSC B→FILTER (1/3 2/3 3/3); Voice is one page (VCE GLD SPRD PITCH in POLY)", ok);
 
-    /* PITCH on UNI DTN's slot, VOICE 2 in UNISON; the card drives the channel bend and a track change recentres it */
+    /* PITCH last on VOICE (SPRD's old slot), VOICE 2 in UNISON; the card drives the channel bend and a track change
+     * recentres it */
     {
         int16_t *vp = 0;
         const page_t *vox;
@@ -3741,15 +3742,15 @@ static int test_edit_cycle(void)
         vox = cur_page();
         ok = str_eq(vox->title, "VOICE");
         TSEL->p[P_VOICE] = (int16_t)V_POLY;
-        ok &= (d = page_desc(vox, 2, &vp)) != 0 && vp && str_eq(d->label, "PITCH") && d->fmt == F_CENT &&
-              page_desc(vox, 3, &vp) != 0;                 /* PITCH where UNI DTN is hidden; SPRD on */
+        ok &= (d = page_desc(vox, 3, &vp)) != 0 && vp && str_eq(d->label, "PITCH") && d->fmt == F_CENT &&
+              page_desc(vox, 2, &vp) != 0;                 /* PITCH last; SPRD on */
         TSEL->p[P_VOICE] = (int16_t)V_MONO;
-        ok &= (d = page_desc(vox, 2, &vp)) != 0 && str_eq(d->label, "PITCH") && page_desc(vox, 3, &vp) == 0;
+        ok &= (d = page_desc(vox, 3, &vp)) != 0 && str_eq(d->label, "PITCH") && page_desc(vox, 2, &vp) == 0;
         TSEL->p[P_VOICE] = (int16_t)V_LEGATO;
-        ok &= (d = page_desc(vox, 2, &vp)) != 0 && str_eq(d->label, "PITCH") && page_desc(vox, 3, &vp) == 0;
+        ok &= (d = page_desc(vox, 3, &vp)) != 0 && str_eq(d->label, "PITCH") && page_desc(vox, 2, &vp) == 0;
         TSEL->p[P_VOICE] = (int16_t)V_UNISON;
-        ok &= (d = page_desc(vox, 2, &vp)) != 0 && str_eq(d->label, "UNI DTN") &&
-              page_desc(vox, 3, &vp) != 0;                 /* both */
+        ok &= (d = page_desc(vox, 3, &vp)) != 0 && str_eq(d->label, "UNI DTN") &&
+              page_desc(vox, 2, &vp) != 0;                 /* both */
         TSEL->p[P_VOICE] = (int16_t)V_POLY;
         turn(EN_SELECT, 1); frame();
         ok &= str_eq(cur_page()->title, "VOICE");          /* POLY: VOICE 2 hidden */
@@ -3766,16 +3767,16 @@ static int test_edit_cycle(void)
         ch = trk_midi_ch(song.sel);
         midi_ch[ch].bend = 0;
         midi_bend_target[trk_index(TSEL)] = 0;
-        turn(EN_K1 + 2, 1); frame();
+        turn(EN_K1 + 3, 1); frame();
         ok &= midi_ch[ch].bend != 0 && midi_bend_target[trk_index(TSEL)] != 0;
-        d = page_desc(cur_page(), 2, &vp);
+        d = page_desc(cur_page(), 3, &vp);
         ok &= d == &BEND_DESC && vp && *vp == 1;           /* one cent a detent adds up (no rounding stall) */
-        turn(EN_K1 + 2, 1); frame();
-        d = page_desc(cur_page(), 2, &vp);
+        turn(EN_K1 + 3, 1); frame();
+        d = page_desc(cur_page(), 3, &vp);
         ok &= vp && *vp == 2;
         track_select(1); frame();
         ok &= midi_ch[ch].bend == 0 && midi_bend_target[0] == 0;
-        bad += check("VOICE: PITCH on UNI DTN's slot (POLY / MONO / LEG), VOICE 2 in UNISON; a track change recentres its bend", ok);
+        bad += check("VOICE: PITCH last (POLY / MONO / LEG), VOICE 2 in UNISON; a track change recentres its bend", ok);
     }
 
 
