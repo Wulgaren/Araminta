@@ -941,6 +941,7 @@ if command -v node >/dev/null 2>&1; then
     for t in test_crc test_info_tags test_installer test_steps_dom test_stock_sha test_projconv; do
         unit_after "$DESC_UNIT $MENU_UNIT" u_web "web: $t" "web/$t.mjs"
     done
+    unit u_web "web: emulator saves (copy before a preview can migrate, restore, writer marker)" web/emu/saves_test.mjs
 else
     note "== skip web tests (no node)"
 fi
