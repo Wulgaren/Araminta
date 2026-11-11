@@ -20,12 +20,13 @@
  * so a repeat starts on the grid; let go, at once. The lane records the presses as they were (to the nearest step).
  * Of the repeats (STUTTER, ARP) the fastest held plays. A#4 (black key 8) steps the tracks they act on: ALL,
  * SYN (the synths), DRM (DRUM tracks) (pfx_tgt; the layer's header says it).
- * The punch-in lane (the automation): a section's 64 steps of 1/16 (4 bars, from the transport's start or the
- * section's), one effect a step (pfx_lane: a nibble, 0 none, 1..11 OCT- .. x2; GLITCH is audio-only and never in
- * the lane) and the tracks it acts on (pfx_ltgt).
+ * The punch-in lane (the automation): 64 steps of 1/16 (4 bars, from the transport's start: one loop for the whole
+ * transport, the same in every song section), one effect a step (pfx_lane: a nibble, 0 none, 1..11 OCT- .. x2;
+ * GLITCH is audio-only and never in the lane) and the tracks it acts on (pfx_ltgt).
  * Recording (REC armed, playing, not a song): the steps that pass while a MIDI effect is held get it (the lowest held),
  * with the tracks A#4 picked. Played back with the held ones. (G5 CLR is latched-FX all-off when FX LATCH is on.)
- * Saved with the section (project.c FUNA: the 33 spare bytes at PROJ_PFX_OFF), staged by the song (song_chain.c).
+ * RAM only: nothing saves the lane (project.c has no bytes for it) and nothing stages it per song section
+ * (song_chain.c never mentions it), so a power cycle loses it. The presses still play back until then.
  * In the ISR: pfx_block before the events (what acts on each track, the repeats, the decays put in), pfx_end after
  * the parts (the decays back: as mod.c, nothing outside the ISR sees them). Idle: one test a block. */
 static uint8_t pfx_in;                /* a repeat's own note-on (pfx_note lets it through) */
