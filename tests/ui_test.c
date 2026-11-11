@@ -3179,8 +3179,10 @@ static int test_product_ux(void)
         uint32_t i, page;
         char qa[24], qb[24];
         ui_power_on();
+        /* one track x 64 steps holds 128 unique (step, id) pairs with two ids; a third id pushes past MOTION_FILE_MAX */
         for (i = 0; i < MOTION_FILE_MAX + 1u; i++)
-            motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : P_DLY, (int16_t)(i % 60u));
+            motion_set_event(&trk[0], i % NSTEP,
+                             i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_PAN, (int16_t)(i % 60u));
         motion_save_lim = 0;
         for (page = 0; page < NPAGES; page++)
             if (PAGES[page].graph == GR_SLOTS)
