@@ -96,7 +96,12 @@ static int ldr_prog(uint32_t off, const void *p, uint32_t n)
 {
     const uint8_t *s = p;
     uint32_t i;
-    if (off < 0x4000u || off + n > 0x93000u || ((off & 0xFFu) + n) > 256u) bad_range++;
+    /* the real gate (loader.c FL_RANGE_OK): the app area, or the stock band that holds update records. The
+     * 256-byte page rule is the app-area writer's (ldr_core.c step 3); a record's tag is a short program. */
+    if (!((off >= 0x4000u && off + n <= 0x97000u) || (off >= 0xE0000u && off + n <= 0xFC000u)))
+        bad_range++;
+    if (off + n <= 0x97000u && ((off & 0xFFu) + n) > 256u)
+        bad_range++;
     for (i = 0; i < n; i++) nor[off + i] &= s[i];
     return 0;
 }
@@ -163,7 +168,7 @@ static int check(const char *what, int ok) { printf("%-56s %s\n", what, ok ? "ok
 int main(int argc, char **argv)
 {
     size_t olen;
-    static uint8_t user[0x1000], autosave[0x1000], gap[0x4000];
+    static uint8_t user[0x1000], autosave[0x1000], gap[0x4000], vm[0x200];
     uint8_t *old, head[0x4000];
     uint32_t ofo, nfo, i;
     int bad = 0, rc;
@@ -196,6 +201,17 @@ int main(int argc, char **argv)
         for (i = 0; i < sizeof gap; i++) nor[0x93000u + i] = (uint8_t)(i * 11u + 5u);
         for (i = 0; i < 4u; i++) memcpy(nor + 0x93000u + (i + 1u) * 0x1000u - 0x100u, r, sizeof r);
         memcpy(gap, nor + 0x93000u, sizeof gap);
+        /* the stock firmware's VM at 0xE8000 (Melodee measured it there on an FM-1): the magic, then a record 106
+         * whose check byte holds. The sector is also where the stock update record at 0xE8F00 lives, so the loader's
+         * record sweep must not erase it: 0xE8000..0xE8FFF is the unit's radio calibration. */
+        {
+            static const uint8_t vm106[6] = {0x55, 0xAA, 0xAA, 0x55, 0x91, 0x6A};
+            for (i = 0; i < 0x1000u; i++) nor[0xE8000u + i] = 0xFF;
+            memcpy(nor + 0xE8000u, vm106, sizeof vm106);
+            memcpy(nor + 0xE8006u, "\x20\x00\x0B\x0B", 4);
+            memcpy(nor + 0xE8F00u, r, sizeof r);        /* (the stock update record, as planted above) */
+            memcpy(vm, nor + 0xE8000u, sizeof vm);   /* the VM log only; the record at 0xE8F00 shares the sector */
+        }
     }
     /* 1.6.1: flash.bin must be exactly this board's [0, app area end): a package with another board's size (an
      * SMK-37's app area ends at 0x9D000, the FM-1's at 0x93000; one byte short too) is refused before any erase */
@@ -234,10 +250,12 @@ int main(int argc, char **argv)
     bad += check("app area == the new package's flash.bin", !memcmp(nor + 0x4000, logical + nfo + 0x4000, 0x93000 - 0x4000));
     bad += check("flash head [0, 0x4000) untouched", !memcmp(nor, head, sizeof head));
     bad += check("finish asked (0xF0000000)", f0_asked >= 1);
-    bad += check("update records cleared (RAM + flash 0xE4F00, the stock firmware's 0xE8F00)",
-                 record_cleared && nor[0xE4F06] == 0xFF && nor[0xE8F06] == 0xFF);
+    bad += check("our record erased (0xE4F00); the stock one at 0xE8F00 invalidated in place",
+                 record_cleared && nor[0xE4F06] == 0xFF && nor[0xE8F06] == 0x00 && nor[0xE8F07] == 0x00);
     bad += check("user data in Felucca's store that looks like a record is kept", !memcmp(nor + 0xA0000, user, sizeof user));
     bad += check("autosave that looks like a record is kept", !memcmp(nor + 0xE5000, autosave, sizeof autosave));
+    bad += check("the stock VM at 0xE8000 survives (the unit's radio calibration)",
+                 !memcmp(nor + 0xE8000u, vm, sizeof vm));
     bad += check("the gap below the store (0x93000..0x97000) survives the update, all four sectors",
                  !memcmp(nor + 0x93000u, gap, sizeof gap));
     {
