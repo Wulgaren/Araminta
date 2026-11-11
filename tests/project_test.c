@@ -347,6 +347,35 @@ static int vib_wire(void)
     return bad;
 }
 
+/* The on-disk baseline that a grown object must not disturb: a FUN19 file with the full 88 motion
+ * records, packed, read back and packed again, byte for byte. Units in the field hold exactly this. */
+static int fun19_full_motion(void)
+{
+    project_t saved, loaded;
+    project_store_t a, b;
+    uint32_t i;
+    int ok;
+    memset(&saved, 0, sizeof saved);
+    saved.magic = PROJ_MAGIC; saved.size = sizeof saved; saved.parts = NPART; saved.phys = PROJ_PHYS;
+    chain_defaults(&saved.chain); memcpy(saved.dx, DX_KIT_DEF, sizeof saved.dx);
+    saved.motion.count = MOTION_FILE_MAX;
+    saved.motion.on = 15;
+    for (i = 0; i < MOTION_FILE_MAX; i++) {
+        saved.motion.event[i].place = (uint8_t)i;
+        saved.motion.event[i].param = (uint8_t)(MFX_FB | (i & 1u ? MOTION_LOCK : 0u));
+        saved.motion.event[i].value = (int16_t)i;
+    }
+    saved.sum = proj_sum(&saved);
+    ok = proj_pack(&a, &saved) && a.raw[0] == 0x46 && a.raw[1] == 0x55 && a.raw[2] == 0x4E && a.raw[3] == 0x4A
+         && proj_import(&loaded, &a, sizeof a) && loaded.motion.count == MOTION_FILE_MAX
+         && proj_pack(&b, &loaded) && !memcmp(a.raw, b.raw, sizeof a.raw);
+    for (i = 0; ok && i < MOTION_FILE_MAX; i++)
+        ok &= loaded.motion.event[i].place == (uint8_t)i &&
+              loaded.motion.event[i].param == saved.motion.event[i].param &&
+              loaded.motion.event[i].value == saved.motion.event[i].value;
+    return check("FUN19 with all 88 motion records round trips byte for byte", ok);
+}
+
 int main(void)
 {
     static project_t q, q2, buf;
@@ -788,6 +817,7 @@ int main(void)
     bad += generation_wire();
     bad += generation_legacy_defaults();
     bad += step_wire_freeze();
+    bad += fun19_full_motion();
     printf("%s\n", bad ? "PROJECT FORMAT TEST FAILED" : "project format test passed");
     return bad != 0;
 }
