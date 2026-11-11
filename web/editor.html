@@ -496,7 +496,7 @@ const parse = {
           case INFO_TAG.FM6V2: if (o.fm6) o.fm6.caps = trailer[p] & 3; break;
           case INFO_TAG.RATCH: o.ratchet = trailer[p]; break;   /* RATCH: max hits */
           case INFO_TAG.SONG_LANES: o.songLanes = trailer[p]; break;
-          case INFO_TAG.FM6_BANK: o.fm6Bank = trailer[p]; break; /* 3.10: 96 (3 x 32); was 32 */
+          case INFO_TAG.FM6_BANK: o.fm6Bank = trailer[p]; break; /* 1.4.1: 32 voices */
           default: break;                         /* MENU / NUDGE: other readers */
         }
         i += 2 + len;
@@ -1623,7 +1623,7 @@ const mixer = {
    and the engine sources (test_web.mjs checks them against the firmware's, tests/descdump.c). Used with ?mock=1 (add &legacy=1 for a firmware without cmds 16..26).
    opt: {legacy: no user bank / WATCH, v3: no TRACK_PARAM / TRACK_CHANGED (firmware 0.8),
          auto: false = no simulated knobs (tests drive sim.*),
-         watchMs: how long WATCH lasts after the last request (3000), slots: user bank size (32)} */
+         watchMs: how long WATCH lasts after the last request (3000), slots: user bank size (48)} */
 /* ------------------------------------------------------------------- FM6 --- */
 /* The FM6 engine's patches (eng_fm6.c, EDITOR_PROTOCOL.md "FM6 patches"): the generic 6-operator voice.
    voice: 155 bytes, 6 x 21 operator bytes (the sixth operator first, as the format has them), then 19 voice bytes
@@ -2117,7 +2117,7 @@ function makeMockDevice(opt = {}) {
         P("ARCADE", [2, 0, 127, 0, 127, 112, 0, 84], [0, 80, 0, 50], 0, 3), P("METAL", [3, 0, 100, 40, 100, 32, 0, 0], [0, 75, 40, 60], 0, 7)] },
     { name: "FM6", titles: ["OPS", "PATCH"], edit: [D("ALG", F.INT, 0, 32, 0), D("FB", F.INT, -7, 7, 0), D("MLVL", F.BIPCT, -64, 63, 0),
         D("MRAT", F.INT, -16, 16, 0), D("MEG", F.BIPCT, -64, 63, 0), D("VIB", F.INT, 0, 63, 0), D("DTUN", F.PCT, 0, 127, 0),
-        D("SLOT", F.INT, 0, FM6.FACTORY_PK.length + 96, 0)],   /* F1..F8, OWN, B1..B96 (3.10: three banks) */
+        D("SLOT", F.INT, 0, FM6.FACTORY_PK.length + 32, 0)],   /* F1..F8, OWN, B1..B32 */
       presets: [P("TINE EP", [0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 127, 0], 0, 6), P("BELL", [0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 127, 0], 0, 7),
         P("FM BASS", [0, 0, 0, 0, 0, 0, 0, 2], [0, 0, 127, 0], 1, 2), P("BRASS", [0, 0, 0, 0, 0, 0, 0, 3], [0, 0, 127, 0], 0, 4),
         P("PAD", [0, 0, 0, 0, 0, 0, 30, 4], [0, 0, 127, 0], 0, 5), P("MARIMBA", [0, 0, 0, 0, 0, 0, 0, 5], [0, 0, 127, 0], 0, 3),
@@ -2199,7 +2199,7 @@ function makeMockDevice(opt = {}) {
     g: GP.map((d) => d.def),
     slots: [null, null, null, null], songRows: [], chainPlaying: false, chainRow: 0, chainRemaining: 0,
     smp: [0, 1, 2].map(() => ({ flash: new Uint8Array(SMP.SLOT_SIZE).fill(0xFF), zones: 0, wt: false, drum: false, name: "", len: 0, next: SMP.DATA_OFF })),
-    bank: new Array(opt.slots || 32).fill(null),     /* user presets: {engine, name, p, pattern, grid, fm6 (FM6: its patch)} */
+    bank: new Array(opt.slots || 48).fill(null),     /* user presets: {engine, name, p, pattern, grid, fm6 (FM6: its patch)} */
     uiCaps: opt.legacy || opt.v3 || opt.v5 ? 0 : opt.uiCaps ?? 9,
     palette: 0, font: 0, monitor: 0, filter: 0, bankSig: 0,
     palettes: ["GREY", "GREEN", "AMBER", "ICE", "VIOLET", "ROSE", "PAPER", "HI-CON", "NIGHT"],

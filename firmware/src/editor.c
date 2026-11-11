@@ -501,7 +501,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x41); ed_b(1); ed_b(MOTION_MAX); ed_b(MOTION_MAX >> 7);   /* (1.2) the motion pool, 192 */
         ed_b(0x54); ed_b(1); ed_b(NUDGE_DIV);   /* 1.2: a step's nudge (1/16 step) after its ratchet; LFO 2, QNTZ */
         ed_b(0x57); ed_b(1); ed_b(NTRK);   /* 1.2: song sections with a slot per track (SONG ops 4..7) */
-        ed_b(0x56); ed_b(1); ed_b(FM6_NBANK_TOTAL); /* 3.10: 96 voices (3 x 32); cmds 74..77; SLOT 9..104 = B1..B96 */
+        ed_b(0x56); ed_b(1); ed_b(FM6_NBANK); /* 1.4.1: 32 voices; cmds 74..77; SLOT 9..40 = B1..B32 */
         break;
     case ED_GET:
     case ED_SET:

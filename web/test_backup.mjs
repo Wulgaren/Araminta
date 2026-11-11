@@ -59,7 +59,7 @@ function device(objs, opt = {}) {
     }
     if (cmd === BACKUP_CMD.PUT) {
       const [op, id] = a;
-      if (op === 0 && id > (opt.maxId ?? 9)) { d.log.push(`refused ${id}`); return [op, id, 1]; }   // (an older firmware)
+      if (op === 0 && id > (opt.maxId ?? 10)) { d.log.push(`refused ${id}`); return [op, id, 1]; }   // (an older firmware)
       if (op === 0) { d.staged = { id, size: bkR32(a, 2), crc: bkR32(a, 7), bytes: [] }; return [op, id, 0]; }
       if (op === 1) {
         if (opt.failChunk === id) return [op, id, 2];
@@ -123,11 +123,14 @@ ok([0, 1, 2, 6].every((id) => target.objs.get(id).every((v, i) => v === objs.fin
     "backup: .. an accepted mismatch restores");
 }
 {   /* the FM6 patch bank (id 8) and the archives of firmware before it (11 objects, no id 8) */
-  ok(BACKUP_IDS.length === 13 && file.objects.some((o) => o.id === 8) && file.objects.some((o) => o.id === 9),
-    "backup: 13 objects: id 8 (the retired FM6 bank, empty) and id 9 (the user presets' FM6 patches)");
-  const v2 = JSON.parse(JSON.stringify(file)); v2.objects = v2.objects.filter((o) => o.id !== 9);
+  ok(BACKUP_IDS.length === 14 && file.objects.some((o) => o.id === 8) && file.objects.some((o) => o.id === 9) &&
+     file.objects.some((o) => o.id === 10),
+    "backup: 14 objects: id 8 (retired FM6 bank), id 9 (FM6 patches), id 10 (third preset bank)");
+  const v3 = JSON.parse(JSON.stringify(file)); v3.objects = v3.objects.filter((o) => o.id !== 10);
+  ok(readBackup(v3).objects.length === 13, "backup: an archive before the third preset bank (13 objects) still reads");
+  const v2 = JSON.parse(JSON.stringify(file)); v2.objects = v2.objects.filter((o) => o.id !== 9 && o.id !== 10);
   ok(readBackup(v2).objects.length === 12, "backup: an archive of 1.0..1.0.2 (12 objects, the bank as id 8) still reads");
-  const old = JSON.parse(JSON.stringify(file)); old.objects = old.objects.filter((o) => o.id !== 8 && o.id !== 9);
+  const old = JSON.parse(JSON.stringify(file)); old.objects = old.objects.filter((o) => o.id !== 8 && o.id !== 9 && o.id !== 10);
   ok(readBackup(old).objects.length === 11, "backup: an archive of the 11 objects before FM6 still reads");
   const odd = JSON.parse(JSON.stringify(file)); odd.objects = odd.objects.filter((o) => o.id !== 33);
   ok(throws(() => readBackup(odd)), "backup: an archive missing another object is refused");
@@ -139,7 +142,10 @@ ok([0, 1, 2, 6].every((id) => target.objs.get(id).every((v, i) => v === objs.fin
     const r = await v2dev.request([cmd, a]);
     if (cmd !== BACKUP_CMD.LIST) return r;
     const n = r[2], keep = [];
-    for (let i = 0; i < n; i++) if (r[3 + i * 11] !== 9) keep.push(...r.slice(3 + i * 11, 14 + i * 11));
+    for (let i = 0; i < n; i++) {
+      const id = r[3 + i * 11];
+      if (id !== 9 && id !== 10) keep.push(...r.slice(3 + i * 11, 14 + i * 11));
+    }
     return [1, 0, keep.length / 11, ...keep];
   }, "1.0.2");
   const to103 = device([]);
@@ -150,7 +156,7 @@ ok([0, 1, 2, 6].every((id) => target.objs.get(id).every((v, i) => v === objs.fin
   const newFile = await captureBackup(device([...objs, [9, patches]]).request, "1.0.3");
   const to102 = device([], { maxId: 8 });
   await restoreBackup(to102.request, newFile);
-  ok(to102.log.includes("refused 9") && !to102.objs.has(9) && to102.log.at(-1) === 0,
+  ok(to102.log.includes("refused 9") && !to102.objs.has(9) && !to102.objs.has(10) && to102.log.at(-1) === 0,
     "backup: a 1.0.3 archive onto older firmware: id 9 skipped, the rest restored");
   const to103b = device([]);
   await restoreBackup(to103b.request, newFile);

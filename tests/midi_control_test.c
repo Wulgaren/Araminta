@@ -587,7 +587,7 @@ static int pc_test(void)
         bad += check("  FM6: 0..7 its presets (PC 4: PAD, SLOT F5, its DTUN)", ok);
         pc(1, 8); frame();
         ok = f->p[P_E7] == 4 && fm6_slot[1] == 4u;
-        fm6_bank_used[0] = 1u | 1u << 5;
+        fm6_bank_used = 1u | 1u << 5;
         fm6_bank_read = pc_bank_read;
         pc(1, 8); frame();
         fm6_unpack(FM6_FACTORY[2], v);
@@ -601,7 +601,7 @@ static int pc_test(void)
         ok &= f->p[P_E7] == (int16_t)(FM6_OWN + 6u);
         pc(1, 0); frame();
         ok &= f->p[P_E7] == 0 && fm6_slot[1] == 0u && f->p[P_E6] == 0;
-        fm6_bank_used[0] = 0;
+        fm6_bank_used = 0;
         fm6_bank_read = 0;
         bad += check("  FM6: 8.. the voice bank B1..B32 through SLOT (the rest stays), an empty or no bank ignored", ok);
     }
