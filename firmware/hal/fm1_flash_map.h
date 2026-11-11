@@ -7,8 +7,8 @@
  * Ranges, low to high (the AC79's 1 MiB part):
  *   0x004000..0x093000  the app area (the loader writes only this), fm1pkg_make.py APP_SLOT
  *   0x093000..0x097000  the gap: four sectors between the app and the store. Autosave B takes the first two
- *                       (0x93000..0x94FFF); the third user-preset bank takes the last two (0x95000..0x96FFF, A/B).
- *                       Readable through the plaintext window (fl_plain_window_init), Felucca's since 3.10
+ *                       (0x93000..0x94FFF); 0x95000..0x96FFF stay free for a later choice. Readable through the
+ *                       plaintext window (fl_plain_window_init), Felucca's since 3.10
  *   0x097000..0x0E0000  the main store: projects, user samples (80 KiB x 3), user presets
  *   0x0E0000..0x0E5000  the update loader's staging (ota.c), never a storage object
  *   0x0E5000..0x0E7000  autosave A (two sectors); 0x0E7000..0x0E8000 the FM6 voice bank

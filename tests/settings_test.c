@@ -5,7 +5,7 @@
 #include <assert.h>
 #define __attribute__(x)
 #define NENGINES 9u
-#define UP_SLOTS 48u
+#define UP_SLOTS 32u
 #define ENGI_SAMPLE 4u                           /* (core.h: SAMPLE, DRUM, the retired PERC set) */
 #define ENGI_DRUM 10u
 #define ENGI_SLICE 13u                           /* (core.h: retired SLICE; its favourites row is reserved unused) */

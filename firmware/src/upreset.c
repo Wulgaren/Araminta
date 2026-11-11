@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* User presets (editor protocol v2, cmds 16-21; the SAVE > USER page): 48
- * slots in three storage.c objects (OBJ_UPRESET0/1 at 0xDC000..0xDFFFF, OBJ_UPRESET2 at
- * 0x95000..0x96FFF in the gap), 16 records each, mirrored in RAM so browsing never
+/* User presets (editor protocol v2, cmds 16-21; the SAVE > USER page): 32
+ * slots in two storage.c objects (OBJ_UPRESET0/1, A/B sectors at
+ * 0xDC000..0xDFFFF), 16 records each, mirrored in RAM so browsing never
  * reads flash. A record: engine, name, the instrument parameters, a 16-step
  * pattern (factory PATTERNS[] format). An FM6 sound's patch is kept beside the record (up_fm6.c, since 1.0.3:
  * the record itself is unchanged). Loading one loads the sound only; its pattern
@@ -66,14 +66,9 @@ typedef struct {
 } up_bank_t;
 _Static_assert(sizeof(up_rec_t) == 192, "user preset record layout");
 _Static_assert(P_COUNT <= UP_PMAX * 2u && P_COUNT < 128, "user preset record: P_COUNT");
-_Static_assert(UP_SLOTS / UP_PER_BANK == 3u, "three user-preset banks");
-static up_bank_t up_bank[UP_SLOTS / UP_PER_BANK] __attribute__((section(".pool")));   /* (main loop only; +3080 B) */
+static up_bank_t up_bank[UP_SLOTS / UP_PER_BANK] __attribute__((section(".pool")));   /* (main loop only) */
 
 static up_rec_t *up_rec(uint32_t k) { return &up_bank[k / UP_PER_BANK].r[k % UP_PER_BANK]; }
-#if FELUCCA_FLASH
-/* bank index 0..2 -> storage object (bank 2 is OBJ_UPRESET2 so FM6BANK/UPFM6/AUTOSAVE type ids stay put) */
-static uint32_t up_obj(uint32_t b) { return b < 2u ? OBJ_UPRESET0 + b : OBJ_UPRESET2; }
-#endif
 
 /* 1.2 (Discussion #90): the sound's category (category.c CAT_*) in the record's last byte, packed[UP_CAT_AT]: a
  * version 4 / 5 record's values take np = P_COUNT (< 128) of its 144 bytes and nothing reads the others (up_valid
@@ -366,7 +361,7 @@ static void up_boot(void)                      /* persist_boot: the banks from f
 #if FELUCCA_FLASH
     uint32_t b;
     for (b = 0; b < UP_SLOTS / UP_PER_BANK; b++)
-        up_bank_check(b, flash_ok ? st_load(up_obj(b), &up_bank[b], sizeof up_bank[b]) : -1);
+        up_bank_check(b, flash_ok ? st_load(OBJ_UPRESET0 + b, &up_bank[b], sizeof up_bank[b]) : -1);
 #endif
     upf_boot();                                  /* (after the banks: it may move the retired FM6 bank's patches) */
     fvb_boot();                                  /* FM6's voice bank: a staged one finished, its voices */
@@ -407,7 +402,7 @@ static int up_put(uint32_t k, const up_rec_t *r)
     else
         memset(up_rec(k), 0, sizeof(up_rec_t));
 #if FELUCCA_FLASH
-    if (flash_ok && st_save(up_obj(k / UP_PER_BANK), bk, sizeof *bk)) {
+    if (flash_ok && st_save(OBJ_UPRESET0 + k / UP_PER_BANK, bk, sizeof *bk)) {
         *up_rec(k) = old;
         bk->magic = magic;
         bk->rsize = rsize;

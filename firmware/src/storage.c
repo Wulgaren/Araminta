@@ -20,24 +20,22 @@
 
 /* flash map (hal/fm1_flash_map.h has the constants and the write windows): the app area 0x4000..0x93000, then the
  * gap 0x93000..0x97000 (four sectors; Felucca's since 3.10). Autosave B takes 0x93000..0x94FFF (two sectors); the
- * third user-preset bank (OBJ_UPRESET2) takes 0x95000..0x96FFF (A/B, one sector a copy). Settings 0xFC000; projects
- * 0x97000..0x9EFFF (3.10: single-copy, two sectors a slot; same eight sectors as the old A/B pairs); user sample slots
- * 0xA0000..0xDBFFF (eng_sample.c: 80 KiB x 3); user preset banks 0 and 1 at 0xDC000..0xDFFFF (upreset.c); the user
- * presets' FM6 patches (up_fm6.c, since 1.0.3): copy A 0x9F000, copy B 0xFE000; the autosave (project.c, 3.10 option
- * 2): A 0xE5000..0xE6FFF (two sectors, grew in place), B in the gap, so a 4096 B FUN20 wire fits with A/B kept; OTA
- * staging 0xE0000..0xE4FFF. The FM6 voice bank (1.4.1, fm6_vbank.c): 0xE7000 (untouched); a new bank is first staged
- * in the autosave's older copy (fm6_vbank.c). Pre-3.10 autosave B lived at 0xE6000 (one sector); st_autosave_migrate
- * moves a still-valid copy into the gap before A can erase that sector. Those two sectors at 0x9F000 / 0xFE000 also
- * held the FM6 patch bank of 1.0..1.0.2 (OBJ_FM6BANK, retired). OBJ_UPRESET2 is appended after OBJ_AUTOSAVE so the
- * on-flash type ids of FM6BANK / UPFM6 / AUTOSAVE stay put. */
+ * remaining 0x95000..0x96FFF stay free. Settings 0xFC000; projects 0x97000..0x9EFFF (3.10: single-copy, two sectors a
+ * slot; same eight sectors as the old A/B pairs); user sample slots 0xA0000..0xDBFFF (eng_sample.c: 80 KiB x 3);
+ * user preset banks 0xDC000..0xDFFFF (upreset.c); the user presets' FM6 patches (up_fm6.c, since 1.0.3): copy A
+ * 0x9F000, copy B 0xFE000; the autosave (project.c, 3.10 option 2): A 0xE5000..0xE6FFF (two sectors, grew in place),
+ * B in the gap, so a 4096 B FUN20 wire fits with A/B kept; OTA staging 0xE0000..0xE4FFF. The FM6 voice bank (1.4.1,
+ * fm6_vbank.c): 0xE7000 (untouched); a new bank is first staged in the autosave's older copy (fm6_vbank.c). Pre-3.10
+ * autosave B lived at 0xE6000 (one sector); st_autosave_migrate moves a still-valid copy into the gap before A can
+ * erase that sector. Those two sectors at 0x9F000 / 0xFE000 also held the FM6 patch bank of 1.0..1.0.2 (OBJ_FM6BANK,
+ * retired). */
 enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_UPFM6,
-       OBJ_AUTOSAVE, OBJ_UPRESET2, OBJ_COUNT };
+       OBJ_AUTOSAVE, OBJ_COUNT };
 #define OBJ_FM6VB 32u                          /* the voice bank's commit records (fm6_vbank.c; >= OBJ_COUNT: st_load
                                                 * never takes one, no object here takes its sectors) */
 #define ST_AUTO_A 0xE5000u                     /* autosave A base (two sectors through 0xE6FFF) */
 #define ST_AUTO_B 0x93000u                     /* autosave B base in the gap (two sectors through 0x94FFF) */
 #define ST_AUTO_LEGACY_B 0xE6000u              /* pre-3.10 one-sector B; A's second sector after the split */
-#define ST_UP2_A 0x95000u                      /* third user-preset bank A/B (one sector each) */
 
 typedef struct {
     uint32_t magic;
@@ -75,9 +73,7 @@ static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy 
         return copy ? 0xFE000u : 0x9F000u;
     if (obj == OBJ_AUTOSAVE)
         return copy ? ST_AUTO_B : ST_AUTO_A;            /* split: A above OTA, B in the gap */
-    if (obj == OBJ_UPRESET2)
-        return ST_UP2_A + copy * ST_SECTOR;            /* third bank: gap 0x95000 / 0x96000 */
-    if (obj >= OBJ_UPRESET0 && obj < OBJ_FM6BANK)       /* banks 0 and 1 only (type ids 5 and 6) */
+    if (obj >= OBJ_UPRESET0)
         return 0xDC000u + (obj - OBJ_UPRESET0) * 2u * ST_SECTOR + copy * ST_SECTOR;
     return 0x97000u + (obj - OBJ_PROJECT0) * 2u * ST_SECTOR + copy * ST_SECTOR;
 }
@@ -159,23 +155,9 @@ static int st_save_to(uint32_t obj, const void *src, uint32_t len, int to)
     uint32_t seq, base, off, nsec;
     int cur, rc, single;
     st_hdr_t h;
-    int from_buf = src == (const void *)st_buf;          /* payload already in st_buf (e.g. upf_pack) */
     if (obj >= OBJ_COUNT || len > st_pmax(obj) || to > 1)
         return -1;
-    if (from_buf) {
-        /* headers only: st_current's st_body would clobber the packed payload in st_buf */
-        st_hdr_t a, b;
-        int va = st_head(obj, 0, &a) == 0, vb = st_head(obj, 1, &b) == 0;
-        if (vb && (!va || (b.seq != a.seq && b.seq - a.seq < 0x80000000u))) {
-            cur = 1; h = b;
-        } else if (va) {
-            cur = 0; h = a;
-        } else if (vb) {
-            cur = 1; h = b;
-        } else
-            cur = -1;
-    } else
-        cur = st_current(obj, &h);
+    cur = st_current(obj, &h);
     seq = cur < 0 ? 0u : h.seq;
     nsec = st_sectors(obj);
     single = (obj >= OBJ_PROJECT0 && obj < OBJ_UPRESET0);   /* projects: one copy, destructive */
@@ -185,9 +167,8 @@ static int st_save_to(uint32_t obj, const void *src, uint32_t len, int to)
         to = cur == 0 ? 1 : 0;                            /* A/B: write the other copy */
     }
     base = st_sector(obj, (uint32_t)to);
-    if (!from_buf)
-        for (off = 0; off < len; off++)
-            st_buf[off] = ((const uint8_t *)src)[off];    /* the driver wants RAM sources */
+    for (off = 0; off < len; off++)
+        st_buf[off] = ((const uint8_t *)src)[off];    /* the driver wants RAM sources */
     for (off = 0; off < nsec; off++)
         if ((rc = st_erase(base + off * ST_SECTOR)) != 0)
             return rc;

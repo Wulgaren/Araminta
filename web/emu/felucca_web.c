@@ -411,8 +411,8 @@ EXPORT uint32_t web_bk_import(uint32_t id, uint32_t len)
         return st_save(OBJ_SETTINGS, web_bk_buf, len) ? 3u : 0u;
     if (id >= 2u && id <= 5u)
         return st_save(OBJ_PROJECT0 + id - 2u, web_bk_buf, len) ? 3u : 0u;
-    if (id == 6u || id == 7u || id == 10u)
-        return st_save(id == 10u ? OBJ_UPRESET2 : OBJ_UPRESET0 + id - 6u, web_bk_buf, len) ? 3u : 0u;
+    if (id == 6u || id == 7u)
+        return st_save(OBJ_UPRESET0 + id - 6u, web_bk_buf, len) ? 3u : 0u;
     if (id == 8u)
         return len ? 4u : 0u;                    /* the FM6 bank of 1.0..1.0.2: current backups carry it empty */
     if (id == 9u)

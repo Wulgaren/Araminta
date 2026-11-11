@@ -34,7 +34,7 @@
 #define ENGI_WT 14u              /* WAVETABLE (eng_wt.c) */
 #define ENGI_DRUMS 15u           /* DRUMS: the ported Felucca drum engine (eng_drums.c) */
 #define NENG_SHOWN 14u           /* pickable: ANALOG FM6 WAVETABLE PHASE LOFI VOICE TRIO WHEEL PHYS NOISE GRAIN SAMPLE DRUM DRUMS */
-#define UP_SLOTS 48u             /* user presets (upreset.c): three banks of 16 */
+#define UP_SLOTS 32u             /* user presets (upreset.c) */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
 /* ------------------------------------------------------- parameters --- */

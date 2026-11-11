@@ -11,8 +11,8 @@ load. The four 4 KiB `.noinit` wire caches are gone; a 44 B RAM summary per slot
 PROJECTS. A torn project save clears that slot (autosave is the recovery path). The autosave is a split A/B
 pair at full 4096 B (lane and motion 89..127 included): A grows in place at `0xE5000..0xE6FFF` (two sectors),
 B takes `0x93000..0x94FFF` in the gap; user samples stay 80 KiB × 3. A pre-3.10 one-sector B at `0xE6000`
-migrates into the gap on boot. `0xE7000` (FM6 voice bank) and `0xE8000` stay untouched. Older 3840 B backups
-and field files still restore.
+migrates into the gap on boot. `0x95000..0x96FFF`, `0xE7000` (FM6 voice bank), and `0xE8000` stay untouched.
+Older 3840 B backups and field files still restore.
 
 Punch-in buffer borrow: taking sl_buf for REPEAT/REVERSE/FREEZE/TAPE/OCT/GLITCH now drops MASTER STUT
 takes as well as the tracks' (slicer_drop_all), so a master recording cannot read the punch's loop.
@@ -27,13 +27,11 @@ MENU > SYSTEM > **BOOT RESTORE** (was RESTORE LAST; editor id 15 unchanged). The
 same idle / quiet / once-a-minute rules whether the setting is ON or OFF. OFF only skips power-on restore
 (power-on sounds; the flash copy stays for later). ON still shows RESTORED when a valid autosave loads.
 
-### Third user-preset bank (48 slots)
+### FM6 SLOT 0..104 (three banks × 32)
 
-`UP_SLOTS` is 48: banks 0/1 stay at `0xDC000..0xDFFFF`, bank 2 (A/B) takes the remaining gap
-`0x95000..0x96FFF`. Backup id **10** is that bank. User-preset FM6 patches grow to 48 slots in RAM; flash stays
-one sector via a packed ver-2 image (legacy 32-slot ver-1 still loads). Favourites for slots 32..47 use the
-reserved settings row so the settings record size is unchanged. No extra FM6 voice banks: SLOT stays B1..B32,
-INFO `56 01 32`.
+FM6's SLOT runs to 104 with `N_FM6_PATCH` names F1..F8, OWN, B1..B96. INFO advertises `56 01 60` (96 voices).
+Bank 0 still lives at `0xE7000`; banks 1..2 are addressable in SLOT but empty until the gap is provisioned.
+Stored bank SLOT values still load as OWN (`param_fit`).
 
 EFFECTS > TAPE now starts as MASTER at MIX 100 %: at SPEED 100 the head is idle, so a power-on instrument and a
 new project sound the same as before, and the whole mix follows SPEED / FLUTR / DROPOUT without raising MIX
