@@ -77,6 +77,7 @@ until it prints `ALL HOST TESTS PASSED`.
 | DRUMS engine (`eng_drums.c`, `drums_voice.c`) | `drums_test` (also `regress` for presets/CPU) |
 | ANALOG filter / ENV SYNC / sound 1.5 | `sound15_test` |
 | insert chain / FX order | `inschain_test` |
+| every FX stage in CHAIN / SEND / MASTER | `fx_route_test` |
 | motion / ARP / song | `motion_test` |
 | locks / special ids / PITCH / FX motion | `param_contract_test` |
 | projects / FUN migration | `project_test` |

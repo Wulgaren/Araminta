@@ -9357,7 +9357,7 @@ static int test_fx_sections(void)
              str_eq(N_ISTAGE[INS_SLCR], "SLICER") && str_eq(N_ISTAGE[INS_TAPE], "TAPE") &&
              str_eq(fx_list_mode(TSEL, INS_DLY), "SEND") &&
              str_eq(fx_list_mode(TSEL, INS_SLCR), "SEND") &&
-             str_eq(fx_list_mode(TSEL, INS_TAPE), "SEND") &&
+             str_eq(fx_list_mode(TSEL, INS_TAPE), "MASTER") &&
              text_w(&AF_S, "FLANGER") == text_w(&AF_S, "DISTORT") &&
              text_w(&AF_S, N_ISTAGE[INS_DIST]) <= text_w(&AF_S, "FLANGER") &&
              text_w(&AF_S, N_ISTAGE[INS_PHASR]) <= text_w(&AF_S, "FLANGER") &&
@@ -9403,7 +9403,7 @@ static int test_fx_sections(void)
             ok &= song.g[G_TAPEMODE] == TAPE_MASTER && str_eq(fx_list_mode(TSEL, INS_TAPE), "MASTER");
             {   /* MASTER's K4 is the one global amount (G_TMIX); the track's P_TAPEMIX stays put */
                 int16_t gm = song.g[G_TMIX], pm = TSEL->p[P_TAPEMIX];
-                turn(EN_K4, 8);
+                turn(EN_K4, -8);                     /* (100 % by default: down) */
                 ok &= song.g[G_TMIX] != gm && TSEL->p[P_TAPEMIX] == pm;
             }
             turn(EN_K3, 1);                             /* MASTER: right stays MASTER (no wrap) */
