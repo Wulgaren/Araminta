@@ -1,10 +1,13 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-# Fetch the three JieLi AC79 SDK files a package needs (Apache-2.0) into DEST.
+# Fetch the JieLi AC79 SDK files a package needs (Apache-2.0) into DEST.
 #   tools/get_sdk.sh [DEST]        (default: build/deps/ac79)
 # Only cpu/wl82/tools/{uboot.boot,cfg_tool.bin,cfg/eq_cfg_hw.bin} from the
 # AC79NN_SDK_V1.2.1_2023-12-13 tag are kept; the 1 GB checkout is temporary.
+# Also wl82loader.bin (the same tag's RAM recovery helper), which
+# tools/fm1_flash_dump.py loads into RAM to read flash over ROM UBOOT. Packages do not
+# need it; a checkout made before it was added re-fetches once to pick it up.
 set -e
 root="$(cd "$(dirname "$0")/.." && pwd)"
 dest="${1:-$root/build/deps/ac79}"
@@ -25,13 +28,15 @@ check() {   # check FILE SHA
     [ "$actual" = "$2" ] || { echo "get_sdk: $1: SHA-256 $actual, expected $2" >&2; return 1; }
 }
 
-verify() {  # the three files against the SHAs build.py pins
+verify() {  # the files against the SHAs build.py pins, plus the recovery loader
     check "$dst/uboot.boot" 4e3b4c220dc96641cb5a723f41e68ce41d5261ae9434bb33fbd7f2c59976ded4 &&
         check "$dst/cfg_tool.bin" 276579954f076886a6a7694f65dc71c034a63a2c204b76749065c0ac7b010d1b &&
-        check "$dst/cfg/eq_cfg_hw.bin" 41167491bffed4651750719c973d2758adeb9021a5670d02d6a53c85ed80ea7d
+        check "$dst/cfg/eq_cfg_hw.bin" 41167491bffed4651750719c973d2758adeb9021a5670d02d6a53c85ed80ea7d &&
+        check "$dst/wl82loader.bin" d9de9f1c81a3bb52998e5bced678f0ca851223014a7d43965b03f0719a44eb55
 }
 
-if [ -f "$dst/uboot.boot" ] && [ -f "$dst/cfg_tool.bin" ] && [ -f "$dst/cfg/eq_cfg_hw.bin" ] && verify; then
+if [ -f "$dst/uboot.boot" ] && [ -f "$dst/cfg_tool.bin" ] && [ -f "$dst/cfg/eq_cfg_hw.bin" ] && \
+    [ -f "$dst/wl82loader.bin" ] && verify; then
     echo "get_sdk: $dest is in place"
     exit 0
 fi
@@ -53,5 +58,6 @@ mkdir -p "$dst/cfg"
 cp "$tmp/sdk/cpu/wl82/tools/uboot.boot" "$dst/uboot.boot"
 cp "$tmp/sdk/cpu/wl82/tools/cfg_tool.bin" "$dst/cfg_tool.bin"
 cp "$tmp/sdk/cpu/wl82/tools/cfg/eq_cfg_hw.bin" "$dst/cfg/eq_cfg_hw.bin"
+cp "$tmp/sdk/cpu/wl82/tools/wl82loader.bin" "$dst/wl82loader.bin"
 verify
 echo "AC79_SDK=$dest"

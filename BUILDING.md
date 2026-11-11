@@ -226,3 +226,31 @@ cd /tmp/felucca-site && python3 -m http.server 8000
 
 Installing firmware is at your own risk. If an install fails and the FM-1 no longer
 starts, recovery needs [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter).
+
+### Back up the SDK VM before a build that claims the gap
+
+Some builds claim the four sectors at `0x93000..0x97000`. They are the first 16 KiB of the
+stock firmware's declared SDK VM region, and on some units stock V15 keeps its VM there: a
+per-device radio calibration (crystal trims, PA current, TX/RX offsets, records 106 107 108
+187). Araminta does not use the radio, but the calibration cannot be recreated, and M-VAVE's
+own updater will not put it back, because it writes only `[0x4000, 0x93000)`.
+
+So read the flash first, over the chip's ROM UBOOT, and keep what it writes:
+
+```
+tools/get_sdk.sh                                    # once: also fetches wl82loader.bin
+python3 tools/fm1_flash_dump.py --out ~/fm1-backup-$(date +%F)
+```
+
+It writes `full-flash.bin` (the whole 1 MiB), `vm-gap.bin` (`0x93000..0x97000`),
+`vm-e8000.bin` (`0x0E8000..0x0E9000`) and `backup.json`, and verifies every file before it
+returns. It only reads flash; there is no write path. Each VM area gets a verdict:
+
+| verdict | meaning |
+| --- | --- |
+| `usable` | a live VM: keep the file, this is the unit's calibration |
+| `empty` | all `0xFF`: nothing stored there, claiming the gap loses nothing |
+| `unrecognised` | data but not a parsable VM: keep the file and do not assume the gap is free |
+
+The tool needs PyUSB and libusb (`pip3 install pyusb`, `brew install libusb`). It also works
+on an image already on disk: `python3 tools/fm1_flash_dump.py --verify IMAGE.bin`.

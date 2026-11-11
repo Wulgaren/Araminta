@@ -43,6 +43,7 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
     return 0;
 }
 #include "../firmware/src/storage.c"
+#include "../firmware/hal/fm1_flash_map.h"   /* pure arithmetic: the regions, no registers */
 
 static int check(const char *what, int ok)
 {
@@ -272,6 +273,27 @@ int main(void)
         }
         bad += check("a gap save cut at every byte keeps the untouched copy whole", ok);
         bad += check("a cut in the SPL's record tail leaves no commit record behind", tail_ok);
+    }
+    {   /* ---- sector ownership: every object's A/B sector is one the map claims --------------------
+         * AM-3: the invariant that matters. A save erases a whole sector, so an st_sector() that lands
+         * outside a claimed region, or on the stock firmware's VM, destroys data that is not ours. This
+         * enumerates every object at both copies rather than trusting the arithmetic in st_sector. */
+        int land = 1, reserved = 1, in_gap = 1;
+        uint32_t obj, copy;
+        for (obj = 0; obj < OBJ_COUNT; obj++)
+            for (copy = 0; copy < 2u; copy++) {
+                uint32_t sec = st_sector(obj, copy);
+                land &= FL_STORE_OK(sec, 0x1000u);
+                /* 0xE8000..0xFBFFF: the stock VM 0xE8000, BTIF 0xE9000 and USR 0xEA000..0xFBFFF are never an
+                 * object's (fm1_flash_map.h; Melodee measured the live VM at 0xE8000 on an FM-1) */
+                if (sec >= 0xE8000u && sec < 0xFC000u)
+                    reserved = 0;
+                if (sec >= FL_GAP_LO && sec < FL_GAP_HI)
+                    in_gap = 0;
+            }
+        bad += check("every object at both copies lands in a region the map claims", land);
+        bad += check("no object lands on the stock VM / BTIF / USR band 0xE8000..0xFBFFF", reserved);
+        bad += check("no object claims the gap 0x93000..0x97000 yet (add one -> change this line)", in_gap);
     }
     printf("%s\n", bad ? "STORAGE TEST FAILED" : "storage test passed");
     return bad != 0;
