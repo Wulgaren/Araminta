@@ -162,7 +162,7 @@ if (nativePath) {                                             // web/emu/native_
 
 // ---- a device backup: the live project into the autosave, and a fresh instance restores it
 const projLen = a.ex.web_project();
-check("backup: the live project packs", projLen === 3840);
+check("backup: the live project packs", projLen === 4096);
 const projBuf = a.ex.web_bk_buf_ptr();
 const proj = new Uint8Array(a.mem.buffer, projBuf, projLen).slice();
 new Uint8Array(a.mem.buffer, projBuf, projLen).set(proj);

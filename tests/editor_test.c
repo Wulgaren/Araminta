@@ -46,6 +46,8 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 static void panel_setup(void) {}
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
+/* 3.10: FELUCCA_FLASH 0 keeps a test-only wire image per slot (project.c extern). */
+project_store_t proj_slot[4];
 
 static uint32_t flash_ok = 1;
 static void audio_silence(void) {}
