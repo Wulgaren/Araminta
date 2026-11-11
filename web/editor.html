@@ -449,7 +449,7 @@ const INFO_LEN = { [INFO_TAG.UI]: 1, [INFO_TAG.MOTION]: 2, [INFO_TAG.MOTION_POOL
 const MOTION_MAX_SANE = 1024;                     /* reject 0 / absurd; MOTION_MAX is the device's pool (FUN16) */
 /* core.h: the motion store and the ids that are not p[] parameters (EDITOR_PROTOCOL.md "MOTION") */
 const MOTION_MAX = 192;                          /* RAM records (core.h MOTION_MAX); a project saves MOTION_FILE_MAX */
-const MOTION_FILE_MAX = 88;                      /* core.h MOTION_FILE_MAX (FUN16) */
+const MOTION_FILE_MAX = 128;                     /* core.h MOTION_FILE_MAX (FUN20) */
 const MSEQ_PITCH = 127;                          /* a step's chromatic offset: lock-only, never indexes p[] */
 const MFX_TIME = 49, MFX_DAMP = 53;              /* MFX_TIME..MFX_DAMP: the DLY / REV bus targets (P_M1SRC..P_M2DST) */
 const MFX_TSPEED = 41, MFX_TWOW = 42;             /* motion-only TAPE targets reuse P_TAPEMIX / P_LSMOOTH */
