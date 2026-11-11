@@ -1027,7 +1027,7 @@ the device's autosave took the transfer's flash between two requests, after 10 s
 - A track on a bank slot when a new bank arrives keeps the voice it played, as its own patch: SLOT becomes OWN.
 - The editor's import (6-OP FM tab): a 32-voice file's voices, each packed as for a single voice (every value into
   its range); an empty slot of a shorter file is not written. Flash: the bank is at 0xE7000; a transfer is staged in
-  the autosave's older sector first (0xE5000 / 0xE6000), which the next autosave writes over anyway.
+  the autosave's older copy first (A at 0xE5000 or B at 0x93000), which the next autosave writes over anyway.
 
 ## Tagged device preferences v1
 

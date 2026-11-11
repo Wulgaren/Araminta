@@ -19,19 +19,23 @@
 #define ST_PAYLOAD_SECTOR (ST_SECTOR - ST_PAYLOAD_OFF)     /* a one-sector object's payload (3840) */
 
 /* flash map (hal/fm1_flash_map.h has the constants and the write windows): the app area 0x4000..0x93000, then the
- * gap 0x93000..0x97000 (four sectors the app area leaves free; Felucca's since 3.10, no firmware used them before),
- * then settings 0xFC000, projects
- * 0x97000..0x9EFFF (3.10: single-copy, two sectors a slot; same eight sectors as the old A/B pairs), user sample slots
- * 0xA0000..0xDBFFF (eng_sample.c: 80 KiB x 3), user preset banks 0xDC000..0xDFFFF (upreset.c), the user presets' FM6
- * patches (up_fm6.c, since 1.0.3): copy A 0x9F000, copy B 0xFE000; the autosave (project.c, 1.2): A 0xE5000, B 0xE6000
- * (one sector a copy / 3840 B payload until a placement for a 4096 B A/B pair is chosen — sample shrink is parked),
- * above the OTA staging (0xE0000..0xE4FFF). The FM6 voice bank (1.4.1, fm6_vbank.c): 0xE7000; a new bank is first
- * staged in the autosave's older copy (fm6_vbank.c). Those two sectors at 0x9F000 / 0xFE000 also held the FM6 patch
- * bank of 1.0..1.0.2 (OBJ_FM6BANK, retired). */
+ * gap 0x93000..0x97000 (four sectors; Felucca's since 3.10). Autosave B takes 0x93000..0x94FFF (two sectors); the
+ * remaining 0x95000..0x96FFF stay free. Settings 0xFC000; projects 0x97000..0x9EFFF (3.10: single-copy, two sectors a
+ * slot; same eight sectors as the old A/B pairs); user sample slots 0xA0000..0xDBFFF (eng_sample.c: 80 KiB x 3);
+ * user preset banks 0xDC000..0xDFFFF (upreset.c); the user presets' FM6 patches (up_fm6.c, since 1.0.3): copy A
+ * 0x9F000, copy B 0xFE000; the autosave (project.c, 3.10 option 2): A 0xE5000..0xE6FFF (two sectors, grew in place),
+ * B in the gap, so a 4096 B FUN20 wire fits with A/B kept; OTA staging 0xE0000..0xE4FFF. The FM6 voice bank (1.4.1,
+ * fm6_vbank.c): 0xE7000 (untouched); a new bank is first staged in the autosave's older copy (fm6_vbank.c). Pre-3.10
+ * autosave B lived at 0xE6000 (one sector); st_autosave_migrate moves a still-valid copy into the gap before A can
+ * erase that sector. Those two sectors at 0x9F000 / 0xFE000 also held the FM6 patch bank of 1.0..1.0.2 (OBJ_FM6BANK,
+ * retired). */
 enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_UPFM6,
        OBJ_AUTOSAVE, OBJ_COUNT };
 #define OBJ_FM6VB 32u                          /* the voice bank's commit records (fm6_vbank.c; >= OBJ_COUNT: st_load
                                                 * never takes one, no object here takes its sectors) */
+#define ST_AUTO_A 0xE5000u                     /* autosave A base (two sectors through 0xE6FFF) */
+#define ST_AUTO_B 0x93000u                     /* autosave B base in the gap (two sectors through 0x94FFF) */
+#define ST_AUTO_LEGACY_B 0xE6000u              /* pre-3.10 one-sector B; A's second sector after the split */
 
 typedef struct {
     uint32_t magic;
@@ -68,19 +72,18 @@ static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy 
     if (obj == OBJ_FM6BANK || obj == OBJ_UPFM6)          /* (the same pair: see the flash map) */
         return copy ? 0xFE000u : 0x9F000u;
     if (obj == OBJ_AUTOSAVE)
-        return 0xE5000u + copy * ST_SECTOR;
+        return copy ? ST_AUTO_B : ST_AUTO_A;            /* split: A above OTA, B in the gap */
     if (obj >= OBJ_UPRESET0)
         return 0xDC000u + (obj - OBJ_UPRESET0) * 2u * ST_SECTOR + copy * ST_SECTOR;
     return 0x97000u + (obj - OBJ_PROJECT0) * 2u * ST_SECTOR + copy * ST_SECTOR;
 }
 
 /* Sectors one copy of an object spans. A project is single-copy (no B) and two sectors, so slot k still
- * occupies the two sectors that used to be its A and B: the eight project sectors do not move. Every
- * other object (including the autosave) is one sector per copy, A/B — until a 4096 B autosave placement
- * is chosen without shrinking samples. */
+ * occupies the two sectors that used to be its A and B: the eight project sectors do not move. The
+ * autosave is also two sectors a copy (4096 B FUN20 wire); every other object stays one sector per copy. */
 static uint32_t st_sectors(uint32_t obj)
 {
-    return (obj >= OBJ_PROJECT0 && obj < OBJ_UPRESET0) ? 2u : 1u;
+    return (obj == OBJ_AUTOSAVE || (obj >= OBJ_PROJECT0 && obj < OBJ_UPRESET0)) ? 2u : 1u;
 }
 
 /* the largest payload this object can hold (its own sectors, less the commit record) */
@@ -194,3 +197,41 @@ static int st_save_to(uint32_t obj, const void *src, uint32_t len, int to)
 }
 
 static int st_save(uint32_t obj, const void *src, uint32_t len) { return st_save_to(obj, src, len, -1); }
+
+/* Pre-3.10 autosave B was one sector at 0xE6000. A now spans 0xE5000..0xE6FFF, so a still-valid old B must move
+ * into the gap (new B) before any 2-sector A write erases it. Idempotent and power-cut safe: a half-written gap
+ * copy fails st_head/st_body and the next boot retries; the orphan at 0xE6000 is erased only after the new copy
+ * verifies. A 2-sector A image already owns 0xE6000 (len > 3840), so that case is left alone. Call after fvb_boot
+ * so a bank staged in the old B sector is finished first. */
+static void st_autosave_migrate(void)
+{
+    st_hdr_t leg, a, chk;
+    uint32_t off, n;
+    int rc;
+    if (st_read(ST_AUTO_LEGACY_B, &leg, sizeof leg))
+        return;
+    if (leg.magic != ST_MAGIC || leg.type != OBJ_AUTOSAVE || leg.slot != 1u || leg.len == 0u ||
+        leg.len > ST_PAYLOAD_SECTOR || leg.hcrc != st_crc32(&leg, sizeof leg - 4u))
+        return;
+    if (st_head(OBJ_AUTOSAVE, 0, &a) == 0 && a.len > ST_PAYLOAD_SECTOR)
+        return;                                          /* 0xE6000 is already A's second sector */
+    if (st_read(ST_AUTO_LEGACY_B + ST_PAYLOAD_OFF, st_buf, leg.len) || st_crc32(st_buf, leg.len) != leg.crc)
+        return;
+    if (st_head(OBJ_AUTOSAVE, 1, &chk) == 0) {           /* gap B already holds a copy: drop the orphan */
+        st_erase(ST_AUTO_LEGACY_B);
+        return;
+    }
+    for (off = 0; off < 2u; off++)
+        if ((rc = st_erase(ST_AUTO_B + off * ST_SECTOR)) != 0)
+            return;
+    for (off = 0; off < leg.len; off += 256u) {
+        n = leg.len - off > 256u ? 256u : leg.len - off;
+        if ((rc = st_prog(ST_AUTO_B + ST_PAYLOAD_OFF + off, st_buf + off, n)) != 0)
+            return;
+    }
+    if ((rc = st_prog(ST_AUTO_B, &leg, sizeof leg)) != 0) /* same seq / slot 1 */
+        return;
+    if (st_head(OBJ_AUTOSAVE, 1, &chk) || memcmp(&chk, &leg, sizeof leg) || st_body(OBJ_AUTOSAVE, 1, &chk))
+        return;
+    st_erase(ST_AUTO_LEGACY_B);
+}
