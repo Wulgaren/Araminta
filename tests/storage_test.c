@@ -155,19 +155,26 @@ int main(void)
                      st_sector(OBJ_PROJECT0 + 3, 1) + 4096 == 0x9F000u && st_sector(OBJ_UPFM6, 1) == 0xFE000u &&
                      st_sector(OBJ_FM6BANK, 0) == 0x9F000u && st_sector(OBJ_FM6BANK, 1) == 0xFE000u &&
                      st_sector(OBJ_SETTINGS, 1) + 4096 == 0xFE000u);
-    /* the autosave (1.2, project.c): its own pair 0xE5000 / 0xE6000, above the OTA staging, apart from every other
-     * object; a save there touches no other object */
+    /* the autosave (3.10): A at 0xE5000..0xE6FFF (two sectors), B at 0x93000..0x94FFF in the gap; a save there
+     * touches no other object (VBANK, samples, remaining gap 0x95000..0x96FFF, store) */
     {
         uint32_t o, c, ok = OBJ_AUTOSAVE == OBJ_COUNT - 1 && st_sector(OBJ_AUTOSAVE, 0) == 0xE5000u &&
-                               st_sector(OBJ_AUTOSAVE, 1) == 0xE6000u;
+                               st_sector(OBJ_AUTOSAVE, 1) == 0x93000u && st_sectors(OBJ_AUTOSAVE) == 2u &&
+                               st_pmax(OBJ_AUTOSAVE) >= 4096u;
         static uint8_t snap[0x100000];
         for (o = 0; o < OBJ_AUTOSAVE; o++)
-            for (c = 0; c < 2u; c++)
-                ok &= st_sector(o, c) + 4096u <= 0xE5000u || st_sector(o, c) >= 0xE7000u;
+            for (c = 0; c < 2u; c++) {
+                uint32_t sec = st_sector(o, c), n = st_sectors(o);
+                ok &= sec + n * 4096u <= 0xE5000u || sec >= 0xE7000u;
+                ok &= sec + n * 4096u <= 0x93000u || sec >= 0x95000u;
+            }
         memcpy(snap, nor, sizeof nor);
         ok &= st_save(OBJ_AUTOSAVE, a, sizeof a) == 0 && st_load(OBJ_AUTOSAVE, got, sizeof got) == (int)sizeof a &&
-              !memcmp(got, a, sizeof a) && !memcmp(snap, nor, 0xE5000u) && !memcmp(snap + 0xE7000u, nor + 0xE7000u, 0x19000u);
-        bad += check("the autosave in its own sectors 0xE5000 / 0xE6000, nothing else touched", ok);
+              !memcmp(got, a, sizeof a);
+        for (o = 0; o < 0x100000u && ok; o++)
+            if (!(o >= 0xE5000u && o < 0xE7000u) && !(o >= 0x93000u && o < 0x95000u))
+                ok &= nor[o] == snap[o];
+        bad += check("the autosave in A 0xE5000 and B 0x93000 (2 sectors each), nothing else touched", ok);
     }
     {
         static uint8_t bank[3472], back[3728], tab[3728];
@@ -194,7 +201,7 @@ int main(void)
         }
     }
     {
-        /* A/B torn-write recovery: test with autosave (has A/B redundancy) */
+        /* A/B torn-write recovery: test with autosave (has A/B redundancy; A is rewritten, B in the gap stays) */
         uint8_t copies[2 * ST_SECTOR];
         uint32_t off = st_sector(OBJ_AUTOSAVE, 0), cut;
         int ok = 1;
@@ -307,22 +314,89 @@ int main(void)
          * AM-3: the invariant that matters. A save erases a whole sector, so an st_sector() that lands
          * outside a claimed region, or on the stock firmware's VM, destroys data that is not ours. This
          * enumerates every object at both copies rather than trusting the arithmetic in st_sector. */
-        int land = 1, reserved = 1, in_gap = 1;
-        uint32_t obj, copy;
+        int land = 1, reserved = 1, gap_b = 1, gap_free = 1, vbank = 1;
+        uint32_t obj, copy, s;
         for (obj = 0; obj < OBJ_COUNT; obj++)
             for (copy = 0; copy < 2u; copy++) {
-                uint32_t sec = st_sector(obj, copy);
-                land &= FL_STORE_OK(sec, 0x1000u);
-                /* 0xE8000..0xFBFFF: the stock VM 0xE8000, BTIF 0xE9000 and USR 0xEA000..0xFBFFF are never an
-                 * object's (fm1_flash_map.h; Melodee measured the live VM at 0xE8000 on an FM-1) */
-                if (sec >= 0xE8000u && sec < 0xFC000u)
-                    reserved = 0;
-                if (sec >= FL_GAP_LO && sec < FL_GAP_HI)
-                    in_gap = 0;
+                uint32_t sec = st_sector(obj, copy), nsec = st_sectors(obj);
+                for (s = 0; s < nsec; s++) {
+                    uint32_t off = sec + s * ST_SECTOR;
+                    land &= FL_STORE_OK(off, 0x1000u);
+                    /* 0xE8000..0xFBFFF: the stock VM 0xE8000, BTIF 0xE9000 and USR 0xEA000..0xFBFFF are never an
+                     * object's (fm1_flash_map.h; Melodee measured the live VM at 0xE8000 on an FM-1) */
+                    if (off >= 0xE8000u && off < 0xFC000u)
+                        reserved = 0;
+                    if (off >= 0x95000u && off < 0x97000u)   /* remaining gap: not claimed yet */
+                        gap_free = 0;
+                    if (off >= FL_VBANK_LO && off < FL_VBANK_HI)
+                        vbank = 0;
+                }
             }
+        gap_b &= st_sector(OBJ_AUTOSAVE, 1) == 0x93000u && st_sectors(OBJ_AUTOSAVE) == 2u;
         bad += check("every object at both copies lands in a region the map claims", land);
         bad += check("no object lands on the stock VM / BTIF / USR band 0xE8000..0xFBFFF", reserved);
-        bad += check("no object claims the gap 0x93000..0x97000 yet (add one -> change this line)", in_gap);
+        bad += check("autosave B claims the first two gap sectors 0x93000..0x94FFF", gap_b);
+        bad += check("the remaining gap 0x95000..0x96FFF is still unclaimed", gap_free);
+        bad += check("no storage object claims the FM6 voice bank at 0xE7000", vbank);
+    }
+    {   /* migration: a pre-3.10 one-sector B at 0xE6000 moves into the gap; A at 0xE5000 still loads */
+        static uint8_t old_a[200], old_b[200], got[200];
+        st_hdr_t h;
+        uint32_t i;
+        int ok;
+        memset(nor, 0xFF, sizeof nor);
+        for (i = 0; i < sizeof old_a; i++) {
+            old_a[i] = (uint8_t)(i * 3u + 1u);
+            old_b[i] = (uint8_t)(i * 5u + 7u);
+        }
+        /* hand-build the old one-sector pair at 0xE5000 / 0xE6000 (slot 0 / 1, seq 1 / 2) */
+        {
+            st_hdr_t ha, hb;
+            memset(&ha, 0xFF, sizeof ha);
+            ha.magic = ST_MAGIC; ha.type = OBJ_AUTOSAVE; ha.slot = 0; ha.seq = 1u; ha.len = sizeof old_a;
+            memcpy(st_buf, old_a, sizeof old_a);
+            ha.crc = st_crc32(st_buf, ha.len);
+            ha.hcrc = st_crc32(&ha, sizeof ha - 4u);
+            memcpy(nor + 0xE5000u, &ha, sizeof ha);
+            memcpy(nor + 0xE5000u + ST_PAYLOAD_OFF, old_a, sizeof old_a);
+            memset(&hb, 0xFF, sizeof hb);
+            hb.magic = ST_MAGIC; hb.type = OBJ_AUTOSAVE; hb.slot = 1; hb.seq = 2u; hb.len = sizeof old_b;
+            memcpy(st_buf, old_b, sizeof old_b);
+            hb.crc = st_crc32(st_buf, hb.len);
+            hb.hcrc = st_crc32(&hb, sizeof hb - 4u);
+            memcpy(nor + 0xE6000u, &hb, sizeof hb);
+            memcpy(nor + 0xE6000u + ST_PAYLOAD_OFF, old_b, sizeof old_b);
+        }
+        st_autosave_migrate();
+        ok = st_current(OBJ_AUTOSAVE, &h) == 1 && h.seq == 2u &&
+             st_load(OBJ_AUTOSAVE, got, sizeof got) == (int)sizeof old_b && !memcmp(got, old_b, sizeof old_b) &&
+             st_sector(OBJ_AUTOSAVE, 1) == 0x93000u &&
+             ((st_hdr_t *)(nor + 0xE6000u))->magic != ST_MAGIC;   /* orphan erased */
+        st_autosave_migrate();                                   /* idempotent */
+        ok &= st_load(OBJ_AUTOSAVE, got, sizeof got) == (int)sizeof old_b && !memcmp(got, old_b, sizeof old_b);
+        bad += check("pre-3.10 autosave B at 0xE6000 migrates into the gap and the newer copy loads", ok);
+    }
+    {   /* power-cut while rewriting the 2-sector gap B: A (0xE5000) stays whole at every byte */
+        static uint8_t big_a[4096], big_b[4096], got[4096], snap[2 * ST_SECTOR];
+        uint32_t cut, i, off = st_sector(OBJ_AUTOSAVE, 1);
+        int ok = 1;
+        for (i = 0; i < sizeof big_a; i++) {
+            big_a[i] = (uint8_t)(i * 7u + 1u);
+            big_b[i] = (uint8_t)(i * 11u + 3u);
+        }
+        memset(nor, 0xFF, sizeof nor);
+        st_save(OBJ_AUTOSAVE, big_a, sizeof big_a);              /* A */
+        st_save(OBJ_AUTOSAVE, big_b, sizeof big_b);              /* B in the gap (current) */
+        st_save(OBJ_AUTOSAVE, big_a, sizeof big_a);              /* A again so the next write is B */
+        memcpy(snap, nor + off, sizeof snap);
+        for (cut = 0; cut < sizeof big_b + sizeof(st_hdr_t); cut++) {
+            memcpy(nor + off, snap, sizeof snap);
+            fail_bytes = (int)cut;
+            ok &= st_save(OBJ_AUTOSAVE, big_b, sizeof big_b) != 0;
+            fail_bytes = -1;
+            ok &= st_load(OBJ_AUTOSAVE, got, sizeof got) == (int)sizeof big_a && !memcmp(got, big_a, sizeof big_a);
+        }
+        bad += check("a 4096 B autosave cut while rewriting gap B keeps A whole", ok);
     }
     printf("%s\n", bad ? "STORAGE TEST FAILED" : "storage test passed");
     return bad != 0;

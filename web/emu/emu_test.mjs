@@ -172,8 +172,7 @@ const r = await device(autosaved);
 r.render(200);
 const backLen = r.ex.web_project();
 const back = new Uint8Array(r.mem.buffer, r.ex.web_bk_buf_ptr(), backLen).slice();
-/* Autosave is still a 3840 B interim image (lane / motion 89..127 not persisted there). Import of a
- * FUN20 wire re-packs to that size; after restore the live pack is FUN20 again. */
+/* Autosave holds the full 4096 B FUN20 wire (lane + motion 89..127). */
 const magic = (b) => b[0] | b[1] << 8 | b[2] << 16 | b[3] << 24;
 check("backup: the autosave restores as FUN20",
       backLen === projLen && magic(back) === magic(proj) && magic(proj) === 0x4b4e5546);
