@@ -1652,10 +1652,12 @@ typedef struct {
  * the SEND DIST bus snapshot, and one MASTER mono instance need the six SVF sections. Keeping them
  * out of every FILTER/CRUSH/… slot frees ~7 KB of pool that the previous layout paid on every insert. */
 typedef struct {
-    ott_svf_t xa, xb, xc;                             /* 88.3 Hz: shared, low, high */
+    ott_svf_t xa, xb, xc;                             /* 88.3 Hz: shared, low@FS/4, high */
     ott_svf_t ya, yb, yc;                             /* 2.5 kHz: shared, low, high */
     int32_t env0, env1, env2, g0, g1, g2, dc;
     int32_t k0, k1, k2;                               /* each band's curve target, updated on the grid */
+    int32_t lo_hold;                                  /* xb's last FS/4 output, held between ticks */
+    uint8_t lo_ph;                                    /* 0..3: xb runs when this is 0 */
     uint8_t on;
 } ott_st_t;
 /* FILTER's COMB line and PHASR's all-pass pair: one stage runs each, so one copy per render context
@@ -1870,13 +1872,16 @@ static const uint8_t INS_DK[IDM_N] = {2, 4, 5, 4};        /* cutoff index 96 - (
  * and 50 ms at the centre).
  *
  * The split is an LR4 at each knee, 88.3 Hz and 2.5 kHz. Its low- and high-pass halves are one
- * allpass, so the three bands add back flat and DEPTH 0 cannot change the sound. The level is the
- * band's power over 2.9 ms (the preset's RMS mode: a per-sample |x| carries a cycle of ripple into
- * the gain, audible as grit on bass), indexed in 1/16 octave because a linear index cannot resolve
- * the 40 dB below the threshold where the upward half lives. The curves and the ballistics are
- * OTT_LOW/MID_Q8 and OTT_ATK_K / OTT_REL_K, from tools/gen_tables.py at the preset's ratios. */
+ * allpass, so the three bands add back flat and DEPTH 0 cannot change the sound. The second LP of
+ * the 88 Hz half (xb) runs on an FS/4 grid: its input is already the first Butterworth's low-pass,
+ * so it has no energy near the new Nyquist and a held output matches the full-rate section. Replacing
+ * the whole 88 Hz LR4 with a multi-rate low + complementary high does not: that high is not the LR4
+ * high-pass, and mid/high correlations with the full-rate split fall apart. The level is the band's
+ * power over 2.9 ms (the preset's RMS mode), indexed in 1/16 octave. The curves and the ballistics
+ * are OTT_LOW/MID_Q8 and OTT_ATK_K / OTT_REL_K, from tools/gen_tables.py at the preset's ratios. */
 #define OTT_G88 26                                  /* tan(pi * 88.3 / FS), Q12 */
-#define OTT_DEC 4                                   /* the detector's grid: every 4th sample */
+#define OTT_G88_R4 103                              /* tan(pi * 88.3 / (FS/4)), Q12: xb's rate */
+#define OTT_DEC 4                                   /* detector + xb grid: every 4th sample */
 #define OTT_G25 737                                 /* tan(pi * 2500 / FS), Q12 */
 static const uint8_t OTT_LOG2[64] = {                  /* 16 * log2(1 + k / 64) */
     0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5,
@@ -1935,9 +1940,13 @@ static __attribute__((noinline)) void ins_run_ott(ott_st_t *o, ins_st_t *s, cons
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
         if (!s->w && !tw) { b[i] = x; continue; }
         xs = clamp(x, -262143, 262143) >> 2;           /* stays inside the filter's range */
-        /* LR4 at each knee: shared first section, then LP-only / HP-only seconds (same math, less work). */
+        /* LR4 at each knee: shared first section, then LP-only / HP-only seconds. xb (88 Hz low's
+         * second LP) ticks on the FS/4 grid — x1 is already band-limited — and holds between ticks. */
         ott_svf_run(&o->xa, xs, &x1, &x2);
-        lo = ott_svf_lp(&o->xb, x1);
+        if (!o->lo_ph)
+            o->lo_hold = ott_svf_lp(&o->xb, x1);
+        lo = o->lo_hold;
+        o->lo_ph = (uint8_t)((o->lo_ph + 1u) & (OTT_DEC - 1u));
         h88 = ott_svf_hp(&o->xc, clamp(x2, -65535, 65535));
         ott_svf_run(&o->ya, h88, &y1, &y2);
         mid = ott_svf_lp(&o->yb, y1);
@@ -1977,7 +1986,7 @@ static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, ott_st_t *o, con
         if (!o->on) {                                   /* do not inherit another mode's filter state */
             /* LR4 at each knee: a shared first section, then one per half */
             ott_svf_coef(&o->xa, OTT_G88, 5793);
-            ott_svf_coef(&o->xb, OTT_G88, 5793);
+            ott_svf_coef(&o->xb, OTT_G88_R4, 5793);   /* FS/4: same 88.3 Hz, healthier g */
             ott_svf_coef(&o->xc, OTT_G88, 5793);
             ott_svf_coef(&o->ya, OTT_G25, 5793);
             ott_svf_coef(&o->yb, OTT_G25, 5793);
@@ -1985,6 +1994,8 @@ static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, ott_st_t *o, con
             o->env0 = o->env1 = o->env2 = o->dc = 0;
             o->g0 = o->g1 = o->g2 = 4096;            /* unity until the first curve lands */
             o->k0 = o->k1 = o->k2 = 4096;
+            o->lo_hold = 0;
+            o->lo_ph = 0;
             o->on = 1;
         }
         ins_run_ott(o, s, t, b, n, tw);
