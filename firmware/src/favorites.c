@@ -11,10 +11,33 @@ typedef struct {
     uint32_t user, filter;
 } favorites_t;
 static favorites_t favorites __attribute__((section(".pool")));
+/* User-preset favourites: bits 0..31 in favorites.user; bits 32..47 in factory[13][0..1] (that row is reserved
+ * unused for the retired SLICE engine, so the settings record's size stays put). */
+static int favorite_user_has(uint32_t preset)
+{
+    if (preset < 32u)
+        return (int)((favorites.user >> preset) & 1u);
+    preset -= 32u;
+    return (int)((favorites.factory[13][preset / 8u] >> (preset % 8u)) & 1u);
+}
+static void favorite_user_set(uint32_t preset, int on)
+{
+    if (preset < 32u) {
+        if (on) favorites.user |= 1u << preset;
+        else favorites.user &= ~(1u << preset);
+        return;
+    }
+    preset -= 32u;
+    {
+        uint8_t *b = &favorites.factory[13][preset / 8u];
+        if (on) *b |= (uint8_t)(1u << (preset % 8u));
+        else *b &= (uint8_t)~(1u << (preset % 8u));
+    }
+}
 static int favorite_has(uint32_t engine, uint32_t preset)
 {
     if (engine == NENGINES)
-        return preset < UP_SLOTS && ((favorites.user >> preset) & 1u);
+        return preset < UP_SLOTS && favorite_user_has(preset);
     if (engine == ENGI_SLICE || engine == ENGI_DRUMS)   /* SLICE's row is reserved unused; DRUMS has no row */
         return 0;
     return engine < NENGINES && engine < 16u && preset < 256u &&
@@ -28,8 +51,7 @@ static int favorite_set(uint32_t engine, uint32_t preset, int on)
         return 0;
     if (favorite_has(engine, preset) == !!on) return 0;
     if (engine == NENGINES) {
-        if (on) favorites.user |= 1u << preset;
-        else favorites.user &= ~(1u << preset);
+        favorite_user_set(preset, on);
     } else {
         uint8_t *b = &favorites.factory[engine][preset / 8u];
         if (on) *b |= (uint8_t)(1u << (preset % 8u));

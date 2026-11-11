@@ -48,29 +48,90 @@ static int fm6_bank_valid(const fm6_bank_t *b)
 
 #define UPF_MAGIC 0x36465055u                    /* "UPF6" */
 #define UPF_PK 112u                              /* 128 x 7 bits */
+#define UPF_VER 2u                               /* 2: 48 slots, uint64 used; flash is packed (below) */
+#define UPF_VER1_SLOTS 32u                       /* on-flash ver 1 (1.0.3..3.9): 32 slots, 3728 B */
+#define UPF_VER1_SIZE 3728u
 typedef struct {
     uint32_t tag;                                /* upf_tag of the record it belongs to */
     uint8_t pk[UPF_PK];
 } upf_ent_t;
 typedef struct {
     uint32_t magic;
-    uint16_t ver, nslot;                         /* 1, UP_SLOTS */
-    uint32_t used;                               /* bit k: e[k] holds a patch */
-    uint32_t rsv;
+    uint16_t ver, nslot;                         /* UPF_VER, UP_SLOTS */
+    uint64_t used;                               /* bit k: e[k] holds a patch */
     upf_ent_t e[UP_SLOTS];
 } upf_t;
-_Static_assert(sizeof(upf_t) == 3728u, "user preset FM6 patches layout (at most ST_PAYLOAD_MAX, 3840)");
+/* RAM is 5584 B; flash stays one sector via upf_pack (at most 32 used patches: 16 + 32 * 116 = 3728). */
+_Static_assert(sizeof(upf_t) == 16u + UP_SLOTS * sizeof(upf_ent_t), "user preset FM6 patches RAM layout");
 _Static_assert(sizeof(up_rec_t) == 192u && sizeof(((up_rec_t *)0)->name) == 12u, "upf_tag: the name at bytes 4..15");
 static upf_t upf __attribute__((section(".pool")));
 
-static int upf_valid(const upf_t *u) { return u->magic == UPF_MAGIC && u->ver == 1u && u->nslot == UP_SLOTS; }
+static int upf_valid(const upf_t *u)
+{
+    return u->magic == UPF_MAGIC && u->ver == UPF_VER && u->nslot == UP_SLOTS;
+}
 
 static void upf_empty(void)
 {
     memset(&upf, 0, sizeof upf);
     upf.magic = UPF_MAGIC;
-    upf.ver = 1;
+    upf.ver = UPF_VER;
     upf.nslot = UP_SLOTS;
+}
+
+/* Pack used entries into dst (one sector). Returns length, or 0 if too many used patches for one sector. */
+static uint32_t upf_pack(uint8_t *dst, uint32_t max)
+{
+    uint32_t k, n = 0, off = 16u;
+    if (max < 16u)
+        return 0;
+    for (k = 0; k < UP_SLOTS; k++)
+        if ((upf.used >> k) & 1u) {
+            if (off + sizeof(upf_ent_t) > max)
+                return 0;
+            memcpy(dst + off, &upf.e[k], sizeof(upf_ent_t));
+            off += (uint32_t)sizeof(upf_ent_t);
+            n++;
+        }
+    memset(dst, 0, 16u);
+    ((uint32_t *)dst)[0] = UPF_MAGIC;
+    dst[4] = (uint8_t)UPF_VER;
+    dst[5] = 0;
+    dst[6] = (uint8_t)UP_SLOTS;
+    dst[7] = 0;
+    memcpy(dst + 8, &upf.used, 8);
+    (void)n;
+    return off;
+}
+
+/* Load a packed ver-2 image, or a legacy ver-1 3728 B blob, into the RAM mirror. */
+static int upf_unpack(const uint8_t *src, uint32_t len)
+{
+    uint32_t k, off;
+    uint64_t used;
+    if (len == UPF_VER1_SIZE && ((const uint32_t *)src)[0] == UPF_MAGIC && src[4] == 1u &&
+        src[6] == (uint8_t)UPF_VER1_SLOTS && src[7] == 0) {
+        const uint32_t *u32 = (const uint32_t *)(src + 8);
+        upf_empty();
+        upf.used = u32[0];                               /* ver 1: uint32 used at +8, rsv at +12, e[] at +16 */
+        memcpy(upf.e, src + 16, UPF_VER1_SLOTS * sizeof(upf_ent_t));
+        return 1;
+    }
+    if (len < 16u || ((const uint32_t *)src)[0] != UPF_MAGIC || src[4] != (uint8_t)UPF_VER ||
+        src[6] != (uint8_t)UP_SLOTS)
+        return 0;
+    memcpy(&used, src + 8, 8);
+    upf_empty();
+    upf.used = used;
+    off = 16u;
+    for (k = 0; k < UP_SLOTS; k++)
+        if ((used >> k) & 1u) {
+            if (off + sizeof(upf_ent_t) > len)
+                return 0;
+            memcpy(&upf.e[k], src + off, sizeof(upf_ent_t));
+            off += (uint32_t)sizeof(upf_ent_t);
+        }
+    return off == len;
 }
 
 static uint32_t upf_tag(const up_rec_t *r)       /* FNV-1a of the record without its name (bytes 4..15) */
@@ -136,21 +197,26 @@ static void upf_set(uint32_t k, const uint8_t *pk)
     fm6_pack(v, c);
     upf_pk_put(c, upf.e[k].pk);
     upf.e[k].tag = upf_tag(up_rec(k));
-    upf.used |= 1u << k;
+    upf.used |= (uint64_t)1u << k;
 }
 
 /* the object to flash: 0 ok, 2 flash error, 3 no flash (kept in RAM). Its first write keeps the retired bank's
- * newest copy (see the top) */
+ * newest copy (see the top). Packed so 48 RAM slots still fit one sector (at most 32 used patches). */
 static int upf_save(void)
 {
 #if FELUCCA_FLASH
     st_hdr_t h;
     int to = -1;
+    uint32_t n;
     if (!flash_ok)
         return 3;
+    /* pick the target copy before packing: st_current loads into st_buf */
     if (st_current(OBJ_UPFM6, &h) < 0)
         to = st_current(OBJ_FM6BANK, &h) == 0 ? 1 : 0;
-    return st_save_to(OBJ_UPFM6, &upf, sizeof upf, to) ? 2 : 0;
+    n = upf_pack(st_buf, ST_PAYLOAD_SECTOR);
+    if (!n)
+        return 2;
+    return st_save_to(OBJ_UPFM6, st_buf, n, to) ? 2 : 0;   /* st_save_to: src == st_buf keeps the pack */
 #else
     return 3;
 #endif
@@ -181,7 +247,8 @@ static void upf_boot(void)                       /* up_boot, after the user pres
 {
 #if FELUCCA_FLASH
     st_hdr_t h;
-    if (flash_ok && st_load(OBJ_UPFM6, &upf, sizeof upf) == (int)sizeof upf && upf_valid(&upf))
+    int n;
+    if (flash_ok && (n = st_load(OBJ_UPFM6, st_buf, ST_PAYLOAD_SECTOR)) > 0 && upf_unpack(st_buf, (uint32_t)n))
         return;
     upf_empty();
     if (flash_ok && st_current(OBJ_FM6BANK, &h) >= 0 && h.len == sizeof(fm6_bank_t) &&
