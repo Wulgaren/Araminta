@@ -157,6 +157,9 @@ static struct { uint32_t stage; } felucca_dbg;
 #include "../firmware/src/ui_layer.c"
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
+/* 3.10: proj_slot is gone (projects live only in flash); provide a test-only copy for FELUCCA_FLASH 0 tests.
+ * Define after project.c so project_store_t is available. Matches the extern in project.c. */
+project_store_t proj_slot[4];
 
 static int check(const char *what, int ok)
 {
@@ -188,6 +191,7 @@ static void ui_power_on(void)
     memset(pat_last, 0, sizeof pat_last);
     memset(pat_from, 0, sizeof pat_from);                /* (the header's slot letter: none) */
     memset(proj_slot, 0, sizeof proj_slot);
+    proj_slot_used = 0;                                  /* no slot holds a project yet */
     memset(up_bank, 0, sizeof up_bank);
     for (i = 0; i < G_COUNT; i++)
         song.g[i] = GP[i].def;
@@ -3175,8 +3179,10 @@ static int test_product_ux(void)
         uint32_t i, page;
         char qa[24], qb[24];
         ui_power_on();
+        /* one track x 64 steps holds 128 unique (step, id) pairs with two ids; a third id pushes past MOTION_FILE_MAX */
         for (i = 0; i < MOTION_FILE_MAX + 1u; i++)
-            motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : P_DLY, (int16_t)(i % 60u));
+            motion_set_event(&trk[0], i % NSTEP,
+                             i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_PAN, (int16_t)(i % 60u));
         motion_save_lim = 0;
         for (page = 0; page < NPAGES; page++)
             if (PAGES[page].graph == GR_SLOTS)

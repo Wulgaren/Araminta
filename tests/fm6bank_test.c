@@ -180,7 +180,8 @@ static void reset(void)
     memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain);
     chain_defaults(&chain_config);
-    memset(proj_slot, 0, sizeof proj_slot);
+    proj_slot_used = 0;
+    memset(proj_slot_sum, 0, sizeof proj_slot_sum);
     memset(up_bank, 0, sizeof up_bank);
     memset(&upf, 0, sizeof upf);
     memset(&ui, 0, sizeof ui);
@@ -235,11 +236,14 @@ static int store_test(void)
     ok = send_bank(&a, 0) == 0 && rep[1] == 32 && bank_is(&a);
     bad += check("a whole bank written over the editor (BEGIN, 32 WRITEs, END): rc 0, 32 voices, read back exactly", ok);
     ok = 1;
-    for (k = 0; k < 0x100000u; k++)
-        if (nor[k] != snap[k] && !(k >= 0xE6000u && k < 0xE8000u))
-            ok = 0;
-    bad += check("  .. it wrote 0xE7000 (the bank) and 0xE6000 (the autosave's older copy, staged), nothing else", ok &&
-                 ((st_hdr_t *)(nor + 0xE7000u))->type == OBJ_FM6VB && ((st_hdr_t *)(nor + 0xE6000u))->type == OBJ_FM6VB);
+    {
+        uint32_t stage = st_sector(OBJ_AUTOSAVE, 1);       /* A held the autosave; stage into B */
+        for (k = 0; k < 0x100000u; k++)
+            if (nor[k] != snap[k] && !(k >= stage && k < stage + 0x1000u) && !(k >= 0xE7000u && k < 0xE8000u))
+                ok = 0;
+        bad += check("  .. it wrote 0xE7000 (the bank) and the autosave's older copy (staged), nothing else", ok &&
+                     ((st_hdr_t *)(nor + 0xE7000u))->type == OBJ_FM6VB && ((st_hdr_t *)(nor + stage))->type == OBJ_FM6VB);
+    }
     ok = 1;
     for (k = 0xE7F00u; k < 0xE8000u; k++)
         ok &= nor[k] == 0xFFu;
@@ -308,7 +312,8 @@ static int store_test(void)
                      !memcmp(got, as_data, sizeof as_data));
     /* the next bank: staged in the autosave's older copy again (A now), the new autosave (B) kept */
     ok = send_bank(&b, 0) == 0 && rep[1] == 3 && bank_is(&b) && st_load(OBJ_AUTOSAVE, got, sizeof got) == (int)sizeof as_data &&
-         !memcmp(got, as_data, sizeof as_data) && ((st_hdr_t *)(nor + 0xE5000u))->type == OBJ_FM6VB;
+         !memcmp(got, as_data, sizeof as_data) &&
+         ((st_hdr_t *)(nor + st_sector(OBJ_AUTOSAVE, 0)))->type == OBJ_FM6VB;
     bad += check("a second bank (3 voices): staged in the other copy, the autosave kept, read back exactly", ok);
     /* an empty bank: BEGIN, END (the CRC of nothing) */
     {
@@ -481,7 +486,8 @@ static int keep_test(void)
     send_bank(&b, 0);                                     /* the bank replaced */
     slot_to(0, 1);
     slot_to(1, 1);
-    memset(proj_slot, 0, sizeof proj_slot);              /* (from flash) */
+    proj_slot_used = 0;                                  /* (from flash) */
+    memset(proj_slot_sum, 0, sizeof proj_slot_sum);
     project_load(0);
     ok &= patch_is(0, a.v[4]) && trk[0].p[P_E7] == FM6_OWN && patch_is(1, a.v[6]) && trk[1].p[P_E7] == FM6_OWN;
     bad += check("a project saved on B5 / B7: loads those voices (SLOT OWN) after the bank was replaced", ok);

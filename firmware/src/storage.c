@@ -15,21 +15,19 @@
 #define ST_MAGIC 0x554C4546u                   /* "FELU" */
 #define ST_SECTOR 4096u
 #define ST_PAYLOAD_OFF 256u
-#define ST_PAYLOAD_MAX (ST_SECTOR - ST_PAYLOAD_OFF)
+#define ST_PAYLOAD_MAX (2u * ST_SECTOR - ST_PAYLOAD_OFF)   /* the largest object: a project spans two sectors */
+#define ST_PAYLOAD_SECTOR (ST_SECTOR - ST_PAYLOAD_OFF)     /* a one-sector object's payload (3840) */
 
 /* flash map (hal/fm1_flash_map.h has the constants and the write windows): the app area 0x4000..0x93000, then the
  * gap 0x93000..0x97000 (four sectors the app area leaves free; Felucca's since 3.10, no firmware used them before),
  * then settings 0xFC000, projects
- * 0x97000..0x9EFFF, user sample slots 0xA0000..0xDBFFF (eng_sample.c), user preset banks 0xDC000..0xDFFFF (upreset.c),
- * the user presets' FM6 patches (up_fm6.c, since 1.0.3): copy A 0x9F000, copy B 0xFE000; the autosave (project.c,
- * 1.2): A 0xE5000, B 0xE6000, above the OTA staging (0xE0000..0xE4FFF), in the margin the stock firmware's own update
- * stages into (only ever while the stock firmware runs: a later Felucca finds no valid copy and starts as without one).
- * Those two sectors held the FM6 patch bank of 1.0..1.0.2 (OBJ_FM6BANK, retired): both objects use the same pair,
- * told apart by the commit record's type. The bank is only read, once, to move its patches into the user presets
- * (up_fm6.c upf_boot); the first write of the new object goes to the sector that does not hold the bank's newest
- * copy (st_save_to), so a power cut never loses both.
- * The FM6 voice bank (1.4.1, fm6_vbank.c): 0xE7000, the sector above the autosave, with a commit record of the same
- * kind (type OBJ_FM6VB, not an st_load object); a new bank is first staged in the autosave's older copy (fm6_vbank.c). */
+ * 0x97000..0x9EFFF (3.10: single-copy, two sectors a slot; same eight sectors as the old A/B pairs), user sample slots
+ * 0xA0000..0xDBFFF (eng_sample.c: 80 KiB x 3), user preset banks 0xDC000..0xDFFFF (upreset.c), the user presets' FM6
+ * patches (up_fm6.c, since 1.0.3): copy A 0x9F000, copy B 0xFE000; the autosave (project.c, 1.2): A 0xE5000, B 0xE6000
+ * (one sector a copy / 3840 B payload until a placement for a 4096 B A/B pair is chosen — sample shrink is parked),
+ * above the OTA staging (0xE0000..0xE4FFF). The FM6 voice bank (1.4.1, fm6_vbank.c): 0xE7000; a new bank is first
+ * staged in the autosave's older copy (fm6_vbank.c). Those two sectors at 0x9F000 / 0xFE000 also held the FM6 patch
+ * bank of 1.0..1.0.2 (OBJ_FM6BANK, retired). */
 enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_UPFM6,
        OBJ_AUTOSAVE, OBJ_COUNT };
 #define OBJ_FM6VB 32u                          /* the voice bank's commit records (fm6_vbank.c; >= OBJ_COUNT: st_load
@@ -76,6 +74,18 @@ static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy 
     return 0x97000u + (obj - OBJ_PROJECT0) * 2u * ST_SECTOR + copy * ST_SECTOR;
 }
 
+/* Sectors one copy of an object spans. A project is single-copy (no B) and two sectors, so slot k still
+ * occupies the two sectors that used to be its A and B: the eight project sectors do not move. Every
+ * other object (including the autosave) is one sector per copy, A/B — until a 4096 B autosave placement
+ * is chosen without shrinking samples. */
+static uint32_t st_sectors(uint32_t obj)
+{
+    return (obj >= OBJ_PROJECT0 && obj < OBJ_UPRESET0) ? 2u : 1u;
+}
+
+/* the largest payload this object can hold (its own sectors, less the commit record) */
+static uint32_t st_pmax(uint32_t obj) { return st_sectors(obj) * ST_SECTOR - ST_PAYLOAD_OFF; }
+
 static uint8_t st_buf[ST_PAYLOAD_MAX] __attribute__((aligned(4), section(".pool")));   /* (main loop only) */
 
 static int st_head(uint32_t obj, uint32_t copy, st_hdr_t *h)   /* commit record valid: 0 */
@@ -84,7 +94,7 @@ static int st_head(uint32_t obj, uint32_t copy, st_hdr_t *h)   /* commit record 
         return -1;
     if (st_read(st_sector(obj, copy), h, sizeof *h))
         return -1;
-    if (h->magic != ST_MAGIC || h->type != obj || h->slot != copy || h->len > ST_PAYLOAD_MAX ||
+    if (h->magic != ST_MAGIC || h->type != obj || h->slot != copy || h->len > st_pmax(obj) ||
         h->hcrc != st_crc32(h, sizeof *h - 4u))
         return -1;
     return 0;
@@ -134,23 +144,31 @@ static int st_load(uint32_t obj, void *dst, uint32_t max)
     return (int)h.len;
 }
 
-/* save into copy `to` (0 A, 1 B; -1: the one that is not the current copy, as st_save) */
+/* save into copy `to` (0 A, 1 B; -1: the one that is not the current copy, as st_save). A single-copy
+ * object (a project) always writes copy 0 over its whole span: its two sectors are erased first, so a save
+ * is destructive there by design (the autosave keeps the music being saved). */
 static int st_save_to(uint32_t obj, const void *src, uint32_t len, int to)
 {
-    uint32_t seq, base, off;
-    int cur, rc;
+    uint32_t seq, base, off, nsec;
+    int cur, rc, single;
     st_hdr_t h;
-    if (obj >= OBJ_COUNT || len > ST_PAYLOAD_MAX || to > 1)
+    if (obj >= OBJ_COUNT || len > st_pmax(obj) || to > 1)
         return -1;
     cur = st_current(obj, &h);
     seq = cur < 0 ? 0u : h.seq;
-    if (to < 0)
-        to = cur == 0 ? 1 : 0;                        /* write the other copy */
+    nsec = st_sectors(obj);
+    single = (obj >= OBJ_PROJECT0 && obj < OBJ_UPRESET0);   /* projects: one copy, destructive */
+    if (single) {
+        to = 0;
+    } else if (to < 0) {
+        to = cur == 0 ? 1 : 0;                            /* A/B: write the other copy */
+    }
     base = st_sector(obj, (uint32_t)to);
     for (off = 0; off < len; off++)
         st_buf[off] = ((const uint8_t *)src)[off];    /* the driver wants RAM sources */
-    if ((rc = st_erase(base)) != 0)
-        return rc;
+    for (off = 0; off < nsec; off++)
+        if ((rc = st_erase(base + off * ST_SECTOR)) != 0)
+            return rc;
     for (off = 0; off < len; off += 256u) {
         uint32_t n = len - off > 256u ? 256u : len - off;
         if ((rc = st_prog(base + ST_PAYLOAD_OFF + off, st_buf + off, n)) != 0)
