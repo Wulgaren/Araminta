@@ -41,18 +41,43 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **DRUMS.** Felucca's original synthesized drum engine, ported as a separate engine (15) beside DRUM-X. Nine kits: STD, 80, 10, 66, 55, 77, DEEP, TIGHT and PERC. Its own KIT / TUNE / TONE / DECY / SNAP / ACC / KICK / DRV. These are the exact 1.6.1 kits. DRUM-X stays on engine 10.
 - **SLICE retired.** 
 - Samples tab: one card per USR slot, each set to **Sample**, **Drumkit** or **Wavetable**. Drumkit maps every root to its own lane note and tags the slot (`FSMP` header), so SEQ uses the drum grid; Wavetable takes one Serum file or a folder medley. The name field is gone: names were editor-only, the FM-1 shows USR1..3.
-- **VOICE** is one page: VCE, GLD, UNI DTN, SPRD. GLD is free milliseconds (no GLMOD on the page). PAN / PLAY live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
+- **VOICE** is one page: VCE, GLD, PITCH, SPRD. PITCH is a live bend on the track's MIDI channel, in cents; it stays where you leave it and a track change recentres it. In UNISON, where UNI DTN takes the slot, PITCH moves to a second page, **VOICE 2** (SELECT). GLD is free milliseconds (no GLMOD on the page). PAN / PLAY live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
 - **EFFECTS.** One list for the six inserts and the shared buses: CHOOSE a stage, ORDER moves it, USE AS is CHAIN, SEND or MASTER, MIX is dry/wet (or send amount). Delay, reverb and slicer sit in that list (bus chorus is gone); **TAPE** is the tenth row: SPEED, FLUTR, DROPOUT and TEMPO. With TEMPO ON (the default) the transport and voices keep time and SPEED is the head's pitch only, with MIX as the wet amount on every route; OFF makes CHAIN and MASTER slow the source (transport and voice pitch). SEND always adds a pitched copy and fixes TEMPO ON (K4 is dimmed there). One global MIX is the depth in CHAIN/MASTER and the send amount in SEND. MASTER runs on the whole mix in the EFFECTS order of the track that selected it; the common buses show USED on the other tracks. Inserts keep their per-track CHAIN / SEND beside a MASTER copy. Dual reverb tanks keep SEND and CHAIN settings while REV is chained.
 - Reverb modes from JIANT - SHIMR and CLOUD.
 - Delay has divisions or smooth ms; K4 turned left is TIME, turned right RATE.
 - Assign FX values in LFO MOD or SEQ param locks. TAPE SPEED / FLUTR are shared destinations: in CHAIN only the owner track can move them, in MASTER any track, in SEND the first track to use one reserves it.
-- **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
+- **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track). SAVE > CLEAR's ALL keys put the mix and
+  the arp back to their defaults too, so a cleared track is neither silent nor still arping.
 - **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.- **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN and PITCH. With REC armed while playing on a synth track, a TRN turn also writes the current step's PITCH lock (scale-fitted); the knob still moves (other steps without a lock follow it), and no P_TRANS automation event is recorded.
 - **MAP (was QNT).** SCL knob: OFF / **ALL** / CURR / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); CURR is KBD plus sequence follows the scale on the current track; ALL is CURR's quantising plus ROOT / SCALE shared by every track while ALL is on (the CHORD page's old SCALE LOCK, now a MAP value); SEQ is chromatic keys plus sequence follows. Leaving ALL puts each track's own ROOT / SCALE back. Chromatic (CHR) scale removed; use MAP OFF. ALL saves as CURR + the lock bit, so v3.1 opens it as SCALE LOCK + ALL; a v3.1 project locked with MAP OFF / KBD / SEQ loads unlinked. Current saves are FUN19 (`FUNJ`; FUN18 `FUNI` loads).
 - **Following playhead** in the SEQ. Start selecting a step to pause the following, returns after 3 seconds of inactivity.
 - **SEQ GENERATION.** On a drum kit (DRUM-X, DRUMS, CR78 or a USR Drumkit), the second SEQ section generates editable kick, snare and closed-hat steps from Mutable Instruments Grids. SELECT switches between LEN / KICK / SNARE / HAT and MAP / MAP X / MAP Y / CHAOS. MAP selects one of 25 templates; X/Y blend between them and show CUSTOM. Turning MAP, MAP X or MAP Y briefly shows the full-screen map, then returns to the drum grid; CHAOS keeps the grid visible. Density edits change only their lane; map, chaos and length edits regenerate all three. Other lanes stay as written, SAVE held undoes the gesture, and each track's controls save with the project.
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
+
+### New in 3.9
+
+- **ARP free take.** With the ARP on, a free take records the notes the arp plays, including a latched chord.
+  The take keeps the ARP's tempo, starts on the ARP's first note, and closing it stops the latch so the
+  sequence plays alone.
+- **VOICE.** PITCH is the last card, so POLY, MONO and LEGATO show VCE GLD SPRD PITCH. UNISON keeps its four
+  cards and PITCH on VOICE 2.
+- No project format change. Saves stay FUN19 (`FUNJ`).
+
+### New in 3.8
+
+- **VOICE PITCH.** The empty card on the VOICE page is a pitch bend. It reaches 2 semitones each way by default,
+  stays where you leave it, and recentres when you change track. In UNISON, SELECT opens **VOICE 2** for the
+  same card. Not saved with the sound.
+- **CLOCK.** It is now MASTER's second page. GLO opens MASTER, SELECT walks to CLOCK, and the next GLO press
+  opens SONG.
+- **LFO TRIG.** Left of NOTE is FREE. The layer maps open with the button and OCT±.
+- **Boot splash.** The amp is muted and the audio starts while the panel is dark, so the rose no longer pops.
+- **Flash.** Newer FM-1s with the UCUN chip save settings, projects and samples and update again.
+- **Ableton.** `ableton/FM-1/` is a Control Surface script for the sixteen knobs.
+- **UI fixes.** Dead engine cards leave the MOD and lock lists. SAVE > CLEAR keeps the keys silent while its
+  confirmation is open. CLEAR ALL4 puts MAP back to OFF.
+- No project format change. Saves stay FUN19 (`FUNJ`).
 
 ### New in 3.7
 
@@ -198,8 +223,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   of 1 or 2 bars before recording from stop; the click goes to the headphones and speaker only, never to
   USB audio or into a pattern
 - **Songs** (GLO > SONG): up to 16 sections, each naming the project slot (A-D) **every track** plays, or "-" for a
-  track that rests there, with its repeats; drawn as a timeline with a lane per track. GLO also holds MASTER and CLOCK
-  (HOME is only Home ↔ Mixer). **MIXER** KNOB 4 is PLAY: ON, OFF or SOLO
+  track that rests there, with its repeats; drawn as a timeline with a lane per track. GLO also holds MASTER (SELECT:
+  MASTER / CLOCK) and SONG (HOME is only Home ↔ Mixer). **MIXER** KNOB 4 is PLAY: ON, OFF or SOLO
 - **Chord keys:** one finger plays an in-key chord (triads or sevenths of the scale, or fixed chord
   shapes), with voicings and a beat-synced **STRUM** (DOWN / UP / ALT); on the keys, MIDI in, recording and the
   arpeggiator
@@ -219,16 +244,16 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   DEPTH, TONE is TIME); delay in time with the tempo (divisions or smooth ms, dotted values included);
   reverb as **HALL**, ROOM, SPRING, plus Araminta's **SHIMR** / **CLOUD**; technical graphs on the FX pages;
   insert knobs and MIX are mod-matrix destinations; master limiter, with CLIP / PNCH / DUCK / REL on the master page
-- **FX layer:** hold FX for repeat, reverse, filter sweeps, tape stop, freeze, a harmonizer
+- **FX layer:** under PUNCH-IN (tap FX twice) for repeat, reverse, filter sweeps, tape stop, freeze, a harmonizer
   (OCT UP / OCT DN with shimmer), **FLANGER** and **PHASER** (in time with the tempo), **REV THROW** and **ECHO THROW**
   (every track's reverb or delay send full while held), JIANT punch-ins on their own FX section, and mutes on the black keys;
   the two PUNCH-IN pages have fixed keys (SELECT walks the section); MENU > FX LATCH makes them toggle,
   so nothing has to stay held
 - **MOMENTARY:** hold LFO and turn a knob on HOME or a sound / FX page; let go of LFO and the value jumps back
   (OCT+ while holding keeps it)
-- **Quick layers:** hold FX, GLO, SCL, EDIT, REC or SEQ for shortcuts on the keys and knobs, or double-tap it to
-  keep the layer open; one-step undo (SAVE held); REC on every page; OCT+ confirms, OCT- goes back; what can be
-  pressed breathes softly instead of blinking
+- **Quick layers:** hold GLO, SCL, EDIT or SEQ and press OCT− / OCT+ for its key and knob map (PUNCH-IN and
+  SAVE > CLEAR are their own sections); one-step undo (SAVE held); REC on every page; OCT+ confirms, OCT- goes
+  back; what can be pressed breathes softly instead of blinking
 - **Presets:** factory presets, 32 user preset slots and 4 projects, named on the device (an FM6
   sound keeps its own patch in both); user presets get a category, and a project can get a random name; projects
   from every earlier version load. The PRESETS knob changes the sound from every page that is not a list.
@@ -246,13 +271,16 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **USB:** class-compliant MIDI in and out, and a stereo audio input (named "FM-1" on the wire; loader "FM-1 Update") at 44.1 or 48 kHz
   (the computer picks) that records the master output on the computer, no driver needed (at a fixed level with MENU > USB LEVEL FIXED;
   on macOS 13-15, set MENU > USB SERIAL to OFF so the audio input appears)
-- **MIDI:** USB and TRS MIDI in; MENU > MIDI > MIDI IN: CH1-4 (channels 1-4 play tracks 1-4), CH5-8, CH9-12 or
-  CH13-16 (another block of four, e.g. for two FM-1s on one cable), or SEL (every channel plays the selected track);
-  the keys send on the track's channel, **KNOB 1–4 send relative CC 16–31**, and **PRESETS / SELECT send pitch
-  bend and CC 1** to a computer (see Controls); pitch bend, sustain, panic; clock from internal, USB or TRS. MIDI CCs set
-  track parameters: 5 GLIDE, 7 LEVEL, 10 PAN, 71 resonance, 72 / 73 / 75 release / attack / decay, 74 brightness,
-  91 / 93 / 94 reverb send, chorus mix (insert CHOR), delay send. **MIDI LEARN** (GLO + D4) sets up to 16 more CCs of your
-  controller to any knob's parameter of any track, on the device; **Program Change** loads a track's sound by its
+- **MIDI:** USB and TRS MIDI in; MENU > MIDI > MIDI IN: SEL (default: every channel plays the selected track, as the
+  keys do), CH1-4 (channels 1-4 play tracks 1-4), CH5-8, CH9-12 or CH13-16 (another block of four, e.g. for two
+  FM-1s on one cable); the keys send on the track's channel, **KNOB 1–4 send relative CC 16–31**, and
+  **PRESETS / SELECT send pitch bend and CC 1** to a computer (see Controls); pitch bend, sustain, panic; clock
+  from internal, USB or TRS. **CC 71 / 72 / 73 / 74 turn the four knobs of the page on screen**, on the selected
+  track, as the panel's KNOB 1–4 do (values, lists, cursors and actions), and **CC 75 / 76 / 77 are SELECT, ALGORITHM
+  and PRESETS** (pages, track, sound); MASTER stays the panel's pot. Each message is one step, so a pot and an endless
+  encoder both work (a pot's move gives the way, a repeated value reads as its side of 64), and a fast turn speeds up
+  as the panel's knobs do. Other MIDI CCs set track parameters: 5 GLIDE, 7 LEVEL, 10 PAN, 91 / 93 / 94 reverb send,
+  chorus mix (insert CHOR), delay send. **Program Change** loads a track's sound by its
   number in PRESETS. **Ableton:** the Control Surface script in `ableton/FM-1/` puts the sixteen knobs on the
   selected device's parameters (see `ableton/README.md`)
 - **Web:** editor for every parameter (with a 6-operator FM patch editor that also sends a whole 32-voice bank),
@@ -307,9 +335,9 @@ if you still need a Felucca 1.5-readable copy.
 ## Controls
 
 - Tap a page button for its page, again for the next; HOME returns home. Page buttons act when let go
-- Hold FX, GLO, SCL, EDIT, REC or SEQ for its quick layer; hold SAVE to undo, HOME for the menu; hold LFO and turn a
-  knob for a MOMENTARY change
-- Double-tap a layer's button to keep its layer open without holding; tap it again to close
+- Hold GLO, SCL, EDIT or SEQ with OCT− / OCT+ for its quick layer; hold SAVE to undo, HOME for the menu; hold LFO
+  and turn a knob for a MOMENTARY change
+- PUNCH-IN, SEQ TOOLS and SAVE > CLEAR keep their key map while the page is shown; another page or HOME leaves it
 - On SEQ > STEP, hold a step and turn KNOB 1-4 to lock those parameters on that step (PRESETS: move the held steps in time; while step-recording with a key held, PRESETS sets that note's LEN)
 - On MIXER, KNOB 4 is **PLAY**: ON (default), OFF, or SOLO (saved with the track)
 - On action pages and in dialogs, OCT+ does it and OCT− goes back; in the menu, OCT+ / OCT− change the value and HOME closes it
@@ -317,16 +345,16 @@ if you still need a Felucca 1.5-readable copy.
 
 The pages by button:
 
-| Button | Taps go round (sections; SELECT walks pages inside one) | Held |
+| Button | Taps go round (sections; SELECT walks pages inside one) | Held / with OCT± |
 |---|---|---|
 | HOME | Home ↔ Mixer | the menu |
-| SEQ | Step group (SELECT: PATTERN / STEP / DETAIL), AUTOMATION, SEQ TOOLS | SEQ TOOLS, on every page |
-| GLO | MASTER, CLOCK, SONG | the GLO layer (mutes, solos, levels, TAP tempo, D4: MIDI LEARN) |
+| SEQ | Step group (SELECT: PATTERN / STEP / DETAIL), AUTOMATION, SEQ TOOLS | SEQ + OCT±: the tools layer (SEQ TOOLS shows it as a section) |
+| GLO | MASTER (SELECT: MASTER / CLOCK), SONG | GLO + OCT±: the GLO layer (mutes, solos, levels, TAP tempo) |
 | SAVE | Presets (SELECT: PRESETS / USER / PHRASES), Project (SELECT: PROJECT / TOOLS) | UNDO |
 | LFO | LFO (SELECT: LFO / LFO 2 / LFO DEST), then MOD | MOMENTARY (with a knob) |
-| EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG OSC A / OSC B / FILTER), Kit, Lanes, Voice (hidden on DRUM-X) | the EDIT layer (the engines; on DRUM-X the black keys mute lanes) |
-| FX | EFFECTS (SELECT: list + stage pages), SLICER, PUNCH | the FX layer |
-| SCL, ENV, ARP | their pages | SCL: its layer |
+| EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG OSC A / OSC B / FILTER), Kit, Lanes, Voice (hidden on DRUM-X) | EDIT + OCT±: the EDIT layer (the engines; on DRUM-X the black keys mute lanes) |
+| FX | EFFECTS (SELECT: list + stage pages), SLICER, PUNCH | — (PUNCH-IN is its own section) |
+| SCL, ENV, ARP | their pages | SCL + OCT±: its layer |
 | REC | arms the track | — |
 
 ### Knobs to a DAW
@@ -361,7 +389,7 @@ mappings. Nothing is sent while the FM-1 is not connected to a computer.
 
 Hold **HOME** for the menu, in five tabs: **DISPLAY** (COLOR, LARGE, LEDS, SCREEN OFF, SCOPE, HOME),
 **CONTROL** (HOLD, FX LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW, CHORD ENTRY), **AUDIO** (SPEAKER EQ,
-USB LEVEL, CLICK, CLICK LEVEL, COUNT-IN, TUNE), **MIDI** (MIDI IN, LEARN CLEAR) and **SYSTEM** (USB SERIAL,
+USB LEVEL, CLICK, CLICK LEVEL, COUNT-IN, TUNE), **MIDI** (MIDI IN) and **SYSTEM** (USB SERIAL,
 RESTORE LAST, HARDWARE CALIBRATION, INFO, ABOUT).
 SELECT moves between the tabs and ALGORITHM through the rows of one (PRESETS is idle there; ALGORITHM also scrolls
 ABOUT); any of KNOB 1-4, or OCT+ / OCT−, changes the value (OCT+ opens HARDWARE CALIBRATION, INFO and ABOUT); press
@@ -386,11 +414,11 @@ KNOB ACCEL is always on for wide values.
 - **HOME:** SCOPE (default), TRACKS or LEVELS: under HOME's four cards, the oscilloscope or the four tracks, a row
   each with its sound, its steps playing, MUTE and a meter. With TRACKS only the look changes; with LEVELS KNOB 1-4
   set the LEVEL of T1-T4 (the engine's main parameters are on EDIT)
-- **HOLD:** how long a layer's button is held before its map shows
+- **HOLD:** retired (kept in the menu and the settings; no map waits for it any more)
 - **FX LATCH:** ON, FX + an effect key turns the effect on until pressed again, the knob macros stay
   where you leave them, and FX + OCT− turns everything off
-- **BPM LOCK:** ON, SELECT no longer changes the tempo; hold GLO and turn SELECT, tap F4 in the GLO
-  layer or use HOME > CLOCK instead
+- **BPM LOCK:** ON, SELECT no longer changes the tempo; use OCT+ + SELECT or the CLOCK page
+  (GLO > MASTER, SELECT) instead
 - **SCALE LEDS:** OFF or ON: the keys show the selected track's scale all the time (the root a little
   brighter); not on DRUM-X or SLICE tracks
 - **STEP PREVIEW:** OFF (default) or ON: on SEQ > STEP with the transport stopped, moving the cursor plays the step
@@ -408,8 +436,7 @@ KNOB ACCEL is always on for wide values.
 - **COUNT-IN:** OFF (default), 1 BAR or 2 BARS: with a track armed, PLAY counts in first (clicking even with
   CLICK OFF), and a note played in the last half beat lands on step 1. Not with an external clock
 - **TUNE:** the global tuning, −50 to +50 cents. It is the project's, saved and loaded with it
-- **MIDI IN:** CH1-4 (default), SEL, CH5-8, CH9-12 or CH13-16 (see MIDI above). The project's too
-- **LEARN CLEAR:** how many CCs MIDI LEARN has set (NONE, 1 CC … 16 CC); OCT+ clears them all
+- **MIDI IN:** SEL (default), CH1-4, CH5-8, CH9-12 or CH13-16 (see MIDI above). The project's too
 - **USB SERIAL:** ON or OFF, applied when the menu closes (the FM-1 reconnects). OFF leaves out the
   serial console, a developer tool, so the FM-1 is a plain audio + MIDI device; this lets macOS 13-15
   see its USB audio input. MIDI, the editor and the installer work either way

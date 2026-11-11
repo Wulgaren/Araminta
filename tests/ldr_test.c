@@ -86,6 +86,8 @@ static int ldr_erase(uint32_t off)
 {
     if (off < 0x4000u || off >= 0xFC000u || (off & 0xFFFu) || (off >= 0x97000u && off < 0xE0000u)) bad_range++;
     if (off < 0x4000u) { printf("ERASE IN THE HEAD %#x\n", off); exit(1); }
+    /* 3.10: the gap (0x93000..0x97000) holds the app's data now and must never be erased, whatever is in its tail */
+    if (off >= 0x93000u && off < 0x97000u) { printf("ERASE IN THE GAP %#x\n", off); exit(1); }
     erases++;
     memset(nor + off, 0xFF, 0x1000);
     return 0;
@@ -161,7 +163,7 @@ static int check(const char *what, int ok) { printf("%-56s %s\n", what, ok ? "ok
 int main(int argc, char **argv)
 {
     size_t olen;
-    static uint8_t user[0x1000], autosave[0x1000];
+    static uint8_t user[0x1000], autosave[0x1000], gap[0x4000];
     uint8_t *old, head[0x4000];
     uint32_t ofo, nfo, i;
     int bad = 0, rc;
@@ -188,6 +190,12 @@ int main(int argc, char **argv)
         for (i = 0; i < 0x1000u; i++) nor[0xE5000 + i] = (uint8_t)(i * 3u);
         memcpy(nor + 0xE5F00, r, sizeof r);
         memcpy(autosave, nor + 0xE5000, sizeof autosave);
+        /* 3.10: the four sectors between the app area and the store (0x93000..0x97000) are the app's now. Fill them
+         * with a pattern, and plant the same record-shaped decoy in each sector's last 256 B: the SPL looks for one at
+         * "4K boundary - 256" (ldr_core.c), and the loader must leave data it does not recognize alone. */
+        for (i = 0; i < sizeof gap; i++) nor[0x93000u + i] = (uint8_t)(i * 11u + 5u);
+        for (i = 0; i < 4u; i++) memcpy(nor + 0x93000u + (i + 1u) * 0x1000u - 0x100u, r, sizeof r);
+        memcpy(gap, nor + 0x93000u, sizeof gap);
     }
     /* 1.6.1: flash.bin must be exactly this board's [0, app area end): a package with another board's size (an
      * SMK-37's app area ends at 0x9D000, the FM-1's at 0x93000; one byte short too) is refused before any erase */
@@ -230,6 +238,14 @@ int main(int argc, char **argv)
                  record_cleared && nor[0xE4F06] == 0xFF && nor[0xE8F06] == 0xFF);
     bad += check("user data in Felucca's store that looks like a record is kept", !memcmp(nor + 0xA0000, user, sizeof user));
     bad += check("autosave that looks like a record is kept", !memcmp(nor + 0xE5000, autosave, sizeof autosave));
+    bad += check("the gap below the store (0x93000..0x97000) survives the update, all four sectors",
+                 !memcmp(nor + 0x93000u, gap, sizeof gap));
+    {
+        uint32_t k, kept = 1;
+        for (k = 0; k < 4u; k++)
+            kept &= !memcmp(nor + 0x93000u + (k + 1u) * 0x1000u - 0x100u, gap + (k + 1u) * 0x1000u - 0x100u, 0x100u);
+        bad += check("a record-shaped decoy in each gap sector is kept too", kept);
+    }
     bad += check("no write outside the allowed windows", bad_range == 0);
     /* same package again: nothing to erase */
     erases = 0; requests = 0;

@@ -28,6 +28,7 @@ Targets for the edit loop (not the final gate):
   drums       ported DRUMS engine, every lane / KIT / choke  tests/drums_test.c
   sound15     ANALOG filter TYPE and ENV SYNC                tests/sound15_test.c
   inschain    insert chain order, MIX 0 bypass, migration    tests/inschain_test.c
+  flash       flash write windows, torn writes, layout        tests/flash_map_test.c, storage_test.c, layout_test.py
   regress     golden renders, health, voices, CPU budget     tests/regress.c
   target_budget  render-loop instructions in the pi32v2 dis    tests/target_budget.py
   web         desc.json + menu.json, then node web/test_web.mjs
@@ -128,6 +129,15 @@ do_regress() {
     run_bin regress "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
 }
 
+do_flash() {
+    compile flash "$OUT/flash_map_test" tests/flash_map_test.c \
+        -Ifirmware/hal || return 1
+    compile flash "$OUT/storage_test" tests/storage_test.c || return 1
+    run_bin flash "$OUT/flash_map_test" || return 1
+    run_bin flash "$OUT/storage_test" || return 1
+    run_bin flash python3 tests/layout_test.py
+}
+
 do_target_budget() {
     if [ ! -f build/felucca.dis ]; then
         echo "== target_budget: skip (build/felucca.dis missing; run ./build.sh once)" >&2
@@ -160,6 +170,7 @@ run_target() {
         drums) do_drums ;;
         sound15) do_sound15 ;;
         inschain) do_inschain ;;
+        flash) do_flash ;;
         regress) do_regress ;;
         target_budget) do_target_budget ;;
         web) do_web ;;
@@ -175,7 +186,7 @@ need_tables=0
 for t in "$@"; do
     case $t in
         motion|ui|ui_render|editor|project|param|drums|sound15|inschain|regress|target_budget|web) need_tables=1 ;;
-        all|list) ;;
+        flash|all|list) ;;
         *)
             usage >&2
             exit 2

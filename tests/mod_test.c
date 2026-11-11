@@ -90,6 +90,7 @@ static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails
     memset(trk, 0, sizeof trk);
     MOD_W_CLEAR();
     host_tracks_init();
+    song.g[G_ROUTE] = 0;                          /* CH1-4: these cases route CC1 / CC11 / AT by channel */
     for (k = 0; k < NPART; k++)
         host_preset(&trk[k], k ? 0u : e, k ? 0u : pi);
     song.sel = 0;

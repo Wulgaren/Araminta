@@ -13,7 +13,9 @@
  *    keys past the first 12 (D5 .. G5, none in the default map) are the layer's too but do nothing.
  * 6. idle: nothing held, nothing ramping, the mix is bit-identical (and the goldens of regress.c too).
  * 7. no clicks, no overflow; the filters, the CRUSH and THROW macros and the mutes do what they say.
- * 8. cost: instructions per sample of the song, idle and with every effect at once (proc_pid_rusage).
+ * 8. cost: instructions per sample of the song, idle and with every effect at once (proc_pid_rusage), and the
+ *    same over the heavy mix (four parts, every insert at MIX, both sends, drums on 16ths): each audio punch-in
+ *    held alone, checked to be a small fraction of what the patch already costs, and to actually engage.
  * 9. OCT UP / OCT DN (the harmonizer): the pitch of the shifted part (the output less its 0.56 of the live
  *    input), each side its own: a sine whose period fits 1024 samples (the taps' distance) a whole number of
  *    times (215.33 / 344.53 Hz: both taps in phase, their jumps whole periods: no splice error) comes out at
@@ -1693,6 +1695,148 @@ static int test_cost(void)
     return bad + check(what, (thr - rep) * 0.017 <= 2.0);
 }
 
+/* ---------------------------------------------- 8b. the crackle, measured --- */
+/* The report: a busy patch crackles while a punch-in is held. The layer's cost over the idle song says
+ * nothing about that: what matters is the whole render's headroom against the 2.9 ms half. So the heavy
+ * mix (three synths at full poly plus drums on 16ths: regress.c's 3parts_full_drums shape) is rendered
+ * idle and then with each audio punch-in held, and the worst one is checked against the point where
+ * overload starts shedding notes (85 % of a half). A child process, as tracks_cost: the parent's own
+ * work only adds to the count. */
+static double punch_busy(const uint8_t parts[NPART][3], int effect, uint32_t *engaged)
+{
+    int fd[2];
+    pid_t pid;
+    double r[2] = {-1, 0};
+    uint32_t eng = 0;
+    if (pipe(fd))
+        return -1;
+    fflush(stdout);
+    if (!(pid = fork())) {
+        static const uint8_t NOTES[8] = {48, 52, 55, 59, 60, 64, 67, 71};
+        uint64_t ns = 0, best = ~0ull, k, settle = FS / CTL, nblk = 2u * FS / CTL, seg = nblk / 4u;
+        uint32_t p, i, bm = 0, seen = 0;
+        int32_t o[2 * CTL];
+        memset(trk, 0, sizeof trk);
+        host_tracks_init();
+        perf_reset();
+        song.g[G_BPM] = 120;
+        for (p = 0; p < NPART; p++) {
+            host_preset(&trk[p], parts[p][0], parts[p][1]);
+            if (parts[p][2] == DRUM_HITS)
+                continue;
+            trk[p].p[P_VOICE] = V_POLY;
+            trk[p].p[P_SUS] = 127;                  /* held notes keep sounding */
+            trk[p].p[P_AMODE] = 0;
+            for (i = 0; i < parts[p][2]; i++)
+                trk_note_on(&trk[p], NOTES[i] + 12u * p, 100);
+        }
+        {   /* a real working patch: every insert at MIX, both sends up, so the punch-in is measured
+             * against the load it is actually added to (MIX 0 skips the stage's DSP entirely) */
+            static const int MIX[] = {P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX, P_IHMIX};
+            for (p = 0; p < NPART; p++) {
+                for (i = 0; i < sizeof MIX / sizeof MIX[0]; i++)
+                    trk[p].p[MIX[i]] = 100;
+                trk[p].p[P_DLY] = 100;
+                trk[p].p[P_REV] = 100;
+            }
+        }
+        transport_req = 1;
+        for (k = 0; k < settle + nblk; k++) {       /* 1 s to settle, then measure */
+            uint64_t t0;
+            if (parts[3][2] == DRUM_HITS && (k * CTL) % (FS / 8u) < CTL)
+                drum_hit((k * CTL) / (FS / 8u));
+            if (k == settle && effect >= 0) {       /* the effect held from here on */
+                perf_press((uint32_t)effect, 1);
+                if (effect == PF_OUP || effect == PF_ODN)
+                    perf_k[3] = 60;                 /* the shimmer, its heaviest setting */
+            }
+            t0 = now_ns();
+            mix_block(o, CTL);
+            if (k >= settle) {
+                ns += now_ns() - t0;
+                /* the effect really at work: its stage, filter, macro or mute running this block */
+                if (perf_act || pf.mode != BM_NONE || pf.w || pf.la || pf.ha || pf.cw || pf.fw || pf.pw ||
+                    pf.thr || pf.mute)
+                    seen = 1;
+                if ((k - settle) % seg == seg - 1u) {
+                    best = ns < best ? ns : best;
+                    ns = 0;
+                }
+            }
+            if (busy_now() > bm)
+                bm = busy_now();
+        }
+        r[0] = (double)best / (double)(seg * CTL);
+        r[1] = bm;
+        eng = seen;
+        transport_req = 2;
+        if (write(fd[1], &eng, sizeof eng) != sizeof eng)
+            _exit(1);
+        if (write(fd[1], r, sizeof r) != sizeof r)
+            _exit(1);
+        _exit(0);
+    }
+    close(fd[1]);
+    if (read(fd[0], &eng, sizeof eng) != sizeof eng || read(fd[0], r, sizeof r) != sizeof r)
+        r[0] = -1;
+    close(fd[0]);
+    waitpid(pid, 0, 0);
+    if (engaged)
+        *engaged = eng;
+    return r[0];
+}
+/* three reads of a punch-in's cost, the smallest (cost_min's reason: the host reads a few percent high now and
+ * then, and a real regression raises every read) */
+static double punch_busy_min(const uint8_t parts[NPART][3], int effect, uint32_t *engaged)
+{
+    double a = punch_busy(parts, effect, engaged), b = punch_busy(parts, effect, 0);
+    double c = punch_busy(parts, effect, 0);
+    double m = a < b ? a : b;
+    return c < m ? c : m;
+}
+static int test_punch_load(void)
+{
+    static const uint8_t PARTS[NPART][3] = {{12, 0, 8}, {2, 0, 8}, {5, 0, 4}, {10, DRUM_HITS, 0}};   /* FM6 + PHASE
+                                              * + VOICE + drums: regress.c's 3parts_full_drums */
+    static const struct { const char *name; int e; } P[] = {
+        {"REPEAT 1/8", PF_R8}, {"REPEAT 1/12", PF_R12}, {"REPEAT 1/16", PF_R16}, {"REPEAT 1/32", PF_R32},
+        {"REVERSE", PF_REV}, {"LPF", PF_LPF}, {"HPF", PF_HPF}, {"TAPE STOP", PF_TAPE}, {"FREEZE", PF_FRZ},
+        {"OCT UP", PF_OUP}, {"OCT DN", PF_ODN}, {"FLANGER", PF_FLG}, {"PHASER", PF_PHS},
+        {"REV THROW", PF_RTHR}, {"ECHO THROW", PF_ETHR}, {"GLITCH", PF_GLT}};
+    double idle, worst = 0, w;
+    const char *wname = "none";
+    uint32_t c, engaged;
+    char what[220];
+    int bad = 0;
+    /* three reads, the smallest: the host's clock reads several percent high under sanitizers or a busy
+     * machine (cost_min's note), and a real regression raises every read */
+    idle = punch_busy_min(PARTS, -1, &engaged);
+    if (idle < 0) {
+        printf("perform: punch load: cannot measure on this host\n");
+        return 0;
+    }
+    printf("perform: punch load: the heavy mix (4 synth parts + insert chain + sends + drums) %.0f ns / sample idle\n", idle);
+    for (c = 0; c < sizeof P / sizeof P[0]; c++) {
+        w = punch_busy_min(PARTS, P[c].e, &engaged);
+        printf("perform: punch load:   %-12s %7.0f ns / sample (over idle %6.0f) %s\n",
+               P[c].name, w, w - idle, engaged ? "" : "NOT ENGAGED");
+        snprintf(what, sizeof what, "punch load: %s runs on the heavy mix", P[c].name);
+        bad += check(what, engaged != 0);
+        if (w > worst) {
+            worst = w;
+            wname = P[c].name;
+        }
+    }
+    /* The guard is on the effect's own cost over the idle mix: a punch-in must stay a small fraction of what the
+     * patch already costs, not a second mix. 20 % is generous on purpose. The measured worst is about 7 % (13 ns of
+     * 183 at -O2, 21 of 299 under ASan), and the number is a wall-clock delta, so a busy machine moves it; what this
+     * must catch is a punch-in that doubles the render, which is what a real regression would look like. */
+    snprintf(what, sizeof what, "punch load: the worst (%s) adds %.0f ns / sample over idle (at most 20 %% of the idle mix)",
+             wname, worst - idle);
+    bad += check(what, (worst - idle) <= idle * 0.20);
+    return bad;
+}
+
 /* ------------------------------------------------------------ demos --- */
 static void demo_at(uint32_t t)
 {
@@ -2085,6 +2229,7 @@ int main(int argc, char **argv)
     bad += test_x2();
     bad += test_glitch();
     bad += test_cost();
+    bad += test_punch_load();
     if (argc > 1)
         demos(argv[1]);
     if (argc > 2) {

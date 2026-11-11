@@ -216,7 +216,8 @@ at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device 
 
 | cmd | Request args | Reply args |
 | --- | --- | --- |
-| 1 INFO | — | version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, then NENGINES engine-name strings, then (v3) NTRK (4), then (v6) CHAIN_ROWS (16), then the tagged blocks `55 01 uiCaps`, `4D 01 64 01`, `42 01 3`, `46 01 nfactory nbank`, `53 01 3`, (1.0.3) `50 01 3` and (1.0.4) `4E 01 count` (MENU settings; 12, 1.1: 15, 1.2: 17, 1.1.5: 18, 1.2: 23, 1.3: 24, 1.5: 25) and (1.0.5) `52 01 4` (ratchet) and (1.1) `4C 01 1` (parameter locks) and (1.2) `41 01 40 01` (192 motion records in this build; two 7-bit bytes, LSB first: `00 01` was 128 before; `4D 01 64 01` keeps saying 64) and `54 01 16` (a step's nudge, 1/16 of a step) and `57 01 4` (song sections: a slot per track, SONG ops 4..7) and (1.4.1) `56 01 32` (FM6's voice bank: cmds 74..77, SLOT 9..40) and (1.5) `43 01 16` (MIDI LEARN's map: cmds 78, 79) (below); older firmware ends earlier |
+| 1 INFO | — | version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, then NENGINES engine-name strings, then (v3) NTRK (4), then (v6) CHAIN_ROWS (16), then the tagged blocks `55 01 uiCaps`, `4D 01 64 01`, `42 01 3`, `46 01 nfactory nbank`, `53 01 3`, (1.0.3) `50 01 3` and (1.0.4) `4E 01 count` (MENU settings; 12, 1.1: 15, 1.2: 17, 1.1.5: 18, 1.2: 23, 1.3: 24, 1.5: 25) and (1.0.5) `52 01 4` (ratchet) and (1.1) `4C 01 1` (parameter locks) and (1.2) `41 01 40 01` (192 motion records in this build; two 7-bit bytes, LSB first: `00 01` was 128 before; `4D 01 64 01` keeps saying 64) and `54 01 16` (a step's nudge, 1/16 of a step) and `57 01 4` (song sections: a slot per track, SONG ops 4..7) and (1.4.1) `56 01 32` (FM6's voice bank: cmds 74..77, SLOT 9..40); older firmware ends earlier. The `43 01 16` block
+(1.5's MIDI LEARN map, cmds 78 / 79) is gone: a firmware that still answers it is read as any unknown block |
 | 2 GET | scope, id | scope, id, v14 |
 | 3 SET | scope, id, v14 | scope, id, v14 (the value after clamping). Setting global `G_ENGSEL` (id from DESC label "ENG") changes the engine: its defaults, then its first preset (as on the device) |
 | 4 DUMP | — | engine, preset, then P_COUNT × v14 (the selected track), then G_COUNT × v14 (globals). `P_IORD` is its 0..719 insert order; the SEND flags stay on the device, as in `GET` / `TRACK_DUMP` / `CHANGED` |
@@ -1022,35 +1023,6 @@ the device's autosave took the transfer's flash between two requests, after 10 s
 - The editor's import (6-OP FM tab): a 32-voice file's voices, each packed as for a single voice (every value into
   its range); an empty slot of a shorter file is not written. Flash: the bank is at 0xE7000; a transfer is staged in
   the autosave's older sector first (0xE5000 / 0xE6000), which the next autosave writes over anyway.
-
-## MIDI LEARN (78-79; 1.5)
-
-The device can set a controller's CC to any knob's parameter of a track (Discussion #170): GLO + D4 turns MIDI LEARN
-on, a knob turned picks its parameter on the selected track (GLO's KNOB 1..4: T1..T4 LEVEL), the next CC that comes is
-set to it. Up to 16 CCs, each to one parameter of one track (0..3), whatever channel it comes on (a channel MIDI IN /
-ROUT ignores stays ignored) and whichever track that channel plays; a CC 0..127 over the parameter's range, as a knob
-(and as AUTOMATION records a knob). A learned CC no longer reaches the standard CC map (CC74 learned is no longer
-T1's CUT on channel 1). One CC sets one parameter and a parameter has one CC: learning either again replaces the old
-entry. Never learned: CC0, 1, 6, 11, 32, 38, 64, 96..101, 120..127 (their meaning: bank select, MODW, RPN data, EXPR,
-the pedal, data increment / NRPN / RPN, channel mode). The map is part of the settings (kept across power-off, not in
-projects or user presets; a full backup carries it with the settings object); empty in every older setting. An engine
-parameter is learned by its place (P_E0 + k): on a track that changes engine the CC sets that engine's k-th value.
-INFO advertises `43 01 16` (16 entries) after `56 01 32`; firmware without the tag answers neither command. The
-device's MENU > MIDI > LEARN CLEAR (OCT+: every entry cleared) is an action, not a setting: `MENU_DESC` does not offer
-it (the MENU settings' count stays); `LEARN_SET` op 2 does the same.
-
-| cmd | Request args | Reply args |
-| --- | --- | --- |
-| 78 LEARN_GET | — | 16, then 16 × (used 0/1, CC, track, parameter id); an empty entry `0 0 0 0` |
-| 79 LEARN_SET | op 0 learn: 0, CC, track, parameter id; op 1 clear a CC: 1, CC; op 2 clear all: 2 | rc, then LEARN_GET's reply |
-
-The parameter id is this firmware's (`P_*`, P_E0 from `INFO`). rc: 0 applied and saved, 1 arguments (an unknown op, a
-CC that is never learned or past 127, a track past 3, an id past P_COUNT − 1), 3 applied in RAM only (no flash, a
-failed write), 4 applied, saved when the transport stops, 5 full (16 others: clear one first). Op 1 on a CC not
-learned, op 2 on an empty map: rc 0, nothing changes. The device does not tell the editor when it learns: read the map
-again (LEARN_GET) when it matters (e.g. with the settings, or after the user says so). Example: `F0 7D 46 4C 4F 00 4A
-03 62 F7` (op 0: CC74, T4, id 98: P_E0 + 2, DRUM's TONE, where P_E0 is 96 as in 1.2 .. 1.4.1) answers `F0 7D 46 4C 4F 00 10 01 4A 03 62 ...
-F7` (rc 0, 16 entries, the first CC74 on T4 id 98).
 
 ## Tagged device preferences v1
 

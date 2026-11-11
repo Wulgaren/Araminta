@@ -126,6 +126,7 @@ static const icon_map_t ICON_MAP[] = {
     /* fx sends, voice */
     {"DST", ICON_DIST}, {"CHO", ICON_CHORUS}, {"DLY", ICON_DELAY}, {"REV", ICON_REVERB},
     {"VCE", ICON_VOICE}, {"GLD", ICON_GLIDE}, {"GLMOD", ICON_GLIDE}, {"PRIO", ICON_ORDER},
+    {"PITCH", ICON_PITCH},
     {"ALLOC", ICON_VOICE}, {"UNI DTN", ICON_DETUNE}, {"PAN", ICON_PAN}, {"MUTE", ICON_MUTE}, {"PLAY", ICON_MUTE},
 
     /* global */

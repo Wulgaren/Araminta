@@ -738,7 +738,7 @@ static void sound_name(const track_t *t, char *b)
 
 static void draw_foot(void)
 {
-    char s[48], pn[16], ti[20], ln[24];
+    char s[48], pn[16], ti[20];
     const track_t *t = TSEL;
     uint32_t sig;
     const page_t *pg = cur_page();
@@ -768,10 +768,6 @@ static void draw_foot(void)
     }
     if (grid_on())
         sig += 0x51EDu + (uint32_t)black_held(GK_ACC) * 977u;
-    if (ui.ml.on && !act_cols()) {                        /* MIDI LEARN (midi_learn.c): what is picked, its CC */
-        ml_line(ln);
-        sig += str_hash(0x1EA2u, ln);
-    }
     if (!ui.force && sig == ui.foot_sig)
         return;
     ui.foot_sig = sig;
@@ -790,11 +786,6 @@ static void draw_foot(void)
         } else {
             cv_key_row(8, 232, 2, kh, 2, act_ready() ? 3u : 2u, T_BG);
         }
-    } else if (ui.ml.on) {                               /* row 1: MIDI LEARN's line, OCT+ DONE at the right */
-        khint_t kh = {KC_OCTUP, "DONE"};
-        int32_t kw = kh_w(KC_OCTUP, "DONE");
-        cv_free_text(8, 2, &AF_S, ln, T_ACCENT, T_BG, 232 - kw - 8 - 8);
-        cv_key_row(232 - kw, 232, 2, &kh, 1, 1u, T_BG);
     } else if (grid_on() && !detail_on()) {          /* row 1: the page, and what the keys do (DETAIL: the steps) */
         char b[16];
         uint32_t len = (uint32_t)t->p[P_SLEN];
