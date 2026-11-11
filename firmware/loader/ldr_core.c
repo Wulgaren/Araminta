@@ -41,7 +41,7 @@
 #define LDR_DATA_HI 0xE0000u                    /* bytes (user samples) the host writes */
 #define LDR_GAP_LO 0x93000u                     /* 3.10: the app's four sectors below the store (fm1_flash_map.h); */
 #define LDR_GAP_HI 0x97000u                     /* no update record is ever written there, so the sweep skips them */
-#define LDR_KEEP_LO 0xE5000u                    /* autosave A/B + FM6 voice bank (storage.c / fm1_flash.h) */
+#define LDR_KEEP_LO 0xE5000u                    /* autosave A + FM6 voice bank (B is in the gap; storage.c) */
 #define LDR_KEEP_HI 0xE8000u                    /* still clear OTA staging (0xE4F00) and stock 0xE8F00 */
 #define LDR_VM_LO 0xE8000u                      /* the stock firmware's own band: its VM 0xE8000 (radio */
 #define LDR_VM_HI 0xFC000u                      /* calibration), BTIF 0xE9000 and USR 0xEA000..: a record there

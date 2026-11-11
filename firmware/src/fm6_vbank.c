@@ -6,21 +6,23 @@
  * and a project or a user preset keeps it whatever the bank holds later. RAM: the used mask (eng_fm6.c
  * fm6_bank_used) and the transfer's state, in the pool; no copy of the bank.
  *
- * Where: flash 0xE7000 (fm1_flash.h FL_VBANK_*), the sector above the autosave's pair, which nothing else of Felucca
- * uses (the map: storage.c). Like the autosave's sectors it lies in the margin the stock firmware's own update stages
- * into, only while the stock firmware runs: a later Felucca finds no valid bank there (commit record, CRC) and starts
- * with none. Sector: the commit record (storage.c st_hdr_t, type OBJ_FM6VB) at 0, the bank's header (fvb_info_t) at
- * 224, the 32 voices at 256..3839, 112 bytes each (the record's 7-bit bytes 8 to 7, up_fm6.c upf_pk_put); the record's
- * CRC covers 224..3839. The tail from 0xF00 on stays erased: the record scans of the update loader and the SPL (a 4 KiB
- * boundary - 256) never find anything there.
+ * Where: flash 0xE7000 (fm1_flash.h FL_VBANK_*), the sector above autosave A, which nothing else of Felucca uses (the
+ * map: storage.c). Like the autosave's sectors it lies in the margin the stock firmware's own update stages into, only
+ * while the stock firmware runs: a later Felucca finds no valid bank there (commit record, CRC) and starts with none.
+ * Sector: the commit record (storage.c st_hdr_t, type OBJ_FM6VB) at 0, the bank's header (fvb_info_t) at 224, the 32
+ * voices at 256..3839, 112 bytes each (the record's 7-bit bytes 8 to 7, up_fm6.c upf_pk_put); the record's CRC covers
+ * 224..3839. The tail from 0xF00 on stays erased: the record scans of the update loader and the SPL (a 4 KiB boundary
+ * - 256) never find anything there. 0xE8000 and FL_VBANK_HI stay untouched.
  *
  * A new bank (the editor's FM6B_BEGIN / WRITE / END, editor_fm6.c) is written into the autosave's older copy first
- * (0xE5000 or 0xE6000: the one st_save writes next, never the copy the power-on restore takes), its commit record (slot
- * 1, the next seq) last and only once the voices match the editor's CRC; then it is copied to 0xE7000 (erase, payload,
- * commit record, read back). A power cut anywhere leaves the old bank (nothing committed) or the new one (committed:
- * fvb_boot finishes the copy at the next power-on, before any autosave can take that sector): never half of one. A
- * wrong CRC commits nothing. An autosave between two requests (it waits 10 s after the last, project.c) takes the
- * sector: WRITE and END find its commit record there and answer 5 (start again). Included by upreset.c. */
+ * (A at 0xE5000 or B at 0x93000: the one st_save writes next, never the copy the power-on restore takes; only that
+ * copy's first sector is used for staging), its commit record (slot 1, the next seq) last and only once the voices
+ * match the editor's CRC; then it is copied to 0xE7000 (erase, payload, commit record, read back). A power cut
+ * anywhere leaves the old bank (nothing committed) or the new one (committed: fvb_boot finishes the copy at the next
+ * power-on, before any autosave can take that sector): never half of one. A wrong CRC commits nothing. An autosave
+ * between two requests (it waits 10 s after the last, project.c) takes the sector: WRITE and END find its commit
+ * record there and answer 5 (start again). fvb_boot also finishes a bank still staged at the pre-3.10 B address
+ * 0xE6000. Included by upreset.c. */
 #define FVB_HOME 0xE7000u
 #define FVB_INFO 224u                          /* the bank's header; the voices from FVB_VOICES */
 #define FVB_VOICES 256u
@@ -115,24 +117,30 @@ static int fvb_read(uint32_t k, uint8_t *pk)
 }
 
 /* up_boot, and after a bank was staged: a staged bank newer than 0xE7000's is copied there; then the voices of the
- * bank at 0xE7000 (none without one) */
+ * bank at 0xE7000 (none without one). Also finishes a bank still staged at the pre-3.10 autosave B (0xE6000). */
 static void fvb_boot(void)
 {
     st_hdr_t h, s, t;
-    uint32_t c, best = 2u;
+    uint32_t c, best = 3u, base[3];
     int home;
     memset(fm6_bank_used, 0, sizeof fm6_bank_used);
     fm6_bank_read = fvb_read;
     if (!flash_ok)
         return;
+    base[0] = st_sector(OBJ_AUTOSAVE, 0);
+    base[1] = st_sector(OBJ_AUTOSAVE, 1);
+    base[2] = ST_AUTO_LEGACY_B;                          /* pre-split B; skipped when it equals a live copy */
     home = fvb_valid(FVB_HOME, 0, &h);
-    for (c = 0; c < 2u; c++)
-        if (!fvb_valid(st_sector(OBJ_AUTOSAVE, c), 1, &t) && (home || (t.seq != h.seq && t.seq - h.seq < 0x80000000u)) &&
-            (best > 1u || (t.seq != s.seq && t.seq - s.seq < 0x80000000u))) {
+    for (c = 0; c < 3u; c++) {
+        if (c == 2u && (base[2] == base[0] || base[2] == base[1]))
+            continue;
+        if (!fvb_valid(base[c], 1, &t) && (home || (t.seq != h.seq && t.seq - h.seq < 0x80000000u)) &&
+            (best > 2u || (t.seq != s.seq && t.seq - s.seq < 0x80000000u))) {
             s = t;
             best = c;
         }
-    if (best < 2u && !fvb_valid(st_sector(OBJ_AUTOSAVE, best), 1, &s) && !st_erase(FVB_HOME) &&
+    }
+    if (best < 3u && !fvb_valid(base[best], 1, &s) && !st_erase(FVB_HOME) &&
         !fvb_prog(FVB_HOME + FVB_INFO, st_buf, FVB_LEN))
         fvb_commit(FVB_HOME, 0, s.seq);
     if (!fvb_valid(FVB_HOME, 0, &h))

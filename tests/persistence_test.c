@@ -33,12 +33,12 @@ static void panel_setup(void) {}
 
 static uint8_t flash_ok = 1;
 static int erase_error, fail_after = -1;
-static uint32_t erases, as_erases;               /* (as_erases: the autosave's two sectors, 0xE5000 / 0xE6000) */
+static uint32_t erases, as_erases;               /* (as_erases: one count per autosave write = first sector of A or B) */
 static int st_read(uint32_t off, void *dst, uint32_t n) { memcpy(dst, nor + off, n); return 0; }
 static int st_erase(uint32_t off)
 {
     erases++;
-    as_erases += off >= 0xE5000u && off < 0xE7000u;
+    as_erases += off == 0xE5000u || off == 0x93000u;   /* A at 0xE5000, B in the gap at 0x93000 */
     if (erase_error) return -8;
     memset(nor + off, 0xFF, 4096);
     return 0;
@@ -281,7 +281,7 @@ static int autosave_test(void)
     ok = !as.writes;
     as_run(1500u);
     bad += check("autosave: a change: no write within 10 s, one once idle 10 s (one erase)",
-                 ok && as.writes == 1u && as_erases == 1u && st_load(OBJ_AUTOSAVE, &raw, sizeof raw) == 3840);
+                 ok && as.writes == 1u && as_erases == 1u && st_load(OBJ_AUTOSAVE, &raw, sizeof raw) == 4096);
     as_run(600000u);
     bad += check("autosave: 10 min unchanged after it: no more writes", as.writes == 1u && as_erases == 1u);
     song.g[G_SLOT] = 3;                                  /* (the PROJECT page's pick, the selected track: not the music) */
@@ -366,6 +366,7 @@ static int autosave_test(void)
         int cur, other;
         /* re-seed A then B so the older copy is BPM 97 (OFF's write above may have displaced it) */
         memset(nor + 0xE5000u, 0xFF, 0x2000u);
+        memset(nor + 0x93000u, 0xFF, 0x2000u);
         as_power_on();
         autosave_boot(1);
         song.g[G_BPM] = 97;
@@ -383,12 +384,14 @@ static int autosave_test(void)
         ok = autosave_boot(1) == 0 && song.g[G_BPM] != 97 && song.g[G_BPM] != 111;
         bad += check("autosave: both copies damaged: ignored, power-on as new", ok);
         memset(nor + 0xE5000u, 0xFF, 0x2000u);
+        memset(nor + 0x93000u, 0xFF, 0x2000u);
         st_save(OBJ_AUTOSAVE, "NOT A PROJECT", 13u);     /* a valid record that is no project */
         as_power_on();
         bad += check("autosave: a record that is no project: ignored", autosave_boot(1) == 0 && song.g[G_BPM] != 97);
     }
     /* a power cut in the middle of a write: the copy before stays in charge */
     memset(nor + 0xE5000u, 0xFF, 0x2000u);
+    memset(nor + 0x93000u, 0xFF, 0x2000u);
     as_power_on();
     autosave_boot(1);
     as_edit(8);

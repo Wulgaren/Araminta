@@ -542,9 +542,8 @@ static uint32_t proj_name_get(char *d, const uint8_t *s)   /* its length */
 
 /* A stable serialized schema: first header retains FUN6's fields; at byte66
  * np, format flags, then four byte-param tracks and nine-byte steps; FUN8: the patches at PROJ_FM6_OFF. */
-/* Pack at `st` bytes. FUN20 projects use PROJ_STORE_SIZE (4096). The autosave still lives in a one-sector
- * A/B pair (3840 B) until a placement for a 4096 B pair is chosen without shrinking samples: pack PROJ_STORE_OLD
- * (no append / lane; motion clipped to MOTION_FILE_MAX_BODY). */
+/* Pack at `st` bytes. FUN20 projects and the autosave use PROJ_STORE_SIZE (4096). PROJ_STORE_OLD (3840) remains
+ * for host tests that build FUN10..FUN19 field images. */
 static int proj_pack_st(project_store_t *out, const project_t *q, uint32_t st)
 {
     uint8_t *b = out->raw; uint32_t pos = 68u, t, i; uint32_t magic = PROJ_MAGIC, size = st, sum;
@@ -620,7 +619,7 @@ static int proj_pack_st(project_store_t *out, const project_t *q, uint32_t st)
             b[pos++] = (uint8_t)(w >> 8);
         }
     }
-    {   /* FUN20 at 4096: up to 128 (88 body + append); a 3840 interim image keeps 88 in the body only */
+    {   /* FUN20 at 4096: up to 128 (88 body + append); a 3840 field image keeps 88 in the body only */
         uint32_t cap = full ? MOTION_FILE_MAX : MOTION_FILE_MAX_BODY;
         uint32_t nmot = q->motion.count > cap ? cap : q->motion.count;
         uint32_t nbody = nmot > MOTION_FILE_MAX_BODY ? MOTION_FILE_MAX_BODY : nmot;
@@ -811,7 +810,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     if (v12) {
         mot = np > 111u ? ((v16 || v17) ? MOTION_FILE_SIZE : MOTION_FILE_SIZE_V15) : MOTION_FILE_SIZE_128;
         data_end = PROJ_DX_OFF;
-        /* FUN20 at 4096: 128 records; a 3840 B image (interim autosave / old field) keeps 88 in the body */
+        /* FUN20 at 4096: 128 records; a 3840 B field image keeps 88 in the body */
         mot_max = (v16 || v17) ? ((v20 && st == PROJ_STORE_SIZE) ? MOTION_FILE_MAX : MOTION_FILE_MAX_BODY)
                                : MOTION_FILE_MAX_V15;
     } else if (v11) {
@@ -1552,7 +1551,8 @@ static void persist_boot(void)                    /* before settings_init / pane
         for (i = 0; i < 4u; i++)
             proj_fetch(i);
     }
-    up_boot();                                     /* user presets */
+    up_boot();                                     /* user presets (fvb_boot finishes a staged FM6 bank first) */
+    st_autosave_migrate();                         /* old one-sector B at 0xE6000 -> gap, before A can erase it */
 #endif
 }
 
@@ -1638,11 +1638,12 @@ static void settings_save(void)
     settings_poll();
 }
 
-/* The autosave (1.2, Discussion #130; 3.10 always-writes): the music as it is (what a project holds: every track's
- * sound, steps, LEN DIV SWING GATE, mix, the song, the automation and locks, the FM6 patches, the name) kept in its
- * own storage object (OBJ_AUTOSAVE, A/B at 0xE5000 / 0xE6000, one sector a copy / 3840 B until a 4096 B placement is
- * chosen), and put back at power-on (autosave_boot) with MENU > SYSTEM > BOOT RESTORE ON (the default). Flash wear:
- * a 4 KiB erase per write, the two sectors taking turns, so a write only when
+/* The autosave (1.2, Discussion #130; 3.10 always-writes + split placement): the music as it is (what a project
+ * holds: every track's sound, steps, LEN DIV SWING GATE, mix, the song, the automation and locks, the FM6 patches,
+ * the name) kept in its own storage object (OBJ_AUTOSAVE, A at 0xE5000..0xE6FFF / B at 0x93000..0x94FFF, two sectors
+ * a copy so the full 4096 B FUN20 wire including lane and motion 89..127 fits), and put back at power-on
+ * (autosave_boot) with MENU > SYSTEM > BOOT RESTORE ON (the default). Flash wear: two 4 KiB erases per write, the
+ * two copies taking turns, so a write only when
  *   - something a project holds changed since the last one (autosave_sig: a hash of those values, no copy; not the
  *     selected track, nor the PROJECT page's own controls),
  *   - and it has stayed the same for AS_IDLE_MS (10 s) with the transport stopped, no key or button down, no voice
@@ -1740,10 +1741,8 @@ static void autosave_poll(void)
     as.wrote = 1;
     project_capture(&proj_scratch);
     proj_wire_gen++;
-    /* Interim: one-sector autosave cannot hold FUN20's 4096 B wire (sample shrink parked). Pack 3840 B
-     * (no lane / motion 89..127) until Natan picks a 2-sector A/B placement. */
-    as.err = !proj_pack_st(&proj_wire, &proj_scratch, PROJ_STORE_OLD) ||
-             st_save(OBJ_AUTOSAVE, &proj_wire, PROJ_STORE_OLD) != 0;
+    as.err = !proj_pack(&proj_wire, &proj_scratch) ||
+             st_save(OBJ_AUTOSAVE, &proj_wire, sizeof proj_wire) != 0;
     if (!as.err) {
         as.saved = sig;
         as.writes++;
