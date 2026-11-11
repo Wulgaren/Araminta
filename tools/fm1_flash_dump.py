@@ -203,11 +203,9 @@ class Link:
         except ImportError as error:
             raise DumpError("PyUSB is not installed: python3 -m pip install pyusb") from error
         self.util = usb.util
-        import ctypes.util
-        name = ("libusb-1.0.dll" if sys.platform == "win32"
-                else "libusb-1.0.dylib" if sys.platform == "darwin" else "libusb-1.0.so.0")
-        lib = ctypes.util.find_library("usb-1.0")
-        backend = usb.backend.libusb1.get_backend(find_library=lambda _: lib or name)
+        # Default finder: on Apple Silicon it also checks /opt/homebrew/lib, which
+        # ctypes.util.find_library misses under non-Homebrew Pythons (e.g. Xcode's).
+        backend = usb.backend.libusb1.get_backend()
         require(backend is not None, "libusb not found (brew install libusb)")
         print("Waiting for the FM-1 in ROM UBOOT (%04x:%04x)..." % (VID, PID), flush=True)
         import time
