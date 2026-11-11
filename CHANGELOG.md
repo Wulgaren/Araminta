@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### FUN20 projects (4 KiB, single-copy) and punch-in lane
+
+Projects are FUN20 (`FUNK`): 4096 bytes, single-copy in flash (no A/B). DX stays at 3216 and FM6 at 3312;
+the name moved to 4080. The 256 B append at 3824..4079 holds motion records 89..127 (120 B) and the 40 B
+audio punch-in lane (64 steps × 5 bits) with marker `'L'` at 3984. `MOTION_FILE_MAX` is 128. FUN7..FUN19 still
+load. The four 4 KiB `.noinit` wire caches are gone; a 44 B RAM summary per slot (176 B total) feeds SONG /
+PROJECTS. A torn project save clears that slot (autosave is the recovery path). User sample slots shrink from
+80 KiB to 68 KiB (boot migrates slots 2 then 1) so the autosave can keep A/B at two sectors each
+(0xD3000 / 0xD5000) and still hold a 4096 B wire. Older 3840 B backups and field files still restore.
+
 EFFECTS > TAPE now starts as MASTER at MIX 100 %: at SPEED 100 the head is idle, so a power-on instrument and a
 new project sound the same as before, and the whole mix follows SPEED / FLUTR / DROPOUT without raising MIX
 first. SAVE > CLEAR > FX ALL returns to the same state. Projects saved before this build (FUN16 and older) still
