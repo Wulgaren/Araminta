@@ -1981,7 +1981,7 @@ static int test_menu_tabs(void)
         press(B_OCTUP); ok &= menu_get(MI_ACCEL) == 1u;
         press(B_OCTDN); ok &= menu_get(MI_ACCEL) == 1u;
         ui_prefs = PREF_ANIM_OFF;
-        bad += check("MENU: on an ON / OFF row OCT+ / a knob right is ON, OCT- / left OFF (USB SERIAL, RESTORE LAST too); STYLE/ANIM/ACCEL fixed", ok);
+        bad += check("MENU: on an ON / OFF row OCT+ / a knob right is ON, OCT- / left OFF (USB SERIAL, BOOT RESTORE too); STYLE/ANIM/ACCEL fixed", ok);
     }
     ui.menu_sel = MI_USB;
     press(B_HOME);

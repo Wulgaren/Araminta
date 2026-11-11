@@ -1638,11 +1638,11 @@ static void settings_save(void)
     settings_poll();
 }
 
-/* The autosave (1.2, Discussion #130): the music as it is (what a project holds: every track's sound, steps, LEN DIV
- * SWING GATE, mix, the song, the automation and locks, the FM6 patches, the name) kept in its own storage object
- * (OBJ_AUTOSAVE, A/B at 0xE5000 / 0xE6000, one sector a copy / 3840 B until a 4096 B placement is chosen), and put back at power-on
- * (autosave_boot) with MENU > SYSTEM > RESTORE LAST ON (the default). Flash wear: a 4 KiB erase per write, the two
- * sectors taking turns, so a write only when
+/* The autosave (1.2, Discussion #130; 3.10 always-writes): the music as it is (what a project holds: every track's
+ * sound, steps, LEN DIV SWING GATE, mix, the song, the automation and locks, the FM6 patches, the name) kept in its
+ * own storage object (OBJ_AUTOSAVE, A/B at 0xE5000 / 0xE6000, one sector a copy / 3840 B until a 4096 B placement is
+ * chosen), and put back at power-on (autosave_boot) with MENU > SYSTEM > BOOT RESTORE ON (the default). Flash wear:
+ * a 4 KiB erase per write, the two sectors taking turns, so a write only when
  *   - something a project holds changed since the last one (autosave_sig: a hash of those values, no copy; not the
  *     selected track, nor the PROJECT page's own controls),
  *   - and it has stayed the same for AS_IDLE_MS (10 s) with the transport stopped, no key or button down, no voice
@@ -1651,8 +1651,9 @@ static void settings_save(void)
  *   - and at least AS_GAP_MS (60 s) after the one before (AS_RETRY_MS after a failed write).
  * So at most one write a minute while editing, none while playing or idle: about 100,000 erase cycles per sector
  * give over 200,000 writes, a write a minute for 8 hours a day for over a year, far more with real pauses.
- * RESTORE LAST OFF writes none (and restores none). Never after a crash, a hang or a failed boot (main.c): the music
- * that was playing then could be what crashed. Checked every AS_POLL_MS; the main loop only (never the audio ISR) */
+ * BOOT RESTORE OFF skips power-on restore only; the autosave still writes (single-copy projects need that safety
+ * net). Never restore after a crash, a hang or a failed boot (main.c): the music that was playing then could be what
+ * crashed. Checked every AS_POLL_MS; the main loop only (never the audio ISR) */
 #define AS_POLL_MS 250u
 #define AS_IDLE_MS 10000u
 #define AS_GAP_MS 60000u
@@ -1732,7 +1733,7 @@ static void autosave_poll(void)
         as.t = fm1_ms;
         return;
     }
-    if (sig == as.saved || (ui_prefs & PREF_RESTORE_OFF) || fm1_ms - as.t < AS_IDLE_MS ||
+    if (sig == as.saved || fm1_ms - as.t < AS_IDLE_MS ||
         (as.wrote && fm1_ms - as.last < (as.err ? AS_RETRY_MS : AS_GAP_MS)))
         return;
     as.last = fm1_ms;
@@ -1751,7 +1752,7 @@ static void autosave_poll(void)
 }
 
 /* power-on, after the defaults (main.c): the autosave becomes the music when `allowed` (no crash, hang or failed boot
- * before) and RESTORE LAST is ON; an autosave that does not load (none, torn, damaged, another format) is ignored.
+ * before) and BOOT RESTORE is ON; an autosave that does not load (none, torn, damaged, another format) is ignored.
  * The music now (restored or not) is what is saved: nothing is written until it changes. 1 = restored */
 static int autosave_boot(int allowed)
 {

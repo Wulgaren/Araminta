@@ -20,6 +20,12 @@ and compares shed thresholds; perform_test covers the MASTER STUT borrow and hea
 Browser emu: web/emu/punch_emu_test.mjs imports a device backup into the same wasm as the page, holds punch-in
 stacks (including FX LATCH worst), and reports click / peak / wall-time CPU.
 
+### BOOT RESTORE (autosave always writes)
+
+MENU > SYSTEM > **BOOT RESTORE** (was RESTORE LAST; editor id 15 unchanged). The autosave keeps writing on the
+same idle / quiet / once-a-minute rules whether the setting is ON or OFF. OFF only skips power-on restore
+(power-on sounds; the flash copy stays for later). ON still shows RESTORED when a valid autosave loads.
+
 EFFECTS > TAPE now starts as MASTER at MIX 100 %: at SPEED 100 the head is idle, so a power-on instrument and a
 new project sound the same as before, and the whole mix follows SPEED / FLUTR / DROPOUT without raising MIX
 first. SAVE > CLEAR > FX ALL returns to the same state. Projects saved before this build (FUN16 and older) still

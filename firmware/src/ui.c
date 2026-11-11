@@ -51,8 +51,9 @@ static uint32_t up_gen;                      /* bumped on every user bank change
                                                 * (ui_draw.c large_kind); clear in every older setting = OFF */
 #define PREF_SERIAL_OFF 64u                    /* MENU > USB SERIAL OFF (#67): no serial console, the device enumerates as
                                                 * audio + MIDI only (usb.c usb_cdc_switch); clear in every older setting = ON */
-#define PREF_RESTORE_OFF 128u                  /* MENU > RESTORE LAST OFF (1.2, Discussion #130): no autosave written, none
-                                                * restored at power-on (project.c); clear in every older setting = ON */
+#define PREF_RESTORE_OFF 128u                  /* MENU > BOOT RESTORE OFF (was RESTORE LAST; 1.2, Discussion #130):
+                                                * no restore at power-on (project.c). Autosave still writes. Clear in
+                                                * every older setting = ON */
 #define fx_latch ui_prefs
 /* MENU > AUDIO CLICK, CLICK LEVEL, COUNT-IN (1.1, Discussion #131; click.c, seq.c): two bits each in another byte no
  * engine uses, saved with the settings: bits 0-1 CLICK (OFF REC ON), 2-3 CLICK LEVEL (stored 0 MID, 1 LOW, 2 HIGH),
@@ -1570,7 +1571,7 @@ static void clear_fx_all(void)
     fx_bus_init();
 }
 
-/* RAM as a clean boot (RESTORE LAST off): default globals, sounds, empty (or factory) steps, song chain.
+/* RAM as a clean boot (BOOT RESTORE off): default globals, sounds, empty (or factory) steps, song chain.
  * Flash, user bank and autosave stay. Power-on / main.c felucca_init. */
 static void session_defaults(void)
 {
