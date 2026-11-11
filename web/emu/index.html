@@ -81,6 +81,12 @@ footer small { font-size: 11px; opacity: .8; }
 .saves button, .saves select { margin-right: 8px; }
 .saves button:disabled { opacity: .45; }
 .writer button { padding: 2px 8px; margin-left: 8px; }
+/* a device backup in, the live project out */
+.files { margin: 14px 0 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+         gap: 8px; color: var(--dim); font-size: 12px; }
+.files label, .files button { font: inherit; padding: 4px 10px; background: #fff; color: #000;
+                              border: 1px solid var(--rule); cursor: pointer; }
+.files button:disabled { opacity: .45; cursor: default; }
 </style>
 </head>
 <body>
@@ -101,6 +107,13 @@ footer small { font-size: 11px; opacity: .8; }
 </div>
 
 <p class="writer" id="writer" hidden></p>
+
+<p class="files">
+  <label for="bk-file">Import backup</label>
+  <input id="bk-file" type="file" accept=".json,application/json" hidden>
+  <button id="proj-export" type="button">Export project</button>
+  <span id="file-status"></span>
+</p>
 
 <p class="keys">
   <span><kbd>Z</kbd>–<kbd>'</kbd> <kbd>Q</kbd>–<kbd>O</kbd> keys</span>
@@ -123,6 +136,7 @@ footer small { font-size: 11px; opacity: .8; }
 import {
   takeSnapshot, snapshotList, restoreSnapshot, markWriter, readWriter, clearWriter,
 } from "./saves.js?v=@HASH@";
+import { readBackup, bkCrc } from "./fm1backup.js?v=@HASH@";
 // GitHub Pages caches a page for 10 minutes, and a hard reload does not always reach the origin. version.json is
 // fetched uncached: a page whose build differs reloads once under a new query, which is a cache miss for the CDN.
 const HASH = "@HASH@";
@@ -535,6 +549,48 @@ function liveWriter() {
   note.appendChild(b);
 }
 
+// ------------------------------------------------------------------ a device backup in, the live project out
+const fileStatus = document.getElementById("file-status");
+const setStatus = (t) => { fileStatus.textContent = t || ""; };
+function saveProject(m) {
+  if (m.error) { say("Export failed: " + m.error); return; }
+  const bytes = new Uint8Array(m.bytes);
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 4096) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 4096));
+  const file = {                                    // fm1backup.js's project file: the editor imports it into a slot
+    format: "felucca-project", version: 1, firmware: "@VERSION@", created: new Date().toISOString(),
+    slot: 0, size: bytes.length, crc: bkCrc(bytes), data: btoa(s),
+  };
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(file, null, 1)], { type: "application/json" }));
+  a.download = `araminta-project-${file.firmware || "emu"}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  say("Project exported. Import it into a project slot in the editor.");
+}
+document.getElementById("proj-export").addEventListener("click", () => {
+  if (!node) { say("Switch on first, then export the project."); return; }
+  node.port.postMessage({ type: "export" });
+});
+document.getElementById("bk-file").addEventListener("change", async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  try {
+    setStatus("Reading " + f.name + "…");
+    const archive = readBackup(await f.text());
+    if (archive.objects.some((o) => o.id === 8 && o.size))
+      throw new Error("this is an old backup (FM6 bank); load it on the device once, then back it up again");
+    const objects = archive.objects.map((o) => ({ id: o.id, bytes: o.bytes }));
+    if (!node) await switchOn();
+    if (!node) throw new Error("the emulator did not start");
+    node.port.postMessage({ type: "import", objects });
+    setStatus("Importing…");
+  } catch (err) {
+    setStatus("Import failed: " + ((err && err.message) || err));
+  }
+});
+
 // ------------------------------------------------------------------ Web MIDI in (channel messages)
 async function midiOn() {
   if (!navigator.requestMIDIAccess) return;
@@ -578,6 +634,12 @@ async function switchOn() {
         const m = e.data;
         if (m.type === "ready") res();
         else if (m.type === "error") rej(new Error(m.message));
+        else if (m.type === "sectors") saveFlash(m.sectors, performance.now());
+        else if (m.type === "imported") {
+          if (m.rc) say("Import failed (" + m.rc + ").");
+          else { flushFlash(); setStatus("Imported. Reloading…"); location.reload(); }
+        }
+        else if (m.type === "project") saveProject(m);
         else if (m.type === "frame") {
           if (m.fb) drawScreen(m.fb);
           if (m.leds) drawLights(lastLeds = m.leds, m.anim);
