@@ -220,7 +220,24 @@ class Link:
                     "no ROM UBOOT device. Put the FM-1 in ROM UBOOT (not the update loader) and retry")
             time.sleep(0.25)
         self.tag = 0
-        usb.util.claim_interface(self.dev, 0)
+        # macOS binds AppleUSBMassStorage to the ROM's BOT interface; claim fails
+        # with errno 13 until libusb detaches it (needs root on Darwin).
+        try:
+            if self.dev.is_kernel_driver_active(0):
+                self.dev.detach_kernel_driver(0)
+        except (NotImplementedError, usb.core.USBError):
+            pass
+        try:
+            self.dev.set_configuration()
+            usb.util.claim_interface(self.dev, 0)
+        except usb.core.USBError as error:
+            if getattr(error, "errno", None) == 13:
+                raise DumpError(
+                    "USB access denied on the ROM interface (macOS mass-storage or another "
+                    "process holds it). Close other USB tools, then: "
+                    "sudo .venv/bin/python3 tools/fm1_flash_dump.py --out DIR"
+                ) from error
+            raise
 
     def transfer(self, cdb, incoming=0, outgoing=None):
         self.tag = self.tag % 0xFFFFFFFF + 1
