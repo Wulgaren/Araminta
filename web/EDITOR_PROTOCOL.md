@@ -60,9 +60,9 @@ before 1.2 (max 64, at most a track's first 64 records), op 8 lists them all. A 
 ratchet. A song's rows became sections with a slot per track (`SONG` ops 4..7; ops 0..3 as before). Projects are FUN10
 (3840 bytes). See "1.2: LFO 2, NUDGE, 128 records (FUN10)" and "1.2: song sections" below.
 
-**3.10 (gap: autosave B + third preset bank):** the gap's first two sectors hold autosave B; the last two hold
-user-preset bank 2 (`UP_SLOTS` 48, backup id 10). FM6 keeps a single voice bank at `0xE7000` (INFO `56 01 32`,
-SLOT B1..B32). A stored bank SLOT still loads as OWN with the patch. See "FM6 voice bank (74-77)".
+**3.10 (FM6's voice banks; INFO `56 01 60`):** FM6's SLOT (P_E0 + 7) runs to 104: 9..104 = B1..B96 across three
+32-voice banks (bank 0 still at `0xE7000`; banks 1..2 take the gap once provisioned). A stored 9..104 still loads
+as OWN with the patch. 1.4.1 advertised `56 01 32` with SLOT to 40 (B1..B32 only). See "FM6 voice bank (74-77)".
 
 **1.4.1 (FM6's voice bank; INFO `56 01 32`):** FM6's SLOT (P_E0 + 7) runs to 40: 9..40 = B1..B32, the voices of a
 32-voice bank the editor writes whole (cmds 74..77). Nothing else changed. See "FM6 voice bank (74-77)" below.
@@ -220,7 +220,7 @@ at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device 
 
 | cmd | Request args | Reply args |
 | --- | --- | --- |
-| 1 INFO | — | version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, then NENGINES engine-name strings, then (v3) NTRK (4), then (v6) CHAIN_ROWS (16), then the tagged blocks `55 01 uiCaps`, `4D 01 64 01`, `42 01 3`, `46 01 nfactory nbank`, `53 01 3`, (1.0.3) `50 01 3` and (1.0.4) `4E 01 count` (MENU settings; 12, 1.1: 15, 1.2: 17, 1.1.5: 18, 1.2: 23, 1.3: 24, 1.5: 25) and (1.0.5) `52 01 4` (ratchet) and (1.1) `4C 01 1` (parameter locks) and (1.2) `41 01 40 01` (192 motion records in this build; two 7-bit bytes, LSB first: `00 01` was 128 before; `4D 01 64 01` keeps saying 64) and `54 01 16` (a step's nudge, 1/16 of a step) and `57 01 4` (song sections: a slot per track, SONG ops 4..7) and (1.4.1) `56 01 32` (FM6 voice bank: cmds 74..77, SLOT 9..40); older firmware ends earlier. The `43 01 16` block
+| 1 INFO | — | version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, then NENGINES engine-name strings, then (v3) NTRK (4), then (v6) CHAIN_ROWS (16), then the tagged blocks `55 01 uiCaps`, `4D 01 64 01`, `42 01 3`, `46 01 nfactory nbank`, `53 01 3`, (1.0.3) `50 01 3` and (1.0.4) `4E 01 count` (MENU settings; 12, 1.1: 15, 1.2: 17, 1.1.5: 18, 1.2: 23, 1.3: 24, 1.5: 25) and (1.0.5) `52 01 4` (ratchet) and (1.1) `4C 01 1` (parameter locks) and (1.2) `41 01 40 01` (192 motion records in this build; two 7-bit bytes, LSB first: `00 01` was 128 before; `4D 01 64 01` keeps saying 64) and `54 01 16` (a step's nudge, 1/16 of a step) and `57 01 4` (song sections: a slot per track, SONG ops 4..7) and (1.4.1) `56 01 32` / (3.10) `56 01 60` (FM6 voice banks: cmds 74..77, SLOT 9..40 then 9..104); older firmware ends earlier. The `43 01 16` block
 (1.5's MIDI LEARN map, cmds 78 / 79) is gone: a firmware that still answers it is read as any unknown block |
 | 2 GET | scope, id | scope, id, v14 |
 | 3 SET | scope, id, v14 | scope, id, v14 (the value after clamping). Setting global `G_ENGSEL` (id from DESC label "ENG") changes the engine: its defaults, then its first preset (as on the device) |
@@ -345,12 +345,12 @@ before, 0: x1, and such firmware drops those bits when it loads the pattern)). L
 the parameters of the sound, as a factory preset (the track's own parameters, the steps and LEN stay; see
 "Sound loads and undo"). The stored pattern is kept and returned by `UP_GET`; on the device SAVE > PHRASES
 lists it as "U07" and loads it, with the stored LEN (at most 16), DIV, SWING and GATE. The slots are
-numbered 0..47 (the device shows U01..U48; three banks of 16).
+numbered 0..31 (the device shows U01..U32).
 
-- `UP_LIST`: count is cut at 16 and at the last slot (start ≥ 48: count 0, no entries).
+- `UP_LIST`: count is cut at 16 and at the last slot (start ≥ 32: count 0, no entries).
 - `UP_GET` of an empty slot has the same shape with used 0, engine 0, name "" and all values 0.
   Values come back in the current parameter order, inside their ranges.
-- `UP_PUT`: rc 1 for a slot ≥ 48, an engine ≥ NENGINES, a name that is empty, longer than 12 or has
+- `UP_PUT`: rc 1 for a slot ≥ 32, an engine ≥ NENGINES, a name that is empty, longer than 12 or has
   bytes outside 32..126, or an incomplete or oversized frame. Values are clamped to their ranges for that
   engine. A note with flag 4 is stored as a tie (note 0); flags on a rest are dropped.
 - **DRUM-X** (engine 10) was PHYS's MODEL 4 (DRUM) before 1.0. A record of PHYS with E1 (MODEL) = 4,
@@ -389,7 +389,7 @@ OCT+ executes the selected action, OCT- goes back. SAVE over a used slot asks
 "OVERWRITE U07?" with OCT+ / OCT-. SAVE uses the automatic name. The PRESETS knob and the SAVE > PRESETS browser continue past the factory presets into the used user
 presets.
 
-**Flash** (`firmware/src/upreset.c`): three storage objects (`OBJ_UPRESET0/1` at 0xDC000..0xDFFFF, `OBJ_UPRESET2` at 0x95000..0x96FFF; A/B pairs; was two at
+**Flash** (`firmware/src/upreset.c`): two storage objects (`OBJ_UPRESET0/1`, A/B sector pairs at
 0xDC000..0xDFFFF), 16 records of 192 bytes each, behind a bank header (magic "UPB1", record size,
 slot count; a mismatch reads as an empty bank). A record keeps its layout version (versions 1..5 are read; another: empty)
 and the P_COUNT it was stored with; another count is mapped by count (last 8 values = P_E0..P_E7, the
@@ -886,24 +886,24 @@ this firmware sends 3. Requests name objects, never flash addresses.
 | 0 | runtime: the music being played now, as a FUN11 project (FUN10/FUNA still load; 1.1: FUN9, 3648; 1.0.x: FUN8, 3584; firmware before FM6: FUN7, 3388) | 3840 |
 | 1 | settings (palette, speaker, HOLD time, favorites, panel calibration, ...) | the settings record's size |
 | 2..5 | PROJECT slots 1..4 (FUN11; FUN10 still load; 1.1: FUN9, 3648; 1.0.x: FUN8, 3584) | 3840, or 0 if empty |
-| 6, 7 | user preset banks (slots 1..16, 17..32) | the bank's size (3080), or 0 if empty |
+| 6, 7 | user preset banks (slots 1..16, 17..32) | the bank's size, or 0 if empty |
 | 8 | the FM6 patch bank of 1.0..1.0.2 (B1..B27). Since 1.0.3 always listed empty (see below) | 3472, or 0 if empty |
-| 9 | the user presets' FM6 patches (1.0.3; `up_fm6.c`: packed ver-2 image, or legacy 3728) | ≤3840, or 0 if none |
-| 10 | user preset bank 2 (slots 33..48; 3.10) | 3080, or 0 if empty |
+| 9 | the user presets' FM6 patches (1.0.3; `up_fm6.c`: per slot a tag and the packed patch) | 3728, or 0 if none |
 | 32..34 | user sample slots 1..3: header (512 bytes) then ADPCM data | 512 + data length, or 0 if empty |
 
 Reading: `BACKUP_LIST` (no arguments) stops the transport, then takes a snapshot of the runtime object and
-answers `1, rc, count` (14 since 3.10, 13 since 1.0.3, 12 with FM6 up to 1.0.2, 11 before) and, per object in the order above, `id, size u32, crc u32` (CRC-32, zlib). The other objects are read as
+answers `1, rc, count` (13 since 1.0.3, 12 with FM6 up to 1.0.2, 11 before) and, per object in the order above, `id, size u32, crc u32` (CRC-32, zlib). The other objects are read as
 they are in RAM or flash. Then `BACKUP_GET` reads an object in pieces: `id, offset u32, count lo, count hi`
 (count 1..256, LSB first 7 bit pair) answers `id, rc, offset u32, count lo, count hi` and the data as pack7. Check each object's CRC
 against the list; if it differs the device changed, so start again.
 
-Restoring: `BACKUP_PUT` takes ids 0..10 (firmware before the third bank: 0..9, id 10 answers rc 1 at begin; before 1.0.3: 0..8) (the samples are written with `SMP_BEGIN` / `SMP_WRITE` / `SMP_END`,
+Restoring: `BACKUP_PUT` takes ids 0..9 (firmware before 1.0.3: 0..8, id 9 answers rc 1 at begin and nothing is written) (the samples are written with `SMP_BEGIN` / `SMP_WRITE` / `SMP_END`,
 or `SMP_ERASE` for an empty slot). Begin: `0, id, size u32, crc u32`: size is 3840 (FUN11 / FUN10), 3648 (FUN9), 3584 (FUN8) or 3388 (FUN7, FUN6) for id 0,
-the settings record's size for id 1, 3840, 3648, 3584, 3388 or 0 (empty the slot) for ids 2..5, the bank's size or 0 for 6, 7 and 10,
-3472 or 0 for 8 (the FM6 bank: its magic, layout and every byte below 128 are checked), a packed FM6-patches image (≤3840) or the legacy 3728 or 0 for 9. FUN9, FUN8, FUN7 and FUN6 become FUN11 (FUN10 still loads; firmware before
+the settings record's size for id 1, 3840, 3648, 3584, 3388 or 0 (empty the slot) for ids 2..5, the bank's size or 0 for 6 and 7,
+3472 or 0 for 8 (the FM6 bank: its magic, layout and every byte below 128 are checked), 3728 or 0 for 9 (its magic,
+version and slot count checked; 0 clears the patches). FUN9, FUN8, FUN7 and FUN6 become FUN11 (FUN10 still loads; firmware before
 1.2 refuses a 3840-byte project at begin, rc 1; firmware that only knows FUN10 refuses FUNB magic on load).
-An archive without id 8 (written before FM6) still restores; the web editor reads the older kinds (11, 12, 13 objects) and 14.
+An archive without id 8 (written before FM6) still restores; the web editor reads all three kinds (11, 12, 13 objects).
 Since 1.0.3 an id 8 with data (an archive of 1.0..1.0.2) is not stored: like the first boot after the update, every FM6
 user preset whose stored SLOT is a B slot (8..34) and has no patch yet gets that bank slot's patch, and id 9 is written.
 So restore ids 6 and 7 before 8 (the web editor does); an empty id 8 is taken and ignored (rc 0). Old archives
@@ -912,8 +912,8 @@ skips it when the device answers rc 1). Data: `1, id, offset u32, pack7` with th
 and at most 256 decoded bytes (256-byte pieces are fine at full speed, one request at a time: see "Notes for
 the editor"; a piece that gets no reply was not taken: abort and begin the object again). Commit: `2, id`: the device checks the length and the CRC, validates the
 content, and then writes. Abort: `3, id`. Id 0 replaces the music now playing (RAM only, no flash);
-ids 1..10 are written to flash (settings and presets are applied too). Nothing is written before the commit.
-The web editor sends ids 2..7, 10 and the samples first, then 1, then 0 last. A failed restore can leave
+ids 1..9 are written to flash (settings and presets are applied too). Nothing is written before the commit.
+The web editor sends ids 2..7 and the samples first, then 1, then 0 last. A failed restore can leave
 earlier objects restored; the file is still the source.
 
 | rc | Meaning |
@@ -951,10 +951,10 @@ without the tag has the bank and SLOT 0..34 (F1..F8, B1..B27): an editor should 
 SLOT (P_E0 + 7), since 1.0.3: 0..7 load that factory patch into the track; 8 (OWN) is the track's own patch (what
 a project, a user preset, a converted DIGITAL sound or an FM6_PUT to the track put there). Every such load sets SLOT
 to F n when the patch is that factory patch unchanged, else OWN, and nothing reloads over it. Setting SLOT from OWN
-to F n keeps the own patch aside; setting it back to OWN brings it back. 9..40 (B1..B32) load a voice of
+to F n keeps the own patch aside; setting it back to OWN brings it back. 3.10: 9..104 (B1..B96) load a voice of
 the voice bank (below) the same way; a `SET` to a bank slot without a voice is refused (SLOT goes back to the value
 it had: a `GET` or the `CHANGED` push shows it), and the device's knob passes over such slots. SLOT is never stored as
-a bank slot: a stored 9..40 (in a project, a user preset or a motion record; 1.0.2 wrote 8..34 for its B1..B27) loads
+a bank slot: a stored 9..104 (in a project, a user preset or a motion record; 1.0.2 wrote 8..34 for its B1..B27) loads
 as 8, OWN, with the patch that came with it (DESC: SLOT max 40; firmware before 1.4.1: 8).
 
 Since 1.2 the device edits the patch too (EDIT > OPERATOR, OP ENV: an operator's FREQ — ratio 0.50 / 1..31 then
@@ -984,7 +984,7 @@ target:
 - 1 the patch bank. 1.0..1.0.2: index 0..26 = B1..B27 in flash (A 0x9F000, B 0xFE000; backup id 8). Since 1.0.3:
   GET, PUT and ERASE answer rc 3 ("no bank") and change nothing; LIST reports nbank 0.
 - 2 a factory patch (0..7, GET only).
-- 3 a user preset's patch (1.0.3; index 0..47 = U01..U48). It is kept beside the record and counts only for an FM6
+- 3 a user preset's patch (1.0.3; index 0..31 = U01..U32). It is kept beside the record and counts only for an FM6
   record as it was when the patch was stored (a rename keeps it; an `UP_PUT` that changes the record, `UP_ERASE` or another store
   drops it). `UP_STORE` / SAVE of an FM6 track stores the track's patch with it; `UP_LOAD` plays it. GET: rc 2 when
   the slot has none (not an FM6 sound, or stored without one: it then loads SLOT's factory patch, or the init voice
@@ -1004,9 +1004,10 @@ with the record when the firmware has FM6 v2 bit 1, and keeps it in library file
 ## FM6 voice bank (74-77; 1.4.1)
 
 32 voices in flash, written whole from the editor (a 32-voice SysEx file: its 128-byte packed records, the format
-`FM6_PUT` takes), picked on the device with SLOT B1..B32 (9..40). Loading one copies it into the track's patch as F1..F8
+`FM6_PUT` takes), picked on the device with SLOT B1..B96 (9..104). Loading one copies it into the track's patch as F1..F8
 do: the patch is the track's from then on, saved with projects and user presets (`FM6_GET` target 0 reads it), so a
-project made with a bank voice sounds the same after the bank was replaced. INFO advertises `56 01 32` (32 voices)
+project made with a bank voice sounds the same after the bank was replaced. INFO advertises `56 01 60` (96 voices;
+three banks × 32; was `56 01 32`)
 after `57 01 4`; firmware without the tag answers none of 74..77 and has SLOT 0..8.
 
 | cmd | Request args | Reply args |

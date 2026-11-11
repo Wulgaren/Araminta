@@ -161,25 +161,19 @@ static int mig_ok(void)
            !memcmp(pk + 118, "NEW B1    ", 10) && upf_get(1, pk) && upf_get(2, pk) && upf_get(3, pk);
 }
 
-static int mig_flash_matches(void)                       /* packed ver-2 image on flash matches RAM */
-{
-    uint8_t packed[ST_PAYLOAD_SECTOR], got[ST_PAYLOAD_SECTOR];
-    uint32_t pn = upf_pack(packed, sizeof packed);
-    return pn && st_load(OBJ_UPFM6, got, sizeof got) == (int)pn && !memcmp(got, packed, pn);
-}
-
 static int mig_test(void)
 {
     int bad = 0, ok = 1;
     uint32_t cut, before, cuts = 0;
     uint8_t pk[FM6_PACKED];
+    upf_t got;
     reset();
     mig_setup();
     memcpy(mig_pre, nor, sizeof nor);
     mig_boot();
     bad += check("FM6 bank -> user presets: B slots get the bank's newest patches", mig_ok());
     bad += check("  .. written into A (the bank's older copy); the bank's newest copy (B) still whole",
-                 mig_flash_matches() &&
+                 st_load(OBJ_UPFM6, &got, sizeof got) == (int)sizeof got && !memcmp(&got, &upf, sizeof got) &&
                      ((st_hdr_t *)(nor + 0x9F000))->type == OBJ_UPFM6 && st_load(OBJ_FM6BANK, &mig_bank, sizeof mig_bank) > 0 &&
                      !memcmp(mig_bank.v[0] + 118, "NEW B1", 6));
     up_load(0);
@@ -203,7 +197,7 @@ static int mig_test(void)
         fail_after = -1;
         cuts++;
         mig_boot();
-        ok &= mig_ok() && mig_flash_matches();
+        ok &= mig_ok() && st_load(OBJ_UPFM6, &got, sizeof got) == (int)sizeof got;
     }
     memcpy(nor, mig_pre, sizeof nor);
     erase_error = 1;
@@ -211,14 +205,14 @@ static int mig_test(void)
     erase_error = 0;
     mig_boot();
     ok &= mig_ok();
-    bad += check("a power cut at any step of the migration loses nothing (the next boot redoes it)", ok && cuts >= 2u);
+    bad += check("a power cut at any step of the migration loses nothing (the next boot redoes it)", ok && cuts >= 10u);
     /* after it: a preset save writes the other sector (the bank's last copy); a cut there keeps the first copy */
     memcpy(nor, mig_pre, sizeof nor);
     fail_after = -1;
     mig_boot();
     trk[song.sel].eng_req = ENGI_FM6;
     fm6_load_slot(song.sel, 3);
-    fail_after = (int)((sizeof(up_bank_t) + 255u) / 256u + 1u);   /* bank write passes; first patches prog fails */
+    fail_after = (int)((sizeof(up_bank_t) + 255u) / 256u + 1u + 3u);   /* the preset bank's write passes, the patches' fails */
     up_store(20, "CUT");
     fail_after = -1;
     mig_boot();
