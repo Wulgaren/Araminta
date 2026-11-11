@@ -55,6 +55,36 @@ if (typeof registerProcessor === "function") {
       else if (m.type === "master") ex.web_master(m.value | 0);
       else if (m.type === "midi") ex.web_midi(m.data[0] | 0, m.data[1] | 0, m.data[2] | 0);
       else if (m.type === "visible") this.period = m.on ? 1 / 30 : 1 / 4;
+      else if (m.type === "import") this.importBackup(m.objects);
+      else if (m.type === "export") this.exportProject();
+    }
+
+    // a device backup, object by object, through the firmware's own storage code (felucca_web.c web_bk_import)
+    importBackup(objects) {
+      const ex = this.ex, mem = ex.memory.buffer;
+      const ptr = ex.web_bk_buf_ptr(), cap = ex.web_bk_buf_size();
+      let rc = 0;
+      for (const o of objects || []) {
+        const bytes = o.bytes instanceof Uint8Array ? o.bytes : new Uint8Array(o.bytes || []);
+        if (bytes.length > cap) { rc = 2; break; }
+        new Uint8Array(mem, ptr, bytes.length).set(bytes);
+        rc = ex.web_bk_import(o.id | 0, bytes.length) | 0;
+        if (rc) break;
+      }
+      this.port.postMessage({
+        type: "sectors",
+        sectors: storeSectors(new Uint8Array(mem, ex.web_nor(), ex.web_nor_size())),
+      });
+      this.port.postMessage({ type: "imported", rc });
+    }
+
+    // the live project as project_store_t (the page wraps it in a project file)
+    exportProject() {
+      const ex = this.ex;
+      const n = ex.web_project();
+      if (!n) { this.port.postMessage({ type: "project", error: "the live project did not pack" }); return; }
+      const bytes = new Uint8Array(ex.memory.buffer, ex.web_bk_buf_ptr(), n).slice();
+      this.port.postMessage({ type: "project", bytes }, [bytes.buffer]);
     }
 
     publish() {

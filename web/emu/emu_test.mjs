@@ -160,6 +160,20 @@ if (nativePath) {                                             // web/emu/native_
   check(`the same song from the native build (cc): ${web.length / 2} frames, ${diff === 0 ? "bit for bit" : "differs at " + diff}`, diff === 0);
 }
 
+// ---- a device backup: the live project into the autosave, and a fresh instance restores it
+const projLen = a.ex.web_project();
+check("backup: the live project packs", projLen === 3840);
+const projBuf = a.ex.web_bk_buf_ptr();
+const proj = new Uint8Array(a.mem.buffer, projBuf, projLen).slice();
+new Uint8Array(a.mem.buffer, projBuf, projLen).set(proj);
+check("backup: imported into the autosave", a.ex.web_bk_import(0, projLen) === 0);
+const autosaved = storeSectors(new Uint8Array(a.mem.buffer, a.ex.web_nor(), a.ex.web_nor_size()));
+const r = await device(autosaved);
+r.render(200);
+const backLen = r.ex.web_project();
+const back = new Uint8Array(r.mem.buffer, r.ex.web_bk_buf_ptr(), backLen).slice();
+check("backup: the autosave comes back bit for bit", backLen === projLen && back.every((v, i) => v === proj[i]));
+
 // ---- the cost: 1 s of the heavy song against real time (the best of 3, after 2 s to settle)
 let best = Infinity;
 s1.rec = false;
