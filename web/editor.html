@@ -2030,7 +2030,7 @@ function makeMockDevice(opt = {}) {
     D("SLOT", F.INT, 1, 4, 1), E("NAME", NDASH, 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
     E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL",
       "GRAIN", "PHYS", "DRUM-X", "NOISE", "FM6", "-", "WAVETABLE", "DRUMS"], 0), D("CLIP", F.PCT, 0, 100, 0),
-    D("MIX", F.PCT, 0, 127, 0), E("TAPE", ["SEND", "CH1", "CH2", "CH3", "CH4", "MASTER"], 0),
+    D("MIX", F.PCT, 0, 127, 127), E("TAPE", ["SEND", "CH1", "CH2", "CH3", "CH4", "MASTER"], 5),
     E("TYPE", ["ROOM", "SPRING", "HALL", "SHIMR", "CLOUD"], 2), /* G_RTYPE (id 24): HALL default; JIANT SHIMR/CLOUD */
     D("PNCH", F.PCT, 0, 100, 0), D("DUCK", F.PCT, 0, 100, 0),   /* G_PUNCH / G_DUCK (was G_DRLVL / G_DRREV) */
     E("TYPE", ["ROOM", "SPRING", "HALL", "SHIMR", "CLOUD"], 2), /* G_CRTYPE..: CHAIN tank (params.c) */

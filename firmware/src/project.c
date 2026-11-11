@@ -117,7 +117,7 @@
  * Format 17 ("FUNH", read only since FUN18; FUN17 in the docs) = FUN16 with each track's ten-slot EFFECTS order (six inserts
  * + DLY + REV + SLCR + TAPE) in the unused high bits of its FM6 patch bytes, after the six generation controls.
  * The object and every offset are unchanged; FUN16 and older rebuild the order from P_IORD / P_CHOR / fx_sl_pos
- * and take the TAPE fields' defaults. Firmware that only knows FUN16 refuses a FUN17 (magic), as before.
+ * and load with TAPE off (their TAPE fields' ids meant other things). Firmware that only knows FUN16 refuses a FUN17 (magic), as before.
  * Format 18 ("FUNI", read only since FUN19; FUN18 in the docs) = FUN17 with the MASTER owner of each EFFECTS stage in the
  * chain header's spare bytes 1..3 and the motion header's spare byte 3 (ten 3-bit owners). Older firmware refuses
  * a FUN18 (magic); FUN17 and older load with no MASTER owners. Three spare FM6 high bits after the EFFECTS
@@ -773,8 +773,9 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         q->g[G_TSPEED] = GP[G_TSPEED].def;
         q->g[G_TWOW] = GP[G_TWOW].def;
         q->g[G_TDROP] = GP[G_TDROP].def;
-        q->g[G_TMIX] = GP[G_TMIX].def;
-        q->g[G_TAPEMODE] = GP[G_TAPEMODE].def;
+        q->g[G_TMIX] = 0;                            /* a project before TAPE loads with TAPE off, as it played (the
+                                                      * web converter writes the same); a new one gets the defaults */
+        q->g[G_TAPEMODE] = TAPE_SEND;
     }
     q->sel = b[62]; q->parts = b[63]; q->phys = b[64];
     if (q->g[G_DLYOWN] < 0 || q->g[G_DLYOWN] > (int16_t)NTRK)   /* was bus chorus CRT/CDP */
