@@ -165,7 +165,9 @@ static int fun7_89(void)
         for (i = 0; i < 8u; i++) trk[k].p[P_E0 + i] = (int16_t)(ENGINES[trk[k].eng_req]->edit[i].min + (int16_t)(k + i) %
             (ENGINES[trk[k].eng_req]->edit[i].max - ENGINES[trk[k].eng_req]->edit[i].min + 1));
     t->p[P_FM1_ATK] = 33; t->p[P_REV] = 20;
+    memset(&t->step[2], 0, sizeof t->step[2]);
     t->step[2] = (step_t){{60, 64, 67}, 3, ST_NOTE, 0, 100};
+    step_set_ratchet(&t->step[2], 1u);   /* clear padding bit left by bitfield assignment */
     project_capture(&before);
     for (k = 0; k < NTRK; k++)
         if (before.t[k].engine == ENGI_ANALOG) {         /* 3.5: E8 / FM3 are INT / MORPH / DRIFT, 0 before */
@@ -203,6 +205,7 @@ static int fun7_89(void)
         proj_import(&before, &old, sizeof old) && !memcmp(&before, &after, sizeof before));
     pack_fun7_89(&old, &before, &m);                                /* SONG: a slot of the old firmware */
     memcpy(&proj_slot[2], &old, sizeof old);
+    proj_fetch(2);                                                  /* 3.10: refresh summary / used bit from the slot */
     chain_config.count = 1; chain_config.row[0] = chain_row_of(2, 1);
     ok = chain_prepare() == 0;
     bad += check("  SONG: an 89-parameter slot's motion plays at today's ids (E0 at P_E0)", ok &&
