@@ -1197,6 +1197,14 @@ static void proj_sum_set(uint32_t slot, const project_t *p)
     }
 }
 
+/* 3.10 single-copy: a torn write erases the only image; drop the summary so menus do not claim a live slot */
+static void proj_sum_clear(uint32_t slot)
+{
+    uint32_t k = slot & 3u;
+    proj_slot_used &= (uint8_t)~(1u << k);
+    memset(&proj_slot_sum[k], 0, sizeof proj_slot_sum[k]);
+}
+
 static void project_capture(project_t *p)
 {
     uint32_t i;
@@ -1275,6 +1283,7 @@ static int project_save_as(uint32_t slot, const char *name)
         ui_message("SAVED");
         return 0;
     }
+    proj_sum_clear(slot);               /* the only copy was erased before the tear; autosave is the recovery */
     ui_message("SAVE ERROR");       /* 3.10: a project lives in flash; there is no RAM-only slot */
     return 2;
 #else
@@ -1365,6 +1374,7 @@ static int project_rename(uint32_t slot, const char *name)
     if (!proj_pack(&proj_wire, p)) { ui_message("SAVE FORMAT ERROR"); return 2; }
 #if FELUCCA_FLASH
     if (!flash_ok || st_save(OBJ_PROJECT0 + (slot & 3u), &proj_wire, sizeof proj_wire)) {
+        proj_sum_clear(slot);           /* single-copy rename tears the only image the same way a save does */
         ui_message("SAVE ERROR");
         return 2;
     }

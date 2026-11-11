@@ -61,6 +61,8 @@ static void fl_plain_window_init(void) {}
 #include "../firmware/src/storage.c"
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
+/* 3.10: no RAM wire cache; tests that need a local image use this scratch. */
+static project_store_t host_proj;
 
 enum { ED_UI_STATE = 34, ED_UI_SET, ED_UI_PALETTES, ED_FAV_GET, ED_FAV_SET };
 static uint8_t ed_rep[64];                        /* the reply's bytes (MENU_SET) */
@@ -85,7 +87,8 @@ static void reset(void)
     memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain);
     chain_defaults(&chain_config);
-    memset(proj_slot, 0, sizeof proj_slot);
+    proj_slot_used = 0;
+    memset(proj_slot_sum, 0, sizeof proj_slot_sum);
     memset(up_bank, 0, sizeof up_bank);
     memset(&persist_saved, 0, sizeof persist_saved);
     memset(&settings, 0, sizeof settings);
@@ -450,7 +453,7 @@ int main(void)
     int bad = 0, ok;
     uint32_t before;
     persist_t p;
-    project_store_t old, got;
+    project_store_t got;
     up_bank_t bank;
     up_rec_t r;
     reset();
@@ -568,18 +571,18 @@ int main(void)
     reset();
     trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
     project_save(0);
-    old = proj_slot[0];
+    bad += check("project save marks slot used", project_used(0) &&
+                  st_load(OBJ_PROJECT0, &got, sizeof got) == (int)sizeof got);
     step_set_note(&trk[0].step[0], 0, 72);
+    /* 3.10 single-copy: a torn write erases the only copy; autosave is the recovery path */
     fail_after = 1;
     project_save(0);
     fail_after = -1;
-    bad += check("failed project save keeps RAM and old flash", !strcmp(ui.msg, "SAVE ERROR") &&
-                  !memcmp(&proj_slot[0], &old, sizeof old) && st_load(OBJ_PROJECT0, &got, sizeof got) == (int)sizeof got &&
-                  !memcmp(&got, &old, sizeof got));
+    bad += check("torn project save: SAVE ERROR and the only copy is gone", !strcmp(ui.msg, "SAVE ERROR") &&
+                  !project_used(0) && st_load(OBJ_PROJECT0, &got, sizeof got) < 0);
     project_save(0);
-    bad += check("successful project save publishes new RAM", !strcmp(ui.msg, "SAVED") &&
-                  proj_import(&proj_scratch, &proj_slot[0], sizeof proj_slot[0]) &&
-                  step_note(&proj_scratch.t[0].step[0], 0) == 72u && proj_ok(&proj_scratch));
+    bad += check("successful project save restores the slot", !strcmp(ui.msg, "SAVED") && project_used(0) &&
+                  proj_fetch(0) && step_note(&proj_scratch.t[0].step[0], 0) == 72u && proj_ok(&proj_scratch));
     before = erases;
     transport_req = 1;
     project_save(1);
@@ -590,43 +593,44 @@ int main(void)
     project_save(2);
     bad += check("failed first project save leaves slot empty", !project_used(2));
     erase_error = 0;
-    {   /* names: a project's through flash; a failed rename keeps the old one in RAM and flash */
+    {   /* names: a project's through flash; a failed rename tears the only copy */
         char n[16];
-        project_store_t keep;
         step_t st0 = trk[0].step[0];
         project_save_as(0, "LOFI JAM");
-        memset(proj_slot[0].raw, 0, 8);                       /* (the RAM copy lost: read it back from flash) */
-        proj_fetch(0);
         bad += check("a project's name goes to flash and comes back", project_name(0, n) && !strcmp(n, "LOFI JAM") &&
-                      !strcmp(proj_name, "LOFI JAM"));
-        keep = proj_slot[0];
+                      (proj_fetch(0), !strcmp(proj_name, "LOFI JAM")));
         fail_after = 1;
-        bad += check("failed project rename: SAVE ERROR, the slot and flash as they were",
-                      project_rename(0, "DUB") == 2 && !strcmp(ui.msg, "SAVE ERROR") && !memcmp(&proj_slot[0], &keep, sizeof keep) &&
-                      st_load(OBJ_PROJECT0, &got, sizeof got) == (int)sizeof got && !memcmp(&got, &keep, sizeof got));
+        bad += check("failed project rename: SAVE ERROR and the only copy is gone",
+                      project_rename(0, "DUB") == 2 && !strcmp(ui.msg, "SAVE ERROR") && !project_used(0) &&
+                      st_load(OBJ_PROJECT0, &got, sizeof got) < 0);
         fail_after = -1;
+        /* rewrite so the remaining rename checks have a live slot */
+        step_set_note(&trk[0].step[0], 0, step_note(&st0, 0));
+        project_save_as(0, "LOFI JAM");
         before = erases;
         transport_req = 1;
         bad += check("pending PLAY: no rename, no erase", project_rename(0, "DUB") == 1 && erases == before &&
                       !strcmp(ui.msg, "STOP TO SAVE"));
         transport_req = 0;
         bad += check("project rename: flash has the new name, the music as it was", project_rename(0, "DUB") == 0 &&
-                      !strcmp(ui.msg, "RENAMED") && (memset(proj_slot[0].raw, 0, 8), proj_fetch(0), project_name(0, n)) &&
-                      !strcmp(n, "DUB") && step_note(&proj_scratch.t[0].step[0], 0) == step_note(&st0, 0));
+                      !strcmp(ui.msg, "RENAMED") && project_name(0, n) && !strcmp(n, "DUB") &&
+                      (proj_fetch(0), step_note(&proj_scratch.t[0].step[0], 0) == step_note(&st0, 0)));
     }
     {   /* FUN7 itself refuses a step outside its fields: a damaged slot is empty, the tracks stay */
         step_t keep = trk[0].step[0];
-        old = proj_slot[0];
-        proj_slot[0].raw[68 + P_COUNT + 1 + 2 + 4] = 7;           /* +1: P_IORD hi; track 1 step 1: n = 7 */
-        bad += check("damaged FUN7 slot (hash ok, n > 4) is refused", (memcpy(proj_slot[0].raw + PROJ_STORE_SIZE - 4,
-                      &(uint32_t){proj_hash(proj_slot[0].raw, PROJ_STORE_SIZE - 4)}, 4), !project_used(0)));
-        st_save(OBJ_PROJECT0, &proj_slot[0], sizeof proj_slot[0]);
+        bad += check("live project image loads", st_load(OBJ_PROJECT0, &host_proj, sizeof host_proj) == (int)sizeof host_proj);
+        host_proj.raw[68 + P_COUNT + 1 + 2 + 4] = 7;           /* +1: P_IORD hi; track 1 step 1: n = 7 */
+        memcpy(host_proj.raw + PROJ_STORE_SIZE - 4,
+               &(uint32_t){proj_hash(host_proj.raw, PROJ_STORE_SIZE - 4)}, 4);
+        st_save(OBJ_PROJECT0, &host_proj, sizeof host_proj);
+        proj_slot_used &= ~(1u << 0);                         /* force a re-scan of this slot */
+        bad += check("damaged FUN7 slot (hash ok, n > 4) is refused", !project_used(0));
         ui.msg[0] = 0;
         project_load(0);
         bad += check("loading it says EMPTY SLOT and keeps the steps", !strcmp(ui.msg, "EMPTY SLOT") &&
                       !memcmp(&trk[0].step[0], &keep, sizeof keep));
-        proj_slot[0] = old;
-        st_save(OBJ_PROJECT0, &proj_slot[0], sizeof proj_slot[0]);
+        /* restore a good image for any later checks */
+        project_save(0);
     }
     {   /* every parameter fits the stored byte (FUN7 and later) */
         uint32_t i;
