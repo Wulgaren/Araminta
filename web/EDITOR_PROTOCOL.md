@@ -103,7 +103,7 @@ watches (v2, `WATCH`), the device also sends push frames (cmds 23, 24, 26) at an
 | string | ASCII bytes, ended by a 0 byte |
 | scope | 0 = parameter of the selected track (`P_*`, 0..P_COUNT−1); 1 = global parameter (`G_*`, 0..G_COUNT−1) |
 | track | 0..3: tracks 1..4 (synth parts) |
-| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 SAMPLE, 5 VOICE, 6 TRIO, 7 WHEEL, 8 GRAIN, 9 PHYS, 10 DRUM-X, 11 NOISE, 12 FM6, 13 reserved (SLICE retired), 14 WAVETABLE, 15 DRUMS (Felucca's drum engine). NENGINES is 16. The device and the editor list pickable engines in another order (ANALOG FM6 PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM-X DRUMS WAVETABLE: `ENGINE_ORDER`); the numbers stay |
+| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 SAMPLE, 5 VOICE, 6 TRIO, 7 WHEEL, 8 GRAIN, 9 PHYS, 10 DRUM-X, 11 NOISE, 12 FM6, 13 reserved (SLICE retired), 14 WAVETABLE, 15 DRUMS (Felucca's drum engine). NENGINES is 16. The device and the editor list pickable engines in another order (ANALOG FM6 WAVETABLE PHASE LOFI VOICE TRIO WHEEL PHYS NOISE GRAIN SAMPLE DRUM-X DRUMS: `ENGINE_ORDER`); the numbers stay |
 
 The engine parameters are `P_E0..P_E7`: P_COUNT−8 .. P_COUNT−1 (103..110 since 1.5; 96..103 in 1.2 .. 1.4; 91..98 in
 1.1), and `INFO` gives `P_E0`.
@@ -292,7 +292,7 @@ bytes). An upload writes over it like any other data; a record that is not the s
 **Factory CR78 kit (SAMPLE).** SET 8 is a factory set, not a user slot: the public-domain CR-78
 one-shots at 22,050 Hz, one zone per SEQ drum lane (`36, 38, 39, 42, 46, 45, 37, 56`). SAMPLE
 shows the drum grid for it, like a USR slot tagged `hdr.rsv` bit 0. USR1..USR3 keep 5..7, and
-the normal factory presets stay 0..4; preset 5 selects CR78. The web editor's Samples tab has one
+the normal factory presets stay 0..4; preset 5 selects CR78 DRUMS. The web editor's Samples tab has one
 card per USR slot with a **Sample / Drumkit / Wavetable** selector; a Wavetable card offers a
 single table file or a folder medley, and the name field is gone (names are editor/backup-only).
 
