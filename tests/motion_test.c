@@ -1570,10 +1570,12 @@ static int fx_lock_banks_and_capacity(void)
         motion_set_lock(t, 0, MFX_SIZE, 33) == 2 && !motion_set_lock(t, 0, MFX_TIME, 65));
     project_t q, loaded; project_store_t st;
     project_capture(&q);
-    /* 3.10: project grew to 4096 bytes; MOTION_FILE_MAX is still 88 */
-    bad += check("FX locks retain 88 saved entries with exact TIME values", proj_pack(&st, &q) && sizeof st == 4096 &&
-        proj_import(&loaded, &st, sizeof st) && loaded.motion.count == MOTION_FILE_MAX && loaded.motion.event[0].value == 65 &&
-        loaded.motion.event[63].value == 1550 && loaded.motion.event[71].value == 110);
+    /* 3.10: project is 4096 bytes; MOTION_FILE_MAX is 128 (88 in body + 40 in append) */
+    bad += check("FX locks retain MOTION_FILE_MAX saved entries with exact TIME values",
+                 proj_pack(&st, &q) && sizeof st == 4096 &&
+                 proj_import(&loaded, &st, sizeof st) && loaded.motion.count == MOTION_FILE_MAX &&
+                 loaded.motion.event[0].value == 65 && loaded.motion.event[63].value == 1550 &&
+                 loaded.motion.event[71].value == 110);
     return bad;
 }
 int main(void)

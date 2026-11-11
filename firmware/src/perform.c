@@ -217,7 +217,7 @@ static volatile uint8_t pfx_tgt;      /* main / keys: MIDI effects' tracks, 0 AL
 static volatile uint8_t pfx_clr;      /* keys: G5 CLR held (map highlight); down clears latched FX when LATCH on */
 static volatile uint8_t perf_clr_say; /* ISR: CLR just cleared; UI shows "FX ALL OFF" */
 static uint32_t pfx_lph;              /* samples into the punch-in lane (pfx.c) */
-static uint8_t pfx_lane[32], pfx_ltgt;   /* the transport's punch-in lane (pfx.c), its tracks (as pfx_tgt) */
+static uint8_t pfx_lane[40], pfx_ltgt;   /* the transport's punch-in lane (pfx.c): 64 steps x 5 bits; its tracks */
 static void perf_press(uint32_t e, int down)
 {
     if (e == PF_TGT && down)
