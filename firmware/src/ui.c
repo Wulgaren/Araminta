@@ -189,14 +189,11 @@ static struct {
         uint8_t sig;             /* a card: what its value is of (label, unit, track, engine, palette) */
     } roll[5];
     int16_t roll_bpm;            /* the BPM last drawn */
-    struct {                     /* MIDI LEARN (midi_learn.c; here, not loose globals: the audio ISR's data keeps its
-                                  * layout and its cost, tests/target_budget.py) */
-        uint8_t on;              /* MIDI LEARN is on */
-        uint8_t pick, trk, id;   /* a parameter picked (1): its track and P_* id */
-        volatile uint8_t io[2];  /* midi_control.c ml_arm, ml_heard */
-    } ml;
     volatile uint8_t mpc[NTRK];  /* MIDI Program Change per track, 0x80 | program, 0 none (midi_control.c mpc_io: here
-                                  * for the same reason as ml.io; midi_pc_poll) */
+                                  * so the audio ISR's data keeps its layout and its cost, tests/target_budget.py;
+                                  * midi_pc_poll) */
+    volatile int8_t cc_step[7];  /* CC 71..77's detents since the main loop last read them (midi_control.c cc_step:
+                                  * the page's four knobs, then SELECT / ALGORITHM / PRESETS; cc_knob_poll) */
 } ui;
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER, CF_LOAD_PAT,
@@ -407,6 +404,8 @@ static int page_visible(uint32_t i)
         return drum;
     if (PAGES[i].fam == FAM_EDIT && PAGES[i].sec == EDIT_SEC_VOX && (drum || drums))   /* Voice hidden on DRUM / DRUMS */
         return 0;
+    if (PAGES[i].id[0] == PG_BEND)                    /* VOICE 2: the PITCH card UNISON has no room for */
+        return TSEL->p[P_VOICE] == V_UNISON;
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return drum || drums;
     if (PAGES[i].scope == SC_ENGINE && (PAGES[i].id[0] == P_E0 || PAGES[i].id[0] == P_E4))   /* EDIT 1 / 2 */
@@ -574,8 +573,10 @@ static uint32_t lock_id(uint32_t k)
         id = MSEQ_PITCH;                         /* SCL KNOB 4 on a held step: the PITCH lock */
     if (id == MSEQ_PITCH && kit_track(TSEL))
         return 0xFFu;                            /* PITCH is inert on a kit track: the knob creates no lock */
+    if (id == P_DETUNE && TSEL->p[P_VOICE] != V_UNISON)
+        return 0xFFu;                            /* the VOICE page's PITCH card is a live bend, not a lock */
     return param_id_known(id) && !MFX_ALL(id) && motion_param(id) &&
-           fx_target_available(TSEL, id) ? id : 0xFFu;
+           fx_target_available(TSEL, id) && param_live(motion_target_desc(TSEL, id)) ? id : 0xFFu;
 }
 
 static void ev_enter(void);
@@ -937,8 +938,9 @@ static int seq_is_empty(const track_t *t)
  * 1.1.5: a lock or automation edit by hand (a step held and a knob turned, a step's locks cleared, SEQ > AUTOMATION)
  * takes the copy too (UNDO_MOT: SAVE held puts the track's motion back, the sound and the steps stay; motion_undo_take).
  * A sound load keeps the track's motion on the parameters every engine has (load_end, motion.c motion_sound_loaded);
- * a pattern load drops it all (the steps it was on are gone) */
-enum { UNDO_SOUND = 1, UNDO_PAT = 2, UNDO_MOT = 4 };
+ * a pattern load drops it all (the steps it was on are gone).
+ * SAVE > CLEAR > ALL / ALL4 clears the mix and the arp too (UNDO_MIX: those come back with the sound and steps) */
+enum { UNDO_SOUND = 1, UNDO_PAT = 2, UNDO_MOT = 4, UNDO_MIX = 8 };
 static struct {
     uint8_t trk;                 /* track + 1, 0 = nothing to undo */
     uint8_t keep;                /* the track is as the last load left it (undo.after): a next load keeps the copy */
@@ -1230,6 +1232,22 @@ static void undo_swap(void)
             undo.step[i] = s;
         }
     }
+    if (undo.what & UNDO_MIX) {                   /* a preset load keeps these (param_kept): the clear changed them */
+        static const uint8_t MIX[3] = {P_LEVEL, P_PAN, P_MUTE};
+        int16_t v;
+        uint32_t j;
+        for (j = 0; j < 3u; j++) {
+            v = t->p[MIX[j]];
+            t->p[MIX[j]] = undo.p[MIX[j]];
+            undo.p[MIX[j]] = v;
+        }
+        for (i = P_AMODE; i <= P_AORDER; i++) {
+            v = t->p[i];
+            t->p[i] = undo.p[i];
+            undo.p[i] = v;
+        }
+        t->ahold_sv = t->p[P_AHOLD];               /* DRONE's forced HOLD: the value it restores */
+    }
     fm1_irq_on();
     if (undo.what & UNDO_SOUND) {                 /* FM6: the track's patch as it was (edited, a project's, a
                                                    * converted DIGITAL sound), not a factory one */
@@ -1465,6 +1483,7 @@ static void set_engine(uint32_t ei) { set_engine_of(TSEL, ei); }
  * (F1..F8), then the voice bank's B1..B32 through SLOT as the knob loads them (fm6_poll; the rest of the sound stays),
  * an empty one ignored. A program past the last is ignored, not wrapped: a number is always the same sound */
 static volatile uint8_t *const mpc_io = ui.mpc;
+static volatile int8_t *const cc_step = ui.cc_step;   /* midi_control.c cc_step: CC 71..74's detents */
 static void midi_pc_load(track_t *t, uint32_t n)
 {
     uint32_t e = t->eng_req % NENGINES, k;
@@ -1518,6 +1537,20 @@ static void clear_fx_track(track_t *t)
     t->fx_sl_pos = 8;
     memset(fx_order_tbl[t - trk], 0, FX_LIST_N);
 }
+/* SAVE > CLEAR > ALL / ALL4: the mix (LEVEL PAN PLAY) and the arp (MODE .. ORD) to their defaults, so a cleared
+ * track sounds at its own level, unmuted, and no latched HOLD chord keeps playing. A preset load keeps both
+ * (param_kept): this is the clear asking for them back */
+static void clear_mix_arp(track_t *t)
+{
+    uint32_t i;
+    t->p[P_LEVEL] = TP[P_LEVEL].def;
+    t->p[P_PAN] = TP[P_PAN].def;
+    t->p[P_MUTE] = TP[P_MUTE].def;
+    for (i = P_AMODE; i <= P_AORDER; i++)
+        t->p[i] = TP[i].def;
+    t->ahold_sv = t->p[P_AHOLD];                /* DRONE forces HOLD on: it restores this on the way out */
+}
+
 /* SAVE > CLEAR > FX ALL: every track's FX, MASTER, the shared SEND knobs and the global FX settings */
 static void clear_fx_all(void)
 {
@@ -1811,6 +1844,7 @@ static void track_select(uint32_t i)
 {
     if (i >= NTRK || i == song.sel)
         return;
+    midi_bend_card_track(i);                     /* (the old channel's card bend goes back to centre) */
     song.sel = (uint8_t)i;
     ui.entry_open = 0;
     ui.hot_t = 0;
@@ -1832,8 +1866,6 @@ static uint32_t dx_page2(const page_t *pg) { return dx_pagen(pg) == 2u; }
 static void dx_knob(const page_t *pg, uint32_t k, int32_t s);
 static void dx_cards(const page_t *pg);
 static uint32_t dx_sig(void);
-#include "midi_learn.c"                           /* MIDI LEARN (1.5): GLO + D4, a knob, a CC */
-
 /* ---------------------------------------------------- action pages --- */
 /* Pages whose purpose is an action (SAVE > USER, PHRASES, PROJECT, EDIT > SLICES, SEQ > AUTOMATION): the knobs pick,
  * OCT+ does it, OCT- cancels the picked action or goes HOME (ui_input.c). There OCT- / OCT+ do not

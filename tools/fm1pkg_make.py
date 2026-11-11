@@ -96,12 +96,14 @@ def key_blob(key):
 
 
 def sdk_file(rel):
-    root = Path(SDK or os.environ.get("AC79_SDK", ""))
+    # tools/get_sdk.sh's default destination, so a checkout that ran it needs no environment variable
+    root = Path(SDK or os.environ.get("AC79_SDK") or (Path(__file__).resolve().parent.parent / "build" / "deps" / "ac79"))
     path = root / "cpu" / "wl82" / "tools" / rel
     try:
         return path.read_bytes()
     except OSError as e:
-        raise SystemExit(f"fm1pkg_make: {path}: {e.strerror}. Run tools/get_sdk.sh or set AC79_SDK to the SDK mirror.")
+        raise SystemExit(f"fm1pkg_make: {path}: {e.strerror}. Run tools/get_sdk.sh (it fetches the three files into "
+                         f"build/deps/ac79) or set AC79_SDK to the SDK mirror.")
 
 
 def flash_image(app, key):

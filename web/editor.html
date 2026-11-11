@@ -442,10 +442,10 @@ class Reader {
    web/test_info_tags.mjs checks the two agree. */
 const INFO_TAG = { SONG: 16, UI: 0x55, MOTION: 0x4d, MOTION_POOL: 0x41, MOTION_LOCKS: 0x4c, FM6: 0x46,
   SYNC: 0x53, FM6V2: 0x50, RATCH: 0x52, BACKUP: 0x42, MENU: 0x4E, NUDGE: 0x54, SONG_LANES: 0x57,
-  FM6_BANK: 0x56, MIDI_LEARN: 0x43 };
+  FM6_BANK: 0x56 };
 const INFO_LEN = { [INFO_TAG.UI]: 1, [INFO_TAG.MOTION]: 2, [INFO_TAG.MOTION_POOL]: 2, [INFO_TAG.MOTION_LOCKS]: 1,
   [INFO_TAG.BACKUP]: 1, [INFO_TAG.FM6]: 2, [INFO_TAG.SYNC]: 1, [INFO_TAG.FM6V2]: 1, [INFO_TAG.RATCH]: 1,
-  [INFO_TAG.MENU]: 1, [INFO_TAG.NUDGE]: 1, [INFO_TAG.SONG_LANES]: 1, [INFO_TAG.FM6_BANK]: 1, [INFO_TAG.MIDI_LEARN]: 1 };
+  [INFO_TAG.MENU]: 1, [INFO_TAG.NUDGE]: 1, [INFO_TAG.SONG_LANES]: 1, [INFO_TAG.FM6_BANK]: 1 };
 const MOTION_MAX_SANE = 1024;                     /* reject 0 / absurd; MOTION_MAX is the device's pool (FUN16) */
 /* core.h: the motion store and the ids that are not p[] parameters (EDITOR_PROTOCOL.md "MOTION") */
 const MOTION_MAX = 192;                          /* RAM records (core.h MOTION_MAX); a project saves MOTION_FILE_MAX */
@@ -495,7 +495,7 @@ const parse = {
           /* FM6 v2 (1.0.3): bit 0 no bank (SLOT F1..F8, 8 = OWN), bit 1 the user presets carry their patch (target 3) */
           case INFO_TAG.FM6V2: if (o.fm6) o.fm6.caps = trailer[p] & 3; break;
           case INFO_TAG.RATCH: o.ratchet = trailer[p]; break;   /* RATCH: max hits */
-          default: break;                         /* MENU / NUDGE / lanes / bank / learn: other readers */
+          default: break;                         /* MENU / NUDGE / lanes / bank: other readers */
         }
         i += 2 + len;
       }
@@ -2026,7 +2026,7 @@ function makeMockDevice(opt = {}) {
     D("BPM", F.BPM, 40, 240, 120), D("SWG", F.PCT, 0, 100, 0), E("CLK", ["INT", "USB", "TRS"], 0), D("TUNE", F.INT, -50, 50, 0),
     E("TIME", [...NDIV, "1/8D", "1/16D", "1/4D"], 1), D("FDBK", F.PCT, 0, 120, 60), D("COLR", F.PCT, 0, 127, 70), D("SPEED", F.PCT, 25, 400, 100), /* G_TSPEED (was G_DMIX) */
     D("SIZE", F.PCT, 0, 127, 90), D("DAMP", F.PCT, 0, 127, 60), D("DLYOWN", F.INT, 0, 4, 0), D("REVOWN", F.INT, 0, 4, 0),
-    D("FLUTR", F.PCT, 0, 127, 0), D("REL", F.PCT, 0, 100, 30), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], 0), E("DROP", NONOFF, 0),
+    D("FLUTR", F.PCT, 0, 127, 0), D("REL", F.PCT, 0, 100, 30), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], 1), E("DROP", NONOFF, 0),
     D("SLOT", F.INT, 1, 4, 1), E("NAME", NDASH, 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
     E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL",
       "GRAIN", "PHYS", "DRUM-X", "NOISE", "FM6", "-", "WAVETABLE", "DRUMS"], 0), D("CLIP", F.PCT, 0, 100, 0),
@@ -2880,6 +2880,8 @@ function enumShown(d) {
     return [1, 0, 2].map((k) => d.min + k);
   /* MAP: stored OFF CURR KBD SEQ ALL; shown OFF ALL CURR KBD SEQ (params.c QUANT_ORDER) */
   if (d.label === "MAP" && d.names && d.names.length === 5) return [0, 4, 1, 2, 3].map((k) => d.min + k);
+  /* LFO TRIG: stored NOTE, FREE; knob order FREE, NOTE (params.c LTRIG_ORDER) */
+  if (d.label === "TRIG" && d.names && d.names[0] === "NOTE" && d.names[1] === "FREE") return [1, 0].map((k) => d.min + k);
   const vals = [];
   for (let v = d.min; v <= d.max; v++) vals.push(v);
   /* SWEEP: value 1 is the legacy ALLOC = REUSE alias of OFF; the device's knob skips it (params.c enum_orig) */
@@ -3582,10 +3584,14 @@ function updateBrowser() {
 }
 
 function visible(d) { return d && d.max > d.min && d.label !== "-"; }
+/* the engine descriptor a DST row's E1..E8 value names (null for the row's other values) */
+function dstSlot(d, v) {
+  const n = d && /^DST\d$/.test(d.label) && d.names && /^E([1-8])$/.exec(d.names[v - d.min] || "");
+  return n && dev ? dev.pdesc[dev.info.pe0 + +n[1] - 1] : null;
+}
 /* a matrix destination E1..E8 by the engine's label of that parameter (as the device shows it) */
 function modDst(d, txt) {
-  const m = d && /^DST\d$/.test(d.label) && /^E([1-8])$/.exec(txt);
-  const e = m && dev && dev.pdesc[dev.info.pe0 + +m[1] - 1];
+  const e = d && d.names ? dstSlot(d, d.names.indexOf(txt) + d.min) : null;
   return e && visible(e) ? e.label : txt;
 }
 
@@ -3644,9 +3650,12 @@ function paramRow(s, id) {
     if (wave) input.append(el("button", {}, el("selectedcontent")));
     for (const v of enumShown(d)) {                 /* (note divisions longest first: #48) */
       const [txt] = fmtValue(d, v);
+      const slot = dstSlot(d, v);
+      const dead = slot && !visible(slot);         /* an empty engine card is not offered */
+      if (dead && v !== dev.dump.p[id]) continue;
       const name = d.fmt === F.ENUM && d.names[v - d.min] == null ? String(v) : modDst(d, txt);
       const alias = d.fmt === F.ENUM && aliasOf(d.names, v - d.min) !== v - d.min;   /* shown when set, not offered */
-      input.append(el("option", { value: v, ic: wave && WAVE_IC[name], hidden: alias }, name));
+      input.append(el("option", { value: v, ic: wave && WAVE_IC[name], hidden: alias || dead }, name));
     }
     input.addEventListener("change", () => userSet(s, id, +input.value, true));
   } else {

@@ -745,7 +745,7 @@ static void sg_fresh(void)
 enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESETS, S_PRESETS_NOFAV, S_USER, S_PHRASES, S_PROJECT, S_TOOLS,
        S_SONG_EMPTY, S_SONG, S_STEP, S_AUTO_STEPS, S_AUTO_ADD_CHANCE, S_MOTION, S_DRUM, S_DRUM_HAND, S_DRUM_CYM, S_MIXER,
        S_MIXER_HOME, S_MIXER_PAN,
-       S_ENV, S_ENVDEST, S_LFO, S_MOD, S_FX, S_SLICER, S_DLY, S_SCL, S_CHORD, S_CHORD_WIDE, S_CHORD_OFF, S_CHORD_KIT, S_ARP, S_VOICE, S_CLOCK, S_MENU_MIDI,
+       S_ENV, S_ENVDEST, S_LFO, S_MOD, S_FX, S_SLICER, S_DLY, S_SCL, S_CHORD, S_CHORD_WIDE, S_CHORD_OFF, S_CHORD_KIT, S_ARP, S_VOICE, S_VOICE_UNISON, S_CLOCK, S_MENU_MIDI,
        S_EDIT_ANALOG, S_EDIT_DIGITAL, S_OP_ENV, S_EDIT_WHEEL, S_EDIT_SAMPLE, S_EDIT_GRAIN, S_EDIT_PHYS,
        S_ALG1, S_ALG2, S_ALG3, S_ALG4, S_ALG5, S_ALG6, S_ALG7, S_ALG8, S_OP_LEVEL,
        S_FM6_ALG1, S_FM6_ALG5, S_FM6_ALG22, S_FM6_ALG32, S_FM6_OP, S_FM6_OP_FIXED, S_FM6_OP2, S_FM6_OP_ENV, S_FM6_OP_ENV_REL,
@@ -776,7 +776,7 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
-    "voice", "clock", "menu_midi", "edit_analog", "edit_fm6", "op_env", "edit_wheel", "edit_sample",
+    "voice", "voice_unison", "clock", "menu_midi", "edit_analog", "edit_fm6", "op_env", "edit_wheel", "edit_sample",
     "edit_grain", "edit_phys", "alg_1", "alg_2", "alg_3", "alg_4", "alg_5", "alg_6", "alg_7", "alg_8", "op_level", "fm6_alg_01", "fm6_alg_05", "fm6_alg_22", "fm6_alg_32", "fm6_op", "fm6_op_fixed", "fm6_op2", "fm6_op_env", "fm6_op_env_rel", "confirm_seq", "confirm_project", "confirm_user", "confirm_pattern",
     "confirm_motion", "confirm_erase", "menu", "menu_speaker", "about", "about_rec", "about_credits", "about_end", "uboot", "calibration", "splash",
     "batt_0", "batt_1", "batt_2", "batt_3", "batt_usb", "motion_rec", "motion_off", "motion_card", "song_home",
@@ -1160,6 +1160,7 @@ static void setup(int s)
     case S_CHORD_KIT: eng(ENGI_DRUM); TSEL->p[P_CHRD] = CH_DIA3; go_title("CHORD"); break;
     case S_ARP: go_title("ARP"); break;
     case S_VOICE: go_title("VOICE"); break;
+    case S_VOICE_UNISON: TSEL->p[P_VOICE] = (int16_t)V_UNISON; go_title("VOICE 2"); ui.hot_col = 0; ui.hot_t = 30; break;
     case S_CLOCK: go_title("CLOCK"); break;          /* GLO > CLOCK */
     /* 1.2: the old SYSTEM page's items in the MENU: MIDI > MIDI IN (ROUT) on CH5-8; AUDIO > TUNE (-12 ct) selected;
      * SYSTEM > INFO (the USB state, the CPU load) */
@@ -1179,28 +1180,15 @@ static void setup(int s)
     case S_INSERT_PHASER: set_ins_ui_phasr(70, 110, 90, 127); go_title("PHASER"); break;
     case S_INSERT_OFF: go_title("DISTORT"); break;
     case S_INSERT_MIX: set_ins_ui_flang(40, 127, 90); go_title("FLANGER"); break;
-    /* 1.5 MIDI LEARN (midi_learn.c): on, nothing picked (MIXER); T1 CUT picked, no CC yet (EDIT 2); T1 CUT on CC74 (its
-     * message in the header); the widest line, a 5-letter label waiting; GLO's map with LEARN on (D4) */
-    case S_LEARN_WAIT: go_page(GR_TRK); ml_toggle(); ui.msg_t = 0; break;
-    case S_LEARN_PICK: go_title("EDIT 2"); ml_toggle(); ml_knob(TSEL, P_E4); ui.msg_t = 0; ui.hot_col = 0; ui.hot_t = 30; break;
-    case S_LEARN_SET: go_title("EDIT 2"); ml_toggle(); ml_learn(74, 0, P_E4); ml_knob(TSEL, P_E4); break;
-    case S_LEARN_LONG: {                             /* "T4 WAVE2: SEND A CC" (PHASE's WAVE2: the widest label) */
-        uint32_t k;
-        song.sel = 3; eng(2); go_title("EDIT 2"); ml_toggle();
-        for (k = 0; k < 7u && !str_eq(ENGINES[2]->edit[k].label, "WAVE2"); k++)
-            ;
-        ml_knob(TSEL, P_E0 + k); ui.msg_t = 0;
-        break;
-    }
-    case S_GLO_LEARN: go_title("EDIT 2"); ml_toggle(); ui.layer = LAYER_GLO; ui.msg_t = 0; break;
-    /* MENU > MIDI with LEARN CLEAR picked: 16 CCs learned (the widest count), and none */
-    case S_MENU_LCLEAR: {
-        uint32_t k;
-        for (k = 0; k < ML_N; k++) ml_learn(40u + k, k & 3u, P_ATK + k);
-        ui.menu = 1; ui.menu_sel = MI_LCLEAR;
-        break;
-    }
-    case S_MENU_LCLEAR_NONE: ui.menu = 1; ui.menu_sel = MI_LCLEAR; break;
+    /* MIDI LEARN's screens are gone (1.5's GLO map, EDIT 2's pick, MENU's LEARN CLEAR): the cases keep their
+     * numbers, drawing the same pages without it */
+    case S_LEARN_WAIT: go_page(GR_TRK); ui.msg_t = 0; break;
+    case S_LEARN_PICK: go_title("EDIT 2"); ui.msg_t = 0; ui.hot_col = 0; ui.hot_t = 30; break;
+    case S_LEARN_SET: go_title("EDIT 2"); break;
+    case S_LEARN_LONG: song.sel = 3; eng(2); go_title("EDIT 2"); ui.msg_t = 0; break;
+    case S_GLO_LEARN: go_title("EDIT 2"); ui.layer = LAYER_GLO; ui.msg_t = 0; break;
+    case S_MENU_LCLEAR: ui.menu = 1; ui.menu_sel = MI_MIDIIN; break;
+    case S_MENU_LCLEAR_NONE: ui.menu = 1; ui.menu_sel = MI_MIDIIN; break;
     /* 1.5.1: the DLY page with TIME 1/8D (KNOB 1 turned: its gauge) and 1/16D (the widest name); the FX layer's map
      * with REV THROW (D5, VERB) and ECHO THROW (E5, ECHO) held */
     case S_DLY_DOT: song.g[G_DTIME] = 10; go_title("DELAY"); ui.hot_col = 0; ui.hot_t = 30; break;

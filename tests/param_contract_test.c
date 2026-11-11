@@ -235,6 +235,45 @@ static int pg_contract(void)
     return bad;
 }
 
+static int bend_contract(void)
+{
+    int bad = 0, ok;
+    const page_t *vox = 0, *vox2 = 0;
+    const param_desc_t *d;
+    int16_t *vp;
+    uint32_t i;
+
+    ui_power_on();
+    for (i = 0; i < NPAGES; i++)
+        if (str_eq(PAGES[i].title, "VOICE") && PAGES[i].fam == FAM_EDIT) {
+            vox = &PAGES[i];
+            if (i + 1u < NPAGES && PAGES[i + 1u].id[0] == PG_BEND)
+                vox2 = &PAGES[i + 1u];
+        }
+    ok = vox && vox2 && vox->sec == EDIT_SEC_VOX && vox2->sec == EDIT_SEC_VOX &&
+         vox2->fam == FAM_EDIT && PG_BEND == 250u;
+    ok &= !param_id_known(PG_BEND) && !motion_param(PG_BEND) && !param_real(PG_BEND);
+    bad += check("VOICE 2 is the page after VOICE and PG_BEND 250 is UI-only, not a motion / real id", ok);
+    ok = 0;
+    if (vox && vox2) {
+        TSEL->p[P_VOICE] = (int16_t)V_POLY;
+        d = page_desc(vox, 3, &vp);
+        ok = d && vp && str_eq(d->label, "PITCH") && d->fmt == F_CENT && d->min == -200 && d->max == 200 &&
+             page_desc(vox, 2, &vp) != 0 &&                   /* SPRD before it */
+             !page_visible((uint32_t)(vox2 - PAGES));
+        TSEL->p[P_VOICE] = (int16_t)V_UNISON;
+        ok &= page_visible((uint32_t)(vox2 - PAGES));
+        d = page_desc(vox, 3, &vp);
+        ok &= d && str_eq(d->label, "UNI DTN");
+        ok &= page_desc(vox, 2, &vp) != 0;                    /* SPRD */
+        d = page_desc(vox2, 0, &vp);
+        ok &= d && vp && str_eq(d->label, "PITCH");
+        TSEL->p[P_VOICE] = (int16_t)V_POLY;
+    }
+    bad += check("PITCH is the last VOICE card outside UNISON; VOICE 2 (PITCH) is hidden until UNISON", ok);
+    return bad;
+}
+
 static int sweep_contract(void)
 {
     int bad = 0, ok;
@@ -326,12 +365,61 @@ static int tape_contract(void)
     return bad;
 }
 
+static int dead_engine_contract(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    uint32_t i, j, sel, page = NPAGES;
+
+    ui_power_on();
+    t = &trk[0];
+    set_engine_of(t, 2);                             /* PHASE: E8 is its empty "-" card */
+    t->engine = t->eng_req;
+    track_defaults_steps(t);
+
+    pk_build_mdst(t, MD_OFF, &sel);
+    ok = 1;
+    for (i = 0; i < pk_n; i++)
+        ok &= pk_rows[i].id != MD_E1 + 7;
+    for (i = 0; i < 7u; i++) {
+        uint32_t found = 0;
+        for (j = 0; j < pk_n; j++)
+            found |= pk_rows[j].id == MD_E1 + i;
+        ok &= found;
+    }
+    bad += check("MOD DST hides a dead engine slot (PHASE E8) and keeps E1..E7", ok);
+
+    pk_build_auto(t, MSEQ_PITCH, NSTEP, &sel);
+    ok = 1;
+    for (i = 0; i < pk_n; i++)
+        ok &= pk_rows[i].id != P_E7;
+    for (i = 0; i < 7u; i++) {
+        uint32_t found = 0;
+        for (j = 0; j < pk_n; j++)
+            found |= pk_rows[j].id == P_E0 + i;
+        ok &= found;
+    }
+    bad += check("AUTOMATION hides a dead engine parameter (PHASE E8) and keeps E1..E7", ok);
+
+    for (i = 0; i < NPAGES; i++)
+        if (PAGES[i].scope == SC_ENGINE && PAGES[i].id[0] == P_E4 && PAGES[i].id[3] == P_E7) {
+            page = i;
+            break;
+        }
+    ui.plk_src = (uint8_t)(page + 1u);
+    bad += check("a held step locks no dead engine parameter (PHASE EDIT 2 KNOB 4)",
+                 page < NPAGES && lock_id(3) == 0xFFu && lock_id(0) == P_E4);
+    ui.plk_src = 0;
+    return bad;
+}
+
 int main(void)
 {
     int bad;
     ui_power_on();
     bad = id_classification() + pitch_contract() + pitch_kit_contract() + mfx_contract() + tape_contract() +
-          ev_contract() + pg_contract() + sweep_contract() + motion_id_contract();
+          ev_contract() + pg_contract() + bend_contract() + sweep_contract() + motion_id_contract() +
+          dead_engine_contract();
     printf("%s\n", bad ? "PARAM CONTRACT TEST FAILED" : "PITCH / special-id parameter contract tests passed");
     return bad;
 }

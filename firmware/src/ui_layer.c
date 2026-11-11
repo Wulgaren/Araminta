@@ -7,7 +7,7 @@
  *              keys hold the punch page's fixed map (1/2: PF_DEF, 2/2: PF2_DEF; SELECT walks the two on the
  *              sticky map; the 1.2 reassignment with PRESETS is retired)
  *   GLO  SET   black keys 1..4 (F#3 G#3 A#3 C#4) T1..T4 MUTE (latched; lit = sounding), F3..B3 SOLO T1..T4 while
- *              held (HOLD cells, a corner triangle), C4 UNMUTE ALL, D4 MIDI LEARN on / off (1.5, midi_learn.c), F4 TAP
+ *              held (HOLD cells, a corner triangle), C4 UNMUTE ALL, F4 TAP
  *              tempo; KNOB 1..4 T1..T4 LEVEL;
  *              GLO + PLAY: from the top without stopping
  *   SCL  SET   any key: its note name is ROOT; KNOB 1..4 ROOT SCL CHRD VOIC (LY_SCL: the SCL page's first two,
@@ -32,7 +32,8 @@
  * PLAY and REC work in every layer (GLO held + PLAY: RESTART; GLO's lock: PLAY as always, #183); SAVE, HOME, SEQ and
  * the other page buttons are swallowed. In SET layers OCT± do not shift the octave: OCT- (on release, not with OCT+)
  * puts back what the layer changed since it opened. A HOLD key's effect lasts until the key is let go, the map with
- * it. No layer in the menu, a dialog, NAME or the UPDATE MODE countdown. After a tap, until the layer has been opened
+ * it. No layer in the menu, a dialog, NAME or the UPDATE MODE countdown (SAVE > CLEAR's own confirmation stays the
+ * map's: its keys clear, they never audition). After a tap, until the layer has been opened
  * once: "HOLD [GLO] QUICK" (the seen bits are kept with the settings, favorites.c spare byte).
  * The lock (Discussion #83): a double tap (the second press within LY_DTAP_MS of the first tap, both let go before
  * HOLD, nothing else touched) opens the map and keeps it open with no button held (ui.lock): ly_down() counts the lock
@@ -516,8 +517,6 @@ static void layer_key(uint32_t l, uint32_t k)
                     trk[i].p[P_MUTE] = PLAY_ON;
         } else if (p == 7u) {
             glo_tap();
-        } else if (p == 5u) {
-            ml_toggle();                                /* D4: MIDI LEARN on / off (midi_learn.c) */
         }
     } else if (l == LAYER_SCL) {
         TSEL->p[P_ROOT] = (int16_t)((k + 5u) % 12u);    /* the key's note name (F3 = F) */
@@ -570,11 +569,8 @@ static void glo_solo_held(void)
 static void layer_keys(uint32_t keys)
 {
     uint32_t k, l = layer_open() ? layer_open() : ui.layer;
-    /* hold maps removed: GLO + D4 still toggles MIDI LEARN (no mute/solo map on hold) */
+    /* hold maps removed: GLO held still drives solo; no other white-key actions while only held */
     if (!l && ui.ly == LAYER_GLO && layer_held()) {
-        for (k = 0; keys && k < 27u; k++)
-            if (((keys >> k) & 1u) && !key_black(k) && key_place(k) == 5u)
-                ml_toggle();
         glo_solo_held();
         return;
     }
@@ -585,16 +581,10 @@ static void layer_keys(uint32_t keys)
         eqa_release();
     glo_solo_held();
 }
-/* GLO held while MIDI LEARN is on: knobs still pick Tk LEVEL (map itself stays closed) */
-static int glo_learn_knobs(void)
-{
-    return ui.ml.on && ui.ly == LAYER_GLO && layer_held() && !layer_open();
-}
-
 /* KNOB 1..4 in the open layer: its own (FX macros, GLO levels, EDIT's sound), else the four of its page */
 static void layer_knob(uint32_t k, int32_t s)
 {
-    uint32_t l = layer_open() ? layer_open() : (glo_learn_knobs() ? LAYER_GLO : 0u);
+    uint32_t l = layer_open();
     if (l == LAYER_FX) {                                /* perform.c perf_k, not recorded */
         if (k == 3u && !perf_harm_on())
             s = -s;                                     /* DEPTH (100 - perf_k[3]) rises to the right (#40: it fell) */
@@ -604,7 +594,6 @@ static void layer_knob(uint32_t k, int32_t s)
         *vp = (int16_t)clamp(*vp + accel(EN_K1 + k, s, TP[P_LEVEL].max - TP[P_LEVEL].min), TP[P_LEVEL].min,
                              TP[P_LEVEL].max);
         motion_capture(&trk[k], P_LEVEL, *vp);
-        ml_knob(&trk[k], P_LEVEL);                      /* (MIDI LEARN: Tk LEVEL picked) */
     } else if (l == LAYER_EDIT) {                       /* ENG, No., FAV */
         if (k == 0u)
             edit_load(eng_step(TSEL->eng_req, s), 0);
@@ -720,8 +709,8 @@ static uint32_t layer_leds(uint32_t *br)
             can = e < PF_N && ((ok >> e) & 1u);
             on = can && ((held >> e) & 1u);
         } else if (l == LAYER_GLO) {                    /* sounding lit; SOLO held lit, the others, C4, F4 breathe */
-            on = b ? p < NTRK && glo_sounding(p) : (p < NTRK && ((lys.solo >> k) & 1u)) || (p == 5u && ui.ml.on);
-            can = !b && (p < NTRK || p == 4u || p == 5u || (p == 7u && !song.g[G_CLOCK]));
+            on = b ? p < NTRK && glo_sounding(p) : (p < NTRK && ((lys.solo >> k) & 1u));
+            can = !b && (p < NTRK || p == 4u || (p == 7u && !song.g[G_CLOCK]));
         } else if (l == LAYER_SCL) {                    /* the root lit, the scale's notes breathe */
             e = (k + 5u + 12u - root) % 12u;
             on = e == 0u;
@@ -917,8 +906,6 @@ static void layer_glo(void)
     }
     n[0] = 'C';
     lcell(LC_X(0), 50, LC_H, n, ICON_MUTE, 0, "ALL", LS_OFF, 0);   /* (unmute all) */
-    n[0] = 'D';
-    lcell(LC_X(1), 50, LC_H, n, ICON_MIDI, 0, "LEARN", ui.ml.on ? LS_SEL : LS_OFF, 0);   /* (MIDI LEARN, 1.5) */
     n[0] = 'F';
     lcell(LC_X(3), 50, LC_H, n, ICON_TEMPO, 0, "TAP", song.g[G_CLOCK] ? LS_DIM : LS_OFF, 0);
     for (e = 0; e < NTRK; e++) {                        /* the black keys 1..4: MUTE, latched */
@@ -1182,7 +1169,7 @@ static void draw_layer(void)
             sig = sig * 33u + perf_map_now()[p];
     }
     else if (l == LAYER_GLO)
-        sig += perf_solo * 31u + (uint32_t)song.g[G_CLOCK] * 5u + ui.ml.on * 7u +
+        sig += perf_solo * 31u + (uint32_t)song.g[G_CLOCK] * 5u +
                (uint32_t)((trk[0].p[P_MUTE] & 3) | (trk[1].p[P_MUTE] & 3) << 2 | (trk[2].p[P_MUTE] & 3) << 4 |
                           (trk[3].p[P_MUTE] & 3) << 6) * 131u;
     else if (l == LAYER_SCL)
