@@ -180,7 +180,8 @@ static void reset(void)
     memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain);
     chain_defaults(&chain_config);
-    memset(proj_slot, 0, sizeof proj_slot);
+    proj_slot_used = 0;
+    memset(proj_slot_sum, 0, sizeof proj_slot_sum);
     memset(up_bank, 0, sizeof up_bank);
     memset(&upf, 0, sizeof upf);
     memset(&ui, 0, sizeof ui);
@@ -489,7 +490,8 @@ static int keep_test(void)
     send_bank(&b, 0);                                     /* the bank replaced */
     slot_to(0, 1);
     slot_to(1, 1);
-    memset(proj_slot, 0, sizeof proj_slot);              /* (from flash) */
+    proj_slot_used = 0;                                  /* (from flash) */
+    memset(proj_slot_sum, 0, sizeof proj_slot_sum);
     project_load(0);
     ok &= patch_is(0, a.v[4]) && trk[0].p[P_E7] == FM6_OWN && patch_is(1, a.v[6]) && trk[1].p[P_E7] == FM6_OWN;
     bad += check("a project saved on B5 / B7: loads those voices (SLOT OWN) after the bank was replaced", ok);
