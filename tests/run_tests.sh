@@ -379,7 +379,10 @@ drain() {
 
 u_storage() {
     build "$OUT/storage_test" tests/storage_test.c
-    run "flash storage (A/B, torn writes)" "$OUT/storage_test"
+    run "flash storage (A/B, torn writes, the gap's sectors)" "$OUT/storage_test"
+    build "$OUT/flash_map_test" tests/flash_map_test.c -Ifirmware/hal
+    run "flash map (write windows: the gap, the store, the app area refused)" "$OUT/flash_map_test"
+    run "layout constants across C / Python / JavaScript / the linker" python3 tests/layout_test.py
 }
 unit u_storage
 
