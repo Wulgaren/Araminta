@@ -157,7 +157,7 @@ static int bank_is(const bank_t *b)
     const fvb_info_t *in = fvb_info();
     char nm[11] = {0};
     uint32_t k;
-    if (!in || fm6_bank_used != b->used)
+    if (!in || fm6_bank_used[0] != b->used)
         return 0;
     memcpy(nm, in->name, 10);
     for (k = 10; k && nm[k - 1] == ' '; k--)
@@ -225,7 +225,7 @@ static int store_test(void)
     uint8_t as_data[600], got[600], arg[1 + FM6_PACKED];
     uint32_t k;
     reset();
-    ok = !fm6_bank_used && !fvb_info() && fm6_bank_read;
+    ok = !fm6_bank_used[0] && !fvb_info() && fm6_bank_read;
     request(ED_FM6B_LIST, arg, 0);
     bad += check("an empty flash: no bank; LIST: 32 voices, no bank, \"\", every voice empty",
                  ok && rep_n == 2u + 1u + 32u * 2u && rep[0] == 32 && rep[1] == 0 && rep[2] == 0 && rep[3] == 0 && rep[4] == 0);
@@ -265,7 +265,7 @@ static int store_test(void)
     }
     bad += check("  .. LIST: the bank's name and each voice's name", ok);
     memset(&upf, 0, sizeof upf);                         /* a power-on: the RAM lost, the stores read */
-    fm6_bank_used = 0;
+    memset(fm6_bank_used, 0, sizeof fm6_bank_used);
     up_boot();
     bad += check("  .. after a power-on: the same bank", bank_is(&a));
 
@@ -319,7 +319,7 @@ static int store_test(void)
     {
         bank_t e;
         make_bank(&e, 'E', 0, "");
-        ok = send_bank(&e, 0) == 0 && rep[1] == 0 && bank_is(&e) && !fm6_bank_used;
+        ok = send_bank(&e, 0) == 0 && rep[1] == 0 && bank_is(&e) && !fm6_bank_used[0];
     }
     bad += check("an empty bank (no WRITE): valid, no voice", ok);
     /* no flash: refused */
@@ -507,8 +507,8 @@ static int keep_test(void)
         memcpy(x, FM6_FACTORY[3], FM6_PACKED);
         x[110] = 17;                                      /* (an own patch) */
         ok = 1;
-        for (s = FM6_OWN + 1; s <= (int32_t)(FM6_OWN + FM6_NBANK); s++) {
-            p->t[0].p[P_E7] = (int16_t)s;                 /* (1.0.2's B2..B27: 9..34; any 9..40) */
+        for (s = FM6_OWN + 1; s <= (int32_t)(FM6_OWN + FM6_NBANK_TOTAL); s++) {
+            p->t[0].p[P_E7] = (int16_t)s;                 /* any bank SLOT 9..104 -> OWN on store */
             memcpy(p->fm6[0], x, FM6_PACKED);
             p->sum = proj_sum(p);
             ok &= !project_restore_runtime(p) && trk[0].p[P_E7] == FM6_OWN && fm6_slot[0] == FM6_OWN && patch_is(0, x);
@@ -519,7 +519,7 @@ static int keep_test(void)
         memcpy(p->fm6[0], FM6_FACTORY[2], FM6_PACKED);
         p->sum = proj_sum(p);
         ok &= !project_restore_runtime(p) && trk[0].p[P_E7] == 2 && patch_is(0, FM6_FACTORY[2]);
-        bad += check("a project with a stored SLOT 9..40: its own patch, SLOT OWN (never a bank voice); F3 as before", ok);
+        bad += check("a project with a stored SLOT 9..104: its own patch, SLOT OWN (never a bank voice); F3 as before", ok);
     }
     {   /* a user preset record with a stored SLOT 13 (1.0.2's B5): with its patch, that patch; without, the init voice */
         up_rec_t *r;
@@ -581,7 +581,7 @@ static int keep_test(void)
             fm6_adopt(0);
         }
         ok = trk[0].p[P_E7] == FM6_OWN;
-        for (s = FM6_OWN + 1; s <= (int32_t)(FM6_OWN + FM6_NBANK); s++) {
+        for (s = FM6_OWN + 1; s <= (int32_t)(FM6_OWN + FM6_NBANK_TOTAL); s++) {
             memset(&motion, 0, sizeof motion);
             motion.on = 1;
             motion.count = 1;
@@ -594,7 +594,7 @@ static int keep_test(void)
             ok &= trk[0].p[P_E7] == FM6_OWN && patch_is(0, x);
         }
         ok &= motion_put(t, 4, P_E7, FM6_OWN + 3, 0) == 0 && motion.event[motion.count - 1u].value == FM6_OWN;
-        bad += check("motion holding SLOT 9..40: plays OWN, the patch kept; a record made on B3 stores OWN", ok);
+        bad += check("motion holding SLOT 9..104: plays OWN, the patch kept; a record made on B3 stores OWN", ok);
         memset(&motion, 0, sizeof motion);
     }
     return bad;

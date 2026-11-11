@@ -369,7 +369,7 @@ static int preferences(void)
         host_wire[n - 14] == 0x41 && host_wire[n - 13] == 1 && host_wire[n - 12] == 64 && host_wire[n - 11] == 1 &&   /* 1.2: 128 */
         host_wire[n - 10] == 0x54 && host_wire[n - 9] == 1 && host_wire[n - 8] == NUDGE_DIV &&   /* 1.2: NUDGE */
         host_wire[n - 7] == 0x57 && host_wire[n - 6] == 1 && host_wire[n - 5] == NTRK &&   /* 1.2: SONG lanes */
-        host_wire[n - 4] == 0x56 && host_wire[n - 3] == 1 && host_wire[n - 2] == 32);   /* 1.4.1: FM6 voice bank */
+        host_wire[n - 4] == 0x56 && host_wire[n - 3] == 1 && host_wire[n - 2] == 96);   /* 3.10: 3 x 32 voices */
     request(ED_UI_SET, a, 2);
     bad += check("UI_SET updates the actual palette and reports RAM-only saving",
         host_wire[5] == 3 && settings.palette == 7 && T_BG == UI_PALETTES[7].bg);
