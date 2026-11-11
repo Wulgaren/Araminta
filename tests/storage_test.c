@@ -155,19 +155,19 @@ int main(void)
                      st_sector(OBJ_PROJECT0 + 3, 1) + 4096 == 0x9F000u && st_sector(OBJ_UPFM6, 1) == 0xFE000u &&
                      st_sector(OBJ_FM6BANK, 0) == 0x9F000u && st_sector(OBJ_FM6BANK, 1) == 0xFE000u &&
                      st_sector(OBJ_SETTINGS, 1) + 4096 == 0xFE000u);
-    /* the autosave (3.10, project.c): A/B at 0xD3000 / 0xD5000 (two sectors a copy), after the 68 KiB sample slots */
+    /* the autosave (1.2, project.c): its own pair 0xE5000 / 0xE6000, above the OTA staging, apart from every other
+     * object; a save there touches no other object */
     {
-        uint32_t o, c, ok = OBJ_AUTOSAVE == OBJ_COUNT - 1 && st_sector(OBJ_AUTOSAVE, 0) == 0xD3000u &&
-                               st_sector(OBJ_AUTOSAVE, 1) == 0xD5000u && st_sectors(OBJ_AUTOSAVE) == 2u;
+        uint32_t o, c, ok = OBJ_AUTOSAVE == OBJ_COUNT - 1 && st_sector(OBJ_AUTOSAVE, 0) == 0xE5000u &&
+                               st_sector(OBJ_AUTOSAVE, 1) == 0xE6000u;
         static uint8_t snap[0x100000];
         for (o = 0; o < OBJ_AUTOSAVE; o++)
             for (c = 0; c < 2u; c++)
-                ok &= st_sector(o, c) + st_sectors(o) * 4096u <= 0xD3000u || st_sector(o, c) >= 0xD7000u;
+                ok &= st_sector(o, c) + 4096u <= 0xE5000u || st_sector(o, c) >= 0xE7000u;
         memcpy(snap, nor, sizeof nor);
         ok &= st_save(OBJ_AUTOSAVE, a, sizeof a) == 0 && st_load(OBJ_AUTOSAVE, got, sizeof got) == (int)sizeof a &&
-              !memcmp(got, a, sizeof a) && !memcmp(snap, nor, 0xD3000u) &&
-              !memcmp(snap + 0xD7000u, nor + 0xD7000u, sizeof nor - 0xD7000u);
-        bad += check("the autosave in its own sectors 0xD3000 / 0xD5000, nothing else touched", ok);
+              !memcmp(got, a, sizeof a) && !memcmp(snap, nor, 0xE5000u) && !memcmp(snap + 0xE7000u, nor + 0xE7000u, 0x19000u);
+        bad += check("the autosave in its own sectors 0xE5000 / 0xE6000, nothing else touched", ok);
     }
     {
         static uint8_t bank[3472], back[3728], tab[3728];

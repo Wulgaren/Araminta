@@ -33,12 +33,12 @@ static void panel_setup(void) {}
 
 static uint8_t flash_ok = 1;
 static int erase_error, fail_after = -1;
-static uint32_t erases, as_erases;               /* (as_erases: the autosave's A/B span, 0xD3000 / 0xD5000) */
+static uint32_t erases, as_erases;               /* (as_erases: the autosave's two sectors, 0xE5000 / 0xE6000) */
 static int st_read(uint32_t off, void *dst, uint32_t n) { memcpy(dst, nor + off, n); return 0; }
 static int st_erase(uint32_t off)
 {
     erases++;
-    as_erases += off >= 0xD3000u && off < 0xD7000u;
+    as_erases += off >= 0xE5000u && off < 0xE7000u;
     if (erase_error) return -8;
     memset(nor + off, 0xFF, 4096);
     return 0;
@@ -280,11 +280,10 @@ static int autosave_test(void)
     as_run(9000u);
     ok = !as.writes;
     as_run(1500u);
-    /* 3.10: each autosave write erases two sectors (A or B's span) */
-    bad += check("autosave: a change: no write within 10 s, one once idle 10 s (two sector erases)",
-                 ok && as.writes == 1u && as_erases == 2u && st_load(OBJ_AUTOSAVE, &raw, sizeof raw) == (int)sizeof raw);
+    bad += check("autosave: a change: no write within 10 s, one once idle 10 s (one erase)",
+                 ok && as.writes == 1u && as_erases == 1u && st_load(OBJ_AUTOSAVE, &raw, sizeof raw) == 3840);
     as_run(600000u);
-    bad += check("autosave: 10 min unchanged after it: no more writes", as.writes == 1u && as_erases == 2u);
+    bad += check("autosave: 10 min unchanged after it: no more writes", as.writes == 1u && as_erases == 1u);
     song.g[G_SLOT] = 3;                                  /* (the PROJECT page's pick, the selected track: not the music) */
     song.sel = 2;
     as_run(120000u);
@@ -376,13 +375,13 @@ static int autosave_test(void)
         as_power_on();
         ok = autosave_boot(1) == 0 && song.g[G_BPM] != 97 && song.g[G_BPM] != 111;
         bad += check("autosave: both copies damaged: ignored, power-on as new", ok);
-        memset(nor + 0xD3000u, 0xFF, 0x4000u);
+        memset(nor + 0xE5000u, 0xFF, 0x2000u);
         st_save(OBJ_AUTOSAVE, "NOT A PROJECT", 13u);     /* a valid record that is no project */
         as_power_on();
         bad += check("autosave: a record that is no project: ignored", autosave_boot(1) == 0 && song.g[G_BPM] != 97);
     }
     /* a power cut in the middle of a write: the copy before stays in charge */
-    memset(nor + 0xD3000u, 0xFF, 0x4000u);
+    memset(nor + 0xE5000u, 0xFF, 0x2000u);
     as_power_on();
     autosave_boot(1);
     as_edit(8);
@@ -414,10 +413,8 @@ static int autosave_test(void)
     }
     song.playing = 0;
     as_run(20000u);
-    printf("persist:   a 4-hour session (3 h editing and playing, 1 h idle): %u autosave sector erases (%u writes)\n",
-           (unsigned)as_erases, (unsigned)(as_erases / 2u));
-    bad += check("autosave wear: a session's writes stay far below one a minute",
-                 as_erases > 0u && as_erases / 2u <= 60u);
+    printf("persist:   a 4-hour session (3 h editing and playing, 1 h idle): %u autosave writes\n", (unsigned)as_erases);
+    bad += check("autosave wear: a session's writes stay far below one a minute", as_erases > 0u && as_erases <= 60u);
     {   /* worst case: a change, then just enough idle, over and over, for 8 hours */
         uint32_t i;
         as_erases = 0;
@@ -425,10 +422,9 @@ static int autosave_test(void)
             as_edit(i);
             as_run(11000u);
         }
-        printf("persist:   worst case, 8 h of a change every 11 s: %u sector erases (%u writes)\n", (unsigned)as_erases,
+        printf("persist:   worst case, 8 h of a change every 11 s: %u writes (%u per sector)\n", (unsigned)as_erases,
                (unsigned)(as_erases / 2u));
-        bad += check("autosave wear, worst case: at most one write a minute (480 in 8 h)",
-                     as_erases / 2u <= 8u * 60u + 1u);
+        bad += check("autosave wear, worst case: at most one write a minute (480 in 8 h)", as_erases <= 8u * 60u + 1u);
     }
     return bad;
 }
