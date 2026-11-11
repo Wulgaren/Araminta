@@ -391,6 +391,45 @@ EXPORT void web_boot(void)
         web_power_on();
 }
 
+/* --------------------------------------------------- backup import / export --- */
+/* The page passes one backup object through web_bk_buf; the firmware's own commit path stores it, so the
+ * emulator ends up with the records a device would have. 0 = ok, 1 = unknown id, 2 = too large,
+ * 3 = the flash refused, 4 = a retired object this build will not migrate. */
+static uint8_t web_bk_buf[SMP_USER_SIZE];
+EXPORT uint32_t web_bk_buf_ptr(void) { return (uint32_t)(uintptr_t)web_bk_buf; }
+EXPORT uint32_t web_bk_buf_size(void) { return sizeof web_bk_buf; }
+EXPORT uint32_t web_bk_import(uint32_t id, uint32_t len)
+{
+    if (len > sizeof web_bk_buf)
+        return 2u;
+    if (id == 0u)
+        return st_save(OBJ_AUTOSAVE, web_bk_buf, len) ? 3u : 0u;
+    if (id == 1u)
+        return st_save(OBJ_SETTINGS, web_bk_buf, len) ? 3u : 0u;
+    if (id >= 2u && id <= 5u)
+        return st_save(OBJ_PROJECT0 + id - 2u, web_bk_buf, len) ? 3u : 0u;
+    if (id == 6u || id == 7u)
+        return st_save(OBJ_UPRESET0 + id - 6u, web_bk_buf, len) ? 3u : 0u;
+    if (id == 8u)
+        return len ? 4u : 0u;                    /* the FM6 bank of 1.0..1.0.2: current backups carry it empty */
+    if (id == 9u)
+        return st_save(OBJ_UPFM6, web_bk_buf, len) ? 3u : 0u;
+    if (id >= 32u && id < 32u + SMP_USER_SLOTS) {
+        uint32_t off = SMP_USER_BASE + (id - 32u) * SMP_USER_SIZE, o;
+        for (o = 0; o < SMP_USER_SIZE; o += 4096u)
+            if (st_erase(off + o))
+                return 3u;
+        return len && st_prog(off, web_bk_buf, len) ? 3u : 0u;
+    }
+    return 1u;
+}
+/* the live project packed as project_store_t (what a project file carries); 0 = it did not pack */
+EXPORT uint32_t web_project(void)
+{
+    project_capture(&proj_scratch);
+    return proj_pack((project_store_t *)web_bk_buf, &proj_scratch) ? sizeof(project_store_t) : 0u;
+}
+
 /* input, by the printed labels: buttons bit b = B_FX .. B_OCTUP (panel.c), keys bit k = key k (F3 .. G5),
  * encoders by role (EN_SELECT .. EN_K4), MASTER 0..1023 */
 static uint32_t web_btn_labels, web_key_mask;

@@ -173,7 +173,7 @@ jobs:
           ./build.sh --gen-only
           EMU_BUILD=dev EMU_SHA="$(git rev-parse --short HEAD)" sh web/emu/build.sh
           rm -f build/emu/.wasm-key build/emu/.page-key
-          for f in index.html worklet.js saves.js felucca.wasm fonts/DotGothic16-subset.woff fonts/OFL.txt; do
+          for f in index.html worklet.js saves.js fm1backup.js projconv.js felucca.wasm fonts/DotGothic16-subset.woff fonts/OFL.txt; do
             [ -s "build/emu/$f" ] || { echo "::error::dev preview has no $f"; exit 1; }
           done
           mkdir -p ../site/preview
