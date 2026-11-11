@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+DIST MODE OTT keeps the same curves and crossovers, but its six SVF sections and band state now live only on the
+DIST slots that need them (about 7 KB of pool back), the second half of each LR4 skips the unused LP/HP output, and
+DEPTH 0 skips the detector and gain path.
+
 EFFECTS > TAPE now starts as MASTER at MIX 100 %: at SPEED 100 the head is idle, so a power-on instrument and a
 new project sound the same as before, and the whole mix follows SPEED / FLUTR / DROPOUT without raising MIX
 first. SAVE > CLEAR > FX ALL returns to the same state. Projects saved before this build (FUN16 and older) still
