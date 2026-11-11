@@ -1653,6 +1653,7 @@ typedef struct {
     ott_svf_t o_xa, o_xb, o_xc;                    /* 88.3 Hz: shared, low, high */
     ott_svf_t o_ya, o_yb, o_yc;                    /* 2.5 kHz: shared, low, high */
     int32_t o_env0, o_env1, o_env2, o_g0, o_g1, o_g2, o_dc;
+    int32_t o_k0, o_k1, o_k2;                      /* each band's curve target, updated on the grid */
     uint8_t o_on;
 } ins_st_t;
 /* FILTER's COMB line and PHASR's all-pass pair: one stage runs each, so one copy per render context
@@ -1865,6 +1866,7 @@ static const uint8_t INS_DK[IDM_N] = {2, 4, 5, 4};        /* cutoff index 96 - (
  * the 40 dB below the threshold where the upward half lives. The curves and the ballistics are
  * OTT_LOW/MID_Q8 and OTT_ATK_K / OTT_REL_K, from tools/gen_tables.py at the preset's ratios. */
 #define OTT_G88 26                                  /* tan(pi * 88.3 / FS), Q12 */
+#define OTT_DEC 4                                   /* the detector's grid: every 4th sample */
 #define OTT_G25 737                                 /* tan(pi * 2500 / FS), Q12 */
 static const uint8_t OTT_LOG2[64] = {                  /* 16 * log2(1 + k / 64) */
     0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5,
@@ -1872,22 +1874,18 @@ static const uint8_t OTT_LOG2[64] = {                  /* 16 * log2(1 + k / 64) 
     9, 10, 10, 10, 10, 11, 11, 11, 11, 11, 12, 12, 12, 12, 13, 13,
     13, 13, 13, 14, 14, 14, 14, 14, 15, 15, 15, 15, 15, 15, 16, 16
 };
-/* the power p towards the curve's index: floor(log2 p) * 16 plus its mantissa's 1/16 octave. The
- * power runs to 8.4e6 (65535^2 >> 9), so the exponent needs five doubling steps, not four. */
+/* the power p towards the curve's index: floor(log2 p) * 16 plus its mantissa's 1/16 octave. clz
+ * gives the exponent in one instruction, and the power runs to 8.4e6 (65535^2 >> 9) either way. */
 static inline int32_t ott_pow_ix(int32_t p)
 {
-    int32_t e = 0, m;
-    uint32_t u = (uint32_t)p;
+    uint32_t u = (uint32_t)p, m;
+    int32_t e, k;
     if (!u)
         return 0;
-    if (u >> 16) { u >>= 16; e += 16; }
-    if (u >> 8) { u >>= 8; e += 8; }
-    if (u >> 4) { u >>= 4; e += 4; }
-    if (u >> 2) { u >>= 2; e += 2; }
-    if (u >> 1) { e += 1; }
-    m = e <= 15 ? (int32_t)((uint32_t)p << (15 - e)) : (int32_t)((uint32_t)p >> (e - 15));
-    m = OTT_LOG2[(m >> 9) & 63];
-    return e * 16 + (m < 15 ? m : 15);                 /* 16 steps an octave: clamp to the last */
+    e = 31 - __builtin_clz(u);
+    m = u << (31 - e);
+    k = OTT_LOG2[(m >> 25) & 63];
+    return e * 16 + (k < 15 ? k : 15);                 /* 16 steps an octave: clamp to the last */
 }
 /* the curve's gain for a band power pw (Q7), Q12, at DEPTH: the table is Q8, and DEPTH mixes it
  * towards unity (0 = the plain crossover sum) */
@@ -1896,11 +1894,10 @@ static inline int32_t ott_curve(const int16_t *tab, int32_t pw, int32_t depth)
     int32_t k = (int32_t)tab[clamp(ott_pow_ix(pw >> 7), 0, 351)] << 4;
     return 4096 + (((k - 4096) * depth) >> 7);
 }
-/* one band's gain: the curve, then a one-pole in the linear domain (attack when it falls) */
-static inline int32_t ott_smooth(int32_t *g, const int16_t *tab, int32_t pw, int32_t depth,
-                                 int32_t atk, int32_t rel)
+/* one band's gain: a one-pole in the linear domain towards the curve's target (attack when it falls).
+ * It still runs per sample: the curve moves on the 4-sample grid, the gain does not step with it. */
+static inline int32_t ott_smooth(int32_t *g, int32_t k, int32_t atk, int32_t rel)
 {
-    int32_t k = ott_curve(tab, pw, depth);
     *g += mulq16(k - *g, (uint32_t)(k < *g ? atk : rel));
     return *g;
 }
@@ -1910,8 +1907,9 @@ static inline int32_t ott_apply(int32_t x, int32_t g)
     return ((x * (g >> 8)) >> 4) + ((x * (g & 255)) >> 12);
 }
 /* the band's power (x^2 >> 9) smoothed over 2.9 ms, in Q7 (a plain shift loses every increment below
- * 128, so a quiet band would never leave zero) and rounded for the same reason */
-#define OTT_POW_SH 7
+ * 128, so a quiet band would never leave zero) and rounded for the same reason. The detector runs on
+ * a 4-sample grid, so one step is a quarter of that time constant. */
+#define OTT_POW_SH (7 - 2)
 static inline int32_t ott_pow(int32_t p, int32_t x)
 {
     return p + (((x << 7) - p + (1 << (OTT_POW_SH - 1))) >> OTT_POW_SH);
@@ -1934,12 +1932,17 @@ static __attribute__((noinline)) void ins_run_ott(ins_st_t *s, const track_t *t,
         ott_svf_run(&s->o_yb, y1, &mid, &y3);
         ott_svf_run(&s->o_yc, clamp(y2, -65535, 65535), &y4, &hi);
         (void)x3; (void)x4; (void)y3; (void)y4;
-        s->o_env0 = ott_pow(s->o_env0, (int32_t)(((uint32_t)lo * (uint32_t)lo) >> 9));
-        s->o_env1 = ott_pow(s->o_env1, (int32_t)(((uint32_t)mid * (uint32_t)mid) >> 9));
-        s->o_env2 = ott_pow(s->o_env2, (int32_t)(((uint32_t)hi * (uint32_t)hi) >> 9));
-        y = ott_apply(lo, ott_smooth(&s->o_g0, OTT_LOW_Q8, s->o_env0, depth, atk, rel))
-          + ott_apply(mid, ott_smooth(&s->o_g1, OTT_MID_Q8, s->o_env1, depth, atk, rel))
-          + ott_apply(hi, ott_smooth(&s->o_g2, OTT_LOW_Q8, s->o_env2, depth, atk, rel));
+        if (!(i & (OTT_DEC - 1))) {                         /* the detector's 4-sample grid */
+            s->o_env0 = ott_pow(s->o_env0, (int32_t)(((uint32_t)lo * (uint32_t)lo) >> 9));
+            s->o_env1 = ott_pow(s->o_env1, (int32_t)(((uint32_t)mid * (uint32_t)mid) >> 9));
+            s->o_env2 = ott_pow(s->o_env2, (int32_t)(((uint32_t)hi * (uint32_t)hi) >> 9));
+            s->o_k0 = ott_curve(OTT_LOW_Q8, s->o_env0, depth);
+            s->o_k1 = ott_curve(OTT_MID_Q8, s->o_env1, depth);
+            s->o_k2 = ott_curve(OTT_LOW_Q8, s->o_env2, depth);
+        }
+        y = ott_apply(lo, ott_smooth(&s->o_g0, s->o_k0, atk, rel))
+          + ott_apply(mid, ott_smooth(&s->o_g1, s->o_k1, atk, rel))
+          + ott_apply(hi, ott_smooth(&s->o_g2, s->o_k2, atk, rel));
         y = clamp(y, -65535, 65535);
         y = clamp(y << 2, -262143, 262143);
         s->o_dc += ((y << 8) - s->o_dc) >> 9;
@@ -1963,6 +1966,7 @@ static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, const track_t *t
             ott_svf_coef(&s->o_yc, OTT_G25, 5793);
             s->o_env0 = s->o_env1 = s->o_env2 = s->o_dc = 0;
             s->o_g0 = s->o_g1 = s->o_g2 = 4096;            /* unity until the first curve lands */
+            s->o_k0 = s->o_k1 = s->o_k2 = 4096;
             s->o_on = 1;
         }
         ins_run_ott(s, t, b, n, tw);
@@ -2910,11 +2914,26 @@ static int master_any(void)
 }
 static __attribute__((noinline)) void master_insert_run(track_t *owner, uint32_t st, uint32_t n)
 {
-    uint32_t ch;
+    uint32_t ch, i;
     const track_t *src = (ins_is_send(owner, st)) ? &fx_bus_trk : owner;
     int32_t tw = ins_mixq(ins_mix_of(owner, st));
     if (!tw && !ins_master_st[0][st].w && !ins_master_st[1][st].w)
         return;
+    if (st == INS_DIST && src->p[P_IDMODE] == IDM_OTT) {
+        /* OTT is a band compressor: one detector and one gain per band for the whole mix, not one per
+         * channel. Run it once on the mono sum and add its difference to both, as the DLY / REV buses
+         * do, so the dry's stereo image stays and the stage costs one call, not two. */
+        for (i = 0; i < n; i++)
+            master_mono[i] = (mix_l[i] + mix_r[i]) >> 1;
+        ins_run_st(&ins_master_st[0][st], &ins_ctx[NTRK], src, master_mono, n, tw, st,
+                   ins_master_lines[0], 0);
+        for (i = 0; i < n; i++) {
+            int32_t d = master_mono[i] - ((mix_l[i] + mix_r[i]) >> 1);
+            mix_l[i] += d;
+            mix_r[i] += d;
+        }
+        return;
+    }
     for (ch = 0; ch < 2u; ch++) {
         ins_st_t *run = &ins_master_st[ch][st];
         uint32_t wbase = ins_run_st(run, &ins_ctx[NTRK + ch], src, ch ? mix_r : mix_l, n, tw, st,
