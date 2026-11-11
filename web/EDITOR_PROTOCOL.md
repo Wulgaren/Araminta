@@ -1124,7 +1124,7 @@ before MIDI IN the first 21, 1.2 the first 23, 1.3 / 1.4 the first 24):
 | 12 | 12 | CLICK | 0 | 0 OFF, 1 REC, 2 ON (1.1) | OFF | 2 AUDIO |
 | 13 | 13 | CLICK LEVEL | 0 | 0 LOW, 1 MID, 2 HIGH (1.1) | MID | 2 AUDIO |
 | 14 | 14 | COUNT-IN | 0 | 0 OFF, 1 "1 BAR", 2 "2 BARS" (1.1) | OFF | 2 AUDIO |
-| 15 | 15 | RESTORE LAST | 0 | 0 ON, 1 OFF (1.2) | ON | 4 SYSTEM (up to 1.2's MIDI tab: 3) |
+| 15 | 15 | BOOT RESTORE | 0 | 0 ON, 1 OFF (1.2; was RESTORE LAST) | ON | 4 SYSTEM (up to 1.2's MIDI tab: 3) |
 | 16 | 16 | SCALE LEDS | 0 | 0 OFF, 1 ON (1.2) | OFF | 1 CONTROL |
 | 17 | 17 | SCREEN OFF | 0 | 0 NEVER, 1 "5 MIN", 2 "15 MIN", 3 "30 MIN", 4 "60 MIN" (1.1.5) | NEVER (1.1.5.1; 1.1.5: 30 MIN) | 0 DISPLAY |
 | 18 | 18 | SCOPE | 0 | 0 OUT, 1 MIX (1.2) | OUT | 0 DISPLAY |
@@ -1142,10 +1142,10 @@ level; COUNT-IN: PLAY from stop with a track armed counts in that many bars firs
 goes to the headphones / speaker, never into USB audio or a recording (README: Metronome and count-in). Applied at
 once, as on the device.
 
-RESTORE LAST (id 15, 1.2; the SYSTEM tab shows USB SERIAL and RESTORE LAST, index 11 and 15, then CALIBRATION, INFO
-and ABOUT): ON (the default)
-keeps the music as it is in an autosave while the device is stopped and idle, and brings it back at power-on; OFF
-writes no autosave and starts with the power-on sounds (README: Restore the last session).
+BOOT RESTORE (id 15, 1.2/3.10; was RESTORE LAST; the SYSTEM tab shows USB SERIAL and BOOT RESTORE, index 11 and 15,
+then CALIBRATION, INFO and ABOUT): the autosave is always written while the device is stopped and idle. ON (the
+default) brings it back at power-on; OFF starts with the power-on sounds and leaves the flash copy alone
+(README: Restore the last session).
 
 SCALE LEDS (id 16, 1.2, Discussion #127; the CONTROL tab shows HOLD, FX LATCH, BPM LOCK and SCALE LEDS,
 index 5, 7, 8 and 16; KNOB ACCEL retired): ON shows the selected track's scale on the key LEDs outside the layers

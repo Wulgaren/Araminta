@@ -13,6 +13,12 @@ PROJECTS. A torn project save clears that slot (autosave is the recovery path). 
 2-sector placement for a full 4096 B wire is chosen without shrinking the 80 KiB user sample slots.
 Older 3840 B backups and field files still restore.
 
+### BOOT RESTORE (autosave always writes)
+
+MENU > SYSTEM > **BOOT RESTORE** (was RESTORE LAST; editor id 15 unchanged). The autosave keeps writing on the
+same idle / quiet / once-a-minute rules whether the setting is ON or OFF. OFF only skips power-on restore
+(power-on sounds; the flash copy stays for later). ON still shows RESTORED when a valid autosave loads.
+
 EFFECTS > TAPE now starts as MASTER at MIX 100 %: at SPEED 100 the head is idle, so a power-on instrument and a
 new project sound the same as before, and the whole mix follows SPEED / FLUTR / DROPOUT without raising MIX
 first. SAVE > CLEAR > FX ALL returns to the same state. Projects saved before this build (FUN16 and older) still
