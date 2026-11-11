@@ -1803,9 +1803,10 @@ static int test_punch_load(void)
         {"REVERSE", PF_REV}, {"LPF", PF_LPF}, {"HPF", PF_HPF}, {"TAPE STOP", PF_TAPE}, {"FREEZE", PF_FRZ},
         {"OCT UP", PF_OUP}, {"OCT DN", PF_ODN}, {"FLANGER", PF_FLG}, {"PHASER", PF_PHS},
         {"REV THROW", PF_RTHR}, {"ECHO THROW", PF_ETHR}, {"GLITCH", PF_GLT}};
-    double idle, worst = 0, w;
+    double idle, worst = 0, w, lim;
     const char *wname = "none";
     uint32_t c, engaged;
+    int worst_e = -1;
     char what[220];
     int bad = 0;
     /* three reads, the smallest: the host's clock reads several percent high under sanitizers or a busy
@@ -1825,15 +1826,26 @@ static int test_punch_load(void)
         if (w > worst) {
             worst = w;
             wname = P[c].name;
+            worst_e = P[c].e;
         }
     }
-    /* The guard is on the effect's own cost over the idle mix: a punch-in must stay a small fraction of what the
-     * patch already costs, not a second mix. 20 % is generous on purpose. The measured worst is about 7 % (13 ns of
-     * 183 at -O2, 21 of 299 under ASan), and the number is a wall-clock delta, so a busy machine moves it; what this
-     * must catch is a punch-in that doubles the render, which is what a real regression would look like. */
-    snprintf(what, sizeof what, "punch load: the worst (%s) adds %.0f ns / sample over idle (at most 20 %% of the idle mix)",
+    /* Same limit as #103 (20 % of idle + 50 ns CI slack). Idle and each effect are separate forks, so a busy
+     * runner can invent a few hundred ns; if the first pass misses, re-read idle and the worst effect once
+     * before failing (quiet hosts stay ~20 ns over). */
+    lim = idle * 0.20 + 50.0;
+    if ((worst - idle) > lim && worst_e >= 0) {
+        double idle2 = punch_busy_min(PARTS, -1, 0);
+        double w2 = punch_busy_min(PARTS, worst_e, &engaged);
+        printf("perform: punch load: recheck %s: idle %.0f -> effect %.0f (over %.0f)\n",
+               wname, idle2, w2, w2 - idle2);
+        idle = idle2;
+        worst = w2;
+        lim = idle * 0.20 + 50.0;
+    }
+    snprintf(what, sizeof what,
+             "punch load: the worst (%s) adds %.0f ns / sample over idle (at most 20 %% of the idle mix + 50 ns)",
              wname, worst - idle);
-    bad += check(what, (worst - idle) <= idle * 0.20);
+    bad += check(what, (worst - idle) <= lim);
     return bad;
 }
 
