@@ -18,7 +18,7 @@
  *    fails above WT_COST_MAX.
  * 7. demos into DEMODIR: every preset playing its suggested pattern. */
 #include <stdint.h>
-static uint8_t host_wt_slots[3][0x14000] __attribute__((aligned(4)));   /* USR1..3, as the flash at 0xA0000 */
+static uint8_t host_wt_slots[3][0x11000] __attribute__((aligned(4)));   /* USR1..3, as the flash at 0xA0000 */
 #define SMP_USER_XIP(k) (host_wt_slots[k])
 #define main hostsim_main
 #include "hostsim.c"
@@ -391,7 +391,7 @@ static void user_slot_fill(uint32_t k, uint32_t frames)
     int16_t *d = (int16_t *)(slot + SMP_USER_DATA);
     const uint32_t base = 1u << SMP_WT_BASE_LOG2, stride = (base << 1) - (1u << SMP_WT_MIP_LAST_LOG2);
     uint32_t f, l, i;
-    memset(slot, 0, 0x14000);
+    memset(slot, 0, 0x11000);
     for (f = 0; f < frames; f++)
         for (l = 0; l <= SMP_WT_BASE_LOG2 - SMP_WT_MIP_LAST_LOG2; l++) {
             uint32_t size = base >> l;

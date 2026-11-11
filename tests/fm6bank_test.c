@@ -235,11 +235,14 @@ static int store_test(void)
     ok = send_bank(&a, 0) == 0 && rep[1] == 32 && bank_is(&a);
     bad += check("a whole bank written over the editor (BEGIN, 32 WRITEs, END): rc 0, 32 voices, read back exactly", ok);
     ok = 1;
-    for (k = 0; k < 0x100000u; k++)
-        if (nor[k] != snap[k] && !(k >= 0xE6000u && k < 0xE8000u))
-            ok = 0;
-    bad += check("  .. it wrote 0xE7000 (the bank) and 0xE6000 (the autosave's older copy, staged), nothing else", ok &&
-                 ((st_hdr_t *)(nor + 0xE7000u))->type == OBJ_FM6VB && ((st_hdr_t *)(nor + 0xE6000u))->type == OBJ_FM6VB);
+    {
+        uint32_t stage = st_sector(OBJ_AUTOSAVE, 1);       /* A held the autosave; stage into B */
+        for (k = 0; k < 0x100000u; k++)
+            if (nor[k] != snap[k] && !(k >= stage && k < stage + 0x1000u) && !(k >= 0xE7000u && k < 0xE8000u))
+                ok = 0;
+        bad += check("  .. it wrote 0xE7000 (the bank) and the autosave's older copy (staged), nothing else", ok &&
+                     ((st_hdr_t *)(nor + 0xE7000u))->type == OBJ_FM6VB && ((st_hdr_t *)(nor + stage))->type == OBJ_FM6VB);
+    }
     ok = 1;
     for (k = 0xE7F00u; k < 0xE8000u; k++)
         ok &= nor[k] == 0xFFu;
@@ -308,7 +311,8 @@ static int store_test(void)
                      !memcmp(got, as_data, sizeof as_data));
     /* the next bank: staged in the autosave's older copy again (A now), the new autosave (B) kept */
     ok = send_bank(&b, 0) == 0 && rep[1] == 3 && bank_is(&b) && st_load(OBJ_AUTOSAVE, got, sizeof got) == (int)sizeof as_data &&
-         !memcmp(got, as_data, sizeof as_data) && ((st_hdr_t *)(nor + 0xE5000u))->type == OBJ_FM6VB;
+         !memcmp(got, as_data, sizeof as_data) &&
+         ((st_hdr_t *)(nor + st_sector(OBJ_AUTOSAVE, 0)))->type == OBJ_FM6VB;
     bad += check("a second bank (3 voices): staged in the other copy, the autosave kept, read back exactly", ok);
     /* an empty bank: BEGIN, END (the CRC of nothing) */
     {
@@ -332,7 +336,7 @@ static int store_test(void)
 static int cut_test(void)
 {
     int bad = 0;
-    static uint8_t pre[0x3000];
+    static uint8_t pre_auto[0x4000], pre_bank[0x1000];
     static bank_t a, b;
     uint8_t as_data[600], got[600];
     uint32_t n, old = 0, new = 0, other = 0, total, e, eold = 0, enew = 0;
@@ -342,12 +346,15 @@ static int cut_test(void)
     make_bank(&a, 'A', 0x0000FFFFu, "OLD");
     make_bank(&b, 'B', 0xFFFFFFFFu, "NEW");
     send_bank(&a, 0);
-    memcpy(pre, nor + 0xE5000u, sizeof pre);              /* (only these three sectors are ever written here) */
+    /* autosave A/B (4 sectors at 0xD3000) + the voice bank: the only ranges a transfer may touch */
+    memcpy(pre_auto, nor + 0xD3000u, sizeof pre_auto);
+    memcpy(pre_bank, nor + 0xE7000u, sizeof pre_bank);
     progs = 0;
     send_bank(&b, 0);
     total = progs;
     for (n = 0; n < total; n++) {
-        memcpy(nor + 0xE5000u, pre, sizeof pre);
+        memcpy(nor + 0xD3000u, pre_auto, sizeof pre_auto);
+        memcpy(nor + 0xE7000u, pre_bank, sizeof pre_bank);
         memset(&fvb_tx, 0, sizeof fvb_tx);
         fvb_boot();
         dead = 0;
@@ -366,7 +373,8 @@ static int cut_test(void)
             other++;
     }
     for (e = 0; e < 2u; e++) {                            /* BEGIN's erase, the copy's erase */
-        memcpy(nor + 0xE5000u, pre, sizeof pre);
+        memcpy(nor + 0xD3000u, pre_auto, sizeof pre_auto);
+        memcpy(nor + 0xE7000u, pre_bank, sizeof pre_bank);
         memset(&fvb_tx, 0, sizeof fvb_tx);
         fvb_boot();
         dead = 0;

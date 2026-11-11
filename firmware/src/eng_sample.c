@@ -38,13 +38,16 @@ static uint32_t pow2_q16(int32_t d16)
 }
 
 /* ---- user sample slots (loaded from the web editor into flash, see web/EDITOR_PROTOCOL.md)
- * 3 slots of 80 KiB at flash 0xA0000.. (Felucca data region), read through the plain XIP
+ * 3 slots of 68 KiB at flash 0xA0000.. (Felucca data region), read through the plain XIP
  * window. Slot = header (magic, count, name, data length, CRC32) + up to 16 zones in the
- * smp_zone_t layout (off relative to the slot's data at +512) + IMA ADPCM data. */
+ * smp_zone_t layout (off relative to the slot's data at +512) + IMA ADPCM data.
+ * 3.10: shrunk from 80 KiB so the autosave can grow to two sectors per A/B copy (storage.c);
+ * smp_user_migrate moves slots 2 then 1 downward once at boot. */
 #include "../hal/fm1_xip.h"   /* relative: hostsim includes this file too */
 #define SMP_USER_SLOTS 3
 #define SMP_USER_BASE 0xA0000u
-#define SMP_USER_SIZE 0x14000u
+#define SMP_USER_SIZE 0x11000u                     /* 68 KiB (was 0x14000); frees 9 sectors at 0xD3000 */
+#define SMP_USER_SIZE_OLD 0x14000u                 /* pre-3.10: 80 KiB a slot */
 #define SMP_USER_DATA 512u
 #define SMP_USER_MAGIC 0x504D5346u                  /* "FSMP" */
 #define SMP_CR78_INDEX (SMP_NSETS + SMP_USER_SLOTS)   /* a factory kit after USR1..3: SET values 5..7 stay */
