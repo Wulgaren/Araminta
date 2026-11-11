@@ -89,50 +89,62 @@ int main(void)
     memset(nor, 0xFF, sizeof nor);
     memset(a, 'A', sizeof a);
     memset(b, 'B', sizeof b);
-    bad += check("empty flash loads nothing", st_load(OBJ_PROJECT0, got, sizeof got) < 0);
-    bad += check("save A", st_save(OBJ_PROJECT0, a, sizeof a) == 0);
-    n = st_load(OBJ_PROJECT0, got, sizeof got);
+    /* 3.10: projects are single-copy (no A/B redundancy); test basic save/load with settings (A/B) */
+    bad += check("empty flash loads nothing", st_load(OBJ_SETTINGS, got, sizeof got) < 0);
+    bad += check("save A", st_save(OBJ_SETTINGS, a, sizeof a) == 0);
+    n = st_load(OBJ_SETTINGS, got, sizeof got);
     bad += check("load returns A", n == (int)sizeof a && !memcmp(got, a, sizeof a));
-    bad += check("save B", st_save(OBJ_PROJECT0, b, sizeof b) == 0);
-    n = st_load(OBJ_PROJECT0, got, sizeof got);
+    bad += check("save B", st_save(OBJ_SETTINGS, b, sizeof b) == 0);
+    n = st_load(OBJ_SETTINGS, got, sizeof got);
     bad += check("load returns B (newer seq)", n == (int)sizeof b && !memcmp(got, b, sizeof b));
     fail_after = 1;                                  /* payload page 1 written, the rest torn */
-    st_save(OBJ_PROJECT0, a, sizeof a);
+    st_save(OBJ_SETTINGS, a, sizeof a);
     fail_after = -1;
-    n = st_load(OBJ_PROJECT0, got, sizeof got);
+    n = st_load(OBJ_SETTINGS, got, sizeof got);
     bad += check("torn save keeps B", n == (int)sizeof b && !memcmp(got, b, sizeof b));
     fail_after = 3;                                  /* all payload pages, header torn */
-    st_save(OBJ_PROJECT0, a, sizeof a);
+    st_save(OBJ_SETTINGS, a, sizeof a);
     fail_after = -1;
-    n = st_load(OBJ_PROJECT0, got, sizeof got);
+    n = st_load(OBJ_SETTINGS, got, sizeof got);
     bad += check("header not written keeps B", n == (int)sizeof b && !memcmp(got, b, sizeof b));
-    bad += check("save A again", st_save(OBJ_PROJECT0, a, sizeof a) == 0);
-    n = st_load(OBJ_PROJECT0, got, sizeof got);
+    bad += check("save A again", st_save(OBJ_SETTINGS, a, sizeof a) == 0);
+    n = st_load(OBJ_SETTINGS, got, sizeof got);
     bad += check("load returns A", n == (int)sizeof a && !memcmp(got, a, sizeof a));
-    nor[st_sector(OBJ_PROJECT0, 0) + ST_PAYLOAD_OFF + 10] ^= 0x01;   /* bit rot in one copy */
-    nor[st_sector(OBJ_PROJECT0, 1) + ST_PAYLOAD_OFF + 10] ^= 0x01;
-    n = st_load(OBJ_PROJECT0, got, sizeof got);
+    nor[st_sector(OBJ_SETTINGS, 0) + ST_PAYLOAD_OFF + 10] ^= 0x01;   /* bit rot in one copy */
+    nor[st_sector(OBJ_SETTINGS, 1) + ST_PAYLOAD_OFF + 10] ^= 0x01;
+    n = st_load(OBJ_SETTINGS, got, sizeof got);
     bad += check("both copies corrupt -> nothing", n < 0);
-    bad += check("other objects untouched", st_load(OBJ_PROJECT0 + 1, got, sizeof got) < 0);
-    bad += check("settings save/load",
-                 st_save(OBJ_SETTINGS, "hello", 5) == 0 && st_load(OBJ_SETTINGS, got, 5) == 5 && !memcmp(got, "hello", 5));
+    bad += check("other objects untouched", st_load(OBJ_AUTOSAVE, got, sizeof got) < 0);
+    bad += check("project save/load (single-copy, two sectors)",
+                 st_save(OBJ_PROJECT0, "hello", 5) == 0 && st_load(OBJ_PROJECT0, got, 5) == 5 && !memcmp(got, "hello", 5));
     bad += check("CRC-32 is zlib's (check value 0xCBF43926)", st_crc32("123456789", 9) == 0xCBF43926u);
+    /* 3.10: single-copy project torn write loses data (the autosave is the recovery path) */
+    {
+        memset(nor, 0xFF, sizeof nor);
+        st_save(OBJ_PROJECT0, a, sizeof a);
+        fail_after = 1;
+        st_save(OBJ_PROJECT0, b, sizeof b);
+        fail_after = -1;
+        bad += check("single-copy project: torn save corrupts the only copy",
+                     st_load(OBJ_PROJECT0, got, sizeof got) < 0);
+    }
+    /* A/B fallback: test with autosave (has A/B redundancy) */
     memset(nor, 0xFF, sizeof nor);
-    st_save(OBJ_PROJECT0 + 2, a, sizeof a);
-    st_save(OBJ_PROJECT0 + 2, b, sizeof b);              /* B is newer, in the other copy */
+    st_save(OBJ_AUTOSAVE, a, sizeof a);
+    st_save(OBJ_AUTOSAVE, b, sizeof b);              /* B is newer, in the other copy */
     {
         st_hdr_t h;
-        int cur = st_current(OBJ_PROJECT0 + 2, &h);
-        nor[st_sector(OBJ_PROJECT0 + 2, (uint32_t)cur) + ST_PAYLOAD_OFF + 300] ^= 0x10;   /* rot in the newer copy */
+        int cur = st_current(OBJ_AUTOSAVE, &h);
+        nor[st_sector(OBJ_AUTOSAVE, (uint32_t)cur) + ST_PAYLOAD_OFF + 300] ^= 0x10;   /* rot in the newer copy */
     }
-    n = st_load(OBJ_PROJECT0 + 2, got, sizeof got);
+    n = st_load(OBJ_AUTOSAVE, got, sizeof got);
     bad += check("newer copy rotten -> the older one loads", n == (int)sizeof a && !memcmp(got, a, sizeof a));
-    bad += check("save over the rotten copy", st_save(OBJ_PROJECT0 + 2, b, sizeof b) == 0);
-    n = st_load(OBJ_PROJECT0 + 2, got, sizeof got);
+    bad += check("save over the rotten copy", st_save(OBJ_AUTOSAVE, b, sizeof b) == 0);
+    n = st_load(OBJ_AUTOSAVE, got, sizeof got);
     bad += check("... loads the new data", n == (int)sizeof b && !memcmp(got, b, sizeof b));
-    nor[st_sector(OBJ_PROJECT0 + 2, 0) + 8] ^= 0x01;    /* both headers broken */
-    nor[st_sector(OBJ_PROJECT0 + 2, 1) + 8] ^= 0x01;
-    bad += check("both headers broken -> nothing", st_load(OBJ_PROJECT0 + 2, got, sizeof got) < 0);
+    nor[st_sector(OBJ_AUTOSAVE, 0) + 8] ^= 0x01;    /* both headers broken */
+    nor[st_sector(OBJ_AUTOSAVE, 1) + 8] ^= 0x01;
+    bad += check("both headers broken -> nothing", st_load(OBJ_AUTOSAVE, got, sizeof got) < 0);
     bad += check("data stays in the Felucca regions",
                  st_sector(OBJ_SETTINGS, 1) + 4096 <= 0xFF000 && st_sector(OBJ_PROJECT0 + 3, 1) + 4096 <= 0xE0000 &&
                      st_sector(OBJ_UPRESET0, 0) >= 0xDC000 && st_sector(OBJ_UPRESET0 + 1, 1) + 4096 <= 0xE0000);
@@ -182,47 +194,52 @@ int main(void)
         }
     }
     {
+        /* A/B torn-write recovery: test with autosave (has A/B redundancy) */
         uint8_t copies[2 * ST_SECTOR];
-        uint32_t off = st_sector(OBJ_PROJECT0, 0), cut;
+        uint32_t off = st_sector(OBJ_AUTOSAVE, 0), cut;
         int ok = 1;
         memset(nor, 0xFF, sizeof nor);
-        st_save(OBJ_PROJECT0, a, sizeof a);
-        st_save(OBJ_PROJECT0, b, sizeof b);
+        st_save(OBJ_AUTOSAVE, a, sizeof a);
+        st_save(OBJ_AUTOSAVE, b, sizeof b);
         memcpy(copies, nor + off, sizeof copies);
         for (cut = 0; cut < sizeof a + sizeof(st_hdr_t); cut++) {
             memcpy(nor + off, copies, sizeof copies);
             fail_bytes = (int)cut;
-            ok &= st_save(OBJ_PROJECT0, a, sizeof a) != 0;
+            ok &= st_save(OBJ_AUTOSAVE, a, sizeof a) != 0;
             fail_bytes = -1;
-            ok &= st_load(OBJ_PROJECT0, got, sizeof got) == (int)sizeof b && !memcmp(got, b, sizeof b);
+            ok &= st_load(OBJ_AUTOSAVE, got, sizeof got) == (int)sizeof b && !memcmp(got, b, sizeof b);
         }
         bad += check("every payload/header byte cut keeps old data", ok);
         erase_error = 1;
-        ok = st_save(OBJ_PROJECT0, a, sizeof a) != 0;
+        ok = st_save(OBJ_AUTOSAVE, a, sizeof a) != 0;
         erase_error = 0;
-        bad += check("erase failure keeps old data", ok && st_load(OBJ_PROJECT0, got, sizeof got) == (int)sizeof b &&
+        bad += check("erase failure keeps old data", ok && st_load(OBJ_AUTOSAVE, got, sizeof got) == (int)sizeof b &&
                                                       !memcmp(got, b, sizeof b));
         write_protected = 1;
-        ok = st_save(OBJ_PROJECT0, a, sizeof a) != 0;
+        ok = st_save(OBJ_AUTOSAVE, a, sizeof a) != 0;
         write_protected = 0;
-        bad += check("write protection is a save error", ok && st_load(OBJ_PROJECT0, got, sizeof got) == (int)sizeof b &&
+        bad += check("write protection is a save error", ok && st_load(OBJ_AUTOSAVE, got, sizeof got) == (int)sizeof b &&
                                                             !memcmp(got, b, sizeof b));
     }
     {
+        /* sequence wrap: test with autosave (A/B) */
         st_hdr_t h;
         uint32_t copy;
+        memset(nor, 0xFF, sizeof nor);
+        st_save(OBJ_AUTOSAVE, a, sizeof a);
+        st_save(OBJ_AUTOSAVE, b, sizeof b);
         for (copy = 0; copy < 2u; copy++) {
-            uint32_t off = st_sector(OBJ_PROJECT0, copy);
+            uint32_t off = st_sector(OBJ_AUTOSAVE, copy);
             memcpy(&h, nor + off, sizeof h);
             h.seq = 0xFFFFFFFEu + copy;
             h.hcrc = st_crc32(&h, sizeof h - 4u);
             memcpy(nor + off, &h, sizeof h);
         }
-        bad += check("save sequence wraps", st_save(OBJ_PROJECT0, a, sizeof a) == 0);
-        n = st_load(OBJ_PROJECT0, got, sizeof got);
+        bad += check("save sequence wraps", st_save(OBJ_AUTOSAVE, a, sizeof a) == 0);
+        n = st_load(OBJ_AUTOSAVE, got, sizeof got);
         bad += check("wrapped sequence loads new data", n == (int)sizeof a && !memcmp(got, a, sizeof a));
-        bad += check("save after sequence wrap", st_save(OBJ_PROJECT0, b, sizeof b) == 0 &&
-                                                st_load(OBJ_PROJECT0, got, sizeof got) == (int)sizeof b &&
+        bad += check("save after sequence wrap", st_save(OBJ_AUTOSAVE, b, sizeof b) == 0 &&
+                                                st_load(OBJ_AUTOSAVE, got, sizeof got) == (int)sizeof b &&
                                                 !memcmp(got, b, sizeof b));
     }
     {
@@ -231,8 +248,19 @@ int main(void)
         bad += check("invalid object save does no flash access", st_save(OBJ_COUNT, a, sizeof a) < 0 && io_calls == calls);
         bad += check("wrapped object rejected", st_save(0xFFFFFFFFu, a, sizeof a) < 0 && io_calls == calls);
         memset(got, 'X', sizeof got);
-        bad += check("small destination rejects whole object", st_load(OBJ_PROJECT0, got, sizeof got - 1u) < 0 && got[0] == 'X');
-        bad += check("oversized save rejected", st_save(OBJ_PROJECT0, a, ST_PAYLOAD_MAX + 1u) < 0);
+        bad += check("small destination rejects whole object", st_load(OBJ_AUTOSAVE, got, sizeof got - 1u) < 0 && got[0] == 'X');
+        bad += check("oversized save rejected", st_save(OBJ_AUTOSAVE, a, ST_PAYLOAD_MAX + 1u) < 0);
+    }
+    {
+        /* single-copy project size constraint (two sectors minus header); use large buffer */
+        static uint8_t big[4096], gbig[4096];
+        uint32_t i;
+        for (i = 0; i < sizeof big; i++) big[i] = (uint8_t)(i * 13u);
+        memset(nor, 0xFF, sizeof nor);
+        bad += check("single-copy project allows larger payload",
+                     st_save(OBJ_PROJECT0, big, 3840u + 200u) == 0 &&
+                     st_load(OBJ_PROJECT0, gbig, 4040u) == 4040 &&
+                     !memcmp(big, gbig, 4040u));
     }
     {   /* 3.10: a save into the gap (0x93000..0x97000) is power-cut safe at every byte. The gap sectors are not any
          * object's st_sector, so this drives st_save_to's sequence by hand at a gap address; flash_map_test proves the
@@ -247,26 +275,27 @@ int main(void)
          * (a header that lands before its data would make a torn save look valid only if the CRC were also wrong), and
          * it is enforced in one place, st_save_to. */
         static const uint32_t GAP_A = 0x93000u, GAP_B = 0x94000u;
-        static uint8_t big_a[ST_PAYLOAD_MAX], big_b[ST_PAYLOAD_MAX], copy[2 * ST_SECTOR], gb[ST_PAYLOAD_MAX];
+        /* gap sectors are A/B, one sector each; use single-sector payload max */
+        static uint8_t big_a[ST_PAYLOAD_SECTOR], big_b[ST_PAYLOAD_SECTOR], copy[2 * ST_SECTOR], gb[ST_PAYLOAD_SECTOR];
         uint32_t cut, i;
         int ok = 1, tail_ok = 1;
-        for (i = 0; i < ST_PAYLOAD_MAX; i++) {
+        for (i = 0; i < ST_PAYLOAD_SECTOR; i++) {
             big_a[i] = (uint8_t)(i * 5u + 1u);
             big_b[i] = (uint8_t)(i * 3u + 7u);
         }
         memset(nor, 0xFF, sizeof nor);
-        st_save_manual(GAP_A, big_a, ST_PAYLOAD_MAX);        /* A: the copy rewritten below */
-        st_save_manual(GAP_B, big_b, ST_PAYLOAD_MAX);        /* B: never touched */
+        st_save_manual(GAP_A, big_a, ST_PAYLOAD_SECTOR);     /* A: the copy rewritten below */
+        st_save_manual(GAP_B, big_b, ST_PAYLOAD_SECTOR);     /* B: never touched */
         memcpy(copy, nor + GAP_A, sizeof copy);
         for (cut = 0; cut < 2u * ST_SECTOR; cut++) {
             int b_ok, a_ok;
             memcpy(nor + GAP_A, copy, sizeof copy);
             fail_bytes = (int)cut;
-            st_save_manual(GAP_A, big_a, ST_PAYLOAD_MAX);    /* cut at byte `cut` of the rewrite */
+            st_save_manual(GAP_A, big_a, ST_PAYLOAD_SECTOR); /* cut at byte `cut` of the rewrite */
             fail_bytes = -1;
-            b_ok = st_load_manual(GAP_B, gb, sizeof gb) == (int)ST_PAYLOAD_MAX && !memcmp(gb, big_b, ST_PAYLOAD_MAX);
+            b_ok = st_load_manual(GAP_B, gb, sizeof gb) == (int)ST_PAYLOAD_SECTOR && !memcmp(gb, big_b, ST_PAYLOAD_SECTOR);
             a_ok = st_load_manual(GAP_A, gb, sizeof gb);     /* -1: no commit record yet, which is fine */
-            ok &= b_ok && (a_ok < 0 || (a_ok == (int)ST_PAYLOAD_MAX && !memcmp(gb, big_a, ST_PAYLOAD_MAX)));
+            ok &= b_ok && (a_ok < 0 || (a_ok == (int)ST_PAYLOAD_SECTOR && !memcmp(gb, big_a, ST_PAYLOAD_SECTOR)));
             /* cut counts payload bytes, so the record tail (flash base+0xF00..0xFFF) is payload 0xE00..0xEFF */
             if (cut >= ST_SECTOR - ST_PAYLOAD_OFF - 0x100u && cut < ST_SECTOR - ST_PAYLOAD_OFF)
                 tail_ok &= b_ok && a_ok < 0;

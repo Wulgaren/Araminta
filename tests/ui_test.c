@@ -157,6 +157,9 @@ static struct { uint32_t stage; } felucca_dbg;
 #include "../firmware/src/ui_layer.c"
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
+/* 3.10: proj_slot is gone (projects live only in flash); provide a test-only copy for FELUCCA_FLASH 0 tests.
+ * Define after project.c so project_store_t is available. Matches the extern in project.c. */
+project_store_t proj_slot[4];
 
 static int check(const char *what, int ok)
 {
@@ -188,6 +191,7 @@ static void ui_power_on(void)
     memset(pat_last, 0, sizeof pat_last);
     memset(pat_from, 0, sizeof pat_from);                /* (the header's slot letter: none) */
     memset(proj_slot, 0, sizeof proj_slot);
+    proj_slot_used = 0;                                  /* no slot holds a project yet */
     memset(up_bank, 0, sizeof up_bank);
     for (i = 0; i < G_COUNT; i++)
         song.g[i] = GP[i].def;

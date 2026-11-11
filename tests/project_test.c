@@ -387,8 +387,11 @@ int main(void)
                  P_LN7 + 1 == P_LSYNC && P_LSYNC + 3 == P_SQNT && P_SQNT + 1 == P_SPRD && P_SPRD + 1 == P_IORD &&
                  P_IHMIX + 1 == P_FTYPE && P_FTYPE + 1 == P_ESYNC && P_ESYNC + 1 == P_E0 && P_E0 == 119 &&
                  P_COUNT == 127u);
-    bad += check("FUN10 fits one flash object, the retained cache in NOINIT", sizeof(project_store_t) <= 4096u - 256u &&
-                 sizeof(project_store_t) == 3840u && 0xC8u + 4u * sizeof(project_store_t) <= 0x3D50u);
+    /* 3.10: the object spans two sectors of one storage object, and the four-slot wire cache is gone (a small
+     * summary replaces it, so NOINIT no longer bounds the project size) */
+    bad += check("3.10: the object is two sectors and the NOINIT cache is a 4-slot summary",
+                 sizeof(project_store_t) == 4096u && sizeof(project_store_t) <= 2u * 4096u - 256u &&
+                 sizeof(proj_slot_sum) == 4u * 44u && sizeof(proj_slot_sum) <= 256u);
 
     /* today's format: a matrix slot set, WHEEL engine 7, a DRUM track with notes and hits: stored as is */
     memset(&q, 0, sizeof q);
@@ -437,9 +440,10 @@ int main(void)
         project_t a, c;
         project_store_t st, st2;
         uint32_t i, zero = 1;
-        bad += check("FUN13 name at the end of the reserved tail; kit before FM6; SCALE LOCK before CRV",
-                     PROJ_NAME_OFF == 3824u && PROJ_FM6_OFF == 3312u && PROJ_DX_OFF == 3216u &&
+        bad += check("3.10 layout: frozen offsets, 256 B append area between FM6 and name",
+                     PROJ_NAME_OFF == 4080u && PROJ_FM6_OFF == 3312u && PROJ_DX_OFF == 3216u &&
                      PROJ_DX_OFF + PROJ_DX_SIZE == PROJ_FM6_OFF &&
+                     PROJ_NAME_OFF - (PROJ_FM6_OFF + NTRK * FM6_PACKED) == 256u &&
                      PROJ_SCL_OFF + PROJ_SCL_SIZE + 2u == PROJ_CRV_OFF &&
                      68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE + MOTION_FILE_SIZE ==
                      PROJ_SCL_OFF);
