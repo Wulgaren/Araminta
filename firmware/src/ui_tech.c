@@ -100,7 +100,7 @@ static void tech_dist(const track_t *t)
     }
 }
 
-/* OTT (DIST MODE): the static level curve, upward below the threshold and downward above it */
+/* OTT (DIST MODE): the mid band's static curve, upward below the threshold and downward above it */
 static void tech_ott(int32_t d)
 {
     int32_t i, py = 0, x0 = 22, y0 = TK_Y0, s = 100;
@@ -108,7 +108,9 @@ static void tech_ott(int32_t d)
     for (i = 0; i <= s; i++)
         cv_rect(x0 + i, y0 + s - i, 1, 1, T_DIM);          /* 1:1 reference */
     for (i = 0; i <= s; i++) {
-        int32_t e = i * 65535 / s, out = (int32_t)(((uint32_t)e * (uint32_t)ott_gain(e, d)) >> 12), y;
+        int32_t e = i * 65535 / s, g, out, y;
+        g = ott_curve(OTT_MID_Q8, (int32_t)(((uint32_t)e * (uint32_t)e) >> 9), d);
+        out = (int32_t)(((uint32_t)e * (uint32_t)g) >> 12);
         out = out > 65535 ? 65535 : out;
         y = y0 + s - out * (s - 1) / 65535;
         if (i)

@@ -548,7 +548,7 @@ static void test_dist_modes(void)
     }
 }
 
-#define OTT_N 8192u
+#define OTT_N 32768u
 static int32_t ott_buf[OTT_N], ott_dry[OTT_N];
 static double ott_rms(const int32_t *x, uint32_t from)
 {
@@ -570,7 +570,8 @@ static double ott_corr(const int32_t *a, const int32_t *b, uint32_t from)
     }
     return va > 0 && vb > 0 ? sab / sqrt(va * vb) : 0.0;
 }
-static double ott_sine(int32_t amp, int32_t depth, int32_t time)
+/* RMS of the output's second half for a sine of the given period, fully wet through DIST in OTT */
+static double ott_tone(double amp, uint32_t period, int32_t depth, int32_t time)
 {
     track_t tt;
     ins_st_t st;
@@ -581,56 +582,95 @@ static double ott_sine(int32_t amp, int32_t depth, int32_t time)
     tt.p[P_DIST] = (int16_t)depth;
     tt.p[P_ED_FX] = (int16_t)time;
     for (i = 0; i < OTT_N; i++)
-        ott_buf[i] = ott_dry[i] = (int32_t)(amp * sin(2.0 * M_PI * (double)i / 128.0));
+        ott_buf[i] = ott_dry[i] = (int32_t)(amp * sin(2.0 * M_PI * (double)(i % period) / (double)period));
     ins_run_dist(&st, &tt, ott_buf, OTT_N, 32768);
     return ott_rms(ott_buf, OTT_N / 2u);
 }
-static uint64_t ott_step_hash(int32_t time)
+/* the fundamental's amplitude against the rest: what the rectifier-as-envelope got wrong on bass */
+static double ott_thd(uint32_t period)
 {
-    track_t tt;
-    ins_st_t st;
-    uint64_t h = 0xCBF29CE484222325ull;
-    uint32_t i, k;
-    memset(&tt, 0, sizeof tt);
-    memset(&st, 0, sizeof st);
-    tt.p[P_IDMODE] = IDM_OTT;
-    tt.p[P_DIST] = 127;
-    tt.p[P_ED_FX] = (int16_t)time;
-    for (i = 0; i < OTT_N; i++) {
-        int32_t a = (i / 256u) & 1u ? 40000 : 4000;
-        ott_buf[i] = (int32_t)(a * sin(2.0 * M_PI * (double)i / 128.0));
+    double c = 0, s = 0, tot = 0, a;
+    uint32_t i, n = OTT_N / 2u;
+    for (i = 0; i < n; i++) {
+        double ph = 2.0 * M_PI * (double)i / (double)period, v = (double)ott_buf[OTT_N / 2u + i];
+        c += v * cos(ph);
+        s += v * sin(ph);
+        tot += v * v;
     }
-    ins_run_dist(&st, &tt, ott_buf, OTT_N, 32768);
-    for (i = OTT_N / 2u; i < OTT_N; i++)
-        for (k = 0; k < 4u; k++) {
-            h ^= ((uint32_t)ott_buf[i] >> (8u * k)) & 0xFFu;
-            h *= 0x100000001B3ull;
-        }
-    return h;
+    a = 2.0 * sqrt(c * c + s * s) / (double)n;
+    return 100.0 * sqrt(fmax(tot / (double)n - a * a / 2.0, 0.0) / (tot / (double)n));
 }
 static void test_ott(void)
 {
-    double q_dry, q_wet, l_dry, l_wet, q_corr, t_dry, t_wet;
+    double q_dry, q_wet, l_dry, l_wet, q_corr, t_dry, t_wet, hot_dry, hot_wet, gain_db;
+    double thd40;
     int bound_ok = 1;
     uint32_t i;
     track_t tt;
     ins_st_t st;
 
-    q_dry = 4000.0 / sqrt(2.0);
-    l_dry = 100000.0 / sqrt(2.0);
-    t_dry = 500.0 / sqrt(2.0);
-    q_wet = ott_sine(4000, 127, 0);
+    /* upward and downward, at the preset's ratios: a 10 dB drop in level costs only 2.5 dB up
+     * there and about 0.3 dB down here, where the curve is a limiter */
+    q_dry = 1000.0 / sqrt(2.0);             /* 5 dB under the preset's threshold: the upward half */
+    q_wet = ott_tone(1000, 128, 127, 0);
     q_corr = ott_corr(ott_buf, ott_dry, OTT_N / 2u);
-    l_wet = ott_sine(100000, 127, 0);
-    t_wet = ott_sine(500, 127, 0);
-    printf("inschain:   OTT RMS quiet %.0f -> %.0f (corr %.5f), detail %.0f -> %.0f, loud %.0f -> %.0f\n",
-           q_dry, q_wet, q_corr, t_dry, t_wet, l_dry, l_wet);
-    ck("OTT upward compression lifts a quiet band", q_wet > q_dry * 1.5);
-    ck("OTT lifts very quiet detail, not just the body", t_wet > t_dry * 10.0);
-    ck("OTT leaves a steady quiet tone clean", q_corr > 0.99);
-    ck("OTT downward compression tames a loud band", l_wet < l_dry * 0.9);
-    ck("OTT narrows the dynamic range (loud/quiet)", l_wet / q_wet < (l_dry / q_dry) * 0.5);
-    ck("OTT TIME changes a level step's envelope", ott_step_hash(-64) != ott_step_hash(63));
+    t_dry = 500.0 / sqrt(2.0);
+    t_wet = ott_tone(500, 128, 127, 0);
+    l_dry = 100000.0 / sqrt(2.0);
+    l_wet = ott_tone(100000, 128, 127, 0);
+    hot_dry = 32768.0 / sqrt(2.0);
+    hot_wet = ott_tone(32768, 128, 127, 0);
+    printf("inschain:   OTT RMS quiet %.0f -> %.0f, detail %.0f -> %.0f, loud %.0f -> %.0f, "
+           "0 dBFS %.0f -> %.0f (corr %.5f)\n", q_dry, q_wet, t_dry, t_wet, l_dry, l_wet, hot_dry, hot_wet, q_corr);
+    ck("OTT lifts a quiet band (upward, 4:1)", q_wet > q_dry * 1.5);
+    ck("OTT lifts very quiet detail, not just the body", t_wet > t_dry * 2.0);
+    ck("OTT leaves a steady quiet tone clean (no ripple in the gain)", fabs(q_corr) > 0.90);
+    ck("OTT does not let a 0 dBFS tone out hotter than it came in", hot_wet < hot_dry);
+    ck("OTT tames a loud band (downward)", l_wet < l_dry * 0.2);
+    /* a 1 kHz tone sits in the mid band alone: 10 dB in -> 2.5 dB out below the threshold (4:1),
+     * and under a dB above it, where the preset's ratio is 66.7:1 */
+    gain_db = 20.0 * log10(ott_tone(1581, 44, 127, 0) / ott_tone(500, 44, 127, 0));
+    {
+        double hot_db = 20.0 * log10(ott_tone(103621, 44, 127, 0) / ott_tone(32768, 44, 127, 0));
+        printf("inschain:   OTT 10 dB quiet step -> %.2f dB, 10 dB hot step -> %.2f dB\n", gain_db, hot_db);
+        ck("OTT upward ratio is 4:1 (10 dB in, 2.5 dB out)", fabs(gain_db - 2.5) < 0.8);
+        ck("OTT downward ratio holds 10 dB in to under 1 dB out", hot_db < 1.0);
+    }
+
+    /* the rectangular envelope the stage used to have put a whole cycle of ripple on the gain */
+    ott_tone(8000, 1024, 127, 0);                       /* 1024 samples = 43.07 Hz */
+    thd40 = ott_thd(1024);
+    printf("inschain:   OTT 43 Hz at 8000: THD %.2f%%\n", thd40);
+    ck("OTT's detector leaves bass clean (THD under 2 % at 43 Hz)", thd40 < 2.0);
+
+    /* TIME: the attack and release of every band's gain. A step's whole envelope moves with it, so
+     * the three settings must not render the same thing (a hash, not a level: the signal's own step
+     * is 20 dB whatever the stage does) */
+    {
+        uint64_t h[3];
+        int t[3] = {-64, 0, 63}, k;
+        for (k = 0; k < 3; k++) {
+            track_t tt2;
+            ins_st_t st2;
+            uint32_t j;
+            memset(&tt2, 0, sizeof tt2);
+            memset(&st2, 0, sizeof st2);
+            tt2.p[P_IDMODE] = IDM_OTT;
+            tt2.p[P_DIST] = 127;
+            tt2.p[P_ED_FX] = (int16_t)t[k];
+            for (j = 0; j < OTT_N; j++) {
+                int32_t a = (j / 1024u) & 1u ? 10000 : 1000;
+                ott_buf[j] = (int32_t)(a * sin(2.0 * M_PI * (double)(j % 44u) / 44.0));
+            }
+            ins_run_dist(&st2, &tt2, ott_buf, OTT_N, 32768);
+            h[k] = 0;
+            for (j = OTT_N / 4u; j < OTT_N; j++)
+                h[k] = h[k] * 1099511628211ull + (uint64_t)(uint32_t)ott_buf[j];
+        }
+        printf("inschain:   OTT TIME hashes %016llx %016llx %016llx\n",
+               (unsigned long long)h[0], (unsigned long long)h[1], (unsigned long long)h[2]);
+        ck("OTT TIME changes attack and release", h[0] != h[1] && h[1] != h[2] && h[0] != h[2]);
+    }
 
     /* DEPTH 0: the three bands sum back to the input (the crossover is transparent; the stage's
      * DC blocker is the only difference, and it does not change the level) */
@@ -639,7 +679,7 @@ static void test_ott(void)
     tt.p[P_IDMODE] = IDM_OTT;
     tt.p[P_DIST] = 0;
     for (i = 0; i < OTT_N; i++)
-        ott_buf[i] = ott_dry[i] = (int32_t)(8000.0 * sin(2.0 * M_PI * (double)i / 128.0));
+        ott_buf[i] = ott_dry[i] = (int32_t)(8000.0 * sin(2.0 * M_PI * (double)(i % 128u) / 128.0));
     ins_run_dist(&st, &tt, ott_buf, OTT_N, 32768);
     {
         double wr = ott_rms(ott_buf, OTT_N / 2u), dr = ott_rms(ott_dry, OTT_N / 2u);
@@ -653,7 +693,7 @@ static void test_ott(void)
     tt.p[P_IDMODE] = IDM_OTT;
     tt.p[P_DIST] = 127;
     for (i = 0; i < OTT_N; i++)
-        ott_buf[i] = ott_dry[i] = (int32_t)(40000.0 * sin(2.0 * M_PI * (double)i / 128.0));
+        ott_buf[i] = ott_dry[i] = (int32_t)(40000.0 * sin(2.0 * M_PI * (double)(i % 128u) / 128.0));
     ins_run_dist(&st, &tt, ott_buf, OTT_N, 0);
     ck("OTT MIX 0 is bit-identical to bypass", !memcmp(ott_buf, ott_dry, sizeof ott_buf));
 
@@ -663,7 +703,7 @@ static void test_ott(void)
     tt.p[P_IDMODE] = IDM_OTT;
     tt.p[P_DIST] = 127;
     for (i = 0; i < OTT_N; i++)
-        ott_buf[i] = (int32_t)(200000.0 * sin(2.0 * M_PI * (double)i / 128.0));
+        ott_buf[i] = (int32_t)(200000.0 * sin(2.0 * M_PI * (double)(i % 128u) / 128.0));
     ins_run_dist(&st, &tt, ott_buf, OTT_N, 32768);
     for (i = OTT_N / 2u; i < OTT_N; i++)
         if (ott_buf[i] > 262143 || ott_buf[i] < -262143)
