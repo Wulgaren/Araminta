@@ -1670,6 +1670,7 @@ static ins_st_t ins_st[NTRK][INS_N] __attribute__((section(".pool")));
 static ins_ctx_t ins_ctx[NTRK + 2] __attribute__((section(".pool")));   /* NTRK + the two MASTER channels */
 static ott_st_t ott_trk[NTRK] __attribute__((section(".pool")));     /* per-track DIST OTT (CHAIN or SEND owner) */
 static ott_st_t ott_master;                                          /* MASTER OTT: one mono sum, not per channel */
+static ott_st_t ott_part_tmp[C1_NP];                                 /* non-driver SEND OTT copy (one per part core) */
 /* SEND DSP reuses ins_st[bus_tr][st] / ins_lines[bus_tr] (first SEND track for that stage).
  * Max 4 instances/stage: CHAIN private + SEND shared coexist, never 4+1. Parts render at once on the two
  * cores (mix_block): the shared state runs its one block in the lowest SEND consumer's part (ins_bus_block
@@ -2252,7 +2253,7 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
     uint32_t k = (uint32_t)(t - trk) % NTRK, pi = C1_PI(t), wbase, i;
     int send = st < INS_N && ins_is_send(t, st);
     ins_st_t *s, tmp, *run;
-    ott_st_t *ott = 0, ott_tmp;
+    ott_st_t *ott = 0;
     ins_ctx_t *ctx, ctx_tmp;
     const track_t *src = ins_param_src(t, st);
     int32_t tw = tw_force >= 0 ? tw_force : ins_mixq(ins_mix_of(t, st));
@@ -2277,8 +2278,8 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
         } else {
             tmp = ins_bus_blk[st];                     /* the block's start: every other part runs its copy */
             if (st == INS_DIST) {
-                ott_tmp = ott_bus_blk;
-                ott = &ott_tmp;
+                ott_part_tmp[pi] = ott_bus_blk;        /* not on the stack: every stage called this */
+                ott = &ott_part_tmp[pi];
             }
             ins_ctx_stage(&ctx_tmp, &ins_bus_ctx, st);
             ctx = &ctx_tmp;
@@ -2314,7 +2315,6 @@ static __attribute__((noinline)) void ins_bus_join(uint32_t n)
     for (st = 0; st < INS_N; st++) {
         uint32_t lo = NPART, hi = NPART, bus_tr = ins_bus_tr(st);
         ins_st_t tmp;
-        ott_st_t ott_tmp;
         for (k = 0; k < NPART; k++)
             if (ins_bus_ran[k] >> st & 1u) {
                 if (lo == NPART)
@@ -2324,17 +2324,20 @@ static __attribute__((noinline)) void ins_bus_join(uint32_t n)
         if (lo == NPART)
             continue;                                    /* no consumer this block: the state stands */
         if ((uint8_t)lo != ins_bus_driver[st]) {
+            ott_st_t *ott = 0;
             tmp = ins_bus_blk[st];
-            if (st == INS_DIST)
-                ott_tmp = ott_bus_blk;
+            if (st == INS_DIST) {
+                ott_part_tmp[lo] = ott_bus_blk;
+                ott = &ott_part_tmp[lo];
+            }
             ins_ctx_stage(&ins_ctx[bus_tr], &ins_bus_ctx, st);
             for (k = 0; k < n; k++)                    /* the runs are in place: a fresh copy per stage */
                 ins_rb[k] = ins_send_in[lo][k];
-            (void)ins_run_st(&tmp, st == INS_DIST ? &ott_tmp : 0, &ins_ctx[bus_tr],
-                             bus_knobs_track(&trk[lo]), ins_rb, n, 32768, st, ins_lines[bus_tr], lo);
+            (void)ins_run_st(&tmp, ott, &ins_ctx[bus_tr], bus_knobs_track(&trk[lo]), ins_rb, n, 32768, st,
+                             ins_lines[bus_tr], lo);
             ins_st[bus_tr][st] = tmp;
             if (st == INS_DIST)
-                ott_trk[bus_tr] = ott_tmp;
+                ott_trk[bus_tr] = *ott;
         }
         if (st == INS_FLANG || st == INS_CHOR) {
             uint32_t wbase = ins_bus_blk[st].w ? ins_bus_blk[st].wp : 0u;
