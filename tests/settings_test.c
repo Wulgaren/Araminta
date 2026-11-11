@@ -169,7 +169,7 @@ int main(void)
         }
         p = original; assert(settings_import(&p, sizeof p) == 1);
     }
-    {   /* 1.2 RESTORE LAST (ui.c PREF_RESTORE_OFF, bit 7 of MENU's flags, favorites.factory[15][30]): clear in every
+    {   /* 1.2 BOOT RESTORE (ui.c PREF_RESTORE_OFF, bit 7 of MENU's flags, favorites.factory[15][30]): clear in every
          * older record = ON; set = OFF, kept as saved with the other flags. ANIM retired: import always sets bit 1
          * (PREF_ANIM_OFF) and clears IDLE (settings_persist.c). */
         persist_t q;
