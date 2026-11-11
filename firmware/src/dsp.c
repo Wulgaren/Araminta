@@ -99,6 +99,32 @@ static inline uint32_t noise32(int32_t *st)
 /* Trapezoidal SVF (A. Simper), unconditionally stable. Coefficients per
  * block in Q13; signals stay within +-150000 so products fit in 32 bits. */
 typedef struct { int32_t a1, a2, a3; } tsvf_t;
+/* Trapezoidal SVF (Simper) with both integrator states held at Q14: the a3 term of the direct form
+ * rounds to zero at a cutoff as low as 88 Hz, and a Q13 state loses its increments there too. The
+ * output is a signal sample. k is the damping, Q12 (5793 = Butterworth, Q = 1/sqrt 2). Both outputs
+ * come from the same state: a shared first section gives the LR4's low and high halves for one run. */
+typedef struct { int32_t g, a1, k; int64_t i1, i2; } ott_svf_t;
+static inline void ott_svf_coef(ott_svf_t *c, int32_t g, int32_t k)
+{
+    int32_t den = 4096 + ((g * (g + k)) >> 12);
+    c->g = g;
+    c->k = k;
+    c->a1 = (int32_t)((4096u << 13) / (uint32_t)den);
+    c->i1 = c->i2 = 0;
+}
+/* one section: writes its low-pass and high-pass outputs (in - k*bp - lp) */
+static inline void ott_svf_run(ott_svf_t *c, int32_t in, int32_t *lp, int32_t *hp)
+{
+    int64_t inq = (int64_t)in << 14, v3 = inq - c->i2, v2, lim = (int64_t)4000000 << 14;
+    int64_t v1 = ((int64_t)c->a1 * (c->i1 + (((int64_t)c->g * v3) >> 12))) >> 13;
+    v2 = c->i2 + (((int64_t)c->g * v1) >> 12);
+    c->i1 = 2 * v1 - c->i1;
+    c->i2 = 2 * v2 - c->i2;
+    if (c->i1 > lim) c->i1 = lim; else if (c->i1 < -lim) c->i1 = -lim;
+    if (c->i2 > lim) c->i2 = lim; else if (c->i2 < -lim) c->i2 = -lim;
+    *lp = (int32_t)(v2 >> 14);
+    *hp = (int32_t)((inq - (((int64_t)c->k * v1) >> 12) - v2) >> 14);
+}
 static inline void tsvf_coef_k(tsvf_t *c, int32_t cut, int32_t k)   /* cut: 0..127 << 8, k: damping Q12 */
 {
     int32_t i, g, den;

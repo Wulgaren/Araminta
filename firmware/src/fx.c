@@ -1647,10 +1647,12 @@ typedef struct {
     uint16_t wp;
     uint32_t ph;
     int32_t hp, lp1, lp2, dc, hold, fb, ic1, ic2;
-    /* DIST MODE OTT: two crossovers (low / mid-high), one envelope and DC block per band. The
-     * fields are only touched in the DIST slot; o_on makes entering OTT start from silence. */
-    int32_t o_lo1, o_lo2, o_hi1, o_hi2;
-    int32_t o_env0, o_env1, o_env2, o_dc;
+    /* DIST MODE OTT: two LR4 crossovers (three sections each, the first shared by both halves), a
+     * power smoother and a gain smoother per band. Only the DIST slot touches them; o_on starts OTT
+     * from silence. */
+    ott_svf_t o_xa, o_xb, o_xc;                    /* 88.3 Hz: shared, low, high */
+    ott_svf_t o_ya, o_yb, o_yc;                    /* 2.5 kHz: shared, low, high */
+    int32_t o_env0, o_env1, o_env2, o_g0, o_g1, o_g2, o_dc;
     uint8_t o_on;
 } ins_st_t;
 /* FILTER's COMB line and PHASR's all-pass pair: one stage runs each, so one copy per render context
@@ -1851,59 +1853,94 @@ static inline uint32_t ins_bits_sh(int32_t a) { return 15u - (uint32_t)(clamp(a,
 static const uint8_t INS_GSH[IDM_N] = {4, 0, 1, 3};       /* g = 4096 + (a * a * 3) >> GSH: 1.7 .. 12.8 x */
 static const uint8_t INS_DK[IDM_N] = {2, 4, 5, 4};        /* cutoff index 96 - (a >> DK) + TONE: SOFT darkest */
 
-/* OTT (DIST MODE 4): three bands, upward compression below the threshold and downward above it.
- * DRIVE is DEPTH (0 = the crossover sum, 127 = the full curve) and TONE is TIME (the envelope's
- * attack/release; 0 is the OTT default). The gain curve is OTT_GAIN_Q12, built by tools/gen_tables.py. */
-static inline int32_t ott_env(int32_t *env, int32_t a, uint32_t atk, uint32_t rel)
+/* OTT (DIST MODE 4), after the Ableton Multiband Dynamics preset of that name: three bands, each
+ * compressed downward above its threshold and upward below it, then summed. DRIVE is DEPTH (0 = the
+ * plain crossover sum, 127 = the full curve) and TONE is TIME (every band's attack and release, 1 ms
+ * and 50 ms at the centre).
+ *
+ * The split is an LR4 at each knee, 88.3 Hz and 2.5 kHz. Its low- and high-pass halves are one
+ * allpass, so the three bands add back flat and DEPTH 0 cannot change the sound. The level is the
+ * band's power over 2.9 ms (the preset's RMS mode: a per-sample |x| carries a cycle of ripple into
+ * the gain, audible as grit on bass), indexed in 1/16 octave because a linear index cannot resolve
+ * the 40 dB below the threshold where the upward half lives. The curves and the ballistics are
+ * OTT_LOW/MID_Q8 and OTT_ATK_K / OTT_REL_K, from tools/gen_tables.py at the preset's ratios. */
+#define OTT_G88 26                                  /* tan(pi * 88.3 / FS), Q12 */
+#define OTT_G25 737                                 /* tan(pi * 2500 / FS), Q12 */
+static const uint8_t OTT_LOG2[64] = {                  /* 16 * log2(1 + k / 64) */
+    0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5,
+    5, 5, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8, 9, 9, 9,
+    9, 10, 10, 10, 10, 11, 11, 11, 11, 11, 12, 12, 12, 12, 13, 13,
+    13, 13, 13, 14, 14, 14, 14, 14, 15, 15, 15, 15, 15, 15, 16, 16
+};
+/* the power p towards the curve's index: floor(log2 p) * 16 plus its mantissa's 1/16 octave. The
+ * power runs to 8.4e6 (65535^2 >> 9), so the exponent needs five doubling steps, not four. */
+static inline int32_t ott_pow_ix(int32_t p)
 {
-    if (a > *env) {
-        int32_t d = (a - *env) >> atk;
-        *env += d ? d : 1;
-        if (*env > a)
-            *env = a;
-    } else if (*env > a)
-        *env -= ((*env - a) >> rel) + 1;
-    return *env;
+    int32_t e = 0, m;
+    uint32_t u = (uint32_t)p;
+    if (!u)
+        return 0;
+    if (u >> 16) { u >>= 16; e += 16; }
+    if (u >> 8) { u >>= 8; e += 8; }
+    if (u >> 4) { u >>= 4; e += 4; }
+    if (u >> 2) { u >>= 2; e += 2; }
+    if (u >> 1) { e += 1; }
+    m = e <= 15 ? (int32_t)((uint32_t)p << (15 - e)) : (int32_t)((uint32_t)p >> (e - 15));
+    m = OTT_LOG2[(m >> 9) & 63];
+    return e * 16 + (m < 15 ? m : 15);                 /* 16 steps an octave: clamp to the last */
 }
-static inline int32_t ott_gain(int32_t e, int32_t depth)
+/* the curve's gain for a band power pw (Q7), Q12, at DEPTH: the table is Q8, and DEPTH mixes it
+ * towards unity (0 = the plain crossover sum) */
+static inline int32_t ott_curve(const int16_t *tab, int32_t pw, int32_t depth)
 {
-    uint32_t i = (uint32_t)(e >> 8), f = (uint32_t)e & 255u;
-    int32_t g;
-    if (i > 255u)
-        i = 255u;
-    g = OTT_GAIN_Q12[i];
-    g += ((OTT_GAIN_Q12[i + 1u] - g) * (int32_t)f) >> 8;
-    return 4096 + (((g - 4096) * depth) >> 7);
+    int32_t k = (int32_t)tab[clamp(ott_pow_ix(pw >> 7), 0, 351)] << 4;
+    return 4096 + (((k - 4096) * depth) >> 7);
 }
-/* x * g / 4096 for a band (|x| <= 65535) and a Q12 gain up to 16x: split g so no product overflows */
+/* one band's gain: the curve, then a one-pole in the linear domain (attack when it falls) */
+static inline int32_t ott_smooth(int32_t *g, const int16_t *tab, int32_t pw, int32_t depth,
+                                 int32_t atk, int32_t rel)
+{
+    int32_t k = ott_curve(tab, pw, depth);
+    *g += mulq16(k - *g, (uint32_t)(k < *g ? atk : rel));
+    return *g;
+}
+/* x * g / 4096 for a band (|x| <= 65535) and a Q12 gain up to 32x: split g so no product overflows */
 static inline int32_t ott_apply(int32_t x, int32_t g)
 {
     return ((x * (g >> 8)) >> 4) + ((x * (g & 255)) >> 12);
+}
+/* the band's power (x^2 >> 9) smoothed over 2.9 ms, in Q7 (a plain shift loses every increment below
+ * 128, so a quiet band would never leave zero) and rounded for the same reason */
+#define OTT_POW_SH 7
+static inline int32_t ott_pow(int32_t p, int32_t x)
+{
+    return p + (((x << 7) - p + (1 << (OTT_POW_SH - 1))) >> OTT_POW_SH);
 }
 static __attribute__((noinline)) void ins_run_ott(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n, int32_t tw)
 {
     uint32_t i, tv = (uint32_t)(clamp(t->p[P_ED_FX], -64, 63) + 64);
     int32_t depth = clamp(t->p[P_DIST], 0, 127);
-    uint32_t atk = 5u + tv * 5u / 127u, rel = 10u + tv * 5u / 127u;
-    tsvf_t lo_f, hi_f;
-    tsvf_coef(&lo_f, 38 << 8, 0);                         /* ~200 Hz */
-    tsvf_coef(&hi_f, 90 << 8, 0);                         /* ~2.5 kHz */
+    int32_t atk = OTT_ATK_K[tv], rel = OTT_REL_K[tv];
     for (i = 0; i < n; i++) {
-        int32_t x = b[i], xs, lo, mid, hi, e, g0, g1, g2, y;
+        int32_t x = b[i], xs, lo, h88, mid, hi, y, x1, x2, x3, x4, y1, y2, y3, y4;
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
         if (!s->w && !tw) { b[i] = x; continue; }
-        xs = clamp(x, -262143, 262143) >> 2;             /* stays inside the SVF's range */
-        lo = clamp(tsvf_lp(&lo_f, xs, &s->o_lo1, &s->o_lo2), -65535, 65535);
-        hi = clamp(tsvf_lp(&hi_f, xs, &s->o_hi1, &s->o_hi2), -65535, 65535);
-        mid = clamp(hi - lo, -65535, 65535);
-        hi = clamp(xs - hi, -65535, 65535);
-        e = lo < 0 ? -lo : lo;
-        g0 = ott_gain(ott_env(&s->o_env0, e, atk, rel), depth);
-        e = mid < 0 ? -mid : mid;
-        g1 = ott_gain(ott_env(&s->o_env1, e, atk, rel), depth);
-        e = hi < 0 ? -hi : hi;
-        g2 = ott_gain(ott_env(&s->o_env2, e, atk, rel), depth);
-        y = ott_apply(lo, g0) + ott_apply(mid, g1) + ott_apply(hi, g2);
+        xs = clamp(x, -262143, 262143) >> 2;           /* stays inside the filter's range */
+        /* LR4 at each knee: the first section's state serves both halves, then one section each */
+        ott_svf_run(&s->o_xa, xs, &x1, &x2);
+        ott_svf_run(&s->o_xb, x1, &lo, &x3);
+        ott_svf_run(&s->o_xc, clamp(x2, -65535, 65535), &x4, &h88);
+        ott_svf_run(&s->o_ya, h88, &y1, &y2);
+        ott_svf_run(&s->o_yb, y1, &mid, &y3);
+        ott_svf_run(&s->o_yc, clamp(y2, -65535, 65535), &y4, &hi);
+        (void)x3; (void)x4; (void)y3; (void)y4;
+        s->o_env0 = ott_pow(s->o_env0, (int32_t)(((uint32_t)lo * (uint32_t)lo) >> 9));
+        s->o_env1 = ott_pow(s->o_env1, (int32_t)(((uint32_t)mid * (uint32_t)mid) >> 9));
+        s->o_env2 = ott_pow(s->o_env2, (int32_t)(((uint32_t)hi * (uint32_t)hi) >> 9));
+        y = ott_apply(lo, ott_smooth(&s->o_g0, OTT_LOW_Q8, s->o_env0, depth, atk, rel))
+          + ott_apply(mid, ott_smooth(&s->o_g1, OTT_MID_Q8, s->o_env1, depth, atk, rel))
+          + ott_apply(hi, ott_smooth(&s->o_g2, OTT_LOW_Q8, s->o_env2, depth, atk, rel));
+        y = clamp(y, -65535, 65535);
         y = clamp(y << 2, -262143, 262143);
         s->o_dc += ((y << 8) - s->o_dc) >> 9;
         y -= s->o_dc >> 8;
@@ -1917,8 +1954,15 @@ static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, const track_t *t
     int32_t a = t->p[P_DIST], g;
     if (mode == IDM_OTT) {
         if (!s->o_on) {                                   /* do not inherit another mode's filter state */
-            s->o_lo1 = s->o_lo2 = s->o_hi1 = s->o_hi2 = 0;
+            /* LR4 at each knee: a shared first section, then one per half */
+            ott_svf_coef(&s->o_xa, OTT_G88, 5793);
+            ott_svf_coef(&s->o_xb, OTT_G88, 5793);
+            ott_svf_coef(&s->o_xc, OTT_G88, 5793);
+            ott_svf_coef(&s->o_ya, OTT_G25, 5793);
+            ott_svf_coef(&s->o_yb, OTT_G25, 5793);
+            ott_svf_coef(&s->o_yc, OTT_G25, 5793);
             s->o_env0 = s->o_env1 = s->o_env2 = s->o_dc = 0;
+            s->o_g0 = s->o_g1 = s->o_g2 = 4096;            /* unity until the first curve lands */
             s->o_on = 1;
         }
         ins_run_ott(s, t, b, n, tw);
