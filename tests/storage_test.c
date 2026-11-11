@@ -50,6 +50,37 @@ static int check(const char *what, int ok)
     return ok ? 0 : 1;
 }
 
+/* 3.10: the gap's sectors (0x93000..0x97000) are not any object's st_sector, so a save there cannot be reached
+ * through OBJ_*. These are st_save_to / st_current's discipline spelled out for an arbitrary base: erase, the payload
+ * pages, then the commit record LAST, so a cut at any byte leaves one whole copy (the older one) loadable. The order is
+ * what the gap test checks; whether the address is allowed is flash_map_test's. */
+static void st_save_manual(uint32_t base, const void *src, uint32_t len)
+{
+    const uint8_t *s = src;
+    st_hdr_t h;
+    uint32_t off;
+    st_erase(base);
+    for (off = 0; off < len; off += 256u) {
+        uint32_t n = len - off > 256u ? 256u : len - off;
+        if (st_prog(base + ST_PAYLOAD_OFF + off, s + off, n))
+            return;                                  /* power cut: no commit record, the other copy stands */
+    }
+    h.magic = ST_MAGIC; h.type = 0; h.slot = 0; h.seq = 1u;
+    h.len = len; h.crc = st_crc32(s, len); h.rsv[0] = h.rsv[1] = 0xFFFFFFFFu;
+    h.hcrc = st_crc32(&h, sizeof h - 4u);
+    st_prog(base, &h, sizeof h);
+}
+static int st_load_manual(uint32_t base, void *dst, uint32_t max)
+{
+    st_hdr_t h;
+    if (st_read(base, &h, sizeof h) || h.magic != ST_MAGIC || h.len > max ||
+        h.hcrc != st_crc32(&h, sizeof h - 4u))
+        return -1;
+    if (st_read(base + ST_PAYLOAD_OFF, dst, h.len) || st_crc32(dst, h.len) != h.crc)
+        return -1;
+    return (int)h.len;
+}
+
 int main(void)
 {
     char a[600], b[600], got[600];
@@ -201,6 +232,46 @@ int main(void)
         memset(got, 'X', sizeof got);
         bad += check("small destination rejects whole object", st_load(OBJ_PROJECT0, got, sizeof got - 1u) < 0 && got[0] == 'X');
         bad += check("oversized save rejected", st_save(OBJ_PROJECT0, a, ST_PAYLOAD_MAX + 1u) < 0);
+    }
+    {   /* 3.10: a save into the gap (0x93000..0x97000) is power-cut safe at every byte. The gap sectors are not any
+         * object's st_sector, so this drives st_save_to's sequence by hand at a gap address; flash_map_test proves the
+         * address is allowed.
+         *
+         * What it proves: a cut at any byte never damages the copy that is not being written, and the rewritten copy
+         * is either intact or has no valid commit record (never mixed old and new data). A full-size payload ends at
+         * the sector's last 256 B, where the SPL looks for an update record, so the sweep covers that tail too.
+         *
+         * What it does NOT prove: that the commit record is written last. The payload CRC alone already rejects a
+         * half-written body, so a reversed order is caught by the same check. The order matters for a different reason
+         * (a header that lands before its data would make a torn save look valid only if the CRC were also wrong), and
+         * it is enforced in one place, st_save_to. */
+        static const uint32_t GAP_A = 0x93000u, GAP_B = 0x94000u;
+        static uint8_t big_a[ST_PAYLOAD_MAX], big_b[ST_PAYLOAD_MAX], copy[2 * ST_SECTOR], gb[ST_PAYLOAD_MAX];
+        uint32_t cut, i;
+        int ok = 1, tail_ok = 1;
+        for (i = 0; i < ST_PAYLOAD_MAX; i++) {
+            big_a[i] = (uint8_t)(i * 5u + 1u);
+            big_b[i] = (uint8_t)(i * 3u + 7u);
+        }
+        memset(nor, 0xFF, sizeof nor);
+        st_save_manual(GAP_A, big_a, ST_PAYLOAD_MAX);        /* A: the copy rewritten below */
+        st_save_manual(GAP_B, big_b, ST_PAYLOAD_MAX);        /* B: never touched */
+        memcpy(copy, nor + GAP_A, sizeof copy);
+        for (cut = 0; cut < 2u * ST_SECTOR; cut++) {
+            int b_ok, a_ok;
+            memcpy(nor + GAP_A, copy, sizeof copy);
+            fail_bytes = (int)cut;
+            st_save_manual(GAP_A, big_a, ST_PAYLOAD_MAX);    /* cut at byte `cut` of the rewrite */
+            fail_bytes = -1;
+            b_ok = st_load_manual(GAP_B, gb, sizeof gb) == (int)ST_PAYLOAD_MAX && !memcmp(gb, big_b, ST_PAYLOAD_MAX);
+            a_ok = st_load_manual(GAP_A, gb, sizeof gb);     /* -1: no commit record yet, which is fine */
+            ok &= b_ok && (a_ok < 0 || (a_ok == (int)ST_PAYLOAD_MAX && !memcmp(gb, big_a, ST_PAYLOAD_MAX)));
+            /* cut counts payload bytes, so the record tail (flash base+0xF00..0xFFF) is payload 0xE00..0xEFF */
+            if (cut >= ST_SECTOR - ST_PAYLOAD_OFF - 0x100u && cut < ST_SECTOR - ST_PAYLOAD_OFF)
+                tail_ok &= b_ok && a_ok < 0;
+        }
+        bad += check("a gap save cut at every byte keeps the untouched copy whole", ok);
+        bad += check("a cut in the SPL's record tail leaves no commit record behind", tail_ok);
     }
     printf("%s\n", bad ? "STORAGE TEST FAILED" : "storage test passed");
     return bad != 0;

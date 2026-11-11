@@ -36,6 +36,8 @@
 #define LDR_REC_HI 0xFC000u                     /* ... and below Felucca's globals (Felucca's records: 0xE4F00, */
 #define LDR_DATA_LO 0x97000u                    /* the stock firmware's: 0xE8F00), never in Felucca's store, whose */
 #define LDR_DATA_HI 0xE0000u                    /* bytes (user samples) the host writes */
+#define LDR_GAP_LO 0x93000u                     /* 3.10: the app's four sectors below the store (fm1_flash_map.h); */
+#define LDR_GAP_HI 0x97000u                     /* no update record is ever written there, so the sweep skips them */
 #define LDR_KEEP_LO 0xE5000u                    /* autosave A/B + FM6 voice bank (storage.c / fm1_flash.h) */
 #define LDR_KEEP_HI 0xE8000u                    /* still clear OTA staging (0xE4F00) and stock 0xE8F00 */
 #define LDR_NSEC ((LDR_APP_HI - LDR_APP_LO) >> 12)
@@ -179,6 +181,12 @@ static int ldr_session(void)
         uint32_t sec = s - 0x1000u;
         if ((sec >= LDR_DATA_LO && sec < LDR_DATA_HI) || (sec >= LDR_KEEP_LO && sec < LDR_KEEP_HI))
             continue;                                    /* user store / autosave / FM6 bank: may look like one */
+        if (sec >= LDR_GAP_LO && sec < LDR_GAP_HI)
+            continue;                                    /* 3.10: the four sectors below the store are the app's
+                                                          * now (fm1_flash_map.h). No update record is ever written
+                                                          * there: Felucca's is at 0xE4F00, the stock firmware's at
+                                                          * 0xE8F00. Skipped rather than matched against the tag, so
+                                                          * app data that happens to look like a record survives. */
         if (ldr_fread(s - 0x100u, r, 80))
             break;
         if (ota_rd16(r + 6) == 0x5441u && ota_rd16(r) && ota_rd16(r) == ota_crc16(r + 2, 78, 0))

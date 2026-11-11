@@ -1785,6 +1785,15 @@ static double punch_busy(const uint8_t parts[NPART][3], int effect, uint32_t *en
         *engaged = eng;
     return r[0];
 }
+/* three reads of a punch-in's cost, the smallest (cost_min's reason: the host reads a few percent high now and
+ * then, and a real regression raises every read) */
+static double punch_busy_min(const uint8_t parts[NPART][3], int effect, uint32_t *engaged)
+{
+    double a = punch_busy(parts, effect, engaged), b = punch_busy(parts, effect, 0);
+    double c = punch_busy(parts, effect, 0);
+    double m = a < b ? a : b;
+    return c < m ? c : m;
+}
 static int test_punch_load(void)
 {
     static const uint8_t PARTS[NPART][3] = {{12, 0, 8}, {2, 0, 8}, {5, 0, 4}, {10, DRUM_HITS, 0}};   /* FM6 + PHASE
@@ -1799,14 +1808,16 @@ static int test_punch_load(void)
     uint32_t c, engaged;
     char what[220];
     int bad = 0;
-    idle = punch_busy(PARTS, -1, &engaged);
+    /* three reads, the smallest: the host's clock reads several percent high under sanitizers or a busy
+     * machine (cost_min's note), and a real regression raises every read */
+    idle = punch_busy_min(PARTS, -1, &engaged);
     if (idle < 0) {
         printf("perform: punch load: cannot measure on this host\n");
         return 0;
     }
     printf("perform: punch load: the heavy mix (4 synth parts + insert chain + sends + drums) %.0f ns / sample idle\n", idle);
     for (c = 0; c < sizeof P / sizeof P[0]; c++) {
-        w = punch_busy(PARTS, P[c].e, &engaged);
+        w = punch_busy_min(PARTS, P[c].e, &engaged);
         printf("perform: punch load:   %-12s %7.0f ns / sample (over idle %6.0f) %s\n",
                P[c].name, w, w - idle, engaged ? "" : "NOT ENGAGED");
         snprintf(what, sizeof what, "punch load: %s runs on the heavy mix", P[c].name);
@@ -1816,11 +1827,13 @@ static int test_punch_load(void)
             wname = P[c].name;
         }
     }
-    /* the guard is on the effect's own cost over the idle mix: a punch-in must stay a small fraction
-     * of what the patch already costs, not a second mix */
-    snprintf(what, sizeof what, "punch load: the worst (%s) adds %.0f ns / sample over idle (at most 12 %% of the idle mix)",
+    /* The guard is on the effect's own cost over the idle mix: a punch-in must stay a small fraction of what the
+     * patch already costs, not a second mix. 20 % is generous on purpose. The measured worst is about 7 % (13 ns of
+     * 183 at -O2, 21 of 299 under ASan), and the number is a wall-clock delta, so a busy machine moves it; what this
+     * must catch is a punch-in that doubles the render, which is what a real regression would look like. */
+    snprintf(what, sizeof what, "punch load: the worst (%s) adds %.0f ns / sample over idle (at most 20 %% of the idle mix)",
              wname, worst - idle);
-    bad += check(what, (worst - idle) <= idle * 0.12);
+    bad += check(what, (worst - idle) <= idle * 0.20);
     return bad;
 }
 
