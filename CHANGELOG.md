@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Punch-in buffer borrow: taking sl_buf for REPEAT/REVERSE/FREEZE/TAPE/OCT/GLITCH now drops MASTER STUT
+takes as well as the tracks' (slicer_drop_all), so a master recording cannot read the punch's loop.
+Host harness tests/punch_crackle_test.c measures stacked / HOLD punch-in cost vs the half-buffer deadline
+and compares shed thresholds; perform_test covers the MASTER STUT borrow and heavy-mix clicks.
+Browser emu: web/emu/punch_emu_test.mjs imports a device backup into the same wasm as the page, holds punch-in
+stacks (including FX LATCH worst), and reports click / peak / wall-time CPU.
+
 DIST MODE OTT keeps the same curves and crossovers, but its six SVF sections and band state now live only on the
 DIST slots that need them (about 7 KB of pool back), the second half of each LR4 skips the unused LP/HP output,
 the 88 Hz low's second LP runs on an FS/4 grid (its input is already band-limited), and DEPTH 0 skips the

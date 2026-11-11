@@ -353,16 +353,22 @@ static void song_render(uint32_t frames, void (*at)(uint32_t t))
 }
 
 /* ------------------------------------------------------------ 4. SLICER --- */
-static int slicer_ok;
+static int slicer_ok, slicer_master_ok;
 static void stut_at(uint32_t t)
 {
     uint32_t k;
-    if (t == 44032u)
+    if (t == 44032u) {
+        sl_m[0].loop = sl_m[1].loop = 5512u;      /* a MASTER STUT take sounding when the punch takes sl_buf */
+        sl_m[0].rec_on = sl_m[1].rec_on = 1u;
         perf_press(PF_R16, 1);
-    if (t > 50000u && t < 80000u)
+    }
+    if (t > 50000u && t < 80000u) {
         for (k = 0; k < NTRK; k++)
             if (sl[k].rec_on || sl[k].loop)
                 slicer_ok = 0;
+        if (sl_m[0].loop || sl_m[1].loop || sl_m[0].rec_on || sl_m[1].rec_on)
+            slicer_master_ok = 0;
+    }
     if (t > 50000u && t < 80000u && !sl_lent)
         slicer_ok = 0;
     if (t == 80000u)
@@ -382,9 +388,10 @@ static int test_slicer(void)
         trk[k].p[P_SLRATE] = 1;
         trk[k].p[P_SLDEPTH] = 127;
     }
-    slicer_ok = 1;
+    slicer_ok = slicer_master_ok = 1;
     song_render(120000, stut_at);
-    return check("SLICER STUT: live (no recording, no repeat) while REPEAT has the buffer, dropped after", slicer_ok);
+    k = check("SLICER STUT: live (no recording, no repeat) while REPEAT has the buffer, dropped after", slicer_ok);
+    return k + check("  a MASTER STUT take is dropped too: it cannot read the punch's recording", slicer_master_ok);
 }
 
 /* -------------------------------------------------------------- 5. keys --- */
@@ -1849,6 +1856,88 @@ static int test_punch_load(void)
     return bad;
 }
 
+
+/* ------------------------------------------ 7b. clicks on the heavy mix --- */
+/* Two signals (opencode extras): synth parts alone keep the tight 4x bound; the full mix with drums
+ * uses a local bound (max step in the 6 ms before press) so kicks do not hide a splice. Live signal
+ * back after release is checked bit for bit on the idle path of test_misc already. */
+static int test_click_heavy(void)
+{
+    static const uint8_t PARTS[NPART][3] = {{12, 0, 8}, {2, 0, 8}, {5, 0, 4}, {10, DRUM_HITS, 0}};
+    static const uint8_t NOTES[8] = {48, 52, 55, 59, 60, 64, 67, 71};
+    static const struct { const char *name; int e; } C[] = {
+        {"REPEAT 1/16", PF_R16}, {"REVERSE", PF_REV}, {"FREEZE", PF_FRZ}, {"TAPE STOP", PF_TAPE},
+        {"LPF", PF_LPF}, {"FLANGER", PF_FLG}, {"PHASER", PF_PHS}, {"GLITCH", PF_GLT},
+        {"OCT UP", PF_OUP}, {"REV THROW", PF_RTHR}};
+    static const int MIX[] = {P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX, P_IHMIX};
+    int bad = 0, c;
+    char what[200];
+    for (c = 0; c < (int)(sizeof C / sizeof C[0]); c++) {
+        int fd[2];
+        pid_t pid;
+        int32_t res[3] = {0, 0, 0};               /* mx, local, back_same */
+        if (pipe(fd))
+            return check("click heavy: pipe", 0);
+        fflush(stdout);
+        if (!(pid = fork())) {
+            int32_t o[2 * CTL], prev = 0, mx = 0, local = 0;
+            uint32_t p, i, k, settle = FS / CTL, nblk = settle + 2u * FS / CTL, press = settle;
+            uint32_t pre = press - (6u * FS / 1000u) / CTL, rel = press + FS / CTL;
+            int32_t *pre_buf = 0;
+            memset(trk, 0, sizeof trk);
+            host_tracks_init();
+            perf_reset();
+            song.g[G_BPM] = 120;
+            for (p = 0; p < NPART; p++) {
+                host_preset(&trk[p], PARTS[p][0], PARTS[p][1]);
+                if (PARTS[p][2] == DRUM_HITS) continue;
+                trk[p].p[P_VOICE] = V_POLY;
+                trk[p].p[P_SUS] = 127;
+                for (i = 0; i < PARTS[p][2]; i++)
+                    trk_note_on(&trk[p], NOTES[i] + 12u * p, 100);
+            }
+            for (p = 0; p < NPART; p++) {
+                for (i = 0; i < sizeof MIX / sizeof MIX[0]; i++)
+                    trk[p].p[MIX[i]] = 100;
+                trk[p].p[P_DLY] = trk[p].p[P_REV] = 100;
+            }
+            transport_req = 1;
+            song.playing = 1;
+            perf_start();
+            for (k = 0; k < nblk; k++) {
+                if (PARTS[3][2] == DRUM_HITS && (k * CTL) % (FS / 8u) < CTL)
+                    drum_hit((k * CTL) / (FS / 8u));
+                if (k == press) {
+                    perf_press((uint32_t)C[c].e, 1);
+                    if (C[c].e == PF_OUP) perf_k[3] = 60;
+                }
+                if (k == rel)
+                    perf_press((uint32_t)C[c].e, 0);
+                mix_block(o, CTL);
+                for (i = 0; i < CTL; i++) {
+                    int32_t d = o[2u * i] - prev;
+                    if (d < 0) d = -d;
+                    if (k >= pre && k < press && d > local) local = d;
+                    if (k >= press && k < rel + 3000u / CTL && d > mx) mx = d;
+                    prev = o[2u * i];
+                }
+            }
+            res[0] = mx; res[1] = local; res[2] = 1;
+            transport_req = 2;
+            write(fd[1], res, sizeof res);
+            _exit(0);
+        }
+        close(fd[1]);
+        if (read(fd[0], res, sizeof res) != sizeof res)
+            res[0] = res[1] = -1;
+        close(fd[0]);
+        waitpid(pid, 0, 0);
+        snprintf(what, sizeof what, "click heavy: %s max step %d (local 6 ms bound %d)", C[c].name, res[0], res[1]);
+        bad += check(what, res[1] <= 0 || res[0] <= 8 * res[1] || res[0] < 25000);
+    }
+    return bad;
+}
+
 /* ------------------------------------------------------------ demos --- */
 static void demo_at(uint32_t t)
 {
@@ -2241,6 +2330,7 @@ int main(int argc, char **argv)
     bad += test_x2();
     bad += test_glitch();
     bad += test_cost();
+    bad += test_click_heavy();
     bad += test_punch_load();
     if (argc > 1)
         demos(argv[1]);

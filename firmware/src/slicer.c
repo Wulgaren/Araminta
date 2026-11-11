@@ -319,6 +319,16 @@ static void slicer_master_reset(void)
     memset(sl_buf[1], 0, sizeof sl_buf[1]);
     sl_m[0].idx = sl_m[1].idx = 15;
 }
+/* perform.c has taken sl_buf, or given it back: every STUT take ends now, on the tracks and on MASTER, so none
+ * reads the punch's recording as its own. Their cross-fades fall back to live by themselves (sl_seg). */
+static void slicer_drop_all(void)
+{
+    uint32_t k;
+    for (k = 0; k < NTRK; k++)
+        sl[k].rec = sl[k].loop = sl[k].rec_on = 0;
+    sl_m[0].rec = sl_m[0].loop = sl_m[0].rec_on = 0;
+    sl_m[1].rec = sl_m[1].loop = sl_m[1].rec_on = 0;
+}
 static __attribute__((noinline)) void slicer_master_run(const track_t *owner, int32_t *l, int32_t *r, uint32_t n)
 {
     sl_run(owner, owner, &sl_m[0], sl_buf[0], l, 0, n);

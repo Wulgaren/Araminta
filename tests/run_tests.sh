@@ -710,6 +710,11 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "FX layer effects: on the 1/16, stereo, too-long REPEAT, SLICER, silent keys, idle bit-identical, clicks, OCT UP / DN, FLANGER, PHASER, the key map, dotted TIME, REV / ECHO THROW, cost, demos" "$OUT/perform_test" build/perform_demo build/fx_demo build/throw_demo
     }
     unit u_perform
+    u_punch() {
+        build "$OUT/punch_crackle_test" tests/punch_crackle_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
+        run "punch-in crackle: MASTER STUT borrow, heavy-mix stacks / HOLD, click bound, shed A/B (CRACKLE_DIR survey optional)" "$OUT/punch_crackle_test"
+    }
+    unit u_punch
     PERF_UNIT=$n
     u_reverb() {
         build "$OUT/reverb_test" tests/reverb_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm

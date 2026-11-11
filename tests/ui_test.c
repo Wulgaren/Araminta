@@ -4989,11 +4989,11 @@ static int test_fm4_retired(void)
         seen |= 1u << TSEL->eng_req;
     }
     bad += check("PRESETS KNOB 2: the engines in order, DIGITAL skipped, back to the first",
-                 seen == all && TSEL->eng_req == 0u && eng_step(0, 1) == ENGI_FM6 && eng_step(ENGI_FM6, 1) == 2u &&
-                 eng_step(ENGI_FM6, -1) == 0u && eng_step(0, -1) == ENGI_WT && eng_step(ENGI_WT, 1) == 0u);
+                 seen == all && TSEL->eng_req == 0u && eng_step(0, 1) == ENGI_FM6 && eng_step(ENGI_FM6, 1) == ENGI_WT &&
+                 eng_step(ENGI_FM6, -1) == 0u && eng_step(ENGI_WT, 1) == 2u && eng_step(0, -1) == ENGI_DRUMS);
     {   /* the display order (engines.c ENGINE_ORDER): every engine one can pick once; the PRESETS list follows it */
-        static const char *const ORDER[] = {"ANALOG", "FM6", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN",
-                                            "PHYS", "NOISE", "DRUM-X", "DRUMS", "WAVETABLE"};
+        static const char *const ORDER[] = {"ANALOG", "FM6", "WAVETABLE", "PHASE", "LOFI", "VOICE", "TRIO", "WHEEL",
+                                            "PHYS", "NOISE", "GRAIN", "SAMPLE", "DRUM-X", "DRUMS"};
         uint32_t last = 0xFFu, r = 0, n = 0;
         ok = NENG_SHOWN == NELEM(ORDER);
         for (i = 0; ok && i < NENG_SHOWN; i++)
@@ -5008,7 +5008,7 @@ static int test_fm4_retired(void)
             last = e;
             r++;
         }
-        bad += check("engines shown ANALOG FM6 PHASE ... PHYS DRUM (ENGINE_ORDER); PRESETS lists them so",
+        bad += check("engines shown ANALOG FM6 WAVETABLE ... PHYS DRUM (ENGINE_ORDER); PRESETS lists them so",
                      ok && r == NENG_SHOWN);
     }
     {   /* a user preset stored with engine 1: refused on load, the track keeps its sound */
