@@ -2038,7 +2038,7 @@ static void ui_input(void)
                     track_t *t = &trk[ui.confirm_trk % NTRK];
                     uint32_t was = song.sel;
                     if (kind == CF_CLEAR_TRACK_ALL)
-                        load_begin(t, UNDO_SOUND | UNDO_PAT);
+                        load_begin(t, UNDO_SOUND | UNDO_PAT | UNDO_MIX);
                     song.sel = (uint8_t)(ui.confirm_trk % NTRK);
                     set_engine(t->eng_req);
                     if (drum_track(t)) {
@@ -2049,7 +2049,8 @@ static void ui_input(void)
                     if (kind == CF_CLEAR_TRACK_ALL) {
                         track_defaults_steps(t);
                         clear_fx_track(t);
-                        t->nheld = 0;
+                        clear_mix_arp(t);
+                        t->nheld = 0;                           /* and the latched arp chord */
                         t->arp_phys = 0;
                         load_end(t);
                     }
@@ -2081,6 +2082,7 @@ static void ui_input(void)
                             track_defaults_steps(&trk[i]);
                             trk[i].p[P_QUANT] = TP[P_QUANT].def;   /* MAP OFF: ALL does not survive the clear */
                             trk[i].scl_stash_ok = 0;
+                            clear_mix_arp(&trk[i]);
                             trk[i].nheld = 0;
                             trk[i].arp_phys = 0;
                         }

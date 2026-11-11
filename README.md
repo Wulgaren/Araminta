@@ -46,7 +46,8 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - Reverb modes from JIANT - SHIMR and CLOUD.
 - Delay has divisions or smooth ms; K4 turned left is TIME, turned right RATE.
 - Assign FX values in LFO MOD or SEQ param locks. TAPE SPEED / FLUTR are shared destinations: in CHAIN only the owner track can move them, in MASTER any track, in SEND the first track to use one reserves it.
-- **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track).
+- **MIXER PLAY.** KNOB 4 is ON, OFF or **SOLO** (saved with the track). SAVE > CLEAR's ALL keys put the mix and
+  the arp back to their defaults too, so a cleared track is neither silent nor still arping.
 - **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.- **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN and PITCH. With REC armed while playing on a synth track, a TRN turn also writes the current step's PITCH lock (scale-fitted); the knob still moves (other steps without a lock follow it), and no P_TRANS automation event is recorded.
 - **MAP (was QNT).** SCL knob: OFF / **ALL** / CURR / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); CURR is KBD plus sequence follows the scale on the current track; ALL is CURR's quantising plus ROOT / SCALE shared by every track while ALL is on (the CHORD page's old SCALE LOCK, now a MAP value); SEQ is chromatic keys plus sequence follows. Leaving ALL puts each track's own ROOT / SCALE back. Chromatic (CHR) scale removed; use MAP OFF. ALL saves as CURR + the lock bit, so v3.1 opens it as SCALE LOCK + ALL; a v3.1 project locked with MAP OFF / KBD / SEQ loads unlinked. Current saves are FUN19 (`FUNJ`; FUN18 `FUNI` loads).
 - **Following playhead** in the SEQ. Start selecting a step to pause the following, returns after 3 seconds of inactivity.

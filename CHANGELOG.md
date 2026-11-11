@@ -21,6 +21,14 @@ MIDI IN only decides which channels are heard: in CH1-4 a message on channel 5 i
 Other mapped CCs (5, 7, 10, 91, 93, 94) still set their parameter absolutely on the track the channel plays. DECAY
 loses its CC 75 to SELECT; the panel's pot still owns MASTER.
 
+### CLEAR ALL
+
+SAVE > CLEAR's two ALL keys now put the mix and the arpeggiator back as well: F#3 (a track) and G#3 (every track)
+reset LEVEL, PAN, PLAY (so a soloed or muted track comes back sounding) and the arp's MODE RATE OCT GATE SWG PROB
+HOLD ORD. A latched HOLD chord stops, so nothing keeps playing after a clear. The FX sends were already cleared. The
+other cells (PAT, SND, MOT, FX, PATS, SNDS, MOTS, FXS) are unchanged, and a preset or sound load still keeps the
+mix and the arp as it always has. SAVE held undoes the whole thing, mix and arp included.
+
 ## 3.9
 
 A free take can record the arpeggiator. With the ARP on, the take holds the notes the arp plays, not the keys
