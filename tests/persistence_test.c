@@ -231,7 +231,7 @@ static int mig_test(void)
 }
 
 /* ---- 1.2, Discussion #130: the autosave (project.c): written only when the music changed, stopped and idle 10 s, at
- * most one a minute; restored at power-on (RESTORE LAST ON, a clean boot); a damaged one ignored ---- */
+ * most one a minute; restored at power-on (BOOT RESTORE ON, a clean boot); a damaged one ignored ---- */
 static void as_run(uint32_t ms)                          /* the main loop for ms (autosave_poll checks every 250 ms) */
 {
     uint32_t end = fm1_ms + ms;
@@ -353,18 +353,25 @@ static int autosave_test(void)
     bad += check("autosave: after a crash / hang / failed boot: not restored, nothing written", ok && as_erases == b0);
     as_power_on();
     ui_prefs |= PREF_RESTORE_OFF;
+    as.writes = 0;
+    b0 = as_erases;
     ok = autosave_boot(1) == 0 && song.g[G_BPM] != 97;
     as_edit(7);
-    as_run(300000u);
-    bad += check("autosave: RESTORE LAST OFF: none restored, none written", ok && !as.writes && as_erases == b0);
+    as_run(70000u);                                  /* idle 10 s + gap headroom: one write even with OFF */
+    bad += check("autosave: BOOT RESTORE OFF: none restored, still written once idle",
+                 ok && as.writes == 1u && as_erases == b0 + 1u);
     ui_prefs &= (uint8_t)~PREF_RESTORE_OFF;
     {   /* a damaged copy: the other one (A/B); both damaged: none */
         st_hdr_t h;
         int cur, other;
+        /* re-seed A then B so the older copy is BPM 97 (OFF's write above may have displaced it) */
+        memset(nor + 0xE5000u, 0xFF, 0x2000u);
         as_power_on();
         autosave_boot(1);
-        song.g[G_BPM] = 111;                             /* a newer copy into the other sector */
+        song.g[G_BPM] = 97;
         as_run(11000u);
+        song.g[G_BPM] = 111;                             /* a newer copy into the other sector */
+        as_run(70000u);
         cur = st_current(OBJ_AUTOSAVE, &h);
         nor[st_sector(OBJ_AUTOSAVE, (uint32_t)cur) + ST_PAYLOAD_OFF + 100u] ^= 0x10u;   /* its payload: the CRC fails */
         other = st_current(OBJ_AUTOSAVE, &h);
