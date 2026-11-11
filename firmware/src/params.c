@@ -331,8 +331,8 @@ static int32_t enum_orig(const param_desc_t *d, int32_t v)
 }
 
 /* a stored value as the parameter takes it (projects, user presets, motion): inside d's range.
- * FM6's SLOT is never stored as a bank slot: 9..40 (1.4.1's B1..B32; 1.0.2's B1..B27 were 8..34) is 8, OWN,
- * and the patch comes with what is loaded */
+ * FM6's SLOT is never stored as a bank slot: 9..104 (B1..B96; 1.4.1's B1..B32 were 9..40; 1.0.2's B1..B27 were 8..34)
+ * is 8, OWN, and the patch comes with what is loaded */
 static int32_t param_fit(const param_desc_t *d, int32_t v)
 {
     if (d == &TP[P_IORD]) {                    /* bits 10..15 are the SEND route flags, not the order */

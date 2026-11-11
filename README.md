@@ -462,7 +462,7 @@ In the order the device lists them:
   web editor (which imports .syx files) or on the device: EDIT > OPERATOR (FREQ is one list: ratio then fixed Hz,
   fine, level; no OPERATOR 2 page) and OP ENV (each stage's rate and level, drawn as the envelope), one operator
   at a time on the algorithm chart; macros on top; SLOT picks a factory patch (F1-F8), the track's own (OWN) or a
-  voice of the bank the web editor sent (B1-B32)
+  voice of the banks the web editor sent (B1-B96 across three 32-voice banks)
 - **WAVETABLE**: two wavetable oscillators, A and B, each morphing through 16 frames of a mip-mapped table; B
   phase-modulates A (B>A) and can also be heard through LEVEL at an exact RATIO, and A takes phase feedback
   (FDBK). BASIC and SPECTRAL are factory tables; USR1..USR3 each hold one complete 16 x 1024 table, loaded from
