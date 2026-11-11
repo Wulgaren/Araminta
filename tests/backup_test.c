@@ -75,7 +75,8 @@ static void reset(void)
     memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain);
     chain_defaults(&chain_config);
-    memset(proj_slot, 0, sizeof proj_slot);
+    proj_slot_used = 0;
+    memset(proj_slot_sum, 0, sizeof proj_slot_sum);
     memset(up_bank, 0, sizeof up_bank);
     memset(&persist_saved, 0, sizeof persist_saved);
     memset(&settings, 0, sizeof settings);
@@ -177,8 +178,8 @@ int main(void)
 
     reset();
     trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
-    bad += check("LIST captures the runtime: 13 objects (id 8 empty, id 9 the FM6 patches), runtime 3840 B (FUN10)",
-                 list(0, &len, &crc) == 0 && rep[2] == 13u && len == sizeof(project_store_t) && len == 3840u &&
+    bad += check("LIST captures the runtime: 13 objects (id 8 empty, id 9 the FM6 patches), runtime 4096 B (FUN20)",
+                 list(0, &len, &crc) == 0 && rep[2] == 13u && len == sizeof(project_store_t) && len == 4096u &&
                  crc == st_crc32(ED_BK_RAW, len));
     {   /* a wavetable slot (id 34, USR3) is backed up as its 512-byte header + PCM data */
         smp_wt_hdr_t *w = (smp_wt_hdr_t *)host_samples[2];
@@ -296,9 +297,10 @@ int main(void)
     trk[1].step[3] = (step_t){{64}, 1, ST_NOTE, 0, 96, 0, 0};
     project_capture(&proj_scratch);
     proj_pack(&st, &proj_scratch);
-    bad += check("a FUN10 project restores into slot 3 (flash and RAM)",
+    bad += check("a FUN10 project restores into slot 3 (flash)",
                  put_all(4, &st, sizeof st, st_crc32(&st, sizeof st)) == 0 && project_used(2) &&
-                 !memcmp(&proj_slot[2], &st, sizeof st) && st_load(OBJ_PROJECT0 + 2, &proj_wire, sizeof proj_wire) == (int)sizeof st);
+                 st_load(OBJ_PROJECT0 + 2, &proj_wire, sizeof proj_wire) == (int)sizeof st &&
+                 !memcmp(&proj_wire, &st, sizeof st));
     {   /* FUN8 of 1.0.x (3584 bytes, 91 parameters) and FUN9 of 1.1 (3648, 99): restore as FUN10, E0 at P_E0, lanes
          * 100 %, the four 1.2 parameters at their defaults; a FUN9 with 64 motion records keeps them all */
         static uint8_t v8[3584], v9[3648];
@@ -309,8 +311,8 @@ int main(void)
         proj_scratch.t[2].p[P_LN3] = 127;              /* (FUN8 had no lane levels) */
         bad += check("a FUN8 project (1.0.x) restores as FUN10 into slot 2, E0 at P_E0, lane levels 100 %",
                      old_pack(v8, &proj_scratch, OLD_FUN8, 91u) == sizeof v8 &&
-                     put_all(3, v8, sizeof v8, st_crc32(v8, sizeof v8)) == 0 && ((uint32_t *)proj_slot[1].raw)[0] == PROJ_MAGIC &&
-                     proj_import(&proj_scratch, &proj_slot[1], sizeof st) && proj_scratch.t[2].p[P_E0] == 2 &&
+                     put_all(3, v8, sizeof v8, st_crc32(v8, sizeof v8)) == 0 && project_used(1) &&
+                     proj_fetch(1) && proj_scratch.t[2].p[P_E0] == 2 &&
                      proj_scratch.t[2].p[P_LN3] == 127 && step_note(&proj_scratch.t[1].step[3], 0) == 64u);
         project_capture(&proj_scratch);
         for (k = 0; k < 64u; k++)
@@ -318,8 +320,8 @@ int main(void)
         proj_scratch.motion.count = 64;
         proj_scratch.motion.on = 2;
         ok = old_pack(v9, &proj_scratch, OLD_FUN9, 99u) == sizeof v9 &&
-             put_all(4, v9, sizeof v9, st_crc32(v9, sizeof v9)) == 0 && ((uint32_t *)proj_slot[2].raw)[0] == PROJ_MAGIC &&
-             proj_import(&proj_scratch, &proj_slot[2], sizeof st) && proj_scratch.t[2].p[P_E0] == 2 &&
+             put_all(4, v9, sizeof v9, st_crc32(v9, sizeof v9)) == 0 && project_used(2) &&
+             proj_fetch(2) && proj_scratch.t[2].p[P_E0] == 2 &&
              proj_scratch.t[2].p[P_LN3] == 90 && proj_scratch.motion.count == 64u && proj_scratch.motion.event[63].value == 63 &&
              proj_scratch.t[0].p[P_LSYNC] == 0 && proj_scratch.t[0].p[P_LTRIG] == 0 && proj_scratch.t[0].p[P_LPOL] == 0 &&
              proj_scratch.t[0].p[P_SQNT] == 1;
@@ -382,12 +384,14 @@ int main(void)
         bad += check("an id 9 of the wrong size is refused at begin (1)", put_begin(9, sizeof got - 4u, 0) == 1u);
         bad += check("an id 10 is refused (1)", put_begin(10, 0, 0) == 1u);
     }
-    memcpy(&st, &proj_slot[2], sizeof st);
+    bad += check("live slot 3 image loads for the flash-error check",
+                 st_load(OBJ_PROJECT0 + 2, &st, sizeof st) == (int)sizeof st);
     erase_error = 1;
-    proj_slot[2].raw[100] ^= 1;                          /* (marks the RAM copy, to see it is kept) */
-    memcpy(&keep, &proj_slot[2], sizeof keep);
-    bad += check("a flash error on commit (4) keeps the slot's RAM copy",
-                 put_all(4, &st, sizeof st, st_crc32(&st, sizeof st)) == 4u && !memcmp(&proj_slot[2], &keep, sizeof keep));
+    memcpy(&keep, &st, sizeof keep);
+    bad += check("a flash error on commit (4) keeps the previous flash image",
+                 put_all(4, &st, sizeof st, st_crc32(&st, sizeof st)) == 4u &&
+                 st_load(OBJ_PROJECT0 + 2, &proj_wire, sizeof proj_wire) == (int)sizeof keep &&
+                 !memcmp(&proj_wire, &keep, sizeof keep) && project_used(2));
     erase_error = 0;
     bad += check("an empty project object clears the slot", put_all(4, 0, 0, st_crc32(0, 0)) == 0 && !project_used(2));
     st.raw[200] ^= 1;                                    /* hash no longer matches */

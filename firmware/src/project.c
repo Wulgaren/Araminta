@@ -1116,7 +1116,7 @@ static uint8_t proj_cur = PROJ_NO_SLOT;      /* the slot the music was loaded fr
                                               * renames the music too); PROJ_NO_SLOT none (the editor's restore) */
 static union {                               /* serialized main-loop work; no retained expansion */
     project_store_t s;
-    uint8_t raw[3840];                         /* (the staging of a backup object, up to a storage object: editor_backup.c) */
+    uint8_t raw[PROJ_STORE_SIZE];              /* backup staging (editor_backup.c ED_BK_MAX); 3.10: 4096 */
 } proj_wire_u __attribute__((section(".pool")));
 #define proj_wire (proj_wire_u.s)
 static uint8_t proj_wire_gen;                /* +1 whenever proj_wire is rewritten (a backup's runtime copy lives there) */
@@ -1514,6 +1514,7 @@ static uint8_t persist_pending;                 /* 1 requested, 2 waiting after 
 static uint32_t persist_retry_ms;
 #endif
 
+#if FELUCCA_FLASH
 /* 3.10: move USR slots from 80 KiB to 68 KiB centres (slot 2 then 1; slot 0 keeps its base). Idempotent:
  * if the new addresses already hold a valid header, do nothing. Power-cut safe: each slot is rewritten
  * into a lower address before the next, and a half-written destination is refused by smp_user_scan. */
@@ -1561,6 +1562,7 @@ static void smp_user_migrate(void)
             return;                                    /* leave the rest for the next boot */
     }
 }
+#endif
 
 static void persist_boot(void)                    /* before settings_init / panel_init */
 {
