@@ -19,12 +19,12 @@
  *   DTUN  spreads the carriers apart in pitch (up to about +-36 cents between the outer ones)
  *   SLOT  F1..F8 load a factory patch; OWN (8) is the track's own patch: what a project, a user preset or the
  *         editor put there. A load shows F n when the patch is that factory one unchanged, else OWN (fm6_adopt).
- *         B1..B32 (9..40, 1.4.1) load a voice of the 32-voice bank in flash (fm6_vbank.c) as F n do; a bank slot
- *         without a voice is skipped by the knob (params.c enum_step) and refused anywhere else (fm6_poll).
+ *         B1..B96 (9..104, 3.10: three 32-voice banks) load a voice from flash (fm6_vbank.c) as F n do; a bank
+ *         slot without a voice is skipped by the knob (params.c enum_step) and refused anywhere else (fm6_poll).
  *         Turning SLOT from OWN to F n / B n keeps the own patch aside; back to OWN brings it back (fm6_poll).
  *         Before 1.0.3 the values 8..34 were F1..F8 then B1..B27, a flash bank (retired: its patches moved into
  *         the user presets, up_fm6.c). A stored value is never a bank slot: projects, user presets and motion
- *         load 9..40 as 8, OWN (params.c param_fit), and the patch comes with the project / the record. So a
+ *         load 9..104 as 8, OWN (params.c param_fit), and the patch comes with the project / the record. So a
  *         project or a preset made with a bank voice sounds the same after the bank is replaced
  * The operator envelopes are the voice's amplitude and end it (engine_t.ownenv / done): the track's ADSR,
  * ENV DEST and the matrix's ENV do nothing here. The track's FLT moves MLVL (ENV / LFO -> FLT, the
@@ -40,7 +40,9 @@
 #define ENGI_FM6 12u             /* engines.c ENGINES[] (append-only) */
 #define FM6_POLY 6               /* engine_t.poly */
 #define FM6_OWN FM6_NFACTORY     /* SLOT: the track's own patch (F1..F8 before it) */
-#define FM6_NBANK 32u            /* SLOT: B1..B32 after OWN, the voice bank (fm6_vbank.c) */
+#define FM6_NBANK 32u            /* voices in one bank (fm6_vbank.c) */
+#define FM6_NBANKS 3u            /* 3.10: three banks; SLOT B1..B96 = 9..104 */
+#define FM6_NBANK_TOTAL (FM6_NBANK * FM6_NBANKS)
 #define FM6_PACKED 128u
 
 static uint8_t fm6_patch[NTRK][FP_SIZE + 1u];   /* the tracks' patches (main loop writes, then fm6_pgen) */
@@ -59,20 +61,22 @@ static struct {                                  /* the patch through the macros
 static fm6_lfo_t fm6_lfo[NTRK];
 static int32_t fm6_lfo_v[NTRK], fm6_lfo_d[NTRK]; /* this block's LFO value and delay (Q24) */
 ENG_MEM_FITS("FM6", sizeof(fm6_note_t) * FM6_POLY);
-/* the voice bank (fm6_vbank.c; in the pool, zeroed at boot: no bank without the store) */
-static uint32_t fm6_bank_used __attribute__((section(".pool")));   /* bit k: B k+1 holds a voice */
-static int (*fm6_bank_read)(uint32_t k, uint8_t *pk) __attribute__((section(".pool")));   /* voice k -> pk, 0 = read */
+/* the voice banks (fm6_vbank.c; in the pool, zeroed at boot: no bank without the store) */
+static uint32_t fm6_bank_used[FM6_NBANKS] __attribute__((section(".pool"))); /* bank b bit v: B(b*32+v+1) holds a voice */
+static int (*fm6_bank_read)(uint32_t k, uint8_t *pk) __attribute__((section(".pool")));   /* voice k (0..95) -> pk, 0 = read */
 
-/* SLOT value s is a bank slot (B1..B32): its voice number, else -1 */
+/* SLOT value s is a bank slot (B1..B96): its flat voice number 0..95, else -1 */
 static int32_t fm6_bank_slot(int32_t s)
 {
-    return s > (int32_t)FM6_OWN && s <= (int32_t)(FM6_OWN + FM6_NBANK) ? s - (int32_t)FM6_OWN - 1 : -1;
+    return s > (int32_t)FM6_OWN && s <= (int32_t)(FM6_OWN + FM6_NBANK_TOTAL) ? s - (int32_t)FM6_OWN - 1 : -1;
 }
 /* SLOT value s can load: a factory slot, OWN, or a bank slot with a voice */
 static int fm6_slot_ok(int32_t s)
 {
     int32_t k = fm6_bank_slot(s);
-    return k < 0 ? s >= 0 && s <= (int32_t)FM6_OWN : (int)((fm6_bank_used >> k) & 1u);
+    if (k < 0)
+        return s >= 0 && s <= (int32_t)FM6_OWN;
+    return (int)((fm6_bank_used[(uint32_t)k / FM6_NBANK] >> ((uint32_t)k % FM6_NBANK)) & 1u);
 }
 
 /* ------------------------------------------------------- patch formats --- */
@@ -288,7 +292,7 @@ static void fm6_poll(void)
             fm6_own_ok |= (uint8_t)bit;
         }
         if (fm6_load_slot(tr, (uint32_t)s))                  /* a bank slot without a voice: SLOT back */
-            trk[tr].p[P_E7] = (int16_t)(fm6_slot[tr] <= FM6_OWN + FM6_NBANK ? fm6_slot[tr] : FM6_OWN);
+            trk[tr].p[P_E7] = (int16_t)(fm6_slot[tr] <= FM6_OWN + FM6_NBANK_TOTAL ? fm6_slot[tr] : FM6_OWN);
     }
 }
 
@@ -429,11 +433,22 @@ static void fm6_render(track_t *t, voice_t *v, int32_t *out, uint32_t len, const
 static const char *const N_FM6_ALG[] = {"PAT", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
                                         "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25",
                                         "26", "27", "28", "29", "30", "31", "32", 0};
-static const char *const N_FM6_PATCH[] = {"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "OWN",
-                                          "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10", "B11", "B12",
-                                          "B13", "B14", "B15", "B16", "B17", "B18", "B19", "B20", "B21", "B22", "B23",
-                                          "B24", "B25", "B26", "B27", "B28", "B29", "B30", "B31", "B32", 0};
-_Static_assert(NELEM(N_FM6_PATCH) == FM6_OWN + FM6_NBANK + 2u, "a SLOT name per value");
+static const char *const N_FM6_PATCH[] = {
+    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "OWN",
+    "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8",
+    "B9", "B10", "B11", "B12", "B13", "B14", "B15", "B16",
+    "B17", "B18", "B19", "B20", "B21", "B22", "B23", "B24",
+    "B25", "B26", "B27", "B28", "B29", "B30", "B31", "B32",
+    "B33", "B34", "B35", "B36", "B37", "B38", "B39", "B40",
+    "B41", "B42", "B43", "B44", "B45", "B46", "B47", "B48",
+    "B49", "B50", "B51", "B52", "B53", "B54", "B55", "B56",
+    "B57", "B58", "B59", "B60", "B61", "B62", "B63", "B64",
+    "B65", "B66", "B67", "B68", "B69", "B70", "B71", "B72",
+    "B73", "B74", "B75", "B76", "B77", "B78", "B79", "B80",
+    "B81", "B82", "B83", "B84", "B85", "B86", "B87", "B88",
+    "B89", "B90", "B91", "B92", "B93", "B94", "B95", "B96",
+    0};
+_Static_assert(NELEM(N_FM6_PATCH) == FM6_OWN + FM6_NBANK_TOTAL + 2u, "a SLOT name per value");
 
 /* {ALG, FB, MLVL, MRAT, MEG, VIB, DTUN, SLOT}: the factory patch F1..F8 as it is, DTUN on the pad */
 static const preset_t FM6_PRESETS[] = {
@@ -458,7 +473,7 @@ static const engine_t ENG_FM6 = {
         {"MEG", F_BIPCT, -64, 63, 0, 0, 0},
         {"VIB", F_INT, 0, 63, 0, 0, 0},
         {"DTUN", F_PCT, 0, 127, 0, 0, 0},
-        {"SLOT", F_INT, 0, FM6_OWN + FM6_NBANK, 0, N_FM6_PATCH, 0},
+        {"SLOT", F_INT, 0, FM6_OWN + FM6_NBANK_TOTAL, 0, N_FM6_PATCH, 0},
     },
     .presets = FM6_PRESETS,
     .npresets = NELEM(FM6_PRESETS),

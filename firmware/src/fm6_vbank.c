@@ -98,11 +98,17 @@ static int fvb_commit(uint32_t base, uint32_t slot, uint32_t seq)
     return st_prog(base, &h, sizeof h);
 }
 
-/* bank voice k -> pk (128 bytes): 0, 1 = none there (eng_fm6.c fm6_bank_read) */
+/* flat voice k (0..95) -> pk (128 bytes): 0, 1 = none there (eng_fm6.c fm6_bank_read). Bank 0 lives at FVB_HOME;
+ * banks 1..2 land in the gap once the VM gate allows (still empty here). */
 static int fvb_read(uint32_t k, uint8_t *pk)
 {
     uint8_t d[UPF_PK];
-    if (k >= FM6_NBANK || !((fm6_bank_used >> k) & 1u) || st_read(FVB_HOME + FVB_VOICES + k * UPF_PK, d, UPF_PK))
+    uint32_t bank = k / FM6_NBANK, voice = k % FM6_NBANK;
+    if (bank >= FM6_NBANKS || !((fm6_bank_used[bank] >> voice) & 1u))
+        return 1;
+    if (bank != 0u)                                   /* gap banks: not provisioned in this step */
+        return 1;
+    if (st_read(FVB_HOME + FVB_VOICES + voice * UPF_PK, d, UPF_PK))
         return 1;
     upf_pk_get(d, pk);
     return 0;
@@ -115,7 +121,7 @@ static void fvb_boot(void)
     st_hdr_t h, s, t;
     uint32_t c, best = 2u;
     int home;
-    fm6_bank_used = 0;
+    memset(fm6_bank_used, 0, sizeof fm6_bank_used);
     fm6_bank_read = fvb_read;
     if (!flash_ok)
         return;
@@ -130,7 +136,7 @@ static void fvb_boot(void)
         !fvb_prog(FVB_HOME + FVB_INFO, st_buf, FVB_LEN))
         fvb_commit(FVB_HOME, 0, s.seq);
     if (!fvb_valid(FVB_HOME, 0, &h))
-        fm6_bank_used = ((const fvb_info_t *)st_buf)->used;
+        fm6_bank_used[0] = ((const fvb_info_t *)st_buf)->used;
 }
 
 /* the transfer's sector holds only what it wrote: no autosave took it since FM6B_BEGIN (its commit record still

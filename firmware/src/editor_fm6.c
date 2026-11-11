@@ -96,7 +96,7 @@ static int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
                             (uint32_t)a[14] << 28);
         ed_b(rc);
         for (i = 0, n = 0; i < FM6_NBANK; i++)
-            n += (fm6_bank_used >> i) & 1u;
+            n += (fm6_bank_used[0] >> i) & 1u;
         ed_b(n);
         return 1;
     case ED_FM6B_LIST: {                                   /* -> voices (32), bank (0 none / 1), its name, per voice:
