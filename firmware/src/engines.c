@@ -110,11 +110,11 @@ static const char *snd_missing(const track_t *t, uint32_t *code)
 static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     0,                           /* ANALOG */
     12,                          /* FM6 */
-    2, 3, 4, 5, 6, 7, 8, 9,      /* PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS */
-    11,                          /* NOISE */
+    14,                          /* WAVETABLE */
+    2, 3, 5, 6, 7,               /* PHASE LOFI VOICE TRIO WHEEL */
+    9, 11, 8, 4,                 /* PHYS NOISE GRAIN SAMPLE */
     10,                          /* DRUM */
     15,                          /* DRUMS */
-    14,                          /* WAVETABLE */
 };
 _Static_assert(NELEM(ENGINE_ORDER) == NENG_SHOWN, "ENGINE_ORDER / NENG_SHOWN");
 
