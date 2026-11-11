@@ -101,15 +101,18 @@ check("a motion record is 3 bytes on disk",
       re.search(r"typedef struct \{ uint8_t place, param, value; \} motion_file_event_t;", read("firmware/src/core.h"))
       is not None)
 motion_max = grab("firmware/src/core.h", r"^#define MOTION_FILE_MAX\s+(\d+)u", "MOTION_FILE_MAX")
-# the block is a header plus the records; the capacity arithmetic in the notes quotes both numbers, so check the
-# formula is the one the numbers assume, and that the result is what a sector budget would use
-check("the motion block is defined as 4 + MOTION_FILE_MAX x a 3-byte record",
-      re.search(r"^#define MOTION_FILE_SIZE \(4u \+ MOTION_FILE_MAX \* sizeof\(motion_file_event_t\)\)",
+motion_body = grab("firmware/src/core.h", r"^#define MOTION_FILE_MAX_BODY\s+(\d+)u", "MOTION_FILE_MAX_BODY")
+# FUN20: 128 records total, but the in-body block stays 88 so DX/FM6 offsets stay frozen; overflow is in the append
+check("the in-body motion block is defined as 4 + MOTION_FILE_MAX_BODY x a 3-byte record",
+      re.search(r"^#define MOTION_FILE_SIZE \(4u \+ MOTION_FILE_MAX_BODY \* sizeof\(motion_file_event_t\)\)",
                 read("firmware/src/core.h"), re.M) is not None)
-if motion_max is not None:
-    check("the motion block fits its share of the store (under one sector's payload)",
-          4 + motion_max * 3 <= (sector or 0) - (payload_off or 0),
-          "%d B for %d records" % (4 + motion_max * 3, motion_max))
+check("FUN20 motion is 128 records with 88 in the body",
+      motion_max == 128 and motion_body == 88,
+      "MAX %s BODY %s" % (motion_max, motion_body))
+if motion_body is not None:
+    check("the in-body motion block fits its share of the store (under one sector's payload)",
+          4 + motion_body * 3 <= (sector or 0) - (payload_off or 0),
+          "%d B for %d records" % (4 + motion_body * 3, motion_body))
 
 print("layout test %s" % ("FAILED" if bad else "passed"))
 sys.exit(1 if bad else 0)

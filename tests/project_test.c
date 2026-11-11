@@ -347,9 +347,8 @@ static int vib_wire(void)
     return bad;
 }
 
-/* The on-disk baseline that a grown object must not disturb: a FUN19 file with the full 88 motion
- * records, packed, read back and packed again, byte for byte. Units in the field hold exactly this. */
-static int fun19_full_motion(void)
+/* FUN20: 128 motion records (88 in the body + 40 in the append), packed, read back and packed again. */
+static int fun20_full_motion(void)
 {
     project_t saved, loaded;
     project_store_t a, b;
@@ -363,17 +362,20 @@ static int fun19_full_motion(void)
     for (i = 0; i < MOTION_FILE_MAX; i++) {
         saved.motion.event[i].place = (uint8_t)i;
         saved.motion.event[i].param = (uint8_t)(MFX_FB | (i & 1u ? MOTION_LOCK : 0u));
-        saved.motion.event[i].value = (int16_t)i;
+        saved.motion.event[i].value = (int16_t)(i % 100u);   /* MFX_FB: 0..120 */
     }
+    saved.lane[0] = 0x1F; saved.lane[39] = 0xA5; saved.lane_tgt = 2;
     saved.sum = proj_sum(&saved);
-    ok = proj_pack(&a, &saved) && a.raw[0] == 0x46 && a.raw[1] == 0x55 && a.raw[2] == 0x4E && a.raw[3] == 0x4A
+    ok = proj_pack(&a, &saved) && a.raw[0] == 0x46 && a.raw[1] == 0x55 && a.raw[2] == 0x4E && a.raw[3] == 0x4B
+         && a.raw[PROJ_APPEND_MARK_OFF] == PROJ_APPEND_MARK
          && proj_import(&loaded, &a, sizeof a) && loaded.motion.count == MOTION_FILE_MAX
+         && loaded.lane[0] == 0x1F && loaded.lane[39] == 0xA5 && loaded.lane_tgt == 2
          && proj_pack(&b, &loaded) && !memcmp(a.raw, b.raw, sizeof a.raw);
     for (i = 0; ok && i < MOTION_FILE_MAX; i++)
         ok &= loaded.motion.event[i].place == (uint8_t)i &&
               loaded.motion.event[i].param == saved.motion.event[i].param &&
               loaded.motion.event[i].value == saved.motion.event[i].value;
-    return check("FUN19 with all 88 motion records round trips byte for byte", ok);
+    return check("FUN20 with all 128 motion records and the punch-in lane round trips byte for byte", ok);
 }
 
 int main(void)
@@ -821,7 +823,7 @@ int main(void)
     bad += generation_wire();
     bad += generation_legacy_defaults();
     bad += step_wire_freeze();
-    bad += fun19_full_motion();
+    bad += fun20_full_motion();
     printf("%s\n", bad ? "PROJECT FORMAT TEST FAILED" : "project format test passed");
     return bad != 0;
 }
