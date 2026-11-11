@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """Build Felucca: the app, the update loader and an installable .fwsc package.
 
-  tools/build.py [--release X.Y[-suffix]]
+  tools/build.py [--release X.Y[-suffix]] [--gen-only]
 
 Outputs in build/: felucca.bin (app), loader/ota.bin (update loader),
 felucca.fwsc (package). A release build (--release X.Y) writes felucca-X.Y.fwsc and a folder
@@ -453,7 +453,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_9XY, version string vX.Y")
     ap.add_argument("--sdk", type=Path, help="three-file JieLi AC79 SDK mirror (default: $AC79_SDK)")
+    ap.add_argument("--gen-only", action="store_true",
+                    help="write build/gen and stop: the browser emulator needs it, not the toolchain or the SDK")
     a = ap.parse_args()
+    if a.gen_only:                  # before anything reads the SDK or the toolchain
+        generate()
+        return 0
     name = "felucca.fwsc"
     if a.release:                   # one digit each: the identity has room for two (X.Y.Z and X.Y.Z.W keep X.Y's)
         m = re.fullmatch(r"(\d)\.(\d)(?:\.\d){0,2}(-[A-Za-z0-9]+)?", a.release)
