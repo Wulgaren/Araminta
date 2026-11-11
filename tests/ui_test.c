@@ -1119,6 +1119,16 @@ static int test_clear_selected_all(void)
     int16_t base_sound = t->p[P_E0];
     my_steps(t);
     t->p[P_E0] = (int16_t)(base_sound + 1);
+    t->p[P_LEVEL] = 12;                                /* the mix and the arp: ALL puts them back */
+    t->p[P_PAN] = -40;
+    t->p[P_MUTE] = PLAY_SOLO;
+    t->p[P_AMODE] = 3;
+    t->p[P_AHOLD] = 1;
+    t->p[P_ARATE] = 5;
+    t->nheld = 2;
+    t->held[0] = 60;
+    t->held[1] = 64;
+    t->arp_phys = 2;
     motion_set_lock(t, 0, P_REV, 50);
     my_steps(&trk[0]);
     trk[0].p[P_E0]++;
@@ -1139,6 +1149,15 @@ static int test_clear_selected_all(void)
     bad += check("selected ALL initializes sound and clears pattern and automation only for T2", !ui.confirm &&
                  seq_is_empty(t) && !motion_count(t) && t->p[P_E0] == base_sound &&
                  track_sig(&trk[0]) == other_before && song.sel == 1 && chain_config.count == 1);
+    bad += check("selected ALL puts the mix (LEVEL PAN PLAY) and the arp (MODE HOLD RATE) back too", !ui.confirm &&
+                 t->p[P_LEVEL] == TP[P_LEVEL].def && t->p[P_PAN] == TP[P_PAN].def &&
+                 t->p[P_MUTE] == TP[P_MUTE].def && t->p[P_AMODE] == TP[P_AMODE].def &&
+                 t->p[P_AHOLD] == TP[P_AHOLD].def && t->p[P_ARATE] == TP[P_ARATE].def && !t->nheld && !t->arp_phys);
+    frame();
+    hold(B_SAVE);                                            /* one undo: the mix and the arp back with the sound */
+    bad += check("SAVE held after SELECTED ALL: the mix and the arp back with the sound and the steps", !ui.confirm &&
+                 t->p[P_LEVEL] == 12 && t->p[P_PAN] == -40 && t->p[P_MUTE] == PLAY_SOLO &&
+                 t->p[P_AMODE] == 3 && t->p[P_AHOLD] == 1 && t->p[P_ARATE] == 5 && !seq_is_empty(t));
     return bad;
 }
 
@@ -1174,6 +1193,14 @@ static int test_clear_every_track_all(void)
         trk[i].p[P_E0]++;
         trk[i].p[P_QUANT] = QN_CURR;                 /* ALL: the clear drops it */
         trk[i].scl_stash_ok = 1;
+        trk[i].p[P_LEVEL] = (int16_t)(20 + i);       /* the mix and the arp: ALL4 puts them back too */
+        trk[i].p[P_PAN] = (int16_t)(i * 10 - 20);
+        trk[i].p[P_MUTE] = (int16_t)(i & 1u ? PLAY_OFF : PLAY_SOLO);
+        trk[i].p[P_AMODE] = (int16_t)(i + 1u);
+        trk[i].p[P_AHOLD] = (int16_t)(i & 1u);
+        trk[i].p[P_AOCT] = 3;
+        trk[i].nheld = 1;
+        trk[i].arp_phys = 1;
         motion_set_lock(&trk[i], 0, P_REV, 50);
         before[i] = track_sig(&trk[i]);
     }
@@ -1193,9 +1220,14 @@ static int test_clear_every_track_all(void)
     press(B_OCTUP);
     for (ok = 1, i = 0; i < NTRK; i++)
         ok &= seq_is_empty(&trk[i]) && !motion_count(&trk[i]) && trk[i].p[P_E0] == base_sound[i] &&
-              trk[i].p[P_QUANT] == QN_OFF && !trk[i].scl_stash_ok;
+              trk[i].p[P_QUANT] == QN_OFF && !trk[i].scl_stash_ok && !trk[i].nheld && !trk[i].arp_phys;
     bad += check("every-track ALL initializes all sounds and clears all patterns, automation and MAP, keeps song", ok &&
                  !ui.confirm && song.sel == 2 && chain_config.count == 1);
+    for (ok = 1, i = 0; i < NTRK; i++)
+        ok &= trk[i].p[P_LEVEL] == TP[P_LEVEL].def && trk[i].p[P_PAN] == TP[P_PAN].def &&
+              trk[i].p[P_MUTE] == TP[P_MUTE].def && trk[i].p[P_AMODE] == TP[P_AMODE].def &&
+              trk[i].p[P_AHOLD] == TP[P_AHOLD].def && trk[i].p[P_AOCT] == TP[P_AOCT].def;
+    bad += check("every-track ALL puts every track's mix and arp back to their defaults", ok);
     return bad;
 }
 

@@ -938,8 +938,9 @@ static int seq_is_empty(const track_t *t)
  * 1.1.5: a lock or automation edit by hand (a step held and a knob turned, a step's locks cleared, SEQ > AUTOMATION)
  * takes the copy too (UNDO_MOT: SAVE held puts the track's motion back, the sound and the steps stay; motion_undo_take).
  * A sound load keeps the track's motion on the parameters every engine has (load_end, motion.c motion_sound_loaded);
- * a pattern load drops it all (the steps it was on are gone) */
-enum { UNDO_SOUND = 1, UNDO_PAT = 2, UNDO_MOT = 4 };
+ * a pattern load drops it all (the steps it was on are gone).
+ * SAVE > CLEAR > ALL / ALL4 clears the mix and the arp too (UNDO_MIX: those come back with the sound and steps) */
+enum { UNDO_SOUND = 1, UNDO_PAT = 2, UNDO_MOT = 4, UNDO_MIX = 8 };
 static struct {
     uint8_t trk;                 /* track + 1, 0 = nothing to undo */
     uint8_t keep;                /* the track is as the last load left it (undo.after): a next load keeps the copy */
@@ -1231,6 +1232,22 @@ static void undo_swap(void)
             undo.step[i] = s;
         }
     }
+    if (undo.what & UNDO_MIX) {                   /* a preset load keeps these (param_kept): the clear changed them */
+        static const uint8_t MIX[3] = {P_LEVEL, P_PAN, P_MUTE};
+        int16_t v;
+        uint32_t j;
+        for (j = 0; j < 3u; j++) {
+            v = t->p[MIX[j]];
+            t->p[MIX[j]] = undo.p[MIX[j]];
+            undo.p[MIX[j]] = v;
+        }
+        for (i = P_AMODE; i <= P_AORDER; i++) {
+            v = t->p[i];
+            t->p[i] = undo.p[i];
+            undo.p[i] = v;
+        }
+        t->ahold_sv = t->p[P_AHOLD];               /* DRONE's forced HOLD: the value it restores */
+    }
     fm1_irq_on();
     if (undo.what & UNDO_SOUND) {                 /* FM6: the track's patch as it was (edited, a project's, a
                                                    * converted DIGITAL sound), not a factory one */
@@ -1520,6 +1537,20 @@ static void clear_fx_track(track_t *t)
     t->fx_sl_pos = 8;
     memset(fx_order_tbl[t - trk], 0, FX_LIST_N);
 }
+/* SAVE > CLEAR > ALL / ALL4: the mix (LEVEL PAN PLAY) and the arp (MODE .. ORD) to their defaults, so a cleared
+ * track sounds at its own level, unmuted, and no latched HOLD chord keeps playing. A preset load keeps both
+ * (param_kept): this is the clear asking for them back */
+static void clear_mix_arp(track_t *t)
+{
+    uint32_t i;
+    t->p[P_LEVEL] = TP[P_LEVEL].def;
+    t->p[P_PAN] = TP[P_PAN].def;
+    t->p[P_MUTE] = TP[P_MUTE].def;
+    for (i = P_AMODE; i <= P_AORDER; i++)
+        t->p[i] = TP[i].def;
+    t->ahold_sv = t->p[P_AHOLD];                /* DRONE forces HOLD on: it restores this on the way out */
+}
+
 /* SAVE > CLEAR > FX ALL: every track's FX, MASTER, the shared SEND knobs and the global FX settings */
 static void clear_fx_all(void)
 {
