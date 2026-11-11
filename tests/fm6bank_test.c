@@ -1,12 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FM6's voice bank (1.4.1, Discussion #168; src/fm6_vbank.c, the editor's FM6B_* in src/editor_fm6.c) against
- * simulated NOR flash: a bank written whole and read back, its sectors (0xE7000, staged in the autosave's older copy,
- * nothing else touched, the tail erased), a power cut after any programmed byte or during any erase (the old bank or
- * the new one, never half; the autosave kept), a wrong CRC and an autosave between requests changing nothing, SLOT
- * B1..B32 loading the exact records, bank slots without a voice skipped by the knob and refused elsewhere, a new
- * bank leaving a track's voice its own, projects and user presets keeping a bank voice whatever the bank holds later,
- * and the SLOT values stored before 1.4.1 (projects, user presets, motion) loading exactly as before. */
+ * simulated NOR flash: a bank written whole and read back, its sectors (0xE7000, staged in the autosave's older copy
+ * at 0xE5000 or 0x93000, nothing else touched, the tail erased), a power cut after any programmed byte or during any
+ * erase (the old bank or the new one, never half; the autosave kept), a wrong CRC and an autosave between requests
+ * changing nothing, SLOT B1..B32 loading the exact records, bank slots without a voice skipped by the knob and refused
+ * elsewhere, a new bank leaving a track's voice its own, projects and user presets keeping a bank voice whatever the
+ * bank holds later, and the SLOT values stored before 1.4.1 (projects, user presets, motion) loading exactly as before. */
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -337,8 +337,8 @@ static int store_test(void)
 static int cut_test(void)
 {
     int bad = 0;
-    static uint8_t pre[0x3000];
     static bank_t a, b;
+    static uint8_t pre_a[0x2000], pre_b[0x2000], pre_v[0x1000];
     uint8_t as_data[600], got[600];
     uint32_t n, old = 0, new = 0, other = 0, total, e, eold = 0, enew = 0;
     reset();
@@ -347,43 +347,52 @@ static int cut_test(void)
     make_bank(&a, 'A', 0x0000FFFFu, "OLD");
     make_bank(&b, 'B', 0xFFFFFFFFu, "NEW");
     send_bank(&a, 0);
-    memcpy(pre, nor + 0xE5000u, sizeof pre);              /* (only these three sectors are ever written here) */
-    progs = 0;
-    send_bank(&b, 0);
-    total = progs;
-    for (n = 0; n < total; n++) {
-        memcpy(nor + 0xE5000u, pre, sizeof pre);
-        memset(&fvb_tx, 0, sizeof fvb_tx);
-        fvb_boot();
-        dead = 0;
-        cut_bytes = (long)n;
+    /* A (2 sectors) + B in the gap (staging) + voice bank: restore those regions between cuts */
+    {
+        memcpy(pre_a, nor + 0xE5000u, sizeof pre_a);
+        memcpy(pre_b, nor + 0x93000u, sizeof pre_b);
+        memcpy(pre_v, nor + 0xE7000u, sizeof pre_v);
+        progs = 0;
         send_bank(&b, 0);
-        dead = 0;
-        cut_bytes = -1;
-        fvb_boot();                                       /* the next power-on */
-        if (bank_is(&a))
-            old++;
-        else if (bank_is(&b))
-            new++;
-        else
-            other++;
-        if (st_load(OBJ_AUTOSAVE, got, sizeof got) != (int)sizeof as_data || memcmp(got, as_data, sizeof as_data))
-            other++;
-    }
-    for (e = 0; e < 2u; e++) {                            /* BEGIN's erase, the copy's erase */
-        memcpy(nor + 0xE5000u, pre, sizeof pre);
-        memset(&fvb_tx, 0, sizeof fvb_tx);
-        fvb_boot();
-        dead = 0;
-        cut_erase = (long)e;
-        send_bank(&b, 0);
-        dead = 0;
-        cut_erase = -1;
-        fvb_boot();
-        eold += bank_is(&a);
-        enew += bank_is(&b);
-        if (st_load(OBJ_AUTOSAVE, got, sizeof got) != (int)sizeof as_data || memcmp(got, as_data, sizeof as_data))
-            other++;
+        total = progs;
+        for (n = 0; n < total; n++) {
+            memcpy(nor + 0xE5000u, pre_a, sizeof pre_a);
+            memcpy(nor + 0x93000u, pre_b, sizeof pre_b);
+            memcpy(nor + 0xE7000u, pre_v, sizeof pre_v);
+            memset(&fvb_tx, 0, sizeof fvb_tx);
+            fvb_boot();
+            dead = 0;
+            cut_bytes = (long)n;
+            send_bank(&b, 0);
+            dead = 0;
+            cut_bytes = -1;
+            fvb_boot();                                       /* the next power-on */
+            if (bank_is(&a))
+                old++;
+            else if (bank_is(&b))
+                new++;
+            else
+                other++;
+            if (st_load(OBJ_AUTOSAVE, got, sizeof got) != (int)sizeof as_data || memcmp(got, as_data, sizeof as_data))
+                other++;
+        }
+        for (e = 0; e < 2u; e++) {                            /* BEGIN's erase, the copy's erase */
+            memcpy(nor + 0xE5000u, pre_a, sizeof pre_a);
+            memcpy(nor + 0x93000u, pre_b, sizeof pre_b);
+            memcpy(nor + 0xE7000u, pre_v, sizeof pre_v);
+            memset(&fvb_tx, 0, sizeof fvb_tx);
+            fvb_boot();
+            dead = 0;
+            cut_erase = (long)e;
+            send_bank(&b, 0);
+            dead = 0;
+            cut_erase = -1;
+            fvb_boot();
+            eold += bank_is(&a);
+            enew += bank_is(&b);
+            if (st_load(OBJ_AUTOSAVE, got, sizeof got) != (int)sizeof as_data || memcmp(got, as_data, sizeof as_data))
+                other++;
+        }
     }
     printf("fm6bank:   %u cut points (bytes): %u the old bank, %u the new one, %u anything else\n", (unsigned)total,
            (unsigned)old, (unsigned)new, (unsigned)other);

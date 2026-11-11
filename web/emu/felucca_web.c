@@ -403,16 +403,8 @@ EXPORT uint32_t web_bk_import(uint32_t id, uint32_t len)
     if (len > sizeof web_bk_buf)
         return 2u;
     if (id == 0u) {
-        /* Interim: autosave is one sector (3840 B) until a 4096 B A/B placement is chosen. A FUN20 wire
-         * is unpacked and re-packed as PROJ_STORE_OLD (no append / lane) before the save. */
-        if (len == (uint32_t)sizeof(project_store_t)) {
-            if (!proj_import(&proj_scratch, (project_store_t *)web_bk_buf, (int)len) ||
-                !proj_pack_st((project_store_t *)web_bk_buf, &proj_scratch, PROJ_STORE_OLD))
-                return 2u;
-            len = PROJ_STORE_OLD;
-        } else if (len > st_pmax(OBJ_AUTOSAVE)) {
+        if (len > st_pmax(OBJ_AUTOSAVE))
             return 2u;
-        }
         return st_save(OBJ_AUTOSAVE, web_bk_buf, len) ? 3u : 0u;
     }
     if (id == 1u)
