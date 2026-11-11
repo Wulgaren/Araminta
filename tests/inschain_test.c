@@ -172,6 +172,7 @@ static void test_tape(void)
 
     fresh();                                          /* SEND, MIX 0: the head is out of the path */
     song.g[G_TAPEMODE] = TAPE_SEND;
+    song.g[G_TMIX] = 0;
     song.g[G_TSPEED] = 100;
     tape_note();
     bypass = hash_out(64);
@@ -260,6 +261,7 @@ static void test_tape(void)
     }
 
     fresh();
+    song.g[G_TAPEMODE] = TAPE_SEND;
     ck("TAPE mode labels: SEND / CHAIN / MASTER / USED",
        str_eq(fx_list_mode(&trk[0], INS_TAPE), "SEND") &&
        (song.g[G_TAPEMODE] = TAPE_CH1, str_eq(fx_list_mode(&trk[0], INS_TAPE), "CHAIN")) &&
@@ -1162,11 +1164,11 @@ int main(void)
                defo[0] == INS_DIST && defo[1] == INS_CRUSH && defo[2] == INS_FILTER &&
                defo[3] == INS_PHASR && defo[4] == INS_FLANG && defo[5] == INS_CHOR);
             fx_list_get(t, list);
-            ck("factory EFFECTS list: DIST…CHOR, DLY, REV, SLCR, TAPE; SLCR default SEND",
+            ck("factory EFFECTS list: DIST…CHOR, DLY, REV, SLCR, TAPE; SLCR SEND, TAPE MASTER",
                list[0] == INS_DIST && list[1] == INS_CRUSH && list[2] == INS_FILTER &&
                list[5] == INS_CHOR && list[6] == INS_DLY && list[7] == INS_REV && list[8] == INS_SLCR &&
                list[9] == INS_TAPE && str_eq(fx_list_mode(t, INS_SLCR), "SEND") &&
-               str_eq(fx_list_mode(t, INS_TAPE), "SEND") && ins_mix_of(t, INS_SLCR) == t->p[P_SLDEPTH]);
+               str_eq(fx_list_mode(t, INS_TAPE), "MASTER") && ins_mix_of(t, INS_SLCR) == t->p[P_SLDEPTH]);
             {
                 uint8_t before[FX_LIST_N], after[FX_LIST_N];
                 uint32_t sl = 8;

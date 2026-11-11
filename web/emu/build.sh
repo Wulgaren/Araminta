@@ -3,7 +3,10 @@
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 # Felucca in the browser: the firmware's sources as the host tests build them (web/emu/felucca_web.c), compiled
 # to WebAssembly with Emscripten, plus the page. After X0X's web/emu/build.sh (charlesvestal/fm1-x0x, GPL-3.0).
-#   web/emu/build.sh   ->  build/emu/{index.html, worklet.js, felucca.wasm, fonts/}
+#   web/emu/build.sh   ->  build/emu/{index.html, worklet.js, saves.js, version.json, felucca.wasm, fonts/}
+#   A preview build sets EMU_BUILD / EMU_SHA (the site's dev preview uses "dev"): the page then names the build,
+#   warns that it shares the live emulator's saves and keeps a copy before its firmware can migrate them
+#   (web/emu/saves.js).
 #   build/emu/worklet.js is web/emu/store.js (its "export " stripped) in front of web/emu/worklet.js: the browser
 #   loads it with AudioWorklet.addModule, which compiles a classic script, so it may not contain a top-level
 #   "export". web/emu/store.js is the module the test (web/emu/emu_test.mjs) imports; edit it there, not here.
@@ -19,6 +22,8 @@ cd "$(dirname "$0")/../.."
 [ -f build/gen/felucca_tables.h ] || { echo "emu: run ./build.sh once first (build/gen)"; exit 1; }
 command -v emcc >/dev/null 2>&1 || { echo "emu: no emcc (Emscripten)"; exit 1; }
 VERSION=$(sed -n 's/^#define FELUCCA_VERSION "\([^"]*\)".*/\1/p' firmware/src/felucca.c)
+EMU_BUILD="${EMU_BUILD:-}"
+EMU_SHA="${EMU_SHA:-}"
 mkdir -p build/emu/fonts
 
 hash_inputs() { # hash_inputs <meta> <file or dir>...: sha256 of the meta and every file under the paths
@@ -37,14 +42,19 @@ EOF
 
 WASM_KEY=$(hash_inputs "$(emcc --version | head -1)|${EMU_OPT:--O2}|${EMU_CFLAGS:-}|$VERSION" \
     firmware/src firmware/hal build/gen web/emu/felucca_web.c web/emu/build.sh)
-PAGE_KEY=$(hash_inputs "$VERSION|${EMU_PREVIEW:-1}" \
-    web/emu/index.html web/emu/store.js web/emu/worklet.js web/emu/fonts)
+PAGE_KEY=$(hash_inputs "$VERSION|${EMU_PREVIEW:-1}|$EMU_BUILD|$EMU_SHA" \
+    web/emu/index.html web/emu/saves.js web/emu/store.js web/emu/worklet.js web/emu/fonts)
+# asset URLs carry this: a rebuilt page asks for a different felucca.wasm / worklet.js / saves.js / font, so a cached
+# copy cannot outlive the build that made it (GitHub Pages serves max-age=600; a hard reload alone did not always win).
+HASH=$(python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:8])' "$WASM_KEY|$PAGE_KEY")
+printf '{"hash":"%s","version":"%s"}\n' "$HASH" "$VERSION" > build/emu/version.json
 
 WASM_OK=0
 [ -f build/emu/.wasm-key ] && [ "$(cat build/emu/.wasm-key)" = "$WASM_KEY" ] && [ -f build/emu/felucca.wasm ] && WASM_OK=1
 PAGE_OK=0
 if [ -f build/emu/.page-key ] && [ "$(cat build/emu/.page-key)" = "$PAGE_KEY" ] &&
-   [ -f build/emu/index.html ] && [ -f build/emu/worklet.js ] && [ -f build/emu/fonts/DotGothic16-subset.woff ] &&
+   [ -f build/emu/index.html ] && [ -f build/emu/worklet.js ] && [ -f build/emu/saves.js ] &&
+   [ -f build/emu/fonts/DotGothic16-subset.woff ] &&
    [ -f build/emu/fonts/OFL.txt ]; then
     PAGE_OK=1
 fi
@@ -63,9 +73,15 @@ if [ "$WASM_OK" = 0 ]; then
 fi
 
 if [ "$PAGE_OK" = 0 ]; then
-    [ "${EMU_PREVIEW:-1}" = 0 ] && PREVIEW='' || PREVIEW=' (preview)'
-    sed -e "s/@VERSION@/$VERSION/g" -e "s/@PREVIEW@/$PREVIEW/g" web/emu/index.html > build/emu/index.html
+    if [ "${EMU_PREVIEW:-1}" = 0 ]; then PREVIEW=''
+    elif [ -n "$EMU_BUILD" ]; then PREVIEW=" (preview · $EMU_BUILD${EMU_SHA:+, $EMU_SHA})"
+    else PREVIEW=' (preview)'
+    fi
+    sed -e "s/@VERSION@/$VERSION/g" -e "s/@PREVIEW@/$PREVIEW/g" \
+        -e "s/@BUILD@/$EMU_BUILD/g" -e "s/@SHA@/$EMU_SHA/g" -e "s/@HASH@/$HASH/g" \
+        web/emu/index.html > build/emu/index.html
     { sed 's/^export //' web/emu/store.js; echo; cat web/emu/worklet.js; } > build/emu/worklet.js
+    cp web/emu/saves.js build/emu/saves.js
     cp web/emu/fonts/DotGothic16-subset.woff web/emu/fonts/OFL.txt build/emu/fonts/
     echo "$PAGE_KEY" > build/emu/.page-key
 fi

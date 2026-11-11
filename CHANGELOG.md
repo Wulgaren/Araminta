@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+EFFECTS > TAPE now starts as MASTER at MIX 100 %: at SPEED 100 the head is idle, so a power-on instrument and a
+new project sound the same as before, and the whole mix follows SPEED / FLUTR / DROPOUT without raising MIX
+first. SAVE > CLEAR > FX ALL returns to the same state. Projects saved before this build (FUN16 and older) still
+load with TAPE off, exactly as they played.
+
 CC 71 / 72 / 73 / 74 turn the four knobs of the page on screen, on the selected track, and CC 75 / 76 / 77 are SELECT,
 ALGORITHM and PRESETS. Each message is one step, so a pot and an endless encoder both work. MIDI LEARN is gone: GLO + D4, MENU > MIDI > LEARN CLEAR and the editor's 78 / 79
 commands and `43 01 16` block. The 32 settings bytes it used stay reserved, so older projects and settings still load.

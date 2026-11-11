@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# A push to dev: republish the site so the dev preview (preview/dev/) is that commit's emulator. The publish itself
+# runs on main (pages.yml), because the github-pages environment only allows main to deploy.
+name: Dev preview
+
+on:
+  push:
+    branches: [dev]
+
+permissions:
+  contents: read
+  actions: write                    # gh workflow run pages.yml
+
+concurrency:
+  group: dev-preview
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Republish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref main -R "${{ github.repository }}"

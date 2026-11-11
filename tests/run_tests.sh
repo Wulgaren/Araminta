@@ -679,6 +679,12 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "insert chain (P1-C): order, MIX 0 bypass, 1.5 INSERT migration, FX page order" "$OUT/inschain_test"
     }
     unit u_inschain
+    u_fxroute() {
+        build "$OUT/fx_route_test" tests/fx_route_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
+        run "FX routes: every stage in CHAIN / SEND / MASTER (knobs, MIX 0, hot input, project round trip)" \
+            "$OUT/fx_route_test"
+    }
+    unit u_fxroute
     # legacy insert_test (single TYPE) not rebuilt until updated for the 6-stage chain
     u_sound15() {
         build "$OUT/sound15_test" tests/sound15_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
@@ -941,6 +947,7 @@ if command -v node >/dev/null 2>&1; then
     for t in test_crc test_info_tags test_installer test_steps_dom test_stock_sha test_projconv; do
         unit_after "$DESC_UNIT $MENU_UNIT" u_web "web: $t" "web/$t.mjs"
     done
+    unit u_web "web: emulator saves (copy before a preview can migrate, restore, writer marker)" web/emu/saves_test.mjs
 else
     note "== skip web tests (no node)"
 fi
