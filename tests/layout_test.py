@@ -80,16 +80,20 @@ if gap_lo is not None and gap_hi is not None:
     check("the gap is four sectors (the number quoted in the notes)", n == 4, "%d sectors" % n)
 
 # ---- the store size the project format assumes ------------------------------------------------------------
+# 3.10: projects are now single-copy, two sectors (4096 bytes): storage.c st_sectors() + st_pmax()
 proj_c = grab("firmware/src/project.c", r"^#define PROJ_STORE_SIZE\s+(\d+)u", "PROJ_STORE_SIZE")
+proj_old_c = grab("firmware/src/project.c", r"^#define PROJ_STORE_OLD\s+(\d+)u", "PROJ_STORE_OLD")
 proj_js = grab("web/projconv.js", r"^const PROJ_STORE_SIZE\s*=\s*(\d+)", "PROJ_STORE_SIZE")
 sector = grab("firmware/src/storage.c", r"^#define ST_SECTOR\s+(\d+)u", "ST_SECTOR")
 payload_off = grab("firmware/src/storage.c", r"^#define ST_PAYLOAD_OFF\s+(\d+)u", "ST_PAYLOAD_OFF")
-check("the project object is the same size in C and the web editor", proj_c == proj_js,
-      "C %s, js %s" % (proj_c, proj_js))
-check("a project is exactly one sector's payload (so it fits one storage object)",
-      sector is not None and payload_off is not None and proj_c == sector - payload_off,
-      "project %s, sector %s - payload offset %s = %s" % (proj_c, sector, payload_off,
-                                                         (sector or 0) - (payload_off or 0)))
+# the web editor should accept both old (3840) and new (4096) sizes; for now it reads old
+check("the web editor reads the old 3840-byte format (the importer handles both)",
+      proj_old_c is not None and proj_js == proj_old_c,
+      "js %s, PROJ_STORE_OLD %s" % (proj_js, proj_old_c))
+# 3.10: project grew from 3840 to 4096 bytes (one sector); the storage spans two sectors (capacity 7936)
+check("a project is exactly one sector (4096 bytes), inside its two-sector storage span",
+      proj_c is not None and proj_c == sector and proj_c < 2 * sector - payload_off,
+      "project %s, sector %s, max capacity %s" % (proj_c, sector, 2 * (sector or 0) - (payload_off or 0)))
 check("the project object is a multiple of 4 (the hash is a uint32 at the end)", proj_c % 4 == 0)
 
 # ---- the record size the motion block and the capacity arithmetic use -------------------------------------

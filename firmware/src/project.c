@@ -30,9 +30,9 @@
  * record, 4 x 128 bytes just before the name): a project is self-contained. On load an FM6 track's SLOT shows F n
  * when its patch is that factory one, else OWN (eng_fm6.c fm6_adopt; a stored 9..40, the B slots of the patch bank
  * before 1.0.3 or of 1.4.1's voice bank, is OWN too: the project has the patch).
- * It is 3584 bytes (FUN7: 3388); FUN7 is read (its tracks get the init patch). The retained cache (proj_slot,
- * .noinit) grew with it: after an update its slot 1 still starts with a FUN7 record, which is read; the other
- * slots fail their hash and come back from flash (persist_boot).
+ * It is 3584 bytes (FUN7: 3388); FUN7 is read (its tracks get the init patch). Since 3.10 no wire image is
+ * kept in RAM: a slot load reads flash once and the slot list draws from a small summary (proj_sum), filled
+ * at boot and updated on a save or a restore.
  *
  * Format 9 ("FUN9", written since 1.1) = FUN8 with 64 more bytes: the DRUM lane levels (P_LN0..P_LN7, #97) made
  * P_COUNT 99 (P_E0 91), and 68 + 4 x (99 + 2 + 576) + chain + motion = 3072 no longer fit before FUN8's patches
@@ -215,22 +215,30 @@ typedef struct {
  * never reads them, so every FUN7 file stays valid both ways; FUN6..FUN1 imports get no name.
  * FUN8: the same, 3584 bytes, the four packed FM6 patches at PROJ_FM6_OFF (before the name); 16 bytes of the
  * reserved tail were left for parameters added later. FUN9: the same, 3648 bytes (see the top). */
-#define PROJ_STORE_SIZE 3840u                  /* FUN11 / FUN10: a whole storage object (storage.c ST_PAYLOAD_MAX) */
+#define PROJ_STORE_SIZE 4096u                  /* 3.10: two sectors of one storage object (storage.c st_pmax): the
+                                                * motion block, the lane and future records share the growth */
+#define PROJ_STORE_OLD 3840u                   /* FUN10..FUN19 in the field: one sector's payload, still read */
 #define PROJ_STORE_V9 3648u                    /* FUN9 */
 #define PROJ_MOTION_V9 260u                    /* the motion block of FUN7..FUN9: 64 x (place, id, i16 value) */
 #define PROJ_STORE_V8 3584u                    /* FUN8 */
 #define PROJ_STORE_V7 3388u                    /* FUN7 */
-#define PROJ_NAME_OFF (PROJ_STORE_SIZE - 4u - PROJ_NAME_LEN)
-#define PROJ_FM6_OFF (PROJ_NAME_OFF - NTRK * FM6_PACKED)
+/* 3.10 Route 1: frozen offsets. DX and FM6 stay where they were (3216, 3312); name moves to 4080.
+ * The 256 B append area (3824..4079) holds the extra motion records (120 B) and lane (40 B). */
+#define PROJ_NAME_OFF 4080u
 #define PROJ_DX_SIZE 96u                       /* kit 88 + mute 2 + marker 1 + X-MOD 4 + 1 pad (JIANT FUNA) */
-#define PROJ_DX_OFF (PROJ_FM6_OFF - PROJ_DX_SIZE)
+#define PROJ_DX_OFF 3216u                      /* frozen: same as FUN11..FUN19 */
+#define PROJ_FM6_OFF 3312u                     /* frozen: same as FUN10..FUN19 (NTRK * FM6_PACKED after DX) */
 #define PROJ_SL_SEND_OFF (PROJ_DX_OFF + PROJ_DX_SIZE - 1u) /* SLICER SEND mask | 0x10 mark */
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(PROJ_NG_WIRE == 27u && G_COUNT >= PROJ_NG_WIRE, "FUN7 wire globals keep IDs 0..26");
 _Static_assert(G_COUNT == 32u, "CHAIN reverb + G_SLOWN + TAPE TEMPO appended");
-_Static_assert(sizeof(project_store_t) == 3840u && PROJ_STORE_V7 == 3388u, "FUN11 / FUN7 sizes");
+_Static_assert(sizeof(project_store_t) == 4096u && PROJ_STORE_V7 == 3388u, "3.10 / FUN7 sizes");
 _Static_assert(PROJ_CRV_OFF + 2u <= PROJ_DX_OFF, "CHAIN reverb bytes before DX kit");
-_Static_assert(sizeof(dx_lane_t[8]) == 88u && PROJ_DX_OFF == 3216u, "FUN11 kit place before FM6");
+_Static_assert(sizeof(dx_lane_t[8]) == 88u && PROJ_DX_OFF == 3216u, "FUN11 kit place, frozen in 3.10");
+_Static_assert(PROJ_FM6_OFF == 3312u && PROJ_FM6_OFF == PROJ_DX_OFF + PROJ_DX_SIZE, "FM6 after DX kit, frozen");
+/* 3.10: the object grew to two sectors; the append area (3824..4079) sits after FM6 and before the name,
+ * where the extra motion records (120 B for +40 records) and the punch-in lane (40 B) will go. */
+_Static_assert(PROJ_NAME_OFF - (PROJ_FM6_OFF + NTRK * FM6_PACKED) == 256u, "the 256 B append area");
 _Static_assert(MOTION_FILE_SIZE_V11 + PROJ_DX_SIZE == MOTION_FILE_SIZE_V10, "kit takes FUN10's motion spare");
 _Static_assert(PROJ_SCL_OFF + PROJ_SCL_SIZE + 2u == PROJ_CRV_OFF, "FUN12 SCALE LOCK before CRV");
 _Static_assert(68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE + MOTION_FILE_SIZE ==
@@ -271,7 +279,24 @@ _Static_assert(68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE15_SIZE
                PROJ_SCL_OFF, "FUN15 lied in the same 3840 bytes");
 #define PROJ_DEF_SOUND 0xFFu                   /* preset byte: the track's power-on sound, no steps */
 #define PROJ_DEF_KEEP 0xFEu                    /* .. DRUM's kit (once SAMPLE PERC), steps and the rest kept */
-project_store_t proj_slot[4] __attribute__((section(".noinit")));
+/* Per-slot summary, so drawing the slot list never reads flash (3.10). Four slots: the name, whether the
+ * slot holds a project, and what SONG draws of it (each track's length in 1/48s and its pattern picture).
+ * Filled at boot with one flash read per slot, then updated from the project already in RAM on a save or
+ * a backup restore. The 4 KiB wire images are no longer retained: a slot load reads flash once. */
+typedef struct {
+    char name[PROJ_NAME_LEN + 1u];
+    uint16_t len48[NTRK];
+    uint32_t den[NTRK];
+    uint8_t cell[NTRK];
+} proj_sum_t;
+static proj_sum_t proj_slot_sum[4] __attribute__((section(".pool")));
+static uint8_t proj_slot_used;                  /* bit k: slot k holds a project */
+_Static_assert(sizeof(proj_sum_t) == 44u, "the slot summary");
+
+#if !FELUCCA_FLASH
+/* test-only: the harness provides this array for project storage when there's no flash */
+extern project_store_t proj_slot[4];
+#endif
 
 /* G_RTYPE (id 24) was G_DRCH, the GM drum part's MIDI channel (0..16, 10 by default) until 1.0: a FUN7 may
  * hold any channel there; ROOM, the only reverb it knew */
@@ -460,17 +485,21 @@ static int proj_import(project_t *q, const void *b, int n)
 }
 static int proj_import_any(project_t *q, const void *b, int n)
 {
-    if (n == PROJ_STORE_SIZE) {
+    {   /* the FUN10..FUN19 wire formats, at either size: a field file is 3840 (PROJ_STORE_OLD), a saved
+         * one is 4096. proj_unpack derives its name / FM6 offsets from the size it is given. */
         uint32_t m = ((const uint32_t *)b)[0];
-        if (m == PROJ_MAGIC || m == PROJ_MAGIC_V18 || m == PROJ_MAGIC_V17 || m == PROJ_MAGIC_V16 ||
-            m == PROJ_MAGIC_V15 ||
-            m == PROJ_MAGIC_V14 || m == PROJ_MAGIC_V13 || m == PROJ_MAGIC_V12 || m == PROJ_MAGIC_V11 ||
-            m == PROJ_MAGIC_V10)
-            return proj_unpack(q, b, PROJ_STORE_SIZE);
+        /* 3.10: a retained slot may hold an older, shorter record: use its own size from the header.
+         * This must happen BEFORE the FUN10+ magic check so old-format data in a new-size slot works. */
+        if (n == (int)PROJ_STORE_SIZE && ((const uint32_t *)b)[1] >= 8u && ((const uint32_t *)b)[1] < PROJ_STORE_SIZE)
+            n = (int)((const uint32_t *)b)[1];
+        if (n == (int)PROJ_STORE_SIZE || n == (int)PROJ_STORE_OLD) {
+            if (m == PROJ_MAGIC || m == PROJ_MAGIC_V18 || m == PROJ_MAGIC_V17 || m == PROJ_MAGIC_V16 ||
+                m == PROJ_MAGIC_V15 ||
+                m == PROJ_MAGIC_V14 || m == PROJ_MAGIC_V13 || m == PROJ_MAGIC_V12 || m == PROJ_MAGIC_V11 ||
+                m == PROJ_MAGIC_V10)
+                return proj_unpack(q, b, n);
+        }
     }
-    if (n == PROJ_STORE_SIZE && ((const uint32_t *)b)[1] >= 8u && ((const uint32_t *)b)[1] < PROJ_STORE_SIZE)
-        n = (int)((const uint32_t *)b)[1];      /* a retained slot holding an older, shorter record: its own size
-                                                 * (every format checks its magic and hash) */
     if (n == (int)PROJ_STORE_V9 && ((const uint32_t *)b)[0] == PROJ_MAGIC_V9)
         return proj_unpack(q, b, PROJ_STORE_V9);
     if (n == (int)PROJ_STORE_V8 && ((const uint32_t *)b)[0] == PROJ_MAGIC_V8)
@@ -714,8 +743,9 @@ static int proj_motion_v9(motion_store_t *m, const uint8_t *b)
  * (PROJ_STORE_V8: FUN9 with its tail 64 bytes shorter) or FUN7 (PROJ_STORE_V7: no patches, the init one) */
 static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
 {
-    uint32_t pos = 68u, t, i, magic, size, sum, np = b[66], v7 = st == PROJ_STORE_V7, v10 = st == PROJ_STORE_SIZE;
-    uint32_t name_off = st - 4u - PROJ_NAME_LEN, end = v7 ? name_off : name_off - NTRK * FM6_PACKED;
+    uint32_t pos = 68u, t, i, magic, size, sum, np = b[66], v7 = st == PROJ_STORE_V7, v10 = (st == PROJ_STORE_SIZE || st == PROJ_STORE_OLD);
+    uint32_t name_off = st - 4u - PROJ_NAME_LEN;
+    uint32_t end = v10 ? PROJ_FM6_OFF : v7 ? name_off : (name_off - NTRK * FM6_PACKED);  /* v8/v9 derive; v10+ frozen */
     uint32_t v11 = 0, v12 = 0, v13 = 0, v14, v15 = 0, v16 = 0, v17 = 0, v18 = 0, v19 = 0, data_end = end;
     /* np>111: insert chain; FUN16: packed chain + MOTION_FILE_SIZE; FUN12..FUN15: 5-byte chain rows +
      * MOTION_FILE_SIZE_V15 + SCALE LOCK; FUN11: MOTION_FILE_SIZE_V11 + kit; FUN10: MOTION_FILE_SIZE_V10;
@@ -1088,23 +1118,51 @@ static void proj_bound(project_t *q)
     q->sum = proj_sum(q);
 }
 
-#if FELUCCA_FLASH
-/* slot from flash into RAM (format 7, or format 6 / 5 / 4 / 3 / 2 / 1 converted) */
-static void proj_fetch(uint32_t slot)
+static uint32_t len48_of(int32_t len, int32_t div);
+static uint32_t proj_density(const proj_trk_t *t, uint8_t *n);
+
+/* one slot from flash into proj_scratch (format 7, or format 6 / 5 / 4 / 3 / 2 / 1 converted), and its
+ * summary refreshed. 0 = the slot does not hold a loadable project. Event paths only: a slot load, SONG's
+ * chain prepare, a backup restore, boot. */
+static int proj_fetch(uint32_t slot)
 {
-    project_store_t *q = &proj_slot[slot & 3u];
+    uint32_t k = slot & 3u;
     int n;
+    proj_slot_used &= (uint8_t)~(1u << k);
+    memset(&proj_slot_sum[k], 0, sizeof proj_slot_sum[k]);
+#if FELUCCA_FLASH
+    if (!flash_ok)
+        return 0;
     proj_wire_gen++;
-    n = st_load(OBJ_PROJECT0 + (slot & 3u), &proj_wire, sizeof proj_wire);
+    n = st_load(OBJ_PROJECT0 + k, &proj_wire, sizeof proj_wire);
     if (!proj_import(&proj_scratch, &proj_wire, n))
-        memset(q->raw, 0, 4);
-    else {
-        proj_bound(&proj_scratch);
-        if (!proj_pack(q, &proj_scratch))
-            memset(q->raw, 0, 4);
+        return 0;
+#else
+    /* test-only path: read from proj_slot (provided by the test harness) */
+    if (!proj_import(&proj_scratch, &proj_slot[k], sizeof proj_slot[k]))
+        return 0;
+#endif
+    proj_bound(&proj_scratch);
+    proj_slot_used |= (uint8_t)(1u << k);
+    proj_name_get(proj_slot_sum[k].name, (const uint8_t *)proj_scratch.name);
+    for (n = 0; n < (int)NTRK; n++) {
+        proj_slot_sum[k].len48[n] = (uint16_t)len48_of(proj_scratch.t[n].p[P_SLEN], proj_scratch.t[n].p[P_SDIV]);
+        proj_slot_sum[k].den[n] = proj_density(&proj_scratch.t[n], &proj_slot_sum[k].cell[n]);
+    }
+    return 1;
+}
+
+/* the same summary from a project already in RAM (a save, a restore): no flash read */
+static void proj_sum_set(uint32_t slot, const project_t *p)
+{
+    uint32_t k = slot & 3u, n;
+    proj_slot_used |= (uint8_t)(1u << k);
+    proj_name_get(proj_slot_sum[k].name, (const uint8_t *)p->name);
+    for (n = 0; n < NTRK; n++) {
+        proj_slot_sum[k].len48[n] = (uint16_t)len48_of(p->t[n].p[P_SLEN], p->t[n].p[P_SDIV]);
+        proj_slot_sum[k].den[n] = proj_density(&p->t[n], &proj_slot_sum[k].cell[n]);
     }
 }
-#endif
 
 static void project_capture(project_t *p)
 {
@@ -1174,25 +1232,26 @@ static int project_save_as(uint32_t slot, const char *name)
     if (!proj_pack(&proj_wire, p)) { ui_message("SAVE FORMAT ERROR"); return 2; }
 
 #if FELUCCA_FLASH
-    if (flash_ok) {
-        if (st_save(OBJ_PROJECT0 + (slot & 3u), &proj_wire, sizeof proj_wire)) {
-            ui_message("SAVE ERROR");
-            return 2;
-        }
-        memcpy(&proj_slot[slot & 3u], &proj_wire, sizeof proj_wire);
+    if (flash_ok && st_save(OBJ_PROJECT0 + (slot & 3u), &proj_wire, sizeof proj_wire) == 0) {
+        proj_sum_set(slot, p);                             /* the summary from RAM: no flash read */
         proj_name_get(proj_name, (const uint8_t *)p->name);
         proj_cur = (uint8_t)(slot & 3u);
         pat_from_set((slot & 3u) + 1u);
         ui_message("SAVED");
         return 0;
     }
-#endif
+    ui_message("SAVE ERROR");       /* 3.10: a project lives in flash; there is no RAM-only slot */
+    return 2;
+#else
+    /* test-only path: write to proj_slot (provided by the test harness) */
     memcpy(&proj_slot[slot & 3u], &proj_wire, sizeof proj_wire);
+    proj_sum_set(slot, p);
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = (uint8_t)(slot & 3u);
     pat_from_set((slot & 3u) + 1u);
     ui_message("SAVED (RAM)");
     return 0;
+#endif
 }
 static int project_save(uint32_t slot) { return project_save_as(slot, 0); }
 static void project_cur_name(char *b) { str_cpy(b, proj_name, PROJ_NAME_LEN + 1u); }   /* b: 13 bytes */
@@ -1231,7 +1290,7 @@ static uint32_t proj_density(const proj_trk_t *t, uint8_t *n)
 /* .. and, den not 0, each track's picture (proj_density: den[k], its cells n[k]; 0 for an empty slot) */
 static int project_info(uint32_t slot, char *b, uint16_t *len48, uint32_t *den, uint8_t *n)
 {
-    uint32_t k;
+    uint32_t k = slot & 3u;
     b[0] = 0;
     if (len48)
         memset(len48, 0, NTRK * sizeof *len48);
@@ -1239,13 +1298,15 @@ static int project_info(uint32_t slot, char *b, uint16_t *len48, uint32_t *den, 
         memset(den, 0, NTRK * sizeof *den);
         memset(n, 0, NTRK);
     }
-    if (!proj_import(&proj_scratch, &proj_slot[slot & 3u], sizeof(project_store_t)))
+    if (!((proj_slot_used >> k) & 1u))                 /* no flash: the summary is kept by proj_fetch / proj_sum_set */
         return 0;
-    proj_name_get(b, (const uint8_t *)proj_scratch.name);
+    memcpy(b, proj_slot_sum[k].name, sizeof proj_slot_sum[k].name);
     for (k = 0; len48 && k < NTRK; k++)
-        len48[k] = (uint16_t)len48_of(proj_scratch.t[k].p[P_SLEN], proj_scratch.t[k].p[P_SDIV]);
-    for (k = 0; den && k < NTRK; k++)
-        den[k] = proj_density(&proj_scratch.t[k], &n[k]);
+        len48[k] = proj_slot_sum[slot & 3u].len48[k];
+    for (k = 0; den && k < NTRK; k++) {
+        den[k] = proj_slot_sum[slot & 3u].den[k];
+        n[k] = proj_slot_sum[slot & 3u].cell[k];
+    }
     return 1;
 }
 
@@ -1259,7 +1320,7 @@ static int project_rename(uint32_t slot, const char *name)
         ui_message("STOP TO SAVE");
         return 1;
     }
-    if (!proj_import(p, &proj_slot[slot & 3u], sizeof(project_store_t))) {
+    if (!proj_fetch(slot)) {
         ui_message("EMPTY SLOT");
         return 1;
     }
@@ -1268,19 +1329,24 @@ static int project_rename(uint32_t slot, const char *name)
     proj_wire_gen++;
     if (!proj_pack(&proj_wire, p)) { ui_message("SAVE FORMAT ERROR"); return 2; }
 #if FELUCCA_FLASH
-    if (flash_ok && st_save(OBJ_PROJECT0 + (slot & 3u), &proj_wire, sizeof proj_wire)) {
+    if (!flash_ok || st_save(OBJ_PROJECT0 + (slot & 3u), &proj_wire, sizeof proj_wire)) {
         ui_message("SAVE ERROR");
         return 2;
     }
-#endif
-    memcpy(&proj_slot[slot & 3u], &proj_wire, sizeof proj_wire);
+    proj_sum_set(slot, p);
     if (proj_cur == (slot & 3u))
         proj_name_get(proj_name, (const uint8_t *)p->name);
-#if FELUCCA_FLASH
-    if (flash_ok) { ui_message("RENAMED"); return 0; }
-#endif
+    ui_message("RENAMED");
+    return 0;
+#else
+    /* test-only path: write to proj_slot */
+    memcpy(&proj_slot[slot & 3u], &proj_wire, sizeof proj_wire);
+    proj_sum_set(slot, p);
+    if (proj_cur == (slot & 3u))
+        proj_name_get(proj_name, (const uint8_t *)p->name);
     ui_message("RENAMED (RAM)");
     return 0;
+#endif
 }
 
 static int project_restore_runtime(const project_t *input)
@@ -1384,10 +1450,7 @@ static int project_restore_runtime(const project_t *input)
 }
 static void project_load(uint32_t slot)
 {
-#if FELUCCA_FLASH
-    if (flash_ok && !proj_import(&proj_scratch, &proj_slot[slot & 3u], sizeof(project_store_t))) proj_fetch(slot);
-#endif
-    if (!proj_import(&proj_scratch, &proj_slot[slot & 3u], sizeof(project_store_t))) { ui_message("EMPTY SLOT"); return; }
+    if (!proj_fetch(slot)) { ui_message("EMPTY SLOT"); return; }
     proj_bound(&proj_scratch);                          /* a retained RAM slot of an older format: as from flash */
     if (!project_restore_runtime(&proj_scratch)) {
         proj_cur = (uint8_t)(slot & 3u);
@@ -1426,17 +1489,17 @@ static void persist_boot(void)                    /* before settings_init / pane
         if (settings_import(&p, n))
             persist_saved = p;
     }
-    {   /* projects: fill empty RAM slots from flash, so the slot list is right after power-on */
+    {   /* projects: one flash read a slot, so the slot list is right from power-on and never reads
+         * flash while drawing afterwards */
         uint32_t i;
         for (i = 0; i < 4u; i++)
-            if (!proj_import(&proj_scratch, &proj_slot[i], sizeof(project_store_t)))
-                proj_fetch(i);
+            proj_fetch(i);
     }
     up_boot();                                     /* user presets */
 #endif
 }
 
-static int project_used(uint32_t slot) { return proj_import(&proj_scratch, &proj_slot[slot & 3u], sizeof(project_store_t)); }
+static int project_used(uint32_t slot) { return (int)((proj_slot_used >> (slot & 3u)) & 1u); }
 
 /* Main loop only: no flash access or copies when the ISR changes rows. */
 static uint32_t chain_prepare(void)
@@ -1459,7 +1522,7 @@ static uint32_t chain_prepare(void)
     for (i = 0; i < 4u; i++)
         if ((used >> i) & 1u) {
             project_t *p = &proj_scratch;
-            if (!proj_import(p, &proj_slot[i], sizeof(project_store_t))) return 3u + i;
+            if (!proj_fetch(i)) return 3u + i;
             chain.source[i].motion = p->motion;
             /* A song keeps its current instruments. Engine-specific motion from
              * another instrument would change a kit/wave/algorithm unexpectedly. */
