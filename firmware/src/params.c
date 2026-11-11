@@ -229,8 +229,10 @@ static const param_desc_t GP[G_COUNT] = {
     [G_SAVE] = PE("SAVE", N_GO, 0),
     [G_ENGSEL] = PE("ENG", N_ENGNAME, 0),
     [G_CLIP] = PD("CLIP", F_PCT, 0, 100, 0),     /* master clipper: drive x1 .. x4 into the soft clip */
-    [G_TMIX] = PD("MIX", F_PCT, 0, 127, 0),      /* TAPE MASTER dry/wet (was G_CLRSEQ, an unused GO) */
-    [G_TAPEMODE] = PE("TAPE", N_TAPEMODE, 0),    /* 0 SEND, 1..4 CHAIN owner, 5 MASTER (was G_INITSND) */
+    [G_TMIX] = PD("MIX", F_PCT, 0, 127, 127),    /* TAPE MASTER dry/wet (was G_CLRSEQ, an unused GO):
+                                                  * 100 % by default; at SPEED 100 the head is idle */
+    [G_TAPEMODE] = PE("TAPE", N_TAPEMODE, TAPE_MASTER), /* 0 SEND, 1..4 CHAIN owner, 5 MASTER: the whole mix
+                                                  * by default (was G_INITSND) */
     /* the reverb's model on the REVERB page: the id of the old GM drum channel (G_DRCH, inert since 1.0) */
     [G_RTYPE] = PE("TYPE", N_RTYPE, 2),         /* SEND tank; HALL at power-on since 1.2 */
     /* (JIANT) drum bus and kick ducking; ids were G_DRLVL / G_DRREV (GM drum part). proj_drums_to_part clears them. */
@@ -333,6 +335,12 @@ static int32_t enum_orig(const param_desc_t *d, int32_t v)
  * and the patch comes with what is loaded */
 static int32_t param_fit(const param_desc_t *d, int32_t v)
 {
+    if (d == &TP[P_IORD]) {                    /* bits 10..15 are the SEND route flags, not the order */
+        uint16_t raw = (uint16_t)v, ord = (uint16_t)(raw & 1023u);
+        if (ord > (uint16_t)d->max)
+            ord = (uint16_t)d->max;
+        return (int32_t)(uint16_t)((raw & 0xFC00u) | ord);
+    }
     v = clamp(v, d->min, d->max);
     if (d->names == N_FM6_PATCH)
         return v > (int32_t)FM6_OWN ? (int32_t)FM6_OWN : v;

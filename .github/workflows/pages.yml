@@ -1,5 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-only
-# Build Araminta, run host tests, publish installer / editor / try to GitHub Pages.
+# Build Araminta, run host tests, and publish the installer / editor / try pages to GitHub Pages, plus one
+# preview of the dev branch at preview/dev/ (the emulator built from dev's sources).
+#
+# The live site is always rebuilt from main here. dev contributes only its emulator build, made in this run from a
+# checkout of dev; it never supplies the installer, the package or the workflow. A dev build that fails leaves the
+# live site intact and the previous preview in place.
 name: Pages
 
 on:
@@ -10,15 +15,15 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: pages-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.event.pull_request.number) || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build:
+  # Pull requests: the firmware package and the full host gate. Never a site, never a deploy.
+  test:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -70,8 +75,83 @@ jobs:
       - name: Host tests (incl. WASM try)
         run: tests/run_tests.sh
 
+  # main pushes and manual/dev dispatches: rebuild the live site from main, add the dev preview, verify, and hand
+  # the whole tree to the deploy job. Any failed check here leaves the live site as it was.
+  site:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: The live site comes from main
+        run: |
+          head=$(git rev-parse HEAD)
+          echo "live site from main $head"
+          if [ "${{ github.event_name }}" = push ] && [ "$head" != "${{ github.sha }}" ]; then
+            echo "::error::checked out $head, not the pushed commit ${{ github.sha }}"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        continue-on-error: true          # a dev checkout that fails must not block a release publish
+        with:
+          ref: dev
+          path: devsrc
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Python deps
+        run: pip3 install Pillow fonttools
+
+      - name: Cache JieLi toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.jieli
+          key: jieli-linux-toolchain-v1
+
+      - name: JieLi toolchain
+        run: |
+          if [ ! -x "$HOME/.jieli/toolchain/pi32v2/bin/clang" ]; then
+            tools/get_toolchain.sh
+          fi
+          echo "JIELI_TOOLCHAIN=$HOME/.jieli/toolchain" >> "$GITHUB_ENV"
+
+      - name: Cache AC79 SDK files
+        uses: actions/cache@v4
+        with:
+          path: build/deps/ac79
+          key: ac79-sdk-V1.2.1-2023-12-13
+
+      - name: AC79 SDK files
+        run: |
+          tools/get_sdk.sh
+          echo "AC79_SDK=$PWD/build/deps/ac79" >> "$GITHUB_ENV"
+
+      - name: Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.74
+
+      - name: Firmware package
+        run: ./build.sh
+
+      - name: Host tests
+        if: github.event_name == 'push'
+        run: tests/run_tests.sh
+
+      - name: Emulator
+        run: sh web/emu/build.sh
+
       - name: Site tree
-        if: github.event_name != 'pull_request'
         run: |
           VER=$(sed -n 's/^#define FELUCCA_VERSION "\([^"]*\)".*/\1/p' firmware/src/felucca.c)
           SHA=$(git rev-parse --short HEAD)
@@ -80,19 +160,64 @@ jobs:
           python3 web/make_site.py build/felucca.fwsc "$SITE_VER" site
           mkdir -p site/webapp/try
           cp -a build/emu/. site/webapp/try/
+          rm -f site/webapp/try/.wasm-key site/webapp/try/.page-key
+
+      # dev's emulator only. A dev that cannot build must not stop a release from publishing, so this step is
+      # allowed to fail and the preview is simply left as it was (or absent).
+      - name: Dev preview
+        continue-on-error: true
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          cd devsrc
+          ./build.sh --gen-only
+          EMU_BUILD=dev EMU_SHA="$(git rev-parse --short HEAD)" sh web/emu/build.sh
+          rm -f build/emu/.wasm-key build/emu/.page-key
+          for f in index.html worklet.js saves.js felucca.wasm fonts/DotGothic16-subset.woff fonts/OFL.txt; do
+            [ -s "build/emu/$f" ] || { echo "::error::dev preview has no $f"; exit 1; }
+          done
+          mkdir -p ../site/preview
+          rm -rf ../site/preview/dev.build
+          cp -a build/emu ../site/preview/dev.build
+          rm -rf ../site/preview/dev
+          mv ../site/preview/dev.build ../site/preview/dev
+          echo "dev preview from $(git rev-parse --short HEAD)"
+
+      - name: Verify the live site
+        run: |
+          set -euo pipefail
+          need() { [ -s "$1" ] || { echo "::error::live site: $1 is missing or empty"; exit 1; }; }
+          need site/index.html
+          need site/webapp/installer/index.html
+          need site/webapp/editor/index.html
+          need site/webapp/try/index.html
+          need site/webapp/try/worklet.js
+          need site/webapp/try/saves.js
+          need site/webapp/try/felucca.wasm
+          set -- site/firmware/*.fwsc
+          [ -e "$1" ] || { echo "::error::live site: no .fwsc package"; exit 1; }
+          [ "$#" = 1 ] || { echo "::error::live site: expected one .fwsc, found $#"; exit 1; }
+          want=$(python3 -c 'import re,sys; m=re.search(r"\"sha256\":\s*\"([0-9a-f]{64})\"", open(sys.argv[1], encoding="utf-8").read()); print(m.group(1) if m else "")' site/webapp/installer/index.html)
+          got=$(sha256sum "$1" | cut -d' ' -f1)
+          [ -n "$want" ] && [ "$want" = "$got" ] ||
+            { echo "::error::live site: the installer pins $want, the package is $got"; exit 1; }
+          echo "live site verified: $(wc -c < "$1") B package, dev preview: $( [ -s site/preview/dev/felucca.wasm ] && echo yes || echo no )"
 
       - uses: actions/upload-pages-artifact@v3
-        if: github.event_name != 'pull_request'
         with:
           path: site
 
   deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: build
+    if: github.event_name != 'pull_request'
+    needs: site
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
     steps:
       - id: deploy
         uses: actions/deploy-pages@v4
