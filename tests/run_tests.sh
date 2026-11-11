@@ -383,6 +383,7 @@ u_storage() {
     build "$OUT/flash_map_test" tests/flash_map_test.c -Ifirmware/hal
     run "flash map (write windows: the gap, the store, the app area refused)" "$OUT/flash_map_test"
     run "layout constants across C / Python / JavaScript / the linker" python3 tests/layout_test.py
+    run "flash dump: the VM verdicts and the two extracted areas" python3 tests/flash_dump_test.py
 }
 unit u_storage
 
@@ -477,6 +478,8 @@ python3 tools/fm1pkg_make.py "$OUT/old_app.bin" build/loader/ota.bin "$OUT/old.f
 u_ldr() {
     build "$OUT/ldr_test" tests/ldr_test.c
     run "update loader: other app -> this build" "$OUT/ldr_test" "$OUT/old.fwsc" build/felucca.fwsc
+    run "update loader: this build -> other app (the return direction)" \
+        "$OUT/ldr_test" build/felucca.fwsc "$OUT/old.fwsc"
 }
 unit u_ldr
 
