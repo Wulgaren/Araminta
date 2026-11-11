@@ -630,7 +630,8 @@ static int formats(void)
     project_capture(&a);
     memset(a.motion.event + a.motion.count, 0, (MOTION_MAX - a.motion.count) * sizeof a.motion.event[0]);
     ok = motion.count == MOTION_FILE_MAX && proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == PROJ_MAGIC &&
-         ((uint32_t *)st.raw)[1] == 3840u && st.raw[66] == P_COUNT && proj_import(&b, &st, sizeof st) && !memcmp(&a, &b, sizeof a);
+         ((uint32_t *)st.raw)[1] == PROJ_STORE_SIZE && st.raw[66] == P_COUNT &&
+         proj_import(&b, &st, sizeof st) && !memcmp(&a, &b, sizeof a);
     ok &= step_nudge(&b.t[0].step[0]) == -8 && step_nudge(&b.t[0].step[1]) == 7 && step_nudge(&b.t[0].step[2]) == -1 &&
           step_ratchet(&b.t[0].step[3]) == 4u && step_nudge(&b.t[0].step[3]) == 1 && step_chance(&b.t[0].step[3]) == 33u;
     ok &= b.t[0].p[P_LSYNC] == 8 && b.t[0].p[P_LTRIG] == 1 && b.t[0].p[P_LPOL] == 1 && b.t[0].p[P_SQNT] == 0;
@@ -640,7 +641,7 @@ static int formats(void)
         ok &= !(st.raw[n0] & 0x80u) && (st.raw[n0 + 3u] & 0x80u) &&   /* -8: bit 3 only */
               (st.raw[n0 + 9u] & 0x80u) && !(st.raw[n0 + 12u] & 0x80u);   /* +7: bits 0..2 */
     }
-    bad += check("FUN13 round trip: 3840 bytes, nudges, MOTION_FILE_MAX disk records, LFO 2, QUANTIZE", ok);
+    bad += check("FUN20 round trip: 4096 bytes, nudges, MOTION_FILE_MAX disk records, LFO 2, QUANTIZE", ok);
     /* Old np 103/104 (pre-insert-chain) migration: inschain_test + params_by_count / ins_migrate. */
     {   /* the song's sections (1.2; FUN16 wire): a slot per track, "-" silent, 2 bytes a row, 36 in all after the steps */
         project_t c = a, d;

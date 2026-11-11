@@ -21,12 +21,12 @@
  * Of the repeats (STUTTER, ARP) the fastest held plays. A#4 (black key 8) steps the tracks they act on: ALL,
  * SYN (the synths), DRM (DRUM tracks) (pfx_tgt; the layer's header says it).
  * The punch-in lane (the automation): 64 steps of 1/16 (4 bars, from the transport's start: one loop for the whole
- * transport, the same in every song section), one effect a step (pfx_lane: a nibble, 0 none, 1..11 OCT- .. x2;
- * GLITCH is audio-only and never in the lane) and the tracks it acts on (pfx_ltgt).
+ * transport, the same in every song section), one effect a step (pfx_lane: 5 bits, 0 none, 1..11 OCT- .. x2, room
+ * for 16 effects; GLITCH is audio-only and never in the lane) and the tracks it acts on (pfx_ltgt).
  * Recording (REC armed, playing, not a song): the steps that pass while a MIDI effect is held get it (the lowest held),
  * with the tracks A#4 picked. Played back with the held ones. (G5 CLR is latched-FX all-off when FX LATCH is on.)
- * RAM only: nothing saves the lane (project.c has no bytes for it) and nothing stages it per song section
- * (song_chain.c never mentions it), so a power cycle loses it. The presses still play back until then.
+ * FUN20 saves the lane in the project's append area (project.c PROJ_LANE_OFF); older projects load an empty lane.
+ * Nothing stages it per song section (song_chain.c never mentions it).
  * In the ISR: pfx_block before the events (what acts on each track, the repeats, the decays put in), pfx_end after
  * the parts (the decays back: as mod.c, nothing outside the ISR sees them). Idle: one test a block. */
 static uint8_t pfx_in;                /* a repeat's own note-on (pfx_note lets it through) */
@@ -117,12 +117,20 @@ static uint32_t pfx_qon;            /* (JIANT) the effects in (quantized to the 
 static int pfx_rec_ok(void);          /* seq.c: REC armed, not a song playing */
 static uint8_t pfx_rh, pfx_rs0, pfx_rst, pfx_rold;   /* recording the lane: a press on, its first step, the step being
                                                       * written and what it held before */
-/* the lane's step s: 0 none, else the effect (PF_OCTD + v - 1) */
-static uint32_t pfx_lane_at(uint32_t s) { return (pfx_lane[(s >> 1) & 31u] >> ((s & 1u) * 4u)) & 15u; }
+/* the lane's step s: 0 none, else the effect (PF_OCTD + v - 1). 5 bits a step across 40 bytes (FUN20). */
+static uint32_t pfx_lane_at(uint32_t s)
+{
+    uint32_t bit = (s & 63u) * 5u, i = bit >> 3, o = bit & 7u, w;
+    w = pfx_lane[i] | (uint32_t)pfx_lane[(i + 1u) % 40u] << 8;
+    return (w >> o) & 31u;
+}
 static void pfx_lane_put(uint32_t s, uint32_t v)
 {
-    uint8_t *p = &pfx_lane[(s >> 1) & 31u];
-    *p = (uint8_t)((*p & (s & 1u ? 0x0Fu : 0xF0u)) | (v & 15u) << ((s & 1u) * 4u));
+    uint32_t bit = (s & 63u) * 5u, i = bit >> 3, o = bit & 7u, w, m = 31u << o;
+    w = pfx_lane[i] | (uint32_t)pfx_lane[(i + 1u) % 40u] << 8;
+    w = (w & ~m) | ((v & 31u) << o);
+    pfx_lane[i] = (uint8_t)w;
+    pfx_lane[(i + 1u) % 40u] = (uint8_t)(w >> 8);
 }
 
 /* each block, before the events (fx.c mix_block). held: the effects held (PF_* bits) */

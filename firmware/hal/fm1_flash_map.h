@@ -8,7 +8,7 @@
  *   0x004000..0x093000  the app area (the loader writes only this), fm1pkg_make.py APP_SLOT
  *   0x093000..0x097000  the gap: four sectors between the app and the store. Nobody's until 3.10, readable through
  *                       the plaintext window (fl_plain_window_init), now Felucca's own
- *   0x097000..0x0E0000  the main store: projects, user samples, user presets
+ *   0x097000..0x0E0000  the main store: projects, user samples (80 KiB x 3), user presets
  *   0x0E0000..0x0E5000  the update loader's staging (ota.c), never a storage object
  *   0x0E5000..0x0E8000  the autosave A/B and the FM6 voice bank
  *   0x0FC000..0x0FF000  settings (the superblock / globals)
