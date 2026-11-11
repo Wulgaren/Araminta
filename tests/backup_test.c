@@ -3,7 +3,7 @@
 /* The editor's full backup (editor_backup.c: LIST / GET / PUT) against simulated NOR flash:
  * CRC before any write, stale runtime copies, USB resets and timeouts, malformed objects, older
  * project formats, settings values and user preset banks kept byte for byte. */
-static unsigned char host_samples[3][0x14000];
+static unsigned char host_samples[3][0x11000];
 #define SMP_USER_XIP(k) host_samples[k]
 #define main hostsim_main
 #include "hostsim.c"

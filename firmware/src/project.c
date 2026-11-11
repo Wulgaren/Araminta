@@ -1514,6 +1514,54 @@ static uint8_t persist_pending;                 /* 1 requested, 2 waiting after 
 static uint32_t persist_retry_ms;
 #endif
 
+/* 3.10: move USR slots from 80 KiB to 68 KiB centres (slot 2 then 1; slot 0 keeps its base). Idempotent:
+ * if the new addresses already hold a valid header, do nothing. Power-cut safe: each slot is rewritten
+ * into a lower address before the next, and a half-written destination is refused by smp_user_scan. */
+static int smp_slot_hdr_ok(uint32_t off, uint32_t max_data)
+{
+    smp_user_hdr_t h;
+    smp_wt_hdr_t wt;
+    if (st_read(off, &h, sizeof h))
+        return 0;
+    if (h.magic == SMP_USER_MAGIC && h.version == 1 && h.nz && h.nz <= 16u && h.data_len <= max_data)
+        return 1;
+    if (st_read(off, &wt, sizeof wt))
+        return 0;
+    return wt.magic == SMP_WT_MAGIC && wt.version == SMP_WT_VERSION && wt.frames && wt.frames <= 64u &&
+           wt.data_len <= max_data;
+}
+static int smp_flash_move(uint32_t dst, uint32_t src, uint32_t n)
+{
+    uint32_t off, chunk;
+    int rc;
+    if (dst == src)
+        return 0;
+    for (off = 0; off < n; off += ST_SECTOR)
+        if ((rc = st_erase(dst + off)) != 0)
+            return rc;
+    for (off = 0; off < n; ) {
+        chunk = n - off > 256u ? 256u : n - off;
+        if (st_read(src + off, st_buf, chunk) || (rc = st_prog(dst + off, st_buf, chunk)) != 0)
+            return rc ? rc : -1;
+        off += chunk;
+    }
+    return 0;
+}
+static void smp_user_migrate(void)
+{
+    uint32_t k;
+    for (k = SMP_USER_SLOTS; k-- > 1u; ) {             /* 2 then 1; slot 0 keeps SMP_USER_BASE */
+        uint32_t old_off = SMP_USER_BASE + k * SMP_USER_SIZE_OLD;
+        uint32_t new_off = SMP_USER_BASE + k * SMP_USER_SIZE;
+        if (old_off == new_off || !smp_slot_hdr_ok(old_off, SMP_USER_SIZE_OLD - SMP_USER_DATA))
+            continue;
+        if (smp_slot_hdr_ok(new_off, SMP_USER_SIZE - SMP_USER_DATA))
+            continue;                                  /* already moved */
+        if (smp_flash_move(new_off, old_off, SMP_USER_SIZE) != 0)
+            return;                                    /* leave the rest for the next boot */
+    }
+}
+
 static void persist_boot(void)                    /* before settings_init / panel_init */
 {
 #if FELUCCA_FLASH
@@ -1526,6 +1574,7 @@ static void persist_boot(void)                    /* before settings_init / pane
         return;
     fl_plain_window_init();                        /* flash above 0x93000 reads as plaintext through XIP
                                                     * (user sample slots for editor / backup) */
+    smp_user_migrate();                            /* 80 -> 68 KiB centres before the first scan */
     {
         uint32_t k;
         for (k = 0; k < SMP_USER_SLOTS; k++)
@@ -1630,7 +1679,7 @@ static void settings_save(void)
 
 /* The autosave (1.2, Discussion #130): the music as it is (what a project holds: every track's sound, steps, LEN DIV
  * SWING GATE, mix, the song, the automation and locks, the FM6 patches, the name) kept in its own storage object
- * (OBJ_AUTOSAVE, A/B at 0xE5000 / 0xE6000, never one of the four project slots), and put back at power-on
+ * (OBJ_AUTOSAVE, A/B at 0xD3000 / 0xD5000, two sectors a copy, never one of the four project slots), and put back at power-on
  * (autosave_boot) with MENU > SYSTEM > RESTORE LAST ON (the default). Flash wear: a 4 KiB erase per write, the two
  * sectors taking turns, so a write only when
  *   - something a project holds changed since the last one (autosave_sig: a hash of those values, no copy; not the

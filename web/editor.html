@@ -885,7 +885,7 @@ function fmtValue(d, v) {
 /* ---------------------------------------------------------- user samples --- */
 /* A port of tools/sampleio.py (read_any_wav, resample, to_int16, ima_encode, user_slot),
    byte for byte: web/test_web.mjs compares them. */
-const SMP = { SLOT_SIZE: 0x14000, DATA_OFF: 512, RATE: 22050, HDR_LEN: 32 + 16 * 28, MAX_ZONES: 16 };
+const SMP = { SLOT_SIZE: 0x11000, DATA_OFF: 512, RATE: 22050, HDR_LEN: 32 + 16 * 28, MAX_ZONES: 16 };
 SMP.MAX_DATA = SMP.SLOT_SIZE - SMP.DATA_OFF;
 
 /* groups of up to 7 bytes, each preceded by their top bits: the FSMP sample upload's packing (EDITOR_PROTOCOL.md

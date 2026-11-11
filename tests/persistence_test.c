@@ -33,12 +33,12 @@ static void panel_setup(void) {}
 
 static uint8_t flash_ok = 1;
 static int erase_error, fail_after = -1;
-static uint32_t erases, as_erases;               /* (as_erases: the autosave's two sectors, 0xE5000 / 0xE6000) */
+static uint32_t erases, as_erases;               /* (as_erases: the autosave's A/B span, 0xD3000 / 0xD5000) */
 static int st_read(uint32_t off, void *dst, uint32_t n) { memcpy(dst, nor + off, n); return 0; }
 static int st_erase(uint32_t off)
 {
     erases++;
-    as_erases += off >= 0xE5000u && off < 0xE7000u;
+    as_erases += off >= 0xD3000u && off < 0xD7000u;
     if (erase_error) return -8;
     memset(nor + off, 0xFF, 4096);
     return 0;
@@ -375,13 +375,13 @@ static int autosave_test(void)
         as_power_on();
         ok = autosave_boot(1) == 0 && song.g[G_BPM] != 97 && song.g[G_BPM] != 111;
         bad += check("autosave: both copies damaged: ignored, power-on as new", ok);
-        memset(nor + 0xE5000u, 0xFF, 0x2000u);
+        memset(nor + 0xD3000u, 0xFF, 0x4000u);
         st_save(OBJ_AUTOSAVE, "NOT A PROJECT", 13u);     /* a valid record that is no project */
         as_power_on();
         bad += check("autosave: a record that is no project: ignored", autosave_boot(1) == 0 && song.g[G_BPM] != 97);
     }
     /* a power cut in the middle of a write: the copy before stays in charge */
-    memset(nor + 0xE5000u, 0xFF, 0x2000u);
+    memset(nor + 0xD3000u, 0xFF, 0x4000u);
     as_power_on();
     autosave_boot(1);
     as_edit(8);
