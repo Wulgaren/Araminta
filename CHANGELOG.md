@@ -13,6 +13,13 @@ PROJECTS. A torn project save clears that slot (autosave is the recovery path). 
 2-sector placement for a full 4096 B wire is chosen without shrinking the 80 KiB user sample slots.
 Older 3840 B backups and field files still restore.
 
+Punch-in buffer borrow: taking sl_buf for REPEAT/REVERSE/FREEZE/TAPE/OCT/GLITCH now drops MASTER STUT
+takes as well as the tracks' (slicer_drop_all), so a master recording cannot read the punch's loop.
+Host harness tests/punch_crackle_test.c measures stacked / HOLD punch-in cost vs the half-buffer deadline
+and compares shed thresholds; perform_test covers the MASTER STUT borrow and heavy-mix clicks.
+Browser emu: web/emu/punch_emu_test.mjs imports a device backup into the same wasm as the page, holds punch-in
+stacks (including FX LATCH worst), and reports click / peak / wall-time CPU.
+
 EFFECTS > TAPE now starts as MASTER at MIX 100 %: at SPEED 100 the head is idle, so a power-on instrument and a
 new project sound the same as before, and the whole mix follows SPEED / FLUTR / DROPOUT without raising MIX
 first. SAVE > CLEAR > FX ALL returns to the same state. Projects saved before this build (FUN16 and older) still
