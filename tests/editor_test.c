@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* The firmware editor handler, USB framing and UART recovery against RAM flash.
  * Build with the generated tables and the same flags as hostsim.c. */
-static unsigned char host_samples[3][0x11000];
+static unsigned char host_samples[3][0x14000];
 #define SMP_USER_XIP(k) host_samples[k]
 #define FELUCCA_OTA 1
 #define FELUCCA_FLASH 0
@@ -672,17 +672,14 @@ static int wavetable_slot(void)
         bad += check("wavetable: a sample header cannot overwrite it without BEGIN",
                      request(ED_SMP_END, a, n) == 8u && host_wire[6] == 2u);
     }
-    {   /* the geometry the format allows: 32 x 512 fits a 68 KiB slot (3.10); 40 x 512 no longer does */
+    {   /* the geometry the format allows: 40 x 512 also fits one slot */
         smp_wt_hdr_t t;
         memset(&t, 0, sizeof t);
-        t.magic = SMP_WT_MAGIC; t.version = SMP_WT_VERSION; t.frames = 32u;
+        t.magic = SMP_WT_MAGIC; t.version = SMP_WT_VERSION; t.frames = 40u;
         t.base_log2 = 9u; t.mip_last_log2 = 3u;
         t.data_len = t.frames * smp_wt_stride(&t) * 2u;
-        bad += check("wavetable: a 32 x 512 header fits the 68 KiB slot; a bad length or frame count does not",
+        bad += check("wavetable: a 40 x 512 header fits (81,280 B); a bad length or frame count does not",
                      smp_wt_ok(&t) && (t.data_len++, !smp_wt_ok(&t)) && (t.data_len--, t.frames = 65, !smp_wt_ok(&t)));
-        t.frames = 40u;
-        t.data_len = t.frames * smp_wt_stride(&t) * 2u;
-        bad += check("wavetable: a 40 x 512 header no longer fits a 68 KiB slot", !smp_wt_ok(&t));
     }
     {   /* wrong CRC: BEGIN + data, then END refuses and nothing is published */
         w.data_len = 2u * smp_wt_stride(&w) * 2u;

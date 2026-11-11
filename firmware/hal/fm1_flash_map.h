@@ -8,11 +8,9 @@
  *   0x004000..0x093000  the app area (the loader writes only this), fm1pkg_make.py APP_SLOT
  *   0x093000..0x097000  the gap: four sectors between the app and the store. Nobody's until 3.10, readable through
  *                       the plaintext window (fl_plain_window_init), now Felucca's own
- *   0x097000..0x0E0000  the main store: projects, user samples (68 KiB x 3), autosave A/B (two sectors
- *                       a copy at 0xD3000), spare, user presets
+ *   0x097000..0x0E0000  the main store: projects, user samples (80 KiB x 3), user presets
  *   0x0E0000..0x0E5000  the update loader's staging (ota.c), never a storage object
- *   0x0E5000..0x0E7000  retired pre-3.10 autosave pair (untouched)
- *   0x0E7000..0x0E8000  the FM6 voice bank
+ *   0x0E5000..0x0E8000  the autosave A/B and the FM6 voice bank
  *   0x0FC000..0x0FF000  settings (the superblock / globals)
  */
 #pragma once
@@ -26,9 +24,9 @@
 #define FL_DATA_HI      0x000E0000u
 #define FL_OTA_LO       0x000E0000u                /* M-UPGRADE loader staging, ota.c */
 #define FL_OTA_HI       0x000E5000u
-#define FL_AUTO_LO      0x000D3000u                /* 3.10: autosave A/B, two sectors a copy (inside the store) */
-#define FL_AUTO_HI      0x000D7000u
-#define FL_VBANK_LO     0x000E7000u                /* 1.4.1: the FM6 voice bank (fm6_vbank.c) */
+#define FL_AUTO_LO      0x000E5000u                /* 1.2: the autosave (storage.c OBJ_AUTOSAVE), A/B, just above */
+#define FL_AUTO_HI      0x000E7000u                /* the OTA staging */
+#define FL_VBANK_LO     0x000E7000u                /* 1.4.1: the FM6 voice bank (fm6_vbank.c), the sector above */
 #define FL_VBANK_HI     0x000E8000u                /* (below the stock OTA's VM backup at 0xE8000: the app never
                                                  * writes it; the update loader only clears an update record's tag
                                                  * in that sector, never erases it: ldr_core.c) */
@@ -48,7 +46,7 @@
  * like any other byte; what must NOT happen is a record being written into a gap sector by something else, which no
  * code does. */
 #define FL_STORE_OK(off, n) (FL_IN(off, n, FL_DATA_LO, FL_DATA_HI) || FL_IN(off, n, FL_GLOB_LO, FL_GLOB_HI) || \
-                             FL_IN(off, n, FL_VBANK_LO, FL_VBANK_HI) || FL_IN(off, n, FL_GAP_LO, FL_GAP_HI))
+                             FL_IN(off, n, FL_AUTO_LO, FL_VBANK_HI) || FL_IN(off, n, FL_GAP_LO, FL_GAP_HI))
 /* Where the RAM driver may erase / program. The app build allows only its own data regions (the store and the gap);
  * the update loader (firmware/loader) defines its own window over the app area and the OTA staging before including
  * this header. */

@@ -64,10 +64,10 @@ int main(void)
      * two regions that start sharing sectors, breaks here instead of in somebody's settings. */
     {
         /* every region that must tile the flash without overlapping, low to high. The app area ends where the gap
-         * starts; the gap ends where the store starts; the OTA staging and the voice bank follow; the globals sit
-         * above them. The autosave (3.10) lives inside the store at FL_AUTO_*, not as its own climb step. */
-        const uint32_t LO[] = {FL_APP_LO, FL_GAP_LO, FL_DATA_LO, FL_OTA_LO, FL_VBANK_LO, FL_GLOB_LO};
-        const uint32_t HI[] = {FL_APP_HI, FL_GAP_HI, FL_DATA_HI, FL_OTA_HI, FL_VBANK_HI, FL_GLOB_HI};
+         * starts; the gap ends where the store starts; the OTA staging, the autosave and the voice bank follow; the
+         * globals sit above them. Only the gap is new, and it is exactly the piece the other ranges left unclaimed. */
+        const uint32_t LO[] = {FL_APP_LO, FL_GAP_LO, FL_DATA_LO, FL_OTA_LO, FL_AUTO_LO, FL_VBANK_LO, FL_GLOB_LO};
+        const uint32_t HI[] = {FL_APP_HI, FL_GAP_HI, FL_DATA_HI, FL_OTA_HI, FL_AUTO_HI, FL_VBANK_HI, FL_GLOB_HI};
         const uint32_t n = sizeof LO / sizeof LO[0], gap = FL_GAP_HI - FL_GAP_LO;
         uint32_t k;
         int ordered = 1, no_overlap = 1;
@@ -82,16 +82,12 @@ int main(void)
         bad += check("the gap is four whole 4 KiB sectors (16,384 B)", gap == 4u * 4096u && gap / 4096u == 4u);
         bad += check("the gap's sectors are all sector aligned",
                  (FL_GAP_LO & 0xFFFu) == 0u && (FL_GAP_HI & 0xFFFu) == 0u);
-        bad += check("the autosave A/B lives inside the store (two sectors a copy)",
-                     FL_AUTO_LO >= FL_DATA_LO && FL_AUTO_HI <= FL_DATA_HI &&
-                     FL_AUTO_HI - FL_AUTO_LO == 4u * 4096u);
         /* each region that is the app's is writable at both ends; the app area and the OTA staging are not (the
          * loader owns them), which is the point of the gate */
         bad += check("each app-owned region is writable at its first and last byte",
                      FL_STORE_OK(FL_GAP_LO, 1u) && FL_STORE_OK(FL_GAP_HI - 1u, 1u) &&
                      FL_STORE_OK(FL_DATA_LO, 1u) && FL_STORE_OK(FL_DATA_HI - 1u, 1u) &&
-                     FL_STORE_OK(FL_VBANK_LO, 1u) && FL_STORE_OK(FL_VBANK_HI - 1u, 1u) &&
-                     FL_STORE_OK(FL_AUTO_LO, 1u) && FL_STORE_OK(FL_AUTO_HI - 1u, 1u));
+                     FL_STORE_OK(FL_VBANK_LO, 1u) && FL_STORE_OK(FL_VBANK_HI - 1u, 1u));
         bad += check("the app area and the OTA staging are the loader's, not the app's",
                      !FL_STORE_OK(FL_APP_LO, 1u) && !FL_STORE_OK(FL_APP_HI - 1u, 1u) && !FL_STORE_OK(FL_OTA_LO, 1u));
         bad += check("no region straddles another's start",

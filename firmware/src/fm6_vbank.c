@@ -15,7 +15,7 @@
  * boundary - 256) never find anything there.
  *
  * A new bank (the editor's FM6B_BEGIN / WRITE / END, editor_fm6.c) is written into the autosave's older copy first
- * (0xD3000 or 0xD5000: the one st_save writes next, never the copy the power-on restore takes), its commit record (slot
+ * (0xE5000 or 0xE6000: the one st_save writes next, never the copy the power-on restore takes), its commit record (slot
  * 1, the next seq) last and only once the voices match the editor's CRC; then it is copied to 0xE7000 (erase, payload,
  * commit record, read back). A power cut anywhere leaves the old bank (nothing committed) or the new one (committed:
  * fvb_boot finishes the copy at the next power-on, before any autosave can take that sector): never half of one. A

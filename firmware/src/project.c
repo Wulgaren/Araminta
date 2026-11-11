@@ -542,9 +542,15 @@ static uint32_t proj_name_get(char *d, const uint8_t *s)   /* its length */
 
 /* A stable serialized schema: first header retains FUN6's fields; at byte66
  * np, format flags, then four byte-param tracks and nine-byte steps; FUN8: the patches at PROJ_FM6_OFF. */
-static int proj_pack(project_store_t *out, const project_t *q)
+/* Pack at `st` bytes. FUN20 projects use PROJ_STORE_SIZE (4096). The autosave still lives in a one-sector
+ * A/B pair (3840 B) until a placement for a 4096 B pair is chosen without shrinking samples: pack PROJ_STORE_OLD
+ * (no append / lane; motion clipped to MOTION_FILE_MAX_BODY). */
+static int proj_pack_st(project_store_t *out, const project_t *q, uint32_t st)
 {
-    uint8_t *b = out->raw; uint32_t pos = 68u, t, i; uint32_t magic = PROJ_MAGIC, size = PROJ_STORE_SIZE, sum;
+    uint8_t *b = out->raw; uint32_t pos = 68u, t, i; uint32_t magic = PROJ_MAGIC, size = st, sum;
+    uint32_t name_off = st - 4u - PROJ_NAME_LEN, full = st == PROJ_STORE_SIZE;
+    if (st != PROJ_STORE_SIZE && st != PROJ_STORE_OLD)
+        return 0;
     for (t = 0; t < NTRK; t++)
         for (i = 0; i < FM6_PACKED; i++)
             if (q->fm6[t][i] > 127u) return 0;
@@ -614,8 +620,9 @@ static int proj_pack(project_store_t *out, const project_t *q)
             b[pos++] = (uint8_t)(w >> 8);
         }
     }
-    {   /* FUN20: count may be up to 128; the body holds the first 88, the append the rest */
-        uint32_t nmot = q->motion.count > MOTION_FILE_MAX ? MOTION_FILE_MAX : q->motion.count;
+    {   /* FUN20 at 4096: up to 128 (88 body + append); a 3840 interim image keeps 88 in the body only */
+        uint32_t cap = full ? MOTION_FILE_MAX : MOTION_FILE_MAX_BODY;
+        uint32_t nmot = q->motion.count > cap ? cap : q->motion.count;
         uint32_t nbody = nmot > MOTION_FILE_MAX_BODY ? MOTION_FILE_MAX_BODY : nmot;
         b[pos] = (uint8_t)nmot;
         b[pos + 1u] = q->motion.on;
@@ -695,17 +702,19 @@ static int proj_pack(project_store_t *out, const project_t *q)
         return 0;
     for (i = 0; i < 3u; i++)
         b[PROJ_FM6_OFF + PROJ_MASTER_ORDER_OFF + i] |= (uint8_t)(((q->fx_master_order >> i) & 1u) << 7);
-    /* FUN20 append: punch-in lane + marker (overflow motion was written with the body motion above) */
-    memcpy(b + PROJ_LANE_OFF, q->lane, PROJ_LANE_SIZE);
-    b[PROJ_APPEND_MARK_OFF] = PROJ_APPEND_MARK;
-    b[PROJ_APPEND_MARK_OFF + 1u] = q->lane_tgt;
-    {   /* the name (0-padded; stops at the first 0) */
-        char n[PROJ_NAME_LEN + 1u];
-        memcpy(b + PROJ_NAME_OFF, n, proj_name_get(n, (const uint8_t *)q->name));
+    if (full) {   /* FUN20 append: punch-in lane + marker (overflow motion was written with the body motion above) */
+        memcpy(b + PROJ_LANE_OFF, q->lane, PROJ_LANE_SIZE);
+        b[PROJ_APPEND_MARK_OFF] = PROJ_APPEND_MARK;
+        b[PROJ_APPEND_MARK_OFF + 1u] = q->lane_tgt;
     }
-    sum = proj_hash(b, PROJ_STORE_SIZE - 4u); memcpy(b + PROJ_STORE_SIZE - 4u, &sum, 4);
+    {   /* the name (0-padded; stops at the first 0); offset follows `st` */
+        char n[PROJ_NAME_LEN + 1u];
+        memcpy(b + name_off, n, proj_name_get(n, (const uint8_t *)q->name));
+    }
+    sum = proj_hash(b, st - 4u); memcpy(b + st - 4u, &sum, 4);
     return 1;
 }
+static int proj_pack(project_store_t *out, const project_t *q) { return proj_pack_st(out, q, PROJ_STORE_SIZE); }
 /* the motion of a FUN7 / FUN8 written with np parameters (np < P_COUNT: a FUN7 of 89 before the chord keys, every
  * FUN8 of 91 before the DRUM lane levels) -> today's ids: an event names a parameter id, and the ids from that
  * store's P_E0 (np - 8) on moved up with P_E0, as its values did (params_by_count); the ones below kept theirs. A
@@ -802,8 +811,9 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     if (v12) {
         mot = np > 111u ? ((v16 || v17) ? MOTION_FILE_SIZE : MOTION_FILE_SIZE_V15) : MOTION_FILE_SIZE_128;
         data_end = PROJ_DX_OFF;
-        /* FUN20: 128 records (88 in body + 40 in append); FUN16..FUN19: 88 in the body only */
-        mot_max = (v16 || v17) ? (v20 ? MOTION_FILE_MAX : MOTION_FILE_MAX_BODY) : MOTION_FILE_MAX_V15;
+        /* FUN20 at 4096: 128 records; a 3840 B image (interim autosave / old field) keeps 88 in the body */
+        mot_max = (v16 || v17) ? ((v20 && st == PROJ_STORE_SIZE) ? MOTION_FILE_MAX : MOTION_FILE_MAX_BODY)
+                               : MOTION_FILE_MAX_V15;
     } else if (v11) {
         mot = np > 111u ? MOTION_FILE_SIZE_V11 : MOTION_FILE_SIZE_128;
         data_end = PROJ_DX_OFF;
@@ -1514,56 +1524,6 @@ static uint8_t persist_pending;                 /* 1 requested, 2 waiting after 
 static uint32_t persist_retry_ms;
 #endif
 
-#if FELUCCA_FLASH
-/* 3.10: move USR slots from 80 KiB to 68 KiB centres (slot 2 then 1; slot 0 keeps its base). Idempotent:
- * if the new addresses already hold a valid header, do nothing. Power-cut safe: each slot is rewritten
- * into a lower address before the next, and a half-written destination is refused by smp_user_scan. */
-static int smp_slot_hdr_ok(uint32_t off, uint32_t max_data)
-{
-    smp_user_hdr_t h;
-    smp_wt_hdr_t wt;
-    if (st_read(off, &h, sizeof h))
-        return 0;
-    if (h.magic == SMP_USER_MAGIC && h.version == 1 && h.nz && h.nz <= 16u && h.data_len <= max_data)
-        return 1;
-    if (st_read(off, &wt, sizeof wt))
-        return 0;
-    return wt.magic == SMP_WT_MAGIC && wt.version == SMP_WT_VERSION && wt.frames && wt.frames <= 64u &&
-           wt.data_len <= max_data;
-}
-static int smp_flash_move(uint32_t dst, uint32_t src, uint32_t n)
-{
-    uint32_t off, chunk;
-    int rc;
-    if (dst == src)
-        return 0;
-    for (off = 0; off < n; off += ST_SECTOR)
-        if ((rc = st_erase(dst + off)) != 0)
-            return rc;
-    for (off = 0; off < n; ) {
-        chunk = n - off > 256u ? 256u : n - off;
-        if (st_read(src + off, st_buf, chunk) || (rc = st_prog(dst + off, st_buf, chunk)) != 0)
-            return rc ? rc : -1;
-        off += chunk;
-    }
-    return 0;
-}
-static void smp_user_migrate(void)
-{
-    uint32_t k;
-    for (k = SMP_USER_SLOTS; k-- > 1u; ) {             /* 2 then 1; slot 0 keeps SMP_USER_BASE */
-        uint32_t old_off = SMP_USER_BASE + k * SMP_USER_SIZE_OLD;
-        uint32_t new_off = SMP_USER_BASE + k * SMP_USER_SIZE;
-        if (old_off == new_off || !smp_slot_hdr_ok(old_off, SMP_USER_SIZE_OLD - SMP_USER_DATA))
-            continue;
-        if (smp_slot_hdr_ok(new_off, SMP_USER_SIZE - SMP_USER_DATA))
-            continue;                                  /* already moved */
-        if (smp_flash_move(new_off, old_off, SMP_USER_SIZE) != 0)
-            return;                                    /* leave the rest for the next boot */
-    }
-}
-#endif
-
 static void persist_boot(void)                    /* before settings_init / panel_init */
 {
 #if FELUCCA_FLASH
@@ -1576,7 +1536,6 @@ static void persist_boot(void)                    /* before settings_init / pane
         return;
     fl_plain_window_init();                        /* flash above 0x93000 reads as plaintext through XIP
                                                     * (user sample slots for editor / backup) */
-    smp_user_migrate();                            /* 80 -> 68 KiB centres before the first scan */
     {
         uint32_t k;
         for (k = 0; k < SMP_USER_SLOTS; k++)
@@ -1681,7 +1640,7 @@ static void settings_save(void)
 
 /* The autosave (1.2, Discussion #130): the music as it is (what a project holds: every track's sound, steps, LEN DIV
  * SWING GATE, mix, the song, the automation and locks, the FM6 patches, the name) kept in its own storage object
- * (OBJ_AUTOSAVE, A/B at 0xD3000 / 0xD5000, two sectors a copy, never one of the four project slots), and put back at power-on
+ * (OBJ_AUTOSAVE, A/B at 0xE5000 / 0xE6000, one sector a copy / 3840 B until a 4096 B placement is chosen), and put back at power-on
  * (autosave_boot) with MENU > SYSTEM > RESTORE LAST ON (the default). Flash wear: a 4 KiB erase per write, the two
  * sectors taking turns, so a write only when
  *   - something a project holds changed since the last one (autosave_sig: a hash of those values, no copy; not the
@@ -1780,7 +1739,10 @@ static void autosave_poll(void)
     as.wrote = 1;
     project_capture(&proj_scratch);
     proj_wire_gen++;
-    as.err = !proj_pack(&proj_wire, &proj_scratch) || st_save(OBJ_AUTOSAVE, &proj_wire, sizeof proj_wire) != 0;
+    /* Interim: one-sector autosave cannot hold FUN20's 4096 B wire (sample shrink parked). Pack 3840 B
+     * (no lane / motion 89..127) until Natan picks a 2-sector A/B placement. */
+    as.err = !proj_pack_st(&proj_wire, &proj_scratch, PROJ_STORE_OLD) ||
+             st_save(OBJ_AUTOSAVE, &proj_wire, PROJ_STORE_OLD) != 0;
     if (!as.err) {
         as.saved = sig;
         as.writes++;

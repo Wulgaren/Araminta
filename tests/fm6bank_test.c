@@ -337,7 +337,7 @@ static int store_test(void)
 static int cut_test(void)
 {
     int bad = 0;
-    static uint8_t pre_auto[0x4000], pre_bank[0x1000];
+    static uint8_t pre[0x3000];
     static bank_t a, b;
     uint8_t as_data[600], got[600];
     uint32_t n, old = 0, new = 0, other = 0, total, e, eold = 0, enew = 0;
@@ -347,15 +347,12 @@ static int cut_test(void)
     make_bank(&a, 'A', 0x0000FFFFu, "OLD");
     make_bank(&b, 'B', 0xFFFFFFFFu, "NEW");
     send_bank(&a, 0);
-    /* autosave A/B (4 sectors at 0xD3000) + the voice bank: the only ranges a transfer may touch */
-    memcpy(pre_auto, nor + 0xD3000u, sizeof pre_auto);
-    memcpy(pre_bank, nor + 0xE7000u, sizeof pre_bank);
+    memcpy(pre, nor + 0xE5000u, sizeof pre);              /* (only these three sectors are ever written here) */
     progs = 0;
     send_bank(&b, 0);
     total = progs;
     for (n = 0; n < total; n++) {
-        memcpy(nor + 0xD3000u, pre_auto, sizeof pre_auto);
-        memcpy(nor + 0xE7000u, pre_bank, sizeof pre_bank);
+        memcpy(nor + 0xE5000u, pre, sizeof pre);
         memset(&fvb_tx, 0, sizeof fvb_tx);
         fvb_boot();
         dead = 0;
@@ -374,8 +371,7 @@ static int cut_test(void)
             other++;
     }
     for (e = 0; e < 2u; e++) {                            /* BEGIN's erase, the copy's erase */
-        memcpy(nor + 0xD3000u, pre_auto, sizeof pre_auto);
-        memcpy(nor + 0xE7000u, pre_bank, sizeof pre_bank);
+        memcpy(nor + 0xE5000u, pre, sizeof pre);
         memset(&fvb_tx, 0, sizeof fvb_tx);
         fvb_boot();
         dead = 0;
