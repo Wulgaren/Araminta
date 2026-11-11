@@ -29,6 +29,8 @@ Targets for the edit loop (not the final gate):
   sound15     ANALOG filter TYPE and ENV SYNC                tests/sound15_test.c
   inschain    insert chain order, MIX 0 bypass, migration    tests/inschain_test.c
   fxroute     every FX stage in CHAIN / SEND / MASTER         tests/fx_route_test.c
+  perform     FX hold layer effects and punch load             tests/perform_test.c
+  punch       punch-in crackle harness (borrow, stacks, survey) tests/punch_crackle_test.c
   flash       flash write windows, torn writes, layout        tests/flash_map_test.c, storage_test.c, layout_test.py
   regress     golden renders, health, voices, CPU budget     tests/regress.c
   target_budget  render-loop instructions in the pi32v2 dis    tests/target_budget.py
@@ -167,6 +169,20 @@ do_web() {
     run_bin web node web/test_web.mjs
 }
 
+
+do_perform() {
+    compile perform "$OUT/perform_test" tests/perform_test.c \
+        -O2 -w -Ibuild/gen -Ifirmware/src -lm || return 1
+    mkdir -p build/perform_demo build/fx_demo build/throw_demo || return 1
+    run_bin perform "$OUT/perform_test" build/perform_demo build/fx_demo build/throw_demo
+}
+
+do_punch() {
+    compile punch "$OUT/punch_crackle_test" tests/punch_crackle_test.c \
+        -O2 -w -Ibuild/gen -Ifirmware/src -lm || return 1
+    run_bin punch "$OUT/punch_crackle_test"
+}
+
 run_target() {
     case $1 in
         motion) do_motion ;;
@@ -179,6 +195,8 @@ run_target() {
         sound15) do_sound15 ;;
         inschain) do_inschain ;;
         fxroute) do_fxroute ;;
+        perform) do_perform ;;
+        punch) do_punch ;;
         flash) do_flash ;;
         regress) do_regress ;;
         target_budget) do_target_budget ;;
@@ -194,7 +212,7 @@ fi
 need_tables=0
 for t in "$@"; do
     case $t in
-        motion|ui|ui_render|editor|project|param|drums|sound15|inschain|fxroute|regress|target_budget|web) need_tables=1 ;;
+        motion|ui|ui_render|editor|project|param|drums|sound15|inschain|fxroute|perform|punch|regress|target_budget|web) need_tables=1 ;;
         flash|all|list) ;;
         *)
             usage >&2
