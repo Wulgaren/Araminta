@@ -12,7 +12,7 @@
 <meta name="description" content="Araminta, based on Felucca: multi-engine synth firmware for the FM-1, running in your browser: the same code the instrument runs.">
 <style>
 /* DotGothic16 (SIL OFL 1.1, fonts/OFL.txt), cut to printable ASCII, for the knob labels */
-@font-face { font-family: "DotGothic16"; src: url("fonts/DotGothic16-subset.woff") format("woff"); font-display: swap; }
+@font-face { font-family: "DotGothic16"; src: url("fonts/DotGothic16-subset.woff?v=@HASH@") format("woff"); font-display: swap; }
 :root { --bg: #8e8e93; --fg: #111; --dim: #2c2c2e; --rule: #5a5a5e;
         --body: #1d1d1f; --tray: #141415; --part: #2a2a2d; --edge: #3a3a3e; --label: #d6d6d8;
         --lit: #fff4d6; --green: #5fe08a; color-scheme: light; }
@@ -70,6 +70,17 @@ kbd { font: 600 11px ui-monospace, Menlo, monospace; border: 1px solid var(--rul
 footer { margin-top: 12px; font-size: 12px; }
 footer nav a { margin: 0 6px; }
 footer small { font-size: 11px; opacity: .8; }
+/* saving while a preview shares the live emulator's store (web/emu/saves.js) */
+.saves, .writer { margin: 14px 0 0; padding: 10px 12px; border-left: 3px solid #c9a227;
+                  background: rgba(0, 0, 0, .28); color: #fff; font-size: 12px; }
+.saves[hidden], .writer[hidden] { display: none; }
+.saves p { margin: 0 0 8px; }
+.saves p:last-child { margin: 0; }
+.saves button, .saves select, .writer button { font: inherit; padding: 3px 10px; background: #fff; color: #000;
+                                               border: 1px solid var(--rule); }
+.saves button, .saves select { margin-right: 8px; }
+.saves button:disabled { opacity: .45; }
+.writer button { padding: 2px 8px; margin-left: 8px; }
 </style>
 </head>
 <body>
@@ -79,6 +90,17 @@ footer small { font-size: 11px; opacity: .8; }
   <canvas id="screen" width="240" height="240" role="img" aria-label="The screen"></canvas>
   <div class="start" id="start"><button id="go" type="button">Switch on</button><p id="status" hidden></p></div>
 </div>
+
+<div class="saves" id="saves" hidden>
+  <p id="saves-warn"></p>
+  <p>
+    <button id="snap" type="button">Back up now</button>
+    <select id="snaps" aria-label="Backup to restore"></select>
+    <button id="restore" type="button">Restore</button>
+  </p>
+</div>
+
+<p class="writer" id="writer" hidden></p>
 
 <p class="keys">
   <span><kbd>Z</kbd>–<kbd>'</kbd> <kbd>Q</kbd>–<kbd>O</kbd> keys</span>
@@ -92,12 +114,31 @@ footer small { font-size: 11px; opacity: .8; }
 <footer>
   <small class="version">@VERSION@@PREVIEW@</small> <small id="cpu" class="load" hidden></small><br>
   Araminta by <a href="https://github.com/Wulgaren">Wulgaren</a>, based on Felucca by Leo Kuroshita, Hügelton Instruments · <a href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0</a> · browser build after charlesvestal's <a href="https://github.com/charlesvestal/fm1-x0x">X0X</a> · DotGothic16 font, <a href="fonts/OFL.txt">SIL OFL 1.1</a><br>
-  <nav><a href="../installer/">Install</a><a href="../editor/">Editor</a><a href="https://github.com/Wulgaren/Araminta">Source</a></nav>
+  <nav><a href="../../webapp/installer/">Install</a><a href="../../webapp/editor/">Editor</a><a href="https://github.com/Wulgaren/Araminta">Source</a></nav>
   <small>M-VAVE and FM-1 are trademarks of their respective owners. Araminta is not affiliated with or endorsed by them.</small>
 </footer>
 </main>
 
 <script type="module">
+import {
+  takeSnapshot, snapshotList, restoreSnapshot, markWriter, readWriter, clearWriter,
+} from "./saves.js?v=@HASH@";
+// GitHub Pages caches a page for 10 minutes, and a hard reload does not always reach the origin. version.json is
+// fetched uncached: a page whose build differs reloads once under a new query, which is a cache miss for the CDN.
+const HASH = "@HASH@";
+fetch("version.json?t=" + Date.now(), { cache: "no-store" })
+  .then((r) => (r.ok ? r.json() : null))
+  .then((v) => {
+    if (!v || v.hash === HASH) return;
+    let tried = null;
+    try { tried = sessionStorage.getItem("felucca-emu-reload"); } catch { return; }
+    if (tried === v.hash) return;                 // the cached page already reloaded once for this build
+    try { sessionStorage.setItem("felucca-emu-reload", v.hash); } catch { return; }
+    const u = new URL(location.href);
+    u.searchParams.set("v", v.hash);
+    location.replace(u);
+  })
+  .catch(() => {});
 const NS = "http://www.w3.org/2000/svg";
 // panel.c's labels (bit = label) and encoder roles
 const B = { FX: 0, SCL: 1, ENV: 2, LFO: 3, EDIT: 4, GLO: 5, HOME: 6, SAVE: 7, ARP: 8, SEQ: 9, PLAY: 10, REC: 11, "OCT-": 12, "OCT+": 13 };
@@ -108,6 +149,7 @@ const WHITE = [0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26];
 const BLACK = [1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25];
 const BLACK_AFTER = [0, 1, 2, 4, 5, 7, 8, 9, 11, 12, 14];      // the white key each black one follows
 const STORE = "felucca-emu-flash";
+const BUILD = "@BUILD@", SHA = "@SHA@";   // empty on the live site; web/emu/build.sh fills them for a preview
 
 // ------------------------------------------------------------------ the panel
 // Two drawings of the same controls: WIDE after the FM-1's own layout, TALL for a phone held upright (the
@@ -411,12 +453,15 @@ function drawLights([litB, litK, dimB, dimK, dimLo = 0, brB = 0, brK = 0, midK =
 let flashRaw = {};                     /* offset -> base64: what is in localStorage now */
 let flashDirty = false;                /* sectors changed since the last write */
 let flashAt = 0;                       /* performance.now() of the last write */
+let flashLoaded = false;               /* loadFlash read the store: before that, flushing would write {} over it */
 const FLUSH_MS = 2000;
 function flushFlash() {
+  if (!flashLoaded) return;            /* a page that never booted (a preview's warning, a tab left open) keeps the store */
   try { localStorage.setItem(STORE, JSON.stringify(flashRaw)); flashDirty = false; flashAt = performance.now(); }
   catch { /* private mode, full: this session only */ }
 }
 function loadFlash() {
+  flashLoaded = true;                   /* the store is ours from here: a corrupt value is replaced on the next save */
   try {
     const raw = JSON.parse(localStorage.getItem(STORE) || "{}"), out = {};
     for (const [off, b64] of Object.entries(raw)) out[off] = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -433,10 +478,62 @@ function saveFlash(sectors, now) {
       if (flashRaw[off] !== b64) { flashRaw[off] = b64; flashDirty = true; }
     }
     if (flashDirty && now - flashAt >= FLUSH_MS) flushFlash();
+    if (BUILD) markWriter(localStorage, { id: BUILD, sha: SHA });   // the live page says a preview wrote last
     return true;
   } catch { return false; }
 }
 addEventListener("pagehide", () => { if (flashDirty) flushFlash(); });
+
+// ------------------------------------------------------------------ shared saves (a preview runs on the live store)
+/* A preview keeps the live emulator's key on purpose, so a storage change can be tried against real saves. The
+   automatic copy holds the store as it was before this preview first booted, in case its firmware migrates a
+   record to a format the live firmware then refuses; the manual one is the button. */
+const savesPanel = document.getElementById("saves");
+const when = (ms) => new Date(ms).toLocaleString();
+function refreshSaves() {
+  const list = snapshotList(localStorage), sel = document.getElementById("snaps");
+  sel.innerHTML = "";
+  for (const s of list) {
+    const o = document.createElement("option");
+    o.value = s.kind;
+    o.textContent = `${s.kind === "auto" ? "before this preview" : "manual"} · ${when(s.at)} · ` +
+                    `${s.id ? "build " + s.id : "live"} · ${s.bytes} B`;
+    sel.appendChild(o);
+  }
+  document.getElementById("restore").disabled = list.length === 0;
+}
+function previewSaves() {
+  savesPanel.hidden = false;
+  document.getElementById("saves-warn").textContent =
+    `Preview build${SHA ? " " + SHA : ""}. This page keeps its saves in the same store as the live emulator, so a ` +
+    `change to the stored format can reset your live settings or hide a project.`;
+  document.getElementById("snap").addEventListener("click", () => {
+    takeSnapshot(localStorage, "manual", { id: BUILD, sha: SHA }, true);
+    refreshSaves();
+  });
+  document.getElementById("restore").addEventListener("click", () => {
+    if (!restoreSnapshot(localStorage, document.getElementById("snaps").value)) {
+      say("Could not restore: this browser keeps no backup.");
+      return;
+    }
+    flashLoaded = false;             // the running copy must not write its old sectors back on the way out
+    location.reload();
+  });
+  refreshSaves();
+}
+function liveWriter() {
+  const w = readWriter(localStorage);
+  if (!w) return;
+  const note = document.getElementById("writer");
+  note.hidden = false;
+  note.textContent = `Saves were last written by preview build ${w.id || "?"}` +
+                     `${w.sha ? " (" + w.sha + ")" : ""} on ${when(w.at)}.`;
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = "Dismiss";
+  b.addEventListener("click", () => { clearWriter(localStorage); note.hidden = true; });
+  note.appendChild(b);
+}
 
 // ------------------------------------------------------------------ Web MIDI in (channel messages)
 async function midiOn() {
@@ -464,10 +561,14 @@ async function switchOn() {
   go.disabled = true;
   go.textContent = "Starting…";
   try {
+    if (BUILD) {                                        // the live saves as they are, before this firmware can migrate them
+      takeSnapshot(localStorage, "auto", { id: BUILD, sha: SHA });
+      refreshSaves();
+    }
     const ac = new AudioContext({ sampleRate: 44100, latencyHint: "interactive" });
     const [wasm] = await Promise.all([
-      fetch("felucca.wasm").then((r) => { if (!r.ok) throw new Error(`felucca.wasm: ${r.status}`); return r.arrayBuffer(); }),
-      ac.audioWorklet.addModule("worklet.js")]);
+      fetch("felucca.wasm?v=@HASH@").then((r) => { if (!r.ok) throw new Error(`felucca.wasm: ${r.status}`); return r.arrayBuffer(); }),
+      ac.audioWorklet.addModule("worklet.js?v=@HASH@")]);
     node = new AudioWorkletNode(ac, "felucca", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
     node.connect(ac.destination);
     let warned = false;
@@ -508,6 +609,7 @@ async function switchOn() {
   }
 }
 document.getElementById("go").addEventListener("click", switchOn);
+if (BUILD) previewSaves(); else liveWriter();
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) flushFlash();                      /* a hidden tab can be dropped without a pagehide */
   send({ type: "visible", on: !document.hidden });

@@ -66,6 +66,9 @@ On Linux x86-64 the toolchain runs natively and Docker is not needed.
 ./build.sh
 ```
 
+`./build.sh --gen-only` writes `build/gen` and stops, without the JieLi toolchain, the AC79 SDK or Docker: the
+browser emulator needs those generated headers and nothing else, which is what its CI job uses.
+
 `JIELI_TOOLCHAIN` and `AC79_SDK` override the default locations
 (`~/.jieli/toolchain` and `build/deps/ac79`; Windows toolchain default above).
 
@@ -152,10 +155,24 @@ python3 -m http.server -d build/emu 8790     # open http://localhost:8790/
 ```
 
 `web/emu/felucca_web.c` builds the firmware's sources as the host tests do, against a simulated FM-1, and
-Emscripten compiles it to WebAssembly (`build/emu/felucca.wasm`, with `index.html`, `worklet.js` and the font in `fonts/`). The page
+Emscripten compiles it to WebAssembly (`build/emu/felucca.wasm`, with `index.html`, `worklet.js`, `saves.js` and the font in `fonts/`). The page
 keeps the flash's storage sectors (projects, user presets, settings) in the browser. Not emulated: USB (audio,
 MIDI out, the editor, updates), TRS MIDI and the user sample slots. A build of it is on the site:
-<https://hugelton.github.io/Felucca/webapp/try/>.
+<https://wulgaren.github.io/Araminta/webapp/try/>.
+
+Every push to `dev` also republishes a preview at <https://wulgaren.github.io/Araminta/preview/dev/>: `dev-preview.yml`
+starts `pages.yml`, which checks `dev` out next to `main`, builds its emulator and copies it under `preview/dev/`.
+The live site is always rebuilt from `main`; `dev` contributes only that emulator build, and a `dev` that fails to
+build leaves the live site and the previous preview alone. A preview deliberately keeps the live emulator's store
+key, so a storage change can be tested against real saves: `web/emu/saves.js` copies the store before the preview
+firmware first boots, the page offers that copy back, and the live page says when a preview wrote last.
+
+Focused checks, without the full gate:
+
+```
+node web/emu/saves_test.mjs                       # the preview's save copies, no build needed
+node web/emu/emu_test.mjs build/emu/felucca.wasm  # the emulator itself (after web/emu/build.sh)
+```
 
 ## Tests
 

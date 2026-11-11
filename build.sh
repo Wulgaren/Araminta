@@ -3,10 +3,15 @@
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 # Build Felucca on Windows (Git Bash), Linux or macOS (see BUILDING.md).
 #   ./build.sh [--release X.Y]
+#   ./build.sh --gen-only      write build/gen and stop (no toolchain, no SDK, no Docker: for web/emu)
 #   JIELI_TOOLCHAIN  JieLi toolchain root (platform defaults: BUILDING.md)
 #   AC79_SDK         JieLi AC79 SDK files root (default: build/deps/ac79)
 set -e
 cd "$(dirname "$0")"
+gen_only=0
+for arg in "$@"; do
+    [ "$arg" = "--gen-only" ] && gen_only=1
+done
 native_windows=0
 case "$(uname -s)" in
     MINGW*|MSYS*) [ "${JIELI_DOCKER:-0}" = 1 ] || native_windows=1 ;;
@@ -28,9 +33,11 @@ else
 fi
 
 "$PY" -c 'import PIL' 2>/dev/null || { echo "build.sh: $PY has no Pillow (pip3 install Pillow)"; exit 1; }
-[ -x "$compiler" ] || { echo "build.sh: no toolchain in $JIELI_TOOLCHAIN (see BUILDING.md)"; exit 1; }
-[ -f "$AC79_SDK/cpu/wl82/tools/uboot.boot" ] || { echo "build.sh: no JieLi AC79 SDK files in $AC79_SDK (run tools/get_sdk.sh)"; exit 1; }
-if [ "$native_windows" != 1 ] && { [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; }; then
-    docker info >/dev/null 2>&1 || { echo "build.sh: Docker is not running"; exit 1; }
+if [ "$gen_only" = 0 ]; then
+    [ -x "$compiler" ] || { echo "build.sh: no toolchain in $JIELI_TOOLCHAIN (see BUILDING.md)"; exit 1; }
+    [ -f "$AC79_SDK/cpu/wl82/tools/uboot.boot" ] || { echo "build.sh: no JieLi AC79 SDK files in $AC79_SDK (run tools/get_sdk.sh)"; exit 1; }
+    if [ "$native_windows" != 1 ] && { [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; }; then
+        docker info >/dev/null 2>&1 || { echo "build.sh: Docker is not running"; exit 1; }
+    fi
 fi
 exec "$PY" tools/build.py "$@"

@@ -21,6 +21,8 @@ Report what you find in [Araminta Issues](https://github.com/Wulgaren/Araminta/i
 - Install: [web installer](https://wulgaren.github.io/Araminta/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Try: [Araminta in your browser](https://wulgaren.github.io/Araminta/webapp/try/): the same firmware compiled to
   WebAssembly, with the panel on screen (mouse, touch, computer keyboard, Web MIDI in)
+- Try `dev`: [the dev preview](https://wulgaren.github.io/Araminta/preview/dev/), the emulator built from the `dev`
+  branch, for checking a change before it reaches `main`
 - Editor: [web editor](https://wulgaren.github.io/Araminta/webapp/editor/)
 - Upstream: [hugelton/Felucca](https://github.com/hugelton/Felucca) (and its [itch.io](https://hugelton.itch.io/felucca) page)
 - Build: [BUILDING.md](BUILDING.md)
