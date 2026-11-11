@@ -175,17 +175,18 @@ async function editorMock() {
   await rq(E.req.upErase(31));
   prefs = await E.readDevicePreferences(rq, info, names, prefs);
   ok(!prefs.favorites[info.nengines][31] && !E.devicePresetRows(info, names, prefs).some((r) => r.user), "editor: erased slot disappears and loses star");
-  {   /* the lists in the device's order (engines.c ENGINE_ORDER): FM6 second, WAVETABLE last, "-" never; the numbers stay */
+  {   /* the lists in the device's order (engines.c ENGINE_ORDER): FM6 second, WAVETABLE third, "-" never; the numbers stay */
     const shown = E.engineOrder(info.engines).map((i) => info.engines[i]);
-    ok(shown.join() === "ANALOG,FM6,PHASE,LOFI,SAMPLE,VOICE,TRIO,WHEEL,GRAIN,PHYS,NOISE,DRUM-X,DRUMS,WAVETABLE" &&
-       E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines).at(-1) === 14,
-       "editor: engines listed FM6 second, DRUMS second to last, WAVETABLE last (indices kept)");
+    ok(shown.join() === "ANALOG,FM6,WAVETABLE,PHASE,LOFI,VOICE,TRIO,WHEEL,PHYS,NOISE,GRAIN,SAMPLE,DRUM-X,DRUMS" &&
+       E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines)[2] === 14 &&
+       E.engineOrder(info.engines).at(-1) === 15,
+       "editor: engines listed FM6 second, WAVETABLE third, DRUMS last (indices kept)");
     ok(E.engineOrder(["ANALOG", "X", "-", "DRUM-X", "FM6"]).join() === "0,4,3,1", "editor: an unknown engine follows the known ones");
     m.state.favorites[10][0] = m.state.favorites[12][0] = true;
     await rq(E.req.uiSet(3, 0));
     prefs = await E.readDevicePreferences(rq, info, names, prefs);
     const rows = E.devicePresetRows(info, names, prefs).filter((r) => !r.user), eng = [...new Set(rows.map((r) => r.engine))];
-    ok(eng[0] === 0 && eng[1] === 12 && eng[eng.length - 1] === 14, "editor: device presets in the device's engine order");
+    ok(eng[0] === 0 && eng[1] === 12 && eng[2] === 14 && eng[eng.length - 1] === 15, "editor: device presets in the device's engine order");
   }
   const none = await E.readDevicePreferences(() => { throw new Error("unexpected request"); }, { uiCaps: 0 }, []);
   ok(none === null, "editor: old firmware receives no unsupported preference requests");
@@ -362,7 +363,7 @@ async function editorSamplePresets() {
   const names = E.parse[C.NAMES](await rq(E.req.names(4)));
   await rq(E.req.preset(4, 0));
   const set = E.parse[C.DESC](await rq(E.req.desc(0, info.pe0)));
-  ok(eq(names.names, ["PIANO", "PIANO", "FLUTE", "SAX", "PIANO", "CR78"]) &&
+  ok(eq(names.names, ["PIANO", "PIANO", "FLUTE", "SAX", "PIANO", "CR78 DRUMS"]) &&
     eq(set.names.slice(0, 4), ["PIANO", "PIANO", "FLUTE", "SAX"]) && set.names[4] === "PIANO" &&
     eq(set.names.slice(5), ["USR1", "USR2", "USR3", "CR78"]),
     "SAMPLE: TRANH and PERC removed, SET 1 and 4 kept as PIANO aliases, CR78 at 8");

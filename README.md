@@ -463,17 +463,22 @@ In the order the device lists them:
   fine, level; no OPERATOR 2 page) and OP ENV (each stage's rate and level, drawn as the envelope), one operator
   at a time on the algorithm chart; macros on top; SLOT picks a factory patch (F1-F8), the track's own (OWN) or a
   voice of the bank the web editor sent (B1-B32)
+- **WAVETABLE**: two wavetable oscillators, A and B, each morphing through 16 frames of a mip-mapped table; B
+  phase-modulates A (B>A) and can also be heard through LEVEL at an exact RATIO, and A takes phase feedback
+  (FDBK). BASIC and SPECTRAL are factory tables; USR1..USR3 each hold one complete 16 x 1024 table, loaded from
+  a Serum `.wav` or a folder medley in the web editor. The EDIT graph draws A on OSC A and B's own wave on OSC B,
+  and switches to a labelled OSC A while RATIO is the hot knob
 - **PHASE**: phase distortion (ported from CrispyZebra)
 - **LOFI**: chiptune; pulse, triangle, saw, noise and a 4-bit wave RAM, stepped envelope, sweep, arpeggio
-- **SAMPLE**: multisampled instruments (PIANO, FLUTE, SAX) and 3 user sample slots (shared with WAVETABLE); **CR78**
-  is a public-domain factory kit at SET 8 with the SEQ drum grid. A USR slot can be a **Drumkit** in the web editor
-  (each root mapped to its lane note) or a **Sample**
 - **VOICE**: formant oscillator, sung vowels
 - **TRIO**: 3 oscillators with ring modulation and sync, multimode filter
 - **WHEEL**: tonewheel-style organ; drawbar registrations, percussion, key click, drive, rotary speaker
-- **GRAIN**: granular textures from the built-in samples or a user slot
 - **PHYS**: physical models: modal resonators, strings, struck membranes, sympathetic strings
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
+- **GRAIN**: granular textures from the built-in samples or a user slot
+- **SAMPLE**: multisampled instruments (PIANO, FLUTE, SAX) and 3 user sample slots (shared with WAVETABLE); **CR78**
+  is a public-domain factory kit at SET 8 with the SEQ drum grid. A USR slot can be a **Drumkit** in the web editor
+  (each root mapped to its lane note) or a **Sample**
 - **DRUM-X**: an 8-lane morphable kit on the General MIDI key map (JIANT port). EDIT sections
   **Sound** (MRPH / TUNE / TONE / DECY), **Kit** (SOUND: lane A/B plus pitch env; SOUND 2: DCAY / NOIS / COLR / MODE)
   and **Lanes**. Kit and mute persist in FUN19 projects (FUN10 opens with the factory kit). Old Felucca KIT values
@@ -481,11 +486,6 @@ In the order the device lists them:
 - **DRUMS**: the ported Felucca drum engine (engine 15): KIT STD / 80 / 10 / 66 / 55 / 77 / DEEP / TIGHT / PERC,
   TUNE, TONE, DECY, SNAP, ACC, KICK, DRV. Existing projects and presets stay on DRUM-X; DRUMS is for new sounds
   or for a project that selects it. It runs the 1.6.1 code unchanged in its own engine state.
-- **WAVETABLE**: two wavetable oscillators, A and B, each morphing through 16 frames of a mip-mapped table; B
-  phase-modulates A (B>A) and can also be heard through LEVEL at an exact RATIO, and A takes phase feedback
-  (FDBK). BASIC and SPECTRAL are factory tables; USR1..USR3 each hold one complete 16 x 1024 table, loaded from
-  a Serum `.wav` or a folder medley in the web editor. The EDIT graph draws A on OSC A and B's own wave on OSC B,
-  and switches to a labelled OSC A while RATIO is the hot knob
 
 The DIGITAL engine of 0.9 was replaced by FM6, and since 3.6 its conversion is gone too: a project keeps such a
 track silent, and a DIGITAL user preset is refused (convert such files in the web editor before uploading). The
