@@ -2260,6 +2260,15 @@ static void cc_knob_poll(void)
 {
     uint32_t k;
     int32_t s;
+    /* Menu, confirm and NAME own the screen: physical encoders are dropped there (enc_drop /
+     * early return). Drain queued CC the same way so a detent cannot change the page under the dialog. */
+    if (ui.menu || ui.confirm || name_on()) {
+        fm1_irq_off();
+        for (k = 0; k < 7u; k++)
+            ui.cc_step[k] = 0;
+        fm1_irq_on();
+        return;
+    }
     for (k = 0; k < 7u; k++) {
         if (!ui.cc_step[k])
             continue;

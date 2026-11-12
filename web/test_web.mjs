@@ -1364,6 +1364,12 @@ async function editorFm6Bank() {
   const rq = (x, o) => link.request(x, o);
   const info = E.parse[C.INFO](await rq(E.req.info()));
   ok(info.fm6Bank === 128 && info.songLanes === 4 && info.fm6.caps === 3, "FM6 bank: INFO 56 01 00 01 (128) after the SONG lanes tag");
+  {
+    const b0 = E.req.fm6bBegin(0), b3 = E.req.fm6bBegin(3), l0 = E.req.fm6bList(0), l3 = E.req.fm6bList(3);
+    ok(b0[1].length === 0 && l0[1].length === 0 && b3[1].length === 1 && b3[1][0] === 3 &&
+       l3[1].length === 1 && l3[1][0] === 3,
+       "FM6 bank: BEGIN/LIST omit the bank byte for bank 0 (3.9 single-bank); send it for bank 3");
+  }
   let list = await E.fm6Bank.list(rq);
   ok(list.n === 32 && !list.valid && list.name === "" && list.voices.every((v) => !v.used), "FM6 bank: LIST of an empty device: no bank");
   /* a 32-voice file: the factory patches renamed VOICE 01..32 (the import path: parseSysex, then the packed records) */
