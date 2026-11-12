@@ -261,6 +261,9 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
  * (P_TAPEMIX now) stays in the store but is not read here. */
 static void glide_set(track_t *t, voice_t *v, int glide)
 {
+    v->gq8 = 0;
+    v->gacc = 0;
+    v->fin_d = 0;
     if (!glide || !v->pitch_cur) {
         v->pitch_cur = v->pitch16;
         v->gstep = 0;
@@ -289,6 +292,7 @@ static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
     v->pitch16 = (int32_t)note * 16 + t->pfx_rpit;      /* (pfx.c RANDOM: 0 but while it is held) */
     v->mvel = t->m_vel;                                 /* mod.c: the note's VEL and RAND */
     v->mrnd = t->m_rnd;
+    v->fin_d = 0;                                       /* PIT GLD: a new note (chord_glide sets it) */
     t->m_vi = (uint8_t)(v - t->v);
     glide_set(t, v, glide);
     if (!sounding) {
@@ -476,6 +480,10 @@ static void trk_all_off(track_t *t)
     t->nmono = 0;
     t->mono_note = 0;
     t->xp_n = 0;
+    t->lcp_n = 0;                                    /* PIT GLD live chord (seq.c) */
+    t->lc_n = 0;
+    t->lc_up = 0;
+    t->lc_off = 0;
 }
 
 /* engine switch, at each block start (events_block), before any note of the block. The UI writes
@@ -721,14 +729,33 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
                 m.amp1 = mulq15(m.amp1, 32767 - mulq15(p[P_LPOL] ? lfo : (lfo + 32768) >> 1, p[P_LD_AMP] * 258));
             if (fade)                                   /* linear to 0 over the fade */
                 m.amp1 = m.amp1 * (int32_t)(t->xf - 1u) / (int32_t)XF_BLOCKS;
+            if (v->fin_d) {                             /* PIT GLD: a new note, in as it glides */
+                int32_t r = v->pitch16 - v->pitch_cur;
+                r = r < 0 ? -r : r;
+                if (r >= (int32_t)v->fin_d)
+                    r = (int32_t)v->fin_d - 1;
+                m.amp1 = m.amp1 * ((int32_t)v->fin_d - r) / (int32_t)v->fin_d;
+                if (!r)
+                    v->fin_d = 0;
+            }
             m.amp0 = v->env_out;
             v->env_out = m.amp1;
         }
         if (v->pitch_cur != v->pitch16) {               /* glide */
             int32_t d = v->pitch16 - v->pitch_cur;
-            int32_t st = v->gstep ? v->gstep : (int32_t)(ENV_LIN[(p[P_GLIDE] ? p[P_GLIDE] : 40) & 127] >> 14);   /* slide: ~45 ms */
-            if (st < 1)
-                st = 1;
+            int32_t st;
+            if (v->gstep) {
+                if (v->gq8) {                           /* PIT GLD: the fraction of a 1/16 st carried */
+                    int32_t q = v->gacc + v->gstep;
+                    st = q >> 8;
+                    v->gacc = (uint8_t)(q & 255);
+                } else
+                    st = v->gstep;
+            } else {
+                st = (int32_t)(ENV_LIN[(p[P_GLIDE] ? p[P_GLIDE] : 40) & 127] >> 14);   /* slide: ~45 ms */
+                if (st < 1)
+                    st = 1;
+            }
             v->pitch_cur += d > 0 ? (d < st ? d : st) : (-d < st ? d : -st);
         }
         if (!env && !m.amp0 && v->stage == 2 && !e->sampled)

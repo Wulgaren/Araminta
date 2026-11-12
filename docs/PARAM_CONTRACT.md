@@ -19,7 +19,7 @@ indexed only by real P_* ids; every other space is either a separate storage are
 | Motion-only FX targets | `MFX_TIME..MFX_DAMP`, ids 49..53; numerically `P_M1SRC..P_M2DST`; `MFX_TSPEED` / `MFX_TWOW` are ids 41 / 42 (`P_TAPEMIX` / `P_LSMOOTH`) | **never as a target**: `fx_target_ptr()` reaches `song.g` or a bus | project motion records; long DLY TIME takes ids 54..59 on disk; TAPE SPEED packs 25..400 into one byte | `MOTION` ops; project motion record | AUTOMATION FX rows; EFFECTS / DEST lists |
 | UI-only step rows | `EV_VEL` 251, `EV_NUDGE` 252, `EV_CHANCE` 253, `EV_RATCH` 254; 0xFF = none | no | the step's own `chance` / `ratchet` / `nudge` / `vel` fields | **never** | AUTOMATION rows |
 | Page-only CHORD cards | `PG_STRUM` 252, `PG_STROKE` 253 | no | none; the edit packs `P_ALLOC` | **never** | CHORD K3 / K4 |
-| Page-only VOICE card | `PG_BEND` 250 | no | none; it writes the channel's live bend (`midi_ch[].bend`) | **never** | VOICE 2 K1 (UNISON) |
+| Page-only VOICE cards | `PG_BEND` 250, `PG_CGLD` 251 | no | `PG_BEND`: live bend; `PG_CGLD`: bit 5 of `P_ALLOC` | **never** | VOICE K3 (PIT GLD, POLY); VOICE 2 K1 (PITCH) |
 
 Rules that fall out:
 
@@ -27,9 +27,9 @@ Rules that fall out:
   either. These helpers in `core.h` are the classification to use, not ad-hoc range tests.
 - `MOTION_ID(e)` masks off bit 7 (`MOTION_LOCK`). A PITCH lock's `param` byte is `0xFF`, so never treat
   `param` as a signed id or as `p[]` index.
-- `252` is `EV_NUDGE` in AUTOMATION and `PG_STRUM` on CHORD; `49` is the matrix `SRC1` parameter in
-  `SET` / `GET` and `MFX_TIME` in `MOTION`. Context decides the namespace; never pass a number from one
-  namespace to another.
+- `252` is `EV_NUDGE` in AUTOMATION and `PG_STRUM` on CHORD; `253` is `EV_CHANCE` and `PG_STROKE`; `251` is
+  `EV_VEL` and `PG_CGLD` on VOICE; `49` is the matrix `SRC1` parameter in `SET` / `GET` and `MFX_TIME` in
+  `MOTION`. Context decides the namespace; never pass a number from one namespace to another.
 - `0` is a valid PITCH value. Presence is the motion record (and `track_t.plk_fit`), not a nonzero value.
 - `EV_*` and `PG_*` are deliberately outside `param_id_known()`: `motion_param()`, `motion_put()` and the
   project motion reader reject them.
@@ -167,12 +167,10 @@ PLAY OFF bypasses its playback.
 - Files: `params.c` (`PG_STRUM`, `PG_STROKE`, `PAGES`, `page_desc`), `ui_input.c` (the page knob write),
   `core.h` (sweep helpers), `chord.c`, `tests/param_contract_test.c`.
 
-### PG_BEND: the VOICE page's PITCH card
+### PG_BEND: the VOICE 2 PITCH card
 
-- `PG_BEND` 250 is the page id of `VOICE 2`, shown only while the selected track is in UNISON (`ui.c`
-  `page_visible`). The `VOICE` page uses it in `P_DETUNE`'s slot when `P_DETUNE` is hidden (POLY / MONO /
-  LEG), and that slot is the page's last knob (K4); in UNISON it is `UNI DTN` again and PITCH lives on
-  `VOICE 2`.
+- `PG_BEND` 250 is the page id of `VOICE 2`, shown in every voice mode (`ui.c` `page_visible`). `VOICE 2`
+  is the page after `VOICE`; its first knob is PITCH and the rest are blank.
 - It is not stored, not `p[]`, not a motion id and never reaches the wire. `page_desc()` synthesizes
   `BEND_DESC` (label `PITCH`, `F_CENT`, -200..200 cent) and a temporary value; the knob handler writes the
   selected track's channel bend (`midi_control.c midi_bend_card_set`) and returns before `*vp` and
@@ -183,15 +181,28 @@ PLAY OFF bypasses its playback.
 - Files: `params.c` (`PG_BEND`, `BEND_DESC`, `PAGES`, `page_desc`), `midi_control.c`, `ui.c` (`page_visible`,
   `lock_id`, `track_select`), `ui_input.c` (the page knob write), `icons.c`, `tests`.
 
+### PG_CGLD: VOICE's PIT GLD switch
+
+- `PG_CGLD` 251 is VOICE K3 in POLY only. It is not stored in `p[]` as itself: the switch is bit 5 of
+  `P_ALLOC` (`cgld_on` / `cgld_set` in `core.h`, `CGLD_BIT` 0x20).
+- `page_desc()` returns `CGLD_DESC` (`PIT GLD`, `F_ONOFF`, 0..1) and a temporary value; `ui_input.c` writes
+  the bit and returns before `*vp` and `motion_capture()`. The CHORD STRUM / STROKE writes preserve the bit.
+- With it on and GLD above 0, a POLY track's chords pair and glide: `seq.c` (`cg_auto`, `chord_glide`,
+  `cg_pair`) for the sequence, and (`chord_live_collect`, `chord_live_flush`, `chord_live_tick`) for CHRD
+  keys and MIDI notes grouped per audio block. It is runtime-only apart from the stored bit.
+- Files: `core.h` (`CGLD_BIT`, `cgld_on`, `cgld_set`), `params.c` (`PG_CGLD`, `CGLD_DESC`, `PAGES`,
+  `page_desc`), `ui_input.c`, `seq.c`, `voice.c`, `tests`.
+
 ### P_ALLOC: the packed STRUM / STROKE sweep
 
 - One real parameter (id 43) stores both CHORD knobs. Encoding: `0` and `1` are OFF (legacy ROT / REUSE);
   otherwise `2 + (rate - 1) * 3 + stroke`, rate 1..7 = 1/8 .. 32T, stroke 0 DOWN / 1 UP / 2 ALT; new values
-  are 2..22.
-- `sweep_rate()` / `sweep_stroke()` read 0 for 0/1; `sweep_pack(0, ...)` writes 0. The device edits it only
-  through PG_STRUM / PG_STROKE; the editor sees it as the `SWEEP` enum (`OFF, OFF, 1/8 DOWN, ...`).
-- Values above 22 are not produced by this UI; `sweep_rate()` then reads a rate > 7 and `chord.c` treats the
-  sweep as off. Do not reuse 0/1 for a new sweep.
+  are 2..22. Bit 5 (32) is PIT GLD (`PG_CGLD`, see above), so the sweep itself is bits 0..4.
+- `sweep_rate()` / `sweep_stroke()` mask bits 0..4 and read 0 for 0/1; `sweep_pack(0, ...)` writes 0. The
+  device edits it only through PG_STRUM / PG_STROKE (which preserve bit 5) and PG_CGLD; the editor sees it as
+  the `SWEEP` enum (`OFF, OFF, 1/8 DOWN, ...`) and must preserve bit 5.
+- Values above 22 in bits 0..4 are not produced by this UI; `sweep_rate()` then reads a rate > 7 and `chord.c`
+  treats the sweep as off. Do not reuse 0/1 for a new sweep.
 - Files: `core.h` (`sweep_rate`, `sweep_stroke`, `sweep_pack`), `params.c` (`N_SWEEP`, `P_ALLOC`, `page_desc`),
   `ui_input.c`, `chord.c`, `project.c` / `upreset.c` (ordinary P_* storage), `editor.c`, tests.
 

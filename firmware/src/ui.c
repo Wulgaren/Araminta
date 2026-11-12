@@ -405,8 +405,6 @@ static int page_visible(uint32_t i)
         return drum;
     if (PAGES[i].fam == FAM_EDIT && PAGES[i].sec == EDIT_SEC_VOX && (drum || drums))   /* Voice hidden on DRUM / DRUMS */
         return 0;
-    if (PAGES[i].id[0] == PG_BEND)                    /* VOICE 2: the PITCH card UNISON has no room for */
-        return TSEL->p[P_VOICE] == V_UNISON;
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return drum || drums;
     if (PAGES[i].scope == SC_ENGINE && (PAGES[i].id[0] == P_E0 || PAGES[i].id[0] == P_E4))   /* EDIT 1 / 2 */
@@ -574,8 +572,12 @@ static uint32_t lock_id(uint32_t k)
         id = MSEQ_PITCH;                         /* SCL KNOB 4 on a held step: the PITCH lock */
     if (id == MSEQ_PITCH && kit_track(TSEL))
         return 0xFFu;                            /* PITCH is inert on a kit track: the knob creates no lock */
-    if (id == P_DETUNE && TSEL->p[P_VOICE] != V_UNISON)
-        return 0xFFu;                            /* the VOICE page's PITCH card is a live bend, not a lock */
+    if (id == P_DETUNE) {                        /* VOICE K4: SPRD in POLY, UNI DTN in UNISON */
+        if (TSEL->p[P_VOICE] == V_POLY)
+            id = P_SPRD;
+        else if (TSEL->p[P_VOICE] != V_UNISON)
+            return 0xFFu;
+    }
     return param_id_known(id) && !MFX_ALL(id) && motion_param(id) &&
            fx_target_available(TSEL, id) && param_live(motion_target_desc(TSEL, id)) ? id : 0xFFu;
 }

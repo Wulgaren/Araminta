@@ -1579,6 +1579,176 @@ static int fx_lock_banks_and_capacity(void)
                  loaded.motion.event[71].value == 110);
     return bad;
 }
+static voice_t *cvoice(track_t *t, uint32_t note)
+{
+    uint32_t i;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].active && t->v[i].note == note)
+            return &t->v[i];
+    return 0;
+}
+/* PIT GLD: POLY chords pair their notes, keep the envelopes and glide; added notes fade in, removed ones glide out */
+static int pit_gld_seq(void)
+{
+    int bad = 0, ok;
+    track_t *t = lock_track(0);
+    voice_t *v, *w;
+    int32_t out[CTL];
+    uint32_t i, a0;
+    t->p[P_VOICE] = V_POLY;
+    t->p[P_GLIDE] = 100;
+    cgld_set(t, 1);
+    t->step[0] = (step_t){{60, 64, 67}, 3, ST_NOTE, 0, 100};
+    t->step[1] = (step_t){{62, 65, 69}, 3, ST_NOTE, 0, 100};
+    seq_step(t, &t->step[0], 0, div_samples(2), 0);
+    ok = t->seq_n == 3u && t->seq_hold;                 /* PIT GLD holds the chord to the next NOTE */
+    v = cvoice(t, 60);
+    a0 = v ? v->age : 0;
+    seq_step(t, &t->step[1], 1, div_samples(2), 0);
+    v = cvoice(t, 62);
+    ok &= t->seq_n == 3u && t->seq_notes[0] == 62u && t->seq_notes[1] == 65u && t->seq_notes[2] == 69u;
+    ok &= v && v->gate && v->age == a0 && v->stage != 0;   /* the same voice: no retrigger */
+    ok &= v && v->pitch_cur == 60 * 16 && v->pitch16 == 62 * 16 && v->gq8 && v->gstep > 0;
+    track_render(t, out, CTL);
+    ok &= v && v->pitch_cur == 60 * 16;                 /* the first tick is a fraction of a 1/16 st, not a jump */
+    for (i = 0; i < 2000u; i++)
+        track_render(t, out, CTL);
+    ok &= v && v->pitch_cur == v->pitch16;              /* it arrives */
+    bad += check("PIT GLD: a POLY chord glides into the next, each note to its partner, no retrigger", ok);
+
+    /* 3 -> 4: the added note starts at the nearest old pitch and fades in */
+    t->step[0] = (step_t){{60, 64, 67}, 3, ST_NOTE, 0, 100};
+    t->step[1] = (step_t){{62, 65, 69, 72}, 4, ST_NOTE, 0, 100};
+    seq_release(t);
+    seq_step(t, &t->step[0], 0, div_samples(2), 0);
+    a0 = vage;
+    seq_step(t, &t->step[1], 1, div_samples(2), 0);
+    w = 0;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].active && t->v[i].age == a0 + 1u)
+            w = &t->v[i];
+    bad += check("PIT GLD 3 -> 4: the new note fades in from the nearest old pitch",
+                 w && w->note == 72u && w->pitch_cur == 67 * 16 && w->fin_d == 5 * 16 && w->gq8);
+    seq_release(t);
+
+    /* 1 -> 2 where the old note is also the first new one: the added note still starts from it */
+    t->step[0] = (step_t){{60}, 1, ST_NOTE, 0, 100};
+    t->step[1] = (step_t){{60, 64}, 2, ST_NOTE, 0, 100};
+    seq_step(t, &t->step[0], 0, div_samples(2), 0);
+    a0 = vage;
+    seq_step(t, &t->step[1], 1, div_samples(2), 0);
+    w = 0;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].active && t->v[i].age == a0 + 1u)
+            w = &t->v[i];
+    bad += check("PIT GLD 1 -> 2: the added note starts at the only old note, not at C-1",
+                 w && w->note == 64u && w->pitch_cur == 60 * 16 && w->fin_d == 4 * 16);
+    seq_release(t);
+
+    /* 4 -> 3: the extra old note glides to the nearest new one and releases */
+    t->step[0] = (step_t){{60, 64, 67, 72}, 4, ST_NOTE, 0, 100};
+    t->step[1] = (step_t){{62, 65, 69}, 3, ST_NOTE, 0, 100};
+    seq_step(t, &t->step[0], 0, div_samples(2), 0);
+    v = cvoice(t, 72);
+    seq_step(t, &t->step[1], 1, div_samples(2), 0);
+    bad += check("PIT GLD 4 -> 3: the extra note glides to the nearest new one and releases",
+                 v && !v->gate && v->pitch16 == 69 * 16 && v->gq8);
+    seq_release(t);
+
+    /* off: the same steps retrigger, nothing is held */
+    cgld_set(t, 0);
+    seq_step(t, &t->step[0], 0, div_samples(2), 0);
+    ok = !t->seq_hold && t->seq_n == 4u;
+    seq_step(t, &t->step[1], 1, div_samples(2), 0);
+    bad += check("PIT GLD off: POLY chords behave as before (no hold, no pairing)", ok && !t->seq_hold);
+    seq_release(t);
+    return bad;
+}
+/* PIT GLD live: notes in one block form a chord; a released chord keeps its voices for one 1/8 so the next pairs */
+static int pit_gld_live(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    voice_t *v;
+    uint32_t a0;
+    ui_power_on();
+    t = &trk[0];
+    t->p[P_VOICE] = V_POLY;
+    t->p[P_GLIDE] = 100;
+    cgld_set(t, 1);
+    t->engine = t->eng_req = 0;
+    input_on(t, 60, 100);
+    input_on(t, 64, 100);
+    input_on(t, 67, 100);
+    ok = !cvoice(t, 60);                                /* collected, started at the end of the block */
+    chord_live_flush(t);
+    ok &= t->lc_n == 3u && cvoice(t, 60) && cvoice(t, 64) && cvoice(t, 67);
+    bad += check("PIT GLD live: note-ons in one block start as one chord", ok);
+    input_off(t, 60);
+    input_off(t, 64);
+    input_off(t, 67);
+    ok = cvoice(t, 60) && cvoice(t, 64) && cvoice(t, 67) && t->lc_off > 0;
+    bad += check("PIT GLD live: a released chord keeps sounding for one 1/8", ok);
+    a0 = cvoice(t, 60)->age;
+    input_on(t, 62, 100);
+    input_on(t, 65, 100);
+    input_on(t, 69, 100);
+    chord_live_flush(t);
+    v = cvoice(t, 62);
+    bad += check("PIT GLD live: the next chord glides into it, same voices, no retrigger",
+                 v && v->age == a0 && v->pitch_cur == 60 * 16 && v->pitch16 == 62 * 16 && v->gq8 && t->lc_off == 0);
+    input_off(t, 62);
+    input_off(t, 65);
+    input_off(t, 69);
+    ok = cvoice(t, 62) && t->lc_off > 0;
+    chord_live_tick(t, t->lc_off / 2u);
+    ok &= cvoice(t, 62) != 0;
+    chord_live_tick(t, t->lc_off);
+    v = cvoice(t, 62);
+    ok &= !v || !v->gate;
+    bad += check("PIT GLD live: after the 1/8 the released notes let go", ok);
+    return bad;
+}
+
+/* the same through the real transport: seq_tick advances the steps, the chord holds, the next step glides */
+static int pit_gld_play(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    voice_t *v;
+    int32_t out[CTL];
+    uint32_t i, guard;
+    ui_power_on();
+    t = &trk[0];
+    track_defaults_steps(t);
+    t->p[P_SLEN] = 4;
+    t->p[P_SSWING] = 0;
+    t->p[P_VOICE] = V_POLY;
+    t->p[P_GLIDE] = 127;
+    t->p[P_SGATE] = 120;
+    t->p[P_SUS] = 120;
+    t->p[P_REL] = 100;
+    cgld_set(t, 1);
+    for (i = 0; i < 4u; i++)
+        t->step[i] = (step_t){{}, 0, ST_REST, 0, 0};
+    t->step[0] = (step_t){{60, 64, 67}, 3, ST_NOTE, 0, 100};
+    t->step[1] = (step_t){{62, 65, 69}, 3, ST_NOTE, 0, 100};
+    seq_start();
+    for (guard = 0; guard < 10000u && t->seq_idx != 1u; guard++)
+        events_block(CTL);
+    ok = t->seq_idx == 1u && t->seq_n == 3u && cvoice(t, 62) && cvoice(t, 65) && cvoice(t, 69);
+    v = cvoice(t, 62);
+    ok &= v && v->gate && v->pitch_cur == 60 * 16 && v->pitch16 == 62 * 16 && v->gq8 && v->gstep > 0;
+    if (v) {
+        int32_t p0 = v->pitch_cur;
+        for (i = 0; i < 2000u; i++)
+            track_render(t, out, CTL);
+        ok &= v->pitch_cur == v->pitch16 && v->pitch_cur != p0;
+    }
+    bad += check("PIT GLD through the transport: step 0 holds, step 1 glides each voice", ok);
+    seq_stop();
+    return bad;
+}
 int main(void)
 {
     int bad = motion_recording() + motion_capacity() + probability_playback() + compact_project() + fun7_89() + loads_and_song() + repeat_mode();
@@ -1588,5 +1758,8 @@ int main(void)
     bad += lock_playback() + lock_edit() + lock_pitch() + pitch_lock_only() + record_trn() + pitch_matrix() + pitch_gate() + pitch_kit() + lock_project() + lock_ui() + lock_undo() + auto_list();
     bad += fx_lock_time();
     bad += fx_lock_banks_and_capacity();
+    bad += pit_gld_seq();
+    bad += pit_gld_live();
+    bad += pit_gld_play();
     printf("%s\n", bad ? "MOTION TEST FAILED" : "motion/chance/compact storage tests passed"); return bad != 0;
 }
