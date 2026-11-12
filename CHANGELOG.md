@@ -7,7 +7,8 @@
 `EDIT > VOICE` gains **PIT GLD** (POLY only). On, the notes of a chord pair with the notes of the next chord and
 glide, each voice keeping its envelope: the sequence does it on its own when the next step is a NOTE, and live
 CHRD keys or MIDI chords do it while the old chord is still held or within one 1/8 after its release. Added notes
-start at the nearest old pitch and fade in; extra old notes glide to the nearest new pitch and release. With PIT GLD
+start at the nearest old pitch and fade in; extra old notes glide to the nearest new pitch and release. A held
+plucky sound whose envelope has died attacks again at the new chord. With PIT GLD
 on, GLD reads as a percentage of the chord (100 %: the whole chord, TIE steps included). Off by default: POLY tracks
 sound as before. The switch is bit 5 of `P_ALLOC`, so projects, presets and backups keep it without a format change.
 PITCH moves to **VOICE 2** in every voice mode; UNISON keeps UNI DTN on the VOICE page.
