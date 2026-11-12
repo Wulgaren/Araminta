@@ -2231,7 +2231,7 @@ function makeMockDevice(opt = {}) {
     E("TRIG", ["NOTE", "FREE"], 0), E("POL", ["BI", "UNI"], 0), E("QNTZ", ["OFF", "ON"], 1),   /* and QUANTIZE (94) */
     D("SPRD", F.PCT, 0, 127, 0),   /* SPREAD (95, #148) */
     D("ORDER", F.INT, 0, 719, 24),   /* insert chain (96..116): IORD_DEF DIST→CRUSH→FILTER→… */
-    E("MODE", ["SOFT", "HARD", "FOLD", "FUZZ"], 0), D("MIX", F.PCT, 0, 127, 0),
+    E("MODE", ["SOFT", "HARD", "FOLD", "FUZZ", "OTT"], 0), D("MIX", F.PCT, 0, 127, 0),
     E("TYPE", ["LP", "HP", "BP", "COMB"], 0), D("CUT", F.CUTOFF, 0, 127, 96), D("RES", F.PCT, 0, 127, 40), D("MIX", F.PCT, 0, 127, 0),
     D("BITS", F.INT, 0, 127, 64), D("RATE", F.INT, 0, 127, 96), D("LPF", F.CUTOFF, 0, 127, 96), D("MIX", F.PCT, 0, 127, 0),
     D("RATE", F.LFOHZ, 0, 127, 64), D("DEPTH", F.PCT, 0, 127, 96), D("FDBK", F.PCT, 0, 127, 96), D("MIX", F.PCT, 0, 127, 0),

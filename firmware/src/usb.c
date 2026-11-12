@@ -26,7 +26,7 @@
  * the rate until a host asks for another, sends the samples as before, bit for bit. */
 #include "../hal/fm1_usb.h"   /* registers; relative, so the loader and the host tests find it too */
 #ifndef FELUCCA_CDC
-#define FELUCCA_CDC 1
+#define FELUCCA_CDC 0
 #endif
 #ifndef FELUCCA_UAC
 #define FELUCCA_UAC 0

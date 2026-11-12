@@ -126,7 +126,7 @@ static const uint8_t FX_BUS_PID[FX_BUS_N] = {
     P_IHRATE, P_IHDEP,
     P_SLCR, P_SLPAT, P_SLRATE
 };
-enum { IDM_SOFT, IDM_HARD, IDM_FOLD, IDM_FUZZ, IDM_N };
+enum { IDM_SOFT, IDM_HARD, IDM_FOLD, IDM_FUZZ, IDM_OTT, IDM_N };
 enum { IFT_LP, IFT_HP, IFT_BP, IFT_COMB, IFT_N };
 
 enum {                          /* global parameters */

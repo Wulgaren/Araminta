@@ -20,10 +20,11 @@ bar; favourites for slots 32..95 live in the reserved settings row and the favou
 Backup ids **10..13** are banks 2..5. Stock V15 erases the gap on boot, so Araminta gap-bank data is lost only on
 return to stock.
 
-### Size: USB serial console on by default
+### Size: USB serial console off by default (OTT headroom)
 
-`FELUCCA_CDC` defaults to 1 (MENU > USB SERIAL). Set `FELUCCA_CDC=0` to drop the console (~7.8 KiB less XIP,
-audio + MIDI only). With the current flash-layout tip, CDC-on still leaves ~4 KiB free in the app slot.
+`FELUCCA_CDC` defaults to 0 once OTT is in the same image: audio + MIDI only (~7.8 KiB less XIP). Set
+`FELUCCA_CDC=1` for a developer build with MENU > USB SERIAL. With OTT + the 16 new factory presets, CDC-on
+overflows the app slot by ~2.8 KiB.
 
 ### Sixteen new app-image factory presets
 
@@ -56,6 +57,13 @@ Host harness tests/punch_crackle_test.c measures stacked / HOLD punch-in cost vs
 and compares shed thresholds; perform_test covers the MASTER STUT borrow and heavy-mix clicks.
 Browser emu: web/emu/punch_emu_test.mjs imports a device backup into the same wasm as the page, holds punch-in
 stacks (including FX LATCH worst), and reports click / peak / wall-time CPU.
+
+DIST MODE OTT keeps the same curves and crossovers, but its six SVF sections and band state now live only on the
+DIST slots that need them (about 7 KB of pool back), the second half of each LR4 skips the unused LP/HP output,
+the 88 Hz low's second LP runs on an FS/4 grid (its input is already band-limited), and DEPTH 0 skips the
+detector and gain path. Shared cutoff coefs (three instead of six) and packed band arrays shrink the per-instance
+state further; one SVF helper replaces the duplicated LP/HP copies. The four per-track OTT blocks sit in .bss
+again (they fit after the shrink), so the pool keeps its 8 KiB spare beside the flash-bank reclaim work.
 
 ### BOOT RESTORE (autosave always writes)
 
@@ -714,6 +722,7 @@ Same project format as 2.3 (FUN15 / `FUNF`). Splash and ABOUT show `v2.4`.
 ### Effects
 
 - DIST: one curve per MODE. SOFT a rounded curve that never flat-tops, HARD an edge at full scale, FOLD a wavefolder that folds further as it is driven, FUZZ a gated octave wave. Each has its own drive gain, so the MODEs stay distinct at DRIVE 127; all peak alike, so a MODE switch stays even (measured in `docs/audio-effects-comparison.md`). New DIST stages default DRIVE to 50 (MIX still starts at bypass).
+- DIST MODE **OTT**: the Ableton Multiband Dynamics preset of that name, a three-band LR4 split (88.3 Hz / 2.5 kHz) with 4:1 upward compression below its threshold and 66.7:1 downward above it, in the same insert slot. DRIVE is DEPTH, TONE is TIME (1 ms / 50 ms attack and release at the centre), and MIX stays the dry/wet fader; DEPTH 0 is the transparent crossover sum. The stored MODE is appended, so projects and presets keep their existing values and older firmware reads OTT as FUZZ.
 - Delay TIME: on the free-ms rates the read head follows the knob (1/256 of the remaining error per sample, capped at 224 Q8), so pitch is how fast you turn, not how far — 455 → 25 ms turned in half a second lands in half a second.
 - FX LATCH turned on while an FX key was held (a settings load) could leave the effect fully active with no key held until a power cycle. A release now always clears its held bit; deliberate latches stay sticky until toggled off or G5 CLR.
 
