@@ -321,7 +321,8 @@ static int sweep_contract(void)
         project_capture(&q);
         bad += check("PIT GLD survives a project round trip",
                      proj_pack(&st, &q) && proj_import(&q, &st, sizeof st) &&
-                     cgld_on(&q.t[0]) && sweep_rate(&q.t[0]) == 3u && sweep_stroke(&q.t[0]) == 2u);
+                     cgld_on((const track_t *)&q.t[0]) && sweep_rate((const track_t *)&q.t[0]) == 3u &&
+                     sweep_stroke((const track_t *)&q.t[0]) == 2u);
     }
     cgld_set(t, 0);
     bad += check("clearing PIT GLD keeps STRUM / STROKE", !cgld_on(t) && sweep_rate(t) == 3u && sweep_stroke(t) == 2u);

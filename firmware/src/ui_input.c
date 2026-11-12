@@ -1290,7 +1290,9 @@ static void edit_param(uint32_t slot, int32_t steps)
         uint32_t id = pg->id[slot];
         if (pg->graph == GR_MOD)
             id += 3u * mod_ui_slot;
-        /* id from the page: vp may point at fx_bus_trk for SEND knobs */
+        /* page id may alias (VOICE POLY SPRD uses P_DETUNE); prefer the real p[] index */
+        if (vp >= TSEL->p && vp < TSEL->p + P_COUNT)
+            id = (uint32_t)(vp - TSEL->p);
         motion_capture(TSEL, id, *vp);
         scale_lock_after(TSEL, id);
     }

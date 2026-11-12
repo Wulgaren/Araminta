@@ -1642,6 +1642,7 @@ static int test_categories(void)
     }
     bad += check("categories: every factory preset of every engine has one (the table's strings == the preset counts)",
                  ok && preset_cat(0, 2) == CAT_BASS && preset_cat(ENGI_DRUM, 0) == CAT_DRUM && preset_cat(ENGI_FM6, 0) == CAT_KEYS &&
+                 preset_cat(ENGI_FM6, 14) == CAT_BASS &&
                  preset_cat(ENGI_DRUM, 9) == CAT_DRUM && preset_cat(0, 99) == CAT_OTHER);
     go_page(GR_BROWSE);
     select_engine(0);
@@ -3833,6 +3834,20 @@ static int test_edit_cycle(void)
         track_select(1); frame();
         ok &= midi_ch[ch].bend == 0 && midi_bend_target[0] == 0;
         bad += check("VOICE: PIT GLD (POLY), SPRD last, UNI DTN in UNISON; VOICE 2 is PITCH; a track change recentres its bend", ok);
+        /* POLY SPRD reuses page id P_DETUNE; a recorded K4 must capture P_SPRD (the value ptr). */
+        ui_power_on();
+        set_engine_of(TSEL, 0); TSEL->engine = TSEL->eng_req;
+        TSEL->p[P_VOICE] = (int16_t)V_POLY;
+        TSEL->p[P_SPRD] = 0;
+        TSEL->p[P_DETUNE] = 40;
+        press(B_EDIT); press(B_EDIT); frame();
+        motion_clear(TSEL);
+        song.rec = 1; seq_start();
+        turn(EN_K4, 1);
+        ok = str_eq(cur_page()->title, "VOICE") && motion_count(TSEL) == 1 &&
+             motion.event[0].param == P_SPRD && TSEL->p[P_SPRD] > 0;
+        song.rec = 0; seq_stop();
+        bad += check("VOICE K4 in POLY with REC: motion records P_SPRD, not P_DETUNE", ok);
     }
 
 

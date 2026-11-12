@@ -516,7 +516,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             } else if (a[0] == 0 && a[1] == P_IORD) {
                 iord_set_perm(TSEL, (uint32_t)clamp(ed_rv(a + 2), 0, 719));
             } else if (d->max > d->min) {
-                *vp = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
+                int16_t nv = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
+                if (a[0] == 0 && a[1] == P_ALLOC)        /* SWEEP: keep PIT GLD (bit 5), as STRUM/STROKE */
+                    nv = (int16_t)((uint32_t)nv | ((uint32_t)*vp & CGLD_BIT));
+                *vp = nv;
                 if (a[0] == 0) {
                     (void)motion_capture(TSEL, a[1], *vp);
                     load_extend(TSEL);                      /* (ui.c undo: an audition's values after G_ENGSEL) */
@@ -874,7 +877,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             if (a[1] == P_IORD)
                 iord_set_perm(t, (uint32_t)clamp(ed_rv(a + 2), 0, 719));
             else if (d->max > d->min) {                    /* as SET: clamped; a fixed value stays */
-                t->p[a[1]] = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
+                int16_t nv = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
+                if (a[1] == P_ALLOC)                       /* SWEEP: keep PIT GLD (bit 5), as STRUM/STROKE */
+                    nv = (int16_t)((uint32_t)nv | ((uint32_t)t->p[P_ALLOC] & CGLD_BIT));
+                t->p[a[1]] = nv;
                 scale_lock_after(t, a[1]);
             }
             (void)motion_capture(t, a[1], t->p[a[1]]);
