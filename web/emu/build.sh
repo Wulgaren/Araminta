@@ -43,7 +43,9 @@ EOF
 
 WASM_KEY=$(hash_inputs "$(emcc --version | head -1)|${EMU_OPT:--O2}|${EMU_CFLAGS:-}|$VERSION" \
     firmware/src firmware/hal build/gen web/emu/felucca_web.c web/emu/build.sh)
-PAGE_KEY=$(hash_inputs "$VERSION|${EMU_PREVIEW:-1}|$EMU_BUILD|$EMU_SHA" \
+# the page bakes HASH, which covers the wasm too: a firmware-only change must still rewrite the page, or its asset
+# URLs keep pointing at the previous build
+PAGE_KEY=$(hash_inputs "$VERSION|${EMU_PREVIEW:-1}|$EMU_BUILD|$EMU_SHA|$WASM_KEY" \
     web/emu/index.html web/emu/saves.js web/emu/store.js web/emu/worklet.js web/fm1backup.js web/projconv.js \
     web/emu/fonts)
 # asset URLs carry this: a rebuilt page asks for a different felucca.wasm / worklet.js / saves.js / font, so a cached
