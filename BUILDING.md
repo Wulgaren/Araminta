@@ -90,7 +90,7 @@ Build options (environment, `0` or `1`; defaults in `firmware/src/felucca.c`, `c
 | --- | --- | --- |
 | `FELUCCA_FLASH` | 1 | settings, presets and projects in flash |
 | `FELUCCA_OTA` | 1 | update entry (needs `FELUCCA_FLASH`) |
-| `FELUCCA_CDC` | 0 | USB serial console (off by default: audio + MIDI only, ~7.8 KiB less XIP; `1` for a developer build) |
+| `FELUCCA_CDC` | 0 | USB serial console (off by default with OTT in the image; `1` for MENU > USB SERIAL, ~7.8 KiB more XIP) |
 | `FELUCCA_CDC_DEFAULT` | 1 | only with `FELUCCA_CDC=1`: `0` leaves the console out of USB from boot (as MENU > USB SERIAL OFF) |
 | `FELUCCA_UAC` | 1 | USB audio input (the master output, stereo, 44.1 or 48 kHz) |
 | `FELUCCA_UAC_48K` | 1 | `0`: the USB audio input at 44.1 kHz only, as up to 1.0.5.2 (`firmware/src/usb.c`) |
