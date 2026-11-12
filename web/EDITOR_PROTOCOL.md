@@ -61,8 +61,9 @@ ratchet. A song's rows became sections with a slot per track (`SONG` ops 4..7; o
 (3840 bytes). See "1.2: LFO 2, NUDGE, 128 records (FUN10)" and "1.2: song sections" below.
 
 **3.10 (FM6's voice banks; INFO `56 01 60`):** FM6's SLOT (P_E0 + 7) runs to 104: 9..104 = B1..B96 across three
-32-voice banks (bank 0 still at `0xE7000`; banks 1..2 take the gap once provisioned). A stored 9..104 still loads
-as OWN with the patch. 1.4.1 advertised `56 01 32` with SLOT to 40 (B1..B32 only). See "FM6 voice bank (74-77)".
+32-voice banks (bank 0 at `0xE7000`, bank 1 at `0xF8000`, bank 2 at `0xF9000` in the reclaim band; the gap at
+`0x95000` is user-preset bank 5, not FM6). A stored 9..104 still loads as OWN with the patch. 1.4.1 advertised
+`56 01 32` with SLOT to 40 (B1..B32 only). See "FM6 voice bank (74-77)".
 
 **1.4.1 (FM6's voice bank; INFO `56 01 32`):** FM6's SLOT (P_E0 + 7) runs to 40: 9..40 = B1..B32, the voices of a
 32-voice bank the editor writes whole (cmds 74..77). Nothing else changed. See "FM6 voice bank (74-77)" below.
@@ -1013,22 +1014,23 @@ after `57 01 4`; firmware without the tag answers none of 74..77 and has SLOT 0.
 
 | cmd | Request args | Reply args |
 | --- | --- | --- |
-| 74 FM6B_BEGIN | — | rc. Starts a transfer (stops the transport; erases a sector: allow 1 s) |
+| 74 FM6B_BEGIN | bank 0..2 (optional: omit for bank 0) | rc. Starts a transfer into that bank (stops the transport; erases a sector: allow 1 s) |
 | 75 FM6B_WRITE | index 0..31, the 128 bytes | index, rc. Each index at most once per transfer; voices not written are empty in the new bank |
-| 76 FM6B_END | name (10 ASCII bytes, space-padded), CRC-32 (zlib's) of the written records, 128 bytes each in index order (5 × 7 bits, LSB first: bits 0..6, 7..13, .., 28..31) | rc, voices (how many the bank the device holds now has). rc 0: the new bank replaced the old one (allow 1 s) |
-| 77 FM6B_LIST | — | 32, bank (1 there is one, 0 none), its name string, then per voice: used (0/1), name string ("" if empty) |
+| 76 FM6B_END | name (10 ASCII bytes, space-padded), CRC-32 (zlib's) of the written records, 128 bytes each in index order (5 × 7 bits, LSB first: bits 0..6, 7..13, .., 28..31) | rc, voices (how many the selected bank holds now). rc 0: that bank's home was replaced (allow 1 s) |
+| 77 FM6B_LIST | bank 0..2 (optional: omit for bank 0) | 32, present (1 there is one, 0 none), its name string, then per voice: used (0/1), name string ("" if empty) |
 
-rc: 0 ok, 1 arguments (an index past 31 or written twice, a record that is not 128 bytes, an END that is not 15
+rc: 0 ok, 1 arguments (a bank past 2, an index past 31 or written twice, a record that is not 128 bytes, an END that is not 15
 bytes), 2 the CRC did not match (nothing changed: the old bank stays; start again with `FM6B_BEGIN`), 3 playback did
 not stop, 4 flash (no flash, an erase or a write failed), 5 no transfer (no `FM6B_BEGIN`, an END already answered, or
 the device's autosave took the transfer's flash between two requests, after 10 s without one: start again).
 
-- An END with no WRITE (the CRC of nothing: 0) writes an empty bank: every B slot is empty.
+- An END with no WRITE (the CRC of nothing: 0) writes an empty bank: every B slot of that bank is empty.
 - The old bank stays until END answers rc 0; a power cut at any point leaves the old bank or the new one, never a mix.
 - A track on a bank slot when a new bank arrives keeps the voice it played, as its own patch: SLOT becomes OWN.
 - The editor's import (6-OP FM tab): a 32-voice file's voices, each packed as for a single voice (every value into
-  its range); an empty slot of a shorter file is not written. Flash: the bank is at 0xE7000; a transfer is staged in
-  the autosave's older copy first (A at 0xE5000 or B at 0x93000), which the next autosave writes over anyway.
+  its range); an empty slot of a shorter file is not written. Flash homes: bank 0 at `0xE7000`, bank 1 at `0xF8000`,
+  bank 2 at `0xF9000` (reclaim band; not storage objects). A transfer is staged in the autosave's older copy first
+  (A at 0xE5000 or B at 0x93000), commit slot `0x10 | bank`, then copied to that bank's home (slot = bank).
 
 ## Tagged device preferences v1
 
