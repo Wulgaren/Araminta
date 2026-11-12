@@ -1664,7 +1664,9 @@ typedef struct {
 } ins_ctx_t;
 static ins_st_t ins_st[NTRK][INS_N] __attribute__((section(".pool")));
 static ins_ctx_t ins_ctx[NTRK + 2] __attribute__((section(".pool")));   /* NTRK + the two MASTER channels */
-static ott_st_t ott_trk[NTRK] __attribute__((section(".pool")));     /* per-track DIST OTT (CHAIN or SEND owner) */
+/* OTT state is small enough for .bss now (shared coefs + packed bands); keeping it out of .pool
+ * leaves the flash-bank reclaim work its 8 KiB spare. */
+static ott_st_t ott_trk[NTRK];                                       /* per-track DIST OTT (CHAIN or SEND owner) */
 static ott_st_t ott_master;                                          /* MASTER OTT: one mono sum, not per channel */
 static ott_st_t ott_part_tmp[C1_NP];                                 /* non-driver SEND OTT copy (one per part core) */
 /* SEND DSP reuses ins_st[bus_tr][st] / ins_lines[bus_tr] (first SEND track for that stage).
