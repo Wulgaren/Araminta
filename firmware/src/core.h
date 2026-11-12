@@ -457,7 +457,9 @@ static void step_set_fl(step_t *s, uint32_t fl) { s->flags = (uint8_t)(fl & (SF_
 #define MOTION_FILE_MAX_V11 78u  /* FUN11 disk: 4+78*3=238; frees 96 B for the DRUM-X kit (project.c PROJ_DX_*) */
 #define MOTION_FILE_MAX_V15 72u  /* FUN12..FUN15 disk: 4+72*3=220; 18 B for SCALE LOCK + pad before CRV */
 #define MOTION_FILE_MAX_BODY 88u /* FUN16..FUN19 in-body wire: chain repack freed 48 B for 16 records */
-#define MOTION_FILE_MAX 128u     /* FUN20 disk: 88 in the body + 40 in the 256 B append area (project.c) */
+#define MOTION_FILE_APPEND_MAX 40u /* FUN20 first append at 3824 (records 89..128); lane stays at 3944 */
+#define MOTION_FILE_SPARE_MAX 27u  /* FUN20 spare after mark+lane_tgt (3986..): records 129..155 */
+#define MOTION_FILE_MAX (MOTION_FILE_MAX_BODY + MOTION_FILE_APPEND_MAX + MOTION_FILE_SPARE_MAX) /* 155 */
 /* Four tracks x64 steps fit one byte. Track values are -64..127; FX TIME retains exact milliseconds in RAM.
  * param: the P_* or MFX_* id (<128), bit 7 (MOTION_LOCK, 1.1) a parameter lock: the value
  * sounds on that step only and goes back after it (motion.c motion_step); without it an automation event, the
@@ -494,16 +496,18 @@ _Static_assert(sizeof(motion_file_event_t) == 3u, "motion disk record preserves 
 #define MOTION_FILE_SIZE_V10 (4u + MOTION_FILE_MAX_V10 * sizeof(motion_file_event_t))
 #define MOTION_FILE_SIZE_V11 (4u + MOTION_FILE_MAX_V11 * sizeof(motion_file_event_t))
 #define MOTION_FILE_SIZE_V15 (4u + MOTION_FILE_MAX_V15 * sizeof(motion_file_event_t))
-/* the in-body motion block stays 88 records so DX/FM6 offsets stay frozen; records 89..128 live in the append */
+/* the in-body motion block stays 88 records so DX/FM6 offsets stay frozen; 89..128 live in the first append,
+ * 129..155 in the spare after the punch-in mark (project.c). AUTOMATION SAVE LIMIT fires at MOTION_FILE_MAX. */
 #define MOTION_FILE_SIZE (4u + MOTION_FILE_MAX_BODY * sizeof(motion_file_event_t))
-#define MOTION_FILE_APPEND_MAX (MOTION_FILE_MAX - MOTION_FILE_MAX_BODY)   /* 40 */
 #define MOTION_FILE_APPEND_SIZE (MOTION_FILE_APPEND_MAX * sizeof(motion_file_event_t))  /* 120 */
+#define MOTION_FILE_SPARE_SIZE (MOTION_FILE_SPARE_MAX * sizeof(motion_file_event_t))    /* 81 */
 _Static_assert(MOTION_FILE_SIZE_128 == 388u, "pre-release FUN10..FUN12 motion disk layout");
 _Static_assert(MOTION_FILE_SIZE_V10 == 334u, "FUN10 motion disk layout");
 _Static_assert(MOTION_FILE_SIZE_V11 == 238u, "FUN11 motion disk layout (kit before FM6)");
 _Static_assert(MOTION_FILE_SIZE_V15 == 220u, "FUN12..FUN15 motion disk layout (SCALE LOCK before CRV)");
 _Static_assert(MOTION_FILE_SIZE == 268u, "FUN16..FUN20 in-body motion (88 records, packed chain)");
-_Static_assert(MOTION_FILE_APPEND_SIZE == 120u && MOTION_FILE_MAX == 128u, "FUN20 append motion");
+_Static_assert(MOTION_FILE_APPEND_SIZE == 120u && MOTION_FILE_SPARE_SIZE == 81u && MOTION_FILE_MAX == 155u,
+               "FUN20 append + spare motion");
 /* P_QUANT (MAP). Stored values stay append-only; the UI shows 1 as CURR (per track) and 4 as ALL
  * (every track follows ROOT/SCL while it is on). QN_CURR is the shared mode here. */
 enum { QN_OFF, QN_ALL, QN_KBD, QN_SEQ, QN_CURR };

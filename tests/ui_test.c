@@ -451,7 +451,7 @@ static int test_sound_loads(void)
                  preset_pat_hint() == 12 && ui.ppick == 12 && str_eq(PATTERNS[12].name, "ARP"));
     t->p[P_AMODE] = 2;
     before = *t;
-    for (i = 0; i < 7u; i++)                      /* several loads, into the next engine (7: past SUPER SAW) */
+    for (i = 0; i < ENGINES[0]->npresets - 6u; i++) /* from RAVE past the last ANALOG preset into the next engine */
         turn(EN_PRESET, 1);
     bad += check("browsing on, into another engine: the steps still untouched", t->eng_req != before.eng_req &&
                  !memcmp(t->step, before.step, sizeof t->step) && t->p[P_AMODE] == 2);
@@ -3179,7 +3179,7 @@ static int test_product_ux(void)
         uint32_t i, page;
         char qa[24], qb[24];
         ui_power_on();
-        /* one track x 64 steps holds 128 unique (step, id) pairs with two ids; a third id pushes past MOTION_FILE_MAX */
+        /* fill past MOTION_FILE_MAX (155 on FUN20) so SAVE warns; extras are clipped on pack */
         for (i = 0; i < MOTION_FILE_MAX + 1u; i++)
             motion_set_event(&trk[0], i % NSTEP,
                              i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_PAN, (int16_t)(i % 60u));

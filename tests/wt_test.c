@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* WAVETABLE engine test (src/eng_wt.c) on the Mac, through hostsim.c as regress.c.
  *   build/host/wt_test [DEMODIR]          (run_tests.sh: build/wt_demo)
- * 1. the engine: index 14 (ENGI_WT), WAVETABLE, pages OSC A / OSC B, 8 parameters, 8 presets, the knob row
+ * 1. the engine: index 14 (ENGI_WT), WAVETABLE, pages OSC A / OSC B, 8 parameters, 10 presets, the knob row
  *    (POS, FDBK, B>A, LEVEL).
  * 2. the tables (build/gen/felucca_wt.h): two factory tables, 16 frames each, a 512-sample base (1016 a frame),
  *    every stored sample in range, every frame's base level non-zero; the mip helper (wt_mip_level) for a
@@ -166,7 +166,7 @@ static void engine(void)
     check(what, eng_wt() == 14u && eng_wt() == ENGI_WT && ENGINES[eng_wt()] == &ENG_WT && !strcmp(e->name, "WAVETABLE") &&
           !strcmp(e->page_title[0], "OSC A") && !strcmp(e->page_title[1], "OSC B"));
     snprintf(what, sizeof what, "engine: 8 EDIT parameters, %u presets, knob POS FDBK B>A LEVEL", (uint32_t)e->npresets);
-    check(what, labels && e->npresets == 8u && e->knob[0] == P_E1 && e->knob[1] == P_E2 && e->knob[2] == P_E3 &&
+    check(what, labels && e->npresets == 10u && e->knob[0] == P_E1 && e->knob[1] == P_E2 && e->knob[2] == P_E3 &&
           e->knob[3] == P_E6);
     check("names: cards WAVE / POS / LEVEL, MOD card WAVE A / B LEVEL",
           !strcmp(e->edit[0].label, "WAVE") && !strcmp(e->edit[1].label, "POS") &&
