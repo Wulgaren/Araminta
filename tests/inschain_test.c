@@ -488,19 +488,21 @@ static void dm_render(uint32_t mode, int32_t drive)
 {
     track_t tt;
     ins_st_t st;
+    ott_st_t ott;
     int32_t buf[DM_N];
     uint32_t i;
     memset(&tt, 0, sizeof tt);
     memset(&st, 0, sizeof st);
+    memset(&ott, 0, sizeof ott);
     tt.p[P_IDMODE] = (int16_t)mode;
     tt.p[P_DIST] = (int16_t)drive;
     tt.p[P_ED_FX] = 0;                                 /* TONE at its default: the drive-linked cutoff alone */
     for (i = 0; i < DM_N; i++)
         buf[i] = (int32_t)(24000.0 * sin(2.0 * M_PI * (double)i / 128.0));
-    ins_run_dist(&st, &tt, buf, DM_N, 32768);          /* MIX 100 % (ins_mixq(127)), from rest */
+    ins_run_dist(&st, &ott, &tt, buf, DM_N, 32768);    /* MIX 100 % (ins_mixq(127)), from rest */
     for (i = 0; i < DM_N; i++)
         buf[i] = (int32_t)(24000.0 * sin(2.0 * M_PI * (double)(i + DM_N) / 128.0));
-    ins_run_dist(&st, &tt, buf, DM_N, 32768);
+    ins_run_dist(&st, &ott, &tt, buf, DM_N, 32768);
     for (i = 0; i < DM_N; i++)
         dm_wet[mode][i] = buf[i];
 }
@@ -575,15 +577,17 @@ static double ott_tone(double amp, uint32_t period, int32_t depth, int32_t time)
 {
     track_t tt;
     ins_st_t st;
+    ott_st_t ott;
     uint32_t i;
     memset(&tt, 0, sizeof tt);
     memset(&st, 0, sizeof st);
+    memset(&ott, 0, sizeof ott);
     tt.p[P_IDMODE] = IDM_OTT;
     tt.p[P_DIST] = (int16_t)depth;
     tt.p[P_ED_FX] = (int16_t)time;
     for (i = 0; i < OTT_N; i++)
         ott_buf[i] = ott_dry[i] = (int32_t)(amp * sin(2.0 * M_PI * (double)(i % period) / (double)period));
-    ins_run_dist(&st, &tt, ott_buf, OTT_N, 32768);
+    ins_run_dist(&st, &ott, &tt, ott_buf, OTT_N, 32768);
     return ott_rms(ott_buf, OTT_N / 2u);
 }
 /* the fundamental's amplitude against the rest: what the rectifier-as-envelope got wrong on bass */
@@ -652,9 +656,11 @@ static void test_ott(void)
         for (k = 0; k < 3; k++) {
             track_t tt2;
             ins_st_t st2;
+            ott_st_t ott2;
             uint32_t j;
             memset(&tt2, 0, sizeof tt2);
             memset(&st2, 0, sizeof st2);
+            memset(&ott2, 0, sizeof ott2);
             tt2.p[P_IDMODE] = IDM_OTT;
             tt2.p[P_DIST] = 127;
             tt2.p[P_ED_FX] = (int16_t)t[k];
@@ -662,7 +668,7 @@ static void test_ott(void)
                 int32_t a = (j / 1024u) & 1u ? 10000 : 1000;
                 ott_buf[j] = (int32_t)(a * sin(2.0 * M_PI * (double)(j % 44u) / 44.0));
             }
-            ins_run_dist(&st2, &tt2, ott_buf, OTT_N, 32768);
+            ins_run_dist(&st2, &ott2, &tt2, ott_buf, OTT_N, 32768);
             h[k] = 0;
             for (j = OTT_N / 4u; j < OTT_N; j++)
                 h[k] = h[k] * 1099511628211ull + (uint64_t)(uint32_t)ott_buf[j];
@@ -674,37 +680,49 @@ static void test_ott(void)
 
     /* DEPTH 0: the three bands sum back to the input (the crossover is transparent; the stage's
      * DC blocker is the only difference, and it does not change the level) */
-    memset(&tt, 0, sizeof tt);
-    memset(&st, 0, sizeof st);
-    tt.p[P_IDMODE] = IDM_OTT;
-    tt.p[P_DIST] = 0;
-    for (i = 0; i < OTT_N; i++)
-        ott_buf[i] = ott_dry[i] = (int32_t)(8000.0 * sin(2.0 * M_PI * (double)(i % 128u) / 128.0));
-    ins_run_dist(&st, &tt, ott_buf, OTT_N, 32768);
     {
-        double wr = ott_rms(ott_buf, OTT_N / 2u), dr = ott_rms(ott_dry, OTT_N / 2u);
-        printf("inschain:   OTT DEPTH 0 RMS %.1f vs dry %.1f\n", wr, dr);
-        ck("OTT DEPTH 0 leaves the level (crossover sum)", fabs(wr / dr - 1.0) < 0.01);
+        ott_st_t ott;
+        memset(&tt, 0, sizeof tt);
+        memset(&st, 0, sizeof st);
+        memset(&ott, 0, sizeof ott);
+        tt.p[P_IDMODE] = IDM_OTT;
+        tt.p[P_DIST] = 0;
+        for (i = 0; i < OTT_N; i++)
+            ott_buf[i] = ott_dry[i] = (int32_t)(8000.0 * sin(2.0 * M_PI * (double)(i % 128u) / 128.0));
+        ins_run_dist(&st, &ott, &tt, ott_buf, OTT_N, 32768);
+        {
+            double wr = ott_rms(ott_buf, OTT_N / 2u), dr = ott_rms(ott_dry, OTT_N / 2u);
+            printf("inschain:   OTT DEPTH 0 RMS %.1f vs dry %.1f\n", wr, dr);
+            ck("OTT DEPTH 0 leaves the level (crossover sum)", fabs(wr / dr - 1.0) < 0.01);
+        }
     }
 
     /* MIX 0: the stage is skipped bit for bit */
-    memset(&tt, 0, sizeof tt);
-    memset(&st, 0, sizeof st);
-    tt.p[P_IDMODE] = IDM_OTT;
-    tt.p[P_DIST] = 127;
-    for (i = 0; i < OTT_N; i++)
-        ott_buf[i] = ott_dry[i] = (int32_t)(40000.0 * sin(2.0 * M_PI * (double)(i % 128u) / 128.0));
-    ins_run_dist(&st, &tt, ott_buf, OTT_N, 0);
-    ck("OTT MIX 0 is bit-identical to bypass", !memcmp(ott_buf, ott_dry, sizeof ott_buf));
+    {
+        ott_st_t ott;
+        memset(&tt, 0, sizeof tt);
+        memset(&st, 0, sizeof st);
+        memset(&ott, 0, sizeof ott);
+        tt.p[P_IDMODE] = IDM_OTT;
+        tt.p[P_DIST] = 127;
+        for (i = 0; i < OTT_N; i++)
+            ott_buf[i] = ott_dry[i] = (int32_t)(40000.0 * sin(2.0 * M_PI * (double)(i % 128u) / 128.0));
+        ins_run_dist(&st, &ott, &tt, ott_buf, OTT_N, 0);
+        ck("OTT MIX 0 is bit-identical to bypass", !memcmp(ott_buf, ott_dry, sizeof ott_buf));
+    }
 
     /* bounded: a hot input neither wraps nor leaves the insert's range */
-    memset(&tt, 0, sizeof tt);
-    memset(&st, 0, sizeof st);
-    tt.p[P_IDMODE] = IDM_OTT;
-    tt.p[P_DIST] = 127;
-    for (i = 0; i < OTT_N; i++)
-        ott_buf[i] = (int32_t)(200000.0 * sin(2.0 * M_PI * (double)(i % 128u) / 128.0));
-    ins_run_dist(&st, &tt, ott_buf, OTT_N, 32768);
+    {
+        ott_st_t ott;
+        memset(&tt, 0, sizeof tt);
+        memset(&st, 0, sizeof st);
+        memset(&ott, 0, sizeof ott);
+        tt.p[P_IDMODE] = IDM_OTT;
+        tt.p[P_DIST] = 127;
+        for (i = 0; i < OTT_N; i++)
+            ott_buf[i] = (int32_t)(200000.0 * sin(2.0 * M_PI * (double)(i % 128u) / 128.0));
+        ins_run_dist(&st, &ott, &tt, ott_buf, OTT_N, 32768);
+    }
     for (i = OTT_N / 2u; i < OTT_N; i++)
         if (ott_buf[i] > 262143 || ott_buf[i] < -262143)
             bound_ok = 0;
