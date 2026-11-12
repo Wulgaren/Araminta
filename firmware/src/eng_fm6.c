@@ -17,14 +17,14 @@
  *   MEG   the modulators' envelope times: + slower (rates down to 40 steps), - faster
  *   VIB   the patch LFO's pitch depth: + wider
  *   DTUN  spreads the carriers apart in pitch (up to about +-36 cents between the outer ones)
- *   SLOT  F1..F8 load a factory patch; OWN (8) is the track's own patch: what a project, a user preset or the
+ *   SLOT  F1..F14 load a factory patch; OWN (14) is the track's own patch: what a project, a user preset or the
  *         editor put there. A load shows F n when the patch is that factory one unchanged, else OWN (fm6_adopt).
- *         B1..B128 (9..136, four 32-voice banks) load a voice from flash (fm6_vbank.c) as F n do; a bank
+ *         B1..B128 (15..142, four 32-voice banks) load a voice from flash (fm6_vbank.c) as F n do; a bank
  *         slot without a voice is skipped by the knob (params.c enum_step) and refused anywhere else (fm6_poll).
  *         Turning SLOT from OWN to F n / B n keeps the own patch aside; back to OWN brings it back (fm6_poll).
  *         Before 1.0.3 the values 8..34 were F1..F8 then B1..B27, a flash bank (retired: its patches moved into
  *         the user presets, up_fm6.c). A stored value is never a bank slot: projects, user presets and motion
- *         load 9..136 as 8, OWN (params.c param_fit), and the patch comes with the project / the record. So a
+ *         load 8..142 as OWN (params.c param_fit), and the patch comes with the project / the record. So a
  *         project or a preset made with a bank voice sounds the same after the bank is replaced
  * The operator envelopes are the voice's amplitude and end it (engine_t.ownenv / done): the track's ADSR,
  * ENV DEST and the matrix's ENV do nothing here. The track's FLT moves MLVL (ENV / LFO -> FLT, the
@@ -39,9 +39,11 @@
 
 #define ENGI_FM6 12u             /* engines.c ENGINES[] (append-only) */
 #define FM6_POLY 6               /* engine_t.poly */
-#define FM6_OWN FM6_NFACTORY     /* SLOT: the track's own patch (F1..F8 before it) */
+#define FM6_OWN FM6_NFACTORY     /* SLOT: the track's own patch (F1..F14 before it) */
+#define FM6_STORED_MAX 7u        /* a stored SLOT (project, user preset, motion) names only F1..F8: 8..142 load
+                                  * as OWN; the patch travels and fm6_adopt finds F9..F14 again */
 #define FM6_NBANK 32u            /* voices in one bank (fm6_vbank.c) */
-#define FM6_NBANKS 4u            /* four banks; SLOT B1..B128 = 9..136 */
+#define FM6_NBANKS 4u            /* four banks; SLOT B1..B128 = 15..142 */
 #define FM6_NBANK_TOTAL (FM6_NBANK * FM6_NBANKS)
 #define FM6_PACKED 128u
 
@@ -434,7 +436,8 @@ static const char *const N_FM6_ALG[] = {"PAT", "1", "2", "3", "4", "5", "6", "7"
                                         "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25",
                                         "26", "27", "28", "29", "30", "31", "32", 0};
 static const char *const N_FM6_PATCH[] = {
-    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "OWN",
+    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8",
+    "F9", "F10", "F11", "F12", "F13", "F14", "OWN",
     "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8",
     "B9", "B10", "B11", "B12", "B13", "B14", "B15", "B16",
     "B17", "B18", "B19", "B20", "B21", "B22", "B23", "B24",
@@ -454,7 +457,7 @@ static const char *const N_FM6_PATCH[] = {
     0};
 _Static_assert(NELEM(N_FM6_PATCH) == FM6_OWN + FM6_NBANK_TOTAL + 2u, "a SLOT name per value");
 
-/* {ALG, FB, MLVL, MRAT, MEG, VIB, DTUN, SLOT}: the factory patch F1..F8 as it is, DTUN on the pad */
+/* {ALG, FB, MLVL, MRAT, MEG, VIB, DTUN, SLOT}: a factory patch as it is, DTUN on the pad */
 static const preset_t FM6_PRESETS[] = {
     {"TINE EP", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 45, 25, 35), PAT(6)},
     {"BELL", {0, 0, 0, 0, 0, 0, 0, 1}, {0, 0, 127, 0}, 0, 0, FX(0, 10, 30, 70), PAT(7)},
@@ -464,8 +467,12 @@ static const preset_t FM6_PRESETS[] = {
     {"MARIMBA", {0, 0, 0, 0, 0, 0, 0, 5}, {0, 0, 127, 0}, 0, 0, FX(0, 0, 25, 40), PAT(3)},
     {"ORGAN", {0, 0, 0, 0, 0, 0, 0, 6}, {0, 0, 127, 0}, 0, 0, FX(10, 40, 0, 30), PAT(6)},
     {"PLUCK", {0, 0, 0, 0, 0, 0, 0, 7}, {0, 0, 127, 0}, 0, 0, FX(0, 20, 35, 30), PAT(13)},
-    {"EP VIB", {0, 0, 8, 0, 0, 28, 12, 0}, {0, 0, 127, 0}, 0, 0, FX(0, 50, 30, 40), PAT(6)},
-    {"BELL LONG", {0, 2, -10, 0, 20, 0, 0, 1}, {0, 0, 127, 0}, 0, 0, FX(0, 15, 25, 85), PAT(7)},
+    {"METAL VOX", {0, 0, 0, 0, 0, 0, 0, 8}, {0, 0, 127, 0}, 0, 0, FX(0, 20, 30, 55), PAT(7)},
+    {"HOLLOW FM", {0, 0, 0, 0, 0, 0, 0, 9}, {0, 0, 127, 0}, 0, 0, FX(0, 55, 25, 80), PAT(5)},
+    {"CRYSTAL", {0, 0, 0, 0, 0, 0, 0, 10}, {0, 0, 127, 0}, 0, 0, FX(0, 30, 40, 70), PAT(7)},
+    {"FM GROWL", {0, 0, 0, 0, 0, 0, 0, 11}, {0, 0, 127, 0}, 0, 1, FX(15, 0, 20, 20), PAT(2)},
+    {"OCTAVE 6", {0, 0, 0, 0, 0, 0, 0, 12}, {0, 0, 127, 0}, 0, 0, FX(0, 20, 30, 40), PAT(6)},
+    {"AIR NOISE", {0, 0, 0, 0, 0, 0, 0, 13}, {0, 0, 127, 0}, 0, 0, FX(0, 10, 35, 75), PAT(5)},
 };
 
 static const engine_t ENG_FM6 = {

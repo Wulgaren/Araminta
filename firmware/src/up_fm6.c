@@ -285,7 +285,9 @@ static int upf_save(void)
 #endif
 }
 
-/* the retired bank's patches -> the FM6 user presets whose stored SLOT is a B slot and have no patch yet; the count */
+/* the retired bank's patches -> the FM6 user presets whose stored SLOT is a B slot and have no patch yet; the count.
+ * 1.0.2's SLOT 8..34 were F1..F8 then B1..B27: the F1..F8 count was 8, not today's FM6_NFACTORY. */
+#define FM6_NFACTORY_102 8u
 static uint32_t upf_migrate(const fm6_bank_t *b)
 {
     uint32_t k, moved = 0;
@@ -297,7 +299,7 @@ static uint32_t upf_migrate(const fm6_bank_t *b)
         int32_t s;
         if (!upf_fm6(k) || !upf_get(k, pk))
             continue;
-        s = up_value(r, r->np - 1u) - (int32_t)FM6_NFACTORY;   /* SLOT (P_E7): the record's last value */
+        s = up_value(r, r->np - 1u) - (int32_t)FM6_NFACTORY_102;   /* SLOT (P_E7): the record's last value */
         if (s >= 0 && s < (int32_t)FM6_BANK_N && ((b->used >> s) & 1u)) {
             upf_set(k, b->v[s]);
             moved++;

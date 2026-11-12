@@ -417,8 +417,9 @@ static int slot_test(void)
     const param_desc_t *d = &ENG_FM6.edit[7];
     uint32_t k;
     reset();
-    ok = param_turn(d, FM6_OWN, 1) == FM6_OWN && param_turn(d, FM6_OWN, -1) == 7 && param_turn(d, 7, 1) == FM6_OWN &&
-         param_turn(d, 7, 5) == FM6_OWN;
+    ok = param_turn(d, FM6_OWN, 1) == FM6_OWN && param_turn(d, FM6_OWN, -1) == FM6_OWN - 1 &&
+         param_turn(d, FM6_OWN - 1, 1) == FM6_OWN && param_turn(d, 7, 1) == 8 &&
+         param_turn(d, 7, 5) == 12;
     slot_to(0, FM6_OWN + 3);
     ok &= trk[0].p[P_E7] == FM6_OWN && fm6_slot[0] == FM6_OWN;
     bad += check("no bank: the knob stops at OWN (B1..B32 skipped); a B value from elsewhere is refused (SLOT back)", ok);
@@ -429,7 +430,7 @@ static int slot_test(void)
         slot_to(1, (int32_t)(FM6_OWN + 1u + k));
         ok &= fm6_slot[1] == FM6_OWN + 1u + k && trk[1].p[P_E7] == (int16_t)(FM6_OWN + 1u + k) && patch_is(1, a.v[k]);
     }
-    bad += check("SLOT B1..B32 (9..40): each loads its voice's exact record into the track", ok);
+    bad += check("SLOT B1..B32 (FM6_OWN+1 ..): each loads its voice's exact record into the track", ok);
     {
         char val[8];
         const char *u;
@@ -523,8 +524,8 @@ static int keep_test(void)
         memcpy(x, FM6_FACTORY[3], FM6_PACKED);
         x[110] = 17;                                      /* (an own patch) */
         ok = 1;
-        for (s = FM6_OWN + 1; s <= (int32_t)(FM6_OWN + FM6_NBANK_TOTAL); s++) {
-            p->t[0].p[P_E7] = (int16_t)s;                 /* any bank SLOT 9..136 -> OWN on store */
+        for (s = 8; s <= (int32_t)(FM6_OWN + FM6_NBANK_TOTAL); s++) {
+            p->t[0].p[P_E7] = (int16_t)s;                 /* any stored SLOT 8..142 -> OWN on load */
             memcpy(p->fm6[0], x, FM6_PACKED);
             p->sum = proj_sum(p);
             ok &= !project_restore_runtime(p) && trk[0].p[P_E7] == FM6_OWN && fm6_slot[0] == FM6_OWN && patch_is(0, x);
@@ -535,7 +536,14 @@ static int keep_test(void)
         memcpy(p->fm6[0], FM6_FACTORY[2], FM6_PACKED);
         p->sum = proj_sum(p);
         ok &= !project_restore_runtime(p) && trk[0].p[P_E7] == 2 && patch_is(0, FM6_FACTORY[2]);
-        bad += check("a project with a stored SLOT 9..136: its own patch, SLOT OWN (never a bank voice); F3 as before", ok);
+        for (s = 8; s < (int32_t)FM6_NFACTORY; s++) {  /* a new project saved on F9..F14: the patch brings the slot back */
+            p->t[0].p[P_E7] = (int16_t)s;
+            memcpy(p->fm6[0], FM6_FACTORY[s], FM6_PACKED);
+            p->sum = proj_sum(p);
+            ok &= !project_restore_runtime(p) && trk[0].p[P_E7] == (int16_t)s && fm6_slot[0] == (uint8_t)s &&
+                  patch_is(0, FM6_FACTORY[s]);
+        }
+        bad += check("stored SLOT 8..142: its own patch as OWN, and F9..F14 when that factory patch came with it; F3 as before", ok);
     }
     {   /* a user preset record with a stored SLOT 13 (1.0.2's B5): with its patch, that patch; without, the init voice */
         up_rec_t *r;
@@ -551,7 +559,7 @@ static int keep_test(void)
         up_set_value(r, P_E0, 3);                        /* the record changed: its patch no longer counts */
         up_load(6);
         ok &= patch_is(3, FM6_INIT) && trk[3].p[P_E7] == FM6_OWN;
-        bad += check("a user preset with a stored SLOT 13: its patch (OWN); with none, the init voice as before", ok);
+        bad += check("a user preset with a stored bank SLOT: its patch (OWN); with none, the init voice as before", ok);
     }
     {   /* a user preset of before 3.6: E5 was VMOD, moved into the patch on load; a new one keeps VIB */
         up_rec_t *r;
@@ -610,7 +618,7 @@ static int keep_test(void)
             ok &= trk[0].p[P_E7] == FM6_OWN && patch_is(0, x);
         }
         ok &= motion_put(t, 4, P_E7, FM6_OWN + 3, 0) == 0 && motion.event[motion.count - 1u].value == FM6_OWN;
-        bad += check("motion holding SLOT 9..136: plays OWN, the patch kept; a record made on B3 stores OWN", ok);
+        bad += check("motion holding SLOT 8..142: plays OWN, the patch kept; a record made on B3 stores OWN", ok);
         memset(&motion, 0, sizeof motion);
     }
     return bad;
