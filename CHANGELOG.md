@@ -20,11 +20,17 @@ bar; favourites for slots 32..95 live in the reserved settings row and the favou
 Backup ids **10..13** are banks 2..5. Stock V15 erases the gap on boot, so Araminta gap-bank data is lost only on
 return to stock.
 
-### Size: USB serial console off by default
+### Size: USB serial console off by default (OTT headroom)
 
-`FELUCCA_CDC` defaults to 0: the app builds without the CDC-ACM serial console (~7.8 KiB less XIP, a little
-RAM back). USB is audio + MIDI only, which is what macOS needs for the audio input. Set `FELUCCA_CDC=1` for a
-developer build that keeps MENU > USB SERIAL. Sound and golden are unchanged.
+`FELUCCA_CDC` defaults to 0 once OTT is in the same image: audio + MIDI only (~7.8 KiB less XIP). Set
+`FELUCCA_CDC=1` for a developer build with MENU > USB SERIAL. With OTT + the 16 new factory presets, CDC-on
+overflows the app slot by ~2.8 KiB.
+
+### Sixteen new app-image factory presets
+
+Sixteen new `preset_t` rows in the engine tables (not a F4000 shelf): ANALOG PWM BASS / AIR PAD / FILTER SWP,
+PHASE GLASS, LOFI NOISE LD / TRI LD, VOICE OOOH PAD, TRIO SAW STACK / FIFTHS, WHEEL CHURCH, GRAIN DUST PAD,
+NOISE STATIC, FM6 EP VIB / BELL LONG, WAVETABLE WT LEAD / HOLLOW. Categories updated to match.
 
 ### F4000 is FM6 bank 3
 
@@ -35,14 +41,15 @@ user-preset factory bank. `OBJ_FACBANK` / `up_factory.c` / PRESETS `F01`..`F16` 
 ### FUN20 projects (4 KiB, single-copy) and punch-in lane
 
 Projects are FUN20 (`FUNK`): 4096 bytes, single-copy in flash (no A/B). DX stays at 3216 and FM6 at 3312;
-the name moved to 4080. The 256 B append at 3824..4079 holds motion records 89..127 (120 B) and the 40 B
-audio punch-in lane (64 steps × 5 bits) with marker `'L'` at 3984. `MOTION_FILE_MAX` is 128. FUN7..FUN19 still
-load. The four 4 KiB `.noinit` wire caches are gone; a 44 B RAM summary per slot (176 B total) feeds SONG /
-PROJECTS. A torn project save clears that slot (autosave is the recovery path). The autosave is a split A/B
-pair at full 4096 B (lane and motion 89..127 included): A grows in place at `0xE5000..0xE6FFF` (two sectors),
-B takes `0x93000..0x94FFF` in the gap; user samples stay 80 KiB × 3. A pre-3.10 one-sector B at `0xE6000`
-migrates into the gap on boot. `0xE7000` (FM6 voice bank) and `0xE8000` stay untouched; `0x95000..0x96FFF` holds user-preset bank 5.
-Older 3840 B backups and field files still restore.
+the name moved to 4080. The 256 B append at 3824..4079 holds motion records 89..128 (120 B), the 40 B
+audio punch-in lane (64 steps × 5 bits) with marker `'L'` at 3984, and spare motion 129..155 (81 B from 3986).
+`MOTION_FILE_MAX` is **155** (RAM still 192); AUTOMATION SAVE LIMIT fires when the 156th record is added.
+FUN7..FUN19 still load. The four 4 KiB `.noinit` wire caches are gone; a 44 B RAM summary per slot (176 B
+total) feeds SONG / PROJECTS. A torn project save clears that slot (autosave is the recovery path). The
+autosave is a split A/B pair at full 4096 B (lane and motion through 155 included): A grows in place at
+`0xE5000..0xE6FFF` (two sectors), B takes `0x93000..0x94FFF` in the gap; user samples stay 80 KiB × 3. A
+pre-3.10 one-sector B at `0xE6000` migrates into the gap on boot. `0xE7000` (FM6 voice bank) and `0xE8000`
+stay untouched; `0x95000..0x96FFF` holds user-preset bank 5. Older 3840 B backups and field files still restore.
 
 Punch-in buffer borrow: taking sl_buf for REPEAT/REVERSE/FREEZE/TAPE/OCT/GLITCH now drops MASTER STUT
 takes as well as the tracks' (slicer_drop_all), so a master recording cannot read the punch's loop.

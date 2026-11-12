@@ -215,6 +215,8 @@ static const preset_t LOFI_PRESETS[] = {
     {"WAVE LEAD", {0, 4, 92, 0, 0, 18, 0, 110}, {0, 70, 90, 30}, 0, 1, FX(0, 0, 40, 25), PAT(3)},
     /* STEP: 25 % pulse, DCY 34 = D7 (a 15-step decay over 0.5 s), REL ~54 ms of staircase after note-off */
     {"STEP LEAD", {4, 0, 40, 34, 0, 16, 0, 127}, {0, 64, 127, 55}, 0, 1, FX(0, 0, 40, 20), PAT(4)},
+    {"NOISE LD", {3, 0, 64, 70, 40, 0, 0, 100}, {0, 55, 80, 35}, 0, 1, FX(15, 0, 35, 15), PAT(4)},
+    {"TRI LD", {0, 1, 64, 0, 0, 12, 1, 120}, {2, 75, 95, 40}, 0, 1, FX(0, 10, 40, 25), PAT(13)},
 };
 
 static const engine_t ENG_LOFI = {

@@ -17,7 +17,7 @@
 #define FELUCCA_OTA_DRYRUN 0     /* 1 = stage, ask "success", then undo: no record, no reset */
 #endif
 #ifndef FELUCCA_CDC
-#define FELUCCA_CDC 0            /* USB CDC-ACM serial console (off: frees ~7.8 KiB for the app slot;
+#define FELUCCA_CDC 0            /* USB CDC-ACM serial console (off: OTT + new presets leave ~5 KiB free;
                                   * set FELUCCA_CDC=1 for a developer build with MENU > USB SERIAL) */
 #endif
 #ifndef FELUCCA_UAC
