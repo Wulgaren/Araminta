@@ -28,12 +28,11 @@
  * staging 0xE0000..0xE4FFF. The FM6 voice bank (1.4.1, fm6_vbank.c): 0xE7000 (untouched); a new bank is first staged
  * in the autosave's older copy (fm6_vbank.c). Pre-3.10 autosave B lived at 0xE6000 (one sector); st_autosave_migrate
  * moves a still-valid copy into the gap before A can erase that sector. Those two sectors at 0x9F000 / 0xFE000 also
- * held the FM6 patch bank of 1.0..1.0.2 (OBJ_FM6BANK, retired). The reclaim band 0xF4000..0xF9FFF holds the built-in
- * factory preset bank (OBJ_FACBANK at 0xF4000) and single-copy user banks 2..4 at 0xF5000 / 0xF6000 / 0xF7000
- * (OBJ_UPRESET2..4). OBJ_UPRESET2..5 are appended after OBJ_FACBANK so FM6BANK / UPFM6 / AUTOSAVE / FACBANK type ids
- * stay put. */
+ * held the FM6 patch bank of 1.0..1.0.2 (OBJ_FM6BANK, retired). The reclaim band 0xF4000..0xF9FFF holds single-copy
+ * user banks 2..4 at 0xF5000 / 0xF6000 / 0xF7000 (OBJ_UPRESET2..4) and FM6 voice-bank homes at 0xF8000 / 0xF9000 /
+ * 0xF4000 (fm6_vbank.c, OBJ_FM6VB commits, not storage.c objects). OBJ_UPRESET2..5 follow OBJ_AUTOSAVE. */
 enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_UPFM6,
-       OBJ_AUTOSAVE, OBJ_FACBANK, OBJ_UPRESET2, OBJ_UPRESET3, OBJ_UPRESET4, OBJ_UPRESET5, OBJ_COUNT };
+       OBJ_AUTOSAVE, OBJ_UPRESET2, OBJ_UPRESET3, OBJ_UPRESET4, OBJ_UPRESET5, OBJ_COUNT };
 #define OBJ_FM6VB 32u                          /* the voice bank's commit records (fm6_vbank.c; >= OBJ_COUNT: st_load
                                                 * never takes one, no object here takes its sectors) */
 #define ST_AUTO_A 0xE5000u                     /* autosave A base (two sectors through 0xE6FFF) */
@@ -77,8 +76,6 @@ static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy 
         return copy ? 0xFE000u : 0x9F000u;
     if (obj == OBJ_AUTOSAVE)
         return copy ? ST_AUTO_B : ST_AUTO_A;            /* split: A above OTA, B in the gap */
-    if (obj == OBJ_FACBANK)                             /* single sector at F4000; copy ignored (read-only bank) */
-        return 0xF4000u;
     if (obj == OBJ_UPRESET2)                            /* single-copy banks in reclaim (copy ignored) */
         return 0xF5000u;
     if (obj == OBJ_UPRESET3)
@@ -99,10 +96,6 @@ static uint32_t st_sectors(uint32_t obj)
 {
     return (obj == OBJ_AUTOSAVE || (obj >= OBJ_PROJECT0 && obj < OBJ_UPRESET0)) ? 2u : 1u;
 }
-
-/* OBJ_FACBANK is single-copy (no B); st_save still accepts copy 0 only via st_save_to's single path for projects —
- * fac uses the normal A/B dance but both copies land on the same sector (st_sector ignores copy), so the second
- * write is a no-op overwrite of the same image. */
 
 /* the largest payload this object can hold (its own sectors, less the commit record) */
 static uint32_t st_pmax(uint32_t obj) { return st_sectors(obj) * ST_SECTOR - ST_PAYLOAD_OFF; }
@@ -192,8 +185,8 @@ static int st_save_to(uint32_t obj, const void *src, uint32_t len, int to)
         cur = st_current(obj, &h);
     seq = cur < 0 ? 0u : h.seq;
     nsec = st_sectors(obj);
-    single = (obj >= OBJ_PROJECT0 && obj < OBJ_UPRESET0) || obj == OBJ_FACBANK ||
-             (obj >= OBJ_UPRESET2 && obj <= OBJ_UPRESET4); /* projects / factory / F5..F7: one copy */
+    single = (obj >= OBJ_PROJECT0 && obj < OBJ_UPRESET0) ||
+             (obj >= OBJ_UPRESET2 && obj <= OBJ_UPRESET4); /* projects / F5..F7: one copy */
     if (single) {
         to = 0;
     } else if (to < 0) {

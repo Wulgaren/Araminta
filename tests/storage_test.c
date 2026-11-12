@@ -314,7 +314,7 @@ int main(void)
          * AM-3: the invariant that matters. A save erases a whole sector, so an st_sector() that lands
          * outside a claimed region, or on the stock firmware's VM, destroys data that is not ours. This
          * enumerates every object at both copies rather than trusting the arithmetic in st_sector. */
-        int land = 1, reserved = 1, gap_b = 1, gap_up = 1, vbank = 1, reclaim = 1;
+        int land = 1, reserved = 1, gap_b = 1, gap_up = 1, vbank = 1, reclaim = 1, fm6_homes = 1;
         uint32_t obj, copy, s;
         for (obj = 0; obj < OBJ_COUNT; obj++)
             for (copy = 0; copy < 2u; copy++) {
@@ -328,6 +328,8 @@ int main(void)
                         reserved = 0;
                     if (off >= FL_VBANK_LO && off < FL_VBANK_HI)
                         vbank = 0;
+                    if (off == 0xF4000u || off == 0xF8000u || off == 0xF9000u)
+                        fm6_homes = 0;
                 }
             }
         gap_b &= st_sector(OBJ_AUTOSAVE, 1) == 0x93000u && st_sectors(OBJ_AUTOSAVE) == 2u;
@@ -342,9 +344,7 @@ int main(void)
         bad += check("preset bank 5 claims the last two gap sectors 0x95000..0x96FFF", gap_up);
         bad += check("user banks 2..4 are single-copy at 0xF5000 / 0xF6000 / 0xF7000", reclaim);
         bad += check("no storage object claims the FM6 voice bank at 0xE7000", vbank);
-        bad += check("factory bank is single-copy at 0xF4000",
-                     st_sector(OBJ_FACBANK, 0) == 0xF4000u && st_sector(OBJ_FACBANK, 1) == 0xF4000u &&
-                         st_sectors(OBJ_FACBANK) == 1u);
+        bad += check("no storage object claims FM6 homes at F4000/F8000/F9000", fm6_homes);
     }
     {   /* migration: a pre-3.10 one-sector B at 0xE6000 moves into the gap; A at 0xE5000 still loads */
         static uint8_t old_a[200], old_b[200], got[200];

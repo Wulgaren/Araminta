@@ -46,7 +46,7 @@ int main(void)
     bad += check("the VM backup above the voice bank is not ours", !ERASE(FL_VBANK_HI));
     bad += check("the stock firmware's update record at 0xE8F00 is not ours",
                  !FL_STORE_OK(0xE8F00u, 0x100u));
-    bad += check("reclaim F4000..F9FFF erases (factory / user / FM6 banks 1–2)",
+    bad += check("reclaim F4000..F9FFF erases (user banks F5–F7 + FM6 F8/F9/F4)",
                  ERASE(FL_RECLAIM_LO) && ERASE(0xF5000u) && ERASE(0xF8000u) && ERASE(0xF9000u) &&
                  ERASE(FL_RECLAIM_HI - 0x1000u));
     bad += check("FM6 bank homes F8000/F9000 are reclaim; E8000 calibration is not",

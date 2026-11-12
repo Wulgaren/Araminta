@@ -235,7 +235,7 @@ per-device radio calibration (crystal trims, PA current, TX/RX offsets, records 
 187). Araminta does not use the radio, but the calibration cannot be recreated, and M-VAVE's
 own updater will not put it back, because it writes only `[0x4000, 0x93000)`.
 
-Araminta also uses reclaim **`0xF4000..0xF9FFF`** (factory presets, user banks, FM6 banks 1–2) and the last
+Araminta also uses reclaim **`0xF4000..0xF9FFF`** (user banks F5–F7, FM6 banks F8/F9/F4) and the last
 two gap sectors for a user-preset bank. Stock V15 ignores the reclaim band and erases the gap on boot. A musical
 SysEx archive does not capture those bytes; a **full flash backup** does. Writing F4000–F9FFF back through UBOOT
 on Return-to-V15 is a planned follow-up, not implemented yet.

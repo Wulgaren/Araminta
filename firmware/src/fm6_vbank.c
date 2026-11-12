@@ -1,22 +1,22 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* The FM6 voice bank (1.4.1, Discussion #168): 32 voices loaded at once from the web editor (a 32-voice .syx, its
- * 128-byte packed records as they are), picked on the device with FM6's SLOT B1..B96 (eng_fm6.c). A voice is read
+ * 128-byte packed records as they are), picked on the device with FM6's SLOT B1..B128 (eng_fm6.c). A voice is read
  * from flash when SLOT loads it, into the track's patch as F1..F8 load theirs: the patch is the track's from then on,
  * and a project or a user preset keeps it whatever the bank holds later. RAM: the used mask (eng_fm6.c
  * fm6_bank_used) and the transfer's state, in the pool; no copy of the bank.
  *
- * Where: three home sectors (not storage.c objects). Bank 0 at 0xE7000 (FL_VBANK_*), banks 1 and 2 at 0xF8000 and
- * 0xF9000 in the reclaim band (fm1_flash_map.h FL_RECLAIM_*). Gap 0x95000 holds user-preset bank 5, not FM6. Sector:
- * the commit record (storage.c st_hdr_t, type OBJ_FM6VB) at 0, the bank's header (fvb_info_t) at 224, the 32 voices
- * at 256..3839, 112 bytes each (the record's 7-bit bytes 8 to 7, up_fm6.c upf_pk_put); the record's CRC covers
- * 224..3839. The tail from 0xF00 on stays erased. 0xE8000 and stock outside F4000..F9FFF stay untouched.
+ * Where: four home sectors (not storage.c objects). Bank 0 at 0xE7000 (FL_VBANK_*), banks 1..3 at 0xF8000, 0xF9000
+ * and 0xF4000 in the reclaim band (fm1_flash_map.h FL_RECLAIM_*). Gap 0x95000 holds user-preset bank 5, not FM6.
+ * Sector: the commit record (storage.c st_hdr_t, type OBJ_FM6VB) at 0, the bank's header (fvb_info_t) at 224, the
+ * 32 voices at 256..3839, 112 bytes each (the record's 7-bit bytes 8 to 7, up_fm6.c upf_pk_put); the record's CRC
+ * covers 224..3839. The tail from 0xF00 on stays erased. 0xE8000 and stock outside F4000..F9FFF stay untouched.
  *
- * Commit slot: home uses slot = bank (0/1/2); a staged transfer uses slot = 0x10 | bank. Boot still accepts a
+ * Commit slot: home uses slot = bank (0..3); a staged transfer uses slot = 0x10 | bank. Boot still accepts a
  * legacy bank-0 stage with slot == 1. A new bank (FM6B_BEGIN / WRITE / END) is written into the autosave's older
  * copy first, committed with the staged slot, then copied to that bank's home. A power cut leaves the old bank or
  * the new one. fvb_boot also finishes a bank still staged at the pre-3.10 B address 0xE6000. Included by upreset.c. */
-static const uint32_t fvb_home[FM6_NBANKS] = { 0xE7000u, 0xF8000u, 0xF9000u };
+static const uint32_t fvb_home[FM6_NBANKS] = { 0xE7000u, 0xF8000u, 0xF9000u, 0xF4000u };
 #define FVB_INFO 224u                          /* the bank's header; the voices from FVB_VOICES */
 #define FVB_VOICES 256u
 #define FVB_MAGIC 0x56364D46u                  /* "FM6V" */

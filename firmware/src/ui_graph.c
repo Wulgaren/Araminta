@@ -1445,12 +1445,6 @@ static void graph_browse(void)
         if (e == NENGINES) {                             /* user preset: "U07" and its name */
             up_slot_label(tag, k);
             up_name(k, nm);
-        } else if (e == FAC_E) {                         /* F4000 factory bank: "F01", read-only */
-            tag[0] = 'F';
-            tag[1] = (char)('0' + (k + 1u) / 10u);
-            tag[2] = (char)('0' + (k + 1u) % 10u);
-            tag[3] = 0;
-            str_cpy(nm, up_fac_name(k), sizeof nm);
         } else {
             str_cpy(tag, eng_abbr(ENGINES[e]->name), sizeof tag);
             str_cpy(nm, ENGINES[e]->presets[k].name, sizeof nm);
