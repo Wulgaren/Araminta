@@ -1416,12 +1416,33 @@ static int drum_kit_retired(void)
     return bad;
 }
 
+/* ED_SET / ED_TRACK_PARAM of P_ALLOC (SWEEP 0..22) must keep PIT GLD (CGLD_BIT), as STRUM/STROKE do on the device. */
+static int alloc_preserves_cgld(void)
+{
+    int bad = 0;
+    const uint32_t commands[] = {ED_SET, ED_TRACK_PARAM};
+    for (uint32_t c = 0; c < 2; c++) {
+        uint16_t raw = (uint16_t)(5 + 8192);              /* SWEEP 5 = 1/16 DOWN (rate 2, stroke 0) */
+        uint8_t a[] = {0, P_ALLOC, (uint8_t)(raw & 127u), (uint8_t)(raw >> 7)};
+        int ok;
+        reset();
+        trk[0].p[P_ALLOC] = (int16_t)(sweep_pack(3, 1) | (int16_t)CGLD_BIT);
+        request(commands[c], a, sizeof a);
+        ok = cgld_on(&trk[0]) && sweep_rate(&trk[0]) == 2u && sweep_stroke(&trk[0]) == 0u;
+        bad += check(commands[c] == ED_SET ? "SET of SWEEP keeps PIT GLD (CGLD_BIT)" :
+                                             "TRACK_PARAM of SWEEP keeps PIT GLD (CGLD_BIT)",
+                     ok);
+    }
+    return bad;
+}
+
 #ifndef EDITOR_TEST_NO_MAIN                              /* (robust_test.c, fuzz_*.c: this file is their base) */
 int main(void)
 {
     int bad = preferences() + motion_locks() + dump_order() + slown_descriptor() + pitch_locks() +
               matrix_edits_preserve_fx_locks() + editor_fx_order() + framing() + uart_recovery() + steps() + samples() + wavetable_slot() + song_protocol() + malformed_saves() +
-              fm6_patches() + user_preset_roundtrip() + live_sync() + usb_burst() + menu_protocol() + drum_kit_retired();
+              fm6_patches() + user_preset_roundtrip() + live_sync() + usb_burst() + menu_protocol() + drum_kit_retired() +
+              alloc_preserves_cgld();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }
