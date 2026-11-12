@@ -2,32 +2,76 @@
 
 ## Unreleased
 
-CC 71 / 72 / 73 / 74 turn the four knobs of the page on screen, on the selected track, and CC 75 / 76 / 77 are SELECT,
-ALGORITHM and PRESETS. Each message is one step, so a pot and an endless encoder both work. MIDI LEARN is gone: GLO + D4, MENU > MIDI > LEARN CLEAR and the editor's 78 / 79
-commands and `43 01 16` block. The 32 settings bytes it used stay reserved, so older projects and settings still load.
+## 3.10
+
+Projects grow to FUN20. The flash map takes more of the gap for autosave and banks. POLY gets chord glide.
+Factory sounds and FM6 patches land in the same build as DIST MODE OTT, with USB serial off so the image fits.
+
+Splash and ABOUT show `v3.10`.
 
 ### Compatibility
 
-No project or preset change; the settings record keeps its layout and row 13 stays reserved unused. A learned CC map in
-an older setting is ignored. MENU > MIDI > MIDI IN now defaults to SEL for a new project: an external keyboard plays
-the selected track, as the keys do. Projects that hold CH1-4 keep it.
+Projects are FUN20 (`FUNK`, 4096 B, one flash copy). FUN7..FUN19 still load. Autosave is a full 4096 B A/B pair
+(A at `0xE5000..0xE6FFF`, B at `0x93000..0x94FFF`). A pre-3.10 one-sector B at `0xE6000` migrates on boot.
+Settings keep their layout; row 13 stays reserved. Older 3840 B backups still restore.
 
-### Screen knobs
+Before installing over stock, take a **full flash dump** with `tools/fm1_flash_dump.py`. An editor SysEx backup
+does not keep factory radio calibration in the gap. The installer asks for that confirm when the device is not
+already running Araminta. Stock V15 erases the gap on every boot.
 
-CC 71..74 are KNOB 1..4 of whatever page is shown: HOME's cards, a sound page, FX, the global pages. They edit the
-selected track, so browsing sounds, moving a cursor and running an action work as the panel's knobs do. The way comes
-from the message's move, or from its side of 64 when the value repeats; a fast stream speeds up as the panel's knobs do.
-MIDI IN only decides which channels are heard: in CH1-4 a message on channel 5 is ignored, and SEL hears every channel.
-Other mapped CCs (5, 7, 10, 91, 93, 94) still set their parameter absolutely on the track the channel plays. DECAY
-loses its CC 75 to SELECT; the panel's pot still owns MASTER.
+### FUN20 and punch-in
 
-### CLEAR ALL
+The 256 B append holds motion through record 155, plus a 40 B audio punch-in lane. AUTOMATION SAVE LIMIT fires
+on the 156th record (RAM still holds 192). A torn project save clears that slot; Save writes the current song
+into the autosave first so recovery is current. Punch-in borrow of `sl_buf` also drops MASTER STUT takes, so a
+master recording cannot read the punch loop.
 
-SAVE > CLEAR's two ALL keys now put the mix and the arpeggiator back as well: F#3 (a track) and G#3 (every track)
-reset LEVEL, PAN, PLAY (so a soloed or muted track comes back sounding) and the arp's MODE RATE OCT GATE SWG PROB
-HOLD ORD. A latched HOLD chord stops, so nothing keeps playing after a clear. The FX sends were already cleared. The
-other cells (PAT, SND, MOT, FX, PATS, SNDS, MOTS, FXS) are unchanged, and a preset or sound load still keeps the
-mix and the arp as it always has. SAVE held undoes the whole thing, mix and arp included.
+### Flash layout
+
+User presets are 96 slots (six banks × 16). Banks 0/1 stay at `0xDC000`. Banks 2..4 are single-copy at
+`0xF5000` / `0xF6000` / `0xF7000`. Bank 5 uses `0x95000..0x96FFF`. Backup ids 10..13 cover banks 2..5.
+
+FM6 has four 32-voice homes: `0xE7000`, `0xF8000`, `0xF9000`, and bank 3 at `0xF4000`. SLOT is 0..143
+(F1..F15, OWN, B1..B128). INFO advertises 128 bank voices as two 7-bit bytes. User-preset FM6 patches reclaim
+on delete and refuse a 33rd entry instead of saving a hollow preset.
+
+### PIT GLD
+
+`EDIT > VOICE` gains **PIT GLD** (POLY only). Chord notes pair with the next chord and glide, in the sequence or
+live from CHRD keys and MIDI. A released live chord keeps sounding for one 1/8 so the next can glide into it.
+A plucky envelope that has died attacks again at the new chord. With PIT GLD on, GLD reads as a share of the
+chord. Off by default. The switch is bit 5 of `P_ALLOC` (no format bump). Editor SWEEP SET keeps that bit.
+PITCH lives on **VOICE 2** in every mode; UNISON keeps UNI DTN on VOICE. POLY SPRD automation records SPRD, not
+UNI DTN.
+
+### Factory sounds and FM6
+
+Seventeen new or reworked factory sounds join nine kept from the first pass (SYNC LEAD, SUB DRONE, TALK LEAD,
+RING NOISE, SYNC STACK, PERC STOP, GLASS BOW, and reworks of STRETCH, REG BELL, WT FDBK; NOISE LD leaves LOFI).
+FM6 adds F9..F15 (METAL VOX, HOLLOW FM, CRYSTAL, FM GROWL, OCT STACK, AIR NOISE, DUBSTEP BASS) and presets for
+them. DUBSTEP BASS lists under BASS.
+
+### OTT and size
+
+DIST MODE OTT ships in the release image. USB serial (`FELUCCA_CDC`) defaults off so audio + MIDI fit; set
+`FELUCCA_CDC=1` for a developer build with MENU > USB SERIAL.
+
+### BOOT RESTORE
+
+MENU > SYSTEM > **BOOT RESTORE** (was RESTORE LAST). The autosave still writes on the idle rules when OFF; OFF
+only skips power-on restore.
+
+### Installer
+
+Return to V15 and the install copy name Araminta's reclaim sectors (`0xF4000..0xF9FFF` and the gap user bank).
+Byte-exact stock needs the full flash dump above. UBOOT write-back of those sectors on return to V15 is not in
+this build.
+
+### Other
+
+EFFECTS > TAPE starts as MASTER at MIX 100 % (idle head at SPEED 100). SAVE > CLEAR's ALL keys also reset the
+mix and the arpeggiator. CC 71..74 turn the on-screen knobs; 75..77 are SELECT, ALGORITHM and PRESETS. MIDI
+LEARN is gone; its settings bytes stay reserved so older settings load.
 
 ## 3.9
 
@@ -635,6 +679,7 @@ Same project format as 2.3 (FUN15 / `FUNF`). Splash and ABOUT show `v2.4`.
 ### Effects
 
 - DIST: one curve per MODE. SOFT a rounded curve that never flat-tops, HARD an edge at full scale, FOLD a wavefolder that folds further as it is driven, FUZZ a gated octave wave. Each has its own drive gain, so the MODEs stay distinct at DRIVE 127; all peak alike, so a MODE switch stays even (measured in `docs/audio-effects-comparison.md`). New DIST stages default DRIVE to 50 (MIX still starts at bypass).
+- DIST MODE **OTT**: the Ableton Multiband Dynamics preset of that name, a three-band LR4 split (88.3 Hz / 2.5 kHz) with 4:1 upward compression below its threshold and 66.7:1 downward above it, in the same insert slot. DRIVE is DEPTH, TONE is TIME (1 ms / 50 ms attack and release at the centre), and MIX stays the dry/wet fader; DEPTH 0 is the transparent crossover sum. The stored MODE is appended, so projects and presets keep their existing values and older firmware reads OTT as FUZZ.
 - Delay TIME: on the free-ms rates the read head follows the knob (1/256 of the remaining error per sample, capped at 224 Q8), so pitch is how fast you turn, not how far — 455 → 25 ms turned in half a second lands in half a second.
 - FX LATCH turned on while an FX key was held (a settings load) could leave the effect fully active with no key held until a power cycle. A release now always clears its held bit; deliberate latches stay sticky until toggled off or G5 CLR.
 

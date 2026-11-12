@@ -90,8 +90,8 @@ Build options (environment, `0` or `1`; defaults in `firmware/src/felucca.c`, `c
 | --- | --- | --- |
 | `FELUCCA_FLASH` | 1 | settings, presets and projects in flash |
 | `FELUCCA_OTA` | 1 | update entry (needs `FELUCCA_FLASH`) |
-| `FELUCCA_CDC` | 1 | USB serial console |
-| `FELUCCA_CDC_DEFAULT` | 1 | `0`: the console is built in but left out of USB from boot (as MENU > USB SERIAL OFF) |
+| `FELUCCA_CDC` | 0 | USB serial console (off by default with OTT in the image; `1` for MENU > USB SERIAL, ~7.8 KiB more XIP) |
+| `FELUCCA_CDC_DEFAULT` | 1 | only with `FELUCCA_CDC=1`: `0` leaves the console out of USB from boot (as MENU > USB SERIAL OFF) |
 | `FELUCCA_UAC` | 1 | USB audio input (the master output, stereo, 44.1 or 48 kHz) |
 | `FELUCCA_UAC_48K` | 1 | `0`: the USB audio input at 44.1 kHz only, as up to 1.0.5.2 (`firmware/src/usb.c`) |
 | `FELUCCA_UAC_AS_FIRST` | 1 | the audio control header lists the audio streaming interface before the MIDI one, so the USB audio driver of older macOS (up to 15) finds it; `0`: 1.0 to 1.5's order, byte for byte (`firmware/src/usb.c`) |
@@ -226,3 +226,36 @@ cd /tmp/felucca-site && python3 -m http.server 8000
 
 Installing firmware is at your own risk. If an install fails and the FM-1 no longer
 starts, recovery needs [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter).
+
+### Back up the SDK VM before a build that claims the gap
+
+Some builds claim the four sectors at `0x93000..0x97000`. They are the first 16 KiB of the
+stock firmware's declared SDK VM region, and on some units stock V15 keeps its VM there: a
+per-device radio calibration (crystal trims, PA current, TX/RX offsets, records 106 107 108
+187). Araminta does not use the radio, but the calibration cannot be recreated, and M-VAVE's
+own updater will not put it back, because it writes only `[0x4000, 0x93000)`.
+
+Araminta also uses reclaim **`0xF4000..0xF9FFF`** (user banks F5–F7, FM6 banks F8/F9/F4) and the last
+two gap sectors for a user-preset bank. Stock V15 ignores the reclaim band and erases the gap on boot. A musical
+SysEx archive does not capture those bytes; a **full flash backup** does. Writing F4000–F9FFF back through UBOOT
+on Return-to-V15 is a planned follow-up, not implemented yet.
+
+So read the flash first, over the chip's ROM UBOOT, and keep what it writes:
+
+```
+tools/get_sdk.sh                                    # once: also fetches wl82loader.bin
+python3 tools/fm1_flash_dump.py --out ~/fm1-backup-$(date +%F)
+```
+
+It writes `full-flash.bin` (the whole 1 MiB), `vm-gap.bin` (`0x93000..0x97000`),
+`vm-e8000.bin` (`0x0E8000..0x0E9000`) and `backup.json`, and verifies every file before it
+returns. It only reads flash; there is no write path. Each VM area gets a verdict:
+
+| verdict | meaning |
+| --- | --- |
+| `usable` | a live VM: keep the file, this is the unit's calibration |
+| `empty` | all `0xFF`: nothing stored there, claiming the gap loses nothing |
+| `unrecognised` | data but not a parsable VM: keep the file and do not assume the gap is free |
+
+The tool needs PyUSB and libusb (`pip3 install pyusb`, `brew install libusb`). It also works
+on an image already on disk: `python3 tools/fm1_flash_dump.py --verify IMAGE.bin`.

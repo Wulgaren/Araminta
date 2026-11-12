@@ -1072,6 +1072,11 @@ static __attribute__((noinline)) void cin_keep(track_t *t, uint32_t note, uint32
     cin_up[i] &= (uint8_t)~(1u << k);
 }
 
+__attribute__((noinline)) static void chord_live_flush(track_t *t);           /* (seq.c, below: PIT GLD live chords) */
+__attribute__((noinline)) static void chord_live_tick(track_t *t, uint32_t n);
+__attribute__((noinline)) static int chord_live_collect(track_t *t, uint32_t note, uint32_t vel);
+__attribute__((noinline)) static int chord_live_pending_remove(track_t *t, uint32_t note);
+__attribute__((noinline)) static int chord_live_release(track_t *t, uint32_t note);
 static void input_on(track_t *t, uint32_t note, uint32_t vel)
 {
     if (vel)
@@ -1087,7 +1092,7 @@ static void input_on(track_t *t, uint32_t note, uint32_t vel)
         rec_note(t, note, vel);
     if (t->p[P_AMODE])
         arp_add(t, note);
-    else
+    else if (!chord_live_collect(t, note, vel))
         trk_note_on(t, note, vel);
 }
 
@@ -1114,8 +1119,10 @@ static void input_off(track_t *t, uint32_t note)
             for (i = 0; i < t->nheld; i++)
                 if (t->held[i] == note)
                     keep = 1;
-        if (!keep)
-            trk_note_off(t, note);
+        if (!keep) {
+            if (!chord_live_pending_remove(t, note) && !chord_live_release(t, note))
+                trk_note_off(t, note);
+        }
     }
 }
 
@@ -1331,6 +1338,278 @@ static void seq_stop(void)
     motion_end();
 }
 
+/* PIT GLD (chord glide, voice.c / seq.c). A POLY chord on a NOTE step stays held to the next NOTE when PIT GLD is on
+ * and GLD is above 0; the next step then glides its notes into the new chord. Same note count: paired voices keep
+ * their envelopes. More new notes: each starts at the nearest old pitch and fades in. Fewer: the extra old notes
+ * glide to the nearest new pitch and release. */
+static int cg_auto(const track_t *t, uint32_t idx, uint32_t len)
+{
+    const step_t *nx;
+    if (!cgld_on(t) || t->p[P_GLIDE] <= 0 || trk_vmode(t) != V_POLY || t->p[P_AMODE])
+        return 0;
+    nx = &seq_steps(t)[(idx + 1u) % (len ? len : 1u)];
+    return nx->time == ST_NOTE && nx->n && step_ratchet(nx) == 1u;
+}
+/* samples from this step to the next that is not a TIE: a chord's glide lasts as long as the chord */
+static uint32_t chord_span(const track_t *t, uint32_t period, uint32_t idx, uint32_t len)
+{
+    uint32_t n = step_samples(t, period, idx), k;
+    for (k = 1; k < len; k++) {
+        uint32_t i = (idx + k) % (len ? len : 1u);
+        if (seq_steps(t)[i].time != ST_TIE)
+            break;
+        n += step_samples(t, period, i);
+    }
+    return n;
+}
+static int32_t glide_q8(int32_t d, uint32_t ticks)   /* a glide's step over ticks: gstep, Q8 */
+{
+    int32_t g = ((d < 0 ? -d : d) * 256 + (int32_t)ticks - 1) / (int32_t)(ticks ? ticks : 1u);
+    return g ? g : 1;
+}
+/* the note in set[] nearest x (other: skip a note that already sounds, a new one from the nearest other) */
+static int32_t cg_near(uint32_t x, const uint8_t *set, uint32_t n, int other)
+{
+    int32_t bd = 0x7FFFFFFF, best = 0;
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        int32_t y = set[i], d;
+        if (other && y == (int32_t)x)
+            continue;
+        d = y > (int32_t)x ? y - (int32_t)x : (int32_t)x - y;
+        if (d < bd) {
+            bd = d;
+            best = y;
+        }
+    }
+    if (bd == 0x7FFFFFFF && other)                       /* every old note was the same one: use it */
+        return cg_near(x, set, n, 0);
+    return clamp(best, 0, 127);
+}
+
+/* the pairing itself: old o[0..a) (sorted) to new n[0..b) (sorted, nv their velocities), one glide step of ticks */
+__attribute__((noinline)) static void cg_pair(track_t *t, const uint8_t *o, uint32_t a, uint8_t *n, const uint8_t *nv,
+                                              uint32_t b, uint32_t ticks)
+{
+    uint32_t i, j, k;
+    for (i = 0; i < a || i < b; i++) {
+        voice_t *v = 0;
+        if (i < a)
+            for (k = 0; k < NVOICE; k++)
+                if (t->v[k].active && t->v[k].gate && t->v[k].note == o[i]) {
+                    v = &t->v[k];
+                    break;
+                }
+        if (i < a && i < b && v) {                      /* a pair: the old note glides to the new */
+            int32_t d;
+            if (v->stage == 2u && v->env < (1 << 12))   /* a plucky sound had died: attack the new chord */
+                v->stage = 1;
+            v->note = n[i];
+            v->pitch16 = (int32_t)n[i] * 16 + t->pfx_rpit;
+            d = v->pitch16 - v->pitch_cur;
+            v->gstep = glide_q8(d, ticks);
+            v->gacc = 0;
+            v->gq8 = 1;
+            v->fin_d = 0;
+        } else if (i < b) {                             /* a new one: from the nearest old note, fading in */
+            uint32_t a0 = vage;
+            trk_note_on(t, n[i], nv[i] ? nv[i] : 1u);
+            if (vage != a0 && a)
+                for (k = 0; k < NVOICE; k++)
+                    if (t->v[k].age == vage && t->v[k].active) {
+                        voice_t *w = &t->v[k];
+                        int32_t d;
+                        w->pitch_cur = cg_near(n[i], o, a, 1) * 16 + t->pfx_rpit;
+                        d = w->pitch16 - w->pitch_cur;
+                        w->gstep = glide_q8(d, ticks);
+                        w->gacc = 0;
+                        w->gq8 = 1;
+                        w->fin_d = (uint16_t)(d < 0 ? -d : d);
+                    }
+        } else if (v) {                                 /* an old one left: to the nearest new note, fading out */
+            int32_t d;
+            v->pitch16 = cg_near(o[i], n, b, 0) * 16 + t->pfx_rpit;
+            d = v->pitch16 - v->pitch_cur;
+            v->gstep = glide_q8(d, ticks);
+            v->gacc = 0;
+            v->gq8 = 1;
+            v->fin_d = 0;
+            trk_note_off(t, o[i]);
+        }
+    }
+}
+
+__attribute__((noinline)) static void chord_glide(track_t *t, const uint8_t *nn, const uint8_t *vv, uint32_t m, uint32_t sk, uint32_t ssamp)
+{
+    uint8_t o[8], n[8], nv[8];
+    uint32_t a = 0, b = 0, i, j, k;
+    uint32_t ticks = (uint32_t)((uint64_t)ssamp * (uint32_t)t->p[P_GLIDE] / 127u / CTL);
+    if (!ticks)
+        ticks = 1;
+    for (i = 0; i < t->seq_n && a < 8u; i++)            /* the old chord: notes still sounding and held */
+        for (k = 0; k < NVOICE; k++)
+            if (t->v[k].active && t->v[k].gate && t->v[k].note == t->seq_notes[i]) {
+                o[a++] = t->seq_notes[i];
+                break;
+            }
+    for (i = 0; i < m && b < 8u; i++)
+        if (!((sk >> i) & 1u)) {
+            n[b] = nn[i];
+            nv[b++] = vv[i];
+        }
+    for (i = 1; i < a; i++)
+        for (j = i; j > 0 && o[j] < o[j - 1]; j--) {
+            uint8_t x = o[j];
+            o[j] = o[j - 1];
+            o[j - 1] = x;
+        }
+    for (i = 1; i < b; i++)
+        for (j = i; j > 0 && n[j] < n[j - 1]; j--) {
+            uint8_t x = n[j];
+            n[j] = n[j - 1];
+            n[j - 1] = x;
+            x = nv[j];
+            nv[j] = nv[j - 1];
+            nv[j - 1] = x;
+        }
+    for (i = 0; i < b; i++)
+        chord_auto_observe(t, n[i]);
+    cg_pair(t, o, a, n, nv, b, ticks);
+    t->slide_glide = 0;
+}
+
+/* PIT GLD live chords (input_on / input_off). Notes that start in one audio block form one chord. A released note keeps
+ * its voice for one 1/8, so the next chord can glide into it; a new chord inside that window pairs the notes, and any
+ * left over glide to the nearest new note and release. */
+static voice_t *live_voice(track_t *t, uint32_t note)
+{
+    uint32_t k;
+    for (k = 0; k < NVOICE; k++)
+        if (t->v[k].active && t->v[k].gate && t->v[k].note == note)
+            return &t->v[k];
+    return 0;
+}
+__attribute__((noinline)) static int chord_live_collect(track_t *t, uint32_t note, uint32_t vel)
+{
+    uint32_t i;
+    if (!cgld_on(t) || t->p[P_GLIDE] <= 0 || trk_vmode(t) != V_POLY || ENGINES[t->engine]->oneshot ||
+        t->p[P_AMODE] || chord_strum_now.on)
+        return 0;
+    for (i = 0; i < t->lcp_n; i++)
+        if (t->lcp_note[i] == note) {
+            t->lcp_vel[i] = (uint8_t)vel;
+            return 1;
+        }
+    if (t->lcp_n >= 8u)
+        return 0;
+    t->lcp_note[t->lcp_n] = (uint8_t)note;
+    t->lcp_vel[t->lcp_n] = (uint8_t)vel;
+    t->lcp_n++;
+    return 1;
+}
+__attribute__((noinline)) static int chord_live_pending_remove(track_t *t, uint32_t note)
+{
+    uint32_t i, k = 0;
+    for (i = 0; i < t->lcp_n; i++)
+        if (t->lcp_note[i] != note) {
+            t->lcp_note[k] = t->lcp_note[i];
+            t->lcp_vel[k++] = t->lcp_vel[i];
+        }
+    if (k == t->lcp_n)
+        return 0;
+    t->lcp_n = (uint8_t)k;
+    return 1;
+}
+__attribute__((noinline)) static int chord_live_release(track_t *t, uint32_t note)
+{
+    uint32_t i;
+    if (!cgld_on(t) || t->p[P_GLIDE] <= 0 || trk_vmode(t) != V_POLY || ENGINES[t->engine]->oneshot ||
+        t->p[P_AMODE] || chord_strum_now.on)
+        return 0;
+    for (i = 0; i < t->lc_n; i++)
+        if (t->lc_note[i] == note) {
+            t->lc_up = (uint8_t)(t->lc_up | (1u << i));
+            t->lc_off = beat_samples() / 2u;
+            return 1;
+        }
+    return 0;
+}
+__attribute__((noinline)) static void chord_live_flush(track_t *t)
+{
+    uint8_t o[8], nn[8], nv[8];
+    uint32_t n = t->lcp_n, i, j, a = 0, ticks;
+    if (!n)
+        return;
+    for (i = 0; i < n; i++) {
+        nn[i] = t->lcp_note[i];
+        nv[i] = t->lcp_vel[i];
+    }
+    t->lcp_n = 0;
+    if (!cgld_on(t) || t->p[P_GLIDE] <= 0 || trk_vmode(t) != V_POLY || ENGINES[t->engine]->oneshot) {
+        for (i = 0; i < n; i++)
+            trk_note_on(t, nn[i], nv[i]);
+        t->lc_n = 0;
+        t->lc_up = 0;
+        t->lc_off = 0;
+        return;
+    }
+    for (i = 0; i < t->lc_n && a < 8u; i++)
+        if (live_voice(t, t->lc_note[i]))
+            o[a++] = t->lc_note[i];
+    for (i = 1; i < a; i++)
+        for (j = i; j > 0 && o[j] < o[j - 1]; j--) {
+            uint8_t x = o[j];
+            o[j] = o[j - 1];
+            o[j - 1] = x;
+        }
+    for (i = 1; i < n; i++)
+        for (j = i; j > 0 && nn[j] < nn[j - 1]; j--) {
+            uint8_t x = nn[j];
+            nn[j] = nn[j - 1];
+            nn[j - 1] = x;
+            x = nv[j];
+            nv[j] = nv[j - 1];
+            nv[j - 1] = x;
+        }
+    ticks = (uint32_t)((uint64_t)(beat_samples() / 2u) * (uint32_t)t->p[P_GLIDE] / 127u / CTL);
+    if (!ticks)
+        ticks = 1;
+    cg_pair(t, o, a, nn, nv, n, ticks);
+    t->lc_n = (uint8_t)n;
+    for (i = 0; i < n; i++)
+        t->lc_note[i] = nn[i];
+    t->lc_up = 0;
+    t->lc_off = 0;
+}
+__attribute__((noinline)) static void chord_live_tick(track_t *t, uint32_t n)
+{
+    uint32_t i, all;
+    if (!t->lc_n)
+        return;
+    if (!cgld_on(t) || t->p[P_GLIDE] <= 0 || trk_vmode(t) != V_POLY || ENGINES[t->engine]->oneshot) {
+        for (i = 0; i < t->lc_n; i++)
+            if ((t->lc_up >> i) & 1u)
+                trk_note_off(t, t->lc_note[i]);
+        t->lc_n = 0;
+        t->lc_up = 0;
+        t->lc_off = 0;
+        return;
+    }
+    if (!t->lc_off || t->lc_off > n) {
+        if (t->lc_off)
+            t->lc_off -= n;
+        return;
+    }
+    all = (1u << t->lc_n) - 1u;
+    for (i = 0; i < t->lc_n; i++)
+        if ((t->lc_up >> i) & 1u)
+            trk_note_off(t, t->lc_note[i]);
+    t->lc_off = 0;
+    if ((t->lc_up & all) == all)
+        t->lc_n = 0;
+    t->lc_up = 0;
+}
+
 /* play one step: TIE extends, REST releases, NOTE (re)triggers its notes, then its lane hits (their GM
  * notes, DRUM_LANE_NOTE; an accented hit at 127); a SLIDE on the previous step makes this one legato with a
  * glide (acid style). skip: bit k = note k, bit 8 + l = the hit of lane l already sounds from live
@@ -1369,7 +1648,8 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     if (s->time == ST_TIE) {
         if (t->seq_n) {
             t->seq_off = gate + period / 2u;
-            t->seq_hold = (step_fl(s) & SF_SLIDE) != 0 || next_tie;   /* chains hold at any GATE / swing */
+            t->seq_hold = (step_fl(s) & SF_SLIDE) != 0 || next_tie || cg_auto(t, idx, len);   /* chains hold
+                                                         * at any GATE / swing; PIT GLD: to the next chord */
         }
         return;
     }
@@ -1413,6 +1693,16 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
             sk |= ((skip >> (8u + i)) & 1u) << m;
             m++;
         }
+    if (slide_in && cgld_on(t) && t->p[P_GLIDE] > 0 && !kit && trk_vmode(t) == V_POLY && hits == 1u && m) {
+        chord_glide(t, nn, vv, m, sk, chord_span(t, period, idx, len));
+        t->seq_n = 0;
+        for (i = 0; i < m; i++)
+            if (!((sk >> i) & 1u))
+                t->seq_notes[t->seq_n++] = nn[i];
+        t->seq_off = gate;
+        t->seq_hold = hits == 1u && ((step_fl(s) & SF_SLIDE) != 0 || next_tie || cg_auto(t, idx, len));
+        return;
+    }
     t->slide_glide = (uint8_t)slide_in;
     if (!slide_in)
         seq_release(t);
@@ -1433,7 +1723,8 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
         if (!((sk >> i) & 1u))
             t->seq_notes[t->seq_n++] = nn[i];
     t->seq_off = gate;
-    t->seq_hold = hits == 1u && ((step_fl(s) & SF_SLIDE) != 0 || next_tie);   /* next step a TIE: keep the notes to it */
+    t->seq_hold = hits == 1u && ((step_fl(s) & SF_SLIDE) != 0 || next_tie || cg_auto(t, idx, len));   /* next step
+                                                         * a TIE: keep the notes to it; PIT GLD: to the next chord */
 }
 
 /* MENU > CONTROL > STEP PREVIEW (1.2, Discussion #169): the UI asks for a step of a track to sound once (aud_req: step
@@ -1834,6 +2125,8 @@ static void events_block(uint32_t n)
         } else
             midi_event(st, ch, d1, d2);
     }
+    for (i = 0; i < NTRK; i++)
+        chord_live_flush(&trk[i]);                   /* PIT GLD: one chord a block, keys and MIDI together */
     if (clock_mode) {
         seq_n = 0;
         if (song.playing) {
@@ -1848,6 +2141,8 @@ static void events_block(uint32_t n)
     if (aud_req)
         seq_audition();                               /* (STEP PREVIEW: a step sounds, stopped) */
     chain_tick(seq_n);
+    for (i = 0; i < NTRK; i++)
+        chord_live_tick(&trk[i], n);                 /* PIT GLD: the 1/8 a released chord stays for the next */
     for (i = 0; i < NTRK; i++)
         seq_tick(&trk[i], seq_n);
     if (cin_flush)

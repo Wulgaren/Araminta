@@ -383,6 +383,7 @@ u_storage() {
     build "$OUT/flash_map_test" tests/flash_map_test.c -Ifirmware/hal
     run "flash map (write windows: the gap, the store, the app area refused)" "$OUT/flash_map_test"
     run "layout constants across C / Python / JavaScript / the linker" python3 tests/layout_test.py
+    run "flash dump: the VM verdicts and the two extracted areas" python3 tests/flash_dump_test.py
 }
 unit u_storage
 
@@ -477,6 +478,8 @@ python3 tools/fm1pkg_make.py "$OUT/old_app.bin" build/loader/ota.bin "$OUT/old.f
 u_ldr() {
     build "$OUT/ldr_test" tests/ldr_test.c
     run "update loader: other app -> this build" "$OUT/ldr_test" "$OUT/old.fwsc" build/felucca.fwsc
+    run "update loader: this build -> other app (the return direction)" \
+        "$OUT/ldr_test" build/felucca.fwsc "$OUT/old.fwsc"
 }
 unit u_ldr
 
@@ -679,6 +682,12 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "insert chain (P1-C): order, MIX 0 bypass, 1.5 INSERT migration, FX page order" "$OUT/inschain_test"
     }
     unit u_inschain
+    u_fxroute() {
+        build "$OUT/fx_route_test" tests/fx_route_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
+        run "FX routes: every stage in CHAIN / SEND / MASTER (knobs, MIX 0, hot input, project round trip)" \
+            "$OUT/fx_route_test"
+    }
+    unit u_fxroute
     # legacy insert_test (single TYPE) not rebuilt until updated for the 6-stage chain
     u_sound15() {
         build "$OUT/sound15_test" tests/sound15_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
@@ -704,6 +713,11 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "FX layer effects: on the 1/16, stereo, too-long REPEAT, SLICER, silent keys, idle bit-identical, clicks, OCT UP / DN, FLANGER, PHASER, the key map, dotted TIME, REV / ECHO THROW, cost, demos" "$OUT/perform_test" build/perform_demo build/fx_demo build/throw_demo
     }
     unit u_perform
+    u_punch() {
+        build "$OUT/punch_crackle_test" tests/punch_crackle_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
+        run "punch-in crackle: MASTER STUT borrow, heavy-mix stacks / HOLD, click bound, shed A/B (CRACKLE_DIR survey optional)" "$OUT/punch_crackle_test"
+    }
+    unit u_punch
     PERF_UNIT=$n
     u_reverb() {
         build "$OUT/reverb_test" tests/reverb_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm

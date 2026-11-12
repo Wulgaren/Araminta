@@ -2,6 +2,24 @@
 
 Project rules for coding agents. Global workflow still lives in `~/AGENT.md`.
 
+## Build
+
+`./build.sh` builds the firmware. It works on this machine: the JieLi toolchain is installed
+at `~/.jieli/toolchain` (symlink to the versioned directory) and the SDK files at
+`build/deps/ac79`. On macOS the toolchain is x86-64 Linux, so `build.sh` runs each tool in a
+`linux/amd64` `debian:bookworm-slim` container through Docker (Rosetta on Apple silicon):
+Docker must be running, and on this machine it is `colima` (`colima start` if stopped).
+
+If you need to know whether you can build, run `./build.sh`. It prints which piece is missing,
+and that message is the authority. Do not conclude the toolchain is unavailable from a file
+search: the Linux binaries are `clang` and `ld` with no `.exe`, and `build.sh` defaults
+`JIELI_TOOLCHAIN` to `~/.jieli/toolchain`, so empty `PI32*`/`JL*` environment variables mean
+nothing. `BUILDING.md` § Prerequisites has the full list (Pillow and fontTools are needed
+too, for `build/gen`).
+
+`build/felucca.fwsc`, `build/felucca.dis` and `build/loader/` are outputs; `tests/run_tests.sh`
+needs them, so build once before assuming a suite failure is real.
+
 ## Host tests
 
 `tests/run_tests.sh` is the full gate. It takes several minutes. It does **not** filter on argv: `tests/run_tests.sh sound15` still runs everything.
@@ -77,6 +95,7 @@ until it prints `ALL HOST TESTS PASSED`.
 | DRUMS engine (`eng_drums.c`, `drums_voice.c`) | `drums_test` (also `regress` for presets/CPU) |
 | ANALOG filter / ENV SYNC / sound 1.5 | `sound15_test` |
 | insert chain / FX order | `inschain_test` |
+| every FX stage in CHAIN / SEND / MASTER | `fx_route_test` |
 | motion / ARP / song | `motion_test` |
 | locks / special ids / PITCH / FX motion | `param_contract_test` |
 | projects / FUN migration | `project_test` |

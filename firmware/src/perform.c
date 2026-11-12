@@ -37,7 +37,8 @@
  * +1.6 dB, white noise -1 .. -3.5 dB. KNOB 4 DEPTH is the FLANGER's and the PHASER's level too (OCT UP /
  * DN playing: full, KNOB 4 its shimmer).
  * The buffer: the SLICER's recordings (sl_buf, 32 KB) borrowed as one stereo loop of 8192 frames at 22.05 kHz
- * (371 ms). While borrowed, STUT tracks play live; their recordings are dropped afterwards. A REPEAT 1/8 or
+ * (371 ms). While borrowed, STUT tracks and MASTER STUT play live; their recordings are dropped afterwards
+ * (slicer_drop_all). A REPEAT 1/8 or
  * REVERSE longer than the loop at the tempo (below 81 BPM) does nothing (the map shows it dimmed).
  * KNOB 1..4 with FX: the macros FILTER (the LPF / HPF), CRUSH, THROW (the dry mix into the delay and reverb
  * sends), DEPTH (the buffer effects' level, FLANGER's and PHASER's; OCT UP / DN: the shimmer).
@@ -217,7 +218,7 @@ static volatile uint8_t pfx_tgt;      /* main / keys: MIDI effects' tracks, 0 AL
 static volatile uint8_t pfx_clr;      /* keys: G5 CLR held (map highlight); down clears latched FX when LATCH on */
 static volatile uint8_t perf_clr_say; /* ISR: CLR just cleared; UI shows "FX ALL OFF" */
 static uint32_t pfx_lph;              /* samples into the punch-in lane (pfx.c) */
-static uint8_t pfx_lane[32], pfx_ltgt;   /* the transport's punch-in lane (pfx.c), its tracks (as pfx_tgt) */
+static uint8_t pfx_lane[40], pfx_ltgt;   /* the transport's punch-in lane (pfx.c): 64 steps x 5 bits; its tracks */
 static void perf_press(uint32_t e, int down)
 {
     if (e == PF_TGT && down)
@@ -251,13 +252,8 @@ static void perf_press(uint32_t e, int down)
 
 static void perf_start(void) { pf.ph = 0; pf.sync = 1; pfx_lph = 0; }   /* seq_start: a 1/16 with the transport */
 
-/* the SLICER's recordings dropped (when the buffer is taken and given back) */
-static void perf_drop_slicer(void)
-{
-    uint32_t k;
-    for (k = 0; k < NTRK; k++)
-        sl[k].rec = sl[k].loop = sl[k].rec_on = 0;
-}
+/* the SLICER's recordings dropped (when the buffer is taken and given back): the tracks' and MASTER's */
+static void perf_drop_slicer(void) { slicer_drop_all(); }
 
 /* the buffer effect to play: the last pressed of those running */
 static uint32_t perf_pick(uint32_t a)

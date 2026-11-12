@@ -17,7 +17,7 @@ enum { MI_COLOR, MI_LARGE, MI_LEDS, MI_SCROFF, MI_SCOPE, MI_HOME, MI_HOLD, MI_LA
        MI_PREVIEW, MI_CHADD, MI_LOWCUT, MI_USB,
        MI_CLICK, MI_CLKLVL, MI_COUNTIN, MI_TUNE, MI_MIDIIN, MI_SERIAL, MI_RESTORE, MI_PANEL, MI_INFO,
        MI_ABOUT, MI_STYLE, MI_ANIM, MI_ACCEL, MI_HELP, MI_COUNT };
-                                                       /* (1.1: the metronome's rows in AUDIO; 1.2: RESTORE LAST in
+                                                       /* (1.1: the metronome's rows in AUDIO; 1.2: BOOT RESTORE in
                                                         * SYSTEM, SCALE LEDS STEP PREVIEW CHORD ENTRY in CONTROL, SCOPE in
                                                         * DISPLAY, TUNE in AUDIO, MIDI IN in MIDI, INFO in SYSTEM;
                                                         * 1.3: HOME in DISPLAY; HELP retired: after ABOUT, no tab) */
@@ -27,7 +27,7 @@ static int menu_valued(uint32_t row) { return row < MI_VALUES; }   /* (a row wit
 static const char *const MI_NAME[MI_COUNT] = {"COLOR", "LARGE", "LEDS", "SCREEN OFF", "SCOPE", "HOME", "HOLD",
                                               "FX LATCH", "BPM LOCK", "SCALE LEDS", "STEP PREVIEW", "CHORD ENTRY",
                                               "SPEAKER EQ", "USB LEVEL", "CLICK", "CLICK LEVEL", "COUNT-IN", "TUNE",
-                                              "MIDI IN", "USB SERIAL", "RESTORE LAST", "CALIBRATION", "INFO",
+                                              "MIDI IN", "USB SERIAL", "BOOT RESTORE", "CALIBRATION", "INFO",
                                               "ABOUT", "STYLE", "ANIM", "KNOB ACCEL", "HELP"};
 /* 1.0.5: the MENU's tabs (ui_menu.c: SELECT steps between them, ALGORITHM among one tab's rows; the editor gets a
  * row's tab after its MENU_DESC reply). A tab's rows follow each other in MI order (tests/ui_test.c checks it); at
@@ -50,7 +50,7 @@ static const uint8_t MI_TAB[MI_COUNT] = {
                                                                              * COUNT-IN */
     MTAB_AUDIO,                                                             /* TUNE (1.2) */
     MTAB_MIDI,                                                              /* MIDI IN (1.2) */
-    MTAB_SYSTEM, MTAB_SYSTEM, MTAB_SYSTEM,                                  /* USB SERIAL, RESTORE LAST, CALIBRATION */
+    MTAB_SYSTEM, MTAB_SYSTEM, MTAB_SYSTEM,                                  /* USB SERIAL, BOOT RESTORE, CALIBRATION */
     MTAB_SYSTEM, MTAB_SYSTEM,                                               /* INFO (1.2), ABOUT */
     MTAB_COUNT, MTAB_COUNT, MTAB_COUNT, MTAB_COUNT,                         /* STYLE, ANIM, KNOB ACCEL, HELP (retired) */
 };
@@ -88,7 +88,7 @@ static const menu_flag_t MENU_FLAGS[] = {
     {MI_USB, PREF_USB_FIXED, {"MASTER", "FIXED"}},     /* fx.c fx_usb_fixed: FIXED, USB at the full level */
     {MI_BPMLOCK, PREF_BPM_LOCK, {"OFF", "ON"}},        /* ON: lock icon by the BPM; tempo is GLO+SELECT / CLOCK */
     {MI_SERIAL, PREF_SERIAL_OFF, {"ON", "OFF"}},       /* #67: OFF, no serial console (usb_serial_apply) */
-    {MI_RESTORE, PREF_RESTORE_OFF, {"ON", "OFF"}},     /* 1.2, #130: OFF, no autosave, power-on as new (project.c) */
+    {MI_RESTORE, PREF_RESTORE_OFF, {"ON", "OFF"}},     /* 1.2/3.10: OFF skips boot restore only; autosave still writes */
     {MI_SCLLED, PREF_SCALE_LEDS, {"OFF", "ON"}},      /* 1.2, Discussion #127: ON, the keys show the scale (ui_input.c) */
     {MI_SCOPE, PREF_SCOPE_MIX, {"OUT", "MIX"}},        /* 1.2, Discussion #165: MIX, the scope before MASTER (fx.c) */
     {MI_PREVIEW, PREF_PREVIEW, {"OFF", "ON"}},         /* 1.2, Discussion #169: ON, the cursor's step sounds (ui_input.c) */
@@ -253,7 +253,7 @@ static uint32_t menu_step(uint32_t row, int32_t s)
         return (uint32_t)clamp((int32_t)v + s, 0, (int32_t)n - 1);
     if (row == MI_STYLE || row == MI_ANIM || row == MI_ACCEL)   /* retired: fixed value */
         return v;
-    if (f && str_eq(f->name[0], "ON"))                 /* (USB SERIAL, RESTORE LAST: ON is their value 0) */
+    if (f && str_eq(f->name[0], "ON"))                 /* (USB SERIAL, BOOT RESTORE: ON is their value 0) */
         s = -s;
     if (s > 0)
         return v + 1u < n ? v + 1u : row == MI_COLOR ? 0u : v;

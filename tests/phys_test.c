@@ -309,7 +309,7 @@ static void demo_write(const char *dir, const char *name, uint32_t secs, void (*
 }
 
 /* a phrase per preset: (time in 1/8 s, note, length in 1/8 s, velocity); chords share a time */
-#define NPHRASE 9
+#define NPHRASE 10
 static const uint8_t PHRASE[NPHRASE][24][4] = {
     {{0, 84, 6, 110}, {6, 91, 6, 80}, {12, 96, 6, 100}, {20, 88, 8, 70}, {28, 79, 10, 110}, {29, 86, 10, 90},
      {30, 91, 10, 90}, {44, 84, 12, 120}},                                                  /* BELL TREE */
@@ -332,6 +332,8 @@ static const uint8_t PHRASE[NPHRASE][24][4] = {
     {{0, 48, 6, 100}, {1, 55, 6, 90}, {2, 60, 6, 90}, {3, 64, 6, 100}, {4, 67, 6, 90}, {5, 72, 6, 100},
      {12, 53, 6, 100}, {13, 57, 6, 90}, {14, 60, 6, 90}, {15, 65, 6, 100}, {16, 69, 6, 90}, {17, 72, 8, 110},
      {24, 76, 8, 110}},                                                                     /* HARP */
+    {{0, 60, 12, 90}, {0, 67, 12, 80}, {0, 72, 12, 70}, {12, 63, 12, 90}, {12, 70, 12, 80}, {12, 75, 12, 70},
+     {24, 65, 12, 90}, {24, 72, 12, 80}, {24, 77, 12, 70}},                                 /* GLASS BOW */
 };
 static void play_preset(uint32_t f, uint32_t pi)
 {

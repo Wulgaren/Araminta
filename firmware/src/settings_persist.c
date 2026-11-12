@@ -17,7 +17,7 @@
  * [15][14..23]: the FX layer's key map (1.2, retired with the reassignment: the pages are fixed maps, perform.c PF_DEF / PF2_DEF; the
  * 10 bytes are kept as saved, unused).
  * MENU's flags (ui.c PREF_*) are append-only bits whose 0 is the default: BPM LOCK (16) is clear in every older setting
- * = unlocked, LARGE (32) = OFF, RESTORE LAST OFF (128, 1.2) = ON, read as saved (nothing to migrate, so importing twice changes nothing). */
+ * = unlocked, LARGE (32) = OFF, BOOT RESTORE OFF (128, 1.2; was RESTORE LAST) = ON, read as saved (nothing to migrate, so importing twice changes nothing). */
 typedef struct { uint8_t factory[16][32]; uint32_t user, filter; } persist_fav_t;
 typedef struct {
     uint32_t magic, palette, lowcut, zoom;
@@ -57,11 +57,11 @@ static int settings_import(persist_t *p, int n)
     }
     if (v <= PERSIST_V2) p->bold = 0;
     /* PER1..PER3 had no favorites; PER4's row 14 held the former MIDI LEARN map and row 13 the retired SLICE's
-     * favourites. PER5: row 13 is reserved unused (was that map; do not reclaim) and 14 is WAVETABLE's, so move the
-     * old map over the SLICE row and clear 14. This runs before the copy into favorites below. */
+     * favourites. PER5: row 13 holds user-preset bits 32..95 (and stays clear of LEARN), row 14 is WAVETABLE's.
+     * Drop both on PER4 import so LEARN bytes are never read as favourites. */
     if (v < PERSIST_V4) memset(&p->favorites, 0, sizeof p->favorites);
     else if (v == PERSIST_V4) {
-        memcpy(p->favorites.factory[13], p->favorites.factory[14], 32);
+        memset(p->favorites.factory[13], 0, 32);
         memset(p->favorites.factory[14], 0, 32);
     }
     p->favorites.factory[15][29] = 0;            /* STYLE retired: always FLAT (LINE / PIXEL ignored) */

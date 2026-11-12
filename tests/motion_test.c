@@ -18,7 +18,7 @@ static int motion_recording(void)
     project_t q; project_store_t packed;
     project_capture(&q);
     bad += check("project snapshot saves base + independent events while sounding", q.t[0].p[P_REV] == 23 && q.motion.event[0].value == 110 &&
-        proj_pack(&packed, &q) && sizeof packed == 3840u);
+        proj_pack(&packed, &q) && sizeof packed == 4096u);  /* 3.10: project grew */
     seq_stop();
     bad += check("stop before another step restores the original parameter", t->p[P_REV] == 23);
     seq_start(); seq_tick(t, CTL);
@@ -56,15 +56,16 @@ static int motion_capacity(void)
 {
     int bad = 0; ui_power_on();
     motion_save_lim = 0;
-    for (uint32_t i = 0; i < MOTION_FILE_MAX; i++)
-        bad += motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : P_DLY, (int16_t)(i % 60u));
+    for (uint32_t i = 0; i < MOTION_FILE_MAX; i++)   /* 155: three ids x 64 steps (REV/DLY/PAN) */
+        bad += motion_set_event(&trk[0], i % NSTEP,
+                                i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_PAN, (int16_t)(i % 60u));
     bad += check("disk-full count does not raise save-limit flag", !motion_save_lim && motion.count == MOTION_FILE_MAX);
     bad += check("the event past the disk max raises the save-limit flag once",
-                 !motion_set_event(&trk[0], MOTION_FILE_MAX % NSTEP, P_PAN, 10) &&
+                 !motion_set_event(&trk[0], MOTION_FILE_MAX % NSTEP, P_LEVEL, 10) &&
                  motion.count == MOTION_FILE_MAX + 1u && motion_save_lim);
     motion_save_lim = 0;
     bad += check("further adds past disk max do not re-raise the flag",
-                 !motion_set_event(&trk[0], (MOTION_FILE_MAX + 1u) % NSTEP, P_LEVEL, 40) && !motion_save_lim);
+                 !motion_set_event(&trk[0], (MOTION_FILE_MAX + 1u) % NSTEP, P_DIST, 40) && !motion_save_lim);
     {
         project_t q;
         project_store_t st;
@@ -111,7 +112,8 @@ static int compact_project(void)
     motion_set_event(t, 3, P_REV, 110);
     project_t before, after; project_store_t packed, corrupt;
     project_capture(&before);
-    bad += check("FUN10 fits the retained and flash extent", sizeof(proj_slot) == 4u * 3840u && proj_pack(&packed, &before));
+    /* 3.10: project grew from 3840 to 4096 bytes */
+    bad += check("3.10 fits the retained and flash extent", sizeof(proj_slot) == 4u * 4096u && proj_pack(&packed, &before));
     bad += check("FUN10 round trip preserves signed values/FM params/probability/motion", proj_import(&after, &packed, sizeof packed) &&
         !memcmp(&before, &after, sizeof before));
     corrupt = packed; corrupt.raw[112] ^= 1u;
@@ -132,7 +134,8 @@ static int compact_project(void)
  * 81..88, motion ids from 81 on for E0..E7 (m: its events as that firmware numbered them) */
 static void pack_fun7_89(project_store_t *out, const project_t *q, const motion_store_t *m)
 {
-    uint8_t *b = out->raw; uint32_t pos = 68u, t, i, magic = PROJ_MAGIC_V10, size = PROJ_STORE_SIZE, sum;
+    /* create an old-format (3840 B) FUN10 project with 89 parameters */
+    uint8_t *b = out->raw; uint32_t pos = 68u, t, i, magic = PROJ_MAGIC_V10, size = PROJ_STORE_OLD, sum;
     memset(out, 0, sizeof *out); memcpy(b, &magic, 4); memcpy(b + 4, &size, 4);
     memcpy(b + 8, q->g, sizeof q->g); b[62] = q->sel; b[63] = q->parts; b[64] = q->phys; b[66] = 89;
     for (t = 0; t < NTRK; t++) {
@@ -152,7 +155,7 @@ static void pack_fun7_89(project_store_t *out, const project_t *q, const motion_
         b[pos + 5u + 3u * i] = m->event[i].param;
         b[pos + 6u + 3u * i] = (uint8_t)m->event[i].value;
     }
-    sum = proj_hash(b, PROJ_STORE_SIZE - 4u); memcpy(b + PROJ_STORE_SIZE - 4u, &sum, 4);
+    sum = proj_hash(b, PROJ_STORE_OLD - 4u); memcpy(b + PROJ_STORE_OLD - 4u, &sum, 4);
 }
 static int fun7_89(void)
 {
@@ -163,7 +166,9 @@ static int fun7_89(void)
         for (i = 0; i < 8u; i++) trk[k].p[P_E0 + i] = (int16_t)(ENGINES[trk[k].eng_req]->edit[i].min + (int16_t)(k + i) %
             (ENGINES[trk[k].eng_req]->edit[i].max - ENGINES[trk[k].eng_req]->edit[i].min + 1));
     t->p[P_FM1_ATK] = 33; t->p[P_REV] = 20;
+    memset(&t->step[2], 0, sizeof t->step[2]);
     t->step[2] = (step_t){{60, 64, 67}, 3, ST_NOTE, 0, 100};
+    step_set_ratchet(&t->step[2], 1u);   /* clear padding bit left by bitfield assignment */
     project_capture(&before);
     for (k = 0; k < NTRK; k++)
         if (before.t[k].engine == ENGI_ANALOG) {         /* 3.5: E8 / FM3 are INT / MORPH / DRIFT, 0 before */
@@ -178,7 +183,7 @@ static int fun7_89(void)
     m.event[1] = (motion_event_t){5, 81, 40};                      /* its P_E0 (81) */
     m.event[2] = (motion_event_t){6, 61, 20};                      /* FM OP1 ATK: 61 then and now */
     pack_fun7_89(&old, &before, &m);
-    ok = proj_import(&after, &old, sizeof old);
+    ok = proj_import(&after, &old, PROJ_STORE_OLD);  /* old 3840-byte format */
     for (k = 0; ok && k < NTRK; k++) {
         for (i = 0; i < 8u; i++) {
             int16_t want = before.t[k].p[P_E0 + i];
@@ -191,6 +196,7 @@ static int fun7_89(void)
         ok &= after.t[k].p[P_CHRD] == 0 && after.t[k].p[P_VOIC] == 0;
         for (i = P_LN0; i <= P_LN7; i++) ok &= after.t[k].p[i] == 127;
     }
+    /* DEBUG removed */
     bad += check("89 parameters: E0..E7 at P_E0.., the chord keys OFF / CLOSE, lanes 100 %, the rest in place", ok &&
         after.t[0].p[P_FM1_ATK] == 33 && !memcmp(after.t[0].step, before.t[0].step, sizeof before.t[0].step));
     bad += check("  its motion: E0 (81) -> P_E0, REV and FM OP1 ATK (61) kept",
@@ -200,6 +206,7 @@ static int fun7_89(void)
         proj_import(&before, &old, sizeof old) && !memcmp(&before, &after, sizeof before));
     pack_fun7_89(&old, &before, &m);                                /* SONG: a slot of the old firmware */
     memcpy(&proj_slot[2], &old, sizeof old);
+    proj_fetch(2);                                                  /* 3.10: refresh summary / used bit from the slot */
     chain_config.count = 1; chain_config.row[0] = chain_row_of(2, 1);
     ok = chain_prepare() == 0;
     bad += check("  SONG: an 89-parameter slot's motion plays at today's ids (E0 at P_E0)", ok &&
@@ -207,7 +214,7 @@ static int fun7_89(void)
     seq_stop(); chain_config.count = 0; chain.armed = 0;
     m.event[1].param = 82;                                          /* (any id P_E0 .. P_E7 of then moves up) */
     pack_fun7_89(&old, &before, &m);
-    bad += check("  E1 (82) -> P_E1", proj_import(&after, &old, sizeof old) && after.motion.event[1].param == P_E1);
+    bad += check("  E1 (82) -> P_E1", proj_import(&after, &old, PROJ_STORE_OLD) && after.motion.event[1].param == P_E1);
     return bad;
 }
 static int loads_and_song(void)
@@ -1564,9 +1571,207 @@ static int fx_lock_banks_and_capacity(void)
         motion_set_lock(t, 0, MFX_SIZE, 33) == 2 && !motion_set_lock(t, 0, MFX_TIME, 65));
     project_t q, loaded; project_store_t st;
     project_capture(&q);
-    bad += check("FX locks retain 88 saved entries with exact TIME values", proj_pack(&st, &q) && sizeof st == 3840 &&
-        proj_import(&loaded, &st, sizeof st) && loaded.motion.count == MOTION_FILE_MAX && loaded.motion.event[0].value == 65 &&
-        loaded.motion.event[63].value == 1550 && loaded.motion.event[71].value == 110);
+    /* 3.10: project is 4096 bytes; MOTION_FILE_MAX is 155 (88 body + 40 append + 27 spare) */
+    bad += check("FX locks retain MOTION_FILE_MAX saved entries with exact TIME values",
+                 proj_pack(&st, &q) && sizeof st == 4096 &&
+                 proj_import(&loaded, &st, sizeof st) && loaded.motion.count == MOTION_FILE_MAX &&
+                 loaded.motion.event[0].value == 65 && loaded.motion.event[63].value == 1550 &&
+                 loaded.motion.event[71].value == 110);
+    return bad;
+}
+static voice_t *cvoice(track_t *t, uint32_t note)
+{
+    uint32_t i;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].active && t->v[i].note == note)
+            return &t->v[i];
+    return 0;
+}
+/* PIT GLD: POLY chords pair their notes, keep the envelopes and glide; added notes fade in, removed ones glide out */
+static int pit_gld_seq(void)
+{
+    int bad = 0, ok;
+    track_t *t = lock_track(0);
+    voice_t *v, *w;
+    int32_t out[CTL];
+    uint32_t i, a0;
+    t->p[P_VOICE] = V_POLY;
+    t->p[P_GLIDE] = 100;
+    cgld_set(t, 1);
+    t->step[0] = (step_t){{60, 64, 67}, 3, ST_NOTE, 0, 100};
+    t->step[1] = (step_t){{62, 65, 69}, 3, ST_NOTE, 0, 100};
+    seq_step(t, &t->step[0], 0, div_samples(2), 0);
+    ok = t->seq_n == 3u && t->seq_hold;                 /* PIT GLD holds the chord to the next NOTE */
+    v = cvoice(t, 60);
+    a0 = v ? v->age : 0;
+    seq_step(t, &t->step[1], 1, div_samples(2), 0);
+    v = cvoice(t, 62);
+    ok &= t->seq_n == 3u && t->seq_notes[0] == 62u && t->seq_notes[1] == 65u && t->seq_notes[2] == 69u;
+    ok &= v && v->gate && v->age == a0 && v->stage != 0;   /* the same voice: no retrigger */
+    ok &= v && v->pitch_cur == 60 * 16 && v->pitch16 == 62 * 16 && v->gq8 && v->gstep > 0;
+    track_render(t, out, CTL);
+    ok &= v && v->pitch_cur == 60 * 16;                 /* the first tick is a fraction of a 1/16 st, not a jump */
+    for (i = 0; i < 2000u; i++)
+        track_render(t, out, CTL);
+    ok &= v && v->pitch_cur == v->pitch16;              /* it arrives */
+    bad += check("PIT GLD: a POLY chord glides into the next, each note to its partner, no retrigger", ok);
+
+    /* 3 -> 4: the added note starts at the nearest old pitch and fades in */
+    t->step[0] = (step_t){{60, 64, 67}, 3, ST_NOTE, 0, 100};
+    t->step[1] = (step_t){{62, 65, 69, 72}, 4, ST_NOTE, 0, 100};
+    seq_release(t);
+    seq_step(t, &t->step[0], 0, div_samples(2), 0);
+    a0 = vage;
+    seq_step(t, &t->step[1], 1, div_samples(2), 0);
+    w = 0;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].active && t->v[i].age == a0 + 1u)
+            w = &t->v[i];
+    bad += check("PIT GLD 3 -> 4: the new note fades in from the nearest old pitch",
+                 w && w->note == 72u && w->pitch_cur == 67 * 16 && w->fin_d == 5 * 16 && w->gq8);
+    seq_release(t);
+
+    /* 1 -> 2 where the old note is also the first new one: the added note still starts from it */
+    t->step[0] = (step_t){{60}, 1, ST_NOTE, 0, 100};
+    t->step[1] = (step_t){{60, 64}, 2, ST_NOTE, 0, 100};
+    seq_step(t, &t->step[0], 0, div_samples(2), 0);
+    a0 = vage;
+    seq_step(t, &t->step[1], 1, div_samples(2), 0);
+    w = 0;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].active && t->v[i].age == a0 + 1u)
+            w = &t->v[i];
+    bad += check("PIT GLD 1 -> 2: the added note starts at the only old note, not at C-1",
+                 w && w->note == 64u && w->pitch_cur == 60 * 16 && w->fin_d == 4 * 16);
+    seq_release(t);
+
+    /* 4 -> 3: the extra old note glides to the nearest new one and releases */
+    t->step[0] = (step_t){{60, 64, 67, 72}, 4, ST_NOTE, 0, 100};
+    t->step[1] = (step_t){{62, 65, 69}, 3, ST_NOTE, 0, 100};
+    seq_step(t, &t->step[0], 0, div_samples(2), 0);
+    v = cvoice(t, 72);
+    seq_step(t, &t->step[1], 1, div_samples(2), 0);
+    bad += check("PIT GLD 4 -> 3: the extra note glides to the nearest new one and releases",
+                 v && !v->gate && v->pitch16 == 69 * 16 && v->gq8);
+    seq_release(t);
+
+    /* plucky: the held chord's envelope dies, the next chord attacks again while it glides */
+    t->p[P_SUS] = 0;
+    t->p[P_DEC] = 20;
+    t->p[P_REL] = 20;
+    t->step[0] = (step_t){{60, 64, 67}, 3, ST_NOTE, 0, 100};
+    t->step[1] = (step_t){{62, 65, 69}, 3, ST_NOTE, 0, 100};
+    seq_release(t);
+    seq_step(t, &t->step[0], 0, div_samples(2), 0);
+    for (i = 0; i < 2000u; i++)
+        track_render(t, out, CTL);
+    v = cvoice(t, 60);
+    ok = v && v->gate && v->stage == 2u && v->env < (1 << 12);
+    seq_step(t, &t->step[1], 1, div_samples(2), 0);
+    v = cvoice(t, 62);
+    ok &= v && v->stage == 1u && v->gq8 && v->pitch_cur == 60 * 16;
+    track_render(t, out, CTL);
+    ok &= v && v->env > (1 << 12);
+    bad += check("PIT GLD plucky: a dead held envelope attacks again at the new chord", ok);
+    seq_release(t);
+    t->p[P_SUS] = 120;
+    t->p[P_DEC] = 70;
+    t->p[P_REL] = 60;
+
+    /* off: the same steps retrigger, nothing is held */
+    t->step[0] = (step_t){{60, 64, 67, 72}, 4, ST_NOTE, 0, 100};
+    t->step[1] = (step_t){{62, 65, 69}, 3, ST_NOTE, 0, 100};
+    cgld_set(t, 0);
+    seq_step(t, &t->step[0], 0, div_samples(2), 0);
+    ok = !t->seq_hold && t->seq_n == 4u;
+    seq_step(t, &t->step[1], 1, div_samples(2), 0);
+    bad += check("PIT GLD off: POLY chords behave as before (no hold, no pairing)", ok && !t->seq_hold);
+    seq_release(t);
+    return bad;
+}
+/* PIT GLD live: notes in one block form a chord; a released chord keeps its voices for one 1/8 so the next pairs */
+static int pit_gld_live(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    voice_t *v;
+    uint32_t a0;
+    ui_power_on();
+    t = &trk[0];
+    t->p[P_VOICE] = V_POLY;
+    t->p[P_GLIDE] = 100;
+    cgld_set(t, 1);
+    t->engine = t->eng_req = 0;
+    input_on(t, 60, 100);
+    input_on(t, 64, 100);
+    input_on(t, 67, 100);
+    ok = !cvoice(t, 60);                                /* collected, started at the end of the block */
+    chord_live_flush(t);
+    ok &= t->lc_n == 3u && cvoice(t, 60) && cvoice(t, 64) && cvoice(t, 67);
+    bad += check("PIT GLD live: note-ons in one block start as one chord", ok);
+    input_off(t, 60);
+    input_off(t, 64);
+    input_off(t, 67);
+    ok = cvoice(t, 60) && cvoice(t, 64) && cvoice(t, 67) && t->lc_off > 0;
+    bad += check("PIT GLD live: a released chord keeps sounding for one 1/8", ok);
+    a0 = cvoice(t, 60)->age;
+    input_on(t, 62, 100);
+    input_on(t, 65, 100);
+    input_on(t, 69, 100);
+    chord_live_flush(t);
+    v = cvoice(t, 62);
+    bad += check("PIT GLD live: the next chord glides into it, same voices, no retrigger",
+                 v && v->age == a0 && v->pitch_cur == 60 * 16 && v->pitch16 == 62 * 16 && v->gq8 && t->lc_off == 0);
+    input_off(t, 62);
+    input_off(t, 65);
+    input_off(t, 69);
+    ok = cvoice(t, 62) && t->lc_off > 0;
+    chord_live_tick(t, t->lc_off / 2u);
+    ok &= cvoice(t, 62) != 0;
+    chord_live_tick(t, t->lc_off);
+    v = cvoice(t, 62);
+    ok &= !v || !v->gate;
+    bad += check("PIT GLD live: after the 1/8 the released notes let go", ok);
+    return bad;
+}
+
+/* the same through the real transport: seq_tick advances the steps, the chord holds, the next step glides */
+static int pit_gld_play(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    voice_t *v;
+    int32_t out[CTL];
+    uint32_t i, guard;
+    ui_power_on();
+    t = &trk[0];
+    track_defaults_steps(t);
+    t->p[P_SLEN] = 4;
+    t->p[P_SSWING] = 0;
+    t->p[P_VOICE] = V_POLY;
+    t->p[P_GLIDE] = 127;
+    t->p[P_SGATE] = 120;
+    t->p[P_SUS] = 120;
+    t->p[P_REL] = 100;
+    cgld_set(t, 1);
+    for (i = 0; i < 4u; i++)
+        t->step[i] = (step_t){{}, 0, ST_REST, 0, 0};
+    t->step[0] = (step_t){{60, 64, 67}, 3, ST_NOTE, 0, 100};
+    t->step[1] = (step_t){{62, 65, 69}, 3, ST_NOTE, 0, 100};
+    seq_start();
+    for (guard = 0; guard < 10000u && t->seq_idx != 1u; guard++)
+        events_block(CTL);
+    ok = t->seq_idx == 1u && t->seq_n == 3u && cvoice(t, 62) && cvoice(t, 65) && cvoice(t, 69);
+    v = cvoice(t, 62);
+    ok &= v && v->gate && v->pitch_cur == 60 * 16 && v->pitch16 == 62 * 16 && v->gq8 && v->gstep > 0;
+    if (v) {
+        int32_t p0 = v->pitch_cur;
+        for (i = 0; i < 2000u; i++)
+            track_render(t, out, CTL);
+        ok &= v->pitch_cur == v->pitch16 && v->pitch_cur != p0;
+    }
+    bad += check("PIT GLD through the transport: step 0 holds, step 1 glides each voice", ok);
+    seq_stop();
     return bad;
 }
 int main(void)
@@ -1578,5 +1783,8 @@ int main(void)
     bad += lock_playback() + lock_edit() + lock_pitch() + pitch_lock_only() + record_trn() + pitch_matrix() + pitch_gate() + pitch_kit() + lock_project() + lock_ui() + lock_undo() + auto_list();
     bad += fx_lock_time();
     bad += fx_lock_banks_and_capacity();
+    bad += pit_gld_seq();
+    bad += pit_gld_live();
+    bad += pit_gld_play();
     printf("%s\n", bad ? "MOTION TEST FAILED" : "motion/chance/compact storage tests passed"); return bad != 0;
 }

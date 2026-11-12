@@ -1648,6 +1648,14 @@ typedef struct {
     uint32_t ph;
     int32_t hp, lp1, lp2, dc, hold, fb, ic1, ic2;
 } ins_st_t;
+/* DIST MODE OTT beside the insert slots (not in every stage): track DIST, SEND snapshot, MASTER mono.
+ * Three shared coefs (88 Hz, 88 Hz@FS/4, 2.5 kHz) + six integrator pairs; bands as env/g/k[3]. */
+typedef struct {
+    ott_coef_t c88, c88_4, c25;                       /* xa/xc, xb, ya/yb/yc */
+    ott_i_t xa, xb, xc, ya, yb, yc;
+    int32_t env[3], g[3], k[3], dc, lo_hold;          /* lo_hold: xb's last FS/4 output */
+    uint8_t lo_ph, on;                                /* lo_ph 0..3: xb runs at 0 */
+} ott_st_t;
 /* FILTER's COMB line and PHASR's all-pass pair: one stage runs each, so one copy per render context
  * (a track, or a MASTER channel) instead of in every stage slot. */
 typedef struct {
@@ -1656,12 +1664,18 @@ typedef struct {
 } ins_ctx_t;
 static ins_st_t ins_st[NTRK][INS_N] __attribute__((section(".pool")));
 static ins_ctx_t ins_ctx[NTRK + 2] __attribute__((section(".pool")));   /* NTRK + the two MASTER channels */
+/* OTT state is small enough for .bss now (shared coefs + packed bands); keeping it out of .pool
+ * leaves the flash-bank reclaim work its 8 KiB spare. */
+static ott_st_t ott_trk[NTRK];                                       /* per-track DIST OTT (CHAIN or SEND owner) */
+static ott_st_t ott_master;                                          /* MASTER OTT: one mono sum, not per channel */
+static ott_st_t ott_part_tmp[C1_NP];                                 /* non-driver SEND OTT copy (one per part core) */
 /* SEND DSP reuses ins_st[bus_tr][st] / ins_lines[bus_tr] (first SEND track for that stage).
  * Max 4 instances/stage: CHAIN private + SEND shared coexist, never 4+1. Parts render at once on the two
  * cores (mix_block): the shared state runs its one block in the lowest SEND consumer's part (ins_bus_block
  * picks it; its own knobs and input, as the parts rendered one after another), every other consumer runs the
  * copy of the block's start here. ins_bus_join puts the run in place after the join. */
 static ins_st_t ins_bus_blk[INS_N];                                  /* SEND state at mix-block start */
+static ott_st_t ott_bus_blk;                                         /* .. DIST OTT snapshot at block start */
 static ins_ctx_t ins_bus_ctx;                                        /* .. its FILTER / PHASR state */
 static uint8_t ins_bus_driver[INS_N];                                /* the part that runs it (0xFF: no consumer) */
 static uint8_t ins_bus_parallel;                                    /* SEND line windows commit after the join only on two cores */
@@ -1692,6 +1706,8 @@ static void ins_master_reset(uint32_t st)
     memset(&ins_master_st[1][st], 0, sizeof ins_master_st[1][st]);
     memset(ins_master_lines[0], 0, sizeof ins_master_lines[0]);
     memset(ins_master_lines[1], 0, sizeof ins_master_lines[1]);
+    if (st == INS_DIST)
+        memset(&ott_master, 0, sizeof ott_master);
     if (st == INS_FILTER) {
         memset(ins_ctx[NTRK].comb, 0, sizeof ins_ctx[0].comb);
         memset(ins_ctx[NTRK + 1].comb, 0, sizeof ins_ctx[0].comb);
@@ -1781,6 +1797,9 @@ static void fx_boot(void)
     memset(ins_lines, 0, sizeof ins_lines);
     memset(ins_master_st, 0, sizeof ins_master_st);
     memset(ins_master_lines, 0, sizeof ins_master_lines);
+    memset(ott_trk, 0, sizeof ott_trk);
+    memset(&ott_master, 0, sizeof ott_master);
+    memset(&ott_bus_blk, 0, sizeof ott_bus_blk);
     slicer_master_reset();
     memset(ins_bus_ran, 0, sizeof ins_bus_ran);
     memset(fx_order_tbl, 0, sizeof fx_order_tbl);
@@ -1846,10 +1865,121 @@ static inline uint32_t ins_bits_sh(int32_t a) { return 15u - (uint32_t)(clamp(a,
 static const uint8_t INS_GSH[IDM_N] = {4, 0, 1, 3};       /* g = 4096 + (a * a * 3) >> GSH: 1.7 .. 12.8 x */
 static const uint8_t INS_DK[IDM_N] = {2, 4, 5, 4};        /* cutoff index 96 - (a >> DK) + TONE: SOFT darkest */
 
-static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n, int32_t tw)
+/* OTT (DIST MODE 4): Ableton Multiband Dynamics preset — three bands, down above threshold and up
+ * below, then summed. DRIVE = DEPTH (0 = flat crossover sum), TONE = TIME (attack/release, 1/50 ms
+ * at centre). LR4 at 88.3 Hz and 2.5 kHz (allpass halves → DEPTH 0 is transparent). xb (88 Hz second
+ * LP) runs at FS/4; a multi-rate complementary split does not match the LR4 high-pass. RMS over
+ * 2.9 ms → OTT_LOW/MID_Q8 and OTT_ATK_K / OTT_REL_K (tools/gen_tables.py). */
+#define OTT_G88 26                                  /* tan(pi * 88.3 / FS), Q12 */
+#define OTT_G88_R4 103                              /* tan(pi * 88.3 / (FS/4)), Q12 */
+#define OTT_DEC 4                                   /* detector + xb: every 4th sample */
+#define OTT_G25 737                                 /* tan(pi * 2500 / FS), Q12 */
+static const uint8_t OTT_LOG2[64] = {                  /* 16 * log2(1 + k / 64) */
+    0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5,
+    5, 5, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8, 9, 9, 9,
+    9, 10, 10, 10, 10, 11, 11, 11, 11, 11, 12, 12, 12, 12, 13, 13,
+    13, 13, 13, 14, 14, 14, 14, 14, 15, 15, 15, 15, 15, 15, 16, 16
+};
+/* floor(log2 p)*16 + mantissa 1/16-octave; clz; power up to 8.4e6 (65535^2 >> 9) */
+static inline int32_t ott_pow_ix(int32_t p)
+{
+    uint32_t u = (uint32_t)p, m;
+    int32_t e, k;
+    if (!u)
+        return 0;
+    e = 31 - __builtin_clz(u);
+    m = u << (31 - e);
+    k = OTT_LOG2[(m >> 25) & 63];
+    return e * 16 + (k < 15 ? k : 15);
+}
+/* curve gain Q12 at DEPTH: table is Q8, DEPTH mixes toward unity */
+static inline int32_t ott_curve(const int16_t *tab, int32_t pw, int32_t depth)
+{
+    int32_t k = (int32_t)tab[clamp(ott_pow_ix(pw >> 7), 0, 351)] << 4;
+    return 4096 + (((k - 4096) * depth) >> 7);
+}
+/* one-pole gain toward curve target (attack when falling); per sample, curve on 4-sample grid */
+static inline int32_t ott_smooth(int32_t *g, int32_t k, int32_t atk, int32_t rel)
+{
+    *g += mulq16(k - *g, (uint32_t)(k < *g ? atk : rel));
+    return *g;
+}
+/* x * g / 4096 (|x|<=65535, g Q12 up to 32x): split g so no product overflows */
+static inline int32_t ott_apply(int32_t x, int32_t g)
+{
+    return ((x * (g >> 8)) >> 4) + ((x * (g & 255)) >> 12);
+}
+/* power (x^2 >> 9) smoothed 2.9 ms in Q7 + round; grid step is 1/4 of that tau */
+#define OTT_POW_SH (7 - 2)
+static inline int32_t ott_pow(int32_t p, int32_t x)
+{
+    return p + (((x << 7) - p + (1 << (OTT_POW_SH - 1))) >> OTT_POW_SH);
+}
+static __attribute__((noinline)) void ins_run_ott(ott_st_t *o, ins_st_t *s, const track_t *t, int32_t *b,
+                                                    uint32_t n, int32_t tw)
+{
+    uint32_t i, tv = (uint32_t)(clamp(t->p[P_ED_FX], -64, 63) + 64);
+    int32_t depth = clamp(t->p[P_DIST], 0, 127);
+    int32_t atk = OTT_ATK_K[tv], rel = OTT_REL_K[tv];
+    for (i = 0; i < n; i++) {
+        int32_t x = b[i], xs, lo, h88, mid, hi, y, x1, x2, y1, y2;
+        s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
+        if (!s->w && !tw) { b[i] = x; continue; }
+        xs = clamp(x, -262143, 262143) >> 2;
+        ott_svf_run(&o->c88, &o->xa, xs, &x1, &x2);
+        if (!o->lo_ph)
+            o->lo_hold = ott_svf_lp(&o->c88_4, &o->xb, x1);
+        lo = o->lo_hold;
+        o->lo_ph = (uint8_t)((o->lo_ph + 1u) & (OTT_DEC - 1u));
+        h88 = ott_svf_hp(&o->c88, &o->xc, clamp(x2, -65535, 65535));
+        ott_svf_run(&o->c25, &o->ya, h88, &y1, &y2);
+        mid = ott_svf_lp(&o->c25, &o->yb, y1);
+        hi = ott_svf_hp(&o->c25, &o->yc, clamp(y2, -65535, 65535));
+        if (!depth) {
+            y = lo + mid + hi;                          /* flat crossover; park gains at unity */
+            o->g[0] = o->g[1] = o->g[2] = o->k[0] = o->k[1] = o->k[2] = 4096;
+        } else {
+            if (!(i & (OTT_DEC - 1))) {
+                o->env[0] = ott_pow(o->env[0], (int32_t)(((uint32_t)lo * (uint32_t)lo) >> 9));
+                o->env[1] = ott_pow(o->env[1], (int32_t)(((uint32_t)mid * (uint32_t)mid) >> 9));
+                o->env[2] = ott_pow(o->env[2], (int32_t)(((uint32_t)hi * (uint32_t)hi) >> 9));
+                o->k[0] = ott_curve(OTT_LOW_Q8, o->env[0], depth);
+                o->k[1] = ott_curve(OTT_MID_Q8, o->env[1], depth);
+                o->k[2] = ott_curve(OTT_LOW_Q8, o->env[2], depth);
+            }
+            y = ott_apply(lo, ott_smooth(&o->g[0], o->k[0], atk, rel))
+              + ott_apply(mid, ott_smooth(&o->g[1], o->k[1], atk, rel))
+              + ott_apply(hi, ott_smooth(&o->g[2], o->k[2], atk, rel));
+        }
+        y = clamp(y, -65535, 65535);
+        y = clamp(y << 2, -262143, 262143);
+        o->dc += ((y << 8) - o->dc) >> 9;
+        y -= o->dc >> 8;
+        b[i] = pf_mix(x, y, s->w);
+    }
+}
+
+static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, ott_st_t *o, const track_t *t, int32_t *b,
+                                                     uint32_t n, int32_t tw)
 {
     uint32_t i, mode = (uint32_t)clamp(t->p[P_IDMODE], 0, IDM_N - 1);
-    int32_t a = t->p[P_DIST], g = 4096 + ((a * a * 3) >> INS_GSH[mode]);
+    int32_t a = t->p[P_DIST], g;
+    if (mode == IDM_OTT) {
+        if (!o->on) {
+            ott_svf_coef(&o->c88, OTT_G88, 5793);
+            ott_svf_coef(&o->c88_4, OTT_G88_R4, 5793);
+            ott_svf_coef(&o->c25, OTT_G25, 5793);
+            memset(&o->xa, 0, 6u * sizeof(ott_i_t));    /* xa..yc */
+            o->env[0] = o->env[1] = o->env[2] = o->dc = o->lo_hold = 0;
+            o->g[0] = o->g[1] = o->g[2] = o->k[0] = o->k[1] = o->k[2] = 4096;
+            o->lo_ph = 0;
+            o->on = 1;
+        }
+        ins_run_ott(o, s, t, b, n, tw);
+        return;
+    }
+    o->on = 0;
+    g = 4096 + ((a * a * 3) >> INS_GSH[mode]);
     /* cutoff follows drive (96 at 0, darker as drive rises); P_ED_FX (TONE) offsets it, 0 = as before */
     int32_t k = ins_lpk(clamp((96 - (a >> INS_DK[mode])) + t->p[P_ED_FX], 0, 127));
     for (i = 0; i < n; i++) {
@@ -2016,6 +2146,8 @@ static __attribute__((noinline)) void ins_rest(track_t *t)
             }
         }
         memset(&ins_st[k][s], 0, sizeof(ins_st_t));
+        if (s == INS_DIST)
+            memset(&ott_trk[k], 0, sizeof ott_trk[k]);
         if (s == INS_FILTER)
             memset(ins_ctx[k].comb, 0, sizeof ins_ctx[k].comb);
         else if (s == INS_PHASR) {
@@ -2047,6 +2179,8 @@ static void ins_bus_block(void)                      /* mix_block: new block for
                                                         * first MIX-0 consumer takes its own where it enters) */
             continue;
         ins_bus_blk[st] = ins_st[tr][st];              /* before any consumer: the copies' start */
+        if (st == INS_DIST)
+            ott_bus_blk = ott_trk[tr];
         ins_ctx_stage(&ins_bus_ctx, &ins_ctx[tr], st);
     }
 }
@@ -2060,13 +2194,15 @@ static __attribute__((noinline)) void ins_win_put(int16_t *line, const int16_t *
 }
 
 /* one stage's DSP on run, cold-started from silence when it faded out completely. Returns where the swept
- * stages wrote their window (run->wp at the run's start). */
-static uint32_t ins_run_st(ins_st_t *run, ins_ctx_t *ctx, const track_t *src, int32_t *b, uint32_t n,
-                           int32_t tw, uint32_t st, int16_t (*lines)[IL_LEN], uint32_t pi)
+ * stages wrote their window (run->wp at the run's start). ott is the DIST OTT state (NULL for other stages). */
+static uint32_t ins_run_st(ins_st_t *run, ott_st_t *ott, ins_ctx_t *ctx, const track_t *src, int32_t *b,
+                           uint32_t n, int32_t tw, uint32_t st, int16_t (*lines)[IL_LEN], uint32_t pi)
 {
     uint32_t wbase;
     if (!run->w && tw) {
         memset(run, 0, sizeof *run);
+        if (st == INS_DIST && ott)
+            memset(ott, 0, sizeof *ott);
         if (st == INS_FILTER)
             memset(ctx->comb, 0, sizeof ctx->comb);
         else if (st == INS_PHASR) {
@@ -2077,7 +2213,7 @@ static uint32_t ins_run_st(ins_st_t *run, ins_ctx_t *ctx, const track_t *src, in
         if (st == INS_CHOR) run->line_i = 1;
     }
     wbase = run->wp;
-    if (st == INS_DIST) ins_run_dist(run, src, b, n, tw);
+    if (st == INS_DIST) ins_run_dist(run, ott, src, b, n, tw);
     else if (st == INS_FILTER) ins_run_filter(run, ctx->comb, src, b, n, tw);
     else if (st == INS_CRUSH) ins_run_crush(run, src, b, n, tw);
     else ins_run_swept(run, ctx->px, ctx->py, src, b, n, tw, st, lines[run->line_i & 1u],
@@ -2093,6 +2229,7 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
     uint32_t k = (uint32_t)(t - trk) % NTRK, pi = C1_PI(t), wbase, i;
     int send = st < INS_N && ins_is_send(t, st);
     ins_st_t *s, tmp, *run;
+    ott_st_t *ott = 0;
     ins_ctx_t *ctx, ctx_tmp;
     const track_t *src = ins_param_src(t, st);
     int32_t tw = tw_force >= 0 ? tw_force : ins_mixq(ins_mix_of(t, st));
@@ -2102,8 +2239,12 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
         s = &ins_st[bus_tr][st];
         ctx = &ins_ctx[bus_tr];
         lines = ins_lines[bus_tr];
+        if (st == INS_DIST)
+            ott = &ott_trk[bus_tr];
         if (!ins_bus_parallel && ins_bus_driver[st] == 0xFF) {
             ins_bus_blk[st] = *s;
+            if (st == INS_DIST)
+                ott_bus_blk = *ott;
             ins_ctx_stage(&ins_bus_ctx, ctx, st);
             ins_bus_driver[st] = (uint8_t)k;
         }
@@ -2112,6 +2253,10 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
             run = s;                                   /* the block's one run of the shared state */
         } else {
             tmp = ins_bus_blk[st];                     /* the block's start: every other part runs its copy */
+            if (st == INS_DIST) {
+                ott_part_tmp[pi] = ott_bus_blk;        /* not on the stack: every stage called this */
+                ott = &ott_part_tmp[pi];
+            }
             ins_ctx_stage(&ctx_tmp, &ins_bus_ctx, st);
             ctx = &ctx_tmp;
             run = &tmp;
@@ -2123,10 +2268,12 @@ static __attribute__((noinline)) void ins_stage(track_t *t, uint32_t st, int32_t
         ctx = &ins_ctx[k];
         run = s;
         lines = ins_lines[k];
+        if (st == INS_DIST)
+            ott = &ott_trk[k];
     }
     if (!run->w && !tw)
         return;                                         /* MIX 0 and faded: skip DSP */
-    wbase = ins_run_st(run, ctx, src, b, n, tw, st, lines, pi);
+    wbase = ins_run_st(run, ott, ctx, src, b, n, tw, st, lines, pi);
     if ((!send || !ins_bus_parallel) && (st == INS_FLANG || st == INS_CHOR))
         /* one core commits before the next consumer, including deep shared CHORUS */
         ins_win_put(lines[run->line_i & 1u], ins_win[pi][run->line_i & 1u], wbase, n);
@@ -2153,13 +2300,20 @@ static __attribute__((noinline)) void ins_bus_join(uint32_t n)
         if (lo == NPART)
             continue;                                    /* no consumer this block: the state stands */
         if ((uint8_t)lo != ins_bus_driver[st]) {
+            ott_st_t *ott = 0;
             tmp = ins_bus_blk[st];
+            if (st == INS_DIST) {
+                ott_part_tmp[lo] = ott_bus_blk;
+                ott = &ott_part_tmp[lo];
+            }
             ins_ctx_stage(&ins_ctx[bus_tr], &ins_bus_ctx, st);
             for (k = 0; k < n; k++)                    /* the runs are in place: a fresh copy per stage */
                 ins_rb[k] = ins_send_in[lo][k];
-            (void)ins_run_st(&tmp, &ins_ctx[bus_tr], bus_knobs_track(&trk[lo]), ins_rb, n, 32768, st,
+            (void)ins_run_st(&tmp, ott, &ins_ctx[bus_tr], bus_knobs_track(&trk[lo]), ins_rb, n, 32768, st,
                              ins_lines[bus_tr], lo);
             ins_st[bus_tr][st] = tmp;
+            if (st == INS_DIST)
+                ott_trk[bus_tr] = *ott;
         }
         if (st == INS_FLANG || st == INS_CHOR) {
             uint32_t wbase = ins_bus_blk[st].w ? ins_bus_blk[st].wp : 0u;
@@ -2790,15 +2944,33 @@ static int master_any(void)
 }
 static __attribute__((noinline)) void master_insert_run(track_t *owner, uint32_t st, uint32_t n)
 {
-    uint32_t ch;
+    uint32_t ch, i;
     const track_t *src = (ins_is_send(owner, st)) ? &fx_bus_trk : owner;
     int32_t tw = ins_mixq(ins_mix_of(owner, st));
     if (!tw && !ins_master_st[0][st].w && !ins_master_st[1][st].w)
         return;
+    if (st == INS_DIST && src->p[P_IDMODE] == IDM_OTT) {
+        /* OTT is a band compressor: one detector and one gain per band for the whole mix, not one per
+         * channel. Run it once on the mono sum and add its difference to both, as the DLY / REV buses
+         * do, so the dry's stereo image stays and the stage costs one call, not two. */
+        for (i = 0; i < n; i++)
+            master_mono[i] = (mix_l[i] + mix_r[i]) >> 1;
+        ins_run_st(&ins_master_st[0][st], &ott_master, &ins_ctx[NTRK], src, master_mono, n, tw, st,
+                   ins_master_lines[0], 0);
+        for (i = 0; i < n; i++) {
+            int32_t d = master_mono[i] - ((mix_l[i] + mix_r[i]) >> 1);
+            mix_l[i] += d;
+            mix_r[i] += d;
+        }
+        /* Mono path only advances the left fade. Keep the right in step so leaving OTT for another
+         * DIST mode does not briefly apply a right-only wet transition from a stale .w. */
+        ins_master_st[1][st].w = ins_master_st[0][st].w;
+        return;
+    }
     for (ch = 0; ch < 2u; ch++) {
         ins_st_t *run = &ins_master_st[ch][st];
-        uint32_t wbase = ins_run_st(run, &ins_ctx[NTRK + ch], src, ch ? mix_r : mix_l, n, tw, st,
-                                    ins_master_lines[ch], ch);
+        uint32_t wbase = ins_run_st(run, st == INS_DIST ? &ott_master : 0, &ins_ctx[NTRK + ch], src,
+                                    ch ? mix_r : mix_l, n, tw, st, ins_master_lines[ch], ch);
         if (st == INS_FLANG || st == INS_CHOR)
             ins_win_put(ins_master_lines[ch][run->line_i & 1u], ins_win[ch][run->line_i & 1u], wbase, n);
     }

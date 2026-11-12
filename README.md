@@ -43,8 +43,8 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **DRUMS.** Felucca's original synthesized drum engine, ported as a separate engine (15) beside DRUM-X. Nine kits: STD, 80, 10, 66, 55, 77, DEEP, TIGHT and PERC. Its own KIT / TUNE / TONE / DECY / SNAP / ACC / KICK / DRV. These are the exact 1.6.1 kits. DRUM-X stays on engine 10.
 - **SLICE retired.** 
 - Samples tab: one card per USR slot, each set to **Sample**, **Drumkit** or **Wavetable**. Drumkit maps every root to its own lane note and tags the slot (`FSMP` header), so SEQ uses the drum grid; Wavetable takes one Serum file or a folder medley. The name field is gone: names were editor-only, the FM-1 shows USR1..3.
-- **VOICE** is one page: VCE, GLD, PITCH, SPRD. PITCH is a live bend on the track's MIDI channel, in cents; it stays where you leave it and a track change recentres it. In UNISON, where UNI DTN takes the slot, PITCH moves to a second page, **VOICE 2** (SELECT). GLD is free milliseconds (no GLMOD on the page). PAN / PLAY live on MIXER. UNI DTN shows only in UNISON; SPRD only in POLY / UNISON. Blank cards otherwise; values stay stored.
-- **EFFECTS.** One list for the six inserts and the shared buses: CHOOSE a stage, ORDER moves it, USE AS is CHAIN, SEND or MASTER, MIX is dry/wet (or send amount). Delay, reverb and slicer sit in that list (bus chorus is gone); **TAPE** is the tenth row: SPEED, FLUTR, DROPOUT and TEMPO. With TEMPO ON (the default) the transport and voices keep time and SPEED is the head's pitch only, with MIX as the wet amount on every route; OFF makes CHAIN and MASTER slow the source (transport and voice pitch). SEND always adds a pitched copy and fixes TEMPO ON (K4 is dimmed there). One global MIX is the depth in CHAIN/MASTER and the send amount in SEND. MASTER runs on the whole mix in the EFFECTS order of the track that selected it; the common buses show USED on the other tracks. Inserts keep their per-track CHAIN / SEND beside a MASTER copy. Dual reverb tanks keep SEND and CHAIN settings while REV is chained.
+- **VOICE.** One page: VCE, GLD, PIT GLD, SPRD. PIT GLD is chord glide for POLY: the notes of one chord pair with the next and glide, in the sequence or live from CHRD keys and MIDI; a released live chord keeps sounding for a 1/8 so the next chord can glide into it, and a plucky sound that has died attacks again at the new chord. With PIT GLD on, GLD reads as a percentage of the chord; off, it is free milliseconds. PITCH is a live bend on the track's MIDI channel, in cents, on **VOICE 2** in every mode; a track change recentres it. UNISON keeps UNI DTN in SPRD's slot. PAN / PLAY live on MIXER. Values stay stored.
+- **EFFECTS.** One list for the six inserts and the shared buses: CHOOSE a stage, ORDER moves it, USE AS is CHAIN, SEND or MASTER, MIX is dry/wet (or send amount). Delay, reverb and slicer sit in that list (bus chorus is gone); **TAPE** is the tenth row: SPEED, FLUTR, DROPOUT and TEMPO. With TEMPO ON (the default) the transport and voices keep time and SPEED is the head's pitch only, with MIX as the wet amount on every route; OFF makes CHAIN and MASTER slow the source (transport and voice pitch). SEND always adds a pitched copy and fixes TEMPO ON (K4 is dimmed there). One global MIX is the depth in CHAIN/MASTER and the send amount in SEND. MASTER runs on the whole mix in the EFFECTS order of the track that selected it; the common buses show USED on the other tracks. Inserts keep their per-track CHAIN / SEND beside a MASTER copy. Dual reverb tanks keep SEND and CHAIN settings while REV is chained. TAPE starts as MASTER at MIX 100 %; at SPEED 100 the head is idle, so nothing changes until SPEED, FLUTR or DROPOUT moves.
 - Reverb modes from JIANT - SHIMR and CLOUD.
 - Delay has divisions or smooth ms; K4 turned left is TIME, turned right RATE.
 - Assign FX values in LFO MOD or SEQ param locks. TAPE SPEED / FLUTR are shared destinations: in CHAIN only the owner track can move them, in MASTER any track, in SEND the first track to use one reserves it.
@@ -56,6 +56,16 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **SEQ GENERATION.** On a drum kit (DRUM-X, DRUMS, CR78 or a USR Drumkit), the second SEQ section generates editable kick, snare and closed-hat steps from Mutable Instruments Grids. SELECT switches between LEN / KICK / SNARE / HAT and MAP / MAP X / MAP Y / CHAOS. MAP selects one of 25 templates; X/Y blend between them and show CUSTOM. Turning MAP, MAP X or MAP Y briefly shows the full-screen map, then returns to the drum grid; CHAOS keeps the grid visible. Density edits change only their lane; map, chaos and length edits regenerate all three. Other lanes stay as written, SAVE held undoes the gesture, and each track's controls save with the project.
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
+
+### New in 3.10
+
+- **FUN20 projects.** 4096 B, one flash copy. FUN7..FUN19 still load. Autosave is a full A/B pair; Save refreshes
+  it before writing the slot. Motion save limit is 155 records, with a punch-in lane in the project wire.
+- **Flash map.** 96 user presets; FM6 banks at E7000 / F8000 / F9000 / F4000; SLOT F1..F15, OWN, B1..B128. Before
+  installing over stock, run `tools/fm1_flash_dump.py` (the installer asks when the device is not Araminta).
+- **PIT GLD.** POLY chord glide on VOICE; PITCH on VOICE 2. Off by default.
+- **Factory + FM6.** New and reworked factory sounds; FM6 F9..F15 including DUBSTEP BASS.
+- **OTT in the release image.** USB serial off by default so the build fits (`FELUCCA_CDC=1` for developers).
 
 ### New in 3.9
 
@@ -242,7 +252,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **SPREAD** (EDIT > VOICE, SPRD): the voices of a POLY or UNISON track alternate left and right of its PAN
 - **ENV SYNC** (ENV > ENV DEST): the envelope's attack, decay and release as note values of the tempo
 - **Effects list** chained or sendable per track (DIST, FILTER, CRUSH, PHASR, FLANG, CHOR, DLY, REV stages):
-  CHAIN or SEND with a MIX fader; delay in time with the tempo (divisions or smooth ms, dotted values included);
+  CHAIN or SEND with a MIX fader; DIST's MODE adds **OTT**, a three-band (88.3 Hz / 2.5 kHz) upward/downward
+  compressor with 1 ms / 50 ms ballistics (DRIVE is DEPTH, TONE is TIME); delay in time with the tempo (divisions or smooth ms, dotted values included);
   reverb as **HALL**, ROOM, SPRING, plus Araminta's **SHIMR** / **CLOUD**; technical graphs on the FX pages;
   insert knobs and MIX are mod-matrix destinations; master limiter, with CLIP / PNCH / DUCK / REL on the master page
 - **FX layer:** under PUNCH-IN (tap FX twice) for repeat, reverse, filter sweeps, tape stop, freeze, a harmonizer
@@ -255,11 +266,11 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **Quick layers:** hold GLO, SCL, EDIT or SEQ and press OCT− / OCT+ for its key and knob map (PUNCH-IN and
   SAVE > CLEAR are their own sections); one-step undo (SAVE held); REC on every page; OCT+ confirms, OCT- goes
   back; what can be pressed breathes softly instead of blinking
-- **Presets:** factory presets, 32 user preset slots and 4 projects, named on the device (an FM6
+- **Presets:** factory presets, 96 user preset slots (six banks of 16) and 4 projects, named on the device (an FM6
   sound keeps its own patch in both); user presets get a category, and a project can get a random name; projects
   from every earlier version load. The PRESETS knob changes the sound from every page that is not a list.
-  Turn the FM-1 off and on and the music is as you left it (MENU > RESTORE LAST, an autosave of its own,
-  written only when stopped and idle)
+  Turn the FM-1 off and on and the music is as you left it (MENU > BOOT RESTORE, an autosave of its own,
+  written when stopped and idle; OFF skips restore only)
 - **Screen:** Felucca 0.9's flat look (Terminus + Fukiai), 9 palettes including pitch-black grayscale,
   high contrast and NIGHT; type sized by role; MENU > LARGE for tall knob cards; the menu in five tabs. The header
   shows the track and the **project slot of its pattern** ("1 A", "1 A*" once edited), play state and tempo. HOME
@@ -314,7 +325,7 @@ What changes when you save (or when quiet autosave writes after idle):
   TEMPO in header byte 67 bit 7. The song chain still packs two bytes a section, for 88 motion records (FUN15 and
   older: 72), on top of the DRUM-X kit, SCALE LOCK, SEND bus knobs, SLICER list slots and exact FX lock packing.
   FUN18 and older load with TEMPO ON. FUN17 and older have no MASTER owners; FUN16 and older rebuild the order
-  from P_IORD / P_CHOR / the SLCR slot and use the other TAPE defaults. Only FUN19 is written.
+  from P_IORD / P_CHOR / the SLCR slot and load with TAPE off (SPEED 100, so nothing sounds). Only FUN19 is written.
   **Any firmware before this build refuses FUN19:**
   that slot shows EMPTY there until you save over it (flash data stays until then). A backup that holds FUN19 is
   refused there too. Upgrade is one-way for anything you re-save on this build.
@@ -332,6 +343,12 @@ Day-to-day differences after the flash (not data loss):
 Rollback: installer's **Return to official V15**, or M-VAVE's updater. That is stock FM-1, not Felucca 1.5.
 It will not reopen FUN19 projects. Back up in the web editor **before** the first save or quiet autosave on Araminta
 if you still need a Felucca 1.5-readable copy.
+
+Flash **`0xF4000..0xF9FFF`** (user banks F5–F7, FM6 banks F8/F9/F4) and the gap user bank at
+**`0x95000..0x96FFF`** are Araminta's. Stock V15 ignores the reclaim band and erases the gap on every boot.
+An FM-1 editor SysEx / complete musical archive is not enough for byte-exact stock flash — keep a **full flash
+backup** (`tools/fm1_flash_dump.py`). Restoring those reclaim sectors on Return-to-V15 via the UBOOT write path
+is a follow-up (not in this release).
 
 ## Controls
 
@@ -391,7 +408,7 @@ mappings. Nothing is sent while the FM-1 is not connected to a computer.
 Hold **HOME** for the menu, in five tabs: **DISPLAY** (COLOR, LARGE, LEDS, SCREEN OFF, SCOPE, HOME),
 **CONTROL** (HOLD, FX LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW, CHORD ENTRY), **AUDIO** (SPEAKER EQ,
 USB LEVEL, CLICK, CLICK LEVEL, COUNT-IN, TUNE), **MIDI** (MIDI IN) and **SYSTEM** (USB SERIAL,
-RESTORE LAST, HARDWARE CALIBRATION, INFO, ABOUT).
+BOOT RESTORE, HARDWARE CALIBRATION, INFO, ABOUT).
 SELECT moves between the tabs and ALGORITHM through the rows of one (PRESETS is idle there; ALGORITHM also scrolls
 ABOUT); any of KNOB 1-4, or OCT+ / OCT−, changes the value (OCT+ opens HARDWARE CALIBRATION, INFO and ABOUT); press
 HOME to close the menu. Every new
@@ -438,13 +455,14 @@ KNOB ACCEL is always on for wide values.
   CLICK OFF), and a note played in the last half beat lands on step 1. Not with an external clock
 - **TUNE:** the global tuning, −50 to +50 cents. It is the project's, saved and loaded with it
 - **MIDI IN:** SEL (default), CH1-4, CH5-8, CH9-12 or CH13-16 (see MIDI above). The project's too
-- **USB SERIAL:** ON or OFF, applied when the menu closes (the FM-1 reconnects). OFF leaves out the
-  serial console, a developer tool, so the FM-1 is a plain audio + MIDI device; this lets macOS 13-15
-  see its USB audio input. MIDI, the editor and the installer work either way
-- **RESTORE LAST:** ON (default) or OFF. ON, the FM-1 starts with the music you left (the header says
-  RESTORED), kept in an autosave apart from the four projects; it is written when the music changed, the
-  transport is stopped and nothing has been touched for 10 s, at most once a minute. OFF starts with the
-  power-on sounds
+- **USB SERIAL:** only in a `FELUCCA_CDC=1` developer build (the release default is off so OTT and the
+  factory presets fit the app slot). ON or OFF, applied when the menu closes (the FM-1 reconnects).
+  OFF leaves out the serial console so macOS 13-15 see the USB audio input. MIDI, the editor and the
+  installer work either way
+- **BOOT RESTORE** (was RESTORE LAST): ON (default) or OFF. The autosave (apart from the four projects) is
+  always written when the music changed, the transport is stopped and nothing has been touched for 10 s, at
+  most once a minute. ON, the FM-1 starts with that music (the header says RESTORED); OFF starts with the
+  power-on sounds and leaves the autosave on flash for the next time you turn restore on
 - **HARDWARE CALIBRATION**, **INFO** (the version, the USB link and the CPU load) and **ABOUT**
 
 ## Engines
@@ -461,19 +479,24 @@ In the order the device lists them:
 - **FM6**: classic 6-operator FM (Dexed-based): 32 algorithms, a full patch per track, edited in the
   web editor (which imports .syx files) or on the device: EDIT > OPERATOR (FREQ is one list: ratio then fixed Hz,
   fine, level; no OPERATOR 2 page) and OP ENV (each stage's rate and level, drawn as the envelope), one operator
-  at a time on the algorithm chart; macros on top; SLOT picks a factory patch (F1-F8), the track's own (OWN) or a
-  voice of the bank the web editor sent (B1-B32)
+  at a time on the algorithm chart; macros on top; SLOT picks a factory patch (F1-F15), the track's own (OWN) or a
+  voice of the four 32-voice banks the web editor sent (B1-B128)
+- **WAVETABLE**: two wavetable oscillators, A and B, each morphing through 16 frames of a mip-mapped table; B
+  phase-modulates A (B>A) and can also be heard through LEVEL at an exact RATIO, and A takes phase feedback
+  (FDBK). BASIC and SPECTRAL are factory tables; USR1..USR3 each hold one complete 16 x 1024 table, loaded from
+  a Serum `.wav` or a folder medley in the web editor. The EDIT graph draws A on OSC A and B's own wave on OSC B,
+  and switches to a labelled OSC A while RATIO is the hot knob
 - **PHASE**: phase distortion (ported from CrispyZebra)
 - **LOFI**: chiptune; pulse, triangle, saw, noise and a 4-bit wave RAM, stepped envelope, sweep, arpeggio
-- **SAMPLE**: multisampled instruments (PIANO, FLUTE, SAX) and 3 user sample slots (shared with WAVETABLE); **CR78**
-  is a public-domain factory kit at SET 8 with the SEQ drum grid. A USR slot can be a **Drumkit** in the web editor
-  (each root mapped to its lane note) or a **Sample**
 - **VOICE**: formant oscillator, sung vowels
 - **TRIO**: 3 oscillators with ring modulation and sync, multimode filter
 - **WHEEL**: tonewheel-style organ; drawbar registrations, percussion, key click, drive, rotary speaker
-- **GRAIN**: granular textures from the built-in samples or a user slot
 - **PHYS**: physical models: modal resonators, strings, struck membranes, sympathetic strings
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
+- **GRAIN**: granular textures from the built-in samples or a user slot
+- **SAMPLE**: multisampled instruments (PIANO, FLUTE, SAX) and 3 user sample slots (shared with WAVETABLE); **CR78**
+  is a public-domain factory kit at SET 8 with the SEQ drum grid. A USR slot can be a **Drumkit** in the web editor
+  (each root mapped to its lane note) or a **Sample**
 - **DRUM-X**: an 8-lane morphable kit on the General MIDI key map (JIANT port). EDIT sections
   **Sound** (MRPH / TUNE / TONE / DECY), **Kit** (SOUND: lane A/B plus pitch env; SOUND 2: DCAY / NOIS / COLR / MODE)
   and **Lanes**. Kit and mute persist in FUN19 projects (FUN10 opens with the factory kit). Old Felucca KIT values
@@ -481,11 +504,6 @@ In the order the device lists them:
 - **DRUMS**: the ported Felucca drum engine (engine 15): KIT STD / 80 / 10 / 66 / 55 / 77 / DEEP / TIGHT / PERC,
   TUNE, TONE, DECY, SNAP, ACC, KICK, DRV. Existing projects and presets stay on DRUM-X; DRUMS is for new sounds
   or for a project that selects it. It runs the 1.6.1 code unchanged in its own engine state.
-- **WAVETABLE**: two wavetable oscillators, A and B, each morphing through 16 frames of a mip-mapped table; B
-  phase-modulates A (B>A) and can also be heard through LEVEL at an exact RATIO, and A takes phase feedback
-  (FDBK). BASIC and SPECTRAL are factory tables; USR1..USR3 each hold one complete 16 x 1024 table, loaded from
-  a Serum `.wav` or a folder medley in the web editor. The EDIT graph draws A on OSC A and B's own wave on OSC B,
-  and switches to a labelled OSC A while RATIO is the hot knob
 
 The DIGITAL engine of 0.9 was replaced by FM6, and since 3.6 its conversion is gone too: a project keeps such a
 track silent, and a DIGITAL user preset is refused (convert such files in the web editor before uploading). The

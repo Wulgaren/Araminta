@@ -347,6 +347,111 @@ static int vib_wire(void)
     return bad;
 }
 
+/* FUN10 (FUNA) allowed 110 motion records in the body. Build one from a packed FUN20 image: demote the magic,
+ * expand the motion block into the FUN10 size (the bytes FUN11 later took for the kit), and check import. */
+static int store_fun10_motion110(project_store_t *st, const project_t *src)
+{
+    project_store_t cur;
+    uint32_t at, i, sum, n = 110u;
+    uint8_t chain[CHAIN_WIRE15_SIZE], mot[MOTION_FILE_SIZE_V10];
+    if (!proj_pack(&cur, src))                          /* 4096: body+append hold 110; then demote to FUN10 wire */
+        return 0;
+    at = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u);
+    memset(chain, 0, sizeof chain);
+    chain[0] = cur.raw[at];
+    for (i = 0; i < chain[0] && i < CHAIN_ROWS; i++) {
+        uint32_t w = (uint32_t)cur.raw[at + 4u + i * 2u] | (uint32_t)cur.raw[at + 5u + i * 2u] << 8;
+        chain[4u + i * 5u] = (uint8_t)(w & 7u);
+        chain[4u + i * 5u + 1u] = (uint8_t)((w >> 3) & 7u);
+        chain[4u + i * 5u + 2u] = (uint8_t)((w >> 6) & 7u);
+        chain[4u + i * 5u + 3u] = (uint8_t)((w >> 9) & 7u);
+        chain[4u + i * 5u + 4u] = (uint8_t)(((w >> 12) & 15u) + 1u);
+    }
+    memset(mot, 0, sizeof mot);
+    mot[0] = (uint8_t)n;
+    mot[1] = src->motion.on;
+    for (i = 0; i < n; i++) {
+        const motion_event_t *e = &src->motion.event[i];
+        mot[4u + 3u * i] = e->place;
+        mot[4u + 3u * i + 1u] = e->param;
+        mot[4u + 3u * i + 2u] = (uint8_t)e->value;
+    }
+    memset(st, 0, sizeof *st);
+    memcpy(st->raw, cur.raw, PROJ_STORE_OLD);
+    {
+        uint32_t magic = PROJ_MAGIC_V10, size = PROJ_STORE_OLD;
+        memcpy(st->raw, &magic, 4);
+        memcpy(st->raw + 4, &size, 4);
+    }
+    st->raw[67] = 0;                                    /* FUN10: no OSC2 / VIB / TAPE TEMPO bits */
+    memcpy(st->raw + at, chain, sizeof chain);
+    memcpy(st->raw + at + CHAIN_WIRE15_SIZE, mot, sizeof mot);
+    /* name + hash at the 3840-byte end (FUN10 field size) */
+    memcpy(st->raw + PROJ_STORE_OLD - 4u - PROJ_NAME_LEN, cur.raw + PROJ_STORE_SIZE - 4u - PROJ_NAME_LEN,
+           PROJ_NAME_LEN);
+    sum = proj_hash(st->raw, PROJ_STORE_OLD - 4u);
+    memcpy(st->raw + PROJ_STORE_OLD - 4u, &sum, 4);
+    return 1;
+}
+
+static int fun10_motion110(void)
+{
+    project_t saved, loaded;
+    project_store_t st;
+    uint32_t i;
+    int ok;
+    memset(&saved, 0, sizeof saved);
+    saved.magic = PROJ_MAGIC; saved.size = sizeof saved; saved.parts = NPART; saved.phys = PROJ_PHYS;
+    chain_defaults(&saved.chain); memcpy(saved.dx, DX_KIT_DEF, sizeof saved.dx);
+    saved.motion.count = MOTION_FILE_MAX_V10;
+    saved.motion.on = 15;
+    for (i = 0; i < MOTION_FILE_MAX_V10; i++) {
+        saved.motion.event[i].place = (uint8_t)i;       /* unique places (duplicates fail motion_valid) */
+        saved.motion.event[i].param = P_REV;            /* not an MFX_* id: FUN10 refuses those */
+        saved.motion.event[i].value = (int16_t)(i % 100u);
+    }
+    saved.sum = proj_sum(&saved);
+    ok = store_fun10_motion110(&st, &saved) &&
+         proj_import(&loaded, st.raw, (int)PROJ_STORE_OLD) &&
+         loaded.motion.count == MOTION_FILE_MAX_V10;
+    for (i = 0; ok && i < MOTION_FILE_MAX_V10; i++)
+        ok &= loaded.motion.event[i].place == saved.motion.event[i].place &&
+              loaded.motion.event[i].param == P_REV &&
+              loaded.motion.event[i].value == saved.motion.event[i].value;
+    return check("FUN10 with 110 motion records (above the FUN16 body of 88) loads", ok);
+}
+
+/* FUN20: 128 motion records (88 in the body + 40 in the append), packed, read back and packed again. */
+static int fun20_full_motion(void)
+{
+    project_t saved, loaded;
+    project_store_t a, b;
+    uint32_t i;
+    int ok;
+    memset(&saved, 0, sizeof saved);
+    saved.magic = PROJ_MAGIC; saved.size = sizeof saved; saved.parts = NPART; saved.phys = PROJ_PHYS;
+    chain_defaults(&saved.chain); memcpy(saved.dx, DX_KIT_DEF, sizeof saved.dx);
+    saved.motion.count = MOTION_FILE_MAX;
+    saved.motion.on = 15;
+    for (i = 0; i < MOTION_FILE_MAX; i++) {
+        saved.motion.event[i].place = (uint8_t)i;
+        saved.motion.event[i].param = (uint8_t)(MFX_FB | (i & 1u ? MOTION_LOCK : 0u));
+        saved.motion.event[i].value = (int16_t)(i % 100u);   /* MFX_FB: 0..120 */
+    }
+    saved.lane[0] = 0x1F; saved.lane[39] = 0xA5; saved.lane_tgt = 2;
+    saved.sum = proj_sum(&saved);
+    ok = proj_pack(&a, &saved) && a.raw[0] == 0x46 && a.raw[1] == 0x55 && a.raw[2] == 0x4E && a.raw[3] == 0x4B
+         && a.raw[PROJ_APPEND_MARK_OFF] == PROJ_APPEND_MARK
+         && proj_import(&loaded, &a, sizeof a) && loaded.motion.count == MOTION_FILE_MAX
+         && loaded.lane[0] == 0x1F && loaded.lane[39] == 0xA5 && loaded.lane_tgt == 2
+         && proj_pack(&b, &loaded) && !memcmp(a.raw, b.raw, sizeof a.raw);
+    for (i = 0; ok && i < MOTION_FILE_MAX; i++)
+        ok &= loaded.motion.event[i].place == (uint8_t)i &&
+              loaded.motion.event[i].param == saved.motion.event[i].param &&
+              loaded.motion.event[i].value == saved.motion.event[i].value;
+    return check("FUN20 with all 155 motion records and the punch-in lane round trips byte for byte", ok);
+}
+
 int main(void)
 {
     static project_t q, q2, buf;
@@ -358,8 +463,11 @@ int main(void)
                  P_LN7 + 1 == P_LSYNC && P_LSYNC + 3 == P_SQNT && P_SQNT + 1 == P_SPRD && P_SPRD + 1 == P_IORD &&
                  P_IHMIX + 1 == P_FTYPE && P_FTYPE + 1 == P_ESYNC && P_ESYNC + 1 == P_E0 && P_E0 == 119 &&
                  P_COUNT == 127u);
-    bad += check("FUN10 fits one flash object, the retained cache in NOINIT", sizeof(project_store_t) <= 4096u - 256u &&
-                 sizeof(project_store_t) == 3840u && 0xC8u + 4u * sizeof(project_store_t) <= 0x3D50u);
+    /* 3.10: the object spans two sectors of one storage object, and the four-slot wire cache is gone (a small
+     * summary replaces it, so NOINIT no longer bounds the project size) */
+    bad += check("3.10: the object is two sectors and the NOINIT cache is a 4-slot summary",
+                 sizeof(project_store_t) == 4096u && sizeof(project_store_t) <= 2u * 4096u - 256u &&
+                 sizeof(proj_slot_sum) == 4u * 44u && sizeof(proj_slot_sum) <= 256u);
 
     /* today's format: a matrix slot set, WHEEL engine 7, a DRUM track with notes and hits: stored as is */
     memset(&q, 0, sizeof q);
@@ -408,9 +516,10 @@ int main(void)
         project_t a, c;
         project_store_t st, st2;
         uint32_t i, zero = 1;
-        bad += check("FUN13 name at the end of the reserved tail; kit before FM6; SCALE LOCK before CRV",
-                     PROJ_NAME_OFF == 3824u && PROJ_FM6_OFF == 3312u && PROJ_DX_OFF == 3216u &&
+        bad += check("3.10 layout: frozen offsets, 256 B append area between FM6 and name",
+                     PROJ_NAME_OFF == 4080u && PROJ_FM6_OFF == 3312u && PROJ_DX_OFF == 3216u &&
                      PROJ_DX_OFF + PROJ_DX_SIZE == PROJ_FM6_OFF &&
+                     PROJ_NAME_OFF - (PROJ_FM6_OFF + NTRK * FM6_PACKED) == 256u &&
                      PROJ_SCL_OFF + PROJ_SCL_SIZE + 2u == PROJ_CRV_OFF &&
                      68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE + MOTION_FILE_SIZE ==
                      PROJ_SCL_OFF);
@@ -788,6 +897,8 @@ int main(void)
     bad += generation_wire();
     bad += generation_legacy_defaults();
     bad += step_wire_freeze();
+    bad += fun10_motion110();
+    bad += fun20_full_motion();
     printf("%s\n", bad ? "PROJECT FORMAT TEST FAILED" : "project format test passed");
     return bad != 0;
 }

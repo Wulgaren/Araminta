@@ -99,6 +99,52 @@ static inline uint32_t noise32(int32_t *st)
 /* Trapezoidal SVF (A. Simper), unconditionally stable. Coefficients per
  * block in Q13; signals stay within +-150000 so products fit in 32 bits. */
 typedef struct { int32_t a1, a2, a3; } tsvf_t;
+/* Trapezoidal SVF (Simper), Q14 integrators (88 Hz needs the extra fraction bits). Damping k is Q12
+ * (5793 = Butterworth). Coefs are shared across LR4 sections at the same cutoff; only the integrators
+ * are per section. LP-only / HP-only helpers skip the unused output of the second half. */
+typedef struct { int32_t g, a1, k; } ott_coef_t;
+typedef struct { int64_t i1, i2; } ott_i_t;
+static inline void ott_svf_coef(ott_coef_t *c, int32_t g, int32_t k)
+{
+    int32_t den = 4096 + ((g * (g + k)) >> 12);
+    c->g = g;
+    c->k = k;
+    c->a1 = (int32_t)((4096u << 13) / (uint32_t)den);
+}
+static inline void ott_svf_run(const ott_coef_t *c, ott_i_t *s, int32_t in, int32_t *lp, int32_t *hp)
+{
+    int64_t inq = (int64_t)in << 14, v3 = inq - s->i2, v2, lim = (int64_t)4000000 << 14;
+    int64_t v1 = ((int64_t)c->a1 * (s->i1 + (((int64_t)c->g * v3) >> 12))) >> 13;
+    v2 = s->i2 + (((int64_t)c->g * v1) >> 12);
+    s->i1 = 2 * v1 - s->i1;
+    s->i2 = 2 * v2 - s->i2;
+    if (s->i1 > lim) s->i1 = lim; else if (s->i1 < -lim) s->i1 = -lim;
+    if (s->i2 > lim) s->i2 = lim; else if (s->i2 < -lim) s->i2 = -lim;
+    *lp = (int32_t)(v2 >> 14);
+    *hp = (int32_t)((inq - (((int64_t)c->k * v1) >> 12) - v2) >> 14);
+}
+static inline int32_t ott_svf_lp(const ott_coef_t *c, ott_i_t *s, int32_t in)
+{
+    int64_t v3 = ((int64_t)in << 14) - s->i2, v2, lim = (int64_t)4000000 << 14;
+    int64_t v1 = ((int64_t)c->a1 * (s->i1 + (((int64_t)c->g * v3) >> 12))) >> 13;
+    v2 = s->i2 + (((int64_t)c->g * v1) >> 12);
+    s->i1 = 2 * v1 - s->i1;
+    s->i2 = 2 * v2 - s->i2;
+    if (s->i1 > lim) s->i1 = lim; else if (s->i1 < -lim) s->i1 = -lim;
+    if (s->i2 > lim) s->i2 = lim; else if (s->i2 < -lim) s->i2 = -lim;
+    return (int32_t)(v2 >> 14);
+}
+static inline int32_t ott_svf_hp(const ott_coef_t *c, ott_i_t *s, int32_t in)
+{
+    int64_t inq = (int64_t)in << 14, v3 = inq - s->i2, v2, lim = (int64_t)4000000 << 14;
+    int64_t v1 = ((int64_t)c->a1 * (s->i1 + (((int64_t)c->g * v3) >> 12))) >> 13;
+    v2 = s->i2 + (((int64_t)c->g * v1) >> 12);
+    s->i1 = 2 * v1 - s->i1;
+    s->i2 = 2 * v2 - s->i2;
+    if (s->i1 > lim) s->i1 = lim; else if (s->i1 < -lim) s->i1 = -lim;
+    if (s->i2 > lim) s->i2 = lim; else if (s->i2 < -lim) s->i2 = -lim;
+    return (int32_t)((inq - (((int64_t)c->k * v1) >> 12) - v2) >> 14);
+}
 static inline void tsvf_coef_k(tsvf_t *c, int32_t cut, int32_t k)   /* cut: 0..127 << 8, k: damping Q12 */
 {
     int32_t i, g, den;

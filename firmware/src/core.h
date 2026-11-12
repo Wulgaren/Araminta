@@ -33,8 +33,8 @@
 #define ENGI_SLICE 13u           /* reserved: SLICE retired (eng_retire.c) */
 #define ENGI_WT 14u              /* WAVETABLE (eng_wt.c) */
 #define ENGI_DRUMS 15u           /* DRUMS: the ported Felucca drum engine (eng_drums.c) */
-#define NENG_SHOWN 14u           /* pickable: ANALOG FM6 PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE DRUM DRUMS WAVETABLE */
-#define UP_SLOTS 32u             /* user presets (upreset.c) */
+#define NENG_SHOWN 14u           /* pickable: ANALOG FM6 WAVETABLE PHASE LOFI VOICE TRIO WHEEL PHYS NOISE GRAIN SAMPLE DRUM DRUMS */
+#define UP_SLOTS 96u             /* user presets (upreset.c): six banks of 16 */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
 /* ------------------------------------------------------- parameters --- */
@@ -126,7 +126,7 @@ static const uint8_t FX_BUS_PID[FX_BUS_N] = {
     P_IHRATE, P_IHDEP,
     P_SLCR, P_SLPAT, P_SLRATE
 };
-enum { IDM_SOFT, IDM_HARD, IDM_FOLD, IDM_FUZZ, IDM_N };
+enum { IDM_SOFT, IDM_HARD, IDM_FOLD, IDM_FUZZ, IDM_OTT, IDM_N };
 enum { IFT_LP, IFT_HP, IFT_BP, IFT_COMB, IFT_N };
 
 enum {                          /* global parameters */
@@ -289,16 +289,19 @@ typedef struct {
     uint8_t note, vel, gate, active;
     uint8_t stage;               /* env: 0 off, 1 attack, 2 decay/sustain, 3 release */
     uint8_t side;                /* SPREAD (fx.c mix_spread): 0 left of PAN, 1 right; set as the voice starts */
+    uint8_t gacc;                /* PIT GLD: the fraction of a 1/16 st carried (gstep Q8) */
+    uint8_t gq8;                 /* 1: gstep is Q8 (PIT GLD); 0: integer glide (glide_set) */
     int32_t env;                 /* Q24 */
     int32_t env_out;             /* last control-rate amplitude, Q15 */
     int32_t pitch16, pitch_cur;  /* 1/16 semitone, with glide */
-    int32_t gstep;               /* glide TIME mode: 1/16 st per control tick, 0 = RATE mode */
+    int32_t gstep;               /* glide TIME mode: 1/16 st per control tick, Q8 for PIT GLD, 0 = RATE */
     int32_t fine;                /* unison detune: phase increment * (1 + fine / 4096) */
     uint32_t ph[3];
     int32_t s[8];                /* engine state (filters, envs) */
     uint32_t age;
     uint8_t mvel;                /* mod.c: the note-on velocity (before UNISON scaling) and RAND of the note */
     int16_t mrnd;
+    uint16_t fin_d;              /* PIT GLD: a new note's fade-in, 1/16 st left (0: none) */
 } voice_t;
 
 typedef struct {                 /* per-voice control-rate modulation, computed in voice.c */
@@ -456,7 +459,10 @@ static void step_set_fl(step_t *s, uint32_t fl) { s->flags = (uint8_t)(fl & (SF_
 #define MOTION_FILE_MAX_V10 110u /* FUN10 disk: 4+110*3=334; +2 B/track for P_IORD left 2 B before FM6 */
 #define MOTION_FILE_MAX_V11 78u  /* FUN11 disk: 4+78*3=238; frees 96 B for the DRUM-X kit (project.c PROJ_DX_*) */
 #define MOTION_FILE_MAX_V15 72u  /* FUN12..FUN15 disk: 4+72*3=220; 18 B for SCALE LOCK + pad before CRV */
-#define MOTION_FILE_MAX 88u      /* FUN16 disk: the song chain repacks 84 -> 36 B, freeing 48 B for 16 more records */
+#define MOTION_FILE_MAX_BODY 88u /* FUN16..FUN19 in-body wire: chain repack freed 48 B for 16 records */
+#define MOTION_FILE_APPEND_MAX 40u /* FUN20 first append at 3824 (records 89..128); lane stays at 3944 */
+#define MOTION_FILE_SPARE_MAX 27u  /* FUN20 spare after mark+lane_tgt (3986..): records 129..155 */
+#define MOTION_FILE_MAX (MOTION_FILE_MAX_BODY + MOTION_FILE_APPEND_MAX + MOTION_FILE_SPARE_MAX) /* 155 */
 /* Four tracks x64 steps fit one byte. Track values are -64..127; FX TIME retains exact milliseconds in RAM.
  * param: the P_* or MFX_* id (<128), bit 7 (MOTION_LOCK, 1.1) a parameter lock: the value
  * sounds on that step only and goes back after it (motion.c motion_step); without it an automation event, the
@@ -493,12 +499,18 @@ _Static_assert(sizeof(motion_file_event_t) == 3u, "motion disk record preserves 
 #define MOTION_FILE_SIZE_V10 (4u + MOTION_FILE_MAX_V10 * sizeof(motion_file_event_t))
 #define MOTION_FILE_SIZE_V11 (4u + MOTION_FILE_MAX_V11 * sizeof(motion_file_event_t))
 #define MOTION_FILE_SIZE_V15 (4u + MOTION_FILE_MAX_V15 * sizeof(motion_file_event_t))
-#define MOTION_FILE_SIZE (4u + MOTION_FILE_MAX * sizeof(motion_file_event_t))
+/* the in-body motion block stays 88 records so DX/FM6 offsets stay frozen; 89..128 live in the first append,
+ * 129..155 in the spare after the punch-in mark (project.c). AUTOMATION SAVE LIMIT fires at MOTION_FILE_MAX. */
+#define MOTION_FILE_SIZE (4u + MOTION_FILE_MAX_BODY * sizeof(motion_file_event_t))
+#define MOTION_FILE_APPEND_SIZE (MOTION_FILE_APPEND_MAX * sizeof(motion_file_event_t))  /* 120 */
+#define MOTION_FILE_SPARE_SIZE (MOTION_FILE_SPARE_MAX * sizeof(motion_file_event_t))    /* 81 */
 _Static_assert(MOTION_FILE_SIZE_128 == 388u, "pre-release FUN10..FUN12 motion disk layout");
 _Static_assert(MOTION_FILE_SIZE_V10 == 334u, "FUN10 motion disk layout");
 _Static_assert(MOTION_FILE_SIZE_V11 == 238u, "FUN11 motion disk layout (kit before FM6)");
 _Static_assert(MOTION_FILE_SIZE_V15 == 220u, "FUN12..FUN15 motion disk layout (SCALE LOCK before CRV)");
-_Static_assert(MOTION_FILE_SIZE == 268u, "FUN16 motion disk layout (88 records, packed chain)");
+_Static_assert(MOTION_FILE_SIZE == 268u, "FUN16..FUN20 in-body motion (88 records, packed chain)");
+_Static_assert(MOTION_FILE_APPEND_SIZE == 120u && MOTION_FILE_SPARE_SIZE == 81u && MOTION_FILE_MAX == 155u,
+               "FUN20 append + spare motion");
 /* P_QUANT (MAP). Stored values stay append-only; the UI shows 1 as CURR (per track) and 4 as ALL
  * (every track follows ROOT/SCL while it is on). QN_CURR is the shared mode here. */
 enum { QN_OFF, QN_ALL, QN_KBD, QN_SEQ, QN_CURR };
@@ -583,6 +595,10 @@ typedef struct track {
     uint8_t nmono;
     uint8_t mono_note;           /* note the MONO / LEGATO / UNISON voice(s) play, 0 = none */
     uint8_t rr;                  /* POLY ROTATE: next voice to try */
+    /* PIT GLD (voice.c / seq.c): this block's live note-ons, then the chord they became. Runtime only. */
+    uint8_t lcp_n, lcp_note[8], lcp_vel[8];   /* collected in the block, paired once at its end */
+    uint8_t lc_n, lc_note[8], lc_up;          /* the live chord sounding: its notes, bit per released note */
+    uint32_t lc_off;             /* samples until the released notes let go (one 1/8; 0 none) */
     /* mix runtime */
     int32_t peak;
     int32_t dist_hp, dist_lp1, dist_lp2;   /* DIST insert state (fx.c) */
@@ -629,19 +645,25 @@ typedef struct track {
     uint8_t lfo_wrap;            /* the LFO's phase wrapped this block (track_lfo_adv) */
     int16_t plk_pit;             /* the step's PITCH value (MSEQ_PITCH), semitones, absolute over TRN (seq.c) */
     uint8_t plk_fit;             /* 1: this step has a PITCH lock (0: none), so a value of 0 still overrides TRN */
-    uint8_t rsv_c1[1];           /* sizeof(track_t) a multiple of 16 */
+    uint8_t rsv_c1[5];           /* sizeof(track_t) a multiple of 16 */
 } track_t;
 enum { PFX_RND = 1, PFX_HALF = 2, PFX_REP = 4, PFX_DEC = 8, PFX_ATK = 16, PFX_X2 = 32 };   /* (track_t.pfx) */
 /* P_ALLOC's sweep: legacy ROT/REUSE (0/1) are OFF; else 2 + (rate - 1) * 3 + stroke.
- * Rate 1..7, stroke 0 DOWN / 1 UP / 2 ALT. */
+ * Rate 1..7, stroke 0 DOWN / 1 UP / 2 ALT. Bit 5 is PIT GLD (chord glide), not part of the sweep. */
+#define CGLD_BIT 0x20u
+static inline int cgld_on(const track_t *t) { return (t->p[P_ALLOC] & (int16_t)CGLD_BIT) != 0; }
+static inline void cgld_set(track_t *t, int on)
+{
+    t->p[P_ALLOC] = (int16_t)((t->p[P_ALLOC] & ~(int16_t)CGLD_BIT) | (on ? (int16_t)CGLD_BIT : 0));
+}
 static inline uint32_t sweep_rate(const track_t *t)
 {
-    uint32_t v = (uint32_t)t->p[P_ALLOC] & 127u;
+    uint32_t v = (uint32_t)t->p[P_ALLOC] & 31u;
     return v > 1u ? (v - 2u) / 3u + 1u : 0u;
 }
 static inline uint32_t sweep_stroke(const track_t *t)
 {
-    uint32_t v = (uint32_t)t->p[P_ALLOC] & 127u;
+    uint32_t v = (uint32_t)t->p[P_ALLOC] & 31u;
     return v > 1u ? (v - 2u) % 3u : 0u;
 }
 static inline int16_t sweep_pack(uint32_t rate, uint32_t stroke)

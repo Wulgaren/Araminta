@@ -499,10 +499,12 @@ static void macros(void)
         trk[0].p[P_E7] = FM6_OWN;
         fm6_poll();
         check("SLOT back to OWN: the own patch again", fm6_slot[0] == FM6_OWN && !memcmp(fm6_patch[0], own, FP_SIZE));
-        check("SLOT: F1..F8, OWN, then B1..B32 (1.4.1, the voice bank), nothing past it",
-              ENG_FM6.edit[7].max == FM6_OWN + FM6_NBANK && FM6_OWN == FM6_NFACTORY && FM6_NBANK == 32u &&
+        check("SLOT: F1..F15, OWN, then B1..B128 (four voice banks), nothing past it",
+              ENG_FM6.edit[7].max == FM6_OWN + FM6_NBANK_TOTAL && FM6_OWN == FM6_NFACTORY &&
+              FM6_NFACTORY == 15u && FM6_NBANK == 32u && FM6_NBANKS == 4u && FM6_NBANK_TOTAL == 128u &&
               !strcmp(ENG_FM6.edit[7].names[FM6_OWN], "OWN") && !strcmp(ENG_FM6.edit[7].names[FM6_OWN + 1], "B1") &&
-              !strcmp(ENG_FM6.edit[7].names[FM6_OWN + FM6_NBANK], "B32") && !ENG_FM6.edit[7].names[FM6_OWN + FM6_NBANK + 1]);
+              !strcmp(ENG_FM6.edit[7].names[FM6_OWN + FM6_NBANK_TOTAL], "B128") &&
+              !ENG_FM6.edit[7].names[FM6_OWN + FM6_NBANK_TOTAL + 1]);
         trk[0].p[P_E7] = FM6_OWN + 3;                /* B3 without a bank (no store here): refused, SLOT back */
         fm6_poll();
         check("SLOT B3 with no bank: refused (SLOT back to OWN), the patch unchanged", fm6_slot[0] == FM6_OWN &&
@@ -520,7 +522,7 @@ static void macros(void)
             fm6_set_patch(0, v);
             fm6_adopt(0);
             check("fm6_adopt: edited, it is the track's own (OWN)", trk[0].p[P_E7] == FM6_OWN && fm6_slot[0] == FM6_OWN);
-            trk[0].p[P_E7] = FM6_NFACTORY + 3;       /* (a stored B4 of 1.0.2) */
+            trk[0].p[P_E7] = FM6_NFACTORY + 3;       /* (a stored bank slot of 1.0.2) */
             fm6_unpack(FM6_FACTORY[6], v);
             fm6_set_patch(0, v);
             fm6_adopt(0);

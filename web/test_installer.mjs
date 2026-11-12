@@ -22,7 +22,7 @@ const nums = (s) => s.replace(/"[^"]*"/g, '""');
 
 /* make_site.py's strip_module + the markers; this list is the composition make_site.py inlines */
 const LIBS = ["fm1pkg.js", "fm1ota.js", "projconv.js", "fm1backup.js"];
-const strip = (src) => src.replace(/^export\s+/gm, "").replace(/^import .*?;\n/gm, "");
+const strip = (src) => src.replace(/^export\s+/gm, "").replace(/^import .*?;\r?\n/gm, "");
 const lib = LIBS.map((f) => strip(readFileSync(join(HERE, f), "utf8"))).join("\n");
 const meta = JSON.stringify({ version: "9.99", product: "FM-1_999", pkg: "../../firmware/felucca-9.99.fwsc" });
 const page = (f, libTxt, metaTxt) => readFileSync(join(HERE, f), "utf8")
@@ -63,6 +63,29 @@ ok(nums(lookup(raw)) === nums(lookup(readFileSync(join(HERE, "editor.html"), "ut
    "installer: t() falls back to the key like the editor's");
 ok(raw.includes("const sayK = (k, arg = \"\")") && raw.includes("const say = (txt) =>"),
    "installer: sayK / say match the editor's names");
+
+/* full-flash dump confirm: required on stock / unknown, skipped when INFO says ARAMINTA */
+ok(raw.includes('id="dump-confirm"') && raw.includes('data-t="dumpConfirm"') &&
+   raw.includes('data-t="dumpHint"') && raw.includes("/*DUMP-CONFIRM-BEGIN*/"),
+   "installer: dump-confirm checkbox and hint are in the template");
+{
+  const [ja, en] = tables(raw);
+  for (const k of ["dumpConfirm", "dumpHint", "dumpNeed"])
+    ok(ja.has(k) && en.has(k), `installer: TEXT has ${k} in ja and en`);
+  const dumpSrc = raw.slice(raw.indexOf("/*DUMP-CONFIRM-BEGIN*/"), raw.indexOf("/*DUMP-CONFIRM-END*/"));
+  let dumpErr = null, needsFullDumpConfirm;
+  try {
+    ({ needsFullDumpConfirm } = vm.runInNewContext(dumpSrc + "\n;({ needsFullDumpConfirm })", Object.create(null), {}));
+  } catch (e) { dumpErr = e.message; }
+  ok(!dumpErr && typeof needsFullDumpConfirm === "function",
+     "installer: needsFullDumpConfirm extracts" + (dumpErr ? ` (${dumpErr})` : ""));
+  if (typeof needsFullDumpConfirm === "function") {
+    ok(needsFullDumpConfirm(null) && needsFullDumpConfirm("") && needsFullDumpConfirm("FM-1 V15"),
+       "installer: dump confirm required for stock / missing INFO");
+    ok(!needsFullDumpConfirm("ARAMINTA 3.10") && !needsFullDumpConfirm("araminta nightly"),
+       "installer: dump confirm skipped when INFO version is Araminta");
+  }
+}
 
 /* ------------------------------------------------------------- package integrity --- */
 /* The page's own verifyPackage, sliced out of the assembled bundle and run in a vm: a good package verifies,

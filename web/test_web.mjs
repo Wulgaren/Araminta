@@ -175,27 +175,28 @@ async function editorMock() {
   await rq(E.req.upErase(31));
   prefs = await E.readDevicePreferences(rq, info, names, prefs);
   ok(!prefs.favorites[info.nengines][31] && !E.devicePresetRows(info, names, prefs).some((r) => r.user), "editor: erased slot disappears and loses star");
-  {   /* the lists in the device's order (engines.c ENGINE_ORDER): FM6 second, WAVETABLE last, "-" never; the numbers stay */
+  {   /* the lists in the device's order (engines.c ENGINE_ORDER): FM6 second, WAVETABLE third, "-" never; the numbers stay */
     const shown = E.engineOrder(info.engines).map((i) => info.engines[i]);
-    ok(shown.join() === "ANALOG,FM6,PHASE,LOFI,SAMPLE,VOICE,TRIO,WHEEL,GRAIN,PHYS,NOISE,DRUM-X,DRUMS,WAVETABLE" &&
-       E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines).at(-1) === 14,
-       "editor: engines listed FM6 second, DRUMS second to last, WAVETABLE last (indices kept)");
+    ok(shown.join() === "ANALOG,FM6,WAVETABLE,PHASE,LOFI,VOICE,TRIO,WHEEL,PHYS,NOISE,GRAIN,SAMPLE,DRUM-X,DRUMS" &&
+       E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines)[2] === 14 &&
+       E.engineOrder(info.engines).at(-1) === 15,
+       "editor: engines listed FM6 second, WAVETABLE third, DRUMS last (indices kept)");
     ok(E.engineOrder(["ANALOG", "X", "-", "DRUM-X", "FM6"]).join() === "0,4,3,1", "editor: an unknown engine follows the known ones");
     m.state.favorites[10][0] = m.state.favorites[12][0] = true;
     await rq(E.req.uiSet(3, 0));
     prefs = await E.readDevicePreferences(rq, info, names, prefs);
     const rows = E.devicePresetRows(info, names, prefs).filter((r) => !r.user), eng = [...new Set(rows.map((r) => r.engine))];
-    ok(eng[0] === 0 && eng[1] === 12 && eng[eng.length - 1] === 14, "editor: device presets in the device's engine order");
+    ok(eng[0] === 0 && eng[1] === 12 && eng[2] === 14 && eng[eng.length - 1] === 15, "editor: device presets in the device's engine order");
   }
   const none = await E.readDevicePreferences(() => { throw new Error("unexpected request"); }, { uiCaps: 0 }, []);
   ok(none === null, "editor: old firmware receives no unsupported preference requests");
   if (!E.readDeviceMenu) console.log(`${"editor: MENU settings (this editor has none)".padEnd(64)} skip`);
   else {   /* the MENU settings (1.0.4): INFO 4E 01 count, MENU_DESC (72), MENU_SET (73) */
-    ok(info.menuCount === 25, "editor: INFO advertises the MENU settings (4E 01 25; 1.1: CLICK, CLICK LEVEL, COUNT-IN; 1.2: RESTORE LAST, SCALE LEDS; 1.1.5: SCREEN OFF; 1.2: SCOPE, STEP PREVIEW, CHORD ENTRY, MIDI IN, TUNE; 1.3: HOME; 1.5: HELP)");
+    ok(info.menuCount === 25, "editor: INFO advertises the MENU settings (4E 01 25; 1.1: CLICK, CLICK LEVEL, COUNT-IN; 1.2: BOOT RESTORE, SCALE LEDS; 1.1.5: SCREEN OFF; 1.2: SCOPE, STEP PREVIEW, CHORD ENTRY, MIDI IN, TUNE; 1.3: HOME; 1.5: HELP)");
     const items = await E.readDeviceMenu(rq, info);
     ok(items.length === 25 && items.map((d) => d.id).join() === "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24" &&
        items.map((d) => d.name).join() ===
-         "COLOR,STYLE,LARGE,ANIM,LEDS,HOLD,KNOB ACCEL,FX LATCH,BPM LOCK,SPEAKER EQ,USB LEVEL,USB SERIAL,CLICK,CLICK LEVEL,COUNT-IN,RESTORE LAST,SCALE LEDS,SCREEN OFF,SCOPE,STEP PREVIEW,CHORD ENTRY,MIDI IN,TUNE,HOME,HELP" &&
+         "COLOR,STYLE,LARGE,ANIM,LEDS,HOLD,KNOB ACCEL,FX LATCH,BPM LOCK,SPEAKER EQ,USB LEVEL,USB SERIAL,CLICK,CLICK LEVEL,COUNT-IN,BOOT RESTORE,SCALE LEDS,SCREEN OFF,SCOPE,STEP PREVIEW,CHORD ENTRY,MIDI IN,TUNE,HOME,HELP" &&
        items[12].names.join() === "OFF,REC,ON" && items[12].value === 0 && items[13].names.join() === "LOW,MID,HIGH" &&
        items[13].value === 1 && items[14].names.join() === "OFF,1 BAR,2 BARS" && items[14].value === 0 &&
        items[15].names.join() === "ON,OFF" && items[15].value === 0 && items[16].names.join() === "OFF,ON" && items[16].value === 0 &&
@@ -227,7 +228,7 @@ async function editorMock() {
        "editor: MENU_SET round trip (1.1: COUNT-IN 1 BAR)");
     await rq(E.req.menuSet(14, 0));
     r = E.parse[E.CMD.MENU_SET](await rq(E.req.menuSet(15, 1)));
-    ok(r.rc === 0 && r.id === 15 && r.value === 1, "editor: MENU_SET round trip (1.2: RESTORE LAST OFF)");
+    ok(r.rc === 0 && r.id === 15 && r.value === 1, "editor: MENU_SET round trip (1.2: BOOT RESTORE OFF)");
     await rq(E.req.menuSet(15, 0));
     r = E.parse[E.CMD.MENU_SET](await rq(E.req.menuSet(16, 1)));
     ok(r.rc === 0 && r.id === 16 && r.value === 1, "editor: MENU_SET round trip (1.2: SCALE LEDS ON)");
@@ -362,7 +363,7 @@ async function editorSamplePresets() {
   const names = E.parse[C.NAMES](await rq(E.req.names(4)));
   await rq(E.req.preset(4, 0));
   const set = E.parse[C.DESC](await rq(E.req.desc(0, info.pe0)));
-  ok(eq(names.names, ["PIANO", "PIANO", "FLUTE", "SAX", "PIANO", "CR78"]) &&
+  ok(eq(names.names, ["PIANO", "PIANO", "FLUTE", "SAX", "PIANO", "CR78 DRUMS"]) &&
     eq(set.names.slice(0, 4), ["PIANO", "PIANO", "FLUTE", "SAX"]) && set.names[4] === "PIANO" &&
     eq(set.names.slice(5), ["USR1", "USR2", "USR3", "CR78"]),
     "SAMPLE: TRANH and PERC removed, SET 1 and 4 kept as PIANO aliases, CR78 at 8");
@@ -457,7 +458,7 @@ function mockTables() {
     const m0 = E.makeMockDevice({ auto: false }), ph = m0.tables.ENG[9], dr = m0.tables.ENG[10];
     m0.stop();
     ok(ph.name === "PHYS" && ph.edit[0].names.join() === "MODAL,STRNG,MEMB,SYMP" && ph.edit[0].max === 3 &&
-       ph.presets.length === 9 && !ph.presets.some((p) => p.name === "RAIN" || p.name === "DRUM KIT"),
+       ph.presets.length === 10 && !ph.presets.some((p) => p.name === "RAIN" || p.name === "DRUM KIT"),
        "editor: PHYS models MODAL STRNG MEMB SYMP (no DUST, no DRUM), 9 presets");
     ok(dr.name === "DRUM-X" && dr.edit.map((d) => d.label).join() === "MRPH,TUNE,TONE,DECY,NOIS,FM,FOLD,DRV" &&
        dr.presets.length === 1 && dr.presets[0].name === "DRUM-X" && dr.presets.every((p) => p.pat === 12),
@@ -1271,7 +1272,7 @@ async function editorFm6() {
     for (let i = 0; i < F6.SIZE; i++) inrange &&= i >= F6.NAME ? v[i] >= 32 && v[i] <= 126 : v[i] <= F6.max(i);
   }
   ok(inrange, "FM6: any 128 bytes unpack into range");
-  const voices = F6.FACTORY_PK.map((pk) => F6.unpack(pk));
+  const voices = Array.from({ length: 32 }, (_, k) => F6.unpack(k < 8 ? F6.FACTORY_PK[k] : F6.INIT_PK));
   const bank = F6.bankSysex(voices), one = F6.singleSysex(voices[3]);
   ok(bank.length === 4104 && bank[0] === 0xF0 && bank[3] === 9 && bank[4103] === 0xF7 && one.length === 163 && one[5] === 0x1B,
     "FM6: a 32-voice bank SysEx is 4104 bytes, a single voice 163");
@@ -1293,9 +1294,9 @@ async function editorFm6() {
   [...m.access.inputs.values()][0].onmidimessage = (e) => link.receive(e.data);
   const rq = (x) => link.request(x), C = E.CMD;
   const info = E.parse[C.INFO](await rq(E.req.info()));
-  ok(info.fm6 && info.fm6.factory === 8 && info.fm6.bank === 0 && info.fm6.caps === 3, "FM6: INFO tag (8 factory, no bank; FM6 v2 caps 3)");
+  ok(info.fm6 && info.fm6.factory === F6.FACTORY_PK.length && info.fm6.bank === 0 && info.fm6.caps === 3, "FM6: INFO tag (factory count, no bank; FM6 v2 caps 3)");
   let list = E.parse[C.FM6_LIST](await rq(E.req.fm6List()));
-  ok(list.factory === 8 && list.bank === 0 && list.slots.length === 8 && list.slots[0].name === "TINE EP", "FM6: LIST names the factory patches, nbank 0");
+  ok(list.factory === F6.FACTORY_PK.length && list.bank === 0 && list.slots.length === F6.FACTORY_PK.length && list.slots[0].name === "TINE EP", "FM6: LIST names the factory patches, nbank 0");
   const mine = F6.setName(F6.factory(2), "my bass");
   let p = E.parse[C.FM6_PUT](await rq(E.req.fm6Put(1, 4, F6.pack(mine))));
   let g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(1, 4)));
@@ -1307,11 +1308,11 @@ async function editorFm6() {
   p = E.parse[C.FM6_PUT](await rq(E.req.fm6Put(0, 0, F6.pack(mine))));
   g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
   let sv = E.parse[C.GET](await rq(E.req.get(0, slotId))).value;
-  ok(!p.rc && F6.name(F6.unpack(g.packed)) === "MY BASS" && sv === 8, `FM6: send to the track: its own patch, SLOT (P_E0 + 7 = ${slotId}) OWN`);
+  ok(!p.rc && F6.name(F6.unpack(g.packed)) === "MY BASS" && sv === info.fm6.factory, `FM6: send to the track: its own patch, SLOT (P_E0 + 7 = ${slotId}) OWN`);
   await rq(E.req.set(0, slotId, 1));
   g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
   ok(eq(g.packed, F6.FACTORY_PK[1]), "FM6: SLOT F2 loads the factory patch");
-  await rq(E.req.set(0, slotId, 8));
+  await rq(E.req.set(0, slotId, info.fm6.factory));
   g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
   ok(F6.name(F6.unpack(g.packed)) === "MY BASS", "FM6: SLOT back to OWN brings the own patch back");
   const edited = F6.unpack(g.packed); edited[F6.VI.ALG] = 31;
@@ -1326,7 +1327,7 @@ async function editorFm6() {
   await rq(E.req.upLoad(20));
   g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
   sv = E.parse[C.GET](await rq(E.req.get(0, slotId))).value;
-  ok(eq(g.packed, F6.pack(edited)) && sv === 8, "FM6: UP_LOAD plays it again, SLOT OWN");
+  ok(eq(g.packed, F6.pack(edited)) && sv === info.fm6.factory, "FM6: UP_LOAD plays it again, SLOT OWN");
   const u = await E.bank.get(rq, info, 20);
   ok(u.used && eq(u.fm6, F6.pack(edited)), "FM6: the librarian reads a user preset with its patch");
   const other = F6.pack(F6.setName(F6.factory(5), "OTHER"));
@@ -1362,11 +1363,17 @@ async function editorFm6Bank() {
   [...m.access.inputs.values()][0].onmidimessage = (e) => link.receive(e.data);
   const rq = (x, o) => link.request(x, o);
   const info = E.parse[C.INFO](await rq(E.req.info()));
-  ok(info.fm6Bank === 32 && info.songLanes === 4 && info.fm6.caps === 3, "FM6 bank: INFO 56 01 32 after the SONG lanes tag");
+  ok(info.fm6Bank === 128 && info.songLanes === 4 && info.fm6.caps === 3, "FM6 bank: INFO 56 01 00 01 (128) after the SONG lanes tag");
+  {
+    const b0 = E.req.fm6bBegin(0), b3 = E.req.fm6bBegin(3), l0 = E.req.fm6bList(0), l3 = E.req.fm6bList(3);
+    ok(b0[1].length === 0 && l0[1].length === 0 && b3[1].length === 1 && b3[1][0] === 3 &&
+       l3[1].length === 1 && l3[1][0] === 3,
+       "FM6 bank: BEGIN/LIST omit the bank byte for bank 0 (3.9 single-bank); send it for bank 3");
+  }
   let list = await E.fm6Bank.list(rq);
   ok(list.n === 32 && !list.valid && list.name === "" && list.voices.every((v) => !v.used), "FM6 bank: LIST of an empty device: no bank");
   /* a 32-voice file: the factory patches renamed VOICE 01..32 (the import path: parseSysex, then the packed records) */
-  const voices = Array.from({ length: 32 }, (_, k) => F6.setName(F6.factory(k % 8), `VOICE ${String(k + 1).padStart(2, "0")}`));
+  const voices = Array.from({ length: 32 }, (_, k) => F6.setName(F6.factory(k % F6.FACTORY_PK.length), `VOICE ${String(k + 1).padStart(2, "0")}`));
   const file = F6.bankSysex(voices), parsed = F6.parseSysex(file), packed = E.fm6Bank.fromVoices(parsed.voices);
   ok(parsed.voices.length === 32 && packed.length === 32 && packed.every((pk, k) => eq(pk, F6.pack(voices[k]))) &&
      E.fm6Bank.nameOf("my fm bank.syx") === "MY FM BANK" && E.fm6Bank.nameOf("äbc.SYX") === " BC".trim(),
@@ -1375,27 +1382,27 @@ async function editorFm6Bank() {
   list = await E.fm6Bank.list(rq);
   ok(rc === 0 && list.valid && list.name === "MY FM BANK" && list.voices.every((v, k) => v.used && v.name === `VOICE ${String(k + 1).padStart(2, "0")}`),
     "FM6 bank: sent whole (rc 0); LIST: its name, 32 voices and their names");
-  const eng = info.engines.indexOf("FM6"), slotId = info.pe0 + 7;
+  const eng = info.engines.indexOf("FM6"), slotId = info.pe0 + 7, own = info.fm6.factory;
   await rq(E.req.set(1, 20, eng));
   let all = true;
   for (let k = 0; k < 32; k++) {
-    await rq(E.req.set(0, slotId, 9 + k));
+    await rq(E.req.set(0, slotId, own + 1 + k));
     const g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
     const sv = E.parse[C.GET](await rq(E.req.get(0, slotId))).value;
-    all &&= eq(g.packed, packed[k]) && sv === 9 + k;
+    all &&= eq(g.packed, packed[k]) && sv === own + 1 + k;
   }
-  ok(all, "FM6 bank: SLOT 9..40 (B1..B32) loads each voice's exact record into the track");
+  ok(all, "FM6 bank: SLOT B1..B32 loads each voice's exact record into the track");
   /* a bank with voices 1, 6 and 32 only (bank slots without a voice are refused: SLOT back) */
   const some = packed.map((pk, k) => ([0, 5, 31].includes(k) ? F6.pack(F6.setName(F6.unpack(pk), `ONLY ${k + 1}`)) : null));
-  await rq(E.req.set(0, slotId, 9 + 4));                                   /* B5 of the full bank */
+  await rq(E.req.set(0, slotId, own + 5));                                 /* B5 of the full bank */
   rc = await E.fm6Bank.send(rq, some, "SOME");
   let sv = E.parse[C.GET](await rq(E.req.get(0, slotId))).value, g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
-  ok(rc === 0 && sv === 8 && eq(g.packed, packed[4]), "FM6 bank: a new bank: the track on B5 keeps that voice as its own (SLOT OWN)");
-  await rq(E.req.set(0, slotId, 9 + 1));                                   /* B2: none there */
+  ok(rc === 0 && sv === own && eq(g.packed, packed[4]), "FM6 bank: a new bank: the track on B5 keeps that voice as its own (SLOT OWN)");
+  await rq(E.req.set(0, slotId, own + 2));                                 /* B2: none there */
   sv = E.parse[C.GET](await rq(E.req.get(0, slotId))).value;
   g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
-  ok(sv === 8 && eq(g.packed, packed[4]), "FM6 bank: an empty bank slot (B2) is refused: SLOT back, the patch unchanged");
-  await rq(E.req.set(0, slotId, 9 + 31));
+  ok(sv === own && eq(g.packed, packed[4]), "FM6 bank: an empty bank slot (B2) is refused: SLOT back, the patch unchanged");
+  await rq(E.req.set(0, slotId, own + 32));
   g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
   list = await E.fm6Bank.list(rq);
   ok(eq(g.packed, some[31]) && list.voices.filter((v) => v.used).map((v) => v.name).join() === "ONLY 1,ONLY 6,ONLY 32",
@@ -1418,6 +1425,14 @@ async function editorFm6Bank() {
   rc = await E.fm6Bank.send(rq, new Array(32).fill(null), "");
   list = await E.fm6Bank.list(rq);
   ok(rc === 0 && list.valid && list.voices.every((v) => !v.used), "FM6 bank: an empty bank (no WRITE, CRC of nothing) clears it");
+  /* multi-bank: bank 3 (F4000) is independent of bank 0 */
+  rc = await E.fm6Bank.send(rq, packed, "BANK THREE", 3);
+  const l0 = await E.fm6Bank.list(rq, 0), l3 = await E.fm6Bank.list(rq, 3);
+  ok(rc === 0 && !l0.voices.some((v) => v.used) && l3.valid && l3.name === "BANK THREE" && l3.voices.every((v) => v.used),
+    "FM6 bank: send to bank 3 leaves bank 0 empty; LIST bank 3 has the voices");
+  await rq(E.req.set(0, slotId, own + 97));                        /* B97 = bank 3 voice 0 */
+  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
+  ok(eq(g.packed, packed[0]), "FM6 bank: SLOT B97 loads bank 3 voice 0");
   link.close(); m.stop();
   const old = E.makeMockDevice({ auto: false, noVbank: true });
   const l2 = new E.Link((d) => [...old.access.outputs.values()][0].send(d), { timeout: 100 });

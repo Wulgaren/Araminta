@@ -402,14 +402,19 @@ EXPORT uint32_t web_bk_import(uint32_t id, uint32_t len)
 {
     if (len > sizeof web_bk_buf)
         return 2u;
-    if (id == 0u)
+    if (id == 0u) {
+        if (len > st_pmax(OBJ_AUTOSAVE))
+            return 2u;
         return st_save(OBJ_AUTOSAVE, web_bk_buf, len) ? 3u : 0u;
+    }
     if (id == 1u)
         return st_save(OBJ_SETTINGS, web_bk_buf, len) ? 3u : 0u;
     if (id >= 2u && id <= 5u)
         return st_save(OBJ_PROJECT0 + id - 2u, web_bk_buf, len) ? 3u : 0u;
     if (id == 6u || id == 7u)
         return st_save(OBJ_UPRESET0 + id - 6u, web_bk_buf, len) ? 3u : 0u;
+    if (id >= 10u && id <= 13u)
+        return st_save(OBJ_UPRESET2 + id - 10u, web_bk_buf, len) ? 3u : 0u;
     if (id == 8u)
         return len ? 4u : 0u;                    /* the FM6 bank of 1.0..1.0.2: current backups carry it empty */
     if (id == 9u)

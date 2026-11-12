@@ -66,6 +66,8 @@ CR78_FILES = [("00_Kick_C4.wav", 36), ("01_Snare_C#4.wav", 38), ("07_BongoHi_G4.
               ("03_HihatClosed_D#4.wav", 42), ("04_Cymbal_E4.wav", 46), ("05_Conga_F4.wav", 45),
               ("02_Rim_D4.wav", 37), ("10_Cowbell_A#4.wav", 56)]
 EXTRA_SETS = [("CR78", "kit")]
+# The preset list labels the kit "CR78 DRUMS"; its SET value keeps the short name (the card shows 5 characters).
+EXTRA_PRESET_NAMES = {"CR78": "CR78 DRUMS"}
 PERC_SLOT = 4                                # core.h SMP_SET_PERC: retired PERC alias
 
 
@@ -288,7 +290,8 @@ class Builder:
         for name, _, _ in self.extras:
             k = self.kinds.get(name, "oneshot")
             a, d, s_, r = ENV[k]
-            L.append(f'    {{"{name}", {{{len(named) + 3}, 0, 0, 1, 127, 0, 0, 0}}, {{{a}, {d}, {s_}, {r}}}, 0, 0}},')
+            label = EXTRA_PRESET_NAMES.get(name, name)
+            L.append(f'    {{"{label}", {{{len(named) + 3}, 0, 0, 1, 127, 0, 0, 0}}, {{{a}, {d}, {s_}, {r}}}, 0, 0}},')
         L.append("};")
         orig = [self.alias.get(i, i) for i in range(len(named))]
         L.append("/* SET i plays SMP_SET_ORIG[i]: != i for a retired set kept as an alias (its preset i too) */")
