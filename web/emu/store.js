@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 // The flash the page keeps: storage.c's areas (autosave B in the gap 0x93000..0x94FFF; projects, user presets and
-// their FM6 patches, the user sample slots 0x97000..0xDFFFF; autosave A 0xE5000..0xE6FFF and FM6's voice bank
-// 0xE7000; the settings and the second FM6 copy 0xFC000..0xFFFFF), only the sectors that hold something (an erased
-// sector is all 0xFF). {offset: bytes}
+// their FM6 patches, the user sample slots 0x97000..0xDFFFF; autosave A 0xE5000..0xE6FFF and FM6 voice bank 0 at
+// 0xE7000; reclaim F4000..F9FFF for factory / user / FM6 banks 1–2; settings 0xFC000..0xFFFFF), only the sectors
+// that hold something (an erased sector is all 0xFF). {offset: bytes}
 // A module for the test (web/emu/emu_test.mjs). web/emu/build.sh puts this file in front of web/emu/worklet.js with
 // the leading "export " stripped, because the browser loads the worklet with AudioWorklet.addModule, which compiles a
 // classic script: there a top-level "export" is a SyntaxError and the emulator would never boot. Keep the two halves

@@ -53,10 +53,16 @@ MENU > SYSTEM > **BOOT RESTORE** (was RESTORE LAST; editor id 15 unchanged). The
 same idle / quiet / once-a-minute rules whether the setting is ON or OFF. OFF only skips power-on restore
 (power-on sounds; the flash copy stays for later). ON still shows RESTORED when a valid autosave loads.
 
+### FM6 voice banks 1–2 at F8000/F9000
+
+Three 32-voice homes: bank 0 at `0xE7000`, bank 1 at `0xF8000`, bank 2 at `0xF9000` (reclaim band; not storage
+objects). `FM6B_BEGIN` / `FM6B_LIST` take an optional bank 0..2. Staging still uses the autosave's older copy with
+commit slot `0x10 | bank` (legacy staged `slot == 1` still finishes as bank 0). The gap at `0x95000` stays
+user-preset bank 5. SLOT B1..B96 and INFO `56 01 60` are unchanged; stored bank SLOT values still load as OWN.
+
 ### FM6 SLOT 0..104 (three banks × 32)
 
 FM6's SLOT runs to 104 with `N_FM6_PATCH` names F1..F8, OWN, B1..B96. INFO advertises `56 01 60` (96 voices).
-Bank 0 still lives at `0xE7000`; banks 1..2 are addressable in SLOT but empty until the gap is provisioned.
 Stored bank SLOT values still load as OWN (`param_fit`).
 
 EFFECTS > TAPE now starts as MASTER at MIX 100 %: at SPEED 100 the head is idle, so a power-on instrument and a

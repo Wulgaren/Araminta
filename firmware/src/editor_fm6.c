@@ -83,9 +83,17 @@ static int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         rc = n != 1u ? 1u : ED_FM6_NOBANK;
         ed_b(n ? a[0] : 127u); ed_b(rc);
         return 1;
-    case ED_FM6B_BEGIN:                                    /* -> rc */
-        ed_b(n ? 1u : ed_flash_stop() ? 3u : fvb_begin());
+    case ED_FM6B_BEGIN: {                                  /* [bank 0..2] -> rc (no arg: bank 0) */
+        uint32_t bank = 0;
+        if (n > 1u || (n == 1u && a[0] >= FM6_NBANKS))
+            ed_b(1);
+        else {
+            if (n == 1u)
+                bank = a[0];
+            ed_b(ed_flash_stop() ? 3u : fvb_begin(bank));
+        }
         return 1;
+    }
     case ED_FM6B_WRITE:                                    /* index, 128 bytes -> index, rc */
         ed_b(n ? a[0] : 127u);
         ed_b(n != 1u + FM6_PACKED ? 1u : ed_flash_stop() ? 3u : fvb_write(a[0], a + 1));
@@ -96,16 +104,19 @@ static int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
                             (uint32_t)a[14] << 28);
         ed_b(rc);
         for (i = 0, n = 0; i < FM6_NBANK; i++)
-            n += (fm6_bank_used[0] >> i) & 1u;
+            n += (fm6_bank_used[fvb_tx.bank < FM6_NBANKS ? fvb_tx.bank : 0u] >> i) & 1u;
         ed_b(n);
         return 1;
-    case ED_FM6B_LIST: {                                   /* -> voices (32), bank (0 none / 1), its name, per voice:
-                                                            * used, name */
+    case ED_FM6B_LIST: {                                   /* [bank 0..2] -> voices (32), present (0/1), name,
+                                                            * per voice: used, name. No arg: bank 0. */
         const fvb_info_t *in;
         char nm[11];
-        if (n)
+        uint32_t bank = 0;
+        if (n > 1u || (n == 1u && a[0] >= FM6_NBANKS))
             return 0;
-        in = fvb_info();
+        if (n == 1u)
+            bank = a[0];
+        in = fvb_info(bank);
         for (i = 0; i < 10u; i++)
             nm[i] = in ? in->name[i] : 0;
         for (nm[10] = 0, i = 10; i && (nm[i - 1] == ' ' || !nm[i - 1]); i--)
@@ -113,7 +124,7 @@ static int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         ed_b(FM6_NBANK); ed_b(in != 0);
         ed_str(nm, 10);
         for (i = 0; i < FM6_NBANK; i++) {
-            uint32_t u = fm6_bank_read && !fm6_bank_read(i, pk);
+            uint32_t u = fm6_bank_read && !fm6_bank_read(bank * FM6_NBANK + i, pk);
             ed_b(u);
             if (u)
                 ed_fm6_name(pk);
