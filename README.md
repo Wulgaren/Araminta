@@ -333,6 +333,12 @@ Rollback: installer's **Return to official V15**, or M-VAVE's updater. That is s
 It will not reopen FUN19 projects. Back up in the web editor **before** the first save or quiet autosave on Araminta
 if you still need a Felucca 1.5-readable copy.
 
+Flash **`0xF4000..0xF9FFF`** (factory presets, user banks F5–F7, FM6 banks F8/F9) and the gap user bank at
+**`0x95000..0x96FFF`** are Araminta's. Stock V15 ignores the reclaim band and erases the gap on every boot.
+An FM-1 editor SysEx / complete musical archive is not enough for byte-exact stock flash — keep a **full flash
+backup** (`tools/fm1_flash_dump.py`). Restoring those reclaim sectors on Return-to-V15 via the UBOOT write path
+is a follow-up (not in this release).
+
 ## Controls
 
 - Tap a page button for its page, again for the next; HOME returns home. Page buttons act when let go

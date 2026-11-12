@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Installer / Return-to-V15: Araminta flash sectors
+
+The web installer and **Return to official V15** copy say flash `0xF4000..0xF9FFF` (factory presets, user banks,
+extra FM6 banks) and the gap user bank are Araminta's. Byte-exact stock needs a **full flash backup**
+(`tools/fm1_flash_dump.py`), not only an FM-1 editor SysEx dump. V15 erases the gap on every stock boot.
+UBOOT write-back of F4000–F9FFF on return to V15 is a follow-up (not built here).
+
 ### User preset banks at F5000–F7 + gap (96 slots)
 
 `UP_SLOTS` is 96 (six banks × 16). Banks 0/1 stay at `0xDC000..0xDFFFF` (A/B). Banks 2..4 are single-copy at
