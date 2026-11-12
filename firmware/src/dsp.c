@@ -102,7 +102,8 @@ typedef struct { int32_t a1, a2, a3; } tsvf_t;
 /* Trapezoidal SVF (Simper) with both integrator states held at Q14: the a3 term of the direct form
  * rounds to zero at a cutoff as low as 88 Hz, and a Q13 state loses its increments there too. The
  * output is a signal sample. k is the damping, Q12 (5793 = Butterworth, Q = 1/sqrt 2). Both outputs
- * come from the same state: a shared first section gives the LR4's low and high halves for one run. */
+ * come from the same state: a shared first section gives the LR4's low and high halves for one run.
+ * LP-only / HP-only helpers skip the unused output of the second section of each half. */
 typedef struct { int32_t g, a1, k; int64_t i1, i2; } ott_svf_t;
 static inline void ott_svf_coef(ott_svf_t *c, int32_t g, int32_t k)
 {
@@ -124,6 +125,29 @@ static inline void ott_svf_run(ott_svf_t *c, int32_t in, int32_t *lp, int32_t *h
     if (c->i2 > lim) c->i2 = lim; else if (c->i2 < -lim) c->i2 = -lim;
     *lp = (int32_t)(v2 >> 14);
     *hp = (int32_t)((inq - (((int64_t)c->k * v1) >> 12) - v2) >> 14);
+}
+/* second section of an LR4 half: only the low-pass (or high-pass) is kept; state updates match run. */
+static inline int32_t ott_svf_lp(ott_svf_t *c, int32_t in)
+{
+    int64_t v3 = ((int64_t)in << 14) - c->i2, v2, lim = (int64_t)4000000 << 14;
+    int64_t v1 = ((int64_t)c->a1 * (c->i1 + (((int64_t)c->g * v3) >> 12))) >> 13;
+    v2 = c->i2 + (((int64_t)c->g * v1) >> 12);
+    c->i1 = 2 * v1 - c->i1;
+    c->i2 = 2 * v2 - c->i2;
+    if (c->i1 > lim) c->i1 = lim; else if (c->i1 < -lim) c->i1 = -lim;
+    if (c->i2 > lim) c->i2 = lim; else if (c->i2 < -lim) c->i2 = -lim;
+    return (int32_t)(v2 >> 14);
+}
+static inline int32_t ott_svf_hp(ott_svf_t *c, int32_t in)
+{
+    int64_t inq = (int64_t)in << 14, v3 = inq - c->i2, v2, lim = (int64_t)4000000 << 14;
+    int64_t v1 = ((int64_t)c->a1 * (c->i1 + (((int64_t)c->g * v3) >> 12))) >> 13;
+    v2 = c->i2 + (((int64_t)c->g * v1) >> 12);
+    c->i1 = 2 * v1 - c->i1;
+    c->i2 = 2 * v2 - c->i2;
+    if (c->i1 > lim) c->i1 = lim; else if (c->i1 < -lim) c->i1 = -lim;
+    if (c->i2 > lim) c->i2 = lim; else if (c->i2 < -lim) c->i2 = -lim;
+    return (int32_t)((inq - (((int64_t)c->k * v1) >> 12) - v2) >> 14);
 }
 static inline void tsvf_coef_k(tsvf_t *c, int32_t cut, int32_t k)   /* cut: 0..127 << 8, k: damping Q12 */
 {
