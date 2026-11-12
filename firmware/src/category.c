@@ -31,7 +31,7 @@ static const char *const PRESET_CAT[17] = {
     "UUUPUDDPUU",                /* 9 PHYS: … HARP, GLASS BOW */
     "D",                         /* 10 DRUM: DRUM-X */
     "FFFFF",                     /* 11 NOISE: … METAL, REG BELL */
-    "KUBLPUKULPKBLF",            /* 12 FM6: … PLUCK, METAL VOX, HOLLOW FM, CRYSTAL, FM GROWL, OCTAVE 6, AIR NOISE */
+    "KUBLPUKULPKBLFB",           /* 12 FM6: … PLUCK, METAL VOX, HOLLOW FM, CRYSTAL, FM GROWL, OCT STACK, AIR NOISE, FM REESE */
     "DD",                        /* 13 SLICE: CHOP, STUTTER */
     "BLKPBLUPLP",                /* 14 WAVETABLE: … SWEEP, WT FDBK, HOLLOW */
     "DDDD",                      /* 15 DRUMS: DRUM KIT, DEEP KIT, TIGHT KIT, PERC KIT */

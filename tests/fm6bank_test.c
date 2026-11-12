@@ -525,7 +525,7 @@ static int keep_test(void)
         x[110] = 17;                                      /* (an own patch) */
         ok = 1;
         for (s = 8; s <= (int32_t)(FM6_OWN + FM6_NBANK_TOTAL); s++) {
-            p->t[0].p[P_E7] = (int16_t)s;                 /* any stored SLOT 8..142 -> OWN on load */
+            p->t[0].p[P_E7] = (int16_t)s;                 /* any stored SLOT 8..143 -> OWN on load */
             memcpy(p->fm6[0], x, FM6_PACKED);
             p->sum = proj_sum(p);
             ok &= !project_restore_runtime(p) && trk[0].p[P_E7] == FM6_OWN && fm6_slot[0] == FM6_OWN && patch_is(0, x);
@@ -536,14 +536,14 @@ static int keep_test(void)
         memcpy(p->fm6[0], FM6_FACTORY[2], FM6_PACKED);
         p->sum = proj_sum(p);
         ok &= !project_restore_runtime(p) && trk[0].p[P_E7] == 2 && patch_is(0, FM6_FACTORY[2]);
-        for (s = 8; s < (int32_t)FM6_NFACTORY; s++) {  /* a new project saved on F9..F14: the patch brings the slot back */
+        for (s = 8; s < (int32_t)FM6_NFACTORY; s++) {  /* a new project saved on F9..F15: the patch brings the slot back */
             p->t[0].p[P_E7] = (int16_t)s;
             memcpy(p->fm6[0], FM6_FACTORY[s], FM6_PACKED);
             p->sum = proj_sum(p);
             ok &= !project_restore_runtime(p) && trk[0].p[P_E7] == (int16_t)s && fm6_slot[0] == (uint8_t)s &&
                   patch_is(0, FM6_FACTORY[s]);
         }
-        bad += check("stored SLOT 8..142: its own patch as OWN, and F9..F14 when that factory patch came with it; F3 as before", ok);
+        bad += check("stored SLOT 8..143: its own patch as OWN, and F9..F15 when that factory patch came with it; F3 as before", ok);
     }
     {   /* a user preset record with a stored SLOT 13 (1.0.2's B5): with its patch, that patch; without, the init voice */
         up_rec_t *r;
@@ -618,7 +618,7 @@ static int keep_test(void)
             ok &= trk[0].p[P_E7] == FM6_OWN && patch_is(0, x);
         }
         ok &= motion_put(t, 4, P_E7, FM6_OWN + 3, 0) == 0 && motion.event[motion.count - 1u].value == FM6_OWN;
-        bad += check("motion holding SLOT 8..142: plays OWN, the patch kept; a record made on B3 stores OWN", ok);
+        bad += check("motion holding SLOT 8..143: plays OWN, the patch kept; a record made on B3 stores OWN", ok);
         memset(&motion, 0, sizeof motion);
     }
     return bad;
