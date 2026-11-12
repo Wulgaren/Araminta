@@ -458,7 +458,7 @@ function mockTables() {
     const m0 = E.makeMockDevice({ auto: false }), ph = m0.tables.ENG[9], dr = m0.tables.ENG[10];
     m0.stop();
     ok(ph.name === "PHYS" && ph.edit[0].names.join() === "MODAL,STRNG,MEMB,SYMP" && ph.edit[0].max === 3 &&
-       ph.presets.length === 9 && !ph.presets.some((p) => p.name === "RAIN" || p.name === "DRUM KIT"),
+       ph.presets.length === 10 && !ph.presets.some((p) => p.name === "RAIN" || p.name === "DRUM KIT"),
        "editor: PHYS models MODAL STRNG MEMB SYMP (no DUST, no DRUM), 9 presets");
     ok(dr.name === "DRUM-X" && dr.edit.map((d) => d.label).join() === "MRPH,TUNE,TONE,DECY,NOIS,FM,FOLD,DRV" &&
        dr.presets.length === 1 && dr.presets[0].name === "DRUM-X" && dr.presets.every((p) => p.pat === 12),
@@ -1272,7 +1272,7 @@ async function editorFm6() {
     for (let i = 0; i < F6.SIZE; i++) inrange &&= i >= F6.NAME ? v[i] >= 32 && v[i] <= 126 : v[i] <= F6.max(i);
   }
   ok(inrange, "FM6: any 128 bytes unpack into range");
-  const voices = F6.FACTORY_PK.map((pk) => F6.unpack(pk));
+  const voices = Array.from({ length: 32 }, (_, k) => F6.unpack(k < 8 ? F6.FACTORY_PK[k] : F6.INIT_PK));
   const bank = F6.bankSysex(voices), one = F6.singleSysex(voices[3]);
   ok(bank.length === 4104 && bank[0] === 0xF0 && bank[3] === 9 && bank[4103] === 0xF7 && one.length === 163 && one[5] === 0x1B,
     "FM6: a 32-voice bank SysEx is 4104 bytes, a single voice 163");
@@ -1294,9 +1294,9 @@ async function editorFm6() {
   [...m.access.inputs.values()][0].onmidimessage = (e) => link.receive(e.data);
   const rq = (x) => link.request(x), C = E.CMD;
   const info = E.parse[C.INFO](await rq(E.req.info()));
-  ok(info.fm6 && info.fm6.factory === 8 && info.fm6.bank === 0 && info.fm6.caps === 3, "FM6: INFO tag (8 factory, no bank; FM6 v2 caps 3)");
+  ok(info.fm6 && info.fm6.factory === F6.FACTORY_PK.length && info.fm6.bank === 0 && info.fm6.caps === 3, "FM6: INFO tag (factory count, no bank; FM6 v2 caps 3)");
   let list = E.parse[C.FM6_LIST](await rq(E.req.fm6List()));
-  ok(list.factory === 8 && list.bank === 0 && list.slots.length === 8 && list.slots[0].name === "TINE EP", "FM6: LIST names the factory patches, nbank 0");
+  ok(list.factory === F6.FACTORY_PK.length && list.bank === 0 && list.slots.length === F6.FACTORY_PK.length && list.slots[0].name === "TINE EP", "FM6: LIST names the factory patches, nbank 0");
   const mine = F6.setName(F6.factory(2), "my bass");
   let p = E.parse[C.FM6_PUT](await rq(E.req.fm6Put(1, 4, F6.pack(mine))));
   let g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(1, 4)));
@@ -1308,11 +1308,11 @@ async function editorFm6() {
   p = E.parse[C.FM6_PUT](await rq(E.req.fm6Put(0, 0, F6.pack(mine))));
   g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
   let sv = E.parse[C.GET](await rq(E.req.get(0, slotId))).value;
-  ok(!p.rc && F6.name(F6.unpack(g.packed)) === "MY BASS" && sv === 8, `FM6: send to the track: its own patch, SLOT (P_E0 + 7 = ${slotId}) OWN`);
+  ok(!p.rc && F6.name(F6.unpack(g.packed)) === "MY BASS" && sv === info.fm6.factory, `FM6: send to the track: its own patch, SLOT (P_E0 + 7 = ${slotId}) OWN`);
   await rq(E.req.set(0, slotId, 1));
   g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
   ok(eq(g.packed, F6.FACTORY_PK[1]), "FM6: SLOT F2 loads the factory patch");
-  await rq(E.req.set(0, slotId, 8));
+  await rq(E.req.set(0, slotId, info.fm6.factory));
   g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
   ok(F6.name(F6.unpack(g.packed)) === "MY BASS", "FM6: SLOT back to OWN brings the own patch back");
   const edited = F6.unpack(g.packed); edited[F6.VI.ALG] = 31;
@@ -1327,7 +1327,7 @@ async function editorFm6() {
   await rq(E.req.upLoad(20));
   g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
   sv = E.parse[C.GET](await rq(E.req.get(0, slotId))).value;
-  ok(eq(g.packed, F6.pack(edited)) && sv === 8, "FM6: UP_LOAD plays it again, SLOT OWN");
+  ok(eq(g.packed, F6.pack(edited)) && sv === info.fm6.factory, "FM6: UP_LOAD plays it again, SLOT OWN");
   const u = await E.bank.get(rq, info, 20);
   ok(u.used && eq(u.fm6, F6.pack(edited)), "FM6: the librarian reads a user preset with its patch");
   const other = F6.pack(F6.setName(F6.factory(5), "OTHER"));
@@ -1367,7 +1367,7 @@ async function editorFm6Bank() {
   let list = await E.fm6Bank.list(rq);
   ok(list.n === 32 && !list.valid && list.name === "" && list.voices.every((v) => !v.used), "FM6 bank: LIST of an empty device: no bank");
   /* a 32-voice file: the factory patches renamed VOICE 01..32 (the import path: parseSysex, then the packed records) */
-  const voices = Array.from({ length: 32 }, (_, k) => F6.setName(F6.factory(k % 8), `VOICE ${String(k + 1).padStart(2, "0")}`));
+  const voices = Array.from({ length: 32 }, (_, k) => F6.setName(F6.factory(k % F6.FACTORY_PK.length), `VOICE ${String(k + 1).padStart(2, "0")}`));
   const file = F6.bankSysex(voices), parsed = F6.parseSysex(file), packed = E.fm6Bank.fromVoices(parsed.voices);
   ok(parsed.voices.length === 32 && packed.length === 32 && packed.every((pk, k) => eq(pk, F6.pack(voices[k]))) &&
      E.fm6Bank.nameOf("my fm bank.syx") === "MY FM BANK" && E.fm6Bank.nameOf("äbc.SYX") === " BC".trim(),
@@ -1376,27 +1376,27 @@ async function editorFm6Bank() {
   list = await E.fm6Bank.list(rq);
   ok(rc === 0 && list.valid && list.name === "MY FM BANK" && list.voices.every((v, k) => v.used && v.name === `VOICE ${String(k + 1).padStart(2, "0")}`),
     "FM6 bank: sent whole (rc 0); LIST: its name, 32 voices and their names");
-  const eng = info.engines.indexOf("FM6"), slotId = info.pe0 + 7;
+  const eng = info.engines.indexOf("FM6"), slotId = info.pe0 + 7, own = info.fm6.factory;
   await rq(E.req.set(1, 20, eng));
   let all = true;
   for (let k = 0; k < 32; k++) {
-    await rq(E.req.set(0, slotId, 9 + k));
+    await rq(E.req.set(0, slotId, own + 1 + k));
     const g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
     const sv = E.parse[C.GET](await rq(E.req.get(0, slotId))).value;
-    all &&= eq(g.packed, packed[k]) && sv === 9 + k;
+    all &&= eq(g.packed, packed[k]) && sv === own + 1 + k;
   }
-  ok(all, "FM6 bank: SLOT 9..40 (B1..B32) loads each voice's exact record into the track");
+  ok(all, "FM6 bank: SLOT B1..B32 loads each voice's exact record into the track");
   /* a bank with voices 1, 6 and 32 only (bank slots without a voice are refused: SLOT back) */
   const some = packed.map((pk, k) => ([0, 5, 31].includes(k) ? F6.pack(F6.setName(F6.unpack(pk), `ONLY ${k + 1}`)) : null));
-  await rq(E.req.set(0, slotId, 9 + 4));                                   /* B5 of the full bank */
+  await rq(E.req.set(0, slotId, own + 5));                                 /* B5 of the full bank */
   rc = await E.fm6Bank.send(rq, some, "SOME");
   let sv = E.parse[C.GET](await rq(E.req.get(0, slotId))).value, g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
-  ok(rc === 0 && sv === 8 && eq(g.packed, packed[4]), "FM6 bank: a new bank: the track on B5 keeps that voice as its own (SLOT OWN)");
-  await rq(E.req.set(0, slotId, 9 + 1));                                   /* B2: none there */
+  ok(rc === 0 && sv === own && eq(g.packed, packed[4]), "FM6 bank: a new bank: the track on B5 keeps that voice as its own (SLOT OWN)");
+  await rq(E.req.set(0, slotId, own + 2));                                 /* B2: none there */
   sv = E.parse[C.GET](await rq(E.req.get(0, slotId))).value;
   g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
-  ok(sv === 8 && eq(g.packed, packed[4]), "FM6 bank: an empty bank slot (B2) is refused: SLOT back, the patch unchanged");
-  await rq(E.req.set(0, slotId, 9 + 31));
+  ok(sv === own && eq(g.packed, packed[4]), "FM6 bank: an empty bank slot (B2) is refused: SLOT back, the patch unchanged");
+  await rq(E.req.set(0, slotId, own + 32));
   g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
   list = await E.fm6Bank.list(rq);
   ok(eq(g.packed, some[31]) && list.voices.filter((v) => v.used).map((v) => v.name).join() === "ONLY 1,ONLY 6,ONLY 32",
@@ -1424,7 +1424,7 @@ async function editorFm6Bank() {
   const l0 = await E.fm6Bank.list(rq, 0), l3 = await E.fm6Bank.list(rq, 3);
   ok(rc === 0 && !l0.voices.some((v) => v.used) && l3.valid && l3.name === "BANK THREE" && l3.voices.every((v) => v.used),
     "FM6 bank: send to bank 3 leaves bank 0 empty; LIST bank 3 has the voices");
-  await rq(E.req.set(0, slotId, 9 + 96));                         /* B97 = bank 3 voice 0 */
+  await rq(E.req.set(0, slotId, own + 97));                        /* B97 = bank 3 voice 0 */
   g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
   ok(eq(g.packed, packed[0]), "FM6 bank: SLOT B97 loads bank 3 voice 0");
   link.close(); m.stop();

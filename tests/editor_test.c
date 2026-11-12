@@ -844,7 +844,7 @@ static int fm6_patches(void)
             while (host_wire[p]) p++;
             p++;
         }
-        bad += check("FM6_LIST: 8 factory names, nbank 0", ok && k == FM6_NFACTORY && p == n - 1u);
+        bad += check("FM6_LIST: FM6_NFACTORY factory names, nbank 0", ok && k == FM6_NFACTORY && p == n - 1u);
     }
     /* target 3: an FM6 user preset's patch */
     song.sel = 2;

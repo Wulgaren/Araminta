@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Factory presets: 25 sounds, and FM6 F9..F14
+
+Sixteen new or reworked factory sounds join the nine kept from the first pass. ANALOG gains SYNC LEAD and SUB
+DRONE, VOICE gains TALK LEAD, TRIO gains RING NOISE and SYNC STACK, WHEEL gains PERC STOP, PHYS gains GLASS BOW,
+and the reworked slots are GRAIN STRETCH, NOISE REG BELL and WAVETABLE WT FDBK. NOISE LD leaves the LOFI list.
+The nine kept are AIR PAD, FILTER SWP, PHASE GLASS, LOFI TRI LD, VOICE OOOH PAD, TRIO FIFTHS and SAW STACK, WHEEL
+CHURCH and WAVETABLE HOLLOW.
+
+FM6 gains six factory patches, F9..F14 (METAL VOX, HOLLOW FM, CRYSTAL, FM GROWL, OCTAVE 6, AIR NOISE), and six
+presets built around them. SLOT now runs 0..142: F1..F14, OWN (14), B1..B128 (15..142). Stored SLOT values 8..142
+load as OWN with the patch that came with them, and `fm6_adopt` shows F9..F14 again when that patch is one of the
+factory ones unchanged. Old projects and user presets saved on B1..B4 therefore keep their sound.
+
 ### Installer / Return-to-V15: Araminta flash sectors
 
 The web installer and **Return to official V15** copy say flash `0xF4000..0xF9FFF` (user banks, FM6 banks including
@@ -23,14 +36,8 @@ return to stock.
 ### Size: USB serial console off by default (OTT headroom)
 
 `FELUCCA_CDC` defaults to 0 once OTT is in the same image: audio + MIDI only (~7.8 KiB less XIP). Set
-`FELUCCA_CDC=1` for a developer build with MENU > USB SERIAL. With OTT + the 16 new factory presets, CDC-on
+`FELUCCA_CDC=1` for a developer build with MENU > USB SERIAL. With OTT + the new factory presets, CDC-on
 overflows the app slot by ~2.8 KiB.
-
-### Sixteen new app-image factory presets
-
-Sixteen new `preset_t` rows in the engine tables (not a F4000 shelf): ANALOG PWM BASS / AIR PAD / FILTER SWP,
-PHASE GLASS, LOFI NOISE LD / TRI LD, VOICE OOOH PAD, TRIO SAW STACK / FIFTHS, WHEEL CHURCH, GRAIN DUST PAD,
-NOISE STATIC, FM6 EP VIB / BELL LONG, WAVETABLE WT LEAD / HOLLOW. Categories updated to match.
 
 ### F4000 is FM6 bank 3
 
