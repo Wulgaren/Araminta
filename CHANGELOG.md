@@ -8,6 +8,15 @@
 RAM back). USB is audio + MIDI only, which is what macOS needs for the audio input. Set `FELUCCA_CDC=1` for a
 developer build that keeps MENU > USB SERIAL. Sound and golden are unchanged.
 
+### Factory preset bank at 0xF4000
+
+Sixteen built-in presets (picked from the engine factory lists) live as a single-copy FELU bank at flash
+`0xF4000` (`OBJ_FACBANK`). Stock V15 ignores that sector; the flash map now allows the reclaim band
+`0xF4000..0xF9FFF` and still refuses E8000 and the rest of stock USR. The bank is seeded on first boot from the
+image's selection table and is read-only in the PRESETS list (`F01`..`F16`). Proposed picks (Natan to review):
+ANALOG SAW LEAD / SUB BASS / SUPER SAW, FM6 TINE EP / FM BASS / BELL, VOICE CHOIR AAH, PHYS MARIMBA / PLUCK,
+WHEEL FULL ORGAN, WT PAD, GRAIN CLOUD PAD, LOFI ARP 8BIT, PHASE BRASS, TRIO FAT BASS, NOISE WIND.
+
 ### FUN20 projects (4 KiB, single-copy) and punch-in lane
 
 Projects are FUN20 (`FUNK`): 4096 bytes, single-copy in flash (no A/B). DX stays at 3216 and FM6 at 3312;

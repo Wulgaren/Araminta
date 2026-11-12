@@ -17,6 +17,12 @@ static uint32_t up_rank(uint32_t slot);
 static uint32_t up_engine(uint32_t k);
 static void up_name(uint32_t k, char *b);
 static void up_slot_label(char *b, uint32_t k);
+static uint32_t up_fac_count(void);          /* F4000 factory bank (up_factory.c) */
+static uint32_t up_fac_nth(uint32_t n);
+static uint32_t up_fac_cat(uint32_t k);
+static const char *up_fac_name(uint32_t k);
+static int up_fac_load(uint32_t k);
+#define FAC_E (NENGINES + 1u)
 static void up_ui(uint32_t op, uint32_t k);
 static int up_has_pat(uint32_t k);               /* user presets that hold a pattern */
 static uint32_t up_pat_count(void);
@@ -1611,38 +1617,45 @@ static void select_engine(uint32_t e)
     ui.force = 1;
 }
 
-/* the presets of every engine (in ENGINE_ORDER), then the used user presets, as one list (the PRESETS knob and the
- * PRESETS page browse it) */
+/* the presets of every engine (in ENGINE_ORDER), then the built-in factory bank (FAC_SLOTS, read-only), then the
+ * used user presets, as one list (the PRESETS knob and the PRESETS page browse it) */
 static uint32_t preset_all_pos(uint32_t *total)          /* list index of the selected track's preset */
 {
     uint32_t n = 0, cur = 0, e, r;
     for (r = 0; r < NENG_SHOWN; r++) {                  /* (engines.c ENGINE_ORDER) */
         const engine_t *en = ENGINES[e = eng_vis(r)];
-        if (e == TSEL->eng_req)
+        if (e == TSEL->eng_req && !TSEL->user)
             cur = n + preset_rank(en, preset_orig(en, TSEL->preset % (en->npresets ? en->npresets : 1u)));
         n += preset_shown(e);
     }
+    n += up_fac_count();                                 /* F4000 factory bank (up_factory.c) */
     if (user_of(TSEL) < UP_SLOTS)
         cur = n + up_rank(user_of(TSEL));
     *total = n + up_count();
     return cur;
 }
 
-/* list index n (< total) -> engine, *k its preset; NENGINES = user preset, *k its slot */
+/* list index n (< total) -> engine, *k its preset; NENGINES = user preset, FAC_E = factory slot, *k its slot */
 static uint32_t preset_all_at(uint32_t n, uint32_t *k)
 {
-    uint32_t e = 0, i, r;
+    uint32_t e = 0, i, r, nf;
     for (r = 0; r < NENG_SHOWN && n >= preset_shown(eng_vis(r)); r++)
         n -= preset_shown(eng_vis(r));
-    if (r == NENG_SHOWN) {
-        *k = up_nth(n);
-        return NENGINES;
+    if (r < NENG_SHOWN) {
+        e = eng_vis(r);
+        for (i = 0; preset_orig(ENGINES[e], i) != i || n--; i++)    /* the n-th shown preset */
+            ;
+        *k = i;
+        return e;
     }
-    e = eng_vis(r);
-    for (i = 0; preset_orig(ENGINES[e], i) != i || n--; i++)    /* the n-th shown preset */
-        ;
-    *k = i;
-    return e;
+    nf = up_fac_count();
+    if (n < nf) {
+        *k = up_fac_nth(n);
+        return FAC_E;
+    }
+    n -= nf;
+    *k = up_nth(n);
+    return NENGINES;
 }
 
 /* PRESETS > LIST (KNOB 4): ALL, FAV (favorites.filter, as up to 1.1.5), or one category (1.2, Discussion #90: BASS ..
@@ -1659,7 +1672,10 @@ static void list_set(uint32_t m)
 }
 static const char *list_name(uint32_t m) { return m == 0u ? "ALL" : m == 1u ? "FAV" : CAT_NAME[(m - 1u) % CAT_N]; }
 /* the category of list entry e, k (preset_all_at: NENGINES = user preset k) */
-static uint32_t sound_cat(uint32_t e, uint32_t k) { return e == NENGINES ? up_cat(k) : preset_cat(e, k); }
+static uint32_t sound_cat(uint32_t e, uint32_t k)
+{
+    return e == NENGINES ? up_cat(k) : e == FAC_E ? up_fac_cat(k) : preset_cat(e, k);
+}
 static int list_keep(uint32_t e, uint32_t k)
 {
     uint32_t m = list_mode();
@@ -1761,6 +1777,8 @@ static void preset_go(uint32_t n)                    /* load list index n into t
     uint32_t k, e = preset_at(n, &k);
     if (e == NENGINES) {
         up_load(k);
+    } else if (e == FAC_E) {
+        up_fac_load(k);                                /* F4000 factory bank: read-only */
     } else {
         if (e != TSEL->eng_req)
             select_engine(e);

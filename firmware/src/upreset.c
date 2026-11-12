@@ -356,6 +356,8 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
 #include "up_fm6.c"                            /* the FM6 user presets' patches: the same kind of store */
 #include "fm6_vbank.c"                         /* FM6's voice bank (SLOT B1..B32, 1.4.1) */
 
+static void up_fac_boot(void);                 /* up_factory.c (after up_set_name) */
+
 static void up_boot(void)                      /* persist_boot: the banks from flash */
 {
 #if FELUCCA_FLASH
@@ -363,6 +365,7 @@ static void up_boot(void)                      /* persist_boot: the banks from f
     for (b = 0; b < UP_SLOTS / UP_PER_BANK; b++)
         up_bank_check(b, flash_ok ? st_load(OBJ_UPRESET0 + b, &up_bank[b], sizeof up_bank[b]) : -1);
 #endif
+    up_fac_boot();                               /* built-in factory bank (before UI lists it) */
     upf_boot();                                  /* (after the banks: it may move the retired FM6 bank's patches) */
     fvb_boot();                                  /* FM6's voice bank: a staged one finished, its voices */
 #ifdef FELUCCA_FAVORITES
@@ -459,6 +462,8 @@ static void up_set_name(up_rec_t *r, uint32_t k, const char *name)
     for (i = 0; i < 12u && name[i]; i++)
         r->name[i] = name[i];
 }
+
+#include "up_factory.c"                        /* read-only factory bank at 0xF4000 (needs up_set_name) */
 
 static uint32_t up_cat(uint32_t k) { return up_cat_of(up_rec(k % UP_SLOTS)); }   /* a used slot's category */
 static uint32_t track_cat(const track_t *t);     /* (ui.c: the category of the sound a track plays) */
