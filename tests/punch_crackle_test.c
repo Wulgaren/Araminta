@@ -8,8 +8,8 @@
  *   build/host/punch_crackle_test [DIR_OF_BINS ...]
  *   CRACKLE_DIR=build/crackle_projs builds the survey table when DIR args are omitted.
  *
- * Deadline projection: host instruction count (or cycle proxy) x2, converted with the perform_test
- * calibration (100 host instructions / sample ≈ 1.7 % of the device half). Device half = 2902 us
+ * Deadline projection: host cycle count (Linux rdtsc, macOS ri_cycles) x2, converted with the perform_test
+ * calibration (100 host cycles / sample ≈ 1.7 % of the device half). Device half = 2902 us
  * (HALF_FRAMES * 1e6 / FS). Always asserts on the synthetic mix; the survey prints only.
  */
 #include <stdint.h>
@@ -54,8 +54,8 @@ static uint64_t instr_now(void)
 #ifdef __APPLE__
     struct rusage_info_v4 ri;
     if (!proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&ri)) {
-        ipc_kind = 1;
-        return ri.ri_instructions;
+        ipc_kind = 2;
+        return ri.ri_cycles;                /* cycles, as rdtsc below: IPC_TO_PCT is a cycle calibration */
     }
 #endif
 #ifdef __linux__
