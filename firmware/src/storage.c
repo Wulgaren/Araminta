@@ -20,17 +20,18 @@
 
 /* flash map (hal/fm1_flash_map.h has the constants and the write windows): the app area 0x4000..0x93000, then the
  * gap 0x93000..0x97000 (four sectors; Felucca's since 3.10). Autosave B takes 0x93000..0x94FFF (two sectors); the
- * remaining 0x95000..0x96FFF stay free. Settings 0xFC000; projects 0x97000..0x9EFFF (3.10: single-copy, two sectors a
- * slot; same eight sectors as the old A/B pairs); user sample slots 0xA0000..0xDBFFF (eng_sample.c: 80 KiB x 3);
- * user preset banks 0xDC000..0xDFFFF (upreset.c); the user presets' FM6 patches (up_fm6.c, since 1.0.3): copy A
- * 0x9F000, copy B 0xFE000; the autosave (project.c, 3.10 option 2): A 0xE5000..0xE6FFF (two sectors, grew in place),
- * B in the gap, so a 4096 B FUN20 wire fits with A/B kept; OTA staging 0xE0000..0xE4FFF. The FM6 voice bank (1.4.1,
- * fm6_vbank.c): 0xE7000 (untouched); a new bank is first staged in the autosave's older copy (fm6_vbank.c). Pre-3.10
- * autosave B lived at 0xE6000 (one sector); st_autosave_migrate moves a still-valid copy into the gap before A can
- * erase that sector. Those two sectors at 0x9F000 / 0xFE000 also held the FM6 patch bank of 1.0..1.0.2 (OBJ_FM6BANK,
- * retired). */
+ * remaining 0x95000..0x96FFF hold a later user-preset bank. Settings 0xFC000; projects 0x97000..0x9EFFF (3.10:
+ * single-copy, two sectors a slot; same eight sectors as the old A/B pairs); user sample slots 0xA0000..0xDBFFF
+ * (eng_sample.c: 80 KiB x 3); user preset banks 0xDC000..0xDFFFF (upreset.c); the user presets' FM6 patches
+ * (up_fm6.c, since 1.0.3): copy A 0x9F000, copy B 0xFE000; the autosave (project.c, 3.10 option 2): A
+ * 0xE5000..0xE6FFF (two sectors, grew in place), B in the gap, so a 4096 B FUN20 wire fits with A/B kept; OTA staging
+ * 0xE0000..0xE4FFF. The FM6 voice bank (1.4.1, fm6_vbank.c): 0xE7000 (untouched); a new bank is first staged in the
+ * autosave's older copy (fm6_vbank.c). Pre-3.10 autosave B lived at 0xE6000 (one sector); st_autosave_migrate moves a
+ * still-valid copy into the gap before A can erase that sector. Those two sectors at 0x9F000 / 0xFE000 also held the
+ * FM6 patch bank of 1.0..1.0.2 (OBJ_FM6BANK, retired). The reclaim band 0xF4000..0xF9FFF holds the built-in factory
+ * preset bank (OBJ_FACBANK at 0xF4000) and, later, extra user / FM6 banks. */
 enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_UPFM6,
-       OBJ_AUTOSAVE, OBJ_COUNT };
+       OBJ_AUTOSAVE, OBJ_FACBANK, OBJ_COUNT };
 #define OBJ_FM6VB 32u                          /* the voice bank's commit records (fm6_vbank.c; >= OBJ_COUNT: st_load
                                                 * never takes one, no object here takes its sectors) */
 #define ST_AUTO_A 0xE5000u                     /* autosave A base (two sectors through 0xE6FFF) */
@@ -73,6 +74,8 @@ static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy 
         return copy ? 0xFE000u : 0x9F000u;
     if (obj == OBJ_AUTOSAVE)
         return copy ? ST_AUTO_B : ST_AUTO_A;            /* split: A above OTA, B in the gap */
+    if (obj == OBJ_FACBANK)                             /* single sector at F4000; copy ignored (read-only bank) */
+        return 0xF4000u;
     if (obj >= OBJ_UPRESET0)
         return 0xDC000u + (obj - OBJ_UPRESET0) * 2u * ST_SECTOR + copy * ST_SECTOR;
     return 0x97000u + (obj - OBJ_PROJECT0) * 2u * ST_SECTOR + copy * ST_SECTOR;
@@ -85,6 +88,10 @@ static uint32_t st_sectors(uint32_t obj)
 {
     return (obj == OBJ_AUTOSAVE || (obj >= OBJ_PROJECT0 && obj < OBJ_UPRESET0)) ? 2u : 1u;
 }
+
+/* OBJ_FACBANK is single-copy (no B); st_save still accepts copy 0 only via st_save_to's single path for projects —
+ * fac uses the normal A/B dance but both copies land on the same sector (st_sector ignores copy), so the second
+ * write is a no-op overwrite of the same image. */
 
 /* the largest payload this object can hold (its own sectors, less the commit record) */
 static uint32_t st_pmax(uint32_t obj) { return st_sectors(obj) * ST_SECTOR - ST_PAYLOAD_OFF; }
@@ -160,7 +167,7 @@ static int st_save_to(uint32_t obj, const void *src, uint32_t len, int to)
     cur = st_current(obj, &h);
     seq = cur < 0 ? 0u : h.seq;
     nsec = st_sectors(obj);
-    single = (obj >= OBJ_PROJECT0 && obj < OBJ_UPRESET0);   /* projects: one copy, destructive */
+    single = (obj >= OBJ_PROJECT0 && obj < OBJ_UPRESET0) || obj == OBJ_FACBANK; /* projects / factory: one copy */
     if (single) {
         to = 0;
     } else if (to < 0) {

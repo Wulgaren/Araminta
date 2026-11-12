@@ -223,10 +223,14 @@ static int mig_test(void)
     bad += check("saved again: its patch, and the bank's sectors now both hold the patches object",
                  mig_ok() && !upf_get(20, pk) && !memcmp(pk + 118, FM6_FACTORY[3] + 118, 10) &&
                      ((st_hdr_t *)(nor + 0x9F000))->type == OBJ_UPFM6 && ((st_hdr_t *)(nor + 0xFE000))->type == OBJ_UPFM6);
-    memset(nor, 0xFF, sizeof nor);                        /* a device that never had a bank: nothing written */
+    memset(nor, 0xFF, sizeof nor);                        /* a device that never had an FM6 bank: no migration */
     before = erases;
     mig_boot();
-    bad += check("no bank: nothing to move, nothing written", erases == before && upf_valid(&upf));
+    /* factory bank at F4000 is seeded on first boot (one sector); UPFM6 / the retired bank stay untouched */
+    bad += check("no FM6 bank: nothing to move; factory bank seeded once",
+                 erases == before + 1u && upf_valid(&upf) &&
+                     ((st_hdr_t *)(nor + 0xF4000))->magic == ST_MAGIC &&
+                     ((st_hdr_t *)(nor + 0xF4000))->type == OBJ_FACBANK);
     return bad;
 }
 

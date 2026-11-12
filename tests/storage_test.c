@@ -151,14 +151,14 @@ int main(void)
     /* the user presets' FM6 patches (1.0.3) in the two sectors of the retired FM6 bank: 0x9F000 (after the projects)
      * and 0xFE000 (after the settings); the two objects share them, told apart by the commit record's type */
     bad += check("FM6 user preset patches (and the retired bank) in the sectors 0x9F000 / 0xFE000",
-                 OBJ_UPFM6 == OBJ_COUNT - 2 && OBJ_FM6BANK == OBJ_UPFM6 - 1 && st_sector(OBJ_UPFM6, 0) == 0x9F000u &&
+                 OBJ_FM6BANK == OBJ_UPFM6 - 1 && st_sector(OBJ_UPFM6, 0) == 0x9F000u &&
                      st_sector(OBJ_PROJECT0 + 3, 1) + 4096 == 0x9F000u && st_sector(OBJ_UPFM6, 1) == 0xFE000u &&
                      st_sector(OBJ_FM6BANK, 0) == 0x9F000u && st_sector(OBJ_FM6BANK, 1) == 0xFE000u &&
                      st_sector(OBJ_SETTINGS, 1) + 4096 == 0xFE000u);
     /* the autosave (3.10): A at 0xE5000..0xE6FFF (two sectors), B at 0x93000..0x94FFF in the gap; a save there
      * touches no other object (VBANK, samples, remaining gap 0x95000..0x96FFF, store) */
     {
-        uint32_t o, c, ok = OBJ_AUTOSAVE == OBJ_COUNT - 1 && st_sector(OBJ_AUTOSAVE, 0) == 0xE5000u &&
+        uint32_t o, c, ok = st_sector(OBJ_AUTOSAVE, 0) == 0xE5000u &&
                                st_sector(OBJ_AUTOSAVE, 1) == 0x93000u && st_sectors(OBJ_AUTOSAVE) == 2u &&
                                st_pmax(OBJ_AUTOSAVE) >= 4096u;
         static uint8_t snap[0x100000];
@@ -322,11 +322,11 @@ int main(void)
                 for (s = 0; s < nsec; s++) {
                     uint32_t off = sec + s * ST_SECTOR;
                     land &= FL_STORE_OK(off, 0x1000u);
-                    /* 0xE8000..0xFBFFF: the stock VM 0xE8000, BTIF 0xE9000 and USR 0xEA000..0xFBFFF are never an
-                     * object's (fm1_flash_map.h; Melodee measured the live VM at 0xE8000 on an FM-1) */
-                    if (off >= 0xE8000u && off < 0xFC000u)
+                    /* stock VM / BTIF / USR outside the reclaim band F4000..F9FFF stay off-limits */
+                    if (off >= 0xE8000u && off < 0xFC000u &&
+                        !(off >= FL_RECLAIM_LO && off < FL_RECLAIM_HI))
                         reserved = 0;
-                    if (off >= 0x95000u && off < 0x97000u)   /* remaining gap: not claimed yet */
+                    if (off >= 0x95000u && off < 0x97000u)   /* gap bank sectors: still free of objects here */
                         gap_free = 0;
                     if (off >= FL_VBANK_LO && off < FL_VBANK_HI)
                         vbank = 0;
@@ -334,10 +334,13 @@ int main(void)
             }
         gap_b &= st_sector(OBJ_AUTOSAVE, 1) == 0x93000u && st_sectors(OBJ_AUTOSAVE) == 2u;
         bad += check("every object at both copies lands in a region the map claims", land);
-        bad += check("no object lands on the stock VM / BTIF / USR band 0xE8000..0xFBFFF", reserved);
+        bad += check("no object lands on stock VM/BTIF/USR outside reclaim F4000..F9FFF", reserved);
         bad += check("autosave B claims the first two gap sectors 0x93000..0x94FFF", gap_b);
         bad += check("the remaining gap 0x95000..0x96FFF is still unclaimed", gap_free);
         bad += check("no storage object claims the FM6 voice bank at 0xE7000", vbank);
+        bad += check("factory bank is single-copy at 0xF4000",
+                     st_sector(OBJ_FACBANK, 0) == 0xF4000u && st_sector(OBJ_FACBANK, 1) == 0xF4000u &&
+                         st_sectors(OBJ_FACBANK) == 1u);
     }
     {   /* migration: a pre-3.10 one-sector B at 0xE6000 moves into the gap; A at 0xE5000 still loads */
         static uint8_t old_a[200], old_b[200], got[200];
