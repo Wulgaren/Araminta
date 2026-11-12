@@ -178,8 +178,8 @@ int main(void)
 
     reset();
     trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
-    bad += check("LIST captures the runtime: 13 objects (id 8 empty, id 9 the FM6 patches), runtime 4096 B (FUN20)",
-                 list(0, &len, &crc) == 0 && rep[2] == 13u && len == sizeof(project_store_t) && len == 4096u &&
+    bad += check("LIST captures the runtime: 17 objects (id 8 empty, id 9 FM6 patches, ids 10..13 banks 2..5), runtime 4096 B (FUN20)",
+                 list(0, &len, &crc) == 0 && rep[2] == 17u && len == sizeof(project_store_t) && len == 4096u &&
                  crc == st_crc32(ED_BK_RAW, len));
     {   /* a wavetable slot (id 34, USR3) is backed up as its 512-byte header + PCM data */
         smp_wt_hdr_t *w = (smp_wt_hdr_t *)host_samples[2];
@@ -331,8 +331,9 @@ int main(void)
          * restored first), the user presets' patches are id 9 */
         static up_bank_t ub;
         static fm6_bank_t bk;
-        static upf_t got;
+        static uint8_t packed[ST_PAYLOAD_SECTOR], got[ST_PAYLOAD_SECTOR];
         uint8_t pk[FM6_PACKED];
+        uint32_t pn;
         static const int16_t SL[5] = {FM6_NFACTORY + 2, 1, FM6_NFACTORY + 4, FM6_NFACTORY + 2, FM6_NFACTORY + 2};
         memset(&ub, 0, sizeof ub);
         ub.magic = UP_BANK_MAGIC; ub.rsize = sizeof(up_rec_t); ub.nslot = UP_PER_BANK;
@@ -357,8 +358,9 @@ int main(void)
                      !upf_get(0, pk) && !memcmp(pk + 118, "BANK B3   ", 10) && !upf_get(4, pk) && !memcmp(pk + 118, "BANK B3", 7));
         bad += check("  .. an F slot, an empty B slot and a DRUM sound get none (factory / init / no patch, as before)",
                      upf_get(1, pk) && upf_get(2, pk) && upf_get(3, pk));
-        bad += check("  .. written to flash (the user presets' FM6 patches)",
-                     st_load(OBJ_UPFM6, &got, sizeof got) == (int)sizeof got && !memcmp(&got, &upf, sizeof got));
+        pn = upf_pack(packed, sizeof packed);
+        bad += check("  .. written to flash (the user presets' FM6 patches, packed)",
+                     pn && st_load(OBJ_UPFM6, got, sizeof got) == (int)pn && !memcmp(got, packed, pn));
         up_load(0);
         bad += check("  .. and the B3 preset loads it, SLOT OWN", TSEL->eng_req == ENGI_FM6 &&
                      !memcmp(fm6_patch[song.sel] + FP_NAME, "BANK B3", 7) && TSEL->p[P_E7] == FM6_OWN);
@@ -366,23 +368,37 @@ int main(void)
         bad += check("  .. the F2 preset loads the factory patch, SLOT F2", TSEL->p[P_E7] == 1 &&
                      !memcmp(fm6_patch[song.sel] + FP_NAME, FM6_FACTORY[1] + 118, 10));
         bad += check("a restore of id 8 twice moves nothing more (idempotent)",
-                     put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 0 && !memcmp(&got, &upf, sizeof got));
+                     put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 0 &&
+                     (pn = upf_pack(packed, sizeof packed)) && st_load(OBJ_UPFM6, got, sizeof got) == (int)pn &&
+                     !memcmp(got, packed, pn));
         bad += check("an empty id 8 (a 1.0.3 archive) is taken and ignored", put_all(8, 0, 0, st_crc32(0, 0)) == 0 &&
-                     !memcmp(&got, &upf, sizeof got));
+                     st_load(OBJ_UPFM6, got, sizeof got) == (int)pn && !memcmp(got, packed, pn));
         bk.v[3][0] = 200;
         bad += check("an FM6 bank with a byte above 127 is refused (2)", put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 2u);
-        bad += check("id 8 lists empty, id 9 with the patches' length", list(8, &len, &crc) == 0 && len == 0 &&
-                     list(9, &len, &crc) == 0 && len == sizeof(upf_t) && crc == st_crc32(&upf, sizeof upf));
-        memcpy(&got, &upf, sizeof got);
+        pn = upf_pack(packed, sizeof packed);
+        bad += check("id 8 lists empty, id 9 with the packed patches' length", list(8, &len, &crc) == 0 && len == 0 &&
+                     list(9, &len, &crc) == 0 && len == pn && crc == st_crc32(packed, pn));
         upf_empty();
         bad += check("id 9 restores the user presets' FM6 patches (flash and RAM)",
-                     put_all(9, &got, sizeof got, st_crc32(&got, sizeof got)) == 0 && !memcmp(&got, &upf, sizeof got) &&
+                     put_all(9, packed, pn, st_crc32(packed, pn)) == 0 &&
                      !upf_get(0, pk) && !memcmp(pk + 118, "BANK B3", 7));
-        got.magic ^= 1;
+        packed[0] ^= 1;
         bad += check("an id 9 of another layout is refused (2), the patches kept",
-                     put_all(9, &got, sizeof got, st_crc32(&got, sizeof got)) == 2u && !upf_get(0, pk));
-        bad += check("an id 9 of the wrong size is refused at begin (1)", put_begin(9, sizeof got - 4u, 0) == 1u);
-        bad += check("an id 10 is refused (1)", put_begin(10, 0, 0) == 1u);
+                     put_all(9, packed, pn, st_crc32(packed, pn)) == 2u && !upf_get(0, pk));
+        packed[0] ^= 1;
+        bad += check("an id 9 of the wrong size is refused at commit (2)",
+                     put_begin(9, pn - 4u, st_crc32(packed, pn - 4u)) == 0u &&
+                         put_chunk(9, 0, packed, pn - 4u) == 0u && put_end(9, 2) == 2u);
+        bad += check("id 10 (bank 2) accepts an empty object",
+                     put_begin(10, 0, 0) == 0u && put_end(10, 2) == 0u);
+        bad += check("id 10 lists empty until written", list(10, &len, &crc) == 0 && len == 0);
+        bad += check("id 10 restores preset bank 2",
+                     put_all(10, &ub, sizeof ub, st_crc32(&ub, sizeof ub)) == 0 && up_bank[2].magic == UP_BANK_MAGIC &&
+                     up_used(32));
+        bad += check("id 13 restores preset bank 5",
+                     put_all(13, &ub, sizeof ub, st_crc32(&ub, sizeof ub)) == 0 && up_bank[5].magic == UP_BANK_MAGIC &&
+                     up_used(80));
+        bad += check("an id 14 is refused (1)", put_begin(14, 0, 0) == 1u);
     }
     bad += check("live slot 3 image loads for the flash-error check",
                  st_load(OBJ_PROJECT0 + 2, &st, sizeof st) == (int)sizeof st);

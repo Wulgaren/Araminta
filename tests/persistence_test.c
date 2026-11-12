@@ -161,19 +161,25 @@ static int mig_ok(void)
            !memcmp(pk + 118, "NEW B1    ", 10) && upf_get(1, pk) && upf_get(2, pk) && upf_get(3, pk);
 }
 
+static int mig_flash_matches(void)                       /* packed ver-2 image on flash matches RAM */
+{
+    uint8_t packed[ST_PAYLOAD_SECTOR], got[ST_PAYLOAD_SECTOR];
+    uint32_t pn = upf_pack(packed, sizeof packed);
+    return pn && st_load(OBJ_UPFM6, got, sizeof got) == (int)pn && !memcmp(got, packed, pn);
+}
+
 static int mig_test(void)
 {
     int bad = 0, ok = 1;
     uint32_t cut, before, cuts = 0;
     uint8_t pk[FM6_PACKED];
-    upf_t got;
     reset();
     mig_setup();
     memcpy(mig_pre, nor, sizeof nor);
     mig_boot();
     bad += check("FM6 bank -> user presets: B slots get the bank's newest patches", mig_ok());
     bad += check("  .. written into A (the bank's older copy); the bank's newest copy (B) still whole",
-                 st_load(OBJ_UPFM6, &got, sizeof got) == (int)sizeof got && !memcmp(&got, &upf, sizeof got) &&
+                 mig_flash_matches() &&
                      ((st_hdr_t *)(nor + 0x9F000))->type == OBJ_UPFM6 && st_load(OBJ_FM6BANK, &mig_bank, sizeof mig_bank) > 0 &&
                      !memcmp(mig_bank.v[0] + 118, "NEW B1", 6));
     up_load(0);
@@ -197,7 +203,7 @@ static int mig_test(void)
         fail_after = -1;
         cuts++;
         mig_boot();
-        ok &= mig_ok() && st_load(OBJ_UPFM6, &got, sizeof got) == (int)sizeof got;
+        ok &= mig_ok() && mig_flash_matches();
     }
     memcpy(nor, mig_pre, sizeof nor);
     erase_error = 1;
@@ -205,14 +211,14 @@ static int mig_test(void)
     erase_error = 0;
     mig_boot();
     ok &= mig_ok();
-    bad += check("a power cut at any step of the migration loses nothing (the next boot redoes it)", ok && cuts >= 10u);
+    bad += check("a power cut at any step of the migration loses nothing (the next boot redoes it)", ok && cuts >= 2u);
     /* after it: a preset save writes the other sector (the bank's last copy); a cut there keeps the first copy */
     memcpy(nor, mig_pre, sizeof nor);
     fail_after = -1;
     mig_boot();
     trk[song.sel].eng_req = ENGI_FM6;
     fm6_load_slot(song.sel, 3);
-    fail_after = (int)((sizeof(up_bank_t) + 255u) / 256u + 1u + 3u);   /* the preset bank's write passes, the patches' fails */
+    fail_after = (int)((sizeof(up_bank_t) + 255u) / 256u + 1u);   /* bank write passes; first patches prog fails */
     up_store(20, "CUT");
     fail_after = -1;
     mig_boot();
@@ -223,10 +229,12 @@ static int mig_test(void)
     bad += check("saved again: its patch, and the bank's sectors now both hold the patches object",
                  mig_ok() && !upf_get(20, pk) && !memcmp(pk + 118, FM6_FACTORY[3] + 118, 10) &&
                      ((st_hdr_t *)(nor + 0x9F000))->type == OBJ_UPFM6 && ((st_hdr_t *)(nor + 0xFE000))->type == OBJ_UPFM6);
-    memset(nor, 0xFF, sizeof nor);                        /* a device that never had a bank: nothing written */
+    memset(nor, 0xFF, sizeof nor);                        /* a device that never had an FM6 bank: no migration */
     before = erases;
     mig_boot();
-    bad += check("no bank: nothing to move, nothing written", erases == before && upf_valid(&upf));
+    /* F4000 is an FM6 voice-bank home (OBJ_FM6VB commits), not a storage.c object; left erased until a bank write */
+    bad += check("no FM6 bank: nothing to move; F4000 stays erased",
+                 erases == before && upf_valid(&upf) && nor[0xF4000] == 0xFFu);
     return bad;
 }
 
@@ -642,18 +650,22 @@ int main(void)
         /* restore a good image for any later checks */
         project_save(0);
     }
-    {   /* every parameter fits the stored byte (FUN7 and later) */
+    {   /* every stored parameter fits the wire byte (FUN7 and later). Live DESC may reach past 127 when
+         * param_fit clamps it (FM6 SLOT B1..B128 -> OWN) before pack. */
         uint32_t i;
         for (i = 0; i < P_COUNT; i++) {
             uint32_t e;
             if (i == P_IORD)                        /* 0..719: FUN10 / user presets store 2 bytes (upreset.c) */
                 continue;
-            for (e = 0; e < NENGINES; e++)
-                if (param_desc_of(e, i)->min < -64 || param_desc_of(e, i)->max > 127) {
-                    printf("param %u engine %u: range %d..%d does not fit FUN7's byte\n", i, e,
-                           param_desc_of(e, i)->min, param_desc_of(e, i)->max);
+            for (e = 0; e < NENGINES; e++) {
+                const param_desc_t *d = param_desc_of(e, i);
+                int32_t hi = param_fit(d, d->max);
+                if (d->min < -64 || hi > 127) {
+                    printf("param %u engine %u: range %d..%d (stored max %d) does not fit FUN7's byte\n", i, e,
+                           d->min, d->max, (int)hi);
                     bad++;
                 }
+            }
         }
     }
     chain_config.count = 1;
