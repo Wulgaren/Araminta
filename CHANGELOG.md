@@ -12,7 +12,8 @@ stacks (including FX LATCH worst), and reports click / peak / wall-time CPU.
 DIST MODE OTT keeps the same curves and crossovers, but its six SVF sections and band state now live only on the
 DIST slots that need them (about 7 KB of pool back), the second half of each LR4 skips the unused LP/HP output,
 the 88 Hz low's second LP runs on an FS/4 grid (its input is already band-limited), and DEPTH 0 skips the
-detector and gain path.
+detector and gain path. Shared cutoff coefs (three instead of six) and packed band arrays shrink the per-instance
+state further; one SVF helper replaces the duplicated LP/HP copies.
 
 EFFECTS > TAPE now starts as MASTER at MIX 100 %: at SPEED 100 the head is idle, so a power-on instrument and a
 new project sound the same as before, and the whole mix follows SPEED / FLUTR / DROPOUT without raising MIX
