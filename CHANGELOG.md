@@ -55,7 +55,8 @@ DIST MODE OTT keeps the same curves and crossovers, but its six SVF sections and
 DIST slots that need them (about 7 KB of pool back), the second half of each LR4 skips the unused LP/HP output,
 the 88 Hz low's second LP runs on an FS/4 grid (its input is already band-limited), and DEPTH 0 skips the
 detector and gain path. Shared cutoff coefs (three instead of six) and packed band arrays shrink the per-instance
-state further; one SVF helper replaces the duplicated LP/HP copies.
+state further; one SVF helper replaces the duplicated LP/HP copies. The four per-track OTT blocks sit in .bss
+again (they fit after the shrink), so the pool keeps its 8 KiB spare beside the flash-bank reclaim work.
 
 ### BOOT RESTORE (autosave always writes)
 
