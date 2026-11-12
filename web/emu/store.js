@@ -9,7 +9,7 @@
 // classic script: there a top-level "export" is a SyntaxError and the emulator would never boot. Keep the two halves
 // in sync through that one source.
 
-export const STORE_AREAS = [[0x93000, 0x95000], [0x97000, 0xE0000], [0xE5000, 0xE8000], [0xFC000, 0x100000]];
+export const STORE_AREAS = [[0x93000, 0x97000], [0x97000, 0xE0000], [0xE5000, 0xE8000], [0xF4000, 0xFA000], [0xFC000, 0x100000]];
 export function storeSectors(nor) {
   const out = {};
   for (const [a, b] of STORE_AREAS)

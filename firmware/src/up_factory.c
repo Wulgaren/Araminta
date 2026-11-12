@@ -3,7 +3,8 @@
 /* Built-in factory preset bank at flash 0xF4000 (OBJ_FACBANK): 16 up_rec_t slots, single-copy, read-only
  * from the UI. The picks are indices into ENGINES[] / presets[] (built into the image); the bank is
  * materialised into flash on first boot (or when the sector is invalid) so Return-to-V15 / stock never
- * needs the selection table. Users cannot overwrite these slots (up_fac_put refuses). */
+ * needs the selection table. Users cannot overwrite these slots (up_fac_put refuses). No permanent .pool
+ * mirror: load / name / cat / used rebuild a temp up_rec_t from FAC_SRC (read-only UI). */
 #define FAC_SLOTS UP_PER_BANK
 /* FAC_E (NENGINES + 1) is defined in ui.c for the PRESETS list sentinel. */
 
@@ -26,10 +27,6 @@ static const uint8_t FAC_SRC[FAC_SLOTS][2] = {
     {6, 0},                                    /* TRIO FAT BASS */
     {11, 0},                                   /* NOISE WIND */
 };
-
-static up_bank_t up_fac __attribute__((section(".pool")));   /* (main loop only) */
-
-static up_rec_t *up_fac_rec(uint32_t k) { return &up_fac.r[k % FAC_SLOTS]; }
 
 static void fac_fill_rec(up_rec_t *r, uint32_t eng, uint32_t pi)
 {
@@ -68,49 +65,40 @@ static void fac_fill_rec(up_rec_t *r, uint32_t eng, uint32_t pi)
         else if (i == P_REV && pr->fx[3]) v = (int16_t)(pr->fx[3] - 1);
         up_set_value(r, i, v);
     }
-    up_set_cat(r, cat_of_engine(eng));
+    up_set_cat(r, preset_cat(eng, pi % n));            /* same category as the source factory preset */
     up_mark_osc2(r);
     up_mark_vib(r);
 }
 
-static void fac_build_bank(void)
+static void fac_build_bank(up_bank_t *bank)
 {
     uint32_t i;
-    up_fac.magic = UP_BANK_MAGIC;
-    up_fac.rsize = sizeof(up_rec_t);
-    up_fac.nslot = FAC_SLOTS;
+    bank->magic = UP_BANK_MAGIC;
+    bank->rsize = sizeof(up_rec_t);
+    bank->nslot = FAC_SLOTS;
     for (i = 0; i < FAC_SLOTS; i++)
-        fac_fill_rec(up_fac_rec(i), FAC_SRC[i][0], FAC_SRC[i][1]);
+        fac_fill_rec(&bank->r[i], FAC_SRC[i][0], FAC_SRC[i][1]);
 }
 
-static int up_fac_used(uint32_t k) { return k < FAC_SLOTS && up_valid(up_fac_rec(k)); }
-
-static uint32_t up_fac_count(void)
+/* rebuild slot k into a static temp (read-only UI / load); always from FAC_SRC */
+static up_rec_t *up_fac_rec(uint32_t k)
 {
-    uint32_t k, n = 0;
-    for (k = 0; k < FAC_SLOTS; k++)
-        if (up_fac_used(k))
-            n++;
-    return n;
+    static up_rec_t tmp;
+    k %= FAC_SLOTS;
+    fac_fill_rec(&tmp, FAC_SRC[k][0], FAC_SRC[k][1]);
+    return &tmp;
 }
+
+static int up_fac_used(uint32_t k) { return k < FAC_SLOTS; }
+
+static uint32_t up_fac_count(void) { return FAC_SLOTS; }
 
 static uint32_t up_fac_nth(uint32_t n)
 {
-    uint32_t k;
-    for (k = 0; k < FAC_SLOTS; k++)
-        if (up_fac_used(k) && !n--)
-            return k;
-    return FAC_SLOTS;
+    return n < FAC_SLOTS ? n : FAC_SLOTS;
 }
 
-static uint32_t up_fac_rank(uint32_t k)
-{
-    uint32_t i, n = 0;
-    for (i = 0; i < k && i < FAC_SLOTS; i++)
-        if (up_fac_used(i))
-            n++;
-    return n;
-}
+static uint32_t up_fac_rank(uint32_t k) { return k < FAC_SLOTS ? k : FAC_SLOTS; }
 
 static uint32_t up_fac_cat(uint32_t k) { return up_cat_of(up_fac_rec(k % FAC_SLOTS)); }
 
@@ -150,7 +138,10 @@ static int up_fac_load(uint32_t k)
     for (i = 0; i < P_COUNT; i++)
         if (!param_kept(i))
             t->p[i] = v[i];
-    t->preset = 0;
+    {
+        uint32_t np = ENGINES[r->engine]->npresets;
+        t->preset = (uint8_t)(FAC_SRC[k % FAC_SLOTS][1] % (np ? np : 1u)); /* same identity as the source factory preset */
+    }
     t->user = 0;                                       /* not a writable user slot */
     fm1_irq_on();
     if (r->engine == ENGI_FM6)
@@ -164,18 +155,15 @@ static int up_fac_load(uint32_t k)
 static void up_fac_boot(void)
 {
 #if FELUCCA_FLASH
-    int n = flash_ok ? st_load(OBJ_FACBANK, &up_fac, sizeof up_fac) : -1;
-    if (n != (int)sizeof up_fac || up_fac.magic != UP_BANK_MAGIC || up_fac.rsize != sizeof(up_rec_t) ||
-        up_fac.nslot != FAC_SLOTS) {
-        fac_build_bank();
+    up_bank_t bank;
+    int n = flash_ok ? st_load(OBJ_FACBANK, &bank, sizeof bank) : -1;
+    if (n != (int)sizeof bank || bank.magic != UP_BANK_MAGIC || bank.rsize != sizeof(up_rec_t) ||
+        bank.nslot != FAC_SLOTS) {
+        fac_build_bank(&bank);
         if (flash_ok)
-            (void)st_save(OBJ_FACBANK, &up_fac, sizeof up_fac);
-    } else {
-        uint32_t i;
-        for (i = 0; i < FAC_SLOTS; i++)
-            up_migrate(up_fac_rec(i));
+            (void)st_save(OBJ_FACBANK, &bank, sizeof bank);
     }
 #else
-    fac_build_bank();
+    (void)0;
 #endif
 }
