@@ -56,6 +56,23 @@ int main(int argc, char **argv)
         fail("preset name DRUM-X");
     else
         pass("preset name DRUM-X");
+    {   /* nine factory kits (JIANT): every preset names its kit, every kit is valid (0..127) */
+        static const char *const KITS[9] = {"DRUM-X", "909 CLUB", "808 BOOM", "LOFI DUST", "INDUSTRIAL",
+                                            "ACOUSTIC", "DUB ROOTS", "TECHNO RAW", "BREAKS"};
+        int ok = ENGINES[ENGI_DRUM]->npresets == 9u;
+        for (i = 0; i < 9u && ok; i++)
+            ok = str_eq(ENGINES[ENGI_DRUM]->presets[i].name, KITS[i]) && dx_kit_ok(DX_KITS[i]);
+        if (!ok)
+            fail("nine factory kits (names and bytes)");
+        else
+            pass("nine factory kits (names and bytes)");
+        dx_kit_load(4);
+        if (memcmp(dx_kit, DX_KITS[4], sizeof dx_kit))
+            fail("dx_kit_load INDUSTRIAL");
+        else
+            pass("dx_kit_load INDUSTRIAL");
+        dx_kit_load(0);
+    }
     if (ENG_DRUM.edit[0].fmt != F_PCT || ENG_DRUM.edit[0].max != 127 || !str_eq(ENG_DRUM.edit[0].label, "MRPH"))
         fail("EDIT 1 is MRPH 0..127");
     else

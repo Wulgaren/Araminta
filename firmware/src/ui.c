@@ -1477,12 +1477,39 @@ static void set_engine_of(track_t *t, uint32_t ei)
     load_end(t);
 }
 
-static void apply_preset(uint32_t pi) { apply_preset_to(TSEL, pi); }
+/* (JIANT 0.7.2) a DRUM-X preset is a factory kit, loaded whole into the project's kit. The project has one kit,
+ * shared by every DRUM-X track, so browsing a kit while another track plays DRUM-X would change that track's
+ * drums: the kit stays and the player is told it is in use. */
+static int drum_elsewhere(const track_t *t)
+{
+    uint32_t k;
+    for (k = 0; k < NTRK; k++)
+        if (&trk[k] != t && trk[k].eng_req % NENGINES == ENGI_DRUM)
+            return 1;
+    return 0;
+}
+static void preset_kit_load(track_t *t)
+{
+    if (t->eng_req % NENGINES != ENGI_DRUM)
+        return;
+    if (drum_elsewhere(t)) {
+        ui_message("KIT IN USE");
+        return;
+    }
+    fm1_irq_off();                                    /* the ISR must not see half a kit */
+    dx_kit_load(t->preset);                           /* apply_preset_to left it in 0..npresets-1 */
+    fm1_irq_on();
+}
+static void apply_preset(uint32_t pi)
+{
+    apply_preset_to(TSEL, pi);
+    preset_kit_load(TSEL);
+}
 static void set_engine(uint32_t ei) { set_engine_of(TSEL, ei); }
 
 /* MIDI Program Change (1.5.1, #179 by renebohne): program n on track t, as the PRESETS list numbers the engine's sounds
  * from 0: its n-th preset, the aliases skipped (preset_orig), loaded as from there (the track's own settings kept, one
- * undo for a run of them). DRUM-X: its factory presets (one: DRUM-X), like every other engine. FM6: its presets
+ * undo for a run of them). DRUM-X: its nine factory kits (JIANT), like every other engine. FM6: its presets
  * (F1..F15), then the voice bank's B1..B32 through SLOT as the knob loads them (fm6_poll; the rest of the sound stays),
  * an empty one ignored. A program past the last is ignored, not wrapped: a number is always the same sound */
 static volatile uint8_t *const mpc_io = ui.mpc;
@@ -1499,6 +1526,7 @@ static void midi_pc_load(track_t *t, uint32_t n)
     for (k = 0; preset_orig(ENGINES[e], k) != k || n--; k++)   /* the n-th shown preset */
         ;
     apply_preset_to(t, k);
+    preset_kit_load(t);
 }
 static void midi_pc_poll(void)                       /* main loop (ui_input) */
 {

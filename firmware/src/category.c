@@ -29,7 +29,7 @@ static const char *const PRESET_CAT[17] = {
     "KKKKKKK",                   /* 7 WHEEL: the organs + CHURCH, PERC STOP */
     "PFPPP",                     /* 8 GRAIN: … SHIMMER, STRETCH */
     "UUUPUDDPUU",                /* 9 PHYS: … HARP, GLASS BOW */
-    "D",                         /* 10 DRUM: DRUM-X */
+    "DDDDDDDDD",                 /* 10 DRUM: DRUM-X and its eight factory kits */
     "FFFFF",                     /* 11 NOISE: … METAL, REG BELL */
     "KUBLPUKULPKBLFB",           /* 12 FM6: … PLUCK, METAL VOX, HOLLOW FM, CRYSTAL, FM GROWL, OCT STACK, AIR NOISE, DUBSTEP BASS */
     "DD",                        /* 13 SLICE: CHOP, STUTTER */

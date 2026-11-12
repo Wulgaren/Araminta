@@ -250,7 +250,94 @@ static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, 
     {DX_MODE(DXW_BELL, DXF_HP, 1), {63, 10, 14, 16, 46}, {70, 24, 20, 30, 60}},     /* RIM */                       \
     {DX_MODE(DXW_METAL, DXF_BP, 0), {69, 0, 72, 0, 40}, {74, 0, 84, 12, 56}},        /* BELL */                     \
 }
-static const dx_lane_t DX_KIT_DEF[8] = DX_KIT_INIT;
+/* (JIANT 0.7.2) the nine factory kits: DRUM's presets (eng_drum.c DRUM_PRESETS, one a kit, in this order), the
+ * eight sounds each. JIANT also stores each sound's LAYER and SEND; this engine has neither, so a preset's track
+ * FX sends stand in for the kit's per-sound sends. The first is the factory kit, unchanged. */
+static const dx_lane_t DX_KITS[][8] = {
+    DX_KIT_INIT,   /* DRUM-X */
+    {   /* 909 CLUB */
+        {DX_MODE(DXW_SINE, DXF_LP, 1) | DX_DRIVE, {7, 90, 68, 4, 50}, {12, 120, 84, 10, 90}},
+        {DX_MODE(DXW_FM, DXF_BP, 0), {40, 34, 60, 92, 104}, {46, 22, 72, 116, 84}},
+        {DX_MODE(DXW_SINE, DXF_BP, 0), {60, 0, 52, 127, 88}, {54, 0, 64, 127, 80}},
+        {DX_MODE(DXW_METAL, DXF_HP, 0), {106, 0, 16, 96, 126}, {114, 0, 8, 112, 127}},
+        {DX_MODE(DXW_METAL, DXF_HP, 0), {106, 0, 66, 96, 122}, {114, 0, 78, 112, 127}},
+        {DX_MODE(DXW_SINE, DXF_LP, 1), {32, 54, 66, 10, 44}, {38, 74, 76, 20, 64}},
+        {DX_MODE(DXW_BELL, DXF_HP, 1), {65, 10, 12, 16, 50}, {72, 24, 18, 30, 64}},
+        {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 44, 34, 50}, {68, 0, 54, 46, 62}},
+    },
+    {   /* 808 BOOM */
+        {DX_MODE(DXW_SINE, DXF_LP, 1) | DXM_LONG << 5, {3, 40, 102, 0, 6}, {8, 70, 118, 6, 46}},
+        {DX_MODE(DXW_SINE, DXF_BP, 0), {36, 18, 46, 90, 66}, {42, 6, 58, 114, 46}},
+        {DX_MODE(DXW_SINE, DXF_BP, 0), {56, 0, 50, 127, 70}, {50, 0, 62, 127, 62}},
+        {DX_MODE(DXW_METAL, DXF_HP, 0), {92, 0, 14, 96, 92}, {100, 0, 6, 112, 98}},
+        {DX_MODE(DXW_METAL, DXF_HP, 0), {92, 0, 60, 96, 88}, {100, 0, 72, 112, 94}},
+        {DX_MODE(DXW_SINE, DXF_LP, 1) | DXM_LONG << 5, {24, 26, 82, 10, 18}, {30, 46, 92, 20, 38}},
+        {DX_MODE(DXW_BELL, DXF_HP, 1), {65, 10, 14, 16, 38}, {72, 24, 20, 30, 52}},
+        {DX_MODE(DXW_METAL, DXF_BP, 1), {62, 0, 56, 34, 44}, {66, 0, 66, 46, 56}},
+    },
+    {   /* LOFI DUST */
+        {DX_MODE(DXW_SINE, DXF_LP, 1), {11, 78, 58, 14, 0}, {16, 108, 74, 20, 40}},
+        {DX_MODE(DXW_FM, DXF_BP, 1), {44, 30, 36, 104, 68}, {50, 18, 48, 127, 48}},
+        {DX_MODE(DXW_SINE, DXF_BP, 0), {62, 0, 36, 127, 60}, {56, 0, 48, 127, 52}},
+        {DX_MODE(DXW_METAL, DXF_BP, 0), {104, 0, 12, 96, 88}, {112, 0, 4, 112, 94}},
+        {DX_MODE(DXW_METAL, DXF_BP, 0), {104, 0, 48, 96, 84}, {112, 0, 60, 112, 90}},
+        {DX_MODE(DXW_SINE, DXF_LP, 1), {32, 40, 52, 20, 10}, {38, 60, 62, 30, 30}},
+        {DX_MODE(DXW_BELL, DXF_HP, 1), {69, 10, 8, 16, 30}, {76, 24, 14, 30, 44}},
+        {DX_MODE(DXW_METAL, DXF_BP, 1), {66, 0, 32, 34, 30}, {70, 0, 42, 46, 42}},
+    },
+    {   /* INDUSTRIAL */
+        {DX_MODE(DXW_FM, DXF_LP, 1) | DX_DRIVE, {7, 104, 80, 18, 64}, {12, 127, 96, 24, 104}},
+        {DX_MODE(DXW_METAL, DXF_HP, 0), {42, 54, 64, 102, 124}, {48, 42, 76, 126, 104}},
+        {DX_MODE(DXW_SINE, DXF_BP, 0), {60, 0, 54, 127, 108}, {54, 0, 66, 127, 100}},
+        {DX_MODE(DXW_METAL, DXF_HP, 0), {100, 0, 32, 106, 127}, {108, 0, 24, 122, 127}},
+        {DX_MODE(DXW_METAL, DXF_HP, 0), {100, 0, 76, 106, 127}, {108, 0, 88, 122, 127}},
+        {DX_MODE(DXW_SINE, DXF_LP, 1) | DX_DRIVE, {30, 64, 76, 20, 64}, {36, 84, 86, 30, 84}},
+        {DX_MODE(DXW_BELL, DXF_HP, 1) | DXM_NOISE << 5, {63, 22, 20, 28, 70}, {70, 36, 26, 42, 84}},
+        {DX_MODE(DXW_METAL, DXF_BP, 1) | DXM_NOISE << 5, {64, 0, 48, 46, 74}, {68, 0, 58, 58, 86}},
+    },
+    {   /* ACOUSTIC */
+        {DX_MODE(DXW_SINE, DXF_LP, 1), {9, 60, 64, 12, 0}, {14, 90, 80, 18, 34}},
+        {DX_MODE(DXW_BELL, DXF_BP, 0), {38, 30, 56, 98, 74}, {44, 18, 68, 122, 54}},
+        {DX_MODE(DXW_SINE, DXF_BP, 0), {58, 0, 48, 127, 66}, {52, 0, 60, 127, 58}},
+        {DX_MODE(DXW_METAL, DXF_HP, 0), {96, 0, 18, 96, 86}, {104, 0, 10, 112, 92}},
+        {DX_MODE(DXW_METAL, DXF_HP, 0), {96, 0, 66, 96, 82}, {104, 0, 78, 112, 88}},
+        {DX_MODE(DXW_BELL, DXF_LP, 1), {28, 28, 70, 20, 8}, {34, 48, 80, 30, 28}},
+        {DX_MODE(DXW_BELL, DXF_HP, 1), {61, 10, 16, 16, 26}, {68, 24, 22, 30, 40}},
+        {DX_MODE(DXW_METAL, DXF_BP, 1), {62, 0, 46, 34, 30}, {66, 0, 56, 46, 42}},
+    },
+    {   /* DUB ROOTS */
+        {DX_MODE(DXW_SINE, DXF_LP, 1) | DXM_LONG << 5, {3, 58, 92, 4, 0}, {8, 88, 108, 10, 38}},
+        {DX_MODE(DXW_FM, DXF_BP, 0), {34, 30, 64, 88, 80}, {40, 18, 76, 112, 60}},
+        {DX_MODE(DXW_SINE, DXF_BP, 0), {58, 0, 52, 127, 72}, {52, 0, 64, 127, 64}},
+        {DX_MODE(DXW_METAL, DXF_HP, 0), {98, 0, 20, 96, 94}, {106, 0, 12, 112, 100}},
+        {DX_MODE(DXW_METAL, DXF_HP, 0), {98, 0, 68, 96, 90}, {106, 0, 80, 112, 96}},
+        {DX_MODE(DXW_SINE, DXF_LP, 1), {26, 40, 76, 10, 20}, {32, 60, 86, 20, 40}},
+        {DX_MODE(DXW_BELL, DXF_HP, 1), {59, 10, 24, 16, 46}, {66, 24, 30, 30, 60}},
+        {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 52, 34, 40}, {68, 0, 62, 46, 52}},
+    },
+    {   /* TECHNO RAW */
+        {DX_MODE(DXW_FM, DXF_LP, 1) | DX_DRIVE, {7, 96, 74, 10, 56}, {12, 126, 90, 16, 96}},
+        {DX_MODE(DXW_FM, DXF_HP, 0), {40, 40, 46, 102, 110}, {46, 28, 58, 126, 90}},
+        {DX_MODE(DXW_SINE, DXF_BP, 0), {60, 0, 48, 127, 94}, {54, 0, 60, 127, 86}},
+        {DX_MODE(DXW_METAL, DXF_HP, 0), {104, 0, 14, 100, 127}, {112, 0, 6, 116, 127}},
+        {DX_MODE(DXW_METAL, DXF_HP, 0), {104, 0, 62, 100, 127}, {112, 0, 74, 116, 127}},
+        {DX_MODE(DXW_METAL, DXF_LP, 1), {30, 52, 68, 16, 46}, {36, 72, 78, 26, 66}},
+        {DX_MODE(DXW_BELL, DXF_HP, 1), {65, 10, 10, 22, 58}, {72, 24, 16, 36, 72}},
+        {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 44, 40, 60}, {68, 0, 54, 52, 72}},
+    },
+    {   /* BREAKS */
+        {DX_MODE(DXW_SINE, DXF_LP, 1), {11, 78, 68, 12, 32}, {16, 108, 84, 18, 72}},
+        {DX_MODE(DXW_FM, DXF_BP, 1), {42, 38, 54, 96, 112}, {48, 26, 66, 120, 92}},
+        {DX_MODE(DXW_SINE, DXF_BP, 0), {60, 0, 48, 127, 94}, {54, 0, 60, 127, 86}},
+        {DX_MODE(DXW_METAL, DXF_BP, 0), {100, 0, 26, 102, 116}, {108, 0, 18, 118, 122}},
+        {DX_MODE(DXW_METAL, DXF_BP, 0), {100, 0, 70, 102, 112}, {108, 0, 82, 118, 118}},
+        {DX_MODE(DXW_SINE, DXF_LP, 1), {32, 48, 66, 18, 42}, {38, 68, 76, 28, 62}},
+        {DX_MODE(DXW_BELL, DXF_HP, 1), {63, 10, 14, 20, 56}, {70, 24, 20, 34, 70}},
+        {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 44, 34, 50}, {68, 0, 54, 46, 62}},
+    },
+};
+#define DX_NKIT ((uint32_t)(sizeof DX_KITS / sizeof DX_KITS[0]))
+#define DX_KIT_DEF DX_KITS[0]                      /* the factory kit: a project without one, INIT SOUND */
 static dx_lane_t dx_kit[8] = DX_KIT_INIT;
 /* a stored kit as the voice takes it: values 0..127, the mode's fields in range (wave 0..3, filter 0..2, snap) */
 static int dx_kit_ok(const dx_lane_t *k)

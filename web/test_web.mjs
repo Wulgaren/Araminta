@@ -461,8 +461,10 @@ function mockTables() {
        ph.presets.length === 10 && !ph.presets.some((p) => p.name === "RAIN" || p.name === "DRUM KIT"),
        "editor: PHYS models MODAL STRNG MEMB SYMP (no DUST, no DRUM), 9 presets");
     ok(dr.name === "DRUM-X" && dr.edit.map((d) => d.label).join() === "MRPH,TUNE,TONE,DECY,NOIS,FM,FOLD,DRV" &&
-       dr.presets.length === 1 && dr.presets[0].name === "DRUM-X" && dr.presets.every((p) => p.pat === 12),
-       "editor: DRUM engine 10 (MRPH TUNE TONE DECY NOIS FM FOLD DRV), DRUM-X suggesting BEAT");
+       dr.presets.length === 9 && dr.presets.map((p) => p.name).join() ===
+         "DRUM-X,909 CLUB,808 BOOM,LOFI DUST,INDUSTRIAL,ACOUSTIC,DUB ROOTS,TECHNO RAW,BREAKS" &&
+       dr.presets.every((p) => p.pat === 12),
+       "editor: DRUM engine 10 (MRPH TUNE TONE DECY NOIS FM FOLD DRV), nine kits suggesting BEAT");
   }
   const dj = DESC;
   if (!existsSync(dj)) { console.log("editor: mock tables == firmware (no build/host/desc.json)        skip"); return; }
