@@ -727,6 +727,37 @@ static void test_ott(void)
         if (ott_buf[i] > 262143 || ott_buf[i] < -262143)
             bound_ok = 0;
     ck("OTT stays bounded on a hot input", bound_ok);
+
+    /* Graph power scale: ott_curve reads pw>>7; detector env is Q7. Raw (e^2>>9) alone sits ~21 dB high. */
+    {
+        int32_t e = 8000, raw = (int32_t)(((uint32_t)e * (uint32_t)e) >> 9);
+        int32_t g_raw = ott_curve(OTT_MID_Q8, raw, 127);
+        int32_t g_q7 = ott_curve(OTT_MID_Q8, raw << 7, 127);
+        ck("OTT graph power must use Q7 (raw power alone displaces the knee ~21 dB)", g_raw != g_q7);
+    }
+
+    /* MASTER OTT: mono path only; right fade must stay synced so leaving OTT is not a right-only wet jump */
+    {
+        fresh();
+        clear_stages(&trk[0]);
+        trk[0].p[P_IDMODE] = IDM_OTT;
+        trk[0].p[P_DIST] = 127;
+        trk[0].p[P_IDMIX] = 127;
+        fx_master_set(INS_DIST, 0);
+        ins_master_st[0][INS_DIST].w = 0;
+        ins_master_st[1][INS_DIST].w = 0;
+        trk_note_on(&trk[0], 60, 110);
+        render_blocks(8);
+        ck("MASTER OTT keeps the right DIST fade synced with the left",
+           ins_master_st[1][INS_DIST].w == ins_master_st[0][INS_DIST].w &&
+           ins_master_st[0][INS_DIST].w > 0);
+        trk[0].p[P_IDMODE] = IDM_SOFT;
+        render_blocks(2);
+        ck("leaving MASTER OTT for SOFT keeps both fades together",
+           ins_master_st[1][INS_DIST].w == ins_master_st[0][INS_DIST].w);
+        fx_master_clear(INS_DIST);
+        trk_note_off(&trk[0], 60);
+    }
 }
 
 static void test_fx_reservations(void)

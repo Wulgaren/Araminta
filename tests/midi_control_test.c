@@ -478,6 +478,23 @@ static int cc_knob_test(void)
         ok = trk[1].preset != snd || trk[1].user != 0xFFu;
         bad += check("CC77 = PRESETS: the selected track's sound (the panel's list)", ok);
     }
+    /* Confirm dialog owns the screen: physical encoders are dropped; CC must not change the page under it */
+    {
+        int32_t cut;
+        press(B_HOME);
+        frames(300);
+        song.sel = 1;
+        set_engine_of(&trk[1], 0);
+        trk[1].engine = trk[1].eng_req;
+        frame();
+        cut = trk[1].p[P_E4];
+        confirm_open(CF_CLEAR_SEQ, song.sel);
+        memset((void *)ui.cc_step, 0, sizeof ui.cc_step);
+        queued(0xB0, 71, 100, 1); frame();
+        ok = ui.confirm == CF_CLEAR_SEQ && trk[1].p[P_E4] == cut;
+        ui.confirm = 0;
+        bad += check("CC71 while a confirm dialog is open changes no parameter under it", ok);
+    }
     return bad;
 }
 

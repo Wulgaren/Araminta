@@ -48,6 +48,10 @@ static int ed_bk_up(uint32_t id, uint32_t *b, uint32_t *obj)
     }
     return 0;
 }
+/* Scratch for listing / GET of objects other than the runtime snapshot. ED_BK_RAW holds id 0 for the whole
+ * LIST/GET window; loading saved projects or packing FM6 patches into it used to corrupt the snapshot CRC. */
+#define ED_BK_SCRATCH (st_buf)
+_Static_assert(ST_PAYLOAD_MAX >= sizeof(project_store_t) && ST_PAYLOAD_MAX >= ST_PAYLOAD_SECTOR, "backup scratch");
 static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
 {
     uint32_t b, obj;
@@ -57,10 +61,10 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
     if (id >= 2u && id <= 5u) {                     /* 3.10: read the slot; there is no RAM wire copy */
         int n = 0;
         if (project_used(id - 2u))
-            n = st_load(OBJ_PROJECT0 + id - 2u, ED_BK_RAW, sizeof(project_store_t));
+            n = st_load(OBJ_PROJECT0 + id - 2u, ED_BK_SCRATCH, sizeof(project_store_t));
         if (n > 0)
             *len = sizeof(project_store_t);
-        return ED_BK_RAW;
+        return ED_BK_SCRATCH;
     }
     if (ed_bk_up(id, &b, &obj)) {
         (void)obj;
@@ -68,13 +72,13 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
         return (const uint8_t *)&up_bank[b];
     }
     if (id == 8u)                                   /* the retired FM6 patch bank: always empty */
-        return ED_BK_RAW;
+        return ED_BK_SCRATCH;
     if (id == 9u) {                                 /* the user presets' FM6 patches (packed, one sector) */
         if (upf_valid(&upf)) {
-            *len = upf_pack(ED_BK_RAW, ED_BK_MAX);
+            *len = upf_pack(ED_BK_SCRATCH, ST_PAYLOAD_SECTOR);
             if (!*len) *len = 0;
         }
-        return ED_BK_RAW;
+        return ED_BK_SCRATCH;
     }
     if (id >= 32u && id < 32u + SMP_USER_SLOTS) {
         uint32_t k = id - 32u;

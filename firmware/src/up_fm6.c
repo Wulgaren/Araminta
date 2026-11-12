@@ -237,19 +237,49 @@ static int upf_get(uint32_t k, uint8_t *pk)
     return 0;
 }
 
-/* slot k's patch = pk (128 bytes; every value into its range), tagged with the record as it is now. RAM only */
-static void upf_set(uint32_t k, const uint8_t *pk)
+/* drop slot k's patch entry (dense array + used bit). RAM only */
+static void upf_clear(uint32_t k)
+{
+    uint32_t di, n, i;
+    if (k >= UP_SLOTS || !upf_valid(&upf) || !upf_bit(k))
+        return;
+    di = upf_idx(k);
+    n = upf_nused();
+    for (i = di; i + 1u < n; i++)
+        upf.e[i] = upf.e[i + 1u];
+    upf_bit_set(k, 0);
+}
+
+/* drop entries whose record is gone, not FM6, or whose tag no longer matches (free capacity) */
+static void upf_reclaim(void)
+{
+    uint32_t k;
+    if (!upf_valid(&upf))
+        return;
+    for (k = 0; k < UP_SLOTS; k++) {
+        if (!upf_bit(k))
+            continue;
+        if (upf_fm6(k) && upf.e[upf_idx(k)].tag == upf_tag(up_rec(k)))
+            continue;
+        upf_clear(k);
+    }
+}
+
+/* slot k's patch = pk (128 bytes; every value into its range), tagged with the record as it is now. RAM only.
+ * 0 = ok, 1 = over capacity (nothing written). Reclaims obsolete entries first. */
+static int upf_set(uint32_t k, const uint8_t *pk)
 {
     uint8_t v[FP_SIZE + 1u], c[FM6_PACKED];
     uint32_t di;
     int had;
     if (k >= UP_SLOTS)
-        return;
+        return 1;
     if (!upf_valid(&upf))
         upf_empty();
+    upf_reclaim();
     had = upf_bit(k);
     if (!had && upf_nused() >= UPF_MAX_USED)
-        return;                                          /* sector / RAM cap: keep existing 32 */
+        return 1;                                          /* sector / RAM cap: refuse, do not drop another */
     di = upf_idx(k);
     if (!had) {
         uint32_t n = upf_nused(), i;
@@ -261,6 +291,7 @@ static void upf_set(uint32_t k, const uint8_t *pk)
     fm6_pack(v, c);
     upf_pk_put(c, upf.e[di].pk);
     upf.e[di].tag = upf_tag(up_rec(k));
+    return 0;
 }
 
 /* the object to flash: 0 ok, 2 flash error, 3 no flash (kept in RAM). Its first write keeps the retired bank's
@@ -347,11 +378,22 @@ static void upf_track_load(track_t *t, uint32_t k)
     fm6_adopt(tr);
 }
 
-/* up_store: slot k (its record just written from track tr) gets that track's patch; upf_save's result */
+/* up_store: slot k (its record just written from track tr) gets that track's patch; upf_save's result.
+ * 2 = over capacity or flash error (nothing new kept for a fresh slot). */
 static int upf_store(uint32_t k, uint32_t tr)
 {
     uint8_t pk[FM6_PACKED];
     fm6_pack(fm6_patch[tr % NTRK], pk);
-    upf_set(k, pk);
+    if (upf_set(k, pk))
+        return 2;
     return upf_save();
+}
+
+/* true if a new FM6 patch for slot k would fit (after reclaim). Existing entries can be overwritten. */
+static int upf_room(uint32_t k)
+{
+    if (!upf_valid(&upf))
+        upf_empty();
+    upf_reclaim();
+    return upf_bit(k) || upf_nused() < UPF_MAX_USED;
 }

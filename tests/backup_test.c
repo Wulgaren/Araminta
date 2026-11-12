@@ -210,6 +210,31 @@ int main(void)
     usb.resets++;
     bad += check("a USB reset after LIST: GET is stale (5)", get(2, 0, 16) == 5u);
 
+    {   /* LIST of filled project slots / FM6 patches must not clobber the runtime snapshot (id 0): listed CRC
+         * and a full GET must still match the music captured at LIST, or the browser reports a CRC mismatch */
+        static uint8_t got[sizeof(project_store_t)];
+        uint32_t list_crc, off, ok, n;
+        reset();
+        trk[2].step[1] = (step_t){{67}, 1, ST_NOTE, 0, 96, 0, 0};
+        project_save(0);                                             /* slot 0: different music from the runtime below */
+        memset(&trk[2].step[1], 0, sizeof trk[2].step[1]);
+        trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
+        trk[1].step[2] = (step_t){{64}, 1, ST_NOTE, 0, 96, 0, 0};
+        project_capture(&proj_scratch);
+        proj_pack(&keep, &proj_scratch);
+        upf_empty();
+        upf_set(0, FM6_FACTORY[0]);                                  /* id 9 also packs into the staging RAM */
+        list_crc = len = 0;
+        ok = list(0, &len, &list_crc) == 0 && len == sizeof(project_store_t) &&
+             list_crc == st_crc32(&keep, sizeof keep);
+        for (off = 0; ok && off < sizeof keep; off += 256u) {
+            n = sizeof keep - off > 256u ? 256u : (uint32_t)(sizeof keep - off);
+            ok &= get(0, off, n) == 0 && ed_unpack7(rep + 9, rep_n - 9u, got + off, n) == n;
+        }
+        ok = ok && list_crc == st_crc32(got, sizeof keep) && !memcmp(got, &keep, sizeof keep);
+        bad += check("LIST leaves the runtime snapshot intact across project / FM6 listing", ok);
+    }
+
     /* settings */
     reset();
     memset(&ps, 0, sizeof ps);

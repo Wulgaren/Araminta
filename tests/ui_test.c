@@ -3031,7 +3031,11 @@ static int test_page_cycles(void)
     return bad;
 }
 
-static int led_of(const uint8_t *l, uint32_t id);
+static int led_of(const uint8_t *l, uint32_t id)
+{
+    uint8_t q = led_pos[id];
+    return q != 0xFF && ((l[q >> 3] >> (q & 7u)) & 1u);
+}
 static int test_product_ux(void)
 {
     int bad = 0, ok = 1;
@@ -5320,11 +5324,6 @@ static uint32_t lit_keys(const uint8_t *l)
         m |= (uint32_t)(q != 0xFF && ((l[q >> 3] >> (q & 7u)) & 1u)) << k;
     }
     return m;
-}
-static int led_of(const uint8_t *l, uint32_t id)
-{
-    uint8_t q = led_pos[id];
-    return q != 0xFF && ((l[q >> 3] >> (q & 7u)) & 1u);
 }
 static int test_breath(void)
 {
