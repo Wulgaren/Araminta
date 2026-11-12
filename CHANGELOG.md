@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Size: USB serial console off by default
+
+`FELUCCA_CDC` defaults to 0: the app builds without the CDC-ACM serial console (~7.8 KiB less XIP, a little
+RAM back). USB is audio + MIDI only, which is what macOS needs for the audio input. Set `FELUCCA_CDC=1` for a
+developer build that keeps MENU > USB SERIAL. Sound and golden are unchanged.
+
 ### FUN20 projects (4 KiB, single-copy) and punch-in lane
 
 Projects are FUN20 (`FUNK`): 4096 bytes, single-copy in flash (no A/B). DX stays at 3216 and FM6 at 3312;
