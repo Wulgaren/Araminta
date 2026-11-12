@@ -156,7 +156,7 @@ int main(void)
                      st_sector(OBJ_FM6BANK, 0) == 0x9F000u && st_sector(OBJ_FM6BANK, 1) == 0xFE000u &&
                      st_sector(OBJ_SETTINGS, 1) + 4096 == 0xFE000u);
     /* the autosave (3.10): A at 0xE5000..0xE6FFF (two sectors), B at 0x93000..0x94FFF in the gap; a save there
-     * touches no other object (VBANK, samples, remaining gap 0x95000..0x96FFF, store) */
+     * touches no other object (VBANK, samples, preset bank 5 at 0x95000..0x96FFF, store) */
     {
         uint32_t o, c, ok = st_sector(OBJ_AUTOSAVE, 0) == 0xE5000u &&
                                st_sector(OBJ_AUTOSAVE, 1) == 0x93000u && st_sectors(OBJ_AUTOSAVE) == 2u &&
@@ -314,7 +314,7 @@ int main(void)
          * AM-3: the invariant that matters. A save erases a whole sector, so an st_sector() that lands
          * outside a claimed region, or on the stock firmware's VM, destroys data that is not ours. This
          * enumerates every object at both copies rather than trusting the arithmetic in st_sector. */
-        int land = 1, reserved = 1, gap_b = 1, gap_free = 1, vbank = 1;
+        int land = 1, reserved = 1, gap_b = 1, gap_up = 1, vbank = 1, reclaim = 1;
         uint32_t obj, copy, s;
         for (obj = 0; obj < OBJ_COUNT; obj++)
             for (copy = 0; copy < 2u; copy++) {
@@ -326,17 +326,21 @@ int main(void)
                     if (off >= 0xE8000u && off < 0xFC000u &&
                         !(off >= FL_RECLAIM_LO && off < FL_RECLAIM_HI))
                         reserved = 0;
-                    if (off >= 0x95000u && off < 0x97000u)   /* gap bank sectors: still free of objects here */
-                        gap_free = 0;
                     if (off >= FL_VBANK_LO && off < FL_VBANK_HI)
                         vbank = 0;
                 }
             }
         gap_b &= st_sector(OBJ_AUTOSAVE, 1) == 0x93000u && st_sectors(OBJ_AUTOSAVE) == 2u;
+        gap_up &= st_sector(OBJ_UPRESET5, 0) == 0x95000u && st_sector(OBJ_UPRESET5, 1) == 0x96000u &&
+                  st_sectors(OBJ_UPRESET5) == 1u;
+        reclaim &= st_sector(OBJ_UPRESET2, 0) == 0xF5000u && st_sector(OBJ_UPRESET2, 1) == 0xF5000u &&
+                   st_sector(OBJ_UPRESET3, 0) == 0xF6000u && st_sector(OBJ_UPRESET4, 0) == 0xF7000u &&
+                   st_sectors(OBJ_UPRESET2) == 1u;
         bad += check("every object at both copies lands in a region the map claims", land);
         bad += check("no object lands on stock VM/BTIF/USR outside reclaim F4000..F9FFF", reserved);
         bad += check("autosave B claims the first two gap sectors 0x93000..0x94FFF", gap_b);
-        bad += check("the remaining gap 0x95000..0x96FFF is still unclaimed", gap_free);
+        bad += check("preset bank 5 claims the last two gap sectors 0x95000..0x96FFF", gap_up);
+        bad += check("user banks 2..4 are single-copy at 0xF5000 / 0xF6000 / 0xF7000", reclaim);
         bad += check("no storage object claims the FM6 voice bank at 0xE7000", vbank);
         bad += check("factory bank is single-copy at 0xF4000",
                      st_sector(OBJ_FACBANK, 0) == 0xF4000u && st_sector(OBJ_FACBANK, 1) == 0xF4000u &&

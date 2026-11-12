@@ -82,8 +82,12 @@ int main(void)
         bad += check("short optional tail rejected", up_parse(a, n + 1u, &r, &slot) == 1 &&
                                                        !memcmp(&r, &keep, sizeof r));
     }
-    n = put_frame(a, 32, 0, "X", 0);
-    bad += check("UP_PUT slot 32 -> args", up_parse(a, n, &r, &slot) == 1);
+    n = put_frame(a, UP_SLOTS, 0, "X", 0);
+    bad += check("UP_PUT slot past the banks -> args", up_parse(a, n, &r, &slot) == 1);
+    n = put_frame(a, 32, 0, "BANK3", 0);
+    bad += check("UP_PUT slot 32 (bank 2) ok", up_parse(a, n, &r, &slot) == 0 && slot == 32u);
+    n = put_frame(a, 80, 0, "BANK6", 0);
+    bad += check("UP_PUT slot 80 (bank 5) ok", up_parse(a, n, &r, &slot) == 0 && slot == 80u);
     n = put_frame(a, 0, NENGINES, "X", 0);
     bad += check("UP_PUT bad engine -> args", up_parse(a, n, &r, &slot) == 1);
     n = put_frame(a, 3, ENGI_DIGITAL, "OLD FM", 0);   /* (DIGITAL, retired: a record keeps it, its load is refused) */
@@ -127,6 +131,12 @@ int main(void)
     bad += check("banks in 0xDC000..0xDFFFF", st_sector(OBJ_UPRESET0, 0) == 0xDC000u &&
                                                    st_sector(OBJ_UPRESET0 + 1, 1) == 0xDF000u &&
                                                    st_sector(OBJ_PROJECT0 + 3, 1) + 4096u <= 0xA0000u);
+    bad += check("banks 2..4 single-copy at F5000..F7000", st_sector(OBJ_UPRESET2, 0) == 0xF5000u &&
+                                                   st_sector(OBJ_UPRESET3, 0) == 0xF6000u &&
+                                                   st_sector(OBJ_UPRESET4, 0) == 0xF7000u &&
+                                                   st_sector(OBJ_UPRESET2, 1) == 0xF5000u);
+    bad += check("bank 5 in the gap 0x95000..0x96FFF", st_sector(OBJ_UPRESET5, 0) == 0x95000u &&
+                                                   st_sector(OBJ_UPRESET5, 1) == 0x96000u);
     up_bank[1].rsize = 190;                                 /* another record layout */
     up_bank_check(1, (int)sizeof up_bank[1]);
     bad += check("bank with another record size -> empty", !up_used(17));

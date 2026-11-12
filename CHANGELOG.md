@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### User preset banks at F5000–F7 + gap (96 slots)
+
+`UP_SLOTS` is 96 (six banks × 16). Banks 0/1 stay at `0xDC000..0xDFFFF` (A/B). Banks 2..4 are single-copy at
+`0xF5000` / `0xF6000` / `0xF7000`. Bank 5 takes the remaining gap `0x95000..0x96FFF` (A/B). Each sector holds one
+`up_bank_t` (3080 B) = **16 presets** — older notes that said “48 presets in 2 gap sectors” meant total `UP_SLOTS` at
+the time (DC000×2 + gap), not density. Factory F01–F16 stay separate at `0xF4000` (seeded on boot from `FAC_SRC`; no
+permanent `.pool` mirror). User-preset FM6 patches use packed ver-2 flash (`used[3]`, at most 32 dense entries in RAM)
+so the pool stays under the 8192 free bar; favourites for slots 32..95 live in the reserved settings row and the
+favourites block sits on default BSS. Backup ids **10..13** are banks 2..5. FM6 multi-bank select (INFO `56 01 60`) is
+unchanged. Stock V15 erases the gap on boot, so Araminta gap-bank data is lost only on return to stock.
+
 ### Size: USB serial console off by default
 
 `FELUCCA_CDC` defaults to 0: the app builds without the CDC-ACM serial console (~7.8 KiB less XIP, a little
@@ -26,7 +37,7 @@ load. The four 4 KiB `.noinit` wire caches are gone; a 44 B RAM summary per slot
 PROJECTS. A torn project save clears that slot (autosave is the recovery path). The autosave is a split A/B
 pair at full 4096 B (lane and motion 89..127 included): A grows in place at `0xE5000..0xE6FFF` (two sectors),
 B takes `0x93000..0x94FFF` in the gap; user samples stay 80 KiB × 3. A pre-3.10 one-sector B at `0xE6000`
-migrates into the gap on boot. `0x95000..0x96FFF`, `0xE7000` (FM6 voice bank), and `0xE8000` stay untouched.
+migrates into the gap on boot. `0xE7000` (FM6 voice bank) and `0xE8000` stay untouched; `0x95000..0x96FFF` holds user-preset bank 5.
 Older 3840 B backups and field files still restore.
 
 Punch-in buffer borrow: taking sl_buf for REPEAT/REVERSE/FREEZE/TAPE/OCT/GLITCH now drops MASTER STUT

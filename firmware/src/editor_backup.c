@@ -7,12 +7,14 @@
  * Id 8 (the FM6 patch bank of 1.0..1.0.2) is listed empty since 1.0.3; a PUT of it from an older archive moves its
  * patches into the user presets restored before it (ids 6, 7), as the first boot after the update does (up_fm6.c).
  * Id 9 is the user presets' FM6 patches (up_fm6.c), appended in 1.0.3.
+ * Ids 10..13 are user-preset banks 2..5 (OBJ_UPRESET2..5).
  */
-static const uint8_t ED_BK_IDS[13] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 32, 33, 34};
+static const uint8_t ED_BK_IDS[17] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 32, 33, 34};
 #define ED_BK_N ((uint32_t)sizeof ED_BK_IDS)
 #define ED_BK_MAX ((uint32_t)sizeof proj_wire_u.raw)
 #define ED_BK_RAW (proj_wire_u.raw)  /* reuse the existing serialized main-loop scratch */
-_Static_assert(sizeof proj_wire_u.raw >= sizeof(upf_t) && sizeof proj_wire_u.raw >= sizeof(fm6_bank_t), "backup staging");
+_Static_assert(sizeof proj_wire_u.raw >= ST_PAYLOAD_SECTOR && sizeof proj_wire_u.raw >= sizeof(fm6_bank_t) &&
+               sizeof proj_wire_u.raw >= sizeof(up_bank_t), "backup staging");
 static persist_t ed_bk_settings __attribute__((section(".pool")));
 static uint8_t ed_bk_valid, ed_bk_put, ed_bk_id, ed_bk_gen;
 static uint32_t ed_bk_len, ed_bk_crc, ed_bk_pos, ed_bk_ms, ed_bk_usb;
@@ -31,8 +33,24 @@ static void ed_bk_pack(const uint8_t *p, uint32_t n)
         p += k; n -= k;
     }
 }
+/* backup ids 6,7 = banks 0,1; 10..13 = banks 2..5. Returns 1 and fills *b / *obj. */
+static int ed_bk_up(uint32_t id, uint32_t *b, uint32_t *obj)
+{
+    if (id == 6u || id == 7u) {
+        *b = id - 6u;
+        *obj = OBJ_UPRESET0 + *b;
+        return 1;
+    }
+    if (id >= 10u && id <= 13u) {
+        *b = id - 10u + 2u;
+        *obj = OBJ_UPRESET2 + (id - 10u);
+        return 1;
+    }
+    return 0;
+}
 static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
 {
+    uint32_t b, obj;
     *len = 0;
     if (id == 0u) { *len = sizeof(project_store_t); return ED_BK_RAW; }
     if (id == 1u) { *len = sizeof ed_bk_settings; return (const uint8_t *)&ed_bk_settings; }
@@ -44,15 +62,19 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
             *len = sizeof(project_store_t);
         return ED_BK_RAW;
     }
-    if (id == 6u || id == 7u) {
-        if (up_bank[id - 6u].magic == UP_BANK_MAGIC) *len = sizeof up_bank[0];
-        return (const uint8_t *)&up_bank[id - 6u];
+    if (ed_bk_up(id, &b, &obj)) {
+        (void)obj;
+        if (up_bank[b].magic == UP_BANK_MAGIC) *len = sizeof up_bank[0];
+        return (const uint8_t *)&up_bank[b];
     }
     if (id == 8u)                                   /* the retired FM6 patch bank: always empty */
         return ED_BK_RAW;
-    if (id == 9u) {                                 /* the user presets' FM6 patches */
-        if (upf_valid(&upf)) *len = sizeof upf;
-        return (const uint8_t *)&upf;
+    if (id == 9u) {                                 /* the user presets' FM6 patches (packed, one sector) */
+        if (upf_valid(&upf)) {
+            *len = upf_pack(ED_BK_RAW, ED_BK_MAX);
+            if (!*len) *len = 0;
+        }
+        return ED_BK_RAW;
     }
     if (id >= 32u && id < 32u + SMP_USER_SLOTS) {
         uint32_t k = id - 32u;
@@ -98,7 +120,7 @@ static int ed_bk_panel_valid(const panel_t *p)
 static uint32_t ed_bk_commit(void)
 {
     uint8_t *raw = ED_BK_RAW;
-    uint32_t obj;
+    uint32_t obj, b;
     if (ed_bk_pos != ed_bk_len || st_crc32(raw, ed_bk_len) != ed_bk_crc) return 2;
     if (ed_bk_id == 0u || (ed_bk_id >= 2u && ed_bk_id <= 5u)) {
         if (ed_bk_len && !proj_import(&proj_scratch, raw, (int)ed_bk_len)) return 2;
@@ -118,22 +140,20 @@ static uint32_t ed_bk_commit(void)
             !palette_stored_ok(p->palette) ||
             p->lowcut > 2u || !leds_stored_ok(p->zoom) || !hold_stored_ok(p->bold) || p->favorites.filter > 1u || !ed_bk_panel_valid(&p->panel)) return 2;
         obj = OBJ_SETTINGS;
-    } else if (ed_bk_id == 6u || ed_bk_id == 7u) {
+    } else if (ed_bk_up(ed_bk_id, &b, &obj)) {
         const up_bank_t *p = (const up_bank_t *)raw;
         if (ed_bk_len && (ed_bk_len != sizeof *p || p->magic != UP_BANK_MAGIC ||
             p->rsize != sizeof(up_rec_t) || p->nslot != UP_PER_BANK)) return 2;
         /* Unknown record versions remain inert bytes, preserving future/older bank data. */
-        obj = OBJ_UPRESET0 + ed_bk_id - 6u;
     } else if (ed_bk_id == 8u) {                    /* an older archive's FM6 bank: into the restored user presets */
         if (!ed_bk_len) return 0;
         if (ed_bk_len != sizeof(fm6_bank_t) || !fm6_bank_valid((const fm6_bank_t *)raw)) return 2;
         upf_migrate((const fm6_bank_t *)raw);
         sync_reload = 1; ui.force = 1;
         return upf_save() == 2 ? 4u : 0u;
-    } else if (ed_bk_id == 9u) {                    /* the user presets' FM6 patches (0: none) */
-        const upf_t *u = (const upf_t *)raw;
-        if (ed_bk_len && (ed_bk_len != sizeof *u || !upf_valid(u) || (u->used >> (UP_SLOTS - 1u) >> 1))) return 2;
-        if (ed_bk_len) memcpy(&upf, raw, sizeof upf); else upf_empty();
+    } else if (ed_bk_id == 9u) {                    /* the user presets' FM6 patches (0: none; packed or ver-1) */
+        if (ed_bk_len && !upf_unpack(raw, ed_bk_len)) return 2;
+        if (!ed_bk_len) upf_empty();
         sync_reload = 1; ui.force = 1;
         return upf_save() == 2 ? 4u : 0u;           /* (a failed write keeps the restored RAM copy) */
     } else return 1;
@@ -154,7 +174,6 @@ static uint32_t ed_bk_commit(void)
         persist_saved = ed_bk_settings; persist_pending = 0;
 #endif
     } else {
-        uint32_t b = ed_bk_id - 6u;
         memset(&up_bank[b], 0, sizeof up_bank[b]);
         if (ed_bk_len) memcpy(&up_bank[b], raw, ed_bk_len);
         up_bank_check(b, (int)ed_bk_len); up_gen++;
@@ -170,16 +189,18 @@ static int proj_store_len(uint32_t len)
 }
 static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
 {
+    uint32_t b, obj;
     /* the arguments first: a malformed request never stops the transport */
-    if (n < 2u || a[0] > 3u || a[1] > 9u) return 1;
+    if (n < 2u || a[0] > 3u || a[1] > 13u) return 1;
     if (a[0] == 0u) {
         if (n != 12u || a[6] > 15u || a[11] > 15u) return 1;
         uint32_t len = ed_bk_r32(a + 2);
         if (len > ED_BK_MAX || (a[1] == 0u && !proj_store_len(len)) ||
             (a[1] == 1u && len != sizeof(persist_t)) ||
             (a[1] >= 2u && a[1] <= 5u && len && !proj_store_len(len)) ||
-            ((a[1] == 6u || a[1] == 7u) && len && len != sizeof(up_bank_t)) ||
-            (a[1] == 8u && len && len != sizeof(fm6_bank_t)) || (a[1] == 9u && len && len != sizeof(upf_t))) return 1;
+            (ed_bk_up(a[1], &b, &obj) && len && len != sizeof(up_bank_t)) ||
+            (a[1] == 8u && len && len != sizeof(fm6_bank_t)) ||
+            (a[1] == 9u && len && len != UPF_VER1_SIZE && (len < UPF_HDR || len > ST_PAYLOAD_SECTOR))) return 1;
         if (ed_flash_stop()) return 3;
         ed_bk_valid = 0; ed_bk_put = 1; ed_bk_id = a[1]; ed_bk_len = len; ed_bk_gen = ++proj_wire_gen;
         ed_bk_crc = ed_bk_r32(a + 7); ed_bk_pos = 0;
