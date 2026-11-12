@@ -255,7 +255,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **Quick layers:** hold GLO, SCL, EDIT or SEQ and press OCT− / OCT+ for its key and knob map (PUNCH-IN and
   SAVE > CLEAR are their own sections); one-step undo (SAVE held); REC on every page; OCT+ confirms, OCT- goes
   back; what can be pressed breathes softly instead of blinking
-- **Presets:** factory presets, 32 user preset slots and 4 projects, named on the device (an FM6
+- **Presets:** factory presets, 96 user preset slots (six banks of 16) and 4 projects, named on the device (an FM6
   sound keeps its own patch in both); user presets get a category, and a project can get a random name; projects
   from every earlier version load. The PRESETS knob changes the sound from every page that is not a list.
   Turn the FM-1 off and on and the music is as you left it (MENU > BOOT RESTORE, an autosave of its own,
@@ -332,6 +332,12 @@ Day-to-day differences after the flash (not data loss):
 Rollback: installer's **Return to official V15**, or M-VAVE's updater. That is stock FM-1, not Felucca 1.5.
 It will not reopen FUN19 projects. Back up in the web editor **before** the first save or quiet autosave on Araminta
 if you still need a Felucca 1.5-readable copy.
+
+Flash **`0xF4000..0xF9FFF`** (user banks F5–F7, FM6 banks F8/F9/F4) and the gap user bank at
+**`0x95000..0x96FFF`** are Araminta's. Stock V15 ignores the reclaim band and erases the gap on every boot.
+An FM-1 editor SysEx / complete musical archive is not enough for byte-exact stock flash — keep a **full flash
+backup** (`tools/fm1_flash_dump.py`). Restoring those reclaim sectors on Return-to-V15 via the UBOOT write path
+is a follow-up (not in this release).
 
 ## Controls
 
@@ -438,9 +444,9 @@ KNOB ACCEL is always on for wide values.
   CLICK OFF), and a note played in the last half beat lands on step 1. Not with an external clock
 - **TUNE:** the global tuning, −50 to +50 cents. It is the project's, saved and loaded with it
 - **MIDI IN:** SEL (default), CH1-4, CH5-8, CH9-12 or CH13-16 (see MIDI above). The project's too
-- **USB SERIAL:** ON or OFF, applied when the menu closes (the FM-1 reconnects). OFF leaves out the
-  serial console, a developer tool, so the FM-1 is a plain audio + MIDI device; this lets macOS 13-15
-  see its USB audio input. MIDI, the editor and the installer work either way
+- **USB SERIAL:** only in a `FELUCCA_CDC=1` developer build (the release default is off, audio + MIDI only).
+  ON or OFF, applied when the menu closes (the FM-1 reconnects). OFF leaves out the serial console so
+  macOS 13-15 see the USB audio input. MIDI, the editor and the installer work either way
 - **BOOT RESTORE** (was RESTORE LAST): ON (default) or OFF. The autosave (apart from the four projects) is
   always written when the music changed, the transport is stopped and nothing has been touched for 10 s, at
   most once a minute. ON, the FM-1 starts with that music (the header says RESTORED); OFF starts with the

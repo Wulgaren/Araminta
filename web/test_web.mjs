@@ -1363,7 +1363,7 @@ async function editorFm6Bank() {
   [...m.access.inputs.values()][0].onmidimessage = (e) => link.receive(e.data);
   const rq = (x, o) => link.request(x, o);
   const info = E.parse[C.INFO](await rq(E.req.info()));
-  ok(info.fm6Bank === 96 && info.songLanes === 4 && info.fm6.caps === 3, "FM6 bank: INFO 56 01 60 after the SONG lanes tag");
+  ok(info.fm6Bank === 128 && info.songLanes === 4 && info.fm6.caps === 3, "FM6 bank: INFO 56 01 00 01 (128) after the SONG lanes tag");
   let list = await E.fm6Bank.list(rq);
   ok(list.n === 32 && !list.valid && list.name === "" && list.voices.every((v) => !v.used), "FM6 bank: LIST of an empty device: no bank");
   /* a 32-voice file: the factory patches renamed VOICE 01..32 (the import path: parseSysex, then the packed records) */
@@ -1419,6 +1419,14 @@ async function editorFm6Bank() {
   rc = await E.fm6Bank.send(rq, new Array(32).fill(null), "");
   list = await E.fm6Bank.list(rq);
   ok(rc === 0 && list.valid && list.voices.every((v) => !v.used), "FM6 bank: an empty bank (no WRITE, CRC of nothing) clears it");
+  /* multi-bank: bank 3 (F4000) is independent of bank 0 */
+  rc = await E.fm6Bank.send(rq, packed, "BANK THREE", 3);
+  const l0 = await E.fm6Bank.list(rq, 0), l3 = await E.fm6Bank.list(rq, 3);
+  ok(rc === 0 && !l0.voices.some((v) => v.used) && l3.valid && l3.name === "BANK THREE" && l3.voices.every((v) => v.used),
+    "FM6 bank: send to bank 3 leaves bank 0 empty; LIST bank 3 has the voices");
+  await rq(E.req.set(0, slotId, 9 + 96));                         /* B97 = bank 3 voice 0 */
+  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
+  ok(eq(g.packed, packed[0]), "FM6 bank: SLOT B97 loads bank 3 voice 0");
   link.close(); m.stop();
   const old = E.makeMockDevice({ auto: false, noVbank: true });
   const l2 = new E.Link((d) => [...old.access.outputs.values()][0].send(d), { timeout: 100 });

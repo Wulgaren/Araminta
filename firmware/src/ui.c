@@ -1611,14 +1611,14 @@ static void select_engine(uint32_t e)
     ui.force = 1;
 }
 
-/* the presets of every engine (in ENGINE_ORDER), then the used user presets, as one list (the PRESETS knob and the
- * PRESETS page browse it) */
+/* the presets of every engine (in ENGINE_ORDER), then the used user presets, as one list (the PRESETS knob and
+ * the PRESETS page browse it) */
 static uint32_t preset_all_pos(uint32_t *total)          /* list index of the selected track's preset */
 {
     uint32_t n = 0, cur = 0, e, r;
     for (r = 0; r < NENG_SHOWN; r++) {                  /* (engines.c ENGINE_ORDER) */
         const engine_t *en = ENGINES[e = eng_vis(r)];
-        if (e == TSEL->eng_req)
+        if (e == TSEL->eng_req && !TSEL->user)
             cur = n + preset_rank(en, preset_orig(en, TSEL->preset % (en->npresets ? en->npresets : 1u)));
         n += preset_shown(e);
     }
@@ -1634,15 +1634,15 @@ static uint32_t preset_all_at(uint32_t n, uint32_t *k)
     uint32_t e = 0, i, r;
     for (r = 0; r < NENG_SHOWN && n >= preset_shown(eng_vis(r)); r++)
         n -= preset_shown(eng_vis(r));
-    if (r == NENG_SHOWN) {
-        *k = up_nth(n);
-        return NENGINES;
+    if (r < NENG_SHOWN) {
+        e = eng_vis(r);
+        for (i = 0; preset_orig(ENGINES[e], i) != i || n--; i++)    /* the n-th shown preset */
+            ;
+        *k = i;
+        return e;
     }
-    e = eng_vis(r);
-    for (i = 0; preset_orig(ENGINES[e], i) != i || n--; i++)    /* the n-th shown preset */
-        ;
-    *k = i;
-    return e;
+    *k = up_nth(n);
+    return NENGINES;
 }
 
 /* PRESETS > LIST (KNOB 4): ALL, FAV (favorites.filter, as up to 1.1.5), or one category (1.2, Discussion #90: BASS ..
@@ -1659,7 +1659,10 @@ static void list_set(uint32_t m)
 }
 static const char *list_name(uint32_t m) { return m == 0u ? "ALL" : m == 1u ? "FAV" : CAT_NAME[(m - 1u) % CAT_N]; }
 /* the category of list entry e, k (preset_all_at: NENGINES = user preset k) */
-static uint32_t sound_cat(uint32_t e, uint32_t k) { return e == NENGINES ? up_cat(k) : preset_cat(e, k); }
+static uint32_t sound_cat(uint32_t e, uint32_t k)
+{
+    return e == NENGINES ? up_cat(k) : preset_cat(e, k);
+}
 static int list_keep(uint32_t e, uint32_t k)
 {
     uint32_t m = list_mode();

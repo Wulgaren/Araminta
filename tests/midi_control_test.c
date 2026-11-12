@@ -598,12 +598,16 @@ static int pc_test(void)
         pc(1, 13); frame();
         ok &= f->p[P_E7] == (int16_t)(FM6_OWN + 6u) && pc_bank_k == 5u;
         pc(1, 8u + FM6_NBANK); frame();
-        ok &= f->p[P_E7] == (int16_t)(FM6_OWN + 6u);
+        ok &= f->p[P_E7] == (int16_t)(FM6_OWN + 6u);   /* empty B33: ignored */
+        fm6_bank_used[3] = 1u;
+        pc(1, 8u + 3u * FM6_NBANK); frame();           /* B97 = bank 3 voice 0 */
+        ok &= f->p[P_E7] == (int16_t)(FM6_OWN + 1u + 3u * FM6_NBANK) && pc_bank_k == 3u * FM6_NBANK;
         pc(1, 0); frame();
         ok &= f->p[P_E7] == 0 && fm6_slot[1] == 0u && f->p[P_E6] == 0;
         fm6_bank_used[0] = 0;
+        fm6_bank_used[3] = 0;
         fm6_bank_read = 0;
-        bad += check("  FM6: 8.. the voice bank B1..B32 through SLOT (the rest stays), an empty or no bank ignored", ok);
+        bad += check("  FM6: 8.. bank voices through SLOT (B1..; B97 = bank 3), an empty or no bank ignored", ok);
     }
 
     /* ROUT */
