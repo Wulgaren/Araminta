@@ -57,6 +57,16 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
+### New in 3.10
+
+- **FUN20 projects.** 4096 B, one flash copy. FUN7..FUN19 still load. Autosave is a full A/B pair; Save refreshes
+  it before writing the slot. Motion save limit is 155 records, with a punch-in lane in the project wire.
+- **Flash map.** 96 user presets; FM6 banks at E7000 / F8000 / F9000 / F4000; SLOT F1..F15, OWN, B1..B128. Before
+  installing over stock, run `tools/fm1_flash_dump.py` (the installer asks when the device is not Araminta).
+- **PIT GLD.** POLY chord glide on VOICE; PITCH on VOICE 2. Off by default.
+- **Factory + FM6.** New and reworked factory sounds; FM6 F9..F15 including DUBSTEP BASS.
+- **OTT in the release image.** USB serial off by default so the build fits (`FELUCCA_CDC=1` for developers).
+
 ### New in 3.9
 
 - **ARP free take.** With the ARP on, a free take records the notes the arp plays, including a latched chord.
