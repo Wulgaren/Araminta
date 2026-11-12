@@ -21,7 +21,7 @@ and the reworked slots are GRAIN STRETCH, NOISE REG BELL and WAVETABLE WT FDBK. 
 The nine kept are AIR PAD, FILTER SWP, PHASE GLASS, LOFI TRI LD, VOICE OOOH PAD, TRIO FIFTHS and SAW STACK, WHEEL
 CHURCH and WAVETABLE HOLLOW.
 
-FM6 gains seven factory patches, F9..F15 (METAL VOX, HOLLOW FM, CRYSTAL, FM GROWL, OCT STACK, AIR NOISE, FM REESE),
+FM6 gains seven factory patches, F9..F15 (METAL VOX, HOLLOW FM, CRYSTAL, FM GROWL, OCT STACK, AIR NOISE, DUBSTEP BASS),
 and seven presets built around them. SLOT now runs 0..143: F1..F15, OWN (15), B1..B128 (16..143). Stored SLOT values
 8..143 load as OWN with the patch that came with them, and `fm6_adopt` shows F9..F15 again when that patch is one of
 the factory ones unchanged. Old projects and user presets saved on B1..B4 therefore keep their sound.
