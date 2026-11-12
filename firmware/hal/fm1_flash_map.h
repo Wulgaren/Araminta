@@ -13,7 +13,7 @@
  *   0x0E0000..0x0E5000  the update loader's staging (ota.c), never a storage object
  *   0x0E5000..0x0E7000  autosave A (two sectors); 0x0E7000..0x0E8000 the FM6 voice bank
  *   0x0E8000..0x0F4000  stock V15 (VM / BTIF / USR voices start): never Araminta's to erase
- *   0x0F4000..0x0FA000  Araminta reclaim: factory presets (F4000), user banks (F5000..F7000), FM6 banks (F8000..F9000)
+ *   0x0F4000..0x0FA000  Araminta reclaim: user banks (F5000..F7000), FM6 banks (F8000/F9000/F4000)
  *   0x0FA000..0x0FC000  stock USR settings tail: never Araminta's
  *   0x0FC000..0x0FF000  settings (the superblock / globals)
  */
@@ -34,7 +34,7 @@
 #define FL_VBANK_HI     0x000E8000u                /* (below the stock OTA's VM backup at 0xE8000: the app never
                                                  * writes it; the update loader only clears an update record's tag
                                                  * in that sector, never erases it: ldr_core.c) */
-#define FL_RECLAIM_LO   0x000F4000u                /* factory / extra user / FM6 banks (stock V15 ignores these) */
+#define FL_RECLAIM_LO   0x000F4000u                /* user banks F5–F7 + FM6 F8/F9/F4 (stock V15 ignores these) */
 #define FL_RECLAIM_HI   0x000FA000u
 #define FL_GLOB_LO      0x000FC000u                /* Felucca superblock / globals */
 #define FL_GLOB_HI      0x000FF000u

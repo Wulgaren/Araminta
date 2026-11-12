@@ -232,11 +232,9 @@ static int mig_test(void)
     memset(nor, 0xFF, sizeof nor);                        /* a device that never had an FM6 bank: no migration */
     before = erases;
     mig_boot();
-    /* factory bank at F4000 is seeded on first boot (one sector); UPFM6 / the retired bank stay untouched */
-    bad += check("no FM6 bank: nothing to move; factory bank seeded once",
-                 erases == before + 1u && upf_valid(&upf) &&
-                     ((st_hdr_t *)(nor + 0xF4000))->magic == ST_MAGIC &&
-                     ((st_hdr_t *)(nor + 0xF4000))->type == OBJ_FACBANK);
+    /* F4000 is an FM6 voice-bank home (OBJ_FM6VB commits), not a storage.c object; left erased until a bank write */
+    bad += check("no FM6 bank: nothing to move; F4000 stays erased",
+                 erases == before && upf_valid(&upf) && nor[0xF4000] == 0xFFu);
     return bad;
 }
 
@@ -652,18 +650,22 @@ int main(void)
         /* restore a good image for any later checks */
         project_save(0);
     }
-    {   /* every parameter fits the stored byte (FUN7 and later) */
+    {   /* every stored parameter fits the wire byte (FUN7 and later). Live DESC may reach past 127 when
+         * param_fit clamps it (FM6 SLOT B1..B128 -> OWN) before pack. */
         uint32_t i;
         for (i = 0; i < P_COUNT; i++) {
             uint32_t e;
             if (i == P_IORD)                        /* 0..719: FUN10 / user presets store 2 bytes (upreset.c) */
                 continue;
-            for (e = 0; e < NENGINES; e++)
-                if (param_desc_of(e, i)->min < -64 || param_desc_of(e, i)->max > 127) {
-                    printf("param %u engine %u: range %d..%d does not fit FUN7's byte\n", i, e,
-                           param_desc_of(e, i)->min, param_desc_of(e, i)->max);
+            for (e = 0; e < NENGINES; e++) {
+                const param_desc_t *d = param_desc_of(e, i);
+                int32_t hi = param_fit(d, d->max);
+                if (d->min < -64 || hi > 127) {
+                    printf("param %u engine %u: range %d..%d (stored max %d) does not fit FUN7's byte\n", i, e,
+                           d->min, d->max, (int)hi);
                     bad++;
                 }
+            }
         }
     }
     chain_config.count = 1;

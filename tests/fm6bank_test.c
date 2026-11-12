@@ -524,7 +524,7 @@ static int keep_test(void)
         x[110] = 17;                                      /* (an own patch) */
         ok = 1;
         for (s = FM6_OWN + 1; s <= (int32_t)(FM6_OWN + FM6_NBANK_TOTAL); s++) {
-            p->t[0].p[P_E7] = (int16_t)s;                 /* any bank SLOT 9..104 -> OWN on store */
+            p->t[0].p[P_E7] = (int16_t)s;                 /* any bank SLOT 9..136 -> OWN on store */
             memcpy(p->fm6[0], x, FM6_PACKED);
             p->sum = proj_sum(p);
             ok &= !project_restore_runtime(p) && trk[0].p[P_E7] == FM6_OWN && fm6_slot[0] == FM6_OWN && patch_is(0, x);
@@ -535,7 +535,7 @@ static int keep_test(void)
         memcpy(p->fm6[0], FM6_FACTORY[2], FM6_PACKED);
         p->sum = proj_sum(p);
         ok &= !project_restore_runtime(p) && trk[0].p[P_E7] == 2 && patch_is(0, FM6_FACTORY[2]);
-        bad += check("a project with a stored SLOT 9..104: its own patch, SLOT OWN (never a bank voice); F3 as before", ok);
+        bad += check("a project with a stored SLOT 9..136: its own patch, SLOT OWN (never a bank voice); F3 as before", ok);
     }
     {   /* a user preset record with a stored SLOT 13 (1.0.2's B5): with its patch, that patch; without, the init voice */
         up_rec_t *r;
@@ -603,14 +603,14 @@ static int keep_test(void)
             motion.count = 1;
             motion.event[0].place = 3;                    /* track 1, step 3 */
             motion.event[0].param = P_E7;
-            motion.event[0].value = (int8_t)s;
+            motion.event[0].value = (int16_t)s;   /* RAM is int16; bank SLOTs past 127 still param_fit to OWN */
             motion_base_valid = 0;
             motion_step(t, 3, &motion, 1);
             fm6_poll();
             ok &= trk[0].p[P_E7] == FM6_OWN && patch_is(0, x);
         }
         ok &= motion_put(t, 4, P_E7, FM6_OWN + 3, 0) == 0 && motion.event[motion.count - 1u].value == FM6_OWN;
-        bad += check("motion holding SLOT 9..104: plays OWN, the patch kept; a record made on B3 stores OWN", ok);
+        bad += check("motion holding SLOT 9..136: plays OWN, the patch kept; a record made on B3 stores OWN", ok);
         memset(&motion, 0, sizeof motion);
     }
     return bad;
@@ -651,19 +651,34 @@ static int banks_test(void)
     bad += check("banks: bank 2 at 0xF9000, banks 0 and 1 kept", ok &&
                  ((st_hdr_t *)(nor + 0xF9000u))->type == OBJ_FM6VB &&
                  ((st_hdr_t *)(nor + 0xF9000u))->slot == 2);
-    arg[0] = 1;
-    request(ED_FM6B_LIST, arg, 1);
-    ok = rep[0] == 32 && rep[1] == 1 && !memcmp(rep + 2, "BANK1", 6);
-    bad += check("  .. LIST bank 1: its name", ok);
-    arg[0] = 2;
-    request(ED_FM6B_LIST, arg, 1);
-    ok = rep[0] == 32 && rep[1] == 1 && !memcmp(rep + 2, "BANK2", 6);
-    bad += check("  .. LIST bank 2: its name", ok);
-    slot_to(0, FM6_OWN + 1u + 32u);
-    ok = patch_is(0, b1.v[0]) && fm6_slot[0] == FM6_OWN + 33u;
-    slot_to(1, FM6_OWN + 1u + 64u);
-    ok &= patch_is(1, b2.v[0]);
-    bad += check("  .. SLOT B33 / B65 load banks 1 and 2", ok);
+    {
+        static bank_t b3;
+        make_bank(&b3, 'Z', 0x00000003u, "BANK3");
+        ok = send_bank_to(3, &b3, 0) == 0 && rep[1] == 2 && bank_is_n(3, &b3) && bank_is_n(2, &b2) &&
+             bank_is_n(1, &b1) && bank_is(&a);
+        bad += check("banks: bank 3 at 0xF4000, banks 0..2 kept", ok &&
+                     ((st_hdr_t *)(nor + 0xF4000u))->type == OBJ_FM6VB &&
+                     ((st_hdr_t *)(nor + 0xF4000u))->slot == 3);
+        arg[0] = 1;
+        request(ED_FM6B_LIST, arg, 1);
+        ok = rep[0] == 32 && rep[1] == 1 && !memcmp(rep + 2, "BANK1", 6);
+        bad += check("  .. LIST bank 1: its name", ok);
+        arg[0] = 2;
+        request(ED_FM6B_LIST, arg, 1);
+        ok = rep[0] == 32 && rep[1] == 1 && !memcmp(rep + 2, "BANK2", 6);
+        bad += check("  .. LIST bank 2: its name", ok);
+        arg[0] = 3;
+        request(ED_FM6B_LIST, arg, 1);
+        ok = rep[0] == 32 && rep[1] == 1 && !memcmp(rep + 2, "BANK3", 6);
+        bad += check("  .. LIST bank 3: its name", ok);
+        slot_to(0, FM6_OWN + 1u + 32u);
+        ok = patch_is(0, b1.v[0]) && fm6_slot[0] == FM6_OWN + 33u;
+        slot_to(1, FM6_OWN + 1u + 64u);
+        ok &= patch_is(1, b2.v[0]);
+        slot_to(2, FM6_OWN + 1u + 96u);
+        ok &= patch_is(2, b3.v[0]) && fm6_slot[2] == FM6_OWN + 97u;
+        bad += check("  .. SLOT B33 / B65 / B97 load banks 1, 2 and 3", ok);
+    }
     send_bank_to(1, &b1, 0);
     memset(nor + 0xF8000u, 0xFF, 0x1000u);
     memset(fm6_bank_used, 0, sizeof fm6_bank_used);
@@ -685,12 +700,12 @@ static int banks_test(void)
         ok = bank_is(&a) && ((st_hdr_t *)(nor + 0xE7000u))->slot == 0;
     }
     bad += check("banks: boot still accepts legacy staged slot==1 as bank 0", ok);
-    arg[0] = 3;
+    arg[0] = 4;
     request(ED_FM6B_BEGIN, arg, 1);
     ok = rep[0] == 1;
     request(ED_FM6B_LIST, arg, 1);
     ok &= rep_n == 0;
-    bad += check("banks: BEGIN/LIST bank 3 refused", ok);
+    bad += check("banks: BEGIN/LIST bank 4 refused", ok);
     bad += check("  .. the autosave still loads",
                  st_load(OBJ_AUTOSAVE, got, sizeof got) == (int)sizeof as_data && !memcmp(got, as_data, sizeof as_data));
     return bad;

@@ -4,8 +4,8 @@
 
 ### Installer / Return-to-V15: Araminta flash sectors
 
-The web installer and **Return to official V15** copy say flash `0xF4000..0xF9FFF` (factory presets, user banks,
-extra FM6 banks) and the gap user bank are Araminta's. Byte-exact stock needs a **full flash backup**
+The web installer and **Return to official V15** copy say flash `0xF4000..0xF9FFF` (user banks, FM6 banks including
+bank 3 at F4000) and the gap user bank are Araminta's. Byte-exact stock needs a **full flash backup**
 (`tools/fm1_flash_dump.py`), not only an FM-1 editor SysEx dump. V15 erases the gap on every stock boot.
 UBOOT write-back of F4000–F9FFF on return to V15 is a follow-up (not built here).
 
@@ -14,11 +14,11 @@ UBOOT write-back of F4000–F9FFF on return to V15 is a follow-up (not built her
 `UP_SLOTS` is 96 (six banks × 16). Banks 0/1 stay at `0xDC000..0xDFFFF` (A/B). Banks 2..4 are single-copy at
 `0xF5000` / `0xF6000` / `0xF7000`. Bank 5 takes the remaining gap `0x95000..0x96FFF` (A/B). Each sector holds one
 `up_bank_t` (3080 B) = **16 presets** — older notes that said “48 presets in 2 gap sectors” meant total `UP_SLOTS` at
-the time (DC000×2 + gap), not density. Factory F01–F16 stay separate at `0xF4000` (seeded on boot from `FAC_SRC`; no
-permanent `.pool` mirror). User-preset FM6 patches use packed ver-2 flash (`used[3]`, at most 32 dense entries in RAM)
-so the pool stays under the 8192 free bar; favourites for slots 32..95 live in the reserved settings row and the
-favourites block sits on default BSS. Backup ids **10..13** are banks 2..5. FM6 multi-bank select (INFO `56 01 60`) is
-unchanged. Stock V15 erases the gap on boot, so Araminta gap-bank data is lost only on return to stock.
+the time (DC000×2 + gap), not density. `0xF4000` is FM6 voice bank 3 (not a user-preset factory bank). User-preset
+FM6 patches use packed ver-2 flash (`used[3]`, at most 32 dense entries in RAM) so the pool stays under the 8192 free
+bar; favourites for slots 32..95 live in the reserved settings row and the favourites block sits on default BSS.
+Backup ids **10..13** are banks 2..5. Stock V15 erases the gap on boot, so Araminta gap-bank data is lost only on
+return to stock.
 
 ### Size: USB serial console off by default
 
@@ -26,14 +26,11 @@ unchanged. Stock V15 erases the gap on boot, so Araminta gap-bank data is lost o
 RAM back). USB is audio + MIDI only, which is what macOS needs for the audio input. Set `FELUCCA_CDC=1` for a
 developer build that keeps MENU > USB SERIAL. Sound and golden are unchanged.
 
-### Factory preset bank at 0xF4000
+### F4000 is FM6 bank 3
 
-Sixteen built-in presets (picked from the engine factory lists) live as a single-copy FELU bank at flash
-`0xF4000` (`OBJ_FACBANK`). Stock V15 ignores that sector; the flash map now allows the reclaim band
-`0xF4000..0xF9FFF` and still refuses E8000 and the rest of stock USR. The bank is seeded on first boot from the
-image's selection table and is read-only in the PRESETS list (`F01`..`F16`). Proposed picks (Natan to review):
-ANALOG SAW LEAD / SUB BASS / SUPER SAW, FM6 TINE EP / FM BASS / BELL, VOICE CHOIR AAH, PHYS MARIMBA / PLUCK,
-WHEEL FULL ORGAN, WT PAD, GRAIN CLOUD PAD, LOFI ARP 8BIT, PHASE BRASS, TRIO FAT BASS, NOISE WIND.
+`0xF4000` holds FM6 voice bank 3 (fourth 32-voice home, `OBJ_FM6VB` commits like F8000/F9000), not a read-only
+user-preset factory bank. `OBJ_FACBANK` / `up_factory.c` / PRESETS `F01`..`F16` are gone. Reclaim band remains
+`0xF4000..0xF9FFF` (user banks F5–F7 + FM6 F8/F9/F4); E8000 and the rest of stock USR stay refused.
 
 ### FUN20 projects (4 KiB, single-copy) and punch-in lane
 
@@ -60,17 +57,18 @@ MENU > SYSTEM > **BOOT RESTORE** (was RESTORE LAST; editor id 15 unchanged). The
 same idle / quiet / once-a-minute rules whether the setting is ON or OFF. OFF only skips power-on restore
 (power-on sounds; the flash copy stays for later). ON still shows RESTORED when a valid autosave loads.
 
-### FM6 voice banks 1–2 at F8000/F9000
+### FM6 voice banks at F8000/F9000/F4000
 
-Three 32-voice homes: bank 0 at `0xE7000`, bank 1 at `0xF8000`, bank 2 at `0xF9000` (reclaim band; not storage
-objects). `FM6B_BEGIN` / `FM6B_LIST` take an optional bank 0..2. Staging still uses the autosave's older copy with
-commit slot `0x10 | bank` (legacy staged `slot == 1` still finishes as bank 0). The gap at `0x95000` stays
-user-preset bank 5. SLOT B1..B96 and INFO `56 01 60` are unchanged; stored bank SLOT values still load as OWN.
+Four 32-voice homes: bank 0 at `0xE7000`, bank 1 at `0xF8000`, bank 2 at `0xF9000`, bank 3 at `0xF4000` (reclaim
+band; not storage objects). `FM6B_BEGIN` / `FM6B_LIST` take an optional bank 0..3. Staging still uses the autosave's
+older copy with commit slot `0x10 | bank` (legacy staged `slot == 1` still finishes as bank 0). The gap at `0x95000`
+stays user-preset bank 5. Stored bank SLOT values still load as OWN.
 
-### FM6 SLOT 0..104 (three banks × 32)
+### FM6 SLOT 0..136 (four banks × 32)
 
-FM6's SLOT runs to 104 with `N_FM6_PATCH` names F1..F8, OWN, B1..B96. INFO advertises `56 01 60` (96 voices).
-Stored bank SLOT values still load as OWN (`param_fit`).
+FM6's SLOT runs to 136 with `N_FM6_PATCH` names F1..F8, OWN, B1..B128. INFO advertises `56 01 00 01` (128 voices
+as two 7-bit SysEx bytes; a lone `80` byte is not legal on the wire). Stored bank SLOT values still load as OWN
+(`param_fit`).
 
 EFFECTS > TAPE now starts as MASTER at MIX 100 %: at SPEED 100 the head is idle, so a power-on instrument and a
 new project sound the same as before, and the whole mix follows SPEED / FLUTR / DROPOUT without raising MIX

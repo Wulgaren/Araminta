@@ -1652,8 +1652,6 @@ static int test_categories(void)
     for (n = 0, e = 0; e < NENGINES; e++)
         for (k = 0; eng_ok(e) && k < preset_shown(e); k++)
             n += preset_cat(e, k) == CAT_BASS;
-    for (k = 0; k < up_fac_count(); k++)                 /* F4000 bank slots in the same category list */
-        n += up_fac_cat(k) == CAT_BASS;
     bad += check("  KNOB 4: ALL, FAV, then BASS: the list holds the factory basses only, the sound not loaded",
                  list_mode() == 2u && str_eq(list_name(list_mode()), "BASS") && !favorites.filter && ui_lcat == CAT_BASS &&
                  total == n && n >= 6u && pos == total && TSEL->eng_req == 0u && TSEL->preset == 0u);
@@ -1662,7 +1660,6 @@ static int test_categories(void)
         turn(EN_PRESET, 1);
         ok &= track_cat(TSEL) == CAT_BASS;
     }
-    /* FAC bank slots share identity with their source factory presets, so list position may snap; categories still BASS */
     bad += check("  the PRESETS knob steps through basses only (every engine), and round", ok);
     turn(EN_K4, 20);
     bad += check("  .. right to OTHER and no further (no wrap)", list_mode() == LIST_N - 1u && str_eq(list_name(list_mode()), "OTHER"));
