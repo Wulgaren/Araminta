@@ -121,7 +121,7 @@ PATCHES = [
         op(ol=0),
         op(ol=0)],
         fb=0, lpms=0)),
-    # F9..F14 (the six preset patches): one algorithm and operator set each, none a macro variant.
+    # F9..F15 (the seven preset patches): one algorithm and operator set each, none a macro variant.
     ("METAL VOX", voice("METAL VOX", 1, [
         op(r=(99, 70, 60, 70), l=(99, 90, 80, 0), ol=99, kvs=2, rs=3),
         op(r=(99, 60, 50, 60), l=(99, 85, 75, 0), ol=78, fc=3, kvs=4, rs=3),
@@ -146,15 +146,15 @@ PATCHES = [
         op(r=(99, 98, 94, 98), l=(99, 55, 50, 0), ol=40, fc=7, det=5, kvs=6),
         op(r=(99, 99, 96, 99), l=(99, 45, 40, 0), ol=30, fc=11, kvs=7)],
         fb=0, lpms=0)),
-    ("FM GROWL", voice("FM GROWL", 4, [
-        op(r=(99, 50, 40, 60), l=(99, 80, 60, 0), ol=98, kvs=2),
-        op(r=(99, 60, 50, 65), l=(99, 70, 50, 0), ol=80, fc=1, det=8, kvs=4),
-        op(r=(99, 65, 55, 70), l=(99, 60, 40, 0), ol=70, fc=2, det=6, kvs=5),
-        op(r=(99, 55, 45, 65), l=(99, 70, 50, 0), ol=75, fc=1, det=9, kvs=3),
-        op(r=(99, 60, 50, 70), l=(99, 65, 45, 0), ol=68, fc=2, det=5, kvs=4),
-        op(r=(99, 70, 60, 75), l=(99, 50, 30, 0), ol=55, fc=3, kvs=6)],
+    ("FM GROWL", voice("FM GROWL", 1, [
+        op(r=(99, 60, 50, 70), l=(99, 90, 85, 0), ol=99, kvs=2, rs=3),
+        op(r=(99, 55, 45, 65), l=(99, 85, 80, 0), ol=88, fc=1, det=8, kvs=4, rs=3),
+        op(r=(99, 50, 40, 60), l=(99, 80, 75, 0), ol=80, fc=2, det=6, kvs=5, rs=3),
+        op(r=(99, 45, 35, 55), l=(99, 75, 70, 0), ol=70, fc=3, det=9, kvs=6, rs=4),
+        op(r=(99, 40, 30, 50), l=(99, 70, 65, 0), ol=60, fc=4, det=5, kvs=7, rs=4),
+        op(r=(99, 35, 25, 45), l=(99, 65, 60, 0), ol=50, fc=5, kvs=8, rs=4)],
         fb=7, lpms=0)),
-    ("OCTAVE 6", voice("OCTAVE 6", 7, [
+    ("OCT STACK", voice("OCT STACK", 7, [
         op(r=(99, 60, 45, 60), l=(99, 70, 0, 0), ol=96, kvs=2),
         op(r=(99, 65, 50, 65), l=(99, 60, 0, 0), ol=70, fc=2, kvs=4),
         op(r=(99, 70, 55, 70), l=(99, 50, 0, 0), ol=60, fc=4, kvs=5),
@@ -170,6 +170,14 @@ PATCHES = [
         op(r=(99, 99, 95, 99), l=(99, 40, 30, 0), ol=40, fc=17, kvs=7, rs=4),
         op(r=(99, 99, 95, 99), l=(99, 30, 20, 0), ol=30, fc=19, kvs=8, rs=4)],
         fb=7, lpms=0)),
+    ("FM REESE", voice("FM REESE", 5, [
+        op(r=(99, 50, 40, 60), l=(99, 95, 90, 0), ol=96, det=4),
+        op(r=(99, 55, 45, 65), l=(99, 85, 80, 0), ol=60, fc=1, det=9),
+        op(r=(99, 45, 35, 60), l=(99, 95, 90, 0), ol=92, det=10),
+        op(r=(99, 50, 40, 65), l=(99, 85, 80, 0), ol=55, fc=2, det=4),
+        op(r=(99, 40, 30, 55), l=(99, 95, 90, 0), ol=88, det=7),
+        op(r=(99, 45, 35, 60), l=(99, 85, 80, 0), ol=50, fc=1, det=9)],
+        fb=3, lpms=0)),
 ]
 
 

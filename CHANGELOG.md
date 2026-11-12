@@ -2,18 +2,18 @@
 
 ## Unreleased
 
-### Factory presets: 25 sounds, and FM6 F9..F14
+### Factory presets: 26 sounds, and FM6 F9..F15
 
-Sixteen new or reworked factory sounds join the nine kept from the first pass. ANALOG gains SYNC LEAD and SUB
+Seventeen new or reworked factory sounds join the nine kept from the first pass. ANALOG gains SYNC LEAD and SUB
 DRONE, VOICE gains TALK LEAD, TRIO gains RING NOISE and SYNC STACK, WHEEL gains PERC STOP, PHYS gains GLASS BOW,
 and the reworked slots are GRAIN STRETCH, NOISE REG BELL and WAVETABLE WT FDBK. NOISE LD leaves the LOFI list.
 The nine kept are AIR PAD, FILTER SWP, PHASE GLASS, LOFI TRI LD, VOICE OOOH PAD, TRIO FIFTHS and SAW STACK, WHEEL
 CHURCH and WAVETABLE HOLLOW.
 
-FM6 gains six factory patches, F9..F14 (METAL VOX, HOLLOW FM, CRYSTAL, FM GROWL, OCTAVE 6, AIR NOISE), and six
-presets built around them. SLOT now runs 0..142: F1..F14, OWN (14), B1..B128 (15..142). Stored SLOT values 8..142
-load as OWN with the patch that came with them, and `fm6_adopt` shows F9..F14 again when that patch is one of the
-factory ones unchanged. Old projects and user presets saved on B1..B4 therefore keep their sound.
+FM6 gains seven factory patches, F9..F15 (METAL VOX, HOLLOW FM, CRYSTAL, FM GROWL, OCT STACK, AIR NOISE, FM REESE),
+and seven presets built around them. SLOT now runs 0..143: F1..F15, OWN (15), B1..B128 (16..143). Stored SLOT values
+8..143 load as OWN with the patch that came with them, and `fm6_adopt` shows F9..F15 again when that patch is one of
+the factory ones unchanged. Old projects and user presets saved on B1..B4 therefore keep their sound.
 
 ### Installer / Return-to-V15: Araminta flash sectors
 

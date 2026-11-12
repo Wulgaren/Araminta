@@ -581,7 +581,7 @@ static int pc_test(void)
     {
         track_t *f = &trk[1];
         uint8_t v[FP_SIZE + 1u];
-        uint32_t nfp = ENGINES[ENGI_FM6]->npresets;     /* 14: F1..F14 (the six new presets included) */
+        uint32_t nfp = ENGINES[ENGI_FM6]->npresets;     /* 15: F1..F15 (the seven new presets included) */
         set_engine_of(f, ENGI_FM6);
         pc(1, 4); frame();
         ok = f->preset == 4 && f->p[P_E7] == 4 && fm6_slot[1] == 4u && f->p[P_E6] == 30;   /* PAD: F5, DTUN 30 */

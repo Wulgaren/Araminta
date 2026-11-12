@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* The FM6 voice bank (1.4.1, Discussion #168): 32 voices loaded at once from the web editor (a 32-voice .syx, its
  * 128-byte packed records as they are), picked on the device with FM6's SLOT B1..B128 (eng_fm6.c). A voice is read
- * from flash when SLOT loads it, into the track's patch as F1..F14 load theirs: the patch is the track's from then on,
+ * from flash when SLOT loads it, into the track's patch as F1..F15 load theirs: the patch is the track's from then on,
  * and a project or a user preset keeps it whatever the bank holds later. RAM: the used mask (eng_fm6.c
  * fm6_bank_used) and the transfer's state, in the pool; no copy of the bank.
  *

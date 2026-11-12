@@ -499,9 +499,9 @@ static void macros(void)
         trk[0].p[P_E7] = FM6_OWN;
         fm6_poll();
         check("SLOT back to OWN: the own patch again", fm6_slot[0] == FM6_OWN && !memcmp(fm6_patch[0], own, FP_SIZE));
-        check("SLOT: F1..F14, OWN, then B1..B128 (four voice banks), nothing past it",
+        check("SLOT: F1..F15, OWN, then B1..B128 (four voice banks), nothing past it",
               ENG_FM6.edit[7].max == FM6_OWN + FM6_NBANK_TOTAL && FM6_OWN == FM6_NFACTORY &&
-              FM6_NFACTORY == 14u && FM6_NBANK == 32u && FM6_NBANKS == 4u && FM6_NBANK_TOTAL == 128u &&
+              FM6_NFACTORY == 15u && FM6_NBANK == 32u && FM6_NBANKS == 4u && FM6_NBANK_TOTAL == 128u &&
               !strcmp(ENG_FM6.edit[7].names[FM6_OWN], "OWN") && !strcmp(ENG_FM6.edit[7].names[FM6_OWN + 1], "B1") &&
               !strcmp(ENG_FM6.edit[7].names[FM6_OWN + FM6_NBANK_TOTAL], "B128") &&
               !ENG_FM6.edit[7].names[FM6_OWN + FM6_NBANK_TOTAL + 1]);
