@@ -2,137 +2,76 @@
 
 ## Unreleased
 
-### PIT GLD: chord glide on POLY
+## 3.10
 
-`EDIT > VOICE` gains **PIT GLD** (POLY only). On, the notes of a chord pair with the notes of the next chord and
-glide, each voice keeping its envelope: the sequence does it on its own when the next step is a NOTE, and live
-CHRD keys or MIDI chords do it while the old chord is still held or within one 1/8 after its release. Added notes
-start at the nearest old pitch and fade in; extra old notes glide to the nearest new pitch and release. A held
-plucky sound whose envelope has died attacks again at the new chord. With PIT GLD
-on, GLD reads as a percentage of the chord (100 %: the whole chord, TIE steps included). Off by default: POLY tracks
-sound as before. The switch is bit 5 of `P_ALLOC`, so projects, presets and backups keep it without a format change.
-PITCH moves to **VOICE 2** in every voice mode; UNISON keeps UNI DTN on the VOICE page.
+Projects grow to FUN20. The flash map takes more of the gap for autosave and banks. POLY gets chord glide.
+Factory sounds and FM6 patches land in the same build as DIST MODE OTT, with USB serial off so the image fits.
 
-### Factory presets: 26 sounds, and FM6 F9..F15
-
-Seventeen new or reworked factory sounds join the nine kept from the first pass. ANALOG gains SYNC LEAD and SUB
-DRONE, VOICE gains TALK LEAD, TRIO gains RING NOISE and SYNC STACK, WHEEL gains PERC STOP, PHYS gains GLASS BOW,
-and the reworked slots are GRAIN STRETCH, NOISE REG BELL and WAVETABLE WT FDBK. NOISE LD leaves the LOFI list.
-The nine kept are AIR PAD, FILTER SWP, PHASE GLASS, LOFI TRI LD, VOICE OOOH PAD, TRIO FIFTHS and SAW STACK, WHEEL
-CHURCH and WAVETABLE HOLLOW.
-
-FM6 gains seven factory patches, F9..F15 (METAL VOX, HOLLOW FM, CRYSTAL, FM GROWL, OCT STACK, AIR NOISE, DUBSTEP BASS),
-and seven presets built around them. SLOT now runs 0..143: F1..F15, OWN (15), B1..B128 (16..143). Stored SLOT values
-8..143 load as OWN with the patch that came with them, and `fm6_adopt` shows F9..F15 again when that patch is one of
-the factory ones unchanged. Old projects and user presets saved on B1..B4 therefore keep their sound.
-
-### Installer / Return-to-V15: Araminta flash sectors
-
-The web installer and **Return to official V15** copy say flash `0xF4000..0xF9FFF` (user banks, FM6 banks including
-bank 3 at F4000) and the gap user bank are Araminta's. Byte-exact stock needs a **full flash backup**
-(`tools/fm1_flash_dump.py`), not only an FM-1 editor SysEx dump. V15 erases the gap on every stock boot.
-UBOOT write-back of F4000–F9FFF on return to V15 is a follow-up (not built here).
-
-### User preset banks at F5000–F7 + gap (96 slots)
-
-`UP_SLOTS` is 96 (six banks × 16). Banks 0/1 stay at `0xDC000..0xDFFFF` (A/B). Banks 2..4 are single-copy at
-`0xF5000` / `0xF6000` / `0xF7000`. Bank 5 takes the remaining gap `0x95000..0x96FFF` (A/B). Each sector holds one
-`up_bank_t` (3080 B) = **16 presets** — older notes that said “48 presets in 2 gap sectors” meant total `UP_SLOTS` at
-the time (DC000×2 + gap), not density. `0xF4000` is FM6 voice bank 3 (not a user-preset factory bank). User-preset
-FM6 patches use packed ver-2 flash (`used[3]`, at most 32 dense entries in RAM) so the pool stays under the 8192 free
-bar; favourites for slots 32..95 live in the reserved settings row and the favourites block sits on default BSS.
-Backup ids **10..13** are banks 2..5. Stock V15 erases the gap on boot, so Araminta gap-bank data is lost only on
-return to stock.
-
-### Size: USB serial console off by default (OTT headroom)
-
-`FELUCCA_CDC` defaults to 0 once OTT is in the same image: audio + MIDI only (~7.8 KiB less XIP). Set
-`FELUCCA_CDC=1` for a developer build with MENU > USB SERIAL. With OTT + the new factory presets, CDC-on
-overflows the app slot by ~2.8 KiB.
-
-### F4000 is FM6 bank 3
-
-`0xF4000` holds FM6 voice bank 3 (fourth 32-voice home, `OBJ_FM6VB` commits like F8000/F9000), not a read-only
-user-preset factory bank. `OBJ_FACBANK` / `up_factory.c` / PRESETS `F01`..`F16` are gone. Reclaim band remains
-`0xF4000..0xF9FFF` (user banks F5–F7 + FM6 F8/F9/F4); E8000 and the rest of stock USR stay refused.
-
-### FUN20 projects (4 KiB, single-copy) and punch-in lane
-
-Projects are FUN20 (`FUNK`): 4096 bytes, single-copy in flash (no A/B). DX stays at 3216 and FM6 at 3312;
-the name moved to 4080. The 256 B append at 3824..4079 holds motion records 89..128 (120 B), the 40 B
-audio punch-in lane (64 steps × 5 bits) with marker `'L'` at 3984, and spare motion 129..155 (81 B from 3986).
-`MOTION_FILE_MAX` is **155** (RAM still 192); AUTOMATION SAVE LIMIT fires when the 156th record is added.
-FUN7..FUN19 still load. The four 4 KiB `.noinit` wire caches are gone; a 44 B RAM summary per slot (176 B
-total) feeds SONG / PROJECTS. A torn project save clears that slot (autosave is the recovery path). The
-autosave is a split A/B pair at full 4096 B (lane and motion through 155 included): A grows in place at
-`0xE5000..0xE6FFF` (two sectors), B takes `0x93000..0x94FFF` in the gap; user samples stay 80 KiB × 3. A
-pre-3.10 one-sector B at `0xE6000` migrates into the gap on boot. `0xE7000` (FM6 voice bank) and `0xE8000`
-stay untouched; `0x95000..0x96FFF` holds user-preset bank 5. Older 3840 B backups and field files still restore.
-
-Punch-in buffer borrow: taking sl_buf for REPEAT/REVERSE/FREEZE/TAPE/OCT/GLITCH now drops MASTER STUT
-takes as well as the tracks' (slicer_drop_all), so a master recording cannot read the punch's loop.
-Host harness tests/punch_crackle_test.c measures stacked / HOLD punch-in cost vs the half-buffer deadline
-and compares shed thresholds; perform_test covers the MASTER STUT borrow and heavy-mix clicks.
-Browser emu: web/emu/punch_emu_test.mjs imports a device backup into the same wasm as the page, holds punch-in
-stacks (including FX LATCH worst), and reports click / peak / wall-time CPU.
-
-DIST MODE OTT keeps the same curves and crossovers, but its six SVF sections and band state now live only on the
-DIST slots that need them (about 7 KB of pool back), the second half of each LR4 skips the unused LP/HP output,
-the 88 Hz low's second LP runs on an FS/4 grid (its input is already band-limited), and DEPTH 0 skips the
-detector and gain path. Shared cutoff coefs (three instead of six) and packed band arrays shrink the per-instance
-state further; one SVF helper replaces the duplicated LP/HP copies. The four per-track OTT blocks sit in .bss
-again (they fit after the shrink), so the pool keeps its 8 KiB spare beside the flash-bank reclaim work.
-
-### BOOT RESTORE (autosave always writes)
-
-MENU > SYSTEM > **BOOT RESTORE** (was RESTORE LAST; editor id 15 unchanged). The autosave keeps writing on the
-same idle / quiet / once-a-minute rules whether the setting is ON or OFF. OFF only skips power-on restore
-(power-on sounds; the flash copy stays for later). ON still shows RESTORED when a valid autosave loads.
-
-### FM6 voice banks at F8000/F9000/F4000
-
-Four 32-voice homes: bank 0 at `0xE7000`, bank 1 at `0xF8000`, bank 2 at `0xF9000`, bank 3 at `0xF4000` (reclaim
-band; not storage objects). `FM6B_BEGIN` / `FM6B_LIST` take an optional bank 0..3. Staging still uses the autosave's
-older copy with commit slot `0x10 | bank` (legacy staged `slot == 1` still finishes as bank 0). The gap at `0x95000`
-stays user-preset bank 5. Stored bank SLOT values still load as OWN.
-
-### FM6 SLOT 0..136 (four banks × 32)
-
-FM6's SLOT runs to 136 with `N_FM6_PATCH` names F1..F8, OWN, B1..B128. INFO advertises `56 01 00 01` (128 voices
-as two 7-bit SysEx bytes; a lone `80` byte is not legal on the wire). Stored bank SLOT values still load as OWN
-(`param_fit`).
-
-EFFECTS > TAPE now starts as MASTER at MIX 100 %: at SPEED 100 the head is idle, so a power-on instrument and a
-new project sound the same as before, and the whole mix follows SPEED / FLUTR / DROPOUT without raising MIX
-first. SAVE > CLEAR > FX ALL returns to the same state. Projects saved before this build (FUN16 and older) still
-load with TAPE off, exactly as they played.
-
-CC 71 / 72 / 73 / 74 turn the four knobs of the page on screen, on the selected track, and CC 75 / 76 / 77 are SELECT,
-ALGORITHM and PRESETS. Each message is one step, so a pot and an endless encoder both work. MIDI LEARN is gone: GLO + D4, MENU > MIDI > LEARN CLEAR and the editor's 78 / 79
-commands and `43 01 16` block. The 32 settings bytes it used stay reserved, so older projects and settings still load.
+Splash and ABOUT show `v3.10`.
 
 ### Compatibility
 
-No project or preset change; the settings record keeps its layout and row 13 stays reserved unused. A learned CC map in
-an older setting is ignored. MENU > MIDI > MIDI IN now defaults to SEL for a new project: an external keyboard plays
-the selected track, as the keys do. Projects that hold CH1-4 keep it.
+Projects are FUN20 (`FUNK`, 4096 B, one flash copy). FUN7..FUN19 still load. Autosave is a full 4096 B A/B pair
+(A at `0xE5000..0xE6FFF`, B at `0x93000..0x94FFF`). A pre-3.10 one-sector B at `0xE6000` migrates on boot.
+Settings keep their layout; row 13 stays reserved. Older 3840 B backups still restore.
 
-### Screen knobs
+Before installing over stock, take a **full flash dump** with `tools/fm1_flash_dump.py`. An editor SysEx backup
+does not keep factory radio calibration in the gap. The installer asks for that confirm when the device is not
+already running Araminta. Stock V15 erases the gap on every boot.
 
-CC 71..74 are KNOB 1..4 of whatever page is shown: HOME's cards, a sound page, FX, the global pages. They edit the
-selected track, so browsing sounds, moving a cursor and running an action work as the panel's knobs do. The way comes
-from the message's move, or from its side of 64 when the value repeats; a fast stream speeds up as the panel's knobs do.
-MIDI IN only decides which channels are heard: in CH1-4 a message on channel 5 is ignored, and SEL hears every channel.
-Other mapped CCs (5, 7, 10, 91, 93, 94) still set their parameter absolutely on the track the channel plays. DECAY
-loses its CC 75 to SELECT; the panel's pot still owns MASTER.
+### FUN20 and punch-in
 
-### CLEAR ALL
+The 256 B append holds motion through record 155, plus a 40 B audio punch-in lane. AUTOMATION SAVE LIMIT fires
+on the 156th record (RAM still holds 192). A torn project save clears that slot; Save writes the current song
+into the autosave first so recovery is current. Punch-in borrow of `sl_buf` also drops MASTER STUT takes, so a
+master recording cannot read the punch loop.
 
-SAVE > CLEAR's two ALL keys now put the mix and the arpeggiator back as well: F#3 (a track) and G#3 (every track)
-reset LEVEL, PAN, PLAY (so a soloed or muted track comes back sounding) and the arp's MODE RATE OCT GATE SWG PROB
-HOLD ORD. A latched HOLD chord stops, so nothing keeps playing after a clear. The FX sends were already cleared. The
-other cells (PAT, SND, MOT, FX, PATS, SNDS, MOTS, FXS) are unchanged, and a preset or sound load still keeps the
-mix and the arp as it always has. SAVE held undoes the whole thing, mix and arp included.
+### Flash layout
+
+User presets are 96 slots (six banks × 16). Banks 0/1 stay at `0xDC000`. Banks 2..4 are single-copy at
+`0xF5000` / `0xF6000` / `0xF7000`. Bank 5 uses `0x95000..0x96FFF`. Backup ids 10..13 cover banks 2..5.
+
+FM6 has four 32-voice homes: `0xE7000`, `0xF8000`, `0xF9000`, and bank 3 at `0xF4000`. SLOT is 0..143
+(F1..F15, OWN, B1..B128). INFO advertises 128 bank voices as two 7-bit bytes. User-preset FM6 patches reclaim
+on delete and refuse a 33rd entry instead of saving a hollow preset.
+
+### PIT GLD
+
+`EDIT > VOICE` gains **PIT GLD** (POLY only). Chord notes pair with the next chord and glide, in the sequence or
+live from CHRD keys and MIDI. A released live chord keeps sounding for one 1/8 so the next can glide into it.
+A plucky envelope that has died attacks again at the new chord. With PIT GLD on, GLD reads as a share of the
+chord. Off by default. The switch is bit 5 of `P_ALLOC` (no format bump). Editor SWEEP SET keeps that bit.
+PITCH lives on **VOICE 2** in every mode; UNISON keeps UNI DTN on VOICE. POLY SPRD automation records SPRD, not
+UNI DTN.
+
+### Factory sounds and FM6
+
+Seventeen new or reworked factory sounds join nine kept from the first pass (SYNC LEAD, SUB DRONE, TALK LEAD,
+RING NOISE, SYNC STACK, PERC STOP, GLASS BOW, and reworks of STRETCH, REG BELL, WT FDBK; NOISE LD leaves LOFI).
+FM6 adds F9..F15 (METAL VOX, HOLLOW FM, CRYSTAL, FM GROWL, OCT STACK, AIR NOISE, DUBSTEP BASS) and presets for
+them. DUBSTEP BASS lists under BASS.
+
+### OTT and size
+
+DIST MODE OTT ships in the release image. USB serial (`FELUCCA_CDC`) defaults off so audio + MIDI fit; set
+`FELUCCA_CDC=1` for a developer build with MENU > USB SERIAL.
+
+### BOOT RESTORE
+
+MENU > SYSTEM > **BOOT RESTORE** (was RESTORE LAST). The autosave still writes on the idle rules when OFF; OFF
+only skips power-on restore.
+
+### Installer
+
+Return to V15 and the install copy name Araminta's reclaim sectors (`0xF4000..0xF9FFF` and the gap user bank).
+Byte-exact stock needs the full flash dump above. UBOOT write-back of those sectors on return to V15 is not in
+this build.
+
+### Other
+
+EFFECTS > TAPE starts as MASTER at MIX 100 % (idle head at SPEED 100). SAVE > CLEAR's ALL keys also reset the
+mix and the arpeggiator. CC 71..74 turn the on-screen knobs; 75..77 are SELECT, ALGORITHM and PRESETS. MIDI
+LEARN is gone; its settings bytes stay reserved so older settings load.
 
 ## 3.9
 
