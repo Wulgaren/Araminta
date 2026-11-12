@@ -1402,6 +1402,8 @@ __attribute__((noinline)) static void cg_pair(track_t *t, const uint8_t *o, uint
                 }
         if (i < a && i < b && v) {                      /* a pair: the old note glides to the new */
             int32_t d;
+            if (v->stage == 2u && v->env < (1 << 12))   /* a plucky sound had died: attack the new chord */
+                v->stage = 1;
             v->note = n[i];
             v->pitch16 = (int32_t)n[i] * 16 + t->pfx_rpit;
             d = v->pitch16 - v->pitch_cur;

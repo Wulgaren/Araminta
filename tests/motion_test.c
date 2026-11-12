@@ -1655,7 +1655,32 @@ static int pit_gld_seq(void)
                  v && !v->gate && v->pitch16 == 69 * 16 && v->gq8);
     seq_release(t);
 
+    /* plucky: the held chord's envelope dies, the next chord attacks again while it glides */
+    t->p[P_SUS] = 0;
+    t->p[P_DEC] = 20;
+    t->p[P_REL] = 20;
+    t->step[0] = (step_t){{60, 64, 67}, 3, ST_NOTE, 0, 100};
+    t->step[1] = (step_t){{62, 65, 69}, 3, ST_NOTE, 0, 100};
+    seq_release(t);
+    seq_step(t, &t->step[0], 0, div_samples(2), 0);
+    for (i = 0; i < 2000u; i++)
+        track_render(t, out, CTL);
+    v = cvoice(t, 60);
+    ok = v && v->gate && v->stage == 2u && v->env < (1 << 12);
+    seq_step(t, &t->step[1], 1, div_samples(2), 0);
+    v = cvoice(t, 62);
+    ok &= v && v->stage == 1u && v->gq8 && v->pitch_cur == 60 * 16;
+    track_render(t, out, CTL);
+    ok &= v && v->env > (1 << 12);
+    bad += check("PIT GLD plucky: a dead held envelope attacks again at the new chord", ok);
+    seq_release(t);
+    t->p[P_SUS] = 120;
+    t->p[P_DEC] = 70;
+    t->p[P_REL] = 60;
+
     /* off: the same steps retrigger, nothing is held */
+    t->step[0] = (step_t){{60, 64, 67, 72}, 4, ST_NOTE, 0, 100};
+    t->step[1] = (step_t){{62, 65, 69}, 3, ST_NOTE, 0, 100};
     cgld_set(t, 0);
     seq_step(t, &t->step[0], 0, div_samples(2), 0);
     ok = !t->seq_hold && t->seq_n == 4u;
