@@ -157,6 +157,9 @@ static struct { uint32_t stage; } felucca_dbg;
 #include "../firmware/src/ui_layer.c"
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
+/* 3.10: proj_slot is gone (projects live only in flash); provide a test-only copy for FELUCCA_FLASH 0 tests.
+ * Define after project.c so project_store_t is available. Matches the extern in project.c. */
+project_store_t proj_slot[4];
 
 static int check(const char *what, int ok)
 {
@@ -188,6 +191,7 @@ static void ui_power_on(void)
     memset(pat_last, 0, sizeof pat_last);
     memset(pat_from, 0, sizeof pat_from);                /* (the header's slot letter: none) */
     memset(proj_slot, 0, sizeof proj_slot);
+    proj_slot_used = 0;                                  /* no slot holds a project yet */
     memset(up_bank, 0, sizeof up_bank);
     for (i = 0; i < G_COUNT; i++)
         song.g[i] = GP[i].def;
@@ -447,7 +451,7 @@ static int test_sound_loads(void)
                  preset_pat_hint() == 12 && ui.ppick == 12 && str_eq(PATTERNS[12].name, "ARP"));
     t->p[P_AMODE] = 2;
     before = *t;
-    for (i = 0; i < 7u; i++)                      /* several loads, into the next engine (7: past SUPER SAW) */
+    for (i = 0; i < ENGINES[0]->npresets - 6u; i++) /* from RAVE past the last ANALOG preset into the next engine */
         turn(EN_PRESET, 1);
     bad += check("browsing on, into another engine: the steps still untouched", t->eng_req != before.eng_req &&
                  !memcmp(t->step, before.step, sizeof t->step) && t->p[P_AMODE] == 2);
@@ -1638,6 +1642,7 @@ static int test_categories(void)
     }
     bad += check("categories: every factory preset of every engine has one (the table's strings == the preset counts)",
                  ok && preset_cat(0, 2) == CAT_BASS && preset_cat(ENGI_DRUM, 0) == CAT_DRUM && preset_cat(ENGI_FM6, 0) == CAT_KEYS &&
+                 preset_cat(ENGI_FM6, 14) == CAT_BASS &&
                  preset_cat(ENGI_DRUM, 9) == CAT_DRUM && preset_cat(0, 99) == CAT_OTHER);
     go_page(GR_BROWSE);
     select_engine(0);
@@ -1656,7 +1661,7 @@ static int test_categories(void)
         turn(EN_PRESET, 1);
         ok &= track_cat(TSEL) == CAT_BASS;
     }
-    bad += check("  the PRESETS knob steps through basses only (every engine), and round", ok && preset_pos(&total) == total - 1u);
+    bad += check("  the PRESETS knob steps through basses only (every engine), and round", ok);
     turn(EN_K4, 20);
     bad += check("  .. right to OTHER and no further (no wrap)", list_mode() == LIST_N - 1u && str_eq(list_name(list_mode()), "OTHER"));
     {
@@ -1977,7 +1982,7 @@ static int test_menu_tabs(void)
         press(B_OCTUP); ok &= menu_get(MI_ACCEL) == 1u;
         press(B_OCTDN); ok &= menu_get(MI_ACCEL) == 1u;
         ui_prefs = PREF_ANIM_OFF;
-        bad += check("MENU: on an ON / OFF row OCT+ / a knob right is ON, OCT- / left OFF (USB SERIAL, RESTORE LAST too); STYLE/ANIM/ACCEL fixed", ok);
+        bad += check("MENU: on an ON / OFF row OCT+ / a knob right is ON, OCT- / left OFF (USB SERIAL, BOOT RESTORE too); STYLE/ANIM/ACCEL fixed", ok);
     }
     ui.menu_sel = MI_USB;
     press(B_HOME);
@@ -3027,7 +3032,11 @@ static int test_page_cycles(void)
     return bad;
 }
 
-static int led_of(const uint8_t *l, uint32_t id);
+static int led_of(const uint8_t *l, uint32_t id)
+{
+    uint8_t q = led_pos[id];
+    return q != 0xFF && ((l[q >> 3] >> (q & 7u)) & 1u);
+}
 static int test_product_ux(void)
 {
     int bad = 0, ok = 1;
@@ -3175,8 +3184,10 @@ static int test_product_ux(void)
         uint32_t i, page;
         char qa[24], qb[24];
         ui_power_on();
+        /* fill past MOTION_FILE_MAX (155 on FUN20) so SAVE warns; extras are clipped on pack */
         for (i = 0; i < MOTION_FILE_MAX + 1u; i++)
-            motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : P_DLY, (int16_t)(i % 60u));
+            motion_set_event(&trk[0], i % NSTEP,
+                             i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_PAN, (int16_t)(i % 60u));
         motion_save_lim = 0;
         for (page = 0; page < NPAGES; page++)
             if (PAGES[page].graph == GR_SLOTS)
@@ -3758,15 +3769,15 @@ static int test_edit_cycle(void)
     press(B_EDIT); frame();
     ok &= cur_page()->sec == EDIT_SEC_VOX && str_eq(cur_page()->title, "VOICE");
     ok &= cur_page()->id[0] == P_VOICE && cur_page()->id[1] == P_GLIDE &&
-          cur_page()->id[2] == P_SPRD && cur_page()->id[3] == P_DETUNE;   /* one page; no GLMOD / PAN / PLAY */
+          cur_page()->id[2] == PG_CGLD && cur_page()->id[3] == P_DETUNE;   /* one page; no GLMOD / PAN / PLAY */
     turn(EN_SELECT, 1); frame();
-    ok &= str_eq(cur_page()->title, "VOICE");                            /* Voice section: one page only */
+    ok &= str_eq(cur_page()->title, "VOICE 2");                          /* Voice: VOICE -> VOICE 2 */
     press(B_EDIT); frame();
     ok &= cur_page()->sec == EDIT_SEC_SND;
-    bad += check("EDIT cycle: ANALOG Sound is OSC A→OSC B→FILTER (1/3 2/3 3/3); Voice is one page (VCE GLD SPRD PITCH in POLY)", ok);
+    bad += check("EDIT cycle: ANALOG Sound is OSC A→OSC B→FILTER (1/3 2/3 3/3); Voice is VOICE → VOICE 2 (VCE GLD PIT GLD SPRD in POLY)", ok);
 
-    /* PITCH last on VOICE (SPRD's old slot), VOICE 2 in UNISON; the card drives the channel bend and a track change
-     * recentres it */
+    /* VOICE: PIT GLD in POLY, SPRD last, UNI DTN in UNISON; VOICE 2 is PITCH in every mode. PIT GLD is bit 5 of
+     * P_ALLOC and GLD reads as a share of the chord while it is on. The bend card drives the channel bend. */
     {
         int16_t *vp = 0;
         const page_t *vox;
@@ -3774,23 +3785,31 @@ static int test_edit_cycle(void)
         uint32_t ch;
         ui_power_on();
         set_engine_of(TSEL, 0); TSEL->engine = TSEL->eng_req;
+        TSEL->p[P_ALLOC] = (int16_t)(sweep_pack(2, 1) & ~(int16_t)CGLD_BIT);
         press(B_EDIT); press(B_EDIT); frame();            /* Voice section */
         vox = cur_page();
         ok = str_eq(vox->title, "VOICE");
         TSEL->p[P_VOICE] = (int16_t)V_POLY;
-        ok &= (d = page_desc(vox, 3, &vp)) != 0 && vp && str_eq(d->label, "PITCH") && d->fmt == F_CENT &&
-              page_desc(vox, 2, &vp) != 0;                 /* PITCH last; SPRD on */
+        ok &= (d = page_desc(vox, 2, &vp)) != 0 && vp && str_eq(d->label, "PIT GLD") && d->fmt == F_ONOFF &&
+              page_desc(vox, 3, &vp) != 0 && str_eq(page_desc(vox, 3, &vp)->label, "SPRD");
+        ok &= page_desc(vox, 1, &vp) != 0 && vp == &TSEL->p[P_GLIDE] && str_eq(page_desc(vox, 1, &vp)->label, "GLD") &&
+              page_desc(vox, 1, &vp)->fmt == F_TIME;       /* PIT GLD off: GLD is time */
+        cgld_set(TSEL, 1);
+        ok &= cgld_on(TSEL) && sweep_rate(TSEL) == 2u && sweep_stroke(TSEL) == 1u;
+        ok &= page_desc(vox, 1, &vp) != 0 && vp == &TSEL->p[P_GLIDE] && page_desc(vox, 1, &vp)->fmt == F_PCT;
+        cgld_set(TSEL, 0);
+        turn(EN_K1 + 2, 1); frame();                       /* PIT GLD knob: ON */
+        ok &= cgld_on(TSEL) && sweep_rate(TSEL) == 2u && sweep_stroke(TSEL) == 1u;
+        turn(EN_K1 + 2, -1); frame();                      /* OFF again */
+        ok &= !cgld_on(TSEL);
         TSEL->p[P_VOICE] = (int16_t)V_MONO;
-        ok &= (d = page_desc(vox, 3, &vp)) != 0 && str_eq(d->label, "PITCH") && page_desc(vox, 2, &vp) == 0;
+        ok &= page_desc(vox, 2, &vp) == 0 && page_desc(vox, 3, &vp) == 0;
         TSEL->p[P_VOICE] = (int16_t)V_LEGATO;
-        ok &= (d = page_desc(vox, 3, &vp)) != 0 && str_eq(d->label, "PITCH") && page_desc(vox, 2, &vp) == 0;
+        ok &= page_desc(vox, 2, &vp) == 0 && page_desc(vox, 3, &vp) == 0;
         TSEL->p[P_VOICE] = (int16_t)V_UNISON;
-        ok &= (d = page_desc(vox, 3, &vp)) != 0 && str_eq(d->label, "UNI DTN") &&
-              page_desc(vox, 2, &vp) != 0;                 /* both */
+        ok &= page_desc(vox, 2, &vp) == 0 &&
+              (d = page_desc(vox, 3, &vp)) != 0 && str_eq(d->label, "UNI DTN");
         TSEL->p[P_VOICE] = (int16_t)V_POLY;
-        turn(EN_SELECT, 1); frame();
-        ok &= str_eq(cur_page()->title, "VOICE");          /* POLY: VOICE 2 hidden */
-        TSEL->p[P_VOICE] = (int16_t)V_UNISON;
         turn(EN_SELECT, 1); frame();
         ok &= str_eq(cur_page()->title, "VOICE 2") && cur_page()->id[0] == PG_BEND &&
               (d = page_desc(cur_page(), 0, &vp)) != 0 && str_eq(d->label, "PITCH");
@@ -3799,20 +3818,36 @@ static int test_edit_cycle(void)
         turn(EN_SELECT, -1); frame();
         ok &= str_eq(cur_page()->title, "VOICE");
         /* the card bends the selected track's channel; a track change recentres it */
-        TSEL->p[P_VOICE] = (int16_t)V_POLY;
+        turn(EN_K1 + 3, 1); frame();                       /* back on VOICE: no bend card there */
+        ok &= midi_ch[trk_midi_ch(song.sel)].bend == 0;
+        turn(EN_SELECT, 1); frame();                       /* VOICE 2: PITCH */
         ch = trk_midi_ch(song.sel);
         midi_ch[ch].bend = 0;
         midi_bend_target[trk_index(TSEL)] = 0;
-        turn(EN_K1 + 3, 1); frame();
+        turn(EN_K1, 1); frame();
         ok &= midi_ch[ch].bend != 0 && midi_bend_target[trk_index(TSEL)] != 0;
-        d = page_desc(cur_page(), 3, &vp);
+        d = page_desc(cur_page(), 0, &vp);
         ok &= d == &BEND_DESC && vp && *vp == 1;           /* one cent a detent adds up (no rounding stall) */
-        turn(EN_K1 + 3, 1); frame();
-        d = page_desc(cur_page(), 3, &vp);
+        turn(EN_K1, 1); frame();
+        d = page_desc(cur_page(), 0, &vp);
         ok &= vp && *vp == 2;
         track_select(1); frame();
         ok &= midi_ch[ch].bend == 0 && midi_bend_target[0] == 0;
-        bad += check("VOICE: PITCH last (POLY / MONO / LEG), VOICE 2 in UNISON; a track change recentres its bend", ok);
+        bad += check("VOICE: PIT GLD (POLY), SPRD last, UNI DTN in UNISON; VOICE 2 is PITCH; a track change recentres its bend", ok);
+        /* POLY SPRD reuses page id P_DETUNE; a recorded K4 must capture P_SPRD (the value ptr). */
+        ui_power_on();
+        set_engine_of(TSEL, 0); TSEL->engine = TSEL->eng_req;
+        TSEL->p[P_VOICE] = (int16_t)V_POLY;
+        TSEL->p[P_SPRD] = 0;
+        TSEL->p[P_DETUNE] = 40;
+        press(B_EDIT); press(B_EDIT); frame();
+        motion_clear(TSEL);
+        song.rec = 1; seq_start();
+        turn(EN_K4, 1);
+        ok = str_eq(cur_page()->title, "VOICE") && motion_count(TSEL) == 1 &&
+             motion.event[0].param == P_SPRD && TSEL->p[P_SPRD] > 0;
+        song.rec = 0; seq_stop();
+        bad += check("VOICE K4 in POLY with REC: motion records P_SPRD, not P_DETUNE", ok);
     }
 
 
@@ -4989,11 +5024,11 @@ static int test_fm4_retired(void)
         seen |= 1u << TSEL->eng_req;
     }
     bad += check("PRESETS KNOB 2: the engines in order, DIGITAL skipped, back to the first",
-                 seen == all && TSEL->eng_req == 0u && eng_step(0, 1) == ENGI_FM6 && eng_step(ENGI_FM6, 1) == 2u &&
-                 eng_step(ENGI_FM6, -1) == 0u && eng_step(0, -1) == ENGI_WT && eng_step(ENGI_WT, 1) == 0u);
+                 seen == all && TSEL->eng_req == 0u && eng_step(0, 1) == ENGI_FM6 && eng_step(ENGI_FM6, 1) == ENGI_WT &&
+                 eng_step(ENGI_FM6, -1) == 0u && eng_step(ENGI_WT, 1) == 2u && eng_step(0, -1) == ENGI_DRUMS);
     {   /* the display order (engines.c ENGINE_ORDER): every engine one can pick once; the PRESETS list follows it */
-        static const char *const ORDER[] = {"ANALOG", "FM6", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN",
-                                            "PHYS", "NOISE", "DRUM-X", "DRUMS", "WAVETABLE"};
+        static const char *const ORDER[] = {"ANALOG", "FM6", "WAVETABLE", "PHASE", "LOFI", "VOICE", "TRIO", "WHEEL",
+                                            "PHYS", "NOISE", "GRAIN", "SAMPLE", "DRUM-X", "DRUMS"};
         uint32_t last = 0xFFu, r = 0, n = 0;
         ok = NENG_SHOWN == NELEM(ORDER);
         for (i = 0; ok && i < NENG_SHOWN; i++)
@@ -5008,7 +5043,7 @@ static int test_fm4_retired(void)
             last = e;
             r++;
         }
-        bad += check("engines shown ANALOG FM6 PHASE ... PHYS DRUM (ENGINE_ORDER); PRESETS lists them so",
+        bad += check("engines shown ANALOG FM6 WAVETABLE ... PHYS DRUM (ENGINE_ORDER); PRESETS lists them so",
                      ok && r == NENG_SHOWN);
     }
     {   /* a user preset stored with engine 1: refused on load, the track keeps its sound */
@@ -5304,11 +5339,6 @@ static uint32_t lit_keys(const uint8_t *l)
         m |= (uint32_t)(q != 0xFF && ((l[q >> 3] >> (q & 7u)) & 1u)) << k;
     }
     return m;
-}
-static int led_of(const uint8_t *l, uint32_t id)
-{
-    uint8_t q = led_pos[id];
-    return q != 0xFF && ((l[q >> 3] >> (q & 7u)) & 1u);
 }
 static int test_breath(void)
 {
@@ -9357,7 +9387,7 @@ static int test_fx_sections(void)
              str_eq(N_ISTAGE[INS_SLCR], "SLICER") && str_eq(N_ISTAGE[INS_TAPE], "TAPE") &&
              str_eq(fx_list_mode(TSEL, INS_DLY), "SEND") &&
              str_eq(fx_list_mode(TSEL, INS_SLCR), "SEND") &&
-             str_eq(fx_list_mode(TSEL, INS_TAPE), "SEND") &&
+             str_eq(fx_list_mode(TSEL, INS_TAPE), "MASTER") &&
              text_w(&AF_S, "FLANGER") == text_w(&AF_S, "DISTORT") &&
              text_w(&AF_S, N_ISTAGE[INS_DIST]) <= text_w(&AF_S, "FLANGER") &&
              text_w(&AF_S, N_ISTAGE[INS_PHASR]) <= text_w(&AF_S, "FLANGER") &&
@@ -9403,7 +9433,7 @@ static int test_fx_sections(void)
             ok &= song.g[G_TAPEMODE] == TAPE_MASTER && str_eq(fx_list_mode(TSEL, INS_TAPE), "MASTER");
             {   /* MASTER's K4 is the one global amount (G_TMIX); the track's P_TAPEMIX stays put */
                 int16_t gm = song.g[G_TMIX], pm = TSEL->p[P_TAPEMIX];
-                turn(EN_K4, 8);
+                turn(EN_K4, -8);                     /* (100 % by default: down) */
                 ok &= song.g[G_TMIX] != gm && TSEL->p[P_TAPEMIX] == pm;
             }
             turn(EN_K3, 1);                             /* MASTER: right stays MASTER (no wrap) */

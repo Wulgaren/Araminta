@@ -32,7 +32,7 @@ BLOCKS, BLK, KEEP = 20, 0x30, 0x2F
 
 def strip_module(src):
     src = re.sub(r"^export\s+", "", src, flags=re.M)
-    return re.sub(r"^import .*?;\n", "", src, flags=re.M)
+    return re.sub(r"^import .*?;\r?\n", "", src, flags=re.M)
 
 
 def product_of(raw):
@@ -69,7 +69,7 @@ def main(pkg, version, out):
     (inst / "index.html").write_text(html, encoding="utf-8")
     # the inlined bundle is one script scope: a duplicate top-level name is a parse error (node --check)
     body = "\n".join(re.findall(r"<script[^>]*>(.*?)</script>", html, re.S))
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
         f.write(body)
         tmp = f.name
     try:

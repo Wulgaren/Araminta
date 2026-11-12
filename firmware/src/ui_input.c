@@ -1276,7 +1276,12 @@ static void edit_param(uint32_t slot, int32_t steps)
     if (pg->id[slot] == PG_STRUM || pg->id[slot] == PG_STROKE) {
         uint32_t rate = pg->id[slot] == PG_STRUM ? (uint32_t)v : sweep_rate(TSEL);
         uint32_t stroke = pg->id[slot] == PG_STROKE ? (uint32_t)v : sweep_stroke(TSEL);
-        TSEL->p[P_ALLOC] = sweep_pack(rate, stroke);
+        TSEL->p[P_ALLOC] = (int16_t)(sweep_pack(rate, stroke) | (TSEL->p[P_ALLOC] & (int16_t)CGLD_BIT));
+        ui.force = 1;
+        return;
+    }
+    if (pg->id[slot] == PG_CGLD) {
+        cgld_set(TSEL, v != 0);
         ui.force = 1;
         return;
     }
@@ -1285,7 +1290,9 @@ static void edit_param(uint32_t slot, int32_t steps)
         uint32_t id = pg->id[slot];
         if (pg->graph == GR_MOD)
             id += 3u * mod_ui_slot;
-        /* id from the page: vp may point at fx_bus_trk for SEND knobs */
+        /* page id may alias (VOICE POLY SPRD uses P_DETUNE); prefer the real p[] index */
+        if (vp >= TSEL->p && vp < TSEL->p + P_COUNT)
+            id = (uint32_t)(vp - TSEL->p);
         motion_capture(TSEL, id, *vp);
         scale_lock_after(TSEL, id);
     }
@@ -2255,6 +2262,15 @@ static void cc_knob_poll(void)
 {
     uint32_t k;
     int32_t s;
+    /* Menu, confirm and NAME own the screen: physical encoders are dropped there (enc_drop /
+     * early return). Drain queued CC the same way so a detent cannot change the page under the dialog. */
+    if (ui.menu || ui.confirm || name_on()) {
+        fm1_irq_off();
+        for (k = 0; k < 7u; k++)
+            ui.cc_step[k] = 0;
+        fm1_irq_on();
+        return;
+    }
     for (k = 0; k < 7u; k++) {
         if (!ui.cc_step[k])
             continue;

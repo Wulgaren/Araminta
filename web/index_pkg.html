@@ -37,6 +37,8 @@
   <p class="small" data-t="beta"></p>
   <p class="small"><span data-t="brick"></span>
     <a href="https://github.com/kurogedelic/FM-1-transporter" target="_blank" rel="noopener" style="color:inherit">FM-1-transporter</a></p>
+  <p class="small"><label><input type="checkbox" id="dump-confirm" name="dump-confirm"> <span data-t="dumpConfirm"></span></label></p>
+  <p class="small" data-t="dumpHint"></p>
   <p><button id="go" disabled data-t="install"></button></p>
   <details style="margin-top:24px">
     <summary data-t="stockTitle"></summary>
@@ -69,11 +71,14 @@ const TEXT = {
     direct: "USB ケーブルはパソコンに直接つないでください。Probe や Transporter などの機材は不要です。",
     brick: "万一インストールに失敗して起動しなくなった場合は、復旧に Transporter が必要です:",
     beta: "Araminta は実地テスト版です。不具合は GitHub で知らせてください。このカスタムファームウェアを使ったことで FM-1 が壊れたり不具合が起きたりしても、作者は一切の責任を負いません。自己責任でお使いください。",
+    dumpConfirm: "この FM-1 のフルフラッシュダンプをすでに保存しました（工場出荷時の無線校正データ）",
+    dumpHint: "公式ファーム上への初回インストール時は必須です。すでに Araminta が入っている機種では不要です。ROM UBOOT で tools/fm1_flash_dump.py を実行してください。",
+    dumpNeed: "公式ファームから入れるときは、先にフルフラッシュダンプの確認にチェックしてください。tools/fm1_flash_dump.py を実行してから続けてください。",
     back: "M-VAVEから公式FM-1 V15を取得し、未変更のFM-1.fwscを選んでください。ファイルはこのブラウザ内で検証し、サーバーへ送りません。",
     stockTitle: "公式V15に戻す", stockFile: "公式FM-1.fwsc", stockGo: "バックアップして公式V15へ戻す",
-    stockBackup: "現在の曲・保存曲・音色バンク・サンプル・設定を先に保存します。全体バックアップ非対応版は、Aramintaを更新してから行ってください。復元はAramintaを再インストールしてエディタから行います。",
+    stockBackup: "現在の曲・保存曲・音色バンク・サンプル・設定を先に保存します。全体バックアップ非対応版は、Aramintaを更新してから行ってください。復元はAramintaを再インストールしてエディタから行います。フラッシュの 0xF4000..0xF9FFF（ユーザーバンク・FM6バンク3を含む追加FM6バンク）とギャップのユーザーバンクは Araminta 用です。バイト単位で公式に戻すには、FM-1エディタのSysEx全体バックアップだけでは足りず、フルフラッシュバックアップが必要です。",
     stockRecovery: "更新中断の再開：全体バックアップはすでにパソコンへ保存済み",
-    stockValid: "公式V15を確認しました", stockConfirm: "全体バックアップファイルをパソコンに保存できましたか？ 続けると公式V15へ戻します。Aramintaの曲は公式V15では開けません。",
+    stockValid: "公式V15を確認しました", stockConfirm: "全体バックアップファイルをパソコンに保存できましたか？ 続けると公式V15へ戻します。Aramintaの曲は公式V15では開けません。フラッシュの Araminta 領域（0xF4000..0xF9FFF とギャップのユーザーバンク）は公式V15では使えず、ギャップは公式起動のたびに消えます。",
     stockNeedBackup: "書き込みモードからはバックアップできません。保存済みバックアップがある場合だけ、更新中断の再開にチェックしてください。",
     stockUnsupported: "このAramintaは全体バックアップに未対応です。先に最新版をインストールしてください。",
     backup: "全体バックアップ保存中 ", stockError: "公式ファイルを確認できません: ",
@@ -104,11 +109,14 @@ const TEXT = {
     direct: "Connect the USB cable directly to the computer. No probe or Transporter is needed.",
     brick: "If an install fails and the FM-1 no longer starts, recovering it needs a Transporter:",
     beta: "Araminta is a field-testing release; please report problems on GitHub. The author accepts no responsibility if your FM-1 is damaged or misbehaves because of this custom firmware. Use it at your own risk.",
+    dumpConfirm: "I already saved a full flash dump of this FM-1 (factory radio calibration)",
+    dumpHint: "Required when installing over stock firmware. Not needed if this unit already runs Araminta. Run tools/fm1_flash_dump.py in ROM UBOOT.",
+    dumpNeed: "Check the full flash dump box first when installing over stock. Run tools/fm1_flash_dump.py before you continue.",
     back: "Get official FM-1 V15 from M-VAVE and select the unmodified FM-1.fwsc. The browser validates it locally; it is not sent to a server.",
     stockTitle: "Return to official V15", stockFile: "Official FM-1.fwsc", stockGo: "Back up and return to official V15",
-    stockBackup: "Current music, saved music, sound banks, samples and settings are saved first. Older firmware needs an Araminta update for complete backups. To restore an archive later, reinstall Araminta and use the editor.",
+    stockBackup: "Current music, saved music, sound banks, samples and settings are saved first. Older firmware needs an Araminta update for complete backups. To restore an archive later, reinstall Araminta and use the editor. Flash 0xF4000..0xF9FFF (user banks, FM6 banks including bank 3 at F4000) and the gap user bank are Araminta's. A full flash backup — not only an FM-1 editor SysEx dump — is what gets you byte-exact stock back.",
     stockRecovery: "Resume an interrupted update: I already saved a complete backup to this computer",
-    stockValid: "Official V15 verified", stockConfirm: "Has the complete backup file been saved to this computer? Continue to return to official V15. Official V15 cannot open Araminta music.",
+    stockValid: "Official V15 verified", stockConfirm: "Has the complete backup file been saved to this computer? Continue to return to official V15. Official V15 cannot open Araminta music. Araminta's reclaim sectors (0xF4000..0xF9FFF) and the gap user bank are unused by stock; V15 erases the gap on every boot.",
     stockNeedBackup: "An update loader cannot export a backup. Only select resume if you already saved a complete backup.",
     stockUnsupported: "This Araminta does not support complete backups. Install the current Araminta first.",
     backup: "Saving complete backup ", stockError: "Cannot validate official firmware: ",
@@ -173,8 +181,21 @@ async function verifyPackage(bytes, meta) {
 }
 /*VERIFY-END*/
 
+/*DUMP-CONFIRM-BEGIN*/
+/* Stock / unknown INFO needs a full flash dump confirm; Araminta already claimed the gap. */
+function needsFullDumpConfirm(version) {
+  return !(typeof version === "string" && /^ARAMINTA /i.test(version));
+}
+/*DUMP-CONFIRM-END*/
 let writing = false, stock = null, stockFileEpoch = 0;
-const lockInstaller = (on) => { writing = on; $("go").disabled = on || !image; $("stock-go").disabled = on || !stock; $("stock-file").disabled = on; $("stock-recovery").disabled = on; };
+const lockInstaller = (on) => {
+  writing = on;
+  $("go").disabled = on || !image;
+  $("stock-go").disabled = on || !stock;
+  $("stock-file").disabled = on;
+  $("stock-recovery").disabled = on;
+  $("dump-confirm").disabled = on;
+};
 window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = t("leave"); } });
 
 (async () => {
@@ -217,6 +238,20 @@ $("go").addEventListener("click", async () => {
       ota.link.close();
       sayK((await up.resume(image, step, meta.product)) ? "done" : "stopped");
     } else {
+      /* stock / unknown must confirm a full flash dump; Araminta already owns the gap */
+      const device = await up.find((id) => !/^ota-/i.test(id.model));
+      if (!device) { sayK("notfound"); return; }
+      const input = device.link.input, output = device.link.output;
+      device.link.close();
+      let version = null;
+      const probe = new BackupConnection(input, output);
+      try {
+        const a = await probe.request([1, []]);
+        let pos = a.indexOf(0);
+        if (pos > 0) version = String.fromCharCode(...a.slice(0, pos));
+      } catch (_) { /* stock and mute ports: treat as needing the dump confirm */ }
+      finally { probe.close(); }
+      if (needsFullDumpConfirm(version) && !$("dump-confirm").checked) { sayK("dumpNeed"); return; }
       await up.install(image, meta.product, step);
     }
   } catch (e) {

@@ -251,26 +251,41 @@ static int bend_contract(void)
                 vox2 = &PAGES[i + 1u];
         }
     ok = vox && vox2 && vox->sec == EDIT_SEC_VOX && vox2->sec == EDIT_SEC_VOX &&
-         vox2->fam == FAM_EDIT && PG_BEND == 250u;
+         vox2->fam == FAM_EDIT && PG_BEND == 250u && PG_CGLD == 251u;
     ok &= !param_id_known(PG_BEND) && !motion_param(PG_BEND) && !param_real(PG_BEND);
-    bad += check("VOICE 2 is the page after VOICE and PG_BEND 250 is UI-only, not a motion / real id", ok);
+    ok &= !param_id_known(PG_CGLD) && !motion_param(PG_CGLD) && !param_real(PG_CGLD);
+    bad += check("VOICE 2 is the page after VOICE; PG_BEND 250 / PG_CGLD 251 are UI-only, not motion / real ids", ok);
     ok = 0;
     if (vox && vox2) {
         TSEL->p[P_VOICE] = (int16_t)V_POLY;
-        d = page_desc(vox, 3, &vp);
-        ok = d && vp && str_eq(d->label, "PITCH") && d->fmt == F_CENT && d->min == -200 && d->max == 200 &&
-             page_desc(vox, 2, &vp) != 0 &&                   /* SPRD before it */
-             !page_visible((uint32_t)(vox2 - PAGES));
+        d = page_desc(vox, 2, &vp);
+        ok = d && vp && str_eq(d->label, "PIT GLD") && d->fmt == F_ONOFF &&
+             page_desc(vox, 3, &vp) != 0 && str_eq(page_desc(vox, 3, &vp)->label, "SPRD") &&
+             page_visible((uint32_t)(vox2 - PAGES));      /* VOICE 2 in every mode */
+        d = page_desc(vox2, 0, &vp);
+        ok &= d && vp && str_eq(d->label, "PITCH") && d->fmt == F_CENT && d->min == -200 && d->max == 200;
+        TSEL->p[P_VOICE] = (int16_t)V_MONO;
+        ok &= page_desc(vox, 2, &vp) == 0 && page_desc(vox, 3, &vp) == 0 &&
+              page_visible((uint32_t)(vox2 - PAGES)) && page_desc(vox2, 0, &vp) != 0;
         TSEL->p[P_VOICE] = (int16_t)V_UNISON;
-        ok &= page_visible((uint32_t)(vox2 - PAGES));
         d = page_desc(vox, 3, &vp);
         ok &= d && str_eq(d->label, "UNI DTN");
-        ok &= page_desc(vox, 2, &vp) != 0;                    /* SPRD */
-        d = page_desc(vox2, 0, &vp);
-        ok &= d && vp && str_eq(d->label, "PITCH");
+        ok &= page_desc(vox, 2, &vp) == 0;                /* PIT GLD is POLY only */
         TSEL->p[P_VOICE] = (int16_t)V_POLY;
     }
-    bad += check("PITCH is the last VOICE card outside UNISON; VOICE 2 (PITCH) is hidden until UNISON", ok);
+    bad += check("VOICE: PIT GLD then SPRD (POLY), UNI DTN (UNISON); VOICE 2 PITCH in every mode", ok);
+    if (vox) {
+        ui.plk_src = (uint8_t)(vox - PAGES + 1u);
+        TSEL->p[P_VOICE] = (int16_t)V_POLY;
+        ok = lock_id(3) == P_SPRD;
+        TSEL->p[P_VOICE] = (int16_t)V_UNISON;
+        ok &= lock_id(3) == P_DETUNE;
+        TSEL->p[P_VOICE] = (int16_t)V_MONO;
+        ok &= lock_id(3) == 0xFFu;
+        TSEL->p[P_VOICE] = (int16_t)V_POLY;
+        ui.plk_src = 0;
+        bad += check("VOICE K4: a held step locks SPRD (POLY), UNI DTN (UNISON), nothing in MONO", ok);
+    }
     return bad;
 }
 
@@ -297,6 +312,20 @@ static int sweep_contract(void)
     t->p[P_ALLOC] = 1;
     ok &= !sweep_rate(t) && !sweep_stroke(t);
     bad += check("sweep OFF and the legacy ROT / REUSE aliases read as OFF", ok);
+    t->p[P_ALLOC] = (int16_t)(sweep_pack(3, 2) | (int16_t)CGLD_BIT);
+    bad += check("PIT GLD (P_ALLOC bit 5) leaves STRUM / STROKE untouched",
+                 cgld_on(t) && sweep_rate(t) == 3u && sweep_stroke(t) == 2u);
+    {
+        project_t q;
+        project_store_t st;
+        project_capture(&q);
+        bad += check("PIT GLD survives a project round trip",
+                     proj_pack(&st, &q) && proj_import(&q, &st, sizeof st) &&
+                     cgld_on((const track_t *)&q.t[0]) && sweep_rate((const track_t *)&q.t[0]) == 3u &&
+                     sweep_stroke((const track_t *)&q.t[0]) == 2u);
+    }
+    cgld_set(t, 0);
+    bad += check("clearing PIT GLD keeps STRUM / STROKE", !cgld_on(t) && sweep_rate(t) == 3u && sweep_stroke(t) == 2u);
     return bad;
 }
 

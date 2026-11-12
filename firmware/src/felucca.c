@@ -17,7 +17,8 @@
 #define FELUCCA_OTA_DRYRUN 0     /* 1 = stage, ask "success", then undo: no record, no reset */
 #endif
 #ifndef FELUCCA_CDC
-#define FELUCCA_CDC 1            /* USB CDC-ACM serial console */
+#define FELUCCA_CDC 0            /* USB CDC-ACM serial console (off: OTT + new presets leave ~5 KiB free;
+                                  * set FELUCCA_CDC=1 for a developer build with MENU > USB SERIAL) */
 #endif
 #ifndef FELUCCA_UAC
 #define FELUCCA_UAC 1            /* USB audio input: the master output, 16-bit stereo 44.1 kHz (usb.c) */
@@ -34,7 +35,7 @@
 #define FM1_CPU1_USED 1          /* the second core is built in (Araminta: always, no toggle); every reset holds it
                                   * first (hal/fm1_sys.h: its waiting loop is RAM the ROM and the SPL use at boot) */
 #ifndef FELUCCA_VERSION
-#define FELUCCA_VERSION "v3.9" /* shown in the menu, the console and the editor; build.py --release X.Y */
+#define FELUCCA_VERSION "v3.10" /* shown in the menu, the console and the editor; build.py --release X.Y */
 #endif
 #if FELUCCA_OTA && !FELUCCA_FLASH
 #error "FELUCCA_OTA needs FELUCCA_FLASH"

@@ -22,7 +22,10 @@
  * A power cut in 2 leaves the bank's copy whole and no valid OBJ_UPFM6: the next boot starts again at 1
  * (idempotent: the records did not change). No bank, or no flash: nothing to move, nothing written.
  * A full backup of older firmware (id 8, the bank) restores the same way into the restored user presets
- * (upf_migrate, editor_backup.c). Included by upreset.c. */
+ * (upf_migrate, editor_backup.c). Included by upreset.c.
+ *
+ * Ver 2: UP_SLOTS may exceed one sector. RAM holds at most UPF_MAX_USED dense entries (used bits cover all slots);
+ * flash is packed (header + used entries in slot order). Legacy ver-1 3728 B (32 slots) still loads. */
 #define FM6_BANK_MAGIC 0x42364D46u               /* "FM6B": the retired bank (read only) */
 #define FM6_BANK_N 27u
 typedef struct {
@@ -48,29 +51,136 @@ static int fm6_bank_valid(const fm6_bank_t *b)
 
 #define UPF_MAGIC 0x36465055u                    /* "UPF6" */
 #define UPF_PK 112u                              /* 128 x 7 bits */
+#define UPF_VER 2u                               /* 2: packed flash; used[3] covers UP_SLOTS */
+#define UPF_VER1_SLOTS 32u                       /* on-flash ver 1 (1.0.3..3.9): 32 slots, 3728 B */
+#define UPF_VER1_SIZE 3728u
+#define UPF_MAX_USED 32u                         /* sector budget: 20 + 32 * 116 = 3732 */
+#define UPF_HDR 20u                              /* magic + ver/nslot + used[3] */
 typedef struct {
     uint32_t tag;                                /* upf_tag of the record it belongs to */
     uint8_t pk[UPF_PK];
 } upf_ent_t;
 typedef struct {
     uint32_t magic;
-    uint16_t ver, nslot;                         /* 1, UP_SLOTS */
-    uint32_t used;                               /* bit k: e[k] holds a patch */
-    uint32_t rsv;
-    upf_ent_t e[UP_SLOTS];
+    uint16_t ver, nslot;                         /* UPF_VER, UP_SLOTS */
+    uint32_t used[3];                            /* bit k: dense e[] holds slot k's patch */
+    upf_ent_t e[UPF_MAX_USED];                   /* dense, ascending slot order */
 } upf_t;
-_Static_assert(sizeof(upf_t) == 3728u, "user preset FM6 patches layout (at most ST_PAYLOAD_MAX, 3840)");
+_Static_assert(sizeof(upf_t) == UPF_HDR + UPF_MAX_USED * sizeof(upf_ent_t), "user preset FM6 patches RAM layout");
+_Static_assert(sizeof(upf_t) <= 3840u, "user preset FM6 patches at most one sector (ST_PAYLOAD_SECTOR)");
 _Static_assert(sizeof(up_rec_t) == 192u && sizeof(((up_rec_t *)0)->name) == 12u, "upf_tag: the name at bytes 4..15");
 static upf_t upf __attribute__((section(".pool")));
 
-static int upf_valid(const upf_t *u) { return u->magic == UPF_MAGIC && u->ver == 1u && u->nslot == UP_SLOTS; }
+static int upf_valid(const upf_t *u)
+{
+    return u->magic == UPF_MAGIC && u->ver == UPF_VER && u->nslot == UP_SLOTS;
+}
 
 static void upf_empty(void)
 {
     memset(&upf, 0, sizeof upf);
     upf.magic = UPF_MAGIC;
-    upf.ver = 1;
+    upf.ver = UPF_VER;
     upf.nslot = UP_SLOTS;
+}
+
+static int upf_bit(uint32_t k)
+{
+    return k < UP_SLOTS && ((upf.used[k / 32u] >> (k % 32u)) & 1u);
+}
+
+static void upf_bit_set(uint32_t k, int on)
+{
+    uint32_t *w = &upf.used[k / 32u], m = 1u << (k % 32u);
+    if (on) *w |= m;
+    else *w &= ~m;
+}
+
+static uint32_t upf_nused(void)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < 3u; i++) {
+        uint32_t w = upf.used[i];
+        while (w) {
+            n += w & 1u;
+            w >>= 1;
+        }
+    }
+    return n;
+}
+
+/* dense index of slot k among used bits below k (assumes bit k is set, or would be after insert) */
+static uint32_t upf_idx(uint32_t k)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < k; i++)
+        if (upf_bit(i))
+            n++;
+    return n;
+}
+
+/* Pack used entries into dst (one sector). Returns length, or 0 if too many used patches for one sector. */
+static uint32_t upf_pack(uint8_t *dst, uint32_t max)
+{
+    uint32_t k, off = UPF_HDR, di = 0;
+    if (max < UPF_HDR)
+        return 0;
+    for (k = 0; k < UP_SLOTS; k++)
+        if (upf_bit(k)) {
+            if (off + sizeof(upf_ent_t) > max || di >= UPF_MAX_USED)
+                return 0;
+            memcpy(dst + off, &upf.e[di], sizeof(upf_ent_t));
+            off += (uint32_t)sizeof(upf_ent_t);
+            di++;
+        }
+    memset(dst, 0, UPF_HDR);
+    ((uint32_t *)dst)[0] = UPF_MAGIC;
+    dst[4] = (uint8_t)UPF_VER;
+    dst[5] = 0;
+    dst[6] = (uint8_t)UP_SLOTS;
+    dst[7] = 0;
+    memcpy(dst + 8, upf.used, 12);
+    return off;
+}
+
+/* Load a packed ver-2 image, or a legacy ver-1 3728 B blob, into the RAM mirror. */
+static int upf_unpack(const uint8_t *src, uint32_t len)
+{
+    uint32_t k, off, di;
+    uint32_t used[3];
+    if (len == UPF_VER1_SIZE && ((const uint32_t *)src)[0] == UPF_MAGIC && src[4] == 1u &&
+        src[6] == (uint8_t)UPF_VER1_SLOTS && src[7] == 0) {
+        const uint32_t *u32 = (const uint32_t *)(src + 8);
+        uint32_t u = u32[0];
+        upf_empty();
+        upf.used[0] = u;                                 /* ver 1: uint32 used at +8, rsv at +12, e[] at +16 */
+        di = 0;
+        for (k = 0; k < UPF_VER1_SLOTS; k++)
+            if ((u >> k) & 1u) {
+                if (di >= UPF_MAX_USED)
+                    return 0;
+                memcpy(&upf.e[di], src + 16u + k * sizeof(upf_ent_t), sizeof(upf_ent_t));
+                di++;
+            }
+        return 1;
+    }
+    if (len < UPF_HDR || ((const uint32_t *)src)[0] != UPF_MAGIC || src[4] != (uint8_t)UPF_VER ||
+        src[6] != (uint8_t)UP_SLOTS)
+        return 0;
+    memcpy(used, src + 8, 12);
+    upf_empty();
+    memcpy(upf.used, used, 12);
+    off = UPF_HDR;
+    di = 0;
+    for (k = 0; k < UP_SLOTS; k++)
+        if ((used[k / 32u] >> (k % 32u)) & 1u) {
+            if (off + sizeof(upf_ent_t) > len || di >= UPF_MAX_USED)
+                return 0;
+            memcpy(&upf.e[di], src + off, sizeof(upf_ent_t));
+            off += (uint32_t)sizeof(upf_ent_t);
+            di++;
+        }
+    return off == len;
 }
 
 static uint32_t upf_tag(const up_rec_t *r)       /* FNV-1a of the record without its name (bytes 4..15) */
@@ -117,46 +227,98 @@ static void upf_pk_put(const uint8_t *pk, uint8_t *d)
 /* slot k's patch -> pk (128 bytes), 0 = it has one */
 static int upf_get(uint32_t k, uint8_t *pk)
 {
-    if (k >= UP_SLOTS || !upf_valid(&upf) || !((upf.used >> k) & 1u) || !upf_fm6(k) ||
-        upf.e[k].tag != upf_tag(up_rec(k)))
+    uint32_t di;
+    if (k >= UP_SLOTS || !upf_valid(&upf) || !upf_bit(k) || !upf_fm6(k))
         return 1;
-    upf_pk_get(upf.e[k].pk, pk);
+    di = upf_idx(k);
+    if (di >= UPF_MAX_USED || upf.e[di].tag != upf_tag(up_rec(k)))
+        return 1;
+    upf_pk_get(upf.e[di].pk, pk);
     return 0;
 }
 
-/* slot k's patch = pk (128 bytes; every value into its range), tagged with the record as it is now. RAM only */
-static void upf_set(uint32_t k, const uint8_t *pk)
+/* drop slot k's patch entry (dense array + used bit). RAM only */
+static void upf_clear(uint32_t k)
+{
+    uint32_t di, n, i;
+    if (k >= UP_SLOTS || !upf_valid(&upf) || !upf_bit(k))
+        return;
+    di = upf_idx(k);
+    n = upf_nused();
+    for (i = di; i + 1u < n; i++)
+        upf.e[i] = upf.e[i + 1u];
+    upf_bit_set(k, 0);
+}
+
+/* drop entries whose record is gone, not FM6, or whose tag no longer matches (free capacity) */
+static void upf_reclaim(void)
+{
+    uint32_t k;
+    if (!upf_valid(&upf))
+        return;
+    for (k = 0; k < UP_SLOTS; k++) {
+        if (!upf_bit(k))
+            continue;
+        if (upf_fm6(k) && upf.e[upf_idx(k)].tag == upf_tag(up_rec(k)))
+            continue;
+        upf_clear(k);
+    }
+}
+
+/* slot k's patch = pk (128 bytes; every value into its range), tagged with the record as it is now. RAM only.
+ * 0 = ok, 1 = over capacity (nothing written). Reclaims obsolete entries first. */
+static int upf_set(uint32_t k, const uint8_t *pk)
 {
     uint8_t v[FP_SIZE + 1u], c[FM6_PACKED];
+    uint32_t di;
+    int had;
     if (k >= UP_SLOTS)
-        return;
+        return 1;
     if (!upf_valid(&upf))
         upf_empty();
+    upf_reclaim();
+    had = upf_bit(k);
+    if (!had && upf_nused() >= UPF_MAX_USED)
+        return 1;                                          /* sector / RAM cap: refuse, do not drop another */
+    di = upf_idx(k);
+    if (!had) {
+        uint32_t n = upf_nused(), i;
+        for (i = n; i > di; i--)
+            upf.e[i] = upf.e[i - 1u];
+        upf_bit_set(k, 1);
+    }
     fm6_unpack(pk, v);
     fm6_pack(v, c);
-    upf_pk_put(c, upf.e[k].pk);
-    upf.e[k].tag = upf_tag(up_rec(k));
-    upf.used |= 1u << k;
+    upf_pk_put(c, upf.e[di].pk);
+    upf.e[di].tag = upf_tag(up_rec(k));
+    return 0;
 }
 
 /* the object to flash: 0 ok, 2 flash error, 3 no flash (kept in RAM). Its first write keeps the retired bank's
- * newest copy (see the top) */
+ * newest copy (see the top). Packed so UP_SLOTS still fit one sector (at most UPF_MAX_USED used patches). */
 static int upf_save(void)
 {
 #if FELUCCA_FLASH
     st_hdr_t h;
     int to = -1;
+    uint32_t n;
     if (!flash_ok)
         return 3;
+    /* pick the target copy before packing: st_current loads into st_buf */
     if (st_current(OBJ_UPFM6, &h) < 0)
         to = st_current(OBJ_FM6BANK, &h) == 0 ? 1 : 0;
-    return st_save_to(OBJ_UPFM6, &upf, sizeof upf, to) ? 2 : 0;
+    n = upf_pack(st_buf, ST_PAYLOAD_SECTOR);
+    if (!n)
+        return 2;
+    return st_save_to(OBJ_UPFM6, st_buf, n, to) ? 2 : 0;   /* st_save_to: src == st_buf keeps the pack */
 #else
     return 3;
 #endif
 }
 
-/* the retired bank's patches -> the FM6 user presets whose stored SLOT is a B slot and have no patch yet; the count */
+/* the retired bank's patches -> the FM6 user presets whose stored SLOT is a B slot and have no patch yet; the count.
+ * 1.0.2's SLOT 8..34 were F1..F8 then B1..B27: the F1..F8 count was 8, not today's FM6_NFACTORY. */
+#define FM6_NFACTORY_102 8u
 static uint32_t upf_migrate(const fm6_bank_t *b)
 {
     uint32_t k, moved = 0;
@@ -168,7 +330,7 @@ static uint32_t upf_migrate(const fm6_bank_t *b)
         int32_t s;
         if (!upf_fm6(k) || !upf_get(k, pk))
             continue;
-        s = up_value(r, r->np - 1u) - (int32_t)FM6_NFACTORY;   /* SLOT (P_E7): the record's last value */
+        s = up_value(r, r->np - 1u) - (int32_t)FM6_NFACTORY_102;   /* SLOT (P_E7): the record's last value */
         if (s >= 0 && s < (int32_t)FM6_BANK_N && ((b->used >> s) & 1u)) {
             upf_set(k, b->v[s]);
             moved++;
@@ -181,7 +343,8 @@ static void upf_boot(void)                       /* up_boot, after the user pres
 {
 #if FELUCCA_FLASH
     st_hdr_t h;
-    if (flash_ok && st_load(OBJ_UPFM6, &upf, sizeof upf) == (int)sizeof upf && upf_valid(&upf))
+    int n;
+    if (flash_ok && (n = st_load(OBJ_UPFM6, st_buf, ST_PAYLOAD_SECTOR)) > 0 && upf_unpack(st_buf, (uint32_t)n))
         return;
     upf_empty();
     if (flash_ok && st_current(OBJ_FM6BANK, &h) >= 0 && h.len == sizeof(fm6_bank_t) &&
@@ -215,11 +378,22 @@ static void upf_track_load(track_t *t, uint32_t k)
     fm6_adopt(tr);
 }
 
-/* up_store: slot k (its record just written from track tr) gets that track's patch; upf_save's result */
+/* up_store: slot k (its record just written from track tr) gets that track's patch; upf_save's result.
+ * 2 = over capacity or flash error (nothing new kept for a fresh slot). */
 static int upf_store(uint32_t k, uint32_t tr)
 {
     uint8_t pk[FM6_PACKED];
     fm6_pack(fm6_patch[tr % NTRK], pk);
-    upf_set(k, pk);
+    if (upf_set(k, pk))
+        return 2;
     return upf_save();
+}
+
+/* true if a new FM6 patch for slot k would fit (after reclaim). Existing entries can be overwritten. */
+static int upf_room(uint32_t k)
+{
+    if (!upf_valid(&upf))
+        upf_empty();
+    upf_reclaim();
+    return upf_bit(k) || upf_nused() < UPF_MAX_USED;
 }

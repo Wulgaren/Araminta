@@ -5,7 +5,7 @@
  * own (menu_items.c), so the two cannot differ. CALIBRATION and ABOUT are not offered (no value). 1.0.5: each reply
  * ends with the row's MENU tab (MI_TAB: its index and name), so the editor can group the settings as the device does.
  * ED_MENU: {row, id}, the 1.0.4 settings in the menu's order, then the later ones as they came (1.1: CLICK, CLICK LEVEL,
- * COUNT-IN, rows of AUDIO; 1.2: RESTORE LAST, SYSTEM; SCALE LEDS, CONTROL; 1.1.5: SCREEN OFF, DISPLAY; 1.2: SCOPE,
+ * COUNT-IN, rows of AUDIO; 1.2: BOOT RESTORE, SYSTEM; SCALE LEDS, CONTROL; 1.1.5: SCREEN OFF, DISPLAY; 1.2: SCOPE,
  * DISPLAY; STEP PREVIEW, CHORD ENTRY, CONTROL; MIDI IN, MIDI; TUNE, AUDIO; 1.3: HOME, DISPLAY): an index keeps its
  * setting too, so an older editor lists what it knew where it was (the
  * editor groups them by their tab). An id keeps its meaning for good: a new setting takes the next free id

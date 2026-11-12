@@ -51,8 +51,9 @@ static uint32_t up_gen;                      /* bumped on every user bank change
                                                 * (ui_draw.c large_kind); clear in every older setting = OFF */
 #define PREF_SERIAL_OFF 64u                    /* MENU > USB SERIAL OFF (#67): no serial console, the device enumerates as
                                                 * audio + MIDI only (usb.c usb_cdc_switch); clear in every older setting = ON */
-#define PREF_RESTORE_OFF 128u                  /* MENU > RESTORE LAST OFF (1.2, Discussion #130): no autosave written, none
-                                                * restored at power-on (project.c); clear in every older setting = ON */
+#define PREF_RESTORE_OFF 128u                  /* MENU > BOOT RESTORE OFF (was RESTORE LAST; 1.2, Discussion #130):
+                                                * no restore at power-on (project.c). Autosave still writes. Clear in
+                                                * every older setting = ON */
 #define fx_latch ui_prefs
 /* MENU > AUDIO CLICK, CLICK LEVEL, COUNT-IN (1.1, Discussion #131; click.c, seq.c): two bits each in another byte no
  * engine uses, saved with the settings: bits 0-1 CLICK (OFF REC ON), 2-3 CLICK LEVEL (stored 0 MID, 1 LOW, 2 HIGH),
@@ -404,8 +405,6 @@ static int page_visible(uint32_t i)
         return drum;
     if (PAGES[i].fam == FAM_EDIT && PAGES[i].sec == EDIT_SEC_VOX && (drum || drums))   /* Voice hidden on DRUM / DRUMS */
         return 0;
-    if (PAGES[i].id[0] == PG_BEND)                    /* VOICE 2: the PITCH card UNISON has no room for */
-        return TSEL->p[P_VOICE] == V_UNISON;
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return drum || drums;
     if (PAGES[i].scope == SC_ENGINE && (PAGES[i].id[0] == P_E0 || PAGES[i].id[0] == P_E4))   /* EDIT 1 / 2 */
@@ -573,8 +572,12 @@ static uint32_t lock_id(uint32_t k)
         id = MSEQ_PITCH;                         /* SCL KNOB 4 on a held step: the PITCH lock */
     if (id == MSEQ_PITCH && kit_track(TSEL))
         return 0xFFu;                            /* PITCH is inert on a kit track: the knob creates no lock */
-    if (id == P_DETUNE && TSEL->p[P_VOICE] != V_UNISON)
-        return 0xFFu;                            /* the VOICE page's PITCH card is a live bend, not a lock */
+    if (id == P_DETUNE) {                        /* VOICE K4: SPRD in POLY, UNI DTN in UNISON */
+        if (TSEL->p[P_VOICE] == V_POLY)
+            id = P_SPRD;
+        else if (TSEL->p[P_VOICE] != V_UNISON)
+            return 0xFFu;
+    }
     return param_id_known(id) && !MFX_ALL(id) && motion_param(id) &&
            fx_target_available(TSEL, id) && param_live(motion_target_desc(TSEL, id)) ? id : 0xFFu;
 }
@@ -1480,7 +1483,7 @@ static void set_engine(uint32_t ei) { set_engine_of(TSEL, ei); }
 /* MIDI Program Change (1.5.1, #179 by renebohne): program n on track t, as the PRESETS list numbers the engine's sounds
  * from 0: its n-th preset, the aliases skipped (preset_orig), loaded as from there (the track's own settings kept, one
  * undo for a run of them). DRUM-X: its factory presets (one: DRUM-X), like every other engine. FM6: its presets
- * (F1..F8), then the voice bank's B1..B32 through SLOT as the knob loads them (fm6_poll; the rest of the sound stays),
+ * (F1..F15), then the voice bank's B1..B32 through SLOT as the knob loads them (fm6_poll; the rest of the sound stays),
  * an empty one ignored. A program past the last is ignored, not wrapped: a number is always the same sound */
 static volatile uint8_t *const mpc_io = ui.mpc;
 static volatile int8_t *const cc_step = ui.cc_step;   /* midi_control.c cc_step: CC 71..74's detents */
@@ -1570,7 +1573,7 @@ static void clear_fx_all(void)
     fx_bus_init();
 }
 
-/* RAM as a clean boot (RESTORE LAST off): default globals, sounds, empty (or factory) steps, song chain.
+/* RAM as a clean boot (BOOT RESTORE off): default globals, sounds, empty (or factory) steps, song chain.
  * Flash, user bank and autosave stay. Power-on / main.c felucca_init. */
 static void session_defaults(void)
 {
@@ -1610,14 +1613,14 @@ static void select_engine(uint32_t e)
     ui.force = 1;
 }
 
-/* the presets of every engine (in ENGINE_ORDER), then the used user presets, as one list (the PRESETS knob and the
- * PRESETS page browse it) */
+/* the presets of every engine (in ENGINE_ORDER), then the used user presets, as one list (the PRESETS knob and
+ * the PRESETS page browse it) */
 static uint32_t preset_all_pos(uint32_t *total)          /* list index of the selected track's preset */
 {
     uint32_t n = 0, cur = 0, e, r;
     for (r = 0; r < NENG_SHOWN; r++) {                  /* (engines.c ENGINE_ORDER) */
         const engine_t *en = ENGINES[e = eng_vis(r)];
-        if (e == TSEL->eng_req)
+        if (e == TSEL->eng_req && !TSEL->user)
             cur = n + preset_rank(en, preset_orig(en, TSEL->preset % (en->npresets ? en->npresets : 1u)));
         n += preset_shown(e);
     }
@@ -1633,15 +1636,15 @@ static uint32_t preset_all_at(uint32_t n, uint32_t *k)
     uint32_t e = 0, i, r;
     for (r = 0; r < NENG_SHOWN && n >= preset_shown(eng_vis(r)); r++)
         n -= preset_shown(eng_vis(r));
-    if (r == NENG_SHOWN) {
-        *k = up_nth(n);
-        return NENGINES;
+    if (r < NENG_SHOWN) {
+        e = eng_vis(r);
+        for (i = 0; preset_orig(ENGINES[e], i) != i || n--; i++)    /* the n-th shown preset */
+            ;
+        *k = i;
+        return e;
     }
-    e = eng_vis(r);
-    for (i = 0; preset_orig(ENGINES[e], i) != i || n--; i++)    /* the n-th shown preset */
-        ;
-    *k = i;
-    return e;
+    *k = up_nth(n);
+    return NENGINES;
 }
 
 /* PRESETS > LIST (KNOB 4): ALL, FAV (favorites.filter, as up to 1.1.5), or one category (1.2, Discussion #90: BASS ..
@@ -1658,7 +1661,10 @@ static void list_set(uint32_t m)
 }
 static const char *list_name(uint32_t m) { return m == 0u ? "ALL" : m == 1u ? "FAV" : CAT_NAME[(m - 1u) % CAT_N]; }
 /* the category of list entry e, k (preset_all_at: NENGINES = user preset k) */
-static uint32_t sound_cat(uint32_t e, uint32_t k) { return e == NENGINES ? up_cat(k) : preset_cat(e, k); }
+static uint32_t sound_cat(uint32_t e, uint32_t k)
+{
+    return e == NENGINES ? up_cat(k) : preset_cat(e, k);
+}
 static int list_keep(uint32_t e, uint32_t k)
 {
     uint32_t m = list_mode();
