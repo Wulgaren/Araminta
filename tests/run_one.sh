@@ -144,7 +144,8 @@ do_flash() {
     compile flash "$OUT/storage_test" tests/storage_test.c || return 1
     run_bin flash "$OUT/flash_map_test" || return 1
     run_bin flash "$OUT/storage_test" || return 1
-    run_bin flash python3 tests/layout_test.py
+    run_bin flash python3 tests/layout_test.py || return 1
+    run_bin flash python3 tests/flash_dump_test.py
 }
 
 do_target_budget() {

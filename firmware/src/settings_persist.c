@@ -17,7 +17,7 @@
  * [15][14..23]: the FX layer's key map (1.2, retired with the reassignment: the pages are fixed maps, perform.c PF_DEF / PF2_DEF; the
  * 10 bytes are kept as saved, unused).
  * MENU's flags (ui.c PREF_*) are append-only bits whose 0 is the default: BPM LOCK (16) is clear in every older setting
- * = unlocked, LARGE (32) = OFF, RESTORE LAST OFF (128, 1.2) = ON, read as saved (nothing to migrate, so importing twice changes nothing). */
+ * = unlocked, LARGE (32) = OFF, BOOT RESTORE OFF (128, 1.2; was RESTORE LAST) = ON, read as saved (nothing to migrate, so importing twice changes nothing). */
 typedef struct { uint8_t factory[16][32]; uint32_t user, filter; } persist_fav_t;
 typedef struct {
     uint32_t magic, palette, lowcut, zoom;

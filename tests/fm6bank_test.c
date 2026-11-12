@@ -1,12 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FM6's voice bank (1.4.1, Discussion #168; src/fm6_vbank.c, the editor's FM6B_* in src/editor_fm6.c) against
- * simulated NOR flash: a bank written whole and read back, its sectors (0xE7000, staged in the autosave's older copy,
- * nothing else touched, the tail erased), a power cut after any programmed byte or during any erase (the old bank or
- * the new one, never half; the autosave kept), a wrong CRC and an autosave between requests changing nothing, SLOT
- * B1..B32 loading the exact records, bank slots without a voice skipped by the knob and refused elsewhere, a new
- * bank leaving a track's voice its own, projects and user presets keeping a bank voice whatever the bank holds later,
- * and the SLOT values stored before 1.4.1 (projects, user presets, motion) loading exactly as before. */
+ * simulated NOR flash: a bank written whole and read back, its sectors (0xE7000, staged in the autosave's older copy
+ * at 0xE5000 or 0x93000, nothing else touched, the tail erased), a power cut after any programmed byte or during any
+ * erase (the old bank or the new one, never half; the autosave kept), a wrong CRC and an autosave between requests
+ * changing nothing, SLOT B1..B32 loading the exact records, bank slots without a voice skipped by the knob and refused
+ * elsewhere, a new bank leaving a track's voice its own, projects and user presets keeping a bank voice whatever the
+ * bank holds later, and the SLOT values stored before 1.4.1 (projects, user presets, motion) loading exactly as before. */
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -122,13 +122,17 @@ static void make_bank(bank_t *b, char tag, uint32_t used, const char *name)
     snprintf(b->name, sizeof b->name, "%s", name);
 }
 
-/* the editor's transfer: BEGIN, a WRITE per used voice, END with the name and the CRC (crc_xor: a wrong one) -> END's rc
- * (or the first rc that was not 0) */
-static uint32_t send_bank(const bank_t *b, uint32_t crc_xor)
+/* the editor's transfer into bank (0..2): BEGIN, WRITE per used voice, END (crc_xor: a wrong CRC) -> END's rc */
+static uint32_t send_bank_to(uint32_t bank, const bank_t *b, uint32_t crc_xor)
 {
-    uint8_t a[1 + FM6_PACKED], e[15];
+    uint8_t a[1 + FM6_PACKED], e[15], begin[1];
     uint32_t k, c = 0xFFFFFFFFu, rc;
-    request(ED_FM6B_BEGIN, a, 0);
+    if (bank) {
+        begin[0] = (uint8_t)bank;
+        request(ED_FM6B_BEGIN, begin, 1);
+    } else {
+        request(ED_FM6B_BEGIN, a, 0);
+    }
     if ((rc = rep[0]) != 0)
         return rc;
     for (k = 0; k < FM6_NBANK; k++) {
@@ -149,15 +153,16 @@ static uint32_t send_bank(const bank_t *b, uint32_t crc_xor)
     request(ED_FM6B_END, e, sizeof e);
     return rep[0];
 }
+static uint32_t send_bank(const bank_t *b, uint32_t crc_xor) { return send_bank_to(0, b, crc_xor); }
 
-/* the bank the device holds now equals b (its voices, the used mask, the name: LIST) */
-static int bank_is(const bank_t *b)
+/* bank bi (0..2) equals b (voices, used mask, name) */
+static int bank_is_n(uint32_t bi, const bank_t *b)
 {
     uint8_t pk[FM6_PACKED];
-    const fvb_info_t *in = fvb_info();
+    const fvb_info_t *in = fvb_info(bi);
     char nm[11] = {0};
     uint32_t k;
-    if (!in || fm6_bank_used != b->used)
+    if (!in || fm6_bank_used[bi] != b->used)
         return 0;
     memcpy(nm, in->name, 10);
     for (k = 10; k && nm[k - 1] == ' '; k--)
@@ -165,12 +170,13 @@ static int bank_is(const bank_t *b)
     if (strcmp(nm, b->name))
         return 0;
     for (k = 0; k < FM6_NBANK; k++) {
-        int has = !fvb_read(k, pk);
+        int has = !fvb_read(bi * FM6_NBANK + k, pk);
         if (has != (int)((b->used >> k) & 1u) || (has && memcmp(pk, b->v[k], FM6_PACKED)))
             return 0;
     }
     return 1;
 }
+static int bank_is(const bank_t *b) { return bank_is_n(0, b); }
 
 static void reset(void)
 {
@@ -180,7 +186,8 @@ static void reset(void)
     memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain);
     chain_defaults(&chain_config);
-    memset(proj_slot, 0, sizeof proj_slot);
+    proj_slot_used = 0;
+    memset(proj_slot_sum, 0, sizeof proj_slot_sum);
     memset(up_bank, 0, sizeof up_bank);
     memset(&upf, 0, sizeof upf);
     memset(&ui, 0, sizeof ui);
@@ -224,7 +231,8 @@ static int store_test(void)
     uint8_t as_data[600], got[600], arg[1 + FM6_PACKED];
     uint32_t k;
     reset();
-    ok = !fm6_bank_used && !fvb_info() && fm6_bank_read;
+    ok = !fm6_bank_used[0] && !fm6_bank_used[1] && !fm6_bank_used[2] && !fvb_info(0) && !fvb_info(1) &&
+         !fvb_info(2) && fm6_bank_read;
     request(ED_FM6B_LIST, arg, 0);
     bad += check("an empty flash: no bank; LIST: 32 voices, no bank, \"\", every voice empty",
                  ok && rep_n == 2u + 1u + 32u * 2u && rep[0] == 32 && rep[1] == 0 && rep[2] == 0 && rep[3] == 0 && rep[4] == 0);
@@ -235,11 +243,14 @@ static int store_test(void)
     ok = send_bank(&a, 0) == 0 && rep[1] == 32 && bank_is(&a);
     bad += check("a whole bank written over the editor (BEGIN, 32 WRITEs, END): rc 0, 32 voices, read back exactly", ok);
     ok = 1;
-    for (k = 0; k < 0x100000u; k++)
-        if (nor[k] != snap[k] && !(k >= 0xE6000u && k < 0xE8000u))
-            ok = 0;
-    bad += check("  .. it wrote 0xE7000 (the bank) and 0xE6000 (the autosave's older copy, staged), nothing else", ok &&
-                 ((st_hdr_t *)(nor + 0xE7000u))->type == OBJ_FM6VB && ((st_hdr_t *)(nor + 0xE6000u))->type == OBJ_FM6VB);
+    {
+        uint32_t stage = st_sector(OBJ_AUTOSAVE, 1);       /* A held the autosave; stage into B */
+        for (k = 0; k < 0x100000u; k++)
+            if (nor[k] != snap[k] && !(k >= stage && k < stage + 0x1000u) && !(k >= 0xE7000u && k < 0xE8000u))
+                ok = 0;
+        bad += check("  .. it wrote 0xE7000 (the bank) and the autosave's older copy (staged), nothing else", ok &&
+                     ((st_hdr_t *)(nor + 0xE7000u))->type == OBJ_FM6VB && ((st_hdr_t *)(nor + stage))->type == OBJ_FM6VB);
+    }
     ok = 1;
     for (k = 0xE7F00u; k < 0xE8000u; k++)
         ok &= nor[k] == 0xFFu;
@@ -261,7 +272,7 @@ static int store_test(void)
     }
     bad += check("  .. LIST: the bank's name and each voice's name", ok);
     memset(&upf, 0, sizeof upf);                         /* a power-on: the RAM lost, the stores read */
-    fm6_bank_used = 0;
+    memset(fm6_bank_used, 0, sizeof fm6_bank_used);
     up_boot();
     bad += check("  .. after a power-on: the same bank", bank_is(&a));
 
@@ -308,13 +319,14 @@ static int store_test(void)
                      !memcmp(got, as_data, sizeof as_data));
     /* the next bank: staged in the autosave's older copy again (A now), the new autosave (B) kept */
     ok = send_bank(&b, 0) == 0 && rep[1] == 3 && bank_is(&b) && st_load(OBJ_AUTOSAVE, got, sizeof got) == (int)sizeof as_data &&
-         !memcmp(got, as_data, sizeof as_data) && ((st_hdr_t *)(nor + 0xE5000u))->type == OBJ_FM6VB;
+         !memcmp(got, as_data, sizeof as_data) &&
+         ((st_hdr_t *)(nor + st_sector(OBJ_AUTOSAVE, 0)))->type == OBJ_FM6VB;
     bad += check("a second bank (3 voices): staged in the other copy, the autosave kept, read back exactly", ok);
     /* an empty bank: BEGIN, END (the CRC of nothing) */
     {
         bank_t e;
         make_bank(&e, 'E', 0, "");
-        ok = send_bank(&e, 0) == 0 && rep[1] == 0 && bank_is(&e) && !fm6_bank_used;
+        ok = send_bank(&e, 0) == 0 && rep[1] == 0 && bank_is(&e) && !fm6_bank_used[0];
     }
     bad += check("an empty bank (no WRITE): valid, no voice", ok);
     /* no flash: refused */
@@ -332,8 +344,8 @@ static int store_test(void)
 static int cut_test(void)
 {
     int bad = 0;
-    static uint8_t pre[0x3000];
     static bank_t a, b;
+    static uint8_t pre_a[0x2000], pre_b[0x2000], pre_v[0x1000];
     uint8_t as_data[600], got[600];
     uint32_t n, old = 0, new = 0, other = 0, total, e, eold = 0, enew = 0;
     reset();
@@ -342,43 +354,52 @@ static int cut_test(void)
     make_bank(&a, 'A', 0x0000FFFFu, "OLD");
     make_bank(&b, 'B', 0xFFFFFFFFu, "NEW");
     send_bank(&a, 0);
-    memcpy(pre, nor + 0xE5000u, sizeof pre);              /* (only these three sectors are ever written here) */
-    progs = 0;
-    send_bank(&b, 0);
-    total = progs;
-    for (n = 0; n < total; n++) {
-        memcpy(nor + 0xE5000u, pre, sizeof pre);
-        memset(&fvb_tx, 0, sizeof fvb_tx);
-        fvb_boot();
-        dead = 0;
-        cut_bytes = (long)n;
+    /* A (2 sectors) + B in the gap (staging) + voice bank: restore those regions between cuts */
+    {
+        memcpy(pre_a, nor + 0xE5000u, sizeof pre_a);
+        memcpy(pre_b, nor + 0x93000u, sizeof pre_b);
+        memcpy(pre_v, nor + 0xE7000u, sizeof pre_v);
+        progs = 0;
         send_bank(&b, 0);
-        dead = 0;
-        cut_bytes = -1;
-        fvb_boot();                                       /* the next power-on */
-        if (bank_is(&a))
-            old++;
-        else if (bank_is(&b))
-            new++;
-        else
-            other++;
-        if (st_load(OBJ_AUTOSAVE, got, sizeof got) != (int)sizeof as_data || memcmp(got, as_data, sizeof as_data))
-            other++;
-    }
-    for (e = 0; e < 2u; e++) {                            /* BEGIN's erase, the copy's erase */
-        memcpy(nor + 0xE5000u, pre, sizeof pre);
-        memset(&fvb_tx, 0, sizeof fvb_tx);
-        fvb_boot();
-        dead = 0;
-        cut_erase = (long)e;
-        send_bank(&b, 0);
-        dead = 0;
-        cut_erase = -1;
-        fvb_boot();
-        eold += bank_is(&a);
-        enew += bank_is(&b);
-        if (st_load(OBJ_AUTOSAVE, got, sizeof got) != (int)sizeof as_data || memcmp(got, as_data, sizeof as_data))
-            other++;
+        total = progs;
+        for (n = 0; n < total; n++) {
+            memcpy(nor + 0xE5000u, pre_a, sizeof pre_a);
+            memcpy(nor + 0x93000u, pre_b, sizeof pre_b);
+            memcpy(nor + 0xE7000u, pre_v, sizeof pre_v);
+            memset(&fvb_tx, 0, sizeof fvb_tx);
+            fvb_boot();
+            dead = 0;
+            cut_bytes = (long)n;
+            send_bank(&b, 0);
+            dead = 0;
+            cut_bytes = -1;
+            fvb_boot();                                       /* the next power-on */
+            if (bank_is(&a))
+                old++;
+            else if (bank_is(&b))
+                new++;
+            else
+                other++;
+            if (st_load(OBJ_AUTOSAVE, got, sizeof got) != (int)sizeof as_data || memcmp(got, as_data, sizeof as_data))
+                other++;
+        }
+        for (e = 0; e < 2u; e++) {                            /* BEGIN's erase, the copy's erase */
+            memcpy(nor + 0xE5000u, pre_a, sizeof pre_a);
+            memcpy(nor + 0x93000u, pre_b, sizeof pre_b);
+            memcpy(nor + 0xE7000u, pre_v, sizeof pre_v);
+            memset(&fvb_tx, 0, sizeof fvb_tx);
+            fvb_boot();
+            dead = 0;
+            cut_erase = (long)e;
+            send_bank(&b, 0);
+            dead = 0;
+            cut_erase = -1;
+            fvb_boot();
+            eold += bank_is(&a);
+            enew += bank_is(&b);
+            if (st_load(OBJ_AUTOSAVE, got, sizeof got) != (int)sizeof as_data || memcmp(got, as_data, sizeof as_data))
+                other++;
+        }
     }
     printf("fm6bank:   %u cut points (bytes): %u the old bank, %u the new one, %u anything else\n", (unsigned)total,
            (unsigned)old, (unsigned)new, (unsigned)other);
@@ -481,7 +502,8 @@ static int keep_test(void)
     send_bank(&b, 0);                                     /* the bank replaced */
     slot_to(0, 1);
     slot_to(1, 1);
-    memset(proj_slot, 0, sizeof proj_slot);              /* (from flash) */
+    proj_slot_used = 0;                                  /* (from flash) */
+    memset(proj_slot_sum, 0, sizeof proj_slot_sum);
     project_load(0);
     ok &= patch_is(0, a.v[4]) && trk[0].p[P_E7] == FM6_OWN && patch_is(1, a.v[6]) && trk[1].p[P_E7] == FM6_OWN;
     bad += check("a project saved on B5 / B7: loads those voices (SLOT OWN) after the bank was replaced", ok);
@@ -501,8 +523,8 @@ static int keep_test(void)
         memcpy(x, FM6_FACTORY[3], FM6_PACKED);
         x[110] = 17;                                      /* (an own patch) */
         ok = 1;
-        for (s = FM6_OWN + 1; s <= (int32_t)(FM6_OWN + FM6_NBANK); s++) {
-            p->t[0].p[P_E7] = (int16_t)s;                 /* (1.0.2's B2..B27: 9..34; any 9..40) */
+        for (s = FM6_OWN + 1; s <= (int32_t)(FM6_OWN + FM6_NBANK_TOTAL); s++) {
+            p->t[0].p[P_E7] = (int16_t)s;                 /* any bank SLOT 9..136 -> OWN on store */
             memcpy(p->fm6[0], x, FM6_PACKED);
             p->sum = proj_sum(p);
             ok &= !project_restore_runtime(p) && trk[0].p[P_E7] == FM6_OWN && fm6_slot[0] == FM6_OWN && patch_is(0, x);
@@ -513,7 +535,7 @@ static int keep_test(void)
         memcpy(p->fm6[0], FM6_FACTORY[2], FM6_PACKED);
         p->sum = proj_sum(p);
         ok &= !project_restore_runtime(p) && trk[0].p[P_E7] == 2 && patch_is(0, FM6_FACTORY[2]);
-        bad += check("a project with a stored SLOT 9..40: its own patch, SLOT OWN (never a bank voice); F3 as before", ok);
+        bad += check("a project with a stored SLOT 9..136: its own patch, SLOT OWN (never a bank voice); F3 as before", ok);
     }
     {   /* a user preset record with a stored SLOT 13 (1.0.2's B5): with its patch, that patch; without, the init voice */
         up_rec_t *r;
@@ -575,22 +597,117 @@ static int keep_test(void)
             fm6_adopt(0);
         }
         ok = trk[0].p[P_E7] == FM6_OWN;
-        for (s = FM6_OWN + 1; s <= (int32_t)(FM6_OWN + FM6_NBANK); s++) {
+        for (s = FM6_OWN + 1; s <= (int32_t)(FM6_OWN + FM6_NBANK_TOTAL); s++) {
             memset(&motion, 0, sizeof motion);
             motion.on = 1;
             motion.count = 1;
             motion.event[0].place = 3;                    /* track 1, step 3 */
             motion.event[0].param = P_E7;
-            motion.event[0].value = (int8_t)s;
+            motion.event[0].value = (int16_t)s;   /* RAM is int16; bank SLOTs past 127 still param_fit to OWN */
             motion_base_valid = 0;
             motion_step(t, 3, &motion, 1);
             fm6_poll();
             ok &= trk[0].p[P_E7] == FM6_OWN && patch_is(0, x);
         }
         ok &= motion_put(t, 4, P_E7, FM6_OWN + 3, 0) == 0 && motion.event[motion.count - 1u].value == FM6_OWN;
-        bad += check("motion holding SLOT 9..40: plays OWN, the patch kept; a record made on B3 stores OWN", ok);
+        bad += check("motion holding SLOT 9..136: plays OWN, the patch kept; a record made on B3 stores OWN", ok);
         memset(&motion, 0, sizeof motion);
     }
+    return bad;
+}
+
+/* banks 1 and 2 at 0xF8000 / 0xF9000: independent of bank 0, staged slot 0x10|bank, LIST by bank index */
+static int banks_test(void)
+{
+    int bad = 0, ok;
+    static bank_t a, b1, b2;
+    static uint8_t snap[0x100000];
+    uint8_t arg[1], as_data[600], got[600];
+    uint32_t k, stage;
+    st_hdr_t h;
+    reset();
+    memset(as_data, 'S', sizeof as_data);
+    st_save(OBJ_AUTOSAVE, as_data, sizeof as_data);
+    make_bank(&a, 'A', 0x0000000Fu, "HOME0");
+    make_bank(&b1, 'X', 0x000000FFu, "BANK1");
+    make_bank(&b2, 'Y', 0x80000001u, "BANK2");
+    ok = send_bank(&a, 0) == 0 && bank_is(&a);
+    bad += check("banks: bank 0 still at 0xE7000", ok && ((st_hdr_t *)(nor + 0xE7000u))->slot == 0 &&
+                 ((st_hdr_t *)(nor + 0xE7000u))->type == OBJ_FM6VB);
+    memcpy(snap, nor, sizeof nor);
+    stage = st_sector(OBJ_AUTOSAVE, 1);
+    ok = send_bank_to(1, &b1, 0) == 0 && rep[1] == 8 && bank_is_n(1, &b1) && bank_is(&a);
+    bad += check("banks: bank 1 at 0xF8000 (8 voices), bank 0 unchanged", ok &&
+                 ((st_hdr_t *)(nor + 0xF8000u))->type == OBJ_FM6VB &&
+                 ((st_hdr_t *)(nor + 0xF8000u))->slot == 1 &&
+                 ((st_hdr_t *)(nor + stage))->slot == (0x10u | 1u));
+    ok = 1;
+    for (k = 0; k < 0x100000u; k++)
+        if (nor[k] != snap[k] && !(k >= stage && k < stage + 0x1000u) && !(k >= 0xF8000u && k < 0xF9000u))
+            ok = 0;
+    bad += check("  .. bank 1 wrote only 0xF8000 and the staging sector (not the gap, not E8000)", ok &&
+                 !memcmp(nor + 0xE7000u, snap + 0xE7000u, 0x1000u) && nor[0x95000u] == snap[0x95000u]);
+    ok = send_bank_to(2, &b2, 0) == 0 && rep[1] == 2 && bank_is_n(2, &b2) && bank_is_n(1, &b1) && bank_is(&a);
+    bad += check("banks: bank 2 at 0xF9000, banks 0 and 1 kept", ok &&
+                 ((st_hdr_t *)(nor + 0xF9000u))->type == OBJ_FM6VB &&
+                 ((st_hdr_t *)(nor + 0xF9000u))->slot == 2);
+    {
+        static bank_t b3;
+        make_bank(&b3, 'Z', 0x00000003u, "BANK3");
+        ok = send_bank_to(3, &b3, 0) == 0 && rep[1] == 2 && bank_is_n(3, &b3) && bank_is_n(2, &b2) &&
+             bank_is_n(1, &b1) && bank_is(&a);
+        bad += check("banks: bank 3 at 0xF4000, banks 0..2 kept", ok &&
+                     ((st_hdr_t *)(nor + 0xF4000u))->type == OBJ_FM6VB &&
+                     ((st_hdr_t *)(nor + 0xF4000u))->slot == 3);
+        arg[0] = 1;
+        request(ED_FM6B_LIST, arg, 1);
+        ok = rep[0] == 32 && rep[1] == 1 && !memcmp(rep + 2, "BANK1", 6);
+        bad += check("  .. LIST bank 1: its name", ok);
+        arg[0] = 2;
+        request(ED_FM6B_LIST, arg, 1);
+        ok = rep[0] == 32 && rep[1] == 1 && !memcmp(rep + 2, "BANK2", 6);
+        bad += check("  .. LIST bank 2: its name", ok);
+        arg[0] = 3;
+        request(ED_FM6B_LIST, arg, 1);
+        ok = rep[0] == 32 && rep[1] == 1 && !memcmp(rep + 2, "BANK3", 6);
+        bad += check("  .. LIST bank 3: its name", ok);
+        slot_to(0, FM6_OWN + 1u + 32u);
+        ok = patch_is(0, b1.v[0]) && fm6_slot[0] == FM6_OWN + 33u;
+        slot_to(1, FM6_OWN + 1u + 64u);
+        ok &= patch_is(1, b2.v[0]);
+        slot_to(2, FM6_OWN + 1u + 96u);
+        ok &= patch_is(2, b3.v[0]) && fm6_slot[2] == FM6_OWN + 97u;
+        bad += check("  .. SLOT B33 / B65 / B97 load banks 1, 2 and 3", ok);
+    }
+    send_bank_to(1, &b1, 0);
+    memset(nor + 0xF8000u, 0xFF, 0x1000u);
+    memset(fm6_bank_used, 0, sizeof fm6_bank_used);
+    fvb_boot();
+    ok = bank_is_n(1, &b1) && bank_is(&a) && bank_is_n(2, &b2);
+    bad += check("banks: boot finishes a staged bank 1 into 0xF8000", ok);
+    make_bank(&a, 'Z', 0x00000001u, "LEGACY");
+    send_bank(&a, 0);
+    stage = fvb_stage();
+    ok = 0;
+    if (!st_read(stage, &h, sizeof h)) {
+        h.slot = 1;
+        h.hcrc = st_crc32(&h, sizeof h - 4u);
+        memset(nor + stage, 0xFF, 32);
+        st_prog(stage, &h, sizeof h);
+        memset(nor + 0xE7000u, 0xFF, 0x1000u);
+        memset(fm6_bank_used, 0, sizeof fm6_bank_used);
+        fvb_boot();
+        ok = bank_is(&a) && ((st_hdr_t *)(nor + 0xE7000u))->slot == 0;
+    }
+    bad += check("banks: boot still accepts legacy staged slot==1 as bank 0", ok);
+    arg[0] = 4;
+    request(ED_FM6B_BEGIN, arg, 1);
+    ok = rep[0] == 1;
+    request(ED_FM6B_LIST, arg, 1);
+    ok &= rep_n == 0;
+    bad += check("banks: BEGIN/LIST bank 4 refused", ok);
+    bad += check("  .. the autosave still loads",
+                 st_load(OBJ_AUTOSAVE, got, sizeof got) == (int)sizeof as_data && !memcmp(got, as_data, sizeof as_data));
     return bad;
 }
 
@@ -601,6 +718,7 @@ int main(void)
     bad += cut_test();
     bad += slot_test();
     bad += keep_test();
+    bad += banks_test();
     printf(bad ? "fm6bank: FAILED (%d)\n" : "fm6bank: all ok\n", bad);
     return bad ? 1 : 0;
 }

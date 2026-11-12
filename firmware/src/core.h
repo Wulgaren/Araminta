@@ -34,7 +34,7 @@
 #define ENGI_WT 14u              /* WAVETABLE (eng_wt.c) */
 #define ENGI_DRUMS 15u           /* DRUMS: the ported Felucca drum engine (eng_drums.c) */
 #define NENG_SHOWN 14u           /* pickable: ANALOG FM6 WAVETABLE PHASE LOFI VOICE TRIO WHEEL PHYS NOISE GRAIN SAMPLE DRUM DRUMS */
-#define UP_SLOTS 32u             /* user presets (upreset.c) */
+#define UP_SLOTS 96u             /* user presets (upreset.c): six banks of 16 */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
 /* ------------------------------------------------------- parameters --- */
@@ -456,7 +456,8 @@ static void step_set_fl(step_t *s, uint32_t fl) { s->flags = (uint8_t)(fl & (SF_
 #define MOTION_FILE_MAX_V10 110u /* FUN10 disk: 4+110*3=334; +2 B/track for P_IORD left 2 B before FM6 */
 #define MOTION_FILE_MAX_V11 78u  /* FUN11 disk: 4+78*3=238; frees 96 B for the DRUM-X kit (project.c PROJ_DX_*) */
 #define MOTION_FILE_MAX_V15 72u  /* FUN12..FUN15 disk: 4+72*3=220; 18 B for SCALE LOCK + pad before CRV */
-#define MOTION_FILE_MAX 88u      /* FUN16 disk: the song chain repacks 84 -> 36 B, freeing 48 B for 16 more records */
+#define MOTION_FILE_MAX_BODY 88u /* FUN16..FUN19 in-body wire: chain repack freed 48 B for 16 records */
+#define MOTION_FILE_MAX 128u     /* FUN20 disk: 88 in the body + 40 in the 256 B append area (project.c) */
 /* Four tracks x64 steps fit one byte. Track values are -64..127; FX TIME retains exact milliseconds in RAM.
  * param: the P_* or MFX_* id (<128), bit 7 (MOTION_LOCK, 1.1) a parameter lock: the value
  * sounds on that step only and goes back after it (motion.c motion_step); without it an automation event, the
@@ -493,12 +494,16 @@ _Static_assert(sizeof(motion_file_event_t) == 3u, "motion disk record preserves 
 #define MOTION_FILE_SIZE_V10 (4u + MOTION_FILE_MAX_V10 * sizeof(motion_file_event_t))
 #define MOTION_FILE_SIZE_V11 (4u + MOTION_FILE_MAX_V11 * sizeof(motion_file_event_t))
 #define MOTION_FILE_SIZE_V15 (4u + MOTION_FILE_MAX_V15 * sizeof(motion_file_event_t))
-#define MOTION_FILE_SIZE (4u + MOTION_FILE_MAX * sizeof(motion_file_event_t))
+/* the in-body motion block stays 88 records so DX/FM6 offsets stay frozen; records 89..128 live in the append */
+#define MOTION_FILE_SIZE (4u + MOTION_FILE_MAX_BODY * sizeof(motion_file_event_t))
+#define MOTION_FILE_APPEND_MAX (MOTION_FILE_MAX - MOTION_FILE_MAX_BODY)   /* 40 */
+#define MOTION_FILE_APPEND_SIZE (MOTION_FILE_APPEND_MAX * sizeof(motion_file_event_t))  /* 120 */
 _Static_assert(MOTION_FILE_SIZE_128 == 388u, "pre-release FUN10..FUN12 motion disk layout");
 _Static_assert(MOTION_FILE_SIZE_V10 == 334u, "FUN10 motion disk layout");
 _Static_assert(MOTION_FILE_SIZE_V11 == 238u, "FUN11 motion disk layout (kit before FM6)");
 _Static_assert(MOTION_FILE_SIZE_V15 == 220u, "FUN12..FUN15 motion disk layout (SCALE LOCK before CRV)");
-_Static_assert(MOTION_FILE_SIZE == 268u, "FUN16 motion disk layout (88 records, packed chain)");
+_Static_assert(MOTION_FILE_SIZE == 268u, "FUN16..FUN20 in-body motion (88 records, packed chain)");
+_Static_assert(MOTION_FILE_APPEND_SIZE == 120u && MOTION_FILE_MAX == 128u, "FUN20 append motion");
 /* P_QUANT (MAP). Stored values stay append-only; the UI shows 1 as CURR (per track) and 4 as ALL
  * (every track follows ROOT/SCL while it is on). QN_CURR is the shared mode here. */
 enum { QN_OFF, QN_ALL, QN_KBD, QN_SEQ, QN_CURR };
