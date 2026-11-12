@@ -1880,7 +1880,6 @@ static const uint8_t OTT_LOG2[64] = {                  /* 16 * log2(1 + k / 64) 
     9, 10, 10, 10, 10, 11, 11, 11, 11, 11, 12, 12, 12, 12, 13, 13,
     13, 13, 13, 14, 14, 14, 14, 14, 15, 15, 15, 15, 15, 15, 16, 16
 };
-static const int16_t *const OTT_TAB[3] = { OTT_LOW_Q8, OTT_MID_Q8, OTT_LOW_Q8 };
 /* floor(log2 p)*16 + mantissa 1/16-octave; clz; power up to 8.4e6 (65535^2 >> 9) */
 static inline int32_t ott_pow_ix(int32_t p)
 {
@@ -1923,35 +1922,34 @@ static __attribute__((noinline)) void ins_run_ott(ott_st_t *o, ins_st_t *s, cons
     int32_t depth = clamp(t->p[P_DIST], 0, 127);
     int32_t atk = OTT_ATK_K[tv], rel = OTT_REL_K[tv];
     for (i = 0; i < n; i++) {
-        int32_t x = b[i], xs, lo, h88, mid, hi, y, x1, x2, y1, y2, band[3];
-        uint32_t bix;
+        int32_t x = b[i], xs, lo, h88, mid, hi, y, x1, x2, y1, y2;
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
         if (!s->w && !tw) { b[i] = x; continue; }
         xs = clamp(x, -262143, 262143) >> 2;
         ott_svf_run(&o->c88, &o->xa, xs, &x1, &x2);
         if (!o->lo_ph)
-            ott_svf_run(&o->c88_4, &o->xb, x1, &o->lo_hold, 0);
+            o->lo_hold = ott_svf_lp(&o->c88_4, &o->xb, x1);
         lo = o->lo_hold;
         o->lo_ph = (uint8_t)((o->lo_ph + 1u) & (OTT_DEC - 1u));
-        ott_svf_run(&o->c88, &o->xc, clamp(x2, -65535, 65535), 0, &h88);
+        h88 = ott_svf_hp(&o->c88, &o->xc, clamp(x2, -65535, 65535));
         ott_svf_run(&o->c25, &o->ya, h88, &y1, &y2);
-        ott_svf_run(&o->c25, &o->yb, y1, &mid, 0);
-        ott_svf_run(&o->c25, &o->yc, clamp(y2, -65535, 65535), 0, &hi);
-        band[0] = lo; band[1] = mid; band[2] = hi;
+        mid = ott_svf_lp(&o->c25, &o->yb, y1);
+        hi = ott_svf_hp(&o->c25, &o->yc, clamp(y2, -65535, 65535));
         if (!depth) {
             y = lo + mid + hi;                          /* flat crossover; park gains at unity */
             o->g[0] = o->g[1] = o->g[2] = o->k[0] = o->k[1] = o->k[2] = 4096;
         } else {
             if (!(i & (OTT_DEC - 1))) {
-                for (bix = 0; bix < 3u; bix++) {
-                    int32_t v = band[bix];
-                    o->env[bix] = ott_pow(o->env[bix], (int32_t)(((uint32_t)v * (uint32_t)v) >> 9));
-                    o->k[bix] = ott_curve(OTT_TAB[bix], o->env[bix], depth);
-                }
+                o->env[0] = ott_pow(o->env[0], (int32_t)(((uint32_t)lo * (uint32_t)lo) >> 9));
+                o->env[1] = ott_pow(o->env[1], (int32_t)(((uint32_t)mid * (uint32_t)mid) >> 9));
+                o->env[2] = ott_pow(o->env[2], (int32_t)(((uint32_t)hi * (uint32_t)hi) >> 9));
+                o->k[0] = ott_curve(OTT_LOW_Q8, o->env[0], depth);
+                o->k[1] = ott_curve(OTT_MID_Q8, o->env[1], depth);
+                o->k[2] = ott_curve(OTT_LOW_Q8, o->env[2], depth);
             }
-            y = 0;
-            for (bix = 0; bix < 3u; bix++)
-                y += ott_apply(band[bix], ott_smooth(&o->g[bix], o->k[bix], atk, rel));
+            y = ott_apply(lo, ott_smooth(&o->g[0], o->k[0], atk, rel))
+              + ott_apply(mid, ott_smooth(&o->g[1], o->k[1], atk, rel))
+              + ott_apply(hi, ott_smooth(&o->g[2], o->k[2], atk, rel));
         }
         y = clamp(y, -65535, 65535);
         y = clamp(y << 2, -262143, 262143);
