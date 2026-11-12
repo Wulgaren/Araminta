@@ -3764,15 +3764,15 @@ static int test_edit_cycle(void)
     press(B_EDIT); frame();
     ok &= cur_page()->sec == EDIT_SEC_VOX && str_eq(cur_page()->title, "VOICE");
     ok &= cur_page()->id[0] == P_VOICE && cur_page()->id[1] == P_GLIDE &&
-          cur_page()->id[2] == P_SPRD && cur_page()->id[3] == P_DETUNE;   /* one page; no GLMOD / PAN / PLAY */
+          cur_page()->id[2] == PG_CGLD && cur_page()->id[3] == P_DETUNE;   /* one page; no GLMOD / PAN / PLAY */
     turn(EN_SELECT, 1); frame();
-    ok &= str_eq(cur_page()->title, "VOICE");                            /* Voice section: one page only */
+    ok &= str_eq(cur_page()->title, "VOICE 2");                          /* Voice: VOICE -> VOICE 2 */
     press(B_EDIT); frame();
     ok &= cur_page()->sec == EDIT_SEC_SND;
-    bad += check("EDIT cycle: ANALOG Sound is OSC A→OSC B→FILTER (1/3 2/3 3/3); Voice is one page (VCE GLD SPRD PITCH in POLY)", ok);
+    bad += check("EDIT cycle: ANALOG Sound is OSC A→OSC B→FILTER (1/3 2/3 3/3); Voice is VOICE → VOICE 2 (VCE GLD PIT GLD SPRD in POLY)", ok);
 
-    /* PITCH last on VOICE (SPRD's old slot), VOICE 2 in UNISON; the card drives the channel bend and a track change
-     * recentres it */
+    /* VOICE: PIT GLD in POLY, SPRD last, UNI DTN in UNISON; VOICE 2 is PITCH in every mode. PIT GLD is bit 5 of
+     * P_ALLOC and GLD reads as a share of the chord while it is on. The bend card drives the channel bend. */
     {
         int16_t *vp = 0;
         const page_t *vox;
@@ -3780,23 +3780,31 @@ static int test_edit_cycle(void)
         uint32_t ch;
         ui_power_on();
         set_engine_of(TSEL, 0); TSEL->engine = TSEL->eng_req;
+        TSEL->p[P_ALLOC] = (int16_t)(sweep_pack(2, 1) & ~(int16_t)CGLD_BIT);
         press(B_EDIT); press(B_EDIT); frame();            /* Voice section */
         vox = cur_page();
         ok = str_eq(vox->title, "VOICE");
         TSEL->p[P_VOICE] = (int16_t)V_POLY;
-        ok &= (d = page_desc(vox, 3, &vp)) != 0 && vp && str_eq(d->label, "PITCH") && d->fmt == F_CENT &&
-              page_desc(vox, 2, &vp) != 0;                 /* PITCH last; SPRD on */
+        ok &= (d = page_desc(vox, 2, &vp)) != 0 && vp && str_eq(d->label, "PIT GLD") && d->fmt == F_ONOFF &&
+              page_desc(vox, 3, &vp) != 0 && str_eq(page_desc(vox, 3, &vp)->label, "SPRD");
+        ok &= page_desc(vox, 1, &vp) != 0 && vp == &TSEL->p[P_GLIDE] && str_eq(page_desc(vox, 1, &vp)->label, "GLD") &&
+              page_desc(vox, 1, &vp)->fmt == F_TIME;       /* PIT GLD off: GLD is time */
+        cgld_set(TSEL, 1);
+        ok &= cgld_on(TSEL) && sweep_rate(TSEL) == 2u && sweep_stroke(TSEL) == 1u;
+        ok &= page_desc(vox, 1, &vp) != 0 && vp == &TSEL->p[P_GLIDE] && page_desc(vox, 1, &vp)->fmt == F_PCT;
+        cgld_set(TSEL, 0);
+        turn(EN_K1 + 2, 1); frame();                       /* PIT GLD knob: ON */
+        ok &= cgld_on(TSEL) && sweep_rate(TSEL) == 2u && sweep_stroke(TSEL) == 1u;
+        turn(EN_K1 + 2, -1); frame();                      /* OFF again */
+        ok &= !cgld_on(TSEL);
         TSEL->p[P_VOICE] = (int16_t)V_MONO;
-        ok &= (d = page_desc(vox, 3, &vp)) != 0 && str_eq(d->label, "PITCH") && page_desc(vox, 2, &vp) == 0;
+        ok &= page_desc(vox, 2, &vp) == 0 && page_desc(vox, 3, &vp) == 0;
         TSEL->p[P_VOICE] = (int16_t)V_LEGATO;
-        ok &= (d = page_desc(vox, 3, &vp)) != 0 && str_eq(d->label, "PITCH") && page_desc(vox, 2, &vp) == 0;
+        ok &= page_desc(vox, 2, &vp) == 0 && page_desc(vox, 3, &vp) == 0;
         TSEL->p[P_VOICE] = (int16_t)V_UNISON;
-        ok &= (d = page_desc(vox, 3, &vp)) != 0 && str_eq(d->label, "UNI DTN") &&
-              page_desc(vox, 2, &vp) != 0;                 /* both */
+        ok &= page_desc(vox, 2, &vp) == 0 &&
+              (d = page_desc(vox, 3, &vp)) != 0 && str_eq(d->label, "UNI DTN");
         TSEL->p[P_VOICE] = (int16_t)V_POLY;
-        turn(EN_SELECT, 1); frame();
-        ok &= str_eq(cur_page()->title, "VOICE");          /* POLY: VOICE 2 hidden */
-        TSEL->p[P_VOICE] = (int16_t)V_UNISON;
         turn(EN_SELECT, 1); frame();
         ok &= str_eq(cur_page()->title, "VOICE 2") && cur_page()->id[0] == PG_BEND &&
               (d = page_desc(cur_page(), 0, &vp)) != 0 && str_eq(d->label, "PITCH");
@@ -3805,20 +3813,22 @@ static int test_edit_cycle(void)
         turn(EN_SELECT, -1); frame();
         ok &= str_eq(cur_page()->title, "VOICE");
         /* the card bends the selected track's channel; a track change recentres it */
-        TSEL->p[P_VOICE] = (int16_t)V_POLY;
+        turn(EN_K1 + 3, 1); frame();                       /* back on VOICE: no bend card there */
+        ok &= midi_ch[trk_midi_ch(song.sel)].bend == 0;
+        turn(EN_SELECT, 1); frame();                       /* VOICE 2: PITCH */
         ch = trk_midi_ch(song.sel);
         midi_ch[ch].bend = 0;
         midi_bend_target[trk_index(TSEL)] = 0;
-        turn(EN_K1 + 3, 1); frame();
+        turn(EN_K1, 1); frame();
         ok &= midi_ch[ch].bend != 0 && midi_bend_target[trk_index(TSEL)] != 0;
-        d = page_desc(cur_page(), 3, &vp);
+        d = page_desc(cur_page(), 0, &vp);
         ok &= d == &BEND_DESC && vp && *vp == 1;           /* one cent a detent adds up (no rounding stall) */
-        turn(EN_K1 + 3, 1); frame();
-        d = page_desc(cur_page(), 3, &vp);
+        turn(EN_K1, 1); frame();
+        d = page_desc(cur_page(), 0, &vp);
         ok &= vp && *vp == 2;
         track_select(1); frame();
         ok &= midi_ch[ch].bend == 0 && midi_bend_target[0] == 0;
-        bad += check("VOICE: PITCH last (POLY / MONO / LEG), VOICE 2 in UNISON; a track change recentres its bend", ok);
+        bad += check("VOICE: PIT GLD (POLY), SPRD last, UNI DTN in UNISON; VOICE 2 is PITCH; a track change recentres its bend", ok);
     }
 
 

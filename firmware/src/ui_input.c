@@ -1276,7 +1276,12 @@ static void edit_param(uint32_t slot, int32_t steps)
     if (pg->id[slot] == PG_STRUM || pg->id[slot] == PG_STROKE) {
         uint32_t rate = pg->id[slot] == PG_STRUM ? (uint32_t)v : sweep_rate(TSEL);
         uint32_t stroke = pg->id[slot] == PG_STROKE ? (uint32_t)v : sweep_stroke(TSEL);
-        TSEL->p[P_ALLOC] = sweep_pack(rate, stroke);
+        TSEL->p[P_ALLOC] = (int16_t)(sweep_pack(rate, stroke) | (TSEL->p[P_ALLOC] & (int16_t)CGLD_BIT));
+        ui.force = 1;
+        return;
+    }
+    if (pg->id[slot] == PG_CGLD) {
+        cgld_set(TSEL, v != 0);
         ui.force = 1;
         return;
     }

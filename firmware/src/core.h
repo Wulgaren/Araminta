@@ -289,16 +289,19 @@ typedef struct {
     uint8_t note, vel, gate, active;
     uint8_t stage;               /* env: 0 off, 1 attack, 2 decay/sustain, 3 release */
     uint8_t side;                /* SPREAD (fx.c mix_spread): 0 left of PAN, 1 right; set as the voice starts */
+    uint8_t gacc;                /* PIT GLD: the fraction of a 1/16 st carried (gstep Q8) */
+    uint8_t gq8;                 /* 1: gstep is Q8 (PIT GLD); 0: integer glide (glide_set) */
     int32_t env;                 /* Q24 */
     int32_t env_out;             /* last control-rate amplitude, Q15 */
     int32_t pitch16, pitch_cur;  /* 1/16 semitone, with glide */
-    int32_t gstep;               /* glide TIME mode: 1/16 st per control tick, 0 = RATE mode */
+    int32_t gstep;               /* glide TIME mode: 1/16 st per control tick, Q8 for PIT GLD, 0 = RATE */
     int32_t fine;                /* unison detune: phase increment * (1 + fine / 4096) */
     uint32_t ph[3];
     int32_t s[8];                /* engine state (filters, envs) */
     uint32_t age;
     uint8_t mvel;                /* mod.c: the note-on velocity (before UNISON scaling) and RAND of the note */
     int16_t mrnd;
+    uint16_t fin_d;              /* PIT GLD: a new note's fade-in, 1/16 st left (0: none) */
 } voice_t;
 
 typedef struct {                 /* per-voice control-rate modulation, computed in voice.c */
@@ -592,6 +595,10 @@ typedef struct track {
     uint8_t nmono;
     uint8_t mono_note;           /* note the MONO / LEGATO / UNISON voice(s) play, 0 = none */
     uint8_t rr;                  /* POLY ROTATE: next voice to try */
+    /* PIT GLD (voice.c / seq.c): this block's live note-ons, then the chord they became. Runtime only. */
+    uint8_t lcp_n, lcp_note[8], lcp_vel[8];   /* collected in the block, paired once at its end */
+    uint8_t lc_n, lc_note[8], lc_up;          /* the live chord sounding: its notes, bit per released note */
+    uint32_t lc_off;             /* samples until the released notes let go (one 1/8; 0 none) */
     /* mix runtime */
     int32_t peak;
     int32_t dist_hp, dist_lp1, dist_lp2;   /* DIST insert state (fx.c) */
@@ -638,19 +645,25 @@ typedef struct track {
     uint8_t lfo_wrap;            /* the LFO's phase wrapped this block (track_lfo_adv) */
     int16_t plk_pit;             /* the step's PITCH value (MSEQ_PITCH), semitones, absolute over TRN (seq.c) */
     uint8_t plk_fit;             /* 1: this step has a PITCH lock (0: none), so a value of 0 still overrides TRN */
-    uint8_t rsv_c1[1];           /* sizeof(track_t) a multiple of 16 */
+    uint8_t rsv_c1[5];           /* sizeof(track_t) a multiple of 16 */
 } track_t;
 enum { PFX_RND = 1, PFX_HALF = 2, PFX_REP = 4, PFX_DEC = 8, PFX_ATK = 16, PFX_X2 = 32 };   /* (track_t.pfx) */
 /* P_ALLOC's sweep: legacy ROT/REUSE (0/1) are OFF; else 2 + (rate - 1) * 3 + stroke.
- * Rate 1..7, stroke 0 DOWN / 1 UP / 2 ALT. */
+ * Rate 1..7, stroke 0 DOWN / 1 UP / 2 ALT. Bit 5 is PIT GLD (chord glide), not part of the sweep. */
+#define CGLD_BIT 0x20u
+static inline int cgld_on(const track_t *t) { return (t->p[P_ALLOC] & (int16_t)CGLD_BIT) != 0; }
+static inline void cgld_set(track_t *t, int on)
+{
+    t->p[P_ALLOC] = (int16_t)((t->p[P_ALLOC] & ~(int16_t)CGLD_BIT) | (on ? (int16_t)CGLD_BIT : 0));
+}
 static inline uint32_t sweep_rate(const track_t *t)
 {
-    uint32_t v = (uint32_t)t->p[P_ALLOC] & 127u;
+    uint32_t v = (uint32_t)t->p[P_ALLOC] & 31u;
     return v > 1u ? (v - 2u) / 3u + 1u : 0u;
 }
 static inline uint32_t sweep_stroke(const track_t *t)
 {
-    uint32_t v = (uint32_t)t->p[P_ALLOC] & 127u;
+    uint32_t v = (uint32_t)t->p[P_ALLOC] & 31u;
     return v > 1u ? (v - 2u) % 3u : 0u;
 }
 static inline int16_t sweep_pack(uint32_t rate, uint32_t stroke)

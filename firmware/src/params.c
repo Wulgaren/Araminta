@@ -597,6 +597,7 @@ typedef struct {
 #define PG_STRUM 0xFCu           /* CHORD KNOB 3: the packed P_ALLOC sweep's rate */
 #define PG_STROKE 0xFDu          /* CHORD KNOB 4: the packed P_ALLOC sweep's DOWN / UP / ALT */
 #define PG_BEND 0xFAu            /* VOICE 2's PITCH card: the selected track's channel bend (midi_control.c) */
+#define PG_CGLD 0xFBu            /* VOICE KNOB 3: PIT GLD, bit 5 of P_ALLOC (chord glide) */
 
 static const page_t PAGES[] = {
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, 0, {P_ATK, P_DEC, P_SUS, P_REL}},
@@ -638,10 +639,10 @@ static const page_t PAGES[] = {
     {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN4, P_LN5, P_LN6, P_LN7}},
     {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"OP ENV", FAM_EDIT, SC_TRACK, GR_FMENV, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
-    /* VOICE: one page (VCE GLD SPRD PITCH; UNISON instead shows UNI DTN in PITCH's slot and puts PITCH on VOICE 2).
-     * GLMOD / PRIO / ALLOC stay stored, not shown; PAN/PLAY on MIXER */
-    {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_VOICE, P_GLIDE, P_SPRD, P_DETUNE}},
-    {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {PG_BEND, 0xFF, 0xFF, 0xFF}},   /* UNISON only (ui.c) */
+    /* VOICE: VCE GLD PIT GLD (POLY) then SPRD / UNI DTN; VOICE 2 is PITCH in every mode. GLMOD / PRIO / ALLOC
+     * stay stored, not shown; PAN/PLAY on MIXER */
+    {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_VOICE, P_GLIDE, PG_CGLD, P_DETUNE}},
+    {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {PG_BEND, 0xFF, 0xFF, 0xFF}},   /* PITCH in every mode */
 
     /* GLO: Master (SELECT: MASTER / CLOCK) → Song (CLICK / COUNT-IN / LEVEL: MENU > AUDIO) */
     {"MASTER", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_MASTER, {G_CLIP, G_PUNCH, G_DUCK, G_DREL}},
@@ -749,7 +750,10 @@ static void scale_lock_after(track_t *t, uint32_t id)
 
 static const param_desc_t STRUM_DESC = PE("STRUM", N_STRUM, 0);
 static const param_desc_t STROKE_DESC = PE("STROKE", N_STROKE, 0);
+static const param_desc_t CGLD_DESC = {"PIT GLD", F_ONOFF, 0, 1, 0, 0, 0};
+static const param_desc_t GLD_CHORD_DESC = {"GLD", F_PCT, 0, 127, 0, 0, 0};
 static int16_t sweep_tmp;                /* (read at once: the draw and the knob handler use one slot at a time) */
+static int16_t cgld_tmp;
 /* midi_control.c (later in the build): the selected track's channel bend in cents, and how a card moves it */
 static int32_t midi_bend_card_cents(void);
 static void midi_bend_card_set(int32_t cents);
@@ -770,6 +774,20 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         sweep_tmp = (int16_t)sweep_stroke(TSEL);
         *valp = &sweep_tmp;
         return &STROKE_DESC;
+    }
+    mode = (uint32_t)TSEL->p[P_VOICE];
+    if (id == PG_CGLD) {                              /* VOICE KNOB 3: PIT GLD, POLY only */
+        if (mode != V_POLY) {
+            *valp = 0;
+            return 0;
+        }
+        cgld_tmp = (int16_t)(cgld_on(TSEL) != 0);
+        *valp = &cgld_tmp;
+        return &CGLD_DESC;
+    }
+    if (id == P_GLIDE && cgld_on(TSEL) && mode == V_POLY) {   /* the same knob, as a share of the chord */
+        *valp = &TSEL->p[id];
+        return &GLD_CHORD_DESC;
     }
     /* LFO 2 KNOB 4: SMOOTH, only while WAVE is S&H (blank otherwise; the value stays stored) */
     if (id == P_LSMOOTH && TSEL->p[P_LWAVE] != 4) {
@@ -794,17 +812,20 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     }
     if (pg->graph == GR_MOD)                          /* SRC DST AMT of the slot shown */
         id += 3u * mod_ui_slot;
-    /* VOICE page: PITCH in the last slot outside UNISON (the one UNI DTN vacates), and on VOICE 2 (UNISON, ui.c).
-     * UNI DTN = UNISON only; SPRD = POLY / UNISON (fx.c mix_spread). MONO / LEG: SPRD blank too. */
-    mode = (uint32_t)TSEL->p[P_VOICE];
-    if (id == PG_BEND || (id == P_DETUNE && mode != V_UNISON)) {
+    /* VOICE page: SPRD in the last slot in POLY, UNI DTN in UNISON; MONO / LEG blank. VOICE 2: PITCH in every
+     * mode (the bend card). SPRD = POLY / UNISON (fx.c mix_spread). */
+    if (id == PG_BEND) {
         bend_card_tmp = (int16_t)clamp(midi_bend_card_cents(), BEND_DESC.min, BEND_DESC.max);
         *valp = &bend_card_tmp;
         return &BEND_DESC;
     }
-    if (id == P_SPRD && mode != V_POLY && mode != V_UNISON) {
-        *valp = 0;
-        return 0;
+    if (id == P_DETUNE && mode != V_UNISON) {
+        if (mode != V_POLY) {
+            *valp = 0;
+            return 0;
+        }
+        *valp = &TSEL->p[P_SPRD];
+        return track_desc(TSEL, P_SPRD);
     }
     /* INSERT/SLICER stage knobs (not MIX): SEND edits the shared bus; CHAIN edits the track. */
     {
