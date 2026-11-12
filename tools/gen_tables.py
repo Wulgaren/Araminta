@@ -57,6 +57,45 @@ def main(path):
     L.append(cgen.c_array("CUTOFF_HZ", "uint16_t", [int(round(f)) for f in fc], 12))
     # trapezoidal (Simper) SVF: g = tan(pi fc / FS), Q12; stable at any cutoff/resonance
     L.append(cgen.c_array("SVF_G", "uint16_t", [int(4096 * math.tan(math.pi * min(f, 0.45 * FS) / FS)) for f in fc], 12))
+    # OTT insert (fx.c ins_run_ott): the Ableton Multiband Dynamics OTT preset as a gain curve per
+    # band, Q8 (256 = 1x; int16 keeps the flash cost down), indexed in 1/16 octave of the band's power.
+    # A full-scale sine's mean((A/4)^2) >> 9 is 2^17, so that is 0 dBFS: +5.2 dB into every band,
+    # threshold -23 dBFS, 6 dB knee, 4:1 upward below it, 66.7:1 downward above (the preset's top band
+    # is a limiter; over its threshold the two differ by under 0.4 dB, so one curve serves both), then
+    # the preset's output gain. The threshold sits where a held note comes out level.
+    OTT_T, OTT_KNEE, OTT_IN, OTT_UP = -23.0, 6.0, 5.2, 4.0
+    OTT_PFS = 2 ** 17
+    for n, (rd, mk) in enumerate(((66.7, 10.3), (66.7, 5.7))):     # low+high, mid
+        ott = []
+        for i in range(352):                                  # 22 octaves of 16 steps
+            p = 2 ** ((i + 0.5) / 16.0)                       # the bin's middle
+            lv = 10 * math.log10(max(p, 1) / OTT_PFS) + OTT_IN
+            over, kh = lv - OTT_T, OTT_KNEE / 2.0
+            if over <= -kh:
+                dn = 0.0
+            elif over < kh:                                    # soft knee, Giannoulis
+                dn = -0.5 * (1 - 1 / rd) * (over + kh) ** 2 / OTT_KNEE
+            else:
+                dn = -(1 - 1 / rd) * over
+            under = -over
+            if under <= -kh:
+                up = 0.0
+            elif under < kh:
+                up = 0.5 * (1 - 1 / OTT_UP) * (under + kh) ** 2 / OTT_KNEE
+            else:
+                up = (1 - 1 / OTT_UP) * under
+            g = max(-36.0, min(24.0, dn + up + mk))
+            ott.append(max(1, min(32767, int(round(256 * 10 ** (g / 20.0))))))
+        L.append(cgen.c_array(["OTT_LOW_Q8", "OTT_MID_Q8"][n], "int16_t", ott, 16))
+    # OTT's attack / release: one-pole coefficients, Q16 (65536 = instant). TIME (P_ED_FX, -64..63)
+    # scales 1 ms / 50 ms at 0 by 2^(-TIME / 32): about 0.22 ms / 11 ms fully fast and 4.5 ms / 225 ms
+    # fully slow.
+    for nm, base in (("OTT_ATK_K", 1.0), ("OTT_REL_K", 50.0)):
+        k = []
+        for v in range(128):
+            tau = base * 2 ** ((v - 64) / 32.0) / 1000.0
+            k.append(min(65535, int(round(65536 * (1 - math.exp(-1 / (tau * FS)))))))
+        L.append(cgen.c_array(nm, "uint16_t", k, 12))
     # level: 0 = off, else dB = (v - 112) / 2  (112 = 0 dB, 127 = +7.5 dB)
     db = [None] + [(v - 112) / 2 for v in range(1, 128)]
     L.append(cgen.c_array("LEVEL_Q12", "uint16_t", [0] + [int(round(4096 * 10 ** (d / 20))) for d in db[1:]], 12))
