@@ -487,9 +487,16 @@ const parse = {
       for (let i = 4; i + 2 <= trailer.length;) {  /* blocks after the 4-byte preferences header */
         const tag = trailer[i], ver = trailer[i + 1];
         let len = INFO_LEN[tag];
-        /* FM6_BANK: two 7-bit bytes when present (128 = 00 01); one byte for 1.4.1 / 3.10 (32 / 96) */
-        if (tag === INFO_TAG.FM6_BANK)
-          len = i + 4 <= trailer.length ? 2 : 1;
+        /* FM6_BANK: one byte for 1.4.1 / 3.9 / 3.10 (32 / 96); two 7-bit bytes for 128 (00 01).
+         * Prefer one byte when the next byte starts another tagged block (ver 1), so a following
+         * MIDI LEARN (43 01 ..) is not eaten as the high byte (32|0x43<<7 = 8608). */
+        if (tag === INFO_TAG.FM6_BANK) {
+          const after1 = i + 3;
+          const nextTag = after1 < trailer.length && (INFO_LEN[trailer[after1]] !== undefined ||
+            trailer[after1] === 0x43 || trailer[after1] === INFO_TAG.SONG);
+          const nextVer = after1 + 1 < trailer.length && trailer[after1 + 1] === 1;
+          len = i + 4 <= trailer.length && !(nextTag && nextVer) ? 2 : 1;
+        }
         if (ver !== 1 || len === undefined || i + 2 + len > trailer.length) break;
         const p = i + 2;
         switch (tag) {
@@ -759,8 +766,8 @@ const req = {
   fm6Put: (target, i, packed) => [CMD.FM6_PUT, [target & 0x7F, i & 0x7F, ...packed.map((x) => x & 0x7F)]],
   fm6List: () => [CMD.FM6_LIST, []],
   fm6Erase: (i) => [CMD.FM6_ERASE, [i & 0x7F]],
-  /* voice bank (cmds 74..77): bank 0..3 optional on BEGIN/LIST (omit = bank 0) */
-  fm6bBegin: (bank) => [CMD.FM6B_BEGIN, bank == null ? [] : [bank & 0x7F]],
+  /* voice bank (cmds 74..77): bank 0..3 optional on BEGIN/LIST (omit = bank 0; 3.9 rejects a bank byte) */
+  fm6bBegin: (bank) => [CMD.FM6B_BEGIN, bank == null || bank === 0 ? [] : [bank & 0x7F]],
   fm6bWrite: (i, pk) => [CMD.FM6B_WRITE, [i & 0x7F, ...pk.map((x) => x & 0x7F)]],
   fm6bEnd: (name, crc) => {
     const nm = [...String(name || "").padEnd(10, " ").slice(0, 10)].map((ch) => {
@@ -769,7 +776,7 @@ const req = {
     const c = crc >>> 0;
     return [CMD.FM6B_END, [...nm, c & 0x7F, (c >> 7) & 0x7F, (c >> 14) & 0x7F, (c >> 21) & 0x7F, (c >> 28) & 0x0F]];
   },
-  fm6bList: (bank) => [CMD.FM6B_LIST, bank == null ? [] : [bank & 0x7F]],
+  fm6bList: (bank) => [CMD.FM6B_LIST, bank == null || bank === 0 ? [] : [bank & 0x7F]],
 };
 
 /* which reply belongs to which request (the device echoes these) */
@@ -3076,8 +3083,7 @@ const fm6Bank = {
     return parse[CMD.FM6B_LIST](await rq(req.fm6bList(bank)));
   },
   async send(rq, packed, name, bank) {
-    const b = bank == null ? 0 : bank;
-    const begin = parse[CMD.FM6B_BEGIN](await rq(req.fm6bBegin(b), { timeout: 1500 }));
+    const begin = parse[CMD.FM6B_BEGIN](await rq(req.fm6bBegin(bank), { timeout: 1500 }));
     if (begin.rc) return begin.rc;
     let c = 0xFFFFFFFF;
     const pk = packed || [];

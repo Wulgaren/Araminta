@@ -970,9 +970,8 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         }
         if (q->motion.count > (np > 111u ? mot_max : MOTION_FILE_MAX_128))
             return 0;
-        /* FUN20: 89..128 in the first append, 129..155 in the spare; older formats keep every record in the body */
-        if (!v20 && q->motion.count > MOTION_FILE_MAX_BODY)
-            return 0;
+        /* FUN20: 89..128 in the first append, 129..155 in the spare; older formats keep every record in the body
+         * (FUN10: 110, pre-release np<=111: 128). Format-specific mot_max above is the only cap. */
         for (i = 0; i < q->motion.count; i++) {
             const uint8_t *wire;
             if (v20 && i >= MOTION_FILE_MAX_BODY + MOTION_FILE_APPEND_MAX)
@@ -1276,8 +1275,13 @@ static void project_capture(project_t *p)
     p->sum = proj_sum(p);
 }
 
+static int autosave_write_wire(void);                   /* OBJ_AUTOSAVE <- proj_wire; defined with the autosave */
+static int autosave_force(void);                        /* capture live music into OBJ_AUTOSAVE now */
+static void autosave_catch_up(void);                    /* as.saved/seen = autosave_sig() after a name change */
+
 /* the music as it is now -> slot, named `name` (0: the current name; "" none); 0 saved, nonzero refused or failed.
- * The current name becomes the saved one */
+ * The current name becomes the saved one. Policy 2A: force-write OBJ_AUTOSAVE with this image first so a torn
+ * single-copy slot write can recover from a fresh autosave; if that fails, leave the slot alone. */
 static int project_save_as(uint32_t slot, const char *name)
 {
     project_t *p = &proj_scratch;
@@ -1294,15 +1298,24 @@ static int project_save_as(uint32_t slot, const char *name)
     if (!proj_pack(&proj_wire, p)) { ui_message("SAVE FORMAT ERROR"); return 2; }
 
 #if FELUCCA_FLASH
-    if (flash_ok && st_save(OBJ_PROJECT0 + (slot & 3u), &proj_wire, sizeof proj_wire) == 0) {
+    if (!flash_ok) {
+        ui_message("SAVE ERROR");
+        return 2;
+    }
+    if (autosave_write_wire()) {                /* before the slot erase: fail loud, slot untouched */
+        ui_message("SAVE ERROR");
+        return 2;
+    }
+    if (st_save(OBJ_PROJECT0 + (slot & 3u), &proj_wire, sizeof proj_wire) == 0) {
         proj_sum_set(slot, p);                             /* the summary from RAM: no flash read */
         proj_name_get(proj_name, (const uint8_t *)p->name);
         proj_cur = (uint8_t)(slot & 3u);
         pat_from_set((slot & 3u) + 1u);
+        autosave_catch_up();                               /* name may have changed; keep poll in sync */
         ui_message("SAVED");
         return 0;
     }
-    proj_sum_clear(slot);               /* the only copy was erased before the tear; autosave is the recovery */
+    proj_sum_clear(slot);               /* the only copy was erased; autosave already holds this image */
     ui_message("SAVE ERROR");       /* 3.10: a project lives in flash; there is no RAM-only slot */
     return 2;
 #else
@@ -1375,7 +1388,8 @@ static int project_info(uint32_t slot, char *b, uint16_t *len48, uint32_t *den, 
 
 /* a stored project renamed in place (nothing else of it changes; the music playing is not touched, but the slot
  * it was loaded from / saved to: its name is the new one, the next SAVE's prefill): 0 done, 1 refused (playing,
- * an empty slot), 2 failed (the slot as it was) */
+ * an empty slot), 2 failed (the slot as it was). Force-autosave the live music first (same as Save) so a tear
+ * still has a current recovery image; if that fails, leave the slot alone. */
 static int project_rename(uint32_t slot, const char *name)
 {
     project_t *p = &proj_scratch;
@@ -1383,6 +1397,16 @@ static int project_rename(uint32_t slot, const char *name)
         ui_message("STOP TO SAVE");
         return 1;
     }
+    if (!project_used(slot)) {
+        ui_message("EMPTY SLOT");
+        return 1;
+    }
+#if FELUCCA_FLASH
+    if (autosave_force()) {                     /* before the slot erase: fail loud, slot untouched */
+        ui_message("SAVE ERROR");
+        return 2;
+    }
+#endif
     if (!proj_fetch(slot)) {
         ui_message("EMPTY SLOT");
         return 1;
@@ -1398,8 +1422,10 @@ static int project_rename(uint32_t slot, const char *name)
         return 2;
     }
     proj_sum_set(slot, p);
-    if (proj_cur == (slot & 3u))
+    if (proj_cur == (slot & 3u)) {
         proj_name_get(proj_name, (const uint8_t *)p->name);
+        autosave_catch_up();
+    }
     ui_message("RENAMED");
     return 0;
 #else
@@ -1729,6 +1755,42 @@ static int autosave_quiet(void)
 }
 
 static void autosave_hold(void) { as.t = fm1_ms; }   /* the editor's transfers: their staging RAM is proj_wire */
+
+static void autosave_catch_up(void)
+{
+    as.saved = as.seen = autosave_sig();
+}
+
+/* OBJ_AUTOSAVE <- proj_wire (already packed). No idle/gap. Updates as.* so poll does not immediately rewrite. */
+static int autosave_write_wire(void)
+{
+#if FELUCCA_FLASH
+    if (!flash_ok || st_save(OBJ_AUTOSAVE, &proj_wire, sizeof proj_wire) != 0)
+        return 1;
+    as.t = as.last = fm1_ms;
+    as.wrote = 1;
+    as.err = 0;
+    as.writes++;
+    autosave_catch_up();
+    return 0;
+#else
+    return 0;
+#endif
+}
+
+/* Capture the live music into OBJ_AUTOSAVE now (no idle / gap). 0 ok. */
+static int autosave_force(void)
+{
+#if FELUCCA_FLASH
+    project_capture(&proj_scratch);
+    proj_wire_gen++;
+    if (!proj_pack(&proj_wire, &proj_scratch))
+        return 1;
+    return autosave_write_wire();
+#else
+    return 0;
+#endif
+}
 
 /* main loop, every pass (after settings_poll) */
 static void autosave_poll(void)

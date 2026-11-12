@@ -226,24 +226,24 @@ int main(void)
         for (i = 0; i < 32u; i++) assert(favorites.factory[14][i] == (uint8_t)(i * 11u + 5u));
         p = original; assert(settings_import(&p, sizeof p) == 1);
     }
-    {   /* PER4 -> PER5: row 14 held a map (retired with MIDI LEARN), row 13 the retired SLICE's favourites. Import moves the map
-         * to row 13 (over SLICE's favourites: unused, SLICE is never selectable) and zeroes row 14 for WAVETABLE;
-         * the rest of the record, [15] included, is kept. A current PER5 record keeps both rows as saved. */
+    {   /* PER4 -> PER5: row 14 held MIDI LEARN, row 13 the retired SLICE's favourites. Both are cleared so LEARN
+         * bytes are never favourites (row 13 now holds user-preset bits 32..95). [15] and other engines stay.
+         * A current PER5 record keeps both rows as saved. */
         persist_t q;
         uint32_t i;
         p = original; p.magic = PERSIST_MAGIC_V4;
         for (i = 0; i < 32u; i++) {
             p.favorites.factory[13][i] = (uint8_t)(i * 7u + 1u);    /* old SLICE favourites: dropped */
-            p.favorites.factory[14][i] = (uint8_t)(i * 29u + 3u);   /* the old map: moved to 13 (still reserved) */
+            p.favorites.factory[14][i] = (uint8_t)(i * 29u + 3u);   /* LEARN map: dropped, not favourites */
         }
         p.favorites.factory[15][13] = 0x5Au;                        /* MENU / UI byte: kept */
         assert(settings_import(&p, sizeof p) == 2);
-        for (i = 0; i < 32u; i++) assert(favorites.factory[13][i] == (uint8_t)(i * 29u + 3u));
+        for (i = 0; i < 32u; i++) assert(favorites.factory[13][i] == 0u);
         for (i = 0; i < 32u; i++) assert(favorites.factory[14][i] == 0u);
         assert(favorites.factory[15][13] == 0x5Au && favorites.factory[8][0] == 1u);
         memset(&q, 0, sizeof q); settings_export(&q);
         assert(q.magic == PERSIST_MAGIC && settings_import(&q, sizeof q) == 1);
-        for (i = 0; i < 32u; i++) assert(favorites.factory[13][i] == (uint8_t)(i * 29u + 3u));
+        for (i = 0; i < 32u; i++) assert(favorites.factory[13][i] == 0u);
         for (i = 0; i < 32u; i++) assert(favorites.factory[14][i] == 0u);
         assert(favorites.factory[15][13] == 0x5Au);
         p = original; assert(settings_import(&p, sizeof p) == 1);

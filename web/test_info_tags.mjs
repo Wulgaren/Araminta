@@ -77,5 +77,14 @@ ok(throws(() => archiveInfo(tagged)), "info: a tagged reply cut short is refused
 ok(throws(() => archiveInfo([1, 2, 3])), "info: a reply without a NUL is refused");
 ok(archiveInfo(info("ARAMINTA 1.0", 14, [])).supported === false, "info: no tagged trailer: 'not supported', not an error");
 
+/* 3.9: FM6_BANK is one byte (32), then MIDI LEARN 43 01 16. A two-byte read made 8608 voices. */
+const v39 = [...FULL, 0x4c, 1, 1, 0x41, 1, 192 & 0x7f, 192 >> 7, 0x57, 1, 4, 0x56, 1, 32, 0x43, 1, 16];
+const p39 = E.parseInfo(info("ARAMINTA 3.9", 14, v39));
+ok(p39.fm6Bank === 32 && p39.songLanes === 4,
+   "info: 3.9 FM6_BANK 56 01 32 before MIDI LEARN 43 stays 32 (not 8608)");
+const v128 = [...FULL, 0x4c, 1, 1, 0x41, 1, 192 & 0x7f, 192 >> 7, 0x57, 1, 4, 0x56, 1, 0, 1];
+ok(E.parseInfo(info("ARAMINTA 1.5", 14, v128)).fm6Bank === 128,
+   "info: FM6_BANK 56 01 00 01 still decodes as 128 voices");
+
 console.log(fails ? `INFO TAG TESTS FAILED (${fails})` : "info tag tests passed");
 process.exit(fails ? 1 : 0);
