@@ -109,7 +109,8 @@ static void tech_ott(int32_t d)
         cv_rect(x0 + i, y0 + s - i, 1, 1, T_DIM);          /* 1:1 reference */
     for (i = 0; i <= s; i++) {
         int32_t e = i * 65535 / s, g, out, y;
-        g = ott_curve(OTT_MID_Q8, (int32_t)(((uint32_t)e * (uint32_t)e) >> 9), d);
+        /* Detector stores power in Q7 (ott_pow); ott_curve shifts >>7. Match that scale or the knee sits ~21 dB high. */
+        g = ott_curve(OTT_MID_Q8, (int32_t)((((uint32_t)e * (uint32_t)e) >> 9) << 7), d);
         out = (int32_t)(((uint32_t)e * (uint32_t)g) >> 12);
         out = out > 65535 ? 65535 : out;
         y = y0 + s - out * (s - 1) / 65535;

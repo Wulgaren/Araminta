@@ -2962,6 +2962,9 @@ static __attribute__((noinline)) void master_insert_run(track_t *owner, uint32_t
             mix_l[i] += d;
             mix_r[i] += d;
         }
+        /* Mono path only advances the left fade. Keep the right in step so leaving OTT for another
+         * DIST mode does not briefly apply a right-only wet transition from a stale .w. */
+        ins_master_st[1][st].w = ins_master_st[0][st].w;
         return;
     }
     for (ch = 0; ch < 2u; ch++) {

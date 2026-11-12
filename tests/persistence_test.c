@@ -591,13 +591,50 @@ int main(void)
     project_save(0);
     bad += check("project save marks slot used", project_used(0) &&
                   st_load(OBJ_PROJECT0, &got, sizeof got) == (int)sizeof got);
+    {   /* policy 2A: Save force-writes OBJ_AUTOSAVE first, even when idle/gap would block poll */
+        project_store_t as_raw;
+        uint32_t w0 = as.writes;
+        step_set_note(&trk[0].step[0], 0, 77);
+        fm1_ms += 1000u;                               /* under AS_IDLE_MS and well under AS_GAP_MS */
+        autosave_poll();
+        ok = as.writes == w0;                          /* poll must not write yet */
+        project_save(0);
+        ok &= !strcmp(ui.msg, "SAVED") && as.writes == w0 + 1u;
+        ok &= st_load(OBJ_AUTOSAVE, &as_raw, sizeof as_raw) == 4096 &&
+              proj_import(&proj_scratch, &as_raw, 4096) &&
+              step_note(&proj_scratch.t[0].step[0], 0) == 77u;
+        ok &= st_load(OBJ_PROJECT0, &got, sizeof got) == (int)sizeof got &&
+              !memcmp(&as_raw, &got, sizeof as_raw);   /* same packed image in autosave and the slot */
+        bad += check("project save refreshes autosave first (poll timers would have blocked)", ok);
+    }
+    step_set_note(&trk[0].step[0], 0, 60);
+    project_save(0);                                   /* known good slot again */
     step_set_note(&trk[0].step[0], 0, 72);
-    /* 3.10 single-copy: a torn write erases the only copy; autosave is the recovery path */
-    fail_after = 1;
+    /* force-autosave fails: the project slot must stay (fail loud before erase/write) */
+    {
+        uint32_t w0 = as.writes;
+        erase_error = 1;
+        project_save(0);
+        erase_error = 0;
+        bad += check("force autosave fail leaves the project slot untouched",
+                     !strcmp(ui.msg, "SAVE ERROR") && as.writes == w0 && project_used(0) &&
+                     proj_fetch(0) && step_note(&proj_scratch.t[0].step[0], 0) == 60u);
+    }
+    step_set_note(&trk[0].step[0], 0, 72);
+    /* 3.10 single-copy: after a successful force-autosave, a torn project write erases the only copy;
+     * autosave (17 st_prog: 16 x 256 B + header) is the recovery. fail_after=17: autosave ok, project tears. */
+    fail_after = 17;
     project_save(0);
     fail_after = -1;
     bad += check("torn project save: SAVE ERROR and the only copy is gone", !strcmp(ui.msg, "SAVE ERROR") &&
                   !project_used(0) && st_load(OBJ_PROJECT0, &got, sizeof got) < 0);
+    {
+        project_store_t as_raw;
+        bad += check("torn project save: autosave already holds the music being saved",
+                     st_load(OBJ_AUTOSAVE, &as_raw, sizeof as_raw) == 4096 &&
+                     proj_import(&proj_scratch, &as_raw, 4096) &&
+                     step_note(&proj_scratch.t[0].step[0], 0) == 72u);
+    }
     project_save(0);
     bad += check("successful project save restores the slot", !strcmp(ui.msg, "SAVED") && project_used(0) &&
                   proj_fetch(0) && step_note(&proj_scratch.t[0].step[0], 0) == 72u && proj_ok(&proj_scratch));
@@ -611,13 +648,13 @@ int main(void)
     project_save(2);
     bad += check("failed first project save leaves slot empty", !project_used(2));
     erase_error = 0;
-    {   /* names: a project's through flash; a failed rename tears the only copy */
+    {   /* names: a project's through flash; a failed rename tears the only copy after force-autosave */
         char n[16];
         step_t st0 = trk[0].step[0];
         project_save_as(0, "LOFI JAM");
         bad += check("a project's name goes to flash and comes back", project_name(0, n) && !strcmp(n, "LOFI JAM") &&
                       (proj_fetch(0), !strcmp(proj_name, "LOFI JAM")));
-        fail_after = 1;
+        fail_after = 17;                               /* autosave ok; rename's project write tears */
         bad += check("failed project rename: SAVE ERROR and the only copy is gone",
                       project_rename(0, "DUB") == 2 && !strcmp(ui.msg, "SAVE ERROR") && !project_used(0) &&
                       st_load(OBJ_PROJECT0, &got, sizeof got) < 0);

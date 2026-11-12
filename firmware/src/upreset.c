@@ -435,6 +435,13 @@ static int up_put(uint32_t k, const up_rec_t *r)
         for (i = 0; i < NTRK; i++)
             if (trk[i].user == k + 1u)
                 trk[i].user = 0;
+        if (upf_bit(k)) {                              /* reclaim the FM6 patch entry for another preset */
+            upf_clear(k);
+            upf_save();
+        }
+    } else if (r->engine != ENGI_FM6 && upf_bit(k)) {
+        upf_clear(k);
+        upf_save();
     }
     up_gen++;
 #if FELUCCA_FLASH
@@ -515,7 +522,10 @@ static int up_store_cat(uint32_t k, const char *name, uint32_t cat)
     up_mark_osc2(&r);                                   /* a new sound: INT / MORPH / DRIFT as stored */
     up_mark_vib(&r);                                    /* P_E5 is VIB */
     {
-        int rc = up_put(k, &r);                         /* the record first, then its FM6 patch (up_fm6.c) */
+        int rc;
+        if (r.engine == ENGI_FM6 && !upf_room(k))       /* fail before the record: no silent success without a patch */
+            return 2;
+        rc = up_put(k, &r);                             /* the record first, then its FM6 patch (up_fm6.c) */
         if ((rc == 0 || rc == 3) && r.engine == ENGI_FM6) {
             int u = upf_store(k, (uint32_t)(TSEL - trk));
             if (u == 2)

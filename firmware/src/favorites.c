@@ -2,10 +2,10 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 #define FELUCCA_FAVORITES 1
 /* Stable engine/preset references; fixed capacity independent of optional engines.
- * Rows 0..12 are engines 0..12, row 13 is reserved unused 32 bytes (was MIDI LEARN; do not reclaim), row 14 is
- * WAVETABLE (ENGI_WT), row 15 is MENU / UI settings bytes (settings_persist.c). Engine 13 SLICE is retired
- * (eng_retire.c): never selectable, so its favourites stay unused. Default BSS (not .pool): frees 520 B for the
- * six user-preset banks. */
+ * Rows 0..12 are engines 0..12, row 13 holds user-preset favourites bits 32..95 (was MIDI LEARN under PER4;
+ * LEARN bytes are cleared on PER4→PER5, not treated as favourites), row 14 is WAVETABLE (ENGI_WT), row 15 is
+ * MENU / UI settings bytes (settings_persist.c). Engine 13 SLICE is retired (eng_retire.c): never selectable.
+ * Default BSS (not .pool): frees 520 B for the six user-preset banks. */
 _Static_assert(ENGI_SLICE == 13u, "favorites.factory[13] is reserved unused: engine 13 (SLICE) is retired");
 typedef struct {
     uint8_t factory[16][32]; /* engine 0..12, reserved (13), WAVETABLE (14), settings (15): preset 0..255 */

@@ -719,6 +719,41 @@ static int banks_test(void)
     return bad;
 }
 
+/* 96 user slots, but only UPF_MAX_USED FM6 patch entries: at capacity refuse a new save; delete reclaims */
+static int upf_cap_test(void)
+{
+    int bad = 0, ok;
+    uint32_t k;
+    uint8_t pk[FM6_PACKED], mark[FM6_PACKED], v[FP_SIZE + 1u];
+    reset();
+    song.sel = 0;
+    fm6_unpack(FM6_FACTORY[1], v);
+    fm6_set_patch(0, v);
+    trk[0].p[P_E7] = FM6_OWN;
+    upf_empty();
+    ok = 1;
+    for (k = 0; k < UPF_MAX_USED; k++) {
+        char nm[12];
+        snprintf(nm, sizeof nm, "P%02u", (unsigned)k);
+        ok &= up_store(k, nm) == 0 && !upf_get(k, pk);
+    }
+    bad += check("FM6 user patches: 32 fills every retained entry", ok && upf_nused() == UPF_MAX_USED);
+    memcpy(mark, FM6_FACTORY[3], FM6_PACKED);
+    mark[100] = (uint8_t)((mark[100] + 3u) & 127u);
+    fm6_unpack(mark, v);
+    fm6_pack(v, mark);                                   /* the stored form after pack(unpack) */
+    fm6_set_patch(0, v);
+    ok = up_store(UPF_MAX_USED, "OVER") == 2 && upf_get(UPF_MAX_USED, pk) != 0 &&
+         upf_nused() == UPF_MAX_USED && !up_used(UPF_MAX_USED);
+    bad += check("FM6 user patches: a 33rd save is refused before the preset record (rc 2)", ok);
+    ok = up_put(0, 0) == 0 && !upf_bit(0) && upf_nused() == UPF_MAX_USED - 1u;
+    bad += check("FM6 user patches: deleting a preset reclaims its patch entry", ok);
+    ok = up_store(UPF_MAX_USED, "NEXT") == 0 && !upf_get(UPF_MAX_USED, pk) && !memcmp(pk, mark, FM6_PACKED) &&
+         upf_nused() == UPF_MAX_USED;
+    bad += check("FM6 user patches: after reclaim, a new FM6 preset stores its patch", ok);
+    return bad;
+}
+
 int main(void)
 {
     int bad = 0;
@@ -727,6 +762,7 @@ int main(void)
     bad += slot_test();
     bad += keep_test();
     bad += banks_test();
+    bad += upf_cap_test();
     printf(bad ? "fm6bank: FAILED (%d)\n" : "fm6bank: all ok\n", bad);
     return bad ? 1 : 0;
 }
