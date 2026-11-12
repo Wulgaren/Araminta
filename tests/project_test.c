@@ -375,7 +375,7 @@ static int fun20_full_motion(void)
         ok &= loaded.motion.event[i].place == (uint8_t)i &&
               loaded.motion.event[i].param == saved.motion.event[i].param &&
               loaded.motion.event[i].value == saved.motion.event[i].value;
-    return check("FUN20 with all 128 motion records and the punch-in lane round trips byte for byte", ok);
+    return check("FUN20 with all 155 motion records and the punch-in lane round trips byte for byte", ok);
 }
 
 int main(void)

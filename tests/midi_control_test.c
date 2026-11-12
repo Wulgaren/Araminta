@@ -577,37 +577,38 @@ static int pc_test(void)
         bad += check("  DRUM-X: PC 0 loads DRUM-X; past the last ignored", ok);
     }
 
-    /* FM6: its presets, then the bank's voices */
+    /* FM6: its presets, then the bank's voices (PC after npresets) */
     {
         track_t *f = &trk[1];
         uint8_t v[FP_SIZE + 1u];
+        uint32_t nfp = ENGINES[ENGI_FM6]->npresets;     /* 10: F1..F8 + EP VIB / BELL LONG */
         set_engine_of(f, ENGI_FM6);
         pc(1, 4); frame();
         ok = f->preset == 4 && f->p[P_E7] == 4 && fm6_slot[1] == 4u && f->p[P_E6] == 30;   /* PAD: F5, DTUN 30 */
         bad += check("  FM6: 0..7 its presets (PC 4: PAD, SLOT F5, its DTUN)", ok);
-        pc(1, 8); frame();
+        pc(1, (uint8_t)nfp); frame();                   /* past last factory: ignored until a bank voice exists */
         ok = f->p[P_E7] == 4 && fm6_slot[1] == 4u;
         fm6_bank_used[0] = 1u | 1u << 5;
         fm6_bank_read = pc_bank_read;
-        pc(1, 8); frame();
+        pc(1, (uint8_t)nfp); frame();                   /* B1 */
         fm6_unpack(FM6_FACTORY[2], v);
         ok &= f->p[P_E7] == (int16_t)(FM6_OWN + 1u) && fm6_slot[1] == FM6_OWN + 1u && pc_bank_k == 0u &&
               !memcmp(v, fm6_patch[1], FP_SIZE) && f->p[P_E6] == 30 && f->preset == 4;
-        pc(1, 9); frame();
+        pc(1, (uint8_t)(nfp + 1u)); frame();            /* empty B2: ignored */
         ok &= f->p[P_E7] == (int16_t)(FM6_OWN + 1u);
-        pc(1, 13); frame();
+        pc(1, (uint8_t)(nfp + 5u)); frame();            /* B6 */
         ok &= f->p[P_E7] == (int16_t)(FM6_OWN + 6u) && pc_bank_k == 5u;
-        pc(1, 8u + FM6_NBANK); frame();
+        pc(1, (uint8_t)(nfp + FM6_NBANK)); frame();
         ok &= f->p[P_E7] == (int16_t)(FM6_OWN + 6u);   /* empty B33: ignored */
         fm6_bank_used[3] = 1u;
-        pc(1, 8u + 3u * FM6_NBANK); frame();           /* B97 = bank 3 voice 0 */
+        pc(1, (uint8_t)(nfp + 3u * FM6_NBANK)); frame(); /* B97 = bank 3 voice 0 */
         ok &= f->p[P_E7] == (int16_t)(FM6_OWN + 1u + 3u * FM6_NBANK) && pc_bank_k == 3u * FM6_NBANK;
         pc(1, 0); frame();
         ok &= f->p[P_E7] == 0 && fm6_slot[1] == 0u && f->p[P_E6] == 0;
         fm6_bank_used[0] = 0;
         fm6_bank_used[3] = 0;
         fm6_bank_read = 0;
-        bad += check("  FM6: 8.. bank voices through SLOT (B1..; B97 = bank 3), an empty or no bank ignored", ok);
+        bad += check("  FM6: bank voices through SLOT after factory presets (B1..; B97 = bank 3), empty ignored", ok);
     }
 
     /* ROUT */

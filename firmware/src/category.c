@@ -19,23 +19,22 @@ static uint32_t cat_of_engine(uint32_t e) { return e == 10u || e == 13u || e == 
  * retired PERC, past SMP_NPRESETS): its engine's (cat_of_engine). tests/ui_test.c checks every string
  * against its engine's preset count. A preset's category is a hint for browsing: nothing else reads it */
 static const char *const PRESET_CAT[17] = {
-    "LPBPBKLBULLPL",             /* 0 ANALOG: SAW LEAD, SOFT PAD, SQR BASS, PWM STR, ACID, SINE KEY, RAVE, SUB BASS,
-                                  * PLUCK, BRASS, WIND, STRINGS, SUPER SAW */
+    "LPBPBKLBULLPLBPL",          /* 0 ANALOG: … SUPER SAW, PWM BASS, AIR PAD, FILTER SWP */
     "",                          /* 1 DIGITAL (retired) */
-    "LKPLUU",                    /* 2 PHASE: BRASS, ORGAN, STRING, RESO, BELL, WIRE */
-    "LBLLL",                     /* 3 LOFI: PULSE LD, WAVE BASS, ARP 8BIT, WAVE LEAD, STEP LEAD */
+    "LKPLUUK",                   /* 2 PHASE: … WIRE, GLASS */
+    "LBLLLLL",                   /* 3 LOFI: … STEP LEAD, NOISE LD, TRI LD */
     "KKLLKD",                    /* 4 SAMPLE: PIANO, TRANH→PIANO, FLUTE, SAX, PERC→PIANO, CR78 */
-    "PLBF",                      /* 5 VOICE: CHOIR AAH, VOX LEAD, WOW BASS, WHISPER */
-    "BLLUP",                     /* 6 TRIO: FAT BASS, ARP LEAD, SYNC LEAD, RING BELL, CHIP CHOIR */
-    "KKKKK",                     /* 7 WHEEL: the organs */
-    "PFPP",                      /* 8 GRAIN: CLOUD PAD, GLITCH, FROZEN, SHIMMER */
+    "PLBFP",                     /* 5 VOICE: … WHISPER, OOOH PAD */
+    "BLLUPLL",                   /* 6 TRIO: … CHIP CHOIR, SAW STACK, FIFTHS */
+    "KKKKKK",                    /* 7 WHEEL: the organs + CHURCH */
+    "PFPPP",                     /* 8 GRAIN: … SHIMMER, DUST PAD */
     "UUUPUDDPU",                 /* 9 PHYS: BELL TREE, MARIMBA, PLUCK, BOWED METAL, KALIMBA, HAND DRUM, TOMS, DRONE
                                   * STRING, HARP */
     "D",                         /* 10 DRUM: DRUM-X */
-    "FFFF",                      /* 11 NOISE: WIND, RAIN, ARCADE, METAL */
-    "KUBLPUKU",                  /* 12 FM6: TINE EP, BELL, FM BASS, BRASS, PAD, MARIMBA, ORGAN, PLUCK */
+    "FFFFF",                     /* 11 NOISE: … METAL, STATIC */
+    "KUBLPUKUKU",                /* 12 FM6: … PLUCK, EP VIB, BELL LONG */
     "DD",                        /* 13 SLICE: CHOP, STUTTER */
-    "BLKPBLUP",                  /* 14 WAVETABLE: WT BASS, FM LEAD, GLASS FM, WT PAD, GROWL, DIGITAL, PLUCK, SWEEP */
+    "BLKPBLUPLP",                /* 14 WAVETABLE: … SWEEP, WT LEAD, HOLLOW */
     "DDDD",                      /* 15 DRUMS: DRUM KIT, DEEP KIT, TIGHT KIT, PERC KIT */
 };
 static uint32_t preset_cat(uint32_t e, uint32_t k)    /* factory preset k of engine e */

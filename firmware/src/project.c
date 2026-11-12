@@ -238,6 +238,7 @@ _Static_assert(sizeof(((project_t *)0)->lane) == 40u, "punch-in lane wire size")
 #define PROJ_LANE_SIZE 40u
 #define PROJ_APPEND_MARK_OFF (PROJ_LANE_OFF + PROJ_LANE_SIZE) /* 3984 */
 #define PROJ_APPEND_MARK 0x4Cu                 /* 'L': append lane (and optional overflow motion) present */
+#define PROJ_MOTION_SPARE_OFF (PROJ_APPEND_MARK_OFF + 2u)    /* after mark + lane_tgt: records 128..154 */
 #define PROJ_SL_SEND_OFF (PROJ_DX_OFF + PROJ_DX_SIZE - 1u) /* SLICER SEND mask | 0x10 mark */
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(PROJ_NG_WIRE == 27u && G_COUNT >= PROJ_NG_WIRE, "FUN7 wire globals keep IDs 0..26");
@@ -247,9 +248,12 @@ _Static_assert(PROJ_CRV_OFF + 2u <= PROJ_DX_OFF, "CHAIN reverb bytes before DX k
 _Static_assert(sizeof(dx_lane_t[8]) == 88u && PROJ_DX_OFF == 3216u, "FUN11 kit place, frozen in 3.10");
 _Static_assert(PROJ_FM6_OFF == 3312u && PROJ_FM6_OFF == PROJ_DX_OFF + PROJ_DX_SIZE, "FM6 after DX kit, frozen");
 /* 3.10: the object grew to two sectors; the append area (3824..4079) sits after FM6 and before the name:
- * overflow motion (120 B), punch-in lane (40 B), then spare (incl. the append marker). */
+ * overflow motion (120 B), punch-in lane (40 B), mark+lane_tgt, then spare motion (81 B of records 129..155). */
 _Static_assert(PROJ_NAME_OFF - PROJ_APPEND_OFF == 256u, "the 256 B append area");
 _Static_assert(PROJ_LANE_OFF == 3944u && PROJ_APPEND_MARK_OFF == 3984u, "append lane placement");
+_Static_assert(PROJ_MOTION_SPARE_OFF == 3986u, "spare motion after mark + lane_tgt");
+_Static_assert(PROJ_MOTION_SPARE_OFF + MOTION_FILE_SPARE_SIZE <= PROJ_NAME_OFF,
+               "spare motion fits before the name");
 _Static_assert(PROJ_MOTION_APPEND_OFF + MOTION_FILE_APPEND_SIZE + PROJ_LANE_SIZE + 1u <= PROJ_NAME_OFF,
                "append motion + lane + mark fit before the name");
 _Static_assert(MOTION_FILE_SIZE_V11 + PROJ_DX_SIZE == MOTION_FILE_SIZE_V10, "kit takes FUN10's motion spare");
@@ -619,10 +623,11 @@ static int proj_pack_st(project_store_t *out, const project_t *q, uint32_t st)
             b[pos++] = (uint8_t)(w >> 8);
         }
     }
-    {   /* FUN20 at 4096: up to 128 (88 body + append); a 3840 field image keeps 88 in the body only */
+    {   /* FUN20 at 4096: up to 155 (88 body + 40 append + 27 spare); a 3840 field image keeps 88 in the body */
         uint32_t cap = full ? MOTION_FILE_MAX : MOTION_FILE_MAX_BODY;
         uint32_t nmot = q->motion.count > cap ? cap : q->motion.count;
         uint32_t nbody = nmot > MOTION_FILE_MAX_BODY ? MOTION_FILE_MAX_BODY : nmot;
+        uint32_t napp = MOTION_FILE_MAX_BODY + MOTION_FILE_APPEND_MAX;
         b[pos] = (uint8_t)nmot;
         b[pos + 1u] = q->motion.on;
         b[pos + 2u] = PROJ_GENERATION_MARK;
@@ -631,7 +636,8 @@ static int proj_pack_st(project_store_t *out, const project_t *q, uint32_t st)
             const motion_event_t *e = &q->motion.event[i];
             uint32_t id = MOTION_ID(e);
             uint8_t *wire = i < nbody ? b + pos + 4u + 3u * i
-                                      : b + PROJ_MOTION_APPEND_OFF + 3u * (i - MOTION_FILE_MAX_BODY);
+                           : i < napp ? b + PROJ_MOTION_APPEND_OFF + 3u * (i - MOTION_FILE_MAX_BODY)
+                                      : b + PROJ_MOTION_SPARE_OFF + 3u * (i - napp);
             wire[0] = e->place;
             if (id == MFX_TIME && e->value >= 256)
                 id = MFX_DAMP + ((uint16_t)e->value >> 8); /* 54..59 carry TIME's high byte; no extra record */
@@ -810,7 +816,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     if (v12) {
         mot = np > 111u ? ((v16 || v17) ? MOTION_FILE_SIZE : MOTION_FILE_SIZE_V15) : MOTION_FILE_SIZE_128;
         data_end = PROJ_DX_OFF;
-        /* FUN20 at 4096: 128 records; a 3840 B field image keeps 88 in the body */
+        /* FUN20 at 4096: 155 records; a 3840 B field image keeps 88 in the body */
         mot_max = (v16 || v17) ? ((v20 && st == PROJ_STORE_SIZE) ? MOTION_FILE_MAX : MOTION_FILE_MAX_BODY)
                                : MOTION_FILE_MAX_V15;
     } else if (v11) {
@@ -964,13 +970,17 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         }
         if (q->motion.count > (np > 111u ? mot_max : MOTION_FILE_MAX_128))
             return 0;
-        /* FUN20: records past 88 live in the append area; older formats keep every record in the body */
+        /* FUN20: 89..128 in the first append, 129..155 in the spare; older formats keep every record in the body */
         if (!v20 && q->motion.count > MOTION_FILE_MAX_BODY)
             return 0;
         for (i = 0; i < q->motion.count; i++) {
-            const uint8_t *wire = (v20 && i >= MOTION_FILE_MAX_BODY)
-                                      ? b + PROJ_MOTION_APPEND_OFF + 3u * (i - MOTION_FILE_MAX_BODY)
-                                      : b + pos + 4u + 3u * i;
+            const uint8_t *wire;
+            if (v20 && i >= MOTION_FILE_MAX_BODY + MOTION_FILE_APPEND_MAX)
+                wire = b + PROJ_MOTION_SPARE_OFF + 3u * (i - (MOTION_FILE_MAX_BODY + MOTION_FILE_APPEND_MAX));
+            else if (v20 && i >= MOTION_FILE_MAX_BODY)
+                wire = b + PROJ_MOTION_APPEND_OFF + 3u * (i - MOTION_FILE_MAX_BODY);
+            else
+                wire = b + pos + 4u + 3u * i;
             motion_event_t *e = &q->motion.event[i];
             uint32_t id = wire[1] & 127u;
             e->place = wire[0]; e->param = wire[1];

@@ -100,15 +100,19 @@ check("the project object is a multiple of 4 (the hash is a uint32 at the end)",
 check("a motion record is 3 bytes on disk",
       re.search(r"typedef struct \{ uint8_t place, param, value; \} motion_file_event_t;", read("firmware/src/core.h"))
       is not None)
-motion_max = grab("firmware/src/core.h", r"^#define MOTION_FILE_MAX\s+(\d+)u", "MOTION_FILE_MAX")
 motion_body = grab("firmware/src/core.h", r"^#define MOTION_FILE_MAX_BODY\s+(\d+)u", "MOTION_FILE_MAX_BODY")
-# FUN20: 128 records total, but the in-body block stays 88 so DX/FM6 offsets stay frozen; overflow is in the append
+motion_app = grab("firmware/src/core.h", r"^#define MOTION_FILE_APPEND_MAX\s+(\d+)u", "MOTION_FILE_APPEND_MAX")
+motion_spare = grab("firmware/src/core.h", r"^#define MOTION_FILE_SPARE_MAX\s+(\d+)u", "MOTION_FILE_SPARE_MAX")
+# FUN20: 155 = 88 body + 40 append + 27 spare; body stays 88 so DX/FM6 offsets stay frozen
+check("MOTION_FILE_MAX: one definition in firmware/src/core.h",
+      re.search(r"^#define MOTION_FILE_MAX \(MOTION_FILE_MAX_BODY \+ MOTION_FILE_APPEND_MAX \+ MOTION_FILE_SPARE_MAX\)",
+                read("firmware/src/core.h"), re.M) is not None)
 check("the in-body motion block is defined as 4 + MOTION_FILE_MAX_BODY x a 3-byte record",
       re.search(r"^#define MOTION_FILE_SIZE \(4u \+ MOTION_FILE_MAX_BODY \* sizeof\(motion_file_event_t\)\)",
                 read("firmware/src/core.h"), re.M) is not None)
-check("FUN20 motion is 128 records with 88 in the body",
-      motion_max == 128 and motion_body == 88,
-      "MAX %s BODY %s" % (motion_max, motion_body))
+check("FUN20 motion is 155 records (88 body + 40 append + 27 spare)",
+      motion_body == 88 and motion_app == 40 and motion_spare == 27,
+      "BODY %s APPEND %s SPARE %s" % (motion_body, motion_app, motion_spare))
 if motion_body is not None:
     check("the in-body motion block fits its share of the store (under one sector's payload)",
           4 + motion_body * 3 <= (sector or 0) - (payload_off or 0),

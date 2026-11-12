@@ -444,9 +444,10 @@ KNOB ACCEL is always on for wide values.
   CLICK OFF), and a note played in the last half beat lands on step 1. Not with an external clock
 - **TUNE:** the global tuning, −50 to +50 cents. It is the project's, saved and loaded with it
 - **MIDI IN:** SEL (default), CH1-4, CH5-8, CH9-12 or CH13-16 (see MIDI above). The project's too
-- **USB SERIAL:** only in a `FELUCCA_CDC=1` developer build (the release default is off, audio + MIDI only).
-  ON or OFF, applied when the menu closes (the FM-1 reconnects). OFF leaves out the serial console so
-  macOS 13-15 see the USB audio input. MIDI, the editor and the installer work either way
+- **USB SERIAL:** ON or OFF (default ON when the console is built in). Applied when the menu closes (the
+  FM-1 reconnects). OFF leaves out the serial console so macOS 13-15 see the USB audio input more
+  reliably. Build with `FELUCCA_CDC=0` to omit the console entirely (~7.8 KiB less XIP). MIDI, the
+  editor and the installer work either way
 - **BOOT RESTORE** (was RESTORE LAST): ON (default) or OFF. The autosave (apart from the four projects) is
   always written when the music changed, the transport is stopped and nothing has been touched for 10 s, at
   most once a minute. ON, the FM-1 starts with that music (the header says RESTORED); OFF starts with the

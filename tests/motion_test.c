@@ -56,15 +56,16 @@ static int motion_capacity(void)
 {
     int bad = 0; ui_power_on();
     motion_save_lim = 0;
-    for (uint32_t i = 0; i < MOTION_FILE_MAX; i++)
-        bad += motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : P_DLY, (int16_t)(i % 60u));
+    for (uint32_t i = 0; i < MOTION_FILE_MAX; i++)   /* 155: three ids x 64 steps (REV/DLY/PAN) */
+        bad += motion_set_event(&trk[0], i % NSTEP,
+                                i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_PAN, (int16_t)(i % 60u));
     bad += check("disk-full count does not raise save-limit flag", !motion_save_lim && motion.count == MOTION_FILE_MAX);
     bad += check("the event past the disk max raises the save-limit flag once",
-                 !motion_set_event(&trk[0], MOTION_FILE_MAX % NSTEP, P_PAN, 10) &&
+                 !motion_set_event(&trk[0], MOTION_FILE_MAX % NSTEP, P_LEVEL, 10) &&
                  motion.count == MOTION_FILE_MAX + 1u && motion_save_lim);
     motion_save_lim = 0;
     bad += check("further adds past disk max do not re-raise the flag",
-                 !motion_set_event(&trk[0], (MOTION_FILE_MAX + 1u) % NSTEP, P_LEVEL, 40) && !motion_save_lim);
+                 !motion_set_event(&trk[0], (MOTION_FILE_MAX + 1u) % NSTEP, P_DIST, 40) && !motion_save_lim);
     {
         project_t q;
         project_store_t st;
@@ -1570,7 +1571,7 @@ static int fx_lock_banks_and_capacity(void)
         motion_set_lock(t, 0, MFX_SIZE, 33) == 2 && !motion_set_lock(t, 0, MFX_TIME, 65));
     project_t q, loaded; project_store_t st;
     project_capture(&q);
-    /* 3.10: project is 4096 bytes; MOTION_FILE_MAX is 128 (88 in body + 40 in append) */
+    /* 3.10: project is 4096 bytes; MOTION_FILE_MAX is 155 (88 body + 40 append + 27 spare) */
     bad += check("FX locks retain MOTION_FILE_MAX saved entries with exact TIME values",
                  proj_pack(&st, &q) && sizeof st == 4096 &&
                  proj_import(&loaded, &st, sizeof st) && loaded.motion.count == MOTION_FILE_MAX &&
