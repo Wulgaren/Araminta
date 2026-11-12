@@ -33,8 +33,8 @@ static struct {
     uint32_t carry;
 } chain;
 /* a silent lane: its steps (empty: nothing plays) and its timing (a 4/4 bar of 1/16: the section's length when every
- * track is silent) */
-static const step_t chain_silent[NSTEP] = {{{0}}};
+ * track is silent). Zeroed in .bss, not a const in .rodata: the app slot is full (576 B of XIP for zeros) */
+static step_t chain_silent[NSTEP];
 #define CHAIN_SIL_LEN 16
 #define CHAIN_SIL_DIV 2                      /* 1/16 */
 
