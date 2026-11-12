@@ -242,7 +242,8 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **SPREAD** (EDIT > VOICE, SPRD): the voices of a POLY or UNISON track alternate left and right of its PAN
 - **ENV SYNC** (ENV > ENV DEST): the envelope's attack, decay and release as note values of the tempo
 - **Effects list** chained or sendable per track (DIST, FILTER, CRUSH, PHASR, FLANG, CHOR, DLY, REV stages):
-  CHAIN or SEND with a MIX fader; delay in time with the tempo (divisions or smooth ms, dotted values included);
+  CHAIN or SEND with a MIX fader; DIST's MODE adds **OTT**, a three-band (88.3 Hz / 2.5 kHz) upward/downward
+  compressor with 1 ms / 50 ms ballistics (DRIVE is DEPTH, TONE is TIME); delay in time with the tempo (divisions or smooth ms, dotted values included);
   reverb as **HALL**, ROOM, SPRING, plus Araminta's **SHIMR** / **CLOUD**; technical graphs on the FX pages;
   insert knobs and MIX are mod-matrix destinations; master limiter, with CLIP / PNCH / DUCK / REL on the master page
 - **FX layer:** under PUNCH-IN (tap FX twice) for repeat, reverse, filter sweeps, tape stop, freeze, a harmonizer
@@ -444,10 +445,10 @@ KNOB ACCEL is always on for wide values.
   CLICK OFF), and a note played in the last half beat lands on step 1. Not with an external clock
 - **TUNE:** the global tuning, −50 to +50 cents. It is the project's, saved and loaded with it
 - **MIDI IN:** SEL (default), CH1-4, CH5-8, CH9-12 or CH13-16 (see MIDI above). The project's too
-- **USB SERIAL:** ON or OFF (default ON when the console is built in). Applied when the menu closes (the
-  FM-1 reconnects). OFF leaves out the serial console so macOS 13-15 see the USB audio input more
-  reliably. Build with `FELUCCA_CDC=0` to omit the console entirely (~7.8 KiB less XIP). MIDI, the
-  editor and the installer work either way
+- **USB SERIAL:** only in a `FELUCCA_CDC=1` developer build (the release default is off so OTT and the
+  factory presets fit the app slot). ON or OFF, applied when the menu closes (the FM-1 reconnects).
+  OFF leaves out the serial console so macOS 13-15 see the USB audio input. MIDI, the editor and the
+  installer work either way
 - **BOOT RESTORE** (was RESTORE LAST): ON (default) or OFF. The autosave (apart from the four projects) is
   always written when the music changed, the transport is stopped and nothing has been touched for 10 s, at
   most once a minute. ON, the FM-1 starts with that music (the header says RESTORED); OFF starts with the
