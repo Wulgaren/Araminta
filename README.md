@@ -256,11 +256,11 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **Quick layers:** hold GLO, SCL, EDIT or SEQ and press OCT− / OCT+ for its key and knob map (PUNCH-IN and
   SAVE > CLEAR are their own sections); one-step undo (SAVE held); REC on every page; OCT+ confirms, OCT- goes
   back; what can be pressed breathes softly instead of blinking
-- **Presets:** factory presets, 32 user preset slots and 4 projects, named on the device (an FM6
+- **Presets:** factory presets, 96 user preset slots (six banks of 16) and 4 projects, named on the device (an FM6
   sound keeps its own patch in both); user presets get a category, and a project can get a random name; projects
   from every earlier version load. The PRESETS knob changes the sound from every page that is not a list.
-  Turn the FM-1 off and on and the music is as you left it (MENU > RESTORE LAST, an autosave of its own,
-  written only when stopped and idle)
+  Turn the FM-1 off and on and the music is as you left it (MENU > BOOT RESTORE, an autosave of its own,
+  written when stopped and idle; OFF skips restore only)
 - **Screen:** Felucca 0.9's flat look (Terminus + Fukiai), 9 palettes including pitch-black grayscale,
   high contrast and NIGHT; type sized by role; MENU > LARGE for tall knob cards; the menu in five tabs. The header
   shows the track and the **project slot of its pattern** ("1 A", "1 A*" once edited), play state and tempo. HOME
@@ -334,6 +334,12 @@ Rollback: installer's **Return to official V15**, or M-VAVE's updater. That is s
 It will not reopen FUN19 projects. Back up in the web editor **before** the first save or quiet autosave on Araminta
 if you still need a Felucca 1.5-readable copy.
 
+Flash **`0xF4000..0xF9FFF`** (user banks F5–F7, FM6 banks F8/F9/F4) and the gap user bank at
+**`0x95000..0x96FFF`** are Araminta's. Stock V15 ignores the reclaim band and erases the gap on every boot.
+An FM-1 editor SysEx / complete musical archive is not enough for byte-exact stock flash — keep a **full flash
+backup** (`tools/fm1_flash_dump.py`). Restoring those reclaim sectors on Return-to-V15 via the UBOOT write path
+is a follow-up (not in this release).
+
 ## Controls
 
 - Tap a page button for its page, again for the next; HOME returns home. Page buttons act when let go
@@ -392,7 +398,7 @@ mappings. Nothing is sent while the FM-1 is not connected to a computer.
 Hold **HOME** for the menu, in five tabs: **DISPLAY** (COLOR, LARGE, LEDS, SCREEN OFF, SCOPE, HOME),
 **CONTROL** (HOLD, FX LATCH, BPM LOCK, SCALE LEDS, STEP PREVIEW, CHORD ENTRY), **AUDIO** (SPEAKER EQ,
 USB LEVEL, CLICK, CLICK LEVEL, COUNT-IN, TUNE), **MIDI** (MIDI IN) and **SYSTEM** (USB SERIAL,
-RESTORE LAST, HARDWARE CALIBRATION, INFO, ABOUT).
+BOOT RESTORE, HARDWARE CALIBRATION, INFO, ABOUT).
 SELECT moves between the tabs and ALGORITHM through the rows of one (PRESETS is idle there; ALGORITHM also scrolls
 ABOUT); any of KNOB 1-4, or OCT+ / OCT−, changes the value (OCT+ opens HARDWARE CALIBRATION, INFO and ABOUT); press
 HOME to close the menu. Every new
@@ -439,13 +445,13 @@ KNOB ACCEL is always on for wide values.
   CLICK OFF), and a note played in the last half beat lands on step 1. Not with an external clock
 - **TUNE:** the global tuning, −50 to +50 cents. It is the project's, saved and loaded with it
 - **MIDI IN:** SEL (default), CH1-4, CH5-8, CH9-12 or CH13-16 (see MIDI above). The project's too
-- **USB SERIAL:** ON or OFF, applied when the menu closes (the FM-1 reconnects). OFF leaves out the
-  serial console, a developer tool, so the FM-1 is a plain audio + MIDI device; this lets macOS 13-15
-  see its USB audio input. MIDI, the editor and the installer work either way
-- **RESTORE LAST:** ON (default) or OFF. ON, the FM-1 starts with the music you left (the header says
-  RESTORED), kept in an autosave apart from the four projects; it is written when the music changed, the
-  transport is stopped and nothing has been touched for 10 s, at most once a minute. OFF starts with the
-  power-on sounds
+- **USB SERIAL:** only in a `FELUCCA_CDC=1` developer build (the release default is off, audio + MIDI only).
+  ON or OFF, applied when the menu closes (the FM-1 reconnects). OFF leaves out the serial console so
+  macOS 13-15 see the USB audio input. MIDI, the editor and the installer work either way
+- **BOOT RESTORE** (was RESTORE LAST): ON (default) or OFF. The autosave (apart from the four projects) is
+  always written when the music changed, the transport is stopped and nothing has been touched for 10 s, at
+  most once a minute. ON, the FM-1 starts with that music (the header says RESTORED); OFF starts with the
+  power-on sounds and leaves the autosave on flash for the next time you turn restore on
 - **HARDWARE CALIBRATION**, **INFO** (the version, the USB link and the CPU load) and **ABOUT**
 
 ## Engines
@@ -463,7 +469,7 @@ In the order the device lists them:
   web editor (which imports .syx files) or on the device: EDIT > OPERATOR (FREQ is one list: ratio then fixed Hz,
   fine, level; no OPERATOR 2 page) and OP ENV (each stage's rate and level, drawn as the envelope), one operator
   at a time on the algorithm chart; macros on top; SLOT picks a factory patch (F1-F8), the track's own (OWN) or a
-  voice of the bank the web editor sent (B1-B32)
+  voice of the banks the web editor sent (B1-B96 across three 32-voice banks)
 - **WAVETABLE**: two wavetable oscillators, A and B, each morphing through 16 frames of a mip-mapped table; B
   phase-modulates A (B>A) and can also be heard through LEVEL at an exact RATIO, and A takes phase feedback
   (FDBK). BASIC and SPECTRAL are factory tables; USR1..USR3 each hold one complete 16 x 1024 table, loaded from

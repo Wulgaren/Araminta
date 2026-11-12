@@ -21,7 +21,10 @@
  *   4. asks 0xF0000000 ("success"), then invalidates the update record (RAM
  *      and flash: 4K boundary - 256 between 0x93000 and 0xFC000, outside
  *      Felucca's store, where only user data lives) so the SPL boots the new
- *      app, and resets.
+ *      app, and resets. In the stock firmware's own band (0xE8000..0xFBFFF) a
+ *      record is invalidated by clearing its tag, never by erasing the sector:
+ *      the sector at 0xE8000 also holds the stock VM (the unit's radio
+ *      calibration) with the stock update record at 0xE8F00.
  * Power loss during 3: the record is still there, the SPL runs the loader
  * again on the next power-on and the host can resume.
  *
@@ -38,8 +41,11 @@
 #define LDR_DATA_HI 0xE0000u                    /* bytes (user samples) the host writes */
 #define LDR_GAP_LO 0x93000u                     /* 3.10: the app's four sectors below the store (fm1_flash_map.h); */
 #define LDR_GAP_HI 0x97000u                     /* no update record is ever written there, so the sweep skips them */
-#define LDR_KEEP_LO 0xE5000u                    /* autosave A/B + FM6 voice bank (storage.c / fm1_flash.h) */
+#define LDR_KEEP_LO 0xE5000u                    /* autosave A + FM6 voice bank (B is in the gap; storage.c) */
 #define LDR_KEEP_HI 0xE8000u                    /* still clear OTA staging (0xE4F00) and stock 0xE8F00 */
+#define LDR_VM_LO 0xE8000u                      /* the stock firmware's own band: its VM 0xE8000 (radio */
+#define LDR_VM_HI 0xFC000u                      /* calibration), BTIF 0xE9000 and USR 0xEA000..: a record there
+                                                 * is invalidated in place, never erased (see the sweep) */
 #define LDR_NSEC ((LDR_APP_HI - LDR_APP_LO) >> 12)
 
 static int ldr_fread(uint32_t off, void *p, uint32_t n);
@@ -189,8 +195,18 @@ static int ldr_session(void)
                                                           * app data that happens to look like a record survives. */
         if (ldr_fread(s - 0x100u, r, 80))
             break;
-        if (ota_rd16(r + 6) == 0x5441u && ota_rd16(r) && ota_rd16(r) == ota_crc16(r + 2, 78, 0))
-            ldr_erase(sec);
+        if (ota_rd16(r + 6) == 0x5441u && ota_rd16(r) && ota_rd16(r) == ota_crc16(r + 2, 78, 0)) {
+            if (sec >= LDR_VM_LO && sec < LDR_VM_HI) {
+                /* The stock firmware stages its record at 0xE8F00, the last 256 B of the sector that also holds
+                 * its VM at 0xE8000 (the unit's radio calibration; Melodee measured it there). Erasing the sector
+                 * to clear the record would destroy the VM, so clear the record's tag instead: programming 0x00
+                 * over the two tag bytes makes the SPL's check fail and leaves the rest of the sector alone. */
+                static const uint8_t zero[2] = {0, 0};
+                ldr_prog(s - 0x100u + 6u, zero, sizeof zero);
+            } else {
+                ldr_erase(sec);
+            }
+        }
     }
     return 0;
 }

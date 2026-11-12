@@ -6,11 +6,14 @@ import { convertProject, needsConversion } from "./projconv.js";
 // deploy must not bypass the converters below.
 export const BACKUP_MODULE_VERSION = 3.6;
 // 8: the FM6 patch bank of 1.0..1.0.2 (listed empty since 1.0.3: a restore of an older archive's bank moves its patches
-// into the user presets restored before it); 9: the user presets' FM6 patches (1.0.3)
-export const BACKUP_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 32, 33, 34];
-const BACKUP_IDS_V2 = BACKUP_IDS.filter((id) => id !== 9);              // 1.0..1.0.2, and their archives
+// into the user presets restored before it); 9: the user presets' FM6 patches (1.0.3);
+// 10..13: user-preset banks 2..5 (F5000..F7000 + gap)
+export const BACKUP_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 32, 33, 34];
+const BACKUP_IDS_V4 = BACKUP_IDS.filter((id) => id < 10 || id >= 32);   // before banks 2..5 (no 10..13)
+const BACKUP_IDS_V3 = BACKUP_IDS_V4;                                   // alias: 13 objects
+const BACKUP_IDS_V2 = BACKUP_IDS_V4.filter((id) => id !== 9);           // 1.0..1.0.2, and their archives
 const BACKUP_IDS_V1 = BACKUP_IDS_V2.filter((id) => id !== 8);           // firmware before FM6, and its archives
-const idsOf = (n) => [BACKUP_IDS, BACKUP_IDS_V2, BACKUP_IDS_V1].find((ids) => ids.length === n) || null;
+const idsOf = (n) => [BACKUP_IDS, BACKUP_IDS_V4, BACKUP_IDS_V2, BACKUP_IDS_V1].find((ids) => ids.length === n) || null;
 export const BACKUP_CMD = { LIST: 65, GET: 66, PUT: 67 };
 const BACKUP_CHUNK = 256;
 export const bkU32 = (n) => Array.from({ length: 5 }, (_, i) => (n >>> (i * 7)) & (i === 4 ? 15 : 127));
@@ -64,7 +67,7 @@ export function bkManifest(a) {
     const p = 3 + i * 11;
     if (a[p] !== id) throw new Error("Unexpected archive object");
     const size = bkR32(a, p + 1), crc = bkR32(a, p + 6);
-    if (size > (id >= 32 ? 81920 : 3840) || (!size && crc)) throw new Error("Archive object too large");
+    if (size > (id >= 32 ? 81920 : 4096) || (!size && crc)) throw new Error("Archive object too large");
     return { id, size, crc };
   });
 }
@@ -72,7 +75,7 @@ const bkBase64 = (bytes) => { let s = ""; for (const b of bytes) s += String.fro
 const isProjectId = (id) => id >= 2 && id <= 5;
 /* the sizes firmware 3.6's archive accepts (editor_backup.c proj_store_len): FUN7..FUN19. Older FUN1..FUN6
    objects are converted to FUN19 before they are written, so they turn into one of these too. */
-const DEVICE_PROJECT_SIZES = [3840, 3648, 3584, 3388];
+const DEVICE_PROJECT_SIZES = [4096, 3840, 3648, 3584, 3388];
 /* Every object checked, no conversion: capture keeps the bytes the device holds; restore converts them. */
 function parseBackup(file) {
   if (typeof file === "string") file = JSON.parse(file);
@@ -80,7 +83,7 @@ function parseBackup(file) {
   if (!file || file.format !== "felucca-backup" || file.version !== 1 || !ids)
     throw new Error("Not a complete Felucca backup");
   const objects = file.objects.map((o, i) => {
-    if (!o || o.id !== ids[i] || !Number.isInteger(o.size) || o.size < 0 || o.size > (o.id >= 32 ? 81920 : 3840) ||
+    if (!o || o.id !== ids[i] || !Number.isInteger(o.size) || o.size < 0 || o.size > (o.id >= 32 ? 81920 : 4096) ||
         !Number.isInteger(o.crc) || o.crc < 0 || o.crc > 0xffffffff || typeof o.data !== "string" ||
         o.data.length !== 4 * Math.ceil(o.size / 3) || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(o.data))
       throw new Error("Invalid backup object");
@@ -189,7 +192,7 @@ export async function restoreBackup(request, file, onProgress = () => {}, digita
         done += 512; onProgress(done, total);
       }
     } else {
-      if (o.id === 9) {                    // firmware before 1.0.3 does not take id 9 (rc 1 at begin, nothing written): skip it
+      if (o.id === 9 || (o.id >= 10 && o.id <= 13)) { // older firmware: id 9 (before 1.0.3) or 10..13 (before six banks)
         const a = await ask([BACKUP_CMD.PUT, [0, o.id, ...bkU32(o.size), ...bkU32(o.crc)]]);
         if (a[2] === 1) { done += o.size; onProgress(done, total); continue; }
         bkCheck(a[2]);
@@ -213,6 +216,7 @@ const PROJECT_MAGIC = {
   3352: [0x46554e35], 3388: [0x46554e36, 0x46554e37], 3584: [0x46554e38], 3648: [0x46554e39],
   3840: [0x46554e41, 0x46554e42, 0x46554e43, 0x46554e44, 0x46554e45, 0x46554e46,
     0x474e5546, 0x484e5546, 0x494e5546, 0x4a4e5546],
+  4096: [0x4b4e5546],                                 /* FUN20 "FUNK" */
 };
 const projId = (slot) => {
   if (!Number.isInteger(slot) || slot < 0 || slot > 3) throw new Error("Project slot must be 0..3");

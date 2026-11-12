@@ -46,6 +46,8 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 static void panel_setup(void) {}
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
+/* 3.10: FELUCCA_FLASH 0 keeps a test-only wire image per slot (project.c extern). */
+project_store_t proj_slot[4];
 
 static uint32_t flash_ok = 1;
 static void audio_silence(void) {}
@@ -352,22 +354,23 @@ static int preferences(void)
     uint32_t n = request(ED_INFO, a, 0);
     bad += check("INFO explicitly tags display capabilities after SONG without changing command 33",
         ED_SONG == 33 && ED_UI_STATE == 34 && ED_FAV_SET == 38 &&
-        host_wire[n - 44] == CHAIN_ROWS && host_wire[n - 43] == 0x55 &&
-        host_wire[n - 42] == 1 && host_wire[n - 41] == 9 &&
-        host_wire[n - 40] == 0x4d && host_wire[n - 39] == 1 &&
-        host_wire[n - 38] == 64u && host_wire[n - 37] == 1 &&   /* (64 kept: 41 01 says 128) */
-        host_wire[n - 36] == 0x42 && host_wire[n - 35] == 1 && host_wire[n - 34] == 3 &&
-        host_wire[n - 33] == 0x46 && host_wire[n - 32] == 1 && host_wire[n - 31] == FM6_NFACTORY &&
-        host_wire[n - 30] == 0 &&                        /* (no bank since 1.0.3) */
-        host_wire[n - 29] == 0x53 && host_wire[n - 28] == 1 && host_wire[n - 27] == 3 &&
-        host_wire[n - 26] == 0x50 && host_wire[n - 25] == 1 && host_wire[n - 24] == 3 &&   /* FM6 v2: no bank, preset patches */
-        host_wire[n - 23] == 0x4E && host_wire[n - 22] == 1 && host_wire[n - 21] == 25 &&   /* MENU settings: 25 items */
-        host_wire[n - 20] == 0x52 && host_wire[n - 19] == 1 && host_wire[n - 18] == 4 &&   /* RATCH */
-        host_wire[n - 17] == 0x4C && host_wire[n - 16] == 1 && host_wire[n - 15] == 1 &&   /* 1.1 parameter locks */
-        host_wire[n - 14] == 0x41 && host_wire[n - 13] == 1 && host_wire[n - 12] == 64 && host_wire[n - 11] == 1 &&   /* 1.2: 128 */
-        host_wire[n - 10] == 0x54 && host_wire[n - 9] == 1 && host_wire[n - 8] == NUDGE_DIV &&   /* 1.2: NUDGE */
-        host_wire[n - 7] == 0x57 && host_wire[n - 6] == 1 && host_wire[n - 5] == NTRK &&   /* 1.2: SONG lanes */
-        host_wire[n - 4] == 0x56 && host_wire[n - 3] == 1 && host_wire[n - 2] == 32);   /* 1.4.1: FM6 voice bank */
+        host_wire[n - 45] == CHAIN_ROWS && host_wire[n - 44] == 0x55 &&
+        host_wire[n - 43] == 1 && host_wire[n - 42] == 9 &&
+        host_wire[n - 41] == 0x4d && host_wire[n - 40] == 1 &&
+        host_wire[n - 39] == 64u && host_wire[n - 38] == 1 &&   /* (64 kept: 41 01 says 128) */
+        host_wire[n - 37] == 0x42 && host_wire[n - 36] == 1 && host_wire[n - 35] == 3 &&
+        host_wire[n - 34] == 0x46 && host_wire[n - 33] == 1 && host_wire[n - 32] == FM6_NFACTORY &&
+        host_wire[n - 31] == 0 &&                        /* (no bank since 1.0.3) */
+        host_wire[n - 30] == 0x53 && host_wire[n - 29] == 1 && host_wire[n - 28] == 3 &&
+        host_wire[n - 27] == 0x50 && host_wire[n - 26] == 1 && host_wire[n - 25] == 3 &&   /* FM6 v2: no bank, preset patches */
+        host_wire[n - 24] == 0x4E && host_wire[n - 23] == 1 && host_wire[n - 22] == 25 &&   /* MENU settings: 25 items */
+        host_wire[n - 21] == 0x52 && host_wire[n - 20] == 1 && host_wire[n - 19] == 4 &&   /* RATCH */
+        host_wire[n - 18] == 0x4C && host_wire[n - 17] == 1 && host_wire[n - 16] == 1 &&   /* 1.1 parameter locks */
+        host_wire[n - 15] == 0x41 && host_wire[n - 14] == 1 && host_wire[n - 13] == 64 && host_wire[n - 12] == 1 &&   /* 1.2: 128 */
+        host_wire[n - 11] == 0x54 && host_wire[n - 10] == 1 && host_wire[n - 9] == NUDGE_DIV &&   /* 1.2: NUDGE */
+        host_wire[n - 8] == 0x57 && host_wire[n - 7] == 1 && host_wire[n - 6] == NTRK &&   /* 1.2: SONG lanes */
+        host_wire[n - 5] == 0x56 && host_wire[n - 4] == 1 && host_wire[n - 3] == 0 &&
+        host_wire[n - 2] == 1);   /* 128 voices: two 7-bit bytes 00 01 */
     request(ED_UI_SET, a, 2);
     bad += check("UI_SET updates the actual palette and reports RAM-only saving",
         host_wire[5] == 3 && settings.palette == 7 && T_BG == UI_PALETTES[7].bg);
@@ -387,7 +390,7 @@ static int preferences(void)
     bad += check("empty user slot cannot be starred", host_wire[5] == 1 && !favorite_has(NENGINES, 31));
     up_store(31, "Saved"); request(ED_FAV_SET, a, 4);
     bad += check("saved user slot can be starred without changing its sound", host_wire[5] == 3 && favorite_has(NENGINES, 31));
-    a[3] = 32; request(ED_FAV_GET, a, 4);
+    a[1] = (uint8_t)(UP_SLOTS - 1u); a[2] = 0; a[3] = 2; request(ED_FAV_GET, a, 4);
     bad += check("favorite range cannot cross the end of user slots", host_wire[5] == 1);
     request(ED_FAV_SET, a, 3);
     bad += check("short favorite writes return an error without reading absent bytes", host_wire[5] == 1);
@@ -1182,7 +1185,7 @@ static int menu_protocol(void)
         {"HOLD", "0.3 s,0.4 s,0.5 s,0.6 s"}, {"KNOB ACCEL", "OFF,ON"}, {"FX LATCH", "OFF,ON"}, {"BPM LOCK", "OFF,ON"},
         {"SPEAKER EQ", "FLAT,LOWCUT,BASS+"}, {"USB LEVEL", "MASTER,FIXED"}, {"USB SERIAL", "ON,OFF"},
         {"CLICK", "OFF,REC,ON"}, {"CLICK LEVEL", "LOW,MID,HIGH"}, {"COUNT-IN", "OFF,1 BAR,2 BARS"},   /* (1.1: appended) */
-        {"RESTORE LAST", "ON,OFF"}, {"SCALE LEDS", "OFF,ON"},                                        /* (1.2) */
+        {"BOOT RESTORE", "ON,OFF"}, {"SCALE LEDS", "OFF,ON"},                                        /* (1.2/3.10) */
         {"SCREEN OFF", "NEVER,5 MIN,15 MIN,30 MIN,60 MIN"},
         {"SCOPE", "OUT,MIX"}, {"STEP PREVIEW", "OFF,ON"}, {"CHORD ENTRY", "HOLD,ADD"},                  /* (1.2) */
         {"MIDI IN", "CH1-4,SEL,CH5-8,CH9-12,CH13-16"}, {"TUNE", 0},   /* (1.2: the project's ROUT and TUNE; TUNE a number) */
@@ -1222,7 +1225,7 @@ static int menu_protocol(void)
         }
     }
     if (jf) { fprintf(jf, "]\n"); fclose(jf); }
-    bad += check("MENU_DESC: 25 items (1.0.4's 12 in the menu's order, then 1.1's CLICK, CLICK LEVEL, COUNT-IN, 1.2's RESTORE LAST, SCALE LEDS, SCREEN OFF, 1.2's SCOPE, STEP PREVIEW, CHORD ENTRY, MIDI IN, TUNE, 1.3's HOME, 1.5's HELP), ids 0..24, names, defaults; TUNE a number -50..50 ct", ok);
+    bad += check("MENU_DESC: 25 items (1.0.4's 12 in the menu's order, then 1.1's CLICK, CLICK LEVEL, COUNT-IN, 1.2's BOOT RESTORE, SCALE LEDS, SCREEN OFF, 1.2's SCOPE, STEP PREVIEW, CHORD ENTRY, MIDI IN, TUNE, 1.3's HOME, 1.5's HELP), ids 0..24, names, defaults; TUNE a number -50..50 ct", ok);
     bad += check("MENU_DESC (1.0.5): after the names (TUNE: the unit) each item's tab, index and name (DISPLAY CONTROL AUDIO MIDI SYSTEM)", ok);
     {   /* an older editor reads the names and stops: the tab is past them, nothing it reads moved */
         uint32_t m = menu_desc(4, &it), p = 14, q;
@@ -1283,7 +1286,7 @@ static int menu_protocol(void)
         menu_desc(i, &it);                              /* STYLE forced FLAT (0); ANIM forced OFF (1) */
         ok &= it.value == SET[i];
     }
-    bad += check("MENU_SET: every setting applied as the menu does (palette, EQ, USB LEVEL, CLICK, COUNT-IN at once, RESTORE LAST, SCALE LEDS, SCREEN OFF, SCOPE, STEP PREVIEW, CHORD ENTRY, HOME; STYLE/ANIM/KNOB ACCEL retired fixed), read back", ok);
+    bad += check("MENU_SET: every setting applied as the menu does (palette, EQ, USB LEVEL, CLICK, COUNT-IN at once, BOOT RESTORE, SCALE LEDS, SCREEN OFF, SCOPE, STEP PREVIEW, CHORD ENTRY, HOME; STYLE/ANIM/KNOB ACCEL retired fixed), read back", ok);
     ok = menu_set(3, 0) == 3 && menu_get(MI_ANIM) == 1u && (ui_prefs & PREF_LARGE) && menu_set(10, 0) == 3 &&
          !fx_usb_fixed && menu_set(1, 1) == 3 && ui_style == ST_FLAT && menu_get(MI_STYLE) == 0u &&
          menu_get(MI_ACCEL) == 1u;

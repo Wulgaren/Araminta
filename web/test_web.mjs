@@ -192,11 +192,11 @@ async function editorMock() {
   ok(none === null, "editor: old firmware receives no unsupported preference requests");
   if (!E.readDeviceMenu) console.log(`${"editor: MENU settings (this editor has none)".padEnd(64)} skip`);
   else {   /* the MENU settings (1.0.4): INFO 4E 01 count, MENU_DESC (72), MENU_SET (73) */
-    ok(info.menuCount === 25, "editor: INFO advertises the MENU settings (4E 01 25; 1.1: CLICK, CLICK LEVEL, COUNT-IN; 1.2: RESTORE LAST, SCALE LEDS; 1.1.5: SCREEN OFF; 1.2: SCOPE, STEP PREVIEW, CHORD ENTRY, MIDI IN, TUNE; 1.3: HOME; 1.5: HELP)");
+    ok(info.menuCount === 25, "editor: INFO advertises the MENU settings (4E 01 25; 1.1: CLICK, CLICK LEVEL, COUNT-IN; 1.2: BOOT RESTORE, SCALE LEDS; 1.1.5: SCREEN OFF; 1.2: SCOPE, STEP PREVIEW, CHORD ENTRY, MIDI IN, TUNE; 1.3: HOME; 1.5: HELP)");
     const items = await E.readDeviceMenu(rq, info);
     ok(items.length === 25 && items.map((d) => d.id).join() === "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24" &&
        items.map((d) => d.name).join() ===
-         "COLOR,STYLE,LARGE,ANIM,LEDS,HOLD,KNOB ACCEL,FX LATCH,BPM LOCK,SPEAKER EQ,USB LEVEL,USB SERIAL,CLICK,CLICK LEVEL,COUNT-IN,RESTORE LAST,SCALE LEDS,SCREEN OFF,SCOPE,STEP PREVIEW,CHORD ENTRY,MIDI IN,TUNE,HOME,HELP" &&
+         "COLOR,STYLE,LARGE,ANIM,LEDS,HOLD,KNOB ACCEL,FX LATCH,BPM LOCK,SPEAKER EQ,USB LEVEL,USB SERIAL,CLICK,CLICK LEVEL,COUNT-IN,BOOT RESTORE,SCALE LEDS,SCREEN OFF,SCOPE,STEP PREVIEW,CHORD ENTRY,MIDI IN,TUNE,HOME,HELP" &&
        items[12].names.join() === "OFF,REC,ON" && items[12].value === 0 && items[13].names.join() === "LOW,MID,HIGH" &&
        items[13].value === 1 && items[14].names.join() === "OFF,1 BAR,2 BARS" && items[14].value === 0 &&
        items[15].names.join() === "ON,OFF" && items[15].value === 0 && items[16].names.join() === "OFF,ON" && items[16].value === 0 &&
@@ -228,7 +228,7 @@ async function editorMock() {
        "editor: MENU_SET round trip (1.1: COUNT-IN 1 BAR)");
     await rq(E.req.menuSet(14, 0));
     r = E.parse[E.CMD.MENU_SET](await rq(E.req.menuSet(15, 1)));
-    ok(r.rc === 0 && r.id === 15 && r.value === 1, "editor: MENU_SET round trip (1.2: RESTORE LAST OFF)");
+    ok(r.rc === 0 && r.id === 15 && r.value === 1, "editor: MENU_SET round trip (1.2: BOOT RESTORE OFF)");
     await rq(E.req.menuSet(15, 0));
     r = E.parse[E.CMD.MENU_SET](await rq(E.req.menuSet(16, 1)));
     ok(r.rc === 0 && r.id === 16 && r.value === 1, "editor: MENU_SET round trip (1.2: SCALE LEDS ON)");
@@ -1363,7 +1363,7 @@ async function editorFm6Bank() {
   [...m.access.inputs.values()][0].onmidimessage = (e) => link.receive(e.data);
   const rq = (x, o) => link.request(x, o);
   const info = E.parse[C.INFO](await rq(E.req.info()));
-  ok(info.fm6Bank === 32 && info.songLanes === 4 && info.fm6.caps === 3, "FM6 bank: INFO 56 01 32 after the SONG lanes tag");
+  ok(info.fm6Bank === 128 && info.songLanes === 4 && info.fm6.caps === 3, "FM6 bank: INFO 56 01 00 01 (128) after the SONG lanes tag");
   let list = await E.fm6Bank.list(rq);
   ok(list.n === 32 && !list.valid && list.name === "" && list.voices.every((v) => !v.used), "FM6 bank: LIST of an empty device: no bank");
   /* a 32-voice file: the factory patches renamed VOICE 01..32 (the import path: parseSysex, then the packed records) */
@@ -1419,6 +1419,14 @@ async function editorFm6Bank() {
   rc = await E.fm6Bank.send(rq, new Array(32).fill(null), "");
   list = await E.fm6Bank.list(rq);
   ok(rc === 0 && list.valid && list.voices.every((v) => !v.used), "FM6 bank: an empty bank (no WRITE, CRC of nothing) clears it");
+  /* multi-bank: bank 3 (F4000) is independent of bank 0 */
+  rc = await E.fm6Bank.send(rq, packed, "BANK THREE", 3);
+  const l0 = await E.fm6Bank.list(rq, 0), l3 = await E.fm6Bank.list(rq, 3);
+  ok(rc === 0 && !l0.voices.some((v) => v.used) && l3.valid && l3.name === "BANK THREE" && l3.voices.every((v) => v.used),
+    "FM6 bank: send to bank 3 leaves bank 0 empty; LIST bank 3 has the voices");
+  await rq(E.req.set(0, slotId, 9 + 96));                         /* B97 = bank 3 voice 0 */
+  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
+  ok(eq(g.packed, packed[0]), "FM6 bank: SLOT B97 loads bank 3 voice 0");
   link.close(); m.stop();
   const old = E.makeMockDevice({ auto: false, noVbank: true });
   const l2 = new E.Link((d) => [...old.access.outputs.values()][0].send(d), { timeout: 100 });

@@ -46,6 +46,17 @@ int main(void)
     bad += check("the VM backup above the voice bank is not ours", !ERASE(FL_VBANK_HI));
     bad += check("the stock firmware's update record at 0xE8F00 is not ours",
                  !FL_STORE_OK(0xE8F00u, 0x100u));
+    bad += check("reclaim F4000..F9FFF erases (user banks F5–F7 + FM6 F8/F9/F4)",
+                 ERASE(FL_RECLAIM_LO) && ERASE(0xF5000u) && ERASE(0xF8000u) && ERASE(0xF9000u) &&
+                 ERASE(FL_RECLAIM_HI - 0x1000u));
+    bad += check("FM6 bank homes F8000/F9000 are reclaim; E8000 calibration is not",
+                 FL_STORE_OK(0xF8000u, 0x1000u) && FL_STORE_OK(0xF9000u, 0x1000u) && !ERASE(0xE8000u));
+    bad += check("stock USR below reclaim (E9000..F3FFF) is refused",
+                 !ERASE(0xE9000u) && !ERASE(0xF2000u) && !ERASE(0xF3000u));
+    bad += check("stock USR settings FA000..FBFFF are refused",
+                 !ERASE(0xFA000u) && !ERASE(0xFB000u));
+    bad += check("a range crossing reclaim into FA000 is refused",
+                 !FL_STORE_OK(0xF9F00u, 0x200u));
 
     /* the RAM driver's window: the app may program the gap, but never the app area it is running from */
     bad += check("the driver programs the gap and the OTA staging",
