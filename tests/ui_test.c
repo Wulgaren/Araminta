@@ -3872,6 +3872,14 @@ static int test_edit_cycle(void)
         turn(EN_K2, 1);
         ok &= dx_mdl[DV_CLAP] == DXV_METAL;
     }
+    {                                                 /* SOUND, CLICK: RATIO keeps the filter's high bit */
+        int okr;
+        dx_ui_lane = DV_RIM; dx_ui_side = 0; dx_mdl[DV_RIM] = DXV_CLICK;
+        dx_kit[DV_RIM].mode = (uint8_t)((dx_kit[DV_RIM].mode & ~0x0Fu) | DXF_HP << 2);   /* WAVE 0, FILT HP */
+        turn(EN_K3, 1);
+        okr = dx_click_ratio(&dx_kit[DV_RIM]) == 1u && dx_mode_get(&dx_kit[DV_RIM], 2, 3u) == DXF_HP;
+        bad += check("SOUND: CLICK's RATIO turned leaves a stored HP filter HP", okr);
+    }
     turn(EN_SELECT, 1); frame();
     ok &= str_eq(cur_page()->title, "TONE");
     {                                                 /* TONE, FM: FILT K1, COLR K2, OSC2 K4 */

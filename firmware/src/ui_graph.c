@@ -1242,6 +1242,18 @@ static void graph_title(void)
     cv_text_in(0, y, 240, f, ti, T_THEME, T_SURF);
 }
 
+/* MIXER's lane pages (graph_lanes): the bar each lane drew last, px (it falls 1 px a frame) */
+static uint8_t lane_bar[NLANE] __attribute__((section(".pool")));
+/* graph_signature: a lane page moves while a bar is still falling or the audio left a level since the last draw */
+static int lanes_moving(uint32_t k)
+{
+    uint32_t l;
+    for (l = 0; l < NLANE; l++)
+        if (lane_bar[l] || drum_lane_meter[k][l])
+            return 1;
+    return 0;
+}
+
 static uint32_t graph_signature(void)
 {
     const page_t *pg = cur_page();
@@ -1310,9 +1322,9 @@ static uint32_t graph_signature(void)
     }
     if (pg->graph == GR_DXSND)                       /* DRUM-X SOUND / TONE / MOVEMENT cards */
         h ^= dx_sig();
-    if (pg->graph == GR_LANES)                       /* MIXER's lane meters move every frame; mutes, the hot knob */
-        h ^= ui.frame + (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u + (uint32_t)dx_mute * 1299709u +
-             (uint32_t)drum_mute[trk_index(t) % NPART] * 40503u;
+    if (pg->graph == GR_LANES)                       /* MIXER's lane meters while they move; mutes, the hot knob */
+        h ^= (lanes_moving(trk_index(t)) ? ui.frame : 0u) + (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u +
+             (uint32_t)dx_mute * 1299709u + (uint32_t)drum_mute[trk_index(t) % NPART] * 40503u;
     if (pg->graph == GR_EVENTS)                      /* AUTOMATION: the rows, the one selected, + ADD's place, PLAY,
                                                       * QUANTIZE */
         h = (h ^ ev_sig()) * 16777619u;
@@ -2395,8 +2407,7 @@ static void graph_colony(const track_t *t, int32_t sel)
  * turned ACCENT, the other page's MID, a muted lane DIM. A bar drops 1 px a frame, as the mixer's meters. */
 #define LN_X0 34                                     /* the bars: 34 .. 194 (160 px) */
 #define LN_W 160
-static uint8_t lane_bar[NLANE] __attribute__((section(".pool")));   /* the last bar, px (falls a frame) */
-static void graph_lanes(const track_t *t, uint16_t c)
+static void graph_lanes(const track_t *t)
 {
     const page_t *pg = cur_page();
     uint32_t k = trk_index(t), l, first = 0;
@@ -2618,7 +2629,7 @@ static void draw_graph(void)
             break;
         case GR_LANES:
             cv_oy = 0;
-            graph_lanes(t, c);
+            graph_lanes(t);
             break;
         case GR_FMOP:
             if (fop_ok()) graph_fm6(t, c, fop_op % 6u);   /* the chart, the operator picked */

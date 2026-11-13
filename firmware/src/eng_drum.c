@@ -62,8 +62,9 @@ static const uint8_t DXG_LANE[DV_NLANE] = {DXG_KICK, DXG_SNARE, DXG_SNARE, DXG_H
 #define DXM_ALL 0xFF0Fu
 static volatile uint16_t dx_mute;                       /* DXG_* groups | DXM_LANE lanes */
 /* MIXER's lane pages (ui_graph.c graph_lanes): each track's lane meters since the UI last read them (Q15, the
- * hit's own envelope x its lane LEVEL: the render loops keep their budget). The audio writes a max, the UI reads
- * and clears its track's; .pool: no audio .bss budget */
+ * hit's own envelope before its lane LEVEL: the render loops keep their budget). The audio writes a max, the UI
+ * reads and clears its track's (a hit between the read and the clear loses that block's peak: the bar's fall hides
+ * it); .pool: no audio .bss budget */
 static uint16_t drum_lane_meter[NTRK][DV_NLANE] __attribute__((section(".pool")));
 static void dx_mute_set(uint32_t m) { dx_mute = (uint16_t)(m & DXM_ALL); }
 static int dx_lane_muted_g(uint32_t l) { return (DXG_LANE[l & 7u] & dx_mute) || (dx_mute & DXM_LANE(l & 7u)); }
