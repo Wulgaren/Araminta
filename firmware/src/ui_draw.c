@@ -836,7 +836,10 @@ static void draw_foot(void)
             x += cv_icon_in(x, 19 + AF_S_CAP_Y, 0, AF_S_CAP_H, 12, ei, T_MID, T_BG) + 5;
         }
         x = cv_text_fit(x, 19, &AF_S, ename, T_THEME, T_BG, 80);
-        cv_free_text(x + 10, 19, &AF_S, pn, T_TEXT, T_BG, tx - 12 - (x + 10));
+        if (!ui.home && ui.layer == LAYER_SEQ)          /* the tools map's footer: OCT- UNDO where the sound is */
+            cv_free_hint(x + 10, 19, "[OCT-] UNDO", T_TEXT, T_BG, tx - 12 - (x + 10));
+        else
+            cv_free_text(x + 10, 19, &AF_S, pn, T_TEXT, T_BG, tx - 12 - (x + 10));
         if (pi != ICON_NONE) {
             GFX_HOOK_ALIGN(0, 19 + AF_S_CAP_Y, 0, 19 + AF_S_CAP_Y + AF_S_CAP_H, AL_V,
                            "footer icons on the names' line");
