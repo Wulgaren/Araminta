@@ -2017,7 +2017,7 @@ const reservedFm4 = (engines, e) => e === 1 && (engines || [])[1] === "-";   /* 
 const PERC_SET = 4, DRUM_KIT_E = [64, 64, 70, 64, 64, 0, 0, 0];   /* DRUM-X {MRPH,TUNE,TONE,DECY,NOIS,FM,FOLD,DRV} */
 
 /* SLICE becomes the DRUM-X kit, as firmware eng_retire.c; the old DRUM name keeps its sound as DRUM-X. DRUMS (15,
-   retired) becomes DRUM-X with its TUNE TONE DECY SNAP (NOIS) DRV, MRPH at its middle, FM ENV and FOLD off (engines.c
+   retired) becomes DRUM-X with its TUNE TONE DECY SNAP (NOIS) DRV, MRPH at its middle, FM and FOLD off (engines.c
    retire_remap_params; the kit is the device's). SAMPLE PERC still becomes DRUM-X via fromPerc. */
 function fromRetire(pt, engines, pe0) {
   const e = pt.engine, name = pt.engineName || (engines || [])[e];
@@ -2180,7 +2180,7 @@ function makeMockDevice(opt = {}) {
         P("HARP", [3, 8, 62, 74, 60, 90, 0, 0], [0, 100, 127, 80], 0, 3),
         P("GLASS BOW", [0, 40, 70, 100, 20, 30, 110, 10], [20, 80, 110, 95], 0, 5)] },
     { name: "DRUM-X", titles: ["KIT", "HIT"], edit: [D("MRPH", F.PCT, 0, 127, 64), D("TUNE", F.PCT, 0, 127, 64),
-        D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("NOIS", F.PCT, 0, 127, 64), D("FMENV", F.PCT, 0, 127, 0),
+        D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("NOIS", F.PCT, 0, 127, 64), D("FM", F.PCT, 0, 127, 0),
         D("FOLD", F.PCT, 0, 127, 0), D("DRV", F.PCT, 0, 127, 0)],
       presets: [P("FM DRUMS", [64, 64, 70, 64, 64, 0, 0, 0], [0, 100, 127, 100], 0, 12),
         P("909 CLUB", [60, 64, 78, 64, 64, 0, 0, 10], [0, 100, 127, 100], 0, 12),

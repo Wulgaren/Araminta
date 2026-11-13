@@ -118,7 +118,7 @@ static __attribute__((noinline)) uint32_t dx_pow2(uint32_t x)
     acc = 65536u + ((t * acc) >> 12);
     return acc << (x >> 12);
 }
-/* FM ENV (DRUM's E5, 0..127) -> the FM index the hit strikes with (dx_run's ix: 1 = 0.0245 rad): (V10.6q) x^2 (x + 0.5)
+/* FM (DRUM's E5, 0..127) -> the FM index the hit strikes with (dx_run's ix: 1 = 0.0245 rad): (V10.6q) x^2 (x + 0.5)
  * up to 114 (0.84 rad at 64, 2.3 at 96, 3.7 at 114: a beater, a click, a metal edge), then a line to 9.3 rad at 127 */
 static __attribute__((noinline)) int32_t dx_fm_env(int32_t fm)
 {
@@ -175,7 +175,7 @@ static dx_lane_t dx_kit[8];                              /* the music's kit (DX_
  * out of the harmony); 0 none */
 static uint8_t dx_lay[8];
 
-/* the FM ENV / LAYER loop (the FM waves, and a SINE with FM ENV or LAYER): the carrier phase-modulated by its
+/* the FM / LAYER loop (the FM waves, and a SINE with FM or LAYER): the carrier phase-modulated by its
  * modulator (index ix, stepping dix a sample), and (0.6.49) LAYER's triangle at sqrt 2 of it, frequency modulated by
  * it, its index up as LAYER's square, up to ~70 % of the mix (LAYER 0: none of it, its phase kept) */
 static __attribute__((noinline)) void dx_layer(dx_voice_t *v, int32_t *y, uint32_t n, uint32_t *php, uint32_t *ph2p,
@@ -343,7 +343,7 @@ static __attribute__((noinline)) void dx_metal(dx_voice_t *v, int32_t *y, uint32
 /* one block of lane L's hit v into y (n <= CTL): Q15, peaks near full scale. morph 0..127; tune16 1/16 semitones;
  * dofs / cofs / nofs move DECAY / COLOR / NOISE (-64..63). warp (DRUM's FOLD, 0..127): the oscillator through a
  * wavefolder after its envelope: the hit's loud start folds into bright partials, its tail unfolds back to the plain
- * wave (a West Coast drum); 0: the patch as it is. fm (DRUM's FM ENV, 0..127): how much FM the hit strikes with, its
+ * wave (a West Coast drum); 0: the patch as it is. fm (DRUM's FM, 0..127): how much FM the hit strikes with, its
  * index following the pitch envelope down to the lane's own: an attack's beater / click / metal edge, the tail as the
  * kit has it. The oscillator and the noise each run their own loop, skipped when the mix leaves them out */
 static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, int32_t morph, int32_t tune16,
@@ -502,7 +502,7 @@ static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, 
             int32_t u = (q[DXP_COLOR] - 64) * 520, t = u < 0 ? u + 33280 : 32767;
             int32_t ka = (int32_t)((1u << 29) / ((st >> 8) | 1u)), kq = (ka * 2787) >> 12, um;
             u = u < 0 ? 0 : u;
-            um = u + ((fm ? dx_fm_env(fm) * v->ep >> 15 : 0) * 43);   /* (FM ENV: A's modulation struck with the hit) */
+            um = u + ((fm ? dx_fm_env(fm) * v->ep >> 15 : 0) * 43);   /* (FM: A's modulation struck with the hit) */
             for (i = 0; i < n; i++, inc += dinc, ga += dga) {
                 int32_t b = dx_sq(ph2, kq), a, o;
                 a = dx_sq(ph + ((uint32_t)(dx_tri(ph2) * um) << 1), ka);   /* (A's phase driven by B's triangle) */
@@ -533,7 +533,7 @@ static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, 
                 y[i] = mulq15((softclip((sine_i(ph) * g) >> 12) * nrm) >> 12, ga >> 8);
                 ph += (uint32_t)inc << 4;
             }
-        } else {                                         /* FM (COLOR's index), and FM ENV: the FM struck with the hit and
+        } else {                                         /* FM (COLOR's index), and the FM knob's: the FM struck with the hit and
                                                           * gone with the pitch envelope; a SINE gets its octave as the
                                                           * modulator, the other waves their own ratio and COLOR's index
                                                           * under it */
