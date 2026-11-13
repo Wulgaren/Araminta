@@ -14,7 +14,7 @@ trio_pass 175
 wheel_render 265
 wheel_block 86
 phys_render 61
-drum_render 83
+drum_render 85
 fm6_render 768
 wt_render 135
 wt_read 0
@@ -25,9 +25,11 @@ px_memb_block 106
 px_string_excite 171
 px_string_run 264
 px_symp_run 252
-dx_run 375
+dx_run 3603
+dx_plain 39
+dx_layer 59
 slicer_track 0
-fm1_alnk0_irq 35836
+fm1_alnk0_irq 36125
 fm1_timer5_irq 25182
 click_render 30
 mod_begin 268
@@ -49,5 +51,5 @@ rev_cloud 470
 rev_side_mix 42
 track_insert 249
 ins_run_dist 136
+ins_run_swept 244
 ins_run_ott 968
-ins_run_swept 245

@@ -201,6 +201,7 @@ typedef struct {
     motion_store_t motion;
     uint8_t fm6[NTRK][FM6_PACKED];             /* each track's FM6 patch, packed (eng_fm6.c) */
     dx_lane_t dx[8];                           /* the DRUM-X kit (drumx_voice.c); FUN11 */
+    uint8_t dx_lay[8];                         /* each sound's LAYER / FEEDBK (drumx_voice.c); FUN20 spare */
     uint16_t dx_mute;                          /* group + lane mutes (eng_drum.c dx_mute) */
     uint8_t dx_mot[4];                         /* X-MOD RATE DPTH SHPE RAND (eng_drum.c); RAM-only since bus layout */
     uint8_t fx_bus[FX_BUS_N];                  /* SEND insert+slicer knobs (wire in reclaimed SCL/X-MOD bytes) */
@@ -239,6 +240,7 @@ _Static_assert(sizeof(((project_t *)0)->lane) == 40u, "punch-in lane wire size")
 #define PROJ_APPEND_MARK_OFF (PROJ_LANE_OFF + PROJ_LANE_SIZE) /* 3984 */
 #define PROJ_APPEND_MARK 0x4Cu                 /* 'L': append lane (and optional overflow motion) present */
 #define PROJ_MOTION_SPARE_OFF (PROJ_APPEND_MARK_OFF + 2u)    /* after mark + lane_tgt: records 128..154 */
+#define PROJ_DXL_OFF (PROJ_MOTION_SPARE_OFF + MOTION_FILE_SPARE_SIZE) /* 4067: 8 B LAYER/FEEDBK, before the name */
 #define PROJ_SL_SEND_OFF (PROJ_DX_OFF + PROJ_DX_SIZE - 1u) /* SLICER SEND mask | 0x10 mark */
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(PROJ_NG_WIRE == 27u && G_COUNT >= PROJ_NG_WIRE, "FUN7 wire globals keep IDs 0..26");
@@ -254,6 +256,7 @@ _Static_assert(PROJ_LANE_OFF == 3944u && PROJ_APPEND_MARK_OFF == 3984u, "append 
 _Static_assert(PROJ_MOTION_SPARE_OFF == 3986u, "spare motion after mark + lane_tgt");
 _Static_assert(PROJ_MOTION_SPARE_OFF + MOTION_FILE_SPARE_SIZE <= PROJ_NAME_OFF,
                "spare motion fits before the name");
+_Static_assert(PROJ_DXL_OFF + 8u <= PROJ_NAME_OFF, "the kit's layer bytes fit before the name");
 _Static_assert(PROJ_MOTION_APPEND_OFF + MOTION_FILE_APPEND_SIZE + PROJ_LANE_SIZE + 1u <= PROJ_NAME_OFF,
                "append motion + lane + mark fit before the name");
 _Static_assert(MOTION_FILE_SIZE_V11 + PROJ_DX_SIZE == MOTION_FILE_SIZE_V10, "kit takes FUN10's motion spare");
@@ -685,6 +688,8 @@ static int proj_pack_st(project_store_t *out, const project_t *q, uint32_t st)
     b[PROJ_DX_OFF + sizeof q->dx] = (uint8_t)(q->dx_mute & DXG_ALL);
     b[PROJ_DX_OFF + sizeof q->dx + 1u] = (uint8_t)(q->dx_mute >> 8);
     b[PROJ_DX_OFF + sizeof q->dx + 2u] = 1u;            /* marker: kit layout as today */
+    if (full)
+        memcpy(b + PROJ_DXL_OFF, q->dx_lay, sizeof q->dx_lay);   /* FUN20's spare bytes before the name */
     memcpy(b + PROJ_FM6_OFF, q->fm6, sizeof q->fm6);
     /* FM6 packed bytes are seven-bit SysEx data. Their unused high bits hold six controls per track;
      * original readers mask those bits, leaving the patch and the 72 motion slots intact. */
@@ -1072,6 +1077,10 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
                          (magic == PROJ_MAGIC_V13 && b[PROJ_SCL_MARK_OFF] == 1u);
         memcpy(q->dx, b + PROJ_DX_OFF, sizeof q->dx);
         if (!dx_kit_ok(q->dx)) return 0;
+        if (v20 && st == PROJ_STORE_SIZE)
+            memcpy(q->dx_lay, b + PROJ_DXL_OFF, sizeof q->dx_lay);
+        else
+            memcpy(q->dx_lay, DX_LAY_DEF, sizeof q->dx_lay);
         q->dx_mute = (uint16_t)((b[PROJ_DX_OFF + sizeof q->dx] & DXG_ALL) |
                                 (uint32_t)b[PROJ_DX_OFF + sizeof q->dx + 1u] << 8);
         if (bus_layout) {
@@ -1085,6 +1094,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         }
     } else {
         memcpy(q->dx, DX_KIT_DEF, sizeof q->dx);
+        memcpy(q->dx_lay, DX_LAY_DEF, sizeof q->dx_lay);
         q->dx_mute = 0;
         memset(q->dx_mot, 0, sizeof q->dx_mot);
     }
@@ -1263,6 +1273,7 @@ static void project_capture(project_t *p)
         }
     p->motion = motion;
     memcpy(p->dx, dx_kit, sizeof p->dx);
+    memcpy(p->dx_lay, dx_lay, sizeof p->dx_lay);
     p->dx_mute = dx_mute;
     memcpy(p->dx_mot, dx_mot, sizeof p->dx_mot);       /* RAM snapshot; not written to disk */
     fx_bus_to_wire(p->fx_bus);
@@ -1448,6 +1459,7 @@ static int project_restore_runtime(const project_t *input)
     memset(drum_mute, 0, sizeof drum_mute);       /* (1.4.1: the DRUM lanes' mutes, performance state) */
     if (p != input) memcpy(p, input, sizeof *p);
     memcpy(dx_kit, dx_kit_ok(p->dx) ? p->dx : DX_KIT_DEF, sizeof dx_kit);   /* FUN11 kit (FUN10: factory) */
+    memcpy(dx_lay, p->dx_lay, sizeof dx_lay);           /* each sound's LAYER / FEEDBK */
     memcpy(dx_mot, p->dx_mot, sizeof dx_mot);           /* RAM-only; new saves do not restore from disk */
     fx_bus_from_wire(p->fx_bus);
     dx_mute_set(p->dx_mute);

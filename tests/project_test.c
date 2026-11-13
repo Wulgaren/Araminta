@@ -758,6 +758,7 @@ int main(void)
         chain_defaults(&a.chain);
         memcpy(a.dx, DX_KIT_DEF, sizeof a.dx);
         a.dx[0].a[0] = 11; a.dx[0].b[2] = 99; a.dx[3].a[4] = 55;
+        a.dx_lay[1] = 0x60; a.dx_lay[4] = 0x0C;          /* the snare's FEEDBK, the tom's LAYER */
         a.dx_mute = (uint16_t)(DXG_KICK | (1u << 8) | (4u << 8));
         a.dx_mot[XM_RATE] = 3; a.dx_mot[XM_DPTH] = 40; a.dx_mot[XM_SHPE] = 2; a.dx_mot[XM_RAND] = 17;
         for (i = 0; i < FX_BUS_N; i++)
@@ -769,17 +770,20 @@ int main(void)
              st.raw[PROJ_DX_OFF + sizeof a.dx] == (uint8_t)(a.dx_mute & DXG_ALL) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx + 1u] == (uint8_t)(a.dx_mute >> 8) &&
              st.raw[PROJ_DX_OFF + sizeof a.dx + 2u] == 1u &&
+             st.raw[PROJ_DXL_OFF + 1u] == 0x60 && st.raw[PROJ_DXL_OFF + 4u] == 0x0C &&
              proj_import(&c, &st, sizeof st) &&
-             !memcmp(c.dx, a.dx, sizeof a.dx) && c.dx_mute == a.dx_mute &&
+             !memcmp(c.dx, a.dx, sizeof a.dx) && !memcmp(c.dx_lay, a.dx_lay, sizeof a.dx_lay) &&
+             c.dx_mute == a.dx_mute &&
              !c.dx_mot[0] && !c.dx_mot[1] && !c.dx_mot[2] && !c.dx_mot[3] &&
              !memcmp(c.fx_bus, a.fx_bus, FX_BUS_N) && !memcmp(c.name, "DX KIT", 6);
-        bad += check("FUN14: DRUM-X kit/mute round trip; X-MOD not on disk; SEND bus knobs round trip", ok);
+        bad += check("FUN20: DRUM-X kit/mute/layer round trip; X-MOD not on disk; SEND bus knobs round trip", ok);
         funa = st;
         store_fun15_layout(&funa, 0x46554E41u);       /* FUNA / FUN10: the FUN15 chain and motion, no kit block */
         memset(funa.raw + PROJ_DX_OFF, 0, PROJ_DX_SIZE);
         sum = proj_hash(funa.raw, PROJ_STORE_SIZE - 4u);
         memcpy(funa.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
         ok = proj_import(&c, &funa, sizeof funa) && !memcmp(c.dx, DX_KIT_DEF, sizeof c.dx) &&
+             !memcmp(c.dx_lay, DX_LAY_DEF, sizeof c.dx_lay) &&
              !c.dx_mute && !c.dx_mot[0] && !c.dx_mot[1] && !c.dx_mot[2] && !c.dx_mot[3] &&
              !memcmp(c.name, "DX KIT", 6);
         bad += check("FUN10 (FUNA): loads with the factory DRUM-X kit (custom kit not on disk)", ok);

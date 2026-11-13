@@ -259,6 +259,7 @@ static void fm6_init(void)
 {
     uint8_t v[FP_SIZE + 1u];
     uint32_t tr;
+    fm6_tables_init();                             /* FM6_EXP2 from its deltas: before any note */
     fm6_unpack(FM6_INIT, v);
     for (tr = 0; tr < NTRK; tr++) {
         fm6_set_patch(tr, v);

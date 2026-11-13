@@ -190,7 +190,8 @@ and live recording writes it into one step; MONO / LEGATO / UNISON play its root
 ignores it. Both defaults are 0: nothing changes until CHRD is set. They are the track's, like ARP and SCL: a
 sound load (a factory preset, `UP_LOAD`, an audition) keeps them, and motion never records them.
 
-The DRUM-X lane levels (EDIT > LANES / LANES 2 on the device, `firmware/src/eng_drum.c`) are eight track parameters at
+EDIT > SOUND 3 on a DRUM-X track edits the selected sound's LAYER and FEEDBK (OFF, 1..15), one byte per lane
+(drumx_voice.c `dx_lay`). The DRUM-X lane levels (EDIT > LANES / LANES 2 on the device, `firmware/src/eng_drum.c`) are eight track parameters at
 ids 83..90, one per lane: 83 KICK, 84 SNARE, 85 CLAP, 86 HATCL, 87 HATOP, 88 TOM, 89 RIM, 90 BELL. Percent (`F_PCT`),
 0..127, default 127 = 100 % (the kit as designed), square law (64: about −12 dB). Only the DRUM-X engine reads them; the
 editor shows them on a DRUM-X track only (the device's pages). They are the sound's (not the track's): a factory preset
@@ -705,6 +706,7 @@ when the track's engine is not the saved one).
   FUN19 is written. Firmware that only knows FUN16/17/18 refuses a FUN19 (magic): its slot shows EMPTY until saved
   over, so keep a backup before the first save.
 - **Projects (FUN11, Araminta).** Same 3840-byte object as FUN10, magic `46 55 4E 42` ("FUNB", FUN11 in these notes): the DRUM-X kit (`dx_lane_t[8]`, 88 bytes), mute lo/hi, a marker byte, and X-MOD `dx_mot[4]` (96 bytes total) at offset 3216 just before the FM6 patches — as JIANT's FUNA kit placement. Disk motion shrinks to 78 records (4 + 78 × 3 = 238) so the kit fits; RAM still holds 128. Firmware that only knows FUN10 refuses a FUN11 (magic): its slot shows EMPTY until saved over. Backups, `PROJECT` and the editor's project files still carry 3840 bytes (begin accepts the size as for FUN10; the magic distinguishes the layout).
+- **DRUM-X LAYER / FEEDBK (FUN20).** Eight bytes at offset 4067, before the name: one per sound, low nibble LAYER (0 off, 1..15), high nibble FEEDBK (0 off, 1..15). FUN11..FUN19 have none and load the factory layers; a FUN20 with these bytes zero has no layers. `PROJ_DXL_OFF` in project.c.
 - **MIDI clock** has no SysEx. `G_CLOCK` selects the source: 0 INT, 1 USB, 2 TRS. With 1 or 2 the sequencer
   steps on that port's Clock pulses (the other port's are ignored), Start (0xFA) restarts from step 0,
   Continue (0xFB) resumes and Stop (0xFC) stops; BPM follows the incoming tempo (40..240), and 500 ms

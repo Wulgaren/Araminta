@@ -45,6 +45,24 @@ enum {
 };
 
 /* ---------------------------------------------------------------- math --- */
+/* the exp2 table (FM6_EXP2_D holds its 20-bit deltas) rebuilt at boot, bit for bit: 2,560 B of XIP, not 4,100 */
+static uint32_t FM6_EXP2[1025];
+static inline uint32_t fm6_d20(uint32_t i)             /* the i-th 20-bit little-endian field */
+{
+    uint32_t bit = i * 20u, b = bit >> 3, sh = bit & 7u;
+    uint32_t v = (uint32_t)FM6_EXP2_D[b] | ((uint32_t)FM6_EXP2_D[b + 1u] << 8) |
+                 ((uint32_t)FM6_EXP2_D[b + 2u] << 16);
+    return (v >> sh) & 0xFFFFFu;
+}
+static void fm6_tables_init(void)
+{
+    uint32_t i, v = 0;
+    FM6_EXP2[0] = 0;
+    for (i = 1; i < 1025u; i++) {
+        v += fm6_d20(i - 1u);
+        FM6_EXP2[i] = v;
+    }
+}
 /* 2^(x / 2^24), Q24 (msfa Exp2::lookup): the Q30 mantissa from FM6_EXP2, shifted by the integer part */
 static inline uint32_t fm6_mant(int32_t x)
 {

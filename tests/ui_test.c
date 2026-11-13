@@ -3859,13 +3859,17 @@ static int test_edit_cycle(void)
     ok &= cur_page()->sec == EDIT_SEC_KIT && str_eq(cur_page()->title, "SOUND");
     turn(EN_SELECT, 1); frame();
     ok &= str_eq(cur_page()->title, "SOUND 2");
+    turn(EN_SELECT, 1); frame();
+    ok &= str_eq(cur_page()->title, "SOUND 3");
+    turn(EN_K2, 1); frame();                          /* SOUND 3: LAYER for the lane picked on LANE (K1) */
+    ok &= (dx_lay[dx_ui_lane & 7u] & 15u) == 1u;
     turn(EN_SELECT, 1); frame();                      /* Kit: stop at last page */
-    ok &= str_eq(cur_page()->title, "SOUND 2");
+    ok &= str_eq(cur_page()->title, "SOUND 3");
     press(B_EDIT); frame();                           /* Kit → Lanes */
     ok &= cur_page()->sec == EDIT_SEC_LAN && str_eq(cur_page()->title, "LANES");
     press(B_EDIT); frame();                           /* Lanes → Sound (Voice hidden on DRUM) */
     ok &= cur_page()->sec == EDIT_SEC_SND;
-    bad += check("EDIT on DRUM: Sound → Kit (SOUND..SOUND 2) → Lanes; Voice skipped", ok);
+    bad += check("EDIT on DRUM: Sound → Kit (SOUND..SOUND 3, LAYER) → Lanes; Voice skipped", ok);
     return bad;
 }
 

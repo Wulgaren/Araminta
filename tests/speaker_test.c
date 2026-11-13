@@ -77,7 +77,7 @@ static uint32_t kick_pattern(void)
         for (i = 0; i < 2u * FS; i += CTL) {
             if (i % (FS / 2u) < CTL)
                 dx_trigger(&v);
-            dx_run(L, &v, morph, 0, 0, 0, 0, 0, 0, y, CTL);
+            dx_run(L, &v, morph, 0, 0, 0, 0, 0, 0, y, CTL, DV_KICK);
             for (k = 0; k < CTL; k++) {
                 f[i + k] = (float)y[k];
                 pk = abs(y[k]) > pk ? abs(y[k]) : pk;
