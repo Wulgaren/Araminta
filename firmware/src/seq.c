@@ -1391,7 +1391,7 @@ static int32_t cg_near(uint32_t x, const uint8_t *set, uint32_t n, int other)
 __attribute__((noinline)) static void cg_pair(track_t *t, const uint8_t *o, uint32_t a, uint8_t *n, const uint8_t *nv,
                                               uint32_t b, uint32_t ticks)
 {
-    uint32_t i, j, k;
+    uint32_t i, k;
     for (i = 0; i < a || i < b; i++) {
         voice_t *v = 0;
         if (i < a)
