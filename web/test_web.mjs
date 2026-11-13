@@ -57,7 +57,7 @@ async function editorMock() {
   inp.onmidimessage = (e) => link.receive(e.data);
   const rq = async (r, o) => link.request(r, o);
   const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
-  ok(info.nengines === 16 && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "-" && info.engines[14] === "WAVETABLE" && info.engines[15] === "DRUMS"
+  ok(info.nengines === 16 && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "-" && info.engines[14] === "WAVETABLE" && info.engines[15] === "-"
  && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "GRAIN" && info.engines[9] === "PHYS" && info.engines[10] === "DRUM-X" && info.engines[11] === "NOISE" && info.pcount === T.P_COUNT && info.pe0 === T.P_E0 && info.engines[4] === "SAMPLE"
  && info.motionMax === mproto.MOTION_MAX && info.motionFull,
     "editor: INFO");
@@ -177,16 +177,16 @@ async function editorMock() {
   ok(!prefs.favorites[info.nengines][31] && !E.devicePresetRows(info, names, prefs).some((r) => r.user), "editor: erased slot disappears and loses star");
   {   /* the lists in the device's order (engines.c ENGINE_ORDER): FM6 second, WAVETABLE third, "-" never; the numbers stay */
     const shown = E.engineOrder(info.engines).map((i) => info.engines[i]);
-    ok(shown.join() === "ANALOG,FM6,WAVETABLE,PHASE,LOFI,VOICE,TRIO,WHEEL,PHYS,NOISE,GRAIN,SAMPLE,DRUM-X,DRUMS" &&
+    ok(shown.join() === "ANALOG,FM6,WAVETABLE,PHASE,LOFI,VOICE,TRIO,WHEEL,PHYS,NOISE,GRAIN,SAMPLE,DRUM-X" &&
        E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines)[2] === 14 &&
-       E.engineOrder(info.engines).at(-1) === 15,
-       "editor: engines listed FM6 second, WAVETABLE third, DRUMS last (indices kept)");
+       E.engineOrder(info.engines).at(-1) === 10,
+       "editor: engines listed FM6 second, WAVETABLE third, DRUM-X last, DRUMS retired (indices kept)");
     ok(E.engineOrder(["ANALOG", "X", "-", "DRUM-X", "FM6"]).join() === "0,4,3,1", "editor: an unknown engine follows the known ones");
     m.state.favorites[10][0] = m.state.favorites[12][0] = true;
     await rq(E.req.uiSet(3, 0));
     prefs = await E.readDevicePreferences(rq, info, names, prefs);
     const rows = E.devicePresetRows(info, names, prefs).filter((r) => !r.user), eng = [...new Set(rows.map((r) => r.engine))];
-    ok(eng[0] === 0 && eng[1] === 12 && eng[2] === 14 && eng[eng.length - 1] === 15, "editor: device presets in the device's engine order");
+    ok(eng[0] === 0 && eng[1] === 12 && eng[2] === 14 && eng[eng.length - 1] === 10, "editor: device presets in the device's engine order");
   }
   const none = await E.readDevicePreferences(() => { throw new Error("unexpected request"); }, { uiCaps: 0 }, []);
   ok(none === null, "editor: old firmware receives no unsupported preference requests");
@@ -460,9 +460,10 @@ function mockTables() {
     ok(ph.name === "PHYS" && ph.edit[0].names.join() === "MODAL,STRNG,MEMB,SYMP" && ph.edit[0].max === 3 &&
        ph.presets.length === 10 && !ph.presets.some((p) => p.name === "RAIN" || p.name === "DRUM KIT"),
        "editor: PHYS models MODAL STRNG MEMB SYMP (no DUST, no DRUM), 9 presets");
-    ok(dr.name === "DRUM-X" && dr.edit.map((d) => d.label).join() === "MRPH,TUNE,TONE,DECY,NOIS,FM,FOLD,DRV" &&
-       dr.presets.length === 1 && dr.presets[0].name === "DRUM-X" && dr.presets.every((p) => p.pat === 12),
-       "editor: DRUM engine 10 (MRPH TUNE TONE DECY NOIS FM FOLD DRV), DRUM-X suggesting BEAT");
+    ok(dr.name === "DRUM-X" && dr.edit.map((d) => d.label).join() === "MRPH,TUNE,TONE,DECY,NOIS,FMENV,FOLD,DRV" &&
+       dr.presets.length === 17 && dr.presets[0].name === "FM DRUMS" && dr.presets[11].name === "DRUMS STD" &&
+       dr.presets.every((p) => p.pat === 12),
+       "editor: DRUM engine 10 (MRPH TUNE TONE DECY NOIS FMENV FOLD DRV), its 17 kits suggesting BEAT");
   }
   const dj = DESC;
   if (!existsSync(dj)) { console.log("editor: mock tables == firmware (no build/host/desc.json)        skip"); return; }
@@ -960,11 +961,6 @@ async function editorGrid() {
   await rq(E.req.upStore(15, "STORED"));
   const g2 = await E.bank.get(rq, info, 15);
   ok(g2.grid && g2.grid[0][0] === 0x81 && g2.grid[0][1] === 0x80, "grid: UP_STORE of a DRUM track stores its grid");
-  await rq(E.req.preset(15, 0));
-  await rq(E.req.stepSet(0, { n: 0, notes: [0, 0, 0, 0], time: 0, flags: 0, vel: 0, hit: 0x81, acc: 0x80 }));
-  const drums = (await E.capturePatch(rq, info, "DRUMS BEAT")).patch;
-  ok(drums.engineName === "DRUMS" && drums.grid && !drums.pattern && drums.grid[0][0] === 0x81 && drums.grid[0][1] === 0x80,
-    "grid: capture of a DRUMS track keeps its hits and accents");
   const p3 = await E.bank.get(rq, info, 2);
   ok(p3.pattern && p3.grid === null, "grid: a note pattern stays a pattern (kind 0)");
   done();

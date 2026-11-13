@@ -42,12 +42,12 @@ tests/run_one.sh ui ui_render    # UI stubs plus draw / layout lint
 tests/run_one.sh editor          # writes build/host/menu.json
 tests/run_one.sh project
 tests/run_one.sh param           # tests/param_contract_test.c
-tests/run_one.sh drums sound15 inschain   # DRUMS / ANALOG filter / insert chain
+tests/run_one.sh sound15 inschain         # ANALOG filter / insert chain
 tests/run_one.sh regress         # golden renders, health, voices, CPU budget
 tests/run_one.sh web             # desc.json + menu.json, then node web/test_web.mjs
 ```
 
-Targets: `motion`, `ui`, `ui_render`, `editor`, `project`, `param`, `drums`,
+Targets: `motion`, `ui`, `ui_render`, `editor`, `project`, `param`,
 `sound15`, `inschain`, `regress`, `web`, `all` (execs `tests/run_tests.sh`),
 and `list`.
 
@@ -92,7 +92,7 @@ until it prints `ALL HOST TESTS PASSED`.
 | Touch | Binary under `build/host/` |
 | --- | --- |
 | `firmware/src/ui*.c`, help, menus | `ui_test` (also `ui_render` for draw/layout) |
-| DRUMS engine (`eng_drums.c`, `drums_voice.c`) | `drums_test` (also `regress` for presets/CPU) |
+| DRUM-X engine (`eng_drum.c`, `drumx_voice.c`) | `drum_test` (also `regress` for presets/CPU, `project_test` for the kit's storage and DRUMS migration) |
 | ANALOG filter / ENV SYNC / sound 1.5 | `sound15_test` |
 | insert chain / FX order | `inschain_test` |
 | every FX stage in CHAIN / SEND / MASTER | `fx_route_test` |

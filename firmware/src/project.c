@@ -91,6 +91,10 @@
  * dx_lane_t[8], 88 bytes, then mute lo/hi, a marker byte, X-MOD dx_mot[4]: 96 bytes at PROJ_DX_OFF just before the
  * FM6 patches), as JIANT's FUNA did. Still 3840 bytes: the motion disk block shrinks from 110 to 78 records
  * (MOTION_FILE_MAX_V11; RAM still holds 128) so the kit fits. FUN10 loads with the factory kit (DX_KIT_DEF).
+ * JIANT's kits (after 3.10): each sound's LAYER (0..15) in bit 7 of its A PITCH PMOD DECAY NOISE and its MODEL (0..4)
+ * in bit 7 of its B PITCH PMOD DECAY (drumx_voice.c dx_kit_pack; always 0 before, so an older kit loads with no LAYER,
+ * CLASSIC) and the filter GR in the mode's filter field. The
+ * place and size are FUN11's; firmware of 3.10 and before refuses a kit with either.
  *
  * Format 12 ("FUNC", FUN12 in the docs; read only since FUN13) = FUN11 with SCALE LOCK + ROOT/SCL/MAP stash
  * (16 bytes at PROJ_SCL_OFF before CRV). Motion on disk shrinks to 72 records (MOTION_FILE_MAX). FUN11 loads with
@@ -200,7 +204,7 @@ typedef struct {
     chain_config_t chain;
     motion_store_t motion;
     uint8_t fm6[NTRK][FM6_PACKED];             /* each track's FM6 patch, packed (eng_fm6.c) */
-    dx_lane_t dx[8];                           /* the DRUM-X kit (drumx_voice.c); FUN11 */
+    dx_lane_t dx[8];                           /* the DRUM-X kit (drumx_voice.c; packed, LAYER and MODEL in its spare bits: dx_kit_pack); FUN11 */
     uint16_t dx_mute;                          /* group + lane mutes (eng_drum.c dx_mute) */
     uint8_t dx_mot[4];                         /* X-MOD (retired, eng_drum.c): always 0, the layout kept */
     uint8_t fx_bus[FX_BUS_N];                  /* SEND insert+slicer knobs (wire in reclaimed SCL/X-MOD bytes) */
@@ -438,16 +442,24 @@ static void proj_perc(project_t *q)
     q->sum = proj_sum(q);
 }
 
-/* SLICE tracks -> DRUM (see the top; eng_retire.c). After proj_perc.
- * EDIT motion on those tracks is dropped. Idempotent */
+/* SLICE and DRUMS tracks -> DRUM (see the top; eng_retire.c). After proj_perc. DRUMS: the project's kit its KIT's
+ * (the first DRUMS track's; eng_drum.c drums_kit) and its lane LEVELs, unless a DRUM-X track was there (one kit a
+ * project: theirs stays). EDIT motion on those tracks is dropped. Idempotent */
 static void proj_retire(project_t *q)
 {
-    uint32_t k, i, n, hit = 0;
+    uint32_t k, i, n, hit = 0, drumx = 0, kit = 9u;
+    dx_lane_t dk[8];
+    uint8_t lay[8], mdl[8];
+    int16_t ln[8];
+    for (k = 0; k < NTRK; k++)
+        drumx |= q->t[k].engine == ENGI_DRUM;
     for (k = 0; k < NTRK; k++) {
         proj_trk_t *d = &q->t[k];
         uint32_t was = d->engine, to;
         if (!eng_retired(was))
             continue;
+        if (was == ENGI_DRUMS && kit > 8u)
+            kit = (uint32_t)clamp(d->p[P_E0], 0, 8);
         to = retire_remap_params(was, d->p);
         d->engine = (uint8_t)to;
         if (d->preset < PROJ_DEF_KEEP)
@@ -456,6 +468,14 @@ static void proj_retire(project_t *q)
     }
     if (!hit)
         return;
+    if (kit <= 8u && !drumx) {
+        drums_kit(kit, dk, lay, mdl, ln);
+        dx_kit_pack(q->dx, dk, lay, mdl);
+        for (k = 0; k < NTRK; k++)
+            if ((hit >> k) & 1u)
+                for (i = 0; i < 8u; i++)
+                    q->t[k].p[P_LN0 + i] = ln[i];
+    }
     for (i = n = 0; i < q->motion.count && i < MOTION_MAX; i++) {
         const motion_event_t *e = &q->motion.event[i];
         if (((hit >> (e->place >> 6)) & 1u) && MOTION_ID(e) >= P_E0)
@@ -1074,7 +1094,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
                                 (uint32_t)b[PROJ_DX_OFF + sizeof q->dx + 1u] << 8);
         memset(q->dx_mot, 0, sizeof q->dx_mot);         /* (X-MOD retired: an older layout's bytes ignored) */
     } else {
-        memcpy(q->dx, DX_KIT_DEF, sizeof q->dx);
+        dx_kit_pack(q->dx, DX_KIT_DEF, DX_LAY_DEF, DX_MDL_DEF);
         q->dx_mute = 0;
         memset(q->dx_mot, 0, sizeof q->dx_mot);
     }
@@ -1252,7 +1272,7 @@ static void project_capture(project_t *p)
             break;
         }
     p->motion = motion;
-    memcpy(p->dx, dx_kit, sizeof p->dx);
+    dx_kit_pack(p->dx, dx_kit, dx_lay, dx_mdl);         /* (each sound's LAYER and MODEL in the kit's spare bits) */
     p->dx_mute = dx_mute;
     fx_bus_to_wire(p->fx_bus);
     for (i = 0; i < FX_BUS_N; i++)
@@ -1436,7 +1456,10 @@ static int project_restore_runtime(const project_t *input)
     mom_back(0);                                  /* (ui_input.c MOMENTARY: the values as they were, then the load) */
     memset(drum_mute, 0, sizeof drum_mute);       /* (1.4.1: the DRUM lanes' mutes, performance state) */
     if (p != input) memcpy(p, input, sizeof *p);
-    memcpy(dx_kit, dx_kit_ok(p->dx) ? p->dx : DX_KIT_DEF, sizeof dx_kit);   /* FUN11 kit (FUN10: factory) */
+    if (dx_kit_ok(p->dx))                               /* FUN11 kit (FUN10: factory), its LAYERs (none before) */
+        dx_kit_unpack(dx_kit, dx_lay, dx_mdl, p->dx);
+    else
+        dx_kit_load(0);
     fx_bus_from_wire(p->fx_bus);
     dx_mute_set(p->dx_mute);
     proj_drums_to_part(p);                              /* a RAM slot of firmware before 1.0 */

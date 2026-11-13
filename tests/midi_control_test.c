@@ -582,16 +582,16 @@ static int pc_test(void)
     bad += check("  PHASE: PC selects factory presets by shown index", ok);
 
 
-    /* DRUM-X: Program Change loads its factory presets (one: DRUM-X); past the last ignored */
+    /* DRUM-X: Program Change loads its factory presets (17: FM DRUMS first); past the last ignored */
     {
         track_t *dr = &trk[3];
         set_engine_of(dr, ENGI_DRUM);
         pc(3, 0); frame();
-        ok = dr->eng_req == ENGI_DRUM && dr->preset == 0u && str_eq(ENGINES[ENGI_DRUM]->presets[0].name, "DRUM-X");
+        ok = dr->eng_req == ENGI_DRUM && dr->preset == 0u && str_eq(ENGINES[ENGI_DRUM]->presets[0].name, "FM DRUMS");
         was = *dr;
-        pc(3, 1); frame(); pc(3, 127); frame();
+        pc(3, (uint8_t)ENG_DRUM.npresets); frame(); pc(3, 127); frame();
         ok &= !memcmp(was.p, dr->p, sizeof was.p) && dr->preset == was.preset;
-        bad += check("  DRUM-X: PC 0 loads DRUM-X; past the last ignored", ok);
+        bad += check("  DRUM-X: PC 0 loads FM DRUMS; past the last ignored", ok);
     }
 
     /* FM6: its presets, then the bank's voices (PC after npresets) */

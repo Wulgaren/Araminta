@@ -2016,18 +2016,23 @@ const reservedFm4 = (engines, e) => e === 1 && (engines || [])[1] === "-";   /* 
    pt is no such sound or there is no DRUM. The device converts its own (projects, user presets) the same way */
 const PERC_SET = 4, DRUM_KIT_E = [64, 64, 70, 64, 64, 0, 0, 0];   /* DRUM-X {MRPH,TUNE,TONE,DECY,NOIS,FM,FOLD,DRV} */
 
-/* SLICE becomes the DRUM-X kit, as firmware eng_retire.c; the old DRUM name keeps its sound as DRUM-X.
-   SAMPLE PERC still becomes DRUM-X via fromPerc. */
+/* SLICE becomes the DRUM-X kit, as firmware eng_retire.c; the old DRUM name keeps its sound as DRUM-X. DRUMS (15,
+   retired) becomes DRUM-X with its TUNE TONE DECY SNAP (NOIS) DRV, MRPH at its middle, FM ENV and FOLD off (engines.c
+   retire_remap_params; the kit is the device's). SAMPLE PERC still becomes DRUM-X via fromPerc. */
 function fromRetire(pt, engines, pe0) {
   const e = pt.engine, name = pt.engineName || (engines || [])[e];
-  const retired = (e === 13 || name === "SLICE") && ((engines || [])[e] === "-" || name === "SLICE");
-  if (!retired && name !== "DRUM") return null;
+  const slice = (e === 13 || name === "SLICE") && ((engines || [])[e] === "-" || name === "SLICE");
+  const drums = (e === 15 || name === "DRUMS") && ((engines || [])[e] === "-" || name === "DRUMS");
+  if (!slice && !drums && name !== "DRUM") return null;
   const to = (engines || []).indexOf("DRUM-X");
   if (to < 0) return null;
   if (name === "DRUM") return { ...pt, engine: to, engineName: engines[to] };
   const p = pt.p.slice();
-  const kit = DRUM_KIT_E;
-  for (let i = 0; i < 8; i++) p[pe0 + i] = kit[i];
+  if (drums) {
+    p[pe0] = 64;
+    p[pe0 + 5] = p[pe0 + 6] = 0;
+  } else
+    for (let i = 0; i < 8; i++) p[pe0 + i] = DRUM_KIT_E[i];
   return { ...pt, engine: to, engineName: engines[to], p };
 }
 function fromPerc(pt, engines, pe0) {
@@ -2083,7 +2088,7 @@ function makeMockDevice(opt = {}) {
     D("FLUTR", F.PCT, 0, 127, 0), D("REL", F.PCT, 0, 100, 30), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], 1), E("DROP", NONOFF, 0),
     D("SLOT", F.INT, 1, 4, 1), E("NAME", NDASH, 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
     E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL",
-      "GRAIN", "PHYS", "DRUM-X", "NOISE", "FM6", "-", "WAVETABLE", "DRUMS"], 0), D("CLIP", F.PCT, 0, 100, 0),
+      "GRAIN", "PHYS", "DRUM-X", "NOISE", "FM6", "-", "WAVETABLE", "-"], 0), D("CLIP", F.PCT, 0, 100, 0),
     D("MIX", F.PCT, 0, 127, 127), E("TAPE", ["SEND", "CH1", "CH2", "CH3", "CH4", "MASTER"], 5),
     E("TYPE", ["ROOM", "SPRING", "HALL", "SHIMR", "CLOUD"], 2), /* G_RTYPE (id 24): HALL default; JIANT SHIMR/CLOUD */
     D("PNCH", F.PCT, 0, 100, 0), D("DUCK", F.PCT, 0, 100, 0),   /* G_PUNCH / G_DUCK (was G_DRLVL / G_DRREV) */
@@ -2175,9 +2180,25 @@ function makeMockDevice(opt = {}) {
         P("HARP", [3, 8, 62, 74, 60, 90, 0, 0], [0, 100, 127, 80], 0, 3),
         P("GLASS BOW", [0, 40, 70, 100, 20, 30, 110, 10], [20, 80, 110, 95], 0, 5)] },
     { name: "DRUM-X", titles: ["KIT", "HIT"], edit: [D("MRPH", F.PCT, 0, 127, 64), D("TUNE", F.PCT, 0, 127, 64),
-        D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("NOIS", F.PCT, 0, 127, 64), D("FM", F.PCT, 0, 127, 0),
+        D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("NOIS", F.PCT, 0, 127, 64), D("FMENV", F.PCT, 0, 127, 0),
         D("FOLD", F.PCT, 0, 127, 0), D("DRV", F.PCT, 0, 127, 0)],
-      presets: [P("DRUM-X", [64, 64, 70, 64, 64, 0, 0, 0], [0, 100, 127, 100], 0, 12)] },
+      presets: [P("FM DRUMS", [64, 64, 70, 64, 64, 0, 0, 0], [0, 100, 127, 100], 0, 12),
+        P("909 CLUB", [60, 64, 78, 64, 64, 0, 0, 10], [0, 100, 127, 100], 0, 12),
+        P("808 BOOM", [58, 60, 54, 76, 59, 0, 0, 0], [0, 100, 127, 100], 0, 12),
+        P("LOFI DUST", [70, 64, 46, 54, 78, 0, 0, 20], [0, 100, 127, 100], 0, 12),
+        P("INDUSTRIAL", [72, 66, 99, 70, 75, 20, 0, 40], [0, 100, 127, 100], 0, 12),
+        P("ACOUSTIC", [56, 64, 56, 62, 64, 0, 0, 0], [0, 100, 127, 100], 0, 12),
+        P("DUB ROOTS", [60, 60, 50, 70, 59, 0, 0, 0], [0, 100, 127, 100], 0, 12),
+        P("TECHNO RAW", [66, 64, 83, 62, 66, 10, 0, 30], [0, 100, 127, 100], 0, 12),
+        P("BREAKS", [62, 66, 74, 62, 71, 0, 0, 10], [0, 100, 127, 100], 0, 12),
+        P("HIP HOP", [58, 62, 56, 64, 67, 0, 0, 18], [0, 100, 127, 100], 0, 12),
+        P("LATIN PERC", [60, 64, 64, 64, 64, 0, 0, 0], [0, 100, 127, 100], 0, 12),
+        P("DRUMS STD", [64, 64, 64, 64, 64, 0, 0, 0], [0, 100, 127, 100], 0, 12),
+        P("DRUMS 80", [64, 64, 64, 64, 64, 0, 0, 0], [0, 100, 127, 100], 0, 12),
+        P("DRUMS 10", [64, 64, 64, 64, 64, 0, 0, 0], [0, 100, 127, 100], 0, 12),
+        P("DRUMS 66", [64, 64, 64, 64, 64, 0, 0, 0], [0, 100, 127, 100], 0, 12),
+        P("DRUMS 55", [64, 64, 64, 64, 64, 0, 0, 0], [0, 100, 127, 100], 0, 12),
+        P("DRUMS 77", [64, 64, 64, 64, 64, 0, 0, 0], [0, 100, 127, 100], 0, 12)] },
     { name: "NOISE", titles: ["SRC", "MOVE"], edit: [E("MODE", ["ANLG", "DUST", "LFSR", "META"], 0), D("COLR", F.PCT, 0, 127, 64),
         D("FREQ", F.CUTOFF, 0, 127, 80), D("RES", F.PCT, 0, 127, 30), D("TRK", F.PCT, 0, 127, 64), D("DENS", F.PCT, 0, 127, 0),
         D("DRFT", F.PCT, 0, 127, 0), D("CRSH", F.PCT, 0, 127, 0)],
@@ -2215,15 +2236,7 @@ function makeMockDevice(opt = {}) {
         P("SWEEP", [1, 40, 18, 22, 1, 40, 30, 5], [40, 80, 90, 80], 0, 5),
         P("WT FDBK", [0, 80, 110, 95, 1, 40, 60, 4], [2, 70, 95, 35], 1, 4),
         P("HOLLOW", [1, 20, 0, 28, 1, 100, 70, 7], [50, 85, 110, 90], 0, 5)] },
-    { name: "DRUMS", titles: ["KIT", "HIT"], edit: [
-        E("KIT", ["STD", "80", "10", "66", "55", "77", "DEEP", "TIGHT", "PERC"], 0),
-        D("TUNE", F.PCT, 0, 127, 64), D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64),
-        D("SNAP", F.PCT, 0, 127, 64), D("ACC", F.PCT, 0, 127, 100), E("KICK", ["PUNCH", "ROUND"], 0),
-        D("DRV", F.PCT, 0, 127, 0)],
-      presets: [P("DRUM KIT", [0, 64, 70, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12),
-        P("DEEP KIT", [6, 64, 64, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12),
-        P("TIGHT KIT", [7, 64, 64, 56, 64, 100, 0, 16], [0, 100, 127, 100], 0, 12),
-        P("PERC KIT", [8, 64, 64, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12)] },
+    { name: "-", titles: ["-", "-"], edit: [RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE], presets: [] },
   ];
   const FM6_E = ENG.findIndex((e) => e.name === "FM6"), FM6_OWN = FM6.FACTORY_PK.length, DRUM_E = ENG.findIndex((e) => e.name === "DRUM-X");
   const FM6_NBANK = 32, FM6_NBANKS = 4, FM6_NBANK_TOTAL = FM6_NBANK * FM6_NBANKS;
@@ -2376,7 +2389,7 @@ function makeMockDevice(opt = {}) {
   function setEngine(ei) {
     ei %= ENG.length;
     if (ei === 1) return;                   /* DIGITAL (retired, no conversion): refused (ui.c set_engine_of) */
-    if (ENG[ei].name === "-" && (ei === 4 || ei === 8 || ei === 11 || ei === 13)) {
+    if (ENG[ei].name === "-" && (ei === 4 || ei === 8 || ei === 11 || ei === 13 || ei === 15)) {
       const names = ENG.map((x) => x.name);
       const pt = fromRetire({ engine: ei, engineName: ENG[ei].name, p: st.p.slice() }, names, P_E0);
       if (pt) { st.engine = pt.engine; st.p = pt.p; st.preset = 0; applyPreset(0); return; }
@@ -2752,8 +2765,8 @@ function makeMockDevice(opt = {}) {
       case CMD.PRESET:
         if (a.length < 2 || a[0] >= ENG.length) return null;
         if (a[0] === 1) { b(st.engine); b(st.preset); break; }   /* DIGITAL (retired, no conversion): refused */
-        else if (ENG[a[0]].name === "-" && (a[0] === 4 || a[0] === 8 || a[0] === 11 || a[0] === 13))
-          setEngine(a[0]);                          /* SLICE / DIGITAL reserved: eng_play_as on device */
+        else if (ENG[a[0]].name === "-" && (a[0] === 4 || a[0] === 8 || a[0] === 11 || a[0] === 13 || a[0] === 15))
+          setEngine(a[0]);                          /* SLICE / DRUMS / DIGITAL reserved: eng_play_as on device */
         else {
           if (a[0] !== st.engine) setEngine(a[0]);
           applyPreset(a[1]);

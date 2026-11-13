@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### DRUM-X: JIANT's kits, Felucca's kits, DRUMS retired
+
+- **JIANT V10.7.24's DRUM-X voice** replaces the older port: half-rate rendering, the V10.6q quality pass (cleaner
+  noise, an 808 clap, a CMOS cowbell), the guiro filter GR, per-sound LAYER. FM becomes **FM ENV** (FM struck with the
+  hit, gone with the pitch envelope). DRV and the knee now run on the kit's sum.
+- **17 DRUM-X presets.** The first is renamed **FM DRUMS** (same kit, same sound). JIANT's ten kits: 909 CLUB,
+  808 BOOM, LOFI DUST, INDUSTRIAL, ACOUSTIC, DUB ROOTS, TECHNO RAW, BREAKS, HIP HOP, LATIN PERC. Per-sound sends left
+  out (JIANT ships them at 0), and so is JIANT's own DIST on five kits.
+- **Each sound has a MODEL** (EDIT > Kit > SOUND 3, with LAYER): CLASSIC, or Felucca's DRUMS voices SHELL, METAL,
+  TEETH, CLICK. Felucca's kits STD, 80, 10, 66, 55 and 77 are DRUM-X presets **DRUMS STD .. DRUMS 77**, translated
+  from its numbers.
+- **DRUMS (engine 15) is retired.** Projects and user presets on it load as DRUM-X with their KIT's kit (DEEP,
+  TIGHT and PERC assembled from the others). Close to the old sound, not identical.
+- **X-MOD playback removed** (no page since 3.x).
+
+#### Compatibility
+
+- Projects keep their size and layout. Each sound's LAYER and MODEL ride in the kit bytes' spare top bits, and the
+  filter GR in the mode byte: 3.10 and older refuse a project saved with any of them.
+- A DRUM-X project made before this plays the new voice. Its FM knob is now FM ENV, so a project with FM up sounds
+  different.
+
 ## 3.10
 
 Projects grow to FUN20. The flash map takes more of the gap for autosave and banks. POLY gets chord glide.

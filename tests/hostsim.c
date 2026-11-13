@@ -106,6 +106,9 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
     t->p[P_DIST] = TP[P_DIST].def;
     for (i = 1; i < 4u; i++)
         t->p[P_DIST + i] = (int16_t)(p->fx[i] ? p->fx[i] - 1 : FX_DEF[i]);
+    preset_mods(t, preset_mod(ENGINES[e], pi));   /* its movement (JIANT V10.6i) */
+    if (e == ENGI_DRUM)                           /* DRUM-X: the preset's kit (ui.c apply_preset) */
+        dx_kit_load(pi);
     if (e == ENGI_ANALOG) {                       /* OSC A/B: the FM slots are MORPH / DRIFT / WAVE2 at a preset */
         t->p[P_MORPH] = 0;
         t->p[P_DRIFT] = 0;

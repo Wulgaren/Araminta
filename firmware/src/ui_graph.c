@@ -1306,7 +1306,7 @@ static uint32_t graph_signature(void)
             h ^= (uint32_t)graph_project_used(i) << (20u + i);
         h += graph_pname_sig;
     }
-    if (pg->graph == GR_DXSND)                       /* DRUM-X SOUND / SOUND 2 cards */
+    if (pg->graph == GR_DXSND)                       /* DRUM-X SOUND / SOUND 2 / SOUND 3 cards */
         h ^= dx_sig();
     if (pg->graph == GR_EVENTS)                      /* AUTOMATION: the rows, the one selected, + ADD's place, PLAY,
                                                       * QUANTIZE */
@@ -1346,7 +1346,7 @@ static const char *eng_abbr(const char *name)
     static const char *const A[][2] = {{"ANALOG", "ANLG"},
                                        {"PHASE", "PHAS"}, {"LOFI", "LOFI"},
                                        {"SAMPLE", "SMPL"}, {"VOICE", "VOCL"}, {"TRIO", "TRIO"}, {"WHEEL", "WHEL"},
-                                       {"GRAIN", "GRAN"}, {"PHYS", "PHYS"}, {"DRUM-X", "DRMX"}, {"DRUMS", "DRMS"},
+                                       {"GRAIN", "GRAN"}, {"PHYS", "PHYS"}, {"DRUM-X", "DRMX"},
                                        {"NOISE", "NOIS"}, {"FM6", "FM6"}, {"SLICE", "SLCE"},
                                        {"WAVETABLE", "WTBL"}};
     uint32_t i;

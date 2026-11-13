@@ -771,7 +771,7 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_LEARN_WAIT, S_LEARN_PICK, S_LEARN_SET, S_LEARN_LONG, S_GLO_LEARN, S_MENU_LCLEAR, S_MENU_LCLEAR_NONE,
        S_DLY_DOT, S_DLY_DOT16, S_FX_THROW,
        S_DETAIL, S_DETAIL_PLAYING, S_DETAIL_REST, S_DETAIL_DRUM, S_ROLL_MARKS, S_DRUM_MARKS,
-       S_DX_SOUND, S_DX_SOUND2, S_DX_EDIT1, S_DX_EDIT2, S_GENERATION, S_GENERATION_2, S_GENERATION_MAP, S_TAPE,
+       S_DX_SOUND, S_DX_SOUND2, S_DX_SOUND3, S_DX_EDIT1, S_DX_EDIT2, S_GENERATION, S_GENERATION_2, S_GENERATION_MAP, S_TAPE,
        S_ANALOG_OSC_A_SUPER, S_ANALOG_OSC_B_HP, S_CHORD_MELO_MONO, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
@@ -800,7 +800,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "learn_wait", "learn_pick", "learn_set", "learn_long", "layer_glo_learn", "menu_learn_clear", "menu_learn_clear_none",
     "dly_dotted", "dly_dotted_16", "perform_throw",
     "detail", "detail_playing", "detail_rest", "detail_drum", "roll_marks", "drum_marks",
-    "dx_sound", "dx_sound2", "dx_edit1", "dx_edit2", "generation", "generation_2", "generation_map", "tape",
+    "dx_sound", "dx_sound2", "dx_sound3", "dx_edit1", "dx_edit2", "generation", "generation_2", "generation_map", "tape",
     "analog_osc_a_super", "analog_osc_b_hp", "chord_melo_mono"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
@@ -1479,10 +1479,14 @@ static void setup(int s)
         }
         go_title_page("DETAIL"); ui.cursor = 6; ui.hot_col = 0; ui.hot_t = 30;
         break;
-    /* DRUM-X Kit: SOUND / SOUND 2 (lane colony + morph bar; SOUND 3 / X-MOD retired) */
-    case S_DX_SOUND: case S_DX_SOUND2:
-        drum(0); dx_ui_lane = 0; dx_ui_side = 0;
-        go_title(s == S_DX_SOUND2 ? "SOUND 2" : "SOUND");
+    /* DRUM-X Kit: SOUND / SOUND 2 / SOUND 3 (lane colony + morph bar; SOUND 3: the clap's MODEL TEETH, a LAYER) */
+    case S_DX_SOUND: case S_DX_SOUND2: case S_DX_SOUND3:
+        drum(0); dx_ui_lane = s == S_DX_SOUND3 ? DV_CLAP : 0; dx_ui_side = 0;
+        if (s == S_DX_SOUND3) {
+            dx_mdl[DV_CLAP] = DXV_TEETH;
+            dx_lay[DV_CLAP] = 6;
+        }
+        go_title(s == S_DX_SOUND3 ? "SOUND 3" : s == S_DX_SOUND2 ? "SOUND 2" : "SOUND");
         break;
     /* DRUM-X Sound section: EDIT 1 (MRPH TUNE TONE DECY), EDIT 2 (NOIS FM FOLD DRV) */
     case S_GENERATION: case S_GENERATION_2: case S_GENERATION_MAP:

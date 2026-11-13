@@ -3859,13 +3859,15 @@ static int test_edit_cycle(void)
     ok &= cur_page()->sec == EDIT_SEC_KIT && str_eq(cur_page()->title, "SOUND");
     turn(EN_SELECT, 1); frame();
     ok &= str_eq(cur_page()->title, "SOUND 2");
+    turn(EN_SELECT, 1); frame();
+    ok &= str_eq(cur_page()->title, "SOUND 3");
     turn(EN_SELECT, 1); frame();                      /* Kit: stop at last page */
-    ok &= str_eq(cur_page()->title, "SOUND 2");
+    ok &= str_eq(cur_page()->title, "SOUND 3");
     press(B_EDIT); frame();                           /* Kit → Lanes */
     ok &= cur_page()->sec == EDIT_SEC_LAN && str_eq(cur_page()->title, "LANES");
     press(B_EDIT); frame();                           /* Lanes → Sound (Voice hidden on DRUM) */
     ok &= cur_page()->sec == EDIT_SEC_SND;
-    bad += check("EDIT on DRUM: Sound → Kit (SOUND..SOUND 2) → Lanes; Voice skipped", ok);
+    bad += check("EDIT on DRUM: Sound → Kit (SOUND..SOUND 3) → Lanes; Voice skipped", ok);
     return bad;
 }
 
@@ -5016,7 +5018,7 @@ static int test_fm4_retired(void)
         if (e < NENGINES)
             seen |= 1u << e;
     }
-    bad += check("PRESETS: the list holds every engine's presets but DIGITAL's", seen == all && NENG_SHOWN == 14u);
+    bad += check("PRESETS: the list holds every engine's presets but DIGITAL's", seen == all && NENG_SHOWN == 13u);   /* (DRUMS retired) */
     go_page(GR_BROWSE);
     set_engine_of(TSEL, 0);
     for (i = 0, seen = 0; i < NENG_SHOWN; i++) {
@@ -5025,10 +5027,10 @@ static int test_fm4_retired(void)
     }
     bad += check("PRESETS KNOB 2: the engines in order, DIGITAL skipped, back to the first",
                  seen == all && TSEL->eng_req == 0u && eng_step(0, 1) == ENGI_FM6 && eng_step(ENGI_FM6, 1) == ENGI_WT &&
-                 eng_step(ENGI_FM6, -1) == 0u && eng_step(ENGI_WT, 1) == 2u && eng_step(0, -1) == ENGI_DRUMS);
+                 eng_step(ENGI_FM6, -1) == 0u && eng_step(ENGI_WT, 1) == 2u && eng_step(0, -1) == ENGI_DRUM);
     {   /* the display order (engines.c ENGINE_ORDER): every engine one can pick once; the PRESETS list follows it */
         static const char *const ORDER[] = {"ANALOG", "FM6", "WAVETABLE", "PHASE", "LOFI", "VOICE", "TRIO", "WHEEL",
-                                            "PHYS", "NOISE", "GRAIN", "SAMPLE", "DRUM-X", "DRUMS"};
+                                            "PHYS", "NOISE", "GRAIN", "SAMPLE", "DRUM-X"};
         uint32_t last = 0xFFu, r = 0, n = 0;
         ok = NENG_SHOWN == NELEM(ORDER);
         for (i = 0; ok && i < NENG_SHOWN; i++)
@@ -8957,14 +8959,14 @@ static int test_edit_quick_actions(void)
 
 
 /* A generation gesture owns one lane; undo restores its steps and its density.
- * The same on every drum kit: DRUM-X, DRUMS and CR78. */
+ * The same on every drum kit: DRUM-X and CR78. */
 static int test_generation_density_undo(void)
 {
     step_t before[NSTEP];
-    static const uint32_t ENG[3] = {ENGI_DRUM, ENGI_DRUMS, ENGI_SAMPLE};
+    static const uint32_t ENG[2] = {ENGI_DRUM, ENGI_SAMPLE};
     int ok = 1;
     uint32_t e, i;
-    for (e = 0; e < 3u; e++) {
+    for (e = 0; e < 2u; e++) {
         ui_power_on();
         set_engine_of(TSEL, ENG[e]); TSEL->engine = TSEL->eng_req;
         if (ENG[e] == ENGI_SAMPLE) TSEL->p[P_E0] = SMP_CR78_INDEX;
@@ -8985,7 +8987,7 @@ static int test_generation_density_undo(void)
         hold(B_SAVE);
         ok &= !memcmp(before, TSEL->step, sizeof before) && TSEL->generation.density[0] == 50;
     }
-    return check("GENERATION on DRUM-X, DRUMS and CR78: kick density clears only kicks; SAVE undo restores beat and density", ok);
+    return check("GENERATION on DRUM-X and CR78: kick density clears only kicks; SAVE undo restores beat and density", ok);
 }
 
 static int test_generation_navigation(void)
@@ -9000,14 +9002,6 @@ static int test_generation_navigation(void)
     ok &= str_eq(cur_page()->title, "GENERATION 2") && !ui.lock;
     press(B_SEQ);
     ok &= str_eq(cur_page()->title, "AUTOMATION");
-
-    ui_power_on();                                  /* DRUMS: the second drum engine */
-    set_engine_of(TSEL, ENGI_DRUMS); TSEL->engine = TSEL->eng_req;
-    press(B_SEQ);
-    press(B_SEQ);
-    ok &= str_eq(cur_page()->title, "GENERATION") && !ui.lock;
-    turn(EN_SELECT, 1);
-    ok &= str_eq(cur_page()->title, "GENERATION 2") && !ui.lock;
 
     ui_power_on();                                  /* CR78: SAMPLE's factory drum kit */
     set_engine_of(TSEL, ENGI_SAMPLE); TSEL->engine = TSEL->eng_req;
