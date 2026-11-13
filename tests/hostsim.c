@@ -71,6 +71,7 @@ static uint64_t now_ns(void)
 static void host_tracks_init(void)                /* as felucca_init: defaults, empty patterns */
 {
     uint32_t i, k;
+    fm6_tables_init();                            /* FM6_EXP2 from its deltas, as fm6_init at boot */
     for (i = 0; i < G_COUNT; i++)
         song.g[i] = GP[i].def;
     song.g[G_RTYPE] = 0;                          /* ROOM, the power-on reverb until 1.2: the renders (goldens) as

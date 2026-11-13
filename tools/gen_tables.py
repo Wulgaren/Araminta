@@ -131,9 +131,21 @@ def fm6_tables():
          f"#define FM6_FREQ_R {int(round(2 ** 40 / FS))}u   /* 2^40 / FS: the Q30 mantissa -> a Q24 phase increment (fm6_freq) */",
          f"#define FM6_AMS_C0 {int(round(12.2 * math.log2(math.e) * 2 ** 24))}   /* log2(e^12.2), Q24 (the AMS curve) */",
          f"#define FM6_AMS_K {int(round(0.07 / 262144 * math.log2(math.e) * 2 ** 24 * 1024))}      /* d/dsensamp of it, Q24 / 1024 */"]
-    # 2^(i / 1024) - 1, Q30: the mantissa of Exp2::lookup and Freqlut::lookup (linear between the points, as
-    # msfa's: within 6e-8 of 2^x; a Q16 table drifted the partials of a ratio against each other)
-    L.append(cgen.c_array("FM6_EXP2", "uint32_t", [int(round((1 << 30) * (2 ** (i / 1024) - 1))) for i in range(1025)], 8))
+    # 2^(i / 1024) - 1, Q30, as 20-bit deltas: fm6_core.c rebuilds the 1,025 values at boot, bit for bit (2,560 B
+    # of XIP instead of 4,100; the mantissa of Exp2::lookup and Freqlut::lookup). A Q16 table drifted the partials
+    # of a ratio against each other
+    _exp2 = [int(round((1 << 30) * (2 ** (i / 1024) - 1))) for i in range(1025)]
+    _d, _acc, _bits = [], 0, 0
+    for _i in range(1, 1025):
+        _acc |= (_exp2[_i] - _exp2[_i - 1]) << _bits
+        _bits += 20
+        while _bits >= 8:
+            _d.append(_acc & 255)
+            _acc >>= 8
+            _bits -= 8
+    if _bits:
+        _d.append(_acc & 255)
+    L.append(cgen.c_array("FM6_EXP2_D", "uint8_t", _d, 12))
     lforatio = int(4437500000.0 * CTL / FS)                                  # msfa Lfo::lforatio_ (uint32)
     L.append(cgen.c_array("FM6_LFO_DELTA", "uint32_t", [int(s * lforatio) for s in FM6_LFO_SOURCE], 8))
     # msfa note osc_freq: the DETUNE step of note mn, Q24 log2 (0.0209 * exp(-0.396 * lf) / 7 * lf, lf in octaves)

@@ -6,8 +6,10 @@
  *   SOUND    LANE (BD A .. CB B: the sound and its patch; a key struck picks the lane), PTCH, PMOD (amount),
  *            PENV (pitch-mod kind: DECAY LONG NOISE SINE)
  *   SOUND 2  DCAY, NOIS, COLR, MODE (wave x noise filter x SNAP x DRIVE: 48 combinations)
- * The values are the side's; the MORPH plays between the two (EDIT MRPH). The panel shows the kit's lanes
- * with the edited lane lit (ui_graph.c graph_colony). */
+ *   SOUND 3  LANE, LAYER (OFF, 1..15), FEEDBK (OFF, 1..15), -- (SEND later)
+ * The values are the side's; the MORPH plays between the two (EDIT MRPH). LAYER and FEEDBK are the sound's, one
+ * byte a lane (drumx_voice.c dx_lay). The panel shows the kit's lanes with the edited lane lit (ui_graph.c
+ * graph_colony). */
 static uint8_t dx_ui_seen = 0xFFu;                   /* the last key note followed */
 static const char *const DX_LANE_ABBR[8] = {"BD", "SD", "CP", "CH", "OH", "TM", "RS", "CB"};
 
@@ -48,17 +50,35 @@ static void dx_lane_name(char *b, uint32_t lane, uint32_t side)   /* "BD A" */
     str_cpy(b + str_len(b), side ? " B" : " A", 8 - str_len(b));
 }
 
+/* LANE: BD A .. CB B */
+static void dx_lane_turn(int32_t s)
+{
+    int32_t ix = (int32_t)((dx_ui_lane & 7u) * 2u + (dx_ui_side ? 1u : 0u)) + (s > 0 ? 1 : -1);
+    ix = clamp(ix, 0, 15);
+    dx_ui_lane = (uint8_t)((uint32_t)ix >> 1);
+    dx_ui_side = (uint8_t)((uint32_t)ix & 1u);
+}
+
 /* KNOB k (0..3) turned s on the page */
 static void dx_knob(const page_t *pg, uint32_t k, int32_t s)
 {
     dx_lane_t *L = &dx_kit[dx_ui_lane & 7u];
-    uint8_t *v = dx_ui_side ? L->b : L->a;
+    uint8_t *v = dx_ui_side ? L->b : L->a, *lay = &dx_lay[dx_ui_lane & 7u];
+    if (dx_page3(pg)) {                                 /* LANE, LAYER, FEEDBK */
+        if (k == 0u) {
+            dx_lane_turn(s);
+        } else if (k == 1u) {
+            *lay = (uint8_t)((*lay & 0xF0u) |
+                             (uint32_t)clamp((int32_t)(*lay & 15u) + accel(EN_K1 + k, s, 15), 0, 15));
+        } else if (k == 2u) {
+            *lay = (uint8_t)((*lay & 0x0Fu) |
+                             (uint32_t)clamp((int32_t)(*lay >> 4) + accel(EN_K1 + k, s, 15), 0, 15) << 4);
+        }
+        return;
+    }
     if (!dx_page2(pg)) {
-        if (k == 0u) {                                  /* LANE: BD A .. CB B */
-            int32_t ix = (int32_t)((dx_ui_lane & 7u) * 2u + (dx_ui_side ? 1u : 0u)) + (s > 0 ? 1 : -1);
-            ix = clamp(ix, 0, 15);
-            dx_ui_lane = (uint8_t)((uint32_t)ix >> 1);
-            dx_ui_side = (uint8_t)((uint32_t)ix & 1u);
+        if (k == 0u) {
+            dx_lane_turn(s);
         } else if (k == 1u) {
             v[DXP_PITCH] = (uint8_t)clamp(v[DXP_PITCH] + accel(EN_K1 + k, s, 127), 0, 127);
         } else if (k == 2u) {
@@ -77,6 +97,14 @@ static void dx_knob(const page_t *pg, uint32_t k, int32_t s)
     }
 }
 
+static void dx_amt_name(char *b, uint32_t v)         /* OFF, 1 .. 15 */
+{
+    if (v)
+        fmt_int(b, (int32_t)v);
+    else
+        str_cpy(b, "OFF", 4);
+}
+
 /* the four cards */
 static void dx_cards(const page_t *pg)
 {
@@ -84,6 +112,18 @@ static void dx_cards(const page_t *pg)
     const uint8_t *v = dx_ui_side ? L->b : L->a;
     char val[12];
     dx_follow();
+    if (dx_page3(pg)) {                                 /* LANE, LAYER, FEEDBK */
+        const uint8_t l = dx_lay[dx_ui_lane & 7u];
+        dx_lane_name(val, dx_ui_lane, dx_ui_side);
+        draw_column(0, "LANE", val, "", VAL(0u),
+                    (int32_t)((dx_ui_lane & 7u) * 2u + (dx_ui_side ? 1u : 0u)) * 1000 / 15, ICON_X_PATTERN);
+        dx_amt_name(val, l & 15u);
+        draw_column(1, "LAYER", val, "", VAL(1u), (int32_t)(l & 15u) * 1000 / 15, ICON_WAVE);
+        dx_amt_name(val, l >> 4);
+        draw_column(2, "FEEDBK", val, "", VAL(2u), (int32_t)(l >> 4) * 1000 / 15, ICON_FEEDBACK);
+        draw_column(3, "", "", "", T_DIM, -1, ICON_NONE);
+        return;
+    }
     if (!dx_page2(pg)) {
         static const char *const PM[4] = {"DECAY", "LONG", "NOISE", "SINE"};
         dx_lane_name(val, dx_ui_lane, dx_ui_side);
@@ -109,7 +149,7 @@ static void dx_cards(const page_t *pg)
 static uint32_t dx_sig(void)
 {
     const dx_lane_t *L = &dx_kit[dx_ui_lane & 7u];
-    uint32_t h = (uint32_t)dx_ui_lane * 31u + dx_ui_side * 977u + L->mode * 131u, i;
+    uint32_t h = (uint32_t)dx_ui_lane * 31u + dx_ui_side * 977u + L->mode * 131u + dx_lay[dx_ui_lane & 7u] * 733u, i;
     h ^= (uint32_t)dx_mot[0] << 24 ^ (uint32_t)dx_mot[1] << 16 ^ (uint32_t)dx_mot[2] << 8 ^ dx_mot[3];   /* (FUN11 X-MOD bytes) */
     for (i = 0; i < DXP_N; i++)
         h = (h ^ (uint32_t)L->a[i] << 8 ^ L->b[i]) * 16777619u;

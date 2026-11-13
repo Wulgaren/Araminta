@@ -67,7 +67,7 @@ int main(int argc, char **argv)
         else
             pass("nine factory kits (names and bytes)");
         dx_kit_load(4);
-        if (memcmp(dx_kit, DX_KITS[4], sizeof dx_kit))
+        if (memcmp(dx_kit, DX_KITS[4], sizeof dx_kit) || memcmp(dx_lay, DX_LAY[4], sizeof dx_lay))
             fail("dx_kit_load INDUSTRIAL");
         else
             pass("dx_kit_load INDUSTRIAL");
@@ -86,6 +86,29 @@ int main(int argc, char **argv)
             fail(b);
         else
             pass(b);
+    }
+
+    /* (JIANT 0.6.49) LAYER: the snare's second oscillator changes the hit; FEEDBK shares its byte */
+    {
+        uint8_t saved[8];
+        int32_t p_dry, p_on, p_fb;
+        uint64_t e_dry, e_on, e_fb;
+        memcpy(saved, dx_lay, sizeof saved);
+        dx_lay[DV_SNARE] = 0u;
+        hit_lane(t, 38, 120, &p_dry, &e_dry);
+        dx_lay[DV_SNARE] = 6u;
+        hit_lane(t, 38, 120, &p_on, &e_on);
+        if (e_on == e_dry && p_on == p_dry)
+            fail("LAYER changes the hit");
+        else
+            pass("LAYER changes the hit");
+        dx_lay[DV_SNARE] = 0x60u;                       /* FEEDBK 6, LAYER off */
+        hit_lane(t, 38, 120, &p_fb, &e_fb);
+        if (e_fb == e_dry && p_fb == p_dry)
+            fail("FEEDBK changes the hit");
+        else
+            pass("FEEDBK changes the hit");
+        memcpy(dx_lay, saved, sizeof saved);
     }
 
     /* hat choke: closed hat after open drops open-hat energy */

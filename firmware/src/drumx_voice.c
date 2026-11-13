@@ -34,6 +34,7 @@ typedef struct {                                         /* a hit */
     int32_t ic1, ic2, rng;                               /* the noise filter's state, the noise */
     int32_t mo;                                          /* FOLD (warp): the modulator's last output (its feedback) */
     uint32_t ph3;                                        /* (JIANT 0.4) the SINE pitch modulation's phase */
+    uint32_t ph4;                                        /* (JIANT 0.6.49) LAYER's triangle oscillator */
     int32_t lp;                                          /* (JIANT 0.5) the output's one-pole low-pass state */
     uint8_t live, trig, choke;
 } dx_voice_t;
@@ -64,6 +65,59 @@ static uint32_t dv_kb(uint32_t us)
 static void dx_trigger(dx_voice_t *v) { v->trig = 1; v->choke = 0; }
 static void dx_choke(dx_voice_t *v) { if (v->live) v->choke = 1; }
 
+/* (JIANT 0.6.49) LAYER, each sound's (the kit's: project.c keeps it): low nibble LAYER, a second oscillator (a
+ * triangle) at sqrt 2 of the pitch, frequency-modulated by the first, more as it goes up (1..15: a metal edge .. a
+ * clang with no note); high nibble FEEDBK, that sound's own oscillator fed back into its phase (1..15) */
+#define DX_LAY_INIT {0, 6, 0, 9, 9, 0, 0, 11}           /* the factory kit's */
+static const uint8_t DX_LAY_DEF[8] = DX_LAY_INIT;
+static uint8_t dx_lay[8] = DX_LAY_INIT;
+/* the triangle: a few operations, no table (its odd partials add to the clang) */
+static inline int32_t dx_tri(uint32_t ph)
+{
+    int32_t s = (int32_t)(ph >> 15);                     /* 0 .. 131071 */
+    return s < 65536 ? s - 32768 : 98303 - s;
+}
+/* the harmonic loop without LAYER (its own function: the main render loop stays small) */
+static __attribute__((noinline)) void dx_plain(int32_t *y, uint32_t n, uint32_t *php, uint32_t *ph2p, int32_t *op,
+                                               int32_t inc, int32_t dinc, int32_t ga, int32_t dga,
+                                               int32_t idx, uint32_t ratio, uint32_t fb)
+{
+    uint32_t i, ph = *php, ph2 = *ph2p;
+    int32_t mo = *op;
+    for (i = 0; i < n; i++, inc += dinc, ga += dga) {
+        mo = sine_i(ph2 + (uint32_t)mo * fb);
+        y[i] = mulq15(sine_i(ph + (uint32_t)(mo * idx) * 512u), ga >> 8);
+        ph += (uint32_t)inc << 4;
+        ph2 += ((uint32_t)inc >> 8) * ratio;
+    }
+    *php = ph;
+    *ph2p = ph2;
+    *op = mo;
+}
+/* (JIANT 0.6.49) LAYER's oscillator: the harmonic loop plus a triangle at sqrt 2 of the pitch, frequency-modulated
+ * by the first, up to ~70 % of the mix */
+static __attribute__((noinline)) void dx_layer(dx_voice_t *v, int32_t *y, uint32_t n, uint32_t *php, uint32_t *ph2p,
+                                               int32_t *op, int32_t inc, int32_t dinc, int32_t ga, int32_t dga,
+                                               int32_t idx, uint32_t ratio, uint32_t fb, int32_t lay)
+{
+    uint32_t i, ph = *php, ph2 = *ph2p, ph4 = v->ph4;
+    int32_t lx = lay * lay * 600, lm = lay * 3, mo = *op;
+    for (i = 0; i < n; i++, inc += dinc, ga += dga) {
+        int32_t o, o2;
+        mo = sine_i(ph2 + (uint32_t)mo * fb);
+        o = sine_i(ph + (uint32_t)(mo * idx) * 512u);
+        o2 = dx_tri(ph4 + (uint32_t)mo * (uint32_t)lx);   /* (unsigned: the phase wraps, no signed overflow) */
+        y[i] = mulq15(clamp(o + (((o2 - o) * lm) >> 6), -32767, 32767), ga >> 8);
+        ph += (uint32_t)inc << 4;
+        ph2 += ((uint32_t)inc >> 8) * ratio;
+        ph4 += ((uint32_t)inc >> 6) * 1448u;
+    }
+    *php = ph;
+    *ph2p = ph2;
+    *op = mo;
+    v->ph4 = ph4;
+}
+
 /* a decay value (0..127) -> its tau in us: 3 ms x 2^(9 d / 127) */
 static uint32_t dx_tau(uint32_t d) { return ((dv_exp2(d * 9u * 4096u / 127u) >> 8) * 3000u) >> 8; }
 
@@ -76,11 +130,12 @@ static uint32_t dx_tau(uint32_t d) { return ((dv_exp2(d * 9u * 4096u / 127u) >> 
  * filter picked once a block), skipped when the mix leaves them out; gains and the pitch step per sample */
 static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, int32_t morph, int32_t tune16,
                                              int32_t dofs, int32_t cofs, int32_t nofs, int32_t warp, int32_t fm, int32_t *y,
-                                             uint32_t n)
+                                             uint32_t n, uint32_t lane)
 {
     static const uint16_t FM_RATIO[8] = {128, 256, 384, 512, 768, 1024, 1280, 1792};   /* Q8 of the carrier */
     int32_t q[DXP_N], p16, depth, ea1, en1, ep1, og, ng, ga, dga, gn, dgn, kd, inc, dinc;
     uint32_t i, k, wave = L->mode & 3u, flt = (L->mode >> 2) & 3u, ta, tn, tp, kb, inc1;
+    int32_t lay = (int32_t)(dx_lay[lane & 7u] & 15u), lfb = (int32_t)(dx_lay[lane & 7u] >> 4);
     tsvf_t c;
     if (!v->live && !v->trig) {
         for (i = 0; i < n; i++)
@@ -104,7 +159,7 @@ static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, 
         v->live = 1;
         v->ea = v->en = 1 << 30;
         v->ep = 32767;
-        v->ph = v->ph2 = 0;
+        v->ph = v->ph2 = v->ph4 = 0;
         v->ic1 = v->ic2 = 0;
         if (!v->rng)
             v->rng = 0x2545F491;
@@ -140,7 +195,7 @@ static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, 
         uint32_t ph = v->ph;
         int32_t fold = clamp(warp, 0, 127);
         fm = clamp(fm, 0, 127);
-        warp = fm ? 0x100 : 0;                           /* (FM: the FM loop below; the flag stripped there) */
+        warp = (fm || lay || lfb) ? 0x100 : 0;           /* (FM / LAYER / FEEDBK: the loop below; the flag stripped there) */
         if (wave == DXW_SINE && q[DXP_COLOR] && !warp) {   /* drive x1 .. x2.5 into the soft clip */
             int32_t g = 4096 + q[DXP_COLOR] * 48;
             for (i = 0; i < n; i++, inc += dinc, ga += dga) {
@@ -165,15 +220,15 @@ static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, 
             /* w: the FOLD (warp) value: it feeds the modulator back into itself as well
              * (0: no feedback, the modulator a plain function of its phase) */
             uint32_t w = (uint32_t)fold;
-            uint32_t ph2 = v->ph2, ratio = (fm ? FM_RATIO[(uint32_t)fm >> 4] : DX_RATIO[wave]) + w * 70u, fb = w << 10;
+            uint32_t ph2 = v->ph2, ratio = (fm ? FM_RATIO[(uint32_t)fm >> 4] : DX_RATIO[wave]) + w * 70u;
+            uint32_t fb = (w << 10) + (uint32_t)lfb * 4096u;
             int32_t idx = q[DXP_COLOR] * 3 + (int32_t)w * 3 + (fm ? (((fm & 15) + 3) * 12) : 0), mo = v->mo;   /* (JIANT
                                                           * 0.5: the band's index halved and more, no glassy edge) */
-            for (i = 0; i < n; i++, inc += dinc, ga += dga) {
-                mo = sine_i(ph2 + (uint32_t)mo * fb);    /* (up to a turn of feedback; uint32: wraps as a phase) */
-                y[i] = mulq15(sine_i(ph + (uint32_t)(mo * idx) * 512u), ga >> 8);
-                ph += (uint32_t)inc << 4;
-                ph2 += ((uint32_t)inc >> 8) * ratio;
-            }
+            if (lay)                                     /* (JIANT 0.6.49) LAYER: a triangle at sqrt 2, FM'd
+                                                          * by the first oscillator; up to ~70 % of the mix */
+                dx_layer(v, y, n, &ph, &ph2, &mo, inc, dinc, ga, dga, idx, ratio, fb, lay);
+            else
+                dx_plain(y, n, &ph, &ph2, &mo, inc, dinc, ga, dga, idx, ratio, fb);
             v->ph2 = ph2;
             v->mo = mo;
         }
@@ -335,6 +390,18 @@ static const dx_lane_t DX_KITS[][8] = {
         {DX_MODE(DXW_BELL, DXF_HP, 1), {63, 10, 14, 20, 56}, {70, 24, 20, 34, 70}},
         {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 44, 34, 50}, {68, 0, 54, 46, 62}},
     },
+};
+/* (JIANT 0.6.49) the kits' LAYER/FEEDBK, one byte per sound (low nibble LAYER, high FEEDBK), in DX_KITS' order */
+static const uint8_t DX_LAY[][8] = {
+    DX_LAY_INIT,                      /* DRUM-X */
+    {0, 6, 0, 9, 9, 0, 0, 11},       /* 909 CLUB */
+    {0, 4, 0, 6, 6, 0, 0, 8},        /* 808 BOOM */
+    {0, 9, 0, 9, 9, 0, 5, 11},       /* LOFI DUST */
+    {0, 12, 0, 9, 9, 0, 6, 13},      /* INDUSTRIAL */
+    {0, 5, 0, 7, 7, 0, 0, 9},        /* ACOUSTIC */
+    {0, 6, 0, 9, 9, 0, 0, 11},       /* DUB ROOTS */
+    {0, 7, 0, 9, 9, 0, 0, 11},       /* TECHNO RAW */
+    {0, 6, 0, 9, 9, 0, 0, 11},       /* BREAKS */
 };
 #define DX_NKIT ((uint32_t)(sizeof DX_KITS / sizeof DX_KITS[0]))
 #define DX_KIT_DEF DX_KITS[0]                      /* the factory kit: a project without one, INIT SOUND */

@@ -401,7 +401,7 @@ static int page_visible(uint32_t i)
     int drums = TSEL->eng_req % NENGINES == ENGI_DRUMS;
     if (PAGES[i].graph == GR_GENERATION)
         return drum_track(TSEL);                      /* every drum kit: DRUM-X, DRUMS, CR78, USR drum kit */
-    if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / SOUND 2 */
+    if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / SOUND 2 / SOUND 3 */
         return drum;
     if (PAGES[i].fam == FAM_EDIT && PAGES[i].sec == EDIT_SEC_VOX && (drum || drums))   /* Voice hidden on DRUM / DRUMS */
         return 0;
@@ -1890,13 +1890,14 @@ static void track_select(uint32_t i)
 }
 
 #include "ui_events.c"                            /* SEQ > AUTOMATION: locks, events, CHANCE, RATCH as a list (an action page) */
-/* EDIT > SOUND / SOUND 2 (ui_dx.c, included by ui_input.c): the DRUM-X sound edited and its patch */
+/* EDIT > SOUND / SOUND 2 / SOUND 3 (ui_dx.c, included by ui_input.c): the DRUM-X sound edited and its patch */
 static uint8_t dx_ui_lane, dx_ui_side;
 static uint32_t dx_pagen(const page_t *pg)            /* "SOUND" -> 1; "SOUND 2" -> 2 */
 {
     return pg->title[5] == ' ' ? (uint32_t)(pg->title[6] - '0') : 1u;
 }
 static uint32_t dx_page2(const page_t *pg) { return dx_pagen(pg) == 2u; }
+static uint32_t dx_page3(const page_t *pg) { return dx_pagen(pg) == 3u; }
 static void dx_knob(const page_t *pg, uint32_t k, int32_t s);
 static void dx_cards(const page_t *pg);
 static uint32_t dx_sig(void);

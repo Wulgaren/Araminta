@@ -274,7 +274,8 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         n = CTL;
     dx_run(&dx_kit[(uint32_t)v->s[0] & (DV_NLANE - 1u)], &L->x, p[P_E0] + dx_mot_v + L->rm,
            L->st * 16 + L->rt + (p[P_E1] - 64) * 3 + t->pfx_pit,
-           p[P_E3] - 64, p[P_E2] - 64, p[P_E4] - 64, p[P_E6], p[P_E5], y, n);
+           p[P_E3] - 64, p[P_E2] - 64, p[P_E4] - 64, p[P_E6], p[P_E5], y, n,
+           (uint32_t)v->s[0] & (DV_NLANE - 1u));
     if (drv > 0) {                                       /* DRV: x1..x4 into the soft clip, the level kept (Q12) */
         g = 4096 + drv * 3 * 4096 / 127;
         mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
@@ -325,6 +326,7 @@ static int32_t drum_keys(const track_t *t, uint32_t k)
 static void dx_kit_load(uint32_t k)
 {
     memcpy(dx_kit, DX_KITS[k], sizeof dx_kit);
+    memcpy(dx_lay, DX_LAY[k], sizeof dx_lay);
 }
 
 /* {MRPH, TUNE, TONE, DECY, NOIS, FM, FOLD, DRV}; the kit suggests the BEAT pattern (GM notes). Nine factory kits,
@@ -342,6 +344,7 @@ static const preset_t DRUM_PRESETS[] = {
 };
 _Static_assert(sizeof DRUM_PRESETS / sizeof DRUM_PRESETS[0] == sizeof DX_KITS / sizeof DX_KITS[0],
                "a DRUM preset a factory kit");
+_Static_assert(sizeof DX_LAY / sizeof DX_LAY[0] == sizeof DX_KITS / sizeof DX_KITS[0], "a kit a layer row");
 
 static const engine_t ENG_DRUM = {
     .name = "DRUM-X",
