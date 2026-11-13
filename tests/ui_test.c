@@ -9032,7 +9032,8 @@ static int test_generation_navigation(void)
     set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;
     press(B_SEQ);
     press(B_SEQ);
-    ok = str_eq(cur_page()->title, "SEQ TOOLS") && ui.lock == LAYER_SEQ;
+    page_title(ti);
+    ok = str_eq(cur_page()->title, "SEQ TOOLS") && ui.lock == LAYER_SEQ && str_eq(ti, "SEQ TOOLS 1/3");
     turn(EN_SELECT, 1);                             /* tools map leaves the GENERATION pages */
     page_title(ti);
     ok &= str_eq(cur_page()->title, "GENERATION") && !ui.lock && str_eq(ti, "GENERATION 2/3");
