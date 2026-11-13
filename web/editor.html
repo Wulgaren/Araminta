@@ -380,9 +380,11 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   UI_STATE: 34, UI_SET: 35, UI_PALETTES: 36, FAV_GET: 37, FAV_SET: 38,
   MOTION: 64, BACKUP_LIST: 65, BACKUP_GET: 66, BACKUP_PUT: 67,
   FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71,
-  FM6B_BEGIN: 74, FM6B_WRITE: 75, FM6B_END: 76, FM6B_LIST: 77 };
+  FM6B_BEGIN: 74, FM6B_WRITE: 75, FM6B_END: 76, FM6B_LIST: 77, MATRIX: 103 };
 /* frames the device sends on its own (while WATCH is on); never replies */
 const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED, CMD.TRACK_CHANGED]);
+/* frames that are a reply when they match the request in flight, else a push (MATRIX: a slot changed on the device) */
+const PUSH_OR_REPLY = new Set([CMD.MATRIX]);
 /* user preset bank: name 1..12 printable ASCII, a 16-step pattern of (note, flags 1 acc 2 slide 4 tie) */
 const UP = { NAME_MAX: 12, PAT: 16, LIST_MAX: 16 };
 const F = { INT: 0, PCT: 1, BIPCT: 2, TIME: 3, LFOHZ: 4, CUTOFF: 5, DB: 6, SEMI: 7, ENUM: 8, BPM: 9, NOTE: 10, ONOFF: 11, OCT: 12, STEPS: 13 };
@@ -454,14 +456,14 @@ class Reader {
    web/test_info_tags.mjs checks the two agree. */
 const INFO_TAG = { SONG: 16, UI: 0x55, MOTION: 0x4d, MOTION_POOL: 0x41, MOTION_LOCKS: 0x4c, FM6: 0x46,
   SYNC: 0x53, FM6V2: 0x50, RATCH: 0x52, BACKUP: 0x42, MENU: 0x4E, NUDGE: 0x54, SONG_LANES: 0x57,
-  FM6_BANK: 0x56 };
+  FM6_BANK: 0x56, MATRIX: 0x58 };
 const INFO_LEN = { [INFO_TAG.UI]: 1, [INFO_TAG.MOTION]: 2, [INFO_TAG.MOTION_POOL]: 2, [INFO_TAG.MOTION_LOCKS]: 1,
   [INFO_TAG.BACKUP]: 1, [INFO_TAG.FM6]: 2, [INFO_TAG.SYNC]: 1, [INFO_TAG.FM6V2]: 1, [INFO_TAG.RATCH]: 1,
-  [INFO_TAG.MENU]: 1, [INFO_TAG.NUDGE]: 1, [INFO_TAG.SONG_LANES]: 1, [INFO_TAG.FM6_BANK]: 2 };
+  [INFO_TAG.MENU]: 1, [INFO_TAG.NUDGE]: 1, [INFO_TAG.SONG_LANES]: 1, [INFO_TAG.FM6_BANK]: 2, [INFO_TAG.MATRIX]: 1 };
 const MOTION_MAX_SANE = 1024;                     /* reject 0 / absurd; MOTION_MAX is the device's pool (FUN16) */
 /* core.h: the motion store and the ids that are not p[] parameters (EDITOR_PROTOCOL.md "MOTION") */
 const MOTION_MAX = 192;                          /* RAM records (core.h MOTION_MAX); a project saves MOTION_FILE_MAX */
-const MOTION_FILE_MAX = 155;                     /* core.h MOTION_FILE_MAX (FUN20: 88+40+27) */
+const MOTION_FILE_MAX = 148;                     /* core.h MOTION_FILE_MAX (FUN20: 88+40+20; the matrix's slots 5..8 the rest) */
 const MSEQ_PITCH = 127;                          /* a step's chromatic offset: lock-only, never indexes p[] */
 const MFX_TIME = 49, MFX_DAMP = 53;              /* MFX_TIME..MFX_DAMP: the DLY / REV bus targets (P_M1SRC..P_M2DST) */
 const MFX_TSPEED = 41, MFX_TWOW = 42;             /* motion-only TAPE targets reuse P_TAPEMIX / P_LSMOOTH */
@@ -482,6 +484,7 @@ const parse = {
     o.fm6 = null;                                 /* FM6 patches (cmds 68..71): the factory and bank slot counts */
     o.syncCaps = 0;                               /* live sync: bit 0 WATCH while on keeps pending pushes, bit 1 no RELOAD */
     o.ratchet = 0;                                /* a step's ratchet (STEP_SET's byte after the chance), 0 = none */
+    o.matrix = 0;                                 /* MATRIX (cmd 103): the matrix's slot count (8), 0 = only 49..60 */
     if (trailer.length >= 4 && trailer[0] === INFO_TAG.SONG && trailer[1] === INFO_TAG.UI && trailer[2] === 1) {
       o.uiCaps = trailer[3] & 15;                 /* tagged preferences; never interpret old PR bytes as SONG */
       o.fm6Bank = 0;                              /* voice-bank count; 0 until tag 56 (or older firmware) */
@@ -523,6 +526,7 @@ const parse = {
           case INFO_TAG.FM6_BANK:
             o.fm6Bank = len === 2 ? trailer[p] | trailer[p + 1] << 7 : trailer[p];
             break;
+          case INFO_TAG.MATRIX: o.matrix = trailer[p]; break;
           default: break;                         /* MENU / NUDGE: other readers */
         }
         i += 2 + len;
@@ -643,6 +647,9 @@ const parse = {
       o.grid = o.pattern.map(([h, c]) => { const x = r.b(), hit = h | (x & 1) << 7; return [hit, (c | (x & 2) << 6) & hit]; });
       o.pattern = null;
     }
+    if (r.i < a.length) o.cat = r.b();             /* 1.2: the category */
+    if (r.i + 12 <= a.length)                      /* 4.2: the matrix's slots 5..8 (MATRIX order, AMT sent + 64) */
+      o.mx = Array.from({ length: 12 }, (_, i) => r.b() - (i % 3 === 2 ? 64 : 0));
     return o;
   },
   [CMD.UP_PUT](a) { return parse[CMD.SMP_BEGIN](a); },
@@ -650,6 +657,12 @@ const parse = {
   [CMD.UP_LOAD](a) { return parse[CMD.SMP_BEGIN](a); },
   [CMD.UP_ERASE](a) { return parse[CMD.SMP_BEGIN](a); },
   [CMD.WATCH](a) { return { on: new Reader(a).b() }; },
+  /* MATRIX's reply and push: the track, then its eight slots' SRC, DST, AMT (slot * 3 + field; AMT sent + 64) */
+  [CMD.MATRIX](a) {
+    const r = new Reader(a), o = { track: r.b(), mx: [] };
+    for (let i = 0; i < 24; i++) o.mx.push(r.b() - (i % 3 === 2 ? 64 : 0));
+    return o;
+  },
   [CMD.CHANGED](a) { return parse[CMD.GET](a); },
   [CMD.RELOAD](a) { const r = new Reader(a); return { engine: r.b(), preset: r.b(), track: r.i < a.length ? r.b() : 0 }; },
   [CMD.PING](a) { return {}; },
@@ -748,7 +761,10 @@ const req = {
     ...(pt.grid
       ? [...Array.from({ length: UP.PAT }, (_, i) => hitsEnc(...(pt.grid[i] || [0, 0])).slice(0, 2)).flat(), 1,
          ...Array.from({ length: UP.PAT }, (_, i) => hitsEnc(...(pt.grid[i] || [0, 0]))[2])]
-      : Array.from({ length: UP.PAT }, (_, i) => { const x = (pt.pattern || [])[i] || [0, 0]; return [x[0] & 0x7F, x[1] & 7]; }).flat())]],
+      : Array.from({ length: UP.PAT }, (_, i) => { const x = (pt.pattern || [])[i] || [0, 0]; return [x[0] & 0x7F, x[1] & 7]; }).flat()),
+    /* slots 5..8 (firmware with INFO 58: bank.put leaves them out otherwise) follow the kind's 16 bytes and the category */
+    ...(pt.mx ? [...(pt.grid ? [] : [0, ...new Array(UP.PAT).fill(0)]), (pt.cat | 0) & 0x7F,
+      ...pt.mx.map((v, i) => ((v | 0) + (i % 3 === 2 ? 64 : 0)) & 0x7F)] : [])]],
   upStore: (s, name) => [CMD.UP_STORE, [s & 0x7F, ...strEnc(name ? upName(name) : "")]],   /* "": the device names it ("ANALOG 07") */
   upLoad: (s) => [CMD.UP_LOAD, [s & 0x7F]],
   upErase: (s) => [CMD.UP_ERASE, [s & 0x7F]],
@@ -759,6 +775,8 @@ const req = {
   track: (sel) => [CMD.TRACK, sel == null ? [] : [sel & 0x7F]],
   trackMix: (tr, level, mute) => [CMD.TRACK_MIX, level == null ? [tr & 0x7F] : [tr & 0x7F, ...v14enc(level), mute ? 1 : 0]],
   trackDump: (tr) => [CMD.TRACK_DUMP, [tr & 0x7F]],
+  /* the matrix's eight slots of track tr (get), or slot 0..7's SRC DST AMT = f (set; the device clamps) */
+  matrix: (tr, slot, f) => [CMD.MATRIX, slot == null ? [tr & 0x7F] : [tr & 0x7F, slot & 0x7F, f[0] & 0x7F, f[1] & 0x7F, (f[2] + 64) & 0x7F]],
   trackStep: (tr, i, st) => [CMD.TRACK_STEP, st ? [tr & 0x7F, ...req.stepSet(i, st)[1]] : [tr & 0x7F, i & 0x7F]],
   /* v4: get (v == null) or set parameter id (P_*) of track tr, clamped as SET */
   trackParam: (tr, id, v) => [CMD.TRACK_PARAM, v == null ? [tr & 0x7F, id & 0x7F] : [tr & 0x7F, id & 0x7F, ...v14enc(v)]],
@@ -799,7 +817,7 @@ function replyMatches(cmd, args, a) {
     case CMD.FM6B_WRITE: return a[0] === args[0];
     case CMD.PROJECT: return a[0] === args[0] && a[1] === args[1];
     case CMD.UP_LIST: case CMD.UP_GET: case CMD.UP_PUT: case CMD.UP_STORE: case CMD.UP_LOAD: case CMD.UP_ERASE:
-    case CMD.TRACK_MIX: case CMD.TRACK_DUMP: return a[0] === args[0];
+    case CMD.TRACK_MIX: case CMD.TRACK_DUMP: case CMD.MATRIX: return a[0] === args[0];
     case CMD.WATCH: return (a[0] & 1) === (args[0] & 1);   /* bit 1: v4 firmware only */
     case CMD.TRACK_STEP: case CMD.TRACK_PARAM: return a[0] === args[0] && a[1] === args[1];
     default: return true;
@@ -870,9 +888,9 @@ class Link {
   receive(data) {
     const f = unframe(data);
     if (!f) return;                                  /* not ours (notes, clock, other SysEx) */
-    if (PUSH.has(f.cmd)) { this.onPush(f); return; }
-    const c = this.cur;
-    if (!c || f.cmd !== c.cmd || !replyMatches(c.cmd, c.args, f.a)) { this.onUnknown(f); return; }
+    const c = this.cur, reply = c && f.cmd === c.cmd && replyMatches(c.cmd, c.args, f.a);
+    if (PUSH.has(f.cmd) || (PUSH_OR_REPLY.has(f.cmd) && !reply)) { this.onPush(f); return; }
+    if (!reply) { this.onUnknown(f); return; }
     this.finish(f.a);
   }
   close() {
@@ -1449,6 +1467,7 @@ function cleanPatch(pt) {
   if (Number.isInteger(pt.slot)) o.slot = pt.slot;
   if (Array.isArray(pt.fm6) && pt.fm6.length === FM6.PACKED) o.fm6 = pt.fm6.map((x) => (x | 0) & 127);   /* (a converted */
   if (Array.isArray(pt.fm4)) o.fm4 = pt.fm4.map((v) => (Number.isFinite(v) ? Math.round(v) : null));    /* DIGITAL sound) */
+  if (Array.isArray(pt.mx) && pt.mx.length === 12) o.mx = pt.mx.map((v) => (Number.isFinite(v) ? Math.round(v) : 0));   /* slots 5..8 */
   return o;
 }
 
@@ -1578,7 +1597,7 @@ const bank = {
   },
   /* -> rc (0 ok); with info, an FM6 sound's patch (pt.fm6) goes with it */
   async put(rq, slot, pt, info) {
-    const rc = parse[CMD.UP_PUT](await rq(req.upPut(slot, pt), FLASH_OPT)).rc;
+    const rc = parse[CMD.UP_PUT](await rq(req.upPut(slot, info && info.matrix ? pt : { ...pt, mx: null }), FLASH_OPT)).rc;
     if (rc || !pt.fm6 || !presetPatches(info) || info.engines[pt.engine] !== "FM6") return rc;
     return parse[CMD.FM6_PUT](await rq(req.fm6Put(FM6.TARGET.USER, slot, pt.fm6), FLASH_OPT)).rc;
   },
@@ -1593,14 +1612,16 @@ async function capturePatch(rq, info, name) {
   const steps = [];
   for (let i = 0; i < UP.PAT && i < info.nstep; i++) steps.push(parse[CMD.STEP_GET](await rq(req.stepGet(i))));
   const drum = ["DRUM-X", "DRUMS"].includes(info.engines[dump.engine]);   /* drum tracks keep their grid */
-  let fm6 = null;                                      /* an FM6 track: its own patch (the selected track's) */
-  if (info.fm6 && info.engines[dump.engine] === "FM6") {
-    const sel = info.ntrk ? parse[CMD.TRACK](await rq(req.track())).sel : 0;
+  let fm6 = null, mx = null;                           /* an FM6 track: its own patch (the selected track's) */
+  const fm6On = info.fm6 && info.engines[dump.engine] === "FM6";
+  const sel = (fm6On || info.matrix) && info.ntrk ? parse[CMD.TRACK](await rq(req.track())).sel : 0;
+  if (fm6On) {
     const g = parse[CMD.FM6_GET](await rq(req.fm6Get(FM6.TARGET.TRACK, sel)));
     if (!g.rc) fm6 = g.packed;
   }
+  if (info.matrix) mx = parse[CMD.MATRIX](await rq(req.matrix(sel))).mx.slice(12);   /* slots 5..8 (1..4 are in p) */
   return { patch: cleanPatch({ name, engine: dump.engine, engineName: info.engines[dump.engine], p: dump.p, pattern: patternFromSteps(steps),
-    grid: drum ? gridFromSteps(steps) : null, fm6 }), dump, steps };
+    grid: drum ? gridFromSteps(steps) : null, fm6, mx }), dump, steps };
 }
 
 /* the track's own parameters, which no sound load changes (ui.c param_kept): LEVEL, the ARP and ARP 2 pages,
@@ -1628,7 +1649,14 @@ async function auditionPatch(rq, info, pt, opt = {}) {
   }
   if (pt.fm6 && info.fm6)                         /* a converted DIGITAL sound: its own FM6 patch on the track */
     await rq(req.fm6Put(FM6.TARGET.TRACK, opt.track ?? 0, pt.fm6));
+  await sendSlots5to8(rq, info, pt, opt.track ?? 0);
   return {};
+}
+/* a patch's matrix slots 5..8 onto track tr (firmware with MATRIX); the sound load before them left them off */
+async function sendSlots5to8(rq, info, pt, tr) {
+  if (!info.matrix || !Array.isArray(pt.mx) || pt.mx.length !== 12) return;
+  for (let k = 0; k < 4; k++)
+    if (pt.mx[3 * k] || pt.mx[3 * k + 1] || pt.mx[3 * k + 2]) await rq(req.matrix(tr, 4 + k, pt.mx.slice(3 * k, 3 * k + 3)));
 }
 
 /* WATCH on (asking for TRACK_CHANGED too): false when the firmware does not know it (older than protocol v2),
@@ -2282,6 +2310,7 @@ function makeMockDevice(opt = {}) {
   const NTRK = 4;
   const newTrack = () => ({ engine: 0, preset: 0, fm6: FM6.INIT_PK.slice(),
     p: TP.map((d) => d.def).concat(new Array(8).fill(0)),
+    mx: new Array(12).fill(0),                     /* matrix slots 5..8 (core.h track_t.mx): SRC DST AMT each */
     motion: {on: true, events: []},
     step: Array.from({ length: NSTEP }, () => ({ chance: 100, ratchet: 1, n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0 })) });
   const st = {
@@ -2355,6 +2384,7 @@ function makeMockDevice(opt = {}) {
     [1, 2, 3, 4].forEach((id, k) => { st.p[id] = pr.env[k]; });
     st.p[37] = pr.mono ? 2 : 0;
     st.p[33] = TP[33].def; st.p[34] = 24; st.p[35] = 28; st.p[36] = 36;
+    st.tracks[st.sel].mx.fill(0);                  /* (slots 5..8 too) */
     for (let i = P_SLCR + 4; i < P_E0; i++) if (!trackOwn(i, P_E0)) st.p[i] = TP[i].def;   /* a factory preset turns the
                                                      matrix off; the SLICER, the chord keys, the steps and the other track
                                                      settings stay (ui.c apply_preset_to) */
@@ -2598,7 +2628,7 @@ function makeMockDevice(opt = {}) {
         if (!opt.legacy && !opt.v3 && !opt.v5) {
           b(16);
           if (st.uiCaps) { b(0x55); b(1); b(st.uiCaps); b(0x4d); b(1); b(64); b(1); if (!opt.noFm6) { b(0x46); b(1); b(FM6.FACTORY_PK.length); b(0); }
-            if (syncCaps()) { b(0x53); b(1); b(syncCaps()); if (!opt.noFm6) { b(0x50); b(1); b(3); } if (ratchetOn()) { b(0x52); b(1); b(4); b(0x4c); b(1); b(1); b(0x41); b(1); b(MOTION_MAX & 0x7F); b(MOTION_MAX >> 7); b(0x57); b(1); b(4); /* SONG lanes */ if (!opt.noVbank && !opt.noFm6) { const nv = FM6_NBANK_TOTAL; b(0x56); b(1); b(nv & 0x7F); b(nv >> 7); } } } }   /* FM6 v2 + voice banks (56): 128 = 00 01 */
+            if (syncCaps()) { b(0x53); b(1); b(syncCaps()); if (!opt.noFm6) { b(0x50); b(1); b(3); } if (ratchetOn()) { b(0x52); b(1); b(4); b(0x4c); b(1); b(1); b(0x41); b(1); b(MOTION_MAX & 0x7F); b(MOTION_MAX >> 7); b(0x57); b(1); b(4); /* SONG lanes */ if (!opt.noVbank && !opt.noFm6) { const nv = FM6_NBANK_TOTAL; b(0x56); b(1); b(nv & 0x7F); b(nv >> 7); } if (!opt.noMatrix) { b(0x58); b(1); b(8); } } } }   /* FM6 v2 + voice banks (56): 128 = 00 01; MATRIX (58) */
         }
         break;
       case CMD.GET: case CMD.SET: {
@@ -2645,6 +2675,17 @@ function makeMockDevice(opt = {}) {
         if (a.length < 1 || a[0] >= NTRK) return null;
         const t = st.tracks[a[0]];
         b(a[0]); b(t.engine); b(t.preset); t.p.forEach(v);
+        break;
+      }
+      case CMD.MATRIX: {                            /* editor.c: slots 1..4 are p[49..60], 5..8 the track's mx */
+        if (opt.noMatrix || (a.length !== 1 && a.length !== 5) || a[0] >= NTRK || (a.length === 5 && a[1] >= 8)) return null;
+        const t = st.tracks[a[0]], row = (k) => (k < 4 ? [t.p, 49 + 3 * k] : [t.mx, 3 * (k - 4)]);
+        if (a.length === 5) {
+          const [arr, o] = row(a[1]);
+          for (let f = 0; f < 3; f++) arr[o + f] = clamp(a[2 + f] - (f === 2 ? 64 : 0), TP[49 + f].min, TP[49 + f].max);
+        }
+        b(a[0]);
+        for (let k = 0; k < 8; k++) { const [arr, o] = row(k); b(arr[o]); b(arr[o + 1]); b(arr[o + 2] + 64); }
         break;
       }
       case CMD.TRACK_PARAM: {
@@ -3654,7 +3695,13 @@ async function sessionRequest(d, r, opt) {
 }
 const rq = (r, opt) => sessionRequest(dev, r, opt);
 async function getDesc(scope, id, d = dev) { return parse[CMD.DESC](await sessionRequest(d, req.desc(scope, id))); }
-async function getDump(d = dev) { const reply = await sessionRequest(d, req.dump()); lastDump = Date.now(); return parse[CMD.DUMP](reply, d.info); }
+/* DUMP, and (firmware with MATRIX) the selected track's matrix slots as dump.mx: slot * 3 + SRC DST AMT */
+async function getDump(d = dev) {
+  const dump = parse[CMD.DUMP](await sessionRequest(d, req.dump()), d.info);
+  if (d.info.matrix) dump.mx = parse[CMD.MATRIX](await sessionRequest(d, req.matrix(d.sel ?? 0))).mx;
+  lastDump = Date.now();
+  return dump;
+}
 async function getStep(i, d = dev) { return parse[CMD.STEP_GET](await sessionRequest(d, req.stepGet(i))); }
 
 /* the whole connect sequence */
@@ -3839,7 +3886,12 @@ function buildGroups() {
     const a = el("div", { class: "group" }, el("h2", { ic: HEAD_IC.INSTRUMENT, text: "INSTRUMENT" }), el("p", { class: "dim", text: t("layout") }));
     const b = el("div", { class: "group" }, el("h2", { ic: HEAD_IC.EDIT, text: "EDIT" }));
     const c = el("div", { class: "group" }, el("h2", { ic: HEAD_IC.GLOBAL, text: "GLOBAL" }));
-    for (let i = 0; i < info.pcount; i++) { const r = paramRow(0, i); if (r) (i >= info.pe0 ? b : a).append(r); }
+    for (let i = 0; i < info.pcount; i++) {
+      const r = paramRow(0, i);
+      if (r) (i >= info.pe0 ? b : a).append(r);
+      if (i === P_M1SRC + 11 && dev.dump.mx)       /* after AMT4: slots 5..8 (MATRIX, scope 2; no parameter id) */
+        for (let j = 12; j < dev.dump.mx.length; j++) { const m = paramRow(2, j); if (m) a.append(m); }
+    }
     for (let i = 0; i < info.gcount; i++) { const r = paramRow(1, i); if (r) c.append(r); }
     groups.groups.push(a, b);
     groups.setgroups.push(c);
@@ -3847,8 +3899,12 @@ function buildGroups() {
   for (const [id, divs] of Object.entries(groups)) $(id).replaceChildren(...divs);
 }
 
+/* scope s's values in a dump: 0 the selected track's parameters, 1 the globals, 2 its matrix slots (dump.mx, MATRIX:
+   slot * 3 + SRC DST AMT; the rows of slots 5..8, which have no parameter id) */
+const P_M1SRC = 49;                                /* core.h: slot 1's SRC; every slot takes 49..51's descriptors */
+function vals(dump, s) { return s === 2 ? dump.mx : s ? dump.g : dump.p; }
 function paramRow(s, id) {
-  const d = s ? dev.gdesc[id] : dev.pdesc[id];
+  const d = s === 2 ? dev.pdesc[P_M1SRC + id % 3] : s ? dev.gdesc[id] : dev.pdesc[id];
   if (!visible(d) || (s === 1 && G_SKIP.has(d.label))) return null;
   const k = key(s, id);
   let input;
@@ -3861,7 +3917,7 @@ function paramRow(s, id) {
       const [txt] = fmtValue(d, v);
       const slot = dstSlot(d, v);
       const dead = slot && !visible(slot);         /* an empty engine card is not offered */
-      if (dead && v !== dev.dump.p[id]) continue;
+      if (dead && v !== vals(dev.dump, s)[id]) continue;
       const name = d.fmt === F.ENUM && d.names[v - d.min] == null ? String(v) : modDst(d, txt);
       const alias = d.fmt === F.ENUM && aliasOf(d.names, v - d.min) !== v - d.min;   /* shown when set, not offered */
       input.append(el("option", { value: v, ic: wave && WAVE_IC[name], hidden: alias || dead }, name));
@@ -3893,11 +3949,12 @@ function paramRow(s, id) {
       nudge(dir * 10);
     });
   }
-  input.title = d.label;
+  const label = s === 2 ? d.label.replace(/\d$/, String(Math.floor(id / 3) + 1)) : d.label;   /* (SRC5 .. AMT8) */
+  input.title = label;
   const out = el("span", { class: "v" });
-  const row = el("div", { class: "row" }, el("span", { text: d.label }), input, out);
+  const row = el("div", { class: "row" }, el("span", { text: label }), input, out);
   ctl.set(k, { input, out, desc: d, scope: s, id, row });
-  showValue(k, s ? dev.dump.g[id] : dev.dump.p[id], true);
+  showValue(k, vals(dev.dump, s)[id], true);
   return row;
 }
 
@@ -3925,7 +3982,7 @@ window.addEventListener("pointercancel", () => { dragging = null; });
 function userSet(s, id, v, final) {
   if (!dev) return;
   const k = key(s, id);
-  (s ? dev.dump.g : dev.dump.p)[id] = v;
+  vals(dev.dump, s)[id] = v;
   showValue(k, v, false);
   mixFromDump();
   let st = sets.get(k);
@@ -3937,13 +3994,17 @@ function userSet(s, id, v, final) {
 async function sendSet(s, id, k) {
   if (!dev) return;
   const st = sets.get(k);
-  const v = (s ? dev.dump.g : dev.dump.p)[id];
+  const v = vals(dev.dump, s)[id];
   st.sent = v;
   try {
-    const r = parse[CMD.SET](await rq(req.set(s, id, v), { key: k }));
+    let value;
+    if (s === 2) {                                  /* a matrix slot 5..8: MATRIX carries its three fields */
+      const slot = Math.floor(id / 3), mx = dev.dump.mx;
+      value = parse[CMD.MATRIX](await rq(req.matrix(dev.sel ?? 0, slot, mx.slice(3 * slot, 3 * slot + 3)), { key: k })).mx[id];
+    } else value = parse[CMD.SET](await rq(req.set(s, id, v), { key: k })).value;
     if (dev && dragging !== k && st.sent === v && !dev.link.hasQueued(k)) {   /* the device's value after clamping */
-      (s ? dev.dump.g : dev.dump.p)[id] = r.value;
-      showValue(k, r.value, false);
+      vals(dev.dump, s)[id] = value;
+      showValue(k, value, false);
       mixFromDump();
     }
   } catch (e) { if (e.message !== "closed") console.warn(e); }
@@ -3980,7 +4041,7 @@ $("init").addEventListener("click", async () => {
 });
 
 function refreshAll() {
-  for (const [k, c] of ctl) showValue(k, c.scope ? dev.dump.g[c.id] : dev.dump.p[c.id], false);
+  for (const [k, c] of ctl) if (vals(dev.dump, c.scope)) showValue(k, vals(dev.dump, c.scope)[c.id], false);
   renderSteps();
 }
 function report(err) { if (err && err.message !== "closed") { console.warn(err); sayK("error", err.message); } }
@@ -5173,6 +5234,16 @@ function onPush(f) {
       if (selfReload.n > 0 && Date.now() < selfReload.until) { selfReload.n--; return; }
       needReload = true;
       maybeReload();
+    } else if (f.cmd === CMD.MATRIX) {              /* a slot changed on the device: 5..8 have no CHANGED */
+      const m = parse[CMD.MATRIX](f.a);
+      if (panning || m.track !== (d.sel ?? 0) || !d.dump.mx) return;
+      m.mx.forEach((v, i) => {
+        const k = key(2, i);
+        if (v === d.dump.mx[i] || touched(k)) return;
+        d.dump.mx[i] = v;
+        showValue(k, v, false);
+        blink(k);
+      });
     } else if (f.cmd === CMD.STEP_CHANGED) {
       const { index } = parse[CMD.STEP_CHANGED](f.a);
       if (index < d.info.nstep) refreshStep(index);
@@ -5255,8 +5326,9 @@ setInterval(async () => {
     const engineChanged = dump.engine !== d.dump.engine;
     const oldLen = d.dump.p[pSlen()];
     for (const [k, c] of ctl) {
-      const v = c.scope ? dump.g[c.id] : dump.p[c.id];
-      if (touched(k)) { (c.scope ? dump.g : dump.p)[c.id] = c.scope ? d.dump.g[c.id] : d.dump.p[c.id]; continue; }
+      if (!vals(dump, c.scope)) continue;           /* (MATRIX rows while the dump has none) */
+      const v = vals(dump, c.scope)[c.id];
+      if (touched(k)) { vals(dump, c.scope)[c.id] = vals(d.dump, c.scope)[c.id]; continue; }
       showValue(k, v, false);
     }
     d.dump = dump;
@@ -5404,6 +5476,7 @@ $("file").addEventListener("change", async () => {
     }
     if (pt.fm6 && dev.info.fm6)                    /* a converted DIGITAL sound: its own FM6 patch on the track */
       await rq(req.fm6Put(FM6.TARGET.TRACK, dev.sel ?? 0, pt.fm6));
+    await sendSlots5to8(rq, dev.info, pt, dev.sel ?? 0);
     if (Array.isArray(data.steps)) {
       const m = Math.min(data.steps.length, dev.info.nstep);
       for (let i = 0; i < m; i++) {

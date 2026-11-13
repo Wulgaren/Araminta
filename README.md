@@ -28,16 +28,15 @@ stock.
   [Coming from Felucca 1.5](#coming-from-felucca-15).
 - **From an older Araminta:** install over it. Your data stays.
 
-## New in 4.1
+## New in 4.2
 
-- **DRUM-X** runs JIANT V10.7.24's voice: 17 kits, including JIANT's ten and Felucca's old DRUMS kits.
-- Each drum sound has a **MODEL**: CLASSIC, or Felucca's SHELL, METAL, TEETH and CLICK voices.
-- **DRUMS is retired.** Its projects and presets load as DRUM-X with the matching kit.
-- **Lane levels** for a DRUM-X track are on MIXER 2/3 and 3/3, each with a live meter.
-- **SEQ** walks STEP, DETAIL, AUTOMATION, then SEQ TOOLS and GENERATION. PATTERN is gone; its knobs are on SEQ TOOLS.
-- The **AUTOMATION** list starts with QUANTIZE and ENABLED (was PLAY).
+- The **mod matrix** has eight slots per track. KNOB 1 on the MOD page runs SLOT 1..8.
+- A project saves **148 automation records** (was 155): slots 5..8 take the rest. A 4.1 project with more still
+  loads whole and shows AUTOMATION SAVE LIMIT.
+- The DRUM-X **sound dice** (OCT+ held + PRESETS) starts from a random factory kit, and can change a sound's WAVE and
+  MODEL.
 
-3.10 and older refuse a project saved with the new drum layers or models. Full notes: [CHANGELOG.md](CHANGELOG.md).
+Full notes: [CHANGELOG.md](CHANGELOG.md).
 
 ## What Araminta adds to Felucca
 
@@ -65,13 +64,13 @@ stock.
   roll for synths, drum grid for kits (white keys are steps, black keys are lanes). Live recording with overdub,
   step recording, and a playhead the cursor follows.
 - **Parameter locks and automation.** Hold a step and turn a knob to lock a value on that step. Knob moves record
-  as automation. SEQ > AUTOMATION lists every lock and event to edit or delete. 192 records live, 155 saved per
+  as automation. SEQ > AUTOMATION lists every lock and event to edit or delete. 192 records live, 148 saved per
   project.
 - **SEQ TOOLS.** Hold SEQ for CLEAR, REVERSE, SHIFT, RANDOM, COOK, octave shifts, HALF, \*2, HUMAN and DUP. Each tool
   is one undo.
 - **Songs.** GLO > SONG chains up to 16 sections of project slots A..D, per track.
 - **Arpeggiator** with 14 modes, **15 scales**, chord keys with voicings and beat-synced STRUM.
-- **2 LFOs** (free or tempo-synced), a **4-slot mod matrix** per track, envelope times as note values.
+- **2 LFOs** (free or tempo-synced), an **8-slot mod matrix** per track, envelope times as note values.
 - **Effects.** DIST (with OTT), FILTER, CRUSH, PHASER, FLANGER, CHORUS, delay, reverb (HALL, ROOM, SPRING, SHIMR,
   CLOUD), SLICER, TAPE, and a master clipper, kick punch and sidechain duck.
 - **Presets.** Factory sounds, 96 user slots, 4 projects. Autosave restores your music at power-on.

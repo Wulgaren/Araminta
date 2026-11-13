@@ -49,9 +49,9 @@ static void blocks(uint32_t n)
 
 static void slot(track_t *t, uint32_t k, int32_t s, int32_t d, int32_t a)
 {
-    t->p[P_M1SRC + 3u * k] = (int16_t)s;
-    t->p[P_M1DST + 3u * k] = (int16_t)d;
-    t->p[P_M1AMT + 3u * k] = (int16_t)a;
+    MOD_ROW(t, k)[MF_SRC] = (int16_t)s;
+    MOD_ROW(t, k)[MF_DST] = (int16_t)d;
+    MOD_ROW(t, k)[MF_AMT] = (int16_t)a;
 }
 
 static uint32_t eng_by_name(const char *n)
@@ -218,6 +218,23 @@ static void test_math(void)
     mod_begin(t);
     check("LFO -> PITCH +63: +11.8 semitones (as LFO DEST PIT)", MOD(t).pit == (lfo * 63 * 3) >> 15 && MOD(t).pit == 188);
     mod_end(t);
+    slot(t, 0, MS_OFF, MD_OFF, 0);
+    slot(t, 5, MS_LFO, MD_CUT, 63);                     /* slots 5..8 live outside p[] (track_t.mx) */
+    mod_begin(t);
+    check("slot 6 LFO -> CUT +63: as slot 1 (+62 steps)", MOD(t).on && MOD(t).cut / 256 == 62);
+    mod_end(t);
+    slot(t, 7, MS_LFO, MD_PITCH, 63);
+    mod_begin(t);
+    check("slots 6 and 8 add up: CUT +62, PITCH +188", MOD(t).cut / 256 == 62 && MOD(t).pit == 188);
+    mod_end(t);
+    slot(t, 5, MS_OFF, MD_OFF, 0);
+    slot(t, 6, MS_MODW, MD_DEPTH, 64);
+    t->mw = 0;
+    mod_begin(t);
+    check("slot 7 MODW -> DEPTH +64, wheel down: no LFO left (slot 8's PITCH 0)", MOD(t).ldep == 0 && MOD(t).pit == 0);
+    mod_end(t);
+    slot(t, 6, MS_OFF, MD_OFF, 0);
+    slot(t, 7, MS_OFF, MD_OFF, 0);
     lfo_at(t, -32768);
     slot(t, 0, MS_LFO, MD_SHP, 63);
     mod_begin(t);
@@ -340,6 +357,12 @@ static void test_math(void)
     check("PAN clamps to +63", t->p[P_PAN] == 63);
     mod_end(t);
     slot(t, 1, MS_OFF, MD_OFF, 0);
+    slot(t, 6, MS_MODW, MD_PAN, 16);
+    mod_begin(t);
+    check("slot 7 on PAN adds to slot 1 (+62), restored after", t->p[P_PAN] == 62);
+    mod_end(t);
+    check("slot 7: PAN restored after the block", t->p[P_PAN] == 0);
+    slot(t, 6, MS_OFF, MD_OFF, 0);
     slot(t, 0, MS_AT, MD_REV, -64);
     t->at = 127;
     t->p[P_REV] = 50;

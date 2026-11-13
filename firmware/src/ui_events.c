@@ -867,7 +867,7 @@ static void pk_open(uint32_t kind)
         }
         pk_build_auto(t, id, step, &sel);
     } else if (kind == PK_MDST) {
-        pk_build_mdst(t, (uint32_t)t->p[P_M1DST + 3u * mod_ui_slot], &sel);
+        pk_build_mdst(t, (uint32_t)MOD_ROW(t, mod_ui_slot)[MF_DST], &sel);
     }
     pk_cur = (uint8_t)sel;
 }
@@ -896,7 +896,7 @@ static void pk_apply(void)
             }
         }
     } else if (ui.pick == PK_MDST) {
-        t->p[P_M1DST + 3u * mod_ui_slot] = (int16_t)id;
+        MOD_ROW(t, mod_ui_slot)[MF_DST] = (int16_t)id;
     }
 }
 /* KNOB steps while a pick list is open: move the cursor and apply */

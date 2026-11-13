@@ -83,7 +83,7 @@ static int fx_target_available(const track_t *t, uint32_t id)
         if (fx_target_ptr(other, id) != ptr)
             continue;
         for (j = 0; j < NMSLOT; j++) {
-            uint32_t d = (uint32_t)other->p[P_M1DST + j * 3u];
+            uint32_t d = (uint32_t)MOD_ROW(other, j)[MF_DST];
             if (d > MD_AMP && d < MD_N && d != MD_DEPTH && d != MD_VEL && mod_param(d) == id)
                 return other == t;
         }

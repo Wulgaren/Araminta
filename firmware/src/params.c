@@ -683,7 +683,7 @@ static const page_t PAGES[] = {
                                                      * title, the footer's count tells); its map is perform.c PF2_DEF */
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
-static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */
+static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..NMSLOT - 1) KNOB 2..4 edit */
 
 /* MAP = ALL (stored QN_CURR): ROOT / SCL shared by every track while ALL is on. CURR (stored QN_ALL)
  * quantises the track you are on and shares nothing. */
@@ -823,8 +823,10 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         *valp = &song.g[id];
         return &GP[id];
     }
-    if (pg->graph == GR_MOD)                          /* SRC DST AMT of the slot shown */
-        id += 3u * mod_ui_slot;
+    if (pg->graph == GR_MOD) {                        /* SRC DST AMT of the slot shown (5..8: track_t.mx) */
+        *valp = &MOD_ROW(TSEL, mod_ui_slot)[id - P_M1SRC];
+        return track_desc(TSEL, id);
+    }
     /* VOICE page: SPRD in the last slot in POLY, UNI DTN in UNISON; MONO / LEG blank. VOICE 2: PITCH in every
      * mode (the bend card). SPRD = POLY / UNISON (fx.c mix_spread). */
     if (id == PG_BEND) {
