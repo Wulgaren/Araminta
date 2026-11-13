@@ -506,6 +506,8 @@ static int drums_project(project_t *c, uint32_t kit, int drumx_on_t2)
     dx_kit_pack(a.dx, DX_KITS[0].lane, DX_KITS[0].lay, DX_MDL_DEF);
     a.t[0].engine = ENGI_DRUMS;
     a.t[0].p[P_E0] = (int16_t)kit;
+    for (uint32_t i = 0; i < 8u; i++)
+        a.t[0].p[P_LN0 + i] = 127;                 /* the original engine's default lane levels */
     if (drumx_on_t2) {                                  /* (another track on DRUM-X, its own kit: LATIN PERC's) */
         a.t[1].engine = ENGI_DRUM;
         dx_kit_pack(a.dx, DX_KITS[DXK_LATIN].lane, DX_KITS[DXK_LATIN].lay, DX_MDL_DEF);
@@ -560,6 +562,30 @@ static int drums_retired(void)
     }
     bad += check("DRUMS track beside a DRUM-X track: DRUM-X, the project's kit kept", ok);
     return bad;
+}
+
+/* A saved DRUMS lane balance survives the wire migration, including a lane made silent with LEVEL 0. */
+static int drums_lane_levels(void)
+{
+    static project_t a, c;
+    static project_store_t st;
+    uint32_t i;
+    int ok;
+    memset(&a, 0, sizeof a);
+    a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
+    chain_defaults(&a.chain);
+    dx_kit_pack(a.dx, DX_KIT_DEF, DX_LAY_DEF, DX_MDL_DEF);
+    a.t[0].engine = ENGI_DRUMS;
+    a.t[0].p[P_E0] = 1;
+    for (i = 0; i < 8u; i++)
+        a.t[0].p[P_LN0 + i] = 127;
+    a.t[0].p[P_LN0] = 0;
+    a.t[0].p[P_LN1] = 64;
+    a.sum = proj_sum(&a);
+    ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
+    return check("DRUMS project migration keeps a silent kick and scales a half-volume snare",
+                 ok && c.t[0].engine == ENGI_DRUM && c.t[0].p[P_LN0] == 0 &&
+                 c.t[0].p[P_LN1] == 51 && c.t[0].p[P_LN2] == 107);
 }
 
 int main(void)
@@ -1011,6 +1037,7 @@ int main(void)
     bad += fun20_full_motion();
     bad += dx_layer_wire();
     bad += drums_retired();
+    bad += drums_lane_levels();
     printf("%s\n", bad ? "PROJECT FORMAT TEST FAILED" : "project format test passed");
     return bad != 0;
 }

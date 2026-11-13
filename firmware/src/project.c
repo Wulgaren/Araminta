@@ -443,11 +443,11 @@ static void proj_perc(project_t *q)
 }
 
 /* SLICE and DRUMS tracks -> DRUM (see the top; eng_retire.c). After proj_perc. DRUMS: the project's kit its KIT's
- * (the first DRUMS track's; eng_drum.c drums_kit) and its lane LEVELs, unless a DRUM-X track was there (one kit a
- * project: theirs stays). EDIT motion on those tracks is dropped. Idempotent */
+ * (the first DRUMS track's; eng_drum.c drums_kit) and its lane LEVELs scaled by the saved levels, unless a DRUM-X track
+ * was there (one kit a project: theirs stays). EDIT motion on those tracks is dropped. Idempotent */
 static void proj_retire(project_t *q)
 {
-    uint32_t k, i, n, hit = 0, drumx = 0, kit = 9u;
+    uint32_t k, i, n, hit = 0, drums = 0, drumx = 0, kit = 9u;
     dx_lane_t dk[8];
     uint8_t lay[8], mdl[8];
     int16_t ln[8];
@@ -458,8 +458,11 @@ static void proj_retire(project_t *q)
         uint32_t was = d->engine, to;
         if (!eng_retired(was))
             continue;
-        if (was == ENGI_DRUMS && kit > 8u)
-            kit = (uint32_t)clamp(d->p[P_E0], 0, 8);
+        if (was == ENGI_DRUMS) {
+            drums |= 1u << k;
+            if (kit > 8u)
+                kit = (uint32_t)clamp(d->p[P_E0], 0, 8);
+        }
         to = retire_remap_params(was, d->p);
         d->engine = (uint8_t)to;
         if (d->preset < PROJ_DEF_KEEP)
@@ -472,9 +475,9 @@ static void proj_retire(project_t *q)
         drums_kit(kit, dk, lay, mdl, ln);
         dx_kit_pack(q->dx, dk, lay, mdl);
         for (k = 0; k < NTRK; k++)
-            if ((hit >> k) & 1u)
+            if ((drums >> k) & 1u)
                 for (i = 0; i < 8u; i++)
-                    q->t[k].p[P_LN0 + i] = ln[i];
+                    q->t[k].p[P_LN0 + i] = (int16_t)(clamp(q->t[k].p[P_LN0 + i], 0, 127) * ln[i] / 127);
     }
     for (i = n = 0; i < q->motion.count && i < MOTION_MAX; i++) {
         const motion_event_t *e = &q->motion.event[i];

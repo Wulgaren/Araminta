@@ -570,7 +570,7 @@ static int up_load(uint32_t k)
         return 1;
     load_begin(t, UNDO_SOUND);                          /* (ui.c: the copy for SAVE held = undo) */
     panic_req |= (uint8_t)(1u << song.sel);
-    if (eng_retired(r->engine)) {                       /* SLICE: DRUM */
+    if (eng_retired(r->engine)) {                       /* SLICE / DRUMS: DRUM-X */
         int16_t p[P_COUNT];
         uint32_t to;
         for (i = 0; i < P_COUNT; i++)
@@ -580,6 +580,13 @@ static int up_load(uint32_t k)
         t->eng_req = (uint8_t)to;
         memcpy(t->p, p, sizeof t->p);
         t->preset = 0;
+        if (r->engine == ENGI_DRUMS && !drum_elsewhere(t)) {
+            int16_t ln[8];
+            drums_kit((uint32_t)clamp(v[P_E0], 0, 8), dx_kit, dx_lay, dx_mdl, ln);
+            for (i = 0; i < 8u; i++)
+                t->p[P_LN0 + i] = (int16_t)(t->p[P_LN0 + i] * ln[i] / 127);
+            undo.what |= UNDO_KIT;
+        }
         fm1_irq_on();
     } else {
         fm1_irq_off();                                  /* the audio ISR must not see half a sound */
