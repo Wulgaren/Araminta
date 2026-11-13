@@ -391,7 +391,7 @@ static uint32_t layer_leds(uint32_t *br);
 static uint32_t layer_btn(void);
 
 /* OP ENV / OP LEVEL pages are gone with DIGITAL; OPERATOR and OP ENV are FM6's (ui_fm6op.c).
- * LANES / LANES 2 and SOUND* (GR_DXSND) a DRUM track's; OSC A / OSC B / FILTER an ANALOG track's
+ * LANES / LANES 2 and SOUND / TONE / MOVEMENT (GR_DXSND) a DRUM track's; OSC A / OSC B / FILTER an ANALOG track's
  * (EDIT 1 / 2 are the other engines' sound pages; ANALOG uses its own three instead); OPERATOR,
  * OP ENV an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM (PAN/MUTE on MIXER). */
 static int page_visible(uint32_t i)
@@ -400,7 +400,7 @@ static int page_visible(uint32_t i)
     int drum = TSEL->eng_req % NENGINES == ENGI_DRUM;
     if (PAGES[i].graph == GR_GENERATION)
         return drum_track(TSEL);                      /* every drum kit: DRUM-X, CR78, USR drum kit */
-    if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / SOUND 2 / SOUND 3 */
+    if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / TONE / MOVEMENT */
         return drum;
     if (PAGES[i].fam == FAM_EDIT && PAGES[i].sec == EDIT_SEC_VOX && drum)   /* Voice hidden on DRUM */
         return 0;
@@ -1888,13 +1888,12 @@ static void track_select(uint32_t i)
 }
 
 #include "ui_events.c"                            /* SEQ > AUTOMATION: locks, events, CHANCE, RATCH as a list (an action page) */
-/* EDIT > SOUND / SOUND 2 / SOUND 3 (ui_dx.c, included by ui_input.c): the DRUM-X sound edited and its patch */
+/* EDIT > SOUND / TONE / MOVEMENT (ui_dx.c, included by ui_input.c): the DRUM-X sound edited and its patch */
 static uint8_t dx_ui_lane, dx_ui_side;
-static uint32_t dx_pagen(const page_t *pg)            /* "SOUND" -> 1; "SOUND 2" -> 2; "SOUND 3" -> 3 */
+static uint32_t dx_pagen(const page_t *pg)            /* "SOUND" -> 1; "TONE" -> 2; "MOVEMENT" -> 3 */
 {
-    return pg->title[5] == ' ' ? (uint32_t)(pg->title[6] - '0') : 1u;
+    return str_eq(pg->title, "TONE") ? 2u : str_eq(pg->title, "MOVEMENT") ? 3u : 1u;
 }
-static uint32_t dx_page2(const page_t *pg) { return dx_pagen(pg) == 2u; }
 static void dx_knob(const page_t *pg, uint32_t k, int32_t s);
 static void dx_cards(const page_t *pg);
 static uint32_t dx_sig(void);
