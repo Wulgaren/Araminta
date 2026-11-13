@@ -13,7 +13,7 @@
 static uint8_t dx_ui_seen = 0xFFu;                   /* the last key note followed */
 static const char *const DX_LANE_ABBR[8] = {"BD", "SD", "CP", "CH", "OH", "TM", "RS", "CB"};
 static const char *const DX_ENGINE_NAME[DXV_N] = {"FM", "SHELL", "METAL", "TEETH", "CLICK"};
-static const char *const DX_WAVE_NAME[4] = {"SIN", "FM", "MTL", "BEL"};
+static const char *const DX_WAVE_NAME[4] = {"SINE", "HARM", "METAL", "CLANG"};
 static const char *const DX_SHELL_R_NAME[4] = {"OFF", "1.42", "1.94", "1.60"};
 static const char *const DX_METAL_KIND_NAME[8] = {"HATS", "CYMBAL", "4 SQR", "CLUSTER", "BELL", "TRIADS", "2 SQR", "NOISE"};
 static const char *const DX_CLAPS_NAME[4] = {"3", "4", "5", "6"};

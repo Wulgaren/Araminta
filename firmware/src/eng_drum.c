@@ -14,11 +14,11 @@
  *
  * Parameters (stored as before: KIT's slot is MRPH, SNAP's NOIS, KICK's WARP): MRPH the MORPH A..B of every
  * lane; TUNE (+-12 semitones), TONE (COLOR), DECY (DECAY) and NOIS (NOISE) move every lane from its patch (64: as
- * the kit has it); FM ENV (JIANT 0.6.36, once ACC, then FM) the FM struck with each hit and gone with its pitch
+ * the kit has it); FM (JIANT 0.6.36, once ACC) the FM struck with each hit and gone with its pitch
  * envelope: a click, a beater, a metal edge (drumx_voice.c dx_run); FOLD (JIANT 0.5, was WARP) every sound's oscillator
  * through a wavefolder after its envelope: a bright attack folding back to the plain tail (0: as the kit has it); DRV
  * (JIANT 0.6.16) the kit's sum into a soft clip (x1..x4, level kept), then the knee (drum_bus). Each lane has its LEVEL
- * (P_LN0..P_LN7, EDIT > LANES / LANES 2, #97: square law, 100 % the default; the cowbell's 4 dB under) on the voice
+ * (P_LN0..P_LN7, EDIT > LANES 1/2 and 2/2, #97: square law, 100 % the default; the cowbell's 4 dB under) on the voice
  * amplitude. The track's LFO tunes the kit (DEST PIT) and moves MORPH (DEST SHP). The knobs move a hit while it rings.
  *
  * Polyphony: a lane per drum and part, mono: a hit reuses its lane's voice even at another pitch, the 8 lanes ring
@@ -333,7 +333,7 @@ static int32_t drum_keys(const track_t *t, uint32_t k)
     return clamp(29 + 12 * song.octave + (int32_t)k, 0, 127);
 }
 
-/* {MRPH, TUNE, TONE, DECY, NOIS, FM ENV, FOLD, DRV}; the kit suggests the BEAT pattern (GM notes). One a factory kit
+/* {MRPH, TUNE, TONE, DECY, NOIS, FM, FOLD, DRV}; the kit suggests the BEAT pattern (GM notes). One a factory kit
  * (JIANT 0.7.2: drumx_voice.c DX_KITS, this order; browsing loads it, ui.c apply_preset), as JIANT V10.7.24 has them;
  * a few move the whole kit (the LFO FREE: a hit does not restart it). JIANT's DIST amounts (LOFI DUST 8, INDUSTRIAL 16,
  * TECHNO RAW 10, BREAKS 4, HIP HOP 6) are its own track drive, not this fork's DIST stage: left out, as every preset
@@ -390,7 +390,7 @@ static const engine_t ENG_DRUM = {
         {"TONE", F_PCT, 0, 127, 64, 0, 0},
         {"DECY", F_PCT, 0, 127, 64, 0, 0},
         {"NOIS", F_PCT, 0, 127, 64, 0, 0},
-        {"FMENV", F_PCT, 0, 127, 0, 0, 0},              /* (JIANT 0.6.36 FM ENV: was FM, once ACC) */
+        {"FM", F_PCT, 0, 127, 0, 0, 0},                 /* (JIANT 0.6.36: the FM strikes with the hit, once ACC) */
         {"FOLD", F_PCT, 0, 127, 0, 0, 0},              /* (JIANT 0.5: a wavefolder, was WARP) */
         {"DRV", F_PCT, 0, 127, 0, 0, 0},
     },
