@@ -131,6 +131,21 @@ P_COUNT 69): slot k (1..4) is `SRCk`, `DSTk`, `AMTk` at ids 49 + 3 (k − 1) .. 
 (a factory preset sets all twelve to 0). The modulation never changes the stored values: `GET`,
 `DUMP` and the pushes report what was set.
 
+**Slots 5..8 (4.2, INFO `58 01 8`).** The matrix has eight slots. Slots 5..8 are not parameters (`P_COUNT` is full)
+and have no id: `GET` / `SET` / `DUMP` / `DESC` never name them. They take the descriptors of slot 1 (ids 49..51), a
+factory preset sets them to 0 as well, and they are saved with the sound (projects, user presets). One command
+reads and writes all eight:
+
+| cmd | Request args | Reply args |
+| --- | --- | --- |
+| 103 MATRIX | track 0..3 (get), or track, slot 0..7, SRC, DST, AMT + 64 (set) | track, then 8 × (SRC, DST, AMT + 64), slot 1 first |
+
+A set clamps each value to slot 1's range and replies with what was stored. Slots 0..3 of the command are the
+parameters 49..60 (a set of one is also a `SET` of them, without a `CHANGED` echo); a slot past 7 or a track past 3
+gets no reply. While `WATCH` is on, a change of any slot of the selected track on the device pushes the MATRIX reply
+(at most every 20 ms); the editor's own MATRIX set does not. The same frame is a reply when it answers the MATRIX
+request in flight, else a push.
+
 **DIGITAL (engine 1) was replaced by FM6 (Dexed-based)** in 1.0. The number stays reserved: `INFO` names it
 "-" (DIGITAL retired), `NAMES 1` lists no presets, its EDIT
 descriptors are "-" with DIGITAL's ranges, and no track ever has it. Whatever brings a DIGITAL sound plays it as
@@ -223,7 +238,7 @@ at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device 
 
 | cmd | Request args | Reply args |
 | --- | --- | --- |
-| 1 INFO | — | version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, then NENGINES engine-name strings, then (v3) NTRK (4), then (v6) CHAIN_ROWS (16), then the tagged blocks `55 01 uiCaps`, `4D 01 64 01`, `42 01 3`, `46 01 nfactory nbank`, `53 01 3`, (1.0.3) `50 01 3` and (1.0.4) `4E 01 count` (MENU settings; 12, 1.1: 15, 1.2: 17, 1.1.5: 18, 1.2: 23, 1.3: 24, 1.5: 25) and (1.0.5) `52 01 4` (ratchet) and (1.1) `4C 01 1` (parameter locks) and (1.2) `41 01 40 01` (192 motion records in this build; two 7-bit bytes, LSB first: `00 01` was 128 before; `4D 01 64 01` keeps saying 64) and `54 01 16` (a step's nudge, 1/16 of a step) and `57 01 4` (song sections: a slot per track, SONG ops 4..7) and (1.4.1) `56 01 32` / (3.10) `56 01 60` / (four banks) `56 01 00 01` (FM6 voice banks: cmds 74..77, SLOT 9..40 then 9..104 then 9..136, now 16..143; 128 as two 7-bit bytes); older firmware ends earlier. The `43 01 16` block
+| 1 INFO | — | version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, then NENGINES engine-name strings, then (v3) NTRK (4), then (v6) CHAIN_ROWS (16), then the tagged blocks `55 01 uiCaps`, `4D 01 64 01`, `42 01 3`, `46 01 nfactory nbank`, `53 01 3`, (1.0.3) `50 01 3` and (1.0.4) `4E 01 count` (MENU settings; 12, 1.1: 15, 1.2: 17, 1.1.5: 18, 1.2: 23, 1.3: 24, 1.5: 25) and (1.0.5) `52 01 4` (ratchet) and (1.1) `4C 01 1` (parameter locks) and (1.2) `41 01 40 01` (192 motion records in this build; two 7-bit bytes, LSB first: `00 01` was 128 before; `4D 01 64 01` keeps saying 64) and `54 01 16` (a step's nudge, 1/16 of a step) and `57 01 4` (song sections: a slot per track, SONG ops 4..7) and (1.4.1) `56 01 32` / (3.10) `56 01 60` / (four banks) `56 01 00 01` (FM6 voice banks: cmds 74..77, SLOT 9..40 then 9..104 then 9..136, now 16..143; 128 as two 7-bit bytes) and (4.2) `58 01 8` (MATRIX, cmd 103: the matrix's eight slots); older firmware ends earlier. The `43 01 16` block
 (1.5's MIDI LEARN map, cmds 78 / 79) is gone: a firmware that still answers it is read as any unknown block |
 | 2 GET | scope, id | scope, id, v14 |
 | 3 SET | scope, id, v14 | scope, id, v14 (the value after clamping). Setting global `G_ENGSEL` (id from DESC label "ENG") changes the engine: its defaults, then its first preset (as on the device) |
@@ -240,8 +255,8 @@ at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device 
 | 14 SMP_ERASE | slot | slot, rc (erases the whole slot, ~1 s) |
 | 15 SMP_INFO | — | slots, slot KiB, then per slot: type byte (low bits = zone count 0 = empty, max 16; bit 5 = a wavetable, then the low bits are 0; bit 6 = drum kit grid from FSMP `hdr.rsv`; 7-bit SysEx), name string, data KiB |
 | 16 UP_LIST | start, count (1..16) | start, count, total slots, then per slot: used (0/1), engine, name string ("" if unused); 1.2: then one category byte per slot listed (below; 0 if unused) |
-| 17 UP_GET | slot | slot, used, engine, name, P_COUNT × v14, 16 × (note, flags), then (v5) kind (0 a note pattern, 1 a drum grid) and for kind 1 16 × hi; 1.2: then the category |
-| 18 UP_PUT | slot, engine, name, P_COUNT × v14, 16 × (note, flags) [, kind 0 or 1, 16 × hi (v5) [, category (1.2)]] | slot, rc (0 ok, 1 args, 2 flash). Writes flash: allow 1 s |
+| 17 UP_GET | slot | slot, used, engine, name, P_COUNT × v14, 16 × (note, flags), then (v5) kind (0 a note pattern, 1 a drum grid) and for kind 1 16 × hi; 1.2: then the category; 4.2 (`58 01`): then the matrix's slots 5..8, 12 bytes as MATRIX sends them (SRC, DST, AMT + 64 each) |
+| 18 UP_PUT | slot, engine, name, P_COUNT × v14, 16 × (note, flags) [, kind 0 or 1, 16 × hi (v5) [, category (1.2) [, slots 5..8, 12 bytes (4.2, `58 01`)]]] | slot, rc (0 ok, 1 args, 2 flash). Writes flash: allow 1 s. Firmware without `58 01` refuses the 12 bytes (rc 1) |
 | 19 UP_STORE | slot, name | slot, rc. Stores the current sound: engine, parameters, the first 16 sequencer steps as the pattern (TIE steps → flag 4) |
 | 20 UP_LOAD | slot | slot, rc (0 ok, 1 empty/invalid). Applies its sound (not its pattern; the steps stay) |
 | 21 UP_ERASE | slot | slot, rc |

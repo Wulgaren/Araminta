@@ -102,6 +102,33 @@ async function editorMock() {
       "editor: a factory preset turns every matrix slot off");
   }
   {
+    /* the matrix's eight slots (cmd 103 MATRIX, INFO 58 01 8): slots 1..4 are 49..60, 5..8 only over MATRIX; a set
+       clamps, a factory preset clears them, UP_GET / UP_PUT carry 5..8 after the category */
+    ok(info.matrix === 8, "editor: INFO 58 01 8 (MATRIX, eight slots)");
+    const get = async (tr) => E.parse[E.CMD.MATRIX](await rq(E.req.matrix(tr)));
+    let m = await get(1);
+    ok(m.track === 1 && m.mx.length === 24 && m.mx.every((v) => v === 0), "editor: MATRIX get: 24 values, every slot off");
+    m = E.parse[E.CMD.MATRIX](await rq(E.req.matrix(0, 5, [1, 2, -20])));
+    const p = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info).p;
+    ok(m.mx.slice(15, 18).join() === "1,2,-20" && p.slice(49, 61).every((v) => v === 0), "editor: MATRIX set slot 6 (not a parameter)");
+    m = E.parse[E.CMD.MATRIX](await rq(E.req.matrix(0, 1, [6, 5, 63])));
+    const p2 = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info).p;
+    ok(p2.slice(52, 55).join() === "6,5,63" && m.mx.slice(3, 6).join() === "6,5,63", "editor: MATRIX set slot 2 = parameters 52..54");
+    m = E.parse[E.CMD.MATRIX](await rq(E.req.matrix(0, 7, [99, 99, -64])));
+    ok(m.mx.slice(21, 24).join() === "10,51,-64", "editor: MATRIX set clamps SRC / DST to their last");
+    await rq(E.req.preset(0, 3));
+    ok((await get(0)).mx.every((v) => v === 0), "editor: a factory preset clears slots 1..8");
+    const mx = [1, 2, 3, 4, 5, -6, 7, 8, 9, 10, 11, -64];
+    const u = E.parse[E.CMD.UP_GET]([5, 1, 0, 65, 0, ...new Array(2 * info.pcount + 32).fill(64), 0, 7, ...mx.map((v, i) => (i % 3 === 2 ? v + 64 : v))], info);
+    ok(u.cat === 7 && u.mx.join() === mx.join(), "editor: UP_GET reads the category and slots 5..8");
+    const put = E.req.upPut(5, { engine: 0, name: "MX", p: new Array(info.pcount).fill(0), pattern: [], cat: 7, mx })[1];
+    const tail = put.slice(put.length - 30);
+    ok(tail[0] === 0 && tail.slice(1, 17).every((x) => x === 0) && tail[17] === 7 && tail.slice(18).join() === mx.map((v, i) => (i % 3 === 2 ? v + 64 : v)).join(),
+      "editor: UP_PUT sends kind 0, 16 bytes, the category, slots 5..8");
+    ok(E.req.upPut(5, { engine: 0, name: "MX", p: new Array(info.pcount).fill(0), pattern: [] })[1].length === put.length - 30,
+      "editor: UP_PUT without slots 5..8 ends after the pattern (as before)");
+  }
+  {
     /* the chord keys (core.h P_CHRD, P_VOIC = 81, 82, just before P_E0 83): the track's, a factory preset keeps them */
     const c0 = E.parse[E.CMD.DESC](await rq(E.req.desc(0, 81)));
     const c1 = E.parse[E.CMD.DESC](await rq(E.req.desc(0, 82)));

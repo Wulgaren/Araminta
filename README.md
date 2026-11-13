@@ -65,13 +65,13 @@ stock.
   roll for synths, drum grid for kits (white keys are steps, black keys are lanes). Live recording with overdub,
   step recording, and a playhead the cursor follows.
 - **Parameter locks and automation.** Hold a step and turn a knob to lock a value on that step. Knob moves record
-  as automation. SEQ > AUTOMATION lists every lock and event to edit or delete. 192 records live, 155 saved per
+  as automation. SEQ > AUTOMATION lists every lock and event to edit or delete. 192 records live, 148 saved per
   project.
 - **SEQ TOOLS.** Hold SEQ for CLEAR, REVERSE, SHIFT, RANDOM, COOK, octave shifts, HALF, \*2, HUMAN and DUP. Each tool
   is one undo.
 - **Songs.** GLO > SONG chains up to 16 sections of project slots A..D, per track.
 - **Arpeggiator** with 14 modes, **15 scales**, chord keys with voicings and beat-synced STRUM.
-- **2 LFOs** (free or tempo-synced), a **4-slot mod matrix** per track, envelope times as note values.
+- **2 LFOs** (free or tempo-synced), an **8-slot mod matrix** per track, envelope times as note values.
 - **Effects.** DIST (with OTT), FILTER, CRUSH, PHASER, FLANGER, CHORUS, delay, reverb (HALL, ROOM, SPRING, SHIMR,
   CLOUD), SLICER, TAPE, and a master clipper, kick punch and sidechain duck.
 - **Presets.** Factory sounds, 96 user slots, 4 projects. Autosave restores your music at power-on.

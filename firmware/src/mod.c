@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Modulation matrix: per track four slots, each SRC -> DST by AMT (-64..63), added to the fixed
+/* Modulation matrix: per track eight slots (core.h MOD_ROW), each SRC -> DST by AMT (-64..63), added to the fixed
  * routings (ENV DEST, LFO DEST). Runs in the audio ISR (fx.c mix_part, voice.c track_render).
  *
  * Sources, Q15:
@@ -68,7 +68,9 @@ _Static_assert(PS_LFO == MS_LFO && PS_RAND == MS_RAND && PD_DLY == MD_DLY && PD_
                "core.h preset MOD numbers are the matrix's");
 _Static_assert(NELEM(N_MSRC) == MS_N && NELEM(N_MDST) == MD_N, "N_MSRC / N_MDST == MS_* / MD_*");
 _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 == P_FM1_ATK, "matrix slots: 3 ids each");
-#define NMSLOT 4u
+/* value v of a slot's field f (MF_SRC..MF_AMT) inside the range of slots 1..4 (TP): a slot 5..8 from a project, a user
+ * preset or the editor */
+static int16_t mod_fit(uint32_t f, int32_t v) { return (int16_t)clamp(v, TP[P_M1SRC + f].min, TP[P_M1SRC + f].max); }
 #define MS_VOICE(s) ((s) >= MS_ENV && (s) <= MS_RAND)             /* a value per voice */
 #define MS_BIPOLAR(s) ((s) == MS_LFO || (s) == MS_KEY || (s) == MS_RAND || (s) >= MS_SH)
 #define MD_ENGINE(d) ((d) >= MD_E1 && (d) < MD_E1 + 8)           /* E1..E8: P_E0..P_E7 */
@@ -242,20 +244,39 @@ static void mod_voice_add(uint32_t s, uint32_t d, int32_t x, int32_t a, int32_t 
         *gain = mulq15(*gain, mod_gain(s, x, a));
 }
 
-/* DEPTH: the track LFO's gain (Q15) from the DEPTH slots, 32767 = none (lfo: the LFO unscaled; a per-voice source
- * takes the latest note's value, as on the other per-block destinations). Its own function: mod_begin's loop stays
- * what it was */
-static __attribute__((noinline)) int32_t mod_depth(const track_t *t, int32_t lfo)
+/* the slots of t that do something (SRC, DST and AMT set, SRC and DST known), in slot order: their rows into r
+ * (MOD_ROW), how many. One pass for each caller below: the block's work grows with the active slots, not with NMSLOT */
+static uint32_t mod_active(const track_t *t, const int16_t *r[NMSLOT])
 {
-    const int16_t *p = t->p;
-    int32_t g = 32767;
-    uint32_t k;
+    uint32_t k, n = 0;
     for (k = 0; k < NMSLOT; k++) {
-        uint32_t s = (uint32_t)p[P_M1SRC + 3u * k];
-        if (p[P_M1DST + 3u * k] == MD_DEPTH && p[P_M1AMT + 3u * k] && s && s < MS_N)
-            g = mulq15(g, mod_gain(s == MS_LFO && p[P_LPOL] ? MS_ENV : s, mod_tsrc(t, s, lfo), p[P_M1AMT + 3u * k]));
+        const int16_t *q = MOD_ROW(t, k);
+        if (q[MF_SRC] > 0 && q[MF_SRC] < MS_N && q[MF_DST] > 0 && q[MF_DST] < MD_N && q[MF_AMT])
+            r[n++] = q;
+    }
+    return n;
+}
+
+/* DEPTH: the track LFO's gain (Q15) from the DEPTH slots among the n active rows r (mod_active), 32767 = none
+ * (lfo: the LFO unscaled; a per-voice source takes the latest note's value, as on the other per-block destinations).
+ * Its own function: mod_begin's loop stays what it was */
+static __attribute__((noinline)) int32_t mod_depth(const track_t *t, const int16_t *const r[], uint32_t n, int32_t lfo)
+{
+    int32_t g = 32767;
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        uint32_t s = (uint32_t)r[i][MF_SRC];
+        if (r[i][MF_DST] == MD_DEPTH)
+            g = mulq15(g, mod_gain(s == MS_LFO && t->p[P_LPOL] ? MS_ENV : s, mod_tsrc(t, s, lfo), r[i][MF_AMT]));
     }
     return g;
+}
+
+/* the track LFO as the active rows r leave it (with DEPTH), for a consumer outside the render block */
+static int32_t mod_lfo_now(const track_t *t, const int16_t *const r[], uint32_t n)
+{
+    int32_t lfo = mulq15(t->lfo_val, t->lfo_fade), d = mod_depth(t, r, n, lfo);
+    return d < 32767 ? mulq15(lfo, d) : lfo;
 }
 
 /* VEL: the note's velocity through the VEL slots, a Q15 gain (32767 = none), taken once at note-on. The sources
@@ -263,26 +284,18 @@ static __attribute__((noinline)) int32_t mod_depth(const track_t *t, int32_t lfo
  * (mod_note ran). Its own function: trk_note_on's path stays what it was */
 static __attribute__((noinline)) int32_t mod_vel(const track_t *t)
 {
-    const int16_t *p = t->p;
+    const int16_t *r[NMSLOT];
+    uint32_t n = mod_active(t, r), i;
     int32_t g = 32767, lfo;
-    uint32_t k;
-    for (k = 0; k < NMSLOT; k++)
-        if (p[P_M1DST + 3u * k] == MD_VEL && p[P_M1SRC + 3u * k] && p[P_M1AMT + 3u * k])
-            break;
-    if (k == NMSLOT)
+    for (i = 0; i < n && r[i][MF_DST] != MD_VEL; i++)
+        ;
+    if (i == n)
         return g;
-    lfo = mulq15(t->lfo_val, t->lfo_fade);
-    {
-        int32_t d = mod_depth(t, lfo);
-        if (d < 32767)
-            lfo = mulq15(lfo, d);
-    }
-    for (; k < NMSLOT; k++) {
-        uint32_t s = (uint32_t)p[P_M1SRC + 3u * k], d = (uint32_t)p[P_M1DST + 3u * k];
-        int32_t a = p[P_M1AMT + 3u * k];
-        if (d != MD_VEL || !s || !a || s >= MS_N)
-            continue;
-        g = mulq15(g, mod_gain(s, mod_tsrc(t, s, lfo), a));
+    lfo = mod_lfo_now(t, r, n);
+    for (; i < n; i++) {
+        uint32_t s = (uint32_t)r[i][MF_SRC];
+        if (r[i][MF_DST] == MD_VEL)
+            g = mulq15(g, mod_gain(s, mod_tsrc(t, s, lfo), r[i][MF_AMT]));
     }
     return g;
 }
@@ -292,29 +305,22 @@ static __attribute__((noinline)) int32_t mod_vel(const track_t *t)
  * the slots that point at it, clamped as mod_begin clamps them; the sources as they are now (LFO with DEPTH) */
 static __attribute__((noinline)) int32_t mod_value(const track_t *t, uint32_t id)
 {
-    const int16_t *p = t->p;
-    int32_t v = p[id], lfo;
-    uint32_t k;
-    for (k = 0; k < NMSLOT; k++) {
-        uint32_t d = (uint32_t)p[P_M1DST + 3u * k];
-        if (d && d < MD_N && d != MD_DEPTH && d != MD_VEL && p[P_M1SRC + 3u * k] &&
-            p[P_M1AMT + 3u * k] && mod_param(d) == id)
+    const int16_t *r[NMSLOT];
+    uint32_t n = mod_active(t, r), i;
+    int32_t v = t->p[id], lfo;
+    for (i = 0; i < n; i++) {
+        uint32_t d = (uint32_t)r[i][MF_DST];
+        if (d != MD_DEPTH && d != MD_VEL && mod_param(d) == id)
             break;
     }
-    if (k == NMSLOT)
+    if (i == n)
         return v;
-    lfo = mulq15(t->lfo_val, t->lfo_fade);
-    {
-        int32_t d = mod_depth(t, lfo);
-        if (d < 32767)
-            lfo = mulq15(lfo, d);
-    }
-    for (; k < NMSLOT; k++) {
-        uint32_t s = (uint32_t)p[P_M1SRC + 3u * k], d = (uint32_t)p[P_M1DST + 3u * k];
-        int32_t a = p[P_M1AMT + 3u * k];
-        if (!s || !a || s >= MS_N || !d || d >= MD_N || d == MD_DEPTH || d == MD_VEL || mod_param(d) != id)
+    lfo = mod_lfo_now(t, r, n);
+    for (; i < n; i++) {
+        uint32_t s = (uint32_t)r[i][MF_SRC], d = (uint32_t)r[i][MF_DST];
+        if (d == MD_DEPTH || d == MD_VEL || mod_param(d) != id)
             continue;
-        v += (((mod_tsrc(t, s, lfo) * a) >> 6) * (TP[id].max - TP[id].min)) >> 15;
+        v += (((mod_tsrc(t, s, lfo) * r[i][MF_AMT]) >> 6) * (TP[id].max - TP[id].min)) >> 15;
     }
     return clamp(v, TP[id].min, TP[id].max);
 }
@@ -326,17 +332,16 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
 {
     modw_t *mw = &MOD(t);
     const int16_t *p = t->p;
+    const int16_t *r[NMSLOT];
     int32_t lfo, off[NMSLOT];
     int16_t *target[NMSLOT];
     const param_desc_t *desc[NMSLOT];
-    uint32_t k, j;
+    uint32_t n, i, j;
     mw->on = 0;
     bus_knobs_on[C1_PI(t)] = 0;                     /* without a slot the render reads the real knobs */
     mod_bus_wn[C1_PI(t)] = 0;
-    for (k = 0; k < NMSLOT; k++)
-        if (p[P_M1SRC + 3u * k] && p[P_M1DST + 3u * k] && p[P_M1AMT + 3u * k])
-            break;
-    if (k == NMSLOT)
+    n = mod_active(t, r);
+    if (!n)
         return 0;
     bus_knobs_fill(t);                              /* the shared knobs as they are, before this part's modulation */
     bus_knobs_on[C1_PI(t)] = 1;
@@ -346,13 +351,13 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     mw->nv = mw->nk = 0;
     mw->pit = mw->cut = mw->shp = 0;
     mw->gain = 32767;
-    mw->ldep = mod_depth(t, lfo);                       /* DEPTH first: the other slots see the LFO it leaves */
+    mw->ldep = mod_depth(t, r, n, lfo);                 /* DEPTH first: the other slots see the LFO it leaves */
     if (mw->ldep < 32767)
         lfo = mulq15(lfo, mw->ldep);
-    for (; k < NMSLOT; k++) {
-        uint32_t s = (uint32_t)p[P_M1SRC + 3u * k], d = (uint32_t)p[P_M1DST + 3u * k];
-        int32_t a = p[P_M1AMT + 3u * k], x;
-        if (!s || !d || !a || s >= MS_N || d >= MD_N || d == MD_DEPTH || d == MD_VEL)
+    for (i = 0; i < n; i++) {
+        uint32_t s = (uint32_t)r[i][MF_SRC], d = (uint32_t)r[i][MF_DST];
+        int32_t a = r[i][MF_AMT], x;
+        if (d == MD_DEPTH || d == MD_VEL)
             continue;
         if (d <= MD_AMP) {                              /* per voice */
             mw->amp |= d == MD_AMP;

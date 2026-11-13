@@ -1247,7 +1247,7 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
     if (pg->graph == GR_MOD && slot == 0u) {             /* MOD: KNOB 1 the slot, 2..4 its SRC DST AMT */
         pk_close();
-        mod_ui_slot = (uint8_t)clamp((int32_t)mod_ui_slot + (steps > 0 ? 1 : -1), 0, 3);
+        mod_ui_slot = (uint8_t)clamp((int32_t)mod_ui_slot + (steps > 0 ? 1 : -1), 0, (int32_t)NMSLOT - 1);
         return;
     }
     if (pg->graph == GR_MOD && slot == 2u) {             /* #223: DST as a flat full-screen list */
@@ -1286,10 +1286,8 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     }
     *vp = (int16_t)v;
-    if (pg->scope != SC_GLOBAL) {
+    if (pg->scope != SC_GLOBAL && pg->graph != GR_MOD) {   /* (the matrix: never automation, no scale) */
         uint32_t id = pg->id[slot];
-        if (pg->graph == GR_MOD)
-            id += 3u * mod_ui_slot;
         /* page id may alias (VOICE POLY SPRD uses P_DETUNE); prefer the real p[] index */
         if (vp >= TSEL->p && vp < TSEL->p + P_COUNT)
             id = (uint32_t)(vp - TSEL->p);
