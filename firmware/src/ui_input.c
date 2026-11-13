@@ -1606,8 +1606,9 @@ static void seq_entry(uint32_t pressed)
 }
 
 /* (JIANT sound dice, Araminta: OCT+ held + PRESETS). A random factory preset of the engine, then each engine
- * parameter moved up to a quarter of its range (an ENUM: another value, one time in three). Always near a sound
- * that works. */
+ * parameter moved up to a quarter of its range (an ENUM: another value, one time in three). DRUM-X: the preset's kit
+ * (its MODELs and LAYERs) instead, each sound's numbers moved up to 40 and its WAVE another one time in five; a kit
+ * another track shares stays as it is. Always near a sound that works; SAVE held takes it back (the preset's undo). */
 static int32_t dice_by(int32_t v, int32_t lo, int32_t hi, int32_t span)
 {
     return clamp(v + (int32_t)(rng() % (uint32_t)(2 * span + 1)) - span, lo, hi);
@@ -1615,23 +1616,28 @@ static int32_t dice_by(int32_t v, int32_t lo, int32_t hi, int32_t span)
 static void sound_dice(void)
 {
     track_t *t = TSEL;
-    uint32_t e = t->eng_req % NENGINES, i, l;
+    uint32_t e = t->eng_req % NENGINES, i, l, n;
+    if (ENGINES[e]->npresets) {                         /* (one browsing shows: never SAMPLE's PERC, a DRUM-X switch) */
+        n = rng() % preset_shown(e);
+        for (i = 0; preset_orig(ENGINES[e], i) != i || n--; i++)
+            ;
+        apply_preset(i);
+    }
     if (e == ENGI_DRUM) {
+        if (drum_elsewhere(t))                          /* (apply_preset said KIT OF T? KEPT) */
+            return;
         for (l = 0; l < 8u; l++) {
-            const dx_lane_t *D = &DX_KIT_DEF[l];
             dx_lane_t *L = &dx_kit[l];
             for (i = 0; i < DXP_N; i++) {               /* (COLOR: brightness, down 40 but up 12 at most) */
                 int32_t up = i == DXP_COLOR ? 12 : 127;
-                L->a[i] = (uint8_t)dice_by(D->a[i], 0, D->a[i] + up < 127 ? D->a[i] + up : 127, 40);
-                L->b[i] = (uint8_t)dice_by(D->b[i], 0, D->b[i] + up < 127 ? D->b[i] + up : 127, 40);
+                L->a[i] = (uint8_t)dice_by(L->a[i], 0, L->a[i] + up < 127 ? L->a[i] + up : 127, 40);
+                L->b[i] = (uint8_t)dice_by(L->b[i], 0, L->b[i] + up < 127 ? L->b[i] + up : 127, 40);
             }
-            L->mode = (uint8_t)((D->mode & ~3u) | (rng() % 5u ? (D->mode & 3u) : rng() % 2u));
+            L->mode = (uint8_t)((L->mode & ~3u) | (rng() % 5u ? (L->mode & 3u) : rng() % 4u));
         }
         ui_message("KIT DICED");
         return;
     }
-    if (ENGINES[e]->npresets)
-        apply_preset(rng() % ENGINES[e]->npresets);
     for (i = 0; i < 8u; i++) {
         const param_desc_t *d = track_desc(t, P_E0 + i);
         int32_t span = (d->max - d->min) / 4;
