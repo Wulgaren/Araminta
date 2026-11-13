@@ -3861,6 +3861,14 @@ static int test_edit_cycle(void)
     ok &= str_eq(cur_page()->title, "SOUND 2");
     turn(EN_SELECT, 1); frame();
     ok &= str_eq(cur_page()->title, "SOUND 3");
+    {                                                 /* SOUND 3: knob 1 MODEL, knob 2 LAYER; 3 and 4 (and no LANE) */
+        uint8_t md0 = 1, ly0 = 3;
+        int ok3;
+        dx_ui_lane = DV_CLAP; dx_mdl[DV_CLAP] = md0; dx_lay[DV_CLAP] = ly0;
+        turn(EN_K1, 1); turn(EN_K2, 1); turn(EN_K3, 1); turn(EN_K4, 1);
+        ok3 = dx_mdl[DV_CLAP] == md0 + 1 && dx_lay[DV_CLAP] == ly0 + 1 && dx_ui_lane == DV_CLAP;
+        bad += check("SOUND 3: knob 1 is MODEL, knob 2 LAYER; 3 and 4 do nothing", ok3);
+    }
     turn(EN_SELECT, 1); frame();                      /* Kit: stop at last page */
     ok &= str_eq(cur_page()->title, "SOUND 3");
     press(B_EDIT); frame();                           /* Kit → Lanes */

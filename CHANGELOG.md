@@ -11,7 +11,7 @@
   808 BOOM, LOFI DUST, INDUSTRIAL, ACOUSTIC, DUB ROOTS, TECHNO RAW, BREAKS, HIP HOP, LATIN PERC. Per-sound sends left
   out (JIANT ships them at 0), and so is JIANT's own DIST on five kits.
 - **Each sound has a MODEL** (EDIT > Kit > SOUND 3, with LAYER): CLASSIC, or Felucca's DRUMS voices SHELL, METAL,
-  TEETH, CLICK. Felucca's kits STD, 80, 10, 66, 55 and 77 are DRUM-X presets **DRUMS STD .. DRUMS 77**, translated
+  TEETH, CLICK. Felucca's kits STD, 80, 10, 66, 55 and 77 are DRUM-X presets **STD, 80, 10, 66, 55 and 77**, translated
   from its numbers.
 - **DRUMS (engine 15) is retired.** Projects and user presets on it load as DRUM-X with their KIT's kit (DEEP,
   TIGHT and PERC assembled from the others). Close to the old sound, not identical.

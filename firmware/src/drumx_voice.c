@@ -771,7 +771,7 @@ static const dx_kit_t DX_KITS[] = {
         },
         {0, 4, 0, 0, 0, 0, 0, 0},
     },
-    {   /* DRUMS STD (Felucca's DRUMS kit STD, translated) */
+    {   /* STD (Felucca's DRUMS kit STD, translated) */
         {
             {DX_MODE(DXW_SINE, DXF_LP, 1) | 1 << 5, {10, 69, 58, 0, 86}, {10, 69, 58, 0, 86}},   /* KICK: CLASSIC */
             {DX_MODE(DXW_BELL, DXF_BP, 1), {39, 2, 63, 36, 99}, {39, 2, 63, 36, 99}},   /* SNARE: SHELL */
@@ -784,7 +784,7 @@ static const dx_kit_t DX_KITS[] = {
         },
         {0, 0, 0, 0, 0, 0, 0, 0}, {0, 1, 3, 2, 2, 0, 4, 2},
     },
-    {   /* DRUMS 80 (Felucca's DRUMS kit 80, translated) */
+    {   /* 80 (Felucca's DRUMS kit 80, translated) */
         {
             {DX_MODE(DXW_SINE, DXF_LP, 1), {10, 4, 67, 0, 0}, {10, 4, 67, 0, 0}},   /* KICK: CLASSIC */
             {DX_MODE(DXW_METAL, DXF_BP, 0), {38, 0, 45, 77, 96}, {38, 0, 45, 77, 96}},   /* SNARE: SHELL */
@@ -797,7 +797,7 @@ static const dx_kit_t DX_KITS[] = {
         },
         {0, 0, 0, 0, 0, 0, 0, 0}, {0, 1, 3, 2, 2, 0, 4, 2},
     },
-    {   /* DRUMS 10 (Felucca's DRUMS kit 10, translated) */
+    {   /* 10 (Felucca's DRUMS kit 10, translated) */
         {
             {DX_MODE(DXW_SINE, DXF_LP, 1), {15, 17, 82, 0, 0}, {15, 17, 82, 0, 0}},   /* KICK: CLASSIC */
             {DX_MODE(DXW_SINE, DXF_BP, 0), {40, 19, 73, 96, 107}, {40, 19, 73, 96, 107}},   /* SNARE: SHELL */
@@ -810,7 +810,7 @@ static const dx_kit_t DX_KITS[] = {
         },
         {0, 0, 0, 0, 0, 0, 0, 0}, {0, 1, 3, 2, 2, 0, 4, 2},
     },
-    {   /* DRUMS 66 (Felucca's DRUMS kit 66, translated) */
+    {   /* 66 (Felucca's DRUMS kit 66, translated) */
         {
             {DX_MODE(DXW_SINE, DXF_LP, 1), {16, 0, 56, 0, 0}, {16, 0, 56, 0, 0}},   /* KICK: CLASSIC */
             {DX_MODE(DXW_FM, DXF_BP, 0), {50, 0, 37, 122, 113}, {50, 0, 37, 122, 113}},   /* SNARE: SHELL */
@@ -823,7 +823,7 @@ static const dx_kit_t DX_KITS[] = {
         },
         {0, 0, 0, 0, 0, 0, 0, 0}, {0, 1, 3, 2, 2, 0, 4, 4},
     },
-    {   /* DRUMS 55 (Felucca's DRUMS kit 55, translated) */
+    {   /* 55 (Felucca's DRUMS kit 55, translated) */
         {
             {DX_MODE(DXW_SINE, DXF_LP, 1) | 1 << 5, {12, 27, 52, 0, 69}, {12, 27, 52, 0, 69}},   /* KICK: CLASSIC */
             {DX_MODE(DXW_SINE, DXF_BP, 0), {47, 4, 41, 116, 106}, {47, 4, 41, 116, 106}},   /* SNARE: SHELL */
@@ -836,7 +836,7 @@ static const dx_kit_t DX_KITS[] = {
         },
         {0, 0, 0, 0, 0, 0, 0, 0}, {0, 1, 3, 2, 2, 0, 4, 2},
     },
-    {   /* DRUMS 77 (Felucca's DRUMS kit 77, translated) */
+    {   /* 77 (Felucca's DRUMS kit 77, translated) */
         {
             {DX_MODE(DXW_SINE, DXF_LP, 1) | 1 << 5, {16, 4, 76, 0, 0}, {16, 4, 76, 0, 0}},   /* KICK: CLASSIC */
             {DX_MODE(DXW_SINE, DXF_BP, 0), {45, 0, 56, 51, 89}, {45, 0, 56, 51, 89}},   /* SNARE: SHELL */
@@ -852,7 +852,7 @@ static const dx_kit_t DX_KITS[] = {
 };
 #define DX_NKIT ((uint32_t)(sizeof DX_KITS / sizeof DX_KITS[0]))
 #define DXK_LATIN 10u                                    /* LATIN PERC */
-#define DXK_DRUMS 11u                                    /* DRUMS STD, the first of Felucca's: then 80 10 66 55 77 */
+#define DXK_DRUMS 11u                                    /* STD, the first of Felucca's: then 80 10 66 55 77 */
 /* the factory kit: what a project without one gets, INIT SOUND, the power-on (dx_kit / dx_lay, set here) */
 #define DX_KIT_DEF (DX_KITS[0].lane)
 #define DX_LAY_DEF (DX_KITS[0].lay)
