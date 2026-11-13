@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 4.1
+
+DRUM-X now runs JIANT's newer voice with 17 kits, and DRUMS folds into it. Lane levels move to the MIXER, and the
+SEQ and AUTOMATION pages get a simpler order.
+
+Splash and ABOUT show `v4.1`.
+
+### Compatibility
+
+- Projects keep their size and layout (FUN20). Each sound's LAYER and MODEL ride in the kit bytes' spare top bits, and
+  the filter GR in the mode byte: 3.10 and older refuse a project saved with any of them.
+- A DRUM-X project made before this plays the new voice. Its FM knob now strikes with the hit and decays with the pitch
+  envelope, so a project with FM up sounds different.
+- DRUMS projects and user presets load as DRUM-X. A migrated project keeps its lane levels, zero and lowered ones
+  included.
+
 ### DRUM-X: JIANT's kits, Felucca's kits, DRUMS retired
 
 - **JIANT V10.7.24's DRUM-X voice** replaces the older port: half-rate rendering, the V10.6q quality pass (cleaner
@@ -33,12 +49,16 @@
   knobs; its footer keeps the normal page layout, with **OCT- UNDO** where the sound name goes and the page count at
   the right. SEQ TOOLS' drum-lane mute reads **MUT BD**, not **M BD**.
 
-#### Compatibility
+### AUTOMATION list
 
-- Projects keep their size and layout. Each sound's LAYER and MODEL ride in the kit bytes' spare top bits, and the
-  filter GR in the mode byte: 3.10 and older refuse a project saved with any of them.
-- A DRUM-X project made before this plays the new voice. Its FM knob now strikes with the hit and decays with the pitch
-  envelope, so a project with FM up sounds different.
+- QUANTIZE is the first row and the automation ON / OFF row (was PLAY) is second, now called **ENABLED**. A divider
+  sits under the two settings. An empty list shows NO AUTOMATION above + ADD.
+
+### Fixes
+
+- SAVE held now undoes a preset load that replaced the project's DRUM-X kit, and browsing presets keeps the kit
+  change in the same undo step.
+- The firmware and host tests build with no warnings.
 
 ## 3.10
 
