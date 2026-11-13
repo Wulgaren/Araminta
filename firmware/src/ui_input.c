@@ -2050,7 +2050,6 @@ static void ui_input(void)
                     set_engine(t->eng_req);
                     if (drum_track(t)) {
                         memcpy(dx_kit, DX_KIT_DEF, sizeof dx_kit);
-                        memset(dx_mot, 0, sizeof dx_mot);
                     }
                     song.sel = (uint8_t)was;
                     if (kind == CF_CLEAR_TRACK_ALL) {
@@ -2083,7 +2082,6 @@ static void ui_input(void)
                         set_engine(trk[i].eng_req);
                         if (drum_track(&trk[i])) {
                             memcpy(dx_kit, DX_KIT_DEF, sizeof dx_kit);
-                            memset(dx_mot, 0, sizeof dx_mot);
                         }
                         if (kind == CF_CLEAR_EVERY_TRACK_ALL) {
                             track_defaults_steps(&trk[i]);

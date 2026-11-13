@@ -37,16 +37,9 @@ typedef struct {
     int8_t st;                   /* its semitones from the lane's pitch (the GM map) */
     uint8_t mg;                  /* its group mute's fade: DXG_FADE (sounding) .. 0 (muted, silent) */
     uint8_t age;                 /* blocks since the hit (255: and more): PUNCH's shape */
-    int8_t rm, rt;               /* (0.5.1) X-MOD RAND: this hit's MORPH offset, its tune (1/16 semitones) */
 } drum_lane_t;
-/* (JIANT 0.5.1) X-MOD (EDIT > X-MOD on a DRUM track): the kit's own modulator, saved with the kit (project.c, in its
- * reserved bytes): RATE (OFF, 4BAR 2BAR 1BAR 1/2 1/4 1/8 1/16 1/32: a tempo-synced LFO), DPTH (how far it moves
- * MORPH, +-64), SHPE (SINE TRI SAW RAMP S&H), RAND (each hit its own MORPH, up to +-64, and tune, up to +-1
- * semitone: no two hits alike). dx_mot_v: the LFO's MORPH offset this block (fx.c dx_mot_block) */
-enum { XM_RATE, XM_DPTH, XM_SHPE, XM_RAND };
-static uint8_t dx_mot[4];
-static int32_t dx_mot_v;
-static uint32_t dx_mot_rng = 0x9E3779B9u;
+/* (JIANT 0.5.1) X-MOD, the kit's own MORPH LFO and RAND, is retired (its page went in 3.x; its playback from older
+ * projects too, for flash): the track's LFO and the mod matrix move MORPH */
 
 ENG_MEM_FITS("DRUM-X", sizeof(drum_lane_t) * DV_NLANE);
 /* 1.4.1: each part's lanes muted (bit l: lane l). SEQ TOOLS F4 mutes the selected lane; the EDIT layer's black keys
@@ -208,14 +201,6 @@ static void drum_note_on(track_t *t, voice_t *v)
                                                           * notes) would end a fresh voice at env 0 in env_tick */
     L->mg = DXG_FADE;
     L->age = 0;
-    if (dx_mot[XM_RAND]) {                               /* (0.5.1) X-MOD RAND: this hit's own MORPH and tune */
-        int32_t r = dx_mot[XM_RAND];
-        dx_mot_rng = dx_mot_rng * 1664525u + 1013904223u;
-        L->rm = (int8_t)(((int32_t)(dx_mot_rng >> 24) - 128) * r >> 8);
-        L->rt = (int8_t)(((int32_t)((dx_mot_rng >> 16) & 255u) - 128) * r >> 10);
-    } else {
-        L->rm = L->rt = 0;
-    }
     if (lane == DV_KICK)
         duck_hit = 1;
     dx_trigger(&L->x);
@@ -272,8 +257,8 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     }
     if (n > CTL)
         n = CTL;
-    dx_run(&dx_kit[(uint32_t)v->s[0] & (DV_NLANE - 1u)], &L->x, p[P_E0] + dx_mot_v + L->rm,
-           L->st * 16 + L->rt + (p[P_E1] - 64) * 3 + t->pfx_pit,
+    dx_run(&dx_kit[(uint32_t)v->s[0] & (DV_NLANE - 1u)], &L->x, p[P_E0],
+           L->st * 16 + (p[P_E1] - 64) * 3 + t->pfx_pit,
            p[P_E3] - 64, p[P_E2] - 64, p[P_E4] - 64, p[P_E6], p[P_E5], y, n);
     if (drv > 0) {                                       /* DRV: x1..x4 into the soft clip, the level kept (Q12) */
         g = 4096 + drv * 3 * 4096 / 127;

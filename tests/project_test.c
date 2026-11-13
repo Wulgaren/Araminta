@@ -759,7 +759,7 @@ int main(void)
         memcpy(a.dx, DX_KIT_DEF, sizeof a.dx);
         a.dx[0].a[0] = 11; a.dx[0].b[2] = 99; a.dx[3].a[4] = 55;
         a.dx_mute = (uint16_t)(DXG_KICK | (1u << 8) | (4u << 8));
-        a.dx_mot[XM_RATE] = 3; a.dx_mot[XM_DPTH] = 40; a.dx_mot[XM_SHPE] = 2; a.dx_mot[XM_RAND] = 17;
+        a.dx_mot[0] = 3; a.dx_mot[1] = 40; a.dx_mot[2] = 2; a.dx_mot[3] = 17;
         for (i = 0; i < FX_BUS_N; i++)
             a.fx_bus[i] = (uint8_t)(10u + i);
         memcpy(a.name, "DX KIT", 6);

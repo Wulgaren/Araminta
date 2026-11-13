@@ -202,7 +202,7 @@ typedef struct {
     uint8_t fm6[NTRK][FM6_PACKED];             /* each track's FM6 patch, packed (eng_fm6.c) */
     dx_lane_t dx[8];                           /* the DRUM-X kit (drumx_voice.c); FUN11 */
     uint16_t dx_mute;                          /* group + lane mutes (eng_drum.c dx_mute) */
-    uint8_t dx_mot[4];                         /* X-MOD RATE DPTH SHPE RAND (eng_drum.c); RAM-only since bus layout */
+    uint8_t dx_mot[4];                         /* X-MOD (retired, eng_drum.c): always 0, the layout kept */
     uint8_t fx_bus[FX_BUS_N];                  /* SEND insert+slicer knobs (wire in reclaimed SCL/X-MOD bytes) */
     uint8_t fx_master[FX_LIST_N];              /* MASTER owner per EFFECTS stage; FUN18 wire */
     uint8_t fx_master_order;                   /* ordering track + 1; zero: legacy first owner */
@@ -1068,21 +1068,11 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
             return 0;
     }
     if (v11) {                                          /* DRUM-X kit (a broken one: not a project) */
-        int bus_layout = (v14 && (b[PROJ_SCL_OFF] & 0x80u)) ||
-                         (magic == PROJ_MAGIC_V13 && b[PROJ_SCL_MARK_OFF] == 1u);
         memcpy(q->dx, b + PROJ_DX_OFF, sizeof q->dx);
         if (!dx_kit_ok(q->dx)) return 0;
         q->dx_mute = (uint16_t)((b[PROJ_DX_OFF + sizeof q->dx] & DXG_ALL) |
                                 (uint32_t)b[PROJ_DX_OFF + sizeof q->dx + 1u] << 8);
-        if (bus_layout) {
-            memset(q->dx_mot, 0, sizeof q->dx_mot);     /* X-MOD not on disk */
-        } else {
-            memcpy(q->dx_mot, b + PROJ_DX_OFF + sizeof q->dx + 3u, sizeof q->dx_mot);
-            q->dx_mot[XM_RATE] = q->dx_mot[XM_RATE] > 8u ? 0u : q->dx_mot[XM_RATE];
-            q->dx_mot[XM_DPTH] &= 127u;
-            q->dx_mot[XM_SHPE] = q->dx_mot[XM_SHPE] > 4u ? 0u : q->dx_mot[XM_SHPE];
-            q->dx_mot[XM_RAND] &= 127u;
-        }
+        memset(q->dx_mot, 0, sizeof q->dx_mot);         /* (X-MOD retired: an older layout's bytes ignored) */
     } else {
         memcpy(q->dx, DX_KIT_DEF, sizeof q->dx);
         q->dx_mute = 0;
@@ -1264,7 +1254,6 @@ static void project_capture(project_t *p)
     p->motion = motion;
     memcpy(p->dx, dx_kit, sizeof p->dx);
     p->dx_mute = dx_mute;
-    memcpy(p->dx_mot, dx_mot, sizeof p->dx_mot);       /* RAM snapshot; not written to disk */
     fx_bus_to_wire(p->fx_bus);
     for (i = 0; i < FX_BUS_N; i++)
         p->fx_bus[i] = (uint8_t)clamp(motion_fx_base(&fx_bus_trk.p[FX_BUS_PID[i]]), 0, 127);
@@ -1448,7 +1437,6 @@ static int project_restore_runtime(const project_t *input)
     memset(drum_mute, 0, sizeof drum_mute);       /* (1.4.1: the DRUM lanes' mutes, performance state) */
     if (p != input) memcpy(p, input, sizeof *p);
     memcpy(dx_kit, dx_kit_ok(p->dx) ? p->dx : DX_KIT_DEF, sizeof dx_kit);   /* FUN11 kit (FUN10: factory) */
-    memcpy(dx_mot, p->dx_mot, sizeof dx_mot);           /* RAM-only; new saves do not restore from disk */
     fx_bus_from_wire(p->fx_bus);
     dx_mute_set(p->dx_mute);
     proj_drums_to_part(p);                              /* a RAM slot of firmware before 1.0 */

@@ -632,7 +632,7 @@ static const page_t PAGES[] = {
     {"OSC A", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_E0, P_MORPH, P_DRIFT, P_E3}},
     {"OSC B", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_WAVE2, P_E7, P_E1, P_E2}},
     {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_FTYPE, P_E4, P_E5, P_E6}},
-    /* DRUM-X kit (ui_dx.c): SOUND / SOUND 2 (SOUND 3 / X-MOD retired; FUN11 still stores dx_mot) */
+    /* DRUM-X kit (ui_dx.c): SOUND / SOUND 2 (SOUND 3 / X-MOD retired; FUN11's X-MOD bytes ignored) */
     {"SOUND", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"SOUND 2", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN0, P_LN1, P_LN2, P_LN3}},
