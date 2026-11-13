@@ -26,7 +26,8 @@
 - **SEQ pages.** **PATTERN** is gone: its LEN / DIV / SWING / GATE knobs are on SEQ TOOLS and its layer. The step
   group walks **STEP → DETAIL → AUTOMATION**, and **SEQ TOOLS → GENERATION → GENERATION 2** is the tools section
   (generation only on a drum kit). The tools map opens on SEQ TOOLS alone, so the generation pages keep their own
-  knobs; its footer shows **SEQ TOOLS 1/3**. SEQ TOOLS' drum-lane mute reads **MUT BD**, not **M BD**.
+  knobs; its footer keeps the normal page layout, with **OCT- UNDO** where the sound name goes and the page count at
+  the right. SEQ TOOLS' drum-lane mute reads **MUT BD**, not **M BD**.
 
 #### Compatibility
 
