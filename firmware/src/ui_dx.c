@@ -105,7 +105,7 @@ static void dx_knob(const page_t *pg, uint32_t k, int32_t s)
             } else if (e == DXV_CLICK) {                /* RATIO: WAVE + FILTER's low bit */
                 ix = dx_step(dx_click_ratio(L), s, 7u);
                 dx_mode_put(L, 0, 3u, ix);
-                dx_mode_put(L, 2, 3u, ix >> 2);
+                dx_mode_put(L, 2, 1u, ix >> 2);
             } else {
                 dx_mode_step(L, 0, 3u, 3u, s);          /* WAVE / RATIO / CLAPS */
             }
@@ -184,7 +184,7 @@ static void dx_layer_card(uint32_t c, const char *label, uint32_t val, uint32_t 
 static void dx_pitch_card(uint32_t c, const char *label, uint32_t val, uint32_t icon)
 {
     char b[12], u[8];
-    uint32_t q = val * 3u;                              /* quarter tones above MIDI 24 */
+    uint32_t q = val * 3u;                              /* 25-cent steps above MIDI 24 */
     note_name(b, 24u + q / 4u);
     u[0] = 0;
     if (q % 4u) {

@@ -1161,7 +1161,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         generation_knob(slot, steps);
         return;
     }
-    if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_STEP && pg->graph != GR_EVENTS)
+    if (seq_step_sec())
         seq_follow_bump();                                /* STEP / DETAIL: pause playhead follow */
     if (pg->graph == GR_DXSND) {                          /* EDIT > SOUND: the DRUM-X kit (ui_dx.c) */
         dx_knob(pg, slot, steps);
