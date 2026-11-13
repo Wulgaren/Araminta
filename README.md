@@ -210,7 +210,7 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
   always, OFF your own timing. Nudges can also be set by hand
 - **Parameter locks and the AUTOMATION list:** hold a step on SEQ > STEP (or the drum grid) and turn a knob to set
   that parameter for that step only; EDIT with the step held clears its locks. **SEQ > AUTOMATION** is one list of
-  everything that happens on the track's steps: PLAY / CLEAR, QUANTIZE, each step's CHANCE, RATCH, NUDGE and VEL, its
+  everything that happens on the track's steps: QUANTIZE, ENABLED / CLEAR, each step's CHANCE, RATCH, NUDGE and VEL, its
   locks and automation events; change their step, parameter or value, turn a lock into automation or back, add or
   delete one (OCT-, or the editor's MOTION delete). 192 records shared by the four tracks (88 saved in a project).
   SAVE held undoes every edit. A step can also hold a **PITCH** lock (SCL K4): an absolute per-step transpose

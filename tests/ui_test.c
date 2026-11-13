@@ -334,7 +334,7 @@ static void project_not_empty(void)  /* free-take steals step keys when every tr
 static void go_auto_top(void)
 {
     go_page(GR_EVENTS);
-    ui.ev_row = 0;
+    ui.ev_row = 1;                                      /* ENABLED (row 0: QUANTIZE) */
     ui.ev_keep = 0;
 }
 static void go_auto_add(uint32_t id, uint32_t step)
@@ -2952,7 +2952,7 @@ static int test_page_cycles(void)
     memcpy(p0, TSEL->p, sizeof p0);
     go_auto_top(); frame();
     n0 = ev_list(rw);
-    ok = n0 == 3u && rw[0] == EVC(EVK_TOP, 0) && rw[1] == EVC(EVK_QNT, 0) && rw[2] == EVC(EVK_ADD, 0);
+    ok = n0 == 3u && rw[0] == EVC(EVK_QNT, 0) && rw[1] == EVC(EVK_TOP, 0) && rw[2] == EVC(EVK_ADD, 0);
     go_auto_add(EV_CHANCE, 3); frame();
     press(B_OCTUP);
     want = ref[3]; step_set_chance(&want, 50);
@@ -2975,7 +2975,7 @@ static int test_page_cycles(void)
     turn(EN_K4, 1000);                                  /* back at 100 %: the row stays while edited */
     ok = steps_but(TSEL, ref, 0xFFu, 0) && auto_cur() == EVC(EVK_CHANCE, 4);
     turn(EN_K1, -1);                                    /* (another row: it leaves the list) */
-    ok &= auto_cur() == EVC(EVK_QNT, 0) && ev_list(rw) == 3u;
+    ok &= auto_cur() == EVC(EVK_TOP, 0) && ev_list(rw) == 3u;
     bad += check("  at 100 % it stays listed while edited; another row picked: gone (nothing stored)", ok);
     memcpy(ref, TSEL->step, sizeof ref);
     go_auto_add(EV_RATCH, 6); frame();
@@ -3000,19 +3000,19 @@ static int test_page_cycles(void)
     ok &= steps_but(TSEL, ref, 6, &want);
     bad += check("AUTOMATION RATCH: + ADD x2, KNOB 4 to x4; EDIT opens the EDIT page, OCT- x1; each one undo "
                  "(SAVE held), the step's flags only", ok);
-    {   /* the order: PLAY, QUANTIZE, then by step (CHANCE, RATCH, NUDGE, the records), + ADD; a lock on the same step
+    {   /* the order: QUANTIZE, ENABLED, then by step (CHANCE, RATCH, NUDGE, the records), + ADD; a lock on the same step
          * after them */
         go_auto_add(EV_CHANCE, 6); frame(); press(B_OCTUP);
         go_auto_add(EV_NUDGE, 6); frame(); press(B_OCTUP);
         motion_set_lock(TSEL, 6, P_ATK, 3);
         motion_set_lock(TSEL, 2, P_ATK, 5);
         n0 = ev_list(rw);
-        ok = n0 == 8u && rw[0] == EVC(EVK_TOP, 0) && rw[1] == EVC(EVK_QNT, 0) && rw[2] >> 8 == EVK_REC &&
+        ok = n0 == 8u && rw[0] == EVC(EVK_QNT, 0) && rw[1] == EVC(EVK_TOP, 0) && rw[2] >> 8 == EVK_REC &&
              rw[3] == EVC(EVK_CHANCE, 6) && rw[4] == EVC(EVK_RATCH, 6) && rw[5] == EVC(EVK_NUDGE, 6) &&
              rw[6] >> 8 == EVK_REC && rw[7] == EVC(EVK_ADD, 0);
         go_auto_add(EV_CHANCE, 6); frame(); press(B_OCTUP);
         ok &= msg_is("ALREADY LISTED") && auto_cur() == EVC(EVK_CHANCE, 6);
-        bad += check("  the rows: PLAY, QUANTIZE, by step (CHANCE, RATCH, NUDGE, then its locks / events), + ADD; one there: "
+        bad += check("  the rows: QUANTIZE, ENABLED, by step (CHANCE, RATCH, NUDGE, then its locks / events), + ADD; one there: "
                      "ALREADY LISTED", ok);
         auto_pick(EVC(EVK_NUDGE, 6));
         press(B_OCTDN);                                 /* (the NUDGE out again: the rest as before) */
