@@ -5,7 +5,7 @@
  * (drumx_voice.c dx_kit, saved with the section: project.c FUN11 / FUNB):
  *   SOUND     LANE (BD A .. CB B: the sound and its patch; a key struck picks the lane), ENGI (its MODEL),
  *             and the source: WAVE / RATIO / KIND / CLAPS, NOIS / AIR
- *   TONE      COLR / CUT / MIX, FILT, CHAR / Q / TAIL, OSC2 (the FM's second oscillator)
+ *   TONE      FILT, COLR / CUT / MIX, CHAR / Q / TAIL, OSC2 (the FM's second oscillator)
  *   MOVEMENT  PTCH / RATE, PMOD / SIZZ / GAP / LEN, PENV / HPF / FALL, DCAY / LEN
  * Each card keeps its knob across the five models (CLASSIC shown as FM, SHELL, METAL, TEETH, CLICK): a card the
  * model does not use is drawn empty and its knob does nothing. The amounts read as percentages, as every other
@@ -21,8 +21,8 @@ static const char *const DX_METAL_KIND_NAME[8] = {"HATS", "CYMBAL", "4 SQR", "CL
 static const char *const DX_CLAPS_NAME[4] = {"3", "4", "5", "6"};
 static const char *const DX_CLICK_R_NAME[8] = {"3.00", "3.67", "4.81", "2.50", "0.74", "1.35", "3.25", "1.48"};
 static const char *const DX_FILT_NAME[4] = {"LP", "BP", "HP", "GR"};
-static const char *const DX_FM_DRV_NAME[4] = {"OFF", "DRIVE", "BURST", "D+B"};
-static const char *const DX_SHELL_DRV_NAME[4] = {"OFF", "DRIVE", "SHORT", "D+S"};
+static const char *const DX_FM_DRV_NAME[4] = {"OFF", "DRIVE", "BURST", "DR+BU"};
+static const char *const DX_SHELL_DRV_NAME[4] = {"OFF", "DRIVE", "SHORT", "DR+SH"};
 static const char *const DX_Q_NAME[2] = {"WIDE", "NARROW"};
 static const char *const DX_TEETH_TAIL_NAME[4] = {"7%", "20%", "27%", "57%"};
 static const char *const DX_CLICK_DRV_NAME[8] = {"X1", "X2", "X6", "X8", "X1+", "X2+", "X6+", "X8+"};
@@ -116,10 +116,10 @@ static void dx_knob(const page_t *pg, uint32_t k, int32_t s)
     }
     if (p == 2u) {                                      /* TONE */
         if (k == 0u) {
-            dx_num_step(&v[DXP_COLOR], k, s, 127);
-        } else if (k == 1u) {
             if (e != DXV_CLICK)                         /* FILT: from the filter heard */
                 dx_mode_put(L, 2, 3u, dx_step(dx_filt_heard(L, e), s, e == DXV_CLASSIC ? 3u : 2u));
+        } else if (k == 1u) {
+            dx_num_step(&v[DXP_COLOR], k, s, 127);
         } else if (k == 2u) {
             switch (e) {
             case DXV_CLASSIC: case DXV_SHELL:           /* DRV: DRIVE + SNAP */
@@ -225,16 +225,16 @@ static void dx_sound_cards(const dx_lane_t *L, const uint8_t *v, uint32_t e)
 static void dx_tone_cards(const dx_lane_t *L, const uint8_t *v, uint32_t e)
 {
     uint32_t f = dx_filt_heard(L, e), ix;
-    if (e == DXV_CLASSIC)
-        dx_val_card(0, "COLR", v[DXP_COLOR], ICON_TONE);
-    else if (e == DXV_CLICK)
-        dx_val_card(0, "MIX", v[DXP_COLOR], ICON_MIX);
-    else
-        dx_val_card(0, "CUT", v[DXP_COLOR], ICON_CUTOFF);
     if (e == DXV_CLICK)
-        dx_empty_card(1);
+        dx_empty_card(0);
     else
-        dx_ix_card(1, "FILT", DX_FILT_NAME[f], f, e == DXV_CLASSIC ? 4u : 3u, ICON_CUTOFF);
+        dx_ix_card(0, "FILT", DX_FILT_NAME[f], f, e == DXV_CLASSIC ? 4u : 3u, ICON_CUTOFF);
+    if (e == DXV_CLASSIC)
+        dx_val_card(1, "COLR", v[DXP_COLOR], ICON_TONE);
+    else if (e == DXV_CLICK)
+        dx_val_card(1, "MIX", v[DXP_COLOR], ICON_MIX);
+    else
+        dx_val_card(1, "CUT", v[DXP_COLOR], ICON_CUTOFF);
     switch (e) {
     case DXV_CLASSIC: case DXV_SHELL:
         ix = dx_drv_snap(L);

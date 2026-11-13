@@ -1161,8 +1161,8 @@ static void edit_param(uint32_t slot, int32_t steps)
         generation_knob(slot, steps);
         return;
     }
-    if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_STEP)
-        seq_follow_bump();                                /* PATTERN / STEP / DETAIL: pause playhead follow */
+    if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_STEP && pg->graph != GR_EVENTS)
+        seq_follow_bump();                                /* STEP / DETAIL: pause playhead follow */
     if (pg->graph == GR_DXSND) {                          /* EDIT > SOUND: the DRUM-X kit (ui_dx.c) */
         dx_knob(pg, slot, steps);
         return;
@@ -1945,8 +1945,9 @@ static void ui_input(void)
         if (layer_open() == LAYER_FX)
             panel_enc(EN_PRESET);                       /* (a stray turn must not load a sound behind the punch map) */
         panel_enc(EN_ALGO);
-        if (layer_open() == LAYER_FX && (s = panel_enc(EN_SELECT)) != 0 && !glo)
-            select_page_step(s > 0 ? 1 : -1);           /* FX sticky: the punch map's PUNCH-IN pages */
+        if ((layer_open() == LAYER_FX || layer_open() == LAYER_SEQ) &&
+            (s = panel_enc(EN_SELECT)) != 0 && !glo)
+            select_page_step(s > 0 ? 1 : -1);           /* sticky maps: PUNCH-IN's pages, the tools section's */
         else
             panel_enc(EN_SELECT);                       /* (or OCT+ + SELECT: tempo; the other sticky maps keep it) */
     } else {

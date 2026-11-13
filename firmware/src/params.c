@@ -591,7 +591,7 @@ enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_
 /* page.sec: button cycles sections; SELECT walks pages that share fam+sec and stops at the ends
  * (ui.c open_family / select_page_step) */
 enum { FX_SEC_INS = 0, FX_SEC_PUNCH = 1, FX_NSEC = 2,
-       SEQ_SEC_STEP = 0, SEQ_SEC_GEN = 1, SEQ_SEC_AUTO = 2, SEQ_SEC_TOOL = 3, SEQ_NSEC = 4,
+       SEQ_SEC_STEP = 0, SEQ_SEC_TOOL = 1, SEQ_NSEC = 2,
        EDIT_SEC_SND = 0, EDIT_SEC_KIT = 1, EDIT_SEC_LAN = 2, EDIT_SEC_VOX = 3, EDIT_NSEC = 4,
        GLO_SEC_MASTER = 0, GLO_SEC_SONG = 1, GLO_NSEC = 2,
        SAVE_SEC_PRE = 0, SAVE_SEC_PROJ = 1, SAVE_SEC_CLEAR = 2, SAVE_NSEC = 3,
@@ -667,14 +667,14 @@ static const page_t PAGES[] = {
     {"CLEAR", FAM_SAVE, SC_GLOBAL, GR_CLEAR, SAVE_SEC_CLEAR, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, 0, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, 0, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
-    /* SEQ: Step group → Generation (drum kits) → Automation → Tools. SELECT walks each section. */
+    /* SEQ: Step group (STEP / DETAIL / AUTOMATION) → Tools (SEQ TOOLS → GENERATION, drum kits).
+     * SELECT walks each section. PATTERN's four knobs are SEQ TOOLS' (and its layer's). */
     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
-    {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_STEP, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
     {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
-    {"GENERATION", FAM_SEQ, SC_TRACK, GR_GENERATION, SEQ_SEC_GEN, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"GENERATION 2", FAM_SEQ, SC_TRACK, GR_GENERATION, SEQ_SEC_GEN, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"AUTOMATION", FAM_SEQ, SC_TRACK, GR_EVENTS, SEQ_SEC_AUTO, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"AUTOMATION", FAM_SEQ, SC_TRACK, GR_EVENTS, SEQ_SEC_STEP, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"SEQ TOOLS", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_TOOL, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
+    {"GENERATION", FAM_SEQ, SC_TRACK, GR_GENERATION, SEQ_SEC_TOOL, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"GENERATION 2", FAM_SEQ, SC_TRACK, GR_GENERATION, SEQ_SEC_TOOL, {0xFF, 0xFF, 0xFF, 0xFF}},
     /* HOME: Mixer; ui.home is its own section (home_tap). Drum lane mutes live in SEQ TOOLS. */
     {"MIXER", FAM_TRK, SC_TRK, GR_TRK, TRK_SEC_MIX, {0, 1, 2, 3}},
     {"PUNCH-IN", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},   /* the section's 2/2 (same

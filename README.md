@@ -53,7 +53,7 @@ Araminta keeps Felucca 1.5.x as the base. The day-to-day differences:
 - **Felucca 0.9 design.** Flat cards, Terminus text, Fukiai icons. STYLE and ANIM are gone: values snap, no rolling digits, no LED sweep or idle animation.- **TRN while playing.** On SCL, TRN offsets the sequence as it plays. Steps on disk stay put; kits ignore TRN and PITCH. With REC armed while playing on a synth track, a TRN turn also writes the current step's PITCH lock (scale-fitted); the knob still moves (other steps without a lock follow it), and no P_TRANS automation event is recorded.
 - **MAP (was QNT).** SCL knob: OFF / **ALL** / CURR / KBD / SEQ. KBD walks the scale on white keys (blacks = closest in-scale note); CURR is KBD plus sequence follows the scale on the current track; ALL is CURR's quantising plus ROOT / SCALE shared by every track while ALL is on (the CHORD page's old SCALE LOCK, now a MAP value); SEQ is chromatic keys plus sequence follows. Leaving ALL puts each track's own ROOT / SCALE back. Chromatic (CHR) scale removed; use MAP OFF. ALL saves as CURR + the lock bit, so v3.1 opens it as SCALE LOCK + ALL; a v3.1 project locked with MAP OFF / KBD / SEQ loads unlinked. Current saves are FUN19 (`FUNJ`; FUN18 `FUNI` loads).
 - **Following playhead** in the SEQ. Start selecting a step to pause the following, returns after 3 seconds of inactivity.
-- **SEQ GENERATION.** On a drum kit (DRUM-X, CR78 or a USR Drumkit), the second SEQ section generates editable kick, snare and closed-hat steps from Mutable Instruments Grids. SELECT switches between LEN / KICK / SNARE / HAT and MAP / MAP X / MAP Y / CHAOS. MAP selects one of 25 templates; X/Y blend between them and show CUSTOM. Turning MAP, MAP X or MAP Y briefly shows the full-screen map, then returns to the drum grid; CHAOS keeps the grid visible. Density edits change only their lane; map, chaos and length edits regenerate all three. Other lanes stay as written, SAVE held undoes the gesture, and each track's controls save with the project.
+- **SEQ GENERATION.** On a drum kit (DRUM-X, CR78 or a USR Drumkit), the TOOLS section's second page generates editable kick, snare and closed-hat steps from Mutable Instruments Grids. SELECT switches between LEN / KICK / SNARE / HAT and MAP / MAP X / MAP Y / CHAOS. MAP selects one of 25 templates; X/Y blend between them and show CUSTOM. Turning MAP, MAP X or MAP Y briefly shows the full-screen map, then returns to the drum grid; CHAOS keeps the grid visible. Density edits change only their lane; map, chaos and length edits regenerate all three. Other lanes stay as written, SAVE held undoes the gesture, and each track's controls save with the project.
 
 Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 
@@ -195,11 +195,11 @@ Everything below that is Felucca 1.5.1 behaviour unless a note says otherwise.
 - **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM-X engine);
   8 voices shared between them. ALGORITHM selects the track on every page
 - **Sequencer:** 64 steps per track with chords, ties, accent, slide, per-step chance, velocity and ratchets
-  (a step played 2, 3 or 4 times in its length); **SEQ** sections are the step group (SELECT: PATTERN / STEP /
-  DETAIL), AUTOMATION, then SEQ TOOLS; a piano roll of the steps, where KNOB 3 sets a note's length (0 clears it and advances the cursor)
+  (a step played 2, 3 or 4 times in its length); **SEQ** sections are the step group (SELECT: STEP / DETAIL /
+  AUTOMATION), then TOOLS (SELECT: SEQ TOOLS / GENERATION / GENERATION 2 on a drum kit); a piano roll of the steps, where KNOB 3 sets a note's length (0 clears it and advances the cursor)
   and PRESETS moves that note in time (or, while step-recording with a key held, sets its LEN); a drum grid (white keys =
   steps, black keys = lanes); **SEQ > DETAIL**: the cursor step's chance, ratchet, nudge and velocity on the four
-  knobs, drawn as lanes over the steps; while playing on PATTERN / STEP / DETAIL the edit cursor follows the playhead
+  knobs, drawn as lanes over the steps; while playing on STEP / DETAIL the edit cursor follows the playhead
   (the playhead line only shows when you have moved the cursor away); twiddling STEP or editing the sequence pauses
   follow for a few seconds, then it resumes; automation: recording of knob moves per step (an automation icon marks the cards it
   drives); live loop recording with overdub; Sloop free take when the project is empty; step recording at the cursor (REC on SEQ > STEP while stopped), one
@@ -366,7 +366,7 @@ The pages by button:
 | Button | Taps go round (sections; SELECT walks pages inside one) | Held / with OCT± |
 |---|---|---|
 | HOME | Home ↔ Mixer | the menu |
-| SEQ | Step group (SELECT: PATTERN / STEP / DETAIL), AUTOMATION, SEQ TOOLS | SEQ + OCT±: the tools layer (SEQ TOOLS shows it as a section) |
+| SEQ | Step group (SELECT: STEP / DETAIL / AUTOMATION), TOOLS (SELECT: SEQ TOOLS / GENERATION / GENERATION 2) | SEQ + OCT±: the tools layer (SEQ TOOLS shows it as a page) |
 | GLO | MASTER (SELECT: MASTER / CLOCK), SONG | GLO + OCT±: the GLO layer (mutes, solos, levels, TAP tempo) |
 | SAVE | Presets (SELECT: PRESETS / USER / PHRASES), Project (SELECT: PROJECT / TOOLS) | UNDO |
 | LFO | LFO (SELECT: LFO / LFO 2 / LFO DEST), then MOD | MOMENTARY (with a knob) |

@@ -383,7 +383,7 @@ _Static_assert(sizeof DRUM_PRESETS / sizeof DRUM_PRESETS[0] == DX_NKIT, "a DRUM 
 
 static const engine_t ENG_DRUM = {
     .name = "DRUM-X",
-    .page_title = {"KIT", "HIT"},
+    .page_title = {"KIT", "KIT"},
     .edit = {
         {"MRPH", F_PCT, 0, 127, 64, 0, 0},
         {"TUNE", F_PCT, 0, 127, 64, 0, 0},
