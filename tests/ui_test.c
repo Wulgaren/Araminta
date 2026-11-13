@@ -3865,7 +3865,7 @@ static int test_edit_cycle(void)
     }
     turn(EN_SELECT, 1); frame();
     ok &= str_eq(cur_page()->title, "TONE");
-    {                                                 /* TONE, FM: knob 4 is OSC2 (the LAYER) */
+    {                                                 /* TONE, FM: knob 4 is LAYR (the LAYER) */
         dx_ui_lane = DV_CLAP; dx_mdl[DV_CLAP] = DXV_CLASSIC; dx_lay[DV_CLAP] = 3;
         turn(EN_K4, 1);
         ok &= dx_lay[DV_CLAP] == 4;
