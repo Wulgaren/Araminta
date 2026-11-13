@@ -1207,7 +1207,16 @@ static void draw_layer(void)
         } else {
             cv_begin(240, H_FOOT, T_BG);
             const khint_t *ft = l == LAYER_GLO && ui.lock == LAYER_GLO ? GLO_LOCK_FOOT : LAYERS[l].foot;
-            cv_key_row(8, 232, 9, ft, ft[2].act ? 3u : 2u, 7u, T_BG);
+            if (l == LAYER_SEQ) {                        /* the tools section's pages: the count the map hides */
+                uint32_t idx[NPAGES], np = sec_page_list(FAM_SEQ, SEQ_SEC_TOOL, idx);
+                if (np > 1u) {
+                    char b[20];
+                    str_cpy(b, "SEQ TOOLS 1/", sizeof b);
+                    fmt_int(b + 12, (int32_t)np);
+                    cv_text_r(232, 0, &AF_S, b, T_THEME, T_BG);
+                }
+            }
+            cv_key_row(8, 232, l == LAYER_SEQ ? 12 : 9, ft, ft[2].act ? 3u : 2u, 7u, T_BG);
             cv_blit(0, Y_FOOT);
             ui.foot_sig = 0;
         }
