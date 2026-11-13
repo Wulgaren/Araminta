@@ -16,6 +16,7 @@ indexed only by real P_* ids; every other space is either a separate storage are
 | Real per-track parameters | `P_*`, ids 0..126; `P_COUNT` is 127; `P_E0..P_E7` are the last eight, 119..126 | yes, `t->p[id]` | projects (`np = P_COUNT`, by-count migration) and user presets | yes: `SET` / `GET` / `TRACK_PARAM` id 0..126, `DESC` / `DUMP` | sound pages, EDIT 1/2, AUTOMATION when `motion_param()` allows it |
 | Global parameters | `G_*`, ids 0..31; `G_COUNT` is 32 | no, `song.g[id]` | project `g[]`; some are device settings | yes: `SET` / `GET` with parameter index 1 | GLO / MENU pages |
 | Lock-only PITCH | `MSEQ_PITCH` 127 (`== P_COUNT`) | **never** | project motion block only, id 127 with bit 7 set; not in user presets | `MOTION` ops; project motion record | AUTOMATION `PITCH` row; SCL K4 |
+| Matrix slots 5..8 | `track_t.mx[4][3]` (SRC, DST, AMT), read and written through `MOD_ROW` (core.h); descriptors of ids 49..51 | **never** | project tail at 4046..4079 (FUN20, 17 bits a slot) and user preset bytes 128..139 | `MATRIX` (cmd 103) only; never `SET` / `GET` / `DUMP` | MOD page slots 5..8 |
 | Motion-only FX targets | `MFX_TIME..MFX_DAMP`, ids 49..53; numerically `P_M1SRC..P_M2DST`; `MFX_TSPEED` / `MFX_TWOW` are ids 41 / 42 (`P_TAPEMIX` / `P_LSMOOTH`) | **never as a target**: `fx_target_ptr()` reaches `song.g` or a bus | project motion records; long DLY TIME takes ids 54..59 on disk; TAPE SPEED packs 25..400 into one byte | `MOTION` ops; project motion record | AUTOMATION FX rows; EFFECTS / DEST lists |
 | UI-only step rows | `EV_VEL` 251, `EV_NUDGE` 252, `EV_CHANCE` 253, `EV_RATCH` 254; 0xFF = none | no | the step's own `chance` / `ratchet` / `nudge` / `vel` fields | **never** | AUTOMATION rows |
 | Page-only CHORD cards | `PG_STRUM` 252, `PG_STROKE` 253 | no | none; the edit packs `P_ALLOC` | **never** | CHORD K3 / K4 |
@@ -35,7 +36,7 @@ Rules that fall out:
   project motion reader reject them.
 
 Motion storage (`core.h`, `motion.c`): one record per `(track, step, id)`, either an automation event or a
-lock. `MOTION_MAX` is 192 records in RAM shared by the four tracks; `MOTION_FILE_MAX` is 88 saved in a
+lock. `MOTION_MAX` is 192 records in RAM shared by the four tracks; `MOTION_FILE_MAX` is 148 saved in a
 project; user presets store no motion. The record's `param` byte is `id | MOTION_LOCK`, and `MOTION_ID`
 recovers the id. An automation event holds its value; a lock sounds on its step and goes back at the next.
 

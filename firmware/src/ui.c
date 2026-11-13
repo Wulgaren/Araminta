@@ -953,6 +953,7 @@ static struct {
     uint8_t fm6[FP_SIZE + 1u];   /* patch is the track's own, not a factory one */
     dx_lane_t dx[8];            /* packed kit before a load; swapped only when the load replaces it (UNDO_KIT) */
     int16_t p[P_COUNT];
+    int16_t mx[4][3];            /* matrix slots 5..8 (track_t.mx): part of the sound */
     step_t step[NSTEP];
     generation_t generation;
     motion_store_t motion_backup; /* one track only, swaps with the shared event pool on undo */
@@ -986,7 +987,7 @@ static uint32_t steps_sig(const track_t *t) { return fnv(2166136261u, t->step, s
 static uint32_t track_sig(const track_t *t)      /* the sound, its FM6 patch or shared DRUM-X kit, and the steps */
 {
     uint8_t id[3] = {t->eng_req, t->preset, t->user};
-    uint32_t h = fnv(fnv(steps_sig(t), t->p, sizeof t->p), id, 3), k = trk_index(t);
+    uint32_t h = fnv(fnv(fnv(steps_sig(t), t->p, sizeof t->p), t->mx, sizeof t->mx), id, 3), k = trk_index(t);
     h = fnv(h, fm6_patch[k], sizeof fm6_patch[k]); /* (a patch the editor sent between two loads) */
     if (t->eng_req % NENGINES == ENGI_DRUM) {
         h = fnv(h, dx_kit, sizeof dx_kit);
@@ -1084,6 +1085,7 @@ static void load_begin(track_t *t, uint32_t what)
     undo.preset = t->preset;
     undo.user = t->user;
     memcpy(undo.p, t->p, sizeof undo.p);
+    memcpy(undo.mx, t->mx, sizeof undo.mx);
     undo.generation = t->generation;
     memcpy(undo.step, t->step, sizeof undo.step);
     memcpy(undo.fm6, fm6_patch[i], FP_SIZE);
@@ -1148,6 +1150,7 @@ static void edit_undo_take(track_t *t, uint32_t tag, uint32_t what)
     undo.preset = t->preset;
     undo.user = t->user;
     memcpy(undo.p, t->p, sizeof undo.p);
+    memcpy(undo.mx, t->mx, sizeof undo.mx);
     undo.generation = t->generation;
     memcpy(undo.step, t->step, sizeof undo.step);
     memcpy(undo.fm6, fm6_patch[i], FP_SIZE);
@@ -1210,6 +1213,12 @@ static void undo_swap(void)
                 t->p[i] = undo.p[i];
                 undo.p[i] = v;
             }
+        {
+            int16_t mx[4][3];
+            memcpy(mx, t->mx, sizeof mx);
+            memcpy(t->mx, undo.mx, sizeof mx);
+            memcpy(undo.mx, mx, sizeof mx);
+        }
     }
     if (undo.what & UNDO_KIT) {
         dx_lane_t current[8];
@@ -1447,6 +1456,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     for (i = 0; i < P_E0; i++)                        /* the rest of the sound to its defaults: a preset */
         if (!param_kept(i))                           /* sounds the same after any edit */
             t->p[i] = TP[i].def;
+    memset(t->mx, 0, sizeof t->mx);                   /* (matrix slots 5..8: OFF, as the defaults of 1..4) */
     if (t->eng_req % NENGINES == ENGI_ANALOG) {       /* OSC 2: the FM3 slots are MORPH / DRIFT, 0 at preset */
         t->p[P_MORPH] = 0;
         t->p[P_DRIFT] = 0;
@@ -1564,6 +1574,7 @@ static void track_defaults(track_t *t)
     uint32_t i;
     for (i = 0; i < P_E0; i++)
         t->p[i] = TP[i].def;
+    memset(t->mx, 0, sizeof t->mx);               /* matrix slots 5..8 OFF */
     t->scl_stash_ok = 0;                          /* MAP defaults OFF: no link, no stash */
     t->fx_sl_pos = 8;                            /* EFFECTS: SLICER last until moved */
     t->generation = GENERATION_DEFAULT;

@@ -665,15 +665,15 @@ static void graph_slicer(const track_t *t, uint16_t c)
             cv_rect(x, 84, 9, 2, T_ACCENT);
     }
 }
-/* MOD page: the four slots as rows "1 LFO > CUT +50%" (M, a list's rows: the source to x 78, the arrow 84..98, the
+/* MOD page: four slots as rows "1 LFO > CUT +50%" (M, a list's rows: the source to x 78, the arrow 84..98, the
  * destination of up to 5 characters 106..160, the amount from 172), the one KNOB 2..4 edit selected, slots that do
- * nothing (SRC, DST or AMT at 0) dim */
+ * nothing (SRC, DST or AMT at 0) dim. The four shown are 1..4 or 5..8, whichever holds the selected one */
 static void graph_mod(const track_t *t, uint16_t c)
 {
-    uint32_t k;
-    for (k = 0; k < NMSLOT; k++) {
-        const int16_t *p = &t->p[P_M1SRC + 3u * k];
-        int32_t y = 14 + (int32_t)k * 24, on = p[0] && p[1] && p[2], sel = k == mod_ui_slot, x;
+    uint32_t k, k0 = mod_ui_slot / 4u * 4u;
+    for (k = k0; k < k0 + 4u; k++) {
+        const int16_t *p = MOD_ROW(t, k);
+        int32_t y = 14 + (int32_t)(k - k0) * 24, on = p[0] && p[1] && p[2], sel = k == mod_ui_slot, x;
         uint16_t bg = sel ? T_THEME : T_SURF, col = sel ? T_INK : on ? c : T_DIM;
         char b[8];
         const char *unit;
@@ -1295,8 +1295,8 @@ static uint32_t graph_signature(void)
             h ^= (ui_prefs & PREF_LARGE) ? 0x2545F491u : 0u;
         }
     }
-    if (pg->graph == GR_MOD)
-        h ^= (mod_ui_slot + 1u) * 40503u;
+    if (pg->graph == GR_MOD)                         /* the slot shown, slots 5..8 (outside p[]) */
+        h = fnv(h ^ (mod_ui_slot + 1u) * 40503u, t->mx, sizeof t->mx);
     if (ui.pick)
         h ^= pk_sig();
     if (pg->graph == GR_SLCR) {                       /* step playing: SEND uses sl_bus + bus MODE */

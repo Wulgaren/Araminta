@@ -101,6 +101,17 @@ static uint32_t up_obj(uint32_t b)
 #define UP_OSC2 0x80u                            /* bit 7 of the category byte: 3.5's INT / MORPH / DRIFT */
 #define UP_VIB_AT 142u                           /* (never a value byte: np <= P_COUNT < 128) */
 #define UP_VIB 0x01u                             /* UP_VIB_AT bit 0: P_E5 is VIB, not the old VMOD */
+/* matrix slots 5..8 (core.h track_t.mx): SRC DST AMT of each, one signed byte per value, at packed[UP_MX_AT..]: after
+ * the values (np <= P_COUNT) and P_IORD's high byte (packed[np]), before UP_VIB_AT. Every record of before holds 0
+ * there (OFF) and firmware before keeps the bytes without reading them, as with UP_CAT_AT: no version bump. A record
+ * of more values (np >= UP_MX_AT, a later firmware's) has none */
+#define UP_MX_AT 128u
+_Static_assert(P_COUNT < UP_MX_AT && UP_MX_AT + 12u <= UP_VIB_AT, "user preset record: matrix slots 5..8");
+/* value i (slot 5 + i / 3; SRC DST AMT by i % 3) of the matrix's slots 5..8 in record r, 0 when it has none */
+static int32_t up_mx_value(const up_rec_t *r, uint32_t i)
+{
+    return r->ver >= 4u && r->np < UP_MX_AT ? (int8_t)r->packed[UP_MX_AT + i] : 0;
+}
 #include "category.c"
 static uint32_t up_cat_of(const up_rec_t *r)
 {
@@ -293,10 +304,11 @@ static int up_pat_empty(const up_rec_t *r)
     return 1;
 }
 
-/* UP_PUT arguments: slot, engine, name, P_COUNT x v14, 16 x (note, flags) [, kind, 16 x hi [, category]] -> *r
- * (values not yet clamped); 0 ok, 1 bad arguments. *slot gets the slot byte when there is one. kind 1 (and its 16
+/* UP_PUT arguments: slot, engine, name, P_COUNT x v14, 16 x (note, flags) [, kind, 16 x hi [, category [, 12 x slot]]]
+ * -> *r (values not yet clamped); 0 ok, 1 bad arguments. *slot gets the slot byte when there is one. kind 1 (and its 16
  * bytes): a drum grid, the pairs the low 7 bits of each step's hits and accents, hi bit 0 / 1 their bit 7 (lane 8).
- * category (1.2, category.c CAT_*, 0 none): after the kind's 16 bytes (kind 0 sends them too, ignored) */
+ * category (1.2, category.c CAT_*, 0 none): after the kind's 16 bytes (kind 0 sends them too, ignored). 12 x slot (4.2):
+ * the matrix's slots 5..8 as SRC, DST, AMT + 64 (UP_MX_AT; clamped when loaded) */
 static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
 {
     uint32_t i, n, k, end;
@@ -308,7 +320,8 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
     k = 3u + n;                                  /* after the name's 0 */
     end = k + 2u * P_COUNT + 32u;
     if (a[0] >= UP_SLOTS || a[1] >= NENGINES || 2u + n >= na || !up_name_ok(a + 2, n) ||
-        (na != end && ((na != end + 17u && na != end + 18u) || a[end] > 1u)) || (na == end + 18u && a[end + 17u] >= CAT_N))
+        (na != end && ((na != end + 17u && na != end + 18u && na != end + 30u) || a[end] > 1u)) ||
+        (na >= end + 18u && a[end + 17u] >= CAT_N))
         return 1;
     up_rec_t staged, *target = r;
     r = &staged;
@@ -319,6 +332,8 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
     r->np = P_COUNT;
     for (i = 0; i < n; i++)
         r->name[i] = (char)a[2 + i];
+    for (i = 0; na == end + 30u && i < 12u; i++)       /* the matrix's slots 5..8 */
+        r->packed[UP_MX_AT + i] = (uint8_t)(int8_t)((int32_t)a[end + 18u + i] - (i % 3u == 2u ? 64 : 0));
     for (i = 0; i < P_COUNT; i++, k += 2u)
         {
             int32_t value = (int32_t)((a[k] & 127u) | (a[k + 1] & 127u) << 7) - 8192;
@@ -335,7 +350,7 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
             r->note[i] = (uint8_t)((a[k + 2u * i] & 127u) | (hi & 1u) << 7);
             r->flags[i] = (uint8_t)(((a[k + 2u * i + 1u] & 127u) | (hi & 2u) << 6) & r->note[i]);
         }
-        if (na == end + 18u)
+        if (na >= end + 18u)
             up_set_cat(r, a[end + 17u]);
         up_mark_osc2(r);                             /* the editor sends today's values */
         up_mark_vib(r);
@@ -347,7 +362,7 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
         r->flags[i] = a[k + 1];
         up_pat_norm(&r->note[i], &r->flags[i]);
     }
-    if (na == end + 18u)
+    if (na >= end + 18u)
         up_set_cat(r, a[end + 17u]);
     up_migrate(r);                               /* (an editor of before the DRUM engine) */
     up_mark_osc2(r);                             /* the editor sends today's values */
@@ -519,6 +534,8 @@ static int up_store_cat(uint32_t k, const char *name, uint32_t cat)
             }
         }
     }
+    for (i = 0; i < 12u; i++)                           /* matrix slots 5..8 */
+        r.packed[UP_MX_AT + i] = (uint8_t)(int8_t)TSEL->mx[i / 3u][i % 3u];
     up_mark_osc2(&r);                                   /* a new sound: INT / MORPH / DRIFT as stored */
     up_mark_vib(&r);                                    /* P_E5 is VIB */
     {
@@ -551,6 +568,14 @@ static int up_rename_cat(uint32_t k, const char *name, uint32_t cat)
 }
 static int up_rename(uint32_t k, const char *name) { return up_rename_cat(k, name, 0); }
 
+/* matrix slots 5..8 of record r into t->mx (UP_MX_AT; OFF when r has none), clamped as slots 1..4 */
+static void up_mx_load(const up_rec_t *r, track_t *t)
+{
+    uint32_t i;
+    for (i = 0; i < 12u; i++)
+        t->mx[i / 3u][i % 3u] = mod_fit(i % 3u, up_mx_value(r, i));
+}
+
 /* slot k -> the selected part's sound: engine and every parameter except the track's own (param_kept:
  * the mix, ARP, SCL, the pattern parameters, the SLICER). The steps stay: the record's pattern is
  * loaded only from SAVE > PHRASES (up_pat_load). 0 ok, 1 empty */
@@ -579,6 +604,7 @@ static int up_load(uint32_t k)
         fm1_irq_off();
         t->eng_req = (uint8_t)to;
         memcpy(t->p, p, sizeof t->p);
+        up_mx_load(r, t);
         t->preset = 0;
         if (r->engine == ENGI_DRUMS && !drum_elsewhere(t)) {
             int16_t ln[8];
@@ -594,6 +620,7 @@ static int up_load(uint32_t k)
         for (i = 0; i < P_COUNT; i++)
             if (!param_kept(i))
                 t->p[i] = v[i];
+        up_mx_load(r, t);
         t->preset = 0;
         fm1_irq_on();
         upf_track_load(t, k);                           /* FM6: the preset's own patch (up_fm6.c) */

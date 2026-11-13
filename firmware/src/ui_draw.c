@@ -1093,14 +1093,15 @@ static void draw_columns(void)
     }
     if (cur_page()->graph == GR_MOD) {                   /* SLOT, then that slot's SRC DST AMT */
         const track_t *t = TSEL;
-        uint32_t id = P_M1SRC + 3u * mod_ui_slot;
-        int32_t s = t->p[id], d = t->p[id + 1u], a = t->p[id + 2u];
+        const int16_t *r = MOD_ROW(t, mod_ui_slot);
+        int32_t s = r[MF_SRC], d = r[MF_DST], a = r[MF_AMT];
         fmt_int(val, (int32_t)mod_ui_slot + 1);
-        draw_column(0, "SLOT", val, "/4", VAL(0u), (int32_t)mod_ui_slot * 1000 / 3, mod_src_icon(MS_OFF));   /* (the mod icon) */
+        draw_column(0, "SLOT", val, "/8", VAL(0u), (int32_t)mod_ui_slot * 1000 / (int32_t)(NMSLOT - 1u),
+                    mod_src_icon(MS_OFF));   /* (the mod icon) */
         draw_column(1, "SRC", N_MSRC[clamp(s, 0, MS_N - 1)], "", s ? VAL(1u) : T_DIM, -1, mod_src_icon(s));
         draw_column(2, "DST", mod_dst_name(t, d), "", d ? VAL(2u) : T_DIM, -1, mod_dst_icon(t, d));
-        param_format(&TP[id + 2u], a, val, &unit);
-        draw_column(3, "AMT", val, unit, a ? VAL(3u) : T_DIM, RATIO(&TP[id + 2u], a), mod_src_icon(MS_OFF));
+        param_format(&TP[P_M1AMT], a, val, &unit);
+        draw_column(3, "AMT", val, unit, a ? VAL(3u) : T_DIM, RATIO(&TP[P_M1AMT], a), mod_src_icon(MS_OFF));
         return;
     }
     if (detail_on()) {                                  /* DETAIL (1.5.1, #199): the cursor step's CHANCE RATCH NUDGE VEL;

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+The mod matrix has eight slots per track instead of four. KNOB 1 on the MOD page runs SLOT 1..8, and the page lists
+slots 1..4 or 5..8, whichever holds the one selected.
+
+### Compatibility
+
+- Slots 1..4 keep their parameter ids (49..60). Slots 5..8 have none: `P_COUNT` is full.
+- Projects stay FUN20. Slots 5..8 take the last 34 bytes before the name, so a project now saves 148 automation
+  records instead of 155. AUTOMATION SAVE LIMIT fires on the 149th, and SAVE warns AUTOMATION WON'T SAVE past 148.
+  A FUN20 file saved with 149..155 records still loads every record, with slots 5..8 off. Firmware 4.1 loads a project
+  of now without slots 5..8.
+- User presets keep slots 5..8 in bytes the record never used, with no version change. Older presets load them off.
+- Editor protocol: `MATRIX` (cmd 103, INFO `58 01 8`) reads and sets all eight slots and pushes device edits while
+  `WATCH` is on. `UP_GET` / `UP_PUT` carry slots 5..8 after the category. The web editor lists SRC5..AMT8 after AMT4,
+  and its patch files and user preset copies keep them.
+
 ## 4.1
 
 DRUM-X now runs JIANT's newer voice with 17 kits, and DRUMS folds into it. Lane levels move to the MIXER, and the

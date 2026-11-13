@@ -168,6 +168,38 @@ static int mig_flash_matches(void)                       /* packed ver-2 image o
     return pn && st_load(OBJ_UPFM6, got, sizeof got) == (int)pn && !memcmp(got, packed, pn);
 }
 
+/* matrix slots 5..8 (track_t.mx, outside p[]): a user preset keeps them, a record without them loads them OFF,
+ * a factory preset clears them and SAVE held (undo) brings them back */
+static int mx_test(void)
+{
+    static const int16_t MX[4][3] = {{MS_LFO, MD_CUT, 40}, {MS_MODW, MD_PAN, -64}, {MS_SLEW, MD_VEL, 63}, {MS_AT, MD_E1 + 7, -1}};
+    int bad = 0;
+    track_t *t;
+    reset();
+    t = TSEL;
+    memcpy(t->mx, MX, sizeof MX);
+    bad += check("user preset with slots 5..8: stored", up_store(30, "MX8") == 0);
+    memset(t->mx, 0, sizeof t->mx);
+    up_load(30);
+    bad += check("  .. loaded back: SRC DST AMT of 5..8 as stored", !memcmp(t->mx, MX, sizeof MX));
+    memset(up_rec(30)->packed + 128, 0, 12);             /* a record of before: those bytes 0 */
+    up_load(30);
+    bad += check("  .. a record without them loads 5..8 OFF", !memcmp(t->mx, (int16_t[4][3]){{0}}, sizeof t->mx));
+    memcpy(t->mx, MX, sizeof MX);
+    apply_preset_to(t, 1);
+    bad += check("a factory preset clears slots 5..8", !memcmp(t->mx, (int16_t[4][3]){{0}}, sizeof t->mx));
+    undo_swap();
+    bad += check("  .. and SAVE held (undo) brings them back", !memcmp(t->mx, MX, sizeof MX));
+    memcpy(trk[2].mx, MX, sizeof MX);
+    project_save(1);
+    memset(trk[2].mx, 0, sizeof trk[2].mx);
+    memset(t->mx, 0, sizeof t->mx);
+    project_load(1);
+    bad += check("a project keeps every track's slots 5..8 (saved, loaded)",
+                 !memcmp(trk[2].mx, MX, sizeof MX) && !memcmp(trk[0].mx, MX, sizeof MX));
+    return bad;
+}
+
 static int mig_test(void)
 {
     int bad = 0, ok = 1;
@@ -766,6 +798,7 @@ int main(void)
     bad += check("PLAY consumed before the settings snapshot defers the write",
                   irq_races == 3u && song.playing && !transport_req && persist_pending && erases == before);
     bad += mig_test();
+    bad += mx_test();
     bad += autosave_test();
     bad += autosave_master_test();
     printf("%s\n", bad ? "PERSISTENCE TEST FAILED" : "persistence test passed");

@@ -354,23 +354,24 @@ static int preferences(void)
     uint32_t n = request(ED_INFO, a, 0);
     bad += check("INFO explicitly tags display capabilities after SONG without changing command 33",
         ED_SONG == 33 && ED_UI_STATE == 34 && ED_FAV_SET == 38 &&
-        host_wire[n - 45] == CHAIN_ROWS && host_wire[n - 44] == 0x55 &&
-        host_wire[n - 43] == 1 && host_wire[n - 42] == 9 &&
-        host_wire[n - 41] == 0x4d && host_wire[n - 40] == 1 &&
-        host_wire[n - 39] == 64u && host_wire[n - 38] == 1 &&   /* (64 kept: 41 01 says 128) */
-        host_wire[n - 37] == 0x42 && host_wire[n - 36] == 1 && host_wire[n - 35] == 3 &&
-        host_wire[n - 34] == 0x46 && host_wire[n - 33] == 1 && host_wire[n - 32] == FM6_NFACTORY &&
-        host_wire[n - 31] == 0 &&                        /* (no bank since 1.0.3) */
-        host_wire[n - 30] == 0x53 && host_wire[n - 29] == 1 && host_wire[n - 28] == 3 &&
-        host_wire[n - 27] == 0x50 && host_wire[n - 26] == 1 && host_wire[n - 25] == 3 &&   /* FM6 v2: no bank, preset patches */
-        host_wire[n - 24] == 0x4E && host_wire[n - 23] == 1 && host_wire[n - 22] == 25 &&   /* MENU settings: 25 items */
-        host_wire[n - 21] == 0x52 && host_wire[n - 20] == 1 && host_wire[n - 19] == 4 &&   /* RATCH */
-        host_wire[n - 18] == 0x4C && host_wire[n - 17] == 1 && host_wire[n - 16] == 1 &&   /* 1.1 parameter locks */
-        host_wire[n - 15] == 0x41 && host_wire[n - 14] == 1 && host_wire[n - 13] == 64 && host_wire[n - 12] == 1 &&   /* 1.2: 128 */
-        host_wire[n - 11] == 0x54 && host_wire[n - 10] == 1 && host_wire[n - 9] == NUDGE_DIV &&   /* 1.2: NUDGE */
-        host_wire[n - 8] == 0x57 && host_wire[n - 7] == 1 && host_wire[n - 6] == NTRK &&   /* 1.2: SONG lanes */
-        host_wire[n - 5] == 0x56 && host_wire[n - 4] == 1 && host_wire[n - 3] == 0 &&
-        host_wire[n - 2] == 1);   /* 128 voices: two 7-bit bytes 00 01 */
+        host_wire[n - 48] == CHAIN_ROWS && host_wire[n - 47] == 0x55 &&
+        host_wire[n - 46] == 1 && host_wire[n - 45] == 9 &&
+        host_wire[n - 44] == 0x4d && host_wire[n - 43] == 1 &&
+        host_wire[n - 42] == 64u && host_wire[n - 41] == 1 &&   /* (64 kept: 41 01 says 128) */
+        host_wire[n - 40] == 0x42 && host_wire[n - 39] == 1 && host_wire[n - 38] == 3 &&
+        host_wire[n - 37] == 0x46 && host_wire[n - 36] == 1 && host_wire[n - 35] == FM6_NFACTORY &&
+        host_wire[n - 34] == 0 &&                        /* (no bank since 1.0.3) */
+        host_wire[n - 33] == 0x53 && host_wire[n - 32] == 1 && host_wire[n - 31] == 3 &&
+        host_wire[n - 30] == 0x50 && host_wire[n - 29] == 1 && host_wire[n - 28] == 3 &&   /* FM6 v2: no bank, preset patches */
+        host_wire[n - 27] == 0x4E && host_wire[n - 26] == 1 && host_wire[n - 25] == 25 &&   /* MENU settings: 25 items */
+        host_wire[n - 24] == 0x52 && host_wire[n - 23] == 1 && host_wire[n - 22] == 4 &&   /* RATCH */
+        host_wire[n - 21] == 0x4C && host_wire[n - 20] == 1 && host_wire[n - 19] == 1 &&   /* 1.1 parameter locks */
+        host_wire[n - 18] == 0x41 && host_wire[n - 17] == 1 && host_wire[n - 16] == 64 && host_wire[n - 15] == 1 &&   /* 1.2: 128 */
+        host_wire[n - 14] == 0x54 && host_wire[n - 13] == 1 && host_wire[n - 12] == NUDGE_DIV &&   /* 1.2: NUDGE */
+        host_wire[n - 11] == 0x57 && host_wire[n - 10] == 1 && host_wire[n - 9] == NTRK &&   /* 1.2: SONG lanes */
+        host_wire[n - 8] == 0x56 && host_wire[n - 7] == 1 && host_wire[n - 6] == 0 &&
+        host_wire[n - 5] == 1 &&   /* 128 voices: two 7-bit bytes 00 01 */
+        host_wire[n - 4] == 0x58 && host_wire[n - 3] == 1 && host_wire[n - 2] == NMSLOT);   /* 4.2: MATRIX */
     request(ED_UI_SET, a, 2);
     bad += check("UI_SET updates the actual palette and reports RAM-only saving",
         host_wire[5] == 3 && settings.palette == 7 && T_BG == UI_PALETTES[7].bg);
@@ -935,8 +936,8 @@ static int user_preset_roundtrip(void)
     for (i = 0; i < 16u; i++, p += 2u)
         ok &= host_wire[p] == (i & 1u ? 0u : 48u + i);
     bad += check("UP_GET returns the values and the pattern UP_PUT sent", ok);
-    bad += check("  .. then kind 0 and (1.2) the category: none sent, ANALOG's (OTHER)",
-                 host_wire[p] == 0u && host_wire[p + 1u] == CAT_OTHER && host_wire[p + 2u] == 0xF7);
+    bad += check("  .. then kind 0, (1.2) the category: none sent, ANALOG's (OTHER), then slots 5..8 (off)",
+                 host_wire[p] == 0u && host_wire[p + 1u] == CAT_OTHER && host_wire[p + 14u] == 0xF7);
     {   /* 3.5: an older record's E8 was KTR and its FM3 slots the OP3 envelope */
         up_rec_t *r = up_rec(3);
         int16_t v[P_COUNT];
@@ -996,6 +997,74 @@ static uint32_t sync_pass(void)                          /* one main-loop pass o
     ed_sync();
     host_drain();
     return host_wire_n;
+}
+
+/* MATRIX (cmd 103, INFO 58 01 8): the eight slots of a track, slots 1..4 the parameters 49..60, 5..8 track_t.mx;
+ * a set clamps to the ranges of 1..4; WATCH pushes a device edit of any slot, not the editor's own; UP_PUT / UP_GET
+ * carry slots 5..8 after the category */
+static int matrix_protocol(void)
+{
+    uint8_t a[16 + 2u * P_COUNT + 32u + 30u];
+    const uint8_t *x = 0;
+    uint32_t i, k = 0, n, ok;
+    int bad = 0;
+    reset();
+    n = request(ED_INFO, a, 0);
+    for (i = 5, ok = 0; i + 2u < n; i++)
+        ok |= host_wire[i] == 0x58 && host_wire[i + 1u] == 1u && host_wire[i + 2u] == NMSLOT;
+    bad += check("INFO: 58 01 8 (MATRIX, eight slots)", ok);
+    a[0] = 2;
+    request(ED_MATRIX, a, 1);
+    ok = host_wire[4] == ED_MATRIX && host_wire[5] == 2u && host_wire[6u + 3u * NMSLOT] == 0xF7;
+    for (i = 0; i < NMSLOT; i++)
+        ok &= host_wire[6u + 3u * i] == 0u && host_wire[7u + 3u * i] == 0u && host_wire[8u + 3u * i] == 64u;
+    bad += check("MATRIX get: track 3, eight slots off (AMT byte 64 = 0)", ok);
+    a[0] = 2; a[1] = 5; a[2] = MS_LFO; a[3] = MD_CUT; a[4] = 64 + 40;
+    request(ED_MATRIX, a, 5);
+    ok = trk[2].mx[1][MF_SRC] == MS_LFO && trk[2].mx[1][MF_DST] == MD_CUT && trk[2].mx[1][MF_AMT] == 40 &&
+         host_wire[6u + 15u] == MS_LFO && host_wire[7u + 15u] == MD_CUT && host_wire[8u + 15u] == 104u;
+    a[1] = 1; a[2] = MS_MODW; a[3] = MD_PAN; a[4] = 0;
+    request(ED_MATRIX, a, 5);
+    ok &= trk[2].p[P_M2SRC] == MS_MODW && trk[2].p[P_M2DST] == MD_PAN && trk[2].p[P_M2AMT] == -64;
+    bad += check("MATRIX set: slot 6 into mx, slot 2 into P_M2SRC.., the reply as stored", ok);
+    a[1] = 7; a[2] = 127; a[3] = 127; a[4] = 127;
+    request(ED_MATRIX, a, 5);
+    bad += check("MATRIX set clamps: SRC, DST to their last, AMT to 63",
+                 trk[2].mx[3][MF_SRC] == MS_N - 1 && trk[2].mx[3][MF_DST] == MD_N - 1 && trk[2].mx[3][MF_AMT] == 63);
+    a[1] = 8;
+    bad += check("MATRIX: slot 9 or track 5: no reply", !request(ED_MATRIX, a, 5) && (a[0] = 4, !request(ED_MATRIX, a, 1)));
+    reset();
+    a[0] = 1; request(ED_WATCH, a, 1);
+    sync_pass();
+    TSEL->mx[0][MF_SRC] = MS_ENV; TSEL->mx[0][MF_DST] = MD_AMP; TSEL->mx[0][MF_AMT] = -3;   /* a device edit */
+    sync_pass();
+    bad += check("WATCH: a device edit of slot 5 pushes MATRIX",
+                 wire_frames(ED_MATRIX, &x) == 1u && x[0] == song.sel && x[13] == MS_ENV && x[14] == MD_AMP && x[15] == 61u);
+    bad += check("  .. once", !sync_pass());
+    a[0] = (uint8_t)song.sel; a[1] = 6; a[2] = MS_KEY; a[3] = MD_SHP; a[4] = 70;
+    request(ED_MATRIX, a, 5);
+    bad += check("  .. the editor's own set: no push", !sync_pass());
+    /* UP_PUT with slots 5..8 after the category; UP_GET gives them back */
+    reset();
+    a[k++] = 4; a[k++] = 0;
+    memcpy(a + k, "MX", 2); k += 2; a[k++] = 0;
+    for (i = 0; i < P_COUNT; i++) {
+        uint32_t u = (uint32_t)(param_desc_of(0, i)->def + 8192);
+        a[k++] = u & 127u; a[k++] = (u >> 7) & 127u;
+    }
+    for (i = 0; i < 32u; i++) a[k++] = 0;
+    a[k++] = 0;
+    for (i = 0; i < 16u; i++) a[k++] = 0;
+    a[k++] = CAT_PAD;
+    for (i = 0; i < 12u; i++) a[k++] = (uint8_t)(i % 3u == 2u ? 64u + i : i % 3u == 0u ? 1u + i / 3u : 2u + i);
+    request(ED_UP_PUT, a, k);
+    a[0] = 4;
+    n = request(ED_UP_GET, a, 1);
+    ok = up_used(4) && n >= 13u && host_wire[n - 1u] == 0xF7 && host_wire[n - 14u] == CAT_PAD;
+    for (i = 0; i < 12u; i++)
+        ok &= host_wire[n - 13u + i] == (i % 3u == 2u ? 64u + i : i % 3u == 0u ? 1u + i / 3u : 2u + i);
+    bad += check("UP_PUT / UP_GET: slots 5..8 after the category, as sent", ok);
+    return bad;
 }
 
 /* #65: WATCH while watching keeps what is not pushed yet; the editor's own sound load is not echoed as RELOAD */
@@ -1441,7 +1510,7 @@ int main(void)
 {
     int bad = preferences() + motion_locks() + dump_order() + slown_descriptor() + pitch_locks() +
               matrix_edits_preserve_fx_locks() + editor_fx_order() + framing() + uart_recovery() + steps() + samples() + wavetable_slot() + song_protocol() + malformed_saves() +
-              fm6_patches() + user_preset_roundtrip() + live_sync() + usb_burst() + menu_protocol() + drum_kit_retired() +
+              fm6_patches() + user_preset_roundtrip() + matrix_protocol() + live_sync() + usb_burst() + menu_protocol() + drum_kit_retired() +
               alloc_preserves_cgld();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
