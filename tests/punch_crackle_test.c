@@ -111,7 +111,6 @@ static int host_apply_project(const project_t *input)
     memset(trk, 0, sizeof trk);
     host_tracks_init();
     memcpy(dx_kit, dx_kit_ok(p.dx) ? p.dx : DX_KIT_DEF, sizeof dx_kit);
-    memcpy(dx_mot, p.dx_mot, sizeof dx_mot);
     fx_bus_from_wire(p.fx_bus);
     dx_mute_set(p.dx_mute);
     transport_req = 2;

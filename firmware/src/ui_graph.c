@@ -2349,11 +2349,11 @@ static void graph_song(void)
                      i < 4u ? "[K3] ADD SECTION" : "[SAVE] PROJECT A-D", T_MID, T_SURF, x0 - 10 - SG_X0);
     }
 }
-/* DRUM-X: two rows of four lane cells; MORPH bar A..B (FUN11 X-MOD offset via dx_mot_v when set) */
+/* DRUM-X: two rows of four lane cells; MORPH bar A..B */
 static void graph_colony(const track_t *t, int32_t sel)
 {
     static const char *const AB[8] = {"BD", "SD", "CP", "CH", "OH", "TM", "RS", "CB"};
-    int32_t morph = clamp(t->p[P_E0] + dx_mot_v, 0, 127), mx = 30 + morph * 180 / 127;
+    int32_t morph = clamp(t->p[P_E0], 0, 127), mx = 30 + morph * 180 / 127;
     uint32_t l;
     cv_rect(30, 12, 180, 1, T_LINE);
     cv_rect(30, 11, mx - 30, 3, ACC);
