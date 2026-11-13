@@ -2892,7 +2892,7 @@ static int test_page_cycles(void)
     }
     for (i = 0; i < NPAGES; i++)
         ok &= !str_eq(PAGES[i].title, "CHANCE") && !str_eq(PAGES[i].title, "AUTO LIST");
-    bad += check("SEQ has PATTERN/STEP/DETAIL/AUTOMATION; GLO has MASTER, CLOCK (its 2/2) and SONG; MIXER is HOME's", ok);
+    bad += check("SEQ has STEP/DETAIL/AUTOMATION; GLO has MASTER, CLOCK (its 2/2) and SONG; MIXER is HOME's", ok);
     {   /* GLOBAL and SYSTEM are gone; BPM SWG CLK on GLO > CLOCK, TUNE and ROUT on no page (the MENU's) */
         uint32_t k, clock = 0;
         ok = 1;
@@ -3855,6 +3855,15 @@ static int test_edit_cycle(void)
     set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;
     press(B_EDIT); frame();
     ok = cur_page()->fam == FAM_EDIT && cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "EDIT 1");
+    {
+        char ti[20];
+        page_title(ti);
+        ok &= str_eq(ti, "KIT 1/2");
+        turn(EN_SELECT, 1); frame();
+        page_title(ti);
+        ok &= str_eq(ti, "KIT 2/2") && str_eq(cur_page()->title, "EDIT 2");
+        turn(EN_SELECT, -1); frame();
+    }
     press(B_EDIT); frame();                           /* Sound → Kit */
     ok &= cur_page()->sec == EDIT_SEC_KIT && str_eq(cur_page()->title, "SOUND");
     {                                                 /* SOUND: knob 2 is ENGI */
@@ -3865,10 +3874,17 @@ static int test_edit_cycle(void)
     }
     turn(EN_SELECT, 1); frame();
     ok &= str_eq(cur_page()->title, "TONE");
-    {                                                 /* TONE, FM: knob 4 is OSC2 (the LAYER) */
+    {                                                 /* TONE, FM: FILT K1, COLR K2, OSC2 K4 */
         dx_ui_lane = DV_CLAP; dx_mdl[DV_CLAP] = DXV_CLASSIC; dx_lay[DV_CLAP] = 3;
+        dx_kit[DV_CLAP].a[DXP_COLOR] = 0;
+        dx_kit[DV_CLAP].mode &= (uint8_t)~(3u << 2);  /* FILT LP */
+        turn(EN_K1, 1);
+        ok &= dx_mode_get(&dx_kit[DV_CLAP], 2, 3u) == 1 && dx_kit[DV_CLAP].a[DXP_COLOR] == 0;
+        turn(EN_K2, 1);
+        ok &= dx_kit[DV_CLAP].a[DXP_COLOR] == 1;
         turn(EN_K4, 1);
         ok &= dx_lay[DV_CLAP] == 4;
+        ok &= str_eq(DX_FM_DRV_NAME[3], "DR+BU") && str_eq(DX_SHELL_DRV_NAME[3], "DR+SH");
     }
     turn(EN_SELECT, 1); frame();
     ok &= str_eq(cur_page()->title, "MOVEMENT");
@@ -6400,16 +6416,14 @@ static int test_seq_tools(void)
     press(B_SEQ); frames(100);
     ok = str_eq(cur_page()->title, "STEP") && !ui.lock;
     turn(EN_SELECT, 1); frames(100);
-    ok &= str_eq(cur_page()->title, "PATTERN") && !ui.lock;
+    ok &= str_eq(cur_page()->title, "DETAIL") && !ui.lock;
     turn(EN_SELECT, 1); frames(100);
-    ok &= str_eq(cur_page()->title, "DETAIL");
-    press(B_SEQ); frames(100);
     ok &= str_eq(cur_page()->title, "AUTOMATION") && !ui.lock;
     press(B_SEQ); frames(100);
     ok &= str_eq(cur_page()->title, "SEQ TOOLS") && ui.lock == LAYER_SEQ && ui.layer == LAYER_SEQ;
     press(B_SEQ); frames(100);
     ok &= str_eq(cur_page()->title, "STEP") && !ui.lock;
-    bad += check("SEQ sections: step group (SELECT STEP>PATTERN>DETAIL) → Automation → SEQ TOOLS → Step", ok);
+    bad += check("SEQ sections: step group (SELECT STEP>DETAIL>AUTOMATION) → SEQ TOOLS → Step", ok);
 
     /* tools on the SEQ TOOLS section (no button held) */
     ui_power_on();
@@ -6611,8 +6625,7 @@ static int test_seq_tools(void)
     }
 
     ui_power_on();
-    go_title("PATTERN"); frame();
-    press(B_SEQ); frames(100);                           /* Pattern → Automation: no sticky map */
+    go_title("AUTOMATION"); frame();                    /* in the step group: no sticky map */
     ok = !ui.lock && str_eq(cur_page()->title, "AUTOMATION");
     go_seq_step(); frame();
     ok &= !ui.lock && str_eq(cur_page()->title, "STEP");
@@ -6649,12 +6662,12 @@ static int test_layer_lock(void)
     press(B_SEQ); frames(100);
     ok = !ui.lock && str_eq(cur_page()->title, "STEP"); /* step group lands on STEP */
     turn(EN_SELECT, 1); frames(100);
-    ok &= str_eq(cur_page()->title, "PATTERN") && !ui.lock;
-    press(B_SEQ); frames(100);
+    ok &= str_eq(cur_page()->title, "DETAIL") && !ui.lock;
+    turn(EN_SELECT, 1); frames(100);
     ok &= str_eq(cur_page()->title, "AUTOMATION") && !ui.lock;
     press(B_SEQ); frames(100);
     ok &= str_eq(cur_page()->title, "SEQ TOOLS") && ui.lock == LAYER_SEQ;
-    bad += check("  SEQ taps cycle step group → Automation → SEQ TOOLS; only tools stick", ok);
+    bad += check("  SEQ taps cycle step group → SEQ TOOLS; only tools stick", ok);
     ui_power_on();
     press(B_FX); press(B_FX); frame();                 /* Effects → Punch-in */
     ok = ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
@@ -8782,9 +8795,9 @@ static int test_live_graph_rate(void)
     ok = live_panel_each_frame();
     bad += check("HOME scope: graph_sig moves every consecutive frame", ok);
     ui_power_on();
-    go_title("PATTERN");
+    go_title("SEQ TOOLS");
     ok = cur_page()->graph == GR_STEPS && live_panel_each_frame();
-    bad += check("PATTERN (live steps): graph_sig moves every consecutive frame", ok);
+    bad += check("SEQ TOOLS (live steps): graph_sig moves every consecutive frame", ok);
     ui_power_on();
     song.playing = 0;
     go_title("TAPE");
@@ -8996,7 +9009,8 @@ static int test_generation_density_undo(void)
         grid_hit(TSEL, 2, DV_HATC, 1);
         grid_hit(TSEL, 7, DV_TOM, 1);
         memcpy(before, TSEL->step, sizeof before);
-        press(B_SEQ); press(B_SEQ);
+        press(B_SEQ); press(B_SEQ); turn(EN_SELECT, 1);   /* step group → SEQ TOOLS → GENERATION */
+        frames(300);                                      /* the tools map's knobs are quiet as it closes */
         turn(EN_K2, -100);
         for (i = 0; i < 16; i++) {
             ok &= !(step_lanes(&TSEL->step[i]) & (1u << DV_KICK));
@@ -9013,23 +9027,31 @@ static int test_generation_density_undo(void)
 static int test_generation_navigation(void)
 {
     int ok;
+    char ti[20];
     ui_power_on();
     set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;
     press(B_SEQ);
     press(B_SEQ);
-    ok = str_eq(cur_page()->title, "GENERATION") && !ui.lock;
+    ok = str_eq(cur_page()->title, "SEQ TOOLS") && ui.lock == LAYER_SEQ;
+    turn(EN_SELECT, 1);                             /* tools map leaves the GENERATION pages */
+    page_title(ti);
+    ok &= str_eq(cur_page()->title, "GENERATION") && !ui.lock && str_eq(ti, "GENERATION 2/3");
     turn(EN_SELECT, 1);
-    ok &= str_eq(cur_page()->title, "GENERATION 2") && !ui.lock;
+    page_title(ti);
+    ok &= str_eq(cur_page()->title, "GENERATION 2") && !ui.lock && str_eq(ti, "GENERATION 3/3");
+    turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "GENERATION 2"); /* SEL stops at the section's last page */
     press(B_SEQ);
-    ok &= str_eq(cur_page()->title, "AUTOMATION");
+    ok &= str_eq(cur_page()->title, "STEP");
 
     ui_power_on();                                  /* CR78: SAMPLE's factory drum kit */
     set_engine_of(TSEL, ENGI_SAMPLE); TSEL->engine = TSEL->eng_req;
     TSEL->p[P_E0] = SMP_CR78_INDEX;
     press(B_SEQ);
     press(B_SEQ);
+    turn(EN_SELECT, 1);
     ok &= str_eq(cur_page()->title, "GENERATION") && !ui.lock;
-    return check("DRUM-X, DRUMS and CR78 SEQ: GENERATION is second section, SELECT opens its map page", ok);
+    return check("DRUM-X, DRUMS and CR78 SEQ: GENERATION follows SEQ TOOLS in the tools section", ok);
 }
 
 static int test_generation_map_display(void)
@@ -9038,7 +9060,8 @@ static int test_generation_map_display(void)
     ui_power_on();
     set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;
     TSEL->p[P_SLEN] = 16;
-    press(B_SEQ); press(B_SEQ);
+    press(B_SEQ); press(B_SEQ); turn(EN_SELECT, 1);   /* step group → SEQ TOOLS → GENERATION */
+    frames(300);                                      /* the tools map's knobs are quiet as it closes */
     turn(EN_K1, 1);
     ok = TSEL->p[P_SLEN] == 17 && TSEL->generation.density[0] == 50;
     turn(EN_SELECT, 1);
@@ -9052,7 +9075,7 @@ static int test_generation_map_display(void)
     return check("GENERATION: LEN first; MAP presets and CUSTOM XY; full-screen map returns to grid", ok);
 }
 
-/* Synth SEQ skips GENERATION; SELECT stays inside STEP / PATTERN / DETAIL. */
+/* Synth SEQ skips GENERATION; SELECT stays inside STEP / DETAIL / AUTOMATION. */
 static int test_seq_sections(void)
 {
     int bad = 0, ok;
@@ -9060,18 +9083,16 @@ static int test_seq_sections(void)
     press(B_SEQ);
     ok = str_eq(cur_page()->title, "STEP") && !ui.lock && cur_page()->sec == SEQ_SEC_STEP;
     turn(EN_SELECT, 1);
-    ok &= str_eq(cur_page()->title, "PATTERN") && !ui.lock && cur_page()->sec == SEQ_SEC_STEP;
+    ok &= str_eq(cur_page()->title, "DETAIL") && !ui.lock && cur_page()->sec == SEQ_SEC_STEP;
     turn(EN_SELECT, 1);
-    ok &= str_eq(cur_page()->title, "DETAIL") && cur_page()->sec == SEQ_SEC_STEP;
+    ok &= str_eq(cur_page()->title, "AUTOMATION") && !ui.lock && cur_page()->sec == SEQ_SEC_STEP;
     turn(EN_SELECT, 1);
-    ok &= str_eq(cur_page()->title, "DETAIL");          /* SELECT stops at the end of the section */
-    press(B_SEQ);
-    ok &= str_eq(cur_page()->title, "AUTOMATION") && !ui.lock && cur_page()->sec == SEQ_SEC_AUTO;
+    ok &= str_eq(cur_page()->title, "AUTOMATION");      /* SELECT stops at the end of the section */
     press(B_SEQ);
     ok &= str_eq(cur_page()->title, "SEQ TOOLS") && ui.lock == LAYER_SEQ && cur_page()->sec == SEQ_SEC_TOOL;
     press(B_SEQ);
     ok &= str_eq(cur_page()->title, "STEP") && !ui.lock && cur_page()->sec == SEQ_SEC_STEP;
-    bad += check("SEQ sections: step group (SELECT STEP>PATTERN>DETAIL) → Automation → SEQ TOOLS (wrap)", ok);
+    bad += check("SEQ sections: step group (SELECT STEP>DETAIL>AUTOMATION) → SEQ TOOLS (wrap)", ok);
     return bad;
 }
 

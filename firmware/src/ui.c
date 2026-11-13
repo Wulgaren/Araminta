@@ -453,7 +453,7 @@ static uint32_t section_map_layer(void)
     pg = &PAGES[ui.page % NPAGES];
     if (pg->fam == FAM_FX && pg->sec == FX_SEC_PUNCH)
         return LAYER_FX;
-    if (pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_TOOL)
+    if (pg->fam == FAM_SEQ && pg->graph == GR_STEPS)   /* SEQ TOOLS: not the GENERATION pages beside it */
         return LAYER_SEQ;
     if (pg->fam == FAM_SAVE && pg->sec == SAVE_SEC_CLEAR)
         return LAYER_CLR;
@@ -775,12 +775,12 @@ static void cursor_fix(void)                           /* LEN got shorter: onto 
         cursor_set(TSEL->p[P_SLEN] - 1);
 }
 
-/* SEQ follow: while playing on PATTERN/STEP/DETAIL, the cursor tracks seq_idx unless paused (~3 s) */
+/* SEQ follow: while playing on STEP/DETAIL, the cursor tracks seq_idx unless paused (~3 s) */
 #define SEQ_FOLLOW_FRAMES 180u
 static int seq_step_sec(void)
 {
     const page_t *pg = cur_page();
-    return !ui.home && pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_STEP;
+    return !ui.home && pg->fam == FAM_SEQ && pg->sec == SEQ_SEC_STEP && pg->graph != GR_EVENTS;
 }
 static void seq_follow_bump(void)
 {

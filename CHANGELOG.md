@@ -20,6 +20,13 @@
 - **DRUMS (engine 15) is retired.** Projects and user presets on it load as DRUM-X with their KIT's kit (DEEP,
   TIGHT and PERC assembled from the others). Close to the old sound, not identical.
 - **X-MOD playback removed** (no page since 3.x).
+- **Kit labels.** EDIT's first section reads **KIT 1/2** and **KIT 2/2**: both pages edit the whole kit now, so the
+  old DRUMS **HIT** name is gone. TONE puts **FILT** first, then COLR / CUT / MIX. CHAR names the combined drive modes
+  **DR+BU** and **DR+SH**.
+- **SEQ pages.** **PATTERN** is gone: its LEN / DIV / SWING / GATE knobs are on SEQ TOOLS and its layer. The step
+  group walks **STEP → DETAIL → AUTOMATION**, and **SEQ TOOLS → GENERATION → GENERATION 2** is the tools section
+  (generation only on a drum kit). The tools map opens on SEQ TOOLS alone, so the generation pages keep their own
+  knobs. SEQ TOOLS' drum-lane mute reads **MUT BD**, not **M BD**.
 
 #### Compatibility
 
