@@ -14,8 +14,9 @@
   TEETH, CLICK. Felucca's kits STD, 80, 10, 66, 55 and 77 are DRUM-X presets **STD, 80, 10, 66, 55 and 77**, translated
   from its numbers.
 - **Kit pages read in percent**, as the rest of the device reads its 0..127 values. TONE's third card is **CHAR**: what
-  it offers changes with the MODEL (a drive, a drive and its short tail, a click ratio), so DRV was a misnomer. The
-  FM's second oscillator is **LAYR**, a count of 16 steps and not an amount.
+  it offers changes with the MODEL (a drive, a drive and its short tail, a click ratio), so DRV was a misnomer. PTCH
+  reads as its note and the cents above it, and the FM's second oscillator (OSC2) as its amount, 0 to 100 %. The
+  layer itself has 16 positions.
 - **DRUMS (engine 15) is retired.** Projects and user presets on it load as DRUM-X with their KIT's kit (DEEP,
   TIGHT and PERC assembled from the others). Close to the old sound, not identical.
 - **X-MOD playback removed** (no page since 3.x).

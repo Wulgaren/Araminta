@@ -5,11 +5,13 @@
  * (drumx_voice.c dx_kit, saved with the section: project.c FUN11 / FUNB):
  *   SOUND     LANE (BD A .. CB B: the sound and its patch; a key struck picks the lane), ENGI (its MODEL),
  *             and the source: WAVE / RATIO / KIND / CLAPS, NOIS / AIR
- *   TONE      COLR / CUT / MIX, FILT, CHAR / Q / TAIL, LAYR (the FM's second oscillator)
+ *   TONE      COLR / CUT / MIX, FILT, CHAR / Q / TAIL, OSC2 (the FM's second oscillator)
  *   MOVEMENT  PTCH / RATE, PMOD / SIZZ / GAP / LEN, PENV / HPF / FALL, DCAY / LEN
  * Each card keeps its knob across the five models (CLASSIC shown as FM, SHELL, METAL, TEETH, CLICK): a card the
- * model does not use is drawn empty and its knob does nothing. The values are the side's; the MORPH plays between
- * the two (EDIT MRPH). The panel shows the kit's lanes with the edited lane lit (ui_graph.c graph_colony). */
+ * model does not use is drawn empty and its knob does nothing. The amounts read as percentages, as every other
+ * page's 0..127 values do; PTCH reads as the note and its cents; OSC2 as its amount, 0..100 %. The values are the
+ * side's; the MORPH plays between the two (EDIT MRPH). The panel shows the kit's lanes with the edited lane lit
+ * (ui_graph.c graph_colony). */
 static uint8_t dx_ui_seen = 0xFFu;                   /* the last key note followed */
 static const char *const DX_LANE_ABBR[8] = {"BD", "SD", "CP", "CH", "OH", "TM", "RS", "CB"};
 static const char *const DX_ENGINE_NAME[DXV_N] = {"FM", "SHELL", "METAL", "TEETH", "CLICK"};
@@ -169,12 +171,28 @@ static void dx_val_card(uint32_t c, const char *label, uint32_t val, uint32_t ic
     fmt_int(b, (val * 100u + 63u) / 127u);
     draw_column(c, label, b, "%", VAL(c), (int32_t)val * 1000 / 127, icon);
 }
-/* a card showing a count of steps (LAYER's 0..15), not an amount: no percentage, the gauge shows the step */
-static void dx_step_card(uint32_t c, const char *label, uint32_t val, uint32_t max, uint32_t icon)
+/* OSC2's LAYER (0..15) as the amount of it the sound carries, 0 .. 100 % at its top (the mix dx_layer applies to
+ * the triangle tops out at 70 %: 100 % is the knob's end, not a sound with no first oscillator left) */
+static void dx_layer_card(uint32_t c, const char *label, uint32_t val, uint32_t icon)
 {
     char b[12];
-    fmt_int(b, val);
-    draw_column(c, label, b, "", VAL(c), (int32_t)val * 1000 / (int32_t)max, icon);
+    uint32_t pct = (val * 100u + 7u) / 15u;
+    fmt_int(b, pct);
+    draw_column(c, label, b, "%", VAL(c), (int32_t)pct * 10, icon);
+}
+/* PTCH: the note the oscillator starts on and its cents above it (3/4 semitone a step from C1, drumx_voice.c) */
+static void dx_pitch_card(uint32_t c, const char *label, uint32_t val, uint32_t icon)
+{
+    char b[12], u[8];
+    uint32_t q = val * 3u;                              /* quarter tones above MIDI 24 */
+    note_name(b, 24u + q / 4u);
+    u[0] = 0;
+    if (q % 4u) {
+        u[0] = '+';
+        fmt_int(u + 1, (int32_t)(q % 4u) * 25);
+        str_cpy(u + str_len(u), "c", 3);
+    }
+    draw_column(c, label, b, u, VAL(c), (int32_t)val * 1000 / 127, icon);
 }
 static void dx_ix_card(uint32_t c, const char *label, const char *val, uint32_t ix, uint32_t steps, uint32_t icon)
 {
@@ -238,7 +256,7 @@ static void dx_tone_cards(const dx_lane_t *L, const uint8_t *v, uint32_t e)
         break;
     }
     if (e == DXV_CLASSIC)
-        dx_step_card(3, "LAYR", dx_lay[dx_ui_lane & 7u], 15, ICON_TONE);
+        dx_layer_card(3, "OSC2", dx_lay[dx_ui_lane & 7u], ICON_TONE);
     else
         dx_empty_card(3);
 }
@@ -252,8 +270,10 @@ static void dx_move_cards(const dx_lane_t *L, const uint8_t *v, uint32_t e)
 
     if (e == DXV_TEETH) {
         dx_empty_card(0);
+    } else if (gr) {
+        dx_val_card(0, l0, v[DXP_PITCH], ICON_RATE);
     } else {
-        dx_val_card(0, l0, v[DXP_PITCH], gr ? ICON_RATE : ICON_PITCH);
+        dx_pitch_card(0, l0, v[DXP_PITCH], ICON_PITCH);
     }
     if (e == DXV_METAL)
         l1 = "SIZZ";
