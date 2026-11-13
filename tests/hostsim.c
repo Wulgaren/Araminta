@@ -19,6 +19,8 @@
 #include <stdlib.h>
 #include <string.h>
 #define __attribute__(x)
+#undef memset                                   /* (macOS string.h: the _FORTIFY_SOURCE macros) */
+#undef memcpy
 #define memset felucca_memset
 #define memcpy felucca_memcpy
 #define memcmp felucca_memcmp
