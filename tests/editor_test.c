@@ -1044,6 +1044,16 @@ static int matrix_protocol(void)
     a[0] = (uint8_t)song.sel; a[1] = 6; a[2] = MS_KEY; a[3] = MD_SHP; a[4] = 70;
     request(ED_MATRIX, a, 5);
     bad += check("  .. the editor's own set: no push", !sync_pass());
+    a[0] = 0; a[1] = P_M1AMT; a[2] = (8192 + 20) & 127; a[3] = (8192 + 20) >> 7;
+    request(ED_SET, a, 4);
+    bad += check("  .. the editor's SET of AMT1: no MATRIX echo", TSEL->p[P_M1AMT] == 20 && !sync_pass());
+    a[0] = (uint8_t)song.sel; a[1] = P_M1SRC; a[2] = (8192 + MS_LFO) & 127; a[3] = (8192 + MS_LFO) >> 7;
+    request(ED_TRACK_PARAM, a, 4);
+    bad += check("  .. the editor's TRACK_PARAM of SRC1: no MATRIX echo", TSEL->p[P_M1SRC] == MS_LFO && !sync_pass());
+    a[0] = (uint8_t)ed_eng(TSEL); a[1] = 1;
+    request(ED_PRESET, a, 2);
+    bad += check("  .. the editor's PRESET (slots 5 and 7 off): no MATRIX echo",
+                 !TSEL->mx[0][MF_SRC] && !TSEL->mx[2][MF_SRC] && !sync_pass());
     /* UP_PUT with slots 5..8 after the category; UP_GET gives them back */
     reset();
     a[k++] = 4; a[k++] = 0;

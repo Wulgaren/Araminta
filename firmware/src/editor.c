@@ -224,6 +224,7 @@ static void ed_load_after(const ed_load_t *b)
     for (i = 0; i < P_COUNT; i++)                        /* the load's values; a pending push of another stays */
         if (TSEL->p[i] != b->p[i])
             ed_w.v[i] = TSEL->p[i];
+    ed_mx_copy(TSEL, ed_w.mx);                           /* the load's matrix slots: no MATRIX push */
 }
 static int ed_room(void) { return so_w - so_r + 8u <= SXQ / 2u; }
 static void ed_known(uint32_t k, uint32_t id)            /* the editor's own change of trk[k].p[id]: no push */
@@ -231,6 +232,8 @@ static void ed_known(uint32_t k, uint32_t id)            /* the editor's own cha
     uint32_t j;
     if (k == song.sel) {
         ed_w.v[id] = trk[k].p[id];
+        if (id >= P_M1SRC && id <= P_M4AMT)             /* a slot 1..4 field: no MATRIX push either */
+            ed_w.mx[(id - P_M1SRC) / 3u][(id - P_M1SRC) % 3u] = trk[k].p[id];
         return;
     }
     for (j = 0; j < 3u; j++)
@@ -583,7 +586,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 }
             }
             ui.force = 1;
-            ed_w.v[a[0] ? P_COUNT + a[1] : a[1]] = *vp;   /* the editor's own change: no push */
+            if (a[0])                                     /* the editor's own change: no push */
+                ed_w.v[P_COUNT + a[1]] = *vp;
+            else
+                ed_known(song.sel, a[1]);
         }
         ed_b(a[0]);
         ed_b(a[1]);

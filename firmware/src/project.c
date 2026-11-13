@@ -1526,6 +1526,7 @@ static int project_restore_runtime(const project_t *input)
     transport_req = 0;
     chain_config = p->chain;
     motion = p->motion;
+    motion_save_lim = motion.count > MOTION_FILE_MAX;   /* (a FUN20 file of 4.1: up to 155) AUTOMATION SAVE LIMIT */
     memset(motion_active, 0, sizeof motion_active);
     motion_base_valid = 0;
     ui.song_row = 0;
