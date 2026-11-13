@@ -7521,11 +7521,11 @@ static int test_sample_dice(void)
     return check("SAMPLE dice keeps the track on SAMPLE", drum == 0u);
 }
 
-/* OCT+ + PRESETS on DRUM-X: a random factory kit with its own MODELs and LAYERs, each sound's numbers near that kit's,
- * any of the four waves; SAVE held takes the last dice back */
+/* OCT+ + PRESETS on DRUM-X: a random factory kit with its own LAYERs, each sound's numbers near that kit's, any of the
+ * four waves and any MODEL; SAVE held takes the last dice back */
 static int test_kit_dice(void)
 {
-    int bad = 0, ok = 1, rolled = 0;
+    int bad = 0, ok = 1, rolled = 0, remodel = 0;
     dx_lane_t before[8], actual[8];
     uint32_t n, l, i;
     ui_power_on();
@@ -7538,10 +7538,11 @@ static int test_kit_dice(void)
         fm1_ms += 1200u;
         turn(EN_PRESET, 1);
         K = &DX_KITS[TSEL->preset % DX_NKIT];
-        ok &= msg_is("KIT DICED") && !memcmp(dx_mdl, K->mdl, sizeof dx_mdl) && !memcmp(dx_lay, K->lay, sizeof dx_lay);
+        ok &= msg_is("KIT DICED") && !memcmp(dx_lay, K->lay, sizeof dx_lay);
         for (l = 0; l < 8u; l++) {
             uint32_t w = dx_kit[l].mode & 3u;
-            ok &= (dx_kit[l].mode & ~3u) == (K->lane[l].mode & ~3u);
+            ok &= (dx_kit[l].mode & ~3u) == (K->lane[l].mode & ~3u) && dx_mdl[l] < DXV_N;
+            remodel |= dx_mdl[l] != K->mdl[l];
             rolled |= w != (K->lane[l].mode & 3u) && w >= DXW_METAL;
             for (i = 0; i < DXP_N; i++) {
                 int da = dx_kit[l].a[i] - K->lane[l].a[i], db = dx_kit[l].b[i] - K->lane[l].b[i];
@@ -7550,8 +7551,9 @@ static int test_kit_dice(void)
         }
     }
     btn_up(B_OCTUP); frame();
-    bad += check("DRUM-X dice: a factory kit's MODELs and LAYERs, its sounds within 40", ok);
+    bad += check("DRUM-X dice: a factory kit's LAYERs, its sounds within 40", ok);
     bad += check("DRUM-X dice rolls METAL or BELL waves too", rolled);
+    bad += check("DRUM-X dice rolls MODELs too", remodel);
     hold(B_SAVE);
     dx_kit_pack(actual, dx_kit, dx_lay, dx_mdl);
     bad += check("SAVE held undoes the kit dice", !memcmp(before, actual, sizeof before));

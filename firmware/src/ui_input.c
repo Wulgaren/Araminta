@@ -1607,7 +1607,8 @@ static void seq_entry(uint32_t pressed)
 
 /* (JIANT sound dice, Araminta: OCT+ held + PRESETS). A random factory preset of the engine, then each engine
  * parameter moved up to a quarter of its range (an ENUM: another value, one time in three). DRUM-X: the preset's kit
- * (its MODELs and LAYERs) instead, each sound's numbers moved up to 40 and its WAVE another one time in five; a kit
+ * (its MODELs and LAYERs) instead, each sound's numbers moved up to 40, its WAVE another one time in five and its MODEL
+ * one time in eight (every MODEL reads any sound's fields its own way); a kit
  * another track shares stays as it is. Always near a sound that works; SAVE held takes it back (the preset's undo). */
 static int32_t dice_by(int32_t v, int32_t lo, int32_t hi, int32_t span)
 {
@@ -1634,6 +1635,8 @@ static void sound_dice(void)
                 L->b[i] = (uint8_t)dice_by(L->b[i], 0, L->b[i] + up < 127 ? L->b[i] + up : 127, 40);
             }
             L->mode = (uint8_t)((L->mode & ~3u) | (rng() % 5u ? (L->mode & 3u) : rng() % 4u));
+            if (!(rng() % 8u))
+                dx_mdl[l] = (uint8_t)(rng() % DXV_N);
         }
         ui_message("KIT DICED");
         return;
