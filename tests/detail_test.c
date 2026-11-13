@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* 1.5.1, Discussion #199: SEQ > DETAIL, the step page between STEP and AUTOMATION, on the real sequencer and UI
  * sources (with the stubs of tests/ui_test.c):
- *   the page   SELECT walks STEP > PATTERN > DETAIL; SEQ cycles sections (Step -> Automation -> …); the cursor is STEP's
+ *   the page   SELECT walks STEP > DETAIL > AUTOMATION; SEQ cycles sections (Step -> Tools); the cursor is STEP's
  *   knobs      KNOB 1 CHANCE, 2 RATCH, 3 NUDGE, 4 VEL of the cursor step, PRESETS walks the cursor (KNOB 1 does not),
  *              nothing else of the step changes; a REST / an empty step takes none (NO NOTE), a TIE its CHANCE only
  *   AUTOMATION the same fields: a value set here is its row there, back at its default the row is gone
@@ -102,23 +102,22 @@ static int page_cycle(void)
     pattern(4);
     ok = str_eq(cur_page()->title, "STEP");
     turn(EN_SELECT, 1); frames(100);                 /* SELECT: pages inside the Step section */
-    ok &= str_eq(cur_page()->title, "PATTERN") && !detail_on();
-    turn(EN_SELECT, 1); frames(100);
     ok &= str_eq(cur_page()->title, "DETAIL") && detail_on() && cur_page()->graph == GR_ROLL && ui.cursor == 4u &&
           song.seq_mode;
-    press(B_SEQ); frames(320);                        /* SEQ: Step -> Automation */
-    ok &= cur_page()->graph == GR_EVENTS && !detail_on();
-    press(B_SEQ); frames(320);                        /* Automation -> SEQ TOOLS */
+    turn(EN_SELECT, 1); frames(100);
+    ok &= str_eq(cur_page()->title, "AUTOMATION") && !detail_on();
+    press(B_SEQ); frames(320);                        /* SEQ: Step -> SEQ TOOLS */
+    ok &= cur_page()->graph == GR_STEPS && !detail_on();
     press(B_SEQ); frames(320);                        /* SEQ TOOLS -> Step (first page of the Step section) */
     ok &= str_eq(cur_page()->title, "STEP") && !detail_on();
-    bad += check("SEQ: SELECT STEP>PATTERN>DETAIL; SEQ button sections back to STEP", ok);
+    bad += check("SEQ: SELECT STEP>DETAIL>AUTOMATION; SEQ button sections back to STEP", ok);
     go_detail();
     {
         char ti[20];
         page_title(ti);
-        ok = str_eq(ti, "DETAIL 3/3");
+        ok = str_eq(ti, "DETAIL 2/3");
     }
-    bad += check("  its footer title DETAIL 3/3 (not the scale)", ok);
+    bad += check("  its footer title DETAIL 2/3 (not the scale)", ok);
     return bad;
 }
 

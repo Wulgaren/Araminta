@@ -110,8 +110,10 @@ static int host_apply_project(const project_t *input)
     memset(drum_mute, 0, sizeof drum_mute);
     memset(trk, 0, sizeof trk);
     host_tracks_init();
-    memcpy(dx_kit, dx_kit_ok(p.dx) ? p.dx : DX_KIT_DEF, sizeof dx_kit);
-    memcpy(dx_mot, p.dx_mot, sizeof dx_mot);
+    if (dx_kit_ok(p.dx))
+        dx_kit_unpack(dx_kit, dx_lay, dx_mdl, p.dx);
+    else
+        dx_kit_load(0);
     fx_bus_from_wire(p.fx_bus);
     dx_mute_set(p.dx_mute);
     transport_req = 2;

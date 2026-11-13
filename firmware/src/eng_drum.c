@@ -14,9 +14,12 @@
  *
  * Parameters (stored as before: KIT's slot is MRPH, SNAP's NOIS, KICK's WARP): MRPH the MORPH A..B of every
  * lane; TUNE (+-12 semitones), TONE (COLOR), DECY (DECAY) and NOIS (NOISE) move every lane from its patch (64: as
- * the kit has it); FM (JIANT, once ACC) every sound through harmonic FM, eight ratio bands (drumx_voice.c dx_run); FOLD (JIANT 0.5, was WARP) every sound's oscillator through a wavefolder after its envelope: a bright attack folding back to the plain tail (0: as the kit has it); DRV a soft clip on every hit
- * (x1..x4, level kept). Each lane has its LEVEL (P_LN0..P_LN7, EDIT > LANES / LANES 2, #97: square law, 100 % the
- * default) on the voice amplitude after the knee. The knobs move a hit while it rings.
+ * the kit has it); FM (JIANT 0.6.36, once ACC) the FM struck with each hit and gone with its pitch
+ * envelope: a click, a beater, a metal edge (drumx_voice.c dx_run); FOLD (JIANT 0.5, was WARP) every sound's oscillator
+ * through a wavefolder after its envelope: a bright attack folding back to the plain tail (0: as the kit has it); DRV
+ * (JIANT 0.6.16) the kit's sum into a soft clip (x1..x4, level kept), then the knee (drum_bus). Each lane has its LEVEL
+ * (P_LN0..P_LN7, MIXER 2/3 and 3/3, #97: square law, 100 % the default; the cowbell's 4 dB under) on the voice
+ * amplitude. The track's LFO tunes the kit (DEST PIT) and moves MORPH (DEST SHP). The knobs move a hit while it rings.
  *
  * Polyphony: a lane per drum and part, mono: a hit reuses its lane's voice even at another pitch, the 8 lanes ring
  * together. A sounding voice plays one lane (s[0]); the lane remembers its voice (owner), and a voice
@@ -24,7 +27,7 @@
  * voices come from the shared budget (voice.c), up to 8 per part. A closed hat chokes the open one.
  *
  * What applies (engine_t.oneshot): the hit is the envelope. VOICE (always POLY), GLIDE, the ADSR, ENV DEST,
- * LFO DEST PIT / FLT / SHP, the global TUNE and the matrix's PITCH CUT SHP do nothing; LEVEL, PAN, the
+ * LFO DEST FLT, the global TUNE and the matrix's PITCH CUT SHP do nothing; LEVEL, PAN, the
  * sends, DIST, the SLICER, LFO DEST AMP, velocity, the matrix's AMP and its E1..E8 (the knobs, per
  * block) do. A released key does not end a hit.
  *
@@ -37,16 +40,9 @@ typedef struct {
     int8_t st;                   /* its semitones from the lane's pitch (the GM map) */
     uint8_t mg;                  /* its group mute's fade: DXG_FADE (sounding) .. 0 (muted, silent) */
     uint8_t age;                 /* blocks since the hit (255: and more): PUNCH's shape */
-    int8_t rm, rt;               /* (0.5.1) X-MOD RAND: this hit's MORPH offset, its tune (1/16 semitones) */
 } drum_lane_t;
-/* (JIANT 0.5.1) X-MOD (EDIT > X-MOD on a DRUM track): the kit's own modulator, saved with the kit (project.c, in its
- * reserved bytes): RATE (OFF, 4BAR 2BAR 1BAR 1/2 1/4 1/8 1/16 1/32: a tempo-synced LFO), DPTH (how far it moves
- * MORPH, +-64), SHPE (SINE TRI SAW RAMP S&H), RAND (each hit its own MORPH, up to +-64, and tune, up to +-1
- * semitone: no two hits alike). dx_mot_v: the LFO's MORPH offset this block (fx.c dx_mot_block) */
-enum { XM_RATE, XM_DPTH, XM_SHPE, XM_RAND };
-static uint8_t dx_mot[4];
-static int32_t dx_mot_v;
-static uint32_t dx_mot_rng = 0x9E3779B9u;
+/* (JIANT 0.5.1) X-MOD, the kit's own MORPH LFO and RAND, is retired (its page went in 3.x; its playback from older
+ * projects too, for the flash JIANT's kits took): the track's LFO and the mod matrix move MORPH */
 
 ENG_MEM_FITS("DRUM-X", sizeof(drum_lane_t) * DV_NLANE);
 /* 1.4.1: each part's lanes muted (bit l: lane l). SEQ TOOLS F4 mutes the selected lane; the EDIT layer's black keys
@@ -65,6 +61,11 @@ static const uint8_t DXG_LANE[DV_NLANE] = {DXG_KICK, DXG_SNARE, DXG_SNARE, DXG_H
 #define DXM_LANE(l) (1u << (8u + (l)))
 #define DXM_ALL 0xFF0Fu
 static volatile uint16_t dx_mute;                       /* DXG_* groups | DXM_LANE lanes */
+/* MIXER's lane pages (ui_graph.c graph_lanes): each track's lane meters since the UI last read them (Q15, the
+ * hit's own envelope before its lane LEVEL: the render loops keep their budget). The audio writes a max, the UI
+ * reads and clears its track's (a hit between the read and the clear loses that block's peak: the bar's fall hides
+ * it); .pool: no audio .bss budget */
+static uint16_t drum_lane_meter[NTRK][DV_NLANE] __attribute__((section(".pool")));
 static void dx_mute_set(uint32_t m) { dx_mute = (uint16_t)(m & DXM_ALL); }
 static int dx_lane_muted_g(uint32_t l) { return (DXG_LANE[l & 7u] & dx_mute) || (dx_mute & DXM_LANE(l & 7u)); }
 static int dx_lane_muted(const track_t *t, uint32_t l)
@@ -78,7 +79,7 @@ static int dx_lane_muted(const track_t *t, uint32_t l)
  * voice's knee, its first ~3 ms up to x1.45, its body (~15 .. 115 ms) up to x1.7, back to unity by ~180 ms: the peak
  * held by the knee, the body denser and louder, the tail whole (the master's leveler does not pump on a spike). DUCK
  * (G_DUCK, fx.c): a kick struck on any kit's track (its group not muted) ducks the other parts; duck_hit (dsp.c, shared
- * with DRUMS / SAMPLE kits) tells fx.c's mix_block */
+ * with SAMPLE kits) tells fx.c's mix_block */
 #define DRUM_ATK_BLK 48u                                 /* (JIANT 0.4) ATK+ on a DRUM track: a hit's fade-in, blocks */
 
 /* General MIDI notes 35..81 -> the lane (DV_*) and semitones from its pitch */
@@ -208,16 +209,9 @@ static void drum_note_on(track_t *t, voice_t *v)
                                                           * notes) would end a fresh voice at env 0 in env_tick */
     L->mg = DXG_FADE;
     L->age = 0;
-    if (dx_mot[XM_RAND]) {                               /* (0.5.1) X-MOD RAND: this hit's own MORPH and tune */
-        int32_t r = dx_mot[XM_RAND];
-        dx_mot_rng = dx_mot_rng * 1664525u + 1013904223u;
-        L->rm = (int8_t)(((int32_t)(dx_mot_rng >> 24) - 128) * r >> 8);
-        L->rt = (int8_t)(((int32_t)((dx_mot_rng >> 16) & 255u) - 128) * r >> 10);
-    } else {
-        L->rm = L->rt = 0;
-    }
     if (lane == DV_KICK)
         duck_hit = 1;
+    L->x.sv = (uint8_t)v->vel;                           /* (JIANT V10.7.8: GR's stroke, drumx_voice.c) */
     dx_trigger(&L->x);
     if (lane == DV_HATC)                                 /* a closed hat chokes the open one */
         dx_choke(&K[DV_HATO].x);
@@ -245,17 +239,20 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
 {
     const int16_t *p = t->p;
     drum_lane_t *L = drum_lane_of(t, v);
-    int32_t y[CTL], drv = p[P_E7], g = 0, mk = 0, pb0 = 4096, pb1 = 4096;
+    int32_t y[CTL], pb0 = 4096, pb1 = 4096, lfo, lfo_pit, lfo_shp;
     int32_t lv = clamp(p[P_LN0 + ((uint32_t)v->s[0] & (DV_NLANE - 1u))], 0, 127);
     uint32_t i;
     vmod_t ml;                                           /* (only its amplitude ramp is read: voice_amp) */
     if (!L)
         return;
+    if (((uint32_t)v->s[0] & (DV_NLANE - 1u)) == DV_BELL)   /* (JIANT 0.6.49) the cowbell 4 dB under the others: it */
+        lv = lv * 100 / 127;                                  /* stood out of every kit (its LEVEL at 100 % is this) */
     if (dx_lane_muted(t, (uint32_t)v->s[0]) || L->mg < DXG_FADE) {   /* its group / lane muted:
                                                           * fading (to the end, if unmuted meanwhile), then ended */
         uint32_t g0 = L->mg;
         if (!g0) {
             L->x.live = L->x.trig = 0;                   /* (drum_amp ends the voice) */
+            L->x.hl = 0;                                 /* (the next hit starts its upsampling from 0) */
             return;
         }
         L->mg = (uint8_t)(g0 - 1u);
@@ -272,13 +269,13 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     }
     if (n > CTL)
         n = CTL;
-    dx_run(&dx_kit[(uint32_t)v->s[0] & (DV_NLANE - 1u)], &L->x, p[P_E0] + dx_mot_v + L->rm,
-           L->st * 16 + L->rt + (p[P_E1] - 64) * 3 + t->pfx_pit,
+    lfo = mulq15(t->lfo_val, t->lfo_fade);               /* (JIANT 0.6.81) the track's LFO on the kit: PITCH tunes it,
+                                                          * SHAPE moves MORPH */
+    lfo_pit = (lfo * p[P_LD_PIT] * 3) >> 15;
+    lfo_shp = (lfo * p[P_LD_SHP]) >> 15;
+    dx_run(&dx_kit[(uint32_t)v->s[0] & (DV_NLANE - 1u)], &L->x, p[P_E0] + lfo_shp,
+           L->st * 16 + (p[P_E1] - 64) * 3 + t->pfx_pit + lfo_pit,
            p[P_E3] - 64, p[P_E2] - 64, p[P_E4] - 64, p[P_E6], p[P_E5], y, n);
-    if (drv > 0) {                                       /* DRV: x1..x4 into the soft clip, the level kept (Q12) */
-        g = 4096 + drv * 3 * 4096 / 127;
-        mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
-    }
     {                                                    /* PUNCH: the boost before the knee (driven into it, as
                                                           * Drum Buss), the tail's cut on the amplitude ramp */
         int32_t pu = pnch_eff;
@@ -302,13 +299,50 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         if (L->age < 255u)
             L->age++;
     }
-    for (i = 0; i < n; i++) {                            /* x1.25 and the knee below, in 32 bits */
-        int32_t s = y[i];
-        if (g)
-            s = (softclip((s * g) >> 12) * mk) >> 15;
-        if (pb0 != 4096 || pb1 != 4096)
-            s = (s * (pb0 + (((pb1 - pb0) * (int32_t)i) >> CTL_LOG2))) >> 12;
-        out[i] += voice_amp(soft_knee(s + (s >> 2), 24000), m, i) * 2;
+    if (pb0 != 4096 || pb1 != 4096)                      /* (JIANT 0.6.16: DRV and the knee on the kit's sum, drum_bus) */
+        for (i = 0; i < n; i++)
+            y[i] = (y[i] * (pb0 + (((pb1 - pb0) * (int32_t)i) >> CTL_LOG2))) >> 12;
+    {                                                    /* x1.25; a MODEL's sound x4 more (+12 dB: Felucca's DRUMS
+                                                          * voices, their own levels; the lane LEVELs balance them) */
+        uint32_t sh = dx_mdl[(uint32_t)v->s[0] & (DV_NLANE - 1u)] ? 3u : 1u;
+        for (i = 0; i < n; i++) {
+            int32_t s = y[i];
+            out[i] += voice_amp(s + (s >> 2), m, i) << sh;
+        }
+    }
+    {   /* MIXER's lane pages: the hit's envelope (Q30, the loudest of its amp, noise and clap tails) as its live
+         * level, before the lane's LEVEL (the page draws it up to the LEVEL's tick). An audio-loop peak would
+         * exceed the render budget; the envelope follows the sound */
+        int32_t e = L->x.ea;
+        uint16_t *lm = &drum_lane_meter[(uint32_t)(t - trk)][(uint32_t)v->s[0] & (DV_NLANE - 1u)];
+        if (L->x.en > e)
+            e = L->x.en;
+        if (L->x.ec > e)
+            e = L->x.ec;
+        e >>= 15;
+        if (e > 32767)
+            e = 32767;
+        if ((uint16_t)e > *lm)
+            *lm = (uint16_t)e;
+    }
+}
+
+/* (JIANT 0.6.16) the kit's sum, once a block (voice.c track_render): DRV x1..x4 into the soft clip, its level kept,
+ * and the knee (were each hit's: eight lanes, two curves a sample each; now the bus's, a glue). One mono sum: SPREAD
+ * is off on DRUM-X (fx.c) */
+static __attribute__((noinline)) void drum_bus(const track_t *t, int32_t *out, uint32_t n)
+{
+    int32_t drv = t->p[P_E7], g = 0, mk = 0;
+    uint32_t i;
+    if (drv > 0) {
+        g = 4096 + drv * 3 * 4096 / 127;
+        mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
+    }
+    for (i = 0; i < n; i++) {
+        int32_t y = out[i] >> 1;
+        if (g)                                           /* (held to +-131071: y * g fits) */
+            y = (softclip((clamp(y, -131071, 131071) * g) >> 12) * mk) >> 15;
+        out[i] = soft_knee(y, 24000) << 1;
     }
 }
 
@@ -319,21 +353,64 @@ static int32_t drum_keys(const track_t *t, uint32_t k)
     return clamp(29 + 12 * song.octave + (int32_t)k, 0, 127);
 }
 
-/* {MRPH, TUNE, TONE, DECY, NOIS, FM, FOLD, DRV}; the kit suggests the BEAT pattern (GM notes) */
+/* {MRPH, TUNE, TONE, DECY, NOIS, FM, FOLD, DRV}; the kit suggests the BEAT pattern (GM notes). One a factory kit
+ * (JIANT 0.7.2: drumx_voice.c DX_KITS, this order; browsing loads it, ui.c apply_preset), as JIANT V10.7.24 has them;
+ * a few move the whole kit (the LFO FREE: a hit does not restart it). JIANT's DIST amounts (LOFI DUST 8, INDUSTRIAL 16,
+ * TECHNO RAW 10, BREAKS 4, HIP HOP 6) are its own track drive, not this fork's DIST stage: left out, as every preset
+ * here leaves DIST. LOFI DUST's LFO DRIFT (none here) is S&H smoothed; HIP HOP's BOOM BAP pattern (none here) is BEAT */
 static const preset_t DRUM_PRESETS[] = {
-    {"DRUM-X", DRUM_KIT_E, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},   /* (core.h: SAMPLE PERC's too) */
+    {"FM DRUMS", DRUM_KIT_E, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},   /* (JIANT's DRUM-X; core.h: SAMPLE
+                                                                                     * PERC's too) */
+    {"909 CLUB", {60, 64, 78, 64, 64, 0, 0, 10}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 16), PAT(12)},
+    {"808 BOOM", {58, 60, 54, 76, 59, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 24), PAT(12)},
+    {"LOFI DUST", {70, 64, 46, 54, 78, 0, 0, 20}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 18), PAT(12)},
+    {"INDUSTRIAL", {72, 66, 99, 70, 75, 20, 0, 40}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 10, 30), PAT(12)},
+    {"ACOUSTIC", {56, 64, 56, 62, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 34), PAT(12)},
+    {"DUB ROOTS", {60, 60, 50, 70, 59, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 18, 36), PAT(12)},
+    {"TECHNO RAW", {66, 64, 83, 62, 66, 10, 0, 30}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 14), PAT(12)},
+    {"BREAKS", {62, 66, 74, 62, 71, 0, 0, 10}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 22), PAT(12)},
+    {"HIP HOP", {58, 62, 56, 64, 67, 0, 0, 18}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
+    {"LATIN PERC", {60, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 22), PAT(12)},
+    /* Felucca's DRUMS kits (its engine retired: drums_kit), every knob at its middle (TONE too: the kits as translated) */
+    {"STD", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
+    {"80", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
+    {"10", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
+    {"66", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
+    {"55", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
+    {"77", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
 };
+/* .. their movement (core.h MODS), DRUM_PRESETS' order; 0 none. DRUMS' kits: their lane LEVELs (MIXER 2/3, 3/3), Felucca's
+ * balance (each sound's level against its DRUMS hit, the quietest at 100 %) */
+#define LANES(a, b, c, d, e, f, g, h) P_LN0, (a), P_LN1, (b), P_LN2, (c), P_LN3, (d), P_LN4, (e), P_LN5, (f), P_LN6, (g), \
+                                      P_LN7, (h)
+static const int8_t *const DRUM_MODS[] = {
+    0, 0, 0,
+    MODS(MLFO(LW_SH, LS_1BAR, 0, 0), P_LSMOOTH, 95, P_LTRIG, 1, P_LD_SHP, 8),   /* LOFI DUST: MORPH wanders, a worn tape */
+    MODS(MLFO(LW_SH, LS_16TH, 0, 0), P_LTRIG, 1, MMOD(1, PS_LFO, PD_E(6), 16)),   /* INDUSTRIAL: FOLD at random, 16ths */
+    0,
+    MODS(MMOD(1, PS_RAND, PD_DLY, 20)),                  /* DUB ROOTS: each hit its own throw into the echo */
+    MODS(MLFO(LW_TRI, LS_4BAR, 0, 0), P_LTRIG, 1, MMOD(1, PS_LFO, PD_E(2), 10)),   /* TECHNO RAW: TONE over 4 bars */
+    0, 0, 0,
+    MODS(LANES(124, 95, 78, 91, 126, 105, 67, 108)),  /* STD */
+    MODS(LANES(117, 102, 107, 83, 116, 126, 82, 108)),/* 80 */
+    MODS(LANES(111, 79, 52, 90, 82, 118, 102, 106)),  /* 10 */
+    MODS(LANES(118, 101, 97, 44, 51, 126, 97, 94)),   /* 66 */
+    MODS(LANES(116, 96, 97, 41, 33, 126, 77, 117)),   /* 55 */
+    MODS(LANES(116, 76, 83, 54, 49, 118, 65, 85)),    /* 77 */
+};
+_Static_assert(sizeof DRUM_MODS / sizeof DRUM_MODS[0] == DX_NKIT, "a DRUM preset's movement each");
+_Static_assert(sizeof DRUM_PRESETS / sizeof DRUM_PRESETS[0] == DX_NKIT, "a DRUM preset a kit");
 
 static const engine_t ENG_DRUM = {
     .name = "DRUM-X",
-    .page_title = {"KIT", "HIT"},
+    .page_title = {"KIT", "KIT"},
     .edit = {
         {"MRPH", F_PCT, 0, 127, 64, 0, 0},
         {"TUNE", F_PCT, 0, 127, 64, 0, 0},
         {"TONE", F_PCT, 0, 127, 64, 0, 0},
         {"DECY", F_PCT, 0, 127, 64, 0, 0},
         {"NOIS", F_PCT, 0, 127, 64, 0, 0},
-        {"FM", F_PCT, 0, 127, 0, 0, 0},                 /* (JIANT: was ACC) */
+        {"FM", F_PCT, 0, 127, 0, 0, 0},                 /* (JIANT 0.6.36: the FM strikes with the hit, once ACC) */
         {"FOLD", F_PCT, 0, 127, 0, 0, 0},              /* (JIANT 0.5: a wavefolder, was WARP) */
         {"DRV", F_PCT, 0, 127, 0, 0, 0},
     },
@@ -348,3 +425,38 @@ static const engine_t ENG_DRUM = {
     .keys = drum_keys,
     .mem = sizeof(drum_lane_t) * DV_NLANE,
 };
+
+/* (retired DRUMS, engine 15: project.c proj_retire) the DRUM-X kit Felucca's DRUMS KIT kit plays as (0..8: STD 80 10 66
+ * 55 77, the DRUMS presets', and the mix kits DEEP TIGHT PERC, 1.5.6's pieces of the others, assembled lane by lane
+ * from theirs; DEEP's kick 2 semitones down, as Felucca's) into k / lay / mdl, its lane LEVELs into ln */
+static void drums_kit(uint32_t kit, dx_lane_t *k, uint8_t *lay, uint8_t *mdl, int16_t *ln)
+{
+    static const uint8_t MIX[3][8] = {   /* the kit each lane comes from: 0 STD 1 80 2 10 3 66 4 55 5 77 */
+        {5, 1, 5, 1, 1, 5, 1, 2},        /* DEEP */
+        {4, 3, 1, 4, 4, 4, 3, 1},        /* TIGHT */
+        {2, 5, 5, 3, 3, 3, 5, 3},        /* PERC */
+    };
+    uint32_t l;
+    kit = kit > 8u ? 0u : kit;
+    for (l = 0; l < 8u; l++) {
+        uint32_t src = DXK_DRUMS + (kit < 6u ? kit : MIX[kit - 6u][l]);
+        const int8_t *m;
+        k[l] = DX_KITS[src].lane[l];
+        lay[l] = DX_KITS[src].lay[l];
+        mdl[l] = DX_KITS[src].mdl[l];
+        ln[l] = 127;
+        for (m = DRUM_MODS[src]; m && m[0] >= 0; m += 2)
+            if (m[0] == (int8_t)(P_LN0 + l))
+                ln[l] = m[1];
+    }
+    if (kit == 6u) {                     /* (2 semitones: 3 steps of 3/4) */
+        k[DV_KICK].a[DXP_PITCH] = (uint8_t)(k[DV_KICK].a[DXP_PITCH] - 3);
+        k[DV_KICK].b[DXP_PITCH] = (uint8_t)(k[DV_KICK].b[DXP_PITCH] - 3);
+    }
+}
+
+/* a preset's movement (core.h MODS, params.c preset_mods): DRUM-X's kits' (DRUM_MODS); the other engines' none */
+static const int8_t *preset_mod(const engine_t *e, uint32_t pi)
+{
+    return e == &ENG_DRUM && pi < DX_NKIT ? DRUM_MODS[pi] : 0;
+}

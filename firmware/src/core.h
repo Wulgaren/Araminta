@@ -32,8 +32,8 @@
 #define ENGI_NOISE 11u
 #define ENGI_SLICE 13u           /* reserved: SLICE retired (eng_retire.c) */
 #define ENGI_WT 14u              /* WAVETABLE (eng_wt.c) */
-#define ENGI_DRUMS 15u           /* DRUMS: the ported Felucca drum engine (eng_drums.c) */
-#define NENG_SHOWN 14u           /* pickable: ANALOG FM6 WAVETABLE PHASE LOFI VOICE TRIO WHEEL PHYS NOISE GRAIN SAMPLE DRUM DRUMS */
+#define ENGI_DRUMS 15u           /* DRUMS: Felucca's drum engine, retired: loads as DRUM-X (eng_retire.c) */
+#define NENG_SHOWN 13u           /* pickable: ANALOG FM6 WAVETABLE PHASE LOFI VOICE TRIO WHEEL PHYS NOISE GRAIN SAMPLE DRUM */
 #define UP_SLOTS 96u             /* user presets (upreset.c): six banks of 16 */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -271,7 +271,7 @@ static int drum_from_phys(uint32_t engine, int16_t *e)
  * its default kit (same GM map). projects (proj_perc), user presets (up_migrate), favourites
  * (settings_persist.c). Idempotent. */
 #define SMP_SET_PERC 4u
-#define DRUM_KIT_E {64, 64, 70, 64, 64, 0, 0, 0}   /* {MRPH, TUNE, TONE, DECY, NOIS, FM, FOLD, DRV} (DRUM-X) */
+#define DRUM_KIT_E {64, 64, 70, 64, 64, 0, 0, 0}   /* {MRPH, TUNE, TONE, DECY, NOIS, FM ENV, FOLD, DRV} (DRUM-X) */
 static int drum_from_perc(uint32_t engine, int16_t *e)
 {
     static const int16_t KIT[8] = DRUM_KIT_E;
@@ -328,6 +328,19 @@ typedef struct {
 } preset_t;
 #define FX(d, c, dl, r) .fx = {(d) + 1, (c) + 1, (dl) + 1, (r) + 1}
 #define PAT(n) .pat = (n)
+/* (JIANT V10.6i) a sound's movement: pairs of a common parameter (< P_E0) and its value, -1 ends (the LFO and its DEST,
+ * the MOD slots), set after the rest of the preset (ui.c apply_preset_to: preset_mods). Only DRUM-X's kits have one
+ * (eng_drum.c DRUM_MODS: a table of its own, not a field of every preset: the flash is full) */
+#define MODS(...) ((const int8_t[]){__VA_ARGS__, -1})
+/* the MOD slots' SRC and DEST numbers a preset names (mod.c MS_* / MD_*, checked there) */
+enum { PS_LFO = 1, PS_ENV, PS_VEL, PS_KEY, PS_RAND };
+enum { PD_PITCH = 1, PD_CUT, PD_SHP, PD_AMP, PD_PAN, PD_DIST, PD_CHO, PD_DLY, PD_REV, PD_LRATE, PD_VIB, PD_E1 };
+#define PD_E(k) (PD_E1 + (k))    /* EDIT k (P_E0 + k: 0 the first, as the engine's edit[]) */
+/* a MOD slot k (1..4): SRC DEST AMT; the LFO: WAVE, SYNC (params.c N_LSYNC) and its depths to PITCH FILTER */
+#define MMOD(k, s, d, a) P_M##k##SRC, (s), P_M##k##DST, (d), P_M##k##AMT, (a)
+#define MLFO(w, sync, pit, flt) P_LWAVE, (w), P_LSYNC, (sync), P_LD_PIT, (pit), P_LD_FLT, (flt)
+enum { LW_SIN, LW_TRI, LW_SAW, LW_SQR, LW_SH };          /* P_LWAVE (params.c N_LWAVE) */
+enum { LS_4BAR = 1, LS_1BAR = 3, LS_16TH = 8 };          /* P_LSYNC (params.c N_LSYNC) */
 
 struct track;
 /* fx.c: the pre-FUN17 list order from P_IORD / P_CHOR / fx_sl_pos (project.c uses it on older loads) */

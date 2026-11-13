@@ -20,6 +20,13 @@ static int check(const char *what, int ok)
 
 /* a store packed as FUN16, rewritten to the FUN15 layout (5-byte chain rows, 72 motion records 48 bytes later),
  * for the tests that check what an older reader sees */
+/* a stored kit is the factory one, packed as a project keeps it (each sound's LAYER in its spare bits) */
+static int dx_factory(const dx_lane_t *k)
+{
+    dx_lane_t d[8];
+    dx_kit_pack(d, DX_KIT_DEF, DX_LAY_DEF, DX_MDL_DEF);
+    return !memcmp(k, d, sizeof d);
+}
 static void store_fun15_layout(project_store_t *st, uint32_t magic)
 {
     uint32_t at = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u), i, count = st->raw[at];
@@ -452,6 +459,135 @@ static int fun20_full_motion(void)
     return check("FUN20 with all 155 motion records and the punch-in lane round trips byte for byte", ok);
 }
 
+/* DRUM-X kits: each sound's LAYER and MODEL (in the kit's spare bits) and the filter GR through a save and a load */
+static int dx_layer_wire(void)
+{
+    static project_t a, c;
+    static project_store_t st;
+    dx_lane_t k[8];
+    uint8_t l[8], m[8] = {0, DXV_SHELL, DXV_TEETH, DXV_METAL, DXV_METAL, 0, DXV_CLICK, DXV_METAL}, mo[8];
+    int ok;
+    memset(&a, 0, sizeof a);
+    a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
+    chain_defaults(&a.chain);
+    memcpy(l, DX_KITS[DXK_LATIN].lay, sizeof l);     /* LATIN PERC: GR on HAT CL, a LAYER on SNARE */
+    l[DV_RIM] = 15;                                 /* every LAYER bit */
+    dx_kit_pack(a.dx, DX_KITS[DXK_LATIN].lane, l, m);
+    a.sum = proj_sum(&a);
+    ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st) && dx_kit_ok(c.dx);
+    dx_kit_unpack(k, dx_lay, mo, c.dx);
+    ok = ok && !memcmp(k, DX_KITS[DXK_LATIN].lane, sizeof k) && !memcmp(dx_lay, l, sizeof l) &&
+         ((k[DV_HATC].mode >> 2) & 3u) == DXF_GR && dx_lay[DV_SNARE] == 4u && !memcmp(mo, m, sizeof m);
+    c.dx[0].a[DXP_COLOR] |= 0x80u;                  /* (no LAYER bit there: a broken kit) */
+    ok = ok && !dx_kit_ok(c.dx);
+    c.dx[0].a[DXP_COLOR] &= 0x7Fu;
+    c.dx[0].b[0] |= 0x80u, c.dx[0].b[1] |= 0x80u, c.dx[0].b[2] |= 0x80u;   /* (MODEL 7: none such) */
+    ok = ok && !dx_kit_ok(c.dx);
+    return check("DRUM-X kits: each sound's LAYER and MODEL and the filter GR round trip", ok);
+}
+
+/* the DRUM-X preset called name: its index (the kit it loads, DX_KITS), -1 none */
+static int drumx_preset(const char *name)
+{
+    uint32_t i;
+    for (i = 0; i < ENG_DRUM.npresets; i++)
+        if (str_eq(ENG_DRUM.presets[i].name, name))
+            return (int)i;
+    return -1;
+}
+/* a project with Felucca's DRUMS engine (retired) on track 1 at KIT kit, saved and loaded again (as an old file is) */
+static int drums_project(project_t *c, uint32_t kit, int drumx_on_t2)
+{
+    static project_t a;
+    static project_store_t st;
+    memset(&a, 0, sizeof a);
+    a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
+    chain_defaults(&a.chain);
+    dx_kit_pack(a.dx, DX_KITS[0].lane, DX_KITS[0].lay, DX_MDL_DEF);
+    a.t[0].engine = ENGI_DRUMS;
+    a.t[0].p[P_E0] = (int16_t)kit;
+    for (uint32_t i = 0; i < 8u; i++)
+        a.t[0].p[P_LN0 + i] = 127;                 /* the original engine's default lane levels */
+    if (drumx_on_t2) {                                  /* (another track on DRUM-X, its own kit: LATIN PERC's) */
+        a.t[1].engine = ENGI_DRUM;
+        dx_kit_pack(a.dx, DX_KITS[DXK_LATIN].lane, DX_KITS[DXK_LATIN].lay, DX_MDL_DEF);
+    }
+    a.sum = proj_sum(&a);
+    return proj_pack(&st, &a) && proj_import(c, &st, sizeof st);
+}
+/* DRUMS (retired) -> DRUM-X: the kit its KIT played as a DRUM-X preset, the mix kits assembled, a DRUM-X track's kit
+ * kept */
+static int drums_retired(void)
+{
+    static project_t c;
+    dx_lane_t want[8], k[8];
+    uint8_t lay[8], mdl[8];
+    int p80 = drumx_preset("80"), bad = 0, ok, i;
+    const int8_t *m;
+    /* (1) KIT 80: the 80 preset's kit and lane levels */
+    ok = p80 >= 0 && drums_project(&c, 1, 0) && c.t[0].engine == ENGI_DRUM;
+    if (ok) {
+        dx_kit_load((uint32_t)p80);
+        dx_kit_pack(want, dx_kit, dx_lay, dx_mdl);
+        ok = !memcmp(c.dx, want, sizeof want);
+        for (m = preset_mod(&ENG_DRUM, (uint32_t)p80); ok && m && m[0] >= 0; m += 2)
+            if (m[0] >= P_LN0 && m[0] <= P_LN7)
+                ok = c.t[0].p[m[0]] == m[1];
+    }
+    bad += check("DRUMS track on KIT 80 loads as DRUM-X with the 80 preset's kit and lane levels", ok);
+    /* (2) KIT DEEP (6): 77's kick 2 semitones down, 80's snare, 77's clap, 80's hats, 77's tom, 80's rim, 10's bell */
+    ok = drums_project(&c, 6, 0) && c.t[0].engine == ENGI_DRUM;
+    if (ok) {
+        static const char *const FROM[8] = {"77", "80", "77", "80", "80", "77", "80", "10"};
+        dx_kit_unpack(k, lay, mdl, c.dx);
+        for (i = 0; ok && i < 8; i++) {
+            int pi = drumx_preset(FROM[i]);
+            ok = pi >= 0;
+            if (!ok) break;
+            dx_kit_load((uint32_t)pi);
+            want[i] = dx_kit[i];
+            if (i == DV_KICK) {                         /* (2 semitones: 3 steps of 3/4, as near as it goes) */
+                want[i].a[DXP_PITCH] = (uint8_t)(want[i].a[DXP_PITCH] - 3);
+                want[i].b[DXP_PITCH] = (uint8_t)(want[i].b[DXP_PITCH] - 3);
+            }
+            ok = !memcmp(&k[i], &want[i], sizeof want[i]) && mdl[i] == dx_mdl[i] && lay[i] == dx_lay[i];
+        }
+    }
+    bad += check("DRUMS track on KIT DEEP loads with DEEP's kit assembled from 77, 80 and 10's sounds", ok);
+    /* (3) a DRUM-X track already there: the project's kit stays (one kit a project) */
+    ok = drums_project(&c, 1, 1) && c.t[0].engine == ENGI_DRUM;
+    if (ok) {
+        dx_kit_pack(want, DX_KITS[DXK_LATIN].lane, DX_KITS[DXK_LATIN].lay, DX_MDL_DEF);
+        ok = !memcmp(c.dx, want, sizeof want);
+    }
+    bad += check("DRUMS track beside a DRUM-X track: DRUM-X, the project's kit kept", ok);
+    return bad;
+}
+
+/* A saved DRUMS lane balance survives the wire migration, including a lane made silent with LEVEL 0. */
+static int drums_lane_levels(void)
+{
+    static project_t a, c;
+    static project_store_t st;
+    uint32_t i;
+    int ok;
+    memset(&a, 0, sizeof a);
+    a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
+    chain_defaults(&a.chain);
+    dx_kit_pack(a.dx, DX_KIT_DEF, DX_LAY_DEF, DX_MDL_DEF);
+    a.t[0].engine = ENGI_DRUMS;
+    a.t[0].p[P_E0] = 1;
+    for (i = 0; i < 8u; i++)
+        a.t[0].p[P_LN0 + i] = 127;
+    a.t[0].p[P_LN0] = 0;
+    a.t[0].p[P_LN1] = 64;
+    a.sum = proj_sum(&a);
+    ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
+    return check("DRUMS project migration keeps a silent kick and scales a half-volume snare",
+                 ok && c.t[0].engine == ENGI_DRUM && c.t[0].p[P_LN0] == 0 &&
+                 c.t[0].p[P_LN1] == 51 && c.t[0].p[P_LN2] == 107);
+}
+
 int main(void)
 {
     static project_t q, q2, buf;
@@ -695,7 +831,7 @@ int main(void)
                     (c).t[0].engine == ENGI_SAMPLE && (c).t[0].p[P_E0] == 2 && (c).t[1].engine == ENGI_SAMPLE)
         ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
         bad += check("FUN8 with a SAMPLE PERC track: DRUM's kit, the rest of the sound and the steps kept", ok && PERC_OK(c) &&
-                     str_eq(ENGINES[ENGI_DRUM]->presets[0].name, "DRUM-X") &&
+                     str_eq(ENGINES[ENGI_DRUM]->presets[0].name, "FM DRUMS") &&
                      !memcmp(ENGINES[ENGI_DRUM]->presets[0].e, (int8_t[8])DRUM_KIT_E, 8));
         bad += check("  its motion on CUT goes; a send's and the other track's stay",
                      c.motion.count == 2u && c.motion.event[0].param == P_REV && c.motion.event[1].place == 3u &&
@@ -759,7 +895,7 @@ int main(void)
         memcpy(a.dx, DX_KIT_DEF, sizeof a.dx);
         a.dx[0].a[0] = 11; a.dx[0].b[2] = 99; a.dx[3].a[4] = 55;
         a.dx_mute = (uint16_t)(DXG_KICK | (1u << 8) | (4u << 8));
-        a.dx_mot[XM_RATE] = 3; a.dx_mot[XM_DPTH] = 40; a.dx_mot[XM_SHPE] = 2; a.dx_mot[XM_RAND] = 17;
+        a.dx_mot[0] = 3; a.dx_mot[1] = 40; a.dx_mot[2] = 2; a.dx_mot[3] = 17;
         for (i = 0; i < FX_BUS_N; i++)
             a.fx_bus[i] = (uint8_t)(10u + i);
         memcpy(a.name, "DX KIT", 6);
@@ -779,7 +915,7 @@ int main(void)
         memset(funa.raw + PROJ_DX_OFF, 0, PROJ_DX_SIZE);
         sum = proj_hash(funa.raw, PROJ_STORE_SIZE - 4u);
         memcpy(funa.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
-        ok = proj_import(&c, &funa, sizeof funa) && !memcmp(c.dx, DX_KIT_DEF, sizeof c.dx) &&
+        ok = proj_import(&c, &funa, sizeof funa) && dx_factory(c.dx) &&
              !c.dx_mute && !c.dx_mot[0] && !c.dx_mot[1] && !c.dx_mot[2] && !c.dx_mot[3] &&
              !memcmp(c.name, "DX KIT", 6);
         bad += check("FUN10 (FUNA): loads with the factory DRUM-X kit (custom kit not on disk)", ok);
@@ -872,7 +1008,7 @@ int main(void)
                      c.t[0].p[P_E0] == 20 && c.t[0].p[P_E7] == 0 && c.t[0].p[P_MORPH] == 0 &&
                      c.t[0].p[P_DRIFT] == 0 && c.t[0].p[P_LEVEL] == 100);
         bad += check("FUNA np111: factory DRUM-X kit, CHAIN reverb = SEND, name kept",
-                     ok && !memcmp(c.dx, DX_KIT_DEF, sizeof c.dx) && !c.dx_mute &&
+                     ok && dx_factory(c.dx) && !c.dx_mute &&
                      c.g[G_CRTYPE] == c.g[G_RTYPE] && c.g[G_CRSIZE] == c.g[G_RSIZE] &&
                      c.g[G_CRDAMP] == c.g[G_RDAMP] && c.g[G_RTYPE] == 2 &&
                      !memcmp(c.name, "V15 CRUSH", 9) && c.t[0].engine == 0u && c.t[1].engine == ENGI_FM6);
@@ -899,6 +1035,9 @@ int main(void)
     bad += step_wire_freeze();
     bad += fun10_motion110();
     bad += fun20_full_motion();
+    bad += dx_layer_wire();
+    bad += drums_retired();
+    bad += drums_lane_levels();
     printf("%s\n", bad ? "PROJECT FORMAT TEST FAILED" : "project format test passed");
     return bad != 0;
 }

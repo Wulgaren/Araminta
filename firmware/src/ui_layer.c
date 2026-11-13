@@ -18,9 +18,9 @@
  *              stay, SAVE held undoes, the editor gets RELOAD; they apply while playing too. 1.4.1: the black keys
  *              the selected track's engine's quick actions (EQA below: DRUM 1..8 its lanes' MUTE; other engines
  *              none yet, the keys dark)
- *   SEQ  SET   SEQ > SEQ TOOLS (the last SEQ section; the first tap is PATTERN): the white keys from F3 the sequence
+ *   SEQ  SET   SEQ > SEQ TOOLS (the tools section's first page): the white keys from F3 the sequence
  *              tools (ui_tools.c: CLEAR, REVERSE, SHIFT < >, RANDOM, COOK; on a DRUM track BEAT, MUTE and the lane's
- *              CLEAR REVERSE FILL RANDOM), black keys 1..8 the lane (DRUM); KNOB 1..4 LEN DIV SWING GATE (PATTERN's).
+ *              CLEAR REVERSE FILL RANDOM), black keys 1..8 the lane (DRUM); KNOB 1..4 LEN DIV SWING GATE.
  *              E4..C5 are the note edits on a synth (BEAT / MUTE / lane tools on a kit); D5..G5 HALF, *2, HUMAN, DUP on a kit.
  *              Each action one undo (SAVE held), OCT- the track as the layer opened (tl_open)
  * REC taps arm / disarm (ui_input.c); CLICK / COUNT-IN / LEVEL live in MENU > AUDIO; CLEAR sequence on SAVE > CLEAR
@@ -65,8 +65,8 @@ static const layer_t LAYERS[LAYER_N] = {
 static const uint8_t LY_KC[LAYER_N] = {0, KC_FX, KC_GLO, KC_SCL, KC_EDIT, KC_SEQ, KC_SAVE};
 /* SCL's knobs: the key and its chord (cur_page() while the layer edits or draws them: page_over) */
 static const page_t LY_SCL = {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, 0, {P_ROOT, P_SCALE, P_CHRD, P_VOIC}};
-/* SEQ TOOLS' knobs: LEN DIV SWING GATE (also the PATTERN page's) */
-static const page_t LY_SEQ = {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_STEP, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}};
+/* SEQ TOOLS' knobs: LEN DIV SWING GATE */
+static const page_t LY_SEQ = {"TOOLS", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_TOOL, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}};
 static const page_t *ly_page(uint32_t l) { return l == LAYER_SCL ? &LY_SCL : l == LAYER_SEQ ? &LY_SEQ : 0; }
 #define LY_OPEN 2u                     /* ui.ly_t0: the map opened (no tap any more) */
 #define LY_COMBO 4u                    /* .. by a combo */
@@ -424,7 +424,6 @@ static const eqa_t EQA_DRUM[NLANE] = {EQA_LANE(0), EQA_LANE(1), EQA_LANE(2), EQA
     EQA_LANE(6), EQA_LANE(7)};
 static const eqa_set_t EQA[] = {
     {ENGI_DRUM, NLANE, EQA_DRUM},
-    {ENGI_DRUMS, NLANE, EQA_DRUM},
 };
 typedef char eqa_fits[NLANE <= 11 ? 1 : -1];       /* (11 black keys) */
 
@@ -1077,9 +1076,9 @@ static void layer_seq(void)
             continue;
         n[0] = W_NOTE[p];
         str_cpy(nm, h > 24 ? TL_NAME[p] : TL_NAME_S[p], sizeof nm);
-        if (p >= TL_LCLR || p == TL_MUTE) {             /* the lane's: "CLR BD", "M BD" (MUTE shortened: Terminus) */
+        if (p >= TL_LCLR || p == TL_MUTE) {             /* the lane's: "CLR BD", "MUT BD" */
             if (p == TL_MUTE)
-                str_cpy(nm, "M", sizeof nm);
+                str_cpy(nm, "MUT", sizeof nm);
             str_cpy(nm + str_len(nm), " ", 2);
             str_cpy(nm + str_len(nm), drum_lane_abbr(TSEL, ui.lane), sizeof nm - str_len(nm));
         }
@@ -1203,7 +1202,7 @@ static void draw_layer(void)
         cv_blit(0, Y_GRAPH);
     }
     if (ui.force) {                                     /* the footer: what the keys, knobs and buttons do */
-        if (l == LAYER_FX) {                            /* the punch map keeps the page's own bottom bar */
+        if (l == LAYER_FX || l == LAYER_SEQ) {          /* these maps keep the page's own bottom bar */
             draw_foot();
         } else {
             cv_begin(240, H_FOOT, T_BG);

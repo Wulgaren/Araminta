@@ -771,8 +771,8 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_LEARN_WAIT, S_LEARN_PICK, S_LEARN_SET, S_LEARN_LONG, S_GLO_LEARN, S_MENU_LCLEAR, S_MENU_LCLEAR_NONE,
        S_DLY_DOT, S_DLY_DOT16, S_FX_THROW,
        S_DETAIL, S_DETAIL_PLAYING, S_DETAIL_REST, S_DETAIL_DRUM, S_ROLL_MARKS, S_DRUM_MARKS,
-       S_DX_SOUND, S_DX_SOUND2, S_DX_EDIT1, S_DX_EDIT2, S_GENERATION, S_GENERATION_2, S_GENERATION_MAP, S_TAPE,
-       S_ANALOG_OSC_A_SUPER, S_ANALOG_OSC_B_HP, S_CHORD_MELO_MONO, S_COUNT };
+       S_DX_SOUND, S_DX_SOUND2, S_DX_SOUND3, S_DX_EDIT1, S_DX_EDIT2, S_GENERATION, S_GENERATION_2, S_GENERATION_MAP, S_TAPE,
+       S_ANALOG_OSC_A_SUPER, S_ANALOG_OSC_B_HP, S_CHORD_MELO_MONO, S_MIXER_LANES, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -800,8 +800,8 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "learn_wait", "learn_pick", "learn_set", "learn_long", "layer_glo_learn", "menu_learn_clear", "menu_learn_clear_none",
     "dly_dotted", "dly_dotted_16", "perform_throw",
     "detail", "detail_playing", "detail_rest", "detail_drum", "roll_marks", "drum_marks",
-    "dx_sound", "dx_sound2", "dx_edit1", "dx_edit2", "generation", "generation_2", "generation_map", "tape",
-    "analog_osc_a_super", "analog_osc_b_hp", "chord_melo_mono"};
+    "dx_sound", "dx_sound2", "dx_sound3", "dx_edit1", "dx_edit2", "generation", "generation_2", "generation_map", "tape",
+    "analog_osc_a_super", "analog_osc_b_hp", "chord_melo_mono", "mixer_lanes"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1112,6 +1112,20 @@ static void setup(int s)
         trk[0].p[P_REV] = 127; trk[2].p[P_REV] = 1; trk[3].p[P_MUTE] = 1;
         song.rec = 1u | 8u; ui.hot_col = 3; ui.hot_t = 30;
         break;
+    case S_MIXER_LANES: {                       /* MIXER 2/3: a DRUM-X track's eight lane levels, SNARE hot, RIM muted */
+        uint32_t i;
+        drum(0);
+        go_home(); home_tap();
+        for (i = 0; i < NPAGES && !(PAGES[i].graph == GR_LANES && PAGES[i].id[0] == P_LN0); i++)
+            ;
+        ui.page = (uint8_t)i;
+        page_entered();
+        trk[3].p[P_LN0] = 127; trk[3].p[P_LN1] = 96; trk[3].p[P_LN2] = 64; trk[3].p[P_LN3] = 32;
+        trk[3].p[P_LN4] = 110; trk[3].p[P_LN5] = 64; trk[3].p[P_LN6] = 127; trk[3].p[P_LN7] = 20;
+        drum_mute[3 % NPART] |= 1u << 6;        /* RIM: DIM (a muted lane) */
+        ui.hot_col = 1; ui.hot_t = 30;
+        break;
+    }
     case S_ENV: go_title("ENV"); ui.hot_col = 2; ui.hot_t = 30; break;
     case S_ENVDEST: go_title("ENV DEST"); break;
     case S_ENV_SYNC:                                  /* 1.5: ENV SYNC on, the note values (the widest: 1/16D 1/32T) */
@@ -1352,11 +1366,11 @@ static void setup(int s)
     /* #83: locked open by a double tap (the lock after the header's name): EDIT and FX */
     case S_LAYER_LOCK: go_title("ENV"); ui.layer = ui.lock = LAYER_EDIT; break;
     case S_LAYER_LOCK_FX: go_title("ENV"); ui.layer = ui.lock = LAYER_FX; break;
-    /* 1.2 SEQ TOOLS (SEQ held on STEP): a melodic track (the sequence's tools), the DRUM grid (+ BEAT, MUTE, the lane's
+    /* 1.2 SEQ TOOLS: a melodic track (the sequence's tools), the DRUM grid (+ BEAT, MUTE, the lane's
      * tools, the lanes; CLAP selected), a song playing (pattern tools dimmed: STOP TO EDIT; MUTE stays) */
-    case S_SEQ_TOOLS: go_page(GR_ROLL); ui.layer = LAYER_SEQ; break;
-    case S_SEQ_TOOLS_DRUM: drum(0); go_page(GR_ROLL); ui.lane = 2; ui.layer = LAYER_SEQ; break;
-    case S_SEQ_TOOLS_SONG: drum(1); go_page(GR_ROLL); ui.lane = 5; chain.running = 1; ui.layer = LAYER_SEQ; break;
+    case S_SEQ_TOOLS: go_title("SEQ TOOLS"); ui.layer = LAYER_SEQ; ui.force = 1; break;
+    case S_SEQ_TOOLS_DRUM: drum(0); go_title("SEQ TOOLS"); ui.lane = 2; ui.layer = LAYER_SEQ; ui.force = 1; break;
+    case S_SEQ_TOOLS_SONG: drum(1); go_title("SEQ TOOLS"); ui.lane = 5; chain.running = 1; ui.layer = LAYER_SEQ; ui.force = 1; break;
     /* 1.4.1 ENGINE QUICK ACTIONS: the EDIT layer on a DRUM track, KICK and HATOP muted (the black keys' row); on KIT 77
      * (CL CY), CL muted; the grid with SD (the lane selected) and OH muted. A non-DRUM track's map: layer_edit_active */
     case S_EDIT_DRUM: drum(0); go_home(); ui.layer = LAYER_EDIT; drum_mute[3] = 1u | 16u; break;
@@ -1479,10 +1493,14 @@ static void setup(int s)
         }
         go_title_page("DETAIL"); ui.cursor = 6; ui.hot_col = 0; ui.hot_t = 30;
         break;
-    /* DRUM-X Kit: SOUND / SOUND 2 (lane colony + morph bar; SOUND 3 / X-MOD retired) */
-    case S_DX_SOUND: case S_DX_SOUND2:
-        drum(0); dx_ui_lane = 0; dx_ui_side = 0;
-        go_title(s == S_DX_SOUND2 ? "SOUND 2" : "SOUND");
+    /* DRUM-X Kit: SOUND / TONE / MOVEMENT (lane colony + morph bar; MOVEMENT: the clap's MODEL TEETH) */
+    case S_DX_SOUND: case S_DX_SOUND2: case S_DX_SOUND3:
+        drum(0); dx_ui_lane = s == S_DX_SOUND3 ? DV_CLAP : 0; dx_ui_side = 0;
+        if (s == S_DX_SOUND3) {
+            dx_mdl[DV_CLAP] = DXV_TEETH;
+            dx_lay[DV_CLAP] = 6;
+        }
+        go_title(s == S_DX_SOUND3 ? "MOVEMENT" : s == S_DX_SOUND2 ? "TONE" : "SOUND");
         break;
     /* DRUM-X Sound section: EDIT 1 (MRPH TUNE TONE DECY), EDIT 2 (NOIS FM FOLD DRV) */
     case S_GENERATION: case S_GENERATION_2: case S_GENERATION_MAP:
@@ -1522,7 +1540,7 @@ static void setup(int s)
         motion_set_event(TSEL, 0, P_LRATE, 70); motion_set_lock(TSEL, 2, P_REV, 100); motion_set_lock(TSEL, 2, P_ED_FLT, -30);
         motion_set_lock(TSEL, 6, P_ATK, 90); motion_set_lock(TSEL, 6, P_E4, 20); motion_set_event(TSEL, 8, P_PAN, -40);
         motion_set_lock(TSEL, 11, P_LD_FLT, 50); motion_set_lock(TSEL, 13, P_DLY, 80); motion_set_lock(TSEL, 15, P_GLIDE, 60);
-        go_page(GR_EVENTS); ui.ev_row = 5; ui.hot_col = 3; ui.hot_t = 30;   /* (row 0: PLAY, 1: QUANTIZE) */
+        go_page(GR_EVENTS); ui.ev_row = 5; ui.hot_col = 3; ui.hot_t = 30;   /* (row 0: QUANTIZE, 1: ENABLED) */
         break;
     case S_AUTO_LIST_ADD: ui.cursor = 4; go_page(GR_EVENTS); break;
     case S_AUTO_LIST_DRUM: {
@@ -1545,7 +1563,7 @@ static void setup(int s)
         TSEL->p[P_SQNT] = s == S_AUTO_QNT;
         go_page(GR_EVENTS);
         if (s == S_AUTO_QNT) {
-            ui.ev_row = 1;
+            ui.ev_row = 0;
         } else {
             (void)auto_pick(EVC(EVK_NUDGE, 6)); ui.hot_col = 3; ui.hot_t = 30;
         }

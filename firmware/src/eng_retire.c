@@ -2,7 +2,9 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* SLICE (13): retired like DIGITAL (engine 1). Indexes stay reserved (stores are append-only). Stubs are never
  * selectable (engines.c eng_ok). DIGITAL has no conversion since 3.6: its sounds do not load (see CHANGELOG).
- * Load policy: SLICE -> DRUM (10), default kit (project.c / upreset / ui).
+ * Load policy: SLICE -> DRUM (10), default kit (project.c / upreset / ui). DRUMS (15, Felucca's drum engine, retired
+ * after 3.10) -> DRUM (10) with its KIT's kit as a DRUM-X kit (eng_drum.c drums_kit, project.c proj_retire): its
+ * TUNE TONE DECY SNAP (NOIS) DRV kept.
  * SAMPLE / GRAIN / NOISE are live again; SAMPLE PERC (SET 4) still maps to DRUM via
  * core.h drum_from_perc (unchanged since 1.0.2). */
 
@@ -22,23 +24,23 @@ static const engine_t ENG_FM4_GONE = {                 /* DIGITAL (1): silent, i
     .note_on = retire_gone_note_on, .render = retire_gone_render,
     .knob = {P_E4, P_E5, P_E6, P_REL},
 };
-static const engine_t ENG_SLICE_GONE = {
+static const engine_t ENG_SLICE_GONE = {             /* SLICE (13) and DRUMS (15): their sounds load as DRUM-X */
     .name = "-", .page_title = {"-", "-"},
     .edit = RETIRE_EDIT("-", "-", "-", "-", "-", "-", "-", "-"),
     .note_on = retire_gone_note_on, .render = retire_gone_render,
     .knob = {P_LEVEL, P_ATK, P_DEC, P_REL},
 };
 
-/* 1 = e is SLICE (DIGITAL is reserved too, handled by eng_ok) */
+/* 1 = e is SLICE or DRUMS (DIGITAL is reserved too, handled by eng_ok) */
 static int eng_retired(uint32_t e)
 {
-    return e == ENGI_SLICE;
+    return e == ENGI_SLICE || e == ENGI_DRUMS;
 }
 
 /* the engine a retired index plays as when listed / ranked (DIGITAL keeps its silent stub) */
 static uint32_t eng_play_as(uint32_t e)
 {
-    if (e == ENGI_SLICE)
+    if (e == ENGI_SLICE || e == ENGI_DRUMS)
         return ENGI_DRUM;
     return e < NENGINES ? e : 0u;
 }

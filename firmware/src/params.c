@@ -92,7 +92,7 @@ static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN",
                                      "PRAT", "PDEP", "PFBK", "PMIX", "FRAT", "FDEP", "LMIX", "HRAT", "HDEP",
                                      "DTIME", "DFBK", "DCOL", "RSIZE", "RDAMP", "TSPEED", "TWOW", "VEL"};
 static const char *const N_ENGNAME[] = {"ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS",
-                                             "DRUM-X", "NOISE", "FM6", "-", "WAVETABLE", "DRUMS",
+                                             "DRUM-X", "NOISE", "FM6", "-", "WAVETABLE", "-",
 };
 
 #define PD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
@@ -198,6 +198,15 @@ static const param_desc_t TP[P_COUNT] = {
     [P_FTYPE] = PE("TYPE", N_FTYPE, 0),           /* ANALOG filter: LP / BP / HP / COMB */
     [P_ESYNC] = PE("SYNC", N_ONOFF, 0),           /* 1.5 (#175): OFF = ATK DEC REL in ms, as before (voice.c esync) */
 };
+/* (JIANT V10.6i) a factory preset's movement (core.h MODS): each pair a common parameter (< P_E0) and its value,
+ * held to its range (ui.c apply_preset_to, tests/hostsim.c) */
+_Static_assert(P_E0 <= 127, "MODS names a parameter in an int8_t");
+static void preset_mods(track_t *t, const int8_t *m)
+{
+    for (; m && m[0] >= 0; m += 2)
+        if (m[0] < P_E0)
+            t->p[m[0]] = (int16_t)clamp(m[1], TP[m[0]].min, TP[m[0]].max);
+}
 /* ANALOG's OSC pages: the labels of the FM slots they keep MORPH / DRIFT / OSC B's WAVE in (core.h) */
 static const param_desc_t ANALOG_MORPH = {"MORPH", F_PCT, 0, 127, 0, 0, 0};
 static const param_desc_t ANALOG_DRIFT = {"DRIFT", F_PCT, 0, 127, 0, 0, 0};
@@ -578,12 +587,12 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_CLEAR, GR_CHORD, GR_EVENTS,
-       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_DXSND, GR_GENERATION };
+       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_DXSND, GR_LANES, GR_GENERATION };
 /* page.sec: button cycles sections; SELECT walks pages that share fam+sec and stops at the ends
  * (ui.c open_family / select_page_step) */
 enum { FX_SEC_INS = 0, FX_SEC_PUNCH = 1, FX_NSEC = 2,
-       SEQ_SEC_STEP = 0, SEQ_SEC_GEN = 1, SEQ_SEC_AUTO = 2, SEQ_SEC_TOOL = 3, SEQ_NSEC = 4,
-       EDIT_SEC_SND = 0, EDIT_SEC_KIT = 1, EDIT_SEC_LAN = 2, EDIT_SEC_VOX = 3, EDIT_NSEC = 4,
+       SEQ_SEC_STEP = 0, SEQ_SEC_TOOL = 1, SEQ_NSEC = 2,
+       EDIT_SEC_SND = 0, EDIT_SEC_KIT = 1, EDIT_SEC_VOX = 2, EDIT_NSEC = 3,
        GLO_SEC_MASTER = 0, GLO_SEC_SONG = 1, GLO_NSEC = 2,
        SAVE_SEC_PRE = 0, SAVE_SEC_PROJ = 1, SAVE_SEC_CLEAR = 2, SAVE_NSEC = 3,
        LFO_SEC_LFO = 0, LFO_SEC_MOD = 1, LFO_NSEC = 2,
@@ -632,11 +641,11 @@ static const page_t PAGES[] = {
     {"OSC A", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_E0, P_MORPH, P_DRIFT, P_E3}},
     {"OSC B", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_WAVE2, P_E7, P_E1, P_E2}},
     {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_FTYPE, P_E4, P_E5, P_E6}},
-    /* DRUM-X kit (ui_dx.c): SOUND / SOUND 2 (SOUND 3 / X-MOD retired; FUN11 still stores dx_mot) */
+    /* DRUM-X kit (ui_dx.c): SOUND / TONE / MOVEMENT, each card by the lane's MODEL (X-MOD retired,
+     * FUN11's X-MOD bytes ignored) */
     {"SOUND", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"SOUND 2", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN0, P_LN1, P_LN2, P_LN3}},
-    {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN4, P_LN5, P_LN6, P_LN7}},
+    {"TONE", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"MOVEMENT", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"OP ENV", FAM_EDIT, SC_TRACK, GR_FMENV, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
     /* VOICE: VCE GLD PIT GLD (POLY) then SPRD / UNI DTN; VOICE 2 is PITCH in every mode. GLMOD / PRIO / ALLOC
@@ -656,16 +665,20 @@ static const page_t PAGES[] = {
     {"CLEAR", FAM_SAVE, SC_GLOBAL, GR_CLEAR, SAVE_SEC_CLEAR, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, 0, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, 0, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
-    /* SEQ: Step group → Generation (drum kits) → Automation → Tools. SELECT walks each section. */
+    /* SEQ: Step group (STEP / DETAIL / AUTOMATION) → Tools (SEQ TOOLS → GENERATION, drum kits).
+     * SELECT walks each section. PATTERN's four knobs are SEQ TOOLS' (and its layer's). */
     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
-    {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_STEP, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
     {"DETAIL", FAM_SEQ, SC_STEP, GR_ROLL, SEQ_SEC_STEP, {0, 1, 2, 3}},
-    {"GENERATION", FAM_SEQ, SC_TRACK, GR_GENERATION, SEQ_SEC_GEN, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"GENERATION 2", FAM_SEQ, SC_TRACK, GR_GENERATION, SEQ_SEC_GEN, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"AUTOMATION", FAM_SEQ, SC_TRACK, GR_EVENTS, SEQ_SEC_AUTO, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"AUTOMATION", FAM_SEQ, SC_TRACK, GR_EVENTS, SEQ_SEC_STEP, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"SEQ TOOLS", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_TOOL, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
-    /* HOME: Mixer; ui.home is its own section (home_tap). Drum lane mutes live in SEQ TOOLS. */
+    {"GENERATION", FAM_SEQ, SC_TRACK, GR_GENERATION, SEQ_SEC_TOOL, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"GENERATION 2", FAM_SEQ, SC_TRACK, GR_GENERATION, SEQ_SEC_TOOL, {0xFF, 0xFF, 0xFF, 0xFF}},
+    /* HOME: Mixer; ui.home is its own section (home_tap). A DRUM-X track adds two pages (SELECT) with its lane
+     * levels, the per-sound volumes: MIXER 2/3 (KICK..HATCL) and 3/3 (HATOP..BELL). Drum lane mutes live in
+     * SEQ TOOLS. */
     {"MIXER", FAM_TRK, SC_TRK, GR_TRK, TRK_SEC_MIX, {0, 1, 2, 3}},
+    {"MIXER", FAM_TRK, SC_TRACK, GR_LANES, TRK_SEC_MIX, {P_LN0, P_LN1, P_LN2, P_LN3}},
+    {"MIXER", FAM_TRK, SC_TRACK, GR_LANES, TRK_SEC_MIX, {P_LN4, P_LN5, P_LN6, P_LN7}},
     {"PUNCH-IN", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},   /* the section's 2/2 (same
                                                      * title, the footer's count tells); its map is perform.c PF2_DEF */
 };
