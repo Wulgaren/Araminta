@@ -456,7 +456,63 @@ static int fun20_full_motion(void)
         ok &= loaded.motion.event[i].place == (uint8_t)i &&
               loaded.motion.event[i].param == saved.motion.event[i].param &&
               loaded.motion.event[i].value == saved.motion.event[i].value;
-    return check("FUN20 with all 155 motion records and the punch-in lane round trips byte for byte", ok);
+    return check("FUN20 with all 148 motion records and the punch-in lane round trips byte for byte", ok);
+}
+
+/* matrix slots 5..8 (proj_trk_t.mx) in the FUN20 store's tail (PROJ_MX_OFF): every track's round trip, extreme values,
+ * the motion cap they cost (148 records), and a FUN20 file of more records (written before them) loading whole */
+static int mx_same(const project_t *x, const project_t *y)
+{
+    uint32_t t;
+    for (t = 0; t < NTRK; t++)
+        if (memcmp(x->t[t].mx, y->t[t].mx, sizeof x->t[t].mx))
+            return 0;
+    return 1;
+}
+static int mx_wire(void)
+{
+    static project_t saved, loaded;
+    static project_store_t a, b;
+    uint32_t i, t, at = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE, sum;
+    int ok;
+    memset(&saved, 0, sizeof saved);
+    saved.magic = PROJ_MAGIC; saved.size = sizeof saved; saved.parts = NPART; saved.phys = PROJ_PHYS;
+    chain_defaults(&saved.chain); memcpy(saved.dx, DX_KIT_DEF, sizeof saved.dx);
+    for (t = 0; t < NTRK; t++)
+        for (i = 0; i < 4u; i++) {
+            saved.t[t].mx[i][MF_SRC] = (int16_t)(t == 3 && i == 3 ? MS_N - 1 : (t + i) % MS_N);
+            saved.t[t].mx[i][MF_DST] = (int16_t)(t == 3 && i == 3 ? MD_N - 1 : (7u * t + 3u * i) % MD_N);
+            saved.t[t].mx[i][MF_AMT] = (int16_t)(t == 0 && i == 0 ? -64 : t == 0 && i == 1 ? 63 : (int)(t * 4u + i) - 8);
+        }
+    saved.sum = proj_sum(&saved);
+    ok = proj_pack(&a, &saved) && proj_import(&loaded, &a, sizeof a) && mx_same(&loaded, &saved) &&
+         proj_pack(&b, &loaded) && !memcmp(a.raw, b.raw, sizeof a.raw);
+    int bad = check("FUN20: matrix slots 5..8 of every track round trip (AMT -64 / 63, SLEW, VEL)", ok);
+    saved.motion.count = MOTION_FILE_MAX + 5u;          /* more than a save keeps: clipped at 148, the slots kept */
+    for (i = 0; i < saved.motion.count; i++)
+        saved.motion.event[i] = (motion_event_t){(uint8_t)i, MFX_FB, (int16_t)(i % 100u)};
+    saved.sum = proj_sum(&saved);
+    ok = MOTION_FILE_MAX == 148u && proj_pack(&a, &saved) && proj_import(&loaded, &a, sizeof a) &&
+         loaded.motion.count == 148u && mx_same(&loaded, &saved);
+    bad += check("FUN20: a save keeps 148 motion records and the slots", ok);
+    /* a FUN20 file of 155 records (before slots 5..8): records 149..155 where the slots go now */
+    for (t = 0; t < NTRK; t++)
+        memset(saved.t[t].mx, 0, sizeof saved.t[t].mx);
+    saved.motion.count = 148u;
+    saved.sum = proj_sum(&saved);
+    ok = proj_pack(&a, &saved);
+    a.raw[at] = 155u;
+    for (i = 148u; i < 155u; i++) {
+        uint8_t *w = a.raw + PROJ_MOTION_SPARE_OFF + 3u * (i - MOTION_FILE_MAX_BODY - MOTION_FILE_APPEND_MAX);
+        w[0] = (uint8_t)i; w[1] = MFX_FB; w[2] = (uint8_t)(i % 100u);
+    }
+    sum = proj_hash(a.raw, PROJ_STORE_SIZE - 4u); memcpy(a.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+    ok &= proj_import(&loaded, &a, sizeof a) && loaded.motion.count == 155u &&
+          loaded.motion.event[154].place == 154u && loaded.motion.event[154].value == 54;
+    for (t = 0; ok && t < NTRK; t++)
+        ok &= !memcmp(loaded.t[t].mx, (int16_t[4][3]){{0}}, sizeof loaded.t[t].mx);
+    bad += check("FUN20 of 155 motion records (written before): every record, slots 5..8 OFF", ok);
+    return bad;
 }
 
 /* DRUM-X kits: each sound's LAYER and MODEL (in the kit's spare bits) and the filter GR through a save and a load */
@@ -1035,6 +1091,7 @@ int main(void)
     bad += step_wire_freeze();
     bad += fun10_motion110();
     bad += fun20_full_motion();
+    bad += mx_wire();
     bad += dx_layer_wire();
     bad += drums_retired();
     bad += drums_lane_levels();

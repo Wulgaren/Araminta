@@ -7502,6 +7502,65 @@ static int test_sound_dice(void)
     return bad;
 }
 
+/* OCT+ + PRESETS on SAMPLE: a random preset among those browsing shows, never the retired PERC alias (which loads as
+ * DRUM-X) */
+static int test_sample_dice(void)
+{
+    uint32_t n, drum = 0;
+    ui_power_on(); frame();
+    go_title("ENV"); frame();
+    for (n = 0; n < 60u; n++) {
+        set_engine_of(TSEL, ENGI_SAMPLE);
+        fm1_ms += 1200u;
+        btn_down(B_OCTUP); frame();
+        turn(EN_PRESET, 1);
+        btn_up(B_OCTUP); frame();
+        drum += TSEL->eng_req != ENGI_SAMPLE;
+    }
+    ui_power_on(); frame();
+    return check("SAMPLE dice keeps the track on SAMPLE", drum == 0u);
+}
+
+/* OCT+ + PRESETS on DRUM-X: a random factory kit with its own LAYERs, each sound's numbers near that kit's, any of the
+ * four waves and any MODEL; SAVE held takes the last dice back */
+static int test_kit_dice(void)
+{
+    int bad = 0, ok = 1, rolled = 0, remodel = 0;
+    dx_lane_t before[8], actual[8];
+    uint32_t n, l, i;
+    ui_power_on();
+    track_select(3);
+    dx_kit_load(DXK_DRUMS);                              /* STD: SHELL, TEETH, CLICK, METAL sounds */
+    btn_down(B_OCTUP); frame();
+    for (n = 0; n < 24u; n++) {
+        const dx_kit_t *K;
+        dx_kit_pack(before, dx_kit, dx_lay, dx_mdl);
+        fm1_ms += 1200u;
+        turn(EN_PRESET, 1);
+        K = &DX_KITS[TSEL->preset % DX_NKIT];
+        ok &= msg_is("KIT DICED") && !memcmp(dx_lay, K->lay, sizeof dx_lay);
+        for (l = 0; l < 8u; l++) {
+            uint32_t w = dx_kit[l].mode & 3u;
+            ok &= (dx_kit[l].mode & ~3u) == (K->lane[l].mode & ~3u) && dx_mdl[l] < DXV_N;
+            remodel |= dx_mdl[l] != K->mdl[l];
+            rolled |= w != (K->lane[l].mode & 3u) && w >= DXW_METAL;
+            for (i = 0; i < DXP_N; i++) {
+                int da = dx_kit[l].a[i] - K->lane[l].a[i], db = dx_kit[l].b[i] - K->lane[l].b[i];
+                ok &= da >= -40 && da <= 40 && db >= -40 && db <= 40;
+            }
+        }
+    }
+    btn_up(B_OCTUP); frame();
+    bad += check("DRUM-X dice: a factory kit's LAYERs, its sounds within 40", ok);
+    bad += check("DRUM-X dice rolls METAL or BELL waves too", rolled);
+    bad += check("DRUM-X dice rolls MODELs too", remodel);
+    hold(B_SAVE);
+    dx_kit_pack(actual, dx_kit, dx_lay, dx_mdl);
+    bad += check("SAVE held undoes the kit dice", !memcmp(before, actual, sizeof before));
+    ui_power_on(); frame();
+    return bad;
+}
+
 /* #15 / Discussion #80 MENU > LARGE: OFF by default (and in every older setting); KNOB 1 right ON / left OFF, OCT+
  * toggles, nothing else moves. ON: HOME and the value pages draw tall cards (a K1..K4 pill over each knob's column,
  * the value in L) and the strip under them; the list / graph pages and the layers keep the layout (their labels in
@@ -9985,6 +10044,8 @@ int main(void)
     bad += test_usb_serial();
     bad += test_select_pages();
     bad += test_sound_dice();
+    bad += test_kit_dice();
+    bad += test_sample_dice();
     bad += test_large();
     bad += test_browse_no_pattern();
     bad += test_name();

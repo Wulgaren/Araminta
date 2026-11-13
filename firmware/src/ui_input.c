@@ -1247,7 +1247,7 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
     if (pg->graph == GR_MOD && slot == 0u) {             /* MOD: KNOB 1 the slot, 2..4 its SRC DST AMT */
         pk_close();
-        mod_ui_slot = (uint8_t)clamp((int32_t)mod_ui_slot + (steps > 0 ? 1 : -1), 0, 3);
+        mod_ui_slot = (uint8_t)clamp((int32_t)mod_ui_slot + (steps > 0 ? 1 : -1), 0, (int32_t)NMSLOT - 1);
         return;
     }
     if (pg->graph == GR_MOD && slot == 2u) {             /* #223: DST as a flat full-screen list */
@@ -1286,10 +1286,8 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     }
     *vp = (int16_t)v;
-    if (pg->scope != SC_GLOBAL) {
+    if (pg->scope != SC_GLOBAL && pg->graph != GR_MOD) {   /* (the matrix: never automation, no scale) */
         uint32_t id = pg->id[slot];
-        if (pg->graph == GR_MOD)
-            id += 3u * mod_ui_slot;
         /* page id may alias (VOICE POLY SPRD uses P_DETUNE); prefer the real p[] index */
         if (vp >= TSEL->p && vp < TSEL->p + P_COUNT)
             id = (uint32_t)(vp - TSEL->p);
@@ -1606,8 +1604,10 @@ static void seq_entry(uint32_t pressed)
 }
 
 /* (JIANT sound dice, Araminta: OCT+ held + PRESETS). A random factory preset of the engine, then each engine
- * parameter moved up to a quarter of its range (an ENUM: another value, one time in three). Always near a sound
- * that works. */
+ * parameter moved up to a quarter of its range (an ENUM: another value, one time in three). DRUM-X: the preset's kit
+ * (its MODELs and LAYERs) instead, each sound's numbers moved up to 40, its WAVE another one time in five and its MODEL
+ * one time in eight (every MODEL reads any sound's fields its own way); a kit
+ * another track shares stays as it is. Always near a sound that works; SAVE held takes it back (the preset's undo). */
 static int32_t dice_by(int32_t v, int32_t lo, int32_t hi, int32_t span)
 {
     return clamp(v + (int32_t)(rng() % (uint32_t)(2 * span + 1)) - span, lo, hi);
@@ -1616,22 +1616,25 @@ static void sound_dice(void)
 {
     track_t *t = TSEL;
     uint32_t e = t->eng_req % NENGINES, i, l;
+    if (ENGINES[e]->npresets)                           /* (one browsing shows: never SAMPLE's PERC, a DRUM-X switch) */
+        apply_preset(preset_nth(e, rng() % preset_shown(e)));
     if (e == ENGI_DRUM) {
+        if (drum_elsewhere(t))                          /* (apply_preset said KIT OF T? KEPT) */
+            return;
         for (l = 0; l < 8u; l++) {
-            const dx_lane_t *D = &DX_KIT_DEF[l];
             dx_lane_t *L = &dx_kit[l];
             for (i = 0; i < DXP_N; i++) {               /* (COLOR: brightness, down 40 but up 12 at most) */
                 int32_t up = i == DXP_COLOR ? 12 : 127;
-                L->a[i] = (uint8_t)dice_by(D->a[i], 0, D->a[i] + up < 127 ? D->a[i] + up : 127, 40);
-                L->b[i] = (uint8_t)dice_by(D->b[i], 0, D->b[i] + up < 127 ? D->b[i] + up : 127, 40);
+                L->a[i] = (uint8_t)dice_by(L->a[i], 0, L->a[i] + up < 127 ? L->a[i] + up : 127, 40);
+                L->b[i] = (uint8_t)dice_by(L->b[i], 0, L->b[i] + up < 127 ? L->b[i] + up : 127, 40);
             }
-            L->mode = (uint8_t)((D->mode & ~3u) | (rng() % 5u ? (D->mode & 3u) : rng() % 2u));
+            L->mode = (uint8_t)((L->mode & ~3u) | (rng() % 5u ? (L->mode & 3u) : rng() % 4u));
+            if (!(rng() % 8u))
+                dx_mdl[l] = (uint8_t)(rng() % DXV_N);
         }
         ui_message("KIT DICED");
         return;
     }
-    if (ENGINES[e]->npresets)
-        apply_preset(rng() % ENGINES[e]->npresets);
     for (i = 0; i < 8u; i++) {
         const param_desc_t *d = track_desc(t, P_E0 + i);
         int32_t span = (d->max - d->min) / 4;

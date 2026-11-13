@@ -103,15 +103,16 @@ check("a motion record is 3 bytes on disk",
 motion_body = grab("firmware/src/core.h", r"^#define MOTION_FILE_MAX_BODY\s+(\d+)u", "MOTION_FILE_MAX_BODY")
 motion_app = grab("firmware/src/core.h", r"^#define MOTION_FILE_APPEND_MAX\s+(\d+)u", "MOTION_FILE_APPEND_MAX")
 motion_spare = grab("firmware/src/core.h", r"^#define MOTION_FILE_SPARE_MAX\s+(\d+)u", "MOTION_FILE_SPARE_MAX")
-# FUN20: 155 = 88 body + 40 append + 27 spare; body stays 88 so DX/FM6 offsets stay frozen
+# FUN20: 148 = 88 body + 40 append + 20 spare (the matrix's slots 5..8 take the rest); body stays 88 so DX/FM6
+# offsets stay frozen
 check("MOTION_FILE_MAX: one definition in firmware/src/core.h",
       re.search(r"^#define MOTION_FILE_MAX \(MOTION_FILE_MAX_BODY \+ MOTION_FILE_APPEND_MAX \+ MOTION_FILE_SPARE_MAX\)",
                 read("firmware/src/core.h"), re.M) is not None)
 check("the in-body motion block is defined as 4 + MOTION_FILE_MAX_BODY x a 3-byte record",
       re.search(r"^#define MOTION_FILE_SIZE \(4u \+ MOTION_FILE_MAX_BODY \* sizeof\(motion_file_event_t\)\)",
                 read("firmware/src/core.h"), re.M) is not None)
-check("FUN20 motion is 155 records (88 body + 40 append + 27 spare)",
-      motion_body == 88 and motion_app == 40 and motion_spare == 27,
+check("FUN20 motion is 148 records (88 body + 40 append + 20 spare)",
+      motion_body == 88 and motion_app == 40 and motion_spare == 20,
       "BODY %s APPEND %s SPARE %s" % (motion_body, motion_app, motion_spare))
 if motion_body is not None:
     check("the in-body motion block fits its share of the store (under one sector's payload)",

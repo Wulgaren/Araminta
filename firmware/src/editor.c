@@ -18,7 +18,8 @@ enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, 
        ED_TRACK, ED_TRACK_MIX, ED_TRACK_DUMP, ED_TRACK_STEP,                    /* v3: tracks */
        ED_TRACK_PARAM, ED_TRACK_CHANGED, ED_SONG,
        ED_UI_STATE, ED_UI_SET, ED_UI_PALETTES, ED_FAV_GET, ED_FAV_SET,
-       ED_MOTION = 64, ED_BACKUP_LIST, ED_BACKUP_GET, ED_BACKUP_PUT };                              /* v6: song chain */
+       ED_MOTION = 64, ED_BACKUP_LIST, ED_BACKUP_GET, ED_BACKUP_PUT,                               /* v6: song chain */
+       ED_MATRIX = 103 };                                                   /* 4.2: the eight matrix slots (INFO 58 01) */
 
 static uint8_t ed_out[984] __attribute__((section(".pool")));   /* (MOTION op 8: 192 records and their kinds, 973 bytes) */
 static uint32_t ed_n;
@@ -166,6 +167,8 @@ static struct {
     uint32_t tpos;
     int16_t v[ED_NV];                                    /* TSEL->p[], then song.g[] */
     uint16_t t[ED_NV];                                   /* ms (low 16 bits) of the last push */
+    int16_t mx[NMSLOT][3];                               /* TSEL's matrix slots (MATRIX pushes; 5..8 have no id) */
+    uint16_t mx_t;
 } ed_w;
 
 static int16_t *ed_val(uint32_t i) { return i < P_COUNT ? &TSEL->p[i] : &song.g[i - P_COUNT]; }
@@ -177,11 +180,19 @@ static uint32_t ed_step_sig(const step_t *s)
            (step_ratchet(s) * 0x27D4EB2Fu) ^ ((uint32_t)(step_nudge(s) + 8) * 0x165667B1u) ^
            ((uint32_t)s->vel * 0xC2B2AE35u) ^ ((uint32_t)(s->hit | s->acc << 8) * 0x27D4EB2Fu) ^ ((uint32_t)s->probability * 0x165667B1u);
 }
+/* track t's matrix slots into m (MATRIX's order, ed_w.mx) */
+static void ed_mx_copy(const track_t *t, int16_t m[NMSLOT][3])
+{
+    uint32_t k;
+    for (k = 0; k < NMSLOT; k++)
+        memcpy(m[k], MOD_ROW(t, k), 3u * sizeof(int16_t));
+}
 static void ed_shadow(void)                              /* the editor is in sync */
 {
     uint32_t i;
     for (i = 0; i < ED_NV; i++)
         ed_w.v[i] = *ed_val(i);
+    ed_mx_copy(TSEL, ed_w.mx);
     for (i = 0; i < NSTEP; i++)
         ed_w.st[i] = ed_step_sig(&seq_steps(TSEL)[i]);
     for (i = 0; i < ED_NT; i++)
@@ -213,6 +224,7 @@ static void ed_load_after(const ed_load_t *b)
     for (i = 0; i < P_COUNT; i++)                        /* the load's values; a pending push of another stays */
         if (TSEL->p[i] != b->p[i])
             ed_w.v[i] = TSEL->p[i];
+    ed_mx_copy(TSEL, ed_w.mx);                           /* the load's matrix slots: no MATRIX push */
 }
 static int ed_room(void) { return so_w - so_r + 8u <= SXQ / 2u; }
 static void ed_known(uint32_t k, uint32_t id)            /* the editor's own change of trk[k].p[id]: no push */
@@ -220,6 +232,8 @@ static void ed_known(uint32_t k, uint32_t id)            /* the editor's own cha
     uint32_t j;
     if (k == song.sel) {
         ed_w.v[id] = trk[k].p[id];
+        if (id >= P_M1SRC && id <= P_M4AMT)             /* a slot 1..4 field: no MATRIX push either */
+            ed_w.mx[(id - P_M1SRC) / 3u][(id - P_M1SRC) % 3u] = trk[k].p[id];
         return;
     }
     for (j = 0; j < 3u; j++)
@@ -227,6 +241,18 @@ static void ed_known(uint32_t k, uint32_t id)            /* the editor's own cha
             ed_w.tv[k * 3u + j] = trk[k].p[id];
 }
 
+/* MATRIX's reply (and push): track k, then its eight slots as SRC, DST, AMT + 64 */
+static void ed_mx_reply(uint32_t k)
+{
+    uint32_t s;
+    ed_b(k);
+    for (s = 0; s < NMSLOT; s++) {
+        const int16_t *r = MOD_ROW(&trk[k], s);
+        ed_b((uint32_t)r[MF_SRC]);
+        ed_b((uint32_t)r[MF_DST]);
+        ed_b((uint32_t)(r[MF_AMT] + 64));
+    }
+}
 static void ed_sync(void)                                /* main loop */
 {
     uint32_t i, n = 0, now = fm1_ms;
@@ -277,6 +303,20 @@ static void ed_sync(void)                                /* main loop */
         ed_send();
         n++;
         ed_w.pos = k + 1u;
+    }
+    if (n < ED_PUSH_MAX && (uint16_t)(now - ed_w.mx_t) >= 20u) {   /* the matrix: any slot changed, MATRIX */
+        int16_t m[NMSLOT][3];
+        ed_mx_copy(TSEL, m);
+        if (memcmp(m, ed_w.mx, sizeof m)) {
+            if (!ed_room())
+                return;
+            memcpy(ed_w.mx, m, sizeof m);
+            ed_w.mx_t = (uint16_t)now;
+            ed_begin(ED_MATRIX);
+            ed_mx_reply(song.sel);
+            ed_send();
+            n++;
+        }
     }
     for (i = 0; ed_w.v4 && i < ED_NT && n < ED_PUSH_MAX; i++) {   /* v4: the other tracks' mix */
         uint32_t k = (ed_w.tpos + i) % ED_NT, tr = k / 3u, id = ED_TIDS[k % 3u];
@@ -434,6 +474,8 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
                a[0] < NTRK;
     case ED_SONG:
         return n && (a[0] == 1u || a[0] == 5u || n == 1u);
+    case ED_MATRIX:                                /* track (get), or track, slot, SRC, DST, AMT + 64 (set) */
+        return (n == 1u || (n == 5u && a[1] < NMSLOT)) && a[0] < NTRK;
     default:
         return 1;                                  /* variable payloads validate in their handler */
     }
@@ -502,7 +544,25 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x54); ed_b(1); ed_b(NUDGE_DIV);   /* 1.2: a step's nudge (1/16 step) after its ratchet; LFO 2, QNTZ */
         ed_b(0x57); ed_b(1); ed_b(NTRK);   /* 1.2: song sections with a slot per track (SONG ops 4..7) */
         ed_b(0x56); ed_b(1); ed_b(FM6_NBANK_TOTAL); ed_b(FM6_NBANK_TOTAL >> 7); /* 128 voices as two 7-bit bytes (00 01); cmds 74..77; SLOT 16..143 = B1..B128 */
+        ed_b(0x58); ed_b(1); ed_b(NMSLOT);   /* 4.2: MATRIX (cmd 103), the matrix's eight slots; 5..8 have no id */
         break;
+    case ED_MATRIX: {                                      /* track [, slot, SRC, DST, AMT + 64] -> track, 8 slots */
+        track_t *t = &trk[a[0]];
+        if (na == 5u) {
+            int16_t *r = MOD_ROW(t, a[1]);
+            uint32_t f;
+            for (f = 0; f < 3u; f++) {
+                r[f] = mod_fit(f, (int32_t)a[2u + f] - (f == MF_AMT ? 64 : 0));
+                if (a[1] < NMSLOT_P)
+                    ed_known(a[0], P_M1SRC + 3u * a[1] + f);   /* (slots 1..4: no CHANGED echo) */
+            }
+            if (a[0] == song.sel)
+                memcpy(ed_w.mx[a[1]], r, sizeof ed_w.mx[0]);   /* the editor's own change: no MATRIX push */
+            ui.force = 1;
+        }
+        ed_mx_reply(a[0]);
+        break;
+    }
     case ED_GET:
     case ED_SET:
         if (na < 2u || !(d = ed_desc(a[0], a[1], &vp)))
@@ -526,7 +586,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 }
             }
             ui.force = 1;
-            ed_w.v[a[0] ? P_COUNT + a[1] : a[1]] = *vp;   /* the editor's own change: no push */
+            if (a[0])                                     /* the editor's own change: no push */
+                ed_w.v[P_COUNT + a[1]] = *vp;
+            else
+                ed_known(song.sel, a[1]);
         }
         ed_b(a[0]);
         ed_b(a[1]);
@@ -733,6 +796,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         for (i = 0; u && up_grid(r) && i < 16u; i++)   /* hits (bit 0) and accents (bit 1) */
             ed_b((uint32_t)(r->note[i] >> 7) | (uint32_t)(r->flags[i] >> 7) << 1);
         ed_b(u ? up_cat_of(r) : 0u);            /* 1.2: the category (an older editor stops before it) */
+        for (i = 0; i < 12u; i++)               /* 4.2: the matrix's slots 5..8, SRC DST AMT + 64 each */
+            ed_b(u ? (uint32_t)(up_mx_value(r, i) + (i % 3u == MF_AMT ? 64 : 0)) : (i % 3u == MF_AMT ? 64u : 0u));
         break;
     }
     case ED_UP_PUT: {                                      /* slot, engine, name, values, pattern -> slot, rc */

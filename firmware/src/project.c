@@ -190,6 +190,7 @@ typedef struct {                               /* one track */
     uint8_t fx_sl_pos;                         /* EFFECTS SLICER list slot 0..8; FUN14 wire */
     uint8_t fx_order[FX_LIST_N];               /* EFFECTS list order; FUN17 wire in the FM6 high bits */
     generation_t generation;
+    int16_t mx[4][3];                          /* matrix slots 5..8 (core.h track_t.mx); FUN20 tail, PROJ_MX_OFF */
 } proj_trk_t;
 typedef struct {
     uint32_t magic, size;
@@ -242,7 +243,14 @@ _Static_assert(sizeof(((project_t *)0)->lane) == 40u, "punch-in lane wire size")
 #define PROJ_LANE_SIZE 40u
 #define PROJ_APPEND_MARK_OFF (PROJ_LANE_OFF + PROJ_LANE_SIZE) /* 3984 */
 #define PROJ_APPEND_MARK 0x4Cu                 /* 'L': append lane (and optional overflow motion) present */
-#define PROJ_MOTION_SPARE_OFF (PROJ_APPEND_MARK_OFF + 2u)    /* after mark + lane_tgt: records 128..154 */
+#define PROJ_MOTION_SPARE_OFF (PROJ_APPEND_MARK_OFF + 2u)    /* after mark + lane_tgt: records 129..148 */
+/* The matrix's slots 5..8 (4.2): after the spare motion, to the name. Per track four slots of 17 bits, SRC (4 bits),
+ * DST (6), AMT + 64 (7), slot 5 of track 1 first, LSB first. A FUN20 file of before holds 0 there (off) unless it
+ * saved more than MOTION_FILE_MAX records, whose records 149..155 lie there: such a file has no slots (proj_unpack
+ * tells by its count). Firmware before reads records up to the count only, so it loads a project of now (without
+ * the slots) */
+#define PROJ_MX_OFF (PROJ_MOTION_SPARE_OFF + MOTION_FILE_SPARE_SIZE)     /* 4046 */
+#define PROJ_MX_SIZE 34u                                                 /* 4 tracks x 4 slots x 17 bits */
 #define PROJ_SL_SEND_OFF (PROJ_DX_OFF + PROJ_DX_SIZE - 1u) /* SLICER SEND mask | 0x10 mark */
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(PROJ_NG_WIRE == 27u && G_COUNT >= PROJ_NG_WIRE, "FUN7 wire globals keep IDs 0..26");
@@ -256,8 +264,11 @@ _Static_assert(PROJ_FM6_OFF == 3312u && PROJ_FM6_OFF == PROJ_DX_OFF + PROJ_DX_SI
 _Static_assert(PROJ_NAME_OFF - PROJ_APPEND_OFF == 256u, "the 256 B append area");
 _Static_assert(PROJ_LANE_OFF == 3944u && PROJ_APPEND_MARK_OFF == 3984u, "append lane placement");
 _Static_assert(PROJ_MOTION_SPARE_OFF == 3986u, "spare motion after mark + lane_tgt");
-_Static_assert(PROJ_MOTION_SPARE_OFF + MOTION_FILE_SPARE_SIZE <= PROJ_NAME_OFF,
+_Static_assert(PROJ_MOTION_SPARE_OFF + MOTION_FILE_SPARE_SIZE_V20 <= PROJ_NAME_OFF,
                "spare motion fits before the name");
+_Static_assert(PROJ_MX_OFF == 4046u && PROJ_MX_OFF + PROJ_MX_SIZE == PROJ_NAME_OFF && NTRK * 4u * 17u <= PROJ_MX_SIZE * 8u,
+               "matrix slots 5..8 from the spare motion's end to the name");
+_Static_assert(MS_N <= 16u && MD_N <= 64u, "matrix slots 5..8: SRC in 4 bits, DST in 6 on disk");
 _Static_assert(PROJ_MOTION_APPEND_OFF + MOTION_FILE_APPEND_SIZE + PROJ_LANE_SIZE + 1u <= PROJ_NAME_OFF,
                "append motion + lane + mark fit before the name");
 _Static_assert(MOTION_FILE_SIZE_V11 + PROJ_DX_SIZE == MOTION_FILE_SIZE_V10, "kit takes FUN10's motion spare");
@@ -569,6 +580,38 @@ static uint32_t proj_name_get(char *d, const uint8_t *s)   /* its length */
 
 /* A stable serialized schema: first header retains FUN6's fields; at byte66
  * np, format flags, then four byte-param tracks and nine-byte steps; FUN8: the patches at PROJ_FM6_OFF. */
+/* the matrix's slots 5..8 of every track to / from the store at PROJ_MX_OFF (see there): 17 bits a slot, AMT as 7-bit
+ * two's complement so that 0 bytes are slots at 0 (off). put: 0 when a value does not fit those bits */
+static int proj_mx_put(uint8_t *b, const project_t *q)
+{
+    uint32_t t, k, j, bit = 0;
+    for (t = 0; t < NTRK; t++)
+        for (k = 0; k < 4u; k++) {
+            const int16_t *r = q->t[t].mx[k];
+            uint32_t w;
+            if (r[MF_SRC] < 0 || r[MF_SRC] > 15 || r[MF_DST] < 0 || r[MF_DST] > 63 || r[MF_AMT] < -64 || r[MF_AMT] > 63)
+                return 0;
+            w = (uint32_t)r[MF_SRC] | (uint32_t)r[MF_DST] << 4 | ((uint32_t)r[MF_AMT] & 127u) << 10;
+            for (j = 0; j < 17u; j++, bit++)
+                b[PROJ_MX_OFF + bit / 8u] |= (uint8_t)(((w >> j) & 1u) << (bit % 8u));
+        }
+    return 1;
+}
+static void proj_mx_get(const uint8_t *b, project_t *q)
+{
+    uint32_t t, k, j, bit = 0;
+    for (t = 0; t < NTRK; t++)
+        for (k = 0; k < 4u; k++) {
+            int16_t *r = q->t[t].mx[k];
+            uint32_t w = 0;
+            for (j = 0; j < 17u; j++, bit++)
+                w |= (uint32_t)((b[PROJ_MX_OFF + bit / 8u] >> (bit % 8u)) & 1u) << j;
+            r[MF_SRC] = (int16_t)(w & 15u);
+            r[MF_DST] = (int16_t)((w >> 4) & 63u);
+            r[MF_AMT] = (int16_t)(((w >> 10) & 127u) ^ 64u) - 64;   /* (sign-extended) */
+        }
+}
+
 /* Pack at `st` bytes. FUN20 projects and the autosave use PROJ_STORE_SIZE (4096). PROJ_STORE_OLD (3840) remains
  * for host tests that build FUN10..FUN19 field images. */
 static int proj_pack_st(project_store_t *out, const project_t *q, uint32_t st)
@@ -646,7 +689,7 @@ static int proj_pack_st(project_store_t *out, const project_t *q, uint32_t st)
             b[pos++] = (uint8_t)(w >> 8);
         }
     }
-    {   /* FUN20 at 4096: up to 155 (88 body + 40 append + 27 spare); a 3840 field image keeps 88 in the body */
+    {   /* FUN20 at 4096: up to 148 (88 body + 40 append + 20 spare); a 3840 field image keeps 88 in the body */
         uint32_t cap = full ? MOTION_FILE_MAX : MOTION_FILE_MAX_BODY;
         uint32_t nmot = q->motion.count > cap ? cap : q->motion.count;
         uint32_t nbody = nmot > MOTION_FILE_MAX_BODY ? MOTION_FILE_MAX_BODY : nmot;
@@ -734,6 +777,8 @@ static int proj_pack_st(project_store_t *out, const project_t *q, uint32_t st)
         memcpy(b + PROJ_LANE_OFF, q->lane, PROJ_LANE_SIZE);
         b[PROJ_APPEND_MARK_OFF] = PROJ_APPEND_MARK;
         b[PROJ_APPEND_MARK_OFF + 1u] = q->lane_tgt;
+        if (!proj_mx_put(b, q))                         /* the matrix's slots 5..8 */
+            return 0;
     }
     {   /* the name (0-padded; stops at the first 0); offset follows `st` */
         char n[PROJ_NAME_LEN + 1u];
@@ -839,8 +884,8 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     if (v12) {
         mot = np > 111u ? ((v16 || v17) ? MOTION_FILE_SIZE : MOTION_FILE_SIZE_V15) : MOTION_FILE_SIZE_128;
         data_end = PROJ_DX_OFF;
-        /* FUN20 at 4096: 155 records; a 3840 B field image keeps 88 in the body */
-        mot_max = (v16 || v17) ? ((v20 && st == PROJ_STORE_SIZE) ? MOTION_FILE_MAX : MOTION_FILE_MAX_BODY)
+        /* FUN20 at 4096: 155 records (148 since the matrix's slots 5..8); a 3840 B field image keeps 88 in the body */
+        mot_max = (v16 || v17) ? ((v20 && st == PROJ_STORE_SIZE) ? MOTION_FILE_MAX_V20 : MOTION_FILE_MAX_BODY)
                                : MOTION_FILE_MAX_V15;
     } else if (v11) {
         mot = np > 111u ? MOTION_FILE_SIZE_V11 : MOTION_FILE_SIZE_128;
@@ -993,7 +1038,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         }
         if (q->motion.count > (np > 111u ? mot_max : MOTION_FILE_MAX_128))
             return 0;
-        /* FUN20: 89..128 in the first append, 129..155 in the spare; older formats keep every record in the body
+        /* FUN20: 89..128 in the first append, 129..155 in the spare (148 since slots 5..8); older formats keep every record in the body
          * (FUN10: 110, pre-release np<=111: 128). Format-specific mot_max above is the only cap. */
         for (i = 0; i < q->motion.count; i++) {
             const uint8_t *wire;
@@ -1105,6 +1150,8 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         memcpy(q->lane, b + PROJ_LANE_OFF, PROJ_LANE_SIZE);
         q->lane_tgt = b[PROJ_APPEND_MARK_OFF + 1u];
     }
+    if (v20 && st == PROJ_STORE_SIZE && q->motion.count <= MOTION_FILE_MAX)
+        proj_mx_get(b, q);                              /* (more records: a file of before, its 149..155 there) */
     {
         char n[PROJ_NAME_LEN + 1u];
         memcpy(q->name, n, proj_name_get(n, b + name_off));
@@ -1126,6 +1173,7 @@ static void proj_legacy_drums(track_t *t)
     for (i = 0; i < P_E0; i++)
         if (!param_kept(i))
             t->p[i] = TP[i].def;
+    memset(t->mx, 0, sizeof t->mx);                 /* matrix slots 5..8 OFF */
     for (i = 0; i < 8u; i++)
         t->p[P_E0 + i] = pr->e[i];
     t->p[P_ATK] = pr->env[0];
@@ -1262,6 +1310,7 @@ static void project_capture(project_t *p)
         p->t[i].fx_sl_pos = trk[i].fx_sl_pos < FX_LIST_N ? trk[i].fx_sl_pos : 8u;
         fx_list_get(&trk[i], p->t[i].fx_order);
         p->t[i].generation = trk[i].generation;
+        memcpy(p->t[i].mx, trk[i].mx, sizeof trk[i].mx);
         fm6_pack(fm6_patch[i], p->fm6[i]);
     }
     memcpy(p->fx_master, fx_master_tr, FX_LIST_N);
@@ -1477,6 +1526,7 @@ static int project_restore_runtime(const project_t *input)
     transport_req = 0;
     chain_config = p->chain;
     motion = p->motion;
+    motion_save_lim = motion.count > MOTION_FILE_MAX;   /* (a FUN20 file of 4.1: up to 155) AUTOMATION SAVE LIMIT */
     memset(motion_active, 0, sizeof motion_active);
     motion_base_valid = 0;
     ui.song_row = 0;
@@ -1507,6 +1557,8 @@ static int project_restore_runtime(const project_t *input)
             fx_order_default((uint16_t)t->p[P_IORD], t->p[P_CHOR], t->fx_sl_pos, fx_order_tbl[k]);
         fx_order_accept(t);
         t->generation = s->generation;
+        for (i = 0; i < 12u; i++)                       /* the matrix's slots 5..8 */
+            t->mx[i / 3u][i % 3u] = mod_fit(i % 3u, s->mx[i / 3u][i % 3u]);
         {   /* the project's own FM6 patch, never reloaded from SLOT: F n if it is that factory patch, else OWN */
             uint8_t v[FP_SIZE + 1u];
             fm6_unpack(p->fm6[k], v);
