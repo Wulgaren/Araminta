@@ -352,12 +352,12 @@ static const preset_t DRUM_PRESETS[] = {
     {"HIP HOP", {58, 62, 56, 64, 67, 0, 0, 18}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
     {"LATIN PERC", {60, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 22), PAT(12)},
     /* Felucca's DRUMS kits (its engine retired: drums_kit), every knob at its middle (TONE too: the kits as translated) */
-    {"DRUMS STD", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
-    {"DRUMS 80", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
-    {"DRUMS 10", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
-    {"DRUMS 66", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
-    {"DRUMS 55", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
-    {"DRUMS 77", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
+    {"STD", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
+    {"80", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
+    {"10", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
+    {"66", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
+    {"55", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
+    {"77", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
 };
 /* .. their movement (core.h MODS), DRUM_PRESETS' order; 0 none. DRUMS' kits: their lane LEVELs (EDIT > LANES), Felucca's
  * balance (each sound's level against its DRUMS hit, the quietest at 100 %) */
@@ -371,12 +371,12 @@ static const int8_t *const DRUM_MODS[] = {
     MODS(MMOD(1, PS_RAND, PD_DLY, 20)),                  /* DUB ROOTS: each hit its own throw into the echo */
     MODS(MLFO(LW_TRI, LS_4BAR, 0, 0), P_LTRIG, 1, MMOD(1, PS_LFO, PD_E(2), 10)),   /* TECHNO RAW: TONE over 4 bars */
     0, 0, 0,
-    MODS(LANES(124, 95, 78, 91, 126, 105, 67, 108)),  /* DRUMS STD */
-    MODS(LANES(117, 102, 107, 83, 116, 126, 82, 108)),/* DRUMS 80 */
-    MODS(LANES(111, 79, 52, 90, 82, 118, 102, 106)),  /* DRUMS 10 */
-    MODS(LANES(118, 101, 97, 44, 51, 126, 97, 94)),   /* DRUMS 66 */
-    MODS(LANES(116, 96, 97, 41, 33, 126, 77, 117)),   /* DRUMS 55 */
-    MODS(LANES(116, 76, 83, 54, 49, 118, 65, 85)),    /* DRUMS 77 */
+    MODS(LANES(124, 95, 78, 91, 126, 105, 67, 108)),  /* STD */
+    MODS(LANES(117, 102, 107, 83, 116, 126, 82, 108)),/* 80 */
+    MODS(LANES(111, 79, 52, 90, 82, 118, 102, 106)),  /* 10 */
+    MODS(LANES(118, 101, 97, 44, 51, 126, 97, 94)),   /* 66 */
+    MODS(LANES(116, 96, 97, 41, 33, 126, 77, 117)),   /* 55 */
+    MODS(LANES(116, 76, 83, 54, 49, 118, 65, 85)),    /* 77 */
 };
 _Static_assert(sizeof DRUM_MODS / sizeof DRUM_MODS[0] == DX_NKIT, "a DRUM preset's movement each");
 _Static_assert(sizeof DRUM_PRESETS / sizeof DRUM_PRESETS[0] == DX_NKIT, "a DRUM preset a kit");

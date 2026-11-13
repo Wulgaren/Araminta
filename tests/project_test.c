@@ -520,9 +520,9 @@ static int drums_retired(void)
     static project_t c;
     dx_lane_t want[8], k[8];
     uint8_t lay[8], mdl[8];
-    int p80 = drumx_preset("DRUMS 80"), bad = 0, ok, i;
+    int p80 = drumx_preset("80"), bad = 0, ok, i;
     const int8_t *m;
-    /* (1) KIT 80: the DRUMS 80 preset's kit and lane levels */
+    /* (1) KIT 80: the 80 preset's kit and lane levels */
     ok = p80 >= 0 && drums_project(&c, 1, 0) && c.t[0].engine == ENGI_DRUM;
     if (ok) {
         dx_kit_load((uint32_t)p80);
@@ -532,12 +532,11 @@ static int drums_retired(void)
             if (m[0] >= P_LN0 && m[0] <= P_LN7)
                 ok = c.t[0].p[m[0]] == m[1];
     }
-    bad += check("DRUMS track on KIT 80 loads as DRUM-X with the DRUMS 80 preset's kit and lane levels", ok);
+    bad += check("DRUMS track on KIT 80 loads as DRUM-X with the 80 preset's kit and lane levels", ok);
     /* (2) KIT DEEP (6): 77's kick 2 semitones down, 80's snare, 77's clap, 80's hats, 77's tom, 80's rim, 10's bell */
     ok = drums_project(&c, 6, 0) && c.t[0].engine == ENGI_DRUM;
     if (ok) {
-        static const char *const FROM[8] = {"DRUMS 77", "DRUMS 80", "DRUMS 77", "DRUMS 80", "DRUMS 80", "DRUMS 77",
-                                            "DRUMS 80", "DRUMS 10"};
+        static const char *const FROM[8] = {"77", "80", "77", "80", "80", "77", "80", "10"};
         dx_kit_unpack(k, lay, mdl, c.dx);
         for (i = 0; ok && i < 8; i++) {
             int pi = drumx_preset(FROM[i]);

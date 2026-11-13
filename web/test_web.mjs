@@ -461,7 +461,7 @@ function mockTables() {
        ph.presets.length === 10 && !ph.presets.some((p) => p.name === "RAIN" || p.name === "DRUM KIT"),
        "editor: PHYS models MODAL STRNG MEMB SYMP (no DUST, no DRUM), 9 presets");
     ok(dr.name === "DRUM-X" && dr.edit.map((d) => d.label).join() === "MRPH,TUNE,TONE,DECY,NOIS,FMENV,FOLD,DRV" &&
-       dr.presets.length === 17 && dr.presets[0].name === "FM DRUMS" && dr.presets[11].name === "DRUMS STD" &&
+       dr.presets.length === 17 && dr.presets[0].name === "FM DRUMS" && dr.presets[11].name === "STD" &&
        dr.presets.every((p) => p.pat === 12),
        "editor: DRUM engine 10 (MRPH TUNE TONE DECY NOIS FMENV FOLD DRV), its 17 kits suggesting BEAT");
   }
