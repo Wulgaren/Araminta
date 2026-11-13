@@ -2,6 +2,64 @@
 
 ## Unreleased
 
+## 4.1
+
+DRUM-X now runs JIANT's newer voice with 17 kits, and DRUMS folds into it. Lane levels move to the MIXER, and the
+SEQ and AUTOMATION pages get a simpler order.
+
+Splash and ABOUT show `v4.1`.
+
+### Compatibility
+
+- Projects keep their size and layout (FUN20). Each sound's LAYER and MODEL ride in the kit bytes' spare top bits, and
+  the filter GR in the mode byte: 3.10 and older refuse a project saved with any of them.
+- A DRUM-X project made before this plays the new voice. Its FM knob now strikes with the hit and decays with the pitch
+  envelope, so a project with FM up sounds different.
+- DRUMS projects and user presets load as DRUM-X. A migrated project keeps its lane levels, zero and lowered ones
+  included.
+
+### DRUM-X: JIANT's kits, Felucca's kits, DRUMS retired
+
+- **JIANT V10.7.24's DRUM-X voice** replaces the older port: half-rate rendering, the V10.6q quality pass (cleaner
+  noise, an 808 clap, a CMOS cowbell), the guiro filter GR, per-sound LAYER. **FM** now strikes with the hit and decays
+  with the pitch envelope. DRV and the knee now run on the kit's sum.
+- **17 DRUM-X presets.** The first is renamed **FM DRUMS** (same kit, same sound). JIANT's ten kits: 909 CLUB,
+  808 BOOM, LOFI DUST, INDUSTRIAL, ACOUSTIC, DUB ROOTS, TECHNO RAW, BREAKS, HIP HOP, LATIN PERC. Per-sound sends left
+  out (JIANT ships them at 0), and so is JIANT's own DIST on five kits.
+- **Each sound has a MODEL** (EDIT > Kit > SOUND; LAYER on TONE): CLASSIC, or Felucca's DRUMS voices SHELL, METAL,
+  TEETH, CLICK. Felucca's kits STD, 80, 10, 66, 55 and 77 are DRUM-X presets **STD, 80, 10, 66, 55 and 77**, translated
+  from its numbers.
+- **Kit pages read in percent**, as the rest of the device reads its 0..127 values. TONE's third card is **CHAR**: what
+  it offers changes with the MODEL (a drive, a drive and its short tail, a click ratio), so DRV was a misnomer. PTCH
+  reads as its note and the cents above it, and the FM's second oscillator (OSC2) as its amount, 0 to 100 %. The
+  layer itself has 16 positions.
+- **DRUMS (engine 15) is retired.** Projects and user presets on it load as DRUM-X with their KIT's kit (DEEP,
+  TIGHT and PERC assembled from the others). Close to the old sound, not identical.
+- **X-MOD playback removed** (no page since 3.x).
+- **Kit labels.** EDIT's first section reads **KIT 1/2** and **KIT 2/2**: both pages edit the whole kit now, so the
+  old DRUMS **HIT** name is gone. TONE puts **FILT** first, then COLR / CUT / MIX. CHAR names the combined drive modes
+  **DR+BU** and **DR+SH**.
+- **Lane levels on the MIXER.** A DRUM-X track's eight lane volumes moved from EDIT > LANES to the MIXER: SELECT
+  walks **MIXER 1/3** (the four tracks), **2/3** (KICK..HATCL) and **3/3** (HATOP..BELL), each lane with a live
+  meter and its level in percent. The LANES section is gone. CR78 and USR drumkits have no lane levels and keep
+  MIXER 1/3 alone.
+- **SEQ pages.** **PATTERN** is gone: its LEN / DIV / SWING / GATE knobs are on SEQ TOOLS and its layer. The step
+  group walks **STEP → DETAIL → AUTOMATION**, and **SEQ TOOLS → GENERATION → GENERATION 2** is the tools section
+  (generation only on a drum kit). The tools map opens on SEQ TOOLS alone, so the generation pages keep their own
+  knobs; its footer keeps the normal page layout, with **OCT- UNDO** where the sound name goes and the page count at
+  the right. SEQ TOOLS' drum-lane mute reads **MUT BD**, not **M BD**.
+
+### AUTOMATION list
+
+- QUANTIZE is the first row and the automation ON / OFF row (was PLAY) is second, now called **ENABLED**. A divider
+  sits under the two settings. An empty list shows NO AUTOMATION above + ADD.
+
+### Fixes
+
+- SAVE held now undoes a preset load that replaced the project's DRUM-X kit, and browsing presets keeps the kit
+  change in the same undo step.
+- The firmware and host tests build with no warnings.
+
 ## 3.10
 
 Projects grow to FUN20. The flash map takes more of the gap for autosave and banks. POLY gets chord glide.

@@ -29,7 +29,6 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
 #include "eng_grain.c"
 #include "eng_phys.c"           /* PHYS: DaisySP physical models (phys_dsp.c, MIT) */
 #include "eng_drum.c"           /* DRUM: the 8-lane DRUM-X kit (drumx_voice.c) */
-#include "eng_drums.c"          /* DRUMS: the ported Felucca drum engine (drums_voice.c) */
 #include "eng_noise.c"
 #include "eng_wt.c"             /* WAVETABLE: two wavetable oscillators (XIP tables) */
 #include "eng_fm6.c"            /* FM6: 6-operator FM, msfa ported (fm6_core.c, Apache-2.0) */
@@ -52,7 +51,7 @@ static const engine_t *const ENGINES[NENGINES] = {
     &ENG_FM6,                    /* 12 (ENGI_FM6) */
     &ENG_SLICE_GONE,             /* 13: reserved (SLICE retired) */
     &ENG_WT,                     /* 14 (ENGI_WT) */
-    &ENG_DRUMS,                  /* 15 (ENGI_DRUMS): Felucca's drum engine */
+    &ENG_SLICE_GONE,             /* 15: reserved (DRUMS retired: its kits are DRUM-X's, eng_drum.c drums_kit) */
 };
 
 /* a track's engine number as an index (the audio paths: a compare, cheaper than % NENGINES; a bad number: 0) */
@@ -78,15 +77,20 @@ static void eng_mem_claim(const track_t *t)
 }
 
 /* rewrite p[] of a retired-engine sound into the target. Returns the target engine.
- * SLICE -> DRUM kit. SAMPLE PERC stays drum_from_perc on its own path. */
+ * SLICE -> DRUM kit. DRUMS -> DRUM: its TUNE TONE DECY SNAP (as NOIS) DRV where DRUM-X has them, MRPH at its middle, FM
+ * ENV and FOLD off (its KIT's kit: project.c proj_retire). SAMPLE PERC stays drum_from_perc on its own path. */
 static uint32_t retire_remap_params(uint32_t engine, int16_t *p)
 {
     uint32_t i;
     static const int16_t KIT[8] = DRUM_KIT_E;
     if (!eng_retired(engine))
         return engine;
-    for (i = 0; i < 8u; i++)
-        p[P_E0 + i] = KIT[i];
+    if (engine == ENGI_DRUMS) {
+        p[P_E0] = 64;
+        p[P_E5] = p[P_E6] = 0;
+    } else
+        for (i = 0; i < 8u; i++)
+            p[P_E0 + i] = KIT[i];
     return eng_play_as(engine);
 }
 
@@ -105,7 +109,7 @@ static const char *snd_missing(const track_t *t, uint32_t *code)
 }
 
 /* the order the engines are shown in (PRESETS browsing and its ENG knob, the EDIT layer's keys, the editor's list):
- * engine indices, never DIGITAL's reserved 1, never retired SLICE.
+ * engine indices, never DIGITAL's reserved 1, never retired SLICE or DRUMS.
  * The indices stay as they are (the stores and the protocol hold them); only this table orders them */
 static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     0,                           /* ANALOG */
@@ -114,11 +118,10 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     2, 3, 5, 6, 7,               /* PHASE LOFI VOICE TRIO WHEEL */
     9, 11, 8, 4,                 /* PHYS NOISE GRAIN SAMPLE */
     10,                          /* DRUM */
-    15,                          /* DRUMS */
 };
 _Static_assert(NELEM(ENGINE_ORDER) == NENG_SHOWN, "ENGINE_ORDER / NENG_SHOWN");
 
-/* the engines one can pick (not DIGITAL's reserved 1, not retired SLICE) */
+/* the engines one can pick (not DIGITAL's reserved 1, not retired SLICE or DRUMS) */
 static int eng_ok(uint32_t e)
 {
     return e < NENGINES && e != ENGI_DIGITAL && !eng_retired(e);

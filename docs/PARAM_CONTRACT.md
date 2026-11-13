@@ -370,7 +370,7 @@ After `./build.sh` once (it creates `build/gen/`), run only what covers the chan
 | `tests/run_one.sh all` | execs the full gate |
 
 `tests/run_one.sh` is the edit loop, not the final gate. The canonical full command is
-`tests/run_tests.sh` (or `SANITIZE=1 tests/run_tests.sh` before handoff). If `run_one.sh` is not present,
+`tests/run_tests.sh` (`SANITIZE` per AGENT.md before handoff). If `run_one.sh` is not present,
 run `tests/run_tests.sh` and its binaries directly. `build/host/motion_test`,
 `build/host/param_contract_test`, `build/host/editor_test`, `build/host/project_test` and
 `build/host/ui_test` are the focused binaries it builds. The `param` target fails with a clear message if

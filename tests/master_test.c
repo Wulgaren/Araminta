@@ -180,11 +180,6 @@ int main(void)
         check("PNCH 100 reaches a CR78 kick", k && kit_child(ENGI_SAMPLE, SMP_CR78_INDEX, 100, 0) != k);
         check("DUCK is triggered by a CR78 kick", k && kit_child(ENGI_SAMPLE, SMP_CR78_INDEX, 0, 100) != k);
     }
-    {
-        uint64_t k = kit_child(ENGI_DRUMS, 0, 0, 0);
-        check("PNCH 100 reaches a DRUMS kick", k && kit_child(ENGI_DRUMS, 0, 100, 0) != k);
-        check("DUCK is triggered by a DRUMS kick", k && kit_child(ENGI_DRUMS, 0, 0, 100) != k);
-    }
     printf("%s\n", bad ? "MASTER TEST FAILED" : "master tests passed");
     return bad != 0;
 }

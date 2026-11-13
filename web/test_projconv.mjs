@@ -196,8 +196,9 @@ for (const f of [7, 8, 9]) {
   refuses(crafted(fun10, (b) => { b[2981] = 49; }), "a FUN10 MFX motion id");
 
   const cur = b64(FIX.current);
-  refuses(crafted(cur, (b) => { b[3216] = 12; }), "a DRUM-X kit mode");
-  refuses(crafted(cur, (b) => { b[3217] = 200; }), "a DRUM-X kit value > 127");
+  refuses(crafted(cur, (b) => { b[3221] = 200; }), "a DRUM-X kit A COLOR > 127");   // (A PITCH..NOISE: bit 7 LAYER)
+  refuses(crafted(cur, (b) => { b[3226] = 200; }), "a DRUM-X kit B COLOR > 127");   // (B PITCH..DECAY: bit 7 MODEL)
+  refuses(crafted(cur, (b) => { b[3222] |= 0x80; b[3223] |= 0x80; b[3224] |= 0x80; }), "a DRUM-X sound's MODEL past 4");
   refuses(crafted(cur, (b) => { b[3400] |= 0x80; b[3402] |= 0x80; }), "a MASTER order past NTRK");
 
   const fun16 = b64(VIBF["16"].input);

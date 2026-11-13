@@ -107,7 +107,11 @@ int main(void) {
         build = Path(directory)
         test_source = build / "cpu1_test.c"
         executable = build / "cpu1_test.exe"
-        test_source.write_text(harness + host_registers(guard) + host_registers(hal) + checks, encoding="utf-8")
+        test_source.write_text(
+            # the headers are pasted into one main file: their #pragma once would warn there
+            (harness + host_registers(guard) + host_registers(hal) + checks).replace("#pragma once\n", ""),
+            encoding="utf-8",
+        )
         subprocess.run(["gcc", "-std=c99", "-Wno-int-to-pointer-cast", str(test_source), "-o", str(executable)], check=True)
         subprocess.run([str(executable)], check=True)
 

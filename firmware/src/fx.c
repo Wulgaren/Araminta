@@ -2522,7 +2522,7 @@ static __attribute__((noinline)) void duck_block(void)
     } else if (duck_hold) {
         duck_hold--;
     } else if (duck_env) {
-        duck_env = (int32_t)(((uint32_t)duck_env * dv_kb(40000u + (uint32_t)song.g[G_DREL] * 5600u)) >> 16);
+        duck_env = (int32_t)(((uint32_t)duck_env * dx_fall(40000u + (uint32_t)song.g[G_DREL] * 5600u)) >> 16);
     }
     e = (duck_env * (65536 - duck_env)) >> 15;
     duck_g1 = 32767 - mulq15(dep, e > 32767 ? 32767 : e);
@@ -2533,11 +2533,11 @@ static __attribute__((noinline)) int32_t duck_ramp(int32_t lvl, int32_t *dl)
     *dl = ((((lvl * (duck_g1 >> 3)) >> 12) << 8) - l0) >> CTL_LOG2;
     return l0;
 }
-/* the sidechain ducks the other parts: a kit track (DRUM-X, DRUMS, a SAMPLE kit) is never ducked by its own kick */
+/* the sidechain ducks the other parts: a kit track (DRUM-X, a SAMPLE kit) is never ducked by its own kick */
 static int duck_own_kit(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];
-    return e == &ENG_DRUM || e == &ENG_DRUMS || (e == &ENG_SAMPLE && smp_is_kit(t));
+    return e == &ENG_DRUM || (e == &ENG_SAMPLE && smp_is_kit(t));
 }
 
 /* SPREAD (#148): a POLY or UNISON part whose SPRD is above 0. Its voices start left and right of PAN in turn (voice.c
@@ -2630,7 +2630,8 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
     mod_begin(t);                                       /* the matrix's per-block values into t->p (mod.c) */
     /* after mod: insert MIX may turn on and still need a cleared part_buf (shared across tracks) */
     int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t) || chain;
-    t->spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON);   /* (SPREAD, mix_spread) */
+    t->spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON) &&   /* (SPREAD, mix_spread; */
+                   ENGINES[t->engine] != &ENG_DRUM;     /* not DRUM-X: hidden there, and its bus shapes the sum, eng_drum.c) */
     uint32_t nr = track_render_audio(t, b, n, need_zeros);
     part_est[(uint32_t)tr % NTRK] = (uint16_t)(nr ? 40u * trk_nvoice(t) : 0u) +    /* mix_split's estimate (part_w) */
                                      (uint16_t)((nr || t->tail ? 60u : 0u) + 24u * (ins_any(t) != 0));
@@ -2723,46 +2724,6 @@ static __attribute__((noinline)) void perf_master(int32_t *out, uint32_t n)
         out[2u * i] = l;
         out[2u * i + 1u] = r;
     }
-}
-
-/* DRUM-X X-MOD LFO (eng_drum.c dx_mot / dx_mot_v): tempo-synced while playing (clk_step + clk_pos), free while stopped */
-static uint32_t dx_mot_free, dx_mot_cyc, dx_ms;
-static int32_t dx_mot_sh;
-static __attribute__((noinline)) void dx_mot_block(uint32_t n)
-{
-    static const uint8_t Q8[9] = {0, 64, 32, 16, 8, 4, 2, 1, 1};   /* cycle in 1/16 notes x 4 .. (1/32: half) */
-    uint32_t r = dx_mot[XM_RATE], len, pos, ph, cyc;
-    int32_t w;
-    dx_mot_free += n;
-    if (song.playing)
-        dx_ms = clk_pos == CLK_START ? dx_ms + n : clk_step * div_samples(2) + clk_pos + n;
-    if (!r || r > 8u || !dx_mot[XM_DPTH]) {
-        dx_mot_v = 0;
-        return;
-    }
-    len = beat_samples() * Q8[r] / 4u;
-    if (r == 8u)
-        len = beat_samples() / 8u;
-    if (len < 64u)
-        len = 64u;
-    pos = song.playing ? dx_ms : dx_mot_free;
-    cyc = pos / len;
-    ph = (uint32_t)(((uint64_t)(pos % len) << 32) / len);
-    switch (dx_mot[XM_SHPE]) {
-    case 1: w = ph < 0x80000000u ? (int32_t)(ph >> 15) - 32768 : 98303 - (int32_t)(ph >> 15); break;   /* TRI */
-    case 2: w = (int32_t)(ph >> 16) - 32768; break;                                                   /* SAW */
-    case 3: w = 32767 - (int32_t)(ph >> 16); break;                                                   /* RAMP */
-    case 4:                                                                                             /* S&H */
-        if (cyc != dx_mot_cyc) {
-            dx_mot_rng = dx_mot_rng * 1664525u + 1013904223u;
-            dx_mot_sh = (int32_t)(dx_mot_rng >> 16) - 32768;
-        }
-        w = dx_mot_sh;
-        break;
-    default: w = osc_sine(ph); break;                                                                  /* SINE */
-    }
-    dx_mot_cyc = cyc;
-    dx_mot_v = (w * dx_mot[XM_DPTH]) >> 16;             /* (+-DPTH / 2) */
 }
 
 /* ---- the second core (hal/fm1_cpu1.h) renders some of the parts of each block into its own sums (mx[1]) while
@@ -3077,7 +3038,6 @@ static void mix_block(int32_t *out, uint32_t n)
     events_block(n);
     clip_eff = song.g[G_CLIP];                          /* (JIANT) CLIP / PNCH for this block */
     pnch_eff = song.g[G_PUNCH];
-    dx_mot_block(n);                                    /* DRUM-X X-MOD LFO */
     master_begin();
     duck_block();
     perf = perf_begin(n);                               /* the FX hold layer at work (perform.c) */

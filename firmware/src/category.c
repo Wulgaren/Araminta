@@ -11,7 +11,7 @@
 enum { CAT_NONE, CAT_BASS, CAT_LEAD, CAT_PAD, CAT_PLUCK, CAT_KEYS, CAT_DRUM, CAT_FX, CAT_OTHER, CAT_N };
 static const char *const CAT_NAME[CAT_N] = {"-", "BASS", "LEAD", "PAD", "PLUCK", "KEYS", "DRUM", "FX", "OTHER"};
 /* the category a sound without one is listed under: a kit (DRUM, SLICE: engines 10, 13) DRUM, any other OTHER */
-static uint32_t cat_of_engine(uint32_t e) { return e == 10u || e == 13u || e == 15u ? CAT_DRUM : CAT_OTHER; }
+static uint32_t cat_of_engine(uint32_t e) { return e == 10u || e == 13u ? CAT_DRUM : CAT_OTHER; }
 
 #ifndef UP_HOST
 /* the factory presets' categories: per engine number (engines.c ENGINES[]), a letter per preset in its order (B BASS,
@@ -29,12 +29,12 @@ static const char *const PRESET_CAT[17] = {
     "KKKKKKK",                   /* 7 WHEEL: the organs + CHURCH, PERC STOP */
     "PFPPP",                     /* 8 GRAIN: … SHIMMER, STRETCH */
     "UUUPUDDPUU",                /* 9 PHYS: … HARP, GLASS BOW */
-    "D",                         /* 10 DRUM: DRUM-X */
+    "DDDDDDDDDDDDDDDDD",         /* 10 DRUM: FM DRUMS, JIANT's kits (909 CLUB .. LATIN PERC), STD .. 77 */
     "FFFFF",                     /* 11 NOISE: … METAL, REG BELL */
     "KUBLPUKULPKBLFB",           /* 12 FM6: … PLUCK, METAL VOX, HOLLOW FM, CRYSTAL, FM GROWL, OCT STACK, AIR NOISE, DUBSTEP BASS */
     "DD",                        /* 13 SLICE: CHOP, STUTTER */
     "BLKPBLUPLP",                /* 14 WAVETABLE: … SWEEP, WT FDBK, HOLLOW */
-    "DDDD",                      /* 15 DRUMS: DRUM KIT, DEEP KIT, TIGHT KIT, PERC KIT */
+    "",                          /* 15 DRUMS (retired: its kits are DRUM-X's) */
 };
 static uint32_t preset_cat(uint32_t e, uint32_t k)    /* factory preset k of engine e */
 {

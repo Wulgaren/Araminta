@@ -1217,7 +1217,9 @@ static void page_title(char *ti)
         str_cpy(ti + str_len(ti), " ", 4);
         str_cpy(ti + str_len(ti), N_SCALE[clamp(t->p[P_SCALE], 0, (int32_t)(sizeof N_SCALE / sizeof N_SCALE[0]) - 1)], 8);
     } else {
-        str_cpy(ti, pt ? pt : grid_on() && !detail_on() ? "GRID" : pg->title, 12);
+        /* the second GENERATION page reads "GENERATION 3/3": the count separates it from 2/3 */
+        const char *ti_page = str_eq(pg->title, "GENERATION 2") ? "GENERATION" : pg->title;
+        str_cpy(ti, pt ? pt : grid_on() && !detail_on() ? "GRID" : ti_page, 12);
     }
     if (n > 1) {
         str_cpy(ti + str_len(ti), " ", 4);
@@ -1238,6 +1240,18 @@ static void graph_title(void)
     y = f == &AF_L ? CAP_IN(L, LG_H_GRAPH) : CAP_IN(M, LG_H_GRAPH);
     GFX_HOOK_ALIGN(0, 0, 240, LG_H_GRAPH, AL_HV, "large strip title centred");
     cv_text_in(0, y, 240, f, ti, T_THEME, T_SURF);
+}
+
+/* MIXER's lane pages (graph_lanes): the bar each lane drew last, px (it falls 1 px a frame) */
+static uint8_t lane_bar[NLANE] __attribute__((section(".pool")));
+/* graph_signature: a lane page moves while a bar is still falling or the audio left a level since the last draw */
+static int lanes_moving(uint32_t k)
+{
+    uint32_t l;
+    for (l = 0; l < NLANE; l++)
+        if (lane_bar[l] || drum_lane_meter[k][l])
+            return 1;
+    return 0;
 }
 
 static uint32_t graph_signature(void)
@@ -1306,8 +1320,11 @@ static uint32_t graph_signature(void)
             h ^= (uint32_t)graph_project_used(i) << (20u + i);
         h += graph_pname_sig;
     }
-    if (pg->graph == GR_DXSND)                       /* DRUM-X SOUND / SOUND 2 cards */
+    if (pg->graph == GR_DXSND)                       /* DRUM-X SOUND / TONE / MOVEMENT cards */
         h ^= dx_sig();
+    if (pg->graph == GR_LANES)                       /* MIXER's lane meters while they move; mutes, the hot knob */
+        h ^= (lanes_moving(trk_index(t)) ? ui.frame : 0u) + (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u +
+             (uint32_t)dx_mute * 1299709u + (uint32_t)drum_mute[trk_index(t) % NPART] * 40503u;
     if (pg->graph == GR_EVENTS)                      /* AUTOMATION: the rows, the one selected, + ADD's place, PLAY,
                                                       * QUANTIZE */
         h = (h ^ ev_sig()) * 16777619u;
@@ -1346,7 +1363,7 @@ static const char *eng_abbr(const char *name)
     static const char *const A[][2] = {{"ANALOG", "ANLG"},
                                        {"PHASE", "PHAS"}, {"LOFI", "LOFI"},
                                        {"SAMPLE", "SMPL"}, {"VOICE", "VOCL"}, {"TRIO", "TRIO"}, {"WHEEL", "WHEL"},
-                                       {"GRAIN", "GRAN"}, {"PHYS", "PHYS"}, {"DRUM-X", "DRMX"}, {"DRUMS", "DRMS"},
+                                       {"GRAIN", "GRAN"}, {"PHYS", "PHYS"}, {"DRUM-X", "DRMX"},
                                        {"NOISE", "NOIS"}, {"FM6", "FM6"}, {"SLICE", "SLCE"},
                                        {"WAVETABLE", "WTBL"}};
     uint32_t i;
@@ -1516,10 +1533,10 @@ static void graph_pats(void)
         list_row(LIST_Y(row), k == cur, tag, T_MID, nm, T_TEXT, 232, LIST_NX);
     }
 }
-/* the AUTOMATION rows' columns (M): the kind at 14 (LOCK AUTO STEP PLAY, to x 54), the step / PLAY's ON at EV_SX, the
+/* the AUTOMATION rows' columns (M): the kind at 14 (LOCK AUTO STEP ENABLED), the step / ENABLED's ON at EV_SX, the
  * name / QUANTIZE's ON at EV_NX (QUANTIZE ends at x 86), the value right at 226 */
-#define EV_SX 60
-#define EV_NX 92
+#define EV_SX 74
+#define EV_NX 96
 /* a row's value (M) and its unit (S, on the value's baseline, as a card's) ending at x 226; the value's left x */
 static int32_t ev_value(int32_t y, const char *v, const char *unit, uint16_t fg, uint16_t bg)
 {
@@ -1542,17 +1559,19 @@ static void graph_pick(void)
     }
 }
 
-/* SEQ > AUTOMATION (ui_events.c): the track's rows around the one selected: PLAY first (ON / OFF and the counts),
- * QUANTIZE (ON / OFF and the steps nudged), then a row each: the kind (LOCK in the accent, AUTO; STEP: a step's CHANCE,
- * RATCH, NUDGE or VEL, a NUDGE or VEL that does not play DIM), the step, the name, the value at the right; the last row
- * + ADD (LOCK, CHANCE, RATCH, NUDGE or VEL: what OCT+ adds) */
+/* SEQ > AUTOMATION (ui_events.c): the track's rows around the one selected: QUANTIZE first (ON / OFF and the steps
+ * nudged), ENABLED (ON / OFF and the counts), a divider under the two, then a row each: the kind (LOCK in the accent,
+ * AUTO; STEP: a step's CHANCE, RATCH, NUDGE or VEL, a NUDGE or VEL that does not play DIM), the step, the name, the
+ * value at the right; the last row + ADD (LOCK, CHANCE, RATCH, NUDGE or VEL: what OCT+ adds). No rows between the
+ * settings and + ADD: a DIM NO AUTOMATION there, + ADD one row lower */
 static void graph_events(void)
 {
     const track_t *t = TSEL;
     uint32_t n = ev_list(ev_rw), cur = ev_row(n), k;
     int32_t row, first = clamp((int32_t)cur - 3, 0, (int32_t)n > 7 ? (int32_t)n - 7 : 0);
+    int empty = n == 3u;                             /* (then first is 0: + ADD is row 2) */
     for (row = 0; row < 7 && (uint32_t)(first + row) < n; row++) {
-        int32_t y = LIST_Y(row);
+        int32_t y = LIST_Y(row + (empty && row == 2));
         int sel;
         uint16_t bg, c;
         k = (uint32_t)(first + row);
@@ -1561,7 +1580,13 @@ static void graph_events(void)
         bg = sel ? T_THEME : T_SURF;
         if (sel)
             cv_rrect(6, y, 228, 16, 4, T_THEME, T_SURF);
+        if (k == 1u)                                 /* under the settings, scrolling with them */
+            cv_rule(6, y + 16, 228, 1);
         if (c >> 8 == EVK_ADD) {
+            if (empty) {
+                GFX_HOOK_ALIGN(0, LIST_Y(2), 0, LIST_Y(2) + 16, AL_V, "list row text centred up/down");
+                cv_text_on(14, LIST_Y(2) + LIST_TY, &AF_M, "NO AUTOMATION", T_DIM, T_SURF);
+            }
             ev_fix();
             GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
             cv_text_on(14, y + LIST_TY, &AF_M, ui.ev_id == EV_CHANCE ? "+ ADD CHANCE" : ui.ev_id == EV_RATCH ?
@@ -1569,19 +1594,26 @@ static void graph_events(void)
                        (ui.ev_vel ? "+ HIDE VEL" : "+ SHOW VEL") : "+ ADD LOCK", sel ? T_INK : T_DIM, bg);
             break;
         }
-        if (c >> 8 == EVK_TOP) {                     /* PLAY ON / OFF, the counts: "EVENT 3  LOCK 2" */
+        if (c >> 8 == EVK_TOP) {                     /* ENABLED ON / OFF, the counts: "EVENT 3  LOCK 2" (S when M
+                                                      * would reach the ON / OFF) */
             char b[24];
+            int32_t x;
             str_cpy(b, "EVENT ", sizeof b);
             fmt_int(b + str_len(b), (int32_t)(motion_count(t) - motion_lock_count(t)));
             str_cpy(b + str_len(b), "  LOCK ", sizeof b - str_len(b));
             fmt_int(b + str_len(b), (int32_t)motion_lock_count(t));
             GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
-            cv_text_on(14, y + LIST_TY, &AF_M, "PLAY", sel ? T_INK : T_MID, bg);
+            cv_text_on(14, y + LIST_TY, &AF_M, "ENABLED", sel ? T_INK : T_MID, bg);
             GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
-            cv_text_on(EV_SX, y + LIST_TY, &AF_M, motion_enabled(t) ? "ON" : "OFF",
-                       sel ? T_INK : motion_enabled(t) ? T_TEXT : T_DIM, bg);
-            GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
-            cv_text_r(226, y + LIST_TY, &AF_M, b, sel ? T_INK : T_MID, bg);
+            x = cv_text_on(EV_SX, y + LIST_TY, &AF_M, motion_enabled(t) ? "ON" : "OFF",
+                           sel ? T_INK : motion_enabled(t) ? T_TEXT : T_DIM, bg);
+            if (226 - text_w(&AF_M, b) < x + 8) {
+                GFX_HOOK_ALIGN(0, 0, 0, y + LIST_TY + AF_M.asc, AL_B, "list row counts on the row's baseline");
+                cv_text_r(226, y + LIST_TY + AF_M.asc - AF_S.asc, &AF_S, b, sel ? T_INK : T_MID, bg);
+            } else {
+                GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
+                cv_text_r(226, y + LIST_TY, &AF_M, b, sel ? T_INK : T_MID, bg);
+            }
             continue;
         }
         if (c >> 8 == EVK_QNT) {                     /* QUANTIZE ON / OFF (1.2), the steps nudged: "NUDGED 3" */
@@ -1718,7 +1750,7 @@ static struct {
     uint8_t meter[NTRK];
 } ts __attribute__((section(".pool")));                /* main loop only: off the audio .bss budget */
 
-static int32_t meter_px(int32_t a)                   /* |sample| (Q15) -> px: 60 dB over the slot */
+static int32_t meter_px_w(int32_t a, int32_t span)   /* |sample| (Q15) -> px: 60 dB over span */
 {
     int32_t lg = 0, v;
     if (a < 64)
@@ -1726,8 +1758,9 @@ static int32_t meter_px(int32_t a)                   /* |sample| (Q15) -> px: 60
     while ((a >> lg) > 1)
         lg++;
     v = lg * 8 + (((a << 3) >> lg) & 7);             /* 8 log2(a): 48 (-54 dB) .. 128 (+6 dB) */
-    return clamp((v - 48) * (TS_MH - 2) / 80, 0, TS_MH - 2);
+    return clamp((v - 48) * span / 80, 0, span);
 }
+static int32_t meter_px(int32_t a) { return meter_px_w(a, TS_MH - 2); }
 
 /* a knob's ring: 270 degrees (7:30 .. 4:30 o'clock), 2 px, anti-aliased, from the quadrant mask of its size
  * (tools/gen_aa_keycaps.py: coverage and angle; the other three quadrants mirror it, no trigonometry here).
@@ -2349,11 +2382,11 @@ static void graph_song(void)
                      i < 4u ? "[K3] ADD SECTION" : "[SAVE] PROJECT A-D", T_MID, T_SURF, x0 - 10 - SG_X0);
     }
 }
-/* DRUM-X: two rows of four lane cells; MORPH bar A..B (FUN11 X-MOD offset via dx_mot_v when set) */
+/* DRUM-X: two rows of four lane cells; MORPH bar A..B */
 static void graph_colony(const track_t *t, int32_t sel)
 {
     static const char *const AB[8] = {"BD", "SD", "CP", "CH", "OH", "TM", "RS", "CB"};
-    int32_t morph = clamp(t->p[P_E0] + dx_mot_v, 0, 127), mx = 30 + morph * 180 / 127;
+    int32_t morph = clamp(t->p[P_E0], 0, 127), mx = 30 + morph * 180 / 127;
     uint32_t l;
     cv_rect(30, 12, 180, 1, T_LINE);
     cv_rect(30, 11, mx - 30, 3, ACC);
@@ -2365,6 +2398,48 @@ static void graph_colony(const track_t *t, int32_t sel)
         uint16_t fill = muted ? T_DIM : (sel == (int32_t)l ? T_THEME : T_RAISE);
         cv_rrect(x - 14, y - 10, 28, 22, 3, fill, T_SURF);
         cv_text_in(x - 14, y - 2, 28, &AF_S, AB[l], sel == (int32_t)l ? T_INK : muted ? T_SURF : T_MID, fill);
+    }
+}
+
+/* MIXER's two lane pages (a DRUM-X track, ui.c page_visible): eight bars, one per sound of the kit, the live
+ * level (drum_lane_meter, eng_drum.c: its envelope, read and cleared here) drawn from 0 up to the LEVEL
+ * setting's tick, which stays with its percent when the lane is silent. The page's four lanes THEME, the knob just
+ * turned ACCENT, the other page's MID, a muted lane DIM. A bar drops 1 px a frame, as the mixer's meters. */
+#define LN_X0 34                                     /* the bars: 34 .. 194 (160 px) */
+#define LN_W 160
+static void graph_lanes(const track_t *t)
+{
+    const page_t *pg = cur_page();
+    uint32_t k = trk_index(t), l, first = 0;
+    if (pg->id[0] >= P_LN0 && pg->id[0] <= P_LN7)
+        first = (uint32_t)(pg->id[0] - P_LN0);
+    if (ui.force) {                                  /* (entered, a track change: no stale hit) */
+        memset(lane_bar, 0, sizeof lane_bar);
+        memset(drum_lane_meter[k], 0, sizeof drum_lane_meter[k]);
+    }
+    for (l = 0; l < NLANE; l++) {
+        int32_t y = 6 + (int32_t)l * 11, lvl = clamp(t->p[P_LN0 + l], 0, 127);
+        int on = l >= first && l < first + 4u;
+        int hot = on && ui.hot_t && (uint32_t)ui.hot_col == l - first;
+        int muted = dx_lane_muted(t, l);
+        int32_t tick = lvl * (LN_W - 2) / 127;
+        int32_t m = muted ? 0 : meter_px_w(drum_lane_meter[k][l], tick);
+        uint16_t fill = muted ? T_DIM : hot ? ACC : on ? T_THEME : T_MID;
+        char b[8];
+        drum_lane_meter[k][l] = 0;                      /* read: the next block starts its own level */
+        if (m < (int32_t)lane_bar[l] - 1)
+            m = (int32_t)lane_bar[l] - 1;            /* drops 1 px a frame */
+        if (m > tick)
+            m = tick;                                /* (LEVEL just turned down: never past its tick) */
+        lane_bar[l] = (uint8_t)(m < 0 ? 0 : m);
+        cv_text_in(8, y - 1, 22, &AF_S, drum_lane_abbr(t, l), muted ? T_DIM : on ? T_TEXT : T_MID, T_SURF);
+        cv_rrect(LN_X0, y, LN_W, 8, 3, T_RAISE, T_SURF);
+        if (m)
+            cv_rrect(LN_X0, y, m < 3 ? 3 : m, 8, 3, fill, T_RAISE);
+        cv_rect(LN_X0 + tick, y, 2, 8, on ? T_TEXT : T_MID);   /* the LEVEL set */
+        fmt_int(b, (lvl * 100 + 63) / 127);
+        str_cpy(b + str_len(b), "%", 4);
+        cv_text_r(232, y, &AF_S, b, muted ? T_DIM : on ? T_TEXT : T_MID, T_SURF);
     }
 }
 
@@ -2551,6 +2626,10 @@ static void draw_graph(void)
         case GR_DXSND:
             cv_oy = 0;
             graph_colony(t, (int32_t)(dx_ui_lane & 7u));
+            break;
+        case GR_LANES:
+            cv_oy = 0;
+            graph_lanes(t);
             break;
         case GR_FMOP:
             if (fop_ok()) graph_fm6(t, c, fop_op % 6u);   /* the chart, the operator picked */

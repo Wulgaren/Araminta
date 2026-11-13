@@ -67,7 +67,7 @@ static uint32_t trk_midi_ch(uint32_t i) { return (midi_base() > 0 ? (uint32_t)mi
 static int drum_track(const track_t *t)
 {
     uint32_t e = eng_idx(t->eng_req), set;
-    if (ENGINES[e] == &ENG_DRUM || ENGINES[e] == &ENG_DRUMS)
+    if (ENGINES[e] == &ENG_DRUM)
         return 1;
     if (ENGINES[e] != &ENG_SAMPLE)
         return 0;
@@ -1391,7 +1391,7 @@ static int32_t cg_near(uint32_t x, const uint8_t *set, uint32_t n, int other)
 __attribute__((noinline)) static void cg_pair(track_t *t, const uint8_t *o, uint32_t a, uint8_t *n, const uint8_t *nv,
                                               uint32_t b, uint32_t ticks)
 {
-    uint32_t i, j, k;
+    uint32_t i, k;
     for (i = 0; i < a || i < b; i++) {
         voice_t *v = 0;
         if (i < a)

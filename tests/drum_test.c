@@ -37,6 +37,67 @@ static void hit_lane(track_t *t, uint32_t note, uint32_t nblk, int32_t *peak, ui
     }
 }
 
+/* one hit of a sound alone through the voice (dx_run, the kit's knobs at their middle), nblk blocks into y */
+static void hit_sound(uint32_t lane, const dx_lane_t *s, uint32_t model, int32_t *y, uint32_t nblk)
+{
+    static dx_voice_t v;
+    uint32_t b;
+    memset(&v, 0, sizeof v);
+    dx_kit[lane] = *s;
+    dx_lay[lane] = 0;
+    dx_mdl[lane] = (uint8_t)model;
+    v.sv = 100;
+    dx_trigger(&v);
+    for (b = 0; b < nblk; b++)
+        dx_run(&dx_kit[lane], &v, 0, 0, 0, 0, 0, 0, 0, y + b * CTL, CTL);
+}
+
+/* how strong the tone at hz is in y[0 .. n), dB (Goertzel, Hann window; for comparing two tones of one hit) */
+static double tone_db(const int32_t *y, uint32_t n, double hz)
+{
+    double c = 2.0 * cos(2.0 * M_PI * hz / FS), s1 = 0, s2 = 0;
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        double s0 = y[i] * (0.5 - 0.5 * cos(2.0 * M_PI * i / n)) + c * s1 - s2;
+        s2 = s1;
+        s1 = s0;
+    }
+    return 10.0 * log10(s1 * s1 + s2 * s2 - c * s1 * s2 + 1e-9);
+}
+
+/* the spectral centre of y[0 .. n) in Hz (power-weighted, every bin by Goertzel) */
+static double centre_hz(const int32_t *y, uint32_t n)
+{
+    double p = 1e-9, m = 0;
+    uint32_t k;
+    for (k = 1; k < n / 2u; k++) {
+        double q = pow(10.0, tone_db(y, n, (double)k * FS / n) / 10.0);
+        p += q;
+        m += q * k;
+    }
+    return m / p * FS / n;
+}
+
+/* the energy of y[0 .. n) between lo and hi Hz, dB (its bins by Goertzel) */
+static double band_db(const int32_t *y, uint32_t n, double lo, double hi)
+{
+    double p = 1e-9;
+    uint32_t k;
+    for (k = (uint32_t)(lo * n / FS); k <= (uint32_t)(hi * n / FS); k++)
+        p += pow(10.0, tone_db(y, n, (double)k * FS / n) / 10.0);
+    return 10.0 * log10(p);
+}
+
+/* the level of y[0 .. n) in dB, its energy against full scale */
+static double level_db(const int32_t *y, uint32_t n)
+{
+    double e = 1e-9;
+    uint32_t i;
+    for (i = 0; i < n; i++)
+        e += (double)y[i] * y[i];
+    return 10.0 * log10(e / n / (32767.0 * 32767.0));
+}
+
 int main(int argc, char **argv)
 {
     track_t *t;
@@ -52,10 +113,10 @@ int main(int argc, char **argv)
     t->p[P_MUTE] = 0;
     song.master_q12 = 4096;
 
-    if (!str_eq(ENGINES[ENGI_DRUM]->presets[0].name, "DRUM-X"))
-        fail("preset name DRUM-X");
+    if (!str_eq(ENGINES[ENGI_DRUM]->presets[0].name, "FM DRUMS"))
+        fail("preset name FM DRUMS");
     else
-        pass("preset name DRUM-X");
+        pass("preset name FM DRUMS");
     if (ENG_DRUM.edit[0].fmt != F_PCT || ENG_DRUM.edit[0].max != 127 || !str_eq(ENG_DRUM.edit[0].label, "MRPH"))
         fail("EDIT 1 is MRPH 0..127");
     else
@@ -69,6 +130,18 @@ int main(int argc, char **argv)
             fail(b);
         else
             pass(b);
+    }
+    {   /* MIXER's lane meter: a hit leaves its own lane's level, no other lane's */
+        uint32_t k = trk_index(t), l;
+        for (l = 0; l < DV_NLANE; l++)
+            drum_lane_meter[k][l] = 0;
+        hit_lane(t, 36, 4, &pk, &en);
+        if (drum_lane_meter[k][DV_KICK] == 0 || drum_lane_meter[k][DV_SNARE] != 0)
+            fail("lane meter: the kick's only");
+        else
+            pass("lane meter: the kick's only");
+        for (l = 0; l < DV_NLANE; l++)
+            drum_lane_meter[k][l] = 0;
     }
 
     /* hat choke: closed hat after open drops open-hat energy */
@@ -142,6 +215,100 @@ int main(int argc, char **argv)
             fail("corner knobs still produce audio");
         else
             pass("corner knobs still produce audio");
+    }
+
+    /* MODEL TEETH, a clap struck 3 times 10 ms apart: silent between its strikes, as Felucca's DRUMS clap (20 .. 25 dB
+     * down there), its tail only after the last one */
+    {
+        static int32_t y[64u * CTL];
+        static const dx_lane_t CLAP = {DX_MODE(0, DXF_BP, 1), {60, 31, 60, 0, 80}, {60, 31, 60, 0, 80}};
+        double strike = -200.0, gap;
+        uint32_t ms;
+        char b[80];
+        hit_sound(DV_CLAP, &CLAP, DXV_TEETH, y, 64u);
+        for (ms = 0; ms < 6u; ms++) {                    /* the first strike's loudest 1 ms */
+            double d = level_db(y + ms * 44u, 44u);
+            if (d > strike) strike = d;
+        }
+        gap = level_db(y + 352u, 44u);                   /* 8 .. 9 ms: the 1 ms before the second strike */
+        snprintf(b, sizeof b, "TEETH clap drops %.1f dB between strikes (at least 15)", strike - gap);
+        if (strike - gap < 15.0)
+            fail(b);
+        else
+            pass(b);
+    }
+
+    /* MODEL CLICK, a rim of two tones (440 Hz and x3.67) with COLOR at its top: the upper tone on top, as Felucca's STD
+     * 80 55 rims have it (80's: 8 dB louder) */
+    {
+        static int32_t y[16u * CTL];
+        static const dx_lane_t RIM = {DX_MODE(1, DXF_LP, 0), {60, 0, 80, 0, 127}, {60, 0, 80, 0, 127}};
+        double lo, hi;
+        char b[80];
+        hit_sound(DV_RIM, &RIM, DXV_CLICK, y, 16u);
+        lo = tone_db(y, 512u, 440.0);
+        hi = tone_db(y, 512u, 440.0 * 15030.0 / 4096.0);
+        snprintf(b, sizeof b, "CLICK rim's upper tone %.1f dB over its lower (at least 6)", hi - lo);
+        if (hi - lo < 6.0)
+            fail(b);
+        else
+            pass(b);
+    }
+
+    /* MODEL SHELL with SNAP, a snare: its body tone (a sine at A3) dies away while its noise rings on, as Felucca's
+     * DRUMS snare (the body gone by ~130 ms, the noise after it): at 150 ms the tone 20 dB further down than the noise */
+    {
+        static int32_t y[256u * CTL];
+        static const dx_lane_t SNARE = {DX_MODE(DXW_SINE, DXF_HP, 1), {44, 0, 70, 64, 100}, {44, 0, 70, 64, 100}};
+        const uint32_t at = 6615u;                      /* 150 ms */
+        double hz = 440.0 * pow(2.0, ((384 + 44 * 12) / 16.0 - 69.0) / 12.0);
+        double tone, noise;
+        char b[96];
+        hit_sound(DV_SNARE, &SNARE, DXV_SHELL, y, 256u);
+        tone = tone_db(y + at, 1024u, hz) - tone_db(y, 1024u, hz);
+        noise = level_db(y + at, 1024u) - level_db(y, 1024u);
+        snprintf(b, sizeof b, "SHELL snare's body %.1f dB down at 150 ms, its noise %.1f (body at least 20 further)",
+                 -tone, -noise);
+        if (noise - tone < 20.0)
+            fail(b);
+        else
+            pass(b);
+    }
+
+    /* MODEL METAL with its high-pass at 11.7 kHz, Felucca's 80 closed hat (six squares, the band at 7.1 kHz): as bright
+     * as DRUMS' (its spectral centre 10.2 kHz; the band alone gives ~6 kHz) */
+    {
+        static int32_t y[32u * CTL];
+        static const dx_lane_t HAT = {DX_MODE(0, DXF_BP, 0) | 3u << 5, {42, 127, 34, 0, 111}, {42, 127, 34, 0, 111}};
+        double c;
+        char b[80];
+        hit_sound(DV_HATC, &HAT, DXV_METAL, y, 32u);
+        c = centre_hz(y, 1024u);
+        snprintf(b, sizeof b, "METAL hat with its 11.7 kHz high-pass centred at %.0f Hz (at least 9000)", c);
+        if (c < 9000.0)
+            fail(b);
+        else
+            pass(b);
+    }
+
+    /* MODEL TEETH's NOISE, Felucca's bright copy of the clap's noise: with it up the clap is brighter (its spectral
+     * centre 2 semitones higher or more), its band (2 .. 6 kHz around COLOR's 4.2 kHz) as loud as without (3 dB) */
+    {
+        static int32_t y0[64u * CTL], y1[64u * CTL];
+        static const dx_lane_t DULL = {DX_MODE(0, DXF_BP, 1), {64, 31, 60, 0, 96}, {64, 31, 60, 0, 96}};
+        static const dx_lane_t BRIGHT = {DX_MODE(0, DXF_BP, 1), {64, 31, 60, 64, 96}, {64, 31, 60, 64, 96}};
+        double up, band;
+        char b[96];
+        hit_sound(DV_CLAP, &DULL, DXV_TEETH, y0, 64u);
+        hit_sound(DV_CLAP, &BRIGHT, DXV_TEETH, y1, 64u);
+        up = 12.0 * log2(centre_hz(y1, 2048u) / centre_hz(y0, 2048u));
+        band = band_db(y1, 2048u, 2000.0, 6000.0) - band_db(y0, 2048u, 2000.0, 6000.0);
+        snprintf(b, sizeof b, "TEETH NOISE brightens the clap %.1f semitones (at least 2), its band %+.1f dB (3 at most)",
+                 up, band);
+        if (up < 2.0 || band > 3.0 || band < -3.0)
+            fail(b);
+        else
+            pass(b);
     }
 
     /* factory kit bytes */
