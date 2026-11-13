@@ -67,12 +67,18 @@ static int motion_capacity(void)
     bad += check("further adds past disk max do not re-raise the flag",
                  !motion_set_event(&trk[0], (MOTION_FILE_MAX + 1u) % NSTEP, P_DIST, 40) && !motion_save_lim);
     {
-        project_t q;
+        static project_t q, full;                      /* full: the 150 records, as a FUN20 file of 4.1 (up to 155) */
         project_store_t st;
         project_capture(&q);
+        full = q;
         bad += check("proj_pack clips motion to MOTION_FILE_MAX",
                      q.motion.count > MOTION_FILE_MAX && proj_pack(&st, &q) &&
                      proj_import(&q, &st, sizeof st) && q.motion.count == MOTION_FILE_MAX);
+        motion_save_lim = 0;
+        bad += check("a project of 148 records loads without the save-limit flag",
+                     !project_restore_runtime(&q) && !motion_save_lim);
+        bad += check("a project of more records than a save keeps raises the save-limit flag as it loads",
+                     !project_restore_runtime(&full) && motion.count == MOTION_FILE_MAX + 2u && motion_save_lim);
     }
     ui_power_on();
     for (uint32_t i = 0; i < MOTION_MAX; i++)          /* (192: three ids on each of the 64 steps) */

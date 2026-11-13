@@ -1615,13 +1615,9 @@ static int32_t dice_by(int32_t v, int32_t lo, int32_t hi, int32_t span)
 static void sound_dice(void)
 {
     track_t *t = TSEL;
-    uint32_t e = t->eng_req % NENGINES, i, l, n;
-    if (ENGINES[e]->npresets) {                         /* (one browsing shows: never SAMPLE's PERC, a DRUM-X switch) */
-        n = rng() % preset_shown(e);
-        for (i = 0; preset_orig(ENGINES[e], i) != i || n--; i++)
-            ;
-        apply_preset(i);
-    }
+    uint32_t e = t->eng_req % NENGINES, i, l;
+    if (ENGINES[e]->npresets)                           /* (one browsing shows: never SAMPLE's PERC, a DRUM-X switch) */
+        apply_preset(preset_nth(e, rng() % preset_shown(e)));
     if (e == ENGI_DRUM) {
         if (drum_elsewhere(t))                          /* (apply_preset said KIT OF T? KEPT) */
             return;

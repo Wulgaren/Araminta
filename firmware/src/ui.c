@@ -1426,6 +1426,14 @@ static uint32_t preset_rank(const engine_t *e, uint32_t k)
     return n;
 }
 #define preset_shown(e) (ENGINES[e]->npresets - (ENGINES[e]->presets == SMP_PRESET_TABLE ? SMP_NALIAS : 0u))
+/* the index of engine e's n-th preset that browsing shows (n < preset_shown(e)), the aliases skipped */
+static uint32_t preset_nth(uint32_t e, uint32_t n)
+{
+    uint32_t k;
+    for (k = 0; preset_orig(ENGINES[e], k) != k || n--; k++)
+        ;
+    return k;
+}
 
 static void set_engine_of(track_t *t, uint32_t ei);
 /* preset pi of the engine the track asked for: the sound only (not the steps, not param_kept) */
@@ -1543,16 +1551,14 @@ static volatile uint8_t *const mpc_io = ui.mpc;
 static volatile int8_t *const cc_step = ui.cc_step;   /* midi_control.c cc_step: CC 71..74's detents */
 static void midi_pc_load(track_t *t, uint32_t n)
 {
-    uint32_t e = t->eng_req % NENGINES, k;
+    uint32_t e = t->eng_req % NENGINES;
     if (n >= preset_shown(e)) {
         int32_t s = (int32_t)(FM6_OWN + 1u + n - preset_shown(e));
         if (e == ENGI_FM6 && fm6_bank_slot(s) >= 0 && fm6_slot_ok(s))
             t->p[P_E7] = (int16_t)s;
         return;
     }
-    for (k = 0; preset_orig(ENGINES[e], k) != k || n--; k++)   /* the n-th shown preset */
-        ;
-    apply_preset_to(t, k);
+    apply_preset_to(t, preset_nth(e, n));
 }
 static void midi_pc_poll(void)                       /* main loop (ui_input) */
 {
@@ -1688,14 +1694,12 @@ static uint32_t preset_all_pos(uint32_t *total)          /* list index of the se
 /* list index n (< total) -> engine, *k its preset; NENGINES = user preset, *k its slot */
 static uint32_t preset_all_at(uint32_t n, uint32_t *k)
 {
-    uint32_t e = 0, i, r;
+    uint32_t e = 0, r;
     for (r = 0; r < NENG_SHOWN && n >= preset_shown(eng_vis(r)); r++)
         n -= preset_shown(eng_vis(r));
     if (r < NENG_SHOWN) {
         e = eng_vis(r);
-        for (i = 0; preset_orig(ENGINES[e], i) != i || n--; i++)    /* the n-th shown preset */
-            ;
-        *k = i;
+        *k = preset_nth(e, n);
         return e;
     }
     *k = up_nth(n);
@@ -1854,9 +1858,7 @@ static void eng_list_step(int32_t direction)         /* the next / previous soun
         return;
     n = (cur + (direction > 0 ? 1u : total - 1u)) % total;
     if (n < np) {
-        for (k = 0; preset_orig(ENGINES[e], k) != k || n--; k++)   /* the n-th shown preset */
-            ;
-        apply_preset(k);
+        apply_preset(preset_nth(e, n));
     } else {
         n -= np;
         for (k = 0; k < UP_SLOTS; k++)
