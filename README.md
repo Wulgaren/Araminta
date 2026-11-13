@@ -357,7 +357,8 @@ is a follow-up (not in this release).
   and turn a knob for a MOMENTARY change
 - PUNCH-IN, SEQ TOOLS and SAVE > CLEAR keep their key map while the page is shown; another page or HOME leaves it
 - On SEQ > STEP, hold a step and turn KNOB 1-4 to lock those parameters on that step (PRESETS: move the held steps in time; while step-recording with a key held, PRESETS sets that note's LEN)
-- On MIXER, KNOB 4 is **PLAY**: ON (default), OFF, or SOLO (saved with the track)
+- On MIXER, KNOB 4 is **PLAY**: ON (default), OFF, or SOLO (saved with the track). On a DRUM-X track, SELECT walks
+  two more MIXER pages with the kit's eight lane levels: 2/3 KICK..HATCL, 3/3 HATOP..BELL, each a live meter
 - On action pages and in dialogs, OCT+ does it and OCT− goes back; in the menu, OCT+ / OCT− change the value and HOME closes it
 - Save a sound: stop, tap SAVE, pick a slot with KNOB 1, then OCT+ and OCT+ again (name it with the keys)
 
@@ -365,12 +366,12 @@ The pages by button:
 
 | Button | Taps go round (sections; SELECT walks pages inside one) | Held / with OCT± |
 |---|---|---|
-| HOME | Home ↔ Mixer | the menu |
+| HOME | Home ↔ Mixer (a DRUM-X track: SELECT walks MIXER 1/3, 2/3, 3/3, the kit's lane levels) | the menu |
 | SEQ | Step group (SELECT: STEP / DETAIL / AUTOMATION), TOOLS (SELECT: SEQ TOOLS / GENERATION / GENERATION 2) | SEQ + OCT±: the tools layer (SEQ TOOLS shows it as a page) |
 | GLO | MASTER (SELECT: MASTER / CLOCK), SONG | GLO + OCT±: the GLO layer (mutes, solos, levels, TAP tempo) |
 | SAVE | Presets (SELECT: PRESETS / USER / PHRASES), Project (SELECT: PROJECT / TOOLS) | UNDO |
 | LFO | LFO (SELECT: LFO / LFO 2 / LFO DEST), then MOD | MOMENTARY (with a knob) |
-| EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG OSC A / OSC B / FILTER), Kit, Lanes, Voice (hidden on DRUM-X) | EDIT + OCT±: the EDIT layer (the engines; on DRUM-X the black keys mute lanes) |
+| EDIT | Sound (EDIT 1 / 2; FM6 adds OPERATOR, OP ENV; ANALOG OSC A / OSC B / FILTER), Kit, Voice (hidden on DRUM-X) | EDIT + OCT±: the EDIT layer (the engines; on DRUM-X the black keys mute lanes) |
 | FX | EFFECTS (SELECT: list + stage pages), SLICER, PUNCH | — (PUNCH-IN is its own section) |
 | SCL, ENV, ARP | their pages | SCL + OCT±: its layer |
 | REC | arms the track | — |

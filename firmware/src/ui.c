@@ -391,9 +391,10 @@ static uint32_t layer_leds(uint32_t *br);
 static uint32_t layer_btn(void);
 
 /* OP ENV / OP LEVEL pages are gone with DIGITAL; OPERATOR and OP ENV are FM6's (ui_fm6op.c).
- * LANES (two pages) and SOUND / TONE / MOVEMENT (GR_DXSND) a DRUM track's; OSC A / OSC B / FILTER an ANALOG track's
- * (EDIT 1 / 2 are the other engines' sound pages; ANALOG uses its own three instead); OPERATOR,
- * OP ENV an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM (PAN/MUTE on MIXER). */
+ * The MIXER's two lane pages (GR_LANES) a DRUM-X track's, on its selected track only; SOUND / TONE / MOVEMENT
+ * (GR_DXSND) a DRUM track's; OSC A / OSC B / FILTER an ANALOG track's (EDIT 1 / 2 are the other engines' sound
+ * pages; ANALOG uses its own three instead); OPERATOR, OP ENV an FM6 track's (its patch's operators, ui_fm6op.c).
+ * VOICE is hidden on DRUM (PAN/MUTE on MIXER). */
 static int page_visible(uint32_t i)
 {
     int analog = ENGINES[TSEL->eng_req % NENGINES] == &ENG_ANALOG;

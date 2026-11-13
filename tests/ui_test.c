@@ -2884,7 +2884,7 @@ static int test_page_cycles(void)
               PAGES[i].graph == GR_STEPS || PAGES[i].graph == GR_GENERATION;
         ok &= f != FAM_GLO || PAGES[i].graph == GR_SONG ||
               str_eq(PAGES[i].title, "CLOCK") || str_eq(PAGES[i].title, "MASTER");
-        ok &= f != FAM_TRK || PAGES[i].graph == GR_TRK;
+        ok &= f != FAM_TRK || PAGES[i].graph == GR_TRK || PAGES[i].graph == GR_LANES;
         ok &= PAGES[i].graph != GR_TRK || f == FAM_TRK;
         ui_power_on(); ui.home = 0; ui.page = (uint8_t)i; page_entered();
         ok &= FAM_BTN[cur_fam()] == (f == FAM_TRK ? B_HOME : f == FAM_GLO ? B_GLO : f == FAM_SEQ ? B_SEQ :
@@ -3899,11 +3899,37 @@ static int test_edit_cycle(void)
     }
     turn(EN_SELECT, 1); frame();                      /* Kit: stop at last page */
     ok &= str_eq(cur_page()->title, "MOVEMENT");
-    press(B_EDIT); frame();                           /* Kit → Lanes */
-    ok &= cur_page()->sec == EDIT_SEC_LAN && str_eq(cur_page()->title, "LANES");
-    press(B_EDIT); frame();                           /* Lanes → Sound (Voice hidden on DRUM) */
+    press(B_EDIT); frame();                           /* Kit → Sound (Voice hidden on DRUM; LANES is gone) */
     ok &= cur_page()->sec == EDIT_SEC_SND;
-    bad += check("EDIT on DRUM: Sound → Kit (SOUND TONE MOVEMENT) → Lanes; Voice skipped", ok);
+    bad += check("EDIT on DRUM: Sound → Kit (SOUND TONE MOVEMENT) → Sound; Voice skipped; no LANES section", ok);
+    {   /* the lane volumes moved to the MIXER: 2/3 and 3/3, only on DRUM-X (not CR78 / a USR drumkit) */
+        char ti[20];
+        ui_power_on(); set_engine_of(TSEL, ENGI_DRUM); TSEL->engine = TSEL->eng_req;
+        go_home(); frame(); home_tap(); frame();
+        ok = cur_page()->fam == FAM_TRK && cur_page()->sec == TRK_SEC_MIX && str_eq(cur_page()->title, "MIXER");
+        page_title(ti);
+        ok &= str_eq(ti, "MIXER 1/3");
+        turn(EN_SELECT, 1); frame();
+        ok &= cur_page()->graph == GR_LANES && str_eq(cur_page()->title, "MIXER");
+        page_title(ti);
+        ok &= str_eq(ti, "MIXER 2/3") && cur_page()->id[0] == P_LN0;
+        TSEL->p[P_LN0] = 64;
+        turn(EN_K1, 1); frame();
+        ok &= TSEL->p[P_LN0] == 65;                   /* K1 is KICK on 2/3 */
+        turn(EN_SELECT, 1); frame();
+        page_title(ti);
+        ok &= str_eq(ti, "MIXER 3/3") && cur_page()->id[0] == P_LN4;
+        turn(EN_SELECT, 1); frame();                  /* the section's last page: SELECT stops */
+        ok &= str_eq(cur_page()->title, "MIXER") && cur_page()->id[0] == P_LN4;
+        set_engine_of(TSEL, ENGI_SAMPLE);
+        TSEL->p[P_E0] = (int16_t)SMP_CR78_INDEX;
+        TSEL->engine = TSEL->eng_req;
+        frame();                                       /* a CR78 track: the lane pages are not there */
+        ok &= cur_page()->graph == GR_TRK && cur_page()->sec == TRK_SEC_MIX;
+        turn(EN_SELECT, 1); frame();
+        ok &= cur_page()->graph == GR_TRK && str_eq(cur_page()->title, "MIXER");
+        bad += check("MIXER on DRUM-X: SELECT walks MIXER 1/3, 2/3 (KICK..HATCL), 3/3 (HATOP..BELL); CR78 has no lane pages", ok);
+    }
     return bad;
 }
 

@@ -6,7 +6,7 @@
 # Builds without -O1 unless a target needs it: the single-TU tests are ~10x slower to
 # compile optimised, and the final gate (run_tests.sh) still builds them at -O1/-O2.
 #   tests/run_one.sh <target> [target ...]
-# This is not the final gate: the final gate is SANITIZE=1 tests/run_tests.sh.
+# This is not the final gate: the final gate is tests/run_tests.sh (SANITIZE per AGENT.md).
 set -e
 
 cd "$(dirname "$0")/.."
@@ -37,7 +37,7 @@ Targets for the edit loop (not the final gate):
   all         exec the full gate: tests/run_tests.sh
   list        this list
 
-The final gate is still SANITIZE=1 tests/run_tests.sh (or the full suite for 3+
+The final gate is still tests/run_tests.sh, SANITIZE per AGENT.md (or the full suite for 3+
 binaries, see AGENT.md).
 EOF
 }

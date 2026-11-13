@@ -1310,6 +1310,9 @@ static uint32_t graph_signature(void)
     }
     if (pg->graph == GR_DXSND)                       /* DRUM-X SOUND / TONE / MOVEMENT cards */
         h ^= dx_sig();
+    if (pg->graph == GR_LANES)                       /* MIXER's lane meters move every frame; mutes, the hot knob */
+        h ^= ui.frame + (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u + (uint32_t)dx_mute * 1299709u +
+             (uint32_t)drum_mute[trk_index(t) % NPART] * 40503u;
     if (pg->graph == GR_EVENTS)                      /* AUTOMATION: the rows, the one selected, + ADD's place, PLAY,
                                                       * QUANTIZE */
         h = (h ^ ev_sig()) * 16777619u;
@@ -1720,7 +1723,7 @@ static struct {
     uint8_t meter[NTRK];
 } ts __attribute__((section(".pool")));                /* main loop only: off the audio .bss budget */
 
-static int32_t meter_px(int32_t a)                   /* |sample| (Q15) -> px: 60 dB over the slot */
+static int32_t meter_px_w(int32_t a, int32_t span)   /* |sample| (Q15) -> px: 60 dB over span */
 {
     int32_t lg = 0, v;
     if (a < 64)
@@ -1728,8 +1731,9 @@ static int32_t meter_px(int32_t a)                   /* |sample| (Q15) -> px: 60
     while ((a >> lg) > 1)
         lg++;
     v = lg * 8 + (((a << 3) >> lg) & 7);             /* 8 log2(a): 48 (-54 dB) .. 128 (+6 dB) */
-    return clamp((v - 48) * (TS_MH - 2) / 80, 0, TS_MH - 2);
+    return clamp((v - 48) * span / 80, 0, span);
 }
+static int32_t meter_px(int32_t a) { return meter_px_w(a, TS_MH - 2); }
 
 /* a knob's ring: 270 degrees (7:30 .. 4:30 o'clock), 2 px, anti-aliased, from the quadrant mask of its size
  * (tools/gen_aa_keycaps.py: coverage and angle; the other three quadrants mirror it, no trigonometry here).
@@ -2370,6 +2374,49 @@ static void graph_colony(const track_t *t, int32_t sel)
     }
 }
 
+/* MIXER's two lane pages (a DRUM-X track, ui.c page_visible): eight bars, one per sound of the kit, the live
+ * level (drum_lane_meter, eng_drum.c: its envelope, read and cleared here) drawn from 0 up to the LEVEL
+ * setting's tick, which stays with its percent when the lane is silent. The page's four lanes THEME, the knob just
+ * turned ACCENT, the other page's MID, a muted lane DIM. A bar drops 1 px a frame, as the mixer's meters. */
+#define LN_X0 34                                     /* the bars: 34 .. 194 (160 px) */
+#define LN_W 160
+static uint8_t lane_bar[NLANE] __attribute__((section(".pool")));   /* the last bar, px (falls a frame) */
+static void graph_lanes(const track_t *t, uint16_t c)
+{
+    const page_t *pg = cur_page();
+    uint32_t k = trk_index(t), l, first = 0;
+    if (pg->id[0] >= P_LN0 && pg->id[0] <= P_LN7)
+        first = (uint32_t)(pg->id[0] - P_LN0);
+    if (ui.force) {                                  /* (entered, a track change: no stale hit) */
+        memset(lane_bar, 0, sizeof lane_bar);
+        memset(drum_lane_meter[k], 0, sizeof drum_lane_meter[k]);
+    }
+    for (l = 0; l < NLANE; l++) {
+        int32_t y = 6 + (int32_t)l * 11, lvl = clamp(t->p[P_LN0 + l], 0, 127);
+        int on = l >= first && l < first + 4u;
+        int hot = on && ui.hot_t && (uint32_t)ui.hot_col == l - first;
+        int muted = dx_lane_muted(t, l);
+        int32_t tick = lvl * (LN_W - 2) / 127;
+        int32_t m = muted ? 0 : meter_px_w(drum_lane_meter[k][l], tick);
+        uint16_t fill = muted ? T_DIM : hot ? ACC : on ? T_THEME : T_MID;
+        char b[8];
+        drum_lane_meter[k][l] = 0;                      /* read: the next block starts its own level */
+        if (m < (int32_t)lane_bar[l] - 1)
+            m = (int32_t)lane_bar[l] - 1;            /* drops 1 px a frame */
+        if (m > tick)
+            m = tick;                                /* (LEVEL just turned down: never past its tick) */
+        lane_bar[l] = (uint8_t)(m < 0 ? 0 : m);
+        cv_text_in(8, y - 1, 22, &AF_S, drum_lane_abbr(t, l), muted ? T_DIM : on ? T_TEXT : T_MID, T_SURF);
+        cv_rrect(LN_X0, y, LN_W, 8, 3, T_RAISE, T_SURF);
+        if (m)
+            cv_rrect(LN_X0, y, m < 3 ? 3 : m, 8, 3, fill, T_RAISE);
+        cv_rect(LN_X0 + tick, y, 2, 8, on ? T_TEXT : T_MID);   /* the LEVEL set */
+        fmt_int(b, (lvl * 100 + 63) / 127);
+        str_cpy(b + str_len(b), "%", 4);
+        cv_text_r(232, y, &AF_S, b, muted ? T_DIM : on ? T_TEXT : T_MID, T_SURF);
+    }
+}
+
 /* The live map replaces the entire screen during a map-knob gesture. */
 static void draw_generation_map(void)
 {
@@ -2553,6 +2600,10 @@ static void draw_graph(void)
         case GR_DXSND:
             cv_oy = 0;
             graph_colony(t, (int32_t)(dx_ui_lane & 7u));
+            break;
+        case GR_LANES:
+            cv_oy = 0;
+            graph_lanes(t, c);
             break;
         case GR_FMOP:
             if (fop_ok()) graph_fm6(t, c, fop_op % 6u);   /* the chart, the operator picked */

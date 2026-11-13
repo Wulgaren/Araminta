@@ -131,6 +131,18 @@ int main(int argc, char **argv)
         else
             pass(b);
     }
+    {   /* MIXER's lane meter: a hit leaves its own lane's level, no other lane's */
+        uint32_t k = trk_index(t), l;
+        for (l = 0; l < DV_NLANE; l++)
+            drum_lane_meter[k][l] = 0;
+        hit_lane(t, 36, 4, &pk, &en);
+        if (drum_lane_meter[k][DV_KICK] == 0 || drum_lane_meter[k][DV_SNARE] != 0)
+            fail("lane meter: the kick's only");
+        else
+            pass("lane meter: the kick's only");
+        for (l = 0; l < DV_NLANE; l++)
+            drum_lane_meter[k][l] = 0;
+    }
 
     /* hat choke: closed hat after open drops open-hat energy */
     {

@@ -23,6 +23,10 @@
 - **Kit labels.** EDIT's first section reads **KIT 1/2** and **KIT 2/2**: both pages edit the whole kit now, so the
   old DRUMS **HIT** name is gone. TONE puts **FILT** first, then COLR / CUT / MIX. CHAR names the combined drive modes
   **DR+BU** and **DR+SH**.
+- **Lane levels on the MIXER.** A DRUM-X track's eight lane volumes moved from EDIT > LANES to the MIXER: SELECT
+  walks **MIXER 1/3** (the four tracks), **2/3** (KICK..HATCL) and **3/3** (HATOP..BELL), each lane with a live
+  meter and its level in percent. The LANES section is gone. CR78 and USR drumkits have no lane levels and keep
+  MIXER 1/3 alone.
 - **SEQ pages.** **PATTERN** is gone: its LEN / DIV / SWING / GATE knobs are on SEQ TOOLS and its layer. The step
   group walks **STEP → DETAIL → AUTOMATION**, and **SEQ TOOLS → GENERATION → GENERATION 2** is the tools section
   (generation only on a drum kit). The tools map opens on SEQ TOOLS alone, so the generation pages keep their own
