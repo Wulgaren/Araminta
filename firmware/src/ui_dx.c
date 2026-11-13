@@ -1,11 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
- * JIANT (FELUCCA TONIC): EDIT > SOUND / SOUND 2, a sound of the DRUM-X kit. */
+ * JIANT (FELUCCA TONIC): EDIT > SOUND / SOUND 2 / SOUND 3, a sound of the DRUM-X kit. */
 /* Shown in the EDIT family on a DRUM track (ui.c page_visible). They edit the section's kit
  * (drumx_voice.c dx_kit, saved with the section: project.c FUN11 / FUNB):
  *   SOUND    LANE (BD A .. CB B: the sound and its patch; a key struck picks the lane), PTCH, PMOD (amount),
  *            PENV (pitch-mod kind: DECAY LONG NOISE SINE)
  *   SOUND 2  DCAY, NOIS, COLR, MODE (wave x noise filter x SNAP x DRIVE: 48 combinations)
+ *   SOUND 3  LANE (the sound: both its patches), MODEL (CLASSIC SHELL METAL TEETH CLICK: drumx_voice.c, how its voice
+ *            reads the others), LAYER (0..15)
  * The values are the side's; the MORPH plays between the two (EDIT MRPH). The panel shows the kit's lanes
  * with the edited lane lit (ui_graph.c graph_colony). */
 static uint8_t dx_ui_seen = 0xFFu;                   /* the last key note followed */
@@ -33,10 +35,11 @@ static uint8_t dx_mode_of(uint32_t ix, uint32_t keep)
 }
 static void dx_mode_name(char *b, uint32_t m)        /* "FM BP+D" (b: 12 bytes) */
 {
-    static const char *const W[4] = {"SIN", "FM", "MTL", "BEL"}, *const F[3] = {"LP", "BP", "HP"};
+    static const char *const W[4] = {"SIN", "FM", "MTL", "BEL"}, *const F[4] = {"LP", "BP", "HP", "GR"};
     str_cpy(b, W[m & 3u], 12);
     str_cpy(b + str_len(b), " ", 12 - str_len(b));
-    str_cpy(b + str_len(b), F[((m >> 2) & 3u) % 3u], 12 - str_len(b));
+    str_cpy(b + str_len(b), F[(m >> 2) & 3u], 12 - str_len(b));   /* (GR: JIANT's guiro, LATIN PERC; MODE turned
+                                                                    * leaves it for the 48 below) */
     if ((m >> 4) & 1u)
         str_cpy(b + str_len(b), "+", 12 - str_len(b));
     if (m & DX_DRIVE)
@@ -53,6 +56,16 @@ static void dx_knob(const page_t *pg, uint32_t k, int32_t s)
 {
     dx_lane_t *L = &dx_kit[dx_ui_lane & 7u];
     uint8_t *v = dx_ui_side ? L->b : L->a;
+    if (dx_pagen(pg) == 3u) {                           /* LANE, MODEL, LAYER: the sound's, both patches */
+        uint32_t l = dx_ui_lane & 7u;
+        if (k == 0u)
+            dx_ui_lane = (uint8_t)clamp((int32_t)l + (s > 0 ? 1 : -1), 0, 7);
+        else if (k == 1u)
+            dx_mdl[l] = (uint8_t)clamp((int32_t)dx_mdl[l] + (s > 0 ? 1 : -1), 0, DXV_N - 1);
+        else if (k == 2u)
+            dx_lay[l] = (uint8_t)clamp((int32_t)dx_lay[l] + accel(EN_K1 + k, s, 15), 0, 15);
+        return;
+    }
     if (!dx_page2(pg)) {
         if (k == 0u) {                                  /* LANE: BD A .. CB B */
             int32_t ix = (int32_t)((dx_ui_lane & 7u) * 2u + (dx_ui_side ? 1u : 0u)) + (s > 0 ? 1 : -1);
@@ -84,6 +97,16 @@ static void dx_cards(const page_t *pg)
     const uint8_t *v = dx_ui_side ? L->b : L->a;
     char val[12];
     dx_follow();
+    if (dx_pagen(pg) == 3u) {
+        static const char *const MD[DXV_N] = {"CLASSIC", "SHELL", "METAL", "TEETH", "CLICK"};
+        uint32_t l = dx_ui_lane & 7u;
+        draw_column(0, "LANE", DX_LANE_ABBR[l], "", VAL(0u), (int32_t)l * 1000 / 7, ICON_X_PATTERN);
+        draw_column(1, "MODL", MD[dx_mdl[l] % DXV_N], "", VAL(1u), (int32_t)(dx_mdl[l] % DXV_N) * 1000 / (DXV_N - 1),
+                    ICON_WAVE);
+        fmt_int(val, dx_lay[l]);
+        draw_column(2, "LAYR", val, "", VAL(2u), dx_lay[l] * 1000 / 15, ICON_TONE);
+        return;
+    }
     if (!dx_page2(pg)) {
         static const char *const PM[4] = {"DECAY", "LONG", "NOISE", "SINE"};
         dx_lane_name(val, dx_ui_lane, dx_ui_side);
@@ -109,7 +132,8 @@ static void dx_cards(const page_t *pg)
 static uint32_t dx_sig(void)
 {
     const dx_lane_t *L = &dx_kit[dx_ui_lane & 7u];
-    uint32_t h = (uint32_t)dx_ui_lane * 31u + dx_ui_side * 977u + L->mode * 131u, i;
+    uint32_t h = (uint32_t)dx_ui_lane * 31u + dx_ui_side * 977u + L->mode * 131u + dx_mdl[dx_ui_lane & 7u] * 7919u +
+                 dx_lay[dx_ui_lane & 7u] * 104729u, i;
     for (i = 0; i < DXP_N; i++)
         h = (h ^ (uint32_t)L->a[i] << 8 ^ L->b[i]) * 16777619u;
     return h;

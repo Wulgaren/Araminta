@@ -2522,7 +2522,7 @@ static __attribute__((noinline)) void duck_block(void)
     } else if (duck_hold) {
         duck_hold--;
     } else if (duck_env) {
-        duck_env = (int32_t)(((uint32_t)duck_env * dv_kb(40000u + (uint32_t)song.g[G_DREL] * 5600u)) >> 16);
+        duck_env = (int32_t)(((uint32_t)duck_env * dx_fall(40000u + (uint32_t)song.g[G_DREL] * 5600u)) >> 16);
     }
     e = (duck_env * (65536 - duck_env)) >> 15;
     duck_g1 = 32767 - mulq15(dep, e > 32767 ? 32767 : e);
@@ -2533,11 +2533,11 @@ static __attribute__((noinline)) int32_t duck_ramp(int32_t lvl, int32_t *dl)
     *dl = ((((lvl * (duck_g1 >> 3)) >> 12) << 8) - l0) >> CTL_LOG2;
     return l0;
 }
-/* the sidechain ducks the other parts: a kit track (DRUM-X, DRUMS, a SAMPLE kit) is never ducked by its own kick */
+/* the sidechain ducks the other parts: a kit track (DRUM-X, a SAMPLE kit) is never ducked by its own kick */
 static int duck_own_kit(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];
-    return e == &ENG_DRUM || e == &ENG_DRUMS || (e == &ENG_SAMPLE && smp_is_kit(t));
+    return e == &ENG_DRUM || (e == &ENG_SAMPLE && smp_is_kit(t));
 }
 
 /* SPREAD (#148): a POLY or UNISON part whose SPRD is above 0. Its voices start left and right of PAN in turn (voice.c
@@ -2630,7 +2630,8 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
     mod_begin(t);                                       /* the matrix's per-block values into t->p (mod.c) */
     /* after mod: insert MIX may turn on and still need a cleared part_buf (shared across tracks) */
     int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t) || chain;
-    t->spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON);   /* (SPREAD, mix_spread) */
+    t->spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON) &&   /* (SPREAD, mix_spread; */
+                   ENGINES[t->engine] != &ENG_DRUM;     /* not DRUM-X: hidden there, and its bus shapes the sum, eng_drum.c) */
     uint32_t nr = track_render_audio(t, b, n, need_zeros);
     part_est[(uint32_t)tr % NTRK] = (uint16_t)(nr ? 40u * trk_nvoice(t) : 0u) +    /* mix_split's estimate (part_w) */
                                      (uint16_t)((nr || t->tail ? 60u : 0u) + 24u * (ins_any(t) != 0));

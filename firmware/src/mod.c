@@ -64,6 +64,8 @@ enum { MD_OFF, MD_PITCH, MD_CUT, MD_SHP, MD_AMP, MD_PAN, MD_DIST, MD_CHO, MD_DLY
        MD_TONE, MD_DMIX, MD_FCUT, MD_FRES, MD_FMIX, MD_BITS, MD_CRAT, MD_CLPF, MD_CMIX,
        MD_PRAT, MD_PDEP, MD_PFBK, MD_PMIX, MD_FRAT, MD_FDEP, MD_LMIX, MD_HRAT, MD_HDEP,
        MD_DTIME, MD_DFB, MD_DCOLOR, MD_RSIZE, MD_RDAMP, MD_TSPEED, MD_TWOW, MD_VEL, MD_N }; /* (append-only) */
+_Static_assert(PS_LFO == MS_LFO && PS_RAND == MS_RAND && PD_DLY == MD_DLY && PD_E1 == MD_E1,
+               "core.h preset MOD numbers are the matrix's");
 _Static_assert(NELEM(N_MSRC) == MS_N && NELEM(N_MDST) == MD_N, "N_MSRC / N_MDST == MS_* / MD_*");
 _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 == P_FM1_ATK, "matrix slots: 3 ids each");
 #define NMSLOT 4u

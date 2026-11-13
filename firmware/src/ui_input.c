@@ -2049,7 +2049,7 @@ static void ui_input(void)
                     song.sel = (uint8_t)(ui.confirm_trk % NTRK);
                     set_engine(t->eng_req);
                     if (drum_track(t)) {
-                        memcpy(dx_kit, DX_KIT_DEF, sizeof dx_kit);
+                        dx_kit_load(0);                     /* (its sounds and LAYERs) */
                     }
                     song.sel = (uint8_t)was;
                     if (kind == CF_CLEAR_TRACK_ALL) {
@@ -2081,7 +2081,7 @@ static void ui_input(void)
                         song.sel = (uint8_t)i;
                         set_engine(trk[i].eng_req);
                         if (drum_track(&trk[i])) {
-                            memcpy(dx_kit, DX_KIT_DEF, sizeof dx_kit);
+                            dx_kit_load(0);                     /* (its sounds and LAYERs) */
                         }
                         if (kind == CF_CLEAR_EVERY_TRACK_ALL) {
                             track_defaults_steps(&trk[i]);
@@ -2382,4 +2382,4 @@ timeout:
     ui_message("SETUP CANCELLED");
 }
 
-#include "ui_dx.c"                                   /* EDIT > SOUND / SOUND 2: DRUM-X kit editor */
+#include "ui_dx.c"                                   /* EDIT > SOUND / SOUND 2 / SOUND 3: DRUM-X kit editor */

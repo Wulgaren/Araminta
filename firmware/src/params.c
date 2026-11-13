@@ -92,7 +92,7 @@ static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN",
                                      "PRAT", "PDEP", "PFBK", "PMIX", "FRAT", "FDEP", "LMIX", "HRAT", "HDEP",
                                      "DTIME", "DFBK", "DCOL", "RSIZE", "RDAMP", "TSPEED", "TWOW", "VEL"};
 static const char *const N_ENGNAME[] = {"ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS",
-                                             "DRUM-X", "NOISE", "FM6", "-", "WAVETABLE", "DRUMS",
+                                             "DRUM-X", "NOISE", "FM6", "-", "WAVETABLE", "-",
 };
 
 #define PD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
@@ -198,6 +198,15 @@ static const param_desc_t TP[P_COUNT] = {
     [P_FTYPE] = PE("TYPE", N_FTYPE, 0),           /* ANALOG filter: LP / BP / HP / COMB */
     [P_ESYNC] = PE("SYNC", N_ONOFF, 0),           /* 1.5 (#175): OFF = ATK DEC REL in ms, as before (voice.c esync) */
 };
+/* (JIANT V10.6i) a factory preset's movement (core.h MODS): each pair a common parameter (< P_E0) and its value,
+ * held to its range (ui.c apply_preset_to, tests/hostsim.c) */
+_Static_assert(P_E0 <= 127, "MODS names a parameter in an int8_t");
+static void preset_mods(track_t *t, const int8_t *m)
+{
+    for (; m && m[0] >= 0; m += 2)
+        if (m[0] < P_E0)
+            t->p[m[0]] = (int16_t)clamp(m[1], TP[m[0]].min, TP[m[0]].max);
+}
 /* ANALOG's OSC pages: the labels of the FM slots they keep MORPH / DRIFT / OSC B's WAVE in (core.h) */
 static const param_desc_t ANALOG_MORPH = {"MORPH", F_PCT, 0, 127, 0, 0, 0};
 static const param_desc_t ANALOG_DRIFT = {"DRIFT", F_PCT, 0, 127, 0, 0, 0};
@@ -632,9 +641,10 @@ static const page_t PAGES[] = {
     {"OSC A", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_E0, P_MORPH, P_DRIFT, P_E3}},
     {"OSC B", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_WAVE2, P_E7, P_E1, P_E2}},
     {"FILTER", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_SND, {P_FTYPE, P_E4, P_E5, P_E6}},
-    /* DRUM-X kit (ui_dx.c): SOUND / SOUND 2 (SOUND 3 / X-MOD retired; FUN11's X-MOD bytes ignored) */
+    /* DRUM-X kit (ui_dx.c): SOUND / SOUND 2 / SOUND 3 (MODEL, LAYER; X-MOD retired, FUN11's X-MOD bytes ignored) */
     {"SOUND", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"SOUND 2", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"SOUND 3", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN0, P_LN1, P_LN2, P_LN3}},
     {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN4, P_LN5, P_LN6, P_LN7}},
     {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},

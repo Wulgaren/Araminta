@@ -203,10 +203,6 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
         voice_t *v = drum_reuse(t, note);
         if (v)
             return voice_reuse(t, v);
-    } else if (t->engine == ENGI_DRUMS) {
-        voice_t *v = fdrum_reuse(t, note);
-        if (v)
-            return voice_reuse(t, v);
     }
     for (i = 0; i < np; i++) {
         if (t->v[i].active && t->v[i].note == note)
@@ -658,7 +654,7 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
     int16_t pe_new[8];
     int32_t damt;
     int analog;
-    if (ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM || ENGINES[eng_idx(t->eng_req)] == &ENG_DRUMS) {
+    if (ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM) {
         midi_bend_q8[ti] = midi_bend_target[ti] = 0;
     } else {
         int32_t d = midi_bend_target[ti] - midi_bend_q8[ti];
@@ -783,6 +779,8 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
     }
     if (t->spread_on)
         spread_sum(t, out);                             /* out: every voice; spread_buf: the left ones */
+    if (nr && e == &ENG_DRUM)                           /* (JIANT 0.6.16) DRUM-X: DRV and the knee on the kit's sum */
+        drum_bus(t, out, n);
 track_render_done:
     if (fade) {
         for (i = 0; i < 8u; i++)

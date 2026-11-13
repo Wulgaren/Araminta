@@ -393,20 +393,19 @@ static uint32_t layer_btn(void);
 /* OP ENV / OP LEVEL pages are gone with DIGITAL; OPERATOR and OP ENV are FM6's (ui_fm6op.c).
  * LANES / LANES 2 and SOUND* (GR_DXSND) a DRUM track's; OSC A / OSC B / FILTER an ANALOG track's
  * (EDIT 1 / 2 are the other engines' sound pages; ANALOG uses its own three instead); OPERATOR,
- * OP ENV an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM / DRUMS (PAN/MUTE on MIXER). */
+ * OP ENV an FM6 track's (its patch's operators, ui_fm6op.c). VOICE is hidden on DRUM (PAN/MUTE on MIXER). */
 static int page_visible(uint32_t i)
 {
     int analog = ENGINES[TSEL->eng_req % NENGINES] == &ENG_ANALOG;
     int drum = TSEL->eng_req % NENGINES == ENGI_DRUM;
-    int drums = TSEL->eng_req % NENGINES == ENGI_DRUMS;
     if (PAGES[i].graph == GR_GENERATION)
-        return drum_track(TSEL);                      /* every drum kit: DRUM-X, DRUMS, CR78, USR drum kit */
-    if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / SOUND 2 */
+        return drum_track(TSEL);                      /* every drum kit: DRUM-X, CR78, USR drum kit */
+    if (PAGES[i].graph == GR_DXSND)                   /* EDIT > Kit: DRUM-X SOUND / SOUND 2 / SOUND 3 */
         return drum;
-    if (PAGES[i].fam == FAM_EDIT && PAGES[i].sec == EDIT_SEC_VOX && (drum || drums))   /* Voice hidden on DRUM / DRUMS */
+    if (PAGES[i].fam == FAM_EDIT && PAGES[i].sec == EDIT_SEC_VOX && drum)   /* Voice hidden on DRUM */
         return 0;
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
-        return drum || drums;
+        return drum;
     if (PAGES[i].scope == SC_ENGINE && (PAGES[i].id[0] == P_E0 || PAGES[i].id[0] == P_E4))   /* EDIT 1 / 2 */
         return !analog;
     if (PAGES[i].id[0] == P_FTYPE)                    /* FILTER (1.5, #104): ANALOG's */
@@ -1450,6 +1449,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
         const preset_t *pr = &e->presets[pi];
         for (i = 1; i < 4u; i++)
             t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
+        preset_mods(t, preset_mod(e, pi));            /* (JIANT V10.6i) its movement: LFO, MOD */
     }
     fm6_track_loaded(t);                              /* FM6: the preset's patch (its SLOT) */
     load_end(t);
@@ -1477,12 +1477,38 @@ static void set_engine_of(track_t *t, uint32_t ei)
     load_end(t);
 }
 
-static void apply_preset(uint32_t pi) { apply_preset_to(TSEL, pi); }
+/* (JIANT 0.8.1) another track playing DRUM-X (1 + its index; 0 none): the project has one kit, theirs */
+static uint32_t drum_elsewhere(const track_t *t)
+{
+    uint32_t k;
+    for (k = 0; k < NTRK; k++)
+        if (&trk[k] != t && trk[k].eng_req % NENGINES == ENGI_DRUM)
+            return k + 1u;
+    return 0;
+}
+static void apply_preset(uint32_t pi)                 /* the selected track's sound (browsing, the editor) */
+{
+    apply_preset_to(TSEL, pi);
+    if (TSEL->eng_req % NENGINES == ENGI_DRUM) {      /* (JIANT 0.7.2) DRUM-X: the preset is a factory kit, into the
+                                                       * project's kit (drumx_voice.c DX_KITS; a project load or an
+                                                       * engine switch keeps the kit: apply_preset_to alone) */
+        uint32_t o = drum_elsewhere(TSEL);
+        if (!o) {
+            fm1_irq_off();                            /* (the ISR reads the kit: one whole kit or the other) */
+            dx_kit_load(pi % ENG_DRUM.npresets);
+            fm1_irq_on();
+        } else {                                      /* the kit is shared: another track's stays as it is */
+            static char m[16] = "KIT OF T? KEPT";
+            m[8] = (char)('0' + o);
+            ui_message(m);
+        }
+    }
+}
 static void set_engine(uint32_t ei) { set_engine_of(TSEL, ei); }
 
 /* MIDI Program Change (1.5.1, #179 by renebohne): program n on track t, as the PRESETS list numbers the engine's sounds
  * from 0: its n-th preset, the aliases skipped (preset_orig), loaded as from there (the track's own settings kept, one
- * undo for a run of them). DRUM-X: its factory presets (one: DRUM-X), like every other engine. FM6: its presets
+ * undo for a run of them). DRUM-X: its factory presets (the knobs; the kit stays, as in JIANT: browsing loads kits). FM6: its presets
  * (F1..F15), then the voice bank's B1..B32 through SLOT as the knob loads them (fm6_poll; the rest of the sound stays),
  * an empty one ignored. A program past the last is ignored, not wrapped: a number is always the same sound */
 static volatile uint8_t *const mpc_io = ui.mpc;
@@ -1862,9 +1888,9 @@ static void track_select(uint32_t i)
 }
 
 #include "ui_events.c"                            /* SEQ > AUTOMATION: locks, events, CHANCE, RATCH as a list (an action page) */
-/* EDIT > SOUND / SOUND 2 (ui_dx.c, included by ui_input.c): the DRUM-X sound edited and its patch */
+/* EDIT > SOUND / SOUND 2 / SOUND 3 (ui_dx.c, included by ui_input.c): the DRUM-X sound edited and its patch */
 static uint8_t dx_ui_lane, dx_ui_side;
-static uint32_t dx_pagen(const page_t *pg)            /* "SOUND" -> 1; "SOUND 2" -> 2 */
+static uint32_t dx_pagen(const page_t *pg)            /* "SOUND" -> 1; "SOUND 2" -> 2; "SOUND 3" -> 3 */
 {
     return pg->title[5] == ' ' ? (uint32_t)(pg->title[6] - '0') : 1u;
 }
