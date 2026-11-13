@@ -3857,25 +3857,37 @@ static int test_edit_cycle(void)
     ok = cur_page()->fam == FAM_EDIT && cur_page()->sec == EDIT_SEC_SND && str_eq(cur_page()->title, "EDIT 1");
     press(B_EDIT); frame();                           /* Sound → Kit */
     ok &= cur_page()->sec == EDIT_SEC_KIT && str_eq(cur_page()->title, "SOUND");
+    {                                                 /* SOUND: knob 2 is ENGI */
+        dx_ui_lane = DV_CLAP; dx_ui_side = 0;
+        dx_mdl[DV_CLAP] = DXV_SHELL;
+        turn(EN_K2, 1);
+        ok &= dx_mdl[DV_CLAP] == DXV_METAL;
+    }
     turn(EN_SELECT, 1); frame();
-    ok &= str_eq(cur_page()->title, "SOUND 2");
+    ok &= str_eq(cur_page()->title, "TONE");
+    {                                                 /* TONE, FM: knob 4 is OSC2 (the LAYER) */
+        dx_ui_lane = DV_CLAP; dx_mdl[DV_CLAP] = DXV_CLASSIC; dx_lay[DV_CLAP] = 3;
+        turn(EN_K4, 1);
+        ok &= dx_lay[DV_CLAP] == 4;
+    }
     turn(EN_SELECT, 1); frame();
-    ok &= str_eq(cur_page()->title, "SOUND 3");
-    {                                                 /* SOUND 3: knob 1 MODEL, knob 2 LAYER; 3 and 4 (and no LANE) */
-        uint8_t md0 = 1, ly0 = 3;
+    ok &= str_eq(cur_page()->title, "MOVEMENT");
+    {                                                 /* MOVEMENT: TEETH has no PTCH: the hidden card's knob does nothing */
+        uint8_t p0;
         int ok3;
-        dx_ui_lane = DV_CLAP; dx_mdl[DV_CLAP] = md0; dx_lay[DV_CLAP] = ly0;
-        turn(EN_K1, 1); turn(EN_K2, 1); turn(EN_K3, 1); turn(EN_K4, 1);
-        ok3 = dx_mdl[DV_CLAP] == md0 + 1 && dx_lay[DV_CLAP] == ly0 + 1 && dx_ui_lane == DV_CLAP;
-        bad += check("SOUND 3: knob 1 is MODEL, knob 2 LAYER; 3 and 4 do nothing", ok3);
+        dx_ui_lane = DV_CLAP; dx_ui_side = 0; dx_mdl[DV_CLAP] = DXV_TEETH;
+        p0 = dx_kit[DV_CLAP].a[DXP_PITCH];
+        turn(EN_K1, 1);
+        ok3 = dx_kit[DV_CLAP].a[DXP_PITCH] == p0;
+        bad += check("MOVEMENT: a hidden card's knob (TEETH PTCH) changes nothing", ok3);
     }
     turn(EN_SELECT, 1); frame();                      /* Kit: stop at last page */
-    ok &= str_eq(cur_page()->title, "SOUND 3");
+    ok &= str_eq(cur_page()->title, "MOVEMENT");
     press(B_EDIT); frame();                           /* Kit → Lanes */
     ok &= cur_page()->sec == EDIT_SEC_LAN && str_eq(cur_page()->title, "LANES");
     press(B_EDIT); frame();                           /* Lanes → Sound (Voice hidden on DRUM) */
     ok &= cur_page()->sec == EDIT_SEC_SND;
-    bad += check("EDIT on DRUM: Sound → Kit (SOUND..SOUND 3) → Lanes; Voice skipped", ok);
+    bad += check("EDIT on DRUM: Sound → Kit (SOUND TONE MOVEMENT) → Lanes; Voice skipped", ok);
     return bad;
 }
 

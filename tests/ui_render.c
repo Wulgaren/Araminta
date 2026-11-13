@@ -1479,14 +1479,14 @@ static void setup(int s)
         }
         go_title_page("DETAIL"); ui.cursor = 6; ui.hot_col = 0; ui.hot_t = 30;
         break;
-    /* DRUM-X Kit: SOUND / SOUND 2 / SOUND 3 (lane colony + morph bar; SOUND 3: the clap's MODEL TEETH, a LAYER) */
+    /* DRUM-X Kit: SOUND / TONE / MOVEMENT (lane colony + morph bar; MOVEMENT: the clap's MODEL TEETH) */
     case S_DX_SOUND: case S_DX_SOUND2: case S_DX_SOUND3:
         drum(0); dx_ui_lane = s == S_DX_SOUND3 ? DV_CLAP : 0; dx_ui_side = 0;
         if (s == S_DX_SOUND3) {
             dx_mdl[DV_CLAP] = DXV_TEETH;
             dx_lay[DV_CLAP] = 6;
         }
-        go_title(s == S_DX_SOUND3 ? "SOUND 3" : s == S_DX_SOUND2 ? "SOUND 2" : "SOUND");
+        go_title(s == S_DX_SOUND3 ? "MOVEMENT" : s == S_DX_SOUND2 ? "TONE" : "SOUND");
         break;
     /* DRUM-X Sound section: EDIT 1 (MRPH TUNE TONE DECY), EDIT 2 (NOIS FM FOLD DRV) */
     case S_GENERATION: case S_GENERATION_2: case S_GENERATION_MAP:

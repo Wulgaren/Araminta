@@ -1,17 +1,32 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
- * JIANT (FELUCCA TONIC): EDIT > SOUND / SOUND 2 / SOUND 3, a sound of the DRUM-X kit. */
+ * JIANT (FELUCCA TONIC): EDIT > SOUND / TONE / MOVEMENT, a sound of the DRUM-X kit. */
 /* Shown in the EDIT family on a DRUM track (ui.c page_visible). They edit the section's kit
  * (drumx_voice.c dx_kit, saved with the section: project.c FUN11 / FUNB):
- *   SOUND    LANE (BD A .. CB B: the sound and its patch; a key struck picks the lane), PTCH, PMOD (amount),
- *            PENV (pitch-mod kind: DECAY LONG NOISE SINE)
- *   SOUND 2  DCAY, NOIS, COLR, MODE (wave x noise filter x SNAP x DRIVE: 48 combinations)
- *   SOUND 3  MODEL (CLASSIC SHELL METAL TEETH CLICK: drumx_voice.c, how its voice reads the others), LAYER (0..15);
- *            the sound is the lane a key struck picked (no LANE card here)
- * The values are the side's; the MORPH plays between the two (EDIT MRPH). The panel shows the kit's lanes
- * with the edited lane lit (ui_graph.c graph_colony). */
+ *   SOUND     LANE (BD A .. CB B: the sound and its patch; a key struck picks the lane), ENGI (its MODEL),
+ *             and the source: WAVE / RATIO / KIND / CLAPS, NOIS / AIR
+ *   TONE      COLR / CUT / MIX, FILT, DRV / Q / TAIL, OSC2 (the FM's second oscillator)
+ *   MOVEMENT  PTCH / RATE, PMOD / SIZZ / GAP / LEN, PENV / HPF / FALL, DCAY / LEN
+ * Each card keeps its knob across the five models (CLASSIC shown as FM, SHELL, METAL, TEETH, CLICK): a card the
+ * model does not use is drawn empty and its knob does nothing. The values are the side's; the MORPH plays between
+ * the two (EDIT MRPH). The panel shows the kit's lanes with the edited lane lit (ui_graph.c graph_colony). */
 static uint8_t dx_ui_seen = 0xFFu;                   /* the last key note followed */
 static const char *const DX_LANE_ABBR[8] = {"BD", "SD", "CP", "CH", "OH", "TM", "RS", "CB"};
+static const char *const DX_ENGINE_NAME[DXV_N] = {"FM", "SHELL", "METAL", "TEETH", "CLICK"};
+static const char *const DX_WAVE_NAME[4] = {"SIN", "FM", "MTL", "BEL"};
+static const char *const DX_SHELL_R_NAME[4] = {"OFF", "1.42", "1.94", "1.60"};
+static const char *const DX_METAL_KIND_NAME[8] = {"HATS", "CYMBAL", "4 SQR", "CLUSTER", "BELL", "TRIADS", "2 SQR", "NOISE"};
+static const char *const DX_CLAPS_NAME[4] = {"3", "4", "5", "6"};
+static const char *const DX_CLICK_R_NAME[8] = {"3.00", "3.67", "4.81", "2.50", "0.74", "1.35", "3.25", "1.48"};
+static const char *const DX_FILT_NAME[4] = {"LP", "BP", "HP", "GR"};
+static const char *const DX_FM_DRV_NAME[4] = {"OFF", "DRIVE", "BURST", "D+B"};
+static const char *const DX_SHELL_DRV_NAME[4] = {"OFF", "DRIVE", "SHORT", "D+S"};
+static const char *const DX_Q_NAME[2] = {"WIDE", "NARROW"};
+static const char *const DX_TEETH_TAIL_NAME[4] = {"7%", "20%", "27%", "57%"};
+static const char *const DX_CLICK_DRV_NAME[8] = {"X1", "X2", "X6", "X8", "X1+", "X2+", "X6+", "X8+"};
+static const char *const DX_PENV_NAME[4] = {"DECAY", "LONG", "NOISE", "SINE"};
+static const char *const DX_HPF_NAME[4] = {"OFF", "6.9K", "8.8K", "11.7K"};
+static const char *const DX_FALL_NAME[4] = {"3.5MS", "5MS", "7MS", "10MS"};
 
 /* a key struck on the track (seq.c key_on: last_note) picks the sound it plays */
 static void dx_follow(void)
@@ -23,28 +38,43 @@ static void dx_follow(void)
     }
 }
 
-/* MODE 0..47: wave x 12 + filter x 4 + SNAP x 2 + DRIVE (PMOD-kind bits 5..6 kept aside) */
-static uint32_t dx_mode_ix(uint32_t m)
+/* the lane's mode fields: bits 0..1 WAVE, 2..3 FILTER, 4 SNAP, 5..6 pitch modulation, 7 DRIVE */
+static uint32_t dx_mode_get(const dx_lane_t *L, uint32_t sh, uint32_t mask)
 {
-    return (m & 3u) * 12u + (((m >> 2) & 3u) % 3u) * 4u + ((m >> 4) & 1u) * 2u + ((m & DX_DRIVE) ? 1u : 0u);
+    return ((uint32_t)L->mode >> sh) & mask;
 }
-static uint8_t dx_mode_of(uint32_t ix, uint32_t keep)
+static void dx_mode_put(dx_lane_t *L, uint32_t sh, uint32_t mask, uint32_t v)
 {
-    uint32_t wave = ix / 12u, flt = ix % 12u / 4u, snap = ix % 4u / 2u, drv = ix & 1u;
-    return (uint8_t)((keep & 0x60u) | wave | flt << 2 | snap << 4 | (drv ? DX_DRIVE : 0u));
+    L->mode = (uint8_t)((L->mode & ~(mask << sh)) | ((v & mask) << sh));
 }
-static void dx_mode_name(char *b, uint32_t m)        /* "FM BP+D" (b: 12 bytes) */
+/* an index stepped one detent, clamped to 0..max */
+static uint32_t dx_step(uint32_t ix, int32_t s, uint32_t max)
 {
-    static const char *const W[4] = {"SIN", "FM", "MTL", "BEL"}, *const F[4] = {"LP", "BP", "HP", "GR"};
-    str_cpy(b, W[m & 3u], 12);
-    str_cpy(b + str_len(b), " ", 12 - str_len(b));
-    str_cpy(b + str_len(b), F[(m >> 2) & 3u], 12 - str_len(b));   /* (GR: JIANT's guiro, LATIN PERC; MODE turned
-                                                                    * leaves it for the 48 below) */
-    if ((m >> 4) & 1u)
-        str_cpy(b + str_len(b), "+", 12 - str_len(b));
-    if (m & DX_DRIVE)
-        str_cpy(b + str_len(b), "D", 12 - str_len(b));
+    return (uint32_t)clamp((int32_t)ix + (s > 0 ? 1 : -1), 0, (int32_t)max);
 }
+static void dx_mode_step(dx_lane_t *L, uint32_t sh, uint32_t mask, uint32_t max, int32_t s)
+{
+    dx_mode_put(L, sh, mask, dx_step(dx_mode_get(L, sh, mask), s, max));
+}
+/* the cards that read two fields as one index (written back by dx_knob) */
+static uint32_t dx_metal_kind(const dx_lane_t *L) { return dx_mode_get(L, 0, 3u) | dx_mode_get(L, 7, 1u) << 2; }
+static uint32_t dx_click_ratio(const dx_lane_t *L) { return dx_mode_get(L, 0, 3u) | dx_mode_get(L, 2, 1u) << 2; }
+static uint32_t dx_drv_snap(const dx_lane_t *L) { return dx_mode_get(L, 7, 1u) | dx_mode_get(L, 4, 1u) << 1; }
+static uint32_t dx_teeth_tail(const dx_lane_t *L) { return dx_mode_get(L, 4, 1u) | dx_mode_get(L, 7, 1u) << 1; }
+static uint32_t dx_click_drv(const dx_lane_t *L) { return dx_mode_get(L, 5, 3u) | dx_mode_get(L, 7, 1u) << 2; }
+/* the FILTER engine e plays: GR is FM's alone (METAL plays it as BP, SHELL and TEETH as HP) */
+static uint32_t dx_filt_heard(const dx_lane_t *L, uint32_t e)
+{
+    uint32_t f = dx_mode_get(L, 2, 3u);
+    return f != DXF_GR || e == DXV_CLASSIC ? f : e == DXV_METAL ? DXF_BP : DXF_HP;
+}
+static int dx_metal_q(const dx_lane_t *L) { return dx_filt_heard(L, DXV_METAL) == DXF_BP; }   /* SNAP: the BP's Q */
+static int dx_fm_gr(const dx_lane_t *L) { return dx_mode_get(L, 2, 3u) == DXF_GR; }
+static void dx_num_step(uint8_t *p, uint32_t k, int32_t s, int32_t max)
+{
+    *p = (uint8_t)clamp((int32_t)*p + accel(EN_K1 + k, s, max), 0, max);
+}
+
 static void dx_lane_name(char *b, uint32_t lane, uint32_t side)   /* "BD A" */
 {
     str_cpy(b, DX_LANE_ABBR[lane & 7u], 8);
@@ -56,76 +86,203 @@ static void dx_knob(const page_t *pg, uint32_t k, int32_t s)
 {
     dx_lane_t *L = &dx_kit[dx_ui_lane & 7u];
     uint8_t *v = dx_ui_side ? L->b : L->a;
-    if (dx_pagen(pg) == 3u) {                           /* MODEL, LAYER: the sound's, both patches */
-        uint32_t l = dx_ui_lane & 7u;
-        if (k == 0u)
-            dx_mdl[l] = (uint8_t)clamp((int32_t)dx_mdl[l] + (s > 0 ? 1 : -1), 0, DXV_N - 1);
-        else if (k == 1u)
-            dx_lay[l] = (uint8_t)clamp((int32_t)dx_lay[l] + accel(EN_K1 + k, s, 15), 0, 15);
-        return;
-    }
-    if (!dx_page2(pg)) {
+    uint32_t l = dx_ui_lane & 7u, e = dx_mdl[l] % DXV_N, p = dx_pagen(pg), ix;
+
+    if (p == 1u) {                                      /* SOUND */
         if (k == 0u) {                                  /* LANE: BD A .. CB B */
-            int32_t ix = (int32_t)((dx_ui_lane & 7u) * 2u + (dx_ui_side ? 1u : 0u)) + (s > 0 ? 1 : -1);
-            ix = clamp(ix, 0, 15);
-            dx_ui_lane = (uint8_t)((uint32_t)ix >> 1);
-            dx_ui_side = (uint8_t)((uint32_t)ix & 1u);
-        } else if (k == 1u) {
-            v[DXP_PITCH] = (uint8_t)clamp(v[DXP_PITCH] + accel(EN_K1 + k, s, 127), 0, 127);
+            ix = dx_step(l * 2u + (dx_ui_side ? 1u : 0u), s, 15u);
+            dx_ui_lane = (uint8_t)(ix >> 1);
+            dx_ui_side = (uint8_t)(ix & 1u);
+        } else if (k == 1u) {                           /* ENGI: the lane's MODEL */
+            dx_mdl[l] = (uint8_t)dx_step(dx_mdl[l], s, DXV_N - 1u);
         } else if (k == 2u) {
-            v[DXP_PMOD] = (uint8_t)clamp(v[DXP_PMOD] + accel(EN_K1 + k, s, 127), 0, 127);
-        } else {                                        /* PENV: pitch-mod kind */
-            L->mode = (uint8_t)((L->mode & ~0x60u) |
-                                (uint32_t)clamp((int32_t)((L->mode >> 5) & 3u) + (s > 0 ? 1 : -1), 0, 3) << 5);
+            if (e == DXV_METAL) {                       /* KIND: WAVE + DRIVE */
+                ix = dx_step(dx_metal_kind(L), s, 7u);
+                dx_mode_put(L, 0, 3u, ix);
+                dx_mode_put(L, 7, 1u, ix >> 2);
+            } else if (e == DXV_CLICK) {                /* RATIO: WAVE + FILTER's low bit */
+                ix = dx_step(dx_click_ratio(L), s, 7u);
+                dx_mode_put(L, 0, 3u, ix);
+                dx_mode_put(L, 2, 3u, ix >> 2);
+            } else {
+                dx_mode_step(L, 0, 3u, 3u, s);          /* WAVE / RATIO / CLAPS */
+            }
+        } else if (e != DXV_CLICK) {
+            dx_num_step(&v[DXP_NOISE], k, s, 127);
         }
         return;
     }
-    if (k < 3u) {
-        uint32_t i = k == 0u ? DXP_DECAY : k == 1u ? DXP_NOISE : DXP_COLOR;
-        v[i] = (uint8_t)clamp(v[i] + accel(EN_K1 + k, s, 127), 0, 127);
-    } else {
-        L->mode = dx_mode_of((uint32_t)clamp((int32_t)dx_mode_ix(L->mode) + (s > 0 ? 1 : -1), 0, 47), L->mode);
+    if (p == 2u) {                                      /* TONE */
+        if (k == 0u) {
+            dx_num_step(&v[DXP_COLOR], k, s, 127);
+        } else if (k == 1u) {
+            if (e != DXV_CLICK)                         /* FILT: from the filter heard */
+                dx_mode_put(L, 2, 3u, dx_step(dx_filt_heard(L, e), s, e == DXV_CLASSIC ? 3u : 2u));
+        } else if (k == 2u) {
+            switch (e) {
+            case DXV_CLASSIC: case DXV_SHELL:           /* DRV: DRIVE + SNAP */
+                ix = dx_step(dx_drv_snap(L), s, 3u);
+                dx_mode_put(L, 7, 1u, ix);
+                dx_mode_put(L, 4, 1u, ix >> 1);
+                break;
+            case DXV_METAL:                             /* Q: SNAP */
+                if (dx_metal_q(L))
+                    dx_mode_step(L, 4, 1u, 1u, s);
+                break;
+            case DXV_TEETH:                             /* TAIL: SNAP + DRIVE */
+                ix = dx_step(dx_teeth_tail(L), s, 3u);
+                dx_mode_put(L, 4, 1u, ix);
+                dx_mode_put(L, 7, 1u, ix >> 1);
+                break;
+            default:                                    /* CLICK DRV: pitch-mod field + DRIVE */
+                ix = dx_step(dx_click_drv(L), s, 7u);
+                dx_mode_put(L, 5, 3u, ix);
+                dx_mode_put(L, 7, 1u, ix >> 2);
+                break;
+            }
+        } else if (e == DXV_CLASSIC) {
+            dx_num_step(&dx_lay[l], k, s, 15);
+        }
+        return;
     }
+    if (k == 0u) {                                      /* MOVEMENT */
+        if (e != DXV_TEETH)
+            dx_num_step(&v[DXP_PITCH], k, s, 127);
+    } else if (k == 1u) {
+        dx_num_step(&v[DXP_PMOD], k, s, 127);
+    } else if (k == 2u) {
+        if (e != DXV_CLICK && !(e == DXV_CLASSIC && dx_fm_gr(L)))
+            dx_mode_step(L, 5, 3u, 3u, s);              /* PENV / HPF / FALL */
+    } else {
+        dx_num_step(&v[DXP_DECAY], k, s, 127);
+    }
+}
+
+static void dx_empty_card(uint32_t c)
+{
+    draw_column(c, "", "", "", T_THEME, -1, ICON_NONE);
+}
+static void dx_val_card(uint32_t c, const char *label, uint32_t val, uint32_t max, uint32_t icon)
+{
+    char b[12];
+    fmt_int(b, val);
+    draw_column(c, label, b, "", VAL(c), (int32_t)val * 1000 / (int32_t)max, icon);
+}
+static void dx_ix_card(uint32_t c, const char *label, const char *val, uint32_t ix, uint32_t steps, uint32_t icon)
+{
+    draw_column(c, label, val, "", VAL(c), (int32_t)(ix * 1000u / (steps - 1u)), icon);
+}
+
+/* the four cards of SOUND */
+static void dx_sound_cards(const dx_lane_t *L, const uint8_t *v, uint32_t e)
+{
+    const uint32_t l = dx_ui_lane & 7u, w = dx_mode_get(L, 0, 3u);
+    char b[12];
+    dx_lane_name(b, l, dx_ui_side);
+    draw_column(0, "LANE", b, "", VAL(0u),
+                (int32_t)(l * 2u + (dx_ui_side ? 1u : 0u)) * 1000 / 15, ICON_X_PATTERN);
+    draw_column(1, "ENGI", DX_ENGINE_NAME[e], "", VAL(1u), (int32_t)e * 1000 / (DXV_N - 1), ICON_WAVE);
+    switch (e) {
+    case DXV_CLASSIC: dx_ix_card(2, "WAVE", DX_WAVE_NAME[w], w, 4, ICON_WAVE); break;
+    case DXV_SHELL: dx_ix_card(2, "RATIO", DX_SHELL_R_NAME[w], w, 4, ICON_RATIO); break;
+    case DXV_METAL: dx_ix_card(2, "KIND", DX_METAL_KIND_NAME[dx_metal_kind(L)], dx_metal_kind(L), 8, ICON_WAVE); break;
+    case DXV_TEETH: dx_ix_card(2, "CLAPS", DX_CLAPS_NAME[w], w, 4, ICON_X_PATTERN); break;
+    default: dx_ix_card(2, "RATIO", DX_CLICK_R_NAME[dx_click_ratio(L)], dx_click_ratio(L), 8, ICON_RATIO); break;
+    }
+    if (e == DXV_CLICK)
+        dx_empty_card(3);
+    else
+        dx_val_card(3, e == DXV_TEETH ? "AIR" : "NOIS", v[DXP_NOISE], 127, ICON_NOISE);
+}
+
+/* the four cards of TONE */
+static void dx_tone_cards(const dx_lane_t *L, const uint8_t *v, uint32_t e)
+{
+    uint32_t f = dx_filt_heard(L, e), ix;
+    if (e == DXV_CLASSIC)
+        dx_val_card(0, "COLR", v[DXP_COLOR], 127, ICON_TONE);
+    else if (e == DXV_CLICK)
+        dx_val_card(0, "MIX", v[DXP_COLOR], 127, ICON_MIX);
+    else
+        dx_val_card(0, "CUT", v[DXP_COLOR], 127, ICON_CUTOFF);
+    if (e == DXV_CLICK)
+        dx_empty_card(1);
+    else
+        dx_ix_card(1, "FILT", DX_FILT_NAME[f], f, e == DXV_CLASSIC ? 4u : 3u, ICON_CUTOFF);
+    switch (e) {
+    case DXV_CLASSIC: case DXV_SHELL:
+        ix = dx_drv_snap(L);
+        dx_ix_card(2, "DRV", e == DXV_SHELL ? DX_SHELL_DRV_NAME[ix] : DX_FM_DRV_NAME[ix], ix, 4, ICON_DIST);
+        break;
+    case DXV_METAL:
+        if (dx_metal_q(L))
+            dx_ix_card(2, "Q", DX_Q_NAME[dx_mode_get(L, 4, 1u)], dx_mode_get(L, 4, 1u), 2, ICON_RESO);
+        else
+            dx_empty_card(2);
+        break;
+    case DXV_TEETH:
+        ix = dx_teeth_tail(L);
+        dx_ix_card(2, "TAIL", DX_TEETH_TAIL_NAME[ix], ix, 4, ICON_DECAY);
+        break;
+    default:
+        ix = dx_click_drv(L);
+        dx_ix_card(2, "DRV", DX_CLICK_DRV_NAME[ix], ix, 8, ICON_DIST);
+        break;
+    }
+    if (e == DXV_CLASSIC)
+        dx_val_card(3, "OSC2", dx_lay[dx_ui_lane & 7u], 15, ICON_TONE);
+    else
+        dx_empty_card(3);
+}
+
+/* the four cards of MOVEMENT */
+static void dx_move_cards(const dx_lane_t *L, const uint8_t *v, uint32_t e)
+{
+    int gr = e == DXV_CLASSIC && dx_fm_gr(L);
+    const char *l0 = gr ? "RATE" : "PTCH", *l1 = gr ? "LEN" : "PMOD";
+    uint32_t ix = dx_mode_get(L, 5, 3u);
+
+    if (e == DXV_TEETH) {
+        dx_empty_card(0);
+    } else {
+        dx_val_card(0, l0, v[DXP_PITCH], 127, gr ? ICON_RATE : ICON_PITCH);
+    }
+    if (e == DXV_METAL)
+        l1 = "SIZZ";
+    else if (e == DXV_TEETH)
+        l1 = "GAP";
+    dx_val_card(1, l1, v[DXP_PMOD], 127, ICON_ENV);
+    if (e == DXV_CLASSIC && !gr) {
+        dx_ix_card(2, "PENV", DX_PENV_NAME[ix], ix, 4, ICON_ENV);
+    } else if (e == DXV_SHELL) {
+        dx_ix_card(2, "PENV", DX_PENV_NAME[ix], ix, 4, ICON_ENV);
+    } else if (e == DXV_METAL) {
+        dx_ix_card(2, "HPF", DX_HPF_NAME[ix], ix, 4, ICON_ENV);
+    } else if (e == DXV_TEETH) {
+        dx_ix_card(2, "FALL", DX_FALL_NAME[ix], ix, 4, ICON_ENV);
+    } else {
+        dx_empty_card(2);
+    }
+    dx_val_card(3, e == DXV_CLICK ? "LEN" : "DCAY", v[DXP_DECAY], 127, ICON_DECAY);
 }
 
 /* the four cards */
 static void dx_cards(const page_t *pg)
 {
-    const dx_lane_t *L = &dx_kit[dx_ui_lane & 7u];
-    const uint8_t *v = dx_ui_side ? L->b : L->a;
-    char val[12];
+    const dx_lane_t *L;
+    const uint8_t *v;
+    uint32_t e, p;
     dx_follow();
-    if (dx_pagen(pg) == 3u) {
-        static const char *const MD[DXV_N] = {"CLASSIC", "SHELL", "METAL", "TEETH", "CLICK"};
-        uint32_t l = dx_ui_lane & 7u;
-        draw_column(0, "MODL", MD[dx_mdl[l] % DXV_N], "", VAL(0u), (int32_t)(dx_mdl[l] % DXV_N) * 1000 / (DXV_N - 1),
-                    ICON_WAVE);
-        fmt_int(val, dx_lay[l]);
-        draw_column(1, "LAYR", val, "", VAL(1u), dx_lay[l] * 1000 / 15, ICON_TONE);
-        draw_column(2, "", "", "", T_THEME, -1, ICON_NONE);
-        draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
-        return;
-    }
-    if (!dx_page2(pg)) {
-        static const char *const PM[4] = {"DECAY", "LONG", "NOISE", "SINE"};
-        dx_lane_name(val, dx_ui_lane, dx_ui_side);
-        draw_column(0, "LANE", val, "", VAL(0u),
-                    (int32_t)((dx_ui_lane & 7u) * 2u + (dx_ui_side ? 1u : 0u)) * 1000 / 15, ICON_X_PATTERN);
-        fmt_int(val, v[DXP_PITCH]);
-        draw_column(1, "PTCH", val, "", VAL(1u), v[DXP_PITCH] * 1000 / 127, ICON_PITCH);
-        fmt_int(val, v[DXP_PMOD]);
-        draw_column(2, "PMOD", val, "", VAL(2u), v[DXP_PMOD] * 1000 / 127, ICON_ENV);
-        draw_column(3, "PENV", PM[(L->mode >> 5) & 3u], "", VAL(3u), (int32_t)((L->mode >> 5) & 3u) * 333, ICON_ENV);
-        return;
-    }
-    fmt_int(val, v[DXP_DECAY]);
-    draw_column(0, "DCAY", val, "", VAL(0u), v[DXP_DECAY] * 1000 / 127, ICON_DECAY);
-    fmt_int(val, v[DXP_NOISE]);
-    draw_column(1, "NOIS", val, "", VAL(1u), v[DXP_NOISE] * 1000 / 127, ICON_NOISE);
-    fmt_int(val, v[DXP_COLOR]);
-    draw_column(2, "COLR", val, "", VAL(2u), v[DXP_COLOR] * 1000 / 127, ICON_TONE);
-    dx_mode_name(val, L->mode);
-    draw_column(3, "MODE", val, "", VAL(3u), (int32_t)dx_mode_ix(L->mode) * 1000 / 47, ICON_WAVE);
+    L = &dx_kit[dx_ui_lane & 7u];
+    v = dx_ui_side ? L->b : L->a;
+    e = dx_mdl[dx_ui_lane & 7u] % DXV_N;
+    p = dx_pagen(pg);
+    if (p == 1u)
+        dx_sound_cards(L, v, e);
+    else if (p == 2u)
+        dx_tone_cards(L, v, e);
+    else
+        dx_move_cards(L, v, e);
 }
 /* what the cards and the panel show changed */
 static uint32_t dx_sig(void)
