@@ -943,7 +943,7 @@ static int seq_is_empty(const track_t *t)
  * A sound load keeps the track's motion on the parameters every engine has (load_end, motion.c motion_sound_loaded);
  * a pattern load drops it all (the steps it was on are gone).
  * SAVE > CLEAR > ALL / ALL4 clears the mix and the arp too (UNDO_MIX: those come back with the sound and steps) */
-enum { UNDO_SOUND = 1, UNDO_PAT = 2, UNDO_MOT = 4, UNDO_MIX = 8 };
+enum { UNDO_SOUND = 1, UNDO_PAT = 2, UNDO_MOT = 4, UNDO_MIX = 8, UNDO_KIT = 16 };
 static struct {
     uint8_t trk;                 /* track + 1, 0 = nothing to undo */
     uint8_t keep;                /* the track is as the last load left it (undo.after): a next load keeps the copy */
@@ -951,6 +951,7 @@ static struct {
     uint8_t eng, preset, user, patn;
     uint8_t fm6_slot;            /* the track's FM6 patch and its SLOT (eng_fm6.c): an edited or a project's */
     uint8_t fm6[FP_SIZE + 1u];   /* patch is the track's own, not a factory one */
+    dx_lane_t dx[8];            /* packed kit before a load; swapped only when the load replaces it (UNDO_KIT) */
     int16_t p[P_COUNT];
     step_t step[NSTEP];
     generation_t generation;
@@ -982,11 +983,16 @@ static uint32_t fnv(uint32_t h, const void *p, uint32_t n)
     return h;
 }
 static uint32_t steps_sig(const track_t *t) { return fnv(2166136261u, t->step, sizeof t->step); }
-static uint32_t track_sig(const track_t *t)      /* the sound (an FM6 track's patch too), the steps */
+static uint32_t track_sig(const track_t *t)      /* the sound, its FM6 patch or shared DRUM-X kit, and the steps */
 {
     uint8_t id[3] = {t->eng_req, t->preset, t->user};
     uint32_t h = fnv(fnv(steps_sig(t), t->p, sizeof t->p), id, 3), k = trk_index(t);
     h = fnv(h, fm6_patch[k], sizeof fm6_patch[k]); /* (a patch the editor sent between two loads) */
+    if (t->eng_req % NENGINES == ENGI_DRUM) {
+        h = fnv(h, dx_kit, sizeof dx_kit);
+        h = fnv(h, dx_lay, sizeof dx_lay);
+        h = fnv(h, dx_mdl, sizeof dx_mdl);
+    }
     for (uint32_t j = 0; j < motion.count; j++)
         if ((motion.event[j].place >> 6) == k) h = fnv(h, &motion.event[j], sizeof motion.event[j]);
     return h ^ ((motion.on >> k) & 1u);
@@ -1082,6 +1088,7 @@ static void load_begin(track_t *t, uint32_t what)
     memcpy(undo.step, t->step, sizeof undo.step);
     memcpy(undo.fm6, fm6_patch[i], FP_SIZE);
     undo.fm6_slot = fm6_slot[i];
+    dx_kit_pack(undo.dx, dx_kit, dx_lay, dx_mdl);
     undo.pat = pat_sig[i];
     undo.from = pat_from[i];
     undo.from_h = pat_from_h[i];
@@ -1145,6 +1152,7 @@ static void edit_undo_take(track_t *t, uint32_t tag, uint32_t what)
     memcpy(undo.step, t->step, sizeof undo.step);
     memcpy(undo.fm6, fm6_patch[i], FP_SIZE);
     undo.fm6_slot = fm6_slot[i];
+    dx_kit_pack(undo.dx, dx_kit, dx_lay, dx_mdl);
     undo.pat = pat_sig[i];
     undo.from = pat_from[i];
     undo.from_h = pat_from_h[i];
@@ -1166,7 +1174,7 @@ static void motion_undo_done(track_t *t)
 static int param_kept(uint32_t i);
 
 /* SAVE held: what the loads changed (undo.what) and the copy change places, so held again = the loads
- * again. The sound: engine, preset and its parameters (not param_kept); the pattern: the steps and LEN
+ * again. The sound: engine, preset, its parameters (not param_kept), and any replaced kit. The pattern: steps, LEN
  * DIV SWING GATE and generator controls. The mix (LEVEL PAN MUTE) stays: no load changes it */
 static void undo_swap(void)
 {
@@ -1202,6 +1210,12 @@ static void undo_swap(void)
                 t->p[i] = undo.p[i];
                 undo.p[i] = v;
             }
+    }
+    if (undo.what & UNDO_KIT) {
+        dx_lane_t current[8];
+        dx_kit_pack(current, dx_kit, dx_lay, dx_mdl);
+        dx_kit_unpack(dx_kit, dx_lay, dx_mdl, undo.dx);
+        memcpy(undo.dx, current, sizeof undo.dx);
     }
     if (undo.what & UNDO_PAT) {
         generation_t gen = t->generation;
@@ -1489,6 +1503,7 @@ static uint32_t drum_elsewhere(const track_t *t)
 }
 static void apply_preset(uint32_t pi)                 /* the selected track's sound (browsing, the editor) */
 {
+    load_begin(TSEL, UNDO_SOUND);
     apply_preset_to(TSEL, pi);
     if (TSEL->eng_req % NENGINES == ENGI_DRUM) {      /* (JIANT 0.7.2) DRUM-X: the preset is a factory kit, into the
                                                        * project's kit (drumx_voice.c DX_KITS; a project load or an
@@ -1497,6 +1512,7 @@ static void apply_preset(uint32_t pi)                 /* the selected track's so
         if (!o) {
             fm1_irq_off();                            /* (the ISR reads the kit: one whole kit or the other) */
             dx_kit_load(pi % ENG_DRUM.npresets);
+            undo.what |= UNDO_KIT;
             fm1_irq_on();
         } else {                                      /* the kit is shared: another track's stays as it is */
             static char m[16] = "KIT OF T? KEPT";
@@ -1504,6 +1520,7 @@ static void apply_preset(uint32_t pi)                 /* the selected track's so
             ui_message(m);
         }
     }
+    load_end(TSEL);
 }
 static void set_engine(uint32_t ei) { set_engine_of(TSEL, ei); }
 

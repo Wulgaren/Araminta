@@ -9852,6 +9852,69 @@ static int test_wheels(void)
     return bad;
 }
 
+/* Preset browsing replaces the kit; SAVE held restores its edited sounds, layers and models, then redoes them. */
+static int test_drum_kit_undo(void)
+{
+    dx_lane_t before[8], after[8], actual[8];
+    int bad = 0;
+    ui_power_on();
+    track_select(3);
+    dx_kit_load(0);
+    dx_kit[DV_KICK].a[DXP_PITCH] = 17;
+    dx_lay[DV_SNARE] = 9;
+    dx_mdl[DV_RIM] = DXV_CLICK;
+    dx_kit_pack(before, dx_kit, dx_lay, dx_mdl);
+    turn(EN_PRESET, 1);
+    turn(EN_PRESET, 1);
+    dx_kit_pack(after, dx_kit, dx_lay, dx_mdl);
+    bad += check("DRUM-X browsing loads the second kit", TSEL->preset == 2u && memcmp(before, after, sizeof before));
+    hold(B_SAVE);
+    dx_kit_pack(actual, dx_kit, dx_lay, dx_mdl);
+    bad += check("DRUM-X preset undo restores the edited kit before browsing", TSEL->preset == 0u && !memcmp(before, actual, sizeof before));
+    hold(B_SAVE);
+    dx_kit_pack(actual, dx_kit, dx_lay, dx_mdl);
+    bad += check("DRUM-X preset redo restores the browsed kit", TSEL->preset == 2u && !memcmp(after, actual, sizeof after));
+    return bad;
+}
+
+/* Old DRUMS user sounds translate KIT and lane gains unless another track owns the shared kit. */
+static int test_drums_user_load(void)
+{
+    int bad = 0;
+    uint32_t occupied, i;
+    for (occupied = 0; occupied < 2u; occupied++) {
+        up_rec_t r;
+        dx_lane_t before[8], actual[8], expected[8];
+        ui_power_on();
+        track_select(3);
+        if (occupied)
+            set_engine_of(&trk[0], ENGI_DRUM);
+        dx_kit_load(DXK_LATIN);
+        dx_kit_pack(before, dx_kit, dx_lay, dx_mdl);
+        memset(&r, 0, sizeof r);
+        r.used = UP_USED; r.ver = UP_VER; r.engine = ENGI_DRUMS; r.np = P_COUNT;
+        memcpy(r.name, "OLD 80", 7);
+        for (i = 0; i < P_COUNT; i++)
+            up_set_value(&r, i, TP[i].def);
+        up_set_value(&r, P_E0, 1);
+        *up_rec(7) = r;
+        bad += check("legacy DRUMS user preset loads as DRUM-X", up_load(7) == 0 && TSEL->eng_req == ENGI_DRUM);
+        dx_kit_pack(actual, dx_kit, dx_lay, dx_mdl);
+        dx_kit_pack(expected, DX_KITS[DXK_DRUMS + 1u].lane, DX_KITS[DXK_DRUMS + 1u].lay, DX_KITS[DXK_DRUMS + 1u].mdl);
+        if (occupied)
+            bad += check("legacy DRUMS preset keeps another DRUM-X track's kit and unscaled lane levels",
+                         !memcmp(actual, before, sizeof actual) && TSEL->p[P_LN0] == 127);
+        else
+            bad += check("legacy DRUMS preset loads KIT 80's sounds, models, layers and lane levels",
+                         !memcmp(actual, expected, sizeof actual) && TSEL->p[P_LN0] == 117 && TSEL->p[P_LN1] == 102);
+        hold(B_SAVE);
+        dx_kit_pack(actual, dx_kit, dx_lay, dx_mdl);
+        bad += check("legacy DRUMS preset undo restores the previous shared kit", !memcmp(actual, before, sizeof actual));
+        memset(up_rec(7), 0, sizeof r);
+    }
+    return bad;
+}
+
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -9867,6 +9930,8 @@ int main(void)
     bad += test_mixer_solo();
     bad += test_large_face();
     bad += test_sound_loads();
+    bad += test_drum_kit_undo();
+    bad += test_drums_user_load();
     bad += test_patterns();
     bad += test_rec();
     bad += test_step_rec();
