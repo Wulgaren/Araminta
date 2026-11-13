@@ -1264,8 +1264,8 @@ static int lock_undo(void)
         motion_lock_count(t) == 1u);
     return bad;
 }
-/* 1.1.5: SEQ > AUTO LIST (ui_events.c); 1.2: the AUTOMATION page, its rows: PLAY, QUANTIZE, the records (and CHANCE / RATCH / NUDGE), + ADD */
-static uint32_t rows_n(void) { uint16_t rw[EV_ROWS]; return ev_list(rw); }   /* PLAY, QUANTIZE and + ADD included */
+/* 1.1.5: SEQ > AUTO LIST (ui_events.c); 1.2: the AUTOMATION page, its rows: QUANTIZE, ENABLED, the records (and CHANCE / RATCH / NUDGE), + ADD */
+static uint32_t rows_n(void) { uint16_t rw[EV_ROWS]; return ev_list(rw); }   /* QUANTIZE, ENABLED and + ADD included */
 static uint32_t row_at(uint32_t r) { uint16_t rw[EV_ROWS]; return r < ev_list(rw) ? rw[r] : 0xFFFFu; }
 static int auto_list(void)
 {
@@ -1283,9 +1283,9 @@ static int auto_list(void)
     go_page(GR_EVENTS);
     frame();
     id0 = ui.ev_id;
-    ok = auto_cur() == EVC(EVK_TOP, 0) && str_eq(act_name(4), "CLEAR") && !act_ready();
-    turn(EN_K1, 2);                                      /* (past QUANTIZE, 1.2) */
-    bad += check("AUTOMATION: empty, PLAY then + ADD LOCK (on the SEQ cursor's step, the first knob of the sound page)",
+    ok = auto_cur() == EVC(EVK_QNT, 0) && str_eq(act_name(4), "--") && !act_ready();
+    turn(EN_K1, 2);                                      /* (past ENABLED) */
+    bad += check("AUTOMATION: empty, QUANTIZE then + ADD LOCK (on the SEQ cursor's step, the first knob of the sound page)",
         ok && cur_page()->graph == GR_EVENTS && rows_n() == 3u && auto_cur() == EVC(EVK_ADD, 0) && ui.ev_step == 4u &&
         id0 == lock_id(0) && str_eq(act_name(4), "ADD") && act_ready());
     press(B_OCTUP);
@@ -1323,7 +1323,7 @@ static int auto_list(void)
     bad += check("  EDIT opens the EDIT page (the row's record stays)", motion_count(t) == 2u &&
         motion_lock_get(t, 2, ui.ev_id, &v) && cur_page()->fam == FAM_EDIT);
     go_auto_top(); frame();
-    turn(EN_K1, 2);                                      /* row 2: the first record */
+    turn(EN_K1, 1);                                      /* row 2: the first record */
     press(B_OCTDN);
     bad += check("  OCT-: the row's record goes", motion_count(t) == 1u && !motion_lock_get(t, 2, ui.ev_id, &v) &&
         str_eq(ui.msg, "DELETED"));
@@ -1333,7 +1333,7 @@ static int auto_list(void)
     bad += check("  held again: gone again", motion_count(t) == 1u);
     frames(2000);
     turn(EN_K1, -5);
-    turn(EN_K1, 2);                                      /* (the first record: the row after PLAY and QUANTIZE) */
+    turn(EN_K1, 2);                                      /* (the first record: the row after QUANTIZE and ENABLED) */
     {
         uint16_t c = auto_cur();
         v = motion.event[c & 0xFFu].value;

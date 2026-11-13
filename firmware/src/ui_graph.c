@@ -1521,10 +1521,10 @@ static void graph_pats(void)
         list_row(LIST_Y(row), k == cur, tag, T_MID, nm, T_TEXT, 232, LIST_NX);
     }
 }
-/* the AUTOMATION rows' columns (M): the kind at 14 (LOCK AUTO STEP PLAY, to x 54), the step / PLAY's ON at EV_SX, the
+/* the AUTOMATION rows' columns (M): the kind at 14 (LOCK AUTO STEP ENABLED), the step / ENABLED's ON at EV_SX, the
  * name / QUANTIZE's ON at EV_NX (QUANTIZE ends at x 86), the value right at 226 */
-#define EV_SX 60
-#define EV_NX 92
+#define EV_SX 74
+#define EV_NX 96
 /* a row's value (M) and its unit (S, on the value's baseline, as a card's) ending at x 226; the value's left x */
 static int32_t ev_value(int32_t y, const char *v, const char *unit, uint16_t fg, uint16_t bg)
 {
@@ -1547,17 +1547,19 @@ static void graph_pick(void)
     }
 }
 
-/* SEQ > AUTOMATION (ui_events.c): the track's rows around the one selected: PLAY first (ON / OFF and the counts),
- * QUANTIZE (ON / OFF and the steps nudged), then a row each: the kind (LOCK in the accent, AUTO; STEP: a step's CHANCE,
- * RATCH, NUDGE or VEL, a NUDGE or VEL that does not play DIM), the step, the name, the value at the right; the last row
- * + ADD (LOCK, CHANCE, RATCH, NUDGE or VEL: what OCT+ adds) */
+/* SEQ > AUTOMATION (ui_events.c): the track's rows around the one selected: QUANTIZE first (ON / OFF and the steps
+ * nudged), ENABLED (ON / OFF and the counts), a divider under the two, then a row each: the kind (LOCK in the accent,
+ * AUTO; STEP: a step's CHANCE, RATCH, NUDGE or VEL, a NUDGE or VEL that does not play DIM), the step, the name, the
+ * value at the right; the last row + ADD (LOCK, CHANCE, RATCH, NUDGE or VEL: what OCT+ adds). No rows between the
+ * settings and + ADD: a DIM NO AUTOMATION there, + ADD one row lower */
 static void graph_events(void)
 {
     const track_t *t = TSEL;
     uint32_t n = ev_list(ev_rw), cur = ev_row(n), k;
     int32_t row, first = clamp((int32_t)cur - 3, 0, (int32_t)n > 7 ? (int32_t)n - 7 : 0);
+    int empty = n == 3u;                             /* (then first is 0: + ADD is row 2) */
     for (row = 0; row < 7 && (uint32_t)(first + row) < n; row++) {
-        int32_t y = LIST_Y(row);
+        int32_t y = LIST_Y(row + (empty && row == 2));
         int sel;
         uint16_t bg, c;
         k = (uint32_t)(first + row);
@@ -1566,7 +1568,13 @@ static void graph_events(void)
         bg = sel ? T_THEME : T_SURF;
         if (sel)
             cv_rrect(6, y, 228, 16, 4, T_THEME, T_SURF);
+        if (k == 1u)                                 /* under the settings, scrolling with them */
+            cv_rule(6, y + 16, 228, 1);
         if (c >> 8 == EVK_ADD) {
+            if (empty) {
+                GFX_HOOK_ALIGN(0, LIST_Y(2), 0, LIST_Y(2) + 16, AL_V, "list row text centred up/down");
+                cv_text_on(14, LIST_Y(2) + LIST_TY, &AF_M, "NO AUTOMATION", T_DIM, T_SURF);
+            }
             ev_fix();
             GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
             cv_text_on(14, y + LIST_TY, &AF_M, ui.ev_id == EV_CHANCE ? "+ ADD CHANCE" : ui.ev_id == EV_RATCH ?
@@ -1574,19 +1582,26 @@ static void graph_events(void)
                        (ui.ev_vel ? "+ HIDE VEL" : "+ SHOW VEL") : "+ ADD LOCK", sel ? T_INK : T_DIM, bg);
             break;
         }
-        if (c >> 8 == EVK_TOP) {                     /* PLAY ON / OFF, the counts: "EVENT 3  LOCK 2" */
+        if (c >> 8 == EVK_TOP) {                     /* ENABLED ON / OFF, the counts: "EVENT 3  LOCK 2" (S when M
+                                                      * would reach the ON / OFF) */
             char b[24];
+            int32_t x;
             str_cpy(b, "EVENT ", sizeof b);
             fmt_int(b + str_len(b), (int32_t)(motion_count(t) - motion_lock_count(t)));
             str_cpy(b + str_len(b), "  LOCK ", sizeof b - str_len(b));
             fmt_int(b + str_len(b), (int32_t)motion_lock_count(t));
             GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
-            cv_text_on(14, y + LIST_TY, &AF_M, "PLAY", sel ? T_INK : T_MID, bg);
+            cv_text_on(14, y + LIST_TY, &AF_M, "ENABLED", sel ? T_INK : T_MID, bg);
             GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
-            cv_text_on(EV_SX, y + LIST_TY, &AF_M, motion_enabled(t) ? "ON" : "OFF",
-                       sel ? T_INK : motion_enabled(t) ? T_TEXT : T_DIM, bg);
-            GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
-            cv_text_r(226, y + LIST_TY, &AF_M, b, sel ? T_INK : T_MID, bg);
+            x = cv_text_on(EV_SX, y + LIST_TY, &AF_M, motion_enabled(t) ? "ON" : "OFF",
+                           sel ? T_INK : motion_enabled(t) ? T_TEXT : T_DIM, bg);
+            if (226 - text_w(&AF_M, b) < x + 8) {
+                GFX_HOOK_ALIGN(0, 0, 0, y + LIST_TY + AF_M.asc, AL_B, "list row counts on the row's baseline");
+                cv_text_r(226, y + LIST_TY + AF_M.asc - AF_S.asc, &AF_S, b, sel ? T_INK : T_MID, bg);
+            } else {
+                GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
+                cv_text_r(226, y + LIST_TY, &AF_M, b, sel ? T_INK : T_MID, bg);
+            }
             continue;
         }
         if (c >> 8 == EVK_QNT) {                     /* QUANTIZE ON / OFF (1.2), the steps nudged: "NUDGED 3" */

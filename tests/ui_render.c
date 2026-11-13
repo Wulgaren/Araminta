@@ -1540,7 +1540,7 @@ static void setup(int s)
         motion_set_event(TSEL, 0, P_LRATE, 70); motion_set_lock(TSEL, 2, P_REV, 100); motion_set_lock(TSEL, 2, P_ED_FLT, -30);
         motion_set_lock(TSEL, 6, P_ATK, 90); motion_set_lock(TSEL, 6, P_E4, 20); motion_set_event(TSEL, 8, P_PAN, -40);
         motion_set_lock(TSEL, 11, P_LD_FLT, 50); motion_set_lock(TSEL, 13, P_DLY, 80); motion_set_lock(TSEL, 15, P_GLIDE, 60);
-        go_page(GR_EVENTS); ui.ev_row = 5; ui.hot_col = 3; ui.hot_t = 30;   /* (row 0: PLAY, 1: QUANTIZE) */
+        go_page(GR_EVENTS); ui.ev_row = 5; ui.hot_col = 3; ui.hot_t = 30;   /* (row 0: QUANTIZE, 1: ENABLED) */
         break;
     case S_AUTO_LIST_ADD: ui.cursor = 4; go_page(GR_EVENTS); break;
     case S_AUTO_LIST_DRUM: {
@@ -1563,7 +1563,7 @@ static void setup(int s)
         TSEL->p[P_SQNT] = s == S_AUTO_QNT;
         go_page(GR_EVENTS);
         if (s == S_AUTO_QNT) {
-            ui.ev_row = 1;
+            ui.ev_row = 0;
         } else {
             (void)auto_pick(EVC(EVK_NUDGE, 6)); ui.hot_col = 3; ui.hot_t = 30;
         }

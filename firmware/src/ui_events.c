@@ -3,10 +3,10 @@
 /* Felucca SEQ > AUTOMATION (1.1.5 AUTO LIST; 1.2, Discussion #153: the AUTOMATION page, CHANCE and RATCH merged into it;
  * 1.2, #162: NUDGE and QUANTIZE too; 1.5, #173: VEL; included by ui.c): the selected track's automation as a list.
  * The rows:
- *   PLAY     the first: the track's automation ON / OFF (KNOB 4; OFF keeps it) and its counts; OCT+ CLEAR asks
- *            "CLEAR Tn AUTOMATION?" (the locks and events go, the steps' CHANCE, RATCH, NUDGE, VEL stay)
- *   QUANTIZE the second: the track's QUANTIZE (P_SQNT) ON / OFF (KNOB 4) and how many steps have a NUDGE. ON (the
+ *   QUANTIZE the first: the track's QUANTIZE (P_SQNT) ON / OFF (KNOB 4) and how many steps have a NUDGE. ON (the
  *            default) plays every step on its start; OFF plays the nudges (seq.c seq_tick)
+ *   ENABLED  the second: the track's automation ON / OFF (KNOB 4; OFF keeps it) and its counts; OCT+ CLEAR asks
+ *            "CLEAR Tn AUTOMATION?" (the locks and events go, the steps' CHANCE, RATCH, NUDGE, VEL stay)
  *   LOCK / AUTO  a record (motion.c): its step, its parameter, its value
  *   STEP     a step's CHANCE (not 100 %), RATCH (not x1) or NUDGE (not 0): the step's own fields (step_chance,
  *            step_ratchet, step_nudge), shown where they are not at their default, inside LEN; a row being edited
@@ -24,17 +24,17 @@
  *   KNOB 3 a record's parameter: any one motion can record (motion.c motion_param) that the track's sound has, by name;
  *          it takes the next one with no record on that step, its value the sound's own (a lock that changes nothing
  *          yet); on + ADD, CHANCE, RATCH and NUDGE come first
- *   KNOB 4 the value (PLAY, QUANTIZE: ON / OFF; NUDGE -8..+7 sixteenths of the step, "QUANTIZE IS ON" while it is;
+ *   KNOB 4 the value (QUANTIZE, ENABLED: ON / OFF; NUDGE -8..+7 sixteenths of the step, "QUANTIZE IS ON" while it is;
  *          VEL 1..127)
  *   OCT+   on + ADD: a lock on the step and parameter KNOB 2 / 3 set there (the SEQ cursor's step and the first
  *          parameter of the sound page shown last, to begin with), at the sound's own value; CHANCE 50 %, RATCH x2 or
  *          NUDGE +4/16 on that step, VEL: SHOW / HIDE the VEL rows; on a record: its kind LOCK <-> AUTO (an automation
- *          event holds its value until the next one, a lock sounds on its step only); on PLAY: CLEAR (the dialog)
+ *          event holds its value until the next one, a lock sounds on its step only); on ENABLED: CLEAR (the dialog)
  *   EDIT   opens the EDIT page (nothing is deleted)
  *   OCT-   deletes the row's record, a CHANCE / RATCH / NUDGE / VEL back to 100 % / x1 / 0 / 96 (the row below
- *          moves up; SAVE held undoes it); on PLAY, QUANTIZE and + ADD nothing (NOTHING TO DEL). On the other action
+ *          moves up; SAVE held undoes it); on QUANTIZE, ENABLED and + ADD nothing (NOTHING TO DEL). On the other action
  *          pages OCT- drops the picked action or goes HOME
- * Every edit is one undo (SAVE held: ui.c motion_undo_take, step_undo_take; a knob turned on is one; PLAY and QUANTIZE
+ * Every edit is one undo (SAVE held: ui.c motion_undo_take, step_undo_take; a knob turned on is one; QUANTIZE and ENABLED
  * are settings, as on their pages before). Not while a song plays (STOP TO EDIT). The 128 records are shared by the four
  * tracks: AUTOMATION FULL when they are used */
 static int32_t accel(uint32_t role, int32_t s, int32_t range);
@@ -187,15 +187,15 @@ static uint32_t ev_id_step(const track_t *t, uint32_t step, uint32_t id, int32_t
 }
 static uint32_t ev_len(const track_t *t) { return (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP); }
 
-/* the rows of the selected track (rw[EV_ROWS]): their count, PLAY, QUANTIZE and + ADD included */
+/* the rows of the selected track (rw[EV_ROWS]): their count, QUANTIZE, ENABLED and + ADD included */
 static uint32_t ev_list(uint16_t *rw)
 {
     const track_t *t = TSEL;
     uint8_t idx[MOTION_MAX];
     uint32_t m = motion_rows(song.sel, idx), len = ev_len(t), n = 0, j = 0, s, k;
     static const uint8_t SK[4] = {EVK_CHANCE, EVK_RATCH, EVK_NUDGE, EVK_VEL};
-    rw[n++] = EVC(EVK_TOP, 0);
     rw[n++] = EVC(EVK_QNT, 0);
+    rw[n++] = EVC(EVK_TOP, 0);
     for (s = 0; s < NSTEP; s++) {
         for (k = 0; s < len && k < 4u; k++)
             if ((k == 3u ? ui.ev_vel && ev_vel_row(&t->step[s]) : !ev_sdef(&t->step[s], SK[k])) ||
@@ -254,7 +254,7 @@ static void ev_follow(uint32_t c)
         ui.ev_row = (uint16_t)r;
 }
 
-/* what the list shows (graph_signature): the rows, their values, the one selected, PLAY, QUANTIZE, + ADD's place */
+/* what the list shows (graph_signature): the rows, their values, the one selected, QUANTIZE, ENABLED, + ADD's place */
 static uint32_t ev_sig(void)
 {
     const track_t *t = TSEL;
@@ -371,7 +371,7 @@ static void ev_knob(uint32_t slot, int32_t s)
     }
     if (ev_busy())
         return;
-    if (k == EVK_TOP) {                                 /* PLAY: KNOB 4 right ON, left OFF */
+    if (k == EVK_TOP) {                                 /* ENABLED: KNOB 4 right ON, left OFF */
         if (slot == 3u)
             motion_set_enabled(t, s > 0);
         return;
@@ -441,7 +441,7 @@ static void ev_knob(uint32_t slot, int32_t s)
     ev_follow(c);
 }
 
-/* OCT+: on + ADD what KNOB 2 / 3 set; a record's kind LOCK <-> AUTO; on PLAY, CLEAR (the dialog); QUANTIZE, a
+/* OCT+: on + ADD what KNOB 2 / 3 set; a record's kind LOCK <-> AUTO; on ENABLED, CLEAR (the dialog); QUANTIZE, a
  * step's field: nothing (their value is KNOB 4's) */
 static void ev_oct(void)
 {
