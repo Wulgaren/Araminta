@@ -5,7 +5,7 @@
  * (drumx_voice.c dx_kit, saved with the section: project.c FUN11 / FUNB):
  *   SOUND     LANE (BD A .. CB B: the sound and its patch; a key struck picks the lane), ENGI (its MODEL),
  *             and the source: WAVE / RATIO / KIND / CLAPS, NOIS / AIR
- *   TONE      COLR / CUT / MIX, FILT, DRV / Q / TAIL, OSC2 (the FM's second oscillator)
+ *   TONE      COLR / CUT / MIX, FILT, CHAR / Q / TAIL, LAYR (the FM's second oscillator)
  *   MOVEMENT  PTCH / RATE, PMOD / SIZZ / GAP / LEN, PENV / HPF / FALL, DCAY / LEN
  * Each card keeps its knob across the five models (CLASSIC shown as FM, SHELL, METAL, TEETH, CLICK): a card the
  * model does not use is drawn empty and its knob does nothing. The values are the side's; the MORPH plays between
@@ -162,7 +162,15 @@ static void dx_empty_card(uint32_t c)
 {
     draw_column(c, "", "", "", T_THEME, -1, ICON_NONE);
 }
-static void dx_val_card(uint32_t c, const char *label, uint32_t val, uint32_t max, uint32_t icon)
+/* a card showing one of the sound's 0..127 amounts, as a share of 127 like the other pages' F_PCT */
+static void dx_val_card(uint32_t c, const char *label, uint32_t val, uint32_t icon)
+{
+    char b[12];
+    fmt_int(b, (val * 100u + 63u) / 127u);
+    draw_column(c, label, b, "%", VAL(c), (int32_t)val * 1000 / 127, icon);
+}
+/* a card showing a count of steps (LAYER's 0..15), not an amount: no percentage, the gauge shows the step */
+static void dx_step_card(uint32_t c, const char *label, uint32_t val, uint32_t max, uint32_t icon)
 {
     char b[12];
     fmt_int(b, val);
@@ -192,7 +200,7 @@ static void dx_sound_cards(const dx_lane_t *L, const uint8_t *v, uint32_t e)
     if (e == DXV_CLICK)
         dx_empty_card(3);
     else
-        dx_val_card(3, e == DXV_TEETH ? "AIR" : "NOIS", v[DXP_NOISE], 127, ICON_NOISE);
+        dx_val_card(3, e == DXV_TEETH ? "AIR" : "NOIS", v[DXP_NOISE], ICON_NOISE);
 }
 
 /* the four cards of TONE */
@@ -200,11 +208,11 @@ static void dx_tone_cards(const dx_lane_t *L, const uint8_t *v, uint32_t e)
 {
     uint32_t f = dx_filt_heard(L, e), ix;
     if (e == DXV_CLASSIC)
-        dx_val_card(0, "COLR", v[DXP_COLOR], 127, ICON_TONE);
+        dx_val_card(0, "COLR", v[DXP_COLOR], ICON_TONE);
     else if (e == DXV_CLICK)
-        dx_val_card(0, "MIX", v[DXP_COLOR], 127, ICON_MIX);
+        dx_val_card(0, "MIX", v[DXP_COLOR], ICON_MIX);
     else
-        dx_val_card(0, "CUT", v[DXP_COLOR], 127, ICON_CUTOFF);
+        dx_val_card(0, "CUT", v[DXP_COLOR], ICON_CUTOFF);
     if (e == DXV_CLICK)
         dx_empty_card(1);
     else
@@ -212,7 +220,7 @@ static void dx_tone_cards(const dx_lane_t *L, const uint8_t *v, uint32_t e)
     switch (e) {
     case DXV_CLASSIC: case DXV_SHELL:
         ix = dx_drv_snap(L);
-        dx_ix_card(2, "DRV", e == DXV_SHELL ? DX_SHELL_DRV_NAME[ix] : DX_FM_DRV_NAME[ix], ix, 4, ICON_DIST);
+        dx_ix_card(2, "CHAR", e == DXV_SHELL ? DX_SHELL_DRV_NAME[ix] : DX_FM_DRV_NAME[ix], ix, 4, ICON_DIST);
         break;
     case DXV_METAL:
         if (dx_metal_q(L))
@@ -226,11 +234,11 @@ static void dx_tone_cards(const dx_lane_t *L, const uint8_t *v, uint32_t e)
         break;
     default:
         ix = dx_click_drv(L);
-        dx_ix_card(2, "DRV", DX_CLICK_DRV_NAME[ix], ix, 8, ICON_DIST);
+        dx_ix_card(2, "CHAR", DX_CLICK_DRV_NAME[ix], ix, 8, ICON_DIST);
         break;
     }
     if (e == DXV_CLASSIC)
-        dx_val_card(3, "OSC2", dx_lay[dx_ui_lane & 7u], 15, ICON_TONE);
+        dx_step_card(3, "LAYR", dx_lay[dx_ui_lane & 7u], 15, ICON_TONE);
     else
         dx_empty_card(3);
 }
@@ -245,13 +253,13 @@ static void dx_move_cards(const dx_lane_t *L, const uint8_t *v, uint32_t e)
     if (e == DXV_TEETH) {
         dx_empty_card(0);
     } else {
-        dx_val_card(0, l0, v[DXP_PITCH], 127, gr ? ICON_RATE : ICON_PITCH);
+        dx_val_card(0, l0, v[DXP_PITCH], gr ? ICON_RATE : ICON_PITCH);
     }
     if (e == DXV_METAL)
         l1 = "SIZZ";
     else if (e == DXV_TEETH)
         l1 = "GAP";
-    dx_val_card(1, l1, v[DXP_PMOD], 127, ICON_ENV);
+    dx_val_card(1, l1, v[DXP_PMOD], ICON_ENV);
     if (e == DXV_CLASSIC && !gr) {
         dx_ix_card(2, "PENV", DX_PENV_NAME[ix], ix, 4, ICON_ENV);
     } else if (e == DXV_SHELL) {
@@ -263,7 +271,7 @@ static void dx_move_cards(const dx_lane_t *L, const uint8_t *v, uint32_t e)
     } else {
         dx_empty_card(2);
     }
-    dx_val_card(3, e == DXV_CLICK ? "LEN" : "DCAY", v[DXP_DECAY], 127, ICON_DECAY);
+    dx_val_card(3, e == DXV_CLICK ? "LEN" : "DCAY", v[DXP_DECAY], ICON_DECAY);
 }
 
 /* the four cards */
