@@ -772,7 +772,7 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_DLY_DOT, S_DLY_DOT16, S_FX_THROW,
        S_DETAIL, S_DETAIL_PLAYING, S_DETAIL_REST, S_DETAIL_DRUM, S_ROLL_MARKS, S_DRUM_MARKS,
        S_DX_SOUND, S_DX_SOUND2, S_DX_SOUND3, S_DX_EDIT1, S_DX_EDIT2, S_GENERATION, S_GENERATION_2, S_GENERATION_MAP, S_TAPE,
-       S_ANALOG_OSC_A_SUPER, S_ANALOG_OSC_B_HP, S_CHORD_MELO_MONO, S_COUNT };
+       S_ANALOG_OSC_A_SUPER, S_ANALOG_OSC_B_HP, S_CHORD_MELO_MONO, S_MIXER_LANES, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "message_nofile", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "auto_steps", "auto_add_chance", "automation", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_from_home", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -801,7 +801,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "dly_dotted", "dly_dotted_16", "perform_throw",
     "detail", "detail_playing", "detail_rest", "detail_drum", "roll_marks", "drum_marks",
     "dx_sound", "dx_sound2", "dx_sound3", "dx_edit1", "dx_edit2", "generation", "generation_2", "generation_map", "tape",
-    "analog_osc_a_super", "analog_osc_b_hp", "chord_melo_mono"};
+    "analog_osc_a_super", "analog_osc_b_hp", "chord_melo_mono", "mixer_lanes"};
 
 /* the STEP page's piano roll (ui_graph.c graph_roll) on track 1, stopped unless said: an empty pattern; ACID in
  * A minor; POLY chords (Am7 F C G, tied); a line with ties, slides and accents in C major; LEN 32 on its second
@@ -1112,6 +1112,20 @@ static void setup(int s)
         trk[0].p[P_REV] = 127; trk[2].p[P_REV] = 1; trk[3].p[P_MUTE] = 1;
         song.rec = 1u | 8u; ui.hot_col = 3; ui.hot_t = 30;
         break;
+    case S_MIXER_LANES: {                       /* MIXER 2/3: a DRUM-X track's eight lane levels, SNARE hot, RIM muted */
+        uint32_t i;
+        drum(0);
+        go_home(); home_tap();
+        for (i = 0; i < NPAGES && !(PAGES[i].graph == GR_LANES && PAGES[i].id[0] == P_LN0); i++)
+            ;
+        ui.page = (uint8_t)i;
+        page_entered();
+        trk[3].p[P_LN0] = 127; trk[3].p[P_LN1] = 96; trk[3].p[P_LN2] = 64; trk[3].p[P_LN3] = 32;
+        trk[3].p[P_LN4] = 110; trk[3].p[P_LN5] = 64; trk[3].p[P_LN6] = 127; trk[3].p[P_LN7] = 20;
+        drum_mute[3 % NPART] |= 1u << 6;        /* RIM: DIM (a muted lane) */
+        ui.hot_col = 1; ui.hot_t = 30;
+        break;
+    }
     case S_ENV: go_title("ENV"); ui.hot_col = 2; ui.hot_t = 30; break;
     case S_ENVDEST: go_title("ENV DEST"); break;
     case S_ENV_SYNC:                                  /* 1.5: ENV SYNC on, the note values (the widest: 1/16D 1/32T) */

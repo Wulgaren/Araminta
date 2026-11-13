@@ -190,7 +190,7 @@ and live recording writes it into one step; MONO / LEGATO / UNISON play its root
 ignores it. Both defaults are 0: nothing changes until CHRD is set. They are the track's, like ARP and SCL: a
 sound load (a factory preset, `UP_LOAD`, an audition) keeps them, and motion never records them.
 
-The DRUM-X lane levels (EDIT > LANES 1/2 and 2/2 on the device, `firmware/src/eng_drum.c`) are eight track parameters at
+The DRUM-X lane levels (MIXER 2/3 and 3/3 on the device, `firmware/src/eng_drum.c`) are eight track parameters at
 ids 83..90, one per lane: 83 KICK, 84 SNARE, 85 CLAP, 86 HATCL, 87 HATOP, 88 TOM, 89 RIM, 90 BELL. Percent (`F_PCT`),
 0..127, default 127 = 100 % (the kit as designed), square law (64: about −12 dB). Only the DRUM-X engine reads them; the
 editor shows them on a DRUM-X track only (the device's pages). They are the sound's (not the track's): a factory preset

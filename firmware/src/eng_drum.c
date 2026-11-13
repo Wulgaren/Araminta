@@ -18,7 +18,7 @@
  * envelope: a click, a beater, a metal edge (drumx_voice.c dx_run); FOLD (JIANT 0.5, was WARP) every sound's oscillator
  * through a wavefolder after its envelope: a bright attack folding back to the plain tail (0: as the kit has it); DRV
  * (JIANT 0.6.16) the kit's sum into a soft clip (x1..x4, level kept), then the knee (drum_bus). Each lane has its LEVEL
- * (P_LN0..P_LN7, EDIT > LANES 1/2 and 2/2, #97: square law, 100 % the default; the cowbell's 4 dB under) on the voice
+ * (P_LN0..P_LN7, MIXER 2/3 and 3/3, #97: square law, 100 % the default; the cowbell's 4 dB under) on the voice
  * amplitude. The track's LFO tunes the kit (DEST PIT) and moves MORPH (DEST SHP). The knobs move a hit while it rings.
  *
  * Polyphony: a lane per drum and part, mono: a hit reuses its lane's voice even at another pitch, the 8 lanes ring
@@ -61,6 +61,10 @@ static const uint8_t DXG_LANE[DV_NLANE] = {DXG_KICK, DXG_SNARE, DXG_SNARE, DXG_H
 #define DXM_LANE(l) (1u << (8u + (l)))
 #define DXM_ALL 0xFF0Fu
 static volatile uint16_t dx_mute;                       /* DXG_* groups | DXM_LANE lanes */
+/* MIXER's lane pages (ui_graph.c graph_lanes): each track's lane meters since the UI last read them (Q15, the
+ * hit's own envelope x its lane LEVEL: the render loops keep their budget). The audio writes a max, the UI reads
+ * and clears its track's; .pool: no audio .bss budget */
+static uint16_t drum_lane_meter[NTRK][DV_NLANE] __attribute__((section(".pool")));
 static void dx_mute_set(uint32_t m) { dx_mute = (uint16_t)(m & DXM_ALL); }
 static int dx_lane_muted_g(uint32_t l) { return (DXG_LANE[l & 7u] & dx_mute) || (dx_mute & DXM_LANE(l & 7u)); }
 static int dx_lane_muted(const track_t *t, uint32_t l)
@@ -305,6 +309,21 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
             out[i] += voice_amp(s + (s >> 2), m, i) << sh;
         }
     }
+    {   /* MIXER's lane pages: the hit's envelope (Q30, the loudest of its amp, noise and clap tails) as its live
+         * level, before the lane's LEVEL (the page draws it up to the LEVEL's tick). An audio-loop peak would
+         * exceed the render budget; the envelope follows the sound */
+        int32_t e = L->x.ea;
+        uint16_t *lm = &drum_lane_meter[(uint32_t)(t - trk)][(uint32_t)v->s[0] & (DV_NLANE - 1u)];
+        if (L->x.en > e)
+            e = L->x.en;
+        if (L->x.ec > e)
+            e = L->x.ec;
+        e >>= 15;
+        if (e > 32767)
+            e = 32767;
+        if ((uint16_t)e > *lm)
+            *lm = (uint16_t)e;
+    }
 }
 
 /* (JIANT 0.6.16) the kit's sum, once a block (voice.c track_render): DRV x1..x4 into the soft clip, its level kept,
@@ -359,7 +378,7 @@ static const preset_t DRUM_PRESETS[] = {
     {"55", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
     {"77", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
 };
-/* .. their movement (core.h MODS), DRUM_PRESETS' order; 0 none. DRUMS' kits: their lane LEVELs (EDIT > LANES), Felucca's
+/* .. their movement (core.h MODS), DRUM_PRESETS' order; 0 none. DRUMS' kits: their lane LEVELs (MIXER 2/3, 3/3), Felucca's
  * balance (each sound's level against its DRUMS hit, the quietest at 100 %) */
 #define LANES(a, b, c, d, e, f, g, h) P_LN0, (a), P_LN1, (b), P_LN2, (c), P_LN3, (d), P_LN4, (e), P_LN5, (f), P_LN6, (g), \
                                       P_LN7, (h)

@@ -587,12 +587,12 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_CLEAR, GR_CHORD, GR_EVENTS,
-       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_DXSND, GR_GENERATION };
+       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_DXSND, GR_LANES, GR_GENERATION };
 /* page.sec: button cycles sections; SELECT walks pages that share fam+sec and stops at the ends
  * (ui.c open_family / select_page_step) */
 enum { FX_SEC_INS = 0, FX_SEC_PUNCH = 1, FX_NSEC = 2,
        SEQ_SEC_STEP = 0, SEQ_SEC_TOOL = 1, SEQ_NSEC = 2,
-       EDIT_SEC_SND = 0, EDIT_SEC_KIT = 1, EDIT_SEC_LAN = 2, EDIT_SEC_VOX = 3, EDIT_NSEC = 4,
+       EDIT_SEC_SND = 0, EDIT_SEC_KIT = 1, EDIT_SEC_VOX = 2, EDIT_NSEC = 3,
        GLO_SEC_MASTER = 0, GLO_SEC_SONG = 1, GLO_NSEC = 2,
        SAVE_SEC_PRE = 0, SAVE_SEC_PROJ = 1, SAVE_SEC_CLEAR = 2, SAVE_NSEC = 3,
        LFO_SEC_LFO = 0, LFO_SEC_MOD = 1, LFO_NSEC = 2,
@@ -646,8 +646,6 @@ static const page_t PAGES[] = {
     {"SOUND", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"TONE", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"MOVEMENT", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN0, P_LN1, P_LN2, P_LN3}},
-    {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_LAN, {P_LN4, P_LN5, P_LN6, P_LN7}},
     {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"OP ENV", FAM_EDIT, SC_TRACK, GR_FMENV, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
     /* VOICE: VCE GLD PIT GLD (POLY) then SPRD / UNI DTN; VOICE 2 is PITCH in every mode. GLMOD / PRIO / ALLOC
@@ -675,8 +673,12 @@ static const page_t PAGES[] = {
     {"SEQ TOOLS", FAM_SEQ, SC_TRACK, GR_STEPS, SEQ_SEC_TOOL, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
     {"GENERATION", FAM_SEQ, SC_TRACK, GR_GENERATION, SEQ_SEC_TOOL, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"GENERATION 2", FAM_SEQ, SC_TRACK, GR_GENERATION, SEQ_SEC_TOOL, {0xFF, 0xFF, 0xFF, 0xFF}},
-    /* HOME: Mixer; ui.home is its own section (home_tap). Drum lane mutes live in SEQ TOOLS. */
+    /* HOME: Mixer; ui.home is its own section (home_tap). A DRUM-X track adds two pages (SELECT) with its lane
+     * levels, the per-sound volumes: MIXER 2/3 (KICK..HATCL) and 3/3 (HATOP..BELL). Drum lane mutes live in
+     * SEQ TOOLS. */
     {"MIXER", FAM_TRK, SC_TRK, GR_TRK, TRK_SEC_MIX, {0, 1, 2, 3}},
+    {"MIXER", FAM_TRK, SC_TRACK, GR_LANES, TRK_SEC_MIX, {P_LN0, P_LN1, P_LN2, P_LN3}},
+    {"MIXER", FAM_TRK, SC_TRACK, GR_LANES, TRK_SEC_MIX, {P_LN4, P_LN5, P_LN6, P_LN7}},
     {"PUNCH-IN", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},   /* the section's 2/2 (same
                                                      * title, the footer's count tells); its map is perform.c PF2_DEF */
 };

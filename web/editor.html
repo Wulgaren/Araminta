@@ -261,6 +261,7 @@
   <section class="panel" id="p-tracks" data-tab="tracks" data-dev hidden>
     <h2 data-t="mixer" data-ic="ui_slider_vertical"></h2>
     <div class="mixer" id="mixer"></div>
+    <div class="groups" id="trackgroups"></div>
     <p class="dim" data-t="mixHelp"></p>
   </section>
 
@@ -3536,12 +3537,14 @@ const LAYOUT = (pe0) => [
   { t: "ENV", pages: [["ENV", 0, [1, 2, 3, 4]], ["ENV DEST", 0, [5, 6, 7, 8]]] },
   { t: "LFO", pages: [["LFO", 0, [9, 10, 11, 12]], ["LFO DEST", 0, [13, 14, 15, 16]]] },
   ...(pe0 >= 61 ? [{ t: "MOD", mod: 49 }] : []),   /* the matrix: P_M1SRC 49 .. P_M4AMT 60, one row per slot */
-  { t: "EDIT", engine: true, pages: [["EDIT 1", 0, [pe0, pe0 + 1, pe0 + 2, pe0 + 3]], ["EDIT 2", 0, [pe0 + 4, pe0 + 5, pe0 + 6, pe0 + 7]],
-    ...(pe0 >= 91 && engName() === "DRUM-X" ? [["LANES", 0, P_LANES.slice(0, 4)], ["LANES 2", 0, P_LANES.slice(4)]] : [])] },   /* lane levels 83..90 */
+  { t: "EDIT", engine: true, pages: [["EDIT 1", 0, [pe0, pe0 + 1, pe0 + 2, pe0 + 3]], ["EDIT 2", 0, [pe0 + 4, pe0 + 5, pe0 + 6, pe0 + 7]]] },
   ...(pe0 >= 81 && engName() === "DIGITAL" ? [{ t: "OP ENV", pages: [   /* P_FM1_ATK 61: ATK DEC SUS REL LVL per operator (DIGITAL retired: its engine is "-") */
     ...[0, 1, 2, 3].map((k) => [`OP${k + 1}`, 0, [61 + 5 * k, 62 + 5 * k, 63 + 5 * k, 64 + 5 * k]]),
     ["OP LVL", 0, [65, 70, 75, 80]]] }] : []),
   { t: "VOICE", pages: [["LEVEL", 0, [0]], ["VOICE", 0, [37, 38, 44, 95]]] },   /* VCE GLD UNI DTN SPRD (GLMOD/PAN/PLAY off the page) */
+  /* the device's MIXER 2/3 and 3/3: a DRUM-X track's lane levels (P_LN0..7), under the track mixer */
+  ...(pe0 >= 91 && engName() === "DRUM-X" ? [{ t: "MIXER", tab: "trackgroups", pages: [
+    ["MIXER 2/3", 0, P_LANES.slice(0, 4)], ["MIXER 3/3", 0, P_LANES.slice(4)]] }] : []),
 
   { t: "FX", pages: [["FX", 0, [33, 34, 35, 36]], ["SLICER", 0, [45, 46, 47, 48]], ["DELAY", 1, [4, 5, 6]], ["REVERB", 1, [24, 8, 9]], ["CHORUS", 1, [10, 11]], ["TAPE", 1, [7, 12, 15, 31]]] },   /* G_RTYPE 24: ROOM..CLOUD */
   { t: "SCL", pages: [["SCL", 0, [25, 26, 27, 28]], ...(pe0 >= 83 ? [["CHORD", 0, P_CHORD]] : [])] },   /* CHRD VOIC 81, 82 */
@@ -3805,7 +3808,7 @@ function buildGroups() {
   ctl.clear();
   dev.built = dev.dump.engine;
   /* Sound: the selected track's parameters; Sequencer: its pattern settings; Settings: globals */
-  const groups = { groups: [], seqgroups: [], setgroups: [] };
+  const groups = { groups: [], seqgroups: [], setgroups: [], trackgroups: [] };
   const { info } = dev;
   if (knownLayout(info)) {
     for (const g of LAYOUT(info.pe0)) {
