@@ -23,8 +23,10 @@
  * The punch-in lane (the automation): 64 steps of 1/16 (4 bars, from the transport's start: one loop for the whole
  * transport, the same in every song section), any punch-ins of either page a step (pfx_lane: a PF_BIT mask a step)
  * and the tracks its MIDI effects act on (pfx_ltgt).
- * Recording (REC armed, playing, not a song): the steps that pass while effects are held get them, added to what the
- * steps held (a second pass layers; the lane plays on while it records), a MIDI one with the tracks A#4 picked.
+ * Recording (REC armed, playing, not a song): each effect's press and release quantizes on its own (a press in a
+ * step's second half starts at the next 1/16, letting go in a step's first half ends at the previous one); the steps
+ * between get it, added to what they held (a second pass layers; the lane plays on while it records), a MIDI one
+ * with the tracks A#4 picked.
  * Played back with the held ones: the MIDI effects here, the audio ones on the master (perform.c perf_begin).
  * (G5 CLR is latched-FX all-off when FX LATCH is on.)
  * FUN21 saves the lane in the project's tail (project.c PROJ_LANE_OFF); a FUN20 loads its one effect a step.
@@ -117,8 +119,10 @@ static int16_t pfx_keep[NTRK][4];   /* DEC, REL (DRUM: DECY); ATK; SUS (DEC-) */
 static uint32_t pfx_qon;            /* (JIANT) the effects in (quantized to the 1/16) */
 
 static int pfx_rec_ok(void);          /* seq.c: REC armed, not a song playing */
-static uint8_t pfx_rh, pfx_rs0, pfx_rst;   /* recording the lane: a press on, its first step, the step being written */
-static uint32_t pfx_rold;             /* .. and what that step held before */
+static uint32_t pfx_rheld;            /* recording the lane: the effects held last block (the press / release edges) */
+static uint32_t pfx_rold;             /* .. the step being written, as it was before this recording wrote it */
+static uint8_t pfx_rskip[PF_N];       /* .. per press, the step before its first (not written) */
+static uint8_t pfx_rstep = 0xFF;      /* .. the step pfx_rold was taken in */
 
 /* each block, before the events (fx.c mix_block). held: the effects held (PF_* bits, audio ones too: the lane
  * records them; this file acts on the MIDI ones) */
@@ -137,27 +141,36 @@ static __attribute__((noinline)) void pfx_block(uint32_t n, uint32_t held)
     }
     held = pfx_qon;
     if (song.playing && b >= 4u) {                      /* the lane: record, or play */
-        uint32_t s16 = b / 4u, st = (pfx_lph / s16) & 63u, half = pfx_lph % s16 >= s16 / 2u;
+        uint32_t s16 = b / 4u, ph = pfx_lph % s16, st = (pfx_lph / s16) & 63u, half = ph >= s16 / 2u;
         pfx_lph += n;
-        if (pfx_rec_ok() && raw) {                      /* recording, to the nearest step: a press in a step's second */
-            if (!pfx_rh) {                              /* half starts at the next one */
-                pfx_rh = 1;
-                pfx_rs0 = (uint8_t)((st + half) & 63u);
-                pfx_rst = 0xFF;
+        if (pfx_rec_ok()) {                             /* recording, to the nearest step: each effect's press and
+                                                         * release quantizes on its own */
+            uint32_t pressed = raw & ~pfx_rheld, released = pfx_rheld & ~raw, m, e, bit;
+            pfx_rheld = raw;
+            if (st != pfx_rstep) {                      /* (the step as it was before this recording wrote it) */
+                pfx_rstep = (uint8_t)st;
+                pfx_rold = pfx_lane[st];
             }
-            if (st != ((pfx_rs0 - 1u) & 63u) || st == pfx_rs0) {
-                if (st != pfx_rst) {                    /* (a step new to this press: what it held, kept) */
-                    pfx_rst = (uint8_t)st;
-                    pfx_rold = pfx_lane[st];
-                }
-                pfx_lane[st] |= raw;                    /* (layered on what the step held) */
+            for (m = raw; m; m &= m - 1u) {             /* each held effect on its own steps: a press in a step's
+                                                         * second half starts at the next one */
+                e = (uint32_t)__builtin_ctz(m);
+                bit = m & -m;
+                if (pressed & bit)
+                    pfx_rskip[e] = (uint8_t)((st + half - 1u) & 63u);   /* the step before its first */
+                if (st != pfx_rskip[e])
+                    pfx_lane[st] |= bit;                /* (layered on what the step held) */
+            }
+            for (m = released; m; m &= m - 1u) {        /* let go in a step's first half: that step as it was
+                                                         * (no write in this step: pfx_rold is the step itself) */
+                bit = m & -m;
+                if (!half)
+                    pfx_lane[st] = (pfx_lane[st] & ~bit) | (pfx_rold & bit);
             }
             if (raw & PF_MIDI)                          /* (an audio effect plays on the master: no tracks) */
                 pfx_ltgt = pfx_tgt;
         } else {
-            if (pfx_rh && st == pfx_rst && !half && st != pfx_rs0)
-                pfx_lane[st] = pfx_rold;                /* let go in a step's first half: that step as it was */
-            pfx_rh = 0;
+            pfx_rheld = 0;
+            pfx_rstep = 0xFF;
         }
         lane = pfx_lane[st] & PF_MIDI;                  /* (the audio ones: perform.c perf_begin) */
     }

@@ -209,6 +209,7 @@ static void con_status(void)
     con_puts("\r\n");
     con_kv("uptime_ms", (int32_t)fm1_ms);
     con_kv("cpu_pct", (int32_t)(song.cpu_q8 * 100u / 256u));
+    con_kv("cpu1_pct", (int32_t)(felucca_dbg.cpu1_q8 * 100u / 256u));
     con_kv("audio_max_us", (int32_t)felucca_dbg.max_us);
     con_kv("audio_late", (int32_t)felucca_dbg.late);
     con_kv("ui_draw_us_max", (int32_t)ui_stat.us_max);
@@ -263,7 +264,8 @@ static void con_dbg(void)
                                         "timer_irqs", "ui_frames", "last_us", "cpu_q8", "boots",
                                         "stage", "page", "home", "prev_stage", "prev_page",
                                         "prev_home", "prev_rst", "prev_frames",
-                                        "late_over", "late_t5", "late_oth", "wall_max_us", "entry_gap_us"};
+                                        "late_over", "late_t5", "late_oth", "wall_max_us", "entry_gap_us",
+                                        "cpu1_q8"};
     uint32_t i;
     for (i = 0; i < sizeof NAMES / sizeof NAMES[0] && i < sizeof felucca_dbg / 4u; i++)
         con_kx(NAMES[i], w[i]);
@@ -292,6 +294,7 @@ static void con_c1(void)
     con_kv("c1_alive", (int32_t)fm1_c1_mb.alive);
     con_kv("c1_stack_used", (int32_t)fm1_cpu1_stack_used());
     con_kv("c1_t4_ok", (int32_t)c1_t4_ok);      /* core 1 times the parts with TIMER4 (fx.c mix_split's weights) */
+    con_kv("c1_layer_us", (int32_t)(perf_cost / FM1_TICKS_PER_US));   /* its FX layer job, smoothed (fx.c) */
     con_kx("c1_trace", fm1_c1_trace);
 }
 

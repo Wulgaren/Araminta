@@ -30,7 +30,9 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1]
 FW = SRC / "firmware"
-OUT = SRC / "build"
+OUT = (SRC / os.environ.get("FELUCCA_OUT", "build")).resolve()   # tests/layout_sweep.sh: one per layout, in parallel
+if not OUT.is_relative_to(SRC):     # the toolchain container mounts SRC and takes paths relative to it
+    raise SystemExit(f"FELUCCA_OUT={os.environ['FELUCCA_OUT']}: must be inside {SRC}")
 GEN = OUT / "gen"
 LDR = OUT / "loader"
 sys.path.insert(0, str(SRC / "tools"))
@@ -268,7 +270,7 @@ def app_cache_key(flags, size):
 
 
 def build_app():
-    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
+    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", f"-I{GEN.relative_to(SRC)}"]
     for flag in ("FELUCCA_FLASH", "FELUCCA_OTA", "FELUCCA_OTA_DRYRUN", "FELUCCA_OTA_RAMONLY", "FELUCCA_CDC",
                  "FELUCCA_UART", "FELUCCA_UAC", "FELUCCA_UAC_TONE", "FELUCCA_UAC_48K", "FELUCCA_ICONS", "FELUCCA_SLICE",
                  "FELUCCA_CDC_DEFAULT", "FELUCCA_UAC_AS_FIRST"):
@@ -278,6 +280,9 @@ def build_app():
     v = os.environ.get("FELUCCA_USB_LAYOUT")   # firmware/src/usb.c: how the USB composite presents itself (#67), 0..3
     if v in ("0", "1", "2", "3"):
         flags.append(f"-DFELUCCA_USB_LAYOUT={v}")
+    v = os.environ.get("FELUCCA_LAYOUT_PAD")   # tests/layout_sweep.sh: 8 x v unused stores move the flash layout, 1..7
+    if v in ("1", "2", "3", "4", "5", "6", "7"):
+        flags.append(f"-DFELUCCA_LAYOUT_PAD={v}")
     flags.append(f'-DFELUCCA_ID="{PRODUCT}"')
     if VERSION:
         flags.append(f'-DFELUCCA_VERSION="{VERSION}"')
@@ -342,8 +347,34 @@ def build_app():
     return bytes(img), syms, dis, rt
 
 
+def flash_hot_check(syms):
+    """app.ld's flash-hot block names its functions by their -ffunction-sections section. A renamed function, or
+    one the compiler inlined into its caller, leaves a pattern that matches nothing, so the entry drifts out of
+    the fixed block (emu_test --footprint, docs/fm1-emu-test.md) without a sign: fail the build instead."""
+    block = re.search(r"_flash_hot_start = \.;(.*?)_flash_hot_end", (FW / "app.ld").read_text(), re.S)
+    if not block:
+        return ["app.ld: no _flash_hot_start / _flash_hot_end block"]
+
+    def sym(name):
+        m = re.search(r"^([0-9a-f]+) .*\s" + re.escape(name) + r"$", syms, re.M)
+        return int(m.group(1), 16) if m else None
+
+    start, end = sym("_flash_hot_start"), sym("_flash_hot_end")
+    if start is None or end is None or end <= start:
+        return ["app.ld: _flash_hot_start / _flash_hot_end missing or empty"]
+    errors = []
+    for name in re.findall(r"\*\(\.text\.(\w+)\)", block.group(1)):
+        at = sym(name)
+        if at is None:
+            errors.append(f"app.ld: .flash_hot lists {name}, which is missing (renamed or inlined away)")
+        elif not start <= at < end:
+            errors.append(f"app.ld: .flash_hot lists {name} at {at:#x}, outside {start:#x}..{end:#x}")
+    return errors
+
+
 def check(img, syms, dis, rt):
     errors, notes = [], []
+    errors += flash_hot_check(syms)
     m = re.search(r"^([0-9a-f]+) .*\s_start$", syms, re.M)
     if not m or int(m.group(1), 16) != APP_XIP:
         errors.append(f"_start is not at {APP_XIP:#x}")

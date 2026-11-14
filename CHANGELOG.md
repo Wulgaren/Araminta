@@ -1,5 +1,27 @@
 # Changelog
 
+## 4.4
+
+The render keeps its hot flash code in one fixed block, the punch-in layer runs on the second core, and overlapping
+punch-ins record on their own edges.
+
+Splash and ABOUT show `v4.4`.
+
+### Performance
+
+- **The render's hot flash code has a fixed home.** Its 94 hottest functions (41,540 B) sit together after the boot
+  code, 64-byte aligned, with the hot tables next, so an edit elsewhere no longer moves them between cache sets. Over
+  8 flash layouts, stack's median load fell from 94.5 % to 87.5 %, and its median late halves from 393.5 to 39.
+- **The punch-in layer runs on the second core.** The mix leaves one 0.73 ms block late, a constant delay: the click,
+  the HOME scope and the USB tap see that block.
+
+### Fixes
+
+- **Overlapping punch-ins record on their own edges.** With REC armed, two effects held at once no longer share one
+  press state. A press in a step's second half starts at the next step, and a release in a step's first half ends at
+  the previous one, without touching the other effect's steps.
+- **SELECT on the punch-in and SEQ tools maps** no longer drops a turn when the audio render preempts the main loop.
+
 ## 4.3
 
 LFOs keep time with the tempo, the punch-in lane holds every effect a step had, and a project keeps all 255

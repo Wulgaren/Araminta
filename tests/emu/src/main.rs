@@ -5,7 +5,7 @@
 //! prints the firmware's own load counters (audio.c felucca_dbg, shed_count, voice_kills) as one JSON line.
 //!
 //!   emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario dry|keys|stack|churn --ms N
-//!            [--wav OUT.wav] [--mhz 240] [--fast] [--seed N]
+//!            [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--profile N] [--footprint N]
 //!
 //! The run: boot, USB-MIDI configured, the heavy patch set up through the editor's SysEx (editor.c) and
 //! played with MIDI notes on channels 1..4, the FX layer's PUNCH-IN 1/2 page opened with the FX button,
@@ -16,7 +16,7 @@
 //! Exit 1 with a message on stderr: boot, a CPU fault, a bad DBG magic, a setup the device did not take,
 //! or a punch-in that never engaged / did not let go.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::process::ExitCode;
 
 use fm1_core::{Bus, Cpu};
@@ -26,7 +26,7 @@ const RAM_SIZE: usize = 1 << 20;
 /// Instructions a `run` call: about 50 us of the device, the granularity of the host's MIDI and RAM probes.
 const CHUNK: u32 = 10_000;
 const USAGE: &str = "usage: emu_test --fwsc FELUCCA.fwsc --elf FELUCCA.elf --scenario dry|keys|stack|churn --ms N \
-[--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--profile N]";
+[--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--profile N] [--footprint N]";
 
 // The firmware's internal ids (parameters, PF_* effects, the punch pages' key maps), generated from its sources by
 // tests/emu/ids.c into build/emu/ids.rs before this builds (tests/run_tests.sh, FM1_EMU=1)
@@ -96,12 +96,15 @@ struct Args {
     seed: u32,
     /// --profile N: the N functions each core spent the most device time in during the scenario (0: off)
     profile: usize,
+    /// --footprint N: the N symbols that fetch the most 64-byte flash lines a half, the cache flushed at each
+    /// half (0: off)
+    footprint: usize,
 }
 
 fn parse_args() -> Result<Args, String> {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let (mut fwsc, mut elf, mut scenario, mut ms) = (None, None, None, None);
-    let (mut wav, mut mhz, mut fast, mut seed, mut profile) = (None, 240u64, false, 1u32, 0usize);
+    let (mut wav, mut mhz, mut fast, mut seed, mut profile, mut footprint) = (None, 240u64, false, 1u32, 0usize, 0usize);
     let mut i = 0;
     while i < a.len() {
         let val = |i: usize| a.get(i + 1).cloned().ok_or_else(|| format!("{} needs a value", a[i]));
@@ -115,6 +118,7 @@ fn parse_args() -> Result<Args, String> {
             "--mhz" => mhz = num(i)?,
             "--seed" => seed = u32::try_from(num(i)?).map_err(|_| "--seed: at most 32 bits")?,
             "--profile" => profile = num(i)? as usize,
+            "--footprint" => footprint = num(i)? as usize,
             "--fast" => {
                 fast = true;
                 i += 1;
@@ -126,7 +130,10 @@ fn parse_args() -> Result<Args, String> {
     }
     match (fwsc, elf, scenario, ms) {
         (Some(fwsc), Some(elf), Some(scenario), Some(ms)) if mhz > 0 => {
-            Ok(Args { fwsc, elf, scenario, ms, wav, mhz, fast, seed, profile })
+            if fast && footprint > 0 {
+                return Err("--footprint needs strict mode (no --fast)".into());
+            }
+            Ok(Args { fwsc, elf, scenario, ms, wav, mhz, fast, seed, profile, footprint })
         }
         _ => Err(USAGE.to_string()),
     }
@@ -240,7 +247,7 @@ impl Syms {
             }
         };
         Ok(Syms {
-            dbg: get("felucca_dbg", 96)?,
+            dbg: get("felucca_dbg", 100)?,
             shed_count: get("shed_count", 4)?,
             voice_kills: get("voice_kills", 4)?,
             perf_held: get("perf_held", 4)?,
@@ -262,6 +269,7 @@ const DBG_LATE_OVER: u32 = 19;
 const DBG_LATE_T5: u32 = 20;
 const DBG_LATE_OTH: u32 = 21;
 const DBG_WALL_MAX: u32 = 22;
+const DBG_CPU1_Q8: u32 = 24;
 
 // -------------------------------------------------------------------------------------- machine --
 
@@ -649,6 +657,100 @@ fn plan_churn(ms: u64, seed: u32) -> Plan {
     pl
 }
 
+// ------------------------------------------------------------------------------------ footprint --
+
+/// --footprint: the 64-byte flash lines (code and data) the firmware fetches in each audio half, per symbol.
+/// A half starts with a cold cache, so the first fetch of every line in it misses: the misses between two half
+/// boundaries are exactly the lines that half fetched, which is why the cache is flushed at every boundary. A
+/// cold start also makes a half slower than it runs warm, so the run's cpu_pct and late counts are not the
+/// device's while measuring.
+struct Footprint {
+    /// per line, how many halves fetched it
+    lines_seen: HashMap<u32, u64>,
+    /// the distinct lines each half fetched
+    per_half: Vec<usize>,
+    /// DBG_HALVES at the last boundary
+    half: u32,
+    /// the window before the first boundary ran with the cache as boot left it (a warm start, not a half)
+    warm: bool,
+}
+
+impl Footprint {
+    /// Starts counting at the next half boundary, the misses from here on kept aside.
+    fn start(emu: &mut Emu) -> Self {
+        emu.soc.miss_hist = Some(Default::default());
+        Footprint { lines_seen: HashMap::new(), per_half: Vec::new(), half: emu.dbg(DBG_HALVES), warm: true }
+    }
+
+    /// A half boundary: the misses since the last one are the lines this half fetched. The cache starts cold
+    /// again, its miss count carried on so --profile still reads the whole scenario's.
+    fn boundary(&mut self, emu: &mut Emu) {
+        let Some(hist) = emu.soc.miss_hist.replace(Default::default()) else { return };
+        let lines: HashSet<u32> = hist.keys().map(|k| (k & 0xffff_ffff) as u32).collect();
+        if !self.warm {
+            for &line in &lines {
+                *self.lines_seen.entry(line).or_default() += 1;
+            }
+            self.per_half.push(lines.len());
+        }
+        self.warm = false;
+        let mut cache = fm1_soc::XipCache::default();
+        cache.misses = emu.soc.xip_cache.as_ref().expect("--footprint runs strict: the cache is modelled").misses;
+        emu.soc.xip_cache = Some(cache);
+    }
+}
+
+/// --footprint's report: the lines a half overall and the top `args.footprint` symbols by average lines a half.
+/// A line two symbols share (one's end and the next one's start) counts for both, so the per-symbol
+/// column can add up to more than the total; a line in no flash object or function goes to "(no symbol)".
+fn footprint_report(args: &Args, fp: &Footprint) -> Result<(), String> {
+    let halves = fp.per_half.len();
+    if halves == 0 {
+        return Err("--footprint: no complete half in the scenario".into());
+    }
+    let avg = fp.per_half.iter().sum::<usize>() as f64 / halves as f64;
+    let max = fp.per_half.iter().copied().max().unwrap_or(0);
+    eprintln!("footprint: {halves} halves; flash lines a half: avg {avg:.1} ({:.1} KB), max {max}, against the cache's 512 (32 KB); this run's load numbers are not valid (cold cache each half)",
+        avg * 64.0 / 1024.0);
+    let mut syms: Vec<(u32, u32, String)> = elf_entries(&args.elf)?.into_iter()
+        .filter(|&(_, value, size, info)| matches!(info & 15, 1 | 2) && size > 0 && value >= 0x0200_0000)
+        .map(|(name, value, size, _)| (value, value.saturating_add(size), name))
+        .collect();
+    syms.sort();
+    let mut sums = vec![0u64; syms.len()];
+    let mut no_sym = 0u64;
+    for (&line, &count) in &fp.lines_seen {
+        let mut hit = false;
+        for (k, (start, end, _)) in syms.iter().enumerate() {
+            if *start < line + 64 && *end > line {
+                sums[k] += count;
+                hit = true;
+            }
+        }
+        if !hit {
+            no_sym += count;
+        }
+    }
+    let mut rows: Vec<(f64, Option<(u32, u32)>, &str)> = syms.iter().enumerate()
+        .filter(|&(k, _)| sums[k] > 0)
+        .map(|(k, (start, end, name))| (sums[k] as f64 / halves as f64, Some((*start, *end)), name.as_str()))
+        .collect();
+    if no_sym > 0 {
+        rows.push((no_sym as f64 / halves as f64, None, "(no symbol)"));
+    }
+    rows.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.2.cmp(b.2)));
+    let mut cum_kb = 0.0;
+    for &(avg, size, name) in rows.iter().take(args.footprint) {
+        cum_kb += avg * 64.0 / 1024.0;
+        let (lines, bytes) = match size {
+            Some((start, end)) => (((end - 1) / 64 - start / 64 + 1).to_string(), format!("{} B", end - start)),
+            None => (String::new(), String::new()),
+        };
+        eprintln!("  {avg:6.1}  {lines:>5}  {bytes:>8}  {cum_kb:6.1} KB  {name}");
+    }
+    Ok(())
+}
+
 // ------------------------------------------------------------------------------------------ run --
 
 fn run(args: &Args) -> Result<String, String> {
@@ -704,6 +806,7 @@ fn run(args: &Args) -> Result<String, String> {
     // (perf_act only once the scenario runs)
     emu.act_seen = 0;
     let mut cpu_q8_max = 0;
+    let mut cpu1_q8_max = 0;
     let mut next_sample = t0;
     // --profile: each CHUNK's cycles charged to the function each core is in at its end (a sampling profile
     // weighted by device time); core 0 outside the audio ISR (felucca_dbg.in_audio) as "(main loop)", core 1 in
@@ -712,8 +815,16 @@ fn run(args: &Args) -> Result<String, String> {
     let mut prof: [HashMap<String, u64>; 2] = [HashMap::new(), HashMap::new()];
     let mut last_cycles = emu.soc.periph.cycles;
     let misses0 = emu.soc.xip_cache.as_ref().map(|c| c.misses);
+    let mut footprint = if args.footprint > 0 { Some(Footprint::start(&mut emu)) } else { None };
     while emu.ms() < t0 + args.ms {
         emu.step()?;
+        if let Some(fp) = &mut footprint {
+            let half = emu.dbg(DBG_HALVES);
+            if half != fp.half {
+                fp.half = half;
+                fp.boundary(&mut emu);
+            }
+        }
         if let Some(f) = &funcs {
             let d = emu.soc.periph.cycles - last_cycles;
             last_cycles = emu.soc.periph.cycles;
@@ -726,6 +837,7 @@ fn run(args: &Args) -> Result<String, String> {
         }
         if emu.ms() >= next_sample {
             cpu_q8_max = cpu_q8_max.max(emu.dbg(DBG_CPU_Q8));
+            cpu1_q8_max = cpu1_q8_max.max(emu.dbg(DBG_CPU1_Q8));
             next_sample += 10;
         }
     }
@@ -759,6 +871,10 @@ fn run(args: &Args) -> Result<String, String> {
             });
             eprintln!("  {:5.1} %  {name}{size}", *c as f64 * 100.0 / total as f64);
         }
+    }
+
+    if let Some(fp) = &footprint {
+        footprint_report(args, fp)?;
     }
 
     let magic = emu.dbg(0);
@@ -798,12 +914,13 @@ fn run(args: &Args) -> Result<String, String> {
     let kills = emu.soc.read32(emu.syms.voice_kills).wrapping_sub(kills0);
     Ok(format!(
         "{{\"scenario\":\"{}\",\"ms\":{},\"strict\":{strict},\"mhz\":{},\"halves\":{halves},\"cpu_pct\":{:.1},\
-\"audio_max_us\":{max_us},\"late\":{late},\"late_over\":{late_over},\"late_t5\":{late_t5},\"late_oth\":{late_oth},\
-\"wall_max_us\":{wall_max},\"voices_shed\":{shed},\"voices_given_up\":{kills}}}",
+\"cpu1_pct\":{:.1},\"audio_max_us\":{max_us},\"late\":{late},\"late_over\":{late_over},\"late_t5\":{late_t5},\
+\"late_oth\":{late_oth},\"wall_max_us\":{wall_max},\"voices_shed\":{shed},\"voices_given_up\":{kills}}}",
         args.scenario.name(),
         args.ms,
         args.mhz,
         cpu_q8_max as f64 * 100.0 / 256.0,
+        cpu1_q8_max as f64 * 100.0 / 256.0,
     ))
 }
 

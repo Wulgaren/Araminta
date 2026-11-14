@@ -13,8 +13,9 @@ up with it. This test runs the real package, `build/felucca.fwsc`, on Joakim Eri
 - the audio DMA, TIMER5's interrupt nested in the render and both cores run as on the chip.
 
 The firmware measures itself the same way on the emulator as on the device: `felucca_dbg` (audio.c) counts the
-halves, the late ones and why, and keeps `cpu_q8`, the render's share of the 2.9 ms half-buffer. `shed_count` counts
-the voices the overload guard took.
+halves, the late ones and why, and keeps `cpu_q8`, the render's share of the 2.9 ms half-buffer, and `cpu1_q8`, the
+second core's share (the TIMER4 time of its jobs: the parts, the send buses and the punch-in layer). `shed_count`
+counts the voices the overload guard took.
 
 ## Running it
 
@@ -39,8 +40,8 @@ scenarios, each in its own unit (about 20-30 s each):
 The patch goes in through the editor protocol over the emulated USB-MIDI, the chords and drum hits as MIDI notes, the
 punch-ins as keys on the emulated panel. A scenario fails when the firmware faults, the setup is not taken, or a
 punch-in does not engage or does not let go. Each prints one line of JSON: `cpu_pct` (the highest during the
-scenario), `audio_max_us`, `late` (halves the DMA moved past, with `late_over` / `late_t5` / `late_oth` saying why),
-`wall_max_us`, `voices_shed`.
+scenario), `cpu1_pct` (the second core's highest, its jobs only), `audio_max_us`, `late` (halves the DMA moved past,
+with `late_over` / `late_t5` / `late_oth` saying why), `wall_max_us`, `voices_shed`.
 
 One scenario by hand:
 
@@ -106,6 +107,89 @@ scenario's totals, not by one function's share. The phase engine is in RAM too (
 86.3 %, stack 107.4 -> 104.7 %, and dry stayed at 81.6 %. `pd_setup` and `pd_wave` are `noinline`, so their divides
 and `switch` stay out of `phase_render`'s loop; with `pd_wave` inlined, `target_budget.py` read 8884 for that loop
 against 77, and out of line it reads 77.
+
+## The punch-in layer on the second core (2026-11-14)
+
+The FX hold layer (perform.c) was the last large serial stage on core 0: after the parts, the buses and MASTER's
+level, before master_out. It now runs one CTL block (0.73 ms) late: `perf_take` stages each block's mix (after CLIP
+and MASTER's level) and `perf_begin`'s controls in one of two slots; `c1_layer` runs `perf_block` on the other slot's
+block, on core 1, beside this core's tail (THROW, the sends, TAPE, the master chain); `perf_out` runs master_out on the
+result a block later. The latency is constant, so the click and the HOME scope are one block early and the USB tap gets
+the delayed mix. `perf_begin` (core 0, before the parts) takes and gives back the SLICER's buffer, so the job never
+drops the slicer's state under a part. `cpu1_pct` is new: the second core's share of the half, its jobs' TIMER4 ticks,
+smoothed as `cpu_pct`.
+
+Medians (min - max) over 8 flash layouts (`tests/layout_sweep.sh`), before (`7f533fe`) and after:
+
+| Scenario | cpu_pct before | after | late halves before | after |
+| --- | --- | --- | --- | --- |
+| dry, 3 s | 75.8 % (75.4 - 77.0) | 76.2 % (75.4 - 77.0) | 0 | 0 |
+| keys, 9 s | 81.2 % (80.5 - 82.8) | 78.9 % (78.1 - 80.1) | 25 (16 - 37) | 7.5 (3 - 13) |
+| churn, 6 s | 82.4 % (81.2 - 84.4) | 79.3 % (78.5 - 80.1) | 13 (6 - 19) | 1.5 (0 - 5) |
+| stack, 6 s | 98.8 % (98.0 - 100.8) | 94.5 % (93.0 - 96.5) | 634 (622 - 640) | 393 (193 - 560) |
+
+`cpu1_pct` after: ~53 % dry, ~56 % keys and churn, ~70 % stack. The sweep found a lost SELECT turn: on one layout
+keys' turn to PUNCH-IN 2/2 never took. The punch map read SELECT twice in a pass when the first read had nothing,
+and a detent the TIMER5 scan counted in between (the audio ISR can hold the main loop there for a render) went to the
+second read, which dropped it. It reads SELECT once now (ui_input.c; tests/ui_test.c's late-detent check). One build
+alone can read anywhere in these ranges: the
+first single-build numbers for this change were stack 89.5 % / 59 late (its best layout) and 96.5 % / 560 (its worst).
+
+Stack holds every audio punch-in at once; its late halves were all `late_over`. What is left there is the layer's own
+job being longer than the tail it hides behind in the worst blocks, plus the serial head (events, the keys) and tail
+(the master chain, master_out) that only core 0 runs.
+
+## Flash placement and `tests/layout_sweep.sh`
+
+About a third of each half is flash cache misses (~950 us of 2902): the render runs ~40 KB of flash code a block
+through the 32 KB cache. Code moving by a few hundred bytes changes which hot lines share a set, and `cpu_pct` moves
+with it: on stack, the same firmware plus an unused function of 12, 36 or 60 volatile stores measured 89.5, 94.5 and
+89.8 %. `tests/layout_sweep.sh` builds the working tree with `FELUCCA_LAYOUT_PAD=0..7` (8 x n such stores,
+perform.c, only in those builds), runs each scenario on each image and prints every layout and the median and range.
+Judge a load change by those, not by one build. The layouts build at once, each into its own `build/sweep/pad<n>/build`
+(`FELUCCA_OUT`, tools/build.py), and their runs go in parallel (the emulator counts device cycles, so the numbers do
+not change). The emulator is most of the time: every run boots and sets the patch up (~9 s of device time) before
+its scenario. All four scenarios take ~2.5 min on a 12-core Mac, stack alone ~1 min.
+
+`--footprint N` shows what competes for the cache: the 64-byte lines the firmware fetches from the flash in a half
+(code and data), in total and by symbol.
+
+```sh
+build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario stack --ms 4000 --footprint 40
+```
+
+It flushes the flash cache at each half boundary and counts the lines fetched in that half (code and flash data), per
+symbol, against the cache's 512 lines. A line two symbols share counts for both. The run's `cpu_pct` and `late` are not
+valid: every half starts cold, not warm.
+
+## A fixed home for the render's flash code (2026-11-14)
+
+`--footprint` put the render's hottest flash functions (`fm1_alnk0_irq` 85 lines a half, `fm1_timer5_irq` 39,
+`dx_run` 32, `track_render_audio` 28, `rev_hall` 27) and the `SINE` table (33) through the 580 KB image. Their
+addresses moved whenever unrelated code changed size, and the cache maps a 64-byte line to a set by its address:
+that is why the same firmware scored 89.5-96.5 % on stack across 8 layouts.
+
+`firmware/app.ld` now places the 94 functions `--footprint` ranked highest (41,476 B, 64-byte aligned, in the
+listed order) directly after crt0, between `_flash_hot_start` and `_flash_hot_end`; `.rodata` follows them, so
+`SINE` and the tables keep their sets too. `-ffunction-sections` gives each function its own `.text.<name>`, and
+`tools/build.py` fails the build when a listed function is missing (renamed or inlined away) or lands outside the
+block. A source-level section attribute was tried first and dropped: it keeps the compiler from inlining the
+function into its caller.
+
+Medians (min - max) over 8 layouts (`tests/layout_sweep.sh`), before (dev `226d3e3`) and after:
+
+| Scenario | cpu_pct before | after | late halves before | after |
+| --- | --- | --- | --- | --- |
+| dry, 3 s | 76.4 % (75.4 - 77.0) | 73.0 % (72.7 - 76.6) | 0 | 0 |
+| keys, 9 s | 78.9 % (78.1 - 80.1) | 76.6 % (76.2 - 76.6) | 7.5 (3 - 13) | 0 |
+| churn, 6 s | 79.5 % (78.1 - 80.9) | 76.2 % (74.6 - 76.6) | 1.5 (0 - 3) | 0 |
+| stack, 6 s | 94.5 % (93.4 - 96.5) | 87.1 % (86.7 - 87.5) | 393.5 (226 - 563) | 35 (31 - 41) |
+
+The flash lines a half barely moved (stack, 4 s: 605.9, 37.9 KB, max 932 -> 592.9, 37.1 KB, max 940): `--footprint`
+starts every half cold, so it counts a half's working set, not the warm-run set conflicts the fixed home removes.
+
+With the punch-in recorder fix (`9c218ee`) merged, the same sweep reads dry 74.4 %, keys 76.6 %, churn 76.6 %,
+stack 87.5 % (86.3 - 87.9), late 39 (33 - 44).
 
 ## Calibration record
 

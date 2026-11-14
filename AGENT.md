@@ -99,11 +99,13 @@ Device load: add `FM1_EMU=1` to that run when the change can move what the rende
 (`audio.c`), an engine, `voice.c`, `fx.c`, `perform.c`, `pfx.c`, `master.c`, where code sits (RAM or flash: `.pool`,
 section attributes, the linker script), or `tools/build.py`'s compiler flags; and before a release. It runs the
 package on fm1-emu timed as the device (`docs/fm1-emu-test.md`), locally only (it needs `cargo`; CI has no emulator).
-Report each scenario's `cpu_pct`, `late` and `voices_shed` beside the doc's last recorded results: a rise is the finding.
-While iterating on load, run one scenario, strict:
+One build's `cpu_pct` can sit ~5 % off its neighbours: flash placement decides which hot lines share a cache set.
+For the final numbers run `tests/layout_sweep.sh` (every scenario over 8 layouts, ~2.5 min) and report each
+scenario's `cpu_pct` and `late` medians and ranges beside the doc's: a rise of the median is the finding.
+(`voices_shed` changes from run to run: leave it out.) While iterating on load, sweep the one scenario that
+matters (`tests/layout_sweep.sh stack:6000`, ~1 min), or run it once, strict:
 `build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario stack --ms 4000`
-(~20 s; `--profile 40` shows where each core's time goes), and all four only for the final numbers. `--fast` runs
-single-core: never measure load with it.
+(~20 s; `--profile 40` shows where each core's time goes). `--fast` runs single-core: never measure load with it.
 
 Do not also run the suite a second time with the other setting, and do not push until it prints
 `ALL HOST TESTS PASSED`.

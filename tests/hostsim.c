@@ -70,9 +70,12 @@ static uint64_t now_ns(void)
     return (uint64_t)ts.tv_sec * 1000000000u + (uint64_t)ts.tv_nsec;
 }
 
+static void perf_pipe_clear(void);                /* fx.c: the FX layer's two-block pipeline */
+
 static void host_tracks_init(void)                /* as felucca_init: defaults, empty patterns */
 {
     uint32_t i, k;
+    perf_pipe_clear();                            /* a test's start is a boot: the FX layer's pipeline is empty */
     for (i = 0; i < G_COUNT; i++)
         song.g[i] = GP[i].def;
     song.g[G_RTYPE] = 0;                          /* ROOM, the power-on reverb until 1.2: the renders (goldens) as

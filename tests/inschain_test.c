@@ -893,6 +893,8 @@ static void test_shared_chorus(void)
     fx_bus_trk.p[P_IHRATE] = 0;
     ins_st[ins_bus_tr(INS_CHOR)][INS_CHOR].w = 32768;
     ins_st[ins_bus_tr(INS_CHOR)][INS_CHOR].ph = 0x40000000u;
+    mix_block(out_buf, CTL);                        /* the mix leaves one block late (fx.c perf_take / perf_out): the
+                                                     * first block is the pipeline's empty slot */
     ck("deep shared chorus preserves dev's sequential render", hash_out(1) == 0x03a45cf4814f7ccdull);
 }
 
