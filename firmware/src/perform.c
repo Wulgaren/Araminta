@@ -301,6 +301,36 @@ static AUDIO_RAM __attribute__((noinline)) void perf_ctl_picks(perf_blk_t *c)
     c->pick = (uint8_t)perf_pick(c->act);
 }
 
+#ifdef FELUCCA_LAYOUT_PAD
+/* tests/layout_sweep.sh only: 8 x FELUCCA_LAYOUT_PAD stores that never run. They move the flash code behind them, and
+ * with it which hot lines share a cache set, so a change can be judged over several layouts (docs/fm1-emu-test.md) */
+#define LAYOUT_PAD_1(i) p[i] = (i) * 7u + 1u;
+#define LAYOUT_PAD_8(b) LAYOUT_PAD_1(b) LAYOUT_PAD_1(b + 1) LAYOUT_PAD_1(b + 2) LAYOUT_PAD_1(b + 3) \
+                        LAYOUT_PAD_1(b + 4) LAYOUT_PAD_1(b + 5) LAYOUT_PAD_1(b + 6) LAYOUT_PAD_1(b + 7)
+__attribute__((used, noinline)) static void layout_pad(volatile uint32_t *p)
+{
+    LAYOUT_PAD_8(0)
+#if FELUCCA_LAYOUT_PAD > 1
+    LAYOUT_PAD_8(8)
+#endif
+#if FELUCCA_LAYOUT_PAD > 2
+    LAYOUT_PAD_8(16)
+#endif
+#if FELUCCA_LAYOUT_PAD > 3
+    LAYOUT_PAD_8(24)
+#endif
+#if FELUCCA_LAYOUT_PAD > 4
+    LAYOUT_PAD_8(32)
+#endif
+#if FELUCCA_LAYOUT_PAD > 5
+    LAYOUT_PAD_8(40)
+#endif
+#if FELUCCA_LAYOUT_PAD > 6
+    LAYOUT_PAD_8(48)
+#endif
+}
+#endif
+
 static void perf_glt_step(void);
 
 static void perf_buf_start(uint32_t e)

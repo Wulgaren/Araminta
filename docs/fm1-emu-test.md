@@ -119,21 +119,32 @@ the delayed mix. `perf_begin` (core 0, before the parts) takes and gives back th
 drops the slicer's state under a part. `cpu1_pct` is new: the second core's share of the half, its jobs' TIMER4 ticks,
 smoothed as `cpu_pct`.
 
-| Scenario | cpu_pct before | after | cpu1_pct after | late halves before | after | audio_max_us before | after |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| dry, 3 s | 75.8 % | 76.6 % | 53.5 % | 0 | 0 | 2592 | 2619 |
-| keys, 9 s | 80.5 % | 80.1 % | 56.2 % | 18 | 9 | 2804 | 2834 |
-| churn, 6 s | 81.6 % | 79.7 % | 56.6 % | 6 | 0 | 2799 | 2706 |
-| stack, 6 s | 98.4 % | 96.5 % | 71.9 % | 629 | 560 | 3188 | 3123 |
+Medians (min - max) over 8 flash layouts (`tests/layout_sweep.sh`), before (`7f533fe`) and after:
 
-These totals move with flash placement more than with the layer's work. The same tree without the press-order snapshot
-(`perf_ctl_picks`) measured stack 90.2 % / 68 late halves; that tree plus an unused function of 12, 36 or 60 volatile
-stores measured 89.5 % / 54, 94.5 % / 426 and 89.8 % / 58. Read stack as about ±5 % until core 0's hot path is out of
-flash (see the placement note above).
+| Scenario | cpu_pct before | after | late halves before | after |
+| --- | --- | --- | --- | --- |
+| dry, 3 s | 75.8 % (75.4 - 77.0) | 76.2 % (75.4 - 77.0) | 0 | 0 |
+| keys, 9 s | 81.2 % (80.5 - 82.8) | 78.9 % (78.5 - 80.1) | 25 (16 - 37) | 7 (5 - 10) |
+| churn, 6 s | 82.4 % (81.2 - 84.4) | 79.3 % (78.5 - 80.1) | 13 (6 - 19) | 1.5 (0 - 5) |
+| stack, 6 s | 98.8 % (98.0 - 100.8) | 94.5 % (93.0 - 96.5) | 634 (622 - 640) | 393 (193 - 560) |
+
+`cpu1_pct` after: ~53 % dry, ~56 % keys and churn, ~70 % stack. keys after is 7 layouts: at pad 7 its SELECT turn to
+PUNCH-IN 2/2 never took (no 2/2 key engaged in 5 s; the page walk is the UI loop's, ui.c perf_page), a timing case of
+the input path that this layout exposes, not of the layer. One build alone can read anywhere in these ranges: the
+first single-build numbers for this change were stack 89.5 % / 59 late (its best layout) and 96.5 % / 560 (its worst).
 
 Stack holds every audio punch-in at once; its late halves were all `late_over`. What is left there is the layer's own
 job being longer than the tail it hides behind in the worst blocks, plus the serial head (events, the keys) and tail
 (the master chain, master_out) that only core 0 runs.
+
+## Flash placement and `tests/layout_sweep.sh`
+
+About a third of each half is flash cache misses (~950 us of 2902): the render runs ~40 KB of flash code a block
+through the 32 KB cache. Code moving by a few hundred bytes changes which hot lines share a set, and `cpu_pct` moves
+with it: on stack, the same firmware plus an unused function of 12, 36 or 60 volatile stores measured 89.5, 94.5 and
+89.8 %. `tests/layout_sweep.sh` builds the working tree with `FELUCCA_LAYOUT_PAD=0..7` (8 x n such stores,
+perform.c, only in those builds), runs each scenario on each image (in parallel: the emulator counts device cycles)
+and prints every layout and the median and range. Judge a load change by those, not by one build.
 
 ## Calibration record
 
