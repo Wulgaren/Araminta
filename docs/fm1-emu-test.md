@@ -145,8 +145,11 @@ About a third of each half is flash cache misses (~950 us of 2902): the render r
 through the 32 KB cache. Code moving by a few hundred bytes changes which hot lines share a set, and `cpu_pct` moves
 with it: on stack, the same firmware plus an unused function of 12, 36 or 60 volatile stores measured 89.5, 94.5 and
 89.8 %. `tests/layout_sweep.sh` builds the working tree with `FELUCCA_LAYOUT_PAD=0..7` (8 x n such stores,
-perform.c, only in those builds), runs each scenario on each image (in parallel: the emulator counts device cycles)
-and prints every layout and the median and range. Judge a load change by those, not by one build.
+perform.c, only in those builds), runs each scenario on each image and prints every layout and the median and range.
+Judge a load change by those, not by one build. The layouts build at once, each into its own `build/sweep/pad<n>/build`
+(`FELUCCA_OUT`, tools/build.py), and their runs go in parallel (the emulator counts device cycles, so the numbers do
+not change). The emulator is most of the time: every run boots and sets the patch up (~9 s of device time) before
+its scenario. All four scenarios take ~2.5 min on a 12-core Mac, stack alone ~1 min.
 
 ## Calibration record
 
