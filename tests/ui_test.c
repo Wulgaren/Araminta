@@ -4601,7 +4601,7 @@ static int test_tape_locks(void)
     t = TSEL;
     t->p[P_LWAVE] = 4;                                  /* S&H makes SMOOTH available on LFO 2 */
     go_title("LFO 2");
-    ok = !lock_page_ok(ui.page);
+    ok = lock_page_ok(ui.page);                         /* (PHS and FADE lock: 4.3's LFO 2) */
     go_seq_step();
     frame();
     {
@@ -7396,15 +7396,15 @@ static int test_select_pages(void)
     ok &= str_eq(cur_page()->title, "LFO") && cur_page()->sec == LFO_SEC_LFO;
     bad += check("LFO section is LFO / LFO 2 / LFO DEST; LFO button opens the MOD section", ok);
 
-    go_title("LFO 2"); frame();
+    go_title("LFO"); frame();
     TSEL->p[P_LTRIG] = 0;                               /* NOTE */
-    turn(EN_K2, -1);                                   /* left: FREE, as DELAY K4 left is RATE -> TIME */
+    turn(EN_K3, -1);                                   /* left: FREE, as DELAY K4 left is RATE -> TIME */
     ok = TSEL->p[P_LTRIG] == 1;
-    turn(EN_K2, 1);
+    turn(EN_K3, 1);
     ok &= TSEL->p[P_LTRIG] == 0;
-    turn(EN_K2, 1);                                    /* right: NOTE is the end */
+    turn(EN_K3, 1);                                    /* right: NOTE is the end */
     ok &= TSEL->p[P_LTRIG] == 0;
-    bad += check("LFO 2 TRIG: NOTE to FREE is left (as DELAY RATE to TIME)", ok);
+    bad += check("LFO TRIG (K3): NOTE to FREE is left (as DELAY RATE to TIME)", ok);
 
     go_title("ENV"); frame();
     page = ui.page;
@@ -8905,61 +8905,66 @@ static int test_live_graph_rate(void)
     }
     ui_power_on();
     go_title("LFO");
+    TSEL->p[P_LTRIG] = 1;                            /* FREE: the LFO runs on, and the graph with it */
     ok = cur_page()->graph == GR_LFO && live_panel_each_frame();
-    bad += check("LFO wave: graph_sig moves every consecutive frame", ok);
-    {   /* the wave scrolls on the part's live phase (voice.c keeps it running): a quarter cycle on, other pixels */
+    bad += check("LFO TRIG FREE: graph_sig moves every consecutive frame", ok);
+    {   /* the graph is a phrase as it would start now, over one bar: FREE from the live phase (voice.c keeps it
+         * running), NOTE from PHS (it stands still); RATE PHS FADE POL WAVE SMTH all show */
+        static const uint8_t ID[] = {P_LRATE, P_LPHASE, P_LFADE, P_LPOL};
+        static const int16_t TO[] = {100, 64, 60, 1};
         static uint16_t a[240 * 240];
+        uint32_t i, sig;
         TSEL->lfo_ph = 0;
         frame();
         memcpy(a, host_screen, sizeof a);
         TSEL->lfo_ph = 0x40000000u;
         frame();
-        bad += check("LFO wave: the curve scrolls with the live phase", memcmp(a, host_screen, sizeof a) != 0);
-        TSEL->p[P_LWAVE] = 4;                       /* S&H: the boundary between the last two steps sweeps too */
-        TSEL->lfo_rnd = 0x60000000u;
-        TSEL->lfo_prev = 0;
+        bad += check("LFO TRIG FREE: the curve scrolls with the live phase", memcmp(a, host_screen, sizeof a) != 0);
+        TSEL->p[P_LWAVE] = 4;
         TSEL->lfo_ph = 0;
         frame();
         memcpy(a, host_screen, sizeof a);
         TSEL->lfo_ph = 0x40000000u;
         frame();
-        bad += check("LFO wave: S&H's step boundary scrolls with the live phase", memcmp(a, host_screen, sizeof a) != 0);
-        TSEL->p[P_LSMOOTH] = 0;                     /* SMTH rounds the step: a jump with it at 0 */
-        TSEL->p[P_LRATE] = 64;
-        TSEL->lfo_prev = -32768;
-        TSEL->lfo_rnd = 0xFFFF0000u;
-        TSEL->lfo_ph = 0;
-        TSEL->p[P_LWAVE] = 0;                       /* leaves S&H: its next draw fills a fresh curve */
-        frame();
-        TSEL->p[P_LWAVE] = 4;
-        frame();
-        TSEL->lfo_ph = 0x40000000u;                 /* a quarter cycle on: the step sits mid-panel */
+        bad += check("LFO TRIG FREE: S&H's steps scroll with it", memcmp(a, host_screen, sizeof a) != 0);
+        TSEL->p[P_LSMOOTH] = 0;                     /* NOTE (still): SMTH rounds S&H's steps */
+        TSEL->p[P_LTRIG] = 0;
         frame();
         memcpy(a, host_screen, sizeof a);
-        TSEL->lfo_ph = 0;                           /* the same run again, SMTH on */
-        TSEL->p[P_LWAVE] = 0;
-        frame();
-        TSEL->p[P_LWAVE] = 4;
         TSEL->p[P_LSMOOTH] = 127;
         frame();
-        TSEL->lfo_ph = 0x40000000u;
+        bad += check("LFO S&H: SMTH rounds the steps on the graph", memcmp(a, host_screen, sizeof a) != 0);
+        TSEL->p[P_LWAVE] = 0;
         frame();
-        bad += check("LFO wave: SMTH rounds S&H's step on the graph", memcmp(a, host_screen, sizeof a) != 0);
-    }
-    {   /* the S&H history does not survive a visit elsewhere: returning draws the steps afresh */
-        int ok2;
-        ui_power_on();
-        go_title("LFO");
-        TSEL->p[P_LWAVE] = 4;
-        TSEL->lfo_prev = 1000;
+        sig = ui.graph_sig;
+        memcpy(a, host_screen, sizeof a);
+        TSEL->lfo_ph = 0x12345678u;
         frame();
-        go_title("SCL");
-        frame(); frame(); frame();
-        lfo_hist.v1 = lfo_hist.v2 = lfo_hist.v3 = 12345;   /* (what an older visit left) */
-        go_title("LFO");
         frame();
-        ok2 = lfo_hist.v1 == 1000 && lfo_hist.v2 == 1000 && lfo_hist.v3 == 1000;
-        bad += check("LFO wave: S&H's history starts afresh after a page visit", ok2);
+        bad += check("LFO TRIG NOTE: still (the live phase moves nothing)", ui.graph_sig == sig &&
+                     !memcmp(a, host_screen, sizeof a));
+        for (ok = 1, i = 0; i < NELEM(ID); i++) {
+            int16_t was = TSEL->p[ID[i]];
+            TSEL->p[ID[i]] = TO[i];
+            frame();
+            ok &= memcmp(a, host_screen, sizeof a) != 0;
+            TSEL->p[ID[i]] = was;
+            frame();
+        }
+        bad += check("LFO TRIG NOTE: RATE (cycles in a bar), PHS, FADE, POL each move the drawing", ok);
+        TSEL->p[P_LSYNC] = 1;                       /* SYNC: RATE 4BAR is a quarter cycle in the bar, 1/16 sixteen */
+        TSEL->p[P_LRATE] = (int16_t)LSYNC_RATE(0u);
+        frame();
+        memcpy(a, host_screen, sizeof a);
+        song.g[G_BPM] = 60;
+        frame();
+        ok = !memcmp(a + 240u * 24u, host_screen + 240u * 24u, sizeof a - 240u * 24u * sizeof a[0]);   /* (under the
+                                                       * header's BPM: the bar is the tempo's, a synced cycle fills the same share) */
+        TSEL->p[P_LRATE] = (int16_t)LSYNC_RATE(7u);
+        frame();
+        bad += check("LFO SYNC: the same note value draws the same at any tempo; another one differs",
+                     ok && memcmp(a, host_screen, sizeof a) != 0);
+        song.g[G_BPM] = 120;
     }
     return bad;
 }

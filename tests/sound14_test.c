@@ -799,7 +799,8 @@ static int demos(const char *dir)
     t->p[P_VOICE] = V_POLY;
     t->p[P_E4] = 50;
     t->p[P_E5] = 90;
-    t->p[P_LSYNC] = 8;                                    /* 1/16 */
+    t->p[P_LSYNC] = 1;                                    /* 1/16 */
+    t->p[P_LRATE] = (int16_t)LSYNC_RATE(7u);
     slot(t, 0, MS_SH, MD_CUT, 63);
     if ((f = demo_open(dir, "sh_cutoff", 6u * FS / CTL * CTL))) {
         chord_on(t, PAD, 2);
@@ -814,7 +815,8 @@ static int demos(const char *dir)
     t->p[P_VOICE] = V_POLY;
     t->p[P_E4] = 50;
     t->p[P_E5] = 90;
-    t->p[P_LSYNC] = 6;                                    /* 1/8 */
+    t->p[P_LSYNC] = 1;                                    /* 1/8 */
+    t->p[P_LRATE] = (int16_t)LSYNC_RATE(5u);
     slot(t, 0, MS_SLEW, MD_CUT, 63);
     if ((f = demo_open(dir, "slew_cutoff", 6u * FS / CTL * CTL))) {
         chord_on(t, PAD, 2);

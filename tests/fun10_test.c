@@ -46,7 +46,7 @@ static double lfo_cycles(track_t *t, uint32_t blocks)
 
 static int lfo(void)
 {
-    static const uint8_t VALS[] = {1, 3, 5, 6, 7, 8, 9, 10};   /* 4BAR 1/1 1/4 1/8 8T 1/16 16T 1/32 */
+    static const uint8_t VALS[] = {1, 3, 5, 6, 7, 8, 9, 10};   /* 4BAR 1/1 1/4 1/8 8T 1/16 16T 1/32 (1.2's SYNC values) */
     static const double BEATS[11] = {0, 16, 8, 4, 2, 1, 0.5, 1.0 / 3.0, 0.25, 1.0 / 6.0, 0.125};
     static const int16_t BPM[] = {40, 97, 120, 173, 240};
     int bad = 0, ok = 1;
@@ -72,18 +72,18 @@ static int lfo(void)
             double cyc = FS * 60.0 / BPM[i] * BEATS[VALS[j]], want, got;
             uint32_t blocks = (uint32_t)(cyc * 8.0 / CTL);   /* eight cycles */
             song.g[G_BPM] = BPM[i];
-            t->p[P_LSYNC] = VALS[j];
-            t->p[P_LRATE] = 127;                     /* (ignored) */
+            t->p[P_LSYNC] = 1;
+            t->p[P_LRATE] = (int16_t)LSYNC_RATE(VALS[j] - 1u);   /* (4.3: RATE holds the note value) */
             t->lfo_ph = 0;
             got = lfo_cycles(t, blocks);
-            want = (double)blocks * CTL / (double)div_samples(LSYNC_DIV[VALS[j]]);
+            want = (double)blocks * CTL / (double)div_samples(DIV_ORDER[VALS[j] - 1u]);
             ok &= fabs(got - want) < 2e-4 && fabs(got - (double)blocks * CTL / cyc) < 0.003 * got;
             if (fabs(got - want) > worst) worst = fabs(got - want);
         }
     printf("ui:   SYNC: worst phase error against div_samples over 8 cycles %.2g cycles\n", worst);
-    bad += check("SYNC 4BAR..1/32 at 40, 97, 120, 173, 240 BPM: one cycle per note value (RATE ignored)", ok);
+    bad += check("SYNC 4BAR..1/32 at 40, 97, 120, 173, 240 BPM: one cycle per RATE's note value", ok);
     song.g[G_BPM] = 120;
-    t->p[P_LSYNC] = 5;                               /* 1/4 */
+    t->p[P_LRATE] = (int16_t)LSYNC_RATE(4u);        /* 1/4 */
     t->lfo_ph = 0;
     ok = fabs(lfo_cycles(t, (uint32_t)(22050u * 100u / CTL)) - 100.0 * (22050u * 100u / CTL * CTL) / 2205000.0) < 1e-4;
     bad += check("  1/4 at 120 BPM: 100 beats are 100 cycles (no drift)", ok);
@@ -119,7 +119,7 @@ static int lfo(void)
     trk_note_on(t, 62, 100);
     ok &= t->lfo_ph == 0x55555555u && t->lfo_fade == 0;
     bad += check("TRIG NOTE: a fresh phrase restarts the LFO at PHS; FREE: never (FADE still restarts)", ok);
-    t->p[P_LSYNC] = 5;
+    t->p[P_LSYNC] = 1;
     t->lfo_ph = 0x55555555u;
     seq_start();
     ok = t->lfo_ph == 32u << 25;
@@ -164,18 +164,62 @@ static int lfo(void)
         t->p[P_M1SRC] = t->p[P_M1DST] = t->p[P_M1AMT] = 0;
         t->p[P_LPOL] = 0;
     }
-    bad += check("LFO 2 is no automation (motion_param), its page SYNC TRIG POL after LFO (LFO's family)",
-                 !motion_param(P_LSYNC) && !motion_param(P_LTRIG) && !motion_param(P_LPOL) && !motion_param(P_SQNT) &&
-                 motion_param(P_LN7) && motion_param(P_E0) && PAGES[3].id[0] == P_LSYNC && !strcmp(PAGES[3].title, "LFO 2") &&
+    bad += check("TRIG POL are no automation (motion_param), LFO 2 after LFO (LFO's family)",
+                 !motion_param(P_LTRIG) && !motion_param(P_LPOL) && !motion_param(P_SQNT) &&
+                 motion_param(P_LN7) && motion_param(P_E0) && !strcmp(PAGES[3].title, "LFO 2") &&
                  PAGES[3].fam == FAM_LFO && PAGES[2].graph == GR_LFO && !strcmp(PAGES[4].title, "LFO DEST"));
+    return bad;
+}
+
+/* the LFO pages (4.3): LFO is RATE WAVE TRIG SYNC, LFO 2 PHS FADE POL SMTH. SYNC is ON / OFF (as ENV SYNC): ON reads
+ * RATE's own 0..127 as ten note values, longest first (69: 69 x 10 / 128 = 5, 1/8), so RATE is one automation row */
+static int lfo_pages(void)
+{
+    int bad = 0, ok;
+    uint32_t i;
+    char val[12];
+    const char *unit;
+    track_t *t;
+    ui_power_on();
+    t = TSEL;
+    t->p[P_LRATE] = 69;
     go_page(GR_LFO);
+    frame();
+    turn(EN_K4, 1);
+    param_format(track_desc(t, P_LRATE), t->p[P_LRATE], val, &unit);
+    ok = t->p[P_LSYNC] == 1 && t->p[P_LRATE] == 69 && !strcmp(val, "1/8") && !card_inactive(t, &t->p[P_LRATE]);
+    turn(EN_K1, 2);                                  /* 8T, 1/16: the first RATE showing it, 7 x 128 / 10 up = 90 */
+    param_format(track_desc(t, P_LRATE), t->p[P_LRATE], val, &unit);
+    ok &= t->p[P_LRATE] == 90 && !strcmp(val, "1/16");
+    bad += check("LFO K4 SYNC ON: RATE (K1) shows and turns note values, not dim", ok);
+    ui.plk_src = (uint8_t)(ui.page + 1u);
+    ok = lock_id(0) == P_LRATE;
+    ui.plk_src = 0;
+    song.rec = 1;
+    song.playing = 1;
+    motion_begin();
+    turn(EN_K1, -1);
+    ok &= motion.count > 0;
+    for (i = 0; i < motion.count; i++)
+        ok &= MOTION_ID(&motion.event[i]) == P_LRATE;
+    song.rec = 0;
+    song.playing = 0;
+    motion_end();
+    bad += check("  a RATE lock and a recorded RATE move are RATE's, SYNC on or off", ok);
+    turn(EN_K3, -1);                                 /* TRIG FREE (LTRIG_ORDER: FREE left of NOTE) */
+    ok = t->p[P_LTRIG] == 1 && !card_inactive(t, &t->p[P_LPHASE]);   /* FREE + SYNC: PLAY starts it at PHS */
+    turn(EN_K4, -1);
+    bad += check("  K3 TRIG; PHS dim on FREE with SYNC off only", ok && !t->p[P_LSYNC] && card_inactive(t, &t->p[P_LPHASE]));
     ui.page++;                                       /* LFO 2 */
     page_entered();
     frame();
-    turn(EN_K1, 3);
+    t->p[P_LWAVE] = 4;
+    turn(EN_K1, 1);
+    turn(EN_K2, 1);
     turn(EN_K3, 1);
-    bad += check("  LFO 2's knobs: SYNC (4BAR 2BAR 1/1 ..), POL", t->p[P_LSYNC] == 3 && t->p[P_LPOL] == 1 &&
-                 !strcmp(N_LSYNC[3], "1/1"));
+    turn(EN_K4, 1);
+    bad += check("  LFO 2's knobs: PHS FADE POL SMTH", t->p[P_LPHASE] > 0 && t->p[P_LFADE] > 0 && t->p[P_LPOL] == 1 &&
+                 t->p[P_LSMOOTH] > 0);
     return bad;
 }
 
@@ -615,7 +659,7 @@ static int formats(void)
     static project_store_t st;
     static uint8_t v9[3648], v8[3584], v7[3388];
     track_t *t = seq1(1);
-    t->p[P_LSYNC] = 8; t->p[P_LTRIG] = 1; t->p[P_LPOL] = 1; t->p[P_SQNT] = 0;
+    t->p[P_LSYNC] = 1; t->p[P_LTRIG] = 1; t->p[P_LPOL] = 1; t->p[P_SQNT] = 0;
     trk[2].p[P_E0 + 3] = 5;
     note_step(t, 0, 60, -8);
     note_step(t, 1, 61, 7);
@@ -634,7 +678,7 @@ static int formats(void)
          proj_import(&b, &st, sizeof st) && !memcmp(&a, &b, sizeof a);
     ok &= step_nudge(&b.t[0].step[0]) == -8 && step_nudge(&b.t[0].step[1]) == 7 && step_nudge(&b.t[0].step[2]) == -1 &&
           step_ratchet(&b.t[0].step[3]) == 4u && step_nudge(&b.t[0].step[3]) == 1 && step_chance(&b.t[0].step[3]) == 33u;
-    ok &= b.t[0].p[P_LSYNC] == 8 && b.t[0].p[P_LTRIG] == 1 && b.t[0].p[P_LPOL] == 1 && b.t[0].p[P_SQNT] == 0;
+    ok &= b.t[0].p[P_LSYNC] == 1 && b.t[0].p[P_LTRIG] == 1 && b.t[0].p[P_LPOL] == 1 && b.t[0].p[P_SQNT] == 0;
     /* P_IORD is 2 bytes LE: first step notes start at 68 + (P_COUNT + 1) + 2 */
     {
         uint32_t n0 = 68u + (P_COUNT + 1u) + 2u;
@@ -671,7 +715,7 @@ static int formats(void)
     motion_clear(t); t->p[P_SQNT] = 1; step_set_nudge(&t->step[1], 0);
     project_load(2);
     bad += check("  saved and loaded on the device: the same", step_nudge(&t->step[1]) == 7 && t->p[P_SQNT] == 0 &&
-                 motion.count == MOTION_FILE_MAX && t->p[P_LSYNC] == 8);
+                 motion.count == MOTION_FILE_MAX && t->p[P_LSYNC] == 1);
     st.raw[68u + 4u] |= 0x80u;                       /* a nudge bit in a FUN10 note byte: fine; in a FUN9: refused */
 
     /* FUN9 (1.1), FUN8 (1.0.x), FUN7: as before; the four parameters at their defaults, every nudge 0 */
@@ -769,15 +813,18 @@ static int formats(void)
         up_rec_t r;
         int16_t v[P_COUNT], def[P_COUNT];
         t = seq1(1);
-        t->p[P_LSYNC] = 4; t->p[P_LPOL] = 1;
+        t->p[P_LSYNC] = 1; t->p[P_LPOL] = 1;           /* (today's ON; the older records below hold 1.2's 1/2) */
         note_step(t, 0, 60, -8);                     /* (bit 4 of the flags set) */
         note_step(t, 1, 62, 3);
         memset(&r, 0, sizeof r);
         r.used = UP_USED; r.ver = UP_VER; r.engine = 0; r.np = P_COUNT;
         for (i = 0; i < P_COUNT; i++) { up_set_value(&r, i, t->p[i]); def[i] = TP[i].def; }
+        up_mark_lsync(&r);                            /* (a 4.3 record) */
         up_pat_from(&r, t->step);
         up_params(&r, v, def);
-        ok = v[P_LSYNC] == 4 && v[P_LPOL] == 1 && r.flags[0] == 0 && r.note[0] == 60 && r.flags[1] == 0 && r.note[1] == 62;
+        ok = v[P_LSYNC] == 1 && v[P_LPOL] == 1 && r.flags[0] == 0 && r.note[0] == 60 && r.flags[1] == 0 && r.note[1] == 62;
+        r.packed[UP_VIB_AT] = 0;                      /* the records below are older */
+        t->p[P_LSYNC] = 4;                            /* 1.2's 1/2 */
         r.np = 99;                                    /* as 1.1 stored it: the engine's 8 after its 91 */
         for (i = 0; i < 8u; i++) up_set_value(&r, 91u + i, (int16_t)(10 + i));
         up_params(&r, v, def);
@@ -786,7 +833,7 @@ static int formats(void)
         for (i = 0; i < 95u; i++) up_set_value(&r, i, t->p[i]);
         for (i = 0; i < 8u; i++) up_set_value(&r, 95u + i, (int16_t)(20 + i));
         up_params(&r, v, def);
-        ok &= v[P_LSYNC] == 4 && v[P_LPOL] == 1 && v[P_SPRD] == 0 && v[P_E0] == 20 && v[P_E7] == 0;
+        ok &= v[P_LSYNC] == 1 && v[P_LRATE] == (int16_t)LSYNC_RATE(3u) && v[P_LPOL] == 1 && v[P_SPRD] == 0 && v[P_E0] == 20 && v[P_E7] == 0;
         r.np = 104;                                   /* 1.2 .. 1.4: its 96, then the engine's 8 */
         t->p[P_SPRD] = 33;
         for (i = 0; i < 96u; i++) up_set_value(&r, i, t->p[i]);
@@ -804,6 +851,7 @@ int main(void)
 {
     int bad = 0;
     bad += lfo();
+    bad += lfo_pages();
     bad += smooth();
     bad += nudge();
     bad += motion128();

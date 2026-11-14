@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### LFO
+
+- **Pages.** LFO is RATE WAVE TRIG SYNC (how fast, and when it starts); LFO 2 is PHS FADE POL SMTH (its shape).
+- **SYNC is ON / OFF.** With SYNC on, RATE's knob turns note values (4BAR .. 1/32, longest first) instead of Hz,
+  as ENV SYNC does for ATK DEC REL. RATE is one automation row and one lock, SYNC on or off, and the matrix's RATE
+  moves the note value. RATE is no longer dimmed with SYNC on.
+- **PHS is dimmed on TRIG FREE with SYNC off**, the one case where nothing restarts the LFO at PHS (FREE + SYNC
+  still starts it at PHS on PLAY).
+- **The graph is a phrase over one bar of the tempo.** RATE shows as the cycles in the bar (SYNC 1/4: four, at any
+  tempo). TRIG NOTE starts it at PHS and the graph stands still; FREE starts it at the live phase and it scrolls.
+  FADE ramps it in from the left edge, POL UNI draws 0..+1 over the bottom line, S&H's steps glide over SMTH.
+
+### Compatibility
+
+- SYNC's stored value is 0 / 1 now; RATE holds the note value while it is on. Projects mark this in header byte 67
+  bit 3 (still FUN20); user presets in bit 1 of the VIB byte. A project or preset without the mark (all saved
+  before) loads its SYNC note value as SYNC ON with RATE on that note value, so it plays the same. A synced part's
+  RATE automation and locks, which did nothing, are dropped on load. Older firmware reads SYNC ON as 4BAR.
+- Editor protocol: id 91 `SYNC` is OFF ON. Library files key it `LSYNC`; a file keyed `SYNC` (written before)
+  converts as above when it loads.
+
 ## 4.2
 
 The mod matrix has eight slots per track instead of four. KNOB 1 on the MOD page runs SLOT 1..8, and the page lists
