@@ -3034,7 +3034,7 @@ static void mix_block(int32_t *out, uint32_t n)
     tape_pre();
     slicer_block();                                     /* shared SEND bus: one clock advance this block */
     ins_bus_block();                                    /* shared insert SEND DSP */
-    pfx_block(n, (perf_kill ? 0u : (perf_held | perf_latched) & PF_MIDI));
+    pfx_block(n, (perf_kill ? 0u : (perf_held | perf_latched) & ~PF_MUTE));
     events_block(n);
     clip_eff = song.g[G_CLIP];                          /* (JIANT) CLIP / PNCH for this block */
     pnch_eff = song.g[G_PUNCH];

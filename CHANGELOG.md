@@ -15,12 +15,21 @@
   tempo). TRIG NOTE starts it at PHS and the graph stands still; FREE starts it at the live phase and it scrolls.
   FADE ramps it in from the left edge, POL UNI draws 0..+1 over the bottom line, S&H's steps glide over SMTH.
 
+### Punch-in lane
+
+- **Every punch-in records.** With REC armed and the transport playing, REPEAT, LPF, HPF, REVERSE, TAPE STOP,
+  FREEZE, PITCH UP / DN, FLANGER, PHASER, the THROWs and GLITCH now go into the punch-in lane as the MIDI ones
+  did, and play back on the master. A recorded REPEAT or REVERSE starts on its step's 1/16. Before, only OCT±,
+  DEC±, STUTTER, ATK+, ARP, RANDOM and /2 / \*2 were recorded.
+
 ### Compatibility
 
 - SYNC's stored value is 0 / 1 now; RATE holds the note value while it is on. Projects mark this in header byte 67
   bit 3 (still FUN20); user presets in bit 1 of the VIB byte. A project or preset without the mark (all saved
   before) loads its SYNC note value as SYNC ON with RATE on that note value, so it plays the same. A synced part's
   RATE automation and locks, which did nothing, are dropped on load. Older firmware reads SYNC ON as 4BAR.
+- The punch-in lane keeps OCT- .. \*2 as 1..11, so lanes saved before load the same. GLITCH is 12, REPEAT 1/12
+  13, REPEAT 1/8 .. ECHO THROW 14..27; older firmware ignores those steps.
 - Editor protocol: id 91 `SYNC` is OFF ON. Library files key it `LSYNC`; a file keyed `SYNC` (written before)
   converts as above when it loads.
 
