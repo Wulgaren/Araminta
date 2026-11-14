@@ -31,6 +31,7 @@ int main(void)
     printf("pub const INSERT_MIX: [u8; 6] = [%d, %d, %d, %d, %d, %d];\n", P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX,
            P_IHMIX);
     u8c("G_BPM", G_BPM);
+    u8c("G_ROUTE", G_ROUTE);                        /* MENU > MIDI > MIDI IN: 0 = CH1-4 play parts 1-4 (seq.c midi_base) */
     printf("pub const V_POLY: i32 = %d;\n", V_POLY);
     u32c("PF_R8", PF_R8);
     u32c("PF_R12", PF_R12);
