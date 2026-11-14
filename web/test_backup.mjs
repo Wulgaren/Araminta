@@ -33,11 +33,11 @@ const athrows = async (f) => { try { await f(); return false; } catch { return t
 
 const rnd = (n, seed) => Uint8Array.from({ length: n }, (_, i) => (i * 131 + seed * 17 + (i >> 3)) & 255);
 ok(bkR32(bkU32(0xdeadbeef)) === 0xdeadbeef && bkCrc(new TextEncoder().encode("123456789")) === 0xcbf43926, "backup: numbers and CRC-32");
-ok(BACKUP_MODULE_VERSION === 3.6 && firmwareMismatch({ firmware: "ARAMINTA v3.6" }, "ARAMINTA v3.6") === null &&
+ok(BACKUP_MODULE_VERSION === 3.7 && firmwareMismatch({ firmware: "ARAMINTA v3.6" }, "ARAMINTA v3.6") === null &&
    firmwareMismatch({ firmware: "ARAMINTA v3.5" }, "ARAMINTA v3.6")?.from === "ARAMINTA v3.5" &&
    firmwareMismatch({}, "ARAMINTA v3.6") === null,
    "backup: module version and firmware mismatch check");
-ok(html.includes('import("./fm1backup.js?v=3.6")') && html.includes("m.BACKUP_MODULE_VERSION !== BACKUP_MODULE_VERSION"),
+ok(html.includes('import("./fm1backup.js?v=3.7")') && html.includes("m.BACKUP_MODULE_VERSION !== BACKUP_MODULE_VERSION"),
    "backup: the editor imports a cache-busted module and checks its version");
 const b = rnd(1000, 1);
 ok(bkUnpack(bkPack(b), b.length).every((v, i) => v === b[i]), "backup: 7-bit pack / unpack round trip");
@@ -243,6 +243,20 @@ ok(await athrows(() => restoreBackup(failing.request, file)) && failing.log.incl
     const archive = await captureBackup(device([[0, bytes], [1, rnd(1200, 70)], [2, bytes]]).request, "4.3");
     ok(readBackup(JSON.stringify(archive)).objects.find((o) => o.id === 2).size === size,
       `backup: a FUN${fun} live project and slot (${size} B) capture and read back`);
+  }
+  {   /* 4.2 retained slot: a 4096 B object holding a shorter 3840 B FUNJ record (project.c proj_import_any) */
+    const held = new Uint8Array(4096); held.set(current);
+    const archive = await captureBackup(device([[0, held], [1, rnd(1200, 82)], [2, held]]).request, "4.2");
+    const o = readBackup(JSON.stringify(archive)).objects.find((x) => x.id === 2);
+    ok(o.size === 3840 && o.crc === bkCrc(current) && o.bytes.every((v, i) => v === current[i]),
+      "backup: a 4096 B slot holding a 3840 B FUNJ record reads at its own size");
+    const exported = await captureProject(device([[2, held]]).request, 0, "4.2");
+    ok(exported.size === 4096 && readProject(exported).size === 3840,
+      "project: a retained FUNJ slot exports; the file keeps the slot's 4096 B");
+    const target = device([]);
+    await restoreBackup(target.request, archive);
+    ok(target.objs.get(2).length === 3840 && target.objs.get(2).every((v, i) => v === current[i]),
+      "backup: restoring a retained slot writes the 3840 B record");
   }
   const fun15 = fun10(51, "FX LOCKS"); fun15[0] = 0x46;
   const fun15Device = device([[2, fun15]]);

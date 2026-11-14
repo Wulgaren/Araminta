@@ -3,8 +3,8 @@
 // Local, complete musical archives. Requests name whitelisted objects, never flash addresses.
 import { convertProject, needsConversion } from "./projconv.js";
 // editor.html's cache-busted import checks this: a module still in the browser's module map from before a
-// deploy must not bypass the converters below.
-export const BACKUP_MODULE_VERSION = 3.6;
+// deploy must not bypass the converters below. Bump it with any change to what this module accepts.
+export const BACKUP_MODULE_VERSION = 3.7;
 // 8: the FM6 patch bank of 1.0..1.0.2 (listed empty since 1.0.3: a restore of an older archive's bank moves its patches
 // into the user presets restored before it); 9: the user presets' FM6 patches (1.0.3);
 // 10..13: user-preset banks 2..5 (F5000..F7000 + gap)
@@ -92,9 +92,11 @@ function parseBackup(file) {
     const bytes = Uint8Array.from(atob(o.data), (c) => c.charCodeAt(0));
     if (bytes.length !== o.size || bkCrc(bytes) !== o.crc) throw new Error("Backup checksum mismatch");
     if (isProjectId(o.id) && o.size) {
-      const want = PROJECT_MAGIC[o.size];
-      if (!want || !want.includes(projMagic(bytes))) throw new Error("Not a Felucca project");
-      if (!needsConversion(bytes) && !DEVICE_PROJECT_SIZES.includes(o.size)) throw new Error("Unexpected project size");
+      const project = projRecord(bytes), want = PROJECT_MAGIC[project.length], magic = projMagic(bytes);
+      if (!want || !want.includes(magic))
+        throw new Error(`Project slot ${String.fromCharCode(65 + o.id - 2)}: not a Felucca project ` +
+          `(${bytes.length} B, magic 0x${magic.toString(16).padStart(8, "0")})`);
+      if (!needsConversion(project) && !DEVICE_PROJECT_SIZES.includes(project.length)) throw new Error("Unexpected project size");
     }
     if (o.id >= 32 && o.size) {
       if (o.size < 512) throw new Error("Short slot backup");
@@ -127,7 +129,6 @@ function parseBackup(file) {
    DIGITAL -> FM6 converter (fm1backup's readProject). Anything unconvertible is refused here, before a PUT. */
 export function readBackup(file, digital) {
   const archive = parseBackup(file);
-  let converted = false;
   const objects = archive.objects.map((o) => {
     if (!isProjectId(o.id) || !o.size) return o;
     let project;
@@ -135,11 +136,10 @@ export function readBackup(file, digital) {
       size: o.size, crc: o.crc, data: o.data }, digital); }
     catch (e) { throw new Error(`Project slot ${String.fromCharCode(65 + o.id - 2)}: ${e.message}`); }
     if (!DEVICE_PROJECT_SIZES.includes(project.size)) throw new Error("Unexpected project size");
-    if (!project.converted) return o;
-    converted = true;
-    return { ...o, size: project.size, crc: project.crc, bytes: project.bytes, data: project.data, converted: true };
+    /* readProject reports the record's own size: a retained 4096 B / 4864 B slot restores as its shorter record. */
+    return { ...o, size: project.size, crc: project.crc, bytes: project.bytes, data: project.data, converted: project.converted };
   });
-  return converted ? { ...archive, objects } : archive;
+  return { ...archive, objects };
 }
 /* The archive's firmware against the device's: null when either version is unknown or they match. */
 export function firmwareMismatch(archive, firmware) {
@@ -226,11 +226,20 @@ const projId = (slot) => {
   return 2 + slot;
 };
 const projMagic = (bytes) => (bytes[0] | bytes[1] << 8 | bytes[2] << 16 | bytes[3] << 24) >>> 0;
+/* project.c proj_import_any: a 4096 B or 4864 B slot may hold an older, shorter record, and header word 1 is
+   that record's own size. Every project check uses this view, never the slot's whole length. */
+const projRecord = (bytes) => {
+  if (bytes.length !== 4096 && bytes.length !== 4864) return bytes;
+  const own = (bytes[4] | bytes[5] << 8 | bytes[6] << 16 | bytes[7] << 24) >>> 0;
+  return own >= 8 && own < bytes.length ? bytes.slice(0, own) : bytes;
+};
 export function projectName(bytes) {
-  if (!bytes || !(bytes.length in PROJECT_MAGIC)) return "";
+  if (!bytes) return "";
+  const record = projRecord(bytes);
+  if (!(record.length in PROJECT_MAGIC)) return "";
   let s = "";
-  for (let i = bytes.length - 16; i < bytes.length - 4; i++) {
-    const c = bytes[i];
+  for (let i = record.length - 16; i < record.length - 4; i++) {
+    const c = record[i];
     if (!c) break;
     if (c < 32 || c > 126) return "";
     s += String.fromCharCode(c);
@@ -238,9 +247,9 @@ export function projectName(bytes) {
   return s.trim();
 }
 function checkProjectBytes(bytes) {
-  const want = PROJECT_MAGIC[bytes.length];
-  if (!want || !want.includes(projMagic(bytes))) throw new Error("Not a Felucca project");
-  return bytes;
+  const record = projRecord(bytes), want = PROJECT_MAGIC[record.length];
+  if (!want || !want.includes(projMagic(record))) throw new Error("Not a Felucca project");
+  return record;
 }
 /* digital: the editor's DIGITAL -> FM6 converter, needed only for a project that still holds such a track.
    An old format (FUN1..FUN6) or a DIGITAL track is converted here; the bytes returned are the FUN19 wire. */
@@ -254,8 +263,9 @@ export function readProject(file, digital) {
       file.data.length !== 4 * Math.ceil(file.size / 3) ||
       !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.data))
     throw new Error("Not a Felucca project file");
-  let bytes = checkProjectBytes(Uint8Array.from(atob(file.data), (c) => c.charCodeAt(0)));
+  let bytes = Uint8Array.from(atob(file.data), (c) => c.charCodeAt(0));
   if (bytes.length !== file.size || bkCrc(bytes) !== file.crc) throw new Error("Project checksum mismatch");
+  bytes = checkProjectBytes(bytes);
   const converted = needsConversion(bytes);
   if (converted) bytes = convertProject(bytes, digital);
   const slot = Number.isInteger(file.slot) && file.slot >= 0 && file.slot <= 3 ? file.slot : 0;

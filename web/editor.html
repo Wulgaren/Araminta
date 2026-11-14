@@ -4179,11 +4179,12 @@ function renderBackup() {
   $("backup-import").disabled = !(caps & 2);
   $("backup-help").textContent = t(caps & 1 ? "backupHelp" : "backupOld");
 }
-/* cache-busted so a deploy cannot pair this page with an older module still in the browser's module map; the
-   version symbol catches a stale copy that the query did not replace */
-const BACKUP_MODULE_VERSION = 3.6;
+/* cache-busted so a deploy cannot pair this page with an older module still in the browser's module map; bump
+   both numbers with any change to fm1backup.js. The version symbol catches a stale copy that the query did not
+   replace. */
+const BACKUP_MODULE_VERSION = 3.7;
 async function backupModule() {
-  const m = await import("./fm1backup.js?v=3.6");
+  const m = await import("./fm1backup.js?v=3.7");
   if (m.BACKUP_MODULE_VERSION !== BACKUP_MODULE_VERSION)
     throw new Error(`fm1backup.js ${m.BACKUP_MODULE_VERSION ?? "?"} (need ${BACKUP_MODULE_VERSION}): reload the page`);
   return m;
