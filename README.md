@@ -28,14 +28,14 @@ stock.
   [Coming from Felucca 1.5](#coming-from-felucca-15).
 - **From an older Araminta:** install over it. Your data stays.
 
-## New in 4.3
+## New in 4.4
 
-- **LFO SYNC** works in note values. RATE turns 4BAR .. 1/32 with SYNC on, and the graph draws one bar of the tempo.
-- The **punch-in lane** records every effect, and a step holds all the effects held while it passed. REC keeps
-  playing while you record.
-- A project keeps **all 255 automation records** (was 192, and a save kept 148). The save limit and its warning are
-  gone.
-- Projects are **FUN21** (4864 B). Older projects still load; firmware before 4.3 cannot open a FUN21.
+- The render's **hot flash code** has a fixed home, so an edit elsewhere no longer moves it between cache sets.
+  Stack's median load over 8 flash layouts fell from 94.5 % to 87.5 %, with 39 late halves (was 393.5).
+- The **punch-in layer** runs on the second core. The mix leaves one 0.73 ms block late, a constant delay.
+- **Overlapping punch-ins** record on their own press and release edges, so two held effects no longer write into
+  each other's steps.
+- A turn of **SELECT** on the punch-in or SEQ tools map is no longer dropped when the audio render preempts it.
 
 Full notes: [CHANGELOG.md](CHANGELOG.md).
 
