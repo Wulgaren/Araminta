@@ -25,7 +25,8 @@ typedef struct {
 
 static inline uint32_t pd_slope(uint32_t span, uint32_t len) { return (span << 16) / (len ? len : 1u); }
 
-static void pd_setup(pd_t *b, uint32_t w, uint32_t dcw)
+/* the block's bend, twice a block: noinline, so its divides stay out of phase_render's loop (target_budget) */
+static AUDIO_RAM __attribute__((noinline)) void pd_setup(pd_t *b, uint32_t w, uint32_t dcw)
 {
     uint32_t x;
     b->w = w;
@@ -65,8 +66,9 @@ static void pd_setup(pd_t *b, uint32_t w, uint32_t dcw)
     b->x = x;
 }
 
-/* one sample at phase ph (16 bit): bipolar Q15 */
-static int32_t pd_wave(const pd_t *b, uint32_t ph)
+/* one sample at phase ph (16 bit): bipolar Q15; noinline, so its switch stays out of phase_render's loop
+ * (target_budget counts every backward branch as a loop) */
+static AUDIO_RAM __attribute__((noinline)) int32_t pd_wave(const pd_t *b, uint32_t ph)
 {
     uint32_t pd, x = b->x;
     switch (b->w) {
@@ -123,7 +125,7 @@ static void phase_note_on(track_t *t, voice_t *v)
     v->s[1] = 0;                 /* line 2 */
 }
 
-static void phase_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
+static AUDIO_RAM void phase_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
     const int16_t *p = t->p;
     uint32_t w1 = (uint32_t)p[P_E0] & 7u, w2 = (uint32_t)p[P_E1], i;
