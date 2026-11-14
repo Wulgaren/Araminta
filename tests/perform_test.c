@@ -2257,6 +2257,67 @@ static int test_x2(void)
     return bad;
 }
 
+/* ------------------------------------------- the punch-in lane, audio --- */
+/* mix_block from sample 0 of a fresh transport for `blocks` blocks; returns the sample REPEAT 1/16 first runs
+ * (NT if never) and in *end the first sample after it stopped */
+static uint32_t lane_play(uint32_t blocks, uint32_t *end)
+{
+    int32_t o[2 * CTL];
+    uint32_t b, on = NT;
+    *end = NT;
+    transport_req = 2;
+    mix_block(o, CTL);
+    transport_req = 1;
+    for (b = 0; b < blocks; b++) {
+        mix_block(o, CTL);
+        if ((perf_act & PF_BIT(PF_R16)) && on == NT)
+            on = b * CTL + pf.split;
+        if (!(perf_act & PF_BIT(PF_R16)) && on != NT && *end == NT)
+            *end = b * CTL;
+    }
+    return on;
+}
+static int test_pfx_lane_audio(void)
+{
+    int bad = 0;
+    int32_t o[2 * CTL];
+    uint32_t b, on, end;
+    char what[160];
+
+    host_tracks_init();
+    perf_reset();
+    pfx_tgt = pfx_ltgt = 0;
+    pfx_any = 0;
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    song.g[G_BPM] = 120;
+    song.rec = 0;
+    transport_req = 1;
+    mix_block(o, CTL);                                  /* (armed only once playing: no count-in) */
+    song.rec = 1;
+    for (b = 1; b < 5u * P16 / CTL; b++) {             /* REPEAT 1/16 held from step 2 into step 3's second half */
+        if (b == 2u * P16 / CTL + 1u)
+            perf_press(PF_R16, 1);
+        if (b == 15u * P16 / 4u / CTL)
+            perf_press(PF_R16, 0);
+        mix_block(o, CTL);
+    }
+    song.rec = 0;
+    on = lane_play(5u * P16 / CTL, &end);
+    snprintf(what, sizeof what, "lane: a REPEAT 1/16 recorded with REC plays back on step 2 (at %u, want %u)", on, 2u * P16);
+    bad += check(what, on == 2u * P16);
+    snprintf(what, sizeof what, "  and stops by the end of step 3 (at %u)", end);
+    bad += check(what, end > 3u * P16 && end <= 4u * P16);
+
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    pfx_lane_put(1, 1);                                 /* a lane saved before 4.3: 1 is OCT- */
+    lane_play(2u * P16 / CTL, &end);
+    bad += check("lane: a saved 1 still plays OCT-", trk[0].pfx_pit == -192);
+    transport_req = 2;
+    mix_block(o, CTL);
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    return bad;
+}
+
 /* --------------------------------------------------------- GLITCH (3.2) --- */
 static int test_glitch(void)
 {
@@ -2329,6 +2390,7 @@ int main(int argc, char **argv)
     bad += test_dly_rate();
     bad += test_pfx_restore();
     bad += test_x2();
+    bad += test_pfx_lane_audio();
     bad += test_glitch();
     bad += test_cost();
     bad += test_click_heavy();
