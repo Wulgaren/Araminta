@@ -16,6 +16,16 @@
  * parts shared before (mod.c, voice.c SPREAD, eng_formant.c, eng_phys.c) */
 #define C1_NP NPART
 #define C1_PI(t) ((uint32_t)((t) - trk) % C1_NP)
+/* AUDIO_RAM before a function: it runs from RAM (felucca.c: section .hot_text, app.ld; the host builds: nothing).
+ * For the render's hottest code: from the flash it goes through a 32 KB cache that the render's code and tables
+ * overflow, ~300 cycles a miss (fm1-emu, measured on a device). Chosen by `emu_test --profile` (docs/fm1-emu-test.md);
+ * the room is RAMTEXT's (app.ld, ~21 KB). A direct call cannot reach between RAM and the flash: an AUDIO_RAM
+ * function calls only AUDIO_RAM functions, and the flash calls it as AUDIO_FAR(fn)(args) (the link fails
+ * otherwise: "relocation truncated to fit") */
+#ifndef AUDIO_RAM
+#define AUDIO_RAM
+#define AUDIO_FAR(fn) fn
+#endif
 #define NSTEP 64
 #define HALF_FRAMES 128          /* I2S half buffer: 2.9 ms at 44.1 kHz (a key waits 0..1 half, then plays 1 half later) */
 #ifndef FELUCCA_SLICE

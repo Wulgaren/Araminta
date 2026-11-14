@@ -16,10 +16,8 @@
 #define RAMFN  __attribute__((section(".ram_text"), noinline, used))
 #define RAMINL static inline __attribute__((always_inline))
 
-/* XIP (0x02xxxxxx) -> RAM (0x01C0xxxx) is beyond the 23-bit call range:
- * call RAM code through a pointer the compiler cannot fold back. */
-static inline void *fl_far(void *p) { void *volatile q = p; return q; }
-#define FL_FAR(fn) ((__typeof__(&fn))fl_far((void *)&fn))
+/* XIP -> the RAM driver: beyond the call range (fm1_cc.h FM1_FAR) */
+#define FL_FAR(fn) FM1_FAR(fn)
 
 #define REG32(a) (*(volatile uint32_t *)(a))
 #define SFC_CON         REG32(0x40200u)            /* bit31 busy; [11:8] read mode */

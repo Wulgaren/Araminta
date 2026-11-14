@@ -84,6 +84,26 @@ With a factor `F` within a few percent of 1, the emulator's numbers stand as the
 emulated FM-1 at `240 / F` MHz: the firmware's own overload guard and late counters then act as they would on the
 device.
 
+## The render's hottest code in RAM (core.h AUDIO_RAM)
+
+`--profile` showed ~950 flash cache misses a half (~1.2 ms of the 2.9 ms half): the render's code is ~46 KB, the
+cache 32 KB, and every block evicts it again. RAMTEXT (app.ld) had ~21 KB free. In it now (`.hot_text`, ~17.6 KB):
+the insert kernels (`ins_run_swept`, `_dist`, `_crush`, `_filter`, `_ott`), FM6 and VOICE (`fm6_render`,
+`formant_render`), the punch-in layer's per-sample code (`perf_block`, `perf_harm`, `_flanger`, `_phaser`, `_glt`,
+`_glt_seg`, `pb_ring_f`). A call cannot reach between RAM and the flash: those crossings go through `AUDIO_FAR`.
+
+| Scenario | cpu_pct before | after | late halves before | after |
+| --- | --- | --- | --- | --- |
+| dry, 3 s | 103.9 % | 81.6 % | 491 | 8 |
+| keys, 9 s | 115.6 % | 91.4 % | 1515 | 216 |
+| churn, 6 s | 116.8 % | 89.1 % | 1006 | 61 |
+| stack, 6 s | 134.4 % | 107.4 % | 1026 | 765 |
+
+Placement moves the rest of the flash code too, and with it which lines share a cache set: judge a change by every
+scenario's totals, not by one function's share. (`phase_render` in RAM as well gave dry 81.2, keys 85.5, churn
+85.9, stack 104.3 %, though its own profile looked worse; it is in the flash for now, and its `flatten`ed copy
+counted 6 divides inside loops in target_budget.py.)
+
 ## Calibration record
 
 | Date | Firmware | Patch | Device cpu_pct | Emulator cpu_pct | F |
