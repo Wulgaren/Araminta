@@ -22,12 +22,14 @@ struct felucca_dbg {
     uint32_t late_over, late_t5, late_oth;/* late, by whose fault it seems (audio render / nested T5 / entry blocked) */
     uint32_t wall_max;                    /* worst half's wall time, us (audio + all nested, incl. outside the ISR) */
     uint32_t entry_gap;                   /* us since the previous half's ISR entry, worst seen */
+    uint32_t cpu1_q8;                     /* the second core's load, 1/256 of a half (its jobs' TIMER4 ticks, fx.c) */
 } felucca_dbg __attribute__((section(".noinit")));
 static volatile uint32_t audio_halves, audio_max_us;
 static uint32_t dbg_last_entry;                        /* the ISR entry before this one (TICKS): the gap between halves */
 static uint8_t dbg_entry_armed;                        /* first half's entry: no gap to trust */
 static volatile uint32_t t5_nested_ticks;              /* TIMER4 ticks TIMER5 spent nested in this ISR (main.c) */
 static uint32_t audio_cpu_rem;                         /* keep the fractional IIR step: no low-load bias */
+static uint32_t audio_c1_rem;                          /* .. for the second core's load */
 
 static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 -> 24 bit */
 {
@@ -157,6 +159,13 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
             uint32_t load = song.cpu_q8 * (CPU_AVG - 1u) + (us * 256u) / (HALF_FRAMES * 1000000u / FS) + audio_cpu_rem;
             song.cpu_q8 = load / CPU_AVG;
             audio_cpu_rem = load % CPU_AVG;
+        }
+        {   /* the second core: its jobs' TIMER4 ticks (fx.c c1_job_ticks) over the half, smoothed as cpu_q8 */
+            uint32_t load = felucca_dbg.cpu1_q8 * (CPU_AVG - 1u) +
+                            (c1_job_ticks * 256u) / ((HALF_FRAMES * 1000000u / FS) * FM1_TICKS_PER_US) + audio_c1_rem;
+            c1_job_ticks = 0;
+            felucca_dbg.cpu1_q8 = load / CPU_AVG;
+            audio_c1_rem = load % CPU_AVG;
         }
         if (fm1_audio_free_half() != half)
             felucca_dbg.late++;                         /* the DMA moved on while we rendered */

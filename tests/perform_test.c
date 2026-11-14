@@ -82,6 +82,7 @@ static void perf_reset(void)
     perf_page(0);
     memset((void *)perf_k, 0, sizeof perf_k);
     sl_lent = 0;
+    perf_layer_busy = 0;
     memset(sl, 0, sizeof sl);
     memset(sl_buf, 0, sizeof sl_buf);                  /* GLITCH reads what the ring held before it */
 }
@@ -111,7 +112,7 @@ static void run(uint32_t bpm, int playing, const ev_t *ev, uint32_t nev, uint32_
         memcpy(out_r + t, in_r + t, n * 4);
         if (perf_begin(n)) {
             busy_seen = 1;
-            perf_block(out_l + t, out_r + t, n);
+            perf_block(out_l + t, out_r + t, n, &perf_ctl);
         }
     }
 }
@@ -283,7 +284,7 @@ static int test_too_long(void)
             memcpy(out_l + t % NT, in_l + t % NT, CTL * 4);
             memcpy(out_r + t % NT, in_r + t % NT, CTL * 4);
             if (perf_begin(CTL))
-                perf_block(out_l + t % NT, out_r + t % NT, CTL);
+                perf_block(out_l + t % NT, out_r + t % NT, CTL, &perf_ctl);
             for (i = 1; i < CTL && t > 1000u; i++) {
                 int32_t d = abs(out_l[t % NT + i] - out_l[t % NT + i - 1]);
                 mx = d > mx ? d : mx;
@@ -502,6 +503,146 @@ static int test_idle(void)
     return bad;
 }
 
+/* ------------------------------------------------ 6b. the one-block pipeline --- */
+/* fx.c perf_take / perf_layer / perf_out: the whole final mix (the FX layer after MASTER's level) leaves one CTL
+ * block late, and the layer processes the block before it. A song sounding from its first block: the first output
+ * block is silence, and a punch-in held before the start first changes the output at block 1 (block 0 is not the
+ * layer's to change any more). The split path is tests/dualcore_test.c's */
+static int test_pipeline(void)
+{
+    static int32_t p_l[8u * CTL], p_r[8u * CTL];
+    const uint32_t frames = 8u * CTL;
+    uint32_t t, first = frames;
+    int bad = 0, fd[2];
+    pid_t pid;
+    char what[160];
+    song_setup();
+    fx_boot();
+    trk[0].p[P_VOICE] = V_POLY;
+    trk_note_on(&trk[0], 48, 100);                  /* sound from the first block */
+    if (pipe(fd) || (pid = fork()) < 0)
+        return check("pipeline: fork", 0);
+    if (!pid) {                                     /* a punch-in held from before the first block */
+        perf_latch_on = 1;
+        perf_press(PF_LPF, 1);
+        perf_press(PF_R16, 1);
+        song_render(frames, 0);
+        close(fd[0]);
+        if (write(fd[1], song_l, frames * 4u) < 0 || write(fd[1], song_r, frames * 4u) < 0)
+            _exit(1);
+        _exit(0);
+    }
+    close(fd[1]);
+    song_render(frames, 0);
+    {
+        FILE *f = fdopen(fd[0], "rb");
+        size_t got = fread(p_l, 4, frames, f) + fread(p_r, 4, frames, f);
+        fclose(f);
+        waitpid(pid, 0, 0);
+        bad += check("pipeline: the child's render came back", got == 2u * frames);
+    }
+    for (t = 0; t < frames; t++)
+        if (song_l[t] != p_l[t] || song_r[t] != p_r[t]) {
+            first = t;
+            break;
+        }
+    snprintf(what, sizeof what, "pipeline: the mix leaves one CTL block late (block 0 silent, the punch-in first at %u)", first);
+    bad += check(what, !peak(song_l, 0, CTL) && !peak(song_r, 0, CTL) && peak(song_l, CTL, frames) > 1000);
+    bad += check("pipeline: a punch-in held from before the first block first changes the output in block 1 (its LPF ramp)",
+                 first >= CTL && first < CTL + SL_RAMP && peak(p_l, CTL, frames) > 1000);
+    return bad;
+}
+
+/* the layer runs a block late, so whatever core 0 does after block K must not reach output block K + 1 (block K's
+ * audio). The same render twice from one state: `at` acts on both, and on the child alone once fc_child is set; the
+ * first sample where they part. FC_FRAMES long */
+#define FC_FRAMES (1000u * CTL)
+static int fc_child;
+static uint32_t first_change(void (*setup)(void), void (*at)(uint32_t t))
+{
+    static int32_t m_l[FC_FRAMES], m_r[FC_FRAMES];
+    uint32_t t;
+    int fd[2];
+    pid_t pid;
+    song_setup();
+    fx_boot();
+    perf_latch_on = 1;
+    setup();
+    if (pipe(fd) || (pid = fork()) < 0)
+        return 0;
+    if (!pid) {
+        fc_child = 1;
+        song_render(FC_FRAMES, at);
+        close(fd[0]);
+        if (write(fd[1], song_l, FC_FRAMES * 4u) < 0 || write(fd[1], song_r, FC_FRAMES * 4u) < 0)
+            _exit(1);
+        _exit(0);
+    }
+    close(fd[1]);
+    fc_child = 0;
+    song_render(FC_FRAMES, at);
+    {
+        FILE *f = fdopen(fd[0], "rb");
+        size_t got = fread(m_l, 4, FC_FRAMES, f) + fread(m_r, 4, FC_FRAMES, f);
+        fclose(f);
+        waitpid(pid, 0, 0);
+        if (got != 2u * FC_FRAMES)
+            return 0;
+    }
+    perf_latch_on = 0;                              /* the tests after start from no latched effect */
+    perf_reset();
+    fx_boot();
+    for (t = 0; t < FC_FRAMES; t++)
+        if (song_l[t] != m_l[t] || song_r[t] != m_r[t])
+            return t;
+    return FC_FRAMES;
+}
+
+/* a knob turned before block 400, FLANGER and PHASER held: first heard in output block 401 */
+#define KNOB_BLOCK 400u
+static int knob_k;
+static void knob_setup(void)
+{
+    perf_press(PF_FLG, 1);
+    perf_press(PF_PHS, 1);
+}
+static void knob_at(uint32_t t)
+{
+    if (fc_child && t == KNOB_BLOCK * CTL)
+        perf_k[knob_k] = 60;
+}
+/* OCT UP pressed after REPEAT 1/16, so OCT UP plays. Letting REPEAT go in block 861 renews its place in the press
+ * order: the layer's pick for block 860 (both held) must still be OCT UP */
+#define PICK_BLOCK 861u
+static void pick_setup(void) { perf_press(PF_R16, 1); }
+static void pick_at(uint32_t t)
+{
+    if (t == 400u * CTL)
+        perf_press(PF_OUP, 1);
+    if (fc_child && t == PICK_BLOCK * CTL)
+        perf_press(PF_R16, 1);
+}
+static int test_pipeline_timing(void)
+{
+    static const char *const NAME[4] = {"KNOB 1 FILTER", "KNOB 2 CRUSH", "KNOB 3 THROW", "KNOB 4 DEPTH"};
+    int bad = 0;
+    uint32_t t, from;
+    char what[160];
+    from = (KNOB_BLOCK + 1u) * CTL;
+    for (knob_k = 0; knob_k < 4; knob_k++) {
+        t = first_change(knob_setup, knob_at);
+        snprintf(what, sizeof what, "pipeline: %s turned before block %u is first heard in output block %u (sample %u, from %u)",
+                 NAME[knob_k], KNOB_BLOCK, t / CTL, t, from);
+        bad += check(what, t >= from && t < FC_FRAMES);
+    }
+    from = (PICK_BLOCK + 1u) * CTL;
+    t = first_change(pick_setup, pick_at);
+    snprintf(what, sizeof what, "pipeline: REPEAT let go in block %u (OCT UP playing) changes nothing before output block %u (first: %u)",
+             PICK_BLOCK, from / CTL, t / CTL);
+    bad += check(what, t >= from);
+    return bad;
+}
+
 /* ----------------------------------------------- 7. clicks, the rest --- */
 static int test_misc(void)
 {
@@ -565,7 +706,7 @@ static int test_misc(void)
             memcpy(out_l + t, in_l + t, CTL * 4);
             memcpy(out_r + t, in_r + t, CTL * 4);
             if (perf_begin(CTL))
-                perf_block(out_l + t, out_r + t, CTL);
+                perf_block(out_l + t, out_r + t, CTL, &perf_ctl);
         }
         perf_k[0] = 0;
         snprintf(what, sizeof what, "KNOB 1 FILTER all the way left: a 5 kHz sine down to %d", peak(out_l, 10000, 20000));
@@ -1399,7 +1540,7 @@ static int test_throw(void)
                     down = t + i + 1u - 2048u;
                 prev = last = sr[i];
             }
-            perf_block(sd, sr, CTL);                    /* (the stage, for pf.busy) */
+            perf_block(sd, sr, CTL, &perf_ctl);         /* (the stage, for pf.busy) */
         }
         k = (uint32_t)full * THR_SLOPE / 32768u + 2u;
         snprintf(what, sizeof what, "  the glide: full (%d) after %u samples, 0 again %u after the release, steps <= %d (bound %u)",
@@ -1433,7 +1574,7 @@ static int test_throw(void)
                 if (pf.thr)
                     perf_throw(tk, b1, sd, sr, CTL);
                 fx_buses(sd, sr, wb, CTL);
-                perf_block(z, z, CTL);
+                perf_block(z, z, CTL, &perf_ctl);
                 for (i = 0; i < CTL; i++) {
                     double a = fabs((double)wb[i]);
                     if (!run)
@@ -2374,7 +2515,7 @@ static int test_glitch(void)
         memcpy(out_l + t, in_l + t, n * 4);
         memcpy(out_r + t, in_r + t, n * 4);
         if (perf_begin(n)) {
-            perf_block(out_l + t, out_r + t, n);
+            perf_block(out_l + t, out_r + t, n, &perf_ctl);
             seen |= 1u << pf.gl.a;
         }
     }
@@ -2392,6 +2533,8 @@ int main(int argc, char **argv)
     bad += test_slicer();
     bad += test_keys();
     bad += test_idle();
+    bad += test_pipeline();
+    bad += test_pipeline_timing();
     bad += test_misc();
     bad += test_harm();
     bad += test_mod();

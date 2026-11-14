@@ -19,8 +19,9 @@ static pthread_cond_t c1h_cv = PTHREAD_COND_INITIALIZER;
 static void (*c1h_fn)(uint32_t);
 static uint32_t c1h_arg, c1h_job, c1h_done, c1h_up, c1h_blocks, c1h_taken;
 static int c1h_off;                                 /* 1: no second core (the reference renders) */
-static int c1h_stall, c1h_fail;                     /* C1_STALL=1: every job dies after its lowest part (fx.c c1_done:
-                                                     * mix_block renders the rest — the block must be the same anyway) */
+static int c1h_stall, c1h_fail;                     /* C1_STALL=1: every parts job dies after its lowest part, and
+                                                     * every FX layer job before it starts (mix_block renders the rest:
+                                                     * the block must be the same anyway) */
 static int c1h_reject;                             /* C1_REJECT=1: reject every second job before touching its sums */
 
 static void *c1h_main(void *x)
@@ -38,12 +39,14 @@ static void *c1h_main(void *x)
         reject = c1h_reject && !(c1h_job & 1u);
         pthread_mutex_unlock(&c1h_mu);
         if (reject) {                          /* a bad mailbox read: no callback, the previous sums remain */
-        } else if (c1h_stall) {                 /* as if it died after the first part of the job */
+        } else if (c1h_stall && (arg & 15u)) {  /* as if it died after the first part of the job */
             uint32_t part = arg & 15u;
             fn((arg & ~15u) | (part & (~part + 1u)));
-        } else {
+        } else if (!c1h_stall) {
             fn(arg);
-        }
+        }                                       /* (a layer job with C1_STALL: cut before it starts, so mix_block's
+                                                 * fallback runs the layer once; a cut inside it would advance its
+                                                 * state twice: fx.c notes that one block) */
         pthread_mutex_lock(&c1h_mu);
         c1h_done = c1h_job;
         c1h_fail = reject || c1h_stall;

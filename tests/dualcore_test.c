@@ -28,10 +28,13 @@
 #define FX_MOD_KNOB 16u             /* the matrix moves the shared send knobs of two parts at once */
 #define FX_MOD_BUS 32u              /* the matrix moves the DLY / REV bus settings of two parts (mod_bus) */
 #define FX_CHAIN_OWN 64u            /* DLY / REV as CHAIN on two owners (fx_bus_stage), their knobs moved */
+#define FX_PUNCH 128u               /* audio punch-ins latched in turn over the render (perform.c, on the second core) */
+#define FX_KNOB 256u                /* the FX knob macros: THROW alone up and down, then CRUSH and DEPTH on a FLANGER */
 
-typedef struct { const char *name; uint8_t eng[NPART], pre[NPART]; uint8_t morph, fx; } scen_t;
+typedef struct { const char *name; uint8_t eng[NPART], pre[NPART]; uint8_t morph; uint16_t fx; } scen_t;
 
 static int32_t peak[NPART];                         /* each part's loudest (track_t.peak), for the check */
+static int punch_seen;                              /* a punched render ran the FX layer */
 
 static void part_setup(track_t *t, uint32_t k, uint32_t e, uint32_t fx)
 {
@@ -139,6 +142,9 @@ static uint64_t render(const scen_t *sc, int dual, const char *mask)
         bus_own_set(0, 0);
         bus_own_set(1, 1);
     }
+    if (sc->fx & (FX_PUNCH | FX_KNOB))
+        perf_latch_on = 1;                          /* the audio punch-ins: a press latches, the next lets go */
+    punch_seen = 0;
     for (f = 0; f < SECS * FS; f += CTL) {
         uint32_t ms = f / (FS / 1000u);
         for (k = 0; k < NPART; k++) {
@@ -150,9 +156,48 @@ static uint64_t render(const scen_t *sc, int dual, const char *mask)
                 for (i = 0; i < 3u; i++)
                     trk_note_off(&trk[k], base + CH[i]);
         }
+        if (sc->fx & FX_PUNCH) {                    /* the audio ones, on and off again: REPEAT borrows the SLICER's */
+            if (ms == 100u) {
+                perf_press(PF_R16, 1);
+                perf_press(PF_LPF, 1);
+            } else if (ms == 250u) {
+                perf_press(PF_FLG, 1);
+                perf_press(PF_PHS, 1);
+            } else if (ms == 400u) {
+                perf_press(PF_RTHR, 1);
+                perf_press(PF_ETHR, 1);
+            } else if (ms == 550u) {
+                perf_press(PF_R16, 1);
+                perf_press(PF_LPF, 1);
+                perf_press(PF_FLG, 1);
+                perf_press(PF_PHS, 1);
+                perf_press(PF_RTHR, 1);
+                perf_press(PF_ETHR, 1);
+            } else if (ms == 700u) {
+                perf_latch_on = 0;
+            }
+        }
+        if (sc->fx & FX_KNOB) {                     /* THROW's glide down runs on core 0 (perf_pre) while the layer
+                                                     * runs on core 1: nothing else held, so only THROW keeps it busy.
+                                                     * By block, so each press lands once */
+            if (f == 140u * CTL) {
+                perf_k[2] = 80;
+            } else if (f == 410u * CTL) {
+                perf_k[2] = 0;
+            } else if (f == 580u * CTL) {
+                perf_press(PF_FLG, 1);
+                perf_k[1] = 50;
+                perf_k[3] = 40;
+            } else if (f == 800u * CTL) {
+                perf_k[1] = 0;
+                perf_k[3] = 0;
+                perf_press(PF_FLG, 1);
+            }
+        }
         if (sc->morph && ms == 600u)                /* PHYS: MODEL changed under a sounding note (phys_render) */
             trk[0].p[P_E0] = (int16_t)((trk[0].p[P_E0] + 1) % PM_COUNT);
         mix_block(o, CTL);
+        punch_seen |= perf_layer_busy || perf_act;
         for (k = 0; k < NPART; k++)
             if (trk[k].peak > peak[k])
                 peak[k] = trk[k].peak;
@@ -164,6 +209,8 @@ static uint64_t render(const scen_t *sc, int dual, const char *mask)
             }
         }
     }
+    if ((sc->fx & (FX_PUNCH | FX_KNOB)) && !punch_seen)
+        h = 0;                                      /* the layer never ran: the scene proves nothing (FAIL) */
     return h;
 }
 
@@ -240,6 +287,13 @@ int main(void)
                        FX_TORTURE | FX_MOD_BUS | FX_CHAIN_OWN};
     sc[n++] = (scen_t){"send FLANG CHOR + knobs + bus mod", {0, 0, ENGI_FM6, ENGI_FM6}, {3, 6, 1, 4}, 0,
                        FX_TORTURE | FX_SEND_SWEEP | FX_MOD_KNOB | FX_MOD_BUS};
+    /* the FX layer (perform.c perf_block) on the other core, one block late */
+    sc[n++] = (scen_t){"punch LPF REPEAT 4 x ANALOG", {0, 0, 0, 0}, {0, 2, 4, 6}, 0, FX_TORTURE | FX_PUNCH};
+    sc[n++] = (scen_t){"punch stack + PHYS morph", {ENGI_PHYS, ENGI_FM6, ENGI_DRUM, 0}, {1, 4, 7, 10}, 1,
+                       FX_TORTURE | FX_PUNCH};
+    sc[n++] = (scen_t){"punch SH 4 x VOICE", {5, 5, ENGI_NOISE, 5}, {1, 3, 0, 5}, 0,
+                       FX_TORTURE | FX_PUNCH | FX_SEND_SLCR};
+    sc[n++] = (scen_t){"knobs THROW CRUSH DEPTH 4 x ANALOG", {0, 0, 0, 0}, {1, 3, 5, 7}, 0, FX_TORTURE | FX_KNOB};
     for (i = 0; i < n; i++) {
         uint64_t ref;
         uint32_t m, bad = 0, quiet = 0, taken = 0, took = 0;

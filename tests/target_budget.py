@@ -32,7 +32,7 @@ FUNCS = ["analog_render",                             # ANALOG's dispatcher: the
          "uac_tap48",                                       # the USB audio input at 48 kHz: the 44.1 -> 48 resampler (usb.c)
          "click_render",                                    # the metronome's click (click.c), while it sounds
          "mod_begin", "mod_voice", "mod_end",                 # the modulation matrix (mod.c), called when active
-         "perf_begin", "perf_mute", "perf_pre", "perf_block", "perf_master",   # the FX layer (perform.c), when busy
+         "perf_begin", "perf_mute", "perf_pre", "perf_block", "perf_take", "perf_out",   # the FX layer (perform.c / fx.c), when busy
          "perf_flanger", "perf_phaser",                     # .. FLANGER, PHASER (1.2), while held or fading
          "perf_throw",                                      # .. REV / ECHO THROW (1.5.1): per part, while held or gliding
          "rev_room", "rev_spring", "rev_hall", "rev_shimmer", "rev_cloud", "rev_side_mix",  # reverb bus (fx.c)

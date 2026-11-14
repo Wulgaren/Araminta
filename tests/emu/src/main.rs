@@ -240,7 +240,7 @@ impl Syms {
             }
         };
         Ok(Syms {
-            dbg: get("felucca_dbg", 96)?,
+            dbg: get("felucca_dbg", 100)?,
             shed_count: get("shed_count", 4)?,
             voice_kills: get("voice_kills", 4)?,
             perf_held: get("perf_held", 4)?,
@@ -262,6 +262,7 @@ const DBG_LATE_OVER: u32 = 19;
 const DBG_LATE_T5: u32 = 20;
 const DBG_LATE_OTH: u32 = 21;
 const DBG_WALL_MAX: u32 = 22;
+const DBG_CPU1_Q8: u32 = 24;
 
 // -------------------------------------------------------------------------------------- machine --
 
@@ -704,6 +705,7 @@ fn run(args: &Args) -> Result<String, String> {
     // (perf_act only once the scenario runs)
     emu.act_seen = 0;
     let mut cpu_q8_max = 0;
+    let mut cpu1_q8_max = 0;
     let mut next_sample = t0;
     // --profile: each CHUNK's cycles charged to the function each core is in at its end (a sampling profile
     // weighted by device time); core 0 outside the audio ISR (felucca_dbg.in_audio) as "(main loop)", core 1 in
@@ -726,6 +728,7 @@ fn run(args: &Args) -> Result<String, String> {
         }
         if emu.ms() >= next_sample {
             cpu_q8_max = cpu_q8_max.max(emu.dbg(DBG_CPU_Q8));
+            cpu1_q8_max = cpu1_q8_max.max(emu.dbg(DBG_CPU1_Q8));
             next_sample += 10;
         }
     }
@@ -798,12 +801,13 @@ fn run(args: &Args) -> Result<String, String> {
     let kills = emu.soc.read32(emu.syms.voice_kills).wrapping_sub(kills0);
     Ok(format!(
         "{{\"scenario\":\"{}\",\"ms\":{},\"strict\":{strict},\"mhz\":{},\"halves\":{halves},\"cpu_pct\":{:.1},\
-\"audio_max_us\":{max_us},\"late\":{late},\"late_over\":{late_over},\"late_t5\":{late_t5},\"late_oth\":{late_oth},\
-\"wall_max_us\":{wall_max},\"voices_shed\":{shed},\"voices_given_up\":{kills}}}",
+\"cpu1_pct\":{:.1},\"audio_max_us\":{max_us},\"late\":{late},\"late_over\":{late_over},\"late_t5\":{late_t5},\
+\"late_oth\":{late_oth},\"wall_max_us\":{wall_max},\"voices_shed\":{shed},\"voices_given_up\":{kills}}}",
         args.scenario.name(),
         args.ms,
         args.mhz,
         cpu_q8_max as f64 * 100.0 / 256.0,
+        cpu1_q8_max as f64 * 100.0 / 256.0,
     ))
 }
 

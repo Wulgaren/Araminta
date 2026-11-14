@@ -13,8 +13,9 @@ up with it. This test runs the real package, `build/felucca.fwsc`, on Joakim Eri
 - the audio DMA, TIMER5's interrupt nested in the render and both cores run as on the chip.
 
 The firmware measures itself the same way on the emulator as on the device: `felucca_dbg` (audio.c) counts the
-halves, the late ones and why, and keeps `cpu_q8`, the render's share of the 2.9 ms half-buffer. `shed_count` counts
-the voices the overload guard took.
+halves, the late ones and why, and keeps `cpu_q8`, the render's share of the 2.9 ms half-buffer, and `cpu1_q8`, the
+second core's share (the TIMER4 time of its jobs: the parts, the send buses and the punch-in layer). `shed_count`
+counts the voices the overload guard took.
 
 ## Running it
 
@@ -39,8 +40,8 @@ scenarios, each in its own unit (about 20-30 s each):
 The patch goes in through the editor protocol over the emulated USB-MIDI, the chords and drum hits as MIDI notes, the
 punch-ins as keys on the emulated panel. A scenario fails when the firmware faults, the setup is not taken, or a
 punch-in does not engage or does not let go. Each prints one line of JSON: `cpu_pct` (the highest during the
-scenario), `audio_max_us`, `late` (halves the DMA moved past, with `late_over` / `late_t5` / `late_oth` saying why),
-`wall_max_us`, `voices_shed`.
+scenario), `cpu1_pct` (the second core's highest, its jobs only), `audio_max_us`, `late` (halves the DMA moved past,
+with `late_over` / `late_t5` / `late_oth` saying why), `wall_max_us`, `voices_shed`.
 
 One scenario by hand:
 
@@ -106,6 +107,33 @@ scenario's totals, not by one function's share. The phase engine is in RAM too (
 86.3 %, stack 107.4 -> 104.7 %, and dry stayed at 81.6 %. `pd_setup` and `pd_wave` are `noinline`, so their divides
 and `switch` stay out of `phase_render`'s loop; with `pd_wave` inlined, `target_budget.py` read 8884 for that loop
 against 77, and out of line it reads 77.
+
+## The punch-in layer on the second core (2026-11-14)
+
+The FX hold layer (perform.c) was the last large serial stage on core 0: after the parts, the buses and MASTER's
+level, before master_out. It now runs one CTL block (0.73 ms) late: `perf_take` stages each block's mix (after CLIP
+and MASTER's level) and `perf_begin`'s controls in one of two slots; `c1_layer` runs `perf_block` on the other slot's
+block, on core 1, beside this core's tail (THROW, the sends, TAPE, the master chain); `perf_out` runs master_out on the
+result a block later. The latency is constant, so the click and the HOME scope are one block early and the USB tap gets
+the delayed mix. `perf_begin` (core 0, before the parts) takes and gives back the SLICER's buffer, so the job never
+drops the slicer's state under a part. `cpu1_pct` is new: the second core's share of the half, its jobs' TIMER4 ticks,
+smoothed as `cpu_pct`.
+
+| Scenario | cpu_pct before | after | cpu1_pct after | late halves before | after | audio_max_us before | after |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| dry, 3 s | 75.8 % | 76.6 % | 53.5 % | 0 | 0 | 2592 | 2619 |
+| keys, 9 s | 80.5 % | 80.1 % | 56.2 % | 18 | 9 | 2804 | 2834 |
+| churn, 6 s | 81.6 % | 79.7 % | 56.6 % | 6 | 0 | 2799 | 2706 |
+| stack, 6 s | 98.4 % | 96.5 % | 71.9 % | 629 | 560 | 3188 | 3123 |
+
+These totals move with flash placement more than with the layer's work. The same tree without the press-order snapshot
+(`perf_ctl_picks`) measured stack 90.2 % / 68 late halves; that tree plus an unused function of 12, 36 or 60 volatile
+stores measured 89.5 % / 54, 94.5 % / 426 and 89.8 % / 58. Read stack as about ±5 % until core 0's hot path is out of
+flash (see the placement note above).
+
+Stack holds every audio punch-in at once; its late halves were all `late_over`. What is left there is the layer's own
+job being longer than the tail it hides behind in the worst blocks, plus the serial head (events, the keys) and tail
+(the master chain, master_out) that only core 0 runs.
 
 ## Calibration record
 

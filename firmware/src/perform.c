@@ -48,6 +48,8 @@
  * their values when FX is let go, G5 CLR turns everything off, so does the menu or a dialog. OCT± shift octave.
  * Chain: [REPEAT / REVERSE / TAPE / FREEZE] -> LPF -> HPF -> CRUSH -> FLANGER -> PHASER, after the master level and
  * before master_out (the limiter); THROW and the mutes act before the buses (fx.c mix_block / mix_part).
+ * The layer runs one block late (fx.c perf_take / perf_layer / perf_out): the whole output is a constant 0.73 ms
+ * (one CTL block) late, which lets the layer run on the second core, beside this core's serial tail.
  * Idle (no key, no knob, no ramp left) every stage is skipped: the output is bit-identical. */
 /* the effects (their numbers are stored only in code: the maps are the pages', append-only, before PF_M1), then the
  * mutes of the black keys */
@@ -193,6 +195,25 @@ static struct {
     int32_t px[2][PH_ST], py[2][PH_ST], pfb[2];   /* PHASER: each stage's last input and output, L and R; the fed back */
 } pf = {.src = PF_N, .next = PF_N, .lc = PF_TOP, .mg = {32768, 32768, 32768, 32768}};
 
+/* the control values perf_begin leaves for a block (fx.c perf_take copies them into the layer's slot): the layer runs
+ * a block late, after core 0's perf_begin has moved on, so perf_block reads this copy, not pf or perf_k. Everything
+ * else perf_block touches is the layer's own state and stays with the job */
+typedef struct {
+    uint32_t act, act0, split, ph, P;   /* the effects running, the 1/16 (samples), the sweep's phase and cycle */
+    int32_t lc, hc;                      /* the filters' cutoffs, Q8 index */
+    int16_t lk[3], hk[3];                /* their coefficients this block */
+    int8_t k[4];                         /* the knob macros (perf_k) this block */
+    uint8_t pick0, pick;                 /* the buffer effect to play from act0 / act (perf_pick: perf_ord, the press
+                                          * order, moves on with core 0's next keys) */
+} perf_blk_t;
+static perf_blk_t perf_ctl;
+static volatile int8_t perf_k4;          /* KNOB 4 of the block perf_block runs (its perf_blk_t's k[3]), for the buffer
+                                            * effect's level. The layer's own; volatile as perf_k was, so the per-sample
+                                            * loop keeps its code layout (target_budget) */
+static volatile uint8_t perf_layer_busy;   /* the layer's own stages still have work (its end; a block behind in the
+                                            * pipeline). THROW, the mutes and the knobs are core 0's: perf_begin */
+static int perf_pipe_pending(void);        /* fx.c: the layer's job for the block before has work */
+
 static int16_t fl_buf[FL_LEN][2];      /* FLANGER's line: L R, at half the level (headroom) */
 
 /* the loop length of a REPEAT / REVERSE at the tempo, 44.1 kHz samples; 0 = not one.
@@ -271,15 +292,20 @@ static inline __attribute__((always_inline)) uint32_t perf_pick(uint32_t a)
     return best;
 }
 
+/* perf_begin's snapshot: the buffer effect its act0 / act pick. In RAM, called once a block: inlined into perf_begin
+ * (flash) the two scans moved the flash code behind it, and the stack scenario lost ~8 % to cache misses
+ * (docs/fm1-emu-test.md: placement) */
+static AUDIO_RAM __attribute__((noinline)) void perf_ctl_picks(perf_blk_t *c)
+{
+    c->pick0 = (uint8_t)perf_pick(c->act0);
+    c->pick = (uint8_t)perf_pick(c->act);
+}
+
 static void perf_glt_step(void);
 
 static void perf_buf_start(uint32_t e)
 {
-    if (!sl_lent) {
-        sl_lent = 1;
-        perf_drop_slicer();
-    }
-    pf.src = (uint8_t)e;
+    pf.src = (uint8_t)e;                    /* (sl_buf is borrowed by perf_begin, before the parts) */
     pf.next = PF_N;
     pf.wr = pf.rp = 0;
     pf.odd = 0;
@@ -350,8 +376,9 @@ static void perf_buf_select(uint32_t e)
     pf.next = (uint8_t)e;
 }
 
-/* each block, after the keys (seq.c) and before the parts: what runs, the 1/16, the filters, the mutes.
- * Returns 1 when a stage has something to do */
+/* each block, after the keys (seq.c) and before the parts: what runs, the 1/16, the filters, the mutes; also the
+ * SLICER's buffer, which the buffer effects borrow. Returns 1 when a stage has something to do, and leaves perf_ctl:
+ * the copy the layer reads a block late (it runs beside this core's tail, on either core) */
 static __attribute__((noinline)) int perf_begin(uint32_t n)
 {
     uint32_t solo = solo_mask(), s16 = beat_samples() >> 2, lane = 0, held, q, k, ph0, bnd;
@@ -360,7 +387,21 @@ static __attribute__((noinline)) int perf_begin(uint32_t n)
         lane = pfx_lane[((pf.ph + n - 1u) / s16) & 63u];
     held = ((perf_kill ? 0u : perf_held | perf_latched | (solo ? (~solo & 15u) << PF_M1 : 0u)) | lane) & perf_avail() & ~PF_MIDI;
     int32_t m;
-    if (!held && !pf.busy && !(perf_k[0] | perf_k[1] | perf_k[2])) {   /* idle: the clock only */
+    /* the buffer effects borrow sl_buf from the SLICER: taken and given back here, on core 0, before the parts render, so
+     * the layer (a block late, on either core) never drops the slicer's state under them */
+    if (held & PF_BUF) {
+        if (!sl_lent) {
+            sl_lent = 1;
+            perf_drop_slicer();
+        }
+    } else if (sl_lent && pf.mode == BM_NONE && !perf_pipe_pending()) {
+        perf_drop_slicer();                     /* (the store after the call: its cold path is not the take's) */
+        sl_lent = 0;
+    }
+    /* idle: the clock only. THROW's glide, the mutes and the knobs are this core's; the layer's own stages report
+     * through perf_layer_busy. (One OR, no branch per term: a cold branch here reads as a loop to target_budget) */
+    if (!(held | perf_layer_busy | (uint32_t)(perf_k[0] | perf_k[1] | perf_k[2]) | (uint32_t)pf.td | pf.thr |
+          pf.mute)) {
         pf.ph += n;
         pf.sync = 0;
         perf_act = 0;
@@ -423,7 +464,24 @@ static __attribute__((noinline)) int perf_begin(uint32_t n)
     for (k = 0; k < NTRK; k++)
         if (((held >> (PF_M1 + k)) & 1u) || pf.mg[k] != 32768)
             pf.mute |= (uint8_t)(1u << k);
-    pf.busy = 1;
+    perf_ctl.act = pf.act;
+    perf_ctl.act0 = pf.act0;
+    perf_ctl.split = pf.split;
+    perf_ctl.ph = pf.ph;
+    perf_ctl.P = pf.P;
+    perf_ctl.lc = pf.lc;
+    perf_ctl.hc = pf.hc;
+    perf_ctl.lk[0] = pf.lk[0];
+    perf_ctl.lk[1] = pf.lk[1];
+    perf_ctl.lk[2] = pf.lk[2];
+    perf_ctl.hk[0] = pf.hk[0];
+    perf_ctl.hk[1] = pf.hk[1];
+    perf_ctl.hk[2] = pf.hk[2];
+    perf_ctl.k[0] = perf_k[0];
+    perf_ctl.k[1] = perf_k[1];
+    perf_ctl.k[2] = perf_k[2];
+    perf_ctl.k[3] = perf_k[3];
+    AUDIO_FAR(perf_ctl_picks)(&perf_ctl);
     return 1;
 }
 
@@ -712,17 +770,14 @@ static AUDIO_RAM __attribute__((noinline)) void perf_harm(int32_t l, int32_t r, 
 }
 
 /* the buffer effect faded out: the next one, or the buffer back. Once per effect, out of the per-sample loop
- * (noinline: its calls stay out of perf_block's loop code) */
+ * (noinline: its calls stay out of perf_block's loop code). The buffer goes back at the next perf_begin: the job may
+ * run on core 1 while the parts use the slicer */
 static __attribute__((noinline)) void perf_buf_done(void)
 {
     if (pf.next != PF_N) {
         perf_buf_start(pf.next);
     } else {
         pf.mode = BM_NONE;
-        if (sl_lent) {
-            sl_lent = 0;
-            perf_drop_slicer();
-        }
     }
 }
 
@@ -791,7 +846,7 @@ static inline void perf_buf(int32_t *pl, int32_t *pr)
         perf_harm(l, r, &yl, &yr);
         on = 2;                                     /* (KNOB 4 is the shimmer: the level stays full) */
     }
-    pf.tw = on && pf.src != PF_N ? on == 2 ? 32768 : 32768 - perf_k[3] * 327 : 0;
+    pf.tw = on && pf.src != PF_N ? on == 2 ? 32768 : 32768 - perf_k4 * 327 : 0;
     pf.w += clamp(pf.tw - pf.w, -SL_SLOPE, SL_SLOPE);
     if (pf.w) {
         *pl = pf_mix(l, yl, pf.w);
@@ -810,18 +865,19 @@ static inline int32_t pf_svf(int32_t x, int32_t *z, const int16_t *c, int hp)
     return hp ? x - v1 - v2 : v2;
 }
 
-static __attribute__((noinline)) void perf_switch(uint32_t a) { perf_buf_select(perf_pick(a)); }
+/* the buffer effect to play becomes e (a perf_blk_t's pick), out of perf_block's loop code */
+static __attribute__((noinline)) void perf_switch(uint32_t e) { perf_buf_select(e); }
 
 /* the UI: OCT UP / DN is the buffer effect playing (KNOB 4 is its shimmer, the card says so) */
 static int perf_harm_on(void) { return (PF_HARM >> perf_pick(perf_act)) & 1u; }
 
 /* FLANGER / PHASER: the sweep's place at this block's first sample, a cycle every `s` 1/16s of the transport's clock
- * (pf.ph: in time with the bars while playing), and its step a sample (*inc) */
-static uint32_t perf_lfo(uint32_t s, uint32_t n, uint32_t *inc)
+ * (c->ph: in time with the bars while playing), and its step a sample (*inc) */
+static uint32_t perf_lfo(const perf_blk_t *c, uint32_t s, uint32_t n, uint32_t *inc)
 {
-    uint32_t per = s * pf.P;
+    uint32_t per = s * c->P;
     *inc = 0xFFFFFFFFu / per;
-    return ((pf.ph - n) % per) * *inc;
+    return ((c->ph - n) % per) * *inc;
 }
 /* a triangle of the sweep's place q, 0 .. 65534 (Q16) */
 static inline uint32_t pf_tri(uint32_t q)
@@ -830,7 +886,10 @@ static inline uint32_t pf_tri(uint32_t q)
     return t < 32768u ? t << 1 : (65535u - t) << 1;
 }
 /* the share a FLANGER / PHASER fades to: KNOB 4 DEPTH (its shimmer while OCT UP / DN plays: full) */
-static int32_t perf_mod_depth(void) { return (PF_HARM >> perf_pick(perf_act)) & 1u ? 32768 : 32768 - perf_k[3] * 327; }
+static int32_t perf_mod_depth(const perf_blk_t *c)
+{
+    return (PF_HARM >> c->pick) & 1u ? 32768 : 32768 - c->k[3] * 327;
+}
 
 /* FLANGER on one side c: x in, the line read at the sweep's place q (see the top) */
 static inline int32_t fl_side(uint32_t c, int32_t x, uint32_t q)
@@ -846,11 +905,12 @@ static inline int32_t fl_side(uint32_t c, int32_t x, uint32_t q)
     return pf_mix(x, mulq16((x >> 1) + v, 55706u), pf.fw);   /* (x + delayed) / 2 * 0.85 (v: stored at half) */
 }
 /* after CRUSH, while held or fading: FLANGER (noinline, its own loop: the audio ISR's code stays as it was) */
-static AUDIO_RAM __attribute__((noinline)) void perf_flanger(int32_t *bl, int32_t *br, uint32_t n)
+static AUDIO_RAM __attribute__((noinline)) void perf_flanger(int32_t *bl, int32_t *br, uint32_t n,
+                                                             const perf_blk_t *c)
 {
-    uint32_t i, c, inc, q = perf_lfo(16u, n, &inc);
-    int32_t tw = pf.act & PF_BIT(PF_FLG) ? perf_mod_depth() : 0, *const b[2] = {bl, br};
-    if (!pf.fw && !(pf.act & PF_BIT(PF_FLG))) {         /* let go and faded: off, the line empty next time */
+    uint32_t i, c_, inc, q = perf_lfo(c, 16u, n, &inc);
+    int32_t tw = c->act & PF_BIT(PF_FLG) ? perf_mod_depth(c) : 0, *const b[2] = {bl, br};
+    if (!pf.fw && !(c->act & PF_BIT(PF_FLG))) {        /* let go and faded: off, the line empty next time */
         pf.fn = 0;
         return;
     }
@@ -858,8 +918,8 @@ static AUDIO_RAM __attribute__((noinline)) void perf_flanger(int32_t *bl, int32_
         memset(fl_buf, 0, sizeof fl_buf);
     for (i = 0; i < n; i++, q += inc) {
         pf.fw += clamp((pf.fn > FL_MAX + 1u ? tw : 0) - pf.fw, -SL_SLOPE, SL_SLOPE);   /* (heard once it holds 8 ms) */
-        for (c = 0; c < 2u; c++)                        /* (one call: inlined; the right a quarter of the sweep behind) */
-            b[c][i] = fl_side(c, b[c][i], q - (c << 30));
+        for (c_ = 0; c_ < 2u; c_++)                    /* (one call: inlined; the right a quarter of the sweep behind) */
+            b[c_][i] = fl_side(c_, b[c_][i], q - (c_ << 30));
         if (++pf.fwp >= FL_LEN)
             pf.fwp = 0;
         if (pf.fn <= FL_MAX + 1u)
@@ -896,10 +956,11 @@ static inline int32_t ph_side(uint32_t c, int32_t x, int32_t a)
 }
 /* after FLANGER, while held or fading: PHASER (noinline, as FLANGER). The coefficients a block at a time (at its
  * middle: 2.9 ms at most, the sweep moves 1 % in frequency meanwhile) */
-static AUDIO_RAM __attribute__((noinline)) void perf_phaser(int32_t *bl, int32_t *br, uint32_t n)
+static AUDIO_RAM __attribute__((noinline)) void perf_phaser(int32_t *bl, int32_t *br, uint32_t n,
+                                                            const perf_blk_t *c)
 {
-    uint32_t i, c, inc, q = perf_lfo(8u, n, &inc) + (n >> 1) * inc;
-    int32_t tw = pf.act & PF_BIT(PF_PHS) ? perf_mod_depth() : 0, *const b[2] = {bl, br};
+    uint32_t i, ch, inc, q = perf_lfo(c, 8u, n, &inc) + (n >> 1) * inc;
+    int32_t tw = c->act & PF_BIT(PF_PHS) ? perf_mod_depth(c) : 0, *const b[2] = {bl, br};
     int32_t a[2] = {ph_coef(q), ph_coef(q - 0x40000000u)};   /* (the right a quarter of the sweep behind) */
     if (!pf.pw) {                                       /* starting: the stages from rest */
         memset(pf.px, 0, sizeof pf.px);
@@ -908,42 +969,51 @@ static AUDIO_RAM __attribute__((noinline)) void perf_phaser(int32_t *bl, int32_t
     }
     for (i = 0; i < n; i++) {
         pf.pw += clamp(tw - pf.pw, -SL_SLOPE, SL_SLOPE);
-        for (c = 0; c < 2u; c++)
-            b[c][i] = ph_side(c, b[c][i], a[c]);
+        for (ch = 0; ch < 2u; ch++)
+            b[ch][i] = ph_side(ch, b[ch][i], a[ch]);
     }
 }
 
-/* after the master level: the buffer effect, LPF, HPF, CRUSH on l / r (stereo, Q15) */
-static AUDIO_RAM __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint32_t n)
+/* the effect set changes with this sample (perf_block's split point): out of line, so the per-sample loop keeps its
+ * code layout (a block placed inside it can look like a loop round the per-sample code: target_budget.py) */
+static AUDIO_RAM __attribute__((noinline)) void perf_split(const perf_blk_t *c, int32_t k0, uint32_t *a, int32_t *lt,
+                                                           int32_t *ht)
 {
-    uint32_t i, a = pf.act0, sh, hold;
-    int32_t c = perf_k[1], lt, ht, ct;
-    int32_t k0 = perf_k[0];                /* the FILTER macro: a block's value (the knob glides anyway) */
-    if (c)
-        pf.cc = c;
-    ct = c ? 32768 : 0;
+    *a = c->act;
+    AUDIO_FAR(perf_switch)(c->pick);
+    *lt = (int32_t)((*a & PF_BIT(PF_LPF)) || k0 < 0 || c->lc < PF_TOP) << 15;
+    *ht = (int32_t)((*a & PF_BIT(PF_HPF)) || k0 > 0 || c->hc > 0) << 15;
+}
+
+/* after the master level: the buffer effect, LPF, HPF, CRUSH on l / r (stereo, Q15). c: the controls of the block it
+ * processes (perf_ctl, a block late); the rest of pf is the layer's own */
+static AUDIO_RAM __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint32_t n, const perf_blk_t *c)
+{
+    uint32_t i, a = c->act0, sh, hold;
+    int32_t kc = c->k[1], lt, ht, ct;
+    int32_t k0 = c->k[0];                  /* the FILTER macro: a block's value (the knob glides anyway) */
+    if (kc)
+        pf.cc = kc;
+    ct = kc ? 32768 : 0;
     sh = 4u + (uint32_t)pf.cc * 7u / 100u;
     hold = sh - 3u;
-    if (pf.split)
-        AUDIO_FAR(perf_switch)(a);
-    pf.hfb += clamp(perf_k[3] * HB_FB - pf.hfb, -512, 512);   /* OCT UP / DN's shimmer glides (~40 ms) */
-    lt = (a & PF_BIT(PF_LPF)) || k0 < 0 || pf.lc < PF_TOP ? 32768 : 0;
-    ht = (a & PF_BIT(PF_HPF)) || k0 > 0 || pf.hc > 0 ? 32768 : 0;
+    if (c->split)
+        AUDIO_FAR(perf_switch)(c->pick0);
+    pf.hfb += clamp(c->k[3] * HB_FB - pf.hfb, -512, 512);   /* OCT UP / DN's shimmer glides (~40 ms) */
+    perf_k4 = c->k[3];
+    lt = (int32_t)((a & PF_BIT(PF_LPF)) || k0 < 0 || c->lc < PF_TOP) << 15;
+    ht = (int32_t)((a & PF_BIT(PF_HPF)) || k0 > 0 || c->hc > 0) << 15;
     for (i = 0; i < n; i++) {
         int32_t l = bl[i], r = br[i];
-        if (i == pf.split) {              /* the effect set changed with this sample: re-read the target */
-            a = pf.act;
-            AUDIO_FAR(perf_switch)(a);
-            lt = (a & PF_BIT(PF_LPF)) || k0 < 0 || pf.lc < PF_TOP ? 32768 : 0;
-            ht = (a & PF_BIT(PF_HPF)) || k0 > 0 || pf.hc > 0 ? 32768 : 0;
-        }
+        if (i == c->split)                /* the effect set changed with this sample: re-read the target */
+            AUDIO_FAR(perf_split)(c, k0, &a, &lt, &ht);
         if (pf.mode != BM_NONE)
             perf_buf(&l, &r);
         if (lt != pf.la)                  /* settled: the clamp adds nothing */
             pf.la += clamp(lt - pf.la, -SL_SLOPE, SL_SLOPE);
         if (pf.la) {
-            int32_t fl = shl(pf_svf(clamp(l >> 2, -32767, 32767), &pf.lz[0], pf.lk, 0), 2);
-            int32_t fr = shl(pf_svf(clamp(r >> 2, -32767, 32767), &pf.lz[2], pf.lk, 0), 2);
+            int32_t fl = shl(pf_svf(clamp(l >> 2, -32767, 32767), &pf.lz[0], c->lk, 0), 2);
+            int32_t fr = shl(pf_svf(clamp(r >> 2, -32767, 32767), &pf.lz[2], c->lk, 0), 2);
             l = pf_mix(l, fl, pf.la);
             r = pf_mix(r, fr, pf.la);
         } else if (pf.lz[0] | pf.lz[1] | pf.lz[2] | pf.lz[3]) {
@@ -952,8 +1022,8 @@ static AUDIO_RAM __attribute__((noinline)) void perf_block(int32_t *bl, int32_t 
         if (ht != pf.ha)
             pf.ha += clamp(ht - pf.ha, -SL_SLOPE, SL_SLOPE);
         if (pf.ha) {
-            int32_t fl = shl(pf_svf(clamp(l >> 2, -32767, 32767), &pf.hz[0], pf.hk, 1), 2);
-            int32_t fr = shl(pf_svf(clamp(r >> 2, -32767, 32767), &pf.hz[2], pf.hk, 1), 2);
+            int32_t fl = shl(pf_svf(clamp(l >> 2, -32767, 32767), &pf.hz[0], c->hk, 1), 2);
+            int32_t fr = shl(pf_svf(clamp(r >> 2, -32767, 32767), &pf.hz[2], c->hk, 1), 2);
             l = pf_mix(l, fl, pf.ha);
             r = pf_mix(r, fr, pf.ha);
         } else if (pf.hz[0] | pf.hz[1] | pf.hz[2] | pf.hz[3]) {
@@ -975,10 +1045,10 @@ static AUDIO_RAM __attribute__((noinline)) void perf_block(int32_t *bl, int32_t 
         bl[i] = l;
         br[i] = r;
     }
-    if ((pf.act & PF_BIT(PF_FLG)) || pf.fw || pf.fn)
-        perf_flanger(bl, br, n);
-    if ((pf.act & PF_BIT(PF_PHS)) || pf.pw)
-        perf_phaser(bl, br, n);
-    pf.busy = pf.act || pf.mode != BM_NONE || pf.w || pf.la || pf.ha || pf.cw || pf.td || pf.mute || pf.fw || pf.pw || pf.thr ||
-              pf.fn || perf_k[0] || perf_k[1] || perf_k[2];
+    if ((c->act & PF_BIT(PF_FLG)) || pf.fw || pf.fn)
+        perf_flanger(bl, br, n, c);
+    if ((c->act & PF_BIT(PF_PHS)) || pf.pw)
+        perf_phaser(bl, br, n, c);
+    pf.busy = perf_layer_busy = (uint8_t)(c->act || pf.mode != BM_NONE || pf.w || pf.la || pf.ha || pf.cw || pf.fw ||
+                                         pf.pw || pf.fn);
 }
