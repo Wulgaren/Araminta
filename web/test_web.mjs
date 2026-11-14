@@ -877,7 +877,7 @@ async function editorLibrarian() {
   const pts = [cap, { ...bass, engineName: info.engines[bass.engine], tags: ["bass", "device"] }];
   const file = JSON.parse(JSON.stringify(E.libraryFile("library", pts, ctx)));
   ok(file.format === "felucca-library" && file.version === 1 && file.pCount === 127 && file.paramLabels.length === 127 && file.paramLabels[81] === "CHRD" && file.paramLabels[82] === "VOIC" &&
-    file.paramLabels[83] === "KICK" && file.paramLabels[90] === "BELL" && file.paramLabels.slice(91, 96).join() === "SYNC,TRIG,POL,QNTZ,SPRD" &&
+    file.paramLabels[83] === "KICK" && file.paramLabels[90] === "BELL" && file.paramLabels.slice(91, 96).join() === "LSYNC,TRIG,POL,QNTZ,SPRD" &&
     file.paramLabels[96] === "ORDER" && file.paramLabels[117] === "TYPE#2" && file.paramLabels[118] === "ESYNC" &&
     file.engines.length === 16,
     "library file: versioned, with P_COUNT, labels and engines");
@@ -885,6 +885,14 @@ async function editorLibrarian() {
   ok(back.patches.length === 2 && !back.skipped && eq(back.patches[0].p, cap.p) && eq(back.patches[1].p, bass.p)
     && js(back.patches[1].pattern) === js(bass.pattern) && back.patches[1].tags.join() === "bass,device" && back.patches[1].engineName === "PHASE",
     "library file: write -> read round trip");
+  {   /* 4.3: a file of before keys LFO SYNC "SYNC", holding the note value (8 = 1/16): SYNC ON, RATE on 1/16, its first
+       value 7 x 128 / 10 up = 90 (core.h lsync_legacy) */
+    const old = JSON.parse(JSON.stringify(file));
+    old.paramLabels[91] = "SYNC";
+    old.patches[0].params[91] = 8;
+    const p0 = E.readLibraryFile(old, ctx).patches[0].p;
+    ok(p0[91] === 1 && p0[keys.indexOf("RATE")] === 90, "library file: 1.2's LFO SYNC note value -> SYNC ON, RATE on it");
+  }
   /* a future firmware: one more parameter at id 5, engines in another order and one of them gone */
   const keys2 = [...keys.slice(0, 5), "NEW", ...keys.slice(5)];
   const eng2 = ["PHASE", "ANALOG", "SAMPLE"];

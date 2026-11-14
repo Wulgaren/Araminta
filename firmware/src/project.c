@@ -140,6 +140,11 @@
  * proj_fm6m moves each FM6 track's E5 into the patch's modulator velocity sensitivity and drops its E5
  * events. The magic and size stay FUN19's; older firmware ignores the bit.
  *
+ * 4.3 (LFO SYNC ON / OFF): P_LSYNC is ON / OFF and RATE holds the note value while it is on; before, P_LSYNC held the
+ * note value (OFF, 4BAR .. 1/32) and RATE did nothing. Header byte 67 bit 3 says a project is read that way; without
+ * it, proj_lsync makes each synced track SYNC ON with RATE on its note value and drops that track's RATE events. The
+ * magic and size stay; older firmware ignores the bit (and reads SYNC ON as 4BAR).
+ *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
 #define PROJ_MAGIC 0x4B4E5546u                 /* "FUNK" (FUN20): FUN19 + 4 KiB store, append motion + lane */
@@ -201,6 +206,7 @@ typedef struct {
                                                 * 0 (a reserved byte before 1.0): MODEL 2 was DUST */
     uint8_t rsv;
     uint8_t fm6_vib;                           /* header bit 2: P_E5 is VIB (else pre-VIB VMOD, proj_fm6m) */
+    uint8_t lfo_sync;                          /* header bit 3: LFO SYNC is ON / OFF (else 1.2's note value, proj_lsync) */
     proj_trk_t t[NTRK];
     chain_config_t chain;
     motion_store_t motion;
@@ -424,6 +430,32 @@ static void proj_fm6m(project_t *q)
     q->sum = proj_sum(q);
 }
 
+/* Tracks of a project from before 4.3 (header bit 3 clear): LFO SYNC held the note value (1..10). It becomes SYNC ON
+ * with RATE on that note value (params.c lsync_legacy); RATE's automation and locks on such a track did nothing while
+ * synced and would now move the note value, so they go. Idempotent: a 4.3 project returns at once. */
+static void proj_lsync(project_t *q)
+{
+    uint32_t k, i, n, hit = 0;
+    if (q->lfo_sync)
+        return;
+    for (k = 0; k < NTRK; k++)
+        if (q->t[k].p[P_LSYNC] > 0) {
+            lsync_legacy(q->t[k].p);
+            hit |= 1u << k;
+        }
+    q->lfo_sync = 1;
+    for (i = n = 0; i < q->motion.count && i < MOTION_MAX; i++) {
+        const motion_event_t *e = &q->motion.event[i];
+        if (((hit >> (e->place >> 6)) & 1u) && MOTION_ID(e) == P_LRATE)
+            continue;
+        q->motion.event[n++] = *e;
+    }
+    for (i = n; i < q->motion.count && i < MOTION_MAX; i++)
+        memset(&q->motion.event[i], 0, sizeof q->motion.event[i]);
+    q->motion.count = (uint8_t)n;
+    q->sum = proj_sum(q);
+}
+
 /* SAMPLE tracks of the retired PERC set (SET 4) -> DRUM with its default kit (see the top; core.h drum_from_perc,
  * whatever format the project is: on every load, the stored record keeps what it holds until it is saved again).
  * Their motion events on the EDIT values go. Idempotent */
@@ -530,6 +562,7 @@ static int proj_import(project_t *q, const void *b, int n)
     if (!proj_import_any(q, b, n) || !proj_engines_ok(q))
         return 0;
     proj_fm6m(q);
+    proj_lsync(q);
     proj_perc(q);
     proj_retire(q);
     return 1;
@@ -628,8 +661,9 @@ static int proj_pack_st(project_store_t *out, const project_t *q, uint32_t st)
     memcpy(b + 8, q->g, PROJ_NG_WIRE * sizeof(int16_t));
     b[62] = q->sel; b[63] = q->parts; b[64] = q->phys; b[66] = P_COUNT;
     b[65] = (uint8_t)clamp(q->g[G_CRTYPE], 0, 4);       /* CHAIN tank TYPE/SIZE/DAMP (spare; not in wire g[]) */
-    b[67] = (uint8_t)(1u | (clamp(q->g[G_TTEMPO], 0, 1) << 7) | 2u | 4u);   /* bit 0: CHAIN tanks; bit 1: OSC 2
-                                                            * (INT / MORPH / DRIFT); bit 2: VIB; bit 7: TAPE TEMPO */
+    b[67] = (uint8_t)(1u | (clamp(q->g[G_TTEMPO], 0, 1) << 7) | 2u | 4u | 8u);   /* bit 0: CHAIN tanks; bit 1: OSC 2
+                                                            * (INT / MORPH / DRIFT); bit 2: VIB; bit 3: LFO SYNC ON / OFF;
+                                                            * bit 7: TAPE TEMPO */
     b[PROJ_CRV_OFF] = (uint8_t)clamp(q->g[G_CRSIZE], 0, 127);
     b[PROJ_CRV_OFF + 1u] = (uint8_t)clamp(q->g[G_CRDAMP], 0, 127);
     for (t = 0; t < NTRK; t++) {
@@ -903,6 +937,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         return 0;
     memset(q, 0, sizeof *q); q->magic = PROJ_MAGIC; q->size = sizeof *q;
     q->fm6_vib = (uint8_t)(v19 && (b[67] & 4u) != 0);
+    q->lfo_sync = (uint8_t)(v19 && (b[67] & 8u) != 0);
     memcpy(q->g, b + 8, PROJ_NG_WIRE * sizeof(int16_t));
     for (i = PROJ_NG_WIRE; i < G_COUNT; i++)
         q->g[i] = GP[i].def;
@@ -1297,6 +1332,7 @@ static void project_capture(project_t *p)
     p->parts = NPART;
     p->phys = PROJ_PHYS;
     p->fm6_vib = 1;
+    p->lfo_sync = 1;
     p->chain = chain_config;
     for (i = 0; i < NTRK; i++) {
         for (uint32_t j = 0; j < P_COUNT; j++) p->t[i].p[j] = motion_base_value(&trk[i], j);
@@ -1517,6 +1553,7 @@ static int project_restore_runtime(const project_t *input)
     proj_drums_to_part(p);                              /* a RAM slot of firmware before 1.0 */
     proj_phys(p);                                       /* .. before PHYS lost DUST and DRUM */
     proj_fm6m(p);                                       /* .. or a pre-VIB VMOD value */
+    proj_lsync(p);                                      /* .. or 1.2's LFO SYNC note value */
     proj_perc(p);                                       /* .. or SAMPLE PERC tracks */
     proj_retire(p);                                     /* .. or SAMPLE / GRAIN / NOISE / SLICE */
     transport_req = 2;

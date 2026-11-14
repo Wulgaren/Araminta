@@ -2,10 +2,14 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Parameter descriptors, formatting and the page table. */
 static const char *const N_LWAVE[] = {"SIN", "TRI", "SAW", "SQR", "S&H"};
-/* LFO 2 (1.2, #154). SYNC: OFF (RATE), or one cycle per note value of the tempo, longest first (LSYNC_DIV: its N_DIV);
+/* LFO SYNC (1.2, #154; ON / OFF since 4.3, as ENV SYNC): ON reads RATE's 0..127 as one cycle per note value of the
+ * tempo, split evenly over these ten, longest first (param_format's F_INT name list; lsync_band). Before 4.3 SYNC held
+ * the note value itself (OFF, then these ten): core.h lsync_legacy converts it on load.
  * TRIG: NOTE restarts it at PHS on a fresh phrase (as before), FREE never; POL: BI -1..+1 (as before), UNI 0..+1 */
-static const char *const N_LSYNC[] = {"OFF", "4BAR", "2BAR", "1/1", "1/2", "1/4", "1/8", "8T", "1/16", "16T", "1/32"};
-static const uint8_t LSYNC_DIV[11] = {0, 9, 8, 7, 6, 0, 1, 4, 2, 5, 3};
+static const char *const LSYNC_NAMES[LSYNC_N + 1u] = {"4BAR", "2BAR", "1/1", "1/2", "1/4", "1/8", "8T", "1/16", "16T",
+                                                      "1/32", 0};
+static const param_desc_t LSYNC_RATE_DESC = {"RATE", F_INT, 0, 127, 60, LSYNC_NAMES, 0};   /* RATE with SYNC on */
+static uint32_t lsync_band(int32_t v) { return (uint32_t)(v & 127) * LSYNC_N >> 7; }    /* RATE -> LSYNC_NAMES */
 static const char *const N_LTRIG[] = {"NOTE", "FREE"};
 static const char *const N_LPOL[] = {"BI", "UNI"};
 static const char *const N_AMODE[] = {"OFF", "UP", "DN", "UPDN", "RND", "ORD", "REPEAT",   /* (append-only: seq.c AM_*) */
@@ -169,7 +173,7 @@ static const param_desc_t TP[P_COUNT] = {
     LANE(0, "KICK"), LANE(1, "SNARE"), LANE(2, "CLAP"), LANE(3, "HATCL"),
     LANE(4, "HATOP"), LANE(5, "TOM"), LANE(6, "RIM"), LANE(7, "BELL"),
 #undef LANE
-    [P_LSYNC] = PE("SYNC", N_LSYNC, 0),
+    [P_LSYNC] = PE("SYNC", N_ONOFF, 0),           /* 4.3: ON makes RATE a note value (LSYNC_RATE_DESC) */
     [P_LTRIG] = PE("TRIG", N_LTRIG, 0),
     [P_LPOL] = PE("POL", N_LPOL, 0),
     [P_SQNT] = PE("QNTZ", N_ONOFF, 1),            /* ON: every step on its start, as before 1.2 */
@@ -289,6 +293,8 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
         return &INS_RATE;
     if (t->p[P_ESYNC] && (id == P_ATK || id == P_DEC || id == P_REL))   /* ENV SYNC: note values (1.5, #175) */
         return &ESYNC_DESC[id == P_ATK ? 0 : id == P_DEC ? 1 : 2];
+    if (t->p[P_LSYNC] && id == P_LRATE)            /* LFO SYNC: a note value (4.3) */
+        return &LSYNC_RATE_DESC;
     return &TP[id];
 }
 
@@ -300,7 +306,7 @@ static const char *param_list_name(const track_t *t, uint32_t id, int full)
 {
     static const char *const SHORT[] = {"WAVE A", "POS A", "WAVE B", "POS B", "B LEVEL"};
     static const char *const FULL[] = {"WAVE A", "POSITION A", "WAVE B", "POSITION B", "B LEVEL"};
-    if (id == P_ESYNC)                        /* the card reads SYNC; LFO 2's SYNC is the other one in a list */
+    if (id == P_ESYNC)                        /* the card reads SYNC; the LFO's SYNC is the other one in a list */
         return full ? "ENV SYNC" : "ENV";
     if (id >= P_E0 && id <= P_E7 && ENGINES[eng_idx(t->eng_req)] == &ENG_WT) {
         uint32_t k = id - P_E0;
@@ -463,6 +469,8 @@ static int32_t param_turn(const param_desc_t *d, int32_t v, int32_t steps)
         int32_t k = clamp((int32_t)esync_idx(v) + steps, 0, ESYNC_N - 1);
         return (k * 128 + ESYNC_N - 1) / ESYNC_N;
     }
+    if (d->names == LSYNC_NAMES)                      /* LFO SYNC: the same, over its ten */
+        return LSYNC_RATE((uint32_t)clamp((int32_t)lsync_band(v) + steps, 0, (int32_t)LSYNC_N - 1));
     if (d->names == N_IBITS || d->names == N_IRATE) { /* CRUSH: one detent = one label (audio uses >> 3) */
         int32_t k = clamp((v >> 3) + steps, 0, 15);
         return k << 3;
@@ -612,9 +620,10 @@ static const page_t PAGES[] = {
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, 0, {P_ATK, P_DEC, P_SUS, P_REL}},
     {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, 0, {P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ESYNC}},   /* knob cards + scope (P_ED_FX unused);
                                                                              * 1.5: ESYNC, ENV's times as note values */
-    {"LFO", FAM_LFO, SC_TRACK, GR_LFO, LFO_SEC_LFO, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},
-    {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, LFO_SEC_LFO, {P_LSYNC, P_LTRIG, P_LPOL, P_LSMOOTH}},   /* 1.2: SYNC
-                                                                             * TRIG POL; S&H: K4 SMOOTH */
+    {"LFO", FAM_LFO, SC_TRACK, GR_LFO, LFO_SEC_LFO, {P_LRATE, P_LWAVE, P_LTRIG, P_LSYNC}},   /* 4.3: the speed and
+                                                                             * when it starts */
+    {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, LFO_SEC_LFO, {P_LPHASE, P_LFADE, P_LPOL, P_LSMOOTH}},   /* its shape; S&H:
+                                                                             * K4 SMOOTH */
     {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, LFO_SEC_LFO, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
     {"MOD", FAM_LFO, SC_TRACK, GR_MOD, LFO_SEC_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* its own section: LFO button cycles here */
     /* FX: Effects → Punch-in. SLICER is an EFFECTS page (open from the list / SELECT).

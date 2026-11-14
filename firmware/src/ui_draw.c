@@ -866,14 +866,15 @@ static void engine_columns(void)
 /* A card the current sound never reaches: drawn DIM, its value kept. WAVE2 is OSC B's own shape on every
  * filter TYPE (analog_render -> analog_osc); only SYNC / SUB / SUPER (analog_render_x) define OSC B
  * themselves and ignore it. MORPH is read by analog_osc only: analog_render_x does not morph. INT moves
- * OSC 2 (SYNC's sweep, SUB's square included); SUPER has no OSC 2 and ignores it. */
+ * OSC 2 (SYNC's sweep, SUB's square included); SUPER has no OSC 2 and ignores it. LFO PHS is where TRIG NOTE
+ * restarts the wave on a note, and FREE + SYNC on PLAY (seq.c); FREE alone never restarts it. */
 static int card_inactive(const track_t *t, const int16_t *vp)
 {
     int analog = eng_idx(t->eng_req) == ENGI_ANALOG;   /* (else P_WAVE2 / P_MORPH are FM6's OP2 / OP3 ATK) */
     return (analog && vp == &t->p[P_WAVE2] && t->p[P_E0] >= AW_SYNC) ||
            (analog && vp == &t->p[P_MORPH] && t->p[P_E0] >= AW_SYNC) ||
            (analog && vp == &t->p[P_E7] && t->p[P_E0] == AW_SUPER) ||
-           (vp == &t->p[P_LRATE] && t->p[P_LSYNC]) ||           /* LFO 2 SYNC: RATE does nothing */
+           (vp == &t->p[P_LPHASE] && t->p[P_LTRIG] && !t->p[P_LSYNC]) ||   /* FREE: nothing restarts at PHS */
            arp_drone_frozen(t, vp);                             /* a frozen ARP drone */
 }
 static void draw_columns(void)

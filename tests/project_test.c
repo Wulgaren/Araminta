@@ -354,6 +354,46 @@ static int vib_wire(void)
     return bad;
 }
 
+/* 4.3: LFO SYNC is ON / OFF and RATE the note value. An old project (header bit 3 clear) held the note value in SYNC
+ * (8 = 1/16): its track loads SYNC ON with RATE on 1/16 (7 x 128 / 10 up = 90), and that track's RATE events, which
+ * did nothing while synced, go; an unsynced track keeps its RATE. A new project keeps SYNC and RATE as they are. */
+static int lsync_wire(void)
+{
+    static project_store_t st;
+    project_t a, c;
+    uint32_t k, sum, ok;
+    int bad = 0;
+    memset(&a, 0, sizeof a);
+    a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS; a.fm6_vib = 1;
+    chain_defaults(&a.chain);
+    for (k = 0; k < NTRK; k++)
+        for (uint32_t i = 0; i < P_COUNT; i++)
+            a.t[k].p[i] = param_desc_of(0, i)->def;
+    a.t[0].p[P_LSYNC] = 8;
+    a.t[0].p[P_LRATE] = 30;
+    a.t[1].p[P_LRATE] = 30;
+    a.motion.count = 2;
+    a.motion.event[0] = (motion_event_t){4u, P_LRATE, 50};          /* track 1 (synced): goes */
+    a.motion.event[1] = (motion_event_t){1u << 6 | 4u, P_LRATE, 50}; /* track 2: stays */
+    a.sum = proj_sum(&a);
+    ok = proj_pack(&st, &a);
+    st.raw[67] &= (uint8_t)~8u;                       /* what firmware before 4.3 wrote */
+    sum = proj_hash(st.raw, PROJ_STORE_SIZE - 4u);
+    memcpy(st.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+    ok = ok && proj_import(&c, &st, sizeof st);
+    bad += check("LFO SYNC: an old project's note value 1/16 -> SYNC ON, RATE 90; the unsynced track's RATE kept",
+                 ok && c.t[0].p[P_LSYNC] == 1 && c.t[0].p[P_LRATE] == 90 && !c.t[1].p[P_LSYNC] && c.t[1].p[P_LRATE] == 30);
+    bad += check("LFO SYNC: the synced track's RATE events go, the other track's stay",
+                 c.motion.count == 1u && c.motion.event[0].place >> 6 == 1u && c.motion.event[0].param == P_LRATE);
+    a.t[0].p[P_LSYNC] = 1;
+    a.lfo_sync = 1;
+    a.sum = proj_sum(&a);
+    ok = proj_pack(&st, &a) && (st.raw[67] & 8u) && proj_import(&c, &st, sizeof st);
+    bad += check("LFO SYNC: a new project keeps SYNC ON, RATE and its events",
+                 ok && c.t[0].p[P_LSYNC] == 1 && c.t[0].p[P_LRATE] == 30 && c.motion.count == 2u);
+    return bad;
+}
+
 /* FUN10 (FUNA) allowed 110 motion records in the body. Build one from a packed FUN20 image: demote the magic,
  * expand the motion block into the FUN10 size (the bytes FUN11 later took for the kit), and check import. */
 static int store_fun10_motion110(project_store_t *st, const project_t *src)
@@ -663,7 +703,7 @@ int main(void)
 
     /* today's format: a matrix slot set, WHEEL engine 7, a DRUM track with notes and hits: stored as is */
     memset(&q, 0, sizeof q);
-    q.magic = PROJ_MAGIC; q.size = sizeof q; q.sel = 1; q.parts = NPART; q.phys = PROJ_PHYS; q.fm6_vib = 1;
+    q.magic = PROJ_MAGIC; q.size = sizeof q; q.sel = 1; q.parts = NPART; q.phys = PROJ_PHYS; q.fm6_vib = 1; q.lfo_sync = 1;
     chain_defaults(&q.chain); memcpy(q.dx, DX_KIT_DEF, sizeof q.dx);
     for (t = 0; t < NTRK; t++) {
         q.t[t].engine = trk_def_engine(t);
@@ -1086,6 +1126,7 @@ int main(void)
     }
     bad += chord_mode_wire();
     bad += vib_wire();
+    bad += lsync_wire();
     bad += generation_wire();
     bad += generation_legacy_defaults();
     bad += step_wire_freeze();
