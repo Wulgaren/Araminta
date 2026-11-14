@@ -711,6 +711,7 @@ fn run(args: &Args) -> Result<String, String> {
     let funcs = if args.profile > 0 { Some(Funcs::load(&args.elf)?) } else { None };
     let mut prof: [HashMap<String, u64>; 2] = [HashMap::new(), HashMap::new()];
     let mut last_cycles = emu.soc.periph.cycles;
+    let misses0 = emu.soc.xip_cache.as_ref().map(|c| c.misses);
     while emu.ms() < t0 + args.ms {
         emu.step()?;
         if let Some(f) = &funcs {
@@ -728,13 +729,35 @@ fn run(args: &Args) -> Result<String, String> {
             next_sample += 10;
         }
     }
+    if let Some(f) = &funcs {
+        // the code the render ran, against the 32 KB flash cache: every function either core spent time in (not the
+        // main loop or core 1's wait), with its size from the ELF
+        let mut hot: Vec<(u32, &str)> = f.0.iter()
+            .filter(|(_, _, n)| prof.iter().any(|p| p.contains_key(n.as_str())))
+            .filter(|(s, _, _)| *s >= 0x0200_0000)
+            .map(|(s, e, n)| (e - s, n.as_str())).collect();
+        hot.sort_by(|a, b| b.0.cmp(&a.0));
+        let total: u32 = hot.iter().map(|h| h.0).sum();
+        eprintln!("profile: the render's code in flash: {} functions, {total} bytes; the largest: {}", hot.len(),
+            hot.iter().take(8).map(|(sz, n)| format!("{n} {sz}")).collect::<Vec<_>>().join(", "));
+    }
+    if let (Some(_), Some(m0), Some(c)) = (&funcs, misses0, emu.soc.xip_cache.as_ref()) {
+        // the flash cache is shared by both cores; a miss stalls the core that made it ~300 cycles
+        let (m, halves) = (c.misses - m0, args.ms * 44_100 / 1000 / 128);
+        eprintln!("profile: {m} flash cache misses ({:.1} a half of 128 frames, ~{:.0} us of 2902)", m as f64 / halves as f64,
+            m as f64 / halves as f64 * fm1_soc::XipCache::MISS_TICKS as f64 / 8.0 / 240.0);
+    }
     for (core, p) in prof.iter().enumerate().filter(|(_, p)| !p.is_empty()) {
         let total: u64 = p.values().sum();
         let mut rows: Vec<(&String, &u64)> = p.iter().collect();
         rows.sort_by(|a, b| b.1.cmp(a.1));
         eprintln!("profile core {core} (share of its time in the scenario):");
         for (name, c) in rows.into_iter().take(args.profile) {
-            eprintln!("  {:5.1} %  {name}", *c as f64 * 100.0 / total as f64);
+            let at = funcs.as_ref().and_then(|f| f.0.iter().find(|(_, _, n)| n == name));
+            let size = at.map_or(String::new(), |(s, e, _)| {
+                format!("  {} B {}", e - s, if *s >= 0x0200_0000 { "flash" } else { "RAM" })
+            });
+            eprintln!("  {:5.1} %  {name}{size}", *c as f64 * 100.0 / total as f64);
         }
     }
 
