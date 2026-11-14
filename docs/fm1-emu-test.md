@@ -42,12 +42,20 @@ punch-in does not engage or does not let go. Each prints one line of JSON: `cpu_
 scenario), `audio_max_us`, `late` (halves the DMA moved past, with `late_over` / `late_t5` / `late_oth` saying why),
 `wall_max_us`, `voices_shed`.
 
-One scenario by hand (`--fast`: the JIT, not device-timed, a few seconds):
+One scenario by hand:
 
 ```sh
 build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario stack --ms 6000 \
-    [--wav out.wav] [--fast] [--seed N] [--mhz 240]
+    [--wav out.wav] [--fast] [--seed N] [--mhz 240] [--profile N]
 ```
+
+`--profile N` prints the N functions each core spent the most device time in during the scenario (from the ELF's
+symbols): core 0 inside the audio ISR (outside it: `(main loop)`), core 1 at its jobs (waiting: `(idle)`). Inlined
+code counts as its caller.
+
+`--fast` (the JIT, a few seconds, not device-timed) also runs single-core: fm1-emu's loop skip fast-forwards core 0
+through its wait for core 1's first job, the job times out and the firmware holds core 1 for the session. Profile
+and measure in strict mode only.
 
 The load is printed, not held to a bound, until the emulator is calibrated against a device (below).
 
@@ -84,14 +92,19 @@ device.
 
 ## First results (uncalibrated, 2026-11-14, `1e47815`)
 
-| Scenario | cpu_pct | late halves | voices shed |
-| --- | --- | --- | --- |
-| dry, 3 s | 78.1 % | 0 | 12 |
-| keys, 9 s | 82.4 % | 7 | 35 |
-| churn, 6 s | 83.6 % | 4 | 21 |
-| stack, 6 s | 99.6 % | 618 (1450 of ~2068 halves rendered) | 24 |
+| Scenario | cpu_pct | late halves | halves rendered | voices shed |
+| --- | --- | --- | --- | --- |
+| dry, 3 s | 103.9 % | 491 | 545 of ~1034 | 6 |
+| keys, 9 s | 115.6 % | 1515 | 1587 of ~3100 | 18 |
+| churn, 6 s | 116.8 % | 1006 | 1063 of ~2068 | 12 |
+| stack, 6 s | 134.4 % | 1026 | 1043 of ~2068 | 12 |
 
-The same scenarios in `--fast` (one cycle an instruction): 39-53 %, nothing late or shed.
+The test patch (every insert at MIX 100 on four parts) is past the budget before any punch-in. A late half costs a
+whole half: the ISR acknowledges the next one while still rendering, so it is skipped and the DMA replays stale
+audio. Voice shedding stops after a handful (each part keeps its lowest note): the cost is in what does not scale
+with voices, the parts' inserts, the sends, MASTER and the punch-ins. Core 1 waits 64 % of the time: it renders a
+share of the parts, then core 0 alone runs the serial tail (bus join, punch-ins, reverb and delay, MASTER).
+(An earlier run of this table had MIDI IN left at SEL, so every part's notes played on part 1.)
 
 Against devices (not a calibration: other patches). Console logs from FM-1s on v2.1-v2.6 with users' projects show
 the same regime and the same cause: `cpu_pct` 60-93 %, `audio_max_us` 3200-3945 against the 2902 us half, late

@@ -26,7 +26,7 @@ const RAM_SIZE: usize = 1 << 20;
 /// Instructions a `run` call: about 50 us of the device, the granularity of the host's MIDI and RAM probes.
 const CHUNK: u32 = 10_000;
 const USAGE: &str = "usage: emu_test --fwsc FELUCCA.fwsc --elf FELUCCA.elf --scenario dry|keys|stack|churn --ms N \
-[--wav OUT.wav] [--mhz 240] [--fast] [--seed N]";
+[--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--profile N]";
 
 // The firmware's internal ids (parameters, PF_* effects, the punch pages' key maps), generated from its sources by
 // tests/emu/ids.c into build/emu/ids.rs before this builds (tests/run_tests.sh, FM1_EMU=1)
@@ -94,12 +94,14 @@ struct Args {
     mhz: u64,
     fast: bool,
     seed: u32,
+    /// --profile N: the N functions each core spent the most device time in during the scenario (0: off)
+    profile: usize,
 }
 
 fn parse_args() -> Result<Args, String> {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let (mut fwsc, mut elf, mut scenario, mut ms) = (None, None, None, None);
-    let (mut wav, mut mhz, mut fast, mut seed) = (None, 240u64, false, 1u32);
+    let (mut wav, mut mhz, mut fast, mut seed, mut profile) = (None, 240u64, false, 1u32, 0usize);
     let mut i = 0;
     while i < a.len() {
         let val = |i: usize| a.get(i + 1).cloned().ok_or_else(|| format!("{} needs a value", a[i]));
@@ -112,6 +114,7 @@ fn parse_args() -> Result<Args, String> {
             "--wav" => wav = Some(val(i)?),
             "--mhz" => mhz = num(i)?,
             "--seed" => seed = u32::try_from(num(i)?).map_err(|_| "--seed: at most 32 bits")?,
+            "--profile" => profile = num(i)? as usize,
             "--fast" => {
                 fast = true;
                 i += 1;
@@ -123,7 +126,7 @@ fn parse_args() -> Result<Args, String> {
     }
     match (fwsc, elf, scenario, ms) {
         (Some(fwsc), Some(elf), Some(scenario), Some(ms)) if mhz > 0 => {
-            Ok(Args { fwsc, elf, scenario, ms, wav, mhz, fast, seed })
+            Ok(Args { fwsc, elf, scenario, ms, wav, mhz, fast, seed, profile })
         }
         _ => Err(USAGE.to_string()),
     }
@@ -165,6 +168,37 @@ struct Syms {
 /// Reads `path`'s ELF32 (little-endian) symbol table into name -> (value, size). A name defined twice
 /// (two file-local statics) maps to None, so a lookup of it fails rather than picks one.
 fn elf_symbols(path: &str) -> Result<HashMap<String, Option<(u32, u32)>>, String> {
+    let mut out: HashMap<String, Option<(u32, u32)>> = HashMap::new();
+    for (name, value, size, _) in elf_entries(path)? {
+        out.entry(name).and_modify(|v| *v = None).or_insert(Some((value, size)));
+    }
+    Ok(out)
+}
+
+/// The functions of `path`'s ELF (STT_FUNC, sized), sorted by address: --profile's map from a PC to its function.
+struct Funcs(Vec<(u32, u32, String)>);
+
+impl Funcs {
+    fn load(path: &str) -> Result<Self, String> {
+        let mut f: Vec<(u32, u32, String)> = elf_entries(path)?.into_iter()
+            .filter(|&(_, _, size, info)| info & 15 == 2 && size > 0)
+            .map(|(name, value, size, _)| (value, value + size, name))
+            .collect();
+        f.sort();
+        Ok(Funcs(f))
+    }
+
+    fn name(&self, pc: u32) -> &str {
+        let i = self.0.partition_point(|&(start, _, _)| start <= pc);
+        match i.checked_sub(1).map(|k| &self.0[k]) {
+            Some((_, end, name)) if pc < *end => name,
+            _ => "(no function)",
+        }
+    }
+}
+
+/// Every named entry of `path`'s ELF32 (little-endian) symbol table: name, value, size, st_info.
+fn elf_entries(path: &str) -> Result<Vec<(String, u32, u32, u8)>, String> {
     let f = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
     let bad = || format!("{path}: not a little-endian ELF32 with a symbol table");
     if f.len() < 52 || &f[..4] != b"\x7fELF" || f[4] != 1 || f[5] != 1 {
@@ -180,16 +214,16 @@ fn elf_symbols(path: &str) -> Result<HashMap<String, Option<(u32, u32)>>, String
     let symtab = (0..shnum).filter_map(section).find(|s| s.0 == 2).ok_or_else(bad)?; // SHT_SYMTAB
     let (_, str_off, str_size, _) = section(symtab.3).ok_or_else(bad)?;
     let strtab = f.get(str_off..str_off + str_size).ok_or_else(bad)?;
-    let mut out: HashMap<String, Option<(u32, u32)>> = HashMap::new();
+    let mut out = Vec::new();
     for s in (symtab.1..symtab.1 + symtab.2).step_by(16) {
-        let (Some(name), Some(value), Some(size)) = (u32_at(s), u32_at(s + 4), u32_at(s + 8)) else { return Err(bad()) };
+        let (Some(name), Some(value), Some(size), Some(&info)) = (u32_at(s), u32_at(s + 4), u32_at(s + 8), f.get(s + 12))
+        else { return Err(bad()) };
         let Some(rest) = strtab.get(name as usize..) else { return Err(bad()) };
         let end = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
         let name = String::from_utf8_lossy(&rest[..end]).into_owned();
-        if name.is_empty() {
-            continue;
+        if !name.is_empty() {
+            out.push((name, value, size, info));
         }
-        out.entry(name).and_modify(|v| *v = None).or_insert(Some((value, size)));
     }
     Ok(out)
 }
@@ -221,6 +255,7 @@ impl Syms {
 const DBG_MAGIC: u32 = 0x4442_4731;
 const DBG_HALVES: u32 = 1;
 const DBG_MAX_US: u32 = 2;
+const DBG_IN_AUDIO: u32 = 4;
 const DBG_LATE: u32 = 5;
 const DBG_CPU_Q8: u32 = 9;
 const DBG_LATE_OVER: u32 = 19;
@@ -447,10 +482,13 @@ fn heavy_patch(emu: &mut Emu) -> Result<(), String> {
         }
     }
     emu.ed(ED_TRACK, &[0])?;
-    let [lo, hi] = v14(120);
-    let r = emu.ed(ED_SET, &[1, G_BPM, lo, hi])?;
-    if r != [1, G_BPM, lo, hi] {
-        return Err(format!("BPM 120 answered {r:02x?}"));
+    // 120 BPM, and MIDI IN on CH1-4 (its default, SEL, plays every channel on the selected part)
+    for (id, v, what) in [(G_BPM, 120, "BPM 120"), (G_ROUTE, 0, "MIDI IN CH1-4")] {
+        let [lo, hi] = v14(v);
+        let r = emu.ed(ED_SET, &[1, id, lo, hi])?;
+        if r != [1, id, lo, hi] {
+            return Err(format!("{what} answered {r:02x?}"));
+        }
     }
     for (p, &(_, _, n)) in PARTS.iter().enumerate() {
         for &note in &NOTES[..n] {
@@ -667,11 +705,36 @@ fn run(args: &Args) -> Result<String, String> {
     emu.act_seen = 0;
     let mut cpu_q8_max = 0;
     let mut next_sample = t0;
+    // --profile: each CHUNK's cycles charged to the function each core is in at its end (a sampling profile
+    // weighted by device time); core 0 outside the audio ISR (felucca_dbg.in_audio) as "(main loop)", core 1 in
+    // its job loop as "(idle)"
+    let funcs = if args.profile > 0 { Some(Funcs::load(&args.elf)?) } else { None };
+    let mut prof: [HashMap<String, u64>; 2] = [HashMap::new(), HashMap::new()];
+    let mut last_cycles = emu.soc.periph.cycles;
     while emu.ms() < t0 + args.ms {
         emu.step()?;
+        if let Some(f) = &funcs {
+            let d = emu.soc.periph.cycles - last_cycles;
+            last_cycles = emu.soc.periph.cycles;
+            let c0 = if emu.dbg(DBG_IN_AUDIO) != 0 { f.name(emu.cpu.pc) } else { "(main loop)" };
+            *prof[0].entry(c0.to_string()).or_default() += d;
+            if let Some(c1) = &emu.cpu1 {
+                let n = f.name(c1.pc);
+                *prof[1].entry(if n == "fm1_c1_main" { "(idle)" } else { n }.to_string()).or_default() += d;
+            }
+        }
         if emu.ms() >= next_sample {
             cpu_q8_max = cpu_q8_max.max(emu.dbg(DBG_CPU_Q8));
             next_sample += 10;
+        }
+    }
+    for (core, p) in prof.iter().enumerate().filter(|(_, p)| !p.is_empty()) {
+        let total: u64 = p.values().sum();
+        let mut rows: Vec<(&String, &u64)> = p.iter().collect();
+        rows.sort_by(|a, b| b.1.cmp(a.1));
+        eprintln!("profile core {core} (share of its time in the scenario):");
+        for (name, c) in rows.into_iter().take(args.profile) {
+            eprintln!("  {:5.1} %  {name}", *c as f64 * 100.0 / total as f64);
         }
     }
 
