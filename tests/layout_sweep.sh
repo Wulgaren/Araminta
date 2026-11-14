@@ -9,9 +9,9 @@
 # every layout and the median (min - max). Judge a change by the medians and ranges, not by one build.
 #   tests/layout_sweep.sh [scenario:ms ...]      default: dry:3000 keys:9000 churn:6000 stack:6000
 #   LAYOUTS="0 1 2 3 4 5 6 7"                    the pads (0: none), 8 by default
-# Needs the emulator runner (FM1_EMU=1 tests/run_tests.sh once, or docs/fm1-emu-test.md). Builds run one at a
-# time (they share build/); the emulator counts device cycles, so its runs go in parallel with the same numbers.
-# Leaves build/ as a plain ./build.sh; images and results in build/sweep/.
+# Needs the emulator runner (FM1_EMU=1 tests/run_tests.sh once, or docs/fm1-emu-test.md). Every layout builds at
+# once, each into its own build/sweep/pad<n>/build (FELUCCA_OUT), then runs its scenarios; the emulator counts device
+# cycles, so parallel runs give the same numbers. build/ itself is not touched; images and results in build/sweep/.
 set -e
 
 cd "$(dirname "$0")/.."
@@ -27,24 +27,27 @@ if [ ! -x "$RUNNER" ]; then
 fi
 rm -rf "$OUT"
 mkdir -p "$OUT"
-trap './build.sh >/dev/null 2>&1' EXIT        # build/ back to the plain firmware, however this ends
 
-for n in $LAYOUTS; do
-    if [ "$n" = 0 ]; then
-        ./build.sh >"$OUT/build$n.log" 2>&1 || { echo "layout_sweep: pad $n: build failed ($OUT/build$n.log)" >&2; exit 1; }
-    else
-        FELUCCA_LAYOUT_PAD=$n ./build.sh >"$OUT/build$n.log" 2>&1 ||
-            { echo "layout_sweep: pad $n: build failed ($OUT/build$n.log)" >&2; exit 1; }
+# one layout: its build (pad 0: none), then its scenarios
+layout() {
+    d="$OUT/pad$1"
+    pad=$1
+    [ "$pad" = 0 ] && pad=
+    mkdir -p "$d"
+    if ! FELUCCA_OUT="$d/build" FELUCCA_LAYOUT_PAD="$pad" ./build.sh >"$d/build.log" 2>&1; then
+        echo "layout_sweep: pad $1: build failed ($d/build.log)" >&2
+        return 1
     fi
-    mkdir -p "$OUT/pad$n"
-    cp build/felucca.fwsc build/felucca.elf "$OUT/pad$n/"
     for s in $SCENARIOS; do
-        "$RUNNER" --fwsc "$OUT/pad$n/felucca.fwsc" --elf "$OUT/pad$n/felucca.elf" --scenario "${s%%:*}" --ms "${s##*:}" \
-            2>"$OUT/pad$n/${s%%:*}.log" | grep '^{' >"$OUT/pad$n/${s%%:*}.json" &
+        "$RUNNER" --fwsc "$d/build/felucca.fwsc" --elf "$d/build/felucca.elf" --scenario "${s%%:*}" --ms "${s##*:}" \
+            2>"$d/${s%%:*}.log" | grep '^{' >"$d/${s%%:*}.json" &
     done
-    echo "layout_sweep: pad $n built, its scenarios running"
+    wait
+}
+for n in $LAYOUTS; do
+    layout "$n" &
 done
-wait
+wait || true                                    # (a failed layout shows below as a missing result)
 
 python3 - "$OUT" "$LAYOUTS" "$SCENARIOS" <<'EOF'
 import json, os, statistics, sys
@@ -53,7 +56,12 @@ bad = 0
 for sc in scenarios:
     rows = []
     for n in layouts:
-        t = open(os.path.join(out, "pad" + n, sc + ".json")).read().strip()
+        p = os.path.join(out, "pad" + n, sc + ".json")
+        if not os.path.exists(p):                 # its build failed: no image to run
+            print(f"layout_sweep: {sc} pad {n}: no image ({os.path.join(out, 'pad' + n, 'build.log')})")
+            bad = 1
+            continue
+        t = open(p).read().strip()
         if not t:                                 # the runner failed its own checks (a punch-in not engaged, ...)
             log = os.path.join(out, "pad" + n, sc + ".log")
             last = open(log).read().strip().splitlines()[-1:] if os.path.exists(log) else ["(no log)"]

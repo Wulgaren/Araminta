@@ -30,7 +30,9 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1]
 FW = SRC / "firmware"
-OUT = SRC / "build"
+OUT = (SRC / os.environ.get("FELUCCA_OUT", "build")).resolve()   # tests/layout_sweep.sh: one per layout, in parallel
+if not OUT.is_relative_to(SRC):     # the toolchain container mounts SRC and takes paths relative to it
+    raise SystemExit(f"FELUCCA_OUT={os.environ['FELUCCA_OUT']}: must be inside {SRC}")
 GEN = OUT / "gen"
 LDR = OUT / "loader"
 sys.path.insert(0, str(SRC / "tools"))
@@ -268,7 +270,7 @@ def app_cache_key(flags, size):
 
 
 def build_app():
-    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
+    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", f"-I{GEN.relative_to(SRC)}"]
     for flag in ("FELUCCA_FLASH", "FELUCCA_OTA", "FELUCCA_OTA_DRYRUN", "FELUCCA_OTA_RAMONLY", "FELUCCA_CDC",
                  "FELUCCA_UART", "FELUCCA_UAC", "FELUCCA_UAC_TONE", "FELUCCA_UAC_48K", "FELUCCA_ICONS", "FELUCCA_SLICE",
                  "FELUCCA_CDC_DEFAULT", "FELUCCA_UAC_AS_FIRST"):
