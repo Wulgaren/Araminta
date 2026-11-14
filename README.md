@@ -171,8 +171,8 @@ voicing and STRUM.
 Every Felucca 1.5 / 1.5.1 project, user preset and setting loads. The installer replaces only the app and its
 loader.
 
-Saving on Araminta (by hand, or when autosave runs after you stop) writes the current project format, FUN20.
-Felucca 1.5 and older Araminta builds cannot open it. **Back up in the web editor before your first save** if you
+Saving on Araminta (by hand, or when autosave runs after you stop) writes the current project format, FUN21.
+Felucca 1.5 and Araminta builds before 4.3 cannot open it. **Back up in the web editor before your first save** if you
 still need a 1.5-readable copy.
 
 Return to official V15 gives you stock firmware, not Felucca 1.5. The web editor's full backup skips the FM6 voice

@@ -61,6 +61,8 @@ static void fl_plain_window_init(void) {}
 #include "../firmware/src/storage.c"
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
+/* the programs an autosave takes: the project in 256 B pieces, then the header */
+#define AS_PROGS ((int)((sizeof(project_store_t) + 255u) / 256u) + 1)
 /* 3.10: no RAM wire cache; tests that need a local image use this scratch. */
 static project_store_t host_proj;
 
@@ -321,7 +323,7 @@ static int autosave_test(void)
     ok = !as.writes;
     as_run(1500u);
     bad += check("autosave: a change: no write within 10 s, one once idle 10 s (one erase)",
-                 ok && as.writes == 1u && as_erases == 1u && st_load(OBJ_AUTOSAVE, &raw, sizeof raw) == 4096);
+                 ok && as.writes == 1u && as_erases == 1u && st_load(OBJ_AUTOSAVE, &raw, sizeof raw) == (int)sizeof raw);
     as_run(600000u);
     bad += check("autosave: 10 min unchanged after it: no more writes", as.writes == 1u && as_erases == 1u);
     song.g[G_SLOT] = 3;                                  /* (the PROJECT page's pick, the selected track: not the music) */
@@ -632,8 +634,8 @@ int main(void)
         ok = as.writes == w0;                          /* poll must not write yet */
         project_save(0);
         ok &= !strcmp(ui.msg, "SAVED") && as.writes == w0 + 1u;
-        ok &= st_load(OBJ_AUTOSAVE, &as_raw, sizeof as_raw) == 4096 &&
-              proj_import(&proj_scratch, &as_raw, 4096) &&
+        ok &= st_load(OBJ_AUTOSAVE, &as_raw, sizeof as_raw) == (int)sizeof as_raw &&
+              proj_import(&proj_scratch, &as_raw, (int)sizeof as_raw) &&
               step_note(&proj_scratch.t[0].step[0], 0) == 77u;
         ok &= st_load(OBJ_PROJECT0, &got, sizeof got) == (int)sizeof got &&
               !memcmp(&as_raw, &got, sizeof as_raw);   /* same packed image in autosave and the slot */
@@ -654,8 +656,9 @@ int main(void)
     }
     step_set_note(&trk[0].step[0], 0, 72);
     /* 3.10 single-copy: after a successful force-autosave, a torn project write erases the only copy;
-     * autosave (17 st_prog: 16 x 256 B + header) is the recovery. fail_after=17: autosave ok, project tears. */
-    fail_after = 17;
+     * autosave (AS_PROGS st_prog: the payload in 256 B pieces + header) is the recovery. fail_after=AS_PROGS:
+     * autosave ok, project tears. */
+    fail_after = AS_PROGS;
     project_save(0);
     fail_after = -1;
     bad += check("torn project save: SAVE ERROR and the only copy is gone", !strcmp(ui.msg, "SAVE ERROR") &&
@@ -663,8 +666,8 @@ int main(void)
     {
         project_store_t as_raw;
         bad += check("torn project save: autosave already holds the music being saved",
-                     st_load(OBJ_AUTOSAVE, &as_raw, sizeof as_raw) == 4096 &&
-                     proj_import(&proj_scratch, &as_raw, 4096) &&
+                     st_load(OBJ_AUTOSAVE, &as_raw, sizeof as_raw) == (int)sizeof as_raw &&
+                     proj_import(&proj_scratch, &as_raw, (int)sizeof as_raw) &&
                      step_note(&proj_scratch.t[0].step[0], 0) == 72u);
     }
     project_save(0);
@@ -686,7 +689,7 @@ int main(void)
         project_save_as(0, "LOFI JAM");
         bad += check("a project's name goes to flash and comes back", project_name(0, n) && !strcmp(n, "LOFI JAM") &&
                       (proj_fetch(0), !strcmp(proj_name, "LOFI JAM")));
-        fail_after = 17;                               /* autosave ok; rename's project write tears */
+        fail_after = AS_PROGS;                         /* autosave ok; rename's project write tears */
         bad += check("failed project rename: SAVE ERROR and the only copy is gone",
                       project_rename(0, "DUB") == 2 && !strcmp(ui.msg, "SAVE ERROR") && !project_used(0) &&
                       st_load(OBJ_PROJECT0, &got, sizeof got) < 0);

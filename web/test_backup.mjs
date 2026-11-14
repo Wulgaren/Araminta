@@ -233,6 +233,17 @@ ok(await athrows(() => restoreBackup(failing.request, file)) && failing.log.incl
     const fixture = { ...exported, data: Buffer.from(bytes).toString("base64"), crc: bkCrc(bytes) };
     ok(!throws(() => readProject(fixture)), `project: FUN${magicByte - 0x41 + 10} recognized at its existing 3840-byte size`);
   }
+  for (const [size, last, fun] of [[4096, 0x4b, 20], [4864, 0x4c, 21]]) {   // FUN20 "FUNK", FUN21 "FUNL"
+    const name = `FUN${fun} SONG`, bytes = rnd(size, 60 + fun);
+    bytes[0] = 0x46; bytes[1] = 0x55; bytes[2] = 0x4e; bytes[3] = last;
+    for (let i = 0; i < 12; i++) bytes[size - 16 + i] = name.charCodeAt(i) || 0;
+    const file = await captureProject(device([[2, bytes]]).request, 0, "TEST");
+    ok(file.size === size && projectName(readProject(file).bytes) === name,
+      `project: FUN${fun} (${size} B) exports and reads back with its name`);
+    const archive = await captureBackup(device([[0, bytes], [1, rnd(1200, 70)], [2, bytes]]).request, "4.3");
+    ok(readBackup(JSON.stringify(archive)).objects.find((o) => o.id === 2).size === size,
+      `backup: a FUN${fun} live project and slot (${size} B) capture and read back`);
+  }
   const fun15 = fun10(51, "FX LOCKS"); fun15[0] = 0x46;
   const fun15Device = device([[2, fun15]]);
   let currentFile;
