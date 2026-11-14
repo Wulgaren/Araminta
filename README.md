@@ -28,13 +28,14 @@ stock.
   [Coming from Felucca 1.5](#coming-from-felucca-15).
 - **From an older Araminta:** install over it. Your data stays.
 
-## New in 4.2
+## New in 4.3
 
-- The **mod matrix** has eight slots per track. KNOB 1 on the MOD page runs SLOT 1..8.
-- A project saves **148 automation records** (was 155): slots 5..8 take the rest. A 4.1 project with more still
-  loads whole and shows AUTOMATION SAVE LIMIT.
-- The DRUM-X **sound dice** (OCT+ held + PRESETS) starts from a random factory kit, and can change a sound's WAVE and
-  MODEL.
+- **LFO SYNC** works in note values. RATE turns 4BAR .. 1/32 with SYNC on, and the graph draws one bar of the tempo.
+- The **punch-in lane** records every effect, and a step holds all the effects held while it passed. REC keeps
+  playing while you record.
+- A project keeps **all 255 automation records** (was 192, and a save kept 148). The save limit and its warning are
+  gone.
+- Projects are **FUN21** (4864 B). Older projects still load; firmware before 4.3 cannot open a FUN21.
 
 Full notes: [CHANGELOG.md](CHANGELOG.md).
 
@@ -109,7 +110,7 @@ Retired engines (DIGITAL, SLICE, DRUMS) load safely: DIGITAL tracks stay silent,
 | SEQ | STEP / DETAIL / AUTOMATION, then SEQ TOOLS / GENERATION | + OCT±: tools layer |
 | GLO | MASTER / CLOCK, then SONG | + OCT±: mutes, solos, levels, tap tempo |
 | SAVE | PRESETS / USER / PHRASES, then PROJECT / TOOLS | Undo |
-| LFO | LFO / LFO 2 / LFO DEST, then MOD | + a knob: momentary change |
+| LFO | LFO 1/3, 2/3, LFO DEST 3/3, then MOD | + a knob: momentary change |
 | EDIT | Sound pages, Kit (DRUM-X), Voice | + OCT±: engine layer |
 | FX | EFFECTS, SLICER, PUNCH-IN | |
 | SCL, ENV, ARP | Their pages | SCL + OCT±: its layer |
@@ -171,8 +172,8 @@ voicing and STRUM.
 Every Felucca 1.5 / 1.5.1 project, user preset and setting loads. The installer replaces only the app and its
 loader.
 
-Saving on Araminta (by hand, or when autosave runs after you stop) writes the current project format, FUN20.
-Felucca 1.5 and older Araminta builds cannot open it. **Back up in the web editor before your first save** if you
+Saving on Araminta (by hand, or when autosave runs after you stop) writes the current project format, FUN21.
+Felucca 1.5 and Araminta builds before 4.3 cannot open it. **Back up in the web editor before your first save** if you
 still need a 1.5-readable copy.
 
 Return to official V15 gives you stock firmware, not Felucca 1.5. The web editor's full backup skips the FM6 voice

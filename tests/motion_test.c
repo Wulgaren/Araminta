@@ -18,7 +18,7 @@ static int motion_recording(void)
     project_t q; project_store_t packed;
     project_capture(&q);
     bad += check("project snapshot saves base + independent events while sounding", q.t[0].p[P_REV] == 23 && q.motion.event[0].value == 110 &&
-        proj_pack(&packed, &q) && sizeof packed == 4096u);  /* 3.10: project grew */
+        proj_pack(&packed, &q) && sizeof packed == 4864u);  /* FUN21: project grew */
     seq_stop();
     bad += check("stop before another step restores the original parameter", t->p[P_REV] == 23);
     seq_start(); seq_tick(t, CTL);
@@ -55,42 +55,16 @@ static int motion_recording(void)
 static int motion_capacity(void)
 {
     int bad = 0; ui_power_on();
-    motion_save_lim = 0;
-    for (uint32_t i = 0; i < MOTION_FILE_MAX; i++)   /* 155: three ids x 64 steps (REV/DLY/PAN) */
-        bad += motion_set_event(&trk[0], i % NSTEP,
-                                i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_PAN, (int16_t)(i % 60u));
-    bad += check("disk-full count does not raise save-limit flag", !motion_save_lim && motion.count == MOTION_FILE_MAX);
-    bad += check("the event past the disk max raises the save-limit flag once",
-                 !motion_set_event(&trk[0], MOTION_FILE_MAX % NSTEP, P_LEVEL, 10) &&
-                 motion.count == MOTION_FILE_MAX + 1u && motion_save_lim);
-    motion_save_lim = 0;
-    bad += check("further adds past disk max do not re-raise the flag",
-                 !motion_set_event(&trk[0], (MOTION_FILE_MAX + 1u) % NSTEP, P_DIST, 40) && !motion_save_lim);
-    {
-        static project_t q, full;                      /* full: the 150 records, as a FUN20 file of 4.1 (up to 155) */
-        project_store_t st;
-        project_capture(&q);
-        full = q;
-        bad += check("proj_pack clips motion to MOTION_FILE_MAX",
-                     q.motion.count > MOTION_FILE_MAX && proj_pack(&st, &q) &&
-                     proj_import(&q, &st, sizeof st) && q.motion.count == MOTION_FILE_MAX);
-        motion_save_lim = 0;
-        bad += check("a project of 148 records loads without the save-limit flag",
-                     !project_restore_runtime(&q) && !motion_save_lim);
-        bad += check("a project of more records than a save keeps raises the save-limit flag as it loads",
-                     !project_restore_runtime(&full) && motion.count == MOTION_FILE_MAX + 2u && motion_save_lim);
-    }
-    ui_power_on();
-    for (uint32_t i = 0; i < MOTION_MAX; i++)          /* (192: three ids on each of the 64 steps) */
-        bad += motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_PAN,
-                                (int16_t)(i % NSTEP));
+    for (uint32_t i = 0; i < MOTION_MAX; i++)          /* (255: four ids over the 64 steps) */
+        bad += motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY :
+                                i < 3u * NSTEP ? P_PAN : P_LEVEL, (int16_t)(i % NSTEP));
     motion_store_t saved = motion;
     bad += check("full event pool refuses append without overwriting earlier events", motion_set_event(&trk[1], 0, P_REV, 90) == 2 &&
         !memcmp(&motion, &saved, sizeof saved));
     bad += check("full pool still permits a targeted overwrite", !motion_set_event(&trk[0], 12, P_REV, 100) && motion.count == MOTION_MAX);
     motion_delete_event(&trk[0], 12, P_REV);
     bad += check("deleting one event releases one slot", motion.count == MOTION_MAX - 1u && !motion_set_event(&trk[1], 0, P_REV, 90));
-    saved = motion; motion_store_t invalid = motion; invalid.count = MOTION_MAX + 1;
+    saved = motion; motion_store_t invalid = motion; invalid.on = 1u << NTRK;   /* (a track that is not there) */
     bad += check("invalid restore leaves the pool intact", motion_replace_track(&trk[0], &invalid) != 0 && !memcmp(&motion, &saved, sizeof saved));
     motion_clear(&trk[0]);
     bad += check("track clear keeps every other track's events", motion.count == 1u && motion.event[0].place >> 6 == 1u);
@@ -118,8 +92,8 @@ static int compact_project(void)
     motion_set_event(t, 3, P_REV, 110);
     project_t before, after; project_store_t packed, corrupt;
     project_capture(&before);
-    /* 3.10: project grew from 3840 to 4096 bytes */
-    bad += check("3.10 fits the retained and flash extent", sizeof(proj_slot) == 4u * 4096u && proj_pack(&packed, &before));
+    /* FUN21: project grew from 4096 to 4864 bytes */
+    bad += check("FUN21 fits the retained and flash extent", sizeof(proj_slot) == 4u * 4864u && proj_pack(&packed, &before));
     bad += check("FUN10 round trip preserves signed values/FM params/probability/motion", proj_import(&after, &packed, sizeof packed) &&
         !memcmp(&before, &after, sizeof before));
     corrupt = packed; corrupt.raw[112] ^= 1u;
@@ -1352,11 +1326,12 @@ static int auto_list(void)
         bad += check("  a song playing: STOP TO EDIT", motion.event[c & 0xFFu].value == v && str_eq(ui.msg, "STOP TO EDIT"));
         chain.running = 0;
     }
-    for (i = 0; motion.count < MOTION_MAX; i++)          /* the 192 used (track 2) */
-        motion_set_event(&trk[1], i % NSTEP, i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_PAN, 10);
+    for (i = 0; motion.count < MOTION_MAX; i++)          /* the 255 used (track 2: four ids over the steps) */
+        motion_set_event(&trk[1], i % NSTEP, i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : i < 3u * NSTEP ? P_PAN : P_LEVEL,
+                         10);
     turn(EN_K1, 5);
     press(B_OCTUP);
-    bad += check("  the 192 used: OCT+ adds nothing, AUTOMATION FULL", motion_count(t) == 1u &&
+    bad += check("  the 255 used: OCT+ adds nothing, AUTOMATION FULL", motion_count(t) == 1u &&
         str_eq(ui.msg, "AUTOMATION FULL") && !act_ready());
     motion_clear(&trk[1]);
     for (i = 0; i < P_COUNT; i++)                        /* names: an id each, none of DIGITAL's, lanes on DRUM only */
@@ -1571,15 +1546,15 @@ static int fx_lock_banks_and_capacity(void)
     seq_stop(); motion_clear(t);
     bad += check("stopping restores CHAIN reverb bases", song.g[G_CRSIZE] == 46 && song.g[G_CRDAMP] == 57);
     for (uint32_t i = 0; i < MOTION_MAX; i++)
-        bad += motion_set_lock(t, i % NSTEP, i < NSTEP ? MFX_TIME : i < 2u * NSTEP ? MFX_FB : MFX_COLOR,
-                               i < NSTEP ? 1550 : i < 2u * NSTEP ? 110 : 25);
-    bad += check("FX locks retain all 192 RAM entries and overwrite at capacity", motion.count == MOTION_MAX &&
+        bad += motion_set_lock(t, i % NSTEP, i < NSTEP ? MFX_TIME : i < 2u * NSTEP ? MFX_FB :
+                               i < 3u * NSTEP ? MFX_COLOR : MFX_DAMP, i < NSTEP ? 1550 : i < 2u * NSTEP ? 110 : 25);
+    bad += check("FX locks retain all 255 RAM entries and overwrite at capacity", motion.count == MOTION_MAX &&
         motion_set_lock(t, 0, MFX_SIZE, 33) == 2 && !motion_set_lock(t, 0, MFX_TIME, 65));
     project_t q, loaded; project_store_t st;
     project_capture(&q);
-    /* 3.10: project is 4096 bytes; MOTION_FILE_MAX is 155 (88 body + 40 append + 27 spare) */
+    /* FUN21: project is 4864 bytes; MOTION_FILE_MAX is every record RAM holds (255) */
     bad += check("FX locks retain MOTION_FILE_MAX saved entries with exact TIME values",
-                 proj_pack(&st, &q) && sizeof st == 4096 &&
+                 proj_pack(&st, &q) && sizeof st == 4864 &&
                  proj_import(&loaded, &st, sizeof st) && loaded.motion.count == MOTION_FILE_MAX &&
                  loaded.motion.event[0].value == 65 && loaded.motion.event[63].value == 1550 &&
                  loaded.motion.event[71].value == 110);

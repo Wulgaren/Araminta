@@ -54,6 +54,7 @@ All by Hügelton Instruments (Leo Kuroshita), in this tree:
 | klattsch by Tony Gies (<https://github.com/tgies/klattsch>): design reference for the VOICE engine; no code copied. Formant data from Klatt (1980) / Hillenbrand et al. (1995) | MIT (klattsch) | credit only |
 | X0X by charlesvestal (<https://github.com/charlesvestal/fm1-x0x>), a Felucca fork: the design of the browser emulator (the worklet, the device clock driven by its audio, the exports); its files credit it in their headers | GPL-3.0 | `web/emu/` |
 | DotGothic16 font by The DotGothic16 Project Authors (<https://github.com/fontworks-fonts/DotGothic16>): the browser emulator's knob labels, served with its page (cut to printable ASCII; the font declares no Reserved Font Name) | SIL OFL 1.1 | `web/emu/fonts/DotGothic16-subset.woff`, `LICENSES/OFL-DotGothic16.txt` (also `web/emu/fonts/OFL.txt`) |
+| fm1-emu by Joakim Eriksson (<https://github.com/joakimeriksson/fm1-emu>): the FM-1 emulator the device-timed test runs the firmware on (`tests/emu`, `FM1_EMU=1`). `tools/get_fm1emu.sh` fetches it at a pinned commit into the gitignored `build/deps/fm1-emu`; none of it is tracked in this repository, and it is not part of the firmware | MIT | `LICENSES/MIT-fm1-emu.txt` |
 | JieLi AC79 SDK by JieLi Technology: three of its files go into every `.fwsc` package (below); none are tracked in this repository | Apache-2.0 | `LICENSES/Apache-2.0.txt` |
 
 On the device, HOME held > ABOUT opens the information screen; turning ALGORITHM scrolls on into

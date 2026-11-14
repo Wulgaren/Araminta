@@ -22,6 +22,9 @@ velocity/LFO results, plus two phase-boundary audio hashes from the original
 and checks negative and positive samples against its original render hash.
 Both run normally and under strict ASan/UBSan without exclusions or recovery.
 The original cases reproduce sanitizer failures on the unchanged baseline.
+`tests/punch_crackle_test.c` runs under the same strict flags: every punch-in
+key and stack, and seeded random punch-in play, over the heavy mix, through the
+FX layer (`perform.c`, `pfx.c`), the insert chain (`fx.c`) and the drums.
 
 These focused checks supplement the existing renders, target budgets and
 one-core/two-core regressions. They do not claim every DSP path is free of

@@ -63,7 +63,7 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
         if (project_used(id - 2u))
             n = st_load(OBJ_PROJECT0 + id - 2u, ED_BK_SCRATCH, sizeof(project_store_t));
         if (n > 0)
-            *len = sizeof(project_store_t);
+            *len = (uint32_t)n;                     /* (its own length: earlier firmware's records are shorter) */
         return ED_BK_SCRATCH;
     }
     if (ed_bk_up(id, &b, &obj)) {
@@ -185,10 +185,10 @@ static uint32_t ed_bk_commit(void)
     sync_reload = 1; ui.force = 1;
     return 0;
 }
-/* a project object's length: FUN20 (4096), FUN10..FUN19 (3840), FUN9 (1.1), FUN8 (1.0.x), FUN7 */
+/* a project object's length: FUN21 (4864), FUN20 (4096), FUN10..FUN19 (3840), FUN9 (1.1), FUN8 (1.0.x), FUN7 */
 static int proj_store_len(uint32_t len)
 {
-    return len == sizeof(project_store_t) || len == PROJ_STORE_OLD || len == PROJ_STORE_V9 ||
+    return len == sizeof(project_store_t) || len == PROJ_STORE_V20 || len == PROJ_STORE_OLD || len == PROJ_STORE_V9 ||
            len == PROJ_STORE_V8 || len == PROJ_STORE_V7;
 }
 static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)

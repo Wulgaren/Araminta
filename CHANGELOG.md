@@ -1,10 +1,16 @@
 # Changelog
 
-## Unreleased
+## 4.3
+
+LFOs keep time with the tempo, the punch-in lane holds every effect a step had, and a project keeps all 255
+automation records. Projects are FUN21.
+
+Splash and ABOUT show `v4.3`.
 
 ### LFO
 
-- **Pages.** LFO is RATE WAVE TRIG SYNC (how fast, and when it starts); LFO 2 is PHS FADE POL SMTH (its shape).
+- **Pages.** LFO 1/3 is RATE WAVE TRIG SYNC (how fast, and when it starts); LFO 2/3 is PHS FADE POL SMTH (its
+  shape; its header was `LFO 2 2/3`); LFO DEST is 3/3.
 - **SYNC is ON / OFF.** With SYNC on, RATE's knob turns note values (4BAR .. 1/32, longest first) instead of Hz,
   as ENV SYNC does for ATK DEC REL. RATE is one automation row and one lock, SYNC on or off, and the matrix's RATE
   moves the note value. RATE is no longer dimmed with SYNC on.
@@ -14,12 +20,32 @@
   tempo). TRIG NOTE starts it at PHS and the graph stands still; FREE starts it at the live phase and it scrolls.
   FADE ramps it in from the left edge, POL UNI draws 0..+1 over the bottom line, S&H's steps glide over SMTH.
 
+### Punch-in lane
+
+- **Every punch-in records.** With REC armed and the transport playing, REPEAT, LPF, HPF, REVERSE, TAPE STOP,
+  FREEZE, PITCH UP / DN, FLANGER, PHASER, the THROWs and GLITCH now go into the punch-in lane as the MIDI ones
+  did, and play back on the master. A recorded REPEAT or REVERSE starts on its step's 1/16. Before, only OCT±,
+  DEC±, STUTTER, ATK+, ARP, RANDOM and /2 / \*2 were recorded.
+- **Effects stack on a step.** A step holds every effect held while it passed, not just one. Recording over a step
+  adds to what it holds: REPEAT in one pass and LPF in the next both play. The lane keeps playing while you record.
+
+### Automation
+
+- **255 records, all saved.** A project keeps every automation record and lock the device holds, now 255 (192
+  before; a save kept 148). AUTOMATION SAVE LIMIT and the SAVE warning that extra records won't be saved are gone.
+
 ### Compatibility
 
 - SYNC's stored value is 0 / 1 now; RATE holds the note value while it is on. Projects mark this in header byte 67
-  bit 3 (still FUN20); user presets in bit 1 of the VIB byte. A project or preset without the mark (all saved
+  bit 3; user presets in bit 1 of the VIB byte. A project or preset without the mark (all saved
   before) loads its SYNC note value as SYNC ON with RATE on that note value, so it plays the same. A synced part's
   RATE automation and locks, which did nothing, are dropped on load. Older firmware reads SYNC ON as 4BAR.
+- **Projects are FUN21** (`FUNL`, 4864 B). FUN20's first 4080 bytes keep their places; the tail after them holds the
+  punch-in lane (an effect mask per step) and automation records 149..255, then the name and the hash. FUN20 and
+  older projects still load, a FUN20 lane as one effect a step. Firmware before 4.3 cannot open a FUN21: back up
+  in the web editor before the first save if you need a copy it can read.
+- Backups: a project slot lists at the size of the record it holds (a slot saved by earlier firmware keeps its
+  FUN20 or FUN19 size until saved over). The web editor accepts 4864 B projects; update it with the firmware.
 - Editor protocol: id 91 `SYNC` is OFF ON. Library files key it `LSYNC`; a file keyed `SYNC` (written before)
   converts as above when it loads.
 

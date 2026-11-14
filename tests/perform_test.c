@@ -2251,8 +2251,80 @@ static int test_x2(void)
     bad += check("x2: let go arms the resync", !(t->pfx & PFX_X2) && t->pfx_rs);
     seq_tick(t, CTL);
     bad += check("x2: the next tick resyncs once", !t->pfx_rs);
-    pfx_lane_put(0, 11);
-    bad += check("x2: lane nibble 11", pfx_lane_at(0) == 11u);
+    return bad;
+}
+
+/* ------------------------------------------- the punch-in lane, audio --- */
+/* a fresh transport (stop, start) */
+static void lane_restart(void)
+{
+    int32_t o[2 * CTL];
+    transport_req = 2;
+    mix_block(o, CTL);
+    transport_req = 1;
+    mix_block(o, CTL);
+}
+/* with REC: effect e held from step 2 into step 3's second half, from a fresh transport */
+static void lane_rec(uint32_t e)
+{
+    int32_t o[2 * CTL];
+    uint32_t b;
+    song.rec = 0;
+    lane_restart();                                     /* (armed only once playing: no count-in) */
+    song.rec = 1;
+    for (b = 1; b < 5u * P16 / CTL; b++) {
+        if (b == 2u * P16 / CTL + 1u)
+            perf_press(e, 1);
+        if (b == 15u * P16 / 4u / CTL)
+            perf_press(e, 0);
+        mix_block(o, CTL);
+    }
+    song.rec = 0;
+}
+/* the lane played from a fresh transport for `blocks` blocks: the sample effect e first runs (NT if never), in *end
+ * the first sample after it stopped; in *with the effects running beside it when it started */
+static uint32_t lane_play(uint32_t e, uint32_t blocks, uint32_t *end, uint32_t *with)
+{
+    int32_t o[2 * CTL];
+    uint32_t b, on = NT;
+    *end = NT;
+    lane_restart();
+    for (b = 1; b < blocks; b++) {
+        mix_block(o, CTL);
+        if ((perf_act & PF_BIT(e)) && on == NT) {
+            on = b * CTL + pf.split;
+            *with = perf_act;
+        }
+        if (!(perf_act & PF_BIT(e)) && on != NT && *end == NT)
+            *end = b * CTL;
+    }
+    return on;
+}
+static int test_pfx_lane_audio(void)
+{
+    int bad = 0;
+    int32_t o[2 * CTL];
+    uint32_t on, end, with = 0;
+    char what[160];
+
+    host_tracks_init();
+    perf_reset();
+    pfx_tgt = pfx_ltgt = 0;
+    pfx_any = 0;
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    song.g[G_BPM] = 120;
+    lane_rec(PF_R16);
+    on = lane_play(PF_R16, 5u * P16 / CTL, &end, &with);
+    snprintf(what, sizeof what, "lane: a REPEAT 1/16 recorded with REC plays back on step 2 (at %u, want %u)", on, 2u * P16);
+    bad += check(what, on == 2u * P16);
+    snprintf(what, sizeof what, "  and stops by the end of step 3 (at %u)", end);
+    bad += check(what, end > 3u * P16 && end <= 4u * P16);
+    lane_rec(PF_LPF);                                   /* a second pass over the same steps */
+    on = lane_play(PF_R16, 5u * P16 / CTL, &end, &with);
+    bad += check("lane: LPF recorded over it in a second pass: both play on step 2",
+                 on == 2u * P16 && (with & PF_BIT(PF_LPF)));
+    transport_req = 2;
+    mix_block(o, CTL);
     memset(pfx_lane, 0, sizeof pfx_lane);
     return bad;
 }
@@ -2329,6 +2401,7 @@ int main(int argc, char **argv)
     bad += test_dly_rate();
     bad += test_pfx_restore();
     bad += test_x2();
+    bad += test_pfx_lane_audio();
     bad += test_glitch();
     bad += test_cost();
     bad += test_click_heavy();

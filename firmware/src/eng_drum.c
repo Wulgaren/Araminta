@@ -307,7 +307,7 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         uint32_t sh = dx_mdl[(uint32_t)v->s[0] & (DV_NLANE - 1u)] ? 3u : 1u;
         for (i = 0; i < n; i++) {
             int32_t s = y[i];
-            out[i] += voice_amp(s + (s >> 2), m, i) << sh;
+            out[i] += shl(voice_amp(s + (s >> 2), m, i), sh);
         }
     }
     {   /* MIXER's lane pages: the hit's envelope (Q30, the loudest of its amp, noise and clap tails) as its live
@@ -342,7 +342,7 @@ static __attribute__((noinline)) void drum_bus(const track_t *t, int32_t *out, u
         int32_t y = out[i] >> 1;
         if (g)                                           /* (held to +-131071: y * g fits) */
             y = (softclip((clamp(y, -131071, 131071) * g) >> 12) * mk) >> 15;
-        out[i] = soft_knee(y, 24000) << 1;
+        out[i] = shl(soft_knee(y, 24000), 1);
     }
 }
 

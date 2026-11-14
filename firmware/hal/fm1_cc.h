@@ -8,3 +8,9 @@
 #pragma once
 
 #define FM1_INLINE static inline __attribute__((always_inline))
+
+/* FM1_FAR(fn): fn, called through a pointer the compiler cannot fold back into a direct call. XIP (0x02xxxxxx) and
+ * RAM code (0x01C0xxxx) are beyond each other's 23-bit call range: every call between them goes this way
+ * (fm1_flash.h FL_FAR, the flash driver in .ram_text; core.h AUDIO_FAR, the render's code in .hot_text) */
+static inline void *fm1_far(void *p) { void *volatile q = p; return q; }
+#define FM1_FAR(fn) ((__typeof__(&fn))fm1_far((void *)&fn))

@@ -228,6 +228,7 @@ static void perf_clear_all(void)
         perf_press(k, 0);
     perf_latched = 0;
     perf_latch_on = 0;
+    perf_kill = 0;
     perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;
 }
 
@@ -321,14 +322,9 @@ static void drum_maybe(uint32_t blk, int drums)
         drum_hit((blk * CTL) / (FS / 8u));
 }
 
-static run_t measure_stack(const punch_stack_t *s, int drums)
+/* the FX layer cleared and the transport started: the start of measure_stack and punch_churn */
+static void punch_start(void)
 {
-    run_t r;
-    int32_t o[2 * CTL], prev_l = 0;
-    uint64_t best_ns = ~0ull, acc_ns = 0, acc_i = 0, best_i = ~0ull;
-    uint32_t k, seen = 0, seg = MEAS_BLK / 4u, nblk = SETTLE_BLK + MEAS_BLK;
-    int32_t mx = 0, local = 0;
-    memset(&r, 0, sizeof r);
     perf_clear_all();
     memset(&pf, 0, sizeof pf);
     pf.src = pf.next = PF_N;
@@ -338,6 +334,24 @@ static run_t measure_stack(const punch_stack_t *s, int drums)
     transport_req = 1;
     song.playing = 1;
     perf_start();
+}
+
+/* a punch-in at work this block: its stage, filter, macro, mute or a latched bit */
+static int pf_engaged(void)
+{
+    return perf_act || pf.mode != BM_NONE || pf.w || pf.la || pf.ha || pf.cw || pf.fw || pf.pw || pf.thr ||
+           pf.mute || perf_latched;
+}
+
+static run_t measure_stack(const punch_stack_t *s, int drums)
+{
+    run_t r;
+    int32_t o[2 * CTL], prev_l = 0;
+    uint64_t best_ns = ~0ull, acc_ns = 0, acc_i = 0, best_i = ~0ull;
+    uint32_t k, seen = 0, seg = MEAS_BLK / 4u, nblk = SETTLE_BLK + MEAS_BLK;
+    int32_t mx = 0, local = 0;
+    memset(&r, 0, sizeof r);
+    punch_start();
     for (k = 0; k < nblk; k++) {
         uint64_t t0, ii0;
         drum_maybe(k, drums);
@@ -363,8 +377,7 @@ static run_t measure_stack(const punch_stack_t *s, int drums)
                 acc_ns = 0;
                 acc_i = 0;
             }
-            if (perf_act || pf.mode != BM_NONE || pf.w || pf.la || pf.ha || pf.cw || pf.fw || pf.pw ||
-                pf.thr || pf.mute || perf_latched)
+            if (pf_engaged())
                 seen = 1;
             {
                 uint32_t i;
@@ -401,6 +414,386 @@ static run_t measure_stack(const punch_stack_t *s, int drums)
     perf_clear_all();
     transport_req = 2;
     return r;
+}
+
+/* ---------------------------------------------------------------- churn --- */
+/* Random punch-in play on the loaded mix. Every 1..32 blocks (3..93 ms) one move: a key down (any PF_* below PF_N:
+ * audio, MIDI, mutes), a key up, the MENU visited to flip FX LATCH (as ui_input.c: perf_kill until the keys are let
+ * go, the latched ones and the macros off), G5 CLR, or a knob macro. Then CLR with LATCH on, every key up, 0.5 s:
+ * nothing may still be at work and every track's parameters are as before (pfx.c: "let go, all is as it was").
+ * Clicks: the same mix is rendered first without punch-ins (churn_setup loads it both times). Each block of the
+ * moves is held to churn_limit: CHURN_CLICK times the dry mix's largest second difference (max_d2) over the second up
+ * to it (the furthest back a REPEAT or REVERSE replays), or the window's peak / CHURN_FLOOR when that is more: a
+ * splice stands out against what the music itself does at that moment, and on a pure tone, whose max_d2 is tiny, it
+ * still has to be a sizeable jump. Blocks with a crusher at work are left out (pf_crushing: its held samples are
+ * steps by design, 4x the limit; perform_test checks CRUSH on its own). Measured (peak ~17000): the heavy mix's worst
+ * block 1.7x its dry window; a
+ * lone 220 Hz sine's OCT+ (the voice an octave up at once) 310 and the LPF's fade-in 151; with the buffer's crossfade
+ * taken out (pf.w jumping to pf.tw) 9129, 5221 and, on a project, 3049: each over both bounds.
+ * Its own xorshift, not firmware rng(): the DSP draws from that one, so a changed engine would change the moves
+ * and a failing seed would stop reproducing. PUNCH_SEED=<n> runs that seed alone. */
+#define CHURN_PRE (FS / CTL)                           /* 1 s before the first move: the dry window's length */
+#define CHURN_BLK (4u * FS / CTL)                      /* 4 s of moves */
+#define CHURN_END (FS / (2u * CTL))                    /* 0.5 s after the last key is up */
+#define CHURN_CLICK 3                                  /* a block's max_d2 at most this times the dry window's */
+#define CHURN_FLOOR 16                                 /* .. or the window's peak / this (-24 dB), whichever is more */
+static const uint32_t CHURN_SEEDS[] = {1u, 0x2545F491u, 0xC0FFEEu, 0xDEADBEEFu, 77u, 0x9E3779B9u};
+static void (*churn_setup)(void);                      /* loads the mix: synth_heavy, or the survey's project */
+static struct { int32_t d2, pk; } churn_dry[CHURN_PRE + CHURN_BLK];   /* the dry mix, each block: max_d2, peak */
+
+typedef struct {
+    int32_t click, lim, d2, pk;                        /* the worst block's max_d2, its churn_limit, the window's d2, peak */
+    double ipc, ns, pct;                               /* the worst 1/8 s of the moves, per sample (ipc 0: no counter) */
+    uint32_t moves;
+    uint32_t stuck;                                    /* 1: at work after CLR + every key up; 2: track params changed */
+} churn_t;
+
+static uint32_t churn_rng;
+static uint32_t churn_rnd(uint32_t n)
+{
+    churn_rng ^= churn_rng << 13;
+    churn_rng ^= churn_rng >> 17;
+    churn_rng ^= churn_rng << 5;
+    return churn_rng % n;
+}
+
+/* the seeds to run: PUNCH_SEED's alone, else CHURN_SEEDS */
+static uint32_t churn_seeds(const uint32_t **seeds)
+{
+    static uint32_t one;
+    const char *env = getenv("PUNCH_SEED");
+    if (env && *env) {
+        one = (uint32_t)strtoul(env, 0, 0);
+        if (!one) {
+            fprintf(stderr, "punch: PUNCH_SEED=%s: xorshift needs a nonzero seed\n", env);
+            exit(2);
+        }
+        *seeds = &one;
+        return 1;
+    }
+    *seeds = CHURN_SEEDS;
+    return sizeof CHURN_SEEDS / sizeof CHURN_SEEDS[0];
+}
+
+/* the largest second difference |x[n] - 2 x[n-1] + x[n-2]| of a block, L and R, carried on from the last two samples
+ * (prev[c][0] the last, prev[c][1] the one before). Small on smooth audio, the jump itself at a splice; the plain step
+ * is not enough: a dense mix (FM at full poly) steps as far as a missing crossfade does */
+static int32_t max_d2(const int32_t *o, int32_t prev[2][2])
+{
+    uint32_t i, c;
+    int32_t mx = 0;
+    for (i = 0; i < CTL; i++)
+        for (c = 0; c < 2u; c++) {
+            int32_t x = o[2u * i + c], d = x - 2 * prev[c][0] + prev[c][1];
+            if (d < 0)
+                d = -d;
+            if (d > mx)
+                mx = d;
+            prev[c][1] = prev[c][0];
+            prev[c][0] = x;
+        }
+    return mx;
+}
+
+/* one random move; down: the layer keys physically down (PF_BIT) */
+static void churn_move(uint32_t *down)
+{
+    uint32_t r = churn_rnd(16), e, i;
+    if (r < 9) {                                       /* a key down */
+        e = churn_rnd(PF_N);
+        if (!(*down & PF_BIT(e))) {
+            perf_press(e, 1);
+            *down |= PF_BIT(e);
+        }
+    } else if (r < 12) {                               /* a key up */
+        if (*down) {
+            do
+                e = churn_rnd(PF_N);
+            while (!(*down & PF_BIT(e)));
+            perf_press(e, 0);
+            *down &= ~PF_BIT(e);
+        }
+    } else if (r == 12) {                              /* MENU > FX LATCH flipped (ui_input.c: the menu kills) */
+        perf_kill = 1;
+        perf_latched = 0;
+        perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;
+        perf_latch_on ^= 1u;
+    } else if (r == 13) {                              /* G5 CLR tapped */
+        perf_press(PF_CLR, 1);
+        perf_press(PF_CLR, 0);
+    } else {                                           /* a knob: FILTER -100..100, CRUSH / THROW / DEPTH 0..100 */
+        i = churn_rnd(4);
+        perf_k[i] = (int8_t)(i == 0 ? (int)churn_rnd(201) - 100 : (int)churn_rnd(101));
+    }
+}
+
+/* the mix without punch-ins into churn_dry (block 0 steps up from silence: 0, not the mix's own) */
+static void churn_dry_pass(int drums)
+{
+    int32_t o[2 * CTL], prev[2][2] = {{0, 0}, {0, 0}};
+    uint32_t k, i;
+    churn_setup();
+    punch_start();
+    for (k = 0; k < CHURN_PRE + CHURN_BLK; k++) {
+        drum_maybe(k, drums);
+        mix_block(o, CTL);
+        churn_dry[k].d2 = max_d2(o, prev);
+        churn_dry[k].pk = 0;
+        for (i = 0; i < 2u * CTL; i++)
+            if (abs(o[i]) > churn_dry[k].pk)
+                churn_dry[k].pk = abs(o[i]);
+    }
+    churn_dry[0].d2 = 0;
+    perf_clear_all();
+    transport_req = 2;
+}
+
+/* the most block k's max_d2 may be: the dry mix's over the second up to it and the block after it, CHURN_CLICK times,
+ * or its peak / CHURN_FLOOR (a pure tone's max_d2 is tiny: OCT+ or a filter's fade-in would pass it by a few times);
+ * the window's max_d2 and peak into d2, pk */
+static int32_t churn_limit(uint32_t k, int32_t *d2, int32_t *pk)
+{
+    uint32_t j = k - CHURN_PRE, end = k + 2u < CHURN_PRE + CHURN_BLK ? k + 2u : CHURN_PRE + CHURN_BLK;
+    int32_t lim;
+    *d2 = *pk = 0;
+    for (; j < end; j++) {
+        if (churn_dry[j].d2 > *d2)
+            *d2 = churn_dry[j].d2;
+        if (churn_dry[j].pk > *pk)
+            *pk = churn_dry[j].pk;
+    }
+    lim = CHURN_CLICK * *d2;
+    return lim > *pk / CHURN_FLOOR ? lim : *pk / CHURN_FLOOR;
+}
+
+/* what punch_play does in a block of its moves (k: blocks into them; down: the layer keys down, PF_BIT): the moves
+ * made, 0 for none */
+typedef uint32_t (*play_fn)(uint32_t k, uint32_t *down);
+
+/* random play: a churn_move every 1..32 blocks (churn_rng seeded by punch_churn) */
+static uint32_t play_random(uint32_t k, uint32_t *down)
+{
+    static uint32_t gap;
+    if (k == 0u)
+        gap = 1;
+    if (--gap)
+        return 0;
+    churn_move(down);
+    gap = 1u + churn_rnd(32);
+    return 1;
+}
+
+/* a stack (STACKS, or one key): engaged at the first block, let go halfway (a LATCH stack: its keys tapped again),
+ * the knob macros it set back to 0 with it */
+static const punch_stack_t *play_st;
+static uint32_t play_stack(uint32_t k, uint32_t *down)
+{
+    uint32_t i;
+    if (k == 0u) {
+        stack_engage(play_st);
+        for (i = 0; i < play_st->n && !play_st->latch; i++)
+            *down |= PF_BIT(play_st->e[i]);
+        return 1;
+    }
+    if (k != CHURN_BLK / 2u)
+        return 0;
+    for (i = 0; i < play_st->n; i++) {
+        if (play_st->latch)
+            perf_press((uint32_t)play_st->e[i], 1);
+        perf_press((uint32_t)play_st->e[i], 0);
+    }
+    *down = 0;
+    perf_k[1] = perf_k[2] = perf_k[3] = 0;
+    return 1;
+}
+
+/* a crusher at work: KNOB 2 CRUSH's share, or a GLITCH segment's crush action */
+static int pf_crushing(void)
+{
+    return pf.cw || (pf.mode == BM_GLT && pf.gl.a == GA_CRU);
+}
+
+/* the loaded mix (churn_setup) dry, then with play's moves: the click, stuck and cost results */
+static churn_t punch_play(play_fn play, int drums)
+{
+    static int16_t p0[NTRK][P_COUNT];
+    churn_t r;
+    int32_t o[2 * CTL], prev[2][2] = {{0, 0}, {0, 0}};
+    uint64_t acc_ns = 0, acc_i = 0, worst_ns = 0, worst_i = 0;
+    uint32_t k, e, down = 0, n = 0, seg = MEAS_BLK / 4u;
+    int engaged0 = 0;
+    memset(&r, 0, sizeof r);
+    r.lim = 1;
+    churn_dry_pass(drums);
+    churn_setup();
+    punch_start();
+    for (k = 0; k < CHURN_PRE + CHURN_BLK + CHURN_END; k++) {
+        int moving = k >= CHURN_PRE && k < CHURN_PRE + CHURN_BLK, crush;
+        int32_t wet_d2;
+        uint64_t t0, i0;
+        drum_maybe(k, drums);
+        if (k == CHURN_PRE) {                          /* before the first move: what "as before" means */
+            for (e = 0; e < NTRK; e++)
+                memcpy(p0[e], trk[e].p, sizeof p0[e]);
+            engaged0 = pf_engaged();                   /* (a project's SOLO mutes the others from the start) */
+        }
+        if (moving)
+            r.moves += play(k - CHURN_PRE, &down);
+        if (k == CHURN_PRE + CHURN_BLK) {              /* the end: CLR with LATCH on, every key up */
+            perf_latch_on = 1;
+            perf_press(PF_CLR, 1);
+            perf_press(PF_CLR, 0);
+            perf_latch_on = 0;
+            for (e = 0; e < PF_N; e++)
+                if (down & PF_BIT(e))
+                    perf_press(e, 0);
+            down = 0;
+        }
+        if (perf_kill && !down)                        /* ui_input.c: the kill ends when the keys are let go */
+            perf_kill = 0;
+        crush = pf_crushing();
+        t0 = now_ns();
+        i0 = instr_now();
+        mix_block(o, CTL);
+        wet_d2 = max_d2(o, prev);
+        if (moving) {
+            acc_ns += now_ns() - t0;
+            if (i0)
+                acc_i += instr_now() - i0;
+            if (++n % seg == 0u) {
+                if (acc_ns > worst_ns)
+                    worst_ns = acc_ns;
+                if (acc_i > worst_i)
+                    worst_i = acc_i;
+                acc_ns = acc_i = 0;
+            }
+            if (!crush && !pf_crushing()) {            /* the worst block: max_d2 / its limit the largest */
+                int32_t d2, pk, lim = churn_limit(k, &d2, &pk);
+                if ((int64_t)wet_d2 * r.lim > (int64_t)r.click * lim) {
+                    r.click = wet_d2;
+                    r.lim = lim;
+                    r.d2 = d2;
+                    r.pk = pk;
+                }
+            }
+        }
+    }
+    r.ns = (double)worst_ns / (double)(seg * CTL);
+    r.ipc = worst_i ? (double)worst_i / (double)(seg * CTL) : 0;
+    r.pct = r.ipc ? pct_from_ipc(r.ipc) : 0;
+    if ((pf_engaged() && !engaged0) || pf.td || perf_held || perf_kill || pfx_any || pfx_qon)
+        r.stuck |= 1u;
+    for (e = 0; e < NTRK; e++)
+        if (memcmp(p0[e], trk[e].p, sizeof p0[e]))
+            r.stuck |= 2u;
+    perf_clear_all();
+    transport_req = 2;
+    return r;
+}
+
+static churn_t punch_churn(uint32_t seed, int drums)
+{
+    churn_rng = seed;
+    return punch_play(play_random, drums);
+}
+
+/* one run's result (name: what was played): printed, and the click, stuck and (on a real instruction counter)
+ * deadline checks */
+static void play_check(const char *name, const churn_t *r)
+{
+    char what[200];
+    printf("punch: %s: %u moves, worst d2 %d (dry d2 %d, peak %d), worst 1/8 s %.0f ns ipc=%.0f -> %.1f %%\n",
+           name, r->moves, r->click, r->d2, r->pk, r->ns, r->ipc, r->pct);
+    snprintf(what, sizeof what, "%s: no click: d2 %d within %d (%dx dry, peak / %d)", name, r->click, r->lim,
+             CHURN_CLICK, CHURN_FLOOR);
+    check(what, r->click <= r->lim);
+    snprintf(what, sizeof what, "%s: all off after CLR + every key up%s%s", name,
+             r->stuck & 1u ? " (still at work)" : "", r->stuck & 2u ? " (track params changed)" : "");
+    check(what, r->stuck == 0);
+    if (ipc_kind == 1 && r->ipc) {
+        snprintf(what, sizeof what, "%s: worst %.1f %% stays under 100 %% of the half", name, r->pct);
+        check(what, r->pct < 100.0);
+    }
+}
+
+static void test_synth_churn(void)
+{
+    const uint32_t *seeds;
+    uint32_t n = churn_seeds(&seeds), i;
+    char name[64];
+    churn_setup = synth_heavy;
+    for (i = 0; i < n; i++) {
+        churn_t r = punch_churn(seeds[i], 1);
+        snprintf(name, sizeof name, "churn synth %08x", seeds[i]);
+        play_check(name, &r);
+    }
+}
+
+/* every layer key alone (PF_* below PF_N: audio, MIDI, mutes) pressed, held 2 s, let go, on the heavy mix */
+static void test_synth_keys(void)
+{
+    punch_stack_t one = {"key", 1, {0}, 0, 0, 0, 0};
+    uint32_t e;
+    char name[64];
+    churn_setup = synth_heavy;
+    play_st = &one;
+    for (e = 0; e < PF_N; e++) {
+        churn_t r;
+        one.e[0] = (int8_t)e;
+        r = punch_play(play_stack, 1);
+        snprintf(name, sizeof name, "key PF %u alone", e);
+        play_check(name, &r);
+    }
+}
+
+/* survey_churn's mix: its project, loaded again for each pass (it loaded once already in the same child) */
+static const project_t *churn_proj;
+static void churn_load_proj(void)
+{
+    if (host_apply_project(churn_proj) != 0)
+        _exit(1);
+}
+
+/* a real project under random play, in a child of its own: a crash here fails (the stack child already ran the
+ * same project to the end, so the WT / user-slot host faults the survey forgives are not it). Three seeds. */
+static void survey_churn(const project_t *q, const char *name)
+{
+    const uint32_t *seeds;
+    uint32_t n = churn_seeds(&seeds), i;
+    churn_t res[3];
+    char what[200];
+    ssize_t got;
+    int fd[2], st = 0;
+    pid_t pid;
+    if (n > 3u)
+        n = 3u;
+    if (pipe(fd)) {
+        check("churn: pipe", 0);
+        return;
+    }
+    fflush(stdout);
+    if (!(pid = fork())) {
+        close(fd[0]);
+        churn_proj = q;
+        churn_setup = churn_load_proj;
+        for (i = 0; i < n; i++)
+            res[i] = punch_churn(seeds[i], 0);         /* the project's own pattern, no drum_hit on track 4 */
+        (void)!write(fd[1], res, n * sizeof res[0]);
+        _exit(0);
+    }
+    close(fd[1]);
+    got = read(fd[0], res, n * sizeof res[0]);
+    close(fd[0]);
+    waitpid(pid, &st, 0);
+    if (got != (ssize_t)(n * sizeof res[0]) || !WIFEXITED(st) || WEXITSTATUS(st)) {
+        snprintf(what, sizeof what, "churn %s: the render ran to the end", name);
+        check(what, 0);
+        return;
+    }
+    for (i = 0; i < n; i++) {
+        snprintf(what, sizeof what, "churn %s %08x", name, seeds[i]);
+        play_check(what, &res[i]);
+    }
 }
 
 /* --------------------------------------------------------- CI synthetic --- */
@@ -466,6 +859,19 @@ static int test_synth_stacks(void)
                worst.shed.shed_cur, worst.shed.miss_cur, worst.shed.shed_rel, worst.shed.miss_rel);
     } else {
         printf("punch: no instruction/cycle counter usable for %% projection on this host; ns reported only\n");
+    }
+    {   /* every stack pressed, held, let go, against the dry mix (punch_play): the step bound above passes a
+         * missing crossfade in this mix */
+        uint32_t s;
+        char name[64];
+        churn_setup = synth_heavy;
+        for (s = 1; s < sizeof STACKS / sizeof STACKS[0]; s++) {
+            churn_t r;
+            play_st = &STACKS[s];
+            r = punch_play(play_stack, 1);
+            snprintf(name, sizeof name, "stack %s", STACKS[s].name);
+            play_check(name, &r);
+        }
     }
     return b;
 }
@@ -644,6 +1050,7 @@ static void survey_dir(const char *dir)
                            "shed cur=%u rel=%u  click=%d%s\n",
                            row.file, row.tag, row.idle_ns, row.idle_pct, row.worst_name, row.worst_ns, row.worst_pct,
                            best.shed.shed_cur, best.shed.shed_rel, row.click, row.click_ok ? "" : " CLICK?");
+                    survey_churn(&q, row.bin);
                 }
                 close(fd[0]);
             }
@@ -682,6 +1089,8 @@ int main(int argc, char **argv)
     bad += test_borrow_master();
     bad += test_click_synth_parts();
     bad += test_synth_stacks();
+    test_synth_keys();
+    test_synth_churn();
     if (argc > 1) {
         for (i = 1; i < argc; i++)
             survey_dir(argv[i]);
