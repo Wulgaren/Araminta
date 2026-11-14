@@ -950,6 +950,9 @@ u_install() {
 }
 unit u_install
 
+u_layout_sweep() { run "layout sweep: cached builds, shared boot, failed and incomplete results" python3 tests/layout_sweep_test.py; }
+unit u_layout_sweep
+
 u_web() { run "$1" node "$2"; }
 if command -v node >/dev/null 2>&1; then
     # the web tests wait for the units above: the mock's tables are checked against their
@@ -1009,7 +1012,7 @@ u_fm1emu_build() {
 }
 u_fm1emu_t() {
     run "fm1-emu (device-timed): $1, ${2} ms" build/emu-target/release/emu_test --fwsc build/felucca.fwsc \
-        --elf build/felucca.elf --scenario "$1" --ms "$2"
+        --elf build/felucca.elf --scenario "$1" --ms "$2" --clear
 }
 if [ "${FM1_EMU:-0}" != 1 ]; then
     note "== skip the FM-1 emulator (FM1_EMU=1 runs the firmware device-timed on fm1-emu)"

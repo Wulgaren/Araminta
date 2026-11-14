@@ -28,7 +28,7 @@ FM1_EMU=1 tests/run_tests.sh
 
 `FM1_EMU=1` fetches fm1-emu at the pinned commit (`tools/get_fm1emu.sh`, into the gitignored `build/deps/fm1-emu`),
 prints the firmware's ids for the runner (`tests/emu/ids.c`), builds the runner (`tests/emu`) and runs four
-scenarios, each in its own unit (about 20-30 s each):
+scenarios as separate parallel test units with `--clear`. The layout sweep shares boots within each layout:
 
 | Scenario | What plays |
 | --- | --- |
@@ -53,6 +53,28 @@ build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.
 `--profile N` prints the N functions each core spent the most device time in during the scenario (from the ELF's
 symbols): core 0 inside the audio ISR (outside it: `(main loop)`), core 1 at its jobs (waiting: `(idle)`). Inlined
 code counts as its caller.
+
+Several scenarios can share one boot and patch upload:
+
+```sh
+build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf \
+    --scenarios 'dry:3000 keys:9000 churn:6000 stack:6000' --clear
+```
+
+The runner prints one JSON line per scenario and stops on the first failure. Between scenarios it releases keys
+and MIDI notes, stops the transport, clears latched punch-ins, restores PUNCH-IN 1/2, sets FX LATCH for the next
+scenario, restarts the chords and drums, then lets playback settle for one second. `--clear` applies that same
+preparation before the first scenario too, including a single-scenario run. Each measurement starts with its own
+counters and probes. The emulator and effect tails keep running, so this is not a cold-machine snapshot: compare
+changes using the same scenario order and preparation, and establish a new baseline when switching from the old
+separate-boot measurements. `--wav` is available for a single scenario only.
+
+Focused checks for the runner and sweep:
+
+```sh
+python3 tests/layout_sweep_test.py
+python3 tests/emu/runner_test.py    # real firmware and release runner must already be built
+```
 
 `--fast` (the JIT, a few seconds, not device-timed) also runs single-core: fm1-emu's loop skip fast-forwards core 0
 through its wait for core 1's first job, the job times out and the firmware holds core 1 for the session. Profile
@@ -147,9 +169,29 @@ with it: on stack, the same firmware plus an unused function of 12, 36 or 60 vol
 89.8 %. `tests/layout_sweep.sh` builds the working tree with `FELUCCA_LAYOUT_PAD=0..7` (8 x n such stores,
 perform.c, only in those builds), runs each scenario on each image and prints every layout and the median and range.
 Judge a load change by those, not by one build. The layouts build at once, each into its own `build/sweep/pad<n>/build`
-(`FELUCCA_OUT`, tools/build.py), and their runs go in parallel (the emulator counts device cycles, so the numbers do
-not change). The emulator is most of the time: every run boots and sets the patch up (~9 s of device time) before
-its scenario. All four scenarios take ~2.5 min on a 12-core Mac, stack alone ~1 min.
+(`FELUCCA_OUT`, tools/build.py). Those directories are retained: unchanged compiler inputs reuse `felucca.o`, including
+when only the linker script changed. Results are discarded before building, so a failed build cannot reuse old
+numbers. Each layout runs all requested scenarios in one boot with `--clear`; layouts run in parallel. A successful
+runner publishes `build/sweep/pad<n>/results.jsonl`, with its diagnostics in `run.log`. The summary rejects missing
+or mismatched scenario results. The former separate-boot sweep took ~2.5 min on a 12-core Mac, stack alone ~1 min;
+each of its 32 runs repeated ~9 s of device boot and setup time.
+
+On Windows, one layout's four scenarios took 197.2 s with separate boots and 139.6 s with shared boot, a 29.2 %
+reduction in reported runner wall time at equal concurrency (one emulator per comparison group). This is a
+per-layout comparison, not a whole-sweep speedup estimate. A fresh layout build took 17.1 s versus 3.1 s with its
+object retained, 81.7 % less build time. The cached build skipped compiling `felucca.o`. The full host gate keeps
+its four emulator units parallel to avoid serializing that shorter check.
+
+Shared-boot reference on Windows, firmware `226d3e3`, all eight layouts, in the default scenario order with
+`--clear` (2026-11-14). These use the Windows firmware toolchain and the preparation above, so establish a local
+reference again before comparing a change on another machine or toolchain:
+
+| Scenario | cpu_pct median (min - max) | late halves median (min - max) |
+| --- | --- | --- |
+| dry | 76.2 % (75.4 - 77.0) | 0 (0 - 0) |
+| keys | 80.1 % (78.9 - 81.2) | 9.5 (5 - 12) |
+| churn | 80.3 % (79.3 - 80.9) | 2.5 (1 - 7) |
+| stack | 94.9 % (93.4 - 96.5) | 441 (270 - 553) |
 
 ## Calibration record
 

@@ -2,10 +2,11 @@
 // Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 //! emu_test: Felucca's firmware in the fm1-emu emulator, device-timed (fm1-live's FM1_STRICT: each
 //! instruction its cost measured on an FM-1, the 32 KB XIP cache), playing a heavy patch with punch-ins;
-//! prints the firmware's own load counters (audio.c felucca_dbg, shed_count, voice_kills) as one JSON line.
+//! prints the firmware's own load counters (audio.c felucca_dbg, shed_count, voice_kills) as one JSON line per scenario.
 //!
 //!   emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario dry|keys|stack|churn --ms N
-//!            [--wav OUT.wav] [--mhz 240] [--fast] [--seed N]
+//!            [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--clear]
+//!   emu_test --fwsc FILE --elf FILE --scenarios 'dry:3000 keys:9000 churn:6000 stack:6000' --clear
 //!
 //! The run: boot, USB-MIDI configured, the heavy patch set up through the editor's SysEx (editor.c) and
 //! played with MIDI notes on channels 1..4, the FX layer's PUNCH-IN 1/2 page opened with the FX button,
@@ -25,8 +26,9 @@ use fm1_soc::{machine, Action, Soc, RAM_BASE};
 const RAM_SIZE: usize = 1 << 20;
 /// Instructions a `run` call: about 50 us of the device, the granularity of the host's MIDI and RAM probes.
 const CHUNK: u32 = 10_000;
-const USAGE: &str = "usage: emu_test --fwsc FELUCCA.fwsc --elf FELUCCA.elf --scenario dry|keys|stack|churn --ms N \
-[--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--profile N]";
+const USAGE: &str = "usage: emu_test --fwsc FELUCCA.fwsc --elf FELUCCA.elf \
+(--scenario dry|keys|stack|churn --ms N | --scenarios 'dry:3000 keys:9000 churn:6000 stack:6000') \
+[--clear] [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--profile N]";
 
 // The firmware's internal ids (parameters, PF_* effects, the punch pages' key maps), generated from its sources by
 // tests/emu/ids.c into build/emu/ids.rs before this builds (tests/run_tests.sh, FM1_EMU=1)
@@ -49,6 +51,7 @@ const ED_SET: u8 = 3;
 const ED_TRACK: u8 = 27;
 const ED_TRACK_PARAM: u8 = 31;
 const ED_MENU_SET: u8 = 73;
+const ED_SONG: u8 = 33;
 const MENU_FX_LATCH: u8 = 7;
 
 /// tests/punch_crackle_test.c synth_heavy(): per part its engine, preset and how many chord notes it holds
@@ -88,8 +91,8 @@ impl Scenario {
 struct Args {
     fwsc: String,
     elf: String,
-    scenario: Scenario,
-    ms: u64,
+    scenarios: Vec<(Scenario, u64)>,
+    clear: bool,
     wav: Option<String>,
     mhz: u64,
     fast: bool,
@@ -101,6 +104,8 @@ struct Args {
 fn parse_args() -> Result<Args, String> {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let (mut fwsc, mut elf, mut scenario, mut ms) = (None, None, None, None);
+    let mut scenarios = None;
+    let mut clear = false;
     let (mut wav, mut mhz, mut fast, mut seed, mut profile) = (None, 240u64, false, 1u32, 0usize);
     let mut i = 0;
     while i < a.len() {
@@ -111,6 +116,16 @@ fn parse_args() -> Result<Args, String> {
             "--elf" => elf = Some(val(i)?),
             "--scenario" => scenario = Some(Scenario::parse(&val(i)?).ok_or("--scenario: dry, keys, stack or churn")?),
             "--ms" => ms = Some(num(i)?),
+            "--scenarios" => {
+                let mut cases = Vec::new();
+                for case in val(i)?.split_whitespace() {
+                    let (name, duration) = case.split_once(':').ok_or("--scenarios: expected name:ms")?;
+                    let scene = Scenario::parse(name).ok_or("--scenarios: dry, keys, stack or churn")?;
+                    let duration = duration.parse::<u64>().map_err(|_| "--scenarios: invalid duration")?;
+                    cases.push((scene, duration));
+                }
+                scenarios = Some(cases);
+            }
             "--wav" => wav = Some(val(i)?),
             "--mhz" => mhz = num(i)?,
             "--seed" => seed = u32::try_from(num(i)?).map_err(|_| "--seed: at most 32 bits")?,
@@ -120,13 +135,26 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 continue;
             }
+            "--clear" => {
+                clear = true;
+                i += 1;
+                continue;
+            }
             other => return Err(format!("unknown argument {other}")),
         }
         i += 2;
     }
-    match (fwsc, elf, scenario, ms) {
-        (Some(fwsc), Some(elf), Some(scenario), Some(ms)) if mhz > 0 => {
-            Ok(Args { fwsc, elf, scenario, ms, wav, mhz, fast, seed, profile })
+    let cases = match (scenarios, scenario, ms) {
+        (Some(cases), None, None) => cases,
+        (None, Some(scene), Some(duration)) => vec![(scene, duration)],
+        _ => return Err(USAGE.into()),
+    };
+    match (fwsc, elf) {
+        (Some(fwsc), Some(elf)) if mhz > 0 && !cases.is_empty() && cases.iter().all(|(_, ms)| *ms > 0) => {
+            if cases.len() > 1 && wav.is_some() {
+                return Err("--wav requires a single scenario".into());
+            }
+            Ok(Args { fwsc, elf, scenarios: cases, clear, wav, mhz, fast, seed, profile })
         }
         _ => Err(USAGE.to_string()),
     }
@@ -141,10 +169,7 @@ fn main() -> ExitCode {
         }
     };
     match run(&args) {
-        Ok(json) => {
-            println!("{json}");
-            ExitCode::SUCCESS
-        }
+        Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("emu_test: {e}");
             ExitCode::FAILURE
@@ -163,6 +188,7 @@ struct Syms {
     perf_latched: u32,
     perf_act: u32,
     kb_lock: u32,
+    perf_page2: u32,
 }
 
 /// Reads `path`'s ELF32 (little-endian) symbol table into name -> (value, size). A name defined twice
@@ -247,6 +273,7 @@ impl Syms {
             perf_latched: get("perf_latched", 4)?,
             perf_act: get("perf_act", 4)?,
             kb_lock: get("kb_lock", 1)?,
+            perf_page2: get("perf_page2", 1)?,
         })
     }
 }
@@ -491,14 +518,21 @@ fn heavy_patch(emu: &mut Emu) -> Result<(), String> {
             return Err(format!("{what} answered {r:02x?}"));
         }
     }
+    strike_chords(emu);
+    eprintln!("[{:6} ms] heavy patch set up, chords held, drums on 16ths", emu.ms());
+    Ok(())
+}
+
+/// Re-strike the heavy patch's chords and restart its drum pattern before a measurement.
+fn strike_chords(emu: &mut Emu) {
     for (p, &(_, _, n)) in PARTS.iter().enumerate() {
         for &note in &NOTES[..n] {
             emu.soc.usb.midi_send(&[0x90 | p as u8, note + 12 * p as u8, 100]);
         }
     }
+    emu.drum_k = 0;
+    emu.drum_last = 0;
     emu.drum_next = Some(emu.ms());
-    eprintln!("[{:6} ms] heavy patch set up, chords held, drums on 16ths", emu.ms());
-    Ok(())
 }
 
 /// The FX button tapped until the PUNCH-IN 1/2 page is shown (its sticky FX map: kb_lock bit 1), from HOME:
@@ -652,33 +686,109 @@ fn plan_churn(ms: u64, seed: u32) -> Plan {
 
 // ------------------------------------------------------------------------------------------ run --
 
-fn run(args: &Args) -> Result<String, String> {
-    let plan = match args.scenario {
+/// Set FX LATCH through the existing editor protocol, outside the measurement window.
+fn set_latch(emu: &mut Emu, on: bool) -> Result<(), String> {
+    let [lo, hi] = v14(i32::from(on));
+    let r = emu.ed(ED_MENU_SET, &[MENU_FX_LATCH, lo, hi])?;
+    if r.get(1..) != Some(&[MENU_FX_LATCH, lo, hi][..]) || !matches!(r.first(), Some(0 | 3)) {
+        return Err(format!("MENU FX LATCH {on} answered {r:02x?}"));
+    }
+    Ok(())
+}
+
+/// Reset controls and re-strike notes between scenarios without repeating boot or patch upload.
+/// The synths and effect tails keep running; --clear applies this same preparation to a single run.
+fn clear_scenario(emu: &mut Emu, scenario: Scenario) -> Result<(), String> {
+    emu.probes.clear();
+    emu.drum_next = None;
+    let t = emu.ms();
+    for name in WHITE {
+        emu.key(t, name, false);
+    }
+    for (p, &(_, _, n)) in PARTS.iter().enumerate() {
+        for &note in &NOTES[..n] {
+            emu.soc.usb.midi_send(&[0x80 | p as u8, note + 12 * p as u8, 0]);
+        }
+    }
+    if emu.drum_last != 0 {
+        emu.soc.usb.midi_send(&[0x83, emu.drum_last, 0]);
+    }
+    let r = emu.ed(ED_SONG, &[3])?;
+    if r.get(..2) != Some(&[3, 0]) {
+        return Err(format!("SONG STOP answered {r:02x?}"));
+    }
+    emu.run_until(emu.ms() + 150)?;
+    set_latch(emu, true)?;
+    let t = emu.ms();
+    emu.tap(t, "G5", TAP_MS);
+    emu.run_until(t + TAP_MS + 100)?;
+    let left = emu.soc.read32(emu.syms.perf_held) | emu.soc.read32(emu.syms.perf_latched) | emu.soc.read32(emu.syms.perf_act);
+    if left != 0 {
+        return Err(format!("CLEAR left punch-ins active ({left:#x})"));
+    }
+    if emu.soc.read8(emu.syms.perf_page2) != 0 {
+        let t = emu.ms();
+        emu.act(t, Action::Enc { enc: 0, clicks: -1 });
+        emu.run_until(t + WALK_MS)?;
+    }
+    if emu.soc.read8(emu.syms.perf_page2) != 0 || emu.soc.read8(emu.syms.kb_lock) & 2 == 0 {
+        return Err("CLEAR did not restore PUNCH-IN 1/2".into());
+    }
+    set_latch(emu, scenario == Scenario::Stack)?;
+    strike_chords(emu);
+    let t = emu.ms();
+    emu.tap(t, "PLAY", TAP_MS);
+    emu.run_until(t + 1000)?;
+    emu.soc.periph.audio.clear();
+    eprintln!("[{:6} ms] controls cleared, notes re-struck and settled", emu.ms());
+    Ok(())
+}
+
+/// The actions and minimum duration of one requested scenario, validated before starting the emulator.
+fn scenario_plan(scenario: Scenario, ms: u64, seed: u32) -> Result<Plan, String> {
+    let plan = match scenario {
         Scenario::Dry => Plan::default(),
         Scenario::Keys => plan_keys(),
-        Scenario::Stack => plan_stack(args.ms),
-        Scenario::Churn => plan_churn(args.ms, args.seed),
+        Scenario::Stack => plan_stack(ms),
+        Scenario::Churn => plan_churn(ms, seed),
     };
-    if plan.end + TAIL_MS > args.ms {
-        return Err(format!("--scenario {} needs --ms {} at least", args.scenario.name(), plan.end + TAIL_MS));
+    if plan.end + TAIL_MS > ms {
+        return Err(format!("--scenario {} needs --ms {} at least", scenario.name(), plan.end + TAIL_MS));
     }
+    Ok(plan)
+}
+
+/// Boot and upload once, then measure each scenario with its own actions, probes and counters.
+fn run(args: &Args) -> Result<(), String> {
+    let plans = args.scenarios.iter().map(|&(scenario, ms)| scenario_plan(scenario, ms, args.seed))
+        .collect::<Result<Vec<_>, _>>()?;
     let syms = Syms::load(&args.elf)?;
     let strict = !args.fast;
     let mut emu = Emu::boot(&args.fwsc, syms, args.mhz, strict)?;
     let wall = std::time::Instant::now();
     wait_ready(&mut emu)?;
-    if args.scenario == Scenario::Stack {
-        let [lo, hi] = v14(1);
-        let r = emu.ed(ED_MENU_SET, &[MENU_FX_LATCH, lo, hi])?;
-        if r.get(1..) != Some(&[MENU_FX_LATCH, lo, hi][..]) {
-            return Err(format!("MENU FX LATCH ON answered {r:02x?}"));
-        }
+    if args.scenarios[0].0 == Scenario::Stack {
+        set_latch(&mut emu, true)?;
     }
     heavy_patch(&mut emu)?;
     open_punch(&mut emu)?;
     let t = emu.ms();
     emu.tap(t, "PLAY", 150);
     emu.run_until(t + 1000)?; // (the chords' attacks past, the running average settled)
+
+    for (i, (&(scenario, ms), plan)) in args.scenarios.iter().zip(plans).enumerate() {
+        if args.clear || i > 0 {
+            clear_scenario(&mut emu, scenario)?;
+        }
+        println!("{}", measure(args, &mut emu, scenario, ms, plan, &wall)?);
+    }
+    Ok(())
+}
+
+/// Measure a prepared machine, keeping all reported counters and audio local to this scenario.
+fn measure(args: &Args, emu: &mut Emu, scenario: Scenario, ms: u64, plan: Plan,
+           wall: &std::time::Instant) -> Result<String, String> {
+    let strict = !args.fast;
 
     // the scenario: its counters from zero
     let t0 = emu.ms();
@@ -694,7 +804,7 @@ fn run(args: &Args) -> Result<String, String> {
     let kills0 = emu.soc.read32(emu.syms.voice_kills);
     let resets0 = emu.soc.resets;
     let audio0 = emu.soc.periph.audio.len();
-    eprintln!("[{t0:6} ms] scenario {} for {} ms ({:.1} s wall so far)", args.scenario.name(), args.ms, wall.elapsed().as_secs_f64());
+    eprintln!("[{t0:6} ms] scenario {} for {} ms ({:.1} s wall so far)", scenario.name(), ms, wall.elapsed().as_secs_f64());
     for (t, a) in &plan.acts {
         match a {
             Act::Key(name, down) => emu.key(t0 + t, name, *down),
@@ -714,7 +824,7 @@ fn run(args: &Args) -> Result<String, String> {
     let mut prof: [HashMap<String, u64>; 2] = [HashMap::new(), HashMap::new()];
     let mut last_cycles = emu.soc.periph.cycles;
     let misses0 = emu.soc.xip_cache.as_ref().map(|c| c.misses);
-    while emu.ms() < t0 + args.ms {
+    while emu.ms() < t0 + ms {
         emu.step()?;
         if let Some(f) = &funcs {
             let d = emu.soc.periph.cycles - last_cycles;
@@ -746,7 +856,7 @@ fn run(args: &Args) -> Result<String, String> {
     }
     if let (Some(_), Some(m0), Some(c)) = (&funcs, misses0, emu.soc.xip_cache.as_ref()) {
         // the flash cache is shared by both cores; a miss stalls the core that made it ~300 cycles
-        let (m, halves) = (c.misses - m0, args.ms * 44_100 / 1000 / 128);
+        let (m, halves) = (c.misses - m0, ms * 44_100 / 1000 / 128);
         eprintln!("profile: {m} flash cache misses ({:.1} a half of 128 frames, ~{:.0} us of 2902)", m as f64 / halves as f64,
             m as f64 / halves as f64 * fm1_soc::XipCache::MISS_TICKS as f64 / 8.0 / 240.0);
     }
@@ -791,7 +901,7 @@ fn run(args: &Args) -> Result<String, String> {
         failed.push(format!("still at work at the end ({left:#x})"));
     }
     if !failed.is_empty() {
-        return Err(format!("scenario {}: {}", args.scenario.name(), failed.join(", ")));
+        return Err(format!("scenario {}: {}", scenario.name(), failed.join(", ")));
     }
 
     let halves = emu.dbg(DBG_HALVES).wrapping_sub(halves0);
@@ -803,8 +913,8 @@ fn run(args: &Args) -> Result<String, String> {
         "{{\"scenario\":\"{}\",\"ms\":{},\"strict\":{strict},\"mhz\":{},\"halves\":{halves},\"cpu_pct\":{:.1},\
 \"cpu1_pct\":{:.1},\"audio_max_us\":{max_us},\"late\":{late},\"late_over\":{late_over},\"late_t5\":{late_t5},\
 \"late_oth\":{late_oth},\"wall_max_us\":{wall_max},\"voices_shed\":{shed},\"voices_given_up\":{kills}}}",
-        args.scenario.name(),
-        args.ms,
+        scenario.name(),
+        ms,
         args.mhz,
         cpu_q8_max as f64 * 100.0 / 256.0,
         cpu1_q8_max as f64 * 100.0 / 256.0,
