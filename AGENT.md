@@ -47,12 +47,11 @@ tests/run_one.sh regress         # golden renders, health, voices, CPU budget
 tests/run_one.sh web             # desc.json + menu.json, then node web/test_web.mjs
 ```
 
-Targets: `motion`, `ui`, `ui_render`, `editor`, `project`, `param`,
-`sound15`, `inschain`, `regress`, `web`, `all` (execs `tests/run_tests.sh`),
-and `list`.
+`tests/run_one.sh list` prints every target (`all` execs `tests/run_tests.sh`).
 
-If a test has no target, compile and run it by hand, matching the `$CC` line in
-`tests/run_tests.sh` for that test.
+If a test has no target (`dualcore_test`, say), compile and run it by hand from
+its `$CC` line in `tests/run_tests.sh`, without the `-O` level while iterating:
+the single-TU tests compile ~10x faster unoptimised.
 
 Web-only edits: `tests/run_one.sh web` (or `node web/test_web.mjs`; add
 `web/test_backup.mjs` if backup paths moved).
@@ -101,6 +100,10 @@ Device load: add `FM1_EMU=1` to that run when the change can move what the rende
 section attributes, the linker script), or `tools/build.py`'s compiler flags; and before a release. It runs the
 package on fm1-emu timed as the device (`docs/fm1-emu-test.md`), locally only (it needs `cargo`; CI has no emulator).
 Report each scenario's `cpu_pct`, `late` and `voices_shed` beside the doc's last recorded results: a rise is the finding.
+While iterating on load, run one scenario, strict:
+`build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario stack --ms 4000`
+(~20 s; `--profile 40` shows where each core's time goes), and all four only for the final numbers. `--fast` runs
+single-core: never measure load with it.
 
 Do not also run the suite a second time with the other setting, and do not push until it prints
 `ALL HOST TESTS PASSED`.
