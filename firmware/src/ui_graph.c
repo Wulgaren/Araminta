@@ -1216,8 +1216,10 @@ static void page_title(char *ti)
         str_cpy(ti + str_len(ti), " ", 4);
         str_cpy(ti + str_len(ti), N_SCALE[clamp(t->p[P_SCALE], 0, (int32_t)(sizeof N_SCALE / sizeof N_SCALE[0]) - 1)], 8);
     } else {
-        /* the second GENERATION page reads "GENERATION 3/3": the count separates it from 2/3 */
-        const char *ti_page = str_eq(pg->title, "GENERATION 2") ? "GENERATION" : pg->title;
+        /* the second GENERATION page reads "GENERATION 3/3", LFO 2 reads "LFO 2/3": the count separates them */
+        const char *ti_page = str_eq(pg->title, "GENERATION 2") ? "GENERATION"
+                              : str_eq(pg->title, "LFO 2")      ? "LFO"
+                                                                : pg->title;
         str_cpy(ti, pt ? pt : grid_on() && !detail_on() ? "GRID" : ti_page, 12);
     }
     if (n > 1) {
