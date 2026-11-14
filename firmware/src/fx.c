@@ -1915,7 +1915,7 @@ static inline int32_t ott_pow(int32_t p, int32_t x)
 {
     return p + (((x << 7) - p + (1 << (OTT_POW_SH - 1))) >> OTT_POW_SH);
 }
-static __attribute__((noinline)) void ins_run_ott(ott_st_t *o, ins_st_t *s, const track_t *t, int32_t *b,
+static AUDIO_RAM __attribute__((noinline)) void ins_run_ott(ott_st_t *o, ins_st_t *s, const track_t *t, int32_t *b,
                                                     uint32_t n, int32_t tw)
 {
     uint32_t i, tv = (uint32_t)(clamp(t->p[P_ED_FX], -64, 63) + 64);
@@ -1959,7 +1959,7 @@ static __attribute__((noinline)) void ins_run_ott(ott_st_t *o, ins_st_t *s, cons
     }
 }
 
-static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, ott_st_t *o, const track_t *t, int32_t *b,
+static AUDIO_RAM __attribute__((noinline)) void ins_run_dist(ins_st_t *s, ott_st_t *o, const track_t *t, int32_t *b,
                                                      uint32_t n, int32_t tw)
 {
     uint32_t i, mode = (uint32_t)clamp(t->p[P_IDMODE], 0, IDM_N - 1);
@@ -2001,7 +2001,7 @@ static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, ott_st_t *o, con
     }
 }
 
-static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, int16_t *comb, const track_t *t, int32_t *b,
+static AUDIO_RAM __attribute__((noinline)) void ins_run_filter(ins_st_t *s, int16_t *comb, const track_t *t, int32_t *b,
                                                     uint32_t n, int32_t tw)
 {
     uint32_t i, ft = (uint32_t)clamp(t->p[P_IFTYPE], 0, IFT_N - 1);
@@ -2033,7 +2033,7 @@ static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, int16_t *comb,
     }
 }
 
-static __attribute__((noinline)) void ins_run_crush(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n, int32_t tw)
+static AUDIO_RAM __attribute__((noinline)) void ins_run_crush(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n, int32_t tw)
 {
     uint32_t i, sh = ins_bits_sh(t->p[P_ICBITS]), hold = INS_HOLD[clamp(t->p[P_ICRATE], 0, 127) >> 3];
     int32_t k = ins_lpk(t->p[P_ICLPF]);
@@ -2055,7 +2055,7 @@ static __attribute__((noinline)) void ins_run_crush(ins_st_t *s, const track_t *
     }
 }
 
-static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, int32_t *px, int32_t *py, const track_t *t,
+static AUDIO_RAM __attribute__((noinline)) void ins_run_swept(ins_st_t *s, int32_t *px, int32_t *py, const track_t *t,
                                                     int32_t *b, uint32_t n, int32_t tw, uint32_t kind,
                                                     int16_t *line, int16_t *win)
 {
@@ -2213,10 +2213,10 @@ static uint32_t ins_run_st(ins_st_t *run, ott_st_t *ott, ins_ctx_t *ctx, const t
         if (st == INS_CHOR) run->line_i = 1;
     }
     wbase = run->wp;
-    if (st == INS_DIST) ins_run_dist(run, ott, src, b, n, tw);
-    else if (st == INS_FILTER) ins_run_filter(run, ctx->comb, src, b, n, tw);
-    else if (st == INS_CRUSH) ins_run_crush(run, src, b, n, tw);
-    else ins_run_swept(run, ctx->px, ctx->py, src, b, n, tw, st, lines[run->line_i & 1u],
+    if (st == INS_DIST) AUDIO_FAR(ins_run_dist)(run, ott, src, b, n, tw);
+    else if (st == INS_FILTER) AUDIO_FAR(ins_run_filter)(run, ctx->comb, src, b, n, tw);
+    else if (st == INS_CRUSH) AUDIO_FAR(ins_run_crush)(run, src, b, n, tw);
+    else AUDIO_FAR(ins_run_swept)(run, ctx->px, ctx->py, src, b, n, tw, st, lines[run->line_i & 1u],
                        ins_win[pi][run->line_i & 1u]);
     return wbase;
 }
@@ -2717,7 +2717,7 @@ static __attribute__((noinline)) void perf_master(int32_t *out, uint32_t n)
         mix_l[i] = (((mix_l[i] + wet[i]) >> 2) * mg) >> 10;
         mix_r[i] = (((mix_r[i] + wet[i]) >> 2) * mg) >> 10;
     }
-    perf_block(mix_l, mix_r, n);
+    AUDIO_FAR(perf_block)(mix_l, mix_r, n);
     for (i = 0; i < n; i++) {
         int32_t l = mix_l[i], r = mix_r[i];
         master_out(&l, &r);

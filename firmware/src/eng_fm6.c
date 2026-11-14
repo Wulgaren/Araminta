@@ -357,7 +357,7 @@ static void fm6_sync(const track_t *t)
 }
 
 /* --------------------------------------------------------------- voice --- */
-static fm6_note_t *fm6_note_of(track_t *t, voice_t *v)
+static inline __attribute__((always_inline)) fm6_note_t *fm6_note_of(track_t *t, voice_t *v)
 {
     uint32_t i;
     if (t < &trk[0] || t >= &trk[NPART])
@@ -403,7 +403,7 @@ static int fm6_done(track_t *t, voice_t *v)
     return 1;
 }
 
-static void fm6_render(track_t *t, voice_t *v, int32_t *out, uint32_t len, const vmod_t *m)
+static AUDIO_RAM void fm6_render(track_t *t, voice_t *v, int32_t *out, uint32_t len, const vmod_t *m)
 {
     fm6_note_t *n = fm6_note_of(t, v);
     uint32_t tr = (uint32_t)(t - trk), i;

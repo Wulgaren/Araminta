@@ -51,6 +51,9 @@
 #define C1_ON() fm1_c1_on                        /* fx.c mix_block: a second core is answering */
 #define C1_RUN(fn, arg) fm1_cpu1_run(fn, arg)    /* hand it fn(arg): 1 = taken */
 #define C1_WAIT() fm1_cpu1_wait()                /* wait for it: 0 = done */
+/* core.h: the render's hottest functions run from RAM; every call between them and the flash through AUDIO_FAR */
+#define AUDIO_RAM __attribute__((section(".hot_text"), flatten))
+#define AUDIO_FAR(fn) FM1_FAR(fn)
 #include "fm1_input.h"
 #include "fm1_timer.h"
 #include "fm1_audio.h"
