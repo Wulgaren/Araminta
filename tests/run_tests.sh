@@ -168,7 +168,8 @@
 #                   matrix moving the shared send knobs and the DLY / REV bus settings, CHAIN owners) rendered on one
 #                   core and on two with every split of the parts, the firmware's own (mix_split) included: bit for
 #                   bit the same (tests/regress.c built with -DC1_HOST: the same golden renders, tests/golden.txt).
-#                   ThreadSanitizer (a compiler with it): both passes again, tests/tsan_canary.c first; a race
+#                   ThreadSanitizer (a compiler with it): both passes again (the rot and auto splits, the scenes in
+#                   4 shards: fork() under its runtime is slow), tests/tsan_canary.c first; a race
 #                   the runtime must report, so a silent runtime (Apple's missed the SEND clock race that GCC's
 #                   and clang's on Linux caught with both sides instrumented) fails the suite instead of passing it.
 # Sanitizers (ASan + UBSan, when the compiler has them; SANITIZE=0 skips): the stored-data and protocol tests again
@@ -919,18 +920,23 @@ else
         [ "$canary" = 1 ] || fail=1
     }
     unit_after "$TSAN_BUILD" u_asan_canary
+    # Each fork() under the TSAN runtime costs about half a second of kernel time, and forks in one process
+    # barely overlap: the scenes run in 4 shards (separate processes), each scene's rot and auto splits only
+    # (rot puts every split on core 1; the plain dualcore_test above checks all of them bit for bit).
     u_asan_tsan1() {
         [ -f "$LOGS/tsan.ok" ] || return 0
-        run "second core under ThreadSanitizer: 4 parts of every preset, mixes and the chain / send FX" \
-            env TSAN_OPTIONS="$TSAN_OPTS" "$OUT/dualcore_tsan"
+        run "second core under ThreadSanitizer (shard $1/4): 4 parts of every preset, mixes and the chain / send FX" \
+            env SPLITS=2 SHARD="$1/4" TSAN_OPTIONS="$TSAN_OPTS" "$OUT/dualcore_tsan"
     }
-    unit_after "$TSAN_BUILD" u_asan_tsan1
     u_asan_tsan2() {
         [ -f "$LOGS/tsan.ok" ] || return 0
-        run "second core under ThreadSanitizer: the same with every job cut after its first part" \
-            env C1_STALL=1 TSAN_OPTIONS="$TSAN_OPTS" "$OUT/dualcore_tsan"
+        run "second core under ThreadSanitizer (shard $1/4): the same with every job cut after its first part" \
+            env C1_STALL=1 SPLITS=2 SHARD="$1/4" TSAN_OPTIONS="$TSAN_OPTS" "$OUT/dualcore_tsan"
     }
-    unit_after "$TSAN_BUILD" u_asan_tsan2
+    for s in 0 1 2 3; do
+        unit_after "$TSAN_BUILD" u_asan_tsan1 "$s"
+        unit_after "$TSAN_BUILD" u_asan_tsan2 "$s"
+    done
 fi
 
 u_target_budget() {
