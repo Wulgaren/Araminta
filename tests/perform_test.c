@@ -2441,6 +2441,27 @@ static uint32_t lane_play(uint32_t e, uint32_t blocks, uint32_t *end, uint32_t *
     }
     return on;
 }
+/* with REC, from a fresh transport: press a at step-half sa, b at sb; let b go at rb, a at ra (step * 2 + half,
+ * half 0 = first; a first-half release waits a quarter into the half, so the step has blocks to restore) */
+static void lane_rec_pair(uint32_t a, uint32_t sa, uint32_t b, uint32_t sb, uint32_t rb, uint32_t ra)
+{
+    int32_t o[2 * CTL];
+    uint32_t k, st, ph, half, s16 = beat_samples() / 4u, done = 0;
+    song.rec = 0;
+    lane_restart();
+    song.rec = 1;
+    for (k = 0; k < 8u * (s16 / CTL + 1u) && done != 15u; k++) {
+        st = (pfx_lph / s16) & 63u;
+        ph = pfx_lph % s16;
+        half = ph >= s16 / 2u;
+        if (st * 2u + half == sa && !(done & 1u)) { perf_press(a, 1); done |= 1u; }
+        if (st * 2u + half == sb && !(done & 2u)) { perf_press(b, 1); done |= 2u; }
+        if (st * 2u + half == rb && (!half || ph > s16 / 4u) && !(done & 4u)) { perf_press(b, 0); done |= 4u; }
+        if (st * 2u + half == ra && (!half || ph > s16 / 4u) && !(done & 8u)) { perf_press(a, 0); done |= 8u; }
+        mix_block(o, CTL);
+    }
+    song.rec = 0;
+}
 static int test_pfx_lane_audio(void)
 {
     int bad = 0;
@@ -2464,6 +2485,26 @@ static int test_pfx_lane_audio(void)
     on = lane_play(PF_R16, 5u * P16 / CTL, &end, &with);
     bad += check("lane: LPF recorded over it in a second pass: both play on step 2",
                  on == 2u * P16 && (with & PF_BIT(PF_LPF)));
+
+    /* overlapping presses: each effect's press and release quantizes on its own (LPF stays held throughout) */
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    lane_rec_pair(PF_LPF, 2, PF_HPF, 5, 6, 9);           /* LPF step 2 first half; HPF step 3 second half,
+                                                         * let go step 4 first half; LPF let go step 5 second */
+    bad += check("lane: HPF pressed in a step's second half records from the next step",
+                 pfx_lane[1] == PF_BIT(PF_LPF) && pfx_lane[2] == PF_BIT(PF_LPF));
+    {
+        uint32_t k, hp = 0;
+        for (k = 0; k < 8u; k++)
+            hp |= pfx_lane[k] & PF_BIT(PF_HPF);
+        bad += check("lane: HPF let go in that step's first half leaves no step, LPF's steps kept",
+                     pfx_lane[3] == PF_BIT(PF_LPF) && pfx_lane[4] == PF_BIT(PF_LPF) && pfx_lane[5] == 0u && !hp);
+    }
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    pfx_lane[3] = PF_BIT(PF_HPF);                       /* an earlier pass recorded HPF in step 4 */
+    lane_rec_pair(PF_LPF, 2, PF_HPF, 5, 6, 9);
+    bad += check("lane: a release keeps the step's other recorded effects",
+                 pfx_lane[3] == (PF_BIT(PF_LPF) | PF_BIT(PF_HPF)) && pfx_lane[2] == PF_BIT(PF_LPF));
+
     transport_req = 2;
     mix_block(o, CTL);
     memset(pfx_lane, 0, sizeof pfx_lane);
