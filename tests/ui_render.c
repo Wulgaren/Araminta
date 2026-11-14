@@ -1146,7 +1146,7 @@ static void setup(int s)
         go_title("CHORD");
         break;
     }
-    case S_LFO: go_title("LFO"); break;
+    case S_LFO: TSEL->p[P_LSYNC] = 1; TSEL->p[P_LRATE] = (int16_t)LSYNC_RATE(4u); go_title("LFO"); break;   /* SYNC 1/4 */
     case S_MOD: TSEL->p[P_M1SRC] = 1; TSEL->p[P_M1DST] = 2; TSEL->p[P_M1AMT] = 40; TSEL->p[P_M2SRC] = 6;
         TSEL->p[P_M2DST] = 14; TSEL->p[P_M2AMT] = -64; mod_ui_slot = 1; go_title("MOD"); break;
     case S_FX: go_title("EFFECTS"); TSEL->p[P_CHOR] = 64 + 6 + (7 << 3); TSEL->p[P_DLY] = 70; TSEL->p[P_REV] = 100;
@@ -1586,7 +1586,9 @@ static void setup(int s)
         break;
     }
     case S_AUTO_ADD_VEL: go_auto_add(EV_VEL, 3); break;
-    case S_LFO2: TSEL->p[P_LSYNC] = 6; TSEL->p[P_LTRIG] = 1; TSEL->p[P_LPOL] = 1; go_title("LFO 2"); break;
+    case S_LFO2:                                    /* the shape: S&H from PHS, FADE in, UNI, SMTH */
+        TSEL->p[P_LWAVE] = 4; TSEL->p[P_LPHASE] = 32; TSEL->p[P_LFADE] = 50; TSEL->p[P_LPOL] = 1;
+        TSEL->p[P_LSMOOTH] = 60; go_title("LFO 2"); break;
     case S_USER_FOOT: song.playing = 0; up_store(3, "MY BASS"); ui.uslot = 3; go_page(GR_USER); break;   /* EDIT NAME lit */
 #if 0
     /* EDIT > SLICES: BREAK's 16 slices (slice 6 selected); a user sample's slices set by hand: DIV 8 taken as MAN,
