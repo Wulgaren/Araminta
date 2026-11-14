@@ -654,8 +654,8 @@ static __attribute__((noinline)) int perf_glt(int32_t l, int32_t r)
             if (++pf.gl.n >= pf.gl.h) {
                 int32_t b = 1 << (pf.gl.sh - 1u);
                 pf.gl.n = 0;
-                pf.gl.cl = ((l + b) >> pf.gl.sh) << pf.gl.sh;
-                pf.gl.cr = ((r + b) >> pf.gl.sh) << pf.gl.sh;
+                pf.gl.cl = shl((l + b) >> pf.gl.sh, pf.gl.sh);
+                pf.gl.cr = shl((r + b) >> pf.gl.sh, pf.gl.sh);
             }
             pf.gl_yl = mulq16(pf.gl.cl, g << 1);
             pf.gl_yr = mulq16(pf.gl.cr, g << 1);
@@ -792,10 +792,10 @@ static inline void perf_buf(int32_t *pl, int32_t *pr)
             const int16_t *s = &sl_buf[0][0] + 2u * ((f + 1u) & (PB_FRAMES - 1u));
             a = p[0];
             b = s[0];
-            yl = (a + (((b - a) * fr) >> 15)) << 1;
+            yl = shl(a + (((b - a) * fr) >> 15), 1);
             a = p[1];
             b = s[1];
-            yr = (a + (((b - a) * fr) >> 15)) << 1;
+            yr = shl(a + (((b - a) * fr) >> 15), 1);
             env = pf.tv >= 8192u ? 32768 : (int32_t)(pf.tv << 2);   /* the last eighth fades to silence */
             yl = mulq16(yl, (uint32_t)env << 1);
             yr = mulq16(yr, (uint32_t)env << 1);
@@ -968,8 +968,8 @@ static __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint3
         if (lt != pf.la)                  /* settled: the clamp adds nothing */
             pf.la += clamp(lt - pf.la, -SL_SLOPE, SL_SLOPE);
         if (pf.la) {
-            int32_t fl = pf_svf(clamp(l >> 2, -32767, 32767), &pf.lz[0], pf.lk, 0) << 2;
-            int32_t fr = pf_svf(clamp(r >> 2, -32767, 32767), &pf.lz[2], pf.lk, 0) << 2;
+            int32_t fl = shl(pf_svf(clamp(l >> 2, -32767, 32767), &pf.lz[0], pf.lk, 0), 2);
+            int32_t fr = shl(pf_svf(clamp(r >> 2, -32767, 32767), &pf.lz[2], pf.lk, 0), 2);
             l = pf_mix(l, fl, pf.la);
             r = pf_mix(r, fr, pf.la);
         } else if (pf.lz[0] | pf.lz[1] | pf.lz[2] | pf.lz[3]) {
@@ -978,8 +978,8 @@ static __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint3
         if (ht != pf.ha)
             pf.ha += clamp(ht - pf.ha, -SL_SLOPE, SL_SLOPE);
         if (pf.ha) {
-            int32_t fl = pf_svf(clamp(l >> 2, -32767, 32767), &pf.hz[0], pf.hk, 1) << 2;
-            int32_t fr = pf_svf(clamp(r >> 2, -32767, 32767), &pf.hz[2], pf.hk, 1) << 2;
+            int32_t fl = shl(pf_svf(clamp(l >> 2, -32767, 32767), &pf.hz[0], pf.hk, 1), 2);
+            int32_t fr = shl(pf_svf(clamp(r >> 2, -32767, 32767), &pf.hz[2], pf.hk, 1), 2);
             l = pf_mix(l, fl, pf.ha);
             r = pf_mix(r, fr, pf.ha);
         } else if (pf.hz[0] | pf.hz[1] | pf.hz[2] | pf.hz[3]) {
@@ -991,8 +991,8 @@ static __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint3
             if (pf.cw) {
                 if (++pf.cn >= hold) {
                     pf.cn = 0;
-                    pf.chl = ((l >> sh) << sh) + (1 << (sh - 1u));
-                    pf.chr = ((r >> sh) << sh) + (1 << (sh - 1u));
+                    pf.chl = shl(l >> sh, sh) + (1 << (sh - 1u));
+                    pf.chr = shl(r >> sh, sh) + (1 << (sh - 1u));
                 }
                 l = pf_mix(l, pf.chl, pf.cw);
                 r = pf_mix(r, pf.chr, pf.cw);
