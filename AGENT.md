@@ -96,6 +96,12 @@ else `SANITIZE=0`:
 UI text and layout, icons, labels, docs, `web/` and Python tools take `SANITIZE=0`. Unsure: `SANITIZE=1`.
 CI runs the sanitizers on every PR, so a wrong skip still fails there before merge.
 
+Device load: add `FM1_EMU=1` to that run when the change can move what the render costs on an FM-1: the audio ISR
+(`audio.c`), an engine, `voice.c`, `fx.c`, `perform.c`, `pfx.c`, `master.c`, where code sits (RAM or flash: `.pool`,
+section attributes, the linker script), or `tools/build.py`'s compiler flags; and before a release. It runs the
+package on fm1-emu timed as the device (`docs/fm1-emu-test.md`), locally only (it needs `cargo`; CI has no emulator).
+Report each scenario's `cpu_pct`, `late` and `voices_shed` beside the doc's last recorded results: a rise is the finding.
+
 Do not also run the suite a second time with the other setting, and do not push until it prints
 `ALL HOST TESTS PASSED`.
 

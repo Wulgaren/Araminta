@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# emu_test: Felucca in the fm1-emu emulator (build/deps/fm1-emu, tools/get_fm1emu.sh), device-timed;
+# a heavy patch with punch-ins, and the firmware's own load counters (src/main.rs).
+[package]
+name = "emu_test"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "emu_test"
+path = "src/main.rs"
+
+[dependencies]
+fm1-core = { path = "../../build/deps/fm1-emu/crates/fm1-core" }
+fm1-soc = { path = "../../build/deps/fm1-emu/crates/fm1-soc" }
+
+# (as the emulator's own workspace builds it: the interpreter is the hot loop)
+[profile.release]
+opt-level = 3
+lto = true
