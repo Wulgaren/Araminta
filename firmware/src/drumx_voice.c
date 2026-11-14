@@ -583,8 +583,8 @@ static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, 
             v2 = ic2 + ((c.a2 * ic1 + c.a3 * v3) >> 13);
             ic1 = clamp(2 * v1 - ic1, -150000, 150000);
             ic2 = clamp(2 * v2 - ic2, -150000, 150000);
-            y[i] = (y[i] & ~mt) + clamp(((r & mr) - ((ck * v1) >> 12) - cv * v2 +
-                                         mulq15(clamp(r - ((kd * v1) >> 12) - v2, -65535, 65535), bq)) << 1, -32767, 32767);
+            y[i] = (y[i] & ~mt) + clamp(shl((r & mr) - ((ck * v1) >> 12) - cv * v2 +
+                                            mulq15(clamp(r - ((kd * v1) >> 12) - v2, -65535, 65535), bq), 1), -32767, 32767);
         }
         v->ic1 = ic1;
         v->ic2 = ic2;

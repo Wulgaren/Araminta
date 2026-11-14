@@ -1855,7 +1855,7 @@ static inline __attribute__((always_inline)) int32_t ins_shape(uint32_t mode, in
         int32_t m = v < 0 ? -v : v;
         return ins_sat((m - (int32_t)(4096u + (g << 1))) * 4);
     }
-    default: return sh ? ((v + (1 << (sh - 1u))) >> sh) << sh : v;
+    default: return sh ? shl((v + (1 << (sh - 1u))) >> sh, sh) : v;
     }
 }
 static inline uint32_t ins_bits_sh(int32_t a) { return 15u - (uint32_t)(clamp(a, 0, 127) >> 3); }
@@ -1986,16 +1986,16 @@ static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, ott_st_t *o, con
         int32_t x = b[i], y, v;
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
         if (!s->w && !tw) { b[i] = x; continue; }
-        s->hp += ((x << 8) - s->hp) >> 8;
+        s->hp += (shl(x, 8) - s->hp) >> 8;
         v = clamp(x - (s->hp >> 8), -230000, 230000);
         y = ins_shape(mode, ((v >> 3) * g) >> 9, 0, (uint32_t)g);
-        y <<= 4;
+        y = shl(y, 4);
         v = mulq16(y - s->lp1, (uint32_t)k);
         y = v + s->lp1; s->lp1 = y + v;
         v = mulq16(y - s->lp2, (uint32_t)k);
         y = v + s->lp2; s->lp2 = y + v;
         y = (y + 8) >> 4;
-        s->dc += ((y << 8) - s->dc) >> 9;
+        s->dc += (shl(y, 8) - s->dc) >> 9;
         y -= s->dc >> 8;
         b[i] = pf_mix(x, y, s->w);
     }
@@ -2027,7 +2027,7 @@ static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, int16_t *comb,
             s->ic1 = clamp(2 * v1 - s->ic1, -150000, 150000);
             s->ic2 = clamp(2 * v2 - s->ic2, -150000, 150000);
             y = !ft ? v2 : ft == IFT_BP ? v1 : (x >> 1) - ((k * v1) >> 12) - v2;
-            y <<= 1;
+            y = shl(y, 1);
         }
         b[i] = pf_mix(x, y, s->w);
     }
@@ -2046,7 +2046,7 @@ static __attribute__((noinline)) void ins_run_crush(ins_st_t *s, const track_t *
             s->cnt = (uint8_t)hold;
         }
         s->cnt--;
-        y = s->hold << 4;
+        y = shl(s->hold, 4);
         v = mulq16(y - s->lp1, (uint32_t)k);
         y = v + s->lp1; s->lp1 = y + v;
         v = mulq16(y - s->lp2, (uint32_t)k);
@@ -2083,8 +2083,8 @@ static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, int32_t *px, in
                     px[st] = u; py[st] = y; u = y;
                 }
                 s->fb = clamp(y, -32767, 32767);
-                y <<= 2;
-                s->dc += ((y << 8) - s->dc) >> 9;
+                y = shl(y, 2);
+                s->dc += (shl(y, 8) - s->dc) >> 9;
                 b[i] = pf_mix(x, (x >> 1) + y - (s->dc >> 8), s->w);
             }
             s->ph += n * inc;
