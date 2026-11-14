@@ -59,14 +59,15 @@ static __attribute__((noinline)) uint32_t lfo_sync_inc(const track_t *t)   /* (n
     return q * CTL + (r * CTL + CTL) / cyc;
 }
 
-/* the LFO's block, in two (the second core, fx.c mix_block): its phase on the part's own core, in track_render
- * (at the RATE the matrix may have moved, mod.c), and the rest after the parts, part by part as before: lfo_rand's
- * shared generator is drawn in the same order on one core or two. Nothing reads the LFO between the two */
 /* the LFO's phase step a block: SYNC's note value of the tempo, else RATE's table (track_lfo_adv, ui_graph.c graph_lfo) */
 static uint32_t lfo_inc(const track_t *t)
 {
     return t->p[P_LSYNC] ? lfo_sync_inc(t) : LFO_INC[t->p[P_LRATE] & 127];
 }
+
+/* the LFO's block, in two (the second core, fx.c mix_block): its phase on the part's own core, in track_render
+ * (at the RATE the matrix may have moved, mod.c), and the rest after the parts, part by part as before: lfo_rand's
+ * shared generator is drawn in the same order on one core or two. Nothing reads the LFO between the two */
 static void track_lfo_adv(track_t *t)
 {
     uint32_t old = t->lfo_ph;

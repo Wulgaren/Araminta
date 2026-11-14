@@ -1420,8 +1420,11 @@ function remapParams(p, fromKeys, toKeys, pe0) {
      that note value's first value (core.h lsync_legacy) */
   const sync = toKeys.indexOf("LSYNC"), rate = toKeys.indexOf("RATE"), old = at.has("SYNC") ? p[at.get("SYNC")] : null;
   if (sync >= 0 && rate >= 0 && !at.has("LSYNC") && old !== null) {
-    out[sync] = old > 0 ? 1 : 0;
-    if (old > 0) out[rate] = Math.floor(((Math.min(old, 10) - 1) * 128 + 9) / 10);
+    out[sync] = old;                                /* 0 OFF, or above 10: kept, as lsync_legacy does */
+    if (old >= 1 && old <= 10) {
+      out[sync] = 1;
+      out[rate] = Math.floor(((old - 1) * 128 + 9) / 10);
+    }
   }
   return out;
 }
