@@ -199,10 +199,10 @@ static struct {
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER, CF_LOAD_PAT,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER,
-       CF_CLEAR_ALL_SEQ, CF_INIT_ALL_SOUND, CF_CLEAR_ALL_MOTION, CF_SAVE_PROJ,
+       CF_CLEAR_ALL_SEQ, CF_INIT_ALL_SOUND, CF_CLEAR_ALL_MOTION,
        CF_CLEAR_TRACK_ALL, CF_CLEAR_EVERY_TRACK_ALL, CF_CLEAR_FX, CF_CLEAR_ALL_FX };
                                    /* ui.confirm: CLEAR map; SAVE over a used slot; a pattern over the user's steps;
-                                    * USER ERASE; CF_SAVE_PROJ: motion over MOTION_FILE_MAX (extras won't save) */
+                                    * USER ERASE */
 
 /* MENU > DISPLAY > SCREEN OFF (1.1.5): after a while with no input on the panel the screen goes dark (the backlight
  * stays on: lcd.c lcd_power)
@@ -962,7 +962,7 @@ static struct {
     uint32_t from_h;             /* pat_from_h[], pat_from[] of the copy (the header's slot letter) */
     uint8_t from;
     uint32_t t_ms;               /* time of the last load (the editor's SETs after it belong to it) */
-} undo __attribute__((section(".pool")));   /* (main loop only: off the audio code's .bss) */
+} undo;                       /* (main loop only, but in .bss since FUN21: the pool's headroom took its 255 records) */
 static uint8_t undo_depth;       /* loads nest (an engine jump loads its first preset): the outer one counts;
                                   * felucca_init / project_load raise it to take no copy at all */
 static uint32_t pat_sig[NTRK];   /* steps_sig of the pattern the last pattern load put into each track: such

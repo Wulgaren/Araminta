@@ -67,15 +67,17 @@ export function bkManifest(a) {
     const p = 3 + i * 11;
     if (a[p] !== id) throw new Error("Unexpected archive object");
     const size = bkR32(a, p + 1), crc = bkR32(a, p + 6);
-    if (size > (id >= 32 ? 81920 : 4096) || (!size && crc)) throw new Error("Archive object too large");
+    if (size > (id >= 32 ? 81920 : BK_OBJ_MAX) || (!size && crc)) throw new Error("Archive object too large");
     return { id, size, crc };
   });
 }
 const bkBase64 = (bytes) => { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); };
 const isProjectId = (id) => id >= 2 && id <= 5;
-/* the sizes firmware 3.6's archive accepts (editor_backup.c proj_store_len): FUN7..FUN19. Older FUN1..FUN6
+/* the sizes the device's archive accepts (editor_backup.c proj_store_len): FUN7..FUN21. Older FUN1..FUN6
    objects are converted to FUN19 before they are written, so they turn into one of these too. */
-const DEVICE_PROJECT_SIZES = [4096, 3840, 3648, 3584, 3388];
+const DEVICE_PROJECT_SIZES = [4864, 4096, 3840, 3648, 3584, 3388];
+/* the largest object but a sample slot: a FUN21 project (project.c PROJ_STORE_SIZE) */
+const BK_OBJ_MAX = 4864;
 /* Every object checked, no conversion: capture keeps the bytes the device holds; restore converts them. */
 function parseBackup(file) {
   if (typeof file === "string") file = JSON.parse(file);
@@ -83,7 +85,7 @@ function parseBackup(file) {
   if (!file || file.format !== "felucca-backup" || file.version !== 1 || !ids)
     throw new Error("Not a complete Felucca backup");
   const objects = file.objects.map((o, i) => {
-    if (!o || o.id !== ids[i] || !Number.isInteger(o.size) || o.size < 0 || o.size > (o.id >= 32 ? 81920 : 4096) ||
+    if (!o || o.id !== ids[i] || !Number.isInteger(o.size) || o.size < 0 || o.size > (o.id >= 32 ? 81920 : BK_OBJ_MAX) ||
         !Number.isInteger(o.crc) || o.crc < 0 || o.crc > 0xffffffff || typeof o.data !== "string" ||
         o.data.length !== 4 * Math.ceil(o.size / 3) || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(o.data))
       throw new Error("Invalid backup object");
@@ -217,6 +219,7 @@ const PROJECT_MAGIC = {
   3840: [0x46554e41, 0x46554e42, 0x46554e43, 0x46554e44, 0x46554e45, 0x46554e46,
     0x474e5546, 0x484e5546, 0x494e5546, 0x4a4e5546],
   4096: [0x4b4e5546],                                 /* FUN20 "FUNK" */
+  4864: [0x4c4e5546],                                 /* FUN21 "FUNL" */
 };
 const projId = (slot) => {
   if (!Number.isInteger(slot) || slot < 0 || slot > 3) throw new Error("Project slot must be 0..3");

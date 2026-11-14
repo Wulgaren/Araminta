@@ -219,34 +219,8 @@ static volatile uint8_t pfx_tgt;      /* main / keys: MIDI effects' tracks, 0 AL
 static volatile uint8_t pfx_clr;      /* keys: G5 CLR held (map highlight); down clears latched FX when LATCH on */
 static volatile uint8_t perf_clr_say; /* ISR: CLR just cleared; UI shows "FX ALL OFF" */
 static uint32_t pfx_lph;              /* samples into the punch-in lane (pfx.c) */
-static uint8_t pfx_lane[40], pfx_ltgt;   /* the transport's punch-in lane (pfx.c): 64 steps x 5 bits; its tracks */
-static uint8_t pfx_rh, pfx_rs0, pfx_rst, pfx_rold;   /* recording the lane (pfx.c): a press on, its first step, the step
-                                                      * being written and what it held before */
-/* the lane's step s: 0 none, else the effect's lane value (pfx_lane_v). 5 bits a step across 40 bytes (FUN20). */
-static uint32_t pfx_lane_at(uint32_t s)
-{
-    uint32_t bit = (s & 63u) * 5u, i = bit >> 3, o = bit & 7u, w;
-    w = pfx_lane[i] | (uint32_t)pfx_lane[(i + 1u) % 40u] << 8;
-    return (w >> o) & 31u;
-}
-static void pfx_lane_put(uint32_t s, uint32_t v)
-{
-    uint32_t bit = (s & 63u) * 5u, i = bit >> 3, o = bit & 7u, w, m = 31u << o;
-    w = pfx_lane[i] | (uint32_t)pfx_lane[(i + 1u) % 40u] << 8;
-    w = (w & ~m) | ((v & 31u) << o);
-    pfx_lane[i] = (uint8_t)w;
-    pfx_lane[(i + 1u) % 40u] = (uint8_t)(w >> 8);
-}
-/* effect e (PF_*, below PF_NFX) as a lane value and back: OCT- .. x2 are 1..11 (as lanes saved before 4.3 hold
- * them), GLITCH 12, REPEAT 1/12 13, then REPEAT 1/8 .. ECHO THROW 14..27 */
-static uint32_t pfx_lane_v(uint32_t e) { return (e + PF_NFX - PF_OCTD) % PF_NFX + 1u; }
-static uint32_t pfx_lane_e(uint32_t v) { return (v - 1u + PF_OCTD) % PF_NFX; }
-/* the effect the lane holds at step s, as a PF_BIT (0: none) */
-static uint32_t pfx_lane_fx(uint32_t s)
-{
-    uint32_t v = pfx_lane_at(s);
-    return v && v <= PF_NFX ? PF_BIT(pfx_lane_e(v)) : 0u;
-}
+static uint32_t pfx_lane[64];         /* the transport's punch-in lane (pfx.c): each 1/16 step's effects (PF_BIT) */
+static uint8_t pfx_ltgt;              /* .. the tracks its MIDI effects act on */
 static void perf_press(uint32_t e, int down)
 {
     if (e == PF_TGT && down)
@@ -381,9 +355,9 @@ static void perf_buf_select(uint32_t e)
 static __attribute__((noinline)) int perf_begin(uint32_t n)
 {
     uint32_t solo = solo_mask(), s16 = beat_samples() >> 2, lane = 0, held, q, k, ph0, bnd;
-    if (song.playing && s16 && !pfx_rh)                /* the punch-in lane's step at this block's end (pf.ph: the
+    if (song.playing && s16)                           /* the punch-in lane's step at this block's end (pf.ph: the
                                                          * transport's), so a REPEAT starts on its 1/16 below */
-        lane = pfx_lane_fx((pf.ph + n - 1u) / s16);
+        lane = pfx_lane[((pf.ph + n - 1u) / s16) & 63u];
     held = ((perf_kill ? 0u : perf_held | perf_latched | (solo ? (~solo & 15u) << PF_M1 : 0u)) | lane) & perf_avail() & ~PF_MIDI;
     int32_t m;
     if (!held && !pf.busy && !(perf_k[0] | perf_k[1] | perf_k[2])) {   /* idle: the clock only */

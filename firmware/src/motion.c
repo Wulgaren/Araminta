@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Sparse, bounded step automation. Main-loop writes publish under the same
- * interrupt guard as parameter batches. The ISR only scans MOTION_MAX fixed records (192 since FUN16; 128 before).
+ * interrupt guard as parameter batches. The ISR only scans MOTION_MAX fixed records (255 since FUN21; 192 since
+ * FUN16; 128 before).
  * p[] is the sounding value; motion_base_value() is the patch's saved value.
  * Two kinds of record share the MOTION_MAX (core.h MOTION_LOCK): an automation event sets its value at its step and the value
  * holds (to the next event, the loop's restart, a stop); a parameter lock (1.1, Discussions #75 / #53: hold a step,
@@ -12,7 +13,7 @@ static motion_store_t motion;
 static int16_t motion_base[NTRK][P_COUNT];
 static uint32_t motion_active[NTRK][(P_COUNT + 31u) / 32u];
 static uint32_t motion_locked[NTRK][(P_COUNT + 31u) / 32u];   /* the ids a lock holds now (put back at the next step) */
-static uint8_t motion_base_valid, motion_full, motion_save_lim;
+static uint8_t motion_base_valid, motion_full;
 static const param_desc_t *motion_target_desc(const track_t *t, uint32_t id)
 {
     if (id == MSEQ_PITCH)
@@ -271,8 +272,7 @@ static void motion_clear(track_t *t)
 }
 static void motion_reset(track_t *t) { motion_clear(t); }
 /* a record of kind 0 (automation) or MOTION_LOCK on track t's step / id: a new one, or the one there (of either kind)
- * becomes this. 0 ok, 1 invalid, 2 the MOTION_MAX are used (motion_full: "AUTOMATION FULL").
- * Crossing MOTION_FILE_MAX (disk) sets motion_save_lim once (ui: AUTOMATION SAVE LIMIT). */
+ * becomes this. 0 ok, 1 invalid, 2 the MOTION_MAX are used (motion_full: "AUTOMATION FULL"). */
 static int motion_put(track_t *t, uint32_t step, uint32_t id, int16_t value, uint32_t kind)
 {
     uint32_t k = trk_index(t), i, f;
@@ -291,11 +291,8 @@ static int motion_put(track_t *t, uint32_t step, uint32_t id, int16_t value, uin
     motion.event[i].param = (uint8_t)(id | kind);
     motion.event[i].value = value;
     RING_PUBLISH();
-    if (i == motion.count) {
+    if (i == motion.count)
         motion.count++;
-        if (motion.count == MOTION_FILE_MAX + 1u)
-            motion_save_lim = 1;
-    }
     motion.on |= (uint8_t)(1u << k);
     motion_unguard(f);
     return 0;
