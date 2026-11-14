@@ -90,7 +90,8 @@ device.
 cache 32 KB, and every block evicts it again. RAMTEXT (app.ld) had ~21 KB free. In it now (`.hot_text`, ~17.6 KB):
 the insert kernels (`ins_run_swept`, `_dist`, `_crush`, `_filter`, `_ott`), FM6 and VOICE (`fm6_render`,
 `formant_render`), the punch-in layer's per-sample code (`perf_block`, `perf_harm`, `_flanger`, `_phaser`, `_glt`,
-`_glt_seg`, `pb_ring_f`). A call cannot reach between RAM and the flash: those crossings go through `AUDIO_FAR`.
+`_glt_seg`, `pb_ring_f`), and the phase engine (`phase_render`, with `pd_setup` and `pd_wave`). A call cannot reach
+between RAM and the flash: those crossings go through `AUDIO_FAR`.
 
 | Scenario | cpu_pct before | after | late halves before | after |
 | --- | --- | --- | --- | --- |
@@ -100,9 +101,11 @@ the insert kernels (`ins_run_swept`, `_dist`, `_crush`, `_filter`, `_ott`), FM6 
 | stack, 6 s | 134.4 % | 107.4 % | 1026 | 765 |
 
 Placement moves the rest of the flash code too, and with it which lines share a cache set: judge a change by every
-scenario's totals, not by one function's share. (`phase_render` in RAM as well gave dry 81.2, keys 85.5, churn
-85.9, stack 104.3 %, though its own profile looked worse; it is in the flash for now, and its `flatten`ed copy
-counted 6 divides inside loops in target_budget.py.)
+scenario's totals, not by one function's share. The phase engine is in RAM too (`phase_render`, `pd_setup`,
+`pd_wave`: ~1.1 KB of `.hot_text`): against the table's after column, keys fell 91.4 -> 85.5 %, churn 89.1 ->
+86.3 %, stack 107.4 -> 104.7 %, and dry stayed at 81.6 %. `pd_setup` and `pd_wave` are `noinline`, so their divides
+and `switch` stay out of `phase_render`'s loop; with `pd_wave` inlined, `target_budget.py` read 8884 for that loop
+against 77, and out of line it reads 77.
 
 ## Calibration record
 
