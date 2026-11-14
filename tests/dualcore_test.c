@@ -12,7 +12,10 @@
  * taking every split of the parts in turn, the firmware's own choice (mix_split) and fixed splits. The outputs must
  * be bit for bit the same; built with -fsanitize=thread (run_tests.sh), nothing two parts share may be touched by
  * both at once.
- *   build/host/dualcore_test          SCENE=text: only the scenes whose name holds it */
+ *   build/host/dualcore_test          SCENE=text: only the scenes whose name holds it
+ *                                     SHARD=i/n: only the scenes whose number % n is i (run_tests.sh's TSAN units)
+ *                                     SPLITS=n: only the first n splits of MASKS (TSAN: rot and auto, as each fork()
+ *                                     under its runtime costs about half a second; rot puts every split on core 1) */
 #include "c1_host.h"
 #define main hostsim_main
 #include "hostsim.c"
@@ -222,6 +225,7 @@ static uint64_t render_fork(const scen_t *sc, int dual, const char *mask, uint32
     pid_t pid;
     if (pipe(fd))
         return 0;
+    fflush(stdout);                                 /* (else a child under TSAN prints the parent's lines again) */
     pid = fork();
     if (!pid) {
         h = render(sc, dual, mask);
@@ -244,7 +248,14 @@ int main(void)
     static scen_t sc[256];
     static char names[256][48];
     static const char *const MASKS[] = {"rot", "auto", "5", "10", "3", "12", "1"};
-    uint32_t n = 0, e, i, k, g, fail = 0;
+    uint32_t n = 0, e, i, k, g, fail = 0, run = 0;
+    uint32_t nmask = sizeof MASKS / sizeof MASKS[0], shard = 0, nshard = 1;
+    if (getenv("SPLITS") && atoi(getenv("SPLITS")) > 0 && (uint32_t)atoi(getenv("SPLITS")) < nmask)
+        nmask = (uint32_t)atoi(getenv("SPLITS"));
+    if (getenv("SHARD") && (sscanf(getenv("SHARD"), "%u/%u", &shard, &nshard) != 2 || shard >= nshard)) {
+        printf("dualcore: SHARD=%s is not i/n with i < n   FAIL\n", getenv("SHARD"));
+        return 1;
+    }
     for (e = 0; e < NENGINES; e++) {                    /* every preset: four parts at once */
         if (!eng_ok(e))                                 /* (a retired number: DIGITAL) */
             continue;
@@ -299,6 +310,9 @@ int main(void)
         uint32_t m, bad = 0, quiet = 0, taken = 0, took = 0;
         if (getenv("SCENE") && !strstr(sc[i].name, getenv("SCENE")))
             continue;
+        if (i % nshard != shard)
+            continue;
+        run++;
         ref = render_fork(&sc[i], 0, 0, &taken);
         for (k = 0; k < NPART; k++)
             quiet += peak[k] < 200;
@@ -308,7 +322,7 @@ int main(void)
             fail++;
             continue;
         }
-        for (m = 0; m < sizeof MASKS / sizeof MASKS[0]; m++) {
+        for (m = 0; m < nmask; m++) {
             uint64_t h = render_fork(&sc[i], 1, MASKS[m], &taken);
             took += taken != 0;
             if (h != ref || !h) {
@@ -329,6 +343,6 @@ int main(void)
                    sc[i].fx & FX_SEND_SWEEP ? "deep shared chorus stays on one core" : "the same on two cores, every split");
         fail += bad != 0;
     }
-    printf("dualcore: %u of %u scenes differ\n", fail, n);
+    printf("dualcore: %u of %u scenes differ (%u of %u run)\n", fail, run, run, n);
     return fail != 0;
 }
