@@ -713,7 +713,7 @@ if [ -f build/gen/felucca_tables.h ]; then
     unit u_perform
     u_punch() {
         build "$OUT/punch_crackle_test" tests/punch_crackle_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
-        run "punch-in crackle: MASTER STUT borrow, heavy-mix stacks / HOLD, click bound, shed A/B (CRACKLE_DIR survey optional)" "$OUT/punch_crackle_test"
+        run "punch-in crackle: MASTER STUT borrow, heavy-mix stacks / HOLD, every key and stack pressed and let go against the dry mix, random punch-in churn (seeded, LATCH, CLR), shed A/B (CRACKLE_DIR survey + churn optional)" "$OUT/punch_crackle_test"
     }
     unit u_punch
     PERF_UNIT=$n
@@ -849,6 +849,8 @@ else
         run "Strict ASan/UBSan (no exclusions): chord_melody_test" "$A/chord_melody_test_strict"
         $STRICT_CC -o "$A/chord_auto_test_strict" tests/chord_auto_test.c -lm
         run "Strict ASan/UBSan (no exclusions): chord_auto_test" "$A/chord_auto_test_strict"
+        $STRICT_CC -o "$A/punch_crackle_test_strict" tests/punch_crackle_test.c -lm
+        run "Strict ASan/UBSan (no exclusions): punch_crackle_test" "$A/punch_crackle_test_strict"
     }
     unit u_asan_signed_audio
     u_asan_ldr() {
