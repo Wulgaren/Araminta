@@ -79,7 +79,7 @@ enum {                          /* per-track parameters */
     P_FM4_ATK, P_FM4_DEC, P_FM4_SUS, P_FM4_REL, P_FM4_LEVEL,
     P_CHRD, P_VOIC,                            /* chord keys (chord.c): one key plays a chord; its voicing */
     P_LN0, P_LN1, P_LN2, P_LN3, P_LN4, P_LN5, P_LN6, P_LN7,   /* DRUM lane levels (eng_drum.c, #97): KICK .. BELL */
-    P_LSYNC, P_LTRIG, P_LPOL,                  /* 1.2 (#154): LFO SYNC (OFF, a note value), TRIG (NOTE, FREE), POL (BI, UNI) */
+    P_LSYNC, P_LTRIG, P_LPOL,                  /* 1.2 (#154): LFO SYNC (OFF / ON since 4.3), TRIG (NOTE, FREE), POL (BI, UNI) */
     P_SQNT,                                    /* 1.2 (#162): QUANTIZE, the steps' recorded / nudged timing (ON: none) */
     P_SPRD,                                    /* (#148): SPREAD, the voices of a POLY / UNISON track around PAN (fx.c) */
     /* insert chain (6 stages, reorderable; MIX 0 = bypass). Replaces 1.5's P_ITYPE..P_IMIX. Drive = P_DIST. */
@@ -336,11 +336,25 @@ typedef struct {
 enum { PS_LFO = 1, PS_ENV, PS_VEL, PS_KEY, PS_RAND };
 enum { PD_PITCH = 1, PD_CUT, PD_SHP, PD_AMP, PD_PAN, PD_DIST, PD_CHO, PD_DLY, PD_REV, PD_LRATE, PD_VIB, PD_E1 };
 #define PD_E(k) (PD_E1 + (k))    /* EDIT k (P_E0 + k: 0 the first, as the engine's edit[]) */
-/* a MOD slot k (1..4): SRC DEST AMT; the LFO: WAVE, SYNC (params.c N_LSYNC) and its depths to PITCH FILTER */
+/* a MOD slot k (1..4): SRC DEST AMT; the LFO: WAVE, synced to a note value (LS_*: SYNC ON, RATE on that note value)
+ * and its depths to PITCH FILTER */
 #define MMOD(k, s, d, a) P_M##k##SRC, (s), P_M##k##DST, (d), P_M##k##AMT, (a)
-#define MLFO(w, sync, pit, flt) P_LWAVE, (w), P_LSYNC, (sync), P_LD_PIT, (pit), P_LD_FLT, (flt)
+#define MLFO(w, div, pit, flt) P_LWAVE, (w), P_LSYNC, 1, P_LRATE, (div), P_LD_PIT, (pit), P_LD_FLT, (flt)
 enum { LW_SIN, LW_TRI, LW_SAW, LW_SQR, LW_SH };          /* P_LWAVE (params.c N_LWAVE) */
-enum { LS_4BAR = 1, LS_1BAR = 3, LS_16TH = 8 };          /* P_LSYNC (params.c N_LSYNC) */
+/* LFO SYNC ON: RATE's 0..127 split over LSYNC_N note values (params.c LSYNC_NAMES, 0 = 4BAR); the first RATE of b */
+#define LSYNC_N 10u
+#define LSYNC_RATE(b) (((b) * 128u + LSYNC_N - 1u) / LSYNC_N)
+enum { LS_4BAR = LSYNC_RATE(0), LS_1BAR = LSYNC_RATE(2), LS_16TH = LSYNC_RATE(7) };   /* MLFO's div */
+/* a sound's p[] stored before 4.3 (project.c proj_lsync, upreset.c up_params): SYNC held the note value k (1..10, 4BAR
+ * first); it becomes SYNC ON and RATE on that note value. Other values were never a note value: kept (and fitted) */
+static inline int lsync_legacy(int16_t *p)         /* 1 = p held a note value and was converted */
+{
+    if (p[P_LSYNC] < 1 || p[P_LSYNC] > (int16_t)LSYNC_N)
+        return 0;
+    p[P_LRATE] = (int16_t)LSYNC_RATE((uint32_t)p[P_LSYNC] - 1u);
+    p[P_LSYNC] = 1;
+    return 1;
+}
 
 struct track;
 /* fx.c: the pre-FUN17 list order from P_IORD / P_CHOR / fx_sl_pos (project.c uses it on older loads) */

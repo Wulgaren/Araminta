@@ -52,12 +52,8 @@ static void graph_adsr(const track_t *t, uint16_t c)
 #undef EGY
 }
 
-/* S&H on the page, as the reference LFO shape: two cycles (the other waves' scale) of a step that glides to its
- * value over the first SMTH/127 of the cycle (a smoothstep, so the turn is rounded), then holds. A step value only
- * lives a cycle, so the two before it are kept here, shifted at a wrap (lastq falling); the three make the window's
- * tail too, and the curve runs into the next cycle at the same value and slope. frame: the last UI frame this graph
- * drew: after a gap (the page was elsewhere, LFO 2 S&H still selected) the three are stale and start afresh. */
-static struct { uint32_t lastq, frame; int16_t v1, v2, v3; uint8_t init, trk; } lfo_hist;
+/* S&H on the page: a step that glides to its value over the first SMTH/127 of the cycle (a smoothstep, so the turn
+ * is rounded), then holds; va the step before, vb this one, t the phase in the cycle, f SMTH's share of it */
 static int32_t lfo_sh_shape(int32_t va, int32_t vb, uint32_t t, uint32_t f)
 {
     uint32_t u, s;
@@ -67,45 +63,48 @@ static int32_t lfo_sh_shape(int32_t va, int32_t vb, uint32_t t, uint32_t f)
     s = (u * u >> 15) * (3u * 32768u - 2u * u) >> 15; /* 3t^2 - 2t^3, Q15 */
     return va + (int32_t)(((int64_t)(vb - va) * (int32_t)s) >> 15);
 }
-/* LFO: the part keeps its LFO running (voice.c track_lfo_adv / track_lfo_end), so the page draws its cycles from
- * the live phase: the wave scrolls left at RATE (LFO 2: at SYNC's note value), as the scope's trace moves. */
+/* S&H's step values on the graph: its own, one per cycle number (what the LFO plays is random). FREE counts the
+ * cycles at the wraps it draws, so a step keeps its value while it scrolls */
+static int32_t lfo_sh_val(uint32_t n) { return (int32_t)(int16_t)((n * 2654435761u) >> 16); }
+static uint32_t lfo_cyc, lfo_last, lfo_trk, lfo_frame;   /* FREE's cycle count: the wraps seen on the last frame's track */
+#define LFO_BAR_BEATS 4u                             /* the graph's bar: four beats */
+#define LFO_AMP_PCT 38                               /* the wave's height, of the graph's */
+/* LFO: a phrase as it would start now, over one bar of the tempo, so RATE shows as the cycles in it (SYNC 1/4: four).
+ * TRIG NOTE starts it at PHS and the graph stands still; FREE at the live phase (voice.c keeps the LFO running) and
+ * it scrolls with it. FADE ramps it in from the left edge (linear, as voice.c track_lfo_end); POL BI draws -1..+1
+ * about the middle, UNI 0..+1 over the bottom line; S&H's steps glide over SMTH. */
 static void graph_lfo(const track_t *t, uint16_t c)
 {
-    int32_t x, cy = graph_ht / 2, a = 38 * graph_ht / 100, py = cy, uni = t->p[P_LPOL] != 0;
-    uint32_t ph = t->lfo_ph, d = 0xFFFFFFFFu / (PANEL_W / 2u), q = ph / d;   /* q: the phase in px */
-    int32_t z = uni ? cy + a : cy;                   /* the zero line: POL UNI (LFO 2) draws 0..+1 over it */
-    cv_rect(PANEL_X0, z, PANEL_W, 1, T_RAISE);
-    if (t->p[P_LWAVE] == 4) {                        /* S&H: two cycles, the steps and SMTH's glide */
-        uint32_t f = (uint32_t)t->p[P_LSMOOTH] * (0xFFFFFFFFu / 127u), ti = (uint32_t)(t - trk);
-        int32_t xc = PANEL_W - (int32_t)q, xp = xc - PANEL_W / 2, xo = xp - PANEL_W / 2;
-        int32_t v0 = (int32_t)(t->lfo_rnd >> 16) - 32768;
-        if (!lfo_hist.init || lfo_hist.trk != (uint8_t)ti || ui.frame != lfo_hist.frame + 1u) {
-            lfo_hist.v1 = lfo_hist.v2 = lfo_hist.v3 = (int16_t)t->lfo_prev;
-            lfo_hist.trk = (uint8_t)ti;
-            lfo_hist.init = 1;
-        } else if (q < lfo_hist.lastq) {             /* a wrap: every step moves one cycle back */
-            lfo_hist.v3 = lfo_hist.v2;
-            lfo_hist.v2 = lfo_hist.v1;
-        }
-        lfo_hist.v1 = (int16_t)t->lfo_prev;
-        lfo_hist.lastq = q;
-        lfo_hist.frame = ui.frame;
-        for (x = 0; x < PANEL_W; x++) {
-            uint32_t ts = (uint32_t)(x - (x >= xc ? xc : x >= xp ? xp : xo)) * d;
-            int32_t w = x >= xc ? lfo_sh_shape(t->lfo_prev, v0, ts, f)
-                      : x >= xp ? lfo_sh_shape(lfo_hist.v2, t->lfo_prev, ts, f)
-                      : lfo_sh_shape(lfo_hist.v3, lfo_hist.v2, ts, f), y;
-            y = uni ? z - (w + 32768) * a / 32768 : cy - w * a / 32768;
-            if (x)
-                cv_line_t(PANEL_X0 + x - 1, py, PANEL_X0 + x, y, c, 2);
-            py = y;
-        }
-        return;
+    int32_t x, cy = graph_ht / 2, a = LFO_AMP_PCT * graph_ht / 100, py = cy, uni = t->p[P_LPOL] != 0;
+    int32_t z = uni ? cy + a : cy;                   /* the zero line: POL UNI draws 0..+1 over it */
+    int note = !t->p[P_LTRIG], sh = t->p[P_LWAVE] == LW_SH;
+    uint32_t bar = LFO_BAR_BEATS * beat_samples(), ph = note ? (uint32_t)t->p[P_LPHASE] << 25 : t->lfo_ph, n0, fade = 0;
+    uint32_t f = (uint32_t)t->p[P_LSMOOTH] * (0xFFFFFFFFu / 127u);
+    uint64_t d;                                      /* the phase a pixel */
+    bar = bar ? bar : 1u;
+    d = (uint64_t)lfo_inc(t) * bar / ((uint64_t)CTL * PANEL_W);
+    if (t->p[P_LFADE]) {                             /* voice.c: lfo_fade climbs `step` a block to 32767 */
+        uint32_t step = ENV_LIN[t->p[P_LFADE] & 127] >> 9;
+        step = step ? step : 1u;
+        fade = (uint32_t)((uint64_t)((32767u + step - 1u) / step) * CTL * PANEL_W / bar);
     }
-    lfo_hist.init = 0;                               /* leaving S&H: its history starts afresh on return */
-    for (x = 0; x < PANEL_W; x++) {                  /* two cycles (lfo_wave only reads the track) */
-        int32_t w = lfo_wave((track_t *)t, ph + (uint32_t)x * d), y;
-        y = uni ? z - (w + 32768) * a / 32768 : cy - w * a / 32768;
+    if (lfo_trk != (uint32_t)(t - trk) || ui.frame != lfo_frame + 1u)   /* another track, or a gap: count afresh */
+        lfo_last = ph;
+    lfo_trk = (uint32_t)(t - trk);
+    lfo_frame = ui.frame;
+    if (!note && ph < lfo_last)
+        lfo_cyc++;
+    lfo_last = note ? 0u : ph;
+    n0 = note ? 0u : lfo_cyc;
+    cv_rect(PANEL_X0, z, PANEL_W, 1, T_RAISE);
+    for (x = 0; x < PANEL_W; x++) {
+        uint64_t p = ph + (uint64_t)x * d;
+        uint32_t k = n0 + (uint32_t)(p >> 32), ts = (uint32_t)p;
+        int32_t w = sh ? lfo_sh_shape(lfo_sh_val(k), lfo_sh_val(k + 1u), ts, f) : lfo_wave((track_t *)t, ts), y;
+        int32_t v = uni ? (w + 32768) / 2 : w;       /* (voice.c: UNI is (w + 1) / 2) */
+        if ((uint32_t)x < fade)
+            v = v * x / (int32_t)fade;
+        y = z - v * (uni + 1) * a / 32768;
         if (x)
             cv_line_t(PANEL_X0 + x - 1, py, PANEL_X0 + x, y, c, 2);
         py = y;
@@ -1267,7 +1266,9 @@ static uint32_t graph_signature(void)
                     (uint32_t)song.g[G_TDROP] * 1299709u + (uint32_t)song.g[G_TAPEMODE] * 40503u + ui.frame);
     if (strip_kind() == SK_TITLE)                    /* MENU > LARGE: the page's title (its engine, its number) */
         return h ^ 0x5A17u;
-    if (pg->graph == GR_LFO ||                       /* the wave scrolls with the part's live phase */
+    if (pg->graph == GR_LFO)                         /* its bar is the tempo's */
+        h ^= beat_samples() * 2654435761u;
+    if ((pg->graph == GR_LFO && t->p[P_LTRIG]) ||    /* TRIG FREE: the wave scrolls with the part's live phase */
         (pg->graph == GR_NONE && !(pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WT)) ||
         pg->graph == GR_ARP || pg->graph == GR_STEPS || pg->graph == GR_INS)
         h ^= ui.frame;                               /* live: the LFO's phase, the scope's trace, FX tech */

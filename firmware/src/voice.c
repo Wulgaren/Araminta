@@ -43,8 +43,8 @@ static uint32_t lfo_rand(track_t *t)
     return s;
 }
 
-/* LFO 2 (1.2, #154; params.c N_LSYNC): with SYNC on, one cycle lasts the note value of the tempo (fx.c div_samples:
- * BPM, or the external clock's measured tempo while it runs), whatever RATE says (the matrix's RATE too): the phase
+/* LFO SYNC (1.2, #154; 4.3: params.c LSYNC_NAMES): with SYNC on, one cycle lasts RATE's note value of the tempo (fx.c
+ * div_samples: BPM, or the external clock's measured tempo while it runs; the matrix's RATE moves the note value): the phase
  * advances 2^32 x CTL / cycle a block (two 32-bit divides; the 1-bit truncation of 0xFFFFFFFF drifts by less than a
  * millionth of a cycle a cycle). OFF: RATE's table, as before */
 static uint32_t div_samples(uint32_t div);         /* (fx.c) */
@@ -52,11 +52,17 @@ static __attribute__((noinline)) uint32_t lfo_sync_inc(const track_t *t)   /* (n
                                                                            * the audio ISR's loop over the tracks) */
 {
     uint32_t cyc, q, r;
-    cyc = div_samples(LSYNC_DIV[(uint32_t)t->p[P_LSYNC] % NELEM(LSYNC_DIV)]);
+    cyc = div_samples(DIV_ORDER[lsync_band(t->p[P_LRATE])]);   /* (longest first, as LSYNC_NAMES) */
     cyc = cyc ? cyc : 1u;
     q = 0xFFFFFFFFu / cyc;
     r = 0xFFFFFFFFu % cyc;
     return q * CTL + (r * CTL + CTL) / cyc;
+}
+
+/* the LFO's phase step a block: SYNC's note value of the tempo, else RATE's table (track_lfo_adv, ui_graph.c graph_lfo) */
+static uint32_t lfo_inc(const track_t *t)
+{
+    return t->p[P_LSYNC] ? lfo_sync_inc(t) : LFO_INC[t->p[P_LRATE] & 127];
 }
 
 /* the LFO's block, in two (the second core, fx.c mix_block): its phase on the part's own core, in track_render
@@ -65,7 +71,7 @@ static __attribute__((noinline)) uint32_t lfo_sync_inc(const track_t *t)   /* (n
 static void track_lfo_adv(track_t *t)
 {
     uint32_t old = t->lfo_ph;
-    t->lfo_ph += t->p[P_LSYNC] ? lfo_sync_inc(t) : LFO_INC[t->p[P_LRATE] & 127];
+    t->lfo_ph += lfo_inc(t);
     t->lfo_wrap = t->lfo_ph < old;
 }
 static void track_lfo_end(track_t *t)

@@ -96,11 +96,14 @@ static uint32_t up_obj(uint32_t b)
  * 3.5: bit 7 of that byte marks ANALOG's OSC A / OSC B semantics (E8 is INT; the FM slots are MORPH / DRIFT /
  * OSC B's WAVE; core.h). Older firmware ignores it. A record without it loads an ANALOG sound with the first
  * three at 0, OSC B's WAVE SAME, and drops its E8 / OP automation (up_params); 1.5's records are those.
- * 3.6: packed[UP_VIB_AT] bit 0 marks P_E5 as VIB (else VMOD; up_fm6.c fm6_old_vmod on load). */
+ * 3.6: packed[UP_VIB_AT] bit 0 marks P_E5 as VIB (else VMOD; up_fm6.c fm6_old_vmod on load).
+ * 4.3: its bit 1 marks LFO SYNC as ON / OFF with RATE the note value (else 1.2's note value in SYNC; core.h
+ * lsync_legacy in up_params). */
 #define UP_CAT_AT (UP_PMAX * 2u - 1u)
 #define UP_OSC2 0x80u                            /* bit 7 of the category byte: 3.5's INT / MORPH / DRIFT */
 #define UP_VIB_AT 142u                           /* (never a value byte: np <= P_COUNT < 128) */
 #define UP_VIB 0x01u                             /* UP_VIB_AT bit 0: P_E5 is VIB, not the old VMOD */
+#define UP_LSYNC 0x02u                           /* UP_VIB_AT bit 1: LFO SYNC ON / OFF, not the old note value */
 /* matrix slots 5..8 (core.h track_t.mx): SRC DST AMT of each, one signed byte per value, at packed[UP_MX_AT..]: after
  * the values (np <= P_COUNT) and P_IORD's high byte (packed[np]), before UP_VIB_AT. Every record of before holds 0
  * there (OFF) and firmware before keeps the bytes without reading them, as with UP_CAT_AT: no version bump. A record
@@ -125,6 +128,8 @@ static int up_osc2(const up_rec_t *r)
 }
 static void up_mark_osc2(up_rec_t *r) { if (r->ver >= 4u) r->packed[UP_CAT_AT] |= UP_OSC2; }
 static void up_mark_vib(up_rec_t *r) { if (r->ver >= 4u) r->packed[UP_VIB_AT] |= UP_VIB; }
+static void up_mark_lsync(up_rec_t *r) { if (r->ver >= 4u) r->packed[UP_VIB_AT] |= UP_LSYNC; }
+static int up_lsync(const up_rec_t *r) { return r->ver >= 4u && (r->packed[UP_VIB_AT] & UP_LSYNC); }
 static int up_to_v4(up_rec_t *r)                 /* 1 = r is version 4 / 5 (now) */
 {
     int16_t v[UP_PMAX];
@@ -251,6 +256,8 @@ static void up_params(const up_rec_t *r, int16_t *out, const int16_t *def)
         out[P_DRIFT] = 0;
         out[P_WAVE2] = 0;                            /* SAME: OSC B follows OSC A */
     }
+    if (!up_lsync(r))
+        lsync_legacy(out);
 }
 
 static int up_name_ok(const uint8_t *s, uint32_t n)   /* 1..12 printable ASCII */
@@ -354,6 +361,7 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
             up_set_cat(r, a[end + 17u]);
         up_mark_osc2(r);                             /* the editor sends today's values */
         up_mark_vib(r);
+        up_mark_lsync(r);
         *target = *r;
         return 0;
     }
@@ -367,6 +375,7 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
     up_migrate(r);                               /* (an editor of before the DRUM engine) */
     up_mark_osc2(r);                             /* the editor sends today's values */
     up_mark_vib(r);
+    up_mark_lsync(r);
     *target = *r;
     return 0;
 }
@@ -538,6 +547,7 @@ static int up_store_cat(uint32_t k, const char *name, uint32_t cat)
         r.packed[UP_MX_AT + i] = (uint8_t)(int8_t)TSEL->mx[i / 3u][i % 3u];
     up_mark_osc2(&r);                                   /* a new sound: INT / MORPH / DRIFT as stored */
     up_mark_vib(&r);                                    /* P_E5 is VIB */
+    up_mark_lsync(&r);                                  /* LFO SYNC ON / OFF */
     {
         int rc;
         if (r.engine == ENGI_FM6 && !upf_room(k))       /* fail before the record: no silent success without a patch */

@@ -896,6 +896,20 @@ moved up by seven). Firmware 1.2 .. 1.4 refuses a FUN10 of 111 (more parameters 
 backup PUT of one answers rc 1); user presets of 111 load there by count (the seven left out). Library files of 104 map
 by label: the INSERT, TYPE and ESYNC unset.
 
+## 4.3: LFO SYNC ON / OFF
+
+Id 91 `SYNC` is an enum OFF ON (default OFF; it was OFF and ten note values). With it ON, id `RATE` (the LFO's,
+0..127) is the note value: its range split evenly over 4BAR 2BAR 1/1 1/2 1/4 1/8 8T 1/16 16T 1/32, a value v naming
+the (v x 10 / 128)th, so a knob step is 13 values (the first showing it: 0 13 26 39 52 64 77 90 103 116). `DESC` still
+describes RATE in Hz, as with ENV SYNC. RATE's motion and locks are the same records, SYNC on or off; `SYNC` still
+cannot be recorded (`MOTION` 3 / 5 answer rc 1).
+
+A project's header byte 67 bit 3 (FUN20) and a user preset's bit 1 of its VIB byte (packed 142) say SYNC is read
+this way. Without them the device loads SYNC's old note value k (1..10) as SYNC ON with RATE on k's first value, and
+drops the RATE automation of such a part (it did nothing while synced). A `SET` of the old values 2..10 to id 91 is
+clamped to ON. Library files key id 91 `LSYNC` when the device's `DESC` names it OFF ON; reading a file keyed `SYNC`
+converts its note value the same way.
+
 ## v7: full backup (65-67)
 
 INFO advertises `42 01 caps`: bit 0 = `BACKUP_LIST` / `BACKUP_GET` (read), bit 1 = `BACKUP_PUT` (restore);
