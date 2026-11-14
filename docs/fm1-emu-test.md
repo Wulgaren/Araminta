@@ -151,6 +151,46 @@ Judge a load change by those, not by one build. The layouts build at once, each 
 not change). The emulator is most of the time: every run boots and sets the patch up (~9 s of device time) before
 its scenario. All four scenarios take ~2.5 min on a 12-core Mac, stack alone ~1 min.
 
+`--footprint N` shows what competes for the cache: the 64-byte lines the firmware fetches from the flash in a half
+(code and data), in total and by symbol.
+
+```sh
+build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario stack --ms 4000 --footprint 40
+```
+
+It flushes the flash cache at each half boundary and counts the lines fetched in that half (code and flash data), per
+symbol, against the cache's 512 lines. A line two symbols share counts for both. The run's `cpu_pct` and `late` are not
+valid: every half starts cold, not warm.
+
+## A fixed home for the render's flash code (2026-11-14)
+
+`--footprint` put the render's hottest flash functions (`fm1_alnk0_irq` 85 lines a half, `fm1_timer5_irq` 39,
+`dx_run` 32, `track_render_audio` 28, `rev_hall` 27) and the `SINE` table (33) through the 580 KB image. Their
+addresses moved whenever unrelated code changed size, and the cache maps a 64-byte line to a set by its address:
+that is why the same firmware scored 89.5-96.5 % on stack across 8 layouts.
+
+`firmware/app.ld` now places the 94 functions `--footprint` ranked highest (41,476 B, 64-byte aligned, in the
+listed order) directly after crt0, between `_flash_hot_start` and `_flash_hot_end`; `.rodata` follows them, so
+`SINE` and the tables keep their sets too. `-ffunction-sections` gives each function its own `.text.<name>`, and
+`tools/build.py` fails the build when a listed function is missing (renamed or inlined away) or lands outside the
+block. A source-level section attribute was tried first and dropped: it keeps the compiler from inlining the
+function into its caller.
+
+Medians (min - max) over 8 layouts (`tests/layout_sweep.sh`), before (dev `226d3e3`) and after:
+
+| Scenario | cpu_pct before | after | late halves before | after |
+| --- | --- | --- | --- | --- |
+| dry, 3 s | 76.4 % (75.4 - 77.0) | 73.0 % (72.7 - 76.6) | 0 | 0 |
+| keys, 9 s | 78.9 % (78.1 - 80.1) | 76.6 % (76.2 - 76.6) | 7.5 (3 - 13) | 0 |
+| churn, 6 s | 79.5 % (78.1 - 80.9) | 76.2 % (74.6 - 76.6) | 1.5 (0 - 3) | 0 |
+| stack, 6 s | 94.5 % (93.4 - 96.5) | 87.1 % (86.7 - 87.5) | 393.5 (226 - 563) | 35 (31 - 41) |
+
+The flash lines a half barely moved (stack, 4 s: 605.9, 37.9 KB, max 932 -> 592.9, 37.1 KB, max 940): `--footprint`
+starts every half cold, so it counts a half's working set, not the warm-run set conflicts the fixed home removes.
+
+With the punch-in recorder fix (`9c218ee`) merged, the same sweep reads dry 74.4 %, keys 76.6 %, churn 76.6 %,
+stack 87.5 % (86.3 - 87.9), late 39 (33 - 44).
+
 ## Calibration record
 
 | Date | Firmware | Patch | Device cpu_pct | Emulator cpu_pct | F |
