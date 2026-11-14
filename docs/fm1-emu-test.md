@@ -151,6 +151,17 @@ Judge a load change by those, not by one build. The layouts build at once, each 
 not change). The emulator is most of the time: every run boots and sets the patch up (~9 s of device time) before
 its scenario. All four scenarios take ~2.5 min on a 12-core Mac, stack alone ~1 min.
 
+`--footprint N` shows what competes for the cache: the 64-byte lines the firmware fetches from the flash in a half
+(code and data), in total and by symbol.
+
+```sh
+build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario stack --ms 4000 --footprint 40
+```
+
+It flushes the flash cache at each half boundary and counts the lines fetched in that half (code and flash data), per
+symbol, against the cache's 512 lines. A line two symbols share counts for both. The run's `cpu_pct` and `late` are not
+valid: every half starts cold, not warm.
+
 ## Calibration record
 
 | Date | Firmware | Patch | Device cpu_pct | Emulator cpu_pct | F |
