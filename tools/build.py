@@ -347,8 +347,34 @@ def build_app():
     return bytes(img), syms, dis, rt
 
 
+def flash_hot_check(syms):
+    """app.ld's flash-hot block names its functions by their -ffunction-sections section. A renamed function, or
+    one the compiler inlined into its caller, leaves a pattern that matches nothing, so the entry drifts out of
+    the fixed block (emu_test --footprint, docs/fm1-emu-test.md) without a sign: fail the build instead."""
+    block = re.search(r"_flash_hot_start = \.;(.*?)_flash_hot_end", (FW / "app.ld").read_text(), re.S)
+    if not block:
+        return ["app.ld: no _flash_hot_start / _flash_hot_end block"]
+
+    def sym(name):
+        m = re.search(r"^([0-9a-f]+) .*\s" + re.escape(name) + r"$", syms, re.M)
+        return int(m.group(1), 16) if m else None
+
+    start, end = sym("_flash_hot_start"), sym("_flash_hot_end")
+    if start is None or end is None or end <= start:
+        return ["app.ld: _flash_hot_start / _flash_hot_end missing or empty"]
+    errors = []
+    for name in re.findall(r"\*\(\.text\.(\w+)\)", block.group(1)):
+        at = sym(name)
+        if at is None:
+            errors.append(f"app.ld: .flash_hot lists {name}, which is missing (renamed or inlined away)")
+        elif not start <= at < end:
+            errors.append(f"app.ld: .flash_hot lists {name} at {at:#x}, outside {start:#x}..{end:#x}")
+    return errors
+
+
 def check(img, syms, dis, rt):
     errors, notes = [], []
+    errors += flash_hot_check(syms)
     m = re.search(r"^([0-9a-f]+) .*\s_start$", syms, re.M)
     if not m or int(m.group(1), 16) != APP_XIP:
         errors.append(f"_start is not at {APP_XIP:#x}")
