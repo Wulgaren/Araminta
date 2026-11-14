@@ -124,13 +124,15 @@ Medians (min - max) over 8 flash layouts (`tests/layout_sweep.sh`), before (`7f5
 | Scenario | cpu_pct before | after | late halves before | after |
 | --- | --- | --- | --- | --- |
 | dry, 3 s | 75.8 % (75.4 - 77.0) | 76.2 % (75.4 - 77.0) | 0 | 0 |
-| keys, 9 s | 81.2 % (80.5 - 82.8) | 78.9 % (78.5 - 80.1) | 25 (16 - 37) | 7 (5 - 10) |
+| keys, 9 s | 81.2 % (80.5 - 82.8) | 78.9 % (78.1 - 80.1) | 25 (16 - 37) | 7.5 (3 - 13) |
 | churn, 6 s | 82.4 % (81.2 - 84.4) | 79.3 % (78.5 - 80.1) | 13 (6 - 19) | 1.5 (0 - 5) |
 | stack, 6 s | 98.8 % (98.0 - 100.8) | 94.5 % (93.0 - 96.5) | 634 (622 - 640) | 393 (193 - 560) |
 
-`cpu1_pct` after: ~53 % dry, ~56 % keys and churn, ~70 % stack. keys after is 7 layouts: at pad 7 its SELECT turn to
-PUNCH-IN 2/2 never took (no 2/2 key engaged in 5 s; the page walk is the UI loop's, ui.c perf_page), a timing case of
-the input path that this layout exposes, not of the layer. One build alone can read anywhere in these ranges: the
+`cpu1_pct` after: ~53 % dry, ~56 % keys and churn, ~70 % stack. The sweep found a lost SELECT turn: on one layout
+keys' turn to PUNCH-IN 2/2 never took. The punch map read SELECT twice in a pass when the first read had nothing,
+and a detent the TIMER5 scan counted in between (the audio ISR can hold the main loop there for a render) went to the
+second read, which dropped it. It reads SELECT once now (ui_input.c; tests/ui_test.c's late-detent check). One build
+alone can read anywhere in these ranges: the
 first single-build numbers for this change were stack 89.5 % / 59 late (its best layout) and 96.5 % / 560 (its worst).
 
 Stack holds every audio punch-in at once; its late halves were all `late_over`. What is left there is the layer's own

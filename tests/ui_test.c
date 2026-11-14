@@ -6734,6 +6734,15 @@ static int test_fx_map(void)
     turn(EN_SELECT, -1); frame();
     ok &= str_eq(cur_page()->title, "PUNCH-IN") && perf_key(white(4)) == PF_LPF;
     bad += check("  SELECT walks the sticky punch map's PUNCH-IN pages (1/2, 2/2), the map follows", ok && ui.lock == LAYER_FX);
+    /* a SELECT detent the TIMER5 scan counts just after the map's read (#102: host_enc_late): the map read SELECT
+     * twice when the first read had nothing, and the second took the detent and dropped it (seen in fm1-emu's keys
+     * scenario: PUNCH-IN 2/2 never opened) */
+    ui_power_on();
+    go_title("PUNCH-IN"); frame();
+    host_enc_late[panel.enc[EN_SELECT]] += panel.dir[EN_SELECT];
+    frame(); frame();
+    ok = str_eq(cur_page()->title, "PUNCH-IN") && perf_key(white(4)) == PF_ODN;
+    bad += check("  a SELECT detent counted just after the punch map read it is not dropped: 2/2", ok && ui.lock == LAYER_FX);
     ui_power_on();
     btn_down(B_FX); frames(600);
     ok = !ui.layer && !ui.lock;
