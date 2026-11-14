@@ -18,6 +18,28 @@ static int check(const char *what, int ok)
     return ok ? 0 : 1;
 }
 
+/* the hash of a store at the size its header gives */
+static void store_hash(project_store_t *st)
+{
+    uint32_t size, sum;
+    memcpy(&size, st->raw + 4, 4);
+    sum = proj_hash(st->raw, size - 4u);
+    memcpy(st->raw + size - 4u, &sum, 4);
+}
+/* a packed FUN21 store as a 4096 B record of `magic` (FUN20 and the FUN10..FUN19 of a 3.10 slot): FUN20's bytes up
+ * to 4080, the name there, the tail gone. proj_import reads it from the whole store (a retained slot's own size) */
+static void store_v20(project_store_t *st, uint32_t magic)
+{
+    uint8_t name[PROJ_NAME_LEN];
+    uint32_t size = PROJ_STORE_V20;
+    memcpy(name, st->raw + PROJ_NAME_OFF, sizeof name);
+    memset(st->raw + PROJ_TAIL_OFF, 0, sizeof st->raw - PROJ_TAIL_OFF);
+    memcpy(st->raw + PROJ_STORE_V20 - 4u - PROJ_NAME_LEN, name, sizeof name);
+    memcpy(st->raw, &magic, 4);
+    memcpy(st->raw + 4, &size, 4);
+    store_hash(st);
+}
+
 /* a store packed as FUN16, rewritten to the FUN15 layout (5-byte chain rows, 72 motion records 48 bytes later),
  * for the tests that check what an older reader sees */
 /* a stored kit is the factory one, packed as a project keeps it (each sound's LAYER in its spare bits) */
@@ -47,11 +69,7 @@ static void store_fun15_layout(project_store_t *st, uint32_t magic)
         mot[0] = MOTION_FILE_MAX_V15;                   /* FUN16 holds 88, FUN15 72 */
     memcpy(st->raw + at, chain, sizeof chain);
     memcpy(st->raw + at + CHAIN_WIRE15_SIZE, mot, sizeof mot);
-    memcpy(st->raw, &magic, 4);
-    {   /* (the hash last, over everything above) */
-        uint32_t sum = proj_hash(st->raw, PROJ_STORE_SIZE - 4u);
-        memcpy(st->raw + PROJ_STORE_SIZE - 4u, &sum, 4);
-    }
+    store_v20(st, magic);
 }
 
 /* track t of the converted project has the old values where they belong; drum: track 4 was the drum part,
@@ -233,20 +251,14 @@ static int tape_wire(void)
           c.fx_master[INS_DIST] == 1 && c.fx_master[INS_DLY] == 2 && c.fx_master[INS_SLCR] == 4 &&
           c.fx_master[INS_TAPE] == 3 && c.fx_master[INS_REV] == 0;
     {   /* the same bytes stamped FUN18 (before TEMPO): it loads ON, the current default */
-        uint32_t sum;
-        ((uint32_t *)st.raw)[0] = PROJ_MAGIC_V18;
-        sum = proj_hash(st.raw, PROJ_STORE_SIZE - 4u);
-        memcpy(st.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+        store_v20(&st, PROJ_MAGIC_V18);
         ok &= proj_import(&c, &st, sizeof st) && c.g[G_TTEMPO] == 1 && c.g[G_TSPEED] == 88;
     }
     {   /* the same bytes as a FUN16: the order is not there, the globals are the old inert ids,
          * and no MASTER owner (FUN16/17 wrote zeros in those spare bytes) */
-        uint32_t sum;
         memset(a.fx_master, 0, sizeof a.fx_master);
         ok &= proj_pack(&st16, &a);
-        ((uint32_t *)st16.raw)[0] = PROJ_MAGIC_V16;
-        sum = proj_hash(st16.raw, PROJ_STORE_SIZE - 4u);
-        memcpy(st16.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+        store_v20(&st16, PROJ_MAGIC_V16);
         ok &= proj_import(&c, &st16, sizeof st16);
         {   /* factory order: DIST, CRUSH, FILTER, PHASR, FLANG, CHOR, DLY, REV, SLCR, TAPE */
             static const uint8_t DEF[FX_LIST_N] = {INS_DIST, INS_CRUSH, INS_FILTER, INS_PHASR, INS_FLANG,
@@ -468,35 +480,71 @@ static int fun10_motion110(void)
     return check("FUN10 with 110 motion records (above the FUN16 body of 88) loads", ok);
 }
 
-/* FUN20: 128 motion records (88 in the body + 40 in the append), packed, read back and packed again. */
-static int fun20_full_motion(void)
+static void proj_blank(project_t *q)
 {
-    project_t saved, loaded;
-    project_store_t a, b;
+    memset(q, 0, sizeof *q);
+    q->magic = PROJ_MAGIC; q->size = sizeof *q; q->parts = NPART; q->phys = PROJ_PHYS;
+    chain_defaults(&q->chain); memcpy(q->dx, DX_KIT_DEF, sizeof q->dx);
+}
+
+/* FUN21: every motion record RAM holds and a punch-in lane of stacked effects, packed, read back and packed again */
+static int fun21_full_motion(void)
+{
+    static project_t saved, loaded;
+    static project_store_t a, b;
     uint32_t i;
     int ok;
-    memset(&saved, 0, sizeof saved);
-    saved.magic = PROJ_MAGIC; saved.size = sizeof saved; saved.parts = NPART; saved.phys = PROJ_PHYS;
-    chain_defaults(&saved.chain); memcpy(saved.dx, DX_KIT_DEF, sizeof saved.dx);
-    saved.motion.count = MOTION_FILE_MAX;
+    proj_blank(&saved);
+    saved.motion.count = MOTION_MAX;
     saved.motion.on = 15;
-    for (i = 0; i < MOTION_FILE_MAX; i++) {
+    for (i = 0; i < MOTION_MAX; i++) {
         saved.motion.event[i].place = (uint8_t)i;
         saved.motion.event[i].param = (uint8_t)(MFX_FB | (i & 1u ? MOTION_LOCK : 0u));
         saved.motion.event[i].value = (int16_t)(i % 100u);   /* MFX_FB: 0..120 */
     }
-    saved.lane[0] = 0x1F; saved.lane[39] = 0xA5; saved.lane_tgt = 2;
+    saved.lane[0] = 1u << 0 | 1u << 4 | 1u << 14;      /* REPEAT 1/8 + LPF + OCT- on one step */
+    saved.lane[63] = 0x07FFFFFFu;                       /* every effect */
+    saved.lane_tgt = 2;
     saved.sum = proj_sum(&saved);
-    ok = proj_pack(&a, &saved) && a.raw[0] == 0x46 && a.raw[1] == 0x55 && a.raw[2] == 0x4E && a.raw[3] == 0x4B
-         && a.raw[PROJ_APPEND_MARK_OFF] == PROJ_APPEND_MARK
-         && proj_import(&loaded, &a, sizeof a) && loaded.motion.count == MOTION_FILE_MAX
-         && loaded.lane[0] == 0x1F && loaded.lane[39] == 0xA5 && loaded.lane_tgt == 2
+    ok = MOTION_MAX == 255u && proj_pack(&a, &saved) && !memcmp(a.raw, "FUNL", 4)
+         && proj_import(&loaded, &a, sizeof a) && loaded.motion.count == MOTION_MAX
+         && !memcmp(loaded.lane, saved.lane, sizeof saved.lane) && loaded.lane_tgt == 2
          && proj_pack(&b, &loaded) && !memcmp(a.raw, b.raw, sizeof a.raw);
-    for (i = 0; ok && i < MOTION_FILE_MAX; i++)
+    for (i = 0; ok && i < MOTION_MAX; i++)
         ok &= loaded.motion.event[i].place == (uint8_t)i &&
               loaded.motion.event[i].param == saved.motion.event[i].param &&
               loaded.motion.event[i].value == saved.motion.event[i].value;
-    return check("FUN20 with all 148 motion records and the punch-in lane round trips byte for byte", ok);
+    return check("FUN21: all 255 motion records and a lane of stacked effects round trip byte for byte", ok);
+}
+
+/* FUN20 (4096 B) still loads: its records, and its lane's 5-bit values as one effect a step (1..11 OCT- .. x2,
+ * 12 GLITCH, 13 REPEAT 1/12, 14.. REPEAT 1/8 .. ECHO THROW) */
+static int fun20_loads(void)
+{
+    static project_t saved, loaded;
+    static project_store_t a;
+    uint8_t lane20[40] = {0};
+    uint32_t i;
+    int ok;
+    proj_blank(&saved);
+    saved.motion.count = 148u;
+    for (i = 0; i < 148u; i++)
+        saved.motion.event[i] = (motion_event_t){(uint8_t)i, MFX_FB, (int16_t)(i % 100u)};
+    memcpy(saved.name, "OLD SONG", 8);
+    saved.lane_tgt = 1;
+    saved.sum = proj_sum(&saved);
+    lane20[0] = 1u;                                     /* step 0: 1 (OCT-) */
+    lane20[0] |= 14u << 5; lane20[1] = 14u >> 3;        /* step 1: 14 (REPEAT 1/8) */
+    lane20[39] = 27u << 3;                              /* step 63: 27 (ECHO THROW) */
+    ok = proj_pack(&a, &saved);
+    store_v20(&a, PROJ_MAGIC_V20);
+    memcpy(a.raw + PROJ_LANE20_OFF, lane20, sizeof lane20);
+    store_hash(&a);
+    ok &= proj_import(&loaded, a.raw, (int)PROJ_STORE_V20) && loaded.motion.count == 148u &&
+          loaded.motion.event[147].place == 147u && loaded.motion.event[147].value == 47 &&
+          !memcmp(loaded.name, "OLD SONG", 8) && loaded.lane_tgt == 1;
+    ok &= loaded.lane[0] == 1u << 14 && loaded.lane[1] == 1u << 0 && loaded.lane[63] == 1u << 13 && !loaded.lane[2];
+    return check("FUN20 (4096 B) loads: records, name, its lane as OCT- / REPEAT 1/8 / ECHO THROW", ok);
 }
 
 /* matrix slots 5..8 (proj_trk_t.mx) in the FUN20 store's tail (PROJ_MX_OFF): every track's round trip, extreme values,
@@ -513,7 +561,7 @@ static int mx_wire(void)
 {
     static project_t saved, loaded;
     static project_store_t a, b;
-    uint32_t i, t, at = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE, sum;
+    uint32_t i, t, at = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE;
     int ok;
     memset(&saved, 0, sizeof saved);
     saved.magic = PROJ_MAGIC; saved.size = sizeof saved; saved.parts = NPART; saved.phys = PROJ_PHYS;
@@ -527,15 +575,15 @@ static int mx_wire(void)
     saved.sum = proj_sum(&saved);
     ok = proj_pack(&a, &saved) && proj_import(&loaded, &a, sizeof a) && mx_same(&loaded, &saved) &&
          proj_pack(&b, &loaded) && !memcmp(a.raw, b.raw, sizeof a.raw);
-    int bad = check("FUN20: matrix slots 5..8 of every track round trip (AMT -64 / 63, SLEW, VEL)", ok);
-    saved.motion.count = MOTION_FILE_MAX + 5u;          /* more than a save keeps: clipped at 148, the slots kept */
+    int bad = check("FUN21: matrix slots 5..8 of every track round trip (AMT -64 / 63, SLEW, VEL)", ok);
+    saved.motion.count = MOTION_MAX;                    /* every record RAM holds, beside the slots */
     for (i = 0; i < saved.motion.count; i++)
         saved.motion.event[i] = (motion_event_t){(uint8_t)i, MFX_FB, (int16_t)(i % 100u)};
     saved.sum = proj_sum(&saved);
-    ok = MOTION_FILE_MAX == 148u && proj_pack(&a, &saved) && proj_import(&loaded, &a, sizeof a) &&
-         loaded.motion.count == 148u && mx_same(&loaded, &saved);
-    bad += check("FUN20: a save keeps 148 motion records and the slots", ok);
-    /* a FUN20 file of 155 records (before slots 5..8): records 149..155 where the slots go now */
+    ok = proj_pack(&a, &saved) && proj_import(&loaded, &a, sizeof a) &&
+         loaded.motion.count == MOTION_MAX && mx_same(&loaded, &saved);
+    bad += check("FUN21: a save keeps all 255 motion records and the slots", ok);
+    /* a FUN20 file of 155 records (4.1, before slots 5..8): records 149..155 where the slots went in 4.2 */
     for (t = 0; t < NTRK; t++)
         memset(saved.t[t].mx, 0, sizeof saved.t[t].mx);
     saved.motion.count = 148u;
@@ -546,7 +594,7 @@ static int mx_wire(void)
         uint8_t *w = a.raw + PROJ_MOTION_SPARE_OFF + 3u * (i - MOTION_FILE_MAX_BODY - MOTION_FILE_APPEND_MAX);
         w[0] = (uint8_t)i; w[1] = MFX_FB; w[2] = (uint8_t)(i % 100u);
     }
-    sum = proj_hash(a.raw, PROJ_STORE_SIZE - 4u); memcpy(a.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+    store_v20(&a, PROJ_MAGIC_V20);
     ok &= proj_import(&loaded, &a, sizeof a) && loaded.motion.count == 155u &&
           loaded.motion.event[154].place == 154u && loaded.motion.event[154].value == 54;
     for (t = 0; ok && t < NTRK; t++)
@@ -697,8 +745,8 @@ int main(void)
                  P_COUNT == 127u);
     /* 3.10: the object spans two sectors of one storage object, and the four-slot wire cache is gone (a small
      * summary replaces it, so NOINIT no longer bounds the project size) */
-    bad += check("3.10: the object is two sectors and the NOINIT cache is a 4-slot summary",
-                 sizeof(project_store_t) == 4096u && sizeof(project_store_t) <= 2u * 4096u - 256u &&
+    bad += check("FUN21: the object fits two sectors and the NOINIT cache is a 4-slot summary",
+                 sizeof(project_store_t) == 4864u && sizeof(project_store_t) <= 2u * 4096u - 256u &&
                  sizeof(proj_slot_sum) == 4u * 44u && sizeof(proj_slot_sum) <= 256u);
 
     /* today's format: a matrix slot set, WHEEL engine 7, a DRUM track with notes and hits: stored as is */
@@ -748,10 +796,11 @@ int main(void)
         project_t a, c;
         project_store_t st, st2;
         uint32_t i, zero = 1;
-        bad += check("3.10 layout: frozen offsets, 256 B append area between FM6 and name",
-                     PROJ_NAME_OFF == 4080u && PROJ_FM6_OFF == 3312u && PROJ_DX_OFF == 3216u &&
+        bad += check("FUN21 layout: frozen offsets, the 256 B append, the tail from 4080, the name before the hash",
+                     PROJ_TAIL_OFF == 4080u && PROJ_FM6_OFF == 3312u && PROJ_DX_OFF == 3216u &&
                      PROJ_DX_OFF + PROJ_DX_SIZE == PROJ_FM6_OFF &&
-                     PROJ_NAME_OFF - (PROJ_FM6_OFF + NTRK * FM6_PACKED) == 256u &&
+                     PROJ_TAIL_OFF - (PROJ_FM6_OFF + NTRK * FM6_PACKED) == 256u &&
+                     PROJ_NAME_OFF == sizeof(project_store_t) - 16u &&
                      PROJ_SCL_OFF + PROJ_SCL_SIZE + 2u == PROJ_CRV_OFF &&
                      68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE + MOTION_FILE_SIZE ==
                      PROJ_SCL_OFF);
@@ -1009,8 +1058,7 @@ int main(void)
         funa = st;
         store_fun15_layout(&funa, 0x46554E41u);       /* FUNA / FUN10: the FUN15 chain and motion, no kit block */
         memset(funa.raw + PROJ_DX_OFF, 0, PROJ_DX_SIZE);
-        sum = proj_hash(funa.raw, PROJ_STORE_SIZE - 4u);
-        memcpy(funa.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+        store_hash(&funa);
         ok = proj_import(&c, &funa, sizeof funa) && dx_factory(c.dx) &&
              !c.dx_mute && !c.dx_mot[0] && !c.dx_mot[1] && !c.dx_mot[2] && !c.dx_mot[3] &&
              !memcmp(c.name, "DX KIT", 6);
@@ -1053,7 +1101,7 @@ int main(void)
         project_t c;
         static project_store_t funa;
         int16_t p111[111];
-        uint32_t i, t, pos, magic = PROJ_MAGIC_V10, size = PROJ_STORE_SIZE, sum;
+        uint32_t i, t, pos, magic = PROJ_MAGIC_V10, size = PROJ_STORE_V20;
         chain_config_t ch;
         memset(&funa, 0, sizeof funa);
         memcpy(funa.raw, &magic, 4);
@@ -1090,9 +1138,8 @@ int main(void)
         memcpy(funa.raw + pos, &ch, sizeof ch);        /* then 388 B zero motion (1.5 full block) */
         for (t = 0; t < NTRK; t++)
             memcpy(funa.raw + PROJ_FM6_OFF + t * FM6_PACKED, FM6_INIT, FM6_PACKED);
-        memcpy(funa.raw + PROJ_NAME_OFF, "V15 CRUSH", 9);
-        sum = proj_hash(funa.raw, PROJ_STORE_SIZE - 4u);
-        memcpy(funa.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+        memcpy(funa.raw + PROJ_TAIL_OFF, "V15 CRUSH", 9);   /* (a 4096 B record: its name at 4080) */
+        store_hash(&funa);
         ok = proj_import(&c, &funa, sizeof funa);
         bad += check("FUNA np111: imports (Felucca 1.5 INSERT project)", ok);
         bad += check("FUNA np111: CRUSH INSERT -> chain crush params + MIX",
@@ -1117,8 +1164,7 @@ int main(void)
             funa.raw[pos++] = 0; funa.raw[pos++] = 0;
             pos += NSTEP * 9u;
         }
-        sum = proj_hash(funa.raw, PROJ_STORE_SIZE - 4u);
-        memcpy(funa.raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+        store_hash(&funa);
         ok = proj_import(&c, &funa, sizeof funa);
         bad += check("FUNA np111: INSERT TYPE OFF stays dry (ICMIX 0), ESYNC kept",
                      ok && c.t[0].p[P_ICMIX] == 0 && c.t[0].p[P_IPMIX] == 0 &&
@@ -1131,7 +1177,8 @@ int main(void)
     bad += generation_legacy_defaults();
     bad += step_wire_freeze();
     bad += fun10_motion110();
-    bad += fun20_full_motion();
+    bad += fun21_full_motion();
+    bad += fun20_loads();
     bad += mx_wire();
     bad += dx_layer_wire();
     bad += drums_retired();

@@ -5,6 +5,7 @@
 extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
 extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
 extern uint32_t _c1_start[], _c1_end[], _c1_load[];   /* the second core's waiting loop (hal/fm1_cpu1.h) */
+extern uint32_t _hot_start[], _hot_end[], _hot_load[];   /* the render's hottest functions (core.h AUDIO_RAM) */
 
 
 /* TIMER5 outranks ALNK0, so the scan keeps its 100 us pace while a half buffer renders: before,
@@ -377,6 +378,8 @@ void fm1_cstart(void)
         *d = *s;                                /* flash driver code that must run from RAM */
     for (s = _c1_load, d = _c1_start; d < _c1_end; s++, d++)
         *d = *s;                                /* the second core's waiting loop (hal/fm1_cpu1.h) */
+    for (s = _hot_load, d = _hot_start; d < _hot_end; s++, d++)
+        *d = *s;                                /* the render's hottest functions (core.h AUDIO_RAM) */
     fm1_stack_paint();                          /* high-water marks: before any IRQ, before the guard (first write) */
     fm1_mailbox_clear();
     if (!fm1_power_start())                   /* stock V15 supplies: CPU1, the audio and the flash read at V15 levels */

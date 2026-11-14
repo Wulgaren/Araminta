@@ -16,6 +16,16 @@
  * parts shared before (mod.c, voice.c SPREAD, eng_formant.c, eng_phys.c) */
 #define C1_NP NPART
 #define C1_PI(t) ((uint32_t)((t) - trk) % C1_NP)
+/* AUDIO_RAM before a function: it runs from RAM (felucca.c: section .hot_text, app.ld; the host builds: nothing).
+ * For the render's hottest code: from the flash it goes through a 32 KB cache that the render's code and tables
+ * overflow, ~300 cycles a miss (fm1-emu, measured on a device). Chosen by `emu_test --profile` (docs/fm1-emu-test.md);
+ * the room is RAMTEXT's (app.ld, ~21 KB). A direct call cannot reach between RAM and the flash: an AUDIO_RAM
+ * function calls only AUDIO_RAM functions, and the flash calls it as AUDIO_FAR(fn)(args) (the link fails
+ * otherwise: "relocation truncated to fit") */
+#ifndef AUDIO_RAM
+#define AUDIO_RAM
+#define AUDIO_FAR(fn) fn
+#endif
 #define NSTEP 64
 #define HALF_FRAMES 128          /* I2S half buffer: 2.9 ms at 44.1 kHz (a key waits 0..1 half, then plays 1 half later) */
 #ifndef FELUCCA_SLICE
@@ -480,8 +490,7 @@ static void step_set_note(step_t *s, uint32_t j, uint32_t v)
 }
 static uint32_t step_fl(const step_t *s) { return s->flags; }
 static void step_set_fl(step_t *s, uint32_t fl) { s->flags = (uint8_t)(fl & (SF_ACCENT | SF_SLIDE)); }
-#define MOTION_MAX 192u          /* RAM records: more than a FUN16 project saves, so a long session keeps them until the
-                                  * save (which clips at MOTION_FILE_MAX and warns) */
+#define MOTION_MAX 255u          /* RAM records (motion_store_t.count is a byte); a FUN21 project saves every one */
 #define MOTION_FILE_MAX_128 128u /* the pre-release FUN10..FUN12 block with np<=111: 128 records of 3 bytes */
 #define MOTION_FILE_MAX_V10 110u /* FUN10 disk: 4+110*3=334; +2 B/track for P_IORD left 2 B before FM6 */
 #define MOTION_FILE_MAX_V11 78u  /* FUN11 disk: 4+78*3=238; frees 96 B for the DRUM-X kit (project.c PROJ_DX_*) */
@@ -491,8 +500,12 @@ static void step_set_fl(step_t *s, uint32_t fl) { s->flags = (uint8_t)(fl & (SF_
 #define MOTION_FILE_SPARE_MAX 20u  /* FUN20 spare after mark+lane_tgt (3986..): records 129..148; the matrix's
                                    * slots 5..8 take the rest (project.c PROJ_MX_OFF) */
 #define MOTION_FILE_SPARE_MAX_V20 27u   /* .. a FUN20 file written before them: records 129..155 */
-#define MOTION_FILE_MAX (MOTION_FILE_MAX_BODY + MOTION_FILE_APPEND_MAX + MOTION_FILE_SPARE_MAX) /* 148: a save keeps */
-#define MOTION_FILE_MAX_V20 (MOTION_FILE_MAX_BODY + MOTION_FILE_APPEND_MAX + MOTION_FILE_SPARE_MAX_V20) /* 155: a load takes */
+#define MOTION_FILE_TAIL_MAX (MOTION_MAX - MOTION_FILE_MAX_BODY - MOTION_FILE_APPEND_MAX - MOTION_FILE_SPARE_MAX)
+                                   /* 107: FUN21's tail after the name's old place (project.c PROJ_MOTION_TAIL_OFF):
+                                    * records 149..255 */
+#define MOTION_FILE_MAX MOTION_MAX /* a FUN21 save keeps every record */
+#define MOTION_FILE_MAX_V20 (MOTION_FILE_MAX_BODY + MOTION_FILE_APPEND_MAX + MOTION_FILE_SPARE_MAX_V20) /* 155: a FUN20
+                                    * load takes (148 since the matrix's slots 5..8) */
 /* Four tracks x64 steps fit one byte. Track values are -64..127; FX TIME retains exact milliseconds in RAM.
  * param: the P_* or MFX_* id (<128), bit 7 (MOTION_LOCK, 1.1) a parameter lock: the value
  * sounds on that step only and goes back after it (motion.c motion_step); without it an automation event, the
@@ -523,7 +536,7 @@ static inline int param_id_known(uint32_t id) { return param_real(id) || param_l
 typedef struct { uint8_t place, param; int16_t value; } motion_event_t;
 typedef struct { uint8_t place, param, value; } motion_file_event_t;
 typedef struct { uint8_t count, on, rsv[2]; motion_event_t event[MOTION_MAX]; } motion_store_t;
-_Static_assert(sizeof(motion_store_t) == 772u, "motion RAM layout (192 records, exact FX values)");
+_Static_assert(sizeof(motion_store_t) == 1024u, "motion RAM layout (255 records, exact FX values)");
 _Static_assert(sizeof(motion_file_event_t) == 3u, "motion disk record preserves capacity");
 #define MOTION_FILE_SIZE_128 (4u + MOTION_FILE_MAX_128 * sizeof(motion_file_event_t))
 #define MOTION_FILE_SIZE_V10 (4u + MOTION_FILE_MAX_V10 * sizeof(motion_file_event_t))
@@ -531,18 +544,19 @@ _Static_assert(sizeof(motion_file_event_t) == 3u, "motion disk record preserves 
 #define MOTION_FILE_SIZE_V15 (4u + MOTION_FILE_MAX_V15 * sizeof(motion_file_event_t))
 /* the in-body motion block stays 88 records so DX/FM6 offsets stay frozen; 89..128 live in the first append,
  * 129..148 in the spare after the punch-in mark (project.c; 129..155 in a FUN20 file written before the matrix's
- * slots 5..8). AUTOMATION SAVE LIMIT fires at MOTION_FILE_MAX. */
+ * slots 5..8), 149..255 in FUN21's tail. */
 #define MOTION_FILE_SIZE (4u + MOTION_FILE_MAX_BODY * sizeof(motion_file_event_t))
 #define MOTION_FILE_APPEND_SIZE (MOTION_FILE_APPEND_MAX * sizeof(motion_file_event_t))  /* 120 */
 #define MOTION_FILE_SPARE_SIZE (MOTION_FILE_SPARE_MAX * sizeof(motion_file_event_t))    /* 60 */
 #define MOTION_FILE_SPARE_SIZE_V20 (MOTION_FILE_SPARE_MAX_V20 * sizeof(motion_file_event_t))   /* 81 */
+#define MOTION_FILE_TAIL_SIZE (MOTION_FILE_TAIL_MAX * sizeof(motion_file_event_t))    /* 321 */
 _Static_assert(MOTION_FILE_SIZE_128 == 388u, "pre-release FUN10..FUN12 motion disk layout");
 _Static_assert(MOTION_FILE_SIZE_V10 == 334u, "FUN10 motion disk layout");
 _Static_assert(MOTION_FILE_SIZE_V11 == 238u, "FUN11 motion disk layout (kit before FM6)");
 _Static_assert(MOTION_FILE_SIZE_V15 == 220u, "FUN12..FUN15 motion disk layout (SCALE LOCK before CRV)");
 _Static_assert(MOTION_FILE_SIZE == 268u, "FUN16..FUN20 in-body motion (88 records, packed chain)");
-_Static_assert(MOTION_FILE_APPEND_SIZE == 120u && MOTION_FILE_SPARE_SIZE == 60u && MOTION_FILE_MAX == 148u &&
-               MOTION_FILE_SPARE_SIZE_V20 == 81u && MOTION_FILE_MAX_V20 == 155u, "FUN20 append + spare motion");
+_Static_assert(MOTION_FILE_APPEND_SIZE == 120u && MOTION_FILE_SPARE_SIZE == 60u && MOTION_FILE_TAIL_SIZE == 321u &&
+               MOTION_FILE_SPARE_SIZE_V20 == 81u && MOTION_FILE_MAX_V20 == 155u, "FUN20 append + spare, FUN21 tail");
 /* P_QUANT (MAP). Stored values stay append-only; the UI shows 1 as CURR (per track) and 4 as ALL
  * (every track follows ROOT/SCL while it is on). QN_CURR is the shared mode here. */
 enum { QN_OFF, QN_ALL, QN_KBD, QN_SEQ, QN_CURR };

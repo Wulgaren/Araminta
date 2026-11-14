@@ -59,7 +59,7 @@ static volatile uint32_t *test_register(uint32_t address) {
 #define FM1_DBG_MSG_CLR registers[1]
 #define FM1_DBG_EN registers[2]
 #define FM1_EMU_CON registers[3]
-uint32_t _c1_ustack[1024], _c1_sstack_top[1], _rt_start[1], _rt_end[1], _c1_end[1];
+uint32_t _c1_ustack[1024], _c1_sstack_top[1], _rt_start[1], _hot_end[1];
 char _guard0[1], _ustack_lo[1], _guard1[1], _sstack_lo[1], _sstack_top[1], _etext[1];
 void fm1_c1_entry(void) {}
 static void fm1_cpu1_halt(void) { con_reg = 2; }

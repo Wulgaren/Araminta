@@ -2,7 +2,8 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * Portions: JIANT (github.com/juanjiant-bit/JIANT) 0.9.9-snd2 / 0.9.18, GLITCH */
 /* PERFORM: the effects of the FX hold layer, on the master. A key pressed while FX is held belongs to the
- * layer (seq.c keyboard_block): it plays no note, sends no MIDI, records nothing, and holds its effect until
+ * layer (seq.c keyboard_block): it plays no note, sends no MIDI, records no note (with REC its effect goes into the
+ * punch-in lane, pfx.c), and holds its effect until
  * it is let go (ui_input.c opens the layer and shows the map). The 16 white keys (F3 .. G5) hold the effect the map
  * gives them. Two PUNCH-IN pages in the FX section, each a fixed map — no reassignment: the defaults
  * (PF_DEF, JIANT; PF2_DEF the audio effects they did not fit):
@@ -218,7 +219,8 @@ static volatile uint8_t pfx_tgt;      /* main / keys: MIDI effects' tracks, 0 AL
 static volatile uint8_t pfx_clr;      /* keys: G5 CLR held (map highlight); down clears latched FX when LATCH on */
 static volatile uint8_t perf_clr_say; /* ISR: CLR just cleared; UI shows "FX ALL OFF" */
 static uint32_t pfx_lph;              /* samples into the punch-in lane (pfx.c) */
-static uint8_t pfx_lane[40], pfx_ltgt;   /* the transport's punch-in lane (pfx.c): 64 steps x 5 bits; its tracks */
+static uint32_t pfx_lane[64];         /* the transport's punch-in lane (pfx.c): each 1/16 step's effects (PF_BIT) */
+static uint8_t pfx_ltgt;              /* .. the tracks its MIDI effects act on */
 static void perf_press(uint32_t e, int down)
 {
     if (e == PF_TGT && down)
@@ -256,7 +258,7 @@ static void perf_start(void) { pf.ph = 0; pf.sync = 1; pfx_lph = 0; }   /* seq_s
 static void perf_drop_slicer(void) { slicer_drop_all(); }
 
 /* the buffer effect to play: the last pressed of those running */
-static uint32_t perf_pick(uint32_t a)
+static inline __attribute__((always_inline)) uint32_t perf_pick(uint32_t a)
 {
     uint32_t e, best = PF_N;
     a &= PF_BUF;
@@ -352,8 +354,11 @@ static void perf_buf_select(uint32_t e)
  * Returns 1 when a stage has something to do */
 static __attribute__((noinline)) int perf_begin(uint32_t n)
 {
-    uint32_t solo = solo_mask(), held = perf_kill ? 0u : (perf_held | perf_latched | (solo ? (~solo & 15u) << PF_M1 : 0u)) & perf_avail() & ~PF_MIDI;
-    uint32_t q, k, ph0, bnd;
+    uint32_t solo = solo_mask(), s16 = beat_samples() >> 2, lane = 0, held, q, k, ph0, bnd;
+    if (song.playing && s16)                           /* the punch-in lane's step at this block's end (pf.ph: the
+                                                         * transport's), so a REPEAT starts on its 1/16 below */
+        lane = pfx_lane[((pf.ph + n - 1u) / s16) & 63u];
+    held = ((perf_kill ? 0u : perf_held | perf_latched | (solo ? (~solo & 15u) << PF_M1 : 0u)) | lane) & perf_avail() & ~PF_MIDI;
     int32_t m;
     if (!held && !pf.busy && !(perf_k[0] | perf_k[1] | perf_k[2])) {   /* idle: the clock only */
         pf.ph += n;
@@ -361,7 +366,7 @@ static __attribute__((noinline)) int perf_begin(uint32_t n)
         perf_act = 0;
         return 0;
     }
-    pf.P = beat_samples() >> 2;
+    pf.P = s16;
     if (pf.sync) {
         pf.ph = 0;
         pf.sync = 0;
@@ -550,7 +555,7 @@ static inline uint32_t pb_rec(uint32_t f, int32_t l, int32_t r)
  * repeated, the last 1/16 reversed, an octave up or down, gated, SKIP (a CD skipping: tiny fragments), or CRUSH (live,
  * 6..9 bits off, held 1..6 samples). Every slice windowed (SL_RAMP). Below ~82 BPM only gates, crushes and live slices
  * play (the loop holds 371 ms). Knobs fixed: DENS 50 / PITCH 0 / SIZE 0 / VARI 1. */
-static __attribute__((noinline)) void pb_ring_f(uint32_t s, int32_t *l, int32_t *r)
+static AUDIO_RAM __attribute__((noinline)) void pb_ring_f(uint32_t s, int32_t *l, int32_t *r)
 {
     uint32_t f = s >> 17;
     int32_t fr = (int32_t)((s >> 2) & 0x7FFFu);
@@ -567,7 +572,7 @@ static uint32_t pf_hash(uint32_t h)
     return h ^ (h >> 13);
 }
 /* a segment's start: where it reads (Q16) and how fast (SKIP: a place in the 1/16, two segments at each) */
-static __attribute__((noinline)) void perf_glt_seg(void)
+static AUDIO_RAM __attribute__((noinline)) void perf_glt_seg(void)
 {
     uint32_t a = pf.gl.a, L = pf.gl.l, g0 = pf.gl.g0, s = g0 - L;
     pf.gl.rate = 65536;
@@ -602,10 +607,10 @@ static __attribute__((noinline)) void perf_glt_step(void)
     pf.gl.sh = (uint8_t)(6u + j + (h >> 20) % 2u);
     pf.gl.n = 255u;
     pf.gl.u = pf.gl.k = pf.glph = 0;
-    perf_glt_seg();
+    AUDIO_FAR(perf_glt_seg)();
 }
 /* GLITCH on one sample: 1 = it plays (gl_yl / gl_yr), 0 = live */
-static __attribute__((noinline)) int perf_glt(int32_t l, int32_t r)
+static AUDIO_RAM __attribute__((noinline)) int perf_glt(int32_t l, int32_t r)
 {
     uint32_t u = pf.gl.u, L = pf.gl.l, a = pf.gl.a, e = L - 1u - u < u ? L - 1u - u : u, g = 32768u;
     pf.wr = pb_rec(pf.wr, l, r);
@@ -623,8 +628,8 @@ static __attribute__((noinline)) int perf_glt(int32_t l, int32_t r)
             if (++pf.gl.n >= pf.gl.h) {
                 int32_t b = 1 << (pf.gl.sh - 1u);
                 pf.gl.n = 0;
-                pf.gl.cl = ((l + b) >> pf.gl.sh) << pf.gl.sh;
-                pf.gl.cr = ((r + b) >> pf.gl.sh) << pf.gl.sh;
+                pf.gl.cl = shl((l + b) >> pf.gl.sh, pf.gl.sh);
+                pf.gl.cr = shl((r + b) >> pf.gl.sh, pf.gl.sh);
             }
             pf.gl_yl = mulq16(pf.gl.cl, g << 1);
             pf.gl_yr = mulq16(pf.gl.cr, g << 1);
@@ -641,7 +646,7 @@ static __attribute__((noinline)) int perf_glt(int32_t l, int32_t r)
     }
     if (++pf.glph >= pf.P) {
         pf.glgs++;
-        perf_glt_step();
+        AUDIO_FAR(perf_glt_step)();
     }
     return a != GA_PASS;
 }
@@ -677,7 +682,7 @@ static inline void hb_tap(uint32_t ph, int32_t *l, int32_t *r)
 }
 /* OCT UP / DN on one sample: yl / yr the harmonized mix (see the top). noinline: perf_block's loop keeps its
  * code layout (target_budget.py: a block placed out of line looks like a loop round the per-sample code) */
-static __attribute__((noinline)) void perf_harm(int32_t l, int32_t r, int32_t *yl, int32_t *yr)
+static AUDIO_RAM __attribute__((noinline)) void perf_harm(int32_t l, int32_t r, int32_t *yl, int32_t *yr)
 {
     int32_t wa = (32768 - osc_sine(pf.hph + 0x40000000u)) >> 1, al, ar, bl, br, sl_, sr_;   /* A's share, Q15 */
     hb_tap(pf.hph, &al, &ar);
@@ -761,10 +766,10 @@ static inline void perf_buf(int32_t *pl, int32_t *pr)
             const int16_t *s = &sl_buf[0][0] + 2u * ((f + 1u) & (PB_FRAMES - 1u));
             a = p[0];
             b = s[0];
-            yl = (a + (((b - a) * fr) >> 15)) << 1;
+            yl = shl(a + (((b - a) * fr) >> 15), 1);
             a = p[1];
             b = s[1];
-            yr = (a + (((b - a) * fr) >> 15)) << 1;
+            yr = shl(a + (((b - a) * fr) >> 15), 1);
             env = pf.tv >= 8192u ? 32768 : (int32_t)(pf.tv << 2);   /* the last eighth fades to silence */
             yl = mulq16(yl, (uint32_t)env << 1);
             yr = mulq16(yr, (uint32_t)env << 1);
@@ -792,7 +797,7 @@ static inline void perf_buf(int32_t *pl, int32_t *pr)
         *pl = pf_mix(l, yl, pf.w);
         *pr = pf_mix(r, yr, pf.w);
     } else if (pf.src == PF_N) {                    /* faded out: the next one, or the buffer back */
-        perf_buf_done();
+        AUDIO_FAR(perf_buf_done)();
     }
 }
 
@@ -841,7 +846,7 @@ static inline int32_t fl_side(uint32_t c, int32_t x, uint32_t q)
     return pf_mix(x, mulq16((x >> 1) + v, 55706u), pf.fw);   /* (x + delayed) / 2 * 0.85 (v: stored at half) */
 }
 /* after CRUSH, while held or fading: FLANGER (noinline, its own loop: the audio ISR's code stays as it was) */
-static __attribute__((noinline)) void perf_flanger(int32_t *bl, int32_t *br, uint32_t n)
+static AUDIO_RAM __attribute__((noinline)) void perf_flanger(int32_t *bl, int32_t *br, uint32_t n)
 {
     uint32_t i, c, inc, q = perf_lfo(16u, n, &inc);
     int32_t tw = pf.act & PF_BIT(PF_FLG) ? perf_mod_depth() : 0, *const b[2] = {bl, br};
@@ -891,7 +896,7 @@ static inline int32_t ph_side(uint32_t c, int32_t x, int32_t a)
 }
 /* after FLANGER, while held or fading: PHASER (noinline, as FLANGER). The coefficients a block at a time (at its
  * middle: 2.9 ms at most, the sweep moves 1 % in frequency meanwhile) */
-static __attribute__((noinline)) void perf_phaser(int32_t *bl, int32_t *br, uint32_t n)
+static AUDIO_RAM __attribute__((noinline)) void perf_phaser(int32_t *bl, int32_t *br, uint32_t n)
 {
     uint32_t i, c, inc, q = perf_lfo(8u, n, &inc) + (n >> 1) * inc;
     int32_t tw = pf.act & PF_BIT(PF_PHS) ? perf_mod_depth() : 0, *const b[2] = {bl, br};
@@ -909,7 +914,7 @@ static __attribute__((noinline)) void perf_phaser(int32_t *bl, int32_t *br, uint
 }
 
 /* after the master level: the buffer effect, LPF, HPF, CRUSH on l / r (stereo, Q15) */
-static __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint32_t n)
+static AUDIO_RAM __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint32_t n)
 {
     uint32_t i, a = pf.act0, sh, hold;
     int32_t c = perf_k[1], lt, ht, ct;
@@ -920,7 +925,7 @@ static __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint3
     sh = 4u + (uint32_t)pf.cc * 7u / 100u;
     hold = sh - 3u;
     if (pf.split)
-        perf_switch(a);
+        AUDIO_FAR(perf_switch)(a);
     pf.hfb += clamp(perf_k[3] * HB_FB - pf.hfb, -512, 512);   /* OCT UP / DN's shimmer glides (~40 ms) */
     lt = (a & PF_BIT(PF_LPF)) || k0 < 0 || pf.lc < PF_TOP ? 32768 : 0;
     ht = (a & PF_BIT(PF_HPF)) || k0 > 0 || pf.hc > 0 ? 32768 : 0;
@@ -928,7 +933,7 @@ static __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint3
         int32_t l = bl[i], r = br[i];
         if (i == pf.split) {              /* the effect set changed with this sample: re-read the target */
             a = pf.act;
-            perf_switch(a);
+            AUDIO_FAR(perf_switch)(a);
             lt = (a & PF_BIT(PF_LPF)) || k0 < 0 || pf.lc < PF_TOP ? 32768 : 0;
             ht = (a & PF_BIT(PF_HPF)) || k0 > 0 || pf.hc > 0 ? 32768 : 0;
         }
@@ -937,8 +942,8 @@ static __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint3
         if (lt != pf.la)                  /* settled: the clamp adds nothing */
             pf.la += clamp(lt - pf.la, -SL_SLOPE, SL_SLOPE);
         if (pf.la) {
-            int32_t fl = pf_svf(clamp(l >> 2, -32767, 32767), &pf.lz[0], pf.lk, 0) << 2;
-            int32_t fr = pf_svf(clamp(r >> 2, -32767, 32767), &pf.lz[2], pf.lk, 0) << 2;
+            int32_t fl = shl(pf_svf(clamp(l >> 2, -32767, 32767), &pf.lz[0], pf.lk, 0), 2);
+            int32_t fr = shl(pf_svf(clamp(r >> 2, -32767, 32767), &pf.lz[2], pf.lk, 0), 2);
             l = pf_mix(l, fl, pf.la);
             r = pf_mix(r, fr, pf.la);
         } else if (pf.lz[0] | pf.lz[1] | pf.lz[2] | pf.lz[3]) {
@@ -947,8 +952,8 @@ static __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint3
         if (ht != pf.ha)
             pf.ha += clamp(ht - pf.ha, -SL_SLOPE, SL_SLOPE);
         if (pf.ha) {
-            int32_t fl = pf_svf(clamp(l >> 2, -32767, 32767), &pf.hz[0], pf.hk, 1) << 2;
-            int32_t fr = pf_svf(clamp(r >> 2, -32767, 32767), &pf.hz[2], pf.hk, 1) << 2;
+            int32_t fl = shl(pf_svf(clamp(l >> 2, -32767, 32767), &pf.hz[0], pf.hk, 1), 2);
+            int32_t fr = shl(pf_svf(clamp(r >> 2, -32767, 32767), &pf.hz[2], pf.hk, 1), 2);
             l = pf_mix(l, fl, pf.ha);
             r = pf_mix(r, fr, pf.ha);
         } else if (pf.hz[0] | pf.hz[1] | pf.hz[2] | pf.hz[3]) {
@@ -960,8 +965,8 @@ static __attribute__((noinline)) void perf_block(int32_t *bl, int32_t *br, uint3
             if (pf.cw) {
                 if (++pf.cn >= hold) {
                     pf.cn = 0;
-                    pf.chl = ((l >> sh) << sh) + (1 << (sh - 1u));
-                    pf.chr = ((r >> sh) << sh) + (1 << (sh - 1u));
+                    pf.chl = shl(l >> sh, sh) + (1 << (sh - 1u));
+                    pf.chr = shl(r >> sh, sh) + (1 << (sh - 1u));
                 }
                 l = pf_mix(l, pf.chl, pf.cw);
                 r = pf_mix(r, pf.chr, pf.cw);

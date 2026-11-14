@@ -178,8 +178,8 @@ int main(void)
 
     reset();
     trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
-    bad += check("LIST captures the runtime: 17 objects (id 8 empty, id 9 FM6 patches, ids 10..13 banks 2..5), runtime 4096 B (FUN20)",
-                 list(0, &len, &crc) == 0 && rep[2] == 17u && len == sizeof(project_store_t) && len == 4096u &&
+    bad += check("LIST captures the runtime: 17 objects (id 8 empty, id 9 FM6 patches, ids 10..13 banks 2..5), runtime 4864 B (FUN21)",
+                 list(0, &len, &crc) == 0 && rep[2] == 17u && len == sizeof(project_store_t) && len == 4864u &&
                  crc == st_crc32(ED_BK_RAW, len));
     {   /* a wavetable slot (id 34, USR3) is backed up as its 512-byte header + PCM data */
         smp_wt_hdr_t *w = (smp_wt_hdr_t *)host_samples[2];
@@ -202,6 +202,16 @@ int main(void)
         bad += check("LIST includes a wavetable slot as raw header+data with its CRC", ok);
     }
     bad += check("an empty project slot lists as length 0", list(2, &len, &crc) == 0 && len == 0);
+    {   /* a slot of earlier firmware holds a shorter record (a FUN20, a 3840 B field image): it lists at its own
+         * length, the one its magic goes with (the web checks the pair) */
+        int ok;
+        project_capture(&proj_scratch);
+        ok = proj_pack_st(&st, &proj_scratch, PROJ_STORE_OLD) && !st_save(OBJ_PROJECT0, &st, PROJ_STORE_OLD) &&
+             proj_fetch(0);
+        bad += check("a slot holding a 3840 B record lists as 3840 B with that record's CRC",
+                     ok && list(2, &len, &crc) == 0 && len == PROJ_STORE_OLD && crc == st_crc32(&st, PROJ_STORE_OLD));
+        proj_slot_used = 0;
+    }
     bad += check("GET of the runtime copy", get(0, 0, 64) == 0);
     project_save(0);
     bad += check("a project save after LIST reused the staging RAM: GET of the runtime is stale (5)",

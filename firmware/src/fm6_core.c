@@ -92,7 +92,7 @@ static const int32_t FM6_STATICS[77] = {
     1984, 1896, 1808, 1411, 1367, 1234, 1146, 926, 837, 837, 705, 573, 573, 529, 441, 441};
 
 /* stage ix (0..3; 4 = done) of an envelope whose rates and levels are op[FP_R1..], op[FP_L1..] */
-static void fm6_env_advance(fm6_env_t *e, const uint8_t *op, uint32_t ix)
+static inline __attribute__((always_inline)) void fm6_env_advance(fm6_env_t *e, const uint8_t *op, uint32_t ix)
 {
     int32_t lv, actual, qrate;
     e->ix = (uint8_t)ix;
@@ -183,7 +183,7 @@ static const int8_t FM6_PENV_TAB[100] = {
     -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
     26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 38, 40, 43, 46, 49, 53, 58, 65, 73, 82, 92, 103, 115, 127};
 
-static void fm6_penv_advance(fm6_penv_t *e, const uint8_t *p, uint32_t ix)
+static inline __attribute__((always_inline)) void fm6_penv_advance(fm6_penv_t *e, const uint8_t *p, uint32_t ix)
 {
     e->ix = (uint8_t)ix;
     if (ix < 4u) {

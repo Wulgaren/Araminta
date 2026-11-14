@@ -145,9 +145,16 @@
  * it, proj_lsync makes each synced track SYNC ON with RATE on its note value and drops that track's RATE events. The
  * magic and size stay; older firmware ignores the bit (and reads SYNC ON as 4BAR).
  *
+ * Format 21 ("FUNL", 4.3; FUN21 in the docs) = FUN20 (4096 B, "FUNK", read only) grown to 4864 B. Bytes 0..4079 keep
+ * FUN20's places (the 40 B of its 5-bit lane at 3944 stay 0); from 4080 the tail: the punch-in lane as 64 effect
+ * masks (PROJ_LANE_OFF, any effects a step) and motion records 149..255 (PROJ_MOTION_TAIL_OFF), so a save keeps
+ * every record RAM holds; the name and the hash end the file as before. A FUN20 loads with its lane's one effect a
+ * step as a mask (proj_lane20). Older firmware refuses a FUN21 (magic).
+ *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
-#define PROJ_MAGIC 0x4B4E5546u                 /* "FUNK" (FUN20): FUN19 + 4 KiB store, append motion + lane */
+#define PROJ_MAGIC 0x4C4E5546u                 /* "FUNL" (FUN21): FUN20 + the tail: lane masks, records 149..255 */
+#define PROJ_MAGIC_V20 0x4B4E5546u             /* "FUNK" (FUN20): FUN19 + 4 KiB store, append motion + lane */
 #define PROJ_MAGIC_V19 0x4A4E5546u             /* "FUNJ" (FUN19): FUN18 + TAPE TEMPO; 3840 B in the field */
 #define PROJ_MAGIC_V18 0x494E5546u             /* "FUNI" (FUN18): FUN17 + MASTER owners */
 #define PROJ_MAGIC_V17 0x484E5546u             /* "FUNH" (FUN17): FUN16 + the EFFECTS order (10 stages) in the
@@ -217,12 +224,21 @@ typedef struct {
     uint8_t fx_bus[FX_BUS_N];                  /* SEND insert+slicer knobs (wire in reclaimed SCL/X-MOD bytes) */
     uint8_t fx_master[FX_LIST_N];              /* MASTER owner per EFFECTS stage; FUN18 wire */
     uint8_t fx_master_order;                   /* ordering track + 1; zero: legacy first owner */
-    uint8_t lane[40];                          /* punch-in lane: 64 steps x 5 bits (pfx_lane); FUN20 append */
+    uint32_t lane[64];                         /* punch-in lane: each 1/16 step's effects (pfx_lane); FUN21 tail */
     uint8_t lane_tgt;                          /* tracks the lane acts on (pfx_ltgt); FUN20 append mark+1 */
     char name[PROJ_NAME_LEN];                  /* the project's name: upper-case ASCII 32..126, 0-padded; "" = none */
     uint32_t sum;
 } project_t;
-_Static_assert(sizeof(((project_t *)0)->lane) == 40u, "punch-in lane wire size");
+#define PROJ_LANE_NFX 27u                      /* perform.c PF_NFX: the effects a lane step holds (bits 0..26) */
+#define PROJ_LANE_FX ((1u << PROJ_LANE_NFX) - 1u)
+#define PROJ_LANE20_OCTD 14u                   /* perform.c PF_OCTD: the effect of a FUN20 lane's value 1 */
+/* FUN20's lane (40 bytes at PROJ_LANE20_OFF): 64 steps x 5 bits, one effect a step (0 none; 1..11 OCT- .. x2,
+ * 12 GLITCH, 13 REPEAT 1/12, 14..27 REPEAT 1/8 .. ECHO THROW: the PF_* from PF_OCTD on, wrapping) -> step s's mask */
+static uint32_t proj_lane20(const uint8_t *l, uint32_t s)
+{
+    uint32_t bit = s * 5u, i = bit >> 3, w = l[i] | (uint32_t)l[(i + 1u) % 40u] << 8, v = (w >> (bit & 7u)) & 31u;
+    return v && v <= PROJ_LANE_NFX ? 1u << ((v - 1u + PROJ_LANE20_OCTD) % PROJ_LANE_NFX) : 0u;
+}
 /* Serialized FUN7 keeps the retained cache's exact extent. Params are biased
  * bytes, steps pack n/time/flags. Reserved tail is zero and covered by hash.
  * The tail's last 12 bytes (PROJ_NAME_OFF, just before the hash) are the project's name since 1.0:
@@ -230,53 +246,58 @@ _Static_assert(sizeof(((project_t *)0)->lane) == 40u, "punch-in lane wire size")
  * never reads them, so every FUN7 file stays valid both ways; FUN6..FUN1 imports get no name.
  * FUN8: the same, 3584 bytes, the four packed FM6 patches at PROJ_FM6_OFF (before the name); 16 bytes of the
  * reserved tail were left for parameters added later. FUN9: the same, 3648 bytes (see the top). */
-#define PROJ_STORE_SIZE 4096u                  /* 3.10: two sectors of one storage object (storage.c st_pmax): the
-                                                * motion block, the lane and future records share the growth */
+#define PROJ_STORE_SIZE 4864u                  /* FUN21 (4.3): of two sectors of one storage object (storage.c st_pmax);
+                                                * the rest of them is room to grow */
+#define PROJ_STORE_V20 4096u                   /* FUN20 (3.10 .. 4.2), still read */
 #define PROJ_STORE_OLD 3840u                   /* FUN10..FUN19 in the field: one sector's payload, still read */
 #define PROJ_STORE_V9 3648u                    /* FUN9 */
 #define PROJ_MOTION_V9 260u                    /* the motion block of FUN7..FUN9: 64 x (place, id, i16 value) */
 #define PROJ_STORE_V8 3584u                    /* FUN8 */
 #define PROJ_STORE_V7 3388u                    /* FUN7 */
-/* 3.10 Route 1: frozen offsets. DX and FM6 stay where they were (3216, 3312); name moves to 4080.
- * The 256 B append area (3824..4079) holds the extra motion records (120 B) and lane (40 B). */
-#define PROJ_NAME_OFF 4080u
+/* 3.10 Route 1: frozen offsets. DX and FM6 stay where they were (3216, 3312); FUN20's name was at 4080.
+ * The 256 B append area (3824..4079) holds the extra motion records (120 B) and FUN20's lane (40 B). FUN21's tail
+ * starts where FUN20's name was: the lane (64 masks), records 149..255, room, then the name and the hash. */
+#define PROJ_TAIL_OFF 4080u
+#define PROJ_LANE_OFF PROJ_TAIL_OFF                                       /* 4080: 64 x u32 (little-endian) */
+#define PROJ_LANE_SIZE 256u
+#define PROJ_MOTION_TAIL_OFF (PROJ_LANE_OFF + PROJ_LANE_SIZE)              /* 4336: records 149..255 */
+#define PROJ_NAME_OFF (PROJ_STORE_SIZE - 4u - PROJ_NAME_LEN)              /* 4848 */
 #define PROJ_DX_SIZE 96u                       /* kit 88 + mute 2 + marker 1 + X-MOD 4 + 1 pad (JIANT FUNA) */
 #define PROJ_DX_OFF 3216u                      /* frozen: same as FUN11..FUN19 */
 #define PROJ_FM6_OFF 3312u                     /* frozen: same as FUN10..FUN19 (NTRK * FM6_PACKED after DX) */
 #define PROJ_APPEND_OFF (PROJ_FM6_OFF + NTRK * FM6_PACKED)   /* 3824: start of the 256 B append */
 #define PROJ_MOTION_APPEND_OFF PROJ_APPEND_OFF               /* 120 B: motion records 88..127 */
-#define PROJ_LANE_OFF (PROJ_MOTION_APPEND_OFF + MOTION_FILE_APPEND_SIZE)  /* 3944: 40 B punch-in lane */
-#define PROJ_LANE_SIZE 40u
-#define PROJ_APPEND_MARK_OFF (PROJ_LANE_OFF + PROJ_LANE_SIZE) /* 3984 */
-#define PROJ_APPEND_MARK 0x4Cu                 /* 'L': append lane (and optional overflow motion) present */
+#define PROJ_LANE20_OFF (PROJ_MOTION_APPEND_OFF + MOTION_FILE_APPEND_SIZE)  /* 3944: FUN20's 40 B lane (0 in FUN21) */
+#define PROJ_APPEND_MARK_OFF (PROJ_LANE20_OFF + 40u) /* 3984 */
+#define PROJ_APPEND_MARK 0x4Cu                 /* 'L': the lane (and lane_tgt after the mark) present */
 #define PROJ_MOTION_SPARE_OFF (PROJ_APPEND_MARK_OFF + 2u)    /* after mark + lane_tgt: records 129..148 */
-/* The matrix's slots 5..8 (4.2): after the spare motion, to the name. Per track four slots of 17 bits, SRC (4 bits),
- * DST (6), AMT + 64 (7), slot 5 of track 1 first, LSB first. A FUN20 file of before holds 0 there (off) unless it
- * saved more than MOTION_FILE_MAX records, whose records 149..155 lie there: such a file has no slots (proj_unpack
- * tells by its count). Firmware before reads records up to the count only, so it loads a project of now (without
- * the slots) */
+/* The matrix's slots 5..8 (4.2): after the spare motion, to FUN20's name (FUN21's tail). Per track four slots of 17
+ * bits, SRC (4 bits), DST (6), AMT + 64 (7), slot 5 of track 1 first, LSB first. A FUN20 file of 4.1 holds 0 there
+ * (off) unless it saved more than 148 records, whose records 149..155 lie there: such a file has no slots
+ * (proj_unpack tells by its count) */
 #define PROJ_MX_OFF (PROJ_MOTION_SPARE_OFF + MOTION_FILE_SPARE_SIZE)     /* 4046 */
 #define PROJ_MX_SIZE 34u                                                 /* 4 tracks x 4 slots x 17 bits */
 #define PROJ_SL_SEND_OFF (PROJ_DX_OFF + PROJ_DX_SIZE - 1u) /* SLICER SEND mask | 0x10 mark */
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(PROJ_NG_WIRE == 27u && G_COUNT >= PROJ_NG_WIRE, "FUN7 wire globals keep IDs 0..26");
 _Static_assert(G_COUNT == 32u, "CHAIN reverb + G_SLOWN + TAPE TEMPO appended");
-_Static_assert(sizeof(project_store_t) == 4096u && PROJ_STORE_V7 == 3388u, "3.10 / FUN7 sizes");
+_Static_assert(sizeof(project_store_t) == 4864u && PROJ_STORE_V7 == 3388u, "FUN21 / FUN7 sizes");
 _Static_assert(PROJ_CRV_OFF + 2u <= PROJ_DX_OFF, "CHAIN reverb bytes before DX kit");
 _Static_assert(sizeof(dx_lane_t[8]) == 88u && PROJ_DX_OFF == 3216u, "FUN11 kit place, frozen in 3.10");
 _Static_assert(PROJ_FM6_OFF == 3312u && PROJ_FM6_OFF == PROJ_DX_OFF + PROJ_DX_SIZE, "FM6 after DX kit, frozen");
-/* 3.10: the object grew to two sectors; the append area (3824..4079) sits after FM6 and before the name:
- * overflow motion (120 B), punch-in lane (40 B), mark+lane_tgt, then spare motion (81 B of records 129..155). */
-_Static_assert(PROJ_NAME_OFF - PROJ_APPEND_OFF == 256u, "the 256 B append area");
-_Static_assert(PROJ_LANE_OFF == 3944u && PROJ_APPEND_MARK_OFF == 3984u, "append lane placement");
+/* 3.10: the object grew to two sectors; the append area (3824..4079) sits after FM6 and before the tail:
+ * overflow motion (120 B), FUN20's lane (40 B), mark+lane_tgt, then spare motion and the matrix's slots 5..8. */
+_Static_assert(PROJ_TAIL_OFF - PROJ_APPEND_OFF == 256u, "the 256 B append area");
+_Static_assert(PROJ_LANE20_OFF == 3944u && PROJ_APPEND_MARK_OFF == 3984u, "append lane placement");
+_Static_assert(sizeof(((project_t *)0)->lane) == PROJ_LANE_SIZE && PROJ_MOTION_TAIL_OFF + MOTION_FILE_TAIL_SIZE <=
+               PROJ_NAME_OFF && PROJ_NAME_OFF == 4848u, "FUN21 tail: lane, records 149..255, before the name");
 _Static_assert(PROJ_MOTION_SPARE_OFF == 3986u, "spare motion after mark + lane_tgt");
-_Static_assert(PROJ_MOTION_SPARE_OFF + MOTION_FILE_SPARE_SIZE_V20 <= PROJ_NAME_OFF,
+_Static_assert(PROJ_MOTION_SPARE_OFF + MOTION_FILE_SPARE_SIZE_V20 <= PROJ_TAIL_OFF,
                "spare motion fits before the name");
-_Static_assert(PROJ_MX_OFF == 4046u && PROJ_MX_OFF + PROJ_MX_SIZE == PROJ_NAME_OFF && NTRK * 4u * 17u <= PROJ_MX_SIZE * 8u,
+_Static_assert(PROJ_MX_OFF == 4046u && PROJ_MX_OFF + PROJ_MX_SIZE == PROJ_TAIL_OFF && NTRK * 4u * 17u <= PROJ_MX_SIZE * 8u,
                "matrix slots 5..8 from the spare motion's end to the name");
 _Static_assert(MS_N <= 16u && MD_N <= 64u, "matrix slots 5..8: SRC in 4 bits, DST in 6 on disk");
-_Static_assert(PROJ_MOTION_APPEND_OFF + MOTION_FILE_APPEND_SIZE + PROJ_LANE_SIZE + 1u <= PROJ_NAME_OFF,
-               "append motion + lane + mark fit before the name");
+_Static_assert(PROJ_APPEND_MARK_OFF + 2u <= PROJ_TAIL_OFF, "append motion + lane + mark fit before the tail");
 _Static_assert(MOTION_FILE_SIZE_V11 + PROJ_DX_SIZE == MOTION_FILE_SIZE_V10, "kit takes FUN10's motion spare");
 _Static_assert(PROJ_SCL_OFF + PROJ_SCL_SIZE + 2u == PROJ_CRV_OFF, "FUN12 SCALE LOCK before CRV");
 _Static_assert(68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE + MOTION_FILE_SIZE ==
@@ -567,15 +588,17 @@ static int proj_import(project_t *q, const void *b, int n)
 }
 static int proj_import_any(project_t *q, const void *b, int n)
 {
-    {   /* the FUN10..FUN19 wire formats, at either size: a field file is 3840 (PROJ_STORE_OLD), a saved
-         * one is 4096. proj_unpack derives its name / FM6 offsets from the size it is given. */
+    {   /* FUN21 at 4864; the FUN10..FUN20 wire formats at either size: a field file is 3840 (PROJ_STORE_OLD), a
+         * saved one 4096 (PROJ_STORE_V20). proj_unpack derives its name / FM6 offsets from the size it is given. */
         uint32_t m = ((const uint32_t *)b)[0];
         /* 3.10: a retained slot may hold an older, shorter record: use its own size from the header.
          * This must happen BEFORE the FUN10+ magic check so old-format data in a new-size slot works. */
         if (n == (int)PROJ_STORE_SIZE && ((const uint32_t *)b)[1] >= 8u && ((const uint32_t *)b)[1] < PROJ_STORE_SIZE)
             n = (int)((const uint32_t *)b)[1];
-        if (n == (int)PROJ_STORE_SIZE || n == (int)PROJ_STORE_OLD) {
-            if (m == PROJ_MAGIC || m == PROJ_MAGIC_V19 || m == PROJ_MAGIC_V18 || m == PROJ_MAGIC_V17 ||
+        if ((n == (int)PROJ_STORE_SIZE || n == (int)PROJ_STORE_OLD) && m == PROJ_MAGIC)
+            return proj_unpack(q, b, n);
+        if (n == (int)PROJ_STORE_V20 || n == (int)PROJ_STORE_OLD) {
+            if (m == PROJ_MAGIC_V20 || m == PROJ_MAGIC_V19 || m == PROJ_MAGIC_V18 || m == PROJ_MAGIC_V17 ||
                 m == PROJ_MAGIC_V16 || m == PROJ_MAGIC_V15 ||
                 m == PROJ_MAGIC_V14 || m == PROJ_MAGIC_V13 || m == PROJ_MAGIC_V12 || m == PROJ_MAGIC_V11 ||
                 m == PROJ_MAGIC_V10)
@@ -643,7 +666,20 @@ static void proj_mx_get(const uint8_t *b, project_t *q)
         }
 }
 
-/* Pack at `st` bytes. FUN20 projects and the autosave use PROJ_STORE_SIZE (4096). PROJ_STORE_OLD (3840) remains
+/* where motion record i lies in a stored FUN20 / FUN21 (pos: the motion block's header): the body's 88, the append's
+ * 40, the spare's `spare` (20; 27 in a FUN20 of 4.1), then FUN21's tail */
+static uint32_t proj_mot_off(uint32_t pos, uint32_t i, uint32_t spare)
+{
+    if (i < MOTION_FILE_MAX_BODY)
+        return pos + 4u + 3u * i;
+    i -= MOTION_FILE_MAX_BODY;
+    if (i < MOTION_FILE_APPEND_MAX)
+        return PROJ_MOTION_APPEND_OFF + 3u * i;
+    i -= MOTION_FILE_APPEND_MAX;
+    return i < spare ? PROJ_MOTION_SPARE_OFF + 3u * i : PROJ_MOTION_TAIL_OFF + 3u * (i - spare);
+}
+
+/* Pack at `st` bytes. FUN21 projects and the autosave use PROJ_STORE_SIZE (4864). PROJ_STORE_OLD (3840) remains
  * for host tests that build FUN10..FUN19 field images. */
 static int proj_pack_st(project_store_t *out, const project_t *q, uint32_t st)
 {
@@ -721,11 +757,9 @@ static int proj_pack_st(project_store_t *out, const project_t *q, uint32_t st)
             b[pos++] = (uint8_t)(w >> 8);
         }
     }
-    {   /* FUN20 at 4096: up to 148 (88 body + 40 append + 20 spare); a 3840 field image keeps 88 in the body */
+    {   /* FUN21: every record (88 body + 40 append + 20 spare + the tail); a 3840 field image keeps 88 in the body */
         uint32_t cap = full ? MOTION_FILE_MAX : MOTION_FILE_MAX_BODY;
         uint32_t nmot = q->motion.count > cap ? cap : q->motion.count;
-        uint32_t nbody = nmot > MOTION_FILE_MAX_BODY ? MOTION_FILE_MAX_BODY : nmot;
-        uint32_t napp = MOTION_FILE_MAX_BODY + MOTION_FILE_APPEND_MAX;
         b[pos] = (uint8_t)nmot;
         b[pos + 1u] = q->motion.on;
         b[pos + 2u] = PROJ_GENERATION_MARK;
@@ -733,9 +767,7 @@ static int proj_pack_st(project_store_t *out, const project_t *q, uint32_t st)
         for (i = 0; i < nmot; i++) {
             const motion_event_t *e = &q->motion.event[i];
             uint32_t id = MOTION_ID(e);
-            uint8_t *wire = i < nbody ? b + pos + 4u + 3u * i
-                           : i < napp ? b + PROJ_MOTION_APPEND_OFF + 3u * (i - MOTION_FILE_MAX_BODY)
-                                      : b + PROJ_MOTION_SPARE_OFF + 3u * (i - napp);
+            uint8_t *wire = b + proj_mot_off(pos, i, MOTION_FILE_SPARE_MAX);
             wire[0] = e->place;
             if (id == MFX_TIME && e->value >= 256)
                 id = MFX_DAMP + ((uint16_t)e->value >> 8); /* 54..59 carry TIME's high byte; no extra record */
@@ -805,7 +837,10 @@ static int proj_pack_st(project_store_t *out, const project_t *q, uint32_t st)
         return 0;
     for (i = 0; i < 3u; i++)
         b[PROJ_FM6_OFF + PROJ_MASTER_ORDER_OFF + i] |= (uint8_t)(((q->fx_master_order >> i) & 1u) << 7);
-    if (full) {   /* FUN20 append: punch-in lane + marker (overflow motion was written with the body motion above) */
+    if (full) {   /* the lane in the tail, its mark and tracks in the append (the motion was written above) */
+        for (i = 0; i < 64u; i++)
+            if (q->lane[i] & ~PROJ_LANE_FX)
+                return 0;
         memcpy(b + PROJ_LANE_OFF, q->lane, PROJ_LANE_SIZE);
         b[PROJ_APPEND_MARK_OFF] = PROJ_APPEND_MARK;
         b[PROJ_APPEND_MARK_OFF + 1u] = q->lane_tgt;
@@ -875,14 +910,14 @@ static int proj_motion_v9(motion_store_t *m, const uint8_t *b)
     return 1;
 }
 
-/* a stored FUN12 / FUN11 / FUN10 (st = PROJ_STORE_SIZE), FUN9 (PROJ_STORE_V9: 64 motion records of 4 bytes, no nudges), FUN8
+/* a stored FUN21 (st = PROJ_STORE_SIZE), FUN20..FUN10 (PROJ_STORE_V20, or PROJ_STORE_OLD), FUN9 (PROJ_STORE_V9: 64 motion records of 4 bytes, no nudges), FUN8
  * (PROJ_STORE_V8: FUN9 with its tail 64 bytes shorter) or FUN7 (PROJ_STORE_V7: no patches, the init one) */
 static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
 {
-    uint32_t pos = 68u, t, i, magic, size, sum, np = b[66], v7 = st == PROJ_STORE_V7, v10 = (st == PROJ_STORE_SIZE || st == PROJ_STORE_OLD);
+    uint32_t pos = 68u, t, i, magic, size, sum, np = b[66], v7 = st == PROJ_STORE_V7, v10 = (st == PROJ_STORE_SIZE || st == PROJ_STORE_V20 || st == PROJ_STORE_OLD);
     uint32_t name_off = st - 4u - PROJ_NAME_LEN;
     uint32_t end = v10 ? PROJ_FM6_OFF : v7 ? name_off : (name_off - NTRK * FM6_PACKED);  /* v8/v9 derive; v10+ frozen */
-    uint32_t v11 = 0, v12 = 0, v13 = 0, v14, v15 = 0, v16 = 0, v17 = 0, v18 = 0, v19 = 0, v20 = 0, data_end = end;
+    uint32_t v11 = 0, v12 = 0, v13 = 0, v14, v15 = 0, v16 = 0, v17 = 0, v18 = 0, v19 = 0, v20 = 0, v21, app, data_end = end;
     /* np>111: insert chain; FUN16: packed chain + MOTION_FILE_SIZE; FUN12..FUN15: 5-byte chain rows +
      * MOTION_FILE_SIZE_V15 + SCALE LOCK; FUN11: MOTION_FILE_SIZE_V11 + kit; FUN10: MOTION_FILE_SIZE_V10;
      * np<=111 (1.5): full 128-record block (no insert chain yet) */
@@ -890,7 +925,9 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     uint32_t iord2 = np > 111u ? 1u : 0u;               /* +1 byte per track for P_IORD high */
     uint32_t mot_max, osc2;
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + st - 4u, 4);
-    v20 = magic == PROJ_MAGIC;                          /* FUN20: 4096 B, append motion + lane */
+    v21 = magic == PROJ_MAGIC;                          /* FUN21: 4864 B, the tail */
+    v20 = magic == PROJ_MAGIC_V20 || v21;               /* FUN20+: 4096 B, append motion + lane */
+    app = v20 && st != PROJ_STORE_OLD;                  /* the append area (and FUN21's tail) on disk */
     v19 = magic == PROJ_MAGIC_V19 || v20;                /* FUN19+: OSC 2 / VIB / TAPE TEMPO bits */
     osc2 = v19 && (b[67] & 2u) != 0;                    /* OSC 2's INT / MORPH / DRIFT (see the top) */
     v18 = magic == PROJ_MAGIC_V18 || v19;
@@ -916,8 +953,8 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     if (v12) {
         mot = np > 111u ? ((v16 || v17) ? MOTION_FILE_SIZE : MOTION_FILE_SIZE_V15) : MOTION_FILE_SIZE_128;
         data_end = PROJ_DX_OFF;
-        /* FUN20 at 4096: 155 records (148 since the matrix's slots 5..8); a 3840 B field image keeps 88 in the body */
-        mot_max = (v16 || v17) ? ((v20 && st == PROJ_STORE_SIZE) ? MOTION_FILE_MAX_V20 : MOTION_FILE_MAX_BODY)
+        /* FUN21: 255 records; FUN20: 155 (148 since the matrix's slots 5..8); a 3840 B field image keeps 88 in the body */
+        mot_max = (v16 || v17) ? (!app ? MOTION_FILE_MAX_BODY : v21 ? MOTION_FILE_MAX : MOTION_FILE_MAX_V20)
                                : MOTION_FILE_MAX_V15;
     } else if (v11) {
         mot = np > 111u ? MOTION_FILE_SIZE_V11 : MOTION_FILE_SIZE_128;
@@ -1071,16 +1108,11 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         }
         if (q->motion.count > (np > 111u ? mot_max : MOTION_FILE_MAX_128))
             return 0;
-        /* FUN20: 89..128 in the first append, 129..155 in the spare (148 since slots 5..8); older formats keep every record in the body
-         * (FUN10: 110, pre-release np<=111: 128). Format-specific mot_max above is the only cap. */
+        /* FUN20 / FUN21: past the body's 88 in the append, the spare and FUN21's tail (proj_mot_off); older formats
+         * keep every record in the body (FUN10: 110, pre-release np<=111: 128). mot_max above is the only cap. */
         for (i = 0; i < q->motion.count; i++) {
-            const uint8_t *wire;
-            if (v20 && i >= MOTION_FILE_MAX_BODY + MOTION_FILE_APPEND_MAX)
-                wire = b + PROJ_MOTION_SPARE_OFF + 3u * (i - (MOTION_FILE_MAX_BODY + MOTION_FILE_APPEND_MAX));
-            else if (v20 && i >= MOTION_FILE_MAX_BODY)
-                wire = b + PROJ_MOTION_APPEND_OFF + 3u * (i - MOTION_FILE_MAX_BODY);
-            else
-                wire = b + pos + 4u + 3u * i;
+            const uint8_t *wire = b + (app ? proj_mot_off(pos, i, v21 ? MOTION_FILE_SPARE_MAX : MOTION_FILE_SPARE_MAX_V20)
+                                           : pos + 4u + 3u * i);
             motion_event_t *e = &q->motion.event[i];
             uint32_t id = wire[1] & 127u;
             e->place = wire[0]; e->param = wire[1];
@@ -1179,12 +1211,19 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         q->dx_mute = 0;
         memset(q->dx_mot, 0, sizeof q->dx_mot);
     }
-    if (v20 && st == PROJ_STORE_SIZE && b[PROJ_APPEND_MARK_OFF] == PROJ_APPEND_MARK) {
-        memcpy(q->lane, b + PROJ_LANE_OFF, PROJ_LANE_SIZE);
+    if (app && b[PROJ_APPEND_MARK_OFF] == PROJ_APPEND_MARK) {
         q->lane_tgt = b[PROJ_APPEND_MARK_OFF + 1u];
+        if (v21)
+            memcpy(q->lane, b + PROJ_LANE_OFF, PROJ_LANE_SIZE);
+        for (i = 0; i < 64u; i++) {
+            if (!v21)
+                q->lane[i] = proj_lane20(b + PROJ_LANE20_OFF, i);
+            if (q->lane[i] & ~PROJ_LANE_FX)             /* (a step of no effect we know: not a project) */
+                return 0;
+        }
     }
-    if (v20 && st == PROJ_STORE_SIZE && q->motion.count <= MOTION_FILE_MAX)
-        proj_mx_get(b, q);                              /* (more records: a file of before, its 149..155 there) */
+    if (app && (v21 || q->motion.count <= MOTION_FILE_MAX_BODY + MOTION_FILE_APPEND_MAX + MOTION_FILE_SPARE_MAX))
+        proj_mx_get(b, q);                              /* (a FUN20 of more records: of 4.1, its 149..155 there) */
     {
         char n[PROJ_NAME_LEN + 1u];
         memcpy(q->name, n, proj_name_get(n, b + name_off));
@@ -1194,6 +1233,8 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
 }
 
 #ifndef PROJ_HOST
+_Static_assert(PF_NFX == PROJ_LANE_NFX && PF_OCTD == PROJ_LANE20_OCTD && sizeof pfx_lane == PROJ_LANE_SIZE,
+               "the lane's effects as perform.c numbers them (proj_lane20, PROJ_LANE_FX)");
 /* the GM drum part of a project of before 1.0 (proj_drums_to_part): DRUM's first kit, as a preset load sets it
  * (until 1.0.2 the SAMPLE engine's PERC set, retired since) */
 static void proj_legacy_drums(track_t *t)
@@ -1561,7 +1602,6 @@ static int project_restore_runtime(const project_t *input)
     transport_req = 0;
     chain_config = p->chain;
     motion = p->motion;
-    motion_save_lim = motion.count > MOTION_FILE_MAX;   /* (a FUN20 file of 4.1: up to 155) AUTOMATION SAVE LIMIT */
     memset(motion_active, 0, sizeof motion_active);
     motion_base_valid = 0;
     ui.song_row = 0;

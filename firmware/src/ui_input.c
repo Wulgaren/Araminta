@@ -1476,8 +1476,6 @@ static void act_do(void)
     case G_SAVE:                                          /* the NAME screen writes it */
         if (transport_busy())
             ui_message("STOP TO SAVE");
-        else if (motion.count > MOTION_FILE_MAX)
-            confirm_open(CF_SAVE_PROJ, k);               /* extras past disk limit won't save */
         else if (project_used(k))
             confirm_open(CF_OVR_PROJ, k);
         else
@@ -1790,7 +1788,6 @@ static void ui_notices(void)
     static uint32_t midi_t, midi_last;
     sample_notice();
     if (motion_full) { motion_full = 0; ui_message("AUTOMATION FULL"); }
-    if (motion_save_lim) { motion_save_lim = 0; ui_message("AUTOMATION SAVE LIMIT"); }
     if (midi_hint) {                                    /* MIDI notes into a track that is not selected */
         uint32_t h = midi_hint;
         midi_hint = 0;
@@ -2008,7 +2005,7 @@ static void ui_input(void)
             uint32_t kind = ui.confirm;
             ui.confirm = 0;
             ui.force = 1;
-            if (kind == CF_OVR_PROJ || kind == CF_SAVE_PROJ) { /* overwrite / trim warn: NAME writes it */
+            if (kind == CF_OVR_PROJ) {                  /* overwrite: NAME writes it */
                 name_open(NK_PROJ_SAVE, ui.confirm_trk & 3u);
             } else if (kind == CF_OVR_USER) {
                 name_open(NK_USER_SAVE, ui.confirm_trk);

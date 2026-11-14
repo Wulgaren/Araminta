@@ -138,6 +138,9 @@
 # Browser emulator (web/emu, when emcc is there): the firmware in WebAssembly (build/emu) boots, plays keys and MIDI,
 #                   draws, lights its LEDs, keeps a save across instances, plays a song bit for bit as the same file
 #                   built with cc (web/emu/native_check.c); the cost of 1 s of a heavy song against real time.
+# FM-1 emulator (tests/emu, FM1_EMU=1; docs/fm1-emu-test.md): build/felucca.fwsc on fm1-emu, timed by instruction
+#                   costs measured on a real FM-1: a heavy patch dry, every punch-in key, an 8-effect stack, random
+#                   punch-ins; each must set up, engage and let go; the load is printed (not yet bounded).
 # PHYS (tests/phys_test.c): stability over the whole parameter and pitch range, the worst-case cost against
 #                   the heaviest factory preset, demos in build/phys_demo/; tests/phys_ref.cpp compares the
 #                   fixed-point models with DaisySP's float originals when DaisySP is there (DAISYSP=path).
@@ -713,7 +716,7 @@ if [ -f build/gen/felucca_tables.h ]; then
     unit u_perform
     u_punch() {
         build "$OUT/punch_crackle_test" tests/punch_crackle_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
-        run "punch-in crackle: MASTER STUT borrow, heavy-mix stacks / HOLD, click bound, shed A/B (CRACKLE_DIR survey optional)" "$OUT/punch_crackle_test"
+        run "punch-in crackle: MASTER STUT borrow, heavy-mix stacks / HOLD, every key and stack pressed and let go against the dry mix, random punch-in churn (seeded, LATCH, CLR), shed A/B (CRACKLE_DIR survey + churn optional)" "$OUT/punch_crackle_test"
     }
     unit u_punch
     PERF_UNIT=$n
@@ -849,6 +852,8 @@ else
         run "Strict ASan/UBSan (no exclusions): chord_melody_test" "$A/chord_melody_test_strict"
         $STRICT_CC -o "$A/chord_auto_test_strict" tests/chord_auto_test.c -lm
         run "Strict ASan/UBSan (no exclusions): chord_auto_test" "$A/chord_auto_test_strict"
+        $STRICT_CC -o "$A/punch_crackle_test_strict" tests/punch_crackle_test.c -lm
+        run "Strict ASan/UBSan (no exclusions): punch_crackle_test" "$A/punch_crackle_test_strict"
     }
     unit u_asan_signed_audio
     u_asan_ldr() {
@@ -981,6 +986,38 @@ else
     unit u_emu_native
     EMU_NATIVE=$n
     unit_after "$EMU_BUILD $EMU_NATIVE" u_emu_test
+fi
+
+# the FM-1 emulator, device-timed (FM1_EMU=1; docs/fm1-emu-test.md): build/felucca.fwsc on fm1-emu's emulated FM-1
+# in its strict mode (each instruction its cost measured on a real FM-1, the 32 KB flash cache), a heavy patch set up
+# over the emulated USB-MIDI, punch-ins pressed on the emulated panel. Each scenario must boot, set up, engage every
+# punch-in and let it go; the load (cpu_pct, late halves, voices shed) is printed, not yet held to a bound.
+u_fm1emu_build() {
+    run "fm1-emu: fetch the pinned commit (tools/get_fm1emu.sh)" sh tools/get_fm1emu.sh
+    mkdir -p build/emu
+    build "$OUT/emu_ids" tests/emu/ids.c -O1 -w -Ibuild/gen -Ifirmware/src -Itests -lm
+    run "fm1-emu: the firmware's ids for the runner (tests/emu/ids.c -> build/emu/ids.rs)" \
+        sh -c "'$OUT/emu_ids' > build/emu/ids.rs"
+    run "fm1-emu: build the runner (tests/emu)" \
+        cargo build --release --offline -q --manifest-path tests/emu/Cargo.toml --target-dir build/emu-target
+}
+u_fm1emu_t() {
+    run "fm1-emu (device-timed): $1, ${2} ms" build/emu-target/release/emu_test --fwsc build/felucca.fwsc \
+        --elf build/felucca.elf --scenario "$1" --ms "$2"
+}
+if [ "${FM1_EMU:-0}" != 1 ]; then
+    note "== skip the FM-1 emulator (FM1_EMU=1 runs the firmware device-timed on fm1-emu)"
+elif ! command -v cargo >/dev/null 2>&1; then
+    note "== skip the FM-1 emulator (no cargo: Rust builds tests/emu)"
+elif [ ! -f build/felucca.fwsc ] || [ ! -f build/felucca.elf ]; then
+    note "== skip the FM-1 emulator (no build/felucca.fwsc: ./build.sh)"
+else
+    unit u_fm1emu_build
+    FM1EMU_BUILD=$n
+    unit_after "$FM1EMU_BUILD" u_fm1emu_t dry 3000
+    unit_after "$FM1EMU_BUILD" u_fm1emu_t keys 9000
+    unit_after "$FM1EMU_BUILD" u_fm1emu_t stack 6000
+    unit_after "$FM1EMU_BUILD" u_fm1emu_t churn 6000
 fi
 
 drain

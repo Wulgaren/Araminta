@@ -47,12 +47,11 @@ tests/run_one.sh regress         # golden renders, health, voices, CPU budget
 tests/run_one.sh web             # desc.json + menu.json, then node web/test_web.mjs
 ```
 
-Targets: `motion`, `ui`, `ui_render`, `editor`, `project`, `param`,
-`sound15`, `inschain`, `regress`, `web`, `all` (execs `tests/run_tests.sh`),
-and `list`.
+`tests/run_one.sh list` prints every target (`all` execs `tests/run_tests.sh`).
 
-If a test has no target, compile and run it by hand, matching the `$CC` line in
-`tests/run_tests.sh` for that test.
+If a test has no target (`dualcore_test`, say), compile and run it by hand from
+its `$CC` line in `tests/run_tests.sh`, without the `-O` level while iterating:
+the single-TU tests compile ~10x faster unoptimised.
 
 Web-only edits: `tests/run_one.sh web` (or `node web/test_web.mjs`; add
 `web/test_backup.mjs` if backup paths moved).
@@ -88,13 +87,23 @@ else `SANITIZE=0`:
 | Editor protocol and MIDI input | `editor_test`, `robust_test`, `fm6bank_test`; `fuzz_ed` | `editor*.c`, `usb.c`, `midi_uart.c`, `midi_control.c` |
 | Update path | `ldr_test`, `ota_test` | `ota.c`, `ota_hw.c`, `firmware/loader/` |
 | User sample slots | `fuzz_smp` | `eng_sample.c`, `eng_grain.c`, `slicer.c` |
-| Signed audio math | strict UBSan tests | `eng_phys.c`, `phys_dsp.c`, `phys_symp.c`, `chord_melody.c`, `chord_auto.c`; any fixed-point scaling or shift change |
+| Signed audio math | strict UBSan tests, `punch_crackle_test` among them; the rule: `docs/signed-audio-arithmetic.md` | `eng_phys.c`, `phys_dsp.c`, `phys_symp.c`, `chord_melody.c`, `chord_auto.c`, `perform.c`, `pfx.c`, `fx.c`, `eng_drum.c`, `drumx_voice.c`; any fixed-point scaling or shift change |
 | Second core | `dualcore_test` under TSan, the TSan canary | `fx.c`, `pfx.c`, `master.c`, `voice.c`, `engines.c`, `hal/fm1_cpu1.h`, `tests/c1_host.h`, `tests/dualcore_test.c`, `tests/tsan_canary.c`; an engine change that adds or changes a global or `static` the render touches |
 | Any file | memory | a new buffer, array index, `memcpy` / `memset` size, or pointer arithmetic |
 | The sanitizer runs | | a test the sanitizer block builds, or its `SAN` / `STRICT_CC` / `TSAN_CC` lines |
 
 UI text and layout, icons, labels, docs, `web/` and Python tools take `SANITIZE=0`. Unsure: `SANITIZE=1`.
 CI runs the sanitizers on every PR, so a wrong skip still fails there before merge.
+
+Device load: add `FM1_EMU=1` to that run when the change can move what the render costs on an FM-1: the audio ISR
+(`audio.c`), an engine, `voice.c`, `fx.c`, `perform.c`, `pfx.c`, `master.c`, where code sits (RAM or flash: `.pool`,
+section attributes, the linker script), or `tools/build.py`'s compiler flags; and before a release. It runs the
+package on fm1-emu timed as the device (`docs/fm1-emu-test.md`), locally only (it needs `cargo`; CI has no emulator).
+Report each scenario's `cpu_pct`, `late` and `voices_shed` beside the doc's last recorded results: a rise is the finding.
+While iterating on load, run one scenario, strict:
+`build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario stack --ms 4000`
+(~20 s; `--profile 40` shows where each core's time goes), and all four only for the final numbers. `--fast` runs
+single-core: never measure load with it.
 
 Do not also run the suite a second time with the other setting, and do not push until it prints
 `ALL HOST TESTS PASSED`.

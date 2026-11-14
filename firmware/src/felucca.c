@@ -35,7 +35,7 @@
 #define FM1_CPU1_USED 1          /* the second core is built in (Araminta: always, no toggle); every reset holds it
                                   * first (hal/fm1_sys.h: its waiting loop is RAM the ROM and the SPL use at boot) */
 #ifndef FELUCCA_VERSION
-#define FELUCCA_VERSION "v4.2" /* shown in the menu, the console and the editor; build.py --release X.Y */
+#define FELUCCA_VERSION "v4.3" /* shown in the menu, the console and the editor; build.py --release X.Y */
 #endif
 #if FELUCCA_OTA && !FELUCCA_FLASH
 #error "FELUCCA_OTA needs FELUCCA_FLASH"
@@ -51,6 +51,9 @@
 #define C1_ON() fm1_c1_on                        /* fx.c mix_block: a second core is answering */
 #define C1_RUN(fn, arg) fm1_cpu1_run(fn, arg)    /* hand it fn(arg): 1 = taken */
 #define C1_WAIT() fm1_cpu1_wait()                /* wait for it: 0 = done */
+/* core.h: the render's hottest functions run from RAM; every call between them and the flash through AUDIO_FAR */
+#define AUDIO_RAM __attribute__((section(".hot_text"), flatten))
+#define AUDIO_FAR(fn) FM1_FAR(fn)
 #include "fm1_input.h"
 #include "fm1_timer.h"
 #include "fm1_audio.h"

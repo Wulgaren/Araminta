@@ -9,9 +9,14 @@
 static int16_t dly_buf[DLY_LEN] __attribute__((section(".pool")));
 static const uint16_t REV_COMB[4] = {1116, 1188, 1277, 1356};
 static const uint16_t REV_AP[2] = {556, 441};
+/* the send delay's head and low-pass, and the buses' one-block pipeline (bus_take -> bus_run); cleared with the
+ * delay (fx_boot, a MASTER DELAY route change) */
 static struct {
     uint32_t dly_w;
     int32_t dly_lp;
+    int32_t bus_d[CTL], bus_r[CTL];  /* the last block's sends (after perf_pre): this block's bus input (bus_take) */
+    int16_t bus_g[5];                /* their DLY / REV settings as the matrix folded them (bus_g_swap) */
+    uint8_t bus_g_ok;                /* bus_g holds a block's (0 before the first: the knobs as they are) */
 } fx;
 
 /* SPRING (G_RTYPE 1): one spring of a spring tank, mono like the other buses, in the ROOM's own buffers (no
@@ -171,7 +176,7 @@ static struct {
     uint8_t mode, tempo, head_on;
 } tp __attribute__((section(".pool")));
 /* Effective SPEED / WOW for the next block: the knob, a step lock or the matrix's folded per-part values
- * (fx_buses, after the parts). A block of latency keeps the global tape out of the parts' race. */
+ * (bus_take, mix_block's tail after the parts). A block of latency keeps the global tape out of the parts' race. */
 static int16_t tape_speed_eff = 100, tape_wow_eff;
 static uint8_t fx_master_gen;                        /* mix_cache invalidation when MASTER routing moves */
 /* Route changes and head bypass discard buffered audio without changing source-clock slew. */
@@ -1500,8 +1505,11 @@ static __attribute__((noinline)) void rev_switch(const int32_t *rev_in, int32_t 
     R->rtype = (uint8_t)rt;
 }
 
-/* Shared delay line: write `in`, read into `out` (may alias). Used as SEND bus or insert CHAIN. */
-static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet_q15)
+/* Shared delay line: write `in`, read into `out` (may alias). Used as SEND bus or insert CHAIN.
+ * `late`: the samples its output reaches the mix late (the SEND bus: one block, n; CHAIN and MASTER: 0).
+ * The input goes into the line `late` samples behind the write head, so the first echo and every repeat
+ * (the feedback stays at the head) land where they would with no latency. */
+static void dly_process_late(const int32_t *in, int32_t *out, uint32_t n, int32_t wet_q15, uint32_t late)
 {
     uint32_t i, dl = delay_samples();
     int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
@@ -1539,6 +1547,8 @@ static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet
     dly_rate_div = song.g[G_DTIME];
     if (pf.ew1 && fb < THR_FB)
         fb += mulq16(THR_FB - fb, (uint32_t)pf.ew1 << 1);
+    if (late && dly_q8 >> 8 <= late)
+        late = 0;      /* a tap shorter than the latency (the RATE floor): the input at the head, as before */
     for (i = 0; i < n; i++) {
         int32_t x;
         if (free_ms) {
@@ -1581,29 +1591,40 @@ static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet
             x = (x * dly_gain) >> 15;
         }
         fx.dly_lp += mulq15(x - fx.dly_lp, col);
-        dly_buf[fx.dly_w & (DLY_LEN - 1u)] =
-            (int16_t)clamp((in[i] >> 1) + mulq15(fx.dly_lp, fb), -32768, 32767);
+        if (!late)
+            dly_buf[fx.dly_w & (DLY_LEN - 1u)] =
+                (int16_t)clamp((in[i] >> 1) + mulq15(fx.dly_lp, fb), -32768, 32767);
+        else {
+            int16_t *p = &dly_buf[(fx.dly_w - late) & (DLY_LEN - 1u)];
+            dly_buf[fx.dly_w & (DLY_LEN - 1u)] = (int16_t)clamp(mulq15(fx.dly_lp, fb), -32768, 32767);
+            *p = (int16_t)clamp(*p + (in[i] >> 1), -32768, 32767);
+        }
         fx.dly_w++;
         out[i] = mulq15(x * 2, wet_q15);
     }
 }
-/* process delay + reverb buses; sends in, wet stereo-equal out.
+/* no latency: CHAIN, MASTER and the host tests */
+static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet_q15)
+{
+    dly_process_late(in, out, n, wet_q15, 0);
+}
+static const uint8_t BUS_G[5] = {G_DTIME, G_DFDBK, G_DCOLOR, G_RSIZE, G_RDAMP};
+
+/* process delay + reverb buses; sends in, wet stereo-equal out. It runs one block late (bus_run): dly_in / rev_in
+ * are the previous block's sends, wet goes into this block's mix.
  * Delay CHAIN: send path silent (owner advances the line in track_insert).
  * Reverb: always runs the SEND tank (tank 1 while CHAIN is owned, else tank 0). */
-static void fx_buses(const int32_t *dly_in, const int32_t *rev_in, int32_t *wet, uint32_t n)
+static void fx_buses_late(const int32_t *dly_in, const int32_t *rev_in, int32_t *wet, uint32_t n, uint32_t late)
 {
     uint32_t i;
     int32_t rt;
     int dly_master = fx_master_on(INS_DLY), rev_master = fx_master_on(INS_REV);
     int dly_send = !dly_master && bus_own(0) < 0, rev_chain = !rev_master && bus_own(1) >= 0;
-    mod_bus_begin();
-    tape_speed_eff = song.g[G_TSPEED];               /* the matrix's folded TAPE values (or the knobs/locks) */
-    tape_wow_eff = song.g[G_TWOW];
     if (dly_master) {
         for (i = 0; i < n; i++)
             wet[i] = 0;
     } else if (dly_send)
-        dly_process(dly_in, wet, n, 32768);
+        dly_process_late(dly_in, wet, n, 32768, late);
     else
         for (i = 0; i < n; i++)
             wet[i] = 0;                           /* CHAIN: owner advances the line in track_insert */
@@ -1616,7 +1637,11 @@ static void fx_buses(const int32_t *dly_in, const int32_t *rev_in, int32_t *wet,
         else
             rev_run((uint32_t)rt, rev_in, wet, n);
     }
-    mod_bus_end();
+}
+/* no latency (the host tests): this block's sends into this block's wet */
+static void fx_buses(const int32_t *dly_in, const int32_t *rev_in, int32_t *wet, uint32_t n)
+{
+    fx_buses_late(dly_in, rev_in, wet, n, 0);
 }
 
 /* after the buses: HALL stereo difference from either tank (CHAIN insert and/or SEND) */
@@ -1855,7 +1880,7 @@ static inline __attribute__((always_inline)) int32_t ins_shape(uint32_t mode, in
         int32_t m = v < 0 ? -v : v;
         return ins_sat((m - (int32_t)(4096u + (g << 1))) * 4);
     }
-    default: return sh ? ((v + (1 << (sh - 1u))) >> sh) << sh : v;
+    default: return sh ? shl((v + (1 << (sh - 1u))) >> sh, sh) : v;
     }
 }
 static inline uint32_t ins_bits_sh(int32_t a) { return 15u - (uint32_t)(clamp(a, 0, 127) >> 3); }
@@ -1915,7 +1940,7 @@ static inline int32_t ott_pow(int32_t p, int32_t x)
 {
     return p + (((x << 7) - p + (1 << (OTT_POW_SH - 1))) >> OTT_POW_SH);
 }
-static __attribute__((noinline)) void ins_run_ott(ott_st_t *o, ins_st_t *s, const track_t *t, int32_t *b,
+static AUDIO_RAM __attribute__((noinline)) void ins_run_ott(ott_st_t *o, ins_st_t *s, const track_t *t, int32_t *b,
                                                     uint32_t n, int32_t tw)
 {
     uint32_t i, tv = (uint32_t)(clamp(t->p[P_ED_FX], -64, 63) + 64);
@@ -1959,7 +1984,7 @@ static __attribute__((noinline)) void ins_run_ott(ott_st_t *o, ins_st_t *s, cons
     }
 }
 
-static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, ott_st_t *o, const track_t *t, int32_t *b,
+static AUDIO_RAM __attribute__((noinline)) void ins_run_dist(ins_st_t *s, ott_st_t *o, const track_t *t, int32_t *b,
                                                      uint32_t n, int32_t tw)
 {
     uint32_t i, mode = (uint32_t)clamp(t->p[P_IDMODE], 0, IDM_N - 1);
@@ -1986,22 +2011,22 @@ static __attribute__((noinline)) void ins_run_dist(ins_st_t *s, ott_st_t *o, con
         int32_t x = b[i], y, v;
         s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
         if (!s->w && !tw) { b[i] = x; continue; }
-        s->hp += ((x << 8) - s->hp) >> 8;
+        s->hp += (shl(x, 8) - s->hp) >> 8;
         v = clamp(x - (s->hp >> 8), -230000, 230000);
         y = ins_shape(mode, ((v >> 3) * g) >> 9, 0, (uint32_t)g);
-        y <<= 4;
+        y = shl(y, 4);
         v = mulq16(y - s->lp1, (uint32_t)k);
         y = v + s->lp1; s->lp1 = y + v;
         v = mulq16(y - s->lp2, (uint32_t)k);
         y = v + s->lp2; s->lp2 = y + v;
         y = (y + 8) >> 4;
-        s->dc += ((y << 8) - s->dc) >> 9;
+        s->dc += (shl(y, 8) - s->dc) >> 9;
         y -= s->dc >> 8;
         b[i] = pf_mix(x, y, s->w);
     }
 }
 
-static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, int16_t *comb, const track_t *t, int32_t *b,
+static AUDIO_RAM __attribute__((noinline)) void ins_run_filter(ins_st_t *s, int16_t *comb, const track_t *t, int32_t *b,
                                                     uint32_t n, int32_t tw)
 {
     uint32_t i, ft = (uint32_t)clamp(t->p[P_IFTYPE], 0, IFT_N - 1);
@@ -2027,13 +2052,13 @@ static __attribute__((noinline)) void ins_run_filter(ins_st_t *s, int16_t *comb,
             s->ic1 = clamp(2 * v1 - s->ic1, -150000, 150000);
             s->ic2 = clamp(2 * v2 - s->ic2, -150000, 150000);
             y = !ft ? v2 : ft == IFT_BP ? v1 : (x >> 1) - ((k * v1) >> 12) - v2;
-            y <<= 1;
+            y = shl(y, 1);
         }
         b[i] = pf_mix(x, y, s->w);
     }
 }
 
-static __attribute__((noinline)) void ins_run_crush(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n, int32_t tw)
+static AUDIO_RAM __attribute__((noinline)) void ins_run_crush(ins_st_t *s, const track_t *t, int32_t *b, uint32_t n, int32_t tw)
 {
     uint32_t i, sh = ins_bits_sh(t->p[P_ICBITS]), hold = INS_HOLD[clamp(t->p[P_ICRATE], 0, 127) >> 3];
     int32_t k = ins_lpk(t->p[P_ICLPF]);
@@ -2046,7 +2071,7 @@ static __attribute__((noinline)) void ins_run_crush(ins_st_t *s, const track_t *
             s->cnt = (uint8_t)hold;
         }
         s->cnt--;
-        y = s->hold << 4;
+        y = shl(s->hold, 4);
         v = mulq16(y - s->lp1, (uint32_t)k);
         y = v + s->lp1; s->lp1 = y + v;
         v = mulq16(y - s->lp2, (uint32_t)k);
@@ -2055,7 +2080,7 @@ static __attribute__((noinline)) void ins_run_crush(ins_st_t *s, const track_t *
     }
 }
 
-static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, int32_t *px, int32_t *py, const track_t *t,
+static AUDIO_RAM __attribute__((noinline)) void ins_run_swept(ins_st_t *s, int32_t *px, int32_t *py, const track_t *t,
                                                     int32_t *b, uint32_t n, int32_t tw, uint32_t kind,
                                                     int16_t *line, int16_t *win)
 {
@@ -2083,8 +2108,8 @@ static __attribute__((noinline)) void ins_run_swept(ins_st_t *s, int32_t *px, in
                     px[st] = u; py[st] = y; u = y;
                 }
                 s->fb = clamp(y, -32767, 32767);
-                y <<= 2;
-                s->dc += ((y << 8) - s->dc) >> 9;
+                y = shl(y, 2);
+                s->dc += (shl(y, 8) - s->dc) >> 9;
                 b[i] = pf_mix(x, (x >> 1) + y - (s->dc >> 8), s->w);
             }
             s->ph += n * inc;
@@ -2213,10 +2238,10 @@ static uint32_t ins_run_st(ins_st_t *run, ott_st_t *ott, ins_ctx_t *ctx, const t
         if (st == INS_CHOR) run->line_i = 1;
     }
     wbase = run->wp;
-    if (st == INS_DIST) ins_run_dist(run, ott, src, b, n, tw);
-    else if (st == INS_FILTER) ins_run_filter(run, ctx->comb, src, b, n, tw);
-    else if (st == INS_CRUSH) ins_run_crush(run, src, b, n, tw);
-    else ins_run_swept(run, ctx->px, ctx->py, src, b, n, tw, st, lines[run->line_i & 1u],
+    if (st == INS_DIST) AUDIO_FAR(ins_run_dist)(run, ott, src, b, n, tw);
+    else if (st == INS_FILTER) AUDIO_FAR(ins_run_filter)(run, ctx->comb, src, b, n, tw);
+    else if (st == INS_CRUSH) AUDIO_FAR(ins_run_crush)(run, src, b, n, tw);
+    else AUDIO_FAR(ins_run_swept)(run, ctx->px, ctx->py, src, b, n, tw, st, lines[run->line_i & 1u],
                        ins_win[pi][run->line_i & 1u]);
     return wbase;
 }
@@ -2717,7 +2742,7 @@ static __attribute__((noinline)) void perf_master(int32_t *out, uint32_t n)
         mix_l[i] = (((mix_l[i] + wet[i]) >> 2) * mg) >> 10;
         mix_r[i] = (((mix_r[i] + wet[i]) >> 2) * mg) >> 10;
     }
-    perf_block(mix_l, mix_r, n);
+    AUDIO_FAR(perf_block)(mix_l, mix_r, n);
     for (i = 0; i < n; i++) {
         int32_t l = mix_l[i], r = mix_r[i];
         master_out(&l, &r);
@@ -2728,7 +2753,9 @@ static __attribute__((noinline)) void perf_master(int32_t *out, uint32_t n)
 
 /* ---- the second core (hal/fm1_cpu1.h) renders some of the parts of each block into its own sums (mx[1]) while
  * this core renders the others; then this core adds them in and goes on (the LFOs' blocks, the FX layer, the buses,
- * the master) as with one core. The sums are integers, so the order they add up in changes nothing: the output is
+ * the master) as with one core. After the parts it takes it runs the send buses on the last block's sends (bus_run:
+ * one block late), unless a CHAIN owner shares their state (bus_c1); their input is the last block's, so the output
+ * is the same on either core. The sums are integers, so the order they add up in changes nothing: the output is
  * bit for bit one core's. A part's render touches its own state only (its track_t with its SPREAD, ENV SYNC and LFO
  * phase, its voices, its matrix: mod.c MOD, its SPREAD buffer, its engine's memory) and what nobody writes meanwhile
  * (song, the tables); what parts share is done before the split (events_block: the notes, voice stealing; the FX
@@ -2747,6 +2774,13 @@ static __attribute__((noinline)) void perf_master(int32_t *out, uint32_t n)
 #endif
 static uint32_t c1_blocks;                              /* blocks the second core took parts of */
 static uint32_t c1_hand = 40u;                          /* handing one part over, in part_w's units (mix_split) */
+#define C1_JOB_BUS 0x80u                                /* c1_parts' arg: the job runs the send buses (bus_run)
+                                                         * after its parts */
+static volatile uint8_t c1_bus_done;                    /* core 1 ran bus_run this block (c1_parts); else mix_block
+                                                         * runs it */
+/* the send buses may go to core 1 while core 0 renders parts: no CHAIN owner runs the DLY / REV state in its
+ * part or puts its bus settings into song.g (fx_bus_stage) meanwhile */
+static int bus_c1(void) { return bus_own(0) < 0 && bus_own(1) < 0; }
 
 static mixsum_t c1_part;                /* a part's sums while it renders: whole only into the core's sums (a job
                                          * cut mid-part leaves its half here, never in mx[1]) */
@@ -2761,6 +2795,7 @@ static void part_ticks(uint32_t i, uint32_t d)          /* one part's render thi
         d = 60000u;
     part_cost[i] = (uint16_t)(part_cost[i] ? (part_cost[i] + d) / 2u : d);
 }
+static uint16_t bus_cost;                /* bus_run's ticks, smoothed as part_ticks does (mix_split: core 1's share) */
 static volatile uint32_t c1_probe_view;
 static void c1_probe(uint32_t arg)                      /* core 1: reads TIMER4 (the weights' clock) */
 {
@@ -2790,7 +2825,56 @@ void c1_probe_t4(void)                                  /* main.c: once at boot,
 }
 #endif
 
-static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k = part k) | n << 8 */
+/* mix_block's tail, after perf_pre: keeps this block's sends and the bus settings the matrix folded for them
+ * (and the TAPE's SPEED / WOW for the next block) for the next block's bus_run */
+static void bus_take(uint32_t n)
+{
+    uint32_t i;
+    mod_bus_begin();
+    tape_speed_eff = song.g[G_TSPEED];
+    tape_wow_eff = song.g[G_TWOW];
+    for (i = 0; i < 5u; i++)
+        fx.bus_g[i] = song.g[BUS_G[i]];
+    mod_bus_end();
+    fx.bus_g_ok = 1;
+    for (i = 0; i < n; i++) {
+        fx.bus_d[i] = send_d[i];
+        fx.bus_r[i] = send_r[i];
+    }
+}
+
+/* mix_block, before bus_run (before the parts, when core 1 may run it: bus_c1) and again after it: swaps the settings
+ * bus_take kept with the knobs in song.g, so the buses read theirs, and the second call puts the knobs back (a job cut
+ * on core 1 leaves nothing behind). Meanwhile the parts read their copies (bus_knobs_g) */
+static void bus_g_swap(void)
+{
+    uint32_t i;
+    for (i = 0; fx.bus_g_ok && i < 5u; i++) {
+        int16_t v = song.g[BUS_G[i]];
+        song.g[BUS_G[i]] = fx.bus_g[i];
+        fx.bus_g[i] = v;
+    }
+}
+
+/* the send buses on the last block's sends (bus_take), into wet: this block's returns, one block late. Its input
+ * is the last block's, so where in the block it runs changes nothing */
+static void bus_run(uint32_t n)
+{
+#if C1_TIMED
+    uint32_t ts = fm1_ticks();
+#endif
+    fx_buses_late(fx.bus_d, fx.bus_r, wet, n, n);
+#if C1_TIMED
+    if (c1_t4_ok) {
+        uint32_t d = fm1_ticks() - ts;
+        if (d > 60000u)
+            d = 60000u;
+        bus_cost = (uint16_t)(bus_cost ? (bus_cost + d) / 2u : d);
+    }
+#endif
+}
+
+static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k = part k) | C1_JOB_BUS | n << 8 */
 {
     uint32_t i, k, n = arg >> 8;
     mixsum_t *sm = &mx[1];
@@ -2816,14 +2900,19 @@ static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k
             }
             c1_done |= 1u << k;                         /* this part's sums are whole in mx[1] */
         }
+    if (arg & C1_JOB_BUS) {
+        bus_run(n);
+        c1_bus_done = 1;
+    }
 }
 
-/* which parts go to the second core: the split of the last block's costs that leaves the busier core the least; none
- * when that saves less than handing them over costs (c1_hand: estimates' units, or measured ticks once c1_t4_ok).
+/* which parts go to the second core: the split of the last block's costs that leaves the busier core the least (the
+ * send buses ride with a split when bus_c1: core 1's side carries bus_cost); none when that saves less than handing
+ * them over costs (c1_hand: estimates' units, or measured ticks once c1_t4_ok).
  * Keep this per-block scheduler out of the audio interrupt's render loops (target_budget). */
 static __attribute__((noinline)) uint32_t mix_split(void)
 {
-    uint32_t m, i, best = 0, all = 0, lo, chor = 0, deep = 0;
+    uint32_t m, i, best = 0, all = 0, lo, chor = 0, deep = 0, bw = 0;
     for (i = 0; i < NTRK; i++)                      /* deep CHORUS as a shared send: its delay (up to 238) wraps into
                                                      * the swept line's window, where this block's reads saw the
                                                      * previous consumer's writes (ins_run_swept): that chain runs in
@@ -2836,13 +2925,17 @@ static __attribute__((noinline)) uint32_t mix_split(void)
         return 0;
     for (i = 0; i < NPART; i++)
         all += part_w(i);
-    lo = all;
+#if C1_TIMED
+    if (bus_c1() && c1_t4_ok)
+        bw = bus_cost;                                  /* core 1 runs the buses too (mix_block) */
+#endif
+    lo = all + bw;                                      /* no split: core 0 renders the parts and the buses */
     for (m = 1; m < (1u << NPART) - 1u; m++) {
         uint32_t a = 0, w;
         for (i = 0; i < NPART; i++)
             if (m >> i & 1u)
                 a += part_w(i);
-        w = (a > all - a ? a : all - a) + c1_hand;
+        w = (a + bw > all - a ? a + bw : all - a) + c1_hand;
         if (w < lo) {
             lo = w;
             best = m;
@@ -3025,7 +3118,7 @@ static __attribute__((noinline)) void fx_master_run(uint32_t n)
 static void mix_block(int32_t *out, uint32_t n)
 {
     uint32_t i;
-    int perf;
+    int perf, b1;
     mod_bus_n = 0;
     int32_t mg = master_gain();                          /* (USB LEVEL FIXED: MASTER after usb_fixed_dac) */
     for (i = 0; i < n; i++)
@@ -3034,7 +3127,7 @@ static void mix_block(int32_t *out, uint32_t n)
     tape_pre();
     slicer_block();                                     /* shared SEND bus: one clock advance this block */
     ins_bus_block();                                    /* shared insert SEND DSP */
-    pfx_block(n, (perf_kill ? 0u : (perf_held | perf_latched) & PF_MIDI));
+    pfx_block(n, (perf_kill ? 0u : (perf_held | perf_latched) & ~PF_MUTE));
     events_block(n);
     clip_eff = song.g[G_CLIP];                          /* (JIANT) CLIP / PNCH for this block */
     pnch_eff = song.g[G_PUNCH];
@@ -3044,18 +3137,22 @@ static void mix_block(int32_t *out, uint32_t n)
     rev_tank[0].hl.side = rev_tank[1].hl.side = 0;      /* HALL sides set this block by insert / send */
     for (i = 0; i < NTRK; i++)                          /* every part's copy of the bus settings (core.h bus_knobs) */
         bus_knobs_g(&trk[i]);
-    {   /* the parts: some on the second core, into its own sums (mx[1]) */
+    b1 = bus_c1();
+    if (b1)
+        bus_g_swap();                                   /* the buses' settings in, for either core */
+    {   /* the parts: some on the second core, into its own sums (mx[1]), and its send buses after them */
         uint32_t m = C1_ON() ? mix_split() : 0u;
 #ifdef C1_SPLIT
         if (m)                                         /* host splits cannot bypass the shared-chorus safety gate */
             m = C1_SPLIT() & ((1u << NPART) - 1u);
 #endif
         ins_bus_parallel = m != 0;
+        c1_bus_done = 0;
         if (m) {
             c1_done = 0;
             for (i = 0; i < n; i++)                    /* rejected jobs never enter c1_parts */
                 mx[1].l[i] = mx[1].r[i] = mx[1].d[i] = mx[1].rv[i] = 0;
-            if (!C1_RUN(c1_parts, m | n << 8))
+            if (!C1_RUN(c1_parts, m | (b1 ? C1_JOB_BUS : 0u) | n << 8))   /* the buses ride with a split */
                 m = 0;
         }
         if (!m) {
@@ -3104,6 +3201,12 @@ static void mix_block(int32_t *out, uint32_t n)
             }
         }
     }
+    if (!b1)
+        bus_g_swap();                                   /* (a CHAIN owner's knobs are its own until here) */
+    if (!c1_bus_done)                                   /* the last block's sends -> this block's wet, unless core 1
+                                                         * ran them: no split, a CHAIN owner, or its job was cut */
+        bus_run(n);
+    bus_g_swap();                                       /* the knobs back */
     if (ins_bus_parallel)
         ins_bus_join(n);                                /* the shared SEND state's run and line windows */
     for (i = 0; i < NPART; i++)                         /* the LFOs' blocks, part by part (voice.c) */
@@ -3112,7 +3215,7 @@ static void mix_block(int32_t *out, uint32_t n)
         pfx_end();                                      /* (DEC- / DEC+ / ATK+ params back) */
     if (perf)
         perf_pre(mix_l, mix_r, send_d, send_r, n);
-    fx_buses(send_d, send_r, wet, n);
+    bus_take(n);                                        /* this block's sends: the next block's buses */
     for (i = 0; i < n; i++) {                           /* the bus returns join the mix before MASTER */
         mix_l[i] += wet[i];
         mix_r[i] += wet[i];
