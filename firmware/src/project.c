@@ -439,10 +439,8 @@ static void proj_lsync(project_t *q)
     if (q->lfo_sync)
         return;
     for (k = 0; k < NTRK; k++)
-        if (q->t[k].p[P_LSYNC] > 0) {
-            lsync_legacy(q->t[k].p);
+        if (lsync_legacy(q->t[k].p))
             hit |= 1u << k;
-        }
     q->lfo_sync = 1;
     for (i = n = 0; i < q->motion.count && i < MOTION_MAX; i++) {
         const motion_event_t *e = &q->motion.event[i];

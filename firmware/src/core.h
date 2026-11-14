@@ -347,12 +347,13 @@ enum { LW_SIN, LW_TRI, LW_SAW, LW_SQR, LW_SH };          /* P_LWAVE (params.c N_
 enum { LS_4BAR = LSYNC_RATE(0), LS_1BAR = LSYNC_RATE(2), LS_16TH = LSYNC_RATE(7) };   /* MLFO's div */
 /* a sound's p[] stored before 4.3 (project.c proj_lsync, upreset.c up_params): SYNC held the note value k (1..10, 4BAR
  * first); it becomes SYNC ON and RATE on that note value. Other values were never a note value: kept (and fitted) */
-static inline void lsync_legacy(int16_t *p)
+static inline int lsync_legacy(int16_t *p)         /* 1 = p held a note value and was converted */
 {
     if (p[P_LSYNC] < 1 || p[P_LSYNC] > (int16_t)LSYNC_N)
-        return;
+        return 0;
     p[P_LRATE] = (int16_t)LSYNC_RATE((uint32_t)p[P_LSYNC] - 1u);
     p[P_LSYNC] = 1;
+    return 1;
 }
 
 struct track;

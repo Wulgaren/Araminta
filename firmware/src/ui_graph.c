@@ -66,17 +66,19 @@ static int32_t lfo_sh_shape(int32_t va, int32_t vb, uint32_t t, uint32_t f)
 /* S&H's step values on the graph: its own, one per cycle number (what the LFO plays is random). FREE counts the
  * cycles at the wraps it draws, so a step keeps its value while it scrolls */
 static int32_t lfo_sh_val(uint32_t n) { return (int32_t)(int16_t)((n * 2654435761u) >> 16); }
-static uint32_t lfo_cyc, lfo_last;
+static uint32_t lfo_cyc, lfo_last, lfo_trk, lfo_frame;   /* FREE's cycle count: the wraps seen on the last frame's track */
+#define LFO_BAR_BEATS 4u                             /* the graph's bar: four beats */
+#define LFO_AMP_PCT 38                               /* the wave's height, of the graph's */
 /* LFO: a phrase as it would start now, over one bar of the tempo, so RATE shows as the cycles in it (SYNC 1/4: four).
  * TRIG NOTE starts it at PHS and the graph stands still; FREE at the live phase (voice.c keeps the LFO running) and
  * it scrolls with it. FADE ramps it in from the left edge (linear, as voice.c track_lfo_end); POL BI draws -1..+1
  * about the middle, UNI 0..+1 over the bottom line; S&H's steps glide over SMTH. */
 static void graph_lfo(const track_t *t, uint16_t c)
 {
-    int32_t x, cy = graph_ht / 2, a = 38 * graph_ht / 100, py = cy, uni = t->p[P_LPOL] != 0;
+    int32_t x, cy = graph_ht / 2, a = LFO_AMP_PCT * graph_ht / 100, py = cy, uni = t->p[P_LPOL] != 0;
     int32_t z = uni ? cy + a : cy;                   /* the zero line: POL UNI draws 0..+1 over it */
     int note = !t->p[P_LTRIG], sh = t->p[P_LWAVE] == LW_SH;
-    uint32_t bar = 4u * beat_samples(), ph = note ? (uint32_t)t->p[P_LPHASE] << 25 : t->lfo_ph, n0, fade = 0;
+    uint32_t bar = LFO_BAR_BEATS * beat_samples(), ph = note ? (uint32_t)t->p[P_LPHASE] << 25 : t->lfo_ph, n0, fade = 0;
     uint32_t f = (uint32_t)t->p[P_LSMOOTH] * (0xFFFFFFFFu / 127u);
     uint64_t d;                                      /* the phase a pixel */
     bar = bar ? bar : 1u;
@@ -86,9 +88,13 @@ static void graph_lfo(const track_t *t, uint16_t c)
         step = step ? step : 1u;
         fade = (uint32_t)((uint64_t)((32767u + step - 1u) / step) * CTL * PANEL_W / bar);
     }
+    if (lfo_trk != (uint32_t)(t - trk) || ui.frame != lfo_frame + 1u)   /* another track, or a gap: count afresh */
+        lfo_last = ph;
+    lfo_trk = (uint32_t)(t - trk);
+    lfo_frame = ui.frame;
     if (!note && ph < lfo_last)
         lfo_cyc++;
-    lfo_last = ph;
+    lfo_last = note ? 0u : ph;
     n0 = note ? 0u : lfo_cyc;
     cv_rect(PANEL_X0, z, PANEL_W, 1, T_RAISE);
     for (x = 0; x < PANEL_W; x++) {
