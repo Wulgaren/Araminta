@@ -278,6 +278,9 @@ def build_app():
     v = os.environ.get("FELUCCA_USB_LAYOUT")   # firmware/src/usb.c: how the USB composite presents itself (#67), 0..3
     if v in ("0", "1", "2", "3"):
         flags.append(f"-DFELUCCA_USB_LAYOUT={v}")
+    v = os.environ.get("FELUCCA_LAYOUT_PAD")   # tests/layout_sweep.sh: 8 x v unused stores move the flash layout, 1..7
+    if v in ("1", "2", "3", "4", "5", "6", "7"):
+        flags.append(f"-DFELUCCA_LAYOUT_PAD={v}")
     flags.append(f'-DFELUCCA_ID="{PRODUCT}"')
     if VERSION:
         flags.append(f'-DFELUCCA_VERSION="{VERSION}"')

@@ -32,7 +32,7 @@ dx_metal 142
 dx_teeth 48
 dx_click 79
 slicer_track 0
-fm1_alnk0_irq 36271
+fm1_alnk0_irq 36449
 fm1_timer5_irq 25138
 click_render 30
 mod_begin 245
@@ -41,10 +41,11 @@ mod_end 29
 perf_begin 28
 perf_mute 0
 perf_pre 30
-perf_block 900
-perf_master 30
-perf_flanger 420
-perf_phaser 500
+perf_block 852
+perf_take 17
+perf_out 219
+perf_flanger 369
+perf_phaser 449
 perf_throw 74
 rev_room 229
 rev_spring 131

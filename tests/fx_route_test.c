@@ -59,6 +59,7 @@ static void fxr_fresh(void)
     memset(fx_master_tr, 0, sizeof fx_master_tr);
     fx_master_order_tr = 0;
     fx_bus_init();
+    perf_pipe_clear();                              /* a test's start is a boot: the FX layer's pipeline is empty */
     for (k = 0; k < NTRK; k++)
         pf.mg[k] = 32768;
     lim_env = LIM_T;

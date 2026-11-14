@@ -1945,11 +1945,10 @@ static void ui_input(void)
         if (layer_open() == LAYER_FX)
             panel_enc(EN_PRESET);                       /* (a stray turn must not load a sound behind the punch map) */
         panel_enc(EN_ALGO);
-        if ((layer_open() == LAYER_FX || layer_open() == LAYER_SEQ) &&
-            (s = panel_enc(EN_SELECT)) != 0 && !glo)
-            select_page_step(s > 0 ? 1 : -1);           /* sticky maps: PUNCH-IN's pages, the tools section's */
-        else
-            panel_enc(EN_SELECT);                       /* (or OCT+ + SELECT: tempo; the other sticky maps keep it) */
+        s = panel_enc(EN_SELECT);                       /* read once: a detent counted after it is the next frame's (#102) */
+        if ((layer_open() == LAYER_FX || layer_open() == LAYER_SEQ) && s && !glo)
+            select_page_step(s > 0 ? 1 : -1);           /* sticky maps: PUNCH-IN's pages, the tools section's (OCT+ +
+                                                         * SELECT: tempo; the other sticky maps keep it) */
     } else {
         for (k = 0; k < 4u; k++)
             if (ks[k]) {

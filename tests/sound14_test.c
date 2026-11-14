@@ -613,15 +613,18 @@ static void test_spread_fx(void)
     blocks(FS / 4u / CTL);
     for (k = 0; k < FS / CTL; k++) {
         double s = 0;
+        int32_t gc = sl[0].gc;                       /* the block this output is for: the mix leaves one block late
+                                                      * (fx.c perf_take / perf_out) */
+        uint8_t bit = sl[0].bit;
         blocks(1);
         for (i = 0; i < CTL; i++) {
             double d = (double)out_buf[2u * i] - out_buf[2u * i + 1u];
             s += d * d;
         }
-        if (sl[0].gc >= 32000 && !sl[0].bit) {
+        if (gc >= 32000 && !bit) {
             side_closed += s;
             closed++;
-        } else if (!sl[0].gc) {
+        } else if (!gc) {
             side_open += s;
         }
     }

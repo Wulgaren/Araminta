@@ -1486,6 +1486,23 @@ static uint16_t part_w(uint32_t i) { return c1_t4_ok ? part_cost[i] : part_est[i
 #define SM_ARG(x) , (x)
 #define SM(f) (sm->f)
 
+/* The FX layer's one-block pipeline (perform.c perf_block): the master level and a control snapshot of each block.
+ * perf_take stages this block in one slot, the layer runs on the other slot's block (core 1's job beside this core's
+ * tail, else here), and perf_out runs master_out on that result: the whole output is a constant block late. Two slots,
+ * so a take never overwrites what the job reads (.bss: 596 B; the pool keeps its 8 KiB of headroom). */
+#define PIPE_N 2u
+static struct {
+    int32_t l[PIPE_N][CTL], r[PIPE_N][CTL];   /* after MASTER's level and CLIP: what the layer processes */
+    perf_blk_t ctl[PIPE_N];                   /* perf_begin's controls of that block */
+    uint8_t run[PIPE_N];                      /* 1: the layer has work there */
+} perf_pipe;
+static uint32_t perf_pipe_w;                  /* the slot the next take writes: the job's is the other one */
+static void perf_pipe_clear(void)
+{
+    memset(&perf_pipe, 0, sizeof perf_pipe);
+    perf_pipe_w = 0;
+}
+
 /* the model changed (to rt): the old one's block fades out (HALL's stereo difference with it), its buffers are
  * cleared, the new one starts from silence. Its own scratch: the mixer's per-part buffer (part_buf) may be
  * the caller's mix (track_insert) */
@@ -1831,6 +1848,7 @@ static void fx_boot(void)
     fx_master_sanitize();
     tape_clear();
     fx_bus_init();
+    perf_pipe_clear();                          /* the FX layer's pipeline: an empty first block, so no old mix out */
     for (i = 0; i < NTRK; i++)
         trk[i].ins_run = 0;
     dc_l = dc_r = dce_l = dce_r = 0;            /* master_out: a prior spike must not settle audibly at unmute */
@@ -2733,18 +2751,41 @@ static inline int32_t master_gain(void)
     return fx_usb_fixed ? MASTER_FULL : (int32_t)song.master_q12;
 }
 
-/* the master with the FX layer's effects between its level and master_out (perform.c) */
-static __attribute__((noinline)) void perf_master(int32_t *out, uint32_t n)
+/* the master level and the FX layer's input: this block's mix (after CLIP) into the next slot, with perf_begin's
+ * controls when the layer has work. Always, so the latency is one block whether it runs or not (run 0: the block
+ * goes out as it is) */
+static __attribute__((noinline)) void perf_take(uint32_t n, int perf)
 {
-    uint32_t i;
+    uint32_t i, s = perf_pipe_w;
     int32_t mg = master_gain();
     for (i = 0; i < n; i++) {
-        mix_l[i] = (((mix_l[i] + wet[i]) >> 2) * mg) >> 10;
-        mix_r[i] = (((mix_r[i] + wet[i]) >> 2) * mg) >> 10;
+        perf_pipe.l[s][i] = (((mix_l[i] + wet[i]) >> 2) * mg) >> 10;
+        perf_pipe.r[s][i] = (((mix_r[i] + wet[i]) >> 2) * mg) >> 10;
     }
-    AUDIO_FAR(perf_block)(mix_l, mix_r, n);
+    if (perf) {
+        perf_pipe.ctl[s] = perf_ctl;       /* perf_begin's (perform.c), taken before core 0 moves on */
+        perf_pipe.run[s] = 1;
+    } else {
+        perf_pipe.run[s] = 0;
+    }
+}
+
+/* the FX layer on one slot: core 1's own job (c1_layer, beside this core's tail) or, with no second core, here */
+static void perf_layer(uint32_t s, uint32_t n)
+{
+    if (perf_pipe.run[s])
+        AUDIO_FAR(perf_block)(perf_pipe.l[s], perf_pipe.r[s], n, &perf_pipe.ctl[s]);
+}
+
+/* 1: the job for the block before still has work (perform.c perf_begin keeps the SLICER's buffer until it has run) */
+static int perf_pipe_pending(void) { return perf_pipe.run[perf_pipe_w ^ 1u] != 0; }
+
+/* MASTER's out (the limiter, DC) on the previous block's slot: this block's output */
+static __attribute__((noinline)) void perf_out(uint32_t n, int32_t *out)
+{
+    uint32_t i, s = perf_pipe_w ^ 1u;
     for (i = 0; i < n; i++) {
-        int32_t l = mix_l[i], r = mix_r[i];
+        int32_t l = perf_pipe.l[s][i], r = perf_pipe.r[s][i];
         master_out(&l, &r);
         out[2u * i] = l;
         out[2u * i + 1u] = r;
@@ -2752,16 +2793,18 @@ static __attribute__((noinline)) void perf_master(int32_t *out, uint32_t n)
 }
 
 /* ---- the second core (hal/fm1_cpu1.h) renders some of the parts of each block into its own sums (mx[1]) while
- * this core renders the others; then this core adds them in and goes on (the LFOs' blocks, the FX layer, the buses,
- * the master) as with one core. After the parts it takes it runs the send buses on the last block's sends (bus_run:
- * one block late), unless a CHAIN owner shares their state (bus_c1); their input is the last block's, so the output
- * is the same on either core. The sums are integers, so the order they add up in changes nothing: the output is
+ * this core renders the others; then this core adds them in and goes on (the LFOs' blocks, the buses, the master)
+ * as with one core. After the parts it takes it runs the send buses on the last block's sends (bus_run: one block
+ * late), unless a CHAIN owner shares their state (bus_c1). The FX layer is a second job, handed over after the LFOs
+ * and run while this core does the rest of the tail (THROW, the sends, TAPE, the master chain): the whole output is
+ * one block late (perf_take / perf_out), and their input is the block before, so the output is the same on either
+ * core. The sums are integers, so the order they add up in changes nothing: the output is
  * bit for bit one core's. A part's render touches its own state only (its track_t with its SPREAD, ENV SYNC and LFO
  * phase, its voices, its matrix: mod.c MOD, its SPREAD buffer, its engine's memory) and what nobody writes meanwhile
  * (song, the tables); what parts share is done before the split (events_block: the notes, voice stealing; the FX
- * layer's perf_begin) or after it (the LFOs' S&H draw from the shared generator, part by part: voice.c
- * track_lfo_end). tests/dualcore_test.c checks it, under ThreadSanitizer too. Without a second core (the host, the
- * browser) C1_RUN takes nothing and this core renders them all */
+ * layer's perf_begin, which also takes the SLICER's buffer) or after it (the LFOs' S&H draw from the shared
+ * generator, part by part: voice.c track_lfo_end). tests/dualcore_test.c checks it, under ThreadSanitizer too.
+ * Without a second core (the host, the browser) C1_RUN takes nothing and this core renders them all */
 #ifndef C1_ON
 #define C1_ON() 0                                       /* a second core is answering */
 #define C1_RUN(fn, arg) 0                               /* hand it fn(arg): 1 = taken */
@@ -2776,8 +2819,12 @@ static uint32_t c1_blocks;                              /* blocks the second cor
 static uint32_t c1_hand = 40u;                          /* handing one part over, in part_w's units (mix_split) */
 #define C1_JOB_BUS 0x80u                                /* c1_parts' arg: the job runs the send buses (bus_run)
                                                          * after its parts */
+#define C1_JOB_PSLOT 0x20u                              /* c1_layer's arg: the pipeline slot (perf_pipe_w's other) */
 static volatile uint8_t c1_bus_done;                    /* core 1 ran bus_run this block (c1_parts); else mix_block
                                                          * runs it */
+static volatile uint8_t c1_perf_done;                   /* core 1 ran the FX layer this block */
+static volatile uint32_t c1_job_ticks;                  /* TIMER4 ticks core 1 spent in its jobs (audio.c: cpu1_q8) */
+static uint16_t perf_cost;                              /* the FX layer job's ticks, smoothed (console: c1_layer_us) */
 /* the send buses may go to core 1 while core 0 renders parts: no CHAIN owner runs the DLY / REV state in its
  * part or puts its bus settings into song.g (fx_bus_stage) meanwhile */
 static int bus_c1(void) { return bus_own(0) < 0 && bus_own(1) < 0; }
@@ -2878,6 +2925,9 @@ static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k
 {
     uint32_t i, k, n = arg >> 8;
     mixsum_t *sm = &mx[1];
+#if C1_TIMED
+    uint32_t tj = fm1_ticks();
+#endif
     for (k = 0; k < NPART; k++)
         if (arg >> k & 1u) {
             for (i = 0; i < n; i++)
@@ -2904,11 +2954,38 @@ static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k
         bus_run(n);
         c1_bus_done = 1;
     }
+#if C1_TIMED
+    if (c1_t4_ok)
+        c1_job_ticks += fm1_ticks() - tj;
+#endif
+}
+
+/* core 1's second job (mix_block hands it over after the parts): the FX layer on the block before, while core 0 runs
+ * the rest of the mix (THROW, the sends, TAPE, the master chain) */
+static void c1_layer(uint32_t arg)                      /* arg: C1_JOB_PSLOT | n << 8 */
+{
+    uint32_t n = arg >> 8;
+#if C1_TIMED
+    uint32_t t0 = fm1_ticks(), ts = t0;
+#endif
+    perf_layer((arg & C1_JOB_PSLOT) ? 1u : 0u, n);
+    c1_perf_done = 1;
+#if C1_TIMED
+    if (c1_t4_ok) {                                     /* the layer's own time (console: c1_layer_us; it runs beside
+                                                         * the tail, not beside the parts) */
+        uint32_t d = fm1_ticks() - ts;
+        if (d > 60000u)
+            d = 60000u;
+        perf_cost = (uint16_t)(perf_cost ? (perf_cost + d) / 2u : d);
+        c1_job_ticks += fm1_ticks() - t0;
+    }
+#endif
 }
 
 /* which parts go to the second core: the split of the last block's costs that leaves the busier core the least (the
- * send buses ride with a split when bus_c1: core 1's side carries bus_cost); none when that saves less than handing
- * them over costs (c1_hand: estimates' units, or measured ticks once c1_t4_ok).
+ * send buses ride with a split when bus_c1: core 1's side carries bus_cost; the FX layer is its own job beside the
+ * tail, so it does not weigh here). None when that saves less than handing them over costs (c1_hand: estimates' units,
+ * or measured ticks once c1_t4_ok).
  * Keep this per-block scheduler out of the audio interrupt's render loops (target_budget). */
 static __attribute__((noinline)) uint32_t mix_split(void)
 {
@@ -3118,9 +3195,8 @@ static __attribute__((noinline)) void fx_master_run(uint32_t n)
 static void mix_block(int32_t *out, uint32_t n)
 {
     uint32_t i;
-    int perf, b1;
+    int perf, b1, ljob;
     mod_bus_n = 0;
-    int32_t mg = master_gain();                          /* (USB LEVEL FIXED: MASTER after usb_fixed_dac) */
     for (i = 0; i < n; i++)
         send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
     tape_begin((uint32_t)song.g[G_TAPEMODE]);
@@ -3213,6 +3289,16 @@ static void mix_block(int32_t *out, uint32_t n)
         track_lfo_end(&trk[i]);
     if (pfx_any)
         pfx_end();                                      /* (DEC- / DEC+ / ATK+ params back) */
+    /* the FX layer: its own job on core 1, beside this core's rest of the tail (THROW, the sends, TAPE, the master
+     * chain); its input is the block before, so it touches nothing here. After the LFOs' S&H (track_lfo_end draws the
+     * shared generator) and the keys. Without a second core, or with nothing to do, this core runs it below */
+    ljob = 0;
+    c1_perf_done = 1;
+    if (perf_pipe.run[perf_pipe_w ^ 1u]) {
+        c1_perf_done = 0;
+        if (C1_ON() && C1_RUN(c1_layer, ((perf_pipe_w ^ 1u) ? C1_JOB_PSLOT : 0u) | n << 8))
+            ljob = 1;
+    }
     if (perf)
         perf_pre(mix_l, mix_r, send_d, send_r, n);
     bus_take(n);                                        /* this block's sends: the next block's buses */
@@ -3232,15 +3318,14 @@ static void mix_block(int32_t *out, uint32_t n)
         clip_block(n);
     if (scope_mix)
         scope_take_mix(n);
-    if (perf) {
-        perf_master(out, n);
-        return;
-    }
-    for (i = 0; i < n; i++) {
-        int32_t l = (((mix_l[i] + wet[i]) >> 2) * mg) >> 10;
-        int32_t r = (((mix_r[i] + wet[i]) >> 2) * mg) >> 10;
-        master_out(&l, &r);
-        out[2u * i] = l;
-        out[2u * i + 1u] = r;
-    }
+    if (ljob && C1_WAIT())                              /* it stopped answering (held from now on): this core runs the
+                                                         * layer itself (one cut mid-layer advances its state twice: one
+                                                         * block's artifact, as the buses') */
+        c1_perf_done = 0;
+    if (!c1_perf_done)
+        perf_layer(perf_pipe_w ^ 1u, n);
+    perf_take(n, perf);                                 /* this block's mix, after CLIP and MASTER's level: the layer's
+                                                         * input, staged for the next block */
+    perf_out(n, out);                                   /* the previous block's, through the layer and master_out */
+    perf_pipe_w ^= 1u;
 }
