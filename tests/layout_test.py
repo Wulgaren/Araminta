@@ -90,9 +90,9 @@ payload_off = grab("firmware/src/storage.c", r"^#define ST_PAYLOAD_OFF\s+(\d+)u"
 check("the web editor reads the old 3840-byte format (the importer handles both)",
       proj_old_c is not None and proj_js == proj_old_c,
       "js %s, PROJ_STORE_OLD %s" % (proj_js, proj_old_c))
-# 3.10: project grew from 3840 to 4096 bytes (one sector); the storage spans two sectors (capacity 7936)
-check("a project is exactly one sector (4096 bytes), inside its two-sector storage span",
-      proj_c is not None and proj_c == sector and proj_c < 2 * sector - payload_off,
+# FUN21: the project grew past one sector (4864 bytes); the storage spans two sectors (capacity 7936)
+check("a project (FUN21, 4864 bytes) fits its two-sector storage span",
+      proj_c is not None and proj_c == 4864 and proj_c <= 2 * sector - payload_off,
       "project %s, sector %s, max capacity %s" % (proj_c, sector, 2 * (sector or 0) - (payload_off or 0)))
 check("the project object is a multiple of 4 (the hash is a uint32 at the end)", proj_c % 4 == 0)
 
@@ -104,10 +104,9 @@ motion_body = grab("firmware/src/core.h", r"^#define MOTION_FILE_MAX_BODY\s+(\d+
 motion_app = grab("firmware/src/core.h", r"^#define MOTION_FILE_APPEND_MAX\s+(\d+)u", "MOTION_FILE_APPEND_MAX")
 motion_spare = grab("firmware/src/core.h", r"^#define MOTION_FILE_SPARE_MAX\s+(\d+)u", "MOTION_FILE_SPARE_MAX")
 # FUN20: 148 = 88 body + 40 append + 20 spare (the matrix's slots 5..8 take the rest); body stays 88 so DX/FM6
-# offsets stay frozen
-check("MOTION_FILE_MAX: one definition in firmware/src/core.h",
-      re.search(r"^#define MOTION_FILE_MAX \(MOTION_FILE_MAX_BODY \+ MOTION_FILE_APPEND_MAX \+ MOTION_FILE_SPARE_MAX\)",
-                read("firmware/src/core.h"), re.M) is not None)
+# offsets stay frozen. FUN21 saves every record RAM holds (its tail takes 149..255)
+check("MOTION_FILE_MAX: one definition in firmware/src/core.h, every RAM record (FUN21)",
+      re.search(r"^#define MOTION_FILE_MAX MOTION_MAX\b", read("firmware/src/core.h"), re.M) is not None)
 check("the in-body motion block is defined as 4 + MOTION_FILE_MAX_BODY x a 3-byte record",
       re.search(r"^#define MOTION_FILE_SIZE \(4u \+ MOTION_FILE_MAX_BODY \* sizeof\(motion_file_event_t\)\)",
                 read("firmware/src/core.h"), re.M) is not None)

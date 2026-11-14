@@ -917,9 +917,9 @@ this firmware sends 3. Requests name objects, never flash addresses.
 
 | id | object | size |
 | --- | --- | --- |
-| 0 | runtime: the music being played now, as a FUN11 project (FUN10/FUNA still load; 1.1: FUN9, 3648; 1.0.x: FUN8, 3584; firmware before FM6: FUN7, 3388) | 3840 |
+| 0 | runtime: the music being played now, as a FUN21 project (4.3; 3.10..4.2: FUN20, 4096; FUN10..FUN19, 3840; 1.1: FUN9, 3648; 1.0.x: FUN8, 3584; firmware before FM6: FUN7, 3388) | 4864 |
 | 1 | settings (palette, speaker, HOLD time, favorites, panel calibration, ...) | the settings record's size |
-| 2..5 | PROJECT slots 1..4 (FUN11; FUN10 still load; 1.1: FUN9, 3648; 1.0.x: FUN8, 3584) | 3840, or 0 if empty |
+| 2..5 | PROJECT slots 1..4: the record as stored (FUN21, 4864; one saved by earlier firmware keeps its own size: FUN20 4096, FUN10..FUN19 3840; 1.1: FUN9, 3648; 1.0.x: FUN8, 3584) | its size, or 0 if empty |
 | 6, 7 | user preset banks (slots 1..16, 17..32) | the bank's size (3080), or 0 if empty |
 | 8 | the FM6 patch bank of 1.0..1.0.2 (B1..B27). Since 1.0.3 always listed empty (see below) | 3472, or 0 if empty |
 | 9 | the user presets' FM6 patches (1.0.3; `up_fm6.c`: packed ver-2 image, or legacy 3728) | ≤3840, or 0 if none |
@@ -933,9 +933,9 @@ they are in RAM or flash. Then `BACKUP_GET` reads an object in pieces: `id, offs
 against the list; if it differs the device changed, so start again.
 
 Restoring: `BACKUP_PUT` takes ids 0..13 (firmware before the six banks: 0..9, ids 10..13 answer rc 1 at begin; before 1.0.3: 0..8) (the samples are written with `SMP_BEGIN` / `SMP_WRITE` / `SMP_END`,
-or `SMP_ERASE` for an empty slot). Begin: `0, id, size u32, crc u32`: size is 3840 (FUN11 / FUN10), 3648 (FUN9), 3584 (FUN8) or 3388 (FUN7, FUN6) for id 0,
-the settings record's size for id 1, 3840, 3648, 3584, 3388 or 0 (empty the slot) for ids 2..5, the bank's size or 0 for 6, 7 and 10..13,
-3472 or 0 for 8 (the FM6 bank: its magic, layout and every byte below 128 are checked), a packed FM6-patches image (≤3840) or the legacy 3728 or 0 for 9. FUN9, FUN8, FUN7 and FUN6 become FUN11 (FUN10 still loads; firmware before
+or `SMP_ERASE` for an empty slot). Begin: `0, id, size u32, crc u32`: size is 4864 (FUN21), 4096 (FUN20), 3840 (FUN10..FUN19), 3648 (FUN9), 3584 (FUN8) or 3388 (FUN7, FUN6) for id 0,
+the settings record's size for id 1, one of those sizes or 0 (empty the slot) for ids 2..5, the bank's size or 0 for 6, 7 and 10..13,
+3472 or 0 for 8 (the FM6 bank: its magic, layout and every byte below 128 are checked), a packed FM6-patches image (≤3840) or the legacy 3728 or 0 for 9. Every older project becomes FUN21 as it is written (4.3; FUN11 in builds before FUN20; firmware before
 1.2 refuses a 3840-byte project at begin, rc 1; firmware that only knows FUN10 refuses FUNB magic on load).
 An archive without id 8 (written before FM6) still restores; the web editor reads the older kinds (11, 12, 13 objects) and 17.
 Since 1.0.3 an id 8 with data (an archive of 1.0..1.0.2) is not stored: like the first boot after the update, every FM6

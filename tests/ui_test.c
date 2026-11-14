@@ -241,7 +241,7 @@ static void ui_power_on(void)
     memset(&motion, 0, sizeof motion);                  /* (main.c: no motion at power-on) */
     memset(motion_active, 0, sizeof motion_active);
     memset(motion_locked, 0, sizeof motion_locked);
-    motion_base_valid = motion_full = motion_save_lim = 0;
+    motion_base_valid = motion_full = 0;
     memset(&scrn, 0, sizeof scrn);                        /* MENU > SCREEN OFF: on, idle from now (main.c) */
     scrn.idle = fm1_ms;
     kb_asleep = 0;
@@ -2459,7 +2459,7 @@ static int test_soak_cards(void)
     stop_transport();
     memset(&motion, 0, sizeof motion);                  /* (what it recorded: the tests below start without) */
     memset(motion_active, 0, sizeof motion_active);
-    motion_base_valid = motion_full = motion_save_lim = 0;
+    motion_base_valid = motion_full = 0;
     ui_power_on();
     return check("#63 soak: 150000 random frames, wrapping clocks, motion: no roll lasts, cards = a forced redraw",
                  !old && !stale && cmp >= 500u);
@@ -3177,18 +3177,13 @@ static int test_product_ux(void)
     bad += check("motion-clear UNDO restores the recorded events", motion_count(TSEL) == 1);
     motion_full = 1; frame();
     bad += check("#93 the events used up: AUTOMATION FULL", msg_is("AUTOMATION FULL") && !motion_full);
-    motion_save_lim = 1; frame();
-    bad += check("save-limit flag: AUTOMATION SAVE LIMIT toast",
-                 msg_is("AUTOMATION SAVE LIMIT") && !motion_save_lim);
-    {   /* past disk motion max: SAVE opens trim confirm (empty or used slot) */
+    {   /* FUN21: a save keeps every record RAM holds, so SAVE goes straight to NAME with the pool full */
         uint32_t i, page;
-        char qa[24], qb[24];
+        project_t q;
         ui_power_on();
-        /* fill past MOTION_FILE_MAX (155 on FUN20) so SAVE warns; extras are clipped on pack */
-        for (i = 0; i < MOTION_FILE_MAX + 1u; i++)
-            motion_set_event(&trk[0], i % NSTEP,
-                             i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY : P_PAN, (int16_t)(i % 60u));
-        motion_save_lim = 0;
+        for (i = 0; i < MOTION_MAX; i++)
+            motion_set_event(&trk[0], i % NSTEP, i < NSTEP ? P_REV : i < 2u * NSTEP ? P_DLY :
+                             i < 3u * NSTEP ? P_PAN : P_LEVEL, (int16_t)(i % 60u));
         for (page = 0; page < NPAGES; page++)
             if (PAGES[page].graph == GR_SLOTS)
                 break;
@@ -3197,30 +3192,11 @@ static int test_product_ux(void)
         page_entered();
         turn(EN_K4, 1);
         press(B_OCTUP);
-        bad += check("empty slot, motion over save max: CF_SAVE_PROJ",
-                     ui.confirm == CF_SAVE_PROJ && ui.confirm_trk == 0 && !name_on());
-        confirm_text(qa, qb);
-        bad += check("CF_SAVE_PROJ empty: SAVE PROJECT + AUTOMATION WON'T SAVE",
-                     str_eq(qa, "SAVE PROJECT A?") && str_eq(qb, "AUTOMATION WON'T SAVE"));
+        bad += check("SAVE with all 255 automation records: NAME, no warning",
+                     motion.count == MOTION_MAX && ui.confirm == CF_NONE && name_on() && nm.kind == NK_PROJ_SAVE);
         press(B_OCTUP);
-        bad += check("CF_SAVE_PROJ OCT+: NAME then save", name_on() && nm.kind == NK_PROJ_SAVE);
-        press(B_OCTUP);
-        bad += check("trimmed save keeps disk count at MOTION_FILE_MAX",
-                     project_used(0) && msg_is("SAVED (RAM)"));
-        {
-            project_t q;
-            bad += check("loaded slot motion clipped to 72",
-                         proj_import(&q, &proj_slot[0], sizeof(project_store_t)) &&
-                         q.motion.count == MOTION_FILE_MAX);
-        }
-        turn(EN_K4, 1);
-        press(B_OCTUP);
-        confirm_text(qa, qb);
-        bad += check("used slot, still over max: OVERWRITE + AUTOMATION WON'T SAVE",
-                     ui.confirm == CF_SAVE_PROJ && str_eq(qa, "OVERWRITE PROJECT A?") &&
-                     str_eq(qb, "AUTOMATION WON'T SAVE"));
-        press(B_OCTDN);
-        bad += check("CF_SAVE_PROJ OCT- cancels", ui.confirm == CF_NONE);
+        bad += check("  the slot keeps all 255", project_used(0) &&
+                     proj_import(&q, &proj_slot[0], sizeof(project_store_t)) && q.motion.count == MOTION_MAX);
     }
     {   /* #63: a card shows MOTION's icon while the track's motion changes its parameter */
         uint32_t id = ENGINES[TSEL->eng_req]->knob[0];
