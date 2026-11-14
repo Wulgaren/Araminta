@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 4.3
+
+LFOs keep time with the tempo, the punch-in lane holds every effect a step had, and a project keeps all 255
+automation records. Projects are FUN21.
+
+Splash and ABOUT show `v4.3`.
 
 ### LFO
 

@@ -28,13 +28,14 @@ stock.
   [Coming from Felucca 1.5](#coming-from-felucca-15).
 - **From an older Araminta:** install over it. Your data stays.
 
-## New in 4.2
+## New in 4.3
 
-- The **mod matrix** has eight slots per track. KNOB 1 on the MOD page runs SLOT 1..8.
-- A project saves **148 automation records** (was 155): slots 5..8 take the rest. A 4.1 project with more still
-  loads whole and shows AUTOMATION SAVE LIMIT.
-- The DRUM-X **sound dice** (OCT+ held + PRESETS) starts from a random factory kit, and can change a sound's WAVE and
-  MODEL.
+- **LFO SYNC** works in note values. RATE turns 4BAR .. 1/32 with SYNC on, and the graph draws one bar of the tempo.
+- The **punch-in lane** records every effect, and a step holds all the effects held while it passed. REC keeps
+  playing while you record.
+- A project keeps **all 255 automation records** (was 192, and a save kept 148). The save limit and its warning are
+  gone.
+- Projects are **FUN21** (4864 B). Older projects still load; firmware before 4.3 cannot open a FUN21.
 
 Full notes: [CHANGELOG.md](CHANGELOG.md).
 
