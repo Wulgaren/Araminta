@@ -6,3 +6,4 @@ __pycache__/
 tests/out/
 docs/ARAMINTA_TASKS.md
 core
+.claude/

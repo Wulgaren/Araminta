@@ -1302,6 +1302,8 @@ static void seq_start(void)
     song.playing = 1;
     slicer_start();                                /* slicer.c: its step 0 with the sequencer's */
     perf_start();                                  /* perform.c: its 1/16 grid too */
+    pfx_rheld = 0;                                 /* pfx.c: a new take snapshots step 0 again */
+    pfx_rstep = 0xFF;
 }
 
 static void seq_release(track_t *t)

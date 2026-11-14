@@ -366,6 +366,8 @@ def flash_hot_check(syms):
     for name in re.findall(r"\*\(\.text\.(\w+)\)", block.group(1)):
         at = sym(name)
         if at is None:
+            if os.environ.get("FELUCCA_UAC") == "0" and name in ("uac_service", "uac_render_start"):
+                continue  # USB audio functions are not compiled when UAC is disabled.
             errors.append(f"app.ld: .flash_hot lists {name}, which is missing (renamed or inlined away)")
         elif not start <= at < end:
             errors.append(f"app.ld: .flash_hot lists {name} at {at:#x}, outside {start:#x}..{end:#x}")

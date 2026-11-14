@@ -2511,6 +2511,44 @@ static int test_pfx_lane_audio(void)
     return bad;
 }
 
+/* A short overdub after restarting in step 0 must keep that step's earlier take. */
+static int test_pfx_lane_restart(void)
+{
+    int bad = 0;
+    int32_t o[2 * CTL];
+    uint32_t s16;
+
+    host_tracks_init();
+    perf_reset();
+    song.g[G_BPM] = 120;
+    song.rec = 0;
+    lane_restart();
+    mix_block(o, CTL);
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    s16 = beat_samples() / 4u;
+    song.rec = 1;
+    perf_press(PF_LPF, 1);
+    while (pfx_lph < 3u * s16 / 4u)
+        mix_block(o, CTL);
+    perf_press(PF_LPF, 0);
+    mix_block(o, CTL);
+    bad += check("lane: the first take records LPF on step 0", pfx_lane[0] == PF_BIT(PF_LPF));
+
+    lane_restart();
+    perf_press(PF_LPF, 1);
+    while (pfx_lph < s16 / 4u)
+        mix_block(o, CTL);
+    perf_press(PF_LPF, 0);
+    mix_block(o, CTL);
+    bad += check("lane: restarting then releasing early keeps the earlier take", pfx_lane[0] == PF_BIT(PF_LPF));
+
+    song.rec = 0;
+    transport_req = 2;
+    mix_block(o, CTL);
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    return bad;
+}
+
 /* --------------------------------------------------------- GLITCH (3.2) --- */
 static int test_glitch(void)
 {
@@ -2586,6 +2624,7 @@ int main(int argc, char **argv)
     bad += test_pfx_restore();
     bad += test_x2();
     bad += test_pfx_lane_audio();
+    bad += test_pfx_lane_restart();
     bad += test_glitch();
     bad += test_cost();
     bad += test_click_heavy();

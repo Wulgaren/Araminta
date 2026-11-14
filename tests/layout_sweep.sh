@@ -10,8 +10,8 @@
 #   tests/layout_sweep.sh [scenario:ms ...]      default: dry:3000 keys:9000 churn:6000 stack:6000
 #   LAYOUTS="0 1 2 3 4 5 6 7"                    the pads (0: none), 8 by default
 # Needs the emulator runner (FM1_EMU=1 tests/run_tests.sh once, or docs/fm1-emu-test.md). Every layout builds at
-# once, each into its own build/sweep/pad<n>/build (FELUCCA_OUT), then runs its scenarios; the emulator counts device
-# cycles, so parallel runs give the same numbers. build/ itself is not touched; images and results in build/sweep/.
+# once, each into its own build/sweep/pad<n>/build (FELUCCA_OUT), retained for incremental builds. Each layout boots
+# the emulator once for all its scenarios; layouts run in parallel. Images and results stay in build/sweep/.
 set -e
 
 cd "$(dirname "$0")/.."
@@ -25,56 +25,63 @@ if [ ! -x "$RUNNER" ]; then
     echo "layout_sweep: no $RUNNER (FM1_EMU=1 tests/run_tests.sh builds it)" >&2
     exit 1
 fi
-rm -rf "$OUT"
 mkdir -p "$OUT"
 
-# one layout: its build (pad 0: none), then its scenarios
+# one layout: its incremental build (pad 0: none), then all scenarios in one boot
 layout() {
     d="$OUT/pad$1"
     pad=$1
     [ "$pad" = 0 ] && pad=
     mkdir -p "$d"
+    rm -f "$d"/*.json "$d/results.jsonl" "$d/results.tmp" "$d/run.log"
     if ! FELUCCA_OUT="$d/build" FELUCCA_LAYOUT_PAD="$pad" ./build.sh >"$d/build.log" 2>&1; then
         echo "layout_sweep: pad $1: build failed ($d/build.log)" >&2
         return 1
     fi
-    for s in $SCENARIOS; do
-        "$RUNNER" --fwsc "$d/build/felucca.fwsc" --elf "$d/build/felucca.elf" --scenario "${s%%:*}" --ms "${s##*:}" \
-            2>"$d/${s%%:*}.log" | grep '^{' >"$d/${s%%:*}.json" &
-    done
-    wait
+    if ! "$RUNNER" --fwsc "$d/build/felucca.fwsc" --elf "$d/build/felucca.elf" --scenarios "$SCENARIOS" --clear \
+        >"$d/results.tmp" 2>"$d/run.log"; then
+        echo "layout_sweep: pad $1: emulator failed ($d/run.log)" >&2
+        return 1
+    fi
+    mv "$d/results.tmp" "$d/results.jsonl"
 }
 for n in $LAYOUTS; do
     layout "$n" &
 done
-wait || true                                    # (a failed layout shows below as a missing result)
+wait || true                                    # a failed layout publishes no results.jsonl
 
 python3 - "$OUT" "$LAYOUTS" "$SCENARIOS" <<'EOF'
-import json, os, statistics, sys
-out, layouts, scenarios = sys.argv[1], sys.argv[2].split(), [s.split(":")[0] for s in sys.argv[3].split()]
+import json
+from pathlib import Path
+import statistics
+import sys
+
+out, layouts = Path(sys.argv[1]), sys.argv[2].split()
+scenarios = [(name, int(ms)) for name, ms in (s.split(":") for s in sys.argv[3].split())]
+rows = {name: [] for name, _ in scenarios}
 bad = 0
-for sc in scenarios:
-    rows = []
-    for n in layouts:
-        p = os.path.join(out, "pad" + n, sc + ".json")
-        if not os.path.exists(p):                 # its build failed: no image to run
-            print(f"layout_sweep: {sc} pad {n}: no image ({os.path.join(out, 'pad' + n, 'build.log')})")
-            bad = 1
-            continue
-        t = open(p).read().strip()
-        if not t:                                 # the runner failed its own checks (a punch-in not engaged, ...)
-            log = os.path.join(out, "pad" + n, sc + ".log")
-            last = open(log).read().strip().splitlines()[-1:] if os.path.exists(log) else ["(no log)"]
-            print(f"layout_sweep: {sc} pad {n}: no result: {last[0]} ({log})")
-            bad = 1
-            continue
-        j = json.loads(t)
-        rows.append((n, j["cpu_pct"], j["late"], j["halves"]))
-    if rows:
-        print(f"{sc}: " + "  ".join(f"pad {n} {c:.1f} % {l} late" for n, c, l, _ in rows))
-        c = [r[1] for r in rows]
-        l = [r[2] for r in rows]
+for n in layouts:
+    folder = out / ("pad" + n)
+    path = folder / "results.jsonl"
+    if not path.exists():
+        print(f"layout_sweep: pad {n}: no successful result (see {folder / 'build.log'} and {folder / 'run.log'})")
+        bad = 1
+        continue
+    try:
+        results = [json.loads(line) for line in path.read_text().splitlines()]
+        if [(r["scenario"], r["ms"]) for r in results] != scenarios:
+            raise ValueError("results do not match the requested scenarios and durations")
+        for r in results:
+            rows[r["scenario"]].append((n, r["cpu_pct"], r["late"]))
+    except (ValueError, KeyError, TypeError) as e:
+        print(f"layout_sweep: pad {n}: invalid result: {e} ({path})")
+        bad = 1
+for sc, values in rows.items():
+    if values:
+        print(f"{sc}: " + "  ".join(f"pad {n} {c:.1f} % {l} late" for n, c, l in values))
+        c = [r[1] for r in values]
+        l = [r[2] for r in values]
         print(f"{sc}: cpu_pct median {statistics.median(c):.1f} ({min(c):.1f} - {max(c):.1f}), "
-              f"late median {statistics.median(l):g} ({min(l)} - {max(l)}), {len(rows)} layouts")
+              f"late median {statistics.median(l):g} ({min(l)} - {max(l)}), {len(values)} layouts")
 sys.exit(bad)
 EOF
