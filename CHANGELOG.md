@@ -4,7 +4,8 @@
 
 ### LFO
 
-- **Pages.** LFO is RATE WAVE TRIG SYNC (how fast, and when it starts); LFO 2 is PHS FADE POL SMTH (its shape).
+- **Pages.** LFO 1/3 is RATE WAVE TRIG SYNC (how fast, and when it starts); LFO 2/3 is PHS FADE POL SMTH (its
+  shape; its header was `LFO 2 2/3`); LFO DEST is 3/3.
 - **SYNC is ON / OFF.** With SYNC on, RATE's knob turns note values (4BAR .. 1/32, longest first) instead of Hz,
   as ENV SYNC does for ATK DEC REL. RATE is one automation row and one lock, SYNC on or off, and the matrix's RATE
   moves the note value. RATE is no longer dimmed with SYNC on.

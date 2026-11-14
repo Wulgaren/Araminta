@@ -213,6 +213,11 @@ static int lfo_pages(void)
     ui.page++;                                       /* LFO 2 */
     page_entered();
     frame();
+    {
+        char ti[20];
+        page_title(ti);
+        bad += check("  LFO 2's header reads LFO 2/3", !strcmp(ti, "LFO 2/3"));
+    }
     t->p[P_LWAVE] = 4;
     turn(EN_K1, 1);
     turn(EN_K2, 1);

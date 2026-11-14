@@ -109,7 +109,7 @@ Retired engines (DIGITAL, SLICE, DRUMS) load safely: DIGITAL tracks stay silent,
 | SEQ | STEP / DETAIL / AUTOMATION, then SEQ TOOLS / GENERATION | + OCT±: tools layer |
 | GLO | MASTER / CLOCK, then SONG | + OCT±: mutes, solos, levels, tap tempo |
 | SAVE | PRESETS / USER / PHRASES, then PROJECT / TOOLS | Undo |
-| LFO | LFO / LFO 2 / LFO DEST, then MOD | + a knob: momentary change |
+| LFO | LFO 1/3, 2/3, LFO DEST 3/3, then MOD | + a knob: momentary change |
 | EDIT | Sound pages, Kit (DRUM-X), Voice | + OCT±: engine layer |
 | FX | EFFECTS, SLICER, PUNCH-IN | |
 | SCL, ENV, ARP | Their pages | SCL + OCT±: its layer |
