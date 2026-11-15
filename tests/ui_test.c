@@ -1217,6 +1217,7 @@ static int test_clear_every_track_all(void)
     }
     chain_config.count = 1;
     chain_config.row[0] = chain_row_of(0, 1);
+    pfx_lane[5] = PF_BIT(PF_LPF);                   /* the punch-in lane is every track's: ALL4 clears it too */
     go_title("CLEAR"); frame();
     key_down(black(1)); frame(); key_up(black(1)); frame();   /* G#3 ALL4 for every track */
     confirm_text(a, b);
@@ -1224,16 +1225,16 @@ static int test_clear_every_track_all(void)
     press(B_OCTDN);
     for (i = 0; i < NTRK; i++)
         ok &= track_sig(&trk[i]) == before[i];
-    bad += check("cancel every-track ALL preserves sound, patterns, automation and song", ok && !ui.confirm &&
-                 song.sel == 2 && chain_config.count == 1);
+    bad += check("cancel every-track ALL preserves sound, patterns, automation, lane and song",
+                 ok && !ui.confirm && song.sel == 2 && chain_config.count == 1 && pfx_lane[5] == PF_BIT(PF_LPF));
     frame();
     key_down(black(1)); frame(); key_up(black(1)); frame();
     press(B_OCTUP);
     for (ok = 1, i = 0; i < NTRK; i++)
         ok &= seq_is_empty(&trk[i]) && !motion_count(&trk[i]) && trk[i].p[P_E0] == base_sound[i] &&
               trk[i].p[P_QUANT] == QN_OFF && !trk[i].scl_stash_ok && !trk[i].nheld && !trk[i].arp_phys;
-    bad += check("every-track ALL initializes all sounds and clears all patterns, automation and MAP, keeps song", ok &&
-                 !ui.confirm && song.sel == 2 && chain_config.count == 1);
+    bad += check("every-track ALL initializes all sounds and clears all patterns, automation, lane and MAP, keeps song",
+                 ok && !ui.confirm && song.sel == 2 && chain_config.count == 1 && pfx_lane[5] == 0u);
     for (ok = 1, i = 0; i < NTRK; i++)
         ok &= trk[i].p[P_LEVEL] == TP[P_LEVEL].def && trk[i].p[P_PAN] == TP[P_PAN].def &&
               trk[i].p[P_MUTE] == TP[P_MUTE].def && trk[i].p[P_AMODE] == TP[P_AMODE].def &&
