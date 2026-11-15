@@ -57,7 +57,8 @@ static void tk_axes(int32_t x0, int32_t y0, int32_t x1, int32_t y1)
 
 static void tk_dot(int32_t x, int32_t y) { cv_rrect(x - 3, y - 3, 7, 7, 3, T_TEXT, T_SURF); }
 
-/* DIST: in -> out matching fx.c ins_shape / ins_run_dist gain */
+/* DIST: in -> out matching fx.c ins_shape / ins_run_dist gain. The values are the cards' (params.c page_desc):
+ * with the stage on SEND they live on the bus (fx.c fx_target_ptr), and MASTER beside it keeps the send bit. */
 static int32_t tk_dist_y(uint32_t mode, int32_t x, int32_t g)
 {
     int32_t v = ((x >> 3) * g) >> 9;
@@ -66,9 +67,9 @@ static int32_t tk_dist_y(uint32_t mode, int32_t x, int32_t g)
 
 static void tech_dist(const track_t *t)
 {
-    int32_t d = t->p[P_DIST], i, py = 0, x0 = 22, y0 = TK_Y0, s = 100, cx = x0 + s / 2;
-    int32_t cy = y0 + s / 2, en = tk_energy(), tone = t->p[P_ED_FX];
-    uint32_t mode = (uint32_t)clamp(t->p[P_IDMODE], 0, IDM_N - 1);
+    int32_t d = *fx_target_ptr(t, P_DIST), i, py = 0, x0 = 22, y0 = TK_Y0, s = 100, cx = x0 + s / 2;
+    int32_t cy = y0 + s / 2, en = tk_energy(), tone = *fx_target_ptr(t, P_ED_FX);
+    uint32_t mode = (uint32_t)clamp(*fx_target_ptr(t, P_IDMODE), 0, IDM_N - 1);
     int32_t g = 4096 + ((d * d * 3) >> INS_GSH[mode]);
     tk_axes(x0, y0, x0 + s, y0 + s);
     cv_rect(x0, cy, s, 1, T_LINE);
@@ -123,8 +124,8 @@ static void tech_ott(int32_t d)
 /* FILTER insert: TYPE response across the panel, CUT under the peak, RES the Q */
 static void tech_filter(const track_t *t)
 {
-    uint32_t ft = (uint32_t)clamp(t->p[P_IFTYPE], 0, IFT_N - 1);
-    int32_t cut = t->p[P_IFCUT], res = t->p[P_IFRES], x0 = TK_X0 + 6, w = PANEL_W - 12, base = TK_Y1 - 4, top = TK_Y0 + 4;
+    uint32_t ft = (uint32_t)clamp(*fx_target_ptr(t, P_IFTYPE), 0, IFT_N - 1);
+    int32_t cut = *fx_target_ptr(t, P_IFCUT), res = *fx_target_ptr(t, P_IFRES), x0 = TK_X0 + 6, w = PANEL_W - 12, base = TK_Y1 - 4, top = TK_Y0 + 4;
     int32_t cx = x0 + 8 + cut * (w - 16) / 127, i, py = 0, q = 8 + res * 40 / 127;
     tk_axes(x0, top, x0 + w, base);
     cv_rect(cx, top, 1, base - top, T_DIM);
@@ -152,9 +153,10 @@ static void tech_filter(const track_t *t)
 /* CRUSH: staircase transfer from BITS; hold marks from RATE; LPF corner */
 static void tech_crush(const track_t *t)
 {
-    uint32_t sh = ins_bits_sh(t->p[P_ICBITS]), steps = sh > 14u ? 2u : 1u << (15u - sh);
-    int32_t i, py = 0, x0 = 22, y0 = TK_Y0, s = 100, cy = y0 + s / 2, hold = 1 + (t->p[P_ICRATE] >> 3);
-    int32_t lpf = t->p[P_ICLPF];
+    uint32_t sh = ins_bits_sh(*fx_target_ptr(t, P_ICBITS)), steps = sh > 14u ? 2u : 1u << (15u - sh);
+    int32_t i, py = 0, x0 = 22, y0 = TK_Y0, s = 100, cy = y0 + s / 2,
+            hold = 1 + (*fx_target_ptr(t, P_ICRATE) >> 3);
+    int32_t lpf = *fx_target_ptr(t, P_ICLPF);
     tk_axes(x0, y0, x0 + s, y0 + s);
     cv_rect(x0, cy, s, 1, T_LINE);
     for (i = 0; i <= s; i++) {
@@ -190,7 +192,8 @@ static void tech_crush(const track_t *t)
 /* PHASR: notches across the band; DEPTH / FBK deepen them; RATE sweeps while sound is up */
 static void tech_phasr(const track_t *t)
 {
-    int32_t dep = t->p[P_IPDEP], fbk = t->p[P_IPFBK], rate = t->p[P_IPRATE];
+    int32_t dep = *fx_target_ptr(t, P_IPDEP), fbk = *fx_target_ptr(t, P_IPFBK),
+            rate = *fx_target_ptr(t, P_IPRATE);
     int32_t x0 = TK_X0 + 6, w = PANEL_W - 12, base = TK_Y1 - 4, top = TK_Y0 + 8, i, py = 0;
     int32_t live = tk_energy() > 2 && !(ui_prefs & PREF_ANIM_OFF);
     uint32_t ph = live ? ui.frame * (uint32_t)(20 + rate) : (uint32_t)rate * 40u;
@@ -209,7 +212,7 @@ static void tech_phasr(const track_t *t)
 /* FLANG: short comb teeth modulating */
 static void tech_flang(const track_t *t)
 {
-    int32_t dep = t->p[P_ILDEP], rate = t->p[P_ILRATE];
+    int32_t dep = *fx_target_ptr(t, P_ILDEP), rate = *fx_target_ptr(t, P_ILRATE);
     int32_t x0 = TK_X0 + 6, w = PANEL_W - 12, mid = (TK_Y0 + TK_Y1) / 2, i, py = mid;
     int32_t live = tk_energy() > 2 && !(ui_prefs & PREF_ANIM_OFF);
     uint32_t ph = live ? ui.frame * (uint32_t)(30 + rate) * 6u : 0u;
@@ -364,8 +367,8 @@ static int graph_tech(const track_t *t, const page_t *pg)
     if (pg->fam != FAM_FX)
         return 0;
     if (str_eq(pg->title, "DISTORT")) {
-        if (clamp(t->p[P_IDMODE], 0, IDM_N - 1) == IDM_OTT)
-            tech_ott(t->p[P_DIST]);
+        if (clamp(*fx_target_ptr(t, P_IDMODE), 0, IDM_N - 1) == IDM_OTT)
+            tech_ott(*fx_target_ptr(t, P_DIST));
         else
             tech_dist(t);
         return 1;

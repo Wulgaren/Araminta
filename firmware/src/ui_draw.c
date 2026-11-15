@@ -1293,7 +1293,7 @@ static void draw_columns(void)
         draw_column(3, "MODE", dtime_free() ? "TIME" : "RATE", "", VAL(3u), -1, ICON_AUTO);
         return;
     }
-    int ott = cur_page()->id[0] == P_IDMODE && TSEL->p[P_IDMODE] == IDM_OTT;
+    int ott = cur_page()->id[0] == P_IDMODE && *fx_target_ptr(TSEL, P_IDMODE) == IDM_OTT;
     for (c = 0; c < 4u; c++) {
         int16_t *vp;
         const param_desc_t *d = page_desc(cur_page(), c, &vp);
