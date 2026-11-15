@@ -489,7 +489,7 @@ function mockTables() {
        "editor: PHYS models MODAL STRNG MEMB SYMP (no DUST, no DRUM), 9 presets");
     ok(dr.name === "DRUM-X" && dr.edit.map((d) => d.label).join() === "MRPH,TUNE,TONE,DECY,NOIS,FM,FOLD,DRV" &&
        dr.presets.length === 18 && dr.presets[0].name === "FM DRUMS" && dr.presets[11].name === "STD" &&
-       dr.presets[17].name === "707",
+       dr.presets[17].name === "HOUSE",
        "editor: DRUM engine 10 (MRPH TUNE TONE DECY NOIS FM FOLD DRV), its 18 kits");
   }
   const dj = DESC;

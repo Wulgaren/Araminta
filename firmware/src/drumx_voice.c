@@ -849,7 +849,7 @@ static const dx_kit_t DX_KITS[] = {
         },
         {0, 0, 0, 0, 0, 0, 0, 0}, {0, 1, 3, 2, 2, 0, 4, 2},
     },
-    {   /* 707 (after the TR-707: a short clicky kick, a bright snare, a tight clap, short metallic hats) */
+    {   /* HOUSE (after the TR-707: a short clicky kick, a bright snare, a tight clap, short metallic hats) */
         {
             {DX_MODE(DXW_SINE, DXF_LP, 1) | DX_DRIVE, {10, 92, 56, 6, 46}, {15, 110, 64, 12, 68}},   /* KICK */
             {DX_MODE(DXW_FM, DXF_BP, 0), {42, 34, 48, 104, 110}, {48, 22, 56, 120, 92}},   /* SNARE */
