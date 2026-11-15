@@ -997,7 +997,10 @@ static int clear_ready(uint32_t kind)
     case CF_CLEAR_EVERY_TRACK_ALL:
     case CF_CLEAR_FX:
     case CF_CLEAR_ALL_FX: return 1;
-    case CF_CLEAR_ALL_MOTION:
+    case CF_CLEAR_ALL_MOTION:                          /* the records, or the punch-in lane */
+        for (i = 0; i < 64u; i++)
+            if (pfx_lane[i])
+                return 1;
         for (i = 0; i < NTRK; i++)
             if (motion_count(&trk[i]))
                 return 1;

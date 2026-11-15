@@ -1091,6 +1091,13 @@ static int test_actions(void)
     bad += check("confirmed PATS: every track empty", seq_is_empty(&trk[0]) && seq_is_empty(&trk[1]) &&
                  msg_is("ALL PATTERNS CLEARED"));
     frame();
+    pfx_lane[5] = PF_BIT(PF_LPF);                     /* a recorded punch-in, no automation records */
+    key_down(white(6)); frame(); key_up(white(6)); frame();   /* E4 AUTOMATION (ALL col) */
+    bad += check("CLEAR ALL AUTOMATION asks while only the punch-in lane holds something",
+                 ui.confirm == CF_CLEAR_ALL_MOTION);
+    press(B_OCTUP);
+    bad += check("confirmed: the punch-in lane is empty", pfx_lane[5] == 0u && msg_is("ALL AUTOMATION CLEARED"));
+    frame();
     key_down(white(10)); frame(); key_up(white(10)); frame();   /* B4: unused */
     bad += check("CLEAR B4 does nothing", !ui.confirm && ui.lock == LAYER_CLR);
     press(B_HOME);

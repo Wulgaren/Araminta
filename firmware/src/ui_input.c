@@ -2105,6 +2105,8 @@ static void ui_input(void)
                 if (!chain_busy()) {
                     for (i = 0; i < NTRK; i++)
                         motion_clear(&trk[i]);
+                    memset(pfx_lane, 0, sizeof pfx_lane);   /* and the punch-in lane (pfx.c) */
+                    pfx_ltgt = 0;
                     undo.trk = 0;
                     ui_message("ALL AUTOMATION CLEARED");
                 }
