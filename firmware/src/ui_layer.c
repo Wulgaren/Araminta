@@ -384,10 +384,6 @@ static void tools_key(uint32_t p)
     ui.force = 1;
 }
 
-/* the FX layer's cells' names (NONE: PF_N) */
-static const char *const PF_CELL[PF_NFX] = {"1/8", "1/16", "1/32", "REV", "LPF", "HPF", "STOP", "FRZ", "PITCH+", "PITCH-",
-    "FLNG", "PHSR", "VERB", "ECHO", "OCT-", "OCT+", "/2", "DEC-", "DEC+", "ST8", "ST16", "ATK+", "ARP", "RND", "*2", "GLITCH",
-    "1/12"};
 static const char W_NOTE[16] = {'F', 'G', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'A', 'B', 'C', 'D', 'E', 'F', 'G'};
 /* (fx_map_sync retired with the reassignment: the key maps are the pages' fixed PF_DEF / PF2_DEF) */
 
@@ -878,7 +874,8 @@ static void layer_fx(void)
     for (p = 0; p < PF_KEYS; p++) {                     /* the white keys F3 .. G5, 4 a row: the effect each holds */
         const char *cell;
         e = perf_map_now()[p];
-        if (p == 15u && perf_latch_on) {                /* G5 CLR: latched punch-ins + macros off */
+        if (p == 15u) {                                 /* G5 CLR: erases the lane while recording; LATCH: latched
+                                                         * punch-ins + macros off */
             cell = "CLR";
             st = p == ed ? LS_SEL : pfx_clr ? LS_HELD : LS_OFF;
         } else {
@@ -998,6 +995,8 @@ static int clear_ready(uint32_t kind)
     case CF_CLEAR_FX:
     case CF_CLEAR_ALL_FX: return 1;
     case CF_CLEAR_ALL_MOTION:
+        if (pfx_lane_used())
+            return 1;
         for (i = 0; i < NTRK; i++)
             if (motion_count(&trk[i]))
                 return 1;

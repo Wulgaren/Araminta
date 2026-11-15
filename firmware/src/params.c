@@ -690,6 +690,8 @@ static const page_t PAGES[] = {
     {"MIXER", FAM_TRK, SC_TRACK, GR_LANES, TRK_SEC_MIX, {P_LN4, P_LN5, P_LN6, P_LN7}},
     {"PUNCH-IN", FAM_FX, SC_TRACK, GR_PUNCH, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},   /* the section's 2/2 (same
                                                      * title, the footer's count tells); its map is perform.c PF2_DEF */
+    {"PUNCH LANE", FAM_FX, SC_TRACK, GR_EVENTS, FX_SEC_PUNCH, {0xFF, 0xFF, 0xFF, 0xFF}},   /* 3/3: the punch-in lane as
+                                                     * AUTOMATION's list (ui_events.c lane_list); not a key map */
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..NMSLOT - 1) KNOB 2..4 edit */

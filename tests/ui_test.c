@@ -1091,6 +1091,13 @@ static int test_actions(void)
     bad += check("confirmed PATS: every track empty", seq_is_empty(&trk[0]) && seq_is_empty(&trk[1]) &&
                  msg_is("ALL PATTERNS CLEARED"));
     frame();
+    pfx_lane[5] = PF_BIT(PF_LPF);                     /* a recorded punch-in, no automation records */
+    key_down(white(6)); frame(); key_up(white(6)); frame();   /* E4 AUTOMATION (ALL col) */
+    bad += check("CLEAR ALL AUTOMATION asks while only the punch-in lane holds something",
+                 ui.confirm == CF_CLEAR_ALL_MOTION);
+    press(B_OCTUP);
+    bad += check("confirmed: the punch-in lane is empty", pfx_lane[5] == 0u && msg_is("ALL AUTOMATION CLEARED"));
+    frame();
     key_down(white(10)); frame(); key_up(white(10)); frame();   /* B4: unused */
     bad += check("CLEAR B4 does nothing", !ui.confirm && ui.lock == LAYER_CLR);
     press(B_HOME);
@@ -2796,6 +2803,8 @@ static int test_presets_knob(void)
                 sel_ok &= pat_pick() == ppick + 1u && same_snd && same_steps;
             } else if (g == GR_SONG) {
                 sel_ok &= same_snd && same_steps && ui.page == i;
+            } else if (g == GR_EVENTS && PAGES[i].fam == FAM_FX) {   /* PUNCH LANE, empty: its one row */
+                sel_ok &= same_snd && same_steps && ui.page == i && ui.ev_row == 0u;
             } else if (g == GR_EVENTS) {               /* (AUTOMATION: its row, PLAY's to the first record's) */
                 sel_ok &= same_snd && same_steps && ui.page == i && ui.ev_row == 1u;
             } else if (g == GR_CLEAR) {
@@ -6757,24 +6766,116 @@ static int test_fx_map(void)
     return bad;
 }
 
+/* PUNCH LANE (PUNCH-IN 3/3, ui_events.c): the lane's runs as a list, one row per effect per run of steps. Not a key
+ * map; KNOB 2 moves the selected run, OCT- deletes it, OCT+ clears the lane (its dialog) */
+static uint64_t lane_bits(uint32_t e)                /* the steps of the punch-in lane holding effect e */
+{
+    uint64_t m = 0;
+    uint32_t i;
+    for (i = 0; i < 64u; i++)
+        m |= (pfx_lane[i] & PF_BIT(e)) ? 1ull << i : 0ull;
+    return m;
+}
+static int test_punch_lane(void)
+{
+    int bad = 0, i;
+    ui_power_on();
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    for (i = 4; i < 8; i++)
+        pfx_lane[i] = PF_BIT(PF_LPF);                  /* LPF on steps 5..8 */
+    pfx_lane[6] |= PF_BIT(PF_HPF);                      /* HPF on step 7 */
+    go_title("PUNCH-IN"); frame();
+    turn(EN_SELECT, 1); frame();
+    turn(EN_SELECT, 1); frame();
+    bad += check("PUNCH LANE: SELECT past PUNCH-IN 2/2, not a key map", str_eq(cur_page()->title, "PUNCH LANE") &&
+                 cur_page()->sec == FX_SEC_PUNCH && !ui.lock);
+    bad += check("  a row per effect per run, by step: LPF 5..8, then HPF 7",
+                 ev_list(ev_rw) == 2u && ui.ev_row == 0u);
+    turn(EN_K2, 1); frame();
+    bad += check("  KNOB 2 moves the selected run a step (LPF 6..9), the other effect stays",
+                 lane_bits(PF_LPF) == 0x1E0u && lane_bits(PF_HPF) == 0x40u);
+    turn(EN_K3, 1); frame();
+    bad += check("  KNOB 3 lengthens the run (LPF 6..10)", lane_bits(PF_LPF) == 0x3E0u);
+    turn(EN_K3, -10); frame();
+    bad += check("  KNOB 3 shortens it, one step at least (LPF 6)", lane_bits(PF_LPF) == 0x20u);
+    turn(EN_K4, 1); frame();
+    bad += check("  KNOB 4: the next effect in the keys' order (HPF), joined to the HPF on step 7, selected",
+                 !lane_bits(PF_LPF) && lane_bits(PF_HPF) == 0x60u && ev_rw[ui.ev_row] == EVC(EVK_RUN + PF_HPF, 5u));
+    hold(B_SAVE);
+    bad += check("  SAVE held undoes the effect change (LPF 6, HPF 7)",
+                 lane_bits(PF_LPF) == 0x20u && lane_bits(PF_HPF) == 0x40u);
+    hold(B_SAVE);
+    bad += check("  held again: redone (HPF 6..7)", !lane_bits(PF_LPF) && lane_bits(PF_HPF) == 0x60u);
+    press(B_OCTDN);
+    bad += check("  OCT- deletes the selected run", !pfx_lane_used() && msg_is("DELETED"));
+    pfx_lane[30] = PF_BIT(PF_REV);
+    press(B_OCTUP);
+    bad += check("  OCT+ asks to clear the lane", ui.confirm == CF_CLEAR_LANE);
+    press(B_OCTUP);
+    bad += check("  confirmed: the lane is empty", !pfx_lane_used() && msg_is("PUNCH LANE CLEARED"));
+    hold(B_SAVE);
+    bad += check("  SAVE held brings the cleared lane back", lane_bits(PF_REV) == 1ull << 30);
+    hold(B_SAVE);
+    press(B_OCTUP);
+    bad += check("  nothing there: NOTHING TO CLEAR", !ui.confirm && msg_is("NOTHING TO CLEAR"));
+    turn(EN_SELECT, -1); frame();
+    bad += check("  SELECT back: PUNCH-IN 2/2, its map", str_eq(cur_page()->title, "PUNCH-IN") && ui.lock == LAYER_FX &&
+                 perf_key(white(4)) == PF_ODN);
+    return bad;
+}
+
+/* a REC pass that records punch-ins is one lane undo: SAVE held after it takes the lane back, not an older copy (here a
+ * seq edit's: the steps stay) */
+static int test_punch_lane_rec_undo(void)
+{
+    int bad = 0;
+    int32_t o[2 * CTL];
+    uint32_t sig, k;
+    ui_power_on();
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    step_undo_take(TSEL, 0);                            /* an older copy: the seq before notes went in */
+    motion_undo_done(TSEL);
+    song.rec = 1;
+    transport_req = 1;
+    mix_block(o, CTL);
+    frame();                                            /* (the pass starts) */
+    perf_press(PF_LPF, 1);
+    for (k = 0; k < 200u; k++)
+        mix_block(o, CTL);
+    perf_press(PF_LPF, 0);
+    mix_block(o, CTL);
+    song.rec = 0;                                       /* REC off: the pass ends */
+    frame();
+    transport_req = 2;                                  /* (stopped: the next tests render) */
+    for (k = 0; k < 8u; k++)
+        mix_block(o, CTL);
+    my_steps(TSEL);                                     /* the notes the older copy predates */
+    sig = steps_sig(TSEL);
+    bad += check("lane REC pass: LPF recorded", lane_bits(PF_LPF) != 0u);
+    hold(B_SAVE);
+    bad += check("  SAVE held takes the recorded LPF back, the steps stay",
+                 !lane_bits(PF_LPF) && steps_sig(TSEL) == sig && msg_is("UNDO/REDO LANE"));
+    return bad;
+}
+
 /* #40: MENU > FX LATCH ON: a Punch-in key toggles its effect (press again off); macros stay; G5 CLR turns
  * latched effects and FILTER/CRUSH/THROW/DEPTH off; OCT± shift octave; the menu turns them off; OFF (default):
- * punch keys are momentary and G5 is not CLR. Punch-in is the sticky FX map. */
+ * punch keys are momentary and G5 is CLR (it erases the lane while recording). Punch-in is the sticky FX map. */
 
 static int test_fx_latch(void)
 {
     int bad = 0, ok;
-    uint32_t lpf = white(4), m1 = black(0), clr = white(15); /* C4: LPF; A#3 mute T1; G5 CLR when LATCH on */
+    uint32_t lpf = white(4), m1 = black(0), clr = white(15); /* C4: LPF; A#3 mute T1; G5 CLR */
     ui_power_on();
     ok = !(fx_latch & 1u);
     go_title("PUNCH-IN"); frame();
     ok &= ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
-    ok &= perf_key(clr) != PF_CLR;                      /* LATCH off: no CLR on G5 */
+    ok &= perf_key(clr) == PF_CLR;                      /* LATCH off too: CLR on G5 */
     key_down(lpf); frame();
     ok &= (perf_held & PF_BIT(PF_LPF)) != 0u && !perf_latched;
     key_up(lpf); frame();
     ok &= !(perf_held & PF_BIT(PF_LPF)) && !perf_latched;
-    bad += check("#40 FX LATCH OFF: Punch-in keys are momentary; G5 is not CLR", ok);
+    bad += check("#40 FX LATCH OFF: Punch-in keys are momentary; G5 is CLR", ok);
     /* ON */
     ui_power_on();
     fx_latch = 1;
@@ -10019,6 +10120,8 @@ int main(void)
     bad += test_layer_knob_race();
     bad += test_fx_latch();
     bad += test_fx_map();
+    bad += test_punch_lane();
+    bad += test_punch_lane_rec_undo();
     bad += test_layer_lock();
     bad += test_rec_layer();
     bad += test_seq_tools();

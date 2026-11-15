@@ -1127,13 +1127,14 @@ static void input_off(track_t *t, uint32_t note)
 }
 
 /* the effect of key k in the FX layer (PF_N none): white keys F3 .. G5 the page's fixed map (perform.c
- * perf_map_now: the punch page's (1/2 or 2/2, ui.c page_entered)); with FX LATCH, G5 is CLR (turns latched effects and macros
- * off); black keys 1..4 the track mutes, A#4 the MIDI effects' tracks (pfx_tgt) */
+ * perf_map_now: the punch page's (1/2 or 2/2, ui.c page_entered)); G5 is CLR (held while recording: the lane steps it
+ * passes emptied, pfx.c; with FX LATCH its press turns latched effects and macros off); black keys 1..4 the track
+ * mutes, A#4 the MIDI effects' tracks (pfx_tgt) */
 static uint32_t perf_key(uint32_t k)
 {
     uint32_t p = key_place(k);
     if (!key_black(k))
-        return p == 15u && perf_latch_on ? PF_CLR : p < PF_KEYS ? perf_map_now()[p] : PF_N;
+        return p == 15u ? PF_CLR : p < PF_KEYS ? perf_map_now()[p] : PF_N;
     return p < NTRK ? PF_M1 + p : p == 7u ? PF_TGT : PF_N;
 }
 

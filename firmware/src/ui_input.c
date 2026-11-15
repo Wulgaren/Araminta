@@ -1931,6 +1931,7 @@ static void ui_input(void)
     layer_show();
     section_apply();                                    /* sticky Punch-in / SEQ tools maps */
     layer_keys(lkeys);                                  /* GLO: held white keys set perf_solo */
+    lane_rec_watch();                                   /* (a REC pass over the punch-in lane: one undo) */
     if (perf_clr_say) {                                 /* G5 CLR (ISR): latched punch-ins + macros off */
         perf_clr_say = 0;
         ui_message("FX ALL OFF");
@@ -2016,6 +2017,11 @@ static void ui_input(void)
             } else if (kind == CF_CLEAR_MOTION) {
                 track_t *t = &trk[ui.confirm_trk % NTRK];
                 if (!chain_busy()) { load_begin(t, UNDO_PAT); motion_clear(t); load_end(t); ui_message("AUTOMATION CLEARED"); }
+            } else if (kind == CF_CLEAR_LANE) {
+                lane_undo_take(0);
+                pfx_lane_clear();
+                lane_undo_done();
+                ui_message("PUNCH LANE CLEARED");
             } else if (kind == CF_DEL_ROW) {
                 uint32_t r = ui.confirm_trk;
                 if (!chain_busy() && r < chain_config.count) {
@@ -2105,6 +2111,7 @@ static void ui_input(void)
                 if (!chain_busy()) {
                     for (i = 0; i < NTRK; i++)
                         motion_clear(&trk[i]);
+                    pfx_lane_clear();
                     undo.trk = 0;
                     ui_message("ALL AUTOMATION CLEARED");
                 }

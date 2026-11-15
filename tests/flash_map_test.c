@@ -105,8 +105,8 @@ int main(void)
                  !FL_STORE_OK(FL_DATA_LO - 1u, 2u) && !FL_STORE_OK(FL_GAP_LO - 1u, 2u));
     }
     /* the store sizes the project format and the tools all quote. 3840 is ST_SECTOR - ST_PAYLOAD_OFF, so a project
-     * fits one sector's payload; 0x8DFBC is the app slot fm1pkg_make.py packs to. These live in four places (C,
-     * fm1pkg_make.py, web/projconv.js, app.ld); layout_test.c checks the other three agree with these. */
+     * fits one sector's payload. These live in several places (C, fm1pkg_make.py, web/projconv.js, app.ld);
+     * layout_test.py checks the others agree with these. */
     bad += check("3840 B is one sector's payload (4096 - 256)", 4096u - 256u == 3840u);
     bad += check("the flash head is 16 KiB and the app starts right after it", FL_APP_LO == 0x4000u);
     bad += check("the globals' end is the 1 MiB part's top sector bound", FL_GLOB_HI == 0xFF000u);

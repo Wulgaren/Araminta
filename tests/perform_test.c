@@ -34,7 +34,7 @@
  * 11. the key map (perform.c PF_DEF / PF2_DEF, seq.c perf_key): two fixed pages, the punch page shown picks theirs:
  *    the pages' contents (REPEAT 1/8 1/12 1/16 1/32 first, /2 *2 GLITCH on 2/2); the keys of a page, a page flip
  *    while nothing held; FX LATCH on with a key held (letting go clears its bit, the latched ones stay sticky);
- *    the pages' maps on the keys, G5 CLR only with LATCH.
+ *    the pages' maps on the keys, G5 CLR.
  * 12. 1.5.1: the delay's TIME 1/8D 1/16D 1/4D (their lengths at 60 61 90 120 BPM and on the external clock, 1/4D clamped
  *    to the line at 60 BPM and below, the list append-only and longest first on the knob, ARP RATE / SEQ DIV unchanged, an
  *    echo at 1/8D where it belongs, free ms: the FM-1's one-pole roll (1.4391e-4 a sample to the target, tau 157 ms): a
@@ -1173,13 +1173,13 @@ static int test_map(void)
         fm1_in.buttons = 0;
         kb_mask = perf_mask = 0;
     }
-    snprintf(what, sizeof what, "map: the default map on the keys: F3..B3 REPEAT 1/8 1/12 1/16 1/32, C4..F4 LPF/HPF/OCT, G4..F5 the rest; G5 CLR only with LATCH");
+    snprintf(what, sizeof what, "map: the default map on the keys: F3..B3 REPEAT 1/8 1/12 1/16 1/32, C4..F4 LPF/HPF/OCT, G4..F5 the rest; G5 CLR");
     {
         ok = 1;
         for (k = 0; k < 27u; k++)
             if (!key_black(k)) {
                 p = key_place(k);
-                ok &= perf_key(k) == (p < PF_KEYS ? PF_DEF[p] : PF_N);   /* LATCH off: G5 is PF_N */
+                ok &= perf_key(k) == (p == 15u ? PF_CLR : PF_DEF[p]);   /* LATCH off too: G5 is CLR */
             }
         ok &= perf_key(0) == PF_R8 && perf_key(2) == PF_R12 && perf_key(4) == PF_R16 && perf_key(6) == PF_R32 &&
               perf_key(7) == PF_LPF && perf_key(9) == PF_HPF && perf_key(11) == PF_OCTD &&
@@ -1193,7 +1193,7 @@ static int test_map(void)
         for (k = 0; k < 27u; k++)
             if (!key_black(k)) {
                 p = key_place(k);
-                ok &= perf_key(k) == (p < PF_KEYS ? PF2_DEF[p] : PF_N);
+                ok &= perf_key(k) == (p == 15u ? PF_CLR : PF2_DEF[p]);   /* (G5 CLR on 2/2 too) */
             }
         ok &= perf_key(16) == PF_HALF && perf_key(18) == PF_X2 && perf_key(19) == PF_GLT;   /* A4 /2, B4 *2, C5 GLITCH */
         perf_page(0);                                   /* (page 1's map back) */
@@ -2549,6 +2549,44 @@ static int test_pfx_lane_restart(void)
     return bad;
 }
 
+/* CLR held while recording: the lane steps it passes emptied, an effect held with it not recorded; let go in a
+ * step's first half, that step as it was */
+static int test_pfx_lane_clr(void)
+{
+    int bad = 0, i;
+    int32_t o[2 * CTL];
+    uint32_t s16;
+
+    host_tracks_init();
+    perf_reset();
+    song.g[G_BPM] = 120;
+    song.rec = 0;
+    lane_restart();
+    mix_block(o, CTL);
+    for (i = 0; i < 8; i++)
+        pfx_lane[i] = PF_BIT(PF_LPF);
+    s16 = beat_samples() / 4u;
+    song.rec = 1;
+    lane_restart();
+    perf_press(PF_CLR, 1);
+    perf_press(PF_HPF, 1);
+    while (pfx_lph < 2u * s16 + s16 / 4u)
+        mix_block(o, CTL);
+    perf_press(PF_CLR, 0);
+    perf_press(PF_HPF, 0);
+    mix_block(o, CTL);
+    bad += check("lane CLR: the steps it passed are empty, HPF held with it not recorded",
+                 pfx_lane[0] == 0u && pfx_lane[1] == 0u);
+    bad += check("lane CLR: let go in step 3's first half, step 3 and on as they were",
+                 pfx_lane[2] == PF_BIT(PF_LPF) && pfx_lane[3] == PF_BIT(PF_LPF) && pfx_lane[7] == PF_BIT(PF_LPF));
+
+    song.rec = 0;
+    transport_req = 2;
+    mix_block(o, CTL);
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    return bad;
+}
+
 /* --------------------------------------------------------- GLITCH (3.2) --- */
 static int test_glitch(void)
 {
@@ -2625,6 +2663,7 @@ int main(int argc, char **argv)
     bad += test_x2();
     bad += test_pfx_lane_audio();
     bad += test_pfx_lane_restart();
+    bad += test_pfx_lane_clr();
     bad += test_glitch();
     bad += test_cost();
     bad += test_click_heavy();

@@ -27,7 +27,11 @@ import os
 import struct
 from pathlib import Path
 
-APP_SLOT = 0x8DFBC
+# app.bin's slot. Stock V15's is 0x8DFBC; Felucca's takes the 0xFF fill the stock image left before FLASH_SIZE, up to
+# the last app sector's final 256 B (kept blank: flash_image's guard). The SPL finds cfg_tool.bin and the cfg directory
+# through their entries, as M-VAVE's own packer relies on (fm1_open sdk/Package.cs: app.bin any size, cfg_tool right
+# after it)
+APP_SLOT = 0x8E950
 FLASH_SIZE = 0x93000
 KEY = 0x980F
 # flash header: JieLi SDK defaults (burner_size 544, VID "0.01", flash_size 0xFF000,
@@ -151,9 +155,9 @@ def flash_image(app, key):
     cfg_body = eq_e + eq
     cfg = entry(crc16(cfg_body), 0x20, 0x20 + len(cfg_body), 0x83, 0xFF, 1, "cfg") + cfg_body
     region = bytearray(area + cfg)
-    if len(region) > FLASH_SIZE - 0x4000:
+    if len(region) > FLASH_SIZE - 0x4000 - 256:         # (the last sector's tail blank, as on stock)
         raise SystemExit(f"fm1pkg_make: the app area is {len(region)} B (cfg_tool {len(cfg_tool)} B, eq "
-                         f"{len(eq)} B), the flash has {FLASH_SIZE - 0x4000} B after the head")
+                         f"{len(eq)} B), the flash has {FLASH_SIZE - 0x4000 - 256} B after the head")
     sfc(region, 0, len(region), 0, key)
     f[0x4000:0x4000 + len(region)] = region
     return bytes(f)

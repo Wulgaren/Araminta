@@ -43,14 +43,13 @@ def grab(rel, pattern, what):
     return int(hits[0], 0)
 
 
-# ---- the app slot: how big app.bin may be (the linker, the package builder, the installer) -------------------
+# ---- the app slot: how big app.bin may be (the linker, the package builder). web/fm1pkg.js STOCK_APP_SIZE is the
+# official V15's slot, which only its stock check reads (web/test_stock_sha.mjs pins it) -------------------------
 app_py = grab("tools/fm1pkg_make.py", r"^APP_SLOT\s*=\s*(0x[0-9A-Fa-f]+|\d+)", "APP_SLOT")
-app_js = grab("web/fm1pkg.js", r"^export const STOCK_APP_SIZE\s*=\s*(0x[0-9A-Fa-f]+|\d+)", "STOCK_APP_SIZE")
 app_ld = grab("firmware/app.ld", r"XIP\s*\(rx\)\s*:\s*ORIGIN\s*=\s*0x[0-9A-Fa-f]+,\s*LENGTH\s*=\s*(0x[0-9A-Fa-f]+)",
               "XIP LENGTH")
-check("the app slot is the same in the linker, the package builder and the installer",
-      app_py is not None and app_py == app_js == app_ld,
-      "fm1pkg_make %s, fm1pkg.js %s, app.ld %s" % (app_py, app_js, app_ld))
+check("the app slot is the same in the linker and the package builder",
+      app_py is not None and app_py == app_ld, "fm1pkg_make %s, app.ld %s" % (app_py, app_ld))
 
 # ---- the app area's end: where the gap starts ---------------------------------------------------------------
 flash_py = grab("tools/fm1pkg_make.py", r"^FLASH_SIZE\s*=\s*(0x[0-9A-Fa-f]+|\d+)", "FLASH_SIZE")

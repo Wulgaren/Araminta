@@ -200,7 +200,7 @@ static struct {
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER, CF_LOAD_PAT,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER,
        CF_CLEAR_ALL_SEQ, CF_INIT_ALL_SOUND, CF_CLEAR_ALL_MOTION,
-       CF_CLEAR_TRACK_ALL, CF_CLEAR_EVERY_TRACK_ALL, CF_CLEAR_FX, CF_CLEAR_ALL_FX };
+       CF_CLEAR_TRACK_ALL, CF_CLEAR_EVERY_TRACK_ALL, CF_CLEAR_FX, CF_CLEAR_ALL_FX, CF_CLEAR_LANE };
                                    /* ui.confirm: CLEAR map; SAVE over a used slot; a pattern over the user's steps;
                                     * USER ERASE */
 
@@ -452,7 +452,7 @@ static uint32_t section_map_layer(void)
     if (ui.home)
         return 0;
     pg = &PAGES[ui.page % NPAGES];
-    if (pg->fam == FAM_FX && pg->sec == FX_SEC_PUNCH)
+    if (pg->fam == FAM_FX && pg->graph == GR_PUNCH)
         return LAYER_FX;
     if (pg->fam == FAM_SEQ && pg->graph == GR_STEPS)   /* SEQ TOOLS: not the GENERATION pages beside it */
         return LAYER_SEQ;
@@ -610,9 +610,9 @@ static void page_entered(void)
     song.seq_mode = !ui.home && pg->fam == FAM_SEQ;
     {   /* the punch page shown: the section's 2/2 page (two PUNCH-IN titles, the count tells them apart) */
         uint32_t i = NPAGES;
-        while (i > 0 && !(PAGES[i - 1].fam == FAM_FX && PAGES[i - 1].sec == FX_SEC_PUNCH))
+        while (i > 0 && !(PAGES[i - 1].fam == FAM_FX && PAGES[i - 1].graph == GR_PUNCH))
             i--;                                        /* (the last PUNCH-IN page in the table: the 2/2) */
-        perf_page(!ui.home && pg->fam == FAM_FX && pg->sec == FX_SEC_PUNCH && pg == &PAGES[i - 1]);
+        perf_page(!ui.home && pg == &PAGES[i - 1]);
     }
     ui.entry_open = 0;
     ui.hot_t = 0;                                /* clear the previous page's emphasis */
@@ -942,8 +942,9 @@ static int seq_is_empty(const track_t *t)
  * takes the copy too (UNDO_MOT: SAVE held puts the track's motion back, the sound and the steps stay; motion_undo_take).
  * A sound load keeps the track's motion on the parameters every engine has (load_end, motion.c motion_sound_loaded);
  * a pattern load drops it all (the steps it was on are gone).
- * SAVE > CLEAR > ALL / ALL4 clears the mix and the arp too (UNDO_MIX: those come back with the sound and steps) */
-enum { UNDO_SOUND = 1, UNDO_PAT = 2, UNDO_MOT = 4, UNDO_MIX = 8, UNDO_KIT = 16 };
+ * SAVE > CLEAR > ALL / ALL4 clears the mix and the arp too (UNDO_MIX: those come back with the sound and steps).
+ * PUNCH LANE's edits copy the punch-in lane instead (UNDO_LANE alone: every track's, the swap touches no track) */
+enum { UNDO_SOUND = 1, UNDO_PAT = 2, UNDO_MOT = 4, UNDO_MIX = 8, UNDO_KIT = 16, UNDO_LANE = 32 };
 static struct {
     uint8_t trk;                 /* track + 1, 0 = nothing to undo */
     uint8_t keep;                /* the track is as the last load left it (undo.after): a next load keeps the copy */
@@ -962,6 +963,8 @@ static struct {
     uint32_t from_h;             /* pat_from_h[], pat_from[] of the copy (the header's slot letter) */
     uint8_t from;
     uint32_t t_ms;               /* time of the last load (the editor's SETs after it belong to it) */
+    uint32_t lane[64];           /* UNDO_LANE: pfx_lane and pfx_ltgt (pfx.c) */
+    uint8_t ltgt;
 } undo;                       /* (main loop only, but in .bss since FUN21: the pool's headroom took its 255 records) */
 static uint8_t undo_depth;       /* loads nest (an engine jump loads its first preset): the outer one counts;
                                   * felucca_init / project_load raise it to take no copy at all */
@@ -1173,6 +1176,48 @@ static void motion_undo_done(track_t *t)
     undo.keep = 1;
     undo.t_ms = fm1_ms;
 }
+/* the lane undo's copy: lane l and its tracks g (UNDO_LANE; the swap touches no track) */
+static void lane_undo_set(const uint32_t *l, uint32_t g)
+{
+    undo.trk = (uint8_t)(song.sel + 1u);         /* (something to undo) */
+    undo.what = UNDO_LANE;
+    memcpy(undo.lane, l, sizeof undo.lane);
+    undo.ltgt = (uint8_t)g;
+    undo.keep = 0;
+}
+/* PUNCH LANE (ui_events.c): the lane is about to be edited: its copy. A knob turned on shares the copy as
+ * motion_undo_take does; lane_undo_done after each */
+static void lane_undo_take(uint32_t tag)
+{
+    if (tag && tag == undo_mot_tag && undo.keep && undo.what == UNDO_LANE &&
+        fnv(2166136261u, pfx_lane, sizeof pfx_lane) == undo.after && fm1_ms - undo.t_ms < 1500u)
+        return;
+    undo_mot_tag = tag;
+    lane_undo_set(pfx_lane, pfx_ltgt);
+}
+static void lane_undo_done(void)
+{
+    undo.after = fnv(2166136261u, pfx_lane, sizeof pfx_lane);
+    undo.keep = 1;
+    undo.t_ms = fm1_ms;
+}
+/* A REC pass that changes the lane (punch-ins, CLR: pfx.c, in the ISR) is one lane undo: the lane as the pass found it
+ * becomes the copy when the pass ends; a pass that leaves the lane as it was takes none. Each frame (ui_input) */
+static uint32_t lane_pre[64];                     /* the lane as the pass found it */
+static uint8_t lane_pre_tgt, lane_pass;
+static void lane_rec_watch(void)
+{
+    uint32_t on = (uint32_t)pfx_rec_ok();
+    if (on && !lane_pass) {
+        memcpy(lane_pre, pfx_lane, sizeof lane_pre);
+        lane_pre_tgt = pfx_ltgt;
+    } else if (!on && lane_pass && memcmp(lane_pre, pfx_lane, sizeof lane_pre)) {
+        undo_mot_tag = 0;
+        lane_undo_set(lane_pre, lane_pre_tgt);
+        lane_undo_done();
+    }
+    lane_pass = (uint8_t)on;
+}
 
 static int param_kept(uint32_t i);
 
@@ -1186,6 +1231,21 @@ static void undo_swap(void)
     char b[4] = {'T', 0, 0, 0};
     if (!undo.trk) {
         ui_message("NOTHING TO UNDO");
+        return;
+    }
+    if (undo.what == UNDO_LANE) {                 /* the punch-in lane and the copy change places */
+        uint32_t v;
+        for (i = 0; i < 64u; i++) {
+            v = pfx_lane[i];
+            pfx_lane[i] = undo.lane[i];
+            undo.lane[i] = v;
+        }
+        v = pfx_ltgt;
+        pfx_ltgt = undo.ltgt;
+        undo.ltgt = (uint8_t)v;
+        undo.keep = 0;
+        ui_message("UNDO/REDO LANE");
+        ui.force = 1;
         return;
     }
     t = &trk[(undo.trk - 1u) % NTRK];
