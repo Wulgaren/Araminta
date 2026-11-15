@@ -176,16 +176,19 @@ static int load_project_bin(const char *path, project_t *out, char *err, size_t 
         snprintf(err, errn, "open: %s", strerror(errno));
         return 0;
     }
+    memset(&st, 0, sizeof st);
     n = fread(st.raw, 1, sizeof st.raw, f);
     fclose(f);
-    if (n != sizeof st.raw) {
-        snprintf(err, errn, "short read %zu", n);
+    /* a retained slot may hold an earlier, shorter record (3840 B FUN10..FUN19, 4096 FUN20): its own header says
+     * so, and proj_import takes the size it is given (project.c proj_import_any) */
+    if (!n || n > sizeof st.raw) {
+        snprintf(err, errn, "read %zu bytes", n);
         return 0;
     }
-    if (!proj_import(out, &st, (int)sizeof st)) {
+    if (!proj_import(out, &st, (int)n)) {
         uint32_t m;
         memcpy(&m, st.raw, 4);
-        snprintf(err, errn, "proj_import refused magic=0x%08x", m);
+        snprintf(err, errn, "proj_import refused %zu B magic=0x%08x", n, m);
         return 0;
     }
     return 1;
