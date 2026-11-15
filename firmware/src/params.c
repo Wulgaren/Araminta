@@ -151,7 +151,8 @@ static const param_desc_t TP[P_COUNT] = {
     [P_SLCR] = PE("SLCR", N_SLCR, 0),
     [P_SLPAT] = PD("PAT", F_INT, 1, 16, 1),        /* SL_PAT[] */
     [P_SLRATE] = PE("RATE", N_SLDIV, 1),
-    [P_SLDEPTH] = PD("MIX", F_PCT, 0, 127, 127),   /* was DEPTH; EFFECTS K4 amount */
+    [P_SLDEPTH] = PD("MIX", F_PCT, 0, 127, 0),     /* was DEPTH; EFFECTS K4 amount. 0 = bypass, like the
+                                                    * inserts' MIX: raising SLCR's mode alone stays silent */
 #define MSLOT(k) [P_M##k##SRC] = PE("SRC" #k, N_MSRC, 0), [P_M##k##DST] = PE("DST" #k, N_MDST, 0), \
                  [P_M##k##AMT] = PD("AMT" #k, F_BIPCT, -64, 63, 0)
     MSLOT(1), MSLOT(2), MSLOT(3), MSLOT(4),
@@ -594,7 +595,7 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
        FAM_COUNT };
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
-       GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_CLEAR, GR_CHORD, GR_EVENTS,
+       GR_SLCR, GR_MOD, GR_SONG, GR_CLEAR, GR_CHORD, GR_EVENTS,
        GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS, GR_DESTS, GR_IORD, GR_PUNCH, GR_DXSND, GR_LANES, GR_GENERATION };
 /* page.sec: button cycles sections; SELECT walks pages that share fam+sec and stops at the ends
  * (ui.c open_family / select_page_step) */
@@ -602,7 +603,7 @@ enum { FX_SEC_INS = 0, FX_SEC_PUNCH = 1, FX_NSEC = 2,
        SEQ_SEC_STEP = 0, SEQ_SEC_TOOL = 1, SEQ_NSEC = 2,
        EDIT_SEC_SND = 0, EDIT_SEC_KIT = 1, EDIT_SEC_VOX = 2, EDIT_NSEC = 3,
        GLO_SEC_MASTER = 0, GLO_SEC_SONG = 1, GLO_NSEC = 2,
-       SAVE_SEC_PRE = 0, SAVE_SEC_PROJ = 1, SAVE_SEC_CLEAR = 2, SAVE_NSEC = 3,
+       SAVE_SEC_PRE = 0, SAVE_SEC_CLEAR = 1, SAVE_NSEC = 2,
        LFO_SEC_LFO = 0, LFO_SEC_MOD = 1, LFO_NSEC = 2,
        TRK_SEC_MIX = 0 };
 
@@ -666,11 +667,10 @@ static const page_t PAGES[] = {
     {"MASTER", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_MASTER, {G_CLIP, G_PUNCH, G_DUCK, G_DREL}},
     {"CLOCK", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_MASTER, {G_BPM, G_SWING, G_CLOCK, 0xFF}},
     {"SONG", FAM_GLO, SC_GLOBAL, GR_SONG, GLO_SEC_SONG, {0xFF, 0xFF, 0xFF, 0xFF}},
-    /* SAVE: Presets (PRESETS / USER / PHRASES) → Project → Clear (sticky key map) */
+    /* SAVE: sounds (PRESETS / USER / PROJECT) → Clear (sticky key map) */
     {"PRESETS", FAM_SAVE, SC_GLOBAL, GR_BROWSE, SAVE_SEC_PRE, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"USER", FAM_SAVE, SC_GLOBAL, GR_USER, SAVE_SEC_PRE, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"PHRASES", FAM_SAVE, SC_GLOBAL, GR_PATS, SAVE_SEC_PRE, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, SAVE_SEC_PROJ, {G_SLOT, 0xFF, G_LOAD, G_SAVE}},
+    {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, SAVE_SEC_PRE, {G_SLOT, 0xFF, G_LOAD, G_SAVE}},
     {"CLEAR", FAM_SAVE, SC_GLOBAL, GR_CLEAR, SAVE_SEC_CLEAR, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, 0, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, 0, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},

@@ -1446,7 +1446,7 @@ static int project_save_as(uint32_t slot, const char *name)
         proj_sum_set(slot, p);                             /* the summary from RAM: no flash read */
         proj_name_get(proj_name, (const uint8_t *)p->name);
         proj_cur = (uint8_t)(slot & 3u);
-        pat_from_set((slot & 3u) + 1u);
+        step_from_set((slot & 3u) + 1u);
         autosave_catch_up();                               /* name may have changed; keep poll in sync */
         ui_message("SAVED");
         return 0;
@@ -1460,7 +1460,7 @@ static int project_save_as(uint32_t slot, const char *name)
     proj_sum_set(slot, p);
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = (uint8_t)(slot & 3u);
-    pat_from_set((slot & 3u) + 1u);
+    step_from_set((slot & 3u) + 1u);
     ui_message("SAVED (RAM)");
     return 0;
 #endif
@@ -1654,7 +1654,7 @@ static int project_restore_runtime(const project_t *input)
     fm1_irq_on();
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = PROJ_NO_SLOT;                            /* (project_load: its slot) */
-    pat_from_set(0);                                    /* (project_load: its slot; the header's letter) */
+    step_from_set(0);                                    /* (project_load: its slot; the header's letter) */
     undo.trk = 0;                                       /* (ui.c) the undo copy belongs to the old project */
     undo_depth++;                                       /* and these loads take none */
     for (k = 0; k < NTRK; k++) {                        /* the power-on sounds: format 1 (tracks 2..4), old drums */
@@ -1672,7 +1672,6 @@ static int project_restore_runtime(const project_t *input)
                 t->p[i] = TP[i].def;
             fm1_irq_on();
         }
-        pat_sig[k] = ~steps_sig(t);                     /* a project's steps are the user's */
     }
     undo_depth--;
     sync_reload = 1;
@@ -1687,7 +1686,7 @@ static void project_load(uint32_t slot)
     proj_bound(&proj_scratch);                          /* a retained RAM slot of an older format: as from flash */
     if (!project_restore_runtime(&proj_scratch)) {
         proj_cur = (uint8_t)(slot & 3u);
-        pat_from_set((slot & 3u) + 1u);
+        step_from_set((slot & 3u) + 1u);
     }
 }
 

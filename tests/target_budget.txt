@@ -32,8 +32,8 @@ dx_metal 142
 dx_teeth 48
 dx_click 79
 slicer_track 0
-fm1_alnk0_irq 36449
-fm1_timer5_irq 25138
+fm1_alnk0_irq 36508
+fm1_timer5_irq 25182
 click_render 30
 mod_begin 245
 mod_voice 30
@@ -41,7 +41,7 @@ mod_end 29
 perf_begin 28
 perf_mute 0
 perf_pre 30
-perf_block 852
+perf_block 854
 perf_take 17
 perf_out 219
 perf_flanger 369
@@ -56,4 +56,4 @@ rev_side_mix 42
 track_insert 249
 ins_run_dist 136
 ins_run_swept 244
-ins_run_ott 968
+ins_run_ott 561

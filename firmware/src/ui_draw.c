@@ -147,7 +147,7 @@ static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16
 }
 
 /* the header (y 0..24), three calm slots (1.2):
- *   left    the selected track's cushion (ink 4..20), the PROJECT slot letter of its pattern ("1 A", head_slot), the REC
+ *   left    the selected track's cushion (ink 4..20), the PROJECT slot letter of its sequence ("1 A", head_slot), the REC
  *           mark attached (filled: it is armed; outlined: another). A message centred hides the letter (its room)
  *   centre  the play state (stop, play, the song's disc), the metronome and the BPM, its ink centred on x 120 (BPM
  *           LOCK ON: a lock right of it). The metronome swings on the click's beats (seq.c click_beat_now): mirrored
@@ -268,8 +268,8 @@ static void head_msg(int32_t x, int32_t maxw)
 }
 /* the slot letter after the track's cushion (1.2): the PROJECT slot of the pattern the selected track plays or edits.
  * A song playing: its section's slot for the track ("-" silent there); else the slot the working pattern came from
- * (ui.c pat_from: the last PROJECT load or save), with a mark ("A*") once it was edited since (its steps, LEN DIV SWING
- * GATE, QUANTIZE or automation: ui.c pat_from_sig); none at power-on, after a PHRASES pattern or the editor's restore.
+ * (ui.c step_from: the last PROJECT load or save), with a mark ("A*") once it was edited since (its steps, LEN DIV SWING
+ * GATE, QUANTIZE or automation: ui.c step_from_sig); none at power-on or after the editor's restore.
  * b: the letter (b[1] '*' or 0); 0 = none */
 static int head_slot(char *b)
 {
@@ -280,10 +280,10 @@ static int head_slot(char *b)
         b[0] = s < 4u ? (char)('A' + s) : '-';
         return 1;
     }
-    if (!pat_from[k] || pat_from[k] > 4u)
+    if (!step_from[k] || step_from[k] > 4u)
         return 0;
-    b[0] = (char)('A' + pat_from[k] - 1u);
-    if (pat_from_sig(TSEL) != pat_from_h[k])
+    b[0] = (char)('A' + step_from[k] - 1u);
+    if (step_from_sig(TSEL) != step_from_h[k])
         b[1] = '*';
     return 1;
 }
@@ -710,7 +710,7 @@ static void foot_hint(char *a, char *b)
     if (!ui.home && cur_page()->graph == GR_EVENTS)
         str_cpy(b, "OCT- DELETE", 16);                  /* AUTOMATION: the row's record goes (ui_events.c) */
     else
-        str_cpy(b, ui.act && cur_page()->graph != GR_PATS ? "OCT- CANCEL" : "OCT- BACK", 16);
+        str_cpy(b, ui.act ? "OCT- CANCEL" : "OCT- BACK", 16);
 }
 
 /* SAVE > USER / PROJECT: EDIT renames the selected slot (ui_name.c); 0 = not such a page, 1 an empty slot
@@ -818,7 +818,7 @@ static void draw_foot(void)
                 cv_rect(sx, 14, 9, 2, T_TEXT);          /* the step sounding */
         }
     }
-    {   /* row 2: engine icon + name, sound, page title at the right with its icon before it (MIXER, PHRASES, SONG,
+    {   /* row 2: engine icon + name, sound, page title at the right with its icon before it (MIXER, SONG,
          * AUTOMATION); icons: their ink on the names' capitals */
         uint32_t pi = ui.home ? ICON_NONE : page_icon(pg), ei = FELUCCA_ICONS ? engine_icon(ename) : ICON_NONE;
         int32_t r = 232, tx, ex, need = text_w(&AF_S, pn), ew = text_w(&AF_S, ename);
@@ -1074,16 +1074,6 @@ static void draw_columns(void)
         draw_column(1, "ENG", ENGINES[TSEL->eng_req]->name, "", VAL(1u), -1, engine_icon(ENGINES[TSEL->eng_req]->name));
         draw_column(2, "FAV", preset_favorite() ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
         draw_column(3, "LIST", list_name(list_mode()), "", VAL(3u), -1, ICON_X_FOLDER);
-        return;
-    }
-    if (cur_page()->graph == GR_PATS) {                  /* PAT, then LOAD (a GO button) */
-        uint32_t n = pat_count(), k = pat_pick();
-        char tag[4], nm[13];
-        pat_label(k, tag, nm);
-        draw_column(0, "PAT", tag, "", VAL(0u), (int32_t)k * 1000 / (int32_t)(n > 1u ? n - 1u : 1u), ICON_X_PATTERN);
-        draw_act_column(1, "LOAD", T_THEME, ICON_AUTO);
-        draw_column(2, "", "", "", T_THEME, -1, ICON_AUTO);
-        draw_column(3, "", "", "", T_THEME, -1, ICON_AUTO);
         return;
     }
     if (cur_page()->graph == GR_USER) {                  /* SLOT, then three GO buttons */
@@ -1563,13 +1553,6 @@ static void confirm_text(char *a, char *b)
         str_cpy(a + str_len(a), "?", 2);
         up_name(k, b);
         break;
-    case CF_LOAD_PAT: {
-        char tag[4];
-        str_cpy(a, "REPLACE T1 SEQUENCE?", 24);
-        a[9] = (char)('1' + k % NTRK);
-        pat_label(pat_pick(), tag, b);               /* with the pattern picked */
-        break;
-    }
     default:
         str_cpy(a, "CLEAR T1 SEQUENCE?", 24);     /* the header (T1..T4) is hidden */
         a[7] = (char)('1' + k % NTRK);

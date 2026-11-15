@@ -16,7 +16,7 @@
  *    header falls back to the same sine; USR2 (empty) is the fallback.
  * 6. cost: host instructions per sample and voice (8 notes held, the idle mix taken off) for every preset;
  *    fails above WT_COST_MAX.
- * 7. demos into DEMODIR: every preset playing its suggested pattern. */
+ * 7. demos into DEMODIR: every preset playing the demo phrase. */
 #include <stdint.h>
 static uint8_t host_wt_slots[3][0x14000] __attribute__((aligned(4)));   /* USR1..3, as the flash at 0xA0000 */
 #define SMP_USER_XIP(k) (host_wt_slots[k])
@@ -572,7 +572,10 @@ static void demo(const char *dir, uint32_t pi)
 {
     static int32_t o[2 * CTL];
     const preset_t *pr = &ENG_WT.presets[pi];
-    uint32_t pat = pr->pat ? pr->pat - 1u : 4u, step = FS / 8u, s, i, held = 0, frames = 0;
+    /* the demo phrase (the PAD pattern the demos played before SAVE > PHRASES went) */
+    static const uint8_t note[16] = {60, 0, 0, 0, 0, 0, 0, 0, 57, 0, 0, 0, 55, 0, 0, 0};
+    static const uint8_t fl[16] = {0, 4, 4, 4, 4, 4, 4, 0, 0, 4, 4, 0, 0, 4, 4, 0};
+    uint32_t step = FS / 8u, s, i, held = 0, frames = 0;
     char path[512], nm[32];
     FILE *w;
     for (i = 0; pr->name[i] && i < 31u; i++)
@@ -587,14 +590,14 @@ static void demo(const char *dir, uint32_t pi)
     host_preset(&trk[0], eng_wt(), pi);
     master_reset();
     for (s = 0; s < 48u; s++) {                       /* three times through the pattern's 16 steps, 120 BPM 1/16 */
-        uint32_t k = s % 16u, note = PATTERNS[pat].note[k], fl = PATTERNS[pat].flags[k];
-        if (!(fl & 4u) && held) {
+        uint32_t k = s % 16u, n = note[k], f = fl[k];
+        if (!(f & 4u) && held) {
             trk_note_off(&trk[0], held);
             held = 0;
         }
-        if (note && !(fl & 4u)) {
-            trk_note_on(&trk[0], note, fl & 1u ? 120 : 90);
-            held = note;
+        if (n && !(f & 4u)) {
+            trk_note_on(&trk[0], n, f & 1u ? 120 : 90);
+            held = n;
         }
         for (i = 0; i < step; i += CTL) {
             uint32_t j;
@@ -623,7 +626,7 @@ static void demos(const char *dir)
     uint32_t pi;
     for (pi = 0; pi < ENG_WT.npresets; pi++)
         demo(dir, pi);
-    printf("wt: demos in %s: the %u presets, each playing its suggested pattern\n", dir, (uint32_t)ENG_WT.npresets);
+    printf("wt: demos in %s: the %u presets, each playing the demo phrase\n", dir, (uint32_t)ENG_WT.npresets);
 }
 
 int main(int argc, char **argv)

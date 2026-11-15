@@ -82,7 +82,7 @@ static int mom_turn(uint32_t k, int32_t s)
     } else {
         if (act_cols() || lock_held() || !(pg->scope == SC_TRACK || pg->scope == SC_ENGINE || pg->scope == SC_GLOBAL) ||
             pg->graph == GR_EVENTS || pg->graph == GR_SONG || pg->graph == GR_BROWSE || pg->graph == GR_USER ||
-            pg->graph == GR_PATS || (pg->graph == GR_MOD && k == 0u))
+            (pg->graph == GR_MOD && k == 0u))
             return 0;
         d = page_desc(pg, k, &vp);
     }
@@ -789,7 +789,7 @@ static int32_t shift_acc;
 static int shift_merging(const track_t *t)
 {
     return undo_mot_tag == 0x800u && undo.keep && undo.trk == trk_index(t) + 1u &&
-           undo.what == (uint8_t)(UNDO_MOT | UNDO_PAT) && edit_sig(t) == undo.after &&
+           undo.what == (uint8_t)(UNDO_MOT | UNDO_STEPS) && edit_sig(t) == undo.after &&
            fm1_ms - undo.t_ms < 1500u;
 }
 static uint64_t shift_slide(uint64_t bits, int32_t by, uint32_t len)
@@ -1230,18 +1230,12 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     }
     if ((act_cols() >> slot) & 1u) {                      /* an action's knob picks it (right) or drops it (left); */
-        if (pg->graph != GR_PATS)                         /* OCT+ does it (act_do) */
-            ui.act = steps > 0 ? (uint8_t)(slot + 1u) : ui.act == slot + 1u ? 0u : ui.act;
-        return;
+        ui.act = steps > 0 ? (uint8_t)(slot + 1u) : ui.act == slot + 1u ? 0u : ui.act;
+        return;                                           /* OCT+ does it (act_do) */
     }
     if (pg->graph == GR_USER) {                           /* KNOB 1 the slot */
         if (slot == 0u)
             ui.uslot = (uint8_t)clamp((int32_t)ui.uslot + steps, 0, UP_SLOTS - 1);
-        return;
-    }
-    if (pg->graph == GR_PATS) {                          /* KNOB 1 the pattern */
-        if (slot == 0u)
-            ui.ppick = (uint8_t)clamp((int32_t)pat_pick() + steps, 0, (int32_t)pat_count() - 1);
         return;
     }
     if (fop_page(pg->graph)) {                           /* FM6's operators: KNOB 1 OP, 2..4 its bytes (ui_fm6op.c) */
@@ -1446,14 +1440,6 @@ static void act_do(void)
         else chain_play_ui();
         return;
     }
-    if (cur_page()->graph == GR_PATS) {
-        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        if (pat_needs_confirm(TSEL))                      /* the user's steps: the dialog */
-            confirm_open(CF_LOAD_PAT, song.sel);
-        else                                              /* empty, or a pattern loaded and untouched */
-            pat_load_ui(TSEL, pat_pick());
-        return;
-    }
     if (cur_page()->graph == GR_USER) {                   /* 1 LOAD, 2 ERASE, 3 SAVE (the NAME screen first) */
         if (c > 1u)
             ui.act = 0;
@@ -1654,7 +1640,7 @@ static void sound_dice(void)
  *   the SEQ pages (the DRUM grid: a held step key moves those steps, otherwise the hit under the cursor, a rest
  *     the cursor; the piano roll: the note under the cursor, a rest the cursor; step recording with a key held:
  *     LEN of that note instead; AUTOMATION: the row). USER,
- *     PHRASES, PROJECT, SONG: as their KNOB 1 (a SEQ sound load would drop the track's motion: never).
+ *     PROJECT, SONG: as their KNOB 1 (a SEQ sound load would drop the track's motion: never).
  *     1.2: with PATTERN, CHANCE and the old AUTOMATION gone, KNOB 1 is the cursor or the row on every SEQ page, so
  *     the PRESETS knob is no longer a second cursor where KNOB 1 was something else; TOOLS and SLICES: nothing
  *   HOME, PRESETS and every other page (EDIT, ENV, LFO, FX, SCL, ARP, MIXER, CLOCK, ...): the selected track's
@@ -1686,7 +1672,7 @@ static void presets_turn(int32_t s)
     }
     if (ui.home || g == GR_BROWSE) {
         preset_step(s);
-    } else if (g == GR_ROLL || g == GR_USER || g == GR_SLOTS || g == GR_PATS || g == GR_SONG || g == GR_EVENTS) {
+    } else if (g == GR_ROLL || g == GR_USER || g == GR_SLOTS || g == GR_SONG || g == GR_EVENTS) {
         edit_param(0, s);                                 /* KNOB 1's (STEP: STOP TO EDIT while a song plays) */
         ui.hot_col = 0;
         ui.hot_t = 40;
@@ -1835,7 +1821,7 @@ static void knob_turn(uint32_t k, int32_t s)
         return;
     }
     if (!dim && (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
-        ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
+        ((pg->graph == GR_USER || pg->graph == GR_MOD) && k == 0u)
         || pg->graph == GR_SONG || pg->graph == GR_IORD || pg->graph == GR_DXSND || pg->graph == GR_GENERATION ||
         (dly_page(pg) && k == 3u) || fop_page(pg->graph))) {   /* (not an empty column; DLY K4 is RATE / TIME) */
         ui.hot_col = (uint8_t)k;
@@ -2025,12 +2011,9 @@ static void ui_input(void)
                 name_open(NK_USER_SAVE, ui.confirm_trk);
             } else if (kind == CF_ERASE_USER) {
                 up_ui(1u, ui.confirm_trk);
-            } else if (kind == CF_LOAD_PAT) {
-                pat_load_ui(&trk[ui.confirm_trk % NTRK], pat_pick());
-                str_cpy(ui.msg2, "[SAVE] HOLD TO UNDO", sizeof ui.msg2);
             } else if (kind == CF_CLEAR_MOTION) {
                 track_t *t = &trk[ui.confirm_trk % NTRK];
-                if (!chain_busy()) { load_begin(t, UNDO_PAT); motion_clear(t); load_end(t); ui_message("AUTOMATION CLEARED"); }
+                if (!chain_busy()) { load_begin(t, UNDO_STEPS); motion_clear(t); load_end(t); ui_message("AUTOMATION CLEARED"); }
             } else if (kind == CF_CLEAR_LANE) {
                 lane_undo_take(0);
                 pfx_lane_clear();
@@ -2065,7 +2048,7 @@ static void ui_input(void)
                     track_t *t = &trk[ui.confirm_trk % NTRK];
                     uint32_t was = song.sel;
                     if (kind == CF_CLEAR_TRACK_ALL)
-                        load_begin(t, UNDO_SOUND | UNDO_PAT | UNDO_MIX);
+                        load_begin(t, UNDO_SOUND | UNDO_STEPS | UNDO_MIX);
                     song.sel = (uint8_t)(ui.confirm_trk % NTRK);
                     set_engine(t->eng_req);
                     if (drum_track(t)) {
@@ -2092,7 +2075,7 @@ static void ui_input(void)
                         t->arp_phys = 0;
                     }
                     undo.trk = 0;
-                    ui_message("ALL PATTERNS CLEARED");
+                    ui_message("ALL SEQUENCES CLEARED");
                 }
             } else if (kind == CF_INIT_ALL_SOUND || kind == CF_CLEAR_EVERY_TRACK_ALL) {
                 uint32_t i, was = song.sel;
@@ -2132,7 +2115,7 @@ static void ui_input(void)
                 }
             } else {
                 track_t *t = &trk[ui.confirm_trk % NTRK];
-                load_begin(t, UNDO_PAT);
+                load_begin(t, UNDO_STEPS);
                 track_defaults_steps(t);
                 load_end(t);
                 t->nheld = 0;                           /* and the latched arp chord */
@@ -2216,7 +2199,7 @@ static void ui_input(void)
     } else if (act_cols() && (oct & 1u)) {              /* OCT- deletes on AUTOMATION, else drops the */
         if (cur_page()->graph == GR_EVENTS)             /* picked action, or (none picked) goes HOME */
             ev_delete();
-        else if (cur_page()->graph != GR_PATS && ui.act)
+        else if (ui.act)
             ui.act = 0;
         else
             go_home();

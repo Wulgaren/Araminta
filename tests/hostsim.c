@@ -146,7 +146,7 @@ static void host_preset(track_t *t, uint32_t e, uint32_t pi)
  * for the migration tests, which pass it through a load */
 static void host_legacy_sample_perc(track_t *t)
 {
-    static const preset_t PERC = {"PERC", {SMP_SET_PERC, 0, 0, 0, 127, 0, 0, 0}, {0, 127, 127, 60}, 0, 0, PAT(12)};
+    static const preset_t PERC = {"PERC", {SMP_SET_PERC, 0, 0, 0, 127, 0, 0, 0}, {0, 127, 127, 60}, 0, 0};
     host_preset_values(t, ENGI_SAMPLE, SMP_SET_PERC, &PERC);
     t->engine = ENGI_SAMPLE;
 }
