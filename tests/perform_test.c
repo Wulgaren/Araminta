@@ -781,6 +781,38 @@ static int test_misc(void)
         bad += check(what, before > 1000 && during < 200 && trk[0].p[P_MUTE] == PLAY_ON && trk[1].p[P_MUTE] == PLAY_SOLO);
         trk[1].p[P_MUTE] = PLAY_ON;
     }
+    {   /* PLAY OFF on a note already sounding: it ramps out as a black-key mute does, not only the next notes */
+        int32_t o[2 * CTL];
+        uint32_t f;
+        int32_t before = 0, during = 0, back = 0;
+        song_setup();
+        fx_boot();                                      /* isolate this dry mute check from earlier bus tails */
+        trk[0].p[P_CHOR] = trk[0].p[P_DLY] = trk[0].p[P_REV] = 0;
+        trk_note_on(&trk[0], 60, 100);
+        for (f = 0; f < 8192u; f += CTL) {
+            uint32_t i;
+            if (f == 4096u)
+                trk[0].p[P_MUTE] = PLAY_OFF;
+            mix_block(o, CTL);
+            for (i = 0; i < CTL; i++) {
+                if (f < 4096u) before = abs(o[2 * i]) > before ? abs(o[2 * i]) : before;
+                if (f >= 4096u + 512u) during = abs(o[2 * i]) > during ? abs(o[2 * i]) : during;
+            }
+        }
+        snprintf(what, sizeof what, "PLAY OFF on a sounding note: it ramps out (peak %d -> %d), the mute bit set",
+                 before, during);
+        bad += check(what, before > 1000 && during < 200 && (pf.mute & 1u));
+        trk[0].p[P_MUTE] = PLAY_ON;
+        for (f = 0; f < 4096u; f += CTL) {
+            uint32_t i;
+            mix_block(o, CTL);
+            for (i = 0; i < CTL; i++)
+                if (f >= 512u) back = abs(o[2 * i]) > back ? abs(o[2 * i]) : back;
+        }
+        snprintf(what, sizeof what, "PLAY back ON: the note returns (peak %d)", back);
+        bad += check(what, back > 1000);
+        trk_note_off(&trk[0], 60);
+    }
     return bad;
 }
 

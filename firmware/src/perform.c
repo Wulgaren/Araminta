@@ -122,6 +122,15 @@ static uint32_t solo_mask(void)
             m |= 1u << k;
     return m;
 }
+/* the tracks whose PLAY is OFF: muted as by a black key, so a note still sounding ramps out (perf_mute) */
+static uint32_t off_mask(void)
+{
+    _Static_assert(NTRK == 4, "off_mask is unrolled for four tracks");
+    return (uint32_t)(trk[0].p[P_MUTE] == PLAY_OFF) |
+           (uint32_t)(trk[1].p[P_MUTE] == PLAY_OFF) << 1 |
+           (uint32_t)(trk[2].p[P_MUTE] == PLAY_OFF) << 2 |
+           (uint32_t)(trk[3].p[P_MUTE] == PLAY_OFF) << 3;
+}
 /* 1 when track k is heard: PLAY is not OFF, and it is not left out by a solo */
 static int trk_heard(uint32_t k)
 {
@@ -411,11 +420,19 @@ static void perf_buf_select(uint32_t e)
  * the copy the layer reads a block late (it runs beside this core's tail, on either core) */
 static __attribute__((noinline)) int perf_begin(uint32_t n)
 {
-    uint32_t solo = solo_mask(), s16 = beat_samples() >> 2, lane = 0, held, q, k, ph0, bnd;
+    uint32_t solo = solo_mask(), off = off_mask(), s16 = beat_samples() >> 2, lane = 0, held, mute, q, k, ph0, bnd;
     if (song.playing && s16)                           /* the punch-in lane's step at this block's end (pf.ph: the
                                                          * transport's), so a REPEAT starts on its 1/16 below */
         lane = pfx_lane[((pf.ph + n - 1u) / s16) & 63u];
     held = ((perf_kill ? 0u : perf_held | perf_latched | (solo ? (~solo & 15u) << PF_M1 : 0u)) | lane) & perf_avail() & ~PF_MIDI;
+    /* mix_part's mutes: a black key, a ramp still running, or PLAY OFF (GLO) — the OFF ones are not the layer's,
+     * so a sounding note ramps out in mix_part while perf_begin may stay idle */
+    pf.mute = 0;
+    for (k = 0; k < NTRK; k++)
+        if (((held >> (PF_M1 + k)) & 1u) || pf.mg[k] != 32768)
+            pf.mute |= (uint8_t)(1u << k);
+    pf.mute |= (uint8_t)off;                        /* (PLAY OFF: mix_part ramps a sounding note, not the layer) */
+    mute = pf.mute & ~off;
     int32_t m;
     /* the buffer effects borrow sl_buf from the SLICER: taken and given back here, on core 0, before the parts render, so
      * the layer (a block late, on either core) never drops the slicer's state under them */
@@ -431,7 +448,7 @@ static __attribute__((noinline)) int perf_begin(uint32_t n)
     /* idle: the clock only. THROW's glide, the mutes and the knobs are this core's; the layer's own stages report
      * through perf_layer_busy. (One OR, no branch per term: a cold branch here reads as a loop to target_budget) */
     if (!(held | perf_layer_busy | (uint32_t)(perf_k[0] | perf_k[1] | perf_k[2]) | (uint32_t)pf.td | pf.thr |
-          pf.mute)) {
+          mute)) {
         pf.ph += n;
         pf.sync = 0;
         perf_act = 0;
@@ -490,10 +507,6 @@ static __attribute__((noinline)) int perf_begin(uint32_t n)
         pf.ew1 += clamp((pf.act & PF_BIT(PF_ETHR) ? 32768 : 0) - pf.ew1, -s, s);
         pf.thr = (pf.rw | pf.rw1 | pf.ew | pf.ew1) != 0;
     }
-    pf.mute = 0;
-    for (k = 0; k < NTRK; k++)
-        if (((held >> (PF_M1 + k)) & 1u) || pf.mg[k] != 32768)
-            pf.mute |= (uint8_t)(1u << k);
     perf_ctl.act = pf.act;
     perf_ctl.act0 = pf.act0;
     perf_ctl.split = pf.split;
@@ -516,11 +529,11 @@ static __attribute__((noinline)) int perf_begin(uint32_t n)
 }
 
 /* perf_mute with SPREAD's side signal sd (fx.c mix_spread): the same ramp on both; sd 0: the mono mix
- * (fx.c mix_part) */
+ * (fx.c mix_part). PLAY OFF reaches here without the layer (perf_begin's mute mask), so its own target is 0 */
 static __attribute__((noinline)) void perf_mute_sd(uint32_t k, int32_t *b, int32_t *sd, uint32_t n)
 {
     uint32_t i;
-    int32_t g = pf.mg[k], t = (pf.act >> (PF_M1 + k)) & 1u ? 0 : 32768;
+    int32_t g = pf.mg[k], t = (((pf.act >> (PF_M1 + k)) & 1u) || trk[k].p[P_MUTE] == PLAY_OFF) ? 0 : 32768;
     if (g == 32768 && t == 32768)
         return;
     for (i = 0; i < n; i++) {
@@ -532,7 +545,8 @@ static __attribute__((noinline)) void perf_mute_sd(uint32_t k, int32_t *b, int32
     }
     pf.mg[k] = g;
 }
-/* a track muted by its black key: its signal ramps to 0 and back (fx.c mix_part, after the SLICER) */
+/* a track muted by its black key, or PLAY OFF (GLO): its signal, still sounding notes too, ramps to 0 and back
+ * (fx.c mix_part, after the SLICER) */
 static __attribute__((noinline)) void perf_mute(uint32_t k, int32_t *b, uint32_t n) { perf_mute_sd(k, b, 0, n); }
 
 /* before the buses: THROW (KNOB 3) adds the dry mix to the delay and reverb sends */
