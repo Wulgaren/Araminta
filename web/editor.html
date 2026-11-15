@@ -4181,12 +4181,24 @@ function renderBackup() {
 }
 /* cache-busted so a deploy cannot pair this page with an older module still in the browser's module map; bump
    both numbers with any change to fm1backup.js. The version symbol catches a stale copy that the query did not
-   replace. */
+   replace (GitHub Pages caches by path, ignoring the query): a page left open across a deploy meets the newer
+   module. Such a page reloads itself once; a reload that still comes back stale reports it instead of looping. */
 const BACKUP_MODULE_VERSION = 3.7;
+const BACKUP_RELOAD_KEY = "araminta.backupReload";
+function backupReloadOnce() {
+  try {
+    if (sessionStorage.getItem(BACKUP_RELOAD_KEY) === String(BACKUP_MODULE_VERSION)) return false;
+    sessionStorage.setItem(BACKUP_RELOAD_KEY, String(BACKUP_MODULE_VERSION));
+    return true;
+  } catch (e) { return false; }                  /* no session storage: a reload loop cannot be stopped */
+}
 async function backupModule() {
   const m = await import("./fm1backup.js?v=3.7");
-  if (m.BACKUP_MODULE_VERSION !== BACKUP_MODULE_VERSION)
+  if (m.BACKUP_MODULE_VERSION !== BACKUP_MODULE_VERSION) {
+    if (backupReloadOnce()) { location.reload(); return new Promise(() => {}); }  /* the reload replaces this page */
     throw new Error(`fm1backup.js ${m.BACKUP_MODULE_VERSION ?? "?"} (need ${BACKUP_MODULE_VERSION}): reload the page`);
+  }
+  try { sessionStorage.removeItem(BACKUP_RELOAD_KEY); } catch (e) { /* no storage */ }
   return m;
 }
 const backupProgress = (done, total) => sayK("backupWorking", `${Math.round(done / Math.max(1, total) * 100)}%`);
