@@ -531,6 +531,38 @@ static void macros(void)
     }
 }
 
+/* AMS with no LFO depth is a small attenuation, not an overflow to full scale or silence. */
+static void ams_scaling(void)
+{
+    static const int R[4] = {99, 99, 99, 99}, L[4] = {99, 99, 99, 0};
+    static int32_t b[CTL];
+    uint8_t v[FP_SIZE + 1u];
+    int16_t e[8] = {0};
+    int32_t plain, ams;
+    uint32_t k;
+    init_patch(v);
+    op_set(v, 1, R, L, 70, 1);
+    for (k = 2; k <= 6u; k++)
+        op_set(v, k, R, L, 0, 1);
+    v[FP_ALG] = 31;                                  /* six carriers: OP1 alone sounds */
+    v[FP_LAMD] = 0;
+    v[(6u - 1u) * FP_OP + FP_AMS] = 0;
+    setup(v, e);
+    trk_note_on(&trk[0], 60, 100);
+    for (k = 0; k < 16u; k++)
+        track_render(&trk[0], b, CTL);
+    plain = fm6_note_of(&trk[0], &trk[0].v[0])->op[5].level_in;
+    v[(6u - 1u) * FP_OP + FP_AMS] = 3;
+    setup(v, e);
+    trk_note_on(&trk[0], 60, 100);
+    for (k = 0; k < 16u; k++)
+        track_render(&trk[0], b, CTL);
+    ams = fm6_note_of(&trk[0], &trk[0].v[0])->op[5].level_in;
+    printf("fm6: AMS 0 / 3 at AMD 0: level_in %d / %d\n", plain, ams);
+    check("AMS: no LFO depth attenuates the operator a little (no overflow to full scale or silence)",
+          plain > 0 && ams > plain - plain / 20 && ams < plain + plain / 20);
+}
+
 /* -------------------------------------------------------------- formats --- */
 static uint32_t chk(const uint8_t *p, uint32_t n)
 {
@@ -730,6 +762,7 @@ int main(int argc, char **argv)
     retrigger();
     dc_clip();
     macros();
+    ams_scaling();
     formats();
     voices();
     if (!getenv("NOCOST"))
