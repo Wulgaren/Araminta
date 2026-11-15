@@ -31,7 +31,6 @@ static const uint16_t SCALE_MASK[] = {
     (1 << 0) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 6) | (1 << 8) | (1 << 9) | (1 << 11), /* DIMWH */
 };
 
-#define KB_SILENT 255u
 static uint32_t kb_prev;
 static volatile uint8_t kb_boot_hold;    /* #137: set from power-on to the end of the splash (main.c): the keys sound nothing,
                                           * and one held across its end stays silent until it is let go and pressed again */
@@ -81,6 +80,13 @@ static int kit_track(const track_t *t)
 {
     const engine_t *e = ENGINES[eng_idx(t->eng_req)];
     return e->keys && e->keys(t, 0) >= 0;
+}
+
+/* the kit keybed (core.h KIT_KEY_NOTE) for DRUM-X and a SAMPLE drum kit (CR78, a USR drum kit): the eight lanes on
+ * the first white keys, KB_SILENT off them. Another SAMPLE set keeps the chromatic map (-1) */
+static int32_t kit_keys(const track_t *t, uint32_t k)
+{
+    return drum_track(t) ? (int32_t)(k < 27u ? KIT_KEY_NOTE[k] : KB_SILENT) : -1;
 }
 
 /* the 27 keys from F: black or white, and the key's place among the keys of its colour (white 0..15, black

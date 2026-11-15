@@ -186,6 +186,29 @@ int main(int argc, char **argv)
     else
         pass("MRPH A..B changes the kick");
 
+    /* the kit editor's audition (ui_input.c, core.h kit_audition): A / B force the side of the hits while the page
+     * is open; KIT follows P_E0 */
+    {
+        uint64_t eA, eB, eKit, eKitA, d;
+        song.sel = 0;
+        t->p[P_LD_SHP] = 0;                             /* (no LFO on the morph) */
+        t->p[P_E0] = 64;
+        kit_audition = 0;
+        hit_lane(t, 36, 120, &pk, &eA);
+        kit_audition = 127;
+        hit_lane(t, 36, 120, &pk, &eB);
+        kit_audition = KIT_AUD_KIT;
+        hit_lane(t, 36, 120, &pk, &eKit);
+        t->p[P_E0] = 0;
+        hit_lane(t, 36, 120, &pk, &eKitA);
+        kit_audition = KIT_AUD_KIT;
+        d = eKitA > eA ? eKitA - eA : eA - eKitA;       /* (the FX tails and the leveler carry over a hit: 5 %) */
+        if (eA == eB || eKit <= eA || eKit >= eB || d * 100u > eA * 5u)
+            fail("the kit editor's audition: A / B force the side, KIT follows MRPH");
+        else
+            pass("the kit editor's audition: A / B force the side, KIT follows MRPH");
+    }
+
     /* a MODEL plays at CLASSIC's level: the voice's gain is the kit's (eng_drum.c drum_render), so the 909 CLUB
      * snare with the SHELL body sits within 4 dB of its CLASSIC one at the same lane LEVEL */
     {

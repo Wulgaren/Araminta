@@ -40,9 +40,26 @@ SAVE loses its phrase loader, gains a HOUSE drum kit after the TR-707, and puts 
 
 ## 4.5
 
-The punch-in lane gets a page and undo, imported DX7 patches with AMS stop hissing, and a muted track ramps out.
+The punch-in lane gets a page and undo, imported DX7 patches with AMS stop hissing, a muted track ramps out, and a drum
+kit's keybed is the kit.
 
 Splash and ABOUT show `v4.5`.
+
+### Drum kit keys
+
+- **The keybed is the kit.** DRUM-X and a SAMPLE drum kit (CR78, a USR drum kit) play KICK, SNARE, CLAP, HAT CL,
+  HAT OP, TOM, RIM and BELL on the first eight white keys (F G A B C D E F); every other key plays nothing. The
+  octave buttons no longer move a kit: F is the kick at any OCT (the other tracks still follow them). GM notes from
+  MIDI and from older patterns play the same lanes as before.
+- **The eight pads glow.** A kit track's pages light the eight keys at the mid level, and a hit lights its key, so
+  the kit can be found without playing it.
+- **A, MRPH or B from the keys.** On a DRUM-X track's EDIT pages (EDIT 1, EDIT 2, SOUND, TONE, MOVEMENT), F#
+  auditions the A patch, G# the kit's MRPH as stored and A# the B patch, and the panel's A---B bar moves to what
+  plays. The three keys glow, the one playing lit. On SOUND, TONE and MOVEMENT, F# and A# also pick the patch the
+  cards edit, and a side picked with the LANE knob is auditioned too. Turning MRPH or leaving the pages puts the kit
+  back on its MRPH, and nothing is stored with the project.
+- **SAMPLE kits act as kits.** A CR78 or USR kit's notes no longer take PITCH, TRN, the chord settings or the scale
+  LEDs, as DRUM-X's never did.
 
 ### Punch-in lane
 

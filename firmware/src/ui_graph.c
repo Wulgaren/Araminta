@@ -2400,8 +2400,8 @@ static void graph_song(void)
 /* DRUM-X: two rows of four lane cells; MORPH bar A..B */
 static void graph_colony(const track_t *t, int32_t sel)
 {
-    static const char *const AB[8] = {"BD", "SD", "CP", "CH", "OH", "TM", "RS", "CB"};
-    int32_t morph = clamp(t->p[P_E0], 0, 127), mx = 30 + morph * 180 / 127;
+    /* the bar is what the kit plays: the editor's audition (ui_dx.c) while its page is open, else MRPH */
+    int32_t morph = clamp(kit_audition <= 127u ? (int32_t)kit_audition : t->p[P_E0], 0, 127), mx = 30 + morph * 180 / 127;
     uint32_t l;
     cv_rect(30, 12, 180, 1, T_LINE);
     cv_rect(30, 11, mx - 30, 3, ACC);
@@ -2412,7 +2412,7 @@ static void graph_colony(const track_t *t, int32_t sel)
         int muted = dx_lane_muted(t, l);
         uint16_t fill = muted ? T_DIM : (sel == (int32_t)l ? T_THEME : T_RAISE);
         cv_rrect(x - 14, y - 10, 28, 22, 3, fill, T_SURF);
-        cv_text_in(x - 14, y - 2, 28, &AF_S, AB[l], sel == (int32_t)l ? T_INK : muted ? T_SURF : T_MID, fill);
+        cv_text_in(x - 14, y - 2, 28, &AF_S, drum_lane_abbr(t, l), sel == (int32_t)l ? T_INK : muted ? T_SURF : T_MID, fill);
     }
 }
 

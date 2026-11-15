@@ -271,14 +271,13 @@ static uint32_t step_leds(void)
  * dark; 0: the keys held and the notes playing, over the idle glow */
 static int keys_own(void)
 {
-    return (name_on() && !ui.menu) || ui.layer || grid_on()
-        ;
+    return (name_on() && !ui.menu) || ui.layer || grid_on();
 }
 
 /* Discussion #127 (1.2): MENU > SCALE LEDS ON, the keys of the selected track's scale (ROOT, SCALE), bit k = key k, as
  * the keys play now: MAP KBD / ALL = white-key layout (blacks only duplicate, skipped here); OFF / SEQ = chromatic
- * pitch of the key. *root: the keys of the scale's root. None where the engine maps the keys itself (DRUM's GM map,
- * the slices): 0 there, and OFF */
+ * pitch of the key. *root: the keys of the scale's root. None where the engine maps the keys itself (a kit's eight
+ * pads, the slices): 0 there, and OFF */
 static uint32_t scale_leds(uint32_t *root)
 {
     const track_t *t = TSEL;
@@ -349,7 +348,8 @@ static uint32_t key_leds(uint32_t *br)                 /* (*br: a layer's keys t
  * turns it around, as the stock firmware: the idle ones fully lit, the active ones dark, no glow (the ARP beat:
  * lit / dark). The keys' own maps (keys_own) stay lit or dark in every mode: their dark keys read as dark; only the
  * DRUM grid's keys that do something (grid_glow) glow under it, so STEP on a DRUM track is never a dark
- * keyboard (the steps of an empty pattern); on it the first step of each four (grid_beats: 1 5 9 13 of a page, where
+ * keyboard (the steps of an empty pattern); a kit track's pages glow its eight pads (KIT_KEYS) over the idle glow, so
+ * the kit can be found without playing it; on the grid the first step of each four (grid_beats: 1 5 9 13 of a page, where
  * no hit shows) glows steadier and brighter, so a bar's beats can be counted: DIM HI / DIM LO the mid level
  * (hal/fm1_input.h fm1_led_mid: lit 1 frame in 8, DIM LO in 12, over the glow), OFF and INV the glow alone (no
  * other key glows there). 1.2, MENU > SCALE LEDS ON (scale_leds; not over a map of the keys' own, nor on a DRUM or
@@ -390,8 +390,14 @@ static void ui_leds(void)
     led_put(nb, panel.btn[B_OCTUP], (int)(k & OCT_BREATH));
     led_put(nb, panel.btn[B_OCTDN], (k & OCT_BREATH_DN) != 0u);
     c = key_leds(&br);
+    if (dx_keys_on())                                   /* the kit's audition keys: the side playing lit (F# A, G# */
+        c |= 1u << (kit_audition == 0u ? 1u : kit_audition == 127u ? 5u : 3u);   /* MRPH, A# B) */
     g = !keys_map ? 0u : grid_on() && !ui.layer && !name_on() ? grid_glow() : 0u;   /* (key_leds: the grid's map) */
-    beat = g ? grid_beats() & ~c : 0u;                  /* (the grid's empty beat starts: brighter than the glow) */
+    /* the grid's empty beat starts, brighter than the glow; a kit track's pages glow its eight pads (core.h KIT_KEYS)
+     * so the kit can be found without playing it */
+    beat = grid_on() && !ui.layer && !name_on() ? grid_beats() & ~c
+         : drum_track(TSEL) && !song_keys_on() && !ui.layer && !name_on() ? KIT_KEYS | (dx_keys_on() ? 0x2Au & ~c : 0u)
+         : 0u;                                          /* (and the other two audition keys, F# G# A#) */
     sc = keys_map ? 0u : scale_leds(&sr);               /* SCALE LEDS: the scale's keys glow, the root's brighter */
     for (k = 0; k < 27u; k++) {
         uint32_t in = (sc >> k) & 1u, rt = (sr >> k) & 1u, idle = !((c >> k) & 1u);
@@ -1280,6 +1286,8 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     }
     *vp = (int16_t)v;
+    if (vp == &TSEL->p[P_E0])                           /* MRPH turned (DRUM-X): heard again, not the audition */
+        kit_audition = KIT_AUD_KIT;
     if (pg->scope != SC_GLOBAL && pg->graph != GR_MOD) {   /* (the matrix: never automation, no scale) */
         uint32_t id = pg->id[slot];
         /* page id may alias (VOICE POLY SPRD uses P_DETUNE); prefer the real p[] index */
@@ -2203,10 +2211,20 @@ static void ui_input(void)
     }
     song.grid = (uint8_t)keys_mode();                 /* (seq.c: the keys are the grid's) */
     lock_keys();                                        /* (a grid key on a hit let go: the hit goes) */
+    if (!dx_keys_on())                                  /* off the kit's EDIT pages: the kit plays its MRPH */
+        kit_audition = KIT_AUD_KIT;
     if (song.grid == 3u) {
         song_keys(notes);
     } else if (song.grid) {
         grid_keys(notes);
+    } else if (dx_keys_on() && (notes & ((1u << 1) | (1u << 3) | (1u << 5))) != 0u) {   /* the kit editor's audition */
+        if ((notes & (1u << 1)) != 0u)                  /* F#: the A side, the A patch's cards */
+            dx_ui_side = 0, kit_audition = 0;
+        else if ((notes & (1u << 3)) != 0u)             /* G#: the kit's MRPH, the side as it is */
+            kit_audition = KIT_AUD_KIT;
+        else                                            /* A#: the B side, the B patch's cards */
+            dx_ui_side = 1, kit_audition = 127u;
+        ui.force = 1;
     } else if (song.seq_mode && cur_page()->graph == GR_ROLL) {   /* STEP */
         if (live_rec_sel() || !((song.rec >> song.sel) & 1u))   /* armed and playing: the keys record live, not
                                                          * into the cursor step too; not armed (1.2, #133): they
