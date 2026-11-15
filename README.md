@@ -17,7 +17,7 @@ Araminta is synthesizer firmware for the M-VAVE FM-1. It is a fork of [Felucca](
 - **Release notes:** [CHANGELOG.md](CHANGELOG.md). **Build it yourself:** [BUILDING.md](BUILDING.md).
 - **Report a bug:** [Issues](https://github.com/Wulgaren/Araminta/issues).
 
-Install at your own risk. The installer's **Return to official V15**, or M-VAVE's own updater, takes you back to
+Install at your own risk. The installer's **Return to official V15 or V16**, or M-VAVE's own updater, takes you back to
 stock.
 
 ## Before you install
@@ -176,7 +176,7 @@ Saving on Araminta (by hand, or when autosave runs after you stop) writes the cu
 Felucca 1.5 and Araminta builds before 4.3 cannot open it. **Back up in the web editor before your first save** if you
 still need a 1.5-readable copy.
 
-Return to official V15 gives you stock firmware, not Felucca 1.5. The web editor's full backup skips the FM6 voice
+Return to official firmware gives you stock firmware, not Felucca 1.5. The web editor's full backup skips the FM6 voice
 bank, so keep its `.syx` file.
 
 Araminta uses flash at `0xF4000..0xF9FFF` and `0x95000..0x96FFF`. Stock V15 erases the second area on every boot. For a
