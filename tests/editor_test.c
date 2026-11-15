@@ -967,8 +967,8 @@ static int user_preset_roundtrip(void)
     for (i = 0, p = 14; i < P_COUNT; i++, p += 2u)
         ok &= (int32_t)(host_wire[p] | host_wire[p + 1] << 7) - 8192 == want[i];
     for (i = 0; i < 16u; i++, p += 2u)
-        ok &= host_wire[p] == (i & 1u ? 0u : 48u + i);
-    bad += check("UP_GET returns the values and the pattern UP_PUT sent", ok);
+        ok &= host_wire[p] == 0u && host_wire[p + 1u] == 0u;
+    bad += check("UP_GET returns the values; the pattern bytes are reserved (zero)", ok);
     bad += check("  .. then kind 0, (1.2) the category: none sent, ANALOG's (OTHER), then slots 5..8 (off)",
                  host_wire[p] == 0u && host_wire[p + 1u] == CAT_OTHER && host_wire[p + 14u] == 0xF7);
     {   /* 3.5: an older record's E8 was KTR and its FM3 slots the OP3 envelope */

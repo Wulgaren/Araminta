@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* The firmware's parameter and engine tables as JSON, from the same sources (through hostsim.c):
- * TP, GP, every engine's page titles, EDIT descriptors and presets, their display order, the factory patterns, the
+ * TP, GP, every engine's page titles, EDIT descriptors and presets, their display order, the
  * power-on sounds and the protocol constants. web/test_web.mjs compares the editor's mock device
  * (web/editor.html makeMockDevice) with it, so the mock cannot drift from the firmware.
  *   build/host/descdump > build/host/desc.json      (run_tests.sh) */
@@ -119,7 +119,7 @@ int main(void)
                 v[i] = p->env[i];
             printf(",\"env\":");
             js_ints(v, 4);
-            printf(",\"mono\":%d,\"pat\":%d}", p->mono, p->pat);
+            printf(",\"mono\":%d}", p->mono);
         }
         printf("]}");
     }
@@ -129,21 +129,9 @@ int main(void)
             putchar(',');
         js_str(ENGINES[eng_vis(k)]->name);
     }
-    printf("],\n\"PATTERNS\":[");
-    for (k = 0; k < NPATTERNS; k++) {
-        printf("%s\n [", k ? "," : "");
-        for (i = 0; i < 16u; i++)
-            v[i] = PATTERNS[k].note[i];
-        js_ints(v, 16);
-        putchar(',');
-        for (i = 0; i < 16u; i++)
-            v[i] = PATTERNS[k].flags[i];
-        js_ints(v, 16);
-        putchar(']');
-    }
     printf("],\n\"TRK_DEF\":[");
     for (k = 0; k < NPART; k++)
-        printf("%s[%d,%d,%d]", k ? "," : "", TRK_DEF[k][0], TRK_DEF[k][1], TRK_DEF[k][2]);
+        printf("%s[%d,%d]", k ? "," : "", TRK_DEF[k][0], TRK_DEF[k][1]);
     printf("],\n\"FM6\":{\"bank\":0,\"own\":%u,\"init\":", (unsigned)FM6_OWN);   /* FM6: the packed patches (no bank since 1.0.3) */
     for (i = 0; i < FM6_PACKED; i++)
         printf("%s%d", i ? "," : "[", FM6_INIT[i]);

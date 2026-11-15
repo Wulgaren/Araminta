@@ -37,7 +37,6 @@ static uint8_t host_smp_slots[3][0x14000] __attribute__((aligned(4)));
 #define IPC_TO_PCT 0.017                               /* perform_test: 100 ipc ≈ 1.7 % device */
 #define SETTLE_BLK (FS / (4u * CTL))                   /* 0.25 s */
 #define MEAS_BLK (FS / (2u * CTL))                     /* 0.5 s */
-#define DRUM_HITS 0xFFu
 
 static int bad;
 static int check(const char *what, int ok)
@@ -291,7 +290,7 @@ typedef struct {
 
 static void synth_heavy(void)
 {
-    static const uint8_t PARTS[NPART][3] = {{12, 0, 8}, {2, 0, 8}, {5, 0, 4}, {10, DRUM_HITS, 0}};
+    static const uint8_t PARTS[NPART][3] = {{12, 0, 8}, {2, 0, 8}, {5, 0, 4}, {10, 0, 0}};   /* FM6 PHASE VOICE DRUM-X */
     static const uint8_t NOTES[8] = {48, 52, 55, 59, 60, 64, 67, 71};
     static const int MIX[] = {P_IDMIX, P_IFMIX, P_ICMIX, P_IPMIX, P_ILMIX, P_IHMIX};
     uint32_t p, i;
@@ -299,8 +298,6 @@ static void synth_heavy(void)
     host_tracks_init();
     for (p = 0; p < NPART; p++) {
         host_preset(&trk[p], PARTS[p][0], PARTS[p][1]);
-        if (PARTS[p][2] == DRUM_HITS)
-            continue;
         trk[p].p[P_VOICE] = V_POLY;
         trk[p].p[P_SUS] = 127;
         trk[p].p[P_AMODE] = 0;

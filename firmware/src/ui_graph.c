@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Felucca UI: the panel (Y_GRAPH .. Y_GRAPH + H_GRAPH) between the cards and the footer: a SURF area
  * (rounded, on BG) holding the page graphs (ADSR, LFO, steps, piano roll, drum grid, scale, FX, SLICER,
- * MOD, lists: presets, user presets, patterns, project slots, song), the HOME oscilloscope, the
+ * MOD, lists: presets, user presets, project slots, song), the HOME oscilloscope, the
  * instrument diagrams; the MIXER page draws four SURF columns instead. Each graph is redrawn only when
  * graph_signature() changes. The look:
  * curves THEME (2 px), guides and empty marks RAISE, captions MID / DIM, the active thing ACCENT,
@@ -1276,8 +1276,7 @@ static uint32_t graph_signature(void)
         h ^= ui.frame;                               /* live: the LFO's phase, the scope's trace, FX tech */
     for (i = 0; i < P_COUNT; i++)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
-    h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u +
-         ui.ppick * 1299709u;
+    h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u;
     if (pg->graph == GR_CHORD) {                     /* the last chord played */
         h = (h ^ (chord_last[song.sel].root + 131u * chord_last[song.sel].mask)) * 16777619u;
         for (i = 0; i < CHORD_MAX; i++)
@@ -1376,7 +1375,7 @@ static const char *eng_abbr(const char *name)
     return name;
 }
 
-/* a list row (17 px), in M as every list's (PRESETS, USER, PHRASES, PROJECT, AUTOMATION, MOD, the MENU): the selected
+/* a list row (17 px), in M as every list's (PRESETS, USER, PROJECT, AUTOMATION, MOD, the MENU): the selected
  * one a THEME bar with INK text; tag at x 14 (a preset tag, DRUM, ends near x 57), the name from x nx */
 #define LIST_Y(k) (3 + 17 * (int32_t)(k))
 #define LIST_TY CAP_IN(M, 16)                           /* a row's text: its capitals rows 2 .. 12 of the row */
@@ -1455,11 +1454,10 @@ static void graph_browse(void)
         return;
     }
     for (row = -3; row <= 3; row++) {
-        int32_t y = LIST_Y(row + 3), x1 = 212;
-        char tag[6], nm[13], pt[4], pn[13];
+        int32_t y = LIST_Y(row + 3);
+        char tag[6], nm[13];
         uint32_t index = preset_visible(cur, total, (uint32_t)(row + 3));
         int sel = index == cur;
-        int32_t hint = sel ? preset_pat_hint() : -1;    /* the suggested pattern */
         if (index >= total) continue;
         e = preset_at(index, &k);
         if (e == NENGINES) {                             /* user preset: "U07" and its name */
@@ -1469,15 +1467,7 @@ static void graph_browse(void)
             str_cpy(tag, eng_abbr(ENGINES[e]->name), sizeof tag);
             str_cpy(nm, ENGINES[e]->presets[k].name, sizeof nm);
         }
-        if (hint >= 0) {
-            pat_label((uint32_t)hint, pt, pn);
-            x1 = 206 - text_w(&AF_M, pt) - 6;
-        }
-        list_row(y, sel, tag, T_DIM, nm, T_TEXT, x1, LIST_NX);
-        if (hint >= 0) {
-            GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
-            cv_text_r(206, y + LIST_TY, &AF_M, pt, T_INK, T_THEME);
-        }
+        list_row(y, sel, tag, T_DIM, nm, T_TEXT, 212, LIST_NX);
         if (favorite_has(e, k)) {
             GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row star centred up/down");
             cv_icon_in(214, y, 0, 16, 12, ICON_X_STAR, sel ? T_INK : T_ACCENT, sel ? T_THEME : T_SURF);
@@ -1522,18 +1512,6 @@ static void graph_user(void)
         else
             str_cpy(nm, "--", sizeof nm);
         list_row(LIST_Y(row), k == ui.uslot, tag, T_MID, nm, used ? T_TEXT : T_DIM, 232, LIST_NX);
-    }
-}
-/* SAVE > PHRASES: the pattern list around the one picked ("03  MELODY", "U07  MY BASS") */
-static void graph_pats(void)
-{
-    uint32_t n = pat_count(), cur = pat_pick();
-    int32_t row, first = clamp((int32_t)cur - 3, 0, (int32_t)n > 7 ? (int32_t)n - 7 : 0);
-    for (row = 0; row < 7 && (uint32_t)(first + row) < n; row++) {
-        uint32_t k = (uint32_t)(first + row);
-        char tag[4], nm[13];
-        pat_label(k, tag, nm);
-        list_row(LIST_Y(row), k == cur, tag, T_MID, nm, T_TEXT, 232, LIST_NX);
     }
 }
 /* the AUTOMATION rows' columns (M): the kind at 14 (LOCK AUTO STEP ENABLED), the step / ENABLED's ON at EV_SX, the
@@ -2645,10 +2623,6 @@ static void draw_graph(void)
         case GR_SONG:
             cv_oy = 0;
             graph_song();
-            break;
-        case GR_PATS:
-            cv_oy = 0;
-            graph_pats();
             break;
         case GR_EVENTS:
             cv_oy = 0;

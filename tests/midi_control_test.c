@@ -582,7 +582,7 @@ static int pc_test(void)
     bad += check("  PHASE: PC selects factory presets by shown index", ok);
 
 
-    /* DRUM-X: Program Change loads its factory presets (17: FM DRUMS first); past the last ignored */
+    /* DRUM-X: Program Change loads its factory presets (18: FM DRUMS first); past the last ignored */
     {
         track_t *dr = &trk[3];
         set_engine_of(dr, ENGI_DRUM);

@@ -45,7 +45,7 @@ Full notes: [CHANGELOG.md](CHANGELOG.md).
   recording. No pattern needed. Held notes become slides, strums record as chords, and the ARP's notes record too.
 - **JIANT punch-ins.** Tap FX twice for PUNCH-IN: repeats, filters, stutters, reverse, tape stop, freeze, pitch,
   flanger, phaser, reverb and echo throws, glitch.
-- **DRUM-X.** An 8-lane morphable drum kit with 17 presets.
+- **DRUM-X.** An 8-lane morphable drum kit with 18 presets.
 - **Beat generation.** On any drum kit, SEQ > GENERATION writes editable kick, snare and hat steps from Mutable
   Instruments Grids.
 - **Effects list.** Six inserts plus delay, reverb, slicer and TAPE in one list. Reorder them and set each to CHAIN,
@@ -98,7 +98,7 @@ Full notes: [CHANGELOG.md](CHANGELOG.md).
 | NOISE | Noise colours, crackle, shift-register and metallic tones |
 | GRAIN | Granular, from built-in samples or a user slot |
 | SAMPLE | PIANO, FLUTE, SAX, the public-domain CR-78 kit (SET 8), and 3 user slots as a sample or a drumkit |
-| DRUM-X | 8-lane drum kit (JIANT port), 17 kits, a MODEL per sound |
+| DRUM-X | 8-lane drum kit (JIANT port), 18 kits, a MODEL per sound |
 
 Retired engines (DIGITAL, SLICE, DRUMS) load safely: DIGITAL tracks stay silent, SLICE and DRUMS load as DRUM-X.
 
@@ -109,7 +109,7 @@ Retired engines (DIGITAL, SLICE, DRUMS) load safely: DIGITAL tracks stay silent,
 | HOME | Home, Mixer (DRUM-X: MIXER 1/3, 2/3, 3/3) | Menu |
 | SEQ | STEP / DETAIL / AUTOMATION, then SEQ TOOLS / GENERATION | + OCT±: tools layer |
 | GLO | MASTER / CLOCK, then SONG | + OCT±: mutes, solos, levels, tap tempo |
-| SAVE | PRESETS / USER / PHRASES, then PROJECT / TOOLS | Undo |
+| SAVE | PRESETS / USER / PROJECT, then CLEAR | Undo |
 | LFO | LFO 1/3, 2/3, LFO DEST 3/3, then MOD | + a knob: momentary change |
 | EDIT | Sound pages, Kit (DRUM-X), Voice | + OCT±: engine layer |
 | FX | EFFECTS, SLICER, PUNCH-IN | |

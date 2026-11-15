@@ -212,49 +212,6 @@ static int projects(void)
     return bad;
 }
 
-static int presets(void)
-{
-    int bad = 0;
-    up_rec_t r;
-    uint8_t a[400];
-    uint32_t slot, i, k, n;
-    track_t *t;
-    ui_power_on();
-    t = &trk[0];
-    track_defaults_steps(t);
-    for (i = 0; i < 16u; i++)
-        t->step[i] = (step_t){{(uint8_t)(48 + i)}, 1, ST_NOTE, 0, 100};
-    step_set_ratchet(&t->step[2], 3);
-    step_set_fl(&t->step[5], SF_ACCENT);
-    step_set_ratchet(&t->step[5], 4);
-    memset(&r, 0, sizeof r);
-    up_pat_from(&r, t->step);
-    track_defaults_steps(t);
-    load_pat16(t, r.note, r.flags);
-    bad += check("user preset note pattern: x3 and an accented x4 stored in its flags and loaded back",
-                 step_ratchet(&t->step[2]) == 3u && step_ratchet(&t->step[5]) == 4u && step_fl(&t->step[5]) & SF_ACCENT &&
-                 step_ratchet(&t->step[0]) == 1u && r.flags[2] == 2u << SF_RATCH_SH);
-    k = 0;                                           /* UP_PUT: slot, engine, name, values, 16 x (note, flags) */
-    a[k++] = 3; a[k++] = (uint8_t)t->eng_req;
-    memcpy(a + k, "RAT", 4); k += 4;
-    for (i = 0; i < P_COUNT; i++) { a[k++] = (uint8_t)((t->p[i] + 8192) & 127); a[k++] = (uint8_t)((t->p[i] + 8192) >> 7); }
-    for (i = 0; i < 16u; i++) { a[k++] = r.note[i]; a[k++] = r.flags[i]; }
-    n = k;
-    memset(&r, 0, sizeof r);
-    bad += check("  UP_PUT keeps a pattern's ratchet", !up_parse(a, n, &r, &slot) && r.flags[2] == 2u << SF_RATCH_SH &&
-                 r.flags[5] == (SF_ACCENT | 3u << SF_RATCH_SH));
-    set_engine_of(t, ENGI_DRUM);                     /* a drum grid record: no room, x1 */
-    t->engine = t->eng_req;
-    track_defaults_steps(t);
-    t->step[0] = (step_t){{0}, 0, ST_NOTE, 0, 100, 1u << DV_KICK};
-    step_set_ratchet(&t->step[0], 2);
-    up_store(4, "GRID");
-    up_pat_load(t, 4);
-    bad += check("  a DRUM grid record loads its hits x1", up_grid(up_rec(4)) && t->step[0].hit == 1u << DV_KICK &&
-                 step_ratchet(&t->step[0]) == 1u);
-    return bad;
-}
-
 /* pixels of colour c in card slot k (the cards' row) */
 static uint32_t card_px(uint32_t k, uint16_t c)
 {
@@ -349,7 +306,7 @@ static int screens(void)
 
 int main(void)
 {
-    int bad = play() + projects() + presets() + screens();
+    int bad = play() + projects() + screens();
     printf("%s\n", bad ? "RATCHET TEST FAILED" : "ratchet tests passed");
     return bad != 0;
 }

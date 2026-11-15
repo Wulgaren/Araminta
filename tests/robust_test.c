@@ -91,18 +91,18 @@ static int user_presets(void)
     reset();
     memset(bk, 0, sizeof *bk);
     bk->magic = UP_BANK_MAGIC; bk->rsize = sizeof(up_rec_t); bk->nslot = UP_PER_BANK;
-    r = &bk->r[0];                                          /* a note pattern with a note > 127 and stray flags */
+    r = &bk->r[0];                                          /* reserved pattern bytes holding anything */
     r->used = UP_USED; r->ver = 2; r->engine = 0; r->np = 8; r->name[0] = 'A';
     r->note[3] = 200; r->flags[3] = 0x43;
     r->note[4] = 0; r->flags[4] = 0x03;                     /* a rest with flags */
-    r = &bk->r[1];                                          /* a drum grid: accents where there is no hit */
+    r = &bk->r[1];                                          /* an old drum grid record */
     r->used = UP_USED; r->ver = UP_VER_GRID; r->engine = ENGI_DRUM; r->np = 8; r->name[0] = 'G';
     r->note[0] = 0x05; r->flags[0] = 0xFF;
     up_bank_check(0, sizeof *bk);
-    bad += check("a bank from flash: a note pattern's note inside 0..127, its flags inside their fields",
-                 up_used(0) && bk->r[0].note[3] == (200u & 127u) && bk->r[0].flags[3] == 3u && !bk->r[0].flags[4]);
-    bad += check("a bank from flash: a drum grid's accents only on its hits", up_used(1) && bk->r[1].note[0] == 5u &&
-                 bk->r[1].flags[0] == 5u);
+    bad += check("a bank from flash: a record's reserved pattern bytes come back zero, whatever it held",
+                 up_used(0) && !bk->r[0].note[3] && !bk->r[0].flags[3] && !bk->r[0].note[4] && !bk->r[0].flags[4]);
+    bad += check("a bank from flash: a drum grid record is used too, its bytes zero", up_used(1) && !bk->r[1].note[0] &&
+                 !bk->r[1].flags[0]);
     return bad;
 }
 
