@@ -378,7 +378,7 @@ static const preset_t DRUM_PRESETS[] = {
     {"66", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20)},
     {"55", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20)},
     {"77", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20)},
-    {"HOUSE", {64, 64, 84, 62, 66, 0, 0, 14}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 22)},
+    {"707", {64, 64, 90, 58, 70, 0, 0, 28}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 14)},
 };
 /* .. their movement (core.h MODS), DRUM_PRESETS' order; 0 none. DRUMS' kits have none either: every lane plays at its
  * LEVEL 127 as the JIANT kits' lanes do, the patches carrying each kit's balance */
@@ -396,7 +396,7 @@ static const int8_t *const DRUM_MODS[] = {
     0,                                                /* 66 */
     0,                                                /* 55 */
     0,                                                /* 77 */
-    0,                                                /* HOUSE */
+    0,                                                /* 707 */
 };
 _Static_assert(sizeof DRUM_MODS / sizeof DRUM_MODS[0] == DX_NKIT, "a DRUM preset's movement each");
 _Static_assert(sizeof DRUM_PRESETS / sizeof DRUM_PRESETS[0] == DX_NKIT, "a DRUM preset a kit");

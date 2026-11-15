@@ -2,15 +2,15 @@
 
 ## Unreleased
 
-SAVE loses its phrase loader, gains a HOUSE drum kit, and puts PROJECT on the sounds page.
+SAVE loses its phrase loader, gains a 707 drum kit, and puts PROJECT on the sounds page.
 
 ### DRUM-X
 
-- **HOUSE**, an 18th factory kit for deep and classic house: a round 909-ish kick (about 53 Hz, DRIVE, a
-  little longer than 909 CLUB's), a dry snare, a wide clap, tight closed hats, an open hat for the offbeat,
-  a low tom, a rimshot and a cowbell. TONE sits bright, DECY and NOIS just above the middle, DRV at 14, a
-  small reverb send. As the other kits since 4.1, every lane plays at its LEVEL 127: the kit's own balance
-  carries the mix.
+- **707**, an 18th factory kit after the TR-707: a short clicky kick (about 58 Hz, DRIVE), a bright tight
+  snare, a short clap, very short closed hats and a shorter open hat, a tuned tom, a dry rimshot and a
+  cowbell. TONE 90, DECY 58, NOIS 70, DRV 28, a small reverb send. As the other kits since 4.1, every lane
+  plays at its LEVEL 127: the kit's own balance carries the mix. The 707's tambourine, crash and ride have
+  no lane in DRUM-X's eight.
 
 ### SAVE
 
