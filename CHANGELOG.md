@@ -28,6 +28,16 @@ SAVE loses its phrase loader, gains a HOUSE drum kit after the TR-707, and puts 
 - **ALL SEQUENCES CLEARED** replaces the old "ALL PATTERNS CLEARED" message, as the CLEAR key has said
   "CLEAR ALL SEQUENCES?" for a while.
 
+### FX
+
+- **Slicer MIX starts at 0.** A new track's SLCR MIX is bypass, as every insert's MIX is; raising the mode alone
+  stays silent until the MIX is raised. Projects and presets keep their stored values.
+- **OTT at DEPTH 0 is the insert off.** DRIVE 0 used to run the full LR4 crossover for its allpass sum. It now
+  passes the dry signal and skips the six filters, so raising DEPTH re-arms a clean crossover.
+- **OTT costs less.** The six integrator sections drop their per-sample int64 clamps, which cannot fire with the
+  section's bounded inputs, and their products use the positive coefficients as unsigned. `ins_run_ott` drops
+  from 968 to 601 instructions (`tests/target_budget.txt`) and the image from 583,868 to 582,460 bytes.
+
 ## 4.5
 
 The punch-in lane gets a page and undo, imported DX7 patches with AMS stop hissing, and a muted track ramps out.

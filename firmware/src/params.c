@@ -151,7 +151,8 @@ static const param_desc_t TP[P_COUNT] = {
     [P_SLCR] = PE("SLCR", N_SLCR, 0),
     [P_SLPAT] = PD("PAT", F_INT, 1, 16, 1),        /* SL_PAT[] */
     [P_SLRATE] = PE("RATE", N_SLDIV, 1),
-    [P_SLDEPTH] = PD("MIX", F_PCT, 0, 127, 127),   /* was DEPTH; EFFECTS K4 amount */
+    [P_SLDEPTH] = PD("MIX", F_PCT, 0, 127, 0),     /* was DEPTH; EFFECTS K4 amount. 0 = bypass, like the
+                                                    * inserts' MIX: raising SLCR's mode alone stays silent */
 #define MSLOT(k) [P_M##k##SRC] = PE("SRC" #k, N_MSRC, 0), [P_M##k##DST] = PE("DST" #k, N_MDST, 0), \
                  [P_M##k##AMT] = PD("AMT" #k, F_BIPCT, -64, 63, 0)
     MSLOT(1), MSLOT(2), MSLOT(3), MSLOT(4),
