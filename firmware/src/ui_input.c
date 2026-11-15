@@ -2015,13 +2015,7 @@ static void ui_input(void)
                 str_cpy(ui.msg2, "[SAVE] HOLD TO UNDO", sizeof ui.msg2);
             } else if (kind == CF_CLEAR_MOTION) {
                 track_t *t = &trk[ui.confirm_trk % NTRK];
-                if (!chain_busy()) {                    /* (the punch-in lane is every track's: it goes too) */
-                    load_begin(t, UNDO_PAT);
-                    motion_clear(t);
-                    pfx_lane_clear();
-                    load_end(t);
-                    ui_message("AUTOMATION CLEARED");
-                }
+                if (!chain_busy()) { load_begin(t, UNDO_PAT); motion_clear(t); load_end(t); ui_message("AUTOMATION CLEARED"); }
             } else if (kind == CF_DEL_ROW) {
                 uint32_t r = ui.confirm_trk;
                 if (!chain_busy() && r < chain_config.count) {

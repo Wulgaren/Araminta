@@ -3177,20 +3177,11 @@ static int test_product_ux(void)
         confirm_text(qa, qb);
         bad += check("#93   the dialog asks CLEAR T1 AUTOMATION?", str_eq(qa, "CLEAR T1 AUTOMATION?"));
     }
-    press(B_OCTDN);
-    pfx_lane[7] = PF_BIT(PF_LPF);                     /* a recorded punch-in: the track's clear takes it too */
-    press(B_OCTUP); press(B_OCTUP);
+    press(B_OCTDN); press(B_OCTUP); press(B_OCTUP);
     bad += check("confirmed MOTION clear removes events and SAVE hold restores them", motion_count(TSEL) == 0 &&
                  msg_is("AUTOMATION CLEARED"));
-    bad += check("the track's AUTOMATION clear empties the punch-in lane", pfx_lane[7] == 0u);
     hold(B_SAVE);
     bad += check("motion-clear UNDO restores the recorded events", motion_count(TSEL) == 1);
-    motion_clear(TSEL);
-    pfx_lane[7] = PF_BIT(PF_LPF);
-    go_auto_top(); press(B_OCTUP);
-    bad += check("ENABLED's CLEAR asks while only the punch-in lane holds something", ui.confirm == CF_CLEAR_MOTION);
-    press(B_OCTDN);
-    pfx_lane[7] = 0;
     motion_full = 1; frame();
     bad += check("#93 the events used up: AUTOMATION FULL", msg_is("AUTOMATION FULL") && !motion_full);
     {   /* FUN21: a save keeps every record RAM holds, so SAVE goes straight to NAME with the pool full */
