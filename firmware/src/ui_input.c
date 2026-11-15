@@ -390,11 +390,14 @@ static void ui_leds(void)
     led_put(nb, panel.btn[B_OCTUP], (int)(k & OCT_BREATH));
     led_put(nb, panel.btn[B_OCTDN], (k & OCT_BREATH_DN) != 0u);
     c = key_leds(&br);
+    if (dx_keys_on())                                   /* the kit's audition keys: the side playing lit (F# A, G# */
+        c |= 1u << (kit_audition == 0u ? 1u : kit_audition == 127u ? 5u : 3u);   /* MRPH, A# B) */
     g = !keys_map ? 0u : grid_on() && !ui.layer && !name_on() ? grid_glow() : 0u;   /* (key_leds: the grid's map) */
     /* the grid's empty beat starts, brighter than the glow; a kit track's pages glow its eight pads (core.h KIT_KEYS)
      * so the kit can be found without playing it */
     beat = grid_on() && !ui.layer && !name_on() ? grid_beats() & ~c
-         : drum_track(TSEL) && !song_keys_on() && !ui.layer && !name_on() ? KIT_KEYS : 0u;
+         : drum_track(TSEL) && !song_keys_on() && !ui.layer && !name_on() ? KIT_KEYS | (dx_keys_on() ? 0x2Au & ~c : 0u)
+         : 0u;                                          /* (and the other two audition keys, F# G# A#) */
     sc = keys_map ? 0u : scale_leds(&sr);               /* SCALE LEDS: the scale's keys glow, the root's brighter */
     for (k = 0; k < 27u; k++) {
         uint32_t in = (sc >> k) & 1u, rt = (sr >> k) & 1u, idle = !((c >> k) & 1u);
@@ -1283,6 +1286,8 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     }
     *vp = (int16_t)v;
+    if (vp == &TSEL->p[P_E0])                           /* MRPH turned (DRUM-X): heard again, not the audition */
+        kit_audition = KIT_AUD_KIT;
     if (pg->scope != SC_GLOBAL && pg->graph != GR_MOD) {   /* (the matrix: never automation, no scale) */
         uint32_t id = pg->id[slot];
         /* page id may alias (VOICE POLY SPRD uses P_DETUNE); prefer the real p[] index */
@@ -2206,6 +2211,8 @@ static void ui_input(void)
     }
     song.grid = (uint8_t)keys_mode();                 /* (seq.c: the keys are the grid's) */
     lock_keys();                                        /* (a grid key on a hit let go: the hit goes) */
+    if (!dx_keys_on())                                  /* off the kit's EDIT pages: the kit plays its MRPH */
+        kit_audition = KIT_AUD_KIT;
     if (song.grid == 3u) {
         song_keys(notes);
     } else if (song.grid) {

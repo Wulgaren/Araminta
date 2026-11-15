@@ -45,8 +45,8 @@ Full notes: [CHANGELOG.md](CHANGELOG.md).
   recording. No pattern needed. Held notes become slides, strums record as chords, and the ARP's notes record too.
 - **JIANT punch-ins.** Tap FX twice for PUNCH-IN: repeats, filters, stutters, reverse, tape stop, freeze, pitch,
   flanger, phaser, reverb and echo throws, glitch.
-- **DRUM-X.** An 8-lane morphable drum kit with 18 presets. The first eight white keys play its lanes, and EDIT >
-  SOUND auditions A, the kit's morph or B from F# G# A#.
+- **DRUM-X.** An 8-lane morphable drum kit with 18 presets. The first eight white keys play its lanes, and on its EDIT
+  pages F# G# A# audition A, the kit's morph or B.
 - **Beat generation.** On any drum kit, SEQ > GENERATION writes editable kick, snare and hat steps from Mutable
   Instruments Grids.
 - **Effects list.** Six inserts plus delay, reverb, slicer and TAPE in one list. Reorder them and set each to CHAIN,

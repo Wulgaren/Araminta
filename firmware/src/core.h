@@ -767,13 +767,11 @@ static inline int fx_master_owned(uint32_t st, uint32_t tr)
     return st < FX_LIST_N && fx_master_tr[st] == (uint8_t)(tr + 1u);
 }
 static song_t song;
-/* the kit editor's audition (ui_dx.c, EDIT > SOUND / TONE / MOVEMENT on a DRUM-X track): the morph a hit plays
- * while its page is open. KIT_AUD_OFF: no kit page (the kit plays P_E0); KIT_AUD_KIT: its page, P_E0 as stored; else 0
- * (A only) or 127 (B only). page_entered keeps it (ui.c), a key sets it (ui_input.c); the project never stores it
- * (eng_drum.c drum_render) */
-#define KIT_AUD_OFF 254u
+/* the kit's audition (ui.c dx_keys_on: the selected DRUM-X track's EDIT pages): the morph its hits play. KIT_AUD_KIT:
+ * P_E0 as stored; else 0 (A only) or 127 (B only). F# G# A# set it (ui_input.c); off those pages, or MRPH turned, it is
+ * KIT_AUD_KIT again; the project never stores it (eng_drum.c drum_render) */
 #define KIT_AUD_KIT 255u
-static volatile uint8_t kit_audition = KIT_AUD_OFF;
+static volatile uint8_t kit_audition = KIT_AUD_KIT;
 #define TSEL (&trk[song.sel])    /* the selected track */
 static track_t fx_bus_trk;       /* SEND insert/slicer knobs in .p[]; other fields unused */
 

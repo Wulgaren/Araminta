@@ -9375,13 +9375,29 @@ static int test_kit_keybed(void)
     key_up(white(7));
     song.octave = 0;
     bad += check("the kit keybed: OCT does not move it", ok);
-    ui_leds();                                          /* the eight pads glow over the idle glow */
+    key_down(key_at(1, 1)); frame(); key_up(key_at(1, 1)); frame();   /* (the black key above auditioned A: G# */
+    ui_leds();                                          /* the kit's MRPH) the eight pads glow over the idle glow */
     {
         uint32_t pads = 0;
         for (i = 0; i < 8u; i++)
             pads |= 1u << white(i);
-        bad += check("the kit keybed: the 8 pads glow at the mid level, nothing else",
-                     lit_keys(fm1_led_mid) == pads && lit_keys(fm1_led) == 0u);
+        bad += check("the kit keybed: EDIT 1 glows the 8 pads and F# A#, G# (the kit's MRPH) lit",
+                     lit_keys(fm1_led_mid) == (pads | 1u << key_at(1, 0) | 1u << key_at(1, 2)) &&
+                     lit_keys(fm1_led) == 1u << key_at(1, 1));
+        key_down(key_at(1, 0)); frame(); key_up(key_at(1, 0)); frame();
+        ui_leds();
+        bad += check("the kit keybed: EDIT 1 F# auditions A, F# lit, G# A# at the mid level",
+                     kit_audition == 0u && lit_keys(fm1_led) == 1u << key_at(1, 0) &&
+                     lit_keys(fm1_led_mid) == (pads | 1u << key_at(1, 1) | 1u << key_at(1, 2)));
+        TSEL->p[P_E0] = 64;
+        turn(EN_K1, 1);
+        bad += check("the kit keybed: turning MRPH plays the kit's MRPH again",
+                     TSEL->p[P_E0] != 64 && kit_audition == KIT_AUD_KIT);
+        go_title("ENV");
+        frame();
+        ui_leds();
+        bad += check("the kit keybed: off the kit's EDIT pages the black keys stay dark, the 8 pads glow",
+                     !dx_keys_on() && lit_keys(fm1_led_mid) == pads && lit_keys(fm1_led) == 0u);
     }
 
     /* a SAMPLE drum kit (CR78) plays the same keybed; a melodic set keeps the chromatic map */
@@ -9407,7 +9423,6 @@ static int test_kit_keybed(void)
 
     /* EDIT > SOUND: F# A, G# the kit's MRPH, A# B; the LANE knob's side; leaving the page */
     ui_power_on();
-    kit_audition = KIT_AUD_OFF;
     set_engine_of(TSEL, ENGI_DRUM);
     TSEL->engine = TSEL->eng_req;
     go_title("SOUND");
@@ -9427,9 +9442,9 @@ static int test_kit_keybed(void)
     turn(EN_K1, 1);
     bad += check("EDIT > SOUND: LANE's side is auditioned (BD A -> BD B)",
                  dx_ui_side == 1u && kit_audition == 127u);
-    go_title("EDIT 1");                                 /* leaving: the kit's MRPH again, the pads still play */
+    go_title("ENV");                                    /* leaving: the kit's MRPH again, the pads still play */
     frame();
-    ok = kit_audition == KIT_AUD_OFF && !dx_keys_on() && song.grid == 0u;
+    ok = kit_audition == KIT_AUD_KIT && !dx_keys_on() && song.grid == 0u;
     key_down(white(0));
     frame();
     ok &= kb_note[white(0)] == 36u;

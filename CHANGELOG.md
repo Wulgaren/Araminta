@@ -53,10 +53,11 @@ Splash and ABOUT show `v4.5`.
   MIDI and from older patterns play the same lanes as before.
 - **The eight pads glow.** A kit track's pages light the eight keys at the mid level, and a hit lights its key, so
   the kit can be found without playing it.
-- **A, MRPH or B from the keys.** On EDIT > SOUND, TONE and MOVEMENT, F# auditions the A patch, G# the kit's MRPH as
-  stored and A# the B patch; F# and A# also pick the patch the cards edit, and the panel's A---B bar moves to what
-  plays. A side picked with the LANE knob is auditioned too. Leaving the pages puts the kit back on its MRPH, and
-  nothing is stored with the project.
+- **A, MRPH or B from the keys.** On a DRUM-X track's EDIT pages (EDIT 1, EDIT 2, SOUND, TONE, MOVEMENT), F#
+  auditions the A patch, G# the kit's MRPH as stored and A# the B patch, and the panel's A---B bar moves to what
+  plays. The three keys glow, the one playing lit. On SOUND, TONE and MOVEMENT, F# and A# also pick the patch the
+  cards edit, and a side picked with the LANE knob is auditioned too. Turning MRPH or leaving the pages puts the kit
+  back on its MRPH, and nothing is stored with the project.
 - **SAMPLE kits act as kits.** A CR78 or USR kit's notes no longer take PITCH, TRN, the chord settings or the scale
   LEDs, as DRUM-X's never did.
 

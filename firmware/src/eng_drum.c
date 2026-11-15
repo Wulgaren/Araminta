@@ -269,8 +269,9 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
                                                           * SHAPE moves MORPH */
     lfo_pit = (lfo * p[P_LD_PIT] * 3) >> 15;
     lfo_shp = (lfo * p[P_LD_SHP]) >> 15;
-    /* the kit editor's audition (ui_dx.c F#/G#/A# on EDIT > SOUND): while its page is open the hits play the side
-     * it forces, the LFO's MORPH offset left out; else the kit's MRPH as stored */
+    /* the audition (core.h kit_audition, F# / A# on a DRUM-X track's EDIT pages): the hits play the side forced, the
+     * LFO's MORPH offset left out (every DRUM-X track: a per-track test is over drum_render's target budget); else
+     * the kit's MRPH as stored */
     dx_run(&dx_kit[(uint32_t)v->s[0] & (DV_NLANE - 1u)], &L->x,
            kit_audition <= 127u ? (int32_t)kit_audition : p[P_E0] + lfo_shp,
            L->st * 16 + (p[P_E1] - 64) * 3 + t->pfx_pit + lfo_pit,

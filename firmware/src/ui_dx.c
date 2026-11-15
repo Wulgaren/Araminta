@@ -12,8 +12,8 @@
  * page's 0..127 values do; PTCH reads as the note and its cents; OSC2 as its amount, 0..100 %; TEETH's TAIL as its
  * level against a tooth, in dB. The values are the side's; the MORPH plays between the two (EDIT MRPH). The panel
  * shows the kit's lanes with the edited lane lit (ui_graph.c graph_colony). Black keys 1..3 (F# G# A#) audition A,
- * the kit's MRPH as stored or B on every one of these pages: the hits play that side and the panel's A---B bar moves
- * there, F# and A# also picking the patch the cards edit (ui_input.c, kit_audition; leaving the pages puts it back). */
+ * the kit's MRPH as stored or B (ui.c dx_keys_on): the hits play that side and the panel's A---B bar moves there; here
+ * F# and A# also pick the patch the cards edit (ui_input.c). */
 static uint8_t dx_ui_seen = 0xFFu;                   /* the last key note followed */
 static const char *const DX_ENGINE_NAME[DXV_N] = {"FM", "SHELL", "METAL", "TEETH", "CLICK"};
 static const char *const DX_WAVE_NAME[4] = {"SINE", "HARM", "METAL", "CLANG"};
