@@ -28,14 +28,13 @@ stock.
   [Coming from Felucca 1.5](#coming-from-felucca-15).
 - **From an older Araminta:** install over it. Your data stays.
 
-## New in 4.5
+## New in 4.6
 
-- The **punch-in lane** has its own page: move, lengthen and change a run, with SAVE held for undo and G5 CLR while
-  recording.
-- **Imported DX7 patches with AMS** stop hissing. SYN PAD 6, BALI GONG and TRAIN are clean.
-- **PLAY OFF** on MIXER or GLO ramps out a note that is already sounding.
-- **Effect graphs** follow the shared bus when an insert is on SEND or MASTER. Editor requests survive OTA dispatch,
-  and the installer accepts stock V16.
+- **A drum kit plays from eight pads.** The first eight white keys are its lanes at any OCT, and they glow. On a
+  DRUM-X track's EDIT pages, F# G# A# audition A, the kit's MRPH or B.
+- **HOUSE**, an 18th DRUM-X kit after the TR-707.
+- **SAVE > PHRASES is gone**, and PROJECT moves to the sounds page. The image shrinks by about 3 KB.
+- **OTT** costs less and is off at DEPTH 0. A new track's slicer MIX starts at 0.
 
 Full notes: [CHANGELOG.md](CHANGELOG.md).
 
