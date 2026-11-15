@@ -2101,6 +2101,7 @@ static void ui_input(void)
                     song.sel = (uint8_t)was;
                     if (kind == CF_CLEAR_EVERY_TRACK_ALL) {
                         clear_fx_all();
+                        pfx_lane_clear();               /* the punch-in lane is every track's: ALL4 clears it */
                         undo.trk = 0;
                         sync_reload = 1;
                     }
