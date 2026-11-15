@@ -9,9 +9,9 @@
  *   MOVEMENT  PTCH / RATE, PMOD / SIZZ / GAP / LEN, PENV / HPF / FALL, DCAY / LEN
  * Each card keeps its knob across the five models (CLASSIC shown as FM, SHELL, METAL, TEETH, CLICK): a card the
  * model does not use is drawn empty and its knob does nothing. The amounts read as percentages, as every other
- * page's 0..127 values do; PTCH reads as the note and its cents; OSC2 as its amount, 0..100 %. The values are the
- * side's; the MORPH plays between the two (EDIT MRPH). The panel shows the kit's lanes with the edited lane lit
- * (ui_graph.c graph_colony). */
+ * page's 0..127 values do; PTCH reads as the note and its cents; OSC2 as its amount, 0..100 %; TEETH's TAIL as its
+ * level against a tooth, in dB. The values are the side's; the MORPH plays between the two (EDIT MRPH). The panel
+ * shows the kit's lanes with the edited lane lit (ui_graph.c graph_colony). */
 static uint8_t dx_ui_seen = 0xFFu;                   /* the last key note followed */
 static const char *const DX_LANE_ABBR[8] = {"BD", "SD", "CP", "CH", "OH", "TM", "RS", "CB"};
 static const char *const DX_ENGINE_NAME[DXV_N] = {"FM", "SHELL", "METAL", "TEETH", "CLICK"};
@@ -24,7 +24,9 @@ static const char *const DX_FILT_NAME[4] = {"LP", "BP", "HP", "GR"};
 static const char *const DX_FM_DRV_NAME[4] = {"OFF", "DRIVE", "BURST", "DR+BU"};
 static const char *const DX_SHELL_DRV_NAME[4] = {"OFF", "DRIVE", "SHORT", "DR+SH"};
 static const char *const DX_Q_NAME[2] = {"WIDE", "NARROW"};
-static const char *const DX_TEETH_TAIL_NAME[4] = {"7%", "20%", "27%", "57%"};
+/* TEETH's TAIL, the tail's level against a tooth's, in dB: the source clap's 0.07 0.2 0.27 0.57 (TAIL is the
+ * level, DCAY the decay) */
+static const char *const DX_TEETH_TAIL_DB[4] = {"-24", "-14", "-11", "-5"};
 static const char *const DX_CLICK_DRV_NAME[8] = {"X1", "X2", "X6", "X8", "X1+", "X2+", "X6+", "X8+"};
 static const char *const DX_PENV_NAME[4] = {"DECAY", "LONG", "NOISE", "SINE"};
 static const char *const DX_HPF_NAME[4] = {"OFF", "6.9K", "8.8K", "11.7K"};
@@ -198,6 +200,11 @@ static void dx_ix_card(uint32_t c, const char *label, const char *val, uint32_t 
 {
     draw_column(c, label, val, "", VAL(c), (int32_t)(ix * 1000u / (steps - 1u)), icon);
 }
+/* an index's level in dB against the sound's strike (TEETH's TAIL) */
+static void dx_db_card(uint32_t c, const char *label, const char *val, uint32_t ix, uint32_t steps, uint32_t icon)
+{
+    draw_column(c, label, val, "dB", VAL(c), (int32_t)(ix * 1000u / (steps - 1u)), icon);
+}
 
 /* the four cards of SOUND */
 static void dx_sound_cards(const dx_lane_t *L, const uint8_t *v, uint32_t e)
@@ -248,7 +255,7 @@ static void dx_tone_cards(const dx_lane_t *L, const uint8_t *v, uint32_t e)
         break;
     case DXV_TEETH:
         ix = dx_teeth_tail(L);
-        dx_ix_card(2, "TAIL", DX_TEETH_TAIL_NAME[ix], ix, 4, ICON_DECAY);
+        dx_db_card(2, "TAIL", DX_TEETH_TAIL_DB[ix], ix, 4, ICON_LEVEL);
         break;
     default:
         ix = dx_click_drv(L);
