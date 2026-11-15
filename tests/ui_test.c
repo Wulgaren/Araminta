@@ -6824,6 +6824,40 @@ static int test_punch_lane(void)
     return bad;
 }
 
+/* a REC pass that records punch-ins is one lane undo: SAVE held after it takes the lane back, not an older copy (here a
+ * seq edit's: the steps stay) */
+static int test_punch_lane_rec_undo(void)
+{
+    int bad = 0;
+    int32_t o[2 * CTL];
+    uint32_t sig, k;
+    ui_power_on();
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    step_undo_take(TSEL, 0);                            /* an older copy: the seq before notes went in */
+    motion_undo_done(TSEL);
+    song.rec = 1;
+    transport_req = 1;
+    mix_block(o, CTL);
+    frame();                                            /* (the pass starts) */
+    perf_press(PF_LPF, 1);
+    for (k = 0; k < 200u; k++)
+        mix_block(o, CTL);
+    perf_press(PF_LPF, 0);
+    mix_block(o, CTL);
+    song.rec = 0;                                       /* REC off: the pass ends */
+    frame();
+    transport_req = 2;                                  /* (stopped: the next tests render) */
+    for (k = 0; k < 8u; k++)
+        mix_block(o, CTL);
+    my_steps(TSEL);                                     /* the notes the older copy predates */
+    sig = steps_sig(TSEL);
+    bad += check("lane REC pass: LPF recorded", lane_bits(PF_LPF) != 0u);
+    hold(B_SAVE);
+    bad += check("  SAVE held takes the recorded LPF back, the steps stay",
+                 !lane_bits(PF_LPF) && steps_sig(TSEL) == sig && msg_is("UNDO/REDO LANE"));
+    return bad;
+}
+
 /* #40: MENU > FX LATCH ON: a Punch-in key toggles its effect (press again off); macros stay; G5 CLR turns
  * latched effects and FILTER/CRUSH/THROW/DEPTH off; OCT± shift octave; the menu turns them off; OFF (default):
  * punch keys are momentary and G5 is CLR (it erases the lane while recording). Punch-in is the sticky FX map. */
@@ -10087,6 +10121,7 @@ int main(void)
     bad += test_fx_latch();
     bad += test_fx_map();
     bad += test_punch_lane();
+    bad += test_punch_lane_rec_undo();
     bad += test_layer_lock();
     bad += test_rec_layer();
     bad += test_seq_tools();

@@ -1931,6 +1931,7 @@ static void ui_input(void)
     layer_show();
     section_apply();                                    /* sticky Punch-in / SEQ tools maps */
     layer_keys(lkeys);                                  /* GLO: held white keys set perf_solo */
+    lane_rec_watch();                                   /* (a REC pass over the punch-in lane: one undo) */
     if (perf_clr_say) {                                 /* G5 CLR (ISR): latched punch-ins + macros off */
         perf_clr_say = 0;
         ui_message("FX ALL OFF");

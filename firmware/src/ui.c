@@ -1176,25 +1176,47 @@ static void motion_undo_done(track_t *t)
     undo.keep = 1;
     undo.t_ms = fm1_ms;
 }
-/* PUNCH LANE (ui_events.c): the lane is about to be edited: its copy (UNDO_LANE). A knob turned on shares the copy
- * as motion_undo_take does; lane_undo_done after each */
+/* the lane undo's copy: lane l and its tracks g (UNDO_LANE; the swap touches no track) */
+static void lane_undo_set(const uint32_t *l, uint32_t g)
+{
+    undo.trk = (uint8_t)(song.sel + 1u);         /* (something to undo) */
+    undo.what = UNDO_LANE;
+    memcpy(undo.lane, l, sizeof undo.lane);
+    undo.ltgt = (uint8_t)g;
+    undo.keep = 0;
+}
+/* PUNCH LANE (ui_events.c): the lane is about to be edited: its copy. A knob turned on shares the copy as
+ * motion_undo_take does; lane_undo_done after each */
 static void lane_undo_take(uint32_t tag)
 {
     if (tag && tag == undo_mot_tag && undo.keep && undo.what == UNDO_LANE &&
         fnv(2166136261u, pfx_lane, sizeof pfx_lane) == undo.after && fm1_ms - undo.t_ms < 1500u)
         return;
     undo_mot_tag = tag;
-    undo.trk = (uint8_t)(song.sel + 1u);         /* (something to undo; the swap touches no track) */
-    undo.what = UNDO_LANE;
-    memcpy(undo.lane, pfx_lane, sizeof undo.lane);
-    undo.ltgt = pfx_ltgt;
-    undo.keep = 0;
+    lane_undo_set(pfx_lane, pfx_ltgt);
 }
 static void lane_undo_done(void)
 {
     undo.after = fnv(2166136261u, pfx_lane, sizeof pfx_lane);
     undo.keep = 1;
     undo.t_ms = fm1_ms;
+}
+/* A REC pass that changes the lane (punch-ins, CLR: pfx.c, in the ISR) is one lane undo: the lane as the pass found it
+ * becomes the copy when the pass ends; a pass that leaves the lane as it was takes none. Each frame (ui_input) */
+static uint32_t lane_pre[64];                     /* the lane as the pass found it */
+static uint8_t lane_pre_tgt, lane_pass;
+static void lane_rec_watch(void)
+{
+    uint32_t on = (uint32_t)pfx_rec_ok();
+    if (on && !lane_pass) {
+        memcpy(lane_pre, pfx_lane, sizeof lane_pre);
+        lane_pre_tgt = pfx_ltgt;
+    } else if (!on && lane_pass && memcmp(lane_pre, pfx_lane, sizeof lane_pre)) {
+        undo_mot_tag = 0;
+        lane_undo_set(lane_pre, lane_pre_tgt);
+        lane_undo_done();
+    }
+    lane_pass = (uint8_t)on;
 }
 
 static int param_kept(uint32_t i);
