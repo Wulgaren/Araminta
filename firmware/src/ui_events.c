@@ -60,7 +60,8 @@ static int ev_sid(uint32_t id) { return id >= EV_VEL && id <= EV_RATCH; }   /* a
 
 /* PUNCH LANE (PUNCH-IN 3/3: the FX family's GR_EVENTS page) lists the punch-in lane (pfx.c) on this page's knobs
  * and buttons. A row is one effect over a run of steps, EVC(EVK_RUN + the effect, its first step), in step order; an
- * empty lane one EVK_LNONE row. KNOB 1 the row, KNOB 2 moves the run, OCT- deletes it, OCT+ CLEAR PUNCH LANE? */
+ * empty lane one EVK_LNONE row. KNOB 1 the row, KNOB 2 moves the run, KNOB 3 its length, KNOB 4 its effect, OCT-
+ * deletes it, OCT+ CLEAR PUNCH LANE? */
 static int ev_lane(void) { return cur_page()->fam == FAM_FX; }
 /* the effects' names (the FX layer's cells, PUNCH LANE's rows) */
 static const char *const PF_CELL[PF_NFX] = {"1/8", "1/16", "1/32", "REV", "LPF", "HPF", "STOP", "FRZ", "PITCH+", "PITCH-",
@@ -394,17 +395,41 @@ static void pk_open(uint32_t kind);
 static void pk_close(void);
 static int pk_knob(int32_t s);
 
-/* PUNCH LANE's KNOB 2: run c s steps later / earlier, inside the lane's 64 (layered on what the steps there hold) */
-static void lane_move(uint32_t c, int32_t s)
+/* PUNCH LANE's edits: effect e now on steps a..z (layered on what they hold); the row its run starts (joined to a
+ * run of the same effect before it) selected */
+static void lane_put(uint32_t e, uint32_t a, uint32_t z)
 {
-    uint32_t b = PF_BIT((c >> 8) - EVK_RUN), a = c & 63u, z = lane_end(c), i, to;
-    to = (uint32_t)clamp((int32_t)a + s, 0, 63 - (int32_t)(z - a));
-    lane_cut(c);
-    for (i = to; i <= to + z - a; i++)
-        pfx_lane[i] |= b;
-    while (to && (pfx_lane[to - 1u] & b))               /* (joined to a run of the same effect before it) */
-        to--;
-    ev_follow(EVC(c >> 8, to));
+    uint32_t i;
+    for (i = a; i <= z; i++)
+        pfx_lane[i] |= PF_BIT(e);
+    while (a && (pfx_lane[a - 1u] & PF_BIT(e)))
+        a--;
+    ev_follow(EVC(EVK_RUN + e, a));
+}
+/* KNOB 2 (slot 1): run c s steps later / earlier, inside the lane's 64; KNOB 3 (2): its length, 1 step at least;
+ * KNOB 4 (3): its effect, the next / previous in the keys' order (PUNCH-IN 1/2's F3..F5, then 2/2's F3..D5) */
+static void lane_knob(uint32_t slot, uint32_t c, int32_t s)
+{
+    uint32_t e = (c >> 8) - EVK_RUN, a = c & 63u, z = lane_end(c), i, n = 0;
+    uint8_t ord[PF_NFX];
+    if (slot == 1u) {
+        uint32_t to = (uint32_t)clamp((int32_t)a + s, 0, 63 - (int32_t)(z - a));
+        lane_cut(c);
+        lane_put(e, to, to + z - a);
+    } else if (slot == 2u) {
+        lane_cut(c);
+        lane_put(e, a, (uint32_t)clamp((int32_t)z + s, (int32_t)a, 63));
+    } else {
+        for (i = 0; i < 2u * PF_KEYS && n < PF_NFX; i++) {   /* (the two maps hold every effect once) */
+            uint32_t m = i < PF_KEYS ? PF_DEF[i] : PF2_DEF[i - PF_KEYS];
+            if (m < PF_NFX)
+                ord[n++] = (uint8_t)m;
+        }
+        for (i = 0; i < n && ord[i] != e; i++)
+            ;
+        lane_cut(c);
+        lane_put(ord[clamp((int32_t)i + s, 0, (int32_t)n - 1)], a, z);
+    }
 }
 
 /* KNOB slot turned s on AUTOMATION */
@@ -425,8 +450,8 @@ static void ev_knob(uint32_t slot, int32_t s)
         return;
     }
     if (ev_lane()) {
-        if (slot == 1u && k >= EVK_RUN)
-            lane_move(c, s);
+        if (k >= EVK_RUN)
+            lane_knob(slot, c, s);
         return;
     }
     if (ev_busy())

@@ -941,7 +941,7 @@ static void draw_columns(void)
         draw_column(3, "REPS", val, "", used ? VAL(3u) : T_DIM, -1, ICON_AUTO);
         return;
     }
-    if (cur_page()->graph == GR_EVENTS && ev_lane()) { /* PUNCH LANE: ROW, STEP (KNOB 2 moves the run), LEN, FX */
+    if (cur_page()->graph == GR_EVENTS && ev_lane()) { /* PUNCH LANE: ROW, the run's STEP, LEN, FX (KNOB 2..4) */
         uint32_t n, c = ev_cur(ev_rw, &n), k = c >> 8;
         fmt_int(val, (int32_t)ev_row(n) + 1);
         str_cpy(val + str_len(val), "/", 4);
@@ -955,8 +955,8 @@ static void draw_columns(void)
         fmt_int(val, (int32_t)(c & 63u) + 1);
         draw_column(1, "STEP", val, "", VAL(1u), -1, ICON_AUTO);
         fmt_int(val, (int32_t)(lane_end(c) - (c & 63u)) + 1);
-        draw_column(2, "LEN", val, "", T_MID, -1, ICON_NONE);
-        draw_column(3, "FX", PF_CELL[k - EVK_RUN], "", T_MID, -1, ICON_NONE);
+        draw_column(2, "LEN", val, "", VAL(2u), -1, ICON_NONE);
+        draw_column(3, "FX", PF_CELL[k - EVK_RUN], "", VAL(3u), -1, ICON_NONE);
         return;
     }
     if (cur_page()->graph == GR_EVENTS) {              /* AUTOMATION (ui_events.c): ROW STEP PARAM VALUE */

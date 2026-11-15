@@ -6768,10 +6768,17 @@ static int test_fx_map(void)
 
 /* PUNCH LANE (PUNCH-IN 3/3, ui_events.c): the lane's runs as a list, one row per effect per run of steps. Not a key
  * map; KNOB 2 moves the selected run, OCT- deletes it, OCT+ clears the lane (its dialog) */
+static uint64_t lane_bits(uint32_t e)                /* the steps of the punch-in lane holding effect e */
+{
+    uint64_t m = 0;
+    uint32_t i;
+    for (i = 0; i < 64u; i++)
+        m |= (pfx_lane[i] & PF_BIT(e)) ? 1ull << i : 0ull;
+    return m;
+}
 static int test_punch_lane(void)
 {
-    int bad = 0, ok, i;
-    uint64_t lpf = 0, hpf = 0;
+    int bad = 0, i;
     ui_power_on();
     memset(pfx_lane, 0, sizeof pfx_lane);
     for (i = 4; i < 8; i++)
@@ -6785,16 +6792,18 @@ static int test_punch_lane(void)
     bad += check("  a row per effect per run, by step: LPF 5..8, then HPF 7",
                  ev_list(ev_rw) == 2u && ui.ev_row == 0u);
     turn(EN_K2, 1); frame();
-    for (i = 0; i < 64; i++) {
-        lpf |= (pfx_lane[i] & PF_BIT(PF_LPF)) ? 1ull << i : 0ull;
-        hpf |= (pfx_lane[i] & PF_BIT(PF_HPF)) ? 1ull << i : 0ull;
-    }
-    bad += check("  KNOB 2 moves the selected run a step (LPF 6..9), the other effect stays", lpf == 0x1E0u && hpf == 0x40u);
+    bad += check("  KNOB 2 moves the selected run a step (LPF 6..9), the other effect stays",
+                 lane_bits(PF_LPF) == 0x1E0u && lane_bits(PF_HPF) == 0x40u);
+    turn(EN_K3, 1); frame();
+    bad += check("  KNOB 3 lengthens the run (LPF 6..10)", lane_bits(PF_LPF) == 0x3E0u);
+    turn(EN_K3, -10); frame();
+    bad += check("  KNOB 3 shortens it, one step at least (LPF 6)", lane_bits(PF_LPF) == 0x20u);
+    turn(EN_K4, 1); frame();
+    bad += check("  KNOB 4: the next effect in the keys' order (HPF), joined to the HPF on step 7, selected",
+                 !lane_bits(PF_LPF) && lane_bits(PF_HPF) == 0x60u && ev_rw[ui.ev_row] == EVC(EVK_RUN + PF_HPF, 5u));
     press(B_OCTDN);
-    ok = 1;
-    for (i = 0; i < 64; i++)
-        ok &= !(pfx_lane[i] & PF_BIT(PF_LPF));
-    bad += check("  OCT- deletes the selected run", ok && pfx_lane[6] == PF_BIT(PF_HPF) && msg_is("DELETED"));
+    bad += check("  OCT- deletes the selected run", !pfx_lane_used() && msg_is("DELETED"));
+    pfx_lane[30] = PF_BIT(PF_REV);
     press(B_OCTUP);
     bad += check("  OCT+ asks to clear the lane", ui.confirm == CF_CLEAR_LANE);
     press(B_OCTUP);
