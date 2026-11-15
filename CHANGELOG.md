@@ -1,5 +1,39 @@
 # Changelog
 
+## 4.5
+
+The punch-in lane gets a page and undo, imported DX7 patches with AMS stop hissing, and a muted track ramps out.
+
+Splash and ABOUT show `v4.5`.
+
+### Punch-in lane
+
+- **A page of its own.** PUNCH-IN 3/3 lists the lane as AUTOMATION's list: a row per effect per run of steps. KNOB 2
+  moves a run, KNOB 3 sets its length, KNOB 4 changes its effect. OCT- deletes the run; OCT+ asks CLEAR PUNCH LANE?.
+- **SAVE held undoes a lane edit.** One knob gesture is one undo, held again it redoes. A REC pass over the lane is
+  one undo too.
+- **G5 CLR while recording** empties the lane steps it passes. With FX LATCH its press still turns the latched
+  effects off.
+- **CLEAR ALL AUTOMATION** clears the lane as well. A single track's AUTOMATION clear leaves it to the lane page.
+
+### Fixes
+
+- **FM6 AMS levels.** Operators with AMS no longer jump between silence and full scale. Imported DX7 voices that use
+  AMS, such as SYN PAD 6, BALI GONG and TRAIN, lose the broadband noise. The regression test checks AMS 3 at AMD 0
+  and AMD 50.
+- **MIXER and GLO mute.** PLAY OFF now ramps out a note that is already sounding. Before, it only blocked new notes.
+- **Effect graphs follow the page.** With DIST, FILTER, CRUSH, PHASER or FLANGER on SEND or MASTER, the graph reads
+  the shared bus values the cards edit, not the track's stale values.
+- **Editor SysEx across OTA dispatch.** An editor request arriving while an OTA frame is being dispatched is no
+  longer dropped.
+- **Official V16 installer.** `tools/fm1_install.py` and the web installer accept the unmodified V16 stock file
+  without `--force`.
+
+### Build
+
+- **The app slot grows into the package's 0xFF fill** before 0x93000, keeping the last app sector's final 256 B blank.
+  The image length and the OTA check are unchanged.
+
 ## 4.4
 
 The render keeps its hot flash code in one fixed block, the punch-in layer runs on the second core, and overlapping
