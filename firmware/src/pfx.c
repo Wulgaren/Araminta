@@ -38,6 +38,22 @@ static uint8_t pfx_any;               /* a track has something running (or to pu
 static uint32_t pfx_blk;              /* blocks: the notes of one block were struck together */
 static uint32_t pfx_seed = 0x9E3779B9u;
 
+/* the lane holds a recorded effect: AUTOMATION's and SAVE > CLEAR's clears have something to do */
+static int pfx_lane_used(void)
+{
+    uint32_t i;
+    for (i = 0; i < 64u; i++)
+        if (pfx_lane[i])
+            return 1;
+    return 0;
+}
+/* those clears: the lane empty, its MIDI effects back on ALL tracks */
+static void pfx_lane_clear(void)
+{
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    pfx_ltgt = 0;
+}
+
 /* voice.c trk_note_on, before it starts a note: 1 = not played (a repeat holds the track). Remembers the notes
  * struck together; RANDOM draws the note's offset */
 static int pfx_note(track_t *t, uint32_t note, uint32_t vel)

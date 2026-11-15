@@ -6,7 +6,8 @@
  *   QUANTIZE the first: the track's QUANTIZE (P_SQNT) ON / OFF (KNOB 4) and how many steps have a NUDGE. ON (the
  *            default) plays every step on its start; OFF plays the nudges (seq.c seq_tick)
  *   ENABLED  the second: the track's automation ON / OFF (KNOB 4; OFF keeps it) and its counts; OCT+ CLEAR asks
- *            "CLEAR Tn AUTOMATION?" (the locks and events go, the steps' CHANCE, RATCH, NUDGE, VEL stay)
+ *            "CLEAR Tn AUTOMATION?" (the locks and events go, and the punch-in lane, every track's; the steps' CHANCE,
+ *            RATCH, NUDGE, VEL stay)
  *   LOCK / AUTO  a record (motion.c): its step, its parameter, its value
  *   STEP     a step's CHANCE (not 100 %), RATCH (not x1) or NUDGE (not 0): the step's own fields (step_chance,
  *            step_ratchet, step_nudge), shown where they are not at their default, inside LEN; a row being edited
@@ -291,7 +292,7 @@ static int ev_act_ready(void)
     if (chain_busy())
         return 0;
     if (k == EVK_TOP)
-        return motion_count(TSEL) != 0u;
+        return motion_count(TSEL) != 0u || pfx_lane_used();
     if (k == EVK_ADD)
         return ev_sid(ui.ev_id) || (motion.count < MOTION_MAX && ev_id_ok(TSEL, ui.ev_id));
     return k == EVK_REC;
@@ -451,7 +452,7 @@ static void ev_oct(void)
     if (ev_busy())
         return;
     if (k == EVK_TOP) {
-        if (!motion_count(t))
+        if (!motion_count(t) && !pfx_lane_used())
             ui_message("NOTHING TO CLEAR");
         else
             confirm_open(CF_CLEAR_MOTION, song.sel);

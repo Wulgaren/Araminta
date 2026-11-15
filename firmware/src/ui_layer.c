@@ -987,7 +987,7 @@ static int clear_ready(uint32_t kind)
     case CF_CLEAR_SEQ: return !seq_is_empty(TSEL) || motion_count(TSEL);
     case CF_INIT_SOUND:
     case CF_CLEAR_TRACK_ALL: return 1;
-    case CF_CLEAR_MOTION: return motion_count(TSEL) != 0u;
+    case CF_CLEAR_MOTION: return motion_count(TSEL) != 0u || pfx_lane_used();
     case CF_CLEAR_ALL_SEQ:
         for (i = 0; i < NTRK; i++)
             if (!seq_is_empty(&trk[i]) || motion_count(&trk[i]))
@@ -997,10 +997,9 @@ static int clear_ready(uint32_t kind)
     case CF_CLEAR_EVERY_TRACK_ALL:
     case CF_CLEAR_FX:
     case CF_CLEAR_ALL_FX: return 1;
-    case CF_CLEAR_ALL_MOTION:                          /* the records, or the punch-in lane */
-        for (i = 0; i < 64u; i++)
-            if (pfx_lane[i])
-                return 1;
+    case CF_CLEAR_ALL_MOTION:
+        if (pfx_lane_used())
+            return 1;
         for (i = 0; i < NTRK; i++)
             if (motion_count(&trk[i]))
                 return 1;
