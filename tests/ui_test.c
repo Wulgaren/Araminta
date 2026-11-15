@@ -21,8 +21,11 @@
  *              keys 1..8 select the lane (and only they play), 9 held = ACC, 10 / 11 the page; KNOB 1..4 STEP
  *              LANE HIT ACC; the key LEDs (hits, the playhead inverted, the lane, ACC, the page keys); a step's
  *              GM notes shown on their lanes and made the lane's own by an edit; live recording into the grid
- *              (lane keys on the grid, GM keys elsewhere; other GM drums as notes; no TIE holds); 12 BEAT from
+ *              (lane keys on the grid, the kit's eight white keys elsewhere; no TIE holds); 12 BEAT from
  *              PATTERNS fills the grid (undo); sound loads keep it, and other engines play it as GM notes.
+ *   KIT KEYS   a DRUM-X or SAMPLE drum kit (CR78) track outside the grid: the first eight white keys are the lanes
+ *              (KICK on F), the rest silent at any OCT, the eight at the mid level, the pads over the idle glow;
+ *              EDIT > SOUND F# / G# / A# audition A, the kit's MRPH or B (the panel bar, the LANE knob's side).
  *   ROLL       the rolling digits of the card values and the header BPM: strips only, the last frame static,
  *              direction, retarget, the snaps (fast turn, names, shape, page, track, palette, force).
  *   SOAK       #63: 150000 random frames (turns, pages, transport, REC / motion, wrapping clocks): no roll
@@ -1482,20 +1485,20 @@ static int test_grid(void)
     keyboard_block();
     ok &= t->step[7].time == ST_REST && !t->rh_n;
     bad += check("REC on the grid: lane keys record hits, quantised (the next step late), no TIE holds", ok);
-    /* live recording elsewhere (HOME): the GM keys; a lane's note a hit, another GM drum a note */
+    /* live recording elsewhere (HOME): the kit keybed; a lane's note a hit, a key off it nothing */
     go_home();
     frame();
     t->seq_idx = 9;
     t->seq_pos = 0;
-    fm1_in.notes = (1u << 7) | (1u << 13) | (1u << 6);   /* C 36 KICK, F# 42 HAT CL, E 35 (a kick 2 st down) */
+    fm1_in.notes = (1u << 0) | (1u << 6) | (1u << 1);    /* F 36 KICK, B 42 HAT CL, F# (silent) */
     keyboard_block();
     fm1_in.notes = 0;
     keyboard_block();
-    ok = !song.grid && t->step[9].hit == ((1u << DV_KICK) | (1u << DV_HATC)) && t->step[9].n == 1 && step_note(&t->step[9], 0) == 35 &&
+    ok = !song.grid && t->step[9].hit == ((1u << DV_KICK) | (1u << DV_HATC)) && !t->step[9].n &&
          step_lanes(&t->step[9]) == ((1u << DV_KICK) | (1u << DV_HATC));
     song.rec = 0;
     song.playing = 0;
-    bad += check("REC on HOME: GM keys quantised into the grid (35 a note on the KICK lane)", ok);
+    bad += check("REC on HOME: the kit keys quantised into the grid (F# silent, its note a hit)", ok);
     /* SAVE > PHRASES: 12 BEAT into the DRUM track fills the grid */
     track_defaults_steps(t);
     pat_sig[0] = steps_sig(t);
@@ -5512,9 +5515,11 @@ static uint32_t step_keys(uint32_t steps)
             m |= 1u << k;
     return m;
 }
-static int test_step_leds(void)
+/* the hardware's key / button LED positions (hal/fm1_input.h FM1_KEYMAP; the host stub's is zero), so lit_keys can
+ * read a picture. Call after one ui_leds(): its led_pos_init runs once, on the stub's keymap */
+static void led_pos_host(void)
 {
-    static const int8_t MAP[6][FM1_NCOL] = {     /* (hal/fm1_input.h FM1_KEYMAP; the host stub is zero) */
+    static const int8_t MAP[6][FM1_NCOL] = {
         {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
         { 5, 11,  4, 10,  3,  9,  2,  8, -1, -1, -1},
         {34, 35, 36, 37, 38, 40, 39, 13,  7,  6, 12},
@@ -5522,11 +5527,7 @@ static int test_step_leds(void)
         { 0,  1, 15, 14, 17, 16, 19, 18, 20, 21, 22},
         {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
     };
-    static const uint8_t MODES[LEDS_COUNT] = {LEDS_OFF, LEDS_DIM_LO, LEDS_DIM, LEDS_INV};
-    int bad = 0;
-    uint32_t id, p, r, mi, drum, run, k;
-    ui_power_on();
-    ui_leds();
+    uint32_t id, p, r;
     for (id = 0; id < 41u; id++) {
         led_pos[id] = 0xFF;
         for (p = 0; p < FM1_NCOL; p++)
@@ -5534,6 +5535,15 @@ static int test_step_leds(void)
                 if (MAP[r][p] == (int8_t)id)
                     led_pos[id] = (uint8_t)(p << 3 | r);
     }
+}
+static int test_step_leds(void)
+{
+    static const uint8_t MODES[LEDS_COUNT] = {LEDS_OFF, LEDS_DIM_LO, LEDS_DIM, LEDS_INV};
+    int bad = 0;
+    uint32_t id, p, r, mi, drum, run, k;
+    ui_power_on();
+    ui_leds();
+    led_pos_host();
     for (drum = 0; drum < 2u; drum++)
         for (run = 0; run < 2u; run++)
             for (mi = 0; mi < LEDS_COUNT; mi++) {
@@ -6133,13 +6143,13 @@ static int test_scale_leds(void)
     t->engine = t->eng_req;
     sc = scale_leds(&root);
     ui_leds();
-    ok &= !sc && !root && lit_keys(fm1_led_dim) == ALL && !lit_keys(fm1_led_mid);
+    ok &= !sc && !root && lit_keys(fm1_led_dim) == ALL && lit_keys(fm1_led_mid) == KIT_KEYS;
     go_seq_step();
                 frame();
     ui_leds();
     ok &= grid_on() && lit_keys(fm1_led_dim) == grid_glow() &&
           lit_keys(fm1_led_mid) == (grid_beats() & ~key_leds(0));
-    bad += check("#127 a layer, a DRUM track (its keys as before) and the DRUM grid keep their own LEDs", ok);
+    bad += check("#127 a layer, a DRUM track (its eight pads at the mid level) and the DRUM grid keep their LEDs", ok);
     menu_put(MI_SCLLED, 0);
     ok = !(ui_rec_prefs & 0x40u) && !scale_leds(&root);
     bad += check("#127 SCALE LEDS OFF again: the bit clears", ok);
@@ -9424,9 +9434,125 @@ static int test_mixer_solo(void)
     ok &= str_eq(cur_page()->title, "MIXER");
     bk = key_at(1, 0);
     key_down(bk); frame();
-    ok &= (drum_mute[song.sel % NPART] & 1u) == 0u && kb_note[bk] != KB_SILENT;
+    ok &= (drum_mute[song.sel % NPART] & 1u) == 0u && kb_note[bk] == KB_SILENT;   /* (a black key is off the keybed) */
     key_up(bk); frame();
+    key_down(wk); frame();
+    ok &= (drum_mute[song.sel % NPART] & 1u) == 0u && kb_note[wk] == 36u;         /* (the first white key, KICK) */
+    key_up(wk); frame();
     bad += check("MIXER keys play; a DRUM track stays on MIXER", ok);
+    return bad;
+}
+
+/* The kit keybed (core.h KIT_KEY_NOTE): the first eight white keys are the eight lanes, KICK on F, every other key
+ * silent, at any octave; a SAMPLE drum kit (CR78) follows it too. On EDIT > SOUND black keys 1..3 audition A, the
+ * kit's MRPH as stored or B (the panel's bar), a side picked by the LANE knob is heard too, and leaving the page puts
+ * the kit back on its MRPH. */
+static int test_kit_keybed(void)
+{
+    static const uint8_t LANE[8] = {36, 38, 39, 42, 46, 45, 37, 56};
+    int bad = 0, ok;
+    uint32_t i;
+
+    ui_power_on();
+    ui_leds();                                          /* (led_pos_init once, on the stub's keymap) */
+    led_pos_host();
+    set_engine_of(TSEL, ENGI_DRUM);
+    TSEL->engine = TSEL->eng_req;
+    go_title("EDIT 1");
+    frame();
+    bad += check("the kit keybed: EDIT 1 is not the grid (the keys play)",
+                 !grid_on() && song.grid == 0u);
+    ok = 1;
+    for (i = 0; i < 8u; i++) {
+        key_down(white(i));
+        frame();
+        ok &= kb_note[white(i)] == LANE[i];
+        key_up(white(i));
+    }
+    bad += check("the kit keybed: the 8 white keys play KICK..BELL", ok);
+    ok = 1;
+    key_down(key_at(1, 0));                             /* a black key: off the keybed */
+    frame();
+    ok &= kb_note[key_at(1, 0)] == KB_SILENT;
+    key_up(key_at(1, 0));
+    key_down(white(8));                                 /* past the eight pads: silent too */
+    frame();
+    ok &= kb_note[white(8)] == KB_SILENT;
+    key_up(white(8));
+    bad += check("the kit keybed: a black key and a key past the eight are silent", ok);
+    ok = 1;
+    song.octave = 2;                                    /* the keybed does not move with OCT */
+    key_down(white(0));
+    frame();
+    ok &= kb_note[white(0)] == 36u;
+    key_up(white(0));
+    song.octave = -2;
+    key_down(white(7));
+    frame();
+    ok &= kb_note[white(7)] == 56u;
+    key_up(white(7));
+    song.octave = 0;
+    bad += check("the kit keybed: OCT does not move it", ok);
+    ui_leds();                                          /* the eight pads glow over the idle glow */
+    {
+        uint32_t pads = 0;
+        for (i = 0; i < 8u; i++)
+            pads |= 1u << white(i);
+        bad += check("the kit keybed: the 8 pads glow at the mid level, nothing else",
+                     lit_keys(fm1_led_mid) == pads && lit_keys(fm1_led) == 0u);
+    }
+
+    /* a SAMPLE drum kit (CR78) plays the same keybed; a melodic set keeps the chromatic map */
+    ui_power_on();
+    set_engine_of(TSEL, ENGI_SAMPLE);
+    TSEL->engine = TSEL->eng_req;
+    TSEL->p[P_E0] = SMP_CR78_INDEX;
+    go_title("EDIT 1");
+    frame();
+    ok = drum_track(TSEL) && kit_track(TSEL);
+    key_down(white(0));
+    frame();
+    ok &= kb_note[white(0)] == 36u;
+    key_up(white(0));
+    bad += check("a SAMPLE drum kit (CR78) plays the kit keybed", ok);
+    TSEL->p[P_E0] = 0;                                  /* PIANO: not a kit */
+    frame();
+    key_down(white(0));
+    frame();
+    ok = !drum_track(TSEL) && kb_note[white(0)] == 53u;
+    key_up(white(0));
+    bad += check("a melodic SAMPLE set keeps the chromatic keys", ok);
+
+    /* EDIT > SOUND: F# A, G# the kit's MRPH, A# B; the LANE knob's side; leaving the page */
+    ui_power_on();
+    kit_audition = KIT_AUD_OFF;
+    set_engine_of(TSEL, ENGI_DRUM);
+    TSEL->engine = TSEL->eng_req;
+    go_title("SOUND");
+    frame();
+    bad += check("EDIT > SOUND: entering the kit pages auditions the kit's MRPH",
+                 dx_keys_on() && kit_audition == KIT_AUD_KIT);
+    key_down(key_at(1, 0)); frame(); key_up(key_at(1, 0)); frame();
+    bad += check("EDIT > SOUND: F# auditions A (the A patch)", kit_audition == 0u && dx_ui_side == 0u);
+    key_down(key_at(1, 1)); frame(); key_up(key_at(1, 1)); frame();
+    bad += check("EDIT > SOUND: G# auditions the kit's MRPH, the side as it is",
+                 kit_audition == KIT_AUD_KIT && dx_ui_side == 0u);
+    key_down(key_at(1, 2)); frame(); key_up(key_at(1, 2)); frame();
+    bad += check("EDIT > SOUND: A# auditions B (the B patch)", kit_audition == 127u && dx_ui_side == 1u);
+    kit_audition = KIT_AUD_KIT;                         /* a side picked by KNOB 1 is heard too */
+    dx_ui_side = 0;
+    dx_ui_lane = 0;
+    turn(EN_K1, 1);
+    bad += check("EDIT > SOUND: LANE's side is auditioned (BD A -> BD B)",
+                 dx_ui_side == 1u && kit_audition == 127u);
+    go_title("EDIT 1");                                 /* leaving: the kit's MRPH again, the pads still play */
+    frame();
+    ok = kit_audition == KIT_AUD_OFF && !dx_keys_on() && song.grid == 0u;
+    key_down(white(0));
+    frame();
+    ok &= kb_note[white(0)] == 36u;
+    key_up(white(0));
+    bad += check("EDIT > SOUND: leaving the pages puts the kit back on its MRPH; the pads still play", ok);
     return bad;
 }
 
@@ -10169,6 +10295,7 @@ int main(void)
     bad += test_nav_chords();
     bad += test_no_layer_lock();
     bad += test_mixer_solo();
+    bad += test_kit_keybed();
     bad += test_large_face();
     bad += test_sound_loads();
     bad += test_drum_kit_undo();

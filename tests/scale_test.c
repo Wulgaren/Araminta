@@ -69,10 +69,10 @@ static void mapping_test(void)
     for (k = 0; k < 27u; k++)
         assert(kb_map(t, k) == 48u + k);
     t->p[P_QUANT] = 2;
-    host_preset(t, ENGI_DRUM, 0);              /* DRUM (the GM map, any part; SAMPLE PERC until 1.0.2): the first */
-    t->engine = t->eng_req = ENGI_DRUM;        /* C is the kick */
+    host_preset(t, ENGI_DRUM, 0);              /* DRUM (the kit keybed: the first eight white keys are the lanes, KICK */
+    t->engine = t->eng_req = ENGI_DRUM;        /* on F; every other key silent; OCT does not move it) */
     for (k = 0; k < 27u; k++)
-        assert(kb_map(t, k) == 29u + k);
+        assert(kb_map(t, k) == KIT_KEY_NOTE[k]);
     t->engine = t->eng_req = 0;                /* ALL: same key map as KBD (C minor) */
     t->p[P_QUANT] = 1;
     t->p[P_SCALE] = 1;                         /* C minor */
@@ -485,12 +485,12 @@ static void arp_follow_test(void)
     t->p[P_AMODE] = 1;
     t->p[P_AOCT] = 1;
     t->p[P_AHOLD] = 1;
-    fm1_in.notes = (1u << 7) | (1u << 9);
+    fm1_in.notes = (1u << 0) | (1u << 2);
     keyboard_block();
     fm1_in.notes = 0;
     keyboard_block();
     assert(held_key[0][0] == 0 && held_key[0][1] == 0);
-    assert(arp_is(t, kb_map(t, 7), kb_map(t, 9)));
+    assert(arp_is(t, kb_map(t, 0), kb_map(t, 2)));
     t->p[P_TRANS] = 7;
     assert(arp_is(t, t->held[0], t->held[1]));
     puts("scales: the arp's latched / held keys follow TRN, ROOT, SCALE and MAP (#191); octave, MIDI IN, kits as before");

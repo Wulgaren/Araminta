@@ -602,6 +602,12 @@ static void section_apply(void)
 static void page_entered(void)
 {
     const page_t *pg = cur_page();
+    if (pg->graph == GR_DXSND) {                    /* the kit editor: its audition, kept between its pages */
+        if (kit_audition == KIT_AUD_OFF)
+            kit_audition = KIT_AUD_KIT;
+    } else {                                        /* another page: the kit plays its MRPH */
+        kit_audition = KIT_AUD_OFF;
+    }
     ui.pick = 0;                                 /* #223: leave any PARAM / DST list */
     if (!ui.home && pg->graph == GR_EVENTS)      /* AUTOMATION: + ADD on the SEQ cursor's step */
         ev_enter();
@@ -691,6 +697,13 @@ static int detail_on(void)
 /* GLO > SONG (1.2): the white keys A B C D (A3 B3 C4 D4, white places 2..5: seq.c song_key) set the selected cell's slot;
  * they do not sound there, the other keys play as anywhere (seq.c keyboard_block: song.grid 3) */
 static int song_keys_on(void) { return !ui.home && !ui.menu && !ui.confirm && !ui.layer && cur_page()->graph == GR_SONG; }
+/* EDIT > SOUND / TONE / MOVEMENT on a DRUM-X track (ui_dx.c): black keys 1..3 audition the kit's A, its MRPH as
+ * stored, or its B (F# G# A#, ui_input.c); the white keys still play the lanes. page_entered sets KIT_AUD_OFF on
+ * every other page, so the keys are the page's own (and a layer's or a dialog's never reach it) */
+static int dx_keys_on(void)
+{
+    return !ui.home && !ui.menu && !ui.confirm && kit_audition != KIT_AUD_OFF;
+}
 
 /* black key place p (seq.c key_place) held, 0 = not */
 static int black_held(uint32_t p)

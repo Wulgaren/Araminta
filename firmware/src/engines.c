@@ -19,6 +19,9 @@ static uint8_t eng_mem_owner[NPART];       /* engine index + 1 whose state is in
 #define ENG_MEM(p) ((void *)eng_mem[p].b)  /* part p's region (p < NPART) */
 #define ENG_MEM_FITS(name, size) _Static_assert((size) <= ENG_MEM_PART, name " state over ENG_MEM_PART")
 
+/* the keybed the two kit engines play (seq.c, after drum_track: a SAMPLE set's kind is there) */
+static int32_t kit_keys(const track_t *t, uint32_t k);
+
 #include "eng_analog.c"
 #include "eng_phase.c"
 #include "eng_lofi.c"

@@ -11,9 +11,10 @@
  * model does not use is drawn empty and its knob does nothing. The amounts read as percentages, as every other
  * page's 0..127 values do; PTCH reads as the note and its cents; OSC2 as its amount, 0..100 %; TEETH's TAIL as its
  * level against a tooth, in dB. The values are the side's; the MORPH plays between the two (EDIT MRPH). The panel
- * shows the kit's lanes with the edited lane lit (ui_graph.c graph_colony). */
+ * shows the kit's lanes with the edited lane lit (ui_graph.c graph_colony). Black keys 1..3 (F# G# A#) audition A,
+ * the kit's MRPH as stored or B on every one of these pages: the hits play that side and the panel's A---B bar moves
+ * there, F# and A# also picking the patch the cards edit (ui_input.c, kit_audition; leaving the pages puts it back). */
 static uint8_t dx_ui_seen = 0xFFu;                   /* the last key note followed */
-static const char *const DX_LANE_ABBR[8] = {"BD", "SD", "CP", "CH", "OH", "TM", "RS", "CB"};
 static const char *const DX_ENGINE_NAME[DXV_N] = {"FM", "SHELL", "METAL", "TEETH", "CLICK"};
 static const char *const DX_WAVE_NAME[4] = {"SINE", "HARM", "METAL", "CLANG"};
 static const char *const DX_SHELL_R_NAME[4] = {"OFF", "1.42", "1.94", "1.60"};
@@ -81,7 +82,7 @@ static void dx_num_step(uint8_t *p, uint32_t k, int32_t s, int32_t max)
 
 static void dx_lane_name(char *b, uint32_t lane, uint32_t side)   /* "BD A" */
 {
-    str_cpy(b, DX_LANE_ABBR[lane & 7u], 8);
+    str_cpy(b, drum_lane_abbr(0, lane & 7u), 8);          /* (the graph's names: eng_drum.c, t unused) */
     str_cpy(b + str_len(b), side ? " B" : " A", 8 - str_len(b));
 }
 
@@ -95,6 +96,8 @@ static void dx_knob(const page_t *pg, uint32_t k, int32_t s)
     if (p == 1u) {                                      /* SOUND */
         if (k == 0u) {                                  /* LANE: BD A .. CB B */
             ix = dx_step(l * 2u + (dx_ui_side ? 1u : 0u), s, 15u);
+            if ((ix & 1u) != (uint32_t)dx_ui_side)      /* a side picked here is heard too, as F# / A# */
+                kit_audition = (ix & 1u) ? 127u : 0u;
             dx_ui_lane = (uint8_t)(ix >> 1);
             dx_ui_side = (uint8_t)(ix & 1u);
         } else if (k == 1u) {                           /* ENGI: the lane's MODEL */
