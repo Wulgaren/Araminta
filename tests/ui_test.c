@@ -10099,7 +10099,7 @@ static int test_drums_user_load(void)
                          !memcmp(actual, before, sizeof actual) && TSEL->p[P_LN0] == 127);
         else
             bad += check("legacy DRUMS preset loads KIT 80's sounds, models, layers and lane levels",
-                         !memcmp(actual, expected, sizeof actual) && TSEL->p[P_LN0] == 117 && TSEL->p[P_LN1] == 102);
+                         !memcmp(actual, expected, sizeof actual) && TSEL->p[P_LN0] == 127 && TSEL->p[P_LN1] == 127);
         hold(B_SAVE);
         dx_kit_pack(actual, dx_kit, dx_lay, dx_mdl);
         bad += check("legacy DRUMS preset undo restores the previous shared kit", !memcmp(actual, before, sizeof actual));

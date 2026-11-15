@@ -727,9 +727,9 @@ static int drums_lane_levels(void)
     a.t[0].p[P_LN1] = 64;
     a.sum = proj_sum(&a);
     ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
-    return check("DRUMS project migration keeps a silent kick and scales a half-volume snare",
+    return check("DRUMS project migration keeps a silent kick and a half-volume snare",
                  ok && c.t[0].engine == ENGI_DRUM && c.t[0].p[P_LN0] == 0 &&
-                 c.t[0].p[P_LN1] == 51 && c.t[0].p[P_LN2] == 107);
+                 c.t[0].p[P_LN1] == 64 && c.t[0].p[P_LN2] == 127);
 }
 
 int main(void)

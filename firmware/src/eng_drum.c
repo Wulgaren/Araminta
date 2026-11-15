@@ -302,12 +302,12 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     if (pb0 != 4096 || pb1 != 4096)                      /* (JIANT 0.6.16: DRV and the knee on the kit's sum, drum_bus) */
         for (i = 0; i < n; i++)
             y[i] = (y[i] * (pb0 + (((pb1 - pb0) * (int32_t)i) >> CTL_LOG2))) >> 12;
-    {                                                    /* x1.25; a MODEL's sound x4 more (+12 dB: Felucca's DRUMS
-                                                          * voices, their own levels; the lane LEVELs balance them) */
-        uint32_t sh = dx_mdl[(uint32_t)v->s[0] & (DV_NLANE - 1u)] ? 3u : 1u;
+    {                                                    /* x1.25, then x2: the DRUM kits' level. A MODEL's voice is
+                                                          * CLASSIC's (drumx_voice.c: the same gains), so the lane
+                                                          * LEVEL balances them alike */
         for (i = 0; i < n; i++) {
             int32_t s = y[i];
-            out[i] += shl(voice_amp(s + (s >> 2), m, i), sh);
+            out[i] += shl(voice_amp(s + (s >> 2), m, i), 1);
         }
     }
     {   /* MIXER's lane pages: the hit's envelope (Q30, the loudest of its amp, noise and clap tails) as its live
@@ -379,10 +379,8 @@ static const preset_t DRUM_PRESETS[] = {
     {"55", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
     {"77", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
 };
-/* .. their movement (core.h MODS), DRUM_PRESETS' order; 0 none. DRUMS' kits: their lane LEVELs (MIXER 2/3, 3/3), Felucca's
- * balance (each sound's level against its DRUMS hit, the quietest at 100 %) */
-#define LANES(a, b, c, d, e, f, g, h) P_LN0, (a), P_LN1, (b), P_LN2, (c), P_LN3, (d), P_LN4, (e), P_LN5, (f), P_LN6, (g), \
-                                      P_LN7, (h)
+/* .. their movement (core.h MODS), DRUM_PRESETS' order; 0 none. DRUMS' kits have none either: every lane plays at its
+ * LEVEL 127 as the JIANT kits' lanes do, the patches carrying each kit's balance */
 static const int8_t *const DRUM_MODS[] = {
     0, 0, 0,
     MODS(MLFO(LW_SH, LS_1BAR, 0, 0), P_LSMOOTH, 95, P_LTRIG, 1, P_LD_SHP, 8),   /* LOFI DUST: MORPH wanders, a worn tape */
@@ -391,12 +389,12 @@ static const int8_t *const DRUM_MODS[] = {
     MODS(MMOD(1, PS_RAND, PD_DLY, 20)),                  /* DUB ROOTS: each hit its own throw into the echo */
     MODS(MLFO(LW_TRI, LS_4BAR, 0, 0), P_LTRIG, 1, MMOD(1, PS_LFO, PD_E(2), 10)),   /* TECHNO RAW: TONE over 4 bars */
     0, 0, 0,
-    MODS(LANES(124, 95, 78, 91, 126, 105, 67, 108)),  /* STD */
-    MODS(LANES(117, 102, 107, 83, 116, 126, 82, 108)),/* 80 */
-    MODS(LANES(111, 79, 52, 90, 82, 118, 102, 106)),  /* 10 */
-    MODS(LANES(118, 101, 97, 44, 51, 126, 97, 94)),   /* 66 */
-    MODS(LANES(116, 96, 97, 41, 33, 126, 77, 117)),   /* 55 */
-    MODS(LANES(116, 76, 83, 54, 49, 118, 65, 85)),    /* 77 */
+    0,                                                /* STD */
+    0,                                                /* 80 */
+    0,                                                /* 10 */
+    0,                                                /* 66 */
+    0,                                                /* 55 */
+    0,                                                /* 77 */
 };
 _Static_assert(sizeof DRUM_MODS / sizeof DRUM_MODS[0] == DX_NKIT, "a DRUM preset's movement each");
 _Static_assert(sizeof DRUM_PRESETS / sizeof DRUM_PRESETS[0] == DX_NKIT, "a DRUM preset a kit");

@@ -186,6 +186,29 @@ int main(int argc, char **argv)
     else
         pass("MRPH A..B changes the kick");
 
+    /* a MODEL plays at CLASSIC's level: the voice's gain is the kit's (eng_drum.c drum_render), so the 909 CLUB
+     * snare with the SHELL body sits within 4 dB of its CLASSIC one at the same lane LEVEL */
+    {
+        uint64_t e0, e1;
+        int32_t p0, p1;
+        double d;
+        char b[96];
+        dx_kit_load(1u);                                 /* 909 CLUB: the snare's patch */
+        for (i = 0; i < NVOICE; i++)
+            t->v[i].active = t->v[i].gate = 0;
+        dx_mdl[DV_SNARE] = DXV_CLASSIC;
+        hit_lane(t, 38, 400, &p0, &e0);
+        dx_mdl[DV_SNARE] = DXV_SHELL;
+        hit_lane(t, 38, 400, &p1, &e1);
+        d = 10.0 * log10((double)(e1 | 1u) / (double)(e0 | 1u));
+        snprintf(b, sizeof b, "SHELL snare %+.1f dB against CLASSIC at the same LEVEL (4 at most)", d);
+        if (fabs(d) > 4.0)
+            fail(b);
+        else
+            pass(b);
+        dx_kit_load(0u);                                 /* (the factory kit back for the tests below) */
+    }
+
     /* mute via drum_mute: new kick notes do not sound */
     {
         uint32_t i;
