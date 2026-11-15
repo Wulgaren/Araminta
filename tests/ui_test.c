@@ -6801,6 +6801,11 @@ static int test_punch_lane(void)
     turn(EN_K4, 1); frame();
     bad += check("  KNOB 4: the next effect in the keys' order (HPF), joined to the HPF on step 7, selected",
                  !lane_bits(PF_LPF) && lane_bits(PF_HPF) == 0x60u && ev_rw[ui.ev_row] == EVC(EVK_RUN + PF_HPF, 5u));
+    hold(B_SAVE);
+    bad += check("  SAVE held undoes the effect change (LPF 6, HPF 7)",
+                 lane_bits(PF_LPF) == 0x20u && lane_bits(PF_HPF) == 0x40u);
+    hold(B_SAVE);
+    bad += check("  held again: redone (HPF 6..7)", !lane_bits(PF_LPF) && lane_bits(PF_HPF) == 0x60u);
     press(B_OCTDN);
     bad += check("  OCT- deletes the selected run", !pfx_lane_used() && msg_is("DELETED"));
     pfx_lane[30] = PF_BIT(PF_REV);
@@ -6808,6 +6813,9 @@ static int test_punch_lane(void)
     bad += check("  OCT+ asks to clear the lane", ui.confirm == CF_CLEAR_LANE);
     press(B_OCTUP);
     bad += check("  confirmed: the lane is empty", !pfx_lane_used() && msg_is("PUNCH LANE CLEARED"));
+    hold(B_SAVE);
+    bad += check("  SAVE held brings the cleared lane back", lane_bits(PF_REV) == 1ull << 30);
+    hold(B_SAVE);
     press(B_OCTUP);
     bad += check("  nothing there: NOTHING TO CLEAR", !ui.confirm && msg_is("NOTHING TO CLEAR"));
     turn(EN_SELECT, -1); frame();

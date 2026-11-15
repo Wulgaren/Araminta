@@ -942,8 +942,9 @@ static int seq_is_empty(const track_t *t)
  * takes the copy too (UNDO_MOT: SAVE held puts the track's motion back, the sound and the steps stay; motion_undo_take).
  * A sound load keeps the track's motion on the parameters every engine has (load_end, motion.c motion_sound_loaded);
  * a pattern load drops it all (the steps it was on are gone).
- * SAVE > CLEAR > ALL / ALL4 clears the mix and the arp too (UNDO_MIX: those come back with the sound and steps) */
-enum { UNDO_SOUND = 1, UNDO_PAT = 2, UNDO_MOT = 4, UNDO_MIX = 8, UNDO_KIT = 16 };
+ * SAVE > CLEAR > ALL / ALL4 clears the mix and the arp too (UNDO_MIX: those come back with the sound and steps).
+ * PUNCH LANE's edits copy the punch-in lane instead (UNDO_LANE alone: every track's, the swap touches no track) */
+enum { UNDO_SOUND = 1, UNDO_PAT = 2, UNDO_MOT = 4, UNDO_MIX = 8, UNDO_KIT = 16, UNDO_LANE = 32 };
 static struct {
     uint8_t trk;                 /* track + 1, 0 = nothing to undo */
     uint8_t keep;                /* the track is as the last load left it (undo.after): a next load keeps the copy */
@@ -962,6 +963,8 @@ static struct {
     uint32_t from_h;             /* pat_from_h[], pat_from[] of the copy (the header's slot letter) */
     uint8_t from;
     uint32_t t_ms;               /* time of the last load (the editor's SETs after it belong to it) */
+    uint32_t lane[64];           /* UNDO_LANE: pfx_lane and pfx_ltgt (pfx.c) */
+    uint8_t ltgt;
 } undo;                       /* (main loop only, but in .bss since FUN21: the pool's headroom took its 255 records) */
 static uint8_t undo_depth;       /* loads nest (an engine jump loads its first preset): the outer one counts;
                                   * felucca_init / project_load raise it to take no copy at all */
@@ -1173,6 +1176,26 @@ static void motion_undo_done(track_t *t)
     undo.keep = 1;
     undo.t_ms = fm1_ms;
 }
+/* PUNCH LANE (ui_events.c): the lane is about to be edited: its copy (UNDO_LANE). A knob turned on shares the copy
+ * as motion_undo_take does; lane_undo_done after each */
+static void lane_undo_take(uint32_t tag)
+{
+    if (tag && tag == undo_mot_tag && undo.keep && undo.what == UNDO_LANE &&
+        fnv(2166136261u, pfx_lane, sizeof pfx_lane) == undo.after && fm1_ms - undo.t_ms < 1500u)
+        return;
+    undo_mot_tag = tag;
+    undo.trk = (uint8_t)(song.sel + 1u);         /* (something to undo; the swap touches no track) */
+    undo.what = UNDO_LANE;
+    memcpy(undo.lane, pfx_lane, sizeof undo.lane);
+    undo.ltgt = pfx_ltgt;
+    undo.keep = 0;
+}
+static void lane_undo_done(void)
+{
+    undo.after = fnv(2166136261u, pfx_lane, sizeof pfx_lane);
+    undo.keep = 1;
+    undo.t_ms = fm1_ms;
+}
 
 static int param_kept(uint32_t i);
 
@@ -1186,6 +1209,21 @@ static void undo_swap(void)
     char b[4] = {'T', 0, 0, 0};
     if (!undo.trk) {
         ui_message("NOTHING TO UNDO");
+        return;
+    }
+    if (undo.what == UNDO_LANE) {                 /* the punch-in lane and the copy change places */
+        uint32_t v;
+        for (i = 0; i < 64u; i++) {
+            v = pfx_lane[i];
+            pfx_lane[i] = undo.lane[i];
+            undo.lane[i] = v;
+        }
+        v = pfx_ltgt;
+        pfx_ltgt = undo.ltgt;
+        undo.ltgt = (uint8_t)v;
+        undo.keep = 0;
+        ui_message("UNDO/REDO LANE");
+        ui.force = 1;
         return;
     }
     t = &trk[(undo.trk - 1u) % NTRK];

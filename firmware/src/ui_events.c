@@ -61,7 +61,7 @@ static int ev_sid(uint32_t id) { return id >= EV_VEL && id <= EV_RATCH; }   /* a
 /* PUNCH LANE (PUNCH-IN 3/3: the FX family's GR_EVENTS page) lists the punch-in lane (pfx.c) on this page's knobs
  * and buttons. A row is one effect over a run of steps, EVC(EVK_RUN + the effect, its first step), in step order; an
  * empty lane one EVK_LNONE row. KNOB 1 the row, KNOB 2 moves the run, KNOB 3 its length, KNOB 4 its effect, OCT-
- * deletes it, OCT+ CLEAR PUNCH LANE? */
+ * deletes it, OCT+ CLEAR PUNCH LANE?; each edit one undo (SAVE held: ui.c lane_undo_take) */
 static int ev_lane(void) { return cur_page()->fam == FAM_FX; }
 /* the effects' names (the FX layer's cells, PUNCH LANE's rows) */
 static const char *const PF_CELL[PF_NFX] = {"1/8", "1/16", "1/32", "REV", "LPF", "HPF", "STOP", "FRZ", "PITCH+", "PITCH-",
@@ -450,8 +450,11 @@ static void ev_knob(uint32_t slot, int32_t s)
         return;
     }
     if (ev_lane()) {
-        if (k >= EVK_RUN)
+        if (k >= EVK_RUN) {
+            lane_undo_take(0x800u | slot);              /* (a knob turned on: one undo) */
             lane_knob(slot, c, s);
+            lane_undo_done();
+        }
         return;
     }
     if (ev_busy())
@@ -620,7 +623,9 @@ static void ev_delete(void)
         return;
     }
     if (k >= EVK_RUN) {
+        lane_undo_take(0);
         lane_cut(c);
+        lane_undo_done();
         ui.ev_row = (uint16_t)r;
         ui_message("DELETED");
         return;
