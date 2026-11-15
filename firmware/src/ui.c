@@ -200,7 +200,7 @@ static struct {
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER, CF_LOAD_PAT,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER,
        CF_CLEAR_ALL_SEQ, CF_INIT_ALL_SOUND, CF_CLEAR_ALL_MOTION,
-       CF_CLEAR_TRACK_ALL, CF_CLEAR_EVERY_TRACK_ALL, CF_CLEAR_FX, CF_CLEAR_ALL_FX };
+       CF_CLEAR_TRACK_ALL, CF_CLEAR_EVERY_TRACK_ALL, CF_CLEAR_FX, CF_CLEAR_ALL_FX, CF_CLEAR_LANE };
                                    /* ui.confirm: CLEAR map; SAVE over a used slot; a pattern over the user's steps;
                                     * USER ERASE */
 
@@ -452,7 +452,7 @@ static uint32_t section_map_layer(void)
     if (ui.home)
         return 0;
     pg = &PAGES[ui.page % NPAGES];
-    if (pg->fam == FAM_FX && pg->sec == FX_SEC_PUNCH)
+    if (pg->fam == FAM_FX && pg->graph == GR_PUNCH)
         return LAYER_FX;
     if (pg->fam == FAM_SEQ && pg->graph == GR_STEPS)   /* SEQ TOOLS: not the GENERATION pages beside it */
         return LAYER_SEQ;
@@ -610,9 +610,9 @@ static void page_entered(void)
     song.seq_mode = !ui.home && pg->fam == FAM_SEQ;
     {   /* the punch page shown: the section's 2/2 page (two PUNCH-IN titles, the count tells them apart) */
         uint32_t i = NPAGES;
-        while (i > 0 && !(PAGES[i - 1].fam == FAM_FX && PAGES[i - 1].sec == FX_SEC_PUNCH))
+        while (i > 0 && !(PAGES[i - 1].fam == FAM_FX && PAGES[i - 1].graph == GR_PUNCH))
             i--;                                        /* (the last PUNCH-IN page in the table: the 2/2) */
-        perf_page(!ui.home && pg->fam == FAM_FX && pg->sec == FX_SEC_PUNCH && pg == &PAGES[i - 1]);
+        perf_page(!ui.home && pg == &PAGES[i - 1]);
     }
     ui.entry_open = 0;
     ui.hot_t = 0;                                /* clear the previous page's emphasis */

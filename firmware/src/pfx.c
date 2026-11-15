@@ -28,7 +28,8 @@
  * between get it, added to what they held (a second pass layers; the lane plays on while it records), a MIDI one
  * with the tracks A#4 picked.
  * Played back with the held ones: the MIDI effects here, the audio ones on the master (perform.c perf_begin).
- * (G5 CLR is latched-FX all-off when FX LATCH is on.)
+ * G5 CLR held while recording empties the steps it passes (what is held with it is not recorded); its press and
+ * release quantize as an effect's. With FX LATCH its press also turns the latched effects off.
  * FUN21 saves the lane in the project's tail (project.c PROJ_LANE_OFF); a FUN20 loads its one effect a step.
  * Nothing stages it per song section (song_chain.c never mentions it).
  * In the ISR: pfx_block before the events (what acts on each track, the repeats, the decays put in), pfx_end after
@@ -139,6 +140,8 @@ static uint32_t pfx_rheld;            /* recording the lane: the effects held la
 static uint32_t pfx_rold;             /* .. the step being written, as it was before this recording wrote it */
 static uint8_t pfx_rskip[PF_N];       /* .. per press, the step before its first (not written) */
 static uint8_t pfx_rstep = 0xFF;      /* .. the step pfx_rold was taken in */
+static uint8_t pfx_rclr;              /* .. CLR held last block; pfx_cskip: as pfx_rskip, for CLR (0xFF: none) */
+static uint8_t pfx_cskip = 0xFF;
 
 /* each block, before the events (fx.c mix_block). held: the effects held (PF_* bits, audio ones too: the lane
  * records them; this file acts on the MIDI ones) */
@@ -167,6 +170,8 @@ static __attribute__((noinline)) void pfx_block(uint32_t n, uint32_t held)
                 pfx_rstep = (uint8_t)st;
                 pfx_rold = pfx_lane[st];
             }
+            if (pfx_rclr && !pfx_clr && !half)          /* CLR let go in a step's first half: that step as it was */
+                pfx_lane[st] = pfx_rold;
             for (m = raw; m; m &= m - 1u) {             /* each held effect on its own steps: a press in a step's
                                                          * second half starts at the next one */
                 e = (uint32_t)__builtin_ctz(m);
@@ -184,9 +189,20 @@ static __attribute__((noinline)) void pfx_block(uint32_t n, uint32_t held)
             }
             if (raw & PF_MIDI)                          /* (an audio effect plays on the master: no tracks) */
                 pfx_ltgt = pfx_tgt;
+            if (pfx_clr) {                              /* CLR held: the steps it passes emptied, what is held with
+                                                         * it too; pressed in a step's second half, from the next */
+                if (!pfx_rclr)
+                    pfx_cskip = (uint8_t)((st + half - 1u) & 63u);
+                if (st != pfx_cskip) {
+                    pfx_lane[st] = 0;
+                    pfx_cskip = 0xFF;
+                }
+            }
+            pfx_rclr = pfx_clr;
         } else {
             pfx_rheld = 0;
             pfx_rstep = 0xFF;
+            pfx_rclr = 0;
         }
         lane = pfx_lane[st] & PF_MIDI;                  /* (the audio ones: perform.c perf_begin) */
     }

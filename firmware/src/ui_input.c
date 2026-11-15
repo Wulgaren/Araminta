@@ -2016,6 +2016,9 @@ static void ui_input(void)
             } else if (kind == CF_CLEAR_MOTION) {
                 track_t *t = &trk[ui.confirm_trk % NTRK];
                 if (!chain_busy()) { load_begin(t, UNDO_PAT); motion_clear(t); load_end(t); ui_message("AUTOMATION CLEARED"); }
+            } else if (kind == CF_CLEAR_LANE) {
+                pfx_lane_clear();
+                ui_message("PUNCH LANE CLEARED");
             } else if (kind == CF_DEL_ROW) {
                 uint32_t r = ui.confirm_trk;
                 if (!chain_busy() && r < chain_config.count) {

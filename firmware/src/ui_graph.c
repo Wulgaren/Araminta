@@ -1562,6 +1562,40 @@ static void graph_pick(void)
     }
 }
 
+/* PUNCH LANE (ui_events.c lane_list): the runs around the one selected, "05-08" and the effect; an empty lane
+ * NO PUNCH-INS */
+static void graph_lane(void)
+{
+    uint32_t n = ev_list(ev_rw), cur = ev_row(n), k, c, s;
+    int32_t row, first = clamp((int32_t)cur - 3, 0, (int32_t)n > 7 ? (int32_t)n - 7 : 0);
+    for (row = 0; row < 7 && (uint32_t)(first + row) < n; row++) {
+        int32_t y = LIST_Y(row);
+        char b[8];
+        uint16_t bg;
+        k = (uint32_t)(first + row);
+        c = ev_rw[k];
+        bg = k == cur ? T_THEME : T_SURF;
+        if (k == cur)
+            cv_rrect(6, y, 228, 16, 4, T_THEME, T_SURF);
+        GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
+        if (c >> 8 < EVK_RUN) {
+            cv_text_on(14, y + LIST_TY, &AF_M, "NO PUNCH-INS", T_DIM, bg);
+            break;
+        }
+        s = (c & 63u) + 1u;
+        b[0] = (char)('0' + s / 10u);
+        b[1] = (char)('0' + s % 10u);
+        b[2] = '-';
+        s = lane_end(c) + 1u;
+        b[3] = (char)('0' + s / 10u);
+        b[4] = (char)('0' + s % 10u);
+        b[5] = 0;
+        cv_text_on(14, y + LIST_TY, &AF_M, b, k == cur ? T_INK : T_MID, bg);
+        GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
+        cv_text_on(EV_NX, y + LIST_TY, &AF_M, PF_CELL[(c >> 8) - EVK_RUN], k == cur ? T_INK : T_TEXT, bg);
+    }
+}
+
 /* SEQ > AUTOMATION (ui_events.c): the track's rows around the one selected: QUANTIZE first (ON / OFF and the steps
  * nudged), ENABLED (ON / OFF and the counts), a divider under the two, then a row each: the kind (LOCK in the accent,
  * AUTO; STEP: a step's CHANCE, RATCH, NUDGE or VEL, a NUDGE or VEL that does not play DIM), the step, the name, the
@@ -2620,6 +2654,8 @@ static void draw_graph(void)
             cv_oy = 0;
             if (ui.pick == PK_AUTO)
                 graph_pick();
+            else if (ev_lane())
+                graph_lane();
             else
                 graph_events();
             break;

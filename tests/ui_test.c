@@ -2803,6 +2803,8 @@ static int test_presets_knob(void)
                 sel_ok &= pat_pick() == ppick + 1u && same_snd && same_steps;
             } else if (g == GR_SONG) {
                 sel_ok &= same_snd && same_steps && ui.page == i;
+            } else if (g == GR_EVENTS && PAGES[i].fam == FAM_FX) {   /* PUNCH LANE, empty: its one row */
+                sel_ok &= same_snd && same_steps && ui.page == i && ui.ev_row == 0u;
             } else if (g == GR_EVENTS) {               /* (AUTOMATION: its row, PLAY's to the first record's) */
                 sel_ok &= same_snd && same_steps && ui.page == i && ui.ev_row == 1u;
             } else if (g == GR_CLEAR) {
@@ -6764,24 +6766,65 @@ static int test_fx_map(void)
     return bad;
 }
 
+/* PUNCH LANE (PUNCH-IN 3/3, ui_events.c): the lane's runs as a list, one row per effect per run of steps. Not a key
+ * map; KNOB 2 moves the selected run, OCT- deletes it, OCT+ clears the lane (its dialog) */
+static int test_punch_lane(void)
+{
+    int bad = 0, ok, i;
+    uint64_t lpf = 0, hpf = 0;
+    ui_power_on();
+    memset(pfx_lane, 0, sizeof pfx_lane);
+    for (i = 4; i < 8; i++)
+        pfx_lane[i] = PF_BIT(PF_LPF);                  /* LPF on steps 5..8 */
+    pfx_lane[6] |= PF_BIT(PF_HPF);                      /* HPF on step 7 */
+    go_title("PUNCH-IN"); frame();
+    turn(EN_SELECT, 1); frame();
+    turn(EN_SELECT, 1); frame();
+    bad += check("PUNCH LANE: SELECT past PUNCH-IN 2/2, not a key map", str_eq(cur_page()->title, "PUNCH LANE") &&
+                 cur_page()->sec == FX_SEC_PUNCH && !ui.lock);
+    bad += check("  a row per effect per run, by step: LPF 5..8, then HPF 7",
+                 ev_list(ev_rw) == 2u && ui.ev_row == 0u);
+    turn(EN_K2, 1); frame();
+    for (i = 0; i < 64; i++) {
+        lpf |= (pfx_lane[i] & PF_BIT(PF_LPF)) ? 1ull << i : 0ull;
+        hpf |= (pfx_lane[i] & PF_BIT(PF_HPF)) ? 1ull << i : 0ull;
+    }
+    bad += check("  KNOB 2 moves the selected run a step (LPF 6..9), the other effect stays", lpf == 0x1E0u && hpf == 0x40u);
+    press(B_OCTDN);
+    ok = 1;
+    for (i = 0; i < 64; i++)
+        ok &= !(pfx_lane[i] & PF_BIT(PF_LPF));
+    bad += check("  OCT- deletes the selected run", ok && pfx_lane[6] == PF_BIT(PF_HPF) && msg_is("DELETED"));
+    press(B_OCTUP);
+    bad += check("  OCT+ asks to clear the lane", ui.confirm == CF_CLEAR_LANE);
+    press(B_OCTUP);
+    bad += check("  confirmed: the lane is empty", !pfx_lane_used() && msg_is("PUNCH LANE CLEARED"));
+    press(B_OCTUP);
+    bad += check("  nothing there: NOTHING TO CLEAR", !ui.confirm && msg_is("NOTHING TO CLEAR"));
+    turn(EN_SELECT, -1); frame();
+    bad += check("  SELECT back: PUNCH-IN 2/2, its map", str_eq(cur_page()->title, "PUNCH-IN") && ui.lock == LAYER_FX &&
+                 perf_key(white(4)) == PF_ODN);
+    return bad;
+}
+
 /* #40: MENU > FX LATCH ON: a Punch-in key toggles its effect (press again off); macros stay; G5 CLR turns
  * latched effects and FILTER/CRUSH/THROW/DEPTH off; OCT± shift octave; the menu turns them off; OFF (default):
- * punch keys are momentary and G5 is not CLR. Punch-in is the sticky FX map. */
+ * punch keys are momentary and G5 is CLR (it erases the lane while recording). Punch-in is the sticky FX map. */
 
 static int test_fx_latch(void)
 {
     int bad = 0, ok;
-    uint32_t lpf = white(4), m1 = black(0), clr = white(15); /* C4: LPF; A#3 mute T1; G5 CLR when LATCH on */
+    uint32_t lpf = white(4), m1 = black(0), clr = white(15); /* C4: LPF; A#3 mute T1; G5 CLR */
     ui_power_on();
     ok = !(fx_latch & 1u);
     go_title("PUNCH-IN"); frame();
     ok &= ui.lock == LAYER_FX && cur_page()->sec == FX_SEC_PUNCH;
-    ok &= perf_key(clr) != PF_CLR;                      /* LATCH off: no CLR on G5 */
+    ok &= perf_key(clr) == PF_CLR;                      /* LATCH off too: CLR on G5 */
     key_down(lpf); frame();
     ok &= (perf_held & PF_BIT(PF_LPF)) != 0u && !perf_latched;
     key_up(lpf); frame();
     ok &= !(perf_held & PF_BIT(PF_LPF)) && !perf_latched;
-    bad += check("#40 FX LATCH OFF: Punch-in keys are momentary; G5 is not CLR", ok);
+    bad += check("#40 FX LATCH OFF: Punch-in keys are momentary; G5 is CLR", ok);
     /* ON */
     ui_power_on();
     fx_latch = 1;
@@ -10026,6 +10069,7 @@ int main(void)
     bad += test_layer_knob_race();
     bad += test_fx_latch();
     bad += test_fx_map();
+    bad += test_punch_lane();
     bad += test_layer_lock();
     bad += test_rec_layer();
     bad += test_seq_tools();

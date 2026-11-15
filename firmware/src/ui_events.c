@@ -44,8 +44,9 @@ static void confirm_open(uint32_t kind, uint32_t trk);
 #define EV_NUDGE 0xFCu                                  /* a NUDGE, */
 #define EV_CHANCE 0xFDu                                 /* a CHANCE, */
 #define EV_RATCH 0xFEu                                  /* a RATCH (0xFF: none) */
-enum { EVK_TOP, EVK_REC, EVK_CHANCE, EVK_RATCH, EVK_ADD, EVK_NUDGE, EVK_QNT, EVK_VEL };   /* (NUDGE, QUANTIZE: 1.2,
-                                                                                           * #162; VEL: 1.5, #173) */
+enum { EVK_TOP, EVK_REC, EVK_CHANCE, EVK_RATCH, EVK_ADD, EVK_NUDGE, EVK_QNT, EVK_VEL,   /* (NUDGE, QUANTIZE: 1.2,
+                                                                                         * #162; VEL: 1.5, #173) */
+       EVK_LNONE, EVK_RUN };                            /* PUNCH LANE's: an empty lane; a run (+ its effect) */
 #define EVC(k, a) ((uint16_t)((uint32_t)(k) << 8 | (a)))   /* a row: its kind, its record (EVK_REC) or its step */
 #define EV_ROWS (3u + MOTION_MAX + 4u * NSTEP)
 /* One shared row list for the whole AUTOMATION page, in place of the 387-entry / 774 B buffer a
@@ -56,6 +57,41 @@ enum { EVK_TOP, EVK_REC, EVK_CHANCE, EVK_RATCH, EVK_ADD, EVK_NUDGE, EVK_QNT, EVK
  * only), off the audio ISR's .bss. */
 static uint16_t ev_rw[EV_ROWS] __attribute__((section(".pool")));
 static int ev_sid(uint32_t id) { return id >= EV_VEL && id <= EV_RATCH; }   /* a step's own field */
+
+/* PUNCH LANE (PUNCH-IN 3/3: the FX family's GR_EVENTS page) lists the punch-in lane (pfx.c) on this page's knobs
+ * and buttons. A row is one effect over a run of steps, EVC(EVK_RUN + the effect, its first step), in step order; an
+ * empty lane one EVK_LNONE row. KNOB 1 the row, KNOB 2 moves the run, OCT- deletes it, OCT+ CLEAR PUNCH LANE? */
+static int ev_lane(void) { return cur_page()->fam == FAM_FX; }
+/* the effects' names (the FX layer's cells, PUNCH LANE's rows) */
+static const char *const PF_CELL[PF_NFX] = {"1/8", "1/16", "1/32", "REV", "LPF", "HPF", "STOP", "FRZ", "PITCH+", "PITCH-",
+    "FLNG", "PHSR", "VERB", "ECHO", "OCT-", "OCT+", "/2", "DEC-", "DEC+", "ST8", "ST16", "ATK+", "ARP", "RND", "*2", "GLITCH",
+    "1/12"};
+/* run c's last step */
+static uint32_t lane_end(uint32_t c)
+{
+    uint32_t b = PF_BIT((c >> 8) - EVK_RUN), s = c & 63u;
+    while (s < 63u && (pfx_lane[s + 1u] & b))
+        s++;
+    return s;
+}
+/* run c's effect off its steps (OCT- deletes the run, KNOB 2 moves it) */
+static void lane_cut(uint32_t c)
+{
+    uint32_t z = lane_end(c), i;
+    for (i = c & 63u; i <= z; i++)
+        pfx_lane[i] &= ~PF_BIT((c >> 8) - EVK_RUN);
+}
+static uint32_t lane_list(uint16_t *rw)
+{
+    uint32_t n = 0, s, e;
+    for (s = 0; s < 64u; s++)
+        for (e = 0; e < PF_NFX; e++)
+            if (((pfx_lane[s] >> e) & 1u) && !(s && ((pfx_lane[s - 1u] >> e) & 1u)) && n < EV_ROWS)
+                rw[n++] = EVC(EVK_RUN + e, s);
+    if (!n)
+        rw[n++] = EVC(EVK_LNONE, 0);
+    return n;
+}
 static int ev_skd(uint32_t k) { return k == EVK_CHANCE || k == EVK_RATCH || k == EVK_NUDGE || k == EVK_VEL; }
 
 /* id has a row's name on track t: motion records it, and the track's sound has it (DRUM's lane levels on a DRUM
@@ -194,6 +230,8 @@ static uint32_t ev_list(uint16_t *rw)
     uint8_t idx[MOTION_MAX];
     uint32_t m = motion_rows(song.sel, idx), len = ev_len(t), n = 0, j = 0, s, k;
     static const uint8_t SK[4] = {EVK_CHANCE, EVK_RATCH, EVK_NUDGE, EVK_VEL};
+    if (ev_lane())
+        return lane_list(rw);
     rw[n++] = EVC(EVK_QNT, 0);
     rw[n++] = EVC(EVK_TOP, 0);
     for (s = 0; s < NSTEP; s++) {
@@ -269,6 +307,8 @@ static uint32_t ev_sig(void)
             c ^= (uint32_t)ev_sval(&t->step[c & 0xFFu], c >> 8) << 16;
         h = (h ^ c) * 16777619u;
     }
+    for (i = 0; ev_lane() && i < 64u; i++)
+        h = (h ^ pfx_lane[i]) * 16777619u;
     return (h ^ ev_row(n) * 2654435761u ^ ((uint32_t)ui.ev_step << 8 | ui.ev_id) * 104729u ^
             (uint32_t)motion_enabled(t) * 7919u ^ (uint32_t)t->p[P_SQNT] * 1299709u ^ ui.ev_vel * 15485863u) *
            16777619u;
@@ -277,7 +317,7 @@ static uint32_t ev_sig(void)
 static const char *ev_act_name(void)
 {
     uint32_t c = ev_cur(ev_rw, 0), k = c >> 8;
-    if (k == EVK_TOP)
+    if (k == EVK_TOP || ev_lane())
         return "CLEAR";
     if (k == EVK_ADD)
         return ui.ev_id != EV_VEL ? "ADD" : ui.ev_vel ? "HIDE" : "SHOW";
@@ -288,6 +328,8 @@ static const char *ev_act_name(void)
 static int ev_act_ready(void)
 {
     uint32_t c = ev_cur(ev_rw, 0), k = c >> 8;
+    if (ev_lane())
+        return pfx_lane_used();
     if (chain_busy())
         return 0;
     if (k == EVK_TOP)
@@ -352,6 +394,19 @@ static void pk_open(uint32_t kind);
 static void pk_close(void);
 static int pk_knob(int32_t s);
 
+/* PUNCH LANE's KNOB 2: run c s steps later / earlier, inside the lane's 64 (layered on what the steps there hold) */
+static void lane_move(uint32_t c, int32_t s)
+{
+    uint32_t b = PF_BIT((c >> 8) - EVK_RUN), a = c & 63u, z = lane_end(c), i, to;
+    to = (uint32_t)clamp((int32_t)a + s, 0, 63 - (int32_t)(z - a));
+    lane_cut(c);
+    for (i = to; i <= to + z - a; i++)
+        pfx_lane[i] |= b;
+    while (to && (pfx_lane[to - 1u] & b))               /* (joined to a run of the same effect before it) */
+        to--;
+    ev_follow(EVC(c >> 8, to));
+}
+
 /* KNOB slot turned s on AUTOMATION */
 static void ev_knob(uint32_t slot, int32_t s)
 {
@@ -367,6 +422,11 @@ static void ev_knob(uint32_t slot, int32_t s)
             ui.ev_row = (uint16_t)to;
             ev_follow(ev_rw[to]);
         }
+        return;
+    }
+    if (ev_lane()) {
+        if (slot == 1u && k >= EVK_RUN)
+            lane_move(c, s);
         return;
     }
     if (ev_busy())
@@ -448,6 +508,13 @@ static void ev_oct(void)
     track_t *t = TSEL;
     uint32_t c = ev_cur(ev_rw, 0), k = c >> 8;
     int32_t at;
+    if (ev_lane()) {
+        if (!pfx_lane_used())
+            ui_message("NOTHING TO CLEAR");
+        else
+            confirm_open(CF_CLEAR_LANE, 0);
+        return;
+    }
     if (ev_busy())
         return;
     if (k == EVK_TOP) {
@@ -523,8 +590,14 @@ static void ev_delete(void)
     track_t *t = TSEL;
     uint32_t n, c = ev_cur(ev_rw, &n), r = ev_row(n), k = c >> 8;
     const motion_event_t *e;
-    if (k == EVK_TOP || k == EVK_QNT || k == EVK_ADD) {
+    if (k == EVK_TOP || k == EVK_QNT || k == EVK_ADD || k == EVK_LNONE) {
         ui_message("NOTHING TO DEL");
+        return;
+    }
+    if (k >= EVK_RUN) {
+        lane_cut(c);
+        ui.ev_row = (uint16_t)r;
+        ui_message("DELETED");
         return;
     }
     if (ev_busy())

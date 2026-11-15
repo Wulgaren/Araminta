@@ -824,7 +824,7 @@ static void draw_foot(void)
         int32_t r = 232, tx, ex, need = text_w(&AF_S, pn), ew = text_w(&AF_S, ename);
         ex = 8 + (FELUCCA_ICONS ? 12 + 5 : 0) + (ew < 80 ? ew : 80);   /* (where the engine's name ends) */
         tx = r - text_w(&AF_S, ti) - (pi != ICON_NONE ? 16 : 0);
-        if (!ui.home && pg->graph == GR_EVENTS && tx - 12 - (ex + 10) < need) {
+        if (!ui.home && pg->graph == GR_EVENTS && !ev_lane() && tx - 12 - (ex + 10) < need) {
             str_cpy(ti + 4, ti + 10, sizeof ti - 4);    /* #93: "AUTOMATION 6/6" -> "AUTO 6/6" where the sound's name */
             tx = r - text_w(&AF_S, ti) - (pi != ICON_NONE ? 16 : 0);   /* would be cut (MENU > LARGE) */
         }
@@ -939,6 +939,24 @@ static void draw_columns(void)
         if (used) fmt_int(val, chain_config.row[row].repeat);
         else str_cpy(val, "--", sizeof val);
         draw_column(3, "REPS", val, "", used ? VAL(3u) : T_DIM, -1, ICON_AUTO);
+        return;
+    }
+    if (cur_page()->graph == GR_EVENTS && ev_lane()) { /* PUNCH LANE: ROW, STEP (KNOB 2 moves the run), LEN, FX */
+        uint32_t n, c = ev_cur(ev_rw, &n), k = c >> 8;
+        fmt_int(val, (int32_t)ev_row(n) + 1);
+        str_cpy(val + str_len(val), "/", 4);
+        fmt_int(val + str_len(val), (int32_t)n);
+        draw_column(0, "ROW", k >= EVK_RUN ? val : "--", "", k >= EVK_RUN ? VAL(0u) : T_DIM, -1, ICON_AUTO);
+        if (k < EVK_RUN) {
+            for (k = 1; k < 4u; k++)
+                draw_column(k, "", "", "", T_THEME, -1, ICON_NONE);
+            return;
+        }
+        fmt_int(val, (int32_t)(c & 63u) + 1);
+        draw_column(1, "STEP", val, "", VAL(1u), -1, ICON_AUTO);
+        fmt_int(val, (int32_t)(lane_end(c) - (c & 63u)) + 1);
+        draw_column(2, "LEN", val, "", T_MID, -1, ICON_NONE);
+        draw_column(3, "FX", PF_CELL[k - EVK_RUN], "", T_MID, -1, ICON_NONE);
         return;
     }
     if (cur_page()->graph == GR_EVENTS) {              /* AUTOMATION (ui_events.c): ROW STEP PARAM VALUE */
@@ -1529,6 +1547,9 @@ static void confirm_text(char *a, char *b)
         break;
     case CF_CLEAR_ALL_MOTION:
         str_cpy(a, "CLEAR ALL AUTOMATION?", 24);
+        break;
+    case CF_CLEAR_LANE:
+        str_cpy(a, "CLEAR PUNCH LANE?", 24);
         break;
     case CF_OVR_USER:
         str_cpy(a, "OVERWRITE ", 24);
