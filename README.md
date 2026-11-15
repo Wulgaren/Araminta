@@ -28,14 +28,14 @@ stock.
   [Coming from Felucca 1.5](#coming-from-felucca-15).
 - **From an older Araminta:** install over it. Your data stays.
 
-## New in 4.4
+## New in 4.5
 
-- The render's **hot flash code** has a fixed home, so an edit elsewhere no longer moves it between cache sets.
-  Stack's median load over 8 flash layouts fell from 94.5 % to 87.5 %, with 39 late halves (was 393.5).
-- The **punch-in layer** runs on the second core. The mix leaves one 0.73 ms block late, a constant delay.
-- **Overlapping punch-ins** record on their own press and release edges, so two held effects no longer write into
-  each other's steps.
-- A turn of **SELECT** on the punch-in or SEQ tools map is no longer dropped when the audio render preempts it.
+- The **punch-in lane** has its own page: move, lengthen and change a run, with SAVE held for undo and G5 CLR while
+  recording.
+- **Imported DX7 patches with AMS** stop hissing. SYN PAD 6, BALI GONG and TRAIN are clean.
+- **PLAY OFF** on MIXER or GLO ramps out a note that is already sounding.
+- **Effect graphs** follow the shared bus when an insert is on SEND or MASTER. Editor requests survive OTA dispatch,
+  and the installer accepts stock V16.
 
 Full notes: [CHANGELOG.md](CHANGELOG.md).
 
