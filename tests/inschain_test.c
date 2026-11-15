@@ -678,8 +678,8 @@ static void test_ott(void)
         ck("OTT TIME changes attack and release", h[0] != h[1] && h[1] != h[2] && h[0] != h[2]);
     }
 
-    /* DEPTH 0: the three bands sum back to the input (the crossover is transparent; the stage's
-     * DC blocker is the only difference, and it does not change the level) */
+    /* DEPTH 0: the insert is off, the dry path (it used to be the crossover's allpass sum, which cost the
+     * six filters for a phase shift: fx.c ins_run_dist) */
     {
         ott_st_t ott;
         memset(&tt, 0, sizeof tt);
@@ -693,7 +693,7 @@ static void test_ott(void)
         {
             double wr = ott_rms(ott_buf, OTT_N / 2u), dr = ott_rms(ott_dry, OTT_N / 2u);
             printf("inschain:   OTT DEPTH 0 RMS %.1f vs dry %.1f\n", wr, dr);
-            ck("OTT DEPTH 0 leaves the level (crossover sum)", fabs(wr / dr - 1.0) < 0.01);
+            ck("OTT DEPTH 0 is the dry path (no dynamics)", fabs(wr / dr - 1.0) < 0.01 && !memcmp(ott_buf, ott_dry, sizeof ott_buf));
         }
     }
 

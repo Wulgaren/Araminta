@@ -1978,25 +1978,20 @@ static AUDIO_RAM __attribute__((noinline)) void ins_run_ott(ott_st_t *o, ins_st_
         ott_svf_run(&o->c25, &o->ya, h88, &y1, &y2);
         mid = ott_svf_lp(&o->c25, &o->yb, y1);
         hi = ott_svf_hp(&o->c25, &o->yc, clamp(y2, -65535, 65535));
-        if (!depth) {
-            y = lo + mid + hi;                          /* flat crossover; park gains at unity */
-            o->g[0] = o->g[1] = o->g[2] = o->k[0] = o->k[1] = o->k[2] = 4096;
-        } else {
-            if (!(i & (OTT_DEC - 1))) {
-                o->env[0] = ott_pow(o->env[0], (int32_t)(((uint32_t)lo * (uint32_t)lo) >> 9));
-                o->env[1] = ott_pow(o->env[1], (int32_t)(((uint32_t)mid * (uint32_t)mid) >> 9));
-                o->env[2] = ott_pow(o->env[2], (int32_t)(((uint32_t)hi * (uint32_t)hi) >> 9));
-                o->k[0] = ott_curve(OTT_LOW_Q8, o->env[0], depth);
-                o->k[1] = ott_curve(OTT_MID_Q8, o->env[1], depth);
-                o->k[2] = ott_curve(OTT_LOW_Q8, o->env[2], depth);
-            }
-            y = ott_apply(lo, ott_smooth(&o->g[0], o->k[0], atk, rel))
-              + ott_apply(mid, ott_smooth(&o->g[1], o->k[1], atk, rel))
-              + ott_apply(hi, ott_smooth(&o->g[2], o->k[2], atk, rel));
+        if (!(i & (OTT_DEC - 1))) {
+            o->env[0] = ott_pow(o->env[0], (int32_t)(((uint32_t)lo * (uint32_t)lo) >> 9));
+            o->env[1] = ott_pow(o->env[1], (int32_t)(((uint32_t)mid * (uint32_t)mid) >> 9));
+            o->env[2] = ott_pow(o->env[2], (int32_t)(((uint32_t)hi * (uint32_t)hi) >> 9));
+            o->k[0] = ott_curve(OTT_LOW_Q8, o->env[0], depth);
+            o->k[1] = ott_curve(OTT_MID_Q8, o->env[1], depth);
+            o->k[2] = ott_curve(OTT_LOW_Q8, o->env[2], depth);
         }
+        y = ott_apply(lo, ott_smooth(&o->g[0], o->k[0], atk, rel))
+          + ott_apply(mid, ott_smooth(&o->g[1], o->k[1], atk, rel))
+          + ott_apply(hi, ott_smooth(&o->g[2], o->k[2], atk, rel));
         y = clamp(y, -65535, 65535);
-        y = clamp(y << 2, -262143, 262143);
-        o->dc += ((y << 8) - o->dc) >> 9;
+        y = clamp(shl(y, 2), -262143, 262143);
+        o->dc += (shl(y, 8) - o->dc) >> 9;
         y -= o->dc >> 8;
         b[i] = pf_mix(x, y, s->w);
     }
@@ -2008,6 +2003,13 @@ static AUDIO_RAM __attribute__((noinline)) void ins_run_dist(ins_st_t *s, ott_st
     uint32_t i, mode = (uint32_t)clamp(t->p[P_IDMODE], 0, IDM_N - 1);
     int32_t a = t->p[P_DIST], g;
     if (mode == IDM_OTT) {
+        /* DEPTH 0 (DRIVE) is the insert off: no dynamics, no filter work. It used to run the LR4 crossover for
+         * its allpass sum, which cost about 80 % of the insert for a phase shift. o->on = 0 re-arms the
+         * coefficients and the zeroed state when DEPTH is raised again. */
+        if (clamp(a, 0, 127) == 0) {
+            o->on = 0;
+            return;
+        }
         if (!o->on) {
             ott_svf_coef(&o->c88, OTT_G88, 5793);
             ott_svf_coef(&o->c88_4, OTT_G88_R4, 5793);

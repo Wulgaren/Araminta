@@ -332,12 +332,8 @@ typedef struct {
     uint8_t mono;                /* 1 = MONO (bass / lead), 0 = POLY */
     /* the rest of the patch; each value is stored + 1, 0 = the default */
     uint8_t fx[4];               /* DIST, CHORUS, DELAY, REVERB sends */
-    uint8_t pat;                 /* suggested pattern (PATTERNS[pat - 1], 0 = none): only a hint. A sound load
-                                  * never touches the steps; SEQ > PATTERNS loads a pattern (ui.c pat_load). The
-                                  * arp is the track's too: a preset does not set it */
 } preset_t;
 #define FX(d, c, dl, r) .fx = {(d) + 1, (c) + 1, (dl) + 1, (r) + 1}
-#define PAT(n) .pat = (n)
 /* (JIANT V10.6i) a sound's movement: pairs of a common parameter (< P_E0) and its value, -1 ends (the LFO and its DEST,
  * the MOD slots), set after the rest of the preset (ui.c apply_preset_to: preset_mods). Only DRUM-X's kits have one
  * (eng_drum.c DRUM_MODS: a table of its own, not a field of every preset: the flash is full) */
@@ -416,7 +412,21 @@ enum { ST_NOTE, ST_TIE, ST_REST };
                                           * of a NOTE step - 1 (0..3: x1..x4). The step itself keeps the two bits in
                                           * bit 7 of its velocity and probability bytes */
 #define SF_RATCH (3u << SF_RATCH_SH)     /* bits 3..4 of a user preset's pattern flag (4 = tie comes before it) */
-#define NLANE 8                  /* drum lanes of a step (the DRUM engine's: eng_drum.c DRUM_LANE_NOTE) */
+#define NLANE 8                  /* drum lanes of a step (DRUM_LANE_NOTE) */
+#define KB_SILENT 255u           /* a key that sounds nothing (the kit keybed's other keys, ui_dx.c) */
+/* the note each lane plays (KICK SNARE CLAP HATCL HATOP TOM RIM BELL): the grid's hits, the kit keybed and the CR78
+ * kit's roots. web/editor.html and projconv.js keep the same table */
+static const uint8_t DRUM_LANE_NOTE[NLANE] = {36, 38, 39, 42, 46, 45, 37, 56};
+/* the kit keybed (DRUM-X, a SAMPLE drum kit): the first eight white keys are the lanes in DRUM_LANE_NOTE's order, KICK
+ * on the first F, every other key silent. Fixed: the octave buttons do not move it (eng_drum.c drum_keys). KIT_KEYS is
+ * the same eight, bit k (F G A B C D E F): the keys glow on a kit track (ui_input.c ui_leds) */
+#define KIT_KEYS 0x1AD5u
+static const uint8_t KIT_KEY_NOTE[27] = {
+    36u, KB_SILENT, 38u, KB_SILENT, 39u, KB_SILENT, 42u, 46u, KB_SILENT, 45u,
+    KB_SILENT, 37u, 56u, KB_SILENT, KB_SILENT, KB_SILENT, KB_SILENT, KB_SILENT,
+    KB_SILENT, KB_SILENT, KB_SILENT, KB_SILENT, KB_SILENT, KB_SILENT, KB_SILENT,
+    KB_SILENT, KB_SILENT,
+};
 typedef struct {                 /* acid-style step: up to 4 notes (POLY), time, accent, slide; drum hits.
                                   * RAM is the FUN15 wire step (project.c proj_pack), 9 bytes, bit for bit:
                                   *   nb[j] = note j | nudge bit j << 7
@@ -462,7 +472,7 @@ static void step_set_ratchet(step_t *s, uint32_t hits)
  * OFF (P_SQNT, AUTOMATION's QUANTIZE row) plays it (seq.c seq_tick). On the drum grid, steps held + PRESETS moves
  * those steps in time; on the piano roll, PRESETS moves the note under the cursor (its ties with it).
  * One bit in bit 7 of each note byte (note j has bit j). 0 = on the step: every older pattern. A user preset's
- * pattern keeps none (upreset.c up_pat_norm) */
+ * pattern kept none (the user preset's 16-step copy is reserved now) */
 #define NUDGE_DIV 16
 static int32_t step_nudge(const step_t *s)
 {
@@ -757,6 +767,11 @@ static inline int fx_master_owned(uint32_t st, uint32_t tr)
     return st < FX_LIST_N && fx_master_tr[st] == (uint8_t)(tr + 1u);
 }
 static song_t song;
+/* the kit's audition (ui.c dx_keys_on: the selected DRUM-X track's EDIT pages): the morph its hits play. KIT_AUD_KIT:
+ * P_E0 as stored; else 0 (A only) or 127 (B only). F# G# A# set it (ui_input.c); off those pages, or MRPH turned, it is
+ * KIT_AUD_KIT again; the project never stores it (eng_drum.c drum_render) */
+#define KIT_AUD_KIT 255u
+static volatile uint8_t kit_audition = KIT_AUD_KIT;
 #define TSEL (&trk[song.sel])    /* the selected track */
 static track_t fx_bus_trk;       /* SEND insert/slicer knobs in .p[]; other fields unused */
 

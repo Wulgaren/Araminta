@@ -37,8 +37,9 @@ ok(BACKUP_MODULE_VERSION === 3.7 && firmwareMismatch({ firmware: "ARAMINTA v3.6"
    firmwareMismatch({ firmware: "ARAMINTA v3.5" }, "ARAMINTA v3.6")?.from === "ARAMINTA v3.5" &&
    firmwareMismatch({}, "ARAMINTA v3.6") === null,
    "backup: module version and firmware mismatch check");
-ok(html.includes('import("./fm1backup.js?v=3.7")') && html.includes("m.BACKUP_MODULE_VERSION !== BACKUP_MODULE_VERSION"),
-   "backup: the editor imports a cache-busted module and checks its version");
+ok(html.includes('import("./fm1backup.js?v=3.7")') && html.includes("m.BACKUP_MODULE_VERSION !== BACKUP_MODULE_VERSION") &&
+   html.includes("if (backupReloadOnce()) { location.reload();"),
+   "backup: the editor checks the module version and reloads a stale page once");
 const b = rnd(1000, 1);
 ok(bkUnpack(bkPack(b), b.length).every((v, i) => v === b[i]), "backup: 7-bit pack / unpack round trip");
 ok(throws(() => bkUnpack([...bkPack(b.subarray(0, 14)), 0], 14)), "backup: trailing bytes refused");

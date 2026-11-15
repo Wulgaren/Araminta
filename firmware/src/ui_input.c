@@ -82,7 +82,7 @@ static int mom_turn(uint32_t k, int32_t s)
     } else {
         if (act_cols() || lock_held() || !(pg->scope == SC_TRACK || pg->scope == SC_ENGINE || pg->scope == SC_GLOBAL) ||
             pg->graph == GR_EVENTS || pg->graph == GR_SONG || pg->graph == GR_BROWSE || pg->graph == GR_USER ||
-            pg->graph == GR_PATS || (pg->graph == GR_MOD && k == 0u))
+            (pg->graph == GR_MOD && k == 0u))
             return 0;
         d = page_desc(pg, k, &vp);
     }
@@ -271,14 +271,13 @@ static uint32_t step_leds(void)
  * dark; 0: the keys held and the notes playing, over the idle glow */
 static int keys_own(void)
 {
-    return (name_on() && !ui.menu) || ui.layer || grid_on()
-        ;
+    return (name_on() && !ui.menu) || ui.layer || grid_on();
 }
 
 /* Discussion #127 (1.2): MENU > SCALE LEDS ON, the keys of the selected track's scale (ROOT, SCALE), bit k = key k, as
  * the keys play now: MAP KBD / ALL = white-key layout (blacks only duplicate, skipped here); OFF / SEQ = chromatic
- * pitch of the key. *root: the keys of the scale's root. None where the engine maps the keys itself (DRUM's GM map,
- * the slices): 0 there, and OFF */
+ * pitch of the key. *root: the keys of the scale's root. None where the engine maps the keys itself (a kit's eight
+ * pads, the slices): 0 there, and OFF */
 static uint32_t scale_leds(uint32_t *root)
 {
     const track_t *t = TSEL;
@@ -349,7 +348,8 @@ static uint32_t key_leds(uint32_t *br)                 /* (*br: a layer's keys t
  * turns it around, as the stock firmware: the idle ones fully lit, the active ones dark, no glow (the ARP beat:
  * lit / dark). The keys' own maps (keys_own) stay lit or dark in every mode: their dark keys read as dark; only the
  * DRUM grid's keys that do something (grid_glow) glow under it, so STEP on a DRUM track is never a dark
- * keyboard (the steps of an empty pattern); on it the first step of each four (grid_beats: 1 5 9 13 of a page, where
+ * keyboard (the steps of an empty pattern); a kit track's pages glow its eight pads (KIT_KEYS) over the idle glow, so
+ * the kit can be found without playing it; on the grid the first step of each four (grid_beats: 1 5 9 13 of a page, where
  * no hit shows) glows steadier and brighter, so a bar's beats can be counted: DIM HI / DIM LO the mid level
  * (hal/fm1_input.h fm1_led_mid: lit 1 frame in 8, DIM LO in 12, over the glow), OFF and INV the glow alone (no
  * other key glows there). 1.2, MENU > SCALE LEDS ON (scale_leds; not over a map of the keys' own, nor on a DRUM or
@@ -390,8 +390,14 @@ static void ui_leds(void)
     led_put(nb, panel.btn[B_OCTUP], (int)(k & OCT_BREATH));
     led_put(nb, panel.btn[B_OCTDN], (k & OCT_BREATH_DN) != 0u);
     c = key_leds(&br);
+    if (dx_keys_on())                                   /* the kit's audition keys: the side playing lit (F# A, G# */
+        c |= 1u << (kit_audition == 0u ? 1u : kit_audition == 127u ? 5u : 3u);   /* MRPH, A# B) */
     g = !keys_map ? 0u : grid_on() && !ui.layer && !name_on() ? grid_glow() : 0u;   /* (key_leds: the grid's map) */
-    beat = g ? grid_beats() & ~c : 0u;                  /* (the grid's empty beat starts: brighter than the glow) */
+    /* the grid's empty beat starts, brighter than the glow; a kit track's pages glow its eight pads (core.h KIT_KEYS)
+     * so the kit can be found without playing it */
+    beat = grid_on() && !ui.layer && !name_on() ? grid_beats() & ~c
+         : drum_track(TSEL) && !song_keys_on() && !ui.layer && !name_on() ? KIT_KEYS | (dx_keys_on() ? 0x2Au & ~c : 0u)
+         : 0u;                                          /* (and the other two audition keys, F# G# A#) */
     sc = keys_map ? 0u : scale_leds(&sr);               /* SCALE LEDS: the scale's keys glow, the root's brighter */
     for (k = 0; k < 27u; k++) {
         uint32_t in = (sc >> k) & 1u, rt = (sr >> k) & 1u, idle = !((c >> k) & 1u);
@@ -786,7 +792,7 @@ static int32_t shift_acc;
 static int shift_merging(const track_t *t)
 {
     return undo_mot_tag == 0x800u && undo.keep && undo.trk == trk_index(t) + 1u &&
-           undo.what == (uint8_t)(UNDO_MOT | UNDO_PAT) && edit_sig(t) == undo.after &&
+           undo.what == (uint8_t)(UNDO_MOT | UNDO_STEPS) && edit_sig(t) == undo.after &&
            fm1_ms - undo.t_ms < 1500u;
 }
 static uint64_t shift_slide(uint64_t bits, int32_t by, uint32_t len)
@@ -1227,18 +1233,12 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     }
     if ((act_cols() >> slot) & 1u) {                      /* an action's knob picks it (right) or drops it (left); */
-        if (pg->graph != GR_PATS)                         /* OCT+ does it (act_do) */
-            ui.act = steps > 0 ? (uint8_t)(slot + 1u) : ui.act == slot + 1u ? 0u : ui.act;
-        return;
+        ui.act = steps > 0 ? (uint8_t)(slot + 1u) : ui.act == slot + 1u ? 0u : ui.act;
+        return;                                           /* OCT+ does it (act_do) */
     }
     if (pg->graph == GR_USER) {                           /* KNOB 1 the slot */
         if (slot == 0u)
             ui.uslot = (uint8_t)clamp((int32_t)ui.uslot + steps, 0, UP_SLOTS - 1);
-        return;
-    }
-    if (pg->graph == GR_PATS) {                          /* KNOB 1 the pattern */
-        if (slot == 0u)
-            ui.ppick = (uint8_t)clamp((int32_t)pat_pick() + steps, 0, (int32_t)pat_count() - 1);
         return;
     }
     if (fop_page(pg->graph)) {                           /* FM6's operators: KNOB 1 OP, 2..4 its bytes (ui_fm6op.c) */
@@ -1286,6 +1286,8 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     }
     *vp = (int16_t)v;
+    if (vp == &TSEL->p[P_E0])                           /* MRPH turned (DRUM-X): heard again, not the audition */
+        kit_audition = KIT_AUD_KIT;
     if (pg->scope != SC_GLOBAL && pg->graph != GR_MOD) {   /* (the matrix: never automation, no scale) */
         uint32_t id = pg->id[slot];
         /* page id may alias (VOICE POLY SPRD uses P_DETUNE); prefer the real p[] index */
@@ -1441,14 +1443,6 @@ static void act_do(void)
     if (cur_page()->graph == GR_SONG) {
         if (song.playing || chain_busy() || seq_counting()) transport_req = 2;
         else chain_play_ui();
-        return;
-    }
-    if (cur_page()->graph == GR_PATS) {
-        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        if (pat_needs_confirm(TSEL))                      /* the user's steps: the dialog */
-            confirm_open(CF_LOAD_PAT, song.sel);
-        else                                              /* empty, or a pattern loaded and untouched */
-            pat_load_ui(TSEL, pat_pick());
         return;
     }
     if (cur_page()->graph == GR_USER) {                   /* 1 LOAD, 2 ERASE, 3 SAVE (the NAME screen first) */
@@ -1651,7 +1645,7 @@ static void sound_dice(void)
  *   the SEQ pages (the DRUM grid: a held step key moves those steps, otherwise the hit under the cursor, a rest
  *     the cursor; the piano roll: the note under the cursor, a rest the cursor; step recording with a key held:
  *     LEN of that note instead; AUTOMATION: the row). USER,
- *     PHRASES, PROJECT, SONG: as their KNOB 1 (a SEQ sound load would drop the track's motion: never).
+ *     PROJECT, SONG: as their KNOB 1 (a SEQ sound load would drop the track's motion: never).
  *     1.2: with PATTERN, CHANCE and the old AUTOMATION gone, KNOB 1 is the cursor or the row on every SEQ page, so
  *     the PRESETS knob is no longer a second cursor where KNOB 1 was something else; TOOLS and SLICES: nothing
  *   HOME, PRESETS and every other page (EDIT, ENV, LFO, FX, SCL, ARP, MIXER, CLOCK, ...): the selected track's
@@ -1683,7 +1677,7 @@ static void presets_turn(int32_t s)
     }
     if (ui.home || g == GR_BROWSE) {
         preset_step(s);
-    } else if (g == GR_ROLL || g == GR_USER || g == GR_SLOTS || g == GR_PATS || g == GR_SONG || g == GR_EVENTS) {
+    } else if (g == GR_ROLL || g == GR_USER || g == GR_SLOTS || g == GR_SONG || g == GR_EVENTS) {
         edit_param(0, s);                                 /* KNOB 1's (STEP: STOP TO EDIT while a song plays) */
         ui.hot_col = 0;
         ui.hot_t = 40;
@@ -1731,6 +1725,16 @@ static void layer_oct_open(uint32_t pressed);
 static int layer_allowed(void);
 static uint32_t ly_bit(uint32_t l);
 static void layer_lock_input(uint32_t pressed);
+
+/* ALGORITHM on a sticky map: the selected track, the map staying open. On SEQ TOOLS the map's snapshot follows
+ * (ui_layer.c layer_opened), so OCT- puts back the track on screen; the punch map has no snapshot */
+static void map_track_turn(int32_t s, uint32_t l)
+{
+    uint32_t was = song.sel;
+    track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
+    if (song.sel != was && l == LAYER_SEQ)
+        layer_opened(LAYER_SEQ);
+}
 
 /* a page button let go (they act on release; a layer's own button: layer_gesture). 1: it acted (EDIT on STEP with a
  * step held, USER, PROJECT) instead of opening a page */
@@ -1822,7 +1826,7 @@ static void knob_turn(uint32_t k, int32_t s)
         return;
     }
     if (!dim && (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
-        ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
+        ((pg->graph == GR_USER || pg->graph == GR_MOD) && k == 0u)
         || pg->graph == GR_SONG || pg->graph == GR_IORD || pg->graph == GR_DXSND || pg->graph == GR_GENERATION ||
         (dly_page(pg) && k == 3u) || fop_page(pg->graph))) {   /* (not an empty column; DLY K4 is RATE / TIME) */
         ui.hot_col = (uint8_t)k;
@@ -1945,7 +1949,8 @@ static void ui_input(void)
             }
         if (layer_open() == LAYER_FX)
             panel_enc(EN_PRESET);                       /* (a stray turn must not load a sound behind the punch map) */
-        panel_enc(EN_ALGO);
+        if ((s = panel_enc(EN_ALGO)) != 0)              /* ALGORITHM: the track, the map staying open */
+            map_track_turn(s, layer_open());
         s = panel_enc(EN_SELECT);                       /* read once: a detent counted after it is the next frame's (#102) */
         if ((layer_open() == LAYER_FX || layer_open() == LAYER_SEQ) && s && !glo)
             select_page_step(s > 0 ? 1 : -1);           /* sticky maps: PUNCH-IN's pages, the tools section's (OCT+ +
@@ -2011,12 +2016,9 @@ static void ui_input(void)
                 name_open(NK_USER_SAVE, ui.confirm_trk);
             } else if (kind == CF_ERASE_USER) {
                 up_ui(1u, ui.confirm_trk);
-            } else if (kind == CF_LOAD_PAT) {
-                pat_load_ui(&trk[ui.confirm_trk % NTRK], pat_pick());
-                str_cpy(ui.msg2, "[SAVE] HOLD TO UNDO", sizeof ui.msg2);
             } else if (kind == CF_CLEAR_MOTION) {
                 track_t *t = &trk[ui.confirm_trk % NTRK];
-                if (!chain_busy()) { load_begin(t, UNDO_PAT); motion_clear(t); load_end(t); ui_message("AUTOMATION CLEARED"); }
+                if (!chain_busy()) { load_begin(t, UNDO_STEPS); motion_clear(t); load_end(t); ui_message("AUTOMATION CLEARED"); }
             } else if (kind == CF_CLEAR_LANE) {
                 lane_undo_take(0);
                 pfx_lane_clear();
@@ -2051,7 +2053,7 @@ static void ui_input(void)
                     track_t *t = &trk[ui.confirm_trk % NTRK];
                     uint32_t was = song.sel;
                     if (kind == CF_CLEAR_TRACK_ALL)
-                        load_begin(t, UNDO_SOUND | UNDO_PAT | UNDO_MIX);
+                        load_begin(t, UNDO_SOUND | UNDO_STEPS | UNDO_MIX);
                     song.sel = (uint8_t)(ui.confirm_trk % NTRK);
                     set_engine(t->eng_req);
                     if (drum_track(t)) {
@@ -2078,7 +2080,7 @@ static void ui_input(void)
                         t->arp_phys = 0;
                     }
                     undo.trk = 0;
-                    ui_message("ALL PATTERNS CLEARED");
+                    ui_message("ALL SEQUENCES CLEARED");
                 }
             } else if (kind == CF_INIT_ALL_SOUND || kind == CF_CLEAR_EVERY_TRACK_ALL) {
                 uint32_t i, was = song.sel;
@@ -2118,7 +2120,7 @@ static void ui_input(void)
                 }
             } else {
                 track_t *t = &trk[ui.confirm_trk % NTRK];
-                load_begin(t, UNDO_PAT);
+                load_begin(t, UNDO_STEPS);
                 track_defaults_steps(t);
                 load_end(t);
                 t->nheld = 0;                           /* and the latched arp chord */
@@ -2202,17 +2204,27 @@ static void ui_input(void)
     } else if (act_cols() && (oct & 1u)) {              /* OCT- deletes on AUTOMATION, else drops the */
         if (cur_page()->graph == GR_EVENTS)             /* picked action, or (none picked) goes HOME */
             ev_delete();
-        else if (cur_page()->graph != GR_PATS && ui.act)
+        else if (ui.act)
             ui.act = 0;
         else
             go_home();
     }
     song.grid = (uint8_t)keys_mode();                 /* (seq.c: the keys are the grid's) */
     lock_keys();                                        /* (a grid key on a hit let go: the hit goes) */
+    if (!dx_keys_on())                                  /* off the kit's EDIT pages: the kit plays its MRPH */
+        kit_audition = KIT_AUD_KIT;
     if (song.grid == 3u) {
         song_keys(notes);
     } else if (song.grid) {
         grid_keys(notes);
+    } else if (dx_keys_on() && (notes & ((1u << 1) | (1u << 3) | (1u << 5))) != 0u) {   /* the kit editor's audition */
+        if ((notes & (1u << 1)) != 0u)                  /* F#: the A side, the A patch's cards */
+            dx_ui_side = 0, kit_audition = 0;
+        else if ((notes & (1u << 3)) != 0u)             /* G#: the kit's MRPH, the side as it is */
+            kit_audition = KIT_AUD_KIT;
+        else                                            /* A#: the B side, the B patch's cards */
+            dx_ui_side = 1, kit_audition = 127u;
+        ui.force = 1;
     } else if (song.seq_mode && cur_page()->graph == GR_ROLL) {   /* STEP */
         if (live_rec_sel() || !((song.rec >> song.sel) & 1u))   /* armed and playing: the keys record live, not
                                                          * into the cursor step too; not armed (1.2, #133): they
@@ -2243,7 +2255,7 @@ static void ui_input(void)
             presets_turn(s);
     }
     if (!lay && (s = panel_enc(EN_ALGO)) != 0)     /* ALGORITHM: the selected track, on every page */
-        track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
+        map_track_turn(s, 0);
     if (!lay && (s = panel_enc(EN_SELECT)) != 0) {
         if (glo) {                                      /* OCT+ + SELECT: tempo (CLOCK K1 too; accelerated) */
             song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), GP[G_BPM].min, GP[G_BPM].max);
@@ -2292,8 +2304,8 @@ static void cc_knob_poll(void)
             int32_t n = s > 0 ? s : -s;
             while (n--)
                 select_page_step(s > 0 ? 1 : -1);
-        } else if (k == 5u) {                       /* ALGORITHM: the selected track */
-            track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
+        } else if (k == 5u) {                       /* ALGORITHM: the selected track (on SEQ TOOLS, the map's too) */
+            map_track_turn(s, layer_open());
         } else {                                    /* PRESETS: the sound, as the knob's list */
             presets_turn(s);
         }

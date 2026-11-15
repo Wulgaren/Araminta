@@ -111,39 +111,43 @@ static inline void ott_svf_coef(ott_coef_t *c, int32_t g, int32_t k)
     c->k = k;
     c->a1 = (int32_t)((4096u << 13) / (uint32_t)den);
 }
+/* A positive coefficient times a signed value. The unsigned product is the same bits while it fits int64
+ * (the OTT's values stay far inside it), and the compiler emits 2 multiplies instead of 3 for a signed
+ * coefficient. */
+static inline int64_t ott_mul(int32_t c, int64_t v)
+{
+    return (int64_t)((uint64_t)(uint32_t)c * (uint64_t)v);
+}
+/* The OTT's integrators need no clamp: the sections are fixed while they run and every input is bounded, so
+ * the state stays far inside the int64 range (measured peak 1.05e9 at +26 dBFS, against the 6.55e10 the old
+ * per-sample clamps used). Dropping them takes 35 % of ins_run_ott (tests/target_budget.txt). */
 static inline void ott_svf_run(const ott_coef_t *c, ott_i_t *s, int32_t in, int32_t *lp, int32_t *hp)
 {
-    int64_t inq = (int64_t)in << 14, v3 = inq - s->i2, v2, lim = (int64_t)4000000 << 14;
-    int64_t v1 = ((int64_t)c->a1 * (s->i1 + (((int64_t)c->g * v3) >> 12))) >> 13;
-    v2 = s->i2 + (((int64_t)c->g * v1) >> 12);
+    int64_t inq = (int64_t)((uint64_t)in << 14), v3 = inq - s->i2, v2;
+    int64_t v1 = ott_mul(c->a1, s->i1 + (ott_mul(c->g, v3) >> 12)) >> 13;
+    v2 = s->i2 + (ott_mul(c->g, v1) >> 12);
     s->i1 = 2 * v1 - s->i1;
     s->i2 = 2 * v2 - s->i2;
-    if (s->i1 > lim) s->i1 = lim; else if (s->i1 < -lim) s->i1 = -lim;
-    if (s->i2 > lim) s->i2 = lim; else if (s->i2 < -lim) s->i2 = -lim;
     *lp = (int32_t)(v2 >> 14);
-    *hp = (int32_t)((inq - (((int64_t)c->k * v1) >> 12) - v2) >> 14);
+    *hp = (int32_t)((inq - (ott_mul(c->k, v1) >> 12) - v2) >> 14);
 }
 static inline int32_t ott_svf_lp(const ott_coef_t *c, ott_i_t *s, int32_t in)
 {
-    int64_t v3 = ((int64_t)in << 14) - s->i2, v2, lim = (int64_t)4000000 << 14;
-    int64_t v1 = ((int64_t)c->a1 * (s->i1 + (((int64_t)c->g * v3) >> 12))) >> 13;
-    v2 = s->i2 + (((int64_t)c->g * v1) >> 12);
+    int64_t v3 = (int64_t)((uint64_t)in << 14) - s->i2, v2;
+    int64_t v1 = ott_mul(c->a1, s->i1 + (ott_mul(c->g, v3) >> 12)) >> 13;
+    v2 = s->i2 + (ott_mul(c->g, v1) >> 12);
     s->i1 = 2 * v1 - s->i1;
     s->i2 = 2 * v2 - s->i2;
-    if (s->i1 > lim) s->i1 = lim; else if (s->i1 < -lim) s->i1 = -lim;
-    if (s->i2 > lim) s->i2 = lim; else if (s->i2 < -lim) s->i2 = -lim;
     return (int32_t)(v2 >> 14);
 }
 static inline int32_t ott_svf_hp(const ott_coef_t *c, ott_i_t *s, int32_t in)
 {
-    int64_t inq = (int64_t)in << 14, v3 = inq - s->i2, v2, lim = (int64_t)4000000 << 14;
-    int64_t v1 = ((int64_t)c->a1 * (s->i1 + (((int64_t)c->g * v3) >> 12))) >> 13;
-    v2 = s->i2 + (((int64_t)c->g * v1) >> 12);
+    int64_t inq = (int64_t)((uint64_t)in << 14), v3 = inq - s->i2, v2;
+    int64_t v1 = ott_mul(c->a1, s->i1 + (ott_mul(c->g, v3) >> 12)) >> 13;
+    v2 = s->i2 + (ott_mul(c->g, v1) >> 12);
     s->i1 = 2 * v1 - s->i1;
     s->i2 = 2 * v2 - s->i2;
-    if (s->i1 > lim) s->i1 = lim; else if (s->i1 < -lim) s->i1 = -lim;
-    if (s->i2 > lim) s->i2 = lim; else if (s->i2 < -lim) s->i2 = -lim;
-    return (int32_t)((inq - (((int64_t)c->k * v1) >> 12) - v2) >> 14);
+    return (int32_t)((inq - (ott_mul(c->k, v1) >> 12) - v2) >> 14);
 }
 static inline void tsvf_coef_k(tsvf_t *c, int32_t cut, int32_t k)   /* cut: 0..127 << 8, k: damping Q12 */
 {

@@ -2,8 +2,8 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of the user preset record (firmware/src/upreset.c, -DUP_HOST part):
  * UP_PUT parsing, a bank round trip through storage.c on a simulated NOR,
- * bank / record version checks, map-by-count, pattern <-> steps, PHYS MODEL DRUM records -> the DRUM engine,
- * drum grid records (version 3: UP_PUT's kind 1 and its high bits, a round trip). */
+ * bank / record version checks, map-by-count, the reserved pattern bytes, PHYS MODEL DRUM records -> the DRUM
+ * engine, old version 5 records (UP_PUT's kind 1 and its high bits, a round trip). */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -68,9 +68,8 @@ int main(void)
     for (i = 0; i < P_COUNT; i++)
         ok &= up_value(&r, i) == (int16_t)(-40 + (int32_t)i);
     bad += check("UP_PUT values (negative v14 too)", ok);
-    bad += check("pattern: rest drops flags, tie has no note",
-                 r.note[0] == 0 && r.flags[0] == 0 && r.note[1] == 41 && r.flags[1] == 1 && r.note[3] == 0 &&
-                     r.flags[3] == 4);
+    bad += check("the 32 pattern bytes are reserved (zero), whatever the frame sends",
+                 !r.note[0] && !r.flags[0] && !r.note[1] && !r.flags[1] && !r.note[3] && !r.flags[3]);
     bad += check("UP_PUT short frame -> args", up_parse(a, n - 1u, &r, &slot) == 1);
     {
         up_rec_t keep = r;
@@ -149,7 +148,7 @@ int main(void)
     up_rec(17)->ver = UP_VER_GRID;
     bad += check("a version 3 record (a drum grid) is used", up_used(17));
 
-    /* a drum grid by UP_PUT: kind 1, then bit 7 of each step's hits (bit 0) and accents (bit 1) */
+    /* UP_PUT still takes the 16-step pattern and the kind bytes; the device ignores them (reserved) */
     {
         uint8_t g[640];
         uint32_t k, m = put_frame(g, 9, ENGI_DRUM, "My Beat", 0), at = m - 32u;
@@ -160,14 +159,12 @@ int main(void)
         g[m++] = 1;
         for (k = 0; k < 16u; k++)
             g[m++] = (uint8_t)(k == 2u ? 3u : k == 5u ? 2u : 0u);  /* step 3: BELL hit + accent; 6: an accent alone */
-        ok = up_parse(g, m, &got, &slot) == 0 && slot == 9u && got.ver == UP_VER_GRID && up_valid(&got) &&
-             got.note[0] == 0x09u && got.flags[0] == 0x09u && got.note[1] == 0x08u && !got.flags[1] &&
-             got.note[2] == 0x88u && got.flags[2] == 0x80u && got.note[5] == 0x08u && !got.flags[5] &&
-             got.engine == ENGI_DRUM && !up_pat_empty(&got);
-        bad += check("UP_PUT kind 1: a grid record, accents only on hits", ok);
-        g[m - 17u] = 0;                                     /* kind 0: the notes and flags as before */
-        ok = up_parse(g, m, &got, &slot) == 0 && got.ver == UP_VER && got.note[2] == 0x08u && got.flags[0] == 4u;   /* (flags 0x7F: a tie) */
-        bad += check("UP_PUT kind 0: a note pattern (version 2)", ok);
+        ok = up_parse(g, m, &got, &slot) == 0 && slot == 9u && got.ver == UP_VER && up_valid(&got) &&
+             got.engine == ENGI_DRUM && !got.note[0] && !got.flags[0] && !got.note[2] && !got.flags[2];
+        bad += check("UP_PUT kind 1: parsed; the pattern bytes are reserved (zero)", ok);
+        g[m - 17u] = 0;                                     /* kind 0: the same, its 32 bytes ignored */
+        ok = up_parse(g, m, &got, &slot) == 0 && got.ver == UP_VER && !got.note[2] && !got.flags[0];
+        bad += check("UP_PUT kind 0: parsed; the pattern bytes are reserved", ok);
         g[m - 17u] = 1;
         {
             up_rec_t keep = got;
@@ -230,7 +227,7 @@ int main(void)
     }
 
     /* SAMPLE SET 4 (PERC, the GM kit, retired after 1.0.2) -> the DRUM engine with its default kit: from flash (an
-     * older layout too), by UP_PUT; the rest of the sound and the pattern as stored; another SET stays SAMPLE */
+     * older layout too), by UP_PUT; the rest of the sound; another SET stays SAMPLE */
     {
         static const int16_t KIT[8] = DRUM_KIT_E;
         up_rec_t d = r, m = r, o = r, before;
@@ -393,22 +390,6 @@ int main(void)
                      v[P_ICMIX] == 0 && v[P_IPMIX] == 0 && v[P_ILMIX] == 0 && v[P_IHMIX] == 0);
     }
 
-    {   /* steps -> pattern (UP_STORE) */
-        step_t st[NSTEP];
-        memset(st, 0, sizeof st);
-        for (i = 0; i < 16u; i++)
-            st[i].time = ST_REST;
-        st[0] = (step_t){{60, 64, 67, 0}, 3, ST_NOTE, SF_ACCENT | SF_SLIDE, 100};
-        st[1] = (step_t){{0}, 0, ST_TIE, 0, 0};
-        st[2] = (step_t){{50}, 0, ST_NOTE, SF_ACCENT, 0};   /* n = 0: empty */
-        st[20] = (step_t){{70}, 1, ST_NOTE, 0, 90};         /* beyond 16: not stored */
-        up_pat_from(&r, st);
-        bad += check("steps -> pattern", r.note[0] == 60 && r.flags[0] == 3 && r.note[1] == 0 && r.flags[1] == 4 &&
-                                             r.note[2] == 0 && r.flags[2] == 0 && !up_pat_empty(&r));
-        memset(st, 0, sizeof st);
-        up_pat_from(&r, st);
-        bad += check("empty sequencer -> empty pattern", up_pat_empty(&r));
-    }
     {   /* 1.2 (Discussion #90): the category, the record's last byte (UP_CAT_AT), outside its values; UP_PUT's optional
          * last byte; through a bank's flash round trip; a record of before reads its engine's; versions 2 / 3 converted */
         n = put_frame(a, 17, 0, "CAT", 0);

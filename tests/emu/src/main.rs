@@ -5,12 +5,14 @@
 //! prints the firmware's own load counters (audio.c felucca_dbg, shed_count, voice_kills) as one JSON line per scenario.
 //!
 //!   emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario dry|keys|stack|churn --ms N
+//!   emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario project --ms N --project FILE [--notes N]
 //!   emu_test --fwsc FILE --elf FILE --scenarios 'dry:3000 keys:9000 churn:6000 stack:6000'
 //!            [--clear] [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--profile N] [--footprint N]
 //!
 //! The run: boot, USB-MIDI configured, the heavy patch set up through the editor's SysEx (editor.c) and
 //! played with MIDI notes on channels 1..4, the FX layer's PUNCH-IN 1/2 page opened with the FX button,
-//! PLAY; then the scenario's N ms (--ms counts from there, not from power-on). The counters' maxima and
+//! PLAY; then the scenario's N ms (--ms counts from there, not from power-on). --project instead puts a project's
+//! raw bytes in as backup object 0 (the running project) and plays it as it is. The counters' maxima and
 //! late counts are zeroed when those N ms start, so they cover the scenario only; `halves` counts its
 //! halves; `cpu_pct` is the highest the firmware's running average (cpu_q8) reached in it. --clear releases
 //! keys, stops the transport and restores the punch page before each scenario, so one boot can measure
@@ -29,8 +31,9 @@ const RAM_SIZE: usize = 1 << 20;
 /// Instructions a `run` call: about 50 us of the device, the granularity of the host's MIDI and RAM probes.
 const CHUNK: u32 = 10_000;
 const USAGE: &str = "usage: emu_test --fwsc FELUCCA.fwsc --elf FELUCCA.elf \
-(--scenario dry|keys|stack|churn --ms N | --scenarios 'dry:3000 keys:9000 churn:6000 stack:6000') \
-[--clear] [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--profile N] [--footprint N]";
+(--scenario dry|keys|stack|churn --ms N | --scenario project --ms N --project FILE | \
+--scenarios 'dry:3000 keys:9000 churn:6000 stack:6000') \
+[--clear] [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--notes N] [--profile N] [--footprint N]";
 
 // The firmware's internal ids (parameters, PF_* effects, the punch pages' key maps), generated from its sources by
 // tests/emu/ids.c into build/emu/ids.rs before this builds (tests/run_tests.sh, FM1_EMU=1)
@@ -68,6 +71,8 @@ enum Scenario {
     Keys,
     Stack,
     Churn,
+    /// --project's own patch, played from its four parts and its sequencer; no heavy patch, no punch page
+    Project,
 }
 
 impl Scenario {
@@ -77,6 +82,7 @@ impl Scenario {
             "keys" => Scenario::Keys,
             "stack" => Scenario::Stack,
             "churn" => Scenario::Churn,
+            "project" => Scenario::Project,
             _ => return None,
         })
     }
@@ -86,6 +92,7 @@ impl Scenario {
             Scenario::Keys => "keys",
             Scenario::Stack => "stack",
             Scenario::Churn => "churn",
+            Scenario::Project => "project",
         }
     }
 }
@@ -99,6 +106,10 @@ struct Args {
     mhz: u64,
     fast: bool,
     seed: u32,
+    /// --project FILE: a project's raw FUN* bytes, PUT as backup id 0 (the running project) before the scenario
+    project: Option<String>,
+    /// --notes N: held notes on each part for the project scenario (0..8, default 4)
+    notes: usize,
     /// --profile N: the N functions each core spent the most device time in during the scenario (0: off)
     profile: usize,
     /// --footprint N: the N symbols that fetch the most 64-byte flash lines a half, the cache flushed at each
@@ -111,6 +122,8 @@ fn parse_args() -> Result<Args, String> {
     let (mut fwsc, mut elf, mut scenario, mut ms) = (None, None, None, None);
     let mut scenarios = None;
     let mut clear = false;
+    let mut project = None;
+    let mut notes = 4usize;
     let (mut wav, mut mhz, mut fast, mut seed, mut profile, mut footprint) = (None, 240u64, false, 1u32, 0usize, 0usize);
     let mut i = 0;
     while i < a.len() {
@@ -119,13 +132,15 @@ fn parse_args() -> Result<Args, String> {
         match a[i].as_str() {
             "--fwsc" => fwsc = Some(val(i)?),
             "--elf" => elf = Some(val(i)?),
-            "--scenario" => scenario = Some(Scenario::parse(&val(i)?).ok_or("--scenario: dry, keys, stack or churn")?),
+            "--scenario" => scenario = Some(Scenario::parse(&val(i)?).ok_or("--scenario: dry, keys, stack, churn or project")?),
             "--ms" => ms = Some(num(i)?),
+            "--project" => project = Some(val(i)?),
+            "--notes" => notes = num(i)? as usize,
             "--scenarios" => {
                 let mut cases = Vec::new();
                 for case in val(i)?.split_whitespace() {
                     let (name, duration) = case.split_once(':').ok_or("--scenarios: expected name:ms")?;
-                    let scene = Scenario::parse(name).ok_or("--scenarios: dry, keys, stack or churn")?;
+                    let scene = Scenario::parse(name).ok_or("--scenarios: dry, keys, stack, churn or project")?;
                     let duration = duration.parse::<u64>().map_err(|_| "--scenarios: invalid duration")?;
                     cases.push((scene, duration));
                 }
@@ -168,7 +183,23 @@ fn parse_args() -> Result<Args, String> {
                 // boot would start cold, so it measures one scenario only
                 return Err("--footprint requires a single scenario".into());
             }
-            Ok(Args { fwsc, elf, scenarios: cases, clear, wav, mhz, fast, seed, profile, footprint })
+            let has_project = cases.iter().any(|(s, _)| *s == Scenario::Project);
+            if has_project && project.is_none() {
+                return Err("--scenario project needs --project FILE (a project's raw FUN* bytes)".into());
+            }
+            if project.is_some() && !has_project {
+                return Err("--project needs --scenario project".into());
+            }
+            if has_project && cases.len() > 1 {
+                return Err("--project runs alone: one project scenario per boot".into());
+            }
+            if notes > NOTES.len() {
+                return Err(format!("--notes: at most {}", NOTES.len()));
+            }
+            if notes != 4 && !has_project {
+                return Err("--notes needs --scenario project".into());
+            }
+            Ok(Args { fwsc, elf, scenarios: cases, clear, wav, mhz, fast, seed, project, notes, profile, footprint })
         }
         _ => Err(USAGE.to_string()),
     }
@@ -480,6 +511,99 @@ impl Emu {
 fn v14(v: i32) -> [u8; 2] {
     let u = (v.clamp(-8192, 8191) + 8192) as u32;
     [(u & 0x7f) as u8, (u >> 7) as u8]
+}
+
+// ---------------------------------------------------------------------------------------- project --
+
+/// The backup protocol's PUT (editor_backup.c ED_BACKUP_PUT): an object's raw bytes as chunks, then a commit.
+/// Object 0 is the running project, so a snapshot goes live without a flash slot or a restart.
+const ED_BACKUP_PUT: u8 = 67;
+/// a PUT chunk's data (editor_backup.c ed_unpack7's 256-byte buffer, as the sample writes)
+const PUT_CHUNK: usize = 256;
+/// the largest object the device stages (project.c proj_wire_u: a FUN21 project)
+const PUT_MAX: usize = 4864;
+
+/// CRC-32/IEEE (reflected, polynomial 0xEDB88320): editor_backup.c's st_crc32 and the archives' checksum.
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut c = 0xFFFF_FFFFu32;
+    for &b in bytes {
+        c ^= u32::from(b);
+        for _ in 0..8 {
+            c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+        }
+    }
+    c ^ 0xFFFF_FFFF
+}
+
+/// The backup's 7-bit packing: for each group of up to 7 bytes, a mask (bit k = byte k's bit 7), then the
+/// low 7 bits of the group's bytes (editor_backup.c ed_bk_pack, web/fm1backup.js bkPack).
+fn pack7(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len() + bytes.len() / 7 + 1);
+    for chunk in bytes.chunks(7) {
+        let mut mask = 0u8;
+        for (k, &b) in chunk.iter().enumerate() {
+            mask |= (b >> 7) << k;
+        }
+        out.push(mask);
+        out.extend(chunk.iter().map(|b| b & 0x7f));
+    }
+    out
+}
+
+/// A number as the archive's five 7-bit bytes, LSB first (editor_backup.c ed_bk_u32).
+fn u32_7(n: u32) -> [u8; 5] {
+    let mut a = [0u8; 5];
+    for (i, b) in a.iter_mut().enumerate() {
+        *b = ((n >> (i * 7)) & (if i == 4 { 15 } else { 127 })) as u8;
+    }
+    a
+}
+
+/// Put `bytes` in as backup object 0 (the running project) and check every reply.
+fn put_project(emu: &mut Emu, bytes: &[u8]) -> Result<(), String> {
+    if bytes.is_empty() || bytes.len() > PUT_MAX {
+        return Err(format!("--project: {} B is not a project object (1..{PUT_MAX})", bytes.len()));
+    }
+    let mut start = vec![0u8, 0u8];
+    start.extend_from_slice(&u32_7(bytes.len() as u32));
+    start.extend_from_slice(&u32_7(crc32(bytes)));
+    let r = emu.ed(ED_BACKUP_PUT, &start)?;
+    if r != [0, 0, 0] {
+        return Err(format!("--project: PUT start answered {r:02x?} (2: data refused, 3: stop playback, 4: flash)"));
+    }
+    let mut off = 0usize;
+    while off < bytes.len() {
+        let n = (bytes.len() - off).min(PUT_CHUNK);
+        let mut a = vec![1u8, 0u8];
+        a.extend_from_slice(&u32_7(off as u32));
+        a.extend_from_slice(&pack7(&bytes[off..off + n]));
+        let r = emu.ed(ED_BACKUP_PUT, &a)?;
+        if r != [1, 0, 0] {
+            return Err(format!("--project: PUT at {off} answered {r:02x?}"));
+        }
+        off += n;
+    }
+    let r = emu.ed(ED_BACKUP_PUT, &[2, 0])?;
+    if r != [2, 0, 0] {
+        return Err(format!("--project: PUT commit answered {r:02x?} (1: not that object, 2: data or CRC, 5: stale)"));
+    }
+    eprintln!("[{:6} ms] project put: {} B, {} chunks, CRC {:08x}", emu.ms(), bytes.len(), off.div_ceil(PUT_CHUNK),
+              crc32(bytes));
+    Ok(())
+}
+
+/// Hold `notes` notes on each of the four parts (MIDI IN CH1-4 plays parts 1-4) and start the transport: what a
+/// player does to a loaded project.
+fn play_project(emu: &mut Emu, notes: usize) -> Result<(), String> {
+    for p in 0..4u8 {
+        for &note in &NOTES[..notes] {
+            emu.soc.usb.midi_send(&[0x90 | p, note + 12 * p, 100]);
+        }
+    }
+    let t = emu.ms();
+    emu.tap(t, "PLAY", TAP_MS);
+    emu.run_until(t + 1000)?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------- setup --
@@ -859,6 +983,7 @@ fn scenario_plan(scenario: Scenario, ms: u64, seed: u32) -> Result<Plan, String>
         Scenario::Keys => plan_keys(),
         Scenario::Stack => plan_stack(ms),
         Scenario::Churn => plan_churn(ms, seed),
+        Scenario::Project => Plan::default(),
     };
     if plan.end + TAIL_MS > ms {
         return Err(format!("--scenario {} needs --ms {} at least", scenario.name(), plan.end + TAIL_MS));
@@ -875,17 +1000,24 @@ fn run(args: &Args) -> Result<(), String> {
     let mut emu = Emu::boot(&args.fwsc, syms, args.mhz, strict)?;
     let wall = std::time::Instant::now();
     wait_ready(&mut emu)?;
-    if args.scenarios[0].0 == Scenario::Stack {
-        set_latch(&mut emu, true)?;
+    if args.scenarios[0].0 == Scenario::Project {
+        let path = args.project.as_deref().ok_or("--scenario project needs --project FILE")?;
+        let bytes = std::fs::read(path).map_err(|e| format!("--project {path}: {e}"))?;
+        put_project(&mut emu, &bytes)?;
+        play_project(&mut emu, args.notes)?;
+    } else {
+        if args.scenarios[0].0 == Scenario::Stack {
+            set_latch(&mut emu, true)?;
+        }
+        heavy_patch(&mut emu)?;
+        open_punch(&mut emu)?;
+        let t = emu.ms();
+        emu.tap(t, "PLAY", 150);
+        emu.run_until(t + 1000)?; // (the chords' attacks past, the running average settled)
     }
-    heavy_patch(&mut emu)?;
-    open_punch(&mut emu)?;
-    let t = emu.ms();
-    emu.tap(t, "PLAY", 150);
-    emu.run_until(t + 1000)?; // (the chords' attacks past, the running average settled)
 
     for (i, (&(scenario, ms), plan)) in args.scenarios.iter().zip(plans).enumerate() {
-        if args.clear || i > 0 {
+        if scenario != Scenario::Project && (args.clear || i > 0) {
             clear_scenario(&mut emu, scenario)?;
         }
         println!("{}", measure(args, &mut emu, scenario, ms, plan, &wall)?);
@@ -1016,8 +1148,10 @@ fn measure(args: &Args, emu: &mut Emu, scenario: Scenario, ms: u64, plan: Plan,
             failed.push(p.label.clone());
         }
     }
+    /* a project's punch lane is part of the music: its effects may be at work at any instant (the punch scenarios
+     * release every key, so theirs must not be) */
     let left = emu.soc.read32(emu.syms.perf_held) | emu.soc.read32(emu.syms.perf_latched) | emu.soc.read32(emu.syms.perf_act);
-    if left != 0 {
+    if left != 0 && scenario != Scenario::Project {
         failed.push(format!("still at work at the end ({left:#x})"));
     }
     if !failed.is_empty() {

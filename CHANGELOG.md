@@ -1,5 +1,61 @@
 # Changelog
 
+## 4.6
+
+A drum kit's keybed is its eight pads, DRUM-X gains a HOUSE kit, SAVE loses its phrase loader, and OTT costs less.
+
+Splash and ABOUT show `v4.6`.
+
+### Drum kit keys
+
+- **The keybed is the kit.** DRUM-X and a SAMPLE drum kit (CR78, a USR drum kit) play KICK, SNARE, CLAP, HAT CL,
+  HAT OP, TOM, RIM and BELL on the first eight white keys (F G A B C D E F); every other key plays nothing. The
+  octave buttons no longer move a kit: F is the kick at any OCT (the other tracks still follow them). GM notes from
+  MIDI and from older patterns play the same lanes as before.
+- **The eight pads glow.** A kit track's pages light the eight keys at the mid level, and a hit lights its key, so
+  the kit can be found without playing it.
+- **A, MRPH or B from the keys.** On a DRUM-X track's EDIT pages (EDIT 1, EDIT 2, SOUND, TONE, MOVEMENT), F#
+  auditions the A patch, G# the kit's MRPH as stored and A# the B patch, and the panel's A---B bar moves to what
+  plays. The three keys glow, the one playing lit. On SOUND, TONE and MOVEMENT, F# and A# also pick the patch the
+  cards edit, and a side picked with the LANE knob is auditioned too. Turning MRPH or leaving the pages puts the kit
+  back on its MRPH, and nothing is stored with the project.
+- **SAMPLE kits act as kits.** A CR78 or USR kit's notes no longer take PITCH, TRN, the chord settings or the scale
+  LEDs, as DRUM-X's never did.
+
+### DRUM-X
+
+- **HOUSE**, an 18th factory kit after the TR-707: a short clicky kick (about 58 Hz, DRIVE), a bright tight
+  snare, a short clap, very short closed hats and a shorter open hat, a tuned tom, a dry rimshot and a
+  cowbell. TONE 90, DECY 58, NOIS 70, DRV 28, a small reverb send. As the other kits since 4.1, every lane
+  plays at its LEVEL 127: the kit's own balance carries the mix. The 707's tambourine, crash and ride have
+  no lane in DRUM-X's eight.
+
+### SAVE
+
+- **SAVE > PHRASES is gone.** The 13 factory phrases, the page, the per-preset phrase hint and the phrase
+  stored in a user preset are removed. The sound dice and the punch-in lane stay.
+- **SAVE is PRESETS, USER, PROJECT, then CLEAR.** PROJECT is the third page of the sounds section instead of
+  a section of its own.
+- **Compatibility.** A user preset record keeps its 32 phrase bytes as reserved: the bank size, record size
+  and versions are unchanged, `UP_GET` sends zeros there and `UP_PUT` ignores what it sends. Older firmware
+  still reads the banks and shows no phrase for a new record. Projects, settings and samples are untouched.
+- The firmware image shrinks by about 3 KB.
+
+### Fixes
+
+- **ALL SEQUENCES CLEARED** replaces the old "ALL PATTERNS CLEARED" message, as the CLEAR key has said
+  "CLEAR ALL SEQUENCES?" for a while.
+
+### FX
+
+- **Slicer MIX starts at 0.** A new track's SLCR MIX is bypass, as every insert's MIX is; raising the mode alone
+  stays silent until the MIX is raised. Projects and presets keep their stored values.
+- **OTT at DEPTH 0 is the insert off.** DRIVE 0 used to run the full LR4 crossover for its allpass sum. It now
+  passes the dry signal and skips the six filters, so raising DEPTH re-arms a clean crossover.
+- **OTT costs less.** The six integrator sections drop their per-sample int64 clamps, which cannot fire with the
+  section's bounded inputs, and their products use the positive coefficients as unsigned. `ins_run_ott` drops
+  from 968 to 601 instructions (`tests/target_budget.txt`) and the image from 583,868 to 582,460 bytes.
+
 ## 4.5
 
 The punch-in lane gets a page and undo, imported DX7 patches with AMS stop hissing, and a muted track ramps out.

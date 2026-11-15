@@ -6,7 +6,7 @@
  *   C4 RANDOM D4 COOK     E4 BEAT     F4 MUTE (DRUM)     new / a little changed; MUTE the selected lane
  *   G4 CLEAR  A4 REVERSE  B4 FILL     C5 RANDOM          the selected lane (DRUM: ui.lane, black keys 1..8 pick it)
  * Each pattern tool works on the selected track's steps 1..LEN (the steps past LEN stay) and is one undo: SAVE held swaps back
- * the copy taken just before it (ui.c undo, UNDO_PAT; unlike a load the track's automation stays), so after a few
+ * the copy taken just before it (ui.c undo, UNDO_STEPS; unlike a load the track's automation stays), so after a few
  * COOKs SAVE held takes back the last one only; the layer's OCT- puts back the track as the layer opened (tl_open).
  * A step that held something and is empty after loses its locks (as clearing a note); REVERSE and SHIFT move the
  * steps' automation and locks with them. RANDOM and COOK draw from libc.c rng(): no seed is kept, each press
@@ -35,7 +35,7 @@ static void tl_undo_take(track_t *t)
 {
     uint32_t i = trk_index(t);
     undo.trk = (uint8_t)(i + 1u);
-    undo.what = UNDO_PAT;
+    undo.what = UNDO_STEPS;
     undo.keep = 0;                                      /* (the next load or action takes its own copy) */
     undo.eng = t->eng_req;
     undo.preset = t->preset;
@@ -46,10 +46,8 @@ static void tl_undo_take(track_t *t)
     memcpy(undo.step, t->step, sizeof undo.step);
     memcpy(undo.fm6, fm6_patch[i], FP_SIZE);
     undo.fm6_slot = fm6_slot[i];
-    undo.pat = pat_sig[i];
-    undo.from = pat_from[i];
-    undo.from_h = pat_from_h[i];
-    undo.patn = pat_last[i];
+    undo.from = step_from[i];
+    undo.from_h = step_from_h[i];
     motion_snapshot_track(t, &undo.motion_backup);
 }
 

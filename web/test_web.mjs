@@ -38,8 +38,8 @@ const html = readFileSync(join(HERE, "editor.html"), "utf8");
 const proto = html.slice(html.indexOf("/*PROTO-BEGIN*/"), html.indexOf("/*PROTO-END*/"));
 const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP, crc32, WT, wtBuild, wtTableCycles, wtMedleyCycles, wtWav, wavFrameSize,
-   UP, bank, bankPutRecord, patchFileTarget, firmwareAtLeast, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
-   mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, FM6, enumShown, F,
+   UP, bank, bankPutRecord, patchFileTarget, firmwareAtLeast, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, upName,
+   mixer, parseNotes, parseHits, hitsText, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, FM6, enumShown, F,
    MOTION_PROTO, P_IORD,
    FM4, fromDigital, fromPerc, DRUM_KIT_E,
    MENU: typeof MENU === "undefined" ? null : MENU, MENU_TABS: typeof MENU_TABS === "undefined" ? null : MENU_TABS,
@@ -488,9 +488,9 @@ function mockTables() {
        ph.presets.length === 10 && !ph.presets.some((p) => p.name === "RAIN" || p.name === "DRUM KIT"),
        "editor: PHYS models MODAL STRNG MEMB SYMP (no DUST, no DRUM), 9 presets");
     ok(dr.name === "DRUM-X" && dr.edit.map((d) => d.label).join() === "MRPH,TUNE,TONE,DECY,NOIS,FM,FOLD,DRV" &&
-       dr.presets.length === 17 && dr.presets[0].name === "FM DRUMS" && dr.presets[11].name === "STD" &&
-       dr.presets.every((p) => p.pat === 12),
-       "editor: DRUM engine 10 (MRPH TUNE TONE DECY NOIS FM FOLD DRV), its 17 kits suggesting BEAT");
+       dr.presets.length === 18 && dr.presets[0].name === "FM DRUMS" && dr.presets[11].name === "STD" &&
+       dr.presets[17].name === "HOUSE",
+       "editor: DRUM engine 10 (MRPH TUNE TONE DECY NOIS FM FOLD DRV), its 18 kits");
   }
   const dj = DESC;
   if (!existsSync(dj)) { console.log("editor: mock tables == firmware (no build/host/desc.json)        skip"); return; }
@@ -533,16 +533,11 @@ function mockTables() {
     cmp(`${fe.name} presets`, me.presets.map((p) => p.name), fe.presets.map((p) => p.name));
     fe.presets.forEach((p, k) => {
       const mp = me.presets[k];
-      if (mp) cmp(`${fe.name} ${p.name}`, { e: mp.e, env: mp.env, mono: mp.mono, pat: mp.pat }, { e: p.e, env: p.env, mono: p.mono, pat: p.pat });
+      if (mp) cmp(`${fe.name} ${p.name}`, { e: mp.e, env: mp.env, mono: mp.mono }, { e: p.e, env: p.env, mono: p.mono });
     });
   });
-  cmp("PATTERNS", T.PATTERNS, fw.PATTERNS);
-  const m2 = E.makeMockDevice({ auto: false });   /* the mock's power-on sounds: its parts 1..4, track 4's beat */
-  cmp("power-on sounds", m2.state.tracks.map((t) => [t.engine, t.preset]), fw.TRK_DEF.map((x) => x.slice(0, 2)));
-  fw.TRK_DEF.forEach((x, k) => {
-    if (x[2]) cmp(`power-on pattern of track ${k + 1}`, m2.state.tracks[k].step.slice(0, 16).map((s) => (s.n ? s.notes[0] : 0)),
-      fw.PATTERNS[x[2] - 1][0]);
-  });
+  const m2 = E.makeMockDevice({ auto: false });   /* the mock's power-on sounds: its parts 1..4 */
+  cmp("power-on sounds", m2.state.tracks.map((t) => [t.engine, t.preset]), fw.TRK_DEF);
   m2.stop();
   cmp("firmware: G_ENGSEL names == engine names", fw.GP[fw.G_ENGSEL].names, fw.ENG.map((e) => e.name));
   cmp("FM6 patches (init, factory, bank size)", T.FM6, fw.FM6);
@@ -605,7 +600,7 @@ async function editorFm4() {
     ok(eq(E.FM4.TO_FM6, fw.to_fm6) && fw.presets.length === E.FM4.PRESETS.length && fw.presets.every((p, k) => {
       const q = E.FM4.PRESETS[k];
       return q.name === p.name && eq(q.e, p.e) && eq(q.env, p.env) && q.fenv === p.fenv && q.mono === p.mono &&
-        eq(q.fx, p.fx.map((x) => x - 1)) && q.pat === p.pat;
+        eq(q.fx, p.fx.map((x) => x - 1));
     }), "DIGITAL -> FM6: its presets and the FM6 presets covering them == the firmware's");
   } else {
     console.log("DIGITAL -> FM6: == the firmware's (no build/host/desc.json)        skip");
@@ -709,10 +704,9 @@ async function editorFm4() {
     const oldDrum = { ...fileP, patches: [{ name: "OLD BEAT", engine: 10, engineName: "DRUM", params: base, grid: [[0x81, 0x80]], tags: [] }] };
     const importedDrum = E.readLibraryFile(oldDrum, ctx);
     const singleDrum = E.readLibraryFile({ format: "felucca-patch", engine: 10, engineName: "DRUM", p: base }, ctx).patches[0];
-    ok(importedDrum.skipped === 0 && importedDrum.patches[0]?.engineName === "DRUM-X" &&
-      importedDrum.patches[0]?.grid[0][0] === 0x81 && importedDrum.patches[0]?.grid[0][1] === 0x80 &&
+    ok(importedDrum.skipped === 0 && importedDrum.patches[0]?.engineName === "DRUM-X" && !importedDrum.patches[0]?.grid &&
       eq(importedDrum.patches[0].p, base) && singleDrum?.engineName === "DRUM-X" && eq(singleDrum.p, base),
-      "library file: legacy DRUM imports as DRUM-X with its sound and grid");
+      "library file: legacy DRUM imports as DRUM-X with its sound (its grid dropped)");
     const savedDrum = { id: "drum", name: "OLD BEAT", engine: 10, engineName: "DRUM", p: base.slice(), grid: [[0x81, 0x80]], tags: ["beat"] };
     L.set([savedDrum], { keys, engines: info.engines });
     await L.libAdopt(dv);
@@ -800,11 +794,11 @@ async function editorLibrarian() {
     && b.slots[31].slot === 31, "librarian: UP_LIST, 32 slots in 2 frames");
 
   const cap = (await E.capturePatch(rq, info, "acid test")).patch;
-  ok(cap.engine === 0 && cap.p.length === info.pcount && cap.pattern && cap.pattern[0][0] === 45 && cap.pattern[0][1] === 1,
-    "librarian: capture = DUMP + first 16 steps");
+  ok(cap.engine === 0 && cap.p.length === info.pcount && !("pattern" in cap) && !("grid" in cap),
+    "librarian: capture = DUMP (no pattern: reserved)");
   let rc = await E.bank.put(rq, 10, cap);
   const g = await E.bank.get(rq, info, 10);
-  ok(rc === 0 && g.used && g.name === "acid test" && g.engine === 0 && eq(g.p, cap.p) && js(g.pattern) === js(cap.pattern),
+  ok(rc === 0 && g.used && g.name === "acid test" && g.engine === 0 && eq(g.p, cap.p) && !g.pattern && !g.grid,
     "librarian: UP_PUT -> UP_GET round trip");
   const bad = E.parse[C.UP_PUT](await rq(E.req.upPut(60, cap), { timeout: 2500, retries: 0 }));
   ok(bad.rc === 1, "librarian: UP_PUT to a slot past the bank -> rc 1");
@@ -825,17 +819,17 @@ async function editorLibrarian() {
   const st = [];
   for (let i = 0; i < 16; i++) st.push(E.parse[C.STEP_GET](await rq(E.req.stepGet(i))));
   ok(rc === 0 && d2.engine === 0 && eq(d2.p.filter((_, i) => i !== 17), cap.p.filter((_, i) => i !== 17)) && d2.p[17] === 3
-    && st.every((x) => !x.n) && cap.pattern, "librarian: UP_LOAD applies the sound only (steps and the track's ARP stay)");
+    && st.every((x) => !x.n), "librarian: UP_LOAD applies the sound only (steps and the track's ARP stay)");
   await rq(E.req.set(0, 17, 0));
-  for (let i = 0; i < 16; i++) await rq(E.req.stepSet(i, E.stepsFromPattern(cap.pattern)[i]));   /* (for the captures below) */
+  for (let i = 0; i < 16; i++) await rq(E.req.stepSet(i, { n: 1, notes: [48 + i, 0, 0, 0], time: 0, flags: 0, vel: 96 }));
 
   rc = await E.bank.erase(rq, 11);
   const b2 = await E.bank.list(rq);
   const rcEmpty = await E.bank.load(rq, 11);
   ok(rc === 0 && !b2.slots[11].used && b2.slots[10].used && rcEmpty === 1, "librarian: UP_ERASE, UP_LOAD of an empty slot -> rc 1");
 
-  /* audition: a PHASE patch that holds a pattern; the sound only, the sequence (with notes) stays */
-  const bass = await E.bank.get(rq, info, 2);   /* PHASE RESO, with the ACID pattern */
+  /* audition: a PHASE patch; the sound only, the sequence (with notes) stays */
+  const bass = await E.bank.get(rq, info, 2);   /* PHASE RESO */
   await rq(E.req.stepSet(20, { n: 1, notes: [50, 0, 0, 0], time: 0, flags: 0, vel: 90 }));
   await rq(E.req.set(0, 29, 24));               /* the track's own: LEN 24, ARP MODE 2 */
   await rq(E.req.set(0, 17, 2));
@@ -862,13 +856,6 @@ async function editorLibrarian() {
   await rq(E.req.set(0, 17, 0));
   await rq(E.req.set(0, 81, 0));
 
-  /* ties as the firmware keeps them: no note; a rest has no flags */
-  const tied = [[60, 1], [61, 4], [0, 4], [0, 3], [64, 2]];
-  const norm = E.patternFromSteps(E.stepsFromPattern(tied));
-  rc = await E.bank.put(rq, 12, { ...cap, name: "TIES", pattern: tied });
-  const g3 = await E.bank.get(rq, info, 12);
-  ok(rc === 0 && js(norm.slice(0, 5)) === js([[60, 1], [0, 4], [0, 4], [0, 0], [64, 2]]) && js(g3.pattern) === js(norm),
-    "librarian: pattern ties / rests normalised like the firmware");
   rc = await E.bank.store(rq, 13, "");
   ok(rc === 0 && (await E.bank.get(rq, info, 13)).name === `${info.engines[d4.engine]} 14`, "librarian: UP_STORE with no name -> automatic name");
 
@@ -883,7 +870,7 @@ async function editorLibrarian() {
     "library file: versioned, with P_COUNT, labels and engines");
   const back = E.readLibraryFile(file, ctx);
   ok(back.patches.length === 2 && !back.skipped && eq(back.patches[0].p, cap.p) && eq(back.patches[1].p, bass.p)
-    && js(back.patches[1].pattern) === js(bass.pattern) && back.patches[1].tags.join() === "bass,device" && back.patches[1].engineName === "PHASE",
+    && back.patches[1].tags.join() === "bass,device" && back.patches[1].engineName === "PHASE",
     "library file: write -> read round trip");
   {   /* 4.3: a file of before keys LFO SYNC "SYNC", holding the note value (8 = 1/16): SYNC ON, RATE on 1/16, its first
        value 7 x 128 / 10 up = 90 (core.h lsync_legacy) */
@@ -947,8 +934,9 @@ async function editorLibrarian() {
     ok(keys104[96] === "E0" && good(sp) && good(lp) && good(nk),
       "library file: 104-parameter files (1.2 .. 1.4: patch, labelled, unlabelled) map the engine's 8 to 119..126, the INSERT, TYPE, SYNC unset");
   }
-  const old = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: 0, preset: 4, engineName: "ANALOG", presetName: "ACID", p: d2.p, steps: E.stepsFromPattern(cap.pattern) }, ctx);
-  ok(old.patches.length === 1 && eq(old.patches[0].p, d2.p) && js(old.patches[0].pattern) === js(cap.pattern), "library file: reads the old \"Save to file\" format");
+  const old = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: 0, preset: 4, engineName: "ANALOG", presetName: "ACID", p: d2.p,
+    steps: [{ n: 1, notes: [45, 0, 0, 0], time: 0, flags: 1, vel: 96 }, ...Array(15).fill({ n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0 })] }, ctx);
+  ok(old.patches.length === 1 && eq(old.patches[0].p, d2.p) && !old.patches[0].pattern, "library file: reads the old \"Save to file\" format");
   let threw = false;
   try { E.readLibraryFile({ format: "something" }, ctx); } catch (e) { threw = true; }
   ok(threw, "library file: unknown format -> error");
@@ -971,33 +959,6 @@ async function editorGrid() {
   const w = E.parse[C.TRACK_STEP](await rq(E.req.trackStep(2, 4, { n: 0, notes: [0, 0, 0, 0], time: 0, flags: 0, vel: 0, hit: 0x12, acc: 0x02 })));
   ok(w.hit === 0x12 && w.acc === 0x02 && E.parse[C.TRACK_STEP]([2, 4, 0, 0, 0, 0, 0, 0, 0, 0]).hit === 0,
     "grid: TRACK_STEP carries the hits (an older firmware's reply: none)");
-  await rq(E.req.preset(10, 0));                   /* the selected track a DRUM kit, its 16 steps a grid */
-  for (let i = 0; i < 16; i++) {
-    await rq(E.req.stepSet(i, { n: i === 2 ? 1 : 0, notes: [i === 2 ? 49 : 0, 0, 0, 0], time: i % 4 === 0 || i === 2 ? 0 : 2, flags: 0,
-      vel: 0, hit: i % 4 === 0 ? 1 | (i === 0 ? 128 : 0) : 0, acc: i === 0 ? 128 : 0 }));
-  }
-  const cap = await E.capturePatch(rq, info, "MY BEAT");
-  ok(cap.patch.grid && !cap.patch.pattern && cap.patch.grid[0][0] === 0x81 && cap.patch.grid[0][1] === 0x80 &&
-     cap.patch.grid[2][0] === 0x80 && cap.patch.grid[1][0] === 0 && cap.patch.grid[4][0] === 1,
-     "grid: capture of a DRUM track = its grid (a crash 49 on BELL)");
-  const rc = await E.bank.put(rq, 14, cap.patch);
-  const g = await E.bank.get(rq, info, 14);
-  ok(rc === 0 && g.grid && !g.pattern && JSON.stringify(g.grid) === JSON.stringify(cap.patch.grid), "grid: UP_PUT kind 1 -> UP_GET round trip");
-  const put = E.req.upPut(14, cap.patch), saved = JSON.stringify(m.state.bank[14]);
-  const base = put[1].length - 17;
-  for (const bytes of [put[1].slice(0, -1), [...put[1], 0], [...put[1].slice(0, base), 2, ...Array(16).fill(0)]]) {
-    const rejected = E.parse[C.UP_PUT](await rq([C.UP_PUT, bytes]));
-    ok(rejected.rc === 1 && JSON.stringify(m.state.bank[14]) === saved,
-       "grid: malformed preset extension rejected without changing saved data");
-  }
-  const ctx = { keys: null, engines: info.engines };
-  const back = E.readLibraryFile(JSON.parse(JSON.stringify(E.libraryFile("bank", [{ ...g, slot: 14 }], ctx))), ctx);
-  ok(JSON.stringify(back.patches[0].grid) === JSON.stringify(g.grid) && !back.patches[0].pattern, "grid: a library file keeps the grid");
-  await rq(E.req.upStore(15, "STORED"));
-  const g2 = await E.bank.get(rq, info, 15);
-  ok(g2.grid && g2.grid[0][0] === 0x81 && g2.grid[0][1] === 0x80, "grid: UP_STORE of a DRUM track stores its grid");
-  const p3 = await E.bank.get(rq, info, 2);
-  ok(p3.pattern && p3.grid === null, "grid: a note pattern stays a pattern (kind 0)");
   done();
 }
 
@@ -1026,10 +987,6 @@ async function editorRatchet() {
   const old = E.parse[C.INFO]([88, 0, 0, 91, 27, 64, 83, 4, 16, 0x55, 1, 9, 0x4d, 1, 64, 1, 0x42, 1, 3, 0x46, 1, 8, 27, 0x53, 1, 3]);
   ok(fw.ratchet === 4 && fw.syncCaps === 3 && old.ratchet === 0 && E.parse[C.STEP_GET]([1, 1, 60, 0, 0, 0, 0, 0, 96, 0, 0, 0, 100]).ratchet === 1,
     "ratchet: the firmware's INFO trailer; 1.0's has none and its steps read x1");
-  const steps = E.stepsFromPattern([[60, 1 | 2 << 3], [0, 4], [62, 3 << 3], ...Array(13).fill([0, 0])]);
-  ok(steps[0].ratchet === 3 && steps[0].flags === 1 && steps[2].ratchet === 4 && steps[1].time === 1 &&
-     JSON.stringify(E.patternFromSteps(steps).slice(0, 3)) === JSON.stringify([[60, 17], [0, 4], [62, 24]]),
-     "ratchet: a user preset's pattern keeps it in its flags (8 | 16)");
   done();
   const o = attachMock({ noSync: true });
   const oi = E.parse[C.INFO](await o.rq(E.req.info()));

@@ -36,6 +36,7 @@ scenarios as separate parallel test units with `--clear`. The layout sweep share
 | `keys` | the heavy patch, every audio punch-in key of both pages pressed and let go in turn |
 | `stack` | the heavy patch, REPEAT 1/16 + LPF + HPF + FLANGER + PHASER + both THROWs + OCT UP latched together |
 | `churn` | the heavy patch, seeded random punch-in presses and releases every 3-93 ms |
+| `project` | `--project FILE`: that project's own four parts, kit and sequencer, played with `--notes N` held notes (default 4) on each part; no heavy patch and no punch page |
 
 The patch goes in through the editor protocol over the emulated USB-MIDI, the chords and drum hits as MIDI notes, the
 punch-ins as keys on the emulated panel. A scenario fails when the firmware faults, the setup is not taken, or a
@@ -43,11 +44,18 @@ punch-in does not engage or does not let go. Each prints one line of JSON: `cpu_
 scenario), `cpu1_pct` (the second core's highest, its jobs only), `audio_max_us`, `late` (halves the DMA moved past,
 with `late_over` / `late_t5` / `late_oth` saying why), `wall_max_us`, `voices_shed`.
 
+`project` takes a project's raw bytes (the backup's object 0, the running project) and PUTs them through the backup
+protocol (`editor_backup.c`, cmd 67) before playing, so a reported patch is measured as it is instead of through a
+synthetic one. It runs alone in a boot. `--notes` changes how many notes each part holds: the voice budget is eight
+across all parts, so a busy kit plus held chords is what sheds.
+
 One scenario by hand:
 
 ```sh
 build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario stack --ms 6000 \
     [--clear] [--wav out.wav] [--fast] [--seed N] [--mhz 240] [--profile N] [--footprint N]
+build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario project --ms 6000 \
+    --project proj.bin [--notes N]
 ```
 
 `--profile N` prints the N functions each core spent the most device time in during the scenario (from the ELF's

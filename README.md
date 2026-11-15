@@ -28,14 +28,13 @@ stock.
   [Coming from Felucca 1.5](#coming-from-felucca-15).
 - **From an older Araminta:** install over it. Your data stays.
 
-## New in 4.5
+## New in 4.6
 
-- The **punch-in lane** has its own page: move, lengthen and change a run, with SAVE held for undo and G5 CLR while
-  recording.
-- **Imported DX7 patches with AMS** stop hissing. SYN PAD 6, BALI GONG and TRAIN are clean.
-- **PLAY OFF** on MIXER or GLO ramps out a note that is already sounding.
-- **Effect graphs** follow the shared bus when an insert is on SEND or MASTER. Editor requests survive OTA dispatch,
-  and the installer accepts stock V16.
+- **A drum kit plays from eight pads.** The first eight white keys are its lanes at any OCT, and they glow. On a
+  DRUM-X track's EDIT pages, F# G# A# audition A, the kit's MRPH or B.
+- **HOUSE**, an 18th DRUM-X kit after the TR-707.
+- **SAVE > PHRASES is gone**, and PROJECT moves to the sounds page. The image shrinks by about 3 KB.
+- **OTT** costs less and is off at DEPTH 0. A new track's slicer MIX starts at 0.
 
 Full notes: [CHANGELOG.md](CHANGELOG.md).
 
@@ -45,7 +44,8 @@ Full notes: [CHANGELOG.md](CHANGELOG.md).
   recording. No pattern needed. Held notes become slides, strums record as chords, and the ARP's notes record too.
 - **JIANT punch-ins.** Tap FX twice for PUNCH-IN: repeats, filters, stutters, reverse, tape stop, freeze, pitch,
   flanger, phaser, reverb and echo throws, glitch.
-- **DRUM-X.** An 8-lane morphable drum kit with 17 presets.
+- **DRUM-X.** An 8-lane morphable drum kit with 18 presets. The first eight white keys play its lanes, and on its EDIT
+  pages F# G# A# audition A, the kit's morph or B.
 - **Beat generation.** On any drum kit, SEQ > GENERATION writes editable kick, snare and hat steps from Mutable
   Instruments Grids.
 - **Effects list.** Six inserts plus delay, reverb, slicer and TAPE in one list. Reorder them and set each to CHAIN,
@@ -98,7 +98,7 @@ Full notes: [CHANGELOG.md](CHANGELOG.md).
 | NOISE | Noise colours, crackle, shift-register and metallic tones |
 | GRAIN | Granular, from built-in samples or a user slot |
 | SAMPLE | PIANO, FLUTE, SAX, the public-domain CR-78 kit (SET 8), and 3 user slots as a sample or a drumkit |
-| DRUM-X | 8-lane drum kit (JIANT port), 17 kits, a MODEL per sound |
+| DRUM-X | 8-lane drum kit (JIANT port), 18 kits, a MODEL per sound |
 
 Retired engines (DIGITAL, SLICE, DRUMS) load safely: DIGITAL tracks stay silent, SLICE and DRUMS load as DRUM-X.
 
@@ -109,7 +109,7 @@ Retired engines (DIGITAL, SLICE, DRUMS) load safely: DIGITAL tracks stay silent,
 | HOME | Home, Mixer (DRUM-X: MIXER 1/3, 2/3, 3/3) | Menu |
 | SEQ | STEP / DETAIL / AUTOMATION, then SEQ TOOLS / GENERATION | + OCT±: tools layer |
 | GLO | MASTER / CLOCK, then SONG | + OCT±: mutes, solos, levels, tap tempo |
-| SAVE | PRESETS / USER / PHRASES, then PROJECT / TOOLS | Undo |
+| SAVE | PRESETS / USER / PROJECT, then CLEAR | Undo |
 | LFO | LFO 1/3, 2/3, LFO DEST 3/3, then MOD | + a knob: momentary change |
 | EDIT | Sound pages, Kit (DRUM-X), Voice | + OCT±: engine layer |
 | FX | EFFECTS, SLICER, PUNCH-IN | |

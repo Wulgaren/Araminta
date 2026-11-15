@@ -849,6 +849,19 @@ static const dx_kit_t DX_KITS[] = {
         },
         {0, 0, 0, 0, 0, 0, 0, 0}, {0, 1, 3, 2, 2, 0, 4, 2},
     },
+    {   /* HOUSE (after the TR-707: a short clicky kick, a bright snare, a tight clap, short metallic hats) */
+        {
+            {DX_MODE(DXW_SINE, DXF_LP, 1) | DX_DRIVE, {10, 92, 56, 6, 46}, {15, 110, 64, 12, 68}},   /* KICK */
+            {DX_MODE(DXW_FM, DXF_BP, 0), {42, 34, 48, 104, 110}, {48, 22, 56, 120, 92}},   /* SNARE */
+            {DX_MODE(DXW_SINE, DXF_BP, 0), {60, 0, 44, 127, 90}, {54, 0, 52, 127, 82}},   /* CLAP */
+            {DX_MODE(DXW_METAL, DXF_HP, 0), {110, 0, 10, 92, 126}, {118, 0, 6, 108, 127}},   /* HAT CL */
+            {DX_MODE(DXW_METAL, DXF_HP, 0), {110, 0, 60, 96, 120}, {118, 0, 70, 112, 126}},   /* HAT OP */
+            {DX_MODE(DXW_SINE, DXF_LP, 1), {38, 56, 52, 8, 54}, {44, 76, 60, 14, 74}},   /* TOM */
+            {DX_MODE(DXW_BELL, DXF_HP, 1), {70, 16, 12, 18, 40}, {77, 30, 16, 32, 54}},   /* RIM */
+            {DX_MODE(DXW_METAL, DXF_BP, 1), {78, 0, 44, 24, 4}, {82, 0, 52, 36, 20}},   /* BELL (cowbell) */
+        },
+        {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0},
+    },
 };
 #define DX_NKIT ((uint32_t)(sizeof DX_KITS / sizeof DX_KITS[0]))
 #define DXK_LATIN 10u                                    /* LATIN PERC */

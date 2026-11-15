@@ -340,5 +340,6 @@ static const engine_t ENG_SAMPLE = {
     .note_on = sample_note_on,
     .render = sample_render,
     .knob = {P_E0, P_E4, P_ATK, P_REL},
+    .keys = kit_keys,
     .sampled = 1,
 };

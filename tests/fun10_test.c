@@ -812,22 +812,18 @@ static int formats(void)
     bad += check("  restored: QUANTIZE ON, LFO 2 off, every step's nudge 0, the 64 records", trk[0].p[P_SQNT] == 1 &&
                  !trk[0].p[P_LSYNC] && !step_nudge(&trk[0].step[1]) && motion.count == 64u && motion.event[7].value == -40);
 
-    /* user presets: a record of 103 round trips; one of 99 (1.1) gets the four at their defaults; a pattern keeps no
-     * nudge (bit 4 of its flags is the tie) */
+    /* user presets: a record of 103 round trips; one of 99 (1.1) gets the four at their defaults */
     {
         up_rec_t r;
         int16_t v[P_COUNT], def[P_COUNT];
         t = seq1(1);
         t->p[P_LSYNC] = 1; t->p[P_LPOL] = 1;           /* (today's ON; the older records below hold 1.2's 1/2) */
-        note_step(t, 0, 60, -8);                     /* (bit 4 of the flags set) */
-        note_step(t, 1, 62, 3);
         memset(&r, 0, sizeof r);
         r.used = UP_USED; r.ver = UP_VER; r.engine = 0; r.np = P_COUNT;
         for (i = 0; i < P_COUNT; i++) { up_set_value(&r, i, t->p[i]); def[i] = TP[i].def; }
         up_mark_lsync(&r);                            /* (a 4.3 record) */
-        up_pat_from(&r, t->step);
         up_params(&r, v, def);
-        ok = v[P_LSYNC] == 1 && v[P_LPOL] == 1 && r.flags[0] == 0 && r.note[0] == 60 && r.flags[1] == 0 && r.note[1] == 62;
+        ok = v[P_LSYNC] == 1 && v[P_LPOL] == 1;
         r.packed[UP_VIB_AT] = 0;                      /* the records below are older */
         t->p[P_LSYNC] = 4;                            /* 1.2's 1/2 */
         r.np = 99;                                    /* as 1.1 stored it: the engine's 8 after its 91 */
