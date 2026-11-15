@@ -9862,6 +9862,48 @@ static int test_fx_sections(void)
     return bad;
 }
 
+/* The DISTORT page's cards and tech graph show the DIST the DSP runs: with the stage on SEND they live on the bus
+ * (fx.c fx_target_ptr, master_insert_run), and MASTER beside it keeps the send bit set (EFFECTS K3). MODE OTT there
+ * must draw the OTT curve and the DEPTH / TIME cards, not the track's own mode's. */
+static int test_dist_graph(void)
+{
+    static uint16_t a[240 * (Y_GRAPH + H_GRAPH - Y_LABEL)], b[240 * (Y_GRAPH + H_GRAPH - Y_LABEL)];
+    uint8_t ord[FX_LIST_N];
+    int bad = 0, ok = 1;
+    uint32_t i;
+    ui_power_on();
+    song.sel = 0;
+    go_title("EFFECTS");                              /* K3: CHAIN -> SEND -> MASTER (the send bit stays) */
+    fx_list_get(TSEL, ord);
+    for (i = 0; i < FX_LIST_N && ord[i] != INS_DIST; i++)
+        ;
+    ui.ior_sel = (uint8_t)i;
+    turn(EN_K3, 1);
+    turn(EN_K3, 1);
+    ok &= fx_master_owned(INS_DIST, 0) && ins_is_send(TSEL, INS_DIST);
+    fx_bus_trk.p[P_IDMODE] = IDM_SOFT;
+    fx_bus_trk.p[P_DIST] = 90;
+    fx_bus_trk.p[P_ED_FX] = -20;
+    go_title("DISTORT");
+    ui.force = 1;
+    frame();
+    memcpy(a, host_screen + Y_LABEL * 240, sizeof a);
+    for (i = 0; i < 4u; i++)                          /* SOFT HARD FOLD FUZZ OTT */
+        turn(EN_K1, 1);
+    ok &= fx_bus_trk.p[P_IDMODE] == IDM_OTT && TSEL->p[P_IDMODE] == IDM_SOFT;
+    memcpy(b, host_screen + Y_LABEL * 240, sizeof b);
+    ok &= memcmp(a, b, sizeof a) != 0;                /* the cards and the graph follow the bus */
+    ins_send_set(TSEL, INS_DIST, 0);                  /* the same settings on the track: the same picture */
+    TSEL->p[P_IDMODE] = IDM_OTT;
+    TSEL->p[P_DIST] = fx_bus_trk.p[P_DIST];
+    TSEL->p[P_ED_FX] = fx_bus_trk.p[P_ED_FX];
+    ui.force = 1;
+    frame();
+    ok &= memcmp(b, host_screen + Y_LABEL * 240, sizeof b) == 0;
+    bad += check("DISTORT on SEND / MASTER: MODE OTT edits the bus and the graph draws it", ok);
+    return bad;
+}
+
 static int test_wt_graph(void)
 {
     int bad = 0;
@@ -10070,6 +10112,7 @@ int main(void)
     setvbuf(stdout, NULL, _IONBF, 0);
     int bad = 0;
     bad += test_fx_sections();
+    bad += test_dist_graph();
     bad += test_seq_sections();
     bad += test_generation_navigation();
     bad += test_generation_density_undo();

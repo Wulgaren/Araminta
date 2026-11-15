@@ -442,6 +442,39 @@ static int framing(void)
     return bad;
 }
 
+/* main.c polls ota_service() only when ed_service() reports a held non-editor frame: an
+ * editor request arriving after the empty check then waits for the next pass instead of
+ * being consumed (and dropped) by the OTA decode. */
+static int dispatch(void)
+{
+    static const uint8_t ota[] = {0xF0, 0x00, 0x59, 0x11, 0x00, 0xF7};
+    static const uint8_t info[] = {0xF0, ED_HDR0, ED_HDR1, ED_HDR2, ED_INFO, 0xF7};
+    uint32_t i;
+    int bad = 0;
+    reset();
+    host_wire_n = 0;
+    bad += check("dispatch: no frame leaves nothing for OTA", !ed_service() && !sx_ready && !host_wire_n);
+    for (i = 0; i < sizeof ota; i++) sysex_byte(ota[i]);
+    bad += check("dispatch: a non-editor frame is held for OTA, not answered",
+                 ed_service() == 1 && sx_ready && !host_wire_n);
+    bad += check("dispatch: .. and stays held on the next pass", ed_service() == 1 && sx_ready);
+    ota_frame_done();
+    for (i = 0; i < sizeof info; i++) sysex_byte(info[i]);
+    bad += check("dispatch: an editor request frees its own frame",
+                 ed_service() == 0 && !sx_ready);
+    host_wire_n = 0;
+    host_drain();
+    bad += check("dispatch: .. and is answered, nothing held for OTA", host_wire_n > 7u && host_wire[4] == ED_INFO);
+    host_wire_n = 0;
+    bad += check("dispatch: an empty pass reports nothing for OTA", ed_service() == 0);
+    for (i = 0; i < sizeof info; i++) sysex_byte(info[i]);
+    bad += check("dispatch: a request arriving after the empty pass is handled next",
+                 ed_service() == 0 && !sx_ready);
+    host_drain();
+    bad += check("dispatch: .. and answered", host_wire_n > 7u && host_wire[4] == ED_INFO);
+    return bad;
+}
+
 static int uart_recovery(void)
 {
     uint32_t i;
@@ -1519,7 +1552,7 @@ static int alloc_preserves_cgld(void)
 int main(void)
 {
     int bad = preferences() + motion_locks() + dump_order() + slown_descriptor() + pitch_locks() +
-              matrix_edits_preserve_fx_locks() + editor_fx_order() + framing() + uart_recovery() + steps() + samples() + wavetable_slot() + song_protocol() + malformed_saves() +
+              matrix_edits_preserve_fx_locks() + editor_fx_order() + framing() + dispatch() + uart_recovery() + steps() + samples() + wavetable_slot() + song_protocol() + malformed_saves() +
               fm6_patches() + user_preset_roundtrip() + matrix_protocol() + live_sync() + usb_burst() + menu_protocol() + drum_kit_retired() +
               alloc_preserves_cgld();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");

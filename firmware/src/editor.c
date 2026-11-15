@@ -1005,30 +1005,35 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     ed_send();
 }
 
-/* main loop: editor frames first; anything else stays for ota_service() */
-static void ed_service(void)
+/* Main loop: return 1 only for an observed non-editor frame that is still held.
+ * After an empty check the ISR may publish an editor request, so the caller must
+ * not poll OTA then: ota_service() would consume that request as not its own. */
+static int ed_service(void)
 {
     const uint8_t *p;
     uint32_t n;
     ed_sync();                                             /* v2 pushes (while watched) */
-    if (!ota_frame_get(&p, &n) || n < 4u || p[0] != ED_HDR0 || p[1] != ED_HDR1 || p[2] != ED_HDR2)
-        return;
+    if (!ota_frame_get(&p, &n))
+        return 0;
+    if (n < 4u || p[0] != ED_HDR0 || p[1] != ED_HDR1 || p[2] != ED_HDR2)
+        return 1;                                         /* held for ota_service() */
     ed_w.last_ms = fm1_ms;                                 /* any request keeps WATCH alive */
     if (p[3] >= ED_SMP_BEGIN) {                            /* large frames: handled in place, then freed */
         ed_handle(p, n);
         ota_frame_done();
-        return;
+        return 0;
     }
     {
         static uint8_t f[64];
         uint32_t i;
         if (n > sizeof f) {
             ota_frame_done();                              /* (no reply: every cmd below ED_SMP_BEGIN is small) */
-            return;
+            return 0;
         }
         for (i = 0; i < n; i++)
             f[i] = p[i];
         ota_frame_done();                                  /* free the frame buffer before replying */
         ed_handle(f, n);
     }
+    return 0;
 }

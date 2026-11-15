@@ -531,36 +531,28 @@ static void macros(void)
     }
 }
 
-/* AMS with no LFO depth is a small attenuation, not an overflow to full scale or silence. */
-static void ams_scaling(void)
+/* #304: AMS as msfa has it. With AMD 0 the level is about 1 dB lower, never full scale; AMD 50 at
+ * the LFO's depth (here it stands still) is lower still but not silent (msfa AMS 3, AMD 99: silence). */
+static void ams(void)
 {
-    static const int R[4] = {99, 99, 99, 99}, L[4] = {99, 99, 99, 0};
-    static int32_t b[CTL];
+    static double y[3][48000];
     uint8_t v[FP_SIZE + 1u];
-    int16_t e[8] = {0};
-    int32_t plain, ams;
-    uint32_t k;
-    init_patch(v);
-    op_set(v, 1, R, L, 70, 1);
-    for (k = 2; k <= 6u; k++)
-        op_set(v, k, R, L, 0, 1);
-    v[FP_ALG] = 31;                                  /* six carriers: OP1 alone sounds */
-    v[FP_LAMD] = 0;
-    v[(6u - 1u) * FP_OP + FP_AMS] = 0;
-    setup(v, e);
-    trk_note_on(&trk[0], 60, 100);
-    for (k = 0; k < 16u; k++)
-        track_render(&trk[0], b, CTL);
-    plain = fm6_note_of(&trk[0], &trk[0].v[0])->op[5].level_in;
-    v[(6u - 1u) * FP_OP + FP_AMS] = 3;
-    setup(v, e);
-    trk_note_on(&trk[0], 60, 100);
-    for (k = 0; k < 16u; k++)
-        track_render(&trk[0], b, CTL);
-    ams = fm6_note_of(&trk[0], &trk[0].v[0])->op[5].level_in;
-    printf("fm6: AMS 0 / 3 at AMD 0: level_in %d / %d\n", plain, ams);
-    check("AMS: no LFO depth attenuates the operator a little (no overflow to full scale or silence)",
-          plain > 0 && ams > plain - plain / 20 && ams < plain + plain / 20);
+    double r[3];
+    uint32_t i;
+    for (i = 0; i < 3u; i++) {
+        init_patch(v);
+        v[(6u - 1u) * FP_OP + FP_OL] = 80;             /* op 1, the carrier, below full */
+        v[(6u - 1u) * FP_OP + FP_AMS] = (uint8_t)(i ? 3 : 0);
+        v[FP_LAMD] = (uint8_t)(i == 2u ? 50 : 0);
+        v[FP_LFS] = 35;
+        setup(v, 0);
+        voice_render(60, 100, y[i], 48000, 0);
+        r[i] = rms(y[i], 4800, 48000);
+    }
+    printf("fm6: AMS 0 / 3 at AMD 0 / 3 at AMD 50: rms %.0f / %.0f / %.0f\n", r[0], r[1], r[2]);
+    check("#304 AMS 3, AMD 0: the carrier about 1 dB lower than AMS 0, not full scale",
+          r[1] < r[0] && r[1] > r[0] * 0.8);
+    check("#304 AMS 3, AMD 50: lower again, not silent", r[2] < r[1] && r[2] > r[0] * 0.1);
 }
 
 /* -------------------------------------------------------------- formats --- */
@@ -762,7 +754,7 @@ int main(int argc, char **argv)
     retrigger();
     dc_clip();
     macros();
-    ams_scaling();
+    ams();
     formats();
     voices();
     if (!getenv("NOCOST"))
