@@ -6825,6 +6825,53 @@ static int test_punch_lane(void)
     return bad;
 }
 
+/* ALGORITHM on the sticky maps (PUNCH-IN, SEQ TOOLS): the selected track changes and the map stays. SEQ TOOLS takes
+ * its snapshot again on the switch, so OCT- puts back the track on screen and the one before keeps its edits. */
+static int test_algo_on_maps(void)
+{
+    int bad = 0, ok;
+    step_t t1[NSTEP], t2[NSTEP], t1rev[NSTEP];
+
+    ui_power_on();
+    go_title("PUNCH-IN"); frame();
+    ok = ui.lock == LAYER_FX && song.sel == 0;
+    turn(EN_ALGO, 1);
+    ok &= song.sel == 1 && ui.lock == LAYER_FX;
+    turn(EN_ALGO, -1);
+    ok &= song.sel == 0 && ui.lock == LAYER_FX;
+    bad += check("ALGORITHM on the punch-in map changes the track, the map stays", ok);
+
+    ui_power_on();
+    go_home(); frame();
+    turn(EN_ALGO, 1);                                   /* T2 */
+    tl_melody();
+    step_set_note(&TSEL->step[0], 0, 65);               /* (T1 and T2 differ) */
+    memcpy(t2, TSEL->step, sizeof t2);
+    turn(EN_ALGO, -1);                                  /* T1 */
+    tl_melody();
+    memcpy(t1, TSEL->step, sizeof t1);
+    go_title("SEQ TOOLS"); frame();
+    ok = song.sel == 0 && ui.lock == LAYER_SEQ;
+    tl_key(1);                                          /* G3: REVERSE on T1 */
+    memcpy(t1rev, trk[0].step, sizeof t1rev);
+    ok &= memcmp(t1rev, t1, sizeof t1) != 0;
+    turn(EN_ALGO, 1);                                   /* T2: the map's track */
+    ok &= song.sel == 1 && ui.lock == LAYER_SEQ;
+    tl_key(1);                                          /* REVERSE on T2 */
+    ok &= memcmp(trk[1].step, t2, sizeof t2) != 0;
+    press(B_OCTDN);
+    ok &= !memcmp(trk[1].step, t2, sizeof t2) && msg_is("SEQUENCE PUT BACK");
+    ok &= !memcmp(trk[0].step, t1rev, sizeof t1rev);    /* (T1's edit stays: its snapshot was replaced) */
+    bad += check("ALGORITHM on SEQ TOOLS: the map and OCT- follow the track on screen", ok);
+
+    ui.cc_step[5] = 1; frame();                         /* CC 76: ALGORITHM, the knob's own path */
+    ok = song.sel == 2 && ui.lock == LAYER_SEQ;
+    ui.cc_step[5] = -1; frame();
+    ok &= song.sel == 1 && ui.lock == LAYER_SEQ;
+    bad += check("  CC 76 on SEQ TOOLS takes the same path (the track moves, the map stays)", ok);
+    return bad;
+}
+
 /* a REC pass that records punch-ins is one lane undo: SAVE held after it takes the lane back, not an older copy (here a
  * seq edit's: the steps stay) */
 static int test_punch_lane_rec_undo(void)
@@ -10165,6 +10212,7 @@ int main(void)
     bad += test_fx_latch();
     bad += test_fx_map();
     bad += test_punch_lane();
+    bad += test_algo_on_maps();
     bad += test_punch_lane_rec_undo();
     bad += test_layer_lock();
     bad += test_rec_layer();

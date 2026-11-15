@@ -1732,6 +1732,16 @@ static int layer_allowed(void);
 static uint32_t ly_bit(uint32_t l);
 static void layer_lock_input(uint32_t pressed);
 
+/* ALGORITHM on a sticky map: the selected track, the map staying open. On SEQ TOOLS the map's snapshot follows
+ * (ui_layer.c layer_opened), so OCT- puts back the track on screen; the punch map has no snapshot */
+static void map_track_turn(int32_t s, uint32_t l)
+{
+    uint32_t was = song.sel;
+    track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
+    if (song.sel != was && l == LAYER_SEQ)
+        layer_opened(LAYER_SEQ);
+}
+
 /* a page button let go (they act on release; a layer's own button: layer_gesture). 1: it acted (EDIT on STEP with a
  * step held, USER, PROJECT) instead of opening a page */
 static int page_tap(uint32_t b)
@@ -1945,7 +1955,8 @@ static void ui_input(void)
             }
         if (layer_open() == LAYER_FX)
             panel_enc(EN_PRESET);                       /* (a stray turn must not load a sound behind the punch map) */
-        panel_enc(EN_ALGO);
+        if ((s = panel_enc(EN_ALGO)) != 0)              /* ALGORITHM: the track, the map staying open */
+            map_track_turn(s, layer_open());
         s = panel_enc(EN_SELECT);                       /* read once: a detent counted after it is the next frame's (#102) */
         if ((layer_open() == LAYER_FX || layer_open() == LAYER_SEQ) && s && !glo)
             select_page_step(s > 0 ? 1 : -1);           /* sticky maps: PUNCH-IN's pages, the tools section's (OCT+ +
@@ -2243,7 +2254,7 @@ static void ui_input(void)
             presets_turn(s);
     }
     if (!lay && (s = panel_enc(EN_ALGO)) != 0)     /* ALGORITHM: the selected track, on every page */
-        track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
+        map_track_turn(s, 0);
     if (!lay && (s = panel_enc(EN_SELECT)) != 0) {
         if (glo) {                                      /* OCT+ + SELECT: tempo (CLOCK K1 too; accelerated) */
             song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), GP[G_BPM].min, GP[G_BPM].max);
@@ -2292,8 +2303,8 @@ static void cc_knob_poll(void)
             int32_t n = s > 0 ? s : -s;
             while (n--)
                 select_page_step(s > 0 ? 1 : -1);
-        } else if (k == 5u) {                       /* ALGORITHM: the selected track */
-            track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
+        } else if (k == 5u) {                       /* ALGORITHM: the selected track (on SEQ TOOLS, the map's too) */
+            map_track_turn(s, layer_open());
         } else {                                    /* PRESETS: the sound, as the knob's list */
             presets_turn(s);
         }

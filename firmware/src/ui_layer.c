@@ -22,7 +22,7 @@
  *              tools (ui_tools.c: CLEAR, REVERSE, SHIFT < >, RANDOM, COOK; on a DRUM track BEAT, MUTE and the lane's
  *              CLEAR REVERSE FILL RANDOM), black keys 1..8 the lane (DRUM); KNOB 1..4 LEN DIV SWING GATE.
  *              E4..C5 are the note edits on a synth (BEAT / MUTE / lane tools on a kit); D5..G5 HALF, *2, HUMAN, DUP on a kit.
- *              Each action one undo (SAVE held), OCT- the track as the layer opened (tl_open)
+ *              Each action one undo (SAVE held), OCT- the track as the map opened (or as ALGORITHM last moved to it)
  * REC taps arm / disarm (ui_input.c); CLICK / COUNT-IN / LEVEL live in MENU > AUDIO; CLEAR sequence on SAVE > CLEAR
  * and SEQ TOOLS.
  * The gesture: let go before HOLD (the menu: 0.3 .. 0.6 s) with nothing else touched: a tap, the button's page.
