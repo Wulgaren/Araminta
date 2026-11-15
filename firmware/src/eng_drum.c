@@ -353,31 +353,32 @@ static int32_t drum_keys(const track_t *t, uint32_t k)
     return clamp(29 + 12 * song.octave + (int32_t)k, 0, 127);
 }
 
-/* {MRPH, TUNE, TONE, DECY, NOIS, FM, FOLD, DRV}; the kit suggests the BEAT pattern (GM notes). One a factory kit
+/* {MRPH, TUNE, TONE, DECY, NOIS, FM, FOLD, DRV}: one a factory kit
  * (JIANT 0.7.2: drumx_voice.c DX_KITS, this order; browsing loads it, ui.c apply_preset), as JIANT V10.7.24 has them;
  * a few move the whole kit (the LFO FREE: a hit does not restart it). JIANT's DIST amounts (LOFI DUST 8, INDUSTRIAL 16,
  * TECHNO RAW 10, BREAKS 4, HIP HOP 6) are its own track drive, not this fork's DIST stage: left out, as every preset
- * here leaves DIST. LOFI DUST's LFO DRIFT (none here) is S&H smoothed; HIP HOP's BOOM BAP pattern (none here) is BEAT */
+ * here leaves DIST. LOFI DUST's LFO DRIFT (none here) is S&H smoothed; HIP HOP's BOOM BAP pattern is not here */
 static const preset_t DRUM_PRESETS[] = {
-    {"FM DRUMS", DRUM_KIT_E, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},   /* (JIANT's DRUM-X; core.h: SAMPLE
+    {"FM DRUMS", DRUM_KIT_E, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20)},   /* (JIANT's DRUM-X; core.h: SAMPLE
                                                                                      * PERC's too) */
-    {"909 CLUB", {60, 64, 78, 64, 64, 0, 0, 10}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 16), PAT(12)},
-    {"808 BOOM", {58, 60, 54, 76, 59, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 24), PAT(12)},
-    {"LOFI DUST", {70, 64, 46, 54, 78, 0, 0, 20}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 18), PAT(12)},
-    {"INDUSTRIAL", {72, 66, 99, 70, 75, 20, 0, 40}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 10, 30), PAT(12)},
-    {"ACOUSTIC", {56, 64, 56, 62, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 34), PAT(12)},
-    {"DUB ROOTS", {60, 60, 50, 70, 59, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 18, 36), PAT(12)},
-    {"TECHNO RAW", {66, 64, 83, 62, 66, 10, 0, 30}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 14), PAT(12)},
-    {"BREAKS", {62, 66, 74, 62, 71, 0, 0, 10}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 22), PAT(12)},
-    {"HIP HOP", {58, 62, 56, 64, 67, 0, 0, 18}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
-    {"LATIN PERC", {60, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 22), PAT(12)},
+    {"909 CLUB", {60, 64, 78, 64, 64, 0, 0, 10}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 16)},
+    {"808 BOOM", {58, 60, 54, 76, 59, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 24)},
+    {"LOFI DUST", {70, 64, 46, 54, 78, 0, 0, 20}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 18)},
+    {"INDUSTRIAL", {72, 66, 99, 70, 75, 20, 0, 40}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 10, 30)},
+    {"ACOUSTIC", {56, 64, 56, 62, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 34)},
+    {"DUB ROOTS", {60, 60, 50, 70, 59, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 18, 36)},
+    {"TECHNO RAW", {66, 64, 83, 62, 66, 10, 0, 30}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 14)},
+    {"BREAKS", {62, 66, 74, 62, 71, 0, 0, 10}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 22)},
+    {"HIP HOP", {58, 62, 56, 64, 67, 0, 0, 18}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20)},
+    {"LATIN PERC", {60, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 22)},
     /* Felucca's DRUMS kits (its engine retired: drums_kit), every knob at its middle (TONE too: the kits as translated) */
-    {"STD", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
-    {"80", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
-    {"10", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
-    {"66", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
-    {"55", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
-    {"77", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20), PAT(12)},
+    {"STD", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20)},
+    {"80", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20)},
+    {"10", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20)},
+    {"66", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20)},
+    {"55", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20)},
+    {"77", {64, 64, 64, 64, 64, 0, 0, 0}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 20)},
+    {"HOUSE", {64, 64, 84, 62, 66, 0, 0, 14}, {0, 100, 127, 100}, 0, 0, FX(0, 0, 0, 22)},
 };
 /* .. their movement (core.h MODS), DRUM_PRESETS' order; 0 none. DRUMS' kits have none either: every lane plays at its
  * LEVEL 127 as the JIANT kits' lanes do, the patches carrying each kit's balance */
@@ -395,6 +396,7 @@ static const int8_t *const DRUM_MODS[] = {
     0,                                                /* 66 */
     0,                                                /* 55 */
     0,                                                /* 77 */
+    0,                                                /* HOUSE */
 };
 _Static_assert(sizeof DRUM_MODS / sizeof DRUM_MODS[0] == DX_NKIT, "a DRUM preset's movement each");
 _Static_assert(sizeof DRUM_PRESETS / sizeof DRUM_PRESETS[0] == DX_NKIT, "a DRUM preset a kit");

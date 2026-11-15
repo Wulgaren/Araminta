@@ -849,6 +849,19 @@ static const dx_kit_t DX_KITS[] = {
         },
         {0, 0, 0, 0, 0, 0, 0, 0}, {0, 1, 3, 2, 2, 0, 4, 2},
     },
+    {   /* HOUSE (deep/classic: a round 909-ish kick, a dry snare, a wide clap, an offbeat open hat) */
+        {
+            {DX_MODE(DXW_SINE, DXF_LP, 1) | DX_DRIVE, {7, 76, 72, 4, 40}, {12, 104, 88, 10, 64}},   /* KICK */
+            {DX_MODE(DXW_FM, DXF_BP, 0), {38, 28, 54, 88, 92}, {44, 18, 66, 110, 76}},   /* SNARE */
+            {DX_MODE(DXW_SINE, DXF_BP, 0), {58, 0, 50, 127, 86}, {52, 0, 60, 127, 78}},   /* CLAP */
+            {DX_MODE(DXW_METAL, DXF_HP, 0), {104, 0, 14, 96, 122}, {112, 0, 8, 112, 126}},   /* HAT CL */
+            {DX_MODE(DXW_METAL, DXF_HP, 0), {104, 0, 64, 96, 118}, {112, 0, 76, 112, 124}},   /* HAT OP */
+            {DX_MODE(DXW_SINE, DXF_HP, 1), {30, 46, 62, 14, 58}, {36, 66, 74, 20, 78}},   /* TOM */
+            {DX_MODE(DXW_BELL, DXF_HP, 1), {64, 10, 12, 16, 42}, {71, 24, 18, 30, 56}},   /* RIM */
+            {DX_MODE(DXW_METAL, DXF_BP, 1), {66, 0, 40, 30, 8}, {70, 0, 50, 42, 24}},   /* BELL */
+        },
+        {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0},
+    },
 };
 #define DX_NKIT ((uint32_t)(sizeof DX_KITS / sizeof DX_KITS[0]))
 #define DXK_LATIN 10u                                    /* LATIN PERC */

@@ -509,7 +509,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         } else if (na > 1u && chain_busy()) rc = 3;
         else if (na > 1u) {
             if (a[1] == 1u) motion_set_enabled(t, a[2]);
-            else if (a[1] == 2u) { load_begin(t, UNDO_PAT); motion_clear(t); load_end(t); }
+            else if (a[1] == 2u) { load_begin(t, UNDO_STEPS); motion_clear(t); load_end(t); }
             else if (a[1] == 3u) rc = motion_set_event(t, a[2], a[3], (int16_t)ed_rv(a + 4));
             else if (a[1] == 4u && a[2] < NSTEP && motion_param(a[3])) motion_delete_event(t, a[2], a[3]);
             else if (a[1] == 5u) rc = motion_set_lock(t, a[2], a[3], (int16_t)ed_rv(a + 4));
@@ -789,13 +789,9 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_str(nm, 12);
         for (i = 0; i < P_COUNT; i++)
             ed_v(u ? v[i] : 0);
-        for (i = 0; i < 16u; i++) {
-            ed_b(u ? r->note[i] & 0x7Fu : 0u);
-            ed_b(u ? r->flags[i] & 0x7Fu : 0u);
-        }
-        ed_b(u && up_grid(r));                  /* kind: 1 = a drum grid, then bit 7 of each step's */
-        for (i = 0; u && up_grid(r) && i < 16u; i++)   /* hits (bit 0) and accents (bit 1) */
-            ed_b((uint32_t)(r->note[i] >> 7) | (uint32_t)(r->flags[i] >> 7) << 1);
+        for (i = 0; i < 32u; i++)               /* the 16-step pattern: reserved (SAVE > PHRASES went) */
+            ed_b(0);
+        ed_b(0);                                /* kind: never a drum grid */
         ed_b(u ? up_cat_of(r) : 0u);            /* 1.2: the category (an older editor stops before it) */
         for (i = 0; i < 12u; i++)               /* 4.2: the matrix's slots 5..8, SRC DST AMT + 64 each */
             ed_b(u ? (uint32_t)(up_mx_value(r, i) + (i % 3u == MF_AMT ? 64 : 0)) : (i % 3u == MF_AMT ? 64u : 0u));

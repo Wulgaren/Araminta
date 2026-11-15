@@ -332,12 +332,8 @@ typedef struct {
     uint8_t mono;                /* 1 = MONO (bass / lead), 0 = POLY */
     /* the rest of the patch; each value is stored + 1, 0 = the default */
     uint8_t fx[4];               /* DIST, CHORUS, DELAY, REVERB sends */
-    uint8_t pat;                 /* suggested pattern (PATTERNS[pat - 1], 0 = none): only a hint. A sound load
-                                  * never touches the steps; SEQ > PATTERNS loads a pattern (ui.c pat_load). The
-                                  * arp is the track's too: a preset does not set it */
 } preset_t;
 #define FX(d, c, dl, r) .fx = {(d) + 1, (c) + 1, (dl) + 1, (r) + 1}
-#define PAT(n) .pat = (n)
 /* (JIANT V10.6i) a sound's movement: pairs of a common parameter (< P_E0) and its value, -1 ends (the LFO and its DEST,
  * the MOD slots), set after the rest of the preset (ui.c apply_preset_to: preset_mods). Only DRUM-X's kits have one
  * (eng_drum.c DRUM_MODS: a table of its own, not a field of every preset: the flash is full) */
@@ -462,7 +458,7 @@ static void step_set_ratchet(step_t *s, uint32_t hits)
  * OFF (P_SQNT, AUTOMATION's QUANTIZE row) plays it (seq.c seq_tick). On the drum grid, steps held + PRESETS moves
  * those steps in time; on the piano roll, PRESETS moves the note under the cursor (its ties with it).
  * One bit in bit 7 of each note byte (note j has bit j). 0 = on the step: every older pattern. A user preset's
- * pattern keeps none (upreset.c up_pat_norm) */
+ * pattern kept none (the user preset's 16-step copy is reserved now) */
 #define NUDGE_DIV 16
 static int32_t step_nudge(const step_t *s)
 {

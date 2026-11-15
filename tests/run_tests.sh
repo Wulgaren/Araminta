@@ -30,11 +30,11 @@
 #                   (build/ui_new/align.txt). MENU > LARGE: every screen again (FLAT, LINE, every palette) and the page / value
 #                   sweep with the tall cards, the same lint and alignment; sheet_LARGE_GREY.png, sheet_LARGE_MONO.png.
 # UI (tests/ui_test.c): the UI sources against stub display / buttons / knobs: sound loads keep the steps and
-#                   the track's ARP / SCL / SLICER, the SAVE > PHRASES loader and its REPLACE? dialog, the
-#                   one-step undo of both (SAVE held), REC on TRACKS / SEQ / ARP, STEP and ARP while recording,
+#                   the track's ARP / SCL / SLICER, the one-step undo (SAVE held), REC on TRACKS / SEQ / ARP,
+#                   STEP and ARP while recording,
 #                   MIDI IN ROUT, saves refused while playing and the OVERWRITE? dialog, MUTE on TRACKS KNOB 1, FM6's operator
 #                   pages (each byte alone, SLOT OWN, the sound, undo, the macros, projects / user presets),
-#                   the DRUM grid (keys, knobs, LEDs, pages, live recording into it, BEAT from PATTERNS).
+#                   the DRUM grid (keys, knobs, LEDs, pages, live recording into it).
 # Audio / persistence / editor: the real C paths against simulated DMA and NOR flash: bounded overload
 #                   fades, shared-voice limits, deferred settings and retries, failed-save rollback, the autosave
 #                   (1.2: when it writes, the power-on restore, damaged copies, a write cut short, wear over a session),
@@ -101,9 +101,6 @@
 #                   settings and levels), no offset, level, stereo, echo density / ringing / flutter against ROOM, SPRING
 #                   and COMB8 (8 combs + 4 allpasses, host only, for comparison), model changes both ways, cost; the
 #                   listening set in build/reverb_demo/ (drums, pluck, piano: dry and each model at SIZE 40 / 90 / 127).
-# SLICE (tests/slice_test.c): slice tables, AUTO onsets of a user-slot loop, reverse, keys, modes, the MAN slices
-#                   (SLICES page) and their store in the slot (src/slice_store.c); the presets and the loop;
-#                   demos in build/slice_demo/.
 # SAMPLE (tests/sample_test.c, 1.5): PIANO (5 zones), CR78 kit omitted (USR), USR1..3 at 5..7; zones, splits, pitch over the
 #                   keyboard (YIN), 0.75 s at a root, the aliases, GRAIN SRC 0; no SLICE BREAK in the ROM blob;
 #                   1.2's PIANO HD user-slot file (gen_samples.py --user-slot: build/piano_hd/PIANO_HD), as old users may
@@ -399,7 +396,7 @@ unit u_signed_audio
 
 u_upreset() {
     build "$OUT/upreset_test" tests/upreset_test.c
-    run "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM and SAMPLE PERC -> DRUM, grid records, DIGITAL records kept / load refused)" "$OUT/upreset_test"
+    run "user presets (UP_PUT parser, bank round trip, versions, reserved pattern bytes, PHYS DRUM and SAMPLE PERC -> DRUM, DIGITAL records kept / load refused)" "$OUT/upreset_test"
 }
 unit u_upreset
 

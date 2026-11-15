@@ -22,8 +22,9 @@ selected. The v1-v3 commands are byte for byte as before; v4 is asked for with b
 
 **v5 (the drum grid):** a step also holds lane hits and their accents (see "v5: the drum grid" below).
 `STEP_GET` / `STEP_SET` / `TRACK_STEP` replies get 3 more bytes, `STEP_SET` / `TRACK_STEP` take them
-optionally, and `UP_GET` / `UP_PUT` carry a user preset's 16-step grid after its pattern. Every
-earlier byte is where it was; an editor that reads the first bytes of a reply keeps working.
+optionally, and `UP_GET` / `UP_PUT` still carry 32 pattern bytes after the values (reserved since 4.6:
+written zero, ignored). Every earlier byte is where it was; an editor that reads the first bytes of a
+reply keeps working.
 
 **v7 (motion, chance, backup, 89 parameters):** a step gets a chance byte after its hits. `MOTION` (64) reads
 and edits a track's recorded knob moves. `BACKUP_LIST` / `BACKUP_GET` / `BACKUP_PUT` (65-67) read and
@@ -255,10 +256,10 @@ at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device 
 | 14 SMP_ERASE | slot | slot, rc (erases the whole slot, ~1 s) |
 | 15 SMP_INFO | — | slots, slot KiB, then per slot: type byte (low bits = zone count 0 = empty, max 16; bit 5 = a wavetable, then the low bits are 0; bit 6 = drum kit grid from FSMP `hdr.rsv`; 7-bit SysEx), name string, data KiB |
 | 16 UP_LIST | start, count (1..16) | start, count, total slots, then per slot: used (0/1), engine, name string ("" if unused); 1.2: then one category byte per slot listed (below; 0 if unused) |
-| 17 UP_GET | slot | slot, used, engine, name, P_COUNT × v14, 16 × (note, flags), then (v5) kind (0 a note pattern, 1 a drum grid) and for kind 1 16 × hi; 1.2: then the category; 4.2 (`58 01`): then the matrix's slots 5..8, 12 bytes as MATRIX sends them (SRC, DST, AMT + 64 each) |
-| 18 UP_PUT | slot, engine, name, P_COUNT × v14, 16 × (note, flags) [, kind 0 or 1, 16 × hi (v5) [, category (1.2) [, slots 5..8, 12 bytes (4.2, `58 01`)]]] | slot, rc (0 ok, 1 args, 2 flash). Writes flash: allow 1 s. Firmware without `58 01` refuses the 12 bytes (rc 1) |
-| 19 UP_STORE | slot, name | slot, rc. Stores the current sound: engine, parameters, the first 16 sequencer steps as the pattern (TIE steps → flag 4) |
-| 20 UP_LOAD | slot | slot, rc (0 ok, 1 empty/invalid). Applies its sound (not its pattern; the steps stay) |
+| 17 UP_GET | slot | slot, used, engine, name, P_COUNT × v14, 16 × (note, flags) (reserved, zero), then kind 0; 1.2: then the category; 4.2 (`58 01`): then the matrix's slots 5..8, 12 bytes as MATRIX sends them (SRC, DST, AMT + 64 each). A device before 4.6 may end the pattern with kind 1 and 16 × hi (a drum grid): read and drop them |
+| 18 UP_PUT | slot, engine, name, P_COUNT × v14, 16 × (note, flags) [, kind 0 or 1, 16 × hi [, category (1.2) [, slots 5..8, 12 bytes (4.2, `58 01`)]]] | slot, rc (0 ok, 1 args, 2 flash). Writes flash: allow 1 s. The 32 pattern bytes and the kind are accepted and ignored (reserved). Firmware without `58 01` refuses the 12 bytes (rc 1) |
+| 19 UP_STORE | slot, name | slot, rc. Stores the current sound: engine and parameters (the 32 pattern bytes are written zero) |
+| 20 UP_LOAD | slot | slot, rc (0 ok, 1 empty/invalid). Applies its sound; the steps stay |
 | 21 UP_ERASE | slot | slot, rc |
 | 22 WATCH | on (0/1; v4: 3 = also `TRACK_CHANGED`) | on (0/1; v4 firmware: 3 when 3 was asked for). While on, the device pushes cmds 23, 24, 26 (and 32 with bit 1) |
 | 23 CHANGED (push) | — | scope, id, v14 |
@@ -357,13 +358,11 @@ is not required.
 ## v2: user presets
 
 A user preset = engine (0..NENGINES−1), name (1..12 chars, ASCII 32..126; the device shows it upper
-case), all P_COUNT instrument parameters (v14 each, the same order as `DUMP`), and a 16-step pattern:
-16 × (note 0..127 (0 = rest), flags: 1 accent, 2 slide, 4 tie, 8 | 16 the ratchet − 1 (firmware with `52 01`;
-before, 0: x1, and such firmware drops those bits when it loads the pattern)). Loading one applies the engine and
-the parameters of the sound, as a factory preset (the track's own parameters, the steps and LEN stay; see
-"Sound loads and undo"). The stored pattern is kept and returned by `UP_GET`; on the device SAVE > PHRASES
-lists it as "U07" and loads it, with the stored LEN (at most 16), DIV, SWING and GATE. The slots are
-numbered 0..95 (the device shows U01..U96; six banks of 16).
+case), and all P_COUNT instrument parameters (v14 each, the same order as `DUMP`). The 32 bytes after the
+values were a 16-step pattern until 4.6; they are reserved now, written zero and ignored. Loading one
+applies the engine and the parameters of the sound, as a factory preset (the track's own parameters and
+the steps stay; see "Sound loads and undo"). The slots are numbered 0..95 (the device shows U01..U96; six
+banks of 16).
 
 - `UP_LIST`: count is cut at 16 and at the last slot (start ≥ 96: count 0, no entries).
 - `UP_GET` of an empty slot has the same shape with used 0, engine 0, name "" and all values 0.
@@ -378,7 +377,7 @@ numbered 0..95 (the device shows U01..U96; six banks of 16).
   Projects do the same. PHYS's MODEL is 0..3 (MODAL STRNG MEMB SYMP) now.
 - **SAMPLE SET 4** was PERC, the General MIDI drum kit, until 1.0.2. A record of SAMPLE (engine 4) with E1 (SET)
   = 4, stored then or sent by `UP_PUT`, is the DRUM-X engine with its default kit: the device rewrites it (engine 10,
-  E1..E8 = DRUM KIT's {0, 64, 70, 64, 64, 100, 0, 0}, the other values and the pattern as they were). Projects
+  E1..E8 = DRUM KIT's {0, 64, 70, 64, 64, 100, 0, 0}, the other values as they were). Projects
   and `PRESET` 4 / 4 do the same (a project's track keeps its steps). SET 4 itself stays (`DESC` names it "PIANO":
   an alias, as SET 1; a `SET` of 4 lands on 0), SET 5 is CR78, and USR1..USR3 are 6..8; GRAIN's SRC 4 plays PIANO.
 - **DRUM KIT 1..3** were HAND, CYM and H+CYM until 1.0.4 (STD with a conga / claves, a cymbal, both). Since 1.0.5
@@ -394,9 +393,9 @@ numbered 0..95 (the device shows U01..U96; six banks of 16).
 - **Categories (1.2, Discussion #90).** A user preset has a sound category: 0 none, 1 BASS, 2 LEAD, 3 PAD, 4 PLUCK,
   5 KEYS, 6 DRUM, 7 FX, 8 OTHER (append-only; the device's PRESETS > LIST filters by it, its NAME screen sets it).
   `UP_LIST` sends one byte per listed slot after all the slot entries (0 for an empty slot); `UP_GET` ends with it
-  (after kind 0, or after kind 1's 16 bytes). A record saved without one (before 1.2, or by an editor that sends none)
+  (after the kind byte). A record saved without one (before 1.2, or by an editor that sends none)
   reports its engine's: 6 DRUM for DRUM and SLICE, else 8 OTHER. `UP_PUT` takes it as one byte after the kind and its
-  16 bytes (send kind 0 and 16 zeros for a note pattern); 0 stores none, 9 or more is rc 1. An older editor reads up to
+  16 bytes (send kind 0 and 16 zeros); 0 stores none, 9 or more is rc 1. An older editor reads up to
   where it knows and ignores the rest; firmware before 1.2 rejects an `UP_PUT` with the category (rc 1), so send it
   only to a device that answers `UP_GET` with it. The device keeps it in a byte of the record no value uses (the
   record's layout is unchanged; older firmware keeps it). The factory presets' categories are the device's
@@ -415,7 +414,7 @@ and the P_COUNT it was stored with; another count is mapped by count (last 8 val
 first ones = P_LEVEL.. in order, missing ones = defaults). Versions 4 (a note pattern) and 5 (a drum grid)
 store each value as one byte, value + 64, so P_COUNT can reach 127; versions 1..3 stored 16-bit values.
 The wire format is unchanged: `UP_GET` / `UP_PUT` still carry v14 values, and `UP_PUT` now answers rc 1
-for a value outside −64..127. P_COUNT was 53 (P_E0 45) until the SLICER
+for a value outside −64..127. Versions 4 and 5 differ only in the pattern bytes they reserved. P_COUNT was 53 (P_E0 45) until the SLICER
 parameters (SLCR, PAT, RATE, DEPTH: ids 45..48) went in just before P_E0: P_COUNT 57, P_E0 49; then
 the twelve matrix parameters (ids 49..60): P_COUNT 69, P_E0 61. An editor takes both from `INFO`;
 records stored with 53 load with the SLICER off and every matrix slot off, with 57 with every slot off. The
@@ -441,20 +440,15 @@ grid lives in the steps themselves, so every engine has it:
   send `0, 0, 0` to clear them.
 - **Notes on lanes.** A step's notes keep playing as before; the device shows each note on the lane
   it strikes (GM 35..81, the others folded into their octave of 36..47: a low tom 41 on TOM, a crash 49 on
-  BELL). When the device edits a lane of a step, notes on that lane become the lane's hit. Patterns
-  loaded on the device into a DRUM-X track (SAVE > PHRASES, e.g. 12 BEAT), and DRUM-X tracks of projects saved
-  before the grid, get their lanes' own notes as hits (the same notes and velocities play).
+  BELL). When the device edits a lane of a step, notes on that lane become the lane's hit. DRUM-X tracks of
+  projects saved before the grid get their lanes' own notes as hits (the same notes and velocities play).
 - **Sound loads never convert steps** (as before): switching a track to or from DRUM keeps its notes
   and hits.
-- **User presets.** A user preset stored from a DRUM-X track whose first 16 steps strike a lane holds a
-  16-step grid instead of a note pattern (record version 3; version 5 with byte values). `UP_GET` gives its low 7 bits in the 16
-  (note, flags) pairs (hits, accents), then kind 1 and 16 bytes of bit 7s (bit 0 hits, bit 1 accents);
-  a note pattern ends with kind 0. `UP_PUT` with kind 1 and the 16 bytes stores a grid (accents only on
-  hits); without an extension, a note pattern as before. If an extension is sent, it must be
-  exactly 17 bytes: kind 0 or 1 followed by 16 bytes (kind 0 ignores those bytes).
+- **User presets.** The 32 pattern bytes (a note pattern, or in version 5 a drum grid) are reserved since
+  4.6: `UP_GET` sends zeros and kind 0, `UP_PUT` accepts the old shape and ignores it. The device writes
+  zeros there. An extension, if sent, must be exactly 17 bytes: kind 0 or 1 followed by 16 bytes.
   Unknown kinds, truncated extensions and extra bytes are rejected without changing the slot (1.2: one byte after
   them is the category, below).
-  Firmware before v5 shows a grid record as empty.
 - **Projects** in v5 used format 5 ("FUN5"): 10-byte steps and 40 reserved bytes per track.
   FUN6 retained those fields and added the song chain (v6 below); FUN7 is current (v7 below). Older formats
   are converted on load.
@@ -478,8 +472,8 @@ grid lives in the steps themselves, so every engine has it:
   the same USB connection keeps what has not been pushed yet, so a change made just before is still pushed.
   Older firmware takes everything as known again (re-read `DUMP` after a re-`WATCH` there). `WATCH 0`, the 3 s
   timeout and a USB reset end watching; the next `WATCH` starts from the values as they are.
-- **STEP_CHANGED** (index): a sequencer step changed on the device (record, clear, step edit,
-  pattern load); not after the editor's own `STEP_SET`.
+- **STEP_CHANGED** (index): a sequencer step changed on the device (record, clear, step edit);
+  not after the editor's own `STEP_SET`.
 - Push frames have the normal header. Accept them at any time, also while waiting for a reply:
   match replies by cmd (23, 24 and 26 are never replies). The device sends at most a few per
   ~5 ms pass, and only when its USB send queue has room, so a push never delays a reply.
@@ -569,11 +563,9 @@ grid lives in the steps themselves, so every engine has it:
   ARP pages, SCL and LEN / DIV / SWING / GATE (17..32), the SLICER (45..48). It does drop the track's recorded
   motion (the device's SAVE held brings it back). (Before 1.0 a preset also
   set the arp and replaced the steps with its pattern; a factory preset turned the SLICER off.) The byte
-  layout of every command is unchanged. Patterns are loaded on the device (SAVE > PHRASES) or written by
-  the editor with `STEP_SET` / `TRACK_STEP`.
+  layout of every command is unchanged. Steps are written by the editor with `STEP_SET` / `TRACK_STEP`.
   The device keeps one copy of the track from before the last load (any track); SAVE held 0.7 s on the
-  device swaps back what the load changed (the sound; after a SAVE > PHRASES load, the steps and LEN / DIV
-  / SWING / GATE). Loads in a row on one track with nothing changed between them keep the copy from before
+  device swaps back what the load changed (the sound). Loads in a row on one track with nothing changed between them keep the copy from before
   the first; `SET` (scope 0) within 1.5 s of a load on the selected track counts as part of that load, so
   an audition (`G_ENGSEL`, then the patch's values by `SET`, the track's own parameters skipped as
   `UP_LOAD` skips them) and the next one still undo to the state before the first. `PROJECT` load takes no
