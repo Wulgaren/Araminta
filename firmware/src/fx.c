@@ -1619,8 +1619,7 @@ static AUDIO_RAM __attribute__((noinline)) void dly_process_late(const int32_t *
     int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
     int free_ms = dtime_free(), mode = free_ms ? 1 : 0;
 #if FX_GATE
-    int in_zero;
-    int32_t wz = 0;
+    int32_t wz = 0;                                     /* OR of this block's input and head writes */
 #endif
     uint32_t tgt = free_ms ? AUDIO_FAR(dtime_q8)() : (dl << 8);
     int snap = !dly_free || mode != dly_rate || (!free_ms && song.g[G_DTIME] != dly_rate_div);
@@ -1660,9 +1659,8 @@ static AUDIO_RAM __attribute__((noinline)) void dly_process_late(const int32_t *
 #if FX_GATE
     /* Zero input, a still tap, no fade, lp 0 and a run of DLY_LEN samples whose head writes were zero: every slot of
      * the line was written zero, so a run would write zeros, output zeros and keep fx.dly_le as it is. Keep the
-     * head moving, drop the rest. */
-    in_zero = bus_in_all_zero(in, n);
-    if (in_zero && dly_zrun >= DLY_LEN && fx.dly_lp == 0 && !dly_fade_dir && dly_q8 == tgt) {
+     * head moving, drop the rest. The input scan runs last: while the delay plays, dly_zrun is 0 and it never runs. */
+    if (dly_zrun >= DLY_LEN && fx.dly_lp == 0 && !dly_fade_dir && dly_q8 == tgt && bus_in_all_zero(in, n)) {
         for (i = 0; i < n; i++)
             out[i] = 0;
         fx.dly_w += n;
@@ -1721,14 +1719,14 @@ static AUDIO_RAM __attribute__((noinline)) void dly_process_late(const int32_t *
             int16_t v = (int16_t)clamp((in[i] >> 1) + sh_tz(fx.dly_lp * fb, 15), -32768, 32767);
             dly_buf[fx.dly_w & (DLY_LEN - 1u)] = v;
 #if FX_GATE
-            wz |= v;
+            wz |= v | in[i];
 #endif
         } else {
             int16_t *p = &dly_buf[(fx.dly_w - late) & (DLY_LEN - 1u)];
             int16_t v = (int16_t)clamp(sh_tz(fx.dly_lp * fb, 15), -32768, 32767);
             dly_buf[fx.dly_w & (DLY_LEN - 1u)] = v;
 #if FX_GATE
-            wz |= v;
+            wz |= v | in[i];
 #endif
             *p = (int16_t)clamp(*p + (in[i] >> 1), -32768, 32767);
         }
@@ -1736,7 +1734,7 @@ static AUDIO_RAM __attribute__((noinline)) void dly_process_late(const int32_t *
         out[i] = mulq15(x * 2, wet_q15);
     }
 #if FX_GATE
-    dly_zrun = in_zero && !wz ? (dly_zrun < DLY_LEN ? dly_zrun + n : DLY_LEN) : 0;
+    dly_zrun = !wz ? (dly_zrun < DLY_LEN ? dly_zrun + n : DLY_LEN) : 0;
 #endif
 }
 /* no latency: CHAIN, MASTER and the host tests */
