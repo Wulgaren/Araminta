@@ -329,8 +329,8 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
 
 /* (JIANT 0.6.16) the kit's sum, once a block (voice.c track_render): DRV x1..x4 into the soft clip, its level kept,
  * and the knee (were each hit's: eight lanes, two curves a sample each; now the bus's, a glue). One mono sum: SPREAD
- * is off on DRUM-X (fx.c) */
-static __attribute__((noinline)) void drum_bus(const track_t *t, int32_t *out, uint32_t n)
+ * is off on DRUM-X (fx.c). Runs from RAM (.hot_text), like its caller track_render_audio. */
+static __attribute__((noinline)) AUDIO_RAM void drum_bus(const track_t *t, int32_t *out, uint32_t n)
 {
     int32_t drv = t->p[P_E7], g = 0, mk = 0;
     uint32_t i;

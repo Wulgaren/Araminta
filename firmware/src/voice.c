@@ -788,7 +788,7 @@ static __attribute__((noinline)) AUDIO_RAM uint32_t track_render_audio(track_t *
     if (t->spread_on)
         AUDIO_FAR(spread_sum)(t, out);                  /* out: every voice; spread_buf: the left ones */
     if (nr && e == &ENG_DRUM)                           /* (JIANT 0.6.16) DRUM-X: DRV and the knee on the kit's sum */
-        AUDIO_FAR(drum_bus)(t, out, n);
+        drum_bus(t, out, n);
 track_render_done:
     if (fade) {
         for (i = 0; i < 8u; i++)
