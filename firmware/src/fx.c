@@ -1056,6 +1056,11 @@ static uint8_t dly_fade_dir;                           /* 0 idle, 1 out to the s
 static uint32_t dly_snap_tgt;                          /* the target the fade-out lands on */
 static uint32_t dly_tgt_last;                          /* the last RATE target, for the settle count */
 static uint8_t dly_hold;                               /* blocks the RATE target has held */
+static uint32_t dly_gate_blocks;                       /* delay blocks skipped (tests/gate_test.c) */
+#if FX_GATE
+/* samples in a row with zero input and a zero head write; at DLY_LEN every slot of the line is zero */
+static uint32_t dly_zrun;
+#endif
 
 /* Active tank's globals: tank 0 uses CHAIN params while someone owns CHAIN; else SEND. Tank 1 is always SEND.
  * rev_pg_*: noinline in flash; rev_hall (AUDIO_RAM) reaches them via AUDIO_FAR (bus_own stays out of its flatten) */
@@ -1236,12 +1241,12 @@ static uint32_t hall_gate_blocks;       /* HALL blocks skipped (tests/gate_test.
 /* per tank, in .bss (not .pool: 148 B headroom). quiet only after a scan finds all-zero sound state */
 static struct { uint8_t quiet, qrun; } hall_gate[2];
 /* input / state scans stay out of rev_hall so its target_budget instruction count is unchanged */
-static AUDIO_RAM __attribute__((noinline)) int hall_in_all_zero(const int32_t *rev_in, uint32_t n)
+static AUDIO_RAM __attribute__((noinline)) int bus_in_all_zero(const int32_t *in, uint32_t n)
 {
     uint32_t i;
     int32_t nz = 0;
     for (i = 0; i < n; i++)
-        nz |= rev_in[i];
+        nz |= in[i];
     return nz == 0;
 }
 static AUDIO_RAM __attribute__((noinline)) int hall_state_all_zero(void)
@@ -1267,7 +1272,7 @@ static AUDIO_RAM __attribute__((noinline)) int hall_state_all_zero(void)
 static AUDIO_RAM __attribute__((noinline)) int hall_gate_skip(const int32_t *rev_in, uint32_t n)
 {
     uint32_t ti = (uint32_t)(R - rev_tank);
-    if (!hall_in_all_zero(rev_in, n)) {
+    if (!bus_in_all_zero(rev_in, n)) {
         hall_gate[ti].quiet = 0;
         hall_gate[ti].qrun = 0;
         return 0;
@@ -1613,6 +1618,10 @@ static AUDIO_RAM __attribute__((noinline)) void dly_process_late(const int32_t *
     uint32_t i, dl = AUDIO_FAR(delay_samples)();
     int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
     int free_ms = dtime_free(), mode = free_ms ? 1 : 0;
+#if FX_GATE
+    int in_zero;
+    int32_t wz = 0;
+#endif
     uint32_t tgt = free_ms ? AUDIO_FAR(dtime_q8)() : (dl << 8);
     int snap = !dly_free || mode != dly_rate || (!free_ms && song.g[G_DTIME] != dly_rate_div);
     /* Snap on the first block, a mode change or a division change. A tempo / tape speed change holds the
@@ -1648,6 +1657,19 @@ static AUDIO_RAM __attribute__((noinline)) void dly_process_late(const int32_t *
         fb += mulq16(THR_FB - fb, (uint32_t)pf.ew1 << 1);
     if (late && dly_q8 >> 8 <= late)
         late = 0;      /* a tap shorter than the latency (the RATE floor): the input at the head, as before */
+#if FX_GATE
+    /* Zero input, a still tap, no fade, lp 0 and a run of DLY_LEN samples whose head writes were zero: every slot of
+     * the line was written zero, so a run would write zeros, output zeros and keep fx.dly_le as it is. Keep the
+     * head moving, drop the rest. */
+    in_zero = bus_in_all_zero(in, n);
+    if (in_zero && dly_zrun >= DLY_LEN && fx.dly_lp == 0 && !dly_fade_dir && dly_q8 == tgt) {
+        for (i = 0; i < n; i++)
+            out[i] = 0;
+        fx.dly_w += n;
+        dly_gate_blocks++;
+        return;
+    }
+#endif
     for (i = 0; i < n; i++) {
         int32_t x;
         if (free_ms) {
@@ -1695,17 +1717,27 @@ static AUDIO_RAM __attribute__((noinline)) void dly_process_late(const int32_t *
             fx.dly_le = e & 32767;
             fx.dly_lp += e >> 15;
         }
-        if (!late)
-            dly_buf[fx.dly_w & (DLY_LEN - 1u)] =
-                (int16_t)clamp((in[i] >> 1) + sh_tz(fx.dly_lp * fb, 15), -32768, 32767);
-        else {
+        if (!late) {
+            int16_t v = (int16_t)clamp((in[i] >> 1) + sh_tz(fx.dly_lp * fb, 15), -32768, 32767);
+            dly_buf[fx.dly_w & (DLY_LEN - 1u)] = v;
+#if FX_GATE
+            wz |= v;
+#endif
+        } else {
             int16_t *p = &dly_buf[(fx.dly_w - late) & (DLY_LEN - 1u)];
-            dly_buf[fx.dly_w & (DLY_LEN - 1u)] = (int16_t)clamp(sh_tz(fx.dly_lp * fb, 15), -32768, 32767);
+            int16_t v = (int16_t)clamp(sh_tz(fx.dly_lp * fb, 15), -32768, 32767);
+            dly_buf[fx.dly_w & (DLY_LEN - 1u)] = v;
+#if FX_GATE
+            wz |= v;
+#endif
             *p = (int16_t)clamp(*p + (in[i] >> 1), -32768, 32767);
         }
         fx.dly_w++;
         out[i] = mulq15(x * 2, wet_q15);
     }
+#if FX_GATE
+    dly_zrun = in_zero && !wz ? (dly_zrun < DLY_LEN ? dly_zrun + n : DLY_LEN) : 0;
+#endif
 }
 /* no latency: CHAIN, MASTER and the host tests */
 static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet_q15)

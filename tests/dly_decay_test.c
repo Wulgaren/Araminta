@@ -24,7 +24,7 @@ static uint32_t buf_nonzero(void)
 static void decay_case(int fdbk, int color, int32_t amp, uint32_t late, uint32_t sec)
 {
     static int32_t in[CTL], out[CTL];
-    uint32_t b, i, nb = sec * (uint32_t)FS / CTL, out_nz = 0;
+    uint32_t b, i, nb = sec * (uint32_t)FS / CTL, out_nz = 0, g0 = dly_gate_blocks;
     host_tracks_init();
     memset(dly_buf, 0, sizeof dly_buf);
     memset(&fx, 0, sizeof fx);
@@ -43,6 +43,11 @@ static void decay_case(int fdbk, int color, int32_t amp, uint32_t late, uint32_t
         printf("FAIL FDBK %d COLR %d amp %d late %u: %u line samples, lp %d, %u output samples not zero after %u s\n",
                fdbk, color, (int)amp, (unsigned)late, (unsigned)buf_nonzero(), (int)fx.dly_lp, (unsigned)out_nz,
                (unsigned)sec);
+        fails++;
+    }
+    if (dly_gate_blocks == g0) {
+        printf("FAIL FDBK %d COLR %d amp %d late %u: the silence gate skipped no block in %u s\n",
+               fdbk, color, (int)amp, (unsigned)late, (unsigned)sec);
         fails++;
     }
 }
