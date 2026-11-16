@@ -16,7 +16,7 @@ static const uint16_t REV_AP[2] = {556, 441};
  * delay (fx_boot, a MASTER DELAY route change) */
 static struct {
     uint32_t dly_w;
-    int32_t dly_lp;
+    int32_t dly_lp, dly_le;          /* the low-pass and its rounding remainder (dly_process_late) */
     int32_t bus_d[CTL], bus_r[CTL];  /* the last block's sends (after perf_pre): this block's bus input (bus_take) */
     int16_t bus_g[5];                /* their DLY / REV settings as the matrix folded them (bus_g_swap) */
     uint8_t bus_g_ok;                /* bus_g holds a block's (0 before the first: the knobs as they are) */
@@ -1689,13 +1689,18 @@ static AUDIO_RAM __attribute__((noinline)) void dly_process_late(const int32_t *
             x = c0 + (((c1 - c0) * fr) >> 8);
             x = (x * dly_gain) >> 15;
         }
-        fx.dly_lp += mulq15(x - fx.dly_lp, col);
+        {   /* the low-pass keeps its rounding remainder and the feedback rounds towards zero: with either one
+             * flooring, the loop holds a small offset for ever and the tail never falls silent */
+            int32_t e = (x - fx.dly_lp) * col + fx.dly_le;
+            fx.dly_le = e & 32767;
+            fx.dly_lp += e >> 15;
+        }
         if (!late)
             dly_buf[fx.dly_w & (DLY_LEN - 1u)] =
-                (int16_t)clamp((in[i] >> 1) + mulq15(fx.dly_lp, fb), -32768, 32767);
+                (int16_t)clamp((in[i] >> 1) + sh_tz(fx.dly_lp * fb, 15), -32768, 32767);
         else {
             int16_t *p = &dly_buf[(fx.dly_w - late) & (DLY_LEN - 1u)];
-            dly_buf[fx.dly_w & (DLY_LEN - 1u)] = (int16_t)clamp(mulq15(fx.dly_lp, fb), -32768, 32767);
+            dly_buf[fx.dly_w & (DLY_LEN - 1u)] = (int16_t)clamp(sh_tz(fx.dly_lp * fb, 15), -32768, 32767);
             *p = (int16_t)clamp(*p + (in[i] >> 1), -32768, 32767);
         }
         fx.dly_w++;

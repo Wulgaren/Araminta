@@ -68,7 +68,7 @@ static int32_t noise(int32_t amp)
 static int16_t ref_dly[DLY_LEN], ref_comb[1116 + 1188 + 1277 + 1356], ref_ap[556 + 441];
 static struct {
     uint32_t dly_w;
-    int32_t dly_lp;
+    int32_t dly_lp, dly_le;
     uint16_t comb_i[4], ap_i[2];
     int32_t comb_lp[4];
 } rf;
@@ -78,10 +78,12 @@ static void ref_buses(const int32_t *dly_in, const int32_t *rev_in, int32_t *wet
     int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
     int32_t size = 25000 + song.g[G_RSIZE] * 50, damp = 32767 - song.g[G_RDAMP] * 200;
     for (i = 0; i < n; i++) {
-        int32_t y = 0, x, a;
+        int32_t y = 0, x, a, e;
         x = ref_dly[(rf.dly_w - dl) & (DLY_LEN - 1u)];
-        rf.dly_lp += mulq15(x - rf.dly_lp, col);
-        ref_dly[rf.dly_w & (DLY_LEN - 1u)] = (int16_t)clamp((dly_in[i] >> 1) + mulq15(rf.dly_lp, fb), -32768, 32767);
+        e = (x - rf.dly_lp) * col + rf.dly_le;
+        rf.dly_le = e & 32767;
+        rf.dly_lp += e >> 15;
+        ref_dly[rf.dly_w & (DLY_LEN - 1u)] = (int16_t)clamp((dly_in[i] >> 1) + sh_tz(rf.dly_lp * fb, 15), -32768, 32767);
         rf.dly_w++;
         y += x << 1;
         a = 0;
