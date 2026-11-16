@@ -33,6 +33,7 @@ int main(void)
     u8c("G_BPM", G_BPM);
     u8c("G_ROUTE", G_ROUTE);                        /* MENU > MIDI > MIDI IN: 0 = CH1-4 play parts 1-4 (seq.c midi_base) */
     printf("pub const V_POLY: i32 = %d;\n", V_POLY);
+    printf("pub const CTL: u32 = %d;\n", CTL);           /* render block (frames): fx.c's per-block costs */
     u32c("PF_R8", PF_R8);
     u32c("PF_R12", PF_R12);
     u32c("PF_R16", PF_R16);
