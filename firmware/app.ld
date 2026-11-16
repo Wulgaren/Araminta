@@ -9,9 +9,10 @@
  * The flash opens with the render's hottest flash functions (after crt0, 64-byte aligned, in the order listed below
  * in .text; chosen by `emu_test --footprint`, docs/fm1-emu-test.md): the cache maps each 64-byte line to a set by
  * its address, so with a fixed home an edit elsewhere no longer moves which of their lines share a set. .rodata
- * follows them at once, so SINE and the hot tables keep their sets too. -ffunction-sections gives each function its
- * section .text.<name>; tools/build.py fails the build when a listed function is missing from the block (renamed,
- * inlined away) or lands outside it.
+ * follows them at once, so the tables keep their sets too. The three hottest tables (SINE, ENV_EXP, TANH_Q15:
+ * HOT_DATA, felucca.c) sit in RAM after the .hot_text code instead, copied with it at boot. -ffunction-sections gives
+ * each function its section .text.<name>; tools/build.py fails the build when a listed function is missing from the
+ * block (renamed, inlined away) or lands outside it.
  * RAM  : .data/.bss (72 KiB): what the audio and key-scan interrupts touch, small variables
  * POOL : big zero-initialised buffers (FX lines, canvases, the parts' engine memory, the main loop's work
  *        buffers), section .pool. The same SRAM: the RAM / POOL boundary only splits the budget (1.5: 96 / 336
@@ -59,7 +60,7 @@ SECTIONS
     _rt_load = LOADADDR(.ram_text);
     .c1_text : { _c1_start = .; KEEP(*(.c1_text*)) . = ALIGN(4); _c1_end = .; } > RAMTEXT AT > XIP
     _c1_load = LOADADDR(.c1_text);
-    .hot_text : { _hot_start = .; *(.hot_text*) . = ALIGN(4); _hot_end = .; } > RAMTEXT AT > XIP
+    .hot_text : { _hot_start = .; *(.hot_text*) *(.hot_data*) . = ALIGN(4); _hot_end = .; } > RAMTEXT AT > XIP
     _hot_load = LOADADDR(.hot_text);
     .data : { . = ALIGN(4); _data_start = .; *(.data*) *(.sdata*) . = ALIGN(4); _data_end = .; } > RAM AT > XIP
     _data_load = LOADADDR(.data);

@@ -53,7 +53,7 @@ DOCKER_IMAGE = os.environ.get("JIELI_DOCKER_IMAGE", "debian:bookworm-slim")
 # line where JieLi's inliner takes them in. A .hot_text function runs in RAM at 0x01C00000, 4 MB under the
 # flash where a call.l reaches, so they go first in the flash hot block, the only part of .text in reach.
 # A source change that adds one shows up as "out of range ... references 'x'": add x here.
-OPEN_HOT_HELPERS = ["fm6_env_get", "fm6_core_render", "fm6_env_key", "fm6_penv_get", "fm6_penv_key", "rng"]
+OPEN_HOT_HELPERS = ["fm6_env_get", "fm6_env_key", "fm6_penv_get", "fm6_penv_key", "rng"]
 WINDOWS_TOOLS = {
     "pi32v2/bin/clang": "pi32/bin/clang.exe",
     "pi32v2/bin/ld": "pi32/bin/pi32v2-ld.exe",
