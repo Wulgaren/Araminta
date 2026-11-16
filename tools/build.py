@@ -41,6 +41,11 @@ import lz4blk  # noqa: E402
 
 APP_XIP = 0x02000120                # app.bin offset 0 in the XIP map; the SPL jumps here
 APP_SLOT = fm1pkg_make.APP_SLOT
+# JieLi's clang 4.0.1 (CI) makes RAM code and the flash image bigger than the open toolchain does for the same
+# source. Measured on 3fa0d7a / 67e552d: RAMTEXT 26,904 vs 24,300 B (x1.107), image 581,976 vs 568,744 B
+# (x1.023). An open-toolchain build fails when the scaled size would not fit, so a CI overflow shows up locally.
+JIELI_RAMTEXT_GROWTH = 1.12
+JIELI_IMAGE_GROWTH = 1.025
 LOADER_LOAD = 0x01C0A800
 LOADER_NAME = b"usb_hid_ota.bin"    # the file name the SPL looks for
 DOCKER_IMAGE = os.environ.get("JIELI_DOCKER_IMAGE", "debian:bookworm-slim")
@@ -461,6 +466,23 @@ def check(img, syms, dis, rt):
         errors.append(f"RAM headroom {ram_len - bss} B < 4096 B")
     if pool_len - pool < 8192:                    # keep >= 8 KiB of the pool spare
         errors.append(f"pool headroom {pool_len - pool} B < 8192 B")
+    if open_toolchain():
+        if sym("_hot_end") == 0:
+            errors.append("app.ld: _hot_end missing")
+        else:
+            ramtext_org, ramtext_len = region["RAMTEXT"]
+            # .ram_text, .c1_text, .hot_text sit back to back from RAMTEXT's origin (app.ld)
+            ramtext = sym("_hot_end") - ramtext_org
+            est = int(ramtext * JIELI_RAMTEXT_GROWTH)
+            notes.append(f"RAMTEXT {ramtext} B of {ramtext_len}; with JieLi's compiler ~{est} B")
+            if est > ramtext_len:
+                errors.append(f"RAMTEXT: {ramtext} B here is ~{est} B with JieLi's compiler (CI), "
+                              f"{est - ramtext_len} B over {ramtext_len}")
+        est = int(len(img) * JIELI_IMAGE_GROWTH)
+        notes.append(f"image with JieLi's compiler ~{est} B of {APP_SLOT}")
+        if est > APP_SLOT:
+            errors.append(f"image: {len(img)} B here is ~{est} B with JieLi's compiler (CI), "
+                          f"{est - APP_SLOT} B over the app slot {APP_SLOT}")
     return errors, notes
 
 
