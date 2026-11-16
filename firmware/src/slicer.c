@@ -340,8 +340,8 @@ static int slicer_busy(const track_t *t)
 {
     uint32_t k = (uint32_t)(t - trk);
     const sl_t *s = &sl[k];
-    const track_t *pt = sl_trk_send(t) ? bus_knobs_track(t) : t;
-    if (sl_trk_used(t))
+    const track_t *pt = AUDIO_FAR(sl_trk_send)(t) ? AUDIO_FAR(bus_knobs_track)(t) : t;
+    if (AUDIO_FAR(sl_trk_used)(t))
         return 0;
     return s->gc || s->w || s->pa || (t->p[P_SLDEPTH] && pt->p[P_SLCR] == SL_STUT && s->loop);
 }

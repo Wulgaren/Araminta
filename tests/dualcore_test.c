@@ -243,6 +243,33 @@ static uint64_t render_fork(const scen_t *sc, int dual, const char *mask, uint32
     return h;
 }
 
+/* mix_split on measured costs (c1_t4_ok): a part whose notes start this block weighs its recent peak, not the
+ * last block's quiet cost. Part 1 was quiet (900 ticks) and is struck now (peak 14000): it goes alone to one core,
+ * the other three (9200) to the other. On last block's costs alone the split would isolate part 2 (masks 4 / 11). */
+static int split_fresh_note(void)
+{
+    static const uint16_t cost[NPART] = {2700, 900, 5000, 1500};
+    uint32_t m, k;
+    for (k = 0; k < NPART; k++)
+        part_cost[k] = cost[k];
+    part_peak[1] = 14000;
+    c1_t4_ok = 1;
+    trk[1].v[0].active = 1;
+    trk[1].v[0].stage = 1;
+    trk[1].v[0].age = ++vage;
+    m = mix_split();
+    c1_t4_ok = 0;
+    trk[1].v[0].active = trk[1].v[0].stage = 0;
+    memset(part_cost, 0, sizeof part_cost);
+    memset(part_peak, 0, sizeof part_peak);
+    if (m != 2u && m != 13u) {
+        printf("dualcore: a struck part's peak weighs in the split: mask %x, want 2 or d   FAIL\n", m);
+        return 1;
+    }
+    printf("dualcore: a struck part's peak weighs in the split   ok\n");
+    return 0;
+}
+
 int main(void)
 {
     static scen_t sc[256];
@@ -252,6 +279,7 @@ int main(void)
     uint32_t nmask = sizeof MASKS / sizeof MASKS[0], shard = 0, nshard = 1;
     if (getenv("SPLITS") && atoi(getenv("SPLITS")) > 0 && (uint32_t)atoi(getenv("SPLITS")) < nmask)
         nmask = (uint32_t)atoi(getenv("SPLITS"));
+    fail += (uint32_t)split_fresh_note();
     if (getenv("SHARD") && (sscanf(getenv("SHARD"), "%u/%u", &shard, &nshard) != 2 || shard >= nshard)) {
         printf("dualcore: SHARD=%s is not i/n with i < n   FAIL\n", getenv("SHARD"));
         return 1;

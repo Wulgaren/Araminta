@@ -271,17 +271,75 @@ uint32_t tape_seq_speed_q16(const struct track *t)
         return tp.eff_recip;
     return 65536u;
 }
-static inline int32_t tp_tap(const int16_t *b, int32_t d, uint32_t fr)
+/* the line b read d samples (and fr / 256 more) behind write position w */
+static inline int32_t tp_at(const int16_t *b, uint32_t w, int32_t d, uint32_t fr)
 {
-    int32_t i = ((int32_t)tp.w - d) & (int32_t)TP_MASK;
+    int32_t i = ((int32_t)w - d) & (int32_t)TP_MASK;
     int32_t j = (i - 1) & (int32_t)TP_MASK;
     return b[i] + (((b[j] - b[i]) * (int32_t)fr) >> 8);
 }
-/* one block of the head. in and out may be the same array (the CHAIN stage). */
+/* The two heads' weights at head position phh (samples). The head that wraps has weight 0 at the wrap;
+ * the other holds the sound, then the new one fades in over TP_FADE. A cosine over the whole window would
+ * put weight 1 on the wrapping head at ph W/2 and click there (the old moving-tap bug). */
+static inline void tp_weights(uint32_t phh, int32_t *wa, int32_t *wb)
+{
+    if (phh < TP_FADE) {
+        *wa = (int32_t)phh;
+        *wb = (int32_t)TP_FADE - *wa;
+    } else if (phh < TP_W / 2u) {
+        *wa = (int32_t)TP_FADE;
+        *wb = 0;
+    } else if (phh < TP_W / 2u + TP_FADE) {
+        *wa = (int32_t)(TP_W / 2u + TP_FADE - phh);
+        *wb = (int32_t)TP_FADE - *wa;
+    } else {
+        *wa = 0;
+        *wb = (int32_t)TP_FADE;
+    }
+}
+/* one block of a head that holds still (no WOW, SPEED settled at 100 %, no drop under way or due in the
+ * block): the taps and weights are the block's, and the output is what the moving loop would give. */
+static inline void tape_run_still(const int32_t *il, const int32_t *ir, int32_t *ol, int32_t *orr, uint32_t n)
+{
+    uint32_t i, w = tp.w, fr = (tp.ph >> 8) & 255u, phh = tp.ph >> 16;
+    int32_t d0 = (int32_t)TP_D + (int32_t)phh, d1 = (int32_t)TP_D + (int32_t)((phh + TP_W / 2u) & (TP_W - 1u));
+    int32_t wa, wb;
+    tp_weights(phh, &wa, &wb);
+    if (!wa || !wb) {                              /* one head holds the sound: (a * TP_FADE) / TP_FADE is a */
+        int32_t d = wa ? d0 : d1;
+        for (i = 0; i < n; i++) {
+            tp_buf[0][w] = (int16_t)clamp(il[i], -32768, 32767);
+            tp_buf[1][w] = (int16_t)clamp(ir[i], -32768, 32767);
+            ol[i] = tp_at(tp_buf[0], w, d, fr);
+            orr[i] = tp_at(tp_buf[1], w, d, fr);
+            w = (w + 1u) & TP_MASK;
+        }
+    } else {
+        for (i = 0; i < n; i++) {
+            tp_buf[0][w] = (int16_t)clamp(il[i], -32768, 32767);
+            tp_buf[1][w] = (int16_t)clamp(ir[i], -32768, 32767);
+            ol[i] = (tp_at(tp_buf[0], w, d0, fr) * wa + tp_at(tp_buf[0], w, d1, fr) * wb) / (int32_t)TP_FADE;
+            orr[i] = (tp_at(tp_buf[1], w, d0, fr) * wa + tp_at(tp_buf[1], w, d1, fr) * wb) / (int32_t)TP_FADE;
+            w = (w + 1u) & TP_MASK;
+        }
+    }
+    tp.w = w;
+    if (song.g[G_TDROP])
+        tp.drop_wait -= n;
+    else
+        tp.drop_n = tp.drop_wait = 0;
+}
+/* one block of the head. in and out may be the same array (the CHAIN stage). With DROP on, MASTER runs it
+ * on a whole mix at 100 % SPEED, on top of a render already near the block's budget: a still head takes
+ * tape_run_still. */
 static __attribute__((noinline)) void tape_run(const int32_t *il, const int32_t *ir, int32_t *ol, int32_t *orr, uint32_t n)
 {
     uint32_t i, winc = LFO_INC[44] / CTL, finc = LFO_INC[91] / CTL;   /* 0.5 Hz wow, 6 Hz flutter */
     int32_t wowd = (int32_t)tape_wow_eff * (int32_t)TP_D / 127;
+    if (!wowd && tp.speed_q16 == 65536 && (!song.g[G_TDROP] || (!tp.drop_n && tp.drop_wait >= n))) {
+        tape_run_still(il, ir, ol, orr, n);
+        return;
+    }
     for (i = 0; i < n; i++) {
         int32_t l = il[i], r = ir[i], bend = 0, wa, wb, d0, d1, a, b, yl, yr;
         uint32_t fr = (tp.ph >> 8) & 255u, phh = tp.ph >> 16;
@@ -295,27 +353,12 @@ static __attribute__((noinline)) void tape_run(const int32_t *il, const int32_t 
         }
         d0 = (int32_t)TP_D + (int32_t)phh + wow;
         d1 = (int32_t)TP_D + (int32_t)((phh + TP_W / 2u) & (TP_W - 1u)) + wow;
-        /* The head that wraps has weight 0 at the wrap; the other holds the sound, then the new one
-         * fades in over TP_FADE. A cosine over the whole window would put weight 1 on the wrapping
-         * head at ph W/2 and click there (the old moving-tap bug). */
-        if (phh < TP_FADE) {
-            wa = (int32_t)phh;
-            wb = (int32_t)TP_FADE - wa;
-        } else if (phh < TP_W / 2u) {
-            wa = (int32_t)TP_FADE;
-            wb = 0;
-        } else if (phh < TP_W / 2u + TP_FADE) {
-            wa = (int32_t)(TP_W / 2u + TP_FADE - phh);
-            wb = (int32_t)TP_FADE - wa;
-        } else {
-            wa = 0;
-            wb = (int32_t)TP_FADE;
-        }
-        a = tp_tap(tp_buf[0], d0, fr);
-        b = tp_tap(tp_buf[0], d1, fr);
+        tp_weights(phh, &wa, &wb);
+        a = tp_at(tp_buf[0], tp.w, d0, fr);
+        b = tp_at(tp_buf[0], tp.w, d1, fr);
         yl = (a * wa + b * wb) / (int32_t)TP_FADE;
-        a = tp_tap(tp_buf[1], d0, fr);
-        b = tp_tap(tp_buf[1], d1, fr);
+        a = tp_at(tp_buf[1], tp.w, d0, fr);
+        b = tp_at(tp_buf[1], tp.w, d1, fr);
         yr = (a * wa + b * wb) / (int32_t)TP_FADE;
         if (song.g[G_TDROP]) {
             if (tp.drop_n) {                               /* short pitch fluctuation, not a level dip */
@@ -730,11 +773,11 @@ static int ins_any(const track_t *t)
 {
     uint32_t s;
     for (s = 0; s < INS_N; s++)
-        if (ins_mix_of(t, s))
+        if (AUDIO_FAR(ins_mix_of)(t, s))
             return 1;
     /* TAPE in CHAIN: with TEMPO OFF its SPEED is source-clock, so this list stage is only the WOW/DROP
      * head; with TEMPO ON it is the pitch head too (the dry keeps time). */
-    if (song.g[G_TAPEMODE] == TAPE_CH1 + (int16_t)(t - trk) && tape_head_on())
+    if (song.g[G_TAPEMODE] == TAPE_CH1 + (int16_t)(t - trk) && AUDIO_FAR(tape_head_on)())
         return 1;
     return 0;
 }
@@ -1558,6 +1601,8 @@ typedef struct { int32_t l[CTL], r[CTL], d[CTL], rv[CTL], b[CTL]; } mixsum_t;
 static mixsum_t mx[2];
 static uint16_t part_cost[NTRK];                       /* a part's render, measured: 24 MHz ticks on the target
                                                          * (mix_block times the parts once c1_t4_ok); 0 until then */
+static uint16_t part_peak[NTRK];                       /* a part's dearest block lately (ticks, part_ticks; a 1/4096
+                                                         * decay a block: ~3 s): what its notes cost as they start */
 static uint16_t part_est[NTRK];                        /* the estimate formula (mix_part): the host's, and the target's
                                                          * fallback while core 1 cannot read TIMER4 */
 static uint32_t c1_t4_ok;                              /* core 1's TIMER4 reads proved good (c1_probe_t4, main.c) */
@@ -2700,7 +2745,7 @@ static __attribute__((noinline)) int32_t duck_ramp(int32_t lvl, int32_t *dl)
 static int duck_own_kit(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];
-    return e == &ENG_DRUM || (e == &ENG_SAMPLE && smp_is_kit(t));
+    return e == &ENG_DRUM || (e == &ENG_SAMPLE && AUDIO_FAR(smp_is_kit)(t));
 }
 
 /* SPREAD (#148): a POLY or UNISON part whose SPRD is above 0. Its voices start left and right of PAN in turn (voice.c
@@ -2781,16 +2826,18 @@ static __attribute__((noinline)) void mix_cache_update(const track_t *t, mix_cac
 /* one synth part into the dry mix and the sends; a part with no voice sounding costs
  * its control clocks only after insert and stutter tails have run out (Melodee).
  * CHAIN delay/reverb: keep feeding zeros so the bus rings after a short note (SEND already does).
- * need_zeros operand order matters: the audio ISR inlines this, and a different short-circuit order
- * reshapes the CFG into an extra nested loop that blows the target_budget cost. */
-static void mix_part(track_t *t, uint32_t n SM_DECL)
+ * Runs from RAM (.hot_text), out of line: one copy shared by both cores' callers, each of them in the
+ * flash and calling it through AUDIO_FAR (mix_block, c1_parts).
+ * need_zeros operand order matters: a different short-circuit order reshapes the CFG
+ * into an extra nested loop that blows the target_budget cost. */
+static __attribute__((noinline)) AUDIO_RAM void mix_part(track_t *t, uint32_t n SM_DECL)
 {
     int32_t *b = SM(b);
     uint32_t i;
     int32_t tr = (int32_t)(t - trk);
     int chain = bus_own(0) == tr || bus_own(1) == tr || sl_trk_chain(t);
-    int sl_send = sl_trk_send(t);
-    mod_begin(t);                                       /* the matrix's per-block values into t->p (mod.c) */
+    int sl_send = AUDIO_FAR(sl_trk_send)(t);
+    AUDIO_FAR(mod_begin)(t);                            /* the matrix's per-block values into t->p (mod.c) */
     /* after mod: insert MIX may turn on and still need a cleared part_buf (shared across tracks) */
     int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t) || chain;
     t->spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON) &&   /* (SPREAD, mix_spread; */
@@ -2802,15 +2849,15 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
         t->tail = ins_any(t) ? 64 : 16;                 /* blocks of insert state to run out after the last voice */
     else if ((!t->tail || !(ins_any(t) | t->ins_run) || !--t->tail) && !slicer_busy(t) && !chain) {
         if (sl_send)
-            slicer_track(t, 0, n);
+            AUDIO_FAR(slicer_track)(t, 0, n);
         if (t->ins_run && !ins_any(t))
-            ins_rest(t);                                /* all MIX 0 while silent: clear state for the next note */
+            AUDIO_FAR(ins_rest)(t);                     /* all MIX 0 while silent: clear state for the next note */
         if (MOD(t).on)
-            mod_end(t);
+            AUDIO_FAR(mod_end)(t);
         return;
     }
     if (t->spread_on)
-        mix_spread(t, b, n SM_ARG(sm));
+        AUDIO_FAR(mix_spread)(t, b, n SM_ARG(sm));
     else {
         uint32_t ti = (uint32_t)(t - trk);
         mix_cache_t *mc = &mix_cache[ti];
@@ -2818,17 +2865,17 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
             mc->dly != t->p[P_DLY] || mc->rev != t->p[P_REV] ||
             mc->dlyown != song.g[G_DLYOWN] || mc->revown != song.g[G_REVOWN] ||
             mc->gen != fx_master_gen)
-            mix_cache_update(t, mc);
+            AUDIO_FAR(mix_cache_update)(t, mc);
         int32_t lvl = mc->lvl, gl = mc->gl, gr = mc->gr, d = mc->d, r = mc->r, xmax = mc->xmax, pk = t->peak;
         if (ins_any(t) | t->ins_run || chain)
-            track_insert(t, b, n);
+            AUDIO_FAR(track_insert)(t, b, n);
         if (sl_send)
-            slicer_track(t, b, n);
+            AUDIO_FAR(slicer_track)(t, b, n);
         if ((pf.mute >> (t - trk)) & 1u)
-            perf_mute((uint32_t)(t - trk), b, n);       /* perform.c: a black key in the FX layer */
+            AUDIO_FAR(perf_mute)((uint32_t)(t - trk), b, n); /* perform.c: a black key in the FX layer */
         int32_t lq = lvl << 8, dl = 0;
         if ((duck_g0 < 32767 || duck_g1 < 32767) && !duck_own_kit(t))   /* DUCK: the kick's */
-            lq = duck_ramp(lvl, &dl);
+            lq = AUDIO_FAR(duck_ramp)(lvl, &dl);
         for (i = 0; i < n; i++, lq += dl) {
             int32_t x = ((b[i] >> 2) * (lq >> 8)) >> 10, a = x < 0 ? -x : x;   /* pre-shift: 8 loud voices */
             int32_t xs = clamp(x, -xmax, xmax);         /* sends: mulq15 would overflow */
@@ -2844,9 +2891,9 @@ static void mix_part(track_t *t, uint32_t n SM_DECL)
         t->peak = pk;
     }
     if (pf.thr)
-        perf_throw(t, b, SM(d), SM(rv), n);             /* perform.c: REV / ECHO THROW (1.5.1), the sends towards full */
+        AUDIO_FAR(perf_throw)(t, b, SM(d), SM(rv), n);  /* perform.c: REV / ECHO THROW (1.5.1), the sends towards full */
     if (MOD(t).on)
-        mod_end(t);                                     /* the stored values back */
+        AUDIO_FAR(mod_end)(t);                          /* the stored values back */
 }
 
 /* the HOME oscilloscope (ui_graph.c graph_scope): every other sample of the left channel. MENU > DISPLAY > SCOPE (1.2,
@@ -2961,6 +3008,7 @@ static void part_ticks(uint32_t i, uint32_t d)          /* one part's render thi
     if (d > 60000u)
         d = 60000u;
     part_cost[i] = (uint16_t)(part_cost[i] ? (part_cost[i] + d) / 2u : d);
+    part_peak[i] = (uint16_t)(d > part_peak[i] ? d : part_peak[i] - (part_peak[i] >> 12));
 }
 static uint16_t bus_cost;                /* bus_run's ticks, smoothed as part_ticks does (mix_split: core 1's share) */
 static volatile uint32_t c1_probe_view;
@@ -3055,7 +3103,7 @@ static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k
 #if C1_TIMED
             uint32_t ts = fm1_ticks();
 #endif
-            mix_part(&trk[k], n, &c1_part);
+            AUDIO_FAR(mix_part)(&trk[k], n, &c1_part);
 #if C1_TIMED
             {
                 uint32_t d = fm1_ticks() - ts;
@@ -3102,14 +3150,17 @@ static void c1_layer(uint32_t arg)                      /* arg: C1_JOB_PSLOT | n
 #endif
 }
 
+static uint32_t split_vage;                             /* vage at the last split: a voice younger started since */
+
 /* which parts go to the second core: the split of the last block's costs that leaves the busier core the least (the
  * send buses ride with a split when bus_c1: core 1's side carries bus_cost; the FX layer is its own job beside the
  * tail, so it does not weigh here). None when that saves less than handing them over costs (c1_hand: estimates' units,
- * or measured ticks once c1_t4_ok).
+ * or measured ticks once c1_t4_ok). A measured part whose notes start this block weighs its peak instead: a fresh
+ * FM6 note runs all six operators, many times its quiet last block.
  * Keep this per-block scheduler out of the audio interrupt's render loops (target_budget). */
 static __attribute__((noinline)) uint32_t mix_split(void)
 {
-    uint32_t m, i, best = 0, all = 0, lo, chor = 0, deep = 0, bw = 0;
+    uint32_t m, i, k, best = 0, all = 0, lo, chor = 0, deep = 0, bw = 0, cost[NPART];
     for (i = 0; i < NTRK; i++)                      /* deep CHORUS as a shared send: its delay (up to 238) wraps into
                                                      * the swept line's window, where this block's reads saw the
                                                      * previous consumer's writes (ins_run_swept): that chain runs in
@@ -3120,8 +3171,14 @@ static __attribute__((noinline)) uint32_t mix_split(void)
         }
     if (chor >= 2u && deep)
         return 0;
-    for (i = 0; i < NPART; i++)
-        all += part_w(i);
+    for (i = 0; i < NPART; i++) {
+        cost[i] = part_w(i);
+        for (k = 0; c1_t4_ok && k < NVOICE; k++)
+            if (trk[i].v[k].active && trk[i].v[k].age > split_vage && part_peak[i] > cost[i])
+                cost[i] = part_peak[i];
+        all += cost[i];
+    }
+    split_vage = vage;
 #if C1_TIMED
     if (bus_c1() && c1_t4_ok)
         bw = bus_cost;                                  /* core 1 runs the buses too (mix_block) */
@@ -3131,7 +3188,7 @@ static __attribute__((noinline)) uint32_t mix_split(void)
         uint32_t a = 0, w;
         for (i = 0; i < NPART; i++)
             if (m >> i & 1u)
-                a += part_w(i);
+                a += cost[i];
         w = (a + bw > all - a ? a + bw : all - a) + c1_hand;
         if (w < lo) {
             lo = w;
@@ -3361,7 +3418,7 @@ static void mix_block(int32_t *out, uint32_t n)
 #if C1_TIMED
                 uint32_t ts = fm1_ticks();
 #endif
-                mix_part(&trk[i], n, &mx[0]);
+                AUDIO_FAR(mix_part)(&trk[i], n, &mx[0]);
 #if C1_TIMED
                 part_ticks(i, fm1_ticks() - ts);
 #endif
@@ -3377,7 +3434,7 @@ static void mix_block(int32_t *out, uint32_t n)
 #if C1_TIMED
                         uint32_t ts = fm1_ticks();
 #endif
-                        mix_part(&trk[i], n, &mx[0]);
+                        AUDIO_FAR(mix_part)(&trk[i], n, &mx[0]);
 #if C1_TIMED
                         part_ticks(i, fm1_ticks() - ts);
 #endif

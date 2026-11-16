@@ -260,6 +260,24 @@ static void test_tape(void)
         ck("TAPE DROPOUT on: the long render carries the tape's dips", on != off);
     }
 
+    {   /* The head's output, pinned: 4 s with DROP on (MASTER, TEMPO OFF) spans several drops and the
+         * still waits between them; SEND at 100 % runs a head that never moves. */
+        uint64_t master, send;
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_MASTER;
+        song.g[G_TSPEED] = 100; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 0; song.g[G_TDROP] = 1;
+        tape_note();
+        master = hash_out(5600);
+        fresh();
+        song.g[G_TAPEMODE] = TAPE_SEND;
+        song.g[G_TSPEED] = 100; song.g[G_TMIX] = 127; song.g[G_TTEMPO] = 1; song.g[G_TDROP] = 0;
+        tape_note();
+        send = hash_out(1400);
+        ck("TAPE head output pinned: MASTER DROP 4 s, SEND 100 %",
+           master == 0xf27358fa43deabe9ull && send == 0xba49f63b006b2541ull);
+        song.g[G_TDROP] = 0;
+    }
+
     fresh();
     song.g[G_TAPEMODE] = TAPE_SEND;
     ck("TAPE mode labels: SEND / CHAIN / MASTER / USED",
