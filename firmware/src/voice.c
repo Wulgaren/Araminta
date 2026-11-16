@@ -71,7 +71,7 @@ static uint32_t lfo_inc(const track_t *t)
 static void track_lfo_adv(track_t *t)
 {
     uint32_t old = t->lfo_ph;
-    t->lfo_ph += lfo_inc(t);
+    t->lfo_ph += AUDIO_FAR(lfo_inc)(t);
     t->lfo_wrap = t->lfo_ph < old;
 }
 static void track_lfo_end(track_t *t)
@@ -647,7 +647,9 @@ static __attribute__((noinline)) void tune_cache_update(void)
     tune_cache.pitch = song.g[G_TUNE] >= 0 ? song.g[G_TUNE] * 16 / 100 : -((-song.g[G_TUNE] * 16 + 99) / 100);
     tune_cache.fine = (song.g[G_TUNE] * 16 - tune_cache.pitch * 100) * 2367 / 16000;
 }
-static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t *out, uint32_t n, int clear_idle)
+/* one part's voices into out for a block (fx.c mix_part, track_render). Runs from RAM (.hot_text), like its
+ * caller mix_part: the per-block path stays out of the 32 KB flash cache, which a busy bar spills. */
+static __attribute__((noinline)) AUDIO_RAM uint32_t track_render_audio(track_t *t, int32_t *out, uint32_t n, int clear_idle)
 {
     const engine_t *e = ENGINES[t->engine];
     const int16_t *p = t->p;
@@ -678,14 +680,14 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
     if (MOD(t).on && MOD(t).ldep < 32767)               /* the matrix's DEPTH (mod.c) */
         lfo = mulq15(lfo, MOD(t).ldep);
     if (t->spread_on)
-        spread_clear(t);
+        AUDIO_FAR(spread_clear)(t);
     if (fade)                                           /* engine switch: the old engine, its own values */
         for (i = 0; i < 8u; i++) {
             pe_new[i] = t->p[P_E0 + i];
             t->p[P_E0 + i] = t->pe_old[i];
         }
     track_lfo_adv(t);
-    esync_coef(t);                                      /* this block's envelope steps for env_tick (ENV SYNC) */
+    AUDIO_FAR(esync_coef)(t);                           /* this block's envelope steps for env_tick (ENV SYNC) */
     if (e->block)                                       /* the engine's per-part work (WHEEL: bars, rotor) */
         e->block(t);
     if (ti == 0u)
@@ -699,7 +701,7 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
     }
     damt = analog ? clamp(p[P_DRIFT], 0, 127) : 0;     /* DRIFT (0 = still) */
     if (!tune_cache.valid || tune_cache.cents != song.g[G_TUNE])
-        tune_cache_update();
+        AUDIO_FAR(tune_cache_update)();
     tune = tune_cache.pitch;
     tune_fine = tune_cache.fine;
     bend = midi_bend_q8[ti];
@@ -779,14 +781,14 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
             m.cutoff += (m.envq15 * 24) >> 7;
         m.shape = (64 << 8) + ((lfo * p[P_LD_SHP]) >> 7) + ((m.envq15 * p[P_ED_SHP]) >> 7);
         if (MOD(t).on)                                  /* the modulation matrix (mod.c) */
-            mod_voice(t, v, &m, m.fine);
+            AUDIO_FAR(mod_voice)(t, v, &m, m.fine);
         e->render(t, v, t->spread_on > v->side ? spread_buf[C1_PI(t)] : out, n, &m);   /* (SPREAD: the left ones) */
         nr++;
     }
     if (t->spread_on)
-        spread_sum(t, out);                             /* out: every voice; spread_buf: the left ones */
+        AUDIO_FAR(spread_sum)(t, out);                  /* out: every voice; spread_buf: the left ones */
     if (nr && e == &ENG_DRUM)                           /* (JIANT 0.6.16) DRUM-X: DRV and the knee on the kit's sum */
-        drum_bus(t, out, n);
+        AUDIO_FAR(drum_bus)(t, out, n);
 track_render_done:
     if (fade) {
         for (i = 0; i < 8u; i++)
@@ -799,5 +801,5 @@ track_render_done:
  * omit that write when neither an insert tail nor a stutter needs the zeros. */
 static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
 {
-    return track_render_audio(t, out, n, 1);
+    return AUDIO_FAR(track_render_audio)(t, out, n, 1);
 }

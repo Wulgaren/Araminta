@@ -32,8 +32,8 @@ SECTIONS
         KEEP(*(.text.crt0))
         . = ALIGN(64); _flash_hot_start = .;
         *fm1_isr.o(.text*)
-        *(.text.fm1_alnk0_irq) *(.text.fm1_timer5_irq) *(.text.dx_run) *(.text.track_render_audio)
-        *(.text.mix_part) *(.text.perf_begin) *(.text.drum_render) *(.text.perf_out)
+        *(.text.fm1_alnk0_irq) *(.text.fm1_timer5_irq) *(.text.dx_run)
+        *(.text.perf_begin) *(.text.drum_render) *(.text.perf_out)
         *(.text.pfx_block) *(.text.ins_stage) *(.text.slicer_track_sd) *(.text.bus_run) *(.text.track_insert)
         *(.text.sl_run) *(.text.c1_parts) *(.text.fm6_block) *(.text.fx_master_run) *(.text.ins_run_st)
         *(.text.drum_bus) *(.text.click_render) *(.text.duck_block) *(.text.fm6_done) *(.text.fm6_sync)
@@ -41,7 +41,7 @@ SECTIONS
         *(.text.bus_own) *(.text.chord_live_flush) *(.text.eng_mem_claim) *(.text.mod_begin) *(.text.perf_take)
         *(.text.sl_trk_send) *(.text.tape_chain) *(.text.tape_pitch16_for) *(.text.perf_throw) *(.text.c1_layer)
         *(.text.dx_lane_muted) *(.text.dx_layer) *(.text.fx_target_ptr) *(.text.chord_live_tick)
-        *(.text.delay_samples) *(.text.dx_fall) *(.text.esync_coef) *(.text.fx_order_ok) *(.text.ins_any)
+        *(.text.delay_samples) *(.text.dx_fall) *(.text.esync_coef) *(.text.fx_order_ok)
         *(.text.ins_mix_of) *(.text.ins_param_src) *(.text.lfo_wave) *(.text.master_begin) *(.text.mod_active)
         *(.text.mod_bus_begin) *(.text.mod_bus_end) *(.text.perf_avail) *(.text.rev_run) *(.text.rev_side_mix)
         *(.text.shed_check) *(.text.sl_state) *(.text.sl_trk_chain) *(.text.sl_trk_used) *(.text.solo_mask)
@@ -50,7 +50,7 @@ SECTIONS
         *(.text.dx_pow2) *(.text.fm1__sr_bits) *(.text.input_off) *(.text.ins_bus_tr) *(.text.ins_win_put)
         *(.text.kit_track) *(.text.lfo_inc) *(.text.lowest_held) *(.text.mchord_of) *(.text.memcpy)
         *(.text.midi_event) *(.text.midi_expression) *(.text.midi_local_held) *(.text.part_ticks)
-        *(.text.perf_layer) *(.text.rev_use_chain_g) *(.text.seq_step) *(.text.slicer_busy) *(.text.slicer_track)
+        *(.text.perf_layer) *(.text.rev_use_chain_g) *(.text.seq_step) *(.text.slicer_track)
         *(.text.trk_note_on)
         _flash_hot_end = .;
         *(.rodata*) *(.text*) . = ALIGN(4); _etext = .;
