@@ -14,6 +14,14 @@
   about a point (busy 62.1 to 61.1 %, stack 82.0 to 81.2 %). `tests/gate_test.c` checks the output against an
   ungated build bit for bit, and that the gate engages after notes and after a SIZE change.
 
+### Sound
+
+- **The delay's tail dies out to silence.** The delay's low-pass now keeps its rounding remainder and its feedback
+  rounds towards zero. Before, after any note with FDBK above 0, the feedback loop held an offset of up to 6
+  steps for ever, so the delay was never silent again. Repeats differ by at most 17 steps of 32,768, 59 to 67 dB
+  under the music, and 111 of the 139 golden renders and the engine-switch hashes were rewritten for it.
+  `tests/dly_decay_test.c` checks that a burst decays to exact zeros at any FDBK and COLR.
+
 ### Measurement
 
 - **CPU reports for the emulator.** `emu_test --scenario idle` measures the power-on project with nothing playing,

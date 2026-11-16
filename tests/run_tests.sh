@@ -675,6 +675,11 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "HALL silence gate: skipped blocks bit-identical to ungated" "$OUT/gate_test" "$OUT/gate_test_off"
     }
     unit u_gate
+    u_dly_decay() {
+        build "$OUT/dly_decay_test" tests/dly_decay_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
+        run "DELAY: tails reach exact zeros at any FDBK and COLR (no offset held by rounding)" "$OUT/dly_decay_test"
+    }
+    unit u_dly_decay
     u_sound14() {
         build "$OUT/sound14_test" tests/sound14_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
         mkdir -p build/sound14_demo
