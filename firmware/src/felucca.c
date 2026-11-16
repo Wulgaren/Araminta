@@ -53,6 +53,8 @@
 #define C1_WAIT() fm1_cpu1_wait()                /* wait for it: 0 = done */
 /* core.h: the render's hottest functions run from RAM; every call between them and the flash through AUDIO_FAR */
 #define AUDIO_RAM __attribute__((section(".hot_text"), flatten))
+/* the hot tables (felucca_tables.h: SINE, ENV_EXP, TANH_Q15) live in RAM beside .hot_text (app.ld) */
+#define HOT_DATA __attribute__((section(".hot_data"), aligned(4)))
 #define AUDIO_FAR(fn) FM1_FAR(fn)
 #include "fm1_input.h"
 #include "fm1_timer.h"

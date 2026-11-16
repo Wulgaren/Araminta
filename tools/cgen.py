@@ -14,10 +14,13 @@ def c_rows(values: Iterable[Any], per_line: int = 16, fmt: str = "{}", indent: s
                     for i in range(0, len(values), per_line))
 
 
-def c_array(name: str, ctype: str, values: Iterable[Any], per_line: int = 16, fmt: str = "{}") -> str:
+def c_array(name: str, ctype: str, values: Iterable[Any], per_line: int = 16, fmt: str = "{}",
+            attr: str = "") -> str:
     """a `static const ctype name[len(values)]` initializer, per_line values per row, every row
-    comma-terminated (the last one too: a further row can always be appended)"""
-    lines = [f"static const {ctype} {name}[{len(values)}] = {{"]
+    comma-terminated (the last one too: a further row can always be appended). attr, when given, sits
+    between the declarator and the initializer (gen_tables.py: HOT_DATA, the RAM-resident hot tables)"""
+    lines = [f"static const {ctype} {name}[{len(values)}]"
+             + (f" {attr}" if attr else "") + " = {"]
     if values:
         lines.append(c_rows(values, per_line, fmt) + ",")
     lines.append("};")

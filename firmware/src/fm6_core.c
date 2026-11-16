@@ -363,8 +363,11 @@ static inline void fm6_op_fb(int32_t *out, int32_t phase, int32_t freq, int32_t 
 }
 
 /* msfa FmCore::render: the six operators of algorithm alg into out (Q24). Unlike msfa, out starts empty:
- * the first carrier sounding writes it, the next ones add. Returns 0 when none sounded (out untouched) */
-static int fm6_core_render(int32_t *out, fm6_op_t *op, uint32_t alg, int32_t *fb, int32_t fb_shift)
+ * the first carrier sounding writes it, the next ones add. Returns 0 when none sounded (out untouched).
+ * Runs from RAM (.hot_text): fm6_note_compute, inlined into fm6_render (AUDIO_RAM), calls it. Its operators
+ * are static inline, so flatten has no flash call to route through AUDIO_FAR. */
+static AUDIO_RAM __attribute__((noinline)) int fm6_core_render(int32_t *out, fm6_op_t *op, uint32_t alg,
+                                                              int32_t *fb, int32_t fb_shift)
 {
     int32_t fm6_bus[2][FM6_N];                         /* the carriers' sums: on the stack (was one .bss buffer;
                                                         * the parts render at once with the second core) */
