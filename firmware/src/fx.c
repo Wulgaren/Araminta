@@ -1261,9 +1261,10 @@ static AUDIO_RAM __attribute__((noinline)) int hall_state_all_zero(void)
     for (i = 0; i < HL_NL; i++)
         if (R->hl.lp[i])
             return 0;
-    /* le[] is lp's rounding remainder: with lp and the lines zero a step keeps it as is, so it may stay nonzero.
+    /* le[] and he are the low-pass and low cut's rounding remainders: with their state and the lines zero a step
+     * keeps them as is, so they may stay nonzero. Keeping them (not clearing them) makes a resume bit-identical.
      * y/bx/l/r/sd are per-block scratch (written before read every block); g/sz/ph/i/d are coeffs / cursors */
-    return !(R->hl.x | R->hl.m | R->hl.s | R->hl.hp | R->hl.he);
+    return !(R->hl.x | R->hl.m | R->hl.s | R->hl.hp);
 }
 /* 1: this block is skipped. Quiet once a scan after HL_QRUN_TH blocks of zero input finds the state zero; while
  * quiet and the input is zero, only what a run would move and that matters later moves: the taps' drift (ph) and

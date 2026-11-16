@@ -102,6 +102,30 @@ static void notes_hit(uint32_t b)
     }
 }
 
+/* HALL alone (the real render path): one sample of `amp` into a silent send, then nb - 1 silent blocks.
+ * out[] is cleared every block because rev_hall adds to it; the stereo pair is hashed. */
+static uint64_t hash_hall_impulse(uint32_t nb, int32_t amp)
+{
+    static int32_t hin[CTL], hout[CTL];
+    uint32_t b, i;
+    uint64_t h = 0xCBF29CE484222325ull;
+    for (b = 0; b < nb; b++) {
+        memset(hin, 0, sizeof hin);
+        if (b == 0u)
+            hin[0] = amp;
+        memset(hout, 0, sizeof hout);
+        AUDIO_FAR(rev_hall)(hin, hout, CTL);
+        for (i = 0; i < CTL; i++) {
+            int32_t side = R->hl.side ? rev_side[i] : 0;
+            h ^= (uint32_t)(hout[i] + side);
+            h *= 0x100000001B3ull;
+            h ^= (uint32_t)(hout[i] - side);
+            h *= 0x100000001B3ull;
+        }
+    }
+    return h;
+}
+
 static void record_sec(const char *name, uint64_t h, uint32_t h0, uint32_t d0)
 {
     if (nsec >= SEC_MAX)
@@ -205,6 +229,31 @@ static void run_scenario(void)
         }
     }
     record_sec("free_ms", h, h0, d0);
+
+    /* A one-sample send impulse: the tail decays to exact zeros but the low cut's rounding remainder (he)
+     * stays nonzero with hp 0. It must not keep HALL from gating, and keeping it must make the resume
+     * bit-identical. Both polarities; silence sections are asserted to skip in gate_on. */
+    boot_fx();
+    h0 = hall_gate_blocks;
+    d0 = dly_gate_blocks;
+    h = hash_hall_impulse(600u, 1000);
+    record_sec("impulse_up_silence", h, h0, d0);
+
+    h0 = hall_gate_blocks;
+    d0 = dly_gate_blocks;
+    h = hash_hall_impulse(120u, 5000);
+    record_sec("impulse_up_resume", h, h0, d0);
+
+    boot_fx();
+    h0 = hall_gate_blocks;
+    d0 = dly_gate_blocks;
+    h = hash_hall_impulse(600u, -1000);
+    record_sec("impulse_dn_silence", h, h0, d0);
+
+    h0 = hall_gate_blocks;
+    d0 = dly_gate_blocks;
+    h = hash_hall_impulse(120u, -5000);
+    record_sec("impulse_dn_resume", h, h0, d0);
 }
 
 static int compare_off(const char *off_bin)
