@@ -37,12 +37,16 @@ scenarios as separate parallel test units with `--clear`. The layout sweep share
 | `stack` | the heavy patch, REPEAT 1/16 + LPF + HPF + FLANGER + PHASER + both THROWs + OCT UP latched together |
 | `churn` | the heavy patch, seeded random punch-in presses and releases every 3-93 ms |
 | `project` | `--project FILE`: that project's own four parts, kit and sequencer, played with `--notes N` held notes (default 4) on each part; no heavy patch and no punch page |
+| `idle` | the power-on default project, nothing played, the transport stopped; runs alone in its boot |
 
 The patch goes in through the editor protocol over the emulated USB-MIDI, the chords and drum hits as MIDI notes, the
 punch-ins as keys on the emulated panel. A scenario fails when the firmware faults, the setup is not taken, or a
 punch-in does not engage or does not let go. Each prints one line of JSON: `cpu_pct` (the highest during the
-scenario), `cpu1_pct` (the second core's highest, its jobs only), `audio_max_us`, `late` (halves the DMA moved past,
-with `late_over` / `late_t5` / `late_oth` saying why), `wall_max_us`, `voices_shed`.
+scenario), `cpu1_pct` (the second core's highest, its jobs only), `misses_half` (flash cache misses a half; `null`
+with `--fast`), `audio_max_us`, `late` (halves the DMA moved past, with `late_over` / `late_t5` / `late_oth` saying
+why), `wall_max_us`, `voices_shed`. On stderr, a `stages:` line gives each part's render and `bus_run` (reverb and
+delay) in us a half, from the firmware's own per-block costs (fx.c `part_cost`, `bus_cost`). Stages the compiler
+inlines (`master_out`, `events_block`, core 0's wait for core 1) show under their caller in `--profile`.
 
 `project` takes a project's raw bytes (the backup's object 0, the running project) and PUTs them through the backup
 protocol (`editor_backup.c`, cmd 67) before playing, so a reported patch is measured as it is instead of through a
@@ -91,6 +95,36 @@ through its wait for core 1's first job, the job times out and the firmware hold
 and measure in strict mode only.
 
 The load is printed, not held to a bound, until the emulator is calibrated against a device (below).
+
+## Measuring a CPU change
+
+Every CPU pull request carries a load table and a size table, before and after, from the same runner:
+
+```sh
+tools/cpu_report.py run [--runs 2] [--jobs 4] [--footprint]   # idle 2 s, busy 6 s, dry 3 s, keys 9 s, churn 6 s, stack 6 s
+tools/cpu_report.py sizes BUILD_BEFORE BUILD_AFTER            # flash image, .hot_text, RAMTEXT / RAM / pool free
+```
+
+`run` boots each scenario on its own, strict, seed 1, with `--profile 40`, and prints one row per run. Each run's
+stderr (both cores' profiles and the `stages:` line) lands in `build/cpu_report/<scenario>-<run>.log`; `--footprint`
+adds `<scenario>-footprint.log`. The emulator is deterministic, so two runs of one build match exactly. The spread
+that matters is between builds: a change moves the flash layout, so confirm a win with `tests/layout_sweep.sh`.
+
+`busy` plays `tests/emu/busy_project.bin`: FM6 chords, an ANALOG bass, a WT lead and the DRUM kit at 120 BPM, both
+sends at 100 on every track, HALL reverb, a FILTER and a DIST insert, a MASTER phaser and the SLICER as a SEND on
+every track. `tests/emu/busy_project.c` builds it from the host sources; its header has the two commands that
+regenerate it.
+
+A change that skips or pauses work must not change the sound. Render the same scenario with `--wav` on both builds
+and compare them:
+
+```sh
+python3 tests/emu/clickcheck.py before.wav after.wav --diff difference.wav [--gate-from FRAME]
+```
+
+It fails on any sample that differs (or differs by more than 1 LSB from `--gate-from`), on a jump the before render
+does not have (more than 8 times its local RMS, or a larger step at a 128-frame block boundary), and on a note that
+starts on a different frame.
 
 ## Calibrating against a real FM-1
 

@@ -44,6 +44,11 @@ APP_SLOT = fm1pkg_make.APP_SLOT
 LOADER_LOAD = 0x01C0A800
 LOADER_NAME = b"usb_hid_ota.bin"    # the file name the SPL looks for
 DOCKER_IMAGE = os.environ.get("JIELI_DOCKER_IMAGE", "debian:bookworm-slim")
+# the open LLVM toolchain (tools/get_open_toolchain.sh, a local macOS build path) leaves these helpers out of
+# line where JieLi's inliner takes them in. A .hot_text function runs in RAM at 0x01C00000, 4 MB under the
+# flash where a call.l reaches, so they go first in the flash hot block, the only part of .text in reach.
+# A source change that adds one shows up as "out of range ... references 'x'": add x here.
+OPEN_HOT_HELPERS = ["fm6_env_get", "fm6_core_render", "fm6_env_key", "fm6_penv_get", "fm6_penv_key", "rng"]
 WINDOWS_TOOLS = {
     "pi32v2/bin/clang": "pi32/bin/clang.exe",
     "pi32v2/bin/ld": "pi32/bin/pi32v2-ld.exe",
@@ -85,6 +90,26 @@ def use_docker():
         platform.system() == "Linux" and platform.machine() in ("x86_64", "AMD64")
     )
     return os.environ.get("JIELI_DOCKER", "0" if native else "1") == "1"
+
+
+def open_toolchain():
+    """JIELI_TOOLCHAIN is the open LLVM toolchain (tools/get_open_toolchain.sh), which marks itself"""
+    tc_env = os.environ.get("JIELI_TOOLCHAIN")
+    return bool(tc_env) and (Path(tc_env) / "OPEN_TOOLCHAIN").is_file()
+
+
+def app_linker_script():
+    """firmware/app.ld; for the open toolchain, its out-of-line helpers are moved into the flash hot block"""
+    if not open_toolchain():
+        return FW / "app.ld"
+    script = (FW / "app.ld").read_text()
+    anchor = "        . = ALIGN(64); _flash_hot_start = .;\n"
+    if anchor not in script:
+        raise SystemExit("build: firmware/app.ld has no _flash_hot_start the open toolchain's helpers can follow")
+    script = script.replace(anchor, anchor + "".join(f"        *(.text.{n})\n" for n in OPEN_HOT_HELPERS), 1)
+    out = OUT / "app-open.ld"
+    out.write_text(script)
+    return out
 
 
 class ToolContainer:
@@ -313,7 +338,7 @@ def build_app():
                OUT / "felucca_size.ll", "-o", OUT / "felucca.o")
         key_file.write_text(key + "\n")
     elf = OUT / "felucca.elf"
-    tc("pi32v2/bin/ld", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o", OUT / "fm1_isr.o",
+    tc("pi32v2/bin/ld", "-T", app_linker_script(), OUT / "crt0.o", OUT / "fm1_vec.o", OUT / "fm1_isr.o",
        OUT / "fm1_cpu1.o", OUT / "felucca.o", "-o", elf)
     for sect in ("text.bin", "data.bin", "ramtext.bin", "c1text.bin", "hottext.bin"):
         (OUT / sect).unlink(missing_ok=True)
@@ -507,6 +532,12 @@ def main():
         if hashlib.sha256(fm1pkg_make.sdk_file(rel)).hexdigest() != sha:
             print(f"warning: SDK {rel} differs from AC79NN_SDK_V1.2.1; the package will not match the reference")
     OUT.mkdir(parents=True, exist_ok=True)
+    marker = OUT / "OPEN_TOOLCHAIN"      # tests/run_tests.sh: the target budgets are JieLi's compiler's numbers
+    if open_toolchain():            # a local build: CI ships what JieLi's toolchain makes (BUILDING.md)
+        marker.write_text((Path(os.environ["JIELI_TOOLCHAIN"]) / "OPEN_TOOLCHAIN").read_text())
+        print("open toolchain: local build, not the package CI ships")
+    else:
+        marker.unlink(missing_ok=True)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))     # atexit removes the toolchain container
     with ThreadPoolExecutor(3) as ex:
         gen, ldr = ex.submit(generate), ex.submit(build_loader)

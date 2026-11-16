@@ -101,6 +101,24 @@ Build options (environment, `0` or `1`; defaults in `firmware/src/felucca.c`, `c
 `FELUCCA_USB_LAYOUT` (`0` to `3`, default `0`) picks other USB descriptor layouts for testing; see
 `firmware/src/usb.c`.
 
+## macOS without Docker (local builds)
+
+`tools/get_open_toolchain.sh` downloads the open pi32v2 LLVM toolchain (clang, `ld.lld` and the LLVM binary
+tools, macOS arm64 and x64) into `build/deps/pi32v2-open`, checked against the release's `SHA256SUMS`:
+
+```
+tools/get_open_toolchain.sh
+JIELI_DOCKER=0 JIELI_TOOLCHAIN=build/deps/pi32v2-open ./build.sh
+emu.sh                                  # the same build, then the browser emulator on :8790
+```
+
+This is a local path, not the release one. The compiler is LLVM 23 where JieLi's is a fork of 4.0.1, so the
+package is smaller (`felucca.bin` about 13 KiB) and not byte-identical. `tools/build.py` writes
+`build/app-open.ld` so the flash hot block holds the helpers the newer inliner leaves out of line, and the
+target cost unit skips: `tests/target_budget.txt` holds JieLi's compiler's code. Releases are still built
+with JieLi's toolchain (`.github/workflows/pages.yml`, Linux x86-64, no Docker). The browser emulator and
+the host tests need neither toolchain.
+
 ## The stock supply setup
 
 `firmware/hal/fm1_power.h` applies the supply portion of stock V15's constant-folded

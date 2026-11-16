@@ -36,7 +36,8 @@ fi
 if [ "$gen_only" = 0 ]; then
     [ -x "$compiler" ] || { echo "build.sh: no toolchain in $JIELI_TOOLCHAIN (see BUILDING.md)"; exit 1; }
     [ -f "$AC79_SDK/cpu/wl82/tools/uboot.boot" ] || { echo "build.sh: no JieLi AC79 SDK files in $AC79_SDK (run tools/get_sdk.sh)"; exit 1; }
-    if [ "$native_windows" != 1 ] && { [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; }; then
+    if [ "${JIELI_DOCKER:-1}" != 0 ] && [ "$native_windows" != 1 ] &&
+       { [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; }; then
         docker info >/dev/null 2>&1 || { echo "build.sh: Docker is not running"; exit 1; }
     fi
 fi

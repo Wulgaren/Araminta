@@ -669,6 +669,17 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "MASTER: CLIP / PNCH / DUCK / DREL each reach the mix (a rendered child each)" "$OUT/master_test"
     }
     unit u_master
+    u_gate() {
+        build "$OUT/gate_test_off" tests/gate_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm -DFX_GATE=0
+        build "$OUT/gate_test" tests/gate_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
+        run "HALL and delay silence gates: skipped blocks bit-identical to ungated" "$OUT/gate_test" "$OUT/gate_test_off"
+    }
+    unit u_gate
+    u_dly_decay() {
+        build "$OUT/dly_decay_test" tests/dly_decay_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
+        run "DELAY: tails reach exact zeros at any FDBK and COLR (no offset held by rounding)" "$OUT/dly_decay_test"
+    }
+    unit u_dly_decay
     u_sound14() {
         build "$OUT/sound14_test" tests/sound14_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
         mkdir -p build/sound14_demo
@@ -937,6 +948,10 @@ else
 fi
 
 u_target_budget() {
+    if [ -f build/OPEN_TOOLCHAIN ]; then
+        echo "== skip target cost: a local open-toolchain build (tests/target_budget.txt is JieLi's compiler's code)"
+        return 0
+    fi
     run "regression: target cost of the render loops (pi32v2 disassembly)" python3 tests/target_budget.py --require \
         build/felucca.dis tests/target_budget.txt
 }
