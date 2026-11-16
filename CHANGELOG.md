@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Measurement
+
+- **CPU reports for the emulator.** `emu_test --scenario idle` measures the power-on project with nothing playing,
+  `tests/emu/busy_project.bin` is a 4-track project with every send, inserts, a MASTER insert and the SLICER, and
+  each run prints flash cache misses a half and each part's render time. `tools/cpu_report.py` prints the load and
+  size tables a CPU change needs, and `tests/emu/clickcheck.py` compares two renders sample by sample. No firmware
+  change.
+
 ## 4.6
 
 A drum kit's keybed is its eight pads, DRUM-X gains a HOUSE kit, SAVE loses its phrase loader, and OTT costs less.

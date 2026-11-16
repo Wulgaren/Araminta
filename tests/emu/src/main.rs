@@ -5,6 +5,7 @@
 //! prints the firmware's own load counters (audio.c felucca_dbg, shed_count, voice_kills) as one JSON line per scenario.
 //!
 //!   emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario dry|keys|stack|churn --ms N
+//!   emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario idle --ms N
 //!   emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario project --ms N --project FILE [--notes N]
 //!   emu_test --fwsc FILE --elf FILE --scenarios 'dry:3000 keys:9000 churn:6000 stack:6000'
 //!            [--clear] [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--profile N] [--footprint N]
@@ -14,7 +15,8 @@
 //! PLAY; then the scenario's N ms (--ms counts from there, not from power-on). --project instead puts a project's
 //! raw bytes in as backup object 0 (the running project) and plays it as it is. The counters' maxima and
 //! late counts are zeroed when those N ms start, so they cover the scenario only; `halves` counts its
-//! halves; `cpu_pct` is the highest the firmware's running average (cpu_q8) reached in it. --clear releases
+//! halves; `cpu_pct` is the highest the firmware's running average (cpu_q8) reached in it; a `stages:` line breaks
+//! the render down per part and for bus_run, from the firmware's own smoothed per-block costs. --clear releases
 //! keys, stops the transport and restores the punch page before each scenario, so one boot can measure
 //! several; --wav writes one scenario's audio. --fast: no cost model, no XIP cache, the JIT (quick, not
 //! device-timed).
@@ -30,8 +32,11 @@ use fm1_soc::{machine, Action, Soc, RAM_BASE};
 const RAM_SIZE: usize = 1 << 20;
 /// Instructions a `run` call: about 50 us of the device, the granularity of the host's MIDI and RAM probes.
 const CHUNK: u32 = 10_000;
+/// One audio half: 128 frames at 44.1 kHz, 2902 us; the render runs it as HALF_FRAMES / CTL blocks.
+const HALF_US: f64 = 2902.0;
+const HALF_FRAMES: u32 = 128;
 const USAGE: &str = "usage: emu_test --fwsc FELUCCA.fwsc --elf FELUCCA.elf \
-(--scenario dry|keys|stack|churn --ms N | --scenario project --ms N --project FILE | \
+(--scenario dry|keys|stack|churn --ms N | --scenario idle --ms N | --scenario project --ms N --project FILE | \
 --scenarios 'dry:3000 keys:9000 churn:6000 stack:6000') \
 [--clear] [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--notes N] [--profile N] [--footprint N]";
 
@@ -71,6 +76,8 @@ enum Scenario {
     Keys,
     Stack,
     Churn,
+    /// power-on default project, nothing played, transport stopped
+    Idle,
     /// --project's own patch, played from its four parts and its sequencer; no heavy patch, no punch page
     Project,
 }
@@ -82,6 +89,7 @@ impl Scenario {
             "keys" => Scenario::Keys,
             "stack" => Scenario::Stack,
             "churn" => Scenario::Churn,
+            "idle" => Scenario::Idle,
             "project" => Scenario::Project,
             _ => return None,
         })
@@ -92,6 +100,7 @@ impl Scenario {
             Scenario::Keys => "keys",
             Scenario::Stack => "stack",
             Scenario::Churn => "churn",
+            Scenario::Idle => "idle",
             Scenario::Project => "project",
         }
     }
@@ -132,7 +141,7 @@ fn parse_args() -> Result<Args, String> {
         match a[i].as_str() {
             "--fwsc" => fwsc = Some(val(i)?),
             "--elf" => elf = Some(val(i)?),
-            "--scenario" => scenario = Some(Scenario::parse(&val(i)?).ok_or("--scenario: dry, keys, stack, churn or project")?),
+            "--scenario" => scenario = Some(Scenario::parse(&val(i)?).ok_or("--scenario: dry, keys, stack, churn, idle or project")?),
             "--ms" => ms = Some(num(i)?),
             "--project" => project = Some(val(i)?),
             "--notes" => notes = num(i)? as usize,
@@ -140,7 +149,7 @@ fn parse_args() -> Result<Args, String> {
                 let mut cases = Vec::new();
                 for case in val(i)?.split_whitespace() {
                     let (name, duration) = case.split_once(':').ok_or("--scenarios: expected name:ms")?;
-                    let scene = Scenario::parse(name).ok_or("--scenarios: dry, keys, stack, churn or project")?;
+                    let scene = Scenario::parse(name).ok_or("--scenarios: dry, keys, stack, churn, idle or project")?;
                     let duration = duration.parse::<u64>().map_err(|_| "--scenarios: invalid duration")?;
                     cases.push((scene, duration));
                 }
@@ -193,6 +202,9 @@ fn parse_args() -> Result<Args, String> {
             if has_project && cases.len() > 1 {
                 return Err("--project runs alone: one project scenario per boot".into());
             }
+            if cases.iter().any(|(s, _)| *s == Scenario::Idle) && cases.len() > 1 {
+                return Err("--scenario idle runs alone: one idle scenario per boot".into());
+            }
             if notes > NOTES.len() {
                 return Err(format!("--notes: at most {}", NOTES.len()));
             }
@@ -234,6 +246,10 @@ struct Syms {
     perf_act: u32,
     kb_lock: u32,
     perf_page2: u32,
+    /// fx.c's part_cost[NTRK]: each part's render in 24 MHz ticks, smoothed per block (None: older firmware)
+    part_cost: Option<u32>,
+    /// fx.c's bus_cost: bus_run's ticks, smoothed the same way (None: older firmware)
+    bus_cost: Option<u32>,
 }
 
 /// Reads `path`'s ELF32 (little-endian) symbol table into name -> (value, size). A name defined twice
@@ -302,13 +318,17 @@ fn elf_entries(path: &str) -> Result<Vec<(String, u32, u32, u8)>, String> {
 impl Syms {
     fn load(path: &str) -> Result<Self, String> {
         let t = elf_symbols(path)?;
-        let get = |name: &str, size: u32| -> Result<u32, String> {
+        // a symbol the firmware may not have: a wrong size or two definitions is still an error
+        let opt = |name: &str, size: u32| -> Result<Option<u32>, String> {
             match t.get(name) {
-                Some(Some((addr, sz))) if *sz == size => Ok(*addr),
+                Some(Some((addr, sz))) if *sz == size => Ok(Some(*addr)),
                 Some(Some((_, sz))) => Err(format!("{path}: {name} is {sz} bytes, expected {size}")),
                 Some(None) => Err(format!("{path}: {name} is defined more than once")),
-                None => Err(format!("{path}: no symbol {name}")),
+                None => Ok(None),
             }
+        };
+        let get = |name: &str, size: u32| -> Result<u32, String> {
+            opt(name, size)?.ok_or_else(|| format!("{path}: no symbol {name}"))
         };
         Ok(Syms {
             dbg: get("felucca_dbg", 100)?,
@@ -319,6 +339,8 @@ impl Syms {
             perf_act: get("perf_act", 4)?,
             kb_lock: get("kb_lock", 1)?,
             perf_page2: get("perf_page2", 1)?,
+            part_cost: opt("part_cost", 8)?,
+            bus_cost: opt("bus_cost", 2)?,
         })
     }
 }
@@ -983,6 +1005,7 @@ fn scenario_plan(scenario: Scenario, ms: u64, seed: u32) -> Result<Plan, String>
         Scenario::Keys => plan_keys(),
         Scenario::Stack => plan_stack(ms),
         Scenario::Churn => plan_churn(ms, seed),
+        Scenario::Idle => Plan::default(),
         Scenario::Project => Plan::default(),
     };
     if plan.end + TAIL_MS > ms {
@@ -1000,7 +1023,10 @@ fn run(args: &Args) -> Result<(), String> {
     let mut emu = Emu::boot(&args.fwsc, syms, args.mhz, strict)?;
     let wall = std::time::Instant::now();
     wait_ready(&mut emu)?;
-    if args.scenarios[0].0 == Scenario::Project {
+    if args.scenarios[0].0 == Scenario::Idle {
+        let t = emu.ms();
+        emu.run_until(t + 1000)?; // (the running average settled)
+    } else if args.scenarios[0].0 == Scenario::Project {
         let path = args.project.as_deref().ok_or("--scenario project needs --project FILE")?;
         let bytes = std::fs::read(path).map_err(|e| format!("--project {path}: {e}"))?;
         put_project(&mut emu, &bytes)?;
@@ -1017,12 +1043,27 @@ fn run(args: &Args) -> Result<(), String> {
     }
 
     for (i, (&(scenario, ms), plan)) in args.scenarios.iter().zip(plans).enumerate() {
-        if scenario != Scenario::Project && (args.clear || i > 0) {
+        if scenario != Scenario::Project && scenario != Scenario::Idle && (args.clear || i > 0) {
             clear_scenario(&mut emu, scenario)?;
         }
         println!("{}", measure(args, &mut emu, scenario, ms, plan, &wall)?);
     }
     Ok(())
+}
+
+/// The stages line: each part's render on whichever core ran it, its engine, inserts and sends included, and
+/// bus_run (reverb + delay), as means of the firmware's own per-block costs over the scenario's samples, scaled
+/// to one audio half (HALF_FRAMES / CTL blocks); each in us and as a share of the half (2902 us). Inlined stages
+/// such as master_out, events_block and core 0's wait for core 1 stay inside their callers in --profile.
+fn stages_line(sums: &[u64; 5], n: u64) -> String {
+    let blocks = f64::from(HALF_FRAMES / CTL);
+    let stages: Vec<String> = ["part 1", "part 2", "part 3", "part 4", "bus_run"].iter().enumerate()
+        .map(|(k, name)| {
+            let us = (sums[k] as f64 / n as f64 / 24.0 * blocks).round();
+            format!("{name} {us:.0} us ({:.1} %)", us * 100.0 / HALF_US)
+        })
+        .collect();
+    format!("stages: {}", stages.join(", "))
 }
 
 /// Measure a prepared machine, keeping all reported counters and audio local to this scenario.
@@ -1057,6 +1098,9 @@ fn measure(args: &Args, emu: &mut Emu, scenario: Scenario, ms: u64, plan: Plan,
     let mut cpu_q8_max = 0;
     let mut cpu1_q8_max = 0;
     let mut next_sample = t0;
+    // the firmware's own per-block costs at each sample: the four parts, then bus_run
+    let mut stage_sums = [0u64; 5];
+    let mut stage_n = 0u64;
     // --profile: each CHUNK's cycles charged to the function each core is in at its end (a sampling profile
     // weighted by device time); core 0 outside the audio ISR (felucca_dbg.in_audio) as "(main loop)", core 1 in
     // its job loop as "(idle)"
@@ -1087,6 +1131,13 @@ fn measure(args: &Args, emu: &mut Emu, scenario: Scenario, ms: u64, plan: Plan,
         if emu.ms() >= next_sample {
             cpu_q8_max = cpu_q8_max.max(emu.dbg(DBG_CPU_Q8));
             cpu1_q8_max = cpu1_q8_max.max(emu.dbg(DBG_CPU1_Q8));
+            if let (Some(part_cost), Some(bus_cost)) = (emu.syms.part_cost, emu.syms.bus_cost) {
+                for (k, sum) in stage_sums.iter_mut().take(4).enumerate() {
+                    *sum += u64::from(emu.soc.read16(part_cost + 2 * k as u32));
+                }
+                stage_sums[4] += u64::from(emu.soc.read16(bus_cost));
+                stage_n += 1;
+            }
             next_sample += 10;
         }
     }
@@ -1120,6 +1171,12 @@ fn measure(args: &Args, emu: &mut Emu, scenario: Scenario, ms: u64, plan: Plan,
             });
             eprintln!("  {:5.1} %  {name}{size}", *c as f64 * 100.0 / total as f64);
         }
+    }
+
+    if stage_n > 0 {
+        eprintln!("{}", stages_line(&stage_sums, stage_n));
+    } else {
+        eprintln!("stages: part_cost / bus_cost not in this ELF");
     }
 
     if let Some(fp) = &footprint {
@@ -1159,13 +1216,18 @@ fn measure(args: &Args, emu: &mut Emu, scenario: Scenario, ms: u64, plan: Plan,
     }
 
     let halves = emu.dbg(DBG_HALVES).wrapping_sub(halves0);
+    // flash cache misses a half, strict mode only (--fast models no cache)
+    let misses_half = match (misses0, emu.soc.xip_cache.as_ref()) {
+        (Some(m0), Some(c)) if halves > 0 => format!("{:.1}", (c.misses - m0) as f64 / f64::from(halves)),
+        _ => "null".to_string(),
+    };
     let [max_us, late, late_over, late_t5, late_oth, wall_max] =
         [DBG_MAX_US, DBG_LATE, DBG_LATE_OVER, DBG_LATE_T5, DBG_LATE_OTH, DBG_WALL_MAX].map(|k| emu.dbg(k));
     let shed = emu.soc.read32(emu.syms.shed_count).wrapping_sub(shed0);
     let kills = emu.soc.read32(emu.syms.voice_kills).wrapping_sub(kills0);
     Ok(format!(
         "{{\"scenario\":\"{}\",\"ms\":{},\"strict\":{strict},\"mhz\":{},\"halves\":{halves},\"cpu_pct\":{:.1},\
-\"cpu1_pct\":{:.1},\"audio_max_us\":{max_us},\"late\":{late},\"late_over\":{late_over},\"late_t5\":{late_t5},\
+\"cpu1_pct\":{:.1},\"misses_half\":{misses_half},\"audio_max_us\":{max_us},\"late\":{late},\"late_over\":{late_over},\"late_t5\":{late_t5},\
 \"late_oth\":{late_oth},\"wall_max_us\":{wall_max},\"voices_shed\":{shed},\"voices_given_up\":{kills}}}",
         scenario.name(),
         ms,
