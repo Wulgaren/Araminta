@@ -19,7 +19,7 @@
 /* AUDIO_RAM before a function: it runs from RAM (felucca.c: section .hot_text, app.ld; the host builds: nothing).
  * For the render's hottest code: from the flash it goes through a 32 KB cache that the render's code and tables
  * overflow, ~300 cycles a miss (fm1-emu, measured on a device). Chosen by `emu_test --profile` (docs/fm1-emu-test.md);
- * the room is RAMTEXT's (app.ld, ~21 KB). A direct call cannot reach between RAM and the flash: an AUDIO_RAM
+ * the room is RAMTEXT's (app.ld, ~31 KB). A direct call cannot reach between RAM and the flash: an AUDIO_RAM
  * function calls only AUDIO_RAM functions, and the flash calls it as AUDIO_FAR(fn)(args) (the link fails
  * otherwise: "relocation truncated to fit") */
 #ifndef AUDIO_RAM

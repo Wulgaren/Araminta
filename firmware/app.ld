@@ -2,10 +2,10 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FELUCCA memory map.
  * Code + constants execute in place from XIP (app.bin offset 0 = 0x02000120).
- * 0x01C00000..0x01C06000 holds .ram_text (code that must run while the flash
+ * 0x01C00000..0x01C07F00 holds .ram_text (code that must run while the flash
  * is busy: the flash driver), then .c1_text (the second core's waiting loop, hal/fm1_cpu1.h: an idle core 1 never
  * fetches from the flash), then .hot_text (AUDIO_RAM, core.h: the render's hottest functions, out of the 32 KB
- * flash cache they would thrash); 0x01C06000..0x01C08000 stays for RAM-run debug.
+ * flash cache they would thrash); crt0.S keeps its boot-probe words at 0x01C07F00..0x01C08000.
  * The flash opens with the render's hottest flash functions (after crt0, 64-byte aligned, in the order listed below
  * in .text; chosen by `emu_test --footprint`, docs/fm1-emu-test.md): the cache maps each 64-byte line to a set by
  * its address, so with a fixed home an edit elsewhere no longer moves which of their lines share a set. .rodata
@@ -21,7 +21,7 @@
 MEMORY
 {
     XIP    (rx)  : ORIGIN = 0x02000120, LENGTH = 0x8E950
-    RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x6000
+    RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x7F00
     RAM    (rwx) : ORIGIN = 0x01C08000, LENGTH = 72K
     POOL   (rw)  : ORIGIN = 0x01C1A000, LENGTH = 0x5D600
     NOINIT (rw)  : ORIGIN = 0x01C7C000, LENGTH = 0x3D50
@@ -36,7 +36,7 @@ SECTIONS
         *(.text.perf_begin) *(.text.drum_render) *(.text.perf_out)
         *(.text.pfx_block) *(.text.ins_stage) *(.text.slicer_track_sd) *(.text.bus_run) *(.text.track_insert)
         *(.text.sl_run) *(.text.c1_parts) *(.text.fm6_block) *(.text.fx_master_run) *(.text.ins_run_st)
-        *(.text.drum_bus) *(.text.click_render) *(.text.duck_block) *(.text.fm6_done) *(.text.fm6_sync)
+        *(.text.click_render) *(.text.duck_block) *(.text.fm6_done) *(.text.fm6_sync)
         *(.text.fx_list_get) *(.text.ins_bus_join) *(.text.mix_split) *(.text.beat_samples) *(.text.bus_g_swap)
         *(.text.bus_own) *(.text.chord_live_flush) *(.text.eng_mem_claim) *(.text.mod_begin) *(.text.perf_take)
         *(.text.sl_trk_send) *(.text.tape_chain) *(.text.tape_pitch16_for) *(.text.perf_throw) *(.text.c1_layer)
