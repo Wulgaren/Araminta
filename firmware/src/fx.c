@@ -2263,12 +2263,69 @@ static AUDIO_RAM __attribute__((noinline)) void ins_run_crush(ins_st_t *s, const
     }
 }
 
+/* FLANG / CHOR delay in Q16 samples at LFO phase ph. */
+static inline uint32_t swept_delay(int32_t chorus, uint32_t ph, uint32_t depu, uint32_t dq)
+{
+    if (chorus)
+        return (uint32_t)((140 << 16) + ((osc_sine(ph) * (int32_t)depu * 50) >> 5));
+    else {
+        uint32_t tri = pf_tri(ph), sw = (tri * tri) >> 16;
+        return (11u << 16) + 209u * (((sw >> 1) * dq) >> 15);
+    }
+}
+
+/* One run of a FLANG / CHOR line (ins_run_swept). chorus is a literal at both call sites, so each gets
+ * its own loop without a per-sample test. The delay is taken at the block's two ends and walked across
+ * it: the LFO moves too slowly to bend within a block (null test against per sample: -62 dB RMS). The
+ * state is copied from s into locals and back after the loop, so the stores to b and win cannot force
+ * it out of registers. */
+static inline __attribute__((always_inline)) void ins_swept_line(ins_st_t *s, int32_t *b, uint32_t n, int32_t tw,
+                                                                int32_t chorus, uint32_t inc, uint32_t depu,
+                                                                uint32_t dq, int32_t fbk, int16_t *line,
+                                                                int16_t *win)
+{
+    uint32_t i;
+    int32_t wl = s->w, dcl = s->dc;
+    uint16_t wpl = s->wp;
+    uint32_t wbase = s->wp, ph0 = s->ph;   /* win[i] is this run's write at wbase + i */
+    uint32_t d0 = swept_delay(chorus, ph0, depu, dq), d1 = swept_delay(chorus, ph0 + n * inc, depu, dq);
+    int32_t dd = ((int32_t)d1 - (int32_t)d0) / (int32_t)n;
+    for (i = 0; i < n; i++) {
+        int32_t x = b[i], r0, r1, v, fr;
+        uint32_t d = (uint32_t)((int32_t)d0 + dd * (int32_t)i);
+        wl += clamp(tw - wl, -SL_SLOPE, SL_SLOPE);
+        r0 = (int32_t)(wpl - (d >> 16)) & (int32_t)(IL_LEN - 1u);
+        r1 = (r0 - 1) & (int32_t)(IL_LEN - 1u);
+        fr = (int32_t)((d >> 1) & 0x7FFFu);
+        /* the window holds this run's writes (the runs of two parts never share one: fx.c
+         * ins_stage); a read back into it takes its own write, behind it the shared line. One
+         * CHOR depth past 107 wraps its delay into the window's tail early in a block, where
+         * one-after-another renders left the part before's writes: those samples of the later
+         * parts need the preceding consumer's writes, so deep shared CHORUS stays on one core
+         * and commits each window before the next consumer (FLANG never wraps there) */
+        {
+            int32_t o0 = (r0 - (int32_t)wbase) & (int32_t)(IL_LEN - 1u);
+            int32_t o1 = (r1 - (int32_t)wbase) & (int32_t)(IL_LEN - 1u);
+            int32_t a0 = o0 < (int32_t)i ? win[o0] : line[r0];
+            int32_t a1 = o1 < (int32_t)i ? win[o1] : line[r1];
+            v = a0 + (((a1 - a0) * fr) >> 15);
+        }
+        win[i] = (int16_t)clamp((x >> 2) + softclip(mulq15(v, fbk)), -32767, 32767);
+        wpl = (uint16_t)((wpl + 1u) & (IL_LEN - 1u));
+        v *= 2;
+        dcl += ((v * 256) - dcl) >> 9;
+        b[i] = pf_mix(x, (x >> 1) + v - (dcl >> 8), wl);
+    }
+    s->w = wl; s->dc = dcl; s->ph = ph0 + n * inc; s->wp = wpl;
+}
+
 static AUDIO_RAM __attribute__((noinline)) void ins_run_swept(ins_st_t *s, int32_t *px, int32_t *py, const track_t *t,
                                                     int32_t *b, uint32_t n, int32_t tw, uint32_t kind,
                                                     int16_t *line, int16_t *win)
 {
     uint32_t i;
     int32_t rate, dep, fbk_p;
+    _Static_assert(PH_ST == 4u, "PHASR's all-pass pair is unrolled: four stages per side (ins_ctx px/py)");
     if (kind == INS_PHASR) {
         rate = t->p[P_IPRATE]; dep = t->p[P_IPDEP]; fbk_p = t->p[P_IPFBK];
     } else if (kind == INS_FLANG) {
@@ -2282,57 +2339,38 @@ static AUDIO_RAM __attribute__((noinline)) void ins_run_swept(ins_st_t *s, int32
             uint32_t tr = pf_tri(s->ph + (n >> 1) * inc), q = 32768u + (uint32_t)(((int32_t)tr - 32768) * (int32_t)depu / 127);
             int32_t a = PH_A[q >> 11] + (((PH_A[(q >> 11) + 1u] - PH_A[q >> 11]) * (int32_t)(q & 2047u)) >> 11);
             int32_t fbk = clamp(fbk_p, 0, 127) * 180;
+            int32_t w = s->w, fb = s->fb, dc = s->dc;
+            int32_t x0 = px[0], x1 = px[1], x2 = px[2], x3 = px[3];
+            int32_t y0 = py[0], y1 = py[1], y2 = py[2], y3 = py[3];
             for (i = 0; i < n; i++) {
-                int32_t x = b[i], xs = clamp((x + 4) >> 3, -16383, 16383), u = xs + ((s->fb * fbk + 16384) >> 15), y = u;
-                uint32_t st;
-                s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
-                for (st = 0; st < PH_ST; st++) {
-                    y = clamp(px[st] + ((a * (u - py[st]) + 8192) >> 14), -65535, 65535);
-                    px[st] = u; py[st] = y; u = y;
-                }
-                s->fb = clamp(y, -32767, 32767);
+                int32_t x = b[i], xs = clamp((x + 4) >> 3, -16383, 16383), u = xs + ((fb * fbk + 16384) >> 15), y = u;
+                w += clamp(tw - w, -SL_SLOPE, SL_SLOPE);
+                y = clamp(x0 + ((a * (u - y0) + 8192) >> 14), -65535, 65535);
+                x0 = u; y0 = y; u = y;
+                y = clamp(x1 + ((a * (u - y1) + 8192) >> 14), -65535, 65535);
+                x1 = u; y1 = y; u = y;
+                y = clamp(x2 + ((a * (u - y2) + 8192) >> 14), -65535, 65535);
+                x2 = u; y2 = y; u = y;
+                y = clamp(x3 + ((a * (u - y3) + 8192) >> 14), -65535, 65535);
+                x3 = u; y3 = y;
+                fb = clamp(y, -32767, 32767);
                 y = shl(y, 2);
-                s->dc += (shl(y, 8) - s->dc) >> 9;
-                b[i] = pf_mix(x, (x >> 1) + y - (s->dc >> 8), s->w);
+                dc += (shl(y, 8) - dc) >> 9;
+                b[i] = pf_mix(x, (x >> 1) + y - (dc >> 8), w);
             }
+            s->w = w; s->fb = fb; s->dc = dc;
+            px[0] = x0; px[1] = x1; px[2] = x2; px[3] = x3;
+            py[0] = y0; py[1] = y1; py[2] = y2; py[3] = y3;
             s->ph += n * inc;
             return;
         }
         {
             int32_t chorus = kind == INS_CHOR, fbk = clamp(fbk_p, 0, 127) * (chorus ? 103 : 219);
-            uint32_t dq = depu * 516u, wbase = s->wp;   /* win[i] is this run's write at wbase + i */
-            for (i = 0; i < n; i++, s->ph += inc) {
-                int32_t x = b[i], r0, r1, v, fr;
-                uint32_t d;
-                s->w += clamp(tw - s->w, -SL_SLOPE, SL_SLOPE);
-                if (chorus)
-                    d = (uint32_t)((140 << 16) + ((osc_sine(s->ph) * (int32_t)depu * 50) >> 5));
-                else {
-                    uint32_t tri = pf_tri(s->ph), sw = (tri * tri) >> 16;
-                    d = (11u << 16) + 209u * (((sw >> 1) * dq) >> 15);
-                }
-                r0 = (int32_t)(s->wp - (d >> 16)) & (int32_t)(IL_LEN - 1u);
-                r1 = (r0 - 1) & (int32_t)(IL_LEN - 1u);
-                fr = (int32_t)((d >> 1) & 0x7FFFu);
-                /* the window holds this run's writes (the runs of two parts never share one: fx.c
-                 * ins_stage); a read back into it takes its own write, behind it the shared line. One
-                 * CHOR depth past 107 wraps its delay into the window's tail early in a block, where
-                 * one-after-another renders left the part before's writes: those samples of the later
-                 * parts need the preceding consumer's writes, so deep shared CHORUS stays on one core
-                 * and commits each window before the next consumer (FLANG never wraps there) */
-                {
-                    int32_t o0 = (r0 - (int32_t)wbase) & (int32_t)(IL_LEN - 1u);
-                    int32_t o1 = (r1 - (int32_t)wbase) & (int32_t)(IL_LEN - 1u);
-                    int32_t a0 = o0 < (int32_t)i ? win[o0] : line[r0];
-                    int32_t a1 = o1 < (int32_t)i ? win[o1] : line[r1];
-                    v = a0 + (((a1 - a0) * fr) >> 15);
-                }
-                win[i] = (int16_t)clamp((x >> 2) + softclip(mulq15(v, fbk)), -32767, 32767);
-                s->wp = (uint16_t)((s->wp + 1u) & (IL_LEN - 1u));
-                v *= 2;
-                s->dc += ((v * 256) - s->dc) >> 9;
-                b[i] = pf_mix(x, (x >> 1) + v - (s->dc >> 8), s->w);
-            }
+            uint32_t dq = depu * 516u;
+            if (chorus)
+                ins_swept_line(s, b, n, tw, 1, inc, depu, dq, fbk, line, win);
+            else
+                ins_swept_line(s, b, n, tw, 0, inc, depu, dq, fbk, line, win);
         }
     }
 }

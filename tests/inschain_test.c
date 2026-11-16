@@ -893,7 +893,7 @@ static void test_fx_edit_paths(void)
     ck("SLICER lock restores its private rate after switching", TSEL->p[P_SLRATE] == 8);
 }
 
-/* Current dev (d035bf7): deep SEND chorus consumers read the preceding consumer's line writes. */
+/* Deep SEND chorus consumers read the preceding consumer's line writes (hash since the per-block CHOR delay). */
 static void test_shared_chorus(void)
 {
     uint32_t k;
@@ -913,7 +913,7 @@ static void test_shared_chorus(void)
     ins_st[ins_bus_tr(INS_CHOR)][INS_CHOR].ph = 0x40000000u;
     mix_block(out_buf, CTL);                        /* the mix leaves one block late (fx.c perf_take / perf_out): the
                                                      * first block is the pipeline's empty slot */
-    ck("deep shared chorus preserves dev's sequential render", hash_out(1) == 0x03a45cf4814f7ccdull);
+    ck("deep shared chorus preserves dev's sequential render", hash_out(1) == 0x67ec093556e82d29ull);
 }
 
 int main(void)
