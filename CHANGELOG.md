@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### CPU
+
+- **The delay and the HALL reverb run from RAM.** `dly_process_late` and `rev_hall` moved into `.hot_text`, so
+  core 1 no longer fetches them through the 32 KB flash cache every block. In the emulator (median of 8 flash
+  layouts) the busy project drops from 66.8 to 62.1 % on core 0 and 37.5 to 34.0 % on core 1, and the stack
+  scenario from 86.3 to 82.0 % with 6 late halves instead of 32. The sound is bit for bit the same.
+
 ### Measurement
 
 - **CPU reports for the emulator.** `emu_test --scenario idle` measures the power-on project with nothing playing,

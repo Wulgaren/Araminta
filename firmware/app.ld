@@ -32,8 +32,8 @@ SECTIONS
         KEEP(*(.text.crt0))
         . = ALIGN(64); _flash_hot_start = .;
         *fm1_isr.o(.text*)
-        *(.text.fm1_alnk0_irq) *(.text.fm1_timer5_irq) *(.text.dx_run) *(.text.track_render_audio) *(.text.rev_hall)
-        *(.text.mix_part) *(.text.perf_begin) *(.text.dly_process_late) *(.text.drum_render) *(.text.perf_out)
+        *(.text.fm1_alnk0_irq) *(.text.fm1_timer5_irq) *(.text.dx_run) *(.text.track_render_audio)
+        *(.text.mix_part) *(.text.perf_begin) *(.text.drum_render) *(.text.perf_out)
         *(.text.pfx_block) *(.text.ins_stage) *(.text.slicer_track_sd) *(.text.bus_run) *(.text.track_insert)
         *(.text.sl_run) *(.text.c1_parts) *(.text.fm6_block) *(.text.fx_master_run) *(.text.ins_run_st)
         *(.text.drum_bus) *(.text.click_render) *(.text.duck_block) *(.text.fm6_done) *(.text.fm6_sync)
