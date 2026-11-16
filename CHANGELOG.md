@@ -8,6 +8,19 @@
   core 1 no longer fetches them through the 32 KB flash cache every block. In the emulator (median of 8 flash
   layouts) the busy project drops from 66.8 to 62.1 % on core 0 and 37.5 to 34.0 % on core 1, and the stack
   scenario from 86.3 to 82.0 % with 6 late halves instead of 32. The sound is bit for bit the same.
+- **A silent HALL reverb skips its block.** Once the HALL's input has been zero for 128 blocks and a scan finds
+  every line, filter and all-pass at zero, `rev_hall` only moves the tap drift (and the gains after a SIZE change)
+  until input comes back. Idle drops from 18.0 to 14.8 % on core 0 and 7.0 to 3.1 % on core 1, and playback gains
+  about a point (busy 62.1 to 61.1 %, stack 82.0 to 81.2 %). `tests/gate_test.c` checks the output against an
+  ungated build bit for bit, and that the gate engages after notes and after a SIZE change.
+
+### Measurement
+
+- **CPU reports for the emulator.** `emu_test --scenario idle` measures the power-on project with nothing playing,
+  `tests/emu/busy_project.bin` is a 4-track project with every send, inserts, a MASTER insert and the SLICER, and
+  each run prints flash cache misses a half and each part's render time. `tools/cpu_report.py` prints the load and
+  size tables a CPU change needs, and `tests/emu/clickcheck.py` compares two renders sample by sample. No firmware
+  change.
 
 ## 4.6
 

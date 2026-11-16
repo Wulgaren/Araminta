@@ -5,6 +5,9 @@
  * Reverb: two tanks in .pool. CHAIN owner runs tank 0 as an insert; other tracks
  * (and all tracks when no CHAIN) SEND into tank 1 when chained, else tank 0.
  * TYPE/SIZE/DAMP are shared globals; each tank keeps its own running model state. */
+#ifndef FX_GATE
+#define FX_GATE 1                /* 0: old path (tests/gate_test.c builds both) */
+#endif
 #define DLY_LEN 65536u           /* 1.49 s: 1/4 fits from 41 BPM, 1/4D from 61, 1/2 from 81 */
 static int16_t dly_buf[DLY_LEN] __attribute__((section(".pool")));
 static const uint16_t REV_COMB[4] = {1116, 1188, 1277, 1356};
@@ -1227,6 +1230,70 @@ static inline void hall_end_lp(const int16_t *b, int16_t *y, uint32_t n, int32_t
  * sample, low cut, diffusers (R->hl.bx); the lines' ends at their drifting taps, low-passed, scaled (R->hl.y); the
  * outputs and the matrix; back into the lines; the outputs back to 44.1 kHz. */
 #define HL_LFO ((uint32_t)(0.37 * CTL / FS * 4294967296.0))   /* the drift: 0.37 Hz (even lines), 0.74 Hz (odd) */
+static uint32_t hall_gate_blocks;       /* HALL blocks skipped (tests/gate_test.c) */
+#if FX_GATE
+#define HL_QRUN_TH 128u          /* blocks of zero input before a full state scan (longest line 743 + APs) */
+/* per tank, in .bss (not .pool: 148 B headroom). quiet only after a scan finds all-zero sound state */
+static struct { uint8_t quiet, qrun; } hall_gate[2];
+/* input / state scans stay out of rev_hall so its target_budget instruction count is unchanged */
+static AUDIO_RAM __attribute__((noinline)) int hall_in_all_zero(const int32_t *rev_in, uint32_t n)
+{
+    uint32_t i;
+    int32_t nz = 0;
+    for (i = 0; i < n; i++)
+        nz |= rev_in[i];
+    return nz == 0;
+}
+static AUDIO_RAM __attribute__((noinline)) int hall_state_all_zero(void)
+{
+    uint32_t i;
+    for (i = 0; i < sizeof R->comb / sizeof R->comb[0]; i++)
+        if (R->comb[i])
+            return 0;
+    for (i = 0; i < sizeof R->u.ap / sizeof R->u.ap[0]; i++)
+        if (R->u.ap[i])
+            return 0;
+    for (i = 0; i < HL_NL; i++)
+        if (R->hl.lp[i])
+            return 0;
+    /* le[] is lp's rounding remainder: with lp and the lines zero a step keeps it as is, so it may stay nonzero.
+     * y/bx/l/r/sd are per-block scratch (written before read every block); g/sz/ph/i/d are coeffs / cursors */
+    return !(R->hl.x | R->hl.m | R->hl.s | R->hl.hp | R->hl.he);
+}
+/* 1: this block is skipped. Quiet once a scan after HL_QRUN_TH blocks of zero input finds the state zero; while
+ * quiet and the input is zero, only what a run would move and that matters later moves: the taps' drift (ph) and
+ * the gains on a SIZE change. i[] / d[] stay: every read is relative to its line's index and every line is zero.
+ * Out of line, so rev_hall's loops (target_budget) are as before */
+static AUDIO_RAM __attribute__((noinline)) int hall_gate_skip(const int32_t *rev_in, uint32_t n)
+{
+    uint32_t ti = (uint32_t)(R - rev_tank);
+    if (!hall_in_all_zero(rev_in, n)) {
+        hall_gate[ti].quiet = 0;
+        hall_gate[ti].qrun = 0;
+        return 0;
+    }
+    if (!hall_gate[ti].quiet && ++hall_gate[ti].qrun >= HL_QRUN_TH) {
+        if (hall_state_all_zero())
+            hall_gate[ti].quiet = 1;
+        else
+            hall_gate[ti].qrun = 0;
+    }
+    if (!hall_gate[ti].quiet)
+        return 0;
+    if (R->hl.sz != AUDIO_FAR(rev_pg_size)() + 1)
+        AUDIO_FAR(hall_gains)(AUDIO_FAR(rev_pg_size)());
+    R->hl.ph += HL_LFO;
+    R->hl.side = 0;
+    hall_gate_blocks++;
+    return 1;
+}
+static void hall_gate_reset(rev_tank_t *t)
+{
+    uint32_t i = (uint32_t)(t - rev_tank);
+    hall_gate[i].quiet = 0;
+    hall_gate[i].qrun = 0;
+}
+#endif
 /* runs from RAM (.hot_text): every block on core 1, and from the flash its passes over the block miss the 32 KB
  * XIP cache; hall_gains stays in the flash (noinline, only when the size changes) */
 static AUDIO_RAM __attribute__((noinline)) void rev_hall(const int32_t *rev_in, int32_t *out, uint32_t n)
@@ -1236,6 +1303,10 @@ static AUDIO_RAM __attribute__((noinline)) void rev_hall(const int32_t *rev_in, 
     int32_t kd = HL_KD(AUDIO_FAR(rev_pg_damp)());
     int32_t xp = R->hl.x, hp = R->hl.hp, he = R->hl.he, mp = R->hl.m, sp = R->hl.s;
     (void)n;
+#if FX_GATE
+    if (hall_gate_skip(rev_in, n))                   /* (the decision out of line: target_budget) */
+        return;
+#endif
     if (R->hl.sz != AUDIO_FAR(rev_pg_size)() + 1)
         AUDIO_FAR(hall_gains)(AUDIO_FAR(rev_pg_size)());
     for (i = 0; i < HL_NC; i++) {
@@ -1431,6 +1502,9 @@ static void rev_run(uint32_t ty, const int32_t *rev_in, int32_t *out, uint32_t n
 static void rev_clear(void)
 {
     uint32_t i;
+#if FX_GATE
+    hall_gate_reset(R);                              /* never claim quiet for state this clear did not scan */
+#endif
     for (i = 0; i < sizeof R->comb / 2u; i++)
         R->comb[i] = 0;
     for (i = 0; i < sizeof R->u.ap / 2u; i++)          /* (int16: 997 of them, an odd count the int32 view misses one of) */

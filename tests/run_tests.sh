@@ -669,6 +669,12 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "MASTER: CLIP / PNCH / DUCK / DREL each reach the mix (a rendered child each)" "$OUT/master_test"
     }
     unit u_master
+    u_gate() {
+        build "$OUT/gate_test_off" tests/gate_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm -DFX_GATE=0
+        build "$OUT/gate_test" tests/gate_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
+        run "HALL silence gate: skipped blocks bit-identical to ungated" "$OUT/gate_test" "$OUT/gate_test_off"
+    }
+    unit u_gate
     u_sound14() {
         build "$OUT/sound14_test" tests/sound14_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
         mkdir -p build/sound14_demo
