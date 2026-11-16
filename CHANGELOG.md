@@ -13,6 +13,11 @@
   until input comes back. Idle drops from 18.0 to 14.8 % on core 0 and 7.0 to 3.1 % on core 1, and playback gains
   about a point (busy 62.1 to 61.1 %, stack 82.0 to 81.2 %). `tests/gate_test.c` checks the output against an
   ungated build bit for bit, and that the gate engages after notes and after a SIZE change.
+- **A silent delay skips its block.** Once the delay has had zero input and written only zeros for a full line
+  (1.49 s), its low-pass is 0 and its tap is still, `dly_process_late` only moves the write head until input comes
+  back. Idle on core 1 drops from 3.1 to 1.2 % (open toolchain, median of 8 flash layouts); core 0 and playback
+  stay the same. `tests/gate_test.c` checks the output against an ungated build bit for bit, and
+  `tests/dly_decay_test.c` that the gate engages at any FDBK and COLR.
 
 ### Sound
 

@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* C4: the HALL silence gate must stay bit-identical to the ungated path.
+/* C4: the HALL and send-delay silence gates must stay bit-identical to the ungated path.
  * One source, built twice (FX_GATE=1 default, FX_GATE=0). The gated binary renders
  * the scenario below, prints one hash per section, and when given the ungated
- * binary as argv[1] compares those hashes (popen). FX_GATE=1 also asserts the
- * gate skipped blocks in the opening silence and in the silence after notes (not a vacuous pass).
+ * binary as argv[1] compares those hashes (popen). FX_GATE=1 also asserts that both gates skipped blocks in the
+ * opening silence and, for the delay, after its tail reached zeros (not a vacuous pass).
  * Run by tests/run_tests.sh / check-fw-c4.sh. */
 #define main hostsim_main
 #include "hostsim.c"
@@ -23,6 +23,7 @@ static struct {
     char name[SEC_NAME];
     uint64_t h;
     uint32_t hall_skip;
+    uint32_t dly_skip;
 } sec[SEC_MAX];
 static uint32_t nsec;
 
@@ -60,6 +61,7 @@ static void boot_fx(void)
         host_preset(&trk[k], ENGI_ANALOG, 0);
     fx_boot();
     hall_gate_blocks = 0;
+    dly_gate_blocks = 0;
 }
 
 static uint64_t hash_blocks(uint32_t nb, void (*per)(uint32_t b))
@@ -100,13 +102,14 @@ static void notes_hit(uint32_t b)
     }
 }
 
-static void record_sec(const char *name, uint64_t h, uint32_t h0)
+static void record_sec(const char *name, uint64_t h, uint32_t h0, uint32_t d0)
 {
     if (nsec >= SEC_MAX)
         return;
     snprintf(sec[nsec].name, SEC_NAME, "%s", name);
     sec[nsec].h = h;
     sec[nsec].hall_skip = hall_gate_blocks - h0;
+    sec[nsec].dly_skip = dly_gate_blocks - d0;
     nsec++;
 }
 
@@ -115,49 +118,68 @@ static void print_secs(void)
     uint32_t i;
     for (i = 0; i < nsec; i++) {
         printf("SEC %s %016llx\n", sec[i].name, (unsigned long long)sec[i].h);
-        printf("GATE %s hall=%u\n", sec[i].name, (unsigned)sec[i].hall_skip);
+        printf("GATE %s hall=%u dly=%u\n", sec[i].name, (unsigned)sec[i].hall_skip, (unsigned)sec[i].dly_skip);
     }
 }
 
 static void run_scenario(void)
 {
-    uint32_t h0;
+    uint32_t h0, d0;
     uint64_t h;
 
     boot_fx();
     nsec = 0;
 
-    /* 3 s silence from boot, then 6 s after notes: the gate must engage in both (FX_GATE=1 asserts below) */
+    /* 3 s silence from boot, then 6 s after notes: both gates must engage in both (FX_GATE=1 asserts below) */
     h0 = hall_gate_blocks;
+    d0 = dly_gate_blocks;
     h = hash_blocks(blocks_for(3u), 0);
-    record_sec("boot_silence", h, h0);
+    record_sec("boot_silence", h, h0, d0);
 
     h0 = hall_gate_blocks;
+    d0 = dly_gate_blocks;
     h = hash_blocks(200u, notes_hit);
-    record_sec("notes1", h, h0);
+    record_sec("notes1", h, h0, d0);
 
     h0 = hall_gate_blocks;
+    d0 = dly_gate_blocks;
     h = hash_blocks(blocks_for(6u), 0);
-    record_sec("silence6", h, h0);
+    record_sec("silence6", h, h0, d0);
 
     /* change HALL SIZE and delay time while silent, then notes, then 4 s silence */
     song.g[G_RSIZE] = 40;
     song.g[G_DTIME] = 3;
     h0 = hall_gate_blocks;
+    d0 = dly_gate_blocks;
     h = hash_blocks(blocks_for(1u), 0);            /* 1 s silent after the knob moves */
-    record_sec("knob_silence", h, h0);
+    record_sec("knob_silence", h, h0, d0);
 
     h0 = hall_gate_blocks;
+    d0 = dly_gate_blocks;
     h = hash_blocks(200u, notes_hit);
-    record_sec("notes2", h, h0);
+    record_sec("notes2", h, h0, d0);
 
     h0 = hall_gate_blocks;
+    d0 = dly_gate_blocks;
     h = hash_blocks(blocks_for(4u), 0);
-    record_sec("silence4", h, h0);
+    record_sec("silence4", h, h0, d0);
+
+    /* 20 s more silence: by now the delay's FDBK 80 tail is exact zeros and its gate stays on */
+    h0 = hall_gate_blocks;
+    d0 = dly_gate_blocks;
+    h = hash_blocks(blocks_for(20u), 0);
+    record_sec("silence_long", h, h0, d0);
+
+    /* and the delay resumes bit-exact from its gate */
+    h0 = hall_gate_blocks;
+    d0 = dly_gate_blocks;
+    h = hash_blocks(200u, notes_hit);
+    record_sec("notes3", h, h0, d0);
 
     /* free-ms: time changes during silence, note right after */
     song.g[G_DTIME] = (int16_t)(DTIME_FREE + 200);
     h0 = hall_gate_blocks;
+    d0 = dly_gate_blocks;
     h = hash_blocks(blocks_for(1u), 0);
     song.g[G_DTIME] = (int16_t)(DTIME_FREE + 450); /* glide while silent */
     h ^= hash_blocks(blocks_for(1u), 0);
@@ -182,7 +204,7 @@ static void run_scenario(void)
             }
         }
     }
-    record_sec("free_ms", h, h0);
+    record_sec("free_ms", h, h0, d0);
 }
 
 static int compare_off(const char *off_bin)
@@ -230,11 +252,17 @@ int main(int argc, char **argv)
 #if FX_GATE
     {
         uint32_t i;
-        for (i = 0; i < nsec; i++)
+        for (i = 0; i < nsec; i++) {
             if (strstr(sec[i].name, "silence") && !sec[i].hall_skip) {
                 printf("gate: %s must skip HALL blocks\n", sec[i].name);
                 bad = 1;
             }
+            if ((!strcmp(sec[i].name, "boot_silence") || !strcmp(sec[i].name, "silence_long")) &&
+                !sec[i].dly_skip) {
+                printf("gate: %s must skip DELAY blocks\n", sec[i].name);
+                bad = 1;
+            }
+        }
     }
 #endif
 

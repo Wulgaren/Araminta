@@ -672,7 +672,7 @@ if [ -f build/gen/felucca_tables.h ]; then
     u_gate() {
         build "$OUT/gate_test_off" tests/gate_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm -DFX_GATE=0
         build "$OUT/gate_test" tests/gate_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
-        run "HALL silence gate: skipped blocks bit-identical to ungated" "$OUT/gate_test" "$OUT/gate_test_off"
+        run "HALL and delay silence gates: skipped blocks bit-identical to ungated" "$OUT/gate_test" "$OUT/gate_test_off"
     }
     unit u_gate
     u_dly_decay() {
