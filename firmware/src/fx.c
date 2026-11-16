@@ -888,8 +888,9 @@ static void dtime_set_ms(uint32_t ms)
     song.g[G_DTIME] = (int16_t)(DTIME_FREE + (int32_t)ms);
 }
 /* free milliseconds as a fractional delay (Q8 samples). One millisecond is 44.1 samples: the fraction is the
- * time, not a rounded step */
-static uint32_t dtime_q8(void)
+ * time, not a rounded step. noinline: dly_process_late is AUDIO_RAM and reaches it via AUDIO_FAR (divides stay
+ * out of its flatten) */
+static __attribute__((noinline)) uint32_t dtime_q8(void)
 {
     uint32_t num = dtime_ms() * (uint32_t)FS;
     uint32_t q = (num / 1000u << 8) + (num % 1000u) * 256u / 1000u;
@@ -905,7 +906,8 @@ static int16_t dtime_load(int32_t v)               /* a saved free-ms time survi
         return (int16_t)v;
     return (int16_t)clamp(v, GP[G_DTIME].min, GP[G_DTIME].max);
 }
-static uint32_t delay_samples(void)
+/* noinline: stays in flash; dly_process_late (AUDIO_RAM) calls it via AUDIO_FAR (beat_samples / div_samples) */
+static __attribute__((noinline)) uint32_t delay_samples(void)
 {
     uint32_t d, s;
     if (dtime_free())
@@ -1052,10 +1054,11 @@ static uint32_t dly_snap_tgt;                          /* the target the fade-ou
 static uint32_t dly_tgt_last;                          /* the last RATE target, for the settle count */
 static uint8_t dly_hold;                               /* blocks the RATE target has held */
 
-/* Active tank's globals: tank 0 uses CHAIN params while someone owns CHAIN; else SEND. Tank 1 is always SEND. */
+/* Active tank's globals: tank 0 uses CHAIN params while someone owns CHAIN; else SEND. Tank 1 is always SEND.
+ * rev_pg_*: noinline in flash; rev_hall (AUDIO_RAM) reaches them via AUDIO_FAR (bus_own stays out of its flatten) */
 static int rev_use_chain_g(void) { return R == &rev_tank[0] && bus_own(1) >= 0; }
-static int32_t rev_pg_size(void) { return song.g[rev_use_chain_g() ? G_CRSIZE : G_RSIZE]; }
-static int32_t rev_pg_damp(void) { return song.g[rev_use_chain_g() ? G_CRDAMP : G_RDAMP]; }
+static __attribute__((noinline)) int32_t rev_pg_size(void) { return song.g[rev_use_chain_g() ? G_CRSIZE : G_RSIZE]; }
+static __attribute__((noinline)) int32_t rev_pg_damp(void) { return song.g[rev_use_chain_g() ? G_CRDAMP : G_RDAMP]; }
 /* clamp TYPE to a known model (out of range -> ROOM) */
 static int32_t rev_rtype(void)
 {
@@ -1224,15 +1227,17 @@ static inline void hall_end_lp(const int16_t *b, int16_t *y, uint32_t n, int32_t
  * sample, low cut, diffusers (R->hl.bx); the lines' ends at their drifting taps, low-passed, scaled (R->hl.y); the
  * outputs and the matrix; back into the lines; the outputs back to 44.1 kHz. */
 #define HL_LFO ((uint32_t)(0.37 * CTL / FS * 4294967296.0))   /* the drift: 0.37 Hz (even lines), 0.74 Hz (odd) */
-static __attribute__((noinline)) void rev_hall(const int32_t *rev_in, int32_t *out, uint32_t n)
+/* runs from RAM (.hot_text): every block on core 1, and from the flash its passes over the block miss the 32 KB
+ * XIP cache; hall_gains stays in the flash (noinline, only when the size changes) */
+static AUDIO_RAM __attribute__((noinline)) void rev_hall(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
     int16_t *b = rev_comb, *a = rev_ap;
     uint32_t i, k, s, m, d;
-    int32_t kd = HL_KD(rev_pg_damp());
+    int32_t kd = HL_KD(AUDIO_FAR(rev_pg_damp)());
     int32_t xp = R->hl.x, hp = R->hl.hp, he = R->hl.he, mp = R->hl.m, sp = R->hl.s;
     (void)n;
-    if (R->hl.sz != rev_pg_size() + 1)
-        hall_gains(rev_pg_size());
+    if (R->hl.sz != AUDIO_FAR(rev_pg_size)() + 1)
+        AUDIO_FAR(hall_gains)(AUDIO_FAR(rev_pg_size)());
     for (i = 0; i < HL_NC; i++) {
         int32_t x = (xp + 2 * rev_in[2u * i] + rev_in[2u * i + 1u]) >> 2, v;   /* every other sample, 1 2 1 */
         xp = rev_in[2u * i + 1u];
@@ -1414,7 +1419,7 @@ static void rev_run(uint32_t ty, const int32_t *rev_in, int32_t *out, uint32_t n
 {
     switch (ty) {
     case 1: rev_spring(rev_in, out, n); break;
-    case 2: rev_hall(rev_in, out, n); break;
+    case 2: AUDIO_FAR(rev_hall)(rev_in, out, n); break;
     case 3: rev_shimmer(rev_in, out, n); break;
     case 4: rev_cloud(rev_in, out, n); break;
     default: rev_room(rev_in, out, n); break;
@@ -1526,12 +1531,15 @@ static __attribute__((noinline)) void rev_switch(const int32_t *rev_in, int32_t 
  * `late`: the samples its output reaches the mix late (the SEND bus: one block, n; CHAIN and MASTER: 0).
  * The input goes into the line `late` samples behind the write head, so the first echo and every repeat
  * (the feedback stays at the head) land where they would with no latency. */
-static void dly_process_late(const int32_t *in, int32_t *out, uint32_t n, int32_t wet_q15, uint32_t late)
+/* runs from RAM (.hot_text): every block on core 1, and from the flash its per-sample loop misses the 32 KB XIP
+ * cache */
+static AUDIO_RAM __attribute__((noinline)) void dly_process_late(const int32_t *in, int32_t *out, uint32_t n,
+                                                                int32_t wet_q15, uint32_t late)
 {
-    uint32_t i, dl = delay_samples();
+    uint32_t i, dl = AUDIO_FAR(delay_samples)();
     int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
     int free_ms = dtime_free(), mode = free_ms ? 1 : 0;
-    uint32_t tgt = free_ms ? dtime_q8() : (dl << 8);
+    uint32_t tgt = free_ms ? AUDIO_FAR(dtime_q8)() : (dl << 8);
     int snap = !dly_free || mode != dly_rate || (!free_ms && song.g[G_DTIME] != dly_rate_div);
     /* Snap on the first block, a mode change or a division change. A tempo / tape speed change holds the
      * tap until the target settles, then fades out, moves and fades back in: the echo keeps its pitch,
@@ -1623,7 +1631,7 @@ static void dly_process_late(const int32_t *in, int32_t *out, uint32_t n, int32_
 /* no latency: CHAIN, MASTER and the host tests */
 static void dly_process(const int32_t *in, int32_t *out, uint32_t n, int32_t wet_q15)
 {
-    dly_process_late(in, out, n, wet_q15, 0);
+    AUDIO_FAR(dly_process_late)(in, out, n, wet_q15, 0);
 }
 static const uint8_t BUS_G[5] = {G_DTIME, G_DFDBK, G_DCOLOR, G_RSIZE, G_RDAMP};
 
@@ -1641,7 +1649,7 @@ static void fx_buses_late(const int32_t *dly_in, const int32_t *rev_in, int32_t 
         for (i = 0; i < n; i++)
             wet[i] = 0;
     } else if (dly_send)
-        dly_process_late(dly_in, wet, n, 32768, late);
+        AUDIO_FAR(dly_process_late)(dly_in, wet, n, 32768, late);
     else
         for (i = 0; i < n; i++)
             wet[i] = 0;                           /* CHAIN: owner advances the line in track_insert */
