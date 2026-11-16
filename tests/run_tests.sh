@@ -943,6 +943,10 @@ else
 fi
 
 u_target_budget() {
+    if [ -f build/OPEN_TOOLCHAIN ]; then
+        echo "== skip target cost: a local open-toolchain build (tests/target_budget.txt is JieLi's compiler's code)"
+        return 0
+    fi
     run "regression: target cost of the render loops (pi32v2 disassembly)" python3 tests/target_budget.py --require \
         build/felucca.dis tests/target_budget.txt
 }
