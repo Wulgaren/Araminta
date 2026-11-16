@@ -22,7 +22,7 @@ FUNCS = ["analog_render",                             # ANALOG's dispatcher: the
          "analog_render_x", "analog_osc", "ana_shape", "ana_morph",
          "phase_render", "lofi_render", "formant_render",
          "trio_render", "trio_pass", "wheel_render", "wheel_block",
-         "phys_render", "drum_render", "fm6_render", "wt_render", "wt_read", "wt_mip_level",
+         "phys_render", "drum_render", "fm6_render", "fm6_core_render", "wt_render", "wt_read", "wt_mip_level",
          "px_modal_block", "px_modal_run", "px_memb_block",
          "px_string_excite", "px_string_run", "px_symp_run",
          "dx_run",                                            # DRUM-X voice (drumx_voice.c); its per-sample loops
