@@ -28,13 +28,13 @@ stock.
   [Coming from Felucca 1.5](#coming-from-felucca-15).
 - **From an older Araminta:** install over it. Your data stays.
 
-## New in 4.6
+## New in 4.7
 
-- **A drum kit plays from eight pads.** The first eight white keys are its lanes at any OCT, and they glow. On a
-  DRUM-X track's EDIT pages, F# G# A# audition A, the kit's MRPH or B.
-- **HOUSE**, an 18th DRUM-X kit after the TR-707.
-- **SAVE > PHRASES is gone**, and PROJECT moves to the sounds page. The image shrinks by about 3 KB.
-- **OTT** costs less and is off at DEPTH 0. A new track's slicer MIX starts at 0.
+- **The delay and the HALL reverb cost less CPU.** Both run from RAM now: the busy project drops from 66.8 to
+  62.1 % on core 0 and 37.5 to 34.0 % on core 1, and idle from 19.5 to 14.8 %.
+- **A silent delay or reverb skips its block.** Idle and playback gain about a point more, and the sound is bit
+  for bit the same.
+- **A delay's tail dies out to silence.** FDBK no longer leaves a small leftover for ever.
 
 Full notes: [CHANGELOG.md](CHANGELOG.md).
 

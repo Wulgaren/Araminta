@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 4.7
+
+The delay and the HALL reverb cost less CPU, a silent one skips its block, and a delay tail dies out to silence.
+
+Splash and ABOUT show `v4.7`.
 
 ### CPU
 
