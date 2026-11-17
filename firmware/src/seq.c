@@ -598,7 +598,7 @@ static uint32_t step_add(const track_t *t, step_t *s, uint32_t note, uint32_t ve
             step_set_fl(s, 0);
             step_set_ratchet(s, 1);
             step_set_nudge(s, 0);
-            s->vel = 0;
+            step_set_vel(s, 0);
         }
         s->time = ST_NOTE;
         if (note == DRUM_LANE_NOTE[l]) {            /* a lane's note: its hit */
@@ -617,7 +617,7 @@ static uint32_t step_add(const track_t *t, step_t *s, uint32_t note, uint32_t ve
                 step_set_fl(s, step_fl(s) | SF_ACCENT);
         }
         if (vel > s->vel)
-            s->vel = (uint8_t)vel;
+            step_set_vel(s, vel);
         return fresh;
     }
     fresh = s->time != ST_NOTE || !s->n || mono;
@@ -626,7 +626,7 @@ static uint32_t step_add(const track_t *t, step_t *s, uint32_t note, uint32_t ve
         step_set_fl(s, 0);
         step_set_ratchet(s, 1);
         step_set_nudge(s, 0);
-        s->vel = 0;
+        step_set_vel(s, 0);
     }
     for (k = 0; k < s->n && step_note(s, k) != note; k++)
         ;
@@ -639,7 +639,7 @@ static uint32_t step_add(const track_t *t, step_t *s, uint32_t note, uint32_t ve
     if (vel > 110)
         step_set_fl(s, step_fl(s) | SF_ACCENT);
     if (vel > s->vel)
-        s->vel = (uint8_t)vel;
+        step_set_vel(s, vel);
     return fresh;
 }
 
@@ -732,7 +732,7 @@ static void rec_hold(track_t *t, uint32_t idx, uint32_t len)
     step_set_fl(s, 0);
     step_set_ratchet(s, 1);
     step_set_nudge(s, 0);
-    s->vel = 0;
+    step_set_vel(s, 0);
     s->hit = s->acc = 0;
 }
 

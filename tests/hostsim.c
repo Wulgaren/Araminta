@@ -162,7 +162,7 @@ static void put_step(track_t *t, uint32_t i, uint32_t n, const uint8_t *notes, u
         step_set_note(s, k, k < n ? notes[k] : 0);
     s->time = (uint8_t)time;
     step_set_fl(s, flags);
-    s->vel = n ? 100 : 0;
+    step_set_vel(s, n ? 100u : 0u);
 }
 
 static uint32_t busy_now(void)                   /* sounding voices of the parts (none fading after a block) */

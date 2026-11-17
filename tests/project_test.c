@@ -202,9 +202,9 @@ static int step_wire_freeze(void)
     step_set_fl(&saved.t[0].step[0], SF_ACCENT | SF_SLIDE);
     step_set_ratchet(&saved.t[0].step[0], 4);
     step_set_nudge(&saved.t[0].step[0], -5);
-    saved.t[0].step[0].vel = 127;
+    step_set_vel(&saved.t[0].step[0], 127);
     saved.t[0].step[0].hit = saved.t[0].step[0].acc = 0xFF;
-    saved.t[0].step[0].probability = 101;
+    step_set_prob_raw(&saved.t[0].step[0], 101);
     saved.sum = proj_sum(&saved);
     ok = proj_pack(&a, &saved) && proj_pack(&b, &saved) && !memcmp(a.raw, b.raw, sizeof a.raw) &&
          proj_import(&loaded, &a, sizeof a) && proj_pack(&c, &loaded) && !memcmp(a.raw, c.raw, sizeof a.raw);
@@ -934,7 +934,7 @@ int main(void)
         memcpy(a.fm6[1], FM6_INIT, FM6_PACKED);
         a.t[0].step[3].n = 1;
         step_set_note(&a.t[0].step[3], 0, 200); step_set_note(&a.t[0].step[3], 2, 128);
-        a.t[0].step[3].vel = 255; a.t[0].step[3].hit = 0x05; a.t[0].step[3].acc = 0xF7;
+        step_set_vel(&a.t[0].step[3], 255); a.t[0].step[3].hit = 0x05; a.t[0].step[3].acc = 0xF7;
         a.sum = proj_sum(&a);
         ok = proj_pack(&st, &a) && proj_import(&c, &st, sizeof st);
         bad += check("FUN8: a step out of range packs inside it (note, velocity 127; accents on hits): it loads",

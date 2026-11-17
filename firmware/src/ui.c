@@ -630,9 +630,9 @@ static void step_clear(step_t *st)
     step_set_fl(st, 0);
     step_set_ratchet(st, 1u);
     step_set_nudge(st, 0);
-    st->vel = 0;
+    step_set_vel(st, 0);
     st->hit = st->acc = 0;
-    st->probability = 0;
+    step_set_prob_raw(st, 0);
 }
 
 /* LEN (1.5, Discussions #178, #173): a NOTE step's length on the piano roll is the step and the TIE steps after it

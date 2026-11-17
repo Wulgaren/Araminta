@@ -304,7 +304,7 @@ static void as_edit(uint32_t i)                          /* a change a project h
     s->time = ST_NOTE;
     s->n = 1;
     step_set_note(s, 0, 20u + (step_note(s, 0) + 1u + n++ % 50u) % 100u);
-    s->vel = 100;
+    step_set_vel(s, 100);
 }
 static int autosave_test(void)
 {

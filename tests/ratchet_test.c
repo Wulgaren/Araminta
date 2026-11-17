@@ -305,9 +305,26 @@ static int screens(void)
     return bad;
 }
 
+/* A VEL or CHANCE write keeps RATCH: bit 7 of those two bytes is not the field's (core.h step_set_vel) */
+static int writes(void)
+{
+    int bad = 0;
+    track_t *t = one_step(3, 0);
+    uint32_t ok;
+    step_set_vel(&t->step[0], 42);
+    ok = step_ratchet(&t->step[0]) == 3u && t->step[0].vel == 42u;
+    step_set_chance(&t->step[0], 50);
+    ok &= step_ratchet(&t->step[0]) == 3u && step_chance(&t->step[0]) == 50u;
+    step_set_chance(&t->step[0], 100);                  /* legacy 100 %: the low bits go back to 0 */
+    ok &= step_ratchet(&t->step[0]) == 3u && step_chance(&t->step[0]) == 100u;
+    bad += check("VEL and CHANCE writes keep RATCH (the shared bit 7 of those bytes)", (int)ok);
+    seq_stop();
+    return bad;
+}
+
 int main(void)
 {
-    int bad = play() + projects() + screens();
+    int bad = play() + projects() + screens() + writes();
     printf("%s\n", bad ? "RATCHET TEST FAILED" : "ratchet tests passed");
     return bad != 0;
 }
