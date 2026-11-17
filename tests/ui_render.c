@@ -691,7 +691,7 @@ static void drum(uint32_t kit)
     for (i = 0; i < 16u; i++) {
         step_t *s = &trk[3].step[i];
         memset(s, 0, sizeof *s);
-        s->time = ST_NOTE; s->vel = 100;
+        s->time = ST_NOTE; step_set_vel(s, 100);
         if (i % 4u == 0u) s->hit |= 1u;
         if (i == 4u || i == 12u) s->hit |= 2u, s->acc |= 2u;
         if (i == 10u) s->hit |= 4u;
@@ -716,7 +716,7 @@ static void song_steps(uint32_t k)
                                                                                          : i % 2u == 0u || (i + k) % 7u == 0u;
             memset(s, 0, sizeof *s);
             s->time = j == 1u && i % 8u ? ST_TIE : ST_NOTE;
-            s->vel = 100;
+            step_set_vel(s, 100);
             if (!on) { s->time = ST_REST; continue; }
             if (j == 3u) s->hit = (uint8_t)(i % 4u == 0u ? 1u : 8u);
             else step_set_note(s, 0, 48u + (i * 7u + k) % 12u), s->n = 1;
@@ -811,7 +811,7 @@ static void step_put(step_t *st, uint32_t time, uint32_t flags, uint32_t n, cons
 {
     uint32_t j;
     memset(st, 0, sizeof *st);
-    st->time = (uint8_t)time; step_set_fl(st, flags); st->n = (uint8_t)n; st->vel = 100;
+    st->time = (uint8_t)time; step_set_fl(st, flags); st->n = (uint8_t)n; step_set_vel(st, 100);
     for (j = 0; j < n; j++) step_set_note(st, j, notes[j]);
 }
 /* the ACID phrase (the factory pattern the roll screens showed before SAVE > PHRASES went): 16 steps, LEN 16 */
@@ -829,9 +829,9 @@ static void roll_acid(track_t *t)
         step_set_fl(st, n ? (fl & (SF_ACCENT | SF_SLIDE)) : 0u);
         step_set_ratchet(st, 1);
         step_set_nudge(st, 0);
-        st->vel = n ? 96 : 0;
+        step_set_vel(st, n ? 96u : 0u);
         st->hit = st->acc = 0;
-        st->probability = 0;
+        step_set_prob_raw(st, 0);
     }
     t->p[P_SLEN] = 16;
 }
@@ -939,7 +939,7 @@ static void detail_values(track_t *t, int drum_kit)
         step_set_ratchet(st, drum_kit ? (i == 6u ? 2u : i == 12u ? 3u : 1u) : RT[i]);
         step_set_nudge(st, drum_kit ? 0 : ND[i]);
         step_set_chance(st, CH[i]);
-        st->vel = VL[i];
+        step_set_vel(st, VL[i]);
     }
 }
 static void go_title_page(const char *title)
@@ -1598,7 +1598,7 @@ static void setup(int s)
         for (i = 0; i < 16u; i += 2u) {
             uint8_t n = (uint8_t)(57 + (i * 5u) % 12u);
             step_put(&TSEL->step[i], ST_NOTE, i == 8u ? SF_ACCENT : 0u, 1, &n);
-            TSEL->step[i].vel = VEL[i / 2u];
+            step_set_vel(&TSEL->step[i], VEL[i / 2u]);
         }
         step_set_chance(&TSEL->step[2], 70); motion_set_lock(TSEL, 4, P_REV, 100);
         go_page(GR_EVENTS); ui.ev_vel = 1; (void)auto_pick(EVC(EVK_VEL, 4)); ui.hot_col = 3; ui.hot_t = 30;

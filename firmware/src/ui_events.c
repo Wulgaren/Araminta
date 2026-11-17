@@ -152,7 +152,7 @@ static void ev_sput(step_t *s, uint32_t k, int32_t v)
     else if (k == EVK_RATCH)
         step_set_ratchet(s, (uint32_t)v);
     else if (k == EVK_VEL)
-        s->vel = (uint8_t)(v == 96 ? 0 : v);
+        step_set_vel(s, v == 96 ? 0u : (uint32_t)v);
     else
         step_set_nudge(s, v);
 }

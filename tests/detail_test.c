@@ -323,8 +323,8 @@ static int drum(void)
     leds = grid_leds();
     ok = (leds >> key_at(0, 0) & 1u) && (leds >> key_at(0, 6) & 1u) && !(leds >> key_at(0, 1) & 1u);
     bad += check("  the key LEDs: the steps holding any hit (the hat on 7 too)", ok);
-    t->step[0].probability = 0;                       /* (back to 100 %: the pass below plays every hit) */
-    t->step[8].probability = 0;
+    step_set_prob_raw(&t->step[0], 0);                       /* (back to 100 %: the pass below plays every hit) */
+    step_set_prob_raw(&t->step[8], 0);
     n = play(t, div_samples(2) / CTL * 16u, v, 16);
     bad += check("  played: the ratcheted kick twice, the others once (4 + 1 + 1 note-ons)", n == 6u);
     return bad;

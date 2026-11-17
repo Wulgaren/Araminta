@@ -112,6 +112,7 @@ footer small { font-size: 11px; opacity: .8; }
   <label for="bk-file">Import backup</label>
   <input id="bk-file" type="file" accept=".json,application/json" hidden>
   <button id="proj-export" type="button">Export project</button>
+  <button id="rec-save" type="button" hidden>Save recording</button>
   <span id="file-status"></span>
 </p>
 
@@ -122,6 +123,7 @@ footer small { font-size: 11px; opacity: .8; }
   <span><kbd>↑</kbd> <kbd>↓</kbd> SELECT</span>
   <span><kbd>←</kbd> <kbd>→</kbd> ALGORITHM</span>
   <span><kbd>Shift</kbd>-click holds a button</span>
+  <span id="rec-key" hidden><kbd>`</kbd> mark a crackle</span>
 </p>
 
 <footer>
@@ -164,6 +166,7 @@ const BLACK = [1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25];
 const BLACK_AFTER = [0, 1, 2, 4, 5, 7, 8, 9, 11, 12, 14];      // the white key each black one follows
 const STORE = "felucca-emu-flash";
 const BUILD = "@BUILD@", SHA = "@SHA@";   // empty on the live site; web/emu/build.sh fills them for a preview
+const REC = new URLSearchParams(location.search).has("rec");   // ?rec=1: record the session for web/emu/replay.mjs
 
 // ------------------------------------------------------------------ the panel
 // Two drawings of the same controls: WIDE after the FM-1's own layout, TALL for a phone held upright (the
@@ -204,6 +207,7 @@ const KEYNAMES = ["F", "F♯", "G", "G♯", "A", "A♯", "B", "C", "C♯", "D", 
 const keyName = (k) => KEYNAMES[k % 12] + (3 + Math.floor((k + 5) / 12));
 
 let node = null, btnMask = 0, keyMask = 0, latched = 0, masterValue = 700, lastLeds = [0, 0, 0, 0, 0], layout = null;
+let ac = null, recHead = null;                               // the audio context, and the recording's header when ?rec
 const angle = Object.fromEntries(KNOBS.map((n) => [n, 0]));
 angle.MASTER = -135 + 270 * masterValue / 1023;
 const knobs = [], buttons = [], keys = [];
@@ -394,6 +398,7 @@ Object.assign(KEYMAP, { BracketLeft: { btn: B["OCT-"] }, BracketRight: { btn: B[
 const ARROWS = { ArrowUp: [EN.SELECT, 1], ArrowDown: [EN.SELECT, -1], ArrowRight: [EN.ALGORITHM, 1], ArrowLeft: [EN.ALGORITHM, -1] };
 addEventListener("keydown", (e) => {
   if (!node || e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.(".hit.knob")) return;
+  if (REC && e.code === "Backquote") { if (!e.repeat) aramintaRec.mark("`"); e.preventDefault(); return; }
   if (ARROWS[e.code]) { const [r, n] = ARROWS[e.code]; turn(knobs.find((k) => k.role === r), n); e.preventDefault(); return; }
   const m = KEYMAP[e.code];
   if (!m) return;
@@ -572,6 +577,39 @@ document.getElementById("proj-export").addEventListener("click", () => {
   if (!node) { say("Switch on first, then export the project."); return; }
   node.port.postMessage({ type: "export" });
 });
+
+// ------------------------------------------------------------------ the session recorder (?rec=1)
+/* The worklet records the session (its "rec" / "mark" / "rec-stop" / "rec-dump" messages); what a recording holds
+   and how web/emu/replay.mjs plays it back are web/emu/rec.js and web/emu/replay.mjs's. */
+function saveRec(data) {
+  const q = new Uint8Array(data.quanta.buffer, data.quanta.byteOffset, data.quanta.byteLength);
+  let s = "";                                                       // the worklet's Float32Array, as saveFlash b64s bytes
+  for (let i = 0; i < q.length; i += 4096) s += String.fromCharCode.apply(null, q.subarray(i, i + 4096));
+  const rec = {
+    ...recHead, sampleRate: ac.sampleRate, baseLatency: ac.baseLatency, outputLatency: ac.outputLatency,
+    playbackStats: ac.playbackStats ? JSON.parse(JSON.stringify(ac.playbackStats)) : null,
+    saved: new Date().toISOString(), ...data, quanta: btoa(s), quantaFields: ["run", "total", "peak", "step"],
+  };
+  const a = document.createElement("a"), name = `araminta-rec-${rec.started.replace(/[:.]/g, "-")}.json`;
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(rec)], { type: "application/json" }));   // no indent: large
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  setStatus("Recording saved: node web/emu/replay.mjs build/emu/felucca.wasm " + name);
+}
+if (REC) {
+  const rec = {
+    send(m) { if (!node) { console.warn("rec: switch on first"); return false; } node.port.postMessage(m); return true; },
+    mark(note = "") { if (!this.send({ type: "mark", note: String(note) })) return; console.info("rec: mark", note); },
+    stop() { this.send({ type: "rec-stop" }); },
+    save() { this.send({ type: "rec-dump" }); },
+  };
+  window.aramintaRec = rec;
+  const save = document.getElementById("rec-save");
+  save.hidden = false;
+  save.addEventListener("click", () => rec.save());
+  document.getElementById("rec-key").hidden = false;
+}
 document.getElementById("bk-file").addEventListener("change", async (e) => {
   const f = e.target.files && e.target.files[0];
   e.target.value = "";
@@ -621,7 +659,7 @@ async function switchOn() {
       takeSnapshot(localStorage, "auto", { id: BUILD, sha: SHA });
       refreshSaves();
     }
-    const ac = new AudioContext({ sampleRate: 44100, latencyHint: "interactive" });
+    ac = new AudioContext({ sampleRate: 44100, latencyHint: "interactive" });
     const [wasm] = await Promise.all([
       fetch("felucca.wasm?v=@HASH@").then((r) => { if (!r.ok) throw new Error(`felucca.wasm: ${r.status}`); return r.arrayBuffer(); }),
       ac.audioWorklet.addModule("worklet.js?v=@HASH@")]);
@@ -640,6 +678,7 @@ async function switchOn() {
           else { flushFlash(); setStatus("Imported. Reloading…"); location.reload(); }
         }
         else if (m.type === "project") saveProject(m);
+        else if (m.type === "rec") saveRec(m.data);
         else if (m.type === "frame") {
           if (m.fb) drawScreen(m.fb);
           if (m.leds) drawLights(lastLeds = m.leds, m.anim);
@@ -653,7 +692,11 @@ async function switchOn() {
           }
         }
       };
-      node.port.postMessage({ type: "load", wasm, sectors: loadFlash(), master: masterValue }, [wasm]);
+      const sectors = loadFlash();                   // loadFlash fills flashRaw: the copy below is the session's start
+      if (REC) recHead = { format: "araminta-rec", v: 1, version: "@VERSION@", hash: HASH,
+                           started: new Date().toISOString(), ua: navigator.userAgent, master: masterValue,
+                           sectors: { ...flashRaw } };
+      node.port.postMessage({ type: "load", wasm, sectors, master: masterValue, rec: REC }, [wasm]);
     });
     await ac.resume();
     document.getElementById("start").hidden = true;
@@ -663,6 +706,7 @@ async function switchOn() {
     syncKeys();
     send({ type: "visible", on: !document.hidden });
     midiOn();
+    if (REC) console.info("rec: recording this session. ` marks a moment; aramintaRec.save() or the Save recording button downloads it; aramintaRec.stop() ends it.");
   } catch (err) {
     node = null;
     go.disabled = false;

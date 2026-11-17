@@ -368,7 +368,7 @@ static void ed_step_put(step_t *st, const uint8_t *a, uint32_t na)
         step_set_note(st, i, a[1 + i] & 0x7Fu);
     st->time = (uint8_t)(a[5] > ST_REST ? ST_REST : a[5]);
     step_set_fl(st, a[6] & (SF_ACCENT | SF_SLIDE));
-    st->vel = a[7] & 0x7Fu;
+    step_set_vel(st, a[7] & 0x7Fu);
     if (na >= 11u) {
         st->hit = (uint8_t)((a[8] & 0x7Fu) | (a[10] & 1u) << 7);
         st->acc = (uint8_t)(((a[9] & 0x7Fu) | (a[10] & 2u) << 6) & st->hit);

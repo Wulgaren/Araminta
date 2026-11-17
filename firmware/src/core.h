@@ -6,6 +6,7 @@
  * engine (General MIDI map) on any part. SLICE is retired (eng_retire.c); SAMPLE PERC still maps
  * to DRUM (drum_from_perc).
  * Sections: sizes, parameters, voices and engines, tracks and the song, system. */
+#include <stddef.h>
 #include <stdint.h>
 
 /* ------------------------------------------------------------ sizes --- */
@@ -434,7 +435,9 @@ typedef struct {                 /* acid-style step: up to 4 notes (POLY), time,
                                   *   vel   = vel | ratchet bit 0 << 7
                                   *   hit, acc = acc & hit
                                   *   prob  = probability | ratchet bit 1 << 7
-                                  * Accessors below: never index nb or read the ratchet bits directly. */
+                                  * Accessors below: never index nb or read the ratchet bits directly; the two
+                                  * bits are bit 7 of the vel and probability bytes, so write those
+                                  * bytes through step_set_ratchet / step_set_vel / step_set_prob_raw. */
     uint8_t nb[4];
     uint8_t n : 3;               /* notes in use, 0 = empty */
     uint8_t time : 2;            /* ST_NOTE / ST_TIE / ST_REST */
@@ -445,6 +448,8 @@ typedef struct {                 /* acid-style step: up to 4 notes (POLY), time,
     uint8_t probability : 7;     /* 0 = legacy 100%; 1..100 = percent, 101 = silent; bit 7 is ratchet bit 1 */
 } step_t;
 _Static_assert(sizeof(step_t) == 9, "step_t is the 9-byte FUN15 wire step");
+_Static_assert(offsetof(step_t, hit) == 6 && offsetof(step_t, acc) == 7,
+               "hit and acc at 6/7 put vel in byte 5 and probability in byte 8 (step_set_vel, step_set_prob_raw)");
 typedef struct {                 /* a step as formats 1..4 (projects to FUN4) stored it: no hits */
     uint8_t note[4];
     uint8_t n, time, flags, vel;
@@ -452,7 +457,19 @@ typedef struct {                 /* a step as formats 1..4 (projects to FUN4) st
 
 /* Probability keeps zero-initialized and legacy patterns at 100%. */
 static uint32_t step_chance(const step_t *s) { return !s->probability ? 100u : s->probability <= 100u ? s->probability : 0u; }
-static void step_set_chance(step_t *s, uint32_t chance) { s->probability = (uint8_t)(chance >= 100u ? 0u : chance ? chance : 101u); }
+/* A 7-bit field store is free to rewrite the whole byte (bit 7 is RATCH: step_ratchet), so the
+ * velocity and the probability go through here, and RATCH stays what step_set_ratchet made it. */
+static void step_set_prob_raw(step_t *s, uint32_t raw)
+{
+    uint8_t *b = (uint8_t *)s;
+    b[8] = (uint8_t)((b[8] & 0x80u) | (raw & 0x7Fu));
+}
+static void step_set_vel(step_t *s, uint32_t vel)
+{
+    uint8_t *b = (uint8_t *)s;
+    b[5] = (uint8_t)((b[5] & 0x80u) | (vel & 0x7Fu));
+}
+static void step_set_chance(step_t *s, uint32_t chance) { step_set_prob_raw(s, chance >= 100u ? 0u : chance ? chance : 101u); }
 /* RATCH: a NOTE step plays its notes and hits this many times (1..4), in equal parts of the step; every older
  * pattern holds 0 there, x1. The two bits share the top bit of vel and of probability. */
 static uint32_t step_ratchet(const step_t *s)

@@ -574,7 +574,7 @@ EXPORT void web_test_cr78(uint32_t mode)
     t->p[P_SDIV] = 2;
     t->step[0].hit = 1;                         /* lane 0: kick, note 36 */
     t->step[0].time = ST_NOTE;
-    t->step[0].vel = 100;
+    step_set_vel(&t->step[0], 100);
     t->step[0].n = 0;
     seq_start();
     ui.force = 1;

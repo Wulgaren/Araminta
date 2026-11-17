@@ -3514,31 +3514,52 @@ function selfLoad(sound = false) {
 const stepEdit = new Map(); /* index -> time of the last edit */
 
 /* parameter ids (firmware/src/core.h); used only when P_COUNT / G_COUNT match */
-const EXPECT = { pcount: 91, gcount: 30, pe0: 83 };
-/* the same layout without the chord keys (P_COUNT 89, P_E0 81), the FM operator ENVs too (69, 61) or the matrix
-   (firmware 1.0: 57, 49) */
-const knownLayout = (info) => info.gcount === EXPECT.gcount &&
-  [[99, 91], [91, 83], [89, 81], [69, 61], [57, 49]].some(([c, e]) => info.pcount === c && info.pe0 === e);
+const EXPECT = { pcount: 127, gcount: 32, pe0: 119 };   /* the 4.x layout; the page table below follows it */
+/* older firmware still connects: before the insert chain (99/91 DRUM lanes, 91/83 chord keys), without the FM
+   operator ENVs (89/81) or with the matrix only (69/61, 57/49) */
+const knownLayout = (info) => (info.gcount === EXPECT.gcount && info.pcount === EXPECT.pcount && info.pe0 === EXPECT.pe0) ||
+  (info.gcount === 30 && [[99, 91], [91, 83], [89, 81], [69, 61], [57, 49]].some(([c, e]) => info.pcount === c && info.pe0 === e));
 const P = { LEVEL: 0, SLEN: 29 };
+const isCur = (pe0) => pe0 >= 119;   /* the 127-parameter layout: pages as firmware/src/params.c PAGES */
 const LAYOUT = (pe0) => [
-  { t: "ENV", pages: [["ENV", 0, [1, 2, 3, 4]], ["ENV DEST", 0, [5, 6, 7, 8]]] },
-  { t: "LFO", pages: [["LFO", 0, [9, 10, 11, 12]], ["LFO DEST", 0, [13, 14, 15, 16]]] },
+  { t: "ENV", pages: [["ENV", 0, [1, 2, 3, 4]],
+    /* ENV DEST as LFO DEST: PIT FLT SHP first; the 4th card is SYNC (P_ESYNC, the id just before P_E0) */
+    ["ENV DEST", 0, isCur(pe0) ? [6, 5, 7, pe0 - 1] : [5, 6, 7, 8]]] },
+  { t: "LFO", pages: isCur(pe0)
+    ? [["LFO", 0, [9, 10, 92, 91]], ["LFO 2", 0, [11, 12, 93, 42]], ["LFO DEST", 0, [13, 14, 15, 16]]]   /* RATE WAVE TRIG SYNC; PHS FADE POL SMTH */
+    : [["LFO", 0, [9, 10, 11, 12]], ["LFO DEST", 0, [13, 14, 15, 16]]] },
   ...(pe0 >= 61 ? [{ t: "MOD", mod: 49 }] : []),   /* the matrix: P_M1SRC 49 .. P_M4AMT 60, one row per slot */
-  { t: "EDIT", engine: true, pages: [["EDIT 1", 0, [pe0, pe0 + 1, pe0 + 2, pe0 + 3]], ["EDIT 2", 0, [pe0 + 4, pe0 + 5, pe0 + 6, pe0 + 7]]] },
+  { t: "EDIT", engine: true, pages: [["EDIT 1", 0, [pe0, pe0 + 1, pe0 + 2, pe0 + 3]], ["EDIT 2", 0, [pe0 + 4, pe0 + 5, pe0 + 6, pe0 + 7]],
+    ...(isCur(pe0) && engName() === "ANALOG" ? [["TYPE", 0, [117]]] : [])] },   /* ANALOG's filter TYPE, its own card */
   ...(pe0 >= 81 && engName() === "DIGITAL" ? [{ t: "OP ENV", pages: [   /* P_FM1_ATK 61: ATK DEC SUS REL LVL per operator (DIGITAL retired: its engine is "-") */
     ...[0, 1, 2, 3].map((k) => [`OP${k + 1}`, 0, [61 + 5 * k, 62 + 5 * k, 63 + 5 * k, 64 + 5 * k]]),
     ["OP LVL", 0, [65, 70, 75, 80]]] }] : []),
-  { t: "VOICE", pages: [["LEVEL", 0, [0]], ["VOICE", 0, [37, 38, 44, 95]]] },   /* VCE GLD UNI DTN SPRD (GLMOD/PAN/PLAY off the page) */
+  { t: "VOICE", pages: [["LEVEL", 0, isCur(pe0) ? [0, 39, 40] : [0]], ["VOICE", 0, [37, 38, 44, 95]]] },   /* LVL PAN MUTE; VCE GLD UNI DTN SPRD */
   /* the device's MIXER 2/3 and 3/3: a DRUM-X track's lane levels (P_LN0..7), under the track mixer */
   ...(pe0 >= 91 && engName() === "DRUM-X" ? [{ t: "MIXER", tab: "trackgroups", pages: [
     ["MIXER 2/3", 0, P_LANES.slice(0, 4)], ["MIXER 3/3", 0, P_LANES.slice(4)]] }] : []),
 
-  { t: "FX", pages: [["FX", 0, [33, 34, 35, 36]], ["SLICER", 0, [45, 46, 47, 48]], ["DELAY", 1, [4, 5, 6]], ["REVERB", 1, [24, 8, 9]], ["CHORUS", 1, [10, 11]], ["TAPE", 1, [7, 12, 15, 31]]] },   /* G_RTYPE 24: ROOM..CLOUD */
-  { t: "SCL", pages: [["SCL", 0, [25, 26, 27, 28]], ...(pe0 >= 83 ? [["CHORD", 0, P_CHORD]] : [])] },   /* CHRD VOIC 81, 82 */
+  { t: "FX", pages: isCur(pe0) ? [
+      ["FX", 0, [33, 34, 35, 36]],   /* the sends and the drive */
+      ["SLICER", 0, [45, 46, 47, 48]],
+      ["DISTORT", 0, [97, 8, 98]],   /* MODE TONE MIX (the drive is on FX) */
+      ["CRUSH", 0, [103, 104, 105, 106]],
+      ["FILTER", 0, [99, 100, 101, 102]],
+      ["PHASER", 0, [107, 108, 109, 110]],
+      ["FLANGER", 0, [111, 112, 113]],
+      ["CHORUS", 0, [114, 115, 116]],
+      ["CHAIN", 0, [96]],            /* ORDER, the chain permutation */
+      ["DELAY", 1, [4, 5, 6, 10]],   /* TIME FDBK COLR, then USE AS (DLYOWN) */
+      ["REVERB", 1, [24, 8, 9, 11]], /* TYPE SIZE DAMP, then USE AS (REVOWN) */
+      ["TAPE", 1, [7, 12, 15, 31, 22, 23]]]   /* SPEED FLUTR DROP TEMPO, then MIX and TAPE */
+    : [["FX", 0, [33, 34, 35, 36]], ["SLICER", 0, [45, 46, 47, 48]], ["DELAY", 1, [4, 5, 6]], ["REVERB", 1, [24, 8, 9]], ["CHORUS", 1, [10, 11]], ["TAPE", 1, [7, 12, 15, 31]]] },   /* G_RTYPE 24: ROOM..CLOUD */
+  { t: "SCL", pages: [["SCL", 0, [25, 26, 27, 28]], ...(pe0 >= 83 ? [["CHORD", 0, isCur(pe0) ? [81, 82, 43] : P_CHORD]] : [])] },   /* CHRD VOIC, then SWEEP */
   { t: "ARP", pages: [["ARP", 0, [17, 18, 19, 20]], ["ARP 2", 0, [21, 22, 23, 24]]] },
-  { t: "SEQ PATTERN", tab: "seqgroups", pages: [["PATTERN", 0, [29, 30, 31, 32]]] },
+  { t: "SEQ PATTERN", tab: "seqgroups", pages: [["PATTERN", 0, isCur(pe0) ? [29, 30, 31, 32, 94] : [29, 30, 31, 32]]] },   /* then QNTZ */
   /* 1.2: as the device shows them: HOME > CLOCK (BPM SWG; CLK not here), MENU > AUDIO TUNE, MENU > MIDI > MIDI IN (G_ROUTE) */
-  { t: "GLOBAL", tab: "setgroups", pages: [["CLOCK", 1, [0, 1, 2]], ["AUDIO", 1, [3]], ["MIDI", 1, [14]]] },
+  { t: "GLOBAL", tab: "setgroups", pages: isCur(pe0)
+    ? [["MASTER", 1, [21, 25, 26, 13]], ["CLOCK", 1, [0, 1, 2]], ["AUDIO", 1, [3]], ["MIDI", 1, [14]]]   /* CLIP PNCH DUCK, DUCK REL */
+    : [["CLOCK", 1, [0, 1, 2]], ["AUDIO", 1, [3]], ["MIDI", 1, [14]]] },
 ];
 /* globals that are actions or placeholders on the device: buttons instead, or hidden */
 const G_SKIP = new Set(["SLOT", "NAME", "LOAD", "SAVE", "ENG", "SET", "SYNC", "CLK"]);
@@ -3815,6 +3836,13 @@ function buildGroups() {
           for (let j = 0; j < 3; j++) ctl.get(key(0, g.mod + 3 * k + j)).row = row;   /* (the push highlight) */
           div.append(row);
         }
+        if (dev.dump && dev.dump.mx)                 /* slots 5..8 (MATRIX, scope 2; no parameter id) */
+          for (let k = 4; k < 8; k++) {
+            const m = [0, 1, 2].map((j) => paramRow(2, 3 * k + j));
+            if (m.some((x) => !x)) continue;
+            div.append(el("div", { class: "row modrow" }, el("span", { text: String(k + 1) }),
+              m[0].children[1], m[1].children[1], m[2].children[1], m[2].children[2]));
+          }
         groups.groups.push(div);
         continue;
       }

@@ -715,8 +715,8 @@ static void test_esync(void)
         for (i = 0; i < NPAGES; i++)
             if (str_eq(PAGES[i].title, "ENV DEST"))
                 pg = i + 1u;
-        check("ENV DEST: FLT PIT SHP and SYNC (KNOB 4, the free one)", pg && PAGES[pg - 1u].id[3] == P_ESYNC &&
-              PAGES[pg - 1u].id[0] == P_ED_FLT);
+        check("ENV DEST: PIT FLT SHP and SYNC (KNOB 4, the free one)", pg && PAGES[pg - 1u].id[3] == P_ESYNC &&
+              PAGES[pg - 1u].id[0] == P_ED_PIT && PAGES[pg - 1u].id[1] == P_ED_FLT);
     }
     check("ESYNC OFF: the tables, whatever esync_k holds (a phrase bit for bit)",
           phrase_child(0, 0, 0) == phrase_child(0, 0, esync_garbage));

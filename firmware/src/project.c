@@ -1053,9 +1053,9 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
             }
             meta = b[pos++];
             s->n = meta & 7u; s->time = (meta >> 3) & 3u; step_set_fl(s, (meta >> 5) & 3u);
-            s->vel = b[pos] & 127u; meta |= (b[pos++] & 128u) << 1;      /* (RATCH bit 0 at bit 8 of meta) */
+            step_set_vel(s, b[pos] & 127u); meta |= (b[pos++] & 128u) << 1;      /* (RATCH bit 0 at bit 8 of meta) */
             s->hit = b[pos++]; s->acc = b[pos++];
-            s->probability = b[pos] & 127u; meta |= (b[pos++] & 128u) << 2;   /* (bit 1 at bit 9) */
+            step_set_prob_raw(s, b[pos] & 127u); meta |= (b[pos++] & 128u) << 2;   /* (bit 1 at bit 9) */
             if (s->n > 4u || s->time > ST_REST || s->probability > 101u) return 0;
             if (s->acc & ~s->hit) return 0;
             step_set_ratchet(s, (meta >> 8) + 1u);
@@ -1293,8 +1293,7 @@ static void proj_bound(project_t *q)
         proj_steps(q->t[t].step);
         for (i = 0; i < NSTEP; i++) {
             step_t *s = &q->t[t].step[i];
-            s->vel &= 127u;
-            if (s->probability > 101u) s->probability = 0;
+            if (s->probability > 101u) step_set_prob_raw(s, 0);
         }
         for (i = 0; i < P_COUNT; i++) {
             const param_desc_t *d = param_desc_of(q->t[t].engine % NENGINES, i);

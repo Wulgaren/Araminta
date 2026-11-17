@@ -27,7 +27,7 @@ static uint32_t song_probe(uint32_t *blocks)
                 step_set_note(&t->step[i], 0, (uint8_t)(36u + 12u * s + 5u * k + i % 7u));
                 t->step[i].n = 1;
                 t->step[i].time = ST_NOTE;
-                t->step[i].vel = (uint8_t)(70u + i);
+                step_set_vel(&t->step[i], 70u + i);
             }
             t->step[1].time = ST_TIE;
             t->p[P_SLEN] = LEN[s][k];

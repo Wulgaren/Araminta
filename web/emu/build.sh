@@ -8,15 +8,15 @@
 #   A preview build sets EMU_BUILD / EMU_SHA (the site's dev preview uses "dev"): the page then names the build,
 #   warns that it shares the live emulator's saves and keeps a copy before its firmware can migrate them
 #   (web/emu/saves.js).
-#   build/emu/worklet.js is web/emu/store.js (its "export " stripped) in front of web/emu/worklet.js: the browser
-#   loads it with AudioWorklet.addModule, which compiles a classic script, so it may not contain a top-level
-#   "export". web/emu/store.js is the module the test (web/emu/emu_test.mjs) imports; edit it there, not here.
+#   build/emu/worklet.js is web/emu/store.js + web/emu/rec.js (each "export " stripped) in front of web/emu/worklet.js:
+#   the browser loads it with AudioWorklet.addModule, which compiles a classic script, so it may not contain a
+#   top-level "export". store.js / rec.js are the modules the tests and web/emu/replay.mjs import; edit them there.
 # Run after one ./build.sh (build/gen: the tables, the fonts, the CC0 samples).
 # -ffp-contract=off: no fused multiply-adds, as the host build. EMU_OPT replaces -O2, EMU_CFLAGS adds flags
 # (EMU_CFLAGS=-msimd128: let the compiler vectorise; every browser with AudioWorklet has wasm SIMD).
 # The page shows the version (FELUCCA_VERSION) marked "(preview)" before its release; EMU_PREVIEW=0 drops the mark.
 # Reruns skip what has not changed: the wasm (firmware sources, build/gen, felucca_web.c, flags, emcc; key in
-# build/emu/.wasm-key) and the page files (index.html, store.js, worklet.js, fonts; build/emu/.page-key), so
+# build/emu/.wasm-key) and the page files (index.html, store.js, rec.js, worklet.js, fonts; build/emu/.page-key), so
 # editing the page does not recompile the wasm.
 set -e
 cd "$(dirname "$0")/../.."
@@ -46,7 +46,7 @@ WASM_KEY=$(hash_inputs "$(emcc --version | head -1)|${EMU_OPT:--O2}|${EMU_CFLAGS
 # the page bakes HASH, which covers the wasm too: a firmware-only change must still rewrite the page, or its asset
 # URLs keep pointing at the previous build
 PAGE_KEY=$(hash_inputs "$VERSION|${EMU_PREVIEW:-1}|$EMU_BUILD|$EMU_SHA|$WASM_KEY" \
-    web/emu/index.html web/emu/saves.js web/emu/store.js web/emu/worklet.js web/fm1backup.js web/projconv.js \
+    web/emu/index.html web/emu/saves.js web/emu/store.js web/emu/rec.js web/emu/worklet.js web/fm1backup.js web/projconv.js \
     web/emu/fonts)
 # asset URLs carry this: a rebuilt page asks for a different felucca.wasm / worklet.js / saves.js / font, so a cached
 # copy cannot outlive the build that made it (GitHub Pages serves max-age=600; a hard reload alone did not always win).
@@ -85,7 +85,7 @@ if [ "$PAGE_OK" = 0 ]; then
     sed -e "s/@VERSION@/$VERSION/g" -e "s/@PREVIEW@/$PREVIEW/g" \
         -e "s/@BUILD@/$EMU_BUILD/g" -e "s/@SHA@/$EMU_SHA/g" -e "s/@HASH@/$HASH/g" \
         web/emu/index.html > build/emu/index.html
-    { sed 's/^export //' web/emu/store.js; echo; cat web/emu/worklet.js; } > build/emu/worklet.js
+    { sed 's/^export //' web/emu/store.js; echo; sed 's/^export //' web/emu/rec.js; echo; cat web/emu/worklet.js; } > build/emu/worklet.js
     cp web/emu/saves.js build/emu/saves.js
     sed "s#\"./projconv.js\"#\"./projconv.js?v=$HASH\"#" web/fm1backup.js > build/emu/fm1backup.js
     cp web/projconv.js build/emu/projconv.js
