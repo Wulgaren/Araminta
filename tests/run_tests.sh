@@ -997,6 +997,10 @@ u_emu_test() {
     run "browser emulator: boot, keys, MIDI, screen, LEDs, PLAY, a save kept across instances, = native, cost" \
         node web/emu/emu_test.mjs build/emu/felucca.wasm "$OUT/emu_native.f32"
 }
+u_emu_rec() {
+    run "browser emulator: a recorded session replays bit for bit (web/emu/rec_test.mjs)" \
+        node web/emu/rec_test.mjs build/emu/felucca.wasm
+}
 if ! command -v emcc >/dev/null 2>&1; then
     note "== skip the browser emulator (no emcc: Emscripten builds web/emu)"
 elif ! command -v node >/dev/null 2>&1 || [ ! -f build/gen/felucca_tables.h ]; then
@@ -1007,6 +1011,7 @@ else
     unit u_emu_native
     EMU_NATIVE=$n
     unit_after "$EMU_BUILD $EMU_NATIVE" u_emu_test
+    unit_after "$EMU_BUILD" u_emu_rec
 fi
 
 # the FM-1 emulator, device-timed (FM1_EMU=1; docs/fm1-emu-test.md): build/felucca.fwsc on fm1-emu's emulated FM-1

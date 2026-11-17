@@ -193,7 +193,18 @@ Focused checks, without the full gate:
 ```
 node web/emu/saves_test.mjs                       # the preview's save copies, no build needed
 node web/emu/emu_test.mjs build/emu/felucca.wasm  # the emulator itself (after web/emu/build.sh)
+node web/emu/rec_test.mjs build/emu/felucca.wasm  # a recorded session replays bit for bit
 ```
+
+### Recording a session (crackle hunting)
+
+Open the page with `?rec=1` (`http://localhost:8790/?rec=1`) and play: every input as it reaches the wasm, and each
+quantum's render time and audio health, go into a recording. Press `` ` `` when you hear a crackle, then
+`aramintaRec.save()` in the console or the `Save recording` button downloads `araminta-rec-<date>.json`.
+`node web/emu/replay.mjs build/emu/felucca.wasm araminta-rec-....json [--wav out.wav]` plays it back bit for bit;
+`render over budget` means the browser could not run the emulator fast enough (a dropout the samples do not show),
+`jump` a click inside the emulator's own output (reproducible in the replay and the WAV), `diverges` a wasm that
+differs from the one that recorded.
 
 ## Tests
 
