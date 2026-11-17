@@ -619,7 +619,7 @@ typedef struct {
 
 static const page_t PAGES[] = {
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, 0, {P_ATK, P_DEC, P_SUS, P_REL}},
-    {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, 0, {P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ESYNC}},   /* knob cards + scope (P_ED_FX unused);
+    {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, 0, {P_ED_PIT, P_ED_FLT, P_ED_SHP, P_ESYNC}},   /* knob cards + scope (P_ED_FX unused);
                                                                              * 1.5: ESYNC, ENV's times as note values */
     {"LFO", FAM_LFO, SC_TRACK, GR_LFO, LFO_SEC_LFO, {P_LRATE, P_LWAVE, P_LTRIG, P_LSYNC}},   /* 4.3: the speed and
                                                                              * when it starts */
