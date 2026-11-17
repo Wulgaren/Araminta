@@ -154,7 +154,7 @@ static int projects(void)
 {
     int bad = 0, ok = 1;
     project_t before, after;
-    project_store_t packed;
+    project_store_t packed, again;
     uint32_t i, k, pos;
     track_t *t;
     ui_power_on();
@@ -168,7 +168,8 @@ static int projects(void)
     trk[3].step[5].hit = 0x81; trk[3].step[5].acc = 0x80; trk[3].step[5].time = ST_NOTE;
     step_set_ratchet(&trk[3].step[5], 4);
     project_capture(&before);
-    ok = proj_pack(&packed, &before) && proj_import(&after, &packed, sizeof packed) && !memcmp(&before, &after, sizeof before);
+    ok = proj_pack(&packed, &before) && proj_import(&after, &packed, sizeof packed) &&
+         proj_pack(&again, &after) && !memcmp(&packed, &again, sizeof packed);
     for (i = 0; ok && i < 8u; i++)
         ok &= step_ratchet(&after.t[0].step[i]) == 1u + i % 4u && step_chance(&after.t[0].step[i]) == step_chance(&before.t[0].step[i]) &&
               after.t[0].step[i].vel == before.t[0].step[i].vel;

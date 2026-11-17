@@ -90,12 +90,14 @@ static int compact_project(void)
     t->step[3] = (step_t){{60, 67}, 2, ST_NOTE, SF_ACCENT, 110, 0x81, 0x80, 0};
     step_set_chance(&t->step[3], 25); t->p[P_FM1_LEVEL] = 80; t->p[P_ED_FLT] = -50;
     motion_set_event(t, 3, P_REV, 110);
-    project_t before, after; project_store_t packed, corrupt;
+    project_t before, after; project_store_t packed, corrupt, again;
     project_capture(&before);
     /* FUN21: project grew from 4096 to 4864 bytes */
     bad += check("FUN21 fits the retained and flash extent", sizeof(proj_slot) == 4u * 4864u && proj_pack(&packed, &before));
     bad += check("FUN10 round trip preserves signed values/FM params/probability/motion", proj_import(&after, &packed, sizeof packed) &&
-        !memcmp(&before, &after, sizeof before));
+        proj_pack(&again, &after) && !memcmp(&packed, &again, sizeof packed) &&
+        after.t[0].p[P_ED_FLT] == -50 && after.t[0].p[P_FM1_LEVEL] == 80 &&
+        step_chance(&after.t[0].step[3]) == 25u && after.motion.count == 1u && after.motion.event[0].value == 110);
     corrupt = packed; corrupt.raw[112] ^= 1u;
     bad += check("FUN7 torn or corrupted payload is refused", !proj_import(&after, &corrupt, sizeof corrupt));
     corrupt = packed; corrupt.raw[68] = 255; uint32_t sum = proj_hash(corrupt.raw, sizeof corrupt - 4u);
@@ -140,7 +142,7 @@ static void pack_fun7_89(project_store_t *out, const project_t *q, const motion_
 static int fun7_89(void)
 {
     int bad = 0, ok; ui_power_on(); track_t *t = &trk[0];
-    project_t before, after; project_store_t old; motion_store_t m;
+    project_t before, after; project_store_t old, again; motion_store_t m;
     uint32_t i, k;
     for (k = 0; k < NTRK; k++)
         for (i = 0; i < 8u; i++) trk[k].p[P_E0 + i] = (int16_t)(ENGINES[trk[k].eng_req]->edit[i].min + (int16_t)(k + i) %
@@ -183,7 +185,7 @@ static int fun7_89(void)
         after.motion.count == 3u && after.motion.event[0].param == P_REV && after.motion.event[1].param == P_E0 &&
         after.motion.event[1].value == 40 && after.motion.event[2].param == P_FM1_ATK);
     bad += check("  written again (P_COUNT parameters): the same project", proj_pack(&old, &after) && old.raw[66] == P_COUNT &&
-        proj_import(&before, &old, sizeof old) && !memcmp(&before, &after, sizeof before));
+        proj_import(&before, &old, sizeof old) && proj_pack(&again, &before) && !memcmp(&old, &again, sizeof old));
     pack_fun7_89(&old, &before, &m);                                /* SONG: a slot of the old firmware */
     memcpy(&proj_slot[2], &old, sizeof old);
     proj_fetch(2);                                                  /* 3.10: refresh summary / used bit from the slot */
@@ -1025,9 +1027,11 @@ static int lock_project(void)
     bad += check("a project without locks: the bytes as before (ids < 128), the same round trip", ok);
     motion_set_lock(t, 2, P_REV, 101); motion_set_lock(t, 7, P_E4, 77);
     project_capture(&before);
-    ok = proj_pack(&a, &before) && proj_import(&after, &a, sizeof a) && !memcmp(&before, &after, sizeof before);
+    ok = proj_pack(&a, &before) && proj_import(&after, &a, sizeof a) && proj_pack(&b, &after) &&
+         !memcmp(&a, &b, sizeof a);            /* (the packed bytes: a struct also holds bit-field padding) */
     bad += check("FUN9 round trip keeps the locks (bit 7 of the id byte), their values and steps", ok &&
-        after.motion.event[1].param == (P_REV | MOTION_LOCK) && after.motion.event[2].value == 77);
+        after.motion.event[0].value == 33 && after.motion.event[1].param == (P_REV | MOTION_LOCK) &&
+        after.motion.event[2].value == 77);
     project_save(2);
     motion_clear(t);
     project_load(2);
