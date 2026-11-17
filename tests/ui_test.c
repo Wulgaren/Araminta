@@ -301,7 +301,7 @@ static void my_steps(track_t *t)                  /* "recorded" steps */
         step_set_note(&t->step[i], 0, (uint8_t)(40 + i));
         t->step[i].n = 1;
         t->step[i].time = ST_NOTE;
-        t->step[i].vel = 99;
+        step_set_vel(&t->step[i], 99);
     }
     t->p[P_SLEN] = 32;
 }
@@ -1383,7 +1383,7 @@ static int test_grid(void)
             step_set_note(st, 0, BEAT[i]);
             st->n = 1;
             st->time = ST_NOTE;
-            st->vel = 96;
+            step_set_vel(st, 96);
             if (i % 4u == 0u)
                 step_set_fl(st, SF_ACCENT);
             step_to_grid(st);
@@ -4514,7 +4514,7 @@ static int test_step_preview_chord_entry(void)
     for (i = 0; i < NSTEP; i++) step_clear(&t->step[i]);
     t->step[3] = (step_t){{60, 64}, 2, ST_NOTE, 0, 100};
     t->step[4] = (step_t){{67}, 1, ST_NOTE, 0, 100};
-    t->step[4].probability = 101;                       /* (chance 0: the preview plays it all the same) */
+    step_set_prob_raw(&t->step[4], 101);                       /* (chance 0: the preview plays it all the same) */
     go_page(GR_ROLL);
     cursor_set(2);
     frame();
@@ -4669,9 +4669,9 @@ static int test_piano_roll(void)
             step_set_fl(st, n ? (fl & (SF_ACCENT | SF_SLIDE)) : 0u);
             step_set_ratchet(st, 1);
             step_set_nudge(st, 0);
-            st->vel = n ? 96 : 0;
+            step_set_vel(st, n ? 96u : 0u);
             st->hit = st->acc = 0;
-            st->probability = 0;
+            step_set_prob_raw(st, 0);
         }
         t->p[P_SLEN] = 16;
     }
@@ -6257,7 +6257,7 @@ static int test_layer_knob_race(void)
  * a tap closes it (no page), so does another page button (which opens its page), HOME, the menu, a dialog; OCT- puts
  * back as in the layer; a single tap, a peek, a combo and two slow taps are as before; the header shows the lock */
 /* ------------------------------------------------------ SEQ TOOLS (1.2) --- */
-static void tl_note(step_t *s, uint32_t n) { memset(s, 0, sizeof *s); s->time = ST_NOTE; s->n = 1; step_set_note(s, 0, n); s->vel = 96; }
+static void tl_note(step_t *s, uint32_t n) { memset(s, 0, sizeof *s); s->time = ST_NOTE; s->n = 1; step_set_note(s, 0, n); step_set_vel(s, 96); }
 static void tl_tie(step_t *s) { memset(s, 0, sizeof *s); s->time = ST_TIE; }
 /* the selected track: LEN 8, C4 tied, E4, G4 (steps 1 2, 4, 6), a note past LEN (21), a lock on step 4 */
 static void tl_melody(void)
@@ -8023,7 +8023,7 @@ static int test_song_lanes(void)
                 step_set_note(&t->step[i], 0, (uint8_t)((st ? 72u : 60u) + k));
                 t->step[i].n = 1;
                 t->step[i].time = ST_NOTE;
-                t->step[i].vel = 100;
+                step_set_vel(&t->step[i], 100);
             }
             t->p[P_SLEN] = LEN[st][k];
             t->p[P_SDIV] = st && k == 2u ? 1 : 2;

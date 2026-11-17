@@ -8,9 +8,13 @@
  *   build/host/punch_crackle_test [DIR_OF_BINS ...]
  *   CRACKLE_DIR=build/crackle_projs builds the survey table when DIR args are omitted.
  *
- * Deadline projection: host cycle count (Linux rdtsc, macOS ri_cycles) x2, converted with the perform_test
- * calibration (100 host cycles / sample ≈ 1.7 % of the device half). Device half = 2902 us
- * (HALF_FRAMES * 1e6 / FS). Always asserts on the synthetic mix; the survey prints only.
+ * Deadline projection: the perform_test calibration (100 instructions / sample ≈ 1.7 % of the device
+ * half). A cycle count (Linux rdtsc, macOS ri_cycles) reads about half the retired instructions on a host
+ * that retires ~2 per cycle, so x2 converts it to instructions; real instructions (Linux perf, ipc_kind 1)
+ * go in unscaled. They are x86-64 instructions from a host -O2 build, not pi32v2 ones, and the constant
+ * assumes the two count alike: the device-timed fm1-emu scenarios (tests/emu) are the authority on the
+ * deadline; this one is an early warning. Device half = 2902 us (HALF_FRAMES * 1e6 / FS). Always asserts
+ * on the synthetic mix; the survey prints only.
  */
 #include <stdint.h>
 /* empty USR1..3 sample/wavetable slots (wt_test.c): a WT track must not read unmapped XIP */
@@ -54,7 +58,7 @@ static uint64_t instr_now(void)
     struct rusage_info_v4 ri;
     if (!proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&ri)) {
         ipc_kind = 2;
-        return ri.ri_cycles;                /* cycles, as rdtsc below: IPC_TO_PCT is a cycle calibration */
+        return ri.ri_cycles;                /* a cycle count: pct_from_ipc x2es it into instructions */
     }
 #endif
 #ifdef __linux__
@@ -92,10 +96,25 @@ static uint64_t instr_now(void)
 #endif
 }
 
+/* ASan / UBSan / TSan multiply the retired-instruction count (about 3x here): the deadline
+ * projection only means something in a plain build, so an instrumented one surveys. */
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+#define PUNCH_COST_MEANINGFUL 0
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer) || \
+    __has_feature(undefined_behavior_sanitizer)
+#define PUNCH_COST_MEANINGFUL 0
+#endif
+#endif
+#ifndef PUNCH_COST_MEANINGFUL
+#define PUNCH_COST_MEANINGFUL 1
+#endif
+
 static double pct_from_ipc(double ipc)
 {
-    /* conservative: instruction (or cycle) count x2 before the % conversion */
-    return (ipc * 2.0) * IPC_TO_PCT;
+    /* Instructions are the device's unit: no fudge. A cycle count (rdtsc / ri_cycles) is a proxy that
+     * reads about twice them, so it keeps the x2 to stay conservative (that path only surveys). */
+    return ipc * (ipc_kind == 1 ? 1.0 : 2.0) * IPC_TO_PCT;
 }
 
 /* ----------------------------------------------------------- project apply --- */
@@ -710,7 +729,7 @@ static void play_check(const char *name, const churn_t *r)
     snprintf(what, sizeof what, "%s: all off after CLR + every key up%s%s", name,
              r->stuck & 1u ? " (still at work)" : "", r->stuck & 2u ? " (track params changed)" : "");
     check(what, r->stuck == 0);
-    if (ipc_kind == 1 && r->ipc) {
+    if (PUNCH_COST_MEANINGFUL && ipc_kind == 1 && r->ipc) {
         snprintf(what, sizeof what, "%s: worst %.1f %% stays under 100 %% of the half", name, r->pct);
         check(what, r->pct < 100.0);
     }
@@ -846,14 +865,15 @@ static int test_synth_stacks(void)
     /* click: full mix uses the local pre-press bound so kicks do not hide a splice */
     snprintf(what, sizeof what, "synth: worst click %d within 8x local bound %d", worst.click, worst.local);
     b += check(what, worst.local == 0 || worst.click <= 8 * worst.local || worst.click < 20000);
-    if (worst.ipc && ipc_kind == 1) {               /* real retired instructions only: cycles×0.017 is a survey aid */
+    if (PUNCH_COST_MEANINGFUL && worst.ipc && ipc_kind == 1) {               /* real retired instructions only: cycles×0.017 is a survey aid */
         snprintf(what, sizeof what, "synth: worst cons %.1f %% stays under 100 %% of the %.0f us half",
                  worst.pct, (double)HALF_US);
         b += check(what, worst.pct < 100.0);
         printf("punch: shed A/B on synth worst: cur(85/92) shed=%u miss=%u  rel(96/98) shed=%u miss=%u\n",
                worst.shed.shed_cur, worst.shed.miss_cur, worst.shed.shed_rel, worst.shed.miss_rel);
     } else if (worst.ipc) {
-        printf("punch: cycle-proxy cons %.1f %% (survey aid only; deadline assert needs HW instructions)\n",
+        printf("punch: %s cons %.1f %% (survey aid only)\n",
+               PUNCH_COST_MEANINGFUL ? "cycle-proxy" : "instrumented build",
                worst.pct);
         printf("punch: shed A/B on synth worst: cur(85/92) shed=%u miss=%u  rel(96/98) shed=%u miss=%u\n",
                worst.shed.shed_cur, worst.shed.miss_cur, worst.shed.shed_rel, worst.shed.miss_rel);
@@ -948,7 +968,8 @@ static void survey_dir(const char *dir)
         printf("punch: survey: cannot open %s: %s\n", dir, strerror(errno));
         return;
     }
-    printf("punch: survey %s (HALF_US=%u, cons = ipc×2×%.3f %%)\n", dir, HALF_US, IPC_TO_PCT);
+    printf("punch: survey %s (HALF_US=%u, cons = ipc×%.3f %% for instructions, ×2 for the cycle proxy)\n",
+           dir, HALF_US, IPC_TO_PCT);
     while ((e = readdir(d))) {
         char path[512], err[96];
         project_t q;

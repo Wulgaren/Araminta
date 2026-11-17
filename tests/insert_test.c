@@ -524,7 +524,7 @@ static int demos(const char *dir)
             put_step(&trk[0], i, nt ? 1u : 0u, &nt, nt ? ST_NOTE : ST_REST, (i % 4u) == 2u ? SF_ACCENT : 0u);
             put_step(&trk[1], i, 0, 0, ST_NOTE, 0);
             trk[1].step[i].hit = (uint8_t)((i % 4u == 0u ? 1u : 0u) | (i % 8u == 4u ? 2u : 0u) | (i % 2u == 0u ? 8u : 0u));
-            trk[1].step[i].vel = 100;
+            step_set_vel(&trk[1].step[i], 100);
         }
         trk[0].p[P_SLEN] = trk[1].p[P_SLEN] = 16;
         trk[0].p[P_REV] = trk[1].p[P_REV] = 20;

@@ -223,7 +223,7 @@ static int vel(void)
     t->step[0] = (step_t){{60}, 1, ST_NOTE, 0, 0};
     n = play(t, 8, &off, v, 8);
     ok = n == 1u && v[0] == 96u;
-    t->step[0].vel = 50;
+    step_set_vel(&t->step[0], 50);
     n = play(t, 8, &off, v, 8);
     ok &= n == 1u && v[0] == 50u;
     step_set_fl(&t->step[0], SF_ACCENT);

@@ -275,7 +275,7 @@ static void tl_random_notes(track_t *t, uint32_t len)
             if (i % 2u == 0u && (!i || tl_rnd(4))) {
                 t->step[i].time = ST_NOTE;
                 t->step[i].n = 1;
-                t->step[i].vel = 96;
+                step_set_vel(&t->step[i], 96);
             }
         }
     }
@@ -457,7 +457,7 @@ static uint32_t tl2_stretch(track_t *t, uint32_t len)
         t->step[i * 2u] = *s;
         if (hold) {
             t->step[i * 2u + 1u].time = ST_TIE;
-            t->step[i * 2u + 1u].vel = s->vel;
+            step_set_vel(&t->step[i * 2u + 1u], (uint32_t)s->vel);
         }
     }
     tl2_motion_map(t, len, 2u, 1u, nlen);
@@ -484,7 +484,7 @@ static uint32_t tl2_squeeze(track_t *t, uint32_t len)
             t->step[j] = undo.step[pick];
         } else if (tie && j) {
             t->step[j].time = ST_TIE;
-            t->step[j].vel = undo.step[j * 2u].vel;
+            step_set_vel(&t->step[j], (uint32_t)undo.step[j * 2u].vel);
         }
     }
     tl2_motion_map(t, len, 1u, 2u, nlen);
@@ -514,7 +514,7 @@ static void tl2_human(track_t *t, uint32_t len)
         v = s->vel ? (int32_t)s->vel : 96;
         v += (int32_t)tl_rnd(2u * TL2_HUMAN_VEL + 1u) - TL2_HUMAN_VEL;
         v = clamp(v, 1, 127);
-        s->vel = (uint8_t)(v == 96 ? 0 : v);
+        step_set_vel(s, v == 96 ? 0u : (uint32_t)v);
         n = step_nudge(s) + (int32_t)tl_rnd(2u * TL2_HUMAN_NUDGE + 1u) - TL2_HUMAN_NUDGE;
         step_set_nudge(s, n);
     }
