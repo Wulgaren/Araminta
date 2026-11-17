@@ -1709,6 +1709,30 @@ async function editorSessions() {
   ok(!sent && S.count() === 0, "editor: library storage delay cannot send a save to a new device");
 }
 
+function editorLayout() {
+  const src = html.slice(html.indexOf("const EXPECT"), html.indexOf("/* globals that are actions"));
+  const load = (engine) => vm.runInNewContext(`${src}; ({knownLayout, LAYOUT})`,
+    { engName: () => engine, P_CHORD: [81, 82], P_LANES: [83, 84, 85, 86, 87, 88, 89, 90] });
+  const L = load("DRUM-X");
+  /* a MOD group has no pages: its rows are the matrix ids P_M1SRC .. P_M4AMT, one per slot */
+  const ids = (l, s) => l.flatMap((g) => g.pages || (s === 0 && g.mod != null
+      ? [["MOD", 0, Array.from({ length: 12 }, (_, i) => g.mod + i)]] : []))
+    .filter((p) => p[1] === s).flatMap((p) => p[2]);
+  const env = (l) => l.find((g) => g.t === "ENV").pages.find((p) => p[0] === "ENV DEST")[2];
+  ok(L.knownLayout({ pcount: 127, gcount: 32, pe0: 119 }) && L.knownLayout({ pcount: 91, gcount: 30, pe0: 83 }) &&
+     !L.knownLayout({ pcount: 127, gcount: 30, pe0: 119 }) && !L.knownLayout({ pcount: 91, gcount: 32, pe0: 83 }),
+     "editor layout: grouped pages for the 4.x layout and the older ones, not a mixed INFO");
+  ok(JSON.stringify(env(L.LAYOUT(119))) === "[6,5,7,118]", "editor layout: ENV DEST cards PIT FLT SHP SYNC, as LFO DEST");
+  ok(JSON.stringify(env(L.LAYOUT(83))) === "[5,6,7,8]", "editor layout: older firmware keeps its ENV DEST cards");
+  const t = ids(L.LAYOUT(119), 0), miss = [];
+  for (let i = 0; i < 127; i++) if (!t.includes(i) && i !== 41 && i !== 117 && !(i >= 61 && i <= 80)) miss.push(i);
+  ok(!miss.length && new Set(t).size === t.length, `editor layout: every track parameter on one page (${miss})`);
+  ok(ids(load("ANALOG").LAYOUT(119), 0).includes(117), "editor layout: ANALOG keeps its filter TYPE (117)");
+  const g = ids(L.LAYOUT(119), 1), gmiss = [];
+  for (let i = 0; i < 32; i++) if (!g.includes(i) && !(i >= 16 && i <= 20) && !(i >= 27 && i <= 30)) gmiss.push(i);
+  ok(!gmiss.length && new Set(g).size === g.length, `editor layout: every setting on one page (${gmiss})`);
+}
+
 function editorTabs() {
   const tabs = [...html.matchAll(/<button role="tab" data-tab="(\w+)"/g)].map((x) => x[1]);
   const panels = [...html.matchAll(/<section class="panel" id="p-(\w+)" data-tab="(\w+)"/g)].map((x) => [x[1], x[2]]);
@@ -1996,6 +2020,7 @@ await editorFm6Bank();
 editorMidiLearn();
 fm6TabNoBank();
 await editorFm4();
+editorLayout();
 editorTabs();
 editorIcons();
 samplesMatch();
