@@ -28,6 +28,7 @@ Targets for the edit loop (not the final gate):
   sound15     ANALOG filter TYPE and ENV SYNC                tests/sound15_test.c
   inschain    insert chain order, MIX 0 bypass, migration    tests/inschain_test.c
   fxroute     every FX stage in CHAIN / SEND / MASTER         tests/fx_route_test.c
+  pfxclock    punch-in lane under a moving song clock          tests/pfx_clock_test.c
   perform     FX hold layer effects and punch load             tests/perform_test.c
   punch       punch-in crackle harness (borrow, stacks, survey) tests/punch_crackle_test.c
   flash       flash write windows, torn writes, layout        tests/flash_map_test.c, storage_test.c, layout_test.py
@@ -124,6 +125,12 @@ do_fxroute() {
     run_bin fxroute "$OUT/fx_route_test"
 }
 
+do_pfxclock() {
+    compile pfxclock "$OUT/pfx_clock_test" tests/pfx_clock_test.c \
+        -O2 -w -Ibuild/gen -Ifirmware/src -lm || return 1
+    run_bin pfxclock "$OUT/pfx_clock_test"
+}
+
 do_regress() {
     compile regress "$OUT/regress" tests/regress.c \
         -O2 -w -Ibuild/gen -Ifirmware/src -lm || return 1
@@ -186,6 +193,7 @@ run_target() {
         sound15) do_sound15 ;;
         inschain) do_inschain ;;
         fxroute) do_fxroute ;;
+        pfxclock) do_pfxclock ;;
         perform) do_perform ;;
         punch) do_punch ;;
         flash) do_flash ;;
@@ -203,7 +211,7 @@ fi
 need_tables=0
 for t in "$@"; do
     case $t in
-        motion|ui|ui_render|editor|project|param|sound15|inschain|fxroute|perform|punch|regress|target_budget|web) need_tables=1 ;;
+        motion|ui|ui_render|editor|project|param|sound15|inschain|fxroute|pfxclock|perform|punch|regress|target_budget|web) need_tables=1 ;;
         flash|all|list) ;;
         *)
             usage >&2

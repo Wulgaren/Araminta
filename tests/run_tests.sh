@@ -698,6 +698,12 @@ if [ -f build/gen/felucca_tables.h ]; then
             "$OUT/fx_route_test"
     }
     unit u_fxroute
+    u_pfxclock() {
+        build "$OUT/pfx_clock_test" tests/pfx_clock_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
+        run "punch lane clock: a moving song clock (tempo, TAPE MASTER SPEED) retimes the lane without skipping or repeating a step" \
+            "$OUT/pfx_clock_test"
+    }
+    unit u_pfxclock
     # legacy insert_test (single TYPE) not rebuilt until updated for the 6-stage chain
     u_sound15() {
         build "$OUT/sound15_test" tests/sound15_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
