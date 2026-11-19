@@ -211,15 +211,33 @@ static inline void px_csvf_pass(const px_csvf_t *c, px_csvf_st_t *s, int32_t in)
 }
 
 /* ------------------------------------------------------------- Modal --- */
+typedef struct { int32_t g, rpg, gh, a; } px_mode_t;    /* px_svf_t + the mode's gain (Q28) */
+
+/* px_modal_block's mode inputs: versioned in the voice, so a block whose inputs did not move reuses the
+ * last block's coefficients instead of recomputing the sines, tangents and divisions */
+typedef struct {
+    uint32_t f0, structure, brightness, damping, accent, pos;
+} px_mode_key_t;
+
 typedef struct {
     int32_t s[PX_NMODE][2];                              /* mode states (s1, s2), Q22 */
     int32_t e1, e2;                                      /* exciter (ResonatorSvf<1>, low-pass), Q24 */
     uint32_t rng;
     int32_t benv;                                        /* MEMB: the pitch bend after a strike, Q16 (1 at it) */
     uint8_t trig;
+    uint8_t cvalid;                                      /* cm, cn: the coefficients of ckey */
+    uint8_t cn;                                          /* its modes below 0.499 */
+    px_mode_key_t ckey;
+    px_mode_t cm[PX_NMODE];
 } px_modal_t;
 
-typedef struct { int32_t g, rpg, gh, a; } px_mode_t;    /* px_svf_t + the mode's gain (Q28) */
+/* the key fields are what builds the modes, so equal fields give equal coefficients byte for byte */
+static inline int px_mode_key_eq(const px_mode_key_t *a, const px_mode_key_t *b)
+{
+    return a->f0 == b->f0 && a->structure == b->structure && a->brightness == b->brightness &&
+           a->damping == b->damping && a->accent == b->accent && a->pos == b->pos;
+}
+
 typedef struct {                                         /* per block */
     px_mode_t m[PX_NMODE];
     uint32_t n;                                          /* modes below 0.499 */
@@ -298,37 +316,50 @@ static __attribute__((noinline)) void px_modal_block(px_modal_blk_t *B, px_modal
     int32_t stiff = px_stiff(structure), st2, stretch = 65536, ql;
     uint32_t i, phs;
     uint64_t q8, harm;
+    px_mode_key_t key = {f0, (uint32_t)structure, (uint32_t)brightness, (uint32_t)damping, (uint32_t)accent,
+                         (uint32_t)pos};
     px_modal_exciter(B, M, f0 > 0x40000000u ? 0x40000000u : f0, brightness, b, d, accent, bow);
-    /* the modes */
-    f0 = (uint32_t)(((uint64_t)f0 * (uint32_t)(((uint64_t)1 << 32) /   /* NthHarmonicCompensation(3) */
-                     (uint32_t)(65536 + stiff + px_m(stiff, stiff < 0 ? 60948 : 64225, 16)))) >> 16);
-    q8 = px_modal_q(structure, b, d, &ql);
-    st2 = stiff;
-    harm = f0;
-    phs = 0;
-    for (i = 0; i < PX_NMODE; i++) {
-        uint64_t mf = (harm * (uint32_t)stretch) >> 16;
-        int32_t att, amp;
-        if (mf >= 2143260078u)
-            break;
-        att = 65536 - (int32_t)(mf >> 15);               /* 1 - 2 f */
-        amp = px_m(px_sin(phs + 0x40000000u), 16384, 16);   /* cos(2 pi pos i) / 4, Q30 * Q16 -> Q30 */
-        {
-            px_svf_t c;
-            px_svf_coef(&c, (uint32_t)mf, (uint32_t)(256u + ((mf * q8) >> 32)));
-            B->m[i].g = c.g;
-            B->m[i].rpg = c.rpg;
-            B->m[i].gh = c.gh;
-            B->m[i].a = px_m(amp, att, 18);              /* Q28 */
+    if (M->cvalid && px_mode_key_eq(&key, &M->ckey)) {   /* the exciter above runs either way: it has its own state */
+        B->n = M->cn;
+        for (i = 0; i < B->n; i++)
+            B->m[i] = M->cm[i];
+    } else {
+        /* the modes */
+        f0 = (uint32_t)(((uint64_t)f0 * (uint32_t)(((uint64_t)1 << 32) /   /* NthHarmonicCompensation(3) */
+                         (uint32_t)(65536 + stiff + px_m(stiff, stiff < 0 ? 60948 : 64225, 16)))) >> 16);
+        q8 = px_modal_q(structure, b, d, &ql);
+        st2 = stiff;
+        harm = f0;
+        phs = 0;
+        for (i = 0; i < PX_NMODE; i++) {
+            uint64_t mf = (harm * (uint32_t)stretch) >> 16;
+            int32_t att, amp;
+            if (mf >= 2143260078u)
+                break;
+            att = 65536 - (int32_t)(mf >> 15);           /* 1 - 2 f */
+            amp = px_m(px_sin(phs + 0x40000000u), 16384, 16);   /* cos(2 pi pos i) / 4, Q30 * Q16 -> Q30 */
+            {
+                px_svf_t c;
+                px_svf_coef(&c, (uint32_t)mf, (uint32_t)(256u + ((mf * q8) >> 32)));
+                B->m[i].g = c.g;
+                B->m[i].rpg = c.rpg;
+                B->m[i].gh = c.gh;
+                B->m[i].a = px_m(amp, att, 18);          /* Q28 */
+            }
+            stretch += st2;
+            st2 = px_m(st2, st2 < 0 ? 60948 : 64225, 16);    /* * 0.93 / 0.98 */
+            harm += f0;
+            q8 = (q8 * (uint32_t)ql) >> 16;
+            phs += (uint32_t)pos << 16;
         }
-        stretch += st2;
-        st2 = px_m(st2, st2 < 0 ? 60948 : 64225, 16);    /* * 0.93 / 0.98 */
-        harm += f0;
-        q8 = (q8 * (uint32_t)ql) >> 16;
-        phs += (uint32_t)pos << 16;
+        B->n = i;
+        for (i = 0; i < B->n; i++)
+            M->cm[i] = B->m[i];
+        M->ckey = key;
+        M->cn = (uint8_t)B->n;
+        M->cvalid = 1;
     }
-    B->n = i;
-    for (; i < PX_NMODE; i++)                            /* out of the band: silent */
+    for (i = B->n; i < PX_NMODE; i++)                    /* out of the band: silent */
         M->s[i][0] = M->s[i][1] = 0;
     for (i = 0; i < B->n; i++) {                         /* bound the states at +-64 (far beyond any real use): */
         M->s[i][0] = px_clamp(M->s[i][0], -(1 << 28), 1 << 28);   /* every sum of the next block fits */
