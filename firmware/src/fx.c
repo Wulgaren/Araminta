@@ -2755,7 +2755,7 @@ static __attribute__((noinline)) void master_begin(void)
     }
 }
 /* DUCK: kick (eng_drum.c duck_hit) ducks non-DRUM parts */
-static __attribute__((noinline)) void duck_block(void)
+static AUDIO_RAM __attribute__((noinline)) void duck_block(void)
 {
     int32_t dep = song.g[G_DUCK] * 31731 / 100, e;
     if (duck_hit) {
@@ -2771,7 +2771,7 @@ static __attribute__((noinline)) void duck_block(void)
     } else if (duck_hold) {
         duck_hold--;
     } else if (duck_env) {
-        duck_env = (int32_t)(((uint32_t)duck_env * dx_fall(40000u + (uint32_t)song.g[G_DREL] * 5600u)) >> 16);
+        duck_env = (int32_t)(((uint32_t)duck_env * AUDIO_FAR(dx_fall)(40000u + (uint32_t)song.g[G_DREL] * 5600u)) >> 16);
     }
     e = (duck_env * (65536 - duck_env)) >> 15;
     duck_g1 = 32767 - mulq15(dep, e > 32767 ? 32767 : e);
@@ -3036,7 +3036,7 @@ static volatile uint32_t c1_job_ticks;                  /* TIMER4 ticks core 1 s
 static uint16_t perf_cost;                              /* the FX layer job's ticks, smoothed (console: c1_layer_us) */
 /* the send buses may go to core 1 while core 0 renders parts: no CHAIN owner runs the DLY / REV state in its
  * part or puts its bus settings into song.g (fx_bus_stage) meanwhile */
-static int bus_c1(void) { return bus_own(0) < 0 && bus_own(1) < 0; }
+static AUDIO_RAM int bus_c1(void) { return AUDIO_FAR(bus_own)(0) < 0 && AUDIO_FAR(bus_own)(1) < 0; }
 
 static mixsum_t c1_part;                /* a part's sums while it renders: whole only into the core's sums (a job
                                          * cut mid-part leaves its half here, never in mx[1]) */
@@ -3222,7 +3222,7 @@ static __attribute__((noinline)) uint32_t mix_split(void)
     }
     split_vage = vage;
 #if C1_TIMED
-    if (bus_c1() && c1_t4_ok)
+    if (AUDIO_FAR(bus_c1)() && c1_t4_ok)
         bw = bus_cost;                                  /* core 1 runs the buses too (mix_block) */
 #endif
     lo = all + bw;                                      /* no split: core 0 renders the parts and the buses */
@@ -3428,12 +3428,12 @@ static void mix_block(int32_t *out, uint32_t n)
     clip_eff = song.g[G_CLIP];                          /* (JIANT) CLIP / PNCH for this block */
     pnch_eff = song.g[G_PUNCH];
     master_begin();
-    duck_block();
+    AUDIO_FAR(duck_block)();
     perf = AUDIO_FAR(perf_begin)(n);                    /* the FX hold layer at work (perform.c) */
     rev_tank[0].hl.side = rev_tank[1].hl.side = 0;      /* HALL sides set this block by insert / send */
     for (i = 0; i < NTRK; i++)                          /* every part's copy of the bus settings (core.h bus_knobs) */
         bus_knobs_g(&trk[i]);
-    b1 = bus_c1();
+    b1 = AUDIO_FAR(bus_c1)();
     if (b1)
         bus_g_swap();                                   /* the buses' settings in, for either core */
     {   /* the parts: some on the second core, into its own sums (mx[1]), and its send buses after them */

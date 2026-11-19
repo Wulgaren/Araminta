@@ -232,9 +232,9 @@ static int perf_loop(uint32_t e) { return e <= PF_REV || e == PF_R12; }
 static uint32_t perf_den(uint32_t e) { return e == PF_R12 ? 3u : PF_DEN[e]; }
 static uint32_t perf_len(uint32_t e) { return perf_loop(e) ? beat_samples() / perf_den(e) : 0u; }
 /* the effects that can run at the tempo: a REPEAT / REVERSE longer than the loop cannot */
-static uint32_t perf_avail(void)
+static __attribute__((noinline)) uint32_t perf_avail(void)
 {
-    uint32_t a = PF_Q, e, m = ~0u, b = beat_samples();
+    uint32_t a = PF_Q, e, m = ~0u, b = AUDIO_FAR(beat_samples)();
     while (a) {
         e = (uint32_t)__builtin_ctz(a);
         a &= a - 1u;
@@ -421,9 +421,9 @@ static void perf_buf_select(uint32_t e)
 /* each block, after the keys (seq.c) and before the parts: what runs, the 1/16, the filters, the mutes; also the
  * SLICER's buffer, which the buffer effects borrow. Returns 1 when a stage has something to do, and leaves perf_ctl:
  * the copy the layer reads a block late (it runs beside this core's tail, on either core) */
-static __attribute__((noinline)) int perf_begin(uint32_t n)
+static AUDIO_RAM __attribute__((noinline)) int perf_begin(uint32_t n)
 {
-    uint32_t solo = solo_mask(), off = off_mask(), s16 = beat_samples() >> 2, lane = 0, held, mute, q, k, ph0, bnd;
+    uint32_t solo = solo_mask(), off = off_mask(), s16 = AUDIO_FAR(beat_samples)() >> 2, lane = 0, held, mute, q, k, ph0, bnd;
     if (song.playing && s16) {                         /* the punch-in lane's step at this block's end (pfx_lph,
                                                          * pfx_block's retimed clock) */
         if (!pfx_adv)                                   /* a transport started this block, after pfx_block: its
@@ -431,7 +431,7 @@ static __attribute__((noinline)) int perf_begin(uint32_t n)
             pfx_lph += n;
         lane = pfx_lane[((pfx_lph - 1u) / s16) & 63u];
     }
-    held = ((perf_kill ? 0u : perf_held | perf_latched | (solo ? (~solo & 15u) << PF_M1 : 0u)) | lane) & perf_avail() & ~PF_MIDI;
+    held = ((perf_kill ? 0u : perf_held | perf_latched | (solo ? (~solo & 15u) << PF_M1 : 0u)) | lane) & AUDIO_FAR(perf_avail)() & ~PF_MIDI;
     /* mix_part's mutes: a black key, a ramp still running, or PLAY OFF (GLO) — the OFF ones are not the layer's,
      * so a sounding note ramps out in mix_part while perf_begin may stay idle */
     pf.mute = 0;
