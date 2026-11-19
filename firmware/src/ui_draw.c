@@ -1637,6 +1637,20 @@ static void ui_draw(void)
     ui_draw_page(counting);
     scr_shown();
 }
+/* the messages and the timed hints step once a frame (the page's path and the layer's) */
+static void ui_tick_frame(void)
+{
+    if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {     /* the second message (ui_notices) */
+        str_cpy(ui.msg, ui.msg2, sizeof ui.msg);
+        ui.msg2[0] = 0;
+        ui.msg_t = 60;
+    }
+    if (ui.bpm_t)
+        ui.bpm_t--;
+    if (ui.hot_t)
+        ui.hot_t--;
+}
+
 static void ui_draw_page(uint32_t counting)
 {
     if (ui.force)
@@ -1673,15 +1687,7 @@ static void ui_draw_page(uint32_t counting)
             draw_frame();
         draw_head();
         draw_layer();
-        if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {
-            str_cpy(ui.msg, ui.msg2, sizeof ui.msg);
-            ui.msg2[0] = 0;
-            ui.msg_t = 60;
-        }
-        if (ui.hot_t)
-            ui.hot_t--;
-        if (ui.bpm_t)
-            ui.bpm_t--;
+        ui_tick_frame();
         ui.force = 0;
         return;
     }
@@ -1706,15 +1712,7 @@ static void ui_draw_page(uint32_t counting)
     draw_columns();
     felucca_dbg.stage = 5;
     draw_graph();
-    if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {     /* the second message (ui_notices) */
-        str_cpy(ui.msg, ui.msg2, sizeof ui.msg);
-        ui.msg2[0] = 0;
-        ui.msg_t = 60;
-    }
-    if (ui.bpm_t)
-        ui.bpm_t--;
-    if (ui.hot_t)
-        ui.hot_t--;
+    ui_tick_frame();
     felucca_dbg.stage = 6;
     draw_foot();
     ui.force = 0;

@@ -57,8 +57,8 @@ typedef struct {
 } px_symp_t;
 
 /* the coefficients, when an input changed. f[k]: the sympathetic strings' frequencies (cycles Q32, 0 = off); brightness, damping, amount Q16 0..1 */
-static AUDIO_RAM __attribute__((noinline)) void px_symp_block(px_symp_t *Y, const uint32_t *f, int32_t brightness, int32_t damping,
-                                                    int32_t amount)
+static __attribute__((noinline)) void px_symp_block(px_symp_t *Y, const uint32_t *f, int32_t brightness, int32_t damping,
+                                                   int32_t amount)
 {
     px_symp_cf_t *B = &Y->cf;
     int32_t b = px_m(brightness, 131072 - brightness, 16), dd = 16384 + px_m(damping, 47186, 16), lfd, k8;
@@ -75,7 +75,7 @@ static AUDIO_RAM __attribute__((noinline)) void px_symp_block(px_symp_t *Y, cons
     b = px_m(b, 131072 - b, 16);                         /* b (2 - b), twice */
     b = 32768 + (b >> 1);                                /* the FIR: 0.5 .. 1 */
     lfd = px_m(dd, 131072 - dd, 16);
-    k8 = (int32_t)AUDIO_FAR(px_exp2)(-8 * lfd);          /* 2^(-8 lfd): 0.07 s / RT60 */
+    k8 = (int32_t)px_exp2(-8 * lfd);                     /* 2^(-8 lfd): 0.07 s / RT60 */
     B->cin = amount >> 4;                                /* at most 1 / 16 (of a pair: 1 / 8) */
     B->on = 0;
     for (k = 0; k < PX_NSYMP; k++) {
@@ -91,7 +91,7 @@ static AUDIO_RAM __attribute__((noinline)) void px_symp_block(px_symp_t *Y, cons
             continue;
         /* gain per period 2^(-10 period / RT60) = 2^(-10 p / (1543.5 steps) * k8) */
         e = (uint32_t)(((((uint64_t)p * 27826874u) >> 32) * (uint32_t)k8) >> 16);   /* octaves, Q16 (10 / 1543.5: Q32) */
-        c = e > 15u << 16 ? 0 : (int32_t)(AUDIO_FAR(px_exp2)(-(int32_t)e) << 8);   /* Q24 */
+        c = e > 15u << 16 ? 0 : (int32_t)(px_exp2(-(int32_t)e) << 8);   /* Q24 */
         if (c > 16775500)
             c = 16775500;                                /* 0.9999 */
         fr = (int32_t)(p & 0xFFFFu);
@@ -116,16 +116,48 @@ static AUDIO_RAM __attribute__((noinline)) void px_symp_run(px_symp_t *Y, const 
     if (n > 32u)
         n = 32u;
     m = n >> 1;
-    for (i = 0; i < m; i++) {                            /* their input: the string, a pair summed, less its DC */
-        int32_t v = px_m(in[2 * i] + in[2 * i + 1], B->cin, 16);   /* (~10 Hz), Q12 */
-        int64_t a = (int64_t)1070617000 * dcy + dce;
-        dcy = v - dcx + (int32_t)(a >> 30);
-        dce = (int32_t)(a & 0x3FFFFFFF);
-        dcx = v;
-        x[i] = (dcy + 128) >> 8;
-        acc[i] = 0;
+    /* the strings, a pass each: the first one on writes the block's sum, the others add to it (one load a sample
+     * less), and it takes the block's input in its own pass (their input: the string, a pair summed, less its DC
+     * (~10 Hz), Q12); x[] keeps that input for the strings after it */
+    k = 0;
+    while (k < PX_NSYMP && !(B->on >> k & 1u))
+        k++;
+    if (k < PX_NSYMP) {
+        int16_t *l = Y->line[k];
+        uint32_t wp = Y->wp, d = B->d[k];
+        int32_t h0 = B->h[k][0], h1 = B->h[k][1], h2 = B->h[k][2];
+        for (i = 0; i < m; i++) {
+            int32_t v = px_m(in[2 * i] + in[2 * i + 1], B->cin, 16);
+            int64_t a = (int64_t)1070617000 * dcy + dce;
+            int32_t xi;
+            uint32_t t = wp + d;
+            dcy = v - dcx + (int32_t)(a >> 30);
+            dce = (int32_t)(a & 0x3FFFFFFF);
+            dcx = v;
+            xi = (dcy + 128) >> 8;
+            x[i] = xi;
+            int64_t s = (int64_t)h0 * l[t & PX_YMASK] + (int64_t)h1 * l[(t + 1u) & PX_YMASK] +
+                        (int64_t)h2 * l[(t + 2u) & PX_YMASK];
+            int32_t y = (int32_t)((s + ((s >> 63) & 0xFFFFFF)) >> 24) + xi;
+            y = y < -32767 ? -32767 : y;             /* max, then min: the two instructions of the pair */
+            y = y > 32767 ? 32767 : y;
+            l[wp] = (int16_t)y;
+            acc[i] = y;
+            wp = (wp - 1u) & PX_YMASK;
+        }
+        k++;
+    } else {
+        for (i = 0; i < m; i++) {                      /* none on: the input and the state, the sum nothing */
+            int32_t v = px_m(in[2 * i] + in[2 * i + 1], B->cin, 16);
+            int64_t a = (int64_t)1070617000 * dcy + dce;
+            dcy = v - dcx + (int32_t)(a >> 30);
+            dce = (int32_t)(a & 0x3FFFFFFF);
+            dcx = v;
+            x[i] = (dcy + 128) >> 8;
+            acc[i] = 0;
+        }
     }
-    for (k = 0; k < PX_NSYMP; k++) {
+    for (; k < PX_NSYMP; k++) {
         int16_t *l = Y->line[k];
         uint32_t wp = Y->wp, d = B->d[k];
         int32_t h0 = B->h[k][0], h1 = B->h[k][1], h2 = B->h[k][2];
@@ -135,7 +167,9 @@ static AUDIO_RAM __attribute__((noinline)) void px_symp_run(px_symp_t *Y, const 
             uint32_t t = wp + d;
             int64_t s = (int64_t)h0 * l[t & PX_YMASK] + (int64_t)h1 * l[(t + 1u) & PX_YMASK] +
                         (int64_t)h2 * l[(t + 2u) & PX_YMASK];
-            int32_t y = px_clamp((int32_t)((s + ((s >> 63) & 0xFFFFFF)) >> 24) + x[i], -32767, 32767);
+            int32_t y = (int32_t)((s + ((s >> 63) & 0xFFFFFF)) >> 24) + x[i];
+            y = y < -32767 ? -32767 : y;             /* max, then min: the two instructions of the pair */
+            y = y > 32767 ? 32767 : y;
             l[wp] = (int16_t)y;
             acc[i] += y;
             wp = (wp - 1u) & PX_YMASK;

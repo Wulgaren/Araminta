@@ -412,8 +412,10 @@ struct Emu {
 }
 
 /// One punch-in check: between `from` and `to` (ms) the effects in `mask` show in perf_held (or perf_latched):
-/// any of them, or (`all`) all of them at once. `midi`: instead, a MIDI punch-in is at work on some track
-/// (that page's effects go through pfx.c's t->pfx / t->pfx_pit, not the FX layer's perf_held).
+/// any of them, or (`all`) all of them at once. `midi_fx`: instead, that MIDI punch-in (PF_*) must be held (or
+/// latched) now and at work on some track (pfx.c's t->pfx bit / t->pfx_pit octave), not just any MIDI effect
+/// and not the recorded lane alone. `cancel`: a latched octave whose opposite was tapped earlier, so both octave
+/// bits must be latched and every track's actual pitch offset zero.
 struct Probe {
     label: String,
     from: u64,
@@ -421,8 +423,42 @@ struct Probe {
     mask: u32,
     latched: bool,
     all: bool,
-    midi: bool,
+    midi_fx: Option<u32>,
+    cancel: bool,
     seen: bool,
+}
+
+/// 1 when a track's MIDI punch-in state is the requested effect (pfx.c pfx_block). The effects that share a
+/// PFX bit match by that bit (the three repeats: PFX_REP; DEC- / DEC+: PFX_DEC); OCT- / OCT+ by t->pfx_pit's
+/// direction.
+fn pfx_matches(fx: u32, t_pfx: u8, t_pit: i16) -> bool {
+    let bit = match fx {
+        PF_RND => PFX_RND,
+        PF_HALF => PFX_HALF,
+        PF_X2 => PFX_X2,
+        PF_S8 | PF_S16 | PF_ARP => PFX_REP,
+        PF_DSHT | PF_DLNG => PFX_DEC,
+        PF_ATK => PFX_ATK,
+        PF_OCTD => return t_pit < 0,
+        PF_OCTU => return t_pit > 0,
+        _ => return false,
+    };
+    t_pfx & bit != 0
+}
+
+/// pfx.c's two octave punch-ins, the bits that cancel each other when both are latched.
+const OCTAVE_BITS: u32 = (1 << PF_OCTD) | (1 << PF_OCTU);
+
+/// A latched octave cancelled by an opposite octave tapped earlier: FX LATCH toggles the bits, so both end up
+/// latched and the two offsets cancel; both bits must be latched and no track may carry a pitch offset.
+fn octave_cancelled(latched: u32, pitch: [i16; 4]) -> bool {
+    latched & OCTAVE_BITS == OCTAVE_BITS && pitch == [0; 4]
+}
+
+/// The runtime probe: the requested key must be held (or latched) this step AND the track must show the
+/// requested effect. PFX bits shared by several PF effects (the repeats, DEC- / DEC+) need the live bit.
+fn probe_midi_matches(fx: u32, live: u32, t_pfx: u8, t_pit: i16) -> bool {
+    fx < 32 && live & (1u32 << fx) != 0 && pfx_matches(fx, t_pfx, t_pit)
 }
 
 impl Emu {
@@ -470,10 +506,11 @@ impl Emu {
     }
 
     /// A MIDI punch-in is at work on some track: pfx.c writes t->pfx (PFX_* bits) and t->pfx_pit (OCT- / OCT+).
-    fn pfx_active(&mut self) -> bool {
+    fn pfx_at_work(&mut self, fx: u32, live: u32) -> bool {
         (0..4u32).any(|k| {
             let a = self.syms.trk + k * TRK_SIZE;
-            self.soc.read8(a + TRK_PFX_OFF) != 0 || self.soc.read16(a + TRK_PFX_PIT_OFF) != 0
+            probe_midi_matches(fx, live, self.soc.read8(a + TRK_PFX_OFF),
+                               self.soc.read16(a + TRK_PFX_PIT_OFF) as i16)
         })
     }
 
@@ -493,14 +530,26 @@ impl Emu {
             let held = self.soc.read32(self.syms.perf_held);
             let latched = self.soc.read32(self.syms.perf_latched);
             self.act_seen |= self.soc.read32(self.syms.perf_act);
-            let midi = self.probes.iter().any(|p| p.midi) && self.pfx_active();
-            for p in self.probes.iter_mut().filter(|p| (p.from..p.to).contains(&now)) {
-                if p.midi {
-                    p.seen |= midi;
+            for i in 0..self.probes.len() {
+                if !(self.probes[i].from..self.probes[i].to).contains(&now) {
                     continue;
                 }
-                let v = (if p.latched { latched } else { held }) & p.mask;
-                p.seen |= if p.all { v == p.mask } else { v != 0 };
+                let hit = if self.probes[i].cancel {
+                    let pitch = [0u32, 1, 2, 3].map(|k| {
+                        let a = self.syms.trk + k * TRK_SIZE;
+                        self.soc.read16(a + TRK_PFX_PIT_OFF) as i16
+                    });
+                    octave_cancelled(latched, pitch)
+                } else {
+                    match self.probes[i].midi_fx {
+                        Some(fx) => self.pfx_at_work(fx, held | latched),
+                        None => {
+                            let v = (if self.probes[i].latched { latched } else { held }) & self.probes[i].mask;
+                            if self.probes[i].all { v == self.probes[i].mask } else { v != 0 }
+                        }
+                    }
+                };
+                self.probes[i].seen |= hit;
             }
         }
         Ok(())
@@ -789,11 +838,17 @@ impl Plan {
         self.end = self.end.max(t);
     }
     fn probe(&mut self, label: String, from: u64, to: u64, mask: u32, latched: bool, all: bool) {
-        self.probes.push(Probe { label, from, to, mask, latched, all, midi: false, seen: false });
+        self.probes.push(Probe { label, from, to, mask, latched, all, midi_fx: None, cancel: false, seen: false });
     }
-    /// a MIDI punch-in (pfx.c): some track's t->pfx or t->pfx_pit is set in the window
-    fn probe_midi(&mut self, label: String, from: u64, to: u64) {
-        self.probes.push(Probe { label, from, to, mask: 0, latched: false, all: false, midi: true, seen: false });
+    /// a MIDI punch-in of effect `fx` (PF_*): some track's t->pfx / t->pfx_pit shows that effect in the window
+    fn probe_midi(&mut self, label: String, from: u64, to: u64, fx: u32) {
+        self.probes.push(Probe { label, from, to, mask: 0, latched: false, all: false, midi_fx: Some(fx), cancel: false, seen: false });
+    }
+    /// a latched octave whose opposite octave went first: both octave bits latched, no track offset (the mask
+    /// checks the audio-side effect and is irrelevant here)
+    fn probe_octave_cancel(&mut self, label: String, from: u64, to: u64) {
+        self.probes.push(Probe { label, from, to, mask: 0, latched: true, all: true, midi_fx: None,
+                                 cancel: true, seen: false });
     }
 }
 
@@ -834,20 +889,23 @@ fn plan_project_punch(spec: &str, latch: bool) -> Result<Plan, String> {
         t += WALK_MS;
     }
     if latch {
-        let mut taps = Vec::new();
-        for &(_, name, _) in &keys {
-            pl.tap(t, name, TAP_MS);
-            taps.push((t, name));
-            t += 2 * TAP_MS;
-        }
+        let clear = t + 2 * TAP_MS * keys.len() as u64 + 20;
+        /* an octave tapped earlier in this run: FX LATCH toggles perf_latched (^=), so an opposite octave
+         * tapped later lights both bits and the two offsets cancel to no track offset instead of engaging */
+        let mut octaves = 0u32;
         for &(_, name, fx) in &keys {
             let label = format!("{page}/2 {name}");
-            let from = taps.iter().find(|&&(_, n)| n == name).map_or(200, |&(at, _)| at);
-            if page_keys(page).iter().any(|&(k, _)| k == name) {
-                pl.probe(label, from, t + 20, 1 << fx, true, false);
+            let was = octaves;
+            octaves ^= (1 << fx) & OCTAVE_BITS;
+            if was != OCTAVE_BITS && octaves == OCTAVE_BITS {
+                pl.probe_octave_cancel(label, t, clear);
+            } else if page_keys(page).iter().any(|&(k, _)| k == name) {
+                pl.probe(label, t, clear, 1 << fx, true, false);
             } else {
-                pl.probe_midi(label, from, t + 20);
+                pl.probe_midi(label, t, clear, fx);
             }
+            pl.tap(t, name, TAP_MS);
+            t += 2 * TAP_MS;
         }
         pl.tap(t + 20, "G5", TAP_MS);
         return Ok(pl);
@@ -865,7 +923,7 @@ fn plan_project_punch(spec: &str, latch: bool) -> Result<Plan, String> {
         if page_keys(p).iter().any(|&(k, _)| k == name) {
             pl.probe(label, down, release + 20, 1 << fx, false, false);
         } else {
-            pl.probe_midi(label, down, release + 20);
+            pl.probe_midi(label, down, release + 20, fx);
         }
     }
     Ok(pl)
@@ -1330,7 +1388,13 @@ fn measure(args: &Args, emu: &mut Emu, scenario: Scenario, ms: u64, plan: Plan,
         emu.ms(), wall.elapsed().as_secs_f64(), audio.len(), emu.act_seen);
     let mut failed = Vec::new();
     for p in &emu.probes {
-        eprintln!("  punch-in {:<28} {}", p.label, if p.seen { "engaged" } else { "NOT engaged" });
+        let state = match (p.cancel, p.seen) {
+            (true, true) => "cancelled (opposite octave already latched: both bits, no track offset)",
+            (true, false) => "NOT cancelled as expected (needs both octave bits latched and no track offset)",
+            (false, true) => "engaged",
+            (false, false) => "NOT engaged",
+        };
+        eprintln!("  punch-in {:<28} {}", p.label, state);
         if !p.seen {
             failed.push(p.label.clone());
         }
@@ -1365,6 +1429,72 @@ fn measure(args: &Args, emu: &mut Emu, scenario: Scenario, ms: u64, plan: Plan,
         cpu_q8_max as f64 * 100.0 / 256.0,
         cpu1_q8_max as f64 * 100.0 / 256.0,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unrelated_midi_effect_does_not_satisfy_a_probe() {
+        assert!(!pfx_matches(PF_S16, PFX_RND, 0));
+        assert!(!pfx_matches(PF_RND, PFX_REP, 0));
+        assert!(pfx_matches(PF_S16, PFX_REP, 0));
+        assert!(pfx_matches(PF_RND, PFX_RND, 0));
+    }
+
+    #[test]
+    fn shared_pfx_bit_needs_the_requested_live_effect() {
+        // S8 / S16 / ARP share PFX_REP: a held S8 must not answer an S16 probe, and back.
+        assert!(!probe_midi_matches(PF_S16, 1 << PF_S8, PFX_REP, 0));
+        assert!(!probe_midi_matches(PF_S8, 1 << PF_S16, PFX_REP, 0));
+        assert!(!probe_midi_matches(PF_S16, 1 << PF_ARP, PFX_REP, 0));
+        assert!(probe_midi_matches(PF_S16, 1 << PF_S16, PFX_REP, 0));
+        // DEC- / DEC+ share PFX_DEC.
+        assert!(!probe_midi_matches(PF_DSHT, 1 << PF_DLNG, PFX_DEC, 0));
+        assert!(!probe_midi_matches(PF_DLNG, 1 << PF_DSHT, PFX_DEC, 0));
+        assert!(probe_midi_matches(PF_DSHT, 1 << PF_DSHT, PFX_DEC, 0));
+    }
+
+    #[test]
+    fn requested_live_effect_still_needs_the_runtime_state() {
+        assert!(!probe_midi_matches(PF_S16, 1 << PF_S16, PFX_RND, 0));
+        assert!(probe_midi_matches(PF_S16, 1 << PF_S16, PFX_REP, 0));
+    }
+
+    #[test]
+    fn octave_probe_distinguishes_oct_minus_from_oct_plus() {
+        assert!(pfx_matches(PF_OCTD, 0, -192));
+        assert!(!pfx_matches(PF_OCTU, 0, -192));
+        assert!(pfx_matches(PF_OCTU, 0, 192));
+        assert!(!pfx_matches(PF_OCTD, 0, 192));
+        assert!(!pfx_matches(PF_OCTD, 0, 0));
+        assert!(!pfx_matches(PF_OCTU, 0, 0));
+    }
+
+    #[test]
+    fn octave_cancellation_needs_both_bits_and_no_track_offset() {
+        assert!(octave_cancelled(OCTAVE_BITS, [0; 4]));
+        assert!(!octave_cancelled(1 << PF_OCTD, [0; 4]));
+        assert!(!octave_cancelled(1 << PF_OCTU, [0; 4]));
+        assert!(!octave_cancelled(OCTAVE_BITS, [0, 0, 192, 0]));
+        assert!(!octave_cancelled(OCTAVE_BITS, [0, -192, 0, 0]));
+    }
+
+    #[test]
+    fn latched_octave_pair_cancels_but_a_first_octave_stays_strict() {
+        let pair = plan_project_punch("1:E4,1:F4", true).unwrap();
+        assert!(!pair.probes[0].cancel);
+        assert_eq!(pair.probes[0].midi_fx, Some(PF_OCTD));
+        assert!(pair.probes[1].cancel);
+        let reversed = plan_project_punch("1:F4,1:E4", true).unwrap();
+        assert!(!reversed.probes[0].cancel);
+        assert_eq!(reversed.probes[0].midi_fx, Some(PF_OCTU));
+        assert!(reversed.probes[1].cancel);
+        let alone = plan_project_punch("1:F4", true).unwrap();
+        assert!(!alone.probes[0].cancel);
+        assert_eq!(alone.probes[0].midi_fx, Some(PF_OCTU));
+    }
 }
 
 /// 44.1 kHz stereo 16-bit PCM, as fm1-emu writes its --wav.

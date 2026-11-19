@@ -151,6 +151,7 @@ static __attribute__((noinline)) void pfx_block(uint32_t n, uint32_t held)
 {
     uint32_t k, b = beat_samples(), lane = 0, raw = held, nw;
     held &= PF_MIDI;
+    pfx_adv = 0;
     pfx_blk++;
     pfx_qon &= held;                                    /* (JIANT) let go: at once; pressed: on the next 1/16 */
     nw = held & ~pfx_qon;
@@ -172,6 +173,7 @@ static __attribute__((noinline)) void pfx_block(uint32_t n, uint32_t held)
         st = (pfx_lph / s16) & 63u;
         half = ph >= s16 / 2u;
         pfx_lph += n;
+        pfx_adv = 1;
         if (pfx_rec_ok()) {                             /* recording, to the nearest step: each effect's press and
                                                          * release quantizes on its own */
             uint32_t pressed = raw & ~pfx_rheld, released = pfx_rheld & ~raw, m, e, bit;

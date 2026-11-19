@@ -257,14 +257,36 @@ static void motion_set_enabled(track_t *t, uint32_t on)
     if (!on) motion_restore(t);
     motion_unguard(f);
 }
-static void motion_clear(track_t *t)
+/* the pool's records that the filter rejects compact in place, the blank tail cleared and the count set: the
+ * records left. mode: 0 track k's records (motion_clear), 1 the one at place a with id b (motion_delete_event),
+ * 2 track k's locks at step a, NSTEP and up for every step (motion_clear_locks), 3 track k's records on its
+ * engine's own ids (motion_sound_loaded) */
+static int motion_engine_id(uint32_t id);           /* the engine's own ids (below) */
+
+static uint32_t motion_drop(uint32_t mode, uint32_t k, uint32_t a, uint32_t b)
 {
-    uint32_t f = motion_guard(), k = trk_index(t), i, n = 0;
-    motion_restore(t);
-    for (i = 0; i < motion.count; i++)
-        if ((motion.event[i].place >> 6) != k) motion.event[n++] = motion.event[i];
+    uint32_t i, n = 0;
+    for (i = 0; i < motion.count; i++) {
+        const motion_event_t *e = &motion.event[i];
+        int drop = mode == 0 ? (e->place >> 6) == k
+                 : mode == 1 ? (e->place == a && MOTION_ID(e) == b)
+                 : mode == 2
+                     ? ((e->place >> 6) == k && (e->param & MOTION_LOCK) && (a >= NSTEP || (e->place & 63u) == a))
+                     : ((e->place >> 6) == k && motion_engine_id(MOTION_ID(e)));
+        if (drop)
+            continue;
+        motion.event[n++] = *e;
+    }
     memset(motion.event + n, 0, (MOTION_MAX - n) * sizeof motion.event[0]);
     motion.count = (uint8_t)n;
+    return n;
+}
+
+static void motion_clear(track_t *t)
+{
+    uint32_t f = motion_guard(), k = trk_index(t);
+    motion_restore(t);
+    motion_drop(0, k, 0, 0);
     motion.on &= (uint8_t)~(1u << k);
     motion_rebase(t);
     motion_full = 0;
@@ -304,27 +326,17 @@ static int motion_set_lock(track_t *t, uint32_t step, uint32_t id, int16_t value
 }
 static void motion_delete_event(track_t *t, uint32_t step, uint32_t id)   /* (either kind) */
 {
-    uint32_t f = motion_guard(), place = trk_index(t) << 6 | step, i, n = 0;
+    uint32_t f = motion_guard(), place = trk_index(t) << 6 | step;
     motion_restore(t);
-    for (i = 0; i < motion.count; i++)
-        if (motion.event[i].place != place || MOTION_ID(&motion.event[i]) != id) motion.event[n++] = motion.event[i];
-    memset(motion.event + n, 0, (MOTION_MAX - n) * sizeof motion.event[0]);
-    motion.count = (uint8_t)n;
+    motion_drop(1, 0, place, id);
     motion_unguard(f);
 }
 /* the locks of track t's step (NSTEP and up: of every step); their automation events stay. A lock sounding now goes
  * back at the next step as always (motion_locked). The locks it removed */
 static uint32_t motion_clear_locks(track_t *t, uint32_t step)
 {
-    uint32_t f = motion_guard(), k = trk_index(t), i, n = 0, gone;
-    for (i = 0; i < motion.count; i++) {
-        const motion_event_t *e = &motion.event[i];
-        if ((e->place >> 6) == k && (e->param & MOTION_LOCK) && (step >= NSTEP || (e->place & 63u) == step)) continue;
-        motion.event[n++] = *e;
-    }
-    gone = motion.count - n;
-    memset(motion.event + n, 0, (MOTION_MAX - n) * sizeof motion.event[0]);
-    motion.count = (uint8_t)n;
+    uint32_t f = motion_guard(), k = trk_index(t), gone = motion.count;
+    gone -= motion_drop(2, k, step, 0);
     motion_unguard(f);
     return gone;
 }
@@ -513,19 +525,12 @@ static int motion_engine_id(uint32_t id)
  * stay, both kinds. The records it removed */
 static uint32_t motion_sound_loaded(track_t *t, uint32_t from, uint32_t to)
 {
-    uint32_t f, k = trk_index(t), i, n = 0, gone;
+    uint32_t f, k = trk_index(t), gone;
     if (eng_idx(from) == eng_idx(to))
         return 0;
     f = motion_guard();
-    for (i = 0; i < motion.count; i++) {
-        const motion_event_t *e = &motion.event[i];
-        if ((e->place >> 6) == k && motion_engine_id(MOTION_ID(e)))
-            continue;
-        motion.event[n++] = *e;
-    }
-    gone = motion.count - n;
-    memset(motion.event + n, 0, (MOTION_MAX - n) * sizeof motion.event[0]);
-    motion.count = (uint8_t)n;
+    gone = motion.count;                    /* before the call: its operands' order is unspecified */
+    gone -= motion_drop(3, k, 0, 0);
     motion_unguard(f);
     return gone;
 }

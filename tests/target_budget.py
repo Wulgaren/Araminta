@@ -31,7 +31,8 @@ FUNCS = ["analog_render",                             # ANALOG's dispatcher: the
          "fm1_alnk0_irq", "fm1_timer5_irq",               # the audio ISR; TIMER5: the key / LED scan (hal/fm1_input.h)
          "uac_tap48",                                       # the USB audio input at 48 kHz: the 44.1 -> 48 resampler (usb.c)
          "click_render",                                    # the metronome's click (click.c), while it sounds
-         "mod_begin", "mod_voice", "mod_end",                 # the modulation matrix (mod.c), called when active
+         "mod_begin", "mod_end",                              # the modulation matrix (mod.c), called when active
+         "track_render_audio",                              # the voice loop (voice.c), mod_voice inlined in it
          "perf_begin", "perf_mute", "perf_pre", "perf_block", "perf_take", "perf_out",   # the FX layer (perform.c / fx.c), when busy
          "perf_flanger", "perf_phaser",                     # .. FLANGER, PHASER (1.2), while held or fading
          "perf_throw",                                      # .. REV / ECHO THROW (1.5.1): per part, while held or gliding

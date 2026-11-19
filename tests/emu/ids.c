@@ -51,11 +51,26 @@ int main(void)
     u32c("PF_ETHR", PF_ETHR);
     u32c("PF_GLT", PF_GLT);
     u32c("PF_OCTD", PF_OCTD);                       /* PF_OCTD .. PF_X2: the MIDI effects (pfx.c) */
+    u32c("PF_OCTU", PF_OCTU);
+    u32c("PF_HALF", PF_HALF);
+    u32c("PF_DSHT", PF_DSHT);
+    u32c("PF_DLNG", PF_DLNG);
+    u32c("PF_S8", PF_S8);
+    u32c("PF_S16", PF_S16);
+    u32c("PF_ATK", PF_ATK);
+    u32c("PF_ARP", PF_ARP);
+    u32c("PF_RND", PF_RND);
     u32c("PF_X2", PF_X2);
     u32c("PF_N", PF_N);
     keys("PF_PAGE1", PF_DEF);
     keys("PF_PAGE2", PF2_DEF);
     /* the MIDI punch-ins' state (pfx.c: t->pfx bits, t->pfx_pit for OCT- / OCT+), read off `trk` */
+    u8c("PFX_RND", PFX_RND);
+    u8c("PFX_HALF", PFX_HALF);
+    u8c("PFX_REP", PFX_REP);
+    u8c("PFX_DEC", PFX_DEC);
+    u8c("PFX_ATK", PFX_ATK);
+    u8c("PFX_X2", PFX_X2);
     printf("pub const TRK_SIZE: u32 = %u;\n", (unsigned)sizeof(track_t));
     printf("pub const TRK_PFX_OFF: u32 = %u;\n", (unsigned)offsetof(track_t, pfx));
     printf("pub const TRK_PFX_PIT_OFF: u32 = %u;\n", (unsigned)offsetof(track_t, pfx_pit));

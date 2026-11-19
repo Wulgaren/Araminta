@@ -769,15 +769,17 @@ static const char *fx_list_mode(const track_t *t, uint32_t st)
         return "CHAIN";
     return st == INS_REV ? "SEND" : "USED";
 }
-static int ins_any(const track_t *t)
+/* out of line (one flash copy): mix_part calls it several times a block, and a copy inlined into each call sat in
+ * .hot_text */
+static __attribute__((noinline)) int ins_any(const track_t *t)
 {
     uint32_t s;
     for (s = 0; s < INS_N; s++)
-        if (AUDIO_FAR(ins_mix_of)(t, s))
+        if (ins_mix_of(t, s))
             return 1;
     /* TAPE in CHAIN: with TEMPO OFF its SPEED is source-clock, so this list stage is only the WOW/DROP
      * head; with TEMPO ON it is the pitch head too (the dry keeps time). */
-    if (song.g[G_TAPEMODE] == TAPE_CH1 + (int16_t)(t - trk) && AUDIO_FAR(tape_head_on)())
+    if (song.g[G_TAPEMODE] == TAPE_CH1 + (int16_t)(t - trk) && tape_head_on())
         return 1;
     return 0;
 }
@@ -1109,7 +1111,7 @@ static uint32_t dly_zrun;
  * rev_pg_*: noinline in flash; rev_hall (AUDIO_RAM) reaches them via AUDIO_FAR (bus_own stays out of its flatten) */
 static int rev_use_chain_g(void) { return R == &rev_tank[0] && bus_own(1) >= 0; }
 static __attribute__((noinline)) int32_t rev_pg_size(void) { return song.g[rev_use_chain_g() ? G_CRSIZE : G_RSIZE]; }
-static AUDIO_RAM __attribute__((noinline)) int32_t rev_pg_damp(void) { return song.g[AUDIO_FAR(rev_use_chain_g)() ? G_CRDAMP : G_RDAMP]; }
+static __attribute__((noinline)) int32_t rev_pg_damp(void) { return song.g[rev_use_chain_g() ? G_CRDAMP : G_RDAMP]; }
 /* clamp TYPE to a known model (out of range -> ROOM) */
 static int32_t rev_rtype(void)
 {
@@ -2725,7 +2727,8 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
 
 /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
  * -> dist -> INSERT -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
-static void events_block(uint32_t n);                    /* seq.c */
+static void events_rest(uint32_t n);                     /* seq.c: events_block without the transport prefix */
+static void seq_transport(uint32_t n);                   /* seq.c: before pfx_block, a start resets the lane clock */
 static int32_t wet[CTL];                                /* (the dry mix and the sends: mx[], above) */
 
 /* (JIANT) CLIP: mix driven into soft clip ahead of the limiter (before MASTER); wet folded in */
@@ -2752,7 +2755,7 @@ static __attribute__((noinline)) void master_begin(void)
     }
 }
 /* DUCK: kick (eng_drum.c duck_hit) ducks non-DRUM parts */
-static AUDIO_RAM __attribute__((noinline)) void duck_block(void)
+static __attribute__((noinline)) void duck_block(void)
 {
     int32_t dep = song.g[G_DUCK] * 31731 / 100, e;
     if (duck_hit) {
@@ -2768,7 +2771,7 @@ static AUDIO_RAM __attribute__((noinline)) void duck_block(void)
     } else if (duck_hold) {
         duck_hold--;
     } else if (duck_env) {
-        duck_env = (int32_t)(((uint32_t)duck_env * AUDIO_FAR(dx_fall)(40000u + (uint32_t)song.g[G_DREL] * 5600u)) >> 16);
+        duck_env = (int32_t)(((uint32_t)duck_env * dx_fall(40000u + (uint32_t)song.g[G_DREL] * 5600u)) >> 16);
     }
     e = (duck_env * (65536 - duck_env)) >> 15;
     duck_g1 = 32767 - mulq15(dep, e > 32767 ? 32767 : e);
@@ -2872,23 +2875,24 @@ static __attribute__((noinline)) AUDIO_RAM void mix_part(track_t *t, uint32_t n 
 {
     int32_t *b = SM(b);
     uint32_t i;
-    int32_t tr = (int32_t)(t - trk);
-    int chain = bus_own(0) == tr || bus_own(1) == tr || sl_trk_chain(t);
+    int32_t tr = (int32_t)(t - trk), own0 = AUDIO_FAR(bus_own)(0), own1 = AUDIO_FAR(bus_own)(1);
+    int chain = own0 == tr || own1 == tr || AUDIO_FAR(sl_trk_chain)(t);
     int sl_send = AUDIO_FAR(sl_trk_send)(t);
     AUDIO_FAR(mod_begin)(t);                            /* the matrix's per-block values into t->p (mod.c) */
     /* after mod: insert MIX may turn on and still need a cleared part_buf (shared across tracks) */
-    int need_zeros = (t->tail && (ins_any(t) | t->ins_run)) || slicer_busy(t) || chain;
-    t->spread_on = t->p[P_SPRD] > 0 && (trk_vmode(t) == V_POLY || trk_vmode(t) == V_UNISON) &&   /* (SPREAD, mix_spread; */
+    int need_zeros = (t->tail && (AUDIO_FAR(ins_any)(t) | t->ins_run)) || slicer_busy(t) || chain;
+    uint32_t vm = AUDIO_FAR(trk_vmode)(t);
+    t->spread_on = t->p[P_SPRD] > 0 && (vm == V_POLY || vm == V_UNISON) &&   /* (SPREAD, mix_spread; */
                    ENGINES[t->engine] != &ENG_DRUM;     /* not DRUM-X: hidden there, and its bus shapes the sum, eng_drum.c) */
     uint32_t nr = track_render_audio(t, b, n, need_zeros);
     part_est[(uint32_t)tr % NTRK] = (uint16_t)(nr ? 40u * trk_nvoice(t) : 0u) +    /* mix_split's estimate (part_w) */
-                                     (uint16_t)((nr || t->tail ? 60u : 0u) + 24u * (ins_any(t) != 0));
+                                     (uint16_t)((nr || t->tail ? 60u : 0u) + 24u * (AUDIO_FAR(ins_any)(t) != 0));
     if (nr)
-        t->tail = ins_any(t) ? 64 : 16;                 /* blocks of insert state to run out after the last voice */
-    else if ((!t->tail || !(ins_any(t) | t->ins_run) || !--t->tail) && !slicer_busy(t) && !chain) {
+        t->tail = AUDIO_FAR(ins_any)(t) ? 64 : 16;      /* blocks of insert state to run out after the last voice */
+    else if ((!t->tail || !(AUDIO_FAR(ins_any)(t) | t->ins_run) || !--t->tail) && !slicer_busy(t) && !chain) {
         if (sl_send)
             AUDIO_FAR(slicer_track)(t, 0, n);
-        if (t->ins_run && !ins_any(t))
+        if (t->ins_run && !AUDIO_FAR(ins_any)(t))
             AUDIO_FAR(ins_rest)(t);                     /* all MIX 0 while silent: clear state for the next note */
         if (MOD(t).on)
             AUDIO_FAR(mod_end)(t);
@@ -2905,7 +2909,7 @@ static __attribute__((noinline)) AUDIO_RAM void mix_part(track_t *t, uint32_t n 
             mc->gen != fx_master_gen)
             AUDIO_FAR(mix_cache_update)(t, mc);
         int32_t lvl = mc->lvl, gl = mc->gl, gr = mc->gr, d = mc->d, r = mc->r, xmax = mc->xmax, pk = t->peak;
-        if (ins_any(t) | t->ins_run || chain)
+        if (AUDIO_FAR(ins_any)(t) | t->ins_run || chain)
             AUDIO_FAR(track_insert)(t, b, n);
         if (sl_send)
             AUDIO_FAR(slicer_track)(t, b, n);
@@ -3032,7 +3036,7 @@ static volatile uint32_t c1_job_ticks;                  /* TIMER4 ticks core 1 s
 static uint16_t perf_cost;                              /* the FX layer job's ticks, smoothed (console: c1_layer_us) */
 /* the send buses may go to core 1 while core 0 renders parts: no CHAIN owner runs the DLY / REV state in its
  * part or puts its bus settings into song.g (fx_bus_stage) meanwhile */
-static AUDIO_RAM int bus_c1(void) { return AUDIO_FAR(bus_own)(0) < 0 && AUDIO_FAR(bus_own)(1) < 0; }
+static int bus_c1(void) { return bus_own(0) < 0 && bus_own(1) < 0; }
 
 static mixsum_t c1_part;                /* a part's sums while it renders: whole only into the core's sums (a job
                                          * cut mid-part leaves its half here, never in mx[1]) */
@@ -3218,7 +3222,7 @@ static __attribute__((noinline)) uint32_t mix_split(void)
     }
     split_vage = vage;
 #if C1_TIMED
-    if (AUDIO_FAR(bus_c1)() && c1_t4_ok)
+    if (bus_c1() && c1_t4_ok)
         bw = bus_cost;                                  /* core 1 runs the buses too (mix_block) */
 #endif
     lo = all + bw;                                      /* no split: core 0 renders the parts and the buses */
@@ -3418,17 +3422,18 @@ static void mix_block(int32_t *out, uint32_t n)
     tape_pre();
     slicer_block();                                     /* shared SEND bus: one clock advance this block */
     ins_bus_block();                                    /* shared insert SEND DSP */
+    seq_transport(n);                                   /* a start resets the lane clock before its MIDI effects */
     pfx_block(n, (perf_kill ? 0u : (perf_held | perf_latched) & ~PF_MUTE));
-    events_block(n);
+    events_rest(n);
     clip_eff = song.g[G_CLIP];                          /* (JIANT) CLIP / PNCH for this block */
     pnch_eff = song.g[G_PUNCH];
     master_begin();
-    AUDIO_FAR(duck_block)();
+    duck_block();
     perf = AUDIO_FAR(perf_begin)(n);                    /* the FX hold layer at work (perform.c) */
     rev_tank[0].hl.side = rev_tank[1].hl.side = 0;      /* HALL sides set this block by insert / send */
     for (i = 0; i < NTRK; i++)                          /* every part's copy of the bus settings (core.h bus_knobs) */
         bus_knobs_g(&trk[i]);
-    b1 = AUDIO_FAR(bus_c1)();
+    b1 = bus_c1();
     if (b1)
         bus_g_swap();                                   /* the buses' settings in, for either core */
     {   /* the parts: some on the second core, into its own sums (mx[1]), and its send buses after them */

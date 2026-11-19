@@ -701,6 +701,17 @@ static void grid_keys(uint32_t pressed)
 }
 
 /* ------------------------------------------------- parameter locks --- */
+/* the steps the held keys pick under the bank, within len: a bit a step (the grid's keys) */
+static uint64_t grid_key_steps(uint32_t keys, uint32_t len)
+{
+    uint64_t m = 0;
+    uint32_t k;
+    for (k = 0; k < 27u; k++)
+        if (((keys >> k) & 1u) && !key_black(k) && ui.bank * 16u + key_place(k) < len)
+            m |= (uint64_t)1 << (ui.bank * 16u + key_place(k));
+    return m;
+}
+
 /* 1.1 (Discussions #75, #53): on SEQ > STEP, hold a step and turn KNOB 1..4: the step gets a lock of the parameter
  * that knob edits on the sound page shown last (ui.plk_src: HOME's four, ENV, LFO, FX, EDIT 1 / 2, OP ENV, ..; the
  * cards show those four while a step is held, a locked value bright, the sound's own DIM). The step held: on the
@@ -712,17 +723,13 @@ static void grid_keys(uint32_t pressed)
 static uint64_t lock_held(void)
 {
     const track_t *t = TSEL;
-    uint32_t k, len = (uint32_t)t->p[P_SLEN], keys = fm1_in.notes & ~kb_layer;
-    uint64_t m = 0;
+    uint32_t len = (uint32_t)t->p[P_SLEN], keys = fm1_in.notes & ~kb_layer;
     if (ui.home || ui.menu || ui.confirm || ui.layer || name_on() || !song.seq_mode || cur_page()->graph != GR_ROLL ||
         !keys || detail_on())                           /* (DETAIL: its knobs are the step's own fields, sd_turn) */
         return 0;
     if (!grid_on())                                     /* the roll: the step being entered */
         return ui.entry_open && !live_rec_sel() && ui.cursor < len ? (uint64_t)1 << ui.cursor : 0u;
-    for (k = 0; k < 27u; k++)
-        if (((keys >> k) & 1u) && !key_black(k) && ui.bank * 16u + key_place(k) < len)
-            m |= (uint64_t)1 << (ui.bank * 16u + key_place(k));
-    return m;
+    return grid_key_steps(keys, len);
 }
 
 /* each pass, before the grid's keys: a hit pressed on goes once its key is let go (plk_rm, grid_keys) */
@@ -986,14 +993,10 @@ static void note_shift_cursor(int32_t steps)
  * One undo per knob gesture on a step (SAVE held): walking to the next step starts another */
 static uint64_t sd_held(void)                           /* the grid's step keys held on DETAIL (bit = step), 0 none */
 {
-    uint32_t k, len = (uint32_t)TSEL->p[P_SLEN], keys = fm1_in.notes & ~kb_layer;
-    uint64_t m = 0;
+    uint32_t len = (uint32_t)TSEL->p[P_SLEN], keys = fm1_in.notes & ~kb_layer;
     if (!keys || !detail_on() || !grid_on() || ui.layer || name_on())
         return 0;
-    for (k = 0; k < 27u; k++)
-        if (((keys >> k) & 1u) && !key_black(k) && ui.bank * 16u + key_place(k) < len)
-            m |= (uint64_t)1 << (ui.bank * 16u + key_place(k));
-    return m;
+    return grid_key_steps(keys, len);
 }
 static uint64_t sd_steps(void)
 {
@@ -1500,6 +1503,18 @@ static uint32_t oct_taps(uint32_t pressed, int here)
     return tap;
 }
 
+/* the chord's notes into the step: up to 4, no repeats (the step-entry paths) */
+static void step_add_notes(step_t *st, const uint8_t *ch, uint32_t n)
+{
+    uint32_t i, j;
+    for (i = 0; i < n && st->n < 4u; i++) {
+        for (j = 0; j < st->n && step_note(st, j) != ch[i]; j++)
+            ;
+        if (j == st->n)
+            step_set_note(st, st->n++, ch[i]);
+    }
+}
+
 /* MENU > CONTROL > CHORD ENTRY ADD (1.2, #155: chords with one hand): a key's notes go into the cursor step beside what
  * is there (up to 4), or out of it when its note is there already (a key that adds a chord takes all of it out); MONO
  * keeps one note (another key replaces it). A TIE or REST step becomes a note step; one with no note left a REST, as
@@ -1531,12 +1546,7 @@ static void step_toggle(const track_t *t, step_t *st, const uint8_t *ch, uint32_
         st->n = 1;
         return;
     }
-    for (i = 0; i < n && st->n < 4u; i++) {
-        for (j = 0; j < st->n && step_note(st, j) != ch[i]; j++)
-            ;
-        if (j == st->n)
-            step_set_note(st, st->n++, ch[i]);
-    }
+    step_add_notes(st, ch, n);
 }
 
 /* SEQ step entry = step recording (1.2, Discussion #133: only with the track armed and the transport stopped), acid
@@ -1555,7 +1565,7 @@ static void seq_entry(uint32_t pressed)
         uint8_t ch[CHORD_MAX];
         int32_t r;
         uint16_t mask;
-        uint32_t note, n, i, j;
+        uint32_t note, n;
         if (!((pressed >> k) & 1u))
             continue;
         note = kb_map(t, k);
@@ -1575,12 +1585,7 @@ static void seq_entry(uint32_t pressed)
             step_set_note(st, 0, ch[0]);
             st->n = 1;
         } else {
-            for (i = 0; i < n && st->n < 4u; i++) {
-                for (j = 0; j < st->n && step_note(st, j) != ch[i]; j++)
-                    ;
-                if (j == st->n)
-                    step_set_note(st, st->n++, ch[i]);
-            }
+            step_add_notes(st, ch, n);
         }
         last_note = (uint8_t)note;
     }

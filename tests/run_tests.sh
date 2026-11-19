@@ -1046,6 +1046,9 @@ u_fm1emu_punch() {
     run "fm1-emu (device-timed): a project's patch with punch-in 1/2 E4 (MIDI, OCT-) held, 1600 ms" \
         build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf \
         --scenario project --ms 1600 --project tests/emu/busy_project.bin --notes 3 --punch 1:E4 --clear
+    run "fm1-emu (device-timed): a project's patch with punch-in 1/2 F4 (MIDI, OCT+) held, 1600 ms" \
+        build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf \
+        --scenario project --ms 1600 --project tests/emu/busy_project.bin --notes 3 --punch 1:F4 --clear
     # eight latched effects of page 1 (audio and MIDI) stack on the same patch; the load is printed, not bounded
     run "fm1-emu (device-timed): a project's patch with a page-1 punch-in stack (FX LATCH), 3200 ms" \
         build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf \

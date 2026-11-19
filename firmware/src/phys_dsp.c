@@ -158,10 +158,10 @@ static uint32_t px_isqrt64(uint64_t v)                    /* floor(sqrt(v)) */
 /* --------------------------------------------- ResonatorSvf (band / low) --- */
 typedef struct { int32_t g, rpg, gh; } px_svf_t;         /* Q28, Q28, Q30 */
 
-/* f: cycles / sample Q32 (< 0.5), q: Q8 (> 0) */
-static void px_svf_coef(px_svf_t *c, uint32_t f, uint32_t q8)
+/* g: tan(pi f) Q28 (px_fasttan), q: Q8 (> 0). Its own entry so a caller that already holds g (the modal
+ * bank, which keeps it while its frequency holds) does not take the tangent again */
+static void px_svf_coef_g(px_svf_t *c, int32_t g, uint32_t q8)
 {
-    int32_t g = px_fasttan(f);
     uint32_t r = (uint32_t)((((uint64_t)1 << 36) + q8 - 1u) / q8);       /* 1 / q, rounded up */
     uint64_t den = ((uint64_t)1 << 28) + (((uint64_t)r * (uint32_t)g) >> 28) + (((uint64_t)g * (uint32_t)g) >> 28);
     uint32_t d24 = (uint32_t)((den + 15u) >> 4);         /* Q24, rounded up */
@@ -169,6 +169,12 @@ static void px_svf_coef(px_svf_t *c, uint32_t f, uint32_t q8)
     c->g = g;
     c->rpg = (int32_t)(r + (uint32_t)g);
     c->gh = (int32_t)(((uint64_t)h * (uint32_t)g) >> 28);
+}
+
+/* f: cycles / sample Q32 (< 0.5), q: Q8 (> 0) */
+static void px_svf_coef(px_svf_t *c, uint32_t f, uint32_t q8)
+{
+    px_svf_coef_g(c, px_fasttan(f), q8);
 }
 
 /* --------------------------------------------- Svf (double-sampled, Q20) --- */
@@ -229,6 +235,19 @@ typedef struct {
     uint8_t cn;                                          /* its modes below 0.499 */
     px_mode_key_t ckey;
     px_mode_t cm[PX_NMODE];
+    /* the two parts a single input moves, kept apart so an LFO on BRIT / DAMP rebuilds the Q alone: the
+     * amplitudes follow POS, the frequencies (tangent, 1 - 2 f, the mode count) follow F0 and STRC */
+    uint8_t avalid;                                      /* fa: the modes' gains (Q28) of ppos */
+    uint32_t ppos;
+    int32_t fa[PX_NMODE];
+    uint8_t fvalid;                                      /* fmf, fg: the frequency terms of ff0, fstr */
+    uint32_t ff0, fstr;
+    uint8_t fn;                                          /* its modes below 0.499 */
+    uint32_t fmf[PX_NMODE];                              /* mf, Q32 */
+    int32_t fg[PX_NMODE];                                /* tan(pi mf), Q28 */
+    uint8_t qvalid;                                      /* qexp: px_modal_qexp(qd) */
+    int32_t qd;
+    uint32_t qexp;
 } px_modal_t;
 
 /* the key fields are what builds the modes, so equal fields give equal coefficients byte for byte */
@@ -296,13 +315,15 @@ static __attribute__((noinline)) void px_modal_exciter(px_modal_blk_t *B, px_mod
     }
 }
 
-/* the Q of the lowest mode (Q8) and its factor from one mode to the next (*ql, Q16): DaisySP's Resonator,
- * 500 2^(d 79.7 / 6) and b (2 - b) 0.85 + 0.15 of the brightness STRUCTURE and DAMPING leave */
-static uint64_t px_modal_q(int32_t structure, int32_t b, int32_t d, int32_t *ql)
+/* the Q of the lowest mode (Q8): DaisySP's Resonator's 500 2^(d 79.7 / 6), DAMPING's alone (qexp: the 2^..;
+ * Q8 = 500 qexp >> 8) */
+static uint32_t px_modal_qexp(int32_t d) { return px_exp2((int32_t)(((int64_t)d * 870537) >> 16)); }
+
+/* its factor from one mode to the next (*ql, Q16): b (2 - b) 0.85 + 0.15 of what STRUCTURE leaves */
+static int32_t px_modal_ql(int32_t structure, int32_t b, int32_t d)
 {
     int32_t bb = px_m(px_m(b, 65536 - px_m(structure, 19661, 16), 16), 65536 - px_m(d, 19661, 16), 16);
-    *ql = px_m(px_m(bb, 131072 - bb, 16), 55706, 16) + 9830;
-    return ((uint64_t)500 * px_exp2((int32_t)(((int64_t)d * 870537) >> 16))) >> 8;
+    return px_m(px_m(bb, 131072 - bb, 16), 55706, 16) + 9830;
 }
 
 /* ModalVoice::Process + Resonator::Process, the per-block part. f0: the note (cycles Q32);
@@ -314,7 +335,7 @@ static __attribute__((noinline)) void px_modal_block(px_modal_blk_t *B, px_modal
     int32_t b = brightness + px_m(accent >> 2, 65536 - brightness, 16);
     int32_t d = damping + px_m(accent >> 2, 65536 - damping, 16);
     int32_t stiff = px_stiff(structure), st2, stretch = 65536, ql;
-    uint32_t i, phs;
+    uint32_t i;
     uint64_t q8, harm;
     px_mode_key_t key = {f0, (uint32_t)structure, (uint32_t)brightness, (uint32_t)damping, (uint32_t)accent,
                          (uint32_t)pos};
@@ -324,35 +345,55 @@ static __attribute__((noinline)) void px_modal_block(px_modal_blk_t *B, px_modal
         for (i = 0; i < B->n; i++)
             B->m[i] = M->cm[i];
     } else {
-        /* the modes */
+        /* the modes: the amplitudes (POS) and the frequency terms (F0, STRC) are rebuilt only when their own
+         * inputs move, so an LFO on BRIT / DAMP (which moves the Q of every mode) rebuilds just the Q */
         f0 = (uint32_t)(((uint64_t)f0 * (uint32_t)(((uint64_t)1 << 32) /   /* NthHarmonicCompensation(3) */
                          (uint32_t)(65536 + stiff + px_m(stiff, stiff < 0 ? 60948 : 64225, 16)))) >> 16);
-        q8 = px_modal_q(structure, b, d, &ql);
-        st2 = stiff;
-        harm = f0;
-        phs = 0;
-        for (i = 0; i < PX_NMODE; i++) {
-            uint64_t mf = (harm * (uint32_t)stretch) >> 16;
-            int32_t att, amp;
-            if (mf >= 2143260078u)
-                break;
-            att = 65536 - (int32_t)(mf >> 15);           /* 1 - 2 f */
-            amp = px_m(px_sin(phs + 0x40000000u), 16384, 16);   /* cos(2 pi pos i) / 4, Q30 * Q16 -> Q30 */
-            {
-                px_svf_t c;
-                px_svf_coef(&c, (uint32_t)mf, (uint32_t)(256u + ((mf * q8) >> 32)));
-                B->m[i].g = c.g;
-                B->m[i].rpg = c.rpg;
-                B->m[i].gh = c.gh;
-                B->m[i].a = px_m(amp, att, 18);          /* Q28 */
+        if (!(M->fvalid && M->ff0 == f0 && M->fstr == (uint32_t)structure)) {
+            st2 = stiff;
+            harm = f0;
+            for (i = 0; i < PX_NMODE; i++) {
+                uint64_t mf = (harm * (uint32_t)stretch) >> 16;
+                if (mf >= 2143260078u)
+                    break;
+                M->fmf[i] = (uint32_t)mf;
+                M->fg[i] = px_fasttan((uint32_t)mf);
+                stretch += st2;
+                st2 = px_m(st2, st2 < 0 ? 60948 : 64225, 16);    /* * 0.93 / 0.98 */
+                harm += f0;
             }
-            stretch += st2;
-            st2 = px_m(st2, st2 < 0 ? 60948 : 64225, 16);    /* * 0.93 / 0.98 */
-            harm += f0;
-            q8 = (q8 * (uint32_t)ql) >> 16;
-            phs += (uint32_t)pos << 16;
+            M->fn = (uint8_t)i;
+            M->ff0 = f0;
+            M->fstr = (uint32_t)structure;
+            M->fvalid = 1;
+            M->avalid = 0;                                   /* a new mode count: its amplitudes go with it */
         }
-        B->n = i;
+        if (!(M->avalid && M->ppos == (uint32_t)pos)) {
+            uint32_t phs = 0;
+            for (i = 0; i < M->fn; i++, phs += (uint32_t)pos << 16)
+                M->fa[i] = px_m(px_m(px_sin(phs + 0x40000000u), 16384, 16),   /* cos(2 pi pos i) / 4, Q30 * Q16 */
+                                65536 - (int32_t)(M->fmf[i] >> 15), 18);       /* (1 - 2 f) -> Q28 */
+            M->ppos = (uint32_t)pos;
+            M->avalid = 1;
+        }
+        if (!(M->qvalid && M->qd == d)) {
+            M->qexp = px_modal_qexp(d);                  /* DAMPING's Q alone: an LFO on BRIT keeps it */
+            M->qd = d;
+            M->qvalid = 1;
+        }
+        q8 = ((uint64_t)500 * M->qexp) >> 8;
+        ql = px_modal_ql(structure, b, d);
+        B->n = M->fn;
+        for (i = 0; i < B->n; i++) {
+            uint32_t mf = M->fmf[i];
+            px_svf_t c;
+            px_svf_coef_g(&c, M->fg[i], (uint32_t)(256u + (((uint64_t)mf * q8) >> 32)));
+            B->m[i].g = c.g;
+            B->m[i].rpg = c.rpg;
+            B->m[i].gh = c.gh;
+            B->m[i].a = M->fa[i];
+            q8 = (q8 * (uint32_t)ql) >> 16;
+        }
         for (i = 0; i < B->n; i++)
             M->cm[i] = B->m[i];
         M->ckey = key;
@@ -399,7 +440,8 @@ static __attribute__((noinline)) void px_memb_block(px_modal_blk_t *B, px_modal_
     if (f > 0x40000000u)
         f = 0x40000000u;
     px_modal_exciter(B, M, (uint32_t)f, brightness, b, d, accent, 0);
-    q8 = px_modal_q(0, b, d, &ql);
+    ql = px_modal_ql(0, b, d);
+    q8 = ((uint64_t)500 * px_modal_qexp(d)) >> 8;
     w[0] = 65536 - px_m(pos, 39322, 16);                 /* m = 0: 1 at the centre, 0.4 at the rim */
     w[1] = pm > 65536 ? 65536 : pm;                      /* m > 0: (1.5 pos)^m, at most 1 */
     for (i = 2; i < 6u; i++)

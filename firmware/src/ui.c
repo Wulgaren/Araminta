@@ -1066,21 +1066,11 @@ static void mom_back(const track_t *t)            /* a sound load into t (0: a p
         }
     mom.n = (uint8_t)k;
 }
-static void load_begin(track_t *t, uint32_t what)
+/* the undo copy of t as it is now: its sound, matrix slots, steps, kit and motion (load_begin, edit_undo_take,
+ * ui_tools.c tl_undo_take: each keeps what its own action adds — load_motion_hold / undo.keep / t_ms) */
+static void undo_take(track_t *t, uint32_t what)
 {
     uint32_t i = trk_index(t);
-    if (what & UNDO_SOUND) {
-        mom_back(t);                              /* (MOMENTARY: the sound as it was, then the load) */
-        drum_mute[i] = 0;                         /* (1.4.1: the lanes' mutes go with the sound) */
-    }
-    if (undo_depth++)
-        return;
-    motion_restore(t);
-    if (undo.keep && undo.trk == i + 1u && !(undo.what & UNDO_MOT) && track_sig(t) == undo.after) {
-        undo.what |= (uint8_t)what;               /* browsing on: the copy from before the first load stays */
-        load_motion_hold(t, what);
-        return;
-    }
     undo.trk = (uint8_t)(i + 1u);
     undo.what = (uint8_t)what;
     undo.eng = t->eng_req;
@@ -1096,6 +1086,24 @@ static void load_begin(track_t *t, uint32_t what)
     undo.from = step_from[i];
     undo.from_h = step_from_h[i];
     motion_snapshot_track(t, &undo.motion_backup);
+}
+
+static void load_begin(track_t *t, uint32_t what)
+{
+    uint32_t i = trk_index(t);
+    if (what & UNDO_SOUND) {
+        mom_back(t);                              /* (MOMENTARY: the sound as it was, then the load) */
+        drum_mute[i] = 0;                         /* (1.4.1: the lanes' mutes go with the sound) */
+    }
+    if (undo_depth++)
+        return;
+    motion_restore(t);
+    if (undo.keep && undo.trk == i + 1u && !(undo.what & UNDO_MOT) && track_sig(t) == undo.after) {
+        undo.what |= (uint8_t)what;               /* browsing on: the copy from before the first load stays */
+        load_motion_hold(t, what);
+        return;
+    }
+    undo_take(t, what);
     load_motion_hold(t, what);
 }
 
@@ -1144,21 +1152,7 @@ static void edit_undo_take(track_t *t, uint32_t tag, uint32_t what)
         edit_sig(t) == undo.after && fm1_ms - undo.t_ms < 1500u)
         return;
     undo_mot_tag = tag;
-    undo.trk = (uint8_t)(i + 1u);
-    undo.what = (uint8_t)what;
-    undo.eng = t->eng_req;
-    undo.preset = t->preset;
-    undo.user = t->user;
-    memcpy(undo.p, t->p, sizeof undo.p);
-    memcpy(undo.mx, t->mx, sizeof undo.mx);
-    undo.generation = t->generation;
-    memcpy(undo.step, t->step, sizeof undo.step);
-    memcpy(undo.fm6, fm6_patch[i], FP_SIZE);
-    undo.fm6_slot = fm6_slot[i];
-    dx_kit_pack(undo.dx, dx_kit, dx_lay, dx_mdl);
-    undo.from = step_from[i];
-    undo.from_h = step_from_h[i];
-    motion_snapshot_track(t, &undo.motion_backup);
+    undo_take(t, what);
     undo.keep = 0;
 }
 static void motion_undo_take(track_t *t, uint32_t tag) { edit_undo_take(t, tag, UNDO_MOT); }

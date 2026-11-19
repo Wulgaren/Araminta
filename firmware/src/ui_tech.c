@@ -65,6 +65,21 @@ static int32_t tk_dist_y(uint32_t mode, int32_t x, int32_t g)
     return ins_shape(mode, v, 0, (uint32_t)g) * 32767 / 26000;
 }
 
+/* the corner curve across the axes: flat up to fc, then a parabola down (DIST's TONE, CRUSH's LPF) */
+static void tech_corner(int32_t y0, int32_t s, int32_t fc, int32_t top, int32_t curve)
+{
+    int32_t fx = 140, fw = 82, f, py;
+    tk_axes(fx, y0 + top, fx + fw, y0 + s);
+    py = y0 + top + 4;
+    for (f = 0; f <= fw; f++) {
+        int32_t r = fx + f <= fc ? 0 : (fx + f - fc) * (fx + f - fc) / curve;
+        int32_t y = clamp(y0 + top + 4 + r, y0 + top + 4, y0 + s);
+        if (f)
+            cv_line_t(fx + f - 1, py, fx + f, y, T_MID, 2);
+        py = y;
+    }
+}
+
 static void tech_dist(const track_t *t)
 {
     int32_t d = *fx_target_ptr(t, P_DIST), i, py = 0, x0 = 22, y0 = TK_Y0, s = 100, cx = x0 + s / 2;
@@ -89,15 +104,7 @@ static void tech_dist(const track_t *t)
     }
     {   /* TONE: low-pass corner from drive-linked cutoff + P_ED_FX (fx.c ins_run_dist) */
         int32_t k = clamp(32000 - (d >> INS_DK[mode]) * 380 + tone * 300, 2500, 32767), fx = 140, fw = 82;
-        int32_t fc = fx + 8 + (k - 2500) * (fw - 34) / 30267, f;
-        tk_axes(fx, y0 + 30, fx + fw, y0 + s);
-        py = y0 + 34;
-        for (f = 0; f <= fw; f++) {
-            int32_t r = fx + f <= fc ? 0 : (fx + f - fc) * (fx + f - fc) / 6, y = clamp(y0 + 34 + r, y0 + 34, y0 + s);
-            if (f)
-                cv_line_t(fx + f - 1, py, fx + f, y, T_MID, 2);
-            py = y;
-        }
+        tech_corner(y0, s, fx + 8 + (k - 2500) * (fw - 34) / 30267, 30, 6);
     }
 }
 
@@ -177,15 +184,8 @@ static void tech_crush(const track_t *t)
         cv_rect(x, y0 + 20, 2, 20 + (i & 1) * 10, i < 4 ? T_THEME : T_MID);
     }
     {   /* LPF corner */
-        int32_t fx = 140, fw = 82, fc = fx + 8 + lpf * (fw - 20) / 127, f;
-        tk_axes(fx, y0 + 50, fx + fw, y0 + s);
-        py = y0 + 54;
-        for (f = 0; f <= fw; f++) {
-            int32_t r = fx + f <= fc ? 0 : (fx + f - fc) * (fx + f - fc) / 8, y = clamp(y0 + 54 + r, y0 + 54, y0 + s);
-            if (f)
-                cv_line_t(fx + f - 1, py, fx + f, y, T_MID, 2);
-            py = y;
-        }
+        int32_t fx = 140, fw = 82;
+        tech_corner(y0, s, fx + 8 + lpf * (fw - 20) / 127, 50, 8);
     }
 }
 
