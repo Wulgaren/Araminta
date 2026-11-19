@@ -2,10 +2,10 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FELUCCA memory map.
  * Code + constants execute in place from XIP (app.bin offset 0 = 0x02000120).
- * 0x01C00000..0x01C07F00 holds .ram_text (code that must run while the flash
+ * 0x01C00000..0x01C08600 holds .ram_text (code that must run while the flash
  * is busy: the flash driver), then .c1_text (the second core's waiting loop, hal/fm1_cpu1.h: an idle core 1 never
  * fetches from the flash), then .hot_text (AUDIO_RAM, core.h: the render's hottest functions, out of the 32 KB
- * flash cache they would thrash); crt0.S keeps its boot-probe words at 0x01C07F00..0x01C08000.
+ * flash cache they would thrash); crt0.S keeps its boot-probe words at 0x01C08600..0x01C08700, and RAM starts there.
  * The flash opens with the render's hottest flash functions (after crt0, 64-byte aligned, in the order listed below
  * in .text; chosen by `emu_test --footprint`, docs/fm1-emu-test.md): the cache maps each 64-byte line to a set by
  * its address, so with a fixed home an edit elsewhere no longer moves which of their lines share a set. .rodata
@@ -22,8 +22,8 @@
 MEMORY
 {
     XIP    (rx)  : ORIGIN = 0x02000120, LENGTH = 0x8E950
-    RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x7F00
-    RAM    (rwx) : ORIGIN = 0x01C08000, LENGTH = 72K
+    RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x8600
+    RAM    (rwx) : ORIGIN = 0x01C08700, LENGTH = 0x11900
     POOL   (rw)  : ORIGIN = 0x01C1A000, LENGTH = 0x5D600
     NOINIT (rw)  : ORIGIN = 0x01C7C000, LENGTH = 0x3D50
 }
@@ -34,10 +34,10 @@ SECTIONS
         . = ALIGN(64); _flash_hot_start = .;
         *fm1_isr.o(.text*)
         *(.text.fm1_alnk0_irq) *(.text.fm1_timer5_irq) *(.text.dx_run)
-        *(.text.perf_begin) *(.text.drum_render) *(.text.perf_out)
+        *(.text.drum_render) *(.text.perf_out)
         *(.text.pfx_block) *(.text.ins_stage) *(.text.slicer_track_sd) *(.text.bus_run) *(.text.track_insert)
         *(.text.sl_run) *(.text.c1_parts) *(.text.fm6_block) *(.text.fx_master_run) *(.text.ins_run_st)
-        *(.text.click_render) *(.text.duck_block) *(.text.fm6_done) *(.text.fm6_sync)
+        *(.text.click_render) *(.text.fm6_done) *(.text.fm6_sync)
         *(.text.fx_list_get) *(.text.ins_bus_join) *(.text.mix_split) *(.text.beat_samples) *(.text.bus_g_swap)
         *(.text.bus_own) *(.text.chord_live_flush) *(.text.eng_mem_claim) *(.text.mod_begin) *(.text.perf_take)
         *(.text.sl_trk_send) *(.text.tape_chain) *(.text.tape_pitch16_for) *(.text.perf_throw) *(.text.c1_layer)
@@ -46,8 +46,8 @@ SECTIONS
         *(.text.ins_mix_of) *(.text.ins_param_src) *(.text.lfo_wave) *(.text.master_begin) *(.text.mod_active)
         *(.text.mod_bus_begin) *(.text.mod_bus_end) *(.text.perf_avail) *(.text.rev_run) *(.text.rev_side_mix)
         *(.text.shed_check) *(.text.sl_state) *(.text.sl_trk_chain) *(.text.sl_trk_used) *(.text.solo_mask)
-        *(.text.tape_head_on) *(.text.tape_seq_speed_q16) *(.text.uac_service) *(.text.uac_render_start)
-        *(.text.bus_c1) *(.text.div_samples) *(.text.drum_amp) *(.text.drum_lane_of) *(.text.dx_fm_lim)
+        *(.text.tape_head_on) *(.text.uac_service) *(.text.uac_render_start)
+        *(.text.div_samples) *(.text.drum_amp) *(.text.drum_lane_of) *(.text.dx_fm_lim)
         *(.text.dx_pow2) *(.text.fm1__sr_bits) *(.text.input_off) *(.text.ins_bus_tr) *(.text.ins_win_put)
         *(.text.kit_track) *(.text.lfo_inc) *(.text.lowest_held) *(.text.mchord_of) *(.text.memcpy)
         *(.text.midi_event) *(.text.midi_expression) *(.text.midi_local_held) *(.text.part_ticks)

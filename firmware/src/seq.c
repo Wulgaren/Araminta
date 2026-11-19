@@ -1911,7 +1911,7 @@ static void seq_tick(track_t *t, uint32_t n)
         return;
     period = div_samples((uint32_t)t->p[P_SDIV]);
     {   /* TAPE CHAIN on this owner: the track's tape runs slower, the others keep the song's */
-        uint32_t ts = tape_seq_speed_q16(t);
+        uint32_t ts = AUDIO_FAR(tape_seq_speed_q16)(t);
         if (ts != 65536u)
             period = (uint32_t)(((uint64_t)period * ts) >> 16);
     }

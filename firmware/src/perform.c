@@ -234,7 +234,7 @@ static uint32_t perf_len(uint32_t e) { return perf_loop(e) ? beat_samples() / pe
 /* the effects that can run at the tempo: a REPEAT / REVERSE longer than the loop cannot */
 static uint32_t perf_avail(void)
 {
-    uint32_t a = PF_Q, e, m = ~0u, b = beat_samples();
+    uint32_t a = PF_Q, e, m = ~0u, b = AUDIO_FAR(beat_samples)();   /* (AUDIO_FAR: perf_begin, which flattens this, is AUDIO_RAM) */
     while (a) {
         e = (uint32_t)__builtin_ctz(a);
         a &= a - 1u;
@@ -418,9 +418,9 @@ static void perf_buf_select(uint32_t e)
 /* each block, after the keys (seq.c) and before the parts: what runs, the 1/16, the filters, the mutes; also the
  * SLICER's buffer, which the buffer effects borrow. Returns 1 when a stage has something to do, and leaves perf_ctl:
  * the copy the layer reads a block late (it runs beside this core's tail, on either core) */
-static __attribute__((noinline)) int perf_begin(uint32_t n)
+static AUDIO_RAM __attribute__((noinline)) int perf_begin(uint32_t n)
 {
-    uint32_t solo = solo_mask(), off = off_mask(), s16 = beat_samples() >> 2, lane = 0, held, mute, q, k, ph0, bnd;
+    uint32_t solo = solo_mask(), off = off_mask(), s16 = AUDIO_FAR(beat_samples)() >> 2, lane = 0, held, mute, q, k, ph0, bnd;
     if (song.playing && s16)                           /* the punch-in lane's step at this block's end (pf.ph: the
                                                          * transport's), so a REPEAT starts on its 1/16 below */
         lane = pfx_lane[((pf.ph + n - 1u) / s16) & 63u];

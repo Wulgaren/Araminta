@@ -57,7 +57,7 @@ typedef struct {
 } px_symp_t;
 
 /* the coefficients, when an input changed. f[k]: the sympathetic strings' frequencies (cycles Q32, 0 = off); brightness, damping, amount Q16 0..1 */
-static __attribute__((noinline)) void px_symp_block(px_symp_t *Y, const uint32_t *f, int32_t brightness, int32_t damping,
+static AUDIO_RAM __attribute__((noinline)) void px_symp_block(px_symp_t *Y, const uint32_t *f, int32_t brightness, int32_t damping,
                                                     int32_t amount)
 {
     px_symp_cf_t *B = &Y->cf;
@@ -75,7 +75,7 @@ static __attribute__((noinline)) void px_symp_block(px_symp_t *Y, const uint32_t
     b = px_m(b, 131072 - b, 16);                         /* b (2 - b), twice */
     b = 32768 + (b >> 1);                                /* the FIR: 0.5 .. 1 */
     lfd = px_m(dd, 131072 - dd, 16);
-    k8 = (int32_t)px_exp2(-8 * lfd);                     /* 2^(-8 lfd): 0.07 s / RT60 */
+    k8 = (int32_t)AUDIO_FAR(px_exp2)(-8 * lfd);          /* 2^(-8 lfd): 0.07 s / RT60 */
     B->cin = amount >> 4;                                /* at most 1 / 16 (of a pair: 1 / 8) */
     B->on = 0;
     for (k = 0; k < PX_NSYMP; k++) {
@@ -91,7 +91,7 @@ static __attribute__((noinline)) void px_symp_block(px_symp_t *Y, const uint32_t
             continue;
         /* gain per period 2^(-10 period / RT60) = 2^(-10 p / (1543.5 steps) * k8) */
         e = (uint32_t)(((((uint64_t)p * 27826874u) >> 32) * (uint32_t)k8) >> 16);   /* octaves, Q16 (10 / 1543.5: Q32) */
-        c = e > 15u << 16 ? 0 : (int32_t)(px_exp2(-(int32_t)e) << 8);   /* Q24 */
+        c = e > 15u << 16 ? 0 : (int32_t)(AUDIO_FAR(px_exp2)(-(int32_t)e) << 8);   /* Q24 */
         if (c > 16775500)
             c = 16775500;                                /* 0.9999 */
         fr = (int32_t)(p & 0xFFFFu);
@@ -108,7 +108,7 @@ static __attribute__((noinline)) void px_symp_block(px_symp_t *Y, const uint32_t
  * block (its line is read at least a step back: the order is kept). The loop truncates towards 0: rounding
  * leaves a dead band in which a small value never decays (a limit cycle), a floor a bias that rings at DC
  * (a comb resonates there too) */
-static __attribute__((noinline)) void px_symp_run(px_symp_t *Y, const int32_t *in, int32_t *out, uint32_t n)
+static AUDIO_RAM __attribute__((noinline)) void px_symp_run(px_symp_t *Y, const int32_t *in, int32_t *out, uint32_t n)
 {
     const px_symp_cf_t *B = &Y->cf;
     uint32_t i, k, m;

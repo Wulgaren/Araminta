@@ -430,7 +430,7 @@ static __attribute__((noinline)) void px_memb_block(px_modal_blk_t *B, px_modal_
 
 /* n (<= 32) samples: out[i] = the resonator (Q20), aux[i] = the exciter (Q20). The exciter first (skipped
  * once a strike has rung out), then the modes */
-static void px_modal_run(const px_modal_blk_t *B, px_modal_t *M, int32_t *out, int32_t *aux, uint32_t n)
+static AUDIO_RAM __attribute__((noinline)) void px_modal_run(const px_modal_blk_t *B, px_modal_t *M, int32_t *out, int32_t *aux, uint32_t n)
 {
     uint32_t i, k, nm = B->n;
     int32_t x[32];

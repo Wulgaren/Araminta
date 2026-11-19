@@ -264,7 +264,7 @@ int32_t tape_pitch16_for(const struct track *t)
         return tp.speed_pitch16;
     return 0;
 }
-uint32_t tape_seq_speed_q16(const struct track *t)
+AUDIO_RAM uint32_t tape_seq_speed_q16(const struct track *t)
 {
     int32_t m = song.g[G_TAPEMODE];
     if (song.g[G_TMIX] && !tape_keep_time() && m != TAPE_MASTER && TAPE_OWNER_OF(m) == (int32_t)(t - trk))
@@ -1109,7 +1109,7 @@ static uint32_t dly_zrun;
  * rev_pg_*: noinline in flash; rev_hall (AUDIO_RAM) reaches them via AUDIO_FAR (bus_own stays out of its flatten) */
 static int rev_use_chain_g(void) { return R == &rev_tank[0] && bus_own(1) >= 0; }
 static __attribute__((noinline)) int32_t rev_pg_size(void) { return song.g[rev_use_chain_g() ? G_CRSIZE : G_RSIZE]; }
-static __attribute__((noinline)) int32_t rev_pg_damp(void) { return song.g[rev_use_chain_g() ? G_CRDAMP : G_RDAMP]; }
+static AUDIO_RAM __attribute__((noinline)) int32_t rev_pg_damp(void) { return song.g[AUDIO_FAR(rev_use_chain_g)() ? G_CRDAMP : G_RDAMP]; }
 /* clamp TYPE to a known model (out of range -> ROOM) */
 static int32_t rev_rtype(void)
 {
@@ -1118,10 +1118,10 @@ static int32_t rev_rtype(void)
 }
 
 /* ROOM (G_RTYPE 0): 4 damped combs + 2 allpasses (Freeverb-like, mono), added to out */
-static __attribute__((noinline)) void rev_room(const int32_t *rev_in, int32_t *out, uint32_t n)
+static AUDIO_RAM __attribute__((noinline)) void rev_room(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
     uint32_t i, k;
-    int32_t size = 25000 + rev_pg_size() * 50, damp = 32767 - rev_pg_damp() * 200;
+    int32_t size = 25000 + AUDIO_FAR(rev_pg_size)() * 50, damp = 32767 - AUDIO_FAR(rev_pg_damp)() * 200;
     for (i = 0; i < n; i++) {
         int32_t a = 0;
         int16_t *c = rev_comb;
@@ -1154,7 +1154,7 @@ static __attribute__((noinline)) void rev_spring(const int32_t *rev_in, int32_t 
 {
     uint32_t i, k, s = (uint32_t)rev_pg_size();
     int32_t g = 19661 + (int32_t)s * 85;                /* the loop's gain: 0.6 .. 0.93 */
-    int32_t kl = 26000 - rev_pg_damp() * 160;           /* its low-pass: ~9 kHz .. ~1.3 kHz */
+    int32_t kl = 26000 - AUDIO_FAR(rev_pg_damp)() * 160;           /* its low-pass: ~9 kHz .. ~1.3 kHz */
     int32_t len = (int32_t)(1323u + ((s * 1323u) >> 7)) << 8, L, L2, L3, f, w;
     int16_t *ln = rev_comb;
     int32_t *ap = R->u.sp;
@@ -1451,7 +1451,7 @@ static __attribute__((noinline)) void rev_shimmer(const int32_t *rev_in, int32_t
         in[i] = rev_in[i] + mulq15(shim_fb[i], SH_AMT);
         t[i] = 0;
     }
-    rev_room(in, t, n);
+    AUDIO_FAR(rev_room)(in, t, n);
     for (i = 0; i < n; i++) {
         int32_t x = 0;
         out[i] += t[i];
@@ -1478,7 +1478,7 @@ static __attribute__((noinline)) void rev_cloud(const int32_t *rev_in, int32_t *
 {
     static const uint32_t PITCH[4] = {65536u, 131072u, 32768u, 98184u};   /* x1, octave up, down, fifth up (Q16) */
     uint32_t i, k, freeze = rev_pg_size() >= 127;
-    int32_t dk = 32767 - rev_pg_damp() * 220;
+    int32_t dk = 32767 - AUDIO_FAR(rev_pg_damp)() * 220;
     int32_t sz = rev_pg_size(), fb = sz * 24, fg = sz * 110, g[CTL], t[CTL];
     for (i = 0; i < n; i++) {
         int32_t l = 0, r = 0, m;
@@ -1524,7 +1524,7 @@ static __attribute__((noinline)) void rev_cloud(const int32_t *rev_in, int32_t *
         g[i] = R->cl_lp * 2;
         t[i] = 0;
     }
-    rev_room(g, t, n);
+    AUDIO_FAR(rev_room)(g, t, n);
     for (i = 0; i < n; i++) {
         int32_t de = t[i] - R->sp_he, ds = sh_tz(de, 10);
         R->sp_he += ds ? ds : (de > 0) - (de < 0);       /* (a dead band would hold a tiny offset) */
@@ -1542,7 +1542,7 @@ static void rev_run(uint32_t ty, const int32_t *rev_in, int32_t *out, uint32_t n
     case 2: AUDIO_FAR(rev_hall)(rev_in, out, n); break;
     case 3: rev_shimmer(rev_in, out, n); break;
     case 4: rev_cloud(rev_in, out, n); break;
-    default: rev_room(rev_in, out, n); break;
+    default: AUDIO_FAR(rev_room)(rev_in, out, n); break;
     }
 }
 
@@ -2752,7 +2752,7 @@ static __attribute__((noinline)) void master_begin(void)
     }
 }
 /* DUCK: kick (eng_drum.c duck_hit) ducks non-DRUM parts */
-static __attribute__((noinline)) void duck_block(void)
+static AUDIO_RAM __attribute__((noinline)) void duck_block(void)
 {
     int32_t dep = song.g[G_DUCK] * 31731 / 100, e;
     if (duck_hit) {
@@ -2768,7 +2768,7 @@ static __attribute__((noinline)) void duck_block(void)
     } else if (duck_hold) {
         duck_hold--;
     } else if (duck_env) {
-        duck_env = (int32_t)(((uint32_t)duck_env * dx_fall(40000u + (uint32_t)song.g[G_DREL] * 5600u)) >> 16);
+        duck_env = (int32_t)(((uint32_t)duck_env * AUDIO_FAR(dx_fall)(40000u + (uint32_t)song.g[G_DREL] * 5600u)) >> 16);
     }
     e = (duck_env * (65536 - duck_env)) >> 15;
     duck_g1 = 32767 - mulq15(dep, e > 32767 ? 32767 : e);
@@ -3032,7 +3032,7 @@ static volatile uint32_t c1_job_ticks;                  /* TIMER4 ticks core 1 s
 static uint16_t perf_cost;                              /* the FX layer job's ticks, smoothed (console: c1_layer_us) */
 /* the send buses may go to core 1 while core 0 renders parts: no CHAIN owner runs the DLY / REV state in its
  * part or puts its bus settings into song.g (fx_bus_stage) meanwhile */
-static int bus_c1(void) { return bus_own(0) < 0 && bus_own(1) < 0; }
+static AUDIO_RAM int bus_c1(void) { return AUDIO_FAR(bus_own)(0) < 0 && AUDIO_FAR(bus_own)(1) < 0; }
 
 static mixsum_t c1_part;                /* a part's sums while it renders: whole only into the core's sums (a job
                                          * cut mid-part leaves its half here, never in mx[1]) */
@@ -3218,7 +3218,7 @@ static __attribute__((noinline)) uint32_t mix_split(void)
     }
     split_vage = vage;
 #if C1_TIMED
-    if (bus_c1() && c1_t4_ok)
+    if (AUDIO_FAR(bus_c1)() && c1_t4_ok)
         bw = bus_cost;                                  /* core 1 runs the buses too (mix_block) */
 #endif
     lo = all + bw;                                      /* no split: core 0 renders the parts and the buses */
@@ -3423,12 +3423,12 @@ static void mix_block(int32_t *out, uint32_t n)
     clip_eff = song.g[G_CLIP];                          /* (JIANT) CLIP / PNCH for this block */
     pnch_eff = song.g[G_PUNCH];
     master_begin();
-    duck_block();
-    perf = perf_begin(n);                               /* the FX hold layer at work (perform.c) */
+    AUDIO_FAR(duck_block)();
+    perf = AUDIO_FAR(perf_begin)(n);                    /* the FX hold layer at work (perform.c) */
     rev_tank[0].hl.side = rev_tank[1].hl.side = 0;      /* HALL sides set this block by insert / send */
     for (i = 0; i < NTRK; i++)                          /* every part's copy of the bus settings (core.h bus_knobs) */
         bus_knobs_g(&trk[i]);
-    b1 = bus_c1();
+    b1 = AUDIO_FAR(bus_c1)();
     if (b1)
         bus_g_swap();                                   /* the buses' settings in, for either core */
     {   /* the parts: some on the second core, into its own sums (mx[1]), and its send buses after them */
