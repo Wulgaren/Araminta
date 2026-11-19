@@ -39,7 +39,7 @@ click_render 30
 mod_begin 804
 mod_end 29
 track_render_audio 1421
-perf_begin 28
+perf_begin 36
 perf_mute 0
 perf_pre 30
 perf_block 854
