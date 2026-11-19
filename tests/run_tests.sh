@@ -1037,6 +1037,16 @@ u_fm1emu_t() {
     run "fm1-emu (device-timed): $1, ${2} ms" build/emu-target/release/emu_test --fwsc build/felucca.fwsc \
         --elf build/felucca.elf --scenario "$1" --ms "$2" --clear
 }
+# a project's own patch with one punch-in held (emu_test --punch): the audio one through perf_held, the MIDI
+# one through pfx.c's t->pfx; each must engage and let go
+u_fm1emu_punch() {
+    run "fm1-emu (device-timed): a project's patch with punch-in 1/2 C4 (audio) held, 1600 ms" \
+        build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf \
+        --scenario project --ms 1600 --project tests/emu/busy_project.bin --notes 3 --punch 1:C4 --clear
+    run "fm1-emu (device-timed): a project's patch with punch-in 1/2 E4 (MIDI, OCT-) held, 1600 ms" \
+        build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf \
+        --scenario project --ms 1600 --project tests/emu/busy_project.bin --notes 3 --punch 1:E4 --clear
+}
 if [ "${FM1_EMU:-0}" != 1 ]; then
     note "== skip the FM-1 emulator (FM1_EMU=1 runs the firmware device-timed on fm1-emu)"
 elif ! command -v cargo >/dev/null 2>&1; then
@@ -1050,6 +1060,7 @@ else
     unit_after "$FM1EMU_BUILD" u_fm1emu_t keys 9000
     unit_after "$FM1EMU_BUILD" u_fm1emu_t stack 6000
     unit_after "$FM1EMU_BUILD" u_fm1emu_t churn 6000
+    unit_after "$FM1EMU_BUILD" u_fm1emu_punch
 fi
 
 drain

@@ -55,5 +55,9 @@ int main(void)
     u32c("PF_N", PF_N);
     keys("PF_PAGE1", PF_DEF);
     keys("PF_PAGE2", PF2_DEF);
+    /* the MIDI punch-ins' state (pfx.c: t->pfx bits, t->pfx_pit for OCT- / OCT+), read off `trk` */
+    printf("pub const TRK_SIZE: u32 = %u;\n", (unsigned)sizeof(track_t));
+    printf("pub const TRK_PFX_OFF: u32 = %u;\n", (unsigned)offsetof(track_t, pfx));
+    printf("pub const TRK_PFX_PIT_OFF: u32 = %u;\n", (unsigned)offsetof(track_t, pfx_pit));
     return 0;
 }

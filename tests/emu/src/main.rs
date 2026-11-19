@@ -7,6 +7,7 @@
 //!   emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario dry|keys|stack|churn --ms N
 //!   emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario idle --ms N
 //!   emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario project --ms N --project FILE [--notes N]
+//!            [--punch PAGE:KEY]   (one audio punch-in held over the project's patch, e.g. 1:C4)
 //!   emu_test --fwsc FILE --elf FILE --scenarios 'dry:3000 keys:9000 churn:6000 stack:6000'
 //!            [--clear] [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--profile N] [--footprint N]
 //!
@@ -38,7 +39,8 @@ const HALF_FRAMES: u32 = 128;
 const USAGE: &str = "usage: emu_test --fwsc FELUCCA.fwsc --elf FELUCCA.elf \
 (--scenario dry|keys|stack|churn --ms N | --scenario idle --ms N | --scenario project --ms N --project FILE | \
 --scenarios 'dry:3000 keys:9000 churn:6000 stack:6000') \
-[--clear] [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--notes N] [--profile N] [--footprint N]";
+[--clear] [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--notes N] [--punch PAGE:KEY] [--profile N] \
+[--footprint N]";
 
 // The firmware's internal ids (parameters, PF_* effects, the punch pages' key maps), generated from its sources by
 // tests/emu/ids.c into build/emu/ids.rs before this builds (tests/run_tests.sh, FM1_EMU=1)
@@ -51,6 +53,12 @@ const WHITE: [&str; 16] = ["F3", "G3", "A3", "B3", "C4", "D4", "E4", "F4", "G4",
 fn page_keys(page: u32) -> Vec<(&'static str, u32)> {
     let map = if page == 1 { PF_PAGE1 } else { PF_PAGE2 };
     WHITE.iter().zip(map).filter(|&(_, e)| e < PF_N && !(PF_OCTD..=PF_X2).contains(&e)).map(|(&k, e)| (k, e)).collect()
+}
+
+/// Every punch-in of PUNCH-IN page 1 or 2, audio and MIDI (empty keys left out).
+fn page_keys_all(page: u32) -> Vec<(&'static str, u32)> {
+    let map = if page == 1 { PF_PAGE1 } else { PF_PAGE2 };
+    WHITE.iter().zip(map).filter(|&(_, e)| e < PF_N).map(|(&k, e)| (k, e)).collect()
 }
 
 // editor.c's SysEx commands (F0 7D 46 4C cmd args.. F7) and editor_menu.c's FX LATCH id: protocol constants,
@@ -119,6 +127,9 @@ struct Args {
     project: Option<String>,
     /// --notes N: held notes on each part for the project scenario (0..8, default 4)
     notes: usize,
+    /// --punch PAGE:KEY: with --scenario project, hold one PUNCH-IN page key (1:C4) for the scenario's start,
+    /// so a project's own patch is measured with that audio punch-in (its probe must show it engaged)
+    punch: Option<String>,
     /// --profile N: the N functions each core spent the most device time in during the scenario (0: off)
     profile: usize,
     /// --footprint N: the N symbols that fetch the most 64-byte flash lines a half, the cache flushed at each
@@ -133,6 +144,7 @@ fn parse_args() -> Result<Args, String> {
     let mut clear = false;
     let mut project = None;
     let mut notes = 4usize;
+    let mut punch = None;
     let (mut wav, mut mhz, mut fast, mut seed, mut profile, mut footprint) = (None, 240u64, false, 1u32, 0usize, 0usize);
     let mut i = 0;
     while i < a.len() {
@@ -145,6 +157,7 @@ fn parse_args() -> Result<Args, String> {
             "--ms" => ms = Some(num(i)?),
             "--project" => project = Some(val(i)?),
             "--notes" => notes = num(i)? as usize,
+            "--punch" => punch = Some(val(i)?),
             "--scenarios" => {
                 let mut cases = Vec::new();
                 for case in val(i)?.split_whitespace() {
@@ -211,7 +224,11 @@ fn parse_args() -> Result<Args, String> {
             if notes != 4 && !has_project {
                 return Err("--notes needs --scenario project".into());
             }
-            Ok(Args { fwsc, elf, scenarios: cases, clear, wav, mhz, fast, seed, project, notes, profile, footprint })
+            if punch.is_some() && !has_project {
+                return Err("--punch needs --scenario project (a punch-in held over a project's own patch)".into());
+            }
+            Ok(Args { fwsc, elf, scenarios: cases, clear, wav, mhz, fast, seed, project, notes, punch, profile,
+                      footprint })
         }
         _ => Err(USAGE.to_string()),
     }
@@ -246,6 +263,8 @@ struct Syms {
     perf_act: u32,
     kb_lock: u32,
     perf_page2: u32,
+    /// the four tracks (pfx.c's MIDI punch-ins write t->pfx / t->pfx_pit)
+    trk: u32,
     /// fx.c's part_cost[NTRK]: each part's render in 24 MHz ticks, smoothed per block (None: older firmware)
     part_cost: Option<u32>,
     /// fx.c's bus_cost: bus_run's ticks, smoothed the same way (None: older firmware)
@@ -339,6 +358,7 @@ impl Syms {
             perf_act: get("perf_act", 4)?,
             kb_lock: get("kb_lock", 1)?,
             perf_page2: get("perf_page2", 1)?,
+            trk: get("trk", TRK_SIZE * 4)?,
             part_cost: opt("part_cost", 8)?,
             bus_cost: opt("bus_cost", 2)?,
         })
@@ -379,7 +399,8 @@ struct Emu {
 }
 
 /// One punch-in check: between `from` and `to` (ms) the effects in `mask` show in perf_held (or perf_latched):
-/// any of them, or (`all`) all of them at once.
+/// any of them, or (`all`) all of them at once. `midi`: instead, a MIDI punch-in is at work on some track
+/// (that page's effects go through pfx.c's t->pfx / t->pfx_pit, not the FX layer's perf_held).
 struct Probe {
     label: String,
     from: u64,
@@ -387,6 +408,7 @@ struct Probe {
     mask: u32,
     latched: bool,
     all: bool,
+    midi: bool,
     seen: bool,
 }
 
@@ -434,6 +456,14 @@ impl Emu {
         self.soc.periph.ms()
     }
 
+    /// A MIDI punch-in is at work on some track: pfx.c writes t->pfx (PFX_* bits) and t->pfx_pit (OCT- / OCT+).
+    fn pfx_active(&mut self) -> bool {
+        (0..4u32).any(|k| {
+            let a = self.syms.trk + k * TRK_SIZE;
+            self.soc.read8(a + TRK_PFX_OFF) != 0 || self.soc.read16(a + TRK_PFX_PIT_OFF) != 0
+        })
+    }
+
     /// One CHUNK of both cores, then the host's side: the drum hit due, the punch-in probes.
     fn step(&mut self) -> Result<(), String> {
         let Emu { cpu, cpu1, soc, pending_tick, jit, .. } = self;
@@ -450,7 +480,12 @@ impl Emu {
             let held = self.soc.read32(self.syms.perf_held);
             let latched = self.soc.read32(self.syms.perf_latched);
             self.act_seen |= self.soc.read32(self.syms.perf_act);
+            let midi = self.probes.iter().any(|p| p.midi) && self.pfx_active();
             for p in self.probes.iter_mut().filter(|p| (p.from..p.to).contains(&now)) {
+                if p.midi {
+                    p.seen |= midi;
+                    continue;
+                }
                 let v = (if p.latched { latched } else { held }) & p.mask;
                 p.seen |= if p.all { v == p.mask } else { v != 0 };
             }
@@ -741,7 +776,11 @@ impl Plan {
         self.end = self.end.max(t);
     }
     fn probe(&mut self, label: String, from: u64, to: u64, mask: u32, latched: bool, all: bool) {
-        self.probes.push(Probe { label, from, to, mask, latched, all, seen: false });
+        self.probes.push(Probe { label, from, to, mask, latched, all, midi: false, seen: false });
+    }
+    /// a MIDI punch-in (pfx.c): some track's t->pfx or t->pfx_pit is set in the window
+    fn probe_midi(&mut self, label: String, from: u64, to: u64) {
+        self.probes.push(Probe { label, from, to, mask: 0, latched: false, all: false, midi: true, seen: false });
     }
 }
 
@@ -752,6 +791,33 @@ const TAP_MS: u64 = 100;
 const WALK_MS: u64 = 300;
 /// the scenario's last this-many ms are quiet: every punch-in must have let go
 const TAIL_MS: u64 = 400;
+
+/// project + --punch: one audio punch-in of PUNCH-IN 1/2 or 2/2 held over the project's own patch from 200 ms;
+/// its probe must show the effect engaged. One key a run, so the scenario's peak belongs to that punch-in alone.
+fn plan_project_punch(spec: &str) -> Result<Plan, String> {
+    let (page, key) = spec.split_once(':').ok_or("--punch: expected PAGE:KEY, such as 1:C4")?;
+    let page: u32 = page.parse().map_err(|_| "--punch: the page is 1 or 2")?;
+    if page != 1 && page != 2 {
+        return Err("--punch: the page is 1 or 2".into());
+    }
+    let (name, fx) = page_keys_all(page).into_iter().find(|&(k, _)| k == key)
+        .ok_or_else(|| format!("--punch: {key} is not a punch-in of PUNCH-IN {page}/2"))?;
+    let audio = page_keys(page).iter().any(|&(k, _)| k == name);
+    let mut pl = Plan::default();
+    let mut t = 200;
+    if page == 2 {
+        pl.select(t, 1);
+        t += WALK_MS;
+    }
+    pl.tap(t, name, HOLD_MS);
+    let label = format!("{page}/2 {name}");
+    if audio {
+        pl.probe(label, t, t + HOLD_MS + 20, 1 << fx, false, false);
+    } else {
+        pl.probe_midi(label, t, t + HOLD_MS + 20);
+    }
+    Ok(pl)
+}
 
 /// keys: every audio punch-in of PUNCH-IN 1/2, then of 2/2, held HOLD_MS with GAP_MS between.
 fn plan_keys() -> Plan {
@@ -999,14 +1065,17 @@ fn clear_scenario(emu: &mut Emu, scenario: Scenario) -> Result<(), String> {
 }
 
 /// The actions and minimum duration of one requested scenario, validated before starting the emulator.
-fn scenario_plan(scenario: Scenario, ms: u64, seed: u32) -> Result<Plan, String> {
+fn scenario_plan(scenario: Scenario, ms: u64, seed: u32, punch: Option<&str>) -> Result<Plan, String> {
     let plan = match scenario {
         Scenario::Dry => Plan::default(),
         Scenario::Keys => plan_keys(),
         Scenario::Stack => plan_stack(ms),
         Scenario::Churn => plan_churn(ms, seed),
         Scenario::Idle => Plan::default(),
-        Scenario::Project => Plan::default(),
+        Scenario::Project => match punch {
+            Some(spec) => plan_project_punch(spec)?,
+            None => Plan::default(),
+        },
     };
     if plan.end + TAIL_MS > ms {
         return Err(format!("--scenario {} needs --ms {} at least", scenario.name(), plan.end + TAIL_MS));
@@ -1016,7 +1085,8 @@ fn scenario_plan(scenario: Scenario, ms: u64, seed: u32) -> Result<Plan, String>
 
 /// Boot and upload once, then measure each scenario with its own actions, probes and counters.
 fn run(args: &Args) -> Result<(), String> {
-    let plans = args.scenarios.iter().map(|&(scenario, ms)| scenario_plan(scenario, ms, args.seed))
+    let plans = args.scenarios.iter()
+        .map(|&(scenario, ms)| scenario_plan(scenario, ms, args.seed, args.punch.as_deref()))
         .collect::<Result<Vec<_>, _>>()?;
     let syms = Syms::load(&args.elf)?;
     let strict = !args.fast;
@@ -1031,6 +1101,9 @@ fn run(args: &Args) -> Result<(), String> {
         let bytes = std::fs::read(path).map_err(|e| format!("--project {path}: {e}"))?;
         put_project(&mut emu, &bytes)?;
         play_project(&mut emu, args.notes)?;
+        if args.punch.is_some() {
+            open_punch(&mut emu)?;
+        }
     } else {
         if args.scenarios[0].0 == Scenario::Stack {
             set_latch(&mut emu, true)?;
