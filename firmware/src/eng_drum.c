@@ -448,8 +448,13 @@ static void drums_kit(uint32_t kit, dx_lane_t *k, uint8_t *lay, uint8_t *mdl, in
     }
 }
 
-/* a preset's movement (core.h MODS, params.c preset_mods): DRUM-X's kits' (DRUM_MODS); the other engines' none */
+/* a preset's movement (core.h MODS, params.c preset_mods): DRUM-X's kits' (DRUM_MODS), WAVETABLE's (eng_wt.c
+ * WT_MODS); the other engines' none */
+static const int8_t *wt_preset_mod(uint32_t pi);       /* eng_wt.c, included after this file (engines.c) */
+static const engine_t ENG_WT;                          /* its engine, defined there */
 static const int8_t *preset_mod(const engine_t *e, uint32_t pi)
 {
-    return e == &ENG_DRUM && pi < DX_NKIT ? DRUM_MODS[pi] : 0;
+    return e == &ENG_DRUM && pi < DX_NKIT ? DRUM_MODS[pi]
+         : e == &ENG_WT ? wt_preset_mod(pi)
+         : 0;
 }

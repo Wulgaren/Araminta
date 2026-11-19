@@ -2236,7 +2236,8 @@ function makeMockDevice(opt = {}) {
         P("PLUCK", [1, 62, 0, 0, 1, 62, 0, 3], [0, 88, 0, 65], 0),
         P("SWEEP", [1, 40, 18, 22, 1, 40, 30, 5], [40, 80, 90, 80], 0),
         P("WT FDBK", [0, 80, 110, 95, 1, 40, 60, 4], [2, 70, 95, 35], 1),
-        P("HOLLOW", [1, 20, 0, 28, 1, 100, 70, 7], [50, 85, 110, 90], 0)] },
+        P("HOLLOW", [1, 20, 0, 28, 1, 100, 70, 7], [50, 85, 110, 90], 0),
+        P("ZAAG", [0, 127, 20, 50, 0, 0, 0, 3], [8, 48, 20, 30], 0, 0, [1, 1, 1, 1])] },
     { name: "-", titles: ["-", "-"], edit: [RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE, RETIRE], presets: [] },
   ];
   const FM6_E = ENG.findIndex((e) => e.name === "FM6"), FM6_OWN = FM6.FACTORY_PK.length, DRUM_E = ENG.findIndex((e) => e.name === "DRUM-X");
@@ -2258,6 +2259,11 @@ function makeMockDevice(opt = {}) {
     E("TYPE", ["LP", "BP", "HP", "COMB"], 0), E("SYNC", ["OFF", "ON"], 0));    /* ANALOG TYPE (117), ENV SYNC (118) */
   const P_COUNT = 127, G_COUNT = 32, NSTEP = 64, P_E0 = 119, G_ENGSEL = 20, P_SLCR = 45;
   const P_MORPH = 71, P_DRIFT = 73, P_WAVE2 = 66;   /* core.h: ANALOG's OSC pages keep their values in FM slots */
+  /* a factory preset's movement (core.h MODS, params.c preset_mods), by name: the values its engine's table sets
+   * after the rest of the preset (eng_wt.c WT_MODS: ENV DEST PIT, the DIST insert) */
+  const P_ED_PIT = 6, P_DIST = 33, P_IDMODE = 97, P_IDMIX = 98;
+  const MOVES = {ZAAG: [[P_ED_PIT, 63], [P_IDMODE, 1], [P_IDMIX, 127], [P_DIST, 60]]};
+  const MOVED_IDS = [...new Set(Object.values(MOVES).flat().map(([id]) => id))];
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const enumOrig = (d, v) => d.fmt === F.ENUM && d.names ? aliasOf(d.names, v - d.min) + d.min : v;   /* params.c enum_orig */
   /* four tracks (firmware v3), four synth parts (1.0); engine / preset / p / step below are the selected track's */
@@ -2336,6 +2342,9 @@ function makeMockDevice(opt = {}) {
     for (let i = P_SLCR + 4; i < P_E0; i++) if (!trackOwn(i, P_E0)) st.p[i] = TP[i].def;   /* a factory preset turns the
                                                      matrix off; the SLICER, the chord keys, the steps and the other track
                                                      settings stay (ui.c apply_preset_to) */
+    for (const id of MOVED_IDS) st.p[id] = TP[id].def;   /* params.c preset_mods: the movement is set after the defaults,
+                                                     * so a preset without one leaves the parameter at its default */
+    for (const [id, v] of MOVES[pr.name] || []) st.p[id] = v;
     if (st.engine === FM6_E) {                    /* eng_fm6.c fm6_track_loaded */
       const t = st.tracks[st.sel];
       t.own = null;

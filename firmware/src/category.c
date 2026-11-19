@@ -33,7 +33,7 @@ static const char *const PRESET_CAT[17] = {
     "FFFFF",                     /* 11 NOISE: … METAL, REG BELL */
     "KUBLPUKULPKBLFB",           /* 12 FM6: … PLUCK, METAL VOX, HOLLOW FM, CRYSTAL, FM GROWL, OCT STACK, AIR NOISE, DUBSTEP BASS */
     "DD",                        /* 13 SLICE: CHOP, STUTTER */
-    "BLKPBLUPLP",                /* 14 WAVETABLE: … SWEEP, WT FDBK, HOLLOW */
+    "BLKPBLUPLPD",               /* 14 WAVETABLE: … SWEEP, WT FDBK, HOLLOW, ZAAG */
     "",                          /* 15 DRUMS (retired: its kits are DRUM-X's) */
 };
 static uint32_t preset_cat(uint32_t e, uint32_t k)    /* factory preset k of engine e */
