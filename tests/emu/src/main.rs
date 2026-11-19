@@ -7,7 +7,8 @@
 //!   emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario dry|keys|stack|churn --ms N
 //!   emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario idle --ms N
 //!   emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf --scenario project --ms N --project FILE [--notes N]
-//!            [--punch PAGE:KEY]   (one audio punch-in held over the project's patch, e.g. 1:C4)
+//!            [--punch PAGE:KEY[,PAGE:KEY..]] [--punch-latch]
+//!                                (a punch-in, or a stack of one page, over the project's patch, e.g. 1:C4)
 //!   emu_test --fwsc FILE --elf FILE --scenarios 'dry:3000 keys:9000 churn:6000 stack:6000'
 //!            [--clear] [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--profile N] [--footprint N]
 //!
@@ -39,8 +40,8 @@ const HALF_FRAMES: u32 = 128;
 const USAGE: &str = "usage: emu_test --fwsc FELUCCA.fwsc --elf FELUCCA.elf \
 (--scenario dry|keys|stack|churn --ms N | --scenario idle --ms N | --scenario project --ms N --project FILE | \
 --scenarios 'dry:3000 keys:9000 churn:6000 stack:6000') \
-[--clear] [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--notes N] [--punch PAGE:KEY] [--profile N] \
-[--footprint N]";
+[--clear] [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--notes N] \
+[--punch PAGE:KEY[,PAGE:KEY..]] [--punch-latch] [--profile N] [--footprint N]";
 
 // The firmware's internal ids (parameters, PF_* effects, the punch pages' key maps), generated from its sources by
 // tests/emu/ids.c into build/emu/ids.rs before this builds (tests/run_tests.sh, FM1_EMU=1)
@@ -127,9 +128,12 @@ struct Args {
     project: Option<String>,
     /// --notes N: held notes on each part for the project scenario (0..8, default 4)
     notes: usize,
-    /// --punch PAGE:KEY: with --scenario project, hold one PUNCH-IN page key (1:C4) for the scenario's start,
-    /// so a project's own patch is measured with that audio punch-in (its probe must show it engaged)
+    /// --punch PAGE:KEY[,PAGE:KEY..]: with --scenario project, hold one or more PUNCH-IN keys of one page
+    /// (1:C4 or 1:C4,1:D4), so a project's own patch is measured with those effects (each probe must show engaged)
     punch: Option<String>,
+    /// --punch-latch: hold the --punch keys with FX LATCH (a tap turns each effect on and leaves it on, so the
+    /// buffer effects of a page stack instead of the last one playing); G5 CLR at the end
+    punch_latch: bool,
     /// --profile N: the N functions each core spent the most device time in during the scenario (0: off)
     profile: usize,
     /// --footprint N: the N symbols that fetch the most 64-byte flash lines a half, the cache flushed at each
@@ -145,6 +149,7 @@ fn parse_args() -> Result<Args, String> {
     let mut project = None;
     let mut notes = 4usize;
     let mut punch = None;
+    let mut punch_latch = false;
     let (mut wav, mut mhz, mut fast, mut seed, mut profile, mut footprint) = (None, 240u64, false, 1u32, 0usize, 0usize);
     let mut i = 0;
     while i < a.len() {
@@ -158,6 +163,11 @@ fn parse_args() -> Result<Args, String> {
             "--project" => project = Some(val(i)?),
             "--notes" => notes = num(i)? as usize,
             "--punch" => punch = Some(val(i)?),
+            "--punch-latch" => {
+                punch_latch = true;
+                i += 1;
+                continue;
+            }
             "--scenarios" => {
                 let mut cases = Vec::new();
                 for case in val(i)?.split_whitespace() {
@@ -227,8 +237,11 @@ fn parse_args() -> Result<Args, String> {
             if punch.is_some() && !has_project {
                 return Err("--punch needs --scenario project (a punch-in held over a project's own patch)".into());
             }
-            Ok(Args { fwsc, elf, scenarios: cases, clear, wav, mhz, fast, seed, project, notes, punch, profile,
-                      footprint })
+            if punch_latch && punch.is_none() {
+                return Err("--punch-latch needs --punch".into());
+            }
+            Ok(Args { fwsc, elf, scenarios: cases, clear, wav, mhz, fast, seed, project, notes, punch, punch_latch,
+                      profile, footprint })
         }
         _ => Err(USAGE.to_string()),
     }
@@ -792,9 +805,8 @@ const WALK_MS: u64 = 300;
 /// the scenario's last this-many ms are quiet: every punch-in must have let go
 const TAIL_MS: u64 = 400;
 
-/// project + --punch: one audio punch-in of PUNCH-IN 1/2 or 2/2 held over the project's own patch from 200 ms;
-/// its probe must show the effect engaged. One key a run, so the scenario's peak belongs to that punch-in alone.
-fn plan_project_punch(spec: &str) -> Result<Plan, String> {
+/// A `--punch` key spec (PAGE:KEY) resolved against the page maps.
+fn find_punch(spec: &str) -> Result<(u32, &'static str, u32), String> {
     let (page, key) = spec.split_once(':').ok_or("--punch: expected PAGE:KEY, such as 1:C4")?;
     let page: u32 = page.parse().map_err(|_| "--punch: the page is 1 or 2")?;
     if page != 1 && page != 2 {
@@ -802,19 +814,59 @@ fn plan_project_punch(spec: &str) -> Result<Plan, String> {
     }
     let (name, fx) = page_keys_all(page).into_iter().find(|&(k, _)| k == key)
         .ok_or_else(|| format!("--punch: {key} is not a punch-in of PUNCH-IN {page}/2"))?;
-    let audio = page_keys(page).iter().any(|&(k, _)| k == name);
+    Ok((page, name, fx))
+}
+
+/// project + --punch: one or more keys of one PUNCH-IN page held over the project's own patch from 200 ms. Each
+/// effect's probe must show it engaged. One key a run isolates that effect's load; several stack. All the keys of a
+/// run are one page (SELECT changes the map). `latch`: FX LATCH, so the buffer effects of a page stack instead of
+/// the last one playing; each key is tapped, G5 CLR clears them at the end.
+fn plan_project_punch(spec: &str, latch: bool) -> Result<Plan, String> {
+    let keys: Vec<(u32, &'static str, u32)> = spec.split(',').map(find_punch).collect::<Result<_, _>>()?;
+    let page = keys[0].0;
+    if keys.iter().any(|k| k.0 != page) {
+        return Err("--punch: the keys of a run are one page (SELECT switches the map)".into());
+    }
     let mut pl = Plan::default();
     let mut t = 200;
     if page == 2 {
         pl.select(t, 1);
         t += WALK_MS;
     }
-    pl.tap(t, name, HOLD_MS);
-    let label = format!("{page}/2 {name}");
-    if audio {
-        pl.probe(label, t, t + HOLD_MS + 20, 1 << fx, false, false);
-    } else {
-        pl.probe_midi(label, t, t + HOLD_MS + 20);
+    if latch {
+        let mut taps = Vec::new();
+        for &(_, name, _) in &keys {
+            pl.tap(t, name, TAP_MS);
+            taps.push((t, name));
+            t += 2 * TAP_MS;
+        }
+        for &(_, name, fx) in &keys {
+            let label = format!("{page}/2 {name}");
+            let from = taps.iter().find(|&&(_, n)| n == name).map_or(200, |&(at, _)| at);
+            if page_keys(page).iter().any(|&(k, _)| k == name) {
+                pl.probe(label, from, t + 20, 1 << fx, true, false);
+            } else {
+                pl.probe_midi(label, from, t + 20);
+            }
+        }
+        pl.tap(t + 20, "G5", TAP_MS);
+        return Ok(pl);
+    }
+    let down = t;
+    for (i, &(_, name, _)) in keys.iter().enumerate() {
+        pl.key(down + 20 * i as u64, name, true);
+    }
+    let release = down + HOLD_MS + 20 * keys.len() as u64;
+    for &(_, name, _) in &keys {
+        pl.key(release, name, false);
+    }
+    for &(p, name, fx) in &keys {
+        let label = format!("{p}/2 {name}");
+        if page_keys(p).iter().any(|&(k, _)| k == name) {
+            pl.probe(label, down, release + 20, 1 << fx, false, false);
+        } else {
+            pl.probe_midi(label, down, release + 20);
+        }
     }
     Ok(pl)
 }
@@ -1065,7 +1117,8 @@ fn clear_scenario(emu: &mut Emu, scenario: Scenario) -> Result<(), String> {
 }
 
 /// The actions and minimum duration of one requested scenario, validated before starting the emulator.
-fn scenario_plan(scenario: Scenario, ms: u64, seed: u32, punch: Option<&str>) -> Result<Plan, String> {
+fn scenario_plan(scenario: Scenario, ms: u64, seed: u32, punch: Option<&str>,
+                 latch: bool) -> Result<Plan, String> {
     let plan = match scenario {
         Scenario::Dry => Plan::default(),
         Scenario::Keys => plan_keys(),
@@ -1073,7 +1126,7 @@ fn scenario_plan(scenario: Scenario, ms: u64, seed: u32, punch: Option<&str>) ->
         Scenario::Churn => plan_churn(ms, seed),
         Scenario::Idle => Plan::default(),
         Scenario::Project => match punch {
-            Some(spec) => plan_project_punch(spec)?,
+            Some(spec) => plan_project_punch(spec, latch)?,
             None => Plan::default(),
         },
     };
@@ -1086,13 +1139,17 @@ fn scenario_plan(scenario: Scenario, ms: u64, seed: u32, punch: Option<&str>) ->
 /// Boot and upload once, then measure each scenario with its own actions, probes and counters.
 fn run(args: &Args) -> Result<(), String> {
     let plans = args.scenarios.iter()
-        .map(|&(scenario, ms)| scenario_plan(scenario, ms, args.seed, args.punch.as_deref()))
+        .map(|&(scenario, ms)| scenario_plan(scenario, ms, args.seed, args.punch.as_deref(), args.punch_latch))
         .collect::<Result<Vec<_>, _>>()?;
     let syms = Syms::load(&args.elf)?;
     let strict = !args.fast;
     let mut emu = Emu::boot(&args.fwsc, syms, args.mhz, strict)?;
     let wall = std::time::Instant::now();
     wait_ready(&mut emu)?;
+    if args.punch_latch {
+        // (a device setting, not a project one: set before the project is put, as the menu command needs)
+        set_latch(&mut emu, true)?;
+    }
     if args.scenarios[0].0 == Scenario::Idle {
         let t = emu.ms();
         emu.run_until(t + 1000)?; // (the running average settled)

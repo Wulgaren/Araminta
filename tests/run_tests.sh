@@ -1046,6 +1046,11 @@ u_fm1emu_punch() {
     run "fm1-emu (device-timed): a project's patch with punch-in 1/2 E4 (MIDI, OCT-) held, 1600 ms" \
         build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf \
         --scenario project --ms 1600 --project tests/emu/busy_project.bin --notes 3 --punch 1:E4 --clear
+    # eight latched effects of page 1 (audio and MIDI) stack on the same patch; the load is printed, not bounded
+    run "fm1-emu (device-timed): a project's patch with a page-1 punch-in stack (FX LATCH), 3200 ms" \
+        build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf \
+        --scenario project --ms 3200 --project tests/emu/busy_project.bin --notes 3 \
+        --punch 1:F3,1:A3,1:C4,1:D4,1:E4,1:F4,1:E5,1:F5 --punch-latch --clear
 }
 if [ "${FM1_EMU:-0}" != 1 ]; then
     note "== skip the FM-1 emulator (FM1_EMU=1 runs the firmware device-timed on fm1-emu)"
