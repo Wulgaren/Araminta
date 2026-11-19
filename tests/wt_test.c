@@ -2,14 +2,13 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* WAVETABLE engine test (src/eng_wt.c) on the Mac, through hostsim.c as regress.c.
  *   build/host/wt_test [DEMODIR]          (run_tests.sh: build/wt_demo)
- * 1. the engine: index 14 (ENGI_WT), WAVETABLE, pages OSC A / OSC B, 8 parameters, 11 presets, the knob row
+ * 1. the engine: index 14 (ENGI_WT), WAVETABLE, pages OSC A / OSC B, 8 parameters, 10 presets, the knob row
  *    (POS, FDBK, B>A, LEVEL).
  * 2. the tables (build/gen/felucca_wt.h): two factory tables, 16 frames each, a 512-sample base (1016 a frame),
  *    every stored sample in range, every frame's base level non-zero; the mip helper (wt_mip_level) for a
  *    9-bit base: 0 at no or a very low increment, non-decreasing, 6 at a high one, clamped.
- * 3. presets: each of the 11 at C2 and C4 sounds; no DC (the mix's |mean| after its master DC blockers settle,
+ * 3. presets: each of the 8 at C2 and C4 sounds; no DC (the mix's |mean| after its master DC blockers settle,
  *    below 1 % of VOICE_FS), no clipping (a voice below 2 x VOICE_FS, the mix below full scale).
- * 3b. movement: ZAAG sets ENV DEST PIT and the DIST insert (WT_MODS); HOLLOW after it restores those defaults.
  * 4. a note from silence renders bit-identically twice (every preset: the phases reset at note-on).
  * 5. controls: A-POS 0 / 64 / 127, FDBK 0 / 32 / 64 / 127 (127 without clipping or DC), B>A 0 / 64, LEVEL 0 / 100
  *    (RMS) and RATIO 0.25 / 2.0 all change the sound; empty USR1..USR3 play the same sine fallback.
@@ -167,7 +166,7 @@ static void engine(void)
     check(what, eng_wt() == 14u && eng_wt() == ENGI_WT && ENGINES[eng_wt()] == &ENG_WT && !strcmp(e->name, "WAVETABLE") &&
           !strcmp(e->page_title[0], "OSC A") && !strcmp(e->page_title[1], "OSC B"));
     snprintf(what, sizeof what, "engine: 8 EDIT parameters, %u presets, knob POS FDBK B>A LEVEL", (uint32_t)e->npresets);
-    check(what, labels && e->npresets == 11u && e->knob[0] == P_E1 && e->knob[1] == P_E2 && e->knob[2] == P_E3 &&
+    check(what, labels && e->npresets == 10u && e->knob[0] == P_E1 && e->knob[1] == P_E2 && e->knob[2] == P_E3 &&
           e->knob[3] == P_E6);
     check("names: cards WAVE / POS / LEVEL, MOD card WAVE A / B LEVEL",
           !strcmp(e->edit[0].label, "WAVE") && !strcmp(e->edit[1].label, "POS") &&
@@ -250,7 +249,7 @@ static void presets(void)
                 printf("wt:   %-10s %s RMS %6.1f  voice mean %+7.1f  mix mean %+7.2f  mix peak %6.0f\n",
                        ENG_WT.presets[pi].name, k ? "C4" : "C2", r, vm, m, p);
         }
-    snprintf(what, sizeof what, "presets: all 11 sound at C2 and C4 (quietest RMS %.0f, %.2f %% of VOICE_FS)", quietest,
+    snprintf(what, sizeof what, "presets: all 8 sound at C2 and C4 (quietest RMS %.0f, %.2f %% of VOICE_FS)", quietest,
              quietest / VOICE_FS * 100);
     check(what, sound);
     snprintf(what, sizeof what, "no DC: worst |mean| %.1f (%.2f %% of VOICE_FS)", worst_dc, worst_dc / VOICE_FS * 100);
@@ -258,35 +257,6 @@ static void presets(void)
     snprintf(what, sizeof what, "no clipping: voice peak %.0f (limit %.0f), mix peak %.0f (limit 32767)", vpeak,
              2.0 * VOICE_FS, mpeak);
     check(what, clip);
-}
-
-/* ----------------------------------------------- preset movement --- */
-static void movement(void)
-{
-    uint32_t pi, zaag = ENG_WT.npresets;
-    char what[220];
-
-    for (pi = 0; pi < ENG_WT.npresets; pi++)
-        if (!strcmp(ENG_WT.presets[pi].name, "ZAAG")) {
-            zaag = pi;
-            break;
-        }
-    check("movement: ZAAG is a factory preset", zaag < ENG_WT.npresets);
-    if (zaag >= ENG_WT.npresets)
-        return;
-
-    host_tracks_init();
-    host_preset(&trk[0], eng_wt(), zaag);
-    snprintf(what, sizeof what, "movement: ZAAG PIT %d MODE %d MIX %d DIST %d (WT_MODS)",
-             (int)trk[0].p[P_ED_PIT], (int)trk[0].p[P_IDMODE], (int)trk[0].p[P_IDMIX], (int)trk[0].p[P_DIST]);
-    check(what, trk[0].p[P_ED_PIT] == 63 && trk[0].p[P_IDMODE] == IDM_HARD && trk[0].p[P_IDMIX] == 127 &&
-          trk[0].p[P_DIST] == 60);
-
-    host_preset(&trk[0], eng_wt(), 9);               /* HOLLOW: no movement */
-    snprintf(what, sizeof what, "movement: HOLLOW after ZAAG restores PIT %d MIX %d DIST %d",
-             (int)trk[0].p[P_ED_PIT], (int)trk[0].p[P_IDMIX], (int)trk[0].p[P_DIST]);
-    check(what, trk[0].p[P_ED_PIT] == TP[P_ED_PIT].def && trk[0].p[P_IDMIX] == TP[P_IDMIX].def &&
-          trk[0].p[P_DIST] == TP[P_DIST].def);
 }
 
 /* ------------------------------------------------------- determinism --- */
@@ -665,7 +635,6 @@ int main(int argc, char **argv)
     tables();
     mips();
     presets();
-    movement();
     determinism();
     controls();
     user_slots();

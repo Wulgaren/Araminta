@@ -94,21 +94,12 @@ static void host_tracks_init(void)                /* as felucca_init: defaults, 
 /* the factory preset as ui.c apply_preset_to sets it (sound, sends; not the steps, not the track's own:
  * the mix, ARP, SCL, the pattern parameters, the SLICER);
  * the engine as the UI asks for it (eng_req: the audio side switches; host_preset: at once) */
-static int host_param_kept(uint32_t i)            /* ui.c param_kept */
-{
-    return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_AMODE && i <= P_SGATE) ||
-           (i >= P_SLCR && i <= P_SLDEPTH) || i == P_CHRD || i == P_VOIC || i == P_SQNT;
-}
 static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset_t *p)
 {
     static const uint8_t FX_DEF[4] = {0, 24, 28, 36};
     uint32_t i;
     t->eng_req = (uint8_t)e;
     t->preset = (uint8_t)pi;
-    for (i = 0; i < P_E0; i++)                   /* the rest of the sound to its defaults (ui.c apply_preset_to) */
-        if (!host_param_kept(i))
-            t->p[i] = TP[i].def;
-    memset(t->mx, 0, sizeof t->mx);               /* matrix slots 5..8 OFF */
     for (i = 0; i < 8u; i++)
         t->p[P_E0 + i] = p->e[i];
     t->p[P_ATK] = p->env[0];

@@ -242,21 +242,7 @@ static const preset_t WT_PRESETS[] = {
     {"SWEEP",    {1, 40, 18, 22, 1, 40, 30, 5}, {40, 80, 90, 80},  40, 0, FX(0, 60, 40, 50)},
     {"WT FDBK",  {0, 80, 110, 95, 1, 40, 60, 4}, {2, 70, 95, 35},   25, 1, FX(0, 10, 40, 25)},
     {"HOLLOW",   {1, 20,  0, 28, 1, 100, 70, 7}, {50, 85, 110, 90}, 25, 0, FX(0, 40, 20, 70)},
-    {"ZAAG",     {0, 127, 20, 50, 0,  0,  0, 3}, {8, 48, 20, 30},  0, 0, FX(0, 0, 0, 0)},
 };
-/* .. and their movement (core.h MODS), WT_PRESETS' order; 0 none */
-static const int8_t *const WT_MODS[] = {
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    MODS(P_ED_PIT, 63, P_IDMODE, 1, P_IDMIX, 127, P_DIST, 60),   /* ZAAG: the amp envelope into ENV DEST PIT drops the
-                                                                  * pitch ~12 st, through a hard-clipped DIST at full mix */
-};
-_Static_assert(sizeof WT_MODS / sizeof WT_MODS[0] == NELEM(WT_PRESETS), "a WAVETABLE preset its movement each");
-
-/* its movement (core.h MODS; params.c preset_mods, eng_drum.c preset_mod) */
-static const int8_t *wt_preset_mod(uint32_t pi)
-{
-    return pi < NELEM(WT_MODS) ? WT_MODS[pi] : 0;
-}
 
 static const engine_t ENG_WT = {
     .name = "WAVETABLE",

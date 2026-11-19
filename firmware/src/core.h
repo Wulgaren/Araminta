@@ -336,9 +336,8 @@ typedef struct {
 } preset_t;
 #define FX(d, c, dl, r) .fx = {(d) + 1, (c) + 1, (dl) + 1, (r) + 1}
 /* (JIANT V10.6i) a sound's movement: pairs of a common parameter (< P_E0) and its value, -1 ends (the LFO and its DEST,
- * the MOD slots), set after the rest of the preset (ui.c apply_preset_to: preset_mods). Only DRUM-X's kits and
- * WAVETABLE's ZAAG have one (eng_drum.c DRUM_MODS, eng_wt.c WT_MODS: a table of its own, not a field of every
- * preset: the flash is full) */
+ * the MOD slots), set after the rest of the preset (ui.c apply_preset_to: preset_mods). Only DRUM-X's kits have one
+ * (eng_drum.c DRUM_MODS: a table of its own, not a field of every preset: the flash is full) */
 #define MODS(...) ((const int8_t[]){__VA_ARGS__, -1})
 /* the MOD slots' SRC and DEST numbers a preset names (mod.c MS_* / MD_*, checked there) */
 enum { PS_LFO = 1, PS_ENV, PS_VEL, PS_KEY, PS_RAND };
