@@ -271,9 +271,17 @@ flush() {
     done
 }
 
+# ps_pairs: "pid ppid" per process. Linux and macOS take -A -o pid= -o ppid=; MSYS2's ps has neither
+# (only -aefls), so it falls back to ps -f, whose 2nd and 3rd columns are PID and PPID.
+ps_pairs() {
+    _pairs=$(ps -A -o pid= -o ppid= 2>/dev/null | awk 'NF == 2 && $1 ~ /^[0-9]+$/')
+    [ -n "$_pairs" ] || _pairs=$(ps -f 2>/dev/null | awk 'NR > 1 { print $2, $3 }')
+    printf '%s\n' "$_pairs"
+}
+
 # kill_tree <pid>: a unit's subshell, the test binary it waits for and that binary's timeout watchdog.
 kill_tree() {
-    for c in $(ps -A -o pid= -o ppid= | awk -v p="$1" '$2 == p {print $1}'); do
+    for c in $(ps_pairs | awk -v p="$1" '$2 == p {print $1}'); do
         kill_tree "$c"
     done
     kill "$1" 2>/dev/null || :
