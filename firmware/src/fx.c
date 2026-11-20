@@ -1345,9 +1345,8 @@ static void hall_gate_reset(rev_tank_t *t)
     hall_gate[i].qrun = 0;
 }
 #endif
-/* runs from RAM (.hot_text): every block on core 1, and from the flash its passes over the block miss the 32 KB
- * XIP cache; hall_gains stays in the flash (noinline, only when the size changes) */
-static AUDIO_RAM __attribute__((noinline)) void rev_hall(const int32_t *rev_in, int32_t *out, uint32_t n)
+/* flash: bus_run reaches it via AUDIO_FAR; hall_gains stays noinline (only when the size changes) */
+static __attribute__((noinline)) void rev_hall(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
     int16_t *b = rev_comb, *a = rev_ap;
     uint32_t i, k, s, m, d;
@@ -1355,7 +1354,7 @@ static AUDIO_RAM __attribute__((noinline)) void rev_hall(const int32_t *rev_in, 
     int32_t xp = R->hl.x, hp = R->hl.hp, he = R->hl.he, mp = R->hl.m, sp = R->hl.s;
     (void)n;
 #if FX_GATE
-    if (hall_gate_skip(rev_in, n))                   /* (the decision out of line: target_budget) */
+    if (AUDIO_FAR(hall_gate_skip)(rev_in, n))         /* (the decision out of line: target_budget) */
         return;
 #endif
     if (R->hl.sz != AUDIO_FAR(rev_pg_size)() + 1)
