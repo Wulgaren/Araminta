@@ -64,18 +64,26 @@ def pill_cov(w, h, r):
 
 
 INK_MIN = 13                     # coverage that makes a label nibble (6 ..): what is seen of the label
+INK_COL = 48                     # coverage that makes a column part of the label's ink box: above the faint edge
+                                 # that two FreeType builds anti-alias by a nibble (at 13 they disagreed by 1 px on
+                                 # PLAY / SAVE / SOLO, 20 B of pill data between the two hosts)
 
 
-def keycap(font, label):
+def keycap(font_hi, label):
     """the pill KC_PAD px each side of the label's ink (not its advance: the ink sits centred, as the UI centres by
-    ink; the label drawn as before, moved by whole pixels only)"""
-    tw = int(math.ceil(font.getlength(label)))
-    sw = tw + 4 * KC_PAD
-    img = Image.new("L", (sw, KC_H), 0)
-    ImageDraw.Draw(img).text((2 * KC_PAD + (tw - font.getlength(label)) / 2, KC_BASE), label, font=font, fill=255,
-                             anchor="ls")
+    ink) drawn at aa_raster.SS x, one glyph at a time at a whole-pixel pen, and box-filtered down. Whole-pixel pens
+    and no kerning are what make the pill the same on every host: a string's fractional pens and a host's Raqm or
+    grid fitting round differently (Pillow without Raqm moved a pill by up to a pixel and its data by 165 B over
+    the set), while ui_fonts.h already matches byte for byte by drawing each glyph on its own."""
+    sw = 4 * KC_PAD + 4 * KC_H                    # generous: the label is drawn at 2 * KC_PAD, well inside it
+    img = Image.new("L", (sw * ar.SS, KC_H * ar.SS), 0)
+    draw, pen = ImageDraw.Draw(img), 2 * KC_PAD
+    for ch in label:                              # pens in whole px: a glyph's AA then starts from the same phase
+        draw.text((pen * ar.SS, KC_BASE * ar.SS), ch, font=font_hi, fill=255, anchor="ls")
+        pen += font_hi.getlength(ch) / ar.SS      # the 16x advance in px: exact, no small-size rounding
+    img = img.reduce(ar.SS)
     src = img.tobytes()
-    cols = [x for x in range(sw) if any(src[y * sw + x] >= INK_MIN for y in range(KC_H))]
+    cols = [x for x in range(sw) if any(src[y * sw + x] >= INK_COL for y in range(KC_H))]
     w = cols[-1] + 1 - cols[0] + 2 * KC_PAD
     dx = cols[0] - KC_PAD                         # source column of the pill's column 0
     cov = pill_cov(w, KC_H, KC_R)
@@ -113,7 +121,7 @@ def knob_quadrant(r):
 
 def main():
     out = Path(sys.argv[1])
-    font = ar.open_font(FONT + f"@{KC_WGHT}", KC_PX)
+    font = ar.open_font(FONT + f"@{KC_WGHT}", KC_PX * ar.SS)
     data, rows = bytearray(), []
     for cname, label in LABELS:
         w, b = keycap(font, label)
