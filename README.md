@@ -28,13 +28,13 @@ stock.
   [Coming from Felucca 1.5](#coming-from-felucca-15).
 - **From an older Araminta:** install over it. Your data stays.
 
-## New in 4.7
+## New in 4.8
 
-- **The delay and the HALL reverb cost less CPU.** Both run from RAM now: the busy project drops from 66.8 to
-  62.1 % on core 0 and 37.5 to 34.0 % on core 1, and idle from 19.5 to 14.8 %.
-- **A silent delay or reverb skips its block.** Idle and playback gain about a point more, and the sound is bit
-  for bit the same.
-- **A delay's tail dies out to silence.** FDBK no longer leaves a small leftover for ever.
+- **More of the render runs from RAM.** The hot tables, FM6's core, drum bus, and the punch / duck setup
+  leave the flash cache; PHYS-heavy loads drop several CPU points and shed fewer voices.
+- **Punch-in keeps its step when the song clock moves.** TAPE SPEED and a moving 1/16 no longer restart the
+  lane every block (the PSYCHODELIA K3 MASTER crackle).
+- **ENV DEST matches LFO DEST** on the panel and in the web editor's grouped pages.
 
 Full notes: [CHANGELOG.md](CHANGELOG.md).
 

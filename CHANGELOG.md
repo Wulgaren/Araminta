@@ -1,5 +1,56 @@
 # Changelog
 
+## 4.8
+
+More of the audio path runs from RAM, punch-in keeps its place when the song clock moves, and the editor
+matches the panel's ENV DEST cards.
+
+Splash and ABOUT show `v4.8`.
+
+### CPU
+
+- **RAMTEXT grows and the hottest flash code moves into `.hot_text`.** The linker room for RAM code is 0x8600,
+  the flash hot block is ordered so its lines stop sharing cache sets, and more of the render runs from RAM:
+  `SINE` / `ENV_EXP` / `TANH_Q15`, `fm6_core_render`, `drum_bus`, `mix_part` / `track_render_audio`, then
+  `perf_begin`, `duck_block` and `bus_c1`. On the PHYS sweep stores (JieLi, device-timed emulator) busy_phys
+  goes from 68.0 to 66.0 % CPU with misses/half 275.5 to 184.7, psy_phys from 74.6 to 72.3 % with late halves
+  4 to 2, and psy_stack from 78.9 to 76.2 % with voices shed 15 to 3.
+- **PHYS modal coefficients stay while their inputs hold.** `px_modal_block` no longer rebuilds every mode's
+  set each block when f0, STRC, BRIT, DAMP, ACC and POS are unchanged. Bit-exact when the inputs hold; device
+  timed, the modal share of core 0 roughly halves on busy PHYS and PSYCHODELIA.
+- **PHASER / FLANGER / CHORUS inserts cost less.** Their delay lines update once a block instead of every
+  sample. Sound unchanged for the checked paths.
+- **Open-toolchain Mac builds gate on a 1.08 JieLi size estimate** (was 1.12). Measured open 31,616 B to
+  JieLi 33,936 B (x1.073) on this tree; the old factor false-failed native builds that still fit under JieLi/CI.
+
+### Punch-in
+
+- **The lane keeps its step when the song clock moves.** TAPE MASTER with TEMPO OFF (and a SPEED driven from
+  the mod matrix) retimes the 1/16; the lane index is rescaled with it, so a held punch-in no longer restarts
+  every block. On PSYCHODELIA with K3 MASTER that was the crackle: about 75 % of a half and no late halves
+  where it had been over 100 % with hundreds of late halves.
+- **Transport changes apply before lane MIDI effects**, and the emulator can hold a project's punch-in (or a
+  page-1 stack) over its own patch for load checks.
+
+### Fixes
+
+- **TAPE DROP no longer crackles on a busy bar.** The overload was a bad core split at note-on, not the tape
+  head: a still head skips the moving-head path, and a part that just started a voice weighs its recent peak
+  when splitting. `mix_part` and `track_render_audio` run from RAM.
+- **A vel or chance write keeps RATCH** on the step (byte writes no longer clear it).
+- **PHYS modal state** no longer drops its coefficients while the note's modal inputs hold (see CPU).
+
+### Editor
+
+- **ENV DEST cards follow LFO DEST** (PIT FLT SHP, then SYNC) on the device and in the web editor.
+- **Grouped pages** for the 127-parameter layout in the web editor.
+- **Session recorder** for the emulator (`?rec=1`).
+
+### Measurement
+
+- **PHYS sweep stores** (`tests/emu/phys/`): `busy_phys`, `psy_phys` and `psy_stack_p1_lfo`, plus
+  `tools/phys_sweep.sh`, for the device-timed emulator cases the RAM-layout work was measured with.
+
 ## 4.7
 
 The delay and the HALL reverb cost less CPU, a silent one skips its block, and a delay tail dies out to silence.
