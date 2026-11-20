@@ -509,7 +509,7 @@ static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, 
                 o = (a + b) >> 2;                        /* (half scale: the sums fit) */
                 o += mulq15(((mulq15(a, b) * 3) >> 2) - o, t);   /* (the ring x1.5) */
                 o += mulq15(((a * 3) >> 2) - o, u);
-                y[i] = mulq15(o << 1, ga >> 8);
+                y[i] = mulq15(o * 2, ga >> 8);
                 st = (uint32_t)inc << 4;
                 ph += st;
                 ph2 += (st >> 12) * 6021u;
