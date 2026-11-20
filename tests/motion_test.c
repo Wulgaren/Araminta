@@ -805,7 +805,7 @@ static int record_trn(void)
     sel = found = 0;
     pk_build_auto(t, MSEQ_PITCH, NSTEP, &sel);
     for (i = 0; i < pk_n; i++)
-        if (pk_rows[i].id == MSEQ_PITCH && str_eq(pk_label(&pk_rows[i]), "PITCH") && str_eq(pk_rows[i].tag, "SEQ"))
+        if (pk_rows[i].id == MSEQ_PITCH && str_eq(pk_label(&pk_rows[i]), "PITCH") && str_eq(pk_tag(&pk_rows[i]), "SEQ"))
             found = 1;
     bad += check("  PITCH locks still appear in AUTOMATION", found && motion_lock_get(t, 4, MSEQ_PITCH, &v) && v == -2);
     {   /* K3 PARAM on a row changed away from PITCH still offers PITCH when the step has no PITCH record */
@@ -1373,32 +1373,32 @@ static int auto_list(void)
         int32_t i_dist = -1, i_filt = -1, i_crush = -1, i_phas = -1, i_flang = -1, i_chor = -1;
         int32_t i_dly = -1, i_rev = -1, i_sl = -1, i_hrat = -1, i_hdep = -1;
         for (i = 0; i < pk_n; i++) {
-            if (pk_rows[i].id == P_SLRATE && str_eq(pk_rows[i].tag, "SLICER") &&
+            if (pk_rows[i].id == P_SLRATE && str_eq(pk_tag(&pk_rows[i]), "SLICER") &&
                 str_eq(pk_label(&pk_rows[i]), "RATE"))
                 found = 1, i_sl = (int32_t)i;
-            if (pk_rows[i].id == P_DIST && str_eq(pk_rows[i].tag, "DISTORT"))
+            if (pk_rows[i].id == P_DIST && str_eq(pk_tag(&pk_rows[i]), "DISTORT"))
                 i_dist = (int32_t)i;
-            if (pk_rows[i].id == P_IFCUT && str_eq(pk_rows[i].tag, "FILTER"))
+            if (pk_rows[i].id == P_IFCUT && str_eq(pk_tag(&pk_rows[i]), "FILTER"))
                 i_filt = (int32_t)i;
-            if (pk_rows[i].id == P_ICMIX && str_eq(pk_rows[i].tag, "CRUSH"))
+            if (pk_rows[i].id == P_ICMIX && str_eq(pk_tag(&pk_rows[i]), "CRUSH"))
                 i_crush = (int32_t)i;
-            if (pk_rows[i].id == P_IPMIX && str_eq(pk_rows[i].tag, "PHASER"))
+            if (pk_rows[i].id == P_IPMIX && str_eq(pk_tag(&pk_rows[i]), "PHASER"))
                 i_phas = (int32_t)i;
-            if (pk_rows[i].id == P_ILMIX && str_eq(pk_rows[i].tag, "FLANGER"))
+            if (pk_rows[i].id == P_ILMIX && str_eq(pk_tag(&pk_rows[i]), "FLANGER"))
                 i_flang = (int32_t)i;
-            if (pk_rows[i].id == P_IHRATE && str_eq(pk_rows[i].tag, "CHORUS"))
+            if (pk_rows[i].id == P_IHRATE && str_eq(pk_tag(&pk_rows[i]), "CHORUS"))
                 i_hrat = (int32_t)i;
-            if (pk_rows[i].id == P_IHDEP && str_eq(pk_rows[i].tag, "CHORUS"))
+            if (pk_rows[i].id == P_IHDEP && str_eq(pk_tag(&pk_rows[i]), "CHORUS"))
                 i_hdep = (int32_t)i;
-            if (pk_rows[i].id == P_IHMIX && str_eq(pk_rows[i].tag, "CHORUS"))
+            if (pk_rows[i].id == P_IHMIX && str_eq(pk_tag(&pk_rows[i]), "CHORUS"))
                 i_chor = (int32_t)i;
-            if (pk_rows[i].id == P_DLY && str_eq(pk_rows[i].tag, "DELAY") &&
+            if (pk_rows[i].id == P_DLY && str_eq(pk_tag(&pk_rows[i]), "DELAY") &&
                 str_eq(pk_label(&pk_rows[i]), "MIX"))
                 dly = 1, i_dly = (int32_t)i;
-            if (pk_rows[i].id == P_REV && str_eq(pk_rows[i].tag, "REVERB") &&
+            if (pk_rows[i].id == P_REV && str_eq(pk_tag(&pk_rows[i]), "REVERB") &&
                 str_eq(pk_label(&pk_rows[i]), "MIX"))
                 rev = 1, i_rev = (int32_t)i;
-            if (str_eq(pk_rows[i].tag, "SEND"))
+            if (str_eq(pk_tag(&pk_rows[i]), "SEND"))
                 send = 1;
         }
         if (i_chor >= 0 && ((i_hrat >= 0 && i_chor < i_hrat) || (i_hdep >= 0 && i_chor < i_hdep)))
@@ -1422,35 +1422,35 @@ static int auto_list(void)
         int32_t i_dist = -1, i_filt = -1, i_crush = -1, i_phas = -1, i_flang = -1, i_chor = -1;
         int32_t i_dly = -1, i_rev = -1, i_sl = -1, i_hrat = -1, i_hdep = -1;
         for (i = 0; i < pk_n; i++) {
-            if (pk_rows[i].id == MD_DIST && str_eq(pk_rows[i].tag, "DISTORT") &&
+            if (pk_rows[i].id == MD_DIST && str_eq(pk_tag(&pk_rows[i]), "DISTORT") &&
                 str_eq(pk_label(&pk_rows[i]), "DISTORT"))
                 dist = 1, i_dist = (int32_t)i;
-            if (pk_rows[i].id == MD_SLPAT && str_eq(pk_rows[i].tag, "SLICER") &&
+            if (pk_rows[i].id == MD_SLPAT && str_eq(pk_tag(&pk_rows[i]), "SLICER") &&
                 str_eq(pk_label(&pk_rows[i]), "PATTERN"))
                 spat = 1, i_sl = (int32_t)i;
-            if (pk_rows[i].id == MD_FCUT && str_eq(pk_rows[i].tag, "FILTER") &&
+            if (pk_rows[i].id == MD_FCUT && str_eq(pk_tag(&pk_rows[i]), "FILTER") &&
                 str_eq(pk_label(&pk_rows[i]), "CUTOFF"))
                 fcut = 1, i_filt = (int32_t)i;
-            if (pk_rows[i].id == MD_CMIX && str_eq(pk_rows[i].tag, "CRUSH"))
+            if (pk_rows[i].id == MD_CMIX && str_eq(pk_tag(&pk_rows[i]), "CRUSH"))
                 i_crush = (int32_t)i;
-            if (pk_rows[i].id == MD_PMIX && str_eq(pk_rows[i].tag, "PHASER"))
+            if (pk_rows[i].id == MD_PMIX && str_eq(pk_tag(&pk_rows[i]), "PHASER"))
                 i_phas = (int32_t)i;
-            if (pk_rows[i].id == MD_LMIX && str_eq(pk_rows[i].tag, "FLANGER"))
+            if (pk_rows[i].id == MD_LMIX && str_eq(pk_tag(&pk_rows[i]), "FLANGER"))
                 i_flang = (int32_t)i;
-            if (pk_rows[i].id == MD_HRAT && str_eq(pk_rows[i].tag, "CHORUS"))
+            if (pk_rows[i].id == MD_HRAT && str_eq(pk_tag(&pk_rows[i]), "CHORUS"))
                 i_hrat = (int32_t)i;
-            if (pk_rows[i].id == MD_HDEP && str_eq(pk_rows[i].tag, "CHORUS"))
+            if (pk_rows[i].id == MD_HDEP && str_eq(pk_tag(&pk_rows[i]), "CHORUS"))
                 i_hdep = (int32_t)i;
-            if (pk_rows[i].id == MD_CHO && str_eq(pk_rows[i].tag, "CHORUS") &&
+            if (pk_rows[i].id == MD_CHO && str_eq(pk_tag(&pk_rows[i]), "CHORUS") &&
                 str_eq(pk_label(&pk_rows[i]), "MIX"))
                 cho = 1, i_chor = (int32_t)i;
-            if (pk_rows[i].id == MD_DLY && str_eq(pk_rows[i].tag, "DELAY"))
+            if (pk_rows[i].id == MD_DLY && str_eq(pk_tag(&pk_rows[i]), "DELAY"))
                 dly = 1, i_dly = (int32_t)i;
-            if (pk_rows[i].id == MD_REV && str_eq(pk_rows[i].tag, "REVERB"))
+            if (pk_rows[i].id == MD_REV && str_eq(pk_tag(&pk_rows[i]), "REVERB"))
                 rev = 1, i_rev = (int32_t)i;
-            if (pk_rows[i].id == MD_PAN && str_eq(pk_rows[i].tag, "MIX"))
+            if (pk_rows[i].id == MD_PAN && str_eq(pk_tag(&pk_rows[i]), "MIX"))
                 pan = 1;
-            if (str_eq(pk_rows[i].tag, "SEND"))
+            if (str_eq(pk_tag(&pk_rows[i]), "SEND"))
                 send = 1;
         }
         if (i_chor >= 0 && ((i_hrat >= 0 && i_chor < i_hrat) || (i_hdep >= 0 && i_chor < i_hdep)))
