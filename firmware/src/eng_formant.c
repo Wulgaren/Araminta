@@ -97,7 +97,7 @@ static void formant_note_on(track_t *t, voice_t *v)
     }
 }
 
-static void formant_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
+static AUDIO_RAM void formant_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
     const int16_t *p = t->p;
     fres_t r1, r2, r3, r4;

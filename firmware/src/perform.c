@@ -667,7 +667,7 @@ static inline uint32_t pb_rec(uint32_t f, int32_t l, int32_t r)
  * repeated, the last 1/16 reversed, an octave up or down, gated, SKIP (a CD skipping: tiny fragments), or CRUSH (live,
  * 6..9 bits off, held 1..6 samples). Every slice windowed (SL_RAMP). Below ~82 BPM only gates, crushes and live slices
  * play (the loop holds 371 ms). Knobs fixed: DENS 50 / PITCH 0 / SIZE 0 / VARI 1. */
-static AUDIO_RAM __attribute__((noinline)) void pb_ring_f(uint32_t s, int32_t *l, int32_t *r)
+static __attribute__((noinline)) void pb_ring_f(uint32_t s, int32_t *l, int32_t *r)
 {
     uint32_t f = s >> 17;
     int32_t fr = (int32_t)((s >> 2) & 0x7FFFu);
@@ -684,7 +684,7 @@ static uint32_t pf_hash(uint32_t h)
     return h ^ (h >> 13);
 }
 /* a segment's start: where it reads (Q16) and how fast (SKIP: a place in the 1/16, two segments at each) */
-static AUDIO_RAM __attribute__((noinline)) void perf_glt_seg(void)
+static __attribute__((noinline)) void perf_glt_seg(void)
 {
     uint32_t a = pf.gl.a, L = pf.gl.l, g0 = pf.gl.g0, s = g0 - L;
     pf.gl.rate = 65536;
@@ -722,7 +722,7 @@ static __attribute__((noinline)) void perf_glt_step(void)
     AUDIO_FAR(perf_glt_seg)();
 }
 /* GLITCH on one sample: 1 = it plays (gl_yl / gl_yr), 0 = live */
-static AUDIO_RAM __attribute__((noinline)) int perf_glt(int32_t l, int32_t r)
+static __attribute__((noinline)) int perf_glt(int32_t l, int32_t r)
 {
     uint32_t u = pf.gl.u, L = pf.gl.l, a = pf.gl.a, e = L - 1u - u < u ? L - 1u - u : u, g = 32768u;
     pf.wr = pb_rec(pf.wr, l, r);
@@ -794,7 +794,7 @@ static inline void hb_tap(uint32_t ph, int32_t *l, int32_t *r)
 }
 /* OCT UP / DN on one sample: yl / yr the harmonized mix (see the top). noinline: perf_block's loop keeps its
  * code layout (target_budget.py: a block placed out of line looks like a loop round the per-sample code) */
-static AUDIO_RAM __attribute__((noinline)) void perf_harm(int32_t l, int32_t r, int32_t *yl, int32_t *yr)
+static __attribute__((noinline)) void perf_harm(int32_t l, int32_t r, int32_t *yl, int32_t *yr)
 {
     int32_t wa = (32768 - osc_sine(pf.hph + 0x40000000u)) >> 1, al, ar, bl, br, sl_, sr_;   /* A's share, Q15 */
     hb_tap(pf.hph, &al, &ar);
@@ -862,7 +862,7 @@ static inline void perf_buf(int32_t *pl, int32_t *pr)
             on = 1;
         }
     } else if (pf.mode == BM_GLT) {
-        if ((on = perf_glt(l, r)) != 0) {           /* GLITCH: a slice, or live */
+        if ((on = AUDIO_FAR(perf_glt)(l, r)) != 0) {           /* GLITCH: a slice, or live */
             yl = pf.gl_yl;
             yr = pf.gl_yr;
         }
@@ -897,7 +897,7 @@ static inline void perf_buf(int32_t *pl, int32_t *pr)
             on = 1;
         }
     } else if (pf.mode == BM_HARM) {
-        perf_harm(l, r, &yl, &yr);
+        AUDIO_FAR(perf_harm)(l, r, &yl, &yr);
         on = 2;                                     /* (KNOB 4 is the shimmer: the level stays full) */
     }
     pf.tw = on && pf.src != PF_N ? on == 2 ? 32768 : 32768 - perf_k4 * 327 : 0;
@@ -959,7 +959,7 @@ static inline int32_t fl_side(uint32_t c, int32_t x, uint32_t q)
     return pf_mix(x, mulq16((x >> 1) + v, 55706u), pf.fw);   /* (x + delayed) / 2 * 0.85 (v: stored at half) */
 }
 /* after CRUSH, while held or fading: FLANGER (noinline, its own loop: the audio ISR's code stays as it was) */
-static AUDIO_RAM __attribute__((noinline)) void perf_flanger(int32_t *bl, int32_t *br, uint32_t n,
+static __attribute__((noinline)) void perf_flanger(int32_t *bl, int32_t *br, uint32_t n,
                                                              const perf_blk_t *c)
 {
     uint32_t i, c_, inc, q = perf_lfo(c, 16u, n, &inc);
@@ -1010,7 +1010,7 @@ static inline int32_t ph_side(uint32_t c, int32_t x, int32_t a)
 }
 /* after FLANGER, while held or fading: PHASER (noinline, as FLANGER). The coefficients a block at a time (at its
  * middle: 2.9 ms at most, the sweep moves 1 % in frequency meanwhile) */
-static AUDIO_RAM __attribute__((noinline)) void perf_phaser(int32_t *bl, int32_t *br, uint32_t n,
+static __attribute__((noinline)) void perf_phaser(int32_t *bl, int32_t *br, uint32_t n,
                                                             const perf_blk_t *c)
 {
     uint32_t i, ch, inc, q = perf_lfo(c, 8u, n, &inc) + (n >> 1) * inc;
@@ -1100,9 +1100,9 @@ static AUDIO_RAM __attribute__((noinline)) void perf_block(int32_t *bl, int32_t 
         br[i] = r;
     }
     if ((c->act & PF_BIT(PF_FLG)) || pf.fw || pf.fn)
-        perf_flanger(bl, br, n, c);
+        AUDIO_FAR(perf_flanger)(bl, br, n, c);
     if ((c->act & PF_BIT(PF_PHS)) || pf.pw)
-        perf_phaser(bl, br, n, c);
+        AUDIO_FAR(perf_phaser)(bl, br, n, c);
     pf.busy = perf_layer_busy = (uint8_t)(c->act || pf.mode != BM_NONE || pf.w || pf.la || pf.ha || pf.cw || pf.fw ||
                                          pf.pw || pf.fn);
 }
