@@ -1273,6 +1273,7 @@ static void edit_param(uint32_t slot, int32_t steps)
     v = param_turn(d, *vp, accel(EN_K1 + slot, steps, d->fmt == F_ENUM ? 0 : d->max - d->min));
     if (d == &BEND_DESC) {                              /* VOICE's PITCH card: a live bend, not a parameter */
         midi_bend_card_set(v);
+        (void)motion_capture_bend(TSEL, midi_bend_card_cents());
         ui.force = 1;
         return;
     }
@@ -2098,7 +2099,12 @@ static void ui_input(void)
                         }
                         if (kind == CF_CLEAR_EVERY_TRACK_ALL) {
                             track_defaults_steps(&trk[i]);
-                            trk[i].p[P_QUANT] = TP[P_QUANT].def;   /* MAP OFF: ALL does not survive the clear */
+                            /* the whole SCL group goes to OFF: ALL does not survive the clear, and every track
+                             * follows it, so there is no scale_lock_after() push */
+                            trk[i].p[P_ROOT] = TP[P_ROOT].def;
+                            trk[i].p[P_SCALE] = TP[P_SCALE].def;
+                            trk[i].p[P_QUANT] = TP[P_QUANT].def;
+                            trk[i].p[P_TRANS] = TP[P_TRANS].def;
                             trk[i].scl_stash_ok = 0;
                             clear_mix_arp(&trk[i]);
                             trk[i].nheld = 0;

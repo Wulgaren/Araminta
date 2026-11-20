@@ -62,6 +62,7 @@ const MOTION_FILE_SIZE_128 = 388, MOTION_FILE_SIZE_V10 = 334, MOTION_FILE_SIZE_V
 const CHAIN_WIRE15_SIZE = 84, CHAIN_WIRE16_SIZE = 36, CHAIN_ROWS = 16, CHAIN_SILENT = 4;
 const MOTION_MAX = 192, MOTION_FILE_MAX_128 = 128;
 const MSEQ_PITCH = 127;
+const MFX_BEND = 61;                                             // P_FM1_ATK: the automation-only BEND lane
 const DTIME_FREE = 64, DTIME_MS_MAX = 1486;
 const PROJ_GENERATION_MARK = 0x47;
 const PROJ_MASTER_ORDER_OFF = 48 + 10 * 4;                       // 88
@@ -385,7 +386,7 @@ function fm4Convert(q, digital) {
     if (d.preset < PROJ_DEF_KEEP) d.preset = r.preset & 0xff;
     hit.add(k);
   }
-  if (hit.size) dropMotionOn(q, hit, (id) => id >= P_E0 || (id >= P_FM1_ATK && id <= P_FM4_LEVEL));
+  if (hit.size) dropMotionOn(q, hit, (id) => id >= P_E0 || (id !== MFX_BEND && id >= P_FM1_ATK && id <= P_FM4_LEVEL));
 }
 
 /* FUN1..FUN6 images, as project.c's old readers saw them */
@@ -536,6 +537,14 @@ function motionIds(m, np) {
     if (np < P_COUNT && id >= np - 8) e.param = (e.param & MOTION_LOCK) | (id + P_COUNT - np);
   }
 }
+/* MFX_BEND reuses the inert FM1 ATK id. A file from before the BEND-aware build (header bit 4 clear) may hold
+ * old DIGITAL automation there, indistinguishable by value alone: drop every id-61 record. A BEND-aware file
+ * keeps only a kind-0 event in -32..32 (project.c proj_motion_bend_fix). */
+function bendFix(m, bendOk) {
+  m.event = m.event.filter((e) => !((e.param & 127) === MFX_BEND &&
+    (!bendOk || (e.param & MOTION_LOCK) || e.value < -32 || e.value > 32)));
+  m.count = m.event.length;
+}
 function ktrMotion(m, t) {
   m.event = m.event.filter((e) => {
     const tr = e.place >> 6, id = e.param & 127;
@@ -598,6 +607,7 @@ function decodeModern(b, f) {
   if (v19) q.g[G_TTEMPO] = (b[67] & 0x80) ? 1 : 0;
   let pos = 68;
   const osc2 = v19 && (b[67] & 2) !== 0;
+  const bendOk = (b[67] & 0x10) !== 0;
   for (let t = 0; t < NTRK; t++) {
     const values = new Array(P_COUNT).fill(0);
     for (let i = 0; i < np; i++) {
@@ -702,6 +712,7 @@ function decodeModern(b, f) {
   }
   motionIds(q.motion, np);
   if (!osc2) ktrMotion(q.motion, q.t);
+  bendFix(q.motion, bendOk);
   if (!v14) {
     for (const e of q.motion.event) {
       const id = e.param & 127;
@@ -799,6 +810,8 @@ function checkMotion(m) {
     if (!motionParam(id)) throw new Error("Invalid project motion id");
     if (id === MSEQ_PITCH) {
       if (!(e.param & MOTION_LOCK) || e.value < -24 || e.value > 24) throw new Error("Invalid project motion value");
+    } else if (id === MFX_BEND) {
+      if ((e.param & MOTION_LOCK) || e.value < -32 || e.value > 32) throw new Error("Invalid project motion value");
     } else if (id === MFX_TIME) {
       if (e.value < DTIME_FREE + 1 || e.value > DTIME_FREE + DTIME_MS_MAX) throw new Error("Invalid project motion value");
     } else if (id === MFX_TSPEED) {
@@ -842,7 +855,7 @@ function packProject(q) {
   for (let i = 0; i < 27; i++) put16(8 + i * 2, q.g[i]);
   b[62] = q.sel; b[63] = q.parts; b[64] = q.phys;
   b[65] = clamp(q.g[G_CRTYPE], 0, 4); b[66] = P_COUNT;
-  b[67] = 1 | (clamp(q.g[G_TTEMPO], 0, 1) << 7) | 2 | (q.fm6_vib ? 4 : 0);
+  b[67] = 1 | (clamp(q.g[G_TTEMPO], 0, 1) << 7) | 2 | (q.fm6_vib ? 4 : 0) | 0x10; /* bit 4: BEND-aware build */
   b[PROJ_CRV_OFF] = clamp(q.g[G_CRSIZE], 0, 127);
   b[PROJ_CRV_OFF + 1] = clamp(q.g[G_CRDAMP], 0, 127);
   let pos = 68;

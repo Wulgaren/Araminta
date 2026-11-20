@@ -2235,6 +2235,14 @@ int main(int argc, char **argv)
             snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, S_NAME[s]);
             cur_name = name;
             setup((int)s);
+            if (s == S_SCL && p == 0) {             /* SCL's page title is spelled SCALE (then its 1/2 count) */
+                char ti[20];
+                page_title(ti);
+                if (!str_eq(ti, "SCALE 1/2")) {
+                    if (rep) fprintf(rep, "FIND %-26s the SCL page's title is '%s', not 'SCALE 1/2'\n", cur_name, ti);
+                    nfind++;
+                }
+            }
             pal(p);
             if (p == UI_GREY_INDEX) aud = audf;
             draw((int)s);

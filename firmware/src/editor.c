@@ -546,6 +546,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x57); ed_b(1); ed_b(NTRK);   /* 1.2: song sections with a slot per track (SONG ops 4..7) */
         ed_b(0x56); ed_b(1); ed_b(FM6_NBANK_TOTAL); ed_b(FM6_NBANK_TOTAL >> 7); /* 128 voices as two 7-bit bytes (00 01); cmds 74..77; SLOT 16..143 = B1..B128 */
         ed_b(0x58); ed_b(1); ed_b(NMSLOT);   /* 4.2: MATRIX (cmd 103), the matrix's eight slots; 5..8 have no id */
+        ed_b(0x59); ed_b(1); ed_b(1);   /* BEND: motion id 61 is the automation-only bend lane */
         break;
     case ED_MATRIX: {                                      /* track [, slot, SRC, DST, AMT + 64] -> track, 8 slots */
         track_t *t = &trk[a[0]];

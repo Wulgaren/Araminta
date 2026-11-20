@@ -239,7 +239,7 @@ at 1..3 and hides 6 5 8: what it sets still plays the right kit, and the device 
 
 | cmd | Request args | Reply args |
 | --- | --- | --- |
-| 1 INFO | — | version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, then NENGINES engine-name strings, then (v3) NTRK (4), then (v6) CHAIN_ROWS (16), then the tagged blocks `55 01 uiCaps`, `4D 01 64 01`, `42 01 3`, `46 01 nfactory nbank`, `53 01 3`, (1.0.3) `50 01 3` and (1.0.4) `4E 01 count` (MENU settings; 12, 1.1: 15, 1.2: 17, 1.1.5: 18, 1.2: 23, 1.3: 24, 1.5: 25) and (1.0.5) `52 01 4` (ratchet) and (1.1) `4C 01 1` (parameter locks) and (1.2) `41 01 40 01` (192 motion records in this build; two 7-bit bytes, LSB first: `00 01` was 128 before; `4D 01 64 01` keeps saying 64) and `54 01 16` (a step's nudge, 1/16 of a step) and `57 01 4` (song sections: a slot per track, SONG ops 4..7) and (1.4.1) `56 01 32` / (3.10) `56 01 60` / (four banks) `56 01 00 01` (FM6 voice banks: cmds 74..77, SLOT 9..40 then 9..104 then 9..136, now 16..143; 128 as two 7-bit bytes) and (4.2) `58 01 8` (MATRIX, cmd 103: the matrix's eight slots); older firmware ends earlier. The `43 01 16` block
+| 1 INFO | — | version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, then NENGINES engine-name strings, then (v3) NTRK (4), then (v6) CHAIN_ROWS (16), then the tagged blocks `55 01 uiCaps`, `4D 01 64 01`, `42 01 3`, `46 01 nfactory nbank`, `53 01 3`, (1.0.3) `50 01 3` and (1.0.4) `4E 01 count` (MENU settings; 12, 1.1: 15, 1.2: 17, 1.1.5: 18, 1.2: 23, 1.3: 24, 1.5: 25) and (1.0.5) `52 01 4` (ratchet) and (1.1) `4C 01 1` (parameter locks) and (1.2) `41 01 40 01` (192 motion records in this build; two 7-bit bytes, LSB first: `00 01` was 128 before; `4D 01 64 01` keeps saying 64) and `54 01 16` (a step's nudge, 1/16 of a step) and `57 01 4` (song sections: a slot per track, SONG ops 4..7) and (1.4.1) `56 01 32` / (3.10) `56 01 60` / (four banks) `56 01 00 01` (FM6 voice banks: cmds 74..77, SLOT 9..40 then 9..104 then 9..136, now 16..143; 128 as two 7-bit bytes) and (4.2) `58 01 8` (MATRIX, cmd 103: the matrix's eight slots) and `59 01 1` (BEND: motion id 61 is the automation-only bend lane); older firmware ends earlier. The `43 01 16` block
 (1.5's MIDI LEARN map, cmds 78 / 79) is gone: a firmware that still answers it is read as any unknown block |
 | 2 GET | scope, id | scope, id, v14 |
 | 3 SET | scope, id, v14 | scope, id, v14 (the value after clamping). Setting global `G_ENGSEL` (id from DESC label "ENG") changes the engine: its defaults, then its first preset (as on the device) |
@@ -639,6 +639,9 @@ when the track's engine is not the saved one).
   needed. Kits (DRUM or an engine that maps keys) ignore PITCH: op 5 refuses id 127 on them (rc 1), and a
   stored kit lock is inert. `MOTION` op 3 refuses id 127 (rc 1); op 5 writes the lock, op 4 deletes it, op 6
   clears it, and op 8 lists it with kind 1.
+  Id 61 (`P_FM1_ATK`) is the BEND lane on a device whose INFO advertises `59 01 1`: automation only, −32..32 in
+  1/16 semitones, `MOTION` op 3 only (op 5 refuses it, rc 1). A device without that tag has no BEND: id 61 is
+  FM1 ATK there, recorded and locked as any parameter.
   STRUM/STROKE use P_ALLOC (id 43) as one packed SWEEP value (0/1 OFF for legacy ROT/REUSE, then 2 + (rate-1)*3 + stroke,
   rate 1..7 = 1/8 .. 32T, stroke 0 DOWN / 1 UP / 2 ALT). Bit 5 (32) is PIT GLD, the chord-glide switch: an editor must
   preserve it when it edits SWEEP and mask it when it reads the rate or stroke. An event is (track, step

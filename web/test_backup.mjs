@@ -6,8 +6,9 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { BACKUP_IDS, BACKUP_CMD, BACKUP_MODULE_VERSION, bkU32, bkR32, bkPack, bkUnpack, bkCrc, bkManifest, readBackup, captureBackup, restoreBackup, readProject, captureProject, restoreProject, projectName, firmwareMismatch } from "./fm1backup.js";
 
-/* Real project fixtures (tests/project_test.c images, converted by the old C firmware) and the editor's own
-   DIGITAL -> FM6 converter, so the archive's project objects are the formats the device and the page see. */
+/* Real project fixtures (tests/project_test.c images, converted by the C firmware; their expected FUN19
+   images carry the current BEND-aware header bit) and the editor's own DIGITAL -> FM6 converter, so the
+   archive's project objects are the formats the device and the page see. */
 const FIX = JSON.parse(readFileSync(new URL("./testdata/projconv.json", import.meta.url), "utf8"));
 const b64 = (s) => Uint8Array.from(Buffer.from(s, "base64"));
 const html = readFileSync(new URL("./editor.html", import.meta.url), "utf8");

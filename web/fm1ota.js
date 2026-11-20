@@ -24,7 +24,7 @@ const IS_OTA = (id) => /^ota-/i.test(id.model);
    optional (0x4d, 1, 64, chance, ...) for motion and (0x42, 1, caps) for the complete backups.
    editor.html's protocol block decodes the same trailer itself -- web/test_web.mjs evaluates that block on its
    own, so it cannot import this -- so the two tables stay in step through web/test_info_tags.mjs. */
-export const INFO_TAG = { SONG: 16, UI: 0x55, MOTION: 0x4d, BACKUP: 0x42 };
+export const INFO_TAG = { SONG: 16, UI: 0x55, MOTION: 0x4d, BACKUP: 0x42, BEND: 0x59 };
 
 // errors carry a code the pages translate: notfound, model, stopped, noloader, lost, noreturn,
 // mismatch (detail: the identity the device reports), badreq

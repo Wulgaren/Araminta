@@ -785,6 +785,17 @@ static int law_locks(void)
         d = motion_target_desc(t, id);
         if (!d)
             continue;
+        if (param_auto_only(id)) {              /* BEND: automation only, so an event at each corner, never a lock */
+            laws_motion_wipe();
+            snprintf(what, sizeof what, "auto-only id %u refuses a lock", id);
+            check(what, motion_set_lock(t, 1, id, d->max) == 1);
+            snprintf(what, sizeof what, "auto-only id %u event at %d", id, (int)d->max);
+            check(what, motion_set_event(t, 1, id, d->max) == 0);
+            snprintf(what, sizeof what, "auto-only id %u event at %d", id, (int)d->min);
+            check(what, motion_set_event(t, 2, id, d->min) == 0);
+            laws_motion_wipe();
+            continue;
+        }
         nc = corners(d, cs);
         for (ci = 0; ci < nc; ci++) {
             int32_t fit;

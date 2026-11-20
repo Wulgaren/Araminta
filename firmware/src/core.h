@@ -545,6 +545,9 @@ enum { MFX_TIME = P_M1SRC, MFX_FB, MFX_COLOR, MFX_SIZE, MFX_DAMP };
  * (P_TAPEMIX is otherwise unused, P_LSMOOTH is the LFO S&H smoothing). Their motion meaning is fx_target_ptr's. */
 enum { MFX_TSPEED = P_TAPEMIX, MFX_TWOW = P_LSMOOTH };
 #define MFX_TAPE(id) ((id) == MFX_TSPEED || (id) == MFX_TWOW)
+/* The VOICE 2 live bend, automation-only, stored in 1/16 semitones -32..32. Its id is the inert FM1 ATK slot on a
+ * non-FM6 track (as MFX_TIME reuses a matrix id); motion_capture never turns an editor's P_FM1_ATK write into one. */
+#define MFX_BEND P_FM1_ATK
 #define MFX_ALL(id) (MFX_PARAM(id) || MFX_TAPE(id))
 #define MSEQ_PITCH 127u                  /* lock-only (3.2): a step's chromatic semitone offset; never indexes p[] */
 /* The id spaces around a track's p[] (which holds P_COUNT real parameters):
@@ -558,6 +561,7 @@ enum { MFX_TSPEED = P_TAPEMIX, MFX_TWOW = P_LSMOOTH };
  * PITCH. motion_param() still decides which real ones may be stored. The EV / PG numbers are UI rows. */
 static inline int param_real(uint32_t id) { return id < P_COUNT; }
 static inline int param_lock_only(uint32_t id) { return id == MSEQ_PITCH; }
+static inline int param_auto_only(uint32_t id) { return id == MFX_BEND; }
 static inline int param_id_known(uint32_t id) { return param_real(id) || param_lock_only(id); }
 #define MOTION_ID(e) ((uint32_t)(e)->param & 0x7Fu)
 typedef struct { uint8_t place, param; int16_t value; } motion_event_t;
@@ -720,7 +724,9 @@ typedef struct track {
     uint8_t lfo_wrap;            /* the LFO's phase wrapped this block (track_lfo_adv) */
     int16_t plk_pit;             /* the step's PITCH value (MSEQ_PITCH), semitones, absolute over TRN (seq.c) */
     uint8_t plk_fit;             /* 1: this step has a PITCH lock (0: none), so a value of 0 still overrides TRN */
-    uint8_t rsv_c1[13];          /* sizeof(track_t) a multiple of 16 */
+    int8_t bend_auto;            /* MFX_BEND as it sounds: 1/16 semitones, -32..32 */
+    uint8_t bend_fit;            /* 1: a BEND event is in effect */
+    uint8_t rsv_c1[11];          /* sizeof(track_t) a multiple of 16 */
 } track_t;
 enum { PFX_RND = 1, PFX_HALF = 2, PFX_REP = 4, PFX_DEC = 8, PFX_ATK = 16, PFX_X2 = 32 };   /* (track_t.pfx) */
 /* P_ALLOC's sweep: legacy ROT/REUSE (0/1) are OFF; else 2 + (rate - 1) * 3 + stroke.

@@ -14,10 +14,13 @@ static int16_t motion_base[NTRK][P_COUNT];
 static uint32_t motion_active[NTRK][(P_COUNT + 31u) / 32u];
 static uint32_t motion_locked[NTRK][(P_COUNT + 31u) / 32u];   /* the ids a lock holds now (put back at the next step) */
 static uint8_t motion_base_valid, motion_full;
+static const param_desc_t BEND_MOTION_DESC = {"BEND", F_INT, -32, 32, 0, 0, 0};
 static const param_desc_t *motion_target_desc(const track_t *t, uint32_t id)
 {
     if (id == MSEQ_PITCH)
         return &PITCH_DESC;
+    if (id == MFX_BEND)
+        return &BEND_MOTION_DESC;
     return MFX_ALL(id) ? fx_target_desc(t, id) : param_desc_of(eng_idx(t->eng_req), id);
 }
 static void motion_capture_base(track_t *t)
@@ -52,6 +55,8 @@ static int motion_param(uint32_t id)
 {
     /* Sound only: transport, routing, voice allocation and discrete engine
      * changes never become automation. FX sends and continuous mix are safe. */
+    if (id == MFX_BEND)
+        return 1;
     return param_lock_only(id) || MFX_ALL(id) || (param_real(id) && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
         (id >= P_DIST && id <= P_REV) || id == P_GLIDE || id == P_PAN ||
         id == P_DETUNE || (id >= P_SLPAT && id <= P_SLDEPTH) ||   /* #222: SLICER pattern / rate / depth (not MODE) */
@@ -67,7 +72,7 @@ static int fx_target_available(const track_t *t, uint32_t id)
 {
     uint32_t k, j;
     int16_t *ptr;
-    if (id == MSEQ_PITCH)
+    if (id == MSEQ_PITCH || id == MFX_BEND)
         return 1;
     if (MFX_TAPE(id)) {                              /* SPEED / WOW: CHAIN owner, MASTER all, SEND first claim */
         int32_t m = song.g[G_TAPEMODE];
@@ -104,6 +109,8 @@ static int motion_valid(const motion_store_t *m)
         if (!motion_param(id)) return 0;
         if (param_lock_only(id)) {
             if (!(e->param & MOTION_LOCK) || e->value < -24 || e->value > 24) return 0;
+        } else if (id == MFX_BEND) {
+            if ((e->param & MOTION_LOCK) || e->value < -32 || e->value > 32) return 0;
         } else if (id == MFX_TIME) {
             if (e->value < DTIME_FREE + 1 || e->value > DTIME_FREE + (int32_t)DTIME_MS_MAX) return 0;
         } else if (id == MFX_TSPEED) {
@@ -180,7 +187,7 @@ static int16_t motion_target_base_value(const track_t *t, uint32_t id)
 {
     uint32_t k = trk_index(t);
     int16_t v;
-    if (id == MSEQ_PITCH)
+    if (id == MSEQ_PITCH || id == MFX_BEND)
         return 0;
     v = (motion_active[k][id / 32u] >> (id % 32u)) & 1u ? motion_base[k][id] : *fx_target_ptr(t, id);
     return id == MFX_TIME ? fx_time_value(v) : v;
@@ -206,6 +213,8 @@ static void motion_restore(track_t *t)
     memset(motion_locked[k], 0, sizeof motion_locked[k]);
     t->plk_pit = 0;
     t->plk_fit = 0;
+    t->bend_auto = 0;
+    t->bend_fit = 0;
     motion_unguard(f);
 }
 static void motion_rebase(track_t *t)
@@ -302,6 +311,7 @@ static int motion_put(track_t *t, uint32_t step, uint32_t id, int16_t value, uin
     if (k >= NTRK || step >= NSTEP || !motion_param(id) || !fx_target_available(t, id)) return 1;
     if (param_lock_only(id) && !(kind & MOTION_LOCK)) return 1;
     if (param_lock_only(id) && kit_track(t)) return 1;   /* PITCH is inert on a kit track: no record */
+    if (id == MFX_BEND && ((kind & MOTION_LOCK) || drum_track(t))) return 1;   /* automation only, never a kit */
     d = motion_target_desc(t, id);
     if (value < d->min || value > d->max || (!MFX_ALL(id) && (value < -64 || value > 127))) return 1;
     value = (int16_t)param_fit(d, value);                    /* (a retired KIT: the kit it plays) */
@@ -340,14 +350,29 @@ static uint32_t motion_clear_locks(track_t *t, uint32_t step)
     motion_unguard(f);
     return gone;
 }
+/* The step a live edit lands on while REC records: 0 when this track is not the armed selection. */
+static int motion_rec_step(const track_t *t, uint32_t *idx)
+{
+    uint32_t len, period, f;
+    if (!rec_on(t) || t != TSEL)
+        return 0;
+    len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
+    period = div_samples((uint32_t)t->p[P_SDIV]);
+    f = motion_guard();                              /* the ISR advances seq_idx / seq_pos: one snapshot */
+    *idx = t->seq_idx % len;
+    if (t->seq_pos < 0x7FFFFFFFu && t->seq_pos > step_samples(t, period, *idx) / 2u)
+        *idx = (*idx + 1u) % len;
+    motion_unguard(f);
+    return 1;
+}
 static int motion_capture(track_t *t, uint32_t id, int16_t value)
 {
-    uint32_t k = trk_index(t), idx, len, period, f;
+    uint32_t k = trk_index(t), idx, f;
     int trn = id == P_TRANS;                         /* REC: TRN becomes the step's PITCH lock (3.2) */
     /* MFX_* reuse matrix ids (P_M1SRC..). FX locks/automation use motion_set_*;
      * track matrix edits must not rewrite those shared bases or events. */
-    if (MFX_ALL(id) || (!motion_param(id) && !trn) || id == MSEQ_PITCH) return 0;   /* PITCH is lock-only */
-    if (!rec_on(t) || t != TSEL) {
+    if (MFX_ALL(id) || (!motion_param(id) && !trn) || id == MSEQ_PITCH || id == MFX_BEND) return 0;
+    if (!motion_rec_step(t, &idx)) {
         /* A live edit becomes a new base, even when an earlier motion value is
          * currently sounding. Subsequent recorded events can still override it. */
         f = motion_guard();
@@ -355,11 +380,7 @@ static int motion_capture(track_t *t, uint32_t id, int16_t value)
         motion_unguard(f);
         return 0;
     }
-    len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
-    period = div_samples((uint32_t)t->p[P_SDIV]);
     f = motion_guard();
-    idx = t->seq_idx % len;
-    if (t->seq_pos < 0x7FFFFFFFu && t->seq_pos > step_samples(t, period, idx) / 2u) idx = (idx + 1u) % len;
     /* Mark the immediate knob value transient too, so a stop before its next
      * quantized step still restores the original patch. */
     if (!trn && ((motion_base_valid >> k) & 1u)) motion_active[k][id / 32u] |= 1u << (id % 32u);
@@ -377,6 +398,15 @@ static int motion_capture(track_t *t, uint32_t id, int16_t value)
         return motion_set_lock(t, idx, MSEQ_PITCH, (int16_t)clamp(off, -24, 24));
     }
     return motion_set_event(t, idx, id, value);
+}
+/* VOICE 2 PITCH -> the BEND lane: cents in, 1/16 semitones stored. 0 not recording, 1 invalid, 2 full. */
+static int motion_capture_bend(track_t *t, int32_t cents)
+{
+    uint32_t idx;
+    int32_t units;
+    if (drum_track(t) || !motion_rec_step(t, &idx)) return 0;
+    units = (cents * 4 + (cents >= 0 ? 12 : -12)) / 25;   /* rounded */
+    return motion_set_event(t, idx, MFX_BEND, (int16_t)clamp(units, -32, 32));
 }
 /* step `step` starts: the locks of the step before go back to what sounds without them: the latest automation event
  * of track t's id at a step up to this one in this pass (motion_restore at step 0 starts each pass), else the sound's
@@ -422,6 +452,13 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t step, con
         const motion_event_t *e = &m->event[i];
         uint32_t id = MOTION_ID(e);
         if (e->place != (k << 6 | step) || ((e->param & MOTION_LOCK) && !play) || !fx_target_available(t, id)) continue;
+        if (id == MFX_BEND) {                        /* the lane's own state, never p[] or motion_active */
+            if (!drum_track(t)) {
+                t->bend_auto = (int8_t)clamp(e->value, -32, 32);
+                t->bend_fit = 1;
+            }
+            continue;
+        }
         if (param_lock_only(id)) {                   /* never indexes p[]: an absolute per-step transpose */
             if (!kit_track(t)) {                     /* a kit ignores PITCH; the record stays stored */
                 t->plk_pit = (int16_t)clamp(e->value, -24, 24);
@@ -500,6 +537,7 @@ static int motion_move(track_t *t, uint32_t i, uint32_t step, uint32_t id, int16
     if (i >= motion.count || (motion.event[i].place >> 6) != trk_index(t) || step >= NSTEP || !motion_param(id) || !fx_target_available(t, id))
         return 1;
     if (param_lock_only(id) && kit_track(t)) return 1;   /* PITCH is inert on a kit track: no record */
+    if (id == MFX_BEND && drum_track(t)) return 1;
     at = motion_find(t, step, id);
     if (at >= 0 && (uint32_t)at != i)
         return 1;
@@ -510,7 +548,8 @@ static int motion_move(track_t *t, uint32_t i, uint32_t step, uint32_t id, int16
     if (motion.event[i].place != (trk_index(t) << 6 | step) || MOTION_ID(&motion.event[i]) != id)
         motion_restore(t);                              /* (a value alone: what sounds stays) */
     motion.event[i].place = (uint8_t)(trk_index(t) << 6 | step);
-    motion.event[i].param = (uint8_t)((param_lock_only(id) ? MOTION_LOCK : motion.event[i].param & MOTION_LOCK) | id);
+    motion.event[i].param = (uint8_t)((param_auto_only(id) ? 0u :
+        (param_lock_only(id) ? MOTION_LOCK : motion.event[i].param & MOTION_LOCK)) | id);
     motion.event[i].value = (int16_t)param_fit(d, v);
     motion_unguard(f);
     return 0;
@@ -518,6 +557,8 @@ static int motion_move(track_t *t, uint32_t i, uint32_t step, uint32_t id, int16
 /* an id whose meaning is the engine's own: EDIT's E1..E8, DIGITAL's operators, DRUM's lane levels */
 static int motion_engine_id(uint32_t id)
 {
+    if (id == MFX_BEND)
+        return 0;                                    /* the lane is not the engine's: it survives a sound change */
     return (id >= P_E0 && id <= P_E7) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL) || (id >= P_LN0 && id <= P_LN7);
 }
 /* a sound load put engine `to` where `from` was: when they differ, track t's records on the engine's own ids go (their
@@ -531,6 +572,8 @@ static uint32_t motion_sound_loaded(track_t *t, uint32_t from, uint32_t to)
     f = motion_guard();
     gone = motion.count;                    /* before the call: its operands' order is unspecified */
     gone -= motion_drop(3, k, 0, 0);
+    t->bend_auto = 0;                       /* the lane stays, its sounding value does not */
+    t->bend_fit = 0;
     motion_unguard(f);
     return gone;
 }

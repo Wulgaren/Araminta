@@ -346,6 +346,41 @@ static int pitch_locks(void)
     return bad;
 }
 
+/* BEND (MFX_BEND) is automation only: MOTION op 3 takes -32..32 (1/16 semitones), op 5 (a lock) rc 1, op 4
+ * deletes it, op 8 lists it with kind 0 */
+static int bend_automation(void)
+{
+    int bad = 0, ok = 1;
+    static const int32_t values[] = {32, -32, 33, -33};
+    uint8_t a[6] = {1, 3, 4, MFX_BEND, 0, 0};
+    uint32_t i, n;
+    reset();
+    motion_clear(&trk[1]);
+    for (i = 0; i < 4u; i++) {
+        uint32_t u = (uint32_t)(values[i] + 8192);
+        a[4] = (uint8_t)(u & 127u); a[5] = (uint8_t)(u >> 7);
+        n = request(ED_MOTION, a, 6);
+        ok &= n > 6u && host_wire[4] == ED_MOTION && host_wire[5] == 1 && host_wire[6] == (i < 2u ? 0u : 1u);
+    }
+    bad += check("BEND (MFX_BEND) automation -32..32: 32 and -32 accepted, 33 and -33 rc 1", ok);
+    a[1] = 5;
+    a[4] = (uint8_t)((1 + 8192) & 127); a[5] = (uint8_t)((1 + 8192) >> 7);
+    (void)request(ED_MOTION, a, 6);
+    bad += check("MOTION op 5 refuses a BEND lock", host_wire[6] == 1 && motion.count == 1);
+    a[1] = 8;
+    n = request(ED_MOTION, a, 2);
+    bad += check("MOTION op 8 lists the BEND record with kind 0",
+        n == 5u + 7u + 4u + 1u + 1u && host_wire[8] == 1 && host_wire[9] == 0 &&
+        host_wire[10] == (MOTION_MAX & 127) && host_wire[11] == (MOTION_MAX >> 7) &&
+        host_wire[12] == 4 && host_wire[13] == MFX_BEND &&
+        ed_rv(&host_wire[14]) == -32 && host_wire[16] == 0);
+    a[1] = 4;
+    (void)request(ED_MOTION, a, 4);
+    bad += check("MOTION op 4 deletes the BEND record", host_wire[6] == 0 && !motion.count);
+    motion_clear(&trk[1]);
+    return bad;
+}
+
 static int preferences(void)
 {
     int bad = 0;
@@ -354,24 +389,25 @@ static int preferences(void)
     uint32_t n = request(ED_INFO, a, 0);
     bad += check("INFO explicitly tags display capabilities after SONG without changing command 33",
         ED_SONG == 33 && ED_UI_STATE == 34 && ED_FAV_SET == 38 &&
-        host_wire[n - 48] == CHAIN_ROWS && host_wire[n - 47] == 0x55 &&
-        host_wire[n - 46] == 1 && host_wire[n - 45] == 9 &&
-        host_wire[n - 44] == 0x4d && host_wire[n - 43] == 1 &&
-        host_wire[n - 42] == 64u && host_wire[n - 41] == 1 &&   /* (64 kept: 41 01 says 128) */
-        host_wire[n - 40] == 0x42 && host_wire[n - 39] == 1 && host_wire[n - 38] == 3 &&
-        host_wire[n - 37] == 0x46 && host_wire[n - 36] == 1 && host_wire[n - 35] == FM6_NFACTORY &&
-        host_wire[n - 34] == 0 &&                        /* (no bank since 1.0.3) */
-        host_wire[n - 33] == 0x53 && host_wire[n - 32] == 1 && host_wire[n - 31] == 3 &&
-        host_wire[n - 30] == 0x50 && host_wire[n - 29] == 1 && host_wire[n - 28] == 3 &&   /* FM6 v2: no bank, preset patches */
-        host_wire[n - 27] == 0x4E && host_wire[n - 26] == 1 && host_wire[n - 25] == 25 &&   /* MENU settings: 25 items */
-        host_wire[n - 24] == 0x52 && host_wire[n - 23] == 1 && host_wire[n - 22] == 4 &&   /* RATCH */
-        host_wire[n - 21] == 0x4C && host_wire[n - 20] == 1 && host_wire[n - 19] == 1 &&   /* 1.1 parameter locks */
-        host_wire[n - 18] == 0x41 && host_wire[n - 17] == 1 && host_wire[n - 16] == 127 && host_wire[n - 15] == 1 &&   /* 255 */
-        host_wire[n - 14] == 0x54 && host_wire[n - 13] == 1 && host_wire[n - 12] == NUDGE_DIV &&   /* 1.2: NUDGE */
-        host_wire[n - 11] == 0x57 && host_wire[n - 10] == 1 && host_wire[n - 9] == NTRK &&   /* 1.2: SONG lanes */
-        host_wire[n - 8] == 0x56 && host_wire[n - 7] == 1 && host_wire[n - 6] == 0 &&
-        host_wire[n - 5] == 1 &&   /* 128 voices: two 7-bit bytes 00 01 */
-        host_wire[n - 4] == 0x58 && host_wire[n - 3] == 1 && host_wire[n - 2] == NMSLOT);   /* 4.2: MATRIX */
+        host_wire[n - 51] == CHAIN_ROWS && host_wire[n - 50] == 0x55 &&
+        host_wire[n - 49] == 1 && host_wire[n - 48] == 9 &&
+        host_wire[n - 47] == 0x4d && host_wire[n - 46] == 1 &&
+        host_wire[n - 45] == 64u && host_wire[n - 44] == 1 &&   /* (64 kept: 41 01 says 128) */
+        host_wire[n - 43] == 0x42 && host_wire[n - 42] == 1 && host_wire[n - 41] == 3 &&
+        host_wire[n - 40] == 0x46 && host_wire[n - 39] == 1 && host_wire[n - 38] == FM6_NFACTORY &&
+        host_wire[n - 37] == 0 &&                        /* (no bank since 1.0.3) */
+        host_wire[n - 36] == 0x53 && host_wire[n - 35] == 1 && host_wire[n - 34] == 3 &&
+        host_wire[n - 33] == 0x50 && host_wire[n - 32] == 1 && host_wire[n - 31] == 3 &&   /* FM6 v2: no bank, preset patches */
+        host_wire[n - 30] == 0x4E && host_wire[n - 29] == 1 && host_wire[n - 28] == 25 &&   /* MENU settings: 25 items */
+        host_wire[n - 27] == 0x52 && host_wire[n - 26] == 1 && host_wire[n - 25] == 4 &&   /* RATCH */
+        host_wire[n - 24] == 0x4C && host_wire[n - 23] == 1 && host_wire[n - 22] == 1 &&   /* 1.1 parameter locks */
+        host_wire[n - 21] == 0x41 && host_wire[n - 20] == 1 && host_wire[n - 19] == 127 && host_wire[n - 18] == 1 &&   /* 255 */
+        host_wire[n - 17] == 0x54 && host_wire[n - 16] == 1 && host_wire[n - 15] == NUDGE_DIV &&   /* 1.2: NUDGE */
+        host_wire[n - 14] == 0x57 && host_wire[n - 13] == 1 && host_wire[n - 12] == NTRK &&   /* 1.2: SONG lanes */
+        host_wire[n - 11] == 0x56 && host_wire[n - 10] == 1 && host_wire[n - 9] == 0 &&
+        host_wire[n - 8] == 1 &&   /* 128 voices: two 7-bit bytes 00 01 */
+        host_wire[n - 7] == 0x58 && host_wire[n - 6] == 1 && host_wire[n - 5] == NMSLOT &&   /* 4.2: MATRIX */
+        host_wire[n - 4] == 0x59 && host_wire[n - 3] == 1 && host_wire[n - 2] == 1);   /* BEND: motion id 61 */
     request(ED_UI_SET, a, 2);
     bad += check("UI_SET updates the actual palette and reports RAM-only saving",
         host_wire[5] == 3 && settings.palette == 7 && T_BG == UI_PALETTES[7].bg);
@@ -1551,7 +1587,7 @@ static int alloc_preserves_cgld(void)
 #ifndef EDITOR_TEST_NO_MAIN                              /* (robust_test.c, fuzz_*.c: this file is their base) */
 int main(void)
 {
-    int bad = preferences() + motion_locks() + dump_order() + slown_descriptor() + pitch_locks() +
+    int bad = preferences() + motion_locks() + dump_order() + slown_descriptor() + pitch_locks() + bend_automation() +
               matrix_edits_preserve_fx_locks() + editor_fx_order() + framing() + dispatch() + uart_recovery() + steps() + samples() + wavetable_slot() + song_protocol() + malformed_saves() +
               fm6_patches() + user_preset_roundtrip() + matrix_protocol() + live_sync() + usb_burst() + menu_protocol() + drum_kit_retired() +
               alloc_preserves_cgld();

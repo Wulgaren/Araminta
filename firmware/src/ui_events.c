@@ -102,6 +102,8 @@ static int ev_id_ok(const track_t *t, uint32_t id)
     const param_desc_t *d;
     if (ev_sid(id))
         return 1;
+    if (id == MFX_BEND)
+        return !drum_track(t);                       /* automation only, on a synth track */
     if (!param_id_known(id) || !motion_param(id) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL))
         return 0;
     if (id >= P_LN0 && id <= P_LN7)
@@ -115,6 +117,10 @@ static void ev_name(const track_t *t, uint32_t id, char *b)
 {
     if (id == MSEQ_PITCH) {
         str_cpy(b, "PITCH", 12);
+        return;
+    }
+    if (id == MFX_BEND) {
+        str_cpy(b, "BEND", 12);
         return;
     }
     if (MFX_PARAM(id)) {
@@ -588,16 +594,23 @@ static void ev_oct(void)
             return;
         }
         motion_undo_take(t, 0);
-        (void)motion_set_lock(t, ui.ev_step, ui.ev_id, motion_target_base_value(t, ui.ev_id));
+        if (ui.ev_id == MFX_BEND)                       /* BEND has no lock kind: an automation event */
+            (void)motion_set_event(t, ui.ev_step, MFX_BEND, 0);
+        else
+            (void)motion_set_lock(t, ui.ev_step, ui.ev_id, motion_target_base_value(t, ui.ev_id));
         motion_undo_done(t);
         if ((at = motion_find(t, ui.ev_step, ui.ev_id)) >= 0)
             ev_follow(EVC(EVK_REC, at));
-        ui_message("LOCK ADDED");
+        ui_message(ui.ev_id == MFX_BEND ? "BEND ADDED" : "LOCK ADDED");
         return;
     }
     if (k == EVK_REC) {
         const motion_event_t e = motion.event[c & 0xFFu];
         uint32_t lock = MOTION_ID(&e) == MSEQ_PITCH || !(e.param & MOTION_LOCK);
+        if (MOTION_ID(&e) == MFX_BEND) {                /* BEND is always automation */
+            ui_message("ALWAYS AUTO");
+            return;
+        }
         motion_undo_take(t, 0);
         (void)motion_put(t, e.place & 63u, MOTION_ID(&e), e.value, lock ? MOTION_LOCK : 0u);
         motion_undo_done(t);
@@ -669,6 +682,10 @@ static void pk_auto_name(const track_t *t, uint32_t id, char *b)
 {
     if (id == MSEQ_PITCH) {
         str_cpy(b, "PITCH", 16);
+        return;
+    }
+    if (id == MFX_BEND) {
+        str_cpy(b, "BEND", 16);
         return;
     }
     if (ev_sid(id)) {
@@ -782,6 +799,8 @@ static const char *pk_auto_group(uint32_t id)
     uint32_t i;
     if (ev_sid(id))
         return "STEP";
+    if (id == MFX_BEND)
+        return "VOICE";
     if (id == P_LEVEL || id == P_PAN || id == P_SPRD)
         return "MIX";
     if (id >= P_ATK && id <= P_ED_SHP)

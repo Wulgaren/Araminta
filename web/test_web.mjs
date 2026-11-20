@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { logicalImage, productOf } from "./fm1pkg.js";
 import { Updater, pack7, unpack7 } from "./fm1ota.js";
+import { convertProject, projectHash } from "./projconv.js";
 
 let failed = 0;
 const ok = (cond, what) => { console.log(`${what.padEnd(64)} ${cond ? "ok" : "FAIL"}`); if (!cond) failed++; };
@@ -105,6 +106,7 @@ async function editorMock() {
     /* the matrix's eight slots (cmd 103 MATRIX, INFO 58 01 8): slots 1..4 are 49..60, 5..8 only over MATRIX; a set
        clamps, a factory preset clears them, UP_GET / UP_PUT carry 5..8 after the category */
     ok(info.matrix === 8, "editor: INFO 58 01 8 (MATRIX, eight slots)");
+    ok(info.bend === 1, "editor: INFO 59 01 1 (BEND, motion id 61)");
     const get = async (tr) => E.parse[E.CMD.MATRIX](await rq(E.req.matrix(tr)));
     let m = await get(1);
     ok(m.track === 1 && m.mx.length === 24 && m.mx.every((v) => v === 0), "editor: MATRIX get: 24 values, every slot off");
@@ -459,6 +461,19 @@ async function editorSamplePresets() {
        !gone.events.some((e) => e.step === 5 && e.param === mproto.MSEQ_PITCH) &&
        !cleared.events.some((e) => e.step === 6 && e.param === mproto.MSEQ_PITCH),
        `editor: PITCH (id ${mproto.MSEQ_PITCH}) refuses automation (op 3), takes a lock (op 5), lists its kind (op 7), clears (op 6) and deletes (op 4)`);
+    /* BEND (MFX_BEND 61, P_FM1_ATK): automation only, -32..32 in 1/16 semitones */
+    await rq(E.req.motion(1, 2));
+    const bendHi = E.parse[C.MOTION](await rq(E.req.motion(1, 3, { step: 2, param: 61, value: 32 })));
+    const bendLo = E.parse[C.MOTION](await rq(E.req.motion(1, 3, { step: 3, param: 61, value: -32 })));
+    const bendOver = E.parse[C.MOTION](await rq(E.req.motion(1, 3, { step: 4, param: 61, value: 33 })));
+    const bendUnder = E.parse[C.MOTION](await rq(E.req.motion(1, 3, { step: 4, param: 61, value: -33 })));
+    const bendLock = E.parse[C.MOTION](await rq(E.req.motion(1, 5, { step: 2, param: 61, value: 3 })));
+    const bendAll = E.parseMotionAll(await rq(E.req.motion(1, 8)));
+    ok(!bendHi.rc && !bendLo.rc && bendOver.rc === 1 && bendUnder.rc === 1 && bendLock.rc === 1 &&
+       bendAll.events.some((e) => e.step === 2 && e.param === 61 && e.value === 32 && !e.lock) &&
+       bendAll.events.some((e) => e.step === 3 && e.param === 61 && e.value === -32 && !e.lock),
+       "editor: BEND (id 61) automates -32..32 over op 3, refuses 33 / -33, and is never a lock (op 5)");
+    await rq(E.req.motion(1, 2));
     /* an FX motion id (MFX_TIME) shares its number with matrix parameter SRC1: it is a motion target, not p[49] */
     const p49 = E.parse[C.GET](await rq(E.req.get(0, mproto.MFX_TIME))).value;
     const fxAuto = E.parse[C.MOTION](await rq(E.req.motion(1, 3, { step: 6, param: mproto.MFX_TIME, value: 700 })));
@@ -1581,7 +1596,7 @@ async function editorMotionRows() {
      {step: 3, param: M.MFX_TIME + 3, value: 90}, {step: 4, param: M.MFX_TIME + 4, value: 80}]};
   const d = {pdesc, info: {motionMax: 128}, motion};
   const R = vm.runInNewContext(`${render}; renderMotion;`, {
-    ...M,
+    ...M, MFX_BEND: 61,
     dev: d, document: {activeElement: null},
     $: id => { if (!nodes.has(id)) nodes.set(id, {contains: () => false, replaceChildren: () => {}}); return nodes.get(id); },
     el: (tag, attrs = {}, ...children) => {
@@ -1612,6 +1627,26 @@ async function editorMotionRows() {
   inputs[0].value = 400; await inputs[0].change();
   ok(requests[1].op === 5 && requests[1].value.param === M.MFX_TSPEED && requests[1].value.value === 400,
     "editor: editing a TAPE SPEED lock keeps its kind and exact 400 percent value");
+  motion.events = [{step: 0, param: 61, value: 12}];   /* MFX_BEND: 1/16 semitones, shown in cents */
+  d.info.bend = 1;
+  inputs.length = 0; labels.length = 0;
+  R();
+  ok(labels.join() === "BEND" && inputs[0].min === -200 && inputs[0].max === 200 && inputs[0].value === 75,
+    "editor: a BEND motion row is cents (-200..200): +12/16 semitones shows as 75 cents");
+  inputs[0].value = 100; await inputs[0].change();
+  ok(requests[2].op === 3 && requests[2].value.param === 61 && requests[2].value.value === 16,
+    "editor: a BEND edit converts cents back to 1/16 semitones and is always automation (op 3)");
+  /* a device that does not advertise 59 01 1: id 61 is its FM1 ATK parameter, as before BEND */
+  pdesc[61] = {label: "FM1 ATK", min: 0, max: 127};
+  motion.events = [{step: 0, param: 61, value: 12, lock: true}];
+  d.info.bend = 0;
+  inputs.length = 0; labels.length = 0;
+  R();
+  ok(labels.join() === "FM1 ATK" && inputs[0].min === 0 && inputs[0].max === 127 && inputs[0].value === 12,
+    "editor: without INFO 59, motion id 61 is FM1 ATK with its own descriptor and range");
+  inputs[0].value = 40; await inputs[0].change();
+  ok(requests[3].op === 5 && requests[3].value.param === 61 && requests[3].value.value === 40,
+    "editor: without INFO 59, an id-61 lock edit stays a lock (op 5) and is not converted");
 }
 
 /* MOTION reads: the device's pool is 192 since FUN16, 128 in 1.2, 64 before; neither the reply parser nor a
@@ -1631,6 +1666,40 @@ function editorMotionLimits() {
   ok(throws(() => E.parse[cmd]([0, 0, 1, 1, 0])) && throws(() => E.parse[cmd]([0, 0, 1, 1, 64, 0])) &&
      throws(() => E.parse[cmd]([0, 0, 1, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0])),
      "editor: an empty max, a short count-64 reply and count > max are refused");
+}
+
+/* BEND (MFX_BEND 61, P_FM1_ATK) is the automation-only lane: projconv keeps a valid event and drops an old
+   DIGITAL FM-op record stored at the same id (project.c proj_motion_bend_fix). */
+function projconvBend() {
+  const FIX = JSON.parse(readFileSync(join(HERE, "testdata/projconv.json"), "utf8"));
+  const cur = Uint8Array.from(Buffer.from(FIX.current, "base64"));
+  const rehash = (b) => {
+    const s = projectHash(b, b.length - 4);
+    b[b.length - 4] = s & 255; b[b.length - 3] = (s >> 8) & 255;
+    b[b.length - 2] = (s >> 16) & 255; b[b.length - 1] = (s >>> 24) & 255;
+    return b;
+  };
+  /* FUN19 motion: count at 2928, 3-byte records at 2932 {place, id, value} */
+  const recs = (base, evs) => {
+    const b = base.slice();
+    b[2928] = evs.length;
+    evs.forEach(([param, value], i) => {
+      const o = 2932 + i * 3;
+      b[o] = i; b[o + 1] = param; b[o + 2] = value & 255;
+    });
+    return rehash(b);
+  };
+  const bendAware = cur.slice(); bendAware[67] = (bendAware[67] | 0x10) & 255;
+  /* the marker says a valid id 61 is a bend, so it survives */
+  const bend = recs(bendAware, [[61, 12]]);
+  const out = convertProject(bend);
+  ok(eq(out, bend) && (out[67] & 0x10) !== 0,
+    "projconv: a BEND automation record (id 61, +12/16 semitones) round trips and passes checkMotion");
+  /* bit 4 clear: an old DIGITAL file, so every id-61 record goes, even a value a bend would accept */
+  const old = recs(cur, [[61 | 0x80, 3], [61, 12], [61, 100]]);
+  const want = cur.slice(); want[67] = (want[67] | 0x10) & 255;
+  ok(eq(convertProject(old), rehash(want)),
+    "projconv: without the marker every id-61 record (lock, valid or out of range) is dropped and it loads");
 }
 
 /* Run the page's actual session helpers and connect-load path with delayed replies. */
@@ -2014,6 +2083,7 @@ await editorSong();
 editorDstSlots();
 await editorMotionRows();
 editorMotionLimits();
+projconvBend();
 await editorSessions();
 await editorFm6();
 await editorFm6Bank();

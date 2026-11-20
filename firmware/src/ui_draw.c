@@ -1040,7 +1040,12 @@ static void draw_columns(void)
         }
         v = k == EVK_REC ? motion.event[c & 0xFFu].value : motion_target_base_value(t, id);
         d = motion_target_desc(t, id);
-        param_format(d, v, val, &unit);
+        if (id == MFX_BEND) {                          /* 1/16 semitones -> cents, rounded */
+            fmt_int(val, (v * 25 + (v >= 0 ? 2 : -2)) / 4);
+            unit = "c";
+        } else {
+            param_format(d, v, val, &unit);
+        }
         if (id == MFX_TIME) fmt_int(val, v - DTIME_FREE);
         draw_column(3, k == EVK_ADD ? "VALUE" : (motion.event[c & 0xFFu].param & MOTION_LOCK) ? "LOCK" : "AUTO", val, unit,
                     k != EVK_ADD ? VAL(3u) : T_DIM, RATIO(d, enum_rank(d, v)), param_icon(d, v));

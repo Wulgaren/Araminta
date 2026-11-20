@@ -665,7 +665,12 @@ static __attribute__((noinline)) AUDIO_RAM uint32_t track_render_audio(track_t *
     if (ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM) {
         midi_bend_q8[ti] = midi_bend_target[ti] = 0;
     } else {
-        int32_t d = midi_bend_target[ti] - midi_bend_q8[ti];
+        int32_t tgt = midi_bend_target[ti], d;
+        /* By design the recorded bend adds to the live wheel/card (then clamps); recentre the card after
+         * recording if it should not. 1/16 semitone = 16 Q8. */
+        if (t->bend_fit) tgt += (int32_t)t->bend_auto * 16;
+        tgt = clamp(tgt, -6397, 6397);
+        d = tgt - midi_bend_q8[ti];
         /* ~6 ms smoothing, with an exact landing (no permanent small offset). */
         midi_bend_q8[ti] += d > 0 ? (d < 4 ? d : (d + 3) / 4) : (d > -4 ? d : (d - 3) / 4);
     }

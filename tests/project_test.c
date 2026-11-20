@@ -487,6 +487,48 @@ static void proj_blank(project_t *q)
     chain_defaults(&q->chain); memcpy(q->dx, DX_KIT_DEF, sizeof q->dx);
 }
 
+/* MFX_BEND reuses the inert FM1 ATK id (61): a save keeps a valid automation event, and an old DIGITAL
+ * record there (a lock, or a value outside -32..32) does not make the project fail to load. */
+static int bend_wire(void)
+{
+    static project_t saved, loaded;
+    static project_store_t wire;
+    uint32_t i;
+    int ok;
+    proj_blank(&saved);
+    saved.motion.count = 1; saved.motion.on = 1;
+    saved.motion.event[0] = (motion_event_t){(uint8_t)(2u << 6 | 9u), MFX_BEND, -12};
+    saved.sum = proj_sum(&saved);
+    ok = proj_pack(&wire, &saved) && proj_import(&loaded, &wire, sizeof wire) &&
+         loaded.motion.count == 1 && loaded.motion.event[0].place == (2u << 6 | 9u) &&
+         MOTION_ID(&loaded.motion.event[0]) == MFX_BEND &&
+         !(loaded.motion.event[0].param & MOTION_LOCK) && loaded.motion.event[0].value == -12;
+    int bad = check("FUN21: a BEND automation event round trips at its place and value", ok);
+    /* a file from before the BEND-aware build: header bit 4 clear, id 61 means old DIGITAL automation. Today's
+     * packer refuses such records, so write them into the wire as an old save left them, then load it. Every
+     * id-61 record goes, including a value that a bend would accept. */
+    proj_blank(&saved);
+    saved.motion.count = 3; saved.motion.on = 1;
+    for (i = 0; i < 3u; i++)
+        saved.motion.event[i] = (motion_event_t){(uint8_t)(i + 1u), P_LEVEL, (int16_t)(90 + i)};
+    saved.sum = proj_sum(&saved);
+    uint32_t mot = 68u + NTRK * (P_COUNT + 1u + 2u + NSTEP * 9u) + CHAIN_WIRE16_SIZE;
+    uint8_t *w;
+    ok = proj_pack(&wire, &saved);
+    wire.raw[67] &= (uint8_t)~16u;                      /* old writer: no BEND-aware marker */
+    w = wire.raw + proj_mot_off(mot, 0, MOTION_FILE_SPARE_MAX);
+    w[0] = 1; w[1] = (uint8_t)(MFX_BEND | MOTION_LOCK); w[2] = 10;
+    w = wire.raw + proj_mot_off(mot, 1, MOTION_FILE_SPARE_MAX);
+    w[0] = 2; w[1] = MFX_BEND; w[2] = 12;
+    w = wire.raw + proj_mot_off(mot, 2, MOTION_FILE_SPARE_MAX);
+    w[0] = 3; w[1] = MFX_BEND; w[2] = 100;
+    store_hash(&wire);
+    ok = ok && proj_import(&loaded, &wire, sizeof wire) && loaded.motion.count == 0;
+    bad += check("FUN21: in an old file every id-61 record (lock, valid or out of range) is dropped and it loads",
+                 ok);
+    return bad;
+}
+
 /* FUN21: every motion record RAM holds and a punch-in lane of stacked effects, packed, read back and packed again */
 static int fun21_full_motion(void)
 {
@@ -1170,6 +1212,7 @@ int main(void)
                      ok && c.t[0].p[P_ICMIX] == 0 && c.t[0].p[P_IPMIX] == 0 &&
                      c.t[0].p[P_ILMIX] == 0 && c.t[0].p[P_IHMIX] == 0 && c.t[0].p[P_ESYNC] == 1);
     }
+    bad += bend_wire();
     bad += chord_mode_wire();
     bad += vib_wire();
     bad += lsync_wire();

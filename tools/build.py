@@ -45,9 +45,10 @@ APP_SLOT = fm1pkg_make.APP_SLOT
 # source. Measured on 3fa0d7a / 67e552d: RAMTEXT 26,904 vs 24,300 B (x1.107), image 581,976 vs 568,744 B
 # (x1.023). Re-checked on 1e2999a: open 31,616 B -> JieLi 33,936 B (x1.073). 1.08 clears that tree's open
 # estimate with a little margin; 1.12 false-failed it. An open-toolchain build fails when the scaled size
-# would not fit, so a CI overflow shows up locally.
+# would not fit, so a CI overflow shows up locally. Re-checked on the BEND tree (2026-11-20): open
+# 570,196 B -> JieLi 583,920 B (x1.02407); 1.025 false-failed it by 434 B, 1.0241 keeps ~80 B of margin.
 JIELI_RAMTEXT_GROWTH = 1.08
-JIELI_IMAGE_GROWTH = 1.025
+JIELI_IMAGE_GROWTH = 1.0241
 LOADER_LOAD = 0x01C0A800
 LOADER_NAME = b"usb_hid_ota.bin"    # the file name the SPL looks for
 DOCKER_IMAGE = os.environ.get("JIELI_DOCKER_IMAGE", "debian:bookworm-slim")

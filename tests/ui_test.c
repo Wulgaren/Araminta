@@ -1082,6 +1082,9 @@ static int test_clear_every_track_all(void)
         my_steps(&trk[i]);
         trk[i].p[P_E0]++;
         trk[i].p[P_QUANT] = QN_CURR;                 /* ALL: the clear drops it */
+        trk[i].p[P_ROOT] = (int16_t)(1 + i);         /* the whole SCL group goes back to its defaults */
+        trk[i].p[P_SCALE] = (int16_t)(i % 3u + 1u);
+        trk[i].p[P_TRANS] = (int16_t)(i + 1);
         trk[i].scl_stash_ok = 1;
         trk[i].p[P_LEVEL] = (int16_t)(20 + i);       /* the mix and the arp: ALL4 puts them back too */
         trk[i].p[P_PAN] = (int16_t)(i * 10 - 20);
@@ -1114,6 +1117,10 @@ static int test_clear_every_track_all(void)
               trk[i].p[P_QUANT] == QN_OFF && !trk[i].scl_stash_ok && !trk[i].nheld && !trk[i].arp_phys;
     bad += check("every-track ALL initializes all sounds and clears all patterns, automation, lane and MAP, keeps song",
                  ok && !ui.confirm && song.sel == 2 && chain_config.count == 1 && pfx_lane[5] == 0u);
+    for (ok = 1, i = 0; i < NTRK; i++)
+        ok &= trk[i].p[P_ROOT] == TP[P_ROOT].def && trk[i].p[P_SCALE] == TP[P_SCALE].def &&
+              trk[i].p[P_QUANT] == TP[P_QUANT].def && trk[i].p[P_TRANS] == TP[P_TRANS].def && !trk[i].scl_stash_ok;
+    bad += check("every-track ALL puts the whole SCL group (ROOT SCL MAP TRN) back to its defaults", ok);
     for (ok = 1, i = 0; i < NTRK; i++)
         ok &= trk[i].p[P_LEVEL] == TP[P_LEVEL].def && trk[i].p[P_PAN] == TP[P_PAN].def &&
               trk[i].p[P_MUTE] == TP[P_MUTE].def && trk[i].p[P_AMODE] == TP[P_AMODE].def &&
@@ -2913,6 +2920,27 @@ static int test_page_cycles(void)
     ok &= cur_page()->fam == FAM_EDIT;
     chain.running = 0;
     bad += check("  while a song plays: KNOB 4 says STOP TO EDIT; EDIT opens the EDIT page", ok);
+    return bad;
+}
+
+/* BEND (MFX_BEND, 1/16 semitones, automation only): AUTOMATION lists it as BEND on a synth track; + ADD makes a
+ * kind-0 record (no MOTION_LOCK); a DRUM track has no such row */
+static int test_bend_auto(void)
+{
+    int bad = 0, ok, at;
+    char b[16];
+    ui_power_on();
+    ev_name(TSEL, MFX_BEND, b);
+    ok = str_eq(b, "BEND") && ev_id_ok(TSEL, MFX_BEND);
+    go_auto_add(MFX_BEND, 4); frame();
+    press(B_OCTUP);
+    at = motion_find(TSEL, 4, MFX_BEND);
+    ok &= at >= 0 && !(motion.event[at].param & MOTION_LOCK) && msg_is("BEND ADDED") &&
+          auto_cur() == EVC(EVK_REC, (uint32_t)at);
+    bad += check("AUTOMATION BEND: named BEND on a synth track, + ADD a kind-0 record (BEND ADDED)", ok);
+    set_engine_of(TSEL, ENGI_DRUM);
+    ok = !ev_id_ok(TSEL, MFX_BEND);
+    bad += check("AUTOMATION BEND: no row on a DRUM track", ok);
     return bad;
 }
 
@@ -10207,6 +10235,7 @@ int main(void)
     bad += test_clear_selected_all();
     bad += test_clear_column_keys();
     bad += test_clear_every_track_all();
+    bad += test_bend_auto();
     bad += test_clear_fx();
     bad += test_tracks();
     bad += test_grid();

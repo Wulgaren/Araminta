@@ -181,9 +181,9 @@ static int fun7_89(void)
     /* DEBUG removed */
     bad += check("89 parameters: E0..E7 at P_E0.., the chord keys OFF / CLOSE, lanes 100 %, the rest in place", ok &&
         after.t[0].p[P_FM1_ATK] == 33 && !memcmp(after.t[0].step, before.t[0].step, sizeof before.t[0].step));
-    bad += check("  its motion: E0 (81) -> P_E0, REV and FM OP1 ATK (61) kept",
-        after.motion.count == 3u && after.motion.event[0].param == P_REV && after.motion.event[1].param == P_E0 &&
-        after.motion.event[1].value == 40 && after.motion.event[2].param == P_FM1_ATK);
+    bad += check("  its motion: E0 (81) -> P_E0, REV kept; old id 61 (FM OP1 ATK) dropped, no BEND marker",
+        after.motion.count == 2u && after.motion.event[0].param == P_REV && after.motion.event[1].param == P_E0 &&
+        after.motion.event[1].value == 40);
     bad += check("  written again (P_COUNT parameters): the same project", proj_pack(&old, &after) && old.raw[66] == P_COUNT &&
         proj_import(&before, &old, sizeof old) && proj_pack(&again, &before) && !memcmp(&old, &again, sizeof old));
     pack_fun7_89(&old, &before, &m);                                /* SONG: a slot of the old firmware */
@@ -192,7 +192,7 @@ static int fun7_89(void)
     chain_config.count = 1; chain_config.row[0] = chain_row_of(2, 1);
     ok = chain_prepare() == 0;
     bad += check("  SONG: an 89-parameter slot's motion plays at today's ids (E0 at P_E0)", ok &&
-        chain.source[2].motion.count == 3u && chain.source[2].motion.event[1].param == P_E0);
+        chain.source[2].motion.count == 2u && chain.source[2].motion.event[1].param == P_E0);
     seq_stop(); chain_config.count = 0; chain.armed = 0;
     m.event[1].param = 82;                                          /* (any id P_E0 .. P_E7 of then moves up) */
     pack_fun7_89(&old, &before, &m);
@@ -1012,6 +1012,93 @@ static int pitch_kit(void)
     return bad;
 }
 
+/* ----------------------------------------------- BEND lane (VOICE 2 PITCH) --- */
+static int bend_lane(void)
+{
+    int bad = 0, ok;
+    track_t *t;
+    project_t before, after;
+    project_store_t st;
+    uint32_t half, i, seen;
+
+    ui_power_on();
+    t = &trk[0];
+    track_defaults_steps(t);
+    t->p[P_SLEN] = 8;
+    song.sel = 0;
+    song.rec = 0;
+    seq_start(); seq_tick(t, CTL);
+    bad += check("BEND: not recording, the PITCH card adds nothing", !motion_capture_bend(t, 200) && !motion.count);
+
+    song.rec = 1;
+    ok = !motion_capture_bend(t, 200) && motion.count == 1u && motion.event[0].place == 0u &&
+         MOTION_ID(&motion.event[0]) == MFX_BEND && !(motion.event[0].param & MOTION_LOCK) &&
+         motion.event[0].value == 32;
+    bad += check("BEND: REC on step 0 stores 200 cents as +32, automation (no lock)", ok);
+    bad += check("BEND: -200 cents -> -32", !motion_capture_bend(t, -200) && motion.event[0].value == -32);
+    bad += check("BEND: 100 cents -> +16", !motion_capture_bend(t, 100) && motion.event[0].value == 16);
+    bad += check("BEND: 1 cent rounds to 0", !motion_capture_bend(t, 1) && motion.event[0].value == 0);
+
+    motion_clear(t);
+    seq_start(); seq_tick(t, CTL);
+    half = step_samples(t, div_samples((uint32_t)t->p[P_SDIV]), t->seq_idx);
+    while (t->seq_idx == 0u && t->seq_pos <= half / 2u)
+        seq_tick(t, 1);
+    ok = t->seq_idx == 0u && !motion_capture_bend(t, 100) && motion.count == 1u &&
+         motion.event[0].place == 1u && motion.event[0].value == 16;
+    bad += check("BEND: after the step's midpoint the record lands on the next step", ok);
+    song.rec = 0;
+    seq_stop();
+
+    t = lock_track(0);
+    bad += check("BEND: cannot be a lock", motion_set_lock(t, 2, MFX_BEND, 1) == 1 && !motion.count);
+    bad += check("BEND: values outside -32..32 are refused",
+                 motion_set_event(t, 0, MFX_BEND, -33) == 1 && motion_set_event(t, 0, MFX_BEND, 33) == 1 && !motion.count);
+
+    t = lock_track(0);
+    set_engine_of(t, ENGI_DRUM);
+    t->engine = t->eng_req;
+    song.sel = 0;
+    song.rec = 1;
+    seq_start(); seq_tick(t, CTL);
+    bad += check("BEND: a drum track records nothing",
+                 drum_track(t) && !motion_capture_bend(t, 200) && !motion.count);
+    song.rec = 0;
+    seq_stop();
+
+    t = lock_track(0);
+    motion_set_event(t, 2, MFX_BEND, 8);
+    seq_start(); seq_tick(t, CTL);
+    pitch_to(t, 2);
+    bad += check("BEND: playback sets bend_auto / bend_fit", t->seq_idx == 2u && t->bend_fit == 1u && t->bend_auto == 8);
+    motion_restore(t);
+    bad += check("BEND: restore clears both", !t->bend_fit && !t->bend_auto);
+    seq_stop();
+
+    t = lock_track(0);
+    motion_set_event(t, 0, MFX_BEND, 12);
+    t->bend_auto = 5;
+    t->bend_fit = 1;
+    ok = motion_find(t, 0, MFX_BEND) >= 0;
+    motion_sound_loaded(t, 0, ENGI_DRUM);
+    bad += check("BEND: a different engine keeps the record, clears the sounding value",
+                 ok && motion_find(t, 0, MFX_BEND) >= 0 && !t->bend_fit && !t->bend_auto);
+    motion_clear(t);
+
+    t = lock_track(0);
+    motion_set_event(t, 3, MFX_BEND, -12);
+    project_capture(&before);
+    ok = motion_valid(&before.motion) && proj_pack(&st, &before) && proj_import(&after, &st, sizeof st);
+    seen = 0;
+    for (i = 0; ok && i < after.motion.count; i++)
+        if (MOTION_ID(&after.motion.event[i]) == MFX_BEND && after.motion.event[i].place == 3u) {
+            ok &= after.motion.event[i].value == -12 && !(after.motion.event[i].param & MOTION_LOCK);
+            seen = 1;
+        }
+    bad += check("BEND: the record round-trips through a project and validates", ok && seen && motion_valid(&after.motion));
+    return bad;
+}
+
 static int lock_project(void)
 {
     int bad = 0;
@@ -1338,8 +1425,10 @@ static int auto_list(void)
     bad += check("  the 255 used: OCT+ adds nothing, AUTOMATION FULL", motion_count(t) == 1u &&
         str_eq(ui.msg, "AUTOMATION FULL") && !act_ready());
     motion_clear(&trk[1]);
-    for (i = 0; i < P_COUNT; i++)                        /* names: an id each, none of DIGITAL's, lanes on DRUM only */
-        if (ev_id_ok(t, i) && ((i >= P_FM1_ATK && i <= P_FM4_LEVEL) || (i >= P_LN0 && i <= P_LN7) || !motion_param(i)))
+    for (i = 0; i < P_COUNT; i++)                        /* names: an id each, none of DIGITAL's, lanes on DRUM only
+                                                          * (BEND reuses FM1 ATK and is automation-only: listed) */
+        if (ev_id_ok(t, i) && i != MFX_BEND &&
+            ((i >= P_FM1_ATK && i <= P_FM4_LEVEL) || (i >= P_LN0 && i <= P_LN7) || !motion_param(i)))
             break;
     bad += check("  KNOB 3's list: what motion records and the sound has (no OP ENV, no DRUM lanes off DRUM)", i == P_COUNT &&
         ev_id_ok(&trk[3], P_LN0));
@@ -1765,7 +1854,7 @@ int main(void)
     bad += arp_play_sync();
     bad += arp_new_modes();
     bad += arp_drone_mode();
-    bad += lock_playback() + lock_edit() + lock_pitch() + pitch_lock_only() + record_trn() + pitch_matrix() + pitch_gate() + pitch_kit() + lock_project() + lock_ui() + lock_undo() + auto_list();
+    bad += lock_playback() + lock_edit() + lock_pitch() + pitch_lock_only() + record_trn() + pitch_matrix() + pitch_gate() + pitch_kit() + bend_lane() + lock_project() + lock_ui() + lock_undo() + auto_list();
     bad += fx_lock_time();
     bad += fx_lock_banks_and_capacity();
     bad += pit_gld_seq();

@@ -6,6 +6,7 @@
 //   node web/test_projconv.mjs
 // The fixtures in web/testdata/projconv.json were made with tests/project_test.c's images and
 // /tmp build of the old firmware's proj_import + proj_pack (the DIGITAL one also with fm4_convert.c).
+// Their expected FUN19 images carry the current BEND-aware header bit (byte 67 bit 4).
 // projconv_vib.json holds FUN8 / FUN10 / FUN16 / FUN18 images with a DIGITAL track and pre-VIB FM6 tracks
 // (E5 set, VIB bit clear) and their proj_import + proj_pack outputs (proj_fm4 then proj_fm6m).
 
@@ -57,8 +58,9 @@ for (const f of [7, 8, 9]) {
   const patch = 3312;
   let only = true;
   for (let i = 0; i < 3840; i++) {
-    // DIGITAL's whole parameter block (the FM4 values become FM6's), engine, preset, patch and hash.
-    if ((i >= 68 && i < engine + 2) || (i >= patch && i < patch + 512) || i >= 3836) continue;
+    // The BEND-aware header bit (67), DIGITAL's whole parameter block (the FM4 values become FM6's),
+    // engine, preset, patch and hash.
+    if (i === 67 || (i >= 68 && i < engine + 2) || (i >= patch && i < patch + 512) || i >= 3836) continue;
     if (out[i] !== input[i]) { only = false; break; }
   }
   ok(only, "projconv: only DIGITAL's parameters, engine, patch and checksum change");
@@ -67,10 +69,16 @@ for (const f of [7, 8, 9]) {
 }
 
 {
-  /* a current FUN19 project without DIGITAL: no conversion, and a decode/repack is a fixed point */
+  /* a current FUN19 project without DIGITAL: no conversion; a decode/repack only adds the BEND-aware
+   * header bit (bit 4 of byte 67) and its checksum, then is a fixed point */
   const input = b64(FIX.current);
   ok(!needsConversion(input), "projconv: a current FUN19 project needs no conversion");
-  ok(eq(convertProject(input), input), "projconv: FUN19 round trips byte for byte");
+  const want = input.slice();
+  want[67] |= 0x10;
+  const h = projectHash(want, want.length - 4) >>> 0;
+  want[3836] = h & 255; want[3837] = (h >> 8) & 255;
+  want[3838] = (h >> 16) & 255; want[3839] = (h >>> 24) & 255;
+  ok(eq(convertProject(input), want), "projconv: FUN19 repack adds the BEND-aware marker, otherwise byte for byte");
 }
 
 {

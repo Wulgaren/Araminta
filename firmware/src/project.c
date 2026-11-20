@@ -431,6 +431,25 @@ static void proj_motion_edit(project_t *q, uint32_t hit, uint32_t what)
     q->sum = proj_sum(q);
 }
 
+/* MFX_BEND reuses the inert FM1 ATK id. A file from before the BEND-aware build (header bit 4 clear) may hold
+ * old DIGITAL automation there, indistinguishable by value alone: drop every id-61 record. A BEND-aware file
+ * keeps a valid automation event and drops only a lock or a value outside the bend's -32..32 range. */
+static void proj_motion_bend_fix(project_t *q, uint32_t bend_ok)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < q->motion.count && i < MOTION_MAX; i++) {
+        const motion_event_t *e = &q->motion.event[i];
+        if (MOTION_ID(e) == MFX_BEND &&
+            (!bend_ok || (e->param & MOTION_LOCK) || e->value < -32 || e->value > 32))
+            continue;
+        q->motion.event[n++] = *e;
+    }
+    for (i = n; i < q->motion.count && i < MOTION_MAX; i++)
+        memset(&q->motion.event[i], 0, sizeof q->motion.event[i]);
+    q->motion.count = (uint8_t)n;
+    q->sum = proj_sum(q);
+}
+
 /* FM6 tracks of a project from before VIB (header bit 2 clear): P_E5 was VMOD. Move it into the
  * patch's modulator operators (fm6_old_vmod) and clear P_E5; the track's VMOD automation has no
  * patch target, so drop its E5 events. Idempotent: a VIB project returns at once. */
@@ -676,8 +695,10 @@ static int proj_pack_st(project_store_t *out, const project_t *q, uint32_t st)
     memcpy(b + 8, q->g, PROJ_NG_WIRE * sizeof(int16_t));
     b[62] = q->sel; b[63] = q->parts; b[64] = q->phys; b[66] = P_COUNT;
     b[65] = (uint8_t)clamp(q->g[G_CRTYPE], 0, 4);       /* CHAIN tank TYPE/SIZE/DAMP (spare; not in wire g[]) */
-    b[67] = (uint8_t)(1u | (clamp(q->g[G_TTEMPO], 0, 1) << 7) | 2u | 4u | 8u);   /* bit 0: CHAIN tanks; bit 1: OSC 2
-                                                            * (INT / MORPH / DRIFT); bit 2: VIB; bit 3: LFO SYNC ON / OFF;
+    b[67] = (uint8_t)(1u | (clamp(q->g[G_TTEMPO], 0, 1) << 7) | 2u | 4u | 8u | 16u);   /* bit 0: CHAIN tanks;
+                                                            * bit 1: OSC 2 (INT / MORPH / DRIFT); bit 2: VIB;
+                                                            * bit 3: LFO SYNC ON / OFF; bit 4: written by a
+                                                            * BEND-aware build (id 61 is a bend, not FM ATK);
                                                             * bit 7: TAPE TEMPO */
     b[PROJ_CRV_OFF] = (uint8_t)clamp(q->g[G_CRSIZE], 0, 127);
     b[PROJ_CRV_OFF + 1u] = (uint8_t)clamp(q->g[G_CRDAMP], 0, 127);
@@ -904,13 +925,14 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
      * np<=111 (1.5): full 128-record block (no insert chain yet) */
     uint32_t mot, chn = v10 ? CHAIN_WIRE15_SIZE : sizeof(chain_v9_t);
     uint32_t iord2 = np > 111u ? 1u : 0u;               /* +1 byte per track for P_IORD high */
-    uint32_t mot_max, osc2;
+    uint32_t mot_max, osc2, bend_ok;
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + st - 4u, 4);
     v21 = magic == PROJ_MAGIC;                          /* FUN21: 4864 B, the tail */
     v20 = magic == PROJ_MAGIC_V20 || v21;               /* FUN20+: 4096 B, append motion + lane */
     app = v20 && st != PROJ_STORE_OLD;                  /* the append area (and FUN21's tail) on disk */
     v19 = magic == PROJ_MAGIC_V19 || v20;                /* FUN19+: OSC 2 / VIB / TAPE TEMPO bits */
     osc2 = v19 && (b[67] & 2u) != 0;                    /* OSC 2's INT / MORPH / DRIFT (see the top) */
+    bend_ok = (b[67] & 16u) != 0u;                       /* written by a BEND-aware build (see proj_motion_bend_fix) */
     v18 = magic == PROJ_MAGIC_V18 || v19;
     v17 = magic == PROJ_MAGIC_V17 || v18;
     v16 = magic == PROJ_MAGIC_V16;
@@ -1112,6 +1134,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     if (!proj_motion_ids(&q->motion, np)) return 0;
     if (!osc2)
         proj_ktr_motion(&q->motion, q->t);
+    proj_motion_bend_fix(q, bend_ok);
     if (!chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
     /* Old CHO send locks (P_CHOR 0..63) -> CHORUS MIX. FXPOS values (64+) stay. */
     if (!v14) {
@@ -1743,7 +1766,8 @@ static uint32_t chain_prepare(void)
                 motion_store_t *m = &chain.source[i].motion; uint32_t n = 0;
                 for (uint32_t e = 0; e < m->count; e++) {
                     const motion_event_t *v = &m->event[e]; uint32_t owner = v->place >> 6;
-                    if (MOTION_ID(v) >= P_FM1_ATK && p->t[owner].engine != trk[owner].eng_req) continue;
+                    uint32_t mid = MOTION_ID(v);
+                    if (mid != MFX_BEND && mid >= P_FM1_ATK && p->t[owner].engine != trk[owner].eng_req) continue;
                     m->event[n++] = *v;
                 }
                 m->count = (uint8_t)n;

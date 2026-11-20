@@ -394,6 +394,26 @@ static int tape_contract(void)
     return bad;
 }
 
+static int bend_lane_contract(void)
+{
+    int bad = 0;
+    track_t *t;
+    const param_desc_t *d;
+
+    ui_power_on();
+    t = &trk[0];
+    bad += check("BEND is automation-only and a motion target",
+                 param_auto_only(MFX_BEND) && !param_lock_only(MFX_BEND) && motion_param(MFX_BEND) &&
+                 !param_auto_only(MSEQ_PITCH) && !param_auto_only(P_REV));
+    d = motion_target_desc(t, MFX_BEND);
+    bad += check("BEND's descriptor is BEND, -32..32",
+                 d && str_eq(d->label, "BEND") && d->min == -32 && d->max == 32);
+    bad += check("BEND cannot be a lock", motion_set_lock(t, 2, MFX_BEND, 1) == 1 && !motion.count);
+    bad += check("BEND accepts an automation event in range",
+                 !motion_set_event(t, 2, MFX_BEND, 32) && motion_find(t, 2, MFX_BEND) >= 0);
+    return bad;
+}
+
 static int dead_engine_contract(void)
 {
     int bad = 0, ok;
@@ -447,8 +467,8 @@ int main(void)
     int bad;
     ui_power_on();
     bad = id_classification() + pitch_contract() + pitch_kit_contract() + mfx_contract() + tape_contract() +
-          ev_contract() + pg_contract() + bend_contract() + sweep_contract() + motion_id_contract() +
-          dead_engine_contract();
+          ev_contract() + pg_contract() + bend_contract() + bend_lane_contract() + sweep_contract() +
+          motion_id_contract() + dead_engine_contract();
     printf("%s\n", bad ? "PARAM CONTRACT TEST FAILED" : "PITCH / special-id parameter contract tests passed");
     return bad;
 }

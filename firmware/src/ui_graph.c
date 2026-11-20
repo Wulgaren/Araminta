@@ -1219,6 +1219,7 @@ static void page_title(char *ti)
         /* the second GENERATION page reads "GENERATION 3/3", LFO 2 reads "LFO 2/3": the count separates them */
         const char *ti_page = str_eq(pg->title, "GENERATION 2") ? "GENERATION"
                               : str_eq(pg->title, "LFO 2")      ? "LFO"
+                              : str_eq(pg->title, "SCL")        ? "SCALE"
                                                                 : pg->title;
         str_cpy(ti, pt ? pt : grid_on() && !detail_on() ? "GRID" : ti_page, 12);
     }
@@ -1685,7 +1686,12 @@ static void graph_events(void)
             cv_text_on(14, y + LIST_TY, &AF_M, lock ? "LOCK" : "AUTO", sel ? T_INK : lock ? T_ACCENT : T_MID, bg);
             GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
             cv_text_on(EV_SX, y + LIST_TY, &AF_M, b, sel ? T_INK : T_MID, bg);
-            param_format(d, e->value, b, &unit);
+            if (id == MFX_BEND) {                   /* 1/16 semitones -> cents, rounded; not ATK's F_TIME */
+                fmt_int(b, (e->value * 25 + (e->value >= 0 ? 2 : -2)) / 4);
+                unit = "c";
+            } else {
+                param_format(d, e->value, b, &unit);
+            }
             ev_name(t, id, nm);
             x = ev_value(y, b, unit, sel ? T_INK : T_TEXT, bg);
             GFX_HOOK_ALIGN(0, y, 0, y + 16, AL_V, "list row text centred up/down");
