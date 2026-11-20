@@ -32,6 +32,7 @@ Targets for the edit loop (not the final gate):
   perform     FX hold layer effects and punch load             tests/perform_test.c
   punch       punch-in crackle harness (borrow, stacks, survey) tests/punch_crackle_test.c
   laws        combinatorial laws (matrix/engines/FX/locks/punch + late-half)  tests/laws_test.c
+  laws-emu    covering bins + parallel emu_test --batch late budgets         tests/laws_emu.sh
   flash       flash write windows, torn writes, layout        tests/flash_map_test.c, storage_test.c, layout_test.py
   regress     golden renders, health, voices, CPU budget     tests/regress.c
   target_budget  render-loop instructions in the pi32v2 dis    tests/target_budget.py
@@ -189,6 +190,10 @@ do_laws() {
     run_bin laws "$OUT/laws_test"
 }
 
+do_laws_emu() {
+    run_bin laws-emu tests/laws_emu.sh
+}
+
 run_target() {
     case $1 in
         motion) do_motion ;;
@@ -204,6 +209,7 @@ run_target() {
         perform) do_perform ;;
         punch) do_punch ;;
         laws) do_laws ;;
+        laws-emu) do_laws_emu ;;
         flash) do_flash ;;
         regress) do_regress ;;
         target_budget) do_target_budget ;;
@@ -219,7 +225,7 @@ fi
 need_tables=0
 for t in "$@"; do
     case $t in
-        motion|ui|ui_render|editor|project|param|sound15|inschain|fxroute|pfxclock|perform|punch|laws|regress|target_budget|web) need_tables=1 ;;
+        motion|ui|ui_render|editor|project|param|sound15|inschain|fxroute|pfxclock|perform|punch|laws|laws-emu|regress|target_budget|web) need_tables=1 ;;
         flash|all|list) ;;
         *)
             usage >&2

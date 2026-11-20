@@ -11,6 +11,9 @@
 //!                                (a punch-in, or a stack of one page, over the project's patch, e.g. 1:C4)
 //!   emu_test --fwsc FILE --elf FILE --scenarios 'dry:3000 keys:9000 churn:6000 stack:6000'
 //!            [--clear] [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--profile N] [--footprint N]
+//!   emu_test --fwsc FILE --elf FILE --batch FILE
+//!                                (one boot, many project cases, one a line: label ms path [punch=PAGE:KEY[,PAGE:KEY..]]
+//!                                 [latch]; each case's JSON line carries "case":"label")
 //!
 //! The run: boot, USB-MIDI configured, the heavy patch set up through the editor's SysEx (editor.c) and
 //! played with MIDI notes on channels 1..4, the FX layer's PUNCH-IN 1/2 page opened with the FX button,
@@ -20,7 +23,8 @@
 //! halves; `cpu_pct` is the highest the firmware's running average (cpu_q8) reached in it; a `stages:` line breaks
 //! the render down per part and for bus_run, from the firmware's own smoothed per-block costs. --clear releases
 //! keys, stops the transport and restores the punch page before each scenario, so one boot can measure
-//! several; --wav writes one scenario's audio. --fast: no cost model, no XIP cache, the JIT (quick, not
+//! several; --batch measures a file's project cases the same way, each case's label in its JSON line; --wav
+//! writes one scenario's audio. --fast: no cost model, no XIP cache, the JIT (quick, not
 //! device-timed).
 //! Exit 1 with a message on stderr: boot, a CPU fault, a bad DBG magic, a setup the device did not take,
 //! or a punch-in that never engaged / did not let go.
@@ -39,7 +43,7 @@ const HALF_US: f64 = 2902.0;
 const HALF_FRAMES: u32 = 128;
 const USAGE: &str = "usage: emu_test --fwsc FELUCCA.fwsc --elf FELUCCA.elf \
 (--scenario dry|keys|stack|churn --ms N | --scenario idle --ms N | --scenario project --ms N --project FILE | \
---scenarios 'dry:3000 keys:9000 churn:6000 stack:6000') \
+--scenarios 'dry:3000 keys:9000 churn:6000 stack:6000' | --batch FILE) \
 [--clear] [--wav OUT.wav] [--mhz 240] [--fast] [--seed N] [--notes N] \
 [--punch PAGE:KEY[,PAGE:KEY..]] [--punch-latch] [--profile N] [--footprint N]";
 
@@ -139,6 +143,76 @@ struct Args {
     /// --footprint N: the N symbols that fetch the most 64-byte flash lines a half, the cache flushed at each
     /// half (0: off)
     footprint: usize,
+    /// --batch FILE's cases: one project (and punch spec) a line, measured in one boot
+    batch: Vec<BatchCase>,
+}
+
+/// One --batch case: a project's raw bytes and, optionally, punch keys held over its own patch for `ms`.
+#[derive(Clone, Debug)]
+struct BatchCase {
+    label: String,
+    ms: u64,
+    /// the project's raw FUN* bytes, relative to the working directory
+    path: String,
+    /// punch=PAGE:KEY[,PAGE:KEY..], the --punch grammar
+    punch: Option<String>,
+    /// bare `latch`: FX LATCH for this case's punch
+    latch: bool,
+}
+
+/// One line of a --batch file: `label ms path [punch=PAGE:KEY[,PAGE:KEY..]] [latch]`. None for a blank line or
+/// a # comment.
+fn parse_batch_line(line: &str) -> Result<Option<BatchCase>, String> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with('#') {
+        return Ok(None);
+    }
+    let mut words = line.split_whitespace();
+    let label = words.next().ok_or("expected label ms path")?;
+    if !label.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')) {
+        return Err(format!("label {label:?} is not [A-Za-z0-9_.-]+"));
+    }
+    let ms = words.next().ok_or_else(|| format!("{label}: expected ms"))?
+        .parse::<u64>().map_err(|_| format!("{label}: ms is not a number"))?;
+    if ms == 0 {
+        return Err(format!("{label}: ms must be positive"));
+    }
+    let path = words.next().ok_or_else(|| format!("{label}: expected a project path"))?.to_string();
+    let (mut punch, mut latch) = (None, false);
+    for word in words {
+        if let Some(spec) = word.strip_prefix("punch=") {
+            if punch.replace(spec.to_string()).is_some() {
+                return Err(format!("{label}: more than one punch="));
+            }
+        } else if word == "latch" {
+            latch = true;
+        } else {
+            return Err(format!("{label}: unexpected {word:?}"));
+        }
+    }
+    if latch && punch.is_none() {
+        return Err(format!("{label}: latch needs punch="));
+    }
+    Ok(Some(BatchCase { label: label.to_string(), ms, path, punch, latch }))
+}
+
+/// Every case of a --batch file, in order; errors name the file and line.
+fn read_batch(path: &str) -> Result<Vec<BatchCase>, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("--batch {path}: {e}"))?;
+    let mut cases: Vec<BatchCase> = Vec::new();
+    for (n, line) in text.lines().enumerate() {
+        let case = parse_batch_line(line).map_err(|e| format!("{path}:{}: {e}", n + 1))?;
+        if let Some(case) = case {
+            if cases.iter().any(|c| c.label == case.label) {
+                return Err(format!("{path}:{}: duplicate label {}", n + 1, case.label));
+            }
+            cases.push(case);
+        }
+    }
+    if cases.is_empty() {
+        return Err(format!("--batch {path}: no cases"));
+    }
+    Ok(cases)
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -151,6 +225,7 @@ fn parse_args() -> Result<Args, String> {
     let mut punch = None;
     let mut punch_latch = false;
     let (mut wav, mut mhz, mut fast, mut seed, mut profile, mut footprint) = (None, 240u64, false, 1u32, 0usize, 0usize);
+    let mut batch_file = None;
     let mut i = 0;
     while i < a.len() {
         let val = |i: usize| a.get(i + 1).cloned().ok_or_else(|| format!("{} needs a value", a[i]));
@@ -161,6 +236,7 @@ fn parse_args() -> Result<Args, String> {
             "--scenario" => scenario = Some(Scenario::parse(&val(i)?).ok_or("--scenario: dry, keys, stack, churn, idle or project")?),
             "--ms" => ms = Some(num(i)?),
             "--project" => project = Some(val(i)?),
+            "--batch" => batch_file = Some(val(i)?),
             "--notes" => notes = num(i)? as usize,
             "--punch" => punch = Some(val(i)?),
             "--punch-latch" => {
@@ -197,13 +273,33 @@ fn parse_args() -> Result<Args, String> {
         }
         i += 2;
     }
+    let batch = match batch_file {
+        Some(path) => {
+            if scenario.is_some() || scenarios.is_some() || ms.is_some() || project.is_some() {
+                return Err("--batch is the case source: no --scenario, --scenarios, --ms or --project".into());
+            }
+            if punch.is_some() || punch_latch {
+                return Err("--batch takes each case's punch=... and latch".into());
+            }
+            if wav.is_some() {
+                return Err("--wav requires a single case (not --batch)".into());
+            }
+            if footprint > 0 {
+                return Err("--footprint requires a single case (not --batch)".into());
+            }
+            read_batch(&path)?
+        }
+        None => Vec::new(),
+    };
     let cases = match (scenarios, scenario, ms) {
+        _ if !batch.is_empty() => Vec::new(),
         (Some(cases), None, None) => cases,
         (None, Some(scene), Some(duration)) => vec![(scene, duration)],
         _ => return Err(USAGE.into()),
     };
     match (fwsc, elf) {
-        (Some(fwsc), Some(elf)) if mhz > 0 && !cases.is_empty() && cases.iter().all(|(_, ms)| *ms > 0) => {
+        (Some(fwsc), Some(elf)) if mhz > 0 && (!cases.is_empty() || !batch.is_empty())
+            && cases.iter().all(|(_, ms)| *ms > 0) => {
             if fast && footprint > 0 {
                 return Err("--footprint needs strict mode (no --fast)".into());
             }
@@ -216,32 +312,34 @@ fn parse_args() -> Result<Args, String> {
                 return Err("--footprint requires a single scenario".into());
             }
             let has_project = cases.iter().any(|(s, _)| *s == Scenario::Project);
-            if has_project && project.is_none() {
-                return Err("--scenario project needs --project FILE (a project's raw FUN* bytes)".into());
-            }
-            if project.is_some() && !has_project {
-                return Err("--project needs --scenario project".into());
-            }
-            if has_project && cases.len() > 1 {
-                return Err("--project runs alone: one project scenario per boot".into());
-            }
-            if cases.iter().any(|(s, _)| *s == Scenario::Idle) && cases.len() > 1 {
-                return Err("--scenario idle runs alone: one idle scenario per boot".into());
+            if batch.is_empty() {
+                if has_project && project.is_none() {
+                    return Err("--scenario project needs --project FILE (a project's raw FUN* bytes)".into());
+                }
+                if project.is_some() && !has_project {
+                    return Err("--project needs --scenario project".into());
+                }
+                if has_project && cases.len() > 1 {
+                    return Err("--project runs alone: one project scenario per boot".into());
+                }
+                if cases.iter().any(|(s, _)| *s == Scenario::Idle) && cases.len() > 1 {
+                    return Err("--scenario idle runs alone: one idle scenario per boot".into());
+                }
+                if notes != 4 && !has_project {
+                    return Err("--notes needs --scenario project".into());
+                }
+                if punch.is_some() && !has_project {
+                    return Err("--punch needs --scenario project (a punch-in held over a project's own patch)".into());
+                }
+                if punch_latch && punch.is_none() {
+                    return Err("--punch-latch needs --punch".into());
+                }
             }
             if notes > NOTES.len() {
                 return Err(format!("--notes: at most {}", NOTES.len()));
             }
-            if notes != 4 && !has_project {
-                return Err("--notes needs --scenario project".into());
-            }
-            if punch.is_some() && !has_project {
-                return Err("--punch needs --scenario project (a punch-in held over a project's own patch)".into());
-            }
-            if punch_latch && punch.is_none() {
-                return Err("--punch-latch needs --punch".into());
-            }
             Ok(Args { fwsc, elf, scenarios: cases, clear, wav, mhz, fast, seed, project, notes, punch, punch_latch,
-                      profile, footprint })
+                      profile, footprint, batch })
         }
         _ => Err(USAGE.to_string()),
     }
@@ -1148,6 +1246,19 @@ fn clear_scenario(emu: &mut Emu, scenario: Scenario) -> Result<(), String> {
         return Err(format!("SONG STOP answered {r:02x?}"));
     }
     emu.run_until(emu.ms() + 150)?;
+    clear_punch(emu)?;
+    set_latch(emu, scenario == Scenario::Stack)?;
+    strike_chords(emu);
+    let t = emu.ms();
+    emu.tap(t, "PLAY", TAP_MS);
+    emu.run_until(t + 1000)?;
+    emu.soc.periph.audio.clear();
+    eprintln!("[{:6} ms] controls cleared, notes re-struck and settled", emu.ms());
+    Ok(())
+}
+
+/// G5 CLR with FX LATCH on: every punch-in off and the page back to PUNCH-IN 1/2, checked.
+fn clear_punch(emu: &mut Emu) -> Result<(), String> {
     set_latch(emu, true)?;
     let t = emu.ms();
     emu.tap(t, "G5", TAP_MS);
@@ -1164,13 +1275,6 @@ fn clear_scenario(emu: &mut Emu, scenario: Scenario) -> Result<(), String> {
     if emu.soc.read8(emu.syms.perf_page2) != 0 || emu.soc.read8(emu.syms.kb_lock) & 2 == 0 {
         return Err("CLEAR did not restore PUNCH-IN 1/2".into());
     }
-    set_latch(emu, scenario == Scenario::Stack)?;
-    strike_chords(emu);
-    let t = emu.ms();
-    emu.tap(t, "PLAY", TAP_MS);
-    emu.run_until(t + 1000)?;
-    emu.soc.periph.audio.clear();
-    eprintln!("[{:6} ms] controls cleared, notes re-struck and settled", emu.ms());
     Ok(())
 }
 
@@ -1194,8 +1298,78 @@ fn scenario_plan(scenario: Scenario, ms: u64, seed: u32, punch: Option<&str>,
     Ok(plan)
 }
 
+/// Release held punch keys and project notes, stop the transport; between --batch cases on one boot.
+fn stop_project_play(emu: &mut Emu, notes: usize) -> Result<(), String> {
+    emu.probes.clear();
+    let t = emu.ms();
+    for name in WHITE {
+        emu.key(t, name, false);
+    }
+    for p in 0..4u8 {
+        for &note in &NOTES[..notes] {
+            emu.soc.usb.midi_send(&[0x80 | p, note + 12 * p, 0]);
+        }
+    }
+    let r = emu.ed(ED_SONG, &[3])?;
+    if r.get(..2) != Some(&[3, 0]) {
+        return Err(format!("SONG STOP answered {r:02x?}"));
+    }
+    emu.run_until(emu.ms() + 150)?;
+    Ok(())
+}
+
+/// Boot once; for each --batch line, put/play the project when the path changes, clear between same-path cases,
+/// punch and measure with that line's label in the JSON.
+fn run_batch(args: &Args) -> Result<(), String> {
+    /* After clear_punch, FX LATCH stays on; batch punch cases always tap under latch so probes match. */
+    let plans = args.batch.iter()
+        .map(|c| {
+            let latch = c.latch || c.punch.is_some();
+            scenario_plan(Scenario::Project, c.ms, args.seed, c.punch.as_deref(), latch)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let syms = Syms::load(&args.elf)?;
+    let mut emu = Emu::boot(&args.fwsc, syms, args.mhz, !args.fast)?;
+    let wall = std::time::Instant::now();
+    wait_ready(&mut emu)?;
+    let mut prev_path: Option<String> = None;
+    let mut punch_open = false;
+    let mut latch_on = false;
+    for (i, (case, plan)) in args.batch.iter().zip(plans).enumerate() {
+        let path_changed = prev_path.as_deref() != Some(case.path.as_str());
+        if i > 0 {
+            stop_project_play(&mut emu, args.notes)?;
+            if punch_open {
+                clear_punch(&mut emu)?;
+                punch_open = false;
+                latch_on = true; /* clear_punch turns FX LATCH on for G5 CLR */
+            }
+        }
+        /* MENU FX LATCH must be set before a project PUT (same as --punch-latch on a single run). */
+        if case.punch.is_some() && !latch_on {
+            set_latch(&mut emu, true)?;
+            latch_on = true;
+        }
+        if path_changed {
+            let bytes = std::fs::read(&case.path).map_err(|e| format!("--batch {}: {e}", case.path))?;
+            put_project(&mut emu, &bytes)?;
+            prev_path = Some(case.path.clone());
+        }
+        play_project(&mut emu, args.notes)?;
+        if case.punch.is_some() {
+            open_punch(&mut emu)?;
+            punch_open = true;
+        }
+        println!("{}", measure(args, &mut emu, Scenario::Project, case.ms, plan, &wall, Some(case.label.as_str()))?);
+    }
+    Ok(())
+}
+
 /// Boot and upload once, then measure each scenario with its own actions, probes and counters.
 fn run(args: &Args) -> Result<(), String> {
+    if !args.batch.is_empty() {
+        return run_batch(args);
+    }
     let plans = args.scenarios.iter()
         .map(|&(scenario, ms)| scenario_plan(scenario, ms, args.seed, args.punch.as_deref(), args.punch_latch))
         .collect::<Result<Vec<_>, _>>()?;
@@ -1234,7 +1408,7 @@ fn run(args: &Args) -> Result<(), String> {
         if scenario != Scenario::Project && scenario != Scenario::Idle && (args.clear || i > 0) {
             clear_scenario(&mut emu, scenario)?;
         }
-        println!("{}", measure(args, &mut emu, scenario, ms, plan, &wall)?);
+        println!("{}", measure(args, &mut emu, scenario, ms, plan, &wall, None)?);
     }
     Ok(())
 }
@@ -1255,8 +1429,9 @@ fn stages_line(sums: &[u64; 5], n: u64) -> String {
 }
 
 /// Measure a prepared machine, keeping all reported counters and audio local to this scenario.
+/// `case` is --batch's line label; when set it is included in the JSON as `"case"`.
 fn measure(args: &Args, emu: &mut Emu, scenario: Scenario, ms: u64, plan: Plan,
-           wall: &std::time::Instant) -> Result<String, String> {
+           wall: &std::time::Instant, case: Option<&str>) -> Result<String, String> {
     let strict = !args.fast;
 
     // the scenario: its counters from zero
@@ -1419,8 +1594,9 @@ fn measure(args: &Args, emu: &mut Emu, scenario: Scenario, ms: u64, plan: Plan,
         [DBG_MAX_US, DBG_LATE, DBG_LATE_OVER, DBG_LATE_T5, DBG_LATE_OTH, DBG_WALL_MAX].map(|k| emu.dbg(k));
     let shed = emu.soc.read32(emu.syms.shed_count).wrapping_sub(shed0);
     let kills = emu.soc.read32(emu.syms.voice_kills).wrapping_sub(kills0);
+    let case_json = case.map(|c| format!("\"case\":\"{c}\",")).unwrap_or_default();
     Ok(format!(
-        "{{\"scenario\":\"{}\",\"ms\":{},\"strict\":{strict},\"mhz\":{},\"halves\":{halves},\"cpu_pct\":{:.1},\
+        "{{\"scenario\":\"{}\",{case_json}\"ms\":{},\"strict\":{strict},\"mhz\":{},\"halves\":{halves},\"cpu_pct\":{:.1},\
 \"cpu1_pct\":{:.1},\"misses_half\":{misses_half},\"audio_max_us\":{max_us},\"late\":{late},\"late_over\":{late_over},\"late_t5\":{late_t5},\
 \"late_oth\":{late_oth},\"wall_max_us\":{wall_max},\"voices_shed\":{shed},\"voices_given_up\":{kills}}}",
         scenario.name(),
@@ -1494,6 +1670,25 @@ mod tests {
         let alone = plan_project_punch("1:F4", true).unwrap();
         assert!(!alone.probes[0].cancel);
         assert_eq!(alone.probes[0].midi_fx, Some(PF_OCTU));
+    }
+
+    #[test]
+    fn batch_line_parses_label_ms_path_punch_and_latch() {
+        assert!(parse_batch_line("").unwrap().is_none());
+        assert!(parse_batch_line("  # comment").unwrap().is_none());
+        let c = parse_batch_line("matrix_w0 1500 build/laws_emu/matrix_0.bin").unwrap().unwrap();
+        assert_eq!((c.label.as_str(), c.ms, c.path.as_str(), c.punch.as_deref(), c.latch),
+                   ("matrix_w0", 1500, "build/laws_emu/matrix_0.bin", None, false));
+        let c = parse_batch_line("punch_C4 1500 build/laws_emu/heavy.bin punch=1:C4").unwrap().unwrap();
+        assert_eq!(c.punch.as_deref(), Some("1:C4"));
+        assert!(!c.latch);
+        let c = parse_batch_line("stack_worst 2000 build/laws_emu/heavy.bin punch=1:F3,1:A3,1:C4 latch")
+            .unwrap().unwrap();
+        assert_eq!(c.punch.as_deref(), Some("1:F3,1:A3,1:C4"));
+        assert!(c.latch);
+        assert!(parse_batch_line("bad! 100 x.bin").unwrap_err().contains("label"));
+        assert!(parse_batch_line("x 0 p.bin").unwrap_err().contains("positive"));
+        assert!(parse_batch_line("x 100 p.bin latch").unwrap_err().contains("latch needs punch"));
     }
 }
 
