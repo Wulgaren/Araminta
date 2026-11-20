@@ -13,7 +13,7 @@ _start:
 1:	r1 = icfg
 	r2 = psr
 	cli
-	r3 = 0x1C08600		/* STATUS (debug area, app.ld: between .hot_text and RAM) */
+	r3 = 0x1C08E00		/* STATUS (debug area, app.ld: between .hot_text and RAM) */
 	[r3 + 0x20] = r1	/* icfg as handed over */
 	[r3 + 0x24] = r2	/* psr */
 	[r3 + 0x28] = r0	/* boot-parameter pointer */

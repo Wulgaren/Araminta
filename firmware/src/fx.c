@@ -3115,12 +3115,12 @@ static void bus_g_swap(void)
 
 /* the send buses on the last block's sends (bus_take), into wet: this block's returns, one block late. Its input
  * is the last block's, so where in the block it runs changes nothing */
-static void bus_run(uint32_t n)
+static AUDIO_RAM __attribute__((noinline)) void bus_run(uint32_t n)
 {
 #if C1_TIMED
     uint32_t ts = fm1_ticks();
 #endif
-    fx_buses_late(fx.bus_d, fx.bus_r, wet, n, n);
+    AUDIO_FAR(fx_buses_late)(fx.bus_d, fx.bus_r, wet, n, n);
 #if C1_TIMED
     if (c1_t4_ok) {
         uint32_t d = fm1_ticks() - ts;
@@ -3131,7 +3131,7 @@ static void bus_run(uint32_t n)
 #endif
 }
 
-static void c1_parts(uint32_t arg)                      /* arg: the parts (bit k = part k) | C1_JOB_BUS | n << 8 */
+static AUDIO_RAM __attribute__((noinline)) void c1_parts(uint32_t arg)                      /* arg: the parts (bit k = part k) | C1_JOB_BUS | n << 8 */
 {
     uint32_t i, k, n = arg >> 8;
     mixsum_t *sm = &mx[1];
@@ -3200,21 +3200,21 @@ static uint32_t split_vage;                             /* vage at the last spli
  * or measured ticks once c1_t4_ok). A measured part whose notes start this block weighs its peak instead: a fresh
  * FM6 note runs all six operators, many times its quiet last block.
  * Keep this per-block scheduler out of the audio interrupt's render loops (target_budget). */
-static __attribute__((noinline)) uint32_t mix_split(void)
+static AUDIO_RAM __attribute__((noinline)) uint32_t mix_split(void)
 {
     uint32_t m, i, k, best = 0, all = 0, lo, chor = 0, deep = 0, bw = 0, cost[NPART];
     for (i = 0; i < NTRK; i++)                      /* deep CHORUS as a shared send: its delay (up to 238) wraps into
                                                      * the swept line's window, where this block's reads saw the
                                                      * previous consumer's writes (ins_run_swept): that chain runs in
                                                      * part order, so no split (exact to DEP 107; oracle-tested) */
-        if (ins_is_send(&trk[i], INS_CHOR) && ins_mix_of(&trk[i], INS_CHOR) != 0) {
+        if (AUDIO_FAR(ins_is_send)(&trk[i], INS_CHOR) && AUDIO_FAR(ins_mix_of)(&trk[i], INS_CHOR) != 0) {
             chor++;
-            deep |= (uint32_t)ins_param_src(&trk[i], INS_CHOR)->p[P_IHDEP] >= 108u;
+            deep |= (uint32_t)AUDIO_FAR(ins_param_src)(&trk[i], INS_CHOR)->p[P_IHDEP] >= 108u;
         }
     if (chor >= 2u && deep)
         return 0;
     for (i = 0; i < NPART; i++) {
-        cost[i] = part_w(i);
+        cost[i] = AUDIO_FAR(part_w)(i);
         for (k = 0; c1_t4_ok && k < NVOICE; k++)
             if (trk[i].v[k].active && trk[i].v[k].age > split_vage && part_peak[i] > cost[i])
                 cost[i] = part_peak[i];
@@ -3295,7 +3295,7 @@ static int master_any(void)
 static __attribute__((noinline)) void master_insert_run(track_t *owner, uint32_t st, uint32_t n)
 {
     uint32_t ch, i;
-    const track_t *src = (ins_is_send(owner, st)) ? &fx_bus_trk : owner;
+    const track_t *src = (ins_is_send(owner, st)) ? (const track_t *)&fx_bus_trk : owner;
     int32_t tw = ins_mixq(ins_mix_of(owner, st));
     if (!tw && !ins_master_st[0][st].w && !ins_master_st[1][st].w)
         return;
@@ -3437,7 +3437,7 @@ static void mix_block(int32_t *out, uint32_t n)
     if (b1)
         bus_g_swap();                                   /* the buses' settings in, for either core */
     {   /* the parts: some on the second core, into its own sums (mx[1]), and its send buses after them */
-        uint32_t m = C1_ON() ? mix_split() : 0u;
+        uint32_t m = C1_ON() ? AUDIO_FAR(mix_split)() : 0u;
 #ifdef C1_SPLIT
         if (m)                                         /* host splits cannot bypass the shared-chorus safety gate */
             m = C1_SPLIT() & ((1u << NPART) - 1u);
@@ -3501,7 +3501,7 @@ static void mix_block(int32_t *out, uint32_t n)
         bus_g_swap();                                   /* (a CHAIN owner's knobs are its own until here) */
     if (!c1_bus_done)                                   /* the last block's sends -> this block's wet, unless core 1
                                                          * ran them: no split, a CHAIN owner, or its job was cut */
-        bus_run(n);
+        AUDIO_FAR(bus_run)(n);
     bus_g_swap();                                       /* the knobs back */
     if (ins_bus_parallel)
         ins_bus_join(n);                                /* the shared SEND state's run and line windows */

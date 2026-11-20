@@ -651,18 +651,17 @@ static void ev_delete(void)
 /* Flat full-screen lists for AUTOMATION's PARAM and MOD's DST.
  * Each row is selectable: tag = family (left), name = short label (right). */
 #define PK_ROWS 96u
-typedef struct { uint16_t id; const char *tag; } pk_row_t;   /* the label is regenerated when drawn (pk_label) */
+typedef struct { uint16_t id; } pk_row_t;   /* tag regenerated when drawn (pk_tag / pk_label) */
 static pk_row_t pk_rows[PK_ROWS];
 static uint8_t pk_n, pk_cur;
 static const track_t *pk_trk;                  /* the track the rows were built for */
 static uint8_t pk_kind;                        /* PK_AUTO / PK_MDST: which short-name helper they take */
 
-static void pk_add_item(uint32_t id, const char *tag)
+static void pk_add_item(uint32_t id)
 {
     if (pk_n >= PK_ROWS)
         return;
     pk_rows[pk_n].id = (uint16_t)id;
-    pk_rows[pk_n].tag = tag;
     pk_n++;
 }
 /* short name for an automation / motion param (family is the row tag; b holds 16) */
@@ -817,7 +816,7 @@ static uint32_t pk_build_auto(const track_t *t, uint32_t id, uint32_t step, uint
         for (i = 0; i < NELEM(STEP); i++) {
             if (STEP[i] == id)
                 *sel = pk_n;
-            pk_add_item(STEP[i], "STEP");
+            pk_add_item(STEP[i]);
         }
     }
     for (i = 0; i < P_COUNT; i++) {
@@ -825,14 +824,14 @@ static uint32_t pk_build_auto(const track_t *t, uint32_t id, uint32_t step, uint
             continue;
         if (i == id)
             *sel = pk_n;
-        pk_add_item(i, pk_auto_group(i));
+        pk_add_item(i);
     }
     if (step >= NSTEP || param_lock_only(id) || ev_id_free(t, step, MSEQ_PITCH)) {
         /* PITCH: lock-only (id 127), not in p[]. Keep it in the K3 list even when another parameter is
          * showing, so a row changed away from PITCH can be changed back. */
         if (id == MSEQ_PITCH)
             *sel = pk_n;
-        pk_add_item(MSEQ_PITCH, "SEQ");
+        pk_add_item(MSEQ_PITCH);
     }
     for (i = 0; i < NELEM(FX_DST); i++) {
         uint32_t x = FX_DST[i].pid;
@@ -841,7 +840,7 @@ static uint32_t pk_build_auto(const track_t *t, uint32_t id, uint32_t step, uint
             continue;
         if (x == id)
             *sel = pk_n;
-        pk_add_item(x, FX_DST[i].tag);
+        pk_add_item(x);
     }
     return pk_n;
 }
@@ -885,7 +884,19 @@ static const char *pk_mdst_group(uint32_t d)
             return FX_DST[i].tag;
     return "OTHER";
 }
-/* the row's label: FX_DST's name first, then the AUTOMATION / MOD DST short name (pk_rows keeps {id, tag} only) */
+/* left-column family: same strings pk_add_item used to store */
+static const char *pk_tag(const pk_row_t *r)
+{
+    if (pk_kind == PK_AUTO) {
+        if (r->id == MSEQ_PITCH)
+            return "SEQ";
+        if (ev_sid(r->id))
+            return "STEP";
+        return pk_auto_group(r->id);
+    }
+    return pk_mdst_group(r->id);
+}
+/* the row's label: FX_DST's name first, then the AUTOMATION / MOD DST short name */
 static const char *pk_label(const pk_row_t *r)
 {
     static char b[16];
@@ -927,7 +938,7 @@ static uint32_t pk_build_mdst(const track_t *t, uint32_t d, uint32_t *sel)
             continue;                                /* (an engine's empty "-" card) */
         if (x == d)
             *sel = pk_n;
-        pk_add_item(x, pk_mdst_group(x));
+        pk_add_item(x);
     }
     for (i = 0; i < NELEM(FX_DST); i++) {
         uint32_t x = FX_DST[i].md;
@@ -935,7 +946,7 @@ static uint32_t pk_build_mdst(const track_t *t, uint32_t d, uint32_t *sel)
             continue;
         if (x == d)
             *sel = pk_n;
-        pk_add_item(x, FX_DST[i].tag);
+        pk_add_item(x);
     }
     return pk_n;
 }

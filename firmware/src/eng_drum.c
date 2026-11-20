@@ -231,10 +231,10 @@ static int32_t drum_amp(track_t *t, voice_t *v, int32_t adsr)
     return 32767;
 }
 
-static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
+static AUDIO_RAM __attribute__((noinline)) void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
     const int16_t *p = t->p;
-    drum_lane_t *L = drum_lane_of(t, v);
+    drum_lane_t *L = AUDIO_FAR(drum_lane_of)(t, v);
     int32_t y[CTL], pb0 = 4096, pb1 = 4096, lfo, lfo_pit, lfo_shp;
     int32_t lv = clamp(p[P_LN0 + ((uint32_t)v->s[0] & (DV_NLANE - 1u))], 0, 127);
     uint32_t i;
@@ -243,7 +243,7 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         return;
     if (((uint32_t)v->s[0] & (DV_NLANE - 1u)) == DV_BELL)   /* (JIANT 0.6.49) the cowbell 4 dB under the others: it */
         lv = lv * 100 / 127;                                  /* stood out of every kit (its LEVEL at 100 % is this) */
-    if (dx_lane_muted(t, (uint32_t)v->s[0]) || L->mg < DXG_FADE) {   /* its group / lane muted:
+    if (AUDIO_FAR(dx_lane_muted)(t, (uint32_t)v->s[0]) || L->mg < DXG_FADE) {   /* its group / lane muted:
                                                           * fading (to the end, if unmuted meanwhile), then ended */
         uint32_t g0 = L->mg;
         if (!g0) {
@@ -272,7 +272,7 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     /* the audition (core.h kit_audition, F# / A# on a DRUM-X track's EDIT pages): the hits play the side forced, the
      * LFO's MORPH offset left out (every DRUM-X track: a per-track test is over drum_render's target budget); else
      * the kit's MRPH as stored */
-    dx_run(&dx_kit[(uint32_t)v->s[0] & (DV_NLANE - 1u)], &L->x,
+    AUDIO_FAR(dx_run)(&dx_kit[(uint32_t)v->s[0] & (DV_NLANE - 1u)], &L->x,
            kit_audition <= 127u ? (int32_t)kit_audition : p[P_E0] + lfo_shp,
            L->st * 16 + (p[P_E1] - 64) * 3 + t->pfx_pit + lfo_pit,
            p[P_E3] - 64, p[P_E2] - 64, p[P_E4] - 64, p[P_E6], p[P_E5], y, n);
@@ -280,7 +280,7 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
                                                           * Drum Buss), the tail's cut on the amplitude ramp */
         int32_t pu = pnch_eff;
         if (pu > 0) {
-            int32_t g0 = punch_gain(L->age, pu), g1 = punch_gain(L->age + 1u, pu);
+            int32_t g0 = AUDIO_FAR(punch_gain)(L->age, pu), g1 = AUDIO_FAR(punch_gain)(L->age + 1u, pu);
             if (g0 < 32768 || g1 < 32768) {              /* (gains < 1: amp stays <= 32767) */
                 int32_t a0 = (m->amp0 * (g0 < 32768 ? g0 : 32768)) >> 15;
                 ml.amp1 = (m->amp1 * (g1 < 32768 ? g1 : 32768)) >> 15;

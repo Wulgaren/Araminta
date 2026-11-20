@@ -642,7 +642,7 @@ static void graph_iord(const track_t *t, uint16_t c)
  * SEND: MODE/PAT from the shared bus (fx_bus_trk); playhead from sl_bus via sl_state. MIX stays per-track. */
 static void graph_slicer(const track_t *t, uint16_t c)
 {
-    const track_t *pt = sl_trk_send(t) ? &fx_bus_trk : t;
+    const track_t *pt = sl_trk_send(t) ? (const track_t *)&fx_bus_trk : t;
     uint32_t i, pat = sl_pattern(pt), mode = (uint32_t)pt->p[P_SLCR], cur;
     sl_t *ss = sl_state(t);
     int32_t open = 70 - t->p[P_SLDEPTH] * 70 / 127;      /* px a closed GATE step keeps */
@@ -1302,7 +1302,7 @@ static uint32_t graph_signature(void)
     if (ui.pick)
         h ^= pk_sig();
     if (pg->graph == GR_SLCR) {                       /* step playing: SEND uses sl_bus + bus MODE */
-        const track_t *pt = sl_trk_send(t) ? &fx_bus_trk : t;
+        const track_t *pt = sl_trk_send(t) ? (const track_t *)&fx_bus_trk : t;
         const sl_t *ss = sl_state(t);
         if (pt->p[P_SLCR] && ss)
             h ^= (ss->idx + 1u) * 2654435761u;
@@ -1536,7 +1536,7 @@ static void graph_pick(void)
     for (row = 0; row < 7 && (uint32_t)(first + row) < pk_n; row++) {
         uint32_t k = (uint32_t)(first + row);
         const pk_row_t *r = &pk_rows[k];
-        list_row(LIST_Y(row), k == pk_cur, r->tag, T_MID, pk_label(r), T_TEXT, 232, PK_NX);
+        list_row(LIST_Y(row), k == pk_cur, pk_tag(r), T_MID, pk_label(r), T_TEXT, 232, PK_NX);
     }
 }
 

@@ -150,7 +150,7 @@ faults on the build machine.
 ## Code size
 
 The app runs from XIP flash: `.text` and `.rodata` stay in flash (the XIP region in `firmware/app.ld`),
-and only the flash driver (`.ram_text`) and core 1's idle loop (`.c1_text`) are copied to RAM. The
+and the flash driver (`.ram_text`), core 1's idle loop (`.c1_text`), and the hottest audio functions (`.hot_text`) are copied to RAM. The
 `size:` line that the build prints comes from `tools/size_fns.py`: every main-loop function (UI, editor,
 stores, sequencer, LCD) carries LLVM's `minsize`, which is what the JieLi clang 4 has instead of `-Oz`,
 while anything an interrupt can reach keeps `-Os`. That changes the **flash image only**, never RAM
