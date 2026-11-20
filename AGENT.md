@@ -43,6 +43,7 @@ tests/run_one.sh editor          # writes build/host/menu.json
 tests/run_one.sh project
 tests/run_one.sh param           # tests/param_contract_test.c
 tests/run_one.sh sound15 inschain         # ANALOG filter / insert chain
+tests/run_one.sh laws            # combinatorial laws (axis tables + stacked stress)
 tests/run_one.sh regress         # golden renders, health, voices, CPU budget
 tests/run_one.sh web             # desc.json + menu.json, then node web/test_web.mjs
 ```
@@ -126,3 +127,4 @@ Do not also run the suite a second time with the other setting, and do not push 
 | projects / FUN migration | `project_test` |
 | editor protocol / MENU | `editor_test` |
 | golden / CPU / voice budgets | `regress` |
+| combinatorial laws / late-half | `laws_test` |

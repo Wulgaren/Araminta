@@ -734,6 +734,11 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "punch-in crackle: MASTER STUT borrow, heavy-mix stacks / HOLD, every key and stack pressed and let go against the dry mix, random punch-in churn (seeded, LATCH, CLR), shed A/B (CRACKLE_DIR survey + churn optional)" "$OUT/punch_crackle_test"
     }
     unit u_punch
+    u_laws() {
+        build "$OUT/laws_test" tests/laws_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
+        run "combinatorial laws: matrix covering, engines, FX, LFO DEST, locks, punch, stacked stress, host cost vs the half and click" "$OUT/laws_test"
+    }
+    unit u_laws
     PERF_UNIT=$n
     u_reverb() {
         build "$OUT/reverb_test" tests/reverb_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
@@ -869,6 +874,8 @@ else
         run "Strict ASan/UBSan (no exclusions): chord_auto_test" "$A/chord_auto_test_strict"
         $STRICT_CC -o "$A/punch_crackle_test_strict" tests/punch_crackle_test.c -lm
         run "Strict ASan/UBSan (no exclusions): punch_crackle_test" "$A/punch_crackle_test_strict"
+        $STRICT_CC -o "$A/laws_test_strict" tests/laws_test.c -lm
+        run "Strict ASan/UBSan (no exclusions): laws_test" "$A/laws_test_strict"
     }
     unit u_asan_signed_audio
     u_asan_ldr() {
