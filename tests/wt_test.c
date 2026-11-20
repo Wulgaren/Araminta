@@ -7,7 +7,7 @@
  * 2. the tables (build/gen/felucca_wt.h): two factory tables, 16 frames each, a 512-sample base (1016 a frame),
  *    every stored sample in range, every frame's base level non-zero; the mip helper (wt_mip_level) for a
  *    9-bit base: 0 at no or a very low increment, non-decreasing, 6 at a high one, clamped.
- * 3. presets: each of the 8 at C2 and C4 sounds; no DC (the mix's |mean| after its master DC blockers settle,
+ * 3. presets: each of the 10 at C2 and C4 sounds; no DC (the mix's |mean| after its master DC blockers settle,
  *    below 1 % of VOICE_FS), no clipping (a voice below 2 x VOICE_FS, the mix below full scale).
  * 4. a note from silence renders bit-identically twice (every preset: the phases reset at note-on).
  * 5. controls: A-POS 0 / 64 / 127, FDBK 0 / 32 / 64 / 127 (127 without clipping or DC), B>A 0 / 64, LEVEL 0 / 100
@@ -249,7 +249,7 @@ static void presets(void)
                 printf("wt:   %-10s %s RMS %6.1f  voice mean %+7.1f  mix mean %+7.2f  mix peak %6.0f\n",
                        ENG_WT.presets[pi].name, k ? "C4" : "C2", r, vm, m, p);
         }
-    snprintf(what, sizeof what, "presets: all 8 sound at C2 and C4 (quietest RMS %.0f, %.2f %% of VOICE_FS)", quietest,
+    snprintf(what, sizeof what, "presets: all 10 sound at C2 and C4 (quietest RMS %.0f, %.2f %% of VOICE_FS)", quietest,
              quietest / VOICE_FS * 100);
     check(what, sound);
     snprintf(what, sizeof what, "no DC: worst |mean| %.1f (%.2f %% of VOICE_FS)", worst_dc, worst_dc / VOICE_FS * 100);
