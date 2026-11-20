@@ -9,10 +9,9 @@
 //   node web/test_installer.mjs
 import { execFileSync } from "node:child_process";
 import { createHash, webcrypto } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import vm from "node:vm";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -92,12 +91,20 @@ ok(raw.includes('id="dump-confirm"') && raw.includes('data-t="dumpConfirm"') &&
    and truncated, altered or wrongly-identified ones are rejected before logicalImage runs. */
 const reject = async (f) => { try { await f(); return null; } catch (e) { return e; } };
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
+/* Repo-relative paths are the one spelling a native python and an MSYS one each accept: node passes an
+   absolute "D:\\x" through, and MSYS python reads it against the cwd. Same reason the temp dir sits
+   under build/. */
+const rel = (p) => relative(process.cwd(), p).replace(/\\/g, "/");
+const scratch = (prefix) => {
+    mkdirSync(join(HERE, "..", "build"), { recursive: true });
+    return mkdtempSync(join(HERE, "..", "build", prefix));
+};
 const fwsc = join(HERE, "..", "build", "felucca.fwsc");
 if (!existsSync(fwsc)) {
   console.log("installer: no build/felucca.fwsc, package integrity          skip");
 } else {
-  const out = mkdtempSync(join(tmpdir(), "araminta-site-"));
-  execFileSync("python3", [join(HERE, "make_site.py"), fwsc, "9.99", out], { stdio: "pipe" });
+  const out = scratch("araminta-site-");
+  execFileSync("python3", [join(HERE, "make_site.py"), fwsc, "9.99", out].map(rel), { stdio: "pipe" });
   const site = readFileSync(join(out, "webapp", "installer", "index.html"), "utf8");
   const siteScript = site.slice(site.indexOf('<script type="module">') + 23, site.lastIndexOf("</script>"));
   const siteMeta = JSON.parse(/const meta = (\{[^\n]*\});/.exec(siteScript)[1]);

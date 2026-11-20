@@ -279,10 +279,14 @@ def against_js():
     if not shutil.which("node") or not clean.exists():
         print("logical image vs fm1pkg.js: skipped (needs node and build/felucca.fwsc)")
         return
-    js = ("import { logicalImage, productOf } from %r; import { readFileSync } from 'node:fs';"
-          "const p = readFileSync(process.argv[1]); process.stderr.write(productOf(p));"
-          "process.stdout.write(logicalImage(p));") % str(ROOT / "web/fm1pkg.js")
-    r = subprocess.run(["node", "--input-type=module", "-e", js, str(clean)], capture_output=True, check=True)
+    # node is a native program: it cannot open the shell's /d/... paths, and the eval module has no directory of
+    # its own, so both files go in relative to ROOT and the import becomes a file: URL of them.
+    js = ("import { pathToFileURL } from 'node:url'; import { readFileSync } from 'node:fs';"
+          "const m = await import(pathToFileURL(process.argv[1]).href);"
+          "const p = readFileSync(process.argv[2]); process.stderr.write(m.productOf(p));"
+          "process.stdout.write(m.logicalImage(p));")
+    r = subprocess.run(["node", "--input-type=module", "-e", js, "web/fm1pkg.js", "build/felucca.fwsc"],
+                       cwd=ROOT, capture_output=True, check=True)
     raw = clean.read_bytes()
     ok(I.logical_image(raw) == r.stdout and I.product_of(raw) == r.stderr.decode(),
        f"logical_image / product_of == fm1pkg.js ({clean.name}, {I.product_of(raw)})")

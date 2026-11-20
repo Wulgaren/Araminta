@@ -11,9 +11,8 @@
 // - fm1ota.js: a full install and an unplug during the write against a simulated FM-1
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { logicalImage, productOf } from "./fm1pkg.js";
@@ -23,7 +22,17 @@ import { convertProject, projectHash } from "./projconv.js";
 let failed = 0;
 const ok = (cond, what) => { console.log(`${what.padEnd(64)} ${cond ? "ok" : "FAIL"}`); if (!cond) failed++; };
 const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
-const py = (code, ...args) => execFileSync("python3", ["-c", code, ...args], { maxBuffer: 1 << 26 });
+/* These tests hand python3 absolute paths. A native parent (node) passes them through unchanged, and MSYS2's
+   python then reads "D:\\x" and even "D:/x" as a name relative to the cwd, so the spelling a native python and
+   an MSYS one each accept differs. Repo-relative paths are the one spelling both take (and Linux and macOS are
+   unaffected), so the temp dirs live under build/ rather than os.tmpdir(), which can sit on another drive. */
+const rel = (p) => relative(process.cwd(), p).replace(/\\/g, "/");
+const scratch = (prefix) => {
+    mkdirSync(join(HERE, "..", "build"), { recursive: true });
+    return mkdtempSync(join(HERE, "..", "build", prefix));
+};
+const py = (code, ...args) => execFileSync("python3", ["-c", code, ...args.map(rel)], { maxBuffer: 1 << 26 });
+const pyRun = (...args) => execFileSync("python3", args.map(rel));
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 /* what lives outside web/, each overridable (a web-only checkout passes them, or the checks skip):
    FELUCCA_DESC  the firmware's parameter / protocol table (tests/descdump.c -> build/host/desc.json)
@@ -1874,7 +1883,7 @@ function wtWavBytes(fs, frames, f) {
 
 /* wavetable conversion: the FWT1 layout, medley, .wav export, and the JS/Python ports agree */
 function wavetableMatch() {
-  const dir = mkdtempSync(join(tmpdir(), "felucca-wt-"));
+  const dir = scratch("felucca-wt-");
   const buf = wtWavBytes(2048, 32, (i, f) => {
     const x = 2 * Math.PI * (i % 2048) / 2048;
     return 0.8 * Math.sin(x * (1 + f % 3)) + 0.3 * Math.sin(x * 3);
@@ -1898,7 +1907,7 @@ function wavetableMatch() {
     "wavetables: .wav export is 16 frames x 2048, clm 2048");
   if (existsSync(join(TOOLS, "wavetableio.py"))) {
     writeFileSync(join(dir, "in.wav"), buf);
-    execFileSync("python3", [join(TOOLS, "wavetableio.py"), "--name", "WT TEST", "--out", join(dir, "py"), join(dir, "in.wav")]);
+    pyRun(join(TOOLS, "wavetableio.py"), "--name", "WT TEST", "--out", join(dir, "py"), join(dir, "in.wav"));
     const pyHdr = readFileSync(join(dir, "py.hdr")), pyData = readFileSync(join(dir, "py.bin"));
     let maxd = 0, sameHdr = pyHdr.length === 480 && eq(pyHdr.subarray(0, 32), js.hdr.subarray(0, 32));
     const jv = new DataView(js.data.buffer, js.data.byteOffset), pv = new DataView(pyData.buffer, pyData.byteOffset);
@@ -1910,7 +1919,7 @@ function wavetableMatch() {
 }
 
 function samplesMatch() {
-  const dir = mkdtempSync(join(tmpdir(), "felucca-web-"));
+  const dir = scratch("felucca-web-");
   const files = [
     ["tone_A4.wav", wav(44100, 1, 16, false, 9000, (i) => Math.sin(i * 0.0627) * Math.exp(-i / 4000))],
     ["pad C3.wav", wav(48000, 2, 24, false, 7000, (i, c) => Math.sin(i * (c ? 0.031 : 0.0313)) * 0.7)],
@@ -1924,7 +1933,7 @@ function samplesMatch() {
   });
   const js = E.buildSlot("Mix ä 12345", zones);
   if (existsSync(join(TOOLS, "fm1_sample_upload.py"))) {
-    execFileSync("python3", [join(TOOLS, "fm1_sample_upload.py"), "build", "Mix ä 12345", join(dir, "slot"), ...files]);
+    pyRun(join(TOOLS, "fm1_sample_upload.py"), "build", "Mix ä 12345", join(dir, "slot"), ...files);
     const pyHdr = readFileSync(join(dir, "slot.hdr")), pyData = readFileSync(join(dir, "slot.bin"));
     ok(eq(js.hdr, pyHdr) && eq(js.data, pyData), `samples: editor == sampleio.py (${files.length} WAV formats, ${js.data.length} B)`);
   } else console.log("samples: editor == sampleio.py (no FELUCCA_TOOLS)                skip");

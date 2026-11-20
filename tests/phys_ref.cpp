@@ -37,6 +37,12 @@
 #include "PhysicalModeling/stringvoice.h"
 #include "Filters/svf.h"
 
+/* M_PI is not a standard name: glibc's <cmath> provides it, but newlib (MSYS2/Cygwin) and a strict
+   -std=c++14 do not. */
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 extern "C" void phys_fixed_render(int model, double hz, double structure, double brightness, double damping,
                                   double accent, double bow, const float *exc, float *out, int n);
 extern "C" void phys_fixed_svf(double f, double res, double pre_drive, int band, const float *in, float *out, int n);
