@@ -414,12 +414,29 @@ static void proj_phys(project_t *q)
     q->sum = proj_sum(q);
 }
 
+/* the motion events of the tracks in hit whose id is what (0: any edit id, P_E0 and up) go from q; the rest
+ * compact in place and the project's sum follows. The migrations below differ in what they drop only */
+static void proj_motion_edit(project_t *q, uint32_t hit, uint32_t what)
+{
+    uint32_t i, n;
+    for (i = n = 0; i < q->motion.count && i < MOTION_MAX; i++) {
+        const motion_event_t *e = &q->motion.event[i];
+        if (((hit >> (e->place >> 6)) & 1u) && (what ? MOTION_ID(e) == what : MOTION_ID(e) >= P_E0))
+            continue;
+        q->motion.event[n++] = *e;
+    }
+    for (i = n; i < q->motion.count && i < MOTION_MAX; i++)
+        memset(&q->motion.event[i], 0, sizeof q->motion.event[i]);
+    q->motion.count = (uint8_t)n;
+    q->sum = proj_sum(q);
+}
+
 /* FM6 tracks of a project from before VIB (header bit 2 clear): P_E5 was VMOD. Move it into the
  * patch's modulator operators (fm6_old_vmod) and clear P_E5; the track's VMOD automation has no
  * patch target, so drop its E5 events. Idempotent: a VIB project returns at once. */
 static void proj_fm6m(project_t *q)
 {
-    uint32_t k, i, n, hit = 0;
+    uint32_t k, hit = 0;
     if (q->fm6_vib)
         return;
     for (k = 0; k < NTRK; k++) {
@@ -439,16 +456,7 @@ static void proj_fm6m(project_t *q)
         q->sum = proj_sum(q);
         return;
     }
-    for (i = n = 0; i < q->motion.count && i < MOTION_MAX; i++) {
-        const motion_event_t *e = &q->motion.event[i];
-        if (((hit >> (e->place >> 6)) & 1u) && MOTION_ID(e) == P_E5)
-            continue;
-        q->motion.event[n++] = *e;
-    }
-    for (i = n; i < q->motion.count && i < MOTION_MAX; i++)
-        memset(&q->motion.event[i], 0, sizeof q->motion.event[i]);
-    q->motion.count = (uint8_t)n;
-    q->sum = proj_sum(q);
+    proj_motion_edit(q, hit, P_E5);
 }
 
 /* Tracks of a project from before 4.3 (header bit 3 clear): LFO SYNC held the note value (1..10). It becomes SYNC ON
@@ -456,23 +464,14 @@ static void proj_fm6m(project_t *q)
  * synced and would now move the note value, so they go. Idempotent: a 4.3 project returns at once. */
 static void proj_lsync(project_t *q)
 {
-    uint32_t k, i, n, hit = 0;
+    uint32_t k, hit = 0;
     if (q->lfo_sync)
         return;
     for (k = 0; k < NTRK; k++)
         if (lsync_legacy(q->t[k].p))
             hit |= 1u << k;
     q->lfo_sync = 1;
-    for (i = n = 0; i < q->motion.count && i < MOTION_MAX; i++) {
-        const motion_event_t *e = &q->motion.event[i];
-        if (((hit >> (e->place >> 6)) & 1u) && MOTION_ID(e) == P_LRATE)
-            continue;
-        q->motion.event[n++] = *e;
-    }
-    for (i = n; i < q->motion.count && i < MOTION_MAX; i++)
-        memset(&q->motion.event[i], 0, sizeof q->motion.event[i]);
-    q->motion.count = (uint8_t)n;
-    q->sum = proj_sum(q);
+    proj_motion_edit(q, hit, P_LRATE);
 }
 
 /* SAMPLE tracks of the retired PERC set (SET 4) -> DRUM with its default kit (see the top; core.h drum_from_perc,
@@ -480,7 +479,7 @@ static void proj_lsync(project_t *q)
  * Their motion events on the EDIT values go. Idempotent */
 static void proj_perc(project_t *q)
 {
-    uint32_t k, i, n, hit = 0;
+    uint32_t k, hit = 0;
     for (k = 0; k < NTRK; k++) {
         proj_trk_t *d = &q->t[k];
         if (!drum_from_perc(d->engine, &d->p[P_E0]))
@@ -492,16 +491,7 @@ static void proj_perc(project_t *q)
     }
     if (!hit)
         return;
-    for (i = n = 0; i < q->motion.count && i < MOTION_MAX; i++) {
-        const motion_event_t *e = &q->motion.event[i];
-        if (((hit >> (e->place >> 6)) & 1u) && MOTION_ID(e) >= P_E0)
-            continue;
-        q->motion.event[n++] = *e;
-    }
-    for (i = n; i < q->motion.count && i < MOTION_MAX; i++)
-        memset(&q->motion.event[i], 0, sizeof q->motion.event[i]);
-    q->motion.count = (uint8_t)n;
-    q->sum = proj_sum(q);
+    proj_motion_edit(q, hit, 0);
 }
 
 /* SLICE and DRUMS tracks -> DRUM (see the top; eng_retire.c). After proj_perc. DRUMS: the project's kit its KIT's
@@ -509,7 +499,7 @@ static void proj_perc(project_t *q)
  * was there (one kit a project: theirs stays). EDIT motion on those tracks is dropped. Idempotent */
 static void proj_retire(project_t *q)
 {
-    uint32_t k, i, n, hit = 0, drums = 0, drumx = 0, kit = 9u;
+    uint32_t k, i, hit = 0, drums = 0, drumx = 0, kit = 9u;
     dx_lane_t dk[8];
     uint8_t lay[8], mdl[8];
     int16_t ln[8];
@@ -541,16 +531,7 @@ static void proj_retire(project_t *q)
                 for (i = 0; i < 8u; i++)
                     q->t[k].p[P_LN0 + i] = (int16_t)(clamp(q->t[k].p[P_LN0 + i], 0, 127) * ln[i] / 127);
     }
-    for (i = n = 0; i < q->motion.count && i < MOTION_MAX; i++) {
-        const motion_event_t *e = &q->motion.event[i];
-        if (((hit >> (e->place >> 6)) & 1u) && MOTION_ID(e) >= P_E0)
-            continue;
-        q->motion.event[n++] = *e;
-    }
-    for (i = n; i < q->motion.count && i < MOTION_MAX; i++)
-        memset(&q->motion.event[i], 0, sizeof q->motion.event[i]);
-    q->motion.count = (uint8_t)n;
-    q->sum = proj_sum(q);
+    proj_motion_edit(q, hit, 0);
 }
 
 /* n bytes of a stored project (any format) -> slot q as format 6; 0 = not a project */

@@ -660,7 +660,7 @@ static __attribute__((noinline)) AUDIO_RAM uint32_t track_render_audio(track_t *
     uint32_t ti = (uint32_t)(t - trk);
     uint32_t nr = 0, fade = t->xf_on && t->xf, live = 0;
     int16_t pe_new[8];
-    int32_t damt;
+    int32_t damt, gslide = -1;                          /* the glide step, once a block (a pitch-modulated one) */
     int analog;
     if (ENGINES[eng_idx(t->eng_req)] == &ENG_DRUM) {
         midi_bend_q8[ti] = midi_bend_target[ti] = 0;
@@ -756,9 +756,9 @@ static __attribute__((noinline)) AUDIO_RAM uint32_t track_render_audio(track_t *
                 } else
                     st = v->gstep;
             } else {
-                st = (int32_t)(ENV_LIN[(p[P_GLIDE] ? p[P_GLIDE] : 40) & 127] >> 14);   /* slide: ~45 ms */
-                if (st < 1)
-                    st = 1;
+                if (gslide < 0)                         /* slide: ~45 ms (the same step for every voice) */
+                    gslide = (int32_t)(ENV_LIN[(p[P_GLIDE] ? p[P_GLIDE] : 40) & 127] >> 14);
+                st = gslide < 1 ? 1 : gslide;
             }
             v->pitch_cur += d > 0 ? (d < st ? d : st) : (-d < st ? d : -st);
         }
@@ -781,7 +781,7 @@ static __attribute__((noinline)) AUDIO_RAM uint32_t track_render_audio(track_t *
             m.cutoff += (m.envq15 * 24) >> 7;
         m.shape = (64 << 8) + ((lfo * p[P_LD_SHP]) >> 7) + ((m.envq15 * p[P_ED_SHP]) >> 7);
         if (MOD(t).on)                                  /* the modulation matrix (mod.c) */
-            AUDIO_FAR(mod_voice)(t, v, &m, m.fine);
+            mod_voice(t, v, &m, m.fine);                /* AUDIO_RAM, flattened in (mod.c) */
         e->render(t, v, t->spread_on > v->side ? spread_buf[C1_PI(t)] : out, n, &m);   /* (SPREAD: the left ones) */
         nr++;
     }

@@ -33,22 +33,8 @@ static int tl_cell(const track_t *t, uint32_t p) { return p < TL_N && (p < TL_BE
 /* the undo copy of t as it is now (ui.c load_begin, but the automation is copied and stays): one action */
 static void tl_undo_take(track_t *t)
 {
-    uint32_t i = trk_index(t);
-    undo.trk = (uint8_t)(i + 1u);
-    undo.what = UNDO_STEPS;
-    undo.keep = 0;                                      /* (the next load or action takes its own copy) */
-    undo.eng = t->eng_req;
-    undo.preset = t->preset;
-    undo.user = t->user;
-    memcpy(undo.p, t->p, sizeof undo.p);
-    memcpy(undo.mx, t->mx, sizeof undo.mx);
-    undo.generation = t->generation;
-    memcpy(undo.step, t->step, sizeof undo.step);
-    memcpy(undo.fm6, fm6_patch[i], FP_SIZE);
-    undo.fm6_slot = fm6_slot[i];
-    undo.from = step_from[i];
-    undo.from_h = step_from_h[i];
-    motion_snapshot_track(t, &undo.motion_backup);
+    undo_take(t, UNDO_STEPS);                           /* (ui.c; the next load or action takes its own copy) */
+    undo.keep = 0;
 }
 
 /* steps 1..len of t that are not empty (a REST); after the action the ones emptied lose their locks */

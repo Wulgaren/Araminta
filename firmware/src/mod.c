@@ -103,30 +103,29 @@ static int32_t drift_noise(uint32_t seed, uint32_t clk, uint32_t lg)
     return ya + (((yb - ya) * (int32_t)f) >> 8);
 }
 
-/* the track parameter of a per-block destination */
-static uint32_t mod_param(uint32_t d)
-{
-    static const uint8_t ID[MD_E1] = {[MD_PAN] = P_PAN, [MD_DIST] = P_DIST, [MD_CHO] = P_IHMIX, [MD_DLY] = P_DLY,
-                                      [MD_REV] = P_REV, [MD_RATE] = P_LRATE, [MD_VIB] = P_LD_PIT};
-    static const uint8_t SL[3] = {P_SLPAT, P_SLRATE, P_SLDEPTH};
-    static const uint8_t CH[2] = {P_CHRD, P_VOIC};
-    static const uint8_t INS[] = {
-        P_ED_FX, P_IDMIX, P_IFCUT, P_IFRES, P_IFMIX, P_ICBITS, P_ICRATE, P_ICLPF, P_ICMIX,
-        P_IPRATE, P_IPDEP, P_IPFBK, P_IPMIX, P_ILRATE, P_ILDEP, P_ILMIX, P_IHRATE, P_IHDEP};
-    if (MD_ENGINE(d))
-        return P_E0 + d - MD_E1;
-    if (MD_SLICER(d))
-        return SL[d - MD_SLPAT];
-    if (MD_CHORD(d))
-        return CH[d - MD_CHRD];
-    if (MD_INS(d))
-        return INS[d - MD_TONE];
-    if (MD_FX(d))
-        return MFX_TIME + d - MD_DTIME;
-    if (MD_TAPE(d))
-        return d == MD_TSPEED ? MFX_TSPEED : MFX_TWOW;
-    return ID[d];
-}
+/* what a destination is, once (MD_N entries): its track parameter, bit 7 set when it is one of the shared
+ * knobs (the part's copy of them, fx.c mod_target_ptr). A slot's destination does not move between the
+ * blocks, so one byte per destination replaces the range tests and the four tables they indexed */
+#define MD_SHARED 0x80u
+static const uint8_t MD_DEST[MD_N] = {
+    [MD_PAN] = P_PAN, [MD_DIST] = P_DIST, [MD_CHO] = P_IHMIX, [MD_DLY] = P_DLY, [MD_REV] = P_REV,
+    [MD_RATE] = P_LRATE, [MD_VIB] = P_LD_PIT,
+    [MD_E1] = P_E0, [MD_E1 + 1] = P_E0 + 1, [MD_E1 + 2] = P_E0 + 2, [MD_E1 + 3] = P_E0 + 3,
+    [MD_E1 + 4] = P_E0 + 4, [MD_E1 + 5] = P_E0 + 5, [MD_E1 + 6] = P_E0 + 6, [MD_E1 + 7] = P_E0 + 7,
+    [MD_SLPAT] = P_SLPAT | MD_SHARED, [MD_SLRATE] = P_SLRATE | MD_SHARED, [MD_SLDEPTH] = P_SLDEPTH | MD_SHARED,
+    [MD_CHRD] = P_CHRD, [MD_VOIC] = P_VOIC,
+    [MD_TONE] = P_ED_FX | MD_SHARED, [MD_DMIX] = P_IDMIX | MD_SHARED, [MD_FCUT] = P_IFCUT | MD_SHARED,
+    [MD_FRES] = P_IFRES | MD_SHARED, [MD_FMIX] = P_IFMIX | MD_SHARED, [MD_BITS] = P_ICBITS | MD_SHARED,
+    [MD_CRAT] = P_ICRATE | MD_SHARED, [MD_CLPF] = P_ICLPF | MD_SHARED, [MD_CMIX] = P_ICMIX | MD_SHARED,
+    [MD_PRAT] = P_IPRATE | MD_SHARED, [MD_PDEP] = P_IPDEP | MD_SHARED, [MD_PFBK] = P_IPFBK | MD_SHARED,
+    [MD_PMIX] = P_IPMIX | MD_SHARED, [MD_FRAT] = P_ILRATE | MD_SHARED, [MD_FDEP] = P_ILDEP | MD_SHARED,
+    [MD_LMIX] = P_ILMIX | MD_SHARED, [MD_HRAT] = P_IHRATE | MD_SHARED, [MD_HDEP] = P_IHDEP | MD_SHARED,
+    [MD_DTIME] = MFX_TIME | MD_SHARED, [MD_DFB] = (MFX_TIME + 1) | MD_SHARED,
+    [MD_DCOLOR] = (MFX_TIME + 2) | MD_SHARED, [MD_RSIZE] = (MFX_TIME + 3) | MD_SHARED,
+    [MD_RDAMP] = (MFX_TIME + 4) | MD_SHARED, [MD_TSPEED] = MFX_TSPEED | MD_SHARED,
+    [MD_TWOW] = MFX_TWOW | MD_SHARED,
+};
+static uint32_t mod_param(uint32_t d) { return MD_DEST[d] & ~MD_SHARED; }   /* (motion.c, mod_value) */
 
 typedef struct {                 /* a part's, while mix_part renders it (one per part: two cores render at once,
                                   * fx.c mix_block) */
@@ -191,14 +190,16 @@ static int16_t mod_rand(void)    /* RAND of a note-on: xorshift32, bipolar */
     return (int16_t)(mod_seed >> 16);
 }
 
-static int32_t mod_key(uint32_t note) { return clamp(((int32_t)note - 60) * 512, -32767, 32767); }
+static inline int32_t mod_key(uint32_t note) { return clamp(((int32_t)note - 60) * 512, -32767, 32767); }
 
 /* S&H: the value of the LFO's cycle (voice.c lfo_rand; 0 before its first one ends), bipolar */
 static int32_t mod_sh(const track_t *t) { return t->lfo_rnd ? (int32_t)(t->lfo_rnd >> 16) - 32768 : 0; }
 
 /* source s of the track: the per-track ones, the per-voice ones of the latest note-on */
-static int32_t mod_tsrc(const track_t *t, uint32_t s, int32_t lfo)
+static inline int32_t mod_tsrc(const track_t *t, uint32_t s, int32_t lfo)
 {
+    if (s == MS_LFO)
+        return lfo;                                     /* (the track's LFO, already faded and depth-scaled) */
     switch (s) {
     case MS_SH:
         return mod_sh(t);
@@ -224,15 +225,15 @@ static int32_t mod_tsrc(const track_t *t, uint32_t s, int32_t lfo)
 }
 
 /* AMP: the gain (Q15, 0..32767) of source x (bipolar: as 0..1) at amount a */
-static int32_t mod_gain(uint32_t s, int32_t x, int32_t a)
+static inline int32_t mod_gain(uint32_t s, int32_t x, int32_t a)
 {
     int32_t u = MS_BIPOLAR(s) ? (x + 32768) >> 1 : x;
     return clamp(32767 - (a > 0 ? ((32767 - u) * a) >> 6 : (u * -a) >> 6), 0, 32767);
 }
 
-/* a per-voice destination d by source value x, amount a */
-static void mod_voice_add(uint32_t s, uint32_t d, int32_t x, int32_t a, int32_t *pit, int32_t *cut, int32_t *shp,
-                          int32_t *gain)
+/* a per-voice destination d by source value x, amount a, onto pit, cut, shp, gain as modw_t keeps them */
+static inline void mod_voice_add(uint32_t s, uint32_t d, int32_t x, int32_t a, int32_t *pit, int32_t *cut, int32_t *shp,
+                                 int32_t *gain)
 {
     if (d == MD_PITCH)
         *pit += (x * a * 3) >> 15;
@@ -245,14 +246,18 @@ static void mod_voice_add(uint32_t s, uint32_t d, int32_t x, int32_t a, int32_t 
 }
 
 /* the slots of t that do something (SRC, DST and AMT set, SRC and DST known), in slot order: their rows into r
- * (MOD_ROW), how many. One pass for each caller below: the block's work grows with the active slots, not with NMSLOT */
-static uint32_t mod_active(const track_t *t, const int16_t *r[NMSLOT])
+ * (MOD_ROW), how many. One pass for each caller below: the block's work grows with the active slots, not with NMSLOT.
+ * dep (may be 0) is set when one of them is DEPTH, so a matrix without one skips mod_depth's pass */
+static uint32_t mod_active(const track_t *t, const int16_t *r[NMSLOT], int *dep)
 {
     uint32_t k, n = 0;
     for (k = 0; k < NMSLOT; k++) {
         const int16_t *q = MOD_ROW(t, k);
-        if (q[MF_SRC] > 0 && q[MF_SRC] < MS_N && q[MF_DST] > 0 && q[MF_DST] < MD_N && q[MF_AMT])
+        if ((uint32_t)(q[MF_SRC] - 1) < MS_N - 1u && (uint32_t)(q[MF_DST] - 1) < MD_N - 1u && q[MF_AMT]) {
             r[n++] = q;
+            if (dep && q[MF_DST] == MD_DEPTH)
+                *dep = 1;
+        }
     }
     return n;
 }
@@ -285,7 +290,7 @@ static int32_t mod_lfo_now(const track_t *t, const int16_t *const r[], uint32_t 
 static __attribute__((noinline)) int32_t mod_vel(const track_t *t)
 {
     const int16_t *r[NMSLOT];
-    uint32_t n = mod_active(t, r), i;
+    uint32_t n = mod_active(t, r, 0), i;
     int32_t g = 32767, lfo;
     for (i = 0; i < n && r[i][MF_DST] != MD_VEL; i++)
         ;
@@ -306,7 +311,7 @@ static __attribute__((noinline)) int32_t mod_vel(const track_t *t)
 static __attribute__((noinline)) int32_t mod_value(const track_t *t, uint32_t id)
 {
     const int16_t *r[NMSLOT];
-    uint32_t n = mod_active(t, r), i;
+    uint32_t n = mod_active(t, r, 0), i;
     int32_t v = t->p[id], lfo;
     for (i = 0; i < n; i++) {
         uint32_t d = (uint32_t)r[i][MF_DST];
@@ -336,29 +341,29 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     int32_t lfo, off[NMSLOT];
     int16_t *target[NMSLOT];
     const param_desc_t *desc[NMSLOT];
-    uint32_t n, i, j;
+    uint32_t n, i, j, pi = C1_PI(t);
+    int dep = 0;
     mw->on = 0;
-    bus_knobs_on[C1_PI(t)] = 0;                     /* without a slot the render reads the real knobs */
-    mod_bus_wn[C1_PI(t)] = 0;
-    n = mod_active(t, r);
+    bus_knobs_on[pi] = 0;                           /* without a slot the render reads the real knobs */
+    mod_bus_wn[pi] = 0;
+    n = mod_active(t, r, &dep);
     if (!n)
         return 0;
     bus_knobs_fill(t);                              /* the shared knobs as they are, before this part's modulation */
-    bus_knobs_on[C1_PI(t)] = 1;
+    bus_knobs_on[pi] = 1;
     lfo = mulq15(t->lfo_val, t->lfo_fade);              /* (the LFO of the block before: track_render ticks it) */
     mw->on = 1;
     mw->amp = 0;
     mw->nv = mw->nk = 0;
     mw->pit = mw->cut = mw->shp = 0;
     mw->gain = 32767;
-    mw->ldep = mod_depth(t, r, n, lfo);                 /* DEPTH first: the other slots see the LFO it leaves */
+    mw->ldep = dep ? mod_depth(t, r, n, lfo)            /* DEPTH first: the other slots see the LFO it leaves */
+                  : 32767;
     if (mw->ldep < 32767)
         lfo = mulq15(lfo, mw->ldep);
     for (i = 0; i < n; i++) {
         uint32_t s = (uint32_t)r[i][MF_SRC], d = (uint32_t)r[i][MF_DST];
         int32_t a = r[i][MF_AMT], x;
-        if (d == MD_DEPTH || d == MD_VEL)
-            continue;
         if (d <= MD_AMP) {                              /* per voice */
             mw->amp |= d == MD_AMP;
             if (MS_VOICE(s)) {
@@ -366,14 +371,16 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
                 mw->vdst[mw->nv] = (uint8_t)d;
                 mw->vamt[mw->nv++] = (int8_t)a;
             } else {                                    /* (a UNI LFO, 0..1, takes AMP as ENV does) */
-                mod_voice_add(s == MS_LFO && p[P_LPOL] ? MS_ENV : s, d, mod_tsrc(t, s, lfo), a, &mw->pit, &mw->cut,
-                              &mw->shp, &mw->gain);
+                mod_voice_add(s == MS_LFO && p[P_LPOL] ? MS_ENV : s, d, mod_tsrc(t, s, lfo), a,
+                              &mw->pit, &mw->cut, &mw->shp, &mw->gain);
             }
             continue;
         }
+        if (d == MD_DEPTH || d == MD_VEL)
+            continue;
         {                                               /* per block: AMT 64 = the whole range */
-            uint32_t id = mod_param(d);
-            int shared = MD_FX(d) || MD_INS(d) || MD_SLICER(d) || MD_TAPE(d);
+            uint32_t idd = MD_DEST[d], id = idd & ~MD_SHARED;
+            int shared = idd >> 7;
             const param_desc_t *pd;
             int16_t *dst;
             if (d == MD_DIST) {                         /* SEND: bus; CHAIN: track p[] */
@@ -396,8 +403,8 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
                 ;
             if (j == mw->nk) {
                 mw->kid[j] = (uint8_t)id;
-                mw->kshared[j] = (uint8_t)(shared |
-                    (((MFX_PARAM(id) && fx_target_send(t, id)) || MFX_TAPE(id)) << 1));
+                mw->kshared[j] = (uint8_t)(shared |            /* (only a shared knob stages its value) */
+                    (shared ? (((MFX_PARAM(id) && fx_target_send(t, id)) || MFX_TAPE(id)) << 1) : 0));
                 mw->keep[j] = *dst;
                 target[j] = dst;
                 desc[j] = pd;
@@ -432,7 +439,7 @@ static __attribute__((noinline)) void mod_end(track_t *t)
             mod_bus_w[pi][mod_bus_wn[pi]].value = *ptr;
             mod_bus_wn[pi]++;
         }
-        if (ptr == (int16_t *)&t->p[id])
+        if (ptr == (int16_t *)&t->p[id])                /* a shared class may still resolve to p[] (fx.c) */
             *ptr = mw->keep[j];
     }
     mw->on = 0;
@@ -441,7 +448,8 @@ static __attribute__((noinline)) void mod_end(track_t *t)
 /* a voice's modulation (voice.c track_render, when mw->on), onto its vmod_t m as track_render made it:
  * pitch (the increment again, with the fine factor fine as there), cutoff and shape (clamped to what the
  * fixed routings can reach), the amplitude (and v->env_out, the next block's start). env: its envelope */
-static __attribute__((noinline)) void mod_voice(track_t *t, voice_t *v, vmod_t *m, int32_t fine)
+/* the matrix's per-voice values into m (track_render_audio, same section: flattened in, no far call) */
+static AUDIO_RAM void mod_voice(track_t *t, voice_t *v, vmod_t *m, int32_t fine)
 {
     const modw_t *mw = &MOD(t);
     int32_t pit = mw->pit, cut = mw->cut, shp = mw->shp, gain = mw->gain, env = m->envq15;

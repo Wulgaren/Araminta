@@ -698,6 +698,12 @@ if [ -f build/gen/felucca_tables.h ]; then
             "$OUT/fx_route_test"
     }
     unit u_fxroute
+    u_pfxclock() {
+        build "$OUT/pfx_clock_test" tests/pfx_clock_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
+        run "punch lane clock: a moving song clock (tempo, TAPE MASTER SPEED) retimes the lane without skipping or repeating a step" \
+            "$OUT/pfx_clock_test"
+    }
+    unit u_pfxclock
     # legacy insert_test (single TYPE) not rebuilt until updated for the 6-stage chain
     u_sound15() {
         build "$OUT/sound15_test" tests/sound15_test.c -O2 -w -Ibuild/gen -Ifirmware/src -lm
@@ -1031,6 +1037,24 @@ u_fm1emu_t() {
     run "fm1-emu (device-timed): $1, ${2} ms" build/emu-target/release/emu_test --fwsc build/felucca.fwsc \
         --elf build/felucca.elf --scenario "$1" --ms "$2" --clear
 }
+# a project's own patch with one punch-in held (emu_test --punch): the audio one through perf_held, the MIDI
+# one through pfx.c's t->pfx; each must engage and let go
+u_fm1emu_punch() {
+    run "fm1-emu (device-timed): a project's patch with punch-in 1/2 C4 (audio) held, 1600 ms" \
+        build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf \
+        --scenario project --ms 1600 --project tests/emu/busy_project.bin --notes 3 --punch 1:C4 --clear
+    run "fm1-emu (device-timed): a project's patch with punch-in 1/2 E4 (MIDI, OCT-) held, 1600 ms" \
+        build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf \
+        --scenario project --ms 1600 --project tests/emu/busy_project.bin --notes 3 --punch 1:E4 --clear
+    run "fm1-emu (device-timed): a project's patch with punch-in 1/2 F4 (MIDI, OCT+) held, 1600 ms" \
+        build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf \
+        --scenario project --ms 1600 --project tests/emu/busy_project.bin --notes 3 --punch 1:F4 --clear
+    # eight latched effects of page 1 (audio and MIDI) stack on the same patch; the load is printed, not bounded
+    run "fm1-emu (device-timed): a project's patch with a page-1 punch-in stack (FX LATCH), 3200 ms" \
+        build/emu-target/release/emu_test --fwsc build/felucca.fwsc --elf build/felucca.elf \
+        --scenario project --ms 3200 --project tests/emu/busy_project.bin --notes 3 \
+        --punch 1:F3,1:A3,1:C4,1:D4,1:E4,1:F4,1:E5,1:F5 --punch-latch --clear
+}
 if [ "${FM1_EMU:-0}" != 1 ]; then
     note "== skip the FM-1 emulator (FM1_EMU=1 runs the firmware device-timed on fm1-emu)"
 elif ! command -v cargo >/dev/null 2>&1; then
@@ -1044,6 +1068,7 @@ else
     unit_after "$FM1EMU_BUILD" u_fm1emu_t keys 9000
     unit_after "$FM1EMU_BUILD" u_fm1emu_t stack 6000
     unit_after "$FM1EMU_BUILD" u_fm1emu_t churn 6000
+    unit_after "$FM1EMU_BUILD" u_fm1emu_punch
 fi
 
 drain

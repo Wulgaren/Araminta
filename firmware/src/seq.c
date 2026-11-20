@@ -1376,6 +1376,32 @@ static int32_t glide_q8(int32_t d, uint32_t ticks)   /* a glide's step over tick
     int32_t g = ((d < 0 ? -d : d) * 256 + (int32_t)ticks - 1) / (int32_t)(ticks ? ticks : 1u);
     return g ? g : 1;
 }
+/* the chord paths' estimate lists, low to high (an insertion sort: at most 8 entries) */
+static void sort_u8(uint8_t *x, uint32_t n)
+{
+    uint32_t i, j;
+    for (i = 1; i < n; i++)
+        for (j = i; j > 0 && x[j] < x[j - 1]; j--) {
+            uint8_t t = x[j];
+            x[j] = x[j - 1];
+            x[j - 1] = t;
+        }
+}
+/* the notes with their velocities: a swap moves both (the note orders the pair) */
+static void sort_nv(uint8_t *n, uint8_t *v, uint32_t len)
+{
+    uint32_t i, j;
+    for (i = 1; i < len; i++)
+        for (j = i; j > 0 && n[j] < n[j - 1]; j--) {
+            uint8_t t = n[j];
+            n[j] = n[j - 1];
+            n[j - 1] = t;
+            t = v[j];
+            v[j] = v[j - 1];
+            v[j - 1] = t;
+        }
+}
+
 /* the note in set[] nearest x (other: skip a note that already sounds, a new one from the nearest other) */
 static int32_t cg_near(uint32_t x, const uint8_t *set, uint32_t n, int other)
 {
@@ -1451,7 +1477,7 @@ __attribute__((noinline)) static void cg_pair(track_t *t, const uint8_t *o, uint
 __attribute__((noinline)) static void chord_glide(track_t *t, const uint8_t *nn, const uint8_t *vv, uint32_t m, uint32_t sk, uint32_t ssamp)
 {
     uint8_t o[8], n[8], nv[8];
-    uint32_t a = 0, b = 0, i, j, k;
+    uint32_t a = 0, b = 0, i, k;
     uint32_t ticks = (uint32_t)((uint64_t)ssamp * (uint32_t)t->p[P_GLIDE] / 127u / CTL);
     if (!ticks)
         ticks = 1;
@@ -1466,21 +1492,8 @@ __attribute__((noinline)) static void chord_glide(track_t *t, const uint8_t *nn,
             n[b] = nn[i];
             nv[b++] = vv[i];
         }
-    for (i = 1; i < a; i++)
-        for (j = i; j > 0 && o[j] < o[j - 1]; j--) {
-            uint8_t x = o[j];
-            o[j] = o[j - 1];
-            o[j - 1] = x;
-        }
-    for (i = 1; i < b; i++)
-        for (j = i; j > 0 && n[j] < n[j - 1]; j--) {
-            uint8_t x = n[j];
-            n[j] = n[j - 1];
-            n[j - 1] = x;
-            x = nv[j];
-            nv[j] = nv[j - 1];
-            nv[j - 1] = x;
-        }
+    sort_u8(o, a);
+    sort_nv(n, nv, b);
     for (i = 0; i < b; i++)
         chord_auto_observe(t, n[i]);
     cg_pair(t, o, a, n, nv, b, ticks);
@@ -1546,7 +1559,7 @@ __attribute__((noinline)) static int chord_live_release(track_t *t, uint32_t not
 __attribute__((noinline)) static void chord_live_flush(track_t *t)
 {
     uint8_t o[8], nn[8], nv[8];
-    uint32_t n = t->lcp_n, i, j, a = 0, ticks;
+    uint32_t n = t->lcp_n, i, a = 0, ticks;
     if (!n)
         return;
     for (i = 0; i < n; i++) {
@@ -1565,21 +1578,8 @@ __attribute__((noinline)) static void chord_live_flush(track_t *t)
     for (i = 0; i < t->lc_n && a < 8u; i++)
         if (live_voice(t, t->lc_note[i]))
             o[a++] = t->lc_note[i];
-    for (i = 1; i < a; i++)
-        for (j = i; j > 0 && o[j] < o[j - 1]; j--) {
-            uint8_t x = o[j];
-            o[j] = o[j - 1];
-            o[j - 1] = x;
-        }
-    for (i = 1; i < n; i++)
-        for (j = i; j > 0 && nn[j] < nn[j - 1]; j--) {
-            uint8_t x = nn[j];
-            nn[j] = nn[j - 1];
-            nn[j - 1] = x;
-            x = nv[j];
-            nv[j] = nv[j - 1];
-            nv[j - 1] = x;
-        }
+    sort_u8(o, a);
+    sort_nv(nn, nv, n);
     ticks = (uint32_t)((uint64_t)(beat_samples() / 2u) * (uint32_t)t->p[P_GLIDE] / 127u / CTL);
     if (!ticks)
         ticks = 1;
@@ -1911,7 +1911,7 @@ static void seq_tick(track_t *t, uint32_t n)
         return;
     period = div_samples((uint32_t)t->p[P_SDIV]);
     {   /* TAPE CHAIN on this owner: the track's tape runs slower, the others keep the song's */
-        uint32_t ts = tape_seq_speed_q16(t);
+        uint32_t ts = AUDIO_FAR(tape_seq_speed_q16)(t);
         if (ts != 65536u)
             period = (uint32_t)(((uint64_t)period * ts) >> 16);
     }
@@ -2022,13 +2022,12 @@ static int32_t click_beat_now(void)
     return clk_pos == CLK_START ? 0 : (int32_t)(clk_step >> 2);
 }
 
-/* everything that happens between two rendered blocks */
-static void events_block(uint32_t n)
+/* the transport requests, a clock-mode change and the count-in: fx.c mix_block calls this before pfx_block, so a
+ * start resets the lane clock before the MIDI lane's effects are applied (perf_begin reads that same clock);
+ * noinline: its rare stop/start branches laid at the end of fm1_alnk0_irq read as one huge loop (target_budget) */
+static __attribute__((noinline)) void seq_transport(uint32_t n)
 {
-    chord_auto_tick(n);
-    uint32_t i, pr, seq_n = n;
     uint32_t clock_mode = (uint32_t)song.g[G_CLOCK];
-    chord_strum_tick(n);                                /* STRUM: the strings due in this block */
     if (midi_clock.mode != clock_mode) {
         seq_stop();
         memset(&midi_clock, 0, sizeof midi_clock);
@@ -2064,6 +2063,15 @@ static void events_block(uint32_t n)
         }
         transport_req = 0;
     }
+}
+
+/* the events after the transport: chord ticks, free take, keys, MIDI, sequencer, clocks */
+static void events_rest(uint32_t n)
+{
+    chord_auto_tick(n);
+    uint32_t i, pr, seq_n = n;
+    uint32_t clock_mode = (uint32_t)song.g[G_CLOCK];
+    chord_strum_tick(n);                                /* STRUM: the strings due in this block */
     ft_block();
     if (midi_route != (uint8_t)song.g[G_ROUTE]) {     /* ROUT changed: a block lets go of the other channels */
         midi_route = (uint8_t)song.g[G_ROUTE];
@@ -2168,4 +2176,11 @@ static void events_block(uint32_t n)
     }
     if (song.playing)
         song.tick++;
+}
+
+/* everything that happens between two rendered blocks (direct callers: the transport first, as mix_block) */
+static void events_block(uint32_t n)
+{
+    seq_transport(n);
+    events_rest(n);
 }

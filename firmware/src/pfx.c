@@ -37,6 +37,8 @@
 static uint8_t pfx_in;                /* a repeat's own note-on (pfx_note lets it through) */
 static uint8_t pfx_any;               /* a track has something running (or to put back) */
 static uint32_t pfx_blk;              /* blocks: the notes of one block were struck together */
+static uint32_t pfx_s16;              /* (perform.c pfx_lph) the 1/16 its last block ran at: the
+                                       * clock moves with a tempo change or TAPE MASTER's SPEED */
 static uint32_t pfx_seed = 0x9E3779B9u;
 
 /* the lane holds a recorded effect: AUTOMATION's and SAVE > CLEAR's clears have something to do */
@@ -149,6 +151,7 @@ static __attribute__((noinline)) void pfx_block(uint32_t n, uint32_t held)
 {
     uint32_t k, b = beat_samples(), lane = 0, raw = held, nw;
     held &= PF_MIDI;
+    pfx_adv = 0;
     pfx_blk++;
     pfx_qon &= held;                                    /* (JIANT) let go: at once; pressed: on the next 1/16 */
     nw = held & ~pfx_qon;
@@ -160,8 +163,17 @@ static __attribute__((noinline)) void pfx_block(uint32_t n, uint32_t held)
     }
     held = pfx_qon;
     if (song.playing && b >= 4u) {                      /* the lane: record, or play */
-        uint32_t s16 = b / 4u, ph = pfx_lph % s16, st = (pfx_lph / s16) & 63u, half = ph >= s16 / 2u;
+        uint32_t s16 = b / 4u, ph, st, half;
+        if (pfx_s16 && pfx_s16 != s16)              /* the clock moved (a tempo change, or TAPE MASTER's
+                                                     * SPEED): keep the lane's place in the bar, so the
+                                                     * step it reads moves with the music, not under it */
+            pfx_lph = (uint32_t)(((uint64_t)pfx_lph * s16) / pfx_s16);
+        pfx_s16 = s16;
+        ph = pfx_lph % s16;
+        st = (pfx_lph / s16) & 63u;
+        half = ph >= s16 / 2u;
         pfx_lph += n;
+        pfx_adv = 1;
         if (pfx_rec_ok()) {                             /* recording, to the nearest step: each effect's press and
                                                          * release quantizes on its own */
             uint32_t pressed = raw & ~pfx_rheld, released = pfx_rheld & ~raw, m, e, bit;

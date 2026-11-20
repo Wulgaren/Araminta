@@ -187,13 +187,13 @@ static void phys_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     case PM_MODAL: {
         px_modal_blk_t B;
         px_modal_block(&B, &S->u.m, f0, strc, brit, damp, acc, pos * 129, bow);   /* pos 0..1/4 */
-        px_modal_run(&B, &S->u.m, y, ax, n);
+        AUDIO_FAR(px_modal_run)(&B, &S->u.m, y, ax, n);
         break;
     }
     case PM_MEMB: {
         px_modal_blk_t B;
         px_memb_block(&B, &S->u.m, f0, strc, brit, damp, acc, pos * 516, p[P_E6] * 6192);   /* BEND 0..12 st */
-        px_modal_run(&B, &S->u.m, y, ax, n);
+        AUDIO_FAR(px_modal_run)(&B, &S->u.m, y, ax, n);
         break;
     }
     case PM_STRING: {
@@ -210,8 +210,8 @@ static void phys_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         px_string_block(&B, &S->u.y.s, f0, 16384 - p[P_E6] * 129, brit, damp, acc, 0, 0);   /* BUZZ: STRC 0.25 .. 0 */
         px_string_excite(&B, &S->u.y.s, ax, n);
         px_string_run(&B, &S->u.y.s, ax, y, n);
-        px_symp_block(&S->u.y, f, brit, damp, pos * 516);
-        px_symp_run(&S->u.y, y, y, n);
+        AUDIO_FAR(px_symp_block)(&S->u.y, f, brit, damp, pos * 516);
+        AUDIO_FAR(px_symp_run)(&S->u.y, y, y, n);
         break;
     }
     }

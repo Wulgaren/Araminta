@@ -232,9 +232,9 @@ static int perf_loop(uint32_t e) { return e <= PF_REV || e == PF_R12; }
 static uint32_t perf_den(uint32_t e) { return e == PF_R12 ? 3u : PF_DEN[e]; }
 static uint32_t perf_len(uint32_t e) { return perf_loop(e) ? beat_samples() / perf_den(e) : 0u; }
 /* the effects that can run at the tempo: a REPEAT / REVERSE longer than the loop cannot */
-static uint32_t perf_avail(void)
+static __attribute__((noinline)) uint32_t perf_avail(void)
 {
-    uint32_t a = PF_Q, e, m = ~0u, b = beat_samples();
+    uint32_t a = PF_Q, e, m = ~0u, b = AUDIO_FAR(beat_samples)();
     while (a) {
         e = (uint32_t)__builtin_ctz(a);
         a &= a - 1u;
@@ -249,6 +249,8 @@ static volatile uint8_t pfx_tgt;      /* main / keys: MIDI effects' tracks, 0 AL
 static volatile uint8_t pfx_clr;      /* keys: G5 CLR held (map highlight); down clears latched FX when LATCH on */
 static volatile uint8_t perf_clr_say; /* ISR: CLR just cleared; UI shows "FX ALL OFF" */
 static uint32_t pfx_lph;              /* samples into the punch-in lane (pfx.c) */
+static uint8_t pfx_adv;               /* pfx_block advanced pfx_lph this block (a transport started after it did
+                                       * not: an external MIDI Start is handled later, in seq.c events_rest) */
 static uint32_t pfx_lane[64];         /* the transport's punch-in lane (pfx.c): each 1/16 step's effects (PF_BIT) */
 static uint8_t pfx_ltgt;              /* .. the tracks its MIDI effects act on */
 static void perf_press(uint32_t e, int down)
@@ -282,13 +284,14 @@ static void perf_press(uint32_t e, int down)
     }
 }
 
-static void perf_start(void) { pf.ph = 0; pf.sync = 1; pfx_lph = 0; }   /* seq_start: a 1/16 with the transport */
+static void perf_start(void) { pf.ph = 0; pf.sync = 1; pfx_lph = 0; pfx_adv = 0; }   /* seq_start: a 1/16 with the
+                                                                                      * transport */
 
 /* the SLICER's recordings dropped (when the buffer is taken and given back): the tracks' and MASTER's */
-static void perf_drop_slicer(void) { slicer_drop_all(); }
+static void perf_drop_slicer(void) { AUDIO_FAR(slicer_drop_all)(); }
 
-/* the buffer effect to play: the last pressed of those running */
-static inline __attribute__((always_inline)) uint32_t perf_pick(uint32_t a)
+/* the buffer effect to play: the last pressed of those running (out of line: the scan is shared with the UI) */
+static __attribute__((noinline)) uint32_t perf_pick(uint32_t a)
 {
     uint32_t e, best = PF_N;
     a &= PF_BUF;
@@ -302,12 +305,12 @@ static inline __attribute__((always_inline)) uint32_t perf_pick(uint32_t a)
 }
 
 /* perf_begin's snapshot: the buffer effect its act0 / act pick. In RAM, called once a block: inlined into perf_begin
- * (flash) the two scans moved the flash code behind it, and the stack scenario lost ~8 % to cache misses
- * (docs/fm1-emu-test.md: placement) */
+ * (flash) the scans moved the flash code behind it, and the stack scenario lost ~8 % to cache misses
+ * (docs/fm1-emu-test.md: placement). perf_pick stays out of line, shared with the UI (perf_harm_on) */
 static AUDIO_RAM __attribute__((noinline)) void perf_ctl_picks(perf_blk_t *c)
 {
-    c->pick0 = (uint8_t)perf_pick(c->act0);
-    c->pick = (uint8_t)perf_pick(c->act);
+    c->pick0 = (uint8_t)AUDIO_FAR(perf_pick)(c->act0);
+    c->pick = (uint8_t)AUDIO_FAR(perf_pick)(c->act);
 }
 
 #ifdef FELUCCA_LAYOUT_PAD
@@ -418,13 +421,17 @@ static void perf_buf_select(uint32_t e)
 /* each block, after the keys (seq.c) and before the parts: what runs, the 1/16, the filters, the mutes; also the
  * SLICER's buffer, which the buffer effects borrow. Returns 1 when a stage has something to do, and leaves perf_ctl:
  * the copy the layer reads a block late (it runs beside this core's tail, on either core) */
-static __attribute__((noinline)) int perf_begin(uint32_t n)
+static AUDIO_RAM __attribute__((noinline)) int perf_begin(uint32_t n)
 {
-    uint32_t solo = solo_mask(), off = off_mask(), s16 = beat_samples() >> 2, lane = 0, held, mute, q, k, ph0, bnd;
-    if (song.playing && s16)                           /* the punch-in lane's step at this block's end (pf.ph: the
-                                                         * transport's), so a REPEAT starts on its 1/16 below */
-        lane = pfx_lane[((pf.ph + n - 1u) / s16) & 63u];
-    held = ((perf_kill ? 0u : perf_held | perf_latched | (solo ? (~solo & 15u) << PF_M1 : 0u)) | lane) & perf_avail() & ~PF_MIDI;
+    uint32_t solo = solo_mask(), off = off_mask(), s16 = AUDIO_FAR(beat_samples)() >> 2, lane = 0, held, mute, q, k, ph0, bnd;
+    if (song.playing && s16) {                         /* the punch-in lane's step at this block's end (pfx_lph,
+                                                         * pfx_block's retimed clock) */
+        if (!pfx_adv)                                   /* a transport started this block, after pfx_block: its
+                                                         * clock from 0 and this block's n still to add */
+            pfx_lph += n;
+        lane = pfx_lane[((pfx_lph - 1u) / s16) & 63u];
+    }
+    held = ((perf_kill ? 0u : perf_held | perf_latched | (solo ? (~solo & 15u) << PF_M1 : 0u)) | lane) & AUDIO_FAR(perf_avail)() & ~PF_MIDI;
     /* mix_part's mutes: a black key, a ramp still running, or PLAY OFF (GLO) — the OFF ones are not the layer's,
      * so a sounding note ramps out in mix_part while perf_begin may stay idle */
     pf.mute = 0;
@@ -459,8 +466,11 @@ static __attribute__((noinline)) int perf_begin(uint32_t n)
         pf.ph = 0;
         pf.sync = 0;
     }
-    ph0 = pf.ph % pf.P;                             /* the 1/16 in this block (n: none) */
-    bnd = ph0 ? (pf.P - ph0 < n ? pf.P - ph0 : n) : 0u;
+    {   /* the 1/16 in this block (n: none), on the retimed lane clock while playing: pfx_lph is this block's end */
+        uint32_t lane0 = song.playing && s16 ? pfx_lph - n : pf.ph;
+        ph0 = lane0 % pf.P;
+        bnd = ph0 ? (pf.P - ph0 < n ? pf.P - ph0 : n) : 0u;
+    }
     pf.ph += n;
     pf.act &= held;                                 /* let go: at once */
     pf.act |= held & ~PF_Q;
@@ -1020,11 +1030,11 @@ static AUDIO_RAM __attribute__((noinline)) void perf_phaser(int32_t *bl, int32_t
 
 /* the effect set changes with this sample (perf_block's split point): out of line, so the per-sample loop keeps its
  * code layout (a block placed inside it can look like a loop round the per-sample code: target_budget.py) */
-static AUDIO_RAM __attribute__((noinline)) void perf_split(const perf_blk_t *c, int32_t k0, uint32_t *a, int32_t *lt,
-                                                           int32_t *ht)
+static __attribute__((noinline)) void perf_split(const perf_blk_t *c, int32_t k0, uint32_t *a, int32_t *lt,
+                                                 int32_t *ht)
 {
     *a = c->act;
-    AUDIO_FAR(perf_switch)(c->pick);
+    perf_switch(c->pick);
     *lt = (int32_t)((*a & PF_BIT(PF_LPF)) || k0 < 0 || c->lc < PF_TOP) << 15;
     *ht = (int32_t)((*a & PF_BIT(PF_HPF)) || k0 > 0 || c->hc > 0) << 15;
 }
