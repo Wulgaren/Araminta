@@ -1085,6 +1085,9 @@ static int test_clear_every_track_all(void)
         trk[i].p[P_ROOT] = (int16_t)(1 + i);         /* the whole SCL group goes back to its defaults */
         trk[i].p[P_SCALE] = (int16_t)(i % 3u + 1u);
         trk[i].p[P_TRANS] = (int16_t)(i + 1);
+        trk[i].p[P_CHRD] = (int16_t)(1 + (i % 3u));  /* CHORD page CHRD / VOIC (param_kept) */
+        trk[i].p[P_VOIC] = (int16_t)(1 + (i % 4u));
+        trk[i].p[P_ALLOC] = sweep_pack(2, 1);         /* STRUM/STROKE non-default, below CGLD_BIT */
         trk[i].scl_stash_ok = 1;
         trk[i].p[P_LEVEL] = (int16_t)(20 + i);       /* the mix and the arp: ALL4 puts them back too */
         trk[i].p[P_PAN] = (int16_t)(i * 10 - 20);
@@ -1119,8 +1122,11 @@ static int test_clear_every_track_all(void)
                  ok && !ui.confirm && song.sel == 2 && chain_config.count == 1 && pfx_lane[5] == 0u);
     for (ok = 1, i = 0; i < NTRK; i++)
         ok &= trk[i].p[P_ROOT] == TP[P_ROOT].def && trk[i].p[P_SCALE] == TP[P_SCALE].def &&
-              trk[i].p[P_QUANT] == TP[P_QUANT].def && trk[i].p[P_TRANS] == TP[P_TRANS].def && !trk[i].scl_stash_ok;
-    bad += check("every-track ALL puts the whole SCL group (ROOT SCL MAP TRN) back to its defaults", ok);
+              trk[i].p[P_QUANT] == TP[P_QUANT].def && trk[i].p[P_TRANS] == TP[P_TRANS].def &&
+              trk[i].p[P_CHRD] == TP[P_CHRD].def && trk[i].p[P_VOIC] == TP[P_VOIC].def &&
+              (trk[i].p[P_ALLOC] & ~(int16_t)CGLD_BIT) == (TP[P_ALLOC].def & ~(int16_t)CGLD_BIT) &&
+              !trk[i].scl_stash_ok;
+    bad += check("every-track ALL puts SCL (ROOT SCL MAP TRN) and CHORD CHRD VOIC / STRUM STROKE back to defaults", ok);
     for (ok = 1, i = 0; i < NTRK; i++)
         ok &= trk[i].p[P_LEVEL] == TP[P_LEVEL].def && trk[i].p[P_PAN] == TP[P_PAN].def &&
               trk[i].p[P_MUTE] == TP[P_MUTE].def && trk[i].p[P_AMODE] == TP[P_AMODE].def &&
@@ -3659,12 +3665,12 @@ static int test_edit_cycle(void)
     ok &= cur_page()->id[0] == P_VOICE && cur_page()->id[1] == P_GLIDE &&
           cur_page()->id[2] == PG_CGLD && cur_page()->id[3] == P_DETUNE;   /* one page; no GLMOD / PAN / PLAY */
     turn(EN_SELECT, 1); frame();
-    ok &= str_eq(cur_page()->title, "VOICE 2");                          /* Voice: VOICE -> VOICE 2 */
+    ok &= str_eq(cur_page()->title, "PITCH");                            /* Voice: VOICE -> PITCH */
     press(B_EDIT); frame();
     ok &= cur_page()->sec == EDIT_SEC_SND;
-    bad += check("EDIT cycle: ANALOG Sound is OSC A→OSC B→FILTER (1/3 2/3 3/3); Voice is VOICE → VOICE 2 (VCE GLD PIT GLD SPRD in POLY)", ok);
+    bad += check("EDIT cycle: ANALOG Sound is OSC A→OSC B→FILTER (1/3 2/3 3/3); Voice is VOICE → PITCH (VCE GLD PIT GLD SPRD in POLY)", ok);
 
-    /* VOICE: PIT GLD in POLY, SPRD last, UNI DTN in UNISON; VOICE 2 is PITCH in every mode. PIT GLD is bit 5 of
+    /* VOICE: PIT GLD in POLY, SPRD last, UNI DTN in UNISON; the PITCH page in every mode. PIT GLD is bit 5 of
      * P_ALLOC and GLD reads as a share of the chord while it is on. The bend card drives the channel bend. */
     {
         int16_t *vp = 0;
@@ -3699,16 +3705,16 @@ static int test_edit_cycle(void)
               (d = page_desc(vox, 3, &vp)) != 0 && str_eq(d->label, "UNI DTN");
         TSEL->p[P_VOICE] = (int16_t)V_POLY;
         turn(EN_SELECT, 1); frame();
-        ok &= str_eq(cur_page()->title, "VOICE 2") && cur_page()->id[0] == PG_BEND &&
+        ok &= str_eq(cur_page()->title, "PITCH") && cur_page()->id[0] == PG_BEND &&
               (d = page_desc(cur_page(), 0, &vp)) != 0 && str_eq(d->label, "PITCH");
         turn(EN_SELECT, 1); frame();
-        ok &= str_eq(cur_page()->title, "VOICE 2");        /* end of the section */
+        ok &= str_eq(cur_page()->title, "PITCH");          /* end of the section */
         turn(EN_SELECT, -1); frame();
         ok &= str_eq(cur_page()->title, "VOICE");
         /* the card bends the selected track's channel; a track change recentres it */
         turn(EN_K1 + 3, 1); frame();                       /* back on VOICE: no bend card there */
         ok &= midi_ch[trk_midi_ch(song.sel)].bend == 0;
-        turn(EN_SELECT, 1); frame();                       /* VOICE 2: PITCH */
+        turn(EN_SELECT, 1); frame();                       /* the PITCH page */
         ch = trk_midi_ch(song.sel);
         midi_ch[ch].bend = 0;
         midi_bend_target[trk_index(TSEL)] = 0;
@@ -3721,7 +3727,7 @@ static int test_edit_cycle(void)
         ok &= vp && *vp == 2;
         track_select(1); frame();
         ok &= midi_ch[ch].bend == 0 && midi_bend_target[0] == 0;
-        bad += check("VOICE: PIT GLD (POLY), SPRD last, UNI DTN in UNISON; VOICE 2 is PITCH; a track change recentres its bend", ok);
+        bad += check("VOICE: PIT GLD (POLY), SPRD last, UNI DTN in UNISON; PITCH page bend; a track change recentres its bend", ok);
         /* POLY SPRD reuses page id P_DETUNE; a recorded K4 must capture P_SPRD (the value ptr). */
         ui_power_on();
         set_engine_of(TSEL, 0); TSEL->engine = TSEL->eng_req;

@@ -2100,11 +2100,14 @@ static void ui_input(void)
                         if (kind == CF_CLEAR_EVERY_TRACK_ALL) {
                             track_defaults_steps(&trk[i]);
                             /* the whole SCL group goes to OFF: ALL does not survive the clear, and every track
-                             * follows it, so there is no scale_lock_after() push */
+                             * follows it, so there is no scale_lock_after() push; the CHORD page's CHRD / VOIC
+                             * go back too (param_kept: the sound reload skips them) */
                             trk[i].p[P_ROOT] = TP[P_ROOT].def;
                             trk[i].p[P_SCALE] = TP[P_SCALE].def;
                             trk[i].p[P_QUANT] = TP[P_QUANT].def;
                             trk[i].p[P_TRANS] = TP[P_TRANS].def;
+                            trk[i].p[P_CHRD] = TP[P_CHRD].def;
+                            trk[i].p[P_VOIC] = TP[P_VOIC].def;
                             trk[i].scl_stash_ok = 0;
                             clear_mix_arp(&trk[i]);
                             trk[i].nheld = 0;

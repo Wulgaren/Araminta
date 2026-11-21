@@ -2581,6 +2581,25 @@ static int test_pfx_lane_restart(void)
     return bad;
 }
 
+/* G5 CLR resets FILTER/CRUSH/THROW/DEPTH even with FX LATCH off */
+static int test_clr_macros_no_latch(void)
+{
+    int bad = 0;
+
+    perf_reset();
+    perf_latch_on = 0;
+    perf_k[0] = -40;
+    perf_k[1] = 30;
+    perf_k[2] = 50;
+    perf_k[3] = 70;
+    perf_press(PF_CLR, 1);
+    perf_press(PF_CLR, 0);
+    bad += check("CLR with LATCH off: FILTER/CRUSH/THROW/DEPTH to 0",
+                 !perf_k[0] && !perf_k[1] && !perf_k[2] && !perf_k[3] && perf_clr_say == 1);
+    perf_clr_say = 0;
+    return bad;
+}
+
 /* CLR held while recording: the lane steps it passes emptied, an effect held with it not recorded; let go in a
  * step's first half, that step as it was */
 static int test_pfx_lane_clr(void)
@@ -2696,6 +2715,7 @@ int main(int argc, char **argv)
     bad += test_pfx_lane_audio();
     bad += test_pfx_lane_restart();
     bad += test_pfx_lane_clr();
+    bad += test_clr_macros_no_latch();
     bad += test_glitch();
     bad += test_cost();
     bad += test_click_heavy();

@@ -254,14 +254,14 @@ static int bend_contract(void)
          vox2->fam == FAM_EDIT && PG_BEND == 250u && PG_CGLD == 251u;
     ok &= !param_id_known(PG_BEND) && !motion_param(PG_BEND) && !param_real(PG_BEND);
     ok &= !param_id_known(PG_CGLD) && !motion_param(PG_CGLD) && !param_real(PG_CGLD);
-    bad += check("VOICE 2 is the page after VOICE; PG_BEND 250 / PG_CGLD 251 are UI-only, not motion / real ids", ok);
+    bad += check("PITCH is the page after VOICE; PG_BEND 250 / PG_CGLD 251 are UI-only, not motion / real ids", ok);
     ok = 0;
     if (vox && vox2) {
         TSEL->p[P_VOICE] = (int16_t)V_POLY;
         d = page_desc(vox, 2, &vp);
         ok = d && vp && str_eq(d->label, "PIT GLD") && d->fmt == F_ONOFF &&
              page_desc(vox, 3, &vp) != 0 && str_eq(page_desc(vox, 3, &vp)->label, "SPRD") &&
-             page_visible((uint32_t)(vox2 - PAGES));      /* VOICE 2 in every mode */
+             page_visible((uint32_t)(vox2 - PAGES));      /* the PITCH page in every mode */
         d = page_desc(vox2, 0, &vp);
         ok &= d && vp && str_eq(d->label, "PITCH") && d->fmt == F_CENT && d->min == -200 && d->max == 200;
         TSEL->p[P_VOICE] = (int16_t)V_MONO;
@@ -273,7 +273,7 @@ static int bend_contract(void)
         ok &= page_desc(vox, 2, &vp) == 0;                /* PIT GLD is POLY only */
         TSEL->p[P_VOICE] = (int16_t)V_POLY;
     }
-    bad += check("VOICE: PIT GLD then SPRD (POLY), UNI DTN (UNISON); VOICE 2 PITCH in every mode", ok);
+    bad += check("VOICE: PIT GLD then SPRD (POLY), UNI DTN (UNISON); PITCH page in every mode", ok);
     if (vox) {
         ui.plk_src = (uint8_t)(vox - PAGES + 1u);
         TSEL->p[P_VOICE] = (int16_t)V_POLY;

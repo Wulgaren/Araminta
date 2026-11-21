@@ -20,7 +20,7 @@ indexed only by real P_* ids; every other space is either a separate storage are
 | Motion-only FX targets | `MFX_TIME..MFX_DAMP`, ids 49..53; numerically `P_M1SRC..P_M2DST`; `MFX_TSPEED` / `MFX_TWOW` are ids 41 / 42 (`P_TAPEMIX` / `P_LSMOOTH`) | **never as a target**: `fx_target_ptr()` reaches `song.g` or a bus | project motion records; long DLY TIME takes ids 54..59 on disk; TAPE SPEED packs 25..400 into one byte | `MOTION` ops; project motion record | AUTOMATION FX rows; EFFECTS / DEST lists |
 | UI-only step rows | `EV_VEL` 251, `EV_NUDGE` 252, `EV_CHANCE` 253, `EV_RATCH` 254; 0xFF = none | no | the step's own `chance` / `ratchet` / `nudge` / `vel` fields | **never** | AUTOMATION rows |
 | Page-only CHORD cards | `PG_STRUM` 252, `PG_STROKE` 253 | no | none; the edit packs `P_ALLOC` | **never** | CHORD K3 / K4 |
-| Page-only VOICE cards | `PG_BEND` 250, `PG_CGLD` 251 | no | `PG_BEND`: live bend; `PG_CGLD`: bit 5 of `P_ALLOC` | **never** | VOICE K3 (PIT GLD, POLY); VOICE 2 K1 (PITCH) |
+| Page-only VOICE cards | `PG_BEND` 250, `PG_CGLD` 251 | no | `PG_BEND`: live bend; `PG_CGLD`: bit 5 of `P_ALLOC` | **never** | VOICE K3 (PIT GLD, POLY); PITCH page K1 (PITCH) |
 
 Rules that fall out:
 
@@ -168,9 +168,9 @@ PLAY OFF bypasses its playback.
 - Files: `params.c` (`PG_STRUM`, `PG_STROKE`, `PAGES`, `page_desc`), `ui_input.c` (the page knob write),
   `core.h` (sweep helpers), `chord.c`, `tests/param_contract_test.c`.
 
-### PG_BEND: the VOICE 2 PITCH card
+### PG_BEND: the PITCH page bend card
 
-- `PG_BEND` 250 is the page id of `VOICE 2`, shown in every voice mode (`ui.c` `page_visible`). `VOICE 2`
+- `PG_BEND` 250 is the page id of `PITCH`, shown in every voice mode (`ui.c` `page_visible`). `PITCH`
   is the page after `VOICE`; its first knob is PITCH and the rest are blank.
 - It is not stored, not `p[]`, not a motion id and never reaches the wire. `page_desc()` synthesizes
   `BEND_DESC` (label `PITCH`, `F_CENT`, -200..200 cent) and a temporary value; the knob handler writes the

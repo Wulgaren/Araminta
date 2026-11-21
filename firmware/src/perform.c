@@ -8,10 +8,10 @@
  * gives them. Two PUNCH-IN pages in the FX section, each a fixed map — no reassignment: the defaults
  * (PF_DEF, JIANT; PF2_DEF the audio effects they did not fit):
  *   PUNCH-IN 1/2: REPEAT 1/8 1/12 1/16 1/32, LPF, HPF, OCT-, OCT+, DEC±, stutter 1/8 1/16, ATK+, ARP,
- *   RANDOM; G5 none
+ *   RANDOM
  *   PUNCH-IN 2/2: REVERSE, TAPE STOP, FREEZE, PITCH UP / DN, FLANGER, PHASER, REV THROW, ECHO THROW (G4),
- *   /2 (A4), *2 (B4), GLITCH (C5); D5.. G5 none (G5 CLR with FX LATCH)
- *   both: with FX LATCH, G5 is CLR (latched effects and FILTER/CRUSH/THROW/DEPTH off); black keys 1..4 mute
+ *   /2 (A4), *2 (B4), GLITCH (C5); D5 .. F5 none
+ *   both: G5 is CLR (latched effects and FILTER/CRUSH/THROW/DEPTH off); black keys 1..4 mute
  *   tracks 1..4; A#4 steps the MIDI effects' tracks (ALL / SYN / DRM).
  * REV THROW / ECHO THROW (1.5.1): while held every track's reverb / delay send is full (as REV / DLY 127; perf_throw),
  * ECHO THROW also lifts the delay's feedback to 0.7 if it is lower (fx.c fx_buses); both glide in and out over 11.6 ms
@@ -45,7 +45,8 @@
  * sends), DEPTH (the buffer effects' level, FLANGER's and PHASER's; OCT UP / DN: the shimmer).
  * MENU > FX LATCH ON (#40, a hand that cannot hold FX, a key and a knob together): a key pressed with FX turns its
  * effect on, the next press turns it off (perf_latched; letting the key or FX go does nothing), the macros keep
- * their values when FX is let go, G5 CLR turns everything off, so does the menu or a dialog. OCT± shift octave.
+ * their values when FX is let go; G5 CLR turns everything off with or without LATCH, so does the menu or a dialog.
+ * OCT± shift octave.
  * Chain: [REPEAT / REVERSE / TAPE / FREEZE] -> LPF -> HPF -> CRUSH -> FLANGER -> PHASER, after the master level and
  * before master_out (the limiter); THROW and the mutes act before the buses (fx.c mix_block / mix_part).
  * The layer runs one block late (fx.c perf_take / perf_layer / perf_out): the whole output is a constant 0.73 ms
@@ -59,7 +60,7 @@ enum { PF_R8, PF_R16, PF_R32, PF_REV, PF_LPF, PF_HPF, PF_TAPE, PF_FRZ, PF_OUP, P
        PF_X2, PF_GLT,                        /* 3.2: x2 TEMPO (MIDI), GLITCH (audio buffer) */
        PF_R12,                               /* 3.2: REPEAT 1/12 (append-only: PF_M1 stays 27) */
        PF_M1, PF_N = PF_M1 + NTRK, PF_TGT = PF_N + 1,   /* A#4: MIDI effects' tracks (pfx_tgt) */
-       PF_CLR = PF_N + 2 };                              /* G5 with FX LATCH: all latched effects + macros off */
+       PF_CLR = PF_N + 2 };                              /* G5 CLR: all latched effects + macros off */
 _Static_assert(PF_N <= 32u, "PF mask: widen perf_held / perf_latched / pf.act to 64 bits");
 #define PF_NFX PF_M1                          /* the effects a white key can hold */
 #define PF_KEYS 16u                           /* the white keys F3 .. G5 */
@@ -246,7 +247,7 @@ static __attribute__((noinline)) uint32_t perf_avail(void)
 
 /* seq.c keyboard_block: a layer key down / up (e: PF_*, PF_N = no effect) */
 static volatile uint8_t pfx_tgt;      /* main / keys: MIDI effects' tracks, 0 ALL, 1 SYN, 2 DRM (pfx.c) */
-static volatile uint8_t pfx_clr;      /* keys: G5 CLR held (map highlight); down clears latched FX when LATCH on */
+static volatile uint8_t pfx_clr;      /* keys: G5 CLR held (map highlight); down clears latched FX and macros */
 static volatile uint8_t perf_clr_say; /* ISR: CLR just cleared; UI shows "FX ALL OFF" */
 static uint32_t pfx_lph;              /* samples into the punch-in lane (pfx.c) */
 static uint8_t pfx_adv;               /* pfx_block advanced pfx_lph this block (a transport started after it did
@@ -259,7 +260,7 @@ static void perf_press(uint32_t e, int down)
         pfx_tgt = (uint8_t)((pfx_tgt + 1u) % 3u);
     if (e == PF_CLR) {
         pfx_clr = (uint8_t)(down ? 1u : 0u);
-        if (down && perf_latch_on) {              /* latched punch-ins + FILTER/CRUSH/THROW/DEPTH */
+        if (down) {                               /* latched punch-ins + FILTER/CRUSH/THROW/DEPTH */
             perf_latched = 0;
             perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;
             perf_clr_say = 1;

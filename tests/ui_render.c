@@ -1194,7 +1194,7 @@ static void setup(int s)
     case S_CHORD_KIT: eng(ENGI_DRUM); TSEL->p[P_CHRD] = CH_DIA3; go_title("CHORD"); break;
     case S_ARP: go_title("ARP"); break;
     case S_VOICE: go_title("VOICE"); break;
-    case S_VOICE_UNISON: TSEL->p[P_VOICE] = (int16_t)V_UNISON; go_title("VOICE 2"); ui.hot_col = 0; ui.hot_t = 30; break;
+    case S_VOICE_UNISON: TSEL->p[P_VOICE] = (int16_t)V_UNISON; go_title("PITCH"); ui.hot_col = 0; ui.hot_t = 30; break;
     case S_CLOCK: go_title("CLOCK"); break;          /* GLO > CLOCK */
     /* 1.2: the old SYSTEM page's items in the MENU: MIDI > MIDI IN (ROUT) on CH5-8; AUDIO > TUNE (-12 ct) selected;
      * SYSTEM > INFO (the USB state, the CPU load) */

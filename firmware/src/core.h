@@ -545,7 +545,7 @@ enum { MFX_TIME = P_M1SRC, MFX_FB, MFX_COLOR, MFX_SIZE, MFX_DAMP };
  * (P_TAPEMIX is otherwise unused, P_LSMOOTH is the LFO S&H smoothing). Their motion meaning is fx_target_ptr's. */
 enum { MFX_TSPEED = P_TAPEMIX, MFX_TWOW = P_LSMOOTH };
 #define MFX_TAPE(id) ((id) == MFX_TSPEED || (id) == MFX_TWOW)
-/* The VOICE 2 live bend, automation-only, stored in 1/16 semitones -32..32. Its id is the inert FM1 ATK slot on a
+/* The PITCH page live bend, automation-only, stored in 1/16 semitones -32..32. Its id is the inert FM1 ATK slot on a
  * non-FM6 track (as MFX_TIME reuses a matrix id); motion_capture never turns an editor's P_FM1_ATK write into one. */
 #define MFX_BEND P_FM1_ATK
 #define MFX_ALL(id) (MFX_PARAM(id) || MFX_TAPE(id))

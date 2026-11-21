@@ -1012,7 +1012,7 @@ static int pitch_kit(void)
     return bad;
 }
 
-/* ----------------------------------------------- BEND lane (VOICE 2 PITCH) --- */
+/* ----------------------------------------------- BEND lane (the PITCH page) --- */
 static int bend_lane(void)
 {
     int bad = 0, ok;

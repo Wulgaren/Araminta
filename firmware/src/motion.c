@@ -399,7 +399,7 @@ static int motion_capture(track_t *t, uint32_t id, int16_t value)
     }
     return motion_set_event(t, idx, id, value);
 }
-/* VOICE 2 PITCH -> the BEND lane: cents in, 1/16 semitones stored. 0 not recording, 1 invalid, 2 full. */
+/* the PITCH page -> the BEND lane: cents in, 1/16 semitones stored. 0 not recording, 1 invalid, 2 full. */
 static int motion_capture_bend(track_t *t, int32_t cents)
 {
     uint32_t idx;

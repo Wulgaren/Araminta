@@ -23,7 +23,7 @@ static const char *const N_DTIME[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T",
 static const char *const N_SCALE[] = {"MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM",
                                     "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"};
 static const char *const N_ONOFF[] = {"OFF", "ON"};
-/* MIXER KNOB 4 (and VOICE 2): PLAY. Stored 0 is ON (sounds, the default), 1 is OFF (silent), 2 is SOLO
+/* MIXER KNOB 4 (and the PITCH page): PLAY. Stored 0 is ON (sounds, the default), 1 is OFF (silent), 2 is SOLO
  * (sounds, and silences every track that is not SOLO). The knob shows OFF, ON, SOLO (PLAY_ORDER): left of
  * ON is OFF, right is SOLO. Append-only: stored projects keep 0 playing and 1 silent. */
 static const char *const N_PLAY[] = {"ON", "OFF", "SOLO"};
@@ -614,7 +614,7 @@ typedef struct {
 } page_t;
 #define PG_STRUM 0xFCu           /* CHORD KNOB 3: the packed P_ALLOC sweep's rate */
 #define PG_STROKE 0xFDu          /* CHORD KNOB 4: the packed P_ALLOC sweep's DOWN / UP / ALT */
-#define PG_BEND 0xFAu            /* VOICE 2's PITCH card: the selected track's channel bend (midi_control.c) */
+#define PG_BEND 0xFAu            /* the PITCH page's bend card: the selected track's channel bend (midi_control.c) */
 #define PG_CGLD 0xFBu            /* VOICE KNOB 3: PIT GLD, bit 5 of P_ALLOC (chord glide) */
 
 static const page_t PAGES[] = {
@@ -658,10 +658,10 @@ static const page_t PAGES[] = {
     {"MOVEMENT", FAM_EDIT, SC_TRACK, GR_DXSND, EDIT_SEC_KIT, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"OP ENV", FAM_EDIT, SC_TRACK, GR_FMENV, EDIT_SEC_SND, {0xFF, 0xFF, 0xFF, 0xFF}},
-    /* VOICE: VCE GLD PIT GLD (POLY) then SPRD / UNI DTN; VOICE 2 is PITCH in every mode. GLMOD / PRIO / ALLOC
+    /* VOICE: VCE GLD PIT GLD (POLY) then SPRD / UNI DTN; the PITCH page in every mode. GLMOD / PRIO / ALLOC
      * stay stored, not shown; PAN/PLAY on MIXER */
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {P_VOICE, P_GLIDE, PG_CGLD, P_DETUNE}},
-    {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {PG_BEND, 0xFF, 0xFF, 0xFF}},   /* PITCH in every mode */
+    {"PITCH", FAM_EDIT, SC_TRACK, GR_NONE, EDIT_SEC_VOX, {PG_BEND, 0xFF, 0xFF, 0xFF}},   /* bend in every mode */
 
     /* GLO: Master (SELECT: MASTER / CLOCK) → Song (CLICK / COUNT-IN / LEVEL: MENU > AUDIO) */
     {"MASTER", FAM_GLO, SC_GLOBAL, GR_NONE, GLO_SEC_MASTER, {G_CLIP, G_PUNCH, G_DUCK, G_DREL}},
@@ -838,7 +838,7 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         *valp = &MOD_ROW(TSEL, mod_ui_slot)[id - P_M1SRC];
         return track_desc(TSEL, id);
     }
-    /* VOICE page: SPRD in the last slot in POLY, UNI DTN in UNISON; MONO / LEG blank. VOICE 2: PITCH in every
+    /* VOICE page: SPRD in the last slot in POLY, UNI DTN in UNISON; MONO / LEG blank. The PITCH page: bend in every
      * mode (the bend card). SPRD = POLY / UNISON (fx.c mix_spread). */
     if (id == PG_BEND) {
         bend_card_tmp = (int16_t)clamp(midi_bend_card_cents(), BEND_DESC.min, BEND_DESC.max);
