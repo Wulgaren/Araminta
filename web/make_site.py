@@ -13,10 +13,10 @@
   web/make_site.py build/felucca-X.Y.fwsc X.Y OUT_DIR
 
 The package must be one made by tools/fm1pkg_make.py (Felucca's own loader, no vendor files).
-Its identity (FM-1_42xx for Araminta releases) is read from the package; the device must
-report it after the install. The installer's /*META*/ also pins the package's SHA-256
-(sha256), so the page rejects a truncated or altered download before it parses or derives
-an image.
+Its identity is read from the package (FM-1_42xx for releases, FM-1_9xx for a plain
+build); the device must report it after the install. The installer's /*META*/ also pins
+the package's SHA-256 (sha256), so the page rejects a truncated or altered download
+before it parses or derives an image.
 """
 import hashlib
 import json
@@ -45,8 +45,8 @@ def main(pkg, version, out):
     pkg, out = Path(pkg), Path(out)
     raw = pkg.read_bytes()
     product = product_of(raw)
-    if not re.fullmatch(r"FM-1_42\d\d", product):
-        raise SystemExit(f"{pkg}: identity {product!r} is not an Araminta release package (FM-1_42xx)")
+    if not re.fullmatch(r"FM-1_(?:9|42)\d\d", product):
+        raise SystemExit(f"{pkg}: identity {product!r} is not an Araminta package (FM-1_9xx / FM-1_42xx)")
     if b"FELUCCA-LOADER-1" not in raw:              # Felucca loader marker: never publish a package with vendor files
         raise SystemExit(f"{pkg}: no Felucca loader in it; the site ships only fm1pkg_make.py packages "
                          "(a package patched from an official one carries vendor files)")
