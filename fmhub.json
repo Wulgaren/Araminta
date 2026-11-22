@@ -1,0 +1,10 @@
+{
+  "what": "Synthesizer firmware for the M-VAVE FM-1. A Felucca 1.5.1 fork with free take, punch-ins, DRUM-X, 13 engines, and a chainable effects list.",
+  "author": "Wulgaren",
+  "kinds": ["groove"],
+  "play": "https://wulgaren.github.io/Araminta/webapp/try/",
+  "editor": "https://wulgaren.github.io/Araminta/webapp/editor/",
+  "image": "docs/card.png",
+  "color": "#2EC4B6",
+  "sounds": "CC0: Versilian Studios VSCO-2 and VCSL; public domain: Oramics CR-78 (Boxed Ear)"
+}
