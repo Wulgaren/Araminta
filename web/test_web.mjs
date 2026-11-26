@@ -1622,7 +1622,7 @@ async function editorMotionRows() {
   });
   R();
   ok(labels.join() === "DLY TIME,DLY FDBK,DLY COLOR,REV SIZE,REV DAMP" && inputs[0].value === 1486 &&
-     inputs[0].min === 1 && inputs[0].max === 1486 && inputs[1].max === 121 && inputs[2].min === 0 && inputs[2].max === 127,
+     inputs[0].min === 1 && inputs[0].max === 1486 && inputs[1].max === 122 && inputs[2].min === 0 && inputs[2].max === 127,
      "editor: FX motion rows use their own labels, ranges and exact TIME milliseconds");
   inputs[0].value = 1; await inputs[0].change();
   ok(requests[0].value.param === M.MFX_TIME && requests[0].value.value === 65 && pdesc[M.MFX_TIME].label === "SRC1" && pdesc[M.MFX_TIME].max === 10,

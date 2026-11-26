@@ -263,7 +263,7 @@ static void tech_dly(void)
         int32_t x = x0 + n * w / 7, bh = amp * h / 1000;
         uint16_t col = tone * n > 40 ? T_THEME : tone * n < -40 ? T_DIM : T_MID;
         cv_rect(x - 2, base - bh, 4, bh, col);
-        /* the delay's loop gain: FDBK 0..120 is 0 .. 0.84; INF is the limited 1.007 loop (fx.c) */
+        /* the delay's loop gain: FDBK 0..120 is 0 .. 0.84; INF holds, FBLP is the limited loop (fx.c) */
         amp = amp * fb / 32768;
     }
     if (song.playing && time > 0) {

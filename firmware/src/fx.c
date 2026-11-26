@@ -17,7 +17,7 @@ static const uint16_t REV_AP[2] = {556, 441};
 static struct {
     uint32_t dly_w;
     int32_t dly_lp, dly_le;          /* the low-pass and its rounding remainder (dly_process_late) */
-    int32_t dly_dc_x;                /* INF loop: the DC estimate its blocker subtracts */
+    int32_t dly_dc_x;                /* FBLP loop: the DC estimate its blocker subtracts */
     int32_t bus_d[CTL], bus_r[CTL];  /* the last block's sends (after perf_pre): this block's bus input (bus_take) */
     int16_t bus_g[5];                /* their DLY / REV settings as the matrix folded them (bus_g_swap) */
     uint8_t bus_g_ok;                /* bus_g holds a block's (0 before the first: the knobs as they are) */
@@ -1087,9 +1087,9 @@ static int fx_target_send(const track_t *t, uint32_t id)
  * the rest in (0.15 s: the same few cents that tail spends there). The first block after leaving RATE snaps
  * onto the loaded time. */
 #define DLY_K_NUM 151u                                 /* the pole per sample: 151 / 2^20 = 1.4400e-4 */
-/* FDBK INF: a loop a hair above unity, so it sings instead of freezing. A one-pole DC estimate removes
- * the offset the low-pass alone would hold; the clamp at DLY_LIM_CEIL is the limiter. */
-#define DLY_INF_GAIN 33000u                            /* 1.007: overcomes the line's losses */
+/* FDBK FBLP: a loop a hair above unity, so it sings instead of freezing. A one-pole DC estimate removes
+ * the offset the low-pass alone would hold; the clamp at DLY_LIM_CEIL is the limiter. INF above it is
+ * the plain unity hold. */
 #define DLY_LIM_CEIL 26000                             /* the limiter's ceiling, Q15 peak (~ -2 dBFS) */
 static uint32_t dly_q8;
 static uint8_t dly_free;                               /* the tap has snapped (first block / mode / division) */
@@ -1670,8 +1670,8 @@ static AUDIO_RAM __attribute__((noinline)) void dly_process_late(const int32_t *
 {
     uint32_t i, dl = AUDIO_FAR(delay_samples)();
     int32_t fbv = song.g[G_DFDBK];
-    int inf = fbv >= DFDBK_INF;
-    int32_t fb = inf ? (int32_t)DLY_INF_GAIN : fbv * 230;   /* INF: a hair over unity, the loop sings */
+    int fblp = fbv >= DFDBK_FBLP;
+    int32_t fb = fbv >= DFDBK_INF ? 32768 + ((fbv - DFDBK_INF) << 12) : fbv * 230;   /* FBLP 1.125 */
     int32_t col = 2000 + song.g[G_DCOLOR] * 240;
     int free_ms = dtime_free(), mode = free_ms ? 1 : 0;
 #if FX_GATE
@@ -1771,9 +1771,9 @@ static AUDIO_RAM __attribute__((noinline)) void dly_process_late(const int32_t *
             fx.dly_le = e & 32767;
             fx.dly_lp += e >> 15;
         }
-        {   /* the feedback: at INF a DC blocker, then a hard limiter, before it goes back into the line */
+        {   /* the feedback: at FBLP a DC blocker, then a hard limiter, before it goes back into the line */
             int32_t y = sh_tz(fx.dly_lp * fb, 15);
-            if (inf) {
+            if (fblp) {
                 int32_t dc = fx.dly_dc_x + ((y - fx.dly_dc_x) >> 8);   /* ~27 Hz */
                 fx.dly_dc_x = dc;
                 y = clamp(y - dc, -(int32_t)DLY_LIM_CEIL, (int32_t)DLY_LIM_CEIL);

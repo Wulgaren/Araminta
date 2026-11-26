@@ -20,8 +20,8 @@ static uint32_t buf_nonzero(void)
     return nz;
 }
 
-/* FDBK's last value (INF) is unity: a burst must not die out. */
-static void loop_case(void)
+/* FDBK's last steps: INF holds at unity, FBLP self-oscillates under its limiter. */
+static void loop_case(int fdbk, int32_t ceil, const char *what)
 {
     static int32_t in[CTL], out[CTL];
     uint32_t b, i, nb = 40u * (uint32_t)FS / CTL;
@@ -30,7 +30,7 @@ static void loop_case(void)
     memset(&fx, 0, sizeof fx);
     dly_free = 0;
     song.g[G_DTIME] = GP[G_DTIME].def;
-    song.g[G_DFDBK] = DFDBK_INF;
+    song.g[G_DFDBK] = (int16_t)fdbk;
     song.g[G_DCOLOR] = 70;
     for (b = 0; b < nb; b++) {
         for (i = 0; i < CTL; i++)
@@ -38,7 +38,7 @@ static void loop_case(void)
         AUDIO_FAR(dly_process_late)(in, out, CTL, 32768, 0);
     }
     if (!buf_nonzero()) {
-        printf("FAIL FDBK INF: the loop died out after %u s\n", (unsigned)(nb * CTL / FS));
+        printf("FAIL FDBK %s: the loop died out after %u s\n", what, (unsigned)(nb * CTL / FS));
         fails++;
     } else {
         int32_t peak = 0;
@@ -47,14 +47,14 @@ static void loop_case(void)
             if (p > peak)
                 peak = p;
         }
-        if (peak < 1000 || peak > (int32_t)DLY_LIM_CEIL) {
-            printf("FAIL FDBK INF: the loop's peak is %d (ceiling %u)\n", (int)peak, (unsigned)DLY_LIM_CEIL);
+        if (peak < 1000 || peak > ceil) {
+            printf("FAIL FDBK %s: the loop's peak is %d (ceiling %d)\n", what, (int)peak, (int)ceil);
             fails++;
         }
     }
 }
 
-/* the knob's last value and what it shows */
+/* the knob's last values and what they show */
 static void format_case(void)
 {
     char val[12];
@@ -64,9 +64,15 @@ static void format_case(void)
         printf("FAIL FDBK INF: shows \"%s %s\"\n", val, unit);
         fails++;
     }
+    param_format(&GP[G_DFDBK], DFDBK_FBLP, val, &unit);
+    if (!str_eq(val, "LOOP") || unit[0]) {
+        printf("FAIL FDBK LOOP: shows \"%s %s\"\n", val, unit);
+        fails++;
+    }
     if (param_turn(&GP[G_DFDBK], DFDBK_INF - 1, 1) != DFDBK_INF ||
-        param_turn(&GP[G_DFDBK], DFDBK_INF, 1) != DFDBK_INF) {
-        printf("FAIL FDBK INF: the knob does not stop on it\n");
+        param_turn(&GP[G_DFDBK], DFDBK_INF, 1) != DFDBK_FBLP ||
+        param_turn(&GP[G_DFDBK], DFDBK_FBLP, 1) != DFDBK_FBLP) {
+        printf("FAIL FDBK INF/FBLP: the knob does not step through them\n");
         fails++;
     }
 }
@@ -109,7 +115,8 @@ int main(void)
     static const int COLR[] = {0, 70, 127};
     static const int32_t AMP[] = {3, 20000, -20000};
     uint32_t f, c, a;
-    loop_case();
+    loop_case(DFDBK_INF, 32768, "INF");
+    loop_case(DFDBK_FBLP, (int32_t)DLY_LIM_CEIL, "LOOP");
     format_case();
     for (f = 0; f < 3u; f++)
         for (c = 0; c < 3u; c++)
@@ -121,6 +128,6 @@ int main(void)
         printf("%d delay tails did not reach zero\n", fails);
         return 1;
     }
-    printf("delay tails reach zero; INF sings under its limiter\n");
+    printf("delay tails reach zero; INF holds; LOOP sings under its limiter\n");
     return 0;
 }

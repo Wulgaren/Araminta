@@ -169,7 +169,8 @@ enum {                          /* global parameters */
                                    * leaves SPEED as the head's pitch; OFF slows the source clock with SPEED. */
     G_COUNT
 };
-#define DFDBK_INF 121                   /* G_DFDBK's last value: a limited, self-oscillating loop */
+#define DFDBK_INF 121                   /* G_DFDBK: unity feedback, the line holds for ever */
+#define DFDBK_FBLP 122                  /* .. and FBLP: the limited, self-oscillating loop */
 #define G_SYNC G_DREL                   /* (old names: formats' importers and their tests) */
 #define G_ENGGO G_CLIP
 #define G_DRLVL G_PUNCH

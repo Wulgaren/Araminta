@@ -100,8 +100,8 @@ PLAY OFF bypasses its playback.
 - `MFX_TSPEED` / `MFX_TWOW` are `P_TAPEMIX` / `P_LSMOOTH` numerically (41 / 42): TAPE SPEED and FLUTR. They
   reach `song.g[G_TSPEED]` / `[G_TWOW]` through `fx_target_ptr()`. `P_TAPEMIX` is otherwise unused;
   `P_LSMOOTH` keeps its LFO S&H smoothing meaning as a real parameter, but automation never used it.
-- They are normal motion targets: automation or locks, values TIME 65..1550, FDBK 0..121 (121 is INF,
-  a limited, self-oscillating loop), others 0..127,
+- They are normal motion targets: automation or locks, values TIME 65..1550, FDBK 0..122 (121 is INF,
+  the unity hold; 122 is LOOP, the limited loop), others 0..127,
   TAPE SPEED 25..400. `MOTION` / AUTOMATION use them; `SET` / `GET` on 49 edit the matrix's `SRC1`, a
   different parameter.
 - TAPE ownership: in CHAIN only the owner track may use SPEED / FLUTR; in MASTER every track may; in SEND the

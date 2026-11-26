@@ -925,8 +925,11 @@ function parseNotes(s) {
 function fmtValue(d, v) {
   const sign = (x) => (x > 0 ? "+" + x : String(x));
   switch (d.fmt) {
-    case F.PCT:   /* 0..100 (SWG): the value; the delay FDBK's last value is INF (unity feedback) */
-      if (d.label === "FDBK" && d.max === 121 && v >= d.max) return ["INF", ""];
+    case F.PCT:   /* 0..100 (SWG): the value; the delay FDBK's last steps are INF and LOOP */
+      if (d.label === "FDBK" && d.max === 122) {
+        if (v >= 122) return ["LOOP", ""];
+        if (v >= 121) return ["INF", ""];
+      }
       return [String(d.max === 100 ? v : Math.trunc((v * 100 + 63) / 127)), "%"];
     case F.BIPCT: return [sign(Math.trunc(v * 100 / 64)), "%"];
     case F.TIME: {
@@ -2089,7 +2092,7 @@ function makeMockDevice(opt = {}) {
   ];
   const GP = [
     D("BPM", F.BPM, 40, 240, 120), D("SWG", F.PCT, 0, 100, 0), E("CLK", ["INT", "USB", "TRS"], 0), D("TUNE", F.INT, -50, 50, 0),
-    E("TIME", [...NDIV, "1/8D", "1/16D", "1/4D"], 1), D("FDBK", F.PCT, 0, 121, 60), D("COLR", F.PCT, 0, 127, 70), D("SPEED", F.PCT, 25, 400, 100), /* G_TSPEED (was G_DMIX) */
+    E("TIME", [...NDIV, "1/8D", "1/16D", "1/4D"], 1), D("FDBK", F.PCT, 0, 122, 60), D("COLR", F.PCT, 0, 127, 70), D("SPEED", F.PCT, 25, 400, 100), /* G_TSPEED (was G_DMIX) */
     D("SIZE", F.PCT, 0, 127, 90), D("DAMP", F.PCT, 0, 127, 60), D("DLYOWN", F.INT, 0, 4, 0), D("REVOWN", F.INT, 0, 4, 0),
     D("FLUTR", F.PCT, 0, 127, 0), D("REL", F.PCT, 0, 100, 30), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], 1), E("DROP", NONOFF, 0),
     D("SLOT", F.INT, 1, 4, 1), E("NAME", NDASH, 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
@@ -4223,7 +4226,7 @@ function renderMotion() {
       const desc = e.param === MFX_TSPEED ? {label: "TAPE SPEED", min: 25, max: 400}
         : e.param === MFX_TWOW ? {label: "TAPE FLUTR", min: 0, max: 127}
         : pitch ? {label: "PITCH", min: -24, max: 24} : bend ? {label: "BEND", min: -32, max: 32} : fx ? {label: ["DLY TIME", "DLY FDBK", "DLY COLOR", "REV SIZE", "REV DAMP"][e.param - MFX_TIME],
-        min: time ? 1 : 0, max: time ? 1486 : e.param === MFX_TIME + 1 ? 121 : 127} : d.pdesc[e.param];
+        min: time ? 1 : 0, max: time ? 1486 : e.param === MFX_TIME + 1 ? 122 : 127} : d.pdesc[e.param];
       const label = desc?.label || `P${e.param}`;
       const value = el("input", {type:"number",min:bend ? -200 : desc?.min ?? -8192,max:bend ? 200 : desc?.max ?? 8191,value:bend ? Math.round(e.value * 25 / 4) : e.value - (time ? 64 : 0),"aria-label":`${e.step + 1} ${label}`});
       value.addEventListener("change", () => op(async () => {

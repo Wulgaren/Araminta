@@ -118,7 +118,7 @@ static int motion_valid(const motion_store_t *m)
         } else if (id == MFX_TWOW) {
             if (e->value < 0 || e->value > 127) return 0;
         } else if (MFX_PARAM(id)) {
-            if (e->value < 0 || e->value > (id == MFX_FB ? DFDBK_INF : 127)) return 0;
+            if (e->value < 0 || e->value > (id == MFX_FB ? DFDBK_FBLP : 127)) return 0;
         } else if (e->value < -64 || e->value > 127) return 0;
         for (j = 0; j < i; j++)
             if (m->event[j].place == e->place && MOTION_ID(&m->event[j]) == MOTION_ID(e)) return 0;
