@@ -104,6 +104,10 @@ PLAY OFF bypasses its playback.
   the unity hold; 122 is LOOP, the limited loop), others 0..127,
   TAPE SPEED 25..400. `MOTION` / AUTOMATION use them; `SET` / `GET` on 49 edit the matrix's `SRC1`, a
   different parameter.
+- The **modulation matrix** stops short of FDBK's last two steps: a slot on `MD_DFB` reaches 0..120
+  (`DFDBK_MODMAX`), so a modulation cannot put the delay into its INF or LOOP hold. A knob already turned
+  to 121 / 122 keeps its value (the matrix only moves it down from there), and motion / locks above still
+  reach them.
 - TAPE ownership: in CHAIN only the owner track may use SPEED / FLUTR; in MASTER every track may; in SEND the
   first track to claim one keeps it (the shared-knob rule). The value sounds from the next audio block.
 - On disk, a DLY TIME value above 255 uses ids 54..59 for its high byte (`MFX_DAMP + (value >> 8)`); 54..59

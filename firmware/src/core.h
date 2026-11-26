@@ -171,6 +171,8 @@ enum {                          /* global parameters */
 };
 #define DFDBK_INF 121                   /* G_DFDBK: unity feedback, the line holds for ever */
 #define DFDBK_FBLP 122                  /* .. and FBLP: the limited, self-oscillating loop */
+#define DFDBK_MODMAX 120                /* the MOD matrix's top for FDBK: INF / LOOP are the knob's, not a target
+                                         * (mod.c mod_begin: a full modulation reaches 120, never the two above) */
 #define G_SYNC G_DREL                   /* (old names: formats' importers and their tests) */
 #define G_ENGGO G_CLIP
 #define G_DRLVL G_PUNCH

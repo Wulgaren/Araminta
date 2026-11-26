@@ -29,7 +29,8 @@
  *            and the VEL source reads the scaled value afterwards
  *   per track, once per block: PAN, DIST CHO DLY REV (the sends), RATE (LFO rate), VIB (LFO DEST PIT, the
  *     vibrato depth), E1..E8 (the engine's parameters P_E0..P_E7, named by the engine): AMT 64 at a full
- *     source = the parameter's whole range; the sum is clamped to its range
+ *     source = the parameter's whole range; the sum is clamped to its range. FDBK's INF and LOOP steps are the
+ *     knob's: a modulation tops at 120 (DFDBK_MODMAX), and a knob parked above keeps its value
  *   DEPTH (#132, per track): the depth of the track LFO, a gain <= 1 on it as AMP is on the voice (AMT > 0 the source
  *     opens it, AMT 64: none at 0, full at 1; AMT < 0 closes it; several DEPTH slots multiply): it scales the LFO
  *     wherever it goes, the four LFO DEST routings and the matrix's LFO source (not S&H / SLEW). With RATE (the LFO's
@@ -330,6 +331,11 @@ static __attribute__((noinline)) int32_t mod_value(const track_t *t, uint32_t id
     return clamp(v, TP[id].min, TP[id].max);
 }
 
+/* The top a modulation may reach: FDBK's INF and LOOP (the knob's, above DFDBK_MODMAX) are not targets. */
+static inline int32_t mod_top(uint32_t id, const param_desc_t *pd)
+{
+    return id == MFX_FB && pd->max > DFDBK_MODMAX ? DFDBK_MODMAX : pd->max;
+}
 /* before a part's block (fx.c mix_part): the per-track offsets, the per-block destinations into t->p
  * (or the part's copy of fx_bus_trk / song.g via mod_target_ptr: two cores render parts at once). 0 = no
  * slot active (then nothing changed) */
@@ -411,14 +417,18 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
                 off[j] = 0;
                 mw->nk++;
             }
-            off[j] += (((x * a) >> 6) * (pd->max - pd->min)) >> 15;
+            off[j] += (((x * a) >> 6) * (mod_top(id, pd) - pd->min)) >> 15;
         }
     }
     for (j = 0; j < mw->nk; j++) {
         uint32_t id = mw->kid[j];
         const param_desc_t *pd = desc[j];
         int32_t base = id == MFX_TIME && mw->keep[j] < pd->min ? fx_time_value(mw->keep[j]) : mw->keep[j];
-        *target[j] = (int16_t)clamp(base + off[j], pd->min, pd->max);
+        /* FDBK's top two steps are the knob's alone: INF and LOOP hold the line for ever, which is a state to turn
+         * to, not one a modulation reaches (core.h DFDBK_MODMAX). A knob parked there keeps its value: the ceiling
+         * never drops below the stored one, so a positive source cannot pull it down */
+        int32_t top = mod_top(id, pd);
+        *target[j] = (int16_t)clamp(base + off[j], pd->min, base > top ? base : top);
     }
     return 1;
 }
