@@ -40,6 +40,17 @@ static void loop_case(void)
     if (!buf_nonzero()) {
         printf("FAIL FDBK INF: the loop died out after %u s\n", (unsigned)(nb * CTL / FS));
         fails++;
+    } else {
+        int32_t peak = 0;
+        for (i = 0; i < DLY_LEN; i++) {
+            int32_t p = dly_buf[i] < 0 ? -(int32_t)dly_buf[i] : dly_buf[i];
+            if (p > peak)
+                peak = p;
+        }
+        if (peak < 1000 || peak > (int32_t)DLY_LIM_CEIL + 2000) {
+            printf("FAIL FDBK INF: the loop's peak is %d (ceiling %u)\n", (int)peak, (unsigned)DLY_LIM_CEIL);
+            fails++;
+        }
     }
 }
 
@@ -110,6 +121,6 @@ int main(void)
         printf("%d delay tails did not reach zero\n", fails);
         return 1;
     }
-    printf("delay tails reach zero; INF holds\n");
+    printf("delay tails reach zero; INF sings under its limiter\n");
     return 0;
 }

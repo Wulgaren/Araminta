@@ -17,6 +17,9 @@ static const uint16_t REV_AP[2] = {556, 441};
 static struct {
     uint32_t dly_w;
     int32_t dly_lp, dly_le;          /* the low-pass and its rounding remainder (dly_process_late) */
+    int32_t dly_dc_x, dly_dc_y;      /* INF loop: the DC blocker's input and output */
+    int32_t dly_lim_g;               /* INF loop: the limiter's gain, Q15 */
+    uint8_t dly_inf;                 /* the last block was the INF loop (its state starts there) */
     int32_t bus_d[CTL], bus_r[CTL];  /* the last block's sends (after perf_pre): this block's bus input (bus_take) */
     int16_t bus_g[5];                /* their DLY / REV settings as the matrix folded them (bus_g_swap) */
     uint8_t bus_g_ok;                /* bus_g holds a block's (0 before the first: the knobs as they are) */
@@ -1086,6 +1089,13 @@ static int fx_target_send(const track_t *t, uint32_t id)
  * the rest in (0.15 s: the same few cents that tail spends there). The first block after leaving RATE snaps
  * onto the loaded time. */
 #define DLY_K_NUM 151u                                 /* the pole per sample: 151 / 2^20 = 1.4400e-4 */
+/* FDBK INF: a loop a hair above unity, so it sings instead of freezing, with a DC blocker (the low-pass
+ * alone would hold an offset) and a peak limiter (gain walks down on a peak, back up slowly). */
+#define DLY_INF_GAIN 33000u                            /* 1.007: overcomes the line's losses */
+#define DLY_DC_R 32698                                 /* the DC blocker's pole (0.998: about 14 Hz) */
+#define DLY_LIM_CEIL 26000                             /* the limiter's ceiling, Q15 peak (~ -2 dBFS) */
+#define DLY_LIM_DN 128                                 /* attack: gain units a sample (full to the ceiling ~1.2 ms) */
+#define DLY_LIM_UP 2                                   /* release: gain units a sample (~77 ms back to unity) */
 static uint32_t dly_q8;
 static uint8_t dly_free;                               /* the tap has snapped (first block / mode / division) */
 static uint8_t dly_rate;                               /* the read tap's mode: 0 the division, 1 free ms */
@@ -1665,7 +1675,8 @@ static AUDIO_RAM __attribute__((noinline)) void dly_process_late(const int32_t *
 {
     uint32_t i, dl = AUDIO_FAR(delay_samples)();
     int32_t fbv = song.g[G_DFDBK];
-    int32_t fb = fbv >= DFDBK_INF ? 32768 : fbv * 230;   /* INF: unity, the loop holds for ever */
+    int inf = fbv >= DFDBK_INF;
+    int32_t fb = inf ? (int32_t)DLY_INF_GAIN : fbv * 230;   /* INF: a hair over unity, the loop sings */
     int32_t col = 2000 + song.g[G_DCOLOR] * 240;
     int free_ms = dtime_free(), mode = free_ms ? 1 : 0;
 #if FX_GATE
@@ -1699,6 +1710,11 @@ static AUDIO_RAM __attribute__((noinline)) void dly_process_late(const int32_t *
     } else {
         dly_gain = 32768;                               /* free-ms: the one-pole glide, no fade */
         dly_fade_dir = 0;
+    }
+    if (inf != fx.dly_inf) {                            /* entering or leaving the loop: clean state */
+        fx.dly_inf = (uint8_t)inf;
+        fx.dly_dc_x = fx.dly_dc_y = 0;
+        fx.dly_lim_g = 32768;
     }
     dly_rate = (uint8_t)mode;
     dly_rate_div = song.g[G_DTIME];
@@ -1765,20 +1781,39 @@ static AUDIO_RAM __attribute__((noinline)) void dly_process_late(const int32_t *
             fx.dly_le = e & 32767;
             fx.dly_lp += e >> 15;
         }
-        if (!late) {
-            int16_t v = (int16_t)clamp((in[i] >> 1) + sh_tz(fx.dly_lp * fb, 15), -32768, 32767);
-            dly_buf[fx.dly_w & (DLY_LEN - 1u)] = v;
+        {   /* the feedback: at INF a DC blocker, then a peak limiter, before it goes back into the line */
+            int32_t y = sh_tz(fx.dly_lp * fb, 15);
+            if (inf) {
+                int32_t d = y - fx.dly_dc_x + ((fx.dly_dc_y * (int32_t)DLY_DC_R) >> 15);
+                int32_t a, g;
+                fx.dly_dc_x = y;
+                d = clamp(d, -32768, 32767);
+                fx.dly_dc_y = d;
+                a = d < 0 ? -d : d;
+                g = fx.dly_lim_g;
+                if (((a * g) >> 15) > (int32_t)DLY_LIM_CEIL)
+                    g -= (int32_t)DLY_LIM_DN;
+                else
+                    g += (int32_t)DLY_LIM_UP;
+                g = clamp(g, 0, 32768);
+                fx.dly_lim_g = g;
+                y = (d * g) >> 15;
+            }
+            if (!late) {
+                int16_t v = (int16_t)clamp((in[i] >> 1) + y, -32768, 32767);
+                dly_buf[fx.dly_w & (DLY_LEN - 1u)] = v;
 #if FX_GATE
-            wz |= v | in[i];
+                wz |= v | in[i];
 #endif
-        } else {
-            int16_t *p = &dly_buf[(fx.dly_w - late) & (DLY_LEN - 1u)];
-            int16_t v = (int16_t)clamp(sh_tz(fx.dly_lp * fb, 15), -32768, 32767);
-            dly_buf[fx.dly_w & (DLY_LEN - 1u)] = v;
+            } else {
+                int16_t *p = &dly_buf[(fx.dly_w - late) & (DLY_LEN - 1u)];
+                int16_t v = (int16_t)clamp(y, -32768, 32767);
+                dly_buf[fx.dly_w & (DLY_LEN - 1u)] = v;
 #if FX_GATE
-            wz |= v | in[i];
+                wz |= v | in[i];
 #endif
-            *p = (int16_t)clamp(*p + (in[i] >> 1), -32768, 32767);
+                *p = (int16_t)clamp(*p + (in[i] >> 1), -32768, 32767);
+            }
         }
         fx.dly_w++;
         out[i] = mulq15(x * 2, wet_q15);
