@@ -254,7 +254,8 @@ static void tech_chor(const track_t *t)
 /* DLY: echoes as an impulse train */
 static void tech_dly(void)
 {
-    int32_t time = (int32_t)delay_samples(), fb = song.g[G_DFDBK], amp = TSEL->p[P_DLY] * 1000 / 127, n;
+    int32_t time = (int32_t)delay_samples(), fbv = song.g[G_DFDBK], amp = TSEL->p[P_DLY] * 1000 / 127, n;
+    int32_t fb = fbv >= DFDBK_INF ? 32768 : fbv * 230;
     int32_t x0 = TK_X0 + 6, w = PANEL_W - 12, base = TK_Y1 - 4, h = 88, tone = song.g[G_DCOLOR] - 64;
     tk_axes(x0, TK_Y0, x0 + w, base);
     cv_rect(x0, base - h, 3, h, T_TEXT);
@@ -262,8 +263,8 @@ static void tech_dly(void)
         int32_t x = x0 + n * w / 7, bh = amp * h / 1000;
         uint16_t col = tone * n > 40 ? T_THEME : tone * n < -40 ? T_DIM : T_MID;
         cv_rect(x - 2, base - bh, 4, bh, col);
-        /* the delay's loop gain: FDBK 0..120 is 0 .. 0.84 (fx.c dly_process), not 0 .. 1 */
-        amp = amp * fb * 230 / 32768;
+        /* the delay's loop gain: FDBK 0..120 is 0 .. 0.84 and INF is 1.0 (fx.c dly_process) */
+        amp = amp * fb / 32768;
     }
     if (song.playing && time > 0) {
         uint32_t span = (uint32_t)time * 7u / ((uint32_t)FS / 1000u);

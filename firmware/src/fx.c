@@ -1664,7 +1664,9 @@ static AUDIO_RAM __attribute__((noinline)) void dly_process_late(const int32_t *
                                                                 int32_t wet_q15, uint32_t late)
 {
     uint32_t i, dl = AUDIO_FAR(delay_samples)();
-    int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
+    int32_t fbv = song.g[G_DFDBK];
+    int32_t fb = fbv >= DFDBK_INF ? 32768 : fbv * 230;   /* INF: unity, the loop holds for ever */
+    int32_t col = 2000 + song.g[G_DCOLOR] * 240;
     int free_ms = dtime_free(), mode = free_ms ? 1 : 0;
 #if FX_GATE
     int32_t wz = 0;                                     /* OR of this block's input and head writes */

@@ -542,7 +542,7 @@ static int fun21_full_motion(void)
     for (i = 0; i < MOTION_MAX; i++) {
         saved.motion.event[i].place = (uint8_t)i;
         saved.motion.event[i].param = (uint8_t)(MFX_FB | (i & 1u ? MOTION_LOCK : 0u));
-        saved.motion.event[i].value = (int16_t)(i % 100u);   /* MFX_FB: 0..120 */
+        saved.motion.event[i].value = (int16_t)(i % 100u);   /* MFX_FB: 0..121 (121 INF) */
     }
     saved.lane[0] = 1u << 0 | 1u << 4 | 1u << 14;      /* REPEAT 1/8 + LPF + OCT- on one step */
     saved.lane[63] = 0x07FFFFFFu;                       /* every effect */

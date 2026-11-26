@@ -801,7 +801,7 @@ static void test_fx_controls(void)
 {
     static const uint8_t GLOBAL[] = {G_DTIME, G_DFDBK, G_DCOLOR, G_RSIZE, G_RDAMP};
     static const int16_t BASE[] = {564, 40, 30, 20, 10};
-    static const int16_t TOP[] = {1550, 120, 127, 127, 127};
+    static const int16_t TOP[] = {1550, DFDBK_INF, 127, 127, 127};
     uint32_t chain, k;
     for (chain = 0; chain < 2; chain++) {
         host_tracks_init();
@@ -845,7 +845,7 @@ static void test_all_shared_controls(void)
     static const uint8_t DEST[] = {MD_DTIME, MD_DFB, MD_DCOLOR, MD_RSIZE, MD_RDAMP, MD_TSPEED, MD_TWOW};
     static const uint8_t GLOBAL[] = {G_DTIME, G_DFDBK, G_DCOLOR, G_RSIZE, G_RDAMP, G_TSPEED, G_TWOW};
     static const int16_t BASE[] = {564, 40, 30, 20, 10, 100, 0};
-    static const int16_t TOP[] = {1550, 120, 127, 127, 127, 400, 125};
+    static const int16_t TOP[] = {1550, DFDBK_INF, 127, 127, 127, 400, 125};
     uint32_t i, k;
     host_tracks_init();
     song.g[G_TAPEMODE] = TAPE_MASTER;

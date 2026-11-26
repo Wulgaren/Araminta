@@ -20,6 +20,46 @@ static uint32_t buf_nonzero(void)
     return nz;
 }
 
+/* FDBK's last value (INF) is unity: a burst must not die out. */
+static void loop_case(void)
+{
+    static int32_t in[CTL], out[CTL];
+    uint32_t b, i, nb = 40u * (uint32_t)FS / CTL;
+    host_tracks_init();
+    memset(dly_buf, 0, sizeof dly_buf);
+    memset(&fx, 0, sizeof fx);
+    dly_free = 0;
+    song.g[G_DTIME] = GP[G_DTIME].def;
+    song.g[G_DFDBK] = DFDBK_INF;
+    song.g[G_DCOLOR] = 70;
+    for (b = 0; b < nb; b++) {
+        for (i = 0; i < CTL; i++)
+            in[i] = b == 0u ? 12000 : 0;
+        AUDIO_FAR(dly_process_late)(in, out, CTL, 32768, 0);
+    }
+    if (!buf_nonzero()) {
+        printf("FAIL FDBK INF: the loop died out after %u s\n", (unsigned)(nb * CTL / FS));
+        fails++;
+    }
+}
+
+/* the knob's last value and what it shows */
+static void format_case(void)
+{
+    char val[12];
+    const char *unit;
+    param_format(&GP[G_DFDBK], DFDBK_INF, val, &unit);
+    if (!str_eq(val, "INF") || unit[0]) {
+        printf("FAIL FDBK INF: shows \"%s %s\"\n", val, unit);
+        fails++;
+    }
+    if (param_turn(&GP[G_DFDBK], DFDBK_INF - 1, 1) != DFDBK_INF ||
+        param_turn(&GP[G_DFDBK], DFDBK_INF, 1) != DFDBK_INF) {
+        printf("FAIL FDBK INF: the knob does not stop on it\n");
+        fails++;
+    }
+}
+
 /* one burst block of `amp` (both signs), then `sec` seconds of silence; late: the send bus's latency */
 static void decay_case(int fdbk, int color, int32_t amp, uint32_t late, uint32_t sec)
 {
@@ -58,6 +98,8 @@ int main(void)
     static const int COLR[] = {0, 70, 127};
     static const int32_t AMP[] = {3, 20000, -20000};
     uint32_t f, c, a;
+    loop_case();
+    format_case();
     for (f = 0; f < 3u; f++)
         for (c = 0; c < 3u; c++)
             for (a = 0; a < 3u; a++) {
@@ -68,6 +110,6 @@ int main(void)
         printf("%d delay tails did not reach zero\n", fails);
         return 1;
     }
-    printf("delay tails reach zero\n");
+    printf("delay tails reach zero; INF holds\n");
     return 0;
 }

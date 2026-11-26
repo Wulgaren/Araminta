@@ -223,7 +223,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_CLOCK] = PE("CLK", N_CLOCK, 0),
     [G_TUNE] = PD("TUNE", F_INT, -50, 50, 0),     /* cents; edited on MENU > AUDIO TUNE (1.2: menu_items.c MI_TUNE) */
     [G_DTIME] = PE("TIME", N_DTIME, 1),   /* 0..12 divisions. Free ms is DTIME_FREE+ms in the same word (fx.c) */
-    [G_DFDBK] = PD("FDBK", F_PCT, 0, 120, 60),
+    [G_DFDBK] = PD("FDBK", F_PCT, 0, DFDBK_INF, 60),   /* the last value is INF (unity feedback) */
     [G_DCOLOR] = PD("COLR", F_PCT, 0, 127, 70),
     [G_TSPEED] = PD("SPEED", F_PCT, 25, 400, 100), /* EFFECTS TAPE speed % (was G_DMIX, retired return gain) */
     [G_RSIZE] = PD("SIZE", F_PCT, 0, 127, 90),   /* 127: CLOUD FREEZE (the tail is held, no new grains) */
@@ -488,6 +488,10 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
     fmt_named = d->fmt == F_ENUM;
     switch (d->fmt) {
     case F_PCT:                                     /* a 0..100 range (SWG) is its value, others a share of 127 */
+        if (d == &GP[G_DFDBK] && v >= DFDBK_INF) {  /* the delay's last FDBK: unity, no % */
+            str_cpy(val, "INF", 6);
+            break;
+        }
         fmt_int(val, d->max == 100 ? v : (v * 100 + 63) / 127);
         *unit = "%";
         break;
