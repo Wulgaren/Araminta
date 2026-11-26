@@ -47,7 +47,7 @@ static void loop_case(void)
             if (p > peak)
                 peak = p;
         }
-        if (peak < 1000 || peak > (int32_t)DLY_LIM_CEIL + 2000) {
+        if (peak < 1000 || peak > (int32_t)DLY_LIM_CEIL) {
             printf("FAIL FDBK INF: the loop's peak is %d (ceiling %u)\n", (int)peak, (unsigned)DLY_LIM_CEIL);
             fails++;
         }
