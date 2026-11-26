@@ -1,5 +1,95 @@
 # Changelog
 
+## 4.9
+
+The delay's FDBK reaches INF and LOOP, the drum audition leaves the rest of the kit alone, and a note's pitch
+bend records into the automation lane.
+
+Splash and ABOUT show `v4.9`.
+
+### Delay
+
+- **FDBK gains two steps above 120: INF and LOOP.** FDBK was 0..120, a loop gain of 0..0.84. 121 is INF, a plain
+  unity loop, so the repeats hold for ever. 122 is LOOP, the loop at 1.125, where a one-pole DC estimate (about
+  27 Hz) keeps it off an offset and a hard clamp at -2 dBFS bounds it: it sings instead of freezing. Both read
+  `INF` and `LOOP` on the DELAY page and in the web editor, not as a percentage.
+- **The matrix stops at 120.** A slot on `MD_DFB` reaches 0..120, so a full modulation cannot park the delay in
+  either hold. A knob already turned to 121 or 122 keeps its value; only a negative source moves it down. Motion
+  and step locks still reach 0..122.
+- **The tech view draws the real loop gain.** Above 120 it draws unity or the LOOP step's gain instead of the
+  0..0.84 range.
+
+### Automation
+
+- **BEND.** The PITCH card records as you turn it, while REC is armed on the selected track: one event at the
+  nearest step, in 1/16 semitones. Playback adds it to the live bend, so the wheel and a recorded bend share one
+  path. AUTOMATION lists a BEND row in cents. It is automation-only and never a lock, and a kit track has no BEND
+  lane. The editor finds it through INFO `59 01 1`.
+- **Compatibility.** A project saved before this marks nothing, so id 61 there is still FM1 ATK and every
+  id-61 record is dropped on load. A project from 4.9 sets header bit 4 and keeps its bend events.
+
+### DRUM-X
+
+- **F# G# A# audition one sound, not the kit.** The three keys used to force the morph on every hit, so
+  auditioning changed all eight lanes at once. The choice now carries the lane it is for, and only the edited
+  sound plays that side. The rest of the kit keeps its MRPH.
+- **The keys follow the sound being edited.** The LANE knob, a struck pad and a page change all take the side
+  with them, and EDIT 1 / 2 no longer audition: MRPH is KNOB 1 there, so F# was only a slower way to turn it.
+
+### CLEAR
+
+- **G5 CLR works without FX LATCH.** A press zeroes FILTER, CRUSH, THROW and DEPTH along with the latched effects,
+  so the macros cannot stay on a layer with nothing lit.
+- **ALL4 resets the whole chord and scale group.** ROOT, SCALE, MAP, TRN, CHRD and VOIC go to their defaults on
+  every track, as the keys play them. The sound reload skipped CHRD and VOIC, so those two never came back
+  before.
+
+### UI
+
+- **VOICE's second page is PITCH**, not `VOICE 2`.
+- **SCL's footer reads SCALE.** The page was already SCL, so this names the group once.
+
+### CPU
+
+- **The busiest PHYS store costs less.** `drum_render`, `mix_split`, `bus_run` and `c1_parts` run from RAM now,
+  and that is where the PHYS sweep spends its misses. Device timed on pads 0..2 of the flash layout with JieLi's
+  toolchain, `busy_phys` falls from 66.8 to 64.8 % CPU and from 209.3 to 180.3 misses a half. `psy_phys` reads
+  72.7 to 72.3 % and `psy_stack_p1_lfo` 76.2 to 77.0 %; both sit inside the pad-to-pad spread, so the sweep's
+  medians and ranges are what to compare. The page-2 punch helpers leave RAM for the flash hot block, and the
+  formant helper stays in RAM.
+
+### Memory
+
+- **RAMTEXT grows 2 KiB to 0x8E00.** `.bss` drops from 67,792 to 65,584 B and the image grows 1,024 B to
+  583,952 B, 64 B under the app slot.
+- **`--gc-sections` on the app link**, so the out-of-line copies the compiler leaves where it inlined a function
+  are dropped. The flash hot block is `KEEP()`'d, and the build still fails if a listed function goes missing.
+  The layout sweep's pad is `KEEP()`'d too: with nothing calling it, the link would drop it and every pad would
+  build the same image.
+- **The open-toolchain size estimate is 1.0241** (was 1.025): measured open 570,196 B to JieLi 583,920 B on this
+  tree.
+
+### Build
+
+- **Releases carry the FM-1_42XY identity** (FM-1_4249 here, where 4.8 was FM-1_948). Release packages use that
+  range so The Firmware Hub can list Araminta without sharing Felucca's FM-1_9xx range; plain builds stay
+  FM-1_900. `fmhub.json` and the card art travel with the listing.
+
+### Tests
+
+- **Combinatorial laws.** `tests/laws_test.c` exercises every axis at its corner values (matrix, engines, FX, LFO
+  DEST, locks, punch) with structural checks, plus a host cost-against-the-half law and a click law. Run it with
+  `tests/run_one.sh laws`.
+- **Device-timed covering.** `emu_test --batch` measures a file of project cases in one boot, and
+  `tests/laws_emu.sh` runs covering bins in parallel against late budgets. `tests/run_one.sh laws-emu`.
+- **Windows.** The suite falls back to `ps -f` where `ps` has no `-A` / `-o` (MSYS2), and the web and
+  PHYS-reference units run there too.
+
+### Known limit
+
+- **`tests/layout_sweep.sh` runs pads 0..2.** The image is 64 B under the app slot, and pads 3 and up push the
+  pad's stores past the XIP region, so they no longer link. Judge a change on the pads that fit, or trim first.
+
 ## 4.8
 
 More of the audio path runs from RAM, punch-in keeps its place when the song clock moves, and the editor

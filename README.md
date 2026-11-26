@@ -28,13 +28,13 @@ stock.
   [Coming from Felucca 1.5](#coming-from-felucca-15).
 - **From an older Araminta:** install over it. Your data stays.
 
-## New in 4.8
+## New in 4.9
 
-- **More of the render runs from RAM.** The hot tables, FM6's core, drum bus, and the punch / duck setup
-  leave the flash cache; PHYS-heavy loads drop several CPU points and shed fewer voices.
-- **Punch-in keeps its step when the song clock moves.** TAPE SPEED and a moving 1/16 no longer restart the
-  lane every block (the PSYCHODELIA K3 MASTER crackle).
-- **ENV DEST matches LFO DEST** on the panel and in the web editor's grouped pages.
+- **The delay's FDBK tops out at INF and LOOP.** Turn past the last percentage for a unity hold that never dies,
+  or a limited loop that sings. The matrix stops short of both.
+- **The pitch bend records.** With REC armed, the PITCH card writes into the automation lane in 1/16 semitones.
+- **F# G# A# audition one sound.** On a DRUM-X track's SOUND, TONE and MOVEMENT pages the three keys now change
+  only the sound being edited; the rest of the kit keeps its MRPH.
 
 Full notes: [CHANGELOG.md](CHANGELOG.md).
 

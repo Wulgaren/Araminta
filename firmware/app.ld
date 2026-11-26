@@ -18,8 +18,8 @@
  * fetches in the same half; how many hot lines a set holds (what a footprint or a sort by miss count sees) does not
  * predict that set's misses, only whether those lines run in the same stretch. The order below was searched by
  * replaying the emulator's XIP access trace through the cache, then building and measuring each candidate, with the
- * entry count and the block's size kept fixed so the flash outside it keeps its sets. Four of those entries now run
- * from .hot_text (RAMTEXT above), so the list holds 82. Reordering again moves every measurement; compare two orders
+ * entry count and the block's size kept fixed so the flash outside it keeps its sets. Entries that now run from
+ * .hot_text (RAMTEXT above) leave the list: the list holds 84. Reordering again moves every measurement; compare two orders
  * with tests/layout_sweep.sh and the medians, not one build (docs/fm1-emu-test.md).
  * RAM  : .data/.bss (~68 KiB after RAMTEXT 0x8E00): what the audio and key-scan interrupts touch, small variables
  * POOL : big zero-initialised buffers (FX lines, canvases, the parts' engine memory, the main loop's work
@@ -59,6 +59,10 @@ SECTIONS
         KEEP(*(.text.seq_step))         KEEP(*(.text.trk_note_on))         KEEP(*(.text.bus_g_swap))         KEEP(*(.text.memcpy))         KEEP(*(.text.fx_order_ok))
         KEEP(*(.text.solo_mask))         KEEP(*(.text.ins_stage))
         _flash_hot_end = .;
+        /* tests/layout_sweep.sh's pad (perform.c, FELUCCA_LAYOUT_PAD): no call reaches it, so --gc-sections would
+         * drop it and every pad would build the same image. It appears only in a pad build; the pattern matches
+         * nothing otherwise */
+        KEEP(*(.text.layout_pad))
         *(.rodata*) *(.text*) . = ALIGN(4); _etext = .;
     } > XIP
     .ram_text : { _rt_start = .; KEEP(*(.ram_text*)) . = ALIGN(4); _rt_end = .; } > RAMTEXT AT > XIP
