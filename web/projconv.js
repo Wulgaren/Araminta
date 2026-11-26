@@ -819,7 +819,7 @@ function checkMotion(m) {
     } else if (id === MFX_TWOW) {
       if (e.value < 0 || e.value > 127) throw new Error("Invalid project motion value");
     } else if (id >= MFX_TIME && id <= MFX_DAMP) {
-      if (e.value < 0 || e.value > (id === MFX_FB ? 120 : 127)) throw new Error("Invalid project motion value");
+      if (e.value < 0 || e.value > (id === MFX_FB ? 121 : 127)) throw new Error("Invalid project motion value");
     } else if (e.value < -64 || e.value > 127) throw new Error("Invalid project motion value");
     const key = e.place * 128 + id;
     if (seen.has(key)) throw new Error("Invalid project motion record");
