@@ -390,8 +390,10 @@ static void ui_leds(void)
     led_put(nb, panel.btn[B_OCTUP], (int)(k & OCT_BREATH));
     led_put(nb, panel.btn[B_OCTDN], (k & OCT_BREATH_DN) != 0u);
     c = key_leds(&br);
-    if (dx_keys_on())                                   /* the kit's audition keys: the side playing lit (F# A, G# */
-        c |= 1u << (kit_audition == 0u ? 1u : kit_audition == 127u ? 5u : 3u);   /* MRPH, A# B) */
+    if (dx_keys_on()) {                                 /* the kit's audition keys: the side playing lit, F# A, */
+        uint32_t side = kit_audition == KIT_AUD_KIT ? 3u : kit_aud_side(kit_audition) ? 5u : 1u;
+        c |= 1u << side;                                /* G# the kit's MRPH, A# B */
+    }
     g = !keys_map ? 0u : grid_on() && !ui.layer && !name_on() ? grid_glow() : 0u;   /* (key_leds: the grid's map) */
     /* the grid's empty beat starts, brighter than the glow; a kit track's pages glow its eight pads (core.h KIT_KEYS)
      * so the kit can be found without playing it */
@@ -2225,7 +2227,7 @@ static void ui_input(void)
     }
     song.grid = (uint8_t)keys_mode();                 /* (seq.c: the keys are the grid's) */
     lock_keys();                                        /* (a grid key on a hit let go: the hit goes) */
-    if (!dx_keys_on())                                  /* off the kit's EDIT pages: the kit plays its MRPH */
+    if (!dx_keys_on())                                  /* off the sound's pages: the kit plays its MRPH */
         kit_audition = KIT_AUD_KIT;
     if (song.grid == 3u) {
         song_keys(notes);
@@ -2233,11 +2235,11 @@ static void ui_input(void)
         grid_keys(notes);
     } else if (dx_keys_on() && (notes & ((1u << 1) | (1u << 3) | (1u << 5))) != 0u) {   /* the kit editor's audition */
         if ((notes & (1u << 1)) != 0u)                  /* F#: the A side, the A patch's cards */
-            dx_ui_side = 0, kit_audition = 0;
+            dx_ui_side = 0, kit_audition = KIT_AUD(dx_ui_lane, 0);
         else if ((notes & (1u << 3)) != 0u)             /* G#: the kit's MRPH, the side as it is */
             kit_audition = KIT_AUD_KIT;
         else                                            /* A#: the B side, the B patch's cards */
-            dx_ui_side = 1, kit_audition = 127u;
+            dx_ui_side = 1, kit_audition = KIT_AUD(dx_ui_lane, 1u);
         ui.force = 1;
     } else if (song.seq_mode && cur_page()->graph == GR_ROLL) {   /* STEP */
         if (live_rec_sel() || !((song.rec >> song.sel) & 1u))   /* armed and playing: the keys record live, not

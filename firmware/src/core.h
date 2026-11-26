@@ -792,11 +792,16 @@ static inline int fx_master_owned(uint32_t st, uint32_t tr)
     return st < FX_LIST_N && fx_master_tr[st] == (uint8_t)(tr + 1u);
 }
 static song_t song;
-/* the kit's audition (ui.c dx_keys_on: the selected DRUM-X track's EDIT pages): the morph its hits play. KIT_AUD_KIT:
- * P_E0 as stored; else 0 (A only) or 127 (B only). F# G# A# set it (ui_input.c); off those pages, or MRPH turned, it is
- * KIT_AUD_KIT again; the project never stores it (eng_drum.c drum_render) */
+/* the kit's audition (ui.c dx_keys_on: the selected DRUM-X track's SOUND / TONE / MOVEMENT pages): the morph the
+ * edited sound's hits play. KIT_AUD_KIT (255): P_E0 as stored; else the lane it is for in bits 1..3 and the side in
+ * bit 0 (0 A, 127 B), so one byte carries both and the render's test is a shift and a compare. F# G# A# set it
+ * (ui_input.c), and it follows the sound edited (ui_dx.c); off those pages, or MRPH turned, it is KIT_AUD_KIT again;
+ * the project never stores it (eng_drum.c drum_render) */
 #define KIT_AUD_KIT 255u
 static volatile uint8_t kit_audition = KIT_AUD_KIT;
+#define KIT_AUD(lane, side) ((uint8_t)(((lane) & 7u) << 1 | ((side) ? 1u : 0u)))
+#define kit_aud_lane(a) ((a) >> 1)                        /* the lane it is for (DV_*) */
+#define kit_aud_side(a) ((a) & 1u)                        /* 0: the A patch, 1: the B */
 #define TSEL (&trk[song.sel])    /* the selected track */
 /* The shared SEND knobs, per part (the second core renders parts at once: fx.c mix_block). mod.c mod_begin
  * fills one copy with fx_bus_trk.p and the DLY / REV bus settings of song.g, then writes the matrix's values

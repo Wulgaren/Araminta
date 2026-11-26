@@ -685,14 +685,15 @@ static int detail_on(void)
 /* GLO > SONG (1.2): the white keys A B C D (A3 B3 C4 D4, white places 2..5: seq.c song_key) set the selected cell's slot;
  * they do not sound there, the other keys play as anywhere (seq.c keyboard_block: song.grid 3) */
 static int song_keys_on(void) { return !ui.home && !ui.menu && !ui.confirm && !ui.layer && cur_page()->graph == GR_SONG; }
-/* a DRUM-X track's EDIT pages, the ones that draw its A---B bar (EDIT 1 / 2, SOUND / TONE / MOVEMENT: ui_graph.c
- * graph_colony): black keys 1..3 audition the kit's A, its MRPH as stored, or its B (F# G# A#, kit_audition,
- * ui_input.c) and glow (ui_leds); the white keys still play the lanes */
+/* a DRUM-X track's EDIT > SOUND / TONE / MOVEMENT, the pages that draw its A---B bar and edit one sound of the kit
+ * (ui_graph.c graph_colony): black keys 1..3 audition that sound's A, its MRPH as stored, or its B (F# G# A#,
+ * kit_audition, ui_input.c) and glow (ui_leds); the white keys still play the lanes. EDIT 1 / 2 are the kit's own
+ * knobs, MRPH among them, so they need no audition of their own */
 static int dx_keys_on(void)
 {
     const page_t *pg = cur_page();
     return !ui.home && !ui.menu && !ui.confirm && !ui.layer && TSEL->eng_req % NENGINES == ENGI_DRUM &&
-           (pg->graph == GR_DXSND || pg->scope == SC_ENGINE);
+           pg->graph == GR_DXSND;
 }
 
 /* black key place p (seq.c key_place) held, 0 = not */

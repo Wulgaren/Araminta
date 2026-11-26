@@ -346,8 +346,12 @@ def build_app():
                OUT / "felucca_size.ll", "-o", OUT / "felucca.o")
         key_file.write_text(key + "\n")
     elf = OUT / "felucca.elf"
-    tc("pi32v2/bin/ld", "-T", app_linker_script(), OUT / "crt0.o", OUT / "fm1_vec.o", OUT / "fm1_isr.o",
-       OUT / "fm1_cpu1.o", OUT / "felucca.o", "-o", elf)
+    # --gc-sections: -ffunction-sections gives each function its own section, and the compiler leaves an out-of-line
+    # copy behind where it inlined one. Dropping the unreferenced ones buys ~100 B of the app slot. The flash hot
+    # block is KEEP()'d in app.ld (and flash_hot_check fails the build if a listed function goes missing), so code
+    # placed there for the cache layout stays placed.
+    tc("pi32v2/bin/ld", "--gc-sections", "-T", app_linker_script(), OUT / "crt0.o", OUT / "fm1_vec.o",
+       OUT / "fm1_isr.o", OUT / "fm1_cpu1.o", OUT / "felucca.o", "-o", elf)
     for sect in ("text.bin", "data.bin", "ramtext.bin", "c1text.bin", "hottext.bin"):
         (OUT / sect).unlink(missing_ok=True)
     *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),

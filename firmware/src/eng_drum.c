@@ -269,13 +269,18 @@ static AUDIO_RAM __attribute__((noinline)) void drum_render(track_t *t, voice_t 
                                                           * SHAPE moves MORPH */
     lfo_pit = (lfo * p[P_LD_PIT] * 3) >> 15;
     lfo_shp = (lfo * p[P_LD_SHP]) >> 15;
-    /* the audition (core.h kit_audition, F# / A# on a DRUM-X track's EDIT pages): the hits play the side forced, the
-     * LFO's MORPH offset left out (every DRUM-X track: a per-track test is over drum_render's target budget); else
-     * the kit's MRPH as stored */
-    AUDIO_FAR(dx_run)(&dx_kit[(uint32_t)v->s[0] & (DV_NLANE - 1u)], &L->x,
-           kit_audition <= 127u ? (int32_t)kit_audition : p[P_E0] + lfo_shp,
-           L->st * 16 + (p[P_E1] - 64) * 3 + t->pfx_pit + lfo_pit,
-           p[P_E3] - 64, p[P_E2] - 64, p[P_E4] - 64, p[P_E6], p[P_E5], y, n);
+    /* the audition (core.h kit_audition / kit_aud_lane, F# / A# on a DRUM-X track's SOUND / TONE / MOVEMENT pages):
+     * the edited sound's hits play the side forced, the LFO's MORPH offset left out; the rest of the kit, and MRPH
+     * itself when nothing is auditioned, play the kit's MRPH as stored. A lane test, not a track test: every DRUM-X
+     * track reads it, as before (a per-track test is over drum_render's target budget) */
+    {
+        uint32_t ln = (uint32_t)v->s[0] & (DV_NLANE - 1u);
+        uint8_t a = kit_audition;
+        int32_t morph = a != KIT_AUD_KIT && kit_aud_lane(a) == ln ? (kit_aud_side(a) ? 127 : 0) : p[P_E0] + lfo_shp;
+        AUDIO_FAR(dx_run)(&dx_kit[ln], &L->x, morph,
+               L->st * 16 + (p[P_E1] - 64) * 3 + t->pfx_pit + lfo_pit,
+               p[P_E3] - 64, p[P_E2] - 64, p[P_E4] - 64, p[P_E6], p[P_E5], y, n);
+    }
     {                                                    /* PUNCH: the boost before the knee (driven into it, as
                                                           * Drum Buss), the tail's cut on the amplitude ramp */
         int32_t pu = pnch_eff;

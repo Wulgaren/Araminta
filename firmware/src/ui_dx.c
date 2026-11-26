@@ -12,8 +12,10 @@
  * page's 0..127 values do; PTCH reads as the note and its cents; OSC2 as its amount, 0..100 %; TEETH's TAIL as its
  * level against a tooth, in dB. The values are the side's; the MORPH plays between the two (EDIT MRPH). The panel
  * shows the kit's lanes with the edited lane lit (ui_graph.c graph_colony). Black keys 1..3 (F# G# A#) audition A,
- * the kit's MRPH as stored or B (ui.c dx_keys_on): the hits play that side and the panel's A---B bar moves there; here
- * F# and A# also pick the patch the cards edit (ui_input.c). */
+ * the kit's MRPH as stored or B (ui.c dx_keys_on): the sound being edited plays that side, the rest of the kit keeps
+ * its MRPH, and the panel's A---B bar moves there; here F# and A# also pick the patch the cards edit (ui_input.c).
+ * Picking another sound (LANE, or striking its pad) takes the side being auditioned with it. EDIT 1 / 2 are the kit's
+ * own knobs, MRPH among them: no audition there. */
 static uint8_t dx_ui_seen = 0xFFu;                   /* the last key note followed */
 static const char *const DX_ENGINE_NAME[DXV_N] = {"FM", "SHELL", "METAL", "TEETH", "CLICK"};
 static const char *const DX_WAVE_NAME[4] = {"SINE", "HARM", "METAL", "CLANG"};
@@ -33,7 +35,8 @@ static const char *const DX_PENV_NAME[4] = {"DECAY", "LONG", "NOISE", "SINE"};
 static const char *const DX_HPF_NAME[4] = {"OFF", "6.9K", "8.8K", "11.7K"};
 static const char *const DX_FALL_NAME[4] = {"3.5MS", "5MS", "7MS", "10MS"};
 
-/* a key struck on the track (seq.c key_on: last_note) picks the sound it plays */
+/* a key struck on the track (seq.c key_on: last_note) picks the sound it plays; a side being auditioned is the
+ * edited sound's, whichever sound that is now (LANE, a pad's key). These pages are the sound's, so it syncs here */
 static void dx_follow(void)
 {
     if (last_note != dx_ui_seen) {
@@ -41,6 +44,8 @@ static void dx_follow(void)
             dx_ui_lane = (uint8_t)drum_lane(last_note);
         dx_ui_seen = last_note;
     }
+    if (kit_audition != KIT_AUD_KIT)                     /* (the side stays; the sound it is for follows) */
+        kit_audition = KIT_AUD(dx_ui_lane, kit_aud_side(kit_audition));
 }
 
 /* the lane's mode fields: bits 0..1 WAVE, 2..3 FILTER, 4 SNAP, 5..6 pitch modulation, 7 DRIVE */
@@ -97,7 +102,7 @@ static void dx_knob(const page_t *pg, uint32_t k, int32_t s)
         if (k == 0u) {                                  /* LANE: BD A .. CB B */
             ix = dx_step(l * 2u + (dx_ui_side ? 1u : 0u), s, 15u);
             if ((ix & 1u) != (uint32_t)dx_ui_side)      /* a side picked here is heard too, as F# / A# */
-                kit_audition = (ix & 1u) ? 127u : 0u;
+                kit_audition = KIT_AUD(ix >> 1, ix & 1u);
             dx_ui_lane = (uint8_t)(ix >> 1);
             dx_ui_side = (uint8_t)(ix & 1u);
         } else if (k == 1u) {                           /* ENGI: the lane's MODEL */

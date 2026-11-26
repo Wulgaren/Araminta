@@ -2406,8 +2406,9 @@ static void graph_song(void)
 /* DRUM-X: two rows of four lane cells; MORPH bar A..B */
 static void graph_colony(const track_t *t, int32_t sel)
 {
-    /* the bar is what the kit plays: the editor's audition (ui_dx.c) while its page is open, else MRPH */
-    int32_t morph = clamp(kit_audition <= 127u ? (int32_t)kit_audition : t->p[P_E0], 0, 127), mx = 30 + morph * 180 / 127;
+    /* the bar is what the edited sound plays: the editor's audition (ui_dx.c) while its page is open, else MRPH */
+    int32_t morph = clamp(kit_audition != KIT_AUD_KIT ? (kit_aud_side(kit_audition) ? 127 : 0) : t->p[P_E0], 0, 127),
+            mx = 30 + morph * 180 / 127;
     uint32_t l;
     cv_rect(30, 12, 180, 1, T_LINE);
     cv_rect(30, 11, mx - 30, 3, ACC);

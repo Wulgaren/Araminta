@@ -23,7 +23,8 @@
  *              grid; sound loads keep it, and other engines play it as GM notes.
  *   KIT KEYS   a DRUM-X or SAMPLE drum kit (CR78) track outside the grid: the first eight white keys are the lanes
  *              (KICK on F), the rest silent at any OCT, the eight at the mid level, the pads over the idle glow;
- *              EDIT > SOUND F# / G# / A# audition A, the kit's MRPH or B (the panel bar, the LANE knob's side).
+ *              EDIT > SOUND F# / G# / A# audition A, the kit's MRPH or B (the panel bar, the LANE knob's side),
+ *              on the edited sound only; EDIT 1 / 2, the kit's own knobs, audition nothing.
  *   ROLL       the rolling digits of the card values and the header BPM: strips only, the last frame static,
  *              direction, retarget, the snaps (fast turn, names, shape, page, track, palette, force).
  *   SOAK       #63: 150000 random frames (turns, pages, transport, REC / motion, wrapping clocks): no roll
@@ -242,6 +243,7 @@ static void ui_power_on(void)
     scrn.idle = fm1_ms;
     kb_asleep = 0;
     panel_moved = 0;
+    kit_audition = KIT_AUD_KIT;     /* no audition: the kit on its MRPH, every lane */
 }
 /* card slot drawn with MOTION's mark (ui_draw.c card_mot: its icon, or a long label in the theme colour) */
 static int card_motion(uint32_t slot) { return (card_mot >> slot) & 1u; }
@@ -9409,28 +9411,20 @@ static int test_kit_keybed(void)
     key_up(white(7));
     song.octave = 0;
     bad += check("the kit keybed: OCT does not move it", ok);
-    key_down(key_at(1, 1)); frame(); key_up(key_at(1, 1)); frame();   /* (the black key above auditioned A: G# */
-    ui_leds();                                          /* the kit's MRPH) the eight pads glow over the idle glow */
     {
         uint32_t pads = 0;
         for (i = 0; i < 8u; i++)
             pads |= 1u << white(i);
-        bad += check("the kit keybed: EDIT 1 glows the 8 pads and F# A#, G# (the kit's MRPH) lit",
-                     lit_keys(fm1_led_mid) == (pads | 1u << key_at(1, 0) | 1u << key_at(1, 2)) &&
-                     lit_keys(fm1_led) == 1u << key_at(1, 1));
+        ui_leds();                                          /* EDIT 1 is the kit's own knobs (MRPH among them): */
+        bad += check("the kit keybed: EDIT 1 glows the 8 pads, no audition keys",    /* no audition there */
+                     lit_keys(fm1_led_mid) == pads && lit_keys(fm1_led) == 0u);
         key_down(key_at(1, 0)); frame(); key_up(key_at(1, 0)); frame();
-        ui_leds();
-        bad += check("the kit keybed: EDIT 1 F# auditions A, F# lit, G# A# at the mid level",
-                     kit_audition == 0u && lit_keys(fm1_led) == 1u << key_at(1, 0) &&
-                     lit_keys(fm1_led_mid) == (pads | 1u << key_at(1, 1) | 1u << key_at(1, 2)));
-        TSEL->p[P_E0] = 64;
-        turn(EN_K1, 1);
-        bad += check("the kit keybed: turning MRPH plays the kit's MRPH again",
-                     TSEL->p[P_E0] != 64 && kit_audition == KIT_AUD_KIT);
+        bad += check("the kit keybed: EDIT 1's black keys audition nothing (MRPH is KNOB 1)",
+                     kit_audition == KIT_AUD_KIT && !dx_keys_on());
         go_title("ENV");
         frame();
         ui_leds();
-        bad += check("the kit keybed: off the kit's EDIT pages the black keys stay dark, the 8 pads glow",
+        bad += check("the kit keybed: off the kit's pages the 8 pads glow, the black keys dark",
                      !dx_keys_on() && lit_keys(fm1_led_mid) == pads && lit_keys(fm1_led) == 0u);
     }
 
@@ -9455,7 +9449,7 @@ static int test_kit_keybed(void)
     key_up(white(0));
     bad += check("a melodic SAMPLE set keeps the chromatic keys", ok);
 
-    /* EDIT > SOUND: F# A, G# the kit's MRPH, A# B; the LANE knob's side; leaving the page */
+    /* EDIT > SOUND: F# A, G# the kit's MRPH, A# B, on the edited sound; the LANE knob's side; leaving the page */
     ui_power_on();
     set_engine_of(TSEL, ENGI_DRUM);
     TSEL->engine = TSEL->eng_req;
@@ -9464,18 +9458,28 @@ static int test_kit_keybed(void)
     bad += check("EDIT > SOUND: entering the kit pages auditions the kit's MRPH",
                  dx_keys_on() && kit_audition == KIT_AUD_KIT);
     key_down(key_at(1, 0)); frame(); key_up(key_at(1, 0)); frame();
-    bad += check("EDIT > SOUND: F# auditions A (the A patch)", kit_audition == 0u && dx_ui_side == 0u);
+    bad += check("EDIT > SOUND: F# auditions A (the A patch), the edited sound only",
+                 kit_audition == KIT_AUD(dx_ui_lane, 0) && dx_ui_side == 0u);
     key_down(key_at(1, 1)); frame(); key_up(key_at(1, 1)); frame();
     bad += check("EDIT > SOUND: G# auditions the kit's MRPH, the side as it is",
                  kit_audition == KIT_AUD_KIT && dx_ui_side == 0u);
     key_down(key_at(1, 2)); frame(); key_up(key_at(1, 2)); frame();
-    bad += check("EDIT > SOUND: A# auditions B (the B patch)", kit_audition == 127u && dx_ui_side == 1u);
-    kit_audition = KIT_AUD_KIT;                         /* a side picked by KNOB 1 is heard too */
+    bad += check("EDIT > SOUND: A# auditions B (the B patch), the edited sound only",
+                 kit_audition == KIT_AUD(dx_ui_lane, 1) && dx_ui_side == 1u);
+    kit_audition = KIT_AUD_KIT;    /* a side picked by KNOB 1 is heard too */
     dx_ui_side = 0;
     dx_ui_lane = 0;
     turn(EN_K1, 1);
     bad += check("EDIT > SOUND: LANE's side is auditioned (BD A -> BD B)",
-                 dx_ui_side == 1u && kit_audition == 127u);
+                 dx_ui_side == 1u && kit_audition == KIT_AUD(dx_ui_lane, 1));
+    turn(EN_K1, 1);                                     /* .. and stepped to another sound, it goes with it */
+    bad += check("EDIT > SOUND: LANE stepped to another sound auditions that sound",
+                 dx_ui_lane == DV_SNARE && dx_ui_side == 0u && kit_audition == KIT_AUD(DV_SNARE, 0));
+    /* .. as does striking a pad: the sound its key plays is the one edited, so a side being auditioned is its own */
+    key_down(key_at(1, 2)); frame(); key_up(key_at(1, 2)); frame();   /* (A#: the edited sound's B patch) */
+    key_down(white(4)); frame(); key_up(white(4)); frame();           /* the HAT OP pad picks its sound */
+    bad += check("EDIT > SOUND: striking a pad auditions that sound's side",
+                 dx_ui_lane == DV_HATO && kit_audition == KIT_AUD(DV_HATO, 1));
     go_title("ENV");                                    /* leaving: the kit's MRPH again, the pads still play */
     frame();
     ok = kit_audition == KIT_AUD_KIT && !dx_keys_on() && song.grid == 0u;
